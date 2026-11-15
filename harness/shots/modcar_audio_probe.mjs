@@ -31,12 +31,38 @@ try {
       await wait(1200);
       res.overrun = sample();
       g.scripted = null;
+      // the radio, if the build has one: switch it on, listen, change station
+      if (g.seated.sys.hasPart('radio')) {
+        const level = async () => {
+          const an = g.audio.context.createAnalyser();
+          an.fftSize = 2048;
+          g.radio.out.connect(an);
+          await wait(250);
+          const buf = new Float32Array(an.fftSize);
+          an.getFloatTimeDomainData(buf);
+          g.radio.out.disconnect(an);
+          return Math.sqrt(buf.reduce((s, v) => s + v * v, 0) / buf.length);
+        };
+        g.seated.radioOn = true;
+        await wait(1500);
+        res.radio = { song: g.radio?.songNow, gain: +(g.radio?.out.gain.value ?? 0).toFixed(3), rms: +(await level()).toFixed(4) };
+        g.seated.radioSong = 2;
+        await wait(1200);
+        res.radio2 = { song: g.radio?.songNow, rms: +(await level()).toFixed(4) };
+        g.seated.radioOn = false;
+        await wait(600);
+        res.radioOff = { song: g.radio?.songNow, rms: +(await level()).toFixed(4) };
+      }
       res.ctx = g.audio.context?.state;
       return res;
     });
     console.log(q);
     console.log('  ctx', out.ctx);
-    for (const k of ['idle', 'full', 'overrun']) console.log(`  ${k.padEnd(8)}`, JSON.stringify(out[k]));
+    for (const k of ['idle', 'full', 'overrun', 'radio', 'radio2', 'radioOff']) if (out[k]) console.log(`  ${k.padEnd(8)}`, JSON.stringify(out[k]));
+    if (out.radio && !(out.radio.rms > 0.005 && out.radio2.song === 2 && out.radioOff.rms < out.radio.rms / 4)) {
+      bad++;
+      console.log('  the radio is not heard as it should be');
+    }
     if (errors.length) {
       bad++;
       console.log('  errors', errors.slice(0, 4));
