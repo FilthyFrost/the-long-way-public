@@ -1,12 +1,12 @@
 {
  "bbox": {
   "max": [
-   1.94924,
+   1.897,
    1.42,
    0.81677
   ],
   "min": [
-   -2.13407,
+   -2.0996,
    0.125,
    -0.81677
   ]
@@ -91,7 +91,6 @@
     1.66,
     0.12
    ],
-   "fit_anchor": "center",
    "pos": [
     1.90103,
     0.43,
@@ -111,7 +110,6 @@
     1.66,
     0.12
    ],
-   "fit_anchor": "center",
    "pos": [
     -2.084,
     0.42,
@@ -473,7 +471,7 @@
    "on": "steering column shroud, right side",
    "pos": [
     0.40963,
-    0.85119,
+    0.82619,
     -0.317
    ],
    "quat": [
@@ -635,7 +633,7 @@
    "column_deg": 24.0,
    "pos": [
     0.3,
-    0.9,
+    0.875,
     -0.36
    ],
    "quat": [
@@ -705,61 +703,61 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.94419,
-    0.32939,
+    -0.95343,
+    0.30163,
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -90.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.57064,
-    0.86169,
-    -0.543
+    0.55969,
+    0.89744,
+    -0.552
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.94419,
-    0.32939,
+    -0.95343,
+    0.30163,
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -270.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.56735,
-    0.85225,
-    -0.275
+    0.55607,
+    0.886,
+    -0.276
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.94419,
-    0.32939,
+    -0.95343,
+    0.30163,
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -270.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.56735,
-    0.85225,
-    -0.445
+    0.55607,
+    0.886,
+    -0.444
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.94419,
-    0.32939,
+    -0.95343,
+    0.30163,
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -90.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.57064,
-    0.86169,
-    -0.177
+    0.55969,
+    0.89744,
+    -0.168
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   }
@@ -880,10 +878,10 @@
   }
  },
  "triangles": {
-  "BODY": 37004,
+  "BODY": 36740,
   "FUEL_CAP": 490,
   "GLASS": 636,
-  "INTERIOR": 7064,
+  "INTERIOR": 7484,
   "N_fuel": 50,
   "N_rpm": 50,
   "N_speed": 50,
@@ -898,10 +896,10 @@
   "P_door_RR": 4698,
   "P_hood": 4006,
   "P_trunk": 2710,
-  "UNDER": 6448,
+  "UNDER": 6568,
   "WIPER_L": 204,
   "WIPER_R": 204,
-  "total": 79336
+  "total": 79612
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

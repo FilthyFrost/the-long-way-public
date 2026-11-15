@@ -9,8 +9,8 @@ import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
 from frames import pickup as S  # noqa: E402
-from frames._sedan_inner import (dropped_crossmember, extrude_y, face_up, flip_down, orient_out, quad_sheet,  # noqa: E402
-                                 recompute_normals, ring_inner, side_out, tub)
+from frames._sedan_inner import (dial, dropped_crossmember, extrude_y, face_up, flip_down, orient_out,  # noqa: E402
+                                 quad_sheet, recompute_normals, ring_inner, side_out, tub)
 
 D = S.D
 PI = math.pi
@@ -227,8 +227,8 @@ def hub_and_brake(hx, hy, hz, front=True):
     for k in range(6):
         a = math.radians(30 + 60 * k)
         p = np.array([hx + 0.0695 * math.cos(a), yf, hz + 0.0695 * math.sin(a)])
-        b.extend(K.cyl_buf(p, p + (0, 0.024, 0), 0.006, 'steel', 6))
-    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.014, hz), 0.025, 'steel', 14))
+        b.extend(K.cyl_buf(p, p + (0, 0.008, 0), 0.006, 'steel', 6))
+    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.006, hz), 0.025, 'steel', 14))
     b.extend(K.box_buf((hx - 0.055, yf - 0.085, hz - 0.12), (hx + 0.055, yf - 0.05, hz + 0.14), 'steel', 0.012, 2))
     return b
 
@@ -378,6 +378,8 @@ def interior(ex):
     # toe board
     L.extend(K.box_buf((FIREWALL_X - 0.20, 0.17, FLOOR_Z), (FIREWALL_X - 0.02, 0.69, FLOOR_Z + 0.02), 'rubber', 0.006, 2,
                        xf=K.mat4_rot((0, 1, 0), -40, (FIREWALL_X - 0.02, 0, FLOOR_Z))))
+    # firewall face inside the cab (the engine bay's firewall sheet faces the bay)
+    L.extend(quad_sheet((FIREWALL_X - 0.004, 0.0, FLOOR_Z), (0, 0.72, 0), (0, 0, 0.81 - FLOOR_Z), 2, 2, (-1, 0, 0), 'trim'))
     # cab back wall inside (behind the bench) and the sill trims, kick panels
     L.extend(K.box_buf((-0.215, 0.0, FLOOR_Z), (-0.20, 0.72, 1.06), 'plastic_int', 0.006, 2))
     L.extend(K.box_buf((D['fd_rear'] - 0.04, 0.64, FLOOR_Z), (D['fd_front'] - 0.02, 0.70, 0.52), 'plastic_int', 0.012, 2))
@@ -405,7 +407,7 @@ def interior(ex):
     C.extend(K.cyl_buf(st[0] + st[1] * 0.05, st[0] + st[1] * 0.34, 0.045, 'plastic_int', 18, r1=0.038))
     # gear lever boot ring on the floor hump
     gx = GEAR_X
-    V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)]), (gx, 0.0, tunnel_h(gx) + 0.002), (0, 0, 1), 20)
+    V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)])[::-1], (gx, 0.0, tunnel_h(gx) + 0.002), (0, 0, 1), 20)
     C.add(V, N, T, 'rubber')
     # bench seat rails
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
@@ -450,29 +452,15 @@ def dashboard():
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)
-    b.extend(K.box_buf((-0.235, -0.068, -0.03), (0.235, 0.075, 0.0), 'trim', 0.012, 2, xf=K.mat4_trs(pc, R)))
+    b.extend(K.box_buf((-0.235, -0.076, -0.03), (0.235, 0.075, 0.0), 'trim', 0.012, 2, xf=K.mat4_trs(pc, R)))
     gauges = []
-    a_, b_, _ = K.plane_basis(dn)
-    for (gy, gz, r, name, big) in ((0.10, 0.004, 0.062, 'N_speed', True), (-0.11, 0.004, 0.058, 'N_rpm', True),
-                                   (0.0, 0.016, 0.026, 'N_fuel', False), (0.0, -0.036, 0.026, 'N_temp', False)):
+    for (gy, gz, r, name, big) in ((0.106, 0.004, 0.060, 'N_speed', True), (-0.11, 0.004, 0.058, 'N_rpm', True),
+                                   (0.0, 0.020, 0.023, 'N_fuel', False), (0.0, -0.040, 0.023, 'N_temp', False)):
         c = pc + R[:, 0] * gy + R[:, 1] * gz
-        bez = np.array([(r - 0.003, -0.004), (r + 0.002, 0.002), (r + 0.006, 0.003), (r + 0.008, 0.0), (r + 0.008, -0.006)])
-        V, N, T = K.lathe(bez, c, dn, 24 if big else 16)
-        b.add(V, N, T, 'plastic_int')
-        V, N, T = K.lathe(np.array([(0.0, -0.007), (r, -0.007), (r, -0.0045)]), c, dn, 24 if big else 16, prof_n=np.array([[0, 1.0], [0, 1.0], [-1.0, 0]]))
-        b.add(V, N, T, 'gauge')
-        nt = 25 if big else 5
-        for k in range(nt):
-            ang = math.radians(135.0 - 270.0 * k / (nt - 1)) if big else math.radians(45.0 - 90.0 * k / (nt - 1))
-            major = (k % 4 == 0) if big else True
-            ln = 0.011 if major else 0.006
-            dirv = math.sin(ang) * a_ + math.cos(ang) * b_
-            p0 = c + dn * (-0.0065) + dirv * (r - 0.004 - ln)
-            p1 = c + dn * (-0.0065) + dirv * (r - 0.004)
-            sd = np.cross(dn, dirv) * (0.0013 if major else 0.0008)
-            Vt = np.array([p0 - sd, p0 + sd, p1 + sd, p1 - sd])
-            b.add(Vt, np.tile(dn, (4, 1)), np.array([(0, 1, 2), (0, 2, 3)]), 'trim')
-        gauges.append(dict(name=name, center=c + dn * (-0.006), normal=dn, r=r, up=b_, right=a_, big=big))
+        db, g = dial(c, dn, r, big, 'plastic_int')
+        b.extend(db)
+        g['name'] = name
+        gauges.append(g)
     for vy, vz in ((0.63, 0.99), (-0.63, 0.99), (0.10, 1.01), (-0.10, 1.01)):
         c = np.array([fx - 0.002, vy, vz])
         b.extend(K.box_buf(c + (-0.006, -0.05, -0.022), c + (0.004, 0.05, 0.022), 'trim', 0.006, 1))

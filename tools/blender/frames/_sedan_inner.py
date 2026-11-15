@@ -25,6 +25,12 @@ DRIVER_Y = 0.36
 EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.035 + 0.90)   # the stock bucket seat's eye (parts_geo: -0.16 back, 0.90 up)
 
 
+def rear_arch_front(z):
+    """x of the rear wheel arch's front edge at height z."""
+    dz = z - D['hub_z']
+    return D['ax_r'] + math.sqrt(max(D['arch_r'] ** 2 - dz * dz, 0.0))
+
+
 def tunnel_h(x):
     """Height of the top of the transmission tunnel (pan side) along x: gearbox at the front, propshaft behind."""
     return 0.31 + 0.15 * float(K.sstep(-0.35, 0.45, x))
@@ -257,7 +263,7 @@ def engine_bay():
     # strut tower on the tub
     tc = np.array([xa, 0.555, 0.0])
     b.extend(K.cyl_buf((tc[0], tc[1], za + R - 0.02), (tc[0], tc[1], top - 0.006), 0.072, 'paint', 18, cap=False))
-    V, N, T = K.lathe(np.array([(0.0, 0.0), (0.062, 0.0), (0.072, -0.006)]), (tc[0], tc[1], top - 0.0005), (0, 0, 1), 18)
+    V, N, T = K.lathe(np.array([(0.0, 0.0), (0.062, 0.0), (0.072, -0.006)])[::-1], (tc[0], tc[1], top - 0.0005), (0, 0, 1), 18)
     b.add(V, N, T, 'paint')
     b.extend(K.cyl_buf((tc[0], tc[1], top - 0.002), (tc[0], tc[1], top + 0.024), 0.016, 'steel', 10))
     for k in range(3):
@@ -329,10 +335,14 @@ def recompute_normals(buf):
 def boot_interior():
     """Boot floor, side walls, rear panel inside, gutter ledge (left half)."""
     b = K.Buf()
-    b.extend(K.box_buf((-2.0, 0.0, BOOT_Z - 0.012), (-1.40, 0.70, BOOT_Z), 'paint', 0.004, 2))
-    b.extend(K.box_buf((-2.0, 0.66, BOOT_Z), (-1.40, 0.70, 0.86), 'paint', 0.004, 2))
+    xt = D['ax_r'] - 0.372                      # rear end of the wheel tub
+    b.extend(K.box_buf((-2.0, 0.0, BOOT_Z - 0.012), (xt, 0.70, BOOT_Z), 'paint', 0.004, 2))
+    b.extend(K.box_buf((xt, 0.0, BOOT_Z - 0.012), (-1.40, 0.555, BOOT_Z), 'paint', 0.004, 2))
+    b.extend(K.box_buf((-2.0, 0.66, BOOT_Z), (xt, 0.70, 0.86), 'paint', 0.004, 2))
+    b.extend(K.box_buf((xt, 0.66, 0.665), (-1.40, 0.70, 0.86), 'paint', 0.004, 2))
     b.extend(K.box_buf((-2.03, 0.0, BOOT_Z), (-2.015, 0.70, 0.86), 'paint', 0.004, 2))
-    b.extend(K.box_buf((-1.45, 0.0, BOOT_Z), (-1.43, 0.70, 0.90), 'paint', 0.004, 2))
+    b.extend(K.box_buf((-1.45, 0.0, BOOT_Z), (-1.43, 0.555, 0.90), 'paint', 0.004, 2))
+    b.extend(K.box_buf((-1.45, 0.555, 0.665), (-1.43, 0.70, 0.90), 'paint', 0.004, 2))
     # rear wheel arch hump inside the boot (the part above the boot floor)
     za = D['hub_z']
     r = 0.365
@@ -356,10 +366,52 @@ def apertures():
     # B pillar post between the doors (behind the gap)
     b.extend(K.box_buf((-0.335, 0.62, D['door_bot'] - 0.02), (-0.25, 0.70, 0.92), 'paint', 0.006, 2))
     # sill (threshold) top with a rubber seal
-    b.extend(K.box_buf((D['rd_rear'], 0.62, 0.22), (D['fd_front'], 0.70, D['door_bot'] - 0.012), 'paint', 0.006, 2))
-    xs = np.linspace(D['rd_rear'] + 0.04, D['fd_front'] - 0.02, 4)
+    xr_ = rear_arch_front(0.24) + 0.03
+    b.extend(K.box_buf((xr_, 0.62, 0.22), (D['fd_front'], 0.70, D['door_bot'] - 0.012), 'paint', 0.006, 2))
+    xs = np.linspace(xr_ + 0.02, D['fd_front'] - 0.02, 4)
     path = np.stack([xs, np.full(len(xs), 0.705), np.full(len(xs), D['door_bot'] - 0.006)], 1)
     b.extend(K.tube_buf(path, 0.008, 'rubber', 8))
+    return b
+
+
+def dial(c, dn, r, big, bezel_mat='chrome', segs=None):
+    """A round instrument standing on a cluster face through c (normal dn, towards the eye): a bezel ring 7 mm
+    wide and 13.5 mm tall, the dial face 7 mm under the cover glass (material 'gauge' with UVs: the face's circle
+    fills the unit square, (0.5, 0.5) at the centre, u towards the driver's right, v up, as the game's gauge
+    shader paints its 240 degree scale) and the glass. Returns (buf, gauge dict for the needle)."""
+    segs = segs or (24 if big else 16)
+    dn = K.unit(np.asarray(dn, float))
+    up = K.unit(np.array([0.0, 0.0, 1.0]) - dn * dn[2])
+    right = K.unit(np.cross(-dn, up))
+    h_face, h_glass = 0.0055, 0.0125
+    b = K.Buf()
+    bez = np.array([(r, h_face), (r, 0.011), (r + 0.003, 0.0135), (r + 0.007, 0.009), (r + 0.007, 0.0)])
+    pn = np.array([(-1.0, 0.0), (-0.7, 0.7), (0.0, 1.0), (0.8, 0.6), (1.0, 0.0)])
+    V, N, T = K.lathe(bez, c, dn, segs, prof_n=pn, ref=up)
+    b.add(V, N, T, bezel_mat)
+    face = np.array([(0.0, h_face), (0.5 * r, h_face), (r, h_face)])
+    V, N, T = K.lathe(face, c, dn, segs, prof_n=np.tile((0.0, 1.0), (len(face), 1)), ref=up)
+    d = V - np.asarray(c, float)
+    uv = np.stack([0.5 + 0.5 * (d @ right) / r, 0.5 + 0.5 * (d @ up) / r], 1)
+    b.add(V, N, T, 'gauge', uv=uv)
+    gl = np.array([(0.0, h_glass), (r + 0.0012, h_glass)])
+    V, N, T = K.lathe(gl, c, dn, segs, prof_n=np.tile((0.0, 1.0), (2, 1)), ref=up)
+    b.add(V, N, T, 'glass')
+    g = dict(center=np.asarray(c, float) + dn * (h_face + 0.0005), normal=dn, r=r, up=up, right=right, big=big, scale_deg=240.0)
+    return b, g
+
+
+def rear_tub_cabin(xa, za, r, y0, y1, z_floor, mat='fabric'):
+    """Cabin side of a rear wheel tub (left half): the half cylinder over the wheel from y0 to y1 facing away
+    from the wheel, and its inboard wall at y0 facing the cabin, both above the floor."""
+    b = K.Buf()
+    a0 = math.asin(max(-1.0, min(1.0, (z_floor - za) / r)))
+    ths = np.linspace(a0, math.pi - a0, 22)
+    V = np.array([(xa + r * math.cos(t), y, za + r * math.sin(t)) for t in ths for y in (y0, y1)])
+    N = np.array([(math.cos(t), 0.0, math.sin(t)) for t in ths for y in (y0, y1)])
+    b.add(V, N, K.grid_tris(len(ths), 2), mat)
+    ring = np.array([(xa + r * math.cos(t), y0, za + r * math.sin(t)) for t in ths])
+    b.extend(K.fill_loop(ring, (0, -1, 0), mat))
     return b
 
 
@@ -381,12 +433,14 @@ def underbody():
     brake discs and calipers, rear axle, propshaft, wheelhouse liners, filler neck."""
     b = K.Buf()
     # floor pan underside with the tunnel (extruded section)
-    xs = np.linspace(-1.05, FIREWALL_X, 12)
+    xw = rear_arch_front(PAN_Z) + 0.02
+    xs = np.unique(np.concatenate([np.linspace(-1.05, FIREWALL_X, 12), [xw - 0.02, xw]]))
     V = []
     for x in xs:
         th = tunnel_h(x)
         tw = 0.12 + 0.03 * float(K.sstep(-0.6, 0.6, x))
-        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.035, th - 0.06), (tw + 0.06, PAN_Z), (0.70, PAN_Z), (0.72, 0.22)]),
+        ye = 0.70 if x >= xw - 1e-6 else 0.47
+        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.035, th - 0.06), (tw + 0.06, PAN_Z), (ye, PAN_Z), (ye + 0.02, 0.22)]),
                               [0, 0.03, 0.03, 0.03, 0.02, 0], 2)
         V += [(x, y, z) for (y, z) in sec]
     V = np.array(V)
@@ -400,12 +454,14 @@ def underbody():
         for x in xs:
             f = (x - x0) / (x1 - x0)
             z = z0 + (z1 - z0) * (3 * f * f - 2 * f ** 3)
-            for y in np.linspace(0, 0.72, 10):
+            for y in np.linspace(0, 0.47, 8):
                 V.append((x, y, z))
         V = np.array(V)
-        T = K.grid_tris(len(xs), 10)
+        T = K.grid_tris(len(xs), 8)
         b.extend(flip_down(recompute_normals(K.Buf().add(V, np.zeros_like(V), T, 'trim'))))
-    b.extend(K.box_buf((-2.0, 0.0, BOOT_Z - 0.025), (-1.35, 0.72, BOOT_Z - 0.012), 'trim', 0.004, 1))
+    xt = D['ax_r'] - 0.372
+    b.extend(K.box_buf((-2.0, 0.0, BOOT_Z - 0.025), (xt, 0.72, BOOT_Z - 0.012), 'trim', 0.004, 1))
+    b.extend(K.box_buf((xt, 0.0, BOOT_Z - 0.025), (-1.35, 0.47, BOOT_Z - 0.012), 'trim', 0.004, 1))
     # rails
     for (x0, x1, z) in ((-1.0, 1.70, PAN_Z - 0.06), ):
         b.extend(K.box_buf((x0, 0.44, z), (x1, 0.52, PAN_Z), 'steel', 0.006, 2))
@@ -497,8 +553,8 @@ def hub_and_brake(hx, hy, hz, front=True):
     for k in range(4):
         a = math.radians(45 + 90 * k)
         p = np.array([hx + 0.049 * math.cos(a), yf, hz + 0.049 * math.sin(a)])
-        b.extend(K.cyl_buf(p, p + (0, 0.022, 0), 0.0055, 'steel', 6))
-    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.012, hz), 0.022, 'steel', 16))
+        b.extend(K.cyl_buf(p, p + (0, 0.007, 0), 0.0055, 'steel', 6))
+    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.005, hz), 0.022, 'steel', 16))
     # caliper at the rear of the disc (front) / front of the disc (rear wheels)
     a = math.radians(160 if front else 20)
     cp = np.array([hx + 0.10 * math.cos(a), yf - 0.030, hz + 0.10 * math.sin(a)])
@@ -517,12 +573,14 @@ def interior(ex):
     L = K.Buf()   # mirrored
     C = K.Buf()   # centre / asymmetric (not mirrored)
     # floor carpet with tunnel (left half section, extruded)
-    xs = np.linspace(-1.12, FIREWALL_X - 0.02, 12)
+    xw = rear_arch_front(FLOOR_Z) + 0.02
+    xs = np.unique(np.concatenate([np.linspace(-1.12, FIREWALL_X - 0.02, 12), [xw - 0.02, xw]]))
     V = []
     for x in xs:
         th = tunnel_h(x) + 0.055
         tw = 0.12 + 0.03 * float(K.sstep(-0.6, 0.6, x))
-        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.035, th - 0.06), (tw + 0.06, FLOOR_Z), (0.69, FLOOR_Z), (0.70, 0.27)]),
+        ye = 0.69 if x >= xw - 1e-6 else 0.47
+        sec = K.round_profile(np.array([(0.0, th), (tw, th), (tw + 0.035, th - 0.06), (tw + 0.06, FLOOR_Z), (ye, FLOOR_Z), (ye + 0.01, 0.27)]),
                               [0, 0.03, 0.03, 0.03, 0.02, 0], 2)
         V += [(x, y, z) for (y, z) in sec]
     V = np.array(V)
@@ -533,15 +591,20 @@ def interior(ex):
     L.extend(K.box_buf((FIREWALL_X - 0.20, 0.17, FLOOR_Z), (FIREWALL_X - 0.02, 0.68, FLOOR_Z + 0.02), 'fabric', 0.006, 2,
                        xf=K.mat4_rot((0, 1, 0), -38, (FIREWALL_X - 0.02, 0, FLOOR_Z))))
     # rear seat area raised floor and bulkhead behind the rear seat
-    L.extend(K.box_buf((-1.42, 0.0, FLOOR_Z), (-1.30, 0.70, 0.30), 'fabric', 0.01, 2))
-    L.extend(K.box_buf((-1.48, 0.0, 0.52), (-1.42, 0.70, 0.95), 'plastic_int', 0.01, 2))
+    L.extend(K.box_buf((-1.42, 0.0, FLOOR_Z), (-1.30, 0.47, 0.30), 'fabric', 0.01, 2))
+    L.extend(K.box_buf((-1.48, 0.0, 0.52), (-1.42, 0.47, 0.95), 'plastic_int', 0.01, 2))
+    L.extend(K.box_buf((-1.48, 0.47, 0.665), (-1.42, 0.70, 0.95), 'plastic_int', 0.01, 2))
+    # the rear wheel tubs inside the cabin, under the ends of the rear seat
+    L.extend(rear_tub_cabin(D['ax_r'], D['hub_z'], 0.372, 0.47, 0.72, FLOOR_Z))
+    # firewall face inside the cabin (the engine bay's firewall sheet faces the bay)
+    L.extend(quad_sheet((FIREWALL_X - 0.004, 0.0, FLOOR_Z), (0, 0.70, 0), (0, 0, 0.64 - FLOOR_Z), 2, 2, (-1, 0, 0), 'trim'))
     # parcel shelf under the rear window
     L.extend(K.box_buf((-1.62, 0.0, 0.905), (-1.40, 0.73, 0.925), 'plastic_int', 0.006, 2))
     # sill trims and kick panels
-    L.extend(K.box_buf((D['rd_rear'], 0.60, FLOOR_Z), (D['fd_front'] - 0.02, 0.66, 0.33), 'plastic_int', 0.012, 2))
+    L.extend(K.box_buf((rear_arch_front(0.30) + 0.03, 0.60, FLOOR_Z), (D['fd_front'] - 0.02, 0.66, 0.33), 'plastic_int', 0.012, 2))
     L.extend(K.box_buf((0.66, 0.58, FLOOR_Z), (FIREWALL_X - 0.02, 0.70, 0.62), 'plastic_int', 0.02, 2))
     # rear quarter trim beside the rear seat
-    L.extend(K.box_buf((-1.45, 0.62, 0.30), (D['rd_rear'] + 0.01, 0.70, 0.90), 'plastic_int', 0.02, 2))
+    L.extend(K.box_buf((-1.45, 0.62, 0.665), (D['rd_rear'] + 0.01, 0.70, 0.90), 'plastic_int', 0.02, 2))
     # headliner: greenhouse roof 30 mm inside, facing down
     gus = S.g_u_samples()
     row = np.stack([gus, np.full(len(gus), S.G_T[-1] - 0.02)], 1)
@@ -616,7 +679,7 @@ def steering_mount():
     """(position of the steering wheel hub, column direction pointing forward-down)."""
     ang = math.radians(24.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([0.30, DRIVER_Y, 0.90])
+    p = np.array([0.30, DRIVER_Y, 0.875])
     return p, d
 
 
@@ -649,8 +712,9 @@ def dashboard():
     def pad_sec(y):
         ay = abs(y - DRIVER_Y)
         brow = 0.03 * float(K.sstep(0.26, 0.20, ay)) if y > 0 else 0.0
-        pts = np.array([(0.81, 0.90), (0.75, 0.932), (0.64, 0.946), (fx - 0.005 - brow, 0.944), (fx - 0.022 - brow, 0.928),
-                        (fx - 0.016 - brow, 0.906), (fx + 0.01, 0.895), (0.81, 0.885)])
+        lift = 0.032 * float(K.sstep(0.30, 0.22, ay)) if y > 0 else 0.0     # hood over the raised cluster
+        pts = np.array([(0.81, 0.90), (0.75, 0.932 + lift * 0.6), (0.64, 0.946 + lift), (fx - 0.005 - brow, 0.944 + lift),
+                        (fx - 0.022 - brow, 0.928 + lift), (fx - 0.016 - brow, 0.906 + lift), (fx + 0.01, 0.895), (0.81, 0.885)])
         return K.round_profile(pts, [0, 0.03, 0.03, 0.012, 0.01, 0.008, 0.01, 0], 1)
     ys = np.concatenate([np.linspace(-0.70, 0.06, 3), np.linspace(0.09, 0.63, 8), [0.70]])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(0.72, 0.0, 0.915), sec_fn=pad_sec))
@@ -668,35 +732,20 @@ def dashboard():
     b.extend(K.cyl_buf((fx - 0.006, -0.39, 0.79), (fx - 0.014, -0.39, 0.79), 0.009, 'chrome', 12))
     # instrument pod: a rounded box tilted towards the driver
     eye = np.array(EYE)
-    pc = np.array([fx - 0.012, DRIVER_Y, 0.858])
+    pc = np.array([fx - 0.012, DRIVER_Y, 0.888])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)          # X = across (+y), Z = dial normal
     M = K.mat4_trs(pc, R)
-    b.extend(K.box_buf((-0.225, -0.072, -0.03), (0.225, 0.082, 0.0), 'plastic_int', 0.018, 3, xf=M))
+    b.extend(K.box_buf((-0.236, -0.072, -0.03), (0.236, 0.082, 0.0), 'plastic_int', 0.018, 3, xf=M))
     gauges = []
-    a_, b_, _ = K.plane_basis(dn)
-    for (gy, gz, r, name) in ((0.085, 0.004, 0.064, 'N_speed'), (-0.085, 0.004, 0.064, 'N_rpm'),
-                              (0.183, -0.006, 0.030, 'N_fuel'), (-0.183, -0.006, 0.030, 'N_temp')):
-        c = pc + R[:, 0] * gy + R[:, 1] * gz + dn * 0.0
-        bez = np.array([(r - 0.003, -0.004), (r + 0.002, 0.003), (r + 0.007, 0.004), (r + 0.010, 0.0), (r + 0.010, -0.006)])
-        V, N, T = K.lathe(bez, c, dn, 24 if r > 0.05 else 16)
-        b.add(V, N, T, 'chrome')
-        V, N, T = K.lathe(np.array([(0.0, -0.007), (r, -0.007), (r, -0.0045)]), c, dn, 24 if r > 0.05 else 16, prof_n=np.array([[0, 1.0], [0, 1.0], [-1.0, 0]]))
-        b.add(V, N, T, 'gauge')
-        big = r > 0.05
-        nt = 25 if big else 5
-        for k in range(nt):
-            ang = math.radians(135.0 - 270.0 * k / (nt - 1)) if big else math.radians(45.0 - 90.0 * k / (nt - 1))
-            major = (k % 4 == 0) if big else True
-            ln = 0.011 if major else 0.006
-            dirv = math.sin(ang) * a_ + math.cos(ang) * b_
-            p0 = c + dn * (-0.0065) + dirv * (r - 0.004 - ln)
-            p1 = c + dn * (-0.0065) + dirv * (r - 0.004)
-            sd = np.cross(dn, dirv) * (0.0013 if major else 0.0008)
-            Vt = np.array([p0 - sd, p0 + sd, p1 + sd, p1 - sd])
-            b.add(Vt, np.tile(dn, (4, 1)), np.array([(0, 1, 2), (0, 2, 3)]), 'trim')
-        gauges.append(dict(name=name, center=c + dn * (-0.006), normal=dn, r=r, up=b_, right=a_, big=big))
+    for (gy, gz, r, name) in ((0.084, 0.004, 0.062, 'N_speed'), (-0.084, 0.004, 0.062, 'N_rpm'),
+                              (0.192, -0.008, 0.029, 'N_fuel'), (-0.192, -0.008, 0.029, 'N_temp')):
+        c = pc + R[:, 0] * gy + R[:, 1] * gz
+        db, g = dial(c, dn, r, r > 0.05, 'chrome')
+        b.extend(db)
+        g['name'] = name
+        gauges.append(g)
     # telltale lamps between the big dials
     for k, zz in enumerate((0.03, -0.01, -0.05)):
         cc = pc + R[:, 1] * zz + dn * 0.0005
@@ -705,7 +754,7 @@ def dashboard():
     # round vents: ends and centre
     for vy, vz in ((0.62, 0.84), (-0.66, 0.84), (0.10, 0.865), (-0.10, 0.865)):
         c = np.array([fx - 0.002, vy, vz])
-        V, N, T = K.lathe(np.array([(0.027, 0.0), (0.033, 0.005), (0.037, 0.003), (0.037, -0.006)]), c, (-1, 0, 0), 16)
+        V, N, T = K.lathe(np.array([(0.027, 0.0), (0.033, 0.005), (0.037, 0.003), (0.037, -0.006)])[::-1], c, (-1, 0, 0), 16)
         b.add(V, N, T, 'chrome')
         V, N, T = K.lathe(np.array([(0.0, -0.012), (0.028, -0.012)]), c, (-1, 0, 0), 14, prof_n=np.array([[0, 1.0], [0, 1.0]]))
         b.add(V, N, T, 'trim')
@@ -741,7 +790,7 @@ def console():
     b.extend(K.box_buf((0.432, -0.065, 0.58), (0.437, 0.065, 0.615), 'trim', 0.002, 1))
     gx = 0.32
     gz = tunnel_h(gx) + 0.055
-    V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)]), (gx, 0.0, gz), (0, 0, 1), 24)
+    V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)])[::-1], (gx, 0.0, gz), (0, 0, 1), 24)
     b.add(V, N, T, 'trim')
     hz = tunnel_h(-0.05) + 0.055
     b.extend(K.box_buf((-0.20, -0.032, hz - 0.005), (0.07, 0.032, hz + 0.012), 'plastic_int', 0.008, 2))
