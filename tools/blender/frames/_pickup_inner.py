@@ -350,6 +350,7 @@ def fuel_flap(ex):
     b = K.Buf().add(V, N, T, 'paint')
     V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], 0.0015, 0.006, 0.004, 2, closed=True, hem_segs=0)
     b.add(V, N, Tr, 'paint')
+    b.extend(K.panel_back(si['P'], si['N'], si['E']))
     return b
 
 

@@ -197,13 +197,16 @@ def lid_inner(ex, name):
         E = side_out(P, Nn) * -1
         V, N, Tr = K.roll_edge(P, -Nn, E, 0.004, 0.012, 0.0, 2, closed=True)
         b.add(V, N, Tr, 'paint')
+    # the inside of the skin (seen through the lightening hole and round the edge of the frame)
+    b.extend(lid_back(S.CT, uv, spacing=0.09))
     return b
 
 
-def ring_inner(chart, uv, outer, d_in, rear_band, level=-0.028):
+def ring_inner(chart, uv, outer, d_in, rear_band, level=-0.028, back=True):
     """Half (y >= 0) of a hood inner frame ring on a top chart: between `outer` (an open polyline from the
     centre line round to the centre line, inside the hood outline) and the outline offset by d_in, with the band
-    along the rear (hinge) edge only `rear_band` wide. Rolled inner edge."""
+    along the rear (hinge) edge only `rear_band` wide. Rolled inner edge. back: also the inside of the skin with
+    a pressed X (lid_back, lid_beads), so the opened hood is opaque."""
     ring_in = K.offset_loop2(uv, d_in, closed=False)
     ring_in[:, 0] = np.maximum(ring_in[:, 0], uv[:, 0].min() + rear_band)
     ring_in[0, 1] = 0.0
@@ -224,6 +227,87 @@ def ring_inner(chart, uv, outer, d_in, rear_band, level=-0.028):
     E = K.unit(E - Nn * np.sum(E * Nn, 1)[:, None])
     V, N, Tr = K.roll_edge(P, -Nn, E, 0.004, 0.012, 0.0, 2, closed=False)
     b.add(V, N, Tr, 'paint')
+    if back:
+        # the skin's inside (the skin is single-sided: an opened hood would show the windscreen through it) with
+        # a big pressed X in the open middle, beads 6 mm deep so the engine keeps its clearance
+        b.extend(lid_back(chart, uv))
+        reg = close_centre(ring_in)
+        lo, hi = reg.min(0), reg.max(0)
+        xm = 0.5 * (lo[0] + hi[0])
+        lines = [((xm, 0.0), (lo[0], hi[1])), ((xm, 0.0), (hi[0], hi[1]))]
+        b.extend(lid_beads(chart, reg, lines, margin=0.035))
+    return b
+
+
+def close_centre(pl, step=0.04):
+    """Close an open half-outline that starts and ends on the centre line (y = 0) along the centre line."""
+    pl = np.asarray(pl, float)
+    n = max(2, int(abs(pl[0, 0] - pl[-1, 0]) / step) + 1)
+    xs = np.linspace(pl[-1, 0], pl[0, 0], n)[1:-1]
+    return np.vstack([pl, np.stack([xs, np.zeros(len(xs))], 1)])
+
+
+def lid_back(chart, uv, level=-0.004, inset=0.006, spacing=0.075, mat='paint'):
+    """The inside of a lid's skin (left half), `level` under it and facing down: the lid outline (an open polyline
+    from the centre line round to the centre line) pulled in to the hem's flange. The skins are single-sided, so
+    without it an opened lid is see-through from below."""
+    reg0 = close_centre(uv)
+    mid = len(uv) // 2
+    probe = K.offset_loop2(uv, -0.01, closed=False)[mid:mid + 1]
+    d = -inset if K.in_poly(probe, reg0)[0] else inset
+    ol = K.offset_loop2(uv, d, closed=False)
+    ol[0, 1] = 0.0
+    ol[-1, 1] = 0.0
+    ol = K.resample(ol, 0.035, closed=False)
+    ol[0, 1] = 0.0
+    ol[-1, 1] = 0.0
+    loop = close_centre(ol)
+    g = K.grid_points(loop[:, 0].min(), loop[:, 0].max(), 0.0, loop[:, 1].max(), spacing, dt=spacing)
+    V, N, T = K.mesh_region(chart, [K.Loop(loop)], [], g, spacing=spacing, level=level)
+    return K.Buf().add(V, -N, T, mat)
+
+
+def lid_beads(chart, region, lines, level=-0.004, w=0.034, h=0.006, margin=0.03, step=0.03, mat='paint'):
+    """Pressed beads on the inside of a lid (left half): each line (two uv points) is clipped to `region` (a closed
+    uv loop) shrunk by `margin`, swept with a rounded bead profile standing `h` down from `level`; the ends taper
+    into the sheet."""
+    b = K.Buf()
+    reg = K.ccw(np.asarray(region, float))
+    shrunk = K.offset_loop2(reg, margin)
+    prof = np.array([(-w / 2, 0.0), (-w * 0.30, h * 0.72), (0.0, h), (w * 0.30, h * 0.72), (w / 2, 0.0)])
+    for p0, p1 in lines:
+        p0 = np.asarray(p0, float)
+        p1 = np.asarray(p1, float)
+        ts = np.linspace(0.0, 1.0, 241)
+        Q = p0[None] + (p1 - p0)[None] * ts[:, None]
+        ins = K.in_poly(Q, shrunk)
+        best, cur = (0, 0), None
+        for i, f in enumerate(list(ins) + [False]):
+            if f and cur is None:
+                cur = i
+            elif not f and cur is not None:
+                if i - cur > best[1] - best[0]:
+                    best = (cur, i)
+                cur = None
+        if best[1] - best[0] < 8:
+            continue
+        seg = K.resample(Q[best[0]:best[1]], step, closed=False)
+        P, Nn = chart.to3d(seg, level)
+        T = np.gradient(P, axis=0)
+        T = K.unit(T)
+        Sd = K.unit(np.cross(T, Nn))
+        dn = -Nn
+        s = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+        tap = np.clip(np.minimum(s, s[-1] - s) / 0.05, 0.0, 1.0)
+        tap = tap * tap * (3.0 - 2.0 * tap)
+        V = (P[:, None, :] + Sd[:, None, :] * prof[None, :, 0:1] + dn[:, None, :] * (prof[None, :, 1:2] * tap[:, None, None])).reshape(-1, 3)
+        Tr = K.grid_tris(len(P), len(prof))
+        nb = recompute_normals(K.Buf().add(V, np.zeros_like(V), Tr, mat))
+        Vb, Nb, Tb, Mb = nb.arrays()
+        dref = np.repeat(dn, len(prof), axis=0)
+        if float((Nb * dref).sum()) < 0.0:
+            Nb = -Nb
+        b.add(Vb, Nb, Tb, mat)
     return b
 
 
@@ -691,7 +775,13 @@ def extrude_y(sec, ys, mat, inside=None, sec_fn=None, cap=True):
     T = K.grid_tris(len(ys), m, True)
     b = recompute_normals(K.Buf().add(V, np.zeros_like(V), T, mat))
     if inside is not None:
-        b = orient_out(b, np.asarray(inside, float))
+        # one decision for the whole (consistently wound) sheet, measured across the section only: a per-vertex
+        # test against a 3D point flips vertices where a varying section slopes along y
+        Vb, Nb, Tb, Mb = b.arrays()
+        d = Vb - np.asarray(inside, float)
+        d[:, 1] = 0.0
+        if float((Nb * d).sum()) < 0.0:
+            b = K.Buf().add(Vb, -Nb, Tb, mat)
     if cap:
         for y, r, sg in ((ys[0], rows[0], -1.0), (ys[-1], rows[-1], 1.0)):
             P = np.array([(p[0], y, p[1]) for p in r])

@@ -626,6 +626,7 @@ class Exterior:
         b = K.Buf().add(V, N, T, 'paint')
         V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], 0.0015, 0.006, 0.004, 2, closed=True)
         b.add(V, N, Tr, 'paint')
+        b.extend(K.panel_back(si['P'], si['N'], si['E']))
         return b
 
     def door_skin(self, w):
@@ -701,9 +702,10 @@ class Exterior:
         p.add(np.stack([xs, np.zeros(len(xs))], 1))
         loop = p.loop()
         bb = s['uv']
-        xg, yg = np.meshgrid(np.arange(bb[:, 0].min() - 0.05, bb[:, 0].max() + 0.05, 0.04), np.arange(0.0, 0.8, 0.04), indexing='ij')
+        # the lids are gently curved: a coarser interior than the body (the outline keeps its points)
+        xg, yg = np.meshgrid(np.arange(bb[:, 0].min() - 0.05, bb[:, 0].max() + 0.05, 0.058), np.arange(0.0, 0.8, 0.058), indexing='ij')
         g = np.stack([xg.ravel(), yg.ravel()], 1)
-        V, N, T = K.mesh_region(S.CT, [loop], [], g, spacing=0.04)
+        V, N, T = K.mesh_region(S.CT, [loop], [], g, spacing=0.058)
         return K.Buf().add(V, N, T, 'paint')
 
     # ------------------------------------------------------------------ greenhouse
