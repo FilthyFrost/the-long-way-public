@@ -66,6 +66,8 @@ const BAL_LOSE0 = 55 * (Math.PI / 180);
 const BAL_LOSE1 = 70 * (Math.PI / 180);
 /** inertia floors for derived specs: no roll / pitch mode above this angular frequency (rad/s) */
 const MODE_OMEGA_MAX = 40;
+/** derived specs: the body box takes part once a bottom corner is this close to the road under the wheels (m) */
+const BODY_NEAR = 0.1;
 
 export interface VehicleInput {
   /** -1 (full left) … +1 (full right) */
@@ -333,6 +335,9 @@ export class VehicleSim {
   private anyNone = false;
   private readonly de = new Float64Array(4);
   private readonly oldSc = new Float64Array(4);
+  /** steps until the next look at the ground under the body box, and steps it stays in play after one */
+  private bodyTick = 0;
+  private bodyWatch = 0;
 
   private acc = 0;
   private steerFilt = 0;
@@ -496,7 +501,7 @@ export class VehicleSim {
         // a new static compression is not a bump in the road
         w.comp += w.staticComp - this.oldSc[i];
       }
-      this.reseatBody(de, (dx - dx2) / 4);
+      this.reseatBody(de, (dx - dx2) / 4, this.contactFloor());
     }
   }
 
@@ -567,7 +572,7 @@ export class VehicleSim {
    * springs launch nothing; what a rigid move cannot take up (a twist between the corners) goes into
    * the wheels' seat and bleeds in over a fraction of a second.
    */
-  private reseatBody(de: Float64Array, dx: number): void {
+  private reseatBody(de: Float64Array, dx: number, floor?: (x: number, z: number) => number): void {
     const W = this.wheels;
     // least squares for the corner lifts h + θ·x − φ·z (θ nose up, φ right side down), a little
     // regularised so two wheels on one axle still give an answer
@@ -671,6 +676,117 @@ export class VehicleSim {
     };
     [this.qx, this.qy, this.qz, this.qw] = rot(this.qx, this.qy, this.qz, this.qw);
     [this.pqx, this.pqy, this.pqz, this.pqw] = rot(this.pqx, this.pqy, this.pqz, this.pqw);
+    if (floor) {
+      // never leave the body in the road: on wheels too small to hold it up it rests on its box
+      const b = new Float64Array(9);
+      this.basis(b);
+      const bp = this.bodyPts;
+      let lift = 0;
+      for (let k = 0; k < 4; k++) {
+        const bx = bp[k * 3];
+        const by = bp[k * 3 + 1];
+        const bz = bp[k * 3 + 2];
+        const x = this.px + b[0] * bx + b[3] * by + b[6] * bz;
+        const y = this.py + b[1] * bx + b[4] * by + b[7] * bz;
+        const z = this.pz + b[2] * bx + b[5] * by + b[8] * bz;
+        const depth = floor(x, z) - y;
+        if (depth > lift) lift = depth;
+      }
+      if (lift > 0) {
+        this.py += lift + 0.002;
+        this.ppy += lift + 0.002;
+        for (const w of W) w.prevComp = w.comp = Math.max(0, w.comp - lift);
+      }
+    }
+  }
+
+  /**
+   * Is a bottom corner of the body box near the road? A build on tiny wheels sits on its body, and a
+   * long one bridges humps; the legacy rule — body contact only when tilted, bottomed out or nearly
+   * airborne — would let either sink through the road. Every step against the plane through the
+   * wheels' contact points (cheap: within BODY_NEAR), every fourth step against the ground itself
+   * under the corners (it catches the hump the plane does not see, and holds for a few steps).
+   */
+  private bodyNear(ground: Ground, px: number, py: number, pz: number, Fx: number, Fy: number, Fz: number, Ux: number, Uy: number, Uz: number, Sx: number, Sy: number, Sz: number): boolean {
+    const bp = this.bodyPts;
+    if (--this.bodyTick <= 0) {
+      this.bodyTick = 4;
+      const gs = this.gs;
+      for (let k = 0; k < 4; k++) {
+        const bx = bp[k * 3];
+        const by = bp[k * 3 + 1];
+        const bz = bp[k * 3 + 2];
+        const x = px + Fx * bx + Ux * by + Sx * bz;
+        const z = pz + Fz * bx + Uz * by + Sz * bz;
+        ground.sample(x, z, gs);
+        if (py + Fy * bx + Uy * by + Sy * bz - gs.h < 2 * BODY_NEAR) {
+          this.bodyWatch = 5;
+          break;
+        }
+      }
+    }
+    if (this.bodyWatch > 0) {
+      this.bodyWatch--;
+      return true;
+    }
+    let n = 0;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let nx = 0;
+    let ny = 0;
+    let nz = 0;
+    for (const w of this.wheels) {
+      if (!w.contact) continue;
+      n++;
+      cx += w.cx;
+      cy += w.cy;
+      cz += w.cz;
+      nx += w.nx;
+      ny += w.ny;
+      nz += w.nz;
+    }
+    if (n === 0) return true;
+    cx /= n;
+    cy /= n;
+    cz /= n;
+    const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+    for (let k = 0; k < 4; k++) {
+      const bx = bp[k * 3];
+      const by = bp[k * 3 + 1];
+      const bz = bp[k * 3 + 2];
+      const x = px + Fx * bx + Ux * by + Sx * bz - cx;
+      const y = py + Fy * bx + Uy * by + Sy * bz - cy;
+      const z = pz + Fz * bx + Uz * by + Sz * bz - cz;
+      if ((x * nx + y * ny + z * nz) * il < BODY_NEAR) return true;
+    }
+    return false;
+  }
+
+  /** the road under the wheels now, as a height function (the plane through their contacts), or undefined */
+  private contactFloor(): ((x: number, z: number) => number) | undefined {
+    let n = 0;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let nx = 0;
+    let ny = 0;
+    let nz = 0;
+    for (const w of this.wheels) {
+      if (!w.contact) continue;
+      n++;
+      cx += w.cx;
+      cy += w.cy;
+      cz += w.cz;
+      nx += w.nx;
+      ny += w.ny;
+      nz += w.nz;
+    }
+    if (n === 0 || ny <= 1e-6) return undefined;
+    cx /= n;
+    cy /= n;
+    cz /= n;
+    return (x, z) => cy - (nx * (x - cx) + nz * (z - cz)) / ny;
   }
 
   /**
@@ -702,7 +818,13 @@ export class VehicleSim {
       w.radius = r;
       if (de[i] !== 0) any = true;
     }
-    if (any) this.reseatBody(de, 0);
+    if (any) {
+      const gs = this.gs;
+      this.reseatBody(de, 0, (x, z) => {
+        ground.sample(x, z, gs);
+        return gs.h;
+      });
+    }
     this.wheelsChanged();
   }
 
@@ -738,8 +860,12 @@ export class VehicleSim {
   private readonly kRms: number;
   private bodyTouch = false;
 
-  /** Place the vehicle at rest on ground height `groundY`, heading `yaw` (rad about +y; 0 = +x). */
-  reset(x: number, groundY: number, z: number, yaw = 0): void {
+  /**
+   * Place the vehicle at rest on ground height `groundY`, heading `yaw` (rad about +y; 0 = +x).
+   * A ModCar build also takes the `ground` itself if given: its body box is kept out of the road
+   * under it (otherwise the road is taken as level at groundY).
+   */
+  reset(x: number, groundY: number, z: number, yaw = 0, ground?: Ground): void {
     this.px = x;
     this.py = groundY + this.spec.cgHeight;
     this.pz = z;
@@ -820,7 +946,19 @@ export class VehicleSim {
       if (de[i] !== 0) lifted = true;
     }
     this.wheelsChanged();
-    if (lifted) this.reseatBody(de, 0);
+    if (lifted || this.ext) {
+      const gs = this.gs;
+      this.reseatBody(
+        de,
+        0,
+        ground
+          ? (gx, gz) => {
+              ground.sample(gx, gz, gs);
+              return gs.h;
+            }
+          : () => groundY,
+      );
+    }
   }
 
   // ------------------------------------------------------------------ driver operations
@@ -1345,7 +1483,7 @@ export class VehicleSim {
     const bp = this.bodyPts;
     const bn = this.bodyN;
     const bnr = this.bodyNrm;
-    const bodyActive = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone;
+    const bodyActive = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
     if (bodyActive) {
       const nmaxBody = m * GRAVITY * 6;
       for (let k = 0; k < 8; k++) {
