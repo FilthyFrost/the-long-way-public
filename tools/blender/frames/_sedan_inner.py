@@ -691,7 +691,13 @@ def extrude_y(sec, ys, mat, inside=None, sec_fn=None, cap=True):
     T = K.grid_tris(len(ys), m, True)
     b = recompute_normals(K.Buf().add(V, np.zeros_like(V), T, mat))
     if inside is not None:
-        b = orient_out(b, np.asarray(inside, float))
+        # one decision for the whole (consistently wound) sheet, measured across the section only: a per-vertex
+        # test against a 3D point flips vertices where a varying section slopes along y
+        Vb, Nb, Tb, Mb = b.arrays()
+        d = Vb - np.asarray(inside, float)
+        d[:, 1] = 0.0
+        if float((Nb * d).sum()) < 0.0:
+            b = K.Buf().add(Vb, -Nb, Tb, mat)
     if cap:
         for y, r, sg in ((ys[0], rows[0], -1.0), (ys[-1], rows[-1], 1.0)):
             P = np.array([(p[0], y, p[1]) for p in r])
