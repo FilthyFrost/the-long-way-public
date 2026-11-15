@@ -75,6 +75,28 @@ export function readModParams(base: Params, search: string = window.location.sea
   };
 }
 
+/** a number 0…1 from a string (the same every time) */
+function hash01(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 10007) / 10007;
+}
+
+/** a build that has stood about: dust and rust on its body and every part, a little different each */
+function weather(b: Build, dirt: number, rust: number, seed: number): void {
+  b.dirt = dirt;
+  b.rust = rust;
+  for (const [mount, inst] of Object.entries(b.parts)) {
+    const k = hash01(`${seed}:${mount}`);
+    inst.dirt = Math.min(1, dirt * (0.7 + 0.6 * k));
+    inst.rust = Math.min(1, rust * (0.5 + 1.0 * k));
+    for (const sub of Object.values(inst.sub)) {
+      sub.dirt = inst.dirt;
+      sub.rust = inst.rust * 0.5;
+    }
+  }
+}
+
 /** what the first project car is missing: the things the checklist asks for, in order */
 export const TUTORIAL_MISSING = ['battery', 'hub_FL', 'hub_RR', 'engine'] as const;
 
@@ -193,6 +215,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       const g = this.garage;
       await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
+      // a car that stood in a barn for a winter: dust on everything, a little rust at the edges (the sponge has work)
+      weather(project, 0.42, 0.06, 1);
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
       // the missing parts and the tools, round the bay; the fun parts on the shelves
@@ -208,6 +232,10 @@ export class ModGame implements PlayerHost, CockpitHost {
         const s = take(where);
         const inst = newInstance(id, { charge: 0.85 });
         if (withTyre) fitSub(inst, 'tire', newInstance(withTyre));
+        // things found round the farm: some dustier than others, the odd one rusty
+        const k = hash01(`${id}:${spots.length}`);
+        inst.dirt = 0.15 + 0.4 * k;
+        inst.rust = id.startsWith('rim_') || id.startsWith('bf_') || id.startsWith('roof_') ? 0.2 + 0.4 * k : 0.05 * k;
         this.loose.addPart(inst, s.x, s.y + 0.4, s.z, s.yaw);
       };
       if (p.project === 'tutorial') {
@@ -233,6 +261,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       put('rim_cart', 'floor');
       // a second frame to take parts from
       const donor = stockBuild('pickup', { fuel: 0.3 });
+      weather(donor, 0.6, 0.32, 2);
       this.addVehicle(donor, g.bay2.x, g.bay2.z, g.bay2.yaw);
       this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
       this.input.lookYaw = g.spawn.heading;
