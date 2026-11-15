@@ -1,0 +1,11 @@
+{
+  "set": "modcar_v8",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_v8_hood", "params": "build=stock:sedan;engine=eng_v8&view=orbit&orbit=20,25,5.5,0.8"},
+    {"name": "sedan_flat6_hood", "params": "build=stock:sedan;engine=eng_flat6&view=orbit&orbit=20,25,5.5,0.8"},
+    {"name": "pickup_d6_hood", "params": "build=stock:pickup;engine=eng_d6&view=orbit&orbit=20,25,6,0.9"},
+    {"name": "sedan_v8_turbo", "params": "build=stock:sedan;engine=eng_v8%2Bturbo:turbo_small&view=orbit&orbit=20,25,5.5,0.8"}
+  ]
+}

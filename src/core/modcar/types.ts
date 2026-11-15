@@ -338,6 +338,8 @@ export interface MountDef {
   openDeg?: number;
   /** the frame-model object the part on this mount moves with (a motorcycle's FORK); absent = the frame */
   on?: string;
+  /** the room the mount leaves its part (mount frame, game axes): under a bonnet, its top is the bonnet's */
+  room?: { min: V3; max: V3 };
 }
 
 export interface AxleSuspension {

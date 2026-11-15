@@ -29,6 +29,8 @@ interface MountJson {
   floor_z?: number;
   /** the frame object the part moves with (FORK) */
   on?: string;
+  space_min?: number[];
+  space_max?: number[];
 }
 
 interface MountTable {
@@ -139,6 +141,8 @@ function readMounts(t: MountTable): MountDef[] {
       hinge: m.hinge === 'y' || m.hinge === 'z' ? m.hinge : undefined,
       openDeg: m.open_deg,
       on: m.on,
+      // (the files are in Blender's axes: x forward, y left, z up)
+      room: m.space_min && m.space_max ? { min: { x: m.space_min[0], y: m.space_min[2], z: -m.space_max[1] }, max: { x: m.space_max[0], y: m.space_max[2], z: -m.space_min[1] } } : undefined,
     });
   }
   return out;

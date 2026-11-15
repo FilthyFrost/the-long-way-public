@@ -18,6 +18,7 @@ import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
+import { partGeo } from '../../core/modcar/geo';
 import { addonModel, cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
@@ -397,12 +398,46 @@ export class CarView {
     pivot.visible = false;
   }
 
-  /** open (1) or shut (0) a panel; false if the frame has no such panel or nothing is fitted */
+  /**
+   * Open (1) or shut a panel; false if the frame has no such panel or nothing is fitted. A lid shut over a
+   * part that stands taller than the room under it (a diesel six in the pickup) comes down onto it and
+   * rests there, propped open as far as it takes.
+   */
   setPanelOpen(mount: string, open: boolean): boolean {
     const p = this.panels.get(mount);
     if (!p || !this.build.parts[mount]) return false;
-    p.target = open ? 1 : 0;
+    p.target = open ? 1 : this.lidRest(mount).t;
     return true;
+  }
+
+  /**
+   * Where a shut lid comes to rest: 0 when what is under it fits, else as far open as it takes to clear
+   * the tallest part there (eased the way the lid swings), and that part.
+   */
+  lidRest(lid: string): { t: number; part: string | null } {
+    const p = this.panels.get(lid);
+    if (!p || p.openRad === 0) return { t: 0, part: null };
+    this.shutOver('');
+    let poke = 0;
+    let part: string | null = null;
+    for (const [mount, l] of this.covers ?? []) {
+      if (l !== lid) continue;
+      const inst = this.build.parts[mount];
+      const m = this.frame.mounts.find((x) => x.id === mount);
+      const top = inst ? partGeo(inst.part)?.bbox?.[1][1] : undefined;
+      if (!inst || !m?.room || top === undefined) continue;
+      // (a few centimetres under the skin are the lid's own room)
+      const over = top - m.room.max.y - 0.04;
+      if (over > poke) {
+        poke = over;
+        part = inst.part;
+      }
+    }
+    if (!part) return { t: 0, part: null };
+    // the lid turns about its hinge: the angle that lifts it by the overhang about half a metre out
+    const a = Math.min(0.6, Math.atan2(poke + 0.03, 0.55) / Math.abs(p.openRad));
+    // (its swing is eased: the fraction that gives that angle)
+    return { t: 0.5 - Math.sin(Math.asin(1 - 2 * a) / 3), part };
   }
 
   panelOpen(mount: string): number {
@@ -455,13 +490,17 @@ export class CarView {
       this.covers = new Map();
       const box = new THREE.Box3();
       const inv = new THREE.Matrix4();
-      this.model.updateMatrixWorld(true);
-      inv.copy(this.model.matrixWorld).invert();
       for (const [id, p] of this.panels) {
         const cat = this.catOf.get(id);
         if (cat !== 'hood' && cat !== 'trunk') continue;
+        // (measured shut, whatever it is now)
+        const q = p.pivot.quaternion.clone();
+        p.pivot.quaternion.copy(this.restQuat(p));
+        this.model.updateMatrixWorld(true);
+        inv.copy(this.model.matrixWorld).invert();
         box.makeEmpty();
         for (const s of p.skin) box.expandByObject(s);
+        p.pivot.quaternion.copy(q);
         if (box.isEmpty()) continue;
         box.applyMatrix4(inv);
         for (const m of this.frame.mounts) {
@@ -489,6 +528,14 @@ export class CarView {
       if (m.cat === 'rim') continue;
       if (m.panel && this.panels.has(m.id)) this.setPanel(m, inst);
       else this.setPart(m, inst);
+    }
+    // a shut lid comes down onto what now stands under it (or the rest of the way, once it fits)
+    for (const [id, p] of this.panels) {
+      const cat = this.catOf.get(id);
+      if ((cat !== 'hood' && cat !== 'trunk') || !this.build.parts[id] || p.target >= 0.7) continue;
+      p.target = this.lidRest(id).t;
+      // (built that way: it is already resting there)
+      if (!this.live) this.swingPanel(p, p.target);
     }
     this.setWheels();
     this.live = true;
@@ -927,9 +974,15 @@ export class CarView {
       if (p.t === p.target) continue;
       const step = dt / 0.45;
       p.t = p.target > p.t ? Math.min(p.target, p.t + step) : Math.max(p.target, p.t - step);
-      const e = p.t * p.t * (3 - 2 * p.t);
-      p.pivot.quaternion.copy(this.restQuat(p)).multiply(new THREE.Quaternion().setFromAxisAngle(p.axis, e * p.openRad));
+      this.swingPanel(p, p.t);
     }
+  }
+
+  /** a panel to `t` of its way open (eased) */
+  private swingPanel(p: PanelNode, t: number): void {
+    p.t = t;
+    const e = t * t * (3 - 2 * t);
+    p.pivot.quaternion.copy(this.restQuat(p)).multiply(new THREE.Quaternion().setFromAxisAngle(p.axis, e * p.openRad));
   }
 
   private flap = 0;
