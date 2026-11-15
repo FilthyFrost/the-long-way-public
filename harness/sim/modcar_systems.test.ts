@@ -153,4 +153,33 @@ describe('ModCar systems', () => {
     expect(r.sim.exploded).toBe(false);
     expect(maxV).toBeLessThan(3);
   });
+
+  it('a crash hurts what is at that end, a ram takes most of it, and a head-on split lets the coolant go', () => {
+    const knock = (text: string, speed: number) => {
+      const r = rig(decodeBuild(text));
+      const rad = r.sys.build.parts.radiator;
+      const coolant = rad?.fluids.coolantL ?? 0;
+      r.sim.hits++;
+      r.sim.lastHitSpeed = speed;
+      r.sim.lastHitFront = true;
+      r.sys.update(1 / 30, ENV);
+      const p = r.sys.build.parts;
+      return { bumper: p.bumperFront?.cond ?? 1, lamp: p.headlight_L.cond, rear: p.taillight_L.cond, coolant: rad?.fluids.coolantL ?? 0, coolant0: coolant, said: r.sys.dash.message?.code };
+    };
+    // a nudge does nothing
+    const soft = knock('stock:sedan', 2);
+    expect(soft.bumper).toBe(1);
+    expect(soft.lamp).toBe(1);
+    // into a wall at 50 km/h: the bumper and the lamps are wrecked, the boot end untouched, the radiator split
+    const hard = knock('stock:sedan', 14);
+    expect(hard.bumper).toBeLessThan(0.6);
+    expect(hard.lamp).toBeLessThan(0.5);
+    expect(hard.rear).toBe(1);
+    expect(hard.coolant).toBeLessThan(hard.coolant0 * 0.5);
+    expect(hard.said).toBe('crash');
+    // the same with a spiked ram on the front: the lamps behind it keep most of their condition
+    const rammed = knock('stock:sedan;bumperFront=bf_ram', 14);
+    expect(rammed.lamp).toBeGreaterThan(hard.lamp + 0.3);
+  });
 });
+

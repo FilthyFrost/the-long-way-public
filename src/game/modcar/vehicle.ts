@@ -39,6 +39,8 @@ export class ModVehicle implements Carrier {
   /** the radio part is switched on, and the station it is on (radio.ts SONGS) */
   radioOn = false;
   radioSong = 0;
+  /** knocks against solids already heard */
+  knocksHeard = 0;
 
   constructor(
     core: RenderCore,

@@ -91,6 +91,10 @@ export class ModPlayer {
     this.walker = new FootWalker(land, this.solids);
   }
 
+  removeSolids(s: SolidSource): void {
+    this.solids.remove(s);
+  }
+
   addSolids(s: SolidSource): void {
     this.solids.add(s);
   }

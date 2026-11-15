@@ -244,6 +244,8 @@ export class ModSystems {
     if (this.messageT <= 0) this.message = null;
     if (!sim) return;
 
+    this.knocks(sim);
+
     // fuel the simulation burnt comes out of the tank, type by type
     const used = sim.fuelUsedL - this.lastFuelUsed;
     this.lastFuelUsed = sim.fuelUsedL;
@@ -394,6 +396,52 @@ export class ModSystems {
   }
 
   // ------------------------------------------------------------------ helpers
+
+  /** hits against solids already answered for */
+  private lastSolidHits = 0;
+
+  /**
+   * A knock against a wall, a post, a wreck: the parts at the end that took it lose condition by how fast
+   * it was going (over 3 m/s), the bumper there first; a ram takes most of the blow off what is behind it,
+   * armour some. Hard enough head-on, the radiator splits and its coolant runs out. Says what broke.
+   */
+  private knocks(sim: VehicleSim): void {
+    if (sim.hits === this.lastSolidHits) return;
+    this.lastSolidHits = sim.hits;
+    const v = sim.lastHitSpeed;
+    if (v < 3) return;
+    const front = sim.lastHitFront;
+    const b = this.build;
+    const frame = this.derived.frame;
+    const bumperId = front ? 'bumperFront' : 'bumperRear';
+    const bumper = b.parts[bumperId];
+    const ram = bumper ? (partDef(bumper.part).bumper?.ram ?? 0) : 0;
+    const k = (v - 3) * 0.04;
+    const broke: string[] = [];
+    const hurt = (mount: string, amount: number): void => {
+      const inst = b.parts[mount];
+      if (!inst || amount <= 0) return;
+      const was = inst.cond;
+      inst.cond = Math.max(0, inst.cond - amount);
+      if (was >= 0.35 && inst.cond < 0.35) broke.push(partDef(inst.part).name.zh);
+    };
+    hurt(bumperId, k * 1.2);
+    // what is behind it at that end
+    const through = k * (1 - 0.8 * ram) * (1 - 0.5 * this.derived.armor);
+    const atEnd = (x: number): boolean => (front ? x > frame.body.front * 0.4 : x < frame.body.rear * 0.4);
+    for (const m of frame.mounts) {
+      if (m.id === bumperId || !atEnd(m.pos.x)) continue;
+      if (m.cat === 'headlight' || m.cat === 'taillight') hurt(m.id, through * 1.6);
+      else if (m.cat === 'hood' || m.cat === 'trunk' || m.cat === 'radiator' || m.cat === 'horn' || m.cat === 'exhaust') hurt(m.id, through);
+      else if (m.cat === 'engine') hurt(m.id, through * 0.3);
+    }
+    const ri = this.instOf('radiator');
+    if (front && ri && through > 0.12 && (ri.fluids.coolantL ?? 0) > 0) {
+      ri.fluids.coolantL = (ri.fluids.coolantL ?? 0) * 0.3;
+      broke.push('水箱（在漏水）');
+    }
+    if (broke.length) this.sayText('crash', { zh: `撞坏了：${broke.join('、')}。`, en: 'The crash broke something.' });
+  }
 
   private instOf(cat: string): PartInstance | null {
     const frame = frameDef(this.build.frame);

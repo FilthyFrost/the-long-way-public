@@ -198,6 +198,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     if (this.garage) this.player.addSolids(this.garage.solids);
+    else this.worldSolids();
     this.ready = this.populate();
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
@@ -217,6 +218,33 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
     this.landmarks = new LandmarkView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
+    // (from the start on the road the walker comes after the world)
+    if (this.player) this.worldSolids();
+  }
+
+  /** what stands by the road (walls, pumps, benches, signs, guard rails): the walker and the vehicles keep out of it */
+  private worldSolids(): void {
+    if (!this.world) return;
+    this.player.addSolids(this.world.sites);
+    this.player.addSolids(this.world.furniture);
+    for (const v of this.vehicles) this.roadSolids(v);
+  }
+
+  /** a vehicle on the road keeps out of what stands by it, and of the other vehicles (not of itself) */
+  private roadSolids(v: ModVehicle): void {
+    if (!this.world) return;
+    v.sim.solids = this.player.solids;
+    v.sim.onKnock = (sd, vx, vz, speed) => {
+      // a crate, a barrel, a bench shoved: the place moves it and is drawn again …
+      const site = this.world?.sites.knock(sd, vx, vz, speed);
+      if (site) {
+        this.worldView?.redrawSite(site.id);
+        return;
+      }
+      // … or a delineator or a chevron board at the road's edge: it lies where it fell
+      const at = this.world ? this.world.furniture.knock(sd, vx, vz) : NaN;
+      if (at === at) this.worldView?.redrawFurniture(at);
+    };
   }
 
   private groundAt(x: number, z: number): number {
@@ -413,6 +441,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw, this.ground);
     this.vehicles.push(v);
     this.player.addSolids(v.solid);
+    this.roadSolids(v);
     return v;
   }
 
@@ -674,6 +703,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       key: ['key_turn', {}],
       ratchet: [v && v.sim.parkBrake > 0 ? 'handbrake_pull' : 'handbrake_release', {}],
       lever: ['lever', {}],
+      crash: ['crash', { gain }],
       shift: ['gear_shift', { gain: 0.6 }],
       grind: ['gear_grind', { gain: Math.min(1, gain) }],
       latch: ['latch', {}],
@@ -901,6 +931,11 @@ export class ModGame implements PlayerHost, CockpitHost {
         input = this.scripted ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
+      // a knock against something hard, heard from the seat
+      if (v.sim.hits !== v.knocksHeard) {
+        v.knocksHeard = v.sim.hits;
+        if (v === this.seated && v.sim.lastHitSpeed > 2.5) this.sound('crash', Math.min(1, 0.3 + v.sim.lastHitSpeed / 14));
+      }
     }
     this.loose.update(dt);
     this.throwSparks(dt);
@@ -1005,6 +1040,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       const speed = v.sim.vForward;
       // the garage and what lies in it stay behind
       this.garage.dispose();
+      this.player.removeSolids(this.garage.solids);
       this.garage = null;
       // (but what is on board goes too)
       for (const l of [...this.loose.list]) if (l.riding?.on !== v) this.loose.remove(l);
@@ -1206,7 +1242,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       const inst = v.build.parts[m.id];
       if (!inst) continue;
       const def = partDef(inst.part);
-      const w = (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
+      // (a lamp smashed in a crash gives no light; a worn one less)
+      const w = inst.cond < 0.15 ? 0 : (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
       light += w;
       lx += m.pos.x * w;
       ly += m.pos.y * w;

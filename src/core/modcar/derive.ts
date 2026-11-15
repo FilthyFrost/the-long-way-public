@@ -411,7 +411,8 @@ export function derive(build: Build): Derived {
   const st = steering?.def.steering;
 
   const spec: ModVehicleSpec = {
-    id: `modcar:${frame.id}`,
+    // (one id per vehicle: its body is told from another of the same frame's in the world's solids)
+    id: `modcar:${frame.id}:${build.uid}`,
     label: frame.name.zh,
     mass: M,
     wheelbase,

@@ -27,7 +27,9 @@ export type FoleyShot =
   | 'spray_shake'
   | 'horn_trumpet'
   | 'switch'
-  | 'lever';
+  | 'lever'
+  /** the body striking something hard: thump, crumpling sheet metal, a rattle settling */
+  | 'crash';
 
 export type FoleyLoop = 'ratchet' | 'spray' | 'sponge' | 'pour' | 'horn_beep' | 'horn_air';
 
@@ -66,6 +68,22 @@ function latchInto(x: Float32Array, sr: number, at: number, rng: Rng, amp = 1, h
 function thudInto(x: Float32Array, sr: number, at: number, rng: Rng, amp: number, freq: number, decay: number): void {
   burst(x, sr, Math.floor(at * sr), decay * 6, amp, rng, { attack: 0.001, decay, filter: [['lowpass', freq], ['lowpass', freq * 1.3]] });
   ring(x, sr, Math.floor(at * sr), freq * 0.6, amp * 0.5, decay * 1.4);
+}
+
+/** the body striking something hard: the thump of its mass, the sheet metal crumpling in a run of crackles, the panels ringing low, loose things in it rattling down */
+function crash(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 1.2);
+    thudInto(x, sr, 0, rng, 1, 60, 0.05);
+    let t = 0.004;
+    for (let k = 0; k < 16; k++) {
+      burst(x, sr, Math.floor(t * sr), rng.range(0.015, 0.05), rng.range(0.25, 0.6) * (1 - k / 18), rng, { attack: 0.0005, decay: 0.01, filter: [['bandpass', rng.range(500, 2600), 1.3]] });
+      t += rng.range(0.006, 0.028);
+    }
+    strike(x, sr, 0, panelModes(1.6, 1.3), 0.45, rng, 0.04);
+    rattleInto(x, sr, 0.22, rng, 0.18, 9, 0.4, [1400, 4200]);
+    return normalize(saturate(edges(x, sr), 2.4), 0.95);
+  };
 }
 
 /** steel sheet modes for a panel of a given size (1 = a car door) */
@@ -556,6 +574,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   door_open: 0.5, door_close: 0.9, latch: 0.5, hood_open: 0.5, hood_close: 0.95, trunk_open: 0.5, trunk_close: 0.85,
   part_pickup: 0.5, part_setdown: 0.8, part_install: 0.75, part_remove: 0.65, key_turn: 0.45, handbrake_pull: 0.6,
   handbrake_release: 0.55, gear_shift: 0.55, gear_grind: 0.6, spray_shake: 0.45, horn_trumpet: 0.42, switch: 0.35, lever: 0.45,
+  crash: 1.0,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36 };
@@ -590,6 +609,7 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'horn_trumpet': return trumpetHorn();
     case 'switch': return toggleSwitch();
     case 'lever': return selectorLever();
+    case 'crash': return crash();
     case 'ratchet': return ratchetLoop();
     case 'spray': return sprayLoop();
     case 'sponge': return spongeLoop();
