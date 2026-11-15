@@ -13,6 +13,8 @@
   tank_std 改成挂在地板下的扁油箱 0.45×0.70×0.13（45 L），加油管从右侧（游戏 +z）伸出，两条箍带吊到地板；
   bat_truck 缩到 ±0.139 长，改成螺柱接线柱；顺手把 eng_i4 空滤盖压到 0.658（轿车舱 0.66）、去掉 eng_single 低于原点的放油螺塞。
   tank_big、tank_drum、rad_big 照约定允许超出。
+- bf_stock / br_stock：保险杠背面离车身 4.5 cm（原来 14.5 cm），四个支架缩成藏在杠后面的短桩；两端改成四分之一圆弧，端头朝后、不插进车身。
+  深度 0.282 → 0.182，fit_nominal 不变 [0.25, 1.60, 0.22]（轿车里按 fit 再压到 0.52 倍，杠离车身约 2.3 cm）。
 - **工具模型** `public/models/modcar/tools/<kind>.glb`（脚本 `tools/blender/parts/tools.py`，`parts/all` 一起出）：jerrycan（X 加强筋、焊缝、三个提手、凸轮盖油嘴）、
   bottle（5 L 玻璃水壶、握持环、带纹盖、夹在瓶颈上的提手）、oilcan（4 L 机油壶、一体提手、带纹盖和出油嘴）、spray（喷漆罐、马口铁封边、阀杯和喷头）、
   sponge（狗骨头形海绵，顶面切出气孔）。原点底部中心，朝向和 loose.ts toolModel 一致，材质只用 toolModel 用的名字，≤ 2k 三角。
