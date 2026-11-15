@@ -1,0 +1,14 @@
+{
+  "set": "modcar_garage",
+  "page": "modcar.html",
+  "base": "shot=1",
+  "shots": [
+    {"name": "garage_spawn", "params": ""},
+    {"name": "garage_orbit_project", "params": "view=orbit&orbit=35,14,7.5,0.8"},
+    {"name": "garage_orbit_donor", "params": "", "steps": [{"call": "setOrbit", "args": [210, 16, 8, 0.9, 1]}]},
+    {"name": "garage_full_sedan", "params": "project=full&view=orbit&orbit=35,12,7,0.8"},
+    {"name": "garage_hold_wheel", "params": "", "steps": [{"call": "pickUp", "args": ["rim_steel13"]}, {"call": "aim", "args": [0, "hub_FL", 1.8]}]},
+    {"name": "garage_hold_engine", "params": "", "steps": [{"call": "pickUp", "args": ["eng_i4"]}, {"call": "aim", "args": [0, "engine", 2.0]}]},
+    {"name": "garage_hold_toilet", "params": "project=full", "steps": [{"call": "pickUp", "args": ["seat_toilet"]}, {"call": "aim", "args": [0, "seat_driver", 1.7]}]}
+  ]
+}

@@ -1,0 +1,483 @@
+/**
+ * A ModCar vehicle on screen: the frame's model with every fitted part at its mount, the wheels on
+ * pivots that follow the simulation, hinged panels that open, the steering wheel, the gauge needles,
+ * and the lamps. Kept in step with the build: after a fit or a removal call refresh().
+ *
+ * Spaces: `root` is the simulation's body frame (origin at the centre of gravity, placed at the
+ * vehicle's pose); `model` inside it is the frame model space (origin on the ground under the middle
+ * of the wheelbase), offset by the derived centre of gravity.
+ */
+import * as THREE from 'three';
+import { frameDef, hubsOf } from '../../core/modcar/frames';
+import type { Derived } from '../../core/modcar/derive';
+import { paintHex } from '../../core/modcar/palette';
+import { partDef } from '../../core/modcar/parts';
+import type { Dash } from '../../core/modcar/systems';
+import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
+import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
+import type { RenderCore } from '../render/core';
+import { cloneModel, frameModel, partModel, standInFrame, type Model } from './assets';
+import { applyMaterials, CarMaterials, matNames } from './materials';
+
+const DEG = Math.PI / 180;
+/** categories that wear the body colour unless painted themselves */
+const BODY_COLOURED = new Set(['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'mirror']);
+/** what an engine block, a seat frame or a lamp housing is painted at the factory */
+const FACTORY_PART_PAINT = 0x8f3a2c;
+
+interface PanelNode {
+  mount: string;
+  pivot: THREE.Group;
+  /** rotation axis in the pivot's frame and the sign that swings it open (away from the body) */
+  axis: THREE.Vector3;
+  openRad: number;
+  t: number;
+  target: number;
+  /** the panel's own meshes (skin, inner side) and its window glass */
+  skin: THREE.Object3D[];
+  glass: THREE.Object3D[];
+  /** a wire cage drawn instead of the skin (style 'cage'), made on first use */
+  cage: THREE.Object3D | null;
+  style: string;
+}
+
+interface Shown {
+  key: string;
+  holder: THREE.Group;
+}
+
+export class CarView {
+  readonly root = new THREE.Group();
+  /** a motorcycle leans about its tyres' contact line: this sits between root and the model */
+  private readonly lean = new THREE.Group();
+  private readonly leanInner = new THREE.Group();
+  readonly model = new THREE.Group();
+  readonly mats = new CarMaterials();
+  readonly pose: Pose = makePose();
+  private frameObj: THREE.Object3D | null = null;
+  private readonly mountNodes = new Map<string, THREE.Group>();
+  private readonly shown = new Map<string, Shown>();
+  private readonly panels = new Map<string, PanelNode>();
+  readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string }[] = [];
+  readonly needles: Record<string, THREE.Object3D> = {};
+  readonly wipers: THREE.Object3D[] = [];
+  /** the fuel filler of the frame (where a jerrycan is held), model space */
+  fuelCap: THREE.Object3D | null = null;
+  readonly ready: Promise<void>;
+  /** the frame model is a stand-in (its GLB is not there yet) */
+  standIn = true;
+  private needle = 0;
+  private readonly local = { x: 0, y: 0, z: 0 };
+  /** model loads in flight (parts appear when theirs arrive) */
+  private readonly loads = new Set<Promise<unknown>>();
+
+  constructor(
+    readonly build: Build,
+    public derived: Derived,
+  ) {
+    this.root.name = `modcar:${build.uid}`;
+    this.root.add(this.lean);
+    this.lean.add(this.leanInner);
+    this.leanInner.add(this.model);
+    const frame = frameDef(build.frame);
+    for (let i = 0; i < 4; i++) {
+      const pivot = new THREE.Group();
+      const spin = new THREE.Group();
+      const holder = new THREE.Group();
+      pivot.add(spin);
+      spin.add(holder);
+      this.leanInner.add(pivot);
+      this.wheels.push({ pivot, spin, holder, key: '' });
+    }
+    for (const m of frame.mounts) {
+      if (m.cat === 'rim') continue;
+      const n = new THREE.Group();
+      n.name = `M_${m.id}`;
+      n.position.set(m.pos.x, m.pos.y, m.pos.z);
+      n.quaternion.set(m.quat[0], m.quat[1], m.quat[2], m.quat[3]);
+      this.model.add(n);
+      this.mountNodes.set(m.id, n);
+    }
+    this.placeModel();
+    this.ready = this.loadFrame().then(() => this.refresh());
+  }
+
+  get frame() {
+    return frameDef(this.build.frame);
+  }
+
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.loads.add(p);
+    void p.finally(() => this.loads.delete(p));
+    return p;
+  }
+
+  /** resolves once the frame and every part shown so far have their models in place */
+  async settled(): Promise<void> {
+    await this.ready;
+    while (this.loads.size) await Promise.all([...this.loads]);
+  }
+
+  private placeModel(): void {
+    const cg = this.derived.cg;
+    this.model.position.set(-cg.x, -cg.y, -cg.z);
+  }
+
+  private async loadFrame(): Promise<void> {
+    const frame = this.frame;
+    const m: Model = await frameModel(frame.id, () => standInFrame(frame.body, frame.kind));
+    this.standIn = m.standIn;
+    const obj = cloneModel(m);
+    obj.name = 'FRAME';
+    applyMaterials(obj, this.mats, paintHex(this.build.paint), paintHex(this.build.paint2));
+    this.model.add(obj);
+    this.frameObj = obj;
+    // hinged panels: P_<mountId>, re-hung on pivots so they swing about their hinges
+    for (const mt of frame.mounts) {
+      if (!mt.panel) continue;
+      const p = obj.getObjectByName(mt.panel);
+      if (!p) continue;
+      this.hangPanel(mt, p);
+    }
+    for (const name of ['N_speed', 'N_rpm', 'N_fuel', 'N_temp']) {
+      const n = obj.getObjectByName(name);
+      if (n) this.needles[name] = n;
+    }
+    for (const name of ['WIPER_L', 'WIPER_R']) {
+      const w = obj.getObjectByName(name);
+      if (w) this.wipers.push(w);
+    }
+    this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
+  }
+
+  private hangPanel(mt: MountDef, p: THREE.Object3D): void {
+    const pivot = new THREE.Group();
+    pivot.name = `pivot_${mt.id}`;
+    // the panel's origin is on its hinge: the pivot takes its place, the panel sits at the pivot's origin
+    pivot.position.copy(p.position);
+    pivot.quaternion.copy(p.quaternion);
+    p.parent?.add(pivot);
+    p.position.set(0, 0, 0);
+    p.quaternion.identity();
+    pivot.add(p);
+    const skin: THREE.Object3D[] = [];
+    const glass: THREE.Object3D[] = [];
+    p.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      if (matNames(mesh).some((n) => n.startsWith('glass'))) glass.push(mesh);
+      else skin.push(mesh);
+    });
+    // the glass of a door may be a separate object PG_<mountId>
+    const pg = this.frameObj?.getObjectByName(`PG_${mt.id}`);
+    if (pg) {
+      pivot.attach(pg);
+      glass.push(pg);
+    }
+    // which way is open: Blender's hinge axis z (doors) is our y, its y (bonnets, lids) our z
+    const axis = mt.hinge === 'y' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    const box = new THREE.Box3().setFromObject(p);
+    const c = box.getCenter(new THREE.Vector3());
+    pivot.worldToLocal(c);
+    const openRad = (mt.openDeg ?? 70) * DEG;
+    // try both ways: open = the panel's middle moves away from the body's middle
+    const away = (sign: number): number => {
+      const q = new THREE.Quaternion().setFromAxisAngle(axis, sign * openRad);
+      const moved = c.clone().applyQuaternion(q).applyQuaternion(pivot.quaternion).add(pivot.position);
+      return Math.abs(moved.z) * 2 + moved.y;
+    };
+    if (away(-1) > away(1)) axis.negate();
+    this.panels.set(mt.id, { mount: mt.id, pivot, axis, openRad, t: 0, target: 0, skin, glass, cage: null, style: 'stock' });
+    pivot.visible = false;
+  }
+
+  /** open (1) or shut (0) a panel; false if the frame has no such panel or nothing is fitted */
+  setPanelOpen(mount: string, open: boolean): boolean {
+    const p = this.panels.get(mount);
+    if (!p || !this.build.parts[mount]) return false;
+    p.target = open ? 1 : 0;
+    return true;
+  }
+
+  panelOpen(mount: string): number {
+    return this.panels.get(mount)?.t ?? 0;
+  }
+
+  hasPanel(mount: string): boolean {
+    return this.panels.has(mount);
+  }
+
+  // ------------------------------------------------------------------ parts
+
+  /** make the scene match the build (call after any fit, removal or repaint) */
+  refresh(derived?: Derived): void {
+    if (derived) this.derived = derived;
+    this.placeModel();
+    const frame = this.frame;
+    if (this.frameObj) applyMaterials(this.frameObj, this.mats, paintHex(this.build.paint), paintHex(this.build.paint2));
+    for (const m of frame.mounts) {
+      const inst = this.build.parts[m.id] ?? null;
+      if (m.cat === 'rim') continue;
+      if (m.panel && this.panels.has(m.id)) this.setPanel(m, inst);
+      else this.setPart(m, inst);
+    }
+    this.setWheels();
+  }
+
+  private paintOf(inst: PartInstance, cat: string): number {
+    if (inst.paint >= 0) return paintHex(inst.paint);
+    return BODY_COLOURED.has(cat) ? paintHex(this.build.paint) : FACTORY_PART_PAINT;
+  }
+
+  private setPart(m: MountDef, inst: PartInstance | null): void {
+    const sub = inst ? Object.entries(inst.sub).map(([k, v]) => `${k}:${v.part}`).join(',') : '';
+    const key = inst ? `${inst.uid}|${inst.part}|${inst.paint}|${sub}|${this.build.paint}` : '';
+    const was = this.shown.get(m.id);
+    if (was?.key === key) return;
+    if (was) was.holder.removeFromParent();
+    if (!inst) {
+      this.shown.delete(m.id);
+      return;
+    }
+    const node = this.mountNodes.get(m.id);
+    if (!node) return;
+    const holder = new THREE.Group();
+    holder.name = `part_${m.id}`;
+    holder.userData.mount = m.id;
+    node.add(holder);
+    this.shown.set(m.id, { key, holder });
+    const def = partDef(inst.part);
+    const paint = this.paintOf(inst, m.cat);
+    void this.track(partModel(inst.part)).then((model) => {
+      if (this.shown.get(m.id)?.holder !== holder) return;
+      const obj = cloneModel(model);
+      applyMaterials(obj, this.mats, paint, paintHex(this.build.paint2));
+      if (m.side > 0) obj.scale.z = -1;
+      if (def.stretch && m.fit) stretchTo(obj, model.box, m.fit);
+      holder.add(obj);
+      // a turbo rides on its engine's M_turbo
+      const t = inst.sub.turbo;
+      if (t) {
+        const at = obj.getObjectByName('M_turbo') ?? obj;
+        void this.track(partModel(t.part)).then((tm) => {
+          if (this.shown.get(m.id)?.holder !== holder) return;
+          const to = cloneModel(tm);
+          applyMaterials(to, this.mats, FACTORY_PART_PAINT, FACTORY_PART_PAINT);
+          at.add(to);
+        });
+      }
+    });
+  }
+
+  private setPanel(m: MountDef, inst: PartInstance | null): void {
+    const p = this.panels.get(m.id)!;
+    p.pivot.visible = inst !== null;
+    if (!inst) {
+      p.t = p.target = 0;
+      return;
+    }
+    const style = partDef(inst.part).panel?.style ?? 'stock';
+    p.style = style;
+    const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
+    const colour = style === 'armor' ? 0x5c6168 : style === 'fridge' ? 0xf1efe6 : style === 'rusty' ? mixHex(body, 0x8a4a26, 0.45) : body;
+    for (const s of p.skin) applyMaterials(s, this.mats, colour, paintHex(this.build.paint2));
+    const showGlass = style !== 'cage' && style !== 'fridge';
+    for (const g of p.glass) g.visible = showGlass;
+    for (const s of p.skin) s.visible = style !== 'cage';
+    if (style === 'cage') {
+      if (!p.cage) {
+        p.cage = cageFor(p.skin, p.pivot);
+        applyMaterials(p.cage, this.mats, 0x3a3c40, 0x3a3c40);
+        p.pivot.add(p.cage);
+      }
+      p.cage.visible = true;
+    } else if (p.cage) p.cage.visible = false;
+  }
+
+  private setWheels(): void {
+    const frame = this.frame;
+    const h = hubsOf(frame);
+    const order = [h.fl, h.fr, h.rl, h.rr];
+    const single = frame.balance === true;
+    for (let i = 0; i < 4; i++) {
+      const w = this.wheels[i];
+      const hub = order[i];
+      // a motorcycle's simulation has two wheels per axle on the centre line: draw one of each
+      const drawn = !(single && (i === 1 || i === 3));
+      const inst = drawn ? (this.build.parts[hub.id] ?? null) : null;
+      const key = inst ? `${inst.uid}|${inst.part}|${inst.sub.tire?.part ?? ''}|${inst.paint}|${inst.sub.tire?.flat ? 1 : 0}` : '';
+      if (w.key === key) continue;
+      w.key = key;
+      w.holder.clear();
+      w.pivot.visible = inst !== null;
+      if (!inst) continue;
+      const holder = w.holder;
+      holder.scale.set(1, 1, hub.side > 0 ? -1 : 1);
+      const rimDef = partDef(inst.part);
+      const paint = inst.paint >= 0 ? paintHex(inst.paint) : 0xc8ccd0;
+      void this.track(partModel(inst.part)).then((rm) => {
+        if (w.key !== key) return;
+        const r = cloneModel(rm);
+        applyMaterials(r, this.mats, paint, paint);
+        holder.add(r);
+      });
+      const tire = inst.sub.tire;
+      if (tire && rimDef.rim?.tire) {
+        void this.track(partModel(tire.part, inst.part)).then((tm) => {
+          if (w.key !== key) return;
+          const t = cloneModel(tm);
+          applyMaterials(t, this.mats, 0x222222, 0xeeeeee);
+          // a tyre model made for another rim: stretch its ring to this rim (keeping the sidewall)
+          const td = partDef(tire.part).tire!;
+          const made = (tm.box.max.y - tm.box.min.y) / 2;
+          const want = rimDef.rim!.radius + td.sidewall;
+          if (made > 0 && Math.abs(made - want) > 0.005) t.scale.set(want / made, want / made, 1);
+          if (tire.flat) t.scale.y *= 0.92;
+          holder.add(t);
+        });
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ every frame
+
+  update(dt: number, sim: VehicleSim, dash: Dash | null, core: RenderCore, alpha?: number): void {
+    sim.renderPose(this.pose, alpha);
+    const pose = this.pose;
+    core.place(this.root, pose.x, pose.y, pose.z);
+    this.root.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
+    // a motorcycle's lean (the simulation keeps the body upright and reports the lean it should show)
+    const leanRad = (sim as unknown as { lean?: number }).lean ?? 0;
+    const cgH = sim.spec.cgHeight;
+    this.lean.position.set(0, -cgH, 0);
+    this.leanInner.position.set(0, cgH, 0);
+    this.lean.rotation.x = this.frame.balance ? leanRad : 0;
+    for (let i = 0; i < 4; i++) {
+      const w = sim.wheels[i];
+      sim.wheelLocal(i, this.local);
+      const node = this.wheels[i];
+      node.pivot.position.set(this.local.x, this.local.y, this.frame.balance ? 0 : this.local.z);
+      node.pivot.rotation.y = -w.steer;
+      node.spin.rotation.z = -w.spin;
+    }
+    const steer = this.shown.get('steering')?.holder;
+    if (steer) {
+      const ratio = sim.spec.steering.ratio;
+      const bar = partDef(this.build.parts.steering?.part ?? 'steer_std').steering?.bar;
+      // a handlebar turns with the fork; a wheel turns `ratio` times as far as the road wheels
+      if (bar) steer.rotation.y = -sim.steerAngle;
+      else steer.rotation.x = sim.steerAngle * ratio;
+    }
+    // the speedometer with a little lag, like a cable-driven gauge
+    this.needle += (sim.kmh - this.needle) * Math.min(1, dt * 9);
+    const sp = this.needles.N_speed;
+    if (sp) sp.rotation.x = -Math.min(1, this.needle / 180) * 240 * DEG;
+    const tach = this.needles.N_rpm;
+    if (tach && dash) tach.rotation.x = -Math.min(1, dash.rpm / 8000) * 240 * DEG;
+    const fuel = this.needles.N_fuel;
+    if (fuel && dash) fuel.rotation.x = -dash.fuel * 90 * DEG;
+    const temp = this.needles.N_temp;
+    if (temp && dash) temp.rotation.x = -Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) * 90 * DEG;
+    // lamps: dipped / main beam, tail lamps and brake lights
+    const lit = dash?.lightsOn ?? false;
+    const brake = sim.brake > 0.05 || sim.hold ? 1 : 0;
+    this.mats.setLamps(lit ? (dash?.lights === 'high' ? 3 : 2.2) : 0, (lit ? 0.5 : 0) + brake * (dash && dash.battery > 0.02 ? 1.3 : 0));
+    // panels swing
+    for (const p of this.panels.values()) {
+      if (p.t === p.target) continue;
+      const step = dt / 0.45;
+      p.t = p.target > p.t ? Math.min(p.target, p.t + step) : Math.max(p.target, p.t - step);
+      const e = p.t * p.t * (3 - 2 * p.t);
+      p.pivot.quaternion.copy(this.restQuat(p)).multiply(new THREE.Quaternion().setFromAxisAngle(p.axis, e * p.openRad));
+    }
+  }
+
+  private readonly rest = new Map<string, THREE.Quaternion>();
+  private restQuat(p: PanelNode): THREE.Quaternion {
+    let q = this.rest.get(p.mount);
+    if (!q) {
+      q = p.pivot.quaternion.clone();
+      this.rest.set(p.mount, q);
+    }
+    return q;
+  }
+
+  // ------------------------------------------------------------------ for picking and ghosts
+
+  /** the object standing for a mount: the part's holder, a panel's pivot, a wheel's holder */
+  nodeOf(mount: string): THREE.Object3D | null {
+    const s = this.shown.get(mount);
+    if (s) return s.holder;
+    const p = this.panels.get(mount);
+    if (p) return p.pivot;
+    const frame = this.frame;
+    const h = hubsOf(frame);
+    const order = [h.fl, h.fr, h.rl, h.rr];
+    const i = order.findIndex((m) => m.id === mount);
+    return i >= 0 ? this.wheels[i].holder : null;
+  }
+
+  /** the scene node at a mount: parts go in here (wheels: the pivot's spin group) */
+  mountNode(mount: string): THREE.Object3D | null {
+    const n = this.mountNodes.get(mount);
+    if (n) return n;
+    const h = hubsOf(this.frame);
+    const order = [h.fl, h.fr, h.rl, h.rr];
+    const i = order.findIndex((m) => m.id === mount);
+    return i >= 0 ? this.wheels[i].spin : null;
+  }
+
+  /** world bounds of what is on a mount (render space); null when nothing is shown */
+  boundsOf(mount: string, out: THREE.Box3): THREE.Box3 | null {
+    const n = this.nodeOf(mount);
+    if (!n || !n.visible) return null;
+    out.makeEmpty();
+    out.expandByObject(n);
+    return out.isEmpty() ? null : out;
+  }
+
+  dispose(): void {
+    this.root.removeFromParent();
+  }
+}
+
+/** non-uniform scale of a stretch part from its modelled box to the mount's fit [length, width, height] */
+function stretchTo(obj: THREE.Object3D, box: THREE.Box3, fit: [number, number, number]): void {
+  const size = box.getSize(new THREE.Vector3());
+  const nominal = (obj.userData.fit_nominal as number[] | undefined) ?? [size.x, size.z, size.y];
+  const sx = nominal[0] > 0.01 ? fit[0] / nominal[0] : 1;
+  const sz = nominal[1] > 0.01 ? fit[1] / nominal[1] : 1;
+  const sy = nominal[2] > 0.01 ? fit[2] / nominal[2] : 1;
+  // thin things (armour plates) keep their thickness; depth follows width a little at most
+  obj.scale.multiply(new THREE.Vector3(fit[0] < 0.3 ? 1 : sx, sy, sz));
+}
+
+function mixHex(a: number, b: number, t: number): number {
+  const ca = new THREE.Color(a);
+  const cb = new THREE.Color(b);
+  return ca.lerp(cb, t).getHex();
+}
+
+/** a wire cage in a door's outline: a frame tube round its bounds and a grid of wires */
+function cageFor(skin: THREE.Object3D[], pivot: THREE.Group): THREE.Object3D {
+  const box = new THREE.Box3();
+  for (const s of skin) box.expandByObject(s);
+  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
+  box.applyMatrix4(inv);
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial();
+  mat.name = 'steel';
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const bar = (len: number, axis: 'x' | 'y', x: number, y: number): void => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, len, 6), mat);
+    if (axis === 'x') m.rotation.z = Math.PI / 2;
+    m.position.set(x, y, c.z);
+    g.add(m);
+  };
+  const nx = Math.max(3, Math.round(size.x / 0.12));
+  const ny = Math.max(3, Math.round(size.y / 0.12));
+  for (let i = 0; i <= nx; i++) bar(size.y, 'y', box.min.x + (size.x * i) / nx, c.y);
+  for (let j = 0; j <= ny; j++) bar(size.x, 'x', c.x, box.min.y + (size.y * j) / ny);
+  return g;
+}
