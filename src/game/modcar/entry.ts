@@ -240,6 +240,8 @@ const rt = {
     const u = game.seated ?? v;
     return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
   },
+  /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
+  garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
   partName: (id: string) => partDef(id).name,

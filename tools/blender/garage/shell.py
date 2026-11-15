@@ -50,7 +50,7 @@ def roof_under(z):
 
 # ---------------------------------------------------------------------------------------------- helpers
 
-def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None):
+def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None, cast=None):
     """
     A six-sided solid from its 8 corners (game frame): c = [b0, b1, b2, b3, t0, t1, t2, t3], bottom
     ring and top ring in the same order. faces_mat(normal) picks a material per face.
@@ -64,6 +64,7 @@ def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None):
         except ValueError:
             pass
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    K._cast(mat, bm, None, cast, mover)
     K._bevel(bm, bev)
     K._shade(bm, False)
     fm = None
@@ -419,6 +420,15 @@ def sheet(K, s, x0, x1, z0, z1, pitch_wave, amp, mat_out, mat_in):
         for f in bm.faces:
             f.smooth = True
     tint = 1.0 + K.jitter(0.06)
+    # the sheet casts the sun's shadow as one flat quad (a clear sheet casts none)
+    if mat_out != 'skylight':
+        q = bmesh.new()
+        za, zb = s * z0, s * z1
+        vs = [q.verts.new((x0, roof_under(za) + 0.01, za)), q.verts.new((x1, roof_under(za) + 0.01, za)),
+              q.verts.new((x1, roof_under(zb) + 0.01, zb)), q.verts.new((x0, roof_under(zb) + 0.01, zb))]
+        q.faces.new(vs)
+        K._cast(mat_out, q, None, True)
+        q.free()
     K._pour(bm_o, mat_out, (tint, tint, tint))
     K._pour(bm_i, mat_in, (tint, tint, tint))
 
