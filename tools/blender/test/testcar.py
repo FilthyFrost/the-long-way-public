@@ -650,19 +650,21 @@ def build_interior(coll):
     parts.append(ck.rbox('dash_wood', (0.252, -0.12, 0.81), (0.02, 0.9, 0.055), radius=0.008, mat='wood', coll=coll))
     parts.append(ck.rbox('gauge_hood', (0.32, 0.36, 0.91), (0.2, 0.42, 0.075), radius=0.03, segments=3, mat='plastic_int', coll=coll))
     for k, y in enumerate((0.27, 0.45)):
-        face = ck.lathe(f'gauge{k}', [(0.062, 0.0), (0.0, 0.0)], segments=40, mat='gauge', uv_radial=True, coll=coll)
+        # (built facing +Y and turned to face the driver: u would run to his left, so it is mirrored)
+        face = ck.lathe(f'gauge{k}', [(0.062, 0.0), (0.0, 0.0)], segments=40, mat='gauge', uv_radial=True, uv_flip_u=True, coll=coll)
         bez = ck.lathe(f'gauge{k}_bezel', [(0.072, -0.004), (0.07, 0.006), (0.062, 0.0)], segments=40, mat='chrome', coll=coll)
         needle = ck.rbox(f'needle{k}', (0.0, 0.004, 0.02), (0.004, 0.003, 0.05), radius=0.0, mat='emit', coll=coll)
         for o in (face, bez, needle):
             # built facing +Y; turned to face −X (the driver)
             o.rotation_euler = (0, 0, math.pi / 2)
-            o.location = (0.255, y, 0.875)
+            # in front of the hood's open face (it ends at x = 0.22)
+            o.location = (0.214, y, 0.875)
             ck.apply_transform(o)
             parts.append(o)
     for k in range(3):
         lamp = ck.lathe(f'dash_lamp{k}', [(0.007, 0.0), (0.006, 0.002), (0.0, 0.003)], segments=10, mat='emit', coll=coll)
         lamp.rotation_euler = (0, 0, math.pi / 2)
-        lamp.location = (0.252, 0.33 + k * 0.03, 0.83)
+        lamp.location = (0.248, 0.33 + k * 0.03, 0.825)
         ck.apply_transform(lamp)
         parts.append(lamp)
     # steering wheel: leather rim, three aluminium spokes, a chrome boss, on a black column

@@ -10,12 +10,14 @@
  *   &sun=60                                 turn the model so the sun stands there (° from its nose, + = its right)
  *   &paint=9e2f22 &paint2=e6dccb            the two paints (sRGB hex)
  *   &dirt=0.5 &rust=0.3 &wear=0.2           wear for the whole model
- *   &lights=1|2 &brake=1 &turn=L|R          lamps: low / high beam, brake lamps, indicator
+ *   &lights=1|2 &brake=1 &turn=L|R &reverse=1   lamps: low / high beam, brake lamps, indicator, reversing lamps
+ *   &cabin=1                                the cabin lamp (warm, as the game has it at night)
  *   &ghost=1|empty|replace|blocked          draw the model as the install hologram
  *   &stage=studio|proving|world             painted concrete floor (default), the proving ground, or parked
  *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
  *   &spin=1                                 turntable (live view)
- *   &debug=ao|mat|normal                    the baked AO, a flat colour per material, the normals
+ *   &debug=ao|mat|normal|env                the baked AO, a flat colour per material, the normals, the
+ *                                           mirrored regions (sky, bright band, horizon, dark band, ground)
  *   &merge=1|2                              static parts merged into one mesh per material (2: plus a second,
  *                                           repainted, dirty copy in the same meshes: per-vertex colour and wear)
  *   &highlight=2|WHEEL_FL                   light up a part: its id in the merged meshes, or an object's name
@@ -29,7 +31,6 @@ import { Environment } from '../env/environment';
 import { applyCarMaterials, applyGhost, carEnvUniforms, carShadows, type CarLook, type GhostKind } from '../render/carMaterials';
 import { mergeCarParts, type MergePart } from '../render/carMerge';
 import { RenderCore, type Quality } from '../render/core';
-import { maskPreservingBlend } from '../render/materials';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS, globals } from '../render/shaderlib';
 import { ProvingGround } from '../scene/provingGround';
 import { WorldView } from '../scene/worldView';
@@ -55,6 +56,9 @@ export interface ViewerParams {
   lights: number;
   brake: number;
   turn: '' | 'L' | 'R';
+  reverse: boolean;
+  /** the cabin lamp on (as the game's VehicleView at night) */
+  cabin: boolean;
   ghost: GhostKind | null;
   stage: 'studio' | 'proving' | 'world';
   /** world stage: distance along the road (m), first biome, biome length factor, lane (m right of the centre line) */
@@ -117,6 +121,8 @@ export function readViewerParams(search: string = window.location.search): Viewe
     lights: lights === 'high' ? 2 : lights === 'low' ? 1 : Math.max(0, Math.min(2, num('lights', 0))),
     brake: num('brake', 0),
     turn: turn === 'L' || turn === 'R' ? turn : '',
+    reverse: flag('reverse'),
+    cabin: flag('cabin'),
     ghost,
     stage: get('stage') === 'proving' ? 'proving' : get('stage') === 'world' ? 'world' : 'studio',
     s: num('s', 3180),
@@ -129,7 +135,7 @@ export function readViewerParams(search: string = window.location.search): Viewe
     post: flag('post', true),
     shot: flag('shot'),
     seed: num('seed', 20261113),
-    debug: ({ ao: 1, mat: 2, normal: 3 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
+    debug: ({ ao: 1, mat: 2, normal: 3, env: 4 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
     merge: num('merge', 0),
     highlight: get('highlight') ?? '',
   };
@@ -179,7 +185,7 @@ function stageMaterial(): THREE.ShaderMaterial {
 /** the soft dark under a car where the sky does not reach (the cast shadow is the shadow maps' job) */
 function contactShadow(length: number, width: number): THREE.Mesh {
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uStrength: { value: 0.42 } },
+    uniforms: { uStrength: { value: 0.75 } },
     vertexShader: /* glsl */ `
       #include <common>
       #include <logdepthbuf_pars_vertex>
@@ -201,13 +207,21 @@ function contactShadow(length: number, width: number): THREE.Mesh {
         vec2 q = abs(d) - vec2(0.62, 0.45);
         float r = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
         float a = 1.0 - smoothstep(-0.25, 0.42, r);
-        gl_FragColor = vec4(0.03, 0.045, 0.08, a * uStrength);
+        // it darkens what is under it (by day and by night alike), tinted by the sky it hides
+        gl_FragColor = vec4(mix(vec3(1.0), vec3(0.42, 0.47, 0.6), a * uStrength), 1.0);
       }`,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
-  maskPreservingBlend(mat);
+  // multiply the colour under it; keep the alpha (the paint finish and the ink read it)
+  mat.transparent = true;
+  mat.depthWrite = false;
+  mat.blending = THREE.CustomBlending;
+  mat.blendSrc = THREE.ZeroFactor;
+  mat.blendDst = THREE.SrcColorFactor;
+  mat.blendSrcAlpha = THREE.ZeroFactor;
+  mat.blendDstAlpha = THREE.OneFactor;
   const geo = new THREE.PlaneGeometry(length, width);
   geo.rotateX(-Math.PI / 2);
   const m = new THREE.Mesh(geo, mat);
@@ -430,12 +444,15 @@ export class ModelViewer {
     core.shadowFocus.y += Math.max(0.5, this.bounds.isEmpty() ? 0.7 : (this.bounds.min.y + this.bounds.max.y) / 2);
     // lamps: the model's own, and the beam on the floor in front of it
     const blink = Math.floor(this.time / 0.38) % 2 === 0;
-    this.look?.setLights({ head: this.lights, tail: this.lights > 0, brake: this.brake, turnLeft: this.turn === 'L' && blink, turnRight: this.turn === 'R' && blink });
+    this.look?.setLights({ head: this.lights, tail: this.lights > 0, brake: this.brake, turnLeft: this.turn === 'L' && blink, turnRight: this.turn === 'R' && blink, reverse: this.params.reverse });
     const from = this.carRoot.localToWorld(this.beamFrom.clone());
     globals.uHeadPos.value.copy(from);
     globals.uHeadDir.value.set(Math.cos(psi), -0.1, Math.sin(psi)).normalize();
     if (this.lights > 0 && !this.ghost) globals.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(this.lights > 1 ? 3.0 : 2.4);
     else globals.uHeadColor.value.setRGB(0, 0, 0);
+    // the cabin lamp: the game's warm bulb at its strength (vehicle/view.ts)
+    if (this.params.cabin) globals.uCabinLamp.value.setRGB(1.0, 0.7, 0.42).multiplyScalar(0.62);
+    else globals.uCabinLamp.value.setRGB(0, 0, 0);
   }
 
   render(): void {
