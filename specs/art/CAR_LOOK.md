@@ -96,7 +96,7 @@ GLB（Blender 导出，材质只有名字）
 - `ghostMaterial(kind)` / `applyGhost(root, kind, focused)`：`empty` 青白实心、`replace` 更淡、`blocked` 橙红；准星对准的用 `focused`（亮 1.6 倍）。
 - 加色混合，菲涅尔亮边 + 形体折线 + 世界坐标横向扫描线（缓慢上移，偶尔一条亮线扫过）+ 呼吸。
 - 每个网格先画一遍只写深度的影子，再画颜色：幽灵是一层“皮”，不是所有层叠成一团白。
-- 被挡住的部分（替换件在旧件里面、车身后面的零件）用第三个孪生按一半强度“透视”画出来：`focused` 或 `replace` 默认带（`applyGhost(root, kind, focused, xray?)`）。准星下的 `replace` 至少和没对准的 `empty` 一样亮。
+- 被挡住的部分（替换件在旧件里面、车身后面的零件）用第三个孪生“透视”提示出来：`focused` 或 `replace` 默认带（`applyGhost(root, kind, focused, xray?)`）。**只是提示**：亮度为幽灵的 1/4，而且取“它和挡住它的东西里亮的那个”（MAX 混合），不一层层叠加——隔着车看另一边的车轮，十几层面叠起来就像浮在引擎盖上的一个亮盘。准星下的 `replace` 至少和没对准的 `empty` 一样亮。
 - alpha 用 MIN 混合写 0.5：颜料收尾不涂它，车身的描线 id 不被破坏。不进阴影贴图。
 
 ## 7. 高亮（看着已装的零件）
