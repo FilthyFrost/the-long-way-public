@@ -431,8 +431,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the shade tone is tuned on its own: deeper and more saturated than the lit one, cooled by the sky
     float pk = max(max(paint.r, paint.g), max(paint.b, 1e-3));
     vec3 shadeTone = paint * mix(vec3(1.0), paint / pk, 0.45) * 0.86;
-    // (a crevice the shadow maps cannot see into — a panel gap, under a trim strip — is kept from the sun by the AO)
-    float sunAO = smoothstep(0.12, 0.62, ao);
+    // (a crevice the shadow maps cannot see into — a panel gap, under a trim strip — is kept from the sun by
+    // the AO; only real crevices: the broad soft AO round a mirror or a bumper must not become a blurred shadow)
+    float sunAO = smoothstep(0.1, 0.32, ao);
     vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full) * sunAO), lit);
     col = diffuse;
     // the clear coat: light laid over the colour, never a wash of grey across it
@@ -474,7 +475,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // ---------------------------------------------------------------- chrome, steel, aluminium
     float contrast = gloss;
     CarEnv e = rtCarEnv(Re, mix(0.03, 0.001, contrast));
-    vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.12, 0.62, ao));
+    vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.1, 0.32, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
     // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
     vec3 skyc = mix(e.upper * 1.15, e.bright * 1.45, e.band);
@@ -533,7 +534,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #ifdef RT_CABIN
     col = rtCabin(albedo, n, sh) * mix(0.45, 1.0, ao);
     #else
-    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.12, 0.62, ao));
+    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.1, 0.32, ao));
     #endif
     // a broad soft highlight (shiny plastic, leather, lacquer) and a sheen at grazing angles (cloth, rubber)
     vec3 hv = normalize(v + uSunDir);
@@ -1018,20 +1019,29 @@ const ghosts = new Map<string, THREE.ShaderMaterial>();
 /**
  * The hologram of a part that can be installed (docs/MODCAR.md §5.2): cyan-white light added on top of
  * the frame, bright at the rim, horizontal scanlines drifting up, breathing slowly. 'replace' is fainter
- * (a part is already there), 'blocked' is orange-red. No depth write, never in the shadow maps. One
- * material per kind (and one more for the ghost one aims at), shared by every ghost.
+ * (a part is already there) until it is the one aimed at; 'blocked' is orange-red. No depth write, never
+ * in the shadow maps. One material per kind and state, shared by every ghost.
+ *   focused  the ghost under the mark: brighter; a focused 'replace' is at least as bright as an 'empty'
+ *            (and keeps its denser scanlines, so the two stay apart)
+ *   xray     the twin that draws what of the ghost is hidden (inside the part it would replace, behind a
+ *            panel): front faces only, behind the scene's depth, at half strength
  */
-export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMaterial {
-  const key = `${kind}${focused ? '+' : ''}`;
+export function ghostMaterial(kind: GhostKind, focused = false, xray = false): THREE.ShaderMaterial {
+  const key = `${kind}${focused ? '+' : ''}${xray ? 'x' : ''}`;
   let m = ghosts.get(key);
   if (m) return m;
   const color = kind === 'blocked' ? new THREE.Color(1.0, 0.3, 0.1) : new THREE.Color(0.32, 0.85, 1.0);
+  const dim = kind === 'replace' && !focused;
+  const look = dim ? new THREE.Vector4(0.05, 1.0, 0.5, 1.0) : new THREE.Vector4(0.12, 1.7, 1.0, kind === 'replace' ? 1.25 : focused ? 1.6 : 1.0);
+  if (xray) look.w *= 0.5;
   m = new THREE.ShaderMaterial({
     uniforms: {
       ...globals,
       uGhostColor: { value: color },
       // x: fill, y: rim, z: scanlines, w: brightness
-      uGhost: { value: new THREE.Vector4(kind === 'replace' ? 0.05 : 0.12, kind === 'replace' ? 1.0 : 1.7, kind === 'replace' ? 0.5 : 1.0, focused ? 1.6 : 1.0) },
+      uGhost: { value: look },
+      // scanlines per metre
+      uGhostScan: { value: kind === 'replace' ? 40 : 26 },
     },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
@@ -1045,6 +1055,7 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
       ${GLSL_COMMON}
       uniform vec3 uGhostColor;
       uniform vec4 uGhost;
+      uniform float uGhostScan;
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vNormal);
@@ -1057,7 +1068,7 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
         float breathe = 0.78 + 0.22 * sin(uTime * 2.2);
         // scanlines in the world, drifting up; a brighter one sweeps up through the part now and then
         float y = vPos.y + uOriginOffset.y;
-        float lines = smoothstep(0.3, 0.5, abs(fract(y * 26.0 - uTime * 0.5) - 0.5));
+        float lines = smoothstep(0.3, 0.5, abs(fract(y * uGhostScan - uTime * 0.5) - 0.5));
         float sweep = exp(-pow(fract(y * 0.6 - uTime * 0.35) - 0.5, 2.0) * 900.0);
         float k = uGhost.x + uGhost.y * rim + uGhost.y * 0.35 * crease + uGhost.z * 0.12 * lines + 0.35 * sweep;
         k *= breathe * uGhost.w;
@@ -1065,10 +1076,10 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
         vec3 c = uGhostColor * k + vec3(1.0) * rim * rim * 0.5 * uGhost.w;
         gl_FragColor = vec4(c, 0.5);
       }`,
-    side: THREE.DoubleSide,
+    side: xray ? THREE.FrontSide : THREE.DoubleSide,
     transparent: true,
     depthWrite: false,
-    depthFunc: THREE.LessEqualDepth,
+    depthFunc: xray ? THREE.GreaterDepth : THREE.LessEqualDepth,
     blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation,
     blendSrc: THREE.OneFactor,
@@ -1089,14 +1100,17 @@ let ghostDepth: THREE.Material | null = null;
 /**
  * Draw a whole model as a ghost of the given kind, out of the shadow maps. Each mesh gets a depth-only twin
  * drawn just before it, so the hologram is one skin (the surface nearest the eye), not every layer of the
- * part added up to white. Two draw calls per mesh; ghosts are few.
+ * part added up to white; and, when `xray` (default: focused or 'replace'), a third twin that draws what of
+ * the ghost is hidden at half strength — a replacement sits inside the part it would replace, and the ghost
+ * under the mark must always read. Two or three draw calls per mesh; ghosts are few. Calling it again on
+ * the same model switches kind and state.
  */
-export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = false): void {
+export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = false, xray = focused || kind === 'replace'): void {
   ghostDepth ??= new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
   const meshes: THREE.Mesh[] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh && !mesh.userData.ghostDepth) meshes.push(mesh);
+    if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray) meshes.push(mesh);
   });
   for (const mesh of meshes) {
     mesh.material = ghostMaterial(kind, focused);
@@ -1109,5 +1123,16 @@ export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = fals
       d.frustumCulled = mesh.frustumCulled;
       mesh.add(d);
     }
+    let x = mesh.children.find((c) => c.userData.ghostXray) as THREE.Mesh | undefined;
+    if (xray) {
+      if (!x) {
+        x = new THREE.Mesh(mesh.geometry);
+        x.userData.ghostXray = true;
+        x.renderOrder = 22;
+        x.frustumCulled = mesh.frustumCulled;
+        mesh.add(x);
+      }
+      x.material = ghostMaterial(kind, focused, true);
+    } else if (x) mesh.remove(x);
   }
 }

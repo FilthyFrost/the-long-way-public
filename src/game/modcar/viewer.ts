@@ -21,6 +21,8 @@
  *   &merge=1|2                              static parts merged into one mesh per material (2: plus a second,
  *                                           repainted, dirty copy in the same meshes: per-vertex colour and wear)
  *   &highlight=2|WHEEL_FL                   light up a part: its id in the merged meshes, or an object's name
+ *   &ghostpart=test/testwheel &ghostat=1.18,0.285,-0.7 &ghostkind=replace &ghostfocus=1
+ *                                           a second model as a ghost at a point of the first (model frame)
  *   &fov=40 &quality=high &post=1 &shot=1   (shot = the harness drives simulate / render)
  *
  * Live: drag to orbit, wheel to zoom, L lamps, B brake, G ghost kinds, P paints, D dirt, R rust, T hour +1, space spin.
@@ -76,6 +78,11 @@ export interface ViewerParams {
   debug: number;
   merge: number;
   highlight: string;
+  /** a second GLB drawn as a ghost at ghostAt (model frame) */
+  ghostPart: string;
+  ghostAt: [number, number, number];
+  ghostKind: GhostKind;
+  ghostFocus: boolean;
 }
 
 /** 'frames/sedan' → /models/modcar/frames/sedan.glb; absolute paths and URLs are taken as they are */
@@ -138,6 +145,10 @@ export function readViewerParams(search: string = window.location.search): Viewe
     debug: ({ ao: 1, mat: 2, normal: 3, env: 4 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
     merge: num('merge', 0),
     highlight: get('highlight') ?? '',
+    ghostPart: get('ghostpart') ? glbUrl(get('ghostpart')!) : '',
+    ghostAt: ((a) => (a.length === 3 && a.every(Number.isFinite) ? [a[0], a[1], a[2]] : [0, 0, 0]) as [number, number, number])(list('ghostat')),
+    ghostKind: get('ghostkind') === 'replace' || get('ghostkind') === 'blocked' ? (get('ghostkind') as GhostKind) : 'empty',
+    ghostFocus: flag('ghostfocus'),
   };
 }
 
@@ -316,6 +327,14 @@ export class ModelViewer {
     const gltf = await new GLTFLoader().loadAsync(url);
     const model = gltf.scene;
     this.setModel(model);
+    const p = this.params;
+    if (p.ghostPart) {
+      // a part held up to the model: drawn as the install hologram where it would go
+      const part = (await new GLTFLoader().loadAsync(p.ghostPart)).scene;
+      part.position.set(...p.ghostAt);
+      applyGhost(part, p.ghostKind, p.ghostFocus);
+      this.carRoot.add(part);
+    }
   }
 
   setModel(model: THREE.Object3D): void {
