@@ -28,6 +28,14 @@ try {
   await rt('pickUp', 'bat_std');
   await rt('aim', 0, 'battery', 1.4);
   await rt('useFor', 1.6);
+  // the petrol can into the donor's bed
+  await rt('pickUp', 'tool:jerrycan');
+  await rt('aim', 1, 'seat_rear', 1.2);
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    g.player.putDown();
+    for (let i = 0; i < 60; i++) g.step(1 / 60, 1);
+  });
   await rt('pickUp', 'rim_steel13');
   const fitted = await page.evaluate(() => ({ battery: !!window.__rt.game.vehicles[0].build.parts.battery, held: window.__rt.telemetry().held, loose: window.__rt.game.loose.list.length }));
   await page.evaluate(() => window.__rt.game.save());
@@ -36,7 +44,8 @@ try {
   await ready();
   const after = await page.evaluate(() => {
     const g = window.__rt.game;
-    return { battery: !!g.vehicles[0].build.parts.battery, loose: g.loose.list.length, vehicles: g.vehicles.length, done: [...g.done], held: window.__rt.telemetry().held, toast: document.querySelector('.mc-toast')?.textContent ?? '' };
+    const can = g.loose.list.find((x) => x.tool?.kind === 'jerrycan' && x.tool.fuel === 'petrol');
+    return { battery: !!g.vehicles[0].build.parts.battery, loose: g.loose.list.length, vehicles: g.vehicles.length, done: [...g.done], held: window.__rt.telemetry().held, canRides: can?.riding?.on === g.vehicles[1], toast: document.querySelector('.mc-toast')?.textContent ?? '' };
   });
   console.log('fitted', JSON.stringify(fitted));
   console.log('after reload', JSON.stringify(after));
@@ -44,6 +53,7 @@ try {
   // (the wheel that was in the hands lies where one stood: one more thing about than before it was taken up)
   if (after.loose !== fitted.loose + 1) fail(`things lying about: ${after.loose}, expected ${fitted.loose + 1}`);
   if (after.vehicles !== 2) fail('the donor is gone');
+  if (!after.canRides) fail("the can in the donor's bed did not come back on board");
   if (!after.done.includes('hood')) fail('the checklist forgot the bonnet');
   // F9 twice: a new game
   await page.keyboard.press('F9');

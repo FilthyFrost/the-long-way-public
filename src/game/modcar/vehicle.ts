@@ -3,6 +3,7 @@
  * a solid for whoever walks round it. A vehicle nobody drives sleeps (is not simulated) once it has
  * settled, and wakes when a part goes on or comes off, or when someone gets in.
  */
+import * as THREE from 'three';
 import type { RenderCore } from '../render/core';
 import { ModSystems, type ModEnv } from '../../core/modcar/systems';
 import type { Build } from '../../core/modcar/types';
@@ -11,10 +12,22 @@ import type { VehicleSpec } from '../../core/vehicle/spec';
 import type { Ground } from '../../core/world/ground';
 import { VehicleSolid } from '../../core/onfoot/vehicle';
 import { CarView } from './carView';
+import type { Carrier } from './loose';
 
 const IDLE: VehicleInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 
-export class ModVehicle {
+const DOWN = new THREE.Vector3(0, -1, 0);
+
+/** a mesh one can put a thing on: shown, and no ghost (the hologram of a part to come) */
+function visibleUp(o: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+    if (!p.visible || p.name.startsWith('ghost:')) return false;
+  }
+  return true;
+}
+
+/** a vehicle: its systems, its simulation, its view, its body as a solid; things put on it ride with it */
+export class ModVehicle implements Carrier {
   readonly sys: ModSystems;
   readonly sim: VehicleSim;
   readonly view: CarView;
@@ -45,6 +58,39 @@ export class ModVehicle {
     this.view = new CarView(build, this.sys.derived);
     core.scene.add(this.view.root);
     this.solid = new VehicleSolid(this.sim);
+    this.origin = core.origin;
+  }
+
+  // ------------------------------------------------------------------ things put on it
+
+  private readonly origin: { x: number; y: number; z: number };
+  private readonly ray = new THREE.Raycaster();
+  private readonly rayFrom = new THREE.Vector3();
+  private readonly rayN = new THREE.Vector3();
+
+  get frame(): THREE.Object3D {
+    return this.view.root;
+  }
+
+  /**
+   * The highest surface of the vehicle at (x, z) (world) not above `fromY`: its bed's floor, a seat, the
+   * roof, the bonnet; a wall or a side it passes (things slide off those). Null where none of it is under
+   * the point. Looked up once as something starts to fall.
+   */
+  surfaceAt(x: number, z: number, fromY: number): number | null {
+    const s = this.sim;
+    if (Math.hypot(x - s.px, z - s.pz) > s.spec.body.halfLength + 0.6) return null;
+    const o = this.origin;
+    this.view.root.updateMatrixWorld(true);
+    this.ray.set(this.rayFrom.set(x - o.x, fromY - o.y, z - o.z), DOWN);
+    this.ray.far = 5;
+    for (const h of this.ray.intersectObject(this.view.root, true)) {
+      if (!h.face || !visibleUp(h.object)) continue;
+      const n = this.rayN.copy(h.face.normal).transformDirection(h.object.matrixWorld);
+      if (n.y < 0.55) continue;
+      return h.point.y + o.y;
+    }
+    return null;
   }
 
   get build(): Build {

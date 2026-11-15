@@ -191,6 +191,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.ground = this.world!;
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
+    // (things put on a vehicle ride with it)
+    this.loose.carriers = () => this.vehicles;
     this.heldThing = new HeldThing(this.core);
     this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
@@ -294,6 +296,7 @@ export class ModGame implements PlayerHost, CockpitHost {
         v.radioOn = !!this.restore.vehicles[0].radioOn;
         v.radioSong = this.restore.vehicles[0].radioSong ?? 0;
         for (const d of this.restore.done) this.done.add(d);
+        this.restoreLoose(this.restore.loose.filter((l) => l.on === 0));
         this.ui.say('接着上次的路。（连按两次 F9 从车库重新开始）', 5);
       }
       v.sys.startNow();
@@ -322,6 +325,15 @@ export class ModGame implements PlayerHost, CockpitHost {
     return -Math.max(0, Math.min(0.18, below - 0.38));
   }
 
+  /** the things of a save: on the floor where they lay, on board the vehicle they rode on */
+  private restoreLoose(list: SavedLoose[]): void {
+    for (const l of list) {
+      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : null;
+      const v = l.on !== undefined ? this.vehicles[l.on] : undefined;
+      if (thing && v && l.pos && l.rot) this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
+    }
+  }
+
   /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */
   private restoreGarage(s: SaveV1): void {
     for (const sv of s.vehicles) {
@@ -330,10 +342,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       v.radioSong = sv.radioSong ?? 0;
     }
     this.focus = this.vehicles[0] ?? null;
-    for (const l of s.loose) {
-      if (l.part) this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw);
-      else if (l.tool) this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw);
-    }
+    this.restoreLoose(s.loose);
     for (const d of s.done) this.done.add(d);
     this.player.walker.place(s.player.x, s.player.z, s.player.heading);
     this.input.lookYaw = s.player.heading;
@@ -350,7 +359,11 @@ export class ModGame implements PlayerHost, CockpitHost {
   snapshot(): SaveV1 | null {
     if (this.params.shot || this.fadeT >= 0 || !this.vehicles.length) return null;
     const w = this.player.walker;
-    const loose: SavedLoose[] = this.loose.list.map((l) => ({ part: l.part ?? undefined, tool: l.tool ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw }));
+    const loose: SavedLoose[] = this.loose.list.map((l) => {
+      const r = l.riding;
+      const on = r ? this.vehicles.indexOf(r.on as ModVehicle) : -1;
+      return { part: l.part ?? undefined, tool: l.tool ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray() } : {}) };
+    });
     // what is in the hands is put down where one stands
     const h = this.player.held;
     if (h) loose.push({ part: h.kind === 'part' ? h.inst : undefined, tool: h.kind === 'tool' ? h.tool : undefined, x: w.x, y: w.y, z: w.z, yaw: w.heading });
@@ -367,8 +380,10 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
       const v = this.seated ?? this.focus ?? this.vehicles[0];
-      s.vehicles = s.vehicles.filter((_, i) => this.vehicles[i] === v);
-      s.loose = [];
+      const vi = this.vehicles.indexOf(v);
+      s.vehicles = s.vehicles.filter((_, i) => i === vi);
+      // (and what rides on it)
+      s.loose = s.loose.filter((l) => l.on === vi).map((l) => ({ ...l, on: 0 }));
       s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
     }
     return s;
@@ -892,6 +907,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (this.garage) this.garage.update(dt, this.garageContext());
     this.leaveGarage(dt);
     this.updateViews(dt, alpha);
+    this.loose.follow();
   }
 
   private garageContext(): GarageContext {
@@ -989,7 +1005,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       // the garage and what lies in it stay behind
       this.garage.dispose();
       this.garage = null;
-      for (const l of [...this.loose.list]) this.loose.remove(l);
+      // (but what is on board goes too)
+      for (const l of [...this.loose.list]) if (l.riding?.on !== v) this.loose.remove(l);
       for (const o of this.vehicles.filter((x) => x !== v)) o.view.dispose();
       this.vehicles.splice(0, this.vehicles.length, v);
       this.makeWorld();

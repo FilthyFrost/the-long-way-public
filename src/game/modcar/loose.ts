@@ -1,7 +1,9 @@
 /**
  * Things lying about (docs/MODCAR.md §5): parts taken off a vehicle or waiting on a shelf, and the
  * tools — a jerrycan, a bottle of water, an oil can, spray cans, a sponge. Put down, they drop onto
- * whatever surface is under them (the floor, a shelf, a bench) and stay there.
+ * whatever surface is under them (the floor, a shelf, a bench) and stay there. Put down over a vehicle
+ * (into a pickup's bed, onto a seat, a roof, a bonnet) they land on it and ride with it, tied down,
+ * wherever it goes: the spare jerrycan on the road.
  */
 import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
@@ -29,10 +31,31 @@ export interface Loose {
   /** pick sphere radius and the height of its middle above the base (m) */
   radius: number;
   mid: number;
+  /** lying on a vehicle, riding with it */
+  riding?: Riding | null;
+  /** where it will land as it falls: found once when it starts, the floor or a vehicle's surface */
+  landing?: { y: number; on: Carrier | null };
 }
 
 /** where a dropped thing comes to rest: the highest surface at (x, z) not above `fromY` */
 export type SurfaceAt = (x: number, z: number, fromY: number) => number;
+
+/** something that things can lie on and ride with (a vehicle) */
+export interface Carrier {
+  /** the highest surface of it at world (x, z) not above `fromY`; null where none of it is under that point */
+  surfaceAt(x: number, z: number, fromY: number): number | null;
+  /** the group the things on it ride in (render space, moving with it) */
+  readonly frame: THREE.Object3D;
+}
+
+/** where a thing lies in its carrier's frame (render metres and turn) */
+export interface Riding {
+  on: Carrier;
+  pos: THREE.Vector3;
+  rot: THREE.Quaternion;
+}
+
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
 const toolMats = new Map<string, THREE.MeshStandardMaterial>();
 function tm(name: string): THREE.MeshStandardMaterial {
@@ -111,6 +134,11 @@ export class LooseThings {
   private readonly sphere = new THREE.Sphere();
   private readonly ray = new THREE.Ray();
   private readonly hit = new THREE.Vector3();
+
+  /** the vehicles things can be put on (the game fills this in) */
+  carriers: () => readonly Carrier[] = () => [];
+  private readonly qa = new THREE.Quaternion();
+  private readonly va = new THREE.Vector3();
 
   constructor(
     private readonly core: RenderCore,
@@ -229,6 +257,8 @@ export class LooseThings {
     this.mergeDirty = false;
     const entries: { id: number; object: THREE.Object3D; look: { paint: number; paint2: number; dirt?: number; rust?: number; wear?: number } }[] = [];
     for (const l of this.list) {
+      // (what rides on a vehicle moves with it: not merged)
+      if (l.riding) continue;
       const id = entries.length + 1;
       const look: LookOf = l.part ? partLook(l.part) : { paint: toolPaint(l.tool!), paint2: toolPaint(l.tool!) };
       this.mergeIds.set(l.uid, id);
@@ -281,7 +311,73 @@ export class LooseThings {
   drop(l: Loose): void {
     l.resting = false;
     l.vy = 0;
+    l.riding = null;
+    l.landing = undefined;
     this.unmerge();
+  }
+
+  /** where a thing starting to fall at (x, y, z) lands: the floor, or a vehicle under it if that is higher */
+  private landingOf(l: Loose): { y: number; on: Carrier | null } {
+    let y = this.surfaceAt(l.x, l.z, l.y + 0.05);
+    let on: Carrier | null = null;
+    for (const c of this.carriers()) {
+      const s = c.surfaceAt(l.x, l.z, l.y + 0.05);
+      if (s !== null && s > y) {
+        y = s;
+        on = c;
+      }
+    }
+    return { y, on };
+  }
+
+  /** it lies on a carrier from now on, where it is (or at a place in the carrier's frame already known) */
+  ride(l: Loose, on: Carrier, at?: { pos: THREE.Vector3; rot: THREE.Quaternion }): void {
+    if (at) {
+      l.riding = { on, pos: at.pos.clone(), rot: at.rot.clone() };
+    } else {
+      on.frame.updateMatrixWorld(true);
+      const o = this.core.origin;
+      const pos = on.frame.worldToLocal(this.va.set(l.x - o.x, l.y - o.y, l.z - o.z)).clone();
+      // its turn relative to the carrier's
+      const q = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, -l.yaw);
+      const rot = on.frame.getWorldQuaternion(this.qa).invert().multiply(q);
+      l.riding = { on, pos, rot };
+    }
+    l.resting = true;
+    this.mergeDirty = true;
+  }
+
+  /** what rides on a carrier */
+  ridersOf(on: Carrier): Loose[] {
+    return this.list.filter((l) => l.riding?.on === on);
+  }
+
+  /**
+   * The things riding on vehicles go where their vehicles went this frame (call after the vehicles'
+   * views are placed).
+   */
+  follow(): void {
+    const o = this.core.origin;
+    // (the floating origin may have moved since update)
+    this.core.place(this.root, 0, 0, 0);
+    this.root.updateMatrixWorld();
+    for (const l of this.list) {
+      const r = l.riding;
+      if (!r) continue;
+      r.on.frame.updateMatrixWorld();
+      const p = r.on.frame.localToWorld(this.va.copy(r.pos));
+      l.x = p.x + o.x;
+      l.y = p.y + o.y;
+      l.z = p.z + o.z;
+      const q = r.on.frame.getWorldQuaternion(this.qa).multiply(r.rot);
+      l.obj.position.set(l.x, l.y, l.z);
+      l.obj.quaternion.copy(q);
+      // (its heading, for whoever puts it down again)
+      const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+      l.yaw = -e.y;
+      l.obj.updateMatrixWorld();
+      this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
+    }
   }
 
   update(dt: number): void {
@@ -289,7 +385,8 @@ export class LooseThings {
     this.core.place(this.root, 0, 0, 0);
     for (const l of this.list) {
       if (!l.resting) {
-        const floor = this.surfaceAt(l.x, l.z, l.y + 0.05);
+        l.landing ??= this.landingOf(l);
+        const floor = l.landing.y;
         l.vy -= 9.81 * dt;
         l.y += l.vy * dt;
         if (l.y <= floor) {
@@ -297,10 +394,14 @@ export class LooseThings {
           l.vy = 0;
           l.resting = true;
           this.mergeDirty = true;
+          if (l.landing.on) this.ride(l, l.landing.on);
+          l.landing = undefined;
         }
       }
-      l.obj.position.set(l.x, l.y, l.z);
-      l.obj.rotation.y = -l.yaw;
+      if (!l.riding) {
+        l.obj.position.set(l.x, l.y, l.z);
+        l.obj.rotation.set(0, -l.yaw, 0);
+      }
       // a part's wear follows it (the sponge works on things lying about too); its dirt rises from its base
       if (l.part) {
         const look = partLook(l.part);
@@ -312,8 +413,10 @@ export class LooseThings {
           this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
         }
       }
-      l.obj.updateMatrixWorld();
-      this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
+      if (!l.riding) {
+        l.obj.updateMatrixWorld();
+        this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
+      }
     }
     this.tryMerge();
     if (this.mergedLook) {

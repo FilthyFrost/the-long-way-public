@@ -28,6 +28,10 @@ export interface SavedLoose {
   y: number;
   z: number;
   yaw: number;
+  /** riding on a vehicle (its index in `vehicles`): where in its frame, turned how */
+  on?: number;
+  pos?: number[];
+  rot?: number[];
 }
 
 export interface SaveV1 {
