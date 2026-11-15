@@ -241,10 +241,17 @@ describe('ModCar: parts change how it drives', () => {
     expect(apoc.ram).toBeGreaterThan(0.8);
   });
 
-  it('a toilet for a seat puts the driver higher', () => {
+  it('a toilet for a seat puts the driver higher, as far as the roof lets them', () => {
+    // under the motorhome's high roof the whole height of the throne shows
+    const rv = derive(decodeBuild('stock:rv'));
+    const rvLoo = derive(decodeBuild('stock:rv;seat_driver=seat_toilet'));
+    expect(rvLoo.spec.eye.y).toBeGreaterThan(rv.spec.eye.y + 0.1);
+    // in the low sedan the driver goes up until the head meets the lining, and sits hunched there
     const base = derive(decodeBuild('stock:sedan'));
     const loo = derive(decodeBuild('stock:sedan;seat_driver=seat_toilet'));
-    expect(loo.spec.eye.y).toBeGreaterThan(base.spec.eye.y + 0.1);
+    expect(loo.spec.eye.y).toBeGreaterThan(base.spec.eye.y + 0.03);
+    const roof = loo.frame.body.top - loo.cg.y;
+    expect(loo.spec.eye.y).toBeLessThanOrEqual(roof - 0.18 + 1e-9);
   });
 
   it('a V8 on the motorcycle is a different animal', () => {
