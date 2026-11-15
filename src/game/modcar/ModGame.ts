@@ -30,6 +30,7 @@ import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { preload } from './assets';
 import { buildGarageStub, type GarageDevice, type GarageScene } from './garageStub';
+import { HeldThing } from './held';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
@@ -85,6 +86,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   readonly player: ModPlayer;
   /** the controls in the cab, worked with the mouse from the driver's seat */
   readonly cockpit = new Cockpit(this);
+  /** what is in the hands, in first person */
+  readonly heldThing: HeldThing;
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -144,6 +147,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.ground = this.world!;
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
+    this.heldThing = new HeldThing(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     if (this.garage) this.player.addSolids(this.garage.solids);
@@ -621,6 +625,9 @@ export class ModGame implements PlayerHost, CockpitHost {
         cam.updateProjectionMatrix();
       }
     }
+    // the thing in the hands, on foot in first person
+    this.heldThing.set(this.player.held);
+    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit', this.player.walker.sway, 0);
     // in the seat: the mark on the cab's controls (the one it is on lights up)
     if (this.seated) {
       this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
