@@ -34,6 +34,7 @@ import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScen
 import { EngineVoice } from './engineAudio';
 import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
 import { HeldThing } from './held';
+import { Sparks } from './sparks';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
@@ -116,6 +117,9 @@ export class ModGame implements PlayerHost, CockpitHost {
   readonly cockpit = new Cockpit(this);
   /** what is in the hands, in first person */
   readonly heldThing: HeldThing;
+  /** metal on the road */
+  readonly sparks: Sparks;
+  private readonly sparkDue = new Map<ModVehicle, number>();
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -177,6 +181,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     this.heldThing = new HeldThing(this.core);
+    this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     if (this.garage) this.player.addSolids(this.garage.solids);
@@ -641,6 +646,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       v.step(dt, this.ground, this.modEnv(v), input);
     }
     this.loose.update(dt);
+    this.throwSparks(dt);
     this.checkTutorial();
     if (this.garage) this.garage.update(dt, this.garageContext());
     this.leaveGarage(dt);
@@ -669,6 +675,58 @@ export class ModGame implements PlayerHost, CockpitHost {
       };
     }
     return this.garageCtx;
+  }
+
+  private readonly sparkB = new Float64Array(9);
+  private readonly sparkL = { x: 0, y: 0, z: 0 };
+  /**
+   * Sparks where a vehicle drags metal on the road (the physics' feel.scrape): from each empty hub's drum,
+   * or else from the lowest corner of the body, thrown back the way the road goes past.
+   */
+  private throwSparks(dt: number): void {
+    for (const v of this.vehicles) {
+      const sim = v.sim;
+      const scrape = sim.feel.scrape ?? 0;
+      if (scrape < 1) continue;
+      const due = (this.sparkDue.get(v) ?? 0) + dt * 70 * Math.min(1, scrape / 8);
+      const n = Math.floor(due);
+      this.sparkDue.set(v, due - n);
+      if (!n) continue;
+      const b = this.sparkB;
+      sim.basis(b);
+      const sp = Math.hypot(sim.vx, sim.vz) || 1;
+      const back = { x: -sim.vx / sp, z: -sim.vz / sp };
+      const at = (lx: number, ly: number, lz: number): [number, number, number] => [sim.px + b[0] * lx + b[3] * ly + b[6] * lz, sim.py + b[1] * lx + b[4] * ly + b[7] * lz, sim.pz + b[2] * lx + b[5] * ly + b[8] * lz];
+      let thrown = false;
+      const hubR = sim.spec.emptyHubRadius ?? 0.45 * sim.spec.wheelRadius;
+      for (let i = 0; i < 4; i++) {
+        const w = sim.wheels[i];
+        if (w.fit !== 2) continue;
+        sim.wheelLocal(i, this.sparkL);
+        const [x, y, z] = at(this.sparkL.x, this.sparkL.y - hubR, this.sparkL.z);
+        if (y - this.groundAt(x, z) > 0.12) continue;
+        this.sparks.emit(x, y, z, back, Math.min(9, scrape * 0.8), Math.max(1, Math.round(n / 2)));
+        thrown = true;
+      }
+      if (!thrown) {
+        // the body: whichever bottom corner is nearest the ground
+        const bd = sim.spec.body;
+        let best: [number, number, number] | null = null;
+        let gap = Infinity;
+        for (const ex of [bd.centerX + bd.halfLength, bd.centerX - bd.halfLength]) {
+          for (const ez of [-bd.halfWidth * 0.8, bd.halfWidth * 0.8]) {
+            const p = at(ex, bd.bottom, ez);
+            const g = p[1] - this.groundAt(p[0], p[2]);
+            if (g < gap) {
+              gap = g;
+              best = p;
+            }
+          }
+        }
+        if (best && gap < 0.15) this.sparks.emit(best[0], best[1], best[2], back, Math.min(9, scrape * 0.8), n);
+      }
+    }
+    this.sparks.update(dt);
   }
 
   /** drove out past the apron: fade out, onto the road, fade in */
@@ -1041,6 +1099,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (wh.util > slip) slip = wh.util;
       if (wh.contact) rough = Math.max(rough, SURFACES[wh.surface].rough);
     }
+    // a bare rim grinding on the road and a hub or the body dragging on it screech like a skid
+    const grind = Math.min(1, (sim.feel.rim ?? 0) / 8 + (sim.feel.scrape ?? 0) / 4);
+    if (grind > slip) slip = grind;
+    // a flat tyre flaps
+    const flat = sim.speed > 0.5 && Object.values(v.build.parts).some((p) => !!p.sub.tire?.flat);
     const w = this.env.state;
     const eng = v.sys.derived.engine?.engine;
     this.audio.update(
@@ -1067,7 +1130,7 @@ export class ModGame implements PlayerHost, CockpitHost {
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
-        flat: false,
+        flat,
         horn: false,
         hornDetune: false,
       },

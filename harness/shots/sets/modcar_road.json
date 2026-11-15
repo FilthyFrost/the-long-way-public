@@ -12,6 +12,7 @@
     {"name": "sedan_apoc", "params": "build=stock:sedan;bumperFront=bf_ram;roof=roof_spikes;armor_L=arm_plates;armor_R=arm_plates;hub_FL=rim_off16%2Btire:tire_tractor;hub_FR=rim_off16%2Btire:tire_tractor&view=orbit&orbit=35,9,7,0.6"},
     {"name": "sedan_cockpit", "params": "build=stock:sedan&view=cockpit"},
     {"name": "moto_cockpit", "params": "build=stock:moto&view=cockpit"},
-    {"name": "sedan_night", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6&time=22", "steps": [{"call": "lights", "args": []}]}
+    {"name": "sedan_night", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6&time=22", "steps": [{"call": "lights", "args": []}]},
+    {"name": "sedan_scrape", "params": "build=stock:sedan;-hub_FL&view=orbit&orbit=-55,5,5.5,0.3&time=20.5", "steps": [{"call": "drive", "args": [2.5, 1, 0]}]}
   ]
 }
