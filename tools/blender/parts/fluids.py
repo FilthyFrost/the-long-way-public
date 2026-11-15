@@ -111,7 +111,7 @@ def build_bat_moto(P):
 # ------------------------------------------------------------------------------------------- radiators
 
 
-def radiator(P, W=0.56, H=0.36, D=0.045, fins=26, fan=False, tank_mat='steel', side_inlet=True):
+def radiator(P, W=0.56, H=0.36, D=0.045, fins=16, fan=False, tank_mat='steel', side_inlet=True):
     """
     A cross-flow-ish radiator standing on its bottom centre, the core facing +X: a dark backing behind
     horizontal fin bars, top and bottom tanks, filler neck and cap, hose necks towards the engine (-X),
@@ -126,7 +126,7 @@ def radiator(P, W=0.56, H=0.36, D=0.045, fins=26, fan=False, tank_mat='steel', s
     bm = bmesh.new()
     for i in range(fins):
         z = zb + pitch * (i + 0.5)
-        K.bm_cube(bm, (D * 0.5, W - 0.01, pitch * 0.45), mat4((D * 0.2, 0, z)))
+        K.bm_cube(bm, (D * 0.5, W - 0.01, pitch * 0.5), mat4((D * 0.2, 0, z)))
     P.mesh('fins', bm, 'alu', bev=None, sharp=60)
     for sg in (-1, 1):
         P.box('core_side', (D, 0.012, H + 0.01), (0, sg * (W / 2 + 0.006), zb + H / 2), tank_mat, bev=0.003,
@@ -271,11 +271,11 @@ def build_tank_drum(P):
 
 
 def build_rad_small(P):
-    radiator(P, W=0.42, H=0.27, D=0.04, fins=20)
+    radiator(P, W=0.42, H=0.27, D=0.04, fins=12)
 
 
 def build_rad_big(P):
-    radiator(P, W=0.72, H=0.48, D=0.06, fins=34, fan=True)
+    radiator(P, W=0.72, H=0.48, D=0.06, fins=22, fan=True)
 
 
 def moto_tank_section(w, h, zb=0.02, tw=0.075, th=0.085, n=14, scallop=0.0):
