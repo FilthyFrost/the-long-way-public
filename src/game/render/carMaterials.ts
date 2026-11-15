@@ -272,7 +272,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float line;   // a thin bright line on the horizon itself
     float cloud;  // a cloud in the sky part
   };
-  CarEnv rtCarEnv(vec3 R, float soft, float clouds) {
+  // darkWidth: how far under the horizon the dark band reaches (paint: wide, the lower body reads darker;
+  // chrome: a thin dark line, then the lit ground — a flat chrome mirror is not black)
+  CarEnv rtCarEnv(vec3 R, float soft, float clouds, float darkWidth) {
     CarEnv e;
     float h = R.y;
     // the far tree line and hills: a painted silhouette that stays put in the world
@@ -299,7 +301,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     e.ground = uCarGround * (uSkyColor * 0.7 + uSunColor * 0.22 * smoothstep(-0.1, 0.3, uSunDir.y));
     e.sky = rtStep(x, soft);
     e.band = 1.0 - rtStep(x - 0.3, soft);
-    e.dark = 1.0 - rtStep(-x - 0.45, soft);
+    e.dark = 1.0 - rtStep(-x - darkWidth, soft);
     e.line = e.sky * (1.0 - rtStep(x - 0.02, soft));
     return e;
   }
@@ -439,7 +441,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col = diffuse;
     // the clear coat: light laid over the colour, never a wash of grey across it
     // (clouds only in what faces up — a hood, a roof: on a flank they read as smudges)
-    CarEnv e = rtCarEnv(Re, 0.0015, 0.7 * (1.0 - side));
+    CarEnv e = rtCarEnv(Re, 0.0015, 0.7 * (1.0 - side), 0.45);
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
     float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
@@ -476,7 +478,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float contrast = gloss;
     // (satin metals blur the bands: aluminium is not chrome. Metal trim is small and round: its own
     // curvature shows the whole stack of sky, horizon and ground, so the true reflection, not the drawn tilt)
-    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0);
+    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0, 0.13);
     vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.1, 0.32, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
     // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
@@ -554,7 +556,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     #elif defined(RT_GLASS)
     // ---------------------------------------------------------------- glass: dark tint, the world in it, streaks
-    CarEnv e = rtCarEnv(R, 0.002, 1.0);
+    CarEnv e = rtCarEnv(R, 0.002, 1.0, 0.25);
     vec3 env = mix(mix(e.ground, e.land, e.dark), mix(e.upper, e.bright, e.band), e.sky);
     float ew = mix(mix(0.3, 0.6, e.dark), mix(0.45, 1.0, e.band), e.sky);
     // (glass in a drawing mirrors more than glass does: a windscreen seen at a slant is mostly sky)
@@ -584,7 +586,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     #elif defined(RT_LENS)
     // ---------------------------------------------------------------- lamp lenses
-    CarEnv e = rtCarEnv(R, 0.002, 1.0);
+    CarEnv e = rtCarEnv(R, 0.002, 1.0, 0.25);
     vec3 env = mix(mix(e.ground, e.land, e.dark), mix(e.upper, e.bright, e.band), e.sky);
     float fres = 0.1 + 0.9 * pow(1.0 - ndv, 4.0);
     // the lens's own optics: fine rings round the lamp's centre (UV 0.5, 0.5), glinting as the eye moves
@@ -684,7 +686,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       else {
         // which part of the mirrored world each point looks up: open sky blue, the bright band white,
         // the horizon line yellow, the dark band red, the ground green
-        CarEnv d = rtCarEnv(Re, 0.0015, 0.0);
+        CarEnv d = rtCarEnv(Re, 0.0015, 0.0, 0.45);
         col = mix(mix(vec3(0.1, 0.5, 0.1), vec3(0.6, 0.05, 0.05), d.dark), mix(vec3(0.1, 0.3, 0.9), vec3(1.0), d.band), d.sky);
         col = mix(col, vec3(1.0, 0.85, 0.0), d.line);
       }
