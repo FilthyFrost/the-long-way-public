@@ -80,6 +80,9 @@ const BODY_STIFFEN = 0.06;
 const BODY_CAP_EXT = 16;
 /** derived specs: below this depth (m) a body corner moving into the ground is stopped outright */
 const BODY_HARD = 0.08;
+/** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
+const BODY_MIN_ABOVE = 0.15;
+const BODY_MIN_BELOW = 0.1;
 
 export interface VehicleInput {
   /** -1 (full left) … +1 (full right) */
@@ -476,7 +479,11 @@ export class VehicleSim {
     this.invIyaw = 1 / spec.inertia.yaw;
     this.invIpitch = 1 / iPitch;
 
-    const bd = spec.body;
+    // (a derived spec's box always holds its centre of gravity: a CG above the roof, a load on a roof
+    // rack, would otherwise put the CG in the ground when the vehicle lies on its back)
+    const bd = ext
+      ? { ...spec.body, bottom: Math.min(spec.body.bottom, -BODY_MIN_BELOW), top: Math.max(spec.body.top, BODY_MIN_ABOVE) }
+      : spec.body;
     let n = 0;
     for (const y of [bd.bottom, bd.top]) {
       for (const x of [bd.centerX + bd.halfLength, bd.centerX - bd.halfLength]) {
