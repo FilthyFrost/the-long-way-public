@@ -495,6 +495,8 @@ export class VehicleSim {
     this.noSteering = ab?.steering === true;
     this.noHandbrake = ab?.handbrake === true;
     if (this.noHandbrake) this.parkBrake = 0;
+    // a gearbox with fewer gears: the one it was in may not exist any more
+    if (this.gear > spec.gearbox.ratios.length) this.gear = spec.gearbox.ratios.length;
     for (let i = 0; i < 4; i++) W[i].fit = this.mods.wheelFit[i];
     this.wheelsChanged();
 
@@ -1447,15 +1449,18 @@ export class VehicleSim {
       }
     }
 
-    // body contact (only when it can matter: tilted, bottomed out or mostly airborne — or a hub
-    // without its wheel, whose corner the body carries)
+    // body contact (only when it can matter: tilted, bottomed out or mostly airborne; for a derived
+    // spec also with a hub left empty or the body near the road — then only its bottom corners can touch)
     const bp = this.bodyPts;
     const bn = this.bodyN;
     const bnr = this.bodyNrm;
-    const bodyActive = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
+    const bodyTilt = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone;
+    const bodyActive = bodyTilt || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
+    const nBody = bodyTilt ? 8 : 4;
     if (bodyActive) {
       const nmaxBody = m * GRAVITY * 6;
-      for (let k = 0; k < 8; k++) {
+      if (nBody === 4) for (let k = 4; k < 8; k++) bn[k] = 0;
+      for (let k = 0; k < nBody; k++) {
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];

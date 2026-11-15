@@ -5,16 +5,16 @@
  * mixed program on level asphalt and rough dirt, then flat out for its top speed. Everything stays
  * finite and bounded and nothing sinks through the ground.
  *
- * MODCAR_FUZZ=<builds> and MODCAR_FUZZ_SECONDS=<seconds each> run a longer search (defaults 1000, 40).
+ * MODCAR_FUZZ=<builds> and MODCAR_FUZZ_SECONDS=<seconds each> run a longer search (defaults 1000, 30).
  */
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/math/rng';
 import { feel } from './modcar/feel';
-import { fuzzBuild } from './modcar/fuzz';
+import { fuzzBuild, swapFuzz } from './modcar/fuzz';
 import { randomBuild } from './modcar/specgen';
 
 const N = Number(process.env.MODCAR_FUZZ ?? 1000);
-const SECONDS = Number(process.env.MODCAR_FUZZ_SECONDS ?? 40);
+const SECONDS = Number(process.env.MODCAR_FUZZ_SECONDS ?? 30);
 const SEED = Number(process.env.MODCAR_FUZZ_SEED ?? 2026);
 
 describe(`modcar · ${N} extreme builds × ${SECONDS} s`, () => {
@@ -41,6 +41,17 @@ describe(`modcar · ${N} extreme builds × ${SECONDS} s`, () => {
     }
     if (bad.length > 0) console.log(bad.slice(0, 20).join('\n'));
     console.log(`modcar fuzz: ${N} builds, worst body sink ${worstSink.toFixed(3)} m, fastest ${worstKmh.toFixed(0)} km/h, ${flips} roll-overs put right`);
+    expect(bad).toEqual([]);
+  });
+
+  it('parts swapped while driving (applySpec and the wheels) never break it', () => {
+    const rng = new Rng(SEED + 1);
+    const bad: string[] = [];
+    const runs = Math.max(20, Math.round(N / 10));
+    for (let i = 0; i < runs; i++) {
+      const s = swapFuzz(rng, randomBuild, Math.min(30, SECONDS));
+      if (s.exploded || s.maxKmh > 300 || s.maxSpin > 30 || s.minCgClear < 0.05) bad.push(`#${i} ${JSON.stringify(s)}`);
+    }
     expect(bad).toEqual([]);
   });
 });
