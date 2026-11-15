@@ -108,8 +108,8 @@ def build_steer_ship(P):
         K.bm_lathe(bm, prof, segs=7, matrix=m)
         P.mesh('spoke', bm, 'wood', sharp=70.0)
     # hub: wooden drum with brass faces and a brass boss
-    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024), (0.0, -0.024)],
-            loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
+    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024),
+                    (0.0, -0.024)][::-1], loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
     for sx in (-1, 1):
         P.lathe('hub_band', [(0.068, -0.004), (0.072, 0.0), (0.068, 0.004), (0.06, 0.004), (0.06, -0.004)],
                 loc=(xr * 0.6 + sx * 0.02, 0, 0), material='chrome', axis='X', segs=24, loop=True, sharp=50.0)

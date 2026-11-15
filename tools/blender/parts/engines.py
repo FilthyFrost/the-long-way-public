@@ -678,8 +678,8 @@ def build_turbo_small(P):
     cv.data.transform(Matrix.Translation((0, yc, zc)))
     P.lathe('comp_in', [(0.034, 0.0), (0.04, 0.0), (0.04, 0.05), (0.043, 0.055), (0.043, 0.065), (0.036, 0.065)],
             loc=(0, yc + 0.02, zc), material='alu', axis='Y', segs=20, sharp=40.0)
-    P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)], loc=(0, yc + 0.02, zc),
-            material='steel', axis='Y', segs=14, close='end', sharp=40.0)
+    P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)][::-1], loc=(0, yc + 0.02, zc),
+            material='steel', axis='Y', segs=14, close='start', sharp=40.0)
     P.cyl('wg_can', 0.028, 0.035, (0.07, yc - 0.005, zc + 0.02), 'alu', axis='Y', segs=16, bev=0.005, bsegs=2)
     P.box('wg_brk', (0.03, 0.05, 0.008), (0.06, 0.03, zc + 0.02), 'steel', bev=0.002, segs=1)
     P.tube('wg_rod', [(0.07, yc - 0.03, zc + 0.02), (0.065, yt + 0.0, zc + 0.03)], 0.0035, 'steel', segs=5)

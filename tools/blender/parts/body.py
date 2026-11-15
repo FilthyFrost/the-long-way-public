@@ -455,7 +455,7 @@ def build_bf_plow(P):
     rib = back + [(0.37, 0.36), (0.36, 0.0)]
     for y in (-0.7, -0.35, 0.0, 0.35, 0.7):
         bend = 0.06 * (abs(y) / Wb) ** 2
-        P.prism('rib', [(x + bend, z) for (x, z) in reversed(rib)], 0.016, matrix=mat4((0, y, 0), (90, 0, 0)),
+        P.prism('rib', [(x + bend, z) for (x, z) in rib], 0.016, matrix=mat4((0, y, 0), (90, 0, 0)),
                 material='paint', bev=0.003, segs=1)
     P.box('crossbar', (0.04, 1.5, 0.05), (0.40, 0.0, 0.18), 'paint', bev=0.006, segs=1)
     # A-frame to the mount plate on the attach face, lift ram

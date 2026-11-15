@@ -33,6 +33,9 @@ def main(argv):
             path = os.path.join(SCRATCH, f'{pid}{suf}.png')
             if os.path.exists(path):
                 tiles.append((pid, suf, path))
+    if not tiles:
+        print('no previews found for', ids)
+        return
     rows = (len(tiles) + cols - 1) // cols
     sheet = Image.new('RGB', (cols * tw, rows * th), (40, 40, 44))
     draw = ImageDraw.Draw(sheet)

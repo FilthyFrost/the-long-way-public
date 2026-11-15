@@ -180,7 +180,7 @@ def inlet_flange(P, r=0.025):
     """A two-bolt inlet flange on the origin, facing +X, with the pipe leaving towards -X."""
     poly = [(0.0, 0.07), (-0.03, 0.06), (-0.045, 0.0), (-0.03, -0.06), (0.0, -0.07), (0.03, -0.06), (0.045, 0.0),
             (0.03, 0.06)]
-    poly = [(py * 0.9, pz * 0.75) for (pz, py) in poly]
+    poly = [(py * 0.9, pz * 0.75) for (pz, py) in reversed(poly)]  # swapping axes mirrors: keep it CCW
     P.prism('flange', poly, 0.01, (-0.005, 0, 0), 'rust', rot=(0, 90, 0), bev=0.003, segs=1)
     P.bolts([(0.0, 0.048, 0.0), (0.0, -0.048, 0.0)], normal=(1, 0, 0), r=0.0065, h=0.006, washer=False)
     P.torus('gasket', r + 0.004, 0.003, loc=(0.001, 0, 0), axis='X', segs=16, rsegs=4, material='steel')

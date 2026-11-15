@@ -45,6 +45,42 @@ def budget(pid):
     return 2600   # small parts (2k target, a few meme parts allowed a little more)
 
 
+def inside_out_islands(obj):
+    """Closed islands whose signed volume is negative (faces pointing inwards). Open sheets are skipped."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    seen = set()
+    bad = 0
+    for f0 in bm.faces:
+        if f0.index in seen:
+            continue
+        stack = [f0]
+        island = []
+        seen.add(f0.index)
+        while stack:
+            f = stack.pop()
+            island.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g.index not in seen:
+                        seen.add(g.index)
+                        stack.append(g)
+        edges = {e for f in island for e in f.edges}
+        if any(len(e.link_faces) != 2 for e in edges):
+            continue
+        vol = 0.0
+        for f in island:
+            vs = [v.co for v in f.verts]
+            for i in range(1, len(vs) - 1):
+                vol += vs[0].dot(vs[i].cross(vs[i + 1])) / 6.0
+        if vol < -1e-9:
+            bad += 1
+    bm.free()
+    return bad
+
+
 def check(path, pid):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=path)
@@ -65,6 +101,10 @@ def check(path, pid):
         tris += len(o.data.loop_triangles)
         if not o.data.color_attributes:
             errs.append(f'{o.name}: no AO colour attribute')
+        if '@' not in pid:
+            nb = inside_out_islands(o)
+            if nb:
+                errs.append(f'{o.name}: {nb} inside-out closed islands')
         for m in o.data.materials:
             base = m.name.split('.')[0] if m else '?'
             if base not in mc.MAT_NAMES:
