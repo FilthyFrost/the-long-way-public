@@ -103,13 +103,16 @@ export class ShadowPass {
     c.matrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).premultiply(BIAS);
   }
 
-  /** how far the fine map reaches round its focus (m; 5.5 by default — a room can ask for all of itself) */
-  setNearReach(radius: number): void {
-    const c = this.near;
-    if (c.radius === radius) return;
-    c.radius = radius;
-    c.camera.left = c.camera.bottom = -radius;
-    c.camera.right = c.camera.top = radius;
+  /** the wide map held over one place (render space) at a reach of its own, instead of ahead of the camera; null = follow again */
+  private farFixed: THREE.Vector3 | null = null;
+  fixFar(focus: THREE.Vector3 | null, reach = 92): void {
+    this.farFixed = focus ? (this.farFixed ?? new THREE.Vector3()).copy(focus) : null;
+    const c = this.far;
+    const r = focus ? reach : 92;
+    if (c.radius === r) return;
+    c.radius = r;
+    c.camera.left = c.camera.bottom = -r;
+    c.camera.right = c.camera.top = r;
     c.camera.updateProjectionMatrix();
   }
 
@@ -127,7 +130,7 @@ export class ShadowPass {
       return;
     }
     this.place(this.near, nearFocus, dir);
-    this.place(this.far, farFocus, dir);
+    this.place(this.far, this.farFixed ?? farFocus, dir);
     globals.uShadowMat0.value.copy(this.near.matrix);
     globals.uShadowMat1.value.copy(this.far.matrix);
     p.set(1, (this.near.radius * 2) / this.near.size, (this.far.radius * 2) / this.far.size, 1 / this.near.size);

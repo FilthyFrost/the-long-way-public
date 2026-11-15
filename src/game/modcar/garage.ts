@@ -101,8 +101,8 @@ const text = (zh: string, en: string): Text => ({ zh, en });
 const LAMP_ON = { r: 1.0, g: 1.0, b: 1.0 };
 /** how strongly the pendants light the room (linear radiance × this at a metre, roughly) */
 const LAMP_POWER = 3.6;
-/** the fine shadow map's reach while the eye is in the workshop (m round the room's middle) */
-const ROOM_SHADOW_REACH = 8.6;
+/** the wide shadow map's reach over the workshop (m round the room's middle): 2 cm texels */
+const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
 const BEAM_DENSITY = 0.055;
 
@@ -186,17 +186,32 @@ class Garage implements GarageScene {
     const shadowGeos: THREE.BufferGeometry[] = [];
     const statics: THREE.Mesh[] = [];
     gltf.scene.updateMatrixWorld(true);
+    let caster: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      rgbColours(mesh.geometry);
+      // the shadow caster: the big things without their bevels, only ever drawn into the shadow maps
+      if (mesh.name === 'S_shadow') {
+        caster = mesh;
+        mesh.material = this.casterMat;
+        mesh.layers.set(LAYER_SHADOW_FAR);
+        mesh.layers.enable(LAYER_SHADOW_NEAR);
+        mesh.frustumCulled = false;
+        return;
+      }
+      // the corner colour is the tint (rgb) and the baked AO (alpha): our shaders read it as aTintAO
+      const col = mesh.geometry.getAttribute('color');
+      if (col) {
+        mesh.geometry.setAttribute('aTintAO', col);
+        mesh.geometry.deleteAttribute('color');
+      } else mesh.geometry.setAttribute('aTintAO', new THREE.Float32BufferAttribute(new Float32Array(mesh.geometry.getAttribute('position').count * 4).fill(1), 4));
       const src = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      const name = src.name || 'steel';
-      mesh.material = this.look.get(name, !!mesh.geometry.getAttribute('color'));
+      const name = src.name || 'prop';
+      mesh.material = this.look.get(name);
       if (moverOf(mesh)) return;
       statics.push(mesh);
-      // everything that stands still casts its shadow through one merged mesh (two draws, not sixty)
-      if (name !== 'win_glass' && name !== 'skylight' && name !== 'glass' && name !== 'bulb') {
+      // (an older model without a caster of its own: everything that stands still casts, merged)
+      if (name !== 'win_glass' && name !== 'skylight' && name !== 'glass' && name !== 'bulb' && name !== 'floor') {
         const g = mesh.geometry.clone();
         g.applyMatrix4(mesh.matrixWorld);
         for (const k of Object.keys(g.attributes)) if (k !== 'position') g.deleteAttribute(k);
@@ -204,6 +219,10 @@ class Garage implements GarageScene {
         shadowGeos.push(g.index ? g.toNonIndexed() : g);
       }
     });
+    if (caster) {
+      for (const g of shadowGeos) g.dispose();
+      shadowGeos.length = 0;
+    }
     // the movers: one group per piece (its meshes, one per material, share the piece's origin)
     const pieces: THREE.Object3D[] = [];
     gltf.scene.traverse((o) => {
@@ -484,6 +503,9 @@ class Garage implements GarageScene {
     const sky0 = g.uSkyColor.value;
     g.uRoomMin.value.set(room.min[0] - o.x, room.min[1] - o.y, room.min[2] - o.z, 1);
     beamUniforms.uBeamFloor.value = -o.y;
+    // the wide shadow map stays over the workshop and its yard, sharp enough (2 cm) for every window's patch
+    this.farFocus.set(1.5 - o.x, 1.0 - o.y, -o.z);
+    this.core.shadows?.fixFar(this.farFocus, ROOM_SHADOW_REACH);
     // (moonbeams are a faint thing beside the sun's)
     beamUniforms.uBeamDensity.value = BEAM_DENSITY * (0.3 + 0.7 * smooth(0.04, 0.2, (sky0.r + sky0.g + sky0.b) / 3));
     g.uRoomMax.value.set(room.max[0] - o.x, room.max[1] - o.y, room.max[2] - o.z, room.edge);
@@ -547,6 +569,7 @@ class Garage implements GarageScene {
   }
 
   private readonly c1 = new THREE.Color();
+  private readonly farFocus = new THREE.Vector3();
   private readonly c2 = new THREE.Color();
 
   exposureAt(x: number, y: number, z: number): number {
@@ -565,15 +588,40 @@ class Garage implements GarageScene {
 
   shadowFocus(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void {
     const r = LAYOUT.room;
-    // in the workshop (or just outside its door) the fine map takes in the whole room, sharp at about a
-    // centimetre a texel: the sun's patches through the windows and the beams keep their muntins
-    void heading;
-    const near = x > r.min[0] - 0.5 && x < r.max[0] + 4.0 && z > r.min[2] - 0.5 && z < r.max[2] + 0.5;
-    this.core.shadows?.setNearReach(near ? ROOM_SHADOW_REACH : 5.5);
-    if (!near) return;
-    out.x = (r.min[0] + r.max[0]) / 2 + 0.6;
-    out.y = 1.2;
-    out.z = (r.min[2] + r.max[2]) / 2;
+    // inside: the fine map a few metres ahead of the eye, where one looks (kept in the room)
+    const inside = x > r.min[0] - 0.5 && x < r.max[0] + 1.5 && z > r.min[2] - 0.5 && z < r.max[2] + 0.5;
+    if (!inside) return;
+    out.x = Math.min(r.max[0] - 2.5, Math.max(r.min[0] + 2.5, x + Math.cos(heading) * 3.0));
+    out.y = 1.0;
+    out.z = Math.min(r.max[2] - 2.0, Math.max(r.min[2] + 2.0, z + Math.sin(heading) * 3.0));
+  }
+
+  /** what the garage costs to draw: meshes and triangles (main pass), and what casts into the shadow maps */
+  cost(): { meshes: number; triangles: number; casterTriangles: number; byName: Record<string, number> } {
+    const byName: Record<string, number> = {};
+    let meshes = 0;
+    let triangles = 0;
+    let casterTriangles = 0;
+    const tris = (g: THREE.BufferGeometry): number => {
+      const n = g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
+      return n * ((g as THREE.InstancedBufferGeometry).isInstancedBufferGeometry ? (g as THREE.InstancedBufferGeometry).instanceCount : 1);
+    };
+    for (const root of [this.root, this.outdoors.root]) {
+      root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const inst = (m as unknown as THREE.InstancedMesh).isInstancedMesh ? (m as unknown as THREE.InstancedMesh).count : 1;
+        const t = tris(m.geometry) * inst;
+        if (m.layers.isEnabled(0)) {
+          meshes++;
+          triangles += t;
+          const key = m.name.replace(/\|.*/, '').replace(/:(shadow)$/, '');
+          byName[key] = (byName[key] ?? 0) + Math.round(t);
+        }
+        if (m.layers.isEnabled(LAYER_SHADOW_FAR) || m.layers.isEnabled(LAYER_SHADOW_NEAR)) casterTriangles += t;
+      });
+    }
+    return { meshes, triangles: Math.round(triangles), casterTriangles: Math.round(casterTriangles), byName };
   }
 
   telemetry(): Record<string, string | number | boolean> {
@@ -600,7 +648,7 @@ class Garage implements GarageScene {
     });
     this.look.dispose();
     this.chalk?.dispose();
-    this.core.shadows?.setNearReach(5.5);
+    this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors
     globals.uRoomMin.value.w = 0;
     for (const p of globals.uRoomLampP.value) p.w = 0;
@@ -624,18 +672,4 @@ function moverKey(o: THREE.Object3D): string | null {
   const m = /^([A-Z][A-Z0-9_]+)\|/.exec(o.name) ?? /^([A-Z][A-Z0-9_]+)$/.exec(o.name);
   if (!m || m[1] === 'S') return null;
   return m[1];
-}
-
-/** the baked AO comes as RGBA; our shaders read three components */
-function rgbColours(g: THREE.BufferGeometry): void {
-  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
-  if (!c || c.itemSize === 3) return;
-  const n = c.count;
-  const out = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    out[i * 3] = c.getX(i);
-    out[i * 3 + 1] = c.getY(i);
-    out[i * 3 + 2] = c.getZ(i);
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
 }

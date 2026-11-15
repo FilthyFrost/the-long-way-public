@@ -240,6 +240,8 @@ const rt = {
     const u = game.seated ?? v;
     return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
   },
+  /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
+  garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,
   /** the seated (or focused) vehicle's lights to a position: 'low', 'high' or 'off' */
   lights: (mode: 'off' | 'low' | 'high' = 'low') => {
     const v = game.seated ?? game.focus;

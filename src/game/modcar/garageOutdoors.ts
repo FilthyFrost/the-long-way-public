@@ -84,13 +84,13 @@ export interface Outdoors {
 /** a polar grid of terrain round the garage: rings every 2 m near by, growing out to the skyline */
 function terrainGeometry(): THREE.BufferGeometry {
   const radii: number[] = [0];
-  for (let r = 2; r <= 70; r += 2) radii.push(r);
+  for (let r = 2.5; r <= 70; r += 2.5) radii.push(r);
   let r = 70;
   while (r < 21000) {
-    r *= 1.075;
+    r *= 1.085;
     radii.push(r);
   }
-  const seg = 160;
+  const seg = 128;
   const nv = radii.length * seg;
   const pos = new Float32Array(nv * 3);
   const bw = new Float32Array(nv * 4);
@@ -279,7 +279,7 @@ function instancedTufts(template: THREE.BufferGeometry, mat: THREE.Material, roo
 function meadow(root: THREE.Group, mats: THREE.Material[]): void {
   const rnd = mulberry(SEED + 99);
   const cell = 0.36;
-  const R = 46;
+  const R = 40;
   // four quarters round the garage, each its own mesh (they are culled apart)
   const quarters: { roots: number[]; info: number[]; fr: number[]; fi: number[] }[] = [0, 1, 2, 3].map(() => ({ roots: [], info: [], fr: [], fi: [] }));
   const cx0 = 2;
@@ -293,7 +293,7 @@ function meadow(root: THREE.Group, mats: THREE.Material[]): void {
       const toWall = Math.hypot(Math.max(Math.abs(x) - 7.3, 0), Math.max(Math.abs(z) - 5.3, 0));
       // fewer tufts out in the field: the far ones are the ones far tiles keep
       const keep = rnd();
-      if (d > 22 && keep > GRASS_KEEP_FAR * (1 - smoothstep(22, R, d) * 0.55)) continue;
+      if (d > 15 && keep > GRASS_KEEP_FAR * 0.85 * (1 - smoothstep(15, R, d) * 0.6)) continue;
       const r3 = rnd();
       const yard = Math.abs(yardLot(x, z));
       // weeds grow tall against the walls, the yard's edge is trodden short
@@ -472,7 +472,15 @@ export function buildOutdoors(core: RenderCore): Outdoors {
   // the road along z, out to where the haze takes it, and the yard before the garage, in one strip:
   // the apron's slabs and the drive's gravel are its 'lots', the drive runs into the road's shoulder
   const xs = [...range(STRIP.x0, ROAD_X - 5.4, 0.5), ROAD_X - 4.5, ROAD_X - 3.8, ROAD_X - 3.25, ROAD_X - 2.4, ROAD_X - 1.6, ROAD_X - 0.8, ROAD_X, ROAD_X + 0.8, ROAD_X + 1.6, ROAD_X + 2.4, ROAD_X + 3.25, ROAD_X + 3.8, ROAD_X + 4.5, ROAD_X + 5.4, ROAD_X + 7, ROAD_X + 9, ROAD_X + 12, STRIP.x1];
-  const zs = [...range(STRIP.z0, -130, 20).slice(0, -1), ...range(-130, -14, 2).slice(0, -1), ...range(-14, 14, 0.5).slice(0, -1), ...range(14, 130, 2).slice(0, -1), ...range(130, STRIP.z1, 20)];
+  const zs = [
+    ...range(STRIP.z0, -400, 50).slice(0, -1),
+    ...range(-400, -60, 10).slice(0, -1),
+    ...range(-60, -14, 2).slice(0, -1),
+    ...range(-14, 14, 0.5).slice(0, -1),
+    ...range(14, 60, 2).slice(0, -1),
+    ...range(60, 400, 10).slice(0, -1),
+    ...range(400, STRIP.z1, 50),
+  ];
   const road = new THREE.Mesh(
     stripGeometry(xs, zs, (x, z) => ({ lat: x - ROAD_X, along: z, lot: x < ROAD_X - 2.5 ? yardLot(x, z) : 0 })),
     stripMat,
