@@ -726,11 +726,14 @@ def build_eng_single(P):
                (0.07, 0.215), (0.0, 0.225), (-0.09, 0.21), (-0.15, 0.16), (-0.175, 0.10)]
     P.prism('case', outline, 0.17, matrix=mat4((0, 0, 0), (90, 0, 0)), material='alu', bev=0.012, segs=2)
     P.box('case_seam', (0.30, 0.006, 0.20), (-0.02, 0.0, 0.11), 'alu', bev=0.002, segs=1)
+    seam = [(-0.15, 0.03), (-0.155, 0.13), (-0.08, 0.2), (0.06, 0.205), (0.12, 0.13), (0.11, 0.03), (0.0, 0.004)]
+    P.bolts([(x, -0.088, z) for (x, z) in seam[:2]] + [(x, 0.088, z) for (x, z) in seam[4:6]],
+            normal=[(0, -1, 0)] * 2 + [(0, 1, 0)] * 2, r=0.0045, h=0.004, washer=False)
     # generator cover (left, +Y) and clutch cover (right, -Y)
     P.lathe('gen_cover', [(0.0, 0.03), (0.04, 0.028), (0.066, 0.016), (0.076, 0.0)][::-1], loc=(-0.03, 0.085, 0.10),
-            material='alu', axis='Y', segs=24, close='start', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='start', sharp=40.0)
     P.lathe('clutch_cover', [(0.0, -0.034), (0.05, -0.032), (0.078, -0.018), (0.088, 0.0)],
-            loc=(-0.06, -0.085, 0.10), material='alu', axis='Y', segs=24, close='end', sharp=40.0)
+            loc=(-0.06, -0.085, 0.10), material='chrome', axis='Y', segs=24, close='end', sharp=40.0)
     P.cyl('points_cover', 0.03, 0.012, (0.07, -0.088, 0.12), 'chrome', axis='Y', segs=16, bev=0.002, bsegs=1)
     for i in range(6):
         a = math.tau * i / 6
@@ -742,7 +745,7 @@ def build_eng_single(P):
     lean = math.radians(12)
     ax = V((math.sin(lean), 0, math.cos(lean)))
     base = V((0.03, 0, 0.215))
-    finned_barrel(P, base, ax, 0.036, 0.13, 0.15, 0.13, 7)
+    finned_barrel(P, base, ax, 0.036, 0.13, 0.15, 0.13, 7, material='steel')
     hb = base + ax * 0.13
     finned_barrel(P, hb, ax, 0.042, 0.08, 0.17, 0.15, 4, fin_t=0.005, head=True)
     top = hb + ax * 0.08
@@ -912,15 +915,15 @@ def build_eng_2t(P):
     P.prism('case', outline, 0.30, matrix=mat4((0, 0, 0), (90, 0, 0)), material='alu', bev=0.014, segs=2)
     P.box('case_seam', (0.32, 0.31, 0.006), (-0.015, 0.0, 0.105), 'alu', bev=0.002, segs=1)
     P.lathe('mag_cover', [(0.0, 0.035), (0.05, 0.032), (0.075, 0.018), (0.082, 0.0)][::-1], loc=(-0.05, 0.15, 0.1),
-            material='alu', axis='Y', segs=24, close='start', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='start', sharp=40.0)
     P.lathe('clutch_cover', [(0.0, -0.035), (0.05, -0.032), (0.08, -0.018), (0.088, 0.0)], loc=(-0.07, -0.15, 0.1),
-            material='alu', axis='Y', segs=24, close='end', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='end', sharp=40.0)
     lean = math.radians(20)
     ax = V((math.sin(lean), 0, math.cos(lean)))
     ports = []
     for sy in (-1, 1):
         base = V((0.03, sy * 0.068, 0.2))
-        finned_barrel(P, base, ax, 0.034, 0.12, 0.12, 0.115, 7)
+        finned_barrel(P, base, ax, 0.034, 0.12, 0.12, 0.115, 7, material='steel')
         hb = base + ax * 0.12
         finned_barrel(P, hb, ax, 0.04, 0.06, 0.13, 0.13, 4, fin_t=0.0045, head=True)
         top = hb + ax * 0.06
