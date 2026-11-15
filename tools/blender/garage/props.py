@@ -283,11 +283,11 @@ def pendant(K, L, x, z, y, cord_top, colour=(1.0, 0.8, 0.56), reach=6.5, power=1
     """an enamel shade on a cord from a tie beam, a warm bulb under it"""
     K.tube('p_black', [(x, cord_top, z), (x, y + 0.2, z)], 0.005, segs=5, caps=False)
     K.cyl('p_black', (x, y + 0.2, z), 0.022, 0.06, segs=10)
-    # the shade: green outside, white enamel inside (two shells)
+    # the shade: green outside, white enamel inside (two shells); the inside glows with the bulb (shade_in)
     prof_out = [(0.03, 0.17), (0.07, 0.15), (0.16, 0.06), (0.26, -0.02), (0.27, -0.035)]
     prof_in = [(0.262, -0.03), (0.25, -0.018), (0.152, 0.058), (0.064, 0.14), (0.0, 0.142)]
     K.lathe('p_green', (x, y, z), prof_out, segs=28, sharp=60, face='out')
-    K.lathe('enamel', (x, y, z), prof_in, segs=28, sharp=60, face='in')
+    K.lathe('shade_in', (x, y, z), prof_in, segs=28, sharp=60, face='in')
     K.cyl('brass', (x, y + 0.11, z), 0.03, 0.06, segs=12)
     K.lathe('bulb', (x, y + 0.04, z), [(0.0, -0.07), (0.03, -0.065), (0.045, -0.035), (0.04, 0.0), (0.02, 0.03), (0.016, 0.06)], segs=14)
     lamp(L, x, y - 0.02, z, [colour[0] * power, colour[1] * power, colour[2] * power], reach, 0.85)

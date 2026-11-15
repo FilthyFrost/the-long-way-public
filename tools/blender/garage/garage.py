@@ -150,7 +150,7 @@ def main(args):
     for i in range(3):
         P.spot(L, 4.35 + i * 0.3, 0.0, S.Z0 + 0.32, 0.0, 'cans')
 
-    K.finish(ao=not opts.get('noao'), ao_samples=24, ao_distance=0.9, no_ao=('win_glass', 'skylight', 'bulb', 'led', 'dial', 'glass', 'shadow', 'fire', 'lamp_out'))
+    K.finish(ao=not opts.get('noao'), ao_samples=24, ao_distance=0.9, no_ao=('win_glass', 'skylight', 'bulb', 'led', 'dial', 'glass', 'shadow', 'fire', 'lamp_out', 'shade_in'))
     K.report()
     K.export(OUT_GLB)
     # (normals as bytes, the caster without normals: a quarter smaller, the same to look at)

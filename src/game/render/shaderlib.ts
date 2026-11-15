@@ -18,7 +18,7 @@ import { sharedTextures } from './textures';
 const tex = sharedTextures();
 
 /** how many openings and lamps a room can have (the starting garage's door, windows and skylights; its pendant lamps) */
-export const ROOM_OPENINGS = 8;
+export const ROOM_OPENINGS = 10;
 export const ROOM_LAMPS = 10;
 
 export const globals = {
@@ -337,12 +337,15 @@ vec3 rtRoomLamps(vec3 pos, vec3 N) {
     float win = 1.0 - d2 / r2;
     // (a pool under each lamp: bright close by, gone by its reach)
     float att = win * win / (0.35 + d2);
-    // below the lamp (L points up at it) it shines; above, its shade keeps most of it in
+    // below the lamp (L points up at it) it shines in its shade's cone; above, the shade keeps it in
     float outside = step(1.5, uRoomLampC[i].w);
-    float down = mix(1.0, 0.1 + 0.9 * smoothstep(0.3, 0.78, L.y), uRoomLampC[i].w - 2.0 * outside);
+    float down = mix(1.0, 0.05 + 0.95 * smoothstep(0.5, 0.86, L.y), uRoomLampC[i].w - 2.0 * outside);
     float face = smoothstep(-0.2, 0.45, dot(N, L));
     vec3 c = uRoomLampC[i].rgb * att * down * face;
-    sum += c * (1.0 - outside);
+    // (close by, a soft knee; and a lamp indoors does not light its own shade and fittings, which glow
+    // as the room's model has them)
+    c /= 1.0 + max(max(max(c.r, c.g), c.b) - 0.8, 0.0);
+    sum += c * (1.0 - outside) * smoothstep(0.15, 0.45, d);
     sumOut += c * outside;
   }
   float inside = rtInRoom(pos);
