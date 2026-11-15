@@ -78,6 +78,48 @@ try {
     },
     (t) => done(t, 'fuel'),
   );
+  // a swap: the toilet onto the driver's seat brings the bucket seat into the hands; and back again
+  await step(
+    '05c_replace_seat',
+    async () => {
+      await fitFrom('seat_toilet', 'seat_driver', 1.7, 2.5);
+      const t = await rt('telemetry');
+      if (t.held !== 'seat_bucket') throw new Error(`the old seat is not in the hands (held ${t.held})`);
+      const on = await rt('part', 0, 'seat_driver');
+      if (on?.part !== 'seat_toilet') throw new Error(`the toilet is not on the seat mount (${JSON.stringify(on)})`);
+      await rt('aim', 0, 'seat_driver', 1.7);
+      await rt('useFor', 2.5);
+      await rt('drop');
+      return (await rt('part', 0, 'seat_driver'))?.part;
+    },
+    (t, part) => part === 'seat_bucket' && t.held === '',
+  );
+  // a spray can on the front-left door, the sponge on the right one
+  await step(
+    '05d_paint',
+    async () => {
+      if (!(await rt('pickUp', 'tool:spray'))) throw new Error('no spray can');
+      const before = (await rt('part', 0, 'door_FL'))?.paint;
+      await rt('aim', 0, 'door_FL', 1.4);
+      await rt('useFor', 1.6);
+      await rt('drop');
+      return { before, after: (await rt('part', 0, 'door_FL'))?.paint };
+    },
+    (t, r) => r.after !== r.before && t.held === '',
+  );
+  await step(
+    '05e_wash',
+    async () => {
+      if (!(await rt('pickUp', 'tool:sponge'))) throw new Error('no sponge');
+      // (the bonnet stands open: the right front door)
+      const before = (await rt('part', 0, 'door_FR'))?.dirt;
+      await rt('aim', 0, 'door_FR', 1.4);
+      await rt('useFor', 2.2);
+      await rt('drop');
+      return { before, after: (await rt('part', 0, 'door_FR'))?.dirt };
+    },
+    (t, r) => r.after < r.before - 0.1 && t.held === '',
+  );
   // the workshop's big doors are shut but for a crack: the button beside them opens them
   await step(
     '05b_open_door',
@@ -91,12 +133,26 @@ try {
   );
   await step('06_get_in', () => rt('enter', 0), (t) => t.seated && done(t, 'seat'));
   await step('07_start', () => rt('crank', 1.6), (t, ran) => ran === true && done(t, 'start'));
+  await step('07b_lights', () => rt('lights', 'low'), (t, on) => on === true);
   await step('08_drive_out', () => rt('drive', 9, 0.7, 0), (t) => t.place === 'road');
   await step('09_on_the_road', async () => {
     const r = await rt('drive', 8, 0.6, 0);
     await rt('setView', 'chase');
     return r;
   }, (t) => t.place === 'road' && t.kmh > 20);
+  // stop, pull the handbrake, get out and look at it, get back in
+  await step(
+    '10_get_out',
+    async () => {
+      await rt('drive', 6, 0, 0, 1);
+      await page.evaluate(() => window.__rt.game.seated.sim.setParkBrake(true));
+      await rt('exit');
+      await rt('setView', 'cockpit');
+      return null;
+    },
+    (t) => !t.seated && t.place === 'road',
+  );
+  await step('11_get_in', () => rt('enter', 0), (t) => t.seated);
   if (errors.length) {
     console.log('page errors:', errors.slice(0, 5));
     failed++;

@@ -259,6 +259,11 @@ const rt = {
   },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
+  /** what is on a mount (part id, paint, dirt, rust…), or null */
+  part: (vi: number, mount: string) => {
+    const inst = vehicle(vi).build.parts[mount];
+    return inst ? { part: inst.part, paint: inst.paint, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
+  },
   partName: (id: string) => partDef(id).name,
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
