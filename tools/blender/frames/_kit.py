@@ -306,6 +306,7 @@ class TopChart:
         D = np.tile([0.0, 0.0, -s], (len(uv), 1))
         lv = self.level if level is None else level
         t, hit = raycast(self.sdf, O, D, lv, tmax=self.z_from * 2 + 1, max_step=0.05)
+        self.last_hit = hit
         Q = O + D * t[:, None]
         return Q, sdf_normals(self.sdf, Q)
 
@@ -334,6 +335,7 @@ class FrameChart:
         D = np.tile(-self.n, (len(uv), 1))
         lv = self.level if level is None else level
         t, hit = raycast(self.sdf, O, D, lv, tmax=self.start * 2 + 0.5, max_step=0.03)
+        self.last_hit = hit
         Q = O + D * t[:, None]
         return Q, sdf_normals(self.sdf, Q)
 
@@ -363,6 +365,7 @@ class PlaneChart:
         D[:, self.axis] = -self.sign
         lv = self.level if level is None else level
         t, hit = raycast(self.sdf, O, D, lv, tmax=self.start * 2 + 1, max_step=0.05)
+        self.last_hit = hit
         Q = O + D * t[:, None]
         return Q, sdf_normals(self.sdf, Q)
 
@@ -654,13 +657,21 @@ def mesh_region(chart, outer, holes=(), pts=None, clear=0.5, spacing=0.03, level
                     N3[k] = FN[j]
                 break
     need = np.isnan(P3[:, 0])
+    missed = np.zeros(len(P3), bool)
     if need.any():
+        if hasattr(chart, 'last_hit'):
+            chart.last_hit = None
         q, nq = chart.to3d(V2u[need], level)
         P3[need] = q
         N3[need] = nq
+        h = getattr(chart, 'last_hit', None)
+        if h is not None and len(h) == int(need.sum()):
+            missed[np.nonzero(need)[0][~np.asarray(h, bool)]] = True
     needn = np.isnan(N3[:, 0])
     if needn.any():
         N3[needn] = sdf_normals(chart.sdf, P3[needn])
+    if missed.any():
+        tris = tris[~missed[tris].any(axis=1)]
     return P3, N3, tris
 
 
@@ -755,6 +766,21 @@ def sweep(path, up, prof, prof_n=None, closed=False, closed_prof=False, smooth_p
     U = unit(up - T * (up * T).sum(1)[:, None])
     S = unit(np.cross(T, U))
     prof = np.asarray(prof, float)
+    if not smooth_prof:
+        # hard profile corners: every profile edge gets its own pair of points with the edge normal
+        k = len(prof)
+        ne = k if closed_prof else k - 1
+        pp = []
+        pn = []
+        for i in range(ne):
+            a_, b_ = prof[i], prof[(i + 1) % k]
+            t_ = unit(b_ - a_)
+            nrm = np.array([t_[1], -t_[0]])
+            pp += [a_, b_]
+            pn += [nrm, nrm]
+        prof = np.array(pp)
+        prof_n = np.array(pn)
+        closed_prof = False
     if prof_n is None:
         prof_n = profile_normals(prof, closed_prof)
     prof_n = np.asarray(prof_n, float)
@@ -1391,3 +1417,22 @@ def cyl_buf(p0, p1, r, mat, segs=16, cap=True, r1=None):
         pn = np.array([sl, sl])
     V, N, T = lathe(prof, p0, ax / max(L, 1e-9), segs, prof_n=pn)
     return Buf().add(V, N, T, mat)
+
+
+class OffsetChart:
+    """Another chart's surface moved by d along its normal (d < 0 = inwards): robust inner panels (door cards,
+    frame insides) where an SDF iso level would not exist close to an edge of the shell."""
+
+    def __init__(self, base, d):
+        self.base = base
+        self.d = d
+        self.sdf = base.sdf
+
+    def to3d(self, uv, level=None):
+        P, N = self.base.to3d(uv)
+        h = getattr(self.base, 'last_hit', None)
+        self.last_hit = h
+        return P + N * self.d, N
+
+    def to2d(self, pts):
+        return self.base.to2d(pts)

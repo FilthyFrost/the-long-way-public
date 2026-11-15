@@ -30,9 +30,10 @@ def tunnel_h(x):
 
 
 def side_pt(x, z, level=0.0):
-    """Point and normal on the lower body side (left) at side coordinates (x, z)."""
-    P, N = S.SIDE_L.to3d(np.array([[x, z]]), level)
-    return P[0], N[0]
+    """Point and normal on the lower body side (left) at side coordinates (x, z), moved by `level` along the
+    normal (negative = inwards)."""
+    P, N = S.SIDE_L.to3d(np.array([[x, z]]))
+    return P[0] + N[0] * level, N[0]
 
 
 # ============================================================================================ doors
@@ -61,10 +62,11 @@ def door_card(ex, w):
         # order: (x1,z0) (x1,z1) (x0,z1) arc ... -> rounded
     loop = K.ccw(K.rounded_poly(np.array(pts), radii, 0.05, arc_step=0.012))
     g = K.grid_points(x0, x1, z0, z1, 0.075, dt=0.075)
-    V, N, T = K.mesh_region(S.SIDE_L, [K.Loop(K.resample_keep(loop, 0.05))], [], g, spacing=0.075, level=-0.104)
+    card = K.OffsetChart(S.SIDE_L, -0.104)
+    V, N, T = K.mesh_region(card, [K.Loop(K.resample_keep(loop, 0.05))], [], g, spacing=0.075)
     b.add(V, -N, T, 'plastic_int')
     # card edge (thin rim towards the shut face)
-    P, Nn = S.SIDE_L.to3d(loop, -0.104)
+    P, Nn = card.to3d(loop)
     V, N, Tr = K.roll_edge(P, -Nn, K.unit(np.cross(-Nn, np.gradient(P, axis=0))) * 0 + side_out(P, Nn), 0.004, 0.012, 0.0, 2, closed=True)
     b.add(V, N, Tr, 'plastic_int')
     # chrome lines and armrest
@@ -73,14 +75,14 @@ def door_card(ex, w):
         xs = np.linspace(x0 + 0.04, x1 - 0.04, 6)
         if w == 'R' and zc < 0.6:
             xs = np.linspace(-0.85, x1 - 0.04, 5)
-        P, Nn = S.SIDE_L.to3d(np.stack([xs, np.full(len(xs), zc)], 1), -0.106)
+        P, Nn = K.OffsetChart(S.SIDE_L, -0.106).to3d(np.stack([xs, np.full(len(xs), zc)], 1))
         prof = np.array([(0.0, -h), (0.003, -h * 0.6), (0.004, 0.0), (0.003, h * 0.6), (0.0, h)])
         V, N, Tr = K.sweep(P, (0, 0, 1), prof[:, ::-1] * np.array([1, 1]) if False else np.stack([-prof[:, 0], prof[:, 1]], 1), closed=False)
         b.add(V, N, Tr, mat)
     # armrest: a rounded bar on the card
     ax0, ax1 = (x0 + 0.12, x1 - 0.28) if w == 'F' else (x0 + 0.10, x1 - 0.12)
     xs = np.linspace(ax0, ax1, 7)
-    P, Nn = S.SIDE_L.to3d(np.stack([xs, np.full(len(xs), 0.60)], 1), -0.104)
+    P, Nn = K.OffsetChart(S.SIDE_L, -0.104).to3d(np.stack([xs, np.full(len(xs), 0.60)], 1))
     prof = K.round_profile(np.array([(0.0, -0.025), (-0.055, -0.03), (-0.065, 0.0), (-0.05, 0.03), (0.0, 0.03)]), 0.012, 2)
     V, N, Tr = K.sweep(P, (0, 0, 1), np.stack([-prof[:, 0] * -1, prof[:, 1]], 1) * np.array([-1, 1]), closed=False)
     b.add(V, N, Tr, 'plastic_int')
