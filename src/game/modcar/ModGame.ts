@@ -532,7 +532,9 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (!v) return [];
     const b = v.build;
     const fuel = v.sys.dash.tankL > 0 ? v.sys.dash.fuel : 0;
+    const hood = v.view.hasPanel('hood') && !!b.parts.hood;
     return [
+      ...(hood || this.done.has('hood') ? [{ id: 'hood', text: '打开引擎盖', done: this.done.has('hood') || (!!b.parts.battery && !!b.parts.engine) }] : []),
       { id: 'battery', text: '装上电瓶', done: !!b.parts.battery },
       { id: 'wheels', text: '装上两个车轮', done: !!b.parts.hub_FL && !!b.parts.hub_RR },
       { id: 'engine', text: '装上发动机', done: !!b.parts.engine },
@@ -549,6 +551,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const v = this.vehicles[0];
     if (!v) return;
     if (this.garage?.doorsOpen?.()) this.done.add('door');
+    if (v.view.panelOpen('hood') > 0.6 || (v.view.hasPanel('hood') && !v.build.parts.hood)) this.done.add('hood');
     if (this.seated === v) this.done.add('seat');
     if (v.sys.running) this.done.add('start');
   }
@@ -913,6 +916,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     };
     const b = v.build.parts;
     switch (step.id) {
+      case 'hood':
+        return at('hood', '打开引擎盖', 0.25);
       case 'battery':
         return holding('bat_std') ? at('battery', '电瓶装这里') : lying('bat_std', '电瓶');
       case 'wheels': {
@@ -1062,6 +1067,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       vehicles: this.vehicles.map((x) => ({ frame: x.build.frame, parts: Object.keys(x.build.parts).length, running: x.sys.running, x: x.sim.px, z: x.sim.pz })),
       loose: this.loose.list.length,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
+      steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };

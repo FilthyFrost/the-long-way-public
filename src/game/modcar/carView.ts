@@ -180,6 +180,7 @@ export class CarView {
       if (w) this.wipers.push(w);
     }
     this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
+    this.covers = null;
   }
 
   private hangPanel(mt: MountDef, p: THREE.Object3D): void {
@@ -246,6 +247,40 @@ export class CarView {
 
   hasPanel(mount: string): boolean {
     return this.panels.has(mount);
+  }
+
+  /** mount → the lid (hood, trunk) over it, measured from the lids at rest */
+  private covers: Map<string, string> | null = null;
+
+  /**
+   * The lid (hood or trunk) that is shut over a mount, or null: the parts under a closed bonnet can be
+   * reached only once it is open or off. Found by where the lid lies at rest: a mount inside its outline
+   * and below it.
+   */
+  shutOver(mount: string): string | null {
+    if (!this.covers) {
+      this.covers = new Map();
+      const box = new THREE.Box3();
+      const inv = new THREE.Matrix4();
+      this.model.updateMatrixWorld(true);
+      inv.copy(this.model.matrixWorld).invert();
+      for (const [id, p] of this.panels) {
+        const cat = this.catOf.get(id);
+        if (cat !== 'hood' && cat !== 'trunk') continue;
+        box.makeEmpty();
+        for (const s of p.skin) box.expandByObject(s);
+        if (box.isEmpty()) continue;
+        box.applyMatrix4(inv);
+        for (const m of this.frame.mounts) {
+          if (m.panel || m.cat === 'rim' || m.cat === 'bumperFront' || m.cat === 'bumperRear' || m.cat === 'headlight' || m.cat === 'taillight') continue;
+          const q = m.pos;
+          if (q.x > box.min.x - 0.05 && q.x < box.max.x + 0.05 && q.z > box.min.z - 0.05 && q.z < box.max.z + 0.05 && q.y < box.max.y) this.covers.set(m.id, id);
+        }
+      }
+    }
+    const lid = this.covers.get(mount);
+    if (!lid || !this.build.parts[lid] || this.panelOpen(lid) > 0.6) return null;
+    return lid;
   }
 
   // ------------------------------------------------------------------ parts
