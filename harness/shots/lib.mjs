@@ -15,14 +15,18 @@ export async function startServer() {
   return { server, url: `http://127.0.0.1:${addr.port}` };
 }
 
+const DEFAULT_CHROME = process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/usr/bin/google-chrome';
+
 export async function launchBrowser() {
+  // SHOTS_GPU=1: draw on the machine's GPU (D3D11 through ANGLE) — about ten times faster than the
+  // software renderer, for iterating on models and materials; gate runs keep the software renderer
+  const gpu = process.env.SHOTS_GPU === '1';
   return chromium.launch({
-    executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome',
+    executablePath: process.env.CHROME_PATH || DEFAULT_CHROME,
     headless: true,
     args: [
       '--no-sandbox',
-      '--use-angle=swiftshader',
-      '--enable-unsafe-swiftshader',
+      ...(gpu ? ['--use-angle=d3d11'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']),
       '--ignore-gpu-blocklist',
       '--enable-webgl',
       '--disable-gpu-vsync',
