@@ -14,7 +14,7 @@ const CONTROL_CATS = new Set(['handbrake', 'gearLever', 'ignition', 'radio', 'ho
 export interface CockpitHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
-  sound(name: string): void;
+  sound(name: string, gain?: number, mount?: string): void;
   getOut(): void;
 }
 
@@ -98,7 +98,7 @@ export class Cockpit {
     else if (m.cat === 'door') {
       const open = v.view.panelOpen(m.id) < 0.5;
       v.view.setPanelOpen(m.id, open);
-      this.host.sound(open ? 'door_open' : 'door_close');
+      this.host.sound(open ? 'door_open' : 'door_close', 1, m.id);
     }
     return true;
   }

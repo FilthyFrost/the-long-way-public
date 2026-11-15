@@ -45,7 +45,7 @@ export interface PlayerHost {
   /** a vehicle's build changed: tell the systems, the view and any listeners (the checklist) */
   changed(v: ModVehicle, what: string): void;
   enter(v: ModVehicle): void;
-  sound(name: string, gain?: number): void;
+  sound(name: string, gain?: number, mount?: string): void;
 }
 
 const REACH = 2.6;
@@ -64,7 +64,7 @@ export class ModPlayer {
   /** the colour a spray can is set to */
   paintIndex = 3;
   /** progress of the hold in hand (0…1), and what it is for (a target key) */
-  private progress = 0;
+  progress = 0;
   private progressKey = '';
   private surfaceT = 0;
   private dropT = 0;
@@ -381,7 +381,7 @@ export class ModPlayer {
         if (t.v.view.hasPanel(t.mount.id)) {
           const open = t.v.view.panelOpen(t.mount.id) < 0.5;
           t.v.view.setPanelOpen(t.mount.id, open);
-          host.sound(open ? 'door_open' : 'door_close');
+          host.sound(open ? 'door_open' : 'door_close', 1, t.mount.id);
           return;
         }
         if (t.mount.cat === 'seat' || t.mount.cat === 'steering') {
@@ -438,7 +438,7 @@ export class ModPlayer {
         if (inst) {
           this.held = { kind: 'part', inst };
           host.changed(t.v, `off:${t.mount.id}`);
-          host.sound('ratchet_done');
+          host.sound('remove_done', partDef(inst.part).mass);
         }
       }
       return;

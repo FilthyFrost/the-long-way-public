@@ -31,6 +31,8 @@ import { BeaconView } from '../scene/beacons';
 import { preload } from './assets';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
+import { EngineVoice } from './engineAudio';
+import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
 import { HeldThing } from './held';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
@@ -311,12 +313,12 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (a === 'key') {
         if (v.sys.running) v.sys.stop('');
         else v.sys.crank(true);
-        this.audio.oneShot('key');
+        this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
-        this.audio.oneShot('key');
+        this.sound('latch');
       } else if (a === 'horn') v.sys.setHorn(true);
-      else if (a === 'leverUp' || a === 'leverDown') this.audio.oneShot(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
+      else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
       else if (a === 'reset') this.resetUpright(v);
     });
@@ -392,23 +394,135 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.checkTutorial();
   }
 
-  /** a one-shot by name (the foley module replaces this mapping onto the old synth's few sounds) */
-  sound(name: string, gain = 1): void {
-    const map: Record<string, 'lever' | 'grind' | 'ratchet' | 'key' | 'shift'> = {
-      ratchet_done: 'ratchet',
-      ratchet: 'ratchet',
-      door_open: 'lever',
-      door_close: 'lever',
-      pickup: 'key',
-      putdown: 'key',
-      key: 'key',
-      lever: 'lever',
-      grind: 'grind',
-      shift: 'shift',
+  // ------------------------------------------------------------------ sound
+
+  /** the engine voice and the mechanical sounds (docs/MODCAR_AUDIO.md), on the game's context once a gesture started it */
+  private voice: EngineVoice | null = null;
+  private foley: Foley | null = null;
+  /** loops asked for this frame (spray, sponge, pour, the wrench) and the ones playing */
+  private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
+  private readonly loopsOn = new Set<FoleyLoop>();
+  private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+
+  private sounds(): Foley | null {
+    const ctx = this.audio.context;
+    const out = this.audio.output;
+    if (!ctx || !out) return null;
+    if (!this.foley) {
+      this.voice = new EngineVoice(ctx, out);
+      this.foley = new Foley(ctx, out);
+      this.foley.warm(['door_open', 'door_close', 'part_pickup', 'part_setdown', 'part_install', 'key_turn', 'handbrake_pull', 'gear_shift', 'ratchet']);
+    }
+    return this.foley;
+  }
+
+  /** the material a door makes its sound in, by the style of the part on it */
+  private panelMaterial(v: ModVehicle | null | undefined, mount?: string): PanelMaterial {
+    const inst = v && mount ? v.build.parts[mount] : undefined;
+    const style = inst ? partDef(inst.part).panel?.style : undefined;
+    return style === 'rusty' || style === 'armor' || style === 'cage' || style === 'fridge' ? style : 'metal';
+  }
+
+  /**
+   * A sound by name, from the player, the cab and the garage: one-shots play at once; the names of things
+   * that go on while a button is held (spray, scrub, pour) keep their loop going for this frame.
+   * @param gain a mass (kg) for things picked up and put down, litres moved for a pour, else a level
+   */
+  sound(name: string, gain = 1, mount?: string): void {
+    const f = this.sounds();
+    if (!f) return;
+    const held = this.player.held;
+    const v = this.seated ?? this.focus;
+    switch (name) {
+      case 'spray':
+        this.loopsNow.set('spray', {});
+        return;
+      case 'scrub':
+        this.loopsNow.set('sponge', {});
+        return;
+      case 'pour': {
+        const liquid = held?.kind === 'tool' ? (held.tool.kind === 'bottle' ? 'water' : held.tool.kind === 'oilcan' ? 'oil' : 'fuel') : 'fuel';
+        this.loopsNow.set('pour', { liquid });
+        return;
+      }
+    }
+    const shot: Partial<Record<string, [FoleyShot, FoleyOpts]>> = {
+      ratchet_done: ['part_install', { mass: held?.kind === 'part' ? partDef(held.inst.part).mass : 10 }],
+      remove_done: ['part_remove', { mass: gain }],
+      pickup: ['part_pickup', { mass: gain }],
+      putdown: ['part_setdown', { mass: gain }],
+      door_open: [mount && /hood/.test(mount) ? 'hood_open' : mount && /trunk/.test(mount) ? 'trunk_open' : 'door_open', { material: this.panelMaterial(v, mount) }],
+      door_close: [mount && /hood/.test(mount) ? 'hood_close' : mount && /trunk/.test(mount) ? 'trunk_close' : 'door_close', { material: this.panelMaterial(v, mount) }],
+      key: ['key_turn', {}],
+      ratchet: [v && v.sim.parkBrake > 0 ? 'handbrake_pull' : 'handbrake_release', {}],
+      lever: ['gear_shift', {}],
+      shift: ['gear_shift', { gain: 0.6 }],
+      grind: ['gear_grind', { gain: Math.min(1, gain) }],
+      latch: ['latch', {}],
     };
-    const s = map[name];
-    if (s) this.audio.oneShot(s);
-    void gain;
+    const s = shot[name];
+    if (s) f.play(s[0], s[1]);
+  }
+
+  /** start the loops asked for this frame, stop the rest; the horn of the vehicle in focus */
+  private updateFoley(): void {
+    const f = this.foley;
+    if (!f) return;
+    // the wrench turns while a part goes on or comes off
+    const t = this.player.target;
+    if (!this.seated && this.player.progress > 0 && t && (t.kind === 'ghost' || t.kind === 'looseSub' || ((t.kind === 'part' || t.kind === 'loose') && this.player.secondary))) this.loopsNow.set('ratchet', {});
+    for (const [k, o] of this.loopsNow) {
+      if (!this.loopsOn.has(k)) {
+        f.start(k, o);
+        this.loopsOn.add(k);
+      }
+    }
+    for (const k of [...this.loopsOn]) {
+      if (this.loopsNow.has(k)) continue;
+      f.stop(k);
+      this.loopsOn.delete(k);
+    }
+    this.loopsNow.clear();
+    const d = (this.seated ?? this.focus)?.sys.dash;
+    const want = d?.horn ? (d.hornSound === 'trumpet' ? 'horn_trumpet' : d.hornSound === 'air' ? 'horn_air' : 'horn_beep') : '';
+    if (want !== this.hornOn) {
+      if (this.hornOn) f.horn(this.hornOn, false);
+      if (want) f.horn(want, true);
+      this.hornOn = want;
+    }
+  }
+
+  /** the engine of the vehicle in focus: heard from the seat, or from where one stands */
+  private updateEngineVoice(): void {
+    const voice = this.voice;
+    const v = this.seated ?? this.focus;
+    if (!voice || !v) return;
+    const d = v.sys.dash;
+    const sim = v.sim;
+    const ex = v.view.frame.mounts.find((m) => m.cat === 'exhaust' && v.build.parts[m.id]);
+    const eng = v.view.frame.mounts.find((m) => m.cat === 'engine' && v.build.parts[m.id]);
+    const engInst = eng ? v.build.parts[eng.id] : undefined;
+    const inGear = sim.selector === 'D' || sim.selector === 'R';
+    // the cabin is as open as its missing and open doors (and a frame that has none) make it
+    let open = 1 - v.sys.derived.enclosed;
+    for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
+    const inside = this.seated === v && this.viewMode === 'cockpit';
+    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(this.player.walker.x - sim.px, this.player.walker.z - sim.pz);
+    voice.update({
+      engineId: engInst?.part ?? null,
+      exhaustId: ex ? v.build.parts[ex.id].part : null,
+      turbo: !!engInst?.sub.turbo,
+      rpm: d.rpm,
+      load: d.running ? sim.throttle * (inGear ? 1 : 0.35) : 0,
+      throttle: sim.throttle,
+      running: d.running,
+      cranking: d.cranking,
+      inside,
+      doorsOpen: Math.min(1, Math.max(0, open)),
+      starterRate: Math.min(1, d.battery * 1.6),
+      boost: d.boost,
+      distance: Math.max(1, dist),
+    });
   }
 
   // ------------------------------------------------------------------ the checklist
@@ -858,6 +972,9 @@ export class ModGame implements PlayerHost, CockpitHost {
   }
 
   private updateAudio(): void {
+    this.sounds();
+    this.updateFoley();
+    this.updateEngineVoice();
     const v = this.focus;
     if (!v) return;
     const sim = v.sim;
@@ -886,15 +1003,16 @@ export class ModGame implements PlayerHost, CockpitHost {
         dust: w.dust,
         wind: w.wind,
         enclosed: this.seated ? v.sys.derived.enclosed : 0,
-        engineOn: d.running,
-        cranking: d.cranking,
+        // (the engine and its starter are the EngineVoice's)
+        engineOn: false,
+        cranking: false,
         starterRate: Math.min(1, d.battery * 2),
         shifting: sim.shiftTimer > 0 ? sim.shiftTimer / Math.max(0.05, sim.spec.gearbox.shiftTime) : 0,
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
         flat: false,
-        horn: d.horn,
+        horn: false,
         hornDetune: false,
       },
       this.env.flash,
