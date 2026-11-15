@@ -5,7 +5,8 @@
  *
  * Called again after every fit or removal; VehicleSim.applySpec puts the result in force in place.
  */
-import type { AxleSpec, VehicleSpec } from '../vehicle/spec';
+import { RIM_GRIP, RIM_RR } from '../vehicle/mods';
+import { NO_ENGINE, type AxleSpec, type VehicleSpec } from '../vehicle/spec';
 import { stockBuild } from './build';
 import { frameDef, hubsOf } from './frames';
 import { midHeight, partGeo } from './geo';
@@ -16,8 +17,6 @@ const G = 9.81;
 export const DRIVER_KG = 75;
 export const SURFACE_N = 7;
 const FUEL_KG_PER_L: Record<string, number> = { petrol: 0.74, diesel: 0.84, mix2t: 0.75 };
-/** a hub with nothing on it: the brake disc and hub carrier drag on the ground */
-const BARE_HUB = { radius: 0.09, grip: 0.25, rr: 8 };
 /** a flat tyre keeps this share of its sidewall */
 const FLAT_SIDEWALL = 0.45;
 /** extra drag area for each panel missing on an enclosed body (m²) */
@@ -28,7 +27,8 @@ export type ModAxleSpec = AxleSpec & { wheelRadius?: number };
 export type ModVehicleSpec = Omit<VehicleSpec, 'front' | 'rear'> & {
   front: ModAxleSpec;
   rear: ModAxleSpec;
-  balance?: { assist: number };
+  balance?: VehicleSpec['balance'];
+  absent?: VehicleSpec['absent'];
 };
 
 export interface DerivedWheel {
@@ -45,6 +45,10 @@ export interface DerivedWheel {
   rr: number;
   dual: boolean;
   flat: boolean;
+  /** what the simulation is told is on the hub: 0 a tyre, 1 a bare rim, 2 nothing (SimMods.wheelFit) */
+  fit: 0 | 1 | 2;
+  /** how far a flat tyre squashes the corner (m): SimMods.radiusDrop */
+  squash: number;
 }
 
 export interface Derived {
@@ -57,7 +61,9 @@ export interface Derived {
   cg: V3;
   /** how much higher than modelled the body rides on these wheels (m) */
   lift: number;
-  /** each wheel's radius below its axle's mean (m, + = smaller): SimMods.radiusDrop */
+  /** each wheel's real size against its axle's radius (m, + = bigger): SimMods.radiusOffset */
+  radiusOffset: number[];
+  /** a flat tyre's squash per wheel (m): SimMods.radiusDrop */
   radiusDrop: number[];
   steerPlayRad: number;
   engine: PartDef | null;
@@ -163,7 +169,8 @@ export function massProps(build: Build, withDriver = true): MassProps {
 export function wheelOn(build: Build, hub: MountDef): DerivedWheel {
   const inst = build.parts[hub.id];
   if (!inst) {
-    return { hub: hub.id, present: false, rim: null, tire: null, radius: BARE_HUB.radius, width: 0.05, grip: new Array(SURFACE_N).fill(BARE_HUB.grip), rr: BARE_HUB.rr, dual: false, flat: false };
+    // an empty hub: the simulation drops that corner onto the body (WheelFit.None); radius unused
+    return { hub: hub.id, present: false, rim: null, tire: null, radius: 0, width: 0.05, grip: new Array(SURFACE_N).fill(1), rr: 1, dual: false, flat: false, fit: 2, squash: 0 };
   }
   const rim = partDef(inst.part).rim;
   if (!rim) throw new Error(`${inst.part} is on hub ${hub.id} but is not a rim`);
@@ -171,7 +178,22 @@ export function wheelOn(build: Build, hub: MountDef): DerivedWheel {
   const tire = tInst ? partDef(tInst.part).tire : undefined;
   const dual = rim.dual === true;
   if (!tire) {
-    return { hub: hub.id, present: true, rim: inst.part, tire: null, radius: rim.radius, width: rim.width, grip: [...rim.grip], rr: rim.rr, dual, flat: false };
+    // a bare rim (the simulation applies RIM_GRIP / RIM_RR itself) or a wheel with its own rubber
+    const bare = rim.tire;
+    return {
+      hub: hub.id,
+      present: true,
+      rim: inst.part,
+      tire: null,
+      radius: rim.radius,
+      width: rim.width,
+      grip: rim.grip.map((g) => (bare ? g / RIM_GRIP : g)),
+      rr: bare ? rim.rr / RIM_RR : rim.rr,
+      dual,
+      flat: false,
+      fit: bare ? 1 : 0,
+      squash: 0,
+    };
   }
   const flat = tInst?.flat === true;
   const tread = tInst?.tread ?? 1;
@@ -182,12 +204,14 @@ export function wheelOn(build: Build, hub: MountDef): DerivedWheel {
     present: true,
     rim: inst.part,
     tire: tInst?.part ?? null,
-    radius: rim.radius + tire.sidewall * (flat ? FLAT_SIDEWALL : 1),
+    radius: rim.radius + tire.sidewall,
     width: tire.width * (dual ? 1.7 : 1),
     grip: tire.grip.map((g) => g * k),
     rr: tire.rr * (flat ? 3 : 1),
     dual,
     flat,
+    fit: 0,
+    squash: flat ? tire.sidewall * (1 - FLAT_SIDEWALL) : 0,
   };
 }
 
@@ -244,11 +268,6 @@ export function boostedCurve(engine: PartDef, exhaust: PartDef | null, turbo: Pa
   return pts;
 }
 
-/** a placeholder engine curve for a build without an engine (the systems keep it from running) */
-const NO_ENGINE_CURVE: [number, number][] = [
-  [800, 0],
-  [1000, 0],
-];
 
 export function derive(build: Build): Derived {
   const frame = frameDef(build.frame);
@@ -260,9 +279,13 @@ export function derive(build: Build): Derived {
   const wheels = order.map((h) => wheelOn(build, h));
   const single = frame.balance === true;
 
-  const rF = (wheels[0].radius + wheels[1].radius) / 2;
-  const rR = (wheels[2].radius + wheels[3].radius) / 2;
-  const radiusDrop = [rF - wheels[0].radius, rF - wheels[1].radius, rR - wheels[2].radius, rR - wheels[3].radius];
+  // an axle's radius is the mean of the wheels it has (an empty hub has none); each wheel's own size
+  // goes to the simulation as an offset from it
+  const axleR = (a: DerivedWheel, b: DerivedWheel): number => (a.present && b.present ? (a.radius + b.radius) / 2 : a.present ? a.radius : b.present ? b.radius : frame.hubRadius);
+  const rF = axleR(wheels[0], wheels[1]);
+  const rR = axleR(wheels[2], wheels[3]);
+  const radiusOffset = wheels.map((w, i) => (w.present ? w.radius - (i < 2 ? rF : rR) : 0));
+  const radiusDrop = wheels.map((w) => w.squash);
   const lift = (rF + rR) / 2 - frame.hubRadius;
 
   const xF = (hubs.fl.pos.x + hubs.fr.pos.x) / 2;
@@ -328,7 +351,7 @@ export function derive(build: Build): Derived {
 
   // engine and gearbox (the systems keep a build without either from moving: rules.ts)
   const e = engine?.def.engine;
-  const curve = engine ? boostedCurve(engine.def, exhaust?.def ?? null, turbo) : NO_ENGINE_CURVE;
+  const curve = engine ? boostedCurve(engine.def, exhaust?.def ?? null, turbo) : NO_ENGINE.curve;
   let peakKw = 0;
   let peakRpm = 0;
   let peakNm = 0;
@@ -430,6 +453,8 @@ export function derive(build: Build): Derived {
     fuel: { tankL: tank?.def.fuelTank?.litres ?? 0, lPerKWh: e?.lPerKWh ?? 1.5, idleLph: e?.idleLph ?? 0 },
   };
   if (single) spec.balance = { assist: 1 };
+  // what is missing, for the physics (docs/MODCAR.md §3; the systems and rules say it in words)
+  if (!engine || !gearbox || !steering || !handbrake) spec.absent = { engine: !engine, gearbox: !gearbox, steering: !steering, handbrake: !handbrake };
 
   return {
     spec,
@@ -438,6 +463,7 @@ export function derive(build: Build): Derived {
     mass: M,
     cg,
     lift,
+    radiusOffset,
     radiusDrop,
     steerPlayRad: ((st?.playDeg ?? 0) * Math.PI) / 180,
     engine: engine?.def ?? null,

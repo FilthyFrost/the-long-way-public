@@ -23,6 +23,8 @@ export function applyWheelMods(sim: VehicleSim, d: Derived): void {
       m.rr[i * SURFACE_N + k] = w.rr;
     }
     m.radiusDrop[i] = d.radiusDrop[i];
+    m.radiusOffset[i] = d.radiusOffset[i];
+    m.wheelFit[i] = w.fit;
   }
   m.steerPlay = d.steerPlayRad;
 }
