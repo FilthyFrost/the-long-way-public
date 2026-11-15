@@ -740,10 +740,12 @@ export class ModGame implements PlayerHost, CockpitHost {
       const sim = v.sim;
       const scrape = sim.feel.scrape ?? 0;
       if (scrape < 1) continue;
-      const due = (this.sparkDue.get(v) ?? 0) + dt * 70 * Math.min(1, scrape / 8);
-      const n = Math.floor(due);
-      this.sparkDue.set(v, due - n);
-      if (!n) continue;
+      // in bursts, a dozen or so at a time, more often the faster it drags
+      const due = (this.sparkDue.get(v) ?? 0) + dt * (4 + 10 * Math.min(1, scrape / 8));
+      const bursts = Math.floor(due);
+      this.sparkDue.set(v, due - bursts);
+      if (!bursts) continue;
+      const n = bursts * (8 + Math.floor(Math.random() * 12));
       const b = this.sparkB;
       sim.basis(b);
       const sp = Math.hypot(sim.vx, sim.vz) || 1;
