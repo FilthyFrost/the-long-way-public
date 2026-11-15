@@ -465,8 +465,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += (e.bright * 0.4 + uSunColor * 0.12 * lit) * crease * coat * 0.8;
     // the sun in the clear coat: small and white-hot (the bloom catches it)
     col += uSunColor * 1.6 * rtSunSpot(R, uLook.y) * sh * gloss * (1.0 - fade);
-    // rim: the edge turned away catches the sky
+    // rim: the edge turned away catches the sky; on the side the sun is, a warm edge of light (the line
+    // round a car seen against the light)
     col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao;
+    // (only on what faces sideways: a hood seen at a slant is not an edge)
+    col += uSunColor * 0.35 * uLook.z * pow(1.0 - ndv, 3.5) * smoothstep(0.0, 0.35, ndl) * (1.0 - smoothstep(0.45, 0.85, n.y)) * sh * ao;
     #ifdef RT_WEAR
     // rust breaks through; the paint round it lifts and pales
     col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rust) * 0.5);
