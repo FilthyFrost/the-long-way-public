@@ -73,6 +73,8 @@ export class ModSystems {
   cranking = false;
   lights: LightSwitch = 'off';
   horn = false;
+  /** assist: stopped, S drives backwards (else the gear lever has to go to R) */
+  assistReverse = true;
   coolantC = AMBIENT_DEFAULT;
   /** turbo spool 0…1 */
   boost = 0;
@@ -441,7 +443,7 @@ export class ModSystems {
     if (!sim) return;
     // the simulation's convenience of picking R and D by itself needs a lever, a gearbox and a reverse gear
     const gb = this.derived.gearbox?.gearbox;
-    sim.autoReverse = !!gb && gb.reverse > 0 && this.hasPart('gearLever');
+    sim.autoReverse = this.assistReverse && !!gb && gb.reverse > 0 && this.hasPart('gearLever');
     if (!this.derived.gearbox) {
       if (sim.selector !== 'N') sim.shift('N');
       return;

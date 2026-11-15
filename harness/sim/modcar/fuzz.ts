@@ -9,7 +9,13 @@ import { Rng } from '../../../src/core/math/rng';
 import { StaticSolids } from '../../../src/core/onfoot/statics';
 import { VehicleSim, zeroInput, type VehicleInput } from '../../../src/core/vehicle/sim';
 import { FlatGround, GroundSample, Surface, type Ground } from '../../../src/core/world/ground';
-import type { RandomBuild } from './specgen';
+import { feel } from './feel';
+import { randomBuild as makeBuild, type RandomBuild } from './specgen';
+
+/** full throttle on the level until it stops gaining: its top speed */
+function launchTop(b: RandomBuild): { top: number; exploded: boolean } {
+  return feel.launch(b.spec, { mods: b.setup });
+}
 
 export interface FuzzStats {
   /** state became non-finite */
@@ -237,4 +243,34 @@ export function harshFuzz(b: RandomBuild, rng: Rng, seconds = 25): HarshStats {
     st.maxWallPenetration = v.maxPenetration;
   }
   return st;
+}
+
+/** the fuzz test's settings: MODCAR_FUZZ=<builds> MODCAR_FUZZ_SECONDS=<seconds each> MODCAR_FUZZ_SEED=<seed> */
+export const FUZZ = {
+  builds: Number(process.env.MODCAR_FUZZ ?? 1000),
+  seconds: Number(process.env.MODCAR_FUZZ_SECONDS ?? 30),
+  seed: Number(process.env.MODCAR_FUZZ_SEED ?? 2026),
+};
+
+/**
+ * Builds `from` to `to` (of the seeded sequence) through fuzzBuild and a flat-out run for the top
+ * speed; what went wrong with each, if anything.
+ */
+export function fuzzRange(from: number, to: number, seconds = FUZZ.seconds, seed = FUZZ.seed): string[] {
+  const rng = new Rng(seed);
+  const bad: string[] = [];
+  for (let i = 0; i < to; i++) {
+    const b = makeBuild(rng);
+    if (i < from) continue;
+    const s = fuzzBuild(b, seconds, seed * 7 + i);
+    const top = launchTop(b);
+    const why: string[] = [];
+    if (s.exploded || top.exploded) why.push('exploded');
+    if (s.maxKmh > 300 || top.top > 300) why.push(`speed ${Math.max(s.maxKmh, top.top).toFixed(0)} km/h`);
+    if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
+    if (s.maxSink > 0.2) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
+    if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the ground`);
+    if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
+  }
+  return bad;
 }

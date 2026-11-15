@@ -61,6 +61,9 @@ export class ModPlayer {
   held: Held = null;
   target: Target | null = null;
   readonly ghosts = new GhostLayer();
+  /** assists: the holograms, the stat card (the ghosts' targeting works without them) */
+  showGhostsOn = true;
+  showCardOn = true;
   /** the colour a spray can is set to */
   paintIndex = 3;
   /** progress of the hold in hand (0…1), and what it is for (a target key) */
@@ -293,8 +296,9 @@ export class ModPlayer {
   /** the part about to come off (or be sprayed, washed) and the thing about to be picked up light up */
   private showHighlight(): void {
     const t = this.target;
-    const v = t && (t.kind === 'part' || (t.kind === 'surface' && t.mount)) ? t.v : null;
-    const mount = t && (t.kind === 'part' || t.kind === 'surface') ? t.mount?.id ?? null : null;
+    // (a part about to be sprayed or washed is not lit: one sees its real colour and the paint go on)
+    const v = t?.kind === 'part' ? t.v : null;
+    const mount = t?.kind === 'part' ? t.mount.id : null;
     if (this.litVehicle && this.litVehicle !== v) this.litVehicle.view.highlight(null);
     this.litVehicle = v;
     if (v) v.view.highlight(mount);
@@ -343,7 +347,7 @@ export class ModPlayer {
         list.push({ node, mount: m, partId: def.id, kind, key: `${v.build.uid}:${m.id}:${def.id}` });
       }
     }
-    this.ghosts.show(list);
+    this.ghosts.show(this.showGhostsOn ? list : []);
     const t = this.target;
     this.ghosts.selected = t?.kind === 'ghost' ? `${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${def.id}` : '';
   }
@@ -613,7 +617,7 @@ export class ModPlayer {
     if (this.dropT > 0 && held) word = '放下';
     const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : -1;
     ui.prompt(true, word, ring);
-    ui.showCard(card);
+    ui.showCard(this.showCardOn ? card : null);
     if (held) {
       const label = held.kind === 'part' ? `${name(held.inst)}<small>${partDef(held.inst.part).mass} kg · 按住 G 放下</small>` : `${toolName(held.tool)}<small>按住 G 放下</small>`;
       ui.showHeld(label);

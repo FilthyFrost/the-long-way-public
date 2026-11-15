@@ -675,7 +675,7 @@ def build_turbo_small(P):
     tv.data.transform(Matrix.Translation((0, yt, zc)))
     P.cyl('t_out', 0.032, 0.03, (0, yt - 0.045, zc), 'rust', axis='Y', segs=16, bev=0.004, bsegs=1)
     P.cyl('t_out_flange', 0.042, 0.01, (0, yt - 0.064, zc), 'rust', axis='Y', segs=16, bev=0.003, bsegs=1)
-    P.cyl('chra', 0.03, 0.05, (0, 0.012, zc), 'steel', axis='Y', segs=16, bev=0.005, bsegs=2)
+    P.cyl('chra', 0.03, 0.05, (0, 0.012, zc), 'steel', axis='Y', segs=16, bev=0.005, bsegs=1)
     P.tube('oil_feed', [(0, 0.012, zc + 0.03), (0.0, 0.015, zc + 0.07), (0.05, 0.02, zc + 0.1)], 0.004, 'steel',
            segs=6, bend=0.02)
     P.tube('oil_drain', [(0, 0.012, zc - 0.03), (0.0, 0.015, zc - 0.06), (0.04, 0.02, zc - 0.08)], 0.009, 'rubber',
@@ -689,7 +689,7 @@ def build_turbo_small(P):
             loc=(0, yc + 0.02, zc), material='alu', axis='Y', segs=20, sharp=40.0)
     P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)][::-1], loc=(0, yc + 0.02, zc),
             material='steel', axis='Y', segs=14, close='start', sharp=40.0)
-    P.cyl('wg_can', 0.028, 0.035, (0.07, yc - 0.005, zc + 0.02), 'alu', axis='Y', segs=16, bev=0.005, bsegs=2)
+    P.cyl('wg_can', 0.028, 0.035, (0.07, yc - 0.005, zc + 0.02), 'alu', axis='Y', segs=16, bev=0.005, bsegs=1)
     P.box('wg_brk', (0.03, 0.05, 0.008), (0.06, 0.03, zc + 0.02), 'steel', bev=0.002, segs=1)
     P.tube('wg_rod', [(0.07, yc - 0.03, zc + 0.02), (0.065, yt + 0.0, zc + 0.03)], 0.0035, 'steel', segs=5)
     P.tube('wg_hose', [(0.07, yc + 0.015, zc + 0.04), (0.04, yc + 0.03, zc + 0.08), (0.0, yc + 0.02, zc + 0.1)],

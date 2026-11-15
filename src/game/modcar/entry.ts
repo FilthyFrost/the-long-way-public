@@ -7,6 +7,7 @@ import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } fr
 import { partDef } from '../../core/modcar/parts';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { readParams } from '../params';
+import { loadStats } from './assets';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -258,11 +259,28 @@ const rt = {
   },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
+  /** what is on a mount (part id, paint, dirt, rust…), or null */
+  part: (vi: number, mount: string) => {
+    const inst = vehicle(vi).build.parts[mount];
+    return inst ? { part: inst.part, paint: inst.paint, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
+  },
   partName: (id: string) => partDef(id).name,
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 
+// the loading card until the garage and its parts are in (not in screenshots)
+if (!params.shot) {
+  game.ui.showLoading(0);
+  const tick = (): void => {
+    if (rt.ready) return;
+    game.ui.showLoading(loadStats.requested ? loadStats.done / loadStats.requested : 0);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 void game.ready.then(() => {
+  game.ui.showLoading(null);
   if (params.shot) {
     game.simulate(0.8);
     game.render();

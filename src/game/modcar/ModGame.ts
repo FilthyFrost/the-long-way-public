@@ -33,7 +33,9 @@ import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { EngineVoice } from './engineAudio';
 import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
+import { Sparks } from './sparks';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
@@ -116,6 +118,11 @@ export class ModGame implements PlayerHost, CockpitHost {
   readonly cockpit = new Cockpit(this);
   /** what is in the hands, in first person */
   readonly heldThing: HeldThing;
+  /** metal on the road */
+  readonly sparks: Sparks;
+  /** the assists (F2) */
+  readonly assists: Assists = loadAssists();
+  private readonly sparkDue = new Map<ModVehicle, number>();
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -157,8 +164,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
     this.viewMode = params.view === 'chase' ? 'chase' : params.view === 'orbit' ? 'orbit' : 'cockpit';
-    // (ModUI shows this game's own key card)
-    this.hud = new Hud(params.hud, '');
+    // (ModUI shows this game's own key card; the numbers line only with ?hud=1, F3 toggles it)
+    this.hud = new Hud(typeof location !== 'undefined' && new URLSearchParams(location.search).get('hud') === '1', '');
     this.input = new InputManager(canvas);
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
@@ -177,6 +184,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     this.heldThing = new HeldThing(this.core);
+    this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     if (this.garage) this.player.addSolids(this.garage.solids);
@@ -318,9 +326,25 @@ export class ModGame implements PlayerHost, CockpitHost {
     // the key card: at the start until the first click, and on F1 any time
     if (!this.params.shot) this.ui.showHelp(true);
     window.addEventListener('keydown', (e) => {
-      if (e.code !== 'F1') return;
-      e.preventDefault();
-      this.ui.showHelp(!this.ui.helpShown);
+      if (e.code === 'F1') {
+        e.preventDefault();
+        this.ui.showHelp(!this.ui.helpShown);
+        return;
+      }
+      if (e.code === 'F2') {
+        e.preventDefault();
+        this.ui.showAssists(this.ui.assistsShown ? null : this.assistItems());
+        return;
+      }
+      // the assists card open: the number keys switch them
+      const n = /^Digit([1-9])$/.exec(e.code);
+      if (n && this.ui.assistsShown) {
+        const entry = ASSIST_LABELS[Number(n[1]) - 1];
+        if (!entry) return;
+        this.assists[entry[0]] = !this.assists[entry[0]];
+        saveAssists(this.assists);
+        this.ui.showAssists(this.assistItems());
+      }
     });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === canvas) this.ui.showHelp(false);
@@ -345,10 +369,14 @@ export class ModGame implements PlayerHost, CockpitHost {
         this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
-        this.sound('latch');
+        this.sound('switch');
       } else if (a === 'horn') v.sys.setHorn(true);
       else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
+      else if (a === 'hazard') {
+        v.view.hazard = !v.view.hazard;
+        this.sound('switch');
+      }
       else if (a === 'reset') this.resetUpright(v);
     });
     this.input.onRelease((a) => {
@@ -358,6 +386,22 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (a === 'horn') v.sys.setHorn(false);
       else if (a === 'key') v.sys.crank(false);
     });
+  }
+
+  private assistItems(): { label: string; on: boolean }[] {
+    return ASSIST_LABELS.map(([k, label]) => ({ label, on: this.assists[k] }));
+  }
+
+  /** the assists into the vehicles and the player, every step */
+  private applyAssists(): void {
+    const a = this.assists;
+    for (const v of this.vehicles) {
+      v.sim.autoRelease = a.autoRelease;
+      v.assistHold = a.autoHold;
+      v.sys.assistReverse = a.autoReverse;
+    }
+    this.player.showGhostsOn = a.ghosts;
+    this.player.showCardOn = a.card;
   }
 
   // ------------------------------------------------------------------ getting in and out
@@ -434,6 +478,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
   private readonly loopsOn = new Set<FoleyLoop>();
   private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+  private readonly lastGear: { v: ModVehicle | null; gear: number } = { v: null, gear: 0 };
+  private wasBlinking = false;
 
   private sounds(): Foley | null {
     const ctx = this.audio.context;
@@ -486,10 +532,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       door_close: [mount && /hood/.test(mount) ? 'hood_close' : mount && /trunk/.test(mount) ? 'trunk_close' : 'door_close', { material: this.panelMaterial(v, mount) }],
       key: ['key_turn', {}],
       ratchet: [v && v.sim.parkBrake > 0 ? 'handbrake_pull' : 'handbrake_release', {}],
-      lever: ['gear_shift', {}],
+      lever: ['lever', {}],
       shift: ['gear_shift', { gain: 0.6 }],
       grind: ['gear_grind', { gain: Math.min(1, gain) }],
       latch: ['latch', {}],
+      switch: ['switch', {}],
     };
     const s = shot[name];
     if (s) f.play(s[0], s[1]);
@@ -514,6 +561,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.loopsOn.delete(k);
     }
     this.loopsNow.clear();
+    // the hazard relay ticks as the lamps go on and off (in the car one sits in)
+    const sv = this.seated;
+    const blinkNow = !!sv && sv.view.blinking;
+    if (sv && blinkNow !== this.wasBlinking) f.play('switch', { gain: 0.35 });
+    this.wasBlinking = blinkNow;
     const d = (this.seated ?? this.focus)?.sys.dash;
     const want = d?.horn ? (d.hornSound === 'trumpet' ? 'horn_trumpet' : d.hornSound === 'air' ? 'horn_air' : 'horn_beep') : '';
     if (want !== this.hornOn) {
@@ -538,7 +590,13 @@ export class ModGame implements PlayerHost, CockpitHost {
     let open = 1 - v.sys.derived.enclosed;
     for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
     const inside = this.seated === v && this.viewMode === 'cockpit';
-    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(this.player.walker.x - sim.px, this.player.walker.z - sim.pz);
+    const dx = this.player.walker.x - sim.px;
+    const dz = this.player.walker.z - sim.pz;
+    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(dx, dz);
+    // from where one stands: the speed it comes towards one at (Doppler)
+    const approach = this.seated === v ? 0 : (sim.vx * dx + sim.vz * dz) / Math.max(0.5, dist);
+    // a worn engine misfires, a worn-out one knocks; past the red it boils over
+    const cond = engInst?.cond ?? 1;
     voice.update({
       engineId: engInst?.part ?? null,
       exhaustId: ex ? v.build.parts[ex.id].part : null,
@@ -553,7 +611,15 @@ export class ModGame implements PlayerHost, CockpitHost {
       starterRate: Math.min(1, d.battery * 1.6),
       boost: d.boost,
       distance: Math.max(1, dist),
+      approach,
+      misfire: Math.max(0, Math.min(1, (0.55 - cond) / 0.45)),
+      knock: Math.max(0, Math.min(1, (0.3 - cond) / 0.3)),
+      steam: Math.max(0, Math.min(1, (d.coolantC - 110) / 15)),
     });
+    // the box changing gear by itself (automatic or a sequential change) clunks
+    if (this.lastGear.v === v && this.lastGear.gear !== sim.gear && d.running) this.sound('shift');
+    this.lastGear.v = v;
+    this.lastGear.gear = sim.gear;
   }
 
   // ------------------------------------------------------------------ the checklist
@@ -612,6 +678,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   step(dt: number, alpha?: number): void {
     this.input.update(dt);
+    this.applyAssists();
     this.time += dt;
     // on foot: walk, look, use
     if (!this.seated) {
@@ -641,6 +708,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       v.step(dt, this.ground, this.modEnv(v), input);
     }
     this.loose.update(dt);
+    this.throwSparks(dt);
     this.checkTutorial();
     if (this.garage) this.garage.update(dt, this.garageContext());
     this.leaveGarage(dt);
@@ -669,6 +737,60 @@ export class ModGame implements PlayerHost, CockpitHost {
       };
     }
     return this.garageCtx;
+  }
+
+  private readonly sparkB = new Float64Array(9);
+  private readonly sparkL = { x: 0, y: 0, z: 0 };
+  /**
+   * Sparks where a vehicle drags metal on the road (the physics' feel.scrape): from each empty hub's drum,
+   * or else from the lowest corner of the body, thrown back the way the road goes past.
+   */
+  private throwSparks(dt: number): void {
+    for (const v of this.vehicles) {
+      const sim = v.sim;
+      const scrape = sim.feel.scrape ?? 0;
+      if (scrape < 1) continue;
+      // in bursts, a dozen or so at a time, more often the faster it drags
+      const due = (this.sparkDue.get(v) ?? 0) + dt * (4 + 10 * Math.min(1, scrape / 8));
+      const bursts = Math.floor(due);
+      this.sparkDue.set(v, due - bursts);
+      if (!bursts) continue;
+      const n = bursts * (8 + Math.floor(Math.random() * 12));
+      const b = this.sparkB;
+      sim.basis(b);
+      const sp = Math.hypot(sim.vx, sim.vz) || 1;
+      const back = { x: -sim.vx / sp, z: -sim.vz / sp };
+      const at = (lx: number, ly: number, lz: number): [number, number, number] => [sim.px + b[0] * lx + b[3] * ly + b[6] * lz, sim.py + b[1] * lx + b[4] * ly + b[7] * lz, sim.pz + b[2] * lx + b[5] * ly + b[8] * lz];
+      let thrown = false;
+      const hubR = sim.spec.emptyHubRadius ?? 0.45 * sim.spec.wheelRadius;
+      for (let i = 0; i < 4; i++) {
+        const w = sim.wheels[i];
+        if (w.fit !== 2) continue;
+        sim.wheelLocal(i, this.sparkL);
+        const [x, y, z] = at(this.sparkL.x, this.sparkL.y - hubR, this.sparkL.z);
+        if (y - this.groundAt(x, z) > 0.12) continue;
+        this.sparks.emit(x, y, z, back, Math.min(9, scrape * 0.8), Math.max(1, Math.round(n / 2)));
+        thrown = true;
+      }
+      if (!thrown) {
+        // the body: whichever bottom corner is nearest the ground
+        const bd = sim.spec.body;
+        let best: [number, number, number] | null = null;
+        let gap = Infinity;
+        for (const ex of [bd.centerX + bd.halfLength, bd.centerX - bd.halfLength]) {
+          for (const ez of [-bd.halfWidth * 0.8, bd.halfWidth * 0.8]) {
+            const p = at(ex, bd.bottom, ez);
+            const g = p[1] - this.groundAt(p[0], p[2]);
+            if (g < gap) {
+              gap = g;
+              best = p;
+            }
+          }
+        }
+        if (best && gap < 0.15) this.sparks.emit(best[0], best[1], best[2], back, Math.min(9, scrape * 0.8), n);
+      }
+    }
+    this.sparks.update(dt);
   }
 
   /** drove out past the apron: fade out, onto the road, fade in */
@@ -725,6 +847,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
       v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      v.view.ridden = v === this.seated;
       v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
     }
     const f = this.seated ?? this.focus;
@@ -929,7 +1052,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
-    if (this.place === 'garage' && this.vehicles[0]) {
+    if (this.place === 'garage' && this.vehicles[0] && this.assists.guide) {
       const steps = this.tutorialSteps();
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
@@ -940,6 +1063,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   /** where the checklist's next step is (world coordinates) and what to call it; null = nowhere to point */
   objective(): { x: number; y: number; z: number; text: string } | null {
+    if (!this.assists.guide) return null;
     const v = this.vehicles[0];
     if (this.place !== 'garage' || !v || !this.garage) return null;
     const step = this.tutorialSteps().find((st) => !st.done);
@@ -1041,6 +1165,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (wh.util > slip) slip = wh.util;
       if (wh.contact) rough = Math.max(rough, SURFACES[wh.surface].rough);
     }
+    // a bare rim grinding on the road and a hub or the body dragging on it screech like a skid
+    const grind = Math.min(1, (sim.feel.rim ?? 0) / 8 + (sim.feel.scrape ?? 0) / 4);
+    if (grind > slip) slip = grind;
+    // a flat tyre flaps
+    const flat = sim.speed > 0.5 && Object.values(v.build.parts).some((p) => !!p.sub.tire?.flat);
     const w = this.env.state;
     const eng = v.sys.derived.engine?.engine;
     this.audio.update(
@@ -1067,7 +1196,7 @@ export class ModGame implements PlayerHost, CockpitHost {
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
-        flat: false,
+        flat,
         horn: false,
         hornDetune: false,
       },

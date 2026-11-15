@@ -21,6 +21,8 @@ export class ModVehicle {
   readonly solid: VehicleSolid;
   /** seconds it keeps being simulated with nobody at the wheel */
   awake = 3;
+  /** assist: with a driver in, the brakes hold the car once it has stopped */
+  assistHold = true;
 
   constructor(
     core: RenderCore,
@@ -56,8 +58,9 @@ export class ModVehicle {
   /** step the simulation and the systems (input = the driver's, or none) */
   step(dt: number, ground: Ground, env: ModEnv, input: VehicleInput | null): void {
     const driven = input !== null;
-    // a driver keeps a car still with the pedal; nobody at the wheel, only the handbrake (or P) does
-    this.sim.autoHold = driven;
+    // a driver keeps a car still with the pedal (the assist does it for them); nobody at the wheel, only the handbrake (or P) does
+    // (a motorcycle left standing is on its side stand and in gear: it does not roll off)
+    this.sim.autoHold = (driven && this.assistHold) || (!driven && !!this.view.frame.balance);
     if (!driven && this.awake <= 0 && !this.sys.running) return;
     const n = this.sim.update(dt, input ?? IDLE, ground);
     this.sys.update(n * this.sim.h, env);

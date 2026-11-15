@@ -36,11 +36,28 @@ SETTLE_OFF = 1.2
 TAKE = 3.4
 
 
-def rpm_steps(e):
-    """Geometric rpm steps from idle to the top of the bank (inclusive)."""
+def rpm_steps(e, max_gap=750):
+    """Rpm steps from idle to the top of the bank (inclusive), each loop pitched at most about +-6 %
+    (neighbours a ratio apart) and never more than max_gap rpm apart. Evenly geometric when that
+    already keeps the gaps short enough; otherwise evenly spaced on a scale that is logarithmic low
+    down and linear above the rpm where the ratio would open a gap wider than max_gap."""
     lo, hi, ratio = e['idle'], e['top'], e['ratio']
     n = max(1, math.ceil(math.log(hi / lo) / math.log(ratio)))
-    return [int(round(lo * (hi / lo) ** (k / n) / 10.0) * 10) for k in range(n + 1)]
+    geo = [lo * (hi / lo) ** (k / n) for k in range(n + 1)]
+    if max(b - a for a, b in zip(geo, geo[1:])) <= max_gap:
+        return [int(round(v / 10.0) * 10) for v in geo]
+    k = math.log(ratio)
+    knee = max_gap / (ratio - 1)
+
+    def u(r):
+        return math.log(r) / k if r <= knee else math.log(knee) / k + (r - knee) * (ratio - 1) / (max_gap * k)
+
+    def u_inv(v):
+        uk = math.log(knee) / k
+        return math.exp(v * k) if v <= uk else knee + (v - uk) * max_gap * k / (ratio - 1)
+
+    m = max(1, math.ceil(u(hi) - u(lo)))
+    return [int(round(u_inv(u(lo) + j * (u(hi) - u(lo)) / m) / 10.0) * 10) for j in range(m + 1)]
 
 
 def make_plan(eid):

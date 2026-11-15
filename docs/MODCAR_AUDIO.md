@@ -19,7 +19,7 @@
 
 1. **编译录音器**：`node tools/enginesim/prepare.mjs --src <engine-sim 克隆> --out <目录> --build --flex <win_flex> --bison <win_bison>`。只拷贝模拟、脚本编译器和脚本库，打两处补丁（渲染器头文件换空壳；piranha 的 Boost 路径换 std::filesystem），加上我们的 `esim_render.cpp`，用 VS Build Tools 自带的 CMake + Ninja 编译。录音器没有窗口、不碰声卡，按计划文件驱动起动机、点火、油门、测功机，把合成器在电平自动增益之前的信号直接写成 32 位浮点 WAV（另附遥测 CSV）。
 2. **发动机脚本**：`tools/enginesim/engines/*.mr`（虚构的 ModCar 发动机，`modcar_lib.mr` 放共用缸盖和各种布局的凸轮轴）。柴油没有压燃：高压缩 + 快燃 + 早点火，滑行是“油门全开、断火”；二冲程是“1+4、2+3 共管的直列四缸”（每根管每转一个排气脉冲，和 180° 二冲程双缸一样）。注意：点火曲线的采样点间距必须小于 1000 rpm（函数的滤波半径），否则点火角塌掉。
-3. **录音**：`python -I tools/enginesim/make_banks.py record [id...]`（八台并行约 4 分钟）。每个稳态都用测功机按住转速录 3.4 s，不会熄火；转速档按几何间距（相邻比 1.13，回放变调不超过约 ±6%），从怠速到红线以上。`on` = 全油门（测功机吸收功率），`off` = 滑行（汽油机关油门带点火；柴油机断油），怠速档的 `off` 就是怠速。
+3. **录音**：`python -I tools/enginesim/make_banks.py record [id...]`（八台并行约 4 分钟）。每个稳态都用测功机按住转速录 3.4 s，不会熄火；转速档按几何间距（相邻比 1.13，回放变调不超过约 ±6%），并且相邻不超过 750 rpm（高转速的单缸、二冲程、对置六缸在高处改为等距），从怠速到红线以上。`on` = 全油门（测功机吸收功率），`off` = 滑行（汽油机关油门带点火；柴油机断油），怠速档的 `off` 就是怠速。
 4. **切库**：`python -I tools/enginesim/make_banks.py build [id...]`（`bank_build.py`）：
    - 按自相关找精确的整数个发动机循环（全负载 1.6 s、滑行 2.0 s），在最吻合的位置下刀并交叉淡化接缝；
    - 循环前后加循环填充（前 64 ms、后 32 ms），解码器不管裁不裁编码延迟、重采样器的边缘都碰不到接缝；
@@ -83,7 +83,15 @@ snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯�
 - `npm test`：`harness/sim/modcar-audio.test.ts` 检查每个清单条目两种格式都在、容器解码长度和清单一致（Ogg granule / MP4 edit list）、循环点在填充之内、转速档覆盖怠速到红线且相邻比 < 1.14、构建时测得的接缝干净、混合数学、所有机械声配方。
 - `node harness/audio/modcar_render.mjs --all`：无头 Chrome 里用真正的 `EngineVoice` / `Foley` 渲染每台发动机的“巡游”（起动 → 怠速 → 轰油 → 一挡拉到断油 → 换挡 → 二挡 → 收油滑行 → 熄火）、慢扫转速、排气与车厢变体、全部机械声，WAV 写到 `D:/modcar-scratch/sound/out/`，打印响度和频谱质心；`--loops` 用 Chrome 自己解码每个循环、循环播放三圈，检查接缝处的二阶差分（0 个咔嗒）。摘要写进 `loop/metrics/audio_modcar.json`。
 
-## 6. 已知不足
+## 6. 频谱校准
+
+和两段自由许可的真车录音比过长时平均频谱（只用于分析，没进仓库、不随游戏发布）：Wikimedia Commons 上的
+“Chevrolet Chevelle - engine and exhaust sound”（CC BY 3.0）和 “Volkswagen Beetle 1300 (1972) - engine and exhaust sound”（CC BY 3.0）。
+真车在 0.8–3.2 kHz（排气的“吠”）几乎和低频一样强，Engine Simulator 原声低 15–17 dB。现在按发动机加了 700 Hz 以上的
+presence 提升、1.3 kHz 的排气“吠”峰（随排气件加大）、脉冲同步的沙哑噪声和大排量机的低频 body：V8 全负载拉升在这几个频段
+原装约 −10 dB、运动 −7.5、侧排 −5、开放歧管 −2（参考录音约 0 dB，是改装排气 + 手持相机）。
+
+## 7. 已知不足
 
 - 没有人耳试听过：电平、叠层比例都按频谱和响度测量定的，第二天需要试听调 `TONES` / `EXHAUSTS` / `LAYERS`。
 - 柴油和二冲程是近似；Engine Simulator 本身偏暗，亮度主要靠冲激响应和离线叠层。

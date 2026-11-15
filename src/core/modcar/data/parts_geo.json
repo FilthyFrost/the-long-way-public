@@ -15,7 +15,10 @@
   "  seats floor attach centre facing +x; steering column end, wheel faces -x, turns about x (bar: about y);",
   "  lamps/mirror body mount; stretch parts: centre of the face that touches the body (bumpers: x = 0 plane,",
   "  front bumper extends +x, rear -x; roof: bottom face; armour: inner face, extends to -z = outwards left).",
-  "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y."
+  "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y.",
+  "Gear levers: LEVER is the moving lever, its origin the pivot; the game turns it about z. Floor levers pivot",
+  "  under the floor; gl_foot (moto, LEFT side) on the selector shaft axis, the toe peg forward-up (+x +y) and",
+  "  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg."
  ],
  "parts": {
   "arm_planks": {
@@ -960,15 +963,15 @@
     [
      -0.28,
      -0.0125,
-     -0.1625
+     -0.107
     ],
     [
-     0.1805,
+     0.12,
      0.1693,
      0.11
     ]
    ],
-   "triangles": 1642,
+   "triangles": 1698,
    "materials": [
     "alu",
     "chrome",
@@ -977,6 +980,35 @@
     "steel",
     "trim"
    ]
+  },
+  "gl_foot": {
+   "bbox": [
+    [
+     -0.0255,
+     -0.0155,
+     -0.0669
+    ],
+    [
+     0.1746,
+     0.0813,
+     0.0245
+    ]
+   ],
+   "triangles": 1452,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "movers": {
+    "LEVER": {
+     "pivot": [
+      0.0,
+      0.0,
+      -0.0
+     ]
+    }
+   }
   },
   "gl_short": {
    "bbox": [
@@ -1352,7 +1384,7 @@
      0.422
     ]
    ],
-   "triangles": 3160,
+   "triangles": 3016,
    "materials": [
     "alu",
     "chrome",
@@ -1374,7 +1406,7 @@
      0.272
     ]
    ],
-   "triangles": 2022,
+   "triangles": 1926,
    "materials": [
     "alu",
     "chrome",
@@ -1396,7 +1428,7 @@
      0.342
     ]
    ],
-   "triangles": 2146,
+   "triangles": 2026,
    "materials": [
     "alu",
     "chrome",
@@ -1568,7 +1600,7 @@
      0.2445
     ]
    ],
-   "triangles": 5822,
+   "triangles": 5246,
    "materials": [
     "chrome",
     "rubber",
@@ -1755,7 +1787,7 @@
      0.1045
     ]
    ],
-   "triangles": 3110,
+   "triangles": 2798,
    "materials": [
     "chrome",
     "rubber",
@@ -2468,16 +2500,16 @@
    "bbox": [
     [
      -0.3049,
-     -0.3049,
+     -0.3037,
      -0.1184
     ],
     [
      0.3049,
-     0.3049,
+     0.3037,
      0.1175
     ]
    ],
-   "triangles": 3428,
+   "triangles": 2948,
    "materials": [
     "rubber"
    ],
@@ -2491,16 +2523,16 @@
    "bbox": [
     [
      -0.3299,
-     -0.3299,
+     -0.3286,
      -0.1184
     ],
     [
      0.3299,
-     0.3299,
+     0.3286,
      0.1175
     ]
    ],
-   "triangles": 3440,
+   "triangles": 2960,
    "materials": [
     "rubber"
    ],
@@ -2514,16 +2546,16 @@
    "bbox": [
     [
      -0.3899,
-     -0.3899,
+     -0.3884,
      -0.1189
     ],
     [
      0.3899,
-     0.3899,
+     0.3884,
      0.118
     ]
    ],
-   "triangles": 3500,
+   "triangles": 3020,
    "materials": [
     "rubber"
    ],
@@ -2537,16 +2569,16 @@
    "bbox": [
     [
      -0.3689,
-     -0.3689,
+     -0.3675,
      -0.1184
     ],
     [
      0.3689,
-     0.3689,
+     0.3675,
      0.1175
     ]
    ],
-   "triangles": 3476,
+   "triangles": 2996,
    "materials": [
     "rubber"
    ],
@@ -2560,16 +2592,16 @@
    "bbox": [
     [
      -0.3429,
-     -0.3429,
+     -0.3416,
      -0.1184
     ],
     [
      0.3429,
-     0.3429,
+     0.3416,
      0.1175
     ]
    ],
-   "triangles": 3452,
+   "triangles": 2972,
    "materials": [
     "rubber"
    ],
@@ -2583,16 +2615,16 @@
    "bbox": [
     [
      -0.3049,
-     -0.3049,
+     -0.3037,
      -0.1184
     ],
     [
      0.3049,
-     0.3049,
+     0.3037,
      0.1175
     ]
    ],
-   "triangles": 3428,
+   "triangles": 2948,
    "materials": [
     "rubber"
    ],
@@ -2606,16 +2638,16 @@
    "bbox": [
     [
      -0.3899,
-     -0.3899,
+     -0.3884,
      -0.1184
     ],
     [
      0.3899,
-     0.3899,
+     0.3884,
      0.1175
     ]
    ],
-   "triangles": 3500,
+   "triangles": 3020,
    "materials": [
     "rubber"
    ],
@@ -2638,7 +2670,7 @@
      0.076
     ]
    ],
-   "triangles": 3708,
+   "triangles": 3228,
    "materials": [
     "rubber"
    ],
@@ -2661,7 +2693,7 @@
      0.096
     ]
    ],
-   "triangles": 3732,
+   "triangles": 3252,
    "materials": [
     "rubber"
    ],
@@ -2684,7 +2716,7 @@
      0.116
     ]
    ],
-   "triangles": 3816,
+   "triangles": 3336,
    "materials": [
     "rubber"
    ],
@@ -2707,7 +2739,7 @@
      0.0755
     ]
    ],
-   "triangles": 3792,
+   "triangles": 3312,
    "materials": [
     "rubber"
    ],
@@ -2730,7 +2762,7 @@
      0.111
     ]
    ],
-   "triangles": 3768,
+   "triangles": 3288,
    "materials": [
     "rubber"
    ],
@@ -2753,7 +2785,7 @@
      0.076
     ]
    ],
-   "triangles": 3708,
+   "triangles": 3228,
    "materials": [
     "rubber"
    ],
@@ -2776,7 +2808,7 @@
      0.111
     ]
    ],
-   "triangles": 3816,
+   "triangles": 3336,
    "materials": [
     "rubber"
    ],
@@ -2958,16 +2990,16 @@
    "bbox": [
     [
      -0.2849,
-     -0.2844,
+     -0.2842,
      -0.0889
     ],
     [
      0.2849,
-     0.2844,
+     0.2842,
      0.0875
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3504,
    "materials": [
     "rubber"
    ],
@@ -2981,16 +3013,16 @@
    "bbox": [
     [
      -0.3099,
-     -0.3094,
+     -0.3092,
      -0.0994
     ],
     [
      0.3099,
-     0.3094,
+     0.3092,
      0.098
     ]
    ],
-   "triangles": 4092,
+   "triangles": 3516,
    "materials": [
     "rubber"
    ],
@@ -3003,17 +3035,17 @@
   "tire_snow@rim_dually": {
    "bbox": [
     [
-     -0.3699,
-     -0.3693,
+     -0.3698,
+     -0.369,
      -0.1194
     ],
     [
-     0.3699,
-     0.3693,
+     0.3698,
+     0.369,
      0.118
     ]
    ],
-   "triangles": 4176,
+   "triangles": 3600,
    "materials": [
     "rubber"
    ],
@@ -3027,16 +3059,16 @@
    "bbox": [
     [
      -0.3489,
-     -0.3483,
+     -0.3481,
      -0.0889
     ],
     [
      0.3489,
-     0.3483,
+     0.3481,
      0.0875
     ]
    ],
-   "triangles": 4152,
+   "triangles": 3576,
    "materials": [
     "rubber"
    ],
@@ -3050,16 +3082,16 @@
    "bbox": [
     [
      -0.3229,
-     -0.3223,
+     -0.3221,
      -0.1144
     ],
     [
      0.3229,
-     0.3223,
+     0.3221,
      0.113
     ]
    ],
-   "triangles": 4104,
+   "triangles": 3528,
    "materials": [
     "rubber"
    ],
@@ -3073,16 +3105,16 @@
    "bbox": [
     [
      -0.2849,
-     -0.2844,
+     -0.2842,
      -0.0889
     ],
     [
      0.2849,
-     0.2844,
+     0.2842,
      0.0875
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3504,
    "materials": [
     "rubber"
    ],
@@ -3095,17 +3127,17 @@
   "tire_snow@rim_truck19": {
    "bbox": [
     [
-     -0.3699,
-     -0.3693,
+     -0.3698,
+     -0.369,
      -0.1144
     ],
     [
-     0.3699,
-     0.3693,
+     0.3698,
+     0.369,
      0.113
     ]
    ],
-   "triangles": 4176,
+   "triangles": 3600,
    "materials": [
     "rubber"
    ],
@@ -3118,17 +3150,17 @@
   "tire_tractor": {
    "bbox": [
     [
-     -0.4635,
-     -0.4635,
+     -0.4633,
+     -0.4638,
      -0.16
     ],
     [
-     0.4637,
-     0.4639,
+     0.4635,
+     0.4632,
      0.16
     ]
    ],
-   "triangles": 3868,
+   "triangles": 3444,
    "materials": [
     "rubber"
    ],
@@ -3141,17 +3173,17 @@
   "tire_tractor@rim_alloy15": {
    "bbox": [
     [
-     -0.4884,
-     -0.4884,
+     -0.4882,
+     -0.4887,
      -0.16
     ],
     [
-     0.4887,
-     0.4889,
+     0.4884,
+     0.4881,
      0.16
     ]
    ],
-   "triangles": 3892,
+   "triangles": 3468,
    "materials": [
     "rubber"
    ],
@@ -3164,17 +3196,17 @@
   "tire_tractor@rim_dually": {
    "bbox": [
     [
-     -0.5484,
-     -0.5483,
+     -0.5481,
+     -0.5487,
      -0.16
     ],
     [
-     0.5486,
-     0.5488,
+     0.5483,
+     0.5479,
      0.16
     ]
    ],
-   "triangles": 3940,
+   "triangles": 3516,
    "materials": [
     "rubber"
    ],
@@ -3187,17 +3219,17 @@
   "tire_tractor@rim_moto18": {
    "bbox": [
     [
-     -0.5274,
-     -0.5273,
+     -0.5271,
+     -0.5277,
      -0.16
     ],
     [
-     0.5276,
-     0.5279,
+     0.5274,
+     0.527,
      0.16
     ]
    ],
-   "triangles": 3940,
+   "triangles": 3516,
    "materials": [
     "rubber"
    ],
@@ -3210,17 +3242,17 @@
   "tire_tractor@rim_off16": {
    "bbox": [
     [
-     -0.5014,
-     -0.5014,
+     -0.5012,
+     -0.5017,
      -0.16
     ],
     [
-     0.5016,
-     0.5019,
+     0.5014,
+     0.5011,
      0.16
     ]
    ],
-   "triangles": 3904,
+   "triangles": 3480,
    "materials": [
     "rubber"
    ],
@@ -3233,17 +3265,17 @@
   "tire_tractor@rim_steel13": {
    "bbox": [
     [
-     -0.4635,
-     -0.4635,
+     -0.4633,
+     -0.4638,
      -0.16
     ],
     [
-     0.4637,
-     0.4639,
+     0.4635,
+     0.4632,
      0.16
     ]
    ],
-   "triangles": 3868,
+   "triangles": 3444,
    "materials": [
     "rubber"
    ],
@@ -3256,17 +3288,17 @@
   "tire_tractor@rim_truck19": {
    "bbox": [
     [
-     -0.5484,
-     -0.5483,
+     -0.5481,
+     -0.5487,
      -0.16
     ],
     [
-     0.5486,
-     0.5488,
+     0.5483,
+     0.5479,
      0.16
     ]
    ],
-   "triangles": 3940,
+   "triangles": 3516,
    "materials": [
     "rubber"
    ],
@@ -3289,7 +3321,7 @@
      0.1055
     ]
    ],
-   "triangles": 3592,
+   "triangles": 3080,
    "materials": [
     "rubber"
    ],
@@ -3312,7 +3344,7 @@
      0.1055
     ]
    ],
-   "triangles": 3628,
+   "triangles": 3116,
    "materials": [
     "rubber"
    ],
@@ -3335,7 +3367,7 @@
      0.116
     ]
    ],
-   "triangles": 3700,
+   "triangles": 3188,
    "materials": [
     "rubber"
    ],
@@ -3358,7 +3390,7 @@
      0.1055
     ]
    ],
-   "triangles": 3676,
+   "triangles": 3164,
    "materials": [
     "rubber"
    ],
@@ -3381,7 +3413,7 @@
      0.111
     ]
    ],
-   "triangles": 3640,
+   "triangles": 3128,
    "materials": [
     "rubber"
    ],
@@ -3404,7 +3436,7 @@
      0.1055
     ]
    ],
-   "triangles": 3592,
+   "triangles": 3080,
    "materials": [
     "rubber"
    ],
@@ -3427,7 +3459,7 @@
      0.111
     ]
    ],
-   "triangles": 3700,
+   "triangles": 3188,
    "materials": [
     "rubber"
    ],
@@ -3441,16 +3473,16 @@
    "bbox": [
     [
      -0.2848,
-     -0.2839,
+     -0.2835,
      -0.08
     ],
     [
      0.2848,
-     0.2839,
+     0.2835,
      0.08
     ]
    ],
-   "triangles": 4128,
+   "triangles": 3552,
    "materials": [
     "ceramic",
     "rubber"
@@ -3465,16 +3497,16 @@
    "bbox": [
     [
      -0.3098,
-     -0.3088,
+     -0.3084,
      -0.098
     ],
     [
      0.3098,
-     0.3088,
+     0.3084,
      0.098
     ]
    ],
-   "triangles": 4176,
+   "triangles": 3600,
    "materials": [
     "ceramic",
     "rubber"
@@ -3489,16 +3521,16 @@
    "bbox": [
     [
      -0.3698,
-     -0.3686,
+     -0.3681,
      -0.118
     ],
     [
      0.3698,
-     0.3686,
+     0.3681,
      0.118
     ]
    ],
-   "triangles": 4272,
+   "triangles": 3696,
    "materials": [
     "ceramic",
     "rubber"
@@ -3513,16 +3545,16 @@
    "bbox": [
     [
      -0.3488,
-     -0.3477,
+     -0.3472,
      -0.08
     ],
     [
      0.3488,
-     0.3477,
+     0.3472,
      0.08
     ]
    ],
-   "triangles": 4248,
+   "triangles": 3672,
    "materials": [
     "ceramic",
     "rubber"
@@ -3537,16 +3569,16 @@
    "bbox": [
     [
      -0.3228,
-     -0.3218,
+     -0.3213,
      -0.113
     ],
     [
      0.3228,
-     0.3218,
+     0.3213,
      0.113
     ]
    ],
-   "triangles": 4200,
+   "triangles": 3624,
    "materials": [
     "ceramic",
     "rubber"
@@ -3561,16 +3593,16 @@
    "bbox": [
     [
      -0.2848,
-     -0.2839,
+     -0.2835,
      -0.08
     ],
     [
      0.2848,
-     0.2839,
+     0.2835,
      0.08
     ]
    ],
-   "triangles": 4128,
+   "triangles": 3552,
    "materials": [
     "ceramic",
     "rubber"
@@ -3585,16 +3617,16 @@
    "bbox": [
     [
      -0.3698,
-     -0.3686,
+     -0.3681,
      -0.113
     ],
     [
      0.3698,
-     0.3686,
+     0.3681,
      0.113
     ]
    ],
-   "triangles": 4272,
+   "triangles": 3696,
    "materials": [
     "ceramic",
     "rubber"
@@ -3664,7 +3696,7 @@
      0.104
     ]
    ],
-   "triangles": 2664,
+   "triangles": 2536,
    "materials": [
     "alu",
     "rubber",

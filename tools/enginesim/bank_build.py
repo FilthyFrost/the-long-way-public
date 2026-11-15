@@ -237,7 +237,7 @@ def pipe_resonance(x, fs, rpm, onset=5200.0, full=8000.0, f0=2600.0):
 # per engine: what is layered onto the recorded exhaust (levels relative to the exhaust itself)
 LAYERS = {
     'eng_mower':  {'rasp': ((1800, 7000), -15, -19), 'valves': (-27, -22)},
-    'eng_2t':     {'rasp': ((2200, 9000), -11, -15), 'fins': (-17, -13), 'misfire': (0.32, 0.12), 'pipe': True},
+    'eng_2t':     {'rasp': ((2200, 9000), -13, -21), 'fins': (-17, -14), 'misfire': (0.32, 0.12), 'pipe': True, 'crack': (-11, -5)},
     'eng_single': {'rasp': ((1500, 7500), -16, -20), 'fins': (-26, -24), 'valves': (-31, -26)},
     'eng_i4':     {'rasp': ((1400, 6000), -21, -24), 'valves': (-30, -25)},
     'eng_i4d':    {'rasp': ((1200, 5000), -21, -23), 'knock': (-11, -30, -5)},
@@ -274,6 +274,11 @@ def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
         on_db, off_db = cfg['valves']
         y += knock_layer(y, fs, rng, 2 * cylinders * cycles, on_db if load == 'on' else off_db,
                          [(3600, 1.0), (5300, 0.7), (7400, 0.4)], 0.9, tick_db=-40, advance_ms=-1.5)
+    if 'crack' in cfg:
+        # a port opens all at once: a sharp broadband crack at every blowdown (two-strokes)
+        on_db, off_db = cfg['crack']
+        y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db,
+                         [(2600, 1.0), (4100, 0.8), (6300, 0.6), (8800, 0.35)], 0.6, tick_db=0, advance_ms=-0.2)
     if 'fins' in cfg:
         on_db, off_db = cfg['fins']
         modes, decay = FIN_MODES[eid]

@@ -115,8 +115,8 @@ def build_gb_4(P):
 
 
 def build_gb_3(P):
-    """An old three-speed: short, round-shouldered case with a column-shift linkage on its side."""
-    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side')
+    """An old three-speed: short, round-shouldered cast-iron case with a column-shift linkage on its side."""
+    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side', material='steel')
     # side shift levers and linkage rods (column shift)
     for i, x in enumerate((-0.02, 0.04)):
         P.box('shift_lever', (0.012, 0.012, 0.09), (x, 0.108, 0.13), 'steel', rot=(0, 15 - 30 * i, 0), bev=0.003,
@@ -139,7 +139,8 @@ def build_gb_5(P):
 
 def build_gb_moto(P):
     """A motorcycle five-speed (no reverse): compact alloy case, the front sprocket on the left with a short
-    run of chain, the shift lever with its rubber peg, the clutch housing bulge on the right."""
+    run of chain, the splined selector shaft sticking out on the left (the foot lever is its own part, gl_foot),
+    the clutch housing bulge on the right."""
     P.ao_distance = 0.05
     outline = [(-0.13, 0.03), (-0.1, 0.0), (0.08, 0.0), (0.12, 0.04), (0.12, 0.12), (0.08, 0.16), (-0.08, 0.17),
                (-0.13, 0.12)]
@@ -177,11 +178,17 @@ def build_gb_moto(P):
     P.cyl('sprocket_nut', 0.016, 0.012, (sx, 0.097, sz), 'steel', axis='Y', segs=6, bev=None)
     for k in (-1, 1):
         P.box('chain', (0.22, 0.012, 0.012), (sx - 0.11, 0.088, sz + k * 0.046), 'trim', bev=0.003, segs=1)
-    # shift lever on the left: spline shaft, the lever forward, the rubber peg
-    P.cyl('shift_shaft', 0.008, 0.03, (0.03, 0.085, 0.035), 'steel', axis='Y', segs=8, bev=None)
-    P.tube('shift_lever', [(0.03, 0.1, 0.035), (0.1, 0.11, 0.03), (0.17, 0.115, 0.04)], 0.007, 'steel', segs=8,
-           bend=0.03)
-    P.cyl('shift_peg', 0.011, 0.045, (0.17, 0.14, 0.04), 'rubber', axis='Y', segs=10, bev=0.003, bsegs=1)
+    # the selector shaft on the left with its seal and splined end (gl_foot clamps on a shaft like it)
+    P.lathe('shift_seal', [(0.0082, 0.077), (0.0125, 0.077), (0.0135, 0.081), (0.0118, 0.085), (0.0082, 0.085)],
+            loc=(0.03, 0.0, 0.035), material='rubber', axis='Y', segs=14, loop=True, sharp=50.0)
+    P.cyl('shift_shaft', 0.0075, 0.03, (0.03, 0.092, 0.035), 'steel', axis='Y', segs=12, bev=None)
+    star = []
+    for i in range(24):
+        a = math.tau * i / 24
+        r = 0.0076 if i % 2 == 0 else 0.0064
+        star.append((r * math.cos(a), r * math.sin(a)))
+    P.prism('shift_splines', star, 0.012, matrix=Matrix.Translation((0.03, 0.1, 0.035)) @ K.axis_matrix('Y'),
+            material='steel', bev=None, center=True)
     P.tube('neutral_wire', [(-0.1, 0.06, 0.02), (-0.12, 0.07, 0.0), (-0.16, 0.08, -0.01)], 0.003, 'trim', segs=5,
            bend=0.02)
     P.views = [('a', 35, 18), ('b', 215, 18)]
