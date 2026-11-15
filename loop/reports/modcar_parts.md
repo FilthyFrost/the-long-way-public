@@ -3,13 +3,23 @@
 分支 `modcar/parts`，工作区 `D:/公路旅游-wt/parts`。脚本 `tools/blender/parts/*.py`，产物 `public/models/modcar/parts/<id>.glb`，
 几何数据 `src/core/modcar/data/parts_geo.json`（游戏坐标系，脚本生成，勿手改）。
 全部重建：`blender -b --factory-startup --python tools/blender/build.py -- parts/all --norender`（约 35 秒；去掉 `--norender` 会出预览图，要几分钟）。
-单件：`... -- parts/<组> <id>`（组：engines drivetrain fluids wheels cockpit seats body lamps；`--toon` 出赛璐璐+描线预览，`--stats` 列各块三角数）。
+单件：`... -- parts/<组> <id>`（组：engines drivetrain fluids wheels cockpit seats body lamps tools；`--toon` 出赛璐璐+描线预览，`--stats` 列各块三角数）。
 
 ## 已完成
 
+- **原厂零件装进车架空间**（按 mounts/*.json 的 space_min/max，轿车和皮卡都量过）：
+  散热器含加水口和盖 rad_std 0.40 高、rad_small 0.34 高、都在 z±0.34 内（rad_big 0.50 高，宽度允许超）；
+  gb_3/gb_4/gb_5 都在 x[-0.30,0.20]、高 0.22、z±0.13 内（轴心降到 0.108，换挡座变矮，离合拉索/里程表线/倒车开关线改走内侧）；
+  tank_std 改成挂在地板下的扁油箱 0.45×0.70×0.13（45 L），加油管从右侧（游戏 +z）伸出，两条箍带吊到地板；
+  bat_truck 缩到 ±0.139 长，改成螺柱接线柱；顺手把 eng_i4 空滤盖压到 0.658（轿车舱 0.66）、去掉 eng_single 低于原点的放油螺塞。
+  tank_big、tank_drum、rad_big 照约定允许超出。
+- **工具模型** `public/models/modcar/tools/<kind>.glb`（脚本 `tools/blender/parts/tools.py`，`parts/all` 一起出）：jerrycan（X 加强筋、焊缝、三个提手、凸轮盖油嘴）、
+  bottle（5 L 玻璃水壶、握持环、带纹盖、夹在瓶颈上的提手）、oilcan（4 L 机油壶、一体提手、带纹盖和出油嘴）、spray（喷漆罐、马口铁封边、阀杯和喷头）、
+  sponge（狗骨头形海绵，顶面切出气孔）。原点底部中心，朝向和 loose.ts toolModel 一致，材质只用 toolModel 用的名字，≤ 2k 三角。
 - **目录里 86 个非板件零件全部有 GLB**（A、B 两批，加上主程追加的 exh_moto / tank_big / rim_truck19 / tire_truck / gl_foot）；
   另有轮胎 8 种 × 6 个带胎轮毂 = 48 个变体 `<胎>@<毂>.glb`，以及 3 个门样式饰件。共 137 个文件，约 18 MB。
-- 校验 `-- parts/verify`：PART 根、材质名、AO、子挂点、EYE、fit_nominal、闭合块有没有里外翻、预算、目录覆盖、轮毂+轮胎每轮三角数。当前 0 错误、0 警告。
+- 校验 `-- parts/verify`：PART 根、材质名、AO、子挂点、EYE、fit_nominal、闭合块有没有里外翻、预算、目录覆盖、轮毂+轮胎每轮三角数，
+  以及工具（按 tools.ts 的 ToolKind 查文件、≤ 2k、底面在原点）。当前 0 错误、0 警告；`npx vitest run` 39 个文件全过。
 - **gl_foot（摩托脚踩换挡杆，左侧）**：花键轴毂 + 夹紧螺栓、外撇的锻造杆、橡胶脚尖套。1452 三角。
   `gb_moto` 去掉了自带的换挡杆（原来的脚尖套正好在 gl_foot 挂点上，会出现两根杆），只留带油封的花键选挡轴。
 - **构建可复现**：AO 改用自己的 BVH 光线投射（固定的余弦分布半球方向，每顶点一个灰度，64 级），不再用 lib 的 Cycles `bake_ao`；
@@ -45,3 +55,7 @@
 - 预算：原厂车轮全部 ≤ 6k；玩家乱配的组合（白边/雪地/拖拉机胎配 off16、moto18、truck19、双轮毂）最多每轮 6.56k，`parts/verify` 会列出来。
   方向盘 2.1–2.6k、乐曲喇叭 2.5k 超过小件 2k：方向盘是第一人称离得最近的东西，故意留的。
 - GLB 未压缩（18 MB），建议导出时开 meshopt/Draco（lib 的 export_glb 归主程）。
+- tank_std 的加油管朝右（轿车加油口在右）；皮卡加油口在左（−z），想对上的话皮卡的 fuelTank 挂点可以转 180°（油箱前后对称）。
+- 轿车里变速箱前端（x 0.785）离发动机飞轮壳后端（约 1.0）有约 20 cm 空档，是挂点位置决定的，可以挪挂点或挪空间。
+- 只是告知：摩托挂点空间里 eng_single 右侧的踢启动脚踏超出 7 cm（z+0.19 对 0.12）；改装用的 V8、水平六缸、房车 D6 放进轿车/皮卡都会超出，
+  割草机发动机的竖直曲轴本来就伸到原点下方 6.5 cm。
