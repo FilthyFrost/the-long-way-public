@@ -299,9 +299,27 @@ export class ModGame implements PlayerHost, CockpitHost {
       v.sys.startNow();
       this.seated = v;
       this.focus = v;
-      this.input.lookPitch = v.view.frame.balance ? -0.15 : 0;
     }
     await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+    // (once the model is in: where its clocks are)
+    if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
+  }
+
+  private readonly pitchV = new THREE.Vector3();
+  /**
+   * How far down one looks on sitting in: enough that the clocks show above the bottom of the view (a
+   * pickup's high seat over a low dash, a bike's bars), level when they already do.
+   */
+  private seatPitch(v: ModVehicle): number {
+    const needle = Object.values(v.view.needles)[0];
+    if (!needle) return v.view.frame.balance ? -0.15 : 0;
+    v.view.model.updateMatrixWorld(true);
+    const n = v.view.model.worldToLocal(needle.getWorldPosition(this.pitchV));
+    const cg = v.sys.derived.cg;
+    const e = v.sim.spec.eye;
+    const below = Math.atan2(e.y + cg.y - n.y, Math.max(0.2, n.x - (e.x + cg.x)));
+    // (the clocks some 22° under the middle of the view sit in its lower fifth)
+    return -Math.max(0, Math.min(0.18, below - 0.38));
   }
 
   /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */
@@ -525,7 +543,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.input.freeLook = false;
     this.input.lookYaw = 0;
     // astride a bike one looks down the road over the clocks (level, they sit under the view's edge)
-    this.input.lookPitch = v.view.frame.balance ? -0.15 : 0;
+    this.input.lookPitch = this.seatPitch(v);
     this.rig.reset();
     // (no door on a motorcycle: the stand folds up)
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
