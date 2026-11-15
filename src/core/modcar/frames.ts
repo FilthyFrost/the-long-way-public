@@ -27,6 +27,8 @@ interface MountJson {
   open_deg?: number;
   /** seats: the floor under the cushion (a seat part's origin is its floor attachment) */
   floor_z?: number;
+  /** the frame object the part moves with (FORK) */
+  on?: string;
 }
 
 interface MountTable {
@@ -35,14 +37,25 @@ interface MountTable {
   panels?: Record<string, { hinge_axis: number[]; open_deg: number; glass?: string | null; mount?: string | null }>;
   needles?: Record<string, { axis: number[]; deg_full: number }>;
   wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
+  rig?: {
+    fork?: { pivot: number[]; axis: number[]; lower?: { object: string; axis: number[]; travel: number } };
+    shocks?: Record<string, { upper: string; lower: string; upper_eye: number[]; lower_eye: number[] }>;
+    swingarm?: { pivot: number[]; axis: number[]; length?: number };
+    stand?: { pivot: number[]; axis: number[]; fold_deg: number };
+  };
 }
 
 const v3 = (a: number[]): [number, number, number] => [a[0] ?? 0, a[1] ?? 0, a[2] ?? 0];
 
 /** the moving pieces of a modelled frame (a placeholder table has none) */
 function readRig(t: MountTable): FrameRig | undefined {
-  if (!t.panels && !t.needles && !t.wipers) return undefined;
+  if (!t.panels && !t.needles && !t.wipers && !t.rig) return undefined;
   const rig: FrameRig = { panels: {}, needles: {}, wipers: {} };
+  const r = t.rig;
+  if (r?.fork) rig.fork = { pivot: v3(r.fork.pivot), axis: v3(r.fork.axis), lower: r.fork.lower ? { object: r.fork.lower.object, axis: v3(r.fork.lower.axis), travel: r.fork.lower.travel } : undefined };
+  if (r?.shocks) rig.shocks = Object.values(r.shocks).map((k) => ({ upper: k.upper, lower: k.lower, upperEye: v3(k.upper_eye), lowerEye: v3(k.lower_eye) }));
+  if (r?.swingarm) rig.swingarm = { pivot: v3(r.swingarm.pivot), axis: v3(r.swingarm.axis), length: r.swingarm.length ?? 0.5 };
+  if (r?.stand) rig.stand = { pivot: v3(r.stand.pivot), axis: v3(r.stand.axis), foldDeg: r.stand.fold_deg };
   for (const [k, p] of Object.entries(t.panels ?? {})) rig.panels[k] = { axis: v3(p.hinge_axis), openDeg: p.open_deg, glass: p.glass ?? null, mount: p.mount ?? null };
   for (const [k, n] of Object.entries(t.needles ?? {})) rig.needles[k] = { axis: v3(n.axis), fullDeg: n.deg_full };
   for (const [k, w] of Object.entries(t.wipers ?? {})) rig.wipers[k] = { axis: v3(w.axis), sweepDeg: w.sweep_deg };
@@ -125,6 +138,7 @@ function readMounts(t: MountTable): MountDef[] {
       panel: m.panel,
       hinge: m.hinge === 'y' || m.hinge === 'z' ? m.hinge : undefined,
       openDeg: m.open_deg,
+      on: m.on,
     });
   }
   return out;
@@ -150,7 +164,7 @@ export const SEDAN: FrameDef = {
   hubRadius: 0.285,
   suspension: { front: susp(1.45, 0.2, 0.55, 9.5), rear: susp(1.55, 0.19, 0.3, 8.5) },
   steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.9, rateHigh: 0.75, smoothTime: 0.09, returnScale: 1.6, gripLimitG: 0.75, slipMarginDeg: 6 },
-  brakeN: 8900,
+  brakeN: 7900,
   brakeFront: 0.68,
   cdA: 0.83,
   finalDrive: 4.3,

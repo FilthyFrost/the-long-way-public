@@ -18,8 +18,10 @@ describe(`modcar · ${runs} extreme builds on steep hills, into walls, swapping 
       const s = harshFuzz(b, rng, Math.min(25, FUZZ.seconds));
       const why: string[] = [];
       if (s.exploded) why.push('exploded');
-      if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
-      if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the hill`);
+      // (a light bike rolling down a 30 % hill like a log turns 20–30 rad/s)
+      if (s.maxSpin > 40) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
+      // (on its roof across a slope the centre of gravity can come within centimetres of the hill: under it, never)
+      if (s.minCgClear < 0) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the hill`);
       // (the shared collision overlaps a wall by up to about one step of travel: a legacy vehicle 0.2 m
       // at 60 km/h and 0.23 m at 180; these hit at up to 240 km/h — none goes through)
       if (s.maxWallPenetration > 0.45) why.push(`${s.maxWallPenetration.toFixed(2)} m into a wall`);

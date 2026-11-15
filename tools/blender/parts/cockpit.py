@@ -229,6 +229,58 @@ def build_gl_stock(P):
     P.views = [('a', 200, 22), ('b', 120, 22)]
 
 
+def build_gl_foot(P):
+    """
+    A motorcycle foot shifter for the LEFT side: a forged steel lever clamped on the gearbox's splined selector
+    shaft (pinch bolt through a split lug), cranked outboard, reaching forward and up to a ribbed rubber toe
+    peg that sticks out to the left (+Y). Origin = the shaft axis where the lever sits; LEVER turns about
+    the transverse axis (Blender Y, game z) - a positive game-z angle lifts the peg (an upshift).
+    The static part is just the shaft stub and its seal coming out of the case (-Y).
+    """
+    P.ao_distance = 0.02
+    ya = 0.01                                    # mid-plane of the boss and the arm
+    # static: selector shaft stub and the oil seal it comes out of
+    P.cyl('shaft', 0.0075, 0.024, (0, -0.012, 0), 'steel', axis='Y', segs=14, bev=None)
+    P.lathe('seal', [(0.0076, -0.0245), (0.0125, -0.0245), (0.0135, -0.021), (0.0118, -0.0175),
+                     (0.0076, -0.0175)], material='rubber', axis='Y', segs=16, loop=True, sharp=50.0)
+    lever = []
+    # the boss with its split clamp lug and pinch bolt
+    lever.append(P.cyl('boss', 0.0155, 0.02, (0, ya, 0), 'steel', axis='Y', segs=20, bev=0.002, bsegs=2))
+    lever.append(P.box('lug', (0.016, 0.016, 0.017), (-0.017, ya, 0), 'steel', bev=0.002, segs=2))
+    lever.append(P.box('slit', (0.0165, 0.0166, 0.0016), (-0.0172, ya, 0), 'trim', bev=None))
+    lever.append(P.bolt((-0.019, ya, 0.0085), normal=(0, 0, 1), r=0.0058, h=0.0045, washer=False,
+                        material='steel', name='pinch'))
+    lever.append(P.bolt((-0.019, ya, -0.0085), normal=(0, 0, -1), r=0.0058, h=0.0042, washer=False,
+                        material='steel', name='pinch_nut'))
+    # the splined shaft end showing through the boss
+    star = []
+    for i in range(32):
+        a = math.tau * i / 32
+        r = 0.0074 if i % 2 == 0 else 0.0062
+        star.append((r * math.cos(a), r * math.sin(a)))
+    lever.append(P.prism('splines', star, 0.0035, matrix=Matrix.Translation((0, ya + 0.0105, 0)) @
+                         K.axis_matrix('Y'), material='steel', bev=None, center=True))
+    lever.append(P.cyl('shaft_end', 0.0045, 0.0042, (0, ya + 0.011, 0), 'trim', axis='Y', segs=12, bev=None))
+    # the arm: a forged flat bar (16 x 8 mm, tapering), cranked outboard towards the peg
+    peg = V((0.163, 0.0, 0.07))
+    path = [V((0.0, ya, 0.0)), V((0.055, ya, 0.004)), V((0.115, ya + 0.004, 0.028)), V((peg.x, ya + 0.006, peg.z))]
+    lever.append(P.tube('arm', path, 0.0088, 'steel', bend=0.035, profile=K.rounded_rect(2.0, 1.0, 0.42, seg=2),
+                        radius_fn=lambda s: 1.0 - 0.22 * s, sharp=50.0))
+    # the eye at the end and the toe peg out to the left
+    lever.append(P.cyl('eye', 0.0092, 0.012, (peg.x, ya + 0.006, peg.z), 'steel', axis='Y', segs=16,
+                       bev=0.0015, bsegs=1))
+    prof = [(0.0, 0.0225), (0.0088, 0.0225), (0.0116, 0.0255)]
+    y = 0.0255
+    for k in range(2):
+        prof += [(0.0116, y + 0.0085), (0.0097, y + 0.0098), (0.0097, y + 0.0115), (0.0116, y + 0.0128)]
+        y += 0.0128
+    prof += [(0.0116, y + 0.0085), (0.0102, y + 0.0128), (0.0058, y + 0.0152), (0.0, y + 0.0158)]
+    lever.append(P.lathe('toe_peg', prof, loc=(peg.x, 0.0, peg.z), material='rubber', axis='Y', segs=14,
+                         sharp=50.0))
+    P.mover('LEVER', lever, (0.0, 0.0, 0.0))
+    P.views = [('a', -60, 22), ('b', -150, 30)]
+
+
 def build_ign_key(P):
     """Key ignition: a chrome bezel with position marks, the lock barrel into the dash with its wires, and the
     KEY (turns about X; its origin is on the barrel axis) with a ring and a little tag."""
@@ -577,6 +629,7 @@ PARTS = {
     'hb_drift': build_hb_drift,
     'gl_stock': build_gl_stock,
     'gl_short': build_gl_short,
+    'gl_foot': build_gl_foot,
     'ign_key': build_ign_key,
     'ign_button': build_ign_button,
     'horn_beep': build_horn_beep,

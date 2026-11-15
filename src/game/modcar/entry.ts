@@ -3,10 +3,11 @@
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
 import * as THREE from 'three';
-import { decodeBuild, encodeBuild, fitPart, newInstance, removePart } from '../../core/modcar/build';
+import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { readParams } from '../params';
+import { loadStats } from './assets';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -240,6 +241,12 @@ const rt = {
     const u = game.seated ?? v;
     return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
   },
+  /** a new part instance (with a tyre on it, for a rim) — to put down somewhere in a test */
+  newPart: (id: string, tyre = '') => {
+    const inst = newInstance(id);
+    if (tyre) fitSub(inst, 'tire', newInstance(tyre));
+    return inst;
+  },
   /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
   garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,
   /** the seated (or focused) vehicle's lights to a position: 'low', 'high' or 'off' */
@@ -252,11 +259,28 @@ const rt = {
   },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
+  /** what is on a mount (part id, paint, dirt, rust…), or null */
+  part: (vi: number, mount: string) => {
+    const inst = vehicle(vi).build.parts[mount];
+    return inst ? { part: inst.part, paint: inst.paint, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
+  },
   partName: (id: string) => partDef(id).name,
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 
+// the loading card until the garage and its parts are in (not in screenshots)
+if (!params.shot) {
+  game.ui.showLoading(0);
+  const tick = (): void => {
+    if (rt.ready) return;
+    game.ui.showLoading(loadStats.requested ? loadStats.done / loadStats.requested : 0);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 void game.ready.then(() => {
+  game.ui.showLoading(null);
   if (params.shot) {
     game.simulate(0.8);
     game.render();

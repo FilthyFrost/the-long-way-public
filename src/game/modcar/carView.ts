@@ -22,10 +22,14 @@ import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model 
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
-/** parts that move as a whole or are worked in the cab: never merged */
-const UNMERGED = new Set(['steering', 'handbrake', 'gearLever', 'ignition', 'radio', 'horn']);
+/**
+ * Parts that move as a whole: never merged (the wheel turns with the steering). The cab's other
+ * controls merge like any part — their moving pieces (LEVER, KEY, KNOB_, BUTTON, COVER) stay out of it
+ * by name and are what the cockpit turns.
+ */
+const UNMERGED = new Set(['steering']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
-const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|ghost:)/;
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|ghost:)/;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
 const WEAR_STEP = 0.02;
 
@@ -74,7 +78,8 @@ export class CarView {
   private readonly catOf = new Map<string, string>();
   private readonly shown = new Map<string, Shown>();
   private readonly panels = new Map<string, PanelNode>();
-  readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string }[] = [];
+  /** riding on the fork or the swingarm (a motorcycle's): the wheel only spins, its place is the rig's */
+  readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string; ridden?: boolean }[] = [];
   readonly needles: Record<string, THREE.Object3D> = {};
   readonly wipers: THREE.Object3D[] = [];
   /** the fuel filler of the frame (where a jerrycan is held), model space */
@@ -181,6 +186,163 @@ export class CarView {
     }
     this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
     this.covers = null;
+    this.rigBike(obj);
+  }
+
+  // ------------------------------------------------------------------ a motorcycle's moving frame
+
+  /** the steering head's pivot (the FORK and what rides on it), the swingarm's, the stand's */
+  private fork: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; lower: THREE.Object3D | null; lowerRest: THREE.Vector3; lowerAxis: THREE.Vector3; travel: number; hubY: number } | null = null;
+  private shocks: { upper: THREE.Group; lower: THREE.Group; upperRest: THREE.Vector3; lowerRest: THREE.Vector3; upperEye: THREE.Vector3; lowerEyeLocal: THREE.Vector3; upperEyeInSwing: THREE.Vector3 }[] = [];
+  private swing: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; hub: THREE.Vector3; sign: number; length: number } | null = null;
+  private stand: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; fold: number; t: number } | null = null;
+
+  /** hang an object on a new pivot at `at` (model space), keeping where it is */
+  private pivotFor(obj: THREE.Object3D, at: [number, number, number], name: string): THREE.Group {
+    const pivot = new THREE.Group();
+    pivot.name = name;
+    pivot.position.set(at[0], at[1], at[2]);
+    this.model.add(pivot);
+    this.model.updateMatrixWorld(true);
+    pivot.updateMatrixWorld(true);
+    pivot.attach(obj);
+    return pivot;
+  }
+
+  private rigBike(obj: THREE.Object3D): void {
+    const rig = this.frame.rig;
+    if (!rig) return;
+    const fork = rig.fork ? obj.getObjectByName('FORK') : undefined;
+    if (fork && rig.fork) {
+      const pivot = this.pivotFor(fork, rig.fork.pivot, 'pivot_FORK');
+      // the parts that ride on the fork (bar, lamp, mirrors, switch) go round with it
+      for (const m of this.frame.mounts) {
+        if (m.on !== 'FORK') continue;
+        const node = this.mountNodes.get(m.id);
+        if (node) pivot.attach(node);
+      }
+      // the lower legs slide on the stanchions with the front suspension, and carry the axle and what is on it
+      const lower = rig.fork.lower ? (fork.getObjectByName(rig.fork.lower.object) ?? null) : null;
+      if (lower) {
+        for (const m of this.frame.mounts) {
+          if (m.on !== rig.fork.lower!.object || m.cat === 'rim') continue;
+          const node = this.mountNodes.get(m.id);
+          if (node) lower.attach(node);
+        }
+      }
+      const hubF = hubsOf(this.frame).fl;
+      this.fork = {
+        pivot,
+        axis: new THREE.Vector3(...rig.fork.axis).normalize(),
+        rest: pivot.quaternion.clone(),
+        lower,
+        lowerRest: lower ? lower.position.clone() : new THREE.Vector3(),
+        lowerAxis: new THREE.Vector3(...(rig.fork.lower?.axis ?? rig.fork.axis)).normalize(),
+        travel: rig.fork.lower?.travel ?? 0.12,
+        hubY: hubF.pos.y,
+      };
+      // the front wheel rides in the fork (steering about its head, not about the vertical)
+      if (hubF.on) this.rideWheel(0, lower ?? fork, hubF.pos);
+    }
+    const sw = rig.swingarm ? obj.getObjectByName('SWINGARM') : undefined;
+    if (sw && rig.swingarm) {
+      const pivot = this.pivotFor(sw, rig.swingarm.pivot, 'pivot_SWINGARM');
+      const axis = new THREE.Vector3(...rig.swingarm.axis).normalize();
+      // which way about the axis lifts the hub: try a small turn
+      const hubMount = hubsOf(this.frame).rl;
+      const hub = new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z).sub(pivot.position);
+      const lifted = hub.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, 0.05));
+      this.swing = { pivot, axis, rest: pivot.quaternion.clone(), hub: new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z), sign: lifted.y > hub.y ? 1 : -1, length: Math.max(0.2, rig.swingarm.length) };
+      if (hubMount.on) this.rideWheel(2, sw, hubMount.pos);
+      // the shocks: each half turns about its own eye to keep pointing at the other's
+      for (const k of rig.shocks ?? []) {
+        const up = obj.getObjectByName(k.upper);
+        const lo = sw.getObjectByName(k.lower);
+        if (!up || !lo) continue;
+        const ue = new THREE.Vector3(...k.upperEye);
+        const le = new THREE.Vector3(...k.lowerEye);
+        const upper = this.pivotFor(up, k.upperEye, `pivot_${k.upper}`);
+        // the lower half's pivot hangs in the swingarm: its eye in the swingarm's frame
+        const lower = new THREE.Group();
+        lower.name = `pivot_${k.lower}`;
+        sw.add(lower);
+        this.model.updateMatrixWorld(true);
+        const leW = this.model.localToWorld(le.clone());
+        lower.position.copy(sw.worldToLocal(leW.clone()));
+        lower.updateMatrixWorld(true);
+        lower.attach(lo);
+        const ueW = this.model.localToWorld(ue.clone());
+        const ueInSwing = sw.worldToLocal(ueW.clone());
+        this.shocks.push({ upper, lower, upperRest: le.clone().sub(ue).normalize(), lowerRest: ueInSwing.clone().sub(lower.position).normalize(), upperEye: ue, lowerEyeLocal: lower.position.clone(), upperEyeInSwing: ueInSwing });
+      }
+    }
+    const st = rig.stand ? obj.getObjectByName('STAND') : undefined;
+    if (st && rig.stand) {
+      const pivot = this.pivotFor(st, rig.stand.pivot, 'pivot_STAND');
+      this.stand = { pivot, axis: new THREE.Vector3(...rig.stand.axis).normalize(), rest: pivot.quaternion.clone(), fold: rig.stand.foldDeg * DEG, t: 0 };
+    }
+  }
+
+  /**
+   * Hang a wheel's pivot on the rig piece it rides on (a fork's lower legs, the swingarm), at the hub
+   * (model space); from then on the piece places it and the wheel only spins.
+   */
+  private rideWheel(i: number, on: THREE.Object3D, hub: { x: number; y: number; z: number }): void {
+    const w = this.wheels[i];
+    this.model.updateMatrixWorld(true);
+    const at = this.model.localToWorld(new THREE.Vector3(hub.x, hub.y, 0));
+    w.pivot.position.copy(w.pivot.parent ? w.pivot.parent.worldToLocal(at.clone()) : at);
+    w.pivot.rotation.set(0, 0, 0);
+    w.pivot.updateMatrixWorld(true);
+    on.attach(w.pivot);
+    w.ridden = true;
+  }
+
+  /** whether someone rides it (the stand folds up) */
+  ridden = false;
+  private readonly qBike = new THREE.Quaternion();
+  private readonly vBike = new THREE.Vector3();
+  private readonly qShock = new THREE.Quaternion();
+  private readonly vShock = new THREE.Vector3();
+
+  private poseBike(dt: number, sim: VehicleSim): void {
+    if (this.fork) {
+      // as the front wheel turns about the vertical, the fork turns about its head (sign from its axis' up)
+      const f = this.fork;
+      f.pivot.quaternion.copy(f.rest).multiply(this.qBike.setFromAxisAngle(f.axis, -sim.steerAngle * Math.sign(f.axis.y || 1)));
+      // the lower legs slide up the stanchions as the front wheel rises (along the raked axis)
+      if (f.lower) {
+        sim.wheelLocal(0, this.local);
+        const dy = this.local.y + this.derived.cg.y - f.hubY;
+        const s = Math.max(-f.travel, Math.min(f.travel, dy / Math.max(0.3, f.lowerAxis.y)));
+        f.lower.position.copy(f.lowerRest).addScaledVector(f.lowerAxis, s);
+      }
+    }
+    if (this.swing) {
+      // the rear hub's height in model space against where it was modelled
+      const s = this.swing;
+      sim.wheelLocal(2, this.local);
+      const cg = this.derived.cg;
+      const dy = this.local.y + cg.y - s.hub.y;
+      const a = Math.asin(Math.max(-0.9, Math.min(0.9, dy / s.length)));
+      s.pivot.quaternion.copy(s.rest).multiply(this.qBike.setFromAxisAngle(s.axis, s.sign * a));
+      // the shock halves keep pointing at each other's eye
+      for (const k of this.shocks) {
+        // where the lower eye is now (model space): the swingarm turned about its pivot
+        const le = this.vBike.copy(k.lowerEyeLocal).applyQuaternion(s.pivot.quaternion).add(s.pivot.position);
+        k.upper.quaternion.setFromUnitVectors(k.upperRest, le.sub(k.upperEye).normalize());
+        // and the upper eye in the swingarm's frame
+        const ue = this.vShock.copy(k.upperEye).sub(s.pivot.position).applyQuaternion(this.qShock.copy(s.pivot.quaternion).invert());
+        k.lower.quaternion.setFromUnitVectors(k.lowerRest, ue.sub(k.lowerEyeLocal).normalize());
+      }
+    }
+    if (this.stand) {
+      const st = this.stand;
+      const want = this.ridden || Math.abs(sim.kmh) > 3 ? 1 : 0;
+      st.t += (want - st.t) * Math.min(1, dt * 6);
+      st.pivot.quaternion.copy(st.rest).multiply(this.qBike.setFromAxisAngle(st.axis, st.t * st.fold));
+    }
+    void this.vBike;
   }
 
   private hangPanel(mt: MountDef, p: THREE.Object3D): void {
@@ -331,7 +493,8 @@ export class CarView {
     for (const [mount, sh] of this.shown) {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
-      if (!inst || UNMERGED.has(cat)) continue;
+      // (what rides on a fork moves with it)
+      if (!inst || UNMERGED.has(cat) || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
       add(mount, sh.holder, this.partLook(inst, cat));
     }
     this.model.updateMatrixWorld(true);
@@ -593,18 +756,20 @@ export class CarView {
     this.lean.rotation.x = this.frame.balance ? leanRad : 0;
     for (let i = 0; i < 4; i++) {
       const w = sim.wheels[i];
-      sim.wheelLocal(i, this.local);
       const node = this.wheels[i];
+      node.spin.rotation.z = -w.spin;
+      if (node.ridden) continue;
+      sim.wheelLocal(i, this.local);
       node.pivot.position.set(this.local.x, this.local.y, this.frame.balance ? 0 : this.local.z);
       node.pivot.rotation.y = -w.steer;
-      node.spin.rotation.z = -w.spin;
     }
     const steer = this.shown.get('steering')?.holder;
     if (steer) {
       const ratio = sim.spec.steering.ratio;
       const bar = partDef(this.build.parts.steering?.part ?? 'steer_std').steering?.bar;
-      // a handlebar turns with the fork; a wheel turns `ratio` times as far as the road wheels
-      if (bar) steer.rotation.y = -sim.steerAngle;
+      // a handlebar turns with the fork (on a modelled fork it rides on it); a wheel turns `ratio` times as far as the road wheels
+      const onFork = !!this.fork && this.frame.mounts.find((m) => m.id === 'steering')?.on === 'FORK';
+      if (bar) steer.rotation.y = onFork ? 0 : -sim.steerAngle;
       else steer.rotation.x = sim.steerAngle * ratio;
     }
     // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C)
@@ -646,13 +811,17 @@ export class CarView {
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
     // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)
     const reverse = sim.dir < 0 && sim.selector === 'R' && !!dash && (dash.running || dash.battery > 0.02);
-    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0 });
+    // the hazard lights blink both amber lamps (with a battery)
+    this.blinkT = this.hazard && on ? (this.blinkT + dt) % 0.75 : 0;
+    const blink = this.hazard && on && this.blinkT < 0.4;
+    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0, turnLeft: blink, turnRight: blink });
     // dirt is measured up from the vehicle's own ground; colours and wear follow the build
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
     this.updateLooks();
     this.measure();
     this.tryMerge();
+    this.poseBike(dt, sim);
     // parts just fitted settle (a little past their place and back)
     for (let i = this.settling.length - 1; i >= 0; i--) {
       const st = this.settling[i];
@@ -680,6 +849,13 @@ export class CarView {
   private cap = 0;
   /** the filler cap is held open (fuel going in) */
   capOpen = false;
+  /** the hazard lights are on */
+  hazard = false;
+  private blinkT = 0;
+  /** the hazard lights' lamps are lit this moment (for the relay's tick) */
+  get blinking(): boolean {
+    return this.hazard && this.blinkT > 0 && this.blinkT < 0.4;
+  }
   /** the wipers' place in their sweep, 0…1 (the weather's wipers) */
   wiperAngle = 0;
   private readonly qTmp = new THREE.Quaternion();

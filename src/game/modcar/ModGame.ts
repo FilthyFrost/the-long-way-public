@@ -35,6 +35,7 @@ import { EngineVoice } from './engineAudio';
 import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
+import { Radio } from './radio';
 import { Sparks } from './sparks';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
@@ -164,8 +165,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
     this.viewMode = params.view === 'chase' ? 'chase' : params.view === 'orbit' ? 'orbit' : 'cockpit';
-    // (ModUI shows this game's own key card)
-    this.hud = new Hud(params.hud, '');
+    // (ModUI shows this game's own key card; the numbers line only with ?hud=1, F3 toggles it)
+    this.hud = new Hud(typeof location !== 'undefined' && new URLSearchParams(location.search).get('hud') === '1', '');
     this.input = new InputManager(canvas);
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
@@ -373,6 +374,10 @@ export class ModGame implements PlayerHost, CockpitHost {
       } else if (a === 'horn') v.sys.setHorn(true);
       else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
+      else if (a === 'hazard') {
+        v.view.hazard = !v.view.hazard;
+        this.sound('switch');
+      }
       else if (a === 'reset') this.resetUpright(v);
     });
     this.input.onRelease((a) => {
@@ -474,7 +479,10 @@ export class ModGame implements PlayerHost, CockpitHost {
   private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
   private readonly loopsOn = new Set<FoleyLoop>();
   private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+  /** the radio of the vehicle one is in or beside */
+  private radio: Radio | null = null;
   private readonly lastGear: { v: ModVehicle | null; gear: number } = { v: null, gear: 0 };
+  private wasBlinking = false;
 
   private sounds(): Foley | null {
     const ctx = this.audio.context;
@@ -556,6 +564,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.loopsOn.delete(k);
     }
     this.loopsNow.clear();
+    // the hazard relay ticks as the lamps go on and off (in the car one sits in)
+    const sv = this.seated;
+    const blinkNow = !!sv && sv.view.blinking;
+    if (sv && blinkNow !== this.wasBlinking) f.play('switch', { gain: 0.35 });
+    this.wasBlinking = blinkNow;
     const d = (this.seated ?? this.focus)?.sys.dash;
     const want = d?.horn ? (d.hornSound === 'trumpet' ? 'horn_trumpet' : d.hornSound === 'air' ? 'horn_air' : 'horn_beep') : '';
     if (want !== this.hornOn) {
@@ -563,6 +576,33 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (want) f.horn(want, true);
       this.hornOn = want;
     }
+  }
+
+  /** the car radio: the one in the vehicle one sits in, or the nearest one playing within earshot */
+  private updateRadio(): void {
+    const ctx = this.audio.context;
+    const out = this.audio.output;
+    if (!ctx || !out) return;
+    this.radio ??= new Radio(ctx, out);
+    let best: ModVehicle | null = null;
+    let level = 0;
+    for (const v of this.vehicles) {
+      if (!v.radioOn || !v.sys.hasPart('radio') || v.sys.dash.battery <= 0.02) continue;
+      const watts = v.view.frame.mounts.find((m) => m.cat === 'radio' && v.build.parts[m.id]);
+      const loud = watts && partDef(v.build.parts[watts.id].part).radio?.tape ? 1.15 : 1;
+      let l: number;
+      if (this.seated === v) l = 0.5 * loud;
+      else {
+        const d = Math.hypot(this.player.walker.x - v.sim.px, this.player.walker.z - v.sim.pz);
+        // a closed car keeps most of it in
+        l = (0.32 * loud * (0.35 + 0.65 * (1 - v.sys.derived.enclosed))) / (1 + (d * d) / 6);
+      }
+      if (l > level) {
+        level = l;
+        best = v;
+      }
+    }
+    this.radio.update({ on: !!best && level > 0.01, song: best?.radioSong ?? 0, level });
   }
 
   /** the engine of the vehicle in focus: heard from the seat, or from where one stands */
@@ -740,10 +780,12 @@ export class ModGame implements PlayerHost, CockpitHost {
       const sim = v.sim;
       const scrape = sim.feel.scrape ?? 0;
       if (scrape < 1) continue;
-      const due = (this.sparkDue.get(v) ?? 0) + dt * 70 * Math.min(1, scrape / 8);
-      const n = Math.floor(due);
-      this.sparkDue.set(v, due - n);
-      if (!n) continue;
+      // in bursts, a dozen or so at a time, more often the faster it drags
+      const due = (this.sparkDue.get(v) ?? 0) + dt * (4 + 10 * Math.min(1, scrape / 8));
+      const bursts = Math.floor(due);
+      this.sparkDue.set(v, due - bursts);
+      if (!bursts) continue;
+      const n = bursts * (8 + Math.floor(Math.random() * 12));
       const b = this.sparkB;
       sim.basis(b);
       const sp = Math.hypot(sim.vx, sim.vz) || 1;
@@ -835,6 +877,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
       v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      v.view.ridden = v === this.seated;
       v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
     }
     const f = this.seated ?? this.focus;
@@ -1142,6 +1185,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.sounds();
     this.updateFoley();
     this.updateEngineVoice();
+    this.updateRadio();
     const v = this.focus;
     if (!v) return;
     const sim = v.sim;

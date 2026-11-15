@@ -36,6 +36,12 @@ function boxDist(x: number, z: number, b: { x0: number; x1: number; z0: number; 
   return Math.hypot(dx, dz);
 }
 
+/** the same, negative inside the box (how far in from its nearest edge) */
+function boxSigned(x: number, z: number, b: { x0: number; x1: number; z0: number; z1: number }): number {
+  const out = boxDist(x, z, b);
+  return out > 0 ? out : -Math.min(x - b.x0, b.x1 - x, z - b.z0, b.z1 - z);
+}
+
 /** how far out from the road's centre line (m) */
 export function roadDist(x: number, z: number): number {
   void z;
@@ -232,7 +238,8 @@ function range(a: number, b: number, step: number): number[] {
 /** how much of a yard point is the apron's concrete (−) or the drive's gravel (+), 0 = meadow */
 function yardLot(x: number, z: number): number {
   const ragged = 0.6 * fbm2(x / 3, z / 3, SEED + 31, 2);
-  const inApron = 1 - smoothstep(-0.3, 0.9, boxDist(x, z, APRON) + ragged * 0.6 - 0.2);
+  // (ragged at its edges, whole within them)
+  const inApron = 1 - smoothstep(-0.3, 0.9, boxSigned(x, z, APRON) + ragged * 0.6);
   // the drive is two wheel tracks with grass up the middle (where the car's centre line runs, z = -0.25)
   const middle = 1 - smoothstep(0.25, 0.5, Math.abs(z + 0.25));
   const inDrive = (1 - smoothstep(-0.5, 1.4, boxDist(x, z, DRIVE) + ragged)) * (1 - middle * smoothstep(15.8, 16.8, x));

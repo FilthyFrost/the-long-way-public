@@ -296,8 +296,9 @@ export class ModPlayer {
   /** the part about to come off (or be sprayed, washed) and the thing about to be picked up light up */
   private showHighlight(): void {
     const t = this.target;
-    const v = t && (t.kind === 'part' || (t.kind === 'surface' && t.mount)) ? t.v : null;
-    const mount = t && (t.kind === 'part' || t.kind === 'surface') ? t.mount?.id ?? null : null;
+    // (a part about to be sprayed or washed is not lit: one sees its real colour and the paint go on)
+    const v = t?.kind === 'part' ? t.v : null;
+    const mount = t?.kind === 'part' ? t.mount.id : null;
     if (this.litVehicle && this.litVehicle !== v) this.litVehicle.view.highlight(null);
     this.litVehicle = v;
     if (v) v.view.highlight(mount);

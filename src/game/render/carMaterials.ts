@@ -21,7 +21,10 @@
  *   GAUGE  gauge                    a dial painted from the UVs, lit at night
  *   EMIT   emit                     self-lit
  * Everything goes through the shared light of the world: rtShadow (cast shadows), rtHeadlight (beams),
- * rtFog, the cabin lamp; and opaque parts write the alpha ids the frame pass inks (frame.ts).
+ * rtFog, the cabin lamp, a room's light where there is one (the garage); and opaque parts write the alpha
+ * ids the frame pass inks (frame.ts). The world's weather (uWeather) wets the outside of the car — beads
+ * near the eye, a deeper colour and more gloss — and its snow settles on the roof; a room or setShelter()
+ * keeps both off. The part one is looking at (setHighlight) gets a lit rim and a lit outline.
  */
 import * as THREE from 'three';
 import { skyUniforms } from '../env/sky';
@@ -243,6 +246,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     return smoothstep(-w, w, x);
   }
 
+  // a band [a, b] of a repeating coordinate t (period 1), antialiased by w from the caller's fwidth(t):
+  // fract(t) jumps at its seam, and its own derivative there would draw a hairline of half-lit pixels
+  float rtBand(float t, float a, float b, float w) {
+    float f = fract(t);
+    return smoothstep(a - w, a + w, f) * (1.0 - smoothstep(b - w, b + w, f));
+  }
+
   // patterns in the part's own space, projected three ways (a part has no useful UVs of its own)
   vec4 rtTriNoise(vec3 p, vec3 n, float metres) {
     vec3 w = abs(n);
@@ -279,13 +289,21 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   CarEnv rtCarEnv(vec3 R, float soft, float clouds, float darkWidth) {
     CarEnv e;
     float h = R.y;
-    // the far tree line and hills: a painted silhouette that stays put in the world
+    // the far land: rolling hills and over them a line of trees in rounded bumps, a painted silhouette that
+    // stays put in the world — along a flank the horizon is a landscape sliding past, not a ruler line
+    // (the bumps from the noise round a circle: one loop of the azimuth, no seam; blurred: crowns, not spikes)
     float az = atan(R.z, R.x);
-    float hz = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
-    float x = h - hz;
+    vec2 rs = normalize(R.xz + vec2(1e-5));
+    float trees = clamp((texture2D(tNoise, rs * 0.6 + 0.5, 1.5).g - 0.42) * 0.24, 0.0, 0.075);
+    // (where the body wraps round a corner the whole tree line is squeezed into a few pixels and would hang
+    // off the horizon like drips: there it is a plain horizon)
+    trees *= 1.0 - smoothstep(0.002, 0.008, length(fwidth(rs)));
+    float hills = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
+    float x = h - hills - trees;
+    // (the band's top and the near ground's edge are the open sky and the plain: no trees on them)
+    float xo = h - hills;
     // the sky is brightest round the sun: the band swells towards it and dims away from it, so it changes
     // along the body instead of running round it like a painted stripe
-    vec2 rs = normalize(R.xz + vec2(1e-5));
     vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
     float toSun = dot(rs, ss) * 0.5 + 0.5;
     e.bright = (mix(uHorizon, vec3(rtLuma(uHorizon)), 0.2) * 1.15 + uGlow * 0.25 * uSunVis * toSun * toSun) * (0.78 + 0.34 * toSun);
@@ -302,8 +320,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     e.land = mix(uHereForest, uCarGround, 0.35) * (uSkyColor * 0.55 + uSunColor * 0.06);
     e.ground = uCarGround * (uSkyColor * 0.7 + uSunColor * 0.22 * smoothstep(-0.1, 0.3, uSunDir.y));
     e.sky = rtStep(x, soft);
-    e.band = 1.0 - rtStep(x - 0.3, soft);
-    e.dark = 1.0 - rtStep(-x - darkWidth, soft);
+    e.band = 1.0 - rtStep(xo - 0.3, soft);
+    e.dark = 1.0 - rtStep(-xo - darkWidth, soft);
     e.line = e.sky * (1.0 - rtStep(x - 0.02, soft));
     // in a room (the starting garage) the gloss mirrors the room: its door and windows bright, the rest dim
     float room = rtInRoom(vPos);
@@ -567,16 +585,32 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #elif defined(RT_METAL)
     // ---------------------------------------------------------------- chrome, steel, aluminium
     float contrast = gloss;
+    // a flat mirror is not a bumper: the near-black band that draws round chrome would fill it. How fast the
+    // normal turns per metre says which it is (a bumper's 5 cm radius: 20 per metre; a mirror's face: 0)
+    float curv = length(fwidth(n)) / max(length(fwidth(vPos)), 1e-5);
+    float flatness = 1.0 - smoothstep(4.0, 16.0, curv);
     // (satin metals blur the bands: aluminium is not chrome. Metal trim is small and round: its own
     // curvature shows the whole stack of sky, horizon and ground, so the true reflection, not the drawn tilt)
-    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0, 0.13);
+    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0, mix(0.13, 0.07, flatness));
     vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.1, 0.32, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
-    // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
+    // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone; in a flat
+    // mirror the far land as it lies, hazed
     vec3 skyc = mix(e.upper * 1.15, e.bright * 1.45, e.band);
-    vec3 under = mix(e.ground * 1.3, e.land * mix(1.0, 0.25, contrast), e.dark);
+    vec3 farLand = mix(e.land * mix(1.0, 0.25, contrast), mix(e.land, e.bright * 0.6, 0.5), flatness);
+    vec3 under = mix(e.ground * 1.3, farLand, e.dark);
     vec3 env = mix(under, skyc, e.sky);
     env = mix(env, e.bright * 2.2 + 0.1, e.line * contrast);
+    // and a flat mirror, which shows one piece of the world all over, gets the painter's two pale streaks
+    // across it (as glass does) so it reads as a mirror and not a grey disc
+    if (flatness > 0.01) {
+      float ms = dot(vObj, normalize(vec3(-0.55, 1.0, 0.35))) * 7.0 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
+      // (each fades before it is thinner than a pixel: a hairline would break into dashes, quad by quad)
+      float mw = fwidth(ms);
+      float mstreak = rtBand(ms, 0.3, 0.44, mw * 0.8 + 0.004) * (1.0 - smoothstep(0.04, 0.12, mw));
+      mstreak += 0.6 * rtBand(ms, 0.52, 0.56, mw * 0.8 + 0.003) * (1.0 - smoothstep(0.01, 0.03, mw));
+      env = mix(env, e.bright * 1.25 + 0.06, mstreak * flatness * contrast * 0.55);
+    }
     env = mix(env, rtCabinEnv(R), inCabin);
     #ifndef RT_CABIN
     // (and is lit as the room is)
@@ -665,8 +699,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // streaks: two diagonal bands across the glass, sliding a little with the eye
     vec3 sd = normalize(vec3(-0.55, 1.0, 0.0));
     float s = dot(vObj, sd) * 1.6 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
-    float fs = fract(s);
-    float streak = rtStep(fs - 0.32, 0.004) * (1.0 - rtStep(fs - 0.44, 0.004)) + 0.7 * rtStep(fs - 0.5, 0.003) * (1.0 - rtStep(fs - 0.535, 0.003));
+    float sw = fwidth(s) * 0.8;
+    float streak = rtBand(s, 0.32, 0.44, sw + 0.004) + 0.7 * rtBand(s, 0.5, 0.535, sw + 0.003);
     streak *= 0.34 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
     // seen from inside (its back), glass is for looking out through: clear, a faint tint, no streaks
     float inside = gl_FrontFacing ? 0.0 : 1.0;
@@ -765,8 +799,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     }
     #endif
 
-    // the part one is looking at: a rim of light that breathes
+    // the part one is looking at: a rim of light round its edges that breathes
+    float hlOn = 0.0;
     {
+      // (how fast the normal turns across the screen, taken before the branch: a derivative needs the quad)
+      float nTurn = length(fwidth(n));
       float hl = uHighlight.w;
       #ifdef RT_VPART
       hl *= uHighlightId < 0.0 ? 1.0 : 1.0 - step(0.5, abs(vPartId - uHighlightId));
@@ -774,10 +811,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       // one part of a merged mesh is aimed at: meshes without part ids stay as they are
       hl *= step(uHighlightId, -0.5);
       #endif
+      hlOn = hl;
       if (hl > 0.0) {
-        // a lit fill and a bright rim, breathing; the eye finds it against paint, chrome or the dark under a car
-        float pulse = 0.7 + 0.3 * sin(uTime * 4.0);
-        col = col * (1.0 - 0.25 * hl) + uHighlight.rgb * hl * pulse * (0.22 + 1.8 * pow(1.0 - ndv, 2.2));
+        // the fresnel band where the part turns away from the eye, and its creases and corners (where the
+        // normal turns fast), slowly breathing; a face seen flat-on keeps its own colour with only a breath of
+        // the tint over it — a door being sprayed must show the paint going on. Nothing is darkened.
+        float pulse = 0.72 + 0.28 * sin(uTime * 3.0);
+        float rim = smoothstep(0.62, 0.95, 1.0 - ndv);
+        // (only sharp corners: the round of a chrome bumper close up turns fast too, and must keep its chrome)
+        float edge = smoothstep(0.6, 1.4, nTurn * 7.0);
+        col += uHighlight.rgb * hl * (0.05 + (rim * 1.2 + edge * 0.6) * pulse);
       }
     }
 
@@ -801,7 +844,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #if defined(RT_GLASS) || defined(RT_LENS)
     gl_FragColor = vec4(col, alpha);
     #else
-    gl_FragColor = vec4(col, rtCarInk(inkBase));
+    float ink = rtCarInk(inkBase);
+    // (a part being looked at writes its ids in a band of their own under every other id, 0.006…0.032: the
+    // frame draws its outline in light where it meets anything else — frame.ts inkAt)
+    if (hlOn > 0.5) ink = 0.006 + 0.026 * fract(ink * 7.31);
+    gl_FragColor = vec4(col, ink);
     #endif
   }
 `;
