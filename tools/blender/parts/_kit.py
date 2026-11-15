@@ -780,6 +780,7 @@ class Part:
         _join(base, objs[1:])
         base.name = name
         base.data.name = name
+        _canonical(base)
         if 'WN' in base.vertex_groups:
             m = base.modifiers.new('weighted', 'WEIGHTED_NORMAL')
             m.mode = 'FACE_AREA'
@@ -812,7 +813,7 @@ class Part:
         meshes = [root] + mov_objs
         self.tris = mc.triangles(meshes)
         if not self.opts.get('no_ao'):
-            mc.bake_ao(meshes, samples=self.ao_samples, distance=self.ao_distance)
+            bake_ao_bvh(meshes, distance=self.ao_distance, samples=self.ao_samples)
         # clean names of the mesh data
         for o in meshes:
             o.data.name = o.name
@@ -866,6 +867,104 @@ class Part:
         return e
 
 
+def _hemisphere(n):
+    """n fixed, cosine-weighted directions round +Z (a Fibonacci spiral): the same for every vertex and run."""
+    out = []
+    ga = math.pi * (3 - math.sqrt(5))
+    for i in range(n):
+        u = (i + 0.5) / n
+        r = math.sqrt(u)
+        a = ga * i
+        out.append(V((r * math.cos(a), r * math.sin(a), math.sqrt(max(0.0, 1 - u)))))
+    return out
+
+
+def bake_ao_bvh(objs, distance=0.15, samples=40, levels=64):
+    """
+    Deterministic ambient occlusion into the vertex colour 'Col' (a grey value per vertex, written to every
+    corner like the lib's bake): rays from each vertex over a fixed cosine-weighted hemisphere, cast
+    against all the given meshes, occluded if they hit within `distance`. Replaces lib.modcar.bake_ao
+    (Cycles), whose results depend on what was baked before in the same process.
+    """
+    import numpy as np
+    from mathutils.bvhtree import BVHTree
+    meshes = [o for o in objs if o.type == 'MESH']
+    bm = bmesh.new()
+    for o in meshes:
+        tmp = bmesh.new()
+        tmp.from_mesh(o.data)
+        tmp.transform(o.matrix_world)
+        tmp_me = bpy.data.meshes.new('_ao_tmp')
+        tmp.to_mesh(tmp_me)
+        tmp.free()
+        bm.from_mesh(tmp_me)
+        bpy.data.meshes.remove(tmp_me)
+    tree = BVHTree.FromBMesh(bm)
+    bm.free()
+    dirs = _hemisphere(samples)
+    eps = 0.0006
+    for o in meshes:
+        me = o.data
+        mw = o.matrix_world
+        nm = mw.to_3x3().inverted().transposed()
+        ao = np.ones(len(me.vertices), dtype=np.float64)
+        for v in me.vertices:
+            p = mw @ v.co
+            n = (nm @ v.normal).normalized()
+            if n.length < 0.5:
+                continue
+            fr = frame_from_z(n).to_3x3()
+            org = p + n * eps
+            hit = 0.0
+            for d in dirs:
+                w = fr @ d
+                loc, _, _, dist = tree.ray_cast(org, w, distance)
+                if loc is not None:
+                    hit += 1.0 - 0.35 * (dist / distance)
+            ao[v.index] = 1.0 - hit / len(dirs)
+        ao = np.round(np.clip(ao, 0.0, 1.0) * (levels - 1)) / (levels - 1)
+        attr = me.color_attributes.get('Col') or me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+        me.color_attributes.active_color = attr
+        me.attributes.render_color_index = me.color_attributes.find('Col')
+        vidx = np.empty(len(me.loops), dtype=np.int64)
+        me.loops.foreach_get('vertex_index', vidx)
+        g = ao[vidx].astype(np.float32)
+        col = np.stack([g, g, g, np.ones_like(g)], axis=1).reshape(-1)
+        attr.data.foreach_set('color', col)
+
+
+def _ao_per_vertex(obj, levels=64):
+    """
+    Average the baked per-corner AO over each vertex and quantise it: corners of one vertex then carry the
+    same colour, so the glTF export only splits vertices where the normals do (smaller files, stable vertex
+    counts), and the bake's noise is smoothed.
+    """
+    import numpy as np
+    me = obj.data
+    attr = me.color_attributes.get('Col')
+    if attr is None or attr.domain != 'CORNER':
+        return
+    n = len(me.loops)
+    col = np.empty(n * 4, dtype=np.float32)
+    attr.data.foreach_get('color', col)
+    col = col.reshape(n, 4)
+    vidx = np.empty(n, dtype=np.int64)
+    me.loops.foreach_get('vertex_index', vidx)
+    nv = len(me.vertices)
+    acc = np.zeros(nv, dtype=np.float64)
+    cnt = np.zeros(nv, dtype=np.float64)
+    np.add.at(acc, vidx, col[:, 0].astype(np.float64))
+    np.add.at(cnt, vidx, 1.0)
+    ao = acc / np.maximum(cnt, 1.0)
+    ao = np.round(ao * (levels - 1)) / (levels - 1)
+    g = ao[vidx].astype(np.float32)
+    col[:, 0] = g
+    col[:, 1] = g
+    col[:, 2] = g
+    col[:, 3] = 1.0
+    attr.data.foreach_set('color', col.reshape(-1))
+
+
 def _inside_out(obj):
     """Number of closed islands of obj whose signed volume is negative (faces pointing inwards)."""
     bm = bmesh.new()
@@ -897,6 +996,76 @@ def _inside_out(obj):
             bad += 1
     bm.free()
     return bad
+
+
+def _canonical(obj):
+    """
+    Rebuild obj's mesh in a canonical element order: vertices sorted by position, every face starting at
+    its lowest vertex, faces sorted; materials, smooth/sharp flags and the WN vertex group are kept. Some
+    bmesh operators (the UV sphere's pole weld, ...) order faces and corners by memory address, which made
+    rebuilt GLBs differ byte-wise from run to run (and the weighted normals with them).
+    """
+    import numpy as np
+    me = obj.data
+    nv, nf = len(me.vertices), len(me.polygons)
+    if nv == 0 or nf == 0:
+        return
+    co = np.empty(nv * 3, np.float32)
+    me.vertices.foreach_get('co', co)
+    co = co.reshape(nv, 3)
+    ev = np.empty(len(me.edges) * 2, np.int64)
+    me.edges.foreach_get('vertices', ev)
+    ev = ev.reshape(-1, 2)
+    # tie-break for coincident vertices: the summed positions of their edge neighbours
+    nb = np.zeros((nv, 3), np.float64)
+    np.add.at(nb, ev[:, 0], co[ev[:, 1]].astype(np.float64))
+    np.add.at(nb, ev[:, 1], co[ev[:, 0]].astype(np.float64))
+    order = np.lexsort((nb[:, 2], nb[:, 1], nb[:, 0], co[:, 2], co[:, 1], co[:, 0]))
+    inv = np.empty(nv, np.int64)
+    inv[order] = np.arange(nv)
+    ls = np.empty(nf, np.int64)
+    lt = np.empty(nf, np.int64)
+    mi = np.empty(nf, np.int64)
+    sm = np.empty(nf, bool)
+    me.polygons.foreach_get('loop_start', ls)
+    me.polygons.foreach_get('loop_total', lt)
+    me.polygons.foreach_get('material_index', mi)
+    me.polygons.foreach_get('use_smooth', sm)
+    cv = np.empty(len(me.loops), np.int64)
+    me.loops.foreach_get('vertex_index', cv)
+    cvn = inv[cv]
+    faces = []
+    for f in range(nf):
+        vs = cvn[ls[f]: ls[f] + lt[f]].tolist()
+        k = vs.index(min(vs))
+        faces.append((int(mi[f]), vs[k:] + vs[:k], bool(sm[f])))
+    faces.sort(key=lambda t: (t[0], t[1]))
+    sharp = np.empty(len(me.edges), bool)
+    me.edges.foreach_get('use_edge_sharp', sharp)
+    en = np.sort(inv[ev], axis=1)
+    sharp_set = {(int(a), int(b)) for (a, b), s in zip(en.tolist(), sharp.tolist()) if s}
+    wn = obj.vertex_groups.get('WN')
+    members = []
+    if wn is not None:
+        gi = wn.index
+        members = [int(inv[v.index]) for v in me.vertices if any(g.group == gi for g in v.groups)]
+    me2 = bpy.data.meshes.new(me.name + '_c')
+    me2.from_pydata(co[order].tolist(), [], [f[1] for f in faces])
+    for m in me.materials:
+        me2.materials.append(m)
+    me2.polygons.foreach_set('material_index', [f[0] for f in faces])
+    me2.polygons.foreach_set('use_smooth', [f[2] for f in faces])
+    ev2 = np.empty(len(me2.edges) * 2, np.int64)
+    me2.edges.foreach_get('vertices', ev2)
+    ev2 = np.sort(ev2.reshape(-1, 2), axis=1)
+    me2.edges.foreach_set('use_edge_sharp', [(int(a), int(b)) in sharp_set for a, b in ev2.tolist()])
+    me2.update()
+    name = me.name
+    obj.data = me2
+    bpy.data.meshes.remove(me)
+    me2.name = name
+    if wn is not None and members:
+        wn.add(members, 1.0, 'REPLACE')
 
 
 def _mark_sharp(obj, angle_deg, smooth=True):
