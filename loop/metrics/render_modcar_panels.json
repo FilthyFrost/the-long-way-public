@@ -1,0 +1,65 @@
+{
+  "system": "render",
+  "id": "modcar_panels",
+  "metrics": {
+    "shots_total": 4,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 384,
+    "max_triangles": 1190510
+  },
+  "shots": {
+    "sedan_armour_doors": {
+      "ok": true,
+      "ms": 9630,
+      "errors": [],
+      "calls": 372,
+      "triangles": 1186546,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_armour_right": {
+      "ok": true,
+      "ms": 1277,
+      "errors": [],
+      "calls": 364,
+      "triangles": 1190510,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_armour": {
+      "ok": true,
+      "ms": 2403,
+      "errors": [],
+      "calls": 384,
+      "triangles": 1108277,
+      "programs": 37,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_fridge_close": {
+      "ok": true,
+      "ms": 1315,
+      "errors": [],
+      "calls": 332,
+      "triangles": 1026699,
+      "programs": 35,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

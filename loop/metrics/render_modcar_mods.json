@@ -1,0 +1,143 @@
+{
+  "system": "render",
+  "id": "modcar_mods",
+  "metrics": {
+    "shots_total": 10,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 430,
+    "max_triangles": 1331504
+  },
+  "shots": {
+    "sedan_v8_scoop": {
+      "ok": true,
+      "ms": 12026,
+      "errors": [],
+      "calls": 381,
+      "triangles": 1279940,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_v8_open": {
+      "ok": true,
+      "ms": 1471,
+      "errors": [],
+      "calls": 341,
+      "triangles": 1178230,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_toilet_cockpit": {
+      "ok": true,
+      "ms": 2318,
+      "errors": [],
+      "calls": 336,
+      "triangles": 1115906,
+      "programs": 35,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_tractor": {
+      "ok": true,
+      "ms": 1352,
+      "errors": [],
+      "calls": 372,
+      "triangles": 1194244,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_tractor_lock": {
+      "ok": true,
+      "ms": 1570,
+      "errors": [],
+      "calls": 407,
+      "triangles": 1331504,
+      "programs": 37,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_apoc": {
+      "ok": true,
+      "ms": 2351,
+      "errors": [],
+      "calls": 430,
+      "triangles": 1201620,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "moto_v8": {
+      "ok": true,
+      "ms": 2819,
+      "errors": [],
+      "calls": 326,
+      "triangles": 955883,
+      "programs": 32,
+      "kmh": 0.1,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "moto_mower": {
+      "ok": true,
+      "ms": 1464,
+      "errors": [],
+      "calls": 329,
+      "triangles": 893937,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_fridge_doors": {
+      "ok": true,
+      "ms": 1360,
+      "errors": [],
+      "calls": 345,
+      "triangles": 1238071,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_lightbar_night": {
+      "ok": true,
+      "ms": 1638,
+      "errors": [],
+      "calls": 396,
+      "triangles": 1246451,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}
