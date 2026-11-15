@@ -12,8 +12,13 @@
  *   &dirt=0.5 &rust=0.3 &wear=0.2           wear for the whole model
  *   &lights=1|2 &brake=1 &turn=L|R          lamps: low / high beam, brake lamps, indicator
  *   &ghost=1|empty|replace|blocked          draw the model as the install hologram
- *   &stage=studio|proving                   painted concrete floor (default) or the proving ground
+ *   &stage=studio|proving|world             painted concrete floor (default), the proving ground, or parked
+ *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
  *   &spin=1                                 turntable (live view)
+ *   &debug=ao|mat|normal                    the baked AO, a flat colour per material, the normals
+ *   &merge=1|2                              static parts merged into one mesh per material (2: plus a second,
+ *                                           repainted, dirty copy in the same meshes: per-vertex colour and wear)
+ *   &highlight=2|WHEEL_FL                   light up a part: its id in the merged meshes, or an object's name
  *   &fov=40 &quality=high &post=1 &shot=1   (shot = the harness drives simulate / render)
  *
  * Live: drag to orbit, wheel to zoom, L lamps, B brake, G ghost kinds, P paints, D dirt, R rust, T hour +1, space spin.
@@ -21,12 +26,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Environment } from '../env/environment';
-import { applyCarMaterials, applyGhost, type CarLook, type GhostKind } from '../render/carMaterials';
+import { applyCarMaterials, applyGhost, carEnvUniforms, carShadows, type CarLook, type GhostKind } from '../render/carMaterials';
+import { mergeCarParts, type MergePart } from '../render/carMerge';
 import { RenderCore, type Quality } from '../render/core';
 import { maskPreservingBlend } from '../render/materials';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS, globals } from '../render/shaderlib';
-import { castShadows } from '../render/shadow';
 import { ProvingGround } from '../scene/provingGround';
+import { WorldView } from '../scene/worldView';
+import { GroundSample } from '../../core/world/ground';
+import { BiomeBlend, SpineSample } from '../../core/world/spine';
+import { World } from '../../core/world/terrain';
 
 const DEG = Math.PI / 180;
 
@@ -47,13 +56,22 @@ export interface ViewerParams {
   brake: number;
   turn: '' | 'L' | 'R';
   ghost: GhostKind | null;
-  stage: 'studio' | 'proving';
+  stage: 'studio' | 'proving' | 'world';
+  /** world stage: distance along the road (m), first biome, biome length factor, lane (m right of the centre line) */
+  s: number;
+  biome: string;
+  chapter: number;
+  lane: number;
   spin: boolean;
   fov: number;
   quality: Quality;
   post: boolean;
   shot: boolean;
   seed: number;
+  /** 0 off, 1 AO, 2 materials, 3 normals */
+  debug: number;
+  merge: number;
+  highlight: string;
 }
 
 /** 'frames/sedan' → /models/modcar/frames/sedan.glb; absolute paths and URLs are taken as they are */
@@ -100,13 +118,20 @@ export function readViewerParams(search: string = window.location.search): Viewe
     brake: num('brake', 0),
     turn: turn === 'L' || turn === 'R' ? turn : '',
     ghost,
-    stage: get('stage') === 'proving' ? 'proving' : 'studio',
+    stage: get('stage') === 'proving' ? 'proving' : get('stage') === 'world' ? 'world' : 'studio',
+    s: num('s', 3180),
+    biome: get('biome') ?? 'plains',
+    chapter: num('chapter', 1),
+    lane: num('lane', 1.6),
     spin: flag('spin'),
     fov: num('fov', 40),
     quality: q === 'low' || q === 'med' ? q : 'high',
     post: flag('post', true),
     shot: flag('shot'),
     seed: num('seed', 20261113),
+    debug: ({ ao: 1, mat: 2, normal: 3 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
+    merge: num('merge', 0),
+    highlight: get('highlight') ?? '',
   };
 }
 
@@ -218,6 +243,11 @@ export class ModelViewer {
   readonly bounds = new THREE.Box3();
   private readonly proving: ProvingGround | null = null;
   private readonly stage: THREE.Mesh | null = null;
+  /** world stage: the country, and where on the road the model is parked */
+  readonly world: World | null = null;
+  private readonly worldView: WorldView | null = null;
+  private readonly parked = { x: 0, y: 0, z: 0, phi: 0 };
+  private readonly blend = new BiomeBlend();
   private contact: THREE.Mesh | null = null;
   private readonly tmp = new THREE.Vector3();
   private readonly beamFrom = new THREE.Vector3(1.9, 0.7, 0);
@@ -236,7 +266,20 @@ export class ModelViewer {
     this.brake = params.brake;
     this.turn = params.turn;
     if (params.stage === 'proving') this.proving = new ProvingGround(this.core);
-    else {
+    else if (params.stage === 'world') {
+      this.world = new World(params.seed, { chapterScale: params.chapter, startBiome: params.biome });
+      this.worldView = new WorldView(this.core, this.world, this.core.quality);
+      // parked in its lane, facing along the road (as Game.placeOnRoad)
+      const st = new SpineSample();
+      this.world.spine.at(params.s, st);
+      const x = st.x - Math.sin(st.phi) * params.lane;
+      const z = st.z + Math.cos(st.phi) * params.lane;
+      const gs = new GroundSample();
+      this.world.sample(x, z, gs);
+      Object.assign(this.parked, { x, y: gs.h, z, phi: st.phi });
+      this.core.maybeRebase(x, gs.h, z, 0);
+      this.world.spine.biomeAt(params.s, this.blend);
+    } else {
       const geo = new THREE.PlaneGeometry(6000, 6000, 1, 1);
       geo.rotateX(-Math.PI / 2);
       this.stage = new THREE.Mesh(geo, stageMaterial());
@@ -249,6 +292,10 @@ export class ModelViewer {
     this.env.clock.dayLength = 1e12;
     this.env.clock.setHour(params.time, 0);
     this.env.shotMode = params.shot;
+    // what the cars mirror below the horizon: the floor, or the road and the country beside it
+    carEnvUniforms.uCarDebug.value = params.debug;
+    if (this.world) carEnvUniforms.uCarGround.value.setRGB(0.2, 0.21, 0.19);
+    else carEnvUniforms.uCarGround.value.setRGB(0.31, 0.3, 0.285);
   }
 
   async load(url: string): Promise<void> {
@@ -272,12 +319,19 @@ export class ModelViewer {
       const b = m.geometry.boundingBox!.clone().applyMatrix4(m.matrixWorld);
       this.bounds.union(b);
     });
+    // a part is modelled round its mount point: stand anything that reaches below the floor on it
+    if (!this.bounds.isEmpty() && this.bounds.min.y < -0.01) {
+      model.position.y -= this.bounds.min.y;
+      model.updateMatrixWorld(true);
+      this.bounds.translate(new THREE.Vector3(0, -this.bounds.min.y, 0));
+    }
     // the head lamps: from the lamp mounts if the model has them, else the front of its box
     const hl = model.getObjectByName('M_headlight_L') ?? model.getObjectByName('M_headlight');
     if (hl) hl.getWorldPosition(this.beamFrom);
     else if (!this.bounds.isEmpty()) this.beamFrom.set(this.bounds.max.x, THREE.MathUtils.lerp(this.bounds.min.y, this.bounds.max.y, 0.45), 0);
     this.beamFrom.z = 0;
     const p = this.params;
+    if (p.merge > 0 && !this.ghost) this.mergeStatic(model);
     this.look = applyCarMaterials(model, {
       paint: hex(p.paint) ?? undefined,
       paint2: hex(p.paint2) ?? undefined,
@@ -286,7 +340,11 @@ export class ModelViewer {
       wear: p.wear,
     });
     if (this.ghost) applyGhost(model, this.ghost);
-    else castShadows(model, true);
+    else carShadows(model);
+    if (p.highlight && this.look) {
+      const id = Number(p.highlight);
+      this.look.setHighlight(Number.isFinite(id) ? id : (model.getObjectByName(p.highlight) ?? null));
+    }
     if (this.stage && !this.bounds.isEmpty()) {
       if (this.contact) this.carRoot.remove(this.contact);
       const size = this.bounds.getSize(this.tmp);
@@ -297,6 +355,29 @@ export class ModelViewer {
         this.carRoot.add(this.contact);
       }
     }
+  }
+
+  /**
+   * merge=1: every top-level object that does not move (not a wheel, a hinged panel, an empty) goes into one
+   * mesh per material, ids 1, 2, … in order; merge=2 adds a repainted, dirty copy beside it into the same meshes
+   */
+  private mergeStatic(model: THREE.Object3D): void {
+    const moves = (o: THREE.Object3D): boolean => /^(WHEEL_|P_|M_|STEER|NEEDLE)/.test(o.name) || !!o.userData.mover;
+    const statics = model.children.filter((o) => !moves(o));
+    const parts: MergePart[] = statics.map((object, i) => ({ object, id: i + 1 }));
+    if (this.params.merge > 1) {
+      const twin = new THREE.Group();
+      twin.position.set(0, 0, 2.4);
+      for (const o of model.children) if (!/^M_/.test(o.name)) twin.add(o.clone());
+      model.add(twin);
+      twin.updateMatrixWorld(true);
+      twin.children.forEach((object, i) => parts.push({ object, id: 100 + i, paint: 0x2f5f8a, paint2: 0xd9a441, dirt: 0.65, rust: 0.25 }));
+    }
+    const merged = mergeCarParts(parts, model, { paint: hex(this.params.paint) ?? undefined, paint2: hex(this.params.paint2) ?? undefined });
+    for (const p of parts) p.object.parent?.remove(p.object);
+    for (const c of [...model.children]) if (c.children.length === 0 && !(c as THREE.Mesh).isMesh && !/^M_/.test(c.name)) model.remove(c);
+    model.add(merged);
+    model.updateMatrixWorld(true);
   }
 
   /** advance the viewer's time (ghost breathing, indicators, turntable) */
@@ -317,13 +398,16 @@ export class ModelViewer {
     const core = this.core;
     const env = this.env;
     const cam = core.camera;
-    env.update(dt, this.time, 0, 0, 0, null, 0, 0, 0);
-    // turn the model so the sun stands at `sun` degrees from its nose
+    const bl = this.blend;
+    env.update(dt, this.time, bl.a, bl.b, bl.t, this.world, 0, 0, 0);
+    // on the road: parked along it; elsewhere turned so the sun stands at `sun` degrees from its nose
     const s = globals.uSunDir.value;
     const az = Math.atan2(s.z, s.x);
-    const psi = az - this.params.sun * DEG + this.spinAngle;
+    const psi = (this.world ? this.parked.phi : az - this.params.sun * DEG) + this.spinAngle;
+    if (this.world) core.place(this.carRoot, this.parked.x, this.parked.y, this.parked.z);
     this.carRoot.rotation.y = -psi;
     this.carRoot.updateMatrixWorld(true);
+    this.look?.setCarFrame(this.carRoot.matrixWorld);
     // the orbit camera, as the game's: yaw 0 in front of the model, + round to its right
     const fwd = this.tmp.set(Math.cos(psi), 0, Math.sin(psi));
     const rx = -fwd.z;
@@ -332,15 +416,18 @@ export class ModelViewer {
     const ch = Math.cos(ob.pitch);
     const dx = (fwd.x * Math.cos(ob.yaw) + rx * Math.sin(ob.yaw)) * ch;
     const dz = (fwd.z * Math.cos(ob.yaw) + rz * Math.sin(ob.yaw)) * ch;
-    const at = this.target ? this.carRoot.localToWorld(this.target.clone()) : new THREE.Vector3(0, ob.target, 0);
+    const at = this.target ? this.carRoot.localToWorld(this.target.clone()) : this.carRoot.position.clone().add(new THREE.Vector3(0, ob.target, 0));
     cam.position.set(at.x + dx * ob.dist, at.y + Math.sin(ob.pitch) * ob.dist, at.z + dz * ob.dist);
     cam.up.set(0, 1, 0);
     cam.lookAt(at);
     cam.updateMatrixWorld(true);
-    env.camX = cam.position.x;
-    env.camZ = cam.position.z;
+    const o = core.origin;
+    env.camX = cam.position.x + o.x;
+    env.camZ = cam.position.z + o.z;
     this.proving?.update(cam.position.x, cam.position.z);
-    core.shadowFocus.set(0, Math.max(0.5, this.bounds.isEmpty() ? 0.7 : (this.bounds.min.y + this.bounds.max.y) / 2), 0);
+    this.worldView?.update(env.camX, env.camZ, this.params.shot || dt === 0 ? Infinity : 3.5);
+    core.shadowFocus.copy(this.carRoot.position);
+    core.shadowFocus.y += Math.max(0.5, this.bounds.isEmpty() ? 0.7 : (this.bounds.min.y + this.bounds.max.y) / 2);
     // lamps: the model's own, and the beam on the floor in front of it
     const blink = Math.floor(this.time / 0.38) % 2 === 0;
     this.look?.setLights({ head: this.lights, tail: this.lights > 0, brake: this.brake, turnLeft: this.turn === 'L' && blink, turnRight: this.turn === 'R' && blink });
