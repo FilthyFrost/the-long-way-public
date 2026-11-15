@@ -96,6 +96,7 @@ MATS = {
     'cloth': (0.75, 0.7, 0.6),
     'fire': (1.0, 0.5, 0.2),
     'lamp_out': (1.0, 0.92, 0.75),
+    'shade_in': (0.95, 0.93, 0.88),
 }
 
 
@@ -124,12 +125,12 @@ LOOK = {
     'cloth': (0xc8bea8, 'prop2'),
     # (lit from within: their own meshes, the game switches them)
     'bulb': (0xfff1d6, 'bulb'), 'led': (0x6a4a20, 'led'), 'dial': (0x8a7a5a, 'dial'),
-    'fire': (0x5a2a14, 'fire'), 'lamp_out': (0xfff1d6, 'lamp_out'),
+    'fire': (0x5a2a14, 'fire'), 'lamp_out': (0xfff1d6, 'lamp_out'), 'shade_in': (0xf3efe4, 'shade_in'),
 }
 
 
 # what light passes through (or that only glows): never in the shadow caster
-NO_CAST = {'win_glass', 'glass', 'skylight', 'bulb', 'led', 'dial', 'water', 'leaf', 'leaf_dark', 'fire', 'lamp_out'}
+NO_CAST = {'win_glass', 'glass', 'skylight', 'bulb', 'led', 'dial', 'water', 'leaf', 'leaf_dark', 'fire', 'lamp_out', 'shade_in'}
 
 
 def srgb_to_linear(hex_rgb):

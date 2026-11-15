@@ -113,11 +113,13 @@ class Boxes implements SolidSource {
 const text = (zh: string, en: string): Text => ({ zh, en });
 const LAMP_ON = { r: 1.0, g: 1.0, b: 1.0 };
 /** how strongly the pendants light the room (linear radiance × this at a metre, roughly) */
-const LAMP_POWER = 3.6;
+const LAMP_POWER = 5.0;
+/** × each lamp's reach: a pool under each, the dark between them */
+const LAMP_REACH = 0.85;
 /** the wide shadow map's reach over the workshop (m round the room's middle): 2 cm texels */
 const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
-const BEAM_DENSITY = 0.085;
+const BEAM_DENSITY = 0.1;
 /** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
 const STOVE_POWER = 1.15;
 const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
@@ -592,7 +594,8 @@ class Garage implements GarageScene {
     // (what bounces in a room of wood comes back warm: the cool is in the light straight from the openings)
     const ks = skyLum * 0.11;
     const kw = sunIn * 0.032;
-    const kl = lamp * 0.03;
+    // (at night the room is the lamps' pools and the dark between them: little of their light comes back)
+    const kl = lamp * 0.012;
     g.uRoomAmb.value.setRGB(ks * 1.12 + kw * 1.15 + kl * 1.2, ks * 0.98 + kw * 0.95 + kl * 0.9, ks * 0.8 + kw * 0.7 + kl * 0.58);
     // the lamps
     const lamps = LAYOUT.lamps;
@@ -603,12 +606,14 @@ class Garage implements GarageScene {
         g.uRoomLampP.value[slot++].w = 0;
         continue;
       }
-      g.uRoomLampP.value[slot].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach);
+      g.uRoomLampP.value[slot].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach * LAMP_REACH);
       const p = LAMP_POWER * lamp;
       g.uRoomLampC.value[slot++].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
     }
     for (; slot < ROOM_LAMPS - 2; slot++) g.uRoomLampP.value[slot].w = 0;
-    this.look.setGlow('bulb', 7 * lamp, 5.2 * lamp, 3.2 * lamp);
+    this.look.setGlow('bulb', 3.0 * lamp, 2.2 * lamp, 1.3 * lamp);
+    // (the inside of each shade glows cream with its bulb: it is not lit by it, that would burn it white)
+    this.look.setGlow('shade_in', 0.36 * lamp, 0.29 * lamp, 0.19 * lamp);
     // the stove: its fire flickers in the window of its door and on the floor before it
     const st = LAYOUT.stove;
     const t = this.time;
@@ -670,7 +675,7 @@ class Garage implements GarageScene {
     // (and at night, used to the lamps, it sees the moonlit country outside as the dark it is)
     const sky = globals.uSkyColor.value;
     const day = smooth(0.08, 0.3, (sky.r + sky.g + sky.b) / 3);
-    return 1 + k * (0.6 * day - 0.36 * (1 - day));
+    return 1 + k * (0.6 * day - 0.5 * (1 - day));
   }
 
   shadowFocus(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void {

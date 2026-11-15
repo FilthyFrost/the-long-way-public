@@ -35,6 +35,7 @@ const GROUPS: Record<string, GroupLook> = {
   dial: { glow: true, ink: true },
   fire: { glow: true },
   lamp_out: { glow: true },
+  shade_in: { glow: true, ink: true },
 };
 
 /** the glass, as before: its own meshes (sRGB tint, opacity) */
@@ -45,8 +46,26 @@ const GLASS: Record<string, [number, number]> = {
 };
 
 /** the glowing bits that are switched (lamps, the charger's lamp, the radio's dial, the stove's fire, the lamp over the doors) */
-export type GlowName = 'bulb' | 'led' | 'dial' | 'fire' | 'lamp_out';
-const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out'];
+export type GlowName = 'bulb' | 'led' | 'dial' | 'fire' | 'lamp_out' | 'shade_in';
+const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out', 'shade_in'];
+
+/**
+ * The sun indoors: its patches warmer than the sky's light round them (the room's cool is in that light),
+ * and softer at the edge — the sun is no point, and the window a metre or two up — four taps of the usual
+ * filter spread across the sun's plane. Outside the room, the usual shadow and the sun's own colour.
+ */
+const GLSL_GARAGE_SUN = /* glsl */ `
+  const vec3 GARAGE_WARM = vec3(0.92, 0.77, 0.59);
+  float garageSun(vec3 pos, vec3 n, out vec3 sunCol) {
+    float inside = rtInRoom(pos);
+    sunCol = uSunColor * mix(vec3(1.0), GARAGE_WARM, inside);
+    if (inside < 0.5) return rtShadow(pos, n);
+    vec3 t1 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
+    vec3 t2 = cross(uSunDir, t1);
+    const float r = 0.03;
+    float s = rtShadowMap(pos + (t1 + t2) * r, n) + rtShadowMap(pos + (t1 - t2) * r, n) + rtShadowMap(pos - (t1 + t2) * r, n) + rtShadowMap(pos - (t1 - t2) * r, n);
+    return s * 0.25 * rtCloudShade(pos);
+  }`;
 
 const VERTEX = /* glsl */ `
   ${GLSL_VERTEX_PARS}
@@ -82,6 +101,7 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${GLSL_FRAGMENT_PARS}
       ${GLSL_COMMON}
+      ${GLSL_GARAGE_SUN}
       uniform float uBrush;
       uniform float uSpec;
       uniform vec3 uEmissive;
@@ -107,7 +127,8 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
           albedo *= 1.0 + uBrush * marks * 0.55;
         }
         #endif
-        float sh = rtShadow(vPos, n);
+        vec3 sunC;
+        float sh = garageSun(vPos, n, sunC);
         // the sky's light is what AO takes most of; a crevice still keeps a little of the sun and lamps
         float ndl = dot(n, uSunDir);
         float lit = smoothstep(-0.02, 0.08, ndl) * sh;
@@ -115,12 +136,12 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
         float aoSky = mix(0.3, 1.0, ao);
         float aoKey = mix(0.55, 1.0, smoothstep(0.1, 0.6, ao));
         vec3 lamps = rtRoomLamps(vPos, n);
-        vec3 col = albedo * (rtSkyLight(n, vPos) * aoSky + (uSunColor * (0.3 * lit + 0.1 * full) + lamps) * aoKey);
+        vec3 col = albedo * (rtSkyLight(n, vPos) * aoSky + (sunC * (0.3 * lit + 0.1 * full) + lamps) * aoKey);
         vec3 v = normalize(cameraPosition - vPos);
         if (uSpec > 0.0) {
           // the sun's sheen, and for shiny things a glint of each lamp
           vec3 hv = normalize(v + uSunDir);
-          col += uSunColor * uSpec * 0.6 * smoothstep(0.88, 0.97, dot(n, hv)) * step(0.0, ndl) * sh * aoKey;
+          col += sunC * uSpec * 0.6 * smoothstep(0.88, 0.97, dot(n, hv)) * step(0.0, ndl) * sh * aoKey;
           if (uSpec > 0.5 && uRoomMin.w > 0.5) {
             for (int i = 0; i < ${ROOM_LAMPS}; i++) {
               vec4 lp = uRoomLampP[i];
@@ -151,7 +172,7 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
  * The workshop floor: an old concrete slab, painted rather than photographed — two greys drifting
  * warm and cool, saw-cut joints, the dark oil stains of years of cars standing in the same place, the
  * worn tracks out to the door, dust gathered along the walls (the baked AO says where), brushwork.
- * Lit as everything indoors is (rtCelAt).
+ * Lit as everything indoors is (rtCelAt), with the garage's warmer, softer sun.
  */
 export function garageFloorMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -160,6 +181,7 @@ export function garageFloorMaterial(): THREE.ShaderMaterial {
     fragmentShader: /* glsl */ `
       ${GLSL_FRAGMENT_PARS}
       ${GLSL_COMMON}
+      ${GLSL_GARAGE_SUN}
       varying vec4 vTintAO;
       float stain(vec2 w, vec2 c, vec2 r, float rag) {
         vec2 d = (w - c) / r;
@@ -199,11 +221,15 @@ export function garageFloorMaterial(): THREE.ShaderMaterial {
         float ao = clamp(vTintAO.a, 0.0, 1.0);
         albedo = mix(albedo, vec3(0.34, 0.3, 0.25), (1.0 - smoothstep(0.55, 0.95, ao)) * 0.45);
         albedo *= mix(0.55, 1.0, ao);
-        float sh = rtShadow(vPos, n);
-        vec3 col = rtCelAt(albedo, n, sh, vPos);
+        vec3 sunC;
+        float sh = garageSun(vPos, n, sunC);
+        float ndl = dot(n, uSunDir);
+        float lit = smoothstep(-0.02, 0.08, ndl) * sh;
+        float full = smoothstep(0.42, 0.52, ndl) * sh;
+        vec3 col = albedo * (rtSkyLight(n, vPos) + sunC * (0.3 * lit + 0.1 * full) + rtRoomLamps(vPos, n));
         // a faint sheen where the sun falls on the worn tracks and the damp
         vec3 v = normalize(cameraPosition - vPos);
-        col += uSunColor * (0.05 * tracks + 0.08 * damp) * pow(max(dot(reflect(-uSunDir, n), v), 0.0), 8.0) * sh;
+        col += sunC * (0.05 * tracks + 0.08 * damp) * pow(max(dot(reflect(-uSunDir, n), v), 0.0), 8.0) * sh;
         col += rtHeadlight(albedo, n, vPos);
         col = rtFog(col, vPos, cameraPosition);
         gl_FragColor = vec4(col, 1.0);
