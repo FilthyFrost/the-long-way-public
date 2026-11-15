@@ -417,6 +417,27 @@ def bm_pleats(bm, width, length, n, height, matrix=None, seg=4, fall=0.18, base=
     return faces
 
 
+def bm_loft(bm, rings, cap_start=False, cap_end=False, closed=True):
+    """Connect consecutive rings of 3D points (all the same length) with quads; optional ngon caps."""
+    vr = [[bm.verts.new(p) for p in ring] for ring in rings]
+    m = len(vr[0])
+    faces = []
+    for a, b in zip(vr[:-1], vr[1:]):
+        for j in range(m if closed else m - 1):
+            j2 = (j + 1) % m
+            faces.append(bm.faces.new((a[j], a[j2], b[j2], b[j])))
+    if cap_start:
+        faces.append(bm.faces.new(list(reversed(vr[0]))))
+    if cap_end:
+        faces.append(bm.faces.new(vr[-1]))
+    return vr, faces
+
+
+def section_x(pts2d, x, scale=1.0, dy=0.0, dz=0.0):
+    """A 2D section (y, z) placed in the plane X = x."""
+    return [(x, y * scale + dy, z * scale + dz) for (y, z) in pts2d]
+
+
 def bm_transform(bm, matrix, verts=None):
     bmesh.ops.transform(bm, matrix=matrix, verts=list(verts) if verts is not None else bm.verts[:])
 
@@ -518,6 +539,15 @@ class Part:
         bm = bm_new()
         bm_prism(bm, poly, depth, matrix=matrix if matrix is not None else mat4(loc, rot), center=center)
         return self._obj(name, bm, material, bev=bev, segs=segs, **kw)
+
+    def loft(self, name, rings, material='steel', cap_start=False, cap_end=False, closed=True, sharp=40.0,
+             recalc=False, **kw):
+        """A surface through rings of 3D points (see bm_loft)."""
+        bm = bm_new()
+        vr, faces = bm_loft(bm, rings, cap_start=cap_start, cap_end=cap_end, closed=closed)
+        if recalc:
+            bmesh.ops.recalc_face_normals(bm, faces=faces)
+        return self._obj(name, bm, material, sharp=sharp, **kw)
 
     def pleats(self, name, width, length, n, height, loc=(0, 0, 0), rot=(0, 0, 0), material='fabric', sharp=38.0,
                **kw):
