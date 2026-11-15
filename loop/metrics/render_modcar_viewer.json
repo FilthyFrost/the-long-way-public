@@ -11,7 +11,7 @@
   "shots": {
     "front34": {
       "ok": true,
-      "ms": 6983,
+      "ms": 5207,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -25,7 +25,7 @@
     },
     "rear34": {
       "ok": true,
-      "ms": 1746,
+      "ms": 1407,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -39,7 +39,7 @@
     },
     "side": {
       "ok": true,
-      "ms": 1088,
+      "ms": 936,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -53,7 +53,7 @@
     },
     "top34": {
       "ok": true,
-      "ms": 776,
+      "ms": 722,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -67,7 +67,7 @@
     },
     "front": {
       "ok": true,
-      "ms": 747,
+      "ms": 683,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -81,7 +81,7 @@
     },
     "low34": {
       "ok": true,
-      "ms": 766,
+      "ms": 714,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -95,7 +95,7 @@
     },
     "paint_bands": {
       "ok": true,
-      "ms": 777,
+      "ms": 705,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -109,7 +109,7 @@
     },
     "hood_close": {
       "ok": true,
-      "ms": 795,
+      "ms": 703,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -123,7 +123,7 @@
     },
     "chrome_close": {
       "ok": true,
-      "ms": 756,
+      "ms": 788,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -137,7 +137,7 @@
     },
     "glass_close": {
       "ok": true,
-      "ms": 769,
+      "ms": 708,
       "errors": [],
       "calls": 116,
       "triangles": 244348,
@@ -151,7 +151,7 @@
     },
     "wheel_close": {
       "ok": true,
-      "ms": 782,
+      "ms": 727,
       "errors": [],
       "calls": 112,
       "triangles": 238824,
@@ -165,7 +165,7 @@
     },
     "interior": {
       "ok": true,
-      "ms": 756,
+      "ms": 766,
       "errors": [],
       "calls": 114,
       "triangles": 242112,
@@ -179,7 +179,7 @@
     },
     "lamps_day": {
       "ok": true,
-      "ms": 787,
+      "ms": 739,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -193,7 +193,7 @@
     },
     "lamps_night_off": {
       "ok": true,
-      "ms": 847,
+      "ms": 723,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -207,7 +207,7 @@
     },
     "lamps_night_on": {
       "ok": true,
-      "ms": 849,
+      "ms": 698,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -221,7 +221,7 @@
     },
     "night_front34": {
       "ok": true,
-      "ms": 802,
+      "ms": 743,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -235,7 +235,7 @@
     },
     "night_rear_brake": {
       "ok": true,
-      "ms": 818,
+      "ms": 745,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -249,7 +249,7 @@
     },
     "dusk34": {
       "ok": true,
-      "ms": 845,
+      "ms": 716,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -263,7 +263,7 @@
     },
     "overcast34": {
       "ok": true,
-      "ms": 821,
+      "ms": 744,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -277,7 +277,7 @@
     },
     "dirt0": {
       "ok": true,
-      "ms": 797,
+      "ms": 785,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -291,7 +291,7 @@
     },
     "dirt50": {
       "ok": true,
-      "ms": 788,
+      "ms": 797,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -305,7 +305,7 @@
     },
     "dirt100": {
       "ok": true,
-      "ms": 778,
+      "ms": 753,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -319,7 +319,7 @@
     },
     "rust50": {
       "ok": true,
-      "ms": 828,
+      "ms": 696,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -333,7 +333,7 @@
     },
     "rust100": {
       "ok": true,
-      "ms": 804,
+      "ms": 741,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -347,7 +347,7 @@
     },
     "paint_blue": {
       "ok": true,
-      "ms": 778,
+      "ms": 773,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -361,7 +361,7 @@
     },
     "paint_yellow": {
       "ok": true,
-      "ms": 819,
+      "ms": 766,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -375,7 +375,7 @@
     },
     "paint_white": {
       "ok": true,
-      "ms": 769,
+      "ms": 796,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -389,7 +389,7 @@
     },
     "ghost_empty": {
       "ok": true,
-      "ms": 751,
+      "ms": 665,
       "errors": [],
       "calls": 89,
       "triangles": 170933,
@@ -403,7 +403,7 @@
     },
     "ghost_replace": {
       "ok": true,
-      "ms": 774,
+      "ms": 664,
       "errors": [],
       "calls": 126,
       "triangles": 256142,
@@ -417,7 +417,7 @@
     },
     "ghost_blocked": {
       "ok": true,
-      "ms": 719,
+      "ms": 666,
       "errors": [],
       "calls": 89,
       "triangles": 170933,
@@ -431,7 +431,7 @@
     },
     "proving34": {
       "ok": true,
-      "ms": 1054,
+      "ms": 983,
       "errors": [],
       "calls": 118,
       "triangles": 248558,
@@ -445,7 +445,7 @@
     },
     "world_front34": {
       "ok": true,
-      "ms": 3088,
+      "ms": 2738,
       "errors": [],
       "calls": 284,
       "triangles": 1149600,
@@ -459,7 +459,7 @@
     },
     "world_rear34": {
       "ok": true,
-      "ms": 1372,
+      "ms": 1262,
       "errors": [],
       "calls": 293,
       "triangles": 947636,
@@ -473,7 +473,7 @@
     },
     "world_dusk": {
       "ok": true,
-      "ms": 1390,
+      "ms": 1234,
       "errors": [],
       "calls": 288,
       "triangles": 1150362,
@@ -487,7 +487,7 @@
     },
     "world_night": {
       "ok": true,
-      "ms": 1301,
+      "ms": 1514,
       "errors": [],
       "calls": 293,
       "triangles": 1178528,
@@ -501,7 +501,7 @@
     },
     "debug_mat": {
       "ok": true,
-      "ms": 748,
+      "ms": 931,
       "errors": [],
       "calls": 116,
       "triangles": 244348,
@@ -515,7 +515,7 @@
     },
     "debug_ao": {
       "ok": true,
-      "ms": 741,
+      "ms": 731,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -529,7 +529,7 @@
     },
     "debug_cowl": {
       "ok": true,
-      "ms": 770,
+      "ms": 734,
       "errors": [],
       "calls": 113,
       "triangles": 241084,
@@ -543,7 +543,7 @@
     },
     "cowl": {
       "ok": true,
-      "ms": 797,
+      "ms": 711,
       "errors": [],
       "calls": 113,
       "triangles": 241084,
@@ -557,7 +557,7 @@
     },
     "part_wheel": {
       "ok": true,
-      "ms": 2099,
+      "ms": 1612,
       "errors": [],
       "calls": 25,
       "triangles": 13945,
@@ -571,7 +571,7 @@
     },
     "ghost_wheel": {
       "ok": true,
-      "ms": 632,
+      "ms": 607,
       "errors": [],
       "calls": 21,
       "triangles": 9467,
@@ -585,7 +585,7 @@
     },
     "ghost_wheel_replace": {
       "ok": true,
-      "ms": 627,
+      "ms": 641,
       "errors": [],
       "calls": 24,
       "triangles": 13943,
@@ -599,7 +599,7 @@
     },
     "ghost_wheel_blocked": {
       "ok": true,
-      "ms": 642,
+      "ms": 622,
       "errors": [],
       "calls": 21,
       "triangles": 9467,
@@ -613,7 +613,7 @@
     },
     "merged": {
       "ok": true,
-      "ms": 5255,
+      "ms": 5021,
       "errors": [],
       "calls": 102,
       "triangles": 244544,
@@ -627,7 +627,7 @@
     },
     "merged_twin": {
       "ok": true,
-      "ms": 835,
+      "ms": 880,
       "errors": [],
       "calls": 102,
       "triangles": 488571,
@@ -641,7 +641,7 @@
     },
     "highlight_part": {
       "ok": true,
-      "ms": 827,
+      "ms": 867,
       "errors": [],
       "calls": 101,
       "triangles": 244348,
@@ -655,7 +655,7 @@
     },
     "highlight_wheel": {
       "ok": true,
-      "ms": 771,
+      "ms": 798,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -683,7 +683,7 @@
     },
     "debug_env34": {
       "ok": true,
-      "ms": 779,
+      "ms": 769,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -697,7 +697,7 @@
     },
     "night_rear_turnL": {
       "ok": true,
-      "ms": 773,
+      "ms": 815,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -711,7 +711,7 @@
     },
     "night_rear_reverse": {
       "ok": true,
-      "ms": 770,
+      "ms": 850,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -725,7 +725,7 @@
     },
     "cockpit": {
       "ok": true,
-      "ms": 737,
+      "ms": 899,
       "errors": [],
       "calls": 107,
       "triangles": 233056,
@@ -739,7 +739,7 @@
     },
     "cockpit_night": {
       "ok": true,
-      "ms": 729,
+      "ms": 814,
       "errors": [],
       "calls": 107,
       "triangles": 233056,
@@ -753,7 +753,7 @@
     },
     "seats_close": {
       "ok": true,
-      "ms": 769,
+      "ms": 893,
       "errors": [],
       "calls": 109,
       "triangles": 234348,
@@ -767,7 +767,7 @@
     },
     "dash_close": {
       "ok": true,
-      "ms": 776,
+      "ms": 843,
       "errors": [],
       "calls": 107,
       "triangles": 233056,
@@ -781,7 +781,7 @@
     },
     "gauges": {
       "ok": true,
-      "ms": 705,
+      "ms": 808,
       "errors": [],
       "calls": 106,
       "triangles": 232860,
@@ -795,7 +795,7 @@
     },
     "gauges_night": {
       "ok": true,
-      "ms": 692,
+      "ms": 752,
       "errors": [],
       "calls": 106,
       "triangles": 232860,
@@ -809,7 +809,7 @@
     },
     "world_fog": {
       "ok": true,
-      "ms": 1292,
+      "ms": 1395,
       "errors": [],
       "calls": 286,
       "triangles": 1164598,
@@ -823,7 +823,7 @@
     },
     "world_far": {
       "ok": true,
-      "ms": 1235,
+      "ms": 1401,
       "errors": [],
       "calls": 285,
       "triangles": 1129937,
@@ -837,7 +837,7 @@
     },
     "world_morning": {
       "ok": true,
-      "ms": 1261,
+      "ms": 1342,
       "errors": [],
       "calls": 289,
       "triangles": 1157766,
@@ -851,7 +851,7 @@
     },
     "world_overcast": {
       "ok": true,
-      "ms": 1295,
+      "ms": 1354,
       "errors": [],
       "calls": 284,
       "triangles": 1149600,
@@ -865,7 +865,7 @@
     },
     "world_rain": {
       "ok": true,
-      "ms": 1368,
+      "ms": 1366,
       "errors": [],
       "calls": 287,
       "triangles": 1164840,
@@ -879,7 +879,7 @@
     },
     "wear100": {
       "ok": true,
-      "ms": 747,
+      "ms": 782,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -893,7 +893,7 @@
     },
     "rim_close": {
       "ok": true,
-      "ms": 753,
+      "ms": 784,
       "errors": [],
       "calls": 111,
       "triangles": 238372,
@@ -907,7 +907,7 @@
     },
     "ghost_on_empty": {
       "ok": true,
-      "ms": 748,
+      "ms": 846,
       "errors": [],
       "calls": 122,
       "triangles": 253300,
@@ -921,7 +921,7 @@
     },
     "ghost_on_replace": {
       "ok": true,
-      "ms": 737,
+      "ms": 862,
       "errors": [],
       "calls": 125,
       "triangles": 257776,
@@ -935,7 +935,7 @@
     },
     "ghost_on_replace_focus": {
       "ok": true,
-      "ms": 813,
+      "ms": 862,
       "errors": [],
       "calls": 125,
       "triangles": 257776,
@@ -949,7 +949,7 @@
     },
     "ghost_on_empty_focus": {
       "ok": true,
-      "ms": 818,
+      "ms": 827,
       "errors": [],
       "calls": 125,
       "triangles": 257776,
@@ -963,7 +963,7 @@
     },
     "merged_repaint": {
       "ok": true,
-      "ms": 841,
+      "ms": 916,
       "errors": [],
       "calls": 102,
       "triangles": 244544,
@@ -977,7 +977,7 @@
     },
     "backlit34": {
       "ok": true,
-      "ms": 759,
+      "ms": 785,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -991,7 +991,7 @@
     },
     "backlit_side": {
       "ok": true,
-      "ms": 827,
+      "ms": 811,
       "errors": [],
       "calls": 117,
       "triangles": 244544,
@@ -1005,7 +1005,7 @@
     },
     "world_backlit": {
       "ok": true,
-      "ms": 1363,
+      "ms": 1380,
       "errors": [],
       "calls": 288,
       "triangles": 1145138,
@@ -1019,7 +1019,7 @@
     },
     "rain34": {
       "ok": true,
-      "ms": 841,
+      "ms": 813,
       "errors": [],
       "calls": 120,
       "triangles": 259784,
@@ -1033,7 +1033,7 @@
     },
     "rain_hood": {
       "ok": true,
-      "ms": 794,
+      "ms": 833,
       "errors": [],
       "calls": 120,
       "triangles": 259784,
@@ -1047,7 +1047,7 @@
     },
     "rain_glass": {
       "ok": true,
-      "ms": 788,
+      "ms": 752,
       "errors": [],
       "calls": 119,
       "triangles": 259588,
@@ -1061,7 +1061,7 @@
     },
     "snow34": {
       "ok": true,
-      "ms": 839,
+      "ms": 780,
       "errors": [],
       "calls": 118,
       "triangles": 256544,
@@ -1075,7 +1075,7 @@
     },
     "sedan_front34": {
       "ok": true,
-      "ms": 1283,
+      "ms": 1316,
       "errors": [],
       "calls": 195,
       "triangles": 235897,
@@ -1089,7 +1089,7 @@
     },
     "sedan_rear34": {
       "ok": true,
-      "ms": 771,
+      "ms": 761,
       "errors": [],
       "calls": 195,
       "triangles": 235897,
@@ -1103,7 +1103,7 @@
     },
     "sedan_side": {
       "ok": true,
-      "ms": 760,
+      "ms": 785,
       "errors": [],
       "calls": 195,
       "triangles": 235897,
@@ -1117,7 +1117,7 @@
     },
     "sedan_world34": {
       "ok": true,
-      "ms": 1209,
+      "ms": 1336,
       "errors": [],
       "calls": 362,
       "triangles": 1140953,
