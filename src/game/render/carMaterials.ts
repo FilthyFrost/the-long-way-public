@@ -1264,7 +1264,8 @@ export function ghostMaterial(kind: GhostKind, focused = false, xray = false): T
   const color = kind === 'blocked' ? new THREE.Color(1.0, 0.3, 0.1) : new THREE.Color(0.32, 0.85, 1.0);
   const dim = kind === 'replace' && !focused;
   const look = dim ? new THREE.Vector4(0.05, 1.0, 0.5, 1.0) : new THREE.Vector4(0.12, 1.7, 1.0, kind === 'replace' ? 1.25 : focused ? 1.6 : 1.0);
-  if (xray) look.w *= 0.5;
+  // (what of a ghost is hidden is only hinted: a quarter as bright, or the far side of a car floats on its bonnet)
+  if (xray) look.w *= 0.25;
   m = new THREE.ShaderMaterial({
     uniforms: {
       ...globals,
@@ -1312,7 +1313,9 @@ export function ghostMaterial(kind: GhostKind, focused = false, xray = false): T
     depthWrite: false,
     depthFunc: xray ? THREE.GreaterDepth : THREE.LessEqualDepth,
     blending: THREE.CustomBlending,
-    blendEquation: THREE.AddEquation,
+    // (what is hidden is not added up layer on layer — a wheel seen through a car is a dozen surfaces deep —
+    // but laid on as the brighter of it and what hides it: at most a quarter of the ghost, never a stack)
+    blendEquation: xray ? THREE.MaxEquation : THREE.AddEquation,
     blendSrc: THREE.OneFactor,
     blendDst: THREE.OneFactor,
     // alpha keeps the smaller of what is there and 0.5: the paint finish leaves the hologram alone, and
@@ -1331,9 +1334,9 @@ let ghostDepth: THREE.Material | null = null;
 /**
  * Draw a whole model as a ghost of the given kind, out of the shadow maps. Each mesh gets a depth-only twin
  * drawn just before it, so the hologram is one skin (the surface nearest the eye), not every layer of the
- * part added up to white; and, when `xray` (default: focused or 'replace'), a third twin that draws what of
- * the ghost is hidden at half strength — a replacement sits inside the part it would replace, and the ghost
- * under the mark must always read. Two or three draw calls per mesh; ghosts are few. Calling it again on
+ * part added up to white; and, when `xray` (default: focused or 'replace'), a third twin that hints what of
+ * the ghost is hidden — a quarter as bright, never stacked — for a replacement sits inside the part it
+ * would replace, and the ghost under the mark must always read. Two or three draw calls per mesh; ghosts are few. Calling it again on
  * the same model switches kind and state.
  */
 export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = false, xray = focused || kind === 'replace'): void {
