@@ -33,7 +33,7 @@ const BUILDING: Record<string, Look> = {
   siding: { color: 0x9b3d2e, brush: 0.75 },
   g_trim: { color: 0xe8dec6, brush: 0.4 },
   tin_out: { color: 0x6a6d70, brush: 0.55, spec: 0.25, double: true },
-  tin_in: { color: 0xa3a7aa, brush: 0.35, double: true },
+  tin_in: { color: 0xb9bcbc, brush: 0.5, double: true },
   plaster: { color: 0xe2d8c0, brush: 0.7 },
   apron: { color: 0xa6a298, brush: 0.7 },
   skylight: { color: 0xeef0dc, glass: 0.55 },
@@ -79,6 +79,11 @@ const PROPS: Record<string, Look> = {
   water: { color: 0x4a6a70, spec: 0.8 },
   pegboard: { color: 0xbc9a6c },
   glass: { color: 0xbfd6dc, glass: 0.22 },
+  // white paint wearing per-object tints in its vertex colours (cans, labels, posters): many colours, one draw
+  tinted: { color: 0xf4f1ea, spec: 0.35 },
+  tinted_matte: { color: 0xf4f1ea, spec: 0.0 },
+  galv: { color: 0xb2b7b8, spec: 0.45 },
+  cloth: { color: 0xc8bea8, double: true },
 };
 
 /** the glowing bits that are switched (lamps, the charger's lamp, the radio's dial) */

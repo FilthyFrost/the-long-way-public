@@ -301,7 +301,8 @@ float rtOpeningLight(vec3 p, vec3 n, vec3 A, vec3 U, vec3 V) {
 }
 // The sky's light inside the room: what each opening lets in, and what the room gives back.
 vec3 rtRoomSky(vec3 p, vec3 n) {
-  vec3 c = uRoomAmb * (0.8 + 0.2 * n.y);
+  // (the floor, with the sun's patches on it, is what bounces most: undersides get a little more)
+  vec3 c = uRoomAmb * (1.0 - 0.18 * n.y);
   for (int i = 0; i < ${ROOM_OPENINGS}; i++) {
     vec3 L = uRoomOpenL[i];
     if (L.r + L.g + L.b < 1e-4) continue;
@@ -332,9 +333,10 @@ vec3 rtRoomLamps(vec3 pos, vec3 N) {
     float d = sqrt(d2);
     L /= max(d, 1e-4);
     float win = 1.0 - d2 / r2;
-    float att = win * win / (1.0 + d2 * 0.6);
+    // (a pool under each lamp: bright close by, gone by its reach)
+    float att = win * win / (0.35 + d2);
     // below the lamp (L points up at it) it shines; above, its shade keeps most of it in
-    float down = mix(1.0, 0.12 + 0.88 * smoothstep(-0.15, 0.5, L.y), uRoomLampC[i].w);
+    float down = mix(1.0, 0.1 + 0.9 * smoothstep(0.3, 0.78, L.y), uRoomLampC[i].w);
     float face = smoothstep(-0.2, 0.45, dot(N, L));
     sum += uRoomLampC[i].rgb * att * down * face;
   }

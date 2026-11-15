@@ -508,6 +508,11 @@ export class ModGame implements PlayerHost, CockpitHost {
         get seated() {
           return game.seated;
         },
+        get hour() {
+          return game.env.sky.hour;
+        },
+        checklist: () => this.tutorialSteps(),
+        changed: (v: ModVehicle, what: string) => this.changed(v, what),
         sound: (name: string, gain?: number) => this.sound(name, gain),
       };
     }
@@ -652,6 +657,14 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.updateBeam();
     // shadows round the vehicle in focus (or the walker)
     core.shadowFocus.set(fx - o.x, fy - o.y, fz - o.z);
+    // in the workshop the fine map goes where one looks (the sun's patches through the windows stay crisp)
+    if (this.garage?.shadowFocus && !this.seated) {
+      const w = this.player.walker;
+      this.garage.shadowFocus(w.x, w.z, w.heading, core.shadowFocus);
+      core.shadowFocus.x -= o.x;
+      core.shadowFocus.z -= o.z;
+      core.shadowFocus.y -= o.y;
+    }
     if (this.worldView) this.worldView.update(fx, fz, 3.5);
     // biome and light
     const bl = this.bl;

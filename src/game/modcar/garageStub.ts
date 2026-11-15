@@ -37,6 +37,12 @@ export interface GarageContext {
   readonly ui: ModUI;
   /** the vehicle the player sits in, if any */
   readonly seated: ModVehicle | null;
+  /** the hour of the day (the clock on the wall) */
+  readonly hour: number;
+  /** the checklist of the first build (the chalkboard) */
+  checklist(): { text: string; done: boolean }[];
+  /** a vehicle's build was changed by a device (a new coat of paint) */
+  changed(v: ModVehicle, what: string): void;
   sound(name: string, gain?: number): void;
 }
 
@@ -64,6 +70,8 @@ export interface GarageScene {
   update(dt: number, ctx: GarageContext): void;
   /** exposure factor for an eye at (x, y, z) (world): the eye opens up indoors */
   exposureAt(x: number, y: number, z: number): number;
+  /** where the fine shadow map should be centred for someone at (x, z) looking along heading (world; fills out) */
+  shadowFocus?(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void;
   /** a garage whose doors open: are they open (wide enough to drive out)? */
   doorsOpen?(): boolean;
   /** for the test hook: the doors, the lamps, the devices' state */

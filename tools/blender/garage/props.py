@@ -278,7 +278,7 @@ def sliding_doors(K, L):
 
 # ---------------------------------------------------------------------------------------------- lamps
 
-def pendant(K, L, x, z, y, cord_top, colour=(1.0, 0.72, 0.42), reach=6.5, power=1.0):
+def pendant(K, L, x, z, y, cord_top, colour=(1.0, 0.8, 0.56), reach=6.5, power=1.0):
     """an enamel shade on a cord from a tie beam, a warm bulb under it"""
     K.tube('p_black', [(x, cord_top, z), (x, y + 0.2, z)], 0.005, segs=5, caps=False)
     K.cyl('p_black', (x, y + 0.2, z), 0.022, 0.06, segs=10)
