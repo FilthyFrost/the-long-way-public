@@ -33,6 +33,8 @@ const GROUPS: Record<string, GroupLook> = {
   bulb: { glow: true },
   led: { glow: true, ink: true },
   dial: { glow: true, ink: true },
+  fire: { glow: true },
+  lamp_out: { glow: true },
 };
 
 /** the glass, as before: its own meshes (sRGB tint, opacity) */
@@ -42,8 +44,9 @@ const GLASS: Record<string, [number, number]> = {
   skylight: [0xeef0dc, 0.55],
 };
 
-/** the glowing bits that are switched (lamps, the charger's lamp, the radio's dial) */
-export type GlowName = 'bulb' | 'led' | 'dial';
+/** the glowing bits that are switched (lamps, the charger's lamp, the radio's dial, the stove's fire, the lamp over the doors) */
+export type GlowName = 'bulb' | 'led' | 'dial' | 'fire' | 'lamp_out';
+const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out'];
 
 const VERTEX = /* glsl */ `
   ${GLSL_VERTEX_PARS}
@@ -223,7 +226,7 @@ export class GarageLook {
     else {
       const look = GROUPS[base] ?? GROUPS.prop;
       const mat = garageCelMaterial(look);
-      if (base === 'bulb' || base === 'led' || base === 'dial') this.glows[base] = mat;
+      if (GLOW_NAMES.includes(base)) this.glows[base as GlowName] = mat;
       m = mat;
     }
     m.name = `garage:${base}`;
