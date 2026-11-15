@@ -6,6 +6,7 @@
  * out of sight. A save that no longer reads (a part renamed in a newer build) is set aside, not deleted,
  * and a new game begins.
  */
+import { reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
@@ -68,6 +69,18 @@ export function loadSave(): SaveV1 | null {
     const s = JSON.parse(raw) as SaveV1;
     if (s?.v !== 1 || !Array.isArray(s.vehicles) || !s.vehicles.length || !Array.isArray(s.loose)) throw new Error('not a save');
     check(s);
+    // (parts made from now on get ids past the ones read back)
+    const ids: string[] = [];
+    const inst = (i: PartInstance): void => {
+      ids.push(i.uid);
+      for (const sub of Object.values(i.sub ?? {})) inst(sub);
+    };
+    for (const v of s.vehicles) {
+      ids.push(v.build.uid);
+      for (const i of Object.values(v.build.parts)) inst(i);
+    }
+    for (const l of s.loose) if (l.part) inst(l.part);
+    reserveUids(ids);
     return s;
   } catch {
     // (put aside: a later build may read it again)

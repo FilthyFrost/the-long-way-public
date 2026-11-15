@@ -18,6 +18,14 @@ export function newUid(prefix: string): string {
   return `${prefix}${counter.toString(36)}`;
 }
 
+/** ids already in use (a game read back from a save): new ones are counted on from past them */
+export function reserveUids(uids: Iterable<string>): void {
+  for (const u of uids) {
+    const n = parseInt(u.slice(1), 36);
+    if (Number.isFinite(n) && n > counter) counter = n;
+  }
+}
+
 export interface InstanceOpts {
   cond?: number;
   paint?: number;
