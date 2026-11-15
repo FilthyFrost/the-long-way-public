@@ -43,24 +43,25 @@ TYRES = {
                       cells=['0', '0', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                       walls=[(0.40, -0.004), (0.72, -0.002)],
                       shear=lambda u: 0.10 * u * u),
-    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=30, fr=[0, 0.84],
+    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=26, fr=[0, 0.84],
                            cols=[-1.12, -1.0, -0.72, -0.61, -0.27, -0.16, 0.16, 0.27, 0.61, 0.72, 1.0, 1.12],
                            cells=['0', '0', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '0', '0'],
-                           white=(0.22, 0.62)),
+                           white=(0.22, 0.62), text_at=0.80, text_size=0.6, text_arcs=((90.0, 44.0), (270.0, 30.0))),
     'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=20, fr=[0, 0.5],
                          cols=[-1.26, -1.12, -1.0, -0.68, -0.56, -0.22, -0.1, 0.1, 0.22, 0.56, 0.68, 1.0, 1.12, 1.26],
                          cells=['0', '0', '0', 'G', '1', 'G', '01', 'G', '0', 'G', '1', '1', '1'],
-                         shear=lambda u: 0.12 * u),
+                         shear=lambda u: 0.12 * u, text_size=1.3, text_at=0.5),
     'tire_tractor': dict(h=0.30, W=0.32, Tw=0.90, d=0.042, c=0.028, n=17, fr=[0, 0.38, 0.62],
                          cols=[-1.30, -1.0, -0.62, -0.26, -0.05, 0.05, 0.26, 0.62, 1.0, 1.30],
                          cells=['0', '0', '0', '0', 'G', '2', '2', '2', '2'],
-                         shear=lambda u: 0.95 * abs(u), chamfer=0.006),
+                         shear=lambda u: 0.95 * abs(u), chamfer=0.006, text_at=0.42, text_size=0.6),
     'tire_slick': dict(h=0.09, W=0.225, Tw=0.90, d=0.0, c=0.004, n=24, fr=[0, 0.5],
-                       cols=[-1.08, -0.62, 0.0, 0.62, 1.08], cells=['G', 'G', 'G', 'G']),
+                       cols=[-1.08, -0.62, 0.0, 0.62, 1.08], cells=['G', 'G', 'G', 'G'], text_mat='paint_b',
+                       text_size=1.35, text_at=0.5),
     'tire_moto': dict(h=0.08, W=0.10, Tw=0.94, d=0.0055, c=0.034, n=18, fr=[0, 0.5],
                       cols=[-1.04, -0.72, -0.38, -0.06, 0.06, 0.38, 0.72, 1.04],
                       cells=['01', '1', '0', 'R', '1', '0', '01'],
-                      shear=lambda u: 0.55 * u, round=True),
+                      shear=lambda u: 0.55 * u, round=True, text_at=0.42, text_size=0.85),
     'tire_snow': dict(h=0.12, W=0.175, Tw=0.82, d=0.0115, c=0.007, n=26, fr=[0, 0.8],
                       cols=[-1.18, -1.0, -0.64, -0.55, -0.22, -0.12, 0.12, 0.22, 0.55, 0.64, 1.0, 1.18],
                       cells=['0', '0', 'G', '0', 'G', '0', 'G', '0', 'G', '0', '0'],
@@ -132,6 +133,59 @@ def tyre_profile(T, R, wb, fh):
     i = pts.index(None)
     pts[i:i + 1] = band
     return pts, Ro, Wt
+
+
+def sidewall_text(bm, pts, R, h, mat_index=0, arcs=((90.0, 70.0), (270.0, 50.0)), frac=0.52, size=1.0, seed=3):
+    """
+    Raised generic 'lettering' on the outer sidewall (no brand): blocks of letter-like widths in arcs
+    centred on the given angles (deg) at radius R + frac * h, following the sidewall's profile. In lathe
+    space (axis = Z, the outer side is +Z).
+    """
+    import random
+    rnd = random.Random(seed)
+    side = [(y, r) for (y, r, tag, u) in pts if y > 0 and tag != 'band']
+    side.sort(key=lambda q: q[1])
+    rt = R + frac * h
+
+    def surf(r):
+        for (ya, ra), (yb, rb) in zip(side[:-1], side[1:]):
+            if ra <= r <= rb:
+                u = (r - ra) / (rb - ra or 1.0)
+                y = ya + (yb - ya) * u
+                ny, nr = (rb - ra), -(yb - ya)
+                ln = math.hypot(ny, nr) or 1.0
+                if ny < 0:
+                    ny, nr = -ny, -nr
+                return y, ny / ln, nr / ln
+        return side[-1][0], 1.0, 0.0
+
+    y0, ny, nr = surf(rt)
+    lh = 0.2 * h * size          # letter height (radial)
+    faces = []
+    for (ac, span) in arcs:
+        a = math.radians(ac - span / 2)
+        a_end = math.radians(ac + span / 2)
+        while a < a_end:
+            w = rnd.choice((0.55, 0.75, 0.9, 1.0, 1.0, 1.2)) * lh * 0.55
+            if rnd.random() < 0.12:
+                a += (w * 1.6) / rt
+                continue
+            da = w / rt
+            mid = a + da / 2
+            c, s_ = math.cos(mid), math.sin(mid)
+            # local frame: x = tangential, y = radial, z = sidewall normal
+            t = V((s_, -c, 0.0))   # (t, rad, n) must be right-handed or the boxes come out inside-out
+            rad = V((c, s_, 0.0))
+            n = V((rad.x * nr, rad.y * nr, ny)).normalized()
+            p = V((rt * c, rt * s_, y0)) + n * 0.0008
+            m = Matrix((t, rad, n)).transposed().to_4x4()
+            m.translation = p
+            verts = K.bm_cube(bm, (w, lh, 0.0035), m)
+            faces += list({f for v in verts for f in v.link_faces})
+            a += da + lh * 0.18 / rt
+    for f in faces:
+        f.material_index = mat_index
+    return faces
 
 
 def build_tyre(P, tid, rim_id):
@@ -238,9 +292,17 @@ def build_tyre(P, tid, rim_id):
                         edges.add(e)
             bmesh.ops.bevel(bm, geom=list(edges), offset=T['chamfer'], offset_type='OFFSET', segments=1,
                             profile=0.5, affect='EDGES', clamp_overlap=True)
+    # generic raised lettering on the outer sidewall
+    mats = ['rubber', 'ceramic'] if T.get('white') else ['rubber']
+    if T.get('text', True):
+        tm = T.get('text_mat', 'rubber')
+        if tm not in mats:
+            mats.append(tm)
+        sidewall_text(bm, pts, R, T['h'], mat_index=mats.index(tm), frac=T.get('text_at', 0.52),
+                      size=T.get('text_size', 1.0), seed=sum(map(ord, tid)) % 97,
+                      arcs=T.get('text_arcs', ((90.0, 70.0), (270.0, 50.0))))
     # axle along Blender Y (lathe z -> +Y)
     K.bm_transform(bm, K.axis_matrix('Y'))
-    mats = ['rubber', 'ceramic'] if T.get('white') else ['rubber']
     P.mesh('tyre', bm, mats, sharp=42.0)
     P.ao_distance = 0.08
     P.info.update({'radius': round(Ro, 4), 'inner_radius': R, 'width': round(Wt, 4),

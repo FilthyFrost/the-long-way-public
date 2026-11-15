@@ -130,7 +130,7 @@ def build_eng_i4(P):
     K.bm_prism(bm, poly, 0.25, matrix=mat4((0, 0, 0), (90, 0, 0)))
     P.mesh('sump', bm, 'steel', bev=0.012, segs=2)
     P.box('sump_lip', (0.46, 0.29, 0.012), (-0.025, 0, 0.122), 'steel', bev=0.003, segs=1)
-    P.cyl('drain', 0.011, 0.012, (-0.2, 0, 0.002), 'steel', segs=6, bev=None)
+    P.cyl('drain', 0.011, 0.012, (-0.2, 0, 0.0065), 'steel', segs=6, bev=None)
     flange_bolts(P, [(x, s * 0.138, 0.128) for x in (-0.22, -0.13, -0.04, 0.05, 0.14) for s in (-1, 1)], (0, 0, 1),
                  r=0.005)
     # --- block: skirt and the cylinder bank, with freeze plugs and ribs
@@ -257,16 +257,7 @@ def build_eng_i4(P):
            bend=0.08)
     P.torus('dip_ring', 0.014, 0.004, loc=(-0.06, 0.16, 0.575), rot=(0, 90, 0), segs=14, rsegs=6, material='paint_b')
     # --- back: bellhousing plate, starter motor
-    plate = []
-    for i in range(20):
-        a = math.tau * i / 20
-        rr = 0.15 + 0.025 * math.cos(2 * a) ** 2
-        plate.append((0.21 + rr * math.sin(a) * 0.95, rr * math.cos(a) * 1.1))
-    bm = bmesh.new()
-    K.bm_prism(bm, [(-z, y) for (z, y) in plate], 0.012, matrix=mat4((-0.258, 0, 0), (0, 90, 0)))
-    P.mesh('rear_plate', bm, 'steel', bev=0.003, segs=1)
-    flange_bolts(P, [(-0.266, 0.15 * math.cos(math.tau * (i + 0.5) / 8), 0.21 + 0.14 * math.sin(math.tau * (i + 0.5) / 8))
-                     for i in range(8)], (-1, 0, 0), r=0.0065)
+    rear_plate(P, -0.25, zc, 0.17, 0.17, nb=8)
     P.cyl('starter', 0.042, 0.14, (-0.19, -0.155, 0.13), 'steel', axis='X', segs=16, bev=0.004, bsegs=2)
     P.cyl('solenoid', 0.022, 0.09, (-0.19, -0.155, 0.185), 'alu', axis='X', segs=12, bev=0.003, bsegs=1)
     P.cyl('starter_nose', 0.03, 0.04, (-0.245, -0.155, 0.13), 'alu', axis='X', segs=14, bev=0.003, bsegs=1)
@@ -309,18 +300,36 @@ def starter(P, x, y, z, length=0.14, r=0.042):
     P.tube('starter_cable', [(x + 0.02, y, z + r * 1.3 + 0.02), (x + 0.03, y - 0.03, z + 0.08)], 0.007, 'trim', segs=6)
 
 
-def rear_plate(P, x, zc, ry, rz, nb=8):
-    """The flywheel-housing adapter plate (where the gearbox bolts on) at x, facing -X."""
-    plate = []
-    for i in range(20):
-        a = math.tau * i / 20
-        rr = 1.0 + 0.16 * math.cos(2 * a) ** 2
-        plate.append((zc + rz * rr * math.sin(a), ry * rr * math.cos(a)))
-    bm = bmesh.new()
-    K.bm_prism(bm, [(-z, y) for (z, y) in plate], 0.014, matrix=mat4((x, 0, 0), (0, 90, 0)))
-    P.mesh('rear_plate', bm, 'steel', bev=0.004, segs=1)
-    flange_bolts(P, [(x - 0.009, ry * 0.93 * math.cos(math.tau * (i + 0.5) / nb),
-                      zc + rz * 0.93 * math.sin(math.tau * (i + 0.5) / nb)) for i in range(nb)], (-1, 0, 0), r=0.007)
+def rear_plate(P, x, zc, ry, rz, nb=8, material='steel'):
+    """
+    The cast flywheel housing at the back of the block (x = the block's rear face), centred on the crank
+    (zc): a short bell with a bolting flange for the gearbox, bolt bosses round it, a dark input opening.
+    ry, rz: the housing radius across and up (the larger is used, the smaller flattens it a little).
+    """
+    r = max(ry, rz) * 0.86
+    prof = [(r * 0.55, 0.004), (r * 0.94, 0.0), (r, 0.012), (r, 0.03), (r + 0.016, 0.032), (r + 0.016, 0.046),
+            (r * 0.83, 0.046), (r * 0.80, 0.04), (0.0, 0.04)]
+    o = P.lathe('fw_housing', prof, loc=(x, 0, zc), material=material, axis='-X', segs=24, sharp=40.0,
+                close='start')
+    if abs(ry - rz) > 1e-3:
+        k = min(ry, rz) / max(ry, rz)
+        sy, sz = (k, 1.0) if ry < rz else (1.0, k)
+        sy, sz = max(sy, 0.88), max(sz, 0.88)
+        o.data.transform(Matrix.Translation((x, 0, zc)) @ Matrix.Diagonal((1, sy, sz, 1)) @
+                         Matrix.Translation((-x, 0, -zc)))
+    else:
+        sy = sz = 1.0
+    P.cyl('fw_input', r * 0.36, 0.006, (x - 0.044, 0, zc), 'trim', axis='X', segs=20, bev=None)
+    for i in range(nb):
+        a = math.tau * (i + 0.5) / nb
+        cy, cz = (r + 0.008) * math.cos(a) * sy, zc + (r + 0.008) * math.sin(a) * sz
+        P.cyl('fw_boss', 0.013, 0.03, (x - 0.025, cy, cz), material, axis='X', segs=8, bev=None)
+        P.bolt((x - 0.046, cy, cz), normal=(-1, 0, 0), r=0.0075, h=0.006, washer=False)
+    # radial ribs on the bell
+    for i in range(6):
+        a = math.tau * i / 6 + 0.3
+        P.box('fw_rib', (0.028, 0.012, r * 0.32), (x - 0.016, r * 0.8 * math.cos(a) * sy, zc + r * 0.8 * math.sin(a) * sz),
+              material, rot=(math.degrees(a) - 90, 0, 0), bev=None, open='+x')
 
 
 def lift_eye(P, x, y, z):
@@ -442,7 +451,7 @@ def build_eng_i4d(P):
     P.tube('breather', [(-0.26, 0.05, 0.672), (-0.30, 0.08, 0.62), (-0.31, 0.1, 0.45)], 0.012, 'rubber', segs=8,
            bend=0.04)
     starter(P, -0.22, -0.17, 0.15, length=0.17, r=0.05)
-    rear_plate(P, -0.302, 0.25, 0.17, 0.2)
+    rear_plate(P, -0.30, zc, 0.19, 0.19, nb=8)
     mounts(P, 0.05, 0.215, 0.24)
     P.views = [('a', 35, 22), ('b', 215, 22)]
 
@@ -546,7 +555,7 @@ def build_eng_v8(P):
            bend=0.08)
     P.torus('dip_ring', 0.017, 0.005, loc=(-0.16, 0.22, 0.58), rot=(0, 90, 0), segs=14, rsegs=6, material='paint_b')
     starter(P, -0.24, 0.17, 0.12, length=0.16, r=0.05)
-    rear_plate(P, -0.345, 0.24, 0.2, 0.2, nb=10)
+    rear_plate(P, -0.34, zc, 0.19, 0.19, nb=10)
     mounts(P, 0.1, 0.205, 0.22)
     P.views = [('a', 35, 24), ('b', 215, 24)]
 
@@ -678,8 +687,8 @@ def build_turbo_small(P):
     cv.data.transform(Matrix.Translation((0, yc, zc)))
     P.lathe('comp_in', [(0.034, 0.0), (0.04, 0.0), (0.04, 0.05), (0.043, 0.055), (0.043, 0.065), (0.036, 0.065)],
             loc=(0, yc + 0.02, zc), material='alu', axis='Y', segs=20, sharp=40.0)
-    P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)], loc=(0, yc + 0.02, zc),
-            material='steel', axis='Y', segs=14, close='end', sharp=40.0)
+    P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)][::-1], loc=(0, yc + 0.02, zc),
+            material='steel', axis='Y', segs=14, close='start', sharp=40.0)
     P.cyl('wg_can', 0.028, 0.035, (0.07, yc - 0.005, zc + 0.02), 'alu', axis='Y', segs=16, bev=0.005, bsegs=2)
     P.box('wg_brk', (0.03, 0.05, 0.008), (0.06, 0.03, zc + 0.02), 'steel', bev=0.002, segs=1)
     P.tube('wg_rod', [(0.07, yc - 0.03, zc + 0.02), (0.065, yt + 0.0, zc + 0.03)], 0.0035, 'steel', segs=5)
@@ -704,7 +713,7 @@ def finned_barrel(P, base, axis, r, length, fin_w, fin_d, n, fin_t=0.004, materi
         poly = K.rounded_rect(fin_w * (1.06 if head and i == n - 1 else 1.0), fin_d, min(fin_w, fin_d) * 0.22, seg=2)
         m = Matrix.Translation(c) @ m0
         K.bm_prism(bm, poly, fin_t, matrix=m)
-    P.mesh('fins', bm, material, bev=0.0012, segs=1, sharp=50.0)
+    P.mesh('fins', bm, material, bev=0.0012 if n <= 7 else None, segs=1, sharp=50.0)
 
 
 def build_eng_single(P):
@@ -717,11 +726,14 @@ def build_eng_single(P):
                (0.07, 0.215), (0.0, 0.225), (-0.09, 0.21), (-0.15, 0.16), (-0.175, 0.10)]
     P.prism('case', outline, 0.17, matrix=mat4((0, 0, 0), (90, 0, 0)), material='alu', bev=0.012, segs=2)
     P.box('case_seam', (0.30, 0.006, 0.20), (-0.02, 0.0, 0.11), 'alu', bev=0.002, segs=1)
+    seam = [(-0.15, 0.03), (-0.155, 0.13), (-0.08, 0.2), (0.06, 0.205), (0.12, 0.13), (0.11, 0.03), (0.0, 0.004)]
+    P.bolts([(x, -0.088, z) for (x, z) in seam[:2]] + [(x, 0.088, z) for (x, z) in seam[4:6]],
+            normal=[(0, -1, 0)] * 2 + [(0, 1, 0)] * 2, r=0.0045, h=0.004, washer=False)
     # generator cover (left, +Y) and clutch cover (right, -Y)
     P.lathe('gen_cover', [(0.0, 0.03), (0.04, 0.028), (0.066, 0.016), (0.076, 0.0)][::-1], loc=(-0.03, 0.085, 0.10),
-            material='alu', axis='Y', segs=24, close='start', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='start', sharp=40.0)
     P.lathe('clutch_cover', [(0.0, -0.034), (0.05, -0.032), (0.078, -0.018), (0.088, 0.0)],
-            loc=(-0.06, -0.085, 0.10), material='alu', axis='Y', segs=24, close='end', sharp=40.0)
+            loc=(-0.06, -0.085, 0.10), material='chrome', axis='Y', segs=24, close='end', sharp=40.0)
     P.cyl('points_cover', 0.03, 0.012, (0.07, -0.088, 0.12), 'chrome', axis='Y', segs=16, bev=0.002, bsegs=1)
     for i in range(6):
         a = math.tau * i / 6
@@ -733,7 +745,7 @@ def build_eng_single(P):
     lean = math.radians(12)
     ax = V((math.sin(lean), 0, math.cos(lean)))
     base = V((0.03, 0, 0.215))
-    finned_barrel(P, base, ax, 0.036, 0.13, 0.15, 0.13, 7)
+    finned_barrel(P, base, ax, 0.036, 0.13, 0.15, 0.13, 7, material='steel')
     hb = base + ax * 0.13
     finned_barrel(P, hb, ax, 0.042, 0.08, 0.17, 0.15, 4, fin_t=0.005, head=True)
     top = hb + ax * 0.08
@@ -874,7 +886,7 @@ def build_eng_d6(P):
            segs=6, bend=0.1)
     P.torus('dip_ring', 0.02, 0.006, loc=(xs[2], -0.19, 0.8), rot=(0, 90, 0), segs=14, rsegs=6, material='paint_b')
     starter(P, x0 + 0.1, -0.2, 0.2, length=0.22, r=0.065)
-    rear_plate(P, x0 - 0.01, 0.32, 0.24, 0.27, nb=12)
+    rear_plate(P, x0 - 0.005, zc, 0.26, 0.26, nb=12)
     mounts(P, xf - 0.12, 0.25, 0.28)
     mounts(P, x0 + 0.12, 0.25, 0.28)
     P.views = [('a', 35, 20), ('b', 215, 20)]
@@ -903,15 +915,15 @@ def build_eng_2t(P):
     P.prism('case', outline, 0.30, matrix=mat4((0, 0, 0), (90, 0, 0)), material='alu', bev=0.014, segs=2)
     P.box('case_seam', (0.32, 0.31, 0.006), (-0.015, 0.0, 0.105), 'alu', bev=0.002, segs=1)
     P.lathe('mag_cover', [(0.0, 0.035), (0.05, 0.032), (0.075, 0.018), (0.082, 0.0)][::-1], loc=(-0.05, 0.15, 0.1),
-            material='alu', axis='Y', segs=24, close='start', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='start', sharp=40.0)
     P.lathe('clutch_cover', [(0.0, -0.035), (0.05, -0.032), (0.08, -0.018), (0.088, 0.0)], loc=(-0.07, -0.15, 0.1),
-            material='alu', axis='Y', segs=24, close='end', sharp=40.0)
+            material='chrome', axis='Y', segs=24, close='end', sharp=40.0)
     lean = math.radians(20)
     ax = V((math.sin(lean), 0, math.cos(lean)))
     ports = []
     for sy in (-1, 1):
         base = V((0.03, sy * 0.068, 0.2))
-        finned_barrel(P, base, ax, 0.034, 0.12, 0.12, 0.115, 7)
+        finned_barrel(P, base, ax, 0.034, 0.12, 0.12, 0.115, 7, material='steel')
         hb = base + ax * 0.12
         finned_barrel(P, hb, ax, 0.04, 0.06, 0.13, 0.13, 4, fin_t=0.0045, head=True)
         top = hb + ax * 0.06
@@ -959,7 +971,7 @@ def build_eng_flat6(P):
         P.box('sump_fin', (0.4, 0.006, 0.03), (-0.04, -0.075 + i * 0.03, 0.006), 'alu', bev=None, open='+z')
     for sg in (-1, 1):
         for x in xs:
-            finned_barrel(P, V((x, sg * 0.12, 0.17)), (0, sg, 0), 0.042, 0.17, 0.13, 0.13, 9, fin_t=0.004)
+            finned_barrel(P, V((x, sg * 0.12, 0.17)), (0, sg, 0), 0.042, 0.17, 0.13, 0.13, 8, fin_t=0.0045)
         P.box('head', (0.46, 0.06, 0.14), (-0.02, sg * 0.32, 0.17), 'alu', bev=0.014, segs=2)
         for i in range(7):
             P.box('head_fin', (0.44, 0.005, 0.15), (-0.02, sg * (0.295 + i * 0.008), 0.17), 'alu', bev=None)
@@ -1010,7 +1022,7 @@ def build_eng_flat6(P):
         P.tube('airbox_hose', [(-0.2, sg * 0.15, 0.4), (-0.12, sg * 0.18, 0.39)], 0.022, 'rubber', segs=10)
     P.cyl('filler', 0.03, 0.03, (-0.25, 0.1, 0.32), 'chrome', segs=14, bev=0.004, bsegs=1)
     starter(P, -0.18, -0.15, 0.08, length=0.16, r=0.045)
-    rear_plate(P, -0.315, 0.2, 0.18, 0.18)
+    rear_plate(P, -0.31, 0.18, 0.17, 0.15, nb=8, material='alu')
     mounts(P, 0.18, 0.15, 0.08)
     P.views = [('a', 35, 26), ('b', 215, 26)]
 

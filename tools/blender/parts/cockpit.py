@@ -82,6 +82,12 @@ def build_steer_std(P):
     P.lathe('ring', [(0.0175, -0.0635), (0.0215, -0.0632), (0.0215, -0.0605), (0.0175, -0.0605)], material='chrome',
             axis='X', segs=16, loop=True, sharp=50.0)
     P.cyl('shaft', 0.011, 0.024, (0.012, 0, 0), 'steel', axis='X', segs=12, bev=None)
+    # chrome horn ring in front of the spokes, held by two little tabs
+    P.torus('horn_ring', 0.112, 0.0042, loc=(-0.066, 0, 0), axis='X', segs=40, rsegs=6, material='chrome')
+    for ang in (90.0, 270.0):
+        a = math.radians(ang)
+        d = V((0, -math.cos(a + math.radians(35)), math.sin(a + math.radians(35))))
+        P.tube('ring_tab', [V((-0.052, 0, 0)) + d * 0.045, V((-0.064, 0, 0)) + d * 0.108], 0.0035, 'chrome', segs=6)
     P.prop('steer_axis', 'X')
     P.ao_distance = 0.05
     P.views = [('a', 200, 16), ('b', 120, 20)]
@@ -108,8 +114,8 @@ def build_steer_ship(P):
         K.bm_lathe(bm, prof, segs=7, matrix=m)
         P.mesh('spoke', bm, 'wood', sharp=70.0)
     # hub: wooden drum with brass faces and a brass boss
-    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024), (0.0, -0.024)],
-            loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
+    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024),
+                    (0.0, -0.024)][::-1], loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
     for sx in (-1, 1):
         P.lathe('hub_band', [(0.068, -0.004), (0.072, 0.0), (0.068, 0.004), (0.06, 0.004), (0.06, -0.004)],
                 loc=(xr * 0.6 + sx * 0.02, 0, 0), material='chrome', axis='X', segs=24, loop=True, sharp=50.0)

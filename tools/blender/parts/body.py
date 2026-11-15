@@ -148,36 +148,97 @@ def spike(P, base, direction, length, r, material='steel', tip='chrome'):
 
 
 def build_bf_ram(P):
-    """A spiked ram: a welded V-prow of rusty plate with steel cover plates, rivets and seven spikes."""
+    """A spiked ram: a raked V-prow of rusty plate (the lower edge leads), steel facing plates, two rows of
+    long spikes and a big nose spike, a saw-tooth cutting edge along the bottom, a rolled top rail, heavy
+    brackets back to the bumper mount."""
     P.ao_distance = 0.10
-    plan = [(0.0, -0.80), (0.08, -0.80), (0.27, -0.13), (0.30, 0.0), (0.27, 0.13), (0.08, 0.80), (0.0, 0.80)]
-    P.prism('wedge', plan, 0.22, (0, 0, 0), 'rust', bev=0.01, segs=2)
-    # cover plates on the two front faces, a nose cap, rivets
-    for sg in (-1, 1):
-        a = V((0.08, sg * 0.80, 0.0))
-        b = V((0.27, sg * 0.13, 0.0))
-        mid = (a + b) / 2
-        d = (b - a).normalized()
-        n = V((d.y, -d.x, 0.0)) * (-sg)
-        if n.x < 0:
-            n = -n
-        L = (b - a).length
-        ang = math.degrees(math.atan2(d.y, d.x))
-        P.box('cover', (L * 0.92, 0.012, 0.18), tuple(mid + n * 0.008), 'steel', rot=(0, 0, ang), bev=0.004, segs=1)
-        rv = []
-        for i in range(7):
-            p = a + d * (L * (0.08 + 0.84 * i / 6)) + n * 0.015
-            rv += [tuple(p + V((0, 0, 0.07))), tuple(p + V((0, 0, -0.07)))]
-        P.bolts(rv, normal=tuple(n), r=0.006, h=0.004, washer=False, material='steel')
-        for k in range(3):
-            t = 0.22 + 0.3 * k
-            base = a + d * (L * t) + n * 0.014
-            spike(P, tuple(base), tuple(n + V((0.6, 0, 0.0))), 0.20, 0.032)
-    P.box('nose', (0.05, 0.27, 0.2), (0.285, 0.0, 0.0), 'steel', bev=0.012, segs=2)
-    spike(P, (0.31, 0.0, 0.0), (1, 0, 0), 0.24, 0.04)
-    P.box('top_rib', (0.24, 0.02, 0.03), (0.15, 0.0, 0.12), 'rust', bev=0.004, segs=1)
+    zb, zt = -0.12, 0.13
+    rake = 0.09
+    # plan of the leading (bottom) edge, from the left end round the nose to the right end
+    plan = [(0.0, 0.80), (0.10, 0.80), (0.33, 0.12), (0.36, 0.0), (0.33, -0.12), (0.10, -0.80), (0.0, -0.80)]
+    bm = bmesh.new()
+    bot = [bm.verts.new((x, y, zb)) for (x, y) in plan]
+    top = [bm.verts.new((max(0.0, x - rake * (1 if x > 0.05 else 0)), y, zt)) for (x, y) in plan]
+    n = len(plan)
+    caps = [bm.faces.new(bot), bm.faces.new(list(reversed(top)))]
+    faces = list(caps)
+    for i in range(n):
+        j = (i + 1) % n
+        faces.append(bm.faces.new((bot[i], bot[j], top[j], top[i])))
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    # interior vertices on the big caps so the vertex AO is not just the (occluded) outline
+    bmesh.ops.poke(bm, faces=caps)
+    P.mesh('wedge', bm, 'rust', bev=0.012, segs=2, bev_angle=40)
+
+    def face_frame(k):
+        """Centre, outward normal and along-direction of front face k (between plan points k and k+1)."""
+        (x0, y0), (x1, y1) = plan[k], plan[k + 1]
+        b0, b1 = V((x0, y0, zb)), V((x1, y1, zb))
+        t0, t1 = V((x0 - rake, y0, zt)), V((x1 - rake, y1, zt))
+        along = (b1 - b0).normalized()
+        up = ((t0 + t1) / 2 - (b0 + b1) / 2).normalized()
+        nrm = along.cross(up).normalized()
+        if nrm.x < 0:
+            nrm = -nrm
+        return (b0 + b1 + t0 + t1) / 4, nrm, along, up, (b1 - b0).length
+
+    spikes_done = []
+    for k in (1, 4):
+        c, nrm, along, up, L = face_frame(k)
+        # facing plate with bolts: placed by the face's own frame (along, normal, up), right-handed
+        upn = along.cross(nrm).normalized()
+        m = Matrix((along, nrm, upn)).transposed().to_4x4()
+        m.translation = c + nrm * 0.009
+        bm = bmesh.new()
+        K.bm_cube(bm, (L * 0.86, 0.014, 0.2), m)
+        P.mesh('facing', bm, 'steel', bev=0.004, segs=1)
+        bolts = []
+        for i in range(6):
+            q = c + along * (L * (-0.38 + 0.76 * i / 5)) + nrm * 0.018
+            bolts += [tuple(q + up * 0.085), tuple(q - up * 0.085)]
+        P.bolts(bolts, normal=tuple(nrm), r=0.008, h=0.006, washer=False)
+        # two rows of spikes, leaning forward
+        for row, (h, ln, r) in enumerate(((0.05, 0.27, 0.036), (-0.06, 0.22, 0.032))):
+            for i in range(3):
+                t = -0.3 + 0.3 * i + (0.15 if row else 0.0)
+                base = c + along * (L * t) + up * h + nrm * 0.016
+                d = (nrm + V((0.9, 0, 0.15 if row == 0 else 0.05))).normalized()
+                spike(P, tuple(base), tuple(d), ln, r)
+        # saw teeth along the leading edge
+        (x0, y0), (x1, y1) = plan[k], plan[k + 1]
+        b0, b1 = V((x0, y0, zb)), V((x1, y1, zb))
+        nt = 9
+        bm = bmesh.new()
+        for i in range(nt):
+            u0, u1 = i / nt, (i + 1) / nt
+            p0 = b0 + (b1 - b0) * u0
+            p1 = b0 + (b1 - b0) * u1
+            tip = (p0 + p1) / 2 + nrm * 0.07 + V((0, 0, -0.025))
+            back = (p0 + p1) / 2 - nrm * 0.03
+            for (a_, b_) in ((p0, p1),):
+                v = [bm.verts.new(a_ + V((0, 0, 0.004))), bm.verts.new(b_ + V((0, 0, 0.004))),
+                     bm.verts.new(tip + V((0, 0, 0.004))), bm.verts.new(a_ - V((0, 0, 0.008))),
+                     bm.verts.new(b_ - V((0, 0, 0.008))), bm.verts.new(tip - V((0, 0, 0.008)))]
+                fs = [bm.faces.new((v[0], v[1], v[2])), bm.faces.new((v[5], v[4], v[3])),
+                      bm.faces.new((v[0], v[3], v[4], v[1])), bm.faces.new((v[1], v[4], v[5], v[2])),
+                      bm.faces.new((v[2], v[5], v[3], v[0]))]
+                bmesh.ops.recalc_face_normals(bm, faces=fs)
+        P.mesh('teeth', bm, 'steel', sharp=40.0)
+    # nose block with the big spike
+    P.box('nose', (0.06, 0.25, 0.22), (0.33, 0.0, 0.0), 'steel', rot=(0, -20, 0), bev=0.014, segs=2)
+    spike(P, (0.36, 0.0, 0.02), (1.0, 0.0, 0.12), 0.34, 0.05)
+    # rolled top rail and the brackets to the mount
+    rail = [(0.0, 0.79, zt + 0.012), (0.1 - rake, 0.79, zt + 0.012), (0.33 - rake, 0.12, zt + 0.012),
+            (0.36 - rake, 0.0, zt + 0.012), (0.33 - rake, -0.12, zt + 0.012), (0.1 - rake, -0.79, zt + 0.012),
+            (0.0, -0.79, zt + 0.012)]
+    P.tube('top_rail', rail, 0.018, 'rust', segs=10, bend=0.06)
+    for y in (-0.5, 0.5):
+        P.box('bracket', (0.16, 0.05, 0.2), (0.07, y, 0.0), 'rust', bev=0.008, segs=1)
+        P.box('bracket_plate', (0.016, 0.16, 0.24), (0.008, y, 0.0), 'steel', bev=0.004, segs=1)
+        P.bolts([(0.016, y + sy * 0.055, sz * 0.08) for sy in (-1, 1) for sz in (-1, 1)], normal=(1, 0, 0), r=0.01,
+                h=0.008, washer=True)
     P.fit_nominal(0.25, 1.60, 0.22)
-    P.views = [('a', 35, 20), ('b', 160, 20)]
+    P.views = [('a', 30, 18), ('b', 160, 20)]
 
 
 def build_mir_stock(P):
@@ -245,17 +306,33 @@ def build_roof_spikes(P):
             P.box('foot', (0.08, 0.08, 0.01), (sx * (L / 2 - 0.02), sg * (W / 2 - 0.02), 0.005), 'steel', bev=0.002,
                   segs=1)
             P.bolt((sx * (L / 2 - 0.02), sg * (W / 2 - 0.02), 0.01), r=0.008, h=0.006)
+    # centre spine along X and diagonal braces
+    P.box('spine', (L, 0.045, h + 0.01), (0.0, 0.0, (h + 0.01) / 2 + 0.01), 'rust', bev=0.005, segs=1)
+    for sg in (-1, 1):
+        d = V((L / 2, sg * W / 2, 0)).normalized()
+        P.box('brace', (math.hypot(L / 2, W / 2) - 0.05, 0.03, 0.03), (L / 4, sg * W / 4, 0.03), 'rust',
+              rot=(0, 0, math.degrees(math.atan2(sg * W / 2, L / 2))), bev=0.004, segs=1)
+    for sx in (-1, 1):
+        for sg in (-1, 1):
+            tri = [(0.0, 0.0), (-sx * 0.12, 0.0), (0.0, -sg * 0.12)]
+            if (-sx * 0.12) * (-sg * 0.12) < 0:
+                tri = [tri[0], tri[2], tri[1]]
+            P.prism('gusset', tri, 0.008, (sx * L / 2, sg * W / 2, h + 0.014), 'steel', bev=None)
     top = h + 0.01
     for sg in (-1, 1):
         for i in range(5):
             x = -L / 2 + 0.1 + (L - 0.2) * i / 4
-            spike(P, (x, sg * W / 2, top), (0.0, sg * 0.45, 1.0), 0.17, 0.026)
+            spike(P, (x, sg * W / 2, top), (-0.15, sg * 0.5, 1.0), 0.21, 0.03)
     for i in range(4):
         y = -W / 2 + 0.15 + (W - 0.3) * i / 3
-        spike(P, (L / 2, y, top), (0.9, 0.0, 0.7), 0.19, 0.028)
+        spike(P, (L / 2, y, top), (0.9, 0.0, 0.6), 0.23, 0.032)
     for i in range(3):
         y = -W / 3 + W / 3 * i
-        spike(P, (-L / 2, y, top), (-0.6, 0.0, 1.0), 0.15, 0.024)
+        spike(P, (-L / 2, y, top), (-0.7, 0.0, 1.0), 0.17, 0.026)
+    # the mohawk: tall spikes along the spine, swept back
+    for i in range(5):
+        x = 0.36 - 0.18 * i
+        spike(P, (x, 0.0, top + 0.004), (-0.45, 0.0, 1.0), 0.28 - 0.025 * i, 0.036)
     P.fit_nominal(1.20, 1.00, 0.15)
     P.views = [('a', 35, 30), ('b', 215, 30)]
 
@@ -455,7 +532,7 @@ def build_bf_plow(P):
     rib = back + [(0.37, 0.36), (0.36, 0.0)]
     for y in (-0.7, -0.35, 0.0, 0.35, 0.7):
         bend = 0.06 * (abs(y) / Wb) ** 2
-        P.prism('rib', [(x + bend, z) for (x, z) in reversed(rib)], 0.016, matrix=mat4((0, y, 0), (90, 0, 0)),
+        P.prism('rib', [(x + bend, z) for (x, z) in rib], 0.016, matrix=mat4((0, y, 0), (90, 0, 0)),
                 material='paint', bev=0.003, segs=1)
     P.box('crossbar', (0.04, 1.5, 0.05), (0.40, 0.0, 0.18), 'paint', bev=0.006, segs=1)
     # A-frame to the mount plate on the attach face, lift ram
@@ -497,6 +574,77 @@ def build_br_spikes(P):
     P.views = [('a', 215, 18), ('b', 340, 18)]
 
 
+# ------------------------------------------------------------------------------------------------ door style add-ons
+#
+# The doors themselves take their shape from each frame; these overlays dress any door in a style. LEFT side,
+# origin at the centre of the overlay's inner face (it lies on the door skin at y = 0 and stands out to +Y),
+# stretch parts with fit_nominal = [length, thickness, height].
+
+
+def build_door_armor_overlay(P):
+    """Bolted steel armour for the lower half of a door: two overlapping plates, an angle-iron lip on top,
+    big bolts, a weld bead."""
+    P.ao_distance = 0.04
+    t = 0.01
+    plate(P, [(-0.5, -0.25), (0.12, -0.25), (0.14, 0.2), (-0.48, 0.22), (-0.5, 0.12)], 0.0, t, 'steel')
+    plate(P, [(0.04, -0.24), (0.5, -0.25), (0.5, 0.16), (0.44, 0.21), (0.06, 0.2)], t, t, 'rust', tilt=-1.0)
+    # angle iron along the top edge
+    P.box('lip_h', (0.98, 0.04, 0.008), (0.0, 0.02, 0.24), 'steel', bev=0.002, segs=1)
+    P.box('lip_v', (0.98, 0.008, 0.04), (0.0, 0.036, 0.222), 'steel', bev=0.002, segs=1)
+    pts = []
+    for x in (-0.42, -0.24, -0.06):
+        pts += [(x, t, -0.2), (x, t, 0.15)]
+    for x in (0.12, 0.28, 0.44):
+        pts += [(x, 2 * t + 0.002, -0.19), (x, 2 * t + 0.002, 0.13)]
+    P.bolts(pts, normal=(0, 1, 0), r=0.012, h=0.008, washer=True)
+    P.tube('weld', [(0.05, 2 * t, -0.23), (0.07, 2 * t, 0.19)], 0.005, 'rust', segs=6)
+    P.fit_nominal(1.00, 0.03, 0.50)
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
+def build_door_cage_overlay(P):
+    """A welded wire cage over the window opening: a square-tube frame, a grid of rods, corner gussets and
+    four bolts."""
+    P.ao_distance = 0.04
+    L, H = 0.80, 0.42
+    for (sx, sz, w, h) in ((0, 1, L, 0.025), (0, -1, L, 0.025), (1, 0, 0.025, H), (-1, 0, 0.025, H)):
+        P.box('frame', (w, 0.025, h), (sx * (L / 2 - 0.0125), 0.0125, sz * (H / 2 - 0.0125)), 'steel', bev=0.003,
+              segs=1)
+    bm = bmesh.new()
+    nx, nz = 13, 7
+    for i in range(1, nx):
+        x = -L / 2 + L * i / nx
+        K.bm_sweep(bm, [(x, 0.018, -H / 2 + 0.02), (x, 0.018, H / 2 - 0.02)], 0.004, segs=6, caps=False)
+    for j in range(1, nz):
+        z = -H / 2 + H * j / nz
+        K.bm_sweep(bm, [(-L / 2 + 0.02, 0.012, z), (L / 2 - 0.02, 0.012, z)], 0.004, segs=6, caps=False)
+    P.mesh('mesh', bm, 'steel', sharp=80.0, wn=False)
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            a, b = -sx * 0.06, -sz * 0.06
+            tri = [(0, 0), (a, 0), (0, b)] if a * b > 0 else [(0, 0), (0, b), (a, 0)]
+            P.prism('gusset', tri, 0.006, matrix=mat4((sx * (L / 2 - 0.025), 0.027, sz * (H / 2 - 0.025)), (90, 0, 0)),
+                    material='steel', bev=None)
+            P.bolt((sx * (L / 2 - 0.0125), 0.025, sz * (H / 2 - 0.0125)), normal=(0, 1, 0), r=0.009, h=0.007)
+    P.fit_nominal(0.80, 0.03, 0.42)
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
+def build_door_fridge_handle(P):
+    """The fridge-door style: a 1960s chrome lever handle on its base and a blank chrome badge (origin at the
+    handle's base on the door skin, facing +Y)."""
+    P.ao_distance = 0.02
+    P.pillow('base', (0.05, 0.016, 0.34), (0.0, 0.008, 0.0), 'chrome', r=0.006, sub=1)
+    P.tube('handle', [(0.0, 0.012, -0.15), (0.0, 0.05, -0.12), (0.0, 0.055, 0.12), (0.0, 0.012, 0.15)], 0.011,
+           'chrome', segs=12, bend=0.04)
+    P.pillow('grip', (0.03, 0.012, 0.18), (0.0, 0.066, 0.0), 'ceramic', r=0.005, sub=1)
+    P.lathe('badge', [(0.0, 0.006), (0.04, 0.005), (0.046, 0.002), (0.046, 0.0)][::-1], loc=(0.0, 0.0, 0.235),
+            material='chrome', axis='Y', segs=24, close='start', sharp=50.0)
+    P.statics[-1].data.transform(Matrix.Translation((0.0, 0, 0.235)) @ Matrix.Diagonal((1.8, 1, 1, 1)) @
+                                 Matrix.Translation((0.0, 0, -0.235)))
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
 PARTS = {
     'bf_stock': build_bf_stock,
     'br_stock': build_br_stock,
@@ -512,6 +660,9 @@ PARTS = {
     'roof_solar': build_roof_solar,
     'arm_plates': build_arm_plates,
     'arm_planks': build_arm_planks,
+    'door_armor_overlay': build_door_armor_overlay,
+    'door_cage_overlay': build_door_cage_overlay,
+    'door_fridge_handle': build_door_fridge_handle,
 }
 
 
