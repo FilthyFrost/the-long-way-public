@@ -114,7 +114,7 @@ const LAMP_POWER = 3.6;
 /** the wide shadow map's reach over the workshop (m round the room's middle): 2 cm texels */
 const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
-const BEAM_DENSITY = 0.055;
+const BEAM_DENSITY = 0.085;
 /** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
 const STOVE_POWER = 1.4;
 const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
