@@ -106,6 +106,8 @@ export class ModGame implements PlayerHost {
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
   private readonly eyeP = { x: 0, y: 0, z: 0 };
+  /** pedals set by a script (the journey test, screenshots) instead of the keyboard */
+  scripted: { steer: number; throttle: number; brake: number; handbrake: number } | null = null;
   private hbHeld = 0;
   private hbWasDown = false;
   private hbIgnore = false;
@@ -419,14 +421,19 @@ export class ModGame implements PlayerHost {
         take: this.player.secondary || i.isDown('KeyF'),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
-      if (!i.isDown('KeyE') && !i.locked) this.player.release();
-    } else this.ui.prompt(false, '', -1);
+    } else {
+      // seated: the workbench words go away (the dash line shows instead)
+      this.ui.prompt(false, '', -1);
+      this.ui.showCard(null);
+      this.ui.showHeld(null);
+      this.ui.showPaint(null, 0);
+    }
     // vehicles
     for (const v of this.vehicles) {
       let input = null;
       if (v === this.seated) {
         const d = this.input.drive;
-        input = { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
+        input = this.scripted ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
     }

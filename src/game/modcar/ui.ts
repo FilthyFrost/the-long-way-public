@@ -15,7 +15,7 @@ const CSS = `
 .mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); padding: 4px 12px; border-radius: 12px; background: rgba(250,244,228,0.92); box-shadow: 0 2px 0 rgba(60,40,24,0.25); font-size: 15px; white-space: nowrap; }
 .mc-word b { color: #a3472e; font-weight: 600; }
 .mc-word small { color: #7a6a5a; margin-left: 6px; font-size: 12px; }
-.mc-card { position: absolute; left: calc(50% + 70px); top: calc(50% - 110px); width: 236px; padding: 10px 12px 8px; border-radius: 10px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); font-size: 13px; }
+.mc-card { position: absolute; left: calc(50% + 110px); top: calc(50% - 170px); width: 236px; padding: 10px 12px 8px; border-radius: 10px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); font-size: 13px; }
 .mc-card h4 { margin: 0 0 2px; font-size: 15px; }
 .mc-card .sub { color: #7a6a5a; font-size: 12px; margin-bottom: 6px; }
 .mc-card table { width: 100%; border-collapse: collapse; }

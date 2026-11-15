@@ -92,9 +92,10 @@ const rt = {
     if (game.seated) game.getOut();
     game.player.walker.place(x, z, 0, 0);
     const w = game.player.walker;
-    const eyeY = w.y + 1.62;
-    const heading = Math.atan2(p.z - z, p.x - x);
-    const pitch = Math.atan2(p.y - eyeY, Math.hypot(p.x - x, p.z - z));
+    // look from where the walker actually stands (placing keeps it out of the vehicle's body)
+    const eye = w.eye();
+    const heading = Math.atan2(p.z - w.z, p.x - w.x);
+    const pitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
     game.input.lookYaw = heading;
     game.input.lookPitch = pitch;
     game.viewMode = 'cockpit';
@@ -203,23 +204,17 @@ const rt = {
     game.simulate(0);
     return v.sys.running;
   },
-  /** drive with fixed pedals (the player's input is bypassed) */
+  /** drive with fixed pedals (the player's input is bypassed); the world goes on as in play */
   drive: (seconds: number, throttle = 1, steer = 0, brake = 0) => {
     const v = game.seated;
     if (!v) return null;
     v.sim.setParkBrake(false);
+    game.scripted = { steer, throttle, brake, handbrake: 0 };
     const dt = 1 / 60;
-    const d = game.input.drive;
-    for (let t = 0; t < seconds; t += dt) {
-      game.input.update(0);
-      d.throttle = throttle;
-      d.steer = steer;
-      d.brake = brake;
-      v.step(dt, game.ground, game.modEnv(v), { steer, throttle, brake, handbrake: 0 });
-      for (const o of game.vehicles) if (o !== v) o.step(dt, game.ground, game.modEnv(o), null);
-      game.step(0, 1);
-    }
-    return { kmh: v.sim.kmh, place: game.place, rpm: v.sim.rpm, x: v.sim.px };
+    for (let t = 0; t < seconds; t += dt) game.step(dt, 1);
+    game.scripted = null;
+    const u = game.seated ?? v;
+    return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
   },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),

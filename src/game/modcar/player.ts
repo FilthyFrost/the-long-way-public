@@ -500,7 +500,8 @@ export class ModPlayer {
           word = `装到 <b>${name(t.loose.part!)}</b> 上<small>按住 E</small>`;
           break;
         case 'ghost': {
-          const inst = (held as { inst: PartInstance }).inst;
+          if (held?.kind !== 'part') break;
+          const inst = held.inst;
           const verb = t.replace ? '替换' : '装上';
           word = `${verb} <b>${name(inst)}</b> · ${t.mount.label[ui.lang]}<small>按住 E / 左键</small>`;
           card = this.card(t.v, t.mount, t.sub, inst);
@@ -515,12 +516,14 @@ export class ModPlayer {
           break;
         }
         case 'pour': {
-          const use = toolUse((held as { tool: Tool }).tool, t.v.build);
+          if (held?.kind !== 'tool') break;
+          const use = toolUse(held.tool, t.v.build);
           word = use.can ? `${use.word[ui.lang]}<small>按住 E</small>` : `${use.word[ui.lang]}：${use.why?.[ui.lang] ?? ''}`;
           break;
         }
         case 'surface': {
-          const tool = (held as { tool: Tool }).tool;
+          if (held?.kind !== 'tool') break;
+          const tool = held.tool;
           const what = t.mount ? name(t.v.build.parts[t.mount.id]) : t.v.view.frame.name[ui.lang];
           word = `${tool.kind === 'spray' ? '喷漆' : '擦洗'} <b>${what}</b><small>按住左键${tool.kind === 'spray' ? ' · 滚轮换色' : ''}</small>`;
           break;

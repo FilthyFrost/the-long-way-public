@@ -26,11 +26,34 @@ function fetchGlb(url: string): Promise<THREE.Group | null> {
   return new Promise((resolve) => {
     loader.load(
       url,
-      (g) => resolve(g.scene),
+      (g) => {
+        g.scene.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) rgbColours(mesh.geometry);
+        });
+        resolve(g.scene);
+      },
       undefined,
       () => resolve(null),
     );
   });
+}
+
+/**
+ * The baked AO comes as an RGBA colour attribute; our cel shaders read colour as RGB. Keep three
+ * components (and plain floats, so the shaders need no normalisation define).
+ */
+function rgbColours(g: THREE.BufferGeometry): void {
+  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!c || c.itemSize === 3) return;
+  const n = c.count;
+  const out = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    out[i * 3] = c.getX(i);
+    out[i * 3 + 1] = c.getY(i);
+    out[i * 3 + 2] = c.getZ(i);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
 }
 
 /** a frame's model (a stand-in body box when the file is missing) */

@@ -8,6 +8,7 @@
 import type { AxleSpec, VehicleSpec } from '../vehicle/spec';
 import { stockBuild } from './build';
 import { frameDef, hubsOf } from './frames';
+import { midHeight, partGeo } from './geo';
 import { partDef } from './parts';
 import type { Build, FrameDef, MountDef, PartDef, PartInstance, V3 } from './types';
 
@@ -113,7 +114,9 @@ function masses(build: Build, frame: FrameDef, withDriver: boolean): Mass[] {
     const p = partDef(inst.part);
     let kg = p.mass + fuelKg(inst) + (inst.fluids.oilL ?? 0) * 0.9 + (inst.fluids.coolantL ?? 0);
     for (const si of Object.values(inst.sub)) kg += partDef(si.part).mass;
-    out.push({ m: kg, p: { x: m.pos.x, y: m.pos.y + (CG_UP[p.cat] ?? 0), z: m.pos.z } });
+    // the model's bounds say where its mass sits; without a model, a rule of thumb per category
+    const up = midHeight(p.id) ?? CG_UP[p.cat] ?? 0;
+    out.push({ m: kg, p: { x: m.pos.x, y: m.pos.y + up, z: m.pos.z } });
   }
   if (withDriver) {
     const seat = frame.mounts.find((m) => m.driver) ?? frame.mounts.find((m) => m.cat === 'seat');
@@ -372,9 +375,12 @@ export function derive(build: Build): Derived {
   // the driver's eye: on the driver's seat, or where it would be
   const seatMount = frame.mounts.find((m) => m.driver) ?? frame.mounts.find((m) => m.cat === 'seat');
   const seat = seatMount ? at(seatMount.id) : null;
-  const eyeUp = seat?.seat?.eyeUp ?? 0.7;
-  const eyeBack = seat?.seat?.eyeBack ?? 0;
-  const eyeModel = seatMount ? { x: seatMount.pos.x - eyeBack, y: seatMount.pos.y + eyeUp, z: seatMount.pos.z } : { x: 0, y: 1.2, z: 0 };
+  // the seat model's EYE when it has one (game frame of the part), else the catalogue's numbers
+  const geoEye = seat ? partGeo(seat.id)?.eye : undefined;
+  const eyeUp = geoEye ? geoEye[1] : (seat?.seat?.eyeUp ?? 0.7);
+  const eyeBack = geoEye ? -geoEye[0] : (seat?.seat?.eyeBack ?? 0);
+  const eyeSide = geoEye ? (seatMount && seatMount.side > 0 ? -geoEye[2] : geoEye[2]) : 0;
+  const eyeModel = seatMount ? { x: seatMount.pos.x - eyeBack, y: seatMount.pos.y + eyeUp, z: seatMount.pos.z + eyeSide } : { x: 0, y: 1.2, z: 0 };
 
   const st = steering?.def.steering;
 
