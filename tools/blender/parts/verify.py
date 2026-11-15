@@ -138,12 +138,28 @@ def main(args):
     ids = [f[:-4] for f in files]
     lines = []
     n_err = 0
+    tri_of = {}
     for f, pid in zip(files, ids):
         tris, errs, warns, movers, empties = check(os.path.join(folder, f), pid)
+        tri_of[pid] = tris
         n_err += len(errs)
         flag = 'ERR ' if errs else ('warn' if warns else 'ok  ')
         extra = ' '.join(movers + empties)
         lines.append(f'{flag} {pid:28s} {tris:6d}  {extra}  {"; ".join(errs + warns)}')
+    # a mounted wheel (rim + its tyre variant) should stay within 6k triangles per wheel
+    over = []
+    for pid in ids:
+        if '@' not in pid:
+            continue
+        tyre, rim = pid.split('@')
+        if rim not in tri_of:
+            continue
+        k = 2 if rim == 'rim_dually' else 1
+        per_wheel = (tri_of[rim] + k * tri_of[pid]) / k
+        if per_wheel > 6000:
+            over.append(f'{tyre}@{rim} {per_wheel:.0f}')
+    lines.append(f'wheels: {len(over)} rim+tyre combinations over 6000 tris per wheel' +
+                 (': ' + ', '.join(over) if over else ''))
     missing = [p for p in CATALOGUE if p not in ids]
     for p in missing:
         lines.append(f'ERR  {p:28s}  missing file')

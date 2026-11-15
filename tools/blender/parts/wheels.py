@@ -38,20 +38,20 @@ RIMS = {
 # (in pitches), zig(row, col) shifts a breakpoint sideways (m).
 
 TYRES = {
-    'tire_road': dict(h=0.12, W=0.155, Tw=0.80, d=0.0085, c=0.006, n=28, fr=[0, 0.76],
+    'tire_road': dict(h=0.12, W=0.155, Tw=0.80, d=0.0085, c=0.006, n=24, fr=[0, 0.76],
                       cols=[-1.16, -1.0, -0.64, -0.53, -0.08, 0.08, 0.53, 0.64, 1.0, 1.16],
                       cells=['0', '0', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                       walls=[(0.40, -0.004), (0.72, -0.002)],
                       shear=lambda u: 0.10 * u * u),
-    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=26, fr=[0, 0.84],
+    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=22, fr=[0, 0.84],
                            cols=[-1.12, -1.0, -0.72, -0.61, -0.27, -0.16, 0.16, 0.27, 0.61, 0.72, 1.0, 1.12],
                            cells=['0', '0', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                            white=(0.22, 0.62), text_at=0.80, text_size=0.6, text_arcs=((90.0, 44.0), (270.0, 30.0))),
-    'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=20, fr=[0, 0.5],
+    'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=17, fr=[0, 0.5],
                          cols=[-1.26, -1.12, -1.0, -0.68, -0.56, -0.22, -0.1, 0.1, 0.22, 0.56, 0.68, 1.0, 1.12, 1.26],
                          cells=['0', '0', '0', 'G', '1', 'G', '01', 'G', '0', 'G', '1', '1', '1'],
                          shear=lambda u: 0.12 * u, text_size=1.3, text_at=0.5),
-    'tire_tractor': dict(h=0.30, W=0.32, Tw=0.90, d=0.042, c=0.028, n=17, fr=[0, 0.38, 0.62],
+    'tire_tractor': dict(h=0.30, W=0.32, Tw=0.90, d=0.042, c=0.028, n=15, fr=[0, 0.38, 0.62],
                          cols=[-1.30, -1.0, -0.62, -0.26, -0.05, 0.05, 0.26, 0.62, 1.0, 1.30],
                          cells=['0', '0', '0', '0', 'G', '2', '2', '2', '2'],
                          shear=lambda u: 0.95 * abs(u), chamfer=0.006, text_at=0.42, text_size=0.6),
@@ -62,12 +62,12 @@ TYRES = {
                       cols=[-1.04, -0.72, -0.38, -0.06, 0.06, 0.38, 0.72, 1.04],
                       cells=['01', '1', '0', 'R', '1', '0', '01'],
                       shear=lambda u: 0.55 * u, round=True, text_at=0.42, text_size=0.85),
-    'tire_snow': dict(h=0.12, W=0.175, Tw=0.82, d=0.0115, c=0.007, n=26, fr=[0, 0.8],
+    'tire_snow': dict(h=0.12, W=0.175, Tw=0.82, d=0.0115, c=0.007, n=22, fr=[0, 0.8],
                       cols=[-1.18, -1.0, -0.64, -0.55, -0.22, -0.12, 0.12, 0.22, 0.55, 0.64, 1.0, 1.18],
                       cells=['0', '0', 'G', '0', 'G', '0', 'G', '0', 'G', '0', '0'],
                       zig=lambda k, j: (0.0035 if (k + j) % 2 else -0.0035) if j in (2, 3, 8, 9) else 0.0,
                       shear=lambda u: 0.18 * abs(u) + 0.08 * (1 if int((u + 2) * 3.0) % 2 else -1)),
-    'tire_truck': dict(h=0.14, W=0.215, Tw=0.84, d=0.012, c=0.005, n=26, fr=[0, 0.5],
+    'tire_truck': dict(h=0.14, W=0.215, Tw=0.84, d=0.012, c=0.005, n=22, fr=[0, 0.5],
                        walls=[(0.40, -0.005), (0.74, -0.002)],
                        cols=[-1.12, -1.0, -0.66, -0.57, -0.24, -0.15, 0.15, 0.24, 0.57, 0.66, 1.0, 1.12],
                        cells=['01', '01', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '01', '01'],
@@ -582,9 +582,9 @@ def truck_disc(P, R, yf, hand_holes=6, lugs=8, pcd=0.0825, cap=True, material='s
     prof = [(0.06, yf), (0.105, yf), (0.118, yf - f * 0.008), (0.135, yf - f * 0.012), (0.17, yf - f * 0.018),
             (0.195, yf - f * 0.026), (0.212, yf - f * 0.034)]
     rings = [(r, z, z - f * th) if f > 0 else (r, z + th, z) for (r, z) in prof]
-    ns = 30
+    ns = 24
     P.polar('disc', rings, lambda k: [math.tau * (j + 0.5) / ns for j in range(ns)],
-            hole=lambda k, j: k == 3 and (j % (ns // hand_holes)) in (1, 2, 3), material=material, axis='Y',
+            hole=lambda k, j: k == 3 and (j % (ns // hand_holes)) in (1, 2), material=material, axis='Y',
             bev=0.002, bsegs=1)
     nut_y = yf + f * 0.0005
     if f > 0:
@@ -592,7 +592,7 @@ def truck_disc(P, R, yf, hand_holes=6, lugs=8, pcd=0.0825, cap=True, material='s
     if cap:
         capp = [(0.0, yf + f * 0.06), (0.03, yf + f * 0.057), (0.048, yf + f * 0.044), (0.056, yf + f * 0.02),
                 (0.058, yf)]
-        P.lathe('cap', capp[::-1] if f > 0 else capp, material='chrome', axis='Y', segs=24, close='start' if f > 0
+        P.lathe('cap', capp[::-1] if f > 0 else capp, material='chrome', axis='Y', segs=18, close='start' if f > 0
                 else 'end', sharp=50.0)
 
 
