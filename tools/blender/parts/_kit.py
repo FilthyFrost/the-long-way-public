@@ -1144,6 +1144,9 @@ CONVENTIONS = [
     '  lamps/mirror body mount; stretch parts: centre of the face that touches the body (bumpers: x = 0 plane,',
     '  front bumper extends +x, rear -x; roof: bottom face; armour: inner face, extends to -z = outwards left).',
     '  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y.',
+    'Gear levers: LEVER is the moving lever, its origin the pivot; the game turns it about z. Floor levers pivot',
+    '  under the floor; gl_foot (moto, LEFT side) on the selector shaft axis, the toe peg forward-up (+x +y) and',
+    '  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg.',
 ]
 
 

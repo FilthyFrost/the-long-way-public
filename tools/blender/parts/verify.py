@@ -21,7 +21,7 @@ rad_big bat_moto bat_std bat_truck tank_moto tank_std tank_big tank_drum exh_sto
 turbo_small rim_steel13 rim_alloy15 rim_off16 rim_moto18 rim_truck19 rim_dually rim_cart tire_road tire_whitewall
 tire_offroad tire_snow tire_slick tire_tractor tire_moto tire_truck steer_std steer_bad steer_sport steer_bar
 steer_ship seat_bucket seat_bench seat_race seat_toilet seat_armchair seat_office seat_saddle seat_crate radio_old
-radio_tape hb_stock hb_drift gl_stock gl_short ign_key ign_button horn_beep horn_trumpet horn_air bf_stock
+radio_tape hb_stock hb_drift gl_stock gl_short gl_foot ign_key ign_button horn_beep horn_trumpet horn_air bf_stock
 bf_bullbar bf_ram bf_plow br_stock br_spikes hl_round hl_square hl_spot tl_stock tl_round mir_stock mir_truck
 roof_rack roof_lightbar roof_solar roof_spikes arm_plates arm_planks""".split()
 

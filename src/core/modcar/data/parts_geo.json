@@ -15,7 +15,10 @@
   "  seats floor attach centre facing +x; steering column end, wheel faces -x, turns about x (bar: about y);",
   "  lamps/mirror body mount; stretch parts: centre of the face that touches the body (bumpers: x = 0 plane,",
   "  front bumper extends +x, rear -x; roof: bottom face; armour: inner face, extends to -z = outwards left).",
-  "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y."
+  "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y.",
+  "Gear levers: LEVER is the moving lever, its origin the pivot; the game turns it about z. Floor levers pivot",
+  "  under the floor; gl_foot (moto, LEFT side) on the selector shaft axis, the toe peg forward-up (+x +y) and",
+  "  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg."
  ],
  "parts": {
   "arm_planks": {
@@ -977,6 +980,35 @@
     "steel",
     "trim"
    ]
+  },
+  "gl_foot": {
+   "bbox": [
+    [
+     -0.0255,
+     -0.0155,
+     -0.0669
+    ],
+    [
+     0.1746,
+     0.0813,
+     0.0245
+    ]
+   ],
+   "triangles": 1452,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "movers": {
+    "LEVER": {
+     "pivot": [
+      0.0,
+      0.0,
+      -0.0
+     ]
+    }
+   }
   },
   "gl_short": {
    "bbox": [
