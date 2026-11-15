@@ -100,10 +100,13 @@ def build(args):
     common.extend(IN.boot_interior())
     common.extend(IN.apertures())
     common.extend(trims(ex))
+    common.extend(ex.greenhouse(-0.03))
+    common.extend(aperture_seals(ex))
     left = K.Buf().extend(common).extend(lb_left)
     right = K.Buf().extend(common).extend(lb_right).extend(ex.fuel_details())
     body = K.Buf().extend(left).extend(right.mirrored())
     body.extend(centre_trims(ex))
+    body.extend(IN.engine_bay_asym())
     o_body = body.to_object('BODY')
     print('[sedan] body', round(time.time() - t0, 1), 's')
 
@@ -223,16 +226,34 @@ def trims(ex):
     # mirror base (the mirror part sits on it): small pad at the A pillar foot
     mp, mn = mirror_mount_point()
     b.extend(K.box_buf((-0.04, -0.012, -0.004), (0.04, 0.004, 0.022), 'trim', 0.006, 2, xf=K.mat4_trs(mp)))
-    # bumper brackets (steel), visible when a bumper is removed
-    for (x, dx) in ((S.front_x(0.55, 0.43) - 0.01, 0.07), (S.rear_x(0.55, 0.43) + 0.01, -0.07)):
-        for y in (0.55,):
-            b.extend(K.box_buf((min(x, x + dx), y - 0.03, 0.40), (max(x, x + dx), y + 0.03, 0.46), 'steel', 0.006, 2))
+    # bumper brackets (steel), visible when a bumper is removed: a web and an end plate each
+    for (x, dx) in ((float(S.front_x(0.45, 0.43)) - 0.015, 0.075), (float(S.rear_x(0.45, 0.43)) + 0.015, -0.075)):
+        y = 0.45
+        b.extend(K.box_buf((min(x, x + dx), y - 0.004, 0.405), (max(x, x + dx), y + 0.004, 0.455), 'steel', 0.002, 1))
+        xe = x + dx
+        b.extend(K.box_buf((min(xe, xe - np.sign(dx) * 0.006), y - 0.03, 0.40), (max(xe, xe - np.sign(dx) * 0.006), y + 0.03, 0.46), 'steel', 0.002, 1))
+        b.extend(K.box_buf((min(x, x + dx * 0.5), y - 0.025, 0.426), (max(x, x + dx * 0.5), y + 0.025, 0.434), 'steel', 0.002, 1))
     # sill chrome strip along the rocker (on the body below the doors)
     xs = np.linspace(D['fd_front'], D['rd_rear'], 12)
     P, N = S.SIDE_L.to3d(np.stack([xs, np.full(len(xs), 0.245)], 1))
     prof = np.array([(0.0, -0.008), (0.003, -0.006), (0.004, 0.0), (0.003, 0.006), (0.0, 0.008)])
     V, NN, T = K.sweep(P, (0, 0, 1), np.stack([-prof[:, 0], prof[:, 1]], 1) * np.array([-1, 1]), closed=False)
     b.add(V, NN, T, 'chrome')
+    return b
+
+
+def aperture_seals(ex):
+    """Rubber seals round the door apertures in the greenhouse (on the flange, 15 mm in)."""
+    b = K.Buf()
+    for w in ('F', 'R'):
+        so = ex.cut['doorG_' + w].side('out')
+        P = so['P'] - so['N'] * 0.016 + so['E'] * 0.004
+        P = K.resample(P, 0.05, closed=False)
+        b.extend(K.tube_buf(P, 0.0065, 'rubber', 4))
+    op = ex.opening_out
+    P = op['P'] - op['N'] * 0.05
+    P = K.resample(P, 0.06, closed=False)
+    b.extend(K.tube_buf(P, 0.007, 'rubber', 4))
     return b
 
 
@@ -322,14 +343,15 @@ def mounts(ex, panels, it):
     E.append(mount('engine', (1.27, 0.0, 0.26), dict(cat='engine', space_min=[-0.36, -0.30, 0.0], space_max=[0.40, 0.30, 0.58])))
     E.append(mount('gearbox', (0.60, 0.0, 0.30), dict(cat='gearbox', space_min=[-0.30, -0.13, 0.0], space_max=[0.24, 0.13, 0.22])))
     E.append(mount('radiator', (1.715, 0.0, 0.41), dict(cat='radiator', space_min=[-0.07, -0.34, 0.0], space_max=[0.035, 0.34, 0.40])))
-    E.append(mount('battery', (1.50, 0.43, 0.57), dict(cat='battery', space_min=[-0.14, -0.10, 0.0], space_max=[0.14, 0.10, 0.24])))
+    E.append(mount('battery', (1.52, 0.31, 0.555), dict(cat='battery', space_min=[-0.14, -0.10, 0.0], space_max=[0.14, 0.10, 0.24])))
     E.append(mount('fuelTank', (-1.70, 0.0, 0.205), dict(cat='fuelTank', space_min=[-0.26, -0.42, 0.0], space_max=[0.24, 0.42, 0.16])))
     E.append(mount('exhaust', (1.00, -0.14, 0.24), dict(cat='exhaust', tail=[-3.05, -0.26, -0.01], route='under floor, right of the tunnel')))
     p, d = IN.steering_mount()
     E.append(mount('steering', tuple(p), dict(cat='steering', column_deg=24.0), rot=K.frame_from(d, (math.sin(math.radians(24)), 0, math.cos(math.radians(24))))))
+    # seat mounts at the floor attachment (the seat part's origin), floor_z repeated for the game
     for name, x, y, drv in (('seat_driver', IN.SEAT_X, IN.DRIVER_Y, True), ('seat_pass', IN.SEAT_X, -IN.DRIVER_Y, False), ('seat_rear', IN.REAR_SEAT_X, 0.0, False)):
-        z = 0.48 if name != 'seat_rear' else 0.47
-        E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=IN.FLOOR_Z if name != 'seat_rear' else 0.30,
+        z = IN.FLOOR_Z + (0.035 if name != 'seat_rear' else 0.0)
+        E.append(mount(name, (x, y, z), dict(cat='seat', driver=drv, floor_z=round(z, 4), cushion_z=0.48,
                                               side=0 if name == 'seat_rear' else (-1 if y > 0 else 1))))
     for pname, info in panels.items():
         if info['mount'] is None:
@@ -435,5 +457,10 @@ def previews(quick):
     PV.orbit((0, 0, 0.7), 35, 12, 7.6, lens=50)
     PV.render(f'{SCRATCH}_stripped.png', res=res, samples=smp)
     hide(['P_door_FL', 'P_door_RL', 'P_door_FR', 'P_door_RR', 'P_hood', 'P_trunk'], False)
-    PV.orbit((0.0, 0, 0.35), 200, -14, 6.0, lens=40)
+    g = bpy.data.objects.get('preview_ground')
+    if g:
+        g.hide_render = True
+    PV.camera((2.2, -2.6, -1.6), (0.0, 0.0, 0.25), lens=35)
     PV.render(f'{SCRATCH}_under.png', res=res, samples=smp)
+    if g:
+        g.hide_render = False

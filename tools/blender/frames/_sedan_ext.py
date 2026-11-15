@@ -495,7 +495,7 @@ class Exterior:
         g = K.rounded_poly(pts, [0, 0.03, 0.03, 0], 0.03, closed=False, arc_step=0.008)
         P, N = S.FRONT_L.to3d(g)
         self.open['grille'] = dict(uv=S.CL.to2d(P), P=P, N=N, yz=g)
-        c = K.circle_loop(D['lamp_y'], D['lamp_z'], D['lamp_d'] / 2, 0.012)
+        c = K.circle_loop(D['lamp_y'], D['lamp_z'], D['lamp_d'] / 2, 0.015)
         P, N = S.FRONT_L.to3d(c)
         self.open['lamp'] = dict(uv=S.CL.to2d(P), P=P, N=N, yz=c)
         # tail lamp recess (rear view coordinates: y, z) and the plate recess (left half, open at y = 0)
@@ -707,7 +707,9 @@ class Exterior:
         return K.Buf().add(V, N, T, 'paint')
 
     # ------------------------------------------------------------------ greenhouse
-    def greenhouse(self):
+    def greenhouse(self, level=0.0):
+        """Greenhouse body (pillars, roof rails, header) outside; level < 0: the same region that far inside,
+        facing the cabin (pillar and rail trims)."""
         J = self.J
         gus = S.g_u_samples()
         gts = S.g_t_samples()
@@ -752,6 +754,13 @@ class Exterior:
         p.add(np.stack([np.zeros(len(tt)), tt], 1))
         loop = p.loop()
         pts, sp = S.grid_from(gus, gts)
+        if level < 0:
+            loop = K.Loop(K.resample(loop.uv, 0.035, closed=True))
+            cu = np.linspace(0, UG, int(UG / 0.09))
+            ct = np.unique(np.concatenate([np.linspace(S.G_T[0], S.G_T[2], 6), np.linspace(S.G_T[2], S.G_T[4], 5)]))
+            pts, sp = S.grid_from(cu, ct)
+            V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp, level=level)
+            return K.Buf().add(V, -N, T, 'plastic_int')
         V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
 
@@ -837,14 +846,14 @@ class Exterior:
         body.add(V, N, Tr, 'paint')
         for w in ('F', 'R'):
             s_ = self.cut['doorL_' + w].side('in')
-            V, N, Tr = K.roll_edge(s_['P'], s_['N'], s_['E'], ER, 0.10, 0.03, 2, closed=False)
+            V, N, Tr = K.roll_edge(s_['P'], s_['N'], s_['E'], ER, 0.10, 0.03, 2, closed=False, hem_segs=0)
             panels.setdefault('door_' + w, K.Buf()).add(V, N, Tr, 'paint')
             c = self.cut['doorG_' + w]
             so = c.side('out')
-            V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.08, 0.0, 2, closed=False)
+            V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.032, 0.0, 2, closed=False)
             body.add(V, N, Tr, 'paint')
             si = c.side('in')
-            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.035, 0.008, 2, closed=False)
+            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.035, 0.008, 2, closed=False, hem_segs=0)
             panels['door_' + w].add(V, N, Tr, 'paint')
             # glass openings of the frame
             for name, poly in self.cut['winG_' + w]:
@@ -859,13 +868,13 @@ class Exterior:
             V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.03, 0.0, 2, closed=False)
             body.add(V, N, Tr, 'paint')
             si = c.side('in')
-            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.025, 0.008, 2, closed=False)
+            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.025, 0.008, 2, closed=False, hem_segs=0)
             panels.setdefault(name, K.Buf()).add(V, N, Tr, 'paint')
         # windscreen and rear window openings
         for kind, cen in (('ws', (float(S.ws_x(0.0, 1.15)) - 0.1, 0.0, 1.15)), ('rw', (float(S.rw_x(0.0, 1.15)) + 0.1, 0.0, 1.15))):
             wv = self.win[kind]
             E = side_dir(wv['P'], wv['N'], np.tile(cen, (len(wv['P']), 1)), False)
-            V, N, Tr = K.roll_edge(wv['P'], wv['N'], E, 0.004, 0.02, 0.0, 2, closed=False)
+            V, N, Tr = K.roll_edge(wv['P'], wv['N'], E, 0.004, 0.032, 0.0, 2, closed=False)
             body.add(V, N, Tr, 'paint')
         # wheel arches: rolled lip into the wheel well (arch circle part only)
         for (P, N), uv in zip(self.arch_P, self.arch_uv):
@@ -886,14 +895,14 @@ class Exterior:
         gr = self.open['grille']
         ref = np.tile([gr['P'][:, 0].mean(), 0.0, 0.66], (len(gr['P']), 1))
         E = side_dir(gr['P'], gr['N'], ref, False)
-        V, N, T = K.roll_edge(gr['P'], gr['N'], E, 0.005, 0.03, 0.0, 2, closed=False)
+        V, N, T = K.roll_edge(gr['P'], gr['N'], E, 0.005, 0.03, 0.0, 2, closed=False, flange_dir=(-1, 0, 0))
         b.add(V, N, T, 'paint')
         b.extend(self.grille())
         # --- headlamp buckets
         lp = self.open['lamp']
         c3 = S.FRONT_L.to3d(np.array([[D['lamp_y'], D['lamp_z']]]))[0][0]
         E = side_dir(lp['P'], lp['N'], np.tile(c3, (len(lp['P']), 1)), True)
-        V, N, T = K.roll_edge(lp['P'], lp['N'], E, 0.006, 0.012, 0.0, 2, closed=True)
+        V, N, T = K.roll_edge(lp['P'], lp['N'], E, 0.006, 0.012, 0.0, 2, closed=True, flange_dir=(-1, 0, 0))
         b.add(V, N, T, 'paint')
         ring = V.reshape(-1, len(lp['P']), 3)[-1]
         depth = 0.075
@@ -913,7 +922,7 @@ class Exterior:
         tl = self.open['tail']
         ct = tl['P'].mean(0)
         E = side_dir(tl['P'], tl['N'], np.tile(ct, (len(tl['P']), 1)), True)
-        V, N, T = K.roll_edge(tl['P'], tl['N'], E, 0.004, 0.045, 0.0, 2, closed=True)
+        V, N, T = K.roll_edge(tl['P'], tl['N'], E, 0.004, 0.045, 0.0, 2, closed=True, flange_dir=(1, 0, 0))
         b.add(V, N, T, 'paint')
         ring = V.reshape(-1, len(tl['P']), 3)[-1]
         b.extend(K.fill_loop(ring, (-1, 0, 0), 'trim', interior_step=0.03))
@@ -922,7 +931,7 @@ class Exterior:
         pl = self.open['plate']
         ref = np.tile([pl['P'][:, 0].mean(), 0.0, 0.54], (len(pl['P']), 1))
         E = side_dir(pl['P'], pl['N'], ref, False)
-        V, N, T = K.roll_edge(pl['P'], pl['N'], E, 0.003, 0.012, 0.0, 2, closed=False)
+        V, N, T = K.roll_edge(pl['P'], pl['N'], E, 0.003, 0.012, 0.0, 2, closed=False, flange_dir=(1, 0, 0))
         b.add(V, N, T, 'paint')
         bot = V.reshape(-1, len(pl['P']), 3)[-1]
         zz = np.linspace(bot[-1, 2], bot[0, 2], 8)[1:-1]
