@@ -710,6 +710,10 @@ class Garage implements GarageScene {
     return { meshes, triangles: Math.round(triangles), casterTriangles: Math.round(casterTriangles), byName };
   }
 
+  radio(): { on: boolean; song: number; x: number; y: number; z: number } | null {
+    return this.machines.radio();
+  }
+
   telemetry(): Record<string, string | number | boolean> {
     const [g0, g1] = this.doorGap();
     return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, ...this.machines.telemetry() };

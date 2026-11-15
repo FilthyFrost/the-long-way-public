@@ -1,8 +1,8 @@
 /**
  * The workshop's machines at work (docs/MODCAR.md §9): the lift goes up and down (with a car standing
  * between its posts it takes it up by the sills, the wheels left hanging), the tyre changer
- * puts a tyre on a wheel lying on its turntable (or takes it off), the radio plays (silently, for now:
- * its dial lights and the pointer finds a station), the sink fills the water bottle, the paint gun on
+ * puts a tyre on a wheel lying on its turntable (or takes it off), the radio plays (its dial lights, the
+ * pointer finds the station; the game plays the song, radio.ts), the sink fills the water bottle, the paint gun on
  * its long hose gives the car standing nearest a whole new coat in the colour of the can in hand, the
  * clock keeps the day's time, the fan turns.
  *
@@ -17,6 +17,7 @@ import type { Text } from '../../core/modcar/types';
 import type { GarageContext, GarageDevice } from './garageStub';
 import type { GarageLook } from './garageLook';
 import type { Loose } from './loose';
+import { SONGS as RADIO_SONGS } from './radio';
 import type { ModVehicle } from './vehicle';
 
 const text = (zh: string, en: string): Text => ({ zh, en });
@@ -36,8 +37,8 @@ export interface MachineRig {
 const LIFT_TRAVEL = 1.7;
 const LIFT_ENGAGE = 0.06;
 
-/** made-up station names and songs the radio "plays" (it is silent for now) */
-const SONGS = ['「晚风吹过加油站」', '「老路上的月亮」', '「拖拉机进城」', '「明天还要往西开」', '「雨刷器华尔兹」'];
+/** the stations' songs (radio.ts: made up, synthesized) by their names */
+const SONGS = RADIO_SONGS.map((s) => `「${s.name}」`);
 
 export class Machines {
   readonly devices: GarageDevice[] = [];
@@ -103,7 +104,7 @@ export class Machines {
         this.radioOn = !this.radioOn;
         if (this.radioOn) this.song = (this.song + 1) % SONGS.length;
         this.ctx?.sound('switch');
-        if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${SONGS[this.song]}。（声音以后再接上）`, 3);
+        if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${SONGS[this.song]}。`, 3);
       },
     );
     add('sink', () => this.sinkWord(), () => this.sinkUse());
@@ -324,6 +325,12 @@ export class Machines {
     if (mm) mm.rotation.x = -(h % 1) * Math.PI * 2;
     const fan = mv.get('FAN');
     if (fan) fan.rotation.x += dt * 9;
+  }
+
+  /** the set on the tool chest: on or off, its station, where it stands */
+  radio(): { on: boolean; song: number; x: number; y: number; z: number } | null {
+    const d = this.rig.device('radio');
+    return d ? { on: this.radioOn, song: this.song, x: d.x, y: d.y, z: d.z } : null;
   }
 
   telemetry(): Record<string, string | number | boolean> {

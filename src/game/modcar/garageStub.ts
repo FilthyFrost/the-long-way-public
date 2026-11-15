@@ -74,6 +74,8 @@ export interface GarageScene {
   shadowFocus?(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void;
   /** a garage whose doors open: are they open (wide enough to drive out)? */
   doorsOpen?(): boolean;
+  /** a garage with a radio set of its own: is it on, which station (radio.ts SONGS), where it stands (world) */
+  radio?(): { on: boolean; song: number; x: number; y: number; z: number } | null;
   /** for the test hook: the doors, the lamps, the devices' state */
   telemetry(): Record<string, string | number | boolean>;
   dispose(): void;
