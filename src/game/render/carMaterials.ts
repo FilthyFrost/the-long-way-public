@@ -84,8 +84,8 @@ interface Recipe {
 }
 
 const RECIPES: Record<CarMaterialName, Recipe> = {
-  paint: { family: 'paint', base: [0.5, 0.06, 0.035], look: [1.0, 0.9984, 0.55, 0], wear: [1, 1, 1], ink: 0.0 },
-  paint_b: { family: 'paint', base: [0.78, 0.74, 0.66], look: [1.0, 0.9984, 0.55, 0], wear: [1, 1, 1], ink: 0.31 },
+  paint: { family: 'paint', base: [0.5, 0.06, 0.035], look: [1.0, 0.9975, 0.55, 0], wear: [1, 1, 1], ink: 0.0 },
+  paint_b: { family: 'paint', base: [0.78, 0.74, 0.66], look: [1.0, 0.9975, 0.55, 0], wear: [1, 1, 1], ink: 0.31 },
   ceramic: { family: 'paint', base: [0.86, 0.87, 0.85], look: [0.75, 0.996, 0.4, 0], wear: [0.6, 0, 0], ink: 0.62 },
   chrome: { family: 'metal', base: [0.92, 0.94, 0.97], look: [1.0, 0.9992, 0.35, 0], wear: [0.7, 0.4, 0], ink: 0.5 },
   steel: { family: 'metal', base: [0.36, 0.37, 0.39], look: [0.45, 0.994, 0.2, 0], wear: [1, 1, 0], ink: 0.81 },
@@ -124,6 +124,9 @@ export interface CarLookOptions {
   dirt?: number;
   rust?: number;
   wear?: number;
+  /** height of the painted body above its ground (m): where the mirrored horizon runs along its sides.
+   *  Default: measured from the paint meshes at apply() (roof loads and antennas left out) */
+  bodyHeight?: number;
 }
 
 export interface CarLights {
@@ -204,6 +207,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uLamp;         // lens / gauge / emit: how bright the lamp behind is (0 = off)
   uniform vec3 uCarGround;
   uniform float uCarDebug;
+  uniform float uBodyHeight;
   uniform vec3 uZenith;
   uniform vec3 uMid;
   uniform vec3 uHorizon;
@@ -290,16 +294,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     e.land = mix(uHereForest, uCarGround, 0.35) * (uSkyColor * 0.55 + uSunColor * 0.06);
     e.ground = uCarGround * (uSkyColor * 0.7 + uSunColor * 0.22 * smoothstep(-0.1, 0.3, uSunDir.y));
     e.sky = rtStep(x, soft);
-    e.band = 1.0 - rtStep(x - 0.21, soft);
-    e.dark = 1.0 - rtStep(-x - 0.14, soft);
+    e.band = 1.0 - rtStep(x - 0.3, soft);
+    e.dark = 1.0 - rtStep(-x - 0.45, soft);
     e.line = e.sky * (1.0 - rtStep(x - 0.02, soft));
     return e;
   }
 
-  // a crisp sun spot (and a soft halo round it), as the clear coat mirrors it
+  // a crisp sun spot and a soft halo round it, as the clear coat mirrors them
   float rtSunSpot(vec3 R, float cosR) {
     float d = dot(R, uSunDir);
-    return smoothstep(cosR, cosR + (1.0 - cosR) * 0.35, d) + 0.06 * pow(max(d, 0.0), 300.0);
+    return smoothstep(cosR, cosR + (1.0 - cosR) * 0.35, d) + 0.12 * smoothstep(1.0 - (1.0 - cosR) * 9.0, 1.0, d);
   }
 
   // ---- wear: hand-painted masks, not photographs of dirt
@@ -354,6 +358,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 v = toEye / max(dist, 1e-4);
     float ndv = clamp(dot(n, v), 0.0, 1.0);
     vec3 R = reflect(-v, n);
+    // what the coat mirrors is looked up as if a side were drawn with tumblehome (its upper half turned a
+    // little up to the sky, its lower half down to the ground): even a flat door then carries the horizon
+    // line along its shoulder, sliding as the eye moves — where an anime painter puts it
+    // (on a side the drawn tilt replaces the real one, so a tight shoulder does not squeeze the bands to a hairline)
+    float side = 1.0 - smoothstep(0.35, 0.75, abs(n.y));
+    float bend = clamp((vCar.y / max(uBodyHeight, 0.3) - 0.43) * 1.1, -0.32, 0.32);
+    vec3 nh = vec3(n.x, 0.0, n.z);
+    float nl = length(nh);
+    vec3 ne = nl > 1e-3 ? normalize(nh / nl + vec3(0.0, bend, 0.0)) : n;
+    vec3 Re = reflect(-v, normalize(mix(n, ne, side)));
     float ao = clamp(vAO, 0.0, 1.0);
     vec3 base = uBase;
     #ifdef RT_VPAINT
@@ -404,7 +418,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full) * sunAO), lit);
     col = diffuse;
     // the clear coat: light laid over the colour, never a wash of grey across it
-    CarEnv e = rtCarEnv(R, 0.0015);
+    CarEnv e = rtCarEnv(Re, 0.0015);
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
     float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
@@ -412,13 +426,18 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 hue = paint / pk;
     vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.62);
     vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.82);
-    col += upperT * (0.07 + 0.22 * f) * e.sky * (1.0 - e.band) * coat;
-    col += brightT * (0.4 + 0.38 * f) * e.band * e.sky * coat;
+    // (clouds come through at half strength: on a flank they would read as blotches)
+    upperT = mix(upperT, mix(vec3(rtLuma(uMid)), vec3(rtLuma(uMid)) * hue, 0.62), e.cloud * 0.5);
+    col += upperT * (0.05 + 0.18 * f) * e.sky * (1.0 - e.band) * coat;
+    col += brightT * (0.46 + 0.4 * f) * e.band * e.sky * coat;
     col += e.bright * 0.3 * e.line * coat;
-    // under the horizon the far land deepens the colour; the ground near by gives back a little light
+    // under the horizon everything the coat mirrors is darker than the sky: the far land in a dark band
+    // that deepens the colour, the ground nearer a little less — the lower body reads darker than the upper
     float under = 1.0 - e.sky;
-    col = mix(col, col * 0.4 + e.land * 0.6, e.dark * under * (0.5 + 0.35 * f) * coat);
-    col += e.ground * 0.12 * f * (1.0 - e.dark) * under * coat;
+    // (darkened towards the shade tone, not greyed: a red side stays red in its dark band)
+    vec3 deep = shadeTone * (sky * 0.8 + uSunColor * 0.1 * lit) + e.land * 0.25;
+    col = mix(col, deep, e.dark * under * (0.6 + 0.3 * f) * coat);
+    col = mix(col, col * 0.75 + e.ground * 0.2, (1.0 - e.dark) * under * (0.45 + 0.3 * f) * coat);
     // crisp light along creases and tight curves (where the normal turns fast across the screen), on the
     // sides that face the sky: the anime edge highlight that draws a body's lines
     float crease = smoothstep(0.35, 1.2, length(fwidth(n)) * 9.0) * smoothstep(-0.2, 0.6, n.y);
@@ -436,7 +455,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #elif defined(RT_METAL)
     // ---------------------------------------------------------------- chrome, steel, aluminium
     float contrast = gloss;
-    CarEnv e = rtCarEnv(R, mix(0.03, 0.001, contrast));
+    CarEnv e = rtCarEnv(Re, mix(0.03, 0.001, contrast));
     vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.12, 0.62, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
     // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
@@ -620,7 +639,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       // what a modeller needs to see: the AO as baked, which material is where, the normals
       if (uCarDebug < 1.5) col = vec3(ao * ao);
       else if (uCarDebug < 2.5) col = (0.15 + 0.85 * fract(vec3(0.17, 0.53, 0.89) + uInkSeed * vec3(3.1, 5.7, 7.3))) * (0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.8, 0.45))), 0.0));
-      else col = (n * 0.5 + 0.5) * 0.8;
+      else if (uCarDebug < 3.5) col = (n * 0.5 + 0.5) * 0.8;
+      else {
+        // which part of the mirrored world each point looks up: open sky blue, the bright band white,
+        // the horizon line yellow, the dark band red, the ground green
+        CarEnv d = rtCarEnv(Re, 0.0015);
+        col = mix(mix(vec3(0.1, 0.5, 0.1), vec3(0.6, 0.05, 0.05), d.dark), mix(vec3(0.1, 0.3, 0.9), vec3(1.0), d.band), d.sky);
+        col = mix(col, vec3(1.0, 0.85, 0.0), d.line);
+      }
       col *= 0.8;
     }
 
@@ -661,13 +687,19 @@ export class CarLook {
     uWorldToCar: { value: new THREE.Matrix4() },
     uHighlight: { value: new THREE.Vector4(0.55, 0.92, 1.0, 0) },
     uHighlightId: { value: -1 },
+    /** height of the body (m, car frame): where on its side the mirrored horizon sits */
+    uBodyHeight: { value: 1.4 },
   };
   /** names met in apply() that are not conventional (drawn as plastic_int) */
   readonly unknown = new Set<string>();
   /** meshes whose material was swapped for a highlight, and what they had */
   private readonly lit = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
 
+  private readonly fixedHeight: boolean;
+
   constructor(opts: CarLookOptions = {}) {
+    this.fixedHeight = opts.bodyHeight !== undefined;
+    if (opts.bodyHeight !== undefined) this.shared.uBodyHeight.value = opts.bodyHeight;
     this.paint.set(opts.paint ?? 0x9e2f22);
     this.paint2.set(opts.paint2 ?? 0xe6dccb);
     this.shared.uWear.value.set(opts.dirt ?? 0, opts.rust ?? 0, opts.wear ?? 0);
@@ -743,6 +775,24 @@ export class CarLook {
 
   /** swap the materials of every mesh under root by their names; glass and lenses stay out of the shadow maps */
   apply(root: THREE.Object3D): this {
+    // the painted body's height, in the root's own frame (a toilet on the roof is not the body)
+    if (!this.fixedHeight) {
+      root.updateMatrixWorld(true);
+      const inv = root.matrixWorld.clone().invert();
+      const painted = new THREE.Box3();
+      const all = new THREE.Box3();
+      root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        m.geometry.computeBoundingBox();
+        const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
+        all.union(b);
+        const n = carMaterialName((Array.isArray(m.material) ? m.material[0] : m.material).name);
+        if (n === 'paint' || n === 'paint_b') painted.union(b);
+      });
+      const box = painted.isEmpty() ? all : painted;
+      if (!box.isEmpty()) this.shared.uBodyHeight.value = Math.max(0.3, box.max.y - Math.max(0, box.min.y));
+    }
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;

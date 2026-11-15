@@ -15,7 +15,8 @@
  *   &stage=studio|proving|world             painted concrete floor (default), the proving ground, or parked
  *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
  *   &spin=1                                 turntable (live view)
- *   &debug=ao|mat|normal                    the baked AO, a flat colour per material, the normals
+ *   &debug=ao|mat|normal|env                the baked AO, a flat colour per material, the normals, the
+ *                                           mirrored regions (sky, bright band, horizon, dark band, ground)
  *   &merge=1|2                              static parts merged into one mesh per material (2: plus a second,
  *                                           repainted, dirty copy in the same meshes: per-vertex colour and wear)
  *   &highlight=2|WHEEL_FL                   light up a part: its id in the merged meshes, or an object's name
@@ -129,7 +130,7 @@ export function readViewerParams(search: string = window.location.search): Viewe
     post: flag('post', true),
     shot: flag('shot'),
     seed: num('seed', 20261113),
-    debug: ({ ao: 1, mat: 2, normal: 3 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
+    debug: ({ ao: 1, mat: 2, normal: 3, env: 4 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
     merge: num('merge', 0),
     highlight: get('highlight') ?? '',
   };
