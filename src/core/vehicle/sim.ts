@@ -81,7 +81,7 @@ const BODY_CAP_EXT = 16;
 /** derived specs: below this depth (m) a body corner moving into the ground is stopped outright */
 const BODY_HARD = 0.08;
 /** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
-const BODY_MIN_ABOVE = 0.15;
+const BODY_MIN_ABOVE = 0.25;
 const BODY_MIN_BELOW = 0.1;
 
 export interface VehicleInput {

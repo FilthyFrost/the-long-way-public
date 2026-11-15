@@ -6,7 +6,8 @@
  */
 import { fbm2 } from '../../../src/core/math/noise';
 import { Rng } from '../../../src/core/math/rng';
-import { VehicleSim, zeroInput } from '../../../src/core/vehicle/sim';
+import { StaticSolids } from '../../../src/core/onfoot/statics';
+import { VehicleSim, zeroInput, type VehicleInput } from '../../../src/core/vehicle/sim';
 import { FlatGround, GroundSample, Surface, type Ground } from '../../../src/core/world/ground';
 import type { RandomBuild } from './specgen';
 
@@ -157,6 +158,83 @@ export function swapFuzz(rng: Rng, makeBuild: (rng: Rng) => RandomBuild, seconds
       st.flips++;
       v.reset(v.px, gs.h, v.pz, v.yaw, ground);
     }
+  }
+  return st;
+}
+
+const steep = (x: number, z: number): number => 1.6 * fbm2(x / 15, z / 15, 21, 3) + 0.15 * fbm2(x / 1.7, z / 1.7, 22, 2);
+
+/** what a hard crash leaves: the deepest the body got into a wall or a post (m) */
+export interface HarshStats extends FuzzStats {
+  maxWallPenetration: number;
+}
+
+/**
+ * Steep grass hills (slopes past 30 %) flat out with the wheel thrown about, then a run at full
+ * throttle through a field of walls, posts and crates.
+ */
+export function harshFuzz(b: RandomBuild, rng: Rng, seconds = 25): HarshStats {
+  const st: HarshStats = { exploded: false, maxKmh: 0, maxSpin: 0, maxSink: 0, minCgClear: Infinity, flips: 0, seconds: 0, maxWallPenetration: 0 };
+  const hills = new FlatGround({ relief: steep, surface: Surface.Grass });
+  const gs = new GroundSample();
+  const basis = new Float64Array(9);
+  {
+    const v = new VehicleSim(b.spec);
+    b.setup(v.mods);
+    v.reset(0, steep(0, 0), 0, rng.range(-Math.PI, Math.PI), hills);
+    const inp = zeroInput();
+    let next = 0;
+    for (let t = 0; t < seconds; t += v.h) {
+      if (t >= next) {
+        next = t + rng.range(0.3, 2);
+        inp.steer = rng.range(-1, 1);
+        inp.throttle = rng.chance(0.85) ? 1 : 0;
+        inp.brake = rng.chance(0.1) ? 1 : 0;
+      }
+      v.substep(inp, hills);
+      st.seconds += v.h;
+      if (v.exploded || !Number.isFinite(v.px + v.py + v.pz + v.vx + v.vy + v.vz + v.avx + v.avy + v.avz + v.rpm)) {
+        st.exploded = true;
+        return st;
+      }
+      st.maxKmh = Math.max(st.maxKmh, v.speed * 3.6);
+      st.maxSpin = Math.max(st.maxSpin, Math.hypot(v.avx, v.avy, v.avz));
+      hills.sample(v.px, v.pz, gs);
+      st.minCgClear = Math.min(st.minCgClear, v.py - gs.h);
+      v.basis(basis);
+      if (basis[4] < 0.2 && v.speed < 0.5) {
+        st.flips++;
+        v.reset(v.px, gs.h, v.pz, v.yaw, hills);
+      }
+    }
+  }
+  {
+    const flat = new FlatGround();
+    const solids = new StaticSolids();
+    for (let k = 0; k < 12; k++) {
+      const x = 40 + k * 25 + rng.range(-5, 5);
+      const z = rng.range(-6, 6);
+      const kind = rng.int(3);
+      if (kind === 0) solids.box(x, z, rng.range(0.2, 2), rng.range(0.3, 5), rng.range(-1, 1), -1, rng.range(0.5, 3), false, 'wall');
+      else if (kind === 1) solids.post(x, z, rng.range(0.1, 0.4), -1, 3, 'post');
+      else solids.box(x, z, 0.4, 0.4, 0, -1, 0.8, false, 'light:crate');
+    }
+    const v = new VehicleSim(b.spec);
+    b.setup(v.mods);
+    v.reset(0, 0, 0, 0, flat);
+    v.solids = solids;
+    const inp: VehicleInput = { steer: 0, throttle: 1, brake: 0, handbrake: 0 };
+    for (let t = 0; t < seconds; t += v.h) {
+      inp.steer = Math.sin(t * 0.7) * 0.3;
+      v.substep(inp, flat);
+      st.seconds += v.h;
+      if (v.exploded || !Number.isFinite(v.px + v.py + v.pz + v.vx + v.vy + v.vz + v.avx + v.avy + v.avz)) {
+        st.exploded = true;
+        return st;
+      }
+      st.maxSpin = Math.max(st.maxSpin, Math.hypot(v.avx, v.avy, v.avz));
+    }
+    st.maxWallPenetration = v.maxPenetration;
   }
   return st;
 }
