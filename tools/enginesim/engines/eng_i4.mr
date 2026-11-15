@@ -105,7 +105,7 @@ public node eng_i4 {
         es_params,
         audio_volume: 1.0,
         length: 90 * units.inch,
-        impulse_response: ir_lib.mild_exhaust_0
+        impulse_response: ir_lib.real_engine_1
     )
 
     cylinder_bank b0(bank_params, angle: 0 * units.deg)
