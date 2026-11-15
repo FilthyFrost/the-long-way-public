@@ -348,7 +348,9 @@ const CAB: PartDef[] = [
   P({ id: 'radio_tape', cat: 'radio', name: { zh: '卡带机', en: 'Tape deck' }, mass: 2, carry: 'small', tags: ['stock:rv'], radio: { tape: true, watts: 12 } }),
   P({ id: 'hb_stock', cat: 'handbrake', name: { zh: '手刹', en: 'Handbrake' }, mass: 2, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], handbrake: { strength: 1 } }),
   P({ id: 'hb_drift', cat: 'handbrake', name: { zh: '漂移长杆手刹', en: 'Drift handbrake' }, mass: 3, carry: 'small', handbrake: { strength: 1.6 } }),
-  P({ id: 'gl_stock', cat: 'gearLever', name: { zh: '挡杆', en: 'Gear lever' }, mass: 1, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:moto'], gearLever: { shift: 1 } }),
+  P({ id: 'gl_stock', cat: 'gearLever', name: { zh: '挡杆', en: 'Gear lever' }, mass: 1, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], gearLever: { shift: 1 } }),
+  // a motorcycle changes gear with its left foot
+  P({ id: 'gl_foot', cat: 'gearLever', name: { zh: '脚踩换挡杆', en: 'Foot shifter' }, mass: 0.6, carry: 'small', tags: ['stock:moto'], gearLever: { shift: 0.8 } }),
   P({ id: 'gl_short', cat: 'gearLever', name: { zh: '短行程挡杆', en: 'Short shifter' }, mass: 1, carry: 'small', gearLever: { shift: 0.7 } }),
   P({ id: 'ign_key', cat: 'ignition', name: { zh: '钥匙点火开关', en: 'Key ignition' }, mass: 0.3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:moto'], ignition: { kind: 'key' } }),
   P({ id: 'ign_button', cat: 'ignition', name: { zh: '一键启动', en: 'Start button' }, mass: 0.3, carry: 'small', ignition: { kind: 'button' } }),

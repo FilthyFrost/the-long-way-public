@@ -71,6 +71,13 @@
     {"name": "ghost_on_replace", "params": "orbit=-70,8,2.4,0&target=1.18,0.35,-0.7&ghostpart=test/testwheel&ghostat=1.18,0.285,-0.7&ghostkind=replace"},
     {"name": "ghost_on_replace_focus", "params": "orbit=-70,8,2.4,0&target=1.18,0.35,-0.7&ghostpart=test/testwheel&ghostat=1.18,0.285,-0.7&ghostkind=replace&ghostfocus=1"},
     {"name": "ghost_on_empty_focus", "params": "orbit=-70,8,2.4,0&target=1.18,0.35,-0.7&ghostpart=test/testwheel&ghostat=1.18,0.285,-0.7&ghostkind=empty&ghostfocus=1"},
-    {"name": "merged_repaint", "params": "merge=1&repaint=1,2f5f8a&orbit=35,9,7.2,0.65"}
+    {"name": "merged_repaint", "params": "merge=1&repaint=1,2f5f8a&orbit=35,9,7.2,0.65"},
+    {"name": "backlit34", "params": "orbit=25,8,7.2,0.65&sun=200"},
+    {"name": "backlit_side", "params": "orbit=90,5,6.5,0.65&sun=-100"},
+    {"name": "world_backlit", "params": "stage=world&seed=7&s=3180&time=18.4&orbit=25,8,8,0.9"},
+    {"name": "rain34", "params": "weather=rain&orbit=35,9,7.2,0.65"},
+    {"name": "rain_hood", "params": "weather=rain&orbit=20,26,2.8,0.9&target=1.2,0.8,0"},
+    {"name": "rain_glass", "params": "weather=rain&orbit=60,14,3.0,1.1&target=-0.3,1.1,0.6"},
+    {"name": "snow34", "params": "weather=snow&orbit=35,20,7.2,0.65"}
   ]
 }

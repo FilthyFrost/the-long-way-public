@@ -174,6 +174,12 @@ export interface VehicleSpec {
   balance?: BalanceSpec;
   /** parts the build lacks */
   absent?: AbsentParts;
+  /**
+   * How far an empty hub's lowest point — brake drum, stub axle — is from the hub centre (m): the
+   * radius an empty hub (SimMods.wheelFit None) grinds on. Default 0.45 × wheelRadius; give it when
+   * wheelRadius follows the fitted wheels rather than the frame.
+   */
+  emptyHubRadius?: number;
 }
 
 /** placeholder engine for a build without one (`absent.engine`): no torque anywhere */
@@ -203,7 +209,8 @@ export function usesExtensions(spec: VehicleSpec): boolean {
     f.tyreLoad !== undefined ||
     r.tyreLoad !== undefined ||
     spec.balance !== undefined ||
-    spec.absent !== undefined
+    spec.absent !== undefined ||
+    spec.emptyHubRadius !== undefined
   );
 }
 

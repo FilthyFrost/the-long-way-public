@@ -50,7 +50,7 @@ def roof_under(z):
 
 # ---------------------------------------------------------------------------------------------- helpers
 
-def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None):
+def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None, cast=None):
     """
     A six-sided solid from its 8 corners (game frame): c = [b0, b1, b2, b3, t0, t1, t2, t3], bottom
     ring and top ring in the same order. faces_mat(normal) picks a material per face.
@@ -64,6 +64,7 @@ def hexa(K, mat, c, bev=0.0, tint=1.0, faces_mat=None, mover=None):
         except ValueError:
             pass
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    K._cast(mat, bm, None, cast, mover)
     K._bevel(bm, bev)
     K._shade(bm, False)
     fm = None
@@ -349,8 +350,8 @@ def build(K, L):
 def corrugated_roof(K):
     """two slopes of corrugated tin (waves along the slope), cut round the skylights, which get clear sheets"""
     xa, xb = X0 - OVERHANG_GABLE, X1 + OVERHANG_GABLE
-    pitch_wave = 0.076
-    amp = 0.009
+    pitch_wave = 0.13
+    amp = 0.014
     for s in (-1, 1):
         zr0, zr1 = 0.0, Z1 + OVERHANG_EAVE
         # rows of sheets along x: cut by the skylights on the right slope
@@ -382,6 +383,7 @@ def corrugated_roof(K):
 def sheet(K, s, x0, x1, z0, z1, pitch_wave, amp, mat_out, mat_in):
     """one strip of corrugated sheet on slope s between plan z0 and z1 (|z|), x0..x1; two faces, waves along x"""
     n = max(2, int(round((x1 - x0) / (pitch_wave / 4))))
+    ni = max(1, int(round((x1 - x0) / 0.8)))
     m = max(1, int(round((z1 - z0) / 0.9)))
     bm_o = bmesh.new()
     bm_i = bmesh.new()
@@ -390,19 +392,19 @@ def sheet(K, s, x0, x1, z0, z1, pitch_wave, amp, mat_out, mat_in):
     for j in range(m + 1):
         zz = s * (z0 + (z1 - z0) * j / m)
         y = roof_under(zz)
+        rows_i.append([bm_i.verts.new((x0 + (x1 - x0) * i / ni, y + 0.004, zz)) for i in range(ni + 1)])
         ro = []
-        ri = []
         for i in range(n + 1):
             x = x0 + (x1 - x0) * i / n
             wv = amp * math.sin(TWO_PI * (x - X0) / pitch_wave)
             ro.append(bm_o.verts.new((x, y + 0.012 + wv, zz)))
-            ri.append(bm_i.verts.new((x, y + 0.004 + wv, zz)))
         rows_o.append(ro)
-        rows_i.append(ri)
+    # (the underside is drawn flat: its ribs at this pitch would only shimmer from the floor)
     for j in range(m):
         for i in range(n):
             a, b, c, d = rows_o[j][i], rows_o[j][i + 1], rows_o[j + 1][i + 1], rows_o[j + 1][i]
             bm_o.faces.new((a, b, c, d))
+        for i in range(ni):
             a, b, c, d = rows_i[j][i], rows_i[j][i + 1], rows_i[j + 1][i + 1], rows_i[j + 1][i]
             bm_i.faces.new((a, d, c, b))
     # outside faces up, inside faces down
@@ -418,6 +420,15 @@ def sheet(K, s, x0, x1, z0, z1, pitch_wave, amp, mat_out, mat_in):
         for f in bm.faces:
             f.smooth = True
     tint = 1.0 + K.jitter(0.06)
+    # the sheet casts the sun's shadow as one flat quad (a clear sheet casts none)
+    if mat_out != 'skylight':
+        q = bmesh.new()
+        za, zb = s * z0, s * z1
+        vs = [q.verts.new((x0, roof_under(za) + 0.01, za)), q.verts.new((x1, roof_under(za) + 0.01, za)),
+              q.verts.new((x1, roof_under(zb) + 0.01, zb)), q.verts.new((x0, roof_under(zb) + 0.01, zb))]
+        q.faces.new(vs)
+        K._cast(mat_out, q, None, True)
+        q.free()
     K._pour(bm_o, mat_out, (tint, tint, tint))
     K._pour(bm_i, mat_in, (tint, tint, tint))
 

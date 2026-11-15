@@ -61,6 +61,9 @@ export class ModPlayer {
   held: Held = null;
   target: Target | null = null;
   readonly ghosts = new GhostLayer();
+  /** assists: the holograms, the stat card (the ghosts' targeting works without them) */
+  showGhostsOn = true;
+  showCardOn = true;
   /** the colour a spray can is set to */
   paintIndex = 3;
   /** progress of the hold in hand (0…1), and what it is for (a target key) */
@@ -207,6 +210,28 @@ export class ModPlayer {
         const r = this.host.loose.pick(this.eye, this.dir, REACH, (l) => !!l.part && !!partDef(l.part.part).rim?.tire && !l.part.sub.tire);
         if (r && (!best || r.dist < best.dist)) best = { kind: 'looseSub', loose: r.loose, sub: 'tire', dist: r.dist };
       }
+      // the ghost one aims at is under a shut lid: the lid itself is what E does (open it first)
+      const g = best as Target | null;
+      if (g?.kind === 'ghost') {
+        const lid = g.v.view.shutOver(g.mount.id);
+        const lm = lid ? g.v.view.frame.mounts.find((m) => m.id === lid) : undefined;
+        const b = lm ? g.v.view.boundsOf(lm.id, this.box) : null;
+        const p = b ? this.ray.intersectBox(b, this.hit) : null;
+        if (lm && p && p.distanceTo(this.ray.origin) <= REACH + 0.5) return { kind: 'part', v: g.v, mount: lm, dist: p.distanceTo(this.ray.origin) };
+        return g;
+      }
+      // with something in the hands a door or a lid can still be opened
+      for (const v of this.near(REACH + 1)) {
+        for (const m of v.view.frame.mounts) {
+          if (!v.build.parts[m.id] || !v.view.hasPanel(m.id)) continue;
+          const b = v.view.boundsOf(m.id, this.box);
+          if (!b) continue;
+          const p = this.ray.intersectBox(b, this.hit);
+          if (!p) continue;
+          const d = p.distanceTo(this.ray.origin);
+          if (d <= REACH) better({ kind: 'part', v, mount: m, dist: d });
+        }
+      }
       if (best) return best;
     }
 
@@ -271,8 +296,9 @@ export class ModPlayer {
   /** the part about to come off (or be sprayed, washed) and the thing about to be picked up light up */
   private showHighlight(): void {
     const t = this.target;
-    const v = t && (t.kind === 'part' || (t.kind === 'surface' && t.mount)) ? t.v : null;
-    const mount = t && (t.kind === 'part' || t.kind === 'surface') ? t.mount?.id ?? null : null;
+    // (a part about to be sprayed or washed is not lit: one sees its real colour and the paint go on)
+    const v = t?.kind === 'part' ? t.v : null;
+    const mount = t?.kind === 'part' ? t.mount.id : null;
     if (this.litVehicle && this.litVehicle !== v) this.litVehicle.view.highlight(null);
     this.litVehicle = v;
     if (v) v.view.highlight(mount);
@@ -309,7 +335,7 @@ export class ModPlayer {
           if (!holder) continue;
           // on the part's own node (already mirrored with it): a turbo at the engine's M_turbo, a tyre round the rim
           const node = sub === 'turbo' ? (holder.getObjectByName('M_turbo') ?? holder) : holder;
-          const kind = blocked ? 'blocked' : inst.sub[sub] ? 'replace' : 'empty';
+          const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : inst.sub[sub] ? 'replace' : 'empty';
           list.push({ node, mount: null, partId: def.id, variant: sub === 'tire' ? inst.part : '', kind, key: `${v.build.uid}:${m.id}:${sub}:${def.id}` });
         }
         continue;
@@ -317,11 +343,11 @@ export class ModPlayer {
       for (const m of mountsFor(frame, def)) {
         const node = v.view.mountNode(m.id);
         if (!node) continue;
-        const kind = blocked ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
+        const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
         list.push({ node, mount: m, partId: def.id, kind, key: `${v.build.uid}:${m.id}:${def.id}` });
       }
     }
-    this.ghosts.show(list);
+    this.ghosts.show(this.showGhostsOn ? list : []);
     const t = this.target;
     this.ghosts.selected = t?.kind === 'ghost' ? `${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${def.id}` : '';
   }
@@ -376,15 +402,15 @@ export class ModPlayer {
         host.enter(t.v);
         return;
       }
-      if (t.kind === 'part' && !this.held) {
-        // a panel opens and shuts; the driver's seat lets one in
+      if (t.kind === 'part') {
+        // a panel opens and shuts (with or without something in the hands); the driver's seat lets one in
         if (t.v.view.hasPanel(t.mount.id)) {
           const open = t.v.view.panelOpen(t.mount.id) < 0.5;
           t.v.view.setPanelOpen(t.mount.id, open);
           host.sound(open ? 'door_open' : 'door_close', 1, t.mount.id);
           return;
         }
-        if (t.mount.cat === 'seat' || t.mount.cat === 'steering') {
+        if (!this.held && (t.mount.cat === 'seat' || t.mount.cat === 'steering')) {
           host.enter(t.v);
           return;
         }
@@ -404,7 +430,7 @@ export class ModPlayer {
     const held = this.held;
     if (!t) return;
     if ((t.kind === 'ghost' || t.kind === 'looseSub') && held?.kind === 'part' && this.primary) {
-      if (t.kind === 'ghost' && moving(t.v)) {
+      if (t.kind === 'ghost' && (moving(t.v) || t.v.view.shutOver(t.mount.id))) {
         this.progress = 0;
         return;
       }
@@ -426,7 +452,7 @@ export class ModPlayer {
       return;
     }
     if (t.kind === 'part' && !held && this.secondary) {
-      if (moving(t.v)) {
+      if (moving(t.v) || t.v.view.shutOver(t.mount.id)) {
         this.progress = 0;
         return;
       }
@@ -544,6 +570,13 @@ export class ModPlayer {
             card = { ...this.card(t.v, t.mount, t.sub, inst)!, warn: '车在动：先停稳、拉手刹' };
             break;
           }
+          const lid = t.v.view.shutOver(t.mount.id);
+          if (lid) {
+            const what = t.v.view.frame.mounts.find((m) => m.id === lid)?.label[ui.lang] ?? '';
+            word = `<b>${name(inst)}</b> · 先打开${what}`;
+            card = { ...this.card(t.v, t.mount, t.sub, inst)!, warn: `${what}关着：看着它按 E 打开` };
+            break;
+          }
           word = `${verb} <b>${name(inst)}</b> · ${t.mount.label[ui.lang]}<small>按住 E / 左键</small>`;
           card = this.card(t.v, t.mount, t.sub, inst);
           break;
@@ -553,7 +586,9 @@ export class ModPlayer {
           const panel = t.v.view.hasPanel(t.mount.id);
           const seat = t.mount.cat === 'seat' || t.mount.cat === 'steering';
           const e = panel ? (t.v.view.panelOpen(t.mount.id) > 0.5 ? '关上' : '打开') : seat ? '上车' : '';
-          word = `${e ? `${e} · ` : ''}<b>${name(inst)}</b><small>${moving(t.v) ? '车在动' : '按住右键 拆下'}</small>`;
+          const lid = t.v.view.shutOver(t.mount.id);
+          const how = moving(t.v) ? '车在动' : lid ? `先打开${t.v.view.frame.mounts.find((m) => m.id === lid)?.label[ui.lang] ?? ''}` : held ? '' : '按住右键 拆下';
+          word = `${e ? `${e} · ` : ''}<b>${name(inst)}</b>${how ? `<small>${how}</small>` : ''}`;
           const def = partDef(inst.part);
           card = { title: def.name[ui.lang], sub: `${def.mass} kg · 车况 ${(inst.cond * 100).toFixed(0)}% · ${t.mount.label[ui.lang]}`, lines: [] };
           break;
@@ -582,7 +617,7 @@ export class ModPlayer {
     if (this.dropT > 0 && held) word = '放下';
     const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : -1;
     ui.prompt(true, word, ring);
-    ui.showCard(card);
+    ui.showCard(this.showCardOn ? card : null);
     if (held) {
       const label = held.kind === 'part' ? `${name(held.inst)}<small>${partDef(held.inst.part).mass} kg · 按住 G 放下</small>` : `${toolName(held.tool)}<small>按住 G 放下</small>`;
       ui.showHeld(label);

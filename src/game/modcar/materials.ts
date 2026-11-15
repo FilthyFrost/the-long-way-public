@@ -36,6 +36,8 @@ export class CarMaterials {
   private readonly frame = new THREE.Matrix4();
   private framed = false;
   private lit = '';
+  /** the vehicle's shape for the reflections: its painted height and its cabin (measured, see setShape) */
+  private shape: { bodyHeight: number; cabin: THREE.Box3 | null } | null = null;
 
   /** the look of an owner, made on first use and brought in line with `of` */
   look(owner: string, of: LookOf): CarLook {
@@ -44,6 +46,10 @@ export class CarMaterials {
       const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0 });
       look.setLights(this.lights);
       if (this.framed) look.setCarFrame(this.frame);
+      if (this.shape) {
+        look.setBodyHeight(this.shape.bodyHeight);
+        look.setCabin(this.shape.cabin);
+      }
       o = { look, paint: of.paint, paint2: of.paint2 };
       this.owned.set(owner, o);
       return look;
@@ -94,6 +100,19 @@ export class CarMaterials {
     for (const o of this.owned.values()) o.look.setLights(this.lights);
   }
 
+  /**
+   * The vehicle's shape (render/carMaterials measureCarShape): the height of its paint, where the
+   * mirrored horizon runs along its sides, and its cabin, where metal mirrors the inside — the same for
+   * every part's look, a door's or a knob's as much as the body's.
+   */
+  setShape(shape: { bodyHeight: number; cabin: THREE.Box3 | null }): void {
+    this.shape = shape;
+    for (const o of this.owned.values()) {
+      o.look.setBodyHeight(shape.bodyHeight);
+      o.look.setCabin(shape.cabin);
+    }
+  }
+
   /** the frame the dirt is measured in (the vehicle's model space: origin on the ground) */
   setCarFrame(matrixWorld: THREE.Matrix4): void {
     this.frame.copy(matrixWorld);
@@ -135,7 +154,7 @@ export class CarMaterials {
  * same model can be given another look later). Opaque meshes cast shadows; glass and lenses are drawn
  * after the rest and let the light through.
  */
-export function applyMaterials(root: THREE.Object3D, look: CarLook): void {
+export function applyMaterials(root: THREE.Object3D, look: CarLook, merged = false): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -144,8 +163,12 @@ export function applyMaterials(root: THREE.Object3D, look: CarLook): void {
       mesh.userData.mat = list.map((mt) => mt.name || 'steel');
     }
     const g = mesh.geometry;
-    const variant = { ao: g.hasAttribute('color'), vpaint: false, vwear: false, vpart: false };
-    const out = (mesh.userData.mat as string[]).map((n) => look.material(carMaterialName(n) ?? 'plastic_int', variant));
+    // a merged group (render/carMerge) carries each part's paint, wear and id in its vertices
+    const out = (mesh.userData.mat as string[]).map((n) => {
+      const name = carMaterialName(n) ?? 'plastic_int';
+      const paint = name === 'paint' || name === 'paint_b';
+      return look.material(name, { ao: g.hasAttribute('color'), vpaint: merged && paint, vwear: merged, vpart: merged });
+    });
     mesh.material = Array.isArray(mesh.material) ? out : out[0];
     const see = out.some((m) => m.transparent);
     mesh.renderOrder = see ? 9 : 0;

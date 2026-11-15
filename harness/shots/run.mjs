@@ -33,7 +33,7 @@ try {
       let entry;
       try {
         // a set may open another page of the game (modcar.html, viewer.html); default index.html
-        const { page, errors } = await openGame(browser, `${url}/${set.page ?? ''}?${q}`, { width: size[0], height: size[1] });
+        const { page, errors } = await openGame(browser, `${url}/${set.page ?? 'classic.html'}?${q}`, { width: size[0], height: size[1] });
         let drive = null;
         for (const step of shot.steps ?? []) {
           if (step.simulate !== undefined) await page.evaluate(([s, i]) => window.__rt.simulate(s, i), [step.simulate, step.input ?? null]);

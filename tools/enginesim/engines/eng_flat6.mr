@@ -254,7 +254,7 @@ public node eng_flat6 {
     ignition_module ignition_module(
         timing_curve: timing_curve,
         rev_limit: 7450 * units.rpm,
-        limiter_duration: 0.07)
+        limiter_duration: 0.05)
     ignition_module
         .connect_wire(wires.wire1, 0 * units.deg)
         .connect_wire(wires.wire6, 120 * units.deg)

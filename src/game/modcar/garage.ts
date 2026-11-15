@@ -22,6 +22,10 @@ import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import layoutJson from './data/garage.json';
 import type { GarageContext, GarageDevice, GarageScene } from './garageStub';
 import { GarageLook } from './garageLook';
+import { beamUniforms, buildBeams, buildDust } from './garageBeams';
+import { Chalkboard } from './garageChalk';
+import { Plates, Sign, YardLight } from './garageFront';
+import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
 
@@ -50,6 +54,13 @@ interface Layout {
   bay2: { x: number; z: number; yaw: number };
   spawn: { x: number; z: number; heading: number };
   exitX: number;
+  chalkboard?: { x: number; y: number; z: number; w: number; h: number };
+  /** the stove's fire (in front of its door), the board over the doors, the lamp over them outside */
+  stove?: { x: number; y: number; z: number };
+  sign?: { x: number; y: number; z: number; w: number; h: number };
+  outlamp?: { x: number; y: number; z: number };
+  /** number plates nailed on the front wall (garageFront.ts paints them) */
+  plates?: { x: number; y: number; z: number; rot: number; kind: number }[];
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -94,9 +105,21 @@ class Boxes implements SolidSource {
 // ------------------------------------------------------------------ the garage
 
 const text = (zh: string, en: string): Text => ({ zh, en });
-const LAMP_ON = { r: 1.0, g: 0.7, b: 0.4 };
+const LAMP_ON = { r: 1.0, g: 1.0, b: 1.0 };
 /** how strongly the pendants light the room (linear radiance × this at a metre, roughly) */
-const LAMP_POWER = 1.55;
+const LAMP_POWER = 3.6;
+/** the wide shadow map's reach over the workshop (m round the room's middle): 2 cm texels */
+const ROOM_SHADOW_REACH = 22;
+/** how thick the air is with dust by day (garageBeams.ts) */
+const BEAM_DENSITY = 0.055;
+/** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
+const STOVE_POWER = 1.4;
+const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
+/** the lamp over the doors outside, lit from dusk (a photocell) */
+const OUTLAMP_POWER = 4.0;
+const OUTLAMP_COLOUR: V3 = [1.0, 0.74, 0.45];
+/** the lit room seen through the open doors at night, as it falls on the yard (× the lamps) */
+const DOOR_SPILL: V3 = [4.0, 2.8, 1.5];
 
 export function buildGarage(core: RenderCore): GarageScene {
   return new Garage(core);
@@ -130,6 +153,13 @@ class Garage implements GarageScene {
   private time = 0;
   private ctx: GarageContext | null = null;
   private disposed = false;
+  private readonly machines: Machines;
+  private readonly chalk: Chalkboard | null;
+  private readonly sign: Sign | null;
+  private readonly plates: Plates | null;
+  private readonly yard = new YardLight();
+  /** the lamp over the doors: how far it has warmed up (0 … 1) */
+  private outLamp = 0;
 
   constructor(private readonly core: RenderCore) {
     this.root.name = 'garage';
@@ -144,7 +174,27 @@ class Garage implements GarageScene {
       this.leaf[name] = { t, target: t, solid };
     }
     this.outdoors = buildOutdoors(core);
+    // the sun's beams and the dust in them need the shadow maps (none at low quality)
+    if (core.shadows) {
+      this.root.add(buildBeams());
+      this.root.add(buildDust(LAYOUT.room.min, LAYOUT.room.max));
+    }
     this.makeDevices();
+    this.machines = new Machines({
+      movers: this.movers,
+      rest: this.moverRest,
+      look: this.look,
+      device: (id) => LAYOUT.devices.find((d) => d.id === id) ?? null,
+      surface: (name) => LAYOUT.surfaces.find((x) => x.name === name) ?? null,
+    });
+    this.devices.push(...this.machines.devices);
+    this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;
+    if (this.chalk) this.root.add(this.chalk.mesh);
+    this.sign = LAYOUT.sign ? new Sign(LAYOUT.sign) : null;
+    if (this.sign) this.root.add(this.sign.mesh);
+    this.root.add(this.yard.mesh);
+    this.plates = LAYOUT.plates?.length ? new Plates(LAYOUT.plates) : null;
+    if (this.plates) this.root.add(this.plates.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -161,17 +211,32 @@ class Garage implements GarageScene {
     const shadowGeos: THREE.BufferGeometry[] = [];
     const statics: THREE.Mesh[] = [];
     gltf.scene.updateMatrixWorld(true);
+    let caster: THREE.Mesh | null = null;
     gltf.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      rgbColours(mesh.geometry);
+      // the shadow caster: the big things without their bevels, only ever drawn into the shadow maps
+      if (mesh.name === 'S_shadow') {
+        caster = mesh;
+        mesh.material = this.casterMat;
+        mesh.layers.set(LAYER_SHADOW_FAR);
+        mesh.layers.enable(LAYER_SHADOW_NEAR);
+        mesh.frustumCulled = false;
+        return;
+      }
+      // the corner colour is the tint (rgb) and the baked AO (alpha): our shaders read it as aTintAO
+      const col = mesh.geometry.getAttribute('color');
+      if (col) {
+        mesh.geometry.setAttribute('aTintAO', col);
+        mesh.geometry.deleteAttribute('color');
+      } else mesh.geometry.setAttribute('aTintAO', new THREE.Float32BufferAttribute(new Float32Array(mesh.geometry.getAttribute('position').count * 4).fill(1), 4));
       const src = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      const name = src.name || 'steel';
-      mesh.material = this.look.get(name, !!mesh.geometry.getAttribute('color'));
+      const name = src.name || 'prop';
+      mesh.material = this.look.get(name);
       if (moverOf(mesh)) return;
       statics.push(mesh);
-      // everything that stands still casts its shadow through one merged mesh (two draws, not sixty)
-      if (name !== 'win_glass' && name !== 'skylight' && name !== 'glass' && name !== 'bulb') {
+      // (an older model without a caster of its own: everything that stands still casts, merged)
+      if (name !== 'win_glass' && name !== 'skylight' && name !== 'glass' && name !== 'bulb' && name !== 'floor') {
         const g = mesh.geometry.clone();
         g.applyMatrix4(mesh.matrixWorld);
         for (const k of Object.keys(g.attributes)) if (k !== 'position') g.deleteAttribute(k);
@@ -179,6 +244,10 @@ class Garage implements GarageScene {
         shadowGeos.push(g.index ? g.toNonIndexed() : g);
       }
     });
+    if (caster) {
+      for (const g of shadowGeos) g.dispose();
+      shadowGeos.length = 0;
+    }
     // the movers: one group per piece (its meshes, one per material, share the piece's origin)
     const pieces: THREE.Object3D[] = [];
     gltf.scene.traverse((o) => {
@@ -341,6 +410,7 @@ class Garage implements GarageScene {
   update(dt: number, ctx: GarageContext): void {
     this.ctx = ctx;
     this.time += dt;
+    this.frameDt = dt;
     // the doors run on their motor
     let moving = false;
     for (const l of Object.values(this.leaf)) {
@@ -375,6 +445,8 @@ class Garage implements GarageScene {
     if (sw) sw.rotation.z = this.lampsOn ? -0.35 : 0.35;
     this.lampLevel += ((this.lampsOn ? 1 : 0) - this.lampLevel) * Math.min(1, dt * 12);
     for (const v of ctx.vehicles) this.keepIn(v);
+    this.machines.update(dt, ctx);
+    this.chalk?.show('让「方糖」跑起来', ctx.checklist());
     this.light();
   }
 
@@ -454,7 +526,14 @@ class Garage implements GarageScene {
     const g = globals;
     const o = this.core.origin;
     const room = LAYOUT.room;
+    const sky0 = g.uSkyColor.value;
     g.uRoomMin.value.set(room.min[0] - o.x, room.min[1] - o.y, room.min[2] - o.z, 1);
+    beamUniforms.uBeamFloor.value = -o.y;
+    // the wide shadow map stays over the workshop and its yard, sharp enough (2 cm) for every window's patch
+    this.farFocus.set(1.5 - o.x, 1.0 - o.y, -o.z);
+    this.core.shadows?.fixFar(this.farFocus, ROOM_SHADOW_REACH);
+    // (moonbeams are a faint thing beside the sun's)
+    beamUniforms.uBeamDensity.value = BEAM_DENSITY * (0.3 + 0.7 * smooth(0.04, 0.2, (sky0.r + sky0.g + sky0.b) / 3));
     g.uRoomMax.value.set(room.max[0] - o.x, room.max[1] - o.y, room.max[2] - o.z, room.edge);
     const sky = g.uSkyColor.value;
     const sun = g.uSunColor.value;
@@ -493,24 +572,74 @@ class Garage implements GarageScene {
     const doorShare = (g1 - g0) / (2 * LAYOUT.door.z);
     const sunIn = sunLum * sunOnGround * (0.25 + 0.75 * doorShare) * Math.max(0, sd.x * 0.8 + 0.2);
     const lamp = this.lampLevel;
-    const amb = skyLum * 0.07 + sunIn * 0.03 + lamp * 0.022;
-    g.uRoomAmb.value.setRGB(amb * 1.08, amb * 0.98, amb * 0.86);
+    // daylight given back by the walls is the sky's colour a little warmed by the wood; sun on the
+    // floor gives back warm light; the lamps' own bounce is warmer still
+    // (what bounces in a room of wood comes back warm: the cool is in the light straight from the openings)
+    const ks = skyLum * 0.11;
+    const kw = sunIn * 0.032;
+    const kl = lamp * 0.03;
+    g.uRoomAmb.value.setRGB(ks * 1.12 + kw * 1.15 + kl * 1.2, ks * 0.98 + kw * 0.95 + kl * 0.9, ks * 0.8 + kw * 0.7 + kl * 0.58);
     // the lamps
     const lamps = LAYOUT.lamps;
-    for (let i = 0; i < ROOM_LAMPS; i++) {
-      const L = lamps[i];
-      if (!L || lamp < 0.01) {
-        g.uRoomLampP.value[i].w = 0;
+    let slot = 0;
+    for (const L of lamps) {
+      if (slot >= ROOM_LAMPS - 2) break;
+      if (lamp < 0.01) {
+        g.uRoomLampP.value[slot++].w = 0;
         continue;
       }
-      g.uRoomLampP.value[i].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach);
+      g.uRoomLampP.value[slot].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach);
       const p = LAMP_POWER * lamp;
-      g.uRoomLampC.value[i].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
+      g.uRoomLampC.value[slot++].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
     }
+    for (; slot < ROOM_LAMPS - 2; slot++) g.uRoomLampP.value[slot].w = 0;
     this.look.setGlow('bulb', 7 * lamp, 5.2 * lamp, 3.2 * lamp);
+    // the stove: its fire flickers in the window of its door and on the floor before it
+    const st = LAYOUT.stove;
+    const t = this.time;
+    const flick = 0.82 + 0.1 * Math.sin(t * 7.3) + 0.06 * Math.sin(t * 13.7 + 1.3) + 0.05 * Math.sin(t * 23.1 + 0.4) * Math.sin(t * 1.7);
+    if (st) {
+      g.uRoomLampP.value[slot].set(st.x + 0.15 - o.x, st.y - o.y, st.z - o.z, 3.4);
+      const p = STOVE_POWER * flick;
+      g.uRoomLampC.value[slot].set(STOVE_COLOUR[0] * p, STOVE_COLOUR[1] * p, STOVE_COLOUR[2] * p, 0);
+    } else g.uRoomLampP.value[slot].w = 0;
+    slot++;
+    this.look.setGlow('fire', 2.2 * flick, 0.8 * flick, 0.18 * flick);
+    // the lamp over the doors outside comes on at dusk, warming up over a second or two
+    const night = smooth(0.16, 0.07, skyLum);
+    // (already on, or off, when the garage is first seen)
+    this.outLamp = this.lit ? this.outLamp + ((night > 0.5 ? 1 : 0) - this.outLamp) * Math.min(1, this.frameDt * 1.5) : night > 0.5 ? 1 : 0;
+    this.lit = true;
+    const ol = LAYOUT.outlamp;
+    const out = this.outLamp;
+    if (ol && out > 0.005) {
+      g.uRoomLampP.value[slot].set(ol.x - o.x, ol.y - 0.08 - o.y, ol.z - o.z, 8.0);
+      const p = OUTLAMP_POWER * out;
+      // (2 + the shade's share: a lamp outside the room)
+      g.uRoomLampC.value[slot].set(OUTLAMP_COLOUR[0] * p, OUTLAMP_COLOUR[1] * p, OUTLAMP_COLOUR[2] * p, 3.0);
+    } else g.uRoomLampP.value[slot].w = 0;
+    this.look.setGlow('lamp_out', 7 * out, 5.4 * out, 3.4 * out);
+    // and what it and the open doors throw on the yard
+    const yu = this.yard.uniforms;
+    const spill = lamp * night * (g1 - g0 > 0.05 ? 1 : 0);
+    this.yard.mesh.visible = out > 0.005 || spill > 0.005;
+    if (this.yard.mesh.visible) {
+      if (ol) yu.uLampPos.value.set(ol.x - o.x, ol.y - 0.08 - o.y, ol.z - o.z);
+      yu.uLampCol.value.setRGB(OUTLAMP_COLOUR[0] * OUTLAMP_POWER * out, OUTLAMP_COLOUR[1] * OUTLAMP_POWER * out, OUTLAMP_COLOUR[2] * OUTLAMP_POWER * out);
+      const d = LAYOUT.door;
+      // (wound so that the opening faces the yard)
+      yu.uDoorA.value.set(d.x - o.x, -o.y, g1 - o.z);
+      yu.uDoorU.value.set(0, 0, g0 - g1);
+      yu.uDoorV.value.set(0, d.h, 0);
+      yu.uDoorL.value.setRGB(DOOR_SPILL[0] * spill, DOOR_SPILL[1] * spill, DOOR_SPILL[2] * spill);
+    }
   }
 
+  private frameDt = 0;
+  private lit = false;
+
   private readonly c1 = new THREE.Color();
+  private readonly farFocus = new THREE.Vector3();
   private readonly c2 = new THREE.Color();
 
   exposureAt(x: number, y: number, z: number): number {
@@ -520,13 +649,54 @@ class Garage implements GarageScene {
     const inZ = smooth(r.min[2] - 0.5, r.min[2] + 0.8, z) * smooth(r.max[2] + 0.5, r.max[2] - 0.8, z);
     const inY = y < r.max[1] ? 1 : 0;
     const k = inX * inZ * inY;
-    const day = Math.min(1, (globals.uSunColor.value.r + globals.uSunColor.value.g) / 3);
-    return 1 + k * (0.55 + 0.35 * day);
+    // by day the eye opens up indoors; at night the outdoor exposure is already up and the lamps rule
+    // (and at night, used to the lamps, it sees the moonlit country outside as the dark it is)
+    const sky = globals.uSkyColor.value;
+    const day = smooth(0.08, 0.3, (sky.r + sky.g + sky.b) / 3);
+    return 1 + k * (0.6 * day - 0.36 * (1 - day));
+  }
+
+  shadowFocus(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void {
+    const r = LAYOUT.room;
+    // inside: the fine map a few metres ahead of the eye, where one looks (kept in the room)
+    const inside = x > r.min[0] - 0.5 && x < r.max[0] + 1.5 && z > r.min[2] - 0.5 && z < r.max[2] + 0.5;
+    if (!inside) return;
+    out.x = Math.min(r.max[0] - 2.5, Math.max(r.min[0] + 2.5, x + Math.cos(heading) * 3.0));
+    out.y = 1.0;
+    out.z = Math.min(r.max[2] - 2.0, Math.max(r.min[2] + 2.0, z + Math.sin(heading) * 3.0));
+  }
+
+  /** what the garage costs to draw: meshes and triangles (main pass), and what casts into the shadow maps */
+  cost(): { meshes: number; triangles: number; casterTriangles: number; byName: Record<string, number> } {
+    const byName: Record<string, number> = {};
+    let meshes = 0;
+    let triangles = 0;
+    let casterTriangles = 0;
+    const tris = (g: THREE.BufferGeometry): number => {
+      const n = g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
+      return n * ((g as THREE.InstancedBufferGeometry).isInstancedBufferGeometry ? (g as THREE.InstancedBufferGeometry).instanceCount : 1);
+    };
+    for (const root of [this.root, this.outdoors.root]) {
+      root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const inst = (m as unknown as THREE.InstancedMesh).isInstancedMesh ? (m as unknown as THREE.InstancedMesh).count : 1;
+        const t = tris(m.geometry) * inst;
+        if (m.layers.isEnabled(0)) {
+          meshes++;
+          triangles += t;
+          const key = m.name.replace(/\|.*/, '').replace(/:(shadow)$/, '');
+          byName[key] = (byName[key] ?? 0) + Math.round(t);
+        }
+        if (m.layers.isEnabled(LAYER_SHADOW_FAR) || m.layers.isEnabled(LAYER_SHADOW_NEAR)) casterTriangles += t;
+      });
+    }
+    return { meshes, triangles: Math.round(triangles), casterTriangles: Math.round(casterTriangles), byName };
   }
 
   telemetry(): Record<string, string | number | boolean> {
     const [g0, g1] = this.doorGap();
-    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn };
+    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, ...this.machines.telemetry() };
   }
 
   surfaceAt(x: number, z: number, fromY: number): number {
@@ -547,6 +717,11 @@ class Garage implements GarageScene {
       if (m.isMesh) m.geometry.dispose();
     });
     this.look.dispose();
+    this.chalk?.dispose();
+    this.sign?.dispose();
+    this.plates?.dispose();
+    this.yard.dispose();
+    this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors
     globals.uRoomMin.value.w = 0;
     for (const p of globals.uRoomLampP.value) p.w = 0;
@@ -570,18 +745,4 @@ function moverKey(o: THREE.Object3D): string | null {
   const m = /^([A-Z][A-Z0-9_]+)\|/.exec(o.name) ?? /^([A-Z][A-Z0-9_]+)$/.exec(o.name);
   if (!m || m[1] === 'S') return null;
   return m[1];
-}
-
-/** the baked AO comes as RGBA; our shaders read three components */
-function rgbColours(g: THREE.BufferGeometry): void {
-  const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
-  if (!c || c.itemSize === 3) return;
-  const n = c.count;
-  const out = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    out[i * 3] = c.getX(i);
-    out[i * 3 + 1] = c.getY(i);
-    out[i * 3 + 2] = c.getZ(i);
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(out, 3));
 }

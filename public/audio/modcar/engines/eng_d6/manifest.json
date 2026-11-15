@@ -32,7 +32,8 @@
    "idle": true,
    "nominal": 600,
    "phase": 0.014191,
-   "cohLoad": 0.833
+   "cohLoad": 0.786,
+   "periodic": 0.922
   },
   {
    "file": "off_00670",
@@ -52,8 +53,9 @@
    "idle": false,
    "nominal": 670,
    "phase": 0.119052,
-   "coh": 0.5,
-   "cohLoad": 0.0
+   "coh": 0.463,
+   "cohLoad": 0.0,
+   "periodic": 0.931
   },
   {
    "file": "off_00750",
@@ -73,8 +75,9 @@
    "idle": false,
    "nominal": 750,
    "phase": 0.150419,
-   "coh": 0.564,
-   "cohLoad": 0.299
+   "coh": 0.54,
+   "cohLoad": 0.257,
+   "periodic": 0.984
   },
   {
    "file": "off_00840",
@@ -94,8 +97,9 @@
    "idle": false,
    "nominal": 840,
    "phase": 0.139602,
-   "coh": 0.514,
-   "cohLoad": 0.506
+   "coh": 0.506,
+   "cohLoad": 0.492,
+   "periodic": 0.987
   },
   {
    "file": "off_00950",
@@ -115,8 +119,9 @@
    "idle": false,
    "nominal": 950,
    "phase": 0.082482,
-   "coh": 0.607,
-   "cohLoad": 0.0
+   "coh": 0.595,
+   "cohLoad": 0.0,
+   "periodic": 0.974
   },
   {
    "file": "off_01060",
@@ -131,13 +136,14 @@
    "rpm": 1059.99,
    "load": 0,
    "cycles": 18,
-   "corr": 0.9095,
+   "corr": 0.9096,
    "seam": 0.02643,
    "idle": false,
    "nominal": 1060,
    "phase": 0.095592,
-   "coh": 0.759,
-   "cohLoad": 0.269
+   "coh": 0.744,
+   "cohLoad": 0.262,
+   "periodic": 0.986
   },
   {
    "file": "off_01190",
@@ -152,13 +158,14 @@
    "rpm": 1189.95,
    "load": 0,
    "cycles": 20,
-   "corr": 0.8652,
+   "corr": 0.8651,
    "seam": 0.03508,
    "idle": false,
    "nominal": 1190,
    "phase": 0.083971,
-   "coh": 0.645,
-   "cohLoad": 0.0
+   "coh": 0.631,
+   "cohLoad": 0.0,
+   "periodic": 0.971
   },
   {
    "file": "off_01330",
@@ -178,8 +185,9 @@
    "idle": false,
    "nominal": 1330,
    "phase": 0.076717,
-   "coh": 0.838,
-   "cohLoad": 0.0
+   "coh": 0.806,
+   "cohLoad": 0.0,
+   "periodic": 0.951
   },
   {
    "file": "off_01490",
@@ -199,8 +207,9 @@
    "idle": false,
    "nominal": 1490,
    "phase": 0.045826,
-   "coh": 0.656,
-   "cohLoad": 0.231
+   "coh": 0.637,
+   "cohLoad": 0.225,
+   "periodic": 0.992
   },
   {
    "file": "off_01670",
@@ -220,8 +229,9 @@
    "idle": false,
    "nominal": 1670,
    "phase": 0.064885,
-   "coh": 0.915,
-   "cohLoad": 0.085
+   "coh": 0.903,
+   "cohLoad": 0.083,
+   "periodic": 0.983
   },
   {
    "file": "off_01870",
@@ -241,8 +251,9 @@
    "idle": false,
    "nominal": 1870,
    "phase": 0.005807,
-   "coh": 0.525,
-   "cohLoad": 0.0
+   "coh": 0.516,
+   "cohLoad": 0.0,
+   "periodic": 0.985
   },
   {
    "file": "off_02100",
@@ -262,8 +273,9 @@
    "idle": false,
    "nominal": 2100,
    "phase": 0.033965,
-   "coh": 0.503,
-   "cohLoad": 0.407
+   "coh": 0.495,
+   "cohLoad": 0.395,
+   "periodic": 0.984
   },
   {
    "file": "off_02350",
@@ -283,8 +295,9 @@
    "idle": false,
    "nominal": 2350,
    "phase": 0.025166,
-   "coh": 0.481,
-   "cohLoad": 0.0
+   "coh": 0.473,
+   "cohLoad": 0.0,
+   "periodic": 0.986
   },
   {
    "file": "off_02630",
@@ -304,8 +317,9 @@
    "idle": false,
    "nominal": 2630,
    "phase": 0.003772,
-   "coh": 0.687,
-   "cohLoad": 0.446
+   "coh": 0.676,
+   "cohLoad": 0.431,
+   "periodic": 0.983
   },
   {
    "file": "off_02950",
@@ -320,13 +334,14 @@
    "rpm": 2949.99,
    "load": 0,
    "cycles": 49,
-   "corr": 0.9947,
+   "corr": 0.9946,
    "seam": 0.00153,
    "idle": false,
    "nominal": 2950,
    "phase": 0.023623,
-   "coh": 0.751,
-   "cohLoad": 0.0
+   "coh": 0.741,
+   "cohLoad": 0.0,
+   "periodic": 0.991
   },
   {
    "file": "on_00600",
@@ -345,7 +360,8 @@
    "seam": 0.02406,
    "idle": false,
    "nominal": 600,
-   "phase": 0.0
+   "phase": 0.0,
+   "periodic": 0.965
   },
   {
    "file": "on_00670",
@@ -365,7 +381,8 @@
    "idle": false,
    "nominal": 670,
    "phase": 0.017491,
-   "coh": 0.53
+   "coh": 0.509,
+   "periodic": 0.956
   },
   {
    "file": "on_00750",
@@ -385,7 +402,8 @@
    "idle": false,
    "nominal": 750,
    "phase": 0.099375,
-   "coh": 0.236
+   "coh": 0.2,
+   "periodic": 0.753
   },
   {
    "file": "on_00840",
@@ -405,7 +423,8 @@
    "idle": false,
    "nominal": 840,
    "phase": 0.01981,
-   "coh": 0.209
+   "coh": 0.178,
+   "periodic": 0.956
   },
   {
    "file": "on_00950",
@@ -425,7 +444,8 @@
    "idle": false,
    "nominal": 950,
    "phase": 0.033306,
-   "coh": 0.302
+   "coh": 0.29,
+   "periodic": 0.967
   },
   {
    "file": "on_01060",
@@ -445,7 +465,8 @@
    "idle": false,
    "nominal": 1060,
    "phase": 0.040241,
-   "coh": 0.353
+   "coh": 0.341,
+   "periodic": 0.966
   },
   {
    "file": "on_01190",
@@ -465,7 +486,8 @@
    "idle": false,
    "nominal": 1190,
    "phase": 0.037224,
-   "coh": 0.493
+   "coh": 0.475,
+   "periodic": 0.962
   },
   {
    "file": "on_01330",
@@ -485,7 +507,8 @@
    "idle": false,
    "nominal": 1330,
    "phase": 0.064145,
-   "coh": 0.353
+   "coh": 0.339,
+   "periodic": 0.957
   },
   {
    "file": "on_01490",
@@ -505,7 +528,8 @@
    "idle": false,
    "nominal": 1490,
    "phase": 0.022022,
-   "coh": 0.267
+   "coh": 0.256,
+   "periodic": 0.96
   },
   {
    "file": "on_01670",
@@ -525,7 +549,8 @@
    "idle": false,
    "nominal": 1670,
    "phase": 0.01642,
-   "coh": 0.662
+   "coh": 0.634,
+   "periodic": 0.957
   },
   {
    "file": "on_01870",
@@ -545,7 +570,8 @@
    "idle": false,
    "nominal": 1870,
    "phase": 0.025192,
-   "coh": 0.433
+   "coh": 0.414,
+   "periodic": 0.953
   },
   {
    "file": "on_02100",
@@ -565,7 +591,8 @@
    "idle": false,
    "nominal": 2100,
    "phase": 0.003906,
-   "coh": 0.702
+   "coh": 0.67,
+   "periodic": 0.957
   },
   {
    "file": "on_02350",
@@ -585,7 +612,8 @@
    "idle": false,
    "nominal": 2350,
    "phase": 0.017653,
-   "coh": 0.745
+   "coh": 0.711,
+   "periodic": 0.951
   },
   {
    "file": "on_02630",
@@ -605,7 +633,8 @@
    "idle": false,
    "nominal": 2630,
    "phase": 0.033597,
-   "coh": 0.277
+   "coh": 0.263,
+   "periodic": 0.95
   },
   {
    "file": "on_02950",
@@ -625,7 +654,8 @@
    "idle": false,
    "nominal": 2950,
    "phase": 0.016605,
-   "coh": 0.574
+   "coh": 0.545,
+   "periodic": 0.948
   }
  ],
  "oneshots": {

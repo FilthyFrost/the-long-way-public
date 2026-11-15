@@ -89,7 +89,55 @@ MATS = {
     'dial': (1.0, 0.8, 0.45),
     'led': (1.0, 0.6, 0.1),
     'pegboard': (0.72, 0.58, 0.4),
+    # white paint whose colour is all in the per-object tint: cans, labels, posters, toys in one draw
+    'tinted': (0.92, 0.9, 0.86),
+    'tinted_matte': (0.92, 0.9, 0.86),
+    'galv': (0.7, 0.72, 0.72),
+    'cloth': (0.75, 0.7, 0.6),
+    'fire': (1.0, 0.5, 0.2),
+    'lamp_out': (1.0, 0.92, 0.75),
 }
+
+
+# What the game draws each material with: its colour (sRGB hex, as a colour picker shows it) and its
+# shading group. Materials of one group are merged into one mesh (one draw call) with the colour in a
+# per-corner tint and the AO in the tint's alpha (src/game/modcar/garageLook.ts draws each group):
+#   bld    the building, painted with brushwork, no ink      bld2  the same, both sides (thin tin sheets)
+#   prop   things in it: cel tones, inked, a little sheen    shiny chrome, glazed ceramic, brass
+#   prop2  thin things seen from both sides (leaves, cloth)  floor the slab (its own shader)
+# Materials without a group keep their own mesh: glass, the skylight sheets, the lamps that switch.
+LOOK = {
+    'floor': (0x9c978d, 'floor'),
+    'plinth': (0xa9a59b, 'bld'), 'timber': (0x74503a, 'bld'), 'boards': (0xa47a52, 'bld'), 'siding': (0x9b3d2e, 'bld'),
+    'g_trim': (0xe8dec6, 'bld'), 'plaster': (0xe2d8c0, 'bld'), 'apron': (0xa6a298, 'bld'),
+    'tin_out': (0x6a6d70, 'bld2'), 'tin_in': (0xb9bcbc, 'bld2'),
+    'steel': (0x7a7f86, 'prop'), 'alu': (0xb4b8bc, 'prop'), 'rubber': (0x2a2a2e, 'prop'), 'trim': (0x2a2b2e, 'prop'),
+    'wood': (0xb08250, 'prop'), 'wood_dark': (0x6a4630, 'prop'), 'rust': (0x8a4a26, 'prop'), 'fabric': (0x7a5a44, 'prop'),
+    'leather': (0x5a3424, 'prop'), 'p_red': (0xb93a2d, 'prop'), 'p_green': (0x4d7a5c, 'prop'), 'p_blue': (0x41678a, 'prop'),
+    'p_yellow': (0xe0b03c, 'prop'), 'p_cream': (0xe9dfc6, 'prop'), 'p_teal': (0x3e8e87, 'prop'), 'p_orange': (0xd8742e, 'prop'),
+    'p_black': (0x2a2a2e, 'prop'), 'cardboard': (0xb88c5c, 'prop'), 'paper': (0xefe9da, 'prop'), 'rope': (0xc4a474, 'prop'),
+    'chalk': (0x2e3c36, 'prop'), 'pot': (0xbc6640, 'prop'), 'soil': (0x3c2c20, 'prop'), 'pegboard': (0xbc9a6c, 'prop'),
+    'tinted_matte': (0xf4f1ea, 'prop'), 'galv': (0xb2b7b8, 'prop'), 'emit': (0xfff0d0, 'prop'),
+    'chrome': (0xb2bac2, 'shiny'), 'ceramic': (0xf3f2ec, 'shiny'), 'brass': (0xc8a050, 'shiny'), 'tinted': (0xf4f1ea, 'prop'),
+    'water': (0x4a6a70, 'shiny'),
+    'enamel': (0xf3efe4, 'prop2'), 'canvas': (0xab9d7c, 'prop2'), 'leaf': (0x5c8e3a, 'prop2'), 'leaf_dark': (0x2f5c32, 'prop2'),
+    'cloth': (0xc8bea8, 'prop2'),
+    # (lit from within: their own meshes, the game switches them)
+    'bulb': (0xfff1d6, 'bulb'), 'led': (0x6a4a20, 'led'), 'dial': (0x8a7a5a, 'dial'),
+    'fire': (0x5a2a14, 'fire'), 'lamp_out': (0xfff1d6, 'lamp_out'),
+}
+
+
+# what light passes through (or that only glows): never in the shadow caster
+NO_CAST = {'win_glass', 'glass', 'skylight', 'bulb', 'led', 'dial', 'water', 'leaf', 'leaf_dark', 'fire', 'lamp_out'}
+
+
+def srgb_to_linear(hex_rgb):
+    out = []
+    for sh in (16, 8, 0):
+        c = ((hex_rgb >> sh) & 255) / 255.0
+        out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    return tuple(out)
 
 
 # --------------------------------------------------------------------------------------------- matrices
@@ -148,6 +196,8 @@ class Kit:
         self.rng = random.Random(1907)
         self.tmp = bpy.data.meshes.new('_tmp')
         self.objects = []
+        # what casts the sun's shadow: the big things, without their bevels (one mesh, never drawn)
+        self.shadow = bmesh.new()
         self.tris = 0
         self.t0 = time.time()
         self.stats = {}
@@ -208,6 +258,31 @@ class Kit:
                 src.free()
         bm.free()
 
+    # ------------------------------------------------------------------ the shadow caster
+
+    def _cast(self, mat, bm, matrix=None, cast=None, mover=None):
+        """
+        Copy a primitive (before it is bevelled) into the shadow caster: cast=True always, False never,
+        None when it is big enough to matter (over 0.45 m). Moving pieces cast through their own meshes.
+        """
+        if cast is False or mover or mat in NO_CAST:
+            return
+        c = bm.copy()
+        if matrix is not None:
+            bmesh.ops.transform(c, matrix=matrix, verts=c.verts[:])
+        if cast is None:
+            if not c.verts:
+                c.free()
+                return
+            lo = [min(v.co[i] for v in c.verts) for i in range(3)]
+            hi = [max(v.co[i] for v in c.verts) for i in range(3)]
+            if max(hi[i] - lo[i] for i in range(3)) < 0.45:
+                c.free()
+                return
+        c.to_mesh(self.tmp)
+        self.shadow.from_mesh(self.tmp)
+        c.free()
+
     # ------------------------------------------------------------------ finishing a primitive
 
     @staticmethod
@@ -233,7 +308,7 @@ class Kit:
     # ------------------------------------------------------------------ primitives (game frame)
 
     def box(self, mat, center, size, rot=(0, 0, 0), bev=0.0, bsegs=1, seg=None, tint=1.0, mover=None,
-            faces_mat=None, open=None, matrix=None, taper=None):
+            faces_mat=None, open=None, matrix=None, taper=None, cast=None):
         """
         An upright box. seg = longest edge length before it is cut (vertex AO needs vertices on big
         faces; default: none). open: faces to leave out ('-y', '+x-z', local axes). taper = (sx, sz)
@@ -247,6 +322,7 @@ class Kit:
             if taper and v.co.y > 0:
                 v.co.x *= taper[0]
                 v.co.z *= taper[1]
+        self._cast(mat, bm, matrix if matrix is not None else mat4(center, rot), cast, mover)
         if seg:
             cuts = [max(0, int(math.ceil(d / seg)) - 1) for d in (sx, sy, sz)]
             for axis, n in enumerate(cuts):
@@ -280,7 +356,7 @@ class Kit:
         self._pour(bm, mat, tint, mover, fm)
 
     def cyl(self, mat, center, r, h, axis='y', rot=None, segs=16, r2=None, bev=0.0, bsegs=1, tint=1.0, mover=None,
-            caps=True, smooth=True, matrix=None, rings=0):
+            caps=True, smooth=True, matrix=None, rings=0, cast=None):
         """A cylinder (or a cone with r2) along `axis`, centred on `center`."""
         bm = bmesh.new()
         res = bmesh.ops.create_cone(bm, cap_ends=caps, cap_tris=False, segments=segs, radius1=r,
@@ -292,16 +368,17 @@ class Kit:
                 co = -h / 2 + h * k / (rings + 1)
                 geom = bm.verts[:] + bm.edges[:] + bm.faces[:]
                 bmesh.ops.bisect_plane(bm, geom=geom, dist=1e-6, plane_co=V((0, co, 0)), plane_no=V((0, 1, 0)))
-        self._bevel(bm, bev, bsegs, angle=50.0)
-        self._shade(bm, smooth, sharp=50.0)
         if matrix is None:
             orient = mat4(rot=rot) if rot is not None else axis_to(axis)
             matrix = Matrix.Translation(center) @ orient
+        self._cast(mat, bm, matrix, cast, mover)
+        self._bevel(bm, bev, bsegs, angle=50.0)
+        self._shade(bm, smooth, sharp=50.0)
         bmesh.ops.transform(bm, matrix=matrix, verts=bm.verts[:])
         self._pour(bm, mat, tint, mover)
 
     def lathe(self, mat, center, profile, segs=24, axis='y', rot=None, tint=1.0, mover=None, smooth=True,
-              sharp=45.0, close=False, matrix=None, angle=TAU, start=0.0, face=None):
+              sharp=45.0, close=False, matrix=None, angle=TAU, start=0.0, face=None, cast=None):
         """
         Surface of revolution about the local y axis: profile = [(r, y), ...]; r = 0 makes a pole.
         face = 'out' / 'in' turns every face away from / towards the axis (open shells: a lamp shade).
@@ -353,9 +430,10 @@ class Kit:
             orient = mat4(rot=rot) if rot is not None else axis_to(axis)
             matrix = Matrix.Translation(center) @ orient
         bmesh.ops.transform(bm, matrix=matrix, verts=bm.verts[:])
+        self._cast(mat, bm, None, cast, mover)
         self._pour(bm, mat, tint, mover)
 
-    def tube(self, mat, pts, r, segs=8, tint=1.0, mover=None, caps=True, bend=0.0, radius_fn=None):
+    def tube(self, mat, pts, r, segs=8, tint=1.0, mover=None, caps=True, bend=0.0, radius_fn=None, cast=None):
         """A round tube along a polyline (rotation-minimising frames); bend rounds its corners (m)."""
         pts = [V(p) for p in pts]
         if bend > 0:
@@ -396,9 +474,11 @@ class Kit:
             bm.faces.new(rings[-1])
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
         self._shade(bm, True, sharp=60.0)
+        # (thin tubes, a cable, a handle: no shadow worth its triangles unless asked)
+        self._cast(mat, bm, None, cast if cast is not None else (r > 0.03 and None), mover)
         self._pour(bm, mat, tint, mover)
 
-    def prism(self, mat, poly, depth, matrix, bev=0.0, tint=1.0, mover=None, smooth=False):
+    def prism(self, mat, poly, depth, matrix, bev=0.0, tint=1.0, mover=None, smooth=False, cast=None):
         """A 2D polygon [(u, v), ...] (counter-clockwise) extruded along local z by depth (centred), placed by matrix."""
         bm = bmesh.new()
         bot = [bm.verts.new((u, v, -depth / 2)) for (u, v) in poly]
@@ -410,6 +490,7 @@ class Kit:
             j = (i + 1) % k
             bm.faces.new((bot[i], bot[j], top[j], top[i]))
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        self._cast(mat, bm, matrix, cast, mover)
         self._bevel(bm, bev)
         self._shade(bm, smooth)
         bmesh.ops.transform(bm, matrix=matrix, verts=bm.verts[:])
@@ -445,8 +526,9 @@ class Kit:
         self._shade(bm, False)
         self._pour(bm, mat, tint, mover)
 
-    def mesh(self, mat, bm, tint=1.0, mover=None, smooth=False, sharp=40.0, bev=0.0):
+    def mesh(self, mat, bm, tint=1.0, mover=None, smooth=False, sharp=40.0, bev=0.0, cast=None):
         """Any bmesh already in the game frame."""
+        self._cast(mat, bm, None, cast, mover)
         self._bevel(bm, bev)
         self._shade(bm, smooth, sharp)
         self._pour(bm, mat, tint, mover)
@@ -462,16 +544,33 @@ class Kit:
     # ------------------------------------------------------------------ finishing
 
     def _objects(self):
-        """One Blender object per bucket (static ones named S_<mat>, moving ones <mover>|<mat>)."""
-        made = []
-        for b in self.buckets.values():
-            made.append((b, f'S_{b.mat}', None))
-        for name, m in self.movers.items():
-            for b in m['buckets'].values():
-                made.append((b, f'{name}|{b.mat}', name))
+        """
+        One Blender object per shading group (static: S_<group>, moving: <mover>|<group>); each bucket's
+        corners are tinted with its material's colour first, so the group's mesh carries every colour.
+        """
+        groups = {}
+        for mover, buckets in [(None, self.buckets)] + [(n, m['buckets']) for n, m in self.movers.items()]:
+            for b in buckets.values():
+                hex_rgb, grp = LOOK.get(b.mat, (None, None))
+                if grp is None:
+                    grp = b.mat
+                if hex_rgb is not None:
+                    cr, cg, cb = srgb_to_linear(hex_rgb)
+                    lay = b.tint
+                    for f in b.bm.faces:
+                        for l in f.loops:
+                            t = l[lay]
+                            l[lay] = (t[0] * cr, t[1] * cg, t[2] * cb, 1.0)
+                groups.setdefault((mover, grp), []).append(b)
         objs = []
-        for b, oname, mover in made:
-            bm = b.bm
+        for (mover, grp), buckets in groups.items():
+            oname = f'{mover}|{grp}' if mover else f'S_{grp}'
+            bm = bmesh.new()
+            bm.loops.layers.float_color.new('Tint')
+            for b in buckets:
+                b.bm.to_mesh(self.tmp)
+                bm.from_mesh(self.tmp)
+                b.bm.free()
             pivot = self.movers[mover]['pivot'] if mover else (0, 0, 0)
             bmesh.ops.transform(bm, matrix=Matrix.Translation((-pivot[0], -pivot[1], -pivot[2])), verts=bm.verts[:])
             bmesh.ops.transform(bm, matrix=TO_BLENDER, verts=bm.verts[:])
@@ -480,11 +579,24 @@ class Kit:
             bm.free()
             obj = bpy.data.objects.new(oname, me)
             bpy.context.scene.collection.objects.link(obj)
-            obj.data.materials.append(gmat(b.mat))
+            obj.data.materials.append(gmat(grp))
             obj.location = to_blender(pivot)
-            obj['mat'] = b.mat
+            obj['mat'] = grp
             if mover:
                 obj['mover'] = mover
+            objs.append(obj)
+        if self.shadow.verts:
+            bmesh.ops.remove_doubles(self.shadow, verts=self.shadow.verts[:], dist=1e-5)
+            bmesh.ops.transform(self.shadow, matrix=TO_BLENDER, verts=self.shadow.verts[:])
+            me = bpy.data.meshes.new('S_shadow')
+            self.shadow.to_mesh(me)
+            self.shadow.free()
+            for p in me.polygons:
+                p.use_smooth = False
+            obj = bpy.data.objects.new('S_shadow', me)
+            bpy.context.scene.collection.objects.link(obj)
+            obj.data.materials.append(gmat('shadow'))
+            obj['mat'] = 'shadow'
             objs.append(obj)
         return objs
 
@@ -494,17 +606,11 @@ class Kit:
         self.tris = mc.triangles(objs)
         for o in objs:
             self.stats[o.name] = mc.triangles([o])
-        if ao:
-            bake = [o for o in objs if o['mat'] not in no_ao]
+        bake = [o for o in objs if o['mat'] not in no_ao] if ao else []
+        if bake:
             bake_ao(bake, ao_samples, ao_distance)
-            for o in objs:
-                if o in bake:
-                    apply_tint(o)
-                else:
-                    tint_only(o)
-        else:
-            for o in objs:
-                tint_only(o)
+        for o in objs:
+            tint_and_ao(o)
         print(f'GARAGE {self.name}: {len(objs)} objects, {self.tris} tris ({time.time() - self.t0:.1f}s)')
 
     def export(self, path):
@@ -578,7 +684,7 @@ def bake_ao(objs, samples, distance, big=2.6, rays=14, big_rays=8, inset=0.45):
         me = o.data
         mw = o.matrix_world
         m3 = mw.to_3x3()
-        attr = me.color_attributes.get('Col') or me.color_attributes.new('Col', 'FLOAT_COLOR', 'CORNER')
+        attr = me.color_attributes.get('AOx') or me.color_attributes.new('AOx', 'FLOAT_COLOR', 'CORNER')
         vals = [1.0] * (len(me.loops) * 4)
         co = [mw @ v.co for v in me.vertices]
         for p in me.polygons:
@@ -643,6 +749,30 @@ def bake_ao_cycles(objs, samples, distance):
     t0 = time.time()
     bpy.ops.object.bake(type='AO', target='VERTEX_COLORS')
     print(f'GARAGE baked AO on {len(meshes)} objects in {time.time() - t0:.1f}s')
+
+
+def tint_and_ao(o):
+    """The exported colour 'Col': the tint (the material's colour x the piece's variation) in rgb, AO in alpha."""
+    me = o.data
+    tint = me.color_attributes.get('Tint')
+    aox = me.color_attributes.get('AOx')
+    n = len(me.loops)
+    t = [1.0] * (n * 4)
+    if tint is not None:
+        tint.data.foreach_get('color', t)
+    a = None
+    if aox is not None:
+        a = [1.0] * (n * 4)
+        aox.data.foreach_get('color', a)
+    for i in range(n):
+        t[i * 4 + 3] = a[i * 4] if a is not None else 1.0
+    for name in ('Tint', 'AOx'):
+        at = me.color_attributes.get(name)
+        if at is not None:
+            me.color_attributes.remove(at)
+    col = me.color_attributes.get('Col') or me.color_attributes.new('Col', 'FLOAT_COLOR', 'CORNER')
+    col.data.foreach_set('color', t)
+    me.color_attributes.active_color = col
 
 
 def apply_tint(o):

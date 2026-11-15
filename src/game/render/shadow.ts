@@ -18,7 +18,7 @@ class Cascade {
   readonly matrix = new THREE.Matrix4();
   constructor(
     readonly size: number,
-    readonly radius: number,
+    public radius: number,
     readonly depth: number,
     layer: number,
   ) {
@@ -103,6 +103,19 @@ export class ShadowPass {
     c.matrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).premultiply(BIAS);
   }
 
+  /** the wide map held over one place (render space) at a reach of its own, instead of ahead of the camera; null = follow again */
+  private farFixed: THREE.Vector3 | null = null;
+  fixFar(focus: THREE.Vector3 | null, reach = 92): void {
+    this.farFixed = focus ? (this.farFixed ?? new THREE.Vector3()).copy(focus) : null;
+    const c = this.far;
+    const r = focus ? reach : 92;
+    if (c.radius === r) return;
+    c.radius = r;
+    c.camera.left = c.camera.bottom = -r;
+    c.camera.right = c.camera.top = r;
+    c.camera.updateProjectionMatrix();
+  }
+
   /**
    * @param nearFocus centre of the fine map (the vehicle), render space
    * @param farFocus  centre of the wide map (a little ahead of the camera), render space
@@ -117,7 +130,7 @@ export class ShadowPass {
       return;
     }
     this.place(this.near, nearFocus, dir);
-    this.place(this.far, farFocus, dir);
+    this.place(this.far, this.farFixed ?? farFocus, dir);
     globals.uShadowMat0.value.copy(this.near.matrix);
     globals.uShadowMat1.value.copy(this.far.matrix);
     p.set(1, (this.near.radius * 2) / this.near.size, (this.far.radius * 2) / this.far.size, 1 / this.near.size);

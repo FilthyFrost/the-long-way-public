@@ -202,7 +202,7 @@ public node eng_i4 {
     ignition_module ignition_module(
         timing_curve: timing_curve,
         rev_limit: 6450 * units.rpm,
-        limiter_duration: 0.08)
+        limiter_duration: 0.05)
     ignition_module
         .connect_wire(wires.wire1, 0 * units.deg)
         .connect_wire(wires.wire3, 180 * units.deg)

@@ -6,9 +6,16 @@
  */
 import { fbm2 } from '../../../src/core/math/noise';
 import { Rng } from '../../../src/core/math/rng';
-import { VehicleSim, zeroInput } from '../../../src/core/vehicle/sim';
+import { StaticSolids } from '../../../src/core/onfoot/statics';
+import { VehicleSim, zeroInput, type VehicleInput } from '../../../src/core/vehicle/sim';
 import { FlatGround, GroundSample, Surface, type Ground } from '../../../src/core/world/ground';
-import type { RandomBuild } from './specgen';
+import { feel } from './feel';
+import { randomBuild as makeBuild, type RandomBuild } from './specgen';
+
+/** full throttle on the level until it stops gaining: its top speed */
+function launchTop(b: RandomBuild): { top: number; exploded: boolean } {
+  return feel.launch(b.spec, { mods: b.setup });
+}
 
 export interface FuzzStats {
   /** state became non-finite */
@@ -159,4 +166,111 @@ export function swapFuzz(rng: Rng, makeBuild: (rng: Rng) => RandomBuild, seconds
     }
   }
   return st;
+}
+
+const steep = (x: number, z: number): number => 1.6 * fbm2(x / 15, z / 15, 21, 3) + 0.15 * fbm2(x / 1.7, z / 1.7, 22, 2);
+
+/** what a hard crash leaves: the deepest the body got into a wall or a post (m) */
+export interface HarshStats extends FuzzStats {
+  maxWallPenetration: number;
+}
+
+/**
+ * Steep grass hills (slopes past 30 %) flat out with the wheel thrown about, then a run at full
+ * throttle through a field of walls, posts and crates.
+ */
+export function harshFuzz(b: RandomBuild, rng: Rng, seconds = 25): HarshStats {
+  const st: HarshStats = { exploded: false, maxKmh: 0, maxSpin: 0, maxSink: 0, minCgClear: Infinity, flips: 0, seconds: 0, maxWallPenetration: 0 };
+  const hills = new FlatGround({ relief: steep, surface: Surface.Grass });
+  const gs = new GroundSample();
+  const basis = new Float64Array(9);
+  {
+    const v = new VehicleSim(b.spec);
+    b.setup(v.mods);
+    v.reset(0, steep(0, 0), 0, rng.range(-Math.PI, Math.PI), hills);
+    const inp = zeroInput();
+    let next = 0;
+    for (let t = 0; t < seconds; t += v.h) {
+      if (t >= next) {
+        next = t + rng.range(0.3, 2);
+        inp.steer = rng.range(-1, 1);
+        inp.throttle = rng.chance(0.85) ? 1 : 0;
+        inp.brake = rng.chance(0.1) ? 1 : 0;
+      }
+      v.substep(inp, hills);
+      st.seconds += v.h;
+      if (v.exploded || !Number.isFinite(v.px + v.py + v.pz + v.vx + v.vy + v.vz + v.avx + v.avy + v.avz + v.rpm)) {
+        st.exploded = true;
+        return st;
+      }
+      st.maxKmh = Math.max(st.maxKmh, v.speed * 3.6);
+      st.maxSpin = Math.max(st.maxSpin, Math.hypot(v.avx, v.avy, v.avz));
+      hills.sample(v.px, v.pz, gs);
+      st.minCgClear = Math.min(st.minCgClear, v.py - gs.h);
+      v.basis(basis);
+      if (basis[4] < 0.2 && v.speed < 0.5) {
+        st.flips++;
+        v.reset(v.px, gs.h, v.pz, v.yaw, hills);
+      }
+    }
+  }
+  {
+    const flat = new FlatGround();
+    const solids = new StaticSolids();
+    for (let k = 0; k < 12; k++) {
+      const x = 40 + k * 25 + rng.range(-5, 5);
+      const z = rng.range(-6, 6);
+      const kind = rng.int(3);
+      if (kind === 0) solids.box(x, z, rng.range(0.2, 2), rng.range(0.3, 5), rng.range(-1, 1), -1, rng.range(0.5, 3), false, 'wall');
+      else if (kind === 1) solids.post(x, z, rng.range(0.1, 0.4), -1, 3, 'post');
+      else solids.box(x, z, 0.4, 0.4, 0, -1, 0.8, false, 'light:crate');
+    }
+    const v = new VehicleSim(b.spec);
+    b.setup(v.mods);
+    v.reset(0, 0, 0, 0, flat);
+    v.solids = solids;
+    const inp: VehicleInput = { steer: 0, throttle: 1, brake: 0, handbrake: 0 };
+    for (let t = 0; t < seconds; t += v.h) {
+      inp.steer = Math.sin(t * 0.7) * 0.3;
+      v.substep(inp, flat);
+      st.seconds += v.h;
+      if (v.exploded || !Number.isFinite(v.px + v.py + v.pz + v.vx + v.vy + v.vz + v.avx + v.avy + v.avz)) {
+        st.exploded = true;
+        return st;
+      }
+      st.maxSpin = Math.max(st.maxSpin, Math.hypot(v.avx, v.avy, v.avz));
+    }
+    st.maxWallPenetration = v.maxPenetration;
+  }
+  return st;
+}
+
+/** the fuzz test's settings: MODCAR_FUZZ=<builds> MODCAR_FUZZ_SECONDS=<seconds each> MODCAR_FUZZ_SEED=<seed> */
+export const FUZZ = {
+  builds: Number(process.env.MODCAR_FUZZ ?? 1000),
+  seconds: Number(process.env.MODCAR_FUZZ_SECONDS ?? 30),
+  seed: Number(process.env.MODCAR_FUZZ_SEED ?? 2026),
+};
+
+/**
+ * Builds `from` to `to` (of the seeded sequence) through fuzzBuild and a flat-out run for the top
+ * speed; what went wrong with each, if anything.
+ */
+export function fuzzRange(from: number, to: number, seconds = FUZZ.seconds, seed = FUZZ.seed): string[] {
+  const rng = new Rng(seed);
+  const bad: string[] = [];
+  for (let i = 0; i < to; i++) {
+    const b = makeBuild(rng);
+    if (i < from) continue;
+    const s = fuzzBuild(b, seconds, seed * 7 + i);
+    const top = launchTop(b);
+    const why: string[] = [];
+    if (s.exploded || top.exploded) why.push('exploded');
+    if (s.maxKmh > 300 || top.top > 300) why.push(`speed ${Math.max(s.maxKmh, top.top).toFixed(0)} km/h`);
+    if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
+    if (s.maxSink > 0.2) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
+    if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the ground`);
+    if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
+  }
+  return bad;
 }

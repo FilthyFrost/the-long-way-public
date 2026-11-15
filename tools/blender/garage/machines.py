@@ -1,0 +1,611 @@
+"""
+The workshop's machines (docs/MODCAR.md section 9), second batch: the two-post lift, the tyre changer,
+the compressor and the paint corner, the sink with its hose reel and bucket, the radio, the rolling tool
+chest, the floor jack, axle stands and a creeper, the wall clock, the chalkboard, the calendar.
+
+Same conventions as props.py: game frame, every function adds its solids, surfaces, spots and devices
+to the layout L.
+"""
+
+import math
+
+import bmesh
+from mathutils import Matrix, Vector
+
+from . import _kit as kit
+from . import props as P
+from . import shell as S
+
+V = Vector
+
+
+def tint_of(hex_rgb):
+    """an sRGB hex colour as a linear tint for the 'tinted' materials"""
+    r = ((hex_rgb >> 16) & 255) / 255.0
+    g = ((hex_rgb >> 8) & 255) / 255.0
+    b = (hex_rgb & 255) / 255.0
+    lin = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    # (the material's own white is about 0.9 linear: divide it out)
+    return (min(1.2, lin(r) / 0.9), min(1.2, lin(g) / 0.9), min(1.2, lin(b) / 0.9))
+
+
+# ---------------------------------------------------------------------------------------------- the lift
+
+def lift(K, L, xc, zc, span=2.9, name='lift'):
+    """
+    A two-post lift for a car standing with its nose to +x at (xc, zc): blue posts either side, a
+    crossbar over the top, the carriages down with their arms swung in under the sills, the power unit
+    on the left post, a floor plate between the posts.
+    """
+    top = 3.45
+    pw, pd = 0.28, 0.34
+    for s in (-1, 1):
+        z = zc + s * (span / 2 + pw / 2)
+        # the post: a box with a recessed track on the inner face
+        K.box('p_blue', (xc, top / 2, z), (pd, top, pw), bev=0.012, seg=0.8)
+        K.box('steel', (xc, top / 2, z - s * (pw / 2 + 0.004)), (0.12, top - 0.3, 0.012), bev=0.003, seg=0.8)
+        # a ladder of safety locks up the track
+        for k in range(14):
+            K.box('steel', (xc, 0.5 + k * 0.2, z - s * (pw / 2 + 0.012)), (0.1, 0.03, 0.012), bev=0.002)
+        # base plate and its anchor bolts
+        K.box('steel', (xc, 0.012, z), (0.5, 0.024, 0.5), bev=0.006)
+        for (dx, dz) in ((0.19, 0.19), (-0.19, 0.19), (0.19, -0.19), (-0.19, -0.19)):
+            K.cyl('steel', (xc + dx, 0.035, z + dz), 0.018, 0.025, segs=6)
+        # the carriage, down, with two arms each, swung in under where a car's sills would be (they move: LIFT)
+        cy = 0.22
+        K.mover('LIFT', (xc, 0.0, zc))
+        K.box('p_blue', (xc, cy + 0.2, z - s * 0.24), (0.36, 0.5, 0.16), bev=0.012, mover='LIFT')
+        for ax in (-1, 1):
+            ang = math.radians(28 * ax)
+            dx = math.sin(ang)
+            dz = math.cos(ang)
+            ln = 1.05
+            x0, z0 = xc + ax * 0.12, z - s * 0.3
+            x1, z1 = x0 + ax * abs(dx) * ln, z0 - s * dz * ln
+            K.box('p_yellow', ((x0 + x1) / 2, cy + 0.04, (z0 + z1) / 2), (0.1, 0.07, ln), rot=(0, -math.degrees(ax * s * 0.49), 0), bev=0.008, mover='LIFT')
+            K.cyl('rubber', (x1, cy + 0.11, z1), 0.07, 0.05, segs=14, bev=0.006, mover='LIFT')
+            K.cyl('steel', (x1, cy + 0.07, z1), 0.035, 0.05, segs=10, mover='LIFT')
+        # the chain/cable over the top
+        K.box('steel', (xc, top - 0.18, z), (0.2, 0.12, 0.1), bev=0.01)
+        solid_box = (xc, z, pd / 2 + 0.06, pw / 2 + 0.06)
+        P.solid(L, *solid_box, 0, top)
+    # the crossbar at the top and the line between the posts in it
+    zl, zr = zc - span / 2 - pw / 2, zc + span / 2 + pw / 2
+    K.box('p_blue', (xc, top + 0.06, zc), (0.2, 0.18, zr - zl + 0.1), bev=0.012, seg=0.8)
+    K.box('rubber', (xc, top - 0.04, zc), (0.06, 0.03, span), bev=0.004)
+    # the floor plate over the cables between the posts
+    K.box('steel', (xc, 0.02, zc), (0.42, 0.04, span), bev=0.008, seg=0.8, taper=(0.86, 1.0))
+    for k in range(int(span / 0.25)):
+        K.box('steel', (xc, 0.041, zl + 0.3 + k * 0.25), (0.3, 0.004, 0.02), bev=0.0)
+    # the power unit on the post by the wall: motor, oil tank, the lever
+    pz = zr + 0.0
+    xc_pu = xc + 0.3
+    K.cyl('p_green', (xc_pu, 1.35, pz), 0.11, 0.32, segs=18, bev=0.01)
+    K.box('p_cream', (xc_pu, 1.04, pz), (0.2, 0.3, 0.24), bev=0.012)
+    K.box('p_black', (xc_pu + 0.103, 1.04, pz), (0.008, 0.08, 0.16), bev=0.0)
+    K.tube('steel', [(xc_pu + 0.1, 1.08, pz - 0.06), (xc_pu + 0.22, 1.12, pz - 0.08)], 0.012, segs=8)
+    K.cyl('p_red', (xc_pu + 0.23, 1.12, pz - 0.08), 0.028, 0.06, axis='x', segs=12)
+    K.tube('p_black', [(xc_pu, 0.89, pz), (xc_pu - 0.1, 0.3, pz), (xc, 0.05, pz - 0.2), (xc, 0.05, zc)], 0.012, segs=6, bend=0.1)
+    P.device(L, 'lift', xc_pu + 0.23, 1.12, pz - 0.08, 0.16)
+    return (zl, zr)
+
+
+# ---------------------------------------------------------------------------------------------- tyre changer
+
+def tyre_changer(K, L, x, z, yaw_deg=0.0):
+    """
+    A tyre changer: a red cabinet on a black plinth with the turntable on top (four jaws in their slots)
+    in a black tray with the tyre lever and the bead lube in it; the tower at the back with the swing
+    arm, the hex shaft and its mounting head; the bead breaker's arm and blade on the side against its
+    rubber pad, its air cylinder behind; three pedals at the foot; the air gauge hung on the tower.
+    Local frame: +x the front (the pedals), the tower at -x.
+    """
+    M = kit.mat4((x, 0, z), (0, yaw_deg, 0))
+
+    def at(p):
+        return tuple(M @ V(p))
+
+    def box(mat, c, size, rot=(0, 0, 0), **kw):
+        K.box(mat, (0, 0, 0), size, matrix=M @ Matrix.Translation(c) @ kit.rot3(rot).to_4x4(), **kw)
+
+    def cyl(mat, c, r, h, axis='y', **kw):
+        m = M @ Matrix.Translation(c) @ kit.axis_to(axis)
+        K.cyl(mat, (0, 0, 0), r, h, matrix=m, **kw)
+
+    h = 0.78
+    # the cabinet on its plinth, a cream stripe round it, louvres low on the front
+    box('p_black', (0, 0.03, 0), (0.6, 0.06, 0.8), bev=0.01)
+    box('p_red', (0, 0.06 + (h - 0.08) / 2, 0), (0.62, h - 0.08, 0.82), bev=0.035, bsegs=2, seg=0.45)
+    box('p_cream', (0, h - 0.17, 0), (0.628, 0.045, 0.828), bev=0.006, cast=False)
+    box('p_red', (0.311, 0.36, 0), (0.012, 0.4, 0.56), bev=0.008, tint=0.78, cast=False)
+    for k in range(6):
+        box('p_black', (0.318, 0.2 + k * 0.058, 0), (0.008, 0.02, 0.46), bev=0.003, tint=1.3, cast=False)
+    # the tray on top, its lip, the tools in it
+    top = h - 0.02
+    box('rubber', (0.0, top + 0.012, 0), (0.6, 0.024, 0.8), bev=0.008, tint=1.25)
+    for (c, sz) in (((0.29, top + 0.035, 0), (0.025, 0.03, 0.8)), ((-0.29, top + 0.035, 0), (0.025, 0.03, 0.8)),
+                    ((0, top + 0.035, 0.39), (0.6, 0.03, 0.025)), ((0, top + 0.035, -0.39), (0.6, 0.03, 0.025))):
+        box('rubber', c, sz, bev=0.006, tint=1.25, cast=False)
+    K.tube('steel', [at((0.22, top + 0.03, 0.34)), at((-0.18, top + 0.03, 0.33)), at((-0.24, top + 0.06, 0.315))], 0.011, segs=6, bend=0.03)
+    cyl('p_yellow', (0.2, top + 0.065, -0.3), 0.045, 0.085, segs=14, bev=0.006)
+    cyl('p_cream', (0.2, top + 0.11, -0.3), 0.04, 0.006, segs=14, cast=False)
+    K.tube('wood', [at((0.2, top + 0.09, -0.3)), at((0.24, top + 0.2, -0.32))], 0.008, segs=5)
+    # the turntable: a disc with a rim, four jaws in their slots, the hub (it turns: TC_TABLE)
+    tt = h + 0.03
+    K.mover('TC_TABLE', at((0, tt, -0.05)))
+    cyl('steel', (0, tt, -0.05), 0.3, 0.04, segs=36, bev=0.008, bsegs=2, mover='TC_TABLE')
+    cyl('steel', (0, tt + 0.021, -0.05), 0.24, 0.004, segs=36, tint=0.7, mover='TC_TABLE')
+    for k in range(4):
+        a = k * math.pi / 2 + math.pi / 4
+        ca, sa = math.cos(a), math.sin(a)
+        box('p_black', (ca * 0.17, tt + 0.024, -0.05 + sa * 0.17), (0.2, 0.004, 0.03), rot=(0, -math.degrees(a), 0), mover='TC_TABLE')
+        box('alu', (ca * 0.22, tt + 0.045, -0.05 + sa * 0.22), (0.1, 0.045, 0.06), rot=(0, -math.degrees(a), 0), bev=0.008, mover='TC_TABLE')
+        box('steel', (ca * 0.255, tt + 0.075, -0.05 + sa * 0.255), (0.022, 0.03, 0.05), rot=(0, -math.degrees(a), 0), bev=0.004, mover='TC_TABLE')
+    cyl('steel', (0, tt + 0.06, -0.05), 0.045, 0.1, segs=16, bev=0.008, mover='TC_TABLE')
+    cyl('p_black', (0, tt + 0.115, -0.05), 0.03, 0.012, segs=12, mover='TC_TABLE')
+    # the tower at the back, the swing arm over the table, the hex shaft with its handle and the head
+    box('p_red', (-0.27, h + 0.52, -0.05), (0.16, 1.04, 0.16), bev=0.02, bsegs=2)
+    box('p_red', (-0.27, h + 1.06, -0.05), (0.2, 0.05, 0.2), bev=0.012)
+    box('p_red', (-0.1, h + 0.98, -0.05), (0.4, 0.12, 0.12), bev=0.02, bsegs=2)
+    box('p_black', (0.08, h + 0.98, -0.05), (0.08, 0.14, 0.14), bev=0.012)
+    cyl('steel', (0.08, h + 0.66, -0.05), 0.026, 0.62, segs=6, smooth=False)
+    K.tube('p_black', [at((0.08, h + 1.0, -0.05)), at((0.08, h + 1.03, 0.08)), at((0.1, h + 1.0, 0.16))], 0.012, segs=6, bend=0.02)
+    cyl('p_red', (0.1, h + 1.0, 0.18), 0.022, 0.05, axis='z', segs=10)
+    # the mounting head: a black duck's head with its roller
+    box('p_black', (0.08, h + 0.34, -0.05), (0.07, 0.06, 0.07), bev=0.012)
+    box('p_black', (0.11, h + 0.3, -0.05), (0.09, 0.035, 0.06), rot=(0, 0, -25), bev=0.01)
+    cyl('alu', (0.14, h + 0.29, -0.05), 0.016, 0.05, axis='z', segs=10)
+    # the bead breaker: the rubber pad on the side, the long arm from the back with its blade and handle,
+    # the air cylinder behind it
+    zs = 0.415
+    box('rubber', (0.04, 0.5, zs + 0.01), (0.3, 0.22, 0.02), bev=0.008, tint=1.15)
+    cyl('steel', (-0.33, 0.45, zs + 0.06), 0.035, 0.08, axis='z', segs=12)
+    K.tube('steel', [at((-0.33, 0.45, zs + 0.1)), at((-0.05, 0.62, zs + 0.13)), at((0.22, 0.72, zs + 0.12)), at((0.42, 0.84, zs + 0.1))], 0.024, segs=10, bend=0.1, cast=True)
+    K.tube('rubber', [at((0.38, 0.82, zs + 0.1)), at((0.5, 0.9, zs + 0.1))], 0.03, segs=10)
+    box('steel', (0.12, 0.6, zs + 0.13), (0.045, 0.2, 0.13), rot=(0, 0, 18), bev=0.008)
+    box('steel', (0.15, 0.5, zs + 0.13), (0.03, 0.06, 0.15), rot=(0, 0, 18), bev=0.006, tint=0.8)
+    cyl('steel', (-0.36, 0.3, zs - 0.02), 0.07, 0.28, axis='x', segs=16, bev=0.008, tint=1.15)
+    cyl('alu', (-0.2, 0.3, zs - 0.02), 0.012, 0.12, axis='x', segs=8)
+    # pedals: black, ribbed
+    for dz in (-0.17, 0.0, 0.17):
+        box('p_black', (0.4, 0.045, dz), (0.17, 0.025, 0.1), rot=(0, 0, -8), bev=0.008)
+        for r in range(3):
+            box('rubber', (0.36 + r * 0.04, 0.06 - r * 0.005, dz), (0.012, 0.006, 0.09), rot=(0, 0, -8), tint=1.4, cast=False)
+        box('steel', (0.3, 0.05, dz), (0.06, 0.02, 0.03), bev=0.004, cast=False)
+    # the air: the regulator's two bowls on the tower, the gauge and the coiled red hose on its hook
+    cyl('glass', (-0.36, h + 0.55, 0.02), 0.03, 0.08, segs=12)
+    cyl('glass', (-0.36, h + 0.55, -0.1), 0.03, 0.08, segs=12)
+    box('alu', (-0.36, h + 0.61, -0.04), (0.06, 0.04, 0.2), bev=0.006)
+    cyl('p_cream', (-0.2, h + 0.9, 0.035), 0.045, 0.022, axis='z', segs=18)
+    cyl('glass', (-0.2, h + 0.9, 0.048), 0.038, 0.004, axis='z', segs=18)
+    box('p_red', (-0.2, h + 0.91, 0.051), (0.003, 0.03, 0.002), rot=(0, 0, -30), cast=False)
+    K.tube('steel', [at((-0.19, h + 0.76, 0.04)), at((-0.17, h + 0.8, 0.06))], 0.006, segs=5)
+    pts = []
+    for i in range(25):
+        a = i / 24 * math.pi * 2 * 3.0
+        pts.append(at((-0.19 + 0.012 * i / 24, h + 0.65 + math.cos(a) * 0.09, 0.12 + math.sin(a) * 0.09 + i * 0.002)))
+    K.tube('p_red', pts, 0.008, segs=6, bend=0.0)
+    K.tube('p_red', [pts[-1], at((-0.15, h + 0.3, 0.2)), at((-0.05, 0.03, 0.55))], 0.008, segs=6, bend=0.15)
+    c = at((0, 0, 0))
+    P.solid(L, c[0], c[2], 0.36, 0.45, 0, h + 0.05, yaw=-math.radians(yaw_deg))
+    t = at((0, tt + 0.04, -0.05))
+    P.surface(L, t[0] - 0.3, t[0] + 0.3, t[2] - 0.3, t[2] + 0.3, tt + 0.04, 'tyrechanger')
+    P.spot(L, t[0], tt + 0.04, t[2], 0.0, 'tyrechanger')
+    g = at((-0.2, h + 1.0, 0.06))
+    P.device(L, 'tyrechanger', g[0], g[1], g[2], 0.2)
+    return t
+
+
+# ---------------------------------------------------------------------------------------------- paint corner
+
+def paint_corner(K, L):
+    """
+    The back left corner where things are painted: a tarp hung from a pipe rail (one side drawn back),
+    a rack of spray cans on the wall, the compressor, the spray gun on its hook, overspray in all colours
+    on the boards and the floor, tins and a stool.
+    """
+    x0, x1 = S.X0, -4.75
+    z0, z1 = S.Z0, -2.35
+    rail_y = 2.62
+    # the pipe rail on brackets, two sides of the corner
+    K.tube('galv', [(x1, rail_y, z0 + 0.1), (x1, rail_y, z1), (x0 + 0.1, rail_y, z1)], 0.022, segs=10, bend=0.12)
+    for p in ((x1, z0 + 0.1), (x0 + 0.1, z1)):
+        K.tube('galv', [(p[0], rail_y, p[1]), (p[0], S.EAVE - 0.1, p[1])], 0.012, segs=6)
+    # the tarps: canvas hanging in folds; the front one drawn back to the wall
+    tarp(K, (x1, z0 + 0.15), (x1, z0 + 1.1), rail_y, 0.08, folds=5)
+    tarp(K, (x0 + 0.15, z1), (x1 - 0.05, z1), rail_y, 0.08, folds=9, gap=(-6.0, -5.2))
+    # the rack of spray cans on the back wall: three shelves
+    rx = x0 + 0.13
+    for k, y in enumerate((1.05, 1.42, 1.79)):
+        K.box('wood', (rx, y - 0.015, -4.0), (0.16, 0.03, 1.15), bev=0.004, tint=P.wood(K))
+        K.box('wood', (rx + 0.075, y + 0.02, -4.0), (0.012, 0.04, 1.15), bev=0.002, tint=P.wood(K))
+        for i in range(10):
+            col = K.pick([0xc8323a, 0x3e8e87, 0xf0c23c, 0x2e4a6b, 0xe07b39, 0x557a46, 0xf4efe2, 0x6b4a73, 0x7fb3d5, 0x2f3236, 0xe8a3a8, 0xd4a53b])
+            zz = -4.52 + i * 0.115 + K.jitter(0.01)
+            hh = 0.19 + K.jitter(0.01)
+            K.cyl('tinted', (rx, y + hh / 2, zz), 0.032, hh, segs=12, bev=0.003, tint=tint_of(col))
+            K.cyl('chrome', (rx, y + hh + 0.012, zz), 0.022, 0.024, segs=10)
+            K.cyl('tinted', (rx, y + hh + 0.028, zz), 0.03, 0.015, segs=10, tint=tint_of(col))
+    for (yb,) in ((1.0,), (1.85,)):
+        K.box('wood_dark', (rx - 0.07, yb, -4.0), (0.02, 0.05, 1.2), bev=0.004)
+    # overspray: soft blots of every colour on the boards behind and on the floor
+    rng = K.rng
+    for i in range(26):
+        col = K.pick([0xc8323a, 0x3e8e87, 0xf0c23c, 0x2e4a6b, 0xe07b39, 0x557a46, 0x6b4a73, 0x7fb3d5])
+        if i < 14:
+            # on the back wall, round where things were sprayed
+            c = V((x0 + 0.03 + 0.002 * i, 0.5 + rng.random() * 1.6, -4.85 + rng.random() * 2.3))
+            blot(K, c, V((1, 0, 0)), 0.06 + rng.random() * 0.22, tint_of(col))
+        elif i < 20:
+            c = V((x0 + 0.3 + rng.random() * 2.0, 0.003 + 0.0005 * i, z0 + 0.25 + rng.random() * 0.4))
+            c.z = z0 + 0.06 + 0.002 * i
+            c.y = 0.4 + rng.random() * 1.2
+            blot(K, c, V((0, 0, 1)), 0.05 + rng.random() * 0.18, tint_of(col))
+        else:
+            c = V((x0 + 0.4 + rng.random() * 1.9, 0.004 + 0.0004 * i, z0 + 0.5 + rng.random() * 2.0))
+            blot(K, c, V((0, 1, 0)), 0.1 + rng.random() * 0.35, tint_of(col))
+    # the compressor: a red tank on wheels, the motor and the belt guard on top, a coil of yellow hose
+    cx, cz = -6.25, -4.4
+    K.cyl('p_red', (cx, 0.3, cz), 0.2, 0.75, axis='x', segs=24, bev=0.01, rings=2)
+    for sx in (-1, 1):
+        K.lathe('p_red', (cx + sx * 0.375, 0.3, cz), [(0.2, 0.0), (0.17, 0.05), (0.08, 0.075), (0.0, 0.08)], segs=24, axis='x' if sx > 0 else '-x')
+        K.cyl('rubber', (cx + sx * 0.28, 0.09, cz + 0.18), 0.09, 0.05, axis='z', segs=16, bev=0.008)
+    K.box('steel', (cx - 0.05, 0.55, cz), (0.3, 0.06, 0.22), bev=0.006)
+    K.cyl('p_black', (cx - 0.08, 0.68, cz), 0.1, 0.22, axis='z', segs=18, bev=0.01)
+    K.box('p_cream', (cx + 0.18, 0.66, cz), (0.06, 0.2, 0.28), bev=0.01)
+    K.cyl('p_cream', (cx + 0.2, 0.55, cz + 0.17), 0.035, 0.02, axis='z', segs=14)
+    K.tube('steel', [(cx - 0.37, 0.5, cz), (cx - 0.37, 0.75, cz), (cx - 0.25, 0.85, cz)], 0.012, segs=6, bend=0.05)
+    hose_coil(K, (cx + 0.05, 0.86, cz + 0.02), 0.16, 4, 'p_yellow')
+    P.solid(L, cx, cz, 0.42, 0.22, 0, 0.8)
+    # the spray gun on a hook, its hose down to the compressor
+    gx, gy, gz = x0 + 0.1, 1.55, -2.75
+    K.box('steel', (gx + 0.02, gy + 0.1, gz), (0.04, 0.02, 0.02), bev=0.003)
+    K.cyl('alu', (gx + 0.08, gy - 0.02, gz), 0.035, 0.08, axis='x', segs=14)
+    K.cyl('alu', (gx + 0.05, gy - 0.12, gz), 0.055, 0.12, segs=16, bev=0.006)
+    K.box('p_black', (gx + 0.04, gy - 0.05, gz), (0.03, 0.12, 0.025), bev=0.005)
+    K.tube('p_yellow', [(gx + 0.04, gy - 0.12, gz), (gx + 0.2, 0.6, gz - 0.3), (gx + 0.5, 0.05, gz - 0.9), (cx, 0.05, cz + 0.3), (cx - 0.3, 0.5, cz)], 0.01, segs=6, bend=0.25)
+    # tins of paint, a stool, a roll of masking tape
+    for (tx, tz, col, h) in ((-5.2, -4.6, 0x3e8e87, 0.2), (-5.45, -4.55, 0xc8323a, 0.2), (-5.32, -4.3, 0xf0c23c, 0.15), (-5.3, -4.45, 0xf4efe2, 0.2)):
+        paint_tin(K, tx, (0.2 if (tx, tz) == (-5.3, -4.45) else 0.0), tz, 0.09, h, tint_of(col))
+    stool(K, -5.6, -3.4)
+    K.lathe('tinted_matte', (-5.31, 0.4, -4.45), [(0.03, -0.025), (0.055, -0.025), (0.055, 0.025), (0.03, 0.025)], segs=18, tint=tint_of(0xe8dcb0))
+    P.device(L, 'paintbooth', cx + 0.18, 0.66, cz + 0.14, 0.18)
+    return (x0, x1, z0, z1)
+
+
+def tarp(K, a, b, top, depth, folds=6, gap=None, bottom=0.12):
+    """a canvas curtain from a rail between plan points a and b, hanging in folds to `bottom`"""
+    a = V((a[0], 0, a[1]))
+    b = V((b[0], 0, b[1]))
+    d = b - a
+    ln = d.length
+    t = d.normalized()
+    n = V((-t.z, 0, t.x))
+    cols = max(8, folds * 6)
+    rows = 9
+    bm = bmesh.new()
+    grid = []
+    for j in range(rows + 1):
+        y = top - (top - bottom) * j / rows
+        row = []
+        for i in range(cols + 1):
+            u = i / cols
+            # folds deepen towards the bottom, the hem swings a little
+            f = math.sin(u * math.tau * folds) * depth * (0.55 + 0.45 * j / rows)
+            p = a + t * (ln * u) + n * f
+            row.append(bm.verts.new((p.x, y - 0.03 * math.sin(u * 7.0) * (j / rows), p.z)))
+        grid.append(row)
+    for j in range(rows):
+        for i in range(cols):
+            u0 = i / cols
+            if gap:
+                xm = (a + t * (ln * (u0 + 0.5 / cols))).x
+                if gap[0] < xm < gap[1]:
+                    continue
+            bm.faces.new((grid[j][i], grid[j + 1][i], grid[j + 1][i + 1], grid[j][i + 1]))
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    for f in bm.faces:
+        f.smooth = True
+    K.mesh('canvas', bm, tint=(1.0 + K.jitter(0.05), 0.97, 0.9), smooth=True, sharp=80)
+    # rings on the rail
+    for i in range(folds * 2 + 1):
+        p = a + t * (ln * i / (folds * 2))
+        K.cyl('galv', (p.x, top + 0.02, p.z), 0.03, 0.012, axis=(t.x, 0, t.z), segs=8, caps=False)
+
+
+def blot(K, c, nrm, r, tint):
+    """
+    Overspray: a mist of little dots thinning out from a centre, flat on a surface (a spray can leaves a
+    speckled cloud, not a shape), with a small solid heart where the paint built up.
+    """
+    nrm = V(nrm).normalized()
+    u = nrm.orthogonal().normalized()
+    w = nrm.cross(u)
+    bm = bmesh.new()
+    rng = K.rng
+
+    def dot(p, rr, k=6):
+        cv = bm.verts.new(p)
+        ring = [bm.verts.new(p + (u * math.cos(i / k * math.tau) + w * math.sin(i / k * math.tau)) * rr) for i in range(k)]
+        for i in range(k):
+            f = bm.faces.new((cv, ring[i], ring[(i + 1) % k]))
+            f.normal_update()
+            if f.normal.dot(nrm) < 0:
+                f.normal_flip()
+
+    dot(c, r * 0.22, 8)
+    n = int(14 + r * 90)
+    for i in range(n):
+        # (more dots near the middle, smaller further out)
+        d = r * math.sqrt(-math.log(max(1e-4, 1.0 - rng.random() * 0.97))) * 0.55
+        a = rng.random() * math.tau
+        p = c + (u * math.cos(a) + w * math.sin(a)) * d
+        dot(p, (0.004 + 0.012 * rng.random()) * (1.0 - min(0.8, d / (r * 1.6))), 5)
+    K.mesh('tinted_matte', bm, tint=tint, cast=False)
+
+
+def paint_tin(K, x, y, z, r, h, tint):
+    K.cyl('galv', (x, y + h / 2, z), r, h, segs=20, bev=0.003)
+    K.cyl('tinted', (x, y + h * 0.45, z), r + 0.002, h * 0.6, segs=20, caps=False, tint=tint)
+    K.cyl('galv', (x, y + h + 0.004, z), r * 0.95, 0.01, segs=20)
+    K.tube('steel', [(x - r, y + h * 0.8, z), (x, y + h + 0.06, z), (x + r, y + h * 0.8, z)], 0.003, segs=4, bend=0.03)
+
+
+def stool(K, x, z, h=0.62, mat='wood'):
+    K.cyl(mat, (x, h - 0.02, z), 0.17, 0.04, segs=20, bev=0.008, tint=P.wood(K))
+    for k in range(3):
+        a = k * math.tau / 3 + 0.4
+        K.tube('wood_dark', [(x + math.cos(a) * 0.08, h - 0.04, z + math.sin(a) * 0.08), (x + math.cos(a) * 0.19, 0.0, z + math.sin(a) * 0.19)], 0.018, segs=6)
+    K.tube('wood_dark', [(x + math.cos(a) * 0.15, 0.22, z + math.sin(a) * 0.15) for a in (0.4, 0.4 + math.tau / 3, 0.4 + 2 * math.tau / 3, 0.4)], 0.01, segs=5)
+
+
+def hose_coil(K, c, r, turns, mat, rr=0.012, axis='y'):
+    pts = []
+    for i in range(turns * 16 + 1):
+        a = i / 16 * math.tau
+        pts.append((c[0] + math.cos(a) * r, c[1] + i / 16 * rr * 2.2, c[2] + math.sin(a) * r))
+    K.tube(mat, pts, rr, segs=6)
+
+
+# ---------------------------------------------------------------------------------------------- the sink
+
+def sink(K, L, x, z):
+    """a white utility sink on steel legs by the front wall, a brass tap, the hose reel on the wall, a bucket and sponge"""
+    top = 0.9
+    w, d, h = 0.62, 0.48, 0.3
+    # the basin: a floor and four thick walls
+    t = 0.035
+    K.box('ceramic', (x, top - h + t / 2, z), (w, t, d), bev=0.01)
+    for (dx, dz, sx, sz) in ((0, d / 2 - t / 2, w, t), (0, -d / 2 + t / 2, w, t), (w / 2 - t / 2, 0, t, d - 2 * t), (-w / 2 + t / 2, 0, t, d - 2 * t)):
+        K.box('ceramic', (x + dx, top - h / 2, z + dz), (sx, h, sz), bev=0.008)
+    K.cyl('steel', (x, top - h + 0.045, z), 0.03, 0.006, segs=12)
+    for (dx, dz) in ((0.27, 0.2), (-0.27, 0.2), (0.27, -0.2), (-0.27, -0.2)):
+        K.box('galv', (x + dx, (top - h) / 2, z + dz), (0.04, top - h, 0.04), bev=0.004)
+    K.box('galv', (x, 0.2, z), (w - 0.06, 0.02, d - 0.06), bev=0.004)
+    # the tap on the wall
+    wx = S.X1 - 0.02
+    K.tube('brass', [(wx, top + 0.45, z), (wx - 0.12, top + 0.45, z), (wx - 0.16, top + 0.38, z)], 0.014, segs=10, bend=0.04)
+    K.cyl('brass', (wx - 0.06, top + 0.52, z), 0.02, 0.06, segs=10)
+    K.box('p_red', (wx - 0.06, top + 0.56, z), (0.08, 0.012, 0.015), bev=0.003)
+    K.tube('galv', [(wx, top + 0.45, z), (wx, S.EAVE - 0.3, z)], 0.012, segs=8)
+    # the hose reel beside it, green hose wound on
+    hz = z - 0.75
+    K.cyl('p_red', (wx - 0.05, 1.25, hz), 0.06, 0.08, axis='x', segs=14)
+    K.lathe('p_green', (wx - 0.15, 1.25, hz), [(0.06, -0.08), (0.2, -0.08), (0.2, -0.065), (0.11, -0.06), (0.11, 0.06), (0.2, 0.065), (0.2, 0.08), (0.06, 0.08)], segs=24, axis='x', smooth=False)
+    for i in range(5):
+        K.lathe('p_green', (wx - 0.15, 1.25, hz), [(0.115 + i * 0.016, -0.055), (0.125 + i * 0.016, -0.055), (0.125 + i * 0.016, 0.055), (0.115 + i * 0.016, 0.055)], segs=24, axis='x', tint=0.85 + 0.03 * i)
+    K.tube('p_green', [(wx - 0.15, 1.05, hz), (wx - 0.3, 0.4, hz + 0.1), (wx - 0.6, 0.02, hz + 0.25), (wx - 1.0, 0.02, hz + 0.1), (wx - 1.2, 0.02, hz - 0.3)], 0.014, segs=6, bend=0.2)
+    # a galvanised bucket with a sponge in it, under the sink
+    bucket(K, x - 0.05, z + 0.02, 0.0, water=True)
+    P.solid(L, x, z, w / 2, d / 2, 0, top)
+    P.device(L, 'sink', wx - 0.12, top + 0.47, z, 0.16)
+
+
+def bucket(K, x, z, y=0.0, water=False):
+    prof = [(0.12, 0.0), (0.135, 0.004), (0.155, 0.27), (0.163, 0.28), (0.155, 0.285), (0.147, 0.27), (0.128, 0.012)]
+    K.lathe('galv', (x, y, z), prof, segs=22, sharp=60)
+    K.cyl('galv', (x, y + 0.004, z), 0.125, 0.008, segs=22)
+    K.tube('steel', [(x - 0.158, y + 0.26, z), (x - 0.1, y + 0.4, z), (x + 0.1, y + 0.4, z), (x + 0.158, y + 0.26, z)], 0.004, segs=4, bend=0.08)
+    if water:
+        K.cyl('water', (x, y + 0.2, z), 0.147, 0.01, segs=22)
+        K.box('p_yellow', (x + 0.04, y + 0.215, z - 0.02), (0.12, 0.045, 0.08), rot=(0, 20, 8), bev=0.012)
+
+
+# ---------------------------------------------------------------------------------------------- the radio
+
+def radio(K, L, x, y, z, yaw_deg=0.0):
+    """a wooden table radio, cream dial with its pointer, two knobs, a cloth grille"""
+    M = kit.mat4((x, y, z), (0, yaw_deg, 0))
+
+    def box(mat, c, size, rot=(0, 0, 0), **kw):
+        K.box(mat, (0, 0, 0), size, matrix=M @ Matrix.Translation(c) @ kit.rot3(rot).to_4x4(), **kw)
+
+    def cyl(mat, c, r, h, axis='y', **kw):
+        K.cyl(mat, (0, 0, 0), r, h, matrix=M @ Matrix.Translation(c) @ kit.axis_to(axis), **kw)
+
+    w, h, d = 0.36, 0.22, 0.18
+    box('wood', (0, h / 2, 0), (d, h, w), bev=0.02, tint=(1.05, 0.85, 0.65))
+    box('cloth', (d / 2 + 0.002, h * 0.6, -0.07), (0.004, 0.12, 0.17), bev=0.0, tint=(0.9, 0.82, 0.65))
+    for k in range(5):
+        box('wood_dark', (d / 2 + 0.005, h * 0.6, -0.14 + k * 0.035), (0.006, 0.13, 0.008), bev=0.0)
+    box('dial', (d / 2 + 0.002, h * 0.6, 0.095), (0.004, 0.06, 0.13), bev=0.0)
+    K.mover('RADIO_NEEDLE', tuple(M @ V((d / 2 + 0.006, h * 0.6, 0.095))))
+    box('p_red', (d / 2 + 0.006, h * 0.6, 0.095), (0.003, 0.055, 0.004), mover='RADIO_NEEDLE')
+    for dz in (0.06, 0.13):
+        cyl('wood_dark', (d / 2 + 0.012, h * 0.24, dz), 0.022, 0.024, axis='x', segs=14, bev=0.004)
+    for sz in (-1, 1):
+        box('wood_dark', (0.0, 0.008, sz * (w / 2 - 0.03)), (d - 0.02, 0.016, 0.03), bev=0.004)
+    c = M @ V((d / 2 + 0.02, h * 0.45, 0))
+    P.device(L, 'radio', c.x, c.y, c.z, 0.2)
+    P.solid(L, x, z, 0.1, 0.19, y, y + h)
+
+
+# ---------------------------------------------------------------------------------------------- tool chest, jack, stands, creeper
+
+def tool_chest(K, L, x, z, yaw_deg=0.0):
+    """a red rolling tool chest: eight drawers, chrome pulls, castors, a top box with its lid up a crack"""
+    M = kit.mat4((x, 0, z), (0, yaw_deg, 0))
+
+    def box(mat, c, size, rot=(0, 0, 0), **kw):
+        K.box(mat, (0, 0, 0), size, matrix=M @ Matrix.Translation(c) @ kit.rot3(rot).to_4x4(), **kw)
+
+    w, d = 0.72, 0.46
+    box('p_red', (0, 0.55, 0), (d, 0.82, w), bev=0.015)
+    for k in range(7):
+        y = 0.2 + k * 0.105
+        box('trim', (d / 2 + 0.001, y + 0.05, 0), (0.004, 0.006, w - 0.04), bev=0.0)
+        box('chrome', (d / 2 + 0.012, y, 0), (0.014, 0.014, w * 0.7), bev=0.004)
+    for (dx, dz) in ((0.18, 0.31), (-0.18, 0.31), (0.18, -0.31), (-0.18, -0.31)):
+        K.cyl('rubber', (0, 0, 0), 0.05, 0.035, matrix=M @ Matrix.Translation((dx, 0.06, dz)) @ kit.axis_to('z'), segs=14)
+        box('steel', (dx, 0.12, dz), (0.05, 0.03, 0.05), bev=0.004)
+    box('p_red', (0, 1.06, 0), (d - 0.04, 0.2, w - 0.04), bev=0.012)
+    box('p_red', (-0.03, 1.19, 0), (d - 0.08, 0.04, w - 0.02), rot=(0, 0, 6), bev=0.008)
+    box('chrome', (d / 2 - 0.02, 1.1, 0), (0.015, 0.015, 0.2), bev=0.004)
+    c = M @ V((0, 0, 0))
+    P.solid(L, c.x, c.z, d / 2 + 0.02, w / 2 + 0.02, 0, 1.2, yaw=-math.radians(yaw_deg))
+    P.surface(L, c.x - 0.18, c.x + 0.18, c.z - 0.3, c.z + 0.3, 1.21, 'chest')
+
+
+def floor_jack(K, x, z, yaw_deg=0.0):
+    M = kit.mat4((x, 0, z), (0, yaw_deg, 0))
+
+    def box(mat, c, size, rot=(0, 0, 0), **kw):
+        K.box(mat, (0, 0, 0), size, matrix=M @ Matrix.Translation(c) @ kit.rot3(rot).to_4x4(), **kw)
+
+    box('p_red', (0, 0.1, 0), (0.75, 0.1, 0.26), bev=0.012, taper=(0.9, 0.85))
+    box('p_red', (0.3, 0.17, 0), (0.18, 0.06, 0.14), bev=0.01)
+    K.cyl('steel', (0, 0, 0), 0.06, 0.03, matrix=M @ Matrix.Translation((0.38, 0.22, 0)), segs=14)
+    for dx in (-0.3, 0.32):
+        for dz in (-0.14, 0.14):
+            K.cyl('steel', (0, 0, 0), 0.045, 0.03, matrix=M @ Matrix.Translation((dx, 0.045, dz)) @ kit.axis_to('z'), segs=12)
+    a = M @ V((-0.36, 0.13, 0))
+    b = M @ V((-1.15, 0.85, 0))
+    K.tube('steel', [a, b], 0.016, segs=8)
+    K.cyl('rubber', (0, 0, 0), 0.022, 0.12, matrix=Matrix.Translation(b) @ kit.axis_to(b - a), segs=10)
+
+
+def axle_stand(K, x, z, h=0.42):
+    K.lathe('p_yellow', (x, 0, z), [(0.0, 0.0), (0.13, 0.0), (0.13, 0.015), (0.05, h * 0.75), (0.035, h * 0.78), (0.0, h * 0.78)], segs=4, smooth=False, start=math.pi / 4)
+    K.cyl('steel', (x, h * 0.85, z), 0.022, h * 0.3, segs=10)
+    K.box('steel', (x, h, z), (0.07, 0.03, 0.05), bev=0.006)
+
+
+def creeper(K, x, z, yaw_deg=0.0):
+    M = kit.mat4((x, 0, z), (0, yaw_deg, 0))
+    K.box('p_black', (0, 0, 0), (0.95, 0.03, 0.42), matrix=M @ Matrix.Translation((0, 0.11, 0)), bev=0.012)
+    K.box('leather', (0, 0, 0), (0.75, 0.03, 0.34), matrix=M @ Matrix.Translation((0.05, 0.135, 0)), bev=0.012, tint=(0.6, 0.35, 0.3))
+    K.box('leather', (0, 0, 0), (0.16, 0.05, 0.28), matrix=M @ Matrix.Translation((-0.38, 0.15, 0)), bev=0.02, tint=(0.6, 0.35, 0.3))
+    for dx in (-0.4, 0.4):
+        for dz in (-0.17, 0.17):
+            K.cyl('steel', (0, 0, 0), 0.035, 0.02, matrix=M @ Matrix.Translation((dx, 0.04, dz)) @ kit.axis_to('z'), segs=10)
+            K.box('steel', (0, 0, 0), (0.04, 0.05, 0.03), matrix=M @ Matrix.Translation((dx, 0.08, dz)), bev=0.004)
+
+
+# ---------------------------------------------------------------------------------------------- the back wall: clock, chalkboard, calendar
+
+def wall_clock(K, L, x, y, z, nx=1.0):
+    """a round wall clock (facing +x from the back wall); its hands move (CLOCK_H, CLOCK_M) about the wall normal"""
+    s = 1 if nx > 0 else -1
+    K.lathe('p_cream', (x, y, z), [(0.0, 0.035), (0.19, 0.035), (0.205, 0.02), (0.205, -0.0), (0.0, 0.0)], segs=32, axis='x' if s > 0 else '-x')
+    K.lathe('wood_dark', (x, y, z), [(0.205, 0.04), (0.23, 0.035), (0.235, 0.0), (0.205, 0.0)], segs=32, axis='x' if s > 0 else '-x')
+    for k in range(12):
+        a = k / 12 * math.tau
+        ln = 0.035 if k % 3 == 0 else 0.018
+        K.box('p_black', (x + s * 0.037, y + math.cos(a) * 0.16, z + math.sin(a) * 0.16), (0.002, ln, 0.01), rot=(math.degrees(-a), 0, 0), bev=0.0)
+    K.mover('CLOCK_H', (x + s * 0.04, y, z))
+    K.box('p_black', (x + s * 0.04, y + 0.05, z), (0.004, 0.11, 0.014), bev=0.0, mover='CLOCK_H')
+    K.mover('CLOCK_M', (x + s * 0.044, y, z))
+    K.box('p_black', (x + s * 0.044, y + 0.07, z), (0.004, 0.15, 0.009), bev=0.0, mover='CLOCK_M')
+    K.cyl('brass', (x + s * 0.047, y, z), 0.012, 0.006, axis='x', segs=10)
+    L['clock'] = {'x': x, 'y': y, 'z': z}
+
+
+def chalkboard(K, L, x, y, z, w=1.7, h=1.05):
+    """a chalkboard framed in wood on the back wall; the game draws the writing on its face (L['chalkboard'])"""
+    K.box('chalk', (x + 0.03, y, z), (0.02, h, w), bev=0.003)
+    for (dy, dz, sy, sz) in ((h / 2 + 0.03, 0, 0.06, w + 0.12), (-h / 2 - 0.03, 0, 0.06, w + 0.12), (0, w / 2 + 0.03, h, 0.06), (0, -w / 2 - 0.03, h, 0.06)):
+        K.box('wood', (x + 0.04, y + dy, z + dz), (0.04, sy, sz), bev=0.006, tint=P.wood(K))
+    # the ledge with chalk and a rag
+    K.box('wood', (x + 0.08, y - h / 2 - 0.07, z), (0.1, 0.025, w), bev=0.004, tint=P.wood(K))
+    for k, dz in enumerate((-0.5, -0.42, 0.3)):
+        K.cyl('tinted_matte', (x + 0.08, y - h / 2 - 0.05, z + dz), 0.008, 0.07, axis='z', segs=8, tint=tint_of(0xf4efe2) if k else tint_of(0xf0c23c))
+    K.box('cloth', (x + 0.09, y - h / 2 - 0.045, z + 0.55), (0.07, 0.02, 0.12), rot=(0, 15, 0), bev=0.008, tint=(0.8, 0.8, 0.85))
+    L['chalkboard'] = {'x': round(x + 0.041, 3), 'y': y, 'z': z, 'w': w, 'h': h}
+
+
+def calendar(K, x, y, z):
+    """a wall calendar: a painted picture above, the month's grid below, hung from a nail"""
+    K.box('paper', (x + 0.012, y, z), (0.004, 0.62, 0.42), bev=0.0)
+    # the picture: hills and a sky, in bands
+    for (dy, sh, col) in ((0.21, 0.12, 0x7fb3d5), (0.14, 0.03, 0xa9d3b5), (0.11, 0.035, 0x557a46), (0.075, 0.035, 0x3e6a3a)):
+        K.box('tinted_matte', (x + 0.016, y + dy, z), (0.002, sh, 0.36), bev=0.0, tint=tint_of(col))
+    K.box('tinted_matte', (x + 0.017, y + 0.235, z + 0.08), (0.002, 0.05, 0.08), bev=0.0, tint=tint_of(0xf4efe2))
+    for r in range(5):
+        for c in range(7):
+            col = 0xc8323a if (c == 6) else 0x2f3236
+            K.box('tinted_matte', (x + 0.016, y - 0.05 - r * 0.045, z - 0.15 + c * 0.05), (0.002, 0.012, 0.016), bev=0.0, tint=tint_of(col))
+    K.box('tinted_matte', (x + 0.016, y + 0.0, z), (0.002, 0.02, 0.2), bev=0.0, tint=tint_of(0xc8323a))
+    K.cyl('steel', (x + 0.02, y + 0.33, z), 0.004, 0.03, axis='x', segs=6)
+
+
+# ---------------------------------------------------------------------------------------------- the stove
+
+def stove(K, L, x, z):
+    """
+    A little cast-iron stove by the back wall with its pipe up through the roof, a kettle on top and a
+    window in its door that glows (the game lights it, and it lights the room at night: L['stove']).
+    """
+    w, d, h = 0.46, 0.5, 0.62
+    y0 = 0.14
+    for (sx, sz) in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+        K.cyl('p_black', (x + sx * (w / 2 - 0.05), y0 / 2, z + sz * (d / 2 - 0.05)), 0.025, y0, segs=8, r2=0.035)
+    K.box('p_black', (x, y0 + h / 2, z), (w, h, d), bev=0.02)
+    K.box('p_black', (x, y0 + h + 0.02, z), (w + 0.06, 0.04, d + 0.06), bev=0.012)
+    # the door to the room (+x) with its glowing window and a handle
+    K.box('p_black', (x + w / 2 + 0.012, y0 + h * 0.45, z), (0.02, h * 0.6, d * 0.7), bev=0.008)
+    K.box('fire', (x + w / 2 + 0.024, y0 + h * 0.47, z), (0.004, h * 0.26, d * 0.42), bev=0.0)
+    for k in range(3):
+        K.box('p_black', (x + w / 2 + 0.027, y0 + h * 0.47, z - d * 0.14 + k * d * 0.14), (0.006, h * 0.28, 0.012), bev=0.0)
+    K.cyl('brass', (x + w / 2 + 0.03, y0 + h * 0.62, z + d * 0.28), 0.014, 0.05, axis='x', segs=8)
+    # the pipe: up, through the roof, a cap on top
+    top = S.roof_under(z) + 0.5
+    K.cyl('p_black', (x - 0.08, y0 + h + 0.04 + (top - y0 - h) / 2, z), 0.075, top - y0 - h - 0.04, segs=14, rings=6)
+    K.cyl('steel', (x - 0.08, S.roof_under(z) + 0.02, z), 0.14, 0.04, segs=14)
+    K.cyl('steel', (x - 0.08, top + 0.08, z), 0.15, 0.03, segs=14, r2=0.02)
+    K.cyl('steel', (x - 0.08, top + 0.03, z), 0.012, 0.1, segs=5)
+    # a kettle on top
+    K.lathe('galv', (x + 0.06, y0 + h + 0.04, z + 0.05), [(0.0, 0.0), (0.1, 0.0), (0.11, 0.06), (0.09, 0.13), (0.04, 0.15), (0.0, 0.15)], segs=18)
+    K.tube('p_black', [(x + 0.06 - 0.07, y0 + h + 0.19, z + 0.05), (x + 0.06, y0 + h + 0.26, z + 0.05), (x + 0.06 + 0.07, y0 + h + 0.19, z + 0.05)], 0.008, segs=6, bend=0.04)
+    K.tube('galv', [(x + 0.16, y0 + h + 0.09, z + 0.05), (x + 0.24, y0 + h + 0.16, z + 0.05)], 0.012, segs=6)
+    # a stack of split logs beside it: grey-brown bark, the pale wood at their sawn ends
+    for k in range(5):
+        c = (x + 0.05, 0.065 + (k // 3) * 0.115, z + d / 2 + 0.18 + (k % 3) * 0.11 - (k // 3) * 0.05)
+        r = 0.05 + 0.008 * ((k * 7) % 3)
+        K.cyl('wood_dark', c, r, 0.42, axis='x', segs=7, smooth=False, tint=(0.85 + 0.1 * (k % 2), 0.8, 0.75))
+        for e in (-1, 1):
+            K.cyl('wood', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.15, 1.05, 0.9), cast=False)
+    P.solid(L, x, z, w / 2 + 0.05, d / 2 + 0.05, 0, y0 + h + 0.05)
+    L['stove'] = {'x': round(x + w / 2 + 0.05, 3), 'y': round(y0 + h * 0.47, 3), 'z': round(z, 3)}
+
+
+# ---------------------------------------------------------------------------------------------- outside: the sign, the barn lamp
+
+def sign_board(K, L, y, w=2.7, h=0.46):
+    """the board over the doors (its face is painted by the game: L['sign']), framed in wood"""
+    x = S.X1 + S.BOARD_T + S.BATTEN_T + 0.02
+    K.box('p_cream', (x, y, 0), (0.03, h, w), bev=0.006)
+    for (dy, dz, sy, sz) in ((h / 2 + 0.025, 0, 0.05, w + 0.1), (-h / 2 - 0.025, 0, 0.05, w + 0.1), (0, w / 2 + 0.025, h, 0.05), (0, -w / 2 - 0.025, h, 0.05)):
+        K.box('wood_dark', (x + 0.012, y + dy, dz), (0.045, sy, sz), bev=0.006)
+    L['sign'] = {'x': round(x + 0.016, 3), 'y': y, 'z': 0.0, 'w': w, 'h': h}
+
+
+def barn_lamp(K, L, y, z):
+    """a gooseneck lamp beside the sign over the doors outside, a deep shade with its bulb (lit at night)"""
+    x = S.X1 + S.BOARD_T + S.BATTEN_T
+    K.box('p_black', (x + 0.02, y + 0.3, z), (0.04, 0.16, 0.12), bev=0.008)
+    K.tube('p_black', [(x + 0.03, y + 0.3, z), (x + 0.28, y + 0.4, z), (x + 0.46, y + 0.32, z), (x + 0.48, y + 0.16, z)], 0.016, segs=8, bend=0.1)
+    K.lathe('p_green', (x + 0.48, y, z), [(0.025, 0.17), (0.06, 0.155), (0.13, 0.07), (0.2, 0.0), (0.205, -0.01)], segs=24, sharp=60, face='out')
+    K.lathe('enamel', (x + 0.48, y, z), [(0.197, -0.007), (0.13, 0.064), (0.055, 0.14), (0.0, 0.142)], segs=24, sharp=60, face='in')
+    K.lathe('lamp_out', (x + 0.48, y + 0.05, z), [(0.0, -0.06), (0.024, -0.056), (0.036, -0.03), (0.031, 0.0), (0.016, 0.026)], segs=12)
+    L['outlamp'] = {'x': round(x + 0.48, 3), 'y': round(y, 3), 'z': round(z, 3)}
