@@ -591,7 +591,7 @@ def stove(K, L, x, z):
         r = 0.05 + 0.008 * ((k * 7) % 3)
         K.cyl('wood_dark', c, r, 0.42, axis='x', segs=7, smooth=False, tint=(0.85 + 0.1 * (k % 2), 0.8, 0.75))
         for e in (-1, 1):
-            K.cyl('wood', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.15, 1.05, 0.9), cast=False)
+            K.cyl('p_cream', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.0, 0.9, 0.72), cast=False)
     P.solid(L, x, z, w / 2 + 0.05, d / 2 + 0.05, 0, y0 + h + 0.05)
     L['stove'] = {'x': round(x + w / 2 + 0.05, 3), 'y': round(y0 + h * 0.47, 3), 'z': round(z, 3)}
 

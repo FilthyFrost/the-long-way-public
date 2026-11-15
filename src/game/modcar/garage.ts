@@ -119,7 +119,7 @@ const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
 const BEAM_DENSITY = 0.085;
 /** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
-const STOVE_POWER = 1.4;
+const STOVE_POWER = 1.15;
 const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
 /** the lamp over the doors outside, lit from dusk (a photocell) */
 const OUTLAMP_POWER = 4.0;
@@ -614,7 +614,8 @@ class Garage implements GarageScene {
     const t = this.time;
     const flick = 0.82 + 0.1 * Math.sin(t * 7.3) + 0.06 * Math.sin(t * 13.7 + 1.3) + 0.05 * Math.sin(t * 23.1 + 0.4) * Math.sin(t * 1.7);
     if (st) {
-      g.uRoomLampP.value[slot].set(st.x + 0.15 - o.x, st.y - o.y, st.z - o.z, 3.4);
+      // (the glow comes from the window in its door: a little out in front, so what stands beside it is not lit up)
+      g.uRoomLampP.value[slot].set(st.x + 0.4 - o.x, st.y - o.y, st.z - o.z, 3.4);
       const p = STOVE_POWER * flick;
       g.uRoomLampC.value[slot].set(STOVE_COLOUR[0] * p, STOVE_COLOUR[1] * p, STOVE_COLOUR[2] * p, 0);
     } else g.uRoomLampP.value[slot].w = 0;

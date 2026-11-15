@@ -79,7 +79,7 @@ def woodpile(K, L, x0, x1, z):
             ln = 0.5 + K.jitter(0.04)
             # grey-brown bark, the pale sawn end to the yard
             K.cyl('wood_dark', (x, yy, z - 0.3), r, ln, axis='z', segs=7, smooth=False, tint=(0.82 + K.jitter(0.08), 0.78, 0.74))
-            K.cyl('wood', (x, yy, z - 0.3 - ln / 2 - 0.002), r * 0.86, 0.004, axis='z', segs=7, tint=(1.15 + K.jitter(0.06), 1.05, 0.9), cast=False)
+            K.cyl('p_cream', (x, yy, z - 0.3 - ln / 2 - 0.002), r * 0.86, 0.004, axis='z', segs=7, tint=(1.0 + K.jitter(0.05), 0.9, 0.72), cast=False)
     for xx in (x0, x1):
         K.box('wood_dark', (xx, 0.55, zf + 0.05), (0.08, 1.1, 0.08), bev=0.008)
     K.box('tin_out', ((x0 + x1) / 2, 1.18, z - 0.32), (x1 - x0 + 0.4, 0.03, 0.75), rot=(10, 0, 0), bev=0.0)
