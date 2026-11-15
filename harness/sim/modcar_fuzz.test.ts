@@ -35,7 +35,7 @@ describe(`modcar · ${N} extreme builds × ${SECONDS} s`, () => {
       if (s.exploded || top.exploded) why.push('exploded');
       if (s.maxKmh > 300 || top.top > 300) why.push(`speed ${Math.max(s.maxKmh, top.top).toFixed(0)} km/h`);
       if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
-      if (s.maxSink > 0.3) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
+      if (s.maxSink > 0.2) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
       if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the ground`);
       if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
     }
