@@ -43,44 +43,89 @@ def blade_path(half_w, front, wrap, back, sign=1.0):
     return [(sign * x, y, 0.0) for (x, y) in pts]
 
 
-def chrome_bumper(P, sign=1.0, overriders=True, step=False):
-    """A 1970s chrome bumper blade with a rubber strip, overriders and brackets (sign -1: rear bumper)."""
+def _plan_offset(path, d):
+    """Offset a plan path (x, y, 0) sideways by d along its outward normal (away from the car's centre)."""
+    out = []
+    n = len(path)
+    for i in range(n):
+        a = V(path[max(0, i - 1)])
+        b = V(path[min(n - 1, i + 1)])
+        t = (b - a).normalized()
+        nrm = V((t.y, -t.x, 0.0))
+        out.append(V(path[i]) + nrm * d)
+    return out
+
+
+def _plan_x_at(path, y):
+    """x of a plan path where it crosses y (the straight front run)."""
+    for a, b in zip(path[:-1], path[1:]):
+        if (a[1] - y) * (b[1] - y) <= 0 and abs(b[1] - a[1]) > 1e-9:
+            f = (y - a[1]) / (b[1] - a[1])
+            return a[0] + (b[0] - a[0]) * f
+    return path[len(path) // 2][0]
+
+
+def bumper_path(front, half_w=0.80, rc=0.085, sign=1.0):
+    """
+    Plan path (x, y, 0) of a shallow bumper from -half_w to +half_w: a straight front run at x = front (a
+    touch fuller in the middle), then a quarter circle of radius rc at each end, so the ends face straight
+    back towards the body (their flanges then turn inwards, not into the body).
+    """
+    yc = half_w - rc
+    pts = []
+    for k in range(5):
+        th = math.radians(-90 + 22.5 * k)
+        pts.append((front - rc + rc * math.cos(th), -yc + rc * math.sin(th)))
+    pts += [(front, -yc * 0.5), (front + 0.006, 0.0), (front, yc * 0.5)]
+    for k in range(5):
+        th = math.radians(22.5 * k)
+        pts.append((front - rc + rc * math.cos(th), yc + rc * math.sin(th)))
+    return [(sign * x, y, 0.0) for (x, y) in pts]
+
+
+def chrome_bumper(P, sign=1.0, overriders=True, step=False, front=0.115):
+    """
+    A 1970s chrome bumper blade with a rubber strip, overriders and short brackets (sign -1: rear bumper).
+    The blade's back flanges stand 4.5 cm off the body face (x = 0); the stubby brackets hide behind it.
+    """
     P.ao_distance = 0.06
-    path = blade_path(0.80, 0.215, 0.16, 0.035, sign)
-    path = K.fillet_path(path, 0.10)
+    depth = 0.07
+    path = [V(p) for p in bumper_path(front, sign=sign)]
     if sign < 0:
         path = list(reversed(path))
-    sec = c_section(0.07, 0.19, 0.006, bulge=0.01, n=7)
+    sec = c_section(depth, 0.19, 0.006, bulge=0.01, n=7)
     bm = bmesh.new()
     K.bm_sweep(bm, path, 1.0, profile=sec, caps=True)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     P.mesh('blade', bm, 'chrome', sharp=50.0)
-    # rubber strip along the front face
+    # rubber strip along the front face: the blade's own path pushed out onto its face
     strip = [(0.014, 0.0), (0.016, 0.006), (-0.014, 0.006), (-0.016, 0.0), (-0.014, -0.006), (0.014, -0.006)]
-    spath = blade_path(0.76, 0.215 + 0.017, 0.14, 0.09, sign)
-    spath = K.fillet_path(spath, 0.10)
-    if sign < 0:
-        spath = list(reversed(spath))
+    spath = [p for p in _plan_offset(path, 0.017) if abs(p.y) <= 0.70]
     bm = bmesh.new()
     K.bm_sweep(bm, spath, 1.0, profile=[(z, o) for (z, o) in strip], caps=True)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     P.mesh('strip', bm, 'rubber', sharp=50.0)
-    # brackets back to the body
-    for y in (-0.6, -0.3, 0.3, 0.6):
-        P.box('bracket', (0.17, 0.035, 0.05), (sign * 0.09, y, -0.01), 'steel', bev=0.006, segs=1)
+    # short brackets from plates on the body into the back of the blade, behind its straight run
+    for y in (-0.5, -0.22, 0.22, 0.5):
+        xb = abs(_plan_x_at(path, y)) - depth + 0.012       # into the blade's back
+        ln = xb - 0.006
+        P.box('bracket', (ln, 0.035, 0.05), (sign * (0.006 + ln / 2), y, -0.01), 'steel', bev=0.005, segs=1)
         P.box('bracket_plate', (0.012, 0.07, 0.09), (sign * 0.006, y, -0.01), 'steel', bev=0.003, segs=1)
         P.bolts([(sign * 0.0125, y + sy * 0.022, -0.01 + sz * 0.03) for sy in (-1, 1) for sz in (-1, 1)],
                 normal=(sign, 0, 0), r=0.006, h=0.005, washer=False)
     if overriders:
         for sg in (-1, 1):
             y = sg * 0.42
-            P.pillow('overrider', (0.07, 0.055, 0.2), (sign * 0.235, y, 0.02), 'chrome', r=0.024, sub=1,
+            xo = abs(_plan_x_at(path, y))
+            P.pillow('overrider', (0.07, 0.055, 0.2), (sign * (xo + 0.02), y, 0.02), 'chrome', r=0.024, sub=1,
                      taper=(0.75, 0.85))
-            P.pillow('over_tip', (0.03, 0.045, 0.07), (sign * 0.268, y, 0.075), 'rubber', r=0.012, sub=1)
+            P.pillow('over_tip', (0.03, 0.045, 0.07), (sign * (xo + 0.053), y, 0.075), 'rubber', r=0.012, sub=1)
     if step:
-        P.box('step_pad', (0.05, 0.36, 0.008), (sign * 0.17, 0.0, 0.098), 'rubber', bev=0.003, segs=1)
+        P.box('step_pad', (0.05, 0.36, 0.008), (sign * (front - 0.033), 0.0, 0.098), 'rubber', bev=0.003, segs=1)
         for i in range(6):
-            P.box('step_rib', (0.04, 0.006, 0.004), (sign * 0.17, -0.15 + i * 0.06, 0.103), 'rubber', bev=None)
+            P.box('step_rib', (0.04, 0.006, 0.004), (sign * (front - 0.033), -0.15 + i * 0.06, 0.103), 'rubber',
+                  bev=None)
+    return path
 
 
 def build_bf_stock(P):
@@ -90,9 +135,11 @@ def build_bf_stock(P):
 
 
 def build_br_stock(P):
-    chrome_bumper(P, -1.0, step=True)
-    P.cyl('tow_eye', 0.02, 0.05, (-0.2, -0.55, -0.075), 'steel', axis='X', segs=12, bev=0.003, bsegs=1)
-    P.torus('tow_ring', 0.024, 0.007, loc=(-0.235, -0.55, -0.075), axis='Y', segs=14, rsegs=6, material='steel')
+    path = chrome_bumper(P, -1.0, step=True)
+    # the tow eye under the blade, its ring just proud of the face
+    xf = abs(_plan_x_at(path, -0.55))
+    P.cyl('tow_eye', 0.02, 0.05, (-(xf - 0.015), -0.55, -0.075), 'steel', axis='X', segs=12, bev=0.003, bsegs=1)
+    P.torus('tow_ring', 0.024, 0.007, loc=(-(xf + 0.02), -0.55, -0.075), axis='Y', segs=14, rsegs=6, material='steel')
     P.fit_nominal(0.25, 1.60, 0.22)
     P.views = [('a', 215, 18), ('b', 340, 18)]
 
