@@ -547,12 +547,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
-    vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.62);
-    // (but looking into a low sun the coat mirrors its glow as it is: gold, not a lighter shade of the paint)
+    vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.7);
+    // (looking into a low sun — within 30° of it — the coat mirrors a little more of its glow as it is; never
+    // less than 70% the paint's own hue, or a teal car at dusk turns cream and reads as two-tone)
     vec2 rs = normalize(Re.xz + vec2(1e-5));
     vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
-    float glare = uSunVis * pow(max(dot(rs, ss), 0.0), 3.0) * (1.0 - smoothstep(0.12, 0.5, uSunDir.y));
-    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.82 * (1.0 - 0.65 * glare));
+    float glare = uSunVis * smoothstep(0.866, 0.97, dot(rs, ss)) * (1.0 - smoothstep(0.12, 0.5, uSunDir.y));
+    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, mix(0.82, 0.7, glare));
     col += upperT * (0.05 + 0.18 * f) * e.sky * (1.0 - e.band) * coat;
     col += brightT * (0.46 + 0.4 * f) * e.band * e.sky * coat;
     col += e.bright * 0.3 * e.line * coat;
