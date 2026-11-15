@@ -29,7 +29,8 @@ import { LandmarkView } from '../scene/landmarks';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { preload } from './assets';
-import { buildGarageStub, type GarageDevice, type GarageScene } from './garageStub';
+import { buildGarage } from './garage';
+import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
@@ -53,6 +54,8 @@ export interface ModParams extends Params {
   build: string;
   /** the garage's first project: tutorial (default) or full (everything fitted) */
   project: 'tutorial' | 'full';
+  /** which workshop: the real one (default) or the plain stand-in (?garage=stub) */
+  garage: 'workshop' | 'stub';
 }
 
 export function readModParams(base: Params, search: string = window.location.search): ModParams {
@@ -63,6 +66,7 @@ export function readModParams(base: Params, search: string = window.location.sea
     start,
     build: q.get('build') ?? 'stock:sedan',
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
+    garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
     weather: base.weather === 'auto' && start === 'garage' ? 'clear' : base.weather,
   };
@@ -102,6 +106,7 @@ export class ModGame implements PlayerHost, CockpitHost {
   /** checklist progress for the garage's first build */
   readonly done = new Set<string>();
   private fadeT = -1;
+  private garageCtx: GarageContext | null = null;
   private readonly gs = new GroundSample();
   private readonly bl = new BiomeBlend();
   private readonly pr = { s: 0, d: 0 };
@@ -137,7 +142,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.orbit.target = params.orbit[3];
     this.place = params.start;
     if (params.start === 'garage') {
-      this.garage = buildGarageStub(this.core);
+      this.garage = params.garage === 'stub' ? buildGarageStub(this.core) : buildGarage(this.core);
       this.ground = this.garage.ground;
     } else {
       this.makeWorld();
@@ -180,34 +185,41 @@ export class ModGame implements PlayerHost, CockpitHost {
     const p = this.params;
     if (this.garage) {
       const g = this.garage;
-      await preload(PARTS.map((x) => x.id));
+      await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
       // the missing parts and the tools, round the bay; the fun parts on the shelves
       const spots = [...g.spots];
+      // a garage without a spot of some kind offers the nearest kind it has
+      const instead: Record<string, string> = { charger: 'bench', rack: 'shelf', cans: 'floor' };
       const take = (where: string): (typeof spots)[number] => {
-        const i = spots.findIndex((s) => s.where === where);
+        let i = spots.findIndex((s) => s.where === where);
+        if (i < 0 && instead[where]) i = spots.findIndex((s) => s.where === instead[where]);
         return spots.splice(i >= 0 ? i : 0, 1)[0];
       };
-      const put = (id: string, where: 'floor' | 'bench' | 'shelf', withTyre = ''): void => {
+      const put = (id: string, where: string, withTyre = ''): void => {
         const s = take(where);
         const inst = newInstance(id, { charge: 0.85 });
         if (withTyre) fitSub(inst, 'tire', newInstance(withTyre));
         this.loose.addPart(inst, s.x, s.y + 0.4, s.z, s.yaw);
       };
       if (p.project === 'tutorial') {
-        put('bat_std', 'bench');
+        // the battery waits on the charger
+        put('bat_std', 'charger');
         put('rim_steel13', 'floor', 'tire_road');
         put('rim_steel13', 'floor', 'tire_road');
         put('eng_i4', 'floor');
       }
+      // the jerrycans stand by the drums, the rest of the tools lie on the bench
       const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), newTool('spray', { colour: 13 }), newTool('spray', { colour: 4 }), newTool('sponge')];
       for (const t of tools) {
-        const s = take('bench');
+        const s = take(t.kind === 'jerrycan' ? 'cans' : 'bench');
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
       }
-      for (const id of ['eng_v8', 'seat_toilet', 'steer_ship', 'turbo_small', 'hl_spot', 'horn_trumpet', 'seat_race', 'steer_sport', 'roof_spikes', 'exh_side', 'gb_5', 'hb_drift']) put(id, 'shelf');
+      // the heavy fun on the steel rack, the light on the shelves
+      for (const id of ['eng_v8', 'seat_toilet', 'seat_race', 'gb_5', 'exh_side', 'roof_spikes']) put(id, 'rack');
+      for (const id of ['steer_ship', 'turbo_small', 'hl_spot', 'horn_trumpet', 'steer_sport', 'hb_drift']) put(id, 'shelf');
       for (const id of ['bf_ram', 'seat_armchair', 'tank_drum', 'eng_flat6']) put(id, 'floor');
       put('rim_off16', 'floor', 'tire_tractor');
       put('rim_off16', 'floor', 'tire_tractor');
@@ -407,6 +419,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       { id: 'wheels', text: '装上两个车轮', done: !!b.parts.hub_FL && !!b.parts.hub_RR },
       { id: 'engine', text: '装上发动机', done: !!b.parts.engine },
       { id: 'fuel', text: '用油桶加油', done: fuel > 0.04 },
+      // (a workshop with doors to open: the button beside them)
+      ...(this.garage?.doorsOpen || this.done.has('door') ? [{ id: 'door', text: '按门边的按钮，打开大门', done: this.done.has('door') || !!this.garage?.doorsOpen?.() }] : []),
       { id: 'seat', text: '坐进驾驶座', done: this.seated === v || this.done.has('seat') },
       { id: 'start', text: '按住 K 打火', done: v.sys.running || this.done.has('start') },
       { id: 'drive', text: '松手刹，开出车库', done: this.place === 'road' },
@@ -416,6 +430,7 @@ export class ModGame implements PlayerHost, CockpitHost {
   private checkTutorial(): void {
     const v = this.vehicles[0];
     if (!v) return;
+    if (this.garage?.doorsOpen?.()) this.done.add('door');
     if (this.seated === v) this.done.add('seat');
     if (v.sys.running) this.done.add('start');
   }
@@ -475,9 +490,28 @@ export class ModGame implements PlayerHost, CockpitHost {
     }
     this.loose.update(dt);
     this.checkTutorial();
-    this.garage?.update(dt);
+    if (this.garage) this.garage.update(dt, this.garageContext());
     this.leaveGarage(dt);
     this.updateViews(dt, alpha);
+  }
+
+  private garageContext(): GarageContext {
+    if (!this.garageCtx) {
+      const game = this;
+      this.garageCtx = {
+        get vehicles() {
+          return game.vehicles;
+        },
+        loose: this.loose,
+        player: this.player,
+        ui: this.ui,
+        get seated() {
+          return game.seated;
+        },
+        sound: (name: string, gain?: number) => this.sound(name, gain),
+      };
+    }
+    return this.garageCtx;
   }
 
   /** drove out past the apron: fade out, onto the road, fade in */
@@ -633,6 +667,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.env.camZ = cam.position.z + o.z;
     const sim = f?.sim;
     this.env.update(dt, this.time, bl.a, bl.b, bl.t, this.world, sim?.vx ?? 0, sim?.vy ?? 0, sim?.vz ?? 0);
+    // indoors the eye opens up
+    if (this.garage) core.exposure *= this.garage.exposureAt(cam.position.x + o.x, cam.position.y + o.y, cam.position.z + o.z);
     this.ui.update(dt);
     this.updateHudBits();
     this.updateAudio();
@@ -735,6 +771,10 @@ export class ModGame implements PlayerHost, CockpitHost {
       case 'fuel':
         if (held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol') return at('fuelTank', '加油口', 0.5);
         return lying('tool:jerrycan', '油桶（汽油）');
+      case 'door': {
+        const d = this.devices.find((x) => x.id === 'door');
+        return d ? { x: d.x, y: d.y + 0.3, z: d.z, text: '大门按钮' } : null;
+      }
       case 'seat': {
         const seat = v.view.frame.mounts.find((m) => m.driver);
         return seat ? at(seat.id, '上车', 0.9) : null;
@@ -863,6 +903,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       vehicles: this.vehicles.map((x) => ({ frame: x.build.frame, parts: Object.keys(x.build.parts).length, running: x.sys.running, x: x.sim.px, z: x.sim.pz })),
       loose: this.loose.list.length,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
+      ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };
   }

@@ -102,6 +102,30 @@ const rt = {
     game.simulate(0);
     return true;
   },
+  /**
+   * Walk up to a garage device (the door button, the light switch, …), look at it and press, the way a
+   * player would: the mark has to find it. Returns the target the mark was on.
+   */
+  useDevice: (id: string, dist = 1.15) => {
+    const d = game.devices.find((x) => x.id === id);
+    if (!d) return `no device ${id}`;
+    // stand on the room side of it (towards the middle of the floor)
+    const toMid = Math.atan2(-d.z, -d.x);
+    if (game.seated) game.getOut();
+    game.player.walker.place(d.x + Math.cos(toMid) * dist, d.z + Math.sin(toMid) * dist, toMid + Math.PI);
+    const w = game.player.walker;
+    const eye = w.eye();
+    game.input.lookYaw = Math.atan2(d.z - w.z, d.x - w.x);
+    game.input.lookPitch = Math.atan2(d.y - eye.y, Math.hypot(d.x - w.x, d.z - w.z));
+    game.viewMode = 'cockpit';
+    game.simulate(0);
+    const target = String(game.player.telemetry().target);
+    game.player.press();
+    game.step(1 / 60, 1);
+    game.player.release();
+    game.simulate(0);
+    return target;
+  },
   /** put a new part (or a tool kind prefixed with "tool:") into the hands */
   hold: (id: string, opts: Record<string, unknown> = {}) => {
     if (id.startsWith('tool:')) game.player.held = { kind: 'tool', tool: newTool(id.slice(5) as ToolKind, opts) };

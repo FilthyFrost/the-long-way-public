@@ -56,6 +56,11 @@ export interface SurfaceOptions {
    */
   ink?: boolean;
   /**
+   * The ink id from the base colour alone, not the vertex colours: for meshes whose vertex colours are
+   * baked ambient occlusion (an id that followed the shading would draw contour lines along it).
+   */
+  inkBase?: boolean;
+  /**
    * Inside a closed vehicle: less of the sky reaches it (and what does is warmed by the lining),
    * the sun only where the shadow maps let it in, and the cabin lamp lights it at night
    * (uCabinAmb / uCabinLamp, set by the vehicle view).
@@ -84,6 +89,7 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
   if (o.sway) defines.RT_SWAY = '';
   if (o.snowCap !== undefined) defines.RT_SNOW = '';
   if (o.ink && (o.opacity ?? 1) >= 1) defines.RT_INK = '';
+  if (o.inkBase) defines.RT_INK_BASE = '';
   if (o.cabin) defines.RT_CABIN = '';
   if (o.brush) defines.RT_BRUSH = '';
   const mat = new THREE.ShaderMaterial({
@@ -208,9 +214,9 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         #ifdef RT_CABIN
         // without shadow maps nothing keeps the sun out of the room: let a third of it in
         sh *= mix(0.35, 1.0, uShadowParams.x);
-        vec3 col = rtCabin(albedo, n, sh);
+        vec3 col = rtCabinAt(albedo, n, sh, vPos);
         #else
-        vec3 col = rtCel(albedo, n, sh);
+        vec3 col = rtCelAt(albedo, n, sh, vPos);
         #endif
         vec3 v = normalize(cameraPosition - vPos);
         vec3 hv = normalize(v + uSunDir);
@@ -224,7 +230,12 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         #endif
         #ifdef RT_INK
         // an id from the colour, below the paint finish's 0.23: neighbouring parts of different colours get a line between them
-        alpha = 0.04 + 0.17 * fract(dot(floor(albedo * 31.0 + 0.5), vec3(0.1031, 0.1137, 0.0973)) * 7.0);
+        #ifdef RT_INK_BASE
+        vec3 inkOf = uColor;
+        #else
+        vec3 inkOf = albedo;
+        #endif
+        alpha = 0.04 + 0.17 * fract(dot(floor(inkOf * 31.0 + 0.5), vec3(0.1031, 0.1137, 0.0973)) * 7.0);
         #endif
         gl_FragColor = vec4(col, alpha);
       }`,
