@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { CirclePath, RobotDriver, StraightPath, type DrivePath, type PathProbe } from '../../src/core/driver/robot';
 import { GRAVITY, VehicleSim, zeroInput, type VehicleInput } from '../../src/core/vehicle/sim';
-import { FlatGround } from '../../src/core/world/ground';
+import { FlatGround, Surface } from '../../src/core/world/ground';
 import { feel } from './modcar/feel';
 import { build } from './modcar/specgen';
 
@@ -130,6 +130,24 @@ describe('modcar · motorcycle balance', () => {
       expect(Math.abs(v.lean) * DEG).toBeGreaterThan(25);
       expect(Math.abs(v.lean) * DEG).toBeLessThanOrEqual(52.01);
     }
+  });
+
+  it('on ice it leans only as far as the grip holds, however it slides', () => {
+    const ice = new FlatGround({ surface: Surface.Ice });
+    const v = new VehicleSim(bike);
+    v.reset(0, 0, 0, 0);
+    const go: VehicleInput = { steer: 0, throttle: 0.6, brake: 0, handbrake: 0 };
+    for (let t = 0; t < 8; t += v.h) v.substep(go, ice);
+    let most = 0;
+    for (let t = 0; t < 6; t += v.h) {
+      v.substep({ steer: t < 3 ? 1 : -1, throttle: 0.4, brake: 0, handbrake: 0 }, ice);
+      most = Math.max(most, Math.abs(v.lean));
+    }
+    // ice grips about 0.14 of asphalt: atan(0.14 · tyre μ) is about 8°
+    expect(v.exploded).toBe(false);
+    expect(most * DEG).toBeGreaterThan(2);
+    expect(most * DEG).toBeLessThan(10);
+    expect(Math.abs(v.roll) * DEG).toBeLessThan(3);
   });
 
   it('the stance shares the load evenly in a bend (nothing topples it outwards)', () => {

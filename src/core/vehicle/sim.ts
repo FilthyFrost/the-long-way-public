@@ -338,6 +338,8 @@ export class VehicleSim {
   private bal: { maxLean: number; leanTime: number; kp: number; kd: number; tauMax: number } | null = null;
   /** share of the rider's control this step (0 once the bike is lost) */
   private balAuth = 1;
+  /** the lean the tyres' grip allows (rad), from the last step with a wheel on the ground */
+  private leanGrip = 1;
   private noEngine = false;
   private noGearbox = false;
   private noSteering = false;
@@ -1903,9 +1905,13 @@ export class VehicleSim {
     if (bal) {
       // the lean the corner asks for: atan(lateral acceleration / g), + = right; none at a standstill
       // (feet down) or once the bike is lost
+      // and never further than the tyres' grip could hold (a slide does not lay it down on ice; in the
+      // air it keeps what it had)
+      if (sumLat > 0) this.leanGrip = Math.atan((1.05 * sumLat) / (m * GRAVITY));
+      const most = this.leanGrip < bal.maxLean ? this.leanGrip : bal.maxLean;
       let target = Math.atan2(-this.vForward * this.yawRate, GRAVITY);
-      if (target > bal.maxLean) target = bal.maxLean;
-      else if (target < -bal.maxLean) target = -bal.maxLean;
+      if (target > most) target = most;
+      else if (target < -most) target = -most;
       target *= this.balAuth;
       this.lean += (target - this.lean) * (1 - Math.exp(-h / bal.leanTime));
     }
