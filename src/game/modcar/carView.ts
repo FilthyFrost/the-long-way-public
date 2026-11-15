@@ -411,6 +411,35 @@ export class CarView {
     return this.panels.has(mount);
   }
 
+  /**
+   * Where one takes hold of a panel: on top of it, most of the way from its hinge to its free edge (a
+   * bonnet's front, a door's back), world space (render); null without that panel.
+   */
+  panelGrip(mount: string, out = new THREE.Vector3()): THREE.Vector3 | null {
+    const p = this.panels.get(mount);
+    const box = this.panelBox(mount, this.gripBox);
+    if (!p || !box) return null;
+    box.getCenter(out);
+    const hinge = p.pivot.getWorldPosition(this.gripV);
+    const dx = out.x - hinge.x;
+    const dz = out.z - hinge.z;
+    out.x += 0.5 * dx;
+    out.z += 0.5 * dz;
+    out.y = box.max.y;
+    return out;
+  }
+  private readonly gripBox = new THREE.Box3();
+
+  /** the bounds of a panel's skin as it stands now (open or shut), world space (render); null without it */
+  panelBox(mount: string, out = new THREE.Box3()): THREE.Box3 | null {
+    const p = this.panels.get(mount);
+    if (!p || !p.skin.length) return null;
+    out.makeEmpty();
+    for (const s of p.skin) out.expandByObject(s);
+    return out.isEmpty() ? null : out;
+  }
+  private readonly gripV = new THREE.Vector3();
+
   /** mount → the lid (hood, trunk) over it, measured from the lids at rest */
   private covers: Map<string, string> | null = null;
 

@@ -17,6 +17,7 @@ import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
 import { World } from '../../core/world/terrain';
 import { GroundSample, SURFACES, type Ground } from '../../core/world/ground';
+import type { Solid } from '../../core/world/solids';
 import { AudioEngine } from '../audio';
 import { Environment } from '../env/environment';
 import { Hud } from '../hud';
@@ -677,6 +678,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       { id: 'wheels', text: '装上两个车轮', done: !!b.parts.hub_FL && !!b.parts.hub_RR },
       { id: 'engine', text: '装上发动机', done: !!b.parts.engine },
       { id: 'fuel', text: '用油桶加油', done: fuel > 0.04 },
+      // (what was opened is shut again before the road: an open bonnet fills the windscreen)
+      ...(hood || this.done.has('hood') ? [{ id: 'shut', text: '关上引擎盖', done: this.done.has('shut') }] : []),
       // (a workshop with doors to open: the button beside them)
       ...(this.garage?.doorsOpen || this.done.has('door') ? [{ id: 'door', text: '按门边的按钮，打开大门', done: this.done.has('door') || !!this.garage?.doorsOpen?.() }] : []),
       { id: 'seat', text: '坐进驾驶座', done: this.seated === v || this.done.has('seat') },
@@ -690,7 +693,15 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (!v) return;
     if (this.garage?.doorsOpen?.()) this.done.add('door');
     if (v.view.panelOpen('hood') > 0.6 || (v.view.hasPanel('hood') && !v.build.parts.hood)) this.done.add('hood');
+    // shut once what goes under it is in (or there is no bonnet left to shut)
+    const under = !!v.build.parts.battery && !!v.build.parts.engine;
+    if (this.done.has('hood') && under && (v.view.panelOpen('hood') < 0.05 || !v.build.parts.hood)) this.done.add('shut');
     if (this.seated === v) this.done.add('seat');
+    // sat behind an open bonnet: say why the road cannot be seen (once)
+    if (this.seated === v && v.view.panelOpen('hood') > 0.5 && !this.done.has('hoodWarned')) {
+      this.done.add('hoodWarned');
+      this.ui.say('引擎盖还开着，挡住了前面：下车把它关上。', 4);
+    }
     if (v.sys.running) this.done.add('start');
   }
 
@@ -989,7 +1000,9 @@ export class ModGame implements PlayerHost, CockpitHost {
     // in the seat: the mark on the cab's controls (the one it is on lights up)
     if (this.seated) {
       this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
-      this.seated.view.highlight(this.cockpit.aimed?.id ?? null);
+      // (a small control lights up under the mark; the wheel one looks through, and a door, do not)
+      const a = this.cockpit.aimed;
+      this.seated.view.highlight(a && a.cat !== 'steering' && a.cat !== 'door' ? a.id : null);
     }
     this.updateBeam();
     // shadows round the vehicle in focus (or the walker)
@@ -1126,7 +1139,14 @@ export class ModGame implements PlayerHost, CockpitHost {
     const b = v.build.parts;
     switch (step.id) {
       case 'hood':
-        return at('hood', '打开引擎盖', 0.25);
+      case 'shut': {
+        // (shut: on top towards its front edge; standing open: on its middle)
+        const open = v.view.panelBox('hood');
+        const p = v.view.panelOpen('hood') > 0.5 && open ? open.getCenter(this.markerV) : v.view.panelGrip('hood', this.markerV);
+        const o = this.core.origin;
+        const text = step.id === 'hood' ? '打开引擎盖' : '关上引擎盖';
+        return p ? { x: p.x + o.x, y: p.y + o.y + 0.22, z: p.z + o.z, text } : at('hood', text, 0.25);
+      }
       case 'battery':
         return holding('bat_std') ? at('battery', '电瓶装这里') : lying('bat_std', '电瓶');
       case 'wheels': {
@@ -1189,7 +1209,61 @@ export class ModGame implements PlayerHost, CockpitHost {
     }
     // close by and in the middle of the view: the mark's own words say it all
     const near = Math.hypot(t.x - this.player.walker.x, t.z - this.player.walker.z) < 1.4 && !this.seated;
-    this.ui.showMarker(near ? null : { x: sx, y: sy, text: t.text, edge });
+    // behind a wall (or the doors) from here: faint, without its words
+    const eye = cam.getWorldPosition(this.eyeV);
+    this.markerHidden = this.blockedBetween(eye.x + o.x, eye.y + o.y, eye.z + o.z, t.x, t.y, t.z, this.markerHidden);
+    this.ui.showMarker(near ? null : { x: sx, y: sy, text: this.markerHidden ? '' : t.text, edge, dim: this.markerHidden });
+  }
+
+  private markerHidden = false;
+  private readonly eyeV = new THREE.Vector3();
+  private markerAsk = 0;
+  private readonly solidsTmp: Solid[] = [];
+  /**
+   * Whether the workshop's walls stand between two points (world); asked a few times a second, the last
+   * answer kept in between. (The cars do not hide a mark: it is on them.)
+   */
+  private blockedBetween(ax: number, ay: number, az: number, bx: number, by: number, bz: number, was: boolean): boolean {
+    if (!this.garage || --this.markerAsk > 0) return was;
+    this.markerAsk = 6;
+    const out = this.solidsTmp;
+    out.length = 0;
+    const len = Math.hypot(bx - ax, bz - az);
+    this.garage.solids.solidsNear((ax + bx) / 2, (az + bz) / 2, len / 2 + 0.5, out);
+    for (const s of out) {
+      // into the box's own frame (along its heading, across it)
+      const c = Math.cos(s.yaw);
+      const n = Math.sin(s.yaw);
+      const hx = s.hx;
+      const hz = s.round ? s.hx : s.hz;
+      const lx = (x: number, z: number): number => (x - s.x) * c + (z - s.z) * n;
+      const lz = (x: number, z: number): number => -(x - s.x) * n + (z - s.z) * c;
+      const a = [lx(ax, az), ay, lz(ax, az)];
+      const b = [lx(bx, bz), by, lz(bx, bz)];
+      const lo = [-hx, s.y0, -hz];
+      const hi = [hx, s.y1, hz];
+      // (the mark itself inside something, or the eye: no wall between)
+      const inside = (p: number[]): boolean => p.every((v, i) => v >= lo[i] && v <= hi[i]);
+      if (inside(a) || inside(b)) continue;
+      let t0 = 0;
+      let t1 = 1;
+      let hit = true;
+      for (let i = 0; i < 3 && hit; i++) {
+        const d = b[i] - a[i];
+        if (Math.abs(d) < 1e-9) {
+          if (a[i] < lo[i] || a[i] > hi[i]) hit = false;
+          continue;
+        }
+        let u0 = (lo[i] - a[i]) / d;
+        let u1 = (hi[i] - a[i]) / d;
+        if (u0 > u1) [u0, u1] = [u1, u0];
+        t0 = Math.max(t0, u0);
+        t1 = Math.min(t1, u1);
+        if (t0 > t1) hit = false;
+      }
+      if (hit) return true;
+    }
+    return false;
   }
 
   private updateAudio(): void {
