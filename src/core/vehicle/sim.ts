@@ -94,6 +94,9 @@ const BOTTOM_POINTS: readonly number[] = [0, 1, 2, 3];
 const ALL_POINTS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7];
 const BOTTOM_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 8, 9, 10, 11];
 const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+/** derived specs: at most this many body points are stopped together in a step, each described by STOP_W numbers */
+const STOP_MAX = 8;
+const STOP_W = 11;
 /** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
 const BODY_MIN_ABOVE = 0.25;
 const BODY_MIN_BELOW = 0.1;
@@ -354,6 +357,8 @@ export class VehicleSim {
   private bal: { maxLean: number; leanTime: number; kp: number; kd: number; tauMax: number } | null = null;
   /** share of the rider's control this step (0 once the bike is lost) */
   private balAuth = 1;
+  /** the bike went down: no rider holding it until reset() */
+  private balDown = false;
   /** the lean the tyres' grip allows (rad), from the last step with a wheel on the ground */
   private leanGrip = 1;
   private noEngine = false;
@@ -400,6 +405,9 @@ export class VehicleSim {
   private readonly bodyN = new Float64Array(16);
   private readonly bodyNrm = new Float64Array(48);
   private nBodyPts = 8;
+  /** a derived spec's body points that must be stopped this step: index, normal speed, normal, angular response, arm */
+  private readonly stop = new Float64Array(STOP_MAX * STOP_W);
+  private readonly stopF = new Float64Array(STOP_MAX);
   /** which of them can touch when the body is only near the road (the bottom ones), and all of them */
   private bodyBottom: readonly number[] = BOTTOM_POINTS;
   private bodyAll: readonly number[] = ALL_POINTS;
@@ -847,6 +855,53 @@ export class VehicleSim {
     return false;
   }
 
+  /**
+   * Stop the body points recorded in `stop` from going further into the ground this step: the extra
+   * normal forces (≥ 0, on top of the springs already in `bn`) that bring each one's normal speed to
+   * zero together, by projected Gauss–Seidel on their response matrix — a few points of a face landing
+   * at once share the work instead of each doing it alone. The forces go to `apply` at the points' arms.
+   */
+  private stopBody(n: number, bn: Float64Array, h: number, m: number, apply: (fx: number, fy: number, fz: number, rx: number, ry: number, rz: number) => void): void {
+    const st = this.stop;
+    const F = this.stopF;
+    const W = STOP_W;
+    // the normal speed point a gets from a unit force at b for one step: n_a·n_b/m + n_a·(w_b × r_a)
+    const g = (a: number, b: number): number => {
+      const oa = a * W;
+      const ob = b * W;
+      const nax = st[oa + 2];
+      const nay = st[oa + 3];
+      const naz = st[oa + 4];
+      const wx = st[ob + 5];
+      const wy = st[ob + 6];
+      const wz = st[ob + 7];
+      const rx = st[oa + 8];
+      const ry = st[oa + 9];
+      const rz = st[oa + 10];
+      const lin = (nax * st[ob + 2] + nay * st[ob + 3] + naz * st[ob + 4]) / m;
+      return (lin + nax * (wy * rz - wz * ry) + nay * (wz * rx - wx * rz) + naz * (wx * ry - wy * rx)) * h;
+    };
+    for (let a = 0; a < n; a++) F[a] = 0;
+    for (let it = 0; it < 12; it++) {
+      for (let a = 0; a < n; a++) {
+        // its normal speed after this step: as it was, plus what the springs here and every extra force do
+        let v = st[a * W + 1];
+        for (let b = 0; b < n; b++) v += g(a, b) * (F[b] + bn[st[b * W]]);
+        const gaa = g(a, a);
+        if (gaa <= 0) continue;
+        const f = F[a] - v / gaa;
+        F[a] = f > 0 ? f : 0;
+      }
+    }
+    for (let a = 0; a < n; a++) {
+      const f = F[a];
+      if (f <= 0) continue;
+      const o = a * W;
+      bn[st[o]] += f;
+      apply(st[o + 2] * f, st[o + 3] * f, st[o + 4] * f, st[o + 8], st[o + 9], st[o + 10]);
+    }
+  }
+
   /** the road under the wheels now, as a height function (the plane through their contacts), or undefined */
   private contactFloor(): ((x: number, z: number) => number) | undefined {
     let n = 0;
@@ -976,6 +1031,7 @@ export class VehicleSim {
     // ModCar: stand it on the wheels it actually has — each corner lifted (or lowered) by its wheel's
     // radius over spec.wheelRadius, an empty hub left to drop
     this.lean = 0;
+    this.balDown = false;
     const de = this.de;
     let lifted = false;
     for (let i = 0; i < 4; i++) {
@@ -1534,6 +1590,9 @@ export class VehicleSim {
         for (let k = 4; k < 8; k++) bn[k] = 0;
         for (let k = 12; k < 16; k++) bn[k] = 0;
       }
+      // (a derived spec's points that must be stopped are solved together below, so a face landing on
+      // many points at once is stopped once — not bounced back n times as hard — and evenly)
+      let nStop = 0;
       for (let j = 0; j < touchable.length; j++) {
         const k = touchable[j];
         const bx = bp[k * 3];
@@ -1552,24 +1611,51 @@ export class VehicleSim {
         const vpy = vy + (az * rx - ax * rz);
         const vpz = vz + (ax * ry - ay * rx);
         const vn = vpx * gs.nx + vpy * gs.ny + vpz * gs.nz;
-        let N = this.kBody * (this.ext ? depth * (1 + depth / BODY_STIFFEN) : depth) - this.cBody * vn;
-        if (N < 0) N = 0;
-        if (N > nmaxBody) N = nmaxBody;
-        if (this.ext && vn < 0 && depth - vn * h > BODY_HARD) {
-          // deep in (by the end of this step) and still going: whatever stops this corner's inward
-          // motion now (a crash of an extreme build — a backflip, a tumble — ends on the ground, not in it)
-          const nx = gs.nx;
-          const ny = gs.ny;
-          const nz = gs.nz;
-          const cx = ry * nz - rz * ny;
-          const cy = rz * nx - rx * nz;
-          const cz = rx * ny - ry * nx;
+        let N: number;
+        let kInv = 0;
+        if (this.ext) {
+          // stiffening with depth, it keeps its damping ratio — for the body's real give at this point
+          // (its mass less what turning about the centre of gravity takes up: a corner far from a high
+          // centre of gravity is light), so a hard landing is stopped, not kicked back
+          const cx = ry * gs.nz - rz * gs.ny;
+          const cy = rz * gs.nx - rx * gs.nz;
+          const cz = rx * gs.ny - ry * gs.nx;
           const cf = cx * Fx + cy * Fy + cz * Fz;
           const cu = cx * Ux + cy * Uy + cz * Uz;
           const cs = cx * Sx + cy * Sy + cz * Sz;
-          const kInv = 1 / m + cf * cf * this.invIroll + cu * cu * this.invIyaw + cs * cs * this.invIpitch;
-          const stop = -vn / (kInv * h);
-          if (stop > N) N = stop;
+          kInv = 1 / m + cf * cf * this.invIroll + cu * cu * this.invIyaw + cs * cs * this.invIpitch;
+          const stiff = 1 + depth / BODY_STIFFEN;
+          N = this.kBody * depth * stiff - this.cBody * Math.sqrt(stiff / (m * kInv)) * vn;
+        } else N = this.kBody * depth - this.cBody * vn;
+        if (N < 0) N = 0;
+        if (N > nmaxBody) N = nmaxBody;
+        if (this.ext && vn < 0 && depth - vn * h > BODY_HARD && nStop < STOP_MAX) {
+          // deep in (by the end of this step) and still going: this point's inward motion is to be
+          // stopped now (a crash of an extreme build — a backflip, a tumble — ends on the ground, not in it)
+          const nx = gs.nx;
+          const ny = gs.ny;
+          const nz = gs.nz;
+          const st = this.stop;
+          const o = nStop * STOP_W;
+          st[o] = k;
+          st[o + 1] = vn;
+          st[o + 2] = nx;
+          st[o + 3] = ny;
+          st[o + 4] = nz;
+          // the body's angular response to a unit push along the normal there, in world axes: I⁻¹ (r × n)
+          const cx = ry * nz - rz * ny;
+          const cy = rz * nx - rx * nz;
+          const cz = rx * ny - ry * nx;
+          const cf = (cx * Fx + cy * Fy + cz * Fz) * this.invIroll;
+          const cu = (cx * Ux + cy * Uy + cz * Uz) * this.invIyaw;
+          const cs = (cx * Sx + cy * Sy + cz * Sz) * this.invIpitch;
+          st[o + 5] = Fx * cf + Ux * cu + Sx * cs;
+          st[o + 6] = Fy * cf + Uy * cu + Sy * cs;
+          st[o + 7] = Fz * cf + Uz * cu + Sz * cs;
+          st[o + 8] = rx;
+          st[o + 9] = ry;
+          st[o + 10] = rz;
+          nStop++;
         }
         bn[k] = N;
         bnr[k * 3] = gs.nx;
@@ -1585,6 +1671,14 @@ export class VehicleSim {
         tY += rz * nfx - rx * nfz;
         tZ += rx * nfy - ry * nfx;
       }
+      if (nStop > 0) this.stopBody(nStop, bn, h, m, (fx, fy, fz, rx, ry, rz) => {
+        fX += fx;
+        fY += fy;
+        fZ += fz;
+        tX += ry * fz - rz * fy;
+        tY += rz * fx - rx * fz;
+        tZ += rx * fy - ry * fx;
+      });
     }
 
     {
@@ -1607,7 +1701,10 @@ export class VehicleSim {
     const bal = this.bal;
     if (bal) {
       const phi = Math.atan2(-Sy, Uy);
-      const auth = 1 - smoothstep(BAL_LOSE0, BAL_LOSE1, phi < 0 ? -phi : phi);
+      const aphi = phi < 0 ? -phi : phi;
+      // (once it is down the rider is off: it stays down, whatever it bounces to, until put back up)
+      if (aphi > BAL_LOSE1) this.balDown = true;
+      const auth = this.balDown ? 0 : 1 - smoothstep(BAL_LOSE0, BAL_LOSE1, aphi);
       this.balAuth = auth;
       if (auth > 0) {
         const rate = ax * Fx + ay * Fy + az * Fz;
@@ -1858,6 +1955,11 @@ export class VehicleSim {
 
     if (bodyActive) {
       const stickB = (0.9 * m) / 4 / h;
+      // (a derived spec's points share the stop of the sliding between however many touch, each with
+      // the body's real give at that point — its rotation too — so a face scraping on many points at
+      // once is not spun up by them)
+      let nTouch = 0;
+      if (this.ext) for (let k = 0; k < this.nBodyPts; k++) if (bn[k] > 0) nTouch++;
       for (let k = 0; k < this.nBodyPts; k++) {
         const N = bn[k];
         if (N <= 0) continue;
@@ -1880,7 +1982,22 @@ export class VehicleSim {
         const vt = Math.sqrt(vpx * vpx + vpy * vpy + vpz * vpz);
         if (vt > scrape) scrape = vt;
         if (vt < 1e-6) continue;
-        const f = Math.min(0.6 * N, stickB * vt) / vt;
+        let stick = stickB;
+        if (this.ext) {
+          // inverse effective mass along the slip direction t at this point: 1/m + (r × t)·I⁻¹(r × t)
+          const tx = vpx / vt;
+          const ty = vpy / vt;
+          const tz = vpz / vt;
+          const cx = ry * tz - rz * ty;
+          const cy = rz * tx - rx * tz;
+          const cz = rx * ty - ry * tx;
+          const cf = cx * Fx + cy * Fy + cz * Fz;
+          const cu = cx * Ux + cy * Uy + cz * Uz;
+          const cs = cx * Sx + cy * Sy + cz * Sz;
+          const kInv = 1 / m + cf * cf * this.invIroll + cu * cu * this.invIyaw + cs * cs * this.invIpitch;
+          stick = 0.9 / (kInv * h * (nTouch > 1 ? nTouch : 1));
+        }
+        const f = Math.min(0.6 * N, stick * vt) / vt;
         const ffx = -vpx * f;
         const ffy = -vpy * f;
         const ffz = -vpz * f;
