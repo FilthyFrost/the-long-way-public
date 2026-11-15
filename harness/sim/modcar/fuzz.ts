@@ -105,3 +105,58 @@ function run(b: RandomBuild, ground: Ground, y0: number, seconds: number, rng: R
     } else if (up > 0.6) flipped = false;
   }
 }
+
+/**
+ * Parts swapped while driving (the game swaps them parked, but nothing may break if they change at
+ * speed): every 1.5–4 s another random build of the same frame is put in force with applySpec, and the
+ * wheels change size or fit through SimMods, on rough dirt with random inputs.
+ */
+export function swapFuzz(rng: Rng, makeBuild: (rng: Rng) => RandomBuild, seconds: number): FuzzStats {
+  const st: FuzzStats = { exploded: false, maxKmh: 0, maxSpin: 0, maxSink: 0, minCgClear: Infinity, flips: 0, seconds: 0 };
+  const first = makeBuild(rng);
+  const frame = first.spec.id;
+  const ground = new FlatGround({ relief, surface: Surface.Dirt });
+  const v = new VehicleSim(first.spec);
+  first.setup(v.mods);
+  v.reset(0, relief(0, 0), 0, 0, ground);
+  const inp = zeroInput();
+  const gs = new GroundSample();
+  const basis = new Float64Array(9);
+  let next = 0;
+  let swap = 1;
+  for (let t = 0; t < seconds; t += v.h) {
+    if (t >= next) {
+      next = t + rng.range(0.2, 1.5);
+      inp.steer = rng.range(-1, 1);
+      inp.throttle = rng.chance(0.8) ? rng.next() : 0;
+      inp.brake = rng.chance(0.15) ? rng.next() : 0;
+      inp.handbrake = rng.chance(0.05) ? 1 : 0;
+    }
+    if (t >= swap) {
+      swap = t + rng.range(1.5, 4);
+      // another build of the same frame (a bike stays a bike), its wheels with it
+      let b = makeBuild(rng);
+      for (let k = 0; k < 20 && b.spec.id !== frame; k++) b = makeBuild(rng);
+      if (b.spec.id === frame) {
+        if (rng.chance(0.6)) v.applySpec(b.spec);
+        b.setup(v.mods);
+      }
+    }
+    v.substep(inp, ground);
+    st.seconds += v.h;
+    if (v.exploded || !Number.isFinite(v.px + v.py + v.pz + v.vx + v.vy + v.vz + v.avx + v.avy + v.avz + v.rpm + v.lean)) {
+      st.exploded = true;
+      return st;
+    }
+    st.maxKmh = Math.max(st.maxKmh, v.speed * 3.6);
+    st.maxSpin = Math.max(st.maxSpin, Math.hypot(v.avx, v.avy, v.avz));
+    ground.sample(v.px, v.pz, gs);
+    st.minCgClear = Math.min(st.minCgClear, v.py - gs.h);
+    v.basis(basis);
+    if (basis[4] < 0.2 && v.speed < 0.5) {
+      st.flips++;
+      v.reset(v.px, gs.h, v.pz, v.yaw, ground);
+    }
+  }
+  return st;
+}

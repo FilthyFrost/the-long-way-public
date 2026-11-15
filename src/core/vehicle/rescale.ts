@@ -20,7 +20,7 @@ const ZETA_MAX = 1.0;
  * At rest a corner stays this share of its travel clear of the bump stop (which the simulation
  * starts 35 mm before full bump): an overload sits low, and the stop takes what is left over.
  */
-const BUMP_CLEAR = 0.15;
+const BUMP_CLEAR = 0.1;
 const BUMP_STOP = 0.035;
 
 export interface CornerLoad {
@@ -60,11 +60,13 @@ export function rescaleAxle(axle: AxleSpec, ref: CornerLoad, now: CornerLoad): A
   const dampingRatio = Math.min(ZETA_MAX, Math.max(ZETA_MIN, c / (2 * Math.sqrt(kNow * mn))));
   // the anti-roll bar is a rate of its own: the sim gives it as a multiple of the wheel rate
   const antiRollRatio = (axle.antiRollRatio * kRefEff) / kNow;
-  const out: AxleSpec = { ...axle, springHz, dampingRatio, antiRollRatio };
+  // the hub mounts are placed for the reference ride: what the springs compress beyond it sinks the body
+  const naturalRef = (mr * GRAVITY) / kRefEff;
+  const rideComp = axle.rideComp ?? (axle.sag !== undefined ? Math.min(naturalRef, axle.sag * axle.travel) : naturalRef);
+  const out: AxleSpec = { ...axle, springHz, dampingRatio, antiRollRatio, rideComp };
   const maxSag = Math.max(0.05, (axle.travel * (1 - BUMP_CLEAR) - BUMP_STOP) / axle.travel);
   if (axle.sag !== undefined) {
     // the preload is a fixed spring length: the extra weight compresses the spring past it
-    const naturalRef = (mr * GRAVITY) / kRefEff;
     const scRef = Math.min(naturalRef, axle.sag * axle.travel);
     const preloadForce = kRefEff * (naturalRef - scRef);
     const scNow = (mn * GRAVITY - preloadForce) / kNow;
