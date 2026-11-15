@@ -572,4 +572,5 @@ def fuel_flap(ex):
     s = ex.cut['fuel'].side('in')
     V, N, T = K.roll_edge(s['P'], s['N'], s['E'], 0.0022, 0.008, 0.004, 2, closed=True, hem_segs=0)
     b.add(V, N, T, 'paint')
+    b.extend(K.panel_back(s['P'], s['N'], s['E'], depth=0.0078, inset=0.0018))
     return b

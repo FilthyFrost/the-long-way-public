@@ -498,6 +498,34 @@ def rounded_poly(pts, radii, step, closed=True, seg_min=3, arc_step=None):
     return resample_keep(out, step, closed)
 
 
+def coarse_idx(P, tol=0.0015):
+    """Indices of the points of an open polyline (2D or 3D) worth keeping: a point is dropped while every skipped
+    point stays within tol of the chord from the last kept point to the next one (straight runs keep their
+    ends, curves keep enough points)."""
+    P = np.asarray(P, float)
+    if len(P) < 3:
+        return np.arange(len(P))
+    keep = [0]
+    i = 0
+    while i < len(P) - 1:
+        j = i + 1
+        while j + 1 < len(P):
+            a, c = P[i], P[j + 1]
+            ab = c - a
+            L = float(np.linalg.norm(ab))
+            mid = P[i + 1:j + 1]
+            if L < 1e-9:
+                break
+            t = np.clip(((mid - a) @ ab) / (L * L), 0.0, 1.0)
+            d = np.linalg.norm(mid - (a + t[:, None] * ab), axis=1)
+            if float(d.max()) > tol:
+                break
+            j += 1
+        keep.append(j)
+        i = j
+    return np.array(keep)
+
+
 def resample_keep(L, step, closed=True):
     """Subdivide long segments so no segment is longer than `step` (keeps every input point)."""
     L = np.asarray(L, float)
@@ -1554,6 +1582,15 @@ def fill_loop(P, normal, mat, holes=(), interior_step=None):
         pts = grid_points(lo[0], hi[0], lo[1], hi[1], interior_step, dt=interior_step)
     V, N, T = mesh_region(ch, outer, hl, pts, spacing=interior_step or 0.05)
     return Buf().add(V, N, T, mat)
+
+
+def panel_back(P, N, E, depth=0.0058, inset=0.0025, mat='paint'):
+    """Flat back for a small single-sided panel (a fuel flap): its edge loop (points P with surface normals N and
+    in-surface directions E pointing out of the panel) pulled `inset` in and `depth` under the skin, to meet the
+    inner edge of its rolled hem; filled and facing inward, so the opened panel is not see-through."""
+    P = np.asarray(P, float)
+    Q = P - unit(N) * depth - unit(E) * inset
+    return fill_loop(Q, -unit(np.asarray(N, float).mean(0)), mat)
 
 
 def ring_tube(P_ring, axis_dir, depth, rows, mat, inward=True):

@@ -207,10 +207,10 @@ def trims(ex):
     # windscreen / rear window: rubber seal and chrome reveal moulding along the body edge
     for kind in ('ws', 'rw'):
         wv = ex.win[kind]
-        P = wv['P']
-        Nn = wv['N']
         cen = np.array([float(S.ws_x(0.0, 1.15)) - 0.1, 0.0, 1.15]) if kind == 'ws' else np.array([float(S.rw_x(0.0, 1.15)) + 0.1, 0.0, 1.15])
-        E = EX.side_dir(P, Nn, np.tile(cen, (len(P), 1)), False)
+        E = EX.side_dir(wv['P'], wv['N'], np.tile(cen, (len(wv['P']), 1)), False)
+        k = K.coarse_idx(wv['P'], 0.0012)        # the long gentle runs need few points
+        P, Nn, E = wv['P'][k], wv['N'][k], E[k]
         Q = P + E * 0.006 - Nn * 0.004
         prof = np.array([(-0.007, -0.006), (-0.006, 0.003), (0.0, 0.0055), (0.006, 0.003), (0.007, -0.006)])
         V, NN, T = K.sweep(Q, Nn, prof, closed=False)
