@@ -64,9 +64,9 @@ const MISMATCH_STEER_MAX = 3 * (Math.PI / 180);
 /** rough-surface buzz felt through a bare rim, relative to a tyre */
 const RIM_BUZZ = 3;
 /**
- * An empty hub (WheelFit.None) is a skid: the hub and brake drum, this share of spec.wheelRadius
- * across, ground along the road with this grip (relative to the tyre's, ~0.4 against asphalt); it
- * neither rolls nor drives nor brakes.
+ * An empty hub (WheelFit.None) is a skid: the hub and brake drum, spec.emptyHubRadius or else this
+ * share of spec.wheelRadius across, ground along the road with this grip (relative to the tyre's,
+ * ~0.4 against asphalt); it neither rolls nor drives nor brakes.
  */
 const HUB_SHARE = 0.45;
 const HUB_GRIP = 0.45;
@@ -550,7 +550,7 @@ export class VehicleSim {
 
   /** the radius wheel i should have now: its axle's plus the systems' offset, or the hub's for an empty hub */
   private targetRadius(w: Wheel, i: number): number {
-    if (this.mods.wheelFit[i] === WheelFit.None) return HUB_SHARE * this._spec.wheelRadius;
+    if (this.mods.wheelFit[i] === WheelFit.None) return this._spec.emptyHubRadius ?? HUB_SHARE * this._spec.wheelRadius;
     // (written so that a NaN offset gives the smallest wheel rather than a NaN one)
     const r = w.baseRadius + this.mods.radiusOffset[i];
     return r > MIN_RADIUS ? r : MIN_RADIUS;
