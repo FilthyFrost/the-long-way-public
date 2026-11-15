@@ -1496,8 +1496,11 @@ def parse(args):
     return ids or ['all'], opts
 
 
-def run(table, args, after=None):
-    """Build the ids in args ('all' = every id in the table). Flags: --norender, --noao, --nogeo."""
+def run(table, args, after=None, out_dir=None, geo=True):
+    """
+    Build the ids in args ('all' = every id in the table). Flags: --norender, --noao, --nogeo.
+    out_dir: where the GLBs go (default the parts folder); geo=False keeps them out of parts_geo.json.
+    """
     ids, opts = parse(args)
     if 'all' in ids:
         ids = list(table.keys())
@@ -1514,7 +1517,7 @@ def run(table, args, after=None):
             entries.update(res)
             continue
         P.finish()
-        P.export()
+        P.export(os.path.join(out_dir, f'{pid}.glb') if out_dir else None)
         e = P.geo_entry()
         entries[pid] = e
         print(f'PART {pid}: {P.tris} tris, bbox {e["bbox"]} ({time.time() - t0:.1f}s)')
@@ -1526,7 +1529,7 @@ def run(table, args, after=None):
                 render(P, views=views)
         if after:
             after(P, opts)
-    if not opts.get('nogeo'):
+    if geo and not opts.get('nogeo'):
         write_geo(entries)
     print(f'DONE {len(entries)} entries in {time.time() - t_all:.1f}s')
     return entries

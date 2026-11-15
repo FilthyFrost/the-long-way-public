@@ -57,6 +57,8 @@ def catalogue():
 
 
 def budget(pid):
+    if pid.startswith('tool:'):
+        return 2000
     if pid.startswith('eng_'):
         return 15000
     if pid.startswith('rim_dually'):
@@ -106,6 +108,40 @@ def inside_out_islands(obj):
             bad += 1
     bm.free()
     return bad
+
+
+TOOLS_DIR = 'public/models/modcar/tools'
+
+
+def tool_kinds():
+    """The garage tools (src/core/modcar/tools.ts ToolKind): each wants tools/<kind>.glb."""
+    import re
+    path = 'src/core/modcar/tools.ts'
+    if os.path.exists(path):
+        m = re.search(r"export type ToolKind\s*=\s*([^;]+);", open(path, encoding='utf-8').read())
+        if m:
+            return re.findall(r"'([a-z0-9_]+)'", m.group(1))
+    return ['jerrycan', 'bottle', 'oilcan', 'spray', 'sponge']
+
+
+def check_tool(path, kind):
+    """A tool model: the part checks, a 2k budget, and its origin at the bottom centre."""
+    tris, errs, warns, movers, empties = check(path, 'tool:' + kind)
+    xs, ys, zs = [], [], []
+    for o in bpy.data.objects:
+        if o.type == 'MESH':
+            for v in o.data.vertices:
+                w = o.matrix_world @ v.co
+                xs.append(w.x)
+                ys.append(w.y)
+                zs.append(w.z)
+    if zs and abs(min(zs)) > 0.002:
+        errs.append(f'bottom at z {min(zs):.4f}, not on the origin')
+    if xs:
+        cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+        if abs(cx) > 0.02 or abs(cy) > 0.03:
+            warns.append(f'footprint centre ({cx:.3f}, {cy:.3f}) is off the origin')
+    return tris, errs, warns, movers, empties
 
 
 def check(path, pid):
@@ -187,6 +223,17 @@ def main(args):
             over.append(f'{tyre}@{rim} {per_wheel:.0f}')
     lines.append(f'wheels: {len(over)} rim+tyre combinations over 6000 tris per wheel' +
                  (': ' + ', '.join(over) if over else ''))
+    tfiles = sorted(f for f in os.listdir(TOOLS_DIR) if f.endswith('.glb')) if os.path.isdir(TOOLS_DIR) else []
+    for f in tfiles:
+        kind = f[:-4]
+        tris, errs, warns, movers, empties = check_tool(os.path.join(TOOLS_DIR, f), kind)
+        n_err += len(errs)
+        flag = 'ERR ' if errs else ('warn' if warns else 'ok  ')
+        lines.append(f'{flag} {"tools/" + kind:28s} {tris:6d}  {"; ".join(errs + warns)}')
+    for kind in tool_kinds():
+        if f'{kind}.glb' not in tfiles:
+            lines.append(f'ERR  {"tools/" + kind:28s}  missing file')
+            n_err += 1
     cat = catalogue()
     missing = [p for p in cat if p not in ids]
     for p in missing:
@@ -199,7 +246,8 @@ def main(args):
         n_err += 1
     out = '\n'.join(lines)
     print(out)
-    summary = f'VERIFY {len(files)} files, {len(cat) - len(missing)}/{len(cat)} catalogue parts, {n_err} errors'
+    summary = (f'VERIFY {len(files)} files, {len(cat) - len(missing)}/{len(cat)} catalogue parts, '
+               f'{len(tfiles)} tools, {n_err} errors')
     print(summary)
     os.makedirs('D:/modcar-scratch/parts', exist_ok=True)
     with open('D:/modcar-scratch/parts/verify.txt', 'w', encoding='utf-8') as fh:

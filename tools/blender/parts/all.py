@@ -3,12 +3,13 @@ Rebuild every ModCar part in one Blender run:
 
     blender -b --factory-startup --python tools/blender/build.py -- parts/all [--norender] [--noao]
 
-Runs each group module's main(['all', ...flags]) in turn (wheels last builds every tyre variant too).
+Runs each group module's main(['all', ...flags]) in turn (wheels builds every tyre variant too; tools writes
+public/models/modcar/tools/).
 """
 import importlib
 import time
 
-GROUPS = ['engines', 'drivetrain', 'fluids', 'wheels', 'cockpit', 'seats', 'body', 'lamps']
+GROUPS = ['engines', 'drivetrain', 'fluids', 'wheels', 'cockpit', 'seats', 'body', 'lamps', 'tools']
 
 
 def main(args):
