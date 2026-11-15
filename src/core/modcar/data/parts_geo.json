@@ -18,7 +18,12 @@
   "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y.",
   "Gear levers: LEVER is the moving lever, its origin the pivot; the game turns it about z. Floor levers pivot",
   "  under the floor; gl_foot (moto, LEFT side) on the selector shaft axis, the toe peg forward-up (+x +y) and",
-  "  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg."
+  "  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg.",
+  "Add-ons (not in the catalogue): door_armor_overlay / door_cage_overlay / door_fridge_handle sit on a left door",
+  "  skin (inner face at the origin, standing out to -z); hood_scoop_overlay sits on a bonnet (flat underside at",
+  "  y = 0, origin at the centre of its base, mouth towards +x); all are paint-coloured and carry fit_nominal.",
+  "Variants: <tyre>@<rim> (tyres per rim), exh_side@moto (the side pipe shaped for a motorcycle: along its left side",
+  "  under the footpeg; exh_side itself runs out to a car sill 0.93 m to the left of the mount)."
  ],
  "parts": {
   "arm_planks": {
@@ -104,10 +109,11 @@
      0.092
     ]
    ],
-   "triangles": 1582,
+   "triangles": 2222,
    "materials": [
     "paint",
     "paint_b",
+    "rubber",
     "steel",
     "trim"
    ]
@@ -125,10 +131,11 @@
      0.0935
     ]
    ],
-   "triangles": 1610,
+   "triangles": 2466,
    "materials": [
     "paint",
     "paint_b",
+    "rubber",
     "steel",
     "trim"
    ]
@@ -819,39 +826,46 @@
   "exh_side": {
    "bbox": [
     [
-     -1.072,
-     -0.065,
-     -0.37
+     -1.624,
+     -0.1055,
+     -0.9897
     ],
     [
-     0.006,
-     1.47,
-     0.37
+     0.0096,
+     0.071,
+     0.0543
     ]
    ],
-   "triangles": 3172,
+   "triangles": 2012,
    "materials": [
     "chrome",
+    "rubber",
     "rust",
     "steel",
     "trim"
+   ]
+  },
+  "exh_side@moto": {
+   "bbox": [
+    [
+     -0.624,
+     -0.4255,
+     -0.2204
+    ],
+    [
+     0.0497,
+     0.0619,
+     0.0543
+    ]
    ],
-   "movers": {
-    "FLAP_R": {
-     "pivot": [
-      -1.058,
-      1.464,
-      0.3
-     ]
-    },
-    "FLAP_L": {
-     "pivot": [
-      -1.058,
-      1.464,
-      -0.3
-     ]
-    }
-   }
+   "triangles": 1664,
+   "materials": [
+    "chrome",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ]
   },
   "exh_sport": {
    "bbox": [
@@ -1201,6 +1215,31 @@
     "trim"
    ]
   },
+  "hood_scoop_overlay": {
+   "bbox": [
+    [
+     -0.287,
+     0.0,
+     -0.2429
+    ],
+    [
+     0.275,
+     0.09,
+     0.2429
+    ]
+   ],
+   "triangles": 872,
+   "materials": [
+    "chrome",
+    "paint",
+    "trim"
+   ],
+   "fit_nominal": [
+    0.55,
+    0.486,
+    0.09
+   ]
+  },
   "horn_air": {
    "bbox": [
     [
@@ -1384,7 +1423,7 @@
      0.422
     ]
    ],
-   "triangles": 2584,
+   "triangles": 3120,
    "materials": [
     "alu",
     "chrome",
@@ -1396,7 +1435,7 @@
   "rad_small": {
    "bbox": [
     [
-     -0.06,
+     -0.0595,
      0.0,
      -0.272
     ],
@@ -1406,7 +1445,7 @@
      0.272
     ]
    ],
-   "triangles": 1618,
+   "triangles": 2154,
    "materials": [
     "alu",
     "chrome",
@@ -1418,7 +1457,7 @@
   "rad_std": {
    "bbox": [
     [
-     -0.06,
+     -0.0595,
      0.0,
      -0.332
     ],
@@ -1428,7 +1467,7 @@
      0.332
     ]
    ],
-   "triangles": 1662,
+   "triangles": 2198,
    "materials": [
     "alu",
     "chrome",

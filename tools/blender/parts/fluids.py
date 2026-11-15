@@ -17,9 +17,10 @@ from parts._kit import V, mat4
 
 
 def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', case_mat='trim', moto=False,
-            studs=False):
+            studs=False, leads=False):
     """A lead-acid battery: case with ribs and a base lip, a coloured lid, cell caps, two posts
-    (studs=True: heavy-duty threaded stud terminals with nuts, as on a truck battery)."""
+    (studs=True: heavy-duty threaded stud terminals with nuts, as on a truck battery; leads=True: a red and a
+    black lead clamped on, each over the lid and down its end of the case, inside the battery's own bounds)."""
     P.ao_distance = 0.06
     lip = 0.006 if not moto else 0.0
     hcase = H * 0.84
@@ -85,6 +86,24 @@ def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', cas
                   bsegs=1)
             P.cyl('collar', r * 1.35, 0.004, (x, y_post, z_pad + 0.008), 'paint_b' if sign == '+' else case_mat,
                   segs=12, bev=None)
+        if leads:
+            # the clamp (or the ring lug under the stud's nut) and the lead: out over the lid, down the end
+            mat = 'paint' if sign == '+' else 'rubber'
+            if studs:
+                P.box('lug', (0.03, 0.016, 0.003), (x + sx * 0.011, y_post, z_pad + 0.0155), 'steel', bev=0.001,
+                      segs=1)
+                p0 = V((x + sx * 0.026, y_post, z_pad + 0.0145))
+            else:
+                P.box('clamp', (0.026, 0.022, 0.012), (x, y_post, z_pad + 0.017), 'steel', bev=0.002, segs=1)
+                P.bolt((x, y_post + 0.011, z_pad + 0.017), normal=(0, 1, 0), r=0.004, h=0.0035, washer=False,
+                       name='clamp_bolt')
+                p0 = V((x + sx * 0.013, y_post, z_pad + 0.016))
+            rc = 0.005
+            xc = L / 2 + 0.01 - rc            # just inside the hinge pins' reach
+            path = [p0, V((sx * (L / 2 - 0.012), y_post, z_pad + 0.011)), V((sx * xc, y_post, z_pad - 0.004)),
+                    V((sx * xc, y_post, hcase * 0.6)), V((sx * (xc - 0.0015), y_post, hcase * 0.38))]
+            P.tube('lead', path, rc, mat, segs=8, bend=0.012)
+            P.cyl('lead_boot', 0.0075, 0.012, (p0.x + sx * 0.005, y_post, p0.z), mat, axis='X', segs=10, bev=None)
         # embossed sign next to the post
         sx2 = x - sx * (0.03 if not moto else 0.014)
         sz = z_pad + 0.0015
@@ -104,12 +123,12 @@ def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', cas
 
 
 def build_bat_std(P):
-    battery(P, 0.24, 0.172, 0.20)
+    battery(P, 0.24, 0.172, 0.20, leads=True)
 
 
 def build_bat_truck(P):
     """A heavy-duty battery: taller than the car's, stud terminals; short enough for a car's battery tray."""
-    battery(P, 0.258, 0.175, 0.235, caps=6, studs=True)
+    battery(P, 0.258, 0.175, 0.235, caps=6, studs=True, leads=True)
 
 
 def build_bat_moto(P):
@@ -157,14 +176,18 @@ def radiator(P, W=0.54, Htot=0.40, D=0.045, fins=12, fan=False, tank_mat='steel'
     P.tube('overflow', [(-0.012, yf - 0.018, ztop + 0.01), (-0.02, yf - 0.05, ztop + 0.006),
                         (-0.02, -W / 2 - 0.02, zb + H * 0.6), (-0.02, -W / 2 - 0.025, zb)], 0.004, 'rubber', segs=6,
            bend=0.04)
-    # hose necks towards the engine: inlet high on one side, outlet low on the other
+    # hose necks towards the engine (inlet high on one side, outlet low on the other), each with a stub of
+    # rubber hose pushed over it and a worm-drive clamp; all within x >= -0.06 and above z = 0
     yi = W * 0.32 if side_inlet else 0.0
     hr = min(0.02, tank_h * 0.36)
-    P.tube('inlet', [(-0.01, yi, ztop - tank_h / 2), (-0.06, yi, ztop - tank_h / 2)], hr, 'steel', segs=12)
-    P.torus('bead', hr + 0.001, 0.003, loc=(-0.05, yi, ztop - tank_h / 2), axis='X', segs=14, rsegs=4,
-            material='steel')
-    P.tube('outlet', [(-0.01, -W * 0.32, zb - tank_h / 2), (-0.06, -W * 0.32, zb - tank_h / 2)], hr, 'steel',
-           segs=12)
+    for (yy, zz, top) in ((yi, ztop - tank_h / 2, True), (-W * 0.32, zb - tank_h / 2, False)):
+        r = hr if top else min(hr, zz - 0.0095)
+        P.tube('inlet' if top else 'outlet', [(-0.01, yy, zz), (-0.052, yy, zz)], r, 'steel', segs=12)
+        P.lathe('hose', [(r - 0.0005, -0.0595), (r + 0.0052, -0.0595), (r + 0.0062, -0.0545), (r + 0.0062, -0.031),
+                         (r + 0.0042, -0.026), (r - 0.0005, -0.026)],
+                loc=(0, yy, zz), material='rubber', axis='X', segs=14, loop=True, sharp=50.0)
+        P.torus('hose_clamp', r + 0.0068, 0.0022, loc=(-0.042, yy, zz), axis='X', segs=14, rsegs=4, material='steel')
+        P.box('clamp_screw', (0.012, 0.008, 0.007), (-0.042, yy, zz + r + 0.0095), 'steel', bev=0.0015, segs=1)
     # drain petcock out of the end of the bottom tank
     P.cyl('petcock', 0.007, 0.018, (-0.003, W / 2 + 0.024, zb * 0.4), 'chrome', axis='Y', segs=8, bev=None)
     # side brackets with mounting tabs
