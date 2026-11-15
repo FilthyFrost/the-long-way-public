@@ -124,24 +124,41 @@ export class Frame {
       uniform float uTime;
       uniform vec3 uInkColor;
       uniform float uInk;
+      uniform vec3 uLitLine;
       uniform vec3 uShaft;       // xy: where the sun is on the screen (uv), z: strength
       uniform vec3 uShaftColor;
       uniform float uAspect;
       varying vec2 vUv;
 
       // The inked line of a cel-painted thing (the vehicle): its parts write small alphas of their own
-      // (< 0.23, one per colour); where one of those meets a different alpha there is a line.
-      float inkAt(vec2 uv) {
+      // (0.04…0.23, one per colour); where one of those meets a different alpha there is a line (x). A part
+      // being looked at (carMaterials.ts, its highlight) writes its own under all of them, in 0.004…0.036:
+      // where it meets anything else, its outline is drawn in light instead (y). (Under them, so the MSAA blend
+      // of two other ids along an edge never lands in it; and it has to run on for a second pixel, behind a
+      // or beyond b, so a blend at the part's own edge does not either.)
+      float litBand(float x) {
+        return step(0.004, x) * step(x, 0.036);
+      }
+      vec2 inkPair(float a, float b, float behindA, vec2 beyondB) {
+        if (min(a, b) >= 0.23) return vec2(0.0);
+        float d = smoothstep(0.004, 0.02, abs(a - b));
+        float ia = litBand(a);
+        float ib = litBand(b);
+        float lit = 0.0;
+        if (ia > 0.5 && ib < 0.5) lit = litBand(behindA);
+        else if (ib > 0.5 && ia < 0.5) lit = litBand(texture2D(tHdr, beyondB).a);
+        return lit > 0.5 ? vec2(0.0, d) : vec2(d, 0.0);
+      }
+      vec2 inkAt(vec2 uv) {
         float a = texture2D(tHdr, uv).a;
         vec2 w = uPaintTexel * max(1.0, 1.0 / (uPaintTexel.y * 1080.0));
-        float e = 0.0;
-        for (int k = 0; k < 4; k++) {
-          vec2 o = k == 0 ? vec2(1.0, 0.0) : k == 1 ? vec2(-1.0, 0.0) : k == 2 ? vec2(0.0, 1.0) : vec2(0.0, -1.0);
-          float b = texture2D(tHdr, uv + o * w).a;
-          if (min(a, b) >= 0.23) continue;
-          e = max(e, smoothstep(0.004, 0.02, abs(a - b)));
-        }
-        return e;
+        vec2 dx = vec2(w.x, 0.0);
+        vec2 dy = vec2(0.0, w.y);
+        float r = texture2D(tHdr, uv + dx).a;
+        float l = texture2D(tHdr, uv - dx).a;
+        float u = texture2D(tHdr, uv + dy).a;
+        float d = texture2D(tHdr, uv - dy).a;
+        return max(max(inkPair(a, r, l, uv + 2.0 * dx), inkPair(a, l, r, uv - 2.0 * dx)), max(inkPair(a, u, d, uv + 2.0 * dy), inkPair(a, d, u, uv - 2.0 * dy)));
       }
 
       // The frame as paint: round each point four overlapping patches; the calmest gives its colour,
@@ -187,7 +204,10 @@ export class Frame {
       }
       void main() {
         vec3 c = (uPaint > 0.5 ? painted(vUv) : texture2D(tHdr, vUv).rgb) + texture2D(tBloom, vUv).rgb * uBloom;
-        c = mix(c, c * uInkColor, uInk * inkAt(vUv));
+        vec2 ink = inkAt(vUv);
+        c = mix(c, c * uInkColor, uInk * ink.x);
+        // the outline of what is being looked at, in light, breathing (the same on screen at any exposure)
+        c = mix(c, uLitLine / max(uExposure, 0.1), ink.y * (0.78 + 0.22 * sin(uTime * 3.0)));
         // shafts of light: walk towards the sun and gather the open sky on the way (the sky writes alpha
         // 0.25, nothing else does): where a tree or a pillar stands between, the walk comes up short — a shadow in the air
         if (uShaft.z > 0.002) {
@@ -229,6 +249,8 @@ export class Frame {
         uTime: { value: 0 },
         uInkColor: { value: new THREE.Color(...p.ink.color) },
         uInk: { value: p.ink.strength },
+        // the highlight's outline (linear, before exposure): the car materials' cyan-white
+        uLitLine: { value: new THREE.Color(0.62, 1.0, 1.08) },
         uShaft: { value: new THREE.Vector3(0.5, 0.5, 0) },
         uShaftColor: { value: this.shaftColor },
         uAspect: { value: 16 / 9 },

@@ -21,7 +21,10 @@
  *   GAUGE  gauge                    a dial painted from the UVs, lit at night
  *   EMIT   emit                     self-lit
  * Everything goes through the shared light of the world: rtShadow (cast shadows), rtHeadlight (beams),
- * rtFog, the cabin lamp; and opaque parts write the alpha ids the frame pass inks (frame.ts).
+ * rtFog, the cabin lamp, a room's light where there is one (the garage); and opaque parts write the alpha
+ * ids the frame pass inks (frame.ts). The world's weather (uWeather) wets the outside of the car — beads
+ * near the eye, a deeper colour and more gloss — and its snow settles on the roof; a room or setShelter()
+ * keeps both off. The part one is looking at (setHighlight) gets a lit rim and a lit outline.
  */
 import * as THREE from 'three';
 import { skyUniforms } from '../env/sky';
@@ -793,8 +796,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     }
     #endif
 
-    // the part one is looking at: a rim of light that breathes
+    // the part one is looking at: a rim of light round its edges that breathes
+    float hlOn = 0.0;
     {
+      // (how fast the normal turns across the screen, taken before the branch: a derivative needs the quad)
+      float nTurn = length(fwidth(n));
       float hl = uHighlight.w;
       #ifdef RT_VPART
       hl *= uHighlightId < 0.0 ? 1.0 : 1.0 - step(0.5, abs(vPartId - uHighlightId));
@@ -802,10 +808,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       // one part of a merged mesh is aimed at: meshes without part ids stay as they are
       hl *= step(uHighlightId, -0.5);
       #endif
+      hlOn = hl;
       if (hl > 0.0) {
-        // a lit fill and a bright rim, breathing; the eye finds it against paint, chrome or the dark under a car
-        float pulse = 0.7 + 0.3 * sin(uTime * 4.0);
-        col = col * (1.0 - 0.25 * hl) + uHighlight.rgb * hl * pulse * (0.22 + 1.8 * pow(1.0 - ndv, 2.2));
+        // the fresnel band where the part turns away from the eye, and its creases and corners (where the
+        // normal turns fast), slowly breathing; a face seen flat-on keeps its own colour with only a breath of
+        // the tint over it — a door being sprayed must show the paint going on. Nothing is darkened.
+        float pulse = 0.72 + 0.28 * sin(uTime * 3.0);
+        float rim = smoothstep(0.62, 0.95, 1.0 - ndv);
+        // (only sharp corners: the round of a chrome bumper close up turns fast too, and must keep its chrome)
+        float edge = smoothstep(0.6, 1.4, nTurn * 7.0);
+        col += uHighlight.rgb * hl * (0.05 + (rim * 1.2 + edge * 0.6) * pulse);
       }
     }
 
@@ -829,7 +841,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #if defined(RT_GLASS) || defined(RT_LENS)
     gl_FragColor = vec4(col, alpha);
     #else
-    gl_FragColor = vec4(col, rtCarInk(inkBase));
+    float ink = rtCarInk(inkBase);
+    // (a part being looked at writes its ids in a band of their own under every other id, 0.006…0.032: the
+    // frame draws its outline in light where it meets anything else — frame.ts inkAt)
+    if (hlOn > 0.5) ink = 0.006 + 0.026 * fract(ink * 7.31);
+    gl_FragColor = vec4(col, ink);
     #endif
   }
 `;
