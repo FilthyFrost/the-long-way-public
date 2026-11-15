@@ -338,7 +338,8 @@ export function derive(build: Build): Derived {
       reboundScale: s.reboundScale,
       travel: s.travel,
       antiRollRatio: s.antiRollRatio,
-      muScale: muScale(front ? sideF : sideR),
+      // (a motorcycle's tyres are narrow by nature: no narrow-tyre discount on a single track)
+      muScale: single ? 1 : muScale(front ? sideF : sideR),
       slipPeakDeg: s.slipPeakDeg * (0.85 + 1.2 * wall),
       brakeShare: front ? frame.brakeFront : 1 - frame.brakeFront,
       steerable: steerable && (hubL.steer === true || hubR.steer === true),
@@ -452,6 +453,8 @@ export function derive(build: Build): Derived {
     fuel: { tankL: tank?.def.fuelTank?.litres ?? 0, lPerKWh: e?.lPerKWh ?? 1.5, idleLph: e?.idleLph ?? 0 },
   };
   if (single) spec.balance = { assist: 1 };
+  // the axle radius follows the fitted wheels: an empty hub grinds on its drum at the frame's own scale
+  spec.emptyHubRadius = 0.45 * frame.hubRadius;
   // springs: the frame's are tuned for its factory build; the same springs, dampers and bar under this
   // build's weight and tyres (a heavier build sinks, softer and less damped; tall sidewalls soften it)
   const sprung = rescaleSuspension(spec as VehicleSpec, stockLoads(frame), [wallF, wallR]);

@@ -277,7 +277,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
     const gy = this.groundAt(x, z);
-    const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw);
+    const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw, this.ground);
     this.vehicles.push(v);
     this.player.addSolids(v.solid);
     return v;
@@ -398,6 +398,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     const heading = Math.atan2(b[2], b[0]);
     this.seated = null;
     v.view.highlight(null);
+    // nothing holds it now but the handbrake (or P): say so when it is off
+    if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.ui.say(v.sys.hasPart('handbrake') ? '没拉手刹——车会溜。' : '这车没有手刹，停在坡上会溜。', 3);
     this.player.walker.place(x, z, heading);
     this.input.freeLook = true;
     this.input.lookYaw = heading;
