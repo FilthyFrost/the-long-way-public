@@ -41,6 +41,13 @@ export interface AxleSpec {
    * speed, gearing, top speed — follows it (docs/MODCAR.md §4, 物理实现说明).
    */
   wheelRadius?: number;
+  /**
+   * Static compression (m) of this axle at the ride `cgHeight` describes — the hub mounts are body
+   * geometry placed for it. Omitted = this axle's own static compression, so the body always rests at
+   * cgHeight. A rescaled axle (rescale.ts) keeps its frame's value: a heavier build compresses the
+   * springs further and the body sinks by the difference, a lighter one rides higher.
+   */
+  rideComp?: number;
 }
 
 /**
@@ -179,7 +186,9 @@ export const NO_ENGINE: VehicleSpec['engine'] = {
  * legacy code paths exactly (the four tuned vehicles: harness/sim/modcar_legacy.test.ts).
  */
 export function usesExtensions(spec: VehicleSpec): boolean {
-  return spec.front.wheelRadius !== undefined || spec.rear.wheelRadius !== undefined || spec.balance !== undefined || spec.absent !== undefined;
+  const f = spec.front;
+  const r = spec.rear;
+  return f.wheelRadius !== undefined || r.wheelRadius !== undefined || f.rideComp !== undefined || r.rideComp !== undefined || spec.balance !== undefined || spec.absent !== undefined;
 }
 
 /**

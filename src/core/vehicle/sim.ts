@@ -58,6 +58,13 @@ const MISMATCH_STEER = 0.15;
 const MISMATCH_STEER_MAX = 3 * (Math.PI / 180);
 /** rough-surface buzz felt through a bare rim, relative to a tyre */
 const RIM_BUZZ = 3;
+/**
+ * An empty hub (WheelFit.None) is a skid: the hub and brake drum, this share of spec.wheelRadius
+ * across, ground along the road with this grip (relative to the tyre's, ~0.4 against asphalt); it
+ * neither rolls nor drives nor brakes.
+ */
+const HUB_SHARE = 0.45;
+const HUB_GRIP = 0.45;
 /** single-track balance: natural frequency (rad/s) and damping of the rider's upright control */
 const BAL_OMEGA = 7;
 const BAL_ZETA = 1;
@@ -410,7 +417,7 @@ export class VehicleSim {
       w.front = front;
       w.side = side;
       w.baseRadius = axle.wheelRadius ?? spec.wheelRadius;
-      w.radius = Math.max(MIN_RADIUS, w.baseRadius + this.mods.radiusOffset[i]);
+      w.radius = this.targetRadius(w, i);
       const axleLoad = spec.mass * GRAVITY * (front ? spec.weightFront : 1 - spec.weightFront);
       w.staticLoad = axleLoad / 2;
       const mc = w.staticLoad / GRAVITY;
@@ -429,8 +436,9 @@ export class VehicleSim {
       w.hx = x;
       w.hz = (side * (spec.balance ? stance : axle.track)) / 2;
       // hard point = wheel centre at full bump; chosen so the static ride height matches cgHeight
-      // (on wheels of spec.wheelRadius: an axle's own radius lifts or lowers its corners from there)
-      w.hy = spec.wheelRadius - spec.cgHeight + w.travel - w.staticComp;
+      // (on wheels of spec.wheelRadius compressed by rideComp: an axle's own radius lifts or lowers its
+      // corners from there, and a spring compressed further than rideComp sinks them)
+      w.hy = spec.wheelRadius - spec.cgHeight + w.travel - (axle.rideComp ?? w.staticComp);
       return w;
     };
     if (first) for (let i = 0; i < 4; i++) this.wheels.push(new Wheel());
@@ -505,6 +513,11 @@ export class VehicleSim {
     }
   }
 
+  /** the radius wheel i should have now: its axle's plus the systems' offset, or the hub's for an empty hub */
+  private targetRadius(w: Wheel, i: number): number {
+    return this.mods.wheelFit[i] === WheelFit.None ? HUB_SHARE * this._spec.wheelRadius : Math.max(MIN_RADIUS, w.baseRadius + this.mods.radiusOffset[i]);
+  }
+
   /** the wheels' sizes or fits changed: what follows from them */
   private wheelsChanged(): void {
     const W = this.wheels;
@@ -549,7 +562,7 @@ export class VehicleSim {
     let nl = 0;
     for (const w of W) {
       if (w.fit === WheelFit.None) continue;
-      lift += w.radius - sp.wheelRadius;
+      lift += w.radius - sp.wheelRadius - (w.staticComp - (w.axle.rideComp ?? w.staticComp));
       nl++;
     }
     const h = Math.max(0.1, sp.cgHeight + (nl > 0 ? lift / nl : 0));
@@ -561,7 +574,8 @@ export class VehicleSim {
       leanTime: Math.max(0.02, bs.leanTime ?? 0.12),
       kp: (m * GRAVITY * h + I * BAL_OMEGA * BAL_OMEGA) * assist,
       kd: 2 * BAL_ZETA * BAL_OMEGA * I * assist,
-      tauMax: 1.3 * m * GRAVITY * h * assist,
+      // (as much as the bike's own weight can do leant over: a hard enough knock is more than that)
+      tauMax: m * GRAVITY * h * assist,
     };
   }
 
@@ -587,7 +601,6 @@ export class VehicleSim {
     let bz = 0;
     for (let i = 0; i < 4; i++) {
       const w = W[i];
-      if (w.fit === WheelFit.None) continue;
       const x = w.hx;
       const z = -w.hz;
       s1 += 1;
@@ -623,7 +636,6 @@ export class VehicleSim {
     ph = clamp(ph, -0.6, 0.6);
     for (let i = 0; i < 4; i++) {
       const w = W[i];
-      if (w.fit === WheelFit.None) continue;
       const r = de[i] - (hv + th * w.hx - ph * w.hz);
       w.seat += r;
       w.comp += r;
@@ -791,30 +803,16 @@ export class VehicleSim {
 
   /**
    * The systems changed a wheel — its size (radiusOffset) or what is on the hub (wheelFit): put it in
-   * force. A wheel fitted on an empty hub lifts its corner onto it; a different size re-seats the body.
+   * force. Every corner whose wheel got bigger or smaller (an empty hub is small) re-seats the body.
    */
   private refit(ground: Ground): void {
-    const m = this.mods;
     const de = this.de;
     let any = false;
     for (let i = 0; i < 4; i++) {
       const w = this.wheels[i];
-      const fit = m.wheelFit[i];
-      const r = Math.max(MIN_RADIUS, w.baseRadius + m.radiusOffset[i]);
-      de[i] = 0;
-      if (fit !== WheelFit.None) {
-        if (w.fit === WheelFit.None) {
-          w.radius = r;
-          w.fit = fit;
-          const c = this.probeComp(i, ground);
-          if (c > w.staticComp) {
-            de[i] = c - w.staticComp;
-            w.comp = w.staticComp;
-          } else w.comp = c > 0 ? c : 0;
-          w.prevComp = w.comp;
-        } else de[i] = r - w.radius;
-      }
-      w.fit = fit;
+      const r = this.targetRadius(w, i);
+      de[i] = r - w.radius;
+      w.fit = this.mods.wheelFit[i];
       w.radius = r;
       if (de[i] !== 0) any = true;
     }
@@ -826,35 +824,6 @@ export class VehicleSim {
       });
     }
     this.wheelsChanged();
-  }
-
-  /** compression wheel i would have at the current pose (m; ≤ 0 = off the ground) */
-  private probeComp(i: number, ground: Ground): number {
-    const w = this.wheels[i];
-    const qx = this.qx;
-    const qy = this.qy;
-    const qz = this.qz;
-    const qw = this.qw;
-    const Fx = 1 - 2 * (qy * qy + qz * qz);
-    const Fy = 2 * (qx * qy + qw * qz);
-    const Fz = 2 * (qx * qz - qw * qy);
-    const Ux = 2 * (qx * qy - qw * qz);
-    const Uy = 1 - 2 * (qx * qx + qz * qz);
-    const Uz = 2 * (qy * qz + qw * qx);
-    const Sx = 2 * (qx * qz + qw * qy);
-    const Sy = 2 * (qy * qz - qw * qx);
-    const Sz = 1 - 2 * (qx * qx + qy * qy);
-    if (Uy <= 0.05) return 0;
-    const uyc = Uy > 0.35 ? Uy : 0.35;
-    const ox = this.px + Fx * w.hx + Ux * w.hy + Sx * w.hz;
-    const oy = this.py + Fy * w.hx + Uy * w.hy + Sy * w.hz;
-    const oz = this.pz + Fz * w.hx + Uz * w.hy + Sz * w.hz;
-    const gs = this.gs;
-    ground.sample(ox, oz, gs);
-    let t = (oy - gs.h) / uyc;
-    ground.sample(ox - Ux * t, oz - Uz * t, gs);
-    t += (oy - Uy * t - gs.h) / uyc;
-    return w.travel - (t - (w.radius - this.mods.radiusDrop[i]));
   }
   private readonly kThump: number;
   private readonly kRms: number;
@@ -909,7 +878,7 @@ export class VehicleSim {
     this.lastHitSpeed = 0;
     this.lastHitSolid = null;
     this.maxPenetration = 0;
-    this.rpm = this.spec.engine.idle;
+    this.rpm = this.noEngine ? 0 : this.spec.engine.idle;
     this.fuelUsedL = 0;
     this.shiftTimer = 0;
     this.sinceShift = 10;
@@ -941,8 +910,9 @@ export class VehicleSim {
       const w = this.wheels[i];
       w.seat = 0;
       w.fit = this.mods.wheelFit[i];
-      w.radius = Math.max(MIN_RADIUS, w.baseRadius + this.mods.radiusOffset[i]);
-      de[i] = w.fit === WheelFit.None ? 0 : w.radius - this.spec.wheelRadius;
+      w.radius = this.targetRadius(w, i);
+      // (a spring compressed further at rest than the ride the geometry is given for sinks its corner)
+      de[i] = w.radius - this.spec.wheelRadius - (w.staticComp - (w.axle.rideComp ?? w.staticComp));
       if (de[i] !== 0) lifted = true;
     }
     this.wheelsChanged();
@@ -1301,7 +1271,7 @@ export class VehicleSim {
       const md = this.mods;
       for (let i = 0; i < 4; i++) {
         const w = wheels[i];
-        if (md.wheelFit[i] !== w.fit || Math.max(MIN_RADIUS, w.baseRadius + md.radiusOffset[i]) !== w.radius) {
+        if (md.wheelFit[i] !== w.fit || this.targetRadius(w, i) !== w.radius) {
           this.refit(ground);
           break;
         }
@@ -1387,8 +1357,7 @@ export class VehicleSim {
       const ox = px + Fx * w.hx + Ux * w.hy + Sx * w.hz;
       const oy = py + Fy * w.hx + Uy * w.hy + Sy * w.hz;
       const oz = pz + Fz * w.hx + Uz * w.hy + Sz * w.hz;
-      // (an empty hub has nothing to touch the ground with: the body box carries that corner)
-      if (Uy <= 0.05 || w.fit === WheelFit.None) {
+      if (Uy <= 0.05) {
         w.contact = false;
         w.comp = 0;
         w.compRate = 0;
@@ -1425,7 +1394,7 @@ export class VehicleSim {
         // steel on the road: little grip, and it digs into anything soft
         w.mu *= RIM_GRIP;
         w.rr *= RIM_RR;
-      }
+      } else if (w.fit === WheelFit.None) w.mu = gs.mu * HUB_GRIP;
       const nu = gs.nx * Ux + gs.ny * Uy + gs.nz * Uz;
       w.denom = nu > 0.3 ? nu : 0.3;
       const rx = w.cx - px;
@@ -1624,6 +1593,8 @@ export class VehicleSim {
 
     const tire = sp.tire;
     const brakeCmd = this.hold ? 1 : this.brake;
+    // fastest scrape of the body or of an empty hub along the road this step (sparks)
+    let scrape = 0;
     // P: the parking pawl locks the driven wheels like a handbrake does the rear ones (it is in the gearbox)
     const pawl = this.selector === 'P' && !this.noGearbox;
     // How much friction each wheel can offer. Motion-opposing friction is capped at "just enough
@@ -1643,7 +1614,8 @@ export class VehicleSim {
       const grip = w.axle.muScale * w.mu * ls;
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;
-      const locked = (this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven);
+      // (an empty hub grinds along like a locked wheel)
+      const locked = (this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven) || w.fit === WheelFit.None;
       w.capOpp = locked ? w.capLong : Math.min(w.capLong, N * w.rr + brakeCmd * w.brakeMax * mods.brake[i]);
       sumLat += w.capLat;
       sumOpp += w.capOpp;
@@ -1673,7 +1645,7 @@ export class VehicleSim {
       const speedC = Math.sqrt(w.vLong * w.vLong + w.vLat * w.vLat);
       const wStick = 1 - smoothstep(0.4, 1.6, speedC);
 
-      if ((this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven)) {
+      if ((this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven) || w.fit === WheelFit.None) {
         // locked wheel. Near rest it takes exactly its share of the stopping impulse in each direction
         // (shares along and across the car differ, and mixing them lets a heavy vehicle creep on a hill);
         // once that exceeds the grip it slides, and friction simply opposes the sliding direction.
@@ -1694,6 +1666,7 @@ export class VehicleSim {
         w.util = speedC > 0.3 ? 1 : f / maxLong;
         w.alpha = Math.atan2(w.vLat, Math.abs(w.vLong) + 0.3);
         w.omega = 0;
+        if (w.fit === WheelFit.None && speedC > scrape) scrape = speedC;
       } else {
         // longitudinal: engine drive plus motion-opposing forces (brake, rolling resistance)
         // (equal torque to every driven wheel: one of another size pushes torque / its own radius)
@@ -1779,7 +1752,6 @@ export class VehicleSim {
       tZ -= Fz * tr;
     }
 
-    let scrape = 0;
     if (bodyActive) {
       const stickB = (0.9 * m) / 4 / h;
       for (let k = 0; k < 8; k++) {
