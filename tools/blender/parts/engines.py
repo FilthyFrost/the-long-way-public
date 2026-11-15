@@ -629,7 +629,7 @@ def build_eng_mower(P):
 # ------------------------------------------------------------------------------------------------ turbo
 
 
-def volute(P, R0, R1, r0, r1, material, outlet_len, name, turns=0.9, start=0.0, segs=26):
+def volute(P, R0, R1, r0, r1, material, outlet_len, name, turns=0.9, start=0.0, segs=18):
     """A snail housing round an axis along Y (local origin on the axis): a swept tube whose path spirals from
     R0 to R1 while its section grows from r0 to r1, then runs off tangentially for outlet_len."""
     path = []
@@ -647,7 +647,7 @@ def volute(P, R0, R1, r0, r1, material, outlet_len, name, turns=0.9, start=0.0, 
     def rf(t):
         return (r0 + (r1 - r0) * min(1.0, t * 1.15)) / r1
 
-    return P.tube(name, path, r1, material, segs=12, caps=True, radius_fn=rf, bend=0.0)
+    return P.tube(name, path, r1, material, segs=10, caps=True, radius_fn=rf, bend=0.0)
 
 
 def build_turbo_small(P):
@@ -926,8 +926,9 @@ def build_eng_2t(P):
         cb = base + ax * 0.06 + V((-0.085, 0, 0))
         P.cyl('carb', 0.022, 0.06, tuple(cb), 'alu', axis='X', segs=12, bev=0.003, bsegs=1)
         P.cyl('bowl', 0.02, 0.028, tuple(cb + V((0, 0, -0.032))), 'alu', segs=12, bev=0.003, bsegs=1)
-        P.lathe('stack', [(0.022, 0.0), (0.024, 0.02), (0.03, 0.035), (0.042, 0.045), (0.044, 0.05)],
-                loc=tuple(cb + V((-0.03, 0, 0))), material='chrome', axis='-X', segs=16, sharp=60.0)
+        P.lathe('stack', K.shell_profile([(0.022, 0.0), (0.024, 0.02), (0.03, 0.035), (0.042, 0.045),
+                                           (0.044, 0.05)], 0.0025),
+                loc=tuple(cb + V((-0.03, 0, 0))), material='chrome', axis='-X', segs=16, sharp=60.0, loop=True)
     for (sy, port) in ports:
         end = port + V((0.12, 0, -0.27)) + V((0.12 * 0.3, 0, 0))
     # outlets: the stubs end about 0.2 m ahead and below the ports
@@ -984,8 +985,9 @@ def build_eng_flat6(P):
     P.empty('M_turbo', (-0.2, -0.27, 0.072))
     # the fan housing on top: a drum with its axis along X, the fan visible at the front, the alternator hub
     fx, fz, fr = 0.10, 0.37, 0.15
-    P.lathe('fan_housing', [(fr - 0.01, -0.07), (fr + 0.01, -0.065), (fr + 0.012, 0.05), (fr + 0.004, 0.065),
-                            (fr - 0.012, 0.065)], loc=(fx, 0, fz), material='trim', axis='X', segs=32, sharp=50.0)
+    P.lathe('fan_housing', K.shell_profile([(fr - 0.01, -0.07), (fr + 0.01, -0.065), (fr + 0.012, 0.05),
+                                            (fr + 0.004, 0.065), (fr - 0.012, 0.065)], 0.004),
+            loc=(fx, 0, fz), material='trim', axis='X', segs=32, sharp=50.0, loop=True)
     P.cyl('fan_back', fr - 0.005, 0.006, (fx - 0.067, 0, fz), 'trim', axis='X', segs=32, bev=None)
     bm = bmesh.new()
     for i in range(11):

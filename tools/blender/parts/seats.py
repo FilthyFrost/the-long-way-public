@@ -233,11 +233,180 @@ def build_seat_armchair(P):
     P.views = [('a', 35, 14), ('b', 215, 18)]
 
 
+def saddle_section(w, h, n=12, rib=0.0):
+    """Cross-section (y, z) of a motorcycle seat: a flat-topped arch on a pan, counter-clockwise from +X;
+    rib raises the crown (a pleat) without touching the flanks."""
+    pts = []
+    for i in range(n + 1):
+        t = i / n
+        a = math.pi * (t - 0.5)
+        y = (w / 2) * math.sin(a)
+        c = math.cos(a)
+        z = h * (c ** 0.35 if c > 0 else 0.0)
+        z += rib * max(0.0, 1 - (2 * y / (w * 0.78)) ** 4)
+        pts.append((y, z))
+    return list(reversed(pts))
+
+
+def build_seat_saddle(P):
+    """A 1970s dual seat: a long vinyl saddle with a stepped tail and cross pleats moulded into its crown, a
+    chrome trim band, a grab strap, the pan with its hinge tabs. Origin at the centre of the pan."""
+    P.ao_distance = 0.05
+    key = [(0.30, 0.16, 0.05), (0.26, 0.24, 0.085), (0.15, 0.28, 0.10), (0.0, 0.29, 0.10), (-0.12, 0.29, 0.105),
+           (-0.20, 0.29, 0.125), (-0.30, 0.28, 0.13), (-0.35, 0.24, 0.115)]
+
+    def at(x):
+        for (xa, wa, ha), (xb, wb, hb) in zip(key[1:], key[:-1]):
+            if xa <= x <= xb:
+                u = (x - xa) / (xb - xa)
+                return wa + (wb - wa) * u, ha + (hb - ha) * u
+        return key[-1][1], key[-1][2]
+
+    xs = [k[0] for k in key]
+    # pleated zone: ribs every 2.6 cm between x = -0.17 and 0.20 (the rider's and the passenger's places)
+    rib_x = [0.20 - 0.026 * i for i in range(15)]
+    grooves = [round(x + d, 4) for x in rib_x for d in (-0.002, 0.002)]
+    crests = [round(x - 0.013, 4) for x in rib_x[:-1]]
+    xs = sorted(set([round(x, 4) for x in xs] + grooves + crests))
+    stations = []
+    for x in xs:
+        w, h = at(x)
+        rib = 0.009 if any(abs(x - c) < 1e-4 for c in crests) else 0.0
+        stations.append((x, w, h, rib))
+    rings = [K.section_x(saddle_section(w, h, n=16, rib=rib), x) for (x, w, h, rib) in stations]
+    P.loft('saddle', rings, 'leather', cap_start=True, cap_end=True, sharp=55.0, recalc=True)
+    P.box('pan', (0.62, 0.25, 0.014), (-0.03, 0.0, 0.004), 'trim', bev=0.004, segs=1)
+    for sg in (-1, 1):
+        pts = [(x, sg * (w / 2 + 0.002), 0.022) for (x, w, h) in key[1:-1]]
+        P.tube('band', pts, 1.0, 'chrome', profile=[(-0.009, -0.0015), (0.009, -0.0015), (0.009, 0.0015),
+                                                    (-0.009, 0.0015)], bend=0.04, caps=True, sharp=60.0)
+    # grab strap across the middle
+    strap = [(-0.20, -0.147, 0.03), (-0.20, -0.145, 0.09), (-0.20, -0.11, 0.132), (-0.20, 0.11, 0.132),
+             (-0.20, 0.145, 0.09), (-0.20, 0.147, 0.03)]
+    P.tube('strap', strap, 1.0, 'leather', profile=[(-0.016, -0.003), (0.016, -0.003), (0.016, 0.003),
+                                                    (-0.016, 0.003)], bend=0.02, caps=True, sharp=60.0)
+    for sg in (-1, 1):
+        P.cyl('strap_screw', 0.006, 0.004, (-0.20, sg * 0.15, 0.03), 'chrome', axis='Y', segs=8, bev=None)
+        P.box('hinge_tab', (0.03, 0.012, 0.03), (0.2, sg * 0.1, -0.012), 'steel', bev=0.003, segs=1)
+    P.eye((0.06, 0, 0.84))
+    P.views = [('a', 35, 22), ('b', 215, 22)]
+
+
+def build_seat_race(P):
+    """A racing bucket: a one-piece painted shell with tall side bolsters, head wings and harness slots,
+    cloth pads, side brackets on slider rails."""
+    P.ao_distance = 0.10
+    rails(P, length=0.42)
+    # shell side profile (x, z), the occupant faces +X
+    side = [(0.24, 0.10), (0.25, 0.17), (0.18, 0.22), (0.02, 0.2), (-0.16, 0.24), (-0.22, 0.45), (-0.25, 0.72),
+            (-0.29, 0.90), (-0.36, 0.92), (-0.37, 0.80), (-0.33, 0.45), (-0.27, 0.12)]
+    for sg in (-1, 1):
+        P.prism('shell_side', side, 0.025, matrix=mat4((0, sg * 0.255, 0), (90, 0, 0)), material='paint', bev=0.008,
+                segs=2)
+    P.box('shell_base', (0.50, 0.50, 0.02), (-0.01, 0.0, 0.11), 'paint', bev=0.008, segs=2, rot=(0, -5, 0))
+    rec = 12.0
+    P.box('shell_back', (0.025, 0.50, 0.82), (-0.315, 0.0, 0.53), 'paint', bev=0.008, segs=2, rot=(0, -rec, 0))
+    P.pillow('pad_base', (0.42, 0.40, 0.06), (0.0, 0.0, 0.15), 'fabric', r=0.025, sub=1, rot=(0, -5, 0))
+    for sg in (-1, 1):
+        P.pillow('bolster', (0.36, 0.07, 0.09), (0.0, sg * 0.2, 0.19), 'fabric', r=0.03, sub=1, rot=(0, -5, sg * -4))
+        P.pillow('back_bolster', (0.08, 0.07, 0.5), (-0.26, sg * 0.2, 0.46), 'fabric', r=0.03, sub=1, rot=(0, -rec, 0))
+    P.pillow('pad_back', (0.05, 0.32, 0.58), (-0.285, 0.0, 0.5), 'fabric', r=0.02, sub=1, rot=(0, -rec, 0))
+    P.pillow('pad_head', (0.04, 0.30, 0.13), (-0.335, 0.0, 0.86), 'fabric', r=0.015, sub=1, rot=(0, -rec, 0))
+    for sg in (-1, 1):
+        P.box('harness_slot', (0.03, 0.06, 0.03), (-0.305, sg * 0.09, 0.76), 'trim', bev=0.006, segs=1,
+              rot=(0, -rec, 0))
+        P.box('bracket', (0.34, 0.012, 0.09), (-0.02, sg * 0.274, 0.08), 'steel', bev=0.003, segs=1)
+        P.bolts([(x, sg * 0.282, 0.09) for x in (-0.14, 0.1)], normal=(0, sg, 0), r=0.007, h=0.005, washer=True)
+    P.box('crotch_slot', (0.05, 0.06, 0.02), (0.15, 0.0, 0.185), 'trim', bev=0.006, segs=1)
+    P.eye((-0.18, 0, 0.80))
+    P.views = [('a', 35, 16), ('b', 215, 18)]
+
+
+def build_seat_office(P):
+    """An office chair: five-star base on casters, gas lift, a cloth seat on its shell, a curved back on a
+    support bar, T armrests. It swivels."""
+    P.ao_distance = 0.08
+    for i in range(5):
+        a = math.tau * i / 5
+        d = V((math.cos(a), math.sin(a), 0))
+        bm = bmesh.new()
+        K.bm_prism(bm, [(0.0, -0.025), (0.30, -0.016), (0.31, 0.016), (0.0, 0.025)], 0.04,
+                   matrix=Matrix.Translation((0, 0, 0.09)) @ Matrix.Rotation(a, 4, 'Z'))
+        for v in bm.verts:
+            r = math.hypot(v.co.x, v.co.y)
+            v.co.z -= r * 0.07
+        P.mesh('star_arm', bm, 'trim', bev=0.008, segs=2)
+        c = d * 0.3
+        P.cyl('caster_stem', 0.008, 0.03, (c.x, c.y, 0.06), 'steel', segs=8, bev=None)
+        P.box('caster_fork', (0.05, 0.034, 0.03), (c.x - 0.015 * d.x, c.y - 0.015 * d.y, 0.045), 'trim',
+              rot=(0, 0, math.degrees(a)), bev=0.006, segs=1)
+        P.cyl('caster', 0.024, 0.026, (c.x - 0.025 * d.x, c.y - 0.025 * d.y, 0.026), 'rubber',
+              rot=(90, 0, math.degrees(a)), segs=14, bev=0.004, bsegs=1)
+    P.cyl('hub', 0.045, 0.06, (0, 0, 0.08), 'trim', segs=16, bev=0.008, bsegs=2)
+    P.cyl('gas_shroud', 0.03, 0.14, (0, 0, 0.18), 'trim', segs=14, bev=0.003, bsegs=1)
+    P.cyl('gas_rod', 0.014, 0.1, (0, 0, 0.30), 'chrome', segs=12, bev=None)
+    P.box('mechanism', (0.2, 0.18, 0.04), (0.0, 0, 0.37), 'trim', bev=0.008, segs=1)
+    P.tube('lift_lever', [(0.0, 0.09, 0.37), (0.05, 0.16, 0.37), (0.1, 0.19, 0.38)], 0.006, 'trim', segs=6, bend=0.02)
+    P.pillow('seat_shell', (0.48, 0.48, 0.03), (0.0, 0, 0.405), 'plastic_int', r=0.012, sub=1)
+    P.pillow('seat', (0.47, 0.47, 0.075), (0.01, 0, 0.455), 'fabric', r=0.035, sub=2)
+    # back support bar and the back
+    P.tube('back_bar', [(-0.08, 0, 0.38), (-0.25, 0, 0.39), (-0.27, 0, 0.55)], 0.018, 'trim', segs=10, bend=0.06,
+           profile=[(-1.0, -0.4), (1.0, -0.4), (1.0, 0.4), (-1.0, 0.4)])
+    P.pillow('back_shell', (0.03, 0.44, 0.48), (-0.29, 0, 0.78), 'plastic_int', r=0.012, sub=1, rot=(0, -8, 0))
+    P.pillow('back', (0.06, 0.42, 0.46), (-0.26, 0, 0.78), 'fabric', r=0.025, sub=2, rot=(0, -8, 0))
+    for sg in (-1, 1):
+        P.tube('arm_post', [(-0.02, sg * 0.21, 0.38), (-0.02, sg * 0.26, 0.42), (-0.02, sg * 0.26, 0.6)], 0.012,
+               'trim', segs=8, bend=0.04)
+        P.pillow('arm_pad', (0.24, 0.07, 0.03), (0.0, sg * 0.26, 0.615), 'trim', r=0.012, sub=1)
+    P.eye((-0.12, 0, 1.12))
+    P.prop('swivel', True)
+    P.views = [('a', 35, 16), ('b', 215, 18)]
+
+
+def build_seat_crate(P):
+    """A wooden crate as a seat: planked sides with gaps, corner posts, a lid of boards, nails, a stencilled
+    band and rope handles."""
+    P.ao_distance = 0.06
+    L, W, H = 0.46, 0.40, 0.40
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            P.box('post', (0.04, 0.04, H - 0.02), (sx * (L / 2 - 0.02), sy * (W / 2 - 0.02), H / 2), 'wood', bev=0.004,
+                  segs=1)
+    for k in range(3):
+        z = 0.04 + k * 0.125 + 0.05
+        for sg in (-1, 1):
+            P.box('plank', (L - 0.012, 0.018, 0.105), (0.0, sg * (W / 2 - 0.004), z), 'wood', bev=0.004, segs=1,
+                  rot=(0, 0.6 * (k - 1), 0))
+            P.box('plank', (0.018, W - 0.05, 0.105), (sg * (L / 2 - 0.004), 0.0, z), 'wood', bev=0.004, segs=1,
+                  rot=(0.6 * (1 - k), 0, 0))
+    for i in range(4):
+        y = -W / 2 + 0.055 + i * (W - 0.11) / 3
+        P.box('lid', (L + 0.01, 0.092, 0.02), (0.0, y, H + 0.005), 'wood', bev=0.004, segs=1, rot=(0, 0, 0.8 * (i - 1.5)))
+    P.box('base', (L - 0.02, W - 0.02, 0.02), (0.0, 0.0, 0.012), 'wood', bev=0.003, segs=1)
+    bm = bmesh.new()
+    for i in range(4):
+        y = -W / 2 + 0.055 + i * (W - 0.11) / 3
+        for sx in (-1, 1):
+            K.bm_cyl(bm, 0.0045, 0.002, segs=6, matrix=Matrix.Translation((sx * (L / 2 - 0.02), y, H + 0.016)))
+    P.mesh('nails', bm, 'steel', sharp=60.0)
+    P.box('stencil', (0.2, 0.0015, 0.05), (0.04, -(W / 2 + 0.0055), 0.27), 'paint', bev=None)
+    P.box('stencil2', (0.12, 0.0015, 0.02), (0.04, -(W / 2 + 0.0055), 0.215), 'paint', bev=None)
+    for sx in (-1, 1):
+        P.torus('rope', 0.04, 0.008, loc=(sx * (L / 2 + 0.012), 0.0, 0.31), axis='X', segs=16, rsegs=6,
+                material='fabric', arc=math.pi, a0=math.pi)
+    P.eye((0.0, 0, 1.10))
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
 PARTS = {
     'seat_bucket': build_seat_bucket,
     'seat_bench': build_seat_bench,
     'seat_toilet': build_seat_toilet,
     'seat_armchair': build_seat_armchair,
+    'seat_saddle': build_seat_saddle,
+    'seat_race': build_seat_race,
+    'seat_office': build_seat_office,
+    'seat_crate': build_seat_crate,
 }
 
 

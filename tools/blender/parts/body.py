@@ -301,15 +301,217 @@ def build_arm_plates(P):
     P.views = [('a', -60, 10), ('b', -120, 14)]
 
 
+def build_mir_truck(P):
+    """A big truck mirror (LEFT): two tubular arms from the door out to a tall rectangular head facing -X,
+    a small convex spot mirror under it. Origin at the lower arm's foot."""
+    P.ao_distance = 0.04
+    for (z0, z1) in ((0.0, 0.05), (0.32, 0.28)):
+        P.box('foot', (0.05, 0.016, 0.04), (0.0, 0.008, z0), 'steel', bev=0.004, segs=1)
+        P.tube('arm', [(0.0, 0.016, z0), (-0.01, 0.12, z0 + (z1 - z0) * 0.3), (-0.02, 0.27, z1)], 0.011, 'chrome',
+               segs=10, bend=0.05)
+    hx, hy, hz = -0.03, 0.30, 0.165
+    W, H = 0.17, 0.30
+    sec = [(y, z) for (y, z) in K.rounded_rect(W, H, 0.02, seg=3)]
+    rings = [K.section_x(sec, hx + 0.025, 0.9, hy, hz), K.section_x(sec, hx + 0.012, 1.0, hy, hz),
+             K.section_x(sec, hx - 0.012, 1.0, hy, hz)]
+    P.loft('head', rings, 'trim', cap_start=True, recalc=True, sharp=50.0)
+    P.box('glass', (0.002, W - 0.012, H - 0.012), (hx - 0.013, hy, hz), 'chrome', bev=None)
+    for z in (hz - H / 2 - 0.003, hz + H / 2 + 0.003):
+        P.box('clamp', (0.03, 0.03, 0.016), (hx + 0.004, hy, z), 'steel', bev=0.004, segs=1)
+    # spot mirror
+    P.cyl('spot_arm', 0.006, 0.08, (hx, hy - 0.02, hz - H / 2 - 0.05), 'chrome', segs=8, bev=None)
+    P.lathe('spot', [(0.0, 0.018), (0.03, 0.012), (0.042, 0.0)][::-1], loc=(hx + 0.01, hy - 0.02, hz - H / 2 - 0.1),
+            material='trim', axis='X', segs=18, close='start', sharp=50.0)
+    P.cyl('spot_glass', 0.038, 0.002, (hx - 0.0005, hy - 0.02, hz - H / 2 - 0.1), 'chrome', axis='X', segs=18,
+          bev=None)
+    P.views = [('a', 200, 12), ('b', 40, 15)]
+
+
+def build_roof_lightbar(P):
+    """A roof light bar: a bar across the front of the roof on two legs with gutter feet, four round lamps
+    with chrome rims and black backs facing +X, the loom along the bar."""
+    P.ao_distance = 0.05
+    xb, zb = 0.48, 0.17
+    P.tube('bar', [(xb, -0.50, zb), (xb, 0.50, zb)], 0.022, 'steel', segs=12)
+    for sg in (-1, 1):
+        P.tube('leg', [(xb, sg * 0.42, zb), (xb - 0.04, sg * 0.45, 0.06), (xb - 0.06, sg * 0.46, 0.02)], 0.018, 'steel',
+               segs=10, bend=0.05)
+        P.box('foot', (0.08, 0.05, 0.02), (xb - 0.06, sg * 0.46, 0.01), 'steel', bev=0.004, segs=1)
+        P.box('pad', (0.085, 0.055, 0.008), (xb - 0.06, sg * 0.46, 0.0005), 'rubber', bev=0.002, segs=1)
+        P.cyl('end_cap', 0.024, 0.01, (xb, sg * 0.505, zb), 'trim', axis='Y', segs=12, bev=0.002, bsegs=1)
+    for i in range(4):
+        y = -0.33 + 0.22 * i
+        c = V((xb + 0.04, y, zb + 0.085))
+        P.box('lamp_tab', (0.03, 0.03, 0.06), (xb, y, zb + 0.035), 'steel', bev=0.003, segs=1)
+        P.lathe('lamp_can', [(0.0, -0.06), (0.04, -0.058), (0.064, -0.035), (0.072, 0.0)], loc=tuple(c),
+                material='trim', axis='X', segs=24, sharp=40.0)
+        P.lathe('lamp_refl', [(0.01, -0.04), (0.04, -0.03), (0.068, 0.0)][::-1], loc=tuple(c), material='chrome',
+                axis='X', segs=24, sharp=40.0)
+        P.lathe('lamp_lens', [(0.068, 0.0), (0.05, 0.008), (0.0, 0.012)], loc=tuple(c), material='lens_head',
+                axis='X', segs=24, sharp=60.0)
+        P.lathe('lamp_rim', [(0.064, -0.004), (0.076, -0.004), (0.077, 0.006), (0.07, 0.012), (0.066, 0.008)],
+                loc=tuple(c), material='chrome', axis='X', segs=24, loop=True, sharp=50.0)
+        P.cyl('lamp_bulb', 0.01, 0.02, tuple(c + V((-0.02, 0, 0))), 'emit', axis='X', segs=8, bev=None)
+    P.tube('loom', [(xb - 0.02, -0.4, zb - 0.02), (xb - 0.02, 0.4, zb - 0.02), (xb - 0.1, 0.46, zb - 0.05)], 0.006,
+           'trim', segs=6, bend=0.04)
+    P.fit_nominal(1.20, 1.00, 0.15)
+    P.views = [('a', 35, 18), ('b', 215, 24)]
+
+
+def build_roof_solar(P):
+    """A solar panel on the roof: an alloy frame round dark cells with their grid, four tilt feet, the
+    junction box and its cable."""
+    P.ao_distance = 0.05
+    L, W = 1.12, 0.92
+    z = 0.075
+    P.box('cells', (L - 0.04, W - 0.04, 0.012), (0.0, 0, z), 'glass_dark', bev=None)
+    for sx in (-1, 1):
+        P.box('frame_x', (0.03, W, 0.03), (sx * (L / 2 - 0.015), 0, z), 'alu', bev=0.004, segs=1)
+    for sy in (-1, 1):
+        P.box('frame_y', (L - 0.06, 0.03, 0.03), (0, sy * (W / 2 - 0.015), z), 'alu', bev=0.004, segs=1)
+    bm = bmesh.new()
+    for i in range(1, 10):
+        x = -L / 2 + 0.02 + (L - 0.04) * i / 10
+        K.bm_cube(bm, (0.004, W - 0.05, 0.002), mat4((x, 0, z + 0.0065)))
+    for j in range(1, 6):
+        y = -W / 2 + 0.02 + (W - 0.04) * j / 6
+        K.bm_cube(bm, (L - 0.05, 0.004, 0.002), mat4((0, y, z + 0.0066)))
+    P.mesh('grid', bm, 'alu', sharp=60.0)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            x, y = sx * (L / 2 - 0.1), sy * (W / 2 - 0.05)
+            P.box('foot', (0.07, 0.04, 0.008), (x, y, 0.004), 'alu', bev=0.002, segs=1)
+            P.box('strut', (0.02, 0.025, z - 0.01), (x, y, z / 2), 'alu', bev=0.003, segs=1)
+            P.bolt((x + 0.025, y, 0.008), r=0.006, h=0.005)
+    P.box('junction', (0.1, 0.07, 0.03), (-L / 4, 0, z - 0.022), 'trim', bev=0.005, segs=1)
+    P.tube('cable', [(-L / 4 - 0.05, 0.0, z - 0.025), (-L / 2 - 0.02, 0.05, z - 0.03), (-L / 2 - 0.05, 0.12, 0.01)],
+           0.006, 'trim', segs=6, bend=0.05)
+    P.fit_nominal(1.20, 1.00, 0.15)
+    P.views = [('a', 35, 30), ('b', 215, 30)]
+
+
+def build_arm_planks(P):
+    """Plank armour (LEFT): rough boards of uneven length, one broken, held by three rusty steel straps with
+    big bolts, nails along the board ends."""
+    P.ao_distance = 0.05
+    t = 0.022
+    boards = [(-0.30, -0.98, 0.97, 0.0), (-0.165, -1.0, 0.86, 1.2), (-0.03, -0.92, 1.0, -0.8), (0.105, -1.0, 0.55, 0.6),
+              (0.105, 0.6, 0.98, -0.5), (0.24, -0.9, 0.95, 0.9)]
+    for (z, x0, x1, tilt) in boards:
+        poly = [(x0, -0.06), (x1, -0.06), (x1 + 0.012, 0.06), (x0 - 0.008, 0.06)]
+        m = mat4(((0.0), t / 2, z), (90, tilt, 0))
+        P.prism('board', poly, t, matrix=m, material='wood', bev=0.004, segs=1)
+    for x in (-0.68, 0.0, 0.68):
+        P.box('strap', (0.06, 0.008, 0.66), (x, t + 0.004, -0.03), 'rust', bev=0.003, segs=1)
+        P.bolts([(x, t + 0.008, z) for (z, _, _, _) in boards[:4]] + [(x, t + 0.008, 0.24)], normal=(0, 1, 0),
+                r=0.012, h=0.008, washer=True)
+    bm = bmesh.new()
+    for (z, x0, x1, tilt) in boards:
+        for xx in (x0 + 0.05, x1 - 0.05):
+            for dz in (-0.03, 0.03):
+                K.bm_cyl(bm, 0.004, 0.002, segs=6, matrix=Matrix.Translation((xx, t + 0.001, z + dz)) @
+                         K.axis_matrix('Y'))
+    P.mesh('nails', bm, 'steel', sharp=60.0)
+    P.fit_nominal(2.00, 0.02, 0.60)
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
+def build_bf_plow(P):
+    """A snow plough on the front mount: a curved painted moldboard with a steel cutting edge and rubber top
+    flap, ribs behind, an A-frame back to the bumper mount with a lift ram, skid shoes, marker rods."""
+    P.ao_distance = 0.12
+    Wb = 0.95
+    # moldboard: a curved section (x, z) swept across Y
+    prof = []
+    for i in range(9):
+        t = i / 8
+        a = math.radians(-60 + 120 * t)
+        x = 0.62 - 0.16 * math.cos(a)
+        z = 0.18 + 0.30 * math.sin(a)
+        prof.append((x, z))
+    thick = 0.012
+    outer = [(x, z) for (x, z) in prof]
+    inner = [(x - thick, z) for (x, z) in reversed(prof)]
+    sec = outer + inner
+    rings = []
+    for y in (-Wb, -Wb * 0.8, 0.0, Wb * 0.8, Wb):
+        bend = 0.06 * (abs(y) / Wb) ** 2
+        rings.append([(x + bend, y, z) for (x, z) in sec])
+    bm = bmesh.new()
+    vr, faces = K.bm_loft(bm, [[(p[0], p[1], p[2]) for p in r] for r in rings], cap_start=True, cap_end=True)
+    # the loft runs along Y: rebuild each ring as 3D points in the (x, z) plane at that y
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    P.mesh('blade', bm, 'paint', bev=0.004, segs=1, sharp=40.0)
+    P.box('edge', (0.03, 2 * Wb, 0.05), (0.535, 0.0, -0.085), 'steel', rot=(0, 20, 0), bev=0.004, segs=1)
+    P.bolts([(0.555, y, -0.085) for y in (-0.8, -0.48, -0.16, 0.16, 0.48, 0.8)], normal=(0.94, 0, -0.34), r=0.009,
+            h=0.006, washer=False)
+    P.tube('lip', [(0.548, -Wb, 0.445), (0.548, Wb, 0.445)], 0.012, 'paint', segs=10)
+    P.box('flap', (0.01, 2 * Wb, 0.07), (0.53, 0.0, 0.49), 'rubber', rot=(0, -25, 0), bev=0.003, segs=1)
+    back = []
+    for i in range(9):
+        t = i / 8
+        a = math.radians(-60 + 120 * t)
+        back.append((0.62 - 0.16 * math.cos(a) - thick - 0.002, 0.18 + 0.30 * math.sin(a)))
+    rib = back + [(0.37, 0.36), (0.36, 0.0)]
+    for y in (-0.7, -0.35, 0.0, 0.35, 0.7):
+        bend = 0.06 * (abs(y) / Wb) ** 2
+        P.prism('rib', [(x + bend, z) for (x, z) in reversed(rib)], 0.016, matrix=mat4((0, y, 0), (90, 0, 0)),
+                material='paint', bev=0.003, segs=1)
+    P.box('crossbar', (0.04, 1.5, 0.05), (0.40, 0.0, 0.18), 'paint', bev=0.006, segs=1)
+    # A-frame to the mount plate on the attach face, lift ram
+    P.box('mount', (0.02, 0.5, 0.18), (0.01, 0.0, 0.0), 'steel', bev=0.004, segs=1)
+    for sg in (-1, 1):
+        P.tube('frame', [(0.02, sg * 0.2, -0.04), (0.2, sg * 0.3, 0.0), (0.4, sg * 0.45, 0.12)], 0.025, 'steel',
+               segs=10, bend=0.08)
+    P.cyl('ram_barrel', 0.03, 0.22, (0.15, 0.0, 0.12), 'paint', rot=(0, 70, 0), segs=14, bev=0.004, bsegs=1)
+    P.cyl('ram_rod', 0.014, 0.16, (0.28, 0.0, 0.17), 'chrome', rot=(0, 70, 0), segs=10, bev=None)
+    P.tube('hose', [(0.06, 0.02, 0.09), (0.04, 0.1, 0.03), (0.01, 0.15, -0.02)], 0.008, 'rubber', segs=6, bend=0.03)
+    for sg in (-1, 1):
+        P.box('skid', (0.16, 0.06, 0.02), (0.48, sg * 0.85, -0.12), 'steel', bev=0.006, segs=1)
+        P.tube('marker', [(0.44, sg * 0.93, 0.45), (0.44, sg * 0.93, 0.95)], 0.005, 'steel', segs=6)
+        P.cyl('marker_tip', 0.012, 0.06, (0.44, sg * 0.93, 0.96), 'lens_amber', segs=8, bev=0.002, bsegs=1)
+    P.fit_nominal(0.25, 1.60, 0.22)
+    P.views = [('a', 35, 18), ('b', 160, 20)]
+
+
+def build_br_spikes(P):
+    """A spiked rear bar: a rusty box section across the back with spikes pointing rearwards and out at the
+    corners, heavy brackets to the body, a tow hook."""
+    P.ao_distance = 0.08
+    P.box('bar', (0.12, 1.6, 0.14), (-0.13, 0.0, 0.0), 'rust', bev=0.012, segs=2)
+    P.box('top_plate', (0.14, 1.5, 0.012), (-0.13, 0.0, 0.074), 'steel', bev=0.004, segs=1)
+    for y in (-0.55, 0.55):
+        P.box('bracket', (0.12, 0.06, 0.1), (-0.04, y, 0.0), 'steel', bev=0.006, segs=1)
+        P.box('bracket_plate', (0.014, 0.14, 0.16), (-0.007, y, 0.0), 'steel', bev=0.003, segs=1)
+        P.bolts([(-0.014, y + sy * 0.045, sz * 0.05) for sy in (-1, 1) for sz in (-1, 1)], normal=(-1, 0, 0), r=0.008,
+                h=0.007, washer=True)
+    for i in range(6):
+        y = -0.62 + 0.248 * i
+        spike(P, (-0.19, y, 0.0), (-1.0, 0.0, 0.0), 0.16, 0.03)
+    for sg in (-1, 1):
+        spike(P, (-0.13, sg * 0.8, 0.0), (-0.6, sg * 1.0, 0.0), 0.18, 0.032)
+    P.cyl('hitch', 0.025, 0.1, (-0.22, 0.0, -0.06), 'steel', axis='X', segs=12, bev=0.004, bsegs=1)
+    P.torus('hook', 0.035, 0.012, loc=(-0.28, 0.0, -0.07), axis='Y', segs=14, rsegs=6, material='steel',
+            arc=math.radians(250), a0=math.radians(-35))
+    P.fit_nominal(0.25, 1.60, 0.22)
+    P.views = [('a', 215, 18), ('b', 340, 18)]
+
+
 PARTS = {
     'bf_stock': build_bf_stock,
     'br_stock': build_br_stock,
     'bf_bullbar': build_bf_bullbar,
     'bf_ram': build_bf_ram,
+    'bf_plow': build_bf_plow,
+    'br_spikes': build_br_spikes,
     'mir_stock': build_mir_stock,
+    'mir_truck': build_mir_truck,
     'roof_rack': build_roof_rack,
     'roof_spikes': build_roof_spikes,
+    'roof_lightbar': build_roof_lightbar,
+    'roof_solar': build_roof_solar,
     'arm_plates': build_arm_plates,
+    'arm_planks': build_arm_planks,
 }
 
 
