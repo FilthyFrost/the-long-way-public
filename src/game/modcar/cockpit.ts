@@ -112,7 +112,12 @@ export class Cockpit {
   }
 
   private readonly lever = new Map<string, number>();
-  /** the handbrake lever up when it is on, the gear lever leaning with the gear, the key turned */
+  /**
+   * What moves on the controls (the parts' movers, docs/MODCAR.md §6): the handbrake's LEVER comes up
+   * (a drift lever goes back), the gear lever's LEVER leans with the gear, the KEY turns, a start
+   * button's guard flips up and the BUTTON goes in, the radio's volume knob turns. A stand-in part with
+   * no movers turns as a whole.
+   */
   private pose(v: ModVehicle, dt: number): void {
     const ease = (key: string, target: number): number => {
       const now = this.lever.get(key) ?? target;
@@ -120,15 +125,44 @@ export class Cockpit {
       this.lever.set(key, next);
       return next;
     };
-    const hb = v.view.nodeOf('handbrake');
-    if (hb) hb.rotation.z = ease('hb', v.sim.parkBrake > 0 ? 0.42 : 0);
-    const gl = v.view.nodeOf('gearLever');
-    if (gl) {
-      const sel = v.sim.selector;
-      const g = sel === 'P' ? -0.32 : sel === 'R' ? -0.18 : sel === 'N' ? 0 : 0.14 + 0.06 * Math.min(4, v.sim.gear - 1);
-      gl.rotation.z = ease('gl', g);
+    const part = (cat: string): { node: THREE.Object3D; id: string } | null => {
+      const m = v.view.frame.mounts.find((x) => x.cat === cat && v.build.parts[x.id]);
+      const node = m ? v.view.nodeOf(m.id) : null;
+      return m && node ? { node, id: v.build.parts[m.id].part } : null;
+    };
+    const s = v.sim;
+    const hb = part('handbrake');
+    if (hb) {
+      // game z: hb_stock is pulled −25° (its rear end up), hb_drift +25° (its top back towards the driver)
+      const pull = hb.id === 'hb_drift' ? 0.44 : -0.44;
+      const a = ease('hb', s.parkBrake > 0 || s.handbrake > 0.5 ? pull : 0);
+      const lever = hb.node.getObjectByName('LEVER');
+      if (lever) lever.rotation.z = a;
+      else hb.node.rotation.z = -a;
     }
-    const ig = v.view.nodeOf('ignition');
-    if (ig) ig.rotation.x = ease('ig', v.sys.cranking ? 1.2 : v.sys.running ? 0.8 : 0);
+    const gl = part('gearLever');
+    if (gl) {
+      const sel = s.selector;
+      const g = sel === 'P' ? -0.32 : sel === 'R' ? -0.18 : sel === 'N' ? 0 : 0.14 + 0.06 * Math.min(4, s.gear - 1);
+      const a = ease('gl', g);
+      (gl.node.getObjectByName('LEVER') ?? gl.node).rotation.z = a;
+    }
+    const ig = part('ignition');
+    if (ig) {
+      const on = v.sys.cranking || v.sys.running;
+      const key = ig.node.getObjectByName('KEY');
+      const a = ease('ig', v.sys.cranking ? 1.2 : v.sys.running ? 0.8 : 0);
+      if (key) key.rotation.x = a;
+      const btn = ig.node.getObjectByName('BUTTON');
+      if (btn) btn.position.x = ease('igb', v.sys.cranking ? 0.004 : 0) + (btn.userData.restX ??= btn.position.x);
+      const cover = ig.node.getObjectByName('COVER');
+      if (cover) cover.rotation.z = ease('igc', on ? -1.6 : 0);
+      if (!key && !btn) ig.node.rotation.x = a;
+    }
+    const radio = part('radio');
+    if (radio) {
+      const knob = radio.node.getObjectByName('KNOB_L');
+      if (knob) knob.rotation.x = ease('vol', this.radioOn ? 1.4 : 0);
+    }
   }
 }

@@ -16,7 +16,7 @@ import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
-import { cloneModel, frameModel, partModel, standInFrame, type Model } from './assets';
+import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
@@ -363,7 +363,8 @@ export class CarView {
       this.settle(holder, 'z', (hub.side || 1) * 0.09);
       const rimDef = partDef(inst.part);
       const rimLook = this.mats.look(wheelOwner(i), this.wheelLook(inst));
-      void this.track(partModel(inst.part)).then((rm) => {
+      const rimLoad = this.track(partModel(inst.part));
+      void rimLoad.then((rm) => {
         if (w.key !== key) return;
         const r = cloneModel(rm);
         applyMaterials(r, rimLook);
@@ -373,16 +374,11 @@ export class CarView {
       if (!tire) this.mats.drop(`${wheelOwner(i)}+tire`);
       if (tire && rimDef.rim?.tire) {
         const tireLook = this.mats.look(`${wheelOwner(i)}+tire`, this.tireLook(tire));
-        void this.track(partModel(tire.part, inst.part)).then((tm) => {
+        void this.track(Promise.all([rimLoad, partModel(tire.part, inst.part)])).then(([rm, tm]) => {
           if (w.key !== key) return;
-          const t = cloneModel(tm);
+          // on the rim's tyre seats (two on a dually), stretched to this rim when made for another
+          const t = seatTyres(rm, tm, rimDef.rim!.radius, partDef(tire.part).tire!.sidewall, !!tire.flat);
           applyMaterials(t, tireLook);
-          // a tyre model made for another rim: stretch its ring to this rim (keeping the sidewall)
-          const td = partDef(tire.part).tire!;
-          const made = (tm.box.max.y - tm.box.min.y) / 2;
-          const want = rimDef.rim!.radius + td.sidewall;
-          if (made > 0 && Math.abs(made - want) > 0.005) t.scale.set(want / made, want / made, 1);
-          if (tire.flat) t.scale.y *= 0.92;
           holder.add(t);
         });
       }
@@ -479,6 +475,16 @@ export class CarView {
     if (fuel && dash) fuel.rotation.x = -dash.fuel * 90 * DEG;
     const temp = this.needles.N_temp;
     if (temp && dash) temp.rotation.x = -Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) * 90 * DEG;
+    // the rain caps of side stacks ride on the exhaust: shut at rest, fluttering open under load
+    for (const [mount, sh] of this.shown) {
+      if (this.catOf.get(mount) !== 'exhaust') continue;
+      const flaps = (sh.holder.userData.flaps as THREE.Object3D[] | undefined) ?? this.findFlaps(sh.holder);
+      if (!flaps.length) continue;
+      const flow = dash && dash.running ? Math.min(1, (dash.rpm / Math.max(1000, sim.spec.engine.redline)) * (0.35 + 0.65 * sim.throttle)) : 0;
+      this.flap += (flow - this.flap) * Math.min(1, dt * 10);
+      const flutter = flow > 0.05 ? 0.06 * Math.sin(this.flapT += dt * (18 + 40 * flow)) : 0;
+      for (const f of flaps) f.rotation.z = Math.max(0, this.flap * 1.15 + flutter);
+    }
     // lamps: dipped / main beam, tail lamps and brake lights (the brake lights need a battery)
     const lit = dash?.lightsOn ?? false;
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
@@ -509,6 +515,18 @@ export class CarView {
       const e = p.t * p.t * (3 - 2 * p.t);
       p.pivot.quaternion.copy(this.restQuat(p)).multiply(new THREE.Quaternion().setFromAxisAngle(p.axis, e * p.openRad));
     }
+  }
+
+  private flap = 0;
+  private flapT = 0;
+  /** an exhaust's FLAP_ movers, found once its model is in (none yet: looked for again next time) */
+  private findFlaps(holder: THREE.Object3D): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    holder.traverse((o) => {
+      if (o.name.startsWith('FLAP_')) out.push(o);
+    });
+    if (out.length) holder.userData.flaps = out;
+    return out;
   }
 
   private readonly rest = new Map<string, THREE.Quaternion>();

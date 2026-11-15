@@ -9,7 +9,7 @@ import { paintHex } from '../../core/modcar/palette';
 import type { Tool } from '../../core/modcar/tools';
 import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
-import { cloneModel, partModel } from './assets';
+import { cloneModel, partModel, seatTyres } from './assets';
 import { applyMaterials, type CarMaterials, type LookOf } from './materials';
 
 export interface Loose {
@@ -126,11 +126,14 @@ export class LooseThings {
         const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt });
         void this.track(partModel(t.part, inst.part)).then((tmodel) => {
           if (!this.list.includes(l)) return;
-          const to = cloneModel(tmodel);
+          const to = seatTyres(model, tmodel, def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);
           applyMaterials(to, tl);
-          to.rotation.x = Math.PI / 2;
-          to.position.y = (def.rim?.width ?? 0.15) / 2;
-          l.obj.add(to);
+          // lying on its side like the rim
+          const wrap = new THREE.Group();
+          wrap.add(to);
+          wrap.rotation.x = Math.PI / 2;
+          wrap.position.y = (def.rim?.width ?? 0.15) / 2;
+          l.obj.add(wrap);
           this.measure(l);
         });
       }

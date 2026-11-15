@@ -63,7 +63,7 @@ function rgbColours(g: THREE.BufferGeometry): void {
  * wipers, the filler cap, mount empties. Each is a rigid piece of its own; everything else in a model
  * stands still relative to the model's root.
  */
-const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_)/;
+const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_)/;
 const KEEP = new Set(['position', 'normal', 'uv', 'color']);
 
 /**
@@ -176,6 +176,35 @@ export function partModel(partId: string, variant = ''): Promise<Model> {
     cache.set(file, p);
   }
   return p;
+}
+
+/**
+ * The tyres on a rim, in the rim's own frame: a copy of the tyre model at each of the rim's tyre seats
+ * (M_tire; a dually also M_tire2), its ring stretched to this rim when the model was made for another
+ * (the sidewall kept), squashed when it is flat. Add the group next to the rim's clone.
+ */
+export function seatTyres(rim: Model, tyre: Model, rimRadius: number, sidewall: number, flat: boolean): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'tyres';
+  rim.scene.updateMatrixWorld(true);
+  const inv = rim.scene.matrixWorld.clone().invert();
+  const seats: THREE.Matrix4[] = [];
+  for (const n of ['M_tire', 'M_tire2']) {
+    const o = rim.scene.getObjectByName(n);
+    if (o) seats.push(inv.clone().multiply(o.matrixWorld));
+  }
+  if (!seats.length) seats.push(new THREE.Matrix4());
+  const made = (tyre.box.max.y - tyre.box.min.y) / 2;
+  const want = rimRadius + sidewall;
+  const k = made > 0 && Math.abs(made - want) > 0.005 ? want / made : 1;
+  for (const m of seats) {
+    const t = cloneModel(tyre);
+    m.decompose(t.position, t.quaternion, t.scale);
+    t.scale.x *= k;
+    t.scale.y *= k * (flat ? 0.92 : 1);
+    g.add(t);
+  }
+  return g;
 }
 
 /** a copy to add to the scene; materials are shared until the car materials replace them */

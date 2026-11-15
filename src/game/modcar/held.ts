@@ -11,7 +11,7 @@ import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import type { RenderCore } from '../render/core';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
-import { cloneModel, partModel } from './assets';
+import { cloneModel, partModel, seatTyres } from './assets';
 import { toolModel } from './loose';
 import { applyMaterials, CarMaterials } from './materials';
 import type { Held } from './player';
@@ -76,7 +76,7 @@ export class HeldThing {
       if (t && def.rim?.tire) {
         void partModel(t.part, inst.part).then((tm) => {
           if (this.key !== want) return;
-          const to = cloneModel(tm);
+          const to = seatTyres(m, tm, def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);
           applyMaterials(to, this.mats.look(`${OWNER}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt }));
           group.add(to);
           this.fit(group);

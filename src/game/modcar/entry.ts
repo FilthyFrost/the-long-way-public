@@ -240,6 +240,14 @@ const rt = {
     const u = game.seated ?? v;
     return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
   },
+  /** the seated (or focused) vehicle's lights to a position: 'low', 'high' or 'off' */
+  lights: (mode: 'off' | 'low' | 'high' = 'low') => {
+    const v = game.seated ?? game.focus;
+    if (!v) return false;
+    for (let i = 0; i < 3 && v.sys.lights !== mode; i++) v.sys.cycleLights();
+    game.simulate(0);
+    return v.sys.lightsOn;
+  },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
   partName: (id: string) => partDef(id).name,
