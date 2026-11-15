@@ -281,6 +281,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       v.sys.startNow();
       this.seated = v;
       this.focus = v;
+      this.input.lookPitch = v.view.frame.balance ? -0.15 : 0;
     }
     await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
   }
@@ -422,9 +423,11 @@ export class ModGame implements PlayerHost, CockpitHost {
     v.awake = 3;
     this.input.freeLook = false;
     this.input.lookYaw = 0;
-    this.input.lookPitch = 0;
+    // astride a bike one looks down the road over the clocks (level, they sit under the view's edge)
+    this.input.lookPitch = v.view.frame.balance ? -0.15 : 0;
     this.rig.reset();
-    this.sound('door_close');
+    // (no door on a motorcycle: the stand folds up)
+    this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
     this.checkTutorial();
   }
 
@@ -450,7 +453,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.input.freeLook = true;
     this.input.lookYaw = heading;
     this.input.lookPitch = 0;
-    this.sound('door_close');
+    this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
   }
 
   private resetUpright(v: ModVehicle): void {

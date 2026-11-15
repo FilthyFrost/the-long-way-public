@@ -1,0 +1,65 @@
+{
+  "system": "render",
+  "id": "modcar_stretch",
+  "metrics": {
+    "shots_total": 4,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 386,
+    "max_triangles": 1277164
+  },
+  "shots": {
+    "sedan_lightbar": {
+      "ok": true,
+      "ms": 11167,
+      "errors": [],
+      "calls": 369,
+      "triangles": 1277164,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_lightbar": {
+      "ok": true,
+      "ms": 2429,
+      "errors": [],
+      "calls": 386,
+      "triangles": 1200440,
+      "programs": 37,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_lightbar": {
+      "ok": true,
+      "ms": 3803,
+      "errors": [],
+      "calls": 268,
+      "triangles": 1099640,
+      "programs": 34,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_armour": {
+      "ok": true,
+      "ms": 1289,
+      "errors": [],
+      "calls": 373,
+      "triangles": 1078708,
+      "programs": 36,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}
