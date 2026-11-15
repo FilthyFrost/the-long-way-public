@@ -466,7 +466,9 @@ export class CarView {
     // lamps: dipped / main beam, tail lamps and brake lights (the brake lights need a battery)
     const lit = dash?.lightsOn ?? false;
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
-    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, dash: lit ? 1 : 0 });
+    // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)
+    const reverse = sim.dir < 0 && sim.selector === 'R' && !!dash && (dash.running || dash.battery > 0.02);
+    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0 });
     // dirt is measured up from the vehicle's own ground; colours and wear follow the build
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
