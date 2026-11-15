@@ -55,8 +55,9 @@ describe(`modcar · ${N} extreme builds × ${SECONDS} s`, () => {
       if (s.exploded) why.push('exploded');
       if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
       if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the hill`);
-      // (the legacy vehicles keep within 0.2 m hitting a wall at 60 km/h; these hit at up to 150)
-      if (s.maxWallPenetration > 0.3) why.push(`${s.maxWallPenetration.toFixed(2)} m into a wall`);
+      // (the shared collision overlaps a wall by up to about one step of travel: a legacy vehicle 0.2 m
+      // at 60 km/h and 0.23 m at 180; these hit at up to 240 km/h — none goes through)
+      if (s.maxWallPenetration > 0.45) why.push(`${s.maxWallPenetration.toFixed(2)} m into a wall`);
       if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
     }
     expect(bad).toEqual([]);

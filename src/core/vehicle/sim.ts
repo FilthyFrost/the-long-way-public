@@ -89,11 +89,11 @@ const BODY_HARD = 0.08;
 const CAMBER_FULL = Math.cos(30 * (Math.PI / 180));
 const CAMBER_ZERO = Math.cos(60 * (Math.PI / 180));
 const CAMBER_MIN = 0.25;
-/** the body box's contact points by index: bottom corners 0–3, top corners 4–7, a derived spec's bottom edge points 8–11 */
+/** the body box's contact points by index: bottom corners 0–3, top corners 4–7, a derived spec's edge points bottom 8–11, top 12–15 */
 const BOTTOM_POINTS: readonly number[] = [0, 1, 2, 3];
 const ALL_POINTS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7];
 const BOTTOM_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 8, 9, 10, 11];
-const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 /** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
 const BODY_MIN_ABOVE = 0.25;
 const BODY_MIN_BELOW = 0.1;
@@ -395,10 +395,10 @@ export class VehicleSim {
   private invIyaw!: number;
   private invIpitch!: number;
   private readonly gs = new GroundSample();
-  /** the body box's contact points: 4 bottom corners, 4 top ones, and for a derived spec 4 more along the bottom */
-  private readonly bodyPts = new Float64Array(36);
-  private readonly bodyN = new Float64Array(12);
-  private readonly bodyNrm = new Float64Array(36);
+  /** the body box's contact points: 4 bottom corners, 4 top ones, and for a derived spec 4 more along the bottom and the top */
+  private readonly bodyPts = new Float64Array(48);
+  private readonly bodyN = new Float64Array(16);
+  private readonly bodyNrm = new Float64Array(48);
   private nBodyPts = 8;
   /** which of them can touch when the body is only near the road (the bottom ones), and all of them */
   private bodyBottom: readonly number[] = BOTTOM_POINTS;
@@ -500,20 +500,22 @@ export class VehicleSim {
       }
     }
     if (ext) {
-      // points along the bottom edges a third of the way in from each end: a long body on small wheels
-      // does not bridge a crest with its belly through it
-      for (const x of [bd.centerX + bd.halfLength / 3, bd.centerX - bd.halfLength / 3]) {
-        for (const z of [-bd.halfWidth, bd.halfWidth]) {
-          this.bodyPts[n++] = x;
-          this.bodyPts[n++] = bd.bottom;
-          this.bodyPts[n++] = z;
+      // points along the bottom and top edges a third of the way in from each end: a long body on small
+      // wheels, or one lying on its roof, does not bridge a crest with its middle through it
+      for (const y of [bd.bottom, bd.top]) {
+        for (const x of [bd.centerX + bd.halfLength / 3, bd.centerX - bd.halfLength / 3]) {
+          for (const z of [-bd.halfWidth, bd.halfWidth]) {
+            this.bodyPts[n++] = x;
+            this.bodyPts[n++] = y;
+            this.bodyPts[n++] = z;
+          }
         }
       }
     }
-    this.nBodyPts = ext ? 12 : 8;
+    this.nBodyPts = ext ? 16 : 8;
     this.bodyBottom = ext ? BOTTOM_POINTS_EXT : BOTTOM_POINTS;
     this.bodyAll = ext ? ALL_POINTS_EXT : ALL_POINTS;
-    for (let k = 8; k < 12; k++) this.bodyN[k] = 0;
+    for (let k = 8; k < 16; k++) this.bodyN[k] = 0;
     this.kBody = (spec.mass * GRAVITY) / 0.03;
     this.cBody = 2 * Math.sqrt(this.kBody * spec.mass) * 0.35;
     // circles of the body's half width along its length, ends flush with the box
@@ -1528,7 +1530,10 @@ export class VehicleSim {
     if (bodyActive) {
       // (a derived spec's body stiffens as it goes in: a crash of an extreme build does not bury it)
       const nmaxBody = m * GRAVITY * (this.ext ? BODY_CAP_EXT : 6);
-      if (!bodyTilt) for (let k = 4; k < 8; k++) bn[k] = 0;
+      if (!bodyTilt) {
+        for (let k = 4; k < 8; k++) bn[k] = 0;
+        for (let k = 12; k < 16; k++) bn[k] = 0;
+      }
       for (let j = 0; j < touchable.length; j++) {
         const k = touchable[j];
         const bx = bp[k * 3];
