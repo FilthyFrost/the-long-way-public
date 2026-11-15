@@ -76,6 +76,7 @@ const CSS = `
 .mc-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #fbf3e1; font-size: 13px; text-shadow: 0 1px 2px rgba(20,14,10,0.8); white-space: nowrap; }
 .mc-marker i { display: block; width: 14px; height: 14px; margin: 3px auto 0; transform: rotate(45deg); border: 2px solid #f3c35a; border-radius: 2px; background: rgba(243,195,90,0.25); animation: mc-bob 1.6s ease-in-out infinite; }
 .mc-marker.edge i { border-color: #fbf3e1; }
+.mc-marker.dim { opacity: 0.32; }
 @keyframes mc-bob { 0%, 100% { transform: translateY(0) rotate(45deg); } 50% { transform: translateY(-5px) rotate(45deg); } }
 `;
 
@@ -227,7 +228,9 @@ export class ModUI {
       .map((l) => {
         const cls = l.better > 0 ? 'up' : l.better < 0 ? 'down' : 'same';
         const arrow = l.better > 0 ? '▲' : l.better < 0 ? '▼' : '';
-        return `<tr><td class="k">${l.label[this.lang]}</td><td class="v">${l.before} → <span class="${cls}">${l.after} ${arrow}</span></td></tr>`;
+        const s = (x: StatLine['before']): string => (typeof x === 'string' ? x : x[this.lang]);
+        if (l.note) return `<tr><td class="k">${l.label[this.lang]}</td><td class="v">${s(l.after)}</td></tr>`;
+        return `<tr><td class="k">${l.label[this.lang]}</td><td class="v">${s(l.before)} → <span class="${cls}">${s(l.after)} ${arrow}</span></td></tr>`;
       })
       .join('');
     this.card.innerHTML = `<h4>${c.title}</h4><div class="sub">${c.sub}</div><table>${rows}</table>${c.warn ? `<div class="warn">${c.warn}</div>` : ''}`;
@@ -357,7 +360,7 @@ export class ModUI {
    * The next thing to go for (the checklist's step): a small bobbing diamond over it with a word, at
    * screen pixels; edge = it is off screen and the marker sits at the edge on its side. null = none.
    */
-  showMarker(m: { x: number; y: number; text: string; edge: boolean } | null): void {
+  showMarker(m: { x: number; y: number; text: string; edge: boolean; dim?: boolean } | null): void {
     if (!m) {
       this.marker.style.display = 'none';
       return;
@@ -365,10 +368,10 @@ export class ModUI {
     this.marker.style.display = '';
     this.marker.style.left = `${m.x.toFixed(0)}px`;
     this.marker.style.top = `${m.y.toFixed(0)}px`;
-    const key = `${m.text}|${m.edge}`;
+    const key = `${m.text}|${m.edge}|${!!m.dim}`;
     if (key !== this.lastMarker) {
       this.lastMarker = key;
-      this.marker.className = m.edge ? 'mc-marker edge' : 'mc-marker';
+      this.marker.className = `mc-marker${m.edge ? ' edge' : ''}${m.dim ? ' dim' : ''}`;
       this.marker.innerHTML = `${m.text}<i></i>`;
     }
   }

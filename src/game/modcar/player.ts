@@ -243,6 +243,7 @@ export class ModPlayer {
     // parts on vehicles (empty hands: to take off; a spray can or sponge: to work on)
     const working = held?.kind === 'tool' && (held.tool.kind === 'spray' || held.tool.kind === 'sponge');
     for (const v of this.near(REACH + 1)) {
+      let onPart = false;
       if (!held || working) {
         for (const m of v.view.frame.mounts) {
           if (!v.build.parts[m.id]) continue;
@@ -252,6 +253,7 @@ export class ModPlayer {
           if (!p) continue;
           const d = p.distanceTo(this.ray.origin);
           if (d > REACH) continue;
+          onPart = true;
           better(working ? { kind: 'surface', v, mount: m, dist: d } : { kind: 'part', v, mount: m, dist: d });
         }
       }
@@ -274,7 +276,8 @@ export class ModPlayer {
         const use = toolUse(held.tool, v.build);
         if (use.where === 'any') better({ kind: 'surface', v, mount: null, dist: d + 0.05 });
         else better({ kind: 'pour', v, dist: d });
-      } else if (!held) better({ kind: 'enter', v, dist: d + 0.25 });
+        // (the body's box is coarse: a part the mark is on wins, an open bonnet standing well inside it too)
+      } else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25 });
     }
     // garage devices
     for (const dv of this.host.devices) {

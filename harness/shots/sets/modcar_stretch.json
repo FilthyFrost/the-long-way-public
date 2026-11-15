@@ -1,0 +1,11 @@
+{
+  "set": "modcar_stretch",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_lightbar", "params": "build=stock:sedan;roof=roof_lightbar;bumperFront=bf_bullbar&view=orbit&orbit=35,12,7,0.8"},
+    {"name": "pickup_lightbar", "params": "build=stock:pickup;roof=roof_lightbar;bumperFront=bf_plow&view=orbit&orbit=35,12,8,0.9"},
+    {"name": "rv_lightbar", "params": "build=stock:rv;roof=roof_lightbar&view=orbit&orbit=35,14,11,1.4"},
+    {"name": "sedan_armour", "params": "build=stock:sedan;armor_L=arm_plates;armor_R=arm_planks;bumperRear=br_spikes&view=orbit&orbit=215,10,7,0.6"}
+  ]
+}
