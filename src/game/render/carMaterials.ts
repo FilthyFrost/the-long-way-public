@@ -243,6 +243,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     return smoothstep(-w, w, x);
   }
 
+  // a band [a, b] of a repeating coordinate t (period 1), antialiased by w from the caller's fwidth(t):
+  // fract(t) jumps at its seam, and its own derivative there would draw a hairline of half-lit pixels
+  float rtBand(float t, float a, float b, float w) {
+    float f = fract(t);
+    return smoothstep(a - w, a + w, f) * (1.0 - smoothstep(b - w, b + w, f));
+  }
+
   // patterns in the part's own space, projected three ways (a part has no useful UVs of its own)
   vec4 rtTriNoise(vec3 p, vec3 n, float metres) {
     vec3 w = abs(n);
@@ -572,16 +579,32 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #elif defined(RT_METAL)
     // ---------------------------------------------------------------- chrome, steel, aluminium
     float contrast = gloss;
+    // a flat mirror is not a bumper: the near-black band that draws round chrome would fill it. How fast the
+    // normal turns per metre says which it is (a bumper's 5 cm radius: 20 per metre; a mirror's face: 0)
+    float curv = length(fwidth(n)) / max(length(fwidth(vPos)), 1e-5);
+    float flatness = 1.0 - smoothstep(4.0, 16.0, curv);
     // (satin metals blur the bands: aluminium is not chrome. Metal trim is small and round: its own
     // curvature shows the whole stack of sky, horizon and ground, so the true reflection, not the drawn tilt)
-    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0, 0.13);
+    CarEnv e = rtCarEnv(R, mix(0.12, 0.001, contrast * contrast), 1.0, mix(0.13, 0.07, flatness));
     vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.1, 0.32, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
-    // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
+    // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone; in a flat
+    // mirror the far land as it lies, hazed
     vec3 skyc = mix(e.upper * 1.15, e.bright * 1.45, e.band);
-    vec3 under = mix(e.ground * 1.3, e.land * mix(1.0, 0.25, contrast), e.dark);
+    vec3 farLand = mix(e.land * mix(1.0, 0.25, contrast), mix(e.land, e.bright * 0.6, 0.5), flatness);
+    vec3 under = mix(e.ground * 1.3, farLand, e.dark);
     vec3 env = mix(under, skyc, e.sky);
     env = mix(env, e.bright * 2.2 + 0.1, e.line * contrast);
+    // and a flat mirror, which shows one piece of the world all over, gets the painter's two pale streaks
+    // across it (as glass does) so it reads as a mirror and not a grey disc
+    if (flatness > 0.01) {
+      float ms = dot(vObj, normalize(vec3(-0.55, 1.0, 0.35))) * 7.0 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
+      // (each fades before it is thinner than a pixel: a hairline would break into dashes, quad by quad)
+      float mw = fwidth(ms);
+      float mstreak = rtBand(ms, 0.3, 0.44, mw * 0.8 + 0.004) * (1.0 - smoothstep(0.04, 0.12, mw));
+      mstreak += 0.6 * rtBand(ms, 0.52, 0.56, mw * 0.8 + 0.003) * (1.0 - smoothstep(0.01, 0.03, mw));
+      env = mix(env, e.bright * 1.25 + 0.06, mstreak * flatness * contrast * 0.55);
+    }
     env = mix(env, rtCabinEnv(R), inCabin);
     #ifndef RT_CABIN
     // (and is lit as the room is)
@@ -670,8 +693,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // streaks: two diagonal bands across the glass, sliding a little with the eye
     vec3 sd = normalize(vec3(-0.55, 1.0, 0.0));
     float s = dot(vObj, sd) * 1.6 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
-    float fs = fract(s);
-    float streak = rtStep(fs - 0.32, 0.004) * (1.0 - rtStep(fs - 0.44, 0.004)) + 0.7 * rtStep(fs - 0.5, 0.003) * (1.0 - rtStep(fs - 0.535, 0.003));
+    float sw = fwidth(s) * 0.8;
+    float streak = rtBand(s, 0.32, 0.44, sw + 0.004) + 0.7 * rtBand(s, 0.5, 0.535, sw + 0.003);
     streak *= 0.34 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
     // seen from inside (its back), glass is for looking out through: clear, a faint tint, no streaks
     float inside = gl_FrontFacing ? 0.0 : 1.0;
