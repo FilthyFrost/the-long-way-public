@@ -2,10 +2,11 @@
  * ModCar engine sound. Each engine has a bank recorded with Engine Simulator (tools/enginesim):
  * steady loops every ~13 % of rpm from idle to past the redline, at full load and on the overrun,
  * plus the starter turning it over, the catch, the switch-off, a stall and the rev limiter.
- * EngineVoice plays the two loops nearest the current rpm (pitched to it exactly, equal-power
- * crossfade), blends full load against overrun by throttle and load, and adds what the recording
- * cannot know about: the starter motor, induction roar, a fan or gear whine, the turbo, pops on
- * lifting off, the exhaust fitted and whether you sit in a closed cabin.
+ * EngineVoice plays the two loops nearest the current rpm, pitched to it exactly and started in
+ * step with each other (the banks carry every loop's engine-cycle phase), crossfaded so their
+ * summed power holds; blends full load against overrun by throttle and load; and adds what the
+ * recording cannot know about: the starter motor, induction roar, a fan or gear whine, the turbo,
+ * pops on lifting off, misfires and knock, the exhaust fitted and whether you sit in a closed cabin.
  *
  * It shares the game's AudioContext (AudioEngine.context / .output) and works the same in an
  * OfflineAudioContext (the render harness steps it with suspend/resume).
@@ -393,7 +394,6 @@ export class EngineVoice {
   private readonly misVca: GainNode;
   private readonly airLp: BiquadFilterNode;
   private readonly steamGain: GainNode;
-  private readonly noiseBuf: AudioBuffer;
   private readonly knockBufs: AudioBuffer[] = [];
   private readonly clickBuf: AudioBuffer;
   /** next firing slot / crank turn / solenoid click already scheduled (context time) */
@@ -408,7 +408,6 @@ export class EngineVoice {
   private catchUntil = 0;
   private quietUntil = 0;
   private boost = 0;
-  private lastThrottle = 0;
   /** recent throttle peak, falling at 4 /s: a lift is a drop from it, however many frames it takes */
   private thrPeak = 0;
   private throttleHi = 0;
@@ -470,7 +469,6 @@ export class EngineVoice {
     // two seconds of white noise for every noise layer
     const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     nb.copyToChannel(noise(nb.length, new Rng(0xabcdef)) as Float32Array<ArrayBuffer>, 0);
-    this.noiseBuf = nb;
     const noiseSrc = (): AudioBufferSourceNode => {
       const s = ctx.createBufferSource();
       s.buffer = nb;
@@ -883,7 +881,6 @@ export class EngineVoice {
     } else {
       this.popBudget = 0;
     }
-    this.lastThrottle = thr;
     // starter motor
     const sr = Math.min(1, Math.max(0.15, st.starterRate ?? 1));
     const crankHz = tone.starter.hz * (0.55 + 0.45 * sr);
