@@ -438,6 +438,24 @@ def section_x(pts2d, x, scale=1.0, dy=0.0, dz=0.0):
     return [(x, y * scale + dy, z * scale + dz) for (y, z) in pts2d]
 
 
+def shell_profile(prof, thick):
+    """
+    Give an open lathe profile [(r, z), ...] (outside on the right of travel) a wall: returns a closed loop of
+    the profile followed by its inward offset, for P.lathe(..., loop=True). Bells, stacks, drums seen from
+    inside then show a real inner wall instead of culled back faces.
+    """
+    n = len(prof)
+    inner = []
+    for i in range(n):
+        a = prof[max(0, i - 1)]
+        b = prof[min(n - 1, i + 1)]
+        tr, tz = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(tr, tz) or 1.0
+        nr, nz = -tz / ln, tr / ln  # the inside (left of travel)
+        inner.append((max(0.0005, prof[i][0] + nr * thick), prof[i][1] + nz * thick))
+    return list(prof) + inner[::-1]
+
+
 def bm_transform(bm, matrix, verts=None):
     bmesh.ops.transform(bm, matrix=matrix, verts=list(verts) if verts is not None else bm.verts[:])
 

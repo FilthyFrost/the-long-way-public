@@ -18,6 +18,31 @@
   "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y."
  ],
  "parts": {
+  "arm_planks": {
+   "bbox": [
+    [
+     -1.0071,
+     -0.36,
+     -0.041
+    ],
+    [
+     1.0107,
+     0.3142,
+     0.0
+    ]
+   ],
+   "triangles": 1716,
+   "materials": [
+    "rust",
+    "steel",
+    "wood"
+   ],
+   "fit_nominal": [
+    2.0,
+    0.02,
+    0.6
+   ]
+  },
   "arm_plates": {
    "bbox": [
     [
@@ -130,6 +155,33 @@
     0.22
    ]
   },
+  "bf_plow": {
+   "bbox": [
+    [
+     0.0,
+     -0.13,
+     -0.95
+    ],
+    [
+     0.5973,
+     0.99,
+     0.95
+    ]
+   ],
+   "triangles": 1824,
+   "materials": [
+    "chrome",
+    "lens_amber",
+    "paint",
+    "rubber",
+    "steel"
+   ],
+   "fit_nominal": [
+    0.25,
+    1.6,
+    0.22
+   ]
+  },
   "bf_ram": {
    "bbox": [
     [
@@ -180,6 +232,31 @@
     0.22
    ]
   },
+  "br_spikes": {
+   "bbox": [
+    [
+     -0.348,
+     -0.1154,
+     -0.9521
+    ],
+    [
+     0.02,
+     0.08,
+     0.9521
+    ]
+   ],
+   "triangles": 2324,
+   "materials": [
+    "chrome",
+    "rust",
+    "steel"
+   ],
+   "fit_nominal": [
+    0.25,
+    1.6,
+    0.22
+   ]
+  },
   "br_stock": {
    "bbox": [
     [
@@ -218,7 +295,7 @@
      0.25
     ]
    ],
-   "triangles": 5276,
+   "triangles": 5660,
    "materials": [
     "alu",
     "chrome",
@@ -328,7 +405,7 @@
      0.38
     ]
    ],
-   "triangles": 14184,
+   "triangles": 14568,
    "materials": [
     "alu",
     "chrome",
@@ -833,6 +910,37 @@
     "trim"
    ]
   },
+  "gl_short": {
+   "bbox": [
+    [
+     -0.065,
+     -0.04,
+     -0.065
+    ],
+    [
+     0.065,
+     0.198,
+     0.065
+    ]
+   ],
+   "triangles": 1044,
+   "materials": [
+    "alu",
+    "chrome",
+    "leather",
+    "steel",
+    "trim"
+   ],
+   "movers": {
+    "LEVER": {
+     "pivot": [
+      0.0,
+      -0.04,
+      -0.0
+     ]
+    }
+   }
+  },
   "gl_stock": {
    "bbox": [
     [
@@ -858,6 +966,37 @@
      "pivot": [
       0.0,
       -0.04,
+      -0.0
+     ]
+    }
+   }
+  },
+  "hb_drift": {
+   "bbox": [
+    [
+     -0.094,
+     -0.0236,
+     -0.04
+    ],
+    [
+     0.2218,
+     0.542,
+     0.04
+    ]
+   ],
+   "triangles": 1072,
+   "materials": [
+    "alu",
+    "glass",
+    "paint",
+    "steel",
+    "trim"
+   ],
+   "movers": {
+    "LEVER": {
+     "pivot": [
+      0.0,
+      0.06,
       -0.0
      ]
     }
@@ -916,6 +1055,29 @@
     "trim"
    ]
   },
+  "hl_spot": {
+   "bbox": [
+    [
+     -0.035,
+     0.0,
+     -0.132
+    ],
+    [
+     0.114,
+     0.298,
+     0.132
+    ]
+   ],
+   "triangles": 1836,
+   "materials": [
+    "chrome",
+    "emit",
+    "glass",
+    "lens_head",
+    "steel",
+    "trim"
+   ]
+  },
   "hl_square": {
    "bbox": [
     [
@@ -939,6 +1101,27 @@
     "trim"
    ]
   },
+  "horn_air": {
+   "bbox": [
+    [
+     -0.2034,
+     -0.0351,
+     -0.0847
+    ],
+    [
+     0.3606,
+     0.08,
+     0.0923
+    ]
+   ],
+   "triangles": 1060,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel"
+   ]
+  },
   "horn_beep": {
    "bbox": [
     [
@@ -958,6 +1141,65 @@
     "steel",
     "trim"
    ]
+  },
+  "horn_trumpet": {
+   "bbox": [
+    [
+     -0.1615,
+     -0.06,
+     -0.1161
+    ],
+    [
+     0.2818,
+     0.1796,
+     0.1009
+    ]
+   ],
+   "triangles": 2504,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "ign_button": {
+   "bbox": [
+    [
+     -0.033,
+     -0.025,
+     -0.045
+    ],
+    [
+     0.0,
+     0.025,
+     0.045
+    ]
+   ],
+   "triangles": 744,
+   "materials": [
+    "chrome",
+    "lens_tail",
+    "paint",
+    "trim"
+   ],
+   "movers": {
+    "BUTTON": {
+     "pivot": [
+      -0.008,
+      0.0,
+      0.015
+     ]
+    },
+    "COVER": {
+     "pivot": [
+      -0.007,
+      0.021,
+      0.015
+     ]
+    }
+   }
   },
   "ign_key": {
    "bbox": [
@@ -1006,6 +1248,26 @@
    "triangles": 844,
    "materials": [
     "chrome",
+    "trim"
+   ]
+  },
+  "mir_truck": {
+   "bbox": [
+    [
+     -0.044,
+     -0.127,
+     -0.385
+    ],
+    [
+     0.025,
+     0.34,
+     -0.0
+    ]
+   ],
+   "triangles": 624,
+   "materials": [
+    "chrome",
+    "steel",
     "trim"
    ]
   },
@@ -1114,6 +1376,53 @@
     }
    }
   },
+  "radio_tape": {
+   "bbox": [
+    [
+     -0.035,
+     -0.025,
+     -0.09
+    ],
+    [
+     0.15,
+     0.026,
+     0.09
+    ]
+   ],
+   "triangles": 1036,
+   "materials": [
+    "chrome",
+    "gauge",
+    "glass_dark",
+    "paint",
+    "paint_b",
+    "steel",
+    "trim"
+   ],
+   "movers": {
+    "TAPE_DOOR": {
+     "pivot": [
+      -0.016,
+      -0.017,
+      -0.012
+     ]
+    },
+    "KNOB_L": {
+     "pivot": [
+      -0.015,
+      0.0,
+      -0.074
+     ]
+    },
+    "KNOB_R": {
+     "pivot": [
+      -0.015,
+      0.0,
+      0.074
+     ]
+    }
+   }
+  },
   "rim_alloy15": {
    "bbox": [
     [
@@ -1191,7 +1500,7 @@
      0.2445
     ]
    ],
-   "triangles": 6478,
+   "triangles": 5822,
    "materials": [
     "chrome",
     "rubber",
@@ -1378,7 +1687,7 @@
      0.1045
     ]
    ],
-   "triangles": 3438,
+   "triangles": 3110,
    "materials": [
     "chrome",
     "rubber",
@@ -1406,6 +1715,34 @@
    "width": 0.2,
    "tire": true
   },
+  "roof_lightbar": {
+   "bbox": [
+    [
+     0.3763,
+     -0.0035,
+     -0.51
+    ],
+    [
+     0.532,
+     0.332,
+     0.51
+    ]
+   ],
+   "triangles": 3128,
+   "materials": [
+    "chrome",
+    "emit",
+    "lens_head",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "fit_nominal": [
+    1.2,
+    1.0,
+    0.15
+   ]
+  },
   "roof_rack": {
    "bbox": [
     [
@@ -1423,6 +1760,32 @@
    "materials": [
     "rubber",
     "steel"
+   ],
+   "fit_nominal": [
+    1.2,
+    1.0,
+    0.15
+   ]
+  },
+  "roof_solar": {
+   "bbox": [
+    [
+     -0.6156,
+     0.0,
+     -0.46
+    ],
+    [
+     0.56,
+     0.09,
+     0.46
+    ]
+   ],
+   "triangles": 1068,
+   "materials": [
+    "alu",
+    "glass_dark",
+    "steel",
+    "trim"
    ],
    "fit_nominal": [
     1.2,
@@ -1535,6 +1898,112 @@
     -0.0
    ]
   },
+  "seat_crate": {
+   "bbox": [
+    [
+     -0.25,
+     0.002,
+     -0.205
+    ],
+    [
+     0.25,
+     0.417,
+     0.2063
+    ]
+   ],
+   "triangles": 1492,
+   "materials": [
+    "fabric",
+    "paint",
+    "steel",
+    "wood"
+   ],
+   "eye": [
+    0.0,
+    1.1,
+    -0.0
+   ]
+  },
+  "seat_office": {
+   "bbox": [
+    [
+     -0.3298,
+     0.002,
+     -0.2982
+    ],
+    [
+     0.31,
+     1.0167,
+     0.2982
+    ]
+   ],
+   "triangles": 4520,
+   "materials": [
+    "chrome",
+    "fabric",
+    "plastic_int",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "eye": [
+    -0.12,
+    1.12,
+    -0.0
+   ]
+  },
+  "seat_race": {
+   "bbox": [
+    [
+     -0.4108,
+     0.0,
+     -0.2887
+    ],
+    [
+     0.2489,
+     0.932,
+     0.2887
+    ]
+   ],
+   "triangles": 2936,
+   "materials": [
+    "fabric",
+    "paint",
+    "steel",
+    "trim"
+   ],
+   "eye": [
+    -0.18,
+    0.8,
+    -0.0
+   ]
+  },
+  "seat_saddle": {
+   "bbox": [
+    [
+     -0.35,
+     -0.027,
+     -0.152
+    ],
+    [
+     0.3,
+     0.135,
+     0.152
+    ]
+   ],
+   "triangles": 2290,
+   "materials": [
+    "chrome",
+    "leather",
+    "steel",
+    "trim"
+   ],
+   "eye": [
+    0.06,
+    0.84,
+    -0.0
+   ]
+  },
   "seat_toilet": {
    "bbox": [
     [
@@ -1570,6 +2039,51 @@
     }
    }
   },
+  "steer_bad": {
+   "bbox": [
+    [
+     -0.087,
+     -0.1948,
+     -0.1948
+    ],
+    [
+     0.024,
+     0.1948,
+     0.1973
+    ]
+   ],
+   "triangles": 1822,
+   "materials": [
+    "alu",
+    "paint",
+    "paint_b",
+    "rust",
+    "steel",
+    "trim"
+   ]
+  },
+  "steer_bar": {
+   "bbox": [
+    [
+     -0.1519,
+     -0.1219,
+     -0.4063
+    ],
+    [
+     0.0632,
+     0.1507,
+     0.4063
+    ]
+   ],
+   "triangles": 2092,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "trim"
+   ]
+  },
   "steer_ship": {
    "bbox": [
     [
@@ -1590,6 +2104,29 @@
     "wood"
    ]
   },
+  "steer_sport": {
+   "bbox": [
+    [
+     -0.0995,
+     -0.1772,
+     -0.1772
+    ],
+    [
+     0.024,
+     0.1772,
+     0.1772
+    ]
+   ],
+   "triangles": 2286,
+   "materials": [
+    "alu",
+    "chrome",
+    "leather",
+    "paint_b",
+    "steel",
+    "trim"
+   ]
+  },
   "steer_std": {
    "bbox": [
     [
@@ -1603,7 +2140,7 @@
      0.1948
     ]
    ],
-   "triangles": 2272,
+   "triangles": 2048,
    "materials": [
     "alu",
     "chrome",
@@ -2669,15 +3206,15 @@
     [
      -0.3049,
      -0.3049,
-     -0.1075
+     -0.1055
     ],
     [
      0.3049,
      0.3049,
-     0.1075
+     0.1055
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2692,15 +3229,15 @@
     [
      -0.3299,
      -0.3299,
-     -0.1075
+     -0.1055
     ],
     [
      0.3299,
      0.3299,
-     0.1075
+     0.1055
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2715,15 +3252,15 @@
     [
      -0.3899,
      -0.3899,
-     -0.118
+     -0.116
     ],
     [
      0.3899,
      0.3899,
-     0.118
+     0.116
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2738,15 +3275,15 @@
     [
      -0.3689,
      -0.3689,
-     -0.1075
+     -0.1055
     ],
     [
      0.3689,
      0.3689,
-     0.1075
+     0.1055
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2761,15 +3298,15 @@
     [
      -0.3429,
      -0.3429,
-     -0.113
+     -0.111
     ],
     [
      0.3429,
      0.3429,
-     0.113
+     0.111
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2784,15 +3321,15 @@
     [
      -0.3049,
      -0.3049,
-     -0.1075
+     -0.1055
     ],
     [
      0.3049,
      0.3049,
-     0.1075
+     0.1055
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2807,15 +3344,15 @@
     [
      -0.3899,
      -0.3899,
-     -0.113
+     -0.111
     ],
     [
      0.3899,
      0.3899,
-     0.113
+     0.111
     ]
    ],
-   "triangles": 4080,
+   "triangles": 3328,
    "materials": [
     "rubber"
    ],
@@ -2993,6 +3530,27 @@
    "sidewall": 0.12,
    "rim": "rim_truck19"
   },
+  "tl_round": {
+   "bbox": [
+    [
+     -0.06,
+     -0.064,
+     -0.063
+    ],
+    [
+     0.03,
+     0.063,
+     0.063
+    ]
+   ],
+   "triangles": 796,
+   "materials": [
+    "chrome",
+    "lens_head",
+    "lens_tail",
+    "trim"
+   ]
+  },
   "tl_stock": {
    "bbox": [
     [
@@ -3021,7 +3579,7 @@
   "turbo_small": {
    "bbox": [
     [
-     -0.0894,
+     -0.0895,
      -0.0029,
      -0.145
     ],
@@ -3031,7 +3589,7 @@
      0.104
     ]
    ],
-   "triangles": 3216,
+   "triangles": 2664,
    "materials": [
     "alu",
     "rubber",

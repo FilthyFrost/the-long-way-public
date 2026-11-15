@@ -121,10 +121,57 @@ def build_tl_stock(P):
     P.views = [('a', 210, 12), ('b', 330, 15)]
 
 
+def build_hl_spot(P):
+    """A big off-road spotlight: black can with a chrome bezel, reflector, bulb, clear lens behind a cross
+    guard, held in a U-bracket on a stem (origin at the foot of the stem, the lens faces +X)."""
+    P.ao_distance = 0.04
+    zc = 0.17
+    P.lathe('can', [(0.0, -0.035), (0.05, -0.034), (0.085, -0.02), (0.108, 0.01), (0.116, 0.05), (0.118, 0.085)],
+            loc=(0.0, 0, zc), material='trim', axis='X', segs=32, sharp=40.0)
+    P.lathe('reflector', [(0.014, 0.0), (0.05, 0.012), (0.085, 0.04), (0.112, 0.082)][::-1], loc=(0.0, 0, zc),
+            material='chrome', axis='X', segs=32, sharp=40.0)
+    bulb(P, 0.03, 0.0, zc, r=0.013)
+    P.lathe('lens', [(0.114, 0.084), (0.105, 0.092), (0.06, 0.098), (0.0, 0.1)], loc=(0.0, 0, zc),
+            material='lens_head', axis='X', segs=32, sharp=60.0)
+    P.lathe('bezel', [(0.11, 0.08), (0.126, 0.08), (0.128, 0.092), (0.121, 0.103), (0.112, 0.098)], loc=(0.0, 0, zc),
+            material='chrome', axis='X', segs=32, loop=True, sharp=50.0)
+    for ang in (45, -45):
+        P.box('guard', (0.008, 0.23, 0.014), (0.108, 0, zc), 'trim', rot=(ang, 0, 0), bev=0.003, segs=1)
+    P.cyl('guard_hub', 0.018, 0.012, (0.108, 0, zc), 'chrome', axis='X', segs=14, bev=0.002, bsegs=1)
+    # U-bracket and stem
+    bpath = [(0.03, -0.128, zc), (0.03, -0.128, zc - 0.11), (0.03, 0.128, zc - 0.11), (0.03, 0.128, zc)]
+    P.tube('bracket', bpath, 1.0, 'steel', profile=[(-0.011, -0.004), (0.011, -0.004), (0.011, 0.004),
+                                                    (-0.011, 0.004)], bend=0.03, caps=True, sharp=60.0)
+    for sg in (-1, 1):
+        P.cyl('pivot', 0.016, 0.012, (0.03, sg * 0.124, zc), 'chrome', axis='Y', segs=12, bev=0.002, bsegs=1)
+    P.cyl('stem', 0.012, 0.06, (0.03, 0, 0.03), 'steel', segs=12, bev=None)
+    P.cyl('stem_nut', 0.019, 0.012, (0.03, 0, 0.006), 'steel', segs=6, bev=None)
+    P.cyl('stem_washer', 0.025, 0.003, (0.03, 0, 0.0015), 'steel', segs=14, bev=None)
+    P.views = [('a', 30, 12), ('b', 150, 15)]
+
+
+def build_tl_round(P):
+    """A round motorcycle tail lamp facing -X: black body on a short stalk, chrome rim, ringed red lens and a
+    clear plate-light window at its bottom."""
+    P.ao_distance = 0.02
+    P.lathe('body', [(0.0, 0.0), (0.03, 0.0), (0.05, -0.01), (0.056, -0.03), (0.057, -0.045)][::-1],
+            material='trim', axis='X', segs=24, sharp=40.0)
+    P.cyl('stalk', 0.012, 0.03, (0.015, 0, 0), 'chrome', axis='X', segs=10, bev=None)
+    P.lathe('lens', [(0.054, -0.045), (0.05, -0.052), (0.036, -0.056), (0.034, -0.0565), (0.018, -0.0585),
+                     (0.016, -0.059), (0.0, -0.06)][::-1], material='lens_tail', axis='X', segs=24, sharp=60.0)
+    P.lathe('rim', [(0.052, -0.04), (0.062, -0.04), (0.063, -0.05), (0.058, -0.056), (0.053, -0.052)],
+            material='chrome', axis='X', segs=24, loop=True, sharp=50.0)
+    P.box('plate_window', (0.012, 0.04, 0.012), (-0.03, 0, -0.058), 'lens_head', bev=0.002, segs=1)
+    P.box('plate_hood', (0.03, 0.05, 0.008), (-0.03, 0, -0.05), 'chrome', bev=0.002, segs=1)
+    P.views = [('a', 210, 12), ('b', 330, 15)]
+
+
 PARTS = {
     'hl_round': build_hl_round,
     'hl_square': build_hl_square,
+    'hl_spot': build_hl_spot,
     'tl_stock': build_tl_stock,
+    'tl_round': build_tl_round,
 }
 
 

@@ -66,7 +66,8 @@ TYRES = {
                       cells=['0', '0', 'G', '0', 'G', '0', 'G', '0', 'G', '0', '0'],
                       zig=lambda k, j: (0.0035 if (k + j) % 2 else -0.0035) if j in (2, 3, 8, 9) else 0.0,
                       shear=lambda u: 0.18 * abs(u) + 0.08 * (1 if int((u + 2) * 3.0) % 2 else -1)),
-    'tire_truck': dict(h=0.14, W=0.215, Tw=0.84, d=0.012, c=0.005, n=30, fr=[0, 0.5],
+    'tire_truck': dict(h=0.14, W=0.215, Tw=0.84, d=0.012, c=0.005, n=26, fr=[0, 0.5],
+                       walls=[(0.40, -0.005), (0.74, -0.002)],
                        cols=[-1.12, -1.0, -0.66, -0.57, -0.24, -0.15, 0.15, 0.24, 0.57, 0.66, 1.0, 1.12],
                        cells=['01', '01', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '01', '01'],
                        zig=lambda k, j: (0.0045 if k % 2 else -0.0045) if j in (2, 3, 4, 5, 6, 7, 8, 9) else 0.0,
@@ -519,9 +520,9 @@ def truck_disc(P, R, yf, hand_holes=6, lugs=8, pcd=0.0825, cap=True, material='s
     prof = [(0.06, yf), (0.105, yf), (0.118, yf - f * 0.008), (0.135, yf - f * 0.012), (0.17, yf - f * 0.018),
             (0.195, yf - f * 0.026), (0.212, yf - f * 0.034)]
     rings = [(r, z, z - f * th) if f > 0 else (r, z + th, z) for (r, z) in prof]
-    ns = 36
+    ns = 30
     P.polar('disc', rings, lambda k: [math.tau * (j + 0.5) / ns for j in range(ns)],
-            hole=lambda k, j: k == 3 and (j % (ns // hand_holes)) in (0, 1, 2), material=material, axis='Y',
+            hole=lambda k, j: k == 3 and (j % (ns // hand_holes)) in (1, 2, 3), material=material, axis='Y',
             bev=0.002, bsegs=1)
     nut_y = yf + f * 0.0005
     if f > 0:
@@ -537,7 +538,7 @@ def build_rim_truck19(P):
     """A 19.5-inch truck steel wheel (the motorhome's front): eight big nuts, six hand holes, chrome hub cap."""
     S = RIMS['rim_truck19']
     R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
-    barrel(P, R, w, fh, t, dc=0.03, well_off=0.02, segs=36, material='steel')
+    barrel(P, R, w, fh, t, dc=0.03, well_off=0.02, segs=32, material='steel')
     truck_disc(P, R, 0.03)
     valve(P, R - 0.015, 0.01, a=math.radians(200))
     P.empty('M_tire', (0, 0, 0))
@@ -554,7 +555,7 @@ def build_rim_dually(P):
     R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
     yo = 0.135
     for (yc, f) in ((yo, 1), (-yo, -1)):
-        o = barrel(P, R, w, fh, t, dc=0.03, well_off=0.02 * f, segs=36, material='steel')
+        o = barrel(P, R, w, fh, t, dc=0.03, well_off=0.02 * f, segs=32, material='steel')
         o.data.transform(Matrix.Translation((0, yc, 0)))
     # the outer wheel's disc sits near the hub face, its dish reaching out to the outer rim's well
     truck_disc(P, R, 0.02, cap=True)
