@@ -145,6 +145,8 @@ export class Wheel {
   staticLoad = 0;
   /** load the tyre's grip is nominal at (N): AxleSpec.tyreLoad, else the static load */
   tyreLoad = 0;
+  /** the axle gives tyreLoad */
+  rated = false;
   staticComp = 0;
   /** spring pre-compression (m): lets a soft spring carry the car without using up the travel */
   preload = 0;
@@ -433,6 +435,7 @@ export class VehicleSim {
       const axleLoad = spec.mass * GRAVITY * (front ? spec.weightFront : 1 - spec.weightFront);
       w.staticLoad = axleLoad / 2;
       w.tyreLoad = axle.tyreLoad ?? w.staticLoad;
+      w.rated = axle.tyreLoad !== undefined;
       const mc = w.staticLoad / GRAVITY;
       const om = 2 * Math.PI * axle.springHz;
       w.k = mc * om * om;
@@ -1660,7 +1663,9 @@ export class VehicleSim {
         continue;
       }
       const N = w.load;
-      const ls = clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
+      // (a tyre rated for a load loses grip as a power of the overload, like real ones; the legacy
+      // vehicles' linear rule against their own static load is the same slope at rest)
+      const ls = w.rated ? clamp(Math.pow(N / w.tyreLoad, -tire.loadSens), 0.7, 1.1) : clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
       const grip = w.axle.muScale * w.mu * ls;
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;
