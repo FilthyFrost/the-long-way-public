@@ -692,6 +692,76 @@ def build_door_fridge_handle(P):
     P.views = [('a', -60, 10), ('b', -120, 14)]
 
 
+def _scoop_section(w, h, rr, z0=0.0):
+    """The scoop's cross-section (y, z): flat foot at z0, straight sides, rounded top corners (12 points)."""
+    sec = [(-w / 2, z0), (-w / 2, z0 + 0.012)]
+    for k in range(4):
+        a = math.radians(180 - 90 * k / 3)
+        sec.append((-w / 2 + rr + rr * math.cos(a), h - rr + rr * math.sin(a)))
+    for k in range(4):
+        a = math.radians(90 - 90 * k / 3)
+        sec.append((w / 2 - rr + rr * math.cos(a), h - rr + rr * math.sin(a)))
+    sec += [(w / 2, z0 + 0.012), (w / 2, z0)]
+    return sec
+
+
+def build_hood_scoop_overlay(P):
+    """
+    A bolt-on bonnet scoop (the add-on for the hood_scoop bonnet; not in the catalogue): a raised paint shell
+    rising from the bonnet at the back to 9 cm at the front, its mouth open forwards behind a lip and dark
+    inside, on a thin mounting flange with chrome bolts. Flat underside at z = 0, origin at the centre of the
+    base, x forward.
+    """
+    P.ao_distance = 0.05
+    L, Wf, Wr, H, fl, lip, deep = 0.55, 0.45, 0.36, 0.09, 0.018, 0.022, 0.12
+    n = 13
+    rings = []
+    for i in range(n):
+        u = i / (n - 1)                                     # 0 at the back, 1 at the mouth
+        x = -L / 2 + L * u
+        s_ = 1.0 - (1.0 - min(1.0, u / 0.62)) ** 2.2
+        h = 0.016 + (H - 0.016) * s_
+        w = Wr + (Wf - Wr) * u
+        rr = max(0.002, min(0.035, (h - 0.012) * 0.8))
+        rings.append([(x, y, z) for (y, z) in _scoop_section(w, h, rr)])
+    bm = bmesh.new()
+    vr, faces = K.bm_loft(bm, rings, cap_start=True, cap_end=False)
+    # the lip: a ring from the front section in to the mouth
+    xf = L / 2
+    wi, hi = Wf - 2 * lip, H - lip
+    mouth = [bm.verts.new((xf, y, z)) for (y, z) in _scoop_section(wi, hi, 0.022, z0=lip)]
+    outer = vr[-1]
+    m = len(outer)
+    for j in range(m):
+        j2 = (j + 1) % m
+        bm.faces.new((outer[j], outer[j2], mouth[j2], mouth[j]))
+    # the cavity: straight back into the shell, narrowing a little, closed at the back; dark inside
+    back = [bm.verts.new((xf - deep, y * 0.92, lip + (z - lip) * 0.88)) for (y, z) in
+            _scoop_section(wi, hi, 0.022, z0=lip)]
+    cav = []
+    for j in range(m):
+        j2 = (j + 1) % m
+        cav.append(bm.faces.new((mouth[j], mouth[j2], back[j2], back[j])))
+    cav.append(bm.faces.new(list(reversed(back))))
+    for f in cav:
+        f.material_index = 1
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    P.mesh('scoop', bm, ['paint', 'trim'], bev=0.004, segs=2, bev_angle=35.0, sharp=40.0)
+    # the mounting flange: a thin plate round the foot of the shell
+    plan = [(-L / 2 - 0.012, -(Wr / 2 + fl)), (L / 2, -(Wf / 2 + fl)), (L / 2, Wf / 2 + fl), (-L / 2 - 0.012, Wr / 2 + fl)]
+    P.prism('flange', plan, 0.005, (0, 0, 0), 'paint', bev=0.0018, segs=1, center=False)
+    # chrome bolts along the flange
+    pts = []
+    for u in (0.16, 0.46, 0.76):
+        x = -L / 2 + L * u
+        w = Wr + (Wf - Wr) * u
+        for sg in (-1, 1):
+            pts.append((x, sg * (w / 2 + fl * 0.55), 0.005))
+    P.bolts(pts, normal=(0, 0, 1), r=0.006, h=0.004, washer=False, material='chrome')
+    P.fit_nominal(L, Wf + 2 * fl, H)
+    P.views = [('a', 30, 20), ('b', 150, 28)]
+
+
 PARTS = {
     'bf_stock': build_bf_stock,
     'br_stock': build_br_stock,
@@ -710,6 +780,7 @@ PARTS = {
     'door_armor_overlay': build_door_armor_overlay,
     'door_cage_overlay': build_door_cage_overlay,
     'door_fridge_handle': build_door_fridge_handle,
+    'hood_scoop_overlay': build_hood_scoop_overlay,
 }
 
 

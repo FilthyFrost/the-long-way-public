@@ -262,51 +262,72 @@ def build_exh_stock(P):
     P.views = [('a', 30, 30), ('b', 210, 30)]
 
 
-def stack(P, x, y, z0, h, r, side):
-    """A vertical chrome stack rising from (x, y, z0) by h, with a slotted heat shield, a clamp and a flap."""
-    P.cyl('stack', r, h, (x, y, z0 + h / 2), 'chrome', segs=16, bev=None)
-    # heat shield: a split steel sleeve on the outer side with slots
-    sh0, sh1 = z0 + 0.10, z0 + 0.62
-    bm = bmesh.new()
-    K.bm_lathe(bm, [(r + 0.012, sh0), (r + 0.012, sh1)], segs=12, angle=math.radians(200),
-               start=math.radians((90 if side > 0 else -90) - 100))
-    sleeve = P.mesh('shield', bm, 'steel', sharp=60.0)
-    sleeve.data.transform(Matrix.Translation((x, y, 0)))
-    for i in range(5):
-        zz = sh0 + 0.05 + i * 0.07
-        P.box('shield_slot', (0.026, 0.006, 0.055), (x, y + side * (r + 0.013), zz + 0.02), 'trim', bev=None)
-    for zz in (sh0 - 0.01, sh1 + 0.01):
-        P.torus('band', r + 0.014, 0.004, loc=(x, y, zz), segs=16, rsegs=4, material='steel')
-    # mounting clamp and bracket towards the vehicle centre
-    zc = z0 + h * 0.62
-    P.torus('clamp', r + 0.006, 0.006, loc=(x, y, zc), segs=16, rsegs=5, material='steel')
-    P.box('clamp_brk', (0.03, 0.08, 0.02), (x, y - side * (r + 0.04), zc), 'steel', bev=0.004, segs=1)
-    # slash-cut top: the flap hinged at the back
-    top = z0 + h
-    P.cyl('lip', r + 0.004, 0.012, (x, y, top - 0.006), 'chrome', segs=16, bev=0.002, bsegs=1)
-    flap = P.cyl('flap', r + 0.008, 0.006, (x, y, top + 0.004), 'steel', segs=16, bev=0.0015, bsegs=1)
-    knob = P.box('flap_lug', (0.02, 0.012, 0.012), (x - r - 0.006, y, top + 0.004), 'steel', bev=0.002, segs=1)
-    P.mover('FLAP_L' if side > 0 else 'FLAP_R', [flap, knob], (x - r - 0.006, y, top + 0.004))
-    P.box('hinge', (0.016, 0.03, 0.012), (x - r - 0.012, y, top - 0.004), 'steel', bev=0.002, segs=1)
+def side_pipe(P, header, x0, x1, y, z, r_h=0.03, r_can=0.05, hangers=(), shield=True):
+    """
+    A hot-rod side pipe: the inlet flange at the origin, a steel header along `header` (from the origin) to the
+    front of a chrome silencer that runs back along X from x0 to x1 at (y, z), a slotted heat shield on its
+    outer side, clamp bands, hangers up to the body and a flared chrome tip with a dark mouth.
+    """
+    inlet_flange(P, r_h * 0.95)
+    hp = [V(p) for p in header] + [V((x0 + 0.02, y, z))]
+    P.tube('header', hp, r_h, 'steel', segs=12, bend=0.11)
+    L = x0 - x1
+    cone = min(0.07, L * 0.12)
+    prof = [(r_h * 0.98, 0.0), (r_h * 1.05, 0.012), (r_can, cone), (r_can, L - cone * 0.9), (r_can * 0.86, L - 0.004),
+            (r_can * 0.84, L)]
+    P.lathe('silencer', prof, loc=(x0, y, z), material='chrome', axis='-X', segs=18, sharp=45.0)
+    # the tip: a flared chrome lip, dark inside
+    lt = 0.07
+    tip = [(r_can * 0.84, 0.0), (r_can * 0.86, lt * 0.5), (r_can * 0.95, lt), (r_can * 0.88, lt + 0.004),
+           (r_can * 0.78, lt * 0.55)]
+    P.lathe('tip', tip, loc=(x1, y, z), material='chrome', axis='-X', segs=18, loop=True, sharp=45.0)
+    P.cyl('tip_mouth', r_can * 0.8, 0.004, (x1 - lt * 0.6, y, z), 'trim', axis='X', segs=16, bev=None)
+    # clamp bands at both ends of the can and one behind the header joint
+    for xx in (x0 - cone - 0.01, x1 + cone * 0.9 + 0.01):
+        P.torus('band', r_can + 0.002, 0.0035, loc=(xx, y, z), axis='X', segs=18, rsegs=4, material='steel')
+    P.torus('band', r_h + 0.003, 0.003, loc=(x0 + 0.03, y, z), axis='X', segs=14, rsegs=4, material='steel')
+    if shield:
+        # a perforated heat shield over the outer upper quarter of the can
+        a0, a1 = x0 - cone - 0.04, x1 + cone + 0.04
+        bm = bmesh.new()
+        rs = r_can + 0.008
+        K.bm_lathe(bm, [(rs, 0.0), (rs, a0 - a1)], segs=10, angle=math.radians(150), start=math.radians(-20))
+        sh = P.mesh('shield', bm, 'chrome', sharp=60.0)
+        sh.data.transform(Matrix.Translation((a0, y, z)) @ K.axis_matrix('-X'))
+        n = max(3, int((a0 - a1) / 0.11))
+        for i in range(n):
+            xx = a0 - (a0 - a1) * (i + 0.5) / n
+            ang = math.radians(68)
+            P.box('shield_slot', (0.055, 0.003, 0.018), (xx, y + (rs + 0.0012) * math.sin(ang),
+                                                        z + (rs + 0.0012) * math.cos(ang)), 'trim',
+                  rot=(-(90 - 68), 0, 0), bev=None)
+    # hangers: a strap up from the can to a rubber block and a plate under the body
+    for hx in hangers:
+        P.box('hanger_strap', (0.02, 0.006, 0.05), (hx, y, z + r_can + 0.022), 'steel', bev=0.002, segs=1)
+        P.box('hanger_rubber', (0.03, 0.026, 0.02), (hx, y, z + r_can + 0.055), 'rubber', bev=0.005, segs=1)
+        P.box('hanger_plate', (0.05, 0.04, 0.006), (hx, y, z + r_can + 0.068), 'steel', bev=0.002, segs=1)
 
 
 def build_exh_side(P):
-    """Side stacks: from the inlet a pipe runs back into a Y-collector; two pipes swing out to the sides and
-    turn up into tall chrome stacks with heat shields and rain flaps (loud)."""
+    """
+    Hot-rod side pipes (left side): from the manifold the header runs back under the floor, swings out behind
+    the front wheel to the left sill (+Y, game -z) and back under the doors into a long chrome silencer with a
+    slotted heat shield, ending in a flared chrome tip ahead of the rear wheel. Everything below z = 0.15.
+    """
     P.ao_distance = 0.08
-    r = 0.026
-    inlet_flange(P, r)
-    P.tube('pipe', [(0.0, 0, 0), (-0.30, 0, -0.02), (-0.55, 0, -0.02)], r, 'steel', segs=12, bend=0.1)
-    P.lathe('collector', [(r, 0.0), (0.035, -0.04), (0.045, -0.1), (0.045, -0.13)], loc=(-0.55, 0, -0.02),
-            material='steel', axis='-X', segs=14, sharp=50.0)
-    xs, yst, zs, hs, rs = -1.0, 0.30, 0.06, 1.40, 0.052
-    for sg in (-1, 1):
-        P.tube('branch', [(-0.66, sg * 0.03, -0.02), (-0.78, sg * 0.16, -0.02), (xs, sg * yst, -0.02),
-                          (xs, sg * yst, zs)], 0.033, 'steel', segs=12, bend=0.12)
-        P.lathe('reducer', [(0.033, 0.0), (rs, 0.035), (rs, 0.045)], loc=(xs, sg * yst, zs - 0.04),
-                material='chrome', segs=16, sharp=50.0)
-        stack(P, xs, sg * yst, zs, hs, rs, sg)
-    P.views = [('a', 30, 18), ('b', 210, 18)]
+    header = [(0.0, 0.0, 0.0), (-0.12, 0.02, -0.035), (-0.3, 0.08, -0.06), (-0.45, 0.42, -0.065),
+              (-0.57, 0.82, -0.06), (-0.66, 0.93, -0.05)]
+    side_pipe(P, header, -0.70, -1.55, 0.93, -0.05, r_h=0.03, r_can=0.05, hangers=(-0.86, -1.36))
+    P.views = [('a', -30, 18), ('b', -120, 25)]
+
+
+def build_exh_side_moto(P):
+    """The side pipe made for a motorcycle (exh_side@moto): down the front of the crankcase from the port,
+    then low along the bike's left side under the footpeg, the tip ahead of the rear wheel."""
+    P.ao_distance = 0.06
+    header = [(0.0, 0.0, 0.0), (0.03, 0.015, -0.1), (0.01, 0.08, -0.25), (-0.09, 0.15, -0.36), (-0.18, 0.17, -0.38)]
+    side_pipe(P, header, -0.21, -0.55, 0.17, -0.38, r_h=0.022, r_can=0.04, hangers=(-0.38,))
+    P.views = [('a', -30, 18), ('b', -120, 25)]
 
 
 def build_exh_sport(P):
@@ -387,6 +408,7 @@ PARTS = {
     'gb_moto': build_gb_moto,
     'exh_stock': build_exh_stock,
     'exh_side': build_exh_side,
+    'exh_side@moto': build_exh_side_moto,
     'exh_sport': build_exh_sport,
     'exh_moto': build_exh_moto,
 }

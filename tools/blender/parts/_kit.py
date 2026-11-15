@@ -1147,6 +1147,11 @@ CONVENTIONS = [
     'Gear levers: LEVER is the moving lever, its origin the pivot; the game turns it about z. Floor levers pivot',
     '  under the floor; gl_foot (moto, LEFT side) on the selector shaft axis, the toe peg forward-up (+x +y) and',
     '  out to the left (-z), shaft and seal 2.5 cm inboard (+z); a positive z angle lifts the peg.',
+    'Add-ons (not in the catalogue): door_armor_overlay / door_cage_overlay / door_fridge_handle sit on a left door',
+    '  skin (inner face at the origin, standing out to -z); hood_scoop_overlay sits on a bonnet (flat underside at',
+    '  y = 0, origin at the centre of its base, mouth towards +x); all are paint-coloured and carry fit_nominal.',
+    'Variants: <tyre>@<rim> (tyres per rim), exh_side@moto (the side pipe shaped for a motorcycle: along its left side',
+    '  under the footpeg; exh_side itself runs out to a car sill 0.93 m to the left of the mount).',
 ]
 
 
