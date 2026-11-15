@@ -611,9 +611,12 @@ class Garage implements GarageScene {
       g.uRoomLampC.value[slot++].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
     }
     for (; slot < ROOM_LAMPS - 2; slot++) g.uRoomLampP.value[slot].w = 0;
-    this.look.setGlow('bulb', 3.0 * lamp, 2.2 * lamp, 1.3 * lamp);
-    // (the inside of each shade glows cream with its bulb: it is not lit by it, that would burn it white)
-    this.look.setGlow('shade_in', 0.36 * lamp, 0.29 * lamp, 0.19 * lamp);
+    // the bulbs, and the inside of each shade glowing cream with its bulb (not lit by it: that would burn it
+    // white), held at what they look like on screen whatever the eye's exposure (so never blown out close up)
+    const ex = Math.max(0.5, this.core.exposure);
+    this.look.setExposure(this.core.exposure);
+    this.look.setGlow('bulb', (1.5 * lamp) / ex, (1.2 * lamp) / ex, (0.8 * lamp) / ex);
+    this.look.setGlow('shade_in', (0.62 * lamp) / ex, (0.5 * lamp) / ex, (0.32 * lamp) / ex);
     // the stove: its fire flickers in the window of its door and on the floor before it
     const st = LAYOUT.stove;
     const t = this.time;

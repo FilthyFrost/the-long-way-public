@@ -82,6 +82,8 @@ def workbench(K, L):
     surface(L, x0 + 1.05, x1 - 0.06, z0 + 0.04, z1 - 0.04, 0.275, 'bench_low')
     solid(L, (x0 + x1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (z1 - z0) / 2, 0, BENCH_TOP)
     vice(K, x1 - 0.32, z1 - 0.02)
+    # and a small cast one on the other end, over the drawers
+    cast_vice(K, x0 + 0.85, z1 - 0.06)
     # where things lie on the bench (the tools and the small parts of the tutorial)
     for i in range(7):
         spot(L, x0 + 1.25 + i * 0.52, BENCH_TOP, (z0 + z1) / 2 + 0.05, math.pi / 2, 'bench')
@@ -340,3 +342,49 @@ def tyre_stack(K, L, x, z, n=5):
         tyre(K, x + dx, w / 2 + i * (w + 0.002), z + dz, tint=(0.82 if i % 2 else 1.12) + K.jitter(0.05))
     solid(L, x, z, 0.32, 0.0, 0, n * w)
     surface(L, x - 0.15, x + 0.15, z - 0.15, z + 0.15, n * w, 'tyres')
+
+
+def cast_vice(K, x, z, yaw_deg=0.0):
+    """
+    A small cast-iron vice on the bench's end: a swivel base and its lock, the body with the fixed jaw
+    and the little anvil behind it, the sliding jaw on its bar, serrated steel jaw faces, the screw and
+    its tommy bar with ball ends. Local frame: +z out over the bench's front edge (the handle).
+    """
+    M = kit.mat4((x, BENCH_TOP, z), (0, yaw_deg, 0))
+
+    def at(p):
+        return tuple(M @ V(p))
+
+    def box(mat, c, size, rot=(0, 0, 0), **kw):
+        K.box(mat, (0, 0, 0), size, matrix=M @ Matrix.Translation(c) @ kit.rot3(rot).to_4x4(), **kw)
+
+    def cyl(mat, c, r, h, axis='y', **kw):
+        K.cyl(mat, (0, 0, 0), r, h, matrix=M @ Matrix.Translation(c) @ kit.axis_to(axis), **kw)
+
+    iron = (0.62, 0.72, 0.7)
+    # the swivel base, bolted down, and its lock lever
+    cyl('p_green', (0, 0.012, -0.07), 0.07, 0.024, segs=22, bev=0.005, tint=iron)
+    for a in (0.6, 2.2, 4.0, 5.5):
+        cyl('steel', (math.cos(a) * 0.055, 0.026, -0.07 + math.sin(a) * 0.055), 0.008, 0.008, segs=6, cast=False)
+    K.tube('steel', [at((0.06, 0.03, -0.03)), at((0.11, 0.03, 0.0)), at((0.13, 0.025, 0.02))], 0.005, segs=5, cast=False)
+    cyl('p_black', (0.135, 0.025, 0.025), 0.009, 0.02, axis='x', segs=8, cast=False)
+    # the body: a waisted block on the base, the fixed jaw over it, the anvil behind
+    box('p_green', (0, 0.055, -0.07), (0.09, 0.06, 0.12), bev=0.012, bsegs=2, tint=iron, taper=(1.25, 1.0))
+    box('p_green', (0, 0.115, -0.045), (0.13, 0.07, 0.045), bev=0.01, bsegs=2, tint=iron)
+    box('p_green', (0, 0.1, -0.115), (0.085, 0.035, 0.07), bev=0.008, tint=iron)
+    # the sliding jaw out over the edge on its bar, the screw through it
+    box('steel', (0, 0.085, 0.035), (0.045, 0.03, 0.14), bev=0.005, tint=0.85)
+    box('p_green', (0, 0.115, 0.012), (0.13, 0.07, 0.045), bev=0.01, bsegs=2, tint=iron)
+    box('p_green', (0, 0.085, 0.06), (0.06, 0.05, 0.05), bev=0.008, tint=iron)
+    # steel jaw faces with their teeth, a hand's gap between
+    for zf in (-0.0195, -0.0105):
+        box('steel', (0, 0.128, zf), (0.13, 0.04, 0.006), bev=0.001)
+    for k in range(5):
+        for zf in (-0.0155, -0.0145):
+            box('p_black', (-0.05 + k * 0.025, 0.128, zf + (0.004 if zf > -0.015 else -0.004)), (0.004, 0.036, 0.001), tint=1.3, cast=False)
+    # the screw, its collar and the tommy bar with ball ends
+    cyl('steel', (0, 0.085, 0.12), 0.011, 0.12, axis='z', segs=10)
+    cyl('steel', (0, 0.085, 0.09), 0.02, 0.02, axis='z', segs=12, bev=0.003)
+    cyl('chrome', (0.0, 0.085, 0.165), 0.006, 0.2, axis='x', segs=8)
+    for s in (-1, 1):
+        K.lathe('chrome', at((s * 0.1, 0.085, 0.165)), [(0.0, -0.012), (0.009, -0.009), (0.012, 0.0), (0.009, 0.009), (0.0, 0.012)], segs=10, axis=tuple(M.to_3x3() @ V((1, 0, 0))))
