@@ -17,7 +17,7 @@ import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { cloneModel, frameModel, partModel, standInFrame, type Model } from './assets';
-import { applyMaterials, CarMaterials, matNames } from './materials';
+import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
 /** categories that wear the body colour unless painted themselves */
@@ -46,6 +46,12 @@ interface Shown {
   holder: THREE.Group;
 }
 
+/** owner names of the looks (CarMaterials): the body, a mount's part, a panel, a wheel (+tire, +turbo, +cage) */
+const BODY = 'body';
+const partOwner = (mount: string): string => `m:${mount}`;
+const panelOwner = (mount: string): string => `p:${mount}`;
+const wheelOwner = (i: number): string => `w:${i}`;
+
 export class CarView {
   readonly root = new THREE.Group();
   /** a motorcycle leans about its tyres' contact line: this sits between root and the model */
@@ -56,6 +62,7 @@ export class CarView {
   readonly pose: Pose = makePose();
   private frameObj: THREE.Object3D | null = null;
   private readonly mountNodes = new Map<string, THREE.Group>();
+  private readonly catOf = new Map<string, string>();
   private readonly shown = new Map<string, Shown>();
   private readonly panels = new Map<string, PanelNode>();
   readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string }[] = [];
@@ -90,6 +97,7 @@ export class CarView {
       this.wheels.push({ pivot, spin, holder, key: '' });
     }
     for (const m of frame.mounts) {
+      this.catOf.set(m.id, m.cat);
       if (m.cat === 'rim') continue;
       const n = new THREE.Group();
       n.name = `M_${m.id}`;
@@ -129,7 +137,7 @@ export class CarView {
     this.standIn = m.standIn;
     const obj = cloneModel(m);
     obj.name = 'FRAME';
-    applyMaterials(obj, this.mats, paintHex(this.build.paint), paintHex(this.build.paint2));
+    applyMaterials(obj, this.mats.look(BODY, this.bodyLook()));
     this.model.add(obj);
     this.frameObj = obj;
     // hinged panels: P_<mountId>, re-hung on pivots so they swing about their hinges
@@ -214,7 +222,7 @@ export class CarView {
     if (derived) this.derived = derived;
     this.placeModel();
     const frame = this.frame;
-    if (this.frameObj) applyMaterials(this.frameObj, this.mats, paintHex(this.build.paint), paintHex(this.build.paint2));
+    this.mats.set(BODY, this.bodyLook());
     for (const m of frame.mounts) {
       const inst = this.build.parts[m.id] ?? null;
       if (m.cat === 'rim') continue;
@@ -229,6 +237,23 @@ export class CarView {
     return BODY_COLOURED.has(cat) ? paintHex(this.build.paint) : FACTORY_PART_PAINT;
   }
 
+  private bodyLook(): LookOf {
+    const b = this.build;
+    return { paint: paintHex(b.paint), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond) };
+  }
+
+  /** a part's look: its own paint (or the body's / the factory's) and its own wear */
+  private partLook(inst: PartInstance, cat: string): LookOf {
+    return { paint: this.paintOf(inst, cat), paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond) };
+  }
+
+  /** a panel's look: the frame's opening in the part's style */
+  private panelLook(inst: PartInstance, style: string): LookOf {
+    const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
+    const paint = style === 'armor' ? 0x5c6168 : style === 'fridge' ? 0xf1efe6 : style === 'rusty' ? mixHex(body, 0x8a4a26, 0.45) : body;
+    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.55, inst.rust) : inst.rust, wear: fade(inst.cond) };
+  }
+
   private setPart(m: MountDef, inst: PartInstance | null): void {
     const sub = inst ? Object.entries(inst.sub).map(([k, v]) => `${k}:${v.part}`).join(',') : '';
     const key = inst ? `${inst.uid}|${inst.part}|${inst.paint}|${sub}|${this.build.paint}` : '';
@@ -237,6 +262,8 @@ export class CarView {
     if (was) was.holder.removeFromParent();
     if (!inst) {
       this.shown.delete(m.id);
+      this.mats.drop(partOwner(m.id));
+      this.mats.drop(`${partOwner(m.id)}+turbo`);
       return;
     }
     const node = this.mountNodes.get(m.id);
@@ -247,11 +274,11 @@ export class CarView {
     node.add(holder);
     this.shown.set(m.id, { key, holder });
     const def = partDef(inst.part);
-    const paint = this.paintOf(inst, m.cat);
+    const look = this.mats.look(partOwner(m.id), this.partLook(inst, m.cat));
     void this.track(partModel(inst.part)).then((model) => {
       if (this.shown.get(m.id)?.holder !== holder) return;
       const obj = cloneModel(model);
-      applyMaterials(obj, this.mats, paint, paintHex(this.build.paint2));
+      applyMaterials(obj, look);
       if (m.side > 0) obj.scale.z = -1;
       if (def.stretch && m.fit) stretchTo(obj, model.box, m.fit);
       holder.add(obj);
@@ -259,13 +286,14 @@ export class CarView {
       const t = inst.sub.turbo;
       if (t) {
         const at = obj.getObjectByName('M_turbo') ?? obj;
+        const tl = this.mats.look(`${partOwner(m.id)}+turbo`, this.partLook(t, 'turbo'));
         void this.track(partModel(t.part)).then((tm) => {
           if (this.shown.get(m.id)?.holder !== holder) return;
           const to = cloneModel(tm);
-          applyMaterials(to, this.mats, FACTORY_PART_PAINT, FACTORY_PART_PAINT);
+          applyMaterials(to, tl);
           at.add(to);
         });
-      }
+      } else this.mats.drop(`${partOwner(m.id)}+turbo`);
     });
   }
 
@@ -277,17 +305,17 @@ export class CarView {
       return;
     }
     const style = partDef(inst.part).panel?.style ?? 'stock';
+    const fresh = !this.mats.has(panelOwner(m.id));
+    const look = this.mats.look(panelOwner(m.id), this.panelLook(inst, style));
+    if (fresh) for (const s of p.skin) applyMaterials(s, look);
     p.style = style;
-    const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
-    const colour = style === 'armor' ? 0x5c6168 : style === 'fridge' ? 0xf1efe6 : style === 'rusty' ? mixHex(body, 0x8a4a26, 0.45) : body;
-    for (const s of p.skin) applyMaterials(s, this.mats, colour, paintHex(this.build.paint2));
     const showGlass = style !== 'cage' && style !== 'fridge';
     for (const g of p.glass) g.visible = showGlass;
     for (const s of p.skin) s.visible = style !== 'cage';
     if (style === 'cage') {
       if (!p.cage) {
         p.cage = cageFor(p.skin, p.pivot);
-        applyMaterials(p.cage, this.mats, 0x3a3c40, 0x3a3c40);
+        applyMaterials(p.cage, this.mats.look(`${panelOwner(m.id)}+cage`, { paint: 0x3a3c40, paint2: 0x3a3c40 }));
         p.pivot.add(p.cage);
       }
       p.cage.visible = true;
@@ -309,24 +337,31 @@ export class CarView {
       if (w.key === key) continue;
       w.key = key;
       w.holder.clear();
-      w.pivot.visible = inst !== null;
-      if (!inst) continue;
+      // the pivot stays: a ghost of a wheel to come hangs on it
+      w.holder.visible = inst !== null;
+      if (!inst) {
+        this.mats.drop(wheelOwner(i));
+        this.mats.drop(`${wheelOwner(i)}+tire`);
+        continue;
+      }
       const holder = w.holder;
       holder.scale.set(1, 1, hub.side > 0 ? -1 : 1);
       const rimDef = partDef(inst.part);
-      const paint = inst.paint >= 0 ? paintHex(inst.paint) : 0xc8ccd0;
+      const rimLook = this.mats.look(wheelOwner(i), this.wheelLook(inst));
       void this.track(partModel(inst.part)).then((rm) => {
         if (w.key !== key) return;
         const r = cloneModel(rm);
-        applyMaterials(r, this.mats, paint, paint);
+        applyMaterials(r, rimLook);
         holder.add(r);
       });
       const tire = inst.sub.tire;
+      if (!tire) this.mats.drop(`${wheelOwner(i)}+tire`);
       if (tire && rimDef.rim?.tire) {
+        const tireLook = this.mats.look(`${wheelOwner(i)}+tire`, this.tireLook(tire));
         void this.track(partModel(tire.part, inst.part)).then((tm) => {
           if (w.key !== key) return;
           const t = cloneModel(tm);
-          applyMaterials(t, this.mats, 0x222222, 0xeeeeee);
+          applyMaterials(t, tireLook);
           // a tyre model made for another rim: stretch its ring to this rim (keeping the sidewall)
           const td = partDef(tire.part).tire!;
           const made = (tm.box.max.y - tm.box.min.y) / 2;
@@ -337,6 +372,56 @@ export class CarView {
         });
       }
     }
+  }
+
+  private wheelLook(inst: PartInstance): LookOf {
+    const paint = inst.paint >= 0 ? paintHex(inst.paint) : 0xc8ccd0;
+    return { paint, paint2: paint, dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond) };
+  }
+
+  private tireLook(t: PartInstance): LookOf {
+    // the white of a whitewall is its second paint
+    return { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, rust: 0, wear: 0 };
+  }
+
+  /** keep every look in step with the build: paint, dust, rust (cheap: uniforms only) */
+  private updateLooks(): void {
+    const b = this.build;
+    this.mats.set(BODY, this.bodyLook());
+    for (const mount of this.shown.keys()) {
+      const inst = b.parts[mount];
+      if (!inst) continue;
+      this.mats.set(partOwner(mount), this.partLook(inst, this.catOf.get(mount) ?? ''));
+      const t = inst.sub.turbo;
+      if (t) this.mats.set(`${partOwner(mount)}+turbo`, this.partLook(t, 'turbo'));
+    }
+    for (const [mount, p] of this.panels) {
+      const inst = b.parts[mount];
+      if (inst) this.mats.set(panelOwner(mount), this.panelLook(inst, p.style));
+    }
+    const h = hubsOf(this.frame);
+    const order = [h.fl, h.fr, h.rl, h.rr];
+    for (let i = 0; i < 4; i++) {
+      const inst = this.wheels[i].key ? b.parts[order[i].id] : undefined;
+      if (!inst) continue;
+      this.mats.set(wheelOwner(i), this.wheelLook(inst));
+      if (inst.sub.tire) this.mats.set(`${wheelOwner(i)}+tire`, this.tireLook(inst.sub.tire));
+    }
+  }
+
+  /** light up what is on a mount (the part the mark is on, about to come off); null = nothing */
+  highlight(mount: string | null): void {
+    if (!mount) {
+      this.mats.highlight('');
+      return;
+    }
+    if (this.panels.has(mount)) {
+      this.mats.highlight(panelOwner(mount));
+      return;
+    }
+    const h = hubsOf(this.frame);
+    const i = [h.fl, h.fr, h.rl, h.rr].findIndex((m) => m.id === mount);
+    this.mats.highlight(i >= 0 ? wheelOwner(i) : partOwner(mount));
   }
 
   // ------------------------------------------------------------------ every frame
@@ -378,10 +463,14 @@ export class CarView {
     if (fuel && dash) fuel.rotation.x = -dash.fuel * 90 * DEG;
     const temp = this.needles.N_temp;
     if (temp && dash) temp.rotation.x = -Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) * 90 * DEG;
-    // lamps: dipped / main beam, tail lamps and brake lights
+    // lamps: dipped / main beam, tail lamps and brake lights (the brake lights need a battery)
     const lit = dash?.lightsOn ?? false;
-    const brake = sim.brake > 0.05 || sim.hold ? 1 : 0;
-    this.mats.setLamps(lit ? (dash?.lights === 'high' ? 3 : 2.2) : 0, (lit ? 0.5 : 0) + brake * (dash && dash.battery > 0.02 ? 1.3 : 0));
+    const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
+    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, dash: lit ? 1 : 0 });
+    // dirt is measured up from the vehicle's own ground; colours and wear follow the build
+    this.model.updateWorldMatrix(true, false);
+    this.mats.setCarFrame(this.model.matrixWorld);
+    this.updateLooks();
     // panels swing
     for (const p of this.panels.values()) {
       if (p.t === p.target) continue;
@@ -438,7 +527,13 @@ export class CarView {
 
   dispose(): void {
     this.root.removeFromParent();
+    this.mats.dispose();
   }
+}
+
+/** faded paint from a part's condition: like new above 70 %, chalky towards nothing */
+function fade(cond: number): number {
+  return Math.max(0, Math.min(1, (0.7 - cond) / 0.6));
 }
 
 /** non-uniform scale of a stretch part from its modelled box to the mount's fit [length, width, height] */

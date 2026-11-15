@@ -10,7 +10,7 @@ import type { Tool } from '../../core/modcar/tools';
 import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
 import { cloneModel, partModel } from './assets';
-import { applyMaterials, type CarMaterials } from './materials';
+import { applyMaterials, type CarMaterials, type LookOf } from './materials';
 
 export interface Loose {
   uid: string;
@@ -80,6 +80,13 @@ function toolPaint(t: Tool): number {
 
 let n = 0;
 
+const ownerOf = (l: Loose): string => `l:${l.uid}`;
+
+/** what an engine block, a seat frame or a lamp housing is painted at the factory (as on a vehicle) */
+function partLook(inst: PartInstance): LookOf {
+  return { paint: inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c, paint2: 0xd8d4c8, dirt: inst.dirt, rust: inst.rust, wear: Math.max(0, Math.min(1, (0.7 - inst.cond) / 0.6)) };
+}
+
 export class LooseThings {
   readonly root = new THREE.Group();
   readonly list: Loose[] = [];
@@ -100,10 +107,11 @@ export class LooseThings {
   addPart(inst: PartInstance, x: number, y: number, z: number, yaw = 0): Loose {
     const l = this.make(inst, null, x, y, z, yaw);
     const def = partDef(inst.part);
+    const look = this.mats.look(ownerOf(l), partLook(inst));
     void this.track(partModel(inst.part)).then((model) => {
       if (!this.list.includes(l)) return;
       const obj = cloneModel(model);
-      applyMaterials(obj, this.mats, inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c, 0xd8d4c8);
+      applyMaterials(obj, look);
       // a wheel lies on its side
       if (def.cat === 'rim' || def.cat === 'tire') {
         obj.rotation.x = Math.PI / 2;
@@ -115,10 +123,11 @@ export class LooseThings {
       l.obj.add(obj);
       const t = inst.sub.tire;
       if (t && def.cat === 'rim') {
+        const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt });
         void this.track(partModel(t.part, inst.part)).then((tmodel) => {
           if (!this.list.includes(l)) return;
           const to = cloneModel(tmodel);
-          applyMaterials(to, this.mats, 0x222222, 0xeeeeee);
+          applyMaterials(to, tl);
           to.rotation.x = Math.PI / 2;
           to.position.y = (def.rim?.width ?? 0.15) / 2;
           l.obj.add(to);
@@ -144,7 +153,7 @@ export class LooseThings {
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
     const l = this.make(null, tool, x, y, z, yaw);
     const obj = toolModel(tool);
-    applyMaterials(obj, this.mats, toolPaint(tool), toolPaint(tool));
+    applyMaterials(obj, this.mats.look(ownerOf(l), { paint: toolPaint(tool), paint2: toolPaint(tool) }));
     l.obj.add(obj);
     this.measure(l);
     return l;
@@ -153,7 +162,12 @@ export class LooseThings {
   /** a tool's look changed (a spray can's colour) */
   repaintTool(l: Loose): void {
     if (!l.tool) return;
-    applyMaterials(l.obj, this.mats, toolPaint(l.tool), toolPaint(l.tool));
+    this.mats.set(ownerOf(l), { paint: toolPaint(l.tool), paint2: toolPaint(l.tool) });
+  }
+
+  /** light up the thing the mark is on (null = none) */
+  highlight(l: Loose | null): void {
+    this.mats.highlight(l ? ownerOf(l) : '');
   }
 
   private make(part: PartInstance | null, tool: Tool | null, x: number, y: number, z: number, yaw: number): Loose {
@@ -182,6 +196,8 @@ export class LooseThings {
     const i = this.list.indexOf(l);
     if (i >= 0) this.list.splice(i, 1);
     l.obj.removeFromParent();
+    this.mats.drop(ownerOf(l));
+    this.mats.drop(`${ownerOf(l)}+tire`);
   }
 
   /** drop it from where it is: it falls onto the surface below */
@@ -204,6 +220,10 @@ export class LooseThings {
       }
       this.core.place(l.obj, l.x, l.y, l.z);
       l.obj.rotation.y = -l.yaw;
+      // a part's wear follows it (the sponge works on things lying about too); its dirt rises from its base
+      if (l.part) this.mats.set(ownerOf(l), partLook(l.part));
+      l.obj.updateMatrixWorld();
+      this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
     }
   }
 

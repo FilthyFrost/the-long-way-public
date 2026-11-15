@@ -22,7 +22,9 @@ import { Environment } from '../env/environment';
 import { Hud } from '../hud';
 import { InputManager } from '../input';
 import type { Params } from '../params';
+import { carEnvUniforms } from '../render/carMaterials';
 import { RenderCore } from '../render/core';
+import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
@@ -309,6 +311,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       return;
     }
     if (this.player.held) this.player.putDown();
+    this.player.ghosts.clear();
+    this.player.clearHighlight();
     this.seated = v;
     this.focus = v;
     v.awake = 3;
@@ -335,6 +339,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const z = v.sim.pz + b[2] * lx + b[8] * lz;
     const heading = Math.atan2(b[2], b[0]);
     this.seated = null;
+    v.view.highlight(null);
     this.player.walker.place(x, z, heading);
     this.input.freeLook = true;
     this.input.lookYaw = heading;
@@ -594,8 +599,12 @@ export class ModGame implements PlayerHost, CockpitHost {
         cam.updateProjectionMatrix();
       }
     }
-    // in the seat: the mark on the cab's controls
-    if (this.seated) this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
+    // in the seat: the mark on the cab's controls (the one it is on lights up)
+    if (this.seated) {
+      this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
+      this.seated.view.highlight(this.cockpit.aimed?.id ?? null);
+    }
+    this.updateBeam();
     // shadows round the vehicle in focus (or the walker)
     core.shadowFocus.set(fx - o.x, fy - o.y, fz - o.z);
     if (this.worldView) this.worldView.update(fx, fz, 3.5);
@@ -616,6 +625,54 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.ui.update(dt);
     this.updateHudBits();
     this.updateAudio();
+  }
+
+  /**
+   * The headlight beam that lights the road and everything else (one, like the old vehicles'): from
+   * between the lamps that are fitted, as bright as they are, and only with the switch on and a battery.
+   */
+  private updateBeam(): void {
+    const v = this.seated ?? this.focus;
+    const o = this.core.origin;
+    const u = globals;
+    // the cars' reflections show the ground they stand on
+    if (this.place === 'garage') carEnvUniforms.uCarGround.value.setRGB(0.3, 0.29, 0.27);
+    else carEnvUniforms.uCarGround.value.setRGB(0.2, 0.21, 0.19);
+    if (!v || !v.sys.dash.lightsOn) {
+      u.uHeadColor.value.setRGB(0, 0, 0);
+      return;
+    }
+    let light = 0;
+    let n = 0;
+    let lx = 0;
+    let ly = 0;
+    for (const m of v.view.frame.mounts) {
+      if (m.cat !== 'headlight') continue;
+      const inst = v.build.parts[m.id];
+      if (!inst) continue;
+      const def = partDef(inst.part);
+      light += (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
+      lx += m.pos.x;
+      ly += m.pos.y;
+      n++;
+    }
+    if (!n) {
+      u.uHeadColor.value.setRGB(0, 0, 0);
+      return;
+    }
+    const sim = v.sim;
+    const b = this.basis;
+    sim.basis(b);
+    // lamp positions are in the frame's model space (origin on the ground): to the body frame (centre of gravity)
+    const cg = v.sys.derived.cg;
+    const bx = lx / n - cg.x;
+    const by = ly / n - cg.y;
+    const pose = v.view.pose;
+    u.uHeadPos.value.set(pose.x + b[0] * bx + b[3] * by - o.x, pose.y + b[1] * bx + b[4] * by - o.y, pose.z + b[2] * bx + b[5] * by - o.z);
+    u.uHeadDir.value.set(b[0] - b[3] * 0.1, b[1] - b[4] * 0.1, b[2] - b[5] * 0.1).normalize();
+    // a pair of stock lamps = the old vehicles' beam; one lamp, weak lamps or a flat battery give less
+    const k = Math.min(2.2, light / 2) * (v.sys.dash.lights === 'high' ? 1.25 : 1) * Math.min(1, v.sys.dash.battery * 4 + (v.sys.running ? 1 : 0));
+    u.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(2.4 * k);
   }
 
   private updateHudBits(): void {

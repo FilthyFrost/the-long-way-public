@@ -127,6 +127,7 @@ export class ModPlayer {
     this.secondary = keys.take;
 
     this.target = this.pick();
+    this.showHighlight();
     this.showGhosts();
     this.act(dt, keys.drop);
     this.ghosts.update(dt);
@@ -263,6 +264,28 @@ export class ModPlayer {
     return best;
   }
 
+  // ------------------------------------------------------------------ highlights
+
+  private litVehicle: ModVehicle | null = null;
+
+  /** the part about to come off (or be sprayed, washed) and the thing about to be picked up light up */
+  private showHighlight(): void {
+    const t = this.target;
+    const v = t && (t.kind === 'part' || (t.kind === 'surface' && t.mount)) ? t.v : null;
+    const mount = t && (t.kind === 'part' || t.kind === 'surface') ? t.mount?.id ?? null : null;
+    if (this.litVehicle && this.litVehicle !== v) this.litVehicle.view.highlight(null);
+    this.litVehicle = v;
+    if (v) v.view.highlight(mount);
+    this.host.loose.highlight(t?.kind === 'loose' || t?.kind === 'looseSub' ? t.loose : null);
+  }
+
+  /** nothing lit (getting in, the walker gone) */
+  clearHighlight(): void {
+    this.litVehicle?.view.highlight(null);
+    this.litVehicle = null;
+    this.host.loose.highlight(null);
+  }
+
   // ------------------------------------------------------------------ ghosts
 
   private showGhosts(): void {
@@ -277,20 +300,25 @@ export class ModPlayer {
     const list: GhostSpec[] = [];
     for (const v of this.near(GHOST_RANGE)) {
       const frame = v.view.frame;
+      const blocked = moving(v);
       if (sub) {
         for (const m of frame.mounts) {
           const inst = v.build.parts[m.id];
           if (!inst || !subMountsOf(partDef(inst.part)).includes(sub)) continue;
-          const node = v.view.nodeOf(m.id);
-          if (!node) continue;
-          list.push({ node, mount: m, partId: def.id, kind: inst.sub[sub] ? 'replace' : 'empty', key: `${v.build.uid}:${m.id}:${sub}:${def.id}` });
+          const holder = v.view.nodeOf(m.id);
+          if (!holder) continue;
+          // on the part's own node (already mirrored with it): a turbo at the engine's M_turbo, a tyre round the rim
+          const node = sub === 'turbo' ? (holder.getObjectByName('M_turbo') ?? holder) : holder;
+          const kind = blocked ? 'blocked' : inst.sub[sub] ? 'replace' : 'empty';
+          list.push({ node, mount: null, partId: def.id, variant: sub === 'tire' ? inst.part : '', kind, key: `${v.build.uid}:${m.id}:${sub}:${def.id}` });
         }
         continue;
       }
       for (const m of mountsFor(frame, def)) {
         const node = v.view.mountNode(m.id);
         if (!node) continue;
-        list.push({ node, mount: m, partId: def.id, kind: v.build.parts[m.id] ? 'replace' : 'empty', key: `${v.build.uid}:${m.id}:${def.id}` });
+        const kind = blocked ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
+        list.push({ node, mount: m, partId: def.id, kind, key: `${v.build.uid}:${m.id}:${def.id}` });
       }
     }
     this.ghosts.show(list);
@@ -376,6 +404,10 @@ export class ModPlayer {
     const held = this.held;
     if (!t) return;
     if ((t.kind === 'ghost' || t.kind === 'looseSub') && held?.kind === 'part' && this.primary) {
+      if (t.kind === 'ghost' && moving(t.v)) {
+        this.progress = 0;
+        return;
+      }
       const need = installSeconds(partDef(held.inst.part));
       this.progress += dt / need;
       if (this.progress >= 1) {
@@ -394,6 +426,10 @@ export class ModPlayer {
       return;
     }
     if (t.kind === 'part' && !held && this.secondary) {
+      if (moving(t.v)) {
+        this.progress = 0;
+        return;
+      }
       const need = installSeconds(partDef(t.v.build.parts[t.mount.id].part));
       this.progress += dt / need;
       if (this.progress >= 1) {
@@ -503,6 +539,11 @@ export class ModPlayer {
           if (held?.kind !== 'part') break;
           const inst = held.inst;
           const verb = t.replace ? '替换' : '装上';
+          if (moving(t.v)) {
+            word = `<b>${name(inst)}</b> · 车在动，停下再装`;
+            card = { ...this.card(t.v, t.mount, t.sub, inst)!, warn: '车在动：先停稳、拉手刹' };
+            break;
+          }
           word = `${verb} <b>${name(inst)}</b> · ${t.mount.label[ui.lang]}<small>按住 E / 左键</small>`;
           card = this.card(t.v, t.mount, t.sub, inst);
           break;
@@ -512,7 +553,9 @@ export class ModPlayer {
           const panel = t.v.view.hasPanel(t.mount.id);
           const seat = t.mount.cat === 'seat' || t.mount.cat === 'steering';
           const e = panel ? (t.v.view.panelOpen(t.mount.id) > 0.5 ? '关上' : '打开') : seat ? '上车' : '';
-          word = `${e ? `${e} · ` : ''}<b>${name(inst)}</b><small>按住右键 拆下</small>`;
+          word = `${e ? `${e} · ` : ''}<b>${name(inst)}</b><small>${moving(t.v) ? '车在动' : '按住右键 拆下'}</small>`;
+          const def = partDef(inst.part);
+          card = { title: def.name[ui.lang], sub: `${def.mass} kg · 车况 ${(inst.cond * 100).toFixed(0)}% · ${t.mount.label[ui.lang]}`, lines: [] };
           break;
         }
         case 'pour': {
@@ -575,6 +618,11 @@ export class ModPlayer {
       heading: this.walker.heading,
     };
   }
+}
+
+/** a vehicle that is rolling cannot be worked on */
+function moving(v: ModVehicle): boolean {
+  return Math.abs(v.sim.kmh) > 1.5;
 }
 
 function partMass(h: Held): number {
