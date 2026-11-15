@@ -1,0 +1,17 @@
+{
+  "set": "modcar_mods",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_v8_scoop", "params": "build=stock:sedan;engine=eng_v8%2Bturbo:turbo_small;hood=hood_scoop;exhaust=exh_side&view=orbit&orbit=30,14,6.5,0.6"},
+    {"name": "sedan_v8_open", "params": "build=stock:sedan;engine=eng_v8;-hood&view=orbit&orbit=20,30,5,0.6"},
+    {"name": "sedan_toilet_cockpit", "params": "build=stock:sedan;seat_driver=seat_toilet;steering=steer_ship&view=cockpit"},
+    {"name": "sedan_tractor", "params": "build=stock:sedan;hub_FL=rim_off16%2Btire:tire_tractor;hub_FR=rim_off16%2Btire:tire_tractor;hub_RL=rim_off16%2Btire:tire_tractor;hub_RR=rim_off16%2Btire:tire_tractor&view=orbit&orbit=60,8,6.5,0.6"},
+    {"name": "sedan_tractor_lock", "params": "build=stock:sedan;hub_FL=rim_off16%2Btire:tire_tractor;hub_FR=rim_off16%2Btire:tire_tractor&view=orbit&orbit=20,20,5,0.4", "steps": [{"call": "drive", "args": [0.6, 0, 1, 0]}]},
+    {"name": "pickup_apoc", "params": "build=stock:pickup;bumperFront=bf_ram;roof=roof_spikes;armor_L=arm_plates;armor_R=arm_plates;door_FL=door_armor;door_FR=door_cage;hood=hood_armor&view=orbit&orbit=35,10,8,0.8"},
+    {"name": "moto_v8", "params": "build=stock:moto;engine=eng_v8;exhaust=exh_side&view=orbit&orbit=80,6,4.5,0.7"},
+    {"name": "moto_mower", "params": "build=stock:moto;engine=eng_mower;seat_driver=seat_crate&view=orbit&orbit=60,10,4,0.6"},
+    {"name": "sedan_fridge_doors", "params": "build=stock:sedan;door_FL=door_fridge;door_RL=door_rusty&view=orbit&orbit=-60,8,6,0.6"},
+    {"name": "sedan_lightbar_night", "params": "build=stock:sedan;roof=roof_lightbar;headlight_L=hl_spot;headlight_R=hl_spot&view=orbit&orbit=200,12,9,0.6&time=22", "steps": [{"call": "lights", "args": []}]}
+  ]
+}

@@ -127,6 +127,19 @@ try {
     },
     (t, r) => r.after < r.before - 0.1 && t.held === '',
   );
+  // what went under the bonnet is in: shut it again (it fills the windscreen)
+  await step(
+    '05f_shut_hood',
+    async () => {
+      await rt('aim', 0, 'hood', 1.5);
+      const h = await rt('telemetry');
+      if (!String(h.target).endsWith(':hood')) throw new Error(`not aimed at the bonnet (target ${h.target})`);
+      await rt('press');
+      await rt('simulate', 0.8);
+      return page.evaluate(() => window.__rt.game.vehicles[0].view.panelOpen('hood'));
+    },
+    (t, open) => open < 0.05 && done(t, 'shut'),
+  );
   // the workshop's big doors are shut but for a crack: the button beside them opens them
   await step(
     '05b_open_door',

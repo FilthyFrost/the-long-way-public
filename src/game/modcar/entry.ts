@@ -74,7 +74,10 @@ const rt = {
     if (!n) return false;
     game.simulate(0);
     n.updateWorldMatrix(true, false);
-    const p = n.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(game.core.origin.x, game.core.origin.y, game.core.origin.z));
+    // (a panel: its middle as it stands, open or shut, not its hinge)
+    v.view.model.updateMatrixWorld(true);
+    const box = v.view.panelBox(mount);
+    const p = (box ? box.getCenter(new THREE.Vector3()) : n.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(game.core.origin.x, game.core.origin.y, game.core.origin.z));
     const b = new Float64Array(9);
     v.sim.basis(b);
     // from the side the mount is on (or in front / behind for centre mounts)

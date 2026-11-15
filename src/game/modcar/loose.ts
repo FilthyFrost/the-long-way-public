@@ -11,7 +11,7 @@ import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
 import type { CarLook } from '../render/carMaterials';
 import { MergedCar } from '../render/carMerge';
-import { cloneModel, partModel, seatTyres } from './assets';
+import { cloneModel, partModel, seatTyres, toolGlb } from './assets';
 import { applyMaterials, type CarMaterials, type LookOf } from './materials';
 
 export interface Loose {
@@ -174,11 +174,22 @@ export class LooseThings {
 
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
     const l = this.make(null, tool, x, y, z, yaw);
+    const look = this.mats.look(ownerOf(l), { paint: toolPaint(tool), paint2: toolPaint(tool) });
     const obj = toolModel(tool);
-    applyMaterials(obj, this.mats.look(ownerOf(l), { paint: toolPaint(tool), paint2: toolPaint(tool) }));
+    applyMaterials(obj, look);
     l.obj.add(obj);
     this.mergeDirty = true;
     this.measure(l);
+    // its own model, when there is one, takes the stand-in's place
+    void this.track(toolGlb(tool.kind)).then((m) => {
+      if (!m || !this.list.includes(l)) return;
+      const real = cloneModel(m);
+      applyMaterials(real, look);
+      obj.removeFromParent();
+      l.obj.add(real);
+      this.unmerge();
+      this.measure(l);
+    });
     return l;
   }
 

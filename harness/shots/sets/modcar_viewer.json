@@ -78,6 +78,10 @@
     {"name": "rain34", "params": "weather=rain&orbit=35,9,7.2,0.65"},
     {"name": "rain_hood", "params": "weather=rain&orbit=20,26,2.8,0.9&target=1.2,0.8,0"},
     {"name": "rain_glass", "params": "weather=rain&orbit=60,14,3.0,1.1&target=-0.3,1.1,0.6"},
-    {"name": "snow34", "params": "weather=snow&orbit=35,20,7.2,0.65"}
+    {"name": "snow34", "params": "weather=snow&orbit=35,20,7.2,0.65"},
+    {"name": "sedan_front34", "params": "glb=frames/sedan&orbit=35,9,6.5,0.65"},
+    {"name": "sedan_rear34", "params": "glb=frames/sedan&orbit=215,10,6.5,0.65"},
+    {"name": "sedan_side", "params": "glb=frames/sedan&orbit=90,4,6.5,0.65"},
+    {"name": "sedan_world34", "params": "glb=frames/sedan&stage=world&seed=7&s=3180&orbit=36,9,7,0.8"}
   ]
 }

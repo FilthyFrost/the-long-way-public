@@ -218,6 +218,55 @@ export function cloneModel(m: Model): THREE.Group {
   return m.scene.clone(true);
 }
 
+const tools = new Map<string, Promise<Model | null>>();
+/**
+ * A tool's own model (tools/<kind>.glb: the jerrycan, bottle, oil can, spray can, sponge), or null while
+ * it has none (loose.ts toolModel draws a stand-in). Its body is the `paint` material: the look gives a
+ * petrol can red, a diesel one green, a spray can its colour.
+ */
+export function toolGlb(kind: string): Promise<Model | null> {
+  let p = tools.get(kind);
+  if (!p) {
+    p = fetchGlb(`${BASE}tools/${kind}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    tools.set(kind, p);
+  }
+  return p;
+}
+
+/**
+ * How a stretch part takes a mount's fit box [length, width, height] (m) from the box it was modelled
+ * for (its `fit_nominal`, else its bounds): along an axis it fills, it is scaled; a thing that holds only
+ * a piece of its box there (a light bar on the front edge of a roof) keeps its size and moves with that
+ * edge. Thin things keep their thickness (a bumper's depth, an armour plate's).
+ * Apply as `obj.scale.multiply(scale)` and `obj.position.add(shift)` (shift in the holder's frame, so
+ * mirror its z with the part).
+ */
+export function stretchFit(m: Model, fit: [number, number, number]): { scale: THREE.Vector3; shift: THREE.Vector3 } {
+  let nominal: number[] | undefined;
+  m.scene.traverse((o) => {
+    nominal ??= o.userData.fit_nominal as number[] | undefined;
+  });
+  const size = m.box.getSize(new THREE.Vector3());
+  const centre = m.box.getCenter(new THREE.Vector3());
+  // model axes x, y, z against the fit's length, height, width
+  const n = nominal ? [nominal[0], nominal[2], nominal[1]] : [size.x, size.y, size.z];
+  const f = [fit[0], fit[2], fit[1]];
+  const have = [size.x, size.y, size.z];
+  const at = [centre.x, centre.y, centre.z];
+  const scale = [1, 1, 1];
+  const shift = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    if (n[i] <= 0.01) continue;
+    // thin along the length or across: keeps its thickness
+    if (i !== 1 && f[i] < 0.3) continue;
+    const k = f[i] / n[i];
+    // (upwards a part stands on its mount: it is always scaled)
+    if (i === 1 || have[i] >= 0.5 * n[i]) scale[i] = k;
+    else shift[i] = at[i] * (k - 1);
+  }
+  return { scale: new THREE.Vector3(...scale), shift: new THREE.Vector3(...shift) };
+}
+
 /** load everything a list of parts needs, ahead of time (the garage at the start) */
 export function preload(partIds: Iterable<string>): Promise<unknown> {
   return Promise.all([...new Set(partIds)].map((id) => partModel(id)));

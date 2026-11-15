@@ -115,7 +115,7 @@ PEG = np.array([-0.150, 0.0, 0.322])
 PEDAL_PIVOT = np.array([-0.112, -0.1375, 0.318])
 SHIFT_PIVOT = np.array([-0.112, 0.1495, 0.318])
 PEG_P = np.array([-0.492, 0.0, 0.534])
-STAND_PIVOT = np.array([-0.052, 0.104, 0.200])
+STAND_PIVOT = np.array([-0.052, 0.106, 0.214])
 # horn: on a tab under the lower clamp's right boss, hanging (the part is turned over: its foot on top)
 HORN = tube_pt(t_at_z(0.686), -1.0) + np.array([0.034, -0.064, -0.071])
 
@@ -127,9 +127,9 @@ BUMPER_F = np.array([0.995, 0.0, 0.500])
 BUMPER_R = np.array([-1.075, 0.0, 0.360])
 # side stand: pivot, the foot (deployed, bike upright) and the fold (a single turn takes the leg back along
 # the left cradle rail)
-STAND_FOOT = np.array([-0.022, 0.250, 0.010])
+STAND_FOOT = np.array([-0.020, 0.258, 0.010])
 _d1 = (STAND_FOOT - STAND_PIVOT) / np.linalg.norm(STAND_FOOT - STAND_PIVOT)
-_d2 = np.array([-1.0, 0.06, 0.035]) / np.linalg.norm([-1.0, 0.06, 0.035])
+_d2 = np.array([-1.0, 0.075, 0.10]) / np.linalg.norm([-1.0, 0.075, 0.10])
 STAND_AXIS = np.cross(_d1, _d2) / np.linalg.norm(np.cross(_d1, _d2))
 STAND_FOLD_DEG = math.degrees(math.acos(float(np.clip(_d1 @ _d2, -1, 1))))
 # round lenses (centre, axis, radius) registered while modelling, for their UVs
@@ -141,10 +141,13 @@ def rider_eye():
     return np.array([D['seat_x'] + 0.06, 0.0, D['seat_z'] + 0.84])
 
 
+DIAL_R = 0.0355
+
+
 def gauge_frame(sg):
     """Speedometer (sg = +1, left) or tachometer (-1): dial centre (glass plane), normal towards the rider,
     the dial's right (the rider's right, -Y) and up (its far edge) as the rider sees it."""
-    c = STEER_MOUNT + fork_frame() @ np.array([0.066, sg * 0.0675, 0.080])
+    c = STEER_MOUNT + fork_frame() @ np.array([0.064, sg * 0.0705, 0.082])
     nrm = rider_eye() - c
     nrm[1] = 0.0
     nrm = unit(nrm)
@@ -153,17 +156,11 @@ def gauge_frame(sg):
     return c, nrm, right, up
 
 
-def console_frame():
-    """The warning-lamp console between the dials (same facing)."""
-    c0, nrm, right, up = gauge_frame(1.0)
-    c = STEER_MOUNT + fork_frame() @ np.array([0.058, 0.0, 0.083])
-    return c, nrm, right, up
-
-
 def ignition_frame():
-    """Ignition (key) under the console, its bezel facing the rider: part local -X towards the eye."""
-    c0, nrm, right, up = console_frame()
-    c = c0 - up * 0.042 - nrm * 0.010
+    """Ignition (key) between the instrument cans, its bezel facing the rider (part local -X towards the eye),
+    the key standing up the dial's 'up' (clear of the bar behind)."""
+    c0, nrm, right, up = gauge_frame(1.0)
+    c = STEER_MOUNT + fork_frame() @ np.array([0.058, 0.0, 0.076])
     return c, nrm, right, up
 
 
@@ -199,5 +196,9 @@ def main(args):
         MB.fit(args)
     elif '--kit' in args:
         MB.kit_test(args)
+    elif '--review' in args:
+        MB.review(args)
+    elif '--motion' in args:
+        MB.motion(args)
     else:
         MB.build(args)

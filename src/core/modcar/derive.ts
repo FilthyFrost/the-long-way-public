@@ -404,6 +404,9 @@ export function derive(build: Build): Derived {
   const eyeBack = geoEye ? -geoEye[0] : (seat?.seat?.eyeBack ?? 0);
   const eyeSide = geoEye ? (seatMount && seatMount.side > 0 ? -geoEye[2] : geoEye[2]) : 0;
   const eyeModel = seatMount ? { x: seatMount.pos.x - eyeBack, y: seatMount.pos.y + eyeUp, z: seatMount.pos.z + eyeSide } : { x: 0, y: 1.2, z: 0 };
+  // on a tall seat (a toilet, an office chair) in a closed cab the head stops at the roof lining: one sits
+  // hunched, the eye a hand below it
+  if (!frame.balance && frame.enclosed > 0) eyeModel.y = Math.min(eyeModel.y, frame.body.top - 0.18);
 
   const st = steering?.def.steering;
 

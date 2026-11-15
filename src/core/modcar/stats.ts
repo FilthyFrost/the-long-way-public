@@ -27,7 +27,17 @@ export interface Perf {
   handling: number;
   /** peak power (kW) */
   power: number;
+  /** why it cannot drive at all (then t100, vmax and fuel mean nothing) */
+  why?: 'engine' | 'gearbox' | 'wheels' | 'other';
 }
+
+/** what is missing, for the card */
+export const WHY: Record<NonNullable<Perf['why']>, { zh: string; en: string }> = {
+  engine: { zh: '缺发动机', en: 'no engine' },
+  gearbox: { zh: '缺变速箱', en: 'no gearbox' },
+  wheels: { zh: '驱动轮没着地', en: 'no driven wheel down' },
+  other: { zh: '开不动', en: "won't drive" },
+};
 
 function torqueAt(curve: [number, number][], rpm: number): number {
   if (rpm <= curve[0][0]) return curve[0][1];
@@ -68,7 +78,10 @@ export function quickPerf(d: Derived, canDrive = true): Perf {
   const tip = Math.max(0, s.cgHeight / track - 0.42);
   const handling = Math.max(0, Math.min(100, 100 * Math.pow(grip, 0.6) * Math.pow(rate / 1.9, 0.25) * Math.pow(1300 / M, 0.15) / (1 + 2.2 * tip) * (d.frame.balance ? 1.05 : 1)));
   const power = d.peakKw;
-  if (!canDrive || traction <= 0 || power <= 0 || !d.gearbox) return { t100: null, vmax: 0, fuel: 0, mass: M, grip, handling, power };
+  if (!canDrive || traction <= 0 || power <= 0 || !d.gearbox) {
+    const why = power <= 0 ? 'engine' : !d.gearbox ? 'gearbox' : traction <= 0 ? 'wheels' : 'other';
+    return { t100: null, vmax: 0, fuel: 0, mass: M, grip, handling, power, why };
+  }
 
   const k = (60 / (2 * Math.PI)) * gb.final;
   let v = 0.05;
@@ -105,10 +118,13 @@ export function quickPerf(d: Derived, canDrive = true): Perf {
 }
 
 export interface StatLine {
-  key: 'accel' | 'top' | 'fuel' | 'mass' | 'grip' | 'handling';
+  key: 'accel' | 'top' | 'fuel' | 'mass' | 'grip' | 'handling' | 'drive';
   label: { zh: string; en: string };
-  before: string;
-  after: string;
+  /** the value as shown (a number with its unit, or what is missing) */
+  before: string | { zh: string; en: string };
+  after: string | { zh: string; en: string };
+  /** a line that only says something (no before → after) */
+  note?: boolean;
   /** −1 worse, 0 same, +1 better */
   better: -1 | 0 | 1;
   /** relative change (after / before − 1), NaN when not comparable */
@@ -119,24 +135,33 @@ const fmt = (v: number | null, digits: number, unit: string): string => (v === n
 
 /** the six lines of the stat card: this build now, and with that part on that mount */
 export function compare(before: Perf, after: Perf): StatLine[] {
-  const line = (key: StatLine['key'], zh: string, en: string, a: number | null, b: number | null, digits: number, unit: string, higherBetter: boolean): StatLine => {
+  const line = (key: StatLine['key'], zh: string, en: string, a: number | null, b: number | null, digits: number, unit: string, higherBetter: boolean, driving = false): StatLine => {
     let change = NaN;
     let better: StatLine['better'] = 0;
-    if (a !== null && b !== null && a > 0) {
+    // (a line about driving: a build that cannot drive shows what it lacks, and gaining it is better)
+    const wa = driving && before.why ? WHY[before.why] : null;
+    const wb = driving && after.why ? WHY[after.why] : null;
+    if (wa || wb) better = wa && !wb ? 1 : !wa && wb ? -1 : 0;
+    else if (a !== null && b !== null && a > 0) {
       change = b / a - 1;
       if (Math.abs(change) > 0.015) better = (change > 0) === higherBetter ? 1 : -1;
     } else if (a === null && b !== null) better = higherBetter ? -1 : 1;
     else if (a !== null && b === null) better = higherBetter ? 1 : -1;
-    return { key, label: { zh, en }, before: fmt(a, digits, unit), after: fmt(b, digits, unit), better, change };
+    return { key, label: { zh, en }, before: wa ?? fmt(a, digits, unit), after: wb ?? fmt(b, digits, unit), better, change };
   };
-  return [
-    // a quicker 0–100 is a smaller number: treat "never" as infinitely slow
-    line('accel', '0–100', '0–100', before.t100, after.t100, 1, ' s', false),
-    line('top', '极速', 'Top speed', before.vmax, after.vmax, 0, ' km/h', true),
-    line('fuel', '油耗', 'Fuel', before.fuel, after.fuel, 1, ' L', false),
+  const rest = [
     line('mass', '重量', 'Weight', before.mass, after.mass, 0, ' kg', false),
     line('grip', '抓地', 'Grip', before.grip, after.grip, 2, ' g', true),
     line('handling', '操控', 'Handling', before.handling, after.handling, 0, '', true),
+  ];
+  // neither way can it drive: say once what it lacks instead of three empty lines
+  if (before.why && after.why) return [{ key: 'drive', label: { zh: '还开不动', en: "Won't drive" }, before: WHY[after.why], after: WHY[after.why], better: 0, change: NaN, note: true }, ...rest];
+  return [
+    // a quicker 0–100 is a smaller number: treat "never" as infinitely slow
+    line('accel', '0–100', '0–100', before.t100, after.t100, 1, ' s', false, true),
+    line('top', '极速', 'Top speed', before.vmax, after.vmax, 0, ' km/h', true, true),
+    line('fuel', '油耗', 'Fuel', before.fuel, after.fuel, 1, ' L/100km', false, true),
+    ...rest,
   ];
 }
 

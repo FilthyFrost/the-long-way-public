@@ -194,6 +194,7 @@ export const PICKUP: FrameDef = {
   chase: { dist: 6.2, height: 2.1, look: 1.0 },
   mounts: readMounts(pickupMounts as MountTable),
   rig: readRig(pickupMounts as MountTable),
+  bare: ['seat_rear'],
 };
 
 export const MOTO: FrameDef = {
