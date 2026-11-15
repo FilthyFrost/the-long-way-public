@@ -25,6 +25,8 @@ interface MountJson {
   panel?: string;
   hinge?: string;
   open_deg?: number;
+  /** seats: the floor under the cushion (a seat part's origin is its floor attachment) */
+  floor_z?: number;
 }
 
 interface MountTable {
@@ -109,7 +111,8 @@ function readMounts(t: MountTable): MountDef[] {
     out.push({
       id,
       cat,
-      pos: { x: m.pos[0], y: m.pos[1], z: m.pos[2] },
+      // a seat stands on the floor (its part's origin), whatever height the frame marks its cushion at
+      pos: { x: m.pos[0], y: cat === 'seat' && m.floor_z !== undefined ? m.floor_z : m.pos[1], z: m.pos[2] },
       quat: [m.quat[0] ?? 0, m.quat[1] ?? 0, m.quat[2] ?? 0, m.quat[3] ?? 1],
       side,
       label: labelFor(id, cat),
