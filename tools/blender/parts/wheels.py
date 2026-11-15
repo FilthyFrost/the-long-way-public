@@ -470,11 +470,120 @@ def build_rim_cart(P):
     P.views = [('a', -52, 12), ('b', 160, 14)]
 
 
+def build_rim_moto18(P):
+    """An 18-inch spoked motorcycle rim: chrome rim, alloy hub with a drum on the +Y side, 36 laced spokes
+    with nipples, axle spacers."""
+    S = RIMS['rim_moto18']
+    R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
+    barrel(P, R, w, fh, t, dc=0.012, well_off=0.0, segs=40, material='chrome')
+    # hub: drum side (+Y) bigger
+    hub = [(0.012, -0.068), (0.03, -0.068), (0.036, -0.06), (0.062, -0.052), (0.066, -0.042), (0.05, -0.036),
+           (0.045, 0.0), (0.05, 0.03), (0.075, 0.036), (0.078, 0.05), (0.07, 0.058), (0.03, 0.062), (0.012, 0.062)]
+    P.lathe('hub', hub, material='alu', axis='Y', segs=24, sharp=40.0)
+    for i in range(6):
+        a = math.tau * i / 6
+        P.box('drum_fin', (0.006, 0.02, 0.01), (0.072 * math.cos(a), 0.046, 0.072 * math.sin(a)), 'alu',
+              rot=(0, -math.degrees(a), 0), bev=None)
+    P.cyl('axle', 0.011, 0.16, (0, 0, 0), 'steel', axis='Y', segs=10, bev=None)
+    for sg in (-1, 1):
+        P.cyl('axle_nut', 0.017, 0.012, (0, sg * 0.075, 0), 'steel', axis='Y', segs=6, bev=None)
+    # spokes: 18 per side, alternating leading / trailing
+    bm = bmesh.new()
+    nip = bmesh.new()
+    rh, rr = 0.06, R - 0.012
+    for side in (-1, 1):
+        yh = side * 0.043
+        for i in range(18):
+            a = math.tau * (i + (0.5 if side > 0 else 0.0)) / 18
+            off = math.radians(66) * (1 if i % 2 == 0 else -1)
+            p0 = V((rh * math.cos(a), yh, rh * math.sin(a)))
+            p1 = V((rr * math.cos(a + off), side * 0.006, rr * math.sin(a + off)))
+            K.bm_sweep(bm, [p0, p1], 0.0024, segs=3, caps=False)
+            d = (p1 - p0).normalized()
+            m = Matrix.Translation(p1 - d * 0.006) @ K.axis_matrix(d)
+            K.bm_cyl(nip, 0.0042, 0.014, segs=6, matrix=m)
+    P.mesh('spokes', bm, 'steel', sharp=80.0, wn=False)
+    P.mesh('nipples', nip, 'chrome', sharp=50.0)
+    valve(P, R - 0.01, 0.0, a=math.radians(10))
+    P.empty('M_tire', (0, 0, 0))
+    P.info.update({'radius': R, 'width': w, 'tire': True})
+    P.ao_distance = 0.05
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
+def truck_disc(P, R, yf, hand_holes=6, lugs=8, pcd=0.0825, cap=True, material='steel', facing=1, nut_mat='chrome'):
+    """A truck wheel centre: flat hub pad with the lugs, a stepped disc with hand holes, welded into the well.
+    facing = +1 the face looks to +Y, -1 to -Y (the inner wheel of a dually)."""
+    th = 0.006
+    f = facing
+    prof = [(0.06, yf), (0.105, yf), (0.118, yf - f * 0.008), (0.135, yf - f * 0.012), (0.17, yf - f * 0.018),
+            (0.195, yf - f * 0.026), (0.212, yf - f * 0.034)]
+    rings = [(r, z, z - f * th) if f > 0 else (r, z + th, z) for (r, z) in prof]
+    ns = 36
+    P.polar('disc', rings, lambda k: [math.tau * (j + 0.5) / ns for j in range(ns)],
+            hole=lambda k, j: k == 3 and (j % (ns // hand_holes)) in (0, 1, 2), material=material, axis='Y',
+            bev=0.002, bsegs=1)
+    nut_y = yf + f * 0.0005
+    if f > 0:
+        lug_nuts(P, lugs, pcd, nut_y, r_nut=0.0125, h=0.022, material=nut_mat, a0=math.tau / lugs / 2)
+    if cap:
+        capp = [(0.0, yf + f * 0.06), (0.03, yf + f * 0.057), (0.048, yf + f * 0.044), (0.056, yf + f * 0.02),
+                (0.058, yf)]
+        P.lathe('cap', capp[::-1] if f > 0 else capp, material='chrome', axis='Y', segs=24, close='start' if f > 0
+                else 'end', sharp=50.0)
+
+
+def build_rim_truck19(P):
+    """A 19.5-inch truck steel wheel (the motorhome's front): eight big nuts, six hand holes, chrome hub cap."""
+    S = RIMS['rim_truck19']
+    R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
+    barrel(P, R, w, fh, t, dc=0.03, well_off=0.02, segs=36, material='steel')
+    truck_disc(P, R, 0.03)
+    valve(P, R - 0.015, 0.01, a=math.radians(200))
+    P.empty('M_tire', (0, 0, 0))
+    P.info.update({'radius': R, 'width': w, 'tire': True})
+    P.ao_distance = 0.07
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
+def build_rim_dually(P):
+    """Dual rear wheels: an outer rim dished outwards and an inner rim dished inwards, bolted back to back
+    on the hub face (the origin); M_tire on the outer rim, M_tire2 on the inner. A valve extension from the
+    inner wheel pokes out through a hand hole."""
+    S = RIMS['rim_dually']
+    R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
+    yo = 0.135
+    for (yc, f) in ((yo, 1), (-yo, -1)):
+        o = barrel(P, R, w, fh, t, dc=0.03, well_off=0.02 * f, segs=36, material='steel')
+        o.data.transform(Matrix.Translation((0, yc, 0)))
+    # the outer wheel's disc sits near the hub face, its dish reaching out to the outer rim's well
+    truck_disc(P, R, 0.02, cap=True)
+    truck_disc(P, R, -0.02, cap=False, facing=-1)
+    # spacer ring between the two discs (the hub face)
+    P.cyl('spacer', 0.105, 0.04, (0, 0, 0), 'steel', axis='Y', segs=28, bev=0.003, bsegs=1)
+    # valve extension from the inner rim through the outer disc
+    a = math.radians(30)
+    c, s = math.cos(a), math.sin(a)
+    P.tube('valve_ext', [(0.21 * c, -0.10, 0.21 * s), (0.15 * c, -0.02, 0.15 * s), (0.15 * c, 0.05, 0.15 * s)],
+           0.0035, 'steel', segs=6, bend=0.03)
+    P.cyl('valve_cap', 0.005, 0.012, (0.15 * c, 0.058, 0.15 * s), 'chrome', axis='Y', segs=8, bev=None)
+    valve(P, R - 0.015, yo + 0.0, a=math.radians(200))
+    P.empty('M_tire', (0, yo, 0))
+    P.empty('M_tire2', (0, -yo, 0))
+    P.info.update({'radius': R, 'width': 0.42, 'tire': True, 'dual': True, 'rim_width_each': w,
+                   'tire_offsets': [yo, -yo]})
+    P.ao_distance = 0.08
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
 PARTS = {
     'rim_steel13': build_rim_steel13,
     'rim_alloy15': build_rim_alloy15,
     'rim_off16': build_rim_off16,
     'rim_cart': build_rim_cart,
+    'rim_moto18': build_rim_moto18,
+    'rim_truck19': build_rim_truck19,
+    'rim_dually': build_rim_dually,
 }
 for _tid in TYRES:
     PARTS[_tid] = tyre_builder(_tid, 'rim_steel13')

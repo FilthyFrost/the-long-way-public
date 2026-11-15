@@ -270,10 +270,120 @@ def build_tank_drum(P):
     P.views = [('a', 35, 18), ('b', 215, 18)]
 
 
+def build_rad_small(P):
+    radiator(P, W=0.42, H=0.27, D=0.04, fins=20)
+
+
+def build_rad_big(P):
+    radiator(P, W=0.72, H=0.48, D=0.06, fins=34, fan=True)
+
+
+def moto_tank_section(w, h, zb=0.02, tw=0.075, th=0.085, n=14, scallop=0.0):
+    """A motorcycle tank cross-section (y, z): an arch over the top and a tunnel underneath for the frame."""
+    pts = []
+    for i in range(n + 1):
+        t = i / n
+        a = math.pi * (t - 0.5)
+        y = (w / 2) * math.sin(a)
+        c = math.cos(a)
+        z = zb + (h - zb) * (c ** 0.5 if c > 0 else 0.0)
+        # knee scallop: pull the middle of the flanks in
+        k = math.exp(-((abs(a) - 1.05) / 0.32) ** 2)
+        y *= 1 - scallop * k
+        pts.append((y, z))
+    pts += [(tw / 2, zb), (tw / 2 * 0.9, th), (-tw / 2 * 0.9, th), (-tw / 2, zb)]
+    # counter-clockwise seen from +X: the arch runs from -Y over the top to +Y: that is clockwise; reverse
+    return list(reversed(pts))
+
+
+def build_tank_moto(P):
+    """A 13 L motorcycle tank: teardrop with knee scallops, a frame tunnel underneath, chrome filler cap,
+    a two-tone stripe, the fuel tap and hose under the rear."""
+    P.ao_distance = 0.06
+    stations = [(-0.25, 0.10, 0.12, 0.0), (-0.21, 0.17, 0.17, 0.0), (-0.13, 0.24, 0.215, 0.12),
+                (-0.04, 0.29, 0.24, 0.14), (0.06, 0.30, 0.25, 0.04), (0.15, 0.28, 0.24, 0.0),
+                (0.21, 0.23, 0.21, 0.0), (0.25, 0.16, 0.16, 0.0)]
+    rings = [K.section_x(moto_tank_section(w, h, scallop=sc), x) for (x, w, h, sc) in stations]
+    bm = bmesh.new()
+    vr, faces = K.bm_loft(bm, rings, cap_start=True, cap_end=True)
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    # two-tone stripe: a band of the arch on both flanks (section points 2-3 and 11-12 of the reversed arch),
+    # over the middle stations
+    n_arch = 15
+    m = len(rings[0])
+    for f in faces:
+        if len(f.verts) != 4:
+            continue
+        idx = sorted({vr_index for vr_index in range(m) for ring in vr if any(v is ring[vr_index] for v in f.verts)})
+        xs = [v.co.x for v in f.verts]
+        if -0.135 < min(xs) and max(xs) < -0.035 and idx in ([5, 6], [16, 17]):
+            f.material_index = 2
+            continue
+        if not (-0.17 < min(xs) and max(xs) < 0.22):
+            continue
+        if idx in ([6, 7], [15, 16]):
+            f.material_index = 1
+    o = P.mesh('tank', bm, ['paint', 'paint_b', 'rubber'], sharp=60.0)
+    P.cfg[o.name]['sub'] = 1
+    # filler cap
+    P.lathe('cap', [(0.0, 0.016), (0.03, 0.015), (0.038, 0.008), (0.04, 0.0), (0.034, -0.004)][::-1],
+            loc=(0.07, 0.0, 0.248), material='chrome', segs=20, close='start', sharp=50.0)
+    P.box('cap_hinge', (0.02, 0.016, 0.01), (0.03, 0.0, 0.252), 'chrome', bev=0.002, segs=1)
+    # mounting rubbers at the front, fuel tap and hose at the rear
+    for sg in (-1, 1):
+        P.cyl('rubber', 0.012, 0.02, (0.18, sg * 0.045, 0.03), 'rubber', axis='Y', segs=10, bev=0.002, bsegs=1)
+    P.box('tap', (0.03, 0.025, 0.035), (-0.17, 0.05, 0.005), 'chrome', bev=0.004, segs=1)
+    P.box('tap_lever', (0.008, 0.04, 0.01), (-0.17, 0.075, 0.0), 'trim', bev=0.002, segs=1)
+    P.tube('hose', [(-0.17, 0.05, -0.012), (-0.15, 0.04, -0.06), (-0.08, 0.02, -0.08)], 0.006, 'rubber', segs=6,
+           bend=0.03)
+    P.views = [('a', 35, 20), ('b', 215, 20)]
+
+
+def build_tank_big(P):
+    """A 90 L motorhome tank: a deep steel box with pressed beads, the filler neck on the side, two straps
+    hanging from brackets, the sender and lines, a drain plug."""
+    P.ao_distance = 0.10
+    L, W, H = 0.98, 0.52, 0.30
+    bm = bmesh.new()
+    K.bm_cube(bm, (L, W, H), mat4((0, 0, H / 2 + 0.01)))
+    P.mesh('body', bm, 'steel', bev=0.04, segs=3)
+    P.box('seam', (L + 0.024, W + 0.024, 0.012), (0, 0, H * 0.5), 'steel', bev=0.003, segs=1)
+    for x in (-0.3, 0.0, 0.3):
+        P.pillow('bead', (0.05, W * 0.8, 0.014), (x, 0.0, H + 0.008), 'steel', r=0.006, sub=1)
+        for sg in (-1, 1):
+            P.pillow('bead_s', (0.05, 0.014, H * 0.6), (x, sg * (W / 2 + 0.006), H * 0.55), 'steel', r=0.006, sub=1)
+    base = V((-L * 0.3, W / 2 + 0.005, H * 0.75))
+    P.tube('filler', [base, base + V((0, 0.05, 0.02)), base + V((0.02, 0.10, 0.10))], 0.035, 'steel', segs=14,
+           bend=0.05)
+    top = base + V((0.02, 0.10, 0.10))
+    P.cyl('filler_cap', 0.045, 0.03, tuple(top + V((0, 0.005, 0.012))), 'trim', rot=(-45, 0, 0), segs=16,
+          bev=0.005, bsegs=1)
+    sx, sy = L * 0.25, -W * 0.15
+    P.cyl('sender', 0.06, 0.01, (sx, sy, H + 0.015), 'alu', segs=18, bev=0.002, bsegs=1)
+    P.tube('fuel_out', [(sx + 0.02, sy, H + 0.02), (sx + 0.02, sy, H + 0.05), (L / 2 + 0.06, sy - 0.03, H + 0.03)],
+           0.006, 'steel', segs=6, bend=0.03)
+    P.cyl('drain', 0.014, 0.012, (-L * 0.4, 0.0, 0.006), 'steel', segs=6, bev=None)
+    for x in (-L * 0.28, L * 0.28):
+        P.tube('strap', [(x, -W / 2 - 0.035, H + 0.06), (x, -W / 2 - 0.035, 0.03), (x, -W / 2 + 0.03, -0.008),
+                         (x, W / 2 - 0.03, -0.008), (x, W / 2 + 0.035, 0.03), (x, W / 2 + 0.035, H + 0.06)],
+               1.0, 'trim', profile=[(-0.025, -0.003), (0.025, -0.003), (0.025, 0.003), (-0.025, 0.003)],
+               bend=0.03, caps=True, sharp=60.0)
+        for sg in (-1, 1):
+            P.box('hanger', (0.06, 0.05, 0.05), (x, sg * (W / 2 + 0.04), H + 0.085), 'steel', bev=0.005, segs=1)
+            P.bolt((x, sg * (W / 2 + 0.066), H + 0.085), normal=(0, sg, 0), r=0.008, h=0.006)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
 PARTS = {
     'bat_std': build_bat_std,
+    'bat_moto': build_bat_moto,
+    'bat_truck': build_bat_truck,
     'rad_std': build_rad_std,
+    'rad_small': build_rad_small,
+    'rad_big': build_rad_big,
     'tank_std': build_tank_std,
+    'tank_moto': build_tank_moto,
+    'tank_big': build_tank_big,
     'tank_drum': build_tank_drum,
 }
 
