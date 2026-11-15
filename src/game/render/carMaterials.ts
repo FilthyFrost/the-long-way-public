@@ -384,10 +384,12 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   // returns the bead's cover; light.x = the fleck, light.y = the glow in its lower edge
   float rtBeads(vec3 p, vec3 n, float amount, float dist, out vec2 light) {
     light = vec2(0.0);
-    float near = 1.0 - smoothstep(2.2, 4.5, dist);
-    if (near <= 0.0) return 0.0;
     vec3 a = abs(n);
     vec2 q = a.y > max(a.x, a.z) ? p.xz : (a.x > a.z ? p.zy : p.xy);
+    // (how much of the face one pixel spans, taken before any branch: a derivative needs the whole quad)
+    float px = length(fwidth(q));
+    float near = 1.0 - smoothstep(2.2, 4.5, dist);
+    if (near <= 0.0) return 0.0;
     float cover = 0.0;
     for (int k = 0; k < 2; k++) {
       float cells = k == 0 ? 30.0 : 19.0;
@@ -395,19 +397,18 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       vec4 h = rtHash4(floor(g));
       vec2 f = fract(g);
       // (fewer, bigger beads in the second grid; more of both the wetter it is)
-      if (h.z < amount * (k == 0 ? 0.42 : 0.28)) {
-        vec2 c = 0.3 + 0.4 * h.xy;
-        float r = mix(0.13, 0.27, h.w);
-        vec2 o = (f - c) / r;
-        float d = length(o);
-        float w = fwidth(d) * 0.8 + 0.03;
-        float b = 1.0 - smoothstep(1.0 - w, 1.0 + w, d);
-        cover = max(cover, b);
-        float fd = length(o - vec2(-0.3, 0.36)) / 0.26;
-        float fw = fwidth(fd) * 0.8 + 0.03;
-        light.x = max(light.x, 1.0 - smoothstep(1.0 - fw, 1.0 + fw, fd));
-        light.y = max(light.y, b * smoothstep(0.45, 0.85, d) * smoothstep(0.1, 0.7, -o.y));
-      }
+      float here = step(h.z, amount * (k == 0 ? 0.42 : 0.28));
+      vec2 c = 0.3 + 0.4 * h.xy;
+      float r = mix(0.13, 0.27, h.w);
+      vec2 o = (f - c) / r;
+      float d = length(o);
+      float pw = px * cells / r * 0.6;
+      float b = (1.0 - smoothstep(0.97 - pw, 1.03 + pw, d)) * here;
+      cover = max(cover, b);
+      float fd = length(o - vec2(-0.3, 0.36)) / 0.26;
+      float fw = pw / 0.26 + 0.03;
+      light.x = max(light.x, (1.0 - smoothstep(1.0 - fw, 1.0 + fw, fd)) * here);
+      light.y = max(light.y, b * smoothstep(0.45, 0.85, d) * smoothstep(0.1, 0.7, -o.y));
     }
     light *= near;
     return cover * near;
@@ -489,13 +490,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float wet = clamp(uWeather.x, 0.0, 1.0) * outside;
     float bead = 0.0;
     vec2 beadLight = vec2(0.0);
-    // (fewer on a side: there the water runs off)
-    if (wet > 0.02) bead = rtBeads(vObj, on, wet * mix(0.6, 1.0, smoothstep(0.3, 0.8, abs(n.y))), dist, beadLight);
+    // (fewer on a side: there the water runs off. Branches on uniforms only: the masks take derivatives)
+    if (uWeather.x > 0.02) bead = rtBeads(vObj, on, wet * mix(0.6, 1.0, smoothstep(0.3, 0.8, abs(n.y))), dist, beadLight);
     float fleck = beadLight.x;
     // snow settles on what faces up high: the roof and what rides on it (a warm hood melts it, driving blows
     // the lids clean), in one cap with a ragged edge
     float snow = 0.0;
-    if (uWeather.y * outside > 0.01) {
+    if (uWeather.y > 0.01) {
       float sn = rtTriNoise(vObj, on, 0.6).g - 0.5;
       float amt = clamp(uWeather.y, 0.0, 1.0) * outside * smoothstep(0.8, 0.92, height / max(uBodyHeight, 0.3));
       snow = rtStep(n.y + sn * 0.35 - mix(1.0, 0.6, amt), 0.01) * step(0.02, amt);
