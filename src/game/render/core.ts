@@ -23,12 +23,14 @@ export interface QualitySettings {
   viewScale: number;
   /** vegetation density multiplier */
   density: number;
+  /** SMAA over the finished frame (smooths the ink lines, drawn after the MSAA resolve) */
+  smaa: boolean;
 }
 
 export const QUALITY: Record<Quality, QualitySettings> = {
-  low: { pixelRatioCap: 1, msaa: STYLE.pipeline.msaa.low, paintRadius: STYLE.pipeline.paint.radius.low, shadowSize: 0, viewScale: 0.6, density: 0.4 },
-  med: { pixelRatioCap: 1.25, msaa: STYLE.pipeline.msaa.med, paintRadius: STYLE.pipeline.paint.radius.med, shadowSize: 1024, viewScale: 0.85, density: 0.7 },
-  high: { pixelRatioCap: 1.5, msaa: STYLE.pipeline.msaa.high, paintRadius: STYLE.pipeline.paint.radius.high, shadowSize: 2048, viewScale: 1, density: 1 },
+  low: { pixelRatioCap: 1, msaa: STYLE.pipeline.msaa.low, paintRadius: STYLE.pipeline.paint.radius.low, shadowSize: 0, viewScale: 0.6, density: 0.4, smaa: false },
+  med: { pixelRatioCap: 1.25, msaa: STYLE.pipeline.msaa.med, paintRadius: STYLE.pipeline.paint.radius.med, shadowSize: 1024, viewScale: 0.85, density: 0.7, smaa: true },
+  high: { pixelRatioCap: 1.5, msaa: STYLE.pipeline.msaa.high, paintRadius: STYLE.pipeline.paint.radius.high, shadowSize: 2048, viewScale: 1, density: 1, smaa: true },
 };
 
 export class RenderCore {
@@ -61,7 +63,7 @@ export class RenderCore {
     this.renderer.info.autoReset = false;
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.frame = new Frame(this.renderer, { samples: this.quality.msaa, paint: this.quality.paintRadius });
+    this.frame = new Frame(this.renderer, { samples: this.quality.msaa, paint: this.quality.paintRadius, smaa: this.quality.smaa });
     this.shadows = this.quality.shadowSize > 0 ? new ShadowPass(this.quality.shadowSize) : null;
     this.sky = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 4), skyDomeMaterial());
     this.sky.frustumCulled = false;

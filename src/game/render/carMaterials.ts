@@ -444,6 +444,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 v = toEye / max(dist, 1e-4);
     float ndv = clamp(dot(n, v), 0.0, 1.0);
     vec3 R = reflect(-v, n);
+    // how fast the normal turns across the screen (per pixel; taken here, outside every branch)
+    float nTurn = length(fwidth(n));
     // what the coat mirrors is looked up as if a side were drawn with tumblehome (its upper half turned a
     // little up to the sky, its lower half down to the ground): even a flat door then carries the horizon
     // line along its shoulder, sliding as the eye moves — where an anime painter puts it
@@ -604,6 +606,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 under = mix(e.ground * 1.3, farLand, e.dark);
     vec3 env = mix(under, skyc, e.sky);
     env = mix(env, e.bright * 2.2 + 0.1, e.line * contrast);
+    // thin round things — a grille's bars a few metres off — turn their normal through the whole stack of
+    // sky and ground inside one pixel: there the bands would flicker from frame to frame, so they are averaged
+    env = mix(env, (skyc + under) * 0.5, smoothstep(0.35, 1.1, nTurn));
     // and a flat mirror, which shows one piece of the world all over, gets the painter's two pale streaks
     // across it (as glass does) so it reads as a mirror and not a grey disc
     if (flatness > 0.01) {
@@ -810,8 +815,6 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the part one is looking at: a rim of light round its edges that breathes
     float hlOn = 0.0;
     {
-      // (how fast the normal turns across the screen, taken before the branch: a derivative needs the quad)
-      float nTurn = length(fwidth(n));
       float hl = uHighlight.w;
       #ifdef RT_VPART
       hl *= uHighlightId < 0.0 ? 1.0 : 1.0 - step(0.5, abs(vPartId - uHighlightId));
