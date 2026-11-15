@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { blendWeights, healLoop, loadMix, loopGain, engineTone, rpmWeights, popSample, blowOffSample, type BankManifest, type LoopRec } from '../../src/game/modcar/engineAudio';
+import { blendWeights, healLoop, loadMix, loopGain, engineTone, rpmWeights, popSample, blowOffSample, rodKnockSample, solenoidSample, type BankManifest, type LoopRec } from '../../src/game/modcar/engineAudio';
 import { recipe, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyShot } from '../../src/game/modcar/foley';
 import { Rng, measure } from '../../src/game/modcar/synth';
 
@@ -224,6 +224,8 @@ describe('ModCar engine mixing maths', () => {
       expect(s.peak).toBeLessThanOrEqual(1);
     }
     expect(measure(blowOffSample(48000, 1), 48000).centroid).toBeGreaterThan(1500);
+    // the rod knock is a low, dull knock; the solenoid a bright click
+    expect(measure(rodKnockSample(48000, 1), 48000).centroid).toBeLessThan(measure(solenoidSample(48000, 1), 48000).centroid);
   });
 });
 

@@ -83,20 +83,22 @@ interface EngineTone {
   whine?: { ratio: number; gainDb: number; q: number };
   /** starter motor: pitch and how hard each compression stroke drags on it */
   starter: { hz: number; drag: number; gainDb: number };
+  /** a governor holds the top speed (no rev-limiter stutter): mowers and diesels */
+  governed?: boolean;
 }
 
 /** the starter motor against the bank's loudest loop (it sits a little under the idle) */
 const STARTER_DB = -27;
 
 const TONES: Record<string, EngineTone> = {
-  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB } },
+  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true },
   eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB } },
   eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB } },
   eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB } },
-  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB } },
+  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true },
   eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB } },
   eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB } },
-  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB } },
+  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true },
 };
 
 const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB } };
@@ -253,11 +255,20 @@ export function loadMix(throttle: number, load: number): number {
   return Math.min(1, Math.max(0, Math.pow(t, 0.75) * (0.75 + 0.25 * l) + 0.12 * l * (1 - t)));
 }
 
-/** the play-back level (linear) of one loop for this engine */
+/** below this natural level (dB against the bank's loudest loop) the range is squeezed harder */
+const LEVEL_KNEE_DB = -24;
+
+/**
+ * The play-back level (linear) of one loop for this engine: the recorded level, compressed (and
+ * compressed harder below the knee so idle and light overrun stay present), plus the engine's
+ * loudness and rpm tilt.
+ */
 export function loopGain(tone: EngineTone, rec: LoopRec, idleRpm: number, redlineRpm: number): number {
   const span = Math.max(1, redlineRpm - idleRpm);
   const x = Math.min(1.1, Math.max(0, (rec.rpm - idleRpm) / span));
-  const db = tone.loudnessDb + tone.compression * rec.db + tone.tiltDb * (x - 1);
+  const c = tone.compression;
+  const nat = rec.db >= LEVEL_KNEE_DB ? c * rec.db : c * LEVEL_KNEE_DB + 0.6 * c * (rec.db - LEVEL_KNEE_DB);
+  const db = tone.loudnessDb + nat + tone.tiltDb * (x - 1);
   return Math.pow(10, db / 20);
 }
 
@@ -270,7 +281,7 @@ export function engineTone(id: string): EngineTone {
 export interface EngineAudioState {
   /** engine part fitted (null: none, nothing to hear) */
   engineId: string | null;
-  /** exhaust part fitted: exh_stock / exh_sport / exh_side; null = none (open manifold) */
+  /** exhaust part fitted: exh_stock / exh_sport / exh_side; null = none fitted (open manifold); left out = stock */
   exhaustId?: string | null;
   /** turbo_small fitted */
   turbo?: boolean;
@@ -295,6 +306,14 @@ export interface EngineAudioState {
   distance?: number;
   /** the stop was a stall (under load) rather than switching off; default: guessed from rpm and load */
   stalled?: boolean;
+  /** chance a firing misses, 0..1: a worn engine (condition), or the wrong fuel spluttering before it dies */
+  misfire?: number;
+  /** rod knock, 0..1: a big end going (low condition); heard more under load */
+  knock?: number;
+  /** steam from the cooling system, 0..1 (boiling over in the red) */
+  steam?: number;
+  /** listener outside: the speed the car approaches at (m/s, negative = going away), for the Doppler shift */
+  approach?: number;
 }
 
 interface Slot {
@@ -310,7 +329,12 @@ interface Slot {
   target: number;
   /** last gain asked for */
   level: number;
+  /** the context time pos refers to (a slot starts slightly in the future) */
+  clock: number;
 }
+
+/** how far ahead new loops are scheduled on a live context, so the start lands where we think */
+const START_AHEAD = 0.012;
 
 const TAU_GAIN = 0.035;
 const TAU_RATE = 0.012;
@@ -325,6 +349,12 @@ export class EngineVoice {
   private tone: EngineTone = DEFAULT_TONE;
   private readonly slots = new Map<string, Slot>();
   private readonly rng = new Rng(0x5eed);
+  /** every source that runs for the voice's whole life (stopped by dispose) */
+  private readonly running: AudioScheduledSourceNode[] = [];
+  /** banks that would not load (not asked for again) */
+  private readonly failed = new Set<string>();
+  /** a live context (starts are scheduled a little ahead); offline renders run exact */
+  private readonly live: boolean;
 
   // graph
   private readonly engBus: GainNode;
@@ -355,7 +385,16 @@ export class EngineVoice {
   private readonly starterLfoDepth: GainNode;
   private readonly starterBp: BiquadFilterNode;
   private readonly starterSag: GainNode;
+  private readonly misVca: GainNode;
+  private readonly airLp: BiquadFilterNode;
+  private readonly steamGain: GainNode;
   private readonly noiseBuf: AudioBuffer;
+  private readonly knockBufs: AudioBuffer[] = [];
+  private readonly clickBuf: AudioBuffer;
+  /** next firing slot / crank turn / solenoid click already scheduled (context time) */
+  private misNext = 0;
+  private knockNext = 0;
+  private clickNext = 0;
 
   // state
   private lastT = -1;
@@ -365,17 +404,24 @@ export class EngineVoice {
   private quietUntil = 0;
   private boost = 0;
   private lastThrottle = 0;
+  /** recent throttle peak, falling at 4 /s: a lift is a drop from it, however many frames it takes */
+  private thrPeak = 0;
   private throttleHi = 0;
   private popBudget = 0;
+  private crackle = false;
   private nextPopAt = 0;
   private bovReadyAt = 0;
   private lastRpm = 0;
   private lastLoad = 0;
   private readonly popBufs: AudioBuffer[] = [];
+  /** how many pops / blow-offs have fired (debug and the render harness) */
+  popsFired = 0;
+  bovFired = 0;
   private readonly bovBufs: AudioBuffer[] = [];
 
   constructor(ctx: BaseAudioContext, output: AudioNode) {
     this.ctx = ctx;
+    this.live = typeof OfflineAudioContext === 'undefined' || !(ctx instanceof OfflineAudioContext);
     const g = (v = 0): GainNode => {
       const n = ctx.createGain();
       n.gain.value = v;
@@ -394,20 +440,26 @@ export class EngineVoice {
 
     // engine loops -> exhaust colouring -> cabin split
     this.engBus = g(1);
+    // misfires dip this for one firing at a time
+    this.misVca = g(1);
     this.exIn = g(1);
     this.body = f('lowshelf', 120, 0.707, 0);
     this.bite = f('highshelf', 1800, 0.707, 0);
     this.exLp = f('lowpass', 7500, 0.6);
     this.exGain = g(1);
     this.pre = g(1);
-    this.engBus.connect(this.exIn);
+    this.engBus.connect(this.misVca).connect(this.exIn);
     this.exIn.connect(this.body).connect(this.bite).connect(this.exLp).connect(this.exGain).connect(this.pre);
     this.extGain = g(1);
+    // air takes the top off with distance
+    this.airLp = f('lowpass', 18000, 0.5);
     this.cabinLp = f('lowpass', 900, 0.5);
-    this.cabinBoom = f('lowshelf', 160, 0.707, 4);
+    // the cabin drones where the firing frequency passes about 105 Hz (a V8 at 1600, a four at 3200)
+    this.cabinBoom = f('peaking', 105, 1.4, 6);
+    const cabinLow = f('lowshelf', 220, 0.707, 2);
     this.intGain = g(0);
-    this.pre.connect(this.extGain).connect(this.out);
-    this.pre.connect(this.cabinBoom).connect(this.cabinLp).connect(this.intGain).connect(this.out);
+    this.pre.connect(this.extGain).connect(this.airLp).connect(this.out);
+    this.pre.connect(this.cabinBoom).connect(cabinLow).connect(this.cabinLp).connect(this.intGain).connect(this.out);
 
     // two seconds of white noise for every noise layer
     const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -418,6 +470,7 @@ export class EngineVoice {
       s.buffer = nb;
       s.loop = true;
       s.start(0, this.rng.range(0, 1.9));
+      this.running.push(s);
       return s;
     };
 
@@ -429,7 +482,7 @@ export class EngineVoice {
     for (let i = 0; i < curve.length; i++) curve[i] = Math.abs((i / 512) - 1);
     rect.curve = curve;
     const envLp = f('lowpass', 240, 0.5);
-    this.engBus.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
+    this.misVca.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
     noiseSrc().connect(f('highpass', 1800, 0.6)).connect(f('lowpass', 7000, 0.6)).connect(this.raspVca).connect(this.exIn);
 
     // induction roar
@@ -444,6 +497,7 @@ export class EngineVoice {
     this.whineGain = g(0);
     this.whineOsc.connect(this.whineBp).connect(this.whineGain).connect(this.pre);
     this.whineOsc.start();
+    this.running.push(this.whineOsc);
 
     // turbo: shaft whistle + hiss
     this.turboOsc = ctx.createOscillator();
@@ -452,6 +506,7 @@ export class EngineVoice {
     this.turboGain = g(0);
     this.turboOsc.connect(this.turboGain).connect(this.pre);
     this.turboOsc.start();
+    this.running.push(this.turboOsc);
     this.turboBp = f('bandpass', 3000, 6);
     this.turboHiss = g(0);
     noiseSrc().connect(this.turboBp).connect(this.turboHiss).connect(this.pre);
@@ -473,10 +528,17 @@ export class EngineVoice {
     noiseSrc().connect(f('bandpass', 2600, 2)).connect(g(0.25)).connect(starterVca);
     this.starterOsc.start();
     this.starterLfo.start();
+    this.running.push(this.starterOsc, this.starterLfo);
+
+    // steam hissing out of the cooling system
+    this.steamGain = g(0);
+    noiseSrc().connect(f('highpass', 2200, 0.7)).connect(f('peaking', 5200, 0.9, 5)).connect(this.steamGain).connect(this.pre);
 
     // pops and the blow-off valve are pre-rendered one-shots
     for (let k = 0; k < 6; k++) this.popBufs.push(this.makeBuffer(popSample(ctx.sampleRate, 101 + k, k % 3 === 2)));
     for (let k = 0; k < 2; k++) this.bovBufs.push(this.makeBuffer(blowOffSample(ctx.sampleRate, 211 + k)));
+    for (let k = 0; k < 3; k++) this.knockBufs.push(this.makeBuffer(rodKnockSample(ctx.sampleRate, 307 + k)));
+    this.clickBuf = this.makeBuffer(solenoidSample(ctx.sampleRate, 401));
   }
 
   private makeBuffer(x: Float32Array): AudioBuffer {
@@ -530,9 +592,10 @@ export class EngineVoice {
     const gain = this.ctx.createGain();
     gain.gain.value = 0;
     src.connect(gain).connect(this.engBus);
-    const offset = this.alignedOffset(rec);
-    src.start(t, offset);
-    s = { rec, src, gain, idleSince: -1, pos: offset, rate, target: rate, level: 0 };
+    const at = t + (this.live ? START_AHEAD : 0);
+    const offset = this.alignedOffset(rec, at - t);
+    src.start(at, offset);
+    s = { rec, src, gain, idleSince: -1, pos: offset, rate, target: rate, level: 0, clock: at };
     this.slots.set(rec.file, s);
     return s;
   }
@@ -541,7 +604,7 @@ export class EngineVoice {
    * Where to start a loop so its engine cycle lines up with the loudest loop already playing (the
    * bank's phases are chained, so aligned loops sum without comb filtering); anywhere if alone.
    */
-  private alignedOffset(rec: LoopRec): number {
+  private alignedOffset(rec: LoopRec, ahead: number): number {
     const len = rec.loopEnd - rec.loopStart;
     let ref: Slot | null = null;
     for (const s of this.slots.values()) {
@@ -551,7 +614,9 @@ export class EngineVoice {
     const cycles = Math.max(1, Math.round((len * rec.rpm) / 120));
     if (!ref || rec.phase === undefined) return rec.loopStart + this.rng.next() * len;
     const refCycle = 120 / ref.rec.rpm;
-    const ph = (((ref.pos - ref.rec.loopStart - ref.rec.phase!) / refCycle) % 1 + 1) % 1;
+    // where the reference will be when the new loop starts
+    const refPos = ref.pos + ref.target * ahead;
+    const ph = (((refPos - ref.rec.loopStart - ref.rec.phase!) / refCycle) % 1 + 1) % 1;
     const cycle = 120 / rec.rpm;
     // the same phase in a random one of this loop's cycles
     let o = rec.phase + (ph + Math.floor(this.rng.next() * cycles)) * cycle;
@@ -559,11 +624,13 @@ export class EngineVoice {
     return rec.loopStart + o;
   }
 
-  /** move every play head on by dt, following the exponential glide of its playback rate */
-  private advance(dt: number): void {
-    if (dt <= 0) return;
-    const k = Math.exp(-dt / TAU_RATE);
+  /** move every play head on to `now`, following the exponential glide of its playback rate */
+  private advance(now: number): void {
     for (const s of this.slots.values()) {
+      const dt = now - s.clock;
+      if (dt <= 0) continue;
+      s.clock = now;
+      const k = Math.exp(-dt / TAU_RATE);
       const r0 = s.rate;
       const R = s.target;
       s.pos += R * dt + (r0 - R) * TAU_RATE * (1 - k);
@@ -573,7 +640,7 @@ export class EngineVoice {
     }
   }
 
-  private shot(file: string, t: number, gainDb: number, rate = 1): AudioBufferSourceNode | null {
+  private shot(file: string, t: number, gainDb: number, rate = 1): { src: AudioBufferSourceNode; gain: GainNode } | null {
     const buf = this.bank?.buffers.get(file);
     if (!buf) return null;
     const src = this.ctx.createBufferSource();
@@ -587,7 +654,7 @@ export class EngineVoice {
       src.disconnect();
       gain.disconnect();
     };
-    return src;
+    return { src, gain };
   }
 
   private oneShotBuffer(buf: AudioBuffer, t: number, gain: number, dest: AudioNode, rate = 1): void {
@@ -619,15 +686,22 @@ export class EngineVoice {
         this.stopAll();
         this.bank = null;
         this.bankId = null;
-      } else {
-        void this.load(st.engineId);
+      } else if (!this.failed.has(st.engineId)) {
+        const id = st.engineId;
+        this.load(id).catch((e: unknown) => {
+          // no bank, no engine sound: say so once and carry on
+          console.warn(`ModCar engine sound: ${id}: ${e instanceof Error ? e.message : String(e)}`);
+          this.failed.add(id);
+          if (this.loading === id) this.loading = null;
+        });
       }
     }
-    this.advance(dt);
+    this.advance(t);
     const bank = this.bank;
     const m = bank?.manifest;
     const tone = this.tone;
-    const ex = EXHAUSTS[st.exhaustId ?? 'none'] ?? EXHAUSTS.exh_stock;
+    // left out = the stock pipe; null = nothing fitted (open manifold)
+    const ex = EXHAUSTS[st.exhaustId === undefined ? 'exh_stock' : st.exhaustId === null ? 'none' : st.exhaustId] ?? EXHAUSTS.exh_stock;
 
     // ---- cabin: closed cabin = muffled and boomy; open doors let the outside back in
     const open = Math.min(1, Math.max(0, st.doorsOpen));
@@ -635,11 +709,14 @@ export class EngineVoice {
     if (st.inside) {
       set(this.extGain.gain, 0.05 + 0.55 * open, 0.08);
       set(this.intGain.gain, 0.45 * (1 - 0.55 * open), 0.08);
-      set(this.cabinLp.frequency, 700 + 1600 * open, 0.08);
+      set(this.cabinLp.frequency, 850 + 1500 * open, 0.08);
     } else {
       set(this.extGain.gain, Math.min(1.4, 3 / dist), 0.08);
       set(this.intGain.gain, 0, 0.08);
     }
+    set(this.airLp.frequency, st.inside ? 18000 : 18000 / (1 + dist / 30), 0.1);
+    // a passing car: everything it makes shifts together
+    const doppler = st.inside ? 1 : Math.min(1.25, Math.max(0.8, 343 / (343 - Math.min(80, Math.max(-80, st.approach ?? 0)))));
     // ---- exhaust fitted
     set(this.exGain.gain, Math.pow(10, ex.gainDb / 20), 0.05);
     set(this.body.gain, ex.bodyDb, 0.05);
@@ -656,8 +733,10 @@ export class EngineVoice {
       // the catch: first firing, flare, settle; the loops come in under its tail
       const c = m!.oneshots['catch'];
       if (c && (this.wasCranking || st.cranking)) {
-        this.shot('catch', t, tone.loudnessDb + tone.compression * c.db + 2);
+        const sh = this.shot('catch', t, tone.loudnessDb + tone.compression * c.db + 2);
         this.catchUntil = t + Math.min(1.1, c.duration * 0.55);
+        // its tail is the idle the loops are now playing: hand over instead of doubling it
+        sh?.gain.gain.setTargetAtTime(0, this.catchUntil - 0.15, 0.18);
       }
     }
     if (!running && this.wasRunning && bank) {
@@ -684,7 +763,7 @@ export class EngineVoice {
       const lim = m!.oneshots['limiter'];
       // (the physics may cut at the redline or at the recorded limiter, whichever comes first)
       const cut = Math.min(m!.limiterRpm, m!.redlineRpm * 1.015);
-      const limW = lim ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
+      const limW = lim && !tone.governed ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
       for (const [set2, w0] of [[bank.on, wOn], [bank.off, wOff]] as const) {
         if (w0 < 1e-3) continue;
         for (const { rec, w, rate } of rpmWeights(set2, rpm)) {
@@ -694,11 +773,14 @@ export class EngineVoice {
       }
       if (lim && limW > 1e-3 && lim.loopStart !== undefined && lim.loopEnd !== undefined) {
         const rec: LoopRec = { file: lim.file, load: 1, rpm: lim.rpm ?? m!.limiterRpm, db: lim.db, loopStart: lim.loopStart, loopEnd: lim.loopEnd, duration: lim.duration };
-        want.set(rec.file, { rec, gain: limW * inCatch * loopGain(tone, { ...rec, rpm: m!.redlineRpm }, m!.idleRpm, m!.redlineRpm), rate: 1 });
+        // pitched to the rpm the physics reports, so a cut below the recorded limiter does not jump
+        const rate = Math.min(1.08, Math.max(0.92, rpm / rec.rpm));
+        want.set(rec.file, { rec, gain: limW * inCatch * loopGain(tone, { ...rec, rpm: m!.redlineRpm }, m!.idleRpm, m!.redlineRpm), rate });
       }
     }
     // the starter turning the engine over (no firing yet)
-    if (bank && st.cranking && !running) {
+    const battery = st.starterRate ?? 1;
+    if (bank && st.cranking && !running && battery >= 0.15) {
       const c = m!.oneshots['crank'];
       if (c && c.loopStart !== undefined && c.loopEnd !== undefined) {
         const rate = 0.55 + 0.45 * Math.min(1, Math.max(0.2, st.starterRate ?? 1));
@@ -708,6 +790,7 @@ export class EngineVoice {
     }
     // start the loudest new loops first, so the quieter ones align to them
     for (const wv of [...want.values()].sort((a, b) => b.gain - a.gain)) {
+      wv.rate *= doppler;
       const s = this.slot(wv.rec, t, wv.rate);
       s.level = t < this.quietUntil ? 0 : wv.gain;
       set(s.gain.gain, s.level, TAU_GAIN);
@@ -738,7 +821,7 @@ export class EngineVoice {
     set(this.intakeGain.gain, 0.55 * on * tone.intake * Math.pow(thr, 1.5) * (0.25 + 0.75 * rev) * Math.pow(10, tone.loudnessDb / 20), 0.05);
     // mechanical whine
     if (tone.whine) {
-      const hz = (tone.whine.ratio * rpm) / 60;
+      const hz = ((tone.whine.ratio * rpm) / 60) * doppler;
       set(this.whineOsc.frequency, Math.max(20, hz), TAU_RATE);
       set(this.whineBp.frequency, Math.max(40, hz), TAU_RATE);
       this.whineBp.Q.value = tone.whine.q;
@@ -752,34 +835,43 @@ export class EngineVoice {
     const tauDown = 0.35;
     this.boost += (target - this.boost) * (1 - Math.exp(-dt / (target > this.boost ? tauUp : tauDown)));
     const b = st.turbo && running ? this.boost : 0;
-    const shaft = 1800 + 7200 * b + 0.25 * rpm;
+    // the whine a small turbo makes in the bay: about 1.5 kHz spooling up to 5-6 kHz on full boost
+    const shaft = 1500 + 3800 * b + 0.12 * rpm;
     set(this.turboOsc.frequency, shaft, 0.03);
     set(this.turboBp.frequency, shaft * 1.02, 0.03);
     const lvl = Math.pow(10, tone.loudnessDb / 20);
     set(this.turboGain.gain, 0.011 * lvl * Math.pow(b, 1.6) * (0.5 + 0.5 * thr), 0.04);
     set(this.turboHiss.gain, 0.025 * lvl * b * (0.3 + 0.7 * thr), 0.05);
+    // a lift: the pedal has come up a long way within the last ~0.15 s
+    this.thrPeak = Math.max(thr, this.thrPeak - dt * 4);
+    const lift = this.thrPeak - thr > 0.45;
     // blow-off on a sharp lift with boost up
-    if (st.turbo && running && this.lastThrottle - thr > 0.35 && this.boost > 0.35 && t > this.bovReadyAt) {
-      this.oneShotBuffer(this.bovBufs[Math.floor(this.rng.next() * this.bovBufs.length)], t, 0.35 * this.boost, this.pre);
+    if (st.turbo && running && lift && this.boost > 0.35 && t > this.bovReadyAt) {
+      this.oneShotBuffer(this.bovBufs[Math.floor(this.rng.next() * this.bovBufs.length)], t, 0.35 * this.boost * Math.pow(10, tone.loudnessDb / 20), this.pre);
+      this.bovFired++;
       this.boost *= 0.4;
       this.bovReadyAt = t + 0.8;
     }
     // pops and crackle on lifting off from high revs
     if (running && m) {
       if (thr > 0.6) this.throttleHi = Math.min(1, this.throttleHi + dt * 1.5);
-      if (this.lastThrottle - thr > 0.4 && rev > 0.45 && this.throttleHi > 0.3) {
-        this.popBudget = Math.round((2 + 7 * this.rng.next()) * tone.pops * ex.pops);
+      if (lift && thr < 0.2 && rev > 0.45 && this.throttleHi > 0.3) {
+        // a few big pops, or (loud pipes) a run of quick small crackles
+        this.crackle = this.rng.next() < 0.3 * Math.min(1.5, ex.pops);
+        this.popBudget = Math.round((this.crackle ? 5 + 9 * this.rng.next() : 2 + 7 * this.rng.next()) * tone.pops * ex.pops);
         this.nextPopAt = t + 0.04 + 0.08 * this.rng.next();
         this.throttleHi = 0;
+        this.thrPeak = thr;
       }
       if (thr > 0.25) this.popBudget = 0;
       if (this.popBudget > 0 && t >= this.nextPopAt && rev > 0.2) {
-        const big = this.rng.next() < 0.18 * ex.pops;
+        const big = !this.crackle && this.rng.next() < 0.18 * ex.pops;
         const buf = this.popBufs[Math.floor(this.rng.next() * this.popBufs.length)];
-        const g = (big ? 0.55 : 0.22) * (0.5 + 0.5 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
-        this.oneShotBuffer(buf, t, g, this.exIn, 0.8 + 0.5 * this.rng.next());
+        const g = (big ? 0.55 : this.crackle ? 0.11 : 0.22) * (0.5 + 0.5 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
+        this.oneShotBuffer(buf, t, g, this.exIn, (this.crackle ? 1.3 : 0.8) + 0.5 * this.rng.next());
+        this.popsFired++;
         this.popBudget--;
-        this.nextPopAt = t + 0.05 + 0.22 * this.rng.next();
+        this.nextPopAt = t + (this.crackle ? 0.015 + 0.04 * this.rng.next() : 0.05 + 0.22 * this.rng.next());
       }
     } else {
       this.popBudget = 0;
@@ -795,19 +887,60 @@ export class EngineVoice {
     set(this.starterLfo.frequency, ((m?.oneshots['crank']?.rpm ?? 220) / 60) * (cyl / 2) * (0.55 + 0.45 * sr), 0.05);
     this.starterLfoDepth.gain.value = 0.6 * tone.starter.drag;
     this.starterSag.gain.value = -crankHz * 0.12 * tone.starter.drag;
-    set(this.starterGain.gain, st.cranking ? Math.pow(10, (tone.starter.gainDb + tone.loudnessDb) / 20) * (0.5 + 0.5 * sr) : 0, st.cranking ? 0.02 : 0.06);
+    const turning = st.cranking && battery >= 0.15;
+    set(this.starterGain.gain, turning ? Math.pow(10, (tone.starter.gainDb + tone.loudnessDb) / 20) * (0.5 + 0.5 * sr) : 0, turning ? 0.02 : 0.06);
+    // a flat battery: the solenoid clicks and nothing turns
+    if (st.cranking && battery < 0.15 && !running) {
+      if (this.clickNext < t) this.clickNext = t;
+      while (this.clickNext < t + 0.1) {
+        this.oneShotBuffer(this.clickBuf, this.clickNext, 0.3, this.pre, 0.95 + 0.1 * this.rng.next());
+        this.clickNext += 0.33 + 0.12 * this.rng.next();
+      }
+    }
+
+    // a worn engine: firings that miss (a dip of one firing interval), now and then a pop after one
+    const mis = running && m ? Math.min(1, Math.max(0, st.misfire ?? 0)) : 0;
+    if (mis > 0) {
+      const slotDur = 120 / (Math.max(150, rpm) * cyl);
+      if (this.misNext < t) this.misNext = t + 0.005;
+      while (this.misNext < t + 0.08) {
+        if (this.rng.next() < mis) {
+          const at = this.misNext;
+          this.misVca.gain.setTargetAtTime(0.22, at, slotDur * 0.12);
+          this.misVca.gain.setTargetAtTime(1, at + slotDur * 0.85, slotDur * 0.25);
+          if (this.rng.next() < 0.12 * mis) this.oneShotBuffer(this.popBufs[0], at + slotDur * 1.2, 0.09 * Math.pow(10, tone.loudnessDb / 20), this.exIn, 1.4);
+        }
+        this.misNext += slotDur;
+      }
+    }
+    // rod knock: a deep knock every turn of the crank, louder under load
+    const kn = running && m ? Math.min(1, Math.max(0, st.knock ?? 0)) : 0;
+    if (kn > 0) {
+      const turn = 60 / Math.max(150, rpm);
+      if (this.knockNext < t) this.knockNext = t + 0.005;
+      while (this.knockNext < t + 0.08) {
+        const kg = 0.16 * kn * (0.45 + 0.55 * load) * (0.8 + 0.4 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
+        this.oneShotBuffer(this.knockBufs[Math.floor(this.rng.next() * this.knockBufs.length)], this.knockNext, kg, this.pre, 0.9 + 0.2 * this.rng.next());
+        this.knockNext += turn;
+      }
+    }
+    // steam, wavering as it boils
+    const steam = Math.min(1, Math.max(0, st.steam ?? 0));
+    set(this.steamGain.gain, steam > 0 ? 0.016 * steam * (0.7 + 0.6 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20) : 0, 0.12);
   }
 
   /** stop everything and release the nodes */
   dispose(): void {
     this.stopAll();
-    for (const n of [this.whineOsc, this.turboOsc, this.starterOsc, this.starterLfo]) {
+    for (const n of this.running) {
       try {
         n.stop();
       } catch {
         /* already stopped */
       }
+      n.disconnect();
     }
+    this.running.length = 0;
     this.out.disconnect();
   }
 
@@ -819,6 +952,8 @@ export class EngineVoice {
       slots: [...this.slots.values()].map((s) => ({ file: s.rec.file, gain: s.gain.gain.value, rate: s.src.playbackRate.value })),
       boost: this.boost,
       pops: this.popBudget,
+      popsFired: this.popsFired,
+      bovFired: this.bovFired,
     };
   }
 }
@@ -842,6 +977,29 @@ export function popSample(sr: number, seed: number, big = false): Float32Array {
   // a second, smaller report now and then
   if (rng.next() < 0.4) burst(x, sr, Math.floor(rng.range(0.012, 0.03) * sr), 0.03, 0.5, rng, { attack: 0.0003, decay: 0.006, filter: [['bandpass', 1400, 0.8]] });
   return normalize(edges(x, sr, 0.1, 10), 0.95);
+}
+
+/** rod knock: a deep, dull metallic knock from inside the block */
+export function rodKnockSample(sr: number, seed: number): Float32Array {
+  const rng = new Rng(seed);
+  const x = new Float32Array(Math.floor(0.06 * sr));
+  burst(x, sr, 0, 0.004, 0.6, rng, { attack: 0.0003, decay: 0.0012, filter: [['bandpass', 1400, 1.2]] });
+  for (const [f, g, d] of [[520, 1, 0.012], [890, 0.7, 0.009], [1460, 0.45, 0.006]] as const) {
+    const fj = f * (1 + 0.04 * rng.gauss());
+    for (let i = 0; i < x.length; i++) x[i] += g * Math.sin((2 * Math.PI * fj * i) / sr) * Math.exp(-i / (d * sr));
+  }
+  return normalize(edges(x, sr, 0.2, 6), 0.9);
+}
+
+/** the starter solenoid on a flat battery: a hard click and nothing else */
+export function solenoidSample(sr: number, seed: number): Float32Array {
+  const rng = new Rng(seed);
+  const x = new Float32Array(Math.floor(0.08 * sr));
+  burst(x, sr, 0, 0.003, 1, rng, { attack: 0.0001, decay: 0.0007, filter: [['highpass', 1200]] });
+  for (const [f, g, d] of [[1750, 1, 0.01], [3100, 0.6, 0.006], [640, 0.5, 0.015]] as const) {
+    for (let i = 0; i < x.length; i++) x[i] += 0.4 * g * Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (d * sr));
+  }
+  return normalize(edges(x, sr, 0.1, 6), 0.9);
 }
 
 /** blow-off valve: a fast pneumatic "pssh" with a little flutter */

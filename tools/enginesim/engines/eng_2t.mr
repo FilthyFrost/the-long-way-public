@@ -216,7 +216,7 @@ public node eng_2t {
     ignition_module ignition_module(
         timing_curve: timing_curve,
         rev_limit: 9900 * units.rpm,
-        limiter_duration: 0.04)
+        limiter_duration: 0.03)
     ignition_module
         .connect_wire(wires.wire1, 0 * units.deg)
         .connect_wire(wires.wire3, 180 * units.deg)

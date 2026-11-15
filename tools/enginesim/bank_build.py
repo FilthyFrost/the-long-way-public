@@ -133,6 +133,12 @@ def cyclic_filter(x, sos):
     return y[len(x):2 * len(x)]
 
 
+def cyclic_eq(x, sos):
+    """One pass of a filter over a periodic signal (three periods, keep the last): keeps its gain."""
+    y = signal.sosfilt(sos, np.concatenate([x, x, x]))
+    return y[2 * len(x):]
+
+
 def envelope(x, fs, ms=0.8):
     a = math.exp(-1.0 / (fs * ms / 1000))
     y = np.abs(x)
@@ -189,16 +195,61 @@ def knock_layer(x, fs, rng, events_per_loop, level_db, modes, decay_ms, tick_db=
     return out * (rms(x) * 10 ** (level_db / 20) / (rms(out) + 1e-30))
 
 
+def misfire_gate(x, fs, rng, pulses, p_miss, depth_db=-14.0):
+    """Light-load two-stroke: some pulses do not fire ("four-stroking", the ring-ding-ding).
+    Each pulse slot is scaled smoothly; missing ones drop by depth_db (cyclic)."""
+    L = len(x)
+    P = L / pulses
+    ph = event_phase(x, fs, P) - 0.15 * P
+    g = np.ones(L)
+    miss = 10 ** (depth_db / 20)
+    # never two misses in a row more than once in a while
+    last = False
+    for j in range(pulses):
+        m = rng.random() < (p_miss * (0.35 if last else 1.0))
+        last = m
+        if not m:
+            continue
+        c = ph + (j + 0.5) * P
+        idx = np.arange(int(c - 0.6 * P), int(c + 0.6 * P))
+        w = 0.5 + 0.5 * np.cos(np.pi * (idx - c) / (0.6 * P))
+        np.multiply.at(g, idx % L, 1 - (1 - miss) * w)
+    return x * g
+
+
+def pipe_resonance(x, fs, rpm, onset=5200.0, full=8000.0, f0=2600.0):
+    """Expansion chamber "on the pipe": a resonant lift that grows through the power band."""
+    a = min(1.0, max(0.0, (rpm - onset) / (full - onset)))
+    if a <= 0:
+        return x
+    y = x.copy()
+    for f, q, gdb in ((f0, 2.2, 8.0 * a), (f0 * 0.48, 1.4, 3.5 * a)):
+        w0 = 2 * math.pi * f / fs
+        A = 10 ** (gdb / 40)
+        al = math.sin(w0) / (2 * q)
+        b = np.array([1 + al * A, -2 * math.cos(w0), 1 - al * A])
+        aa = np.array([1 + al / A, -2 * math.cos(w0), 1 - al / A])
+        sos = np.concatenate([b / aa[0], aa / aa[0]])[None, :]
+        y = cyclic_eq(y, sos)
+    return y
+
+
 # per engine: what is layered onto the recorded exhaust (levels relative to the exhaust itself)
 LAYERS = {
-    'eng_mower':  {'rasp': ((1800, 7000), -15, -19)},
-    'eng_single': {'rasp': ((1500, 7500), -16, -20)},
-    'eng_2t':     {'rasp': ((2200, 9000), -9, -13), 'ring': ((1250, 2650), -14, -18)},
-    'eng_i4':     {'rasp': ((1400, 6000), -21, -24)},
+    'eng_mower':  {'rasp': ((1800, 7000), -15, -19), 'valves': (-27, -22)},
+    'eng_2t':     {'rasp': ((2200, 9000), -11, -15), 'fins': (-17, -13), 'misfire': (0.32, 0.12), 'pipe': True},
+    'eng_single': {'rasp': ((1500, 7500), -16, -20), 'fins': (-26, -24), 'valves': (-31, -26)},
+    'eng_i4':     {'rasp': ((1400, 6000), -21, -24), 'valves': (-30, -25)},
     'eng_i4d':    {'rasp': ((1200, 5000), -21, -23), 'knock': (-11, -30, -5)},
-    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21)},
-    'eng_v8':     {'rasp': ((1000, 6000), -17, -21)},
+    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21), 'fins': (-28, -26), 'valves': (-30, -26)},
+    'eng_v8':     {'rasp': ((1000, 6000), -17, -21), 'valves': (-33, -28)},
     'eng_d6':     {'rasp': ((900, 4500), -22, -24), 'knock': (-14, -32, -8)},
+}
+# air-cooled cylinders: the fins ring a little at every firing (the two-stroke's "ring-ding")
+FIN_MODES = {
+    'eng_2t': ([(2350, 1.0), (3150, 0.7), (4420, 0.45), (5600, 0.25)], 7.0),
+    'eng_single': ([(2050, 1.0), (2900, 0.6), (4100, 0.35)], 4.5),
+    'eng_flat6': ([(1850, 1.0), (2700, 0.6), (3800, 0.4)], 3.5),
 }
 KNOCK_MODES = {
     'eng_i4d': ([(1150, 1.0), (1900, 0.8), (2900, 0.55), (4100, 0.3)], 2.6),
@@ -206,15 +257,27 @@ KNOCK_MODES = {
 }
 
 
-def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng):
+def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
     cfg = LAYERS.get(eid, {})
     y = loop.copy()
+    if 'misfire' in cfg and (load == 'off' or is_idle):
+        p_low, p_high = cfg['misfire']
+        a = min(1.0, max(0.0, (rpm - 1500) / 4500))
+        y = misfire_gate(y, fs, rng, cylinders * cycles, p_low + (p_high - p_low) * a)
+    if cfg.get('pipe') and load == 'on':
+        y = pipe_resonance(y, fs, rpm)
     if 'rasp' in cfg:
         band, on_db, off_db = cfg['rasp']
         y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db)
-    if 'ring' in cfg:
-        band, on_db, off_db = cfg['ring']
-        y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db, power=2.4)
+    if 'valves' in cfg:
+        # the valvetrain: every valve seating is a small high tick (two per cylinder per cycle)
+        on_db, off_db = cfg['valves']
+        y += knock_layer(y, fs, rng, 2 * cylinders * cycles, on_db if load == 'on' else off_db,
+                         [(3600, 1.0), (5300, 0.7), (7400, 0.4)], 0.9, tick_db=-40, advance_ms=-1.5)
+    if 'fins' in cfg:
+        on_db, off_db = cfg['fins']
+        modes, decay = FIN_MODES[eid]
+        y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db, modes, decay, tick_db=-30, advance_ms=0.5)
     if 'knock' in cfg and (load == 'on' or is_idle):
         on_db, off_db, idle_db = cfg['knock']
         modes, decay = KNOCK_MODES[eid]
@@ -271,10 +334,13 @@ CYCLE_POINTS = 512
 
 
 def mean_cycle(y, cycles):
-    """The loop folded onto one 720-degree cycle (crank-angle axis), zero mean, unit norm."""
-    z = signal.resample(y, cycles * CYCLE_POINTS).reshape(cycles, CYCLE_POINTS).mean(axis=0)
+    """The loop folded onto one 720-degree cycle (crank-angle axis), zero mean, unit norm, and the
+    share of the loop's energy that this repeating part carries (the rest is scatter and noise)."""
+    r = signal.resample(y, cycles * CYCLE_POINTS).reshape(cycles, CYCLE_POINTS)
+    z = r.mean(axis=0)
     z = z - z.mean()
-    return z / (np.linalg.norm(z) + 1e-30)
+    frac = float(np.sum(z * z) * cycles / (np.sum(np.square(r - r.mean())) + 1e-30))
+    return z / (np.linalg.norm(z) + 1e-30), min(1.0, frac)
 
 
 def cycle_shift(a, b):
@@ -322,13 +388,15 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         x = x[int(0.08 * fs):]
         T = 120.0 / rpm * fs
         k = max(3, int(round(LOOP_SECONDS[load] * fs / T)))
-        L, corr = best_period(x, k * T)
+        # the dyno holds the speed exactly: stay within a tenth of a cycle of k whole cycles (an
+        # engine whose pulses all look alike correlates as well a quarter cycle off)
+        L, corr = best_period(x, k * T, span=min(0.006, 0.1 / k))
         loop, start, seam = cut_loop(x, L, int(0.010 * fs))
         is_idle = load == 'off' and int(rpm_s) == e['idle']
         nat = rms(loop)
         if load == 'off' and not is_idle:
             nat *= 10 ** (e.get('offTrimDb', 0) / 20)
-        rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng)
+        rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng, rpm)
         m = int(round(L * FS / fs))
         y = resample_cyclic(rich, m)
         items.append({'kind': 'loop', 'file': f'{load}_{int(rpm_s):05d}', 'load': 1 if load == 'on' else 0,
@@ -355,7 +423,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     x = x[int(0.3 * fs):]
     L, corr = best_period(x, 0.8 * fs, span=0.2)
     loop, _, seam = cut_loop(x, L, int(0.012 * fs))
-    lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng)
+    lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng, e['limiter'])
     y = resample_cyclic(lim, int(round(L * FS / fs)))
     items.append({'kind': 'loop', 'file': 'limiter', 'rpm': e['limiter'], 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
 
@@ -388,7 +456,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     # overrun chain turned to sit best against the full-load chain (cohLoad = the likeness left)
     steady = [i for i in items if i['kind'] == 'loop' and 'load' in i]
     for i in steady:
-        i['mc'] = mean_cycle(i['y'], i['cycles'])
+        i['mc'], i['periodic'] = mean_cycle(i['y'], i['cycles'])
     phase = {}
     chains = {}
     for load in (1, 0):
@@ -398,7 +466,9 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         for a, b in zip(ch, ch[1:]):
             sh, c = cycle_shift(a['mc'], b['mc'])
             phase[id(b)] = (phase[id(a)] + sh) % 1.0
-            b['coh'] = round(max(0.0, c), 3)
+            # the correlation the two loops will really have once aligned: alike repeating parts,
+            # weighed by how much of each loop repeats at all
+            b['coh'] = round(max(0.0, c) * math.sqrt(a['periodic'] * b['periodic']), 3)
     pairs = []
     for off in chains[0]:
         on = min(chains[1], key=lambda o: abs(o['rpm'] - off['rpm']))
@@ -410,10 +480,11 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     delta = (math.atan2(zy, zx) / (2 * math.pi)) % 1.0
     for off, on, d, c in pairs:
         phase[id(off)] = (phase[id(off)] + delta) % 1.0
-        off['cohLoad'] = round(max(0.0, c * math.cos(2 * math.pi * (delta - d))), 3)
+        off['cohLoad'] = round(max(0.0, c * math.cos(2 * math.pi * (delta - d))) * math.sqrt(off['periodic'] * on['periodic']), 3)
     for i in steady:
         # seconds from loopStart to a cycle start, at the loop's own speed
         i['phase'] = round(phase[id(i)] * 120.0 / i['rpm'], 6)
+        i['periodic'] = round(i['periodic'], 3)
         del i['mc']
 
     # levels: every file at the same loudness; natural level relative to the loudest on-load loop
@@ -446,7 +517,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
             for ext in ('ogg', 'm4a'):
                 dec = decode(ffmpeg, os.path.join(dst, f'{it["file"]}.{ext}'))
                 rec[f'seam_{ext}'] = round(seam_match_db(dec, PRE, PRE + len(body)), 1)
-            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal', 'phase', 'coh', 'cohLoad'):
+            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal', 'phase', 'coh', 'cohLoad', 'periodic'):
                 if key in it:
                     rec[key] = it[key]
             if it['file'] in ('crank', 'limiter'):

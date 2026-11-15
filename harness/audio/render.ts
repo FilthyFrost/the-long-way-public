@@ -18,8 +18,10 @@ export interface EngineRenderSpec {
   turbo?: boolean;
   inside?: boolean;
   doorsOpen?: number;
-  sequence: 'tour' | 'idle' | 'sweep';
+  sequence: 'tour' | 'idle' | 'sweep' | 'passby' | 'flat';
   sampleRate?: number;
+  /** held for the whole render (misfire, knock, steam, starterRate ...) */
+  extra?: Partial<EngineAudioState>;
 }
 
 /** keyframes for a sequence, from the bank's idle and redline */
@@ -30,6 +32,20 @@ function sequence(name: EngineRenderSpec['sequence'], m: BankManifest): { keys: 
   const run = { running: true, cranking: false };
   if (name === 'idle') {
     return { seconds: 6, keys: [[0, { ...run, rpm: I, throttle: 0, load: 0 }], [6, { rpm: I }]] };
+  }
+  if (name === 'flat') {
+    // the key held on a flat battery: clicks, then a good battery cranks and catches
+    return { seconds: 5, keys: [[0, { running: false, cranking: true, rpm: 0, throttle: 0, load: 0, starterRate: 0.05 }], [2.5, { starterRate: 1, rpm: crank }], [3.6, { running: true, cranking: false, rpm: I * 1.3 }], [4.4, { rpm: I }], [5, { rpm: I }]] };
+  }
+  if (name === 'passby') {
+    // 20 m/s along a line 3 m from the listener, at a steady 55 % of the redline and half throttle
+    const keys: Key[] = [];
+    for (let t = 0; t <= 8.0001; t += 0.05) {
+      const x = -80 + 20 * t;
+      const d = Math.hypot(x, 3);
+      keys.push([t, { ...run, rpm: I + 0.55 * (R - I), throttle: 0.5, load: 0.5, inside: false, distance: d, approach: (-20 * x) / d }]);
+    }
+    return { seconds: 8, keys };
   }
   if (name === 'sweep') {
     // a slow full-load sweep idle -> redline, then a slow overrun back
@@ -89,7 +105,7 @@ function stateAt(keys: Key[], t: number, base: EngineAudioState): EngineAudioSta
     Object.assign(s, Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x !== 'number')));
   }
   // numbers: linear between the keys that carry them
-  for (const field of ['rpm', 'throttle', 'load'] as const) {
+  for (const field of ['rpm', 'throttle', 'load', 'distance', 'approach', 'starterRate'] as const) {
     let prev: [number, number] | null = null;
     let next: [number, number] | null = null;
     for (const [kt, v] of keys) {
@@ -105,7 +121,7 @@ function stateAt(keys: Key[], t: number, base: EngineAudioState): EngineAudioSta
   return s;
 }
 
-async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; sampleRate: number; debug: unknown[] }> {
+async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; sampleRate: number; debug: unknown[]; idleRpm: number; redlineRpm: number }> {
   const sr = spec.sampleRate ?? 48000;
   // the bank first, on a throwaway context, to get idle / redline for the keyframes
   const probe = new OfflineAudioContext(1, 128, sr);
@@ -125,6 +141,7 @@ async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; samp
     cranking: false,
     inside: spec.inside ?? false,
     doorsOpen: spec.doorsOpen ?? 0,
+    ...spec.extra,
   };
   const debug: unknown[] = [];
   const step = 0.01;
@@ -137,7 +154,7 @@ async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; samp
     });
   }
   const out = await ctx.startRendering();
-  return { pcm: toBase64(out.getChannelData(0)), sampleRate: sr, debug };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate: sr, debug, idleRpm: m.idleRpm, redlineRpm: m.redlineRpm };
 }
 
 export interface FoleyRenderSpec {

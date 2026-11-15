@@ -163,31 +163,36 @@ try {
       const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: id, sequence: 'sweep' });
       const x = fromBase64(r.pcm);
       writeWav(path.join(OUT, `${id}_sweep.wav`), x, r.sampleRate);
+      // level in windows of two engine cycles at the swept rpm, against a 0.5 s moving average:
+      // the wobble that is not the overall rise (loops that do not match, or sum out of phase)
+      const I = r.idleRpm;
+      const R = r.redlineRpm;
+      const rpmAt = (t) => (t < 8 ? I + ((R - I) * t) / 8 : R + ((I - R) * (t - 8.05)) / 7.95);
       const rough = (a, b) => {
-        const w = Math.floor(0.05 * r.sampleRate);
         const lv = [];
-        for (let o = Math.floor(a * r.sampleRate); o + w <= Math.floor(b * r.sampleRate); o += w) {
+        for (let t = a; t < b; t += 0.02) {
+          const w = Math.floor(((2 * 120) / rpmAt(t)) * r.sampleRate);
+          const o = Math.floor(t * r.sampleRate) - (w >> 1);
           let e = 0;
           for (let i = 0; i < w; i++) e += x[o + i] * x[o + i];
           lv.push(10 * Math.log10(e / w + 1e-12));
         }
-        // against a 0.5 s moving average: the wobble that is not the overall rise
         let worst = 0;
         let sum = 0;
-        for (let i = 0; i < lv.length; i++) {
-          const lo = Math.max(0, i - 5);
-          const hi = Math.min(lv.length, i + 6);
+        let n = 0;
+        for (let i = 12; i < lv.length - 12; i++) {
           let m = 0;
-          for (let k = lo; k < hi; k++) m += lv[k];
-          m /= hi - lo;
+          for (let k = i - 12; k <= i + 12; k++) m += lv[k];
+          m /= 25;
           const d = Math.abs(lv[i] - m);
           worst = Math.max(worst, d);
           sum += d * d;
+          n++;
         }
-        return { rms: +Math.sqrt(sum / Math.max(1, lv.length)).toFixed(2), worst: +worst.toFixed(2) };
+        return { rms: +Math.sqrt(sum / Math.max(1, n)).toFixed(2), worst: +worst.toFixed(2) };
       };
-      const on = rough(0.3, 7.9);
-      const off = rough(8.4, 15.8);
+      const on = rough(0.5, 7.4);
+      const off = rough(8.6, 15.5);
       report.sweeps = report.sweeps || {};
       report.sweeps[id] = { on, off };
       console.log(`sweep ${id.padEnd(10)} full load wobble ${on.rms} dB (worst ${on.worst})   overrun wobble ${off.rms} dB (worst ${off.worst})`);
@@ -205,13 +210,35 @@ try {
       ['eng_i4d', { turbo: true }, 'i4d_turbo'],
       ['eng_flat6', { exhaustId: 'exh_sport' }, 'flat6_sport'],
       ['eng_2t', { exhaustId: 'exh_side' }, '2t_side'],
+      ['eng_v8', { extra: { misfire: 0.18, knock: 0.7 } }, 'v8_worn'],
+      ['eng_i4', { extra: { steam: 1 } }, 'i4_steam'],
     ];
     for (const [id, extra, name] of variants) {
       const res = await render({ engineId: id, sequence: 'tour', ...extra }, name);
       report.variants[name] = res.seg;
       const s = res.seg;
-      console.log(`${name.padEnd(18)} idle ${s.idle.rms}/${s.idle.centroid}  pull_high ${s.pull_high.rms}/${s.pull_high.centroid} hf ${s.pull_high.hf}  overrun ${s.overrun.rms}/${s.overrun.centroid}`);
+      const last = res.debug[res.debug.length - 1] || {};
+      console.log(`${name.padEnd(18)} idle ${s.idle.rms}/${s.idle.centroid}  pull_high ${s.pull_high.rms}/${s.pull_high.centroid} hf ${s.pull_high.hf}  overrun ${s.overrun.rms}/${s.overrun.centroid}  pops ${last.popsFired ?? '?'} bov ${last.bovFired ?? '?'}`);
     }
+  }
+
+  if (doVariants) {
+    // a car going past at 20 m/s, 3 m away: pitch high then low, loud and bright as it passes
+    const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: 'eng_v8', sequence: 'passby' });
+    const x = fromBase64(r.pcm);
+    writeWav(path.join(OUT, 'v8_passby.wav'), x, r.sampleRate);
+    const near = stats(x, r.sampleRate, 3.8, 4.2);
+    const far = stats(x, r.sampleRate, 0.3, 0.8);
+    report.variants.passby = { near, far };
+    console.log(`passby             far ${far.rms} dB/${far.centroid} Hz  near ${near.rms} dB/${near.centroid} Hz`);
+    // a flat battery: the solenoid clicks, nothing turns; then a good one cranks and it catches
+    const fb = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: 'eng_i4', sequence: 'flat' });
+    const y = fromBase64(fb.pcm);
+    writeWav(path.join(OUT, 'i4_flat_battery.wav'), y, fb.sampleRate);
+    const clicks = stats(y, fb.sampleRate, 0.2, 2.4);
+    const crank = stats(y, fb.sampleRate, 2.7, 3.5);
+    report.variants.flat_battery = { clicks, crank };
+    console.log(`flat battery       clicks ${clicks.rms} dB  then cranking ${crank.rms} dB`);
   }
 
   if (doFoley) {
@@ -220,7 +247,7 @@ try {
       ['door_open', { material: 'fridge' }], ['door_close', { material: 'fridge' }], ['door_open', { material: 'cage' }], ['door_close', { material: 'cage' }],
       ['latch', {}], ['hood_open', {}], ['hood_close', {}], ['trunk_open', {}], ['trunk_close', {}],
       ['part_pickup', { mass: 0.3 }], ['part_pickup', { mass: 20 }], ['part_setdown', { mass: 0.3 }], ['part_setdown', { mass: 4 }], ['part_setdown', { mass: 25 }], ['part_setdown', { mass: 235 }],
-      ['part_install', { mass: 10 }], ['part_remove', { mass: 10 }], ['key_turn', {}], ['handbrake_pull', {}], ['handbrake_release', {}], ['gear_shift', {}], ['gear_grind', {}], ['spray_shake', {}],
+      ['part_install', { mass: 10 }], ['part_remove', { mass: 10 }], ['key_turn', {}], ['handbrake_pull', {}], ['handbrake_release', {}], ['gear_shift', {}], ['gear_grind', {}], ['spray_shake', {}], ['switch', {}], ['lever', {}],
       ['horn_trumpet', {}], ['ratchet', {}], ['spray', {}], ['sponge', {}], ['pour', { liquid: 'fuel' }], ['pour', { liquid: 'water' }], ['pour', { liquid: 'oil' }], ['horn_beep', {}], ['horn_air', {}],
     ];
     for (const [kind, opts] of list) {
@@ -259,6 +286,7 @@ const metricsFile = path.join(ROOT, 'loop', 'metrics', 'audio_modcar.json');
 const compact = {};
 for (const [id, s] of Object.entries(report.engines)) compact[id] = { idle_db: s.idle.rms, pull_high_db: s.pull_high.rms, overrun_db: s.overrun.rms, idle_hz: s.idle.centroid, pull_high_hz: s.pull_high.centroid };
 for (const [k, v] of Object.entries(report.loops)) compact[`loops_${k}`] = v.worst;
+for (const [k, v] of Object.entries(report.sweeps || {})) compact[`sweep_wobble_${k}`] = { on: v.on.rms, off: v.off.rms };
 if (Object.keys(compact).length) {
   let prev = {};
   try {

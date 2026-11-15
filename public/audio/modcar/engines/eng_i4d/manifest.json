@@ -32,7 +32,8 @@
    "idle": true,
    "nominal": 750,
    "phase": 0.055298,
-   "cohLoad": 0.0
+   "cohLoad": 0.0,
+   "periodic": 0.869
   },
   {
    "file": "off_00850",
@@ -52,8 +53,9 @@
    "idle": false,
    "nominal": 850,
    "phase": 0.031975,
-   "coh": 0.739,
-   "cohLoad": 0.0
+   "coh": 0.687,
+   "cohLoad": 0.0,
+   "periodic": 0.995
   },
   {
    "file": "off_00950",
@@ -73,8 +75,9 @@
    "idle": false,
    "nominal": 950,
    "phase": 0.039712,
-   "coh": 0.677,
-   "cohLoad": 0.0
+   "coh": 0.673,
+   "cohLoad": 0.0,
+   "periodic": 0.993
   },
   {
    "file": "off_01070",
@@ -89,13 +92,14 @@
    "rpm": 1069.97,
    "load": 0,
    "cycles": 18,
-   "corr": 0.8967,
+   "corr": 0.8969,
    "seam": 0.01409,
    "idle": false,
    "nominal": 1070,
    "phase": 0.035694,
-   "coh": 0.852,
-   "cohLoad": 0.224
+   "coh": 0.845,
+   "cohLoad": 0.211,
+   "periodic": 0.99
   },
   {
    "file": "off_01210",
@@ -110,13 +114,14 @@
    "rpm": 1210.0,
    "load": 0,
    "cycles": 20,
-   "corr": 0.7819,
+   "corr": 0.7821,
    "seam": 0.04767,
    "idle": false,
    "nominal": 1210,
    "phase": 0.082894,
-   "coh": 0.555,
-   "cohLoad": 0.0
+   "coh": 0.544,
+   "cohLoad": 0.0,
+   "periodic": 0.969
   },
   {
    "file": "off_01360",
@@ -131,13 +136,14 @@
    "rpm": 1359.95,
    "load": 0,
    "cycles": 23,
-   "corr": 0.7393,
+   "corr": 0.7398,
    "seam": 0.04384,
    "idle": false,
    "nominal": 1360,
    "phase": 0.009988,
-   "coh": 0.842,
-   "cohLoad": 0.0
+   "coh": 0.804,
+   "cohLoad": 0.0,
+   "periodic": 0.94
   },
   {
    "file": "off_01540",
@@ -152,13 +158,14 @@
    "rpm": 1539.9,
    "load": 0,
    "cycles": 26,
-   "corr": 0.8223,
+   "corr": 0.8221,
    "seam": 0.04267,
    "idle": false,
    "nominal": 1540,
    "phase": 0.047784,
-   "coh": 0.696,
-   "cohLoad": 0.469
+   "coh": 0.658,
+   "cohLoad": 0.436,
+   "periodic": 0.951
   },
   {
    "file": "off_01730",
@@ -173,13 +180,14 @@
    "rpm": 1729.94,
    "load": 0,
    "cycles": 29,
-   "corr": 0.9446,
+   "corr": 0.9445,
    "seam": 0.01246,
    "idle": false,
    "nominal": 1730,
    "phase": 0.041993,
-   "coh": 0.811,
-   "cohLoad": 0.56
+   "coh": 0.784,
+   "cohLoad": 0.531,
+   "periodic": 0.983
   },
   {
    "file": "off_01950",
@@ -194,13 +202,14 @@
    "rpm": 1950.02,
    "load": 0,
    "cycles": 32,
-   "corr": 0.9568,
+   "corr": 0.9566,
    "seam": 0.00779,
    "idle": false,
    "nominal": 1950,
    "phase": 0.043383,
-   "coh": 0.827,
-   "cohLoad": 0.614
+   "coh": 0.812,
+   "cohLoad": 0.581,
+   "periodic": 0.982
   },
   {
    "file": "off_02200",
@@ -220,8 +229,9 @@
    "idle": false,
    "nominal": 2200,
    "phase": 0.038774,
-   "coh": 0.957,
-   "cohLoad": 0.834
+   "coh": 0.939,
+   "cohLoad": 0.784,
+   "periodic": 0.981
   },
   {
    "file": "off_02480",
@@ -236,13 +246,14 @@
    "rpm": 2479.99,
    "load": 0,
    "cycles": 41,
-   "corr": 0.9357,
+   "corr": 0.9358,
    "seam": 0.00721,
    "idle": false,
    "nominal": 2480,
    "phase": 0.036853,
-   "coh": 0.731,
-   "cohLoad": 0.0
+   "coh": 0.705,
+   "cohLoad": 0.0,
+   "periodic": 0.948
   },
   {
    "file": "off_02790",
@@ -257,13 +268,14 @@
    "rpm": 2789.99,
    "load": 0,
    "cycles": 46,
-   "corr": 0.9476,
+   "corr": 0.9474,
    "seam": 0.00815,
    "idle": false,
    "nominal": 2790,
    "phase": 0.001172,
-   "coh": 0.642,
-   "cohLoad": 0.0
+   "coh": 0.61,
+   "cohLoad": 0.0,
+   "periodic": 0.953
   },
   {
    "file": "off_03140",
@@ -278,13 +290,14 @@
    "rpm": 3139.98,
    "load": 0,
    "cycles": 52,
-   "corr": 0.8989,
+   "corr": 0.8991,
    "seam": 0.01434,
    "idle": false,
    "nominal": 3140,
    "phase": 0.023434,
-   "coh": 0.584,
-   "cohLoad": 0.309
+   "coh": 0.544,
+   "cohLoad": 0.264,
+   "periodic": 0.91
   },
   {
    "file": "off_03540",
@@ -299,13 +312,14 @@
    "rpm": 3540.0,
    "load": 0,
    "cycles": 59,
-   "corr": 0.9771,
+   "corr": 0.977,
    "seam": 0.00502,
    "idle": false,
    "nominal": 3540,
    "phase": 0.024229,
-   "coh": 0.636,
-   "cohLoad": 0.585
+   "coh": 0.598,
+   "cohLoad": 0.542,
+   "periodic": 0.972
   },
   {
    "file": "off_03990",
@@ -320,13 +334,14 @@
    "rpm": 3990.01,
    "load": 0,
    "cycles": 66,
-   "corr": 0.9502,
+   "corr": 0.9503,
    "seam": 0.01251,
    "idle": false,
    "nominal": 3990,
    "phase": 0.000585,
-   "coh": 0.908,
-   "cohLoad": 0.363
+   "coh": 0.87,
+   "cohLoad": 0.293,
+   "periodic": 0.945
   },
   {
    "file": "off_04500",
@@ -346,8 +361,9 @@
    "idle": false,
    "nominal": 4500,
    "phase": 0.010987,
-   "coh": 0.964,
-   "cohLoad": 0.0
+   "coh": 0.926,
+   "cohLoad": 0.0,
+   "periodic": 0.976
   },
   {
    "file": "on_00750",
@@ -366,7 +382,8 @@
    "seam": 0.00129,
    "idle": false,
    "nominal": 750,
-   "phase": 0.0
+   "phase": 0.0,
+   "periodic": 0.958
   },
   {
    "file": "on_00850",
@@ -386,7 +403,8 @@
    "idle": false,
    "nominal": 850,
    "phase": 0.093199,
-   "coh": 0.742
+   "coh": 0.71,
+   "periodic": 0.957
   },
   {
    "file": "on_00950",
@@ -406,7 +424,8 @@
    "idle": false,
    "nominal": 950,
    "phase": 0.042188,
-   "coh": 0.735
+   "coh": 0.7,
+   "periodic": 0.947
   },
   {
    "file": "on_01070",
@@ -426,7 +445,8 @@
    "idle": false,
    "nominal": 1070,
    "phase": 0.027599,
-   "coh": 0.815
+   "coh": 0.752,
+   "periodic": 0.897
   },
   {
    "file": "on_01210",
@@ -446,7 +466,8 @@
    "idle": false,
    "nominal": 1210,
    "phase": 0.073993,
-   "coh": 0.388
+   "coh": 0.357,
+   "periodic": 0.94
   },
   {
    "file": "on_01360",
@@ -461,12 +482,13 @@
    "rpm": 1359.99,
    "load": 1,
    "cycles": 18,
-   "corr": 0.8591,
+   "corr": 0.8592,
    "seam": 0.00627,
    "idle": false,
    "nominal": 1360,
    "phase": 0.048771,
-   "coh": 0.654
+   "coh": 0.604,
+   "periodic": 0.909
   },
   {
    "file": "on_01540",
@@ -481,12 +503,13 @@
    "rpm": 1539.99,
    "load": 1,
    "cycles": 21,
-   "corr": 0.8879,
+   "corr": 0.888,
    "seam": 0.00794,
    "idle": false,
    "nominal": 1540,
    "phase": 0.029069,
-   "coh": 0.539
+   "coh": 0.489,
+   "periodic": 0.909
   },
   {
    "file": "on_01730",
@@ -506,7 +529,8 @@
    "idle": false,
    "nominal": 1730,
    "phase": 0.030482,
-   "coh": 0.62
+   "coh": 0.566,
+   "periodic": 0.916
   },
   {
    "file": "on_01950",
@@ -526,7 +550,8 @@
    "idle": false,
    "nominal": 1950,
    "phase": 0.035097,
-   "coh": 0.745
+   "coh": 0.681,
+   "periodic": 0.912
   },
   {
    "file": "on_02200",
@@ -546,7 +571,8 @@
    "idle": false,
    "nominal": 2200,
    "phase": 0.014489,
-   "coh": 0.808
+   "coh": 0.732,
+   "periodic": 0.899
   },
   {
    "file": "on_02480",
@@ -561,12 +587,13 @@
    "rpm": 2480.04,
    "load": 1,
    "cycles": 33,
-   "corr": 0.7893,
+   "corr": 0.789,
    "seam": 0.04228,
    "idle": false,
    "nominal": 2480,
    "phase": 0.034872,
-   "coh": 0.584
+   "coh": 0.488,
+   "periodic": 0.778
   },
   {
    "file": "on_02790",
@@ -581,12 +608,13 @@
    "rpm": 2790.0,
    "load": 1,
    "cycles": 37,
-   "corr": 0.8538,
+   "corr": 0.8535,
    "seam": 0.02998,
    "idle": false,
    "nominal": 2790,
    "phase": 0.031418,
-   "coh": 0.451
+   "coh": 0.36,
+   "periodic": 0.818
   },
   {
    "file": "on_03140",
@@ -601,12 +629,13 @@
    "rpm": 3140.02,
    "load": 1,
    "cycles": 42,
-   "corr": 0.8455,
+   "corr": 0.8454,
    "seam": 0.02485,
    "idle": false,
    "nominal": 3140,
    "phase": 0.038142,
-   "coh": 0.613
+   "coh": 0.496,
+   "periodic": 0.803
   },
   {
    "file": "on_03540",
@@ -621,12 +650,13 @@
    "rpm": 3539.98,
    "load": 1,
    "cycles": 47,
-   "corr": 0.946,
+   "corr": 0.9461,
    "seam": 0.01281,
    "idle": false,
    "nominal": 3540,
    "phase": 0.008541,
-   "coh": 0.578
+   "coh": 0.486,
+   "periodic": 0.882
   },
   {
    "file": "on_03990",
@@ -641,12 +671,13 @@
    "rpm": 3989.91,
    "load": 1,
    "cycles": 53,
-   "corr": 0.7358,
+   "corr": 0.7357,
    "seam": 0.05927,
    "idle": false,
    "nominal": 3990,
    "phase": 0.020971,
-   "coh": 0.579
+   "coh": 0.452,
+   "periodic": 0.691
   },
   {
    "file": "on_04500",
@@ -661,12 +692,13 @@
    "rpm": 4500.0,
    "load": 1,
    "cycles": 60,
-   "corr": 0.8345,
+   "corr": 0.8346,
    "seam": 0.04201,
    "idle": false,
    "nominal": 4500,
    "phase": 0.008958,
-   "coh": 0.589
+   "coh": 0.432,
+   "periodic": 0.779
   }
  ],
  "oneshots": {
