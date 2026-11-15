@@ -100,7 +100,7 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   leather: { family: 'matte', base: [0.2, 0.075, 0.035], look: [0.25, 0.985, 0.2, 0.15], pattern: 2, cabin: true, ink: 0.56 },
   wood: { family: 'matte', base: [0.36, 0.17, 0.07], look: [0.4, 0.993, 0.2, 0.0], pattern: 3, cabin: true, ink: 0.68 },
   plastic_int: { family: 'matte', base: [0.07, 0.068, 0.07], look: [0.1, 0.985, 0.15, 0.1], pattern: 6, cabin: true, ink: 0.37 },
-  glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.5, wear: [0.6, 0, 0], ink: 0.0 },
+  glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.33, wear: [0.6, 0, 0], ink: 0.0 },
   glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0], ink: 0.0 },
   lens_head: { family: 'lens', base: [0.8, 0.82, 0.84], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.86, 0.62], opacity: 0.18, wear: [0.6, 0, 0], ink: 0.0 },
   lens_tail: { family: 'lens', base: [0.5, 0.02, 0.012], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.1, 0.045], opacity: 0.72, wear: [0.6, 0, 0], ink: 0.0 },
@@ -389,8 +389,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
   // ink: an id below the paint finish's 0.23, from the material and its colour: neighbouring parts of
   // different materials or colours get a line between them (frame.ts inkAt)
+  // (0.04…0.19: above them 0.206…0.228 is the cabin's own band when it is seen from outside, see main)
   float rtCarInk(vec3 base) {
-    return 0.04 + 0.17 * fract(uInkSeed + fract(dot(floor(base * 23.0 + 0.5), vec3(0.1031, 0.1137, 0.0973)) * 7.0) * 0.43);
+    return 0.04 + 0.15 * fract(uInkSeed + fract(dot(floor(base * 23.0 + 0.5), vec3(0.1031, 0.1137, 0.0973)) * 7.0) * 0.43);
   }
 
   // ---- the weather on the outside of a car
@@ -497,7 +498,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     // ---------------------------------------------------------------- rain and snow (the world's uWeather: x wet, y snow)
     // (within the cabin's box a face turned out of it is still the outside: the skin of a door, the glass)
-    vec3 nCar = mat3(uWorldToCar) * n;
+    // (by the surface's own normal: glass seen from the cabin is still wet on its outside)
+    vec3 nCar = mat3(uWorldToCar) * normalize(vNormal);
     vec2 fromCabin = vCar.xz - 0.5 * (uCabinMin.xz + uCabinMax.xz);
     float facesOut = smoothstep(0.0, 0.1, dot(nCar.xz, fromCabin / max(length(fromCabin), 1e-3)));
     // (and a room — the garage — keeps the weather out by itself; setShelter for any other roof)
@@ -687,33 +689,38 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #endif
 
     #elif defined(RT_GLASS)
-    // ---------------------------------------------------------------- glass: dark tint, the world in it, streaks
+    // ---------------------------------------------------------------- glass: the sky in it, the cabin dim behind it
+    // (CAR_LOOK §5: glass in a drawing mirrors more than glass does — seen at a slant it is mostly sky; seen
+    // square-on a little over half of the cabin comes through, dimmed by the tint and veiled by the sky)
     CarEnv e = rtCarEnv(R, 0.002, 1.0, 0.25);
-    vec3 env = mix(mix(e.ground, e.land, e.dark), mix(e.upper, e.bright, e.band), e.sky);
-    float ew = mix(mix(0.3, 0.6, e.dark), mix(0.45, 1.0, e.band), e.sky);
-    // (glass in a drawing mirrors more than glass does: a windscreen seen at a slant is mostly sky)
-    float fres = 0.14 + 0.86 * pow(1.0 - ndv, 2.5);
-    // what comes through: the tint, lit by the sky (premultiplied: the glass covers uOpacity of what is behind)
+    // (the open sky in a windscreen is painted pale, half the bright band's: a windscreen seen from in front
+    // mirrors the sky overhead, and a deep blue there would not read as glass)
+    vec3 env = mix(mix(e.ground, e.land, e.dark), mix(e.upper, e.bright, max(e.band, 0.5)), e.sky);
+    float ew = mix(mix(0.35, 0.6, e.dark), mix(0.75, 1.0, e.band), e.sky);
+    float fres = 0.24 + 0.76 * pow(1.0 - ndv, 2.0);
+    // what comes through: the tint, lit by the sky (premultiplied: the glass covers alpha of what is behind)
     vec3 through = uTint * (mix(uSkyColor * 0.9, sky, 1.0 - openSky) + uSunColor * 0.06) * uOpacity;
-    vec3 refl = env * fres * mix(0.45, 1.0, ew) * 0.85;
+    vec3 refl = env * fres * ew * 1.2;
     // streaks: two diagonal bands across the glass, sliding a little with the eye
     vec3 sd = normalize(vec3(-0.55, 1.0, 0.0));
     float s = dot(vObj, sd) * 1.6 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
     float sw = fwidth(s) * 0.8;
     float streak = rtBand(s, 0.32, 0.44, sw + 0.004) + 0.7 * rtBand(s, 0.5, 0.535, sw + 0.003);
-    streak *= 0.34 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
+    streak *= 0.28 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
     // seen from inside (its back), glass is for looking out through: clear, a faint tint, no streaks
     float inside = gl_FrontFacing ? 0.0 : 1.0;
     streak *= 1.0 - inside;
     refl *= mix(1.0, 0.12, inside);
     col = through * mix(1.0, 0.35, inside) + refl + (uHorizon * 0.8 + 0.25) * streak;
     col += uSunColor * 3.0 * rtSunSpot(R, uLook.y) * sh * (1.0 - inside);
-    alpha = clamp(mix(uOpacity, uOpacity * 0.3, inside) + fres * mix(0.45, 0.06, inside) + streak, 0.0, 0.97);
-    // rain on the outside: beads, pale against the dark tint (each a little lens with the sky upside down in
-    // it, brightest low down), a fleck of sky on each
+    // (glass: about 0.55 of the cabin through it square-on, little at a slant)
+    alpha = clamp(mix(uOpacity, uOpacity * 0.3, inside) + fres * mix(0.55, 0.06, inside) + streak, 0.0, 0.97);
+    // rain on the outside. From outside: beads pale against the tint (each a little lens with the sky upside
+    // down in it, brightest low down), a fleck of sky on each. From the cabin the same beads against the bright
+    // world: each a slightly darker disc with its flecks of light
     vec3 pale = uHorizon * 0.5 + uSkyColor * 0.4;
-    col += pale * (bead * 0.3 + beadLight.y * 0.5 + fleck) * (1.0 - inside);
-    alpha = clamp(alpha + bead * 0.3 * (1.0 - inside), 0.0, 0.97);
+    col += pale * mix(bead * 0.3 + beadLight.y * 0.5 + fleck, beadLight.y * 0.35 + fleck * 0.7, inside);
+    alpha = clamp(alpha + bead * mix(0.3, 0.22, inside), 0.0, 0.97);
     #ifdef RT_WEAR
     // dust on the glass: a pale haze from the bottom edge
     float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
@@ -845,6 +852,15 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     gl_FragColor = vec4(col, alpha);
     #else
     float ink = rtCarInk(inkBase);
+    // the cabin seen from outside (through the glass): its own lines faint, about 40%, its outline — the window
+    // frame, the edge of a door — as strong as ever. Its ids are packed into a band of their own above all the
+    // car's others (0.206…0.228, scattered: ink between two of them is weak, between one of them and anything
+    // else it is full). From the driver's seat the cabin keeps its ordinary ids.
+    vec3 camCar = (uWorldToCar * vec4(cameraPosition, 1.0)).xyz;
+    vec3 cabLo = uCabinMin - 0.15;
+    vec3 cabHi = uCabinMax + 0.15;
+    float camIn = step(cabLo.x, camCar.x) * step(camCar.x, cabHi.x) * step(cabLo.y, camCar.y) * step(camCar.y, cabHi.y) * step(cabLo.z, camCar.z) * step(camCar.z, cabHi.z);
+    if (inCabin > 0.5 && camIn < 0.5) ink = 0.206 + 0.022 * fract(ink * 53.7);
     // (a part being looked at writes its ids in a band of their own under every other id, 0.006…0.032: the
     // frame draws its outline in light where it meets anything else — frame.ts inkAt)
     if (hlOn > 0.5) ink = 0.006 + 0.026 * fract(ink * 7.31);
