@@ -7,6 +7,7 @@
  * (the sky, the far country).
  */
 import * as THREE from 'three';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { globals } from './shaderlib';
 import { STYLE } from './style';
 
@@ -22,6 +23,8 @@ export interface FrameOptions {
   samples: number;
   /** paint radius (0 = off) */
   paint: number;
+  /** SMAA over the finished frame (the ink lines and what MSAA leaves) */
+  smaa?: boolean;
 }
 
 export class Frame {
@@ -31,6 +34,10 @@ export class Frame {
   /** shafts of light from a low sun through haze and between whatever stands before it: strength 0…1 and colour */
   shafts = 0;
   readonly shaftColor = new THREE.Color(1, 0.9, 0.7);
+  /** SMAA over the finished frame: the ink is drawn after the MSAA resolve, so only this smooths its steps */
+  smaa: boolean;
+  private smaaPass: SMAAPass | null = null;
+  private rtFinal: THREE.WebGLRenderTarget | null = null;
   private readonly sunScreen = new THREE.Vector3();
   paint: number;
   private readonly depth: THREE.DepthTexture;
@@ -51,6 +58,9 @@ export class Frame {
     opts: FrameOptions,
   ) {
     this.paint = opts.paint;
+    this.smaa = opts.smaa ?? false;
+    // (made now: its two lookup images decode asynchronously, and the first shot must have them)
+    if (this.smaa) this.makeSmaa();
     const hdr = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, colorSpace: THREE.NoColorSpace } as const;
     this.depth = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
     this.depth.minFilter = this.depth.magFilter = THREE.NearestFilter;
@@ -139,14 +149,20 @@ export class Frame {
       float litBand(float x) {
         return step(0.004, x) * step(x, 0.036);
       }
-      vec2 inkPair(float a, float b, float behindA, vec2 beyondB) {
+      // One neighbour b of the pixel a, with c the pixel behind a and e the one beyond b. Something one pixel
+      // thin is not inked: a sliver at b (beyond it the same id as a again: a door's gap at ten metres, a grass
+      // blade in front, a crack) or a spike at a — inking those draws a dotted line that crawls as the car
+      // moves. Across a real boundary the line is as strong as the two sides differ, even where the pixel on
+      // it is an MSAA blend of the two.
+      vec2 inkPair(float a, float b, float c, float e) {
         if (min(a, b) >= 0.23) return vec2(0.0);
-        float d = smoothstep(0.004, 0.02, abs(a - b));
+        if (abs(e - a) < 0.004 || abs(c - b) < 0.004) return vec2(0.0);
+        float d = smoothstep(0.004, 0.02, max(max(abs(a - b), abs(a - e)), abs(c - b)));
         float ia = litBand(a);
         float ib = litBand(b);
         float lit = 0.0;
-        if (ia > 0.5 && ib < 0.5) lit = litBand(behindA);
-        else if (ib > 0.5 && ia < 0.5) lit = litBand(texture2D(tHdr, beyondB).a);
+        if (ia > 0.5 && ib < 0.5) lit = litBand(c);
+        else if (ib > 0.5 && ia < 0.5) lit = litBand(e);
         return lit > 0.5 ? vec2(0.0, d) : vec2(d, 0.0);
       }
       vec2 inkAt(vec2 uv) {
@@ -158,7 +174,11 @@ export class Frame {
         float l = texture2D(tHdr, uv - dx).a;
         float u = texture2D(tHdr, uv + dy).a;
         float d = texture2D(tHdr, uv - dy).a;
-        return max(max(inkPair(a, r, l, uv + 2.0 * dx), inkPair(a, l, r, uv - 2.0 * dx)), max(inkPair(a, u, d, uv + 2.0 * dy), inkPair(a, d, u, uv - 2.0 * dy)));
+        float r2 = texture2D(tHdr, uv + 2.0 * dx).a;
+        float l2 = texture2D(tHdr, uv - 2.0 * dx).a;
+        float u2 = texture2D(tHdr, uv + 2.0 * dy).a;
+        float d2 = texture2D(tHdr, uv - 2.0 * dy).a;
+        return max(max(inkPair(a, r, l, r2), inkPair(a, l, r, l2)), max(inkPair(a, u, d, u2), inkPair(a, d, u, d2)));
       }
 
       // The frame as paint: round each point four overlapping patches; the calmest gives its colour,
@@ -258,11 +278,22 @@ export class Frame {
     );
   }
 
+  private makeSmaa(): void {
+    this.smaaPass = new SMAAPass();
+    this.smaaPass.renderToScreen = true;
+    // the finished frame, already in sRGB: SMAA finds its edges in what the eye sees
+    this.rtFinal = new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, depthBuffer: false, colorSpace: THREE.NoColorSpace });
+    this.width = -1;
+  }
+
   private fit(w: number, h: number): void {
+    if (this.smaa && !this.smaaPass) this.makeSmaa();
     if (w === this.width && h === this.height) return;
     this.width = w;
     this.height = h;
     this.rtScene.setSize(w, h);
+    this.rtFinal?.setSize(w, h);
+    this.smaaPass?.setSize(w, h);
     let bw = w;
     let bh = h;
     for (let i = 0; i < this.rtDown.length; i++) {
@@ -320,6 +351,9 @@ export class Frame {
     const off = Math.max(Math.abs(sv.x), Math.abs(sv.y));
     (u.uShaft.value as THREE.Vector3).set(sv.x * 0.5 + 0.5, sv.y * 0.5 + 0.5, ahead ? this.shafts * (1 - THREE.MathUtils.smoothstep(off, 1.0, 1.7)) : 0);
     u.uAspect.value = size.x / size.y;
-    this.pass(this.finalMat, null);
+    if (this.smaa && this.smaaPass && this.rtFinal) {
+      this.pass(this.finalMat, this.rtFinal);
+      this.smaaPass.render(r, null as unknown as THREE.WebGLRenderTarget, this.rtFinal, 0, false);
+    } else this.pass(this.finalMat, null);
   }
 }
