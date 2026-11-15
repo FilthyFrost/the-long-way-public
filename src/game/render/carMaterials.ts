@@ -84,8 +84,8 @@ interface Recipe {
 }
 
 const RECIPES: Record<CarMaterialName, Recipe> = {
-  paint: { family: 'paint', base: [0.5, 0.06, 0.035], look: [1.0, 0.9988, 0.55, 0], wear: [1, 1, 1], ink: 0.0 },
-  paint_b: { family: 'paint', base: [0.78, 0.74, 0.66], look: [1.0, 0.9988, 0.55, 0], wear: [1, 1, 1], ink: 0.31 },
+  paint: { family: 'paint', base: [0.5, 0.06, 0.035], look: [1.0, 0.9984, 0.55, 0], wear: [1, 1, 1], ink: 0.0 },
+  paint_b: { family: 'paint', base: [0.78, 0.74, 0.66], look: [1.0, 0.9984, 0.55, 0], wear: [1, 1, 1], ink: 0.31 },
   ceramic: { family: 'paint', base: [0.86, 0.87, 0.85], look: [0.75, 0.996, 0.4, 0], wear: [0.6, 0, 0], ink: 0.62 },
   chrome: { family: 'metal', base: [0.92, 0.94, 0.97], look: [1.0, 0.9992, 0.35, 0], wear: [0.7, 0.4, 0], ink: 0.5 },
   steel: { family: 'metal', base: [0.36, 0.37, 0.39], look: [0.45, 0.994, 0.2, 0], wear: [1, 1, 0], ink: 0.81 },
@@ -96,7 +96,7 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   fabric: { family: 'matte', base: [0.2, 0.12, 0.085], look: [0.0, 0.98, 0.0, 0.5], pattern: 1, cabin: true, ink: 0.93 },
   leather: { family: 'matte', base: [0.2, 0.075, 0.035], look: [0.25, 0.985, 0.2, 0.15], pattern: 2, cabin: true, ink: 0.56 },
   wood: { family: 'matte', base: [0.36, 0.17, 0.07], look: [0.4, 0.993, 0.2, 0.0], pattern: 3, cabin: true, ink: 0.68 },
-  plastic_int: { family: 'matte', base: [0.11, 0.1, 0.095], look: [0.1, 0.985, 0.15, 0.1], pattern: 6, cabin: true, ink: 0.37 },
+  plastic_int: { family: 'matte', base: [0.07, 0.068, 0.07], look: [0.1, 0.985, 0.15, 0.1], pattern: 6, cabin: true, ink: 0.37 },
   glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.5, wear: [0.6, 0, 0], ink: 0.0 },
   glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0], ink: 0.0 },
   lens_head: { family: 'lens', base: [0.8, 0.82, 0.84], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.86, 0.62], opacity: 0.18, wear: [0.6, 0, 0], ink: 0.0 },
@@ -112,6 +112,8 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
  */
 export const carEnvUniforms = {
   uCarGround: { value: new THREE.Color(0.2, 0.21, 0.17) },
+  /** debug views for modellers (viewer ?debug=): 0 off, 1 baked AO, 2 flat colour per material, 3 normals */
+  uCarDebug: { value: 0 },
 };
 
 export interface CarLookOptions {
@@ -201,11 +203,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uOpacity;
   uniform float uLamp;         // lens / gauge / emit: how bright the lamp behind is (0 = off)
   uniform vec3 uCarGround;
+  uniform float uCarDebug;
   uniform vec3 uZenith;
   uniform vec3 uMid;
   uniform vec3 uHorizon;
   uniform vec3 uGlow;
   uniform float uSunVis;
+  uniform samplerCube tClouds;
+  uniform float uCloudsOn;
   varying vec3 vObj;
   varying vec3 vObjN;
   varying vec3 vCar;
@@ -258,6 +263,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float band;   // 1 in the bright band (with sky)
     float dark;   // 1 in the dark band (without sky)
     float line;   // a thin bright line on the horizon itself
+    float cloud;  // a cloud in the sky part
   };
   CarEnv rtCarEnv(vec3 R, float soft) {
     CarEnv e;
@@ -266,8 +272,21 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float az = atan(R.z, R.x);
     float hz = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
     float x = h - hz;
-    e.bright = mix(uHorizon, vec3(rtLuma(uHorizon)), 0.2) * 1.15 + uGlow * 0.1 * uSunVis;
+    // the sky is brightest round the sun: the band swells towards it and dims away from it, so it changes
+    // along the body instead of running round it like a painted stripe
+    vec2 rs = normalize(R.xz + vec2(1e-5));
+    vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
+    float toSun = dot(rs, ss) * 0.5 + 0.5;
+    e.bright = (mix(uHorizon, vec3(rtLuma(uHorizon)), 0.2) * 1.15 + uGlow * 0.25 * uSunVis * toSun * toSun) * (0.78 + 0.34 * toSun);
     e.upper = mix(uMid, uZenith, smoothstep(0.42, 0.85, h));
+    // the sky's own clouds, as the dome draws them (hard-edged already): a hood mirrors them
+    e.cloud = 0.0;
+    if (uCloudsOn > 0.5 && h > -0.02) {
+      vec4 cl = textureCube(tClouds, vec3(R.x, max(h, 0.02), R.z));
+      e.upper = e.upper * (1.0 - cl.a) + cl.rgb;
+      e.bright = e.bright * (1.0 - cl.a * 0.6) + cl.rgb * 0.6;
+      e.cloud = cl.a;
+    }
     e.land = mix(uHereForest, uCarGround, 0.35) * (uSkyColor * 0.55 + uSunColor * 0.06);
     e.ground = uCarGround * (uSkyColor * 0.7 + uSunColor * 0.22 * smoothstep(-0.1, 0.3, uSunDir.y));
     e.sky = rtStep(x, soft);
@@ -284,23 +303,38 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   }
 
   // ---- wear: hand-painted masks, not photographs of dirt
-  // dirt rises from the ground and gathers in the crevices (AO), dust settles on top; mud low down
-  float rtDirt(float amount, vec3 p, vec3 n, float height, float ao, float up, out float mud) {
-    float brush = rtTriStroke(p, n, 0.55) - 0.5;
-    float fine = rtTriNoise(p, n, 0.16).r - 0.5;
-    float field = 0.62 * (1.0 - smoothstep(0.02, 1.05, height)) + 0.32 * (1.0 - ao) + 0.12 * up + brush * 0.42 + fine * 0.2;
-    float thr = 1.0 - amount * 1.02;
-    mud = rtStep(field - thr - 0.32, 0.015) * step(0.01, amount);
-    return rtStep(field - thr, 0.02) * step(0.01, amount);
+  // Dirt as a painter puts it on a car, in broad shapes with brushed edges (never a speckle):
+  //   mud   splashed up from the wheels: a hem along the bottom with a ragged top, higher the dirtier
+  //   dust  over the rest, thicker low down and in the crevices, in long runs where rain streaked it
+  void rtDirtMasks(float amount, vec3 p, vec3 n, float height, float ao, out float dust, out float mud) {
+    float brush = rtTriStroke(p, n, 0.9) - 0.5;
+    float big = rtTriNoise(p, n, 2.4).r - 0.5;
+    float hem = amount * 0.62 - 0.06 + big * 0.26 + brush * 0.12;
+    mud = rtStep(hem - height, 0.006) * step(0.02, amount);
+    // rain runs: noise stretched down the side of the part (its own vertical), fine across, long down
+    vec2 side = abs(n.x) > abs(n.z) ? p.zy : p.xy;
+    float runs = texture2D(tNoise, side * vec2(1.6, 0.12)).g - 0.5;
+    float low = 1.0 - smoothstep(0.05, 1.35, height);
+    float d = amount * (0.42 + 0.5 * low) + (1.0 - ao) * 0.55 * amount + runs * 0.45 * amount * (1.0 - abs(n.y)) + brush * 0.25 * amount + big * 0.2 * amount;
+    dust = rtStep(d - 0.52, 0.02) * 0.6 + rtStep(d - 0.75, 0.02) * 0.3;
+    dust *= step(0.02, amount);
   }
-  // rust starts in the crevices and at the bottom of panels, eats out in patches, and lifts the paint round its edge
-  float rtRust(float amount, vec3 p, vec3 n, float height, float ao, out float edge) {
-    float patches = rtTriNoise(p, n, 0.42).g - 0.5;
-    float flakes = rtTriNoise(p, n, 0.07).b - 0.5;
-    float field = 0.42 * (1.0 - ao) + 0.3 * (1.0 - smoothstep(0.15, 0.9, height)) + patches * 0.55 + flakes * 0.18;
-    float thr = 0.98 - amount * 1.02;
-    edge = rtStep(field - thr + 0.05, 0.01) * step(0.01, amount);
-    return rtStep(field - thr, 0.008) * step(0.01, amount);
+  // Rust starts in the crevices, along the bottom of panels and round the arches, eats outwards in big
+  // blotches, and lifts the paint round its edge (a pale blistered rim)
+  float rtRust(float amount, vec3 p, vec3 n, float height, float ao, out float rim) {
+    float patches = rtTriNoise(p, n, 2.2).g - 0.5;
+    float ragged = rtTriStroke(p + 3.7, n, 0.7) - 0.5;
+    float field = 0.48 * (1.0 - ao) + 0.32 * (1.0 - smoothstep(0.18, 0.8, height)) + patches * 0.62 + ragged * 0.16;
+    float thr = 0.9 - amount * 1.0;
+    rim = rtStep(field - thr + 0.045, 0.004) * step(0.02, amount);
+    return rtStep(field - thr, 0.004) * step(0.02, amount);
+  }
+  // bare rusty iron in two painted tones (dark scale, orange bloom) and a few pits, lit as the rest
+  vec3 rtRustColor(vec3 p, vec3 n, vec3 light, float ao) {
+    float t = rtTriNoise(p, n, 0.9).b * 0.75 + (rtTriStroke(p, n, 0.35) - 0.5) * 0.5;
+    vec3 c = mix(vec3(0.075, 0.028, 0.013), vec3(0.3, 0.1, 0.028), rtStep(t - 0.5, 0.01));
+    c = mix(c, vec3(0.42, 0.17, 0.05), rtStep(t - 0.68, 0.01) * 0.7);
+    return c * light * mix(0.6, 1.0, ao);
   }
 
   // ink: an id below the paint finish's 0.23, from the material and its colour: neighbouring parts of
@@ -347,12 +381,12 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 inkBase = base;
 
     // ---------------------------------------------------------------- dirt, rust (masks; applied per family)
-    float dirt = 0.0;
+    float dust = 0.0;
     float mud = 0.0;
     float rust = 0.0;
     float rustEdge = 0.0;
     #ifdef RT_WEAR
-    dirt = rtDirt(wear.x, vObj, on, height, ao, smoothstep(0.55, 0.9, n.y), mud);
+    rtDirtMasks(wear.x, vObj, on, height, ao, dust, mud);
     rust = rtRust(wear.y, vObj, on, height, ao, rustEdge);
     #endif
 
@@ -365,7 +399,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the shade tone is tuned on its own: deeper and more saturated than the lit one, cooled by the sky
     float pk = max(max(paint.r, paint.g), max(paint.b, 1e-3));
     vec3 shadeTone = paint * mix(vec3(1.0), paint / pk, 0.45) * 0.86;
-    vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full)), lit);
+    // (a crevice the shadow maps cannot see into — a panel gap, under a trim strip — is kept from the sun by the AO)
+    float sunAO = smoothstep(0.12, 0.62, ao);
+    vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full) * sunAO), lit);
     col = diffuse;
     // the clear coat: light laid over the colour, never a wash of grey across it
     CarEnv e = rtCarEnv(R, 0.0015);
@@ -374,10 +410,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
-    vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.55);
-    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.6);
-    col += upperT * (0.05 + 0.2 * f) * e.sky * (1.0 - e.band) * coat;
-    col += brightT * (0.42 + 0.4 * f) * e.band * e.sky * coat;
+    vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.62);
+    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.82);
+    col += upperT * (0.07 + 0.22 * f) * e.sky * (1.0 - e.band) * coat;
+    col += brightT * (0.4 + 0.38 * f) * e.band * e.sky * coat;
     col += e.bright * 0.3 * e.line * coat;
     // under the horizon the far land deepens the colour; the ground near by gives back a little light
     float under = 1.0 - e.sky;
@@ -393,17 +429,15 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao;
     #ifdef RT_WEAR
     // rust breaks through; the paint round it lifts and pales
-    vec3 rustCol = mix(vec3(0.07, 0.025, 0.012), vec3(0.36, 0.12, 0.035), rtTriNoise(vObj, on, 0.05).r);
-    vec3 rustLit = rustCol * (sky + uSunColor * 0.32 * lit) * mix(0.6, 1.0, ao);
-    col = mix(col, diffuse * 1.15 + 0.01, rustEdge * (1.0 - rust) * 0.45);
-    col = mix(col, rustLit, rust);
+    col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rust) * 0.5);
+    col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.32 * lit, ao), rust);
     #endif
 
     #elif defined(RT_METAL)
     // ---------------------------------------------------------------- chrome, steel, aluminium
     float contrast = gloss;
     CarEnv e = rtCarEnv(R, mix(0.03, 0.001, contrast));
-    vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full));
+    vec3 diffuse = base * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.08 * full) * smoothstep(0.12, 0.62, ao));
     // chrome: nothing but the bands, pushed hard (bright sky, a white line on the horizon, a near black
     // band under it, warm ground); steel and aluminium: the same, softened over a grey cel tone
     vec3 skyc = mix(e.upper * 1.15, e.bright * 1.45, e.band);
@@ -416,8 +450,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += uSunColor * mix(0.5, 2.4, contrast) * rtSunSpot(R, uLook.y) * sh;
     col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao;
     #ifdef RT_WEAR
-    vec3 rustCol = mix(vec3(0.06, 0.022, 0.01), vec3(0.3, 0.1, 0.03), rtTriNoise(vObj, on, 0.05).r);
-    col = mix(col, rustCol * (sky + uSunColor * 0.3 * lit) * mix(0.6, 1.0, ao), rust);
+    col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
 
     #elif defined(RT_MATTE)
@@ -456,7 +489,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #ifdef RT_CABIN
     col = rtCabin(albedo, n, sh) * mix(0.45, 1.0, ao);
     #else
-    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full));
+    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.12, 0.62, ao));
     #endif
     // a broad soft highlight (shiny plastic, leather, lacquer) and a sheen at grazing angles (cloth, rubber)
     vec3 hv = normalize(v + uSunDir);
@@ -465,8 +498,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += (uSkyColor * 0.6 + uSunColor * 0.12 * lit) * uLook.w * pow(1.0 - ndv, 3.0) * ao * sheenMask;
     col += uSkyColor * 0.35 * uLook.z * pow(1.0 - ndv, 5.0) * ao;
     #ifdef RT_WEAR
-    vec3 rustCol = mix(vec3(0.06, 0.022, 0.01), vec3(0.3, 0.1, 0.03), rtTriNoise(vObj, on, 0.05).r);
-    col = mix(col, rustCol * (sky + uSunColor * 0.3 * lit) * mix(0.6, 1.0, ao), rust);
+    col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
 
     #elif defined(RT_GLASS)
@@ -474,7 +506,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     CarEnv e = rtCarEnv(R, 0.002);
     vec3 env = mix(mix(e.ground, e.land, e.dark), mix(e.upper, e.bright, e.band), e.sky);
     float ew = mix(mix(0.3, 0.6, e.dark), mix(0.45, 1.0, e.band), e.sky);
-    float fres = 0.12 + 0.88 * pow(1.0 - ndv, 4.0);
+    // (glass in a drawing mirrors more than glass does: a windscreen seen at a slant is mostly sky)
+    float fres = 0.14 + 0.86 * pow(1.0 - ndv, 2.5);
     // what comes through: the tint, lit by the sky (premultiplied: the glass covers uOpacity of what is behind)
     vec3 through = uTint * (uSkyColor * 0.9 + uSunColor * 0.06) * uOpacity;
     vec3 refl = env * fres * mix(0.45, 1.0, ew) * 0.85;
@@ -483,15 +516,15 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float s = dot(vObj, sd) * 1.6 + dot(v, vec3(0.0, 0.6, 0.35)) * 0.5;
     float fs = fract(s);
     float streak = rtStep(fs - 0.32, 0.004) * (1.0 - rtStep(fs - 0.44, 0.004)) + 0.7 * rtStep(fs - 0.5, 0.003) * (1.0 - rtStep(fs - 0.535, 0.003));
-    streak *= 0.16 * (0.4 + 0.6 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
+    streak *= 0.34 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
     col = through + refl + (uHorizon * 0.8 + 0.25) * streak;
     col += uSunColor * 3.0 * rtSunSpot(R, uLook.y) * sh;
     alpha = clamp(uOpacity + fres * 0.45 + streak, 0.0, 0.97);
     #ifdef RT_WEAR
     // dust on the glass: a pale haze from the bottom edge
-    float dust = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 0.4).r);
-    col = mix(col, vec3(0.32, 0.28, 0.22) * (sky + uSunColor * 0.2) * alpha, dust * 0.5);
-    alpha = mix(alpha, 0.85, dust * 0.4);
+    float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
+    col = mix(col, vec3(0.32, 0.28, 0.22) * (sky + uSunColor * 0.2) * alpha, haze * 0.5);
+    alpha = mix(alpha, 0.85, haze * 0.4);
     #endif
 
     #elif defined(RT_LENS)
@@ -544,10 +577,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     #if !defined(RT_GLASS) && !defined(RT_LENS) && !defined(RT_EMIT)
     #ifdef RT_WEAR
-    // dirt over everything: dust where it is thin, dark mud low down
-    vec3 dustCol = mix(vec3(0.27, 0.235, 0.19), vec3(0.11, 0.085, 0.06), mud);
-    vec3 dirtLit = dustCol * (sky * mix(0.55, 1.0, ao) + uSunColor * 0.3 * lit);
-    col = mix(col, dirtLit, dirt * 0.92);
+    // dirt over everything: pale dust, dark mud low down (both matte: they kill the gloss under them)
+    vec3 dirtLight = sky * mix(0.55, 1.0, ao) + uSunColor * 0.3 * lit;
+    col = mix(col, vec3(0.3, 0.26, 0.205) * dirtLight, dust * (1.0 - mud));
+    col = mix(col, mix(vec3(0.085, 0.065, 0.045), vec3(0.14, 0.11, 0.075), rtStep(rtTriStroke(vObj, on, 0.5) - 0.55, 0.01)) * dirtLight, mud);
     #endif
     #endif
 
@@ -578,6 +611,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     }
 
     col = rtFog(col, vPos, cameraPosition);
+
+    if (uCarDebug > 0.5) {
+      // what a modeller needs to see: the AO as baked, which material is where, the normals
+      if (uCarDebug < 1.5) col = vec3(ao * ao);
+      else if (uCarDebug < 2.5) col = (0.15 + 0.85 * fract(vec3(0.17, 0.53, 0.89) + uInkSeed * vec3(3.1, 5.7, 7.3))) * (0.55 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.8, 0.45))), 0.0));
+      else col = (n * 0.5 + 0.5) * 0.8;
+      col *= 0.8;
+    }
 
     #if defined(RT_GLASS) || defined(RT_LENS)
     gl_FragColor = vec4(col, alpha);
@@ -663,6 +704,8 @@ export class CarLook {
         uHorizon: skyUniforms.uHorizon,
         uGlow: skyUniforms.uGlow,
         uSunVis: skyUniforms.uSunVis,
+        tClouds: skyUniforms.tClouds,
+        uCloudsOn: skyUniforms.uCloudsOn,
         ...this.shared,
         uBase: { value: base },
         uLook: { value: new THREE.Vector4(...r.look) },
@@ -840,13 +883,13 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
   const key = `${kind}${focused ? '+' : ''}`;
   let m = ghosts.get(key);
   if (m) return m;
-  const color = kind === 'blocked' ? new THREE.Color(1.0, 0.34, 0.14) : new THREE.Color(0.5, 0.9, 1.0);
+  const color = kind === 'blocked' ? new THREE.Color(1.0, 0.3, 0.1) : new THREE.Color(0.32, 0.85, 1.0);
   m = new THREE.ShaderMaterial({
     uniforms: {
       ...globals,
       uGhostColor: { value: color },
       // x: fill, y: rim, z: scanlines, w: brightness
-      uGhost: { value: new THREE.Vector4(kind === 'replace' ? 0.04 : 0.1, kind === 'replace' ? 0.55 : 0.9, kind === 'replace' ? 0.35 : 0.6, focused ? 1.7 : 1.0) },
+      uGhost: { value: new THREE.Vector4(kind === 'replace' ? 0.05 : 0.12, kind === 'replace' ? 1.0 : 1.7, kind === 'replace' ? 0.5 : 1.0, focused ? 1.6 : 1.0) },
     },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
@@ -874,14 +917,16 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
         float y = vPos.y + uOriginOffset.y;
         float lines = smoothstep(0.3, 0.5, abs(fract(y * 26.0 - uTime * 0.5) - 0.5));
         float sweep = exp(-pow(fract(y * 0.6 - uTime * 0.35) - 0.5, 2.0) * 900.0);
-        float k = uGhost.x + uGhost.y * rim + uGhost.y * 0.6 * crease + uGhost.z * 0.09 * lines + 0.25 * sweep;
+        float k = uGhost.x + uGhost.y * rim + uGhost.y * 0.35 * crease + uGhost.z * 0.12 * lines + 0.35 * sweep;
         k *= breathe * uGhost.w;
-        vec3 c = uGhostColor * k + vec3(1.0) * rim * rim * 0.35 * uGhost.w;
+        // saturated colour in the body of the skin, going white only where it is brightest (the rim)
+        vec3 c = uGhostColor * k + vec3(1.0) * rim * rim * 0.5 * uGhost.w;
         gl_FragColor = vec4(c, 0.5);
       }`,
     side: THREE.DoubleSide,
     transparent: true,
     depthWrite: false,
+    depthFunc: THREE.LessEqualDepth,
     blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation,
     blendSrc: THREE.OneFactor,
@@ -897,14 +942,30 @@ export function ghostMaterial(kind: GhostKind, focused = false): THREE.ShaderMat
   return m;
 }
 
-/** draw a whole model as a ghost of the given kind, out of the shadow maps */
+let ghostDepth: THREE.Material | null = null;
+
+/**
+ * Draw a whole model as a ghost of the given kind, out of the shadow maps. Each mesh gets a depth-only twin
+ * drawn just before it, so the hologram is one skin (the surface nearest the eye), not every layer of the
+ * part added up to white. Two draw calls per mesh; ghosts are few.
+ */
 export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = false): void {
+  ghostDepth ??= new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
+  const meshes: THREE.Mesh[] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
-    if (mesh.isMesh) {
-      mesh.material = ghostMaterial(kind, focused);
-      mesh.layers.set(0);
-      mesh.renderOrder = 20;
-    }
+    if (mesh.isMesh && !mesh.userData.ghostDepth) meshes.push(mesh);
   });
+  for (const mesh of meshes) {
+    mesh.material = ghostMaterial(kind, focused);
+    mesh.layers.set(0);
+    mesh.renderOrder = 21;
+    if (!mesh.children.some((c) => c.userData.ghostDepth)) {
+      const d = new THREE.Mesh(mesh.geometry, ghostDepth);
+      d.userData.ghostDepth = true;
+      d.renderOrder = 20;
+      d.frustumCulled = mesh.frustumCulled;
+      mesh.add(d);
+    }
+  }
 }

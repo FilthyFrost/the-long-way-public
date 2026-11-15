@@ -209,6 +209,14 @@ def main(args):
     empties = [o for o in bpy.data.objects if o.type == 'EMPTY']
     mc.export_glb(out, allm + empties)
     print('WROTE', out, os.path.getsize(out))
+    # one wheel on its own, as a part is exported (origin at its centre): ghosts and part views in the viewer
+    fl = next(o for o in wheels if o.name == 'WHEEL_FL')
+    keep = fl.location.copy()
+    fl.location = (0, 0, 0)
+    part = os.path.join(os.path.dirname(out), 'testwheel.glb')
+    mc.export_glb(part, [fl])
+    fl.location = keep
+    print('WROTE', part, os.path.getsize(part))
     if prev:
         mc.preview(prev, target=(0, 0, 0.6), dist=7.0, yaw_deg=35.0, pitch_deg=10.0)
         mc.preview(prev.replace('.png', '_rear.png'), target=(0, 0, 0.6), dist=7.0, yaw_deg=215.0, pitch_deg=14.0)

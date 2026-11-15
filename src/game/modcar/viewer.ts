@@ -15,6 +15,7 @@
  *   &stage=studio|proving|world             painted concrete floor (default), the proving ground, or parked
  *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
  *   &spin=1                                 turntable (live view)
+ *   &debug=ao|mat|normal                    the baked AO, a flat colour per material, the normals
  *   &fov=40 &quality=high &post=1 &shot=1   (shot = the harness drives simulate / render)
  *
  * Live: drag to orbit, wheel to zoom, L lamps, B brake, G ghost kinds, P paints, D dirt, R rust, T hour +1, space spin.
@@ -63,6 +64,8 @@ export interface ViewerParams {
   post: boolean;
   shot: boolean;
   seed: number;
+  /** 0 off, 1 AO, 2 materials, 3 normals */
+  debug: number;
 }
 
 /** 'frames/sedan' → /models/modcar/frames/sedan.glb; absolute paths and URLs are taken as they are */
@@ -120,6 +123,7 @@ export function readViewerParams(search: string = window.location.search): Viewe
     post: flag('post', true),
     shot: flag('shot'),
     seed: num('seed', 20261113),
+    debug: ({ ao: 1, mat: 2, normal: 3 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
   };
 }
 
@@ -281,6 +285,7 @@ export class ModelViewer {
     this.env.clock.setHour(params.time, 0);
     this.env.shotMode = params.shot;
     // what the cars mirror below the horizon: the floor, or the road and the country beside it
+    carEnvUniforms.uCarDebug.value = params.debug;
     if (this.world) carEnvUniforms.uCarGround.value.setRGB(0.2, 0.21, 0.19);
     else carEnvUniforms.uCarGround.value.setRGB(0.31, 0.3, 0.285);
   }
@@ -306,6 +311,12 @@ export class ModelViewer {
       const b = m.geometry.boundingBox!.clone().applyMatrix4(m.matrixWorld);
       this.bounds.union(b);
     });
+    // a part is modelled round its mount point: stand anything that reaches below the floor on it
+    if (!this.bounds.isEmpty() && this.bounds.min.y < -0.01) {
+      model.position.y -= this.bounds.min.y;
+      model.updateMatrixWorld(true);
+      this.bounds.translate(new THREE.Vector3(0, -this.bounds.min.y, 0));
+    }
     // the head lamps: from the lamp mounts if the model has them, else the front of its box
     const hl = model.getObjectByName('M_headlight_L') ?? model.getObjectByName('M_headlight');
     if (hl) hl.getWorldPosition(this.beamFrom);
