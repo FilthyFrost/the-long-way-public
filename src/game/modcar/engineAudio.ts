@@ -349,6 +349,10 @@ export class EngineVoice {
   private tone: EngineTone = DEFAULT_TONE;
   private readonly slots = new Map<string, Slot>();
   private readonly rng = new Rng(0x5eed);
+  /** every source that runs for the voice's whole life (stopped by dispose) */
+  private readonly running: AudioScheduledSourceNode[] = [];
+  /** banks that would not load (not asked for again) */
+  private readonly failed = new Set<string>();
   /** a live context (starts are scheduled a little ahead); offline renders run exact */
   private readonly live: boolean;
 
@@ -466,6 +470,7 @@ export class EngineVoice {
       s.buffer = nb;
       s.loop = true;
       s.start(0, this.rng.range(0, 1.9));
+      this.running.push(s);
       return s;
     };
 
@@ -492,6 +497,7 @@ export class EngineVoice {
     this.whineGain = g(0);
     this.whineOsc.connect(this.whineBp).connect(this.whineGain).connect(this.pre);
     this.whineOsc.start();
+    this.running.push(this.whineOsc);
 
     // turbo: shaft whistle + hiss
     this.turboOsc = ctx.createOscillator();
@@ -500,6 +506,7 @@ export class EngineVoice {
     this.turboGain = g(0);
     this.turboOsc.connect(this.turboGain).connect(this.pre);
     this.turboOsc.start();
+    this.running.push(this.turboOsc);
     this.turboBp = f('bandpass', 3000, 6);
     this.turboHiss = g(0);
     noiseSrc().connect(this.turboBp).connect(this.turboHiss).connect(this.pre);
@@ -521,6 +528,7 @@ export class EngineVoice {
     noiseSrc().connect(f('bandpass', 2600, 2)).connect(g(0.25)).connect(starterVca);
     this.starterOsc.start();
     this.starterLfo.start();
+    this.running.push(this.starterOsc, this.starterLfo);
 
     // steam hissing out of the cooling system
     this.steamGain = g(0);
@@ -678,8 +686,14 @@ export class EngineVoice {
         this.stopAll();
         this.bank = null;
         this.bankId = null;
-      } else {
-        void this.load(st.engineId);
+      } else if (!this.failed.has(st.engineId)) {
+        const id = st.engineId;
+        this.load(id).catch((e: unknown) => {
+          // no bank, no engine sound: say so once and carry on
+          console.warn(`ModCar engine sound: ${id}: ${e instanceof Error ? e.message : String(e)}`);
+          this.failed.add(id);
+          if (this.loading === id) this.loading = null;
+        });
       }
     }
     this.advance(t);
@@ -918,13 +932,15 @@ export class EngineVoice {
   /** stop everything and release the nodes */
   dispose(): void {
     this.stopAll();
-    for (const n of [this.whineOsc, this.turboOsc, this.starterOsc, this.starterLfo]) {
+    for (const n of this.running) {
       try {
         n.stop();
       } catch {
         /* already stopped */
       }
+      n.disconnect();
     }
+    this.running.length = 0;
     this.out.disconnect();
   }
 
