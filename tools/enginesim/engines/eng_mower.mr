@@ -1,0 +1,165 @@
+// eng_mower: lawn-mower single, 4-stroke OHV, 149 cc, air-cooled, governed to ~3600 rpm.
+// Light pistons, a heavy-ish flywheel (the magneto), a little can muffler right on the port.
+import "engine_sim.mr"
+import "modcar_lib.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node wires {
+    output wire1: ignition_wire();
+}
+
+public node eng_mower {
+    alias output __out: engine;
+
+    engine engine(
+        name: "eng_mower",
+        starter_torque: 12 * units.lb_ft,
+        starter_speed: 450 * units.rpm,
+        redline: 3600 * units.rpm,
+        fuel: fuel(
+            max_burning_efficiency: 0.8,
+            burning_efficiency_randomness: 0.4
+        ),
+        throttle_gamma: 1.5,
+        hf_gain: 0.004,
+        noise: 0.45,
+        jitter: 0.4,
+        simulation_frequency: 40000
+    )
+
+    wires wires()
+
+    label stroke(45 * units.mm)
+    label bore(65 * units.mm)
+    label rod_length(78 * units.mm)
+    label compression_height(18 * units.mm)
+
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: 2.5 * units.kg,
+        mass: 1.6 * units.kg,
+        friction_torque: 0.8 * units.Nm,
+        moment_of_inertia: disk_moment_of_inertia(mass: 2.5 * units.kg, radius: 9 * units.cm)
+            + disk_moment_of_inertia(mass: 1.6 * units.kg, radius: 3 * units.cm),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: 90 * units.deg
+    )
+
+    rod_journal rj0(angle: 0.0)
+    c0.add_rod_journal(rj0)
+
+    piston_parameters piston_params(
+        mass: 90 * units.g,
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement: 0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: 80 * units.g,
+        moment_of_inertia: rod_moment_of_inertia(mass: 80 * units.g, length: rod_length),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    intake intake(
+        plenum_volume: 0.25 * units.L,
+        plenum_cross_section_area: 3.0 * units.cm2,
+        intake_flow_rate: k_carb(90.0),
+        runner_flow_rate: k_carb(120.0),
+        runner_length: 3.0 * units.inch,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: 0.9963,
+        velocity_decay: 0.5
+    )
+
+    exhaust_system_parameters es_params(
+        outlet_flow_rate: k_carb(140.0),
+        primary_tube_length: 3.0 * units.inch,
+        primary_flow_rate: k_carb(180.0),
+        velocity_decay: 0.5,
+        volume: 0.35 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params,
+        audio_volume: 1.0,
+        length: 6 * units.inch,
+        impulse_response: ir_lib.minimal_muffling_03
+    )
+
+    cylinder_bank b0(bank_params, angle: 0 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.02)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj0,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            primary_length: 1 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 22 * units.cc,
+                intake_runner_volume: 30 * units.cc,
+                intake_runner_cross_section_area: 3.2 * units.cm2,
+                exhaust_runner_volume: 20 * units.cc,
+                exhaust_runner_cross_section_area: 3.0 * units.cm2,
+                flow_attenuation: 0.75,
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0
+            )
+        )
+
+    engine
+        .add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    harmonic_cam_lobe lobe(
+        duration_at_50_thou: 200 * units.deg,
+        gamma: 1.0,
+        lift: 220 * units.thou,
+        steps: 100
+    )
+
+    mc_cam_single camshaft(
+        intake_lobe_profile: lobe,
+        exhaust_lobe_profile: lobe,
+        intake_lobe_center: 108 * units.deg,
+        exhaust_lobe_center: 108 * units.deg,
+        base_radius: 400 * units.thou
+    )
+
+    // magneto with a centrifugal advance (the curve's samples must be closer than its 1000 rpm filter radius)
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 20 * units.deg)
+        .add_sample(1000 * units.rpm, 22 * units.deg)
+        .add_sample(2000 * units.rpm, 30 * units.deg)
+        .add_sample(3000 * units.rpm, 38 * units.deg)
+        .add_sample(4000 * units.rpm, 40 * units.deg)
+        .add_sample(5000 * units.rpm, 40 * units.deg)
+        .add_sample(6000 * units.rpm, 40 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve: timing_curve,
+        rev_limit: 4600 * units.rpm,
+        limiter_duration: 0.08)
+    ignition_module.connect_wire(wires.wire1, 0 * units.deg)
+    engine.add_ignition_module(ignition_module)
+}
+
+public node main {
+    set_engine(eng_mower())
+}

@@ -1,0 +1,226 @@
+// ModCar engine library for Engine Simulator (scripts for the headless bank recorder).
+// Heads and camshaft builders shared by the eight ModCar engines. Firing angles are crank degrees
+// in the 720-degree cycle; the cylinder order is the order the cylinders are added to their bank.
+import "engine_sim.mr"
+
+units units()
+
+// A two-valve-ish head; flow_attenuation scales the port flow (port size), lift_scale the lift axis.
+public node mc_head {
+    input intake_camshaft;
+    input exhaust_camshaft;
+    input chamber_volume: 50 * units.cc;
+    input intake_runner_volume: 150 * units.cc;
+    input intake_runner_cross_section_area: 10 * units.cm2;
+    input exhaust_runner_volume: 50 * units.cc;
+    input exhaust_runner_cross_section_area: 8 * units.cm2;
+    input flow_attenuation: 1.0;
+    input lift_scale: 1.0;
+    input flip_display: false;
+    alias output __out: head;
+
+    function intake_flow(50 * units.thou)
+    intake_flow
+        .add_flow_sample(0 * lift_scale, 0 * flow_attenuation)
+        .add_flow_sample(50 * lift_scale, 30 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale, 75 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale, 120 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale, 160 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale, 190 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale, 210 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale, 222 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale, 230 * flow_attenuation)
+        .add_flow_sample(450 * lift_scale, 235 * flow_attenuation)
+        .add_flow_sample(500 * lift_scale, 238 * flow_attenuation)
+        .add_flow_sample(550 * lift_scale, 240 * flow_attenuation)
+        .add_flow_sample(600 * lift_scale, 240 * flow_attenuation)
+
+    function exhaust_flow(50 * units.thou)
+    exhaust_flow
+        .add_flow_sample(0 * lift_scale, 0 * flow_attenuation)
+        .add_flow_sample(50 * lift_scale, 25 * flow_attenuation)
+        .add_flow_sample(100 * lift_scale, 60 * flow_attenuation)
+        .add_flow_sample(150 * lift_scale, 95 * flow_attenuation)
+        .add_flow_sample(200 * lift_scale, 125 * flow_attenuation)
+        .add_flow_sample(250 * lift_scale, 145 * flow_attenuation)
+        .add_flow_sample(300 * lift_scale, 160 * flow_attenuation)
+        .add_flow_sample(350 * lift_scale, 170 * flow_attenuation)
+        .add_flow_sample(400 * lift_scale, 176 * flow_attenuation)
+        .add_flow_sample(450 * lift_scale, 180 * flow_attenuation)
+        .add_flow_sample(500 * lift_scale, 182 * flow_attenuation)
+        .add_flow_sample(550 * lift_scale, 184 * flow_attenuation)
+        .add_flow_sample(600 * lift_scale, 184 * flow_attenuation)
+
+    generic_cylinder_head head(
+        chamber_volume: chamber_volume,
+        intake_runner_volume: intake_runner_volume,
+        intake_runner_cross_section_area: intake_runner_cross_section_area,
+        exhaust_runner_volume: exhaust_runner_volume,
+        exhaust_runner_cross_section_area: exhaust_runner_cross_section_area,
+        intake_port_flow: intake_flow,
+        exhaust_port_flow: exhaust_flow,
+        valvetrain: standard_valvetrain(
+            intake_camshaft: intake_camshaft,
+            exhaust_camshaft: exhaust_camshaft
+        ),
+        flip_display: flip_display
+    )
+}
+
+// One lobe pair (single cylinder firing at 0)
+public node mc_cam_single {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake;
+    output exhaust_cam_0: _exhaust;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust.add_lobe(rot360 - exhaust_lobe_center)
+    _intake.add_lobe(rot360 + intake_lobe_center)
+}
+
+// Inline four, cylinders 1..4 firing 1-3-4-2 (journals 0, 180, 180, 0)
+public node mc_cam_i4 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake;
+    output exhaust_cam_0: _exhaust;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 540 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 180 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+    _intake
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 540 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 180 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+}
+
+// Inline six, cylinders 1..6 firing 1-5-3-6-2-4 (journals 0, 120, 240, 240, 120, 0)
+public node mc_cam_i6 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.6 * units.inch;
+    output intake_cam_0: _intake;
+    output exhaust_cam_0: _exhaust;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+    _intake
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+}
+
+// Boxer six, bank A cylinders 1, 2, 3 and bank B cylinders 4, 5, 6, firing 1-6-2-4-3-5
+// (journals 0, 240, 120 | 180, 60, 300)
+public node mc_cam_boxer6 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust0
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 480 * units.deg)
+    _intake0
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 480 * units.deg)
+    _exhaust1
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 120 * units.deg)
+    _intake1
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 120 * units.deg)
+}
+
+// Cross-plane V8, bank 0 cylinders 1, 3, 5, 7 and bank 1 cylinders 2, 4, 6, 8, firing 1-8-7-2-6-5-4-3
+// (journals 0, 270, 90, 180 on both banks, 90 degree vee)
+public node mc_cam_v8 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 112 * units.deg;
+    input exhaust_lobe_center: 112 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.8 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot(90 * units.deg)
+    label rot360(360 * units.deg)
+    _exhaust0
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 7 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 5 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 2 * rot)
+    _intake0
+        .add_lobe(rot360 + intake_lobe_center + 0 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 7 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 5 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 2 * rot)
+    _exhaust1
+        .add_lobe(rot360 - exhaust_lobe_center + 3 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 6 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 4 * rot)
+        .add_lobe(rot360 - exhaust_lobe_center + 1 * rot)
+    _intake1
+        .add_lobe(rot360 + intake_lobe_center + 3 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 6 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 4 * rot)
+        .add_lobe(rot360 + intake_lobe_center + 1 * rot)
+}
