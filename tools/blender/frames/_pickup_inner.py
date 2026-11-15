@@ -10,7 +10,8 @@ import numpy as np  # noqa: E402
 from frames import _kit as K  # noqa: E402
 from frames import pickup as S  # noqa: E402
 from frames._sedan_inner import (dial, dropped_crossmember, extrude_y, face_up, flip_down, orient_out,  # noqa: E402
-                                 quad_sheet, recompute_normals, ring_inner, side_out, tub)
+                                 quad_sheet, recompute_normals, ring_inner, side_out, tub, strut_tower, heat_shield,
+                                 harness, smooth_path)
 
 D = S.D
 PI = math.pi
@@ -147,10 +148,14 @@ def engine_bay():
     b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.55), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.55), 4, 2, (0, -1, 0), 'paint'))
     R = 0.425
     b.extend(tub(xa, za, R, APRON_Y, y_out, 4, 176, 'paint', True))
-    # upper control arm mount (box) and the shock top on the tub
-    b.extend(K.box_buf((xa - 0.10, APRON_Y - 0.06, 0.72), (xa + 0.10, APRON_Y, 0.80), 'paint', 0.01, 2))
-    b.extend(K.cyl_buf((xa + 0.02, 0.60, za + R - 0.01), (xa + 0.02, 0.60, za + R + 0.03), 0.05, 'paint', 14))
-    b.extend(K.cyl_buf((xa + 0.02, 0.60, za + R + 0.03), (xa + 0.02, 0.60, za + R + 0.05), 0.012, 'steel', 8))
+    # shock tower bulging into the bay from the side wall (the shock's top mount on its cap), the upper
+    # control arm's mounting plate in front of it, a stamped bead along the wall
+    b.extend(strut_tower(xa + 0.02, 0.54, 0.07, 0.55, top + 0.003, APRON_Y))
+    b.extend(K.box_buf((xa - 0.20, APRON_Y - 0.012, 0.74), (xa - 0.07, APRON_Y, 0.84), 'paint', 0.006, 2))
+    for (bx0, bz0) in ((xa - 0.18, 0.76), (xa - 0.09, 0.76), (xa - 0.18, 0.82), (xa - 0.09, 0.82)):
+        b.extend(K.cyl_buf((bx0, APRON_Y - 0.012, bz0), (bx0, APRON_Y - 0.020, bz0), 0.008, 'steel', 6))
+    for (x0, x1) in ((FIREWALL_X + 0.06, xa - 0.23), (xa + 0.11, RAD_X - 0.06)):
+        b.extend(K.tube_buf(np.array([(x0, APRON_Y, 0.70), (x1, APRON_Y, 0.70)]), 0.007, 'paint', 6))
     b.extend(quad_sheet((FIREWALL_X, APRON_Y, top), (RAD_X - FIREWALL_X, 0, 0), (0, y_out - APRON_Y, 0), 4, 1, (0, 0, 1), 'paint'))
     for x0 in (xa - R - 0.01, xa + R + 0.01):
         b.extend(quad_sheet((x0, APRON_Y, 0.55), (0, y_out - APRON_Y, 0), (0, 0, top - 0.55), 1, 2, (1 if x0 > xa else -1, 0, 0), 'paint'))
@@ -159,21 +164,48 @@ def engine_bay():
     b.extend(K.box_buf((RAD_X, 0.0, 0.925), (RAD_X + 0.045, APRON_Y + 0.01, 0.972), 'paint', 0.008, 2))
     b.extend(K.box_buf((RAD_X, 0.0, 0.50), (RAD_X + 0.045, APRON_Y + 0.01, 0.545), 'paint', 0.008, 2))
     b.extend(K.box_buf((RAD_X, APRON_Y - 0.065, 0.50), (RAD_X + 0.045, APRON_Y + 0.01, 0.972), 'paint', 0.008, 2))
-    b.extend(K.box_buf((RAD_X - 0.025, 0.0, 0.94), (RAD_X + 0.006, 0.035, 1.0), 'steel', 0.004, 2))
+    b.extend(K.box_buf((RAD_X - 0.025, 0.0, 0.968), (RAD_X + 0.006, 0.035, 1.0), 'steel', 0.004, 2))
     b.extend(K.box_buf((1.00, 0.63, 0.975), (1.05, 0.645, 1.02), 'steel', 0.003, 1))
-    path = np.array([(FIREWALL_X + 0.02, APRON_Y - 0.012, 0.88), (1.30, APRON_Y - 0.012, 0.90), (1.70, APRON_Y - 0.012, 0.88), (RAD_X - 0.03, APRON_Y - 0.05, 0.84)])
-    b.extend(K.tube_buf(path, 0.007, 'trim', 6))
+    # ribbed heat shield on the firewall behind the engine (within 2 cm of it)
+    b.extend(heat_shield(FIREWALL_X, 0.29, 0.62, 0.92))
+    # wiring loom from the fuse box along the side wall, round the shock tower to the headlamp, over the
+    # radiator support's top bar, and down across the firewall under the heat shield
+    wy = APRON_Y - 0.015
+    xt = xa + 0.02
+    main = [(FIREWALL_X + 0.24, wy, 0.895), (xt - 0.14, wy, 0.90), (xt - 0.06, 0.462, 0.91), (xt, 0.455, 0.915), (xt + 0.06, 0.462, 0.91),
+            (xt + 0.14, wy, 0.90), (RAD_X - 0.06, wy - 0.003, 0.88), (RAD_X - 0.02, 0.47, 0.83), (RAD_X - 0.012, 0.46, 0.80)]
+    top_bar = [(RAD_X - 0.06, wy - 0.003, 0.88), (RAD_X + 0.008, 0.45, 0.978), (RAD_X + 0.02, 0.24, 0.979), (RAD_X + 0.02, 0.0, 0.979)]
+    fw = [(FIREWALL_X + 0.13, wy, 0.865), (1.08, wy, 0.72), (FIREWALL_X + 0.012, 0.47, 0.63), (FIREWALL_X + 0.012, 0.32, 0.602),
+          (FIREWALL_X + 0.012, 0.0, 0.602)]
+    b.extend(harness([main, top_bar, fw], [0.008, 0.006, 0.006]))
+    for x in (1.20, xt + 0.20, RAD_X - 0.16):
+        b.extend(K.box_buf((x - 0.008, APRON_Y - 0.009, 0.885), (x + 0.008, APRON_Y, 0.912), 'trim', 0.002, 1))
+    b.extend(K.box_buf((RAD_X - 0.025, 0.445, 0.77), (RAD_X - 0.002, 0.475, 0.805), 'plastic_int', 0.004, 1))
+    # brake lines from the master cylinder down the side wall
+    for dz in (0.0, 0.013):
+        path = [(FIREWALL_X + 0.21, 0.42, 0.84 + dz), (1.25, 0.46, 0.835 + dz), (1.28, APRON_Y - 0.006, 0.80 + dz),
+                (1.295, APRON_Y - 0.006, 0.68 + dz), (1.30, APRON_Y - 0.006, 0.58 + dz)]
+        b.extend(K.tube_buf(smooth_path(path, 1), 0.0026, 'steel', 4))
     return b
 
 
 def engine_bay_asym():
     b = K.Buf()
     fx = FIREWALL_X
-    V, N, T = K.lathe(np.array([(0.0, 0.0), (0.09, 0.0), (0.10, 0.012), (0.10, 0.06), (0.09, 0.072), (0.0, 0.072)]), (fx, 0.30, 0.84), (1, 0, 0), 16)
+    # (all of these stay outboard of the engine's space, |y| > 0.32)
+    by_ = 0.42
+    V, N, T = K.lathe(np.array([(0.0, 0.0), (0.066, 0.0), (0.075, 0.011), (0.075, 0.054), (0.066, 0.064), (0.0, 0.064)]), (fx, by_, 0.84), (1, 0, 0), 16)
     b.add(V, N, T, 'steel')
-    b.extend(K.cyl_buf((fx + 0.072, 0.30, 0.84), (fx + 0.22, 0.30, 0.84), 0.022, 'alu', 12))
-    b.extend(K.cyl_buf((fx + 0.15, 0.30, 0.862), (fx + 0.15, 0.30, 0.92), 0.03, 'ceramic', 14))
-    b.extend(K.box_buf((fx, -0.02, 0.80), (fx + 0.11, 0.22, 0.96), 'plastic_int', 0.02, 2))
+    b.extend(K.cyl_buf((fx + 0.064, by_, 0.84), (fx + 0.21, by_, 0.84), 0.02, 'alu', 12))
+    b.extend(K.cyl_buf((fx + 0.14, by_, 0.86), (fx + 0.14, by_, 0.912), 0.026, 'ceramic', 14))
+    b.extend(K.cyl_buf((fx + 0.14, by_, 0.912), (fx + 0.14, by_, 0.926), 0.021, 'trim', 12))
+    # heater box on the right with its hose stubs, relay box on the right wall, fuse box on the left wall
+    b.extend(K.box_buf((fx, -0.492, 0.74), (fx + 0.10, -0.33, 0.94), 'plastic_int', 0.02, 2))
+    for hz in (0.80, 0.87):
+        b.extend(K.tube_buf(smooth_path([(fx + 0.10, -0.41, hz), (fx + 0.15, -0.41, hz - 0.005), (fx + 0.17, -0.405, hz - 0.05)]), 0.012, 'rubber', 8))
+    b.extend(K.box_buf((fx + 0.15, -APRON_Y, 0.86), (fx + 0.22, -APRON_Y + 0.04, 0.93), 'trim', 0.006, 2))
+    b.extend(K.box_buf((fx + 0.13, APRON_Y - 0.05, 0.84), (fx + 0.25, APRON_Y - 0.002, 0.94), 'trim', 0.008, 2))
+    b.extend(K.box_buf((1.58, APRON_Y - 0.003, 0.76), (1.66, APRON_Y - 0.001, 0.80), 'alu', 0.0, 1))
     bx, by, bz = 1.78, 0.34, 0.70
     b.extend(K.box_buf((bx - 0.15, by - 0.10, bz - 0.012), (bx + 0.15, by + 0.10, bz), 'steel', 0.004, 1))
     b.extend(K.box_buf((bx - 0.02, by + 0.08, 0.56), (bx + 0.02, APRON_Y, bz - 0.012), 'steel', 0.004, 1))
