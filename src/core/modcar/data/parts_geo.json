@@ -42,6 +42,27 @@
     0.6
    ]
   },
+  "bat_moto": {
+   "bbox": [
+    [
+     -0.079,
+     0.0,
+     -0.0475
+    ],
+    [
+     0.079,
+     0.136,
+     0.0492
+    ]
+   ],
+   "triangles": 782,
+   "materials": [
+    "paint",
+    "paint_b",
+    "steel",
+    "trim"
+   ]
+  },
   "bat_std": {
    "bbox": [
     [
@@ -56,6 +77,27 @@
     ]
    ],
    "triangles": 1582,
+   "materials": [
+    "paint",
+    "paint_b",
+    "steel",
+    "trim"
+   ]
+  },
+  "bat_truck": {
+   "bbox": [
+    [
+     -0.175,
+     0.0,
+     -0.0935
+    ],
+    [
+     0.175,
+     0.2395,
+     0.0935
+    ]
+   ],
+   "triangles": 1622,
    "materials": [
     "paint",
     "paint_b",
@@ -162,6 +204,185 @@
     1.6,
     0.22
    ]
+  },
+  "eng_2t": {
+   "bbox": [
+    [
+     -0.2164,
+     -0.0,
+     -0.185
+    ],
+    [
+     0.3613,
+     0.4198,
+     0.25
+    ]
+   ],
+   "triangles": 5276,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      0.34375,
+      0.0672,
+      0.068
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      -0.130526,
+      0.991445
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      0.34375,
+      0.0672,
+      -0.068
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      -0.130526,
+      0.991445
+     ]
+    }
+   }
+  },
+  "eng_d6": {
+   "bbox": [
+    [
+     -0.505,
+     -0.0,
+     -0.32
+    ],
+    [
+     0.5905,
+     0.9238,
+     0.36
+    ]
+   ],
+   "triangles": 13658,
+   "materials": [
+    "alu",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_turbo",
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_turbo": {
+     "pos": [
+      -0.02,
+      0.728,
+      0.255
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "M_exhaust_out": {
+     "pos": [
+      -0.15,
+      0.43,
+      0.272
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.887011,
+      0.461749
+     ]
+    }
+   }
+  },
+  "eng_flat6": {
+   "bbox": [
+    [
+     -0.3518,
+     -0.009,
+     -0.38
+    ],
+    [
+     0.306,
+     0.532,
+     0.38
+    ]
+   ],
+   "triangles": 14184,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2",
+    "M_turbo"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.352,
+      0.05,
+      0.255
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      -0.352,
+      0.05,
+      -0.255
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    },
+    "M_turbo": {
+     "pos": [
+      -0.2,
+      0.072,
+      0.27
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   }
   },
   "eng_i4": {
    "bbox": [
@@ -318,6 +539,46 @@
     }
    }
   },
+  "eng_single": {
+   "bbox": [
+    [
+     -0.2064,
+     -0.01,
+     -0.115
+    ],
+    [
+     0.2379,
+     0.4442,
+     0.19
+    ]
+   ],
+   "triangles": 3776,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      0.22534,
+      0.32129,
+      -0.0
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      -0.461749,
+      0.887011
+     ]
+    }
+   }
+  },
   "eng_v8": {
    "bbox": [
     [
@@ -389,6 +650,26 @@
     }
    }
   },
+  "exh_moto": {
+   "bbox": [
+    [
+     -0.8782,
+     -0.263,
+     -0.03
+    ],
+    [
+     0.0942,
+     0.0292,
+     0.1833
+    ]
+   ],
+   "triangles": 1088,
+   "materials": [
+    "chrome",
+    "steel",
+    "trim"
+   ]
+  },
   "exh_side": {
    "bbox": [
     [
@@ -426,6 +707,27 @@
     }
    }
   },
+  "exh_sport": {
+   "bbox": [
+    [
+     -1.63,
+     -0.0925,
+     -0.175
+    ],
+    [
+     0.006,
+     0.1241,
+     0.175
+    ]
+   ],
+   "triangles": 2144,
+   "materials": [
+    "chrome",
+    "rubber",
+    "rust",
+    "steel"
+   ]
+  },
   "exh_stock": {
    "bbox": [
     [
@@ -447,6 +749,27 @@
     "steel"
    ]
   },
+  "gb_3": {
+   "bbox": [
+    [
+     -0.3175,
+     -0.002,
+     -0.172
+    ],
+    [
+     0.3427,
+     0.342,
+     0.1945
+    ]
+   ],
+   "triangles": 3284,
+   "materials": [
+    "alu",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
   "gb_4": {
    "bbox": [
     [
@@ -461,6 +784,48 @@
     ]
    ],
    "triangles": 3328,
+   "materials": [
+    "alu",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "gb_5": {
+   "bbox": [
+    [
+     -0.3775,
+     -0.012,
+     -0.182
+    ],
+    [
+     0.3637,
+     0.412,
+     0.2045
+    ]
+   ],
+   "triangles": 3812,
+   "materials": [
+    "alu",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "gb_moto": {
+   "bbox": [
+    [
+     -0.28,
+     -0.0125,
+     -0.1625
+    ],
+    [
+     0.1805,
+     0.1693,
+     0.105
+    ]
+   ],
+   "triangles": 1118,
    "materials": [
     "alu",
     "rubber",
@@ -644,6 +1009,50 @@
     "trim"
    ]
   },
+  "rad_big": {
+   "bbox": [
+    [
+     -0.15,
+     -0.008,
+     -0.422
+    ],
+    [
+     0.046,
+     0.676,
+     0.422
+    ]
+   ],
+   "triangles": 2672,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "rad_small": {
+   "bbox": [
+    [
+     -0.06,
+     -0.008,
+     -0.272
+    ],
+    [
+     0.036,
+     0.466,
+     0.272
+    ]
+   ],
+   "triangles": 1798,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
   "rad_std": {
    "bbox": [
     [
@@ -769,6 +1178,109 @@
    "width": 0.04,
    "tire": false
   },
+  "rim_dually": {
+   "bbox": [
+    [
+     -0.27,
+     -0.27,
+     -0.2445
+    ],
+    [
+     0.27,
+     0.27,
+     0.2445
+    ]
+   ],
+   "triangles": 6478,
+   "materials": [
+    "chrome",
+    "rubber",
+    "steel"
+   ],
+   "mounts": [
+    "M_tire",
+    "M_tire2"
+   ],
+   "mount_tf": {
+    "M_tire": {
+     "pos": [
+      0.0,
+      0.0,
+      -0.135
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "M_tire2": {
+     "pos": [
+      0.0,
+      0.0,
+      0.135
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   },
+   "radius": 0.25,
+   "width": 0.42,
+   "tire": true,
+   "dual": true,
+   "rim_width_each": 0.21,
+   "tire_offsets": [
+    0.135,
+    -0.135
+   ]
+  },
+  "rim_moto18": {
+   "bbox": [
+    [
+     -0.24,
+     -0.24,
+     -0.081
+    ],
+    [
+     0.24,
+     0.24,
+     0.081
+    ]
+   ],
+   "triangles": 2836,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel"
+   ],
+   "mounts": [
+    "M_tire"
+   ],
+   "mount_tf": {
+    "M_tire": {
+     "pos": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   },
+   "radius": 0.229,
+   "width": 0.07,
+   "tire": true
+  },
   "rim_off16": {
    "bbox": [
     [
@@ -851,6 +1363,47 @@
    },
    "radius": 0.165,
    "width": 0.13,
+   "tire": true
+  },
+  "rim_truck19": {
+   "bbox": [
+    [
+     -0.27,
+     -0.27,
+     -0.1045
+    ],
+    [
+     0.27,
+     0.27,
+     0.1045
+    ]
+   ],
+   "triangles": 3438,
+   "materials": [
+    "chrome",
+    "rubber",
+    "steel"
+   ],
+   "mounts": [
+    "M_tire"
+   ],
+   "mount_tf": {
+    "M_tire": {
+     "pos": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   },
+   "radius": 0.25,
+   "width": 0.2,
    "tire": true
   },
   "roof_rack": {
@@ -1059,6 +1612,26 @@
     "trim"
    ]
   },
+  "tank_big": {
+   "bbox": [
+    [
+     -0.502,
+     -0.011,
+     -0.4089
+    ],
+    [
+     0.5508,
+     0.41,
+     0.334
+    ]
+   ],
+   "triangles": 3308,
+   "materials": [
+    "alu",
+    "steel",
+    "trim"
+   ]
+  },
   "tank_drum": {
    "bbox": [
     [
@@ -1079,6 +1652,28 @@
     "rubber",
     "rust",
     "steel"
+   ]
+  },
+  "tank_moto": {
+   "bbox": [
+    [
+     -0.2488,
+     -0.0854,
+     -0.1413
+    ],
+    [
+     0.2488,
+     0.264,
+     0.1413
+    ]
+   ],
+   "triangles": 1754,
+   "materials": [
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "trim"
    ]
   },
   "tank_std": {
