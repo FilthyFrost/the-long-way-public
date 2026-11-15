@@ -115,8 +115,8 @@ def build_gb_4(P):
 
 
 def build_gb_3(P):
-    """An old three-speed: short, round-shouldered case with a column-shift linkage on its side."""
-    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side')
+    """An old three-speed: short, round-shouldered cast-iron case with a column-shift linkage on its side."""
+    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side', material='steel')
     # side shift levers and linkage rods (column shift)
     for i, x in enumerate((-0.02, 0.04)):
         P.box('shift_lever', (0.012, 0.012, 0.09), (x, 0.108, 0.13), 'steel', rot=(0, 15 - 30 * i, 0), bev=0.003,
