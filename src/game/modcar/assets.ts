@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { partDef } from '../../core/modcar/parts';
 import type { Category, PartDef } from '../../core/modcar/types';
 
@@ -31,6 +32,7 @@ function fetchGlb(url: string): Promise<THREE.Group | null> {
           const mesh = o as THREE.Mesh;
           if (mesh.isMesh) rgbColours(mesh.geometry);
         });
+        mergeRigid(g.scene);
         resolve(g.scene);
       },
       undefined,
@@ -54,6 +56,96 @@ function rgbColours(g: THREE.BufferGeometry): void {
     out[i * 3 + 2] = c.getZ(i);
   }
   g.setAttribute('color', new THREE.BufferAttribute(out, 3));
+}
+
+/**
+ * Nodes that move or are looked up by name (docs/MODCAR.md §6): hinged panels and their glass, needles,
+ * wipers, the filler cap, mount empties. Each is a rigid piece of its own; everything else in a model
+ * stands still relative to the model's root.
+ */
+const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_)/;
+const KEEP = new Set(['position', 'normal', 'uv', 'color']);
+
+/**
+ * Merge every rigid piece of a loaded model (the model itself, and each node RIGID names) into one mesh per
+ * material name: a part made of forty objects becomes a handful of meshes, and with them a handful of
+ * draw calls in each pass (the shadow maps draw everything again). Materials keep their names, so the car
+ * materials swap them as before.
+ */
+function mergeRigid(root: THREE.Object3D): void {
+  root.updateMatrixWorld(true);
+  const groups: THREE.Object3D[] = [root];
+  root.traverse((o) => {
+    if (o !== root && RIGID.test(o.name)) groups.push(o);
+  });
+  for (const g of groups) {
+    const meshes: THREE.Mesh[] = [];
+    const collect = (node: THREE.Object3D): void => {
+      for (const c of node.children) {
+        if (RIGID.test(c.name)) continue;
+        const mesh = c as THREE.Mesh;
+        if (mesh.isMesh && !Array.isArray(mesh.material) && !mesh.children.length) meshes.push(mesh);
+        collect(c);
+      }
+    };
+    collect(g);
+    const buckets = new Map<string, THREE.Mesh[]>();
+    for (const m of meshes) {
+      const name = (m.material as THREE.Material).name;
+      let list = buckets.get(name);
+      if (!list) buckets.set(name, (list = []));
+      list.push(m);
+    }
+    const toGroup = new THREE.Matrix4().copy(g.matrixWorld).invert();
+    for (const [name, list] of buckets) {
+      if (list.length < 2) continue;
+      const geos: THREE.BufferGeometry[] = [];
+      for (const m of list) geos.push(rigidCopy(m, toGroup));
+      const merged = mergeGeometries(geos, false);
+      for (const x of geos) x.dispose();
+      if (!merged) continue;
+      merged.computeBoundingBox();
+      merged.computeBoundingSphere();
+      const mesh = new THREE.Mesh(merged, list[0].material);
+      mesh.name = `merged:${name}`;
+      g.add(mesh);
+      for (const m of list) m.removeFromParent();
+    }
+  }
+}
+
+/** a mesh's geometry in a group's frame, with the attributes every merged mesh has (missing ones neutral) */
+function rigidCopy(m: THREE.Mesh, toGroup: THREE.Matrix4): THREE.BufferGeometry {
+  const g = m.geometry.clone();
+  const mat = new THREE.Matrix4().multiplyMatrices(toGroup, m.matrixWorld);
+  g.applyMatrix4(mat);
+  const n = g.getAttribute('position').count;
+  if (!g.index) g.setIndex([...Array(n).keys()]);
+  // a mirrored copy comes out inside out: turn its faces back
+  if (mat.determinant() < 0) {
+    const ix = g.index!;
+    for (let i = 0; i < ix.count; i += 3) {
+      const t = ix.getX(i + 1);
+      ix.setX(i + 1, ix.getX(i + 2));
+      ix.setX(i + 2, t);
+    }
+  }
+  if (!g.hasAttribute('normal')) g.computeVertexNormals();
+  if (!g.hasAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
+  if (!g.hasAttribute('color')) g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  for (const k of Object.keys(g.attributes)) if (!KEEP.has(k)) g.deleteAttribute(k);
+  // (normalised or not, as the glTF brought it: merge needs one kind)
+  for (const k of KEEP) {
+    const a = g.getAttribute(k) as THREE.BufferAttribute;
+    if (a && (a.normalized || !(a.array instanceof Float32Array))) {
+      const f = new Float32Array(a.count * a.itemSize);
+      for (let i = 0; i < a.count; i++) for (let j = 0; j < a.itemSize; j++) f[i * a.itemSize + j] = a.getComponent(i, j);
+      g.setAttribute(k, new THREE.Float32BufferAttribute(f, a.itemSize));
+    }
+  }
+  g.morphAttributes = {};
+  g.clearGroups();
+  return g;
 }
 
 /** a frame's model (a stand-in body box when the file is missing) */

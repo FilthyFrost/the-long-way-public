@@ -153,8 +153,14 @@ export function applyMaterials(root: THREE.Object3D, look: CarLook): void {
       mesh.layers.disable(LAYER_SHADOW_FAR);
       mesh.layers.disable(LAYER_SHADOW_NEAR);
     } else {
-      mesh.layers.enable(LAYER_SHADOW_FAR);
+      // the near map (a few metres round the player) takes everything; the far one (~90 m, a texel is
+      // ~10 cm) only what is big enough to show there — a bolt-on mirror or a horn would cost a draw
+      // call each for less than a texel
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      const big = (g.boundingSphere?.radius ?? 1) > 0.22;
       mesh.layers.enable(LAYER_SHADOW_NEAR);
+      if (big) mesh.layers.enable(LAYER_SHADOW_FAR);
+      else mesh.layers.disable(LAYER_SHADOW_FAR);
     }
   });
 }
