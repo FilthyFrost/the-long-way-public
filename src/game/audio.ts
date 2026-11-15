@@ -173,6 +173,16 @@ export class AudioEngine {
     return !!this.ctx && this.ctx.state === 'running';
   }
 
+  /** the context, once start() has made it (the ModCar engine voices and foley share it) */
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** where other voices join the mix: the master bus, ahead of the compressor */
+  get output(): AudioNode | null {
+    return this.nodes ? this.nodes.master : null;
+  }
+
   /** seconds of sound made so far (the audio clock: it starts late and runs slow on a machine busy drawing) */
   get clock(): number {
     return this.ctx ? this.ctx.currentTime : 0;

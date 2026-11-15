@@ -1,0 +1,13 @@
+{
+  "_doc": "ModCar engine banks: recording plan inputs for make_banks.py. rpm in rev/min. offMode: closed = throttle shut, spark on (carburetted overrun); fuelcut = air wide open, no spark (diesel overrun). idleThrottle: speed control used for the idle take. catch: rpm the starter lets go at. ratio: rpm step ratio between neighbouring loops (each loop is played at most about +-6 % off its own pitch). offTrimDb: level correction for the overrun loops (the fuel-cut diesels pump air so freely that the simulator plays it as loud as full load; real overrun is well below it).",
+  "engines": {
+    "eng_mower": { "cylinders": 1, "idle": 1800, "top": 4000, "redline": 3600, "limiter": 4600, "catch": 1100, "flare": 1.25, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13 },
+    "eng_single": { "cylinders": 1, "idle": 1400, "top": 9200, "redline": 9000, "limiter": 9400, "catch": 1150, "flare": 1.5, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13 },
+    "eng_2t": { "cylinders": 2, "idle": 1500, "top": 9700, "redline": 9500, "limiter": 9900, "catch": 1150, "flare": 1.6, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13, "strokes": 2 },
+    "eng_i4": { "cylinders": 4, "idle": 850, "top": 6400, "redline": 6200, "limiter": 6450, "catch": 560, "flare": 1.4, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13 },
+    "eng_i4d": { "cylinders": 4, "idle": 750, "top": 4500, "redline": 4400, "limiter": 4650, "catch": 480, "flare": 1.3, "offMode": "fuelcut", "idleThrottle": 0.08, "ratio": 1.13, "offTrimDb": -12 },
+    "eng_flat6": { "cylinders": 6, "idle": 900, "top": 7400, "redline": 7200, "limiter": 7450, "catch": 600, "flare": 1.5, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13 },
+    "eng_v8": { "cylinders": 8, "idle": 700, "top": 6200, "redline": 6000, "limiter": 6250, "catch": 450, "flare": 1.6, "offMode": "closed", "idleThrottle": 0.0, "ratio": 1.13 },
+    "eng_d6": { "cylinders": 6, "idle": 600, "top": 2950, "redline": 2800, "limiter": 2950, "catch": 330, "flare": 1.25, "offMode": "fuelcut", "idleThrottle": 0.07, "ratio": 1.13, "offTrimDb": -12 }
+  }
+}

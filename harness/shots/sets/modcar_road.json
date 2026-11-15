@@ -1,0 +1,17 @@
+{
+  "set": "modcar_road",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_front34", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6"},
+    {"name": "sedan_rear34", "params": "build=stock:sedan&view=orbit&orbit=215,10,7,0.6"},
+    {"name": "pickup_front34", "params": "build=stock:pickup&view=orbit&orbit=35,9,7.5,0.7"},
+    {"name": "moto_side", "params": "build=stock:moto&view=orbit&orbit=80,6,4,0.6"},
+    {"name": "rv_front34", "params": "build=stock:rv&view=orbit&orbit=35,9,10,1.2"},
+    {"name": "rv_rear_wheels", "params": "build=stock:rv&view=orbit&orbit=145,5,7.5,0.6"},
+    {"name": "sedan_apoc", "params": "build=stock:sedan;bumperFront=bf_ram;roof=roof_spikes;armor_L=arm_plates;armor_R=arm_plates;hub_FL=rim_off16%2Btire:tire_tractor;hub_FR=rim_off16%2Btire:tire_tractor&view=orbit&orbit=35,9,7,0.6"},
+    {"name": "sedan_cockpit", "params": "build=stock:sedan&view=cockpit"},
+    {"name": "moto_cockpit", "params": "build=stock:moto&view=cockpit"},
+    {"name": "sedan_night", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6&time=22", "steps": [{"call": "lights", "args": []}]}
+  ]
+}

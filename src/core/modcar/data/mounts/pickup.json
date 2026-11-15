@@ -1,0 +1,555 @@
+{
+ "frame": "pickup",
+ "placeholder": true,
+ "mounts": {
+  "hub_FL": {
+   "pos": [
+    1.4,
+    0.34,
+    -0.7
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "rim",
+   "axle": "front",
+   "side": -1,
+   "steer": true,
+   "driven": false,
+   "handbrake": false
+  },
+  "hub_FR": {
+   "pos": [
+    1.4,
+    0.34,
+    0.7
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "rim",
+   "axle": "front",
+   "side": 1,
+   "steer": true,
+   "driven": false,
+   "handbrake": false
+  },
+  "hub_RL": {
+   "pos": [
+    -1.4,
+    0.34,
+    -0.69
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "rim",
+   "axle": "rear",
+   "side": -1,
+   "steer": false,
+   "driven": true,
+   "handbrake": true
+  },
+  "hub_RR": {
+   "pos": [
+    -1.4,
+    0.34,
+    0.69
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "rim",
+   "axle": "rear",
+   "side": 1,
+   "steer": false,
+   "driven": true,
+   "handbrake": true
+  },
+  "engine": {
+   "pos": [
+    1.55,
+    0.42,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "engine",
+   "side": 0
+  },
+  "gearbox": {
+   "pos": [
+    0.95,
+    0.38,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "gearbox",
+   "side": 0
+  },
+  "radiator": {
+   "pos": [
+    2,
+    0.42,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "radiator",
+   "side": 0
+  },
+  "battery": {
+   "pos": [
+    1.7,
+    0.75,
+    0.5
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "battery",
+   "side": 1
+  },
+  "fuelTank": {
+   "pos": [
+    -0.6,
+    0.38,
+    0.45
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "fuelTank",
+   "side": 1
+  },
+  "exhaust": {
+   "pos": [
+    -0.3,
+    0.28,
+    0.4
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "exhaust",
+   "side": 1
+  },
+  "steering": {
+   "pos": [
+    0.72,
+    1.02,
+    -0.38
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "steering",
+   "side": -1
+  },
+  "seat_driver": {
+   "pos": [
+    0.22,
+    0.42,
+    -0.38
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "seat",
+   "side": -1,
+   "driver": true
+  },
+  "seat_pass": {
+   "pos": [
+    0.22,
+    0.42,
+    0.38
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "seat",
+   "side": 1
+  },
+  "door_FL": {
+   "pos": [
+    0.85,
+    0.7,
+    -0.84
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "door",
+   "side": -1,
+   "panel": "P_door_FL",
+   "hinge": "z",
+   "open_deg": 70
+  },
+  "door_FR": {
+   "pos": [
+    0.85,
+    0.7,
+    0.84
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "door",
+   "side": 1,
+   "panel": "P_door_FR",
+   "hinge": "z",
+   "open_deg": 70
+  },
+  "hood": {
+   "pos": [
+    1.25,
+    1.15,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "hood",
+   "side": 0,
+   "panel": "P_hood",
+   "hinge": "y",
+   "open_deg": 60
+  },
+  "trunk": {
+   "pos": [
+    -2.28,
+    0.75,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "trunk",
+   "side": 0,
+   "panel": "P_trunk",
+   "hinge": "y",
+   "open_deg": 90
+  },
+  "bumperFront": {
+   "pos": [
+    2.28,
+    0.5,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "bumperFront",
+   "side": 0,
+   "fit": [
+    0.2,
+    1.68,
+    0.22
+   ]
+  },
+  "bumperRear": {
+   "pos": [
+    -2.3,
+    0.5,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "bumperRear",
+   "side": 0,
+   "fit": [
+    0.2,
+    1.68,
+    0.22
+   ]
+  },
+  "headlight_L": {
+   "pos": [
+    2.22,
+    0.82,
+    -0.58
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "headlight",
+   "side": -1
+  },
+  "headlight_R": {
+   "pos": [
+    2.22,
+    0.82,
+    0.58
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "headlight",
+   "side": 1
+  },
+  "taillight_L": {
+   "pos": [
+    -2.3,
+    0.85,
+    -0.72
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "taillight",
+   "side": -1
+  },
+  "taillight_R": {
+   "pos": [
+    -2.3,
+    0.85,
+    0.72
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "taillight",
+   "side": 1
+  },
+  "mirror_L": {
+   "pos": [
+    0.95,
+    1.18,
+    -0.86
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "mirror",
+   "side": -1
+  },
+  "mirror_R": {
+   "pos": [
+    0.95,
+    1.18,
+    0.86
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "mirror",
+   "side": 1
+  },
+  "roof": {
+   "pos": [
+    0.45,
+    1.62,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "roof",
+   "side": 0,
+   "fit": [
+    0.9,
+    1.3,
+    0.12
+   ]
+  },
+  "armor_L": {
+   "pos": [
+    -1.1,
+    0.75,
+    -0.85
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "armor",
+   "side": -1,
+   "fit": [
+    2,
+    0.03,
+    0.45
+   ]
+  },
+  "armor_R": {
+   "pos": [
+    -1.1,
+    0.75,
+    0.85
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "armor",
+   "side": 1,
+   "fit": [
+    2,
+    0.03,
+    0.45
+   ]
+  },
+  "horn": {
+   "pos": [
+    2.1,
+    0.6,
+    -0.4
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "horn",
+   "side": -1
+  },
+  "radio": {
+   "pos": [
+    0.95,
+    0.92,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "radio",
+   "side": 0
+  },
+  "handbrake": {
+   "pos": [
+    0.4,
+    0.55,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "handbrake",
+   "side": 0
+  },
+  "gearLever": {
+   "pos": [
+    0.62,
+    0.6,
+    0
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "gearLever",
+   "side": 0
+  },
+  "ignition": {
+   "pos": [
+    0.82,
+    0.92,
+    -0.22
+   ],
+   "quat": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "cat": "ignition",
+   "side": -1
+  }
+ }
+}
