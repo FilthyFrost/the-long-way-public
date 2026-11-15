@@ -9,6 +9,11 @@
  *   2. tyres act on those updated velocities. Friction that only opposes motion (brakes,
  *      rolling resistance, sideways grip near rest) is capped at "just enough to stop", so
  *      the vehicle sits still on a slope instead of creeping or jittering.
+ *
+ * ModCar builds (docs/MODCAR.md §4, 物理实现说明) add wheels of their own size per axle and per wheel,
+ * bare rims and empty hubs, a single-track balance for motorcycles, missing parts, and guards for
+ * extreme part combinations. A spec without the new fields, with neutral modifiers, runs the original
+ * code bit for bit (harness/sim/modcar_legacy.test.ts).
  */
 import { clamp, lerp, smoothstep } from '../math/util';
 import { GroundSample, SURFACES, type Ground } from '../world/ground';
@@ -59,9 +64,9 @@ const MISMATCH_STEER_MAX = 3 * (Math.PI / 180);
 /** rough-surface buzz felt through a bare rim, relative to a tyre */
 const RIM_BUZZ = 3;
 /**
- * An empty hub (WheelFit.None) is a skid: the hub and brake drum, this share of spec.wheelRadius
- * across, ground along the road with this grip (relative to the tyre's, ~0.4 against asphalt); it
- * neither rolls nor drives nor brakes.
+ * An empty hub (WheelFit.None) is a skid: the hub and brake drum, spec.emptyHubRadius or else this
+ * share of spec.wheelRadius across, ground along the road with this grip (relative to the tyre's,
+ * ~0.4 against asphalt); it neither rolls nor drives nor brakes.
  */
 const HUB_SHARE = 0.45;
 const HUB_GRIP = 0.45;
@@ -80,6 +85,18 @@ const BODY_STIFFEN = 0.06;
 const BODY_CAP_EXT = 16;
 /** derived specs: below this depth (m) a body corner moving into the ground is stopped outright */
 const BODY_HARD = 0.08;
+/** derived specs: tyre grip against the road's camber — full up to 30°, a quarter by 60° (cosines) */
+const CAMBER_FULL = Math.cos(30 * (Math.PI / 180));
+const CAMBER_ZERO = Math.cos(60 * (Math.PI / 180));
+const CAMBER_MIN = 0.25;
+/** the body box's contact points by index: bottom corners 0–3, top corners 4–7, a derived spec's bottom edge points 8–11 */
+const BOTTOM_POINTS: readonly number[] = [0, 1, 2, 3];
+const ALL_POINTS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7];
+const BOTTOM_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 8, 9, 10, 11];
+const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+/** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
+const BODY_MIN_ABOVE = 0.25;
+const BODY_MIN_BELOW = 0.1;
 
 export interface VehicleInput {
   /** -1 (full left) … +1 (full right) */
@@ -142,6 +159,8 @@ export class Wheel {
   staticLoad = 0;
   /** load the tyre's grip is nominal at (N): AxleSpec.tyreLoad, else the static load */
   tyreLoad = 0;
+  /** the axle gives tyreLoad */
+  rated = false;
   staticComp = 0;
   /** spring pre-compression (m): lets a soft spring carry the car without using up the travel */
   preload = 0;
@@ -335,6 +354,8 @@ export class VehicleSim {
   private bal: { maxLean: number; leanTime: number; kp: number; kd: number; tauMax: number } | null = null;
   /** share of the rider's control this step (0 once the bike is lost) */
   private balAuth = 1;
+  /** the lean the tyres' grip allows (rad), from the last step with a wheel on the ground */
+  private leanGrip = 1;
   private noEngine = false;
   private noGearbox = false;
   private noSteering = false;
@@ -345,7 +366,7 @@ export class VehicleSim {
   /** road-wheel angle each axle gets from a left/right size mismatch (rad) */
   private readonly toe = new Float64Array(2);
   private toeOn = false;
-  /** some hub has no wheel: the body box has to be ready to carry that corner */
+  /** some hub has no wheel: that corner rides on its hub, low enough for the body box to touch */
   private anyNone = false;
   private readonly de = new Float64Array(4);
   private readonly oldSc = new Float64Array(4);
@@ -374,9 +395,14 @@ export class VehicleSim {
   private invIyaw!: number;
   private invIpitch!: number;
   private readonly gs = new GroundSample();
-  private readonly bodyPts = new Float64Array(24);
-  private readonly bodyN = new Float64Array(8);
-  private readonly bodyNrm = new Float64Array(24);
+  /** the body box's contact points: 4 bottom corners, 4 top ones, and for a derived spec 4 more along the bottom */
+  private readonly bodyPts = new Float64Array(36);
+  private readonly bodyN = new Float64Array(12);
+  private readonly bodyNrm = new Float64Array(36);
+  private nBodyPts = 8;
+  /** which of them can touch when the body is only near the road (the bottom ones), and all of them */
+  private bodyBottom: readonly number[] = BOTTOM_POINTS;
+  private bodyAll: readonly number[] = ALL_POINTS;
   private kBody!: number;
   private cBody!: number;
   private nDriven!: number;
@@ -428,6 +454,7 @@ export class VehicleSim {
       const axleLoad = spec.mass * GRAVITY * (front ? spec.weightFront : 1 - spec.weightFront);
       w.staticLoad = axleLoad / 2;
       w.tyreLoad = axle.tyreLoad ?? w.staticLoad;
+      w.rated = axle.tyreLoad !== undefined;
       const mc = w.staticLoad / GRAVITY;
       const om = 2 * Math.PI * axle.springHz;
       w.k = mc * om * om;
@@ -457,26 +484,11 @@ export class VehicleSim {
     mk(W[3], spec.rear, -b, 1, false, 3);
     this.nDriven = (spec.front.driven ? 2 : 0) + (spec.rear.driven ? 2 : 0);
 
-    let iRoll = spec.inertia.roll;
-    let iPitch = spec.inertia.pitch;
-    if (ext) {
-      // a derived spec may come with inertias that do not suit its springs: keep the body's roll and
-      // pitch modes well below what the fixed step resolves
-      let kr = 0;
-      let kp = 0;
-      for (const w of W) {
-        kr += (w.k + 2 * w.arbK) * w.hz * w.hz;
-        kp += w.k * w.hx * w.hx;
-      }
-      const o2 = MODE_OMEGA_MAX * MODE_OMEGA_MAX;
-      iRoll = Math.max(iRoll, kr / o2);
-      iPitch = Math.max(iPitch, kp / o2);
-    }
-    this.invIroll = 1 / iRoll;
-    this.invIyaw = 1 / spec.inertia.yaw;
-    this.invIpitch = 1 / iPitch;
-
-    const bd = spec.body;
+    // (a derived spec's box always holds its centre of gravity: a CG above the roof, a load on a roof
+    // rack, would otherwise put the CG in the ground when the vehicle lies on its back)
+    const bd = ext
+      ? { ...spec.body, bottom: Math.min(spec.body.bottom, -BODY_MIN_BELOW), top: Math.max(spec.body.top, BODY_MIN_ABOVE) }
+      : spec.body;
     let n = 0;
     for (const y of [bd.bottom, bd.top]) {
       for (const x of [bd.centerX + bd.halfLength, bd.centerX - bd.halfLength]) {
@@ -487,6 +499,21 @@ export class VehicleSim {
         }
       }
     }
+    if (ext) {
+      // points along the bottom edges a third of the way in from each end: a long body on small wheels
+      // does not bridge a crest with its belly through it
+      for (const x of [bd.centerX + bd.halfLength / 3, bd.centerX - bd.halfLength / 3]) {
+        for (const z of [-bd.halfWidth, bd.halfWidth]) {
+          this.bodyPts[n++] = x;
+          this.bodyPts[n++] = bd.bottom;
+          this.bodyPts[n++] = z;
+        }
+      }
+    }
+    this.nBodyPts = ext ? 12 : 8;
+    this.bodyBottom = ext ? BOTTOM_POINTS_EXT : BOTTOM_POINTS;
+    this.bodyAll = ext ? ALL_POINTS_EXT : ALL_POINTS;
+    for (let k = 8; k < 12; k++) this.bodyN[k] = 0;
     this.kBody = (spec.mass * GRAVITY) / 0.03;
     this.cBody = 2 * Math.sqrt(this.kBody * spec.mass) * 0.35;
     // circles of the body's half width along its length, ends flush with the box
@@ -496,6 +523,33 @@ export class VehicleSim {
     this.circR = hw;
     this.circX = new Float64Array(nC);
     for (let i = 0; i < nC; i++) this.circX[i] = bd.centerX - (hl - hw) + (2 * (hl - hw) * i) / (nC - 1);
+
+    let iRoll = spec.inertia.roll;
+    let iPitch = spec.inertia.pitch;
+    let iYaw = spec.inertia.yaw;
+    if (ext) {
+      // a derived spec may come with inertias that do not suit it: keep the body's roll and pitch
+      // modes well below what the fixed step resolves, the yaw inertia at least a tenth of the mass
+      // spread over the axles (else the tyres' grip overcorrects it step by step), and none of them
+      // below a tenth of a solid box the size of the body (realistic ones are 2–4 times these)
+      let kr = 0;
+      let kp = 0;
+      for (const w of W) {
+        kr += (w.k + 2 * w.arbK) * w.hz * w.hz;
+        kp += w.k * w.hx * w.hx;
+      }
+      const o2 = MODE_OMEGA_MAX * MODE_OMEGA_MAX;
+      const L2 = 4 * bd.halfLength * bd.halfLength;
+      const W2 = 4 * bd.halfWidth * bd.halfWidth;
+      const H2 = (bd.top - bd.bottom) * (bd.top - bd.bottom);
+      const box = (0.1 * spec.mass) / 12;
+      iRoll = Math.max(iRoll, kr / o2, box * (W2 + H2));
+      iPitch = Math.max(iPitch, kp / o2, box * (L2 + H2));
+      iYaw = Math.max(iYaw, 0.025 * spec.mass * (a * a + b * b), box * (L2 + W2));
+    }
+    this.invIroll = 1 / iRoll;
+    this.invIyaw = 1 / iYaw;
+    this.invIpitch = 1 / iPitch;
 
     const ab = spec.absent;
     this.noEngine = ab?.engine === true;
@@ -525,7 +579,13 @@ export class VehicleSim {
 
   /** the radius wheel i should have now: its axle's plus the systems' offset, or the hub's for an empty hub */
   private targetRadius(w: Wheel, i: number): number {
-    return this.mods.wheelFit[i] === WheelFit.None ? HUB_SHARE * this._spec.wheelRadius : Math.max(MIN_RADIUS, w.baseRadius + this.mods.radiusOffset[i]);
+    if (this.mods.wheelFit[i] === WheelFit.None) {
+      const hub = this._spec.emptyHubRadius ?? HUB_SHARE * this._spec.wheelRadius;
+      return hub > MIN_RADIUS ? hub : MIN_RADIUS;
+    }
+    // (written so that a NaN offset gives the smallest wheel rather than a NaN one)
+    const r = w.baseRadius + this.mods.radiusOffset[i];
+    return r > MIN_RADIUS ? r : MIN_RADIUS;
   }
 
   /** the wheels' sizes or fits changed: what follows from them */
@@ -704,7 +764,7 @@ export class VehicleSim {
       this.basis(b);
       const bp = this.bodyPts;
       let lift = 0;
-      for (let k = 0; k < 4; k++) {
+      for (const k of this.bodyBottom) {
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -734,7 +794,7 @@ export class VehicleSim {
     if (--this.bodyTick <= 0) {
       this.bodyTick = 4;
       const gs = this.gs;
-      for (let k = 0; k < 4; k++) {
+      for (const k of this.bodyBottom) {
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -773,7 +833,7 @@ export class VehicleSim {
     cy /= n;
     cz /= n;
     const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
-    for (let k = 0; k < 4; k++) {
+    for (const k of this.bodyBottom) {
       const bx = bp[k * 3];
       const by = bp[k * 3 + 1];
       const bz = bp[k * 3 + 2];
@@ -1464,12 +1524,13 @@ export class VehicleSim {
     const bnr = this.bodyNrm;
     const bodyTilt = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone;
     const bodyActive = bodyTilt || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
-    const nBody = bodyTilt ? 8 : 4;
+    const touchable = bodyTilt ? this.bodyAll : this.bodyBottom;
     if (bodyActive) {
       // (a derived spec's body stiffens as it goes in: a crash of an extreme build does not bury it)
       const nmaxBody = m * GRAVITY * (this.ext ? BODY_CAP_EXT : 6);
-      if (nBody === 4) for (let k = 4; k < 8; k++) bn[k] = 0;
-      for (let k = 0; k < nBody; k++) {
+      if (!bodyTilt) for (let k = 4; k < 8; k++) bn[k] = 0;
+      for (let j = 0; j < touchable.length; j++) {
+        const k = touchable[j];
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -1524,7 +1585,7 @@ export class VehicleSim {
     {
       let touching = false;
       let imp = 0;
-      if (bodyActive) for (let k = 0; k < 8; k++) if (bn[k] > 0) {
+      if (bodyActive) for (let k = 0; k < this.nBodyPts; k++) if (bn[k] > 0) {
         touching = true;
         imp += bn[k] * h;
       }
@@ -1640,8 +1701,16 @@ export class VehicleSim {
         continue;
       }
       const N = w.load;
-      const ls = clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
-      const grip = w.axle.muScale * w.mu * ls;
+      // (a tyre rated for a load loses grip as a power of the overload, like real ones; the legacy
+      // vehicles' linear rule against their own static load is the same slope at rest)
+      const ls = w.rated ? clamp(Math.pow(N / w.tyreLoad, -tire.loadSens), 0.7, 1.1) : clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
+      let grip = w.axle.muScale * w.mu * ls;
+      if (this.ext) {
+        // a tyre leant far over against the road runs on its shoulder, then its sidewall: a car up on
+        // two wheels, a bike that has gone down, does not drive and grip on them as if upright
+        const nu = w.nx * Ux + w.ny * Uy + w.nz * Uz;
+        if (nu < CAMBER_FULL) grip *= CAMBER_MIN + (1 - CAMBER_MIN) * smoothstep(CAMBER_ZERO, CAMBER_FULL, nu);
+      }
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;
       // (an empty hub grinds along like a locked wheel)
@@ -1784,7 +1853,7 @@ export class VehicleSim {
 
     if (bodyActive) {
       const stickB = (0.9 * m) / 4 / h;
-      for (let k = 0; k < 8; k++) {
+      for (let k = 0; k < this.nBodyPts; k++) {
         const N = bn[k];
         if (N <= 0) continue;
         const bx = bp[k * 3];
@@ -1885,9 +1954,13 @@ export class VehicleSim {
     if (bal) {
       // the lean the corner asks for: atan(lateral acceleration / g), + = right; none at a standstill
       // (feet down) or once the bike is lost
+      // and never further than the tyres' grip could hold (a slide does not lay it down on ice; in the
+      // air it keeps what it had)
+      if (sumLat > 0) this.leanGrip = Math.atan((1.05 * sumLat) / (m * GRAVITY));
+      const most = this.leanGrip < bal.maxLean ? this.leanGrip : bal.maxLean;
       let target = Math.atan2(-this.vForward * this.yawRate, GRAVITY);
-      if (target > bal.maxLean) target = bal.maxLean;
-      else if (target < -bal.maxLean) target = -bal.maxLean;
+      if (target > most) target = most;
+      else if (target < -most) target = -most;
       target *= this.balAuth;
       this.lean += (target - this.lean) * (1 - Math.exp(-h / bal.leanTime));
     }
@@ -1971,7 +2044,7 @@ export class VehicleSim {
       return out;
     }
     const m = sp.mass;
-    const invI = 1 / sp.inertia.yaw;
+    const invI = this.invIyaw;
     const bottom = py + bd.bottom + 0.04;
     const top = py + bd.top;
     const own = sp.id;

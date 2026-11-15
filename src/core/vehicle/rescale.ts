@@ -11,7 +11,7 @@
 import { GRAVITY } from './sim';
 import type { AxleSpec, VehicleSpec } from './spec';
 
-/** a tyre's own vertical rate (N/m) per metre of sidewall is about this over its sidewall height */
+/** a tyre's own vertical rate (N/m) is about this divided by its sidewall height (m): a road tyre 200 kN/m */
 const TYRE_RATE_X_SIDEWALL = 20000;
 /** damping ratios the rescaled axle is kept within: under-damped enough to feel, never undamped */
 const ZETA_MIN = 0.12;

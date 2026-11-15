@@ -1,4 +1,5 @@
 {
+  "_recorded": "node v24.16.0 (win32 x64) from the simulation at f6541e4, before the ModCar extensions",
   "t0_truck": {
     "rough": "b5e6f1df",
     "handling": "a47812f8",

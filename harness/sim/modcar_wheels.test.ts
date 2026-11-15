@@ -139,6 +139,33 @@ describe('modcar · wheel sizes', () => {
     });
   }
 
+  it('either convention for the reference wheel gives the same car', () => {
+    // (a) spec.wheelRadius the frame's, cgHeight without the lift; (b) spec.wheelRadius the fitted
+    // wheels' mean, cgHeight with it — docs/MODCAR.md §4 物理实现说明
+    const a = build({ frame: 'sedan', radius: [0.33, 0.37] });
+    const lift = (0.33 + 0.37) / 2 - a.wheelRadius;
+    const b: VehicleSpec = { ...a, wheelRadius: (0.33 + 0.37) / 2, cgHeight: a.cgHeight + lift, emptyHubRadius: 0.45 * a.wheelRadius };
+    const va = parked(a);
+    const vb = parked(b);
+    expect(Math.abs(va.py - vb.py)).toBeLessThan(1e-6);
+    expect(Math.abs(va.pitch - vb.pitch)).toBeLessThan(1e-6);
+    const la = feel.launch(a);
+    const lb = feel.launch(b);
+    expect(Math.abs(la.top - lb.top)).toBeLessThan(0.05);
+    expect(Math.abs(la.t60 - lb.t60)).toBeLessThan(0.05);
+    // an empty hub rides on the same hub either way
+    const ea = parked({ ...a, emptyHubRadius: 0.45 * a.wheelRadius }, undefined);
+    ea.mods.wheelFit[1] = 2;
+    const eb = parked(b);
+    eb.mods.wheelFit[1] = 2;
+    for (let t = 0; t < 3; t += ea.h) {
+      ea.substep(zeroInput(), flat);
+      eb.substep(zeroInput(), flat);
+    }
+    expect(ea.wheels[1].radius).toBeCloseTo(eb.wheels[1].radius, 9);
+    expect(Math.abs(ea.roll - eb.roll)).toBeLessThan(1e-3);
+  });
+
   it('a 0.285 → 0.62 m wheel change while parked does not launch it (spec and per-wheel)', () => {
     const base = build({ frame: 'sedan' });
     const huge = build({ frame: 'sedan', radius: [0.62, 0.62] });

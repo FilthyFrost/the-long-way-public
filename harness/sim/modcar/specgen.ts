@@ -214,13 +214,14 @@ export function randomBuild(rng: Rng): RandomBuild {
   // engines weigh about 0.6–2.4 kg/kW plus a block
   const engKg = 12 + kW * rng.range(0.6, 2.4);
   const extra = rng.chance(0.3) ? logRange(rng, 10, f.single ? 400 : 3000) : 0;
-  const mass = Math.min(8000, Math.max(120, f.refMass * rng.range(0.55, 1.1) + engKg + extra - (f.single ? 30 : 120)));
+  // (now and then anything in the whole range, whatever the frame: a 120 kg car, an 8 t bike)
+  const mass = rng.chance(0.1) ? logRange(rng, 120, 8000) : Math.min(8000, Math.max(120, f.refMass * rng.range(0.55, 1.1) + engKg + extra - (f.single ? 30 : 120)));
   const torquePerKw = rng.range(1.2, 6);
   const nm = Math.min(1200, kW * torquePerKw);
   const base = f.radius;
   const rFront = rng.chance(0.55) ? base : logRange(rng, 0.06, 0.75);
   const rRear = rng.chance(0.5) ? rFront : logRange(rng, 0.06, 0.75);
-  const cg = Math.min(1.6, Math.max(0.3, f.refCg * rng.range(0.7, 1.5)));
+  const cg = rng.chance(0.1) ? rng.range(0.3, 1.6) : Math.min(1.6, Math.max(0.3, f.refCg * rng.range(0.7, 1.5)));
   const cdA = Math.min(8, Math.max(0.3, f.cdA * logRange(rng, 0.5, 2.5)));
   const mu = rng.range(0.55, 1.15);
   const absent: AbsentParts = {};
