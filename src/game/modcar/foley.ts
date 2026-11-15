@@ -644,7 +644,7 @@ export class Foley {
 
   /** render ahead of time (avoids a hitch the first time a sound plays) */
   warm(kinds: ReadonlyArray<FoleyShot | FoleyLoop>, o: FoleyOpts = {}): void {
-    for (const k of kinds) this.buffers(k, o, (FOLEY_LOOPS as readonly string[]).includes(k) ? 1 : VARIANTS);
+    for (const k of kinds) this.buffers(k, o, (FOLEY_LOOPS as readonly string[]).includes(k) || k === 'horn_trumpet' ? 1 : VARIANTS);
   }
 
   private route(src: AudioBufferSourceNode, gain: number, pan?: number): GainNode {
@@ -662,7 +662,8 @@ export class Foley {
 
   /** a one-shot */
   play(kind: FoleyShot, o: FoleyOpts = {}, when = 0): void {
-    const list = this.buffers(kind, o, VARIANTS);
+    // (a tune is the same every time: one rendering is enough)
+    const list = this.buffers(kind, o, kind === 'horn_trumpet' ? 1 : VARIANTS);
     const src = this.ctx.createBufferSource();
     src.buffer = list[Math.floor(this.rng.next() * list.length)];
     // a hair of pitch and level variation so repeats are not identical
