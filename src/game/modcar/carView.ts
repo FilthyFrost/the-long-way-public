@@ -77,6 +77,9 @@ export class CarView {
   private readonly local = { x: 0, y: 0, z: 0 };
   /** model loads in flight (parts appear when theirs arrive) */
   private readonly loads = new Set<Promise<unknown>>();
+  /** past the first build: a part fitted from now on drops into place (and a wheel slides onto its hub) */
+  private live = false;
+  private readonly settling: { obj: THREE.Object3D; t: number; axis: 'y' | 'z'; from: number }[] = [];
 
   constructor(
     readonly build: Build,
@@ -230,6 +233,14 @@ export class CarView {
       else this.setPart(m, inst);
     }
     this.setWheels();
+    this.live = true;
+  }
+
+  /** a part just fitted eases into its place from a few centimetres off */
+  private settle(obj: THREE.Object3D, axis: 'y' | 'z', from: number): void {
+    if (!this.live) return;
+    obj.position[axis] = from;
+    this.settling.push({ obj, t: 0, axis, from });
   }
 
   private paintOf(inst: PartInstance, cat: string): number {
@@ -273,6 +284,7 @@ export class CarView {
     holder.userData.mount = m.id;
     node.add(holder);
     this.shown.set(m.id, { key, holder });
+    this.settle(holder, 'y', 0.07);
     const def = partDef(inst.part);
     const look = this.mats.look(partOwner(m.id), this.partLook(inst, m.cat));
     void this.track(partModel(inst.part)).then((model) => {
@@ -346,6 +358,9 @@ export class CarView {
       }
       const holder = w.holder;
       holder.scale.set(1, 1, hub.side > 0 ? -1 : 1);
+      holder.position.set(0, 0, 0);
+      // onto the hub along the axle, from outside
+      this.settle(holder, 'z', (hub.side || 1) * 0.09);
       const rimDef = partDef(inst.part);
       const rimLook = this.mats.look(wheelOwner(i), this.wheelLook(inst));
       void this.track(partModel(inst.part)).then((rm) => {
@@ -474,6 +489,18 @@ export class CarView {
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
     this.updateLooks();
+    // parts just fitted settle (a little past their place and back)
+    for (let i = this.settling.length - 1; i >= 0; i--) {
+      const st = this.settling[i];
+      st.t = Math.min(1, st.t + dt / 0.22);
+      const u = st.t - 1;
+      const back = 1 + 2.2 * u * u * u + 1.2 * u * u;
+      st.obj.position[st.axis] = st.from * (1 - back);
+      if (st.t >= 1) {
+        st.obj.position[st.axis] = 0;
+        this.settling.splice(i, 1);
+      }
+    }
     // panels swing
     for (const p of this.panels.values()) {
       if (p.t === p.target) continue;
