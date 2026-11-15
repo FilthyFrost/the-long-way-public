@@ -1,12 +1,12 @@
 {
  "bbox": {
   "max": [
-   1.94588,
+   1.94924,
    1.42,
    0.81677
   ],
   "min": [
-   -2.13133,
+   -2.13407,
    0.13,
    -0.81677
   ]
@@ -63,9 +63,9 @@
   "battery": {
    "cat": "battery",
    "pos": [
-    1.5,
-    0.57,
-    -0.43
+    1.52,
+    0.555,
+    -0.31
    ],
    "quat": [
     0.0,
@@ -578,11 +578,12 @@
   },
   "seat_driver": {
    "cat": "seat",
+   "cushion_z": 0.48,
    "driver": true,
-   "floor_z": 0.245,
+   "floor_z": 0.28,
    "pos": [
     -0.2,
-    0.48,
+    0.28,
     -0.36
    ],
    "quat": [
@@ -595,11 +596,12 @@
   },
   "seat_pass": {
    "cat": "seat",
+   "cushion_z": 0.48,
    "driver": false,
-   "floor_z": 0.245,
+   "floor_z": 0.28,
    "pos": [
     -0.2,
-    0.48,
+    0.28,
     0.36
    ],
    "quat": [
@@ -612,11 +614,12 @@
   },
   "seat_rear": {
    "cat": "seat",
+   "cushion_z": 0.48,
    "driver": false,
-   "floor_z": 0.3,
+   "floor_z": 0.245,
    "pos": [
     -1.02,
-    0.47,
+    0.245,
     -0.0
    ],
    "quat": [
@@ -877,10 +880,10 @@
   }
  },
  "triangles": {
-  "BODY": 34258,
+  "BODY": 37002,
   "FUEL_CAP": 490,
   "GLASS": 642,
-  "INTERIOR": 7232,
+  "INTERIOR": 7064,
   "N_fuel": 50,
   "N_rpm": 50,
   "N_speed": 50,
@@ -889,16 +892,16 @@
   "PG_door_FR": 147,
   "PG_door_RL": 136,
   "PG_door_RR": 136,
-  "P_door_FL": 5537,
-  "P_door_FR": 5537,
-  "P_door_RL": 5048,
-  "P_door_RR": 5048,
-  "P_hood": 4554,
-  "P_trunk": 2966,
-  "UNDER": 7408,
+  "P_door_FL": 5197,
+  "P_door_FR": 5197,
+  "P_door_RL": 4698,
+  "P_door_RR": 4698,
+  "P_hood": 4246,
+  "P_trunk": 2710,
+  "UNDER": 6584,
   "WIPER_L": 204,
   "WIPER_R": 204,
-  "total": 79894
+  "total": 79702
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

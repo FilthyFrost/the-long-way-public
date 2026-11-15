@@ -697,7 +697,8 @@ def grid_tris(nr, nc, closed=False):
     return np.array(tris, np.int64).reshape(-1, 3)
 
 
-def roll_edge(Q, Nq, E, r=0.0025, depth=0.03, hem=0.0, segs=2, closed=True, hem_r=0.0015, flange_rows=1, hem_segs=1):
+def roll_edge(Q, Nq, E, r=0.0025, depth=0.03, hem=0.0, segs=2, closed=True, hem_r=0.0015, flange_rows=1, hem_segs=1,
+              flange_dir=None):
     """Rolled panel edge along boundary points Q (on the panel surface) with surface normals Nq and unit
     in-surface directions E pointing out of the panel (towards the gap). The edge turns down over a quarter
     circle of radius r, continues as a flange to `depth` below the surface and, with hem > 0, folds back
@@ -714,19 +715,20 @@ def roll_edge(Q, Nq, E, r=0.0025, depth=0.03, hem=0.0, segs=2, closed=True, hem_
         rows_p.append(C + nn * r)
         rows_n.append(nn)
     end = C + E * r
+    Fd = -Nq if flange_dir is None else unit(np.broadcast_to(np.asarray(flange_dir, float), Nq.shape))
     for k in range(1, flange_rows + 1):
         s = (depth - r) * k / flange_rows
-        rows_p.append(end - Nq * s)
+        rows_p.append(end + Fd * s)
         rows_n.append(E.copy())
     if hem > 0:
-        bot = end - Nq * (depth - r)
+        bot = end + Fd * (depth - r)
         Ch = bot - E * hem_r
         for k in range(1, hem_segs + 1):
             a = 0.5 * math.pi * k / hem_segs
             nn = math.cos(a) * E - math.sin(a) * Nq
             rows_p.append(Ch + nn * hem_r)
             rows_n.append(nn)
-        last = Ch - Nq * hem_r
+        last = Ch - Nq * hem_r if hem_segs > 0 else bot
         rows_p.append(last - E * hem)
         rows_n.append(-Nq)
     V = np.vstack(rows_p)

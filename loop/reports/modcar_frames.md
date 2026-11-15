@@ -11,9 +11,10 @@
   - 36 个挂点（含属性），面板 P_door_FL/FR/RL/RR、P_hood、P_trunk（原点在铰链），PG_door_*（门玻璃，门的子物体），WIPER_L/R，FUEL_CAP。
   - 导出：`public/models/modcar/frames/sedan.glb`、`src/core/modcar/data/mounts/sedan.json`（含 panels / needles / wipers / eye_default / bbox / triangles）。三角形 79 894（≤ 80k）。AO 已烘进 `Col`。
 
+- 轿车第二版：发动机舱重做（侧壁让到轮拱内侧、轮拱罩 + 减震塔顶、隔热墙上的助力泵/主缸/暖风箱/雨刷电机、电瓶托架、水壶、保险盒、线束）；A/B/C 柱与顶边内饰板、门洞密封条；仪表台两端收口；凹槽翻边改为固定方向（灯碗、尾灯槽、牌照槽、格栅）；保险杠支架改成腹板 + 端板；座椅挂点移到地板固定点（floor_z 同值，另给 cushion_z）。79 702 三角形。
+
 ## 下一步
-- 轿车打磨：发动机舱侧壁让开轮拱（现在 y=0.60 与车轮空间相交）、A/B/C 柱内饰、驾驶视角细节、尾灯凹槽底板、保险杠支架造型。
-- 皮卡「骡子」→ 房车「鲸鱼」→ 摩托「燕子」（摩托可交给第二个代理）。
+- 皮卡「骡子」→ 房车「鲸鱼」（摩托由另一个代理用本工具包做）。轿车之后有空再打磨（底盘纵梁造型、踏板、门铰链细节）。
 
 ## 问题 / 需要主程知道
 - `tools/blender/lib/__pycache__`、`tools/blender/test/__pycache__` 被提交进了仓库，每次跑 Blender 都会改；建议从仓库删掉并忽略。我这边标了 assume-unchanged，没有动它们。
