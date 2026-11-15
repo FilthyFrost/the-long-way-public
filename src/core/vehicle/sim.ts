@@ -9,6 +9,11 @@
  *   2. tyres act on those updated velocities. Friction that only opposes motion (brakes,
  *      rolling resistance, sideways grip near rest) is capped at "just enough to stop", so
  *      the vehicle sits still on a slope instead of creeping or jittering.
+ *
+ * ModCar builds (docs/MODCAR.md §4, 物理实现说明) add wheels of their own size per axle and per wheel,
+ * bare rims and empty hubs, a single-track balance for motorcycles, missing parts, and guards for
+ * extreme part combinations. A spec without the new fields, with neutral modifiers, runs the original
+ * code bit for bit (harness/sim/modcar_legacy.test.ts).
  */
 import { clamp, lerp, smoothstep } from '../math/util';
 import { GroundSample, SURFACES, type Ground } from '../world/ground';
@@ -352,7 +357,7 @@ export class VehicleSim {
   /** road-wheel angle each axle gets from a left/right size mismatch (rad) */
   private readonly toe = new Float64Array(2);
   private toeOn = false;
-  /** some hub has no wheel: the body box has to be ready to carry that corner */
+  /** some hub has no wheel: that corner rides on its hub, low enough for the body box to touch */
   private anyNone = false;
   private readonly de = new Float64Array(4);
   private readonly oldSc = new Float64Array(4);
