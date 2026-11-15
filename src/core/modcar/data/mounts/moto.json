@@ -475,18 +475,18 @@
   }
  },
  "triangles": {
-  "BODY": 18032,
-  "FORK": 7367,
-  "FORK_LOWER": 4746,
+  "BODY": 17842,
+  "FORK": 7423,
+  "FORK_LOWER": 4948,
   "N_rpm": 50,
   "N_speed": 50,
-  "SHOCK_LOWER_L": 1291,
-  "SHOCK_LOWER_R": 1291,
-  "SHOCK_UPPER_L": 440,
-  "SHOCK_UPPER_R": 440,
-  "STAND": 452,
-  "SWINGARM": 5820,
-  "total": 39979
+  "SHOCK_LOWER_L": 1352,
+  "SHOCK_LOWER_R": 1352,
+  "SHOCK_UPPER_L": 416,
+  "SHOCK_UPPER_R": 416,
+  "STAND": 408,
+  "SWINGARM": 5720,
+  "total": 39977
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {}

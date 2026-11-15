@@ -196,5 +196,7 @@ def main(args):
         MB.fit(args)
     elif '--kit' in args:
         MB.kit_test(args)
+    elif '--review' in args:
+        MB.review(args)
     else:
         MB.build(args)

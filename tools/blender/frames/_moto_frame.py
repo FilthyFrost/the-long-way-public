@@ -116,13 +116,13 @@ class Frame:
 
     def backbone(self):
         b = MK.tube(self.bb, D['r_bb'], FR, 15)
-        b.extend(MK.weld(self.ht_long, D['r_ht'], self.bb, D['r_bb'], at='start', bead=0.0034, mat=FR, segs=20))
+        b.extend(MK.weld(self.ht_long, D['r_ht'], self.bb, D['r_bb'], at='start', bead=0.0034, mat=FR, segs=16))
         return b
 
     def loop_tube(self):
         """Left main loop with its weld at the head tube."""
         b = MK.tube(self.loop, self.rl, FR, 12, cap0='flat', cap1=None)
-        b.extend(MK.weld(self.ht_long, D['r_ht'], self.loop, self.rl, at='start', bead=0.003, mat=FR, segs=16))
+        b.extend(MK.weld(self.ht_long, D['r_ht'], self.loop, self.rl, at='start', bead=0.003, mat=FR, segs=12))
         return b
 
     def cross(self, p_left, r, mat=FR, weld=True, segs=9):
@@ -131,8 +131,8 @@ class Frame:
         path = np.array([p, my(p)])
         b = MK.tube(path, r, mat, segs)
         if weld:
-            b.extend(MK.weld(self.loop, self.rl, path, r, at='start', bead=0.0026, mat=mat, segs=12))
-            b.extend(MK.weld(my(self.loop), self.rl, path, r, at='end', bead=0.0026, mat=mat, segs=12))
+            b.extend(MK.weld(self.loop, self.rl, path, r, at='start', bead=0.0026, mat=mat, segs=10))
+            b.extend(MK.weld(my(self.loop), self.rl, path, r, at='end', bead=0.0026, mat=mat, segs=10))
         return b
 
     def cross_tubes(self):
@@ -154,7 +154,7 @@ class Frame:
         self.p_junction = p
         jt = np.array([p, my(p)])
         b.extend(self.cross(p, 0.0135))
-        b.extend(MK.weld(jt, 0.0135, self.bb, D['r_bb'], at='end', bead=0.003, mat=FR, segs=16))
+        b.extend(MK.weld(jt, 0.0135, self.bb, D['r_bb'], at='end', bead=0.003, mat=FR, segs=12))
         p, _ = self.at_x(-0.455, self.s_junction, self.s_hoop)
         self.p_rail_cross = p
         b.extend(self.cross(p, 0.0105))
@@ -178,9 +178,9 @@ class Frame:
         stay = MK.bend_path([p0 + np.array([0.004, 0, 0]), (-0.43, 0.108, 0.545), (bx + 0.006, 0.106, bz)], [0, 0.4, 0])
         self.stay = stay
         b.extend(MK.tube(stay, 0.0115, FR, 11))
-        b.extend(MK.weld(self.loop, self.rl, stay, 0.0115, at='start', bead=0.0026, mat=FR, segs=12))
-        b.extend(MK.weld(boss, 0.0125, stay, 0.0115, at='end', bead=0.0026, mat=FR, segs=12))
-        b.extend(MK.weld(self.loop, self.rl, boss, 0.0125, at='start', bead=0.0026, mat=FR, segs=12))
+        b.extend(MK.weld(self.loop, self.rl, stay, 0.0115, at='start', bead=0.0026, mat=FR, segs=10))
+        b.extend(MK.weld(boss, 0.0125, stay, 0.0115, at='end', bead=0.0026, mat=FR, segs=10))
+        b.extend(MK.weld(self.loop, self.rl, boss, 0.0125, at='start', bead=0.0026, mat=FR, segs=10))
         # shock stud: from the boss end out through the eye, acorn nut and washer
         stud = np.array([[bx, 0.125, bz], [bx, D['shock_hw'] + 0.016, bz]])
         b.extend(MK.tube(stud, 0.0055, 'steel', 10))
@@ -300,9 +300,6 @@ class Frame:
         L, W = 0.168, 0.108
         out = MK.rounded_poly2([(-L / 2, -W / 2), (L / 2, -W / 2), (L / 2, W / 2), (-L / 2, W / 2)], 0.012)
         b.extend(MK.plate(out, (bx, 0.0, bz - 0.0025), (1, 0, 0), (0, 1, 0), 0.005, FR, flat=True))
-        # lips
-        for sg in (1, -1):
-            b.extend(MK.box((bx, sg * (W / 2 - 0.002), bz + 0.008), (L - 0.02, 0.004, 0.02), FR, None, 0.0, 1))
         b.extend(MK.box((bx + L / 2 - 0.002, 0.0, bz + 0.008), (0.004, W - 0.02, 0.02), FR, None, 0.0, 1))
         # strap over the battery (the battery is 0.136 tall)
         top = bz + 0.137
@@ -333,7 +330,7 @@ class Frame:
         # HT tower and boot
         b.extend(MK.lathe([(0.0, 0.0), (0.009, 0.0), (0.0075, 0.018), (0.0045, 0.022), (0.0, 0.022)], c0 + ax * 0.012 + np.array([0, 0, -0.018]), (0, 0, -1), 'rubber', 12))
         # clamp strap and the bracket up to the backbone
-        for k in (0.03, 0.075):
+        for k in (0.052,):
             p = c0 + ax * k
             b.extend(MK.lathe([(0.0212, -0.006), (0.0225, -0.0055), (0.0225, 0.0055), (0.0212, 0.006)], p, ax, 'steel', 18))
         bbd = unit(self.bb[1] - self.bb[0])
@@ -363,9 +360,8 @@ class Frame:
                (bx + 0.07, 0.035, bz + 0.15), (bx + 0.03, 0.03, bz + 0.12)]
         cab, path = MK.cable(pts, 0.0062, 'trim', 8, [0, 0.05, 0.06, 0.03, 0])
         b.extend(cab)
-        for f in (0.3, 0.7):
-            p, t = MK.point_at(path, MK.path_length(path) * f)
-            b.extend(MK.lathe([(0.0068, -0.003), (0.0078, -0.0025), (0.0078, 0.0025), (0.0068, 0.003)], p, t, 'steel', 12))
+        p, t = MK.point_at(path, MK.path_length(path) * 0.45)
+        b.extend(MK.lathe([(0.0068, -0.003), (0.0078, -0.0025), (0.0078, 0.0025), (0.0068, 0.003)], p, t, 'steel', 12))
         return b
 
     def side_stand_lug(self):
@@ -442,8 +438,6 @@ class Frame:
         la = np.array([pv + [0, -0.004, 0], pv + [-0.006, -0.004, -0.04]])
         b.extend(MK.tube(la, 0.0045, 'steel', 8))
         self.rod_front = pv + np.array([-0.006, -0.004, -0.04])
-        # return spring to the hanger
-        b.extend(MK.spring(pv + np.array([-0.006, 0.0, -0.022]), unit(np.array([-1.0, 0.0, -0.5])), 0.0032, 0.03, 4, 0.0009, 'steel', 4))
         return b
 
     def shift_boss(self):

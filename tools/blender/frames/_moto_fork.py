@@ -196,7 +196,6 @@ class Fork:
             # inner wall (dark) between the bezel and the dial, the dial face (gauge, UVs at export), the glass
             b.extend(MK.lathe([(r + 0.0006, 0.0050), (r + 0.0006, -0.0040)], c, nrm, 'trim', segs))
             b.extend(MK.disc(c - nrm * 0.0040, nrm, r + 0.0006, 0.0, 'gauge', segs))
-            b.extend(MK.lathe([(r + 0.0006, 0.0030), (0.0, 0.0034)], c, nrm, 'glass', segs))
             self.dials.append(dict(name=name, center=c - nrm * 0.0040, normal=nrm, right=right, up=up, r=r))
             # warning lamps in the dial's lower part: speedometer = left indicator + neutral, tachometer = high
             # beam + right indicator (the amber ones flash with their side)
@@ -397,11 +396,8 @@ class Fork:
         yd = -0.0590
         c = np.array([hub[0], yd, hub[2]])
         ax = np.array([0, 1.0, 0])
-        b.extend(MK.disc(c, ax, 0.135, 0.079, 'steel', 40, thick=0.005, edge=0.0007))
-        # machined face rings (a slightly darker band where the pads run)
-        for yy in (yd - 0.0026, yd + 0.0026):
-            sgn = -1 if yy < yd else 1
-            b.extend(MK.disc(np.array([hub[0], yy + sgn * 0.0001, hub[2]]), ax * sgn, 0.1335, 0.098, 'alu', 40))
+        h = 0.0025
+        b.extend(MK.lathe([(0.079, -h), (0.135, -h), (0.135, h), (0.079, h), (0.079, -h)], c, ax, 'steel', 44, smooth=False))
         # carrier
         b.extend(MK.lathe(MK.round_prof([(0.046, yd - 0.004), (0.081, yd - 0.004), (0.081, yd + 0.003), (0.058, yd + 0.012),
                                          (0.046, yd + 0.012)], 0.002, 1), np.array([hub[0], 0.0, hub[2]]), ax, 'alu', 28))

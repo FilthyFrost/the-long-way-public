@@ -615,3 +615,30 @@ def kit_test(args):
     PV.scene_setup('anime')
     PV.orbit((0.3, 0, 0.35), 300, 20, 1.6, lens=50)
     PV.render(f'{SCRATCH}/kit_test.png', res=(1200, 800), samples=16)
+
+
+def review(args):
+    """Close-up review renders (factory paints), optionally with the stock parts."""
+    mc.reset_scene()
+    objs, meshes, empties, info = build_objects()
+    if '--parts' in args:
+        place_stock(layout())
+    PV.materials()
+    factory_paints()
+    PV.scene_setup('anime', sun_elev=40.0, sun_az=-60.0)
+    res = (1280, 800)
+    smp = 32
+    tag = '_p' if '--parts' in args else ''
+    cams = [('rv_head_r', (0.85, -0.62, 1.12), (0.40, 0.0, 0.86), 40),
+            ('rv_head_l', (0.80, 0.70, 1.05), (0.40, 0.0, 0.84), 40),
+            ('rv_clamps_top', (0.05, -0.18, 1.32), (0.38, 0.0, 0.93), 40),
+            ('rv_frame_l', (0.10, 1.10, 0.62), (-0.10, 0.0, 0.45), 35),
+            ('rv_frame_r', (0.10, -1.10, 0.62), (-0.10, 0.0, 0.45), 35),
+            ('rv_rear_r', (-0.45, -0.95, 0.62), (-0.68, 0.0, 0.42), 38),
+            ('rv_rear_l', (-0.45, 0.95, 0.62), (-0.68, 0.0, 0.42), 38),
+            ('rv_tail', (-1.65, -0.55, 0.85), (-0.85, 0.0, 0.55), 38),
+            ('rv_front_hub', (0.95, -0.55, 0.45), (0.66, 0.0, 0.38), 40),
+            ('rv_pegs_r', (-0.05, -0.65, 0.42), (-0.15, -0.1, 0.32), 40)]
+    for name, loc, tgt, lens in cams:
+        PV.camera(loc, tgt, lens=lens)
+        PV.render(f'{SCRATCH}/{name}{tag}.png', res=res, samples=smp)

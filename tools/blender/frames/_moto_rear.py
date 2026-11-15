@@ -73,7 +73,7 @@ class Rear:
             b.extend(MK.tube(leg, 0.0128, FR, 14, ellipse=(1.42, 1.0), ref=(0, 0, 1),
                              r_fn=lambda s: 1.0 - 0.14 * s, cap0='open', cap1='flat'))
             b.extend(MK.weld(np.array([pv + [0, -0.1, 0], pv + [0, 0.1, 0]]), 0.0205, leg, 0.0128 * 1.2, at='start', bead=0.0028,
-                             mat=FR, segs=22))
+                             mat=FR, segs=14))
             b.extend(self.axle_plate(sg))
             # shock stud boss and stud
             lo, up = shock_points(sg)
@@ -120,9 +120,6 @@ class Rear:
         b.extend(MK.tube(np.array([bc + [-0.004, 0, 0], bc + [-0.03, 0, 0]]), 0.0034, 'steel', 8))
         b.extend(MK.bolt(bc + [-0.03, 0, 0], (-1, 0, 0), 0.0055, 0.0045, 'steel', washer=False))
         b.extend(MK.bolt(bc + [-0.016, 0, 0], (-1, 0, 0), 0.0055, 0.0035, 'steel', washer=False))
-        # index marks above the slot
-        for k in range(3):
-            b.extend(MK.box((hub[0] - 0.002 + k * 0.012, y + sg * 0.0052, hub[2] + 0.0155), (0.0012, 0.0008, 0.005), 'steel', None, 0.0, 1))
         return b
 
     def axle(self):
@@ -157,7 +154,7 @@ class Rear:
             holes.append(MK.circle2((0.066 * math.cos(a), 0.066 * math.sin(a)), 0.011, 7))
         b.extend(MK.plate(out, c, (1, 0, 0), (0, 0, 1), 0.006, 'steel', holes=holes, flat=True))
         b.extend(MK.lathe(MK.round_prof([(0.032, 0.062), (0.050, 0.062), (0.050, 0.075), (0.044, 0.085), (0.032, 0.085)], 0.002, 1),
-                          np.array([hub[0], 0.0, hub[2]]), (0, 1, 0), 'alu', 24))
+                          np.array([hub[0], 0.0, hub[2]]), (0, 1, 0), 'alu', 20))
         for k in range(6):
             a = 2 * math.pi * k / 6
             p = np.array([hub[0] + 0.040 * math.cos(a), CHAIN_Y + 0.003, hub[2] + 0.040 * math.sin(a)])
@@ -254,7 +251,7 @@ class Rear:
         # walked with the air on the right: up the rim's outside, over it, down inside, the face inwards, the boss
         prof = [(0.0805, -0.008), (0.0805, 0.004), (0.0775, 0.0068), (0.0725, 0.0045), (0.070, 0.0015), (0.034, 0.0015),
                 (0.026, 0.006), (0.0115, 0.0072)]
-        b.extend(MK.lathe(MK.round_prof(prof, 0.0025, 1), c, (0, -1, 0), 'alu', 27))
+        b.extend(MK.lathe(prof, c, (0, -1, 0), 'alu', 30))
         # ribs
         for k in range(8):
             a = 2 * math.pi * k / 8
