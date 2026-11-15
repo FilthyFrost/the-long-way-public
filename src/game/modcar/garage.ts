@@ -65,6 +65,8 @@ interface Layout {
   plates?: { x: number; y: number; z: number; rot: number; kind: number }[];
   /** the top of the stove's chimney, where its smoke comes out */
   chimney?: { x: number; y: number; z: number };
+  /** where a car stands between the lift's posts */
+  liftBay?: { x: number; z: number };
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -194,6 +196,7 @@ class Garage implements GarageScene {
       look: this.look,
       device: (id) => LAYOUT.devices.find((d) => d.id === id) ?? null,
       surface: (name) => LAYOUT.surfaces.find((x) => x.name === name) ?? null,
+      liftBay: LAYOUT.liftBay ?? null,
     });
     this.devices.push(...this.machines.devices);
     this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;

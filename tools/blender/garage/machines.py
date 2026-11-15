@@ -87,6 +87,8 @@ def lift(K, L, xc, zc, span=2.9, name='lift'):
     K.cyl('p_red', (xc_pu + 0.23, 1.12, pz - 0.08), 0.028, 0.06, axis='x', segs=12)
     K.tube('p_black', [(xc_pu, 0.89, pz), (xc_pu - 0.1, 0.3, pz), (xc, 0.05, pz - 0.2), (xc, 0.05, zc)], 0.012, segs=6, bend=0.1)
     P.device(L, 'lift', xc_pu + 0.23, 1.12, pz - 0.08, 0.16)
+    # where a car stands to be lifted (between the posts, along x)
+    L['liftBay'] = {'x': xc, 'z': zc}
     return (zl, zr)
 
 

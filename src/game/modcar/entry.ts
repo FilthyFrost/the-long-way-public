@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
+import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
 import { loadStats } from './assets';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
@@ -246,6 +247,16 @@ const rt = {
     const inst = newInstance(id);
     if (tyre) fitSub(inst, 'tire', newInstance(tyre));
     return inst;
+  },
+  /** a vehicle set down somewhere else (at rest on the ground there), e.g. between the lift's posts */
+  placeVehicle: (vi: number, x: number, z: number, yaw = 0) => {
+    const v = game.vehicles[vi];
+    if (!v) return false;
+    const at = new GroundSample();
+    game.ground.sample(x, z, at);
+    v.sim.reset(x, at.h, z, yaw, game.ground);
+    v.awake = 3;
+    return true;
   },
   /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
   garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,
