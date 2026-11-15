@@ -4,11 +4,22 @@
   "base": "shot=1",
   "shots": [
     {"name": "garage_spawn", "params": ""},
+    {"name": "garage_door_in", "params": "", "steps": [{"call": "stand", "args": [6.2, 1.1, 3.25, -0.06]}]},
+    {"name": "garage_bench", "params": "", "steps": [{"call": "stand", "args": [-1.9, -2.7, -1.75, -0.42]}]},
+    {"name": "garage_shelves", "params": "", "steps": [{"call": "stand", "args": [-0.6, 1.9, 1.45, -0.18]}]},
+    {"name": "garage_lift_corner", "params": "", "steps": [{"call": "stand", "args": [-1.8, 1.2, 2.55, -0.08]}]},
+    {"name": "garage_paint_corner", "params": "", "steps": [{"call": "stand", "args": [-2.6, -1.4, -2.6, -0.12]}]},
+    {"name": "garage_outside", "params": "", "steps": [{"call": "stand", "args": [19.0, 7.5, -2.8, 0.02]}]},
+    {"name": "garage_outside_open", "params": "", "steps": [{"call": "useDevice", "args": ["door"]}, {"simulate": 5}, {"call": "stand", "args": [16.5, -4.5, 2.88, 0.0]}]},
+    {"name": "garage_dusk", "params": "time=18.5"},
+    {"name": "garage_night", "params": "time=21"},
+    {"name": "garage_night_outside", "params": "time=21", "steps": [{"call": "stand", "args": [19.0, 7.5, -2.8, 0.02]}]},
     {"name": "garage_orbit_project", "params": "view=orbit&orbit=35,14,7.5,0.8"},
     {"name": "garage_orbit_donor", "params": "", "steps": [{"call": "setOrbit", "args": [210, 16, 8, 0.9, 1]}]},
     {"name": "garage_full_sedan", "params": "project=full&view=orbit&orbit=35,12,7,0.8"},
     {"name": "garage_hold_wheel", "params": "", "steps": [{"call": "pickUp", "args": ["rim_steel13"]}, {"call": "aim", "args": [0, "hub_FL", 1.8]}]},
     {"name": "garage_hold_engine", "params": "", "steps": [{"call": "pickUp", "args": ["eng_i4"]}, {"call": "aim", "args": [0, "engine", 2.0]}]},
-    {"name": "garage_hold_toilet", "params": "project=full", "steps": [{"call": "pickUp", "args": ["seat_toilet"]}, {"call": "aim", "args": [0, "seat_driver", 1.7]}]}
+    {"name": "garage_hold_toilet", "params": "project=full", "steps": [{"call": "pickUp", "args": ["seat_toilet"]}, {"call": "aim", "args": [0, "seat_driver", 1.7]}]},
+    {"name": "garage_stub", "params": "garage=stub"}
   ]
 }

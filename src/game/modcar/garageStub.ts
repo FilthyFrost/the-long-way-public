@@ -12,6 +12,10 @@ import { Solid, type SolidSource } from '../../core/world/solids';
 import type { Text } from '../../core/modcar/types';
 import { surfaceMaterial } from '../render/materials';
 import type { RenderCore } from '../render/core';
+import type { LooseThings } from './loose';
+import type { ModPlayer } from './player';
+import type { ModUI } from './ui';
+import type { ModVehicle } from './vehicle';
 
 export interface GarageDevice {
   id: string;
@@ -20,8 +24,20 @@ export interface GarageDevice {
   y: number;
   z: number;
   radius: number;
-  word: Text;
+  /** what pressing would do, as the mark shows it (may change with the device's state) */
+  readonly word: Text;
   use(): void;
+}
+
+/** what a garage may look at and touch each frame: its devices work on the things in it */
+export interface GarageContext {
+  readonly vehicles: readonly ModVehicle[];
+  readonly loose: LooseThings;
+  readonly player: ModPlayer;
+  readonly ui: ModUI;
+  /** the vehicle the player sits in, if any */
+  readonly seated: ModVehicle | null;
+  sound(name: string, gain?: number): void;
 }
 
 export interface GarageScene {
@@ -43,7 +59,15 @@ export interface GarageScene {
   /** a vehicle driving past this x has left for the road */
   readonly exitX: number;
   readonly devices: GarageDevice[];
-  update(dt: number): void;
+  /** resolves when the models are in (the screenshots wait for it) */
+  readonly ready: Promise<void>;
+  update(dt: number, ctx: GarageContext): void;
+  /** exposure factor for an eye at (x, y, z) (world): the eye opens up indoors */
+  exposureAt(x: number, y: number, z: number): number;
+  /** a garage whose doors open: are they open (wide enough to drive out)? */
+  doorsOpen?(): boolean;
+  /** for the test hook: the doors, the lamps, the devices' state */
+  telemetry(): Record<string, string | number | boolean>;
   dispose(): void;
 }
 
@@ -168,7 +192,10 @@ export function buildGarageStub(core: RenderCore): GarageScene {
     spots,
     exitX: x1 + 14,
     devices: [],
+    ready: Promise.resolve(),
     update: () => {},
+    exposureAt: () => 1,
+    telemetry: () => ({ garage: 'stub' }),
     dispose: () => {
       root.removeFromParent();
       for (const m of Object.values(mats)) m.dispose();

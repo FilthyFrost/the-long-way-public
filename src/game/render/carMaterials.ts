@@ -301,6 +301,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     e.band = 1.0 - rtStep(x - 0.3, soft);
     e.dark = 1.0 - rtStep(-x - 0.45, soft);
     e.line = e.sky * (1.0 - rtStep(x - 0.02, soft));
+    // in a room (the starting garage) the gloss mirrors the room: its door and windows bright, the rest dim
+    float room = rtInRoom(vPos);
+    if (room > 0.0) {
+      vec3 rm = rtRoomMirror(vPos, R);
+      e.upper = mix(e.upper, rm, room);
+      e.bright = mix(e.bright, rm, room);
+      e.land = mix(e.land, rm * 0.7, room);
+      e.ground = mix(e.ground, rm, room);
+      e.cloud *= 1.0 - room;
+    }
     return e;
   }
 
@@ -403,7 +413,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float ndl = dot(n, uSunDir);
     float lit = smoothstep(-0.015, 0.05, ndl) * sh;
     float full = smoothstep(0.4, 0.52, ndl) * sh;
-    vec3 sky = mix(uBounceColor * 2.0, uSkyColor, n.y * 0.5 + 0.5) * 0.9;
+    // (the open sky — or in a room what its openings let in — and a room's lamps: shaderlib.ts)
+    vec3 sky = rtSkyLight(n, vPos) + rtRoomLamps(vPos, n);
+    float openSky = 1.0 - 0.8 * rtInRoom(vPos);
     vec3 col = vec3(0.0);
     float alpha = 1.0;
     float gloss = uLook.x;
@@ -464,7 +476,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the sun in the clear coat: small and white-hot (the bloom catches it)
     col += uSunColor * 1.6 * rtSunSpot(R, uLook.y) * sh * gloss * (1.0 - fade);
     // rim: the edge turned away catches the sky
-    col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao;
+    col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky;
     #ifdef RT_WEAR
     // rust breaks through; the paint round it lifts and pales
     col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rust) * 0.5);
@@ -493,7 +505,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float fres = mix(0.75, 1.0, pow(1.0 - ndv, 3.0));
     col = mix(diffuse, env * base * mix(0.85, 1.2, contrast), clamp(gloss * mix(fres, 1.0, contrast), 0.0, 1.0)) * mix(0.45, 1.0, ao);
     col += uSunColor * mix(0.5, 2.4, contrast) * rtSunSpot(R, uLook.y) * sh * mix(1.0, 0.5, inCabin);
-    col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao * (1.0 - inCabin);
+    col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao * (1.0 - inCabin) * openSky;
     #ifdef RT_WEAR
     col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
@@ -545,9 +557,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 hv = normalize(v + uSunDir);
     float spec = smoothstep(uLook.y - 0.03, uLook.y, dot(n, hv)) * step(0.0, ndl) * sh;
     col += uSunColor * gloss * 0.25 * spec * sheenMask;
-    col += (uSkyColor * 0.6 + uSunColor * 0.12 * lit) * uLook.w * pow(1.0 - ndv, 3.0) * ao * sheenMask;
-    col += uSkyColor * 0.35 * uLook.z * pow(1.0 - ndv, 5.0) * ao;
-    col += mix(uSkyColor, vec3(dot(uSkyColor, vec3(0.333))), 0.5) * 0.24 * skySheen * ao;
+    col += (uSkyColor * 0.6 * openSky + uSunColor * 0.12 * lit) * uLook.w * pow(1.0 - ndv, 3.0) * ao * sheenMask;
+    col += uSkyColor * 0.35 * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky;
+    col += mix(uSkyColor, vec3(dot(uSkyColor, vec3(0.333))), 0.5) * 0.24 * skySheen * ao * openSky;
     #ifdef RT_WEAR
     col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
@@ -560,7 +572,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (glass in a drawing mirrors more than glass does: a windscreen seen at a slant is mostly sky)
     float fres = 0.14 + 0.86 * pow(1.0 - ndv, 2.5);
     // what comes through: the tint, lit by the sky (premultiplied: the glass covers uOpacity of what is behind)
-    vec3 through = uTint * (uSkyColor * 0.9 + uSunColor * 0.06) * uOpacity;
+    vec3 through = uTint * (mix(uSkyColor * 0.9, sky, 1.0 - openSky) + uSunColor * 0.06) * uOpacity;
     vec3 refl = env * fres * mix(0.45, 1.0, ew) * 0.85;
     // streaks: two diagonal bands across the glass, sliding a little with the eye
     vec3 sd = normalize(vec3(-0.55, 1.0, 0.0));

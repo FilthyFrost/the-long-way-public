@@ -42,7 +42,7 @@ try {
     if (!String(t.target).startsWith('ghost:')) throw new Error(`not aimed at a ghost (target ${t.target})`);
     return rt('useFor', seconds);
   };
-  await step('00_spawn', async () => null, (t) => t.place === 'garage' && t.tutorial === '0000000');
+  await step('00_spawn', async () => null, (t) => t.place === 'garage' && /^0+$/.test(t.tutorial));
   await step('01_battery', () => fitFrom('bat_std', 'battery', 1.4, 1.5), (t) => t.tutorial.startsWith('1') && t.held === '');
   await step('02_wheel_FL', () => fitFrom('rim_steel13', 'hub_FL', 1.6, 1.6), (t) => t.held === '');
   await step('03_wheel_RR', () => fitFrom('rim_steel13', 'hub_RR', 1.6, 1.6), (t) => t.tutorial.startsWith('11') && t.held === '');
@@ -60,8 +60,19 @@ try {
     },
     (t) => t.tutorial.startsWith('1111'),
   );
-  await step('06_get_in', () => rt('enter', 0), (t) => t.seated && t.tutorial.startsWith('11111'));
-  await step('07_start', () => rt('crank', 1.6), (t, ran) => ran === true && t.tutorial.startsWith('111111'));
+  // the workshop's big doors are shut but for a crack: the button beside them opens them
+  await step(
+    '05b_open_door',
+    async () => {
+      const target = await rt('useDevice', 'door');
+      if (target !== 'device:door') throw new Error(`not aimed at the door button (target ${target})`);
+      await rt('simulate', 4);
+      return target;
+    },
+    (t) => t.doorsOpen === true && t.doorGap > 3.5 && t.tutorial.startsWith('11111'),
+  );
+  await step('06_get_in', () => rt('enter', 0), (t) => t.seated && t.tutorial.startsWith('111111'));
+  await step('07_start', () => rt('crank', 1.6), (t, ran) => ran === true && t.tutorial.startsWith('1111111'));
   await step('08_drive_out', () => rt('drive', 9, 0.7, 0), (t) => t.place === 'road');
   await step('09_on_the_road', async () => {
     const r = await rt('drive', 8, 0.6, 0);
