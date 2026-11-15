@@ -73,6 +73,8 @@ export class ModSystems {
   cranking = false;
   lights: LightSwitch = 'off';
   horn = false;
+  /** the radio switched on (it draws its watts only then) */
+  radioOn = false;
   /** assist: stopped, S drives backwards (else the gear lever has to go to R) */
   assistReverse = true;
   coolantC = AMBIENT_DEFAULT;
@@ -361,12 +363,13 @@ export class ModSystems {
         const p = this.build.parts[m.id];
         if (!p) continue;
         const def = partDef(p.part);
-        loadKw += ((def.lamp?.watts ?? 0) * (this.lights === 'high' && m.cat === 'headlight' ? 1.3 : 1) + (def.roof?.lightW ?? 0)) / 1000;
+        // (a roof light bar comes on with the high beam)
+        loadKw += ((def.lamp?.watts ?? 0) * (this.lights === 'high' && m.cat === 'headlight' ? 1.3 : 1) + (this.lights === 'high' ? (def.roof?.lightW ?? 0) : 0)) / 1000;
       }
     }
     if (this.horn) loadKw += 0.06;
     const radio = this.instOf('radio');
-    if (radio) loadKw += (partDef(radio.part).radio?.watts ?? 0) / 1000;
+    if (radio && this.radioOn) loadKw += (partDef(radio.part).radio?.watts ?? 0) / 1000;
     this.drain(loadKw * GAME * dt);
     if (this.running) this.drain(-ALTERNATOR_KW * dt);
     const roof = this.instOf('roof');

@@ -64,7 +64,9 @@ export class ModVehicle {
     // a driver keeps a car still with the pedal (the assist does it for them); nobody at the wheel, only the handbrake (or P) does
     // (a motorcycle left standing is on its side stand and in gear: it does not roll off)
     this.sim.autoHold = (driven && this.assistHold) || (!driven && !!this.view.frame.balance);
-    if (!driven && this.awake <= 0 && !this.sys.running) return;
+    this.sys.radioOn = this.radioOn;
+    // (left with its lights or its radio on, it stays awake: they run the battery down)
+    if (!driven && this.awake <= 0 && !this.sys.running && !this.radioOn && !this.sys.lightsOn) return;
     const n = this.sim.update(dt, input ?? IDLE, ground);
     this.sys.update(n * this.sim.h, env);
     if (driven || this.sys.running || this.sim.speed > 0.05) this.awake = Math.max(this.awake, 1.5);

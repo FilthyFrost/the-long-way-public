@@ -1064,12 +1064,23 @@ export class ModGame implements PlayerHost, CockpitHost {
       const inst = v.build.parts[m.id];
       if (!inst) continue;
       const def = partDef(inst.part);
-      light += (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
-      lx += m.pos.x;
-      ly += m.pos.y;
-      n++;
+      const w = (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
+      light += w;
+      lx += m.pos.x * w;
+      ly += m.pos.y * w;
+      n += w;
     }
-    if (!n) {
+    // a light bar on the roof comes on with the high beam: more light, from higher up
+    const roofM = v.view.frame.mounts.find((m) => m.cat === 'roof' && v.build.parts[m.id]);
+    const roof = roofM ? partDef(v.build.parts[roofM.id].part).roof : undefined;
+    if (roofM && roof?.lightW && v.sys.dash.lights === 'high') {
+      const w = (roof.lightW / 100) * Math.max(0.3, v.build.parts[roofM.id].cond);
+      light += w;
+      lx += (roofM.pos.x + 0.5) * w;
+      ly += (roofM.pos.y + 0.2) * w;
+      n += w;
+    }
+    if (n <= 0) {
       u.uHeadColor.value.setRGB(0, 0, 0);
       return;
     }
@@ -1084,7 +1095,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     u.uHeadPos.value.set(pose.x + b[0] * bx + b[3] * by - o.x, pose.y + b[1] * bx + b[4] * by - o.y, pose.z + b[2] * bx + b[5] * by - o.z);
     u.uHeadDir.value.set(b[0] - b[3] * 0.1, b[1] - b[4] * 0.1, b[2] - b[5] * 0.1).normalize();
     // a pair of stock lamps = the old vehicles' beam; one lamp, weak lamps or a flat battery give less
-    const k = Math.min(2.2, light / 2) * (v.sys.dash.lights === 'high' ? 1.25 : 1) * Math.min(1, v.sys.dash.battery * 4 + (v.sys.running ? 1 : 0));
+    const k = Math.min(3, light / 2) * (v.sys.dash.lights === 'high' ? 1.25 : 1) * Math.min(1, v.sys.dash.battery * 4 + (v.sys.running ? 1 : 0));
     u.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(2.4 * k);
   }
 
