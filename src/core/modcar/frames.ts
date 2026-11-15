@@ -162,7 +162,7 @@ export const SEDAN: FrameDef = {
   hubRadius: 0.285,
   suspension: { front: susp(1.45, 0.2, 0.55, 9.5), rear: susp(1.55, 0.19, 0.3, 8.5) },
   steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.9, rateHigh: 0.75, smoothTime: 0.09, returnScale: 1.6, gripLimitG: 0.75, slipMarginDeg: 6 },
-  brakeN: 8900,
+  brakeN: 7900,
   brakeFront: 0.68,
   cdA: 0.83,
   finalDrive: 4.3,
