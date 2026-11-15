@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
 import type { MountDef } from '../../core/modcar/types';
+import { SONGS } from './radio';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 
@@ -22,7 +23,6 @@ export class Cockpit {
   aimed: MountDef | null = null;
   /** the key held down through a click on it */
   private cranking = false;
-  radioOn = false;
   private readonly box = new THREE.Box3();
   private readonly ray = new THREE.Ray();
   private readonly hit = new THREE.Vector3();
@@ -67,7 +67,7 @@ export class Cockpit {
       if (m.cat === 'handbrake') word = s.parkBrake > 0 ? `松手刹 <b>${name}</b>` : `拉手刹 <b>${name}</b>`;
       else if (m.cat === 'gearLever') word = `挡位 <b>${v.sys.dash.gearLabel}</b><small>左键加挡 · 右键减挡</small>`;
       else if (m.cat === 'ignition') word = v.sys.running ? `熄火 <b>${name}</b>` : `打火 <b>${name}</b><small>按住</small>`;
-      else if (m.cat === 'radio') word = `${this.radioOn ? '关' : '开'} <b>${name}</b>`;
+      else if (m.cat === 'radio') word = v.radioOn ? `关 <b>${name}</b><small>右键换台 · 「${SONGS[v.radioSong % SONGS.length].name}」</small>` : `开 <b>${name}</b>`;
       else if (m.cat === 'horn' || m.cat === 'steering') word = `喇叭<small>按住</small>`;
       else if (m.cat === 'door') word = `${v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门'}<small>E 下车</small>`;
       ui.prompt(true, word, -1);
@@ -93,7 +93,13 @@ export class Cockpit {
         this.cranking = true;
       }
       this.host.sound('key');
-    } else if (m.cat === 'radio') this.radioOn = !this.radioOn;
+    } else if (m.cat === 'radio') {
+      // left: on / off; right while on: the next station
+      if (right && v.radioOn) v.radioSong = (v.radioSong + 1) % SONGS.length;
+      else v.radioOn = !v.radioOn;
+      this.host.sound('switch');
+      if (v.radioOn) this.host.ui.say(v.sys.dash.battery > 0.02 ? `收音机：「${SONGS[v.radioSong % SONGS.length].name}」` : '收音机没反应：电瓶没电。', 2.5);
+    }
     else if (m.cat === 'horn' || m.cat === 'steering') v.sys.setHorn(true);
     else if (m.cat === 'door') {
       const open = v.view.panelOpen(m.id) < 0.5;
@@ -162,7 +168,10 @@ export class Cockpit {
     const radio = part('radio');
     if (radio) {
       const knob = radio.node.getObjectByName('KNOB_L');
-      if (knob) knob.rotation.x = ease('vol', this.radioOn ? 1.4 : 0);
+      if (knob) knob.rotation.x = ease('vol', v.radioOn ? 1.4 : 0);
+      // the tuning knob goes round to the station
+      const tune = radio.node.getObjectByName('KNOB_R');
+      if (tune) tune.rotation.x = ease('tune', v.radioOn ? 0.5 + 0.9 * (v.radioSong % SONGS.length) : 0);
     }
   }
 }

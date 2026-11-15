@@ -35,6 +35,7 @@ import { EngineVoice } from './engineAudio';
 import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
+import { Radio } from './radio';
 import { Sparks } from './sparks';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
@@ -478,6 +479,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
   private readonly loopsOn = new Set<FoleyLoop>();
   private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+  /** the radio of the vehicle one is in or beside */
+  private radio: Radio | null = null;
   private readonly lastGear: { v: ModVehicle | null; gear: number } = { v: null, gear: 0 };
   private wasBlinking = false;
 
@@ -573,6 +576,33 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (want) f.horn(want, true);
       this.hornOn = want;
     }
+  }
+
+  /** the car radio: the one in the vehicle one sits in, or the nearest one playing within earshot */
+  private updateRadio(): void {
+    const ctx = this.audio.context;
+    const out = this.audio.output;
+    if (!ctx || !out) return;
+    this.radio ??= new Radio(ctx, out);
+    let best: ModVehicle | null = null;
+    let level = 0;
+    for (const v of this.vehicles) {
+      if (!v.radioOn || !v.sys.hasPart('radio') || v.sys.dash.battery <= 0.02) continue;
+      const watts = v.view.frame.mounts.find((m) => m.cat === 'radio' && v.build.parts[m.id]);
+      const loud = watts && partDef(v.build.parts[watts.id].part).radio?.tape ? 1.15 : 1;
+      let l: number;
+      if (this.seated === v) l = 0.5 * loud;
+      else {
+        const d = Math.hypot(this.player.walker.x - v.sim.px, this.player.walker.z - v.sim.pz);
+        // a closed car keeps most of it in
+        l = (0.32 * loud * (0.35 + 0.65 * (1 - v.sys.derived.enclosed))) / (1 + (d * d) / 6);
+      }
+      if (l > level) {
+        level = l;
+        best = v;
+      }
+    }
+    this.radio.update({ on: !!best && level > 0.01, song: best?.radioSong ?? 0, level });
   }
 
   /** the engine of the vehicle in focus: heard from the seat, or from where one stands */
@@ -1155,6 +1185,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.sounds();
     this.updateFoley();
     this.updateEngineVoice();
+    this.updateRadio();
     const v = this.focus;
     if (!v) return;
     const sim = v.sim;

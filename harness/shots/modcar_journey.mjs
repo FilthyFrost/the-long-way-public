@@ -53,11 +53,18 @@ try {
     async () => {
       if (!(await rt('pickUp', 'bat_std'))) throw new Error('no battery lying about');
       await rt('aim', 0, 'battery', 1.4);
+      // held up to its place under the shut bonnet: the ghost is blocked (or E offers the bonnet itself)
       const t = await rt('telemetry');
-      if (!String(t.target).endsWith(':hood')) throw new Error(`the shut bonnet is not what E would do (target ${t.target})`);
+      const ghosts = await page.evaluate(() => [...window.__rt.game.player.ghosts.ghosts.values()].filter((g) => g.key.includes(':battery:')).map((g) => g.kind));
+      if (!String(t.target).endsWith(':hood') && !ghosts.includes('blocked')) throw new Error(`the shut bonnet does not stop the battery (target ${t.target}, ghosts ${ghosts})`);
+      // so: look at the bonnet and open it, the battery still in the hands
+      await rt('aim', 0, 'hood', 1.5);
+      const h = await rt('telemetry');
+      if (!String(h.target).endsWith(':hood')) throw new Error(`not aimed at the bonnet (target ${h.target})`);
       await rt('press');
       await rt('simulate', 0.8);
-      return t.target;
+      await rt('aim', 0, 'battery', 1.4);
+      return ghosts;
     },
     (t) => done(t, 'hood') && t.held === 'bat_std' && String(t.target).startsWith('ghost:'),
   );

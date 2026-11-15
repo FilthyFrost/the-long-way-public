@@ -340,7 +340,7 @@ def mounts(ex, panels, it):
                                     ('hub_RL', D['ax_r'], D['track_r'] / 2, False, -1), ('hub_RR', D['ax_r'], -D['track_r'] / 2, False, 1)):
         E.append(mount(name, (x, y, hz), dict(cat='rim', axle='front' if front else 'rear', steer=front, driven=not front,
                                                handbrake=not front, side=side, hub_face=round(abs(y) + 0.010, 4), wheel_r=D['wheel_r'])))
-    E.append(mount('engine', (1.27, 0.0, 0.26), dict(cat='engine', space_min=[-0.36, -0.30, 0.0], space_max=[0.40, 0.30, 0.58])))
+    E.append(mount('engine', (1.30, 0.0, 0.195), dict(cat='engine', space_min=[-0.44, -0.30, 0.0], space_max=[0.40, 0.30, 0.66])))
     E.append(mount('gearbox', (0.60, 0.0, 0.30), dict(cat='gearbox', space_min=[-0.30, -0.13, 0.0], space_max=[0.24, 0.13, 0.22])))
     E.append(mount('radiator', (1.715, 0.0, 0.41), dict(cat='radiator', space_min=[-0.07, -0.34, 0.0], space_max=[0.035, 0.34, 0.40])))
     E.append(mount('battery', (1.52, 0.31, 0.555), dict(cat='battery', space_min=[-0.14, -0.10, 0.0], space_max=[0.14, 0.10, 0.24])))
@@ -411,7 +411,7 @@ def json_extra(objs, panels, needles, wipers, tris, total):
     glo = game_vec(lo)
     ghi = game_vec(hi)
     bb = dict(min=[min(glo[0], ghi[0]), min(glo[1], ghi[1]), min(glo[2], ghi[2])], max=[max(glo[0], ghi[0]), max(glo[1], ghi[1]), max(glo[2], ghi[2])])
-    eye = np.array([IN.SEAT_X - 0.06, IN.DRIVER_Y, 0.48 + 0.75])
+    eye = np.array(getattr(IN, 'EYE', (IN.SEAT_X - 0.06, IN.DRIVER_Y, 1.23)))
     return dict(panels=ps, needles=ns, wipers=ws, eye_default=game_vec(eye), bbox=bb,
                 triangles=dict(total=total, **tris), units='metres, game frame (+x forward, +y up, +z right)',
                 notes='hinge: Blender-local axis name (z = vertical door hinge, y = transverse lid hinge); hinge_axis: '
@@ -432,7 +432,7 @@ def previews(quick):
     PV.orbit((-0.1, 0, 0.6), 270, 89.5, 9, ortho=4.6)
     PV.render(f'{SCRATCH}_top.png', res=(1400, 720), samples=16)
     # driver's eye
-    eye = Vector((IN.SEAT_X - 0.06, IN.DRIVER_Y, 1.23))
+    eye = Vector(IN.EYE)
     PV.camera(tuple(eye), tuple(eye + Vector((1.0, -0.02, -0.12))), lens=24)
     PV.render(f'{SCRATCH}_driver.png', res=res, samples=smp)
     # engine bay (hood hidden), panels removed
