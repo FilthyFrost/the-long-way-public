@@ -19,7 +19,7 @@ import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { partGeo } from '../../core/modcar/geo';
-import { addonModel, cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
+import { addonModel, frameVariant, cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
@@ -661,7 +661,7 @@ export class CarView {
     this.settle(holder, 'y', 0.07);
     const def = partDef(inst.part);
     const look = this.mats.look(partOwner(m.id), this.partLook(inst, m.cat));
-    void this.track(partModel(inst.part)).then((model) => {
+    void this.track(partModel(inst.part, frameVariant(inst.part, this.frame))).then((model) => {
       if (this.shown.get(m.id)?.holder !== holder) return;
       const obj = cloneModel(model);
       applyMaterials(obj, look);

@@ -1,0 +1,14 @@
+{
+  "set": "modcar_rv",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "rv_front34", "params": "build=stock:rv&view=orbit&orbit=35,9,11,1.3"},
+    {"name": "rv_rear34", "params": "build=stock:rv&view=orbit&orbit=215,10,11,1.3"},
+    {"name": "rv_side", "params": "build=stock:rv&view=orbit&orbit=90,4,11,1.3"},
+    {"name": "rv_rear_wheels", "params": "build=stock:rv&view=orbit&orbit=145,5,7.5,0.6"},
+    {"name": "rv_cockpit", "params": "build=stock:rv&view=cockpit"},
+    {"name": "rv_night", "params": "build=stock:rv&view=orbit&orbit=35,9,11,1.3&time=22", "steps": [{"call": "lights", "args": []}]},
+    {"name": "rv_apoc", "params": "build=stock:rv;bumperFront=bf_plow;roof=roof_spikes;armor_L=arm_plates;armor_R=arm_planks&view=orbit&orbit=35,10,12,1.3"}
+  ]
+}

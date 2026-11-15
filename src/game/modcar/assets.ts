@@ -218,6 +218,14 @@ export function cloneModel(m: Model): THREE.Group {
   return m.scene.clone(true);
 }
 
+/** parts made in a second shape for a motorcycle (side pipes run along a bike, not out to a car's sill) */
+const BIKE_SHAPE: ReadonlySet<string> = new Set(['exh_side']);
+
+/** the variant of a part's model for a frame: '' (its own) or 'moto' */
+export function frameVariant(partId: string, frame: { balance?: boolean }): string {
+  return frame.balance && BIKE_SHAPE.has(partId) ? 'moto' : '';
+}
+
 const addons = new Map<string, Promise<Model | null>>();
 /** a model that is no part of its own (an add-on of a panel's style: parts/<name>.glb), or null without one */
 export function addonModel(name: string): Promise<Model | null> {

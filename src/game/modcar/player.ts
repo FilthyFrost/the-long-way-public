@@ -7,6 +7,7 @@
  * Keys: E or the left button = use (press) / fit, pour, spray (hold); the right button or F held =
  * take off; G held = put down; the wheel = spray colour. In the seat: E gets out.
  */
+import { frameVariant } from './assets';
 import * as THREE from 'three';
 import { fitPart, fitSub, mountsFor, removePart, removeSub, subMountsOf } from '../../core/modcar/build';
 import { installSeconds, partDef } from '../../core/modcar/parts';
@@ -351,7 +352,7 @@ export class ModPlayer {
         const node = v.view.mountNode(m.id);
         if (!node) continue;
         const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
-        list.push({ node, mount: m, partId: def.id, kind, key: `${v.build.uid}:${m.id}:${def.id}` });
+        list.push({ node, mount: m, partId: def.id, variant: frameVariant(def.id, v.view.frame), kind, key: `${v.build.uid}:${m.id}:${def.id}` });
       }
     }
     this.ghosts.show(this.showGhostsOn ? list : []);
