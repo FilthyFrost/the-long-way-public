@@ -43,10 +43,10 @@ TYRES = {
                       cells=['0', '0', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                       walls=[(0.40, -0.004), (0.72, -0.002)],
                       shear=lambda u: 0.10 * u * u),
-    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=30, fr=[0, 0.84],
+    'tire_whitewall': dict(h=0.12, W=0.16, Tw=0.76, d=0.0075, c=0.006, n=26, fr=[0, 0.84],
                            cols=[-1.12, -1.0, -0.72, -0.61, -0.27, -0.16, 0.16, 0.27, 0.61, 0.72, 1.0, 1.12],
                            cells=['0', '0', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '0', '0'],
-                           white=(0.22, 0.62), text_at=0.80, text_size=0.55),
+                           white=(0.22, 0.62), text_at=0.80, text_size=0.6, text_arcs=((90.0, 44.0), (270.0, 30.0))),
     'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=20, fr=[0, 0.5],
                          cols=[-1.26, -1.12, -1.0, -0.68, -0.56, -0.22, -0.1, 0.1, 0.22, 0.56, 0.68, 1.0, 1.12, 1.26],
                          cells=['0', '0', '0', 'G', '1', 'G', '01', 'G', '0', 'G', '1', '1', '1'],
@@ -299,7 +299,8 @@ def build_tyre(P, tid, rim_id):
         if tm not in mats:
             mats.append(tm)
         sidewall_text(bm, pts, R, T['h'], mat_index=mats.index(tm), frac=T.get('text_at', 0.52),
-                      size=T.get('text_size', 1.0), seed=sum(map(ord, tid)) % 97)
+                      size=T.get('text_size', 1.0), seed=sum(map(ord, tid)) % 97,
+                      arcs=T.get('text_arcs', ((90.0, 70.0), (270.0, 50.0))))
     # axle along Blender Y (lathe z -> +Y)
     K.bm_transform(bm, K.axis_matrix('Y'))
     P.mesh('tyre', bm, mats, sharp=42.0)

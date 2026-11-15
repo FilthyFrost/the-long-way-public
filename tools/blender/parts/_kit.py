@@ -233,12 +233,28 @@ def fillet_path(pts, bend):
     return out
 
 
-def bm_sweep(bm, path, radius, segs=12, caps=True, twist=0.0, radius_fn=None, profile=None, closed=False):
+def densify(path, max_seg):
+    """Split path segments longer than max_seg (so vertex AO has samples along long straight runs)."""
+    out = [V(path[0])]
+    for a, b in zip(path[:-1], path[1:]):
+        a, b = V(a), V(b)
+        n = int((b - a).length / max_seg) if max_seg else 0
+        for k in range(1, n + 1):
+            out.append(a + (b - a) * (k / (n + 1)))
+        out.append(b)
+    return out
+
+
+def bm_sweep(bm, path, radius, segs=12, caps=True, twist=0.0, radius_fn=None, profile=None, closed=False,
+             max_seg=0.22):
     """
     Sweep a circle (or a 2D profile [(x, y), ...]) along a polyline with rotation-minimising frames.
-    radius_fn(t) (t = 0..1 along the path) scales the section. Returns the rings.
+    radius_fn(t) (t = 0..1 along the path) scales the section. Long straight runs are split every max_seg m.
+    Returns the rings.
     """
     path = [V(p) for p in path]
+    if max_seg and not closed:
+        path = densify(path, max_seg)
     n = len(path)
     if closed:
         tang = [(path[(i + 1) % n] - path[i - 1]).normalized() for i in range(n)]
@@ -515,6 +531,15 @@ class Part:
         """open: faces to leave out, e.g. '-z' or '-z+y' (local axes before rot): they sit against something."""
         bm = bm_new()
         verts = bm_cube(bm, size)
+        # a long thin bar gets loop cuts every ~0.2 m so its vertex AO is not decided by its two ends
+        dims = list(size)
+        il = max(range(3), key=lambda i: dims[i])
+        others = sorted(dims[i] for i in range(3) if i != il)
+        if dims[il] > 0.35 and others[1] < 0.12:
+            cuts = int(dims[il] / 0.2)
+            long_edges = [e for e in bm.edges
+                          if abs((e.verts[0].co - e.verts[1].co)[il]) > dims[il] * 0.99]
+            bmesh.ops.subdivide_edges(bm, edges=long_edges, cuts=cuts, use_grid_fill=True)
         if open:
             dead = []
             for f in bm.faces:

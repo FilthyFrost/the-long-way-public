@@ -31,7 +31,7 @@
      0.0
     ]
    ],
-   "triangles": 1716,
+   "triangles": 1860,
    "materials": [
     "rust",
     "steel",
@@ -56,7 +56,7 @@
      -0.0004
     ]
    ],
-   "triangles": 1912,
+   "triangles": 2392,
    "materials": [
     "rust",
     "steel"
@@ -122,7 +122,7 @@
      0.0935
     ]
    ],
-   "triangles": 1622,
+   "triangles": 1638,
    "materials": [
     "paint",
     "paint_b",
@@ -143,7 +143,7 @@
      0.8268
     ]
    ],
-   "triangles": 2580,
+   "triangles": 2944,
    "materials": [
     "rust",
     "steel",
@@ -168,7 +168,7 @@
      0.95
     ]
    ],
-   "triangles": 1824,
+   "triangles": 2472,
    "materials": [
     "chrome",
     "lens_amber",
@@ -185,17 +185,17 @@
   "bf_ram": {
    "bbox": [
     [
-     0.0,
-     -0.11,
-     -0.8
+     -0.01,
+     -0.1304,
+     -0.8071
     ],
     [
-     0.544,
-     0.135,
-     0.8
+     0.6867,
+     0.16,
+     0.8096
     ]
    ],
-   "triangles": 2064,
+   "triangles": 4308,
    "materials": [
     "chrome",
     "rust",
@@ -220,7 +220,7 @@
      0.8079
     ]
    ],
-   "triangles": 2812,
+   "triangles": 3020,
    "materials": [
     "chrome",
     "rubber",
@@ -270,7 +270,7 @@
      0.8079
     ]
    ],
-   "triangles": 3208,
+   "triangles": 3432,
    "materials": [
     "chrome",
     "rubber",
@@ -295,7 +295,7 @@
      0.0
     ]
    ],
-   "triangles": 1036,
+   "triangles": 1176,
    "materials": [
     "rust",
     "steel"
@@ -319,7 +319,7 @@
      -0.0
     ]
    ],
-   "triangles": 648,
+   "triangles": 1200,
    "materials": [
     "steel"
    ],
@@ -361,7 +361,7 @@
      0.25
     ]
    ],
-   "triangles": 5660,
+   "triangles": 5680,
    "materials": [
     "alu",
     "chrome",
@@ -415,7 +415,7 @@
      0.36
     ]
    ],
-   "triangles": 14340,
+   "triangles": 14520,
    "materials": [
     "alu",
     "paint",
@@ -471,7 +471,7 @@
      0.38
     ]
    ],
-   "triangles": 11418,
+   "triangles": 11794,
    "materials": [
     "alu",
     "chrome",
@@ -540,7 +540,7 @@
      0.263
     ]
    ],
-   "triangles": 13008,
+   "triangles": 13036,
    "materials": [
     "alu",
     "chrome",
@@ -597,7 +597,7 @@
      0.279
     ]
    ],
-   "triangles": 12480,
+   "triangles": 12656,
    "materials": [
     "alu",
     "paint",
@@ -735,7 +735,7 @@
      0.4066
     ]
    ],
-   "triangles": 14250,
+   "triangles": 14410,
    "materials": [
     "alu",
     "chrome",
@@ -806,7 +806,7 @@
      0.1833
     ]
    ],
-   "triangles": 1088,
+   "triangles": 1112,
    "materials": [
     "chrome",
     "steel",
@@ -826,7 +826,7 @@
      0.37
     ]
    ],
-   "triangles": 3124,
+   "triangles": 3172,
    "materials": [
     "chrome",
     "rust",
@@ -863,7 +863,7 @@
      0.175
     ]
    ],
-   "triangles": 2144,
+   "triangles": 2240,
    "materials": [
     "chrome",
     "rubber",
@@ -884,7 +884,7 @@
      0.0804
     ]
    ],
-   "triangles": 1580,
+   "triangles": 1708,
    "materials": [
     "chrome",
     "rubber",
@@ -1352,7 +1352,7 @@
      0.422
     ]
    ],
-   "triangles": 2672,
+   "triangles": 3160,
    "materials": [
     "alu",
     "chrome",
@@ -1374,7 +1374,7 @@
      0.272
     ]
    ],
-   "triangles": 1798,
+   "triangles": 2022,
    "materials": [
     "alu",
     "chrome",
@@ -1396,7 +1396,7 @@
      0.342
     ]
    ],
-   "triangles": 1858,
+   "triangles": 2146,
    "materials": [
     "alu",
     "chrome",
@@ -1796,7 +1796,7 @@
      0.51
     ]
    ],
-   "triangles": 3128,
+   "triangles": 3260,
    "materials": [
     "chrome",
     "emit",
@@ -1824,7 +1824,7 @@
      0.4933
     ]
    ],
-   "triangles": 1888,
+   "triangles": 2668,
    "materials": [
     "rubber",
     "steel"
@@ -1848,7 +1848,7 @@
      0.46
     ]
    ],
-   "triangles": 1068,
+   "triangles": 1368,
    "materials": [
     "alu",
     "glass_dark",
@@ -1864,17 +1864,17 @@
   "roof_spikes": {
    "bbox": [
     [
-     -0.6269,
+     -0.6465,
      0.0,
-     -0.5193
+     -0.5416
     ],
     [
-     0.6976,
-     0.203,
-     0.5193
+     0.7371,
+     0.3023,
+     0.5416
     ]
    ],
-   "triangles": 3340,
+   "triangles": 4832,
    "materials": [
     "chrome",
     "rust",
@@ -1952,7 +1952,7 @@
      0.269
     ]
    ],
-   "triangles": 3452,
+   "triangles": 3592,
    "materials": [
     "chrome",
     "fabric",
@@ -1979,7 +1979,7 @@
      0.2063
     ]
    ],
-   "triangles": 1492,
+   "triangles": 1972,
    "materials": [
     "fabric",
     "paint",
@@ -2033,7 +2033,7 @@
      0.2887
     ]
    ],
-   "triangles": 2936,
+   "triangles": 3044,
    "materials": [
     "fabric",
     "paint",
@@ -2143,7 +2143,7 @@
      0.4063
     ]
    ],
-   "triangles": 2092,
+   "triangles": 2112,
    "materials": [
     "alu",
     "chrome",
@@ -2230,7 +2230,7 @@
      0.334
     ]
    ],
-   "triangles": 3308,
+   "triangles": 3384,
    "materials": [
     "alu",
     "steel",
@@ -2250,7 +2250,7 @@
      0.321
     ]
    ],
-   "triangles": 3172,
+   "triangles": 3212,
    "materials": [
     "chrome",
     "paint",
@@ -2294,7 +2294,7 @@
      0.33
     ]
    ],
-   "triangles": 2334,
+   "triangles": 2366,
    "materials": [
     "alu",
     "chrome",
@@ -3441,16 +3441,16 @@
    "bbox": [
     [
      -0.2848,
-     -0.2841,
+     -0.2839,
      -0.08
     ],
     [
      0.2848,
-     0.2841,
+     0.2839,
      0.08
     ]
    ],
-   "triangles": 5004,
+   "triangles": 4128,
    "materials": [
     "ceramic",
     "rubber"
@@ -3465,16 +3465,16 @@
    "bbox": [
     [
      -0.3098,
-     -0.3091,
+     -0.3088,
      -0.098
     ],
     [
      0.3098,
-     0.3091,
+     0.3088,
      0.098
     ]
    ],
-   "triangles": 5064,
+   "triangles": 4176,
    "materials": [
     "ceramic",
     "rubber"
@@ -3489,16 +3489,16 @@
    "bbox": [
     [
      -0.3698,
-     -0.3689,
+     -0.3686,
      -0.118
     ],
     [
      0.3698,
-     0.3689,
+     0.3686,
      0.118
     ]
    ],
-   "triangles": 5184,
+   "triangles": 4272,
    "materials": [
     "ceramic",
     "rubber"
@@ -3513,16 +3513,16 @@
    "bbox": [
     [
      -0.3488,
-     -0.348,
+     -0.3477,
      -0.08
     ],
     [
      0.3488,
-     0.348,
+     0.3477,
      0.08
     ]
    ],
-   "triangles": 5136,
+   "triangles": 4248,
    "materials": [
     "ceramic",
     "rubber"
@@ -3537,16 +3537,16 @@
    "bbox": [
     [
      -0.3228,
-     -0.322,
+     -0.3218,
      -0.113
     ],
     [
      0.3228,
-     0.322,
+     0.3218,
      0.113
     ]
    ],
-   "triangles": 5100,
+   "triangles": 4200,
    "materials": [
     "ceramic",
     "rubber"
@@ -3561,16 +3561,16 @@
    "bbox": [
     [
      -0.2848,
-     -0.2841,
+     -0.2839,
      -0.08
     ],
     [
      0.2848,
-     0.2841,
+     0.2839,
      0.08
     ]
    ],
-   "triangles": 5004,
+   "triangles": 4128,
    "materials": [
     "ceramic",
     "rubber"
@@ -3585,16 +3585,16 @@
    "bbox": [
     [
      -0.3698,
-     -0.3689,
+     -0.3686,
      -0.113
     ],
     [
      0.3698,
-     0.3689,
+     0.3686,
      0.113
     ]
    ],
-   "triangles": 5184,
+   "triangles": 4272,
    "materials": [
     "ceramic",
     "rubber"
