@@ -661,6 +661,9 @@ class Exterior:
         p.add(uv, P, NL, drop_first=True, drop_last=True)
         loop = p.loop()
         pts, sp = S.grid_from(self.us, self.ts)
+        # a row of points just under the belt (the belt moulding shades the skin there: fans of thin triangles
+        # from the dense edge made a row of teeth in the baked occlusion)
+        pts, sp = edge_rows(S.CL, [P], pts, sp, loop.uv, offs=(0.011, 0.024, 0.040, 0.060), step=0.024, clear=0.075)
         V, N, T = K.mesh_region(S.CL, [loop], [], pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
 
@@ -875,21 +878,22 @@ class Exterior:
         body.add(V, N, Tr, 'paint')
         for w in ('F', 'R'):
             s_ = self.cut['doorL_' + w].side('in')
-            V, N, Tr = K.roll_edge(s_['P'], s_['N'], s_['E'], ER, 0.10, 0.03, 2, closed=False, hem_segs=0)
+            # (the doors' own rolls turn over in one step: they are 4 mm and the doors are dense with edges)
+            V, N, Tr = K.roll_edge(s_['P'], s_['N'], s_['E'], ER, 0.10, 0.03, 1, closed=False, hem_segs=0)
             panels.setdefault('door_' + w, K.Buf()).add(V, N, Tr, 'paint')
             c = self.cut['doorG_' + w]
             so = c.side('out')
             V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.032, 0.0, 2, closed=False)
             body.add(V, N, Tr, 'paint')
             si = c.side('in')
-            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.035, 0.008, 2, closed=False, hem_segs=0)
+            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.035, 0.008, 1, closed=False, hem_segs=0)
             panels['door_' + w].add(V, N, Tr, 'paint')
             # glass openings of the frame
             for name, poly in self.cut['winG_' + w]:
                 _, P, Nn = self.win_P[(w, name)]
                 cen = np.tile(P.mean(0), (len(P), 1))
                 E = side_dir(P, Nn, cen, True)
-                V, N, Tr = K.roll_edge(P, Nn, E, 0.003, 0.035, 0.0, 2, closed=True)
+                V, N, Tr = K.roll_edge(P, Nn, E, 0.003, 0.035, 0.0, 1, closed=True)
                 panels['door_' + w].add(V, N, Tr, 'paint')
         for name in ('hood', 'trunk'):
             c = self.cut[name]
