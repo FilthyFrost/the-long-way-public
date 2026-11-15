@@ -26,6 +26,7 @@ import { beamUniforms, buildBeams, buildDust } from './garageBeams';
 import { Chalkboard } from './garageChalk';
 import { Plates, Sign, YardLight } from './garageFront';
 import { buildSmoke } from './garageSmoke';
+import { Swallows } from './garageBirds';
 import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
@@ -161,6 +162,9 @@ class Garage implements GarageScene {
   private readonly sign: Sign | null;
   private readonly plates: Plates | null;
   private readonly smoke: THREE.Mesh | null;
+  private readonly birds = new Swallows();
+  /** dark enough out for the lamp over the doors, and for the swallows to roost */
+  private night = false;
   private readonly yard = new YardLight();
   /** the lamp over the doors: how far it has warmed up (0 … 1) */
   private outLamp = 0;
@@ -201,6 +205,7 @@ class Garage implements GarageScene {
     if (this.plates) this.root.add(this.plates.mesh);
     this.smoke = LAYOUT.chimney ? buildSmoke(LAYOUT.chimney) : null;
     if (this.smoke) this.root.add(this.smoke);
+    this.root.add(this.birds.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -454,6 +459,7 @@ class Garage implements GarageScene {
     this.machines.update(dt, ctx);
     this.chalk?.show('让「方糖」跑起来', ctx.checklist());
     this.light();
+    this.birds.update(dt, this.night);
   }
 
   /**
@@ -613,6 +619,7 @@ class Garage implements GarageScene {
     this.look.setGlow('fire', 2.2 * flick, 0.8 * flick, 0.18 * flick);
     // the lamp over the doors outside comes on at dusk, warming up over a second or two
     const night = smooth(0.16, 0.07, skyLum);
+    this.night = night > 0.5;
     // (already on, or off, when the garage is first seen)
     this.outLamp = this.lit ? this.outLamp + ((night > 0.5 ? 1 : 0) - this.outLamp) * Math.min(1, this.frameDt * 1.5) : night > 0.5 ? 1 : 0;
     this.lit = true;
@@ -727,6 +734,7 @@ class Garage implements GarageScene {
     this.sign?.dispose();
     this.plates?.dispose();
     (this.smoke?.material as THREE.Material | undefined)?.dispose();
+    this.birds.dispose();
     this.yard.dispose();
     this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors
