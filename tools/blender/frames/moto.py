@@ -115,7 +115,7 @@ PEG = np.array([-0.150, 0.0, 0.322])
 PEDAL_PIVOT = np.array([-0.112, -0.1375, 0.318])
 SHIFT_PIVOT = np.array([-0.112, 0.1495, 0.318])
 PEG_P = np.array([-0.492, 0.0, 0.534])
-STAND_PIVOT = np.array([-0.052, 0.104, 0.200])
+STAND_PIVOT = np.array([-0.052, 0.106, 0.214])
 # horn: on a tab under the lower clamp's right boss, hanging (the part is turned over: its foot on top)
 HORN = tube_pt(t_at_z(0.686), -1.0) + np.array([0.034, -0.064, -0.071])
 
@@ -127,9 +127,9 @@ BUMPER_F = np.array([0.995, 0.0, 0.500])
 BUMPER_R = np.array([-1.075, 0.0, 0.360])
 # side stand: pivot, the foot (deployed, bike upright) and the fold (a single turn takes the leg back along
 # the left cradle rail)
-STAND_FOOT = np.array([-0.022, 0.250, 0.010])
+STAND_FOOT = np.array([-0.020, 0.258, 0.010])
 _d1 = (STAND_FOOT - STAND_PIVOT) / np.linalg.norm(STAND_FOOT - STAND_PIVOT)
-_d2 = np.array([-1.0, 0.06, 0.035]) / np.linalg.norm([-1.0, 0.06, 0.035])
+_d2 = np.array([-1.0, 0.075, 0.10]) / np.linalg.norm([-1.0, 0.075, 0.10])
 STAND_AXIS = np.cross(_d1, _d2) / np.linalg.norm(np.cross(_d1, _d2))
 STAND_FOLD_DEG = math.degrees(math.acos(float(np.clip(_d1 @ _d2, -1, 1))))
 # round lenses (centre, axis, radius) registered while modelling, for their UVs
@@ -198,5 +198,7 @@ def main(args):
         MB.kit_test(args)
     elif '--review' in args:
         MB.review(args)
+    elif '--motion' in args:
+        MB.motion(args)
     else:
         MB.build(args)

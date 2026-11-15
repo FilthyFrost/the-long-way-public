@@ -8,7 +8,7 @@
   "min": [
    -1.05758,
    0.01,
-   -0.26749
+   -0.27549
   ]
  },
  "eye_default": [
@@ -446,16 +446,22 @@
   },
   "stand": {
    "axis": [
-    0.06866,
-    0.61466,
-    -0.7858
+    0.11955,
+    0.60519,
+    -0.78706
    ],
-   "fold_deg": 96.62,
+   "fold_deg": 99.13,
+   "foot": [
+    -0.02,
+    0.01,
+    -0.258
+   ],
+   "note": "modelled down, its foot pad just clear of the ground with the bike upright",
    "object": "STAND",
    "pivot": [
     -0.052,
-    0.2,
-    -0.104
+    0.214,
+    -0.106
    ]
   },
   "swingarm": {
@@ -475,7 +481,7 @@
   }
  },
  "triangles": {
-  "BODY": 17842,
+  "BODY": 17826,
   "FORK": 7423,
   "FORK_LOWER": 4948,
   "N_rpm": 50,
@@ -486,7 +492,7 @@
   "SHOCK_UPPER_R": 416,
   "STAND": 408,
   "SWINGARM": 5720,
-  "total": 39977
+  "total": 39961
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {}
