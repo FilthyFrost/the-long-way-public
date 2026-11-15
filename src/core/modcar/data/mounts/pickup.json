@@ -1,12 +1,12 @@
 {
  "bbox": {
   "max": [
-   2.18033,
+   2.13697,
    1.62,
    0.8405
   ],
   "min": [
-   -2.38,
+   -2.345,
    0.2,
    -0.8405
   ]
@@ -91,9 +91,8 @@
     1.7,
     0.16
    ],
-   "fit_anchor": "center",
    "pos": [
-    2.20382,
+    2.13882,
     0.56,
     -0.0
    ],
@@ -111,9 +110,8 @@
     1.7,
     0.15
    ],
-   "fit_anchor": "center",
    "pos": [
-    -2.405,
+    -2.34,
     0.545,
     -0.0
    ],
@@ -679,10 +677,10 @@
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -90.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.68361,
-    0.98849,
+    0.67151,
+    0.99218,
     -0.36
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -694,10 +692,10 @@
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -270.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.69057,
-    0.99826,
+    0.68079,
+    1.00522,
     -0.25
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -709,11 +707,11 @@
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -270.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.69057,
-    0.99826,
-    -0.46
+    0.68079,
+    1.00522,
+    -0.466
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
@@ -724,10 +722,10 @@
     -0.0
    ],
    "axis_local": "y",
-   "deg_full": -90.0,
+   "deg_full": -240.0,
    "pivot": [
-    0.71376,
-    1.03085,
+    0.7063,
+    1.04107,
     -0.36
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
@@ -820,7 +818,7 @@
   "BODY": 29226,
   "FUEL_CAP": 405,
   "GLASS": 546,
-  "INTERIOR": 4544,
+  "INTERIOR": 4520,
   "N_fuel": 50,
   "N_rpm": 50,
   "N_speed": 50,
@@ -834,7 +832,7 @@
   "UNDER": 6200,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 55225
+  "total": 55201
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

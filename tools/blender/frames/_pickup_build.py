@@ -286,7 +286,7 @@ def trims(ex):
     mp = mirror_point()
     b.extend(K.box_buf((-0.045, -0.012, -0.004), (0.045, 0.004, 0.024), 'trim', 0.006, 2, xf=K.mat4_trs(mp)))
     # frame rail ends as front bumper mounts and the rear bumper brackets under the bed
-    for x, dx in ((float(S.front_x(0.45, 0.56)) - 0.02, 0.07), (D['bed_xr'] + 0.03, -0.075)):
+    for x, dx in ((float(S.front_x(0.45, 0.56)) - 0.10, 0.09), (D['bed_xr'] + 0.10, -0.09)):     # end behind the body face
         b.extend(K.box_buf((min(x, x + dx), IN.FRAME_Y - 0.03, 0.50), (max(x, x + dx), IN.FRAME_Y + 0.03, 0.58), 'steel', 0.004, 1))
     # body side moulding on the door and the bed (black rubber strip with a thin chrome line)
     for (x0, x1, chart) in ((D['bed_xf'] - 0.06, D['ax_r'] + D['arch_r'] + 0.05, S.SIDE_B),
@@ -329,7 +329,7 @@ def wiper(y_pivot, length):
     rest = K.unit(rest - nrm * np.dot(rest, nrm))
     R = K.frame_from(rest, nrm)
     b = K.Buf()
-    V, N, T = K.lathe(np.array([(0.0, 0.026), (0.012, 0.024), (0.016, 0.012), (0.017, 0.0)]), (0, 0, 0), (0, 0, 1), 14)
+    V, N, T = K.lathe(np.array([(0.0, 0.026), (0.012, 0.024), (0.016, 0.012), (0.017, 0.0)])[::-1], (0, 0, 0), (0, 0, 1), 14)
     b.add(V, N, T, 'trim')
     b.extend(K.tube_buf(np.array([(0.0, 0.0, 0.022), (0.06, 0.0, 0.03), (length, 0.0, 0.03)]), 0.0045, 'trim', 6))
     b.extend(K.box_buf((0.04, -0.008, 0.012), (length + 0.02, 0.008, 0.02), 'trim', 0.003, 1))
@@ -371,8 +371,8 @@ def mounts(ex, panels):
         side = (-1 if m.endswith('L') else 1) if m.startswith('door') else 0
         E.append(mount(m, tuple(info['hinge_pos']), dict(cat=cat, panel=pname, hinge=info['hinge'], open_deg=info['open_deg'], side=side)))
     xb = float(S.front_x(0.0, 0.56))
-    E.append(mount('bumperFront', (xb + 0.07, 0.0, 0.56), dict(cat='bumperFront', fit=[0.15, 1.70, 0.16], fit_anchor='center')))
-    E.append(mount('bumperRear', (D['bed_xr'] - 0.07, 0.0, 0.545), dict(cat='bumperRear', fit=[0.14, 1.70, 0.15], fit_anchor='center')))
+    E.append(mount('bumperFront', (xb + 0.005, 0.0, 0.56), dict(cat='bumperFront', fit=[0.15, 1.70, 0.16])))
+    E.append(mount('bumperRear', (D['bed_xr'] - 0.005, 0.0, 0.545), dict(cat='bumperRear', fit=[0.14, 1.70, 0.15])))
     c3, n3 = ex.lamp_mount
     tp, tn = ex.tail_mount
     mp = mirror_point()

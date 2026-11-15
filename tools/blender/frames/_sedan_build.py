@@ -227,14 +227,9 @@ def trims(ex):
     mp, mn = mirror_mount_point()
     b.extend(K.box_buf((-0.04, -0.012, -0.004), (0.04, 0.004, 0.022), 'trim', 0.006, 2, xf=K.mat4_trs(mp)))
     # bumper brackets (steel), visible when a bumper is removed: a web and an end plate each
-    for (x, dx) in ((float(S.front_x(0.45, 0.43)) - 0.015, 0.075), (float(S.rear_x(0.45, 0.43)) + 0.015, -0.075)):
-        y = 0.45
-        b.extend(K.box_buf((min(x, x + dx), y - 0.004, 0.405), (max(x, x + dx), y + 0.004, 0.455), 'steel', 0.002, 1))
-        xe = x + dx
-        b.extend(K.box_buf((min(xe, xe - np.sign(dx) * 0.006), y - 0.03, 0.40), (max(xe, xe - np.sign(dx) * 0.006), y + 0.03, 0.46), 'steel', 0.002, 1))
-        b.extend(K.box_buf((min(x, x + dx * 0.5), y - 0.025, 0.426), (max(x, x + dx * 0.5), y + 0.025, 0.434), 'steel', 0.002, 1))
+    # (no bumper brackets on the body: the bumper parts bring their own, which meet the body face at the mount)
     # sill chrome strip along the rocker (on the body below the doors)
-    xs = np.linspace(D['fd_front'], D['rd_rear'], 12)
+    xs = np.linspace(D['fd_front'], IN.rear_arch_front(0.245) + 0.03, 12)
     P, N = S.SIDE_L.to3d(np.stack([xs, np.full(len(xs), 0.245)], 1))
     prof = np.array([(0.0, -0.008), (0.003, -0.006), (0.004, 0.0), (0.003, 0.006), (0.0, 0.008)])
     V, NN, T = K.sweep(P, (0, 0, 1), np.stack([-prof[:, 0], prof[:, 1]], 1) * np.array([-1, 1]), closed=False)
@@ -251,9 +246,15 @@ def aperture_seals(ex):
         P = K.resample(P, 0.05, closed=False)
         b.extend(K.tube_buf(P, 0.0065, 'rubber', 4))
     op = ex.opening_out
-    P = op['P'] - op['N'] * 0.05
-    P = K.resample(P, 0.06, closed=False)
-    b.extend(K.tube_buf(P, 0.007, 'rubber', 4))
+    far = np.hypot(op['P'][:, 0] - D['ax_r'], op['P'][:, 2] - D['hub_z']) > D['arch_r'] + 0.09
+    P_all = op['P'] - op['N'] * 0.05
+    idx = np.nonzero(far)[0]
+    runs = np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1) if len(idx) else []
+    for run in runs:
+        if len(run) < 2:
+            continue
+        P = K.resample(P_all[run], 0.06, closed=False)
+        b.extend(K.tube_buf(P, 0.007, 'rubber', 4))
     return b
 
 
@@ -287,16 +288,24 @@ def needle(g):
     V = np.array([(p[0], p[1], 0.0015) for p in pts])
     b = K.Buf()
     b.add(V, np.tile((0, 0, 1.0), (4, 1)), np.array([(0, 1, 2), (0, 2, 3)]), 'emit')
-    V, N, T = K.lathe(np.array([(0.0, 0.004), (0.006 if g['big'] else 0.004, 0.003), (0.007 if g['big'] else 0.0045, 0.0)]), (0, 0, 0), (0, 0, 1), 16)
+    V, N, T = K.lathe(np.array([(0.0, 0.004), (0.006 if g['big'] else 0.004, 0.003), (0.007 if g['big'] else 0.0045, 0.0)])[::-1], (0, 0, 0), (0, 0, 1), 16)
     b.add(V, N, T, 'trim')
     # world-space: the needle buf is built in local coordinates -> transform to world for obj_with_origin
-    if g['big']:
-        rest_ang = math.radians(135.0)
-        full = -270.0
+    if 'scale_deg' in g:
+        # the game's gauge shader paints a scale of scale_deg degrees from bottom left (210 deg for 240) round
+        # over the top, clockwise as the driver sees it
+        sc = float(g['scale_deg'])
+        a0 = math.radians(90.0 + sc / 2.0)
+        rest = math.cos(a0) * g['right'] + math.sin(a0) * g['up']
+        full = -sc
     else:
-        rest_ang = math.radians(45.0)
-        full = -90.0
-    rest = math.sin(rest_ang) * g['right'] + math.cos(rest_ang) * g['up']
+        if g['big']:
+            rest_ang = math.radians(135.0)
+            full = -270.0
+        else:
+            rest_ang = math.radians(45.0)
+            full = -90.0
+        rest = math.sin(rest_ang) * g['right'] + math.cos(rest_ang) * g['up']
     R = K.frame_from(rest, g['normal'])
     Vw, Nw, Tw, Mw = b.arrays()
     out = K.Buf()
@@ -318,7 +327,7 @@ def wiper(y_pivot, length):
     R = K.frame_from(rest, nrm)
     b = K.Buf()
     # pivot cap
-    V, N, T = K.lathe(np.array([(0.0, 0.026), (0.012, 0.024), (0.016, 0.012), (0.017, 0.0)]), (0, 0, 0), (0, 0, 1), 16)
+    V, N, T = K.lathe(np.array([(0.0, 0.026), (0.012, 0.024), (0.016, 0.012), (0.017, 0.0)])[::-1], (0, 0, 0), (0, 0, 1), 16)
     b.add(V, N, T, 'trim')
     # arm (a flat bar rising onto the glass) and blade
     arm = np.array([(0.0, 0.0, 0.022), (0.06, 0.0, 0.03), (length, 0.0, 0.03)])
@@ -364,9 +373,9 @@ def mounts(ex, panels, it):
         E.append(mount(m, tuple(info['hinge_pos']), dict(cat=cat, panel=pname, hinge=info['hinge'], open_deg=info['open_deg'], side=side)))
     # bumpers (stretch: fit = [length, width, height], box centred on the mount)
     xb = float(S.front_x(0.0, 0.43))
-    E.append(mount('bumperFront', (xb + 0.005, 0.0, 0.43), dict(cat='bumperFront', fit=[0.13, 1.66, 0.12], fit_anchor='center')))
+    E.append(mount('bumperFront', (xb + 0.005, 0.0, 0.43), dict(cat='bumperFront', fit=[0.13, 1.66, 0.12])))
     xr = float(S.rear_x(0.0, 0.42))
-    E.append(mount('bumperRear', (xr - 0.005, 0.0, 0.42), dict(cat='bumperRear', fit=[0.13, 1.66, 0.12], fit_anchor='center')))
+    E.append(mount('bumperRear', (xr - 0.005, 0.0, 0.42), dict(cat='bumperRear', fit=[0.13, 1.66, 0.12])))
     c3, n3 = ex.lamp_mount
     for side, sname in ((1, 'L'), (-1, 'R')):
         E.append(mount('headlight_' + sname, (c3[0], side * c3[1], c3[2]), dict(cat='headlight', side=-side, recess='round', recess_d=D['lamp_d'], recess_depth=0.075)))

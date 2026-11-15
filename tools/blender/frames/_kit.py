@@ -675,6 +675,199 @@ def mesh_region(chart, outer, holes=(), pts=None, clear=0.5, spacing=0.03, level
     return P3, N3, tris
 
 
+def _split_loop(L, lines):
+    """Insert the crossings of a Loop with axis-aligned lines (axis, value, lo, hi) as vertices. Fixed 3D
+    positions / normals are interpolated. Returns (new Loop, list of (line index, coordinate along the line,
+    vertex index in the new loop))."""
+    uv = L.uv
+    n = len(uv)
+    m = n if L.closed else n - 1
+    out_uv, out_P, out_N, cross = [], [], [], []
+    hasP = L.P is not None
+    hasN = L.N is not None
+    for i in range(n):
+        out_uv.append(uv[i])
+        if hasP:
+            out_P.append(L.P[i])
+        if hasN:
+            out_N.append(L.N[i])
+        for li, (ax, val, lo, hi) in enumerate(lines):
+            if abs(uv[i][ax] - val) < 1e-9 and lo - 1e-9 <= uv[i][1 - ax] <= hi + 1e-9:
+                cross.append((li, float(uv[i][1 - ax]), len(out_uv) - 1))
+        if i >= m:
+            continue
+        j = (i + 1) % n
+        p, q = uv[i], uv[j]
+        ins = []
+        for li, (ax, val, lo, hi) in enumerate(lines):
+            a, b = p[ax] - val, q[ax] - val
+            if a * b < 0 and abs(a) > 1e-9 and abs(b) > 1e-9:
+                f = a / (a - b)
+                c = p + (q - p) * f
+                if lo - 1e-9 <= c[1 - ax] <= hi + 1e-9:
+                    ins.append((f, li, c))
+        for f, li, c in sorted(ins, key=lambda e: e[0]):
+            c = c.copy()
+            c[lines[li][0]] = lines[li][1]
+            out_uv.append(c)
+            if hasP:
+                out_P.append(L.P[i] + (L.P[j] - L.P[i]) * f)
+            if hasN:
+                out_N.append(unit(L.N[i] + (L.N[j] - L.N[i]) * f))
+            cross.append((li, float(c[1 - lines[li][0]]), len(out_uv) - 1))
+    NL = Loop(np.array(out_uv), np.array(out_P) if hasP else None, np.array(out_N) if hasN else None, L.closed)
+    return NL, cross
+
+
+def mesh_region_split(chart, outer, holes=(), pts=None, lines=(), zone_fn=None, clear=0.5, spacing=0.03, level=None,
+                      line_step=None):
+    """mesh_region with axis-aligned constraint lines through the region, so that material zones get exact
+    boundaries. lines: (axis, value, lo, hi): axis 0 = the line u = value for t in [lo, hi], axis 1 = the line
+    t = value for u in [lo, hi]. The loops get vertices where they cross a line (interpolated fixed P / N).
+    zone_fn(centroids_uv) -> int array (default all 0). Returns (V3, N3, tris, zone)."""
+    lines = [(int(ln[0]), float(ln[1]), float(ln[2]), float(ln[3])) for ln in lines]
+    outer = list(outer)
+    holes = list(holes)
+    new_loops = []
+    crossings = []
+    for L in outer + holes:
+        NL, cr = _split_loop(L, lines)
+        new_loops.append(NL)
+        crossings.append(cr)
+    outer_n = new_loops[:len(outer)]
+    holes_n = new_loops[len(outer):]
+    bpts, fixedP, fixedN, edges = [], [], [], []
+    base = 0
+    gidx = []
+    for L, cr in zip(new_loops, crossings):
+        k = len(L.uv)
+        bpts.append(L.uv)
+        fixedP.append(L.P if L.P is not None else np.full((k, 3), np.nan))
+        fixedN.append(L.N if L.N is not None else np.full((k, 3), np.nan))
+        mm = k if L.closed else k - 1
+        for i in range(mm):
+            edges.append((base + i, base + (i + 1) % k))
+        gidx.append([(li, c, base + vi) for (li, c, vi) in cr])
+        base += k
+    B = np.vstack(bpts)
+    FP = np.vstack(fixedP)
+    FN = np.vstack(fixedN)
+    outer_uv = [L.uv for L in outer_n]
+    holes_uv = [L.uv for L in holes_n]
+    step = line_step or float(np.min(np.asarray(spacing, float)))
+    # constraint segments along every line, inside the region
+    extra = []
+    for li, (ax, val, lo, hi) in enumerate(lines):
+        cs = sorted([(c, vi) for cr in gidx for (l2, c, vi) in cr if l2 == li], key=lambda e: e[0])
+        stops = [(lo, None)] + cs + [(hi, None)]
+        for (c0, v0), (c1, v1) in zip(stops[:-1], stops[1:]):
+            if c1 - c0 < 1e-7:
+                continue
+            mid = np.zeros((1, 2))
+            mid[0, ax] = val
+            mid[0, 1 - ax] = 0.5 * (c0 + c1)
+            if not in_region(mid, outer_uv, holes_uv)[0]:
+                continue
+            k = max(1, int(math.ceil((c1 - c0) / step)))
+            ids = []
+            for j in range(k + 1):
+                if j == 0 and v0 is not None:
+                    ids.append(v0)
+                    continue
+                if j == k and v1 is not None:
+                    ids.append(v1)
+                    continue
+                q = np.zeros(2)
+                q[ax] = val
+                q[1 - ax] = c0 + (c1 - c0) * j / k
+                extra.append(q)
+                ids.append(base + len(extra) - 1)
+            for a_, b_ in zip(ids[:-1], ids[1:]):
+                edges.append((a_, b_))
+    E = np.array(extra).reshape(-1, 2)
+    nb = len(B)
+    G = np.zeros((0, 2))
+    if pts is not None and len(pts):
+        pts = np.asarray(pts, float)
+        ins = in_region(pts, outer_uv, holes_uv)
+        sp = np.broadcast_to(np.asarray(spacing, float), (len(pts),))
+        dstep = max(float(np.min(sp)) * 0.25, 1e-4)
+        dense = []
+        for L in new_loops:
+            Lc = np.vstack([L.uv, L.uv[:1]]) if L.closed else L.uv
+            dense.append(resample(Lc, dstep, closed=False))
+        for (ax, val, lo, hi) in lines:
+            q = np.zeros((max(2, int((hi - lo) / dstep) + 1), 2))
+            q[:, ax] = val
+            q[:, 1 - ax] = np.linspace(lo, hi, len(q))
+            dense.append(q)
+        Dn = np.vstack(dense)
+        kd = kdtree.KDTree(len(Dn))
+        for i, p in enumerate(Dn):
+            kd.insert((p[0], p[1], 0.0), i)
+        kd.balance()
+        ok = np.zeros(len(pts), bool)
+        for i in np.nonzero(ins)[0]:
+            _, _, dist = kd.find((pts[i, 0], pts[i, 1], 0.0))
+            ok[i] = dist > clear * sp[i]
+        G = pts[ok]
+    V = np.vstack([B, E, G])
+    res = geometry.delaunay_2d_cdt([Vector((float(p[0]), float(p[1]))) for p in V], edges, [], 0, 1e-7, True)
+    V2 = np.array([(v.x, v.y) for v in res[0]])
+    F = res[2]
+    orig = res[3]
+    tris = np.array([f for f in F if len(f) == 3], dtype=np.int64)
+    if len(tris) == 0:
+        return np.zeros((0, 3)), np.zeros((0, 3)), np.zeros((0, 3), np.int64), np.zeros(0, np.int64)
+    cen = V2[tris].mean(axis=1)
+    inside = in_region(cen, outer_uv, holes_uv)
+    tris = tris[inside]
+    cen = cen[inside]
+    zone = np.asarray(zone_fn(cen), np.int64) if zone_fn is not None else np.zeros(len(tris), np.int64)
+    used = np.unique(tris)
+    remap = -np.ones(len(V2), np.int64)
+    remap[used] = np.arange(len(used))
+    tris = remap[tris]
+    V2u = V2[used]
+    P3 = np.full((len(used), 3), np.nan)
+    N3 = np.full((len(used), 3), np.nan)
+    for k, vi in enumerate(used):
+        for j in orig[vi]:
+            if j < nb and not np.isnan(FP[j, 0]):
+                P3[k] = FP[j]
+                if not np.isnan(FN[j, 0]):
+                    N3[k] = FN[j]
+                break
+    need = np.isnan(P3[:, 0])
+    missed = np.zeros(len(P3), bool)
+    if need.any():
+        if hasattr(chart, 'last_hit'):
+            chart.last_hit = None
+        q, nq = chart.to3d(V2u[need], level)
+        P3[need] = q
+        N3[need] = nq
+        h = getattr(chart, 'last_hit', None)
+        if h is not None and len(h) == int(need.sum()):
+            missed[np.nonzero(need)[0][~np.asarray(h, bool)]] = True
+    needn = np.isnan(N3[:, 0])
+    if needn.any():
+        N3[needn] = sdf_normals(chart.sdf, P3[needn])
+    if missed.any():
+        keep = ~missed[tris].any(axis=1)
+        tris = tris[keep]
+        zone = zone[keep]
+    return P3, N3, tris, zone
+
+
+def add_zones(buf, V, N, T, zone, mats, flip=False):
+    """Add a split region to a Buf with one material per zone index (mats: zone index -> material name)."""
+    for z in np.unique(zone):
+        sel = T[zone == z]
+        if len(sel):
+            buf.add(V, -N if flip else N, sel, mats[int(z)])
+    return buf
+
+
 # ============================================================================================ strips
 
 
@@ -766,6 +959,10 @@ def sweep(path, up, prof, prof_n=None, closed=False, closed_prof=False, smooth_p
     U = unit(up - T * (up * T).sum(1)[:, None])
     S = unit(np.cross(T, U))
     prof = np.asarray(prof, float)
+    # the normals point away from the area the profile encloses (an open profile closed by its end points):
+    # (t_y, -t_x) is outward for a counter-clockwise profile, so a clockwise one gets them flipped
+    area = 0.5 * float(np.sum(prof[:, 0] * np.roll(prof[:, 1], -1) - np.roll(prof[:, 0], -1) * prof[:, 1])) if len(prof) > 2 else 0.0
+    nsign = -1.0 if (prof_n is None and area < -1e-12) else 1.0
     if not smooth_prof:
         # hard profile corners: every profile edge gets its own pair of points with the edge normal
         k = len(prof)
@@ -775,14 +972,14 @@ def sweep(path, up, prof, prof_n=None, closed=False, closed_prof=False, smooth_p
         for i in range(ne):
             a_, b_ = prof[i], prof[(i + 1) % k]
             t_ = unit(b_ - a_)
-            nrm = np.array([t_[1], -t_[0]])
+            nrm = np.array([t_[1], -t_[0]]) * nsign
             pp += [a_, b_]
             pn += [nrm, nrm]
         prof = np.array(pp)
         prof_n = np.array(pn)
         closed_prof = False
     if prof_n is None:
-        prof_n = profile_normals(prof, closed_prof)
+        prof_n = profile_normals(prof, closed_prof) * nsign
     prof_n = np.asarray(prof_n, float)
     m = len(prof)
     V = path[:, None, :] + prof[None, :, 0:1] * S[:, None, :] + prof[None, :, 1:2] * U[:, None, :]
@@ -911,9 +1108,10 @@ class Buf:
         self.N = []
         self.T = []
         self.M = []
-        self.n = 0
+        self.UV = []          # per add: (n, 2) texture coordinates or None (only objects that got some UVs
+        self.n = 0            # are given a UV layer; missing ones become 0, 0)
 
-    def add(self, V, N, tris, mat):
+    def add(self, V, N, tris, mat, uv=None):
         V = np.asarray(V, float)
         N = np.asarray(N, float)
         tris = np.asarray(tris, np.int64).reshape(-1, 3)
@@ -923,8 +1121,21 @@ class Buf:
         self.N.append(unit(N))
         self.T.append(tris + self.n)
         self.M.extend([mat] * len(tris))
+        self.UV.append(None if uv is None else np.asarray(uv, float).reshape(-1, 2))
         self.n += len(V)
         return self
+
+    def has_uv(self):
+        return any(u is not None for u in getattr(self, 'UV', []))
+
+    def uv_array(self):
+        """(n, 2) texture coordinates of all vertices (NaN where none were given)."""
+        out = []
+        uvs = getattr(self, 'UV', [])
+        for k, V in enumerate(self.V):
+            u = uvs[k] if k < len(uvs) else None
+            out.append(np.full((len(V), 2), np.nan) if u is None else u)
+        return np.vstack(out) if out else np.zeros((0, 2))
 
     def extend(self, other, xf=None):
         for V, N, T in zip(other.V, other.N, other.T):
@@ -942,6 +1153,7 @@ class Buf:
         self.N.append(N)
         self.T.append(T + self.n)
         self.M.extend(mats)
+        self.UV.append(other.uv_array() if other.has_uv() else None)
         self.n += len(V)
         return self
 
@@ -958,7 +1170,7 @@ class Buf:
         V[:, axis] *= -1
         N[:, axis] *= -1
         b = Buf()
-        b.add(V, N, T[:, ::-1], 'paint')
+        b.add(V, N, T[:, ::-1], 'paint', uv=self.uv_array() if self.has_uv() else None)
         b.M = list(M)
         return b
 
@@ -972,7 +1184,7 @@ class Buf:
         if np.linalg.det(R) < 0:
             T = T[:, ::-1]
         b = Buf()
-        b.add(V2, N2, T, 'paint')
+        b.add(V2, N2, T, 'paint', uv=self.uv_array() if self.has_uv() else None)
         b.M = list(M)
         return b
 
@@ -981,6 +1193,7 @@ class Buf:
 
     def to_object(self, name, coll=None, weld=1e-6, orient=True):
         V, N, T, M = self.arrays()
+        UV = self.uv_array() if self.has_uv() else None
         if len(T) == 0:
             me = bpy.data.meshes.new(name)
             obj = bpy.data.objects.new(name, me)
@@ -1004,10 +1217,14 @@ class Buf:
             key = np.round(V / weld).astype(np.int64)
             nk = np.round(N * 200).astype(np.int64)
             full = np.concatenate([key, nk], 1)
+            if UV is not None:
+                full = np.concatenate([full, np.round(np.nan_to_num(UV, nan=-9.0) * 4096).astype(np.int64)], 1)
             _, idx, inv = np.unique(full, axis=0, return_index=True, return_inverse=True)
             inv = inv.reshape(-1)
             V = V[idx]
             N = N[idx]
+            if UV is not None:
+                UV = UV[idx]
             T = inv[T]
             good = (T[:, 0] != T[:, 1]) & (T[:, 1] != T[:, 2]) & (T[:, 0] != T[:, 2])
             T = T[good]
@@ -1017,6 +1234,8 @@ class Buf:
         remap[used] = np.arange(len(used))
         V = V[used]
         N = N[used]
+        if UV is not None:
+            UV = UV[used]
         T = remap[T]
         me = bpy.data.meshes.new(name)
         me.vertices.add(len(V))
@@ -1040,6 +1259,11 @@ class Buf:
             vn = np.zeros((len(me.vertices), 3))
             vn[:] = (0, 0, 1)
             me.normals_split_custom_set_from_vertices([tuple(n) for n in vn])
+        if UV is not None:
+            lay = me.uv_layers.new(name='UVMap')
+            lv = np.array([lp.vertex_index for lp in me.loops], np.int64)
+            uvl = np.nan_to_num(UV, nan=0.0)[lv].astype(np.float32)
+            lay.data.foreach_set('uv', uvl.ravel())
         obj = bpy.data.objects.new(name, me)
         (coll or bpy.context.scene.collection).objects.link(obj)
         return obj
