@@ -6,6 +6,7 @@
  * Called again after every fit or removal; VehicleSim.applySpec puts the result in force in place.
  */
 import { RIM_GRIP, RIM_RR } from '../vehicle/mods';
+import { rescaleSuspension, type SuspensionRef } from '../vehicle/rescale';
 import { NO_ENGINE, type AxleSpec, type VehicleSpec } from '../vehicle/spec';
 import { stockBuild } from './build';
 import { frameDef, hubsOf } from './frames';
@@ -216,16 +217,19 @@ export function wheelOn(build: Build, hub: MountDef): DerivedWheel {
 }
 
 /** the factory build's axle loads of a frame (N): the load its springs were tuned for */
-const stockLoadCache = new Map<string, { front: number; rear: number }>();
-function stockLoads(frame: FrameDef): { front: number; rear: number } {
+const stockLoadCache = new Map<string, SuspensionRef>();
+/** what the frame's suspension is tuned for: its factory build's mass, weight on the front, tyre sidewalls */
+function stockLoads(frame: FrameDef): SuspensionRef {
   let l = stockLoadCache.get(frame.id);
   if (!l) {
-    const mp = massProps(stockBuild(frame.id), true);
+    const b = stockBuild(frame.id);
+    const mp = massProps(b, true);
     const hubs = hubsOf(frame);
     const xF = (hubs.fl.pos.x + hubs.fr.pos.x) / 2;
     const xR = (hubs.rl.pos.x + hubs.rr.pos.x) / 2;
     const wf = Math.min(0.92, Math.max(0.08, (mp.cg.x - xR) / (xF - xR)));
-    l = { front: mp.mass * G * wf, rear: mp.mass * G * (1 - wf) };
+    const wall = (a: MountDef, c: MountDef): number => (wheelSidewall(wheelOn(b, a)) + wheelSidewall(wheelOn(b, c))) / 2;
+    l = { mass: mp.mass, weightFront: wf, sidewall: [wall(hubs.fl, hubs.fr), wall(hubs.rl, hubs.rr)] };
     stockLoadCache.set(frame.id, l);
   }
   return l;
@@ -316,11 +320,6 @@ export function derive(build: Build): Derived {
   const handbrake = firstOf('handbrake');
   const turbo = engine?.inst.sub.turbo ? partDef(engine.inst.sub.turbo.part) : null;
 
-  // springs: the frame's are tuned for its factory load; a heavier build sinks into the same springs
-  const stock = stockLoads(frame);
-  const loadF = M * G * wf;
-  const loadR = M * G * (1 - wf);
-  const hz = (base: number, ref: number, now: number): number => Math.min(3, Math.max(0.7, base * Math.sqrt(ref / Math.max(1, now))));
   const sideF = (wheels[0].width + wheels[1].width) / 2;
   const sideR = (wheels[2].width + wheels[3].width) / 2;
   const wallF = (wheelSidewall(wheels[0]) + wheelSidewall(wheels[1])) / 2;
@@ -333,7 +332,7 @@ export function derive(build: Build): Derived {
     const wall = front ? wallF : wallR;
     return {
       track: single ? 0 : front ? trackF : trackR,
-      springHz: hz(s.springHz, front ? stock.front : stock.rear, front ? loadF : loadR),
+      springHz: s.springHz,
       dampingRatio: s.dampingRatio,
       bumpScale: s.bumpScale,
       reboundScale: s.reboundScale,
@@ -453,6 +452,11 @@ export function derive(build: Build): Derived {
     fuel: { tankL: tank?.def.fuelTank?.litres ?? 0, lPerKWh: e?.lPerKWh ?? 1.5, idleLph: e?.idleLph ?? 0 },
   };
   if (single) spec.balance = { assist: 1 };
+  // springs: the frame's are tuned for its factory build; the same springs, dampers and bar under this
+  // build's weight and tyres (a heavier build sinks, softer and less damped; tall sidewalls soften it)
+  const sprung = rescaleSuspension(spec as VehicleSpec, stockLoads(frame), [wallF, wallR]);
+  spec.front = { ...spec.front, ...sprung.front, wheelRadius: spec.front.wheelRadius };
+  spec.rear = { ...spec.rear, ...sprung.rear, wheelRadius: spec.rear.wheelRadius };
   // what is missing, for the physics (docs/MODCAR.md §3; the systems and rules say it in words)
   if (!engine || !gearbox || !steering || !handbrake) spec.absent = { engine: !engine, gearbox: !gearbox, steering: !steering, handbrake: !handbrake };
 
