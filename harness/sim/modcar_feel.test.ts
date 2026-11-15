@@ -93,6 +93,18 @@ describe('modcar · what a part swap changes (physics level)', () => {
     expect(hard.maxLatG).toBeLessThan(of('sedan').maxLatG * 0.9);
   });
 
+  it('a heavier engine in the nose pushes it wider; the same weight at the back the other way', () => {
+    const nose = measureFeel(build({ frame: 'sedan', kW: 190, nm: 400, mass: 1180, weightFront: 0.6 }));
+    const tail = measureFeel(build({ frame: 'sedan', mass: 1150, weightFront: 0.45 }));
+    expect(nose.understeerDegPerG).toBeGreaterThan(of('sedan').understeerDegPerG + 0.2);
+    expect(tail.understeerDegPerG).toBeLessThan(of('sedan').understeerDegPerG - 0.2);
+  });
+
+  it('an overloaded build slides sooner (its tyres carry more than they are made for)', () => {
+    const loaded = measureFeel(build({ frame: 'sedan', mass: 2000 }));
+    expect(loaded.maxLatG).toBeLessThan(of('sedan').maxLatG * 0.95);
+  });
+
   it('armour and a ram (+300 kg on the same brakes): braking distance at least 8 % longer', () => {
     const armoured = measureFeel(build({ frame: 'sedan', mass: 1300, weightFront: 0.56, cdA: 1.0 }));
     expect(armoured.brake100m).toBeGreaterThan(of('sedan').brake100m * 1.08);

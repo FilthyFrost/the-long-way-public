@@ -140,6 +140,8 @@ export class Wheel {
   cReb = 0;
   travel = 0.2;
   staticLoad = 0;
+  /** load the tyre's grip is nominal at (N): AxleSpec.tyreLoad, else the static load */
+  tyreLoad = 0;
   staticComp = 0;
   /** spring pre-compression (m): lets a soft spring carry the car without using up the travel */
   preload = 0;
@@ -425,6 +427,7 @@ export class VehicleSim {
       w.radius = this.targetRadius(w, i);
       const axleLoad = spec.mass * GRAVITY * (front ? spec.weightFront : 1 - spec.weightFront);
       w.staticLoad = axleLoad / 2;
+      w.tyreLoad = axle.tyreLoad ?? w.staticLoad;
       const mc = w.staticLoad / GRAVITY;
       const om = 2 * Math.PI * axle.springHz;
       w.k = mc * om * om;
@@ -1637,7 +1640,7 @@ export class VehicleSim {
         continue;
       }
       const N = w.load;
-      const ls = clamp(1 - tire.loadSens * (N / w.staticLoad - 1), 0.7, 1.1);
+      const ls = clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
       const grip = w.axle.muScale * w.mu * ls;
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;

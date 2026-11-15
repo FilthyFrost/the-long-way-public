@@ -40,6 +40,8 @@ export interface ModcarFeel {
   maxLatG: number;
   /** body roll per g of steady cornering (°/g) — a single-track vehicle stays upright: see leanDegPerG */
   rollDegPerG: number;
+  /** road-wheel angle added per g on the circle (°/g): + understeer (pushes the nose), − oversteer */
+  understeerDegPerG: number;
   /** visual lean per g (°/g; 0 for four wheels) */
   leanDegPerG: number;
   /** full throttle from a standstill: the front wheels were off the ground for a quarter second or more */
@@ -181,7 +183,7 @@ function slope(xs: number[], ys: number[]): number {
 }
 
 /** the robot on a 30 m circle with the speed rising slowly: the grip limit, roll and lean gradients */
-function skidpad(spec: VehicleSpec, setup?: FeelSetup): { maxLatG: number; roll: number; lean: number } {
+function skidpad(spec: VehicleSpec, setup?: FeelSetup): { maxLatG: number; roll: number; lean: number; understeer: number } {
   const R = 30;
   const ground = new FlatGround();
   const v = new VehicleSim(spec);
@@ -192,6 +194,7 @@ function skidpad(spec: VehicleSpec, setup?: FeelSetup): { maxLatG: number; roll:
   const ays: number[] = [];
   const rolls: number[] = [];
   const leans: number[] = [];
+  const steers: number[] = [];
   const b = new Float64Array(9);
   let maxAy = 0;
   let acc = 0;
@@ -215,6 +218,7 @@ function skidpad(spec: VehicleSpec, setup?: FeelSetup): { maxLatG: number; roll:
         ays.push(mean);
         rolls.push(Math.abs(v.roll) * DEG);
         leans.push(Math.abs(v.lean) * DEG);
+        steers.push(Math.abs(v.steerAngle) * DEG);
       }
       acc = 0;
       n = 0;
@@ -222,7 +226,7 @@ function skidpad(spec: VehicleSpec, setup?: FeelSetup): { maxLatG: number; roll:
     }
     if (Math.abs(robot.d) > 6) break;
   }
-  return { maxLatG: maxAy, roll: slope(ays, rolls), lean: spec.balance ? slope(ays, leans) : 0 };
+  return { maxLatG: maxAy, roll: slope(ays, rolls), lean: spec.balance ? slope(ays, leans) : 0, understeer: slope(ays, steers) };
 }
 
 /** does it start from rest up `grade` and climb 20 m in 16 s, still moving? */
@@ -285,6 +289,7 @@ export function measureFeel(spec: VehicleSpec, setup?: FeelSetup): ModcarFeel {
     brake60m: brakeFrom(spec, setup, 60),
     maxLatG: sk.maxLatG,
     rollDegPerG: sk.roll,
+    understeerDegPerG: sk.understeer,
     leanDegPerG: sk.lean,
     wheelie: l.wheelieS >= 0.25,
     wheelieMaxPitchDeg: l.maxPitch,
@@ -316,7 +321,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const f = (x: number, d = 1): string => (Number.isFinite(x) ? x.toFixed(d) : '—');
     console.log(
       `${frame.padEnd(7)} ${m.accelKind} ${f(m.accelS)} s · top ${f(m.topKmh, 0)} km/h · 100–0 ${f(m.brake100m)} m · 60–0 ${f(m.brake60m)} m · ` +
-        `lat ${f(m.maxLatG, 2)} g · roll ${f(m.rollDegPerG, 2)} °/g · lean ${f(m.leanDegPerG, 1)} °/g · wheelie ${m.wheelie ? 'yes' : 'no'} ${f(m.wheelieMaxPitchDeg)}° · ` +
+        `lat ${f(m.maxLatG, 2)} g · roll ${f(m.rollDegPerG, 2)} °/g · understeer ${f(m.understeerDegPerG, 2)} °/g · lean ${f(m.leanDegPerG, 1)} °/g · wheelie ${m.wheelie ? 'yes' : 'no'} ${f(m.wheelieMaxPitchDeg)}° · ` +
         `grade ${f(m.gradeAsphaltPct, 0)} / ${f(m.gradeGravelPct, 0)} % · fuel ${f(m.fuel60)} / ${f(m.fuel90)} L/100km · ${f(m.ms, 0)} ms`,
     );
   }

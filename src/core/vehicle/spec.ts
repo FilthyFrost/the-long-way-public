@@ -48,6 +48,13 @@ export interface AxleSpec {
    * springs further and the body sinks by the difference, a lighter one rides higher.
    */
   rideComp?: number;
+  /**
+   * Load one tyre of this axle is rated at (N): its grip is nominal there and falls by tire.loadSens
+   * per 100 % more (a lighter load gains a little). Omitted = each wheel's own static load, so the
+   * static weight never changes the grip. Given the frame's design load (rescale.ts fills it in), a
+   * heavier engine makes the nose push and an overloaded build slides sooner.
+   */
+  tyreLoad?: number;
 }
 
 /**
@@ -188,7 +195,16 @@ export const NO_ENGINE: VehicleSpec['engine'] = {
 export function usesExtensions(spec: VehicleSpec): boolean {
   const f = spec.front;
   const r = spec.rear;
-  return f.wheelRadius !== undefined || r.wheelRadius !== undefined || f.rideComp !== undefined || r.rideComp !== undefined || spec.balance !== undefined || spec.absent !== undefined;
+  return (
+    f.wheelRadius !== undefined ||
+    r.wheelRadius !== undefined ||
+    f.rideComp !== undefined ||
+    r.rideComp !== undefined ||
+    f.tyreLoad !== undefined ||
+    r.tyreLoad !== undefined ||
+    spec.balance !== undefined ||
+    spec.absent !== undefined
+  );
 }
 
 /**
