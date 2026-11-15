@@ -82,7 +82,7 @@ export class Machines {
       () => {
         this.radioOn = !this.radioOn;
         if (this.radioOn) this.song = (this.song + 1) % SONGS.length;
-        this.ctx?.sound('key');
+        this.ctx?.sound('switch');
         if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${SONGS[this.song]}。（声音以后再接上）`, 3);
       },
     );

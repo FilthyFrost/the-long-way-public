@@ -345,7 +345,7 @@ class Garage implements GarageScene {
       },
       use: () => {
         this.lampsOn = !this.lampsOn;
-        this.ctx?.sound('lever');
+        this.ctx?.sound('switch');
       },
     });
     const ch = at('charger');
@@ -374,7 +374,7 @@ class Garage implements GarageScene {
     const open = !this.doorsOpen();
     for (const l of Object.values(this.leaf)) l.target = open ? 1 : 0;
     this.doorMoving = 1;
-    this.ctx?.sound('lever');
+    this.ctx?.sound('switch');
     this.ctx?.ui.say(open ? '大门慢慢滑开了。' : '大门关上了。', 2);
   }
 
