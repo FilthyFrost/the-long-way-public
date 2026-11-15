@@ -377,7 +377,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // line along its shoulder, sliding as the eye moves — where an anime painter puts it
     // (on a side the drawn tilt replaces the real one, so a tight shoulder does not squeeze the bands to a hairline)
     float side = 1.0 - smoothstep(0.35, 0.75, abs(n.y));
-    float bend = clamp((vCar.y / max(uBodyHeight, 0.3) - 0.43) * 1.1, -0.32, 0.32);
+    float bend = clamp((vCar.y / max(uBodyHeight, 0.3) - 0.35) * 1.35, -0.32, 0.32);
     vec3 nh = vec3(n.x, 0.0, n.z);
     float nl = length(nh);
     vec3 ne = nl > 1e-3 ? normalize(nh / nl + vec3(0.0, bend, 0.0)) : n;
@@ -980,7 +980,7 @@ export class CarLook {
 }
 
 /** the conventional name of a mesh's (first or i-th) material: the GLB's own, kept in userData.mat, or ours */
-function nameOfMesh(mesh: THREE.Mesh, i = 0): CarMaterialName | null {
+export function meshCarMaterialName(mesh: THREE.Mesh, i = 0): CarMaterialName | null {
   const kept = mesh.userData.mat as string[] | undefined;
   if (kept?.[i]) return carMaterialName(kept[i]);
   const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -1009,13 +1009,14 @@ export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cab
     m.geometry.computeBoundingBox();
     const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
     const count = Array.isArray(m.material) ? m.material.length : 1;
-    const names = Array.from({ length: count }, (_, i) => nameOfMesh(m, i));
+    const names = Array.from({ length: count }, (_, i) => meshCarMaterialName(m, i));
     boxes.push({ box: b, names });
     all.union(b);
     if (names.some((n) => n === 'paint' || n === 'paint_b')) painted.union(b);
   });
   const body = painted.isEmpty() ? all : painted;
-  const bodyHeight = body.isEmpty() ? 1.4 : Math.max(0.3, body.max.y - Math.max(0, body.min.y));
+  // (the top of the paint above the ground: the sides are banded by height above the ground)
+  const bodyHeight = body.isEmpty() ? 1.4 : Math.max(0.3, body.max.y);
   const cabin = new THREE.Box3();
   for (const { box, names } of boxes) {
     if (!names.some((n) => n === 'fabric' || n === 'leather' || n === 'gauge')) continue;
