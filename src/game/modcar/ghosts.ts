@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
 import type { MountDef } from '../../core/modcar/types';
 import { applyGhost, type GhostKind } from '../render/carMaterials';
-import { cloneModel, partModel } from './assets';
+import { cloneModel, partModel, stretchFit } from './assets';
 
 export type { GhostKind };
 
@@ -68,9 +68,11 @@ export class GhostLayer {
         const c = cloneModel(model);
         const m = s.mount;
         if (m && m.side > 0) c.scale.z = -1;
+        // (placed as the part itself would be)
         if (def.stretch && m?.fit) {
-          const size = model.box.getSize(new THREE.Vector3());
-          c.scale.multiply(new THREE.Vector3(m.fit[0] < 0.3 ? 1 : m.fit[0] / Math.max(0.01, size.x), m.fit[2] / Math.max(0.01, size.y), m.fit[1] / Math.max(0.01, size.z)));
+          const st = stretchFit(model, m.fit);
+          c.scale.multiply(st.scale);
+          c.position.add(st.shift.multiply(new THREE.Vector3(1, 1, Math.sign(c.scale.z))));
         }
         g.focused = s.key === this.selected;
         applyGhost(c, g.kind, g.focused);

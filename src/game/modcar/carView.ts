@@ -18,7 +18,7 @@ import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
-import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model } from './assets';
+import { cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
@@ -588,7 +588,11 @@ export class CarView {
       const obj = cloneModel(model);
       applyMaterials(obj, look);
       if (m.side > 0) obj.scale.z = -1;
-      if (def.stretch && m.fit) stretchTo(obj, model.box, m.fit);
+      if (def.stretch && m.fit) {
+        const s = stretchFit(model, m.fit);
+        obj.scale.multiply(s.scale);
+        obj.position.add(s.shift.multiply(new THREE.Vector3(1, 1, Math.sign(obj.scale.z))));
+      }
       holder.add(obj);
       // a turbo rides on its engine's M_turbo
       const t = inst.sub.turbo;
@@ -937,17 +941,6 @@ export class CarView {
 /** faded paint from a part's condition: like new above 70 %, chalky towards nothing */
 function fade(cond: number): number {
   return Math.max(0, Math.min(1, (0.7 - cond) / 0.6));
-}
-
-/** non-uniform scale of a stretch part from its modelled box to the mount's fit [length, width, height] */
-function stretchTo(obj: THREE.Object3D, box: THREE.Box3, fit: [number, number, number]): void {
-  const size = box.getSize(new THREE.Vector3());
-  const nominal = (obj.userData.fit_nominal as number[] | undefined) ?? [size.x, size.z, size.y];
-  const sx = nominal[0] > 0.01 ? fit[0] / nominal[0] : 1;
-  const sz = nominal[1] > 0.01 ? fit[1] / nominal[1] : 1;
-  const sy = nominal[2] > 0.01 ? fit[2] / nominal[2] : 1;
-  // thin things (armour plates) keep their thickness; depth follows width a little at most
-  obj.scale.multiply(new THREE.Vector3(fit[0] < 0.3 ? 1 : sx, sy, sz));
 }
 
 function mixHex(a: number, b: number, t: number): number {
