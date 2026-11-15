@@ -83,20 +83,22 @@ interface EngineTone {
   whine?: { ratio: number; gainDb: number; q: number };
   /** starter motor: pitch and how hard each compression stroke drags on it */
   starter: { hz: number; drag: number; gainDb: number };
+  /** a governor holds the top speed (no rev-limiter stutter): mowers and diesels */
+  governed?: boolean;
 }
 
 /** the starter motor against the bank's loudest loop (it sits a little under the idle) */
 const STARTER_DB = -27;
 
 const TONES: Record<string, EngineTone> = {
-  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB } },
+  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true },
   eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB } },
   eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB } },
   eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB } },
-  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB } },
+  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true },
   eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB } },
   eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB } },
-  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB } },
+  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true },
 };
 
 const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB } };
@@ -270,7 +272,7 @@ export function engineTone(id: string): EngineTone {
 export interface EngineAudioState {
   /** engine part fitted (null: none, nothing to hear) */
   engineId: string | null;
-  /** exhaust part fitted: exh_stock / exh_sport / exh_side; null = none (open manifold) */
+  /** exhaust part fitted: exh_stock / exh_sport / exh_side; null = none fitted (open manifold); left out = stock */
   exhaustId?: string | null;
   /** turbo_small fitted */
   turbo?: boolean;
@@ -365,6 +367,8 @@ export class EngineVoice {
   private quietUntil = 0;
   private boost = 0;
   private lastThrottle = 0;
+  /** recent throttle peak, falling at 4 /s: a lift is a drop from it, however many frames it takes */
+  private thrPeak = 0;
   private throttleHi = 0;
   private popBudget = 0;
   private nextPopAt = 0;
@@ -372,6 +376,9 @@ export class EngineVoice {
   private lastRpm = 0;
   private lastLoad = 0;
   private readonly popBufs: AudioBuffer[] = [];
+  /** how many pops / blow-offs have fired (debug and the render harness) */
+  popsFired = 0;
+  bovFired = 0;
   private readonly bovBufs: AudioBuffer[] = [];
 
   constructor(ctx: BaseAudioContext, output: AudioNode) {
@@ -627,7 +634,8 @@ export class EngineVoice {
     const bank = this.bank;
     const m = bank?.manifest;
     const tone = this.tone;
-    const ex = EXHAUSTS[st.exhaustId ?? 'none'] ?? EXHAUSTS.exh_stock;
+    // left out = the stock pipe; null = nothing fitted (open manifold)
+    const ex = EXHAUSTS[st.exhaustId === undefined ? 'exh_stock' : st.exhaustId === null ? 'none' : st.exhaustId] ?? EXHAUSTS.exh_stock;
 
     // ---- cabin: closed cabin = muffled and boomy; open doors let the outside back in
     const open = Math.min(1, Math.max(0, st.doorsOpen));
@@ -684,7 +692,7 @@ export class EngineVoice {
       const lim = m!.oneshots['limiter'];
       // (the physics may cut at the redline or at the recorded limiter, whichever comes first)
       const cut = Math.min(m!.limiterRpm, m!.redlineRpm * 1.015);
-      const limW = lim ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
+      const limW = lim && !tone.governed ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
       for (const [set2, w0] of [[bank.on, wOn], [bank.off, wOff]] as const) {
         if (w0 < 1e-3) continue;
         for (const { rec, w, rate } of rpmWeights(set2, rpm)) {
@@ -758,19 +766,24 @@ export class EngineVoice {
     const lvl = Math.pow(10, tone.loudnessDb / 20);
     set(this.turboGain.gain, 0.011 * lvl * Math.pow(b, 1.6) * (0.5 + 0.5 * thr), 0.04);
     set(this.turboHiss.gain, 0.025 * lvl * b * (0.3 + 0.7 * thr), 0.05);
+    // a lift: the pedal has come up a long way within the last ~0.15 s
+    this.thrPeak = Math.max(thr, this.thrPeak - dt * 4);
+    const lift = this.thrPeak - thr > 0.45;
     // blow-off on a sharp lift with boost up
-    if (st.turbo && running && this.lastThrottle - thr > 0.35 && this.boost > 0.35 && t > this.bovReadyAt) {
-      this.oneShotBuffer(this.bovBufs[Math.floor(this.rng.next() * this.bovBufs.length)], t, 0.35 * this.boost, this.pre);
+    if (st.turbo && running && lift && this.boost > 0.35 && t > this.bovReadyAt) {
+      this.oneShotBuffer(this.bovBufs[Math.floor(this.rng.next() * this.bovBufs.length)], t, 0.35 * this.boost * Math.pow(10, tone.loudnessDb / 20), this.pre);
+      this.bovFired++;
       this.boost *= 0.4;
       this.bovReadyAt = t + 0.8;
     }
     // pops and crackle on lifting off from high revs
     if (running && m) {
       if (thr > 0.6) this.throttleHi = Math.min(1, this.throttleHi + dt * 1.5);
-      if (this.lastThrottle - thr > 0.4 && rev > 0.45 && this.throttleHi > 0.3) {
+      if (lift && thr < 0.2 && rev > 0.45 && this.throttleHi > 0.3) {
         this.popBudget = Math.round((2 + 7 * this.rng.next()) * tone.pops * ex.pops);
         this.nextPopAt = t + 0.04 + 0.08 * this.rng.next();
         this.throttleHi = 0;
+        this.thrPeak = thr;
       }
       if (thr > 0.25) this.popBudget = 0;
       if (this.popBudget > 0 && t >= this.nextPopAt && rev > 0.2) {
@@ -778,6 +791,7 @@ export class EngineVoice {
         const buf = this.popBufs[Math.floor(this.rng.next() * this.popBufs.length)];
         const g = (big ? 0.55 : 0.22) * (0.5 + 0.5 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
         this.oneShotBuffer(buf, t, g, this.exIn, 0.8 + 0.5 * this.rng.next());
+        this.popsFired++;
         this.popBudget--;
         this.nextPopAt = t + 0.05 + 0.22 * this.rng.next();
       }
@@ -819,6 +833,8 @@ export class EngineVoice {
       slots: [...this.slots.values()].map((s) => ({ file: s.rec.file, gain: s.gain.gain.value, rate: s.src.playbackRate.value })),
       boost: this.boost,
       pops: this.popBudget,
+      popsFired: this.popsFired,
+      bovFired: this.bovFired,
     };
   }
 }

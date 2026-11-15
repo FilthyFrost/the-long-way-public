@@ -164,7 +164,7 @@ public node eng_single {
     ignition_module ignition_module(
         timing_curve: timing_curve,
         rev_limit: 9400 * units.rpm,
-        limiter_duration: 0.05)
+        limiter_duration: 0.035)
     ignition_module.connect_wire(wires.wire1, 0 * units.deg)
     engine.add_ignition_module(ignition_module)
 }

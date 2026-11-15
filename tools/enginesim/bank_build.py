@@ -133,6 +133,12 @@ def cyclic_filter(x, sos):
     return y[len(x):2 * len(x)]
 
 
+def cyclic_eq(x, sos):
+    """One pass of a filter over a periodic signal (three periods, keep the last): keeps its gain."""
+    y = signal.sosfilt(sos, np.concatenate([x, x, x]))
+    return y[2 * len(x):]
+
+
 def envelope(x, fs, ms=0.8):
     a = math.exp(-1.0 / (fs * ms / 1000))
     y = np.abs(x)
@@ -189,16 +195,61 @@ def knock_layer(x, fs, rng, events_per_loop, level_db, modes, decay_ms, tick_db=
     return out * (rms(x) * 10 ** (level_db / 20) / (rms(out) + 1e-30))
 
 
+def misfire_gate(x, fs, rng, pulses, p_miss, depth_db=-14.0):
+    """Light-load two-stroke: some pulses do not fire ("four-stroking", the ring-ding-ding).
+    Each pulse slot is scaled smoothly; missing ones drop by depth_db (cyclic)."""
+    L = len(x)
+    P = L / pulses
+    ph = event_phase(x, fs, P) - 0.15 * P
+    g = np.ones(L)
+    miss = 10 ** (depth_db / 20)
+    # never two misses in a row more than once in a while
+    last = False
+    for j in range(pulses):
+        m = rng.random() < (p_miss * (0.35 if last else 1.0))
+        last = m
+        if not m:
+            continue
+        c = ph + (j + 0.5) * P
+        idx = np.arange(int(c - 0.6 * P), int(c + 0.6 * P))
+        w = 0.5 + 0.5 * np.cos(np.pi * (idx - c) / (0.6 * P))
+        np.multiply.at(g, idx % L, 1 - (1 - miss) * w)
+    return x * g
+
+
+def pipe_resonance(x, fs, rpm, onset=5200.0, full=8000.0, f0=2600.0):
+    """Expansion chamber "on the pipe": a resonant lift that grows through the power band."""
+    a = min(1.0, max(0.0, (rpm - onset) / (full - onset)))
+    if a <= 0:
+        return x
+    y = x.copy()
+    for f, q, gdb in ((f0, 2.2, 8.0 * a), (f0 * 0.48, 1.4, 3.5 * a)):
+        w0 = 2 * math.pi * f / fs
+        A = 10 ** (gdb / 40)
+        al = math.sin(w0) / (2 * q)
+        b = np.array([1 + al * A, -2 * math.cos(w0), 1 - al * A])
+        aa = np.array([1 + al / A, -2 * math.cos(w0), 1 - al / A])
+        sos = np.concatenate([b / aa[0], aa / aa[0]])[None, :]
+        y = cyclic_eq(y, sos)
+    return y
+
+
 # per engine: what is layered onto the recorded exhaust (levels relative to the exhaust itself)
 LAYERS = {
     'eng_mower':  {'rasp': ((1800, 7000), -15, -19)},
-    'eng_single': {'rasp': ((1500, 7500), -16, -20)},
-    'eng_2t':     {'rasp': ((2200, 9000), -9, -13), 'ring': ((1250, 2650), -14, -18)},
+    'eng_2t':     {'rasp': ((2200, 9000), -11, -15), 'fins': (-17, -13), 'misfire': (0.32, 0.12), 'pipe': True},
+    'eng_single': {'rasp': ((1500, 7500), -16, -20), 'fins': (-26, -24)},
     'eng_i4':     {'rasp': ((1400, 6000), -21, -24)},
     'eng_i4d':    {'rasp': ((1200, 5000), -21, -23), 'knock': (-11, -30, -5)},
-    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21)},
+    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21), 'fins': (-28, -26)},
     'eng_v8':     {'rasp': ((1000, 6000), -17, -21)},
     'eng_d6':     {'rasp': ((900, 4500), -22, -24), 'knock': (-14, -32, -8)},
+}
+# air-cooled cylinders: the fins ring a little at every firing (the two-stroke's "ring-ding")
+FIN_MODES = {
+    'eng_2t': ([(2350, 1.0), (3150, 0.7), (4420, 0.45), (5600, 0.25)], 7.0),
+    'eng_single': ([(2050, 1.0), (2900, 0.6), (4100, 0.35)], 4.5),
+    'eng_flat6': ([(1850, 1.0), (2700, 0.6), (3800, 0.4)], 3.5),
 }
 KNOCK_MODES = {
     'eng_i4d': ([(1150, 1.0), (1900, 0.8), (2900, 0.55), (4100, 0.3)], 2.6),
@@ -206,15 +257,22 @@ KNOCK_MODES = {
 }
 
 
-def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng):
+def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
     cfg = LAYERS.get(eid, {})
     y = loop.copy()
+    if 'misfire' in cfg and (load == 'off' or is_idle):
+        p_low, p_high = cfg['misfire']
+        a = min(1.0, max(0.0, (rpm - 1500) / 4500))
+        y = misfire_gate(y, fs, rng, cylinders * cycles, p_low + (p_high - p_low) * a)
+    if cfg.get('pipe') and load == 'on':
+        y = pipe_resonance(y, fs, rpm)
     if 'rasp' in cfg:
         band, on_db, off_db = cfg['rasp']
         y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db)
-    if 'ring' in cfg:
-        band, on_db, off_db = cfg['ring']
-        y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db, power=2.4)
+    if 'fins' in cfg:
+        on_db, off_db = cfg['fins']
+        modes, decay = FIN_MODES[eid]
+        y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db, modes, decay, tick_db=-30, advance_ms=0.5)
     if 'knock' in cfg and (load == 'on' or is_idle):
         on_db, off_db, idle_db = cfg['knock']
         modes, decay = KNOCK_MODES[eid]
@@ -328,7 +386,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         nat = rms(loop)
         if load == 'off' and not is_idle:
             nat *= 10 ** (e.get('offTrimDb', 0) / 20)
-        rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng)
+        rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng, rpm)
         m = int(round(L * FS / fs))
         y = resample_cyclic(rich, m)
         items.append({'kind': 'loop', 'file': f'{load}_{int(rpm_s):05d}', 'load': 1 if load == 'on' else 0,
@@ -355,7 +413,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     x = x[int(0.3 * fs):]
     L, corr = best_period(x, 0.8 * fs, span=0.2)
     loop, _, seam = cut_loop(x, L, int(0.012 * fs))
-    lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng)
+    lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng, e['limiter'])
     y = resample_cyclic(lim, int(round(L * FS / fs)))
     items.append({'kind': 'loop', 'file': 'limiter', 'rpm': e['limiter'], 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
 

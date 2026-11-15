@@ -769,17 +769,17 @@
   },
   "limiter": {
    "file": "limiter",
-   "db": -1.71,
-   "gain": -129.47,
+   "db": -1.49,
+   "gain": -129.69,
    "loopStart": 0.064,
-   "loopEnd": 0.715854,
-   "duration": 0.747854,
-   "click": 0.17,
-   "seam_ogg": -15.4,
-   "seam_m4a": -23.4,
+   "loopEnd": 1.014312,
+   "duration": 1.046312,
+   "click": 0.23,
+   "seam_ogg": -16.9,
+   "seam_m4a": -22.6,
    "rpm": 6450,
-   "corr": 0.6087,
-   "seam": 0.01714
+   "corr": 0.6659,
+   "seam": 0.02382
   },
   "catch": {
    "file": "catch",
@@ -789,19 +789,19 @@
   },
   "shutdown": {
    "file": "shutdown",
-   "db": -61.41,
-   "gain": -70.84,
-   "duration": 1.24775
+   "db": -61.51,
+   "gain": -71.25,
+   "duration": 1.198312
   },
   "stall": {
    "file": "stall",
-   "db": -59.95,
-   "gain": -72.05,
-   "duration": 1.568333
+   "db": -59.74,
+   "gain": -72.51,
+   "duration": 1.353042
   }
  },
  "bytes": {
-  "ogg": 582407,
-  "m4a": 732631
+  "ogg": 582843,
+  "m4a": 732777
  }
 }

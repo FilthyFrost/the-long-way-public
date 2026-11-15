@@ -210,7 +210,8 @@ try {
       const res = await render({ engineId: id, sequence: 'tour', ...extra }, name);
       report.variants[name] = res.seg;
       const s = res.seg;
-      console.log(`${name.padEnd(18)} idle ${s.idle.rms}/${s.idle.centroid}  pull_high ${s.pull_high.rms}/${s.pull_high.centroid} hf ${s.pull_high.hf}  overrun ${s.overrun.rms}/${s.overrun.centroid}`);
+      const last = res.debug[res.debug.length - 1] || {};
+      console.log(`${name.padEnd(18)} idle ${s.idle.rms}/${s.idle.centroid}  pull_high ${s.pull_high.rms}/${s.pull_high.centroid} hf ${s.pull_high.hf}  overrun ${s.overrun.rms}/${s.overrun.centroid}  pops ${last.popsFired ?? '?'} bov ${last.bovFired ?? '?'}`);
     }
   }
 
