@@ -350,7 +350,7 @@ export class ModGame implements PlayerHost, CockpitHost {
         this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
-        this.sound('latch');
+        this.sound('switch');
       } else if (a === 'horn') v.sys.setHorn(true);
       else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
@@ -439,6 +439,7 @@ export class ModGame implements PlayerHost, CockpitHost {
   private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
   private readonly loopsOn = new Set<FoleyLoop>();
   private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+  private readonly lastGear: { v: ModVehicle | null; gear: number } = { v: null, gear: 0 };
 
   private sounds(): Foley | null {
     const ctx = this.audio.context;
@@ -491,10 +492,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       door_close: [mount && /hood/.test(mount) ? 'hood_close' : mount && /trunk/.test(mount) ? 'trunk_close' : 'door_close', { material: this.panelMaterial(v, mount) }],
       key: ['key_turn', {}],
       ratchet: [v && v.sim.parkBrake > 0 ? 'handbrake_pull' : 'handbrake_release', {}],
-      lever: ['gear_shift', {}],
+      lever: ['lever', {}],
       shift: ['gear_shift', { gain: 0.6 }],
       grind: ['gear_grind', { gain: Math.min(1, gain) }],
       latch: ['latch', {}],
+      switch: ['switch', {}],
     };
     const s = shot[name];
     if (s) f.play(s[0], s[1]);
@@ -543,7 +545,13 @@ export class ModGame implements PlayerHost, CockpitHost {
     let open = 1 - v.sys.derived.enclosed;
     for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
     const inside = this.seated === v && this.viewMode === 'cockpit';
-    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(this.player.walker.x - sim.px, this.player.walker.z - sim.pz);
+    const dx = this.player.walker.x - sim.px;
+    const dz = this.player.walker.z - sim.pz;
+    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(dx, dz);
+    // from where one stands: the speed it comes towards one at (Doppler)
+    const approach = this.seated === v ? 0 : (sim.vx * dx + sim.vz * dz) / Math.max(0.5, dist);
+    // a worn engine misfires, a worn-out one knocks; past the red it boils over
+    const cond = engInst?.cond ?? 1;
     voice.update({
       engineId: engInst?.part ?? null,
       exhaustId: ex ? v.build.parts[ex.id].part : null,
@@ -558,7 +566,15 @@ export class ModGame implements PlayerHost, CockpitHost {
       starterRate: Math.min(1, d.battery * 1.6),
       boost: d.boost,
       distance: Math.max(1, dist),
+      approach,
+      misfire: Math.max(0, Math.min(1, (0.55 - cond) / 0.45)),
+      knock: Math.max(0, Math.min(1, (0.3 - cond) / 0.3)),
+      steam: Math.max(0, Math.min(1, (d.coolantC - 110) / 15)),
     });
+    // the box changing gear by itself (automatic or a sequential change) clunks
+    if (this.lastGear.v === v && this.lastGear.gear !== sim.gear && d.running) this.sound('shift');
+    this.lastGear.v = v;
+    this.lastGear.gear = sim.gear;
   }
 
   // ------------------------------------------------------------------ the checklist

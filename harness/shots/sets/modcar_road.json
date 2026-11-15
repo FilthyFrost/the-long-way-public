@@ -13,6 +13,8 @@
     {"name": "sedan_cockpit", "params": "build=stock:sedan&view=cockpit"},
     {"name": "moto_cockpit", "params": "build=stock:moto&view=cockpit"},
     {"name": "sedan_night", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6&time=22", "steps": [{"call": "lights", "args": []}]},
+    {"name": "sedan_rain", "params": "build=stock:sedan&view=orbit&orbit=35,9,6,0.6&weather=rain&wstage=1.5"},
+    {"name": "sedan_rain_cockpit", "params": "build=stock:sedan&view=cockpit&weather=rain&wstage=1.5"},
     {"name": "sedan_scrape", "params": "build=stock:sedan;-hub_FL&view=orbit&orbit=-55,5,5.5,0.3&time=20.5", "steps": [{"call": "drive", "args": [2.5, 1, 0]}]}
   ]
 }
