@@ -129,6 +129,8 @@ describe('ModCar engine banks', () => {
           for (let i = 1; i < ls.length; i++) {
             // half a step either way: at most ~6.5 % of playback-rate correction
             expect(ls[i].rpm / ls[i - 1].rpm, `${id} ${ls[i - 1].file} -> ${ls[i].file}`).toBeLessThan(1.14);
+            // and recorded no more than 750 rpm apart
+            expect(ls[i].rpm - ls[i - 1].rpm, `${id} ${ls[i - 1].file} -> ${ls[i].file}`).toBeLessThanOrEqual(752);
           }
         }
         expect(m.loops.filter((l) => l.load === 0).map((l) => (l as LoopRec & { nominal: number }).nominal)).toEqual(m.loops.filter((l) => l.load === 1).map((l) => (l as LoopRec & { nominal: number }).nominal));
