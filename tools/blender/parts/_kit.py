@@ -318,7 +318,7 @@ def bm_hex(bm, r, h, matrix=None, taper=0.8):
     return verts
 
 
-def bm_polar(bm, rings, stations, hole=None, matrix=None):
+def bm_polar(bm, rings, stations, hole=None, matrix=None, zfun=None):
     """
     A thick disc on a polar grid (rim centres, alloy faces, brake discs...).
     rings = [(r, z_front, z_back), ...] from the inside out (the front faces +Z);
@@ -330,8 +330,13 @@ def bm_polar(bm, rings, stations, hole=None, matrix=None):
     F, B = [], []
     for k, (r, zf, zb) in enumerate(rings):
         angs = stations(k)
-        F.append([bm.verts.new((r * math.cos(a), r * math.sin(a), zf)) for a in angs])
-        B.append([bm.verts.new((r * math.cos(a), r * math.sin(a), zb)) for a in angs])
+        fr, br = [], []
+        for j, a in enumerate(angs):
+            df, db = zfun(k, j) if zfun else (0.0, 0.0)
+            fr.append(bm.verts.new((r * math.cos(a), r * math.sin(a), zf + df)))
+            br.append(bm.verts.new((r * math.cos(a), r * math.sin(a), zb + db)))
+        F.append(fr)
+        B.append(br)
     ns = len(F[0])
 
     def solid(k, j):
@@ -442,9 +447,17 @@ class Part:
         """material: a conventional name, or a list of names (faces carry material_index into it)."""
         self._n += 1
         mats = material if isinstance(material, (list, tuple)) else [material]
-        obj = mc.mesh_object(f'{name}.{self._n:03d}', bm, mats[0])
-        for extra in mats[1:]:
-            obj.data.materials.append(mc.mat(extra))
+        if len(mats) == 1:
+            obj = mc.mesh_object(f'{name}.{self._n:03d}', bm, mats[0])
+        else:
+            # the slots must exist before the bmesh is written, or the face material indices are clamped
+            me = bpy.data.meshes.new(f'{name}.{self._n:03d}')
+            for m in mats:
+                me.materials.append(mc.mat(m))
+            bm.to_mesh(me)
+            bm.free()
+            obj = bpy.data.objects.new(me.name, me)
+            bpy.context.scene.collection.objects.link(obj)
         if not smooth:
             for p in obj.data.polygons:
                 p.use_smooth = False
@@ -541,11 +554,11 @@ class Part:
         return self._obj(name, bm, material, **kw)
 
     def polar(self, name, rings, stations, hole=None, loc=(0, 0, 0), material='steel', axis='Z', rot=None,
-              bev=None, bsegs=1, bev_angle=50.0, sharp=40.0, **kw):
+              bev=None, bsegs=1, bev_angle=50.0, sharp=40.0, zfun=None, **kw):
         """A thick disc on a polar grid with windows (see bm_polar)."""
         bm = bm_new()
         m = Matrix.Translation(loc) @ (mat4(rot=rot) if rot is not None else axis_matrix(axis))
-        bm_polar(bm, rings, stations, hole=hole, matrix=m)
+        bm_polar(bm, rings, stations, hole=hole, matrix=m, zfun=zfun)
         return self._obj(name, bm, material, bev=bev, segs=bsegs, bev_angle=bev_angle, sharp=sharp, **kw)
 
     def torus(self, name, R, r, loc=(0, 0, 0), material='steel', axis='Z', rot=None, segs=32, rsegs=10,

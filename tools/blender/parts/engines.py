@@ -278,8 +278,422 @@ def build_eng_i4(P):
     P.views = [('a', 35, 22), ('b', 215, 22)]
 
 
+# ------------------------------------------------------------------------------------------------ shared
+
+def sump(P, x0, x1, hw, ztop, xdeep, zshallow=0.05, material='steel', bolts=5):
+    """A stamped sump: deep well behind xdeep, shallow in front, a flange lip with bolts."""
+    bm = bmesh.new()
+    poly = [(x0, 0.0), (xdeep, 0.0), (xdeep + 0.05, zshallow), (x1, zshallow + 0.01), (x1, ztop), (x0, ztop)]
+    K.bm_prism(bm, poly, hw * 2, matrix=mat4((0, 0, 0), (90, 0, 0)))
+    P.mesh('sump', bm, material, bev=0.014, segs=2)
+    P.box('sump_lip', (x1 - x0 + 0.02, hw * 2 + 0.04, 0.012), ((x0 + x1) / 2, 0, ztop + 0.002), material, bev=0.004,
+          segs=1)
+    xs = [x0 + 0.03 + (x1 - x0 - 0.06) * i / (bolts - 1) for i in range(bolts)]
+    flange_bolts(P, [(x, sg * (hw + 0.012), ztop + 0.008) for x in xs for sg in (-1, 1)], (0, 0, 1), r=0.006)
+    P.cyl('drain', 0.012, 0.012, (x0 - 0.002, 0, 0.03), 'steel', axis='X', segs=6, bev=None)
+
+
+def mounts(P, x, y, z):
+    """A pair of engine mounts: bracket, rubber block and foot on both sides at +-y."""
+    for sg in (-1, 1):
+        P.box('mount_brk', (0.07, 0.05, 0.06), (x, sg * (y - 0.035), z + 0.03), 'steel', bev=0.006, segs=1)
+        P.cyl('mount_rubber', 0.03, 0.04, (x, sg * y, z), 'rubber', segs=12, bev=0.006, bsegs=1)
+        P.box('mount_foot', (0.08, 0.06, 0.012), (x, sg * y, z - 0.028), 'steel', bev=0.003, segs=1)
+
+
+def starter(P, x, y, z, length=0.14, r=0.042):
+    P.cyl('starter', r, length, (x, y, z), 'steel', axis='X', segs=16, bev=0.006, bsegs=2)
+    P.cyl('solenoid', r * 0.52, length * 0.64, (x, y, z + r * 1.3), 'alu', axis='X', segs=12, bev=0.004, bsegs=1)
+    P.cyl('starter_nose', r * 0.72, 0.04, (x - length / 2 - 0.015, y, z), 'alu', axis='X', segs=14, bev=0.004,
+          bsegs=1)
+    P.tube('starter_cable', [(x + 0.02, y, z + r * 1.3 + 0.02), (x + 0.03, y - 0.03, z + 0.08)], 0.007, 'trim', segs=6)
+
+
+def rear_plate(P, x, zc, ry, rz, nb=8):
+    """The flywheel-housing adapter plate (where the gearbox bolts on) at x, facing -X."""
+    plate = []
+    for i in range(20):
+        a = math.tau * i / 20
+        rr = 1.0 + 0.16 * math.cos(2 * a) ** 2
+        plate.append((zc + rz * rr * math.sin(a), ry * rr * math.cos(a)))
+    bm = bmesh.new()
+    K.bm_prism(bm, [(-z, y) for (z, y) in plate], 0.014, matrix=mat4((x, 0, 0), (0, 90, 0)))
+    P.mesh('rear_plate', bm, 'steel', bev=0.004, segs=1)
+    flange_bolts(P, [(x - 0.009, ry * 0.93 * math.cos(math.tau * (i + 0.5) / nb),
+                      zc + rz * 0.93 * math.sin(math.tau * (i + 0.5) / nb)) for i in range(nb)], (-1, 0, 0), r=0.007)
+
+
+def lift_eye(P, x, y, z):
+    bm = bmesh.new()
+    K.bm_prism(bm, K.rounded_rect(0.05, 0.06, 0.02, seg=3), 0.007, matrix=mat4((x, y, z), (90, 0, 0)))
+    P.mesh('lift_eye', bm, 'steel', bev=0.002, segs=1)
+    P.cyl('lift_hole', 0.011, 0.009, (x, y, z + 0.01), 'trim', axis='Y', segs=12, bev=None)
+
+
+def plug_lead(P, a, b, lift=0.05, r=0.005, material='trim'):
+    a, b = V(a), V(b)
+    mid = (a + b) / 2 + V((0, 0, lift))
+    P.tube('lead', [a, a + V((0, 0, 0.02)), mid, b + V((0, 0, 0.03)), b], r, material, segs=5, bend=0.025)
+
+
+# ------------------------------------------------------------------------------------------------ eng_i4d
+
+
+def build_eng_i4d(P):
+    """2.4 L diesel four for the pickup: tall painted iron block, inline injection pump with its four steel
+    injector lines, finned alloy rocker cover, big six-blade fan, lift eyes."""
+    P.ao_distance = 0.13
+    zc = 0.19
+    sump(P, -0.29, 0.22, 0.135, 0.14, -0.04, zshallow=0.06)
+    P.box('skirt', (0.53, 0.30, 0.10), (-0.035, 0, 0.195), 'paint', bev=0.01, segs=2)
+    bm = bmesh.new()
+    K.bm_cube(bm, (0.53, 0.27, 0.27), mat4((-0.035, 0, 0.38)))
+    for v in bm.verts:
+        if v.co.z < 0.35:
+            v.co.y *= 1.07
+    P.mesh('block', bm, 'paint', bev=0.012, segs=2)
+    for sg in (-1, 1):
+        for x in (-0.25, -0.14, -0.035, 0.07, 0.18):
+            P.box('rib', (0.02, 0.014, 0.23), (x, sg * 0.138, 0.37), 'paint', bev=0.004, segs=1,
+                  open='-y' if sg > 0 else '+y')
+        for x in (-0.19, -0.035, 0.12):
+            P.cyl('plug', 0.02, 0.009, (x, sg * 0.141, 0.42), 'alu', axis='Y', segs=10, bev=None)
+    # head (painted), gasket, finned alloy rocker cover with two fillers
+    P.box('gasket', (0.52, 0.27, 0.006), (-0.035, 0, 0.518), 'trim', bev=None)
+    P.box('head', (0.52, 0.26, 0.09), (-0.035, 0, 0.566), 'paint', bev=0.01, segs=2)
+    P.box('cover', (0.48, 0.21, 0.07), (-0.04, 0, 0.646), 'alu', bev=0.024, segs=3)
+    for y in (-0.06, -0.03, 0.0, 0.03, 0.06):
+        P.box('cover_fin', (0.40, 0.01, 0.018), (-0.05, y, 0.686), 'alu', bev=0.004, segs=1, open='-z')
+    for x in (0.13, -0.21):
+        P.cyl('filler', 0.028, 0.022, (x, 0.0, 0.692), 'trim', segs=14, bev=0.004, bsegs=2)
+        P.box('filler_tab', (0.036, 0.01, 0.014), (x, 0.0, 0.707), 'trim', bev=0.003, segs=1)
+    flange_bolts(P, [(x, sg * 0.112, 0.614) for x in (-0.25, -0.04, 0.17) for sg in (-1, 1)], (0, 0, 1), r=0.007)
+    lift_eye(P, 0.18, -0.12, 0.64)
+    lift_eye(P, -0.27, 0.12, 0.64)
+    # injectors along the left (+Y) edge of the head, return line, injection pump and its lines
+    xs = [-0.22, -0.10, 0.02, 0.14]
+    inj = []
+    for x in xs:
+        p = V((x, 0.095, 0.62))
+        P.cyl('injector', 0.013, 0.06, tuple(p + V((0, 0, 0.012))), 'alu', segs=10, bev=0.002, bsegs=1)
+        P.cyl('inj_nut', 0.015, 0.012, tuple(p + V((0, 0, 0.045))), 'steel', segs=6, bev=None)
+        inj.append(p + V((0, 0, 0.052)))
+    P.tube('return', [q + V((0, 0, 0.012)) for q in inj], 0.0045, 'rubber', segs=6, bend=0.02)
+    xp, yp, zp = -0.06, 0.205, 0.33
+    P.box('pump', (0.26, 0.08, 0.10), (xp, yp, zp), 'alu', bev=0.012, segs=2)
+    P.box('pump_top', (0.20, 0.05, 0.03), (xp, yp - 0.005, zp + 0.062), 'alu', bev=0.007, segs=1)
+    P.box('governor', (0.08, 0.09, 0.12), (xp - 0.16, yp, zp + 0.01), 'alu', bev=0.014, segs=2)
+    P.box('pump_drive', (0.06, 0.07, 0.07), (xp + 0.15, yp - 0.01, zp), 'alu', bev=0.012, segs=1)
+    for i, x in enumerate(xs):
+        a = V((xp - 0.075 + 0.05 * i, yp - 0.005, zp + 0.08))
+        P.cyl('delivery', 0.009, 0.02, tuple(a), 'steel', segs=6, bev=None)
+        b = inj[i]
+        P.tube('inj_line', [a + V((0, 0, 0.01)), a + V((0, 0, 0.06)), V((b.x, yp - 0.01, 0.52)), V((b.x, 0.13, 0.6)),
+                            b + V((0, 0.0, 0.004))], 0.004, 'steel', segs=5, bend=0.03)
+    P.tube('throttle', [(xp - 0.17, yp + 0.04, zp + 0.06), (xp - 0.2, yp + 0.08, zp + 0.12)], 0.006, 'steel', segs=5)
+    # intake log (+Y, high) with an elbow for the air hose
+    P.box('intake', (0.44, 0.06, 0.07), (-0.04, 0.165, 0.565), 'alu', bev=0.014, segs=2)
+    P.tube('in_elbow', [(0.12, 0.17, 0.60), (0.13, 0.18, 0.67), (0.2, 0.19, 0.69)], 0.034, 'alu', segs=14, bend=0.05)
+    P.tube('in_hose', [(0.2, 0.19, 0.69), (0.27, 0.19, 0.69)], 0.037, 'rubber', segs=14)
+    for x in (0.215, 0.255):
+        P.torus('clamp', 0.039, 0.0035, loc=(x, 0.19, 0.69), axis='X', segs=16, rsegs=4, material='steel')
+    # exhaust (-Y): cast log, a pad on the collector for the turbo, outlet down
+    yh = -0.13
+    for x in xs:
+        P.box('ex_flange', (0.07, 0.014, 0.05), (x, yh - 0.007, 0.56), 'rust', bev=0.005, segs=1)
+        P.tube('ex_stub', [(x, yh - 0.012, 0.56), (x, -0.19, 0.555), (x * 0.85, -0.215, 0.53)], 0.026, 'rust', segs=10,
+               bend=0.035)
+        flange_bolts(P, [(x + 0.026, yh - 0.015, 0.56), (x - 0.026, yh - 0.015, 0.56)], (0, -1, 0), r=0.0065)
+    P.tube('ex_log', [(-0.205, -0.215, 0.53), (0.13, -0.215, 0.53)], 0.032, 'rust', segs=14)
+    P.sphere('ex_cap', 0.032, (0.13, -0.215, 0.53), 'rust', u=12, v=5)
+    P.sphere('ex_cap', 0.032, (-0.205, -0.215, 0.53), 'rust', u=12, v=5)
+    P.cyl('turbo_pad', 0.05, 0.016, (-0.04, -0.215, 0.568), 'rust', segs=16, bev=0.004, bsegs=1)
+    P.tube('ex_out', [(-0.04, -0.22, 0.51), (-0.05, -0.23, 0.42), (-0.09, -0.23, 0.36)], 0.032, 'rust', segs=14,
+           bend=0.05)
+    P.cyl('ex_flange_out', 0.048, 0.012, (-0.095, -0.231, 0.352), 'rust', rot=(0, 35, 0), segs=16, bev=0.003, bsegs=1)
+    P.empty('M_turbo', (-0.04, -0.215, 0.576))
+    P.empty('M_exhaust_out', (-0.10, -0.232, 0.345), rot=(0, 125, 0))
+    # front: timing case, crank pulley (two grooves), pump, alternator low on the left, fan
+    P.box('timing', (0.04, 0.26, 0.42), (0.245, 0, 0.36), 'paint', bev=0.018, segs=2)
+    flange_bolts(P, [(0.266, sg * 0.115, z) for z in (0.2, 0.36, 0.52) for sg in (-1, 1)], (1, 0, 0), r=0.0065)
+    P.cyl('pump_body', 0.058, 0.05, (0.285, 0, 0.45), 'alu', axis='X', segs=18, bev=0.005, bsegs=2)
+    pulley(P, 0.29, 0, zc, 0.085, 0.032, 'steel', grooves=2)
+    pulley(P, 0.316, 0, 0.45, 0.06, 0.026, 'steel', grooves=1, hub=False)
+    ya, za = 0.175, 0.27
+    P.cyl('alt', 0.062, 0.1, (0.21, ya, za), 'alu', axis='X', segs=20, bev=0.006, bsegs=2)
+    P.cyl('vac_pump', 0.045, 0.06, (0.13, ya, za), 'alu', axis='X', segs=16, bev=0.005, bsegs=1)
+    P.tube('vac_hose', [(0.1, ya, za + 0.03), (0.06, ya + 0.02, za + 0.1), (0.0, ya - 0.02, 0.5)], 0.008, 'rubber',
+           segs=6, bend=0.04)
+    pulley(P, 0.307, ya, za, 0.036, 0.022, 'steel', grooves=1, hub=False, segs=18)
+    belt(P, 0.307, [(0.0, zc, 0.087), (0.0, 0.45, 0.062), (ya, za, 0.038)], width=0.015, thick=0.008)
+    fan(P, 0.345, 0, 0.45, 0.19, blades=6, hub_r=0.045, material='trim', pitch=28, chord=0.075)
+    P.box('thermo', (0.06, 0.07, 0.06), (0.24, -0.03, 0.58), 'alu', bev=0.012, segs=2)
+    P.tube('hose_up', [(0.26, -0.03, 0.585), (0.31, -0.035, 0.6), (0.36, -0.05, 0.59)], 0.023, 'rubber', segs=12,
+           bend=0.04)
+    P.torus('clamp', 0.025, 0.0035, loc=(0.285, -0.032, 0.594), axis='X', segs=16, rsegs=4, material='steel')
+    P.tube('hose_lo', [(0.29, -0.05, 0.38), (0.32, -0.08, 0.34), (0.36, -0.1, 0.32)], 0.022, 'rubber', segs=12,
+           bend=0.04)
+    # oil filter, dipstick, breather, starter, rear plate, mounts
+    P.cyl('filter', 0.05, 0.13, (0.06, -0.21, 0.27), 'paint_b', axis='Y', segs=18, bev=0.008, bsegs=2)
+    P.cyl('filter_base', 0.042, 0.03, (0.06, -0.15, 0.27), 'alu', axis='Y', segs=14, bev=0.004, bsegs=1)
+    P.tube('dipstick', [(-0.12, -0.15, 0.28), (-0.13, -0.17, 0.5), (-0.12, -0.16, 0.62)], 0.005, 'steel', segs=6,
+           bend=0.08)
+    P.torus('dip_ring', 0.017, 0.005, loc=(-0.12, -0.16, 0.64), rot=(0, 90, 0), segs=14, rsegs=6, material='paint_b')
+    P.tube('breather', [(-0.26, 0.05, 0.672), (-0.30, 0.08, 0.62), (-0.31, 0.1, 0.45)], 0.012, 'rubber', segs=8,
+           bend=0.04)
+    starter(P, -0.22, -0.17, 0.15, length=0.17, r=0.05)
+    rear_plate(P, -0.302, 0.25, 0.17, 0.2)
+    mounts(P, 0.05, 0.215, 0.24)
+    P.views = [('a', 35, 22), ('b', 215, 22)]
+
+
+# ------------------------------------------------------------------------------------------------ eng_v8
+
+
+def build_eng_v8(P):
+    """5.0 V8: painted block and heads, chrome valve covers and a big chrome air cleaner on a four-barrel,
+    eight plug leads from the distributor at the back of the vee, twin exhaust logs."""
+    P.ao_distance = 0.14
+    zc = 0.18
+    s45 = math.sin(math.radians(45))
+    sump(P, -0.32, 0.27, 0.15, 0.11, -0.05, zshallow=0.05, bolts=6)
+    P.box('crankcase', (0.62, 0.34, 0.17), (-0.03, 0, 0.20), 'paint', bev=0.012, segs=2)
+
+    def bank(sg, d, size, material, bev=0.01, segs=2, name='bank', dx=0.0, across=0.0):
+        """A box on a bank: d = distance along the bank axis from the crank, size = (x, across, along)."""
+        ax = V((0, sg * s45, s45))
+        acr = V((0, s45, -sg * s45)) * sg
+        c = V((-0.03 + dx, 0, zc)) + ax * d + acr * across
+        return P.box(name, size, tuple(c), material, rot=(-sg * 45, 0, 0), bev=bev, segs=segs)
+
+    for sg in (-1, 1):
+        bank(sg, 0.19, (0.58, 0.17, 0.22), 'paint', name='bank')
+        bank(sg, 0.335, (0.56, 0.18, 0.07), 'paint', name='head')
+        bank(sg, 0.375, (0.54, 0.185, 0.01), 'trim', bev=None, name='gasket')
+        bank(sg, 0.405, (0.52, 0.145, 0.055), 'chrome', bev=0.022, segs=3, name='vcover')
+        for dx in (-0.2, -0.07, 0.06, 0.19):
+            bank(sg, 0.437, (0.014, 0.11, 0.014), 'chrome', bev=0.005, segs=1, name='vrib', dx=dx)
+        ax = V((0, sg * s45, s45))
+        acr = V((0, s45, -sg * s45)) * sg
+        for dx in (-0.22, 0.0, 0.2):
+            p = V((-0.03 + dx, 0, zc)) + ax * 0.385 + acr * 0.08
+            P.bolt(tuple(p), normal=tuple(ax), r=0.0065, h=0.006, washer=False, material='chrome')
+        p = V((0.17, 0, zc)) + ax * 0.44
+        P.cyl('breather', 0.024, 0.026, tuple(p), 'chrome', rot=(-sg * 45, 0, 0), segs=14, bev=0.004, bsegs=1)
+    # intake in the vee, four-barrel carb, the big chrome air cleaner
+    P.box('intake', (0.44, 0.22, 0.10), (-0.03, 0, 0.45), 'alu', bev=0.022, segs=2)
+    for sg in (-1, 1):
+        for x in (-0.19, -0.08, 0.03, 0.14):
+            P.box('runner', (0.05, 0.08, 0.04), (x, sg * 0.12, 0.44), 'alu', rot=(sg * 20, 0, 0), bev=0.012, segs=1)
+    P.box('carb', (0.14, 0.14, 0.07), (-0.03, 0, 0.535), 'alu', bev=0.012, segs=2)
+    xc, zc2 = -0.03, 0.572
+    P.lathe('cleaner', [(0.0, 0.0), (0.15, 0.0), (0.168, 0.008), (0.172, 0.04), (0.168, 0.066), (0.16, 0.07)],
+            loc=(xc, 0, zc2), material='chrome', segs=40, close='end', sharp=40.0)
+    P.lathe('cleaner_lid', [(0.0, 0.088), (0.08, 0.085), (0.15, 0.078), (0.17, 0.072), (0.17, 0.066)][::-1],
+            loc=(xc, 0, zc2), material='chrome', segs=40, close='start', sharp=40.0)
+    P.lathe('filter_ring', [(0.158, 0.012), (0.163, 0.012), (0.163, 0.058), (0.158, 0.058)], loc=(xc, 0, zc2),
+            material='trim', segs=40, loop=True, sharp=50.0)
+    P.cyl('wing_base', 0.017, 0.012, (xc, 0, zc2 + 0.094), 'chrome', segs=12, bev=None)
+    P.box('wing', (0.01, 0.075, 0.022), (xc, 0, zc2 + 0.106), 'chrome', bev=0.004, segs=1)
+    # exhaust logs on the outer faces of the heads (rust), outlets down at the back
+    for sg in (-1, 1):
+        y = sg * 0.335
+        for x in (-0.24, -0.11, 0.02, 0.15):
+            P.tube('ex_stub', [(x, sg * 0.29, 0.39), (x, y, 0.36), (x * 0.9, y, 0.32)], 0.025, 'rust', segs=10,
+                   bend=0.03)
+        P.tube('ex_log', [(-0.25, y, 0.32), (0.16, y, 0.32)], 0.031, 'rust', segs=14)
+        P.sphere('ex_cap', 0.031, (0.16, y, 0.32), 'rust', u=12, v=5)
+        P.tube('ex_out', [(-0.25, y, 0.32), (-0.29, y, 0.31), (-0.31, y, 0.24)], 0.031, 'rust', segs=14, bend=0.04)
+        P.cyl('ex_flange_out', 0.046, 0.012, (-0.312, y, 0.228), 'rust', segs=16, bev=0.003, bsegs=1)
+    P.empty('M_exhaust_out', (-0.312, -0.335, 0.22), rot=(0, 90, 0))
+    P.empty('M_exhaust_out2', (-0.312, 0.335, 0.22), rot=(0, 90, 0))
+    P.cyl('turbo_pad', 0.045, 0.014, (0.06, -0.372, 0.312), 'rust', axis=(0, -0.7, 0.7), segs=16, bev=0.003, bsegs=1)
+    P.empty('M_turbo', (0.06, -0.378, 0.318), rot=(45, 0, 0))
+    # distributor at the back of the vee and eight leads
+    xd, zd = -0.33, 0.47
+    P.cyl('dist_body', 0.03, 0.14, (xd, 0, zd - 0.03), 'alu', segs=14, bev=0.004, bsegs=1)
+    P.lathe('dist_cap', [(0.0, 0.0), (0.055, 0.0), (0.058, 0.025), (0.05, 0.05), (0.0, 0.056)],
+            loc=(xd, 0, zd + 0.04), material='trim', segs=20, sharp=40)
+    for sg in (-1, 1):
+        for i, x in enumerate((-0.24, -0.11, 0.02, 0.15)):
+            a = math.radians(30 + i * 35)
+            top = (xd + math.cos(a) * 0.03, sg * math.sin(a) * 0.04, zd + 0.10)
+            plug = (x + 0.03, sg * 0.30, 0.42)
+            plug_lead(P, top, plug, lift=0.055, r=0.0055, material='paint_b')
+            P.cyl('boot', 0.011, 0.035, plug, 'rubber', rot=(sg * 50, 0, 0), segs=8, bev=None)
+    # front: timing cover, damper, big water pump, fan, alternator high on the right, belt
+    P.box('timing', (0.03, 0.22, 0.25), (0.285, 0, 0.26), 'paint', bev=0.014, segs=2)
+    P.box('pump_body', (0.07, 0.24, 0.12), (0.31, 0, 0.36), 'paint', bev=0.024, segs=2)
+    for sg in (-1, 1):
+        P.cyl('pump_neck', 0.022, 0.05, (0.33, sg * 0.1, 0.32), 'alu', axis='X', segs=12, bev=0.003, bsegs=1)
+        P.tube('hose_lo', [(0.35, sg * 0.1, 0.32), (0.38, sg * 0.12, 0.30)], 0.025, 'rubber', segs=12)
+    pulley(P, 0.315, 0, zc, 0.095, 0.04, 'steel', grooves=2)
+    pulley(P, 0.36, 0, 0.36, 0.07, 0.03, 'steel', grooves=2, hub=False)
+    ya, za = -0.21, 0.47
+    P.cyl('alt', 0.064, 0.1, (0.27, ya, za), 'alu', axis='X', segs=20, bev=0.006, bsegs=2)
+    pulley(P, 0.35, ya, za, 0.038, 0.03, 'steel', grooves=1, hub=False, segs=18)
+    P.box('alt_brk', (0.04, 0.08, 0.04), (0.28, -0.15, 0.42), 'steel', bev=0.006, segs=1)
+    belt(P, 0.352, [(0.0, zc, 0.097), (ya, za, 0.04), (0.0, 0.36, 0.072)][::-1], width=0.017, thick=0.009)
+    fan(P, 0.395, 0, 0.36, 0.19, blades=5, hub_r=0.05, material='steel', pitch=26, chord=0.09)
+    P.cyl('fan_clutch', 0.055, 0.03, (0.375, 0, 0.36), 'alu', axis='X', segs=18, bev=0.005, bsegs=1)
+    P.box('thermo', (0.06, 0.06, 0.06), (0.27, 0, 0.46), 'alu', bev=0.012, segs=2)
+    P.tube('hose_up', [(0.29, 0, 0.47), (0.34, 0, 0.5), (0.40, 0, 0.5)], 0.025, 'rubber', segs=12, bend=0.04)
+    # oil filter, fuel pump, dipstick, starter, rear plate, mounts
+    P.cyl('filter', 0.048, 0.12, (0.02, -0.235, 0.17), 'paint_b', axis='Y', segs=18, bev=0.008, bsegs=2)
+    P.box('fuel_pump', (0.07, 0.06, 0.07), (0.2, 0.2, 0.2), 'alu', bev=0.014, segs=2)
+    P.tube('fuel_line', [(0.2, 0.2, 0.24), (0.15, 0.15, 0.5), (0.0, 0.06, 0.53)], 0.005, 'steel', segs=6, bend=0.06)
+    P.tube('dipstick', [(-0.15, 0.17, 0.2), (-0.17, 0.2, 0.45), (-0.16, 0.22, 0.56)], 0.005, 'steel', segs=6,
+           bend=0.08)
+    P.torus('dip_ring', 0.017, 0.005, loc=(-0.16, 0.22, 0.58), rot=(0, 90, 0), segs=14, rsegs=6, material='paint_b')
+    starter(P, -0.24, 0.17, 0.12, length=0.16, r=0.05)
+    rear_plate(P, -0.345, 0.24, 0.2, 0.2, nb=10)
+    mounts(P, 0.1, 0.205, 0.22)
+    P.views = [('a', 35, 24), ('b', 215, 24)]
+
+
+# ------------------------------------------------------------------------------------------------ eng_mower
+
+
+def build_eng_mower(P):
+    """A lawnmower single: vertical crankshaft, alloy crankcase with a mounting flange, finned cylinder lying
+    towards +X, red shroud with a recoil starter and T-handle, plastic fuel tank, air filter box, muffler."""
+    P.ao_distance = 0.06
+    # mounting flange (three ears) and the vertical output shaft under it
+    poly = []
+    for i in range(3):
+        a = math.tau * i / 3 + math.radians(90)
+        poly.append((0.15 * math.cos(a - 0.35), 0.15 * math.sin(a - 0.35)))
+        poly.append((0.15 * math.cos(a + 0.35), 0.15 * math.sin(a + 0.35)))
+        poly.append((0.11 * math.cos(a + math.pi / 3), 0.11 * math.sin(a + math.pi / 3)))
+    P.prism('flange', poly, 0.018, (0, 0, 0.009), 'alu', bev=0.005, segs=2)
+    for i in range(3):
+        a = math.tau * i / 3 + math.radians(90)
+        P.bolt((0.13 * math.cos(a), 0.13 * math.sin(a), 0.018), r=0.009, h=0.008)
+    P.cyl('shaft', 0.013, 0.07, (0, 0, -0.03), 'steel', segs=12, bev=0.002, bsegs=1)
+    P.box('key', (0.005, 0.007, 0.04), (0.013, 0, -0.04), 'steel', bev=None)
+    # crankcase with ribs
+    P.lathe('case', [(0.0, 0.018), (0.12, 0.018), (0.128, 0.03), (0.125, 0.10), (0.11, 0.125), (0.0, 0.125)],
+            material='alu', segs=24, sharp=40.0)
+    for i in range(8):
+        a = math.tau * i / 8
+        P.box('case_rib', (0.014, 0.012, 0.08), (0.127 * math.cos(a), 0.127 * math.sin(a), 0.07), 'alu',
+              rot=(0, 0, math.degrees(a)), bev=0.003, segs=1)
+    # the cylinder towards +X with fins, the head and spark plug
+    zc = 0.085
+    P.cyl('barrel', 0.045, 0.12, (0.15, 0, zc), 'alu', axis='X', segs=16, bev=None)
+    for i in range(7):
+        x = 0.105 + i * 0.015
+        P.box('fin', (0.005, 0.12, 0.11), (x, 0, zc), 'alu', bev=0.004, segs=1)
+    P.box('head', (0.035, 0.1, 0.1), (0.225, 0, zc), 'alu', bev=0.014, segs=2)
+    for i in range(3):
+        P.box('head_fin', (0.03, 0.005, 0.09), (0.225, -0.03 + i * 0.03, zc + 0.02), 'alu', bev=0.002, segs=1)
+    P.cyl('plug', 0.009, 0.03, (0.255, 0, zc + 0.02), 'chrome', axis='X', segs=8, bev=None)
+    P.cyl('plug_boot', 0.012, 0.035, (0.28, 0, zc + 0.02), 'trim', axis='X', segs=10, bev=0.003, bsegs=1)
+    P.tube('plug_wire', [(0.295, 0, zc + 0.02), (0.30, 0.02, zc + 0.08), (0.24, 0.05, 0.2)], 0.005, 'trim', segs=6,
+           bend=0.03)
+    # the red shroud over the flywheel and the cylinder, with the recoil starter on top
+    bm = bmesh.new()
+    K.bm_cube(bm, (0.30, 0.27, 0.16), mat4((0.01, 0, 0.225)))
+    for v in bm.verts:
+        if v.co.x > 0.1:
+            v.co.z = 0.225 + (v.co.z - 0.225) * (0.55 if v.co.z < 0.225 else 0.85)
+            v.co.y *= 0.82
+    P.mesh('shroud', bm, 'paint', bev=0.04, segs=3)
+    P.lathe('recoil', [(0.0, 0.335), (0.06, 0.333), (0.085, 0.325), (0.095, 0.31), (0.095, 0.29)][::-1],
+            loc=(-0.02, 0, 0), material='paint', segs=28, close='start', sharp=40.0)
+    for i in range(8):
+        a = math.tau * i / 8
+        P.box('vent', (0.045, 0.009, 0.006), (-0.02 + 0.055 * math.cos(a), 0.055 * math.sin(a), 0.334), 'trim',
+              rot=(0, 0, math.degrees(a)), bev=None, open='-z')
+    # the pull rope and the T-handle resting on the front of the shroud
+    P.tube('rope', [(-0.02, 0.09, 0.30), (0.06, 0.10, 0.315), (0.12, 0.08, 0.31)], 0.004, 'paint_b', segs=5,
+           bend=0.03)
+    P.cyl('handle', 0.013, 0.09, (0.135, 0.08, 0.31), 'trim', axis='Y', segs=10, bev=0.004, bsegs=1)
+    # fuel tank at the back with its cap, air filter box on the left, muffler on the right
+    P.pillow('tank', (0.11, 0.2, 0.09), (-0.175, 0, 0.21), 'paint_b', r=0.025, sub=1)
+    P.cyl('tank_cap', 0.025, 0.02, (-0.19, 0.05, 0.265), 'trim', segs=12, bev=0.005, bsegs=1)
+    P.box('filter_box', (0.11, 0.05, 0.10), (0.02, 0.16, 0.15), 'trim', bev=0.016, segs=2)
+    P.cyl('filter_knob', 0.017, 0.018, (0.02, 0.192, 0.15), 'trim', axis='Y', segs=10, bev=0.004, bsegs=1)
+    P.box('muffler', (0.09, 0.05, 0.06), (0.17, -0.11, 0.08), 'rust', bev=0.014, segs=2)
+    P.box('heat_shield', (0.11, 0.007, 0.08), (0.17, -0.142, 0.08), 'steel', bev=0.003, segs=1)
+    for i in range(4):
+        P.box('shield_slot', (0.07, 0.004, 0.007), (0.17, -0.146, 0.055 + i * 0.016), 'trim', bev=None)
+    P.tube('muffler_out', [(0.17, -0.12, 0.05), (0.17, -0.13, 0.025)], 0.01, 'rust', segs=8)
+    P.empty('M_exhaust_out', (0.17, -0.13, 0.018), rot=(0, 90, 0))
+    # throttle lever and cable
+    P.box('throttle', (0.05, 0.012, 0.014), (-0.08, 0.14, 0.13), 'steel', rot=(0, 0, 20), bev=0.003, segs=1)
+    P.tube('cable', [(-0.1, 0.15, 0.13), (-0.16, 0.16, 0.10), (-0.2, 0.14, 0.05)], 0.0035, 'trim', segs=5, bend=0.03)
+    P.views = [('a', 35, 24), ('b', 215, 24)]
+
+
+# ------------------------------------------------------------------------------------------------ turbo
+
+
+def volute(P, R0, R1, r0, r1, material, outlet_len, name, turns=0.9, start=0.0, segs=26):
+    """A snail housing round an axis along Y (local origin on the axis): a swept tube whose path spirals from
+    R0 to R1 while its section grows from r0 to r1, then runs off tangentially for outlet_len."""
+    path = []
+    for i in range(segs + 1):
+        t = i / segs
+        a = start + turns * math.tau * t
+        R = R0 + (R1 - R0) * t
+        path.append(V((R * math.cos(a), 0.0, R * math.sin(a))))
+    a = start + turns * math.tau
+    tg = V((-math.sin(a), 0, math.cos(a)))
+    end = path[-1]
+    for k in (1, 2):
+        path.append(end + tg * outlet_len * k / 2)
+
+    def rf(t):
+        return (r0 + (r1 - r0) * min(1.0, t * 1.15)) / r1
+
+    return P.tube(name, path, r1, material, segs=12, caps=True, radius_fn=rf, bend=0.0)
+
+
+def build_turbo_small(P):
+    """A small turbocharger: cast turbine snail (inlet flange at the origin, facing down), centre housing
+    with oil lines, alloy compressor snail, wastegate can. Shaft along Y."""
+    P.ao_distance = 0.05
+    zc = 0.085  # shaft height above the inlet flange
+    P.box('flange', (0.075, 0.06, 0.012), (0.0, 0.0, 0.006), 'rust', bev=0.004, segs=1)
+    P.bolts([(sx * 0.028, sy * 0.021, 0.012) for sx in (-1, 1) for sy in (-1, 1)], normal=(0, 0, 1), r=0.006, h=0.005,
+            washer=False, material='steel')
+    P.box('throat', (0.05, 0.045, 0.04), (0.0, 0.0, 0.03), 'rust', bev=0.01, segs=2)
+    yt = -0.035
+    P.lathe('turbine_core', [(0.0, -0.03), (0.045, -0.03), (0.052, -0.012), (0.052, 0.012), (0.045, 0.03),
+                             (0.0, 0.03)], loc=(0, yt, zc), material='rust', axis='Y', segs=20, sharp=40.0)
+    tv = volute(P, 0.05, 0.062, 0.016, 0.03, 'rust', 0.03, 'turbine_snail', turns=0.85, start=math.radians(-90))
+    tv.data.transform(Matrix.Translation((0, yt, zc)))
+    P.cyl('t_out', 0.032, 0.03, (0, yt - 0.045, zc), 'rust', axis='Y', segs=16, bev=0.004, bsegs=1)
+    P.cyl('t_out_flange', 0.042, 0.01, (0, yt - 0.064, zc), 'rust', axis='Y', segs=16, bev=0.003, bsegs=1)
+    P.cyl('chra', 0.03, 0.05, (0, 0.012, zc), 'steel', axis='Y', segs=16, bev=0.005, bsegs=2)
+    P.tube('oil_feed', [(0, 0.012, zc + 0.03), (0.0, 0.015, zc + 0.07), (0.05, 0.02, zc + 0.1)], 0.004, 'steel',
+           segs=6, bend=0.02)
+    P.tube('oil_drain', [(0, 0.012, zc - 0.03), (0.0, 0.015, zc - 0.06), (0.04, 0.02, zc - 0.08)], 0.009, 'rubber',
+           segs=8, bend=0.02)
+    yc = 0.06
+    P.lathe('comp_core', [(0.0, -0.025), (0.05, -0.025), (0.058, -0.008), (0.058, 0.01), (0.05, 0.022),
+                          (0.0, 0.022)], loc=(0, yc, zc), material='alu', axis='Y', segs=22, sharp=40.0)
+    cv = volute(P, 0.055, 0.068, 0.014, 0.027, 'alu', 0.05, 'comp_snail', turns=0.85, start=math.radians(90))
+    cv.data.transform(Matrix.Translation((0, yc, zc)))
+    P.lathe('comp_in', [(0.034, 0.0), (0.04, 0.0), (0.04, 0.05), (0.043, 0.055), (0.043, 0.065), (0.036, 0.065)],
+            loc=(0, yc + 0.02, zc), material='alu', axis='Y', segs=20, sharp=40.0)
+    P.lathe('wheel', [(0.0, 0.03), (0.012, 0.028), (0.03, 0.005), (0.032, 0.0)], loc=(0, yc + 0.02, zc),
+            material='steel', axis='Y', segs=14, close='end', sharp=40.0)
+    P.cyl('wg_can', 0.028, 0.035, (0.07, yc - 0.005, zc + 0.02), 'alu', axis='Y', segs=16, bev=0.005, bsegs=2)
+    P.box('wg_brk', (0.03, 0.05, 0.008), (0.06, 0.03, zc + 0.02), 'steel', bev=0.002, segs=1)
+    P.tube('wg_rod', [(0.07, yc - 0.03, zc + 0.02), (0.065, yt + 0.0, zc + 0.03)], 0.0035, 'steel', segs=5)
+    P.tube('wg_hose', [(0.07, yc + 0.015, zc + 0.04), (0.04, yc + 0.03, zc + 0.08), (0.0, yc + 0.02, zc + 0.1)],
+           0.0045, 'rubber', segs=5, bend=0.02)
+    P.views = [('a', 35, 20), ('b', 215, 20)]
+
+
 PARTS = {
     'eng_i4': build_eng_i4,
+    'eng_i4d': build_eng_i4d,
+    'eng_v8': build_eng_v8,
+    'eng_mower': build_eng_mower,
+    'turbo_small': build_turbo_small,
 }
 
 

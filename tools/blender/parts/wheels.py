@@ -38,7 +38,7 @@ RIMS = {
 # (in pitches), zig(row, col) shifts a breakpoint sideways (m).
 
 TYRES = {
-    'tire_road': dict(h=0.12, W=0.155, Tw=0.80, d=0.0085, c=0.006, n=30, fr=[0, 0.76],
+    'tire_road': dict(h=0.12, W=0.155, Tw=0.80, d=0.0085, c=0.006, n=28, fr=[0, 0.76],
                       cols=[-1.16, -1.0, -0.64, -0.53, -0.08, 0.08, 0.53, 0.64, 1.0, 1.16],
                       cells=['0', '0', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                       walls=[(0.40, -0.004), (0.72, -0.002)],
@@ -47,14 +47,13 @@ TYRES = {
                            cols=[-1.12, -1.0, -0.72, -0.61, -0.27, -0.16, 0.16, 0.27, 0.61, 0.72, 1.0, 1.12],
                            cells=['0', '0', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '0', '0'],
                            white=(0.22, 0.62)),
-    'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=22, fr=[0, 0.5],
+    'tire_offroad': dict(h=0.14, W=0.235, Tw=0.86, d=0.016, c=0.010, n=20, fr=[0, 0.5],
                          cols=[-1.26, -1.12, -1.0, -0.68, -0.56, -0.22, -0.1, 0.1, 0.22, 0.56, 0.68, 1.0, 1.12, 1.26],
                          cells=['0', '0', '0', 'G', '1', 'G', '01', 'G', '0', 'G', '1', '1', '1'],
                          shear=lambda u: 0.12 * u),
-    'tire_tractor': dict(h=0.30, W=0.32, Tw=0.90, d=0.042, c=0.028, n=19, fr=[0, 0.36, 0.5, 0.86],
-                         cols=[-1.34, -1.17, -1.0, -0.74, -0.48, -0.24, -0.05, 0.05, 0.24, 0.48, 0.74, 1.0, 1.17,
-                               1.34],
-                         cells=['2', '2', '2', '2', '2', '2', 'G', '0', '0', '0', '0', '0', '0'],
+    'tire_tractor': dict(h=0.30, W=0.32, Tw=0.90, d=0.042, c=0.028, n=17, fr=[0, 0.38, 0.62],
+                         cols=[-1.30, -1.0, -0.62, -0.26, -0.05, 0.05, 0.26, 0.62, 1.0, 1.30],
+                         cells=['0', '0', '0', '0', 'G', '2', '2', '2', '2'],
                          shear=lambda u: 0.95 * abs(u), chamfer=0.006),
     'tire_slick': dict(h=0.09, W=0.225, Tw=0.90, d=0.0, c=0.004, n=24, fr=[0, 0.5],
                        cols=[-1.08, -0.62, 0.0, 0.62, 1.08], cells=['G', 'G', 'G', 'G']),
@@ -310,11 +309,11 @@ def lug_nuts(P, n, pcd_r, y, r_nut=0.0105, h=0.016, material='chrome', a0=0.0, s
         cx, cz = pcd_r * math.cos(a), pcd_r * math.sin(a)
         base = Matrix.Translation((cx, y, cz)) @ K.axis_matrix('Y')
         if seat:
-            K.bm_cyl(bm, r_nut * 1.15, h * 0.28, segs=8, r2=r_nut * 0.9,
-                     matrix=base @ Matrix.Translation((0, 0, h * 0.14)))
-        K.bm_cyl(bm, r_nut, h * 0.6, segs=6, matrix=base @ mat4((0, 0, h * 0.28 + h * 0.3), (0, 0, 30)))
-        K.bm_cyl(bm, r_nut * 0.8, h * 0.14, segs=8, r2=r_nut * 0.5,
-                 matrix=base @ Matrix.Translation((0, 0, h * 0.95)))
+            K.bm_cyl(bm, r_nut * 1.15, h * 0.28, segs=6, r2=r_nut * 0.95,
+                     matrix=base @ mat4((0, 0, h * 0.14), (0, 0, 30)))
+        K.bm_cyl(bm, r_nut, h * 0.6, segs=6, r2=r_nut * 0.9, matrix=base @ mat4((0, 0, h * 0.28 + h * 0.3), (0, 0, 30)))
+        K.bm_cyl(bm, r_nut * 0.78, h * 0.14, segs=6, r2=r_nut * 0.45,
+                 matrix=base @ mat4((0, 0, h * 0.95), (0, 0, 30)))
     return P.mesh('nuts', bm, material, sharp=50)
 
 
@@ -351,8 +350,131 @@ def build_rim_steel13(P):
     P.views = [('a', -52, 12), ('b', 160, 14)]
 
 
+def spoke_face(P, rings, n, spoke_w, win, material, flare=0.0, ridge=0.0, a0=0.0, name='face', bev=None):
+    """
+    A cast or pressed wheel face on a polar grid: n spokes of constant width spoke_w (m) between windows in
+    the ring bands win = (k0, k1). Four stations per spoke period: left edge, centre, right edge, window
+    middle. flare widens the spoke where it meets the hub and the rim (round window corners); ridge raises
+    the spoke's centre line (m).
+    """
+    per = 4
+
+    def delta(k):
+        r = rings[k][0]
+        d = math.asin(min(0.95, spoke_w / 2 / r))
+        if k in win:
+            d += flare
+        return min(d, math.pi / n * 0.8)
+
+    def stations(k):
+        d = delta(k)
+        out = []
+        for i in range(n):
+            t = a0 + math.tau * i / n
+            out += [t - d, t, t + d, t + math.pi / n]
+        return out
+
+    def hole(k, j):
+        return win[0] <= k < win[1] and (j % per) in (2, 3)
+
+    def zfun(k, j):
+        if ridge and j % per == 1:
+            return (ridge, 0.0)
+        return (0.0, 0.0)
+
+    return P.polar(name, rings, stations, hole=hole, zfun=zfun, material=material, axis='Y', bev=bev, bsegs=1)
+
+
+def build_rim_alloy15(P):
+    """An 1980s eight-spoke alloy: concave face, polished lip, small chrome cap, four nuts."""
+    S = RIMS['rim_alloy15']
+    R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
+    hw = w / 2
+    barrel(P, R, w, fh, t, dc=0.026, well_off=0.008, segs=32, material='alu')
+    th = 0.016
+    prof = [(0.030, 0.050), (0.066, 0.050), (0.080, 0.047), (0.112, 0.051), (0.142, 0.059),
+            (0.160, 0.066), (0.178, 0.071)]
+    rings = [(r, z, z - th) for (r, z) in prof]
+    spoke_face(P, rings, 8, 0.024, (2, 5), 'alu', flare=0.07, ridge=0.004, a0=math.radians(22.5))
+    # polished lip: a chrome cone from the face edge up to the flange
+    lip = [(0.176, hw - 0.016), (0.186, hw - 0.006), (R + fh - 0.002, hw + t + 0.0012), (R + fh + 0.0008, hw + t * 0.4)]
+    P.lathe('lip', lip, material='chrome', axis='Y', segs=40, sharp=50.0)
+    lug_nuts(P, 4, 0.057, 0.051, r_nut=0.0092, h=0.016, material='chrome', a0=0.0)
+    cap = [(0.0, 0.074), (0.022, 0.0725), (0.033, 0.066), (0.0375, 0.055), (0.035, 0.049)]
+    P.lathe('cap', list(reversed(cap)), material='chrome', axis='Y', segs=20, close='start', sharp=50.0)
+    P.cyl('badge', 0.017, 0.003, (0, 0.0748, 0), 'alu', axis='Y', segs=16, bev=None)
+    valve(P, R - 0.013, hw - 0.03, a=math.radians(200))
+    P.empty('M_tire', (0, 0, 0))
+    P.info.update({'radius': R, 'width': w, 'tire': True})
+    P.ao_distance = 0.06
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
+def build_rim_off16(P):
+    """A white six-spoke steel off-road wheel with deep dish, six nuts and a manual locking hub."""
+    S = RIMS['rim_off16']
+    R, w, fh, t = S['R'], S['w'], S['fh'], S['t']
+    hw = w / 2
+    barrel(P, R, w, fh, t, dc=0.026, well_off=-0.03, segs=32, material='paint_b')
+    th = 0.005
+    prof = [(0.045, -0.010), (0.062, -0.010), (0.088, -0.012), (0.096, -0.016), (0.128, -0.026), (0.155, -0.036),
+            (0.168, -0.042), (0.181, -0.046)]
+    rings = [(r, z, z - th) for (r, z) in prof]
+    spoke_face(P, rings, 6, 0.056, (3, 5), 'paint_b', flare=0.12, ridge=0.005, a0=math.radians(30))
+    lug_nuts(P, 6, 0.0698, -0.010, r_nut=0.0105, h=0.018, material='chrome', a0=0.0)
+    # locking hub: flange, body, knurled ring and the dial with its grip bar
+    P.cyl('hub_flange', 0.056, 0.006, (0, -0.007, 0), 'alu', axis='Y', segs=24, bev=0.0015, bsegs=1)
+    P.lathe('hub', [(0.0, 0.040), (0.040, 0.040), (0.046, 0.036), (0.048, 0.010), (0.050, -0.004)][::-1],
+            material='alu', axis='Y', segs=24, close='start', sharp=40.0)
+    for i in range(8):
+        a = math.tau * i / 8
+        P.box('knurl', (0.006, 0.02, 0.006), (0.049 * math.cos(a), 0.022, 0.049 * math.sin(a)), 'alu',
+              rot=(0, -math.degrees(a), 0), bev=None)
+    P.cyl('dial', 0.032, 0.006, (0, 0.043, 0), 'chrome', axis='Y', segs=20, bev=0.0015, bsegs=1)
+    P.box('dial_bar', (0.05, 0.014, 0.012), (0, 0.052, 0), 'chrome', bev=0.003, segs=2)
+    flange_bolts = [(0.052 * math.cos(math.tau * (i + 0.5) / 6), -0.004, 0.052 * math.sin(math.tau * (i + 0.5) / 6))
+                    for i in range(6)]
+    P.bolts(flange_bolts, normal=(0, 1, 0), r=0.0045, h=0.004, washer=False, material='steel')
+    valve(P, R - 0.014, -0.04, a=math.radians(200))
+    P.empty('M_tire', (0, 0, 0))
+    P.info.update({'radius': R, 'width': w, 'tire': True})
+    P.ao_distance = 0.07
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
+def build_rim_cart(P):
+    """A shopping-trolley wheel: grey rubber tread on a red plastic hub, axle bolt and nut. No tyre."""
+    R, w = 0.065, 0.04
+    tread = [(0.043, -0.020), (0.057, -0.020), (0.0635, -0.015), (0.065, -0.005), (0.065, 0.005), (0.0635, 0.015),
+             (0.057, 0.020), (0.043, 0.020)]
+    # loop: outer surface then back along the hub at r = 0.042
+    P.lathe('tread', list(reversed(tread)), material='rubber', axis='Y', segs=32, loop=True, sharp=50.0)
+    hub = [(0.046, 0.017), (0.040, 0.0175), (0.037, 0.010), (0.016, 0.010), (0.013, 0.016), (0.008, 0.016),
+           (0.008, -0.016), (0.013, -0.016), (0.016, -0.010), (0.037, -0.010), (0.040, -0.0175), (0.046, -0.017)]
+    P.lathe('hub', hub, material='paint', axis='Y', segs=24, loop=True, sharp=50.0)
+    for sgn in (-1, 1):
+        for i in range(6):
+            a = math.tau * i / 6
+            P.box('rib', (0.022, 0.012, 0.004), (0.027 * math.cos(a), sgn * 0.013, 0.027 * math.sin(a)), 'paint',
+                  rot=(0, -math.degrees(a), 0), bev=0.0012, segs=1)
+    P.cyl('axle', 0.006, 0.052, (0, 0, 0), 'steel', axis='Y', segs=10, bev=None)
+    P.cyl('bush', 0.011, 0.036, (0, 0, 0), 'steel', axis='Y', segs=12, bev=None)
+    bm = bmesh.new()
+    K.bm_hex(bm, 0.009, 0.006, matrix=Matrix.Translation((0, 0.017, 0)) @ K.axis_matrix('Y'))
+    K.bm_hex(bm, 0.009, 0.007, matrix=Matrix.Translation((0, -0.017, 0)) @ K.axis_matrix('-Y'))
+    K.bm_cyl(bm, 0.013, 0.0015, segs=12, matrix=Matrix.Translation((0, 0.0168, 0)) @ K.axis_matrix('Y'))
+    K.bm_cyl(bm, 0.013, 0.0015, segs=12, matrix=Matrix.Translation((0, -0.0168, 0)) @ K.axis_matrix('Y'))
+    P.mesh('nuts', bm, 'steel', sharp=50)
+    P.info.update({'radius': R, 'width': w, 'tire': False})
+    P.ao_distance = 0.03
+    P.views = [('a', -52, 12), ('b', 160, 14)]
+
+
 PARTS = {
     'rim_steel13': build_rim_steel13,
+    'rim_alloy15': build_rim_alloy15,
+    'rim_off16': build_rim_off16,
+    'rim_cart': build_rim_cart,
 }
 for _tid in TYRES:
     PARTS[_tid] = tyre_builder(_tid, 'rim_steel13')
