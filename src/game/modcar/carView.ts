@@ -711,22 +711,24 @@ export class CarView {
       }
       p.cage.visible = true;
     } else if (p.cage) p.cage.visible = false;
-    if (style !== p.overlay?.userData.style) this.setOverlay(p, m, style);
+    // (the add-on goes with the part: a scoop bonnet's scoop)
+    const addOn = `${style}:${inst.part}`;
+    if (addOn !== p.overlay?.userData.style) this.setOverlay(p, m, style, inst.part);
   }
 
   /**
    * The add-on that makes a panel's style read on the car: an armour door or lid gets steel plates riveted
    * over its skin, a fridge door the fridge's handle. Placed from the skin's bounds in the hinge's frame.
    */
-  private setOverlay(p: PanelNode, m: MountDef, style: string): void {
+  private setOverlay(p: PanelNode, m: MountDef, style: string, part = ''): void {
     p.overlay?.removeFromParent();
     p.overlay = null;
     this.mats.drop(`${panelOwner(m.id)}+add`);
-    const file = style === 'armor' ? 'door_armor_overlay' : style === 'fridge' && m.cat === 'door' ? 'door_fridge_handle' : null;
+    const file = part === 'hood_scoop' ? 'hood_scoop_overlay' : style === 'armor' ? 'door_armor_overlay' : style === 'fridge' && m.cat === 'door' ? 'door_fridge_handle' : null;
     if (!file) return;
     const holder = new THREE.Group();
     holder.name = `overlay_${m.id}`;
-    holder.userData.style = style;
+    holder.userData.style = `${style}:${part}`;
     p.pivot.add(holder);
     p.overlay = holder;
     // (measured shut: the open angle taken off)
@@ -740,14 +742,19 @@ export class CarView {
     if (box.isEmpty()) return;
     const size = box.getSize(new THREE.Vector3());
     const c = box.getCenter(new THREE.Vector3());
-    const look = this.mats.look(`${panelOwner(m.id)}+add`, { paint: 0x5c6168, paint2: 0x5c6168, rust: 0.25 });
+    // (a scoop is the bonnet's own sheet: the car's paint; armour plates are bare steel)
+    const scoop = file === 'hood_scoop_overlay';
+    const look = this.mats.look(`${panelOwner(m.id)}+add`, scoop ? this.panelLook(this.build.parts[m.id]!, 'stock') : { paint: 0x5c6168, paint2: 0x5c6168, rust: 0.25 });
     void this.track(addonModel(file)).then((model) => {
       if (!model || p.overlay !== holder) return;
       const o = cloneModel(model);
       applyMaterials(o, look);
       // which way is out of the skin: a door's side, the top of a bonnet or a boot lid
       const out = m.side > 0 ? 1 : -1;
-      if (file === 'door_fridge_handle') {
+      if (scoop) {
+        // standing on the bonnet's crown a little ahead of its middle, the mouth forward
+        o.position.set(c.x + size.x * 0.08, box.max.y - 0.012, c.z);
+      } else if (file === 'door_fridge_handle') {
         // by the back edge (doors hang on their front edge), at the waist
         o.scale.z = out > 0 ? -1 : 1;
         o.position.set(box.min.x + 0.1, box.min.y + size.y * 0.42, out > 0 ? box.max.z : box.min.z);
