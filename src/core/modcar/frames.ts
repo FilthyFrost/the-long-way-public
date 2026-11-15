@@ -38,7 +38,8 @@ interface MountTable {
   needles?: Record<string, { axis: number[]; deg_full: number }>;
   wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
   rig?: {
-    fork?: { pivot: number[]; axis: number[] };
+    fork?: { pivot: number[]; axis: number[]; lower?: { object: string; axis: number[]; travel: number } };
+    shocks?: Record<string, { upper: string; lower: string; upper_eye: number[]; lower_eye: number[] }>;
     swingarm?: { pivot: number[]; axis: number[]; length?: number };
     stand?: { pivot: number[]; axis: number[]; fold_deg: number };
   };
@@ -51,7 +52,8 @@ function readRig(t: MountTable): FrameRig | undefined {
   if (!t.panels && !t.needles && !t.wipers && !t.rig) return undefined;
   const rig: FrameRig = { panels: {}, needles: {}, wipers: {} };
   const r = t.rig;
-  if (r?.fork) rig.fork = { pivot: v3(r.fork.pivot), axis: v3(r.fork.axis) };
+  if (r?.fork) rig.fork = { pivot: v3(r.fork.pivot), axis: v3(r.fork.axis), lower: r.fork.lower ? { object: r.fork.lower.object, axis: v3(r.fork.lower.axis), travel: r.fork.lower.travel } : undefined };
+  if (r?.shocks) rig.shocks = Object.values(r.shocks).map((k) => ({ upper: k.upper, lower: k.lower, upperEye: v3(k.upper_eye), lowerEye: v3(k.lower_eye) }));
   if (r?.swingarm) rig.swingarm = { pivot: v3(r.swingarm.pivot), axis: v3(r.swingarm.axis), length: r.swingarm.length ?? 0.5 };
   if (r?.stand) rig.stand = { pivot: v3(r.stand.pivot), axis: v3(r.stand.axis), foldDeg: r.stand.fold_deg };
   for (const [k, p] of Object.entries(t.panels ?? {})) rig.panels[k] = { axis: v3(p.hinge_axis), openDeg: p.open_deg, glass: p.glass ?? null, mount: p.mount ?? null };

@@ -404,7 +404,9 @@ export interface FrameRig {
   /** by object name: WIPER_L, WIPER_R */
   wipers: Record<string, { axis: [number, number, number]; sweepDeg: number }>;
   /** a motorcycle's steering head: the FORK object turns about it (and what rides on it) */
-  fork?: { pivot: [number, number, number]; axis: [number, number, number] };
+  fork?: { pivot: [number, number, number]; axis: [number, number, number]; lower?: { object: string; axis: [number, number, number]; travel: number } };
+  /** the rear shocks: an upper half on the frame and a lower half on the swingarm, eye to eye */
+  shocks?: { upper: string; lower: string; upperEye: [number, number, number]; lowerEye: [number, number, number] }[];
   /** the SWINGARM object swings about its pivot with the rear wheel (length: pivot to the rear hub) */
   swingarm?: { pivot: [number, number, number]; axis: [number, number, number]; length: number };
   /** the side STAND: folded by foldDeg about its axis while ridden */
