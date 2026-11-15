@@ -116,6 +116,7 @@ const shotButtons: Array<[string, FoleyShot, FoleyOpts]> = [
   ['放下 0.3 kg', 'part_setdown', { mass: 0.3 }], ['放下 4 kg', 'part_setdown', { mass: 4 }], ['放下 25 kg', 'part_setdown', { mass: 25 }], ['放下 235 kg', 'part_setdown', { mass: 235 }],
   ['装上', 'part_install', { mass: 10 }], ['拆下', 'part_remove', { mass: 10 }], ['钥匙', 'key_turn', {}],
   ['拉手刹', 'handbrake_pull', {}], ['松手刹', 'handbrake_release', {}], ['换挡', 'gear_shift', {}], ['打齿', 'gear_grind', {}], ['摇喷罐', 'spray_shake', {}],
+  ['开关', 'switch', {}], ['挡杆一格', 'lever', {}],
 ];
 for (const [label, kind, opts] of shotButtons) {
   const b = document.createElement('button');

@@ -226,7 +226,7 @@ try {
       ['door_open', { material: 'fridge' }], ['door_close', { material: 'fridge' }], ['door_open', { material: 'cage' }], ['door_close', { material: 'cage' }],
       ['latch', {}], ['hood_open', {}], ['hood_close', {}], ['trunk_open', {}], ['trunk_close', {}],
       ['part_pickup', { mass: 0.3 }], ['part_pickup', { mass: 20 }], ['part_setdown', { mass: 0.3 }], ['part_setdown', { mass: 4 }], ['part_setdown', { mass: 25 }], ['part_setdown', { mass: 235 }],
-      ['part_install', { mass: 10 }], ['part_remove', { mass: 10 }], ['key_turn', {}], ['handbrake_pull', {}], ['handbrake_release', {}], ['gear_shift', {}], ['gear_grind', {}], ['spray_shake', {}],
+      ['part_install', { mass: 10 }], ['part_remove', { mass: 10 }], ['key_turn', {}], ['handbrake_pull', {}], ['handbrake_release', {}], ['gear_shift', {}], ['gear_grind', {}], ['spray_shake', {}], ['switch', {}], ['lever', {}],
       ['horn_trumpet', {}], ['ratchet', {}], ['spray', {}], ['sponge', {}], ['pour', { liquid: 'fuel' }], ['pour', { liquid: 'water' }], ['pour', { liquid: 'oil' }], ['horn_beep', {}], ['horn_air', {}],
     ];
     for (const [kind, opts] of list) {

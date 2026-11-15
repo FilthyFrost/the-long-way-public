@@ -54,6 +54,7 @@ snd.foley.play('part_setdown', { mass: 235 });        // 按质量：小件叮�
 snd.foley.start('ratchet'); snd.foley.stop('ratchet'); // 装 / 拆进度期间
 snd.foley.start('pour', { liquid: 'oil' });            // fuel / water / oil
 snd.foley.horn('horn_air', down);                      // horn_beep / horn_trumpet（按一下奏一遍）/ horn_air
+snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯）/ 挡杆进一格（P-R-N-D）
 ```
 
 - 起动机：`cranking && !running` 时播 `crank` 循环 + 合成的起动机电机声（每个压缩冲程拖慢一下）；`running` 变真时播 `catch`，循环在它尾巴下淡入。`running` 变假时按情况播 `shutdown` 或 `stall`。

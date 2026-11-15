@@ -25,7 +25,9 @@ export type FoleyShot =
   | 'gear_shift'
   | 'gear_grind'
   | 'spray_shake'
-  | 'horn_trumpet';
+  | 'horn_trumpet'
+  | 'switch'
+  | 'lever';
 
 export type FoleyLoop = 'ratchet' | 'spray' | 'sponge' | 'pour' | 'horn_beep' | 'horn_air';
 
@@ -340,6 +342,31 @@ function sprayShake(): Recipe {
   };
 }
 
+/** a dashboard toggle: the plastic lever snapping over its spring, a tiny contact tick */
+function toggleSwitch(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.12);
+    burst(x, sr, 0, 0.003, 0.5, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1500], ['peaking', 3800, 2]] });
+    strike(x, sr, 0, [[2600, 1, 0.006], [4300, 0.5, 0.004], [6900, 0.25, 0.003]], 0.45, rng);
+    const b = Math.floor(rng.range(0.008, 0.013) * sr);
+    strike(x, sr, b, [[1900, 1, 0.009], [3100, 0.5, 0.006]], 0.3, rng);
+    burst(x, sr, b, 0.004, 0.25, rng, { attack: 0.0002, decay: 0.001, filter: [['bandpass', 1200, 1.2]] });
+    return normalize(edges(x, sr), 0.4);
+  };
+}
+
+/** a gear selector stepping into its next notch: a detent thock through the console */
+function selectorLever(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.18);
+    burst(x, sr, 0, 0.012, 0.35, rng, { attack: 0.003, decay: 0.004, filter: [['bandpass', 2200, 1.2]] });
+    const at = Math.floor(rng.range(0.012, 0.02) * sr);
+    thudInto(x, sr, at / sr, rng, 0.55, 300, 0.01);
+    strike(x, sr, at, [[820, 1, 0.022], [1430, 0.6, 0.014], [2500, 0.3, 0.008]], 0.3, rng);
+    return normalize(edges(x, sr), 0.45);
+  };
+}
+
 /** a short original fanfare for the musical horn (five-note bugle call) */
 function trumpetHorn(): Recipe {
   return (sr, rng) => {
@@ -528,7 +555,7 @@ function seamless(x: Float32Array, sr: number): Float32Array {
 const SHOT_LEVEL: Record<FoleyShot, number> = {
   door_open: 0.5, door_close: 0.9, latch: 0.5, hood_open: 0.5, hood_close: 0.95, trunk_open: 0.5, trunk_close: 0.85,
   part_pickup: 0.5, part_setdown: 0.8, part_install: 0.75, part_remove: 0.65, key_turn: 0.45, handbrake_pull: 0.6,
-  handbrake_release: 0.55, gear_shift: 0.55, gear_grind: 0.6, spray_shake: 0.45, horn_trumpet: 0.42,
+  handbrake_release: 0.55, gear_shift: 0.55, gear_grind: 0.6, spray_shake: 0.45, horn_trumpet: 0.42, switch: 0.35, lever: 0.45,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36 };
@@ -561,6 +588,8 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'gear_grind': return gearGrind();
     case 'spray_shake': return sprayShake();
     case 'horn_trumpet': return trumpetHorn();
+    case 'switch': return toggleSwitch();
+    case 'lever': return selectorLever();
     case 'ratchet': return ratchetLoop();
     case 'spray': return sprayLoop();
     case 'sponge': return spongeLoop();
