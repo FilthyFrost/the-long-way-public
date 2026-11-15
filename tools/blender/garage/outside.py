@@ -6,8 +6,9 @@ wall, a ladder against the back, an old fuel pump on the apron, a mailbox and a 
 
 import math
 
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
+from . import deco as D
 from . import props as P
 from . import shell as S
 from .deco import ladder, leaf_disc, potted_plant
@@ -74,7 +75,11 @@ def woodpile(K, L, x0, x1, z):
         for i in range(n):
             x = x0 + 0.08 + i * (x1 - x0 - 0.16) / max(1, n - 1) + K.jitter(0.015)
             r = 0.065 + K.jitter(0.01)
-            K.cyl('wood', (x, y + K.jitter(0.01), z - 0.3), r, 0.5 + K.jitter(0.04), axis='z', segs=7, smooth=False, tint=(1.05 + K.jitter(0.1), 0.85, 0.65))
+            yy = y + K.jitter(0.01)
+            ln = 0.5 + K.jitter(0.04)
+            # grey-brown bark, the pale sawn end to the yard
+            K.cyl('wood_dark', (x, yy, z - 0.3), r, ln, axis='z', segs=7, smooth=False, tint=(0.82 + K.jitter(0.08), 0.78, 0.74))
+            K.cyl('wood', (x, yy, z - 0.3 - ln / 2 - 0.002), r * 0.86, 0.004, axis='z', segs=7, tint=(1.15 + K.jitter(0.06), 1.05, 0.9), cast=False)
     for xx in (x0, x1):
         K.box('wood_dark', (xx, 0.55, zf + 0.05), (0.08, 1.1, 0.08), bev=0.008)
     K.box('tin_out', ((x0 + x1) / 2, 1.18, z - 0.32), (x1 - x0 + 0.4, 0.03, 0.75), rot=(10, 0, 0), bev=0.0)
@@ -122,3 +127,44 @@ def sign_post(K, x, z):
     for s in (-1, 1):
         K.cyl('p_blue', (x + 0.03, 1.45 + s * 0.1, z + 0.22 + s * 0.22), 0.045, 0.006, axis='x', segs=12)
 
+
+
+def bench(K, L, x, z, length=1.6):
+    """a weathered garden bench against the front wall, a pot of geraniums and a mug on it"""
+    grey = (0.78, 0.76, 0.74)
+    y = 0.45
+    for k in range(3):
+        K.box('wood', (x + 0.06 - k * 0.13, y, z), (0.11, 0.035, length), bev=0.008, tint=grey, seg=0.8)
+    for k in range(2):
+        K.box('wood', (x - 0.2, y + 0.3 + k * 0.17, z), (0.03, 0.11, length), rot=(0, 0, -8), bev=0.008, tint=grey, seg=0.8)
+    for dz in (-length / 2 + 0.12, length / 2 - 0.12):
+        K.box('wood_dark', (x + 0.08, y / 2, z + dz), (0.06, y, 0.06), bev=0.006)
+        K.box('wood_dark', (x - 0.2, (y + 0.62) / 2, z + dz), (0.06, y + 0.62, 0.06), rot=(0, 0, -8), bev=0.006)
+        K.box('wood_dark', (x - 0.06, y - 0.05, z + dz), (0.36, 0.05, 0.05), bev=0.006)
+    D.potted_plant(K, x - 0.02, y + 0.018, z + length / 2 - 0.3, 1.3, 'geranium')
+    D.mug(K, x + 0.02, y + 0.018, z - length / 2 + 0.35, tint=(0.95, 0.92, 0.85))
+    P.solid(L, x - 0.06, z, 0.22, length / 2, 0, y + 0.6)
+
+
+def weathervane(K, x, z):
+    """a rooster on the ridge over the doors, his arrow, the four arms of the compass under him"""
+    base = S.roof_under(0) + 0.06
+    K.box('p_black', (x, base + 0.03, z), (0.12, 0.06, 0.1), bev=0.006)
+    K.cyl('p_black', (x, base + 0.45, z), 0.014, 0.85, segs=8)
+    # the compass arms with a ball at each end
+    for (dx, dz) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        K.cyl('p_black', (x + dx * 0.16, base + 0.5, z + dz * 0.16), 0.007, 0.32, axis='x' if dx else 'z', segs=6)
+        K.cyl('p_black', (x + dx * 0.33, base + 0.5, z + dz * 0.33), 0.022, 0.03, segs=8)
+    K.cyl('p_black', (x, base + 0.5, z), 0.025, 0.04, segs=8)
+    # the arrow (pointing along z, so the road sees the rooster side on)
+    m = Matrix(((0, 0, -1, x), (0, 1, 0, base + 0.78), (1, 0, 0, z), (0, 0, 0, 1)))
+    K.box('p_black', (x, base + 0.78, z), (0.012, 0.012, 0.62))
+    K.prism('p_black', [(0.31, 0.0), (0.22, 0.06), (0.24, 0.0), (0.22, -0.06)], 0.01, m)
+    K.prism('p_black', [(-0.31, 0.09), (-0.2, 0.0), (-0.31, -0.09), (-0.26, 0.0)], 0.01, m)
+    # the rooster
+    rooster = [(-0.24, 0.1), (-0.2, 0.3), (-0.14, 0.38), (-0.12, 0.26), (-0.06, 0.34), (-0.04, 0.22), (0.02, 0.18), (0.1, 0.22),
+               (0.12, 0.3), (0.1, 0.34), (0.14, 0.4), (0.17, 0.36), (0.2, 0.38), (0.21, 0.33), (0.25, 0.3), (0.2, 0.27),
+               (0.17, 0.22), (0.16, 0.12), (0.1, 0.04), (0.04, 0.02), (0.05, -0.04), (0.08, -0.06), (0.0, -0.06), (-0.02, 0.0),
+               (-0.1, 0.02), (-0.18, 0.04)]
+    m2 = Matrix(((0, 0, -1, x), (0, 1, 0, base + 0.8), (1, 0, 0, z), (0, 0, 0, 1)))
+    K.prism('p_black', rooster, 0.012, m2)

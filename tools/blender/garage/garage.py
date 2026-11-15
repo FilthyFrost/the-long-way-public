@@ -123,6 +123,8 @@ def main(args):
     O.sign_post(K, 21.3, 4.6)
     M.sign_board(K, L, S.DOOR_H + 0.72)
     M.barn_lamp(K, L, S.DOOR_H + 0.62, -1.95)
+    O.bench(K, L, S.X1 + 0.55, 3.55)
+    O.weathervane(K, S.X1 - 0.6, 0.0)
 
     # ---- where the cars stand, where the player starts, the spots
     L['carSpot'] = {'x': 0.4, 'z': CAR_Z, 'yaw': 0.0}

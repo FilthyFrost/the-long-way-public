@@ -25,6 +25,7 @@ import { GarageLook } from './garageLook';
 import { beamUniforms, buildBeams, buildDust } from './garageBeams';
 import { Chalkboard } from './garageChalk';
 import { Plates, Sign, YardLight } from './garageFront';
+import { buildSmoke } from './garageSmoke';
 import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
@@ -61,6 +62,8 @@ interface Layout {
   outlamp?: { x: number; y: number; z: number };
   /** number plates nailed on the front wall (garageFront.ts paints them) */
   plates?: { x: number; y: number; z: number; rot: number; kind: number }[];
+  /** the top of the stove's chimney, where its smoke comes out */
+  chimney?: { x: number; y: number; z: number };
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -157,6 +160,7 @@ class Garage implements GarageScene {
   private readonly chalk: Chalkboard | null;
   private readonly sign: Sign | null;
   private readonly plates: Plates | null;
+  private readonly smoke: THREE.Mesh | null;
   private readonly yard = new YardLight();
   /** the lamp over the doors: how far it has warmed up (0 … 1) */
   private outLamp = 0;
@@ -195,6 +199,8 @@ class Garage implements GarageScene {
     this.root.add(this.yard.mesh);
     this.plates = LAYOUT.plates?.length ? new Plates(LAYOUT.plates) : null;
     if (this.plates) this.root.add(this.plates.mesh);
+    this.smoke = LAYOUT.chimney ? buildSmoke(LAYOUT.chimney) : null;
+    if (this.smoke) this.root.add(this.smoke);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -720,6 +726,7 @@ class Garage implements GarageScene {
     this.chalk?.dispose();
     this.sign?.dispose();
     this.plates?.dispose();
+    (this.smoke?.material as THREE.Material | undefined)?.dispose();
     this.yard.dispose();
     this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors

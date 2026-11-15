@@ -97,12 +97,34 @@ export function beamMaterial(): THREE.ShaderMaterial {
           bool eyeInside = tin < 0.0;
           if (gl_FrontFacing == eyeInside) discard;
           tin = max(tin, 0.0);
-          // it stops on the floor and at the room's walls
+          // it stops on the floor and at the room's walls (and seen from outside, only what is in the room counts)
           if (rd.y < -1e-4) tout = min(tout, (uBeamFloor - ro.y) / rd.y);
           vec3 rs = rd + vec3(1e-6);
-          vec3 rf = max((uRoomMin.xyz - ro) / rs, (uRoomMax.xyz - ro) / rs);
+          vec3 ra = (uRoomMin.xyz - ro) / rs;
+          vec3 rb = (uRoomMax.xyz - ro) / rs;
+          vec3 rn = min(ra, rb);
+          vec3 rf = max(ra, rb);
+          float tEnter = max(max(rn.x, rn.y), rn.z);
+          tin = max(tin, tEnter);
           tout = min(tout, min(min(rf.x, rf.y), rf.z));
           if (tout <= tin) discard;
+          if (tEnter > 0.0) {
+            // the eye is outside the room: a beam is seen only through an opening, not through the walls
+            vec3 P = ro + rd * tEnter;
+            bool through = false;
+            for (int i = 0; i < ${ROOM_OPENINGS}; i++) {
+              vec3 Li = uRoomOpenL[i];
+              if (Li.r + Li.g + Li.b < 1e-4) continue;
+              vec3 Ui = uRoomOpenU[i];
+              vec3 Vi = uRoomOpenV[i];
+              vec3 qi = P - uRoomOpenA[i];
+              if (abs(dot(qi, normalize(cross(Ui, Vi)))) > 0.35) continue;
+              float a = dot(qi, Ui) / dot(Ui, Ui);
+              float b = dot(qi, Vi) / dot(Vi, Vi);
+              if (a >= 0.0 && a <= 1.0 && b >= 0.0 && b <= 1.0) through = true;
+            }
+            if (!through) discard;
+          }
           const int N = 14;
           float dt = (tout - tin) / float(N);
           float jit = rtHash(gl_FragCoord.xy + fract(uTime) * 61.0);
