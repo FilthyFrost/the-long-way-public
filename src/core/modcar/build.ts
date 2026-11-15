@@ -127,6 +127,7 @@ export function removeSub(parent: PartInstance, sub: string): PartInstance | nul
 
 /** the factory part for a mount of a frame (tags stock:<frame>), or null if the frame has none for it */
 export function stockPartFor(frame: FrameDef, mount: MountDef): string | null {
+  if (frame.bare?.includes(mount.id)) return null;
   const tag = `stock:${frame.id}`;
   const cands = PARTS.filter((p) => p.cat === mount.cat && p.tags?.includes(tag));
   if (!cands.length) return null;

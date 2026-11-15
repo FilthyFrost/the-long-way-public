@@ -390,6 +390,8 @@ export interface FrameDef {
   mounts: MountDef[];
   /** how the frame model's moving pieces move (from its mounts JSON; absent for a placeholder) */
   rig?: FrameRig;
+  /** mounts the works leave empty (a seat in a pickup's bed is the owner's idea) */
+  bare?: string[];
 }
 
 /**
