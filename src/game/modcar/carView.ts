@@ -22,8 +22,12 @@ import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model 
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
-/** parts that move as a whole or are worked in the cab: never merged */
-const UNMERGED = new Set(['steering', 'handbrake', 'gearLever', 'ignition', 'radio', 'horn']);
+/**
+ * Parts that move as a whole: never merged (the wheel turns with the steering). The cab's other
+ * controls merge like any part — their moving pieces (LEVER, KEY, KNOB_, BUTTON, COVER) stay out of it
+ * by name and are what the cockpit turns.
+ */
+const UNMERGED = new Set(['steering']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|ghost:)/;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
