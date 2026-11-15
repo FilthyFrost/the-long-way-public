@@ -17,6 +17,10 @@ import { sharedTextures } from './textures';
 
 const tex = sharedTextures();
 
+/** how many openings and lamps a room can have (the starting garage's door, windows and skylights; its pendant lamps) */
+export const ROOM_OPENINGS = 8;
+export const ROOM_LAMPS = 8;
+
 export const globals = {
   uSunDir: { value: new THREE.Vector3(0.4, 0.75, 0.3).normalize() },
   /** key light (sun or moon), linear, ~2.7 at noon */
@@ -57,6 +61,23 @@ export const globals = {
   /** inside a closed vehicle: what is left of the sky's light (a warm tint), and the cabin lamp (black = off) */
   uCabinAmb: { value: new THREE.Color(0.8, 0.74, 0.66) },
   uCabinLamp: { value: new THREE.Color(0, 0, 0) },
+  /**
+   * A room the light has to come into (the starting garage; none anywhere else — uRoomMin.w is the
+   * switch). Inside its box (render space, soft edge uRoomMax.w) the sky reaches a surface only
+   * through the room's openings — door, windows, skylights: parallelograms (corner A, edges U, V)
+   * with the radiance of what is seen through each — the walls and floor give back uRoomAmb, and
+   * up to ROOM_LAMPS lamps light what faces them (xyz, reach in w; colour × strength, and in w how
+   * much of it the shade sends down). rtCelAt / rtSkyLight / rtRoomLamps read them.
+   */
+  uRoomMin: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uRoomMax: { value: new THREE.Vector4(0, 0, 0, 0.08) },
+  uRoomAmb: { value: new THREE.Color(0, 0, 0) },
+  uRoomOpenA: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
+  uRoomOpenU: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
+  uRoomOpenV: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
+  uRoomOpenL: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Color(0, 0, 0)) },
+  uRoomLampP: { value: Array.from({ length: ROOM_LAMPS }, () => new THREE.Vector4(0, 0, 0, 0)) },
+  uRoomLampC: { value: Array.from({ length: ROOM_LAMPS }, () => new THREE.Vector4(0, 0, 0, 0)) },
   tNoise: { value: tex.noise },
   tStrokes: { value: tex.strokes },
   ...paletteUniforms,
@@ -93,6 +114,15 @@ uniform mat4 uShadowMat1;
 uniform vec4 uShadowParams;
 uniform vec3 uCabinAmb;
 uniform vec3 uCabinLamp;
+uniform vec4 uRoomMin;
+uniform vec4 uRoomMax;
+uniform vec3 uRoomAmb;
+uniform vec3 uRoomOpenA[${ROOM_OPENINGS}];
+uniform vec3 uRoomOpenU[${ROOM_OPENINGS}];
+uniform vec3 uRoomOpenV[${ROOM_OPENINGS}];
+uniform vec3 uRoomOpenL[${ROOM_OPENINGS}];
+uniform vec4 uRoomLampP[${ROOM_LAMPS}];
+uniform vec4 uRoomLampC[${ROOM_LAMPS}];
 uniform sampler2D tNoise;
 uniform sampler2D tStrokes;
 uniform vec3 uGroundPal[${B * 3}];
@@ -230,6 +260,145 @@ vec3 rtCabin(vec3 albedo, vec3 N, float shadow) {
   vec3 sky = mix(uSkyColor, vec3(lum) * vec3(1.06, 1.0, 0.9), 0.55) * uCabinAmb * (0.82 + 0.18 * N.y);
   vec3 lamp = uCabinLamp * (0.62 + 0.38 * N.y);
   return albedo * (sky + uSunColor * (0.34 * lit + 0.1 * full) + lamp);
+}
+// ---------------------------------------------------------------------------------------- rooms
+// How far into the room's box a point is: 0 outside … 1 past the soft edge (no room: 0). The box is
+// drawn a little into the walls, so their inner faces are in and their outer faces out.
+float rtInRoom(vec3 p) {
+  if (uRoomMin.w < 0.5) return 0.0;
+  vec3 a = p - uRoomMin.xyz;
+  vec3 b = uRoomMax.xyz - p;
+  float d = min(min(min(a.x, b.x), min(a.y, b.y)), min(a.z, b.z));
+  return smoothstep(0.0, uRoomMax.w, d);
+}
+// One edge of a polygon of light as the shaded point sees it (both corners as unit vectors): its
+// share of the vector form factor, with the usual cheap fit of theta / sin(theta).
+vec3 rtEdgeFF(vec3 v1, vec3 v2) {
+  float x = dot(v1, v2);
+  float y = abs(x);
+  float a = 0.8543985 + (0.4965155 + 0.0145206 * y) * y;
+  float b = 3.4175940 + (4.1616724 + y) * y;
+  float v = a / b;
+  float ts = x > 0.0 ? v : 0.5 * inversesqrt(max(1.0 - x * x, 1e-7)) - v;
+  return cross(v1, v2) * ts;
+}
+// The share of the whole sky's light a surface gets through one opening (a door, a window, a
+// skylight) of even brightness: the form factor of the parallelogram A, A+U, A+U+V, A+V at p for
+// the normal n, its horizon clipped by a fitted sphere integral. 0 … 1.
+float rtOpeningLight(vec3 p, vec3 n, vec3 A, vec3 U, vec3 V) {
+  vec3 q = p + vec3(1e-4, 2e-4, 3e-4);
+  vec3 v0 = normalize(A - q);
+  vec3 v1 = normalize(A + U - q);
+  vec3 v2 = normalize(A + U + V - q);
+  vec3 v3 = normalize(A + V - q);
+  vec3 F = (rtEdgeFF(v0, v1) + rtEdgeFF(v1, v2) + rtEdgeFF(v2, v3) + rtEdgeFF(v3, v0)) * 0.15915494;
+  // (whichever way it was wound: the vector points at the opening)
+  if (dot(F, A + 0.5 * (U + V) - q) < 0.0) F = -F;
+  float len = length(F);
+  if (len < 1e-5) return 0.0;
+  float z = dot(n, F) / len;
+  return len * max((len * len + z) / (len + 1.0), 0.0);
+}
+// The sky's light inside the room: what each opening lets in, and what the room gives back.
+vec3 rtRoomSky(vec3 p, vec3 n) {
+  // (the floor, with the sun's patches on it, is what bounces most: undersides get a little more)
+  vec3 c = uRoomAmb * (1.0 - 0.18 * n.y);
+  for (int i = 0; i < ${ROOM_OPENINGS}; i++) {
+    vec3 L = uRoomOpenL[i];
+    if (L.r + L.g + L.b < 1e-4) continue;
+    c += L * rtOpeningLight(p, n, uRoomOpenA[i], uRoomOpenU[i], uRoomOpenV[i]);
+  }
+  return c;
+}
+// The sky light of the cel shading: in the open the whole dome and the ground's bounce; in a room
+// only what its openings let in.
+vec3 rtSkyLight(vec3 N, vec3 pos) {
+  vec3 open = mix(uBounceColor * 2.0, uSkyColor, N.y * 0.5 + 0.5) * 0.9;
+  float inside = rtInRoom(pos);
+  if (inside <= 0.0) return open;
+  return mix(open, rtRoomSky(pos, N), inside);
+}
+// The room's lamps: a pool from each with a soft rim (a windowed inverse square), sent down by its
+// shade; nothing outside the room.
+vec3 rtRoomLamps(vec3 pos, vec3 N) {
+  if (uRoomMin.w < 0.5) return vec3(0.0);
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < ${ROOM_LAMPS}; i++) {
+    vec4 lp = uRoomLampP[i];
+    if (lp.w <= 0.0) continue;
+    vec3 L = lp.xyz - pos;
+    float d2 = dot(L, L);
+    float r2 = lp.w * lp.w;
+    if (d2 >= r2) continue;
+    float d = sqrt(d2);
+    L /= max(d, 1e-4);
+    float win = 1.0 - d2 / r2;
+    // (a pool under each lamp: bright close by, gone by its reach)
+    float att = win * win / (0.35 + d2);
+    // below the lamp (L points up at it) it shines; above, its shade keeps most of it in
+    float down = mix(1.0, 0.1 + 0.9 * smoothstep(0.3, 0.78, L.y), uRoomLampC[i].w);
+    float face = smoothstep(-0.2, 0.45, dot(N, L));
+    sum += uRoomLampC[i].rgb * att * down * face;
+  }
+  return sum * rtInRoom(pos);
+}
+// What a mirror at p inside the room sees along R (for glossy things: car paint, chrome): the light of
+// an opening where the ray leaves through one (the door as a bright shape in a flank), else the room
+// itself — the floor's grey, the walls' brown, the roof's dark — in the room's light, with the lamps'
+// pools on it. Only meaningful where rtInRoom(p) > 0.
+vec3 rtRoomMirror(vec3 p, vec3 R) {
+  vec3 Rs = R + vec3(1e-5);
+  vec3 tA = (uRoomMin.xyz - p) / Rs;
+  vec3 tB = (uRoomMax.xyz - p) / Rs;
+  vec3 tF = max(tA, tB);
+  float tExit = max(min(min(tF.x, tF.y), tF.z), 0.0);
+  float best = tExit + 0.3;
+  vec3 through = vec3(-1.0);
+  for (int i = 0; i < ${ROOM_OPENINGS}; i++) {
+    vec3 L = uRoomOpenL[i];
+    if (L.r + L.g + L.b < 1e-4) continue;
+    vec3 A = uRoomOpenA[i];
+    vec3 U = uRoomOpenU[i];
+    vec3 V = uRoomOpenV[i];
+    vec3 nq = cross(U, V);
+    float den = dot(R, nq);
+    if (abs(den) < 1e-6) continue;
+    float t = dot(A - p, nq) / den;
+    if (t < 0.0 || t > best) continue;
+    vec3 q = p + R * t - A;
+    float a = dot(q, U) / dot(U, U);
+    float b = dot(q, V) / dot(V, V);
+    if (a < 0.0 || a > 1.0 || b < 0.0 || b > 1.0) continue;
+    best = t;
+    through = L;
+  }
+  if (through.r >= 0.0) return through;
+  vec3 hit = p + R * tExit;
+  float up = smoothstep(uRoomMin.y + 0.3, uRoomMin.y + 0.5, hit.y);
+  float roof = smoothstep(uRoomMax.y - 2.6, uRoomMax.y - 1.2, hit.y);
+  vec3 albedo = mix(vec3(0.24, 0.235, 0.22), mix(vec3(0.33, 0.21, 0.12), vec3(0.2, 0.17, 0.15), roof), up);
+  vec3 q = hit - R * 0.12;
+  return albedo * (uRoomAmb * 2.2 + rtRoomLamps(q, -R) * 1.4);
+}
+// rtCel for a point that may be inside a room.
+vec3 rtCelAt(vec3 albedo, vec3 N, float shadow, vec3 pos) {
+  float ndl = dot(N, uSunDir);
+  float lit = smoothstep(-0.02, 0.08, ndl) * shadow;
+  float full = smoothstep(0.42, 0.52, ndl) * shadow;
+  return albedo * (rtSkyLight(N, pos) + uSunColor * (0.3 * lit + 0.1 * full) + rtRoomLamps(pos, N));
+}
+// rtCabin for a point that may be inside a room: a vehicle standing in one gets what the room has
+// (warmed by its lining) instead of the open sky.
+vec3 rtCabinAt(vec3 albedo, vec3 N, float shadow, vec3 pos) {
+  vec3 c = rtCabin(albedo, N, shadow);
+  float inside = rtInRoom(pos);
+  if (inside <= 0.0) return c;
+  float ndl = dot(N, uSunDir);
+  float lit = smoothstep(-0.02, 0.08, ndl) * shadow;
+  float full = smoothstep(0.42, 0.52, ndl) * shadow;
+  vec3 lamp = uCabinLamp * (0.62 + 0.38 * N.y);
+  vec3 r = albedo * (rtRoomSky(pos, N) * uCabinAmb + uSunColor * (0.34 * lit + 0.1 * full) + lamp + rtRoomLamps(pos, N) * 0.7);
+  return mix(c, r, inside);
 }
 // kept for older materials: same cel light, the 'ao' darkens the sky part
 vec3 rtLight(vec3 albedo, vec3 n, float shadow, float ao) {

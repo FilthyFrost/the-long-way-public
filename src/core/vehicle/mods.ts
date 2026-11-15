@@ -8,6 +8,21 @@
 /** number of ground surface kinds (src/core/world/ground.ts Surface) */
 export const SURFACE_COUNT = 7;
 
+/**
+ * What is on a hub (SimMods.wheelFit). Tyre: a normal wheel. Rim: a rim without its tyre — the radius
+ * is whatever the axle and radiusOffset give (the rim's own), grip × RIM_GRIP and rolling resistance ×
+ * RIM_RR on top of mods.mu / mods.rr, a harsh ride (road feel). None: an empty hub — no wheel at that
+ * corner: the corner drops onto the hub (spec.emptyHubRadius, else 0.45 of spec.wheelRadius) and it grinds along the road like a
+ * locked wheel with little grip (radiusOffset, drive and brakes do not apply to it); scraping shows in
+ * RoadFeel.scrape.
+ */
+export const WheelFit = { Tyre: 0, Rim: 1, None: 2 } as const;
+export type WheelFitId = (typeof WheelFit)[keyof typeof WheelFit];
+/** grip of a bare steel rim relative to a tyre (docs/MODCAR.md §4: 抓地 0.35) */
+export const RIM_GRIP = 0.35;
+/** rolling resistance of a bare rim relative to a tyre (it digs into anything soft) */
+export const RIM_RR = 1.8;
+
 export class SimMods {
   /** engine torque multiplier (part tier × condition × limp mode) */
   torque = 1;
@@ -25,6 +40,16 @@ export class SimMods {
   readonly rr = new Float64Array(4 * SURFACE_COUNT).fill(1);
   /** loss of rolling radius per wheel (m): a flat tyre sits the corner down */
   readonly radiusDrop = new Float64Array(4);
+  /**
+   * Size of each wheel relative to its axle's radius (m, + = bigger): a mismatched wheel. Unlike
+   * radiusDrop (a flat: the tyre squashes, the rolling radius stays) this is a real size — the corner
+   * rises or sinks, the wheel rolls on the new radius (gearing, wheel speed), and a left/right
+   * difference steers the axle towards the smaller wheel. A change is put in force at once without a
+   * kick (VehicleSim re-seats the body); it is meant for a part change, not for every frame.
+   */
+  readonly radiusOffset = new Float64Array(4);
+  /** what is on each hub (WheelFit): a tyre, a bare rim or nothing */
+  readonly wheelFit = new Uint8Array(4);
   /** free play in the steering (rad of road-wheel angle): the wheel turns before the tyres do */
   steerPlay = 0;
   /** steady pull (rad of road-wheel angle, + = right): a flat, bent track rod */
@@ -39,6 +64,8 @@ export class SimMods {
     this.mu.fill(1);
     this.rr.fill(1);
     this.radiusDrop.fill(0);
+    this.radiusOffset.fill(0);
+    this.wheelFit.fill(WheelFit.Tyre);
     this.steerPlay = 0;
     this.steerPull = 0;
   }
@@ -73,6 +100,10 @@ export class RoadFeel {
   /** body hit the ground: impulse of the latest contact (N·s) and count */
   bodyHits = 0;
   lastBodyHit = 0;
+  /** fastest a body point slid along the ground this step (m/s; 0 = none): sparks, the scrape */
+  scrape = 0;
+  /** fastest a bare rim (WheelFit.Rim) rolled on the ground this step (m/s; 0 = none): the grind */
+  rim = 0;
 
   reset(): void {
     this.thump = 0;
@@ -90,5 +121,7 @@ export class RoadFeel {
     this.buzz = 0;
     this.bodyHits = 0;
     this.lastBodyHit = 0;
+    this.scrape = 0;
+    this.rim = 0;
   }
 }

@@ -25,3 +25,7 @@ refs/design-doc/
 
 # keep copies of the owner task briefs in the public handoff pack
 !docs/handoff/instructions/.go*.txt
+# engine-sim tuning leftovers
+tools/enginesim/engines/_tune_*.mr
+tools/enginesim/__pycache__/
+__pycache__/

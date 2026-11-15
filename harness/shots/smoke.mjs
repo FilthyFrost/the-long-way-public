@@ -8,7 +8,7 @@ const { server, url } = await startServer();
 const browser = await launchBrowser();
 try {
   const t0 = Date.now();
-  const { page, errors } = await openGame(browser, url);
+  const { page, errors } = await openGame(browser, `${url}/classic.html`);
   const info = await page.evaluate(() => window.__rt.info);
   await page.screenshot({ path: path.join(out, 'smoke.png') });
   console.log(JSON.stringify({ ms: Date.now() - t0, info, errors }, null, 2));

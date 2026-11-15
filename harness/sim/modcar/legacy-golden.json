@@ -1,0 +1,43 @@
+{
+  "_recorded": "node v24.16.0 (win32 x64) from the simulation at f6541e4, before the ModCar extensions",
+  "t0_truck": {
+    "rough": "b5e6f1df",
+    "handling": "a47812f8",
+    "modded": "cdc4c601",
+    "swapped": "6fd320e6",
+    "controls": "dd6db573",
+    "solids": "2d4bb378",
+    "systems": "090b4eb1",
+    "tumble": "99caf02d"
+  },
+  "t1_van": {
+    "rough": "07fd608a",
+    "handling": "79c53dd7",
+    "modded": "2ac4cd7c",
+    "swapped": "611abb01",
+    "controls": "bd8f8c26",
+    "solids": "251d1234",
+    "systems": "c40327f3",
+    "tumble": "e9ba13ac"
+  },
+  "t2_offroad": {
+    "rough": "80d25a9e",
+    "handling": "cd01e49e",
+    "modded": "5417a622",
+    "swapped": "8ad45739",
+    "controls": "f5582ee6",
+    "solids": "ef72a54d",
+    "systems": "a6965b15",
+    "tumble": "f9f0aa52"
+  },
+  "t3_rv": {
+    "rough": "cb2f1d69",
+    "handling": "d0fbafc8",
+    "modded": "a41786d2",
+    "swapped": "f916e195",
+    "controls": "3879d0d1",
+    "solids": "c7a8652f",
+    "systems": "f2af4862",
+    "tumble": "121ca3c3"
+  }
+}
