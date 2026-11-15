@@ -168,6 +168,29 @@ class JLine:
 
 
 # ============================================================================================ cuts
+def edge_rows(chart, edges3d, pts, sp, region_uv, offs=(0.013, 0.028, 0.046), step=0.024, clear=0.06):
+    """Interior points of a region in rows along some of its edges (3D polylines on the chart's surface), in place
+    of the grid there: the A and C pillars curve hard across their width, and fans of long thin triangles across
+    them broke the paint's highlight into a zigzag. Returns (points, spacings)."""
+    rows, edges = [], []
+    for P in edges3d:
+        e = K.resample(chart.to2d(P), step, closed=False)
+        edges.append(e)
+        for d in offs:
+            for sgn in (1.0, -1.0):
+                o = K.offset_loop2(e, sgn * d, closed=False)
+                ins = K.in_poly(o, region_uv)
+                if ins.mean() > 0.3:
+                    rows.append(o[ins])
+                    break
+    E = np.vstack(edges)
+    d2 = ((pts[:, None, :] - E[None, :, :]) ** 2).sum(2).min(1)
+    keep = d2 > clear * clear
+    sp = np.broadcast_to(np.asarray(sp, float), (len(pts),))
+    R = np.vstack(rows) if rows else np.zeros((0, 2))
+    return np.vstack([pts[keep], R]), np.concatenate([sp[keep], np.full(len(R), 0.6 * step)])
+
+
 class Cut:
     """A cut line in one chart and its two offset boundaries. side 'in' = panel side, 'out' = body side.
     uv: polyline in the chart domain; for doors on the lower body the ends lie on the junction."""
@@ -763,8 +786,12 @@ class Exterior:
             pts, sp = S.grid_from(cu, ct)
             V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp, level=level)
             return K.Buf().add(V, -N, T, 'plastic_int')
+        pts, sp = self._edge_rows(pts, sp, loop.uv)
         V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
+
+    def _edge_rows(self, pts, sp, region_uv):
+        return edge_rows(S.CG, [self.win[k]['P'] for k in ('ws', 'rw')], pts, sp, region_uv)
 
     def door_frame(self, w):
         """Door frame skin on the greenhouse (inside the frame cut, minus the glass openings)."""

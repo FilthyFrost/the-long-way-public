@@ -9,7 +9,7 @@ import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
 from frames import pickup as S  # noqa: E402
-from frames._sedan_ext import Path, side_dir, interp_curve  # noqa: E402
+from frames._sedan_ext import Path, side_dir, interp_curve, edge_rows  # noqa: E402
 
 D = S.D
 PI = math.pi
@@ -487,6 +487,7 @@ class Exterior:
             V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp, level=level)
             return K.Buf().add(V, -N, T, 'plastic_int')
         pts, sp = S.grid_from(gus, gts)
+        pts, sp = edge_rows(S.CG, [self.win[k]['P'] for k in ('ws', 'rw')], pts, sp, loop.uv)
         V, N, T = K.mesh_region(S.CG, [loop], [], pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
 
