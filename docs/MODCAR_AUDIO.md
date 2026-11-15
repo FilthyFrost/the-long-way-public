@@ -83,7 +83,15 @@ snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯�
 - `npm test`：`harness/sim/modcar-audio.test.ts` 检查每个清单条目两种格式都在、容器解码长度和清单一致（Ogg granule / MP4 edit list）、循环点在填充之内、转速档覆盖怠速到红线且相邻比 < 1.14、构建时测得的接缝干净、混合数学、所有机械声配方。
 - `node harness/audio/modcar_render.mjs --all`：无头 Chrome 里用真正的 `EngineVoice` / `Foley` 渲染每台发动机的“巡游”（起动 → 怠速 → 轰油 → 一挡拉到断油 → 换挡 → 二挡 → 收油滑行 → 熄火）、慢扫转速、排气与车厢变体、全部机械声，WAV 写到 `D:/modcar-scratch/sound/out/`，打印响度和频谱质心；`--loops` 用 Chrome 自己解码每个循环、循环播放三圈，检查接缝处的二阶差分（0 个咔嗒）。摘要写进 `loop/metrics/audio_modcar.json`。
 
-## 6. 已知不足
+## 6. 频谱校准
+
+和两段自由许可的真车录音比过长时平均频谱（只用于分析，没进仓库、不随游戏发布）：Wikimedia Commons 上的
+“Chevrolet Chevelle - engine and exhaust sound”（CC BY 3.0）和 “Volkswagen Beetle 1300 (1972) - engine and exhaust sound”（CC BY 3.0）。
+真车在 0.8–3.2 kHz（排气的“吠”）几乎和低频一样强，Engine Simulator 原声低 15–17 dB。现在按发动机加了 700 Hz 以上的
+presence 提升、1.3 kHz 的排气“吠”峰（随排气件加大）、脉冲同步的沙哑噪声和大排量机的低频 body：V8 全负载拉升在这几个频段
+原装约 −10 dB、运动 −7.5、侧排 −5、开放歧管 −2（参考录音约 0 dB，是改装排气 + 手持相机）。
+
+## 7. 已知不足
 
 - 没有人耳试听过：电平、叠层比例都按频谱和响度测量定的，第二天需要试听调 `TONES` / `EXHAUSTS` / `LAYERS`。
 - 柴油和二冲程是近似；Engine Simulator 本身偏暗，亮度主要靠冲激响应和离线叠层。

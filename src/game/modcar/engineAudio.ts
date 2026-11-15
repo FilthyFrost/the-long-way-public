@@ -2,10 +2,11 @@
  * ModCar engine sound. Each engine has a bank recorded with Engine Simulator (tools/enginesim):
  * steady loops every ~13 % of rpm from idle to past the redline, at full load and on the overrun,
  * plus the starter turning it over, the catch, the switch-off, a stall and the rev limiter.
- * EngineVoice plays the two loops nearest the current rpm (pitched to it exactly, equal-power
- * crossfade), blends full load against overrun by throttle and load, and adds what the recording
- * cannot know about: the starter motor, induction roar, a fan or gear whine, the turbo, pops on
- * lifting off, the exhaust fitted and whether you sit in a closed cabin.
+ * EngineVoice plays the two loops nearest the current rpm, pitched to it exactly and started in
+ * step with each other (the banks carry every loop's engine-cycle phase), crossfaded so their
+ * summed power holds; blends full load against overrun by throttle and load; and adds what the
+ * recording cannot know about: the starter motor, induction roar, a fan or gear whine, the turbo,
+ * pops on lifting off, misfires and knock, the exhaust fitted and whether you sit in a closed cabin.
  *
  * It shares the game's AudioContext (AudioEngine.context / .output) and works the same in an
  * OfflineAudioContext (the render harness steps it with suspend/resume).
@@ -85,27 +86,31 @@ interface EngineTone {
   starter: { hz: number; drag: number; gainDb: number };
   /** a governor holds the top speed (no rev-limiter stutter): mowers and diesels */
   governed?: boolean;
+  /** lift above 700 Hz (dB): the simulator is darker than a real exhaust in the 1-4 kHz bark */
+  presenceDb: number;
+  /** lift below 120 Hz (dB): the rumble a big engine has and the simulator under-plays */
+  bodyDb?: number;
 }
 
 /** the starter motor against the bank's loudest loop (it sits a little under the idle) */
 const STARTER_DB = -27;
 
 const TONES: Record<string, EngineTone> = {
-  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true },
-  eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB } },
-  eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB } },
-  eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB } },
-  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true },
-  eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB } },
-  eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB } },
-  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true },
+  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true, presenceDb: 3 },
+  eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB }, presenceDb: 5 },
+  eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB }, presenceDb: 1 },
+  eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 4 },
+  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 3 },
+  eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 7, bodyDb: 2 },
+  eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 9, bodyDb: 5 },
+  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 5 },
 };
 
-const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB } };
+const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 5 };
 
 interface ExhaustTone {
   gainDb: number;
-  /** low shelf at 120 Hz (body) and high shelf at 1.8 kHz (bite), dB */
+  /** low shelf at 120 Hz (body) and a broad lift around 1.3 kHz (the bark), dB */
   bodyDb: number;
   biteDb: number;
   lowpass: number;
@@ -116,11 +121,11 @@ interface ExhaustTone {
 }
 
 export const EXHAUSTS: Record<string, ExhaustTone> = {
-  exh_stock: { gainDb: 0, bodyDb: 0, biteDb: -1, lowpass: 7500, rasp: 0.0, pops: 0.35 },
-  exh_sport: { gainDb: 4, bodyDb: 2.5, biteDb: 3, lowpass: 11000, rasp: 0.35, pops: 1.0 },
-  exh_side: { gainDb: 8, bodyDb: 3, biteDb: 6, lowpass: 15000, rasp: 0.7, pops: 1.6 },
+  exh_stock: { gainDb: 0, bodyDb: 0, biteDb: -1, lowpass: 7500, rasp: 0.15, pops: 0.35 },
+  exh_sport: { gainDb: 4, bodyDb: 2.5, biteDb: 4, lowpass: 9000, rasp: 0.35, pops: 1.0 },
+  exh_side: { gainDb: 8, bodyDb: 3, biteDb: 7, lowpass: 11000, rasp: 0.6, pops: 1.6 },
   /** nothing fitted: open manifold */
-  none: { gainDb: 11, bodyDb: -2, biteDb: 8, lowpass: 16000, rasp: 1.0, pops: 2.0 },
+  none: { gainDb: 11, bodyDb: -2, biteDb: 8, lowpass: 13000, rasp: 0.85, pops: 2.0 },
 };
 
 // ------------------------------------------------------------------ loading
@@ -230,17 +235,19 @@ const DEFAULT_COHERENCE = 0.5;
  * The two loops either side of rpm with power-preserving weights for phase-aligned loops, and the
  * playback rate each needs. Below the first / above the last loop the end one plays alone, pitched.
  */
-export function rpmWeights(loops: readonly LoopRec[], rpm: number): Array<{ rec: LoopRec; w: number; rate: number }> {
+export function rpmWeights(loops: readonly LoopRec[], rpm: number, weightRpm = rpm): Array<{ rec: LoopRec; w: number; rate: number }> {
   if (loops.length === 0) return [];
   const r = Math.max(1, rpm);
-  if (r <= loops[0].rpm) return [{ rec: loops[0], w: 1, rate: r / loops[0].rpm }];
+  // (the weights may follow a slightly different rpm than the pitch: see EngineVoice's wander)
+  const q = Math.max(1, weightRpm);
+  if (q <= loops[0].rpm) return [{ rec: loops[0], w: 1, rate: r / loops[0].rpm }];
   const last = loops[loops.length - 1];
-  if (r >= last.rpm) return [{ rec: last, w: 1, rate: r / last.rpm }];
+  if (q >= last.rpm) return [{ rec: last, w: 1, rate: r / last.rpm }];
   let i = 0;
-  while (loops[i + 1].rpm < r) i++;
+  while (loops[i + 1].rpm < q) i++;
   const a = loops[i];
   const b = loops[i + 1];
-  const x = Math.log(r / a.rpm) / Math.log(b.rpm / a.rpm);
+  const x = Math.log(q / a.rpm) / Math.log(b.rpm / a.rpm);
   const [wa, wb] = blendWeights(x, b.coh ?? DEFAULT_COHERENCE);
   return [
     { rec: a, w: wa, rate: r / a.rpm },
@@ -361,6 +368,7 @@ export class EngineVoice {
   private readonly exIn: GainNode;
   private readonly body: BiquadFilterNode;
   private readonly bite: BiquadFilterNode;
+  private readonly presence: BiquadFilterNode;
   private readonly exLp: BiquadFilterNode;
   private readonly exGain: GainNode;
   private readonly pre: GainNode;
@@ -388,7 +396,6 @@ export class EngineVoice {
   private readonly misVca: GainNode;
   private readonly airLp: BiquadFilterNode;
   private readonly steamGain: GainNode;
-  private readonly noiseBuf: AudioBuffer;
   private readonly knockBufs: AudioBuffer[] = [];
   private readonly clickBuf: AudioBuffer;
   /** next firing slot / crank turn / solenoid click already scheduled (context time) */
@@ -403,7 +410,6 @@ export class EngineVoice {
   private catchUntil = 0;
   private quietUntil = 0;
   private boost = 0;
-  private lastThrottle = 0;
   /** recent throttle peak, falling at 4 /s: a lift is a drop from it, however many frames it takes */
   private thrPeak = 0;
   private throttleHi = 0;
@@ -413,6 +419,12 @@ export class EngineVoice {
   private bovReadyAt = 0;
   private lastRpm = 0;
   private lastLoad = 0;
+  /** slow random drift, -1..1: where between two loops the crossfade sits, and the idle's lope */
+  private wander = 0;
+  private wanderTo = 0;
+  private wanderAt = 0;
+  private lope = 0;
+  private lopeTo = 0;
   private readonly popBufs: AudioBuffer[] = [];
   /** how many pops / blow-offs have fired (debug and the render harness) */
   popsFired = 0;
@@ -444,12 +456,13 @@ export class EngineVoice {
     this.misVca = g(1);
     this.exIn = g(1);
     this.body = f('lowshelf', 120, 0.707, 0);
-    this.bite = f('highshelf', 1800, 0.707, 0);
+    this.bite = f('peaking', 1300, 0.8, 0);
+    this.presence = f('highshelf', 700, 0.6, 0);
     this.exLp = f('lowpass', 7500, 0.6);
     this.exGain = g(1);
     this.pre = g(1);
     this.engBus.connect(this.misVca).connect(this.exIn);
-    this.exIn.connect(this.body).connect(this.bite).connect(this.exLp).connect(this.exGain).connect(this.pre);
+    this.exIn.connect(this.body).connect(this.bite).connect(this.presence).connect(this.exLp).connect(this.exGain).connect(this.pre);
     this.extGain = g(1);
     // air takes the top off with distance
     this.airLp = f('lowpass', 18000, 0.5);
@@ -464,7 +477,6 @@ export class EngineVoice {
     // two seconds of white noise for every noise layer
     const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     nb.copyToChannel(noise(nb.length, new Rng(0xabcdef)) as Float32Array<ArrayBuffer>, 0);
-    this.noiseBuf = nb;
     const noiseSrc = (): AudioBufferSourceNode => {
       const s = ctx.createBufferSource();
       s.buffer = nb;
@@ -483,7 +495,7 @@ export class EngineVoice {
     rect.curve = curve;
     const envLp = f('lowpass', 240, 0.5);
     this.misVca.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
-    noiseSrc().connect(f('highpass', 1800, 0.6)).connect(f('lowpass', 7000, 0.6)).connect(this.raspVca).connect(this.exIn);
+    noiseSrc().connect(f('highpass', 1000, 0.6)).connect(f('lowpass', 4500, 0.6)).connect(this.raspVca).connect(this.exIn);
 
     // induction roar
     this.intakeBp = f('bandpass', 400, 0.9);
@@ -719,8 +731,9 @@ export class EngineVoice {
     const doppler = st.inside ? 1 : Math.min(1.25, Math.max(0.8, 343 / (343 - Math.min(80, Math.max(-80, st.approach ?? 0)))));
     // ---- exhaust fitted
     set(this.exGain.gain, Math.pow(10, ex.gainDb / 20), 0.05);
-    set(this.body.gain, ex.bodyDb, 0.05);
+    set(this.body.gain, ex.bodyDb + (tone.bodyDb ?? 0), 0.05);
     set(this.bite.gain, ex.biteDb, 0.05);
+    set(this.presence.gain, tone.presenceDb, 0.05);
     set(this.exLp.frequency, ex.lowpass, 0.05);
 
     const rpm = Math.max(0, st.rpm);
@@ -751,13 +764,26 @@ export class EngineVoice {
     this.lastLoad = load;
 
     // ---- loops
+    // at a steady speed the crossfade drifts a little either side (about +-2.5 % rpm, the weights
+    // only) so a held rpm never leaves one short loop repeating on its own; near idle the pitch
+    // lopes a little as a real idle does
+    if (t >= this.wanderAt) {
+      this.wanderTo = this.rng.range(-1, 1);
+      this.lopeTo = this.rng.range(-1, 1);
+      this.wanderAt = t + this.rng.range(1.5, 3.5);
+    }
+    this.wander += (this.wanderTo - this.wander) * (1 - Math.exp(-dt / 0.9));
+    this.lope += (this.lopeTo - this.lope) * (1 - Math.exp(-dt / 0.35));
+    const idleish = m ? smoothstep(m.idleRpm * 1.5, m.idleRpm * 1.05, rpm) * (1 - thr) : 0;
+    const pitchRpm = rpm * (1 + 0.006 * idleish * this.lope);
+    const weightRpm = pitchRpm * Math.exp(0.025 * this.wander);
     const want = new Map<string, { rec: LoopRec; gain: number; rate: number }>();
     if (bank && running) {
       // fade the loops in under the catch
       const inCatch = t < this.catchUntil ? Math.max(0.15, 1 - (this.catchUntil - t) / 0.6) : 1;
       const mix = loadMix(thr, load);
       // full load against overrun at this rpm: aligned too, so the same crossfade law
-      const offNear = rpmWeights(bank.off, rpm)[0]?.rec;
+      const offNear = rpmWeights(bank.off, pitchRpm, weightRpm)[0]?.rec;
       const [wOff, wOn] = blendWeights(mix, offNear?.cohLoad ?? DEFAULT_COHERENCE * 0.5);
       // the rev limiter: crossfade into its own recording near the cut
       const lim = m!.oneshots['limiter'];
@@ -766,7 +792,7 @@ export class EngineVoice {
       const limW = lim && !tone.governed ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
       for (const [set2, w0] of [[bank.on, wOn], [bank.off, wOff]] as const) {
         if (w0 < 1e-3) continue;
-        for (const { rec, w, rate } of rpmWeights(set2, rpm)) {
+        for (const { rec, w, rate } of rpmWeights(set2, pitchRpm, weightRpm)) {
           const gain = w * w0 * (1 - limW) * inCatch * loopGain(tone, rec, m!.idleRpm, m!.redlineRpm);
           if (gain > 1e-4) want.set(rec.file, { rec, gain, rate });
         }
@@ -876,7 +902,6 @@ export class EngineVoice {
     } else {
       this.popBudget = 0;
     }
-    this.lastThrottle = thr;
     // starter motor
     const sr = Math.min(1, Math.max(0.15, st.starterRate ?? 1));
     const crankHz = tone.starter.hz * (0.55 + 0.45 * sr);
