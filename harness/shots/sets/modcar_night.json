@@ -1,0 +1,10 @@
+{
+  "set": "modcar_night",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=22",
+  "shots": [
+    {"name": "sedan_rear_night", "params": "build=stock:sedan&view=orbit&orbit=205,8,6,0.6", "steps": [{"call": "lights", "args": []}]},
+    {"name": "pickup_rear_night", "params": "build=stock:pickup&view=orbit&orbit=205,8,7,0.7", "steps": [{"call": "lights", "args": []}]},
+    {"name": "sedan_front_night", "params": "build=stock:sedan&view=orbit&orbit=35,9,7,0.6", "steps": [{"call": "lights", "args": []}]}
+  ]
+}

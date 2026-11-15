@@ -103,7 +103,8 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.33, wear: [0.6, 0, 0], ink: 0.0 },
   glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0], ink: 0.0 },
   lens_head: { family: 'lens', base: [0.8, 0.82, 0.84], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.86, 0.62], opacity: 0.18, wear: [0.6, 0, 0], ink: 0.0 },
-  lens_tail: { family: 'lens', base: [0.5, 0.02, 0.012], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.1, 0.045], opacity: 0.72, wear: [0.6, 0, 0], ink: 0.0 },
+  // (its light a deep red: what little green there is comes up a lot in sRGB, and a tail lamp reads orange)
+  lens_tail: { family: 'lens', base: [0.5, 0.02, 0.012], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.035, 0.018], opacity: 0.72, wear: [0.6, 0, 0], ink: 0.0 },
   lens_amber: { family: 'lens', base: [0.75, 0.3, 0.02], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.45, 0.05], opacity: 0.66, wear: [0.6, 0, 0], ink: 0.0 },
   gauge: { family: 'gauge', base: [0.8, 0.77, 0.68], look: [0.3, 0.99, 0.0, 0], cabin: true, ink: 0.18 },
   emit: { family: 'emit', base: [1.0, 0.78, 0.45], look: [0, 0, 0, 0], ink: 0.87 },
@@ -307,6 +308,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
     float toSun = dot(rs, ss) * 0.5 + 0.5;
     e.bright = (mix(uHorizon, vec3(rtLuma(uHorizon)), 0.2) * 1.15 + uGlow * 0.25 * uSunVis * toSun * toSun) * (0.78 + 0.34 * toSun);
+    // at night the band is what is left of the sky's light along the horizon: lifted a little and cooled, so
+    // a car keeps its shape under the moon instead of going flat
+    float night = 1.0 - smoothstep(-0.12, 0.04, uSunDir.y);
+    e.bright *= 1.0 + 0.3 * night;
+    e.bright += vec3(0.012, 0.018, 0.034) * night;
     e.upper = mix(uMid, uZenith, smoothstep(0.42, 0.85, h));
     // the sky's own clouds, as the dome draws them (hard-edged already): a hood mirrors them
     e.cloud = 0.0;
@@ -1178,7 +1184,8 @@ export class CarLook {
         const rev = l.reverse ? 2.4 : 0;
         u.uLampQ.value.set(head, head, rev, rev);
       } else if (n === 'lens_tail') {
-        const t = (l.tail ? 1.1 : 0) + l.brake * 3.0;
+        // (kept under the tone curve's knee, a lit tail lamp stays red: brighter, it would go orange and white)
+        const t = (l.tail ? 0.95 : 0) + l.brake * 2.2;
         u.uLampQ.value.set(t, t, t, t);
       } else if (n === 'lens_amber') {
         const left = l.turnLeft ? 3.0 : 0;
