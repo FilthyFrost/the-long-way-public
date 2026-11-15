@@ -683,7 +683,9 @@ def interior(ex):
     # firewall face inside the cabin (the engine bay's firewall sheet faces the bay)
     L.extend(quad_sheet((FIREWALL_X - 0.004, 0.0, FLOOR_Z), (0, 0.70, 0), (0, 0, 0.64 - FLOOR_Z), 2, 2, (-1, 0, 0), 'trim'))
     # parcel shelf under the rear window
-    L.extend(K.box_buf((-1.62, 0.0, 0.905), (-1.40, 0.73, 0.925), 'plastic_int', 0.006, 2))
+    # (from the rear window's foot forwards and under the deck: it reached back over the deck and showed through
+    # it as a dark wedge at the C pillar's foot)
+    L.extend(K.box_buf((-1.47, 0.0, 0.900), (-1.40, 0.70, 0.915), 'plastic_int', 0.006, 2))
     # sill trims and kick panels
     L.extend(K.box_buf((rear_arch_front(0.30) + 0.03, 0.60, FLOOR_Z), (D['fd_front'] - 0.02, 0.66, 0.33), 'plastic_int', 0.012, 2))
     L.extend(K.box_buf((0.66, 0.58, FLOOR_Z), (FIREWALL_X - 0.02, 0.70, 0.62), 'plastic_int', 0.02, 2))
