@@ -115,17 +115,17 @@ class Frame:
         return b
 
     def backbone(self):
-        b = MK.tube(self.bb, D['r_bb'], FR, 16)
-        b.extend(MK.weld(self.ht_long, D['r_ht'], self.bb, D['r_bb'], at='start', bead=0.0034, mat=FR, segs=28))
+        b = MK.tube(self.bb, D['r_bb'], FR, 15)
+        b.extend(MK.weld(self.ht_long, D['r_ht'], self.bb, D['r_bb'], at='start', bead=0.0034, mat=FR, segs=20))
         return b
 
     def loop_tube(self):
         """Left main loop with its weld at the head tube."""
         b = MK.tube(self.loop, self.rl, FR, 12, cap0='flat', cap1=None)
-        b.extend(MK.weld(self.ht_long, D['r_ht'], self.loop, self.rl, at='start', bead=0.003, mat=FR, segs=24))
+        b.extend(MK.weld(self.ht_long, D['r_ht'], self.loop, self.rl, at='start', bead=0.003, mat=FR, segs=16))
         return b
 
-    def cross(self, p_left, r, mat=FR, weld=True, segs=10):
+    def cross(self, p_left, r, mat=FR, weld=True, segs=9):
         """A cross tube from a point on the left loop to its mirror image, welded at both ends."""
         p = np.asarray(p_left, float)
         path = np.array([p, my(p)])
@@ -154,7 +154,7 @@ class Frame:
         self.p_junction = p
         jt = np.array([p, my(p)])
         b.extend(self.cross(p, 0.0135))
-        b.extend(MK.weld(jt, 0.0135, self.bb, D['r_bb'], at='end', bead=0.003, mat=FR, segs=24))
+        b.extend(MK.weld(jt, 0.0135, self.bb, D['r_bb'], at='end', bead=0.003, mat=FR, segs=16))
         p, _ = self.at_x(-0.455, self.s_junction, self.s_hoop)
         self.p_rail_cross = p
         b.extend(self.cross(p, 0.0105))
@@ -177,14 +177,14 @@ class Frame:
         p0, _ = self.at_z(0.452, self.s_rear_corner, self.s_junction)
         stay = MK.bend_path([p0 + np.array([0.004, 0, 0]), (-0.43, 0.108, 0.545), (bx + 0.006, 0.106, bz)], [0, 0.4, 0])
         self.stay = stay
-        b.extend(MK.tube(stay, 0.0115, FR, 12))
+        b.extend(MK.tube(stay, 0.0115, FR, 11))
         b.extend(MK.weld(self.loop, self.rl, stay, 0.0115, at='start', bead=0.0026, mat=FR, segs=12))
         b.extend(MK.weld(boss, 0.0125, stay, 0.0115, at='end', bead=0.0026, mat=FR, segs=12))
         b.extend(MK.weld(self.loop, self.rl, boss, 0.0125, at='start', bead=0.0026, mat=FR, segs=12))
         # shock stud: from the boss end out through the eye, acorn nut and washer
         stud = np.array([[bx, 0.125, bz], [bx, D['shock_hw'] + 0.016, bz]])
         b.extend(MK.tube(stud, 0.0055, 'steel', 10))
-        b.extend(MK.disc((bx, D['shock_hw'] + 0.0125, bz), (0, 1, 0), 0.012, 0.0055, 'steel', 18, thick=0.0016))
+        b.extend(MK.disc((bx, D['shock_hw'] + 0.0131, bz), (0, 1, 0), 0.012, 0.0055, 'steel', 12))
         b.extend(MK.cap_nut((bx, D['shock_hw'] + 0.0133, bz), (0, 1, 0), 0.0075, 0.010, 'chrome'))
         return b
 
@@ -211,11 +211,11 @@ class Frame:
         b = K.Buf()
         pv = self.pivot
         boss = np.array([pv + [0, 0.096, 0], pv + [0, 0.132, 0]])
-        b.extend(MK.tube(boss, 0.0195, FR, 18))
+        b.extend(MK.tube(boss, 0.0195, FR, 16))
         p, _ = self.at_z(pv[2], self.s_rear_corner, self.s_junction)
         out = MK.rounded_poly2([(-0.04, -0.045), (0.035, -0.04), (0.04, 0.05), (-0.032, 0.07)], [0.01, 0.012, 0.012, 0.01])
         for y in (0.0985, 0.1275):
-            b.extend(MK.plate(out, (pv[0], y, pv[2]), (1, 0, 0), (0, 0, 1), 0.004, FR))
+            b.extend(MK.plate(out, (pv[0], y, pv[2]), (1, 0, 0), (0, 0, 1), 0.004, FR, flat=True))
         return b
 
     def pivot_hardware(self):
@@ -241,20 +241,20 @@ class Frame:
         pt_lo, _ = self.at_z(lug_f[2] - 0.035, 0.0, self.s_front_corner + 0.03)
         outline = [(pt_hi[0] + 0.006, pt_hi[2] + 0.012), (lug_f[0] - 0.012, lug_f[2] + 0.024), (lug_f[0] - 0.026, lug_f[2]),
                    (lug_f[0] - 0.012, lug_f[2] - 0.024), (pt_lo[0] + 0.004, pt_lo[2] - 0.012)]
-        out = MK.rounded_poly2(outline, [0.006, 0.016, 0.016, 0.016, 0.006])
+        out = MK.rounded_poly2(outline, [0.006, 0.016, 0.016, 0.016, 0.006], 0.016)
         hole = MK.circle2((lug_f[0], lug_f[2]), 0.0085, 16)
         y = 0.0675
-        b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.005, FR, holes=[hole]))
+        b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.005, FR, holes=[hole], flat=True))
         b.extend(MK.bolt((lug_f[0], y + 0.0025, lug_f[2]), (0, 1, 0), 0.0075, 0.0055, 'steel'))
         # rear plates: from the upright above the gearbox forward to the crankcase's rear lug
         pu_hi, _ = self.at_z(0.478, self.s_rear_corner, self.s_junction)
         pu_lo, _ = self.at_z(0.418, self.s_rear_corner, self.s_junction)
         outline = [(pu_lo[0] + 0.004, pu_lo[2] - 0.006), (pu_hi[0] + 0.004, pu_hi[2] + 0.008), (lug_r[0] - 0.02, lug_r[2] + 0.024),
                    (lug_r[0] + 0.022, lug_r[2]), (lug_r[0] - 0.02, lug_r[2] - 0.02)]
-        out = MK.rounded_poly2(outline, [0.006, 0.006, 0.016, 0.018, 0.012])
+        out = MK.rounded_poly2(outline, [0.006, 0.006, 0.016, 0.018, 0.012], 0.016)
         hole = MK.circle2((lug_r[0], lug_r[2]), 0.0085, 16)
         y = 0.0845
-        b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.005, FR, holes=[hole]))
+        b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.005, FR, holes=[hole], flat=True))
         b.extend(MK.bolt((lug_r[0], y + 0.0025, lug_r[2]), (0, 1, 0), 0.0075, 0.0055, 'steel'))
         return b
 
@@ -263,7 +263,7 @@ class Frame:
         b = K.Buf()
         E = M.ENGINE
         for lug, y in ((E + np.array([0.125, 0.0, 0.06]), 0.0675), (E + np.array([-0.16, 0.0, 0.18]), 0.0845)):
-            b.extend(MK.bolt((lug[0], -y - 0.0025, lug[2]), (0, -1, 0), 0.0075, 0.0065, 'steel', nut=True))
+            b.extend(MK.bolt((lug[0], -y - 0.0025, lug[2]), (0, -1, 0), 0.0075, 0.0065, 'steel', washer=False))
             b.extend(MK.tube(np.array([(lug[0], -y, lug[2]), (lug[0], y, lug[2])]), 0.0045, 'steel', 8))
         # head steady: a strap from a lug under the backbone down to the head, between the rocker caps
         top = E + np.array([0.074, 0.0, 0.42])
@@ -308,7 +308,7 @@ class Frame:
         top = bz + 0.137
         strap = [(bx - 0.03, W / 2 - 0.004, bz + 0.01), (bx - 0.03, W / 2 + 0.0015, top - 0.006), (bx - 0.03, W / 2 - 0.004, top + 0.0015),
                  (bx - 0.03, -W / 2 + 0.004, top + 0.0015), (bx - 0.03, -W / 2 - 0.0015, top - 0.006), (bx - 0.03, -W / 2 + 0.004, bz + 0.01)]
-        path = MK.bend_path(strap, [0, 0.004, 0.006, 0.006, 0.004, 0])
+        path = MK.bend_path(strap, [0, 0.004, 0.006, 0.006, 0.004, 0], 0.25, 30.0)
         prof = np.array([(-0.011, -0.0015), (0.011, -0.0015), (0.011, 0.0015), (-0.011, 0.0015)])
         V, N, T = K.sweep(path, np.array([1.0, 0, 0]), prof, closed=False, closed_prof=True)
         b.add(V, N, T, 'rubber')
@@ -329,7 +329,7 @@ class Frame:
         c1 = c0 + np.array([-0.105, 0.0, 0.004])
         prof = [(0.0, 0.0), (0.017, 0.0), (0.0205, 0.004), (0.0205, 0.10), (0.017, 0.105), (0.0, 0.105)]
         ax = unit(c1 - c0)
-        b.extend(MK.lathe(MK.round_prof(prof, 0.002, 2), c0, ax, 'trim', 18))
+        b.extend(MK.lathe(MK.round_prof(prof, 0.002, 1), c0, ax, 'trim', 16))
         # HT tower and boot
         b.extend(MK.lathe([(0.0, 0.0), (0.009, 0.0), (0.0075, 0.018), (0.0045, 0.022), (0.0, 0.022)], c0 + ax * 0.012 + np.array([0, 0, -0.018]), (0, 0, -1), 'rubber', 12))
         # clamp strap and the bracket up to the backbone
@@ -363,7 +363,7 @@ class Frame:
                (bx + 0.07, 0.035, bz + 0.15), (bx + 0.03, 0.03, bz + 0.12)]
         cab, path = MK.cable(pts, 0.0062, 'trim', 8, [0, 0.05, 0.06, 0.03, 0])
         b.extend(cab)
-        for f in (0.25, 0.5, 0.75):
+        for f in (0.3, 0.7):
             p, t = MK.point_at(path, MK.path_length(path) * f)
             b.extend(MK.lathe([(0.0068, -0.003), (0.0078, -0.0025), (0.0078, 0.0025), (0.0068, 0.003)], p, t, 'steel', 12))
         return b
@@ -379,7 +379,7 @@ class Frame:
                                [0.004, 0.004, 0.012, 0.012])
         out = out + np.array([piv[0], piv[2]])
         for y in (piv[1] - 0.016, piv[1] + 0.016):
-            b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.004, FR))
+            b.extend(MK.plate(out, (0.0, y, 0.0), e1, e2, 0.004, FR, flat=True))
         b.extend(MK.tube(np.array([piv + [0, -0.02, 0], piv + [0, 0.02, 0]]), 0.006, 'steel', 10))
         b.extend(MK.bolt(piv + [0, 0.018, 0], (0, 1, 0), 0.0075, 0.005, 'steel', washer=False))
         # spring post
@@ -398,10 +398,10 @@ class Frame:
         out = [(pv[0] - 0.026, pv[2] + 0.022), (pv[0] + 0.012, pv[2] + 0.03), (peg[0] - 0.02, peg[2] + 0.026),
                (peg[0] + 0.028, peg[2] + 0.012), (peg[0] + 0.022, peg[2] - 0.024), (pc[0] + 0.015, pc[2] - 0.02),
                (pv[0] - 0.024, pv[2] - 0.026)]
-        o2 = MK.rounded_poly2([(p[0], p[1]) for p in out], [0.024, 0.06, 0.02, 0.012, 0.012, 0.03, 0.022])
+        o2 = MK.rounded_poly2([(p[0], p[1]) for p in out], [0.024, 0.06, 0.02, 0.012, 0.012, 0.03, 0.022], 0.018)
         holes = [MK.circle2((pv[0], pv[2]), 0.0068, 14)]
         # lightening hole in the middle
-        holes.append(MK.slot2(((pv[0] + peg[0]) * 0.5 + 0.03, pv[2] - 0.0), ((pv[0] + peg[0]) * 0.5 - 0.035, pv[2] + 0.004), 0.011, 6))
+        holes.append(MK.slot2(((pv[0] + peg[0]) * 0.5 + 0.03, pv[2] - 0.0), ((pv[0] + peg[0]) * 0.5 - 0.035, pv[2] + 0.004), 0.011, 4))
         b.extend(MK.plate(o2, (0.0, y, 0.0), (1, 0, 0), (0, 0, 1), 0.006, FR, holes=holes))
         # the strut from the cradle's rear corner up to the hanger
         p0 = pc + np.array([0.0, 0.0, -0.002])
@@ -418,8 +418,8 @@ class Frame:
             h0 = 0.008 + k * (y1 - y0 - 0.016) / n
             prof += [(0.0165, h0 + 0.003), (0.0150, h0 + 0.0115)]
         prof += [(0.0165, y1 - y0 - 0.006), (0.0145, y1 - y0), (0.0, y1 - y0)]
-        b.extend(MK.lathe(prof, (peg[0], y0, peg[2]), (0, 1, 0), 'rubber', 12))
-        b.extend(MK.tube(np.array([(peg[0], y0 - 0.006, peg[2]), (peg[0], y0 + 0.004, peg[2])]), 0.0105, 'steel', 12))
+        b.extend(MK.lathe(prof, (peg[0], y0, peg[2]), (0, 1, 0), 'rubber', 13))
+        b.extend(MK.tube(np.array([(peg[0], y0 - 0.006, peg[2]), (peg[0], y0 + 0.004, peg[2])]), 0.0105, 'steel', 9))
         return b
 
     def brake_pedal(self):
@@ -428,8 +428,8 @@ class Frame:
         b = K.Buf()
         pv = M.PEDAL_PIVOT
         y = pv[1]
-        b.extend(MK.tube(np.array([pv + [0, 0.004, 0], pv + [0, -0.016, 0]]), 0.0105, 'steel', 14))
-        b.extend(MK.bolt(pv + [0, -0.016, 0], (0, -1, 0), 0.0065, 0.005, 'steel'))
+        b.extend(MK.tube(np.array([pv + [0, 0.004, 0], pv + [0, -0.016, 0]]), 0.0105, 'steel', 12))
+        b.extend(MK.bolt(pv + [0, -0.016, 0], (0, -1, 0), 0.0065, 0.005, 'steel', washer=False))
         arm = MK.bend_path([pv + [0, -0.008, 0], pv + [0.06, -0.012, -0.016], pv + [0.12, -0.022, -0.026], pv + [0.148, -0.03, -0.03]],
                            [0, 0.05, 0.05, 0])
         prof = np.array([(-0.0035, -0.0075), (0.0035, -0.0075), (0.0035, 0.0075), (-0.0035, 0.0075)])
@@ -443,7 +443,7 @@ class Frame:
         b.extend(MK.tube(la, 0.0045, 'steel', 8))
         self.rod_front = pv + np.array([-0.006, -0.004, -0.04])
         # return spring to the hanger
-        b.extend(MK.spring(pv + np.array([-0.006, 0.0, -0.022]), unit(np.array([-1.0, 0.0, -0.5])), 0.0032, 0.03, 6, 0.0009, 'steel', 4))
+        b.extend(MK.spring(pv + np.array([-0.006, 0.0, -0.022]), unit(np.array([-1.0, 0.0, -0.5])), 0.0032, 0.03, 4, 0.0009, 'steel', 4))
         return b
 
     def shift_boss(self):
@@ -462,7 +462,7 @@ class Frame:
         R0 = 0.356
         hub = M.HUB_R
         th0, th1 = -38.0, 92.0
-        n = 22
+        n = 17
         th = np.radians(np.linspace(th0, th1, n))
         radial = np.stack([-np.sin(th), np.zeros(n), np.cos(th)], 1)
         path = hub + radial * R0
@@ -479,12 +479,12 @@ class Frame:
         prof = ([(-p[0], p[1]) for p in left[::-1]] + prof_out + left)
         prof = np.array(prof)
         # outer surface and the inner one (offset by the sheet), joined at the rolled skirt edges
-        V, N, T = K.sweep(path, radial, prof, closed=False, closed_prof=False)
+        V, N, T = K.sweep(path, radial, prof[::-1], closed=False, closed_prof=False)
         b.add(V, N, T, 'paint')
         inner = prof[::2].copy()
         inner[:, 1] -= 0.0018
         inner[:, 0] *= (w - 0.0014) / w
-        V2, N2, T2 = K.sweep(path, radial, inner[::-1], closed=False, closed_prof=False)
+        V2, N2, T2 = K.sweep(path, radial, inner, closed=False, closed_prof=False)
         b.add(V2, N2, T2, 'paint')
         # rolled bead along each skirt edge
         for sg in (1, -1):
@@ -522,7 +522,7 @@ class Frame:
         out = [(-0.238, 0.668), (-0.505, 0.668), (-0.492, 0.548), (-0.43, 0.505), (-0.318, 0.498), (-0.265, 0.535)]
         o2 = MK.rounded_poly2(out, [0.02, 0.03, 0.04, 0.05, 0.04, 0.03])
         y = 0.124
-        b.extend(MK.panel(o2, (0.0, y, 0.0), (1, 0, 0), (0, 0, 1), 'paint', bulge=0.014, width=0.035, thick=0.006, r_edge=0.004, spacing=0.019,
+        b.extend(MK.panel(o2, (0.0, y, 0.0), (1, 0, 0), (0, 0, 1), 'paint', bulge=0.014, width=0.035, thick=0.006, r_edge=0.004, spacing=0.024,
                           segs=1))
         # emblem: a small chrome swallow (two swept wings and a forked tail), slightly proud of the panel
         cx, cz = -0.392, 0.598
@@ -547,10 +547,10 @@ class Frame:
         e2 = unit(np.cross(nrm, e1))
         e2 = e2 if e2[2] > 0 else -e2
         W, H = 0.17, 0.105
-        out = MK.rounded_poly2([(-W / 2, -H / 2), (W / 2, -H / 2), (W / 2, H / 2), (-W / 2, H / 2)], 0.008)
+        out = MK.rounded_poly2([(-W / 2, -H / 2), (W / 2, -H / 2), (W / 2, H / 2), (-W / 2, H / 2)], 0.008, 0.05)
         b.extend(MK.plate(out, c, e1, e2, 0.0015, 'alu', flat=True))
         rim = MK.rounded_poly2([(-W / 2 - 0.003, -H / 2 - 0.003), (W / 2 + 0.003, -H / 2 - 0.003), (W / 2 + 0.003, H / 2 + 0.003),
-                                (-W / 2 - 0.003, H / 2 + 0.003)], 0.01)
+                                (-W / 2 - 0.003, H / 2 + 0.003)], 0.01, 0.05)
         inner = rim * ((W - 0.004) / (W + 0.006))
         b.extend(MK.plate(rim, c + nrm * 0.0008, e1, e2, 0.003, 'paint_b', holes=[inner], flat=True))
         for sx in (-1, 1):
@@ -582,16 +582,17 @@ class Frame:
         z = 0.703
         y = 0.148
         pts = [(-0.585, y - 0.012, z - 0.004), (-0.70, y, z), (-0.86, y - 0.006, z + 0.004), (-0.905, 0.0, z + 0.006)]
-        path = MK.bend_path(pts, [0, 0.2, 0.08, 0])
+        path = MK.bend_path(pts, [0, 0.2, 0.08, 0], 0.25, 14.0)
         rail = np.vstack([path, my(path[::-1])[1:]])
-        b.extend(MK.tube(rail, 0.0105, 'chrome', 10, cap0='flat', cap1='flat'))
+        b.extend(MK.tube(rail, 0.0105, 'chrome', 9, cap0='flat', cap1='flat'))
+        self.grab_path = rail
         for x in (-0.598, -0.80):
             p = path[int(np.argmin(np.abs(path[:, 0] - x)))]
             for sg in (1, -1):
                 q = p * np.array([1, sg, 1])
                 foot = np.array([q[0], sg * (D['rail_hw'] + 0.012), 0.6875 + 0.002])
-                post = MK.bend_path([q, (q[0], sg * (abs(q[1]) - 0.02), q[2] - 0.006), foot], [0, 0.012, 0])
-                b.extend(MK.tube(post, 0.0075, 'chrome', 8))
+                post = MK.bend_path([q, (q[0], sg * (abs(q[1]) - 0.02), q[2] - 0.006), foot], [0, 0.012, 0], 0.25, 22.0)
+                b.extend(MK.tube(post, 0.0075, 'chrome', 7))
                 b.extend(MK.bolt(foot + [0, 0, 0.0], (0, 0, 1), 0.0055, 0.004, 'chrome', washer=False))
         return b
 
@@ -606,8 +607,8 @@ class Frame:
         b.extend(MK.box((peg[0], 0.138, peg[2]), (0.026, 0.012, 0.022), FR, None, 0.004, 2))
         y0, y1 = 0.146, 0.232
         prof = [(0.0, 0.0), (0.0105, 0.0), (0.0125, 0.004)]
-        for k in range(4):
-            h0 = 0.008 + k * (y1 - y0 - 0.016) / 4
+        for k in range(3):
+            h0 = 0.008 + k * (y1 - y0 - 0.016) / 3
             prof += [(0.0145, h0 + 0.003), (0.0132, h0 + 0.012)]
         prof += [(0.0145, y1 - y0 - 0.006), (0.0125, y1 - y0), (0.0, y1 - y0)]
         b.extend(MK.lathe(prof, (peg[0], y0, peg[2]), (0, 1, 0), 'rubber', 12))
@@ -620,7 +621,7 @@ class Frame:
         tip = np.array([-0.83, 0.205, 0.66])
         b.extend(MK.tube(np.array([base, tip]), 0.0065, 'chrome', 10))
         c = tip + np.array([-0.012, 0.0, 0.0])
-        b.extend(MK.lathe(MK.round_prof([(0.0, -0.03), (0.022, -0.03), (0.026, -0.012), (0.026, 0.0)], 0.004, 2), c, (1, 0, 0), 'chrome', 18))
+        b.extend(MK.lathe(MK.round_prof([(0.0, -0.03), (0.022, -0.03), (0.026, -0.012), (0.026, 0.0)], 0.004, 2), c, (-1, 0, 0), 'chrome', 18))
         b.extend(MK.lathe([(0.026, 0.0), (0.025, 0.006), (0.018, 0.016), (0.0, 0.02)], c + [-0.0, 0, 0], (-1, 0, 0), 'lens_amber', 18))
         for sg in (1, -1):
             M.LAMPS.append((c * np.array([1, sg, 1]) - np.array([0.01, 0, 0]), np.array([-1.0, 0, 0]), 0.026))

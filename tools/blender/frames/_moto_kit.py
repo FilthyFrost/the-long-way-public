@@ -16,8 +16,8 @@ from frames import _kit as K  # noqa: E402
 unit = K.unit
 
 # detail scale for lathes (segments round the axis) and round tubes: the triangle budget's main dial
-LATHE_SCALE = 0.56
-TUBE_SCALE = 0.84
+LATHE_SCALE = 0.52
+TUBE_SCALE = 0.80
 
 
 # ============================================================================================ paths
@@ -387,7 +387,7 @@ def spring(base, axis, r, h, turns, wire, mat='chrome', segs=6, dead=0.75, ref=N
         ref = np.array([1.0, 0, 0]) if abs(axis[0]) < 0.9 else np.array([0, 1.0, 0])
     a1 = unit(np.cross(axis, ref))
     a2 = np.cross(axis, a1)
-    n = int(turns * 12) + 1
+    n = int(turns * 11) + 1
     tt = np.linspace(0.0, turns, n)
     pd = wire * 2.05
     Ld = pd * dead
@@ -399,7 +399,7 @@ def spring(base, axis, r, h, turns, wire, mat='chrome', segs=6, dead=0.75, ref=N
     return tube(P, wire, mat, segs, cap0='flat', cap1='flat')
 
 
-def cable(pts, r, mat='trim', segs=6, radii=0.03, step=0.25, arc_deg=12.0):
+def cable(pts, r, mat='trim', segs=6, radii=0.03, step=0.25, arc_deg=18.0):
     """A flexible cable / hose through control points (smoothly bent)."""
     path = bend_path(pts, radii, step, arc_deg)
     return tube(path, r, mat, segs, cap0='flat', cap1='flat'), path

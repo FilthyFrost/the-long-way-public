@@ -65,7 +65,7 @@ class Rear:
         b = K.Buf()
         pv = self.pv
         # pivot tube with bushes
-        b.extend(MK.tube(np.array([pv + [0, -0.094, 0], pv + [0, 0.094, 0]]), 0.0205, FR, 20))
+        b.extend(MK.tube(np.array([pv + [0, -0.094, 0], pv + [0, 0.094, 0]]), 0.0205, FR, 17))
         for sg in (1, -1):
             b.extend(MK.lathe([(0.0098, 0.0), (0.0172, 0.0), (0.0172, 0.0035), (0.0098, 0.0035)], pv + [0, sg * 0.094, 0], (0, sg, 0),
                               'rubber', 18, smooth=False))
@@ -81,7 +81,7 @@ class Rear:
             yb0 = lp[1] + sg * 0.010
             b.extend(MK.tube(np.array([[lo[0], yb0 - sg * 0.004, lo[2]], [lo[0], sg * (abs(lo[1]) - 0.0125), lo[2]]]), 0.0115, FR, 14))
             b.extend(MK.tube(np.array([[lo[0], sg * (abs(lo[1]) - 0.013), lo[2]], [lo[0], sg * (abs(lo[1]) + 0.017), lo[2]]]), 0.0055, 'steel', 10))
-            b.extend(MK.disc(np.array([lo[0], sg * (abs(lo[1]) + 0.0122), lo[2]]), (0, sg, 0), 0.012, 0.0055, 'steel', 18, thick=0.0016))
+            b.extend(MK.disc(np.array([lo[0], sg * (abs(lo[1]) + 0.0128), lo[2]]), (0, sg, 0), 0.012, 0.0055, 'steel', 12))
             b.extend(MK.cap_nut(np.array([lo[0], sg * (abs(lo[1]) + 0.013), lo[2]]), (0, sg, 0), 0.0075, 0.010, 'chrome'))
         # cross brace: a pressed bridge between the legs just behind the pivot, under the tyre's front
         b.extend(self.brace())
@@ -111,7 +111,7 @@ class Rear:
         y = sg * (D['sa_hw1'] + 0.0)
         out = MK.rounded_poly2([(hub[0] + 0.07, hub[2] - 0.016), (hub[0] + 0.07, hub[2] + 0.016), (hub[0] - 0.012, hub[2] + 0.024),
                                 (hub[0] - 0.040, hub[2] + 0.012), (hub[0] - 0.040, hub[2] - 0.016), (hub[0] - 0.012, hub[2] - 0.024)],
-                               [0.008, 0.008, 0.012, 0.01, 0.01, 0.012])
+                               [0.008, 0.008, 0.012, 0.01, 0.01, 0.012], 0.016)
         slot = MK.slot2((hub[0] - 0.012, hub[2]), (hub[0] + 0.028, hub[2]), 0.0112, 6)
         b.extend(MK.plate(out, (0.0, y, 0.0), (1, 0, 0), (0, 0, 1), 0.010, FR, holes=[slot]))
         # adjuster: block on the axle behind the slot, bolt through the plate's rear lug, lock nut
@@ -121,8 +121,8 @@ class Rear:
         b.extend(MK.bolt(bc + [-0.03, 0, 0], (-1, 0, 0), 0.0055, 0.0045, 'steel', washer=False))
         b.extend(MK.bolt(bc + [-0.016, 0, 0], (-1, 0, 0), 0.0055, 0.0035, 'steel', washer=False))
         # index marks above the slot
-        for k in range(5):
-            b.extend(MK.box((hub[0] - 0.006 + k * 0.008, y + sg * 0.0052, hub[2] + 0.0155), (0.0012, 0.0008, 0.005), 'steel', None, 0.0, 1))
+        for k in range(3):
+            b.extend(MK.box((hub[0] - 0.002 + k * 0.012, y + sg * 0.0052, hub[2] + 0.0155), (0.0012, 0.0008, 0.005), 'steel', None, 0.0, 1))
         return b
 
     def axle(self):
@@ -151,10 +151,10 @@ class Rear:
             r = rr + (0.0050 if ph == 1 else -0.0032)
             tooth.append((r * math.cos(a), r * math.sin(a)))
         out = K.ccw(np.array(tooth))
-        holes = [MK.circle2((0.0, 0.0), 0.040, 24)]
+        holes = [MK.circle2((0.0, 0.0), 0.040, 18)]
         for k in range(6):
             a = 2 * math.pi * k / 6 + 0.26
-            holes.append(MK.circle2((0.066 * math.cos(a), 0.066 * math.sin(a)), 0.011, 8))
+            holes.append(MK.circle2((0.066 * math.cos(a), 0.066 * math.sin(a)), 0.011, 7))
         b.extend(MK.plate(out, c, (1, 0, 0), (0, 0, 1), 0.006, 'steel', holes=holes, flat=True))
         b.extend(MK.lathe(MK.round_prof([(0.032, 0.062), (0.050, 0.062), (0.050, 0.075), (0.044, 0.085), (0.032, 0.085)], 0.002, 1),
                           np.array([hub[0], 0.0, hub[2]]), (0, 1, 0), 'alu', 24))
@@ -174,14 +174,15 @@ class Rear:
         R = R_SPROCKET_R
 
         def tangent(p, upper):
-            d = c - p
+            # the two tangent points from p seen from the centre: theta0 +- acos(R / |p - c|); the upper run
+            # touches the higher one, the lower run the lower one
+            d = p - c
             L = math.hypot(d[0], d[2])
-            a = math.atan2(d[2], d[0])
-            b_ = math.asin(min(1.0, R / L))
-            t = a + (b_ if upper else -b_) * 1.0
-            # tangent point on the circle
-            ang = t + (math.pi / 2 if upper else -math.pi / 2)
-            return ang
+            th0 = math.atan2(d[2], d[0])
+            w = math.acos(min(1.0, R / L))
+            cands = [th0 + w, th0 - w]
+            zs = [math.sin(a) for a in cands]
+            return cands[int(np.argmax(zs))] if upper else cands[int(np.argmin(zs))]
         a_top = tangent(top0, True)
         a_bot = tangent(bot0, False)
         # arc from the top tangent point round the back to the bottom one
@@ -232,9 +233,9 @@ class Rear:
         prof = np.array([(-0.006, -0.009), (-0.008, 0.003), (-0.004, 0.0095), (0.010, 0.010), (0.017, 0.007), (0.019, -0.002),
                          (0.019, -0.016), (0.0175, -0.019)])
         # side, up: side = toward +Y (outboard); the channel covers the chain from above and outside
-        V, N, T = K.sweep(path, np.array([0, 0, 1.0]), prof * np.array([1, 1]), closed=False, closed_prof=False)
+        V, N, T = K.sweep(path, np.array([0, 0, 1.0]), prof[::-1], closed=False, closed_prof=False)
         b.add(V, N, T, FR)
-        V, N, T = K.sweep(path, np.array([0, 0, 1.0]), (prof * np.array([1, 1]) + np.array([0, -0.0012]))[::-1], closed=False, closed_prof=False)
+        V, N, T = K.sweep(path, np.array([0, 0, 1.0]), prof + np.array([0, -0.0012]), closed=False, closed_prof=False)
         b.add(V, N, T, FR)
         # tabs down to the leg
         for f in (0.2, 0.75):
@@ -250,8 +251,10 @@ class Rear:
         b = K.Buf()
         hub = self.hub
         c = np.array([hub[0], -0.0690, hub[2]])
-        prof = [(0.0115, 0.0), (0.030, 0.0), (0.060, -0.004), (0.074, -0.004), (0.0805, 0.0), (0.0805, 0.008), (0.078, 0.010)]
-        b.extend(MK.lathe(MK.round_prof(prof, 0.003, 2), c, (0, -1, 0), 'alu', 28))
+        # walked with the air on the right: up the rim's outside, over it, down inside, the face inwards, the boss
+        prof = [(0.0805, -0.008), (0.0805, 0.004), (0.0775, 0.0068), (0.0725, 0.0045), (0.070, 0.0015), (0.034, 0.0015),
+                (0.026, 0.006), (0.0115, 0.0072)]
+        b.extend(MK.lathe(MK.round_prof(prof, 0.0025, 1), c, (0, -1, 0), 'alu', 27))
         # ribs
         for k in range(8):
             a = 2 * math.pi * k / 8
@@ -296,12 +299,12 @@ class Rear:
         b.extend(MK.tube(np.array([up + [0, -0.0115, 0], up + [0, 0.0115, 0]]), 0.0062, 'rubber', 10, cap0='open', cap1='open'))
         # cap below the eye
         cap0 = up - ax * 0.010
-        b.extend(MK.lathe(MK.round_prof([(0.0, 0.0), (0.0125, 0.0), (0.0175, -0.016), (0.0185, -0.024), (0.0, -0.024)], 0.002, 2), cap0, ax, 'chrome', 22))
+        b.extend(MK.lathe([(0.0, -0.024), (0.0185, -0.024), (0.0175, -0.016), (0.0125, 0.0), (0.0, 0.0)], cap0, ax, 'chrome', 22))
         # shroud: chrome can over the spring's top
         sh0 = cap0 - ax * 0.022
         L = 0.098
-        prof = [(0.0172, 0.0), (0.0318, 0.0), (0.0322, -0.004), (0.0322, -L + 0.004), (0.0316, -L), (0.0296, -L), (0.0296, -0.004)]
-        b.extend(MK.lathe(MK.round_prof(prof, 0.0015, 2), sh0, ax, 'chrome', 28))
+        prof = [(0.0296, -0.004), (0.0296, -L), (0.0316, -L), (0.0322, -L + 0.004), (0.0322, -0.004), (0.0318, 0.0), (0.0172, 0.0)]
+        b.extend(MK.lathe(prof, sh0, ax, 'chrome', 30))
         # damper rod visible inside the shroud's mouth
         b.extend(MK.tube(np.array([sh0 + ax * 0.002, sh0 - ax * 0.14]), 0.0068, 'chrome', 10, cap0='flat', cap1='open'))
         return b
@@ -319,14 +322,14 @@ class Rear:
         b0 = lo + ax * 0.010
         Lb = 0.175
         prof = [(0.0, 0.0), (0.0125, 0.0), (0.0175, 0.016), (0.0182, 0.024), (0.0182, Lb - 0.008), (0.0168, Lb), (0.0075, Lb + 0.004)]
-        b.extend(MK.lathe(MK.round_prof(prof, 0.002, 2), b0, ax, 'trim', 22))
+        b.extend(MK.lathe(MK.round_prof(prof, 0.002, 1), b0, ax, 'trim', 18))
         # preload cam (stepped ring) and the spring's lower seat
         seat = b0 + ax * 0.030
         steps = []
         for k in range(5):
             steps += [(0.0215, 0.0 + k * 0.0), ]
-        b.extend(MK.lathe(MK.round_prof([(0.0182, -0.006), (0.0245, -0.006), (0.0260, 0.0), (0.0310, 0.0), (0.0310, 0.004), (0.0182, 0.004)], 0.0012, 1),
-                          seat, ax, 'chrome', 26))
+        b.extend(MK.lathe([(0.0182, -0.006), (0.0245, -0.006), (0.0260, 0.0), (0.0310, 0.0), (0.0310, 0.004), (0.0182, 0.004)],
+                          seat, ax, 'chrome', 20))
         for k in range(5):
             a = 2 * math.pi * k / 5
             d = np.cross(ax, side)
@@ -337,7 +340,7 @@ class Rear:
         # the spring: from the seat up past the shroud's mouth
         top = up - ax * 0.032
         h = float((top - seat) @ ax) - 0.004
-        b.extend(MK.spring(seat + ax * 0.004, ax, 0.0255, h, 6.5, 0.0048, 'chrome', 5, dead=0.8))
+        b.extend(MK.spring(seat + ax * 0.004, ax, 0.0262, h, 7.0, 0.0056, 'chrome', 6, dead=0.8))
         return b
 
     # ---------------------------------------------------------------- side stand
