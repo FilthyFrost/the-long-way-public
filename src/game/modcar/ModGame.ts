@@ -31,6 +31,7 @@ import { buildGarageStub, type GarageDevice, type GarageScene } from './garageSt
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
+import { Cockpit, type CockpitHost } from './cockpit';
 import { ModUI } from './ui';
 import { ModVehicle } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
@@ -68,7 +69,7 @@ export function readModParams(base: Params, search: string = window.location.sea
 /** what the first project car is missing: the things the checklist asks for, in order */
 export const TUTORIAL_MISSING = ['battery', 'hub_FL', 'hub_RR', 'engine'] as const;
 
-export class ModGame implements PlayerHost {
+export class ModGame implements PlayerHost, CockpitHost {
   readonly core: RenderCore;
   readonly env: Environment;
   readonly input: InputManager;
@@ -80,6 +81,8 @@ export class ModGame implements PlayerHost {
   readonly vehicles: ModVehicle[] = [];
   readonly loose: LooseThings;
   readonly player: ModPlayer;
+  /** the controls in the cab, worked with the mouse from the driver's seat */
+  readonly cockpit = new Cockpit(this);
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -247,11 +250,17 @@ export class ModGame implements PlayerHost {
     canvas.addEventListener('mousedown', (e) => {
       if (!this.input.locked) return;
       this.audio.start();
+      if (this.seated) {
+        this.cockpit.press(this.seated, e.button === 2);
+        return;
+      }
       if (e.button === 0) this.player.press();
       if (e.button === 2) this.player.secondary = true;
     });
     window.addEventListener('mouseup', (e) => {
+      if (this.seated) this.cockpit.release(this.seated);
       if (e.button === 0) this.player.release();
+      if (e.button === 2) this.player.secondary = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('wheel', (e) => this.player.wheel(e.deltaY));
@@ -351,10 +360,22 @@ export class ModGame implements PlayerHost {
     this.checkTutorial();
   }
 
+  /** a one-shot by name (the foley module replaces this mapping onto the old synth's few sounds) */
   sound(name: string, gain = 1): void {
-    const map: Record<string, string> = { ratchet_done: 'ratchet', door_open: 'lever', door_close: 'lever', pickup: 'key', putdown: 'key' };
+    const map: Record<string, 'lever' | 'grind' | 'ratchet' | 'key' | 'shift'> = {
+      ratchet_done: 'ratchet',
+      ratchet: 'ratchet',
+      door_open: 'lever',
+      door_close: 'lever',
+      pickup: 'key',
+      putdown: 'key',
+      key: 'key',
+      lever: 'lever',
+      grind: 'grind',
+      shift: 'shift',
+    };
     const s = map[name];
-    if (s) this.audio.oneShot(s as never);
+    if (s) this.audio.oneShot(s);
     void gain;
   }
 
@@ -422,8 +443,7 @@ export class ModGame implements PlayerHost {
         // (the right button's release is seen through the window's mouseup below)
       } as never);
     } else {
-      // seated: the workbench words go away (the dash line shows instead)
-      this.ui.prompt(false, '', -1);
+      // seated: the workbench words go away (the cab's controls have the mark now)
       this.ui.showCard(null);
       this.ui.showHeld(null);
       this.ui.showPaint(null, 0);
@@ -574,6 +594,8 @@ export class ModGame implements PlayerHost {
         cam.updateProjectionMatrix();
       }
     }
+    // in the seat: the mark on the cab's controls
+    if (this.seated) this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
     // shadows round the vehicle in focus (or the walker)
     core.shadowFocus.set(fx - o.x, fy - o.y, fz - o.z);
     if (this.worldView) this.worldView.update(fx, fz, 3.5);
