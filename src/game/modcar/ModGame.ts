@@ -164,8 +164,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
     this.viewMode = params.view === 'chase' ? 'chase' : params.view === 'orbit' ? 'orbit' : 'cockpit';
-    // (ModUI shows this game's own key card)
-    this.hud = new Hud(params.hud, '');
+    // (ModUI shows this game's own key card; the numbers line only with ?hud=1, F3 toggles it)
+    this.hud = new Hud(typeof location !== 'undefined' && new URLSearchParams(location.search).get('hud') === '1', '');
     this.input = new InputManager(canvas);
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
