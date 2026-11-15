@@ -592,6 +592,17 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.rig.update(dt, sim, this.seated.view.pose);
       cam.position.set(this.rig.x - o.x, this.rig.y - o.y, this.rig.z - o.z);
       cam.quaternion.set(this.rig.qx, this.rig.qy, this.rig.qz, this.rig.qw).multiply(QFIX);
+      // a motorcycle leans: the rider's eye goes round the line the tyres touch the road on, and the view rolls with it
+      if (this.seated.view.frame.balance && sim.lean !== 0) {
+        const b = this.basis;
+        sim.basis(b);
+        const pose = this.seated.view.pose;
+        const py = sim.leanPivotY;
+        const pv = this.leanP.set(pose.x + b[3] * py - o.x, pose.y + b[4] * py - o.y, pose.z + b[5] * py - o.z);
+        this.qa.setFromAxisAngle(this.leanAxis.set(b[0], b[1], b[2]), sim.lean);
+        cam.position.sub(pv).applyQuaternion(this.qa).add(pv);
+        cam.quaternion.premultiply(this.qa);
+      }
       if (Math.abs(cam.fov - this.rig.fov) > 0.01) {
         cam.fov = this.rig.fov;
         cam.updateProjectionMatrix();
@@ -690,7 +701,21 @@ export class ModGame implements PlayerHost, CockpitHost {
     const v = this.seated;
     if (v) {
       const d = v.sys.dash;
-      this.ui.showDash(`${d.kmh.toFixed(0).padStart(3)} km/h  ${d.gearLabel}${d.handbrake ? ' 手刹' : ''}  ${d.rpm.toFixed(0)} rpm  油 ${(d.fuel * 100).toFixed(0)}%  水温 ${d.coolantC.toFixed(0)}°C  电 ${(d.battery * 100).toFixed(0)}%${d.running ? '' : '  熄火'}`);
+      const red = v.sim.spec.engine.redline;
+      this.ui.showDash({
+        kmh: d.kmh,
+        gear: d.gearLabel,
+        rpm: red > 0 ? d.rpm / red : 0,
+        rpmText: `${(d.rpm / 1000).toFixed(1)}k`,
+        fuel: d.fuel,
+        temp: (d.coolantC - 40) / 90,
+        tempText: `${d.coolantC.toFixed(0)}°`,
+        battery: d.battery,
+        running: d.running,
+        handbrake: d.handbrake,
+        lights: d.lights,
+        warn: d.lamps,
+      });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
     if (this.place === 'garage' && this.vehicles[0]) {
@@ -750,6 +775,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   }
 
   private readonly markerV = new THREE.Vector3();
+  private readonly leanP = new THREE.Vector3();
+  private readonly leanAxis = new THREE.Vector3();
   /** the objective's diamond on screen (at the edge on its side when it is off screen) */
   private updateMarker(): void {
     const t = this.objective();

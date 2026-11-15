@@ -432,10 +432,11 @@ export class CarView {
     core.place(this.root, pose.x, pose.y, pose.z);
     this.root.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
     // a motorcycle's lean (the simulation keeps the body upright and reports the lean it should show)
-    const leanRad = (sim as unknown as { lean?: number }).lean ?? 0;
-    const cgH = sim.spec.cgHeight;
-    this.lean.position.set(0, -cgH, 0);
-    this.leanInner.position.set(0, cgH, 0);
+    // (about the line where the tyres meet the road: sim.leanPivotY, in the body frame)
+    const leanRad = this.frame.balance ? sim.lean : 0;
+    const pivot = this.frame.balance ? sim.leanPivotY : -sim.spec.cgHeight;
+    this.lean.position.set(0, pivot, 0);
+    this.leanInner.position.set(0, -pivot, 0);
     this.lean.rotation.x = this.frame.balance ? leanRad : 0;
     for (let i = 0; i < 4; i++) {
       const w = sim.wheels[i];

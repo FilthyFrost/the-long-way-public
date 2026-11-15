@@ -33,7 +33,20 @@ const CSS = `
 .mc-list { position: absolute; left: 22px; top: 22px; min-width: 210px; padding: 10px 14px; border-radius: 10px; background: rgba(250,244,228,0.92); box-shadow: 0 3px 0 rgba(60,40,24,0.22); font-size: 14px; }
 .mc-list h4 { margin: 0 0 6px; font-size: 15px; }
 .mc-list div { margin: 2px 0; } .mc-list .done { color: #7a8a6a; text-decoration: line-through; } .mc-list .now { color: #a3472e; font-weight: 600; }
-.mc-dash { position: absolute; left: 22px; bottom: 22px; padding: 6px 12px; border-radius: 10px; background: rgba(43,38,34,0.7); color: #fbf3e1; font-size: 13px; font-variant-numeric: tabular-nums; }
+.mc-dash { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 12px; padding: 8px 14px 8px 12px; border-radius: 14px; background: rgba(36,31,28,0.72); color: #fbf3e1; font-variant-numeric: tabular-nums; box-shadow: 0 2px 0 rgba(0,0,0,0.25); }
+.mc-dash .spd { font-size: 34px; line-height: 0.9; font-weight: 600; min-width: 62px; text-align: right; letter-spacing: -0.02em; }
+.mc-dash .unit { font-size: 11px; color: #c9bba6; margin-left: -8px; margin-bottom: 2px; }
+.mc-dash .gear { min-width: 30px; padding: 2px 6px; border-radius: 7px; background: #fbf3e1; color: #2b2622; font-size: 18px; font-weight: 700; text-align: center; margin-bottom: 1px; }
+.mc-dash .col { display: flex; flex-direction: column; gap: 4px; min-width: 116px; }
+.mc-dash .row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #c9bba6; }
+.mc-dash .bar { position: relative; flex: 1; height: 5px; border-radius: 3px; background: rgba(251,243,225,0.16); overflow: hidden; }
+.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #f3e3c0; }
+.mc-dash .bar.rpm i { background: linear-gradient(90deg, #f3e3c0 80%, #e2704a 100%); }
+.mc-dash .bar.low i { background: #e2704a; }
+.mc-dash .lamps { display: flex; gap: 5px; font-size: 11px; min-height: 15px; }
+.mc-dash .lamps span { padding: 0 5px; border-radius: 4px; background: rgba(251,243,225,0.12); color: #8f8270; }
+.mc-dash .lamps span.on { background: #f3c35a; color: #2b2622; }
+.mc-dash .lamps span.warn { background: #e2704a; color: #fff6e6; }
 .mc-fade { position: absolute; inset: 0; background: #0e0c0a; opacity: 0; transition: opacity 0.6s; }
 .mc-help { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 16px 20px 12px; border-radius: 14px; background: rgba(250,244,228,0.96); box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.12); font-size: 14px; line-height: 1.55; }
 .mc-help h3 { margin: 0 0 2px; font-size: 18px; }
@@ -80,6 +93,24 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: 
   e.className = cls;
   parent.appendChild(e);
   return e;
+}
+
+/** what the little instrument cluster shows */
+export interface DashView {
+  kmh: number;
+  gear: string;
+  /** 0…1 of the redline */
+  rpm: number;
+  rpmText: string;
+  fuel: number;
+  /** 0…1 from cold to the seizing point */
+  temp: number;
+  tempText: string;
+  battery: number;
+  running: boolean;
+  handbrake: boolean;
+  lights: 'off' | 'low' | 'high';
+  warn: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
 }
 
 export interface CardData {
@@ -219,9 +250,44 @@ export class ModUI {
     this.list.innerHTML = `<h4>${title}</h4>${items.map((i) => `<div class="${i.done ? 'done' : i.now ? 'now' : ''}">${i.done ? '✓' : i.now ? '▸' : '·'} ${i.text}</div>`).join('')}`;
   }
 
-  showDash(text: string | null): void {
-    this.dash.style.display = text ? '' : 'none';
-    if (text) this.dash.textContent = text;
+  private dashEls: { spd: HTMLElement; gear: HTMLElement; rpm: HTMLElement; rpmT: HTMLElement; fuel: HTMLElement; fuelBar: HTMLElement; temp: HTMLElement; tempT: HTMLElement; lamps: HTMLElement } | null = null;
+  private lastLamps = '';
+
+  /** the cluster in the corner while driving (the real gauges are on the dash in the cab) */
+  showDash(d: DashView | null): void {
+    this.dash.style.display = d ? '' : 'none';
+    if (!d) return;
+    if (!this.dashEls) {
+      this.dash.innerHTML =
+        '<div class="spd"></div><div class="unit">km/h</div><div class="gear"></div>' +
+        '<div class="col"><div class="row"><div class="bar rpm"><i></i></div><span class="rpmT"></span></div>' +
+        '<div class="row">油<div class="bar fuelBar"><i></i></div>水<div class="bar temp"><i></i></div><span class="tempT"></span></div>' +
+        '<div class="lamps"></div></div>';
+      const q = (sel: string): HTMLElement => this.dash.querySelector(sel) as HTMLElement;
+      this.dashEls = { spd: q('.spd'), gear: q('.gear'), rpm: q('.rpm i'), rpmT: q('.rpmT'), fuel: q('.fuelBar i'), fuelBar: q('.fuelBar'), temp: q('.temp i'), tempT: q('.tempT'), lamps: q('.lamps') };
+    }
+    const e = this.dashEls;
+    e.spd.textContent = Math.abs(d.kmh).toFixed(0);
+    e.gear.textContent = d.gear;
+    e.rpm.style.width = `${(Math.min(1, Math.max(0, d.rpm)) * 100).toFixed(1)}%`;
+    e.rpmT.textContent = d.rpmText;
+    e.fuel.style.width = `${(Math.min(1, Math.max(0, d.fuel)) * 100).toFixed(1)}%`;
+    e.fuelBar.classList.toggle('low', d.fuel < 0.12);
+    e.temp.style.width = `${(Math.min(1, Math.max(0, d.temp)) * 100).toFixed(1)}%`;
+    e.tempT.textContent = d.tempText;
+    const lamp = (on: boolean, text: string, cls = 'on'): string => `<span class="${on ? cls : ''}">${text}</span>`;
+    const lamps =
+      lamp(d.handbrake, '手刹') +
+      lamp(d.lights !== 'off', d.lights === 'high' ? '远光' : '车灯') +
+      lamp(!d.running, '熄火', 'warn') +
+      (d.warn.battery ? lamp(true, '电瓶', 'warn') : '') +
+      (d.warn.oil ? lamp(true, '机油', 'warn') : '') +
+      (d.warn.temp ? lamp(true, '水温', 'warn') : '') +
+      (d.warn.fuel ? lamp(true, '油量', 'warn') : '');
+    if (lamps !== this.lastLamps) {
+      e.lamps.innerHTML = lamps;
+      this.lastLamps = lamps;
+    }
   }
 
   /** the key card (at the start, and on F1) */
