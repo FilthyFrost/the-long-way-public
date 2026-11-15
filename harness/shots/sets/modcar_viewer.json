@@ -51,6 +51,8 @@
     {"name": "highlight_part", "params": "merge=1&highlight=3&orbit=60,14,3.0,1.1&target=-0.3,1.1,0.6"},
     {"name": "highlight_wheel", "params": "highlight=WHEEL_FR&orbit=60,8,4,0.5"},
     {"name": "debug_env", "params": "debug=env&orbit=70,6,4.2,0.75&target=-0.2,0.7,0.6"},
-    {"name": "debug_env34", "params": "debug=env&orbit=35,9,7.2,0.65"}
+    {"name": "debug_env34", "params": "debug=env&orbit=35,9,7.2,0.65"},
+    {"name": "night_rear_turnL", "params": "time=22&lights=1&turn=L&orbit=180,8,6.5,0.65"},
+    {"name": "night_rear_reverse", "params": "time=22&lights=1&reverse=1&orbit=180,8,6.5,0.65"}
   ]
 }

@@ -138,7 +138,7 @@ export interface CarLights {
   brake?: number;
   turnLeft?: boolean;
   turnRight?: boolean;
-  /** reversing lamps (white lens_head segments in the tail lamps light with the head lamps too) */
+  /** reversing lamps: the white lens_head segments at the back of the car */
   reverse?: boolean;
   /** instrument lighting 0…1; −1 = with the head lamps */
   dash?: number;
@@ -204,7 +204,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uHighlightId;  // merged meshes: the part to light (aPartId); < 0 = the whole material
   uniform vec3 uTint;          // glass: tint; lens: the lamp's light
   uniform float uOpacity;
-  uniform float uLamp;         // lens / gauge / emit: how bright the lamp behind is (0 = off)
+  uniform float uLamp;         // gauge / emit: how bright the light behind is (0 = off)
+  uniform vec4 uLampQ;         // lenses, by where they sit on the car: front left, front right, rear left, rear right
   uniform vec3 uCarGround;
   uniform float uCarDebug;
   uniform float uBodyHeight;
@@ -562,8 +563,12 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     alpha = clamp(uOpacity + fres * 0.4 + glint * 0.12, 0.0, 0.95);
     // lit: the face glows, hottest over the bulb, and bloom spreads it
     float hot = 1.0 - smoothstep(0.0, 0.9, r);
-    vec3 glow = uTint * uLamp * (0.55 + 0.75 * hot * hot) * (0.7 + 0.3 * ndv);
-    float on01 = smoothstep(0.0, 0.25, uLamp);
+    // which lamp this is follows from where it sits on the car: a white lens at the back is a reversing
+    // lamp, an amber one on the left side blinks with the left indicator
+    vec2 q = vec2(step(0.0, vCar.z), step(vCar.x, 0.0));
+    float lamp = mix(mix(uLampQ.x, uLampQ.y, q.x), mix(uLampQ.z, uLampQ.w, q.x), q.y);
+    vec3 glow = uTint * lamp * (0.55 + 0.75 * hot * hot) * (0.7 + 0.3 * ndv);
+    float on01 = smoothstep(0.0, 0.25, lamp);
     col = mix(col, glow + env * fres * 0.25, on01);
     alpha = mix(alpha, 0.97, on01);
 
@@ -753,6 +758,7 @@ export class CarLook {
         uTint: { value: new THREE.Color(...(r.tint ?? [1, 1, 1])) },
         uOpacity: { value: r.opacity ?? 1 },
         uLamp: { value: name === 'emit' ? 2.2 : 0 },
+        uLampQ: { value: new THREE.Vector4() },
       },
       vertexShader: GLSL_CAR_VERTEX,
       fragmentShader: GLSL_CAR_FRAGMENT,
@@ -890,10 +896,18 @@ export class CarLook {
       const u = m.uniforms;
       if (n === 'paint') u.uBase.value.copy(this.paint);
       else if (n === 'paint_b') u.uBase.value.copy(this.paint2);
-      else if (n === 'lens_head') u.uLamp.value = l.head > 0 ? (l.head > 1 ? 4.2 : 3.2) : l.reverse ? 2.2 : 0;
-      else if (n === 'lens_tail') u.uLamp.value = (l.tail ? 1.1 : 0) + l.brake * 3.0;
-      else if (n === 'lens_amber') u.uLamp.value = l.turnLeft || l.turnRight ? 3.0 : 0;
-      else if (n === 'gauge') u.uLamp.value = dash;
+      else if (n === 'lens_head') {
+        const head = l.head > 0 ? (l.head > 1 ? 4.2 : 3.2) : 0;
+        const rev = l.reverse ? 2.4 : 0;
+        u.uLampQ.value.set(head, head, rev, rev);
+      } else if (n === 'lens_tail') {
+        const t = (l.tail ? 1.1 : 0) + l.brake * 3.0;
+        u.uLampQ.value.set(t, t, t, t);
+      } else if (n === 'lens_amber') {
+        const left = l.turnLeft ? 3.0 : 0;
+        const right = l.turnRight ? 3.0 : 0;
+        u.uLampQ.value.set(left, right, left, right);
+      } else if (n === 'gauge') u.uLamp.value = dash;
     }
   }
 
