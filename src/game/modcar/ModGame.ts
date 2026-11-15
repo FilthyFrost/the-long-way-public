@@ -835,6 +835,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
       v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      v.view.ridden = v === this.seated;
       v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
     }
     const f = this.seated ?? this.focus;

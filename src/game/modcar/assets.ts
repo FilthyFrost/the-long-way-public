@@ -63,7 +63,7 @@ function rgbColours(g: THREE.BufferGeometry): void {
  * wipers, the filler cap, mount empties. Each is a rigid piece of its own; everything else in a model
  * stands still relative to the model's root.
  */
-const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_)/;
+const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_)/;
 const KEEP = new Set(['position', 'normal', 'uv', 'color']);
 
 /**

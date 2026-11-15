@@ -25,7 +25,7 @@ const DEG = Math.PI / 180;
 /** parts that move as a whole or are worked in the cab: never merged */
 const UNMERGED = new Set(['steering', 'handbrake', 'gearLever', 'ignition', 'radio', 'horn']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
-const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|ghost:)/;
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|ghost:)/;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
 const WEAR_STEP = 0.02;
 
@@ -181,6 +181,86 @@ export class CarView {
     }
     this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
     this.covers = null;
+    this.rigBike(obj);
+  }
+
+  // ------------------------------------------------------------------ a motorcycle's moving frame
+
+  /** the steering head's pivot (the FORK and what rides on it), the swingarm's, the stand's */
+  private fork: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion } | null = null;
+  private swing: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; hub: THREE.Vector3; sign: number; length: number } | null = null;
+  private stand: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; fold: number; t: number } | null = null;
+
+  /** hang an object on a new pivot at `at` (model space), keeping where it is */
+  private pivotFor(obj: THREE.Object3D, at: [number, number, number], name: string): THREE.Group {
+    const pivot = new THREE.Group();
+    pivot.name = name;
+    pivot.position.set(at[0], at[1], at[2]);
+    this.model.add(pivot);
+    this.model.updateMatrixWorld(true);
+    pivot.updateMatrixWorld(true);
+    pivot.attach(obj);
+    return pivot;
+  }
+
+  private rigBike(obj: THREE.Object3D): void {
+    const rig = this.frame.rig;
+    if (!rig) return;
+    const fork = rig.fork ? obj.getObjectByName('FORK') : undefined;
+    if (fork && rig.fork) {
+      const pivot = this.pivotFor(fork, rig.fork.pivot, 'pivot_FORK');
+      // the parts that ride on the fork (bar, lamp, mirrors, switch) go round with it
+      for (const m of this.frame.mounts) {
+        if (m.on !== 'FORK') continue;
+        const node = this.mountNodes.get(m.id);
+        if (node) pivot.attach(node);
+      }
+      this.fork = { pivot, axis: new THREE.Vector3(...rig.fork.axis).normalize(), rest: pivot.quaternion.clone() };
+    }
+    const sw = rig.swingarm ? obj.getObjectByName('SWINGARM') : undefined;
+    if (sw && rig.swingarm) {
+      const pivot = this.pivotFor(sw, rig.swingarm.pivot, 'pivot_SWINGARM');
+      const axis = new THREE.Vector3(...rig.swingarm.axis).normalize();
+      // which way about the axis lifts the hub: try a small turn
+      const hubMount = hubsOf(this.frame).rl;
+      const hub = new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z).sub(pivot.position);
+      const lifted = hub.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, 0.05));
+      this.swing = { pivot, axis, rest: pivot.quaternion.clone(), hub: new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z), sign: lifted.y > hub.y ? 1 : -1, length: Math.max(0.2, rig.swingarm.length) };
+    }
+    const st = rig.stand ? obj.getObjectByName('STAND') : undefined;
+    if (st && rig.stand) {
+      const pivot = this.pivotFor(st, rig.stand.pivot, 'pivot_STAND');
+      this.stand = { pivot, axis: new THREE.Vector3(...rig.stand.axis).normalize(), rest: pivot.quaternion.clone(), fold: rig.stand.foldDeg * DEG, t: 0 };
+    }
+  }
+
+  /** whether someone rides it (the stand folds up) */
+  ridden = false;
+  private readonly qBike = new THREE.Quaternion();
+  private readonly vBike = new THREE.Vector3();
+
+  private poseBike(dt: number, sim: VehicleSim): void {
+    if (this.fork) {
+      // as the front wheel turns about the vertical, the fork turns about its head (sign from its axis' up)
+      const f = this.fork;
+      f.pivot.quaternion.copy(f.rest).multiply(this.qBike.setFromAxisAngle(f.axis, -sim.steerAngle * Math.sign(f.axis.y || 1)));
+    }
+    if (this.swing) {
+      // the rear hub's height in model space against where it was modelled
+      const s = this.swing;
+      sim.wheelLocal(2, this.local);
+      const cg = this.derived.cg;
+      const dy = this.local.y + cg.y - s.hub.y;
+      const a = Math.asin(Math.max(-0.9, Math.min(0.9, dy / s.length)));
+      s.pivot.quaternion.copy(s.rest).multiply(this.qBike.setFromAxisAngle(s.axis, s.sign * a));
+    }
+    if (this.stand) {
+      const st = this.stand;
+      const want = this.ridden || Math.abs(sim.kmh) > 3 ? 1 : 0;
+      st.t += (want - st.t) * Math.min(1, dt * 6);
+      st.pivot.quaternion.copy(st.rest).multiply(this.qBike.setFromAxisAngle(st.axis, st.t * st.fold));
+    }
+    void this.vBike;
   }
 
   private hangPanel(mt: MountDef, p: THREE.Object3D): void {
@@ -331,7 +411,8 @@ export class CarView {
     for (const [mount, sh] of this.shown) {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
-      if (!inst || UNMERGED.has(cat)) continue;
+      // (what rides on a fork moves with it)
+      if (!inst || UNMERGED.has(cat) || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
       add(mount, sh.holder, this.partLook(inst, cat));
     }
     this.model.updateMatrixWorld(true);
@@ -603,8 +684,9 @@ export class CarView {
     if (steer) {
       const ratio = sim.spec.steering.ratio;
       const bar = partDef(this.build.parts.steering?.part ?? 'steer_std').steering?.bar;
-      // a handlebar turns with the fork; a wheel turns `ratio` times as far as the road wheels
-      if (bar) steer.rotation.y = -sim.steerAngle;
+      // a handlebar turns with the fork (on a modelled fork it rides on it); a wheel turns `ratio` times as far as the road wheels
+      const onFork = !!this.fork && this.frame.mounts.find((m) => m.id === 'steering')?.on === 'FORK';
+      if (bar) steer.rotation.y = onFork ? 0 : -sim.steerAngle;
       else steer.rotation.x = sim.steerAngle * ratio;
     }
     // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C)
@@ -653,6 +735,7 @@ export class CarView {
     this.updateLooks();
     this.measure();
     this.tryMerge();
+    this.poseBike(dt, sim);
     // parts just fitted settle (a little past their place and back)
     for (let i = this.settling.length - 1; i >= 0; i--) {
       const st = this.settling[i];

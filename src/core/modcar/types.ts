@@ -336,6 +336,8 @@ export interface MountDef {
   panel?: string;
   hinge?: 'y' | 'z';
   openDeg?: number;
+  /** the frame-model object the part on this mount moves with (a motorcycle's FORK); absent = the frame */
+  on?: string;
 }
 
 export interface AxleSuspension {
@@ -401,6 +403,12 @@ export interface FrameRig {
   needles: Record<string, { axis: [number, number, number]; fullDeg: number }>;
   /** by object name: WIPER_L, WIPER_R */
   wipers: Record<string, { axis: [number, number, number]; sweepDeg: number }>;
+  /** a motorcycle's steering head: the FORK object turns about it (and what rides on it) */
+  fork?: { pivot: [number, number, number]; axis: [number, number, number] };
+  /** the SWINGARM object swings about its pivot with the rear wheel (length: pivot to the rear hub) */
+  swingarm?: { pivot: [number, number, number]; axis: [number, number, number]; length: number };
+  /** the side STAND: folded by foldDeg about its axis while ridden */
+  stand?: { pivot: [number, number, number]; axis: [number, number, number]; foldDeg: number };
 }
 
 // ------------------------------------------------------------------ the things in the world
