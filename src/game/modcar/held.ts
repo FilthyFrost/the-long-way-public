@@ -11,7 +11,7 @@ import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import type { RenderCore } from '../render/core';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
-import { cloneModel, partModel, seatTyres } from './assets';
+import { cloneModel, partModel, seatTyres, toolGlb } from './assets';
 import { toolModel } from './loose';
 import { applyMaterials, CarMaterials } from './materials';
 import type { Held } from './player';
@@ -54,10 +54,20 @@ export class HeldThing {
       const t = held.tool;
       const obj = toolModel(t);
       const paint = t.kind === 'jerrycan' ? (t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a) : t.kind === 'oilcan' ? 0xd8a531 : t.kind === 'spray' ? paintHex(t.colour ?? 0) : 0xe8d257;
-      applyMaterials(obj, this.mats.look(OWNER, { paint, paint2: paint }));
+      const look = this.mats.look(OWNER, { paint, paint2: paint });
+      applyMaterials(obj, look);
       this.large = false;
       this.mass = t.kind === 'jerrycan' ? 4 + (t.litres ?? 0) * 0.75 : 1;
       this.fit(obj);
+      // its own model, when there is one, in place of the stand-in
+      const want = key;
+      void toolGlb(t.kind).then((m) => {
+        if (!m || this.key !== want) return;
+        this.inner.clear();
+        const real = cloneModel(m);
+        applyMaterials(real, look);
+        this.fit(real);
+      });
       return;
     }
     const inst = held.inst;

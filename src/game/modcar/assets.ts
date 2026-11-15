@@ -218,6 +218,21 @@ export function cloneModel(m: Model): THREE.Group {
   return m.scene.clone(true);
 }
 
+const tools = new Map<string, Promise<Model | null>>();
+/**
+ * A tool's own model (tools/<kind>.glb: the jerrycan, bottle, oil can, spray can, sponge), or null while
+ * it has none (loose.ts toolModel draws a stand-in). Its body is the `paint` material: the look gives a
+ * petrol can red, a diesel one green, a spray can its colour.
+ */
+export function toolGlb(kind: string): Promise<Model | null> {
+  let p = tools.get(kind);
+  if (!p) {
+    p = fetchGlb(`${BASE}tools/${kind}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    tools.set(kind, p);
+  }
+  return p;
+}
+
 /**
  * How a stretch part takes a mount's fit box [length, width, height] (m) from the box it was modelled
  * for (its `fit_nominal`, else its bounds): along an axis it fills, it is scaled; a thing that holds only
