@@ -83,6 +83,7 @@ def main(args):
     M.sink(K, L, S.X1 - 0.3, S.Z1 - 0.62)
     D.poster(K, S.X1 - 0.12, 2.05, 3.55, 0.48, 0.66, -1, 0, 'car')
     D.poster(K, S.X1 - 0.12, 2.1, -4.05, 0.46, 0.64, -1, 0, 'oil')
+    D.front_wall_things(K, L)
     D.potted_plant(K, 5.6, 0.0, 2.75, 2.2, 'fern')
 
     # ---- the floor round the car: jack, stands, a creeper, a drip pan, a mat by the bench

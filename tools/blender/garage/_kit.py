@@ -118,7 +118,7 @@ LOOK = {
     'p_black': (0x2a2a2e, 'prop'), 'cardboard': (0xb88c5c, 'prop'), 'paper': (0xefe9da, 'prop'), 'rope': (0xc4a474, 'prop'),
     'chalk': (0x2e3c36, 'prop'), 'pot': (0xbc6640, 'prop'), 'soil': (0x3c2c20, 'prop'), 'pegboard': (0xbc9a6c, 'prop'),
     'tinted_matte': (0xf4f1ea, 'prop'), 'galv': (0xb2b7b8, 'prop'), 'emit': (0xfff0d0, 'prop'),
-    'chrome': (0xe4e8ec, 'shiny'), 'ceramic': (0xf3f2ec, 'shiny'), 'brass': (0xc8a050, 'shiny'), 'tinted': (0xf4f1ea, 'prop'),
+    'chrome': (0xb2bac2, 'shiny'), 'ceramic': (0xf3f2ec, 'shiny'), 'brass': (0xc8a050, 'shiny'), 'tinted': (0xf4f1ea, 'prop'),
     'water': (0x4a6a70, 'shiny'),
     'enamel': (0xf3efe4, 'prop2'), 'canvas': (0xab9d7c, 'prop2'), 'leaf': (0x5c8e3a, 'prop2'), 'leaf_dark': (0x2f5c32, 'prop2'),
     'cloth': (0xc8bea8, 'prop2'),

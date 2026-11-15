@@ -11,6 +11,7 @@ import math
 import bmesh
 from mathutils import Matrix, Vector
 
+from . import _kit as kit
 from . import shell as S
 
 V = Vector
@@ -311,10 +312,23 @@ def drum(K, L, x, z, mat, y=0.0, lying=False, yaw=0.0):
     surface(L, x - r * 0.7, x + r * 0.7, z - r * 0.7, z + r * 0.7, y + h + 0.015, 'drum')
 
 
-def tyre(K, x, y, z, r=0.31, w=0.19, axis='y', tint=1.0):
-    """a bare tyre (a torus-ish ring with a tread band)"""
+def tyre(K, x, y, z, r=0.31, w=0.19, axis='y', tint=1.0, blocks=True):
+    """a bare tyre: dusty sidewalls, the darker tread band round it with its blocks"""
     prof = [(r - 0.11, -w * 0.32), (r - 0.06, -w * 0.5), (r - 0.012, -w * 0.48), (r, -w * 0.3), (r, w * 0.3), (r - 0.012, w * 0.48), (r - 0.06, w * 0.5), (r - 0.11, w * 0.32)]
-    K.lathe('rubber', (x, y, z), prof + [prof[0]], segs=28, axis=axis, sharp=50, tint=tint)
+    t = tint if isinstance(tint, tuple) else (tint, tint, tint)
+    K.lathe('rubber', (x, y, z), prof + [prof[0]], segs=30, axis=axis, sharp=50, tint=(t[0] * 1.35, t[1] * 1.32, t[2] * 1.25))
+    # (the tread: a band just proud of the casing, darker, the blocks on it)
+    K.lathe('rubber', (x, y, z), [(r + 0.002, -w * 0.31), (r + 0.002, w * 0.31)], segs=30, axis=axis, face='out', tint=(t[0] * 0.85, t[1] * 0.85, t[2] * 0.88), cast=False)
+    if not blocks:
+        return
+    # tread blocks in two staggered rows
+    orient = kit.axis_to(axis)
+    n = 20
+    for i in range(n):
+        for row in (-1, 1):
+            a = (i + (0.5 if row > 0 else 0.0)) / n * math.tau
+            m = Matrix.Translation((x, y, z)) @ orient @ Matrix.Rotation(-a, 4, 'Y') @ Matrix.Translation((r + 0.004, row * w * 0.15, 0))
+            K.box('rubber', (0, 0, 0), (0.012, w * 0.24, 0.05), matrix=m, tint=(t[0] * 0.75, t[1] * 0.75, t[2] * 0.78), cast=False)
 
 
 def tyre_stack(K, L, x, z, n=5):
@@ -322,6 +336,7 @@ def tyre_stack(K, L, x, z, n=5):
     for i in range(n):
         dx = K.jitter(0.03)
         dz = K.jitter(0.03)
-        tyre(K, x + dx, w / 2 + i * (w + 0.002), z + dz, tint=1.0 + K.jitter(0.08))
+        # (alternating tones: a line between each, as drawn)
+        tyre(K, x + dx, w / 2 + i * (w + 0.002), z + dz, tint=(0.82 if i % 2 else 1.12) + K.jitter(0.05))
     solid(L, x, z, 0.32, 0.0, 0, n * w)
     surface(L, x - 0.15, x + 0.15, z - 0.15, z + 0.15, n * w, 'tyres')

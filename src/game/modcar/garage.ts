@@ -24,7 +24,7 @@ import type { GarageContext, GarageDevice, GarageScene } from './garageStub';
 import { GarageLook } from './garageLook';
 import { beamUniforms, buildBeams, buildDust } from './garageBeams';
 import { Chalkboard } from './garageChalk';
-import { Sign, YardLight } from './garageFront';
+import { Plates, Sign, YardLight } from './garageFront';
 import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
@@ -59,6 +59,8 @@ interface Layout {
   stove?: { x: number; y: number; z: number };
   sign?: { x: number; y: number; z: number; w: number; h: number };
   outlamp?: { x: number; y: number; z: number };
+  /** number plates nailed on the front wall (garageFront.ts paints them) */
+  plates?: { x: number; y: number; z: number; rot: number; kind: number }[];
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -154,6 +156,7 @@ class Garage implements GarageScene {
   private readonly machines: Machines;
   private readonly chalk: Chalkboard | null;
   private readonly sign: Sign | null;
+  private readonly plates: Plates | null;
   private readonly yard = new YardLight();
   /** the lamp over the doors: how far it has warmed up (0 … 1) */
   private outLamp = 0;
@@ -190,6 +193,8 @@ class Garage implements GarageScene {
     this.sign = LAYOUT.sign ? new Sign(LAYOUT.sign) : null;
     if (this.sign) this.root.add(this.sign.mesh);
     this.root.add(this.yard.mesh);
+    this.plates = LAYOUT.plates?.length ? new Plates(LAYOUT.plates) : null;
+    if (this.plates) this.root.add(this.plates.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -714,6 +719,7 @@ class Garage implements GarageScene {
     this.look.dispose();
     this.chalk?.dispose();
     this.sign?.dispose();
+    this.plates?.dispose();
     this.yard.dispose();
     this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors

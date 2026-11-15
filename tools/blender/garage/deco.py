@@ -211,31 +211,111 @@ def bench_clutter(K, L):
 
 # ---------------------------------------------------------------------------------------------- shelves
 
-def shelf_fill(K, L, x0, x1, levels, z0, z1, spot_xs):
-    """jars, cans, boxes and bottles between the spots where the parts lie"""
-    for y in levels:
-        x = x0 + 0.05
-        while x < x1 - 0.1:
-            if any(abs(x - sx) < 0.42 for sx in spot_xs):
-                x += 0.1
+def shelf_fill(K, L, x0, x1, levels, z0, z1, spot_xs, reserved=6):
+    """
+    Jars, cans, boxes, bottles and the odd keepsake along the shelves; room is left round the first
+    `reserved` spots (level by level, as the game fills them with parts), the rest of each board is full.
+    """
+    taken = []
+    for li, y in enumerate(levels):
+        for sx in spot_xs:
+            if len(taken) < reserved:
+                taken.append((li, sx))
+    specials = {(2, 0): 'lantern', (2, 2): 'books', (1, 3): 'rope', (2, 3): 'coffee', (1, 1): 'bolts'}
+    for li, y in enumerate(levels):
+        x = x0 + 0.06
+        n = 0
+        while x < x1 - 0.08:
+            if any(l == li and abs(x - sx) < 0.42 for (l, sx) in taken):
+                x += 0.08
+                continue
+            zz = z1 - 0.1 - K.rng.random() * 0.1
+            # a keepsake now and then where there is room
+            sp = None
+            for (key, kind) in specials.items():
+                if key[0] == li and abs(x - spot_xs[key[1]]) < 0.12 and not any(l == li and sx == spot_xs[key[1]] for (l, sx) in taken):
+                    sp = kind
+            if sp:
+                w = keepsake(K, L, sp, x, y, zz)
+                specials = {k: v for (k, v) in specials.items() if v != sp}
+                x += w
                 continue
             k = K.rng.random()
-            zz = z1 - 0.12 - K.rng.random() * 0.12
-            if k < 0.3:
-                can(K, x, y, zz, r=0.05 + K.jitter(0.01), h=0.12 + K.jitter(0.03))
+            if k < 0.22:
+                can(K, x, y, zz, r=0.05 + K.jitter(0.012), h=0.12 + K.jitter(0.04))
                 x += 0.12
-            elif k < 0.5:
+            elif k < 0.38:
                 oil_bottle(K, x, y, zz, yaw=K.jitter(20))
                 x += 0.1
-            elif k < 0.7:
-                jar(K, x, y, zz, fill=(0.75, 0.7, 0.6))
+            elif k < 0.52:
+                jar(K, x, y, zz, fill=(0.75, 0.7, 0.6) if K.rng.random() < 0.7 else (0.6, 0.45, 0.3))
                 x += 0.1
-            elif k < 0.85:
-                w = 0.18 + K.rng.random() * 0.12
-                cardboard(K, L, x + w / 2, zz - 0.05, w, 0.12 + K.rng.random() * 0.1, 0.22, yaw=K.jitter(8), y=y, solid=False)
-                x += w + 0.05
+            elif k < 0.62:
+                spray_can(K, x, y, zz)
+                x += 0.07
+            elif k < 0.84:
+                w = 0.16 + K.rng.random() * 0.14
+                h = 0.1 + K.rng.random() * 0.14
+                cardboard(K, L, x + w / 2, zz - 0.06, w, h, 0.24, yaw=K.jitter(8), y=y, solid=False)
+                if K.rng.random() < 0.4 and h < 0.2:
+                    # a smaller box on top
+                    cardboard(K, L, x + w / 2 + K.jitter(0.02), zz - 0.06, w * 0.7, 0.08, 0.18, yaw=K.jitter(15), y=y + h, solid=False)
+                x += w + 0.04
             else:
-                x += 0.08
+                x += 0.06
+            n += 1
+
+
+def spray_can(K, x, y, z):
+    K.cyl('tinted', (x, y + 0.08, z), 0.028, 0.16, segs=12, bev=0.004, tint=T(K))
+    K.cyl('galv', (x, y + 0.17, z), 0.024, 0.02, segs=12, r2=0.012)
+    K.cyl('tinted', (x, y + 0.19, z), 0.012, 0.02, segs=8, tint=(0.95, 0.95, 0.92))
+
+
+def keepsake(K, L, kind, x, y, z):
+    """something kept on a shelf (returns how much of the board it takes)"""
+    if kind == 'lantern':
+        # a paraffin lantern: a tank, the glass globe in its wire guard, a hood and the bail
+        K.cyl('p_red', (x + 0.08, y + 0.035, z), 0.07, 0.07, segs=16, bev=0.008)
+        K.cyl('glass', (x + 0.08, y + 0.14, z), 0.05, 0.13, segs=14)
+        for k in range(4):
+            a = k / 4 * math.tau + 0.4
+            K.cyl('steel', (x + 0.08 + math.cos(a) * 0.056, y + 0.14, z + math.sin(a) * 0.056), 0.003, 0.14, segs=4, cast=False)
+        K.lathe('p_red', (x + 0.08, y + 0.205, z), [(0.06, 0.0), (0.045, 0.03), (0.02, 0.05), (0.0, 0.055)], segs=16)
+        K.tube('steel', [(x + 0.01, y + 0.06, z), (x + 0.02, y + 0.3, z), (x + 0.14, y + 0.3, z), (x + 0.15, y + 0.06, z)], 0.003, segs=4, bend=0.05, cast=False)
+        return 0.2
+    if kind == 'books':
+        # manuals and old magazines, a few standing, the rest in a pile
+        xx = x
+        for i in range(5):
+            w = 0.022 + K.rng.random() * 0.02
+            h = 0.2 + K.rng.random() * 0.06
+            K.box('tinted', (xx + w / 2, y + h / 2, z - 0.02), (w, h, 0.16 + K.rng.random() * 0.03), rot=(0, 0, -6 if i == 4 else 0), bev=0.003, tint=T(K))
+            xx += w + 0.002
+        for i in range(4):
+            K.box('paper', (xx + 0.14, y + 0.008 + i * 0.012, z - 0.02 + K.jitter(0.01)), (0.21, 0.011, 0.28), rot=(0, K.jitter(9), 0), bev=0.002, tint=(1.0, 0.96 - i * 0.03, 0.88), cast=False)
+        return xx - x + 0.3
+    if kind == 'rope':
+        # a coil of rope lying flat
+        for i in range(4):
+            K.lathe('rope', (x + 0.13, y + 0.012 + i * 0.016, z - 0.03), [(0.1 - i * 0.004, -0.008), (0.115 - i * 0.004, 0.0), (0.1 - i * 0.004, 0.008), (0.085 - i * 0.004, 0.0), (0.1 - i * 0.004, -0.008)], segs=20, tint=1.0 + 0.04 * i)
+        return 0.28
+    if kind == 'coffee':
+        # a coffee tin of brushes and a paint stirrer
+        K.cyl('tinted', (x + 0.06, y + 0.07, z), 0.055, 0.14, segs=16, bev=0.004, tint=tint_of(0x3c6a8a))
+        K.cyl('galv', (x + 0.06, y + 0.141, z), 0.053, 0.004, segs=16)
+        for i in range(3):
+            a = i * 2.1
+            K.tube('wood', [(x + 0.06 + math.cos(a) * 0.02, y + 0.1, z + math.sin(a) * 0.02), (x + 0.06 + math.cos(a) * 0.05, y + 0.26, z + math.sin(a) * 0.04)], 0.008, segs=5)
+        return 0.16
+    if kind == 'bolts':
+        # a wooden tray of bolts with a handle
+        K.box('wood', (x + 0.12, y + 0.03, z - 0.03), (0.24, 0.06, 0.16), bev=0.004, open='+y', tint=(0.85, 0.75, 0.6))
+        K.box('steel', (x + 0.12, y + 0.045, z - 0.03), (0.22, 0.02, 0.14), tint=0.8, cast=False)
+        K.box('wood', (x + 0.12, y + 0.1, z - 0.03), (0.012, 0.1, 0.16), tint=(0.85, 0.75, 0.6))
+        K.cyl('wood', (x + 0.12, y + 0.15, z - 0.03), 0.012, 0.16, axis='z', segs=8)
+        return 0.28
+    return 0.1
 
 
 # ---------------------------------------------------------------------------------------------- plants
@@ -461,3 +541,50 @@ def bicycle(K, x, y, z, yaw=0.0):
     for hx in (-0.5, 0.5):
         top = M @ V((hx, -r, 0))
         K.tube('steel', [top, V((top.x, S.EAVE - 0.1, top.z))], 0.005, segs=4)
+
+
+# ---------------------------------------------------------------------------------------------- on the front wall
+
+def hubcap(K, x, y, z, r, style=0, nx=-1.0):
+    """
+    A hubcap nailed to the wall, its dome to the room: chrome with a red centre and slots, a little
+    dog-dish, a cream cover. (Chrome here mirrors the dim room: darker than the bare metal, bright rings.)
+    """
+    ax = (nx, 0.0, 0.0)
+    c = (x + nx * 0.002, y, z)
+    dim = (0.55, 0.57, 0.6)
+    if style == 1:
+        # a dog-dish: a small deep dish, all chrome, a painted ring
+        k = r / 0.15
+        K.lathe('chrome', c, [(0.0, 0.07 * k), (0.45 * r, 0.065 * k), (0.8 * r, 0.04 * k), (0.97 * r, 0.012), (r, 0.0)], segs=28, axis=ax, sharp=60, tint=dim)
+        K.lathe('tinted', c, [(0.62 * r, 0.054 * k + 0.002), (0.72 * r, 0.047 * k + 0.002)], segs=28, axis=ax, face='out', tint=(0.9, 0.18, 0.12), cast=False)
+        return
+    if style == 2:
+        # a cream wheel cover with a chrome centre
+        K.lathe('p_cream', c, [(0.3 * r, 0.035), (0.75 * r, 0.028), (0.96 * r, 0.012), (r, 0.0)], segs=28, axis=ax, sharp=50, tint=0.85)
+        K.lathe('chrome', c, [(0.0, 0.07), (0.18 * r, 0.066), (0.3 * r, 0.04), (0.32 * r, 0.03)], segs=20, axis=ax, sharp=50, tint=dim)
+        return
+    # chrome dome with slots round it and a red centre cap; a bright rolled rim
+    K.lathe('chrome', c, [(0.0, 0.055), (0.35 * r, 0.05), (0.7 * r, 0.035), (0.88 * r, 0.022)], segs=32, axis=ax, sharp=60, tint=dim)
+    K.lathe('chrome', c, [(0.88 * r, 0.022), (0.95 * r, 0.016), (r, 0.006), (r, 0.0)], segs=32, axis=ax, sharp=60, tint=(1.1, 1.1, 1.12))
+    K.cyl('p_red', (c[0] + nx * 0.056, y, z), 0.16 * r, 0.006, axis=ax, segs=16)
+    for k in range(8):
+        a = k / 8 * math.tau
+        dy, dz = math.cos(a), math.sin(a)
+        K.box('p_black', (c[0] + nx * 0.034, y + dy * 0.6 * r, z + dz * 0.6 * r), (0.004, 0.2 * r, 0.05 * r), rot=(math.degrees(-a), 0, 0), tint=1.2, cast=False)
+
+
+def front_wall_things(K, L):
+    """hubcaps over the hose reel, old number plates over the oil poster (painted by the game: L['plates'])"""
+    wx = S.X1 - 0.12
+    for (y, z, r, st) in ((2.84, 2.8, 0.17, 0), (2.92, 3.45, 0.19, 2), (3.36, 3.12, 0.14, 1), (3.4, 3.8, 0.15, 0)):
+        hubcap(K, wx, y, z, r, st)
+        K.cyl('steel', (wx - 0.004, y + r * 0.85, z), 0.006, 0.012, axis='x', segs=6, cast=False)
+    plates = []
+    for (y, z, rot, kind) in ((2.72, -3.68, 3.0, 0), (2.74, -4.32, -4.0, 1), (2.98, -4.0, -1.5, 2), (3.22, -3.62, 5.0, 3)):
+        plates.append({'x': round(wx - 0.008, 3), 'y': y, 'z': z, 'rot': rot, 'kind': kind})
+        # (the plate itself is the game's: a thin backing and two nails here)
+        K.box('steel', (wx - 0.003, y, z), (0.004, 0.14, 0.42), rot=(rot, 0, 0), tint=0.6, cast=False)
+        for s in (-1, 1):
+            K.cyl('steel', (wx - 0.012, y + 0.045, z + s * 0.13), 0.007, 0.01, axis='x', segs=6, cast=False)
+    L['plates'] = plates

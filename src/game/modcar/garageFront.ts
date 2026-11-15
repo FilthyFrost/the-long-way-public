@@ -7,6 +7,7 @@
  * World frame as the garage's: x towards the road, y up, z right.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { surfaceMaterial } from '../render/materials';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS, globals } from '../render/shaderlib';
 import { surfaceKind, visibleHeight } from './garageOutdoors';
@@ -129,6 +130,141 @@ function paintSign(canvas: HTMLCanvasElement): void {
     c.ellipse(x, y, r * (1 + rnd()), r, rnd() * 3, 0, Math.PI * 2);
     c.fill();
   }
+}
+
+// ------------------------------------------------------------------ the number plates
+
+const PLATE_W = 0.42;
+const PLATE_H = 0.14;
+/** atlas rows: one plate each (440 × 140 mm, at 1.1 px a millimetre) */
+const ROW_W = 484;
+const ROW_H = 154;
+
+interface PlateStyle {
+  ground: string;
+  ink: string;
+  text: string;
+  /** a small line above the number (old plates), or none */
+  top?: string;
+}
+
+/** old plates kept from cars long gone, our own: none of them a real place's */
+const PLATE_STYLES: PlateStyle[] = [
+  { ground: '#244f9e', ink: '#f2f2ee', text: '旅A·66688' },
+  { ground: '#e3b524', ink: '#1d1d1b', text: '路B·0721' },
+  { ground: '#1d1f22', ink: '#efece2', text: '方糖·1987', top: '公 路 旅 行' },
+  { ground: '#ece8dc', ink: '#2a2e33', text: 'LONG WAY', top: 'SINCE 1987' },
+];
+
+/**
+ * Number plates nailed over the oil poster on the front wall: one mesh of quads on one atlas, each plate
+ * embossed (a raised rim, the characters), its paint chipped and the odd rust spot.
+ */
+export class Plates {
+  readonly mesh: THREE.Mesh;
+  private readonly tex: THREE.CanvasTexture;
+  private readonly mat: THREE.ShaderMaterial;
+
+  constructor(list: { x: number; y: number; z: number; rot: number; kind: number }[]) {
+    const canvas = document.createElement('canvas');
+    canvas.width = ROW_W;
+    canvas.height = ROW_H * PLATE_STYLES.length;
+    paintPlates(canvas);
+    this.tex = new THREE.CanvasTexture(canvas);
+    this.tex.colorSpace = THREE.SRGBColorSpace;
+    this.tex.anisotropy = 4;
+    this.mat = surfaceMaterial({ color: 0xffffff, map: this.tex, spec: 0.35 });
+    const geos: THREE.BufferGeometry[] = [];
+    for (const p of list) {
+      const g = new THREE.PlaneGeometry(PLATE_W, PLATE_H);
+      const row = Math.min(PLATE_STYLES.length - 1, Math.max(0, p.kind));
+      const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) {
+        const v = uv.getY(i);
+        // (canvas rows run down; texture v runs up)
+        uv.setY(i, 1 - (row + 1 - v) / PLATE_STYLES.length);
+      }
+      // a plane faces +z: the plates face -x, into the room; tilted a little as nailed
+      g.rotateZ((p.rot * Math.PI) / 180);
+      g.rotateY(-Math.PI / 2);
+      g.translate(p.x, p.y, p.z);
+      geos.push(g);
+    }
+    const merged = geos.length ? mergeGeometries(geos, false) : new THREE.BufferGeometry();
+    for (const g of geos) g.dispose();
+    this.mesh = new THREE.Mesh(merged ?? new THREE.BufferGeometry(), this.mat);
+    this.mesh.name = 'garage:plates';
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.mat.dispose();
+    this.tex.dispose();
+  }
+}
+
+function paintPlates(canvas: HTMLCanvasElement): void {
+  const c = canvas.getContext('2d')!;
+  let s = 23;
+  const rnd = (): number => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+  PLATE_STYLES.forEach((st, row) => {
+    const y0 = row * ROW_H;
+    c.save();
+    c.translate(0, y0);
+    c.fillStyle = st.ground;
+    c.fillRect(0, 0, ROW_W, ROW_H);
+    // the pressed rim, lit from above
+    c.strokeStyle = st.ink;
+    c.lineWidth = 5;
+    c.strokeRect(9, 9, ROW_W - 18, ROW_H - 18);
+    c.strokeStyle = 'rgba(255,255,255,0.25)';
+    c.lineWidth = 2;
+    c.strokeRect(6, 6, ROW_W - 12, ROW_H - 12);
+    // two bolt holes
+    for (const bx of [ROW_W * 0.19, ROW_W * 0.81]) {
+      c.fillStyle = 'rgba(0,0,0,0.6)';
+      c.beginPath();
+      c.arc(bx, 26, 6, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.textAlign = 'center';
+    c.textBaseline = 'alphabetic';
+    const big = st.top ? 72 : 88;
+    const ty = st.top ? 128 : 116;
+    if (st.top) {
+      c.font = 'bold 26px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif';
+      c.fillStyle = st.ink;
+      c.fillText(st.top, ROW_W / 2, 50);
+    }
+    c.font = `bold ${big}px "Microsoft YaHei", "PingFang SC", "SimHei", sans-serif`;
+    // embossed: a light edge above, a shadow below, then the paint
+    c.fillStyle = 'rgba(255,255,255,0.3)';
+    c.fillText(st.text, ROW_W / 2 - 1, ty - 2);
+    c.fillStyle = 'rgba(0,0,0,0.35)';
+    c.fillText(st.text, ROW_W / 2 + 2, ty + 3);
+    c.fillStyle = st.ink;
+    c.fillText(st.text, ROW_W / 2, ty);
+    // age: a darker bottom edge, chips to the grey metal, a few spots of rust
+    const g = c.createLinearGradient(0, 0, 0, ROW_H);
+    g.addColorStop(0, 'rgba(255,250,235,0.08)');
+    g.addColorStop(1, 'rgba(40,30,20,0.25)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, ROW_W, ROW_H);
+    for (let i = 0; i < 70; i++) {
+      const edge = rnd() < 0.7;
+      const x = edge ? (rnd() < 0.5 ? rnd() * 30 : ROW_W - rnd() * 30) : rnd() * ROW_W;
+      const y = rnd() * ROW_H;
+      const r = 1 + rnd() * 3.5;
+      c.fillStyle = rnd() < 0.5 ? `rgba(150,150,145,${0.5 + rnd() * 0.4})` : `rgba(${120 + rnd() * 40},${56 + rnd() * 20},${26 + rnd() * 10},${0.4 + rnd() * 0.4})`;
+      c.beginPath();
+      c.ellipse(x, y, r * (1 + rnd()), r, rnd() * 3, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+  });
 }
 
 // ------------------------------------------------------------------ the light on the yard at night
