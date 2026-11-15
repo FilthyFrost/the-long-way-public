@@ -235,17 +235,19 @@ const DEFAULT_COHERENCE = 0.5;
  * The two loops either side of rpm with power-preserving weights for phase-aligned loops, and the
  * playback rate each needs. Below the first / above the last loop the end one plays alone, pitched.
  */
-export function rpmWeights(loops: readonly LoopRec[], rpm: number): Array<{ rec: LoopRec; w: number; rate: number }> {
+export function rpmWeights(loops: readonly LoopRec[], rpm: number, weightRpm = rpm): Array<{ rec: LoopRec; w: number; rate: number }> {
   if (loops.length === 0) return [];
   const r = Math.max(1, rpm);
-  if (r <= loops[0].rpm) return [{ rec: loops[0], w: 1, rate: r / loops[0].rpm }];
+  // (the weights may follow a slightly different rpm than the pitch: see EngineVoice's wander)
+  const q = Math.max(1, weightRpm);
+  if (q <= loops[0].rpm) return [{ rec: loops[0], w: 1, rate: r / loops[0].rpm }];
   const last = loops[loops.length - 1];
-  if (r >= last.rpm) return [{ rec: last, w: 1, rate: r / last.rpm }];
+  if (q >= last.rpm) return [{ rec: last, w: 1, rate: r / last.rpm }];
   let i = 0;
-  while (loops[i + 1].rpm < r) i++;
+  while (loops[i + 1].rpm < q) i++;
   const a = loops[i];
   const b = loops[i + 1];
-  const x = Math.log(r / a.rpm) / Math.log(b.rpm / a.rpm);
+  const x = Math.log(q / a.rpm) / Math.log(b.rpm / a.rpm);
   const [wa, wb] = blendWeights(x, b.coh ?? DEFAULT_COHERENCE);
   return [
     { rec: a, w: wa, rate: r / a.rpm },
@@ -417,6 +419,12 @@ export class EngineVoice {
   private bovReadyAt = 0;
   private lastRpm = 0;
   private lastLoad = 0;
+  /** slow random drift, -1..1: where between two loops the crossfade sits, and the idle's lope */
+  private wander = 0;
+  private wanderTo = 0;
+  private wanderAt = 0;
+  private lope = 0;
+  private lopeTo = 0;
   private readonly popBufs: AudioBuffer[] = [];
   /** how many pops / blow-offs have fired (debug and the render harness) */
   popsFired = 0;
@@ -756,13 +764,26 @@ export class EngineVoice {
     this.lastLoad = load;
 
     // ---- loops
+    // at a steady speed the crossfade drifts a little either side (about +-2.5 % rpm, the weights
+    // only) so a held rpm never leaves one short loop repeating on its own; near idle the pitch
+    // lopes a little as a real idle does
+    if (t >= this.wanderAt) {
+      this.wanderTo = this.rng.range(-1, 1);
+      this.lopeTo = this.rng.range(-1, 1);
+      this.wanderAt = t + this.rng.range(1.5, 3.5);
+    }
+    this.wander += (this.wanderTo - this.wander) * (1 - Math.exp(-dt / 0.9));
+    this.lope += (this.lopeTo - this.lope) * (1 - Math.exp(-dt / 0.35));
+    const idleish = m ? smoothstep(m.idleRpm * 1.5, m.idleRpm * 1.05, rpm) * (1 - thr) : 0;
+    const pitchRpm = rpm * (1 + 0.006 * idleish * this.lope);
+    const weightRpm = pitchRpm * Math.exp(0.025 * this.wander);
     const want = new Map<string, { rec: LoopRec; gain: number; rate: number }>();
     if (bank && running) {
       // fade the loops in under the catch
       const inCatch = t < this.catchUntil ? Math.max(0.15, 1 - (this.catchUntil - t) / 0.6) : 1;
       const mix = loadMix(thr, load);
       // full load against overrun at this rpm: aligned too, so the same crossfade law
-      const offNear = rpmWeights(bank.off, rpm)[0]?.rec;
+      const offNear = rpmWeights(bank.off, pitchRpm, weightRpm)[0]?.rec;
       const [wOff, wOn] = blendWeights(mix, offNear?.cohLoad ?? DEFAULT_COHERENCE * 0.5);
       // the rev limiter: crossfade into its own recording near the cut
       const lim = m!.oneshots['limiter'];
@@ -771,7 +792,7 @@ export class EngineVoice {
       const limW = lim && !tone.governed ? smoothstep(cut - 160, cut - 10, rpm) * smoothstep(0.35, 0.8, thr) : 0;
       for (const [set2, w0] of [[bank.on, wOn], [bank.off, wOff]] as const) {
         if (w0 < 1e-3) continue;
-        for (const { rec, w, rate } of rpmWeights(set2, rpm)) {
+        for (const { rec, w, rate } of rpmWeights(set2, pitchRpm, weightRpm)) {
           const gain = w * w0 * (1 - limW) * inCatch * loopGain(tone, rec, m!.idleRpm, m!.redlineRpm);
           if (gain > 1e-4) want.set(rec.file, { rec, gain, rate });
         }
