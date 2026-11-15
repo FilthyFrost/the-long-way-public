@@ -603,10 +603,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       float hl = uHighlight.w;
       #ifdef RT_VPART
       hl *= uHighlightId < 0.0 ? 1.0 : 1.0 - step(0.5, abs(vPartId - uHighlightId));
+      #else
+      // one part of a merged mesh is aimed at: meshes without part ids stay as they are
+      hl *= step(uHighlightId, -0.5);
       #endif
       if (hl > 0.0) {
-        float pulse = 0.75 + 0.25 * sin(uTime * 4.0);
-        col += uHighlight.rgb * hl * pulse * (0.12 + 1.1 * pow(1.0 - ndv, 2.5));
+        // a lit fill and a bright rim, breathing; the eye finds it against paint, chrome or the dark under a car
+        float pulse = 0.7 + 0.3 * sin(uTime * 4.0);
+        col = col * (1.0 - 0.25 * hl) + uHighlight.rgb * hl * pulse * (0.22 + 1.8 * pow(1.0 - ndv, 2.2));
       }
     }
 
@@ -638,8 +642,9 @@ interface Variant {
   vpart: boolean;
 }
 
-function variantOf(g: THREE.BufferGeometry): Variant {
-  return { ao: g.hasAttribute('color'), vpaint: g.hasAttribute('aPaint'), vwear: g.hasAttribute('aWear'), vpart: g.hasAttribute('aPartId') };
+function variantOf(g: THREE.BufferGeometry, name: CarMaterialName): Variant {
+  const paint = name === 'paint' || name === 'paint_b';
+  return { ao: g.hasAttribute('color'), vpaint: paint && g.hasAttribute('aPaint'), vwear: g.hasAttribute('aWear'), vpart: g.hasAttribute('aPartId') };
 }
 
 const variantKey = (name: string, v: Variant): string => `${name}|${v.ao ? 'a' : ''}${v.vpaint ? 'p' : ''}${v.vwear ? 'w' : ''}${v.vpart ? 'i' : ''}`;
@@ -684,7 +689,8 @@ export class CarLook {
     const defines: Record<string, string> = { [`RT_${r.family.toUpperCase()}`]: '' };
     if (r.cabin) defines.RT_CABIN = '';
     if (r.wear && (r.wear[0] > 0 || r.wear[1] > 0 || r.wear[2] > 0)) defines.RT_WEAR = '';
-    if (v.vpaint) defines.RT_VPAINT = '';
+    // only paint takes its colour from the vertices (a merged chrome mesh carries no paint of its own)
+    if (v.vpaint && (name === 'paint' || name === 'paint_b')) defines.RT_VPAINT = '';
     if (v.vwear) defines.RT_VWEAR = '';
     if (v.vpart) defines.RT_VPART = '';
     const transparent = r.family === 'glass' || r.family === 'lens';
@@ -740,14 +746,13 @@ export class CarLook {
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
-      const v = variantOf(mesh.geometry);
       const swap = (m: THREE.Material): THREE.Material => {
         let n = carMaterialName(m.name);
         if (!n) {
           this.unknown.add(m.name || '(unnamed)');
           n = 'plastic_int';
         }
-        return this.material(n, v);
+        return this.material(n, variantOf(mesh.geometry, n));
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];

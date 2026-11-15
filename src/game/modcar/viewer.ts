@@ -16,6 +16,9 @@
  *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
  *   &spin=1                                 turntable (live view)
  *   &debug=ao|mat|normal                    the baked AO, a flat colour per material, the normals
+ *   &merge=1|2                              static parts merged into one mesh per material (2: plus a second,
+ *                                           repainted, dirty copy in the same meshes: per-vertex colour and wear)
+ *   &highlight=2|WHEEL_FL                   light up a part: its id in the merged meshes, or an object's name
  *   &fov=40 &quality=high &post=1 &shot=1   (shot = the harness drives simulate / render)
  *
  * Live: drag to orbit, wheel to zoom, L lamps, B brake, G ghost kinds, P paints, D dirt, R rust, T hour +1, space spin.
@@ -24,6 +27,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Environment } from '../env/environment';
 import { applyCarMaterials, applyGhost, carEnvUniforms, carShadows, type CarLook, type GhostKind } from '../render/carMaterials';
+import { mergeCarParts, type MergePart } from '../render/carMerge';
 import { RenderCore, type Quality } from '../render/core';
 import { maskPreservingBlend } from '../render/materials';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_MAIN, GLSL_VERTEX_PARS, globals } from '../render/shaderlib';
@@ -66,6 +70,8 @@ export interface ViewerParams {
   seed: number;
   /** 0 off, 1 AO, 2 materials, 3 normals */
   debug: number;
+  merge: number;
+  highlight: string;
 }
 
 /** 'frames/sedan' → /models/modcar/frames/sedan.glb; absolute paths and URLs are taken as they are */
@@ -124,6 +130,8 @@ export function readViewerParams(search: string = window.location.search): Viewe
     shot: flag('shot'),
     seed: num('seed', 20261113),
     debug: ({ ao: 1, mat: 2, normal: 3 } as Record<string, number>)[get('debug') ?? ''] ?? 0,
+    merge: num('merge', 0),
+    highlight: get('highlight') ?? '',
   };
 }
 
@@ -323,6 +331,7 @@ export class ModelViewer {
     else if (!this.bounds.isEmpty()) this.beamFrom.set(this.bounds.max.x, THREE.MathUtils.lerp(this.bounds.min.y, this.bounds.max.y, 0.45), 0);
     this.beamFrom.z = 0;
     const p = this.params;
+    if (p.merge > 0 && !this.ghost) this.mergeStatic(model);
     this.look = applyCarMaterials(model, {
       paint: hex(p.paint) ?? undefined,
       paint2: hex(p.paint2) ?? undefined,
@@ -332,6 +341,10 @@ export class ModelViewer {
     });
     if (this.ghost) applyGhost(model, this.ghost);
     else carShadows(model);
+    if (p.highlight && this.look) {
+      const id = Number(p.highlight);
+      this.look.setHighlight(Number.isFinite(id) ? id : (model.getObjectByName(p.highlight) ?? null));
+    }
     if (this.stage && !this.bounds.isEmpty()) {
       if (this.contact) this.carRoot.remove(this.contact);
       const size = this.bounds.getSize(this.tmp);
@@ -342,6 +355,29 @@ export class ModelViewer {
         this.carRoot.add(this.contact);
       }
     }
+  }
+
+  /**
+   * merge=1: every top-level object that does not move (not a wheel, a hinged panel, an empty) goes into one
+   * mesh per material, ids 1, 2, … in order; merge=2 adds a repainted, dirty copy beside it into the same meshes
+   */
+  private mergeStatic(model: THREE.Object3D): void {
+    const moves = (o: THREE.Object3D): boolean => /^(WHEEL_|P_|M_|STEER|NEEDLE)/.test(o.name) || !!o.userData.mover;
+    const statics = model.children.filter((o) => !moves(o));
+    const parts: MergePart[] = statics.map((object, i) => ({ object, id: i + 1 }));
+    if (this.params.merge > 1) {
+      const twin = new THREE.Group();
+      twin.position.set(0, 0, 2.4);
+      for (const o of model.children) if (!/^M_/.test(o.name)) twin.add(o.clone());
+      model.add(twin);
+      twin.updateMatrixWorld(true);
+      twin.children.forEach((object, i) => parts.push({ object, id: 100 + i, paint: 0x2f5f8a, paint2: 0xd9a441, dirt: 0.65, rust: 0.25 }));
+    }
+    const merged = mergeCarParts(parts, model, { paint: hex(this.params.paint) ?? undefined, paint2: hex(this.params.paint2) ?? undefined });
+    for (const p of parts) p.object.parent?.remove(p.object);
+    for (const c of [...model.children]) if (c.children.length === 0 && !(c as THREE.Mesh).isMesh && !/^M_/.test(c.name)) model.remove(c);
+    model.add(merged);
+    model.updateMatrixWorld(true);
   }
 
   /** advance the viewer's time (ghost breathing, indicators, turntable) */
