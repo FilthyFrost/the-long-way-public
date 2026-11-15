@@ -218,6 +218,17 @@ export function cloneModel(m: Model): THREE.Group {
   return m.scene.clone(true);
 }
 
+const addons = new Map<string, Promise<Model | null>>();
+/** a model that is no part of its own (an add-on of a panel's style: parts/<name>.glb), or null without one */
+export function addonModel(name: string): Promise<Model | null> {
+  let p = addons.get(name);
+  if (!p) {
+    p = fetchGlb(`${BASE}parts/${name}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    addons.set(name, p);
+  }
+  return p;
+}
+
 const tools = new Map<string, Promise<Model | null>>();
 /**
  * A tool's own model (tools/<kind>.glb: the jerrycan, bottle, oil can, spray can, sponge), or null while

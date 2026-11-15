@@ -1,0 +1,11 @@
+{
+  "set": "modcar_panels",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_armour_doors", "params": "build=stock:sedan;door_FL=door_armor;door_RL=door_armor;hood=hood_armor;trunk=trunk_armor&view=orbit&orbit=-40,12,7,0.6"},
+    {"name": "sedan_armour_right", "params": "build=stock:sedan;door_FR=door_armor;door_RR=door_fridge&view=orbit&orbit=60,8,6.5,0.6"},
+    {"name": "pickup_armour", "params": "build=stock:pickup;door_FL=door_armor;door_FR=door_fridge;hood=hood_armor&view=orbit&orbit=-35,12,7.5,0.7"},
+    {"name": "sedan_fridge_close", "params": "build=stock:sedan;door_FL=door_fridge&view=orbit&orbit=-80,4,3.5,0.8"}
+  ]
+}

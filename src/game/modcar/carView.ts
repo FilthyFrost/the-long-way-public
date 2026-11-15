@@ -18,7 +18,7 @@ import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
-import { cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
+import { addonModel, cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
@@ -51,6 +51,8 @@ interface PanelNode {
   glass: THREE.Object3D[];
   /** a wire cage drawn instead of the skin (style 'cage'), made on first use */
   cage: THREE.Object3D | null;
+  /** an add-on on the skin that makes its style read (an armour plate riveted on, a fridge's handle) */
+  overlay: THREE.Object3D | null;
   style: string;
 }
 
@@ -391,7 +393,7 @@ export class CarView {
       };
       if (away(-1) > away(1)) axis.negate();
     }
-    this.panels.set(mt.id, { mount: mt.id, pivot, axis, openRad, t: 0, target: 0, skin, glass, cage: null, style: 'stock' });
+    this.panels.set(mt.id, { mount: mt.id, pivot, axis, openRad, t: 0, target: 0, skin, glass, cage: null, overlay: null, style: 'stock' });
     pivot.visible = false;
   }
 
@@ -643,6 +645,7 @@ export class CarView {
     p.pivot.visible = inst !== null;
     if (!inst) {
       p.t = p.target = 0;
+      this.setOverlay(p, m, '');
       return;
     }
     const style = partDef(inst.part).panel?.style ?? 'stock';
@@ -661,6 +664,58 @@ export class CarView {
       }
       p.cage.visible = true;
     } else if (p.cage) p.cage.visible = false;
+    if (style !== p.overlay?.userData.style) this.setOverlay(p, m, style);
+  }
+
+  /**
+   * The add-on that makes a panel's style read on the car: an armour door or lid gets steel plates riveted
+   * over its skin, a fridge door the fridge's handle. Placed from the skin's bounds in the hinge's frame.
+   */
+  private setOverlay(p: PanelNode, m: MountDef, style: string): void {
+    p.overlay?.removeFromParent();
+    p.overlay = null;
+    this.mats.drop(`${panelOwner(m.id)}+add`);
+    const file = style === 'armor' ? 'door_armor_overlay' : style === 'fridge' && m.cat === 'door' ? 'door_fridge_handle' : null;
+    if (!file) return;
+    const holder = new THREE.Group();
+    holder.name = `overlay_${m.id}`;
+    holder.userData.style = style;
+    p.pivot.add(holder);
+    p.overlay = holder;
+    // (measured shut: the open angle taken off)
+    const box = new THREE.Box3();
+    const q = p.pivot.quaternion.clone();
+    p.pivot.quaternion.identity();
+    this.model.updateMatrixWorld(true);
+    for (const s of p.skin) box.expandByObject(s);
+    box.applyMatrix4(new THREE.Matrix4().copy(p.pivot.matrixWorld).invert());
+    p.pivot.quaternion.copy(q);
+    if (box.isEmpty()) return;
+    const size = box.getSize(new THREE.Vector3());
+    const c = box.getCenter(new THREE.Vector3());
+    const look = this.mats.look(`${panelOwner(m.id)}+add`, { paint: 0x5c6168, paint2: 0x5c6168, rust: 0.25 });
+    void this.track(addonModel(file)).then((model) => {
+      if (!model || p.overlay !== holder) return;
+      const o = cloneModel(model);
+      applyMaterials(o, look);
+      // which way is out of the skin: a door's side, the top of a bonnet or a boot lid
+      const out = m.side > 0 ? 1 : -1;
+      if (file === 'door_fridge_handle') {
+        // by the back edge (doors hang on their front edge), at the waist
+        o.scale.z = out > 0 ? -1 : 1;
+        o.position.set(box.min.x + 0.1, box.min.y + size.y * 0.42, out > 0 ? box.max.z : box.min.z);
+      } else if (m.cat === 'door') {
+        // over the lower door, below the window
+        o.scale.set((size.x * 0.84) / 1.0, (size.y * 0.4) / 0.5, out > 0 ? -1 : 1);
+        o.position.set(c.x, box.min.y + size.y * 0.27, out > 0 ? box.max.z : box.min.z);
+      } else {
+        // lying on top: the plate's thickness turned upwards, its height across the car
+        o.rotation.x = Math.PI / 2;
+        o.scale.set((size.x * 0.78) / 1.0, (size.z * 0.78) / 0.5, 1);
+        o.position.set(c.x, box.max.y - 0.006, c.z);
+      }
+      holder.add(o);
+    });
   }
 
   private setWheels(): void {
