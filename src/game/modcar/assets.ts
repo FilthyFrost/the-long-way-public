@@ -23,8 +23,12 @@ export interface Model {
 const loader = new GLTFLoader();
 const cache = new Map<string, Promise<Model>>();
 
+/** model files asked for and arrived (the loading card's bar) */
+export const loadStats = { requested: 0, done: 0 };
+
 function fetchGlb(url: string): Promise<THREE.Group | null> {
-  return new Promise((resolve) => {
+  loadStats.requested++;
+  return new Promise<THREE.Group | null>((resolve) => {
     loader.load(
       url,
       (g) => {
@@ -38,6 +42,8 @@ function fetchGlb(url: string): Promise<THREE.Group | null> {
       undefined,
       () => resolve(null),
     );
+  }).finally(() => {
+    loadStats.done++;
   });
 }
 

@@ -7,6 +7,7 @@ import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } fr
 import { partDef } from '../../core/modcar/parts';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { readParams } from '../params';
+import { loadStats } from './assets';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
@@ -262,7 +263,19 @@ const rt = {
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 
+// the loading card until the garage and its parts are in (not in screenshots)
+if (!params.shot) {
+  game.ui.showLoading(0);
+  const tick = (): void => {
+    if (rt.ready) return;
+    game.ui.showLoading(loadStats.requested ? loadStats.done / loadStats.requested : 0);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 void game.ready.then(() => {
+  game.ui.showLoading(null);
   if (params.shot) {
     game.simulate(0.8);
     game.render();

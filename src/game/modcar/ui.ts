@@ -64,6 +64,13 @@ const CSS = `
 .mc-assist b.k { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 12px; text-align: center; }
 .mc-assist span.on { color: #3f7d3a; font-weight: 600; } .mc-assist span.off { color: #9a6a4a; }
 .mc-assist .foot { margin-top: 8px; color: #7a6a5a; font-size: 12px; }
+.mc-load { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #1a1612; transition: opacity 0.8s; }
+.mc-load .box { width: min(360px, calc(100vw - 48px)); color: #fbf3e1; text-align: center; }
+.mc-load h2 { margin: 0 0 4px; font-size: 26px; font-weight: 600; letter-spacing: 0.08em; }
+.mc-load .sub { color: #c9bba6; font-size: 13px; margin-bottom: 18px; }
+.mc-load .bar { height: 4px; border-radius: 2px; background: rgba(251,243,225,0.15); overflow: hidden; }
+.mc-load .bar i { display: block; height: 100%; width: 0; background: #f3c35a; transition: width 0.2s; }
+.mc-load .what { margin-top: 10px; color: #8f8270; font-size: 12px; }
 .mc-pause { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); padding: 6px 16px; border-radius: 14px; background: rgba(43,38,34,0.78); color: #fbf3e1; font-size: 14px; }
 .mc-pause b { color: #f3c35a; }
 .mc-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #fbf3e1; font-size: 13px; text-shadow: 0 1px 2px rgba(20,14,10,0.8); white-space: nowrap; }
@@ -143,6 +150,7 @@ export class ModUI {
   private readonly pause: HTMLDivElement;
   private readonly marker: HTMLDivElement;
   private readonly assist: HTMLDivElement;
+  private readonly load: HTMLDivElement;
   private toastT = 0;
   private lastMarker = '';
   private lastCard = '';
@@ -181,6 +189,9 @@ export class ModUI {
     this.help.innerHTML = HELP;
     this.assist = el('div', 'mc-assist', this.root);
     this.fade = el('div', 'mc-fade', this.root);
+    this.load = el('div', 'mc-load', this.root);
+    this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
+    this.load.style.display = 'none';
     for (const e of [this.word, this.card, this.toast, this.held, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
   }
@@ -313,6 +324,19 @@ export class ModUI {
 
   get assistsShown(): boolean {
     return this.assist.style.display !== 'none';
+  }
+
+  /** the loading card: 0…1 of the way, or null to fade it out */
+  showLoading(f: number | null): void {
+    if (f === null) {
+      if (this.load.style.display === 'none') return;
+      this.load.style.opacity = '0';
+      setTimeout(() => (this.load.style.display = 'none'), 850);
+      return;
+    }
+    this.load.style.display = '';
+    this.load.style.opacity = '1';
+    (this.load.querySelector('.bar i') as HTMLElement).style.width = `${(Math.min(1, Math.max(0, f)) * 100).toFixed(0)}%`;
   }
 
   /** the key card (at the start, and on F1) */
