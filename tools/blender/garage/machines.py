@@ -94,8 +94,11 @@ def lift(K, L, xc, zc, span=2.9, name='lift'):
 
 def tyre_changer(K, L, x, z, yaw_deg=0.0):
     """
-    A tyre changer: a red cabinet with the turntable on top (four jaws), the column at the back with the
-    swing arm and its mounting head, the bead breaker on the side, three pedals at the foot.
+    A tyre changer: a red cabinet on a black plinth with the turntable on top (four jaws in their slots)
+    in a black tray with the tyre lever and the bead lube in it; the tower at the back with the swing
+    arm, the hex shaft and its mounting head; the bead breaker's arm and blade on the side against its
+    rubber pad, its air cylinder behind; three pedals at the foot; the air gauge hung on the tower.
+    Local frame: +x the front (the pedals), the tower at -x.
     """
     M = kit.mat4((x, 0, z), (0, yaw_deg, 0))
 
@@ -110,34 +113,79 @@ def tyre_changer(K, L, x, z, yaw_deg=0.0):
         K.cyl(mat, (0, 0, 0), r, h, matrix=m, **kw)
 
     h = 0.78
-    box('p_red', (0, h / 2, 0), (0.62, h, 0.82), bev=0.02, seg=0.5)
-    box('p_black', (0.312, 0.32, 0), (0.008, 0.36, 0.6), bev=0.0)
-    # pedals
-    for k, dz in enumerate((-0.18, 0.0, 0.18)):
-        box('steel', (0.38, 0.05, dz), (0.16, 0.03, 0.09), bev=0.006)
-    # the turntable: a disc and four sliding jaws
+    # the cabinet on its plinth, a cream stripe round it, louvres low on the front
+    box('p_black', (0, 0.03, 0), (0.6, 0.06, 0.8), bev=0.01)
+    box('p_red', (0, 0.06 + (h - 0.08) / 2, 0), (0.62, h - 0.08, 0.82), bev=0.035, bsegs=2, seg=0.45)
+    box('p_cream', (0, h - 0.17, 0), (0.628, 0.045, 0.828), bev=0.006, cast=False)
+    box('p_red', (0.311, 0.36, 0), (0.012, 0.4, 0.56), bev=0.008, tint=0.78, cast=False)
+    for k in range(6):
+        box('p_black', (0.318, 0.2 + k * 0.058, 0), (0.008, 0.02, 0.46), bev=0.003, tint=1.3, cast=False)
+    # the tray on top, its lip, the tools in it
+    top = h - 0.02
+    box('rubber', (0.0, top + 0.012, 0), (0.6, 0.024, 0.8), bev=0.008, tint=1.25)
+    for (c, sz) in (((0.29, top + 0.035, 0), (0.025, 0.03, 0.8)), ((-0.29, top + 0.035, 0), (0.025, 0.03, 0.8)),
+                    ((0, top + 0.035, 0.39), (0.6, 0.03, 0.025)), ((0, top + 0.035, -0.39), (0.6, 0.03, 0.025))):
+        box('rubber', c, sz, bev=0.006, tint=1.25, cast=False)
+    K.tube('steel', [at((0.22, top + 0.03, 0.34)), at((-0.18, top + 0.03, 0.33)), at((-0.24, top + 0.06, 0.315))], 0.011, segs=6, bend=0.03)
+    cyl('p_yellow', (0.2, top + 0.065, -0.3), 0.045, 0.085, segs=14, bev=0.006)
+    cyl('p_cream', (0.2, top + 0.11, -0.3), 0.04, 0.006, segs=14, cast=False)
+    K.tube('wood', [at((0.2, top + 0.09, -0.3)), at((0.24, top + 0.2, -0.32))], 0.008, segs=5)
+    # the turntable: a disc with a rim, four jaws in their slots, the hub (it turns: TC_TABLE)
     tt = h + 0.03
     K.mover('TC_TABLE', at((0, tt, -0.05)))
-    cyl('steel', (0, tt, -0.05), 0.3, 0.04, segs=32, bev=0.006, mover='TC_TABLE')
+    cyl('steel', (0, tt, -0.05), 0.3, 0.04, segs=36, bev=0.008, bsegs=2, mover='TC_TABLE')
+    cyl('steel', (0, tt + 0.021, -0.05), 0.24, 0.004, segs=36, tint=0.7, mover='TC_TABLE')
     for k in range(4):
         a = k * math.pi / 2 + math.pi / 4
-        c = (math.cos(a) * 0.22, tt + 0.04, -0.05 + math.sin(a) * 0.22)
-        box('alu', c, (0.09, 0.05, 0.06), bev=0.006, mover='TC_TABLE')
-    cyl('steel', (0, tt + 0.06, -0.05), 0.04, 0.12, segs=14, mover='TC_TABLE')
-    # the column at the back, the swing arm over the table, the head
-    box('p_red', (-0.26, h + 0.5, -0.05), (0.14, 1.0, 0.14), bev=0.012)
-    box('p_red', (-0.12, h + 0.98, -0.05), (0.42, 0.11, 0.11), bev=0.01)
-    box('steel', (0.02, h + 0.65, -0.05), (0.05, 0.62, 0.05), bev=0.006)
-    box('p_black', (0.02, h + 0.33, -0.05), (0.08, 0.08, 0.08), bev=0.01)
-    # the bead breaker: a long arm on the side with its blade, and the air cylinder behind
-    box('steel', (-0.05, 0.6, 0.47), (0.08, 0.08, 0.12), bev=0.008)
-    K.tube('steel', [at((-0.25, 0.55, 0.47)), at((0.15, 0.85, 0.47)), at((0.3, 0.95, 0.47))], 0.022, segs=8)
-    box('steel', (0.18, 0.55, 0.47), (0.04, 0.22, 0.12), bev=0.006)
-    cyl('steel', (-0.28, 0.45, 0.43), 0.06, 0.3, axis='x', segs=14, bev=0.006)
-    # an air gauge and its hose
-    cyl('p_cream', (-0.2, h + 1.0, 0.04), 0.04, 0.02, axis='z', segs=16)
-    cyl('glass', (-0.2, h + 1.0, 0.052), 0.034, 0.004, axis='z', segs=16)
-    K.tube('p_black', [at((-0.2, h + 0.96, 0.05)), at((-0.15, h + 0.6, 0.3)), at((-0.1, 0.3, 0.42)), at((0.1, 0.02, 0.6))], 0.009, segs=6, bend=0.12)
+        ca, sa = math.cos(a), math.sin(a)
+        box('p_black', (ca * 0.17, tt + 0.024, -0.05 + sa * 0.17), (0.2, 0.004, 0.03), rot=(0, -math.degrees(a), 0), mover='TC_TABLE')
+        box('alu', (ca * 0.22, tt + 0.045, -0.05 + sa * 0.22), (0.1, 0.045, 0.06), rot=(0, -math.degrees(a), 0), bev=0.008, mover='TC_TABLE')
+        box('steel', (ca * 0.255, tt + 0.075, -0.05 + sa * 0.255), (0.022, 0.03, 0.05), rot=(0, -math.degrees(a), 0), bev=0.004, mover='TC_TABLE')
+    cyl('steel', (0, tt + 0.06, -0.05), 0.045, 0.1, segs=16, bev=0.008, mover='TC_TABLE')
+    cyl('p_black', (0, tt + 0.115, -0.05), 0.03, 0.012, segs=12, mover='TC_TABLE')
+    # the tower at the back, the swing arm over the table, the hex shaft with its handle and the head
+    box('p_red', (-0.27, h + 0.52, -0.05), (0.16, 1.04, 0.16), bev=0.02, bsegs=2)
+    box('p_red', (-0.27, h + 1.06, -0.05), (0.2, 0.05, 0.2), bev=0.012)
+    box('p_red', (-0.1, h + 0.98, -0.05), (0.4, 0.12, 0.12), bev=0.02, bsegs=2)
+    box('p_black', (0.08, h + 0.98, -0.05), (0.08, 0.14, 0.14), bev=0.012)
+    cyl('steel', (0.08, h + 0.66, -0.05), 0.026, 0.62, segs=6, smooth=False)
+    K.tube('p_black', [at((0.08, h + 1.0, -0.05)), at((0.08, h + 1.03, 0.08)), at((0.1, h + 1.0, 0.16))], 0.012, segs=6, bend=0.02)
+    cyl('p_red', (0.1, h + 1.0, 0.18), 0.022, 0.05, axis='z', segs=10)
+    # the mounting head: a black duck's head with its roller
+    box('p_black', (0.08, h + 0.34, -0.05), (0.07, 0.06, 0.07), bev=0.012)
+    box('p_black', (0.11, h + 0.3, -0.05), (0.09, 0.035, 0.06), rot=(0, 0, -25), bev=0.01)
+    cyl('alu', (0.14, h + 0.29, -0.05), 0.016, 0.05, axis='z', segs=10)
+    # the bead breaker: the rubber pad on the side, the long arm from the back with its blade and handle,
+    # the air cylinder behind it
+    zs = 0.415
+    box('rubber', (0.04, 0.5, zs + 0.01), (0.3, 0.22, 0.02), bev=0.008, tint=1.15)
+    cyl('steel', (-0.33, 0.45, zs + 0.06), 0.035, 0.08, axis='z', segs=12)
+    K.tube('steel', [at((-0.33, 0.45, zs + 0.1)), at((-0.05, 0.62, zs + 0.13)), at((0.22, 0.72, zs + 0.12)), at((0.42, 0.84, zs + 0.1))], 0.024, segs=10, bend=0.1, cast=True)
+    K.tube('rubber', [at((0.38, 0.82, zs + 0.1)), at((0.5, 0.9, zs + 0.1))], 0.03, segs=10)
+    box('steel', (0.12, 0.6, zs + 0.13), (0.045, 0.2, 0.13), rot=(0, 0, 18), bev=0.008)
+    box('steel', (0.15, 0.5, zs + 0.13), (0.03, 0.06, 0.15), rot=(0, 0, 18), bev=0.006, tint=0.8)
+    cyl('steel', (-0.36, 0.3, zs - 0.02), 0.07, 0.28, axis='x', segs=16, bev=0.008, tint=1.15)
+    cyl('alu', (-0.2, 0.3, zs - 0.02), 0.012, 0.12, axis='x', segs=8)
+    # pedals: black, ribbed
+    for dz in (-0.17, 0.0, 0.17):
+        box('p_black', (0.4, 0.045, dz), (0.17, 0.025, 0.1), rot=(0, 0, -8), bev=0.008)
+        for r in range(3):
+            box('rubber', (0.36 + r * 0.04, 0.06 - r * 0.005, dz), (0.012, 0.006, 0.09), rot=(0, 0, -8), tint=1.4, cast=False)
+        box('steel', (0.3, 0.05, dz), (0.06, 0.02, 0.03), bev=0.004, cast=False)
+    # the air: the regulator's two bowls on the tower, the gauge and the coiled red hose on its hook
+    cyl('glass', (-0.36, h + 0.55, 0.02), 0.03, 0.08, segs=12)
+    cyl('glass', (-0.36, h + 0.55, -0.1), 0.03, 0.08, segs=12)
+    box('alu', (-0.36, h + 0.61, -0.04), (0.06, 0.04, 0.2), bev=0.006)
+    cyl('p_cream', (-0.2, h + 0.9, 0.035), 0.045, 0.022, axis='z', segs=18)
+    cyl('glass', (-0.2, h + 0.9, 0.048), 0.038, 0.004, axis='z', segs=18)
+    box('p_red', (-0.2, h + 0.91, 0.051), (0.003, 0.03, 0.002), rot=(0, 0, -30), cast=False)
+    K.tube('steel', [at((-0.19, h + 0.76, 0.04)), at((-0.17, h + 0.8, 0.06))], 0.006, segs=5)
+    pts = []
+    for i in range(25):
+        a = i / 24 * math.pi * 2 * 3.0
+        pts.append(at((-0.19 + 0.012 * i / 24, h + 0.65 + math.cos(a) * 0.09, 0.12 + math.sin(a) * 0.09 + i * 0.002)))
+    K.tube('p_red', pts, 0.008, segs=6, bend=0.0)
+    K.tube('p_red', [pts[-1], at((-0.15, h + 0.3, 0.2)), at((-0.05, 0.03, 0.55))], 0.008, segs=6, bend=0.15)
     c = at((0, 0, 0))
     P.solid(L, c[0], c[2], 0.36, 0.45, 0, h + 0.05, yaw=-math.radians(yaw_deg))
     t = at((0, tt + 0.04, -0.05))
