@@ -45,9 +45,9 @@ function placed(m: Model, fit: [number, number, number]): THREE.Box3 {
  * remove an entry when its part is made to fit.
  */
 const KNOWN_OVER = new Set([
-  // (the single's kick-start cover stands 7 cm out on the right of the bike's room: open frame, to be checked)
+  // (the single's kick-start peg stands 7 cm out on the right of the bike's room: an open frame, nothing to poke through)
   'moto:engine:eng_single',
-  'sedan:radiator:rad_std', 'pickup:radiator:rad_std', 'sedan:gearbox:gb_4', 'pickup:gearbox:gb_4', 'sedan:fuelTank:tank_std', 'pickup:fuelTank:tank_std']);
+]);
 
 describe('modcar · parts sit where their mounts say', () => {
   it('a stretch part stays inside its fit box along every axis it fills, wherever it is fitted', () => {
