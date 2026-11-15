@@ -33,7 +33,8 @@ PRE = int(0.064 * FS)
 POST = int(0.032 * FS)
 TARGET_RMS = 10 ** (-20 / 20)
 PEAK_MAX = 10 ** (-1.0 / 20)
-LOOP_SECONDS = 1.0
+# loop lengths: long enough that the simulator's cycle-to-cycle scatter does not repeat audibly
+LOOP_SECONDS = {'on': 1.6, 'off': 2.0}
 
 
 def find_ffmpeg():
@@ -247,21 +248,40 @@ def decode(ffmpeg, path):
     return np.frombuffer(raw, dtype='<f4').astype(np.float64)
 
 
-def seam_match_db(y, start, end, n=48):
-    """How far the samples after loopEnd stray from the ones after loopStart (cyclic copies), dB re rms."""
+def seam_match_db(y, start, end, n=256):
+    """RMS difference between the samples after loopEnd and after loopStart (cyclic copies), dB re
+    the loop's rms: codec noise reads well below 0 dB, a misaligned copy about +3 dB."""
     a = y[start:start + n]
     b = y[end:end + n]
     if len(b) < n:
-        return 0.0
-    return 20 * math.log10(np.max(np.abs(a - b)) / (rms(y[start:end]) + 1e-30) + 1e-12)
+        return 6.0
+    return 20 * math.log10(rms(a - b) / (rms(y[start:end]) + 1e-30) + 1e-12)
 
 
 def seam_click(loop):
-    """Second difference across the seam against the loop's own spread (z-score)."""
-    z = np.concatenate([loop[-3:], loop[:3]])
+    """Largest second difference within 3 samples of the seam, against the loop's own 99.9th
+    percentile of it (a click reads well above 1)."""
+    z = np.concatenate([loop[-4:], loop[:4]])
     d2 = np.abs(np.diff(z, 2))
-    spread = np.std(np.diff(loop, 2)) + 1e-30
-    return float(np.max(d2) / spread)
+    ref = np.percentile(np.abs(np.diff(np.concatenate([loop, loop[:2]]), 2)), 99.9) + 1e-30
+    return float(np.max(d2) / ref)
+
+
+CYCLE_POINTS = 512
+
+
+def mean_cycle(y, cycles):
+    """The loop folded onto one 720-degree cycle (crank-angle axis), zero mean, unit norm."""
+    z = signal.resample(y, cycles * CYCLE_POINTS).reshape(cycles, CYCLE_POINTS).mean(axis=0)
+    z = z - z.mean()
+    return z / (np.linalg.norm(z) + 1e-30)
+
+
+def cycle_shift(a, b):
+    """Fraction of a cycle to delay b by so it lines up best with a (circular cross-correlation)."""
+    c = np.fft.irfft(np.fft.rfft(a) * np.conj(np.fft.rfft(b)), CYCLE_POINTS)
+    k = int(np.argmax(c))
+    return (-k % CYCLE_POINTS) / CYCLE_POINTS, float(c[k])
 
 
 def onset(x, fs, frac=0.25):
@@ -301,11 +321,13 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         rpm = float(np.mean(tel['rpm'][len(tel['rpm']) // 10:])) if tel else float(rpm_s)
         x = x[int(0.08 * fs):]
         T = 120.0 / rpm * fs
-        k = max(3, int(round(LOOP_SECONDS * fs / T)))
+        k = max(3, int(round(LOOP_SECONDS[load] * fs / T)))
         L, corr = best_period(x, k * T)
         loop, start, seam = cut_loop(x, L, int(0.010 * fs))
         is_idle = load == 'off' and int(rpm_s) == e['idle']
         nat = rms(loop)
+        if load == 'off' and not is_idle:
+            nat *= 10 ** (e.get('offTrimDb', 0) / 20)
         rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng)
         m = int(round(L * FS / fs))
         y = resample_cyclic(rich, m)
@@ -361,6 +383,39 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         end = min(len(x), int(live[-1]) + int(0.15 * fs)) if len(live) else len(x)
         items.append({'kind': 'oneshot', 'file': name, 'nat': rms(x[: int(0.25 * fs)]), 'y': oneshot(name, x[:end], fs)})
 
+    # cycle phase of every steady loop, so the player can start each one in step with its
+    # neighbour: each load chained up by rpm (coh = likeness to the loop below), then the whole
+    # overrun chain turned to sit best against the full-load chain (cohLoad = the likeness left)
+    steady = [i for i in items if i['kind'] == 'loop' and 'load' in i]
+    for i in steady:
+        i['mc'] = mean_cycle(i['y'], i['cycles'])
+    phase = {}
+    chains = {}
+    for load in (1, 0):
+        ch = sorted([i for i in steady if i['load'] == load], key=lambda i: i['rpm'])
+        chains[load] = ch
+        phase[id(ch[0])] = 0.0
+        for a, b in zip(ch, ch[1:]):
+            sh, c = cycle_shift(a['mc'], b['mc'])
+            phase[id(b)] = (phase[id(a)] + sh) % 1.0
+            b['coh'] = round(max(0.0, c), 3)
+    pairs = []
+    for off in chains[0]:
+        on = min(chains[1], key=lambda o: abs(o['rpm'] - off['rpm']))
+        sh, c = cycle_shift(on['mc'], off['mc'])
+        pairs.append((off, on, (phase[id(on)] + sh - phase[id(off)]) % 1.0, max(0.0, c)))
+    # weighted circular mean of the offsets each pair would like
+    zx = sum(c * math.cos(2 * math.pi * d) for _, _, d, c in pairs)
+    zy = sum(c * math.sin(2 * math.pi * d) for _, _, d, c in pairs)
+    delta = (math.atan2(zy, zx) / (2 * math.pi)) % 1.0
+    for off, on, d, c in pairs:
+        phase[id(off)] = (phase[id(off)] + delta) % 1.0
+        off['cohLoad'] = round(max(0.0, c * math.cos(2 * math.pi * (delta - d))), 3)
+    for i in steady:
+        # seconds from loopStart to a cycle start, at the loop's own speed
+        i['phase'] = round(phase[id(i)] * 120.0 / i['rpm'], 6)
+        del i['mc']
+
     # levels: every file at the same loudness; natural level relative to the loudest on-load loop
     ref = max(i['nat'] for i in items if i.get('load') == 1)
     man_loops, man_shots = [], {}
@@ -391,7 +446,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
             for ext in ('ogg', 'm4a'):
                 dec = decode(ffmpeg, os.path.join(dst, f'{it["file"]}.{ext}'))
                 rec[f'seam_{ext}'] = round(seam_match_db(dec, PRE, PRE + len(body)), 1)
-            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal'):
+            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal', 'phase', 'coh', 'cohLoad'):
                 if key in it:
                     rec[key] = it[key]
             if it['file'] in ('crank', 'limiter'):

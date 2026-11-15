@@ -1,0 +1,74 @@
+{
+ "eng_v8": {
+  "idle_db": -41.9,
+  "pull_high_db": -24,
+  "overrun_db": -30.3,
+  "idle_hz": 204,
+  "pull_high_hz": 500
+ },
+ "eng_mower": {
+  "idle_db": -41.3,
+  "pull_high_db": -26.6,
+  "overrun_db": -40.7,
+  "idle_hz": 330,
+  "pull_high_hz": 1615
+ },
+ "eng_single": {
+  "idle_db": -40.1,
+  "pull_high_db": -26.9,
+  "overrun_db": -36.5,
+  "idle_hz": 283,
+  "pull_high_hz": 993
+ },
+ "eng_2t": {
+  "idle_db": -39.2,
+  "pull_high_db": -24.8,
+  "overrun_db": -37.2,
+  "idle_hz": 533,
+  "pull_high_hz": 1548
+ },
+ "eng_i4": {
+  "idle_db": -44.6,
+  "pull_high_db": -28,
+  "overrun_db": -35.8,
+  "idle_hz": 837,
+  "pull_high_hz": 866
+ },
+ "eng_i4d": {
+  "idle_db": -35.5,
+  "pull_high_db": -26.1,
+  "overrun_db": -31.9,
+  "idle_hz": 1323,
+  "pull_high_hz": 1299
+ },
+ "eng_flat6": {
+  "idle_db": -39.4,
+  "pull_high_db": -24,
+  "overrun_db": -31.4,
+  "idle_hz": 387,
+  "pull_high_hz": 633
+ },
+ "eng_d6": {
+  "idle_db": -31.9,
+  "pull_high_db": -23.9,
+  "overrun_db": -32.4,
+  "idle_hz": 745,
+  "pull_high_hz": 571
+ },
+ "loops_eng_mower@48000": 0.06,
+ "loops_eng_mower@44100": 0.13,
+ "loops_eng_single@48000": 0.62,
+ "loops_eng_single@44100": 0.63,
+ "loops_eng_2t@48000": 0.52,
+ "loops_eng_2t@44100": 0.58,
+ "loops_eng_i4@48000": 0.78,
+ "loops_eng_i4@44100": 0.92,
+ "loops_eng_i4d@48000": 0.6,
+ "loops_eng_i4d@44100": 0.59,
+ "loops_eng_flat6@48000": 0.97,
+ "loops_eng_flat6@44100": 0.93,
+ "loops_eng_v8@48000": 0.59,
+ "loops_eng_v8@44100": 1.07,
+ "loops_eng_d6@48000": 0.64,
+ "loops_eng_d6@44100": 0.75
+}

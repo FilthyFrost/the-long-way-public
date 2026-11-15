@@ -113,13 +113,13 @@ public node eng_flat6 {
         es_params,
         audio_volume: 1.0,
         length: 48 * units.inch,
-        impulse_response: ir_lib.minimal_muffling_02
+        impulse_response: ir_lib.minimal_muffling_01
     )
     exhaust_system exhaust1(
         es_params,
         audio_volume: 1.0,
         length: 56 * units.inch,
-        impulse_response: ir_lib.minimal_muffling_02
+        impulse_response: ir_lib.minimal_muffling_01
     )
 
     cylinder_bank b0(bank_params, angle: 90 * units.deg)
