@@ -387,6 +387,7 @@ export class EngineVoice {
   private thrPeak = 0;
   private throttleHi = 0;
   private popBudget = 0;
+  private crackle = false;
   private nextPopAt = 0;
   private bovReadyAt = 0;
   private lastRpm = 0;
@@ -428,10 +429,12 @@ export class EngineVoice {
     this.exIn.connect(this.body).connect(this.bite).connect(this.exLp).connect(this.exGain).connect(this.pre);
     this.extGain = g(1);
     this.cabinLp = f('lowpass', 900, 0.5);
-    this.cabinBoom = f('lowshelf', 160, 0.707, 4);
+    // the cabin drones where the firing frequency passes about 105 Hz (a V8 at 1600, a four at 3200)
+    this.cabinBoom = f('peaking', 105, 1.4, 6);
+    const cabinLow = f('lowshelf', 220, 0.707, 2);
     this.intGain = g(0);
     this.pre.connect(this.extGain).connect(this.out);
-    this.pre.connect(this.cabinBoom).connect(this.cabinLp).connect(this.intGain).connect(this.out);
+    this.pre.connect(this.cabinBoom).connect(cabinLow).connect(this.cabinLp).connect(this.intGain).connect(this.out);
 
     // two seconds of white noise for every noise layer
     const nb = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
@@ -807,20 +810,22 @@ export class EngineVoice {
     if (running && m) {
       if (thr > 0.6) this.throttleHi = Math.min(1, this.throttleHi + dt * 1.5);
       if (lift && thr < 0.2 && rev > 0.45 && this.throttleHi > 0.3) {
-        this.popBudget = Math.round((2 + 7 * this.rng.next()) * tone.pops * ex.pops);
+        // a few big pops, or (loud pipes) a run of quick small crackles
+        this.crackle = this.rng.next() < 0.3 * Math.min(1.5, ex.pops);
+        this.popBudget = Math.round((this.crackle ? 5 + 9 * this.rng.next() : 2 + 7 * this.rng.next()) * tone.pops * ex.pops);
         this.nextPopAt = t + 0.04 + 0.08 * this.rng.next();
         this.throttleHi = 0;
         this.thrPeak = thr;
       }
       if (thr > 0.25) this.popBudget = 0;
       if (this.popBudget > 0 && t >= this.nextPopAt && rev > 0.2) {
-        const big = this.rng.next() < 0.18 * ex.pops;
+        const big = !this.crackle && this.rng.next() < 0.18 * ex.pops;
         const buf = this.popBufs[Math.floor(this.rng.next() * this.popBufs.length)];
-        const g = (big ? 0.55 : 0.22) * (0.5 + 0.5 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
-        this.oneShotBuffer(buf, t, g, this.exIn, 0.8 + 0.5 * this.rng.next());
+        const g = (big ? 0.55 : this.crackle ? 0.11 : 0.22) * (0.5 + 0.5 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
+        this.oneShotBuffer(buf, t, g, this.exIn, (this.crackle ? 1.3 : 0.8) + 0.5 * this.rng.next());
         this.popsFired++;
         this.popBudget--;
-        this.nextPopAt = t + 0.05 + 0.22 * this.rng.next();
+        this.nextPopAt = t + (this.crackle ? 0.015 + 0.04 * this.rng.next() : 0.05 + 0.22 * this.rng.next());
       }
     } else {
       this.popBudget = 0;

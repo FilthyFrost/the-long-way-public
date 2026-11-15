@@ -236,13 +236,13 @@ def pipe_resonance(x, fs, rpm, onset=5200.0, full=8000.0, f0=2600.0):
 
 # per engine: what is layered onto the recorded exhaust (levels relative to the exhaust itself)
 LAYERS = {
-    'eng_mower':  {'rasp': ((1800, 7000), -15, -19)},
+    'eng_mower':  {'rasp': ((1800, 7000), -15, -19), 'valves': (-27, -22)},
     'eng_2t':     {'rasp': ((2200, 9000), -11, -15), 'fins': (-17, -13), 'misfire': (0.32, 0.12), 'pipe': True},
-    'eng_single': {'rasp': ((1500, 7500), -16, -20), 'fins': (-26, -24)},
-    'eng_i4':     {'rasp': ((1400, 6000), -21, -24)},
+    'eng_single': {'rasp': ((1500, 7500), -16, -20), 'fins': (-26, -24), 'valves': (-31, -26)},
+    'eng_i4':     {'rasp': ((1400, 6000), -21, -24), 'valves': (-30, -25)},
     'eng_i4d':    {'rasp': ((1200, 5000), -21, -23), 'knock': (-11, -30, -5)},
-    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21), 'fins': (-28, -26)},
-    'eng_v8':     {'rasp': ((1000, 6000), -17, -21)},
+    'eng_flat6':  {'rasp': ((1500, 7000), -17, -21), 'fins': (-28, -26), 'valves': (-30, -26)},
+    'eng_v8':     {'rasp': ((1000, 6000), -17, -21), 'valves': (-33, -28)},
     'eng_d6':     {'rasp': ((900, 4500), -22, -24), 'knock': (-14, -32, -8)},
 }
 # air-cooled cylinders: the fins ring a little at every firing (the two-stroke's "ring-ding")
@@ -269,6 +269,11 @@ def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
     if 'rasp' in cfg:
         band, on_db, off_db = cfg['rasp']
         y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db)
+    if 'valves' in cfg:
+        # the valvetrain: every valve seating is a small high tick (two per cylinder per cycle)
+        on_db, off_db = cfg['valves']
+        y += knock_layer(y, fs, rng, 2 * cylinders * cycles, on_db if load == 'on' else off_db,
+                         [(3600, 1.0), (5300, 0.7), (7400, 0.4)], 0.9, tick_db=-40, advance_ms=-1.5)
     if 'fins' in cfg:
         on_db, off_db = cfg['fins']
         modes, decay = FIN_MODES[eid]
