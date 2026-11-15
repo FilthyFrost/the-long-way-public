@@ -680,7 +680,14 @@ export class ModGame implements PlayerHost, CockpitHost {
     const core = this.core;
     const cam = core.camera;
     const o = core.origin;
-    for (const v of this.vehicles) v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
+    // the weather's wipers on the car one sits in; the filler cap open while fuel goes in
+    this.env.wiperMode = this.seated?.view.wipers.length ? 'auto' : 'off';
+    const t = this.player.target;
+    for (const v of this.vehicles) {
+      v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
+      v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
+    }
     const f = this.seated ?? this.focus;
     // the floating origin follows whoever the camera is with
     const fx = this.seated ? this.seated.sim.px : this.player.walker.x;

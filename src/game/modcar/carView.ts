@@ -206,19 +206,28 @@ export class CarView {
       pivot.attach(pg);
       glass.push(pg);
     }
-    // which way is open: Blender's hinge axis z (doors) is our y, its y (bonnets, lids) our z
-    const axis = mt.hinge === 'y' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-    const box = new THREE.Box3().setFromObject(p);
-    const c = box.getCenter(new THREE.Vector3());
-    pivot.worldToLocal(c);
-    const openRad = (mt.openDeg ?? 70) * DEG;
-    // try both ways: open = the panel's middle moves away from the body's middle
-    const away = (sign: number): number => {
-      const q = new THREE.Quaternion().setFromAxisAngle(axis, sign * openRad);
-      const moved = c.clone().applyQuaternion(q).applyQuaternion(pivot.quaternion).add(pivot.position);
-      return Math.abs(moved.z) * 2 + moved.y;
-    };
-    if (away(-1) > away(1)) axis.negate();
+    const rig = this.frame.rig?.panels[p.name];
+    let axis: THREE.Vector3;
+    let openRad: number;
+    if (rig) {
+      // as modelled: a turn of openDeg about the hinge axis (frame space, right hand) opens it
+      axis = new THREE.Vector3(...rig.axis).applyQuaternion(pivot.quaternion.clone().invert()).normalize();
+      openRad = rig.openDeg * DEG;
+    } else {
+      // which way is open: Blender's hinge axis z (doors) is our y, its y (bonnets, lids) our z
+      axis = mt.hinge === 'y' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+      const box = new THREE.Box3().setFromObject(p);
+      const c = box.getCenter(new THREE.Vector3());
+      pivot.worldToLocal(c);
+      openRad = Math.abs(mt.openDeg ?? 70) * DEG;
+      // try both ways: open = the panel's middle moves away from the body's middle
+      const away = (sign: number): number => {
+        const q = new THREE.Quaternion().setFromAxisAngle(axis, sign * openRad);
+        const moved = c.clone().applyQuaternion(q).applyQuaternion(pivot.quaternion).add(pivot.position);
+        return Math.abs(moved.z) * 2 + moved.y;
+      };
+      if (away(-1) > away(1)) axis.negate();
+    }
     this.panels.set(mt.id, { mount: mt.id, pivot, axis, openRad, t: 0, target: 0, skin, glass, cage: null, style: 'stock' });
     pivot.visible = false;
   }
@@ -563,16 +572,30 @@ export class CarView {
       if (bar) steer.rotation.y = -sim.steerAngle;
       else steer.rotation.x = sim.steerAngle * ratio;
     }
-    // the speedometer with a little lag, like a cable-driven gauge
+    // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C)
     this.needle += (sim.kmh - this.needle) * Math.min(1, dt * 9);
-    const sp = this.needles.N_speed;
-    if (sp) sp.rotation.x = -Math.min(1, this.needle / 180) * 240 * DEG;
-    const tach = this.needles.N_rpm;
-    if (tach && dash) tach.rotation.x = -Math.min(1, dash.rpm / 8000) * 240 * DEG;
-    const fuel = this.needles.N_fuel;
-    if (fuel && dash) fuel.rotation.x = -dash.fuel * 90 * DEG;
-    const temp = this.needles.N_temp;
-    if (temp && dash) temp.rotation.x = -Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) * 90 * DEG;
+    const on = !!dash && dash.battery > 0.02;
+    this.turnNeedle('N_speed', Math.min(1, Math.abs(this.needle) / 180));
+    if (dash) {
+      this.turnNeedle('N_rpm', Math.min(1, dash.rpm / 8000));
+      this.turnNeedle('N_fuel', on ? Math.min(1, dash.fuel) : 0);
+      this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
+    }
+    // the wipers sweep with the weather's wipers (0…1 of their sweep)
+    for (const w of this.wipers) {
+      const r = this.frame.rig?.wipers[w.name];
+      if (!r) continue;
+      const rest = (w.userData.rest as THREE.Quaternion | undefined) ?? (w.userData.rest = w.quaternion.clone());
+      w.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), this.wiperAngle * r.sweepDeg * DEG));
+    }
+    // the filler cap stands open while fuel goes in
+    const cap = this.fuelCap;
+    const capRig = this.frame.rig?.panels.FUEL_CAP;
+    if (cap && capRig) {
+      this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 8);
+      const rest = (cap.userData.rest as THREE.Quaternion | undefined) ?? (cap.userData.rest = cap.quaternion.clone());
+      cap.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...capRig.axis), this.cap * capRig.openDeg * DEG));
+    }
     // the rain caps of side stacks ride on the exhaust: shut at rest, fluttering open under load
     for (const [mount, sh] of this.shown) {
       if (this.catOf.get(mount) !== 'exhaust') continue;
@@ -619,6 +642,26 @@ export class CarView {
 
   private flap = 0;
   private flapT = 0;
+  private cap = 0;
+  /** the filler cap is held open (fuel going in) */
+  capOpen = false;
+  /** the wipers' place in their sweep, 0…1 (the weather's wipers) */
+  wiperAngle = 0;
+  private readonly qTmp = new THREE.Quaternion();
+  private readonly vTmp = new THREE.Vector3();
+
+  /** a needle at `reading` (0…1 of its dial) about its modelled axis; a stand-in's about x */
+  private turnNeedle(name: string, reading: number): void {
+    const n = this.needles[name];
+    if (!n) return;
+    const r = this.frame.rig?.needles[name];
+    if (!r) {
+      n.rotation.x = -reading * (name === 'N_fuel' || name === 'N_temp' ? 90 : 240) * DEG;
+      return;
+    }
+    const rest = (n.userData.rest as THREE.Quaternion | undefined) ?? (n.userData.rest = n.quaternion.clone());
+    n.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), reading * r.fullDeg * DEG));
+  }
   /** an exhaust's FLAP_ movers, found once its model is in (none yet: looked for again next time) */
   private findFlaps(holder: THREE.Object3D): THREE.Object3D[] {
     const out: THREE.Object3D[] = [];

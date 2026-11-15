@@ -4,7 +4,7 @@
  * (data/mounts/<frame>.json, written by tools/blender/frames/<frame>.py — the geometry owns them); the
  * physical numbers live here.
  */
-import type { AxleSuspension, Category, FrameDef, MountDef, Text } from './types';
+import type { AxleSuspension, Category, FrameDef, FrameRig, MountDef, Text } from './types';
 import { CATEGORIES } from './types';
 import sedanMounts from './data/mounts/sedan.json';
 import pickupMounts from './data/mounts/pickup.json';
@@ -30,6 +30,21 @@ interface MountJson {
 interface MountTable {
   frame: string;
   mounts: Record<string, MountJson>;
+  panels?: Record<string, { hinge_axis: number[]; open_deg: number; glass?: string | null; mount?: string | null }>;
+  needles?: Record<string, { axis: number[]; deg_full: number }>;
+  wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
+}
+
+const v3 = (a: number[]): [number, number, number] => [a[0] ?? 0, a[1] ?? 0, a[2] ?? 0];
+
+/** the moving pieces of a modelled frame (a placeholder table has none) */
+function readRig(t: MountTable): FrameRig | undefined {
+  if (!t.panels && !t.needles && !t.wipers) return undefined;
+  const rig: FrameRig = { panels: {}, needles: {}, wipers: {} };
+  for (const [k, p] of Object.entries(t.panels ?? {})) rig.panels[k] = { axis: v3(p.hinge_axis), openDeg: p.open_deg, glass: p.glass ?? null, mount: p.mount ?? null };
+  for (const [k, n] of Object.entries(t.needles ?? {})) rig.needles[k] = { axis: v3(n.axis), fullDeg: n.deg_full };
+  for (const [k, w] of Object.entries(t.wipers ?? {})) rig.wipers[k] = { axis: v3(w.axis), sweepDeg: w.sweep_deg };
+  return rig;
 }
 
 const SIDE_LABEL: Record<string, Text> = {
@@ -140,6 +155,7 @@ export const SEDAN: FrameDef = {
   enclosed: 1,
   chase: { dist: 5.6, height: 1.9, look: 0.9 },
   mounts: readMounts(sedanMounts as MountTable),
+  rig: readRig(sedanMounts as MountTable),
 };
 
 export const PICKUP: FrameDef = {
@@ -160,6 +176,7 @@ export const PICKUP: FrameDef = {
   enclosed: 1,
   chase: { dist: 6.2, height: 2.1, look: 1.0 },
   mounts: readMounts(pickupMounts as MountTable),
+  rig: readRig(pickupMounts as MountTable),
 };
 
 export const MOTO: FrameDef = {
@@ -181,6 +198,7 @@ export const MOTO: FrameDef = {
   balance: true,
   chase: { dist: 4.2, height: 1.6, look: 0.9 },
   mounts: readMounts(motoMounts as MountTable),
+  rig: readRig(motoMounts as MountTable),
 };
 
 export const RV: FrameDef = {
@@ -201,6 +219,7 @@ export const RV: FrameDef = {
   enclosed: 1,
   chase: { dist: 10, height: 3.2, look: 1.6 },
   mounts: readMounts(rvMounts as MountTable),
+  rig: readRig(rvMounts as MountTable),
 };
 
 export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV];
