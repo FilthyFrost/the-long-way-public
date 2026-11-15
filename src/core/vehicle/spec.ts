@@ -34,6 +34,45 @@ export interface AxleSpec {
   steerable: boolean;
   driven: boolean;
   handbrake: boolean;
+  /**
+   * Radius of the wheels fitted on this axle (m); omitted = `spec.wheelRadius`. The hard points and
+   * `cgHeight` describe the vehicle standing on wheels of `spec.wheelRadius`: a bigger radius here
+   * lifts this axle's corners by the difference (the body pitches), and the rolling radius — wheel
+   * speed, gearing, top speed — follows it (docs/MODCAR.md §4, 物理实现说明).
+   */
+  wheelRadius?: number;
+}
+
+/**
+ * Single-track vehicle (a motorcycle): both axles have track 0 and the simulation balances it.
+ * Each wheel is split into a pair of contact rays a little apart (a stance, so it stands at rest),
+ * the rider keeps the body upright and takes the cornering roll moment by leaning; the lean is a
+ * visual angle (`VehicleSim.lean`) — the physics body stays upright. Every field has a default.
+ */
+export interface BalanceSpec {
+  /** distance between the two contact rays of each wheel (m); default 0.3 */
+  stance?: number;
+  /** largest lean angle the rider takes (deg); default 52 */
+  maxLeanDeg?: number;
+  /** time the visual lean takes to follow the corner (s); default 0.12 */
+  leanTime?: number;
+  /** how firmly the rider holds the bike upright, 0…1.5; default 1. Past about 60° of roll it lets go (a fall) */
+  assist?: number;
+}
+
+/**
+ * Parts a build lacks (docs/MODCAR.md §3). Each `true` removes that function from the physics;
+ * the matching spec fields may hold any placeholder (`NO_ENGINE`).
+ */
+export interface AbsentParts {
+  /** no engine: no torque, never runs, 0 rpm (no starter either), no fuel burnt, no engine braking */
+  engine?: boolean;
+  /** no gearbox: whatever the selector says the engine revs freely as in N, nothing drives, no park lock */
+  gearbox?: boolean;
+  /** no steering: the road wheels stay straight (pulls from the tyres still act) */
+  steering?: boolean;
+  /** no handbrake: the handbrake input and the lever latch do nothing */
+  handbrake?: boolean;
 }
 
 export interface VehicleSpec {
@@ -44,8 +83,9 @@ export interface VehicleSpec {
   wheelbase: number;
   /** static fraction of weight on the front axle */
   weightFront: number;
-  /** CG height above ground at static ride (m) */
+  /** CG height above ground at static ride (m), standing on wheels of `wheelRadius` */
   cgHeight: number;
+  /** wheel radius (m); the reference the hard points and `cgHeight` are given for (an axle may fit others) */
   wheelRadius: number;
   /** principal inertias (kg·m²): roll about x, yaw about y, pitch about z */
   inertia: { roll: number; yaw: number; pitch: number };
@@ -116,6 +156,30 @@ export interface VehicleSpec {
    * Burn = idleLph at rest + lPerKWh for every kWh the engine delivers.
    */
   fuel?: { tankL: number; lPerKWh: number; idleLph: number };
+  /** single-track vehicle: the simulation balances and leans it (front.track and rear.track are 0) */
+  balance?: BalanceSpec;
+  /** parts the build lacks */
+  absent?: AbsentParts;
+}
+
+/** placeholder engine for a build without one (`absent.engine`): no torque anywhere */
+export const NO_ENGINE: VehicleSpec['engine'] = {
+  curve: [
+    [0, 0],
+    [1000, 0],
+  ],
+  idle: 800,
+  stall: 1200,
+  redline: 6000,
+  brakeNm: 0,
+};
+
+/**
+ * True if the spec uses any of the ModCar physics extensions. Without them the simulation runs the
+ * legacy code paths exactly (the four tuned vehicles: harness/sim/modcar_legacy.test.ts).
+ */
+export function usesExtensions(spec: VehicleSpec): boolean {
+  return spec.front.wheelRadius !== undefined || spec.rear.wheelRadius !== undefined || spec.balance !== undefined || spec.absent !== undefined;
 }
 
 /**
