@@ -25,6 +25,7 @@ BOARD_T = 0.025             # wall boards
 BATTEN_T = 0.02
 PLINTH = 0.28               # concrete curb under the boards
 DOOR_Z = 2.3                # half width of the door opening
+WAINSCOT = 1.13             # the inside painted up to here (the girt at 1.2 is its rail)
 DOOR_H = 3.35
 POSTS_X = [-7.0, -4.667, -2.333, 0.0, 2.333, 4.667, 7.0]
 OVERHANG_EAVE = 0.45
@@ -102,11 +103,12 @@ def warm(K, amount=0.07):
 
 # ---------------------------------------------------------------------------------------------- walls
 
-def board_wall(K, wall, a0, a1, y0, top, holes, board=0.24):
+def board_wall(K, wall, a0, a1, y0, top, holes, board=0.24, paint=None):
     """
     Vertical boards along one wall between a0 and a1 (plan coordinate along the wall) from y0 to
     top(a) (a function: gables slope), skipping holes [(a, b, y0, y1)]. Outside faces are painted
-    siding, the rest bare boards; battens over every joint outside.
+    siding, the rest bare boards; battens over every joint outside. paint = the height the inside is
+    painted to (a faded wainscot under the girt), or None.
       wall 'L': z = Z0 (outside -z) · 'R': z = Z1 (outside +z) · 'B': x = X0 (outside -x) · 'F': x = X1
     """
     if wall in ('L', 'R'):
@@ -132,14 +134,22 @@ def board_wall(K, wall, a0, a1, y0, top, holes, board=0.24):
         # every so often a board was replaced and never painted
         bare = K.rng.random() < 0.06
         col_holes = [(h[2], h[3]) for h in holes if h[0] < bb and h[1] > ba]
-        for (ys, ye) in spans(y0, max(top(ba), top(bb)), col_holes):
-            yta = min(ye, top(ba))
-            ytb = min(ye, top(bb))
-            c = [P(ba, ys, 0), P(bb, ys, 0), P(bb, ys, BOARD_T), P(ba, ys, BOARD_T),
-                 P(ba, yta, 0), P(bb, ytb, 0), P(bb, ytb, BOARD_T), P(ba, yta, BOARD_T)]
-            tint = warm(K)
-            fm = (lambda nrm: ('boards' if bare else 'siding') if nrm.dot(out_n) > 0.7 else None)
-            hexa(K, 'boards', c, bev=0.004, tint=tint, faces_mat=fm)
+        for (ys0, ye0) in spans(y0, max(top(ba), top(bb)), col_holes):
+            # (the painted foot of the board and the bare rest of it, as two pieces)
+            pieces = [(ys0, ye0, False)]
+            if paint and ys0 < paint < ye0:
+                pieces = [(ys0, paint, True), (paint, ye0, False)]
+            elif paint and ye0 <= paint:
+                pieces = [(ys0, ye0, True)]
+            for (ys, ye, painted) in pieces:
+                yta = min(ye, top(ba))
+                ytb = min(ye, top(bb))
+                c = [P(ba, ys, 0), P(bb, ys, 0), P(bb, ys, BOARD_T), P(ba, ys, BOARD_T),
+                     P(ba, yta, 0), P(bb, ytb, 0), P(bb, ytb, BOARD_T), P(ba, yta, BOARD_T)]
+                tint = warm(K)
+                inner = 'wainscot' if painted and not bare else None
+                fm = (lambda nrm, inner=inner: ('boards' if bare else 'siding') if nrm.dot(out_n) > 0.7 else (inner if nrm.dot(out_n) < -0.7 else None))
+                hexa(K, 'boards', c, bev=0.004, tint=tint, faces_mat=fm)
         # the batten over the joint after this board (outside)
         if i < n - 1:
             ja = a0 + (i + 1) * w
@@ -231,12 +241,12 @@ def build(K, L):
         K.box('plinth', (X1 + 0.09, PLINTH / 2, (za + zb) / 2), (0.24, PLINTH, zb - za), bev=0.012, seg=0.8)
 
     # ---- boards
-    board_wall(K, 'L', X0 - 0.02, X1 + 0.02, PLINTH, eave, holes_L)
-    board_wall(K, 'R', X0 - 0.02, X1 + 0.02, PLINTH, eave, holes_R)
-    board_wall(K, 'B', Z0, Z1, PLINTH, lambda a: max(eave(a), gable(a)), holes_B)
+    board_wall(K, 'L', X0 - 0.02, X1 + 0.02, PLINTH, eave, holes_L, paint=WAINSCOT)
+    board_wall(K, 'R', X0 - 0.02, X1 + 0.02, PLINTH, eave, holes_R, paint=WAINSCOT)
+    board_wall(K, 'B', Z0, Z1, PLINTH, lambda a: max(eave(a), gable(a)), holes_B, paint=WAINSCOT)
     # the front: beside the door, and the gable over it
-    board_wall(K, 'F', Z0, -DOOR_Z - 0.18, PLINTH, eave, [])
-    board_wall(K, 'F', DOOR_Z + 0.18, Z1, PLINTH, eave, [])
+    board_wall(K, 'F', Z0, -DOOR_Z - 0.18, PLINTH, eave, [], paint=WAINSCOT)
+    board_wall(K, 'F', DOOR_Z + 0.18, Z1, PLINTH, eave, [], paint=WAINSCOT)
     board_wall(K, 'F', -DOOR_Z - 0.18, DOOR_Z + 0.18, DOOR_H + 0.25, lambda a: max(eave(a), gable(a)), [(-0.5, 0.5, 4.45, 5.4)])
     board_wall(K, 'F', Z0, -DOOR_Z - 0.18, EAVE + 0.15, gable, [])
     board_wall(K, 'F', DOOR_Z + 0.18, Z1, EAVE + 0.15, gable, [])

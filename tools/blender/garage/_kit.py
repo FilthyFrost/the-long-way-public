@@ -97,6 +97,7 @@ MATS = {
     'fire': (1.0, 0.5, 0.2),
     'lamp_out': (1.0, 0.92, 0.75),
     'shade_in': (0.95, 0.93, 0.88),
+    'wainscot': (0.25, 0.36, 0.27),
 }
 
 
@@ -110,7 +111,7 @@ MATS = {
 LOOK = {
     'floor': (0x9c978d, 'floor'),
     'plinth': (0xa9a59b, 'bld'), 'timber': (0x74503a, 'bld'), 'boards': (0xa47a52, 'bld'), 'siding': (0x9b3d2e, 'bld'),
-    'g_trim': (0xe8dec6, 'bld'), 'plaster': (0xe2d8c0, 'bld'), 'apron': (0xa6a298, 'bld'),
+    'g_trim': (0xe8dec6, 'bld'), 'plaster': (0xe2d8c0, 'bld'), 'apron': (0xa6a298, 'bld'), 'wainscot': (0x86a08c, 'bld'),
     'tin_out': (0x6a6d70, 'bld2'), 'tin_in': (0xb9bcbc, 'bld2'),
     'steel': (0x7a7f86, 'prop'), 'alu': (0xb4b8bc, 'prop'), 'rubber': (0x2a2a2e, 'prop'), 'trim': (0x2a2b2e, 'prop'),
     'wood': (0xb08250, 'prop'), 'wood_dark': (0x6a4630, 'prop'), 'rust': (0x8a4a26, 'prop'), 'fabric': (0x7a5a44, 'prop'),
