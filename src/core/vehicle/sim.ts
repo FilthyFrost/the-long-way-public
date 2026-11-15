@@ -550,7 +550,10 @@ export class VehicleSim {
 
   /** the radius wheel i should have now: its axle's plus the systems' offset, or the hub's for an empty hub */
   private targetRadius(w: Wheel, i: number): number {
-    if (this.mods.wheelFit[i] === WheelFit.None) return this._spec.emptyHubRadius ?? HUB_SHARE * this._spec.wheelRadius;
+    if (this.mods.wheelFit[i] === WheelFit.None) {
+      const hub = this._spec.emptyHubRadius ?? HUB_SHARE * this._spec.wheelRadius;
+      return hub > MIN_RADIUS ? hub : MIN_RADIUS;
+    }
     // (written so that a NaN offset gives the smallest wheel rather than a NaN one)
     const r = w.baseRadius + this.mods.radiusOffset[i];
     return r > MIN_RADIUS ? r : MIN_RADIUS;
