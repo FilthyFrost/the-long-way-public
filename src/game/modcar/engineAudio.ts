@@ -786,7 +786,8 @@ export class EngineVoice {
     const tauDown = 0.35;
     this.boost += (target - this.boost) * (1 - Math.exp(-dt / (target > this.boost ? tauUp : tauDown)));
     const b = st.turbo && running ? this.boost : 0;
-    const shaft = 1800 + 7200 * b + 0.25 * rpm;
+    // the whine a small turbo makes in the bay: about 1.5 kHz spooling up to 5-6 kHz on full boost
+    const shaft = 1500 + 3800 * b + 0.12 * rpm;
     set(this.turboOsc.frequency, shaft, 0.03);
     set(this.turboBp.frequency, shaft * 1.02, 0.03);
     const lvl = Math.pow(10, tone.loudnessDb / 20);

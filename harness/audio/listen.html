@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <title>ModCar 声音试听台</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; background: #15171c; color: #e6e6e6; margin: 24px; max-width: 980px; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .hint { color: #9aa0aa; margin: 0 0 16px; }
+      fieldset { border: 1px solid #333844; border-radius: 8px; margin: 0 0 14px; padding: 10px 14px; }
+      legend { color: #9fc4ff; padding: 0 6px; }
+      label { margin-right: 16px; white-space: nowrap; }
+      button { background: #2a3040; color: #e6e6e6; border: 1px solid #44506a; border-radius: 6px; padding: 5px 10px; margin: 3px 4px 3px 0; cursor: pointer; }
+      button:active, button.on { background: #3d6bb3; }
+      #start { font-size: 16px; padding: 8px 18px; background: #2f6d3a; }
+      #status { font-family: ui-monospace, monospace; white-space: pre; color: #b8d8a8; }
+      input[type='range'] { width: 220px; vertical-align: middle; }
+    </style>
+  </head>
+  <body>
+    <h1>ModCar 声音试听台</h1>
+    <p class="hint">
+      先点“开始”（浏览器要求用户手势才能出声）。按住“钥匙”打火；W / ↑ 油门，S / ↓ 收油，Q / E 降挡 / 升挡，空格 = 拉满并憋到断油器。
+      所有发动机声来自 <code>public/audio/modcar/engines/</code> 的音色库，机械声全部是程序合成。
+    </p>
+    <button id="start">开始（出声）</button>
+
+    <fieldset>
+      <legend>车</legend>
+      <label>发动机 <select id="engine"></select></label>
+      <label>排气 <select id="exhaust">
+        <option value="exh_stock">原装 exh_stock</option>
+        <option value="exh_sport">运动 exh_sport</option>
+        <option value="exh_side">侧排 exh_side</option>
+        <option value="none">没装（开放歧管）</option>
+      </select></label>
+      <label><input type="checkbox" id="turbo" /> 涡轮 turbo_small</label>
+      <label><input type="checkbox" id="inside" checked /> 坐在车里</label>
+      <label>车厢开放 <input type="range" id="doors" min="0" max="1" step="0.05" value="0" /></label>
+      <label>电瓶 <input type="range" id="battery" min="0.15" max="1" step="0.05" value="1" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>开车</legend>
+      <button id="key">钥匙（按住打火）</button>
+      <button id="stop">熄火</button>
+      <button id="stall">憋熄火</button>
+      <label>油门 <input type="range" id="throttle" min="0" max="1" step="0.01" value="0" /></label>
+      <label>挡位 <select id="gear"><option value="0">空挡</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+      <label><input type="checkbox" id="hold" /> 测功机：按住转速</label>
+      <label>转速 <input type="range" id="rpm" min="0" max="10000" step="10" value="2000" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>机械声</legend>
+      <div id="foley"></div>
+    </fieldset>
+
+    <div id="status"></div>
+    <script type="module" src="./listen.ts"></script>
+  </body>
+</html>
