@@ -739,7 +739,7 @@ export class CarLook {
   /** meshes whose material was swapped for a highlight, and what they had */
   private readonly lit = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
 
-  private readonly fixedHeight: boolean;
+  private fixedHeight: boolean;
 
   constructor(opts: CarLookOptions = {}) {
     this.fixedHeight = opts.bodyHeight !== undefined;
@@ -820,25 +820,12 @@ export class CarLook {
 
   /** swap the materials of every mesh under root by their names; glass and lenses stay out of the shadow maps */
   apply(root: THREE.Object3D): this {
-    // the painted body's height, in the root's own frame (a toilet on the roof is not the body)
-    if (!this.fixedHeight) {
-      root.updateMatrixWorld(true);
-      const inv = root.matrixWorld.clone().invert();
-      const painted = new THREE.Box3();
-      const all = new THREE.Box3();
-      root.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        m.geometry.computeBoundingBox();
-        const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
-        all.union(b);
-        const n = carMaterialName((Array.isArray(m.material) ? m.material[0] : m.material).name);
-        if (n === 'paint' || n === 'paint_b') painted.union(b);
-      });
-      const box = painted.isEmpty() ? all : painted;
-      if (!box.isEmpty()) this.shared.uBodyHeight.value = Math.max(0.3, box.max.y - Math.max(0, box.min.y));
+    // the painted body's height and the cabin, in the root's own frame (unless they were set)
+    if (!this.fixedHeight || !this.fixedCabin) {
+      const shape = measureCarShape(root);
+      if (!this.fixedHeight) this.shared.uBodyHeight.value = shape.bodyHeight;
+      if (!this.fixedCabin) this.putCabin(shape.cabin);
     }
-    if (!this.fixedCabin) this.measureCabin(root);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -870,36 +857,8 @@ export class CarLook {
     this.refresh();
   }
 
-  /**
-   * The cabin box: round the seats, cloth and dials (the materials only a cabin has), a hand's width
-   * larger, its top kept under the roof skin. A mesh that reaches above the painted body (a strap round a
-   * load on the roof) is not the cabin.
-   */
-  private measureCabin(root: THREE.Object3D): void {
-    root.updateMatrixWorld(true);
-    const inv = root.matrixWorld.clone().invert();
-    const top = this.shared.uBodyHeight.value;
-    const cabin = new THREE.Box3();
-    root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      const n = carMaterialName((Array.isArray(m.material) ? m.material[0] : m.material).name);
-      if (n !== 'fabric' && n !== 'leather' && n !== 'gauge') return;
-      m.geometry.computeBoundingBox();
-      const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
-      if (b.max.y > top + 0.02) return;
-      cabin.union(b);
-    });
-    if (cabin.isEmpty()) return;
-    cabin.expandByScalar(0.05);
-    cabin.max.y = Math.min(cabin.max.y + 0.12, top - 0.05);
-    this.shared.uCabinMin.value.copy(cabin.min);
-    this.shared.uCabinMax.value.copy(cabin.max);
-  }
-
-  /** the cabin box in the car frame (null = none): set it when the measured one is wrong for a frame */
-  setCabin(box: THREE.Box3 | null): void {
-    this.fixedCabin = true;
+  /** the cabin box in the car frame (null = none), as set by setCabin or measured */
+  private putCabin(box: THREE.Box3 | null): void {
     if (box) {
       this.shared.uCabinMin.value.copy(box.min);
       this.shared.uCabinMax.value.copy(box.max);
@@ -908,7 +867,25 @@ export class CarLook {
       this.shared.uCabinMax.value.set(-1, -1, -1);
     }
   }
+
+  /**
+   * The cabin as a box in the car frame: inside it metals mirror the room and glass is clear. null = no
+   * cabin; undefined = measure it again at the next apply() (see measureCarShape).
+   */
+  setCabin(box: THREE.Box3 | null | undefined): void {
+    this.fixedCabin = box !== undefined;
+    if (box !== undefined) this.putCabin(box);
+  }
   private fixedCabin = false;
+
+  /**
+   * Height of the painted body above its ground (m): where the mirrored horizon runs along the sides.
+   * null = measure it at apply() (see measureCarShape). A part's look takes its car's.
+   */
+  setBodyHeight(h: number | null): void {
+    this.fixedHeight = h !== null;
+    if (h !== null) this.shared.uBodyHeight.value = Math.max(0.3, h);
+  }
 
   /** wear of the whole car (merged meshes add their own per vertex): dirt, rust, faded paint, 0…1 */
   setWear(w: { dirt?: number; rust?: number; wear?: number }): void {
@@ -1000,6 +977,55 @@ export class CarLook {
     for (const m of this.mats.values()) m.dispose();
     this.mats.clear();
   }
+}
+
+/** the conventional name of a mesh's (first or i-th) material: the GLB's own, kept in userData.mat, or ours */
+function nameOfMesh(mesh: THREE.Mesh, i = 0): CarMaterialName | null {
+  const kept = mesh.userData.mat as string[] | undefined;
+  if (kept?.[i]) return carMaterialName(kept[i]);
+  const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const m = list[i] ?? list[0];
+  if (!m) return null;
+  const ours = m.userData?.carName as CarMaterialName | undefined;
+  return ours ?? carMaterialName(m.name.replace(/^car:/, ''));
+}
+
+/**
+ * The shape a car's look needs to know, in the frame of `root` (a car model with its fitted parts; origin on
+ * the ground): the painted body's height (from the paint meshes; a load on the roof, an antenna is not the
+ * body) and the cabin, a box round the seats, cloth and dials (a hand's width larger, kept under the roof
+ * skin; null if the model has none). Works on loaded GLBs and on meshes already given car materials. The
+ * same rules apply() uses; set the results on every look of the car with setBodyHeight / setCabin.
+ */
+export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cabin: THREE.Box3 | null } {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const painted = new THREE.Box3();
+  const all = new THREE.Box3();
+  const boxes: { box: THREE.Box3; names: (CarMaterialName | null)[] }[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.visible) return;
+    m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
+    const count = Array.isArray(m.material) ? m.material.length : 1;
+    const names = Array.from({ length: count }, (_, i) => nameOfMesh(m, i));
+    boxes.push({ box: b, names });
+    all.union(b);
+    if (names.some((n) => n === 'paint' || n === 'paint_b')) painted.union(b);
+  });
+  const body = painted.isEmpty() ? all : painted;
+  const bodyHeight = body.isEmpty() ? 1.4 : Math.max(0.3, body.max.y - Math.max(0, body.min.y));
+  const cabin = new THREE.Box3();
+  for (const { box, names } of boxes) {
+    if (!names.some((n) => n === 'fabric' || n === 'leather' || n === 'gauge')) continue;
+    if (box.max.y > bodyHeight + 0.02) continue;
+    cabin.union(box);
+  }
+  if (cabin.isEmpty()) return { bodyHeight, cabin: null };
+  cabin.expandByScalar(0.05);
+  cabin.max.y = Math.min(cabin.max.y + 0.12, bodyHeight - 0.05);
+  return { bodyHeight, cabin };
 }
 
 /** swap a loaded model's materials for the car materials (see CarLook) */
