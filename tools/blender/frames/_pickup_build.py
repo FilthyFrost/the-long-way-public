@@ -349,8 +349,8 @@ def mounts(ex, panels):
                                     ('hub_RL', D['ax_r'], D['track_r'] / 2, False, -1), ('hub_RR', D['ax_r'], -D['track_r'] / 2, False, 1)):
         E.append(mount(name, (x, y, hz), dict(cat='rim', axle='front' if front else 'rear', steer=front, driven=not front,
                                                handbrake=not front, side=side, hub_face=round(abs(y) + 0.012, 4), wheel_r=D['wheel_r'])))
-    E.append(mount('engine', (1.52, 0.0, 0.40), dict(cat='engine', space_min=[-0.50, -0.32, 0.0], space_max=[0.42, 0.32, 0.56])))
-    E.append(mount('gearbox', (0.78, 0.0, 0.40), dict(cat='gearbox', space_min=[-0.36, -0.14, 0.0], space_max=[0.20, 0.14, 0.20])))
+    E.append(mount('engine', (1.50, 0.0, 0.275), dict(cat='engine', space_min=[-0.48, -0.32, 0.0], space_max=[0.40, 0.32, 0.74])))
+    E.append(mount('gearbox', (0.78, 0.0, 0.285), dict(cat='gearbox', space_min=[-0.36, -0.14, 0.0], space_max=[0.20, 0.14, 0.24])))
     E.append(mount('radiator', (1.955, 0.0, 0.545), dict(cat='radiator', space_min=[-0.07, -0.36, 0.0], space_max=[0.035, 0.36, 0.42])))
     E.append(mount('battery', (1.78, 0.34, 0.70), dict(cat='battery', space_min=[-0.15, -0.10, 0.0], space_max=[0.15, 0.10, 0.25])))
     E.append(mount('fuelTank', (-0.70, 0.0, 0.30), dict(cat='fuelTank', space_min=[-0.24, -0.40, 0.0], space_max=[0.24, 0.40, 0.30])))
@@ -387,7 +387,7 @@ def mounts(ex, panels):
     E.append(mount('horn', (1.93, 0.30, 0.62), dict(cat='horn')))
     E.append(mount('radio', (IN.DASH_FACE_X, 0.0, 0.915), dict(cat='radio', slot=[0.18, 0.046], slot_depth=0.06)))
     E.append(mount('handbrake', (IN.DASH_FACE_X - 0.01, 0.17, 0.835), dict(cat='handbrake', note='under the dash, pull handle')))
-    E.append(mount('gearLever', (0.50, 0.0, IN.tunnel_h(0.50) + 0.014), dict(cat='gearLever')))
+    E.append(mount('gearLever', (IN.GEAR_X, 0.0, IN.tunnel_h(IN.GEAR_X) + 0.014), dict(cat='gearLever')))
     p_, d_ = IN.steering_mount()
     pi_ = p_ + d_ * 0.12 + np.array([0.0, -0.043, 0.0])
     E.append(mount('ignition', tuple(pi_), dict(cat='ignition', on='steering column shroud, right side')))
@@ -397,7 +397,7 @@ def mounts(ex, panels):
 def json_extra(objs, panels, needles, wipers, tris, total):
     from frames._sedan_build import json_extra as je
     out = je(objs, panels, needles, wipers, tris, total)
-    eye = np.array([IN.SEAT_X - 0.05, IN.DRIVER_Y, 1.41])
+    eye = np.array(IN.EYE)
     out['eye_default'] = game_vec(eye)
     return out
 
@@ -414,7 +414,7 @@ def previews(quick):
         PV.render(f'{SCRATCH}_{name}.png', res=res, samples=smp)
     PV.orbit((-0.1, 0, 0.7), 270, 89.5, 10, ortho=5.2)
     PV.render(f'{SCRATCH}_top.png', res=(1400, 720), samples=16)
-    eye = Vector((IN.SEAT_X - 0.05, IN.DRIVER_Y, 1.41))
+    eye = Vector(IN.EYE)
     PV.camera(tuple(eye), tuple(eye + Vector((1.0, -0.02, -0.14))), lens=24)
     PV.render(f'{SCRATCH}_driver.png', res=res, samples=smp)
 
