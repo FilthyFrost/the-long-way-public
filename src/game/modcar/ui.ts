@@ -88,7 +88,7 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k">按住 <b>K</b></td><td class="v">拧钥匙打火；着车时按一下熄火</td></tr>
 <tr><td class="k"><b>空格</b></td><td class="v">手刹：按住拉；停稳时长按锁住，再按一下松开</td></tr>
 <tr><td class="k"><b>Q</b> <b>Z</b> · <b>M</b></td><td class="v">挡杆 P R N D（手动挡时加 / 减挡）· 手动挡切换</td></tr>
-<tr><td class="k"><b>L</b> · <b>H</b></td><td class="v">车灯（关 → 近光 → 远光）· 喇叭</td></tr>
+<tr><td class="k"><b>L</b> · <b>H</b> · <b>B</b></td><td class="v">车灯（关 → 近光 → 远光）· 喇叭 · 双闪</td></tr>
 <tr><td class="k">鼠标 + 左键</td><td class="v">直接扳手刹杆、拨挡杆、拧钥匙、开收音机、按喇叭、开车门</td></tr>
 <tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
 </table>

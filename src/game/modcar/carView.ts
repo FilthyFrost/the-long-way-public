@@ -728,7 +728,10 @@ export class CarView {
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
     // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)
     const reverse = sim.dir < 0 && sim.selector === 'R' && !!dash && (dash.running || dash.battery > 0.02);
-    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0 });
+    // the hazard lights blink both amber lamps (with a battery)
+    this.blinkT = this.hazard && on ? (this.blinkT + dt) % 0.75 : 0;
+    const blink = this.hazard && on && this.blinkT < 0.4;
+    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0, turnLeft: blink, turnRight: blink });
     // dirt is measured up from the vehicle's own ground; colours and wear follow the build
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
@@ -763,6 +766,13 @@ export class CarView {
   private cap = 0;
   /** the filler cap is held open (fuel going in) */
   capOpen = false;
+  /** the hazard lights are on */
+  hazard = false;
+  private blinkT = 0;
+  /** the hazard lights' lamps are lit this moment (for the relay's tick) */
+  get blinking(): boolean {
+    return this.hazard && this.blinkT > 0 && this.blinkT < 0.4;
+  }
   /** the wipers' place in their sweep, 0…1 (the weather's wipers) */
   wiperAngle = 0;
   private readonly qTmp = new THREE.Quaternion();

@@ -373,6 +373,10 @@ export class ModGame implements PlayerHost, CockpitHost {
       } else if (a === 'horn') v.sys.setHorn(true);
       else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
+      else if (a === 'hazard') {
+        v.view.hazard = !v.view.hazard;
+        this.sound('switch');
+      }
       else if (a === 'reset') this.resetUpright(v);
     });
     this.input.onRelease((a) => {
@@ -475,6 +479,7 @@ export class ModGame implements PlayerHost, CockpitHost {
   private readonly loopsOn = new Set<FoleyLoop>();
   private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
   private readonly lastGear: { v: ModVehicle | null; gear: number } = { v: null, gear: 0 };
+  private wasBlinking = false;
 
   private sounds(): Foley | null {
     const ctx = this.audio.context;
@@ -556,6 +561,11 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.loopsOn.delete(k);
     }
     this.loopsNow.clear();
+    // the hazard relay ticks as the lamps go on and off (in the car one sits in)
+    const sv = this.seated;
+    const blinkNow = !!sv && sv.view.blinking;
+    if (sv && blinkNow !== this.wasBlinking) f.play('switch', { gain: 0.35 });
+    this.wasBlinking = blinkNow;
     const d = (this.seated ?? this.focus)?.sys.dash;
     const want = d?.horn ? (d.hornSound === 'trumpet' ? 'horn_trumpet' : d.hornSound === 'air' ? 'horn_air' : 'horn_beep') : '';
     if (want !== this.hornOn) {
