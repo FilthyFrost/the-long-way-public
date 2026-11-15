@@ -15,9 +15,18 @@ from frames import _kit as K  # noqa: E402
 
 unit = K.unit
 
-# detail scale for lathes (segments round the axis) and round tubes: the triangle budget's main dial
-LATHE_SCALE = 0.56
-TUBE_SCALE = 0.84
+# segments round lathes and tubes follow their size: a chord of at most LATHE_CHORD / TUBE_CHORD metres, never
+# more than the caller asks for, never fewer than 8 (lathes) / 5 (tubes) - big discs stay round, small bits cheap
+LATHE_CHORD = 0.0125
+TUBE_CHORD = 0.0085
+
+
+def lathe_segs(segs, rmax):
+    return int(max(8, min(segs, math.ceil(2 * math.pi * rmax / LATHE_CHORD))))
+
+
+def tube_segs(segs, r):
+    return int(max(5, min(segs, math.ceil(2 * math.pi * r / TUBE_CHORD))))
 
 
 # ============================================================================================ paths
@@ -141,7 +150,7 @@ def tube(path, r, mat, segs=12, cap0='flat', cap1='flat', ref=None, r_fn=None, c
     caps: 'flat' (with a small chamfer), 'dome', 'open' or None. ellipse=(sx, sy) scales the section in the
     frame's N / B directions (oval tubes). Returns a Buf with exact normals."""
     P = np.asarray(path, float)
-    segs = max(4, int(round(segs * TUBE_SCALE)))
+    segs = tube_segs(segs, float(np.max(np.broadcast_to(np.asarray(r, float), (len(P),)))) * (1.0 if ellipse is None else max(ellipse)))
     T, N, B = rmf(P, ref)
     rad = np.broadcast_to(np.asarray(r, float), (len(P),)).copy()
     if r_fn is not None:
@@ -206,7 +215,7 @@ def lathe(prof, center, axis, mat, segs=24, ref=None, smooth=True, a0=0.0, a1=36
     """Surface of revolution of profile [(r, h), ...] about `axis` through `center`. smooth=False splits the
     normals at every profile corner (crisp machined steps)."""
     prof = np.asarray(prof, float)
-    segs = max(8, int(round(segs * LATHE_SCALE)))
+    segs = lathe_segs(segs, float(np.max(np.abs(prof[:, 0]))))
     if smooth:
         V, N, T = K.lathe(prof, center, axis, segs, a0=a0, a1=a1, ref=ref)
         return K.Buf().add(V, N, T, mat)
@@ -231,7 +240,7 @@ def disc(center, axis, r_out, r_in, mat, segs=32, thick=0.0, edge=0.0008, ref=No
     axis = unit(np.asarray(axis, float))
     c = np.asarray(center, float)
     if thick <= 0:
-        return K.disc_buf(c, axis, r_out, mat, r_in=r_in, segs=segs, ref=ref)
+        return K.disc_buf(c, axis, r_out, mat, r_in=r_in, segs=lathe_segs(segs, r_out), ref=ref)
     h = thick / 2
     e = min(edge, h * 0.8, (r_out - r_in) * 0.3)
     if r_in > 1e-6:
@@ -343,7 +352,7 @@ def bolt(pos, normal, r=0.0055, h=0.0045, mat='steel', washer=True, nut=False, r
     z = 0.0
     if washer:
         b.extend(disc(p + nrm * 0.0009, nrm, r * 1.55, r * 0.55, mat, segs=8))
-        b.extend(lathe([(r * 1.55, 0.0), (r * 1.55, 0.0009)], p, nrm, mat, 12, smooth=False))
+        b.extend(lathe([(r * 1.55, 0.0), (r * 1.55, 0.0009)], p, nrm, mat, 8, smooth=False))
         z = 0.0009
     if ref is None:
         ref = np.array([0.0, 0.0, 1.0]) if abs(nrm[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
@@ -387,7 +396,7 @@ def spring(base, axis, r, h, turns, wire, mat='chrome', segs=6, dead=0.75, ref=N
         ref = np.array([1.0, 0, 0]) if abs(axis[0]) < 0.9 else np.array([0, 1.0, 0])
     a1 = unit(np.cross(axis, ref))
     a2 = np.cross(axis, a1)
-    n = int(turns * 12) + 1
+    n = int(turns * 11) + 1
     tt = np.linspace(0.0, turns, n)
     pd = wire * 2.05
     Ld = pd * dead
@@ -399,7 +408,7 @@ def spring(base, axis, r, h, turns, wire, mat='chrome', segs=6, dead=0.75, ref=N
     return tube(P, wire, mat, segs, cap0='flat', cap1='flat')
 
 
-def cable(pts, r, mat='trim', segs=6, radii=0.03, step=0.25, arc_deg=12.0):
+def cable(pts, r, mat='trim', segs=6, radii=0.03, step=0.25, arc_deg=18.0):
     """A flexible cable / hose through control points (smoothly bent)."""
     path = bend_path(pts, radii, step, arc_deg)
     return tube(path, r, mat, segs, cap0='flat', cap1='flat'), path
@@ -430,7 +439,7 @@ def dist_to_path(Q, P):
     return dist[np.arange(len(Q)), j], j, t[np.arange(len(Q)), j]
 
 
-def weld(main, r_main, branch, r_branch, at='start', bead=0.0032, mat='paint_b', segs=12, search=0.12,
+def weld(main, r_main, branch, r_branch, at='start', bead=0.0032, mat='paint_b', segs=10, search=0.12,
          main_fn=None, out=0.25):
     """Weld bead where `branch` (path, radius r_branch) enters `main` (path, radius r_main) at its start (or end).
     For each angle round the branch, the first point (marching outwards along the branch from its buried end)

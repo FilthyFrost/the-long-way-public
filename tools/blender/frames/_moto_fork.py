@@ -30,7 +30,7 @@ def L2W(p):
     return M.G + RF @ np.asarray(p, float)
 
 
-def clamp_outline(r_boss, r_stem, front=0.0, n=360, step=0.0075):
+def clamp_outline(r_boss, r_stem, front=0.0, n=360, step=0.0110):
     """Triple-clamp plan (fork frame x forward, y left): a boss round each stanchion and one round the stem,
     joined by a web whose front edge runs straight between the bosses (front > 0 pushes the middle forwards);
     concave fillets where they meet. Traced from a 2D distance field, resampled at `step`."""
@@ -82,22 +82,17 @@ class Fork:
         out = clamp_outline(r_boss, r_stem, front)
         holes = []
         for sg in (1, -1):
-            holes.append(MK.circle2((self.off, sg * self.hw), D['r_stanchion'] + 0.0004, 16))
-        holes.append(MK.circle2((0.0, 0.0), 0.0122, 12))
+            holes.append(MK.circle2((self.off, sg * self.hw), D['r_stanchion'] + 0.0004, 14))
+        holes.append(MK.circle2((0.0, 0.0), 0.0122, 10))
         O = M.axis_pt(t0 + h / 2)
         b.extend(MK.plate(out, O, M.NF, (0, 1.0, 0), h, mat, holes=holes, r_edge=0.0035, segs=1))
-        # pinch bolts across the slot at the front of each boss
+        # pinch bolts across the slot at the front of each boss (head outboard, nut inboard)
         for sg in (1, -1):
             c = L2W((self.off + D['r_stanchion'] + 0.010, sg * self.hw, t0 + h / 2))
-            for dy in (-1,):
-                p = c + np.array([0, sg * 0.0, 0])
-            # slot (a thin dark cut) and the bolt across it
             b.extend(MK.box(c, (0.006, 0.0018, h * 0.98), 'trim', MK.frame_axes(M.NF, M.AX), 0.0, 1))
-            head = c + np.array([0, sg * 0.0 + 0.0, 0])
-            ax = np.array([0, 1.0, 0])
-            b.extend(MK.bolt(c + ax * (0.024 - 0.0), ax, 0.0055, 0.0045, 'steel', washer=False))
-            b.extend(MK.bolt(c - ax * 0.024, -ax, 0.0055, 0.0045, 'steel', washer=False, nut=True))
-            b.extend(MK.tube(np.array([c - ax * 0.024, c + ax * 0.024]), 0.004, 'steel', 8))
+            ax = np.array([0, sg, 0])
+            b.extend(MK.bolt(c + ax * 0.024, ax, 0.0055, 0.0045, 'steel', washer=False))
+            b.extend(MK.bolt(c - ax * 0.024, -ax, 0.0055, 0.0045, 'steel', washer=False))
         return b
 
     def upper(self):
@@ -140,9 +135,8 @@ class Fork:
         for sg in (1, -1):
             b.extend(MK.tube(np.array([M.tube_pt(ts0 + 0.006, sg), M.tube_pt(ts1 - 0.006, sg)]), D['r_shroud'], 'paint_b', 22))
             for tt in (ts0, ts1 - 0.006):
-                b.extend(MK.lathe([(D['r_stanchion'], 0.0), (D['r_shroud'] - 0.001, 0.0), (D['r_shroud'] + 0.0008, 0.002),
-                                   (D['r_shroud'] + 0.0008, 0.004), (D['r_shroud'] - 0.001, 0.006), (D['r_stanchion'], 0.006)],
-                                  M.tube_pt(tt, sg), M.AX, 'rubber', 22))
+                b.extend(MK.lathe([(D['r_stanchion'], 0.0), (D['r_shroud'] + 0.0008, 0.0012), (D['r_shroud'] + 0.0008, 0.0048),
+                                   (D['r_stanchion'], 0.006)], M.tube_pt(tt, sg), M.AX, 'rubber', 22))
         b.extend(self.ears())
         b.extend(self.binnacle_bracket())
         b.extend(self.horn_tab())
@@ -166,7 +160,7 @@ class Fork:
             base = M.tube_pt(tz, sg)
             outline = [(base[0] - 0.012, base[2] + 0.030), (bolt_x - 0.004, hl[2] + 0.017), (bolt_x + 0.016, hl[2]),
                        (bolt_x - 0.004, hl[2] - 0.017), (base[0] - 0.004, base[2] - 0.034)]
-            out = MK.rounded_poly2(outline, [0.01, 0.012, 0.014, 0.012, 0.01])
+            out = MK.rounded_poly2(outline, [0.01, 0.012, 0.014, 0.012, 0.01], 0.016)
             hole = MK.circle2((bolt_x, hl[2]), 0.0045, 12)
             b.extend(MK.plate(out, (0.0, y, 0.0), (1, 0, 0), (0, 0, 1), 0.004, 'paint_b', holes=[hole]))
             # lamp bolt (through the ear into the lamp bucket) and its washer outboard
@@ -178,69 +172,76 @@ class Fork:
             b.extend(MK.disc(st0 - np.array([0, sg * 0.003, 0]), (0, sg, 0), 0.010, 0.0062, 'chrome', 14, thick=0.003))
             c = st1 + np.array([0, sg * 0.012, 0])
             b.extend(MK.lathe([(0.0, -0.026), (0.016, -0.0255), (0.0215, -0.017), (0.0235, -0.006), (0.0235, 0.004)], c,
-                              (1, 0, 0), 'chrome', 14))
+                              (1, 0, 0), 'chrome', 15))
             b.extend(MK.lathe([(0.0235, 0.004), (0.0226, 0.010), (0.016, 0.018), (0.0, 0.021)], c, (1, 0, 0), 'lens_amber', 14))
             M.LAMPS.append((c + np.array([0.012, 0, 0]), np.array([1.0, 0, 0]), 0.0235))
         return b
 
     def binnacle_bracket(self):
-        """The gauges' bracket: a pressed plate bolted to the top clamp's front, the two chrome cups with their
-        faces turned to the rider, the warning-lamp console between them (the ignition sits under it)."""
+        """The instruments: two chrome cans (speedometer left, tachometer right) with their dials turned to the
+        rider, rubber-mounted on a pressed bracket bolted to the top clamp's front; the warning lamps sit in the
+        dials' lower part (where the scale leaves room), the ignition switch between the cans."""
         b = K.Buf()
         self.dials = []
+        r = M.DIAL_R
+        segs = 38
         for name, sg in (('N_speed', 1.0), ('N_rpm', -1.0)):
             c, nrm, right, up = M.gauge_frame(sg)
-            r = 0.0405
-            # chrome cup: lathe along -nrm from the face
-            prof = [(0.0, -0.052), (0.024, -0.051), (0.040, -0.043), (0.0465, -0.028), (0.0475, -0.006), (0.0472, 0.0045)]
-            b.extend(MK.lathe(prof, c, nrm, 'chrome', 22))
-            # bezel ring (trim) over the glass edge
-            b.extend(MK.lathe([(0.0472, 0.0045), (0.0458, 0.0068), (0.0428, 0.0072), (0.0418, 0.0056)], c, nrm, 'trim', 22))
-            # dial face (gauge, UVs added at export), the glass above it
-            b.extend(MK.disc(c - nrm * 0.006, nrm, r, 0.0, 'gauge', 28))
-            b.extend(MK.lathe([(0.0, 0.0), (0.0418, -0.0005)], c + nrm * 0.0035, nrm, 'glass', 22))
-            self.dials.append(dict(name=name, center=c - nrm * 0.006, normal=nrm, right=right, up=up, r=r))
-            # rubber mounting cup and stem below the case
-            back = c - nrm * 0.054
-            stem_end = back + (M.STEER_MOUNT - back) * 0.0
-            b.extend(MK.lathe(MK.round_prof([(0.0, 0.0), (0.024, 0.0), (0.021, 0.012), (0.0, 0.014)], 0.003, 2), c - nrm * 0.040,
-                              -nrm, 'rubber', 18))
-            # trip / reset knob on the speedometer, the cable union at the back
+            # chrome bezel (lip over the glass) and the can behind it
+            bez = [(r + 0.0072, 0.0), (r + 0.0068, 0.0046), (r + 0.0042, 0.0064), (r + 0.0006, 0.0050)]
+            b.extend(MK.lathe(bez, c, nrm, 'chrome', segs))
+            can = [(0.0, -0.0452), (0.018, -0.0445), (r - 0.002, -0.040), (r + 0.0052, -0.031), (r + 0.0072, -0.012),
+                   (r + 0.0072, 0.0)]
+            b.extend(MK.lathe(can, c, nrm, 'chrome', segs))
+            # inner wall (dark) between the bezel and the dial, the dial face (gauge, UVs at export), the glass
+            b.extend(MK.lathe([(r + 0.0006, 0.0050), (r + 0.0006, -0.0040)], c, nrm, 'trim', segs))
+            b.extend(MK.disc(c - nrm * 0.0040, nrm, r + 0.0006, 0.0, 'gauge', segs))
+            self.dials.append(dict(name=name, center=c - nrm * 0.0040, normal=nrm, right=right, up=up, r=r))
+            # warning lamps in the dial's lower part: speedometer = left indicator + neutral, tachometer = high
+            # beam + right indicator (the amber ones flash with their side)
+            lamps = (('lens_amber', -0.40), ('emit', 0.40)) if sg > 0 else (('lens_head', -0.40), ('lens_amber', 0.40))
+            for mat, f in lamps:
+                p = c - nrm * 0.0034 + up * (-r * 0.58) + right * (f * r * 0.62)
+                b.extend(MK.lathe([(0.0046, 0.0), (0.0040, 0.0008), (0.0, 0.0011)], p, nrm, mat, 16))
+                M.LAMPS.append((p, nrm, 0.0046))
+            # rubber mounting cup behind the can, the cable union at the bottom of the can
+            back = c - nrm * 0.0452
+            b.extend(MK.lathe([(0.0, -0.010), (0.016, -0.010), (0.022, -0.005), (0.020, 0.0), (0.0, 0.0)], back, nrm, 'rubber', 18))
+            un = c - nrm * 0.036 - up * (r * 0.62)
+            b.extend(MK.lathe([(0.0, 0.0), (0.0068, 0.0), (0.0068, 0.010), (0.0055, 0.013), (0.0, 0.013)], un,
+                              -unit(nrm + up * 0.9), 'steel', 12))
             if sg > 0:
-                kp = c - nrm * 0.030 + up * -0.040 + right * 0.010
-                b.extend(MK.tube(np.array([kp, kp - up * 0.012]), 0.0035, 'chrome', 8))
-            b.extend(MK.lathe([(0.0, 0.0), (0.0075, 0.0), (0.0075, 0.012), (0.006, 0.016), (0.0, 0.016)], back + nrm * 0.004,
-                              -nrm, 'steel', 12))
-        # bracket plate: from the top clamp's front up under both cups
+                kp = c - nrm * 0.018 - up * (r + 0.006) + right * 0.016
+                b.extend(MK.tube(np.array([kp, kp - up * 0.010]), 0.0032, 'chrome', 8, cap1='dome'))
+        # pressed bracket: a plate behind both cans (two round pads and a waist), bent down into a tab bolted
+        # to the top clamp's front
         cL, nL, rL, uL = M.gauge_frame(1.0)
         cR = M.gauge_frame(-1.0)[0]
-        base = M.STEER_MOUNT + RF @ np.array([0.040, 0.0, -0.012])
-        pts3 = [base + RF @ np.array([0.0, 0.05, 0.0]), cL - nL * 0.045 + uL * -0.010, cR - nL * 0.045 + uL * -0.010,
-                base + RF @ np.array([0.0, -0.05, 0.0])]
+        pl = 0.5 * (cL + cR) - nL * 0.0505
         e1 = np.array([0, 1.0, 0])
-        mid = 0.5 * (cL + cR) - nL * 0.047
-        e2 = unit(mid - base)
-        O = base
-        uv = []
-        for p in pts3:
-            d = p - O
-            uv.append((float(d @ e1), float(d @ e2)))
-        uv = [(0.05, -0.004), (0.098, (mid - O) @ e2 + 0.004), (-0.098, (mid - O) @ e2 + 0.004), (-0.05, -0.004)]
-        out = MK.rounded_poly2(K.ccw(np.array(uv)), [0.006, 0.02, 0.02, 0.006])
-        b.extend(MK.plate(out, O, e1, e2, 0.004, 'paint_b'))
+        e2 = uL
+        hy = float((cL - cR) @ e1) / 2
+        ptsL = [(hy + 0.026 * math.cos(math.radians(a_)), 0.026 * math.sin(math.radians(a_))) for a_ in np.linspace(-110, 125, 14)]
+        ptsR = [(-hy + 0.026 * math.cos(math.radians(a_)), 0.026 * math.sin(math.radians(a_))) for a_ in np.linspace(55, 290, 14)]
+        outline = ptsL + [(0.0, 0.010)] + ptsR + [(-0.014, -0.034), (0.014, -0.034)]
+        out = K.ccw(np.array(outline))
+        out = K.resample_keep(out, 0.008, True)
+        b.extend(MK.plate(out, pl, e1, e2, 0.003, 'paint_b'))
         for sg in (1, -1):
-            b.extend(MK.bolt(base + RF @ np.array([0.0, sg * 0.032, 0.0]) + unit(np.cross(e1, e2)) * 0.002, unit(np.cross(e1, e2)), 0.0055,
-                             0.004, 'steel'))
-        # warning-lamp console between the cups (trim body, four lenses), the ignition sits below it
-        cc, cn, cr, cu = M.console_frame()
-        R = np.stack([cr, cu, cn], 1)
-        b.extend(MK.box(cc - cn * 0.012, (0.046, 0.05, 0.024), 'trim', R, 0.006, 2))
-        for k, (mat, dy) in enumerate((('lens_amber', 0.015), ('emit', 0.005), ('lens_head', -0.005), ('lens_amber', -0.015))):
-            # left amber on the left (flashes with the left indicators), right on the right
-            yy = dy if k != 3 else -0.015
-            p = cc + cr * (-yy) + cu * 0.012 + cn * 0.0005
-            b.extend(MK.lathe([(0.0, 0.0018), (0.0042, 0.0012), (0.0048, 0.0)], p, cn, mat, 12))
-            M.LAMPS.append((p, cn, 0.0048))
+            b.extend(MK.bolt(pl + e1 * sg * hy - nL * 0.0015, -nL, 0.0042, 0.003, 'steel', washer=False))
+        # tab down to the clamp: from the plate's lower edge to the top clamp's front face
+        tab_top = pl - e2 * 0.034
+        clamp_front = M.STEER_MOUNT + RF @ np.array([0.032, 0.0, -0.012])
+        d = clamp_front - tab_top
+        e2b = unit(d)
+        L = float(np.linalg.norm(d))
+        out2 = MK.rounded_poly2([(-0.016, -0.004), (0.016, -0.004), (0.016, L), (-0.016, L)], [0.002, 0.002, 0.006, 0.006])
+        b.extend(MK.plate(out2, tab_top, e1, e2b, 0.003, 'paint_b'))
+        for sg in (1, -1):
+            b.extend(MK.bolt(clamp_front + e1 * sg * 0.009 + np.cross(e1, e2b) * 0.0016, np.cross(e1, e2b), 0.0045, 0.0035, 'steel'))
+        # the ignition switch's housing: a short trim cup between the cans (the key part sits in it)
+        c, nrm, right, up = M.ignition_frame()
+        b.extend(MK.lathe([(0.0, -0.040), (0.017, -0.040), (0.019, -0.006), (0.0215, -0.002), (0.0215, 0.0)], c, nrm, 'trim', 28))
         return b
 
     def horn_tab(self):
@@ -256,14 +257,27 @@ class Fork:
         return b
 
     def cables_upper(self):
-        """Speedometer and tachometer cables from the backs of the gauges down behind the lower clamp."""
+        """Speedometer and tachometer cables from the unions under the cans, back and down between the fork
+        tubes behind the headlight, past the lower clamp (the speedometer's to the left leg's clip, the
+        tachometer's behind the head tube)."""
         b = K.Buf()
-        for sg, end in ((1.0, (-0.006, 0.060)), (-1.0, (-0.010, -0.050))):
+        hl = M.HEADLIGHT
+        for sg in (1.0, -1.0):
             c, nrm, right, up = M.gauge_frame(sg)
-            back = c - nrm * 0.068
-            p_lc = M.axis_pt(D['t_lc'] + 0.01) + M.NF * 0.012 + np.array([0, end[1], 0])
-            mid = 0.5 * (back + p_lc) + np.array([0.045, sg * 0.03, 0.0])
-            cab, _ = MK.cable([back, back - nrm * 0.03, mid, p_lc], 0.0042, 'trim', 8, [0, 0.03, 0.06, 0])
+            un = c - nrm * 0.036 - up * (M.DIAL_R * 0.62)
+            d0 = -unit(nrm + up * 0.9)
+            p0 = un + d0 * 0.012
+            p1 = p0 + d0 * 0.03
+            p2 = np.array([hl[0] - 0.026, sg * 0.040, hl[2] + 0.06])
+            p3 = np.array([hl[0] - 0.034, sg * 0.036, hl[2] - 0.04])
+            if sg > 0:
+                p4 = M.tube_pt(D['t_lc'] - 0.03, 1.0) + np.array([-0.012, -0.030, 0.0])
+                pts = [p0, p1, p2, p3, p4]
+            else:
+                p4 = M.axis_pt(D['t_lc'] + 0.005) + M.NF * 0.034 + np.array([0, -0.026, 0])
+                p5 = M.axis_pt(D['t_lc'] - 0.035) + M.NF * 0.012 + np.array([0, -0.030, 0])
+                pts = [p0, p1, p2, p3, p4, p5]
+            cab, _ = MK.cable(pts, 0.0040, 'trim', 8, [0] + [0.035] * (len(pts) - 2) + [0])
             b.extend(cab)
         return b
 
@@ -288,7 +302,7 @@ class Fork:
         L = t1 - t0
         prof = [(0.0, 0.0), (0.012, 0.0), (0.019, 0.004), (0.0225, 0.014), (0.0230, 0.06), (0.0240, L - 0.03), (0.0252, L - 0.024),
                 (0.0252, L - 0.004), (0.0236, L), (0.0176, L)]
-        b.extend(MK.lathe(MK.round_prof(prof, [0, 0.0, 0.008, 0.01, 0.02, 0.0, 0.003, 0.002, 0.002, 0], 2), M.tube_pt(t0, sg), ax, 'alu', 20))
+        b.extend(MK.lathe(MK.round_prof(prof, [0, 0.0, 0.008, 0.01, 0.02, 0.0, 0.003, 0.002, 0.002, 0], 1), M.tube_pt(t0, sg), ax, 'alu', 22))
         # dust seal
         b.extend(MK.lathe([(D['r_stanchion'] + 0.0002, 0.0), (0.0232, 0.0), (0.0232, 0.006), (0.0215, 0.012), (D['r_stanchion'] + 0.0002, 0.013)],
                           M.tube_pt(t1 - 0.002, sg), ax, 'rubber', 22))
@@ -298,15 +312,15 @@ class Fork:
         boss = np.array([[hub[0], y0, hub[2]], [hub[0], y1, hub[2]]])
         b.extend(MK.tube(boss, 0.0195, 'alu', 18))
         capc = hub + np.array([0.022, sg * 0.090, -0.004])
-        b.extend(MK.box(capc, (0.016, 0.042, 0.04), 'alu', MK.frame_axes(np.array([1.0, 0, 0.18]), (0, 0, 1)), 0.005, 2))
+        b.extend(MK.box(capc, (0.016, 0.042, 0.04), 'alu', MK.frame_axes(np.array([1.0, 0, 0.18]), (0, 0, 1)), 0.005, 1))
         for dz in (0.015, -0.017):
             p = capc + np.array([0.008, 0.0, dz])
-            b.extend(MK.bolt(p, (1.0, 0, 0.0), 0.0058, 0.0048, 'steel', washer=True, nut=True))
+            b.extend(MK.bolt(p, (1.0, 0, 0.0), 0.0058, 0.0048, 'steel', washer=False, nut=True))
         # axle nut / spindle end outboard (the rim's own axle passes through)
         b.extend(MK.bolt(np.array([hub[0], y1, hub[2]]), (0, sg, 0), 0.011, 0.007, 'chrome' if sg > 0 else 'steel', washer=True,
                          nut=sg < 0))
         # drain screw at the slider's foot (rear)
-        b.extend(MK.bolt(M.tube_pt(t0 + 0.012, sg) - M.NF * 0.022 + np.array([0, 0, 0]), -M.NF, 0.0042, 0.003, 'steel', washer=True))
+        b.extend(MK.bolt(M.tube_pt(t0 + 0.012, sg) - M.NF * 0.022 + np.array([0, 0, 0]), -M.NF, 0.0042, 0.003, 'steel', washer=False))
         # fender stay bosses inside the slider (front and middle)
         for tt in (0.44,):
             p = M.tube_pt(tt, sg) - np.array([0, sg * 0.0232, 0])
@@ -320,7 +334,7 @@ class Fork:
         hub = self.hub
         R0 = 0.344
         th0, th1 = -58.0, 64.0
-        n = 20
+        n = 16
         th = np.radians(np.linspace(th0, th1, n))
         radial = np.stack([np.sin(th) * -1.0, np.zeros(n), np.cos(th)], 1)
         # theta > 0 = towards the rear: x = hub - sin(th) * R  (front is negative theta)
@@ -332,12 +346,12 @@ class Fork:
         skirt = 0.026
         side = [(w + 0.0012, -0.003), (w + 0.0016, -skirt * 0.5), (w + 0.0012, -skirt)]
         prof = np.array([(-p[0], p[1]) for p in side[::-1]] + prof_out + side)
-        V, N, T = K.sweep(path[::-1], radial[::-1], prof, closed=False, closed_prof=False)
+        V, N, T = K.sweep(path[::-1], radial[::-1], prof[::-1], closed=False, closed_prof=False)
         b.add(V, N, T, 'paint')
         inner = prof[::2].copy()
         inner[:, 1] -= 0.0018
         inner[:, 0] *= (w - 0.0014) / w
-        V2, N2, T2 = K.sweep(path[::-1], radial[::-1], inner[::-1], closed=False, closed_prof=False)
+        V2, N2, T2 = K.sweep(path[::-1], radial[::-1], inner, closed=False, closed_prof=False)
         b.add(V2, N2, T2, 'paint')
         for sg in (1, -1):
             edge = path + radial * (-skirt - 0.0005) + np.array([0, sg * (w + 0.0006), 0])
@@ -352,7 +366,7 @@ class Fork:
             a = math.radians(-34.0)
             p_f = hub + np.array([-math.sin(a), 0, math.cos(a)]) * (R0 - skirt * 0.6) + np.array([0, sg * (w + 0.004), 0])
             p0 = hub + np.array([0.012, sg * 0.068, 0.0])
-            stay = MK.bend_path([p0, p0 + [0.07, 0.0, 0.03], p_f], [0, 0.05, 0])
+            stay = MK.bend_path([p0, p0 + [0.07, 0.0, 0.03], p_f], [0, 0.05, 0], 0.25, 18.0)
             b.extend(MK.tube(stay, 0.0042, 'chrome', 6))
             b.extend(MK.bolt(p_f + [0, sg * 0.002, 0], (0, sg, 0), 0.0045, 0.0035, 'chrome', washer=True))
         # brace across under the crown, bolted to the sliders' bosses
@@ -382,11 +396,8 @@ class Fork:
         yd = -0.0590
         c = np.array([hub[0], yd, hub[2]])
         ax = np.array([0, 1.0, 0])
-        b.extend(MK.disc(c, ax, 0.135, 0.079, 'steel', 44, thick=0.005, edge=0.0007))
-        # machined face rings (a slightly darker band where the pads run)
-        for yy in (yd - 0.0026, yd + 0.0026):
-            sgn = -1 if yy < yd else 1
-            b.extend(MK.disc(np.array([hub[0], yy + sgn * 0.0001, hub[2]]), ax * sgn, 0.1335, 0.098, 'alu', 44))
+        h = 0.0025
+        b.extend(MK.lathe([(0.079, -h), (0.135, -h), (0.135, h), (0.079, h), (0.079, -h)], c, ax, 'steel', 44, smooth=False))
         # carrier
         b.extend(MK.lathe(MK.round_prof([(0.046, yd - 0.004), (0.081, yd - 0.004), (0.081, yd + 0.003), (0.058, yd + 0.012),
                                          (0.046, yd + 0.012)], 0.002, 1), np.array([hub[0], 0.0, hub[2]]), ax, 'alu', 28))
@@ -402,9 +413,9 @@ class Fork:
         radv = np.array([math.cos(phi), 0, math.sin(phi)])
         R = np.stack([tang, ax, radv], 1)
         for (dy, w) in ((-0.0155, 0.017), (0.0145, 0.015)):
-            body = MK.box(cc + ax * dy, (0.072, w, 0.050), 'alu', R, 0.007, 2)
+            body = MK.box(cc + ax * dy, (0.072, w, 0.050), 'alu', R, 0.006, 1)
             b.extend(body)
-        b.extend(MK.box(cc + radv * 0.027, (0.060, 0.044, 0.012), 'alu', R, 0.004, 2))
+        b.extend(MK.box(cc + radv * 0.027, (0.060, 0.044, 0.012), 'alu', R, 0.004, 1))
         for s in (-1, 1):
             b.extend(MK.bolt(cc + ax * -0.024 + tang * s * 0.024 + radv * 0.012, -ax, 0.0045, 0.0035, 'steel', washer=False))
         # bleed nipple and banjo + hose

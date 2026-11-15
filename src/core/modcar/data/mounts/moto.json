@@ -2,7 +2,7 @@
  "bbox": {
   "max": [
    0.99021,
-   1.08191,
+   1.07863,
    0.262
   ],
   "min": [
@@ -241,15 +241,15 @@
    "cat": "ignition",
    "on": "FORK",
    "pos": [
-    0.35283,
-    0.99735,
+    0.36948,
+    1.03213,
     -0.0
    ],
    "quat": [
     0.0,
     0.0,
-    -0.272028,
-    0.962289
+    -0.272363,
+    0.962195
    ],
    "side": 0
   },
@@ -353,31 +353,31 @@
  "needles": {
   "N_rpm": {
    "axis": [
-    -0.852,
-    0.52354,
+    -0.85164,
+    0.52413,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.3799,
-    1.03618,
-    0.0675
+    0.37551,
+    1.0381,
+    0.0705
    ],
    "rest": "zero reading at 210 deg (bottom left) on the dial; the scale runs 240 deg clockwise as the rider sees it, so a full reading is -240 deg about the axis (right hand)"
   },
   "N_speed": {
    "axis": [
-    -0.852,
-    0.52354,
+    -0.85164,
+    0.52413,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    0.3799,
-    1.03618,
-    -0.0675
+    0.37551,
+    1.0381,
+    -0.0705
    ],
    "rest": "zero reading at 210 deg (bottom left) on the dial; the scale runs 240 deg clockwise as the rider sees it, so a full reading is -240 deg about the axis (right hand)"
   }
@@ -475,18 +475,18 @@
   }
  },
  "triangles": {
-  "BODY": 22974,
-  "FORK": 7667,
-  "FORK_LOWER": 5670,
+  "BODY": 17842,
+  "FORK": 7423,
+  "FORK_LOWER": 4948,
   "N_rpm": 50,
   "N_speed": 50,
-  "SHOCK_LOWER_L": 1506,
-  "SHOCK_LOWER_R": 1506,
-  "SHOCK_UPPER_L": 924,
-  "SHOCK_UPPER_R": 924,
-  "STAND": 472,
-  "SWINGARM": 6534,
-  "total": 48277
+  "SHOCK_LOWER_L": 1352,
+  "SHOCK_LOWER_R": 1352,
+  "SHOCK_UPPER_L": 416,
+  "SHOCK_UPPER_R": 416,
+  "STAND": 408,
+  "SWINGARM": 5720,
+  "total": 39977
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {}

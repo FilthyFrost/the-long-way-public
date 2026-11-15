@@ -332,6 +332,118 @@ def json_extra(objs, info, tris, total):
                 triangles=dict(total=total, **tris), units='metres, game frame (+x forward, +y up, +z right)', rig=rig, notes=notes)
 
 
+CLEAR = ('glass', 'glass_dark', 'lens_head', 'lens_tail', 'lens_amber')
+
+
+def bake_ao_clear(meshes, samples=32, distance=0.05):
+    """mc.bake_ao without letting glass and lenses occlude: their faces are split off into temporary objects
+    (kept out of the scene during the bake), then joined back with AO = 1."""
+    import bmesh
+    spare = []
+    for o in meshes:
+        names = [m.name.split('.')[0] for m in o.data.materials]
+        idx = {i for i, n in enumerate(names) if n in CLEAR}
+        if not idx:
+            continue
+        g = o.copy()
+        g.data = o.data.copy()
+        g.name = o.name + '__clear'
+        bpy.context.scene.collection.objects.link(g)
+        for ob, keep_clear in ((o, False), (g, True)):
+            bm = bmesh.new()
+            bm.from_mesh(ob.data)
+            dead = [f for f in bm.faces if (f.material_index in idx) != keep_clear]
+            bmesh.ops.delete(bm, geom=dead, context='FACES')
+            bm.to_mesh(ob.data)
+            bm.free()
+        bpy.context.scene.collection.objects.unlink(g)
+        spare.append((o, g))
+    mc.bake_ao(meshes, samples=samples, distance=distance)
+    for o, g in spare:
+        bpy.context.scene.collection.objects.link(g)
+        me = g.data
+        attr = me.color_attributes.get('Col') or me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+        n = len(attr.data)
+        attr.data.foreach_set('color', np.ones(n * 4, np.float32))
+        bpy.ops.object.select_all(action='DESELECT')
+        g.select_set(True)
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.join()
+
+
+def bake_ao_bvh(meshes, distance=0.07, rays=40, seed=11):
+    """Ambient occlusion into the corner colour 'Col' (0..1 grey), computed per vertex with a BVH of every mesh
+    except glass and lenses: cosine-weighted rays over the vertex normal's hemisphere, an occluder only counts when
+    the ray meets its front face (rays leave a vertex buried inside another part through that part's back faces, so
+    a tube's buried end does not darken the visible tube). Deterministic (fixed ray set)."""
+    from mathutils.bvhtree import BVHTree
+    verts = []
+    polys = []
+    for o in meshes:
+        me = o.data
+        mw = o.matrix_world
+        names = [m.name.split('.')[0] for m in me.materials]
+        base = len(verts)
+        for v in me.vertices:
+            verts.append(mw @ v.co)
+        for poly in me.polygons:
+            if poly.material_index < len(names) and names[poly.material_index] in CLEAR:
+                continue
+            polys.append([base + i for i in poly.vertices])
+    tree = BVHTree.FromPolygons(verts, polys, all_triangles=True)
+    rng = np.random.RandomState(seed)
+    u1 = (np.arange(rays) + rng.rand(rays)) / rays
+    u2 = rng.rand(rays)
+    # cosine-weighted hemisphere directions (z up)
+    r = np.sqrt(u1)
+    th = 2 * math.pi * u2
+    local = np.stack([r * np.cos(th), r * np.sin(th), np.sqrt(np.maximum(0.0, 1 - u1))], 1)
+    eps = 2e-4
+    for o in meshes:
+        me = o.data
+        mw = o.matrix_world
+        m3 = mw.to_3x3()
+        # vertex normals from the custom split normals (each vertex has one normal: the buffer welds by normal)
+        vn = np.zeros((len(me.vertices), 3))
+        cn = np.empty(len(me.loops) * 3, np.float32)
+        me.corner_normals.foreach_get('vector', cn)
+        cn = cn.reshape(-1, 3)
+        lv = np.empty(len(me.loops), np.int32)
+        me.loops.foreach_get('vertex_index', lv)
+        np.add.at(vn, lv, cn)
+        ao = np.ones(len(me.vertices))
+        for i, v in enumerate(me.vertices):
+            n = Vector(vn[i]).normalized()
+            n = (m3 @ n).normalized()
+            p = mw @ v.co
+            t1 = n.orthogonal().normalized()
+            t2 = n.cross(t1)
+            hit = 0
+            for d in local:
+                dirv = t1 * float(d[0]) + t2 * float(d[1]) + n * float(d[2])
+                orig = p + n * eps
+                left = distance
+                for _ in range(4):
+                    loc, fn, idx, dist = tree.ray_cast(orig, dirv, left)
+                    if loc is None:
+                        break
+                    if fn.dot(dirv) < 0:      # a front face: occluded
+                        hit += 1
+                        break
+                    left -= dist + 1e-4
+                    if left <= 0:
+                        break
+                    orig = loc + dirv * 1e-4
+            ao[i] = 1.0 - hit / rays
+        attr = me.color_attributes.get('Col') or me.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+        me.color_attributes.active_color = attr
+        me.attributes.render_color_index = me.color_attributes.find('Col')
+        col = np.repeat(ao[lv][:, None], 4, 1).astype(np.float32)
+        col[:, 3] = 1.0
+        attr.data.foreach_set('color', col.ravel())
+
+
 def build(args):
     t0 = time.time()
     quick = '--quick' in args
@@ -342,7 +454,7 @@ def build(args):
     total = sum(tris.values())
     print('[moto] triangles', total, {k: v for k, v in sorted(tris.items(), key=lambda kv: -kv[1])})
     if not quick:
-        mc.bake_ao(meshes, samples=32, distance=0.12)
+        bake_ao_bvh(meshes, distance=0.07, rays=40)
         print('[moto] AO', round(time.time() - t0, 1), 's')
     mc.export_glb(OUT_GLB, meshes + empties)
     extra = json_extra(objs, info, tris, total)
@@ -409,8 +521,19 @@ def place_stock(lay, which=None):
 
 
 # ============================================================================================ previews
+def factory_paints():
+    """Preview colours of the factory paints (cherry body, charcoal frame) instead of the lib's defaults."""
+    for name, col in (('paint', (0.578, 0.032, 0.042)), ('paint_b', (0.028, 0.031, 0.036))):
+        m = bpy.data.materials.get(name)
+        if m and m.node_tree:
+            bs = m.node_tree.nodes.get('Principled BSDF')
+            if bs:
+                bs.inputs['Base Color'].default_value = (*col, 1.0)
+
+
 def previews(quick, with_parts=False, tag=''):
     PV.materials()
+    factory_paints()
     PV.scene_setup('anime', sun_elev=46.0, sun_az=-40.0)
     res = (1280, 720)
     smp = 16 if quick else 40
@@ -437,6 +560,7 @@ def previews(quick, with_parts=False, tag=''):
         lay = layout()
         place_stock(lay)
         PV.materials()
+        factory_paints()
         for name, yaw, pitch, dist in (('parts_side_r', 90, 2, 4.4), ('parts_f34', 35, 10, 4.0), ('parts_r34', 215, 12, 4.0),
                                        ('parts_side_l', 270, 2, 4.4)):
             PV.orbit(T, yaw, pitch, dist, lens=50)
@@ -491,3 +615,30 @@ def kit_test(args):
     PV.scene_setup('anime')
     PV.orbit((0.3, 0, 0.35), 300, 20, 1.6, lens=50)
     PV.render(f'{SCRATCH}/kit_test.png', res=(1200, 800), samples=16)
+
+
+def review(args):
+    """Close-up review renders (factory paints), optionally with the stock parts."""
+    mc.reset_scene()
+    objs, meshes, empties, info = build_objects()
+    if '--parts' in args:
+        place_stock(layout())
+    PV.materials()
+    factory_paints()
+    PV.scene_setup('anime', sun_elev=40.0, sun_az=-60.0)
+    res = (1280, 800)
+    smp = 32
+    tag = '_p' if '--parts' in args else ''
+    cams = [('rv_head_r', (0.85, -0.62, 1.12), (0.40, 0.0, 0.86), 40),
+            ('rv_head_l', (0.80, 0.70, 1.05), (0.40, 0.0, 0.84), 40),
+            ('rv_clamps_top', (0.05, -0.18, 1.32), (0.38, 0.0, 0.93), 40),
+            ('rv_frame_l', (0.10, 1.10, 0.62), (-0.10, 0.0, 0.45), 35),
+            ('rv_frame_r', (0.10, -1.10, 0.62), (-0.10, 0.0, 0.45), 35),
+            ('rv_rear_r', (-0.45, -0.95, 0.62), (-0.68, 0.0, 0.42), 38),
+            ('rv_rear_l', (-0.45, 0.95, 0.62), (-0.68, 0.0, 0.42), 38),
+            ('rv_tail', (-1.65, -0.55, 0.85), (-0.85, 0.0, 0.55), 38),
+            ('rv_front_hub', (0.95, -0.55, 0.45), (0.66, 0.0, 0.38), 40),
+            ('rv_pegs_r', (-0.05, -0.65, 0.42), (-0.15, -0.1, 0.32), 40)]
+    for name, loc, tgt, lens in cams:
+        PV.camera(loc, tgt, lens=lens)
+        PV.render(f'{SCRATCH}/{name}{tag}.png', res=res, samples=smp)

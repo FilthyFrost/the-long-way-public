@@ -141,10 +141,13 @@ def rider_eye():
     return np.array([D['seat_x'] + 0.06, 0.0, D['seat_z'] + 0.84])
 
 
+DIAL_R = 0.0355
+
+
 def gauge_frame(sg):
     """Speedometer (sg = +1, left) or tachometer (-1): dial centre (glass plane), normal towards the rider,
     the dial's right (the rider's right, -Y) and up (its far edge) as the rider sees it."""
-    c = STEER_MOUNT + fork_frame() @ np.array([0.066, sg * 0.0675, 0.080])
+    c = STEER_MOUNT + fork_frame() @ np.array([0.064, sg * 0.0705, 0.082])
     nrm = rider_eye() - c
     nrm[1] = 0.0
     nrm = unit(nrm)
@@ -153,17 +156,11 @@ def gauge_frame(sg):
     return c, nrm, right, up
 
 
-def console_frame():
-    """The warning-lamp console between the dials (same facing)."""
-    c0, nrm, right, up = gauge_frame(1.0)
-    c = STEER_MOUNT + fork_frame() @ np.array([0.058, 0.0, 0.083])
-    return c, nrm, right, up
-
-
 def ignition_frame():
-    """Ignition (key) under the console, its bezel facing the rider: part local -X towards the eye."""
-    c0, nrm, right, up = console_frame()
-    c = c0 - up * 0.042 - nrm * 0.010
+    """Ignition (key) between the instrument cans, its bezel facing the rider (part local -X towards the eye),
+    the key standing up the dial's 'up' (clear of the bar behind)."""
+    c0, nrm, right, up = gauge_frame(1.0)
+    c = STEER_MOUNT + fork_frame() @ np.array([0.058, 0.0, 0.076])
     return c, nrm, right, up
 
 
@@ -199,5 +196,7 @@ def main(args):
         MB.fit(args)
     elif '--kit' in args:
         MB.kit_test(args)
+    elif '--review' in args:
+        MB.review(args)
     else:
         MB.build(args)
