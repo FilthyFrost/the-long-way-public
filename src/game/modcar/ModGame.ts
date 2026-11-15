@@ -33,6 +33,7 @@ import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { EngineVoice } from './engineAudio';
 import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
 import { Sparks } from './sparks';
 import { LooseThings } from './loose';
@@ -119,6 +120,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   readonly heldThing: HeldThing;
   /** metal on the road */
   readonly sparks: Sparks;
+  /** the assists (F2) */
+  readonly assists: Assists = loadAssists();
   private readonly sparkDue = new Map<ModVehicle, number>();
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
@@ -323,9 +326,25 @@ export class ModGame implements PlayerHost, CockpitHost {
     // the key card: at the start until the first click, and on F1 any time
     if (!this.params.shot) this.ui.showHelp(true);
     window.addEventListener('keydown', (e) => {
-      if (e.code !== 'F1') return;
-      e.preventDefault();
-      this.ui.showHelp(!this.ui.helpShown);
+      if (e.code === 'F1') {
+        e.preventDefault();
+        this.ui.showHelp(!this.ui.helpShown);
+        return;
+      }
+      if (e.code === 'F2') {
+        e.preventDefault();
+        this.ui.showAssists(this.ui.assistsShown ? null : this.assistItems());
+        return;
+      }
+      // the assists card open: the number keys switch them
+      const n = /^Digit([1-9])$/.exec(e.code);
+      if (n && this.ui.assistsShown) {
+        const entry = ASSIST_LABELS[Number(n[1]) - 1];
+        if (!entry) return;
+        this.assists[entry[0]] = !this.assists[entry[0]];
+        saveAssists(this.assists);
+        this.ui.showAssists(this.assistItems());
+      }
     });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === canvas) this.ui.showHelp(false);
@@ -363,6 +382,22 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (a === 'horn') v.sys.setHorn(false);
       else if (a === 'key') v.sys.crank(false);
     });
+  }
+
+  private assistItems(): { label: string; on: boolean }[] {
+    return ASSIST_LABELS.map(([k, label]) => ({ label, on: this.assists[k] }));
+  }
+
+  /** the assists into the vehicles and the player, every step */
+  private applyAssists(): void {
+    const a = this.assists;
+    for (const v of this.vehicles) {
+      v.sim.autoRelease = a.autoRelease;
+      v.assistHold = a.autoHold;
+      v.sys.assistReverse = a.autoReverse;
+    }
+    this.player.showGhostsOn = a.ghosts;
+    this.player.showCardOn = a.card;
   }
 
   // ------------------------------------------------------------------ getting in and out
@@ -633,6 +668,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   step(dt: number, alpha?: number): void {
     this.input.update(dt);
+    this.applyAssists();
     this.time += dt;
     // on foot: walk, look, use
     if (!this.seated) {
@@ -1003,7 +1039,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
-    if (this.place === 'garage' && this.vehicles[0]) {
+    if (this.place === 'garage' && this.vehicles[0] && this.assists.guide) {
       const steps = this.tutorialSteps();
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
@@ -1014,6 +1050,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   /** where the checklist's next step is (world coordinates) and what to call it; null = nowhere to point */
   objective(): { x: number; y: number; z: number; text: string } | null {
+    if (!this.assists.guide) return null;
     const v = this.vehicles[0];
     if (this.place !== 'garage' || !v || !this.garage) return null;
     const step = this.tutorialSteps().find((st) => !st.done);

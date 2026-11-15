@@ -61,6 +61,9 @@ export class ModPlayer {
   held: Held = null;
   target: Target | null = null;
   readonly ghosts = new GhostLayer();
+  /** assists: the holograms, the stat card (the ghosts' targeting works without them) */
+  showGhostsOn = true;
+  showCardOn = true;
   /** the colour a spray can is set to */
   paintIndex = 3;
   /** progress of the hold in hand (0…1), and what it is for (a target key) */
@@ -343,7 +346,7 @@ export class ModPlayer {
         list.push({ node, mount: m, partId: def.id, kind, key: `${v.build.uid}:${m.id}:${def.id}` });
       }
     }
-    this.ghosts.show(list);
+    this.ghosts.show(this.showGhostsOn ? list : []);
     const t = this.target;
     this.ghosts.selected = t?.kind === 'ghost' ? `${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${def.id}` : '';
   }
@@ -613,7 +616,7 @@ export class ModPlayer {
     if (this.dropT > 0 && held) word = '放下';
     const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : -1;
     ui.prompt(true, word, ring);
-    ui.showCard(card);
+    ui.showCard(this.showCardOn ? card : null);
     if (held) {
       const label = held.kind === 'part' ? `${name(held.inst)}<small>${partDef(held.inst.part).mass} kg · 按住 G 放下</small>` : `${toolName(held.tool)}<small>按住 G 放下</small>`;
       ui.showHeld(label);

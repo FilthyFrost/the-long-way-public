@@ -58,6 +58,12 @@ const CSS = `
 .mc-help td.k b { display: inline-block; min-width: 18px; padding: 0 5px; margin-right: 2px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-weight: 600; font-size: 12px; text-align: center; }
 .mc-help td.v { color: #5a4c40; }
 .mc-help .foot { margin-top: 10px; color: #7a6a5a; font-size: 12px; text-align: center; }
+.mc-assist { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); padding: 14px 18px 10px; border-radius: 14px; background: rgba(250,244,228,0.96); box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.12); font-size: 14px; line-height: 1.6; }
+.mc-assist h3 { margin: 0 0 6px; font-size: 17px; }
+.mc-assist div.row { display: flex; gap: 8px; align-items: baseline; }
+.mc-assist b.k { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 12px; text-align: center; }
+.mc-assist span.on { color: #3f7d3a; font-weight: 600; } .mc-assist span.off { color: #9a6a4a; }
+.mc-assist .foot { margin-top: 8px; color: #7a6a5a; font-size: 12px; }
 .mc-pause { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); padding: 6px 16px; border-radius: 14px; background: rgba(43,38,34,0.78); color: #fbf3e1; font-size: 14px; }
 .mc-pause b { color: #f3c35a; }
 .mc-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #fbf3e1; font-size: 13px; text-shadow: 0 1px 2px rgba(20,14,10,0.8); white-space: nowrap; }
@@ -86,7 +92,7 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k">鼠标 + 左键</td><td class="v">直接扳手刹杆、拨挡杆、拧钥匙、开收音机、按喇叭、开车门</td></tr>
 <tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
 </table>
-<div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>Esc</b> 放开鼠标</div>`;
+<div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · <b>Esc</b> 放开鼠标</div>`;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -136,6 +142,7 @@ export class ModUI {
   private readonly help: HTMLDivElement;
   private readonly pause: HTMLDivElement;
   private readonly marker: HTMLDivElement;
+  private readonly assist: HTMLDivElement;
   private toastT = 0;
   private lastMarker = '';
   private lastCard = '';
@@ -172,8 +179,9 @@ export class ModUI {
     this.pause.innerHTML = '点击画面继续 · <b>F1</b> 按键';
     this.help = el('div', 'mc-help', this.root);
     this.help.innerHTML = HELP;
+    this.assist = el('div', 'mc-assist', this.root);
     this.fade = el('div', 'mc-fade', this.root);
-    for (const e of [this.word, this.card, this.toast, this.held, this.paint, this.list, this.dash, this.marker, this.pause, this.help]) e.style.display = 'none';
+    for (const e of [this.word, this.card, this.toast, this.held, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
   }
 
@@ -288,6 +296,23 @@ export class ModUI {
       e.lamps.innerHTML = lamps;
       this.lastLamps = lamps;
     }
+  }
+
+  /** the assists (F2): their names and whether each is on; null = hide */
+  showAssists(items: { label: string; on: boolean }[] | null): void {
+    if (!items) {
+      this.assist.style.display = 'none';
+      return;
+    }
+    this.assist.style.display = '';
+    this.assist.innerHTML =
+      '<h3>辅助开关</h3>' +
+      items.map((it, i) => `<div class="row"><b class="k">${i + 1}</b><span class="${it.on ? 'on' : 'off'}">${it.on ? '开' : '关'}</span>${it.label}</div>`).join('') +
+      '<div class="foot">按数字键切换 · F2 关闭 · 默认：硬核（手刹要自己松）</div>';
+  }
+
+  get assistsShown(): boolean {
+    return this.assist.style.display !== 'none';
   }
 
   /** the key card (at the start, and on F1) */
