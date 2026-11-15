@@ -470,24 +470,48 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float height = vCar.y;
     vec3 on = normalize(vObjN);
     float ndl = dot(n, uSunDir);
-    // inside the cabin the light comes in low through the windows and skims the lining: there the shadow map's
-    // texels show as steps and its own surface as acne, so the lookup is pushed off the surface the more the
-    // light grazes it (slope-scaled, on top of the shared offset)
-    vec3 shPos = vPos;
-    #ifdef RT_CABIN
-    float cabinShade = 1.0;
-    #else
-    float cabinShade = inCabin;
+    // (where a surface stands to the cabin, in the car's frame, by its own normal: glass seen from the cabin is
+    // still the outside of the car on its outside)
+    vec3 nCar = mat3(uWorldToCar) * normalize(vNormal);
+    vec2 fromCabin = vCar.xz - 0.5 * (uCabinMin.xz + uCabinMax.xz);
+    vec2 fromCabinDir = fromCabin / max(length(fromCabin), 1e-3);
+    float facesOut = smoothstep(0.0, 0.1, dot(nCar.xz, fromCabinDir));
+    // Under the roof the cabin is in the shade of it: no sun, only the light of the sky that the windows let in.
+    // The sun comes in low through the windows and skims the lining, the door frames and the roof rails, and
+    // there both the shadow map (its texels as steps, its own surface as acne) and the cel terminator on their
+    // facets (a saw edge where the light grazes them) break up: a calm room, lit alike all over. (Under the
+    // roof: inside the cabin's box, or within its length and below the roof facing into the cabin or down —
+    // the door's inner frame, the rail; never the windows themselves.)
+    float underRoof = 0.0;
+    #if !defined(RT_GLASS) && !defined(RT_LENS)
+    if (uCabinMin.x < uCabinMax.x) {
+      float inX = step(uCabinMin.x - 0.12, vCar.x) * step(vCar.x, uCabinMax.x + 0.12);
+      float inY = step(uCabinMin.y - 0.1, vCar.y) * step(vCar.y, uBodyHeight - 0.03);
+      float faceIn = (1.0 - smoothstep(-0.05, 0.05, dot(nCar.xz, fromCabinDir))) * step(0.3, length(nCar.xz));
+      float faceDown = step(0.3, -nCar.y);
+      // (and what faces up just beside the cabin's box — the door frames' sills and tops — unless it faces out)
+      float wide = step(uCabinMin.z - 0.12, vCar.z) * step(vCar.z, uCabinMax.z + 0.12) * (1.0 - facesOut);
+      // (the outside of the greenhouse — the pillars' skin, the frames' outer faces — stands inside the cabin's
+      // box but faces out of it: it is in the open)
+      underRoof = inX * inY * max(max(inCabin * (1.0 - facesOut), wide), max(faceIn, faceDown));
+    }
     #endif
-    if (cabinShade > 0.5) {
+    float sh;
+    if (underRoof > 0.5) sh = 0.0;
+    else {
+      // (a cabin's things out in the open — a seat on the floor, a saddle — the lookup pushed off the surface
+      // the more the light grazes it: slope-scaled, on top of the shared offset)
+      vec3 shPos = vPos;
+      #ifdef RT_CABIN
       float c = clamp(ndl, 0.05, 1.0);
       shPos += n * uShadowParams.y * min(sqrt(1.0 - c * c) / c, 6.0) * 1.5;
+      #endif
+      sh = rtShadow(shPos, n);
+      #ifdef RT_CABIN
+      // without shadow maps nothing keeps the sun out of the cabin: let a third of it in
+      sh *= mix(0.35, 1.0, uShadowParams.x);
+      #endif
     }
-    float sh = rtShadow(shPos, n);
-    #ifdef RT_CABIN
-    // without shadow maps nothing keeps the sun out of the cabin: let a third of it in
-    sh *= mix(0.35, 1.0, uShadowParams.x);
-    #endif
     float lit = smoothstep(-0.015, 0.05, ndl) * sh;
     float full = smoothstep(0.4, 0.52, ndl) * sh;
     // (the open sky — or in a room what its openings let in — and a room's lamps: shaderlib.ts)
@@ -513,10 +537,6 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     // ---------------------------------------------------------------- rain and snow (the world's uWeather: x wet, y snow)
     // (within the cabin's box a face turned out of it is still the outside: the skin of a door, the glass)
-    // (by the surface's own normal: glass seen from the cabin is still wet on its outside)
-    vec3 nCar = mat3(uWorldToCar) * normalize(vNormal);
-    vec2 fromCabin = vCar.xz - 0.5 * (uCabinMin.xz + uCabinMax.xz);
-    float facesOut = smoothstep(0.0, 0.1, dot(nCar.xz, fromCabin / max(length(fromCabin), 1e-3)));
     // (and a room — the garage — keeps the weather out by itself; setShelter for any other roof)
     float outside = (1.0 - uShelter) * (1.0 - rtInRoom(vPos)) * max(1.0 - inCabin, facesOut);
     #ifdef RT_CABIN
@@ -558,7 +578,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (clouds only in what faces up — a hood, a roof: on a flank they read as smudges)
     CarEnv e = rtCarEnv(Re, 0.0015, 0.7 * (1.0 - side), 0.45);
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
-    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet);
+    // (under the roof a painted door frame or dashboard mirrors little: the open country's bands, drawn on its
+    // facets from inside, would break up into a patchwork)
+    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet) * (1.0 - 0.8 * underRoof);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
@@ -587,7 +609,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += uSunColor * 1.6 * rtSunSpot(R, uLook.y) * sh * gloss * (1.0 - fade);
     // rim: the edge turned away catches the sky (less of it under a roof); on the side the sun is, a warm
     // edge of light (the line round a car seen against the light)
-    col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky;
+    col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky * (1.0 - 0.8 * underRoof);
     // (only on what faces sideways: a hood seen at a slant is not an edge)
     col += uSunColor * 0.35 * uLook.z * pow(1.0 - ndv, 3.5) * smoothstep(0.0, 0.35, ndl) * (1.0 - smoothstep(0.45, 0.85, n.y)) * sh * ao;
     // rain: each bead a drop of the deeper colour, a fleck of sky on it, its lower edge alight with the paint
@@ -1201,6 +1223,7 @@ export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cab
   const painted = new THREE.Box3();
   const all = new THREE.Box3();
   const boxes: { box: THREE.Box3; names: (CarMaterialName | null)[] }[] = [];
+  const paintMeshes: THREE.Mesh[] = [];
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || !m.visible) return;
@@ -1210,7 +1233,10 @@ export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cab
     const names = Array.from({ length: count }, (_, i) => meshCarMaterialName(m, i));
     boxes.push({ box: b, names });
     all.union(b);
-    if (names.some((n) => n === 'paint' || n === 'paint_b')) painted.union(b);
+    if (names.some((n) => n === 'paint' || n === 'paint_b')) {
+      painted.union(b);
+      paintMeshes.push(m);
+    }
   });
   const body = painted.isEmpty() ? all : painted;
   // (the top of the paint above the ground: the sides are banded by height above the ground)
@@ -1224,6 +1250,21 @@ export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cab
   if (cabin.isEmpty()) return { bodyHeight, cabin: null };
   cabin.expandByScalar(0.05);
   cabin.max.y = Math.min(cabin.max.y + 0.12, bodyHeight - 0.05);
+  // a cabin is the room under a roof: paint over it in at least three quarters of its floor plan (looked for
+  // straight down from above). A bike's saddle and dials are out in the open: its tank stands over the front
+  // of them, not over all of it
+  const over = [false, false, false, false];
+  const rc = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0).transformDirection(root.matrixWorld);
+  const sx = cabin.max.x - cabin.min.x;
+  const sz = cabin.max.z - cabin.min.z;
+  for (let q = 0; q < 4; q++) {
+    const at = new THREE.Vector3(cabin.min.x + sx * (q & 1 ? 0.75 : 0.25), bodyHeight + 1, cabin.min.z + sz * (q & 2 ? 0.75 : 0.25)).applyMatrix4(root.matrixWorld);
+    rc.set(at, down);
+    const hit = rc.intersectObjects(paintMeshes, false)[0];
+    if (hit && hit.point.clone().applyMatrix4(inv).y > cabin.max.y) over[q] = true;
+  }
+  if (over.filter(Boolean).length < 3) return { bodyHeight, cabin: null };
   return { bodyHeight, cabin };
 }
 

@@ -69,6 +69,16 @@ describe('car materials', () => {
     expect(c.max.x).toBeLessThan(0.5);
   });
 
+  it('finds no cabin where nothing roofs it over (a bike: a saddle and dials in the open air)', () => {
+    const bike = new THREE.Group();
+    // the frame and tank, in front of the rider; the saddle and the dials, nothing over them but the sky
+    bike.add(box('paint', 0.5, 0.25, 0.25, 0.25, 0.85, 0));
+    bike.add(box('paint', 1.6, 0.1, 0.12, 0, 0.45, 0));
+    bike.add(box('leather', 0.5, 0.1, 0.25, -0.35, 0.78, 0));
+    bike.add(box('gauge', 0.1, 0.1, 0.1, 0.55, 1.0, 0));
+    expect(measureCarShape(bike).cabin).toBeNull();
+  });
+
   it('measures meshes that already wear car materials (the game swaps them first)', () => {
     const car = smallCar();
     new CarLook().apply(car);
