@@ -279,13 +279,18 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   CarEnv rtCarEnv(vec3 R, float soft, float clouds, float darkWidth) {
     CarEnv e;
     float h = R.y;
-    // the far tree line and hills: a painted silhouette that stays put in the world
+    // the far land: rolling hills and over them a line of trees in rounded bumps, a painted silhouette that
+    // stays put in the world — along a flank the horizon is a landscape sliding past, not a ruler line
+    // (the bumps from the noise round a circle: one loop of the azimuth, no seam; blurred: crowns, not spikes)
     float az = atan(R.z, R.x);
-    float hz = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
-    float x = h - hz;
+    vec2 rs = normalize(R.xz + vec2(1e-5));
+    float trees = clamp((texture2D(tNoise, rs * 0.6 + 0.5, 1.5).g - 0.42) * 0.32, 0.0, 0.1);
+    float hills = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
+    float x = h - hills - trees;
+    // (the band's top and the near ground's edge are the open sky and the plain: no trees on them)
+    float xo = h - hills;
     // the sky is brightest round the sun: the band swells towards it and dims away from it, so it changes
     // along the body instead of running round it like a painted stripe
-    vec2 rs = normalize(R.xz + vec2(1e-5));
     vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
     float toSun = dot(rs, ss) * 0.5 + 0.5;
     e.bright = (mix(uHorizon, vec3(rtLuma(uHorizon)), 0.2) * 1.15 + uGlow * 0.25 * uSunVis * toSun * toSun) * (0.78 + 0.34 * toSun);
@@ -302,8 +307,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     e.land = mix(uHereForest, uCarGround, 0.35) * (uSkyColor * 0.55 + uSunColor * 0.06);
     e.ground = uCarGround * (uSkyColor * 0.7 + uSunColor * 0.22 * smoothstep(-0.1, 0.3, uSunDir.y));
     e.sky = rtStep(x, soft);
-    e.band = 1.0 - rtStep(x - 0.3, soft);
-    e.dark = 1.0 - rtStep(-x - darkWidth, soft);
+    e.band = 1.0 - rtStep(xo - 0.3, soft);
+    e.dark = 1.0 - rtStep(-xo - darkWidth, soft);
     e.line = e.sky * (1.0 - rtStep(x - 0.02, soft));
     // in a room (the starting garage) the gloss mirrors the room: its door and windows bright, the rest dim
     float room = rtInRoom(vPos);
