@@ -125,7 +125,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
     this.viewMode = params.view === 'chase' ? 'chase' : params.view === 'orbit' ? 'orbit' : 'cockpit';
-    this.hud = new Hud(params.hud);
+    // (ModUI shows this game's own key card)
+    this.hud = new Hud(params.hud, '');
     this.input = new InputManager(canvas);
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
@@ -267,6 +268,16 @@ export class ModGame implements PlayerHost, CockpitHost {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('wheel', (e) => this.player.wheel(e.deltaY));
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
+    // the key card: at the start until the first click, and on F1 any time
+    if (!this.params.shot) this.ui.showHelp(true);
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'F1') return;
+      e.preventDefault();
+      this.ui.showHelp(!this.ui.helpShown);
+    });
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement === canvas) this.ui.showHelp(false);
+    });
     this.input.onAction((a) => {
       this.hud.dismissHint();
       if (a === 'use') {
@@ -687,6 +698,89 @@ export class ModGame implements PlayerHost, CockpitHost {
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown);
+    this.updateMarker();
+  }
+
+  /** where the checklist's next step is (world coordinates) and what to call it; null = nowhere to point */
+  objective(): { x: number; y: number; z: number; text: string } | null {
+    const v = this.vehicles[0];
+    if (this.place !== 'garage' || !v || !this.garage) return null;
+    const step = this.tutorialSteps().find((st) => !st.done);
+    if (!step) return null;
+    const held = this.player.held;
+    const holding = (id: string): boolean => (held?.kind === 'part' && held.inst.part === id) || (held?.kind === 'tool' && `tool:${held.tool.kind}` === id);
+    const lying = (id: string, text: string): { x: number; y: number; z: number; text: string } | null => {
+      const l = this.loose.list.find((x) => x.part?.part === id || (x.tool && `tool:${x.tool.kind}` === id && (x.tool.kind !== 'jerrycan' || x.tool.fuel === 'petrol')));
+      return l ? { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text } : null;
+    };
+    const at = (mount: string, text: string, up = 0.35): { x: number; y: number; z: number; text: string } | null => {
+      const n = v.view.mountNode(mount);
+      if (!n) return null;
+      n.updateWorldMatrix(true, false);
+      const p = n.getWorldPosition(new THREE.Vector3());
+      const o = this.core.origin;
+      return { x: p.x + o.x, y: p.y + o.y + up, z: p.z + o.z, text };
+    };
+    const b = v.build.parts;
+    switch (step.id) {
+      case 'battery':
+        return holding('bat_std') ? at('battery', '电瓶装这里') : lying('bat_std', '电瓶');
+      case 'wheels': {
+        const hub = !b.hub_FL ? 'hub_FL' : 'hub_RR';
+        return holding('rim_steel13') ? at(hub, '车轮装这里', 0.5) : lying('rim_steel13', '车轮');
+      }
+      case 'engine':
+        return holding('eng_i4') ? at('engine', '发动机装这里', 0.6) : lying('eng_i4', '发动机');
+      case 'fuel':
+        if (held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol') return at('fuelTank', '加油口', 0.5);
+        return lying('tool:jerrycan', '油桶（汽油）');
+      case 'seat': {
+        const seat = v.view.frame.mounts.find((m) => m.driver);
+        return seat ? at(seat.id, '上车', 0.9) : null;
+      }
+      case 'start':
+        return null;
+      case 'drive': {
+        const g = this.garage;
+        return { x: g.exitX - 4, y: 1.6, z: g.carSpot.z, text: '开出去' };
+      }
+    }
+    return null;
+  }
+
+  private readonly markerV = new THREE.Vector3();
+  /** the objective's diamond on screen (at the edge on its side when it is off screen) */
+  private updateMarker(): void {
+    const t = this.objective();
+    if (!t) {
+      this.ui.showMarker(null);
+      return;
+    }
+    const cam = this.core.camera;
+    const o = this.core.origin;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const p = this.markerV.set(t.x - o.x, t.y - o.y, t.z - o.z);
+    cam.updateMatrixWorld();
+    p.applyMatrix4(cam.matrixWorldInverse);
+    const behind = p.z > -0.1;
+    p.applyMatrix4(cam.projectionMatrix);
+    let sx = (p.x * 0.5 + 0.5) * w;
+    let sy = (-p.y * 0.5 + 0.5) * h;
+    const edge = behind || sx < 24 || sx > w - 24 || sy < 40 || sy > h - 24;
+    if (behind) {
+      // behind: at the side it is on, halfway up
+      sx = p.x > 0 ? 24 : w - 24;
+      sy = h * 0.5;
+    }
+    if (edge) {
+      sx = Math.min(w - 24, Math.max(24, sx));
+      sy = Math.min(h - 24, Math.max(40, sy));
+    }
+    // close by and in the middle of the view: the mark's own words say it all
+    const near = Math.hypot(t.x - this.player.walker.x, t.z - this.player.walker.z) < 1.4 && !this.seated;
+    this.ui.showMarker(near ? null : { x: sx, y: sy, text: t.text, edge });
   }
 
   private updateAudio(): void {
