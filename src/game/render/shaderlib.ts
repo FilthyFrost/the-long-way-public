@@ -19,7 +19,7 @@ const tex = sharedTextures();
 
 /** how many openings and lamps a room can have (the starting garage's door, windows and skylights; its pendant lamps) */
 export const ROOM_OPENINGS = 8;
-export const ROOM_LAMPS = 8;
+export const ROOM_LAMPS = 10;
 
 export const globals = {
   uSunDir: { value: new THREE.Vector3(0.4, 0.75, 0.3).normalize() },
@@ -67,7 +67,8 @@ export const globals = {
    * through the room's openings — door, windows, skylights: parallelograms (corner A, edges U, V)
    * with the radiance of what is seen through each — the walls and floor give back uRoomAmb, and
    * up to ROOM_LAMPS lamps light what faces them (xyz, reach in w; colour × strength, and in w how
-   * much of it the shade sends down). rtCelAt / rtSkyLight / rtRoomLamps read them.
+   * much of it the shade sends down — plus 2 for a lamp outside the room, over its door, which lights
+   * only what is out of the room). rtCelAt / rtSkyLight / rtRoomLamps read them.
    */
   uRoomMin: { value: new THREE.Vector4(0, 0, 0, 0) },
   uRoomMax: { value: new THREE.Vector4(0, 0, 0, 0.08) },
@@ -319,10 +320,11 @@ vec3 rtSkyLight(vec3 N, vec3 pos) {
   return mix(open, rtRoomSky(pos, N), inside);
 }
 // The room's lamps: a pool from each with a soft rim (a windowed inverse square), sent down by its
-// shade; nothing outside the room.
+// shade; nothing outside the room — but for a lamp outside it (over the door), lighting only what is out.
 vec3 rtRoomLamps(vec3 pos, vec3 N) {
   if (uRoomMin.w < 0.5) return vec3(0.0);
   vec3 sum = vec3(0.0);
+  vec3 sumOut = vec3(0.0);
   for (int i = 0; i < ${ROOM_LAMPS}; i++) {
     vec4 lp = uRoomLampP[i];
     if (lp.w <= 0.0) continue;
@@ -336,11 +338,15 @@ vec3 rtRoomLamps(vec3 pos, vec3 N) {
     // (a pool under each lamp: bright close by, gone by its reach)
     float att = win * win / (0.35 + d2);
     // below the lamp (L points up at it) it shines; above, its shade keeps most of it in
-    float down = mix(1.0, 0.1 + 0.9 * smoothstep(0.3, 0.78, L.y), uRoomLampC[i].w);
+    float outside = step(1.5, uRoomLampC[i].w);
+    float down = mix(1.0, 0.1 + 0.9 * smoothstep(0.3, 0.78, L.y), uRoomLampC[i].w - 2.0 * outside);
     float face = smoothstep(-0.2, 0.45, dot(N, L));
-    sum += uRoomLampC[i].rgb * att * down * face;
+    vec3 c = uRoomLampC[i].rgb * att * down * face;
+    sum += c * (1.0 - outside);
+    sumOut += c * outside;
   }
-  return sum * rtInRoom(pos);
+  float inside = rtInRoom(pos);
+  return sum * inside + sumOut * (1.0 - inside);
 }
 // What a mirror at p inside the room sees along R (for glossy things: car paint, chrome): the light of
 // an opening where the ray leaves through one (the door as a bright shape in a flank), else the room

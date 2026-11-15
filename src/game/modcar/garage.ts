@@ -24,6 +24,7 @@ import type { GarageContext, GarageDevice, GarageScene } from './garageStub';
 import { GarageLook } from './garageLook';
 import { beamUniforms, buildBeams, buildDust } from './garageBeams';
 import { Chalkboard } from './garageChalk';
+import { Sign, YardLight } from './garageFront';
 import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
@@ -54,6 +55,10 @@ interface Layout {
   spawn: { x: number; z: number; heading: number };
   exitX: number;
   chalkboard?: { x: number; y: number; z: number; w: number; h: number };
+  /** the stove's fire (in front of its door), the board over the doors, the lamp over them outside */
+  stove?: { x: number; y: number; z: number };
+  sign?: { x: number; y: number; z: number; w: number; h: number };
+  outlamp?: { x: number; y: number; z: number };
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -105,6 +110,14 @@ const LAMP_POWER = 3.6;
 const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
 const BEAM_DENSITY = 0.055;
+/** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
+const STOVE_POWER = 1.4;
+const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
+/** the lamp over the doors outside, lit from dusk (a photocell) */
+const OUTLAMP_POWER = 4.0;
+const OUTLAMP_COLOUR: V3 = [1.0, 0.74, 0.45];
+/** the lit room seen through the open doors at night, as it falls on the yard (× the lamps) */
+const DOOR_SPILL: V3 = [4.0, 2.8, 1.5];
 
 export function buildGarage(core: RenderCore): GarageScene {
   return new Garage(core);
@@ -140,6 +153,10 @@ class Garage implements GarageScene {
   private disposed = false;
   private readonly machines: Machines;
   private readonly chalk: Chalkboard | null;
+  private readonly sign: Sign | null;
+  private readonly yard = new YardLight();
+  /** the lamp over the doors: how far it has warmed up (0 … 1) */
+  private outLamp = 0;
 
   constructor(private readonly core: RenderCore) {
     this.root.name = 'garage';
@@ -170,6 +187,9 @@ class Garage implements GarageScene {
     this.devices.push(...this.machines.devices);
     this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;
     if (this.chalk) this.root.add(this.chalk.mesh);
+    this.sign = LAYOUT.sign ? new Sign(LAYOUT.sign) : null;
+    if (this.sign) this.root.add(this.sign.mesh);
+    this.root.add(this.yard.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -385,6 +405,7 @@ class Garage implements GarageScene {
   update(dt: number, ctx: GarageContext): void {
     this.ctx = ctx;
     this.time += dt;
+    this.frameDt = dt;
     // the doors run on their motor
     let moving = false;
     for (const l of Object.values(this.leaf)) {
@@ -555,18 +576,62 @@ class Garage implements GarageScene {
     g.uRoomAmb.value.setRGB(ks * 1.12 + kw * 1.15 + kl * 1.2, ks * 0.98 + kw * 0.95 + kl * 0.9, ks * 0.8 + kw * 0.7 + kl * 0.58);
     // the lamps
     const lamps = LAYOUT.lamps;
-    for (let i = 0; i < ROOM_LAMPS; i++) {
-      const L = lamps[i];
-      if (!L || lamp < 0.01) {
-        g.uRoomLampP.value[i].w = 0;
+    let slot = 0;
+    for (const L of lamps) {
+      if (slot >= ROOM_LAMPS - 2) break;
+      if (lamp < 0.01) {
+        g.uRoomLampP.value[slot++].w = 0;
         continue;
       }
-      g.uRoomLampP.value[i].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach);
+      g.uRoomLampP.value[slot].set(L.pos[0] - o.x, L.pos[1] - o.y, L.pos[2] - o.z, L.reach);
       const p = LAMP_POWER * lamp;
-      g.uRoomLampC.value[i].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
+      g.uRoomLampC.value[slot++].set(L.colour[0] * LAMP_ON.r * p, L.colour[1] * LAMP_ON.g * p, L.colour[2] * LAMP_ON.b * p, L.down);
     }
+    for (; slot < ROOM_LAMPS - 2; slot++) g.uRoomLampP.value[slot].w = 0;
     this.look.setGlow('bulb', 7 * lamp, 5.2 * lamp, 3.2 * lamp);
+    // the stove: its fire flickers in the window of its door and on the floor before it
+    const st = LAYOUT.stove;
+    const t = this.time;
+    const flick = 0.82 + 0.1 * Math.sin(t * 7.3) + 0.06 * Math.sin(t * 13.7 + 1.3) + 0.05 * Math.sin(t * 23.1 + 0.4) * Math.sin(t * 1.7);
+    if (st) {
+      g.uRoomLampP.value[slot].set(st.x + 0.15 - o.x, st.y - o.y, st.z - o.z, 3.4);
+      const p = STOVE_POWER * flick;
+      g.uRoomLampC.value[slot].set(STOVE_COLOUR[0] * p, STOVE_COLOUR[1] * p, STOVE_COLOUR[2] * p, 0);
+    } else g.uRoomLampP.value[slot].w = 0;
+    slot++;
+    this.look.setGlow('fire', 2.2 * flick, 0.8 * flick, 0.18 * flick);
+    // the lamp over the doors outside comes on at dusk, warming up over a second or two
+    const night = smooth(0.16, 0.07, skyLum);
+    // (already on, or off, when the garage is first seen)
+    this.outLamp = this.lit ? this.outLamp + ((night > 0.5 ? 1 : 0) - this.outLamp) * Math.min(1, this.frameDt * 1.5) : night > 0.5 ? 1 : 0;
+    this.lit = true;
+    const ol = LAYOUT.outlamp;
+    const out = this.outLamp;
+    if (ol && out > 0.005) {
+      g.uRoomLampP.value[slot].set(ol.x - o.x, ol.y - 0.08 - o.y, ol.z - o.z, 8.0);
+      const p = OUTLAMP_POWER * out;
+      // (2 + the shade's share: a lamp outside the room)
+      g.uRoomLampC.value[slot].set(OUTLAMP_COLOUR[0] * p, OUTLAMP_COLOUR[1] * p, OUTLAMP_COLOUR[2] * p, 3.0);
+    } else g.uRoomLampP.value[slot].w = 0;
+    this.look.setGlow('lamp_out', 7 * out, 5.4 * out, 3.4 * out);
+    // and what it and the open doors throw on the yard
+    const yu = this.yard.uniforms;
+    const spill = lamp * night * (g1 - g0 > 0.05 ? 1 : 0);
+    this.yard.mesh.visible = out > 0.005 || spill > 0.005;
+    if (this.yard.mesh.visible) {
+      if (ol) yu.uLampPos.value.set(ol.x - o.x, ol.y - 0.08 - o.y, ol.z - o.z);
+      yu.uLampCol.value.setRGB(OUTLAMP_COLOUR[0] * OUTLAMP_POWER * out, OUTLAMP_COLOUR[1] * OUTLAMP_POWER * out, OUTLAMP_COLOUR[2] * OUTLAMP_POWER * out);
+      const d = LAYOUT.door;
+      // (wound so that the opening faces the yard)
+      yu.uDoorA.value.set(d.x - o.x, -o.y, g1 - o.z);
+      yu.uDoorU.value.set(0, 0, g0 - g1);
+      yu.uDoorV.value.set(0, d.h, 0);
+      yu.uDoorL.value.setRGB(DOOR_SPILL[0] * spill, DOOR_SPILL[1] * spill, DOOR_SPILL[2] * spill);
+    }
   }
+
+  private frameDt = 0;
+  private lit = false;
 
   private readonly c1 = new THREE.Color();
   private readonly farFocus = new THREE.Vector3();
@@ -648,6 +713,8 @@ class Garage implements GarageScene {
     });
     this.look.dispose();
     this.chalk?.dispose();
+    this.sign?.dispose();
+    this.yard.dispose();
     this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors
     globals.uRoomMin.value.w = 0;

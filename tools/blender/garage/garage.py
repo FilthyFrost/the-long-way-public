@@ -66,6 +66,7 @@ def main(args):
     M.calendar(K, S.X0 + 0.12, 1.82, 0.95)
     D.poster(K, S.X0 + 0.12, 1.85, 3.95, 0.5, 0.7, 1, 0, 'map')
     D.potted_plant(K, S.X0 + 0.1, 1.45, 2.25, 1.2, 'snake')
+    M.stove(K, L, S.X0 + 0.45, 1.55)
     D.crate(K, L, -6.55, -1.7, yaw=8)
     D.cardboard(K, L, -6.6, -1.75, 0.5, 0.36, 0.42, yaw=-6, y=0.42)
     D.cardboard(K, L, -6.45, -0.95, 0.55, 0.42, 0.45, yaw=12)
@@ -119,6 +120,8 @@ def main(args):
     O.fuel_pump(K, L, 10.2, -5.2)
     O.mailbox(K, 20.9, -3.9)
     O.sign_post(K, 21.3, 4.6)
+    M.sign_board(K, L, S.DOOR_H + 0.72)
+    M.barn_lamp(K, L, S.DOOR_H + 0.62, -1.95)
 
     # ---- where the cars stand, where the player starts, the spots
     L['carSpot'] = {'x': 0.4, 'z': CAR_Z, 'yaw': 0.0}
@@ -128,9 +131,9 @@ def main(args):
     # floor: the tutorial's two wheels and engine first (left of the car, between it and the bench),
     # then the big fun parts round the room
     for (x, z, yaw) in ((-0.6, -2.55, 0.3), (0.75, -2.95, -0.2), (2.6, -2.55, 0.0),
-                        (-5.4, 1.15, 0.0), (1.2, 2.55, -2.6), (4.65, 3.0, 0.0), (-1.1, 2.6, 0.4),
+                        (-5.5, 0.45, 0.0), (1.2, 2.55, -2.6), (4.65, 3.0, 0.0), (-1.1, 2.6, 0.4),
                         (2.9, 2.35, 0.0), (4.4, 1.6, 0.0), (5.2, 3.3, 0.0), (5.3, 2.1, 0.0),
-                        (-5.9, 2.3, 0.0), (4.5, -2.2, 0.0), (-1.9, 1.9, 0.0), (0.2, 2.4, 0.0)):
+                        (-5.9, 2.55, 0.0), (4.5, -2.2, 0.0), (-1.9, 1.9, 0.0), (0.2, 2.4, 0.0)):
         P.spot(L, x, 0.0, z, yaw, 'floor')
     for y in (0.42, 0.9, 1.38):
         for x in spot_xs:
@@ -142,7 +145,7 @@ def main(args):
     for i in range(3):
         P.spot(L, 4.35 + i * 0.3, 0.0, S.Z0 + 0.32, 0.0, 'cans')
 
-    K.finish(ao=not opts.get('noao'), ao_samples=24, ao_distance=0.9, no_ao=('win_glass', 'skylight', 'bulb', 'led', 'dial', 'glass', 'shadow'))
+    K.finish(ao=not opts.get('noao'), ao_samples=24, ao_distance=0.9, no_ao=('win_glass', 'skylight', 'bulb', 'led', 'dial', 'glass', 'shadow', 'fire', 'lamp_out'))
     K.report()
     K.export(OUT_GLB)
     L['triangles'] = K.tris

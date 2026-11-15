@@ -3,7 +3,7 @@
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
 import * as THREE from 'three';
-import { decodeBuild, encodeBuild, fitPart, newInstance, removePart } from '../../core/modcar/build';
+import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { readParams } from '../params';
@@ -239,6 +239,12 @@ const rt = {
     game.scripted = null;
     const u = game.seated ?? v;
     return { kmh: u.sim.kmh, place: game.place, rpm: u.sim.rpm, x: u.sim.px };
+  },
+  /** a new part instance (with a tyre on it, for a rim) — to put down somewhere in a test */
+  newPart: (id: string, tyre = '') => {
+    const inst = newInstance(id);
+    if (tyre) fitSub(inst, 'tire', newInstance(tyre));
+    return inst;
   },
   /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
   garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,

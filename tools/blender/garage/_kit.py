@@ -94,6 +94,8 @@ MATS = {
     'tinted_matte': (0.92, 0.9, 0.86),
     'galv': (0.7, 0.72, 0.72),
     'cloth': (0.75, 0.7, 0.6),
+    'fire': (1.0, 0.5, 0.2),
+    'lamp_out': (1.0, 0.92, 0.75),
 }
 
 
@@ -116,17 +118,18 @@ LOOK = {
     'p_black': (0x2a2a2e, 'prop'), 'cardboard': (0xb88c5c, 'prop'), 'paper': (0xefe9da, 'prop'), 'rope': (0xc4a474, 'prop'),
     'chalk': (0x2e3c36, 'prop'), 'pot': (0xbc6640, 'prop'), 'soil': (0x3c2c20, 'prop'), 'pegboard': (0xbc9a6c, 'prop'),
     'tinted_matte': (0xf4f1ea, 'prop'), 'galv': (0xb2b7b8, 'prop'), 'emit': (0xfff0d0, 'prop'),
-    'chrome': (0xe4e8ec, 'shiny'), 'ceramic': (0xf3f2ec, 'shiny'), 'brass': (0xc8a050, 'shiny'), 'tinted': (0xf4f1ea, 'shiny'),
+    'chrome': (0xe4e8ec, 'shiny'), 'ceramic': (0xf3f2ec, 'shiny'), 'brass': (0xc8a050, 'shiny'), 'tinted': (0xf4f1ea, 'prop'),
     'water': (0x4a6a70, 'shiny'),
     'enamel': (0xf3efe4, 'prop2'), 'canvas': (0xab9d7c, 'prop2'), 'leaf': (0x5c8e3a, 'prop2'), 'leaf_dark': (0x2f5c32, 'prop2'),
     'cloth': (0xc8bea8, 'prop2'),
     # (lit from within: their own meshes, the game switches them)
     'bulb': (0xfff1d6, 'bulb'), 'led': (0x6a4a20, 'led'), 'dial': (0x8a7a5a, 'dial'),
+    'fire': (0x5a2a14, 'fire'), 'lamp_out': (0xfff1d6, 'lamp_out'),
 }
 
 
 # what light passes through (or that only glows): never in the shadow caster
-NO_CAST = {'win_glass', 'glass', 'skylight', 'bulb', 'led', 'dial', 'water', 'leaf', 'leaf_dark'}
+NO_CAST = {'win_glass', 'glass', 'skylight', 'bulb', 'led', 'dial', 'water', 'leaf', 'leaf_dark', 'fire', 'lamp_out'}
 
 
 def srgb_to_linear(hex_rgb):

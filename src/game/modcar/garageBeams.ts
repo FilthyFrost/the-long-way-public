@@ -123,7 +123,8 @@ export function beamMaterial(): THREE.ShaderMaterial {
           }
           // brighter looking into the light (dust scatters forward)
           float phase = 0.28 + 2.3 * pow(max(dot(rd, uSunDir), 0.0), 5.0);
-          vec3 col = uSunColor * acc * dt * uBeamDensity * phase * rtCloudShade(ro);
+          // (the dust in a morning beam glows warm, the air's blue is in the room's own light)
+          vec3 col = uSunColor * vec3(1.0, 0.9, 0.72) * acc * dt * uBeamDensity * phase * rtCloudShade(ro);
           gl_FragColor = vec4(col, 0.0);
         }`,
     }),

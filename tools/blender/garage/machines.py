@@ -267,25 +267,34 @@ def tarp(K, a, b, top, depth, folds=6, gap=None, bottom=0.12):
 
 
 def blot(K, c, nrm, r, tint):
-    """a soft blot of overspray: an irregular disc flat on a surface"""
-    bm = bmesh.new()
+    """
+    Overspray: a mist of little dots thinning out from a centre, flat on a surface (a spray can leaves a
+    speckled cloud, not a shape), with a small solid heart where the paint built up.
+    """
     nrm = V(nrm).normalized()
     u = nrm.orthogonal().normalized()
     w = nrm.cross(u)
-    k = 11
-    centre = bm.verts.new(c)
-    ring = []
-    ph = K.rng.random() * 6.0
-    for i in range(k):
-        a = i / k * math.tau
-        rr = r * (0.7 + 0.3 * math.sin(a * 3 + ph) + 0.15 * math.sin(a * 5 + ph * 2))
-        ring.append(bm.verts.new(c + (u * math.cos(a) + w * math.sin(a)) * rr))
-    for i in range(k):
-        f = bm.faces.new((centre, ring[i], ring[(i + 1) % k]))
-        f.normal_update()
-        if f.normal.dot(nrm) < 0:
-            f.normal_flip()
-    K.mesh('tinted_matte', bm, tint=tint)
+    bm = bmesh.new()
+    rng = K.rng
+
+    def dot(p, rr, k=6):
+        cv = bm.verts.new(p)
+        ring = [bm.verts.new(p + (u * math.cos(i / k * math.tau) + w * math.sin(i / k * math.tau)) * rr) for i in range(k)]
+        for i in range(k):
+            f = bm.faces.new((cv, ring[i], ring[(i + 1) % k]))
+            f.normal_update()
+            if f.normal.dot(nrm) < 0:
+                f.normal_flip()
+
+    dot(c, r * 0.22, 8)
+    n = int(14 + r * 90)
+    for i in range(n):
+        # (more dots near the middle, smaller further out)
+        d = r * math.sqrt(-math.log(max(1e-4, 1.0 - rng.random() * 0.97))) * 0.55
+        a = rng.random() * math.tau
+        p = c + (u * math.cos(a) + w * math.sin(a)) * d
+        dot(p, (0.004 + 0.012 * rng.random()) * (1.0 - min(0.8, d / (r * 1.6))), 5)
+    K.mesh('tinted_matte', bm, tint=tint, cast=False)
 
 
 def paint_tin(K, x, y, z, r, h, tint):
@@ -490,3 +499,65 @@ def calendar(K, x, y, z):
             K.box('tinted_matte', (x + 0.016, y - 0.05 - r * 0.045, z - 0.15 + c * 0.05), (0.002, 0.012, 0.016), bev=0.0, tint=tint_of(col))
     K.box('tinted_matte', (x + 0.016, y + 0.0, z), (0.002, 0.02, 0.2), bev=0.0, tint=tint_of(0xc8323a))
     K.cyl('steel', (x + 0.02, y + 0.33, z), 0.004, 0.03, axis='x', segs=6)
+
+
+# ---------------------------------------------------------------------------------------------- the stove
+
+def stove(K, L, x, z):
+    """
+    A little cast-iron stove by the back wall with its pipe up through the roof, a kettle on top and a
+    window in its door that glows (the game lights it, and it lights the room at night: L['stove']).
+    """
+    w, d, h = 0.46, 0.5, 0.62
+    y0 = 0.14
+    for (sx, sz) in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
+        K.cyl('p_black', (x + sx * (w / 2 - 0.05), y0 / 2, z + sz * (d / 2 - 0.05)), 0.025, y0, segs=8, r2=0.035)
+    K.box('p_black', (x, y0 + h / 2, z), (w, h, d), bev=0.02)
+    K.box('p_black', (x, y0 + h + 0.02, z), (w + 0.06, 0.04, d + 0.06), bev=0.012)
+    # the door to the room (+x) with its glowing window and a handle
+    K.box('p_black', (x + w / 2 + 0.012, y0 + h * 0.45, z), (0.02, h * 0.6, d * 0.7), bev=0.008)
+    K.box('fire', (x + w / 2 + 0.024, y0 + h * 0.47, z), (0.004, h * 0.26, d * 0.42), bev=0.0)
+    for k in range(3):
+        K.box('p_black', (x + w / 2 + 0.027, y0 + h * 0.47, z - d * 0.14 + k * d * 0.14), (0.006, h * 0.28, 0.012), bev=0.0)
+    K.cyl('brass', (x + w / 2 + 0.03, y0 + h * 0.62, z + d * 0.28), 0.014, 0.05, axis='x', segs=8)
+    # the pipe: up, through the roof, a cap on top
+    top = S.roof_under(z) + 0.5
+    K.cyl('p_black', (x - 0.08, y0 + h + 0.04 + (top - y0 - h) / 2, z), 0.075, top - y0 - h - 0.04, segs=14, rings=6)
+    K.cyl('steel', (x - 0.08, S.roof_under(z) + 0.02, z), 0.14, 0.04, segs=14)
+    K.cyl('steel', (x - 0.08, top + 0.08, z), 0.15, 0.03, segs=14, r2=0.02)
+    K.cyl('steel', (x - 0.08, top + 0.03, z), 0.012, 0.1, segs=5)
+    # a kettle on top
+    K.lathe('galv', (x + 0.06, y0 + h + 0.04, z + 0.05), [(0.0, 0.0), (0.1, 0.0), (0.11, 0.06), (0.09, 0.13), (0.04, 0.15), (0.0, 0.15)], segs=18)
+    K.tube('p_black', [(x + 0.06 - 0.07, y0 + h + 0.19, z + 0.05), (x + 0.06, y0 + h + 0.26, z + 0.05), (x + 0.06 + 0.07, y0 + h + 0.19, z + 0.05)], 0.008, segs=6, bend=0.04)
+    K.tube('galv', [(x + 0.16, y0 + h + 0.09, z + 0.05), (x + 0.24, y0 + h + 0.16, z + 0.05)], 0.012, segs=6)
+    # a stack of split logs beside it: grey-brown bark, the pale wood at their sawn ends
+    for k in range(5):
+        c = (x + 0.05, 0.065 + (k // 3) * 0.115, z + d / 2 + 0.18 + (k % 3) * 0.11 - (k // 3) * 0.05)
+        r = 0.05 + 0.008 * ((k * 7) % 3)
+        K.cyl('wood_dark', c, r, 0.42, axis='x', segs=7, smooth=False, tint=(0.85 + 0.1 * (k % 2), 0.8, 0.75))
+        for e in (-1, 1):
+            K.cyl('wood', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.15, 1.05, 0.9), cast=False)
+    P.solid(L, x, z, w / 2 + 0.05, d / 2 + 0.05, 0, y0 + h + 0.05)
+    L['stove'] = {'x': round(x + w / 2 + 0.05, 3), 'y': round(y0 + h * 0.47, 3), 'z': round(z, 3)}
+
+
+# ---------------------------------------------------------------------------------------------- outside: the sign, the barn lamp
+
+def sign_board(K, L, y, w=2.7, h=0.46):
+    """the board over the doors (its face is painted by the game: L['sign']), framed in wood"""
+    x = S.X1 + S.BOARD_T + S.BATTEN_T + 0.02
+    K.box('p_cream', (x, y, 0), (0.03, h, w), bev=0.006)
+    for (dy, dz, sy, sz) in ((h / 2 + 0.025, 0, 0.05, w + 0.1), (-h / 2 - 0.025, 0, 0.05, w + 0.1), (0, w / 2 + 0.025, h, 0.05), (0, -w / 2 - 0.025, h, 0.05)):
+        K.box('wood_dark', (x + 0.012, y + dy, dz), (0.045, sy, sz), bev=0.006)
+    L['sign'] = {'x': round(x + 0.016, 3), 'y': y, 'z': 0.0, 'w': w, 'h': h}
+
+
+def barn_lamp(K, L, y, z):
+    """a gooseneck lamp beside the sign over the doors outside, a deep shade with its bulb (lit at night)"""
+    x = S.X1 + S.BOARD_T + S.BATTEN_T
+    K.box('p_black', (x + 0.02, y + 0.3, z), (0.04, 0.16, 0.12), bev=0.008)
+    K.tube('p_black', [(x + 0.03, y + 0.3, z), (x + 0.28, y + 0.4, z), (x + 0.46, y + 0.32, z), (x + 0.48, y + 0.16, z)], 0.016, segs=8, bend=0.1)
+    K.lathe('p_green', (x + 0.48, y, z), [(0.025, 0.17), (0.06, 0.155), (0.13, 0.07), (0.2, 0.0), (0.205, -0.01)], segs=24, sharp=60, face='out')
+    K.lathe('enamel', (x + 0.48, y, z), [(0.197, -0.007), (0.13, 0.064), (0.055, 0.14), (0.0, 0.142)], segs=24, sharp=60, face='in')
+    K.lathe('lamp_out', (x + 0.48, y + 0.05, z), [(0.0, -0.06), (0.024, -0.056), (0.036, -0.03), (0.031, 0.0), (0.016, 0.026)], segs=12)
+    L['outlamp'] = {'x': round(x + 0.48, 3), 'y': round(y, 3), 'z': round(z, 3)}
