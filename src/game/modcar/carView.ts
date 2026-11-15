@@ -16,10 +16,19 @@ import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
+import { measureCarShape, type CarLook } from '../render/carMaterials';
+import { MergedCar, type PartLook } from '../render/carMerge';
 import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
+/** parts that move as a whole or are worked in the cab: never merged */
+const UNMERGED = new Set(['steering', 'handbrake', 'gearLever', 'ignition', 'radio', 'horn']);
+/** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|ghost:)/;
+/** how far a merged part's dirt or rust may drift before its vertices are written again */
+const WEAR_STEP = 0.02;
+
 /** categories that wear the body colour unless painted themselves */
 const BODY_COLOURED = new Set(['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'mirror']);
 /** what an engine block, a seat frame or a lamp housing is painted at the factory */
@@ -80,6 +89,18 @@ export class CarView {
   /** past the first build: a part fitted from now on drops into place (and a wheel slides onto its hub) */
   private live = false;
   private readonly settling: { obj: THREE.Object3D; t: number; axis: 'y' | 'z'; from: number }[] = [];
+  /**
+   * The static parts merged into a mesh per material (docs/MODCAR.md §6 合批): built once the models of a
+   * build are in and nothing is settling, thrown away at the next fit or removal (the originals show
+   * meanwhile). Ids: 1 = the frame's body, then one per mount.
+   */
+  private merged: MergedCar | null = null;
+  private mergedLook: CarLook | null = null;
+  private mergeDirty = true;
+  private readonly mergeIds = new Map<string, number>();
+  /** what each merged part's vertices were last written with */
+  private readonly mergedAs = new Map<number, { paint: number; paint2: number; dirt: number; rust: number; wear: number }>();
+  private litMerged = -1;
 
   constructor(
     readonly build: Build,
@@ -234,6 +255,74 @@ export class CarView {
     }
     this.setWheels();
     this.live = true;
+    this.shapeDirty = true;
+    // a new build: the merge goes (the originals show) and is made again once the models are in
+    this.unmerge();
+    this.mergeDirty = true;
+  }
+
+  private unmerge(): void {
+    if (!this.merged) return;
+    this.merged.dispose();
+    this.merged = null;
+    this.mergeIds.clear();
+    this.mergedAs.clear();
+    this.litMerged = -1;
+  }
+
+  /** merge the static parts when the build has settled */
+  private tryMerge(): void {
+    if (!this.mergeDirty || this.loads.size || this.settling.length || !this.frameObj) return;
+    this.mergeDirty = false;
+    const entries: { id: number; object: THREE.Object3D; look: PartLook }[] = [];
+    this.mergeIds.clear();
+    this.mergedAs.clear();
+    const add = (mount: string, object: THREE.Object3D, look: LookOf): void => {
+      const id = entries.length + 1;
+      this.mergeIds.set(mount, id);
+      this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt: look.dirt ?? 0, rust: look.rust ?? 0, wear: look.wear ?? 0 });
+      entries.push({ id, object, look: { paint: look.paint, paint2: look.paint2, dirt: look.dirt, rust: look.rust, wear: look.wear } });
+    };
+    add(BODY, this.frameObj, this.bodyLook());
+    for (const [mount, sh] of this.shown) {
+      const inst = this.build.parts[mount];
+      const cat = this.catOf.get(mount) ?? '';
+      if (!inst || UNMERGED.has(cat)) continue;
+      add(mount, sh.holder, this.partLook(inst, cat));
+    }
+    this.model.updateMatrixWorld(true);
+    const merged = new MergedCar(this.model, entries, (o) => MOVES.test(o.name) || !!o.userData.mover);
+    this.model.add(merged.group);
+    // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
+    const look = this.mats.look('merged', { paint: paintHex(this.build.paint), paint2: paintHex(this.build.paint2) });
+    applyMaterials(merged.group, look, true);
+    this.merged = merged;
+    this.mergedLook = look;
+  }
+
+  /** a merged part's paint or wear moved on (the spray can, the sponge, the road's dust): write its vertices again */
+  private syncMerged(mount: string, look: LookOf): void {
+    const id = this.mergeIds.get(mount);
+    const m = this.merged;
+    if (!m || id === undefined) return;
+    const was = this.mergedAs.get(id);
+    if (!was) return;
+    const dirt = look.dirt ?? 0;
+    const rust = look.rust ?? 0;
+    const wear = look.wear ?? 0;
+    const paintMoved = was.paint !== look.paint || was.paint2 !== look.paint2;
+    const wearMoved = Math.abs(was.dirt - dirt) > WEAR_STEP || Math.abs(was.rust - rust) > WEAR_STEP || Math.abs(was.wear - wear) > WEAR_STEP;
+    if (!paintMoved && !wearMoved) return;
+    m.updatePart(id, paintMoved && wearMoved ? { paint: look.paint, paint2: look.paint2, dirt, rust, wear } : paintMoved ? { paint: look.paint, paint2: look.paint2 } : { dirt, rust, wear });
+    this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt, rust, wear });
+  }
+
+  /** the body's height and the cabin, measured again once the models of a new build are in */
+  private shapeDirty = true;
+  private measure(): void {
+    if (!this.shapeDirty || this.loads.size) return;
+    this.shapeDirty = false;
+    this.mats.setShape(measureCarShape(this.model));
   }
 
   /** a part just fitted eases into its place from a few centimetres off */
@@ -398,11 +487,15 @@ export class CarView {
   /** keep every look in step with the build: paint, dust, rust (cheap: uniforms only) */
   private updateLooks(): void {
     const b = this.build;
-    this.mats.set(BODY, this.bodyLook());
+    const body = this.bodyLook();
+    this.mats.set(BODY, body);
+    this.syncMerged(BODY, body);
     for (const mount of this.shown.keys()) {
       const inst = b.parts[mount];
       if (!inst) continue;
-      this.mats.set(partOwner(mount), this.partLook(inst, this.catOf.get(mount) ?? ''));
+      const look = this.partLook(inst, this.catOf.get(mount) ?? '');
+      this.mats.set(partOwner(mount), look);
+      this.syncMerged(mount, look);
       const t = inst.sub.turbo;
       if (t) this.mats.set(`${partOwner(mount)}+turbo`, this.partLook(t, 'turbo'));
     }
@@ -422,7 +515,12 @@ export class CarView {
 
   /** light up what is on a mount (the part the mark is on, about to come off); null = nothing */
   highlight(mount: string | null): void {
-    if (!mount) {
+    const id = mount ? (this.mergeIds.get(mount) ?? -1) : -1;
+    if (id !== this.litMerged) {
+      this.mergedLook?.setHighlight(id > 0 ? id : null);
+      this.litMerged = id;
+    }
+    if (!mount || id > 0) {
       this.mats.highlight('');
       return;
     }
@@ -495,6 +593,8 @@ export class CarView {
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
     this.updateLooks();
+    this.measure();
+    this.tryMerge();
     // parts just fitted settle (a little past their place and back)
     for (let i = this.settling.length - 1; i >= 0; i--) {
       const st = this.settling[i];
@@ -574,6 +674,7 @@ export class CarView {
   }
 
   dispose(): void {
+    this.unmerge();
     this.root.removeFromParent();
     this.mats.dispose();
   }
