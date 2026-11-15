@@ -75,6 +75,11 @@ const BAL_LOSE1 = 70 * (Math.PI / 180);
 const MODE_OMEGA_MAX = 40;
 /** derived specs: the body box takes part once a bottom corner is this close to the road under the wheels (m) */
 const BODY_NEAR = 0.1;
+/** derived specs: the body's ground spring doubles its rate every this much deeper (m), up to this many weights a corner */
+const BODY_STIFFEN = 0.06;
+const BODY_CAP_EXT = 16;
+/** derived specs: below this depth (m) a body corner moving into the ground is stopped outright */
+const BODY_HARD = 0.08;
 
 export interface VehicleInput {
   /** -1 (full left) … +1 (full right) */
@@ -1458,7 +1463,8 @@ export class VehicleSim {
     const bodyActive = bodyTilt || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
     const nBody = bodyTilt ? 8 : 4;
     if (bodyActive) {
-      const nmaxBody = m * GRAVITY * 6;
+      // (a derived spec's body stiffens as it goes in: a crash of an extreme build does not bury it)
+      const nmaxBody = m * GRAVITY * (this.ext ? BODY_CAP_EXT : 6);
       if (nBody === 4) for (let k = 4; k < 8; k++) bn[k] = 0;
       for (let k = 0; k < nBody; k++) {
         const bx = bp[k * 3];
@@ -1477,9 +1483,25 @@ export class VehicleSim {
         const vpy = vy + (az * rx - ax * rz);
         const vpz = vz + (ax * ry - ay * rx);
         const vn = vpx * gs.nx + vpy * gs.ny + vpz * gs.nz;
-        let N = this.kBody * depth - this.cBody * vn;
+        let N = this.kBody * (this.ext ? depth * (1 + depth / BODY_STIFFEN) : depth) - this.cBody * vn;
         if (N < 0) N = 0;
         if (N > nmaxBody) N = nmaxBody;
+        if (this.ext && vn < 0 && depth - vn * h > BODY_HARD) {
+          // deep in (by the end of this step) and still going: whatever stops this corner's inward
+          // motion now (a crash of an extreme build — a backflip, a tumble — ends on the ground, not in it)
+          const nx = gs.nx;
+          const ny = gs.ny;
+          const nz = gs.nz;
+          const cx = ry * nz - rz * ny;
+          const cy = rz * nx - rx * nz;
+          const cz = rx * ny - ry * nx;
+          const cf = cx * Fx + cy * Fy + cz * Fz;
+          const cu = cx * Ux + cy * Uy + cz * Uz;
+          const cs = cx * Sx + cy * Sy + cz * Sz;
+          const kInv = 1 / m + cf * cf * this.invIroll + cu * cu * this.invIyaw + cs * cs * this.invIpitch;
+          const stop = -vn / (kInv * h);
+          if (stop > N) N = stop;
+        }
         bn[k] = N;
         bnr[k * 3] = gs.nx;
         bnr[k * 3 + 1] = gs.ny;
