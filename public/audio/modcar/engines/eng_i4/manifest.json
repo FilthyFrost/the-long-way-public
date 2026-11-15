@@ -32,7 +32,8 @@
    "idle": true,
    "nominal": 850,
    "phase": 0.049301,
-   "cohLoad": 0.502
+   "cohLoad": 0.466,
+   "periodic": 0.876
   },
   {
    "file": "off_00960",
@@ -52,8 +53,9 @@
    "idle": false,
    "nominal": 960,
    "phase": 0.123233,
-   "coh": 0.486,
-   "cohLoad": 0.0
+   "coh": 0.435,
+   "cohLoad": 0.0,
+   "periodic": 0.918
   },
   {
    "file": "off_01080",
@@ -68,13 +70,14 @@
    "rpm": 1080.14,
    "load": 0,
    "cycles": 18,
-   "corr": 0.7139,
+   "corr": 0.7136,
    "seam": 0.05949,
    "idle": false,
    "nominal": 1080,
    "phase": 0.109325,
-   "coh": 0.529,
-   "cohLoad": 0.68
+   "coh": 0.488,
+   "cohLoad": 0.653,
+   "periodic": 0.93
   },
   {
    "file": "off_01210",
@@ -89,13 +92,14 @@
    "rpm": 1210.03,
    "load": 0,
    "cycles": 20,
-   "corr": 0.8091,
+   "corr": 0.809,
    "seam": 0.03897,
    "idle": false,
    "nominal": 1210,
    "phase": 0.041418,
-   "coh": 0.504,
-   "cohLoad": 0.0
+   "coh": 0.479,
+   "cohLoad": 0.0,
+   "periodic": 0.972
   },
   {
    "file": "off_01370",
@@ -110,13 +114,14 @@
    "rpm": 1369.97,
    "load": 0,
    "cycles": 23,
-   "corr": 0.8243,
+   "corr": 0.8242,
    "seam": 0.04728,
    "idle": false,
    "nominal": 1370,
    "phase": 0.042229,
-   "coh": 0.502,
-   "cohLoad": 0.0
+   "coh": 0.488,
+   "cohLoad": 0.0,
+   "periodic": 0.969
   },
   {
    "file": "off_01540",
@@ -136,8 +141,9 @@
    "idle": false,
    "nominal": 1540,
    "phase": 0.022041,
-   "coh": 0.296,
-   "cohLoad": 0.574
+   "coh": 0.291,
+   "cohLoad": 0.572,
+   "periodic": 0.996
   },
   {
    "file": "off_01730",
@@ -152,13 +158,14 @@
    "rpm": 1730.02,
    "load": 0,
    "cycles": 29,
-   "corr": 0.7649,
+   "corr": 0.7643,
    "seam": 0.0495,
    "idle": false,
    "nominal": 1730,
    "phase": 0.030731,
-   "coh": 0.599,
-   "cohLoad": 0.284
+   "coh": 0.574,
+   "cohLoad": 0.269,
+   "periodic": 0.922
   },
   {
    "file": "off_01950",
@@ -173,13 +180,14 @@
    "rpm": 1949.96,
    "load": 0,
    "cycles": 32,
-   "corr": 0.8739,
+   "corr": 0.8741,
    "seam": 0.03625,
    "idle": false,
    "nominal": 1950,
    "phase": 0.021495,
-   "coh": 0.832,
-   "cohLoad": 0.0
+   "coh": 0.768,
+   "cohLoad": 0.0,
+   "periodic": 0.924
   },
   {
    "file": "off_02200",
@@ -194,13 +202,14 @@
    "rpm": 2199.88,
    "load": 0,
    "cycles": 37,
-   "corr": 0.5744,
+   "corr": 0.5731,
    "seam": 0.14556,
    "idle": false,
    "nominal": 2200,
    "phase": 0.042385,
-   "coh": 0.473,
-   "cohLoad": 0.0
+   "coh": 0.366,
+   "cohLoad": 0.0,
+   "periodic": 0.65
   },
   {
    "file": "off_02480",
@@ -220,8 +229,9 @@
    "idle": false,
    "nominal": 2480,
    "phase": 0.045632,
-   "coh": 0.355,
-   "cohLoad": 0.149
+   "coh": 0.28,
+   "cohLoad": 0.143,
+   "periodic": 0.952
   },
   {
    "file": "off_02790",
@@ -236,13 +246,14 @@
    "rpm": 2789.93,
    "load": 0,
    "cycles": 46,
-   "corr": 0.8712,
+   "corr": 0.8713,
    "seam": 0.03345,
    "idle": false,
    "nominal": 2790,
    "phase": 0.017628,
-   "coh": 0.496,
-   "cohLoad": 0.1
+   "coh": 0.456,
+   "cohLoad": 0.093,
+   "periodic": 0.891
   },
   {
    "file": "off_03140",
@@ -262,8 +273,9 @@
    "idle": false,
    "nominal": 3140,
    "phase": 0.016334,
-   "coh": 0.352,
-   "cohLoad": 0.023
+   "coh": 0.33,
+   "cohLoad": 0.023,
+   "periodic": 0.991
   },
   {
    "file": "off_03530",
@@ -278,13 +290,14 @@
    "rpm": 3529.96,
    "load": 0,
    "cycles": 59,
-   "corr": 0.8479,
+   "corr": 0.8481,
    "seam": 0.03529,
    "idle": false,
    "nominal": 3530,
    "phase": 0.017186,
-   "coh": 0.388,
-   "cohLoad": 0.565
+   "coh": 0.36,
+   "cohLoad": 0.504,
+   "periodic": 0.865
   },
   {
    "file": "off_03980",
@@ -299,13 +312,14 @@
    "rpm": 3979.98,
    "load": 0,
    "cycles": 66,
-   "corr": 0.9168,
+   "corr": 0.9166,
    "seam": 0.02523,
    "idle": false,
    "nominal": 3980,
    "phase": 0.002522,
-   "coh": 0.446,
-   "cohLoad": 0.38
+   "coh": 0.398,
+   "cohLoad": 0.353,
+   "periodic": 0.919
   },
   {
    "file": "off_04480",
@@ -320,13 +334,14 @@
    "rpm": 4479.98,
    "load": 0,
    "cycles": 75,
-   "corr": 0.7962,
+   "corr": 0.7958,
    "seam": 0.04975,
    "idle": false,
    "nominal": 4480,
    "phase": 4.4e-05,
-   "coh": 0.54,
-   "cohLoad": 0.0
+   "coh": 0.463,
+   "cohLoad": 0.0,
+   "periodic": 0.799
   },
   {
    "file": "off_05050",
@@ -341,13 +356,14 @@
    "rpm": 5049.99,
    "load": 0,
    "cycles": 84,
-   "corr": 0.9748,
+   "corr": 0.9749,
    "seam": 0.00724,
    "idle": false,
    "nominal": 5050,
    "phase": 0.002823,
-   "coh": 0.614,
-   "cohLoad": 0.405
+   "coh": 0.541,
+   "cohLoad": 0.391,
+   "periodic": 0.972
   },
   {
    "file": "off_05680",
@@ -362,13 +378,14 @@
    "rpm": 5680.06,
    "load": 0,
    "cycles": 95,
-   "corr": 0.7959,
+   "corr": 0.7962,
    "seam": 0.06279,
    "idle": false,
    "nominal": 5680,
    "phase": 0.00445,
-   "coh": 0.633,
-   "cohLoad": 0.0
+   "coh": 0.554,
+   "cohLoad": 0.0,
+   "periodic": 0.787
   },
   {
    "file": "off_06400",
@@ -388,8 +405,9 @@
    "idle": false,
    "nominal": 6400,
    "phase": 0.012811,
-   "coh": 0.667,
-   "cohLoad": 0.109
+   "coh": 0.575,
+   "cohLoad": 0.104,
+   "periodic": 0.944
   },
   {
    "file": "on_00850",
@@ -408,7 +426,8 @@
    "seam": 0.0283,
    "idle": false,
    "nominal": 850,
-   "phase": 0.0
+   "phase": 0.0,
+   "periodic": 0.983
   },
   {
    "file": "on_00960",
@@ -428,7 +447,8 @@
    "idle": false,
    "nominal": 960,
    "phase": 0.084229,
-   "coh": 0.619
+   "coh": 0.611,
+   "periodic": 0.991
   },
   {
    "file": "on_01080",
@@ -448,7 +468,8 @@
    "idle": false,
    "nominal": 1080,
    "phase": 0.08659,
-   "coh": 0.804
+   "coh": 0.798,
+   "periodic": 0.994
   },
   {
    "file": "on_01210",
@@ -468,7 +489,8 @@
    "idle": false,
    "nominal": 1210,
    "phase": 0.053269,
-   "coh": 0.566
+   "coh": 0.561,
+   "periodic": 0.989
   },
   {
    "file": "on_01370",
@@ -483,12 +505,13 @@
    "rpm": 1370.0,
    "load": 1,
    "cycles": 18,
-   "corr": 0.8761,
+   "corr": 0.876,
    "seam": 0.01445,
    "idle": false,
    "nominal": 1370,
    "phase": 0.013002,
-   "coh": 0.344
+   "coh": 0.326,
+   "periodic": 0.909
   },
   {
    "file": "on_01540",
@@ -508,7 +531,8 @@
    "idle": false,
    "nominal": 1540,
    "phase": 0.031047,
-   "coh": 0.235
+   "coh": 0.224,
+   "periodic": 0.995
   },
   {
    "file": "on_01730",
@@ -528,7 +552,8 @@
    "idle": false,
    "nominal": 1730,
    "phase": 0.06828,
-   "coh": 0.303
+   "coh": 0.298,
+   "periodic": 0.975
   },
   {
    "file": "on_01950",
@@ -543,12 +568,13 @@
    "rpm": 1950.0,
    "load": 1,
    "cycles": 26,
-   "corr": 0.936,
+   "corr": 0.9361,
    "seam": 0.0146,
    "idle": false,
    "nominal": 1950,
    "phase": 0.029808,
-   "coh": 0.33
+   "coh": 0.318,
+   "periodic": 0.957
   },
   {
    "file": "on_02200",
@@ -568,7 +594,8 @@
    "idle": false,
    "nominal": 2200,
    "phase": 0.05316,
-   "coh": 0.173
+   "coh": 0.164,
+   "periodic": 0.938
   },
   {
    "file": "on_02480",
@@ -583,12 +610,13 @@
    "rpm": 2480.01,
    "load": 1,
    "cycles": 33,
-   "corr": 0.9636,
+   "corr": 0.9637,
    "seam": 0.00793,
    "idle": false,
    "nominal": 2480,
    "phase": 0.010585,
-   "coh": 0.242
+   "coh": 0.231,
+   "periodic": 0.967
   },
   {
    "file": "on_02790",
@@ -608,7 +636,8 @@
    "idle": false,
    "nominal": 2790,
    "phase": 0.028646,
-   "coh": 0.392
+   "coh": 0.377,
+   "periodic": 0.959
   },
   {
    "file": "on_03140",
@@ -623,12 +652,13 @@
    "rpm": 3139.98,
    "load": 1,
    "cycles": 42,
-   "corr": 0.9778,
+   "corr": 0.9779,
    "seam": 0.00568,
    "idle": false,
    "nominal": 3140,
    "phase": 0.036276,
-   "coh": 0.198
+   "coh": 0.192,
+   "periodic": 0.974
   },
   {
    "file": "on_03530",
@@ -643,12 +673,13 @@
    "rpm": 3530.01,
    "load": 1,
    "cycles": 47,
-   "corr": 0.9105,
+   "corr": 0.9106,
    "seam": 0.01834,
    "idle": false,
    "nominal": 3530,
    "phase": 0.033861,
-   "coh": 0.221
+   "coh": 0.209,
+   "periodic": 0.921
   },
   {
    "file": "on_03980",
@@ -663,12 +694,13 @@
    "rpm": 3980.03,
    "load": 1,
    "cycles": 53,
-   "corr": 0.9411,
+   "corr": 0.9412,
    "seam": 0.01381,
    "idle": false,
    "nominal": 3980,
    "phase": 0.027913,
-   "coh": 0.527
+   "coh": 0.49,
+   "periodic": 0.941
   },
   {
    "file": "on_04480",
@@ -683,12 +715,13 @@
    "rpm": 4479.99,
    "load": 1,
    "cycles": 60,
-   "corr": 0.924,
+   "corr": 0.9241,
    "seam": 0.01245,
    "idle": false,
    "nominal": 4480,
    "phase": 0.002407,
-   "coh": 0.416
+   "coh": 0.387,
+   "periodic": 0.919
   },
   {
    "file": "on_05050",
@@ -708,7 +741,8 @@
    "idle": false,
    "nominal": 5050,
    "phase": 0.00673,
-   "coh": 0.541
+   "coh": 0.508,
+   "periodic": 0.96
   },
   {
    "file": "on_05680",
@@ -728,7 +762,8 @@
    "idle": false,
    "nominal": 5680,
    "phase": 0.016753,
-   "coh": 0.666
+   "coh": 0.628,
+   "periodic": 0.928
   },
   {
    "file": "on_06400",
@@ -743,12 +778,13 @@
    "rpm": 6400.0,
    "load": 1,
    "cycles": 85,
-   "corr": 0.9638,
+   "corr": 0.9639,
    "seam": 0.0112,
    "idle": false,
    "nominal": 6400,
    "phase": 0.016553,
-   "coh": 0.743
+   "coh": 0.7,
+   "periodic": 0.956
   }
  ],
  "oneshots": {

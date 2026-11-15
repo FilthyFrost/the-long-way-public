@@ -156,7 +156,8 @@ function doorClose(material: PanelMaterial): Recipe {
     // body thud, the panel ringing, the latch, the window rattling in its run
     thudInto(x, sr, 0, rng, 1.0, armor ? 140 : 190, armor ? 0.05 : 0.035);
     burst(x, sr, 0, 0.2, 0.5, rng, { attack: 0.002, decay: 0.05, filter: [['lowpass', 70]] });
-    strike(x, sr, 0, panelModes(size, material === 'rusty' ? 0.7 : armor ? 0.9 : 1.6), armor ? 0.5 : 0.32, rng);
+    // a stock door is sound-deadened: a short knock, not a bell; rust lets it ring and rattle
+    strike(x, sr, 0, panelModes(size, material === 'rusty' ? 0.8 : armor ? 1.1 : 2.6), armor ? 0.5 : 0.3, rng);
     latchInto(x, sr, 0.004, rng, 0.9, armor);
     if (!armor) rattleInto(x, sr, 0.02, rng, material === 'rusty' ? 0.25 : 0.12, material === 'rusty' ? 9 : 5, 0.12, [1400, 3200]);
     if (material === 'rusty') rattleInto(x, sr, 0.03, rng, 0.18, 6, 0.2, [600, 1500]);
@@ -199,9 +200,11 @@ function partSetDown(mass: number): Recipe {
     const size = Math.cbrt(m); // 1 kg -> 1
     const x = S(sr, 0.35 + 0.35 * Math.min(1, size / 4));
     const f0 = 2600 / size;
+    // big castings are heavily damped: the ring grows only with the square root of size
+    const ring_ = Math.sqrt(size);
     const modes: Array<[number, number, number]> = [
-      [f0, 1, 0.02 * size + 0.01], [f0 * 1.47, 0.7, 0.016 * size + 0.008], [f0 * 2.09, 0.5, 0.012 * size + 0.006], [f0 * 2.83, 0.35, 0.009 * size + 0.005], [f0 * 3.71, 0.22, 0.006 * size + 0.003],
-    ].map(([f, g, d]) => [Math.min(f, 9000), g, Math.min(d, 0.25)] as [number, number, number]);
+      [f0, 1, 0.022 * ring_ + 0.006], [f0 * 1.47, 0.7, 0.017 * ring_ + 0.005], [f0 * 2.09, 0.5, 0.013 * ring_ + 0.004], [f0 * 2.83, 0.35, 0.01 * ring_ + 0.003], [f0 * 3.71, 0.22, 0.007 * ring_ + 0.002],
+    ].map(([f, g, d]) => [Math.min(f, 9000), g, Math.min(d, 0.12)] as [number, number, number]);
     // the floor thud grows with mass, the ring falls with size
     const thud = Math.min(1, 0.15 + 0.3 * Math.log10(1 + m));
     thudInto(x, sr, 0, rng, thud, Math.max(45, 320 / Math.sqrt(size)), 0.012 + 0.02 * Math.min(1, size / 4));
@@ -528,7 +531,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   handbrake_release: 0.55, gear_shift: 0.55, gear_grind: 0.6, spray_shake: 0.45, horn_trumpet: 0.42,
 };
 
-const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.45 };
+const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36 };
 
 function massClass(m: number): number {
   // 0.25, 1, 4, 16, 64, 250 kg classes keep the cache small

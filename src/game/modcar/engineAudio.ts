@@ -255,11 +255,20 @@ export function loadMix(throttle: number, load: number): number {
   return Math.min(1, Math.max(0, Math.pow(t, 0.75) * (0.75 + 0.25 * l) + 0.12 * l * (1 - t)));
 }
 
-/** the play-back level (linear) of one loop for this engine */
+/** below this natural level (dB against the bank's loudest loop) the range is squeezed harder */
+const LEVEL_KNEE_DB = -24;
+
+/**
+ * The play-back level (linear) of one loop for this engine: the recorded level, compressed (and
+ * compressed harder below the knee so idle and light overrun stay present), plus the engine's
+ * loudness and rpm tilt.
+ */
 export function loopGain(tone: EngineTone, rec: LoopRec, idleRpm: number, redlineRpm: number): number {
   const span = Math.max(1, redlineRpm - idleRpm);
   const x = Math.min(1.1, Math.max(0, (rec.rpm - idleRpm) / span));
-  const db = tone.loudnessDb + tone.compression * rec.db + tone.tiltDb * (x - 1);
+  const c = tone.compression;
+  const nat = rec.db >= LEVEL_KNEE_DB ? c * rec.db : c * LEVEL_KNEE_DB + 0.6 * c * (rec.db - LEVEL_KNEE_DB);
+  const db = tone.loudnessDb + nat + tone.tiltDb * (x - 1);
   return Math.pow(10, db / 20);
 }
 
@@ -312,7 +321,12 @@ interface Slot {
   target: number;
   /** last gain asked for */
   level: number;
+  /** the context time pos refers to (a slot starts slightly in the future) */
+  clock: number;
 }
+
+/** how far ahead new loops are scheduled on a live context, so the start lands where we think */
+const START_AHEAD = 0.012;
 
 const TAU_GAIN = 0.035;
 const TAU_RATE = 0.012;
@@ -327,6 +341,8 @@ export class EngineVoice {
   private tone: EngineTone = DEFAULT_TONE;
   private readonly slots = new Map<string, Slot>();
   private readonly rng = new Rng(0x5eed);
+  /** a live context (starts are scheduled a little ahead); offline renders run exact */
+  private readonly live: boolean;
 
   // graph
   private readonly engBus: GainNode;
@@ -383,6 +399,7 @@ export class EngineVoice {
 
   constructor(ctx: BaseAudioContext, output: AudioNode) {
     this.ctx = ctx;
+    this.live = typeof OfflineAudioContext === 'undefined' || !(ctx instanceof OfflineAudioContext);
     const g = (v = 0): GainNode => {
       const n = ctx.createGain();
       n.gain.value = v;
@@ -537,9 +554,10 @@ export class EngineVoice {
     const gain = this.ctx.createGain();
     gain.gain.value = 0;
     src.connect(gain).connect(this.engBus);
-    const offset = this.alignedOffset(rec);
-    src.start(t, offset);
-    s = { rec, src, gain, idleSince: -1, pos: offset, rate, target: rate, level: 0 };
+    const at = t + (this.live ? START_AHEAD : 0);
+    const offset = this.alignedOffset(rec, at - t);
+    src.start(at, offset);
+    s = { rec, src, gain, idleSince: -1, pos: offset, rate, target: rate, level: 0, clock: at };
     this.slots.set(rec.file, s);
     return s;
   }
@@ -548,7 +566,7 @@ export class EngineVoice {
    * Where to start a loop so its engine cycle lines up with the loudest loop already playing (the
    * bank's phases are chained, so aligned loops sum without comb filtering); anywhere if alone.
    */
-  private alignedOffset(rec: LoopRec): number {
+  private alignedOffset(rec: LoopRec, ahead: number): number {
     const len = rec.loopEnd - rec.loopStart;
     let ref: Slot | null = null;
     for (const s of this.slots.values()) {
@@ -558,7 +576,9 @@ export class EngineVoice {
     const cycles = Math.max(1, Math.round((len * rec.rpm) / 120));
     if (!ref || rec.phase === undefined) return rec.loopStart + this.rng.next() * len;
     const refCycle = 120 / ref.rec.rpm;
-    const ph = (((ref.pos - ref.rec.loopStart - ref.rec.phase!) / refCycle) % 1 + 1) % 1;
+    // where the reference will be when the new loop starts
+    const refPos = ref.pos + ref.target * ahead;
+    const ph = (((refPos - ref.rec.loopStart - ref.rec.phase!) / refCycle) % 1 + 1) % 1;
     const cycle = 120 / rec.rpm;
     // the same phase in a random one of this loop's cycles
     let o = rec.phase + (ph + Math.floor(this.rng.next() * cycles)) * cycle;
@@ -566,11 +586,13 @@ export class EngineVoice {
     return rec.loopStart + o;
   }
 
-  /** move every play head on by dt, following the exponential glide of its playback rate */
-  private advance(dt: number): void {
-    if (dt <= 0) return;
-    const k = Math.exp(-dt / TAU_RATE);
+  /** move every play head on to `now`, following the exponential glide of its playback rate */
+  private advance(now: number): void {
     for (const s of this.slots.values()) {
+      const dt = now - s.clock;
+      if (dt <= 0) continue;
+      s.clock = now;
+      const k = Math.exp(-dt / TAU_RATE);
       const r0 = s.rate;
       const R = s.target;
       s.pos += R * dt + (r0 - R) * TAU_RATE * (1 - k);
@@ -580,7 +602,7 @@ export class EngineVoice {
     }
   }
 
-  private shot(file: string, t: number, gainDb: number, rate = 1): AudioBufferSourceNode | null {
+  private shot(file: string, t: number, gainDb: number, rate = 1): { src: AudioBufferSourceNode; gain: GainNode } | null {
     const buf = this.bank?.buffers.get(file);
     if (!buf) return null;
     const src = this.ctx.createBufferSource();
@@ -594,7 +616,7 @@ export class EngineVoice {
       src.disconnect();
       gain.disconnect();
     };
-    return src;
+    return { src, gain };
   }
 
   private oneShotBuffer(buf: AudioBuffer, t: number, gain: number, dest: AudioNode, rate = 1): void {
@@ -630,7 +652,7 @@ export class EngineVoice {
         void this.load(st.engineId);
       }
     }
-    this.advance(dt);
+    this.advance(t);
     const bank = this.bank;
     const m = bank?.manifest;
     const tone = this.tone;
@@ -643,7 +665,7 @@ export class EngineVoice {
     if (st.inside) {
       set(this.extGain.gain, 0.05 + 0.55 * open, 0.08);
       set(this.intGain.gain, 0.45 * (1 - 0.55 * open), 0.08);
-      set(this.cabinLp.frequency, 700 + 1600 * open, 0.08);
+      set(this.cabinLp.frequency, 850 + 1500 * open, 0.08);
     } else {
       set(this.extGain.gain, Math.min(1.4, 3 / dist), 0.08);
       set(this.intGain.gain, 0, 0.08);
@@ -664,8 +686,10 @@ export class EngineVoice {
       // the catch: first firing, flare, settle; the loops come in under its tail
       const c = m!.oneshots['catch'];
       if (c && (this.wasCranking || st.cranking)) {
-        this.shot('catch', t, tone.loudnessDb + tone.compression * c.db + 2);
+        const sh = this.shot('catch', t, tone.loudnessDb + tone.compression * c.db + 2);
         this.catchUntil = t + Math.min(1.1, c.duration * 0.55);
+        // its tail is the idle the loops are now playing: hand over instead of doubling it
+        sh?.gain.gain.setTargetAtTime(0, this.catchUntil - 0.15, 0.18);
       }
     }
     if (!running && this.wasRunning && bank) {
@@ -702,7 +726,9 @@ export class EngineVoice {
       }
       if (lim && limW > 1e-3 && lim.loopStart !== undefined && lim.loopEnd !== undefined) {
         const rec: LoopRec = { file: lim.file, load: 1, rpm: lim.rpm ?? m!.limiterRpm, db: lim.db, loopStart: lim.loopStart, loopEnd: lim.loopEnd, duration: lim.duration };
-        want.set(rec.file, { rec, gain: limW * inCatch * loopGain(tone, { ...rec, rpm: m!.redlineRpm }, m!.idleRpm, m!.redlineRpm), rate: 1 });
+        // pitched to the rpm the physics reports, so a cut below the recorded limiter does not jump
+        const rate = Math.min(1.08, Math.max(0.92, rpm / rec.rpm));
+        want.set(rec.file, { rec, gain: limW * inCatch * loopGain(tone, { ...rec, rpm: m!.redlineRpm }, m!.idleRpm, m!.redlineRpm), rate });
       }
     }
     // the starter turning the engine over (no firing yet)

@@ -17,22 +17,23 @@
   {
    "file": "off_01800",
    "db": -38.54,
-   "gain": -160.55,
+   "gain": -160.79,
    "loopStart": 0.064,
-   "loopEnd": 2.063958,
-   "duration": 2.095958,
-   "click": 0.02,
-   "seam_ogg": -32.9,
-   "seam_m4a": -39.2,
-   "rpm": 1800.04,
+   "loopEnd": 2.063979,
+   "duration": 2.095979,
+   "click": 0.01,
+   "seam_ogg": -31.5,
+   "seam_m4a": -36.5,
+   "rpm": 1800.02,
    "load": 0,
    "cycles": 30,
-   "corr": 0.9326,
+   "corr": 0.9317,
    "seam": 4e-05,
    "idle": true,
    "nominal": 1800,
-   "phase": 0.027487,
-   "cohLoad": 0.107
+   "phase": 0.02751,
+   "cohLoad": 0.1,
+   "periodic": 0.944
   },
   {
    "file": "off_02020",
@@ -41,19 +42,20 @@
    "loopStart": 0.064,
    "loopEnd": 2.083771,
    "duration": 2.115771,
-   "click": 0.02,
-   "seam_ogg": -28.7,
-   "seam_m4a": -31.6,
+   "click": 0.01,
+   "seam_ogg": -26.4,
+   "seam_m4a": -31.1,
    "rpm": 2020.03,
    "load": 0,
    "cycles": 34,
-   "corr": 0.9473,
+   "corr": 0.9474,
    "seam": 5e-05,
    "idle": false,
    "nominal": 2020,
-   "phase": 0.016256,
-   "coh": 0.938,
-   "cohLoad": 0.214
+   "phase": 0.016276,
+   "coh": 0.888,
+   "cohLoad": 0.201,
+   "periodic": 0.95
   },
   {
    "file": "off_02260",
@@ -62,9 +64,9 @@
    "loopStart": 0.064,
    "loopEnd": 2.081667,
    "duration": 2.113667,
-   "click": 0.05,
-   "seam_ogg": -19.8,
-   "seam_m4a": -32.1,
+   "click": 0.06,
+   "seam_ogg": -14.8,
+   "seam_m4a": -32.0,
    "rpm": 2260.04,
    "load": 0,
    "cycles": 38,
@@ -72,9 +74,10 @@
    "seam": 7e-05,
    "idle": false,
    "nominal": 2260,
-   "phase": 0.016085,
-   "coh": 0.925,
-   "cohLoad": 0.409
+   "phase": 0.016103,
+   "coh": 0.88,
+   "cohLoad": 0.384,
+   "periodic": 0.953
   },
   {
    "file": "off_02530",
@@ -84,18 +87,19 @@
    "loopEnd": 2.056083,
    "duration": 2.088083,
    "click": 0.02,
-   "seam_ogg": -20.6,
-   "seam_m4a": -28.6,
+   "seam_ogg": -23.7,
+   "seam_m4a": -32.6,
    "rpm": 2530.01,
    "load": 0,
    "cycles": 42,
-   "corr": 0.9573,
+   "corr": 0.9574,
    "seam": 8e-05,
    "idle": false,
    "nominal": 2530,
-   "phase": 0.009922,
-   "coh": 0.917,
-   "cohLoad": 0.497
+   "phase": 0.009938,
+   "coh": 0.877,
+   "cohLoad": 0.467,
+   "periodic": 0.96
   },
   {
    "file": "off_02840",
@@ -105,8 +109,8 @@
    "loopEnd": 2.049917,
    "duration": 2.081917,
    "click": 0.01,
-   "seam_ogg": -22.2,
-   "seam_m4a": -33.6,
+   "seam_ogg": -30.1,
+   "seam_m4a": -34.1,
    "rpm": 2840.0,
    "load": 0,
    "cycles": 47,
@@ -114,9 +118,10 @@
    "seam": 0.0001,
    "idle": false,
    "nominal": 2840,
-   "phase": 0.009417,
-   "coh": 0.951,
-   "cohLoad": 0.534
+   "phase": 0.009431,
+   "coh": 0.912,
+   "cohLoad": 0.496,
+   "periodic": 0.957
   },
   {
    "file": "off_03180",
@@ -126,8 +131,8 @@
    "loopEnd": 2.064021,
    "duration": 2.096021,
    "click": 0.01,
-   "seam_ogg": -32.1,
-   "seam_m4a": -31.8,
+   "seam_ogg": -22.6,
+   "seam_m4a": -32.3,
    "rpm": 3179.97,
    "load": 0,
    "cycles": 53,
@@ -135,9 +140,10 @@
    "seam": 0.00015,
    "idle": false,
    "nominal": 3180,
-   "phase": 0.009221,
-   "coh": 0.968,
-   "cohLoad": 0.279
+   "phase": 0.009233,
+   "coh": 0.927,
+   "cohLoad": 0.246,
+   "periodic": 0.956
   },
   {
    "file": "off_03570",
@@ -147,8 +153,8 @@
    "loopEnd": 2.080833,
    "duration": 2.112833,
    "click": 0.01,
-   "seam_ogg": -15.3,
-   "seam_m4a": -28.8,
+   "seam_ogg": -15.4,
+   "seam_m4a": -33.0,
    "rpm": 3569.95,
    "load": 0,
    "cycles": 60,
@@ -156,30 +162,32 @@
    "seam": 0.00029,
    "idle": false,
    "nominal": 3570,
-   "phase": 0.008673,
-   "coh": 0.975,
-   "cohLoad": 0.298
+   "phase": 0.008684,
+   "coh": 0.932,
+   "cohLoad": 0.261,
+   "periodic": 0.955
   },
   {
    "file": "off_04000",
    "db": -24.42,
    "gain": -173.54,
    "loopStart": 0.064,
-   "loopEnd": 2.074,
-   "duration": 2.106,
-   "click": 0.01,
-   "seam_ogg": -17.0,
-   "seam_m4a": -38.2,
-   "rpm": 4000.0,
+   "loopEnd": 2.073979,
+   "duration": 2.105979,
+   "click": 0.0,
+   "seam_ogg": -17.1,
+   "seam_m4a": -36.6,
+   "rpm": 4000.04,
    "load": 0,
    "cycles": 67,
-   "corr": 0.9665,
-   "seam": 0.00029,
+   "corr": 0.9661,
+   "seam": 0.00027,
    "idle": false,
    "nominal": 4000,
-   "phase": 0.006744,
-   "coh": 0.974,
-   "cohLoad": 0.33
+   "phase": 0.006754,
+   "coh": 0.93,
+   "cohLoad": 0.29,
+   "periodic": 0.955
   },
   {
    "file": "on_01800",
@@ -198,7 +206,8 @@
    "seam": 1e-05,
    "idle": false,
    "nominal": 1800,
-   "phase": 0.0
+   "phase": 0.0,
+   "periodic": 0.946
   },
   {
    "file": "on_02020",
@@ -218,7 +227,8 @@
    "idle": false,
    "nominal": 2020,
    "phase": 0.000348,
-   "coh": 0.785
+   "coh": 0.74,
+   "periodic": 0.939
   },
   {
    "file": "on_02260",
@@ -238,7 +248,8 @@
    "idle": false,
    "nominal": 2260,
    "phase": 0.011822,
-   "coh": 0.754
+   "coh": 0.702,
+   "periodic": 0.923
   },
   {
    "file": "on_02530",
@@ -258,7 +269,8 @@
    "idle": false,
    "nominal": 2530,
    "phase": 0.001945,
-   "coh": 0.735
+   "coh": 0.677,
+   "periodic": 0.918
   },
   {
    "file": "on_02840",
@@ -278,7 +290,8 @@
    "idle": false,
    "nominal": 2840,
    "phase": 0.002393,
-   "coh": 0.726
+   "coh": 0.662,
+   "periodic": 0.906
   },
   {
    "file": "on_03180",
@@ -298,7 +311,8 @@
    "idle": false,
    "nominal": 3180,
    "phase": 0.00258,
-   "coh": 0.455
+   "coh": 0.39,
+   "periodic": 0.813
   },
   {
    "file": "on_03570",
@@ -313,12 +327,13 @@
    "rpm": 3570.02,
    "load": 1,
    "cycles": 48,
-   "corr": 0.8055,
+   "corr": 0.8059,
    "seam": 0.00016,
    "idle": false,
    "nominal": 3570,
    "phase": 0.002954,
-   "coh": 0.479
+   "coh": 0.386,
+   "periodic": 0.802
   },
   {
    "file": "on_04000",
@@ -338,7 +353,8 @@
    "idle": false,
    "nominal": 4000,
    "phase": 0.003281,
-   "coh": 0.419
+   "coh": 0.338,
+   "periodic": 0.812
   }
  ],
  "oneshots": {
@@ -391,7 +407,7 @@
   }
  },
  "bytes": {
-  "ogg": 428940,
-  "m4a": 360014
+  "ogg": 428897,
+  "m4a": 360368
  }
 }

@@ -163,31 +163,36 @@ try {
       const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: id, sequence: 'sweep' });
       const x = fromBase64(r.pcm);
       writeWav(path.join(OUT, `${id}_sweep.wav`), x, r.sampleRate);
+      // level in windows of two engine cycles at the swept rpm, against a 0.5 s moving average:
+      // the wobble that is not the overall rise (loops that do not match, or sum out of phase)
+      const I = r.idleRpm;
+      const R = r.redlineRpm;
+      const rpmAt = (t) => (t < 8 ? I + ((R - I) * t) / 8 : R + ((I - R) * (t - 8.05)) / 7.95);
       const rough = (a, b) => {
-        const w = Math.floor(0.05 * r.sampleRate);
         const lv = [];
-        for (let o = Math.floor(a * r.sampleRate); o + w <= Math.floor(b * r.sampleRate); o += w) {
+        for (let t = a; t < b; t += 0.02) {
+          const w = Math.floor(((2 * 120) / rpmAt(t)) * r.sampleRate);
+          const o = Math.floor(t * r.sampleRate) - (w >> 1);
           let e = 0;
           for (let i = 0; i < w; i++) e += x[o + i] * x[o + i];
           lv.push(10 * Math.log10(e / w + 1e-12));
         }
-        // against a 0.5 s moving average: the wobble that is not the overall rise
         let worst = 0;
         let sum = 0;
-        for (let i = 0; i < lv.length; i++) {
-          const lo = Math.max(0, i - 5);
-          const hi = Math.min(lv.length, i + 6);
+        let n = 0;
+        for (let i = 12; i < lv.length - 12; i++) {
           let m = 0;
-          for (let k = lo; k < hi; k++) m += lv[k];
-          m /= hi - lo;
+          for (let k = i - 12; k <= i + 12; k++) m += lv[k];
+          m /= 25;
           const d = Math.abs(lv[i] - m);
           worst = Math.max(worst, d);
           sum += d * d;
+          n++;
         }
-        return { rms: +Math.sqrt(sum / Math.max(1, lv.length)).toFixed(2), worst: +worst.toFixed(2) };
+        return { rms: +Math.sqrt(sum / Math.max(1, n)).toFixed(2), worst: +worst.toFixed(2) };
       };
-      const on = rough(0.3, 7.9);
-      const off = rough(8.4, 15.8);
+      const on = rough(0.5, 7.4);
+      const off = rough(8.6, 15.5);
       report.sweeps = report.sweeps || {};
       report.sweeps[id] = { on, off };
       console.log(`sweep ${id.padEnd(10)} full load wobble ${on.rms} dB (worst ${on.worst})   overrun wobble ${off.rms} dB (worst ${off.worst})`);
@@ -260,6 +265,7 @@ const metricsFile = path.join(ROOT, 'loop', 'metrics', 'audio_modcar.json');
 const compact = {};
 for (const [id, s] of Object.entries(report.engines)) compact[id] = { idle_db: s.idle.rms, pull_high_db: s.pull_high.rms, overrun_db: s.overrun.rms, idle_hz: s.idle.centroid, pull_high_hz: s.pull_high.centroid };
 for (const [k, v] of Object.entries(report.loops)) compact[`loops_${k}`] = v.worst;
+for (const [k, v] of Object.entries(report.sweeps || {})) compact[`sweep_wobble_${k}`] = { on: v.on.rms, off: v.off.rms };
 if (Object.keys(compact).length) {
   let prev = {};
   try {

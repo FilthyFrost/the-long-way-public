@@ -329,10 +329,13 @@ CYCLE_POINTS = 512
 
 
 def mean_cycle(y, cycles):
-    """The loop folded onto one 720-degree cycle (crank-angle axis), zero mean, unit norm."""
-    z = signal.resample(y, cycles * CYCLE_POINTS).reshape(cycles, CYCLE_POINTS).mean(axis=0)
+    """The loop folded onto one 720-degree cycle (crank-angle axis), zero mean, unit norm, and the
+    share of the loop's energy that this repeating part carries (the rest is scatter and noise)."""
+    r = signal.resample(y, cycles * CYCLE_POINTS).reshape(cycles, CYCLE_POINTS)
+    z = r.mean(axis=0)
     z = z - z.mean()
-    return z / (np.linalg.norm(z) + 1e-30)
+    frac = float(np.sum(z * z) * cycles / (np.sum(np.square(r - r.mean())) + 1e-30))
+    return z / (np.linalg.norm(z) + 1e-30), min(1.0, frac)
 
 
 def cycle_shift(a, b):
@@ -380,7 +383,9 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         x = x[int(0.08 * fs):]
         T = 120.0 / rpm * fs
         k = max(3, int(round(LOOP_SECONDS[load] * fs / T)))
-        L, corr = best_period(x, k * T)
+        # the dyno holds the speed exactly: stay within a tenth of a cycle of k whole cycles (an
+        # engine whose pulses all look alike correlates as well a quarter cycle off)
+        L, corr = best_period(x, k * T, span=min(0.006, 0.1 / k))
         loop, start, seam = cut_loop(x, L, int(0.010 * fs))
         is_idle = load == 'off' and int(rpm_s) == e['idle']
         nat = rms(loop)
@@ -446,7 +451,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     # overrun chain turned to sit best against the full-load chain (cohLoad = the likeness left)
     steady = [i for i in items if i['kind'] == 'loop' and 'load' in i]
     for i in steady:
-        i['mc'] = mean_cycle(i['y'], i['cycles'])
+        i['mc'], i['periodic'] = mean_cycle(i['y'], i['cycles'])
     phase = {}
     chains = {}
     for load in (1, 0):
@@ -456,7 +461,9 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         for a, b in zip(ch, ch[1:]):
             sh, c = cycle_shift(a['mc'], b['mc'])
             phase[id(b)] = (phase[id(a)] + sh) % 1.0
-            b['coh'] = round(max(0.0, c), 3)
+            # the correlation the two loops will really have once aligned: alike repeating parts,
+            # weighed by how much of each loop repeats at all
+            b['coh'] = round(max(0.0, c) * math.sqrt(a['periodic'] * b['periodic']), 3)
     pairs = []
     for off in chains[0]:
         on = min(chains[1], key=lambda o: abs(o['rpm'] - off['rpm']))
@@ -468,10 +475,11 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     delta = (math.atan2(zy, zx) / (2 * math.pi)) % 1.0
     for off, on, d, c in pairs:
         phase[id(off)] = (phase[id(off)] + delta) % 1.0
-        off['cohLoad'] = round(max(0.0, c * math.cos(2 * math.pi * (delta - d))), 3)
+        off['cohLoad'] = round(max(0.0, c * math.cos(2 * math.pi * (delta - d))) * math.sqrt(off['periodic'] * on['periodic']), 3)
     for i in steady:
         # seconds from loopStart to a cycle start, at the loop's own speed
         i['phase'] = round(phase[id(i)] * 120.0 / i['rpm'], 6)
+        i['periodic'] = round(i['periodic'], 3)
         del i['mc']
 
     # levels: every file at the same loudness; natural level relative to the loudest on-load loop
@@ -504,7 +512,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
             for ext in ('ogg', 'm4a'):
                 dec = decode(ffmpeg, os.path.join(dst, f'{it["file"]}.{ext}'))
                 rec[f'seam_{ext}'] = round(seam_match_db(dec, PRE, PRE + len(body)), 1)
-            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal', 'phase', 'coh', 'cohLoad'):
+            for key in ('rpm', 'load', 'cycles', 'corr', 'seam', 'idle', 'nominal', 'phase', 'coh', 'cohLoad', 'periodic'):
                 if key in it:
                     rec[key] = it[key]
             if it['file'] in ('crank', 'limiter'):

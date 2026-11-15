@@ -105,7 +105,7 @@ function stateAt(keys: Key[], t: number, base: EngineAudioState): EngineAudioSta
   return s;
 }
 
-async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; sampleRate: number; debug: unknown[] }> {
+async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; sampleRate: number; debug: unknown[]; idleRpm: number; redlineRpm: number }> {
   const sr = spec.sampleRate ?? 48000;
   // the bank first, on a throwaway context, to get idle / redline for the keyframes
   const probe = new OfflineAudioContext(1, 128, sr);
@@ -137,7 +137,7 @@ async function renderEngine(spec: EngineRenderSpec): Promise<{ pcm: string; samp
     });
   }
   const out = await ctx.startRendering();
-  return { pcm: toBase64(out.getChannelData(0)), sampleRate: sr, debug };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate: sr, debug, idleRpm: m.idleRpm, redlineRpm: m.redlineRpm };
 }
 
 export interface FoleyRenderSpec {
