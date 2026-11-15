@@ -444,6 +444,27 @@ export function roadStripMaterial(): THREE.ShaderMaterial {
         col += uSunColor * glint * wet * mix(0.5, 2.5, puddle) * uSunVis;
         col += ringAmt * puddle * skyR * 0.5;
         col += rtHeadlight(albedo, n, vPos) * (1.0 + 0.6 * wet);
+        // the head lamps in wet asphalt: each a long smear of light down the road towards the eye — the lamp's
+        // mirror image drawn out along the view (the water's ripples tilt the mirror up and down far more than
+        // sideways): tight across, long along, only where the lamp shines this way
+        if (wet > 0.01 && uHeadColor.r + uHeadColor.g + uHeadColor.b > 0.01) {
+          vec3 rf = reflect(-v, vec3(0.0, 1.0, 0.0));
+          vec3 aside = normalize(cross(uHeadDir, vec3(0.0, 1.0, 0.0)));
+          vec3 across = normalize(cross(v, vec3(0.0, 1.0, 0.0)));
+          float smear = 0.0;
+          for (int k = 0; k < 2; k++) {
+            vec3 L = uHeadPos + aside * (k == 0 ? -0.55 : 0.55) - vPos;
+            float dl = length(L);
+            L /= max(dl, 1e-3);
+            vec3 dd = rf - L;
+            float sa = dot(dd, across);
+            float sb = length(dd - across * sa);
+            smear += exp(-sa * sa * 2500.0) * exp(-sb * sb * 22.0) * smoothstep(0.5, 0.95, dot(-L, uHeadDir)) / (1.0 + dl * dl * 0.004);
+          }
+          // (broken by the water's ripples into a run of brighter and darker bits along it)
+          float rip = 0.55 + 0.45 * rtNoiseAt(vec2(vRoad.x * 3.0, vRoad.y * 0.35) + uTime * 0.05, 2.0).r;
+          col += uHeadColor * smear * wet * mix(0.5, 1.0, puddle) * 0.55 * rip;
+        }
         col = mix(ground, col, shoulder);
         col = rtFog(col, vPos, cameraPosition);
         gl_FragColor = vec4(col, 1.0);
