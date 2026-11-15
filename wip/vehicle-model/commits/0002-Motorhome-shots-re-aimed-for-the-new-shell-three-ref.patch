@@ -1,0 +1,469 @@
+From fb995c2ed5a55c05bad39c9ce09a9e4eebfc9629 Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 11:45:42 -0800
+Subject: [PATCH 2/3] =?UTF-8?q?Motorhome:=20shots=20re-aimed=20for=20the?=
+ =?UTF-8?q?=20new=20shell,=20three=20reference=20shots=20and=20their=20com?=
+ =?UTF-8?q?parison=20sheets=20(compare=5Frv.py),=20spec=20v2=20(rv=5Fmodel?=
+ =?UTF-8?q?.md=20=C2=A71=E2=80=936),=20warmer=20paint,=20STOP=20sign=20cle?=
+ =?UTF-8?q?ar=20of=20the=20cap,=20cab=20headliner;=20README=20keys?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/README.md b/README.md
+index 65287ed..c6af590 100644
+--- a/README.md
++++ b/README.md
+@@ -49,7 +49,7 @@ npm run dev        # 打开 http://127.0.0.1:5173
+ 
+ `?seed=7` 世界种子 · `?s=3000` 起始里程（米）· `?time=18.6` 钟点 · `?weather=storm`（clear / cloudy / overcast / fog / rain / storm / hail / snow / blizzard / sandstorm）· `?biome=desert` 起始群系 · `?chapter=0.2` 群系长度倍率 · `?quality=low|med|high` · `?view=chase` · `?auto=1` 自动驾驶 · `?scene=proving` 测试场。
+ 
+-车辆：`?vehicle=rv`（`truck` / `van` / `offroad` / `rv`，或 `t0_truck` … `t3_rv`）· `?seat=dinette1` 坐到某个座位或机位（房车：`passenger`、`dinette1…4`、`sofa`、`bunkLow`、`bunkHigh`、`deck1`、`deck2`；拍照机位 `roomFront`、`roomRear`、`galley`、`overDash`；面包车：`passenger`、`rearLeft`、`rearRight`、`tailgate`，机位 `room`、`roomRear`、`galley`；越野车：`passenger`、`rearLeft`、`rearRight`、`tent`，机位 `room`、`tailgate`）· `?view=orbit&orbit=35,12,12,1.3` 绕车外观机位（方位角°、俯角°、距离 m、注视高度 m；0° 在车头正前，90° 在右侧）· `?cutaway=1` 剖面（去掉右侧外壁、右侧玻璃、车顶）· `?camp=1` 开营（房车：门、遮阳棚；面包车：尾门、侧滑门；越野车：尾门、抽屉厨房、车顶帐）· `?slots=all|none|default`（或逗号分隔的槽位 id）· `?cabinlight=1|0` 车内灯（不设 = 天黑自动开）。
++车辆：`?vehicle=rv`（`truck` / `van` / `offroad` / `rv`，或 `t0_truck` … `t3_rv`）· `?seat=dinette1` 坐到某个座位或机位（房车：`passenger`、`dinette1…4`、`sofa`、`bunkLow`、`bunkHigh`、`overcab`（车头上铺）、`deck1`、`deck2`；拍照机位 `roomFront`、`roomRear`、`galley`、`overDash`；面包车：`passenger`、`rearLeft`、`rearRight`、`tailgate`，机位 `room`、`roomRear`、`galley`；越野车：`passenger`、`rearLeft`、`rearRight`、`tent`，机位 `room`、`tailgate`）· `?view=orbit&orbit=35,12,12,1.3` 绕车外观机位（方位角°、俯角°、距离 m、注视高度 m；0° 在车头正前，90° 在右侧）· `?cutaway=1` 剖面（去掉一侧外壁、玻璃与车顶：面包车与越野车剖右侧，房车剖左侧）· `?camp=1` 开营（房车：门、遮阳棚；面包车：尾门、侧滑门；越野车：尾门、抽屉厨房、车顶帐）· `?slots=all|none|default`（或逗号分隔的槽位 id）· `?cabinlight=1|0` 车内灯（不设 = 天黑自动开）· `?dress=all|none|boards,guard,guardFront,sign` 房车的装饰（默认全装）。
+ 
+ 步行调试：`?fixture=1` 在车前的路面上摆一个测试院子（墙、台阶、平台、木箱、工具箱、油罐、各种大小的东西）· `?onfoot=door` 一开始就下车 · `?onfoot=yard:u,v,度` 站在院子里（u 沿路、v 向右）· `?onfoot=road:s,d,度` 站在里程 s、路中线右侧 d 米处 · `?onfoot=world:x,z,度` · `?footpitch=-10` 抬头 / 低头（度）。
+ 
+diff --git a/harness/shots/compare_rv.py b/harness/shots/compare_rv.py
+index 95848d5..4cd9173 100644
+--- a/harness/shots/compare_rv.py
++++ b/harness/shots/compare_rv.py
+@@ -3,10 +3,15 @@
+ 
+     python3 -I harness/shots/compare_rv.py [--refs refs/rv-reference] [--out loop/shots/_compare]
+ 
+-Puts rv_front34, rv_side_right, rv_cutaway_side and rv_room_rear (from loop/shots/vehicles/) side by
+-side with the pictures in the reference folder and writes loop/shots/_compare/rv_<shot>.jpg. A
+-reference is matched by name when a file starts with the shot's name (rv_front34*.jpg …); the others
+-are paired in sorted order. Without any reference picture it says so and does nothing.
++1. The reference pairs: rv_ref_front34, rv_ref_cutaway and rv_ref_model (from loop/shots/vehicles/)
++   each beside the matching part of its reference picture — the coloured sheet's exterior (its upper
++   left), the coloured sheet's cutaway (its lower right), the plain blocking model — written to
++   loop/shots/_compare/rv_ref_*.jpg.
++2. As before: rv_front34, rv_side_right, rv_cutaway_side and rv_room_rear beside the remaining
++   pictures in the folder, written to loop/shots/_compare/rv_<shot>.jpg.
++
++The reference pictures are local only (never committed, never copied out of the machine); the output
++folder is git-ignored. Without any reference picture it says so and does nothing.
+ """
+ import os
+ import sys
+@@ -26,37 +31,68 @@ def opt(name, default):
+ 
+ refs_dir = opt('--refs', 'refs/rv-reference')
+ out_dir = opt('--out', 'loop/shots/_compare')
+-shots = ['rv_front34', 'rv_side_right', 'rv_cutaway_side', 'rv_room_rear']
+ exts = ('.png', '.jpg', '.jpeg', '.webp')
+ refs = sorted(f for f in os.listdir(refs_dir) if f.lower().endswith(exts)) if os.path.isdir(refs_dir) else []
+ if not refs:
+     print(f'no reference pictures in {os.path.relpath(refs_dir, ROOT)}: nothing to compare (put the reference art there)')
+     sys.exit(0)
+-
+ os.makedirs(out_dir, exist_ok=True)
+ H = 540
+-unused = [r for r in refs if not any(r.startswith(s) for s in shots)]
+-for s in shots:
+-    ours = os.path.join(ROOT, 'loop/shots/vehicles', s + '.png')
++
++
++def pair(shot, ref_img, ref_label, out_name):
++    ours = os.path.join(ROOT, 'loop/shots/vehicles', shot + '.png')
+     if not os.path.exists(ours):
+-        print(f'{s}: not rendered yet (node harness/shots/run.mjs vehicles)')
+-        continue
+-    named = [r for r in refs if r.startswith(s)]
+-    ref = named[0] if named else (unused.pop(0) if unused else None)
+-    if ref is None:
+-        print(f'{s}: no reference left to pair with')
+-        continue
++        print(f'{shot}: not rendered yet (node harness/shots/run.mjs vehicles)')
++        return
+     a = Image.open(ours).convert('RGB')
+-    b = Image.open(os.path.join(refs_dir, ref)).convert('RGB')
++    b = ref_img.convert('RGB')
+     a = a.resize((round(a.width * H / a.height), H), Image.LANCZOS)
+     b = b.resize((round(b.width * H / b.height), H), Image.LANCZOS)
+     sheet = Image.new('RGB', (a.width + b.width + 12, H), (22, 25, 30))
+     sheet.paste(a, (0, 0))
+     sheet.paste(b, (a.width + 12, 0))
+     d = ImageDraw.Draw(sheet)
+-    for x, text in [(0, s), (a.width + 12, ref)]:
++    for x, text in [(0, shot), (a.width + 12, ref_label)]:
+         d.rectangle([x, 0, x + 10 + 7 * len(text), 20], fill=(0, 0, 0))
+         d.text((x + 5, 4), text, fill=(255, 255, 255))
+-    out = os.path.join(out_dir, s + '.jpg')
++    out = os.path.join(out_dir, out_name + '.jpg')
+     sheet.save(out, quality=88)
+     print(out)
++
++
++def crop(name, box):
++    """a part of a reference picture: box = (x0, y0, x1, y1) as fractions of its size"""
++    path = os.path.join(refs_dir, name)
++    if not os.path.exists(path):
++        return None
++    im = Image.open(path)
++    w, h = im.size
++    return im.crop((round(box[0] * w), round(box[1] * h), round(box[2] * w), round(box[3] * h)))
++
++
++# 1. the reference pairs (the crops frame the matching drawing on each sheet)
++REF_PAIRS = [
++    ('rv_ref_front34', 'chris-bennett-van-fin.jpg', (0.02, 0.0, 0.6, 0.56), 'reference: exterior'),
++    ('rv_ref_cutaway', 'chris-bennett-van-fin.jpg', (0.44, 0.36, 1.0, 1.0), 'reference: cutaway'),
++    ('rv_ref_model', 'chris-bennett-3d-model-van.jpg', (0.0, 0.0, 1.0, 1.0), 'reference: blocking model'),
++]
++used = set()
++for shot, name, box, label in REF_PAIRS:
++    im = crop(name, box)
++    if im is None:
++        print(f'{shot}: {name} is not in {os.path.relpath(refs_dir, ROOT)}')
++        continue
++    used.add(name)
++    pair(shot, im, label, shot)
++
++# 2. the older pairs, with whatever pictures are left
++shots = ['rv_front34', 'rv_side_right', 'rv_cutaway_side', 'rv_room_rear']
++unused = [r for r in refs if r not in used and not any(r.startswith(s) for s in shots)]
++for s in shots:
++    named = [r for r in refs if r.startswith(s)]
++    ref = named[0] if named else (unused.pop(0) if unused else None)
++    if ref is None:
++        print(f'{s}: no reference left to pair with')
++        continue
++    pair(s, Image.open(os.path.join(refs_dir, ref)), ref, s)
+diff --git a/harness/shots/sets/vehicles.json b/harness/shots/sets/vehicles.json
+index 2a3c43f..ea28eef 100644
+--- a/harness/shots/sets/vehicles.json
++++ b/harness/shots/sets/vehicles.json
+@@ -2,14 +2,14 @@
+   "set": "vehicles",
+   "base": "scene=proving&shot=1&vehicle=rv",
+   "shots": [
+-    {"name": "rv_front34", "params": "view=orbit&orbit=38,10,12.5,1.35"},
+-    {"name": "rv_rear34", "params": "view=orbit&orbit=222,12,12.5,1.4"},
+-    {"name": "rv_side_left", "params": "view=orbit&orbit=-90,3,12,1.45"},
+-    {"name": "rv_side_right", "params": "view=orbit&orbit=90,3,12,1.45"},
+-    {"name": "rv_top", "params": "view=orbit&orbit=28,58,13,1.0"},
+-    {"name": "rv_cutaway_side", "params": "view=orbit&orbit=90,14,10.5,1.4&cutaway=1"},
+-    {"name": "rv_cutaway_34", "params": "view=orbit&orbit=58,38,10.5,1.2&cutaway=1"},
+-    {"name": "rv_camp", "params": "view=orbit&orbit=48,12,13.5,1.3&camp=1"},
++    {"name": "rv_front34", "params": "view=orbit&orbit=38,10,12,1.6"},
++    {"name": "rv_rear34", "params": "view=orbit&orbit=222,12,12,1.6"},
++    {"name": "rv_side_left", "params": "view=orbit&orbit=-90,3,12,1.6"},
++    {"name": "rv_side_right", "params": "view=orbit&orbit=90,3,12,1.6"},
++    {"name": "rv_top", "params": "view=orbit&orbit=28,58,13,1.2"},
++    {"name": "rv_cutaway_side", "params": "view=orbit&orbit=-90,14,10.5,1.6&cutaway=1"},
++    {"name": "rv_cutaway_34", "params": "view=orbit&orbit=-130,36,10.5,1.3&cutaway=1"},
++    {"name": "rv_camp", "params": "view=orbit&orbit=48,12,13,1.5&camp=1"},
+     {"name": "rv_driver", "params": "view=cockpit"},
+     {"name": "rv_driver_cruise", "params": "view=cockpit", "steps": [{"simulate": 16, "input": {"throttle": 1}}, {"simulate": 2, "input": {"throttle": 0.45}}]},
+     {"name": "rv_driver_left", "params": "view=cockpit", "look": [-1.05, -0.08]},
+@@ -26,7 +26,10 @@
+     {"name": "rv_room_empty", "params": "view=cockpit&seat=roomFront&slots=none"},
+     {"name": "rv_room_night", "params": "view=cockpit&seat=roomFront&time=22&cabinlight=1"},
+     {"name": "rv_driver_night", "params": "view=cockpit&time=22&cabinlight=1"},
+-    {"name": "rv_night_34", "params": "view=orbit&orbit=60,8,12,1.4&time=22&cabinlight=1&camp=1"},
++    {"name": "rv_night_34", "params": "view=orbit&orbit=60,8,12.5,1.5&time=22&cabinlight=1&camp=1"},
++    {"name": "rv_ref_front34", "params": "view=orbit&orbit=34,12,10.5,1.6&slots=all", "steps": [{"call": "setMover", "args": ["door", 1]}]},
++    {"name": "rv_ref_cutaway", "params": "view=orbit&orbit=-140,30,10,1.3&cutaway=1&slots=all"},
++    {"name": "rv_ref_model", "params": "view=orbit&orbit=60,12,11,1.5&dress=none&slots=none"},
+     {"name": "van_front34", "params": "vehicle=van&view=orbit&orbit=38,10,7.6,1.0"},
+     {"name": "van_rear34", "params": "vehicle=van&view=orbit&orbit=222,12,7.6,1.0"},
+     {"name": "van_side_left", "params": "vehicle=van&view=orbit&orbit=-90,3,7.6,1.0"},
+diff --git a/specs/vehicles/rv_model.md b/specs/vehicles/rv_model.md
+index 2716c20..43e5e65 100644
+--- a/specs/vehicles/rv_model.md
++++ b/specs/vehicles/rv_model.md
+@@ -1,15 +1,14 @@
+-# 房车「鲸鱼」(T3) 模型规格 v1
++# 房车「鲸鱼」(T3) 模型规格 v2（定稿外观）
+ 
+-状态：2026-11-14 立项。外观**暂定版**——用户指定的外观参考（Chris Bennett《Camper-Van Vehicle set dressing and cutaway》，
+-https://chrisbennettt.artstation.com/projects/d03WrJ）这台机器抓不到（见 `refs/rv-reference/README.md`）。
+-拿到图之前按本规格做；所有外观尺寸必须集中在一张参数表里，拿到图后只改表和少量细节就能重新定比例。
++状态：2026-11-14 立项（v1 暂定的圆头平头车）；同日 v2：参考图到了（`refs/rv-reference/`，只在本机，不提交、不外传），
++外观改为定稿的 C 型房车。所有外观尺寸集中在 `rv.ts` 顶部的 `DIM` 表。
+ 
+ 相关文档（先读）：`docs/DESIGN_V2.md` 第 5 章（5.1 车系、5.2 手感表下半部分“不在物理里的设定”、5.3 镜头、5.4 内饰与槽位、5.7 车上的位置）、
+ `specs/art/STYLE.md`（赛璐璐 + 描线，第 2.3、4 节）、`src/game/vehicle/kit.ts`（共用套件）、`src/game/vehicle/truck.ts`（现有的小货车，写法范例）。
+ 
+ ## 0. 不能动的东西
+ 
+-- **驾驶手感已定案，不改**：`src/core/vehicle/spec.ts` 里 `T3_RV` 的任何数值、`src/core/vehicle/sim.ts`、`specs/driving/*.json` 都不许改。模型去适应底盘，不是反过来。
++- **驾驶手感已定案，不改**：`src/core/vehicle/spec.ts` 里 `T3_RV` 只有 `eye` 与 `body`（碰撞盒）随 v2 的驾驶室与外壳移动，其余数值（质量、轴距、轮距、轮径、重心、悬挂、转向、发动机、变速箱）、`src/core/vehicle/sim.ts`、`specs/driving/*.json` 都不许改；移动之后 `npm run measure` 的 `t3_rv` 指标全部仍在范围内。
+ - 美术规格不改：`specs/art/STYLE.md`、`specs/art/style.json`、`src/game/render/` 下除本规格点名的地方以外都不改。
+ - 小货车（T0）的画面不能变：`driving` 截图组的画面与改动前逐像素一致或只有不可察觉的差异（draw call 与三角形数不增加）。
+ - 技术栈：HTML5 + Three.js，程序化建模（`ModelBuilder` 拼色块），不引入模型文件、贴图文件或新依赖。不用 Godot。
+@@ -20,123 +19,120 @@ https://chrisbennettt.artstation.com/projects/d03WrJ）这台机器抓不到（
+ | --- | --- |
+ | 轴距 3.70 m | 前轴 x = +2.146，后轴 x = −1.554 |
+ | 轮距 | 前 1.75、后 1.70（车轮中心 z = ±0.875 / ±0.85） |
+-| 轮半径 0.38 m | 轮胎宽 0.24–0.26（后轮画成深碟形，读作货车轮） |
+-| 司机眼位 | (1.90, 0.85, −0.50)，即离地 1.85 m，左舵 |
+-| 碰撞盒（参考，不改） | x ∈ [−3.0, 3.6]，半宽 1.1，离地 0.4–2.9 m |
++| 轮半径 0.38 m | 轮胎宽 0.25（后轮画成深碟形） |
++| 司机眼位（v2） | (1.30, 0.85, −0.50)，即离地 1.85 m，挡风玻璃下沿后方 1.0 m，左舵 |
++| 碰撞盒（v2） | x ∈ [−3.85, 3.05]，半宽 1.125，离地 0.45–3.05 m |
+ 
+-车轮的位置每帧由物理给出（`sim.wheelLocal`），模型只需在这些位置留出轮拱。
++## 2. 造型：C 型房车（参考图 `chris-bennett-*`）
+ 
+-## 2. 造型：圆润的平头老式房车
++一辆小厢式货车的驾驶室，后面接一只比它高、比它宽的方箱，驾驶室上方是一个向前探出、四角切角的“额头”铺位。
+ 
+-设计文档对 T3 的手感设定是“高高在上，前面是一整面大玻璃；方向盘 44 cm 公交车式；大柴油远在脚下；驾驶座后面就是厨房”。
+-所以它是**平头（forward-control）的一体式房车**，不是带引擎盖的 C 型：
++| 部位 | 尺寸（m） |
++| --- | --- |
++| 全长 | ≈ 6.98：前保险杠 x = +3.05（前悬 0.90，前轮在 A 柱脚下，驾驶室门在轮拱之后），车尾 x = −3.80（后悬 2.25），后保险杠 −3.93 |
++| 驾驶室 | 宽 2.0；引擎盖长 ≈ 0.67，车头离地 1.20 升到挡风玻璃下沿 1.40；挡风玻璃下沿 (x 2.30, h 1.40) → 上沿 (1.76, 2.15)，后倾 ≈ 36°；驾驶室在 x = 0.80 结束 |
++| 方箱 | 宽 2.25（每侧比驾驶室宽 0.125），侧壁平直；顶 3.05，顶边一圈 0.135 的切角；顶上两段加高 0.12（x −3.30…−1.80、−0.90…+0.55，两端斜面）；车身下沿 0.45；起居室地板 0.80 |
++| 额头铺位 | 底面 2.18，向前探到 x = 2.55（越过挡风玻璃下沿 0.25）；前脸 2.30–2.92，平面上前两角切角 0.35，前下沿切角（底面在 x = 2.33 处折上）；两侧各一扇小窗；里面是铺位，从起居室爬梯上去 |
++| 驾驶室门 | 两侧，x 0.86…1.64、h 0.62…2.12（铰链在前边，向外开），门窗可摇下；门前一扇三角小窗 |
++| 起居室门 | 右侧，第一扇方箱窗之后，x −0.78…−0.02、到 2.42；铰链在**后**边，向外开（mover `door`）；门锁板、把手，门内一只红色灭火器 |
++| 窗 | 右：前窗 x 0.12…0.72、卡座窗 −2.17…−1.01、车尾一条竖窗；左：厨房窗、工作台窗、上下铺两扇（位置见 `DIM`）；车尾一扇横窗在沙发上方 |
++
++**涂装**（STYLE.md：少数几种混好的漆，不画阴影色块）：车身暖奶油 `#e6d2a8`；额头与车顶浅暖白 `#efe6da`；两条带子贯穿车身侧面、穿过驾驶室门直到车头角——上棕 `#8a6a52`（h 1.13–1.31）、下橘 `#dd7a3a`（h 0.95–1.13），在轮拱处让开；方箱侧面顶边一条细橘线（h 2.84–2.88）；车顶边沿零星挂下的浅色密封胶“冰柱”；裙边深灰、上面一圈污渍。**不画任何品牌标志。**
+ 
+-- 整体：一个圆角长盒，长约 6.5 m（x ≈ −3.30 … +3.45，保险杠到 +3.55），宽 2.2，顶高 2.86（车顶件另算），离地间隙 0.40。
+-- 车头：近乎直立、略向后倾的大挡风玻璃（左右两片，中间一根细柱；玻璃下沿离地约 1.35，上沿约 2.45，宽约 2.0）；玻璃上方是鼓出的“额头”（车内是一条置物搁板，放卷好的毯子、书和一盏提灯）；圆大灯两只（离地约 1.0）、小转向灯、一条镀铬细保险杠、格栅只是几道横条。
+-- 车身：两色涂装——下半奶油白（约 `#ece2c8`），腰线一条青绿色（约 `#5f9f95`，和小货车的漆是一家）与一条橘色细线（约 `#d98a3d`）组成的“波浪”腰带，在车头两侧向下卷成一个弧（自己设计的图形，**不要画任何真实品牌的标志或条纹**）。车顶是略浅的白。裙边、轮拱唇、保险杠是深灰 `#393d45`。
+-- 侧面：左侧有驾驶门（x ≈ 1.5–2.35）和三扇侧窗（厨房窗、工作台窗、上下铺小窗）；右侧有起居室入口门（x ≈ 0.6–1.4，带一级外踏板和门上小窗）、卡座大窗、爱好角窗。窗框深色，窗内能看到窗帘（车内件）。
+-- 车尾：一整面横向大后窗（下沿离地约 1.45）、左右竖尾灯、通向车顶的梯子（偏右）、车尾槽位（见 4）。
+-- 车顶：前段行李架、中段太阳能板、后段露台（三个车顶槽位，见 4）；一只带罩的天窗（在厨房上方——真的开洞，让太阳能照进车里）；一根烟囱短管。
+-- **生活痕迹**（参考作品的主题是“set dressing … to look lived in”）：收起的遮阳棚卷筒（右侧窗上沿，可展开，见 5）、窗台花箱、门边挂的提灯、车身上的几张贴纸色块、晾衣绳或挂着的毛巾、车尾挂的折叠椅、绑在梯子旁的水桶、泥点和下沿一圈较深的旧色。这些要读得出来，但不能把车身轮廓淹没——轮廓永远先是“一条圆润的鲸鱼”。
+-- 风格：按 `STYLE.md` 的赛璐璐 + 描线。用 `kit.ts` 的 `vehicleMaterials()`：外壳用 `body`（`flat + ink + spec`），车内一切用 `cabin`（`flat + ink + cabin`）。颜色只用少数几个调好的色，暗部交给着色器，不要自己画“阴影色块”。圆角用倒角的斜面（一两段），不追求曲面。
++**装饰**（每组一个 mover `dress:<名字>`，0 = 装上，默认全装；URL `dress=all|none|名字列表`，`__rt.setDress`）：
++
++| 组 | 内容 |
++| --- | --- |
++| `boards` | 钉在窗上的木板：额头侧面三块横板（钉在小窗前方的实墙上）；起居室门两侧的方箱窗各两块交叉板；两扇驾驶室门窗的后部各两块竖板。**游戏规则高于画面**：从车里看，每扇起居室窗和每扇驾驶室门窗至少 60% 的玻璃是空的，驾驶员看两侧后视镜的视线不被挡 |
++| `guard` | 挡风玻璃外的焊接栅栏（4 × 5 格，上沿用绳绑着）。同时是 mover `guard`：铰链在上沿，0 = 放下盖住玻璃（防冰雹），1 = 撑平像遮阳檐。停车外观镜头里放下；发动机运转且有人从驾驶室往外看时自动撑起（不让人在栅栏后面开几个小时的车）；用手（车外的 `guard@out`）放下或撑起后就停在那里 |
++| `guardFront` | 前保险杠上的成卷带刺铁丝和五根削尖的木桩（我们的世界没有敌人：单独一组，是否保留由用户决定） |
++| `sign` | 钉在额头右前切角上的 STOP 牌（红色八角、浅色边、四个方块字母） |
+ 
+-外观尺寸集中写在 `rv.ts` 顶部的一个 `const DIM = { … }` 表里（长、宽、各高度、窗位、门位、玻璃角点），后面的建模代码只引用它。
++**车上固定的细节**：引擎盖右后角的鞭状天线；门前长杆后视镜；车尾左侧浅色备胎罩（上面几道卷曲的笔画，不写字）；两块木板做的后保险杠、车牌、拖钩；车尾两侧高高的圆角尾灯板；右侧靠后的低矮检修盖；起居室门下的折叠踏板。车顶的三个槽位见 §4。
+ 
+-## 3. 驾驶室与通道（自己设计，要和外观自洽）
++外观尺寸集中写在 `rv.ts` 顶部的 `const DIM = { … }`。
+ 
+-- 起居室地板离地 0.80；驾驶室两个座位各自落在比它低 0.18 的脚坑里（离地 0.62），这样座垫高 1.07、坐姿眼高正好是 1.85。
+-- **两座之间是发动机盖形成的一条“中脊”，顶面与起居室地板齐平（0.80）、宽约 0.45**：它就是驾驶室与起居室之间的通道——从起居室一路平着走到仪表台前，坐下时向侧下方迈进脚坑。中脊上可以有一个检修盖的缝和一只固定的保温壶托。
+-- 仪表台：很深的一块平台（x ≈ 2.45–3.20，顶面离地约 1.30，车身漆色或木色），上面是生活痕迹：一盆小植物、摊开的地图、**小收音机**（`props.ts` 里的 `radioBuddy`，方向朝司机，放在司机右前方）、一只摇头小摆件。
+-- 方向盘：直径 44 cm，公交车式大而平——轴线与水平面夹角约 60–65°，两辐（`spokes: 'bus'`），从眼位看盘的远侧上沿出现在画面下部；仪表（`buildCluster`）在盘的远侧上方、不被盘圈挡住表心。
+-- 司机正前方的视野：眼位向前、向下 20° 以内不能有任何实体挡住路面（除了方向盘圈和仪表小罩）；向上能看到至少 20° 的天空。
+-- 左右后视镜（长条货车镜，立在车头两侧）、车内中央后视镜、挂件（`buildCharm`，挂在中央镜下）、遮阳板。
+-- 雨刷：两支，铰点在玻璃下沿（`buildScreen`）。
+-- 两个前座是带扶手的独立座椅；副驾座可以原地转 180° 朝向起居室（做成一个 mover，见 5）。
++## 3. 驾驶室
++
++- 驾驶室两个脚坑离地 0.62（比起居室地板低 0.18），座垫高 1.07，坐姿眼高 1.85；两座之间是发动机盖形成的一条矮台（0.80，与起居室地板齐平）。头顶是额头铺位的底面（离地 2.18），所以驾驶室**站不直**：从起居室走到驾驶座要低头；可行走区只在方箱里。
++- 仪表台在挡风玻璃下（x 1.85…2.27，顶面 1.32–1.37）；台上：一盆小植物、摊开的地图、**小收音机**（`radioBuddy`，转向司机）、一只摇头小摆件、杯子；手套箱在副驾一侧。
++- 方向盘：直径 44 cm 公交车式（轴线仰角 63°，两辐），仪表（`buildCluster`）在盘的远侧上方，左边是活的仪表条（转速、水温、电压、七盏灯、P R N D）。
++- 视野：引擎盖低低地出现在挡风玻璃下部，额头的底面是挡风玻璃上方的一道“眉”——这是 v2 的“高高坐在一间屋子里”；眼位向前、向下 20° 以内除方向盘、仪表外不挡路面，向上至少 20° 是玻璃。
++- 两侧门前长杆后视镜、车内中央后视镜、挂件、遮阳板；两支雨刷。副驾座可原地转 180°（mover `passengerSeat`）。
+ 
+ ## 4. 起居室布局与槽位
+ 
+-内宽约 2.08（z ∈ [−1.04, 1.04]），内高 1.98（地板 0.80 → 天花 2.78），起居室 x ∈ [−3.15, 1.45]。过道沿中线偏左，最窄处 ≥ 0.55 m。
+-下面是基准布局，位置可以在 ±0.15 m 内调整；放不下时可以调换同侧的相邻件，但 9 个槽位、沙发、右侧入口、通向驾驶室的通道必须都在。
++内宽 2.08（z ∈ [−1.04, 1.04]），墙高到 2.70，天花 2.86（两侧斜面到平顶）；起居室 x ∈ [−3.74, 0.95]，前端对着驾驶室，上方连着额头铺位。
++**左侧**沿用 v1 的排列（整体后移 0.5）；**右侧**为新的门位重排。槽位 id 与 kind 不变：
+ 
+ | 侧 | x 范围 | 内容 | 槽位 id（kind） |
+ | --- | --- | --- | --- |
+-| 左 | 0.85 … 1.45 | 冰箱（齐胸高的老式圆角冰箱；空位时是木框） | `fridge` (cooler) |
+-| 左 | 0.20 … 0.85 | 水槽 + 台下水桶 | `water` (water) |
+-| 左 | −0.45 … 0.20 | 灶台（单头煤气灶，上面一只壶） | `stove` (stove) |
+-| 左 | −1.30 … −0.45 | 工作台（台钳、墙上的工具板） | `workbench` (workbench) |
+-| 左 | −3.15 … −1.30 | 上下铺（沿墙纵向，1.85 × 0.75；各有小帘子、枕头、毯子；一架小梯） | `bunks` (bed) |
+-| 右 | 0.60 … 1.40 | 入口门与门内踏步 | — |
+-| 右 | −0.85 … 0.60 | 四人卡座：两张相对的长椅 + 中间一张桌（桌面是地图桌） | `map` (map) |
+-| 右 | −1.60 … −0.85 | 储物柜（下柜 + 上方墙面） | `storage` (storage) |
+-| 右 | −1.60 … −0.85 墙面 | 软木板（贴着拍立得和明信片的色块） | `board` (board) |
+-| 右 | −2.45 … −1.60 | 爱好角（墙上挂一把吉他、一只小画架、一张凳子） | `hobby` (hobby) |
+-| 右后 | −3.15 … −2.45 | 后窗下的双人沙发（固定，不是槽位）——“看路向后退去的座位” | — |
+-| 车顶前 | | 行李架（捆着的箱子、卷起的垫子） | `roofRack` (roof) |
+-| 车顶中 | | 太阳能板两块 | `roofSolar` (roof) |
+-| 车顶后 | | 露台：一圈矮栏杆、两把躺椅、一只小桌 | `roofDeck` (roof) |
+-| 车尾 | | 备胎 + 两只油桶的架子 | `rear` (rear) |
+-
+-厨房一侧的台面上方有吊柜和一扇窗；天窗在厨房/过道上方。地上一条小地毯，窗边有窗帘，天花上三盏小灯（灯罩用 `vehicleMaterials().lamps`，夜里发光）。
+-槽位的两种状态都要建：**空位** = 贴着图纸的木框（地面/墙面上一圈浅木条 + 一张奶油色小卡片，卡片上一个代表该设施的色块剪影）；**已装** = 设施本身。
+-默认状态：`storage`、`stove`、`water`、`bunks`、`map` 已装，其余为空（展示两种状态）；URL 参数 `slots=all|none|default` 可切换。
+-
+-为了省 draw call：所有槽位的可见几何**合并成一个网格**（槽位状态很少变，变了就重新合并一次），不要每个槽位一个网格。
+-
+-座位与机位（`VehicleParts.views`，`seat: true` 是能坐的位置）：`passenger`、`dinette1…4`、`sofa`、`bunkLow`、`bunkHigh`（躺姿，看后窗）、`deck1`、`deck2`（车顶躺椅）；
+-拍照用机位（`seat: false`）：`roomFront`（站在 x≈1.0 朝后看整个车厢）、`roomRear`（站在 x≈−2.3 朝前看到驾驶室和挡风玻璃外的路）、`galley`、`overDash`（从中脊上方越过仪表台看路）。
+-车内可行走区（`VehicleParts.walk`）：若干矩形的并集，包含主过道、门内平台、通向驾驶室的中脊、车尾沙发前。净高 1.98。
+-
+-## 5. 会动的部件（`VehicleParts.movers`，每个 `set(t)`，t = 0 关 … 1 开）
+-
+-- `door`：右侧入口门向外开 100°；
+-- `awning`：右侧遮阳棚从卷筒展开成一块斜布 + 两根撑杆（宽约 3.2、伸出 2.2）；
+-- `passengerSeat`：副驾座转向车内；
+-- `curtain`：驾驶室与起居室之间的布帘（拉上后夜里车厢的光不照进驾驶室）。
+-
+-“开营”状态（URL `camp=1`，或游戏里停车后按键）= door、awning 打开。
++| 左 | 0.35 … 0.95 | 冰箱 | `fridge` (cooler) |
++| 左 | −0.30 … 0.35 | 水槽 | `water` (water) |
++| 左 | −0.95 … −0.30 | 灶台 | `stove` (stove) |
++| 左 | −1.80 … −0.95 | 工作台 | `workbench` (workbench) |
++| 左 | −3.73 … −1.80 | 上下铺 | `bunks` (bed) |
++| 右 | 0.15 … 0.85 | 储物柜（在前窗下） | `storage` (storage) |
++| 右 | −0.78 … −0.02 | 起居室门、门内踏步、灭火器、挂钩 | — |
++| 右 | −2.30 … −0.87 | 四人卡座 + 地图桌（卡座窗下） | `map` (map) |
++| 右 | −3.10 … −2.25 | 爱好角；墙上软木板 | `hobby` (hobby)、`board` (board) |
++| 右后 | −3.74 … −3.05 | 车尾沙发（固定） | — |
++| 车顶前（前加高段） | | 大卫星天线：底座、碗、红头馈源臂 | `roofRack` (roof) |
++| 车顶中（两段之间） | | 天窗箱（盖子撑开） | `roofDeck` (roof) |
++| 车顶后（后加高段） | | 斜撑的太阳能板 + 盖着篷布的鼓形探照灯 | `roofSolar` (roof) |
++| 车尾 | | 备胎 + 两只油桶的架子（右侧，不挡左侧的备胎罩） | `rear` (rear) |
++
++额头铺位：床垫、五只枕头（参考图）、毯子；铺位边一根护栏，起居室里一架小梯靠在它的边上。
++空位 = 木框 + 图纸卡；已装 = 设施本身；全部槽位合成一个网格。默认已装：`storage`、`stove`、`water`、`bunks`、`map`。
++
++座位与机位：`passenger`、`dinette1…4`、`sofa`、`bunkLow`、`bunkHigh`、`overcab`（额头铺位，躺着）、`deck1`、`deck2`（车顶，天窗箱两侧，需要 `roofDeck`）；机位 `roomFront`、`roomRear`、`galley`、`overDash`（两座之间）。
++车内可行走区：主过道、过道后段（卡座旁 0.55 宽）、爱好角前、门内平台、额头梯前；净高 2.06。
++
++## 5. 会动的部件（`VehicleParts.movers`，t = 0 关 … 1 开）
++
++- `door`：右侧起居室门，铰链在后边，向外开 100°；
++- `awning`：右侧遮阳棚（门上方的卷筒展开，橘白条纹布 + 两根撑杆）；
++- `passengerSeat`、`curtain`（驾驶室与起居室之间的布帘）；
++- `bonnet`：引擎盖，铰链在挡风玻璃下沿，车头一侧掀起 50°；下面是发动机、水箱、电瓶、寒带套件（维修位置见 `VehicleParts.bay`）；
++- `guard`：挡风玻璃栅栏（见 §2）；
++- `doorL` / `doorR`、`windowL` / `windowR`：驾驶室门与门窗；以及驾驶室的各个拉杆开关（`ctl:*`、手套箱、遮阳板，见驾驶室内饰包）；
++- `dress:boards`、`dress:guard`、`dress:guardFront`、`dress:sign`：装饰（见 §2）。
++
++“开营”（URL `camp=1` 或停车后按 O）= `door`、`awning` 打开。
+ 
+ ## 6. 剖面与机位（截图对比要求）
+ 
+-参考作品带一张剖面图，所以我们也要能“剖开”：把**右侧外壁、右侧玻璃、车顶和车顶件**放进一个名为 `cut` 的组，`cutaway=1` 时隐藏它，露出整个车厢。
+-
+-需要的通用能力（对所有车辆有效）：
+-
+-- URL `vehicle=t0_truck|t1_van|t2_offroad|t3_rv`（也接受 `truck|van|offroad|rv`；模型未建的车回退到小货车模型并在控制台 `console.warn` 一次）；
+-- URL `seat=<views 的键>`：镜头放到该座位/机位，`look` 仍然可用；
+-- `view=orbit` + `orbit=yaw,pitch,dist[,targetH]`（度、度、米、米）：绕车外观机位；
+-- `cutaway=1`、`camp=1`、`slots=…`、`cabinlight=1|0`（不设 = 天黑自动开）；
+-- `window.__rt` 上对应的方法（`setSeat`、`setMover`、`setSlots`、`setCutaway`、`setOrbit`），供截图步骤调用。
++剖面：**左侧外壁（方箱与驾驶室）、左侧玻璃、车顶、额头外壳与车顶件**放进 `cut` 组（与参考图一样从左后方剖开），`cutaway=1` 时隐藏。
+ 
+-截图组 `harness/shots/sets/vehicles.json`（1280×720，主要用 `scene=proving`，标注了“世界”的用 `scene=world&seed=7&s=3180`）：
++截图组 `harness/shots/sets/vehicles.json`（`scene=proving`，外观用 40° 的环绕机位）：
+ 
+ | 名称 | 内容 |
+ | --- | --- |
+-| `rv_front34` / `rv_rear34` / `rv_side_left` / `rv_side_right` / `rv_top` | 外观五个角度（orbit） |
+-| `rv_cutaway_side` / `rv_cutaway_34` | 剖面：正右侧视、右前上方 3/4 |
+-| `rv_camp` | 开营状态右前 3/4（门开、遮阳棚展开） |
+-| `rv_driver` / `rv_driver_cruise` / `rv_driver_left` / `rv_driver_down` / `rv_driver_back` | 驾驶位：静止、巡航 60、向左看、向下看（方向盘与仪表）、回头看车厢 |
+-| `rv_passenger` / `rv_overdash` | 副驾、中脊上方 |
+-| `rv_room_front` / `rv_room_rear` / `rv_galley` / `rv_dinette` / `rv_sofa` / `rv_bunk` | 车厢机位与座位 |
+-| `rv_room_empty` | `slots=none`：全是空位木框 |
+-| `rv_room_night` / `rv_driver_night` | 夜里（`time=22`）开车内灯：暖光的车厢；驾驶位夜景 |
+-| `rv_world_front34` / `rv_world_driver` / `rv_world_room_rear` | 世界：外观、驾驶位、从车厢向前看 |
+-| `truck_front34` / `truck_driver` | 小货车对照（外观与驾驶位），确认没变 |
+-
+-并排对比：`harness/shots/compare.py` 增加一种用法（或新写 `harness/shots/sheet.py` 的调用），把 `rv_front34`、`rv_side_right`、`rv_cutaway_side`、`rv_room_rear` 与 `refs/rv-reference/` 里的图并排输出到 `loop/shots/_compare/rv_*.jpg`；文件夹里没有图时跳过并打印一句提示（现在就是这种情况）。
++| `rv_front34` / `rv_rear34` / `rv_side_left` / `rv_side_right` / `rv_top` | 外观（环绕机位） |
++| `rv_cutaway_side` / `rv_cutaway_34` | 剖面：正左侧、左后上方 |
++| `rv_camp`、`rv_night_34` | 开营（门、遮阳棚）；夜里开营 |
++| `rv_driver`、`rv_driver_cruise`、`rv_driver_left`、`rv_driver_down`、`rv_driver_back`、`rv_passenger`、`rv_overdash`、`rv_driver_night` | 驾驶室（发动机运转：栅栏撑起） |
++| `rv_room_front`、`rv_room_rear`、`rv_galley`、`rv_dinette`、`rv_sofa`、`rv_bunk`、`rv_room_empty`、`rv_room_night` | 起居室 |
++| `rv_ref_front34` | 参考图外观的角度：右前方稍高，起居室门开，栅栏放下，车顶槽位全装 |
++| `rv_ref_cutaway` | 参考图剖面的角度：左后上方，剖开，车顶槽位全装 |
++| `rv_ref_model` | 参考白模的角度：右侧偏前、更高，门关，`dress=none`、`slots=none` |
++| `rv_world_*`、`rv_cab_*` | 世界组的三张；驾驶室内饰包的各张 |
++
++对比：`python3 -I harness/shots/compare_rv.py --refs <参考图文件夹>` 把三张 `rv_ref_*` 与参考图的对应部分（彩色图左上的外观、右下的剖面、白模）并排，写到 `loop/shots/_compare/rv_ref_*.jpg`（git 忽略）。参考图只在本机，不提交、不复制到别处。
+ 
+ ## 7. 自动验收（门禁）
+ 
+ Vitest（Node，无浏览器）`harness/sim/vehicle-models.test.ts`，对注册表里每一辆已建模的车：
+ 
+ 1. 能在 Node 里构建（无 `document`）；`VehicleParts` 的必填字段齐全。
+-2. 包围盒：外壳 x、z 范围与本规格第 2 节的尺寸相差 ≤ 0.15 m；房车外壳顶高 2.80–2.95 m（不含车顶件）；与碰撞盒两端的差 ≤ 0.5 m。
++2. 包围盒：外壳 x、z 范围与本规格第 2 节的尺寸相差 ≤ 0.15 m（x −3.93…+3.05，半宽 1.125）；外壳顶高 3.00–3.20 m（含两段加高，不含车顶件）；与碰撞盒两端的差 ≤ 0.5 m。
+ 3. 轮拱：四个车轮在静止位置的包围圆柱（半径 +2 cm、宽 +2 cm）内没有外壳或车内几何的三角形顶点。
+ 4. 眼位：从司机眼位向前半球 9 个方向（正前、上下左右各 10° 与 20°）发射线，命中的第一个东西要么是挡风玻璃、要么距离 > 0.45 m；向正前、向下 5°–20° 的射线穿过玻璃之前不命中车身（方向盘、仪表、雨刷除外）。眼位六个轴向 0.12 m 内没有实体。
+ 5. 每个 `seat: true` 的机位：头部（眼位周围半径 0.11 m 的球）不与任何几何相交；向它的默认朝向 0.3 m 内没有实体。
+-6. 行走区：每个矩形内每隔 0.15 m 取点，从地板以上 0.05 m 到 1.90 m 的竖直线段不与车内几何相交（门内平台与中脊按各自的地板高算）；各矩形连通；过道最窄处 ≥ 0.55 m。
++6. 行走区：每个矩形内每隔 0.15 m 取点，从地板以上 0.05 m 到 1.90 m 的竖直线段不与车内几何相交；各矩形连通；过道最窄处 ≥ 0.55 m（驾驶室在额头铺位下，站不直，不算行走区）。
+ 7. 槽位：id 与本规格第 4 节一致；每个槽位的空位与已装几何都非空，包围盒在车身之内（车顶与车尾槽位除外）。
+ 8. 预算：整车三角形 ≤ 90 000；网格数（draw call 上界，含四个车轮）≤ 32。
+-9. 小货车：三角形数与改动前相同（记录在测试里的常数）。
++9. 小货车：在它自己的预算内（驾驶室内饰包之后 ≤ 23 个网格）；面包车、越野车的画面不因房车的修改而变。
+ 
+ 渲染门禁 `specs/render/vehicles.json`：截图失败 0、控制台报错 0、试车场镜头 draw call ≤ 110、三角形 ≤ 150 000（世界镜头沿用世界组的预算，单列）。
+ `npm run check && npm run measure && npm test && npm run judge` 全绿；`driving` 截图组全绿。
+diff --git a/src/game/vehicle/rv.ts b/src/game/vehicle/rv.ts
+index c422706..969e6c5 100644
+--- a/src/game/vehicle/rv.ts
++++ b/src/game/vehicle/rv.ts
+@@ -99,8 +99,8 @@ export const DIM = {
+ } as const;
+ 
+ // paint (STYLE.md: a few mixed paints)
+-const BODY = 0xe6d2a8;
+-const CAP = 0xefe6da;
++const BODY = 0xe8cca2;
++const CAP = 0xf1e5d6;
+ const BROWN = 0x8a6a52;
+ const ORANGE = 0xdd7a3a;
+ const DARK = 0x393d45;
+@@ -223,7 +223,7 @@ export function buildRV(spec: VehicleSpec): VehicleParts {
+     k.hull.prism('xy', cabOutline, [cabDoorHole, quarter()], s * cSkin, s * CW, BODY);
+     const lx = D.dash.x0 + 0.2;
+     const lin: Outline = [[D.boxFront + 0.03, y(0.58)], [frontAxle - D.arch.half, y(0.58)], ...archPts(frontAxle, D.arch.half, y(D.arch.centre)).filter(([x, yy]) => yy > y(0.58) && x < lx), [lx, y(archTop(lx, frontAxle))], [lx, y(D.glassFoot.h - 0.1)], [D.glassFoot.x - 0.06, y(D.glassFoot.h)], [D.glassHead.x - 0.04, y(D.glassHead.h)], [D.glassHead.x - 0.04, y(D.overcab.under)], [D.boxFront + 0.03, y(D.overcab.under)]];
+-    k.room.prism('xy', lin, [cabDoorHole, quarter()], s * cIn, s * cSkin, LINING);
++    k.room.prism('xy', lin, [cabDoorHole, quarter()], s * cIn, s * cSkin, 0xd9bf98);
+     k.room.prism('xy', quarter(0.025), [quarter()], s * cIn, s * (cIn - 0.01), DARK);
+     // the nose's round corner and the A-pillar along the glass
+     k.hull.hull(cornerSolid(cornerArc(D.nose - noseCorner, CW - noseCorner, noseCorner, 1, s), y(D.bottom), y(D.bonnet.h1)), BODY);
+@@ -505,7 +505,7 @@ export function buildRV(spec: VehicleSpec): VehicleParts {
+     for (const [z, wd] of [[-0.62, 0.07], [-0.46, 0.09], [-0.3, 0.07]] as [number, number][]) cab.box(2.08, y(0.74), z, 0.03, 0.1, wd, DARK, { rz: 0.5 });
+     cab.span(dsh.x0 - 0.002, dsh.x0, y(0.99), y(1.14), 0.44, 0.86, DARK); // the glovebox's opening (its lid is posed)
+     // the cab's ceiling (the bunk's underside), the header over the glass, the centre mirror
+-    cab.span(D.boxFront + 0.03, D.glassHead.x, y(D.overcab.under) - 0.02, y(D.overcab.under), -cIn, cIn, CEIL);
++    cab.span(D.boxFront + 0.03, D.glassHead.x, y(D.overcab.under) - 0.02, y(D.overcab.under), -cIn, cIn, 0xa98463); // a warm headliner (the bunk's underside)
+     cab.span(D.glassHead.x - 0.06, D.glassHead.x + 0.02, y(D.glassHead.h - 0.02), y(D.overcab.under), -cIn, cIn, LINING);
+     cab.box(1.73, y(2.06), 0, 0.03, 0.07, 0.26, DARK);
+     cab.bar(1.74, y(2.09), 0, 1.75, y(D.overcab.under - 0.02), 0, 0.02, DARK);
+@@ -844,22 +844,22 @@ export function buildRV(spec: VehicleSpec): VehicleParts {
+     const sign = new ModelBuilder();
+     {
+       const oc = D.overcab;
+-      const c = new THREE.Vector3((oc.x + oc.side) / 2 + 0.03, y(2.62), (BW + (BW - oc.chamfer)) / 2 + 0.03);
++      const c = new THREE.Vector3((oc.x + oc.side) / 2 + 0.07, y(2.6), (BW + (BW - oc.chamfer)) / 2 + 0.07);
+       const yaw = -Math.atan2(oc.chamfer, oc.x - oc.side); // facing out of the chamfer, forward and right
+       sign.within(new THREE.Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new THREE.Matrix4().makeRotationY(yaw + Math.PI / 2)), () => {
+         // in this frame the sign faces +z
+-        sign.cyl(0, 0, 0, 0.28, 0.02, 0xefe6da, { rx: Math.PI / 2, rz: Math.PI / 8, segments: 8 });
+-        sign.cyl(0, 0, 0.012, 0.25, 0.008, STOP_RED, { rx: Math.PI / 2, rz: Math.PI / 8, segments: 8 });
++        sign.cyl(0, 0, 0, 0.22, 0.02, 0xefe6da, { rx: Math.PI / 2, rz: Math.PI / 8, segments: 8 });
++        sign.cyl(0, 0, 0.012, 0.195, 0.008, STOP_RED, { rx: Math.PI / 2, rz: Math.PI / 8, segments: 8 });
+         // four blocky letters, pixel by pixel (3 × 5)
+         const font: Record<string, string[]> = { S: ['111', '100', '111', '001', '111'], T: ['111', '010', '010', '010', '010'], O: ['111', '101', '101', '101', '111'], P: ['111', '101', '111', '100', '100'] };
+-        const px = 0.026;
++        const px = 0.02;
+         'STOP'.split('').forEach((L, i) => {
+           const ox = (i - 1.5) * px * 4;
+           font[L].forEach((row, r) => row.split('').forEach((cbit, c2) => {
+             if (cbit === '1') sign.box(ox + (c2 - 1) * px, (2 - r) * px, 0.018, px * 0.92, px * 0.92, 0.006, 0xefe6da);
+           }));
+         });
+-        for (const [bx, by] of [[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2]]) sign.box(bx * 0.95, by * 0.95, 0.018, 0.02, 0.02, 0.008, CHROME); // bolts
++        for (const [bx, by] of [[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2]]) sign.box(bx * 0.75, by * 0.75, 0.018, 0.02, 0.02, 0.008, CHROME); // bolts
+       });
+     }
+     dress(bodyParts, 'sign', sign);
+-- 
+2.47.3
+

@@ -1,0 +1,19 @@
+{
+  "set": "onfoot",
+  "note": "The player base (docs/DESIGN_V2.md 6): on foot by the truck, the test yard (?fixture=1, src/core/onfoot/testbed.ts) with its crate, toolbox, fuel tank and loose things; the lake shore is seed 7's lake on the right at s=3203 (water from about 73 m out).",
+  "base": "shot=1&seed=20261113&s=60&fixture=1&time=15.5&weather=clear",
+  "shots": [
+    { "name": "by_truck", "params": "onfoot=door", "steps": [{ "call": "footTurn", "args": [180, -8] }, { "call": "footWalk", "args": [1.2, -1, 0] }, { "call": "footTurn", "args": [-12, -6] }] },
+    { "name": "yard", "params": "onfoot=yard:-1.2,1.0,35&footpitch=-14" },
+    { "name": "crate_prompt", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }] },
+    { "name": "crate_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }] },
+    { "name": "siphon", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:tank"] }, { "call": "footHold", "args": [6, false] }] },
+    { "name": "jerrycan_hand", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footTurn", "args": [-100, -4] }, { "call": "footWalk", "args": [0.6, 1, 0] }] },
+    { "name": "carry_tyre", "params": "onfoot=yard:5.3,4.4,0", "steps": [{ "call": "footFaceThing", "args": ["yard:7"] }, { "call": "footUse" }, { "call": "footTurn", "args": [150, -6] }, { "call": "footWalk", "args": [0.8, 1, 0] }] },
+    { "name": "backpack_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:0"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:1"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }, { "call": "footHold", "args": [1.2] }, { "call": "footPack", "args": [true] }] },
+    { "name": "on_platform", "params": "onfoot=yard:4.2,6.6,200&footpitch=-18" },
+    { "name": "lake_shore", "params": "seed=7&s=3190&onfoot=road:3203,68,90&footpitch=-6&time=17" },
+    { "name": "swimming", "params": "seed=7&s=3190&onfoot=road:3203,96,60&footpitch=-2&time=17" },
+    { "name": "night_cab", "params": "onfoot=door&time=22&cabinlight=1", "steps": [{ "call": "footTurn", "args": [180, -10] }, { "call": "footWalk", "args": [1.0, -1, 0] }, { "call": "footTurn", "args": [-15, -8] }] }
+  ]
+}

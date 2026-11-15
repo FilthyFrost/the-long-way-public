@@ -1,0 +1,48 @@
+{
+  "set": "style",
+  "note": "Fixed cameras for comparing the look with the references in refs/targets/ (specs/art/STYLE.md §9). hood = the driver's eye with the truck hidden, the closest match to the reference cameras.",
+  "base": "scene=world&shot=1&seed=7&weather=clear",
+  "shots": [
+    {
+      "name": "plains_hood_15h5",
+      "params": "view=hood&s=300&time=15.5",
+      "ref": "pv_drive_15h5.jpg"
+    },
+    {
+      "name": "plains_hood_18h8",
+      "params": "view=hood&s=300&time=18.8",
+      "note": "golden hour: our own light (the reference clock differs), judged for theme and light, not scored for distance"
+    },
+    {
+      "name": "plains_slope_15h5",
+      "params": "view=hood&s=3180&time=15.5",
+      "look": [
+        -1.1,
+        -0.04
+      ],
+      "ref": "pv_slope_15h5.jpg"
+    },
+    {
+      "name": "plains_wide_14h",
+      "params": "view=hood&s=760&time=14",
+      "look": [
+        0.55,
+        -0.02
+      ],
+      "ref": "cover.jpg"
+    },
+    {
+      "name": "plains_cockpit_15h5",
+      "params": "view=cockpit&s=300&time=15.5",
+      "ref": "pv_drive_15h5.jpg"
+    },
+    {
+      "name": "desert_hood_11h",
+      "params": "view=hood&s=12000&time=11"
+    },
+    {
+      "name": "alpine_hood_13h",
+      "params": "view=hood&s=26000&time=13"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "id": "sky",
+  "system": "image",
+  "title": "曝光与阴影色调 · 时段与天气截图组",
+  "source": "方案第 12 节（曝光：无死黑、无大面积过曝，夜晚可读）与第 13 节（阴影偏冷且保留色度）。阈值为初始估计，待人类校准。",
+  "metrics": {
+    "images": {
+      "label": "参与评估的截图数",
+      "unit": "张",
+      "min": 12
+    },
+    "max_black_pct": {
+      "label": "单张死黑像素占比上限",
+      "unit": "%",
+      "max": 12
+    },
+    "max_white_pct": {
+      "label": "单张过曝像素占比上限",
+      "unit": "%",
+      "max": 8
+    },
+    "night_min_world_luma": {
+      "label": "夜景画面中部平均亮度下限（可读）",
+      "unit": "",
+      "min": 0.12
+    },
+    "night_max_world_luma": {
+      "label": "夜景画面中部平均亮度上限（仍然是夜）",
+      "unit": "",
+      "max": 0.55
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "set": "fishing",
+  "note": "Fishing (docs/DESIGN_V2.md 8.4) from the end of seed 7's jetty (the place at s≈3195 on the right; the stand point is harness/sim/fishing.ts jetty()). A robot angler holds the rod for the beats after the first.",
+  "base": "shot=1&seed=7&s=3170&time=11&weather=clear&onfoot=world:3060.77,-401.81,58&footpitch=-16",
+  "shots": [
+    { "name": "shadows", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "footTurn", "args": [0, -26] }] },
+    { "name": "cast", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 3] }, { "call": "fishRun", "args": [20, "flight"] }, { "call": "fishRun", "args": [0.3] }] },
+    { "name": "float", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 3] }, { "call": "fishRun", "args": [20, "waiting"] }, { "call": "fishRun", "args": [2] }] },
+    { "name": "float_under", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 3] }, { "call": "fishRun", "args": [90, "bite"] }, { "call": "fishRun", "args": [0.12] }] },
+    { "name": "fight", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 3] }, { "call": "fishRun", "args": [90, "fight"] }, { "call": "fishRunning", "args": [30] }] },
+    { "name": "catch", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 3] }, { "call": "fishRun", "args": [150, "shown"] }, { "call": "fishRun", "args": [0.5] }] },
+    { "name": "dusk", "params": "time=18.6", "steps": [{ "call": "footGive", "args": ["tool.rod"] }, { "call": "fishRun", "args": [12] }, { "call": "fishBot", "args": ["competent", 5] }, { "call": "fishRun", "args": [20, "waiting"] }, { "call": "fishRun", "args": [2] }] }
+  ]
+}

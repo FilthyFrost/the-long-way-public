@@ -1,0 +1,1 @@
+28d6aaa5489e57f5a69855d8bf1716034f1c8349 2026-11-14 02:12:07 -0800 WIP snapshot of the main checkout (not gated): palette slots, roadside places, fauna, docs

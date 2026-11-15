@@ -1,0 +1,21 @@
+{
+  "id": "default",
+  "system": "audio",
+  "title": "声音混音映射",
+  "source": "方案第 10 节（发动机音高跟转速和负载、风噪跟速度）与第 12 节（关上车后外部风雨声衰减、车顶雨声出现）。分贝阈值为初始估计，待人类试听校准。",
+  "metrics": {
+    "audio_engine_hz_idle": { "label": "怠速点火频率", "unit": "Hz", "min": 15, "max": 30 },
+    "audio_engine_hz_redline": { "label": "红线点火频率", "unit": "Hz", "min": 120, "max": 180 },
+    "audio_non_monotonic": { "label": "音高或风噪随转速/车速不单调的次数", "unit": "次", "max": 0 },
+    "audio_values_out_of_range": { "label": "越界或非有限的混音值", "unit": "个", "max": 0 },
+    "audio_enclosed_wind_drop_db": { "label": "封闭车厢对风声的衰减", "unit": "dB", "min": 8 },
+    "audio_enclosed_rain_drop_db": { "label": "封闭车厢对外部雨声的衰减", "unit": "dB", "min": 8 },
+    "audio_roof_rain_open": { "label": "敞篷时车顶雨声（应为 0）", "unit": "", "max": 0 },
+    "audio_roof_rain_enclosed": { "label": "封闭车厢里车顶雨声", "unit": "", "min": 0.2 },
+    "audio_engine_off_gain": { "label": "熄火时发动机声", "unit": "", "max": 0 },
+    "audio_starter_gain_cranking": { "label": "起动机转动时的音量", "unit": "", "min": 0.1 },
+    "audio_thump_gain_kerb": { "label": "过路沿（路感 0.6）的咚声", "unit": "", "min": 0.3 },
+    "audio_shift_engine_sag": { "label": "换挡瞬间发动机音量 / 不换挡", "unit": "", "min": 0.6, "max": 0.9, "note": "听得见的换挡" },
+    "audio_horn_detune_ratio": { "label": "怪癖喇叭变调的音高比", "unit": "", "max": 0.8 }
+  }
+}

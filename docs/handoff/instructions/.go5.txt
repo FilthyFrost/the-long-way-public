@@ -1,0 +1,20 @@
+现在换回 Fable 5.2（max 思考）接手。用户给了新的设计输入，请先认真研究这些参考，制定详细方案，然后自己执行，全程自我迭代，不需要等待人工确认。
+
+【设计输入】
+1. 用户最新的游戏设计文档（大纲，以它为准）：https://github.com/FilthyFrost/the-long-way-design/blob/main/GAME_DESIGN.md （gh 已登录，可以直接 clone FilthyFrost/the-long-way-design，或者用 raw 链接读）。游戏的节奏、大目标、小目标，以及做菜、狩猎、钓鱼、照相、建造、采集、改造车、音乐等所有系统，都必须按这份大纲来设计。
+2. 世界观和超现实感参考 Simon Stålenhag：https://www.simonstalenhag.se/new/es.html 。注意这里只参考氛围、题材和世界观（巨物、废弃科技与自然共存的那种超现实感），画面的美术风格和渲染不跟它走。
+3. 美术风格和渲染保持不变：继续以 Painted Valley（https://patch.gg/blendi/painted-valley/files）和 https://www.artstation.com/artwork/1NKWJK 为准，也就是吉卜力式的手绘动漫卡通风格。specs/art/STYLE.md 已经定下的东西不要偏离。
+4. 驾驶手感、房车机制和改造参考游牧车旅 Nomad Drive：https://store.steampowered.com/app/2223980/ 。房车本身的设计，包括每种车的驾驶手感、内饰和改造，还要多参考 OUTBOUND 和 Arctic Drive。
+
+【核心原则：移植 3A 精华，不要凭空设计】
+对大纲里提到的每一个玩法模块，都要找出业界公认做得最好的知名游戏，研究清楚它最好玩的核心机制（核心循环、操作、反馈、数值和节奏），再在不偏离我们美学风格和公路旅行主题的前提下移植、拼接进来。例如：
+- 钓鱼：参考公认最好的钓鱼玩法（比如 Dredge、星露谷、塞尔达、动森、Fishing Planet 之类，你自己判断哪个最好）。
+- 做菜：参考塞尔达传说（旷野之息 / 王国之泪）和动森。
+- 生存：参考七日杀，但我们是轻度、温馨的生存。
+- 狩猎、照相、建造、采集、音乐、改造车等也一样，每个都要找到对标的顶级游戏。
+目标是让公路旅行的内容和玩法极其有趣和丰富。
+
+【执行步骤】
+1. 研究上面所有参考，读完设计文档，在 docs/ 下写一份详细的设计方案 DESIGN_V2.md，同时更新方案 artifact。方案里每个系统都要写清楚：对标哪款游戏、移植它的哪个机制、怎样适配我们的游戏、具体数值和节奏、实现优先级。还要单独写一章车辆设计：每种车的驾驶手感参数、内饰布局，以及改造树。
+2. 方案定下来以后，按优先级用 HTML5 + Three.js（不要用 Godot）实现，同时保持现有的美术规格。先做车辆驾驶手感和内饰（对标 Nomad Drive、OUTBOUND、Arctic Drive），然后按方案的里程碑逐个实现各个玩法系统。
+3. 继续用现有的 loop：测试、截图对比、独立评审，不断自我改进。定期 git commit，并把进度写进 docs/PLAN.md 和方案 artifact。

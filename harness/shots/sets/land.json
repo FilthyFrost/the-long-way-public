@@ -1,0 +1,19 @@
+{
+  "set": "land",
+  "note": "Kinds of country (docs/DESIGN_V2.md §4.5): seed 7 from the plains — a hillside (high on the right) at s=5000–6250, valleys round it, a canyon from s=12500 in the dry country; seed 7 from the mountains — valleys to s=5000, a hillside after; seed 11 — a ridge at s=12500–13750.",
+  "base": "scene=world&shot=1&weather=clear",
+  "shots": [
+    { "name": "hillside_low_side", "params": "seed=7&view=hood&s=5600&time=15", "look": [-0.9, -0.08] },
+    { "name": "hillside_ahead", "params": "seed=7&view=cockpit&s=5500&time=15" },
+    { "name": "hillside_high_side", "params": "seed=7&view=hood&s=5700&time=10", "look": [0.9, 0.06] },
+    { "name": "valley_ahead", "params": "seed=7&view=hood&s=6800&time=14" },
+    { "name": "canyon_ahead", "params": "seed=7&view=cockpit&s=13100&time=16" },
+    { "name": "canyon_side", "params": "seed=7&view=hood&s=13400&time=11", "look": [0.8, 0.12] },
+    { "name": "ridge_ahead", "params": "seed=11&view=hood&s=13100&time=17.5" },
+    { "name": "ridge_side", "params": "seed=11&view=hood&s=13200&time=14", "look": [-1.0, -0.1] },
+    { "name": "alpine_valley", "params": "seed=7&biome=alpine&view=cockpit&s=3600&time=13" },
+    { "name": "alpine_hillside", "params": "seed=7&biome=alpine&view=hood&s=5600&time=15", "look": [-0.9, -0.1] },
+    { "name": "plains_far_ranges", "params": "seed=7&view=hood&s=9400&time=12", "look": [0.5, 0.04] },
+    { "name": "desert_far_ranges", "params": "seed=7&biome=desert&view=hood&s=2600&time=17", "look": [-0.6, 0.03] }
+  ]
+}

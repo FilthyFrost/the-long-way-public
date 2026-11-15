@@ -1,0 +1,111 @@
+{
+  "system": "render",
+  "id": "style",
+  "metrics": {
+    "shots_total": 7,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 265,
+    "max_triangles": 1130711
+  },
+  "shots": {
+    "plains_hood_15h5": {
+      "ok": true,
+      "ms": 23708,
+      "errors": [],
+      "calls": 239,
+      "triangles": 1115023,
+      "programs": 18,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "plains_hood_18h8": {
+      "ok": true,
+      "ms": 22843,
+      "errors": [],
+      "calls": 242,
+      "triangles": 1130711,
+      "programs": 18,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "plains_slope_15h5": {
+      "ok": true,
+      "ms": 20977,
+      "errors": [],
+      "calls": 198,
+      "triangles": 948450,
+      "programs": 18,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "plains_wide_14h": {
+      "ok": true,
+      "ms": 21223,
+      "errors": [],
+      "calls": 213,
+      "triangles": 888833,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "plains_cockpit_15h5": {
+      "ok": true,
+      "ms": 21634,
+      "errors": [],
+      "calls": 265,
+      "triangles": 1123365,
+      "programs": 27,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "desert_hood_11h": {
+      "ok": true,
+      "ms": 17026,
+      "errors": [],
+      "calls": 184,
+      "triangles": 289608,
+      "programs": 16,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "desert",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "alpine_hood_13h": {
+      "ok": true,
+      "ms": 18114,
+      "errors": [],
+      "calls": 230,
+      "triangles": 633578,
+      "programs": 18,
+      "kmh": 0.1,
+      "exploded": false,
+      "biome": "alpine",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

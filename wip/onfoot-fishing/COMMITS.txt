@@ -1,0 +1,8 @@
+8f9413532f6f132a28667683a77de071bc232b20 2026-11-14 11:48:20 -0800 Merge branch 'dev/m1' into worktree-agent-a06f45e805e4ac32c
+f18466615fbbea1f428d7d88dbcc0e50540d9f15 2026-11-14 10:53:13 -0800 Merge branch 'dev/m1' into worktree-agent-a06f45e805e4ac32c
+7c1d959166c73855ca2399dc498b87c634d3dac7 2026-11-14 06:18:05 -0800 Fishing core (F2): species by water / time / weather, shadows, cast, bite, fight, catch
+628ae0c85230ce30a9882aca0a9e47a3412ba3c7 2026-11-14 06:14:40 -0800 The truck's open bed and cargo places (core/onfoot/cargo.ts)
+c5ce238c4653a042814d7437c0d8fa9dd45a4084 2026-11-14 06:04:43 -0800 Motorhome: E from a seat next to a door (the cab's two) gets you straight out; inner seats still stand you up (doorWithin)
+3afea087f9dc63e75316f190f974950673e16b64 2026-11-14 06:03:19 -0800 Spatial index for loose things and containers: a 16 m cell grid (items/grid.ts), lookups by key / id in maps; Containers.near(); the items view asks the grid
+ef2729fd323e515caa184fa1d8b33ab5b6f8ca8b 2026-11-14 06:01:14 -0800 Backpack panel readable at 720p (16 px labels, bigger slots); the car's key, lever and manual keys do nothing on foot
+e196b70f0e1e0463b2918715f09e9483285a9a1b 2026-11-14 21:56:56 +0800 Siphoning needs the hose: without tool.siphon the word says 缺抽油管

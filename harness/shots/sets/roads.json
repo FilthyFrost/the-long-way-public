@@ -1,0 +1,15 @@
+{
+  "set": "roads",
+  "note": "What the old road carries along its edges (docs/DESIGN_V2.md 4.5, W4): delineators, guard rails up to bridges and round the outside of bends, chevron boards, kilometre stones. Default seed.",
+  "base": "scene=world&shot=1&weather=clear",
+  "shots": [
+    { "name": "bridge_rails", "params": "biome=alpine&view=hood&s=3148&time=10" },
+    { "name": "bridge_rails_plains", "params": "biome=plains&view=orbit&orbit=-58,9,30,2&s=3232&time=15" },
+    { "name": "bend_chevrons", "params": "biome=alpine&view=cockpit&s=2470&time=11" },
+    { "name": "ledge_rails", "params": "biome=alpine&view=hood&s=8830&time=16.5" },
+    { "name": "rail_dusk", "params": "biome=alpine&view=hood&s=4850&time=19.3" },
+    { "name": "km_stone", "params": "biome=plains&view=hood&s=2982&time=9.5", "look": [0.45, -0.08] },
+    { "name": "posts_forest", "params": "biome=forest&view=cockpit&s=1500&time=17.5" },
+    { "name": "rail_close", "params": "biome=alpine&s=4690&onfoot=road:4692,1.5,18&footpitch=-4&time=13" }
+  ]
+}

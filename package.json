@@ -1,0 +1,32 @@
+{
+  "name": "road-trip-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Cozy post-apocalyptic co-op road trip — HTML5 + Three.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "measure": "tsx harness/sim/measure.ts",
+    "shots": "node harness/shots/run.mjs",
+    "judge": "node harness/judge/judge.mjs",
+    "loop:fast": "npm run check && npm run measure && npm test && npm run judge",
+    "style": "node harness/shots/run.mjs style && python3 -I harness/shots/compare.py style && python3 -I harness/judge/style_compare.py --set style --ref refs/targets/painted-valley --ref refs/artstation-1NKWJK"
+  },
+  "dependencies": {
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/three": "0.187.0",
+    "playwright-core": "^1.65.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  }
+}

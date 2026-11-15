@@ -1,0 +1,514 @@
+/**
+ * The world as one pure height function built around the road.
+ *
+ *   on the road        exact road plane (elevation + banking)
+ *   verge (≈ 5–30 m)   blends from road level into the land, with a shallow ditch
+ *   land               road base elevation + biome relief; the relief fades in with distance
+ *                      from the road, big landforms only appear well away from it
+ *
+ * Wheels, meshes and object placement all call this, so the road always fits the land and what
+ * you see is what you drive on.
+ */
+import { fbm2, ridged2, simplex2 } from '../math/noise';
+import { hash2 } from '../math/rng';
+import { smoothstep } from '../math/util';
+import { BIOMES, type BiomeDef } from './biomes';
+import { GroundSample, SURFACES, Surface, type Ground } from './ground';
+import { Furniture } from './furniture';
+import { LandParams, LandformPlan } from './landform';
+import { quietSlot } from './quiet';
+import { SeaEffect, SeaPlan } from './sea';
+import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
+import { BiomeBlend, RoadSpine, SpineSample, type SpineOptions } from './spine';
+import { DECK_HALF, KERB_AT, KERB_HEIGHT, WaterEffect, WaterPlan, type River } from './water';
+
+/** half width of the paved surface (m) */
+export const ROAD_HALF = 3.25;
+/** outer edge of the gravel shoulder (m from the centre line) */
+export const ROAD_EDGE = 4.5;
+/** beyond this distance from the road the cheaper far-field formula is used */
+const NEAR_FIELD = 200;
+/** how far a bridge deck stands proud of the road at its ends, and the joint over a beam bridge's pier (m) */
+export const DECK_PROUD = 0.015;
+export const PIER_JOINT_DEPTH = 0.012;
+export const PIER_JOINT_HALF = 0.16;
+
+export class TerrainPoint {
+  h = 0;
+  /** arc length and signed lateral offset (+ = right) of the nearest road point */
+  s = 0;
+  d = 0;
+  roadY = 0;
+  bank = 0;
+  phi = 0;
+  grade = 0;
+  /** biome mix: indices and blend factor (0 = all a) */
+  ba = 0;
+  bb = 0;
+  bt = 0;
+  /** the chapters those two biomes belong to */
+  ca = 0;
+  cb = 0;
+  /** 0 land, 1 paved road, 2 shoulder, 3 the edge of a bridge deck */
+  zone = 0;
+  /** height of the land above the road base (m): used for colouring (snow line, rock) */
+  relief = 0;
+  /**
+   * The land to draw. It is `h` everywhere except where the wheels' surface is something laid over
+   * the land: under a bridge deck (the river bed) and under the ice of a frozen lake.
+   */
+  bed = 0;
+  /** water level standing over (or lapping beside) this point; −Infinity where there is none */
+  wl = -Infinity;
+  /** that water: 0 open … 1 frozen; 1 lake, 2 river, 3 the sea */
+  frozen = 0;
+  wkind = 0;
+  /** rivers: metres along the river from its bridge, and across from its centre line */
+  wt = 0;
+  wlat = 0;
+  /** how fully this point lies on a bridge span, 0…1 */
+  bridge = 0;
+  /** how fully it lies on the levelled ground of a place by the road, 0…1; and what that ground is (0 gravel, 1 concrete) */
+  site = 0;
+  siteGround = 0;
+}
+
+function smax(a: number, b: number, k: number): number {
+  const d = k - (a > b ? a - b : b - a);
+  if (d <= 0) return a > b ? a : b;
+  return (a > b ? a : b) + (d * d * 0.25) / k;
+}
+
+/**
+ * Mountains with a designed shape on a grid of cells of size C: 0…1.
+ * shape 0 = rounded (broad shoulders, a soft top), 1 = a pyramid with three or four buttresses,
+ * 2 = a table with steep sides. Neighbours merge softly, so a row of them reads as one range.
+ */
+function peakField(x: number, z: number, seed: number, C: number, shape: number): number {
+  const ci = Math.floor(x / C);
+  const cj = Math.floor(z / C);
+  let h = 0;
+  for (let dj = -1; dj <= 1; dj++) {
+    for (let di = -1; di <= 1; di++) {
+      const hh = hash2(ci + di, cj + dj, seed);
+      if ((hh & 0xff) > 150) continue;
+      const px = (ci + di + 0.15 + 0.7 * (((hh >>> 8) & 0xff) / 255)) * C;
+      const pz = (cj + dj + 0.15 + 0.7 * (((hh >>> 16) & 0xff) / 255)) * C;
+      const rad = C * (0.75 + 0.5 * (((hh >>> 24) & 0xff) / 255));
+      const dx = x - px;
+      const dz = z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= rad * rad) continue;
+      const k = 1 - Math.sqrt(d2) / rad;
+      const tall = 0.45 + 0.55 * (((hh >>> 4) & 0xf) / 15);
+      let v: number;
+      if (shape === 1) {
+        const nb = 3 + ((hh >>> 12) & 1);
+        v = Math.pow(k, 1.12) * (1 + 0.2 * Math.cos(nb * Math.atan2(dz, dx) + (hh & 7)) * (1 - k));
+      } else if (shape === 2) {
+        v = smoothstep(0, 0.22, k) * (0.85 + 0.15 * k);
+      } else {
+        v = k * k * (3 - 2 * k) * 0.8 + 0.2 * k;
+      }
+      h = smax(h, v * tall, 0.1);
+    }
+  }
+  return h;
+}
+
+export class World implements Ground {
+  readonly spine: RoadSpine;
+  readonly seed: number;
+  /** weather state that changes grip: 0…1 */
+  wetness = 0;
+  snowCover = 0;
+
+  private readonly p0 = new SpineSample();
+  private readonly p1 = new SpineSample();
+  private readonly bl = new BiomeBlend();
+  private readonly tp = new TerrainPoint();
+  private readonly tq = new TerrainPoint();
+  /** where the road runs along the coast */
+  readonly sea: SeaPlan;
+  private readonly se = new SeaEffect();
+  /** lakes, rivers and the bridges over them */
+  readonly water: WaterPlan;
+  /** what kind of country each stretch runs through */
+  readonly land: LandformPlan;
+  /** the places beside the road, and what lies on its verges */
+  readonly sites: SitePlan;
+  /** what the road carries along its edges: delineators, guard rails, chevrons, kilometre stones */
+  readonly furniture: Furniture;
+  private readonly lp = new LandParams();
+  private readonly we = new WaterEffect();
+  private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
+
+  constructor(seed: number, opts: SpineOptions = {}) {
+    this.seed = seed | 0;
+    this.spine = new RoadSpine(seed, opts);
+    this.sea = new SeaPlan(this.spine, this.seed);
+    this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
+    this.land = new LandformPlan(
+      this.spine,
+      this.seed,
+      (k) => this.water.diceOf(k),
+      (k) => this.sea.coastOf(k)?.side ?? 0,
+      (k) => this.quiet(k),
+    );
+    this.sites = new SitePlan(this, new TerrainPoint(), this.seed);
+    this.furniture = new Furniture(this, new TerrainPoint(), this.seed);
+  }
+
+  /** is stretch k one of the journey's quiet ones? (quiet.ts: no place, no lake, no bridge, no landmark there) */
+  quiet(k: number): boolean {
+    return quietSlot(this.spine, this.seed, k);
+  }
+
+  private relief(b: BiomeDef, bi: number, x: number, z: number, g1: number, lat: number, farK: number, coarse = false): number {
+    const seed = this.seed + bi * 7919;
+    let r = 0;
+    if (g1 > 0) {
+      r += (b.nearAmp * fbm2(x / b.nearLen, z / b.nearLen, seed + 1, 3) + b.detailAmp * fbm2(x / b.detailLen, z / b.detailLen, seed + 2, 2)) * g1;
+    }
+    const g2 = smoothstep(b.farStart, b.farEnd, lat);
+    if (g2 > 0) {
+      let f: number;
+      if (b.farShape === 1) {
+        // the near ranges of the high country: pyramids at two sizes, standing in rows a slow noise lays out
+        // (clean flanks and ridges: noise ridges only alias into needles on the far ring's grid)
+        const row = smoothstep(-0.35, 0.3, fbm2(x / (b.farLen * 1.6), z / (b.farLen * 1.6), seed + 3, 2));
+        f = (0.7 * peakField(x, z, seed + 5, 2300, 1) + 0.32 * peakField(x + 600, z + 900, seed + 6, 1100, 1)) * (0.35 + 0.65 * row);
+        if (!coarse) f += 0.05 * fbm2(x / 400, z / 400, seed + 4, 2);
+        if (f < 0) f = 0;
+      } else if (b.farShape === 2) {
+        // mesas: flat tops, steep sides, scattered over a level floor
+        const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 3);
+        const top = smoothstep(0.1, 0.19, n);
+        f = top * (0.8 + 0.2 * fbm2(x / 160, z / 160, seed + 4, 2)) + 0.05 * smoothstep(-0.1, 0.1, n);
+      } else {
+        const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 4);
+        const k = smoothstep(-0.3, 0.75, n);
+        f = k * k;
+      }
+      // ranges grow taller the further they stand from the road: layer behind layer to the horizon
+      r += b.farAmp * f * g2 * farK * (1 + 0.5 * smoothstep(1500, 5500, lat));
+    }
+    // Ranges on the skyline, kilometres back. Each is a row of mountains with a designed shape —
+    // rounded in the hills, pyramids in the high country, tables in the dry — big enough for the far
+    // ring's grid to draw cleanly, standing where a slow noise puts them with open sky between.
+    const g3 = smoothstep(2600, 7500, lat);
+    if (g3 > 0) {
+      const ms = this.seed + 0x3a55;
+      const broad = smoothstep(-0.1, 0.45, fbm2(x / 15000, z / 15000, ms + 1, 2));
+      if (broad > 0) {
+        const big = peakField(x, z, ms + 11, 5200, b.farShape);
+        const small = peakField(x + 1700, z - 900, ms + 12, 2600, b.farShape);
+        r += b.massifAmp * broad * (0.85 * big + 0.35 * small + 0.06) * g3;
+      }
+      r += this.giantPeaks(x, z) * g3;
+    }
+    return r;
+  }
+
+  /**
+   * Giant peaks: at most one per 16 km world cell (about half the cells), 2.4–3 km high and some 6 km
+   * across at the foot, rugged on top — snow-capped landmarks on the skyline that stay in view for
+   * many minutes of driving. Only where the land is already far from the road (the caller fades them
+   * in with the distance from the road), so the road never climbs one.
+   */
+  private giantPeaks(x: number, z: number): number {
+    const C = 16000;
+    const ci = Math.floor(x / C);
+    const cj = Math.floor(z / C);
+    let h = 0;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const hh = hash2(ci + di, cj + dj, this.seed + 0x9ea7);
+        if ((hh & 0xff) > 128) continue;
+        const px = (ci + di + 0.2 + 0.6 * ((hh >>> 8) & 0xff) / 255) * C;
+        const pz = (cj + dj + 0.2 + 0.6 * ((hh >>> 16) & 0xff) / 255) * C;
+        const rad = 5200 + 1800 * ((hh >>> 24) & 0xff) / 255;
+        const dx = x - px;
+        const dz = z - pz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rad * rad) continue;
+        const k = 1 - Math.sqrt(d2) / rad;
+        const height = 2400 + 600 * (((hh >>> 4) & 0xf) / 15);
+        // a broad foot steepening to the top, with three or four great buttresses: one clean shape
+        const nb = 3 + ((hh >>> 13) & 1);
+        const butt = 1 + 0.2 * Math.cos(nb * Math.atan2(dz, dx) + (hh & 7)) * (1 - k);
+        h = Math.max(h, height * k * k * (3 - 2 * k) * Math.pow(k, 0.35) * butt);
+      }
+    }
+    return h;
+  }
+
+  /**
+   * Full description of the ground at (x, z).
+   * @param coarse for the far terrain ring only: leaves out the small near-field relief (metres high,
+   *   tens of metres long), which those 128–256 m grids could not show anyway — a quarter of the cost
+   */
+  shape(x: number, z: number, o: TerrainPoint, coarse = false): void {
+    const sp = this.spine;
+    const p = this.p0;
+    const s0 = sp.sAtX(x);
+    // The places by the road level the ground they stand on. They are laid out stretch by stretch the
+    // first time the land there is asked about — here, before anything of this call is held in the
+    // scratch values, because laying out asks the land in its turn.
+    if (!coarse) this.sites.ensure(Math.floor(s0 / SITE_SLOT));
+    sp.at(s0, p);
+    const cs0 = Math.cos(p.phi);
+    const sn0 = Math.sin(p.phi);
+    const dzl = z - p.z;
+    const lat = dzl < 0 ? -dzl : dzl;
+    const y0 = p.y;
+    let s = s0 + dzl * sn0;
+    let d = dzl * cs0;
+    let ad = d < 0 ? -d : d;
+    let q = p;
+    const near = ad < NEAR_FIELD;
+    if (near) {
+      // exact nearest road point
+      q = this.p1;
+      let cs = cs0;
+      let sn = sn0;
+      for (let k = 0; k < 7; k++) {
+        sp.at(s, q);
+        cs = Math.cos(q.phi);
+        sn = Math.sin(q.phi);
+        // on the inside of a curve a metre along the tangent is more than a metre of road
+        const dd = -(x - q.x) * sn + (z - q.z) * cs;
+        const kd = q.kappa * dd;
+        const along = (x - q.x) * cs + (z - q.z) * sn;
+        // (only well inside the radius; near the centre of a curve the plain step is the stable one)
+        s += kd > -0.7 && kd < 0.7 ? along / (1 - kd) : along;
+        if (along < 0.01 && along > -0.01) break;
+      }
+      sp.at(s, q);
+      cs = Math.cos(q.phi);
+      sn = Math.sin(q.phi);
+      d = -(x - q.x) * sn + (z - q.z) * cs;
+      // if the search has not settled on a perpendicular foot, the point is certainly not beside
+      // this station: count the leftover distance along the road too, so it is never mistaken for road
+      const rest = (x - q.x) * cs + (z - q.z) * sn;
+      ad = rest > 0.5 || rest < -0.5 ? Math.sqrt(d * d + rest * rest) : d < 0 ? -d : d;
+    }
+
+    // biome mix is indexed by x, so it is continuous everywhere
+    const bl = this.bl;
+    sp.biomeAt(s0, bl);
+    const A = BIOMES[bl.a];
+    const g1 = coarse ? 0 : smoothstep(7, 58, ad);
+    // the country this stretch runs through: its cross-section, measured from the road at the same x
+    const lp = this.land.at(s0, this.lp);
+    const farK = lp.farAt(dzl * cs0);
+    let rel = this.relief(A, bl.a, x, z, g1, lat, farK, coarse);
+    let verge = A.vergeBlend;
+    let ditchDepth = A.ditch;
+    if (bl.t > 0) {
+      const B = BIOMES[bl.b];
+      rel += (this.relief(B, bl.b, x, z, g1, lat, farK, coarse) - rel) * bl.t;
+      verge += (B.vergeBlend - verge) * bl.t;
+      ditchDepth += (B.ditch - ditchDepth) * bl.t;
+    }
+    rel += LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
+    o.s = s;
+    o.d = d;
+    o.roadY = q.y;
+    o.bank = q.bank;
+    o.phi = q.phi;
+    o.grade = q.grade;
+    o.ba = bl.a;
+    o.bb = bl.b;
+    o.bt = bl.t;
+    o.ca = bl.ia;
+    o.cb = bl.ib;
+    o.relief = rel;
+    o.zone = 0;
+    o.site = 0;
+
+    // land: the base follows the nearest road point close in, and the same-x road point far out
+    const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
+    let T = base + rel;
+    o.wl = -Infinity;
+    o.frozen = 0;
+    o.wkind = 0;
+    o.bridge = 0;
+    // water reshapes the land (the far ring's grid is too coarse to hold a shore: it is left dry)
+    if (!coarse) {
+      const we = this.we;
+      T = this.water.carve(x, z, s0, T, we);
+      o.wl = we.level;
+      o.frozen = we.frozen;
+      o.wkind = we.kind;
+      o.wt = we.t;
+      o.wlat = we.l;
+    }
+    // the sea, where the road runs along a coast: beach and sea bed on its side — in the far ring too,
+    // for it runs to the horizon
+    const seaT = this.sea.carve(s0, dzl * cs0, T, y0, this.se);
+    if (this.se.level > -1e8) {
+      T = seaT;
+      if (this.se.off > -60) {
+        o.wl = this.se.level;
+        o.wkind = 3;
+        o.frozen = 0;
+      }
+    }
+    if (!near) {
+      o.h = o.bed = T;
+      if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;
+      return;
+    }
+    // on a bridge span the road is a deck and the land beside and below it is the river's
+    let bm = 0;
+    if (ad < 60) {
+      this.water.bridgeAt(s, this.br);
+      bm = this.br.mask;
+      o.bridge = bm;
+    }
+    if (ad <= ROAD_HALF) {
+      o.h = q.y + q.bank * d;
+      o.zone = 1;
+      o.bed = o.h + (T - o.h) * bm;
+    } else if (ad <= ROAD_EDGE) {
+      o.h = q.y + q.bank * d - (ad - ROAD_HALF) * 0.06;
+      o.zone = 2;
+      o.bed = o.h + (T - o.h) * bm;
+    } else {
+      const sgn = d < 0 ? -1 : 1;
+      // a place's levelled ground is the road's own level carried sideways: no ditch, a gentler fall,
+      // and the land let in again only beyond it
+      const pw = bm > 0 || ad > 60 ? 0 : this.sites.padWeight(s, d);
+      if (pw > 0) {
+        o.site = pw;
+        o.siteGround = this.sites.padGround;
+      }
+      const ext = q.y + q.bank * sgn * ROAD_EDGE - (ROAD_EDGE - ROAD_HALF) * 0.06 - (ad - ROAD_EDGE) * (0.03 - (0.03 - PAD_FALL) * pw);
+      const m = smoothstep(ROAD_EDGE, ROAD_EDGE + verge, ad) * (1 - pw);
+      const u = (ad - (ROAD_EDGE + 2.4)) / 1.5;
+      const ditch = ditchDepth * Math.exp(-u * u) * smoothstep(ROAD_EDGE, ROAD_EDGE + 1.2, ad) * (1 - pw);
+      let h = ext + (T - ext) * m - ditch;
+      if (bm > 0) {
+        // no embankment across the river: the land falls away from the abutments
+        const land = h + (T - h) * bm;
+        if (ad <= DECK_HALF) {
+          const deck = q.y + q.bank * d - (ad - ROAD_HALF) * 0.06 + (ad > KERB_AT ? KERB_HEIGHT : 0);
+          h += (deck - h) * bm;
+          o.bed = land;
+          if (bm > 0.5) o.zone = 3;
+        } else {
+          h = land;
+          o.bed = h;
+        }
+        o.h = h;
+      } else {
+        o.h = o.bed = h;
+      }
+    }
+    // a frozen lake carries the wheels on its ice
+    if (o.frozen > 0.5 && o.wl > o.h && o.zone === 0) o.h = o.wl;
+  }
+
+  /** Smooth ground height (what the meshes show). */
+  heightAt(x: number, z: number): number {
+    this.shape(x, z, this.tp);
+    return this.tp.h;
+  }
+
+  /** surface type at a shaped point */
+  surfaceOf(t: TerrainPoint): number {
+    if (t.zone === 1 || t.zone === 3) return Surface.Asphalt;
+    if (t.zone === 2) return Surface.Gravel;
+    if (t.site > 0.5) return t.siteGround === 1 ? Surface.Asphalt : Surface.Gravel;
+    if (t.frozen > 0.5 && t.wl >= t.h) return Surface.Ice;
+    // a beach is sand whatever the country behind it
+    if (t.wkind === 3 && t.h < t.wl + 1.25) return Surface.Sand;
+    return BIOMES[t.bt < 0.5 ? t.ba : t.bb].ground;
+  }
+
+  /**
+   * The joints of a bridge, as a height added to the road at arc length s (m). The deck stands a finger
+   * proud of the road it carries on — every old bridge's approaches have settled — so each axle thumps
+   * once coming on and once going off; a beam bridge has a joint over every pier besides. The steps are
+   * ramped over a hand's width (what the round of a tyre makes of an edge), so creeping over them is gentle.
+   */
+  static deckJoints(f: River, s: number): number {
+    if (s < f.span0 - 0.2 || s > f.span1 + 0.2) return 0;
+    let dh = DECK_PROUD * smoothstep(f.span0 - 0.06, f.span0 + 0.06, s) * (1 - smoothstep(f.span1 - 0.06, f.span1 + 0.06, s));
+    if (f.bridge === 'beam') {
+      // (the same piers the bridge is drawn with: one every 18 m or so)
+      const span = f.span1 - f.span0;
+      const bays = Math.max(1, Math.round(span / 18) - 1) + 1;
+      const u = ((s - f.span0) / span) * bays;
+      const k = Math.round(u);
+      if (k >= 1 && k < bays) {
+        const off = ((u - k) * span) / bays;
+        const a = off < 0 ? -off : off;
+        if (a < PIER_JOINT_HALF) dh -= PIER_JOINT_DEPTH * (1 - a / PIER_JOINT_HALF);
+      }
+    }
+    return dh;
+  }
+
+  /** Physics query: height with micro-roughness, normal, and grip including weather. */
+  sample(x: number, z: number, out: GroundSample): void {
+    const t = this.tp;
+    this.shape(x, z, t);
+    const surf = this.surfaceOf(t);
+    let dhx: number;
+    let dhz: number;
+    if (t.zone !== 0) {
+      const cs = Math.cos(t.phi);
+      const sn = Math.sin(t.phi);
+      const cross = t.zone === 1 ? t.bank : t.bank - (t.d < 0 ? -0.06 : 0.06);
+      dhx = t.grade * cs - cross * sn;
+      dhz = t.grade * sn + cross * cs;
+    } else {
+      const e = 0.4;
+      const h0 = t.h;
+      const tq = this.tq;
+      this.shape(x + e, z, tq);
+      dhx = (tq.h - h0) / e;
+      this.shape(x, z + e, tq);
+      dhz = (tq.h - h0) / e;
+    }
+    const info = SURFACES[surf];
+    // long, gentle undulation: an old road is never quite flat. Short ripples are left to sound and camera.
+    const rough = info.rough * (1.5 * simplex2(x / 6.3, z / 6.3, this.seed + 91) + 0.6 * simplex2(x / 2.1, z / 2.1, this.seed + 92));
+    const inv = 1 / Math.sqrt(dhx * dhx + 1 + dhz * dhz);
+    out.h = t.h + rough;
+    // what the wheels feel and the eye does not: where a bridge takes the road over (shape() has just
+    // asked about the bridge here, for every point on the road)
+    if (t.zone !== 0 && this.br.river) out.h += World.deckJoints(this.br.river, t.s);
+    out.nx = -dhx * inv;
+    out.ny = inv;
+    out.nz = -dhz * inv;
+    out.surface = surf;
+    let mu = info.mu;
+    let rr = info.rr;
+    const wet = this.wetness;
+    if (wet > 0) {
+      const loss = surf === Surface.Asphalt ? 0.28 : surf === Surface.Sand ? -0.06 : surf === Surface.Gravel ? 0.14 : 0.3;
+      mu *= 1 - loss * wet;
+    }
+    if (this.snowCover > 0 && surf !== Surface.Snow && surf !== Surface.Ice) {
+      const k = smoothstep(0.15, 0.7, this.snowCover);
+      mu += (SURFACES[Surface.Snow].mu + 0.04 - mu) * k;
+      rr += (0.055 - rr) * k;
+    }
+    // open water: the deeper the wheels go, the harder it holds them (nobody drives across a lake)
+    if (t.wl > t.h) {
+      // (the resistance a wheel can pass on is capped by its grip, so the water's hold counts as both)
+      const k = smoothstep(0.12, 0.65, t.wl - t.h);
+      rr += 1.7 * k;
+      mu += (1.8 - mu) * k;
+    }
+    out.mu = mu;
+    out.rr = rr;
+  }
+
+  static create(seed: number, opts?: SpineOptions): World {
+    return new World(seed, opts);
+  }
+}

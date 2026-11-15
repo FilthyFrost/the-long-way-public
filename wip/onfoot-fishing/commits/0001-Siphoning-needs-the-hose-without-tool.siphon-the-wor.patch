@@ -1,0 +1,92 @@
+From e196b70f0e1e0463b2918715f09e9483285a9a1b Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 21:56:56 +0800
+Subject: [PATCH 1/6] =?UTF-8?q?Siphoning=20needs=20the=20hose:=20without?=
+ =?UTF-8?q?=20tool.siphon=20the=20word=20says=20=E7=BC=BA=E6=8A=BD?=
+ =?UTF-8?q?=E6=B2=B9=E7=AE=A1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/shots/sets/onfoot.json b/harness/shots/sets/onfoot.json
+index cfe8d79..1f9c112 100644
+--- a/harness/shots/sets/onfoot.json
++++ b/harness/shots/sets/onfoot.json
+@@ -7,7 +7,7 @@
+     { "name": "yard", "params": "onfoot=yard:-1.2,1.0,35&footpitch=-14" },
+     { "name": "crate_prompt", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }] },
+     { "name": "crate_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }] },
+-    { "name": "siphon", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:tank"] }, { "call": "footHold", "args": [6, false] }] },
++    { "name": "siphon", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:2"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:tank"] }, { "call": "footHold", "args": [6, false] }] },
+     { "name": "jerrycan_hand", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footTurn", "args": [-100, -4] }, { "call": "footWalk", "args": [0.6, 1, 0] }] },
+     { "name": "carry_tyre", "params": "onfoot=yard:5.3,4.4,0", "steps": [{ "call": "footFaceThing", "args": ["yard:7"] }, { "call": "footUse" }, { "call": "footTurn", "args": [150, -6] }, { "call": "footWalk", "args": [0.8, 1, 0] }] },
+     { "name": "backpack_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:0"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:1"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }, { "call": "footHold", "args": [1.2] }, { "call": "footPack", "args": [true] }] },
+diff --git a/harness/sim/carry.test.ts b/harness/sim/carry.test.ts
+index cefd468..0c81895 100644
+--- a/harness/sim/carry.test.ts
++++ b/harness/sim/carry.test.ts
+@@ -201,6 +201,12 @@ describe('petrol', () => {
+     const tap = find(f, 'station');
+     expect(tap.prompt(p)).toBe(null); // nothing to put it in
+     take(p, 'fuel.jerrycan', 1, 0);
++    // the hose is needed, and the word says so
++    expect(tap.prompt(p)).toBe('缺抽油管');
++    for (let i = 0; i < 30; i++) d.update(dt, tap, true, p);
++    d.update(dt, tap, false, p);
++    expect(p.hands.fill).toBe(0);
++    take(p, 'tool.siphon');
+     expect(tap.prompt(p)).toBe('抽油');
+     let t = 0;
+     while (p.hands.fill < 10 - 1e-6 && t < 30) {
+diff --git a/harness/sim/onfoot.ts b/harness/sim/onfoot.ts
+index f1a4df8..a41a3d9 100644
+--- a/harness/sim/onfoot.ts
++++ b/harness/sim/onfoot.ts
+@@ -261,6 +261,7 @@ export function collectOnfootMetrics(): Record<string, number> {
+   ] as const) {
+     const p = actor();
+     take(p, 'fuel.jerrycan', 1, 0);
++    take(p, 'tool.siphon');
+     const out: Interactable[] = [];
+     fuel.interactablesNear(0, 0, 1, out);
+     const tap = out.find((i) => i.id === id)!;
+diff --git a/src/core/items/fuel.ts b/src/core/items/fuel.ts
+index 3899ee8..64436ae 100644
+--- a/src/core/items/fuel.ts
++++ b/src/core/items/fuel.ts
+@@ -28,6 +28,13 @@ export function fuelFor(kind: FuelKind, seed: number): number {
+   return Math.round(lo + new Rng(seed).next() * (hi - lo));
+ }
+ 
++/** the hose that siphoning needs (8.1): in the backpack, or in the hands */
++export const HOSE = 'tool.siphon';
++
++export function hasHose(a: Actor): boolean {
++  return a.pack.count(HOSE) > 0 || a.hands.id === HOSE;
++}
++
+ class Siphon implements Interactable {
+   readonly hold = 0;
+   readonly radius = 0.3;
+@@ -44,6 +51,7 @@ class Siphon implements Interactable {
+     const cap = a.hands.holds('fuel');
+     if (cap <= 0) return null;
+     if (this.f.litres <= 1e-6) return '空了';
++    if (!hasHose(a)) return '缺抽油管';
+     return a.hands.fill < cap - 1e-6 ? '抽油' : '满了';
+   }
+   act(_a: Actor): boolean {
+@@ -52,7 +60,7 @@ class Siphon implements Interactable {
+   channel(a: Actor, dt: number): boolean {
+     const cap = a.hands.holds('fuel');
+     const room = cap - a.hands.fill;
+-    if (cap <= 0 || room <= 1e-9 || this.f.litres <= 1e-9) return false;
++    if (cap <= 0 || room <= 1e-9 || this.f.litres <= 1e-9 || !hasHose(a)) return false;
+     const l = Math.min(SIPHON_RATE[this.f.kind] * dt, room, this.f.litres);
+     a.hands.fill += l;
+     this.f.litres -= l;
+-- 
+2.47.3
+

@@ -1,0 +1,279 @@
+{
+  "set": "sites",
+  "note": "Places by the road (core/world/sites.ts; docs/DESIGN_V2.md §4.6). Default seed from the plains: a camp at s=1943 (left), a house at 3560 (right), a filling station at 6934 (right), a lay-by between canyon walls at 14438 (right), a shop at 21610 (left), a lookout at 25757 (right), a hunter's stand at 36650 (right); an old waterworks at 8006 (left); seed 7: a jetty at 3195 (right). From the desert: a station at 7280 (left), a garage at 14338 (right). From the mountains: a house at 10243 (left), a garage at 14050 (left). `npx tsx harness/sim/sites.ts list <seed> [chapter] [biome] [km]` prints what stands where. On foot: the first crates at s=365, the station's toolbox (site5p/c3), a shop shelf (site17p/c2), a wreck's glovebox (site8v0/c0), and the deer at the hide (stand at d=85, lick at d=127).",
+  "base": "scene=world&shot=1&weather=clear",
+  "shots": [
+    {
+      "name": "station_ahead",
+      "params": "view=cockpit&s=6840&time=15"
+    },
+    {
+      "name": "station_side",
+      "params": "view=hood&s=6922&time=10.5",
+      "look": [
+        1.15,
+        0.02
+      ]
+    },
+    {
+      "name": "station_across",
+      "params": "view=orbit&orbit=-90,9,34,2.2&s=6934&time=16.5"
+    },
+    {
+      "name": "station_night",
+      "params": "view=hood&s=6900&time=21.5",
+      "look": [
+        0.85,
+        0.03
+      ]
+    },
+    {
+      "name": "house_side",
+      "params": "view=hood&s=3548&time=14",
+      "look": [
+        1.2,
+        0.03
+      ]
+    },
+    {
+      "name": "house_across",
+      "params": "view=orbit&orbit=-90,8,32,2&s=3560&time=17.5"
+    },
+    {
+      "name": "camp_side",
+      "params": "view=hood&s=1930&time=11",
+      "look": [
+        -1.15,
+        0.0
+      ]
+    },
+    {
+      "name": "shop_side",
+      "params": "view=hood&s=21598&time=13",
+      "look": [
+        -1.15,
+        0.03
+      ]
+    },
+    {
+      "name": "lookout_side",
+      "params": "view=hood&s=25745&time=16",
+      "look": [
+        1.1,
+        -0.02
+      ]
+    },
+    {
+      "name": "jetty_side",
+      "params": "seed=7&view=hood&s=3183&time=9.5",
+      "look": [
+        1.2,
+        -0.05
+      ]
+    },
+    {
+      "name": "jetty_across",
+      "params": "seed=7&view=orbit&orbit=-90,10,30,2&s=3195&time=18"
+    },
+    {
+      "name": "hide_side",
+      "params": "view=hood&s=36638&time=7",
+      "look": [
+        1.2,
+        0.0
+      ]
+    },
+    {
+      "name": "canyon_layby",
+      "params": "view=hood&s=14424&time=12",
+      "look": [
+        1.1,
+        0.0
+      ]
+    },
+    {
+      "name": "garage_desert",
+      "params": "biome=desert&view=hood&s=14326&time=16",
+      "look": [
+        1.15,
+        0.03
+      ]
+    },
+    {
+      "name": "station_desert_across",
+      "params": "biome=desert&view=orbit&orbit=90,9,34,2.2&s=7280&time=11"
+    },
+    {
+      "name": "garage_alpine",
+      "params": "biome=alpine&view=hood&s=14038&time=13",
+      "look": [
+        -1.15,
+        0.03
+      ]
+    },
+    {
+      "name": "house_alpine_across",
+      "params": "biome=alpine&view=orbit&orbit=90,9,32,2&s=10243&time=15"
+    },
+    {
+      "name": "verge_wreck_stripped",
+      "params": "view=hood&s=2118&time=15",
+      "look": [
+        -1.0,
+        -0.1
+      ]
+    },
+    {
+      "name": "verge_wreck",
+      "params": "view=hood&s=10770&time=16",
+      "look": [
+        1.0,
+        -0.1
+      ]
+    },
+    {
+      "name": "verge_crates",
+      "params": "view=hood&s=356&time=10",
+      "look": [
+        1.0,
+        -0.18
+      ]
+    },
+    {
+      "name": "foot_first_crates",
+      "params": "onfoot=road:365.6,5.0,80&footpitch=-22&time=10",
+      "steps": [
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site0v0/c0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_station_toolbox",
+      "params": "onfoot=road:6938.9,21.2,180&time=15",
+      "steps": [
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site5p/c3"
+          ]
+        },
+        {
+          "call": "footHold",
+          "args": [
+            1.7
+          ]
+        },
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site5p/c3"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_shop_shelf",
+      "params": "onfoot=road:21609.2,-18.9,200&time=13",
+      "steps": [
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site17p/c2"
+          ]
+        },
+        {
+          "call": "footHold",
+          "args": [
+            1.7
+          ]
+        },
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site17p/c2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_wreck_search",
+      "params": "onfoot=road:10780.4,6.9,90&time=16",
+      "steps": [
+        {
+          "call": "footFaceThing",
+          "args": [
+            "site8v0/c0"
+          ]
+        },
+        {
+          "call": "footHold",
+          "args": [
+            1.7
+          ]
+        },
+        {
+          "call": "footTurn",
+          "args": [
+            0,
+            -24
+          ]
+        }
+      ]
+    },
+    {
+      "name": "foot_deer_dawn",
+      "params": "onfoot=road:36650,106,90&footpitch=-3&time=6.4&tame=1",
+      "steps": [
+        {
+          "simulate": 3.0
+        }
+      ]
+    },
+    {
+      "name": "foot_deer_alert",
+      "params": "onfoot=road:36650,84,90&footpitch=-3&time=18.6",
+      "steps": [
+        {
+          "simulate": 1.2
+        }
+      ]
+    },
+    {
+      "name": "foot_deer_close",
+      "params": "onfoot=road:36650,117,90&footpitch=-4&time=17.6&tame=1",
+      "steps": [
+        {
+          "simulate": 3.0
+        }
+      ]
+    },
+    {
+      "name": "works_ahead",
+      "params": "view=cockpit&s=7925&time=15"
+    },
+    {
+      "name": "works_side",
+      "params": "view=hood&s=7994&time=10.5",
+      "look": [
+        -1.15,
+        0.03
+      ]
+    },
+    {
+      "name": "works_across",
+      "params": "view=orbit&orbit=90,10,44,3&s=8006&time=16"
+    },
+    {
+      "name": "works_wall",
+      "params": "onfoot=road:8004,-12,-90&footpitch=6&time=13.5"
+    },
+    {
+      "name": "works_tank",
+      "params": "onfoot=road:8024,-13,-62&footpitch=9&time=17"
+    }
+  ]
+}

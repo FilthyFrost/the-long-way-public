@@ -1,0 +1,23 @@
+{
+  "system": "roadgen",
+  "id": "sites",
+  "metrics": {
+    "sites_places_per_10km": 3.9444,
+    "sites_wrecks_per_10km": 7.4306,
+    "sites_heaps_per_10km": 2.9861,
+    "sites_kinds_seen": 8,
+    "sites_station_max_gap_km": 26.0084,
+    "sites_first_station_km": 7.7143,
+    "sites_pad_max_slope": 0.059,
+    "sites_pad_wet_points": 0,
+    "sites_pad_missing_points": 0,
+    "sites_objects_afloat": 0,
+    "sites_solids_on_road": 0,
+    "sites_determinism_mismatches": 0,
+    "sites_containers_per_building": 5.0171,
+    "sites_loose_per_building": 7.6154,
+    "sites_fuel_l_per_100km": 184.375,
+    "sites_empty_containers": 0,
+    "sites_zones_share": 1
+  }
+}

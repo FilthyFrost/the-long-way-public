@@ -1,0 +1,15 @@
+ M harness/sim/carry.test.ts
+M  harness/sim/fishing.ts
+M  harness/sim/interact.test.ts
+M  src/core/fishing/angler.ts
+M  src/core/fishing/school.ts
+M  src/core/fishing/species.ts
+ M src/core/items/containers.ts
+M  src/game/player/hooks.ts
+UU src/game/player/player.ts
+?? harness/shots/probe.mjs
+?? harness/shots/sets/fishing.json
+?? specs/render/fishing.json
+?? src/core/interact/holds.ts
+?? src/game/player/fishSound.ts
+?? src/game/player/fishing.ts

@@ -1,0 +1,13 @@
+{
+  "id": "sky",
+  "system": "render",
+  "title": "渲染门禁 · 时段与天气截图组",
+  "source": "方案第 12 节：截图矩阵全部渲染成功、无报错。",
+  "metrics": {
+    "shots_total": { "label": "截图矩阵张数", "unit": "张", "min": 12 },
+    "shots_failed": { "label": "渲染失败的截图数", "unit": "张", "max": 0 },
+    "console_errors": { "label": "浏览器控制台报错数", "unit": "条", "max": 0 },
+    "max_draw_calls": { "label": "单帧 draw call 峰值", "unit": "次", "max": 300 },
+    "max_triangles": { "label": "单帧三角形峰值", "unit": "个", "max": 1500000 }
+  }
+}

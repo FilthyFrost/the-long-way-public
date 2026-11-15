@@ -1,0 +1,1 @@
+刚才会话中断了（可能是云电脑休眠或重启，或者遇到了网络/403 错误）。请从中断的地方继续：先看一下 git log、docs/PLAN.md、docs/DESIGN_V2.md（如果已经有了）和 .go5.txt，弄清楚当前进度，然后按 .go5.txt、.go6.txt、.go7.txt 的要求接着做（.go7.txt 最优先，其次 .go6.txt）。没写完的方案先补完，写完了就按方案用 HTML5 + Three.js（不要用 Godot）继续实现，保持 specs/art/STYLE.md 定下的吉卜力式美术风格。全程自我迭代，不需要等待人工确认，并定期 git commit。

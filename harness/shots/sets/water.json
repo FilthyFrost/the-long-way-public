@@ -1,0 +1,117 @@
+{
+  "set": "water",
+  "note": "Lakes, rivers and bridges (docs/DESIGN_V2.md §4.5). Seed 7 at full chapter length: a stone arch at s=2021, lakes on the right at s=3203 and s=4408; seed 11: a steel truss at s=5475; seed 12: a beam bridge at s=4449; seed 7 starting in the mountains: frozen lakes on the right at s=1876 and s=3047.",
+  "base": "scene=world&shot=1",
+  "shots": [
+    {
+      "name": "bridge_arch_approach",
+      "params": "seed=7&view=cockpit&s=1962&time=15&weather=clear"
+    },
+    {
+      "name": "bridge_arch_on",
+      "params": "seed=7&view=cockpit&s=2014&time=15&weather=clear",
+      "look": [
+        1.25,
+        -0.2
+      ]
+    },
+    {
+      "name": "bridge_arch_chase",
+      "params": "seed=7&view=chase&s=2026&time=10&weather=clear",
+      "look": [
+        1.35,
+        0
+      ]
+    },
+    {
+      "name": "bridge_truss_approach",
+      "params": "seed=11&view=cockpit&s=5405&time=16&weather=clear"
+    },
+    {
+      "name": "bridge_truss_on",
+      "params": "seed=11&view=cockpit&s=5462&time=16&weather=clear"
+    },
+    {
+      "name": "bridge_truss_chase",
+      "params": "seed=11&view=chase&s=5480&time=11&weather=clear",
+      "look": [
+        1.2,
+        0
+      ]
+    },
+    {
+      "name": "bridge_beam_chase",
+      "params": "seed=12&view=chase&s=4449&time=14&weather=cloudy",
+      "look": [
+        -1.3,
+        0
+      ]
+    },
+    {
+      "name": "lake_cockpit_noon",
+      "params": "seed=7&view=cockpit&s=3060&time=13&weather=clear",
+      "look": [
+        0.75,
+        -0.08
+      ]
+    },
+    {
+      "name": "lake_hood_golden",
+      "params": "seed=7&view=hood&s=3150&time=18.7&weather=clear",
+      "look": [
+        1.0,
+        -0.06
+      ]
+    },
+    {
+      "name": "lake_hood_morning",
+      "params": "seed=7&view=hood&s=4300&time=7.2&weather=clear",
+      "look": [
+        0.9,
+        -0.05
+      ]
+    },
+    {
+      "name": "lake_hood_rain",
+      "params": "seed=7&view=hood&s=3150&time=14&weather=rain",
+      "look": [
+        1.0,
+        -0.1
+      ]
+    },
+    {
+      "name": "lake_hood_night",
+      "params": "seed=7&view=hood&s=3150&time=23&weather=clear",
+      "look": [
+        1.0,
+        -0.04
+      ]
+    },
+    {
+      "name": "lake_drive",
+      "params": "seed=7&view=cockpit&s=2950&time=16&weather=cloudy",
+      "steps": [
+        {
+          "simulate": 6,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "ice_lake_cockpit",
+      "params": "seed=7&biome=alpine&view=cockpit&s=1780&time=13&weather=clear",
+      "look": [
+        0.8,
+        -0.08
+      ]
+    },
+    {
+      "name": "ice_lake_hood_dusk",
+      "params": "seed=7&biome=alpine&view=hood&s=3000&time=18.6&weather=clear",
+      "look": [
+        1.0,
+        -0.06
+      ]
+    }
+  ]
+}

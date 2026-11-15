@@ -1,0 +1,285 @@
+diff --git a/harness/sim/carry.test.ts b/harness/sim/carry.test.ts
+index 78839fb..3bd37b1 100644
+--- a/harness/sim/carry.test.ts
++++ b/harness/sim/carry.test.ts
+@@ -276,3 +276,15 @@ describe('a road full of things: the spatial index', () => {
+     expect(reg.get('loose:1')).toBeUndefined();
+   });
+ });
++
++describe('containers on vehicles', () => {
++  it('are refused as solids (they would ride inside the car)', () => {
++    const c = new Containers();
++    const def = { id: 't0_truck:glovebox', kind: 'glovebox' as const, x: 0, y: 0, z: 0, heading: 0, seed: 1, hx: 0.2, h: 0.1, hz: 0.1 };
++    expect(() => c.add(def)).toThrow(/solid: false/);
++    expect(c.add({ ...def, solid: false }).id).toBe('t0_truck:glovebox');
++    const out: unknown[] = [];
++    c.solidsNear(0, 0, 5, out as never);
++    expect(out.length).toBe(0);
++  });
++});
+diff --git a/harness/sim/fishing.ts b/harness/sim/fishing.ts
+index 7f6a86e..13ae63c 100644
+--- a/harness/sim/fishing.ts
++++ b/harness/sim/fishing.ts
+@@ -23,7 +23,8 @@ export function jetty(world = new World(JETTY_SEED)): { world: World; site: Site
+   const ex = site.e2x;
+   const ez = site.e2z;
+   const deck = site.objects.find((o) => o.kind === 'jetty')!;
+-  const stand = { x: zone.x - ex * 4.6, y: deck.y + 1.5, z: zone.z - ez * 4.6, heading: Math.atan2(ez, ex) };
++  // a metre short of the deck's end (it ends 5 m short of the zone's centre)
++  const stand = { x: zone.x - ex * 6, y: deck.y + 1.5, z: zone.z - ez * 6, heading: Math.atan2(ez, ex) };
+   return { world, site, zone, stand };
+ }
+ 
+diff --git a/harness/sim/interact.test.ts b/harness/sim/interact.test.ts
+index b0a155e..c802055 100644
+--- a/harness/sim/interact.test.ts
++++ b/harness/sim/interact.test.ts
+@@ -6,6 +6,7 @@
+ import { describe, expect, it } from 'vitest';
+ import { applyUse, holdOf, InteractSet, Picker, segmentHits, UseDriver, type Actor, type Interactable, type InteractSource, type UseEvent, type Vec3 } from '../../src/core/interact/interact';
+ import { Hands, newPack } from '../../src/core/items/carry';
++import { Holds } from '../../src/core/interact/holds';
+ import { StaticSolids } from '../../src/core/onfoot/statics';
+ import { Solid } from '../../src/core/world/solids';
+ 
+@@ -203,3 +204,17 @@ describe('E: press, hold, let go', () => {
+     expect(applyUse(set, a, { actor: 'p1', target: 'nothing', verb: 'act', dt: 0 })).toBe(false);
+   });
+ });
++
++describe('who holds what', () => {
++  it('two actors on one wheel count as two; letting go counts down', () => {
++    const h = new Holds();
++    h.set('p1', 'truck:wheel.fl');
++    h.set('p2', 'truck:wheel.fl');
++    h.set('p3', 'truck:bonnet');
++    expect(h.count('truck:wheel.fl')).toBe(2);
++    expect(h.who('truck:wheel.fl').sort()).toEqual(['p1', 'p2']);
++    h.set('p2', null);
++    expect(h.count('truck:wheel.fl')).toBe(1);
++    expect(h.of('p3')).toBe('truck:bonnet');
++  });
++});
+diff --git a/src/core/fishing/angler.ts b/src/core/fishing/angler.ts
+index 2bc34cb..24d14d9 100644
+--- a/src/core/fishing/angler.ts
++++ b/src/core/fishing/angler.ts
+@@ -34,12 +34,19 @@ export class Angler {
+     switch (a.phase) {
+       case 'idle': {
+         // a shadow within reach: face it and charge for its distance
++        // the nearest in reach, rather one ahead than one behind
+         let best = null as null | { x: number; z: number; d: number };
++        let bk = Infinity;
+         for (const s of a.school.shadows) {
+           if (s.state !== 'roam') continue;
+           const d = Math.hypot(s.x - tip.x, s.z - tip.z);
+           if (d < 4.5 || d > 13.5) continue;
+-          if (!best || d < best.d) best = { x: s.x, z: s.z, d };
++          const off = Math.abs(Math.atan2(Math.sin(Math.atan2(s.z - tip.z, s.x - tip.x) - tip.heading), Math.cos(Math.atan2(s.z - tip.z, s.x - tip.x) - tip.heading)));
++          const key = d + (off > 1.2 ? 20 : 0);
++          if (key < bk) {
++            bk = key;
++            best = { x: s.x, z: s.z, d };
++          }
+         }
+         if (!best) {
+           inp.down = false;
+diff --git a/src/core/fishing/school.ts b/src/core/fishing/school.ts
+index b2a0d69..251d0de 100644
+--- a/src/core/fishing/school.ts
++++ b/src/core/fishing/school.ts
+@@ -49,7 +49,8 @@ export function waterAt(land: Land, x: number, z: number, tp: TerrainPoint, out:
+   out.depth = Number.isFinite(tp.wl) ? tp.wl - tp.bed : 0;
+   const frozen = tp.frozen > 0.5;
+   const biome = BIOMES[tp.bt < 0.5 ? tp.ba : tp.bb]?.id ?? 'plains';
+-  out.kind = frozen ? 'ice' : tp.wkind === 2 ? 'stream' : biome === 'desert' ? 'oasis' : 'lake';
++  // wkind: 1 lake, 2 river, 3 sea
++  out.kind = frozen ? 'ice' : tp.wkind === 2 ? 'stream' : tp.wkind === 3 ? 'sea' : biome === 'desert' ? 'oasis' : 'lake';
+   out.body = Math.floor(tp.s / 1250) * 4 + tp.wkind;
+   // ice fishing (a hole and an auger) is a later package
+   out.fishable = out.depth > FISHABLE_DEPTH && !frozen;
+diff --git a/src/core/fishing/species.ts b/src/core/fishing/species.ts
+index 8387e96..f15ecdd 100644
+--- a/src/core/fishing/species.ts
++++ b/src/core/fishing/species.ts
+@@ -9,7 +9,8 @@
+  * Temperament (Stardew's fish behaviours, carried into the fight): steady, darting, sinker,
+  * floater, brute. Shadow sizes: 0 small, 1 medium, 2 large, 3 huge.
+  */
+-export type WaterKind = 'lake' | 'stream' | 'oasis' | 'ice';
++/** 'sea' (TerrainPoint.wkind 3) is fished the same way; its fish come with a later package */
++export type WaterKind = 'lake' | 'stream' | 'oasis' | 'ice' | 'sea';
+ export type DaySlot = 'dawn' | 'day' | 'dusk' | 'night';
+ export type Temper = 'steady' | 'darting' | 'sinker' | 'floater' | 'brute';
+ 
+diff --git a/src/core/items/containers.ts b/src/core/items/containers.ts
+index a0b5aef..88e149a 100644
+--- a/src/core/items/containers.ts
++++ b/src/core/items/containers.ts
+@@ -15,6 +15,7 @@ import { pickRadius, sizeOf } from './shapes';
+ import type { Actor, Interactable, InteractSource, LongUse, Vec3 } from '../interact/interact';
+ import { Solid, solidWithin, type SolidSource } from '../world/solids';
+ import { CellIndex } from './grid';
++import { VEHICLES } from '../vehicle/spec';
+ 
+ export const OPEN_HOLD = 1.5;
+ export const TAKE_ALL_HOLD = 0.8;
+@@ -193,6 +194,9 @@ export class Containers implements InteractSource, SolidSource {
+ 
+   add(def: ContainerDef): Container {
+     if (this.get(def.id)) throw new Error(`container ${def.id} is already there`);
++    // a container on a vehicle (its id starts with the vehicle's: 't0_truck:glovebox') must not be a
++    // solid: it would ride inside the car and the car would collide with it at every step
++    if (def.solid !== false && VEHICLES[def.id.split(':')[0]]) throw new Error(`container ${def.id} is on a vehicle: give it solid: false`);
+     const c = new Container(def);
+     this.list.push(c);
+     this.byId.set(def.id, c);
+diff --git a/src/game/player/hooks.ts b/src/game/player/hooks.ts
+index 1f4a247..c3eae94 100644
+--- a/src/game/player/hooks.ts
++++ b/src/game/player/hooks.ts
+@@ -3,6 +3,7 @@
+  * player through these). Every call settles the views (simulate(0)) so a render after it is current.
+  */
+ import type { Game } from '../game';
++import { Angler } from '../../core/fishing/angler';
+ 
+ export function playerHooks(game: Game) {
+   const p = game.player;
+@@ -135,6 +136,40 @@ export function playerHooks(game: Game) {
+       settle();
+       return ok;
+     },
++    /** fishing: a robot angler holds the rod ('competent' | 'careless'), or the mouse does (null) */
++    fishBot: (kind: 'competent' | 'careless' | null, seed = 1) => {
++      p.fishing.bot = kind ? new Angler(kind, seed) : null;
++    },
++    /** fishing: run for up to `seconds` (fixed steps), stopping at a phase if given; returns the state */
++    fishRun: (seconds: number, phase?: string) => {
++      const a = p.fishing.angling;
++      p.fishing.run(seconds, phase === 'shown' ? () => p.fishing.shown !== null : phase ? () => a.phase === phase : undefined);
++      settle();
++      return { phase: a.phase, tension: a.tension, run: a.run, shadows: p.fishing.school.shadows.length, shown: p.fishing.shown, last: p.fishing.lastCatch };
++    },
++    /** fishing: run until the fish is running (the rod bent against it) */
++    fishRunning: (maxSeconds = 20) => {
++      const a = p.fishing.angling;
++      p.fishing.run(maxSeconds, () => a.phase === 'fight' && a.run !== 'none');
++      p.fishing.run(0.5, () => a.phase !== 'fight');
++      settle();
++      return { phase: a.phase, run: a.run, tension: a.tension };
++    },
++    /** fishing: what is drawn (debugging the views) */
++    fishDebug: () => {
++      const f = p.fishing as unknown as { shadowMesh: { visible: boolean; geometry: { getAttribute(n: string): { count: number; array: ArrayLike<number> } | undefined }; material: { transparent: boolean } } };
++      const pos = f.shadowMesh.geometry.getAttribute('position');
++      const cam = game.core.camera.position;
++      const sm = (p.fishing as unknown as { shadowMesh: import('three').Mesh }).shadowMesh;
++      game.render();
++      const c1 = game.core.stats.calls;
++      sm.visible = false;
++      game.render();
++      const c0 = game.core.stats.calls;
++      sm.visible = true;
++      const extra = { parent: sm.parent?.type, mvis: (sm.material as import('three').Material).visible, transparent: (sm.material as import('three').Material).transparent, layers: sm.layers.mask, camLayers: game.core.camera.layers.mask, range: sm.geometry.drawRange, c1, c0, onBefore: String(sm.onBeforeRender).slice(0, 60) };
++      return { extra, visible: f.shadowMesh.visible, verts: pos?.count ?? 0, first: pos ? Array.from(pos.array).slice(0, 3) : [], cam: [cam.x, cam.y, cam.z], shadows: p.fishing.school.shadows.map((s) => [s.x, s.z, s.state]), calls: game.core.stats.calls };
++    },
+     footSave: () => JSON.stringify(p.save()),
+     footLoad: (json: string) => {
+       p.load(JSON.parse(json));
+diff --git a/src/game/player/player.ts b/src/game/player/player.ts
+index 2d33a51..dc51bd7 100644
+--- a/src/game/player/player.ts
++++ b/src/game/player/player.ts
+@@ -10,6 +10,7 @@ import { Walker } from '../../core/onboard/walker';
+ import { GroundLand, type Land } from '../../core/onfoot/land';
+ import { Modes, type Mode } from '../../core/onfoot/modes';
+ import { doorsOf, doorWithin, EXIT_KMH, nearestDoor, placeAtDoor, VehicleSolid, worldToBody, type Door } from '../../core/onfoot/vehicle';
++import { Holds } from '../../core/interact/holds';
+ import { InteractSet, Picker, UseDriver, type Actor, type Interactable } from '../../core/interact/interact';
+ import { Hands, loadCarrier, newPack, saveCarrier, type CarrierState } from '../../core/items/carry';
+ import { Containers, type ContainerState } from '../../core/items/containers';
+@@ -30,6 +31,7 @@ import { SpineSample } from '../../core/world/spine';
+ import { Overlay } from './overlay';
+ import { VehicleUses } from './vehicleUses';
+ import { CargoUses } from './cargoUses';
++import { Fishing, ROD } from './fishing';
+ import type { CargoState } from '../../core/onfoot/cargo';
+ 
+ /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
+@@ -66,11 +68,15 @@ export class Player implements Actor {
+   readonly interact = new InteractSet();
+   readonly picker = new Picker();
+   readonly use_ = new UseDriver();
++  /** who holds E on what (the systems' two-person timings ask `holds.count(id)`) */
++  readonly holds = new Holds();
+   /** what is looked at now (on foot) */
+   looked: Interactable | null = null;
+   readonly vehicleUses: VehicleUses;
+   /** the vehicle's bed / rear deck / carrier and what rides on it */
+   readonly cargo: CargoUses;
++  /** the rod, the school of shadows, the float (docs/DESIGN_V2.md 8.4) */
++  readonly fishing: Fishing;
+   /** the world's things: lying about, in containers, petrol in tanks (the roadside sites fill these) */
+   readonly loose = new LooseItems();
+   readonly containers = new Containers();
+@@ -113,6 +119,7 @@ export class Player implements Actor {
+     this.vehicleUses = new VehicleUses(this);
+     this.interact.add(this.vehicleUses);
+     this.cargo = new CargoUses(this);
++    this.fishing = new Fishing(this);
+     this.interact.add(this.cargo);
+     // the places by the road stand in the way (the jetty's deck is walked on)
+     if (game.world) this.solids.add(game.world.sites);
+@@ -369,7 +376,10 @@ export class Player implements Actor {
+     // the world's things near where one is (nothing near: hidden, nothing drawn)
+     this.itemsView.update(fo.x, this.onFoot ? this.walker.y : this.game.sim.py, fo.z);
+     this.cargo.update();
+-    this.heldView.update(this.onFoot && this.game.viewMode === 'cockpit' ? this.hands.id : null, cam, this.walker.sway, 0);
++    if (this.onFoot && this.game.viewMode === 'cockpit') this.fishing.update(_dt, cam);
++    else this.fishing.update(0, cam);
++    // the rod is drawn by the fishing (it bends); everything else by the held view
++    this.heldView.update(this.onFoot && this.game.viewMode === 'cockpit' && this.hands.id !== ROD ? this.hands.id : null, cam, this.walker.sway, 0);
+     return fo;
+   }
+   private readonly fo = { x: 0, z: 0 };
+@@ -396,6 +406,7 @@ export class Player implements Actor {
+   /** what is looked at, E held or not, and the HUD for it */
+   private lookAndUse(dt: number, cam: THREE.PerspectiveCamera): void {
+     if (!this.onFoot) {
++      this.holds.set(this.id, null);
+       this.packOpen = false;
+       this.seatedLookAndUse(dt, cam); // cab controls
+       return;
+@@ -408,6 +419,7 @@ export class Player implements Actor {
+     const down = this.eScripted || this.eLatch || this.game.input.isDown('KeyE');
+     this.eLatch = false;
+     this.use_.update(dt, this.looked, down, this);
++    this.holds.set(this.id, this.use_.target ? this.use_.target.id : null);
+     // G held: put it down
+     let word = this.use_.word;
+     let ring = this.use_.ring;
+@@ -421,6 +433,12 @@ export class Player implements Actor {
+         this.gHeld = -Infinity; // not again until G is let go
+       }
+     } else this.gHeld = 0;
++    // with the rod: the ring is the charge or the line's load, the word the catch's tag
++    const fh = gDown ? null : this.fishing.hud();
++    if (fh) {
++      if (fh.word) word = fh.word;
++      if (fh.ring >= 0) ring = fh.ring;
++    }
+     if (typeof document === 'undefined') return;
+     if (!this.overlay) this.overlay = new Overlay();
+     this.overlay.update(true, word, ring >= 0 && ring <= 1 ? ring : -1, this.looked && !gDown ? this.screenBox(this.looked, cam) : null);
+@@ -518,6 +536,6 @@ export class Player implements Actor {
+   telemetry(): Record<string, number | string | boolean> {
+     const w = this.walker;
+     if (!this.onFoot) return { mode: this.modes.mode };
+-    return { mode: 'onfoot', footX: w.x, footY: w.y, footZ: w.z, footHeading: w.heading, swimming: w.swimming, depth: w.depth, crouched: w.crouched, hands: this.hands.id ?? '', handsFill: this.hands.fill, packUsed: this.pack.used, looked: this.looked?.id ?? '', itemsDrawn: this.itemsView.drawn };
++    return { mode: 'onfoot', footX: w.x, footY: w.y, footZ: w.z, footHeading: w.heading, swimming: w.swimming, depth: w.depth, crouched: w.crouched, hands: this.hands.id ?? '', handsFill: this.hands.fill, fish: this.fishing.angling.phase, shadows: this.fishing.school.shadows.length, lastCatch: this.fishing.lastCatch?.id ?? '', packUsed: this.pack.used, looked: this.looked?.id ?? '', itemsDrawn: this.itemsView.drawn };
+   }
+ }

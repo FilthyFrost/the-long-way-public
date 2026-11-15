@@ -1,0 +1,96 @@
+{
+  "id": "beats",
+  "system": "roadgen",
+  "title": "旅途节奏 · 路上多久出现一样东西",
+  "source": "docs/DESIGN_V2.md 3.2、3.3（旅途导演）：小变化约每 40 秒一次，看点一两分钟一个，每个路段留一段两三分钟的安静路。按 70 km/h 换算；12 个种子 × 110 km；相隔不到 400 m（20 秒）的看点算同一个“瞬间”。",
+  "metrics": {
+    "beats_all_median_gap_s": {
+      "label": "任何变化（含路边残车与箱子）之间的间隔中位数",
+      "unit": "秒",
+      "min": 8,
+      "max": 40
+    },
+    "beats_all_p90_gap_s": {
+      "label": "任何变化之间的间隔 90 分位",
+      "unit": "秒",
+      "max": 75
+    },
+    "beats_moment_median_gap_s": {
+      "label": "瞬间（一处或一簇看点）之间的间隔中位数",
+      "unit": "秒",
+      "min": 35,
+      "max": 110
+    },
+    "beats_moment_p10_gap_s": {
+      "label": "瞬间间隔 10 分位（不能一个挤一个）",
+      "unit": "秒",
+      "min": 20
+    },
+    "beats_moment_p90_gap_s": {
+      "label": "瞬间间隔 90 分位",
+      "unit": "秒",
+      "max": 150
+    },
+    "beats_moment_max_gap_early_s": {
+      "label": "前三章里最长的一段什么都没有的路",
+      "unit": "秒",
+      "max": 200
+    },
+    "beats_moment_max_gap_late_s": {
+      "label": "第四章以后最长的一段什么都没有的路（安静路段约 130 秒，再长就是空）",
+      "unit": "秒",
+      "max": 300
+    },
+    "beats_quiet_stretches_per_10km_late": {
+      "label": "第四章以后每 10 km 的安静路段数（≥ 110 秒没有看点）",
+      "unit": "段",
+      "min": 0.5,
+      "max": 1.8
+    },
+    "beats_moments_per_10km": {
+      "label": "每 10 km 的瞬间数",
+      "unit": "个",
+      "min": 5,
+      "max": 11
+    },
+    "beats_far_per_10km": {
+      "label": "每 10 km 的巨物",
+      "unit": "个",
+      "min": 2,
+      "max": 4.5
+    },
+    "beats_place_per_10km": {
+      "label": "每 10 km 可以停的地方",
+      "unit": "处",
+      "min": 2,
+      "max": 4.5
+    },
+    "beats_water_per_10km": {
+      "label": "每 10 km 的水（近湖、钓鱼点、猎台、海岸）",
+      "unit": "处",
+      "min": 1.2,
+      "max": 4.5
+    },
+    "beats_land_per_10km": {
+      "label": "每 10 km 的地貌变化（新群系、新地貌段、翻过坡顶）",
+      "unit": "次",
+      "min": 1.5,
+      "max": 5
+    },
+    "beats_same_kind_three_running_share": {
+      "label": "连续三个瞬间同一类的占比",
+      "unit": "",
+      "max": 0.08
+    },
+    "beats_things_seen": {
+      "label": "出现过的不同东西的种类数",
+      "unit": "种",
+      "min": 30
+    },
+    "beats_determinism_mismatches": {
+      "label": "同一种子两次读出的旅程不一致的次数",
+      "unit": "次",
+      "max": 0
+    }
+  }
+}

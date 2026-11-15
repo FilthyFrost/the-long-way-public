@@ -1,0 +1,1420 @@
+From 7c1d959166c73855ca2399dc498b87c634d3dac7 Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 06:18:05 -0800
+Subject: [PATCH 6/6] Fishing core (F2): species by water / time / weather,
+ shadows, cast, bite, fight, catch
+
+- src/core/fishing/species.ts: the first chapter's twelve (11.2) with waters, day slots, shadow
+  size, temperament, lengths, rarity; moonfish on clear nights, rain eel after rain, one old king
+  per lake at dusk; rain lifts the rarer bands
+- school.ts: shadows as seeded agents (7 in a jetty's zone, 2 elsewhere), fleeing splashes;
+  waterAt() from World.shape (fishable deeper than 0.4 m, not frozen; stream / oasis / lake)
+- angling.ts: hold 0.3-1.2 s -> 4-14 m; a shadow within 1.5 m comes; 4-20 s (bait halves),
+  0-3 nibbles, bite window 0.9 s (rare 0.6 s); runs left / right / out by temperament, the right
+  counter tires it, reeling during a run loads the line, full 1.5 s snaps it; 15 % of hooks are
+  junk (boot) or a bottle with a note; one in ten fish is a big one; serialisable, fixed 1/60 s
+- angler.ts: competent and careless robot anglers
+- catalogue: tool.rod (medium, new 'rod' shape, uncommon, in tackle boxes), keep.bottle
+- harness/sim/fishing.ts (measure -> activities_fishing) + specs/activities/fishing.json, tests
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/sim/fishing.test.ts b/harness/sim/fishing.test.ts
+new file mode 100644
+index 0000000..2b4b570
+--- /dev/null
++++ b/harness/sim/fishing.test.ts
+@@ -0,0 +1,181 @@
++/**
++ * Fishing (src/core/fishing, docs/DESIGN_V2.md 8.4, 11.2): who lives where and when, the bite
++ * window, the line that snaps after 1.5 s at full load, the same fish from the same seed and
++ * inputs, and robot anglers — a competent one lands its fish in 20–60 s, a careless one loses most.
++ */
++import { describe, expect, it } from 'vitest';
++import { Angling, BITE_WINDOW, BITE_WINDOW_RARE, FISH_STEP, SNAP_FULL, type FishInput, type RodTip } from '../../src/core/fishing/angling';
++import { School } from '../../src/core/fishing/school';
++import { slotOf, speciesFor, SPECIES } from '../../src/core/fishing/species';
++import { hasItem, item } from '../../src/core/items/catalog';
++import { LOOT } from '../../src/core/items/loot';
++import { FunctionLand } from '../../src/core/onfoot/land';
++import { fishFor, jetty } from './fishing';
++
++const ids = (water: 'lake' | 'stream' | 'oasis' | 'ice', hour: number, w?: Parameters<typeof speciesFor>[2]) => speciesFor(water, hour, w).map((s) => s.id).sort();
++
++describe('who lives where and when (11.2)', () => {
++  it('every lake at noon and at dusk offers what 11.2 says and nothing else', () => {
++    expect(ids('lake', 12)).toEqual(['fish.bleak', 'fish.carp', 'fish.crucian']);
++    expect(ids('lake', 18.5)).toEqual(['fish.bleak', 'fish.king', 'fish.perch']);
++  });
++  it('dawn, night, streams, the oasis, the weather', () => {
++    expect(ids('lake', 6)).toEqual(['fish.bleak', 'fish.pike']);
++    expect(ids('lake', 23)).toEqual(['fish.bleak', 'fish.catfish', 'fish.moon']);
++    expect(ids('lake', 23, { raining: false, wetness: 0, clear: false })).toEqual(['fish.bleak', 'fish.catfish']);
++    expect(ids('stream', 6)).toEqual(['fish.bleak', 'fish.trout']);
++    expect(ids('stream', 12, { raining: true, wetness: 1, clear: false })).toEqual(['fish.bleak', 'fish.eel']);
++    expect(ids('oasis', 12)).toEqual(['fish.barb']);
++    expect(ids('ice', 12)).toEqual(['fish.char']);
++    expect(slotOf(4.9)).toBe('night');
++    expect(slotOf(17)).toBe('dusk');
++  });
++  it('every fish is in the catalogue; the rod is a medium thing found in tackle boxes', () => {
++    for (const s of SPECIES) expect(hasItem(s.id)).toBe(true);
++    expect(item('tool.rod').size).toBe('medium');
++    expect(item('tool.rod').rarity).toBe(1);
++    expect(LOOT.tacklebox.entries.some((e) => e.id === 'tool.rod')).toBe(true);
++    expect(hasItem('keep.bottle')).toBe(true);
++  });
++});
++
++// a pond 2 m deep everywhere: the float lands in it wherever it goes
++const pond = new FunctionLand(
++  () => -2,
++  () => 0,
++);
++const tip = (): RodTip => ({ x: 0, y: 1.5, z: 0, heading: 0 });
++const idle = (): FishInput => ({ down: false, pullX: 0, pullY: 0, cancel: false });
++
++/** a rod with one shadow of `species` waiting beside where the float lands (8 m out) */
++function rigged(species = 'fish.crucian', seed = 3): { a: Angling; school: School } {
++  const school = new School(seed);
++  school.shadows.push({ id: 99, species, size: 0, lengthCm: 20, big: false, x: 8.0, z: 1.0, heading: 0, state: 'roam', t: 100, body: 0 });
++  const a = new Angling(seed, school);
++  const t = tip();
++  const inp = idle();
++  inp.down = true;
++  a.step(inp, t, pond);
++  const charge = Angling.chargeFor(8);
++  while (a.phase === 'charging' && a.t < charge) a.step(inp, t, pond);
++  inp.down = false;
++  while (a.phase !== 'waiting') a.step(inp, t, pond);
++  return { a, school };
++}
++
++function toBite(a: Angling): void {
++  const t = tip();
++  for (let i = 0; i < 60 * 40 && a.phase !== 'bite'; i++) a.step(idle(), t, pond);
++  expect(a.phase).toBe('bite');
++}
++
++describe('the cast and the bite', () => {
++  it('a 0.3–1.2 s charge throws 4–14 m', () => {
++    expect(Angling.castLength(0.1)).toBe(4);
++    expect(Angling.castLength(0.75)).toBeCloseTo(9, 6);
++    expect(Angling.castLength(2)).toBe(14);
++    const { a } = rigged();
++    // (the button is let go on the next step: a frame's worth of charge more)
++    expect(Math.abs(Math.hypot(a.fx, a.fz) - 8)).toBeLessThan(0.4);
++  });
++  it('struck within 0.9 s the fish is on; after it, it is gone', () => {
++    for (const [late, on] of [
++      [0.85, true],
++      [0.95, false],
++    ] as const) {
++      const { a } = rigged();
++      toBite(a);
++      const t = tip();
++      for (let i = 0; i < Math.round(late / FISH_STEP) - 1; i++) a.step(idle(), t, pond);
++      a.step({ ...idle(), down: true }, t, pond);
++      expect(a.phase === 'fight').toBe(on);
++    }
++    expect(BITE_WINDOW).toBe(0.9);
++  });
++  it('a rare fish gives 0.6 s', () => {
++    const { a } = rigged('fish.pike');
++    toBite(a);
++    expect(a.window).toBeCloseTo(BITE_WINDOW_RARE, 6);
++  });
++  it('striking before the bite loses the fish and nothing else', () => {
++    const { a, school } = rigged();
++    const t = tip();
++    for (let i = 0; i < 60 * 3; i++) a.step(idle(), t, pond);
++    expect(a.target).toBe(99);
++    a.step({ ...idle(), down: true }, t, pond);
++    expect(a.phase).toBe('idle');
++    expect(school.shadows[0].state).toBe('flee');
++  });
++});
++
++describe('the fight', () => {
++  function hooked(seed: number, species = 'fish.crucian'): Angling {
++    const { a } = rigged(species, seed);
++    toBite(a);
++    a.step({ ...idle(), down: true }, tip(), pond);
++    expect(a.phase).toBe('fight');
++    return a;
++  }
++  it('reeling hard through the runs snaps the line after 1.5 s at full load', () => {
++    for (let seed = 1; seed < 12; seed++) {
++      // a brute: its runs are long enough to load the line full
++      const a = hooked(seed, 'fish.perch');
++      const t = tip();
++      let fullFrom = -1;
++      let snapAt = -1;
++      for (let i = 0; i < 60 * 60 && a.phase === 'fight'; i++) {
++        // reel all the time, pulling the wrong way
++        const pull = a.run === 'left' ? -1 : a.run === 'right' ? 1 : a.run === 'out' ? -1 : 0;
++        a.step({ down: true, pullX: pull, pullY: a.run === 'out' ? -1 : 0, cancel: false }, t, pond);
++        if (a.events.includes('snap')) {
++          snapAt = a.clock;
++          break;
++        }
++        if (a.tension >= 0.999 && fullFrom < 0) fullFrom = a.clock - FISH_STEP;
++        if (a.tension < 0.999) fullFrom = -1;
++      }
++      if (snapAt < 0) continue; // it never ran long enough: not this seed
++      expect(snapAt - fullFrom).toBeGreaterThan(SNAP_FULL - 2 * FISH_STEP);
++      expect(snapAt - fullFrom).toBeLessThan(SNAP_FULL + 2 * FISH_STEP);
++      return;
++    }
++    throw new Error('no fish snapped the line');
++  });
++  it('the state saves and loads mid-fight and carries on the same', () => {
++    const a = hooked(4);
++    const t = tip();
++    for (let i = 0; i < 120; i++) a.step({ down: a.run === 'none', pullX: a.run === 'left' ? 1 : -1, pullY: 0, cancel: false }, t, pond);
++    const saved = JSON.parse(JSON.stringify({ a: a.toJSON(), s: a.school.toJSON() }));
++    const b = new Angling(0, new School(0).load(saved.s)).load(saved.a);
++    for (let i = 0; i < 600; i++) {
++      const inp = { down: a.run === 'none', pullX: a.run === 'left' ? 1 : -1, pullY: a.run === 'out' ? 1 : 0, cancel: false };
++      a.step(inp, t, pond);
++      b.step(inp, t, pond);
++    }
++    expect(JSON.stringify(b.toJSON())).toBe(JSON.stringify(a.toJSON()));
++  });
++});
++
++describe('robot anglers at seed 7\'s jetty', () => {
++  const place = jetty();
++  it('the same seed and the same inputs give the same fish', () => {
++    expect(JSON.stringify(fishFor('competent', 5, 3, undefined, place))).toBe(JSON.stringify(fishFor('competent', 5, 3, undefined, place)));
++  });
++  it('a competent angler lands its fish in 20–60 s and loses none', () => {
++    const s = fishFor('competent', 11, 10, undefined, place);
++    expect(s.catches.length).toBeGreaterThan(6);
++    const t = s.catches.map((c) => c.seconds).sort((x, y) => x - y);
++    expect(t[Math.floor(t.length / 4)]).toBeGreaterThan(18);
++    expect(t[Math.floor(t.length / 2)]).toBeLessThan(60);
++    expect(s.snaps).toBe(0);
++  });
++  it('a careless one loses most of what comes to its float', () => {
++    const s = fishFor('careless', 12, 10, undefined, place);
++    expect(s.catches.length / Math.max(1, s.catches.length + s.lost + s.snaps)).toBeLessThan(0.35);
++  });
++  it('at dusk the lake may give its old king, once', () => {
++    let kings = 0;
++    for (let k = 0; k < 3; k++) kings += fishFor('competent', 300 + k, 20, { hour: 18.5, weather: { raining: false, wetness: 0, clear: true } }, place).catches.filter((c) => c.id === 'fish.king').length;
++    expect(kings).toBeLessThanOrEqual(3);
++  });
++});
+diff --git a/harness/sim/fishing.ts b/harness/sim/fishing.ts
+new file mode 100644
+index 0000000..7f6a86e
+--- /dev/null
++++ b/harness/sim/fishing.ts
+@@ -0,0 +1,133 @@
++/**
++ * Fishing measured headless (docs/DESIGN_V2.md 8.4) for specs/activities/fishing.json, and the
++ * shared set-up the tests use: seed 7's jetty, a robot angler at the end of it.
++ *
++ *   npx tsx harness/sim/fishing.ts        prints the metrics
++ */
++import { Angling, BITE_WINDOW, BITE_WINDOW_RARE, CAST_MAX, CAST_MIN, FISH_STEP, SNAP_FULL, type RodTip } from '../../src/core/fishing/angling';
++import { Angler, type AnglerKind } from '../../src/core/fishing/angler';
++import { School, type FishEnv, type Zone } from '../../src/core/fishing/school';
++import { FAIR, SPECIES, speciesFor } from '../../src/core/fishing/species';
++import type { Site } from '../../src/core/world/sites';
++import { World } from '../../src/core/world/terrain';
++
++export const JETTY_SEED = 7;
++
++/** seed 7's jetty and where one stands at the end of it, facing out */
++export function jetty(world = new World(JETTY_SEED)): { world: World; site: Site; zone: Zone; stand: RodTip } {
++  const out: Site[] = [];
++  world.sites.between(2500, 3800, out);
++  const site = out.find((s) => s.kind === 'jetty');
++  if (!site) throw new Error('no jetty on seed 7 near s 3195');
++  const zone = { x: site.zoneX, z: site.zoneZ, r: site.zoneR };
++  const ex = site.e2x;
++  const ez = site.e2z;
++  const deck = site.objects.find((o) => o.kind === 'jetty')!;
++  const stand = { x: zone.x - ex * 4.6, y: deck.y + 1.5, z: zone.z - ez * 4.6, heading: Math.atan2(ez, ex) };
++  return { world, site, zone, stand };
++}
++
++export interface Session {
++  catches: { id: string; seconds: number; lengthCm: number }[];
++  lost: number;
++  snaps: number;
++  hooks: number;
++  seconds: number;
++}
++
++/** a robot angler fishes from the jetty for `minutes` */
++export function fishFor(kind: AnglerKind, seed: number, minutes: number, env: FishEnv = { hour: 12, weather: FAIR }, place = jetty()): Session {
++  const school = new School(seed);
++  const a = new Angling(seed, school);
++  const bot = new Angler(kind, seed);
++  const tip: RodTip = { ...place.stand };
++  const n = Math.round((minutes * 60) / FISH_STEP);
++  const res: Session = { catches: [], lost: 0, snaps: 0, hooks: 0, seconds: minutes * 60 };
++  // the school settles first
++  for (let i = 0; i < 600; i++) school.step(FISH_STEP, place.world, tip.x, tip.z, env, [place.zone]);
++  for (let i = 0; i < n; i++) {
++    school.step(FISH_STEP, place.world, tip.x, tip.z, env, [place.zone]);
++    const inp = bot.decide(a, tip);
++    a.events.length = 0;
++    a.step(inp, tip, place.world);
++    for (const e of a.events) {
++      if (e === 'strike') res.hooks++;
++      if (e === 'snap') res.snaps++;
++      if (e === 'miss' || e === 'early') res.lost++;
++    }
++    if (a.caught) {
++      const c = a.takeCatch()!;
++      res.catches.push({ id: c.id, seconds: c.seconds, lengthCm: c.lengthCm });
++    }
++  }
++  return res;
++}
++
++function quartile(v: number[], q: number): number {
++  if (!v.length) return NaN;
++  const s = [...v].sort((a, b) => a - b);
++  return s[Math.min(s.length - 1, Math.floor(q * (s.length - 1)))];
++}
++
++export function collectFishingMetrics(): Record<string, number> {
++  const m: Record<string, number> = {};
++  const place = jetty();
++  const good: Session[] = [];
++  const bad: Session[] = [];
++  for (let k = 0; k < 12; k++) good.push(fishFor('competent', 100 + k, 8, undefined, place));
++  for (let k = 0; k < 6; k++) bad.push(fishFor('careless', 200 + k, 8, undefined, place));
++  const fishOnly = (s: Session) => s.catches.filter((c) => c.id.startsWith('fish.'));
++  const times = good.flatMap((s) => s.catches.map((c) => c.seconds));
++  m.catch_seconds_lq = quartile(times, 0.25);
++  m.catch_seconds_median = quartile(times, 0.5);
++  m.catch_seconds_uq = quartile(times, 0.75);
++  const landRate = (ss: Session[]) => {
++    const hooks = ss.reduce((a, s) => a + s.hooks, 0);
++    const landed = ss.reduce((a, s) => a + s.catches.length, 0);
++    return landed / Math.max(1, hooks);
++  };
++  // how many of the fish that came to the float ended in the hand
++  const outcome = (ss: Session[]) => {
++    const landed = ss.reduce((a, s) => a + s.catches.length, 0);
++    const lost = ss.reduce((a, s) => a + s.lost + s.snaps, 0);
++    return landed / Math.max(1, landed + lost);
++  };
++  m.competent_landed_share = outcome(good);
++  m.careless_landed_share = outcome(bad);
++  m.competent_hook_to_land = landRate(good);
++  m.fish_per_hour_competent = (good.reduce((a, s) => a + fishOnly(s).length, 0) / good.reduce((a, s) => a + s.seconds, 0)) * 3600;
++  const all = good.flatMap((s) => s.catches);
++  m.junk_share = all.filter((c) => !c.id.startsWith('fish.')).length / Math.max(1, all.length);
++  m.cast_min_m = Angling.castLength(0);
++  m.cast_max_m = Angling.castLength(5);
++  m.bite_window_s = BITE_WINDOW;
++  m.bite_window_rare_s = BITE_WINDOW_RARE;
++  m.snap_full_s = SNAP_FULL;
++  void CAST_MIN;
++  void CAST_MAX;
++  // the species each lake offers at noon and at dusk against 11.2
++  const want: Record<string, string[]> = {
++    noon: ['fish.bleak', 'fish.crucian', 'fish.carp'],
++    dusk: ['fish.bleak', 'fish.perch', 'fish.king'],
++  };
++  let wrong = 0;
++  for (const [slot, hour] of [
++    ['noon', 12],
++    ['dusk', 18],
++  ] as const) {
++    const got = speciesFor('lake', hour).map((s) => s.id).sort();
++    if (JSON.stringify(got) !== JSON.stringify([...want[slot]].sort())) wrong++;
++  }
++  m.lake_species_mismatches = wrong;
++  m.species_count = SPECIES.length;
++  // same seed, same inputs: the same fish
++  const a = fishFor('competent', 7, 3, undefined, place);
++  const b = fishFor('competent', 7, 3, undefined, place);
++  m.determinism_diff = JSON.stringify(a) === JSON.stringify(b) ? 0 : 1;
++  return m;
++}
++
++if (process.argv[1]?.endsWith('fishing.ts')) {
++  const t = Date.now();
++  console.log(collectFishingMetrics(), `${Date.now() - t} ms`);
++}
+diff --git a/harness/sim/measure.ts b/harness/sim/measure.ts
+index 8cce172..e52daa7 100644
+--- a/harness/sim/measure.ts
++++ b/harness/sim/measure.ts
+@@ -91,3 +91,9 @@ if (what === 'onfoot' || what === 'all') {
+   writeMetrics('onfoot', 'default', m);
+   console.log(`onfoot/default: ${Object.keys(m).length} metrics`);
+ }
++if (what === 'fishing' || what === 'all') {
++  const { collectFishingMetrics } = await import('./fishing');
++  const m = collectFishingMetrics();
++  writeMetrics('activities', 'fishing', m);
++  console.log(`activities/fishing: ${Object.keys(m).length} metrics`);
++}
+diff --git a/specs/activities/fishing.json b/specs/activities/fishing.json
+new file mode 100644
+index 0000000..006fec4
+--- /dev/null
++++ b/specs/activities/fishing.json
+@@ -0,0 +1,21 @@
++{
++  "id": "fishing",
++  "system": "activities",
++  "title": "钓鱼（第一版）",
++  "source": "docs/DESIGN_V2.md 8.4（看影 → 等真咬 → 反向压竿；一条鱼 20–60 秒；抛竿 0.3–1.2 秒蓄力 → 4–14 m；真咬窗口 0.9 秒、稀有 0.6 秒；绷满 1.5 秒断线；10% 杂物、5% 漂流瓶）与 11.2（第一章 12 种鱼的水域与时段）。机器人钓手在种子 7 的栈桥（s≈3195）上钓，见 harness/sim/fishing.ts；时间指标取下四分位与中位数。",
++  "metrics": {
++    "catch_seconds_lq": { "label": "熟练钓手一条鱼用时（下四分位）", "unit": "s", "min": 18, "max": 40 },
++    "catch_seconds_median": { "label": "熟练钓手一条鱼用时（中位数）", "unit": "s", "min": 20, "max": 60 },
++    "competent_landed_share": { "label": "熟练钓手：来咬钩的鱼最后拿到手的比例", "unit": "", "min": 0.85 },
++    "careless_landed_share": { "label": "毛躁钓手：来咬钩的鱼最后拿到手的比例", "unit": "", "max": 0.35 },
++    "junk_share": { "label": "钓上杂物与漂流瓶的比例（应约 15%）", "unit": "", "min": 0.06, "max": 0.25 },
++    "cast_min_m": { "label": "最短抛竿", "unit": "m", "min": 3.9, "max": 4.1 },
++    "cast_max_m": { "label": "最远抛竿", "unit": "m", "min": 13.9, "max": 14.1 },
++    "bite_window_s": { "label": "真咬后的窗口", "unit": "s", "min": 0.89, "max": 0.91 },
++    "bite_window_rare_s": { "label": "稀有鱼的窗口", "unit": "s", "min": 0.59, "max": 0.61 },
++    "snap_full_s": { "label": "线绷满多久断", "unit": "s", "min": 1.49, "max": 1.51 },
++    "lake_species_mismatches": { "label": "湖在正午与黄昏给出的鱼种与 11.2 不符", "unit": "处", "max": 0 },
++    "species_count": { "label": "鱼种数（第一章）", "unit": "种", "min": 12, "max": 12 },
++    "determinism_diff": { "label": "同种子同输入钓到的鱼不同", "unit": "", "max": 0 }
++  }
++}
+diff --git a/src/core/fishing/angler.ts b/src/core/fishing/angler.ts
+new file mode 100644
+index 0000000..2bc34cb
+--- /dev/null
++++ b/src/core/fishing/angler.ts
+@@ -0,0 +1,95 @@
++/**
++ * Robot anglers for the tests and the measurements: a competent one (casts at a shadow, waits for
++ * the real bite, strikes at once, pulls against every run and reels only while the fish rests) and
++ * a careless one (strikes at nibbles or late, keeps reeling, pulls any old way). They drive the
++ * same Angling a player does, through the same input.
++ */
++import { Angling, type FishInput, type RodTip } from './angling';
++import { Stream } from './school';
++
++export type AnglerKind = 'competent' | 'careless';
++
++export class Angler {
++  readonly input: FishInput = { down: false, pullX: 0, pullY: 0, cancel: false };
++  private readonly rng: Stream;
++  private charge = 0;
++  private react = 0;
++  private lastNibbles = 0;
++  private prev = false;
++
++  constructor(
++    readonly kind: AnglerKind,
++    seed: number,
++  ) {
++    this.rng = new Stream(seed ^ 0x7a11);
++  }
++
++  /** choose the input for this step; may turn the rod tip's heading to face a shadow before casting */
++  decide(a: Angling, tip: RodTip): FishInput {
++    const inp = this.input;
++    const careless = this.kind === 'careless';
++    inp.cancel = false;
++    inp.pullX = 0;
++    inp.pullY = 0;
++    switch (a.phase) {
++      case 'idle': {
++        // a shadow within reach: face it and charge for its distance
++        let best = null as null | { x: number; z: number; d: number };
++        for (const s of a.school.shadows) {
++          if (s.state !== 'roam') continue;
++          const d = Math.hypot(s.x - tip.x, s.z - tip.z);
++          if (d < 4.5 || d > 13.5) continue;
++          if (!best || d < best.d) best = { x: s.x, z: s.z, d };
++        }
++        if (!best) {
++          inp.down = false;
++          break;
++        }
++        tip.heading = Math.atan2(best.z - tip.z, best.x - tip.x);
++        // just short of it: right on top of it, the splash would scare it off
++        this.charge = Angling.chargeFor(best.d - 0.9 + (careless ? this.rng.range(-2.5, 2.5) : 0));
++        // (a fresh press: let go first if the button was still held from the fight)
++        inp.down = !this.prev;
++        break;
++      }
++      case 'charging':
++        inp.down = a.t < this.charge;
++        break;
++      case 'waiting':
++        inp.down = false;
++        if (careless && a.target) {
++          // strikes at a nibble half the time
++          const n = a.nibbles.length;
++          if (n < this.lastNibbles && this.rng.next() < 0.5) inp.down = true;
++          this.lastNibbles = n;
++        } else this.lastNibbles = 4;
++        // nothing came for a long while: wind in and cast again
++        if (!a.target && a.t > 12) inp.down = true;
++        this.react = careless ? this.rng.range(0.4, 1.4) : this.rng.range(0.18, 0.32);
++        break;
++      case 'bite':
++        inp.down = a.t >= this.react;
++        break;
++      case 'fight': {
++        if (careless) {
++          inp.down = true;
++          inp.pullX = this.rng.range(-1, 1);
++          inp.pullY = this.rng.range(-1, 1);
++          break;
++        }
++        const run = a.run;
++        inp.pullX = run === 'left' ? 1 : run === 'right' ? -1 : 0;
++        inp.pullY = run === 'out' ? 1 : 0;
++        inp.down = run === 'none' && a.tension < 0.8;
++        break;
++      }
++      case 'landed':
++        inp.down = false;
++        break;
++      default:
++        inp.down = false;
++    }
++    this.prev = inp.down;
++    return inp;
++  }
++}
+diff --git a/src/core/fishing/angling.ts b/src/core/fishing/angling.ts
+new file mode 100644
+index 0000000..6d2ead9
+--- /dev/null
++++ b/src/core/fishing/angling.ts
+@@ -0,0 +1,498 @@
++/**
++ * One rod in the water (docs/DESIGN_V2.md 8.4): three beats, one signal each —
++ * see the shadow → wait for the real bite → pull against the run.
++ *
++ *   cast    hold to charge 0.3–1.2 s → 4–14 m; a shadow within 1.5 m of the float comes to it
++ *   wait    4–20 s (halved with bait); 0–3 nibbles (a tap on the float), then the real bite: the
++ *           float goes under. Strike within 0.9 s (rare fish 0.6 s); too early or too late only
++ *           loses the fish (no bait is used up)
++ *   fight   the fish runs left / right / out by its temperament; pulling the other way tires it;
++ *           reeling while it runs loads the line — full for 1.5 s and it snaps; reel while it rests
++ *   land    tired out and reeled to the feet: the catch. One in ten fish is a big one; one hook in
++ *           ten brings up junk (an old boot), one in twenty a bottle with a note
++ *
++ * Pure, seeded, fixed step (1/60 s), serialisable. Input per step is what the hands do; the game
++ * reads mouse buttons and movement into it, a robot angler (angler.ts) can drive it just the same.
++ */
++import type { Land } from '../onfoot/land';
++import { TerrainPoint } from '../onfoot/land';
++import { School, Stream, waterAt, type Shadow, type WaterFacts } from './school';
++import { type Temper } from './species';
++import { speciesById } from './school';
++
++export const FISH_STEP = 1 / 60;
++export const CHARGE_MIN = 0.3;
++export const CHARGE_MAX = 1.2;
++export const CAST_MIN = 4;
++export const CAST_MAX = 14;
++export const COME_R = 1.5;
++export const WAIT: readonly [number, number] = [4, 20];
++export const BITE_WINDOW = 0.9;
++export const BITE_WINDOW_RARE = 0.6;
++export const SNAP_FULL = 1.5;
++/** within this of the rod tip the fish is landed */
++export const LAND_R = 1.3;
++/** this much line out and it parts */
++export const LINE_MAX = 30;
++export const JUNK = 'junk.boot';
++export const BOTTLE = 'keep.bottle';
++
++export type Phase = 'idle' | 'charging' | 'flight' | 'waiting' | 'bite' | 'fight' | 'landed';
++export type Run = 'none' | 'left' | 'right' | 'out';
++export type FishEvent = 'cast' | 'plop' | 'nibble' | 'dip' | 'strike' | 'early' | 'miss' | 'run' | 'jump' | 'snap' | 'land' | 'reelin';
++
++export interface FishInput {
++  /** the cast / reel button (left mouse) held */
++  down: boolean;
++  /** pull: + right / − left, + back towards oneself (−1…1 each; mouse movement) */
++  pullX: number;
++  pullY: number;
++  /** give up (right mouse): line in, whatever is on it goes */
++  cancel: boolean;
++}
++
++export interface RodTip {
++  x: number;
++  y: number;
++  z: number;
++  /** facing on the plan (solids' convention) */
++  heading: number;
++}
++
++export interface Catch {
++  id: string;
++  lengthCm: number;
++  big: boolean;
++  /** seconds from the cast to the landing */
++  seconds: number;
++}
++
++interface Hooked {
++  species: string;
++  temper: Temper;
++  size: number;
++  lengthCm: number;
++  big: boolean;
++  rare: boolean;
++  junk: boolean;
++  stamina: number;
++  stamina0: number;
++}
++
++export interface AnglingState {
++  phase: Phase;
++  rng: number;
++  t: number;
++  charge: number;
++  fx: number;
++  fz: number;
++  fy: number;
++  dip: number;
++  wet: boolean;
++  target: number;
++  wait: number;
++  nibbles: number[];
++  window: number;
++  fish: Hooked | null;
++  run: Run;
++  runT: number;
++  tension: number;
++  full: number;
++  castAt: number;
++  clock: number;
++  caught: Catch | null;
++}
++
++export class Angling {
++  phase: Phase = 'idle';
++  readonly rng: Stream;
++  /** time in the phase (s) */
++  t = 0;
++  /** the charge held so far / of the last cast (s) */
++  charge = 0;
++  /** the float on the plan, its height, and how far it is pulled under (0 floating … 1 gone) */
++  fx = 0;
++  fz = 0;
++  fy = 0;
++  dip = 0;
++  /** the float lies in water that can be fished */
++  wet = false;
++  /** the shadow that came (id; 0 = none) */
++  target = 0;
++  /** seconds of waiting left before the real bite, and the nibbles still to come (seconds before the bite) */
++  wait = 0;
++  nibbles: number[] = [];
++  /** seconds left to strike */
++  window = 0;
++  fish: Hooked | null = null;
++  run: Run = 'none';
++  runT = 0;
++  /** line load 0…1, and how long it has been full */
++  tension = 0;
++  full = 0;
++  castAt = 0;
++  clock = 0;
++  /** the last thing landed, until the game takes it */
++  caught: Catch | null = null;
++  /** with bait the wait is halved */
++  bait = false;
++  readonly events: FishEvent[] = [];
++  private wasDown = false;
++  private readonly tp = new TerrainPoint();
++  private readonly wf: WaterFacts = { fishable: false, kind: 'lake', level: 0, depth: 0, body: 0 };
++
++  constructor(
++    seed: number,
++    readonly school: School,
++  ) {
++    this.rng = new Stream(seed ^ 0x51f15e);
++  }
++
++  /** the cast's length for a charge (s) */
++  static castLength(charge: number): number {
++    const c = Math.min(CHARGE_MAX, Math.max(CHARGE_MIN, charge));
++    return CAST_MIN + ((c - CHARGE_MIN) / (CHARGE_MAX - CHARGE_MIN)) * (CAST_MAX - CAST_MIN);
++  }
++
++  /** the charge (s) that throws `d` metres */
++  static chargeFor(d: number): number {
++    const k = Math.min(1, Math.max(0, (d - CAST_MIN) / (CAST_MAX - CAST_MIN)));
++    return CHARGE_MIN + k * (CHARGE_MAX - CHARGE_MIN);
++  }
++
++  /** the line out: from the tip to the float on the plan */
++  lineLength(tip: RodTip): number {
++    return Math.hypot(this.fx - tip.x, this.fz - tip.z);
++  }
++
++  private emit(e: FishEvent): void {
++    this.events.push(e);
++    if (this.events.length > 32) this.events.shift();
++  }
++
++  private shadow(): Shadow | null {
++    if (!this.target) return null;
++    return this.school.shadows.find((s) => s.id === this.target) ?? null;
++  }
++
++  /** let go of whatever is on the line, and wind in */
++  private reset(scare = true): void {
++    const s = this.shadow();
++    if (s) {
++      if (scare) {
++        s.state = 'flee';
++        s.t = 3;
++      } else s.state = 'roam';
++    }
++    this.target = 0;
++    this.fish = null;
++    this.run = 'none';
++    this.tension = 0;
++    this.full = 0;
++    this.dip = 0;
++    this.phase = 'idle';
++    this.t = 0;
++  }
++
++  step(inp: FishInput, tip: RodTip, land: Land): void {
++    const h = FISH_STEP;
++    const pressed = inp.down && !this.wasDown;
++    const released = !inp.down && this.wasDown;
++    this.wasDown = inp.down;
++    this.clock += h;
++    this.t += h;
++    if (inp.cancel && this.phase !== 'idle' && this.phase !== 'landed') {
++      this.emit('reelin');
++      this.reset();
++      return;
++    }
++    switch (this.phase) {
++      case 'idle':
++        if (pressed) {
++          this.phase = 'charging';
++          this.t = 0;
++        }
++        break;
++      case 'charging':
++        this.charge = this.t;
++        if (released) {
++          const d = Angling.castLength(this.t);
++          this.charge = Math.min(CHARGE_MAX, Math.max(CHARGE_MIN, this.t));
++          this.fx = tip.x + Math.cos(tip.heading) * d;
++          this.fz = tip.z + Math.sin(tip.heading) * d;
++          this.phase = 'flight';
++          this.t = 0;
++          this.castAt = this.clock;
++          this.emit('cast');
++        }
++        break;
++      case 'flight':
++        if (this.t >= 0.6) {
++          const w = waterAt(land, this.fx, this.fz, this.tp, this.wf);
++          this.wet = w.fishable;
++          this.fy = Number.isFinite(w.level) && w.depth > 0 ? w.level : this.tp.h;
++          this.phase = 'waiting';
++          this.t = 0;
++          this.target = 0;
++          this.emit('plop');
++          // right on top of a shadow: it darts away
++          this.school.scare(this.fx, this.fz, 0.5, 2);
++        }
++        break;
++      case 'waiting':
++        this.waiting(h, pressed);
++        break;
++      case 'bite':
++        this.dip = Math.min(1, this.dip + h * 8);
++        this.window -= h;
++        if (pressed) {
++          this.hook();
++        } else if (this.window <= 0) {
++          this.emit('miss');
++          this.loseFish();
++        }
++        break;
++      case 'fight':
++        this.fight(h, inp, tip);
++        break;
++      case 'landed':
++        if (pressed) this.phase = 'idle';
++        break;
++    }
++  }
++
++  private waiting(h: number, pressed: boolean): void {
++    if (pressed) {
++      // winding in: a fish that was about to take it is gone
++      if (this.target) this.emit('early');
++      this.emit('reelin');
++      this.reset(true);
++      return;
++    }
++    this.dip = Math.max(0, this.dip - h * 4);
++    if (!this.wet) return;
++    let s = this.shadow();
++    if (!s) {
++      const near = this.school.nearest(this.fx, this.fz, COME_R);
++      if (!near) return;
++      near.state = 'come';
++      this.target = near.id;
++      this.wait = this.rng.range(WAIT[0], WAIT[1]) * (this.bait ? 0.5 : 1);
++      const n = this.rng.int(4);
++      this.nibbles = [];
++      for (let i = 0; i < n; i++) this.nibbles.push(this.rng.range(0.8, this.wait - 0.8));
++      this.nibbles.sort((a, b) => b - a);
++      s = near;
++    }
++    // the shadow swims up under the float
++    const dx = this.fx - s.x;
++    const dz = this.fz - s.z;
++    const d = Math.hypot(dx, dz);
++    if (d > 0.36) {
++      const v = 0.6 * h;
++      s.x += (dx / d) * Math.min(v, d - 0.35);
++      s.z += (dz / d) * Math.min(v, d - 0.35);
++      s.heading = Math.atan2(dz, dx);
++      return;
++    }
++    this.wait -= h;
++    if (this.nibbles.length && this.wait <= this.nibbles[0]) {
++      this.nibbles.shift();
++      this.dip = 0.35;
++      this.emit('nibble');
++    }
++    if (this.wait <= 0) {
++      const sp = speciesById(s.species);
++      this.phase = 'bite';
++      this.t = 0;
++      this.window = sp && sp.rarity >= 2 ? BITE_WINDOW_RARE : BITE_WINDOW;
++      this.emit('dip');
++    }
++  }
++
++  private loseFish(): void {
++    const s = this.shadow();
++    if (s) {
++      s.state = 'flee';
++      s.t = 3;
++    }
++    this.target = 0;
++    this.phase = 'waiting';
++    this.t = 0;
++    this.dip = 0;
++  }
++
++  private hook(): void {
++    const s = this.shadow();
++    if (!s) {
++      this.loseFish();
++      return;
++    }
++    const sp = speciesById(s.species)!;
++    const u = this.rng.next();
++    const junk = u < 0.15;
++    const size = junk ? 1 : sp.size;
++    const temper: Temper = junk ? 'steady' : sp.temper;
++    const base = [6, 8, 11, 18][size] * (s.big && !junk ? 1.5 : 1) * (temper === 'brute' ? 1.4 : 1);
++    this.fish = {
++      species: junk ? (u < 0.1 ? JUNK : BOTTLE) : s.species,
++      temper,
++      size,
++      lengthCm: s.lengthCm,
++      big: s.big && !junk,
++      rare: sp.rarity >= 2,
++      junk,
++      stamina: junk ? 1.5 : base,
++      stamina0: junk ? 1.5 : base,
++    };
++    s.state = 'hooked';
++    this.phase = 'fight';
++    this.t = 0;
++    this.run = 'none';
++    this.runT = this.rng.range(0.4, 0.9);
++    this.tension = 0.3;
++    this.full = 0;
++    this.emit('strike');
++  }
++
++  /** run and rest lengths by temperament (s) */
++  private nextRun(f: Hooked): void {
++    const r = this.rng;
++    if (this.run === 'none' && f.stamina > 0) {
++      const T = f.temper;
++      const lateral = T === 'darting' ? 0.85 : T === 'sinker' ? 0.25 : T === 'steady' ? 0.35 : 0.55;
++      this.run = r.next() < lateral ? (r.next() < 0.5 ? 'left' : 'right') : 'out';
++      this.runT = T === 'darting' ? r.range(0.6, 1.1) : T === 'brute' ? r.range(1.6, 2.6) : T === 'sinker' ? r.range(1.4, 2.2) : r.range(0.9, 1.6);
++      this.emit(T === 'floater' && r.next() < 0.5 ? 'jump' : 'run');
++    } else {
++      this.run = 'none';
++      this.runT = f.temper === 'darting' ? r.range(0.8, 1.3) : r.range(1.3, 2.3);
++    }
++  }
++
++  private fight(h: number, inp: FishInput, tip: RodTip): void {
++    const f = this.fish!;
++    this.runT -= h;
++    if (this.runT <= 0) this.nextRun(f);
++    if (f.stamina <= 0) this.run = 'none';
++    const dx = this.fx - tip.x;
++    const dz = this.fz - tip.z;
++    const d = Math.hypot(dx, dz) || 1e-6;
++    const ox = dx / d;
++    const oz = dz / d;
++    // its right as seen from the bank: the line's direction turned right
++    const rx = -oz;
++    const rz = ox;
++    const reel = inp.down;
++    const px = Math.max(-1, Math.min(1, inp.pullX));
++    const py = Math.max(-1, Math.min(1, inp.pullY));
++    if (this.run !== 'none') {
++      // the right counter: the other way to the run
++      const q = this.run === 'left' ? px : this.run === 'right' ? -px : py;
++      const good = Math.max(0, q);
++      const wrong = Math.max(0, -q);
++      f.stamina -= (0.3 + 1.3 * good) * h;
++      const v = (f.temper === 'brute' ? 1.6 : 1.3) * (1 - 0.6 * good) * h;
++      if (this.run === 'out') {
++        this.fx += ox * v;
++        this.fz += oz * v;
++      } else {
++        const s = this.run === 'left' ? -1 : 1;
++        this.fx += rx * s * v;
++        this.fz += rz * s * v;
++      }
++      this.tension = Math.min(1, this.tension + (reel ? 0.9 : -0.5) * h + wrong * 0.35 * h);
++      if (f.temper === 'floater' && reel) this.tension = Math.min(1, this.tension + 0.3 * h);
++    } else {
++      f.stamina -= 0.12 * h;
++      if (reel) {
++        // reel in: the fish comes; the line holds a working load
++        // a fish with fight left in it will not be drawn in to the feet
++        const v = Math.min((f.stamina > 0 ? 1.1 : 1.6) * h, Math.max(0, d - (f.stamina > 0 ? 3 : 0)));
++        this.fx -= ox * v;
++        this.fz -= oz * v;
++        this.tension += (0.35 - this.tension) * Math.min(1, h * 3);
++      } else this.tension = Math.max(0, this.tension - 0.6 * h);
++    }
++    this.full = this.tension >= 0.999 ? this.full + h : 0;
++    const s = this.shadow();
++    if (s) {
++      s.x = this.fx;
++      s.z = this.fz;
++    }
++    this.dip = 0.6 + 0.4 * this.tension;
++    if (this.full >= SNAP_FULL || this.lineLength(tip) > LINE_MAX) {
++      this.emit('snap');
++      this.school.remove(s!);
++      this.reset(false);
++      this.target = 0;
++      return;
++    }
++    if (this.lineLength(tip) <= LAND_R) {
++      this.caught = { id: f.species, lengthCm: f.junk ? 0 : f.lengthCm, big: f.big, seconds: this.clock - this.castAt };
++      if (s) {
++        if (speciesById(s.species)?.onePerLake && !f.junk) this.school.kingsTaken.add(s.body);
++        this.school.remove(s);
++      }
++      this.target = 0;
++      this.fish = null;
++      this.run = 'none';
++      this.tension = 0;
++      this.dip = 0;
++      this.phase = 'landed';
++      this.t = 0;
++      this.emit('land');
++    }
++  }
++
++  /** the game takes the catch (into the hands or the pack) */
++  takeCatch(): Catch | null {
++    const c = this.caught;
++    this.caught = null;
++    if (this.phase === 'landed') this.phase = 'idle';
++    return c;
++  }
++
++  /** how far the rod bends: 0 straight … 1 at its limit */
++  get bend(): number {
++    return this.phase === 'fight' ? 0.25 + 0.75 * this.tension : this.phase === 'bite' ? 0.2 : 0;
++  }
++
++  /** what is on the line, if anything (species id, stamina left 0…1) */
++  get hooked(): { id: string; stamina: number } | null {
++    return this.fish ? { id: this.fish.species, stamina: Math.max(0, this.fish.stamina / this.fish.stamina0) } : null;
++  }
++
++  toJSON(): AnglingState {
++    return {
++      phase: this.phase,
++      rng: this.rng.s,
++      t: this.t,
++      charge: this.charge,
++      fx: this.fx,
++      fz: this.fz,
++      fy: this.fy,
++      dip: this.dip,
++      wet: this.wet,
++      target: this.target,
++      wait: this.wait,
++      nibbles: [...this.nibbles],
++      window: this.window,
++      fish: this.fish ? { ...this.fish } : null,
++      run: this.run,
++      runT: this.runT,
++      tension: this.tension,
++      full: this.full,
++      castAt: this.castAt,
++      clock: this.clock,
++      caught: this.caught ? { ...this.caught } : null,
++    };
++  }
++
++  load(s: AnglingState): this {
++    const { rng, ...rest } = s;
++    Object.assign(this, { ...rest, nibbles: [...s.nibbles], fish: s.fish ? { ...s.fish } : null, caught: s.caught ? { ...s.caught } : null });
++    this.rng.s = rng;
++    return this;
++  }
++}
+diff --git a/src/core/fishing/school.ts b/src/core/fishing/school.ts
+new file mode 100644
+index 0000000..b2a0d69
+--- /dev/null
++++ b/src/core/fishing/school.ts
+@@ -0,0 +1,246 @@
++/**
++ * Fish shadows (docs/DESIGN_V2.md 8.4, Animal Crossing's shadows): simple agents in the water near
++ * the player. Each is one fish already — its species, length, and whether it is a big one — so what
++ * is seen is what is caught. They gather in a jetty's zone and are sparse elsewhere; they shy away
++ * from splashes and from someone wading near them; one that sees a float within 1.5 m comes to it.
++ *
++ * Pure, seeded, fixed step; the state (shadows and the random stream) is plain data.
++ */
++import type { Land } from '../onfoot/land';
++import { TerrainPoint } from '../onfoot/land';
++import { BIOMES } from '../world/biomes';
++import { SPECIES, speciesFor, weightOf, type FishWeather, type Species, type WaterKind } from './species';
++
++/** a small random stream whose state can be saved */
++export class Stream {
++  constructor(public s: number) {
++    this.s = s | 0;
++  }
++  next(): number {
++    let t = (this.s = (this.s + 0x6d2b79f5) | 0);
++    t = Math.imul(t ^ (t >>> 15), t | 1);
++    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
++    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++  }
++  range(a: number, b: number): number {
++    return a + (b - a) * this.next();
++  }
++  int(n: number): number {
++    return Math.floor(this.next() * n);
++  }
++}
++
++/** water fishable here: deeper than this (m) */
++export const FISHABLE_DEPTH = 0.4;
++
++export interface WaterFacts {
++  fishable: boolean;
++  kind: WaterKind;
++  level: number;
++  depth: number;
++  /** which lake / river: the road stretch it lies by (one old king per lake) */
++  body: number;
++}
++
++/** what the water is at (x, z) */
++export function waterAt(land: Land, x: number, z: number, tp: TerrainPoint, out: WaterFacts): WaterFacts {
++  land.shape(x, z, tp);
++  out.level = tp.wl;
++  out.depth = Number.isFinite(tp.wl) ? tp.wl - tp.bed : 0;
++  const frozen = tp.frozen > 0.5;
++  const biome = BIOMES[tp.bt < 0.5 ? tp.ba : tp.bb]?.id ?? 'plains';
++  out.kind = frozen ? 'ice' : tp.wkind === 2 ? 'stream' : biome === 'desert' ? 'oasis' : 'lake';
++  out.body = Math.floor(tp.s / 1250) * 4 + tp.wkind;
++  // ice fishing (a hole and an auger) is a later package
++  out.fishable = out.depth > FISHABLE_DEPTH && !frozen;
++  return out;
++}
++
++export type ShadowState = 'roam' | 'flee' | 'come' | 'hooked';
++
++export interface Shadow {
++  id: number;
++  species: string;
++  size: 0 | 1 | 2 | 3;
++  lengthCm: number;
++  big: boolean;
++  x: number;
++  z: number;
++  heading: number;
++  state: ShadowState;
++  /** seconds left in this state / until the next turn */
++  t: number;
++  /** the lake it belongs to */
++  body: number;
++}
++
++export interface SchoolState {
++  rng: number;
++  next: number;
++  spawnT: number;
++  shadows: Shadow[];
++  kingsTaken: number[];
++}
++
++/** the radius round the player where shadows live, and the counts kept there */
++export const SCHOOL_R = 24;
++export const IN_ZONE = 7;
++export const OUT_ZONE = 2;
++
++export interface Zone {
++  x: number;
++  z: number;
++  r: number;
++}
++
++export interface FishEnv {
++  hour: number;
++  weather: FishWeather;
++}
++
++export class School {
++  shadows: Shadow[] = [];
++  readonly rng: Stream;
++  private next = 1;
++  private spawnT = 0;
++  /** lakes whose old king has been caught */
++  readonly kingsTaken = new Set<number>();
++  private readonly tp = new TerrainPoint();
++  private readonly wf: WaterFacts = { fishable: false, kind: 'lake', level: 0, depth: 0, body: 0 };
++  private readonly list: Species[] = [];
++
++  constructor(seed: number) {
++    this.rng = new Stream(seed ^ 0x2f1c4a7);
++  }
++
++  /** step: keep the shadows near (cx, cz) alive, moving, and as many as the place holds */
++  step(h: number, land: Land, cx: number, cz: number, env: FishEnv, zones: readonly Zone[]): void {
++    let inZone: Zone | null = null;
++    for (const z of zones) if ((z.x - cx) ** 2 + (z.z - cz) ** 2 < (z.r + SCHOOL_R) ** 2) inZone = z;
++    // the far ones go
++    this.shadows = this.shadows.filter((s) => s.state === 'hooked' || (s.x - cx) ** 2 + (s.z - cz) ** 2 < (SCHOOL_R + 10) ** 2);
++    const want = inZone ? IN_ZONE : OUT_ZONE;
++    this.spawnT -= h;
++    if (this.shadows.length < want && this.spawnT <= 0) {
++      this.spawnT = 0.8;
++      this.spawn(land, cx, cz, env, inZone);
++    }
++    for (const s of this.shadows) this.move(s, h, land, inZone);
++  }
++
++  private spawn(land: Land, cx: number, cz: number, env: FishEnv, zone: Zone | null): void {
++    const r = this.rng;
++    for (let tries = 0; tries < 6; tries++) {
++      // in a zone: inside it; elsewhere: anywhere round the player
++      const a = r.next() * Math.PI * 2;
++      const d = zone ? Math.sqrt(r.next()) * zone.r : 4 + r.next() * (SCHOOL_R - 4);
++      const x = (zone ? zone.x : cx) + Math.cos(a) * d;
++      const z = (zone ? zone.z : cz) + Math.sin(a) * d;
++      if ((x - cx) ** 2 + (z - cz) ** 2 > SCHOOL_R * SCHOOL_R) continue;
++      const w = waterAt(land, x, z, this.tp, this.wf);
++      if (!w.fishable) continue;
++      const sp = this.roll(w.kind, w.body, env);
++      if (!sp) return;
++      const big = r.next() < 0.1;
++      const [lo, hi] = sp.len;
++      const lengthCm = Math.round(big ? hi - (hi - lo) * 0.2 * r.next() : lo + (hi - lo) * 0.8 * r.next() ** 1.4);
++      this.shadows.push({ id: this.next++, species: sp.id, size: sp.size, lengthCm, big, x, z, heading: r.next() * Math.PI * 2, state: 'roam', t: r.range(1, 4), body: w.body });
++      return;
++    }
++  }
++
++  private roll(kind: WaterKind, body: number, env: FishEnv): Species | null {
++    const l = this.list;
++    l.length = 0;
++    speciesFor(kind, env.hour, env.weather, l);
++    // one old king per lake: not if caught, and not two at once
++    for (let i = l.length - 1; i >= 0; i--) {
++      if (!l[i].onePerLake) continue;
++      if (this.kingsTaken.has(body) || this.shadows.some((s) => s.species === l[i].id)) l.splice(i, 1);
++    }
++    if (l.length === 0) return null;
++    let total = 0;
++    for (const s of l) total += weightOf(s, env.weather);
++    let u = this.rng.next() * total;
++    for (const s of l) {
++      u -= weightOf(s, env.weather);
++      if (u < 0) return s;
++    }
++    return l[l.length - 1];
++  }
++
++  private move(s: Shadow, h: number, land: Land, zone: Zone | null): void {
++    if (s.state === 'hooked' || s.state === 'come') return; // the line moves these
++    s.t -= h;
++    if (s.t <= 0) {
++      if (s.state === 'flee') s.state = 'roam';
++      s.t = this.rng.range(1.5, 4.5);
++      s.heading += this.rng.range(-1.6, 1.6);
++      // keep to the zone
++      if (zone && (s.x - zone.x) ** 2 + (s.z - zone.z) ** 2 > zone.r * zone.r) s.heading = Math.atan2(zone.z - s.z, zone.x - s.x);
++    }
++    const v = s.state === 'flee' ? 2.6 : 0.35 + 0.1 * s.size;
++    const nx = s.x + Math.cos(s.heading) * v * h;
++    const nz = s.z + Math.sin(s.heading) * v * h;
++    const w = waterAt(land, nx, nz, this.tp, this.wf);
++    if (w.fishable && w.depth > 0.6) {
++      s.x = nx;
++      s.z = nz;
++    } else {
++      // the shore: turn back
++      s.heading += Math.PI * (0.6 + 0.4 * this.rng.next());
++    }
++  }
++
++  /** a splash at (x, z): those within r dart away for t seconds */
++  scare(x: number, z: number, r: number, t = 3): void {
++    for (const s of this.shadows) {
++      if (s.state === 'hooked') continue;
++      const dx = s.x - x;
++      const dz = s.z - z;
++      if (dx * dx + dz * dz > r * r) continue;
++      s.state = 'flee';
++      s.t = t;
++      s.heading = Math.atan2(dz, dx) + this.rng.range(-0.4, 0.4);
++    }
++  }
++
++  /** the roaming shadow nearest to (x, z) within r, or null */
++  nearest(x: number, z: number, r: number): Shadow | null {
++    let best: Shadow | null = null;
++    let bd = r * r;
++    for (const s of this.shadows) {
++      if (s.state !== 'roam') continue;
++      const d = (s.x - x) ** 2 + (s.z - z) ** 2;
++      if (d <= bd) {
++        bd = d;
++        best = s;
++      }
++    }
++    return best;
++  }
++
++  remove(s: Shadow): void {
++    const i = this.shadows.indexOf(s);
++    if (i >= 0) this.shadows.splice(i, 1);
++  }
++
++  toJSON(): SchoolState {
++    return { rng: this.rng.s, next: this.next, spawnT: this.spawnT, shadows: this.shadows.map((s) => ({ ...s })), kingsTaken: [...this.kingsTaken] };
++  }
++
++  load(s: SchoolState): this {
++    this.rng.s = s.rng;
++    this.next = s.next;
++    this.spawnT = s.spawnT;
++    this.shadows = s.shadows.map((x) => ({ ...x }));
++    this.kingsTaken.clear();
++    for (const k of s.kingsTaken) this.kingsTaken.add(k);
++    return this;
++  }
++}
++
++/** a species by id */
++export function speciesById(id: string): Species | undefined {
++  return SPECIES.find((s) => s.id === id);
++}
+diff --git a/src/core/fishing/species.ts b/src/core/fishing/species.ts
+new file mode 100644
+index 0000000..8387e96
+--- /dev/null
++++ b/src/core/fishing/species.ts
+@@ -0,0 +1,91 @@
++/**
++ * Which fish live where and when (docs/DESIGN_V2.md 8.4, 11.2: the first chapter's twelve).
++ *
++ *   water   lake / stream / oasis (a lake in the desert) / ice (a frozen lake: a later package)
++ *   time    dawn 5–8 h · day 8–17 h · dusk 17–20 h · night 20–5 h
++ *   weather the moonfish only on clear nights, the rain eel only while or after it rains;
++ *           rain lifts every rarer band (Dredge-like: "rain is one band rarer")
++ *
++ * Temperament (Stardew's fish behaviours, carried into the fight): steady, darting, sinker,
++ * floater, brute. Shadow sizes: 0 small, 1 medium, 2 large, 3 huge.
++ */
++export type WaterKind = 'lake' | 'stream' | 'oasis' | 'ice';
++export type DaySlot = 'dawn' | 'day' | 'dusk' | 'night';
++export type Temper = 'steady' | 'darting' | 'sinker' | 'floater' | 'brute';
++
++export interface Species {
++  /** catalogue id (items/catalog.ts) */
++  id: string;
++  waters: readonly WaterKind[];
++  slots: readonly DaySlot[];
++  /** shadow size class */
++  size: 0 | 1 | 2 | 3;
++  /** a long thin shadow (the eel) */
++  slim?: boolean;
++  temper: Temper;
++  /** length range (cm) */
++  len: readonly [number, number];
++  /** 0 common, 1 uncommon, 2 rare, 3 legendary */
++  rarity: 0 | 1 | 2 | 3;
++  /** only under a clear sky */
++  clear?: boolean;
++  /** only while it rains or the ground is still wet from it */
++  afterRain?: boolean;
++  /** one in each lake, ever */
++  onePerLake?: boolean;
++}
++
++const ALL: readonly DaySlot[] = ['dawn', 'day', 'dusk', 'night'];
++
++export const SPECIES: readonly Species[] = [
++  { id: 'fish.bleak', waters: ['lake', 'stream'], slots: ALL, size: 0, temper: 'steady', len: [8, 18], rarity: 0 },
++  { id: 'fish.crucian', waters: ['lake'], slots: ['day'], size: 0, temper: 'steady', len: [12, 28], rarity: 0 },
++  { id: 'fish.trout', waters: ['stream'], slots: ['dawn', 'dusk'], size: 1, temper: 'darting', len: [20, 45], rarity: 1 },
++  { id: 'fish.perch', waters: ['lake'], slots: ['dusk'], size: 1, temper: 'brute', len: [22, 50], rarity: 1 },
++  { id: 'fish.carp', waters: ['lake'], slots: ['day'], size: 2, temper: 'sinker', len: [35, 80], rarity: 1 },
++  { id: 'fish.catfish', waters: ['lake'], slots: ['night'], size: 2, temper: 'sinker', len: [40, 110], rarity: 1 },
++  { id: 'fish.pike', waters: ['lake'], slots: ['dawn'], size: 2, temper: 'darting', len: [45, 100], rarity: 2 },
++  { id: 'fish.moon', waters: ['lake'], slots: ['night'], size: 1, temper: 'floater', len: [15, 30], rarity: 2, clear: true },
++  { id: 'fish.eel', waters: ['stream'], slots: ALL, size: 1, slim: true, temper: 'darting', len: [40, 90], rarity: 2, afterRain: true },
++  { id: 'fish.barb', waters: ['oasis'], slots: ['day'], size: 0, temper: 'steady', len: [10, 20], rarity: 0 },
++  { id: 'fish.char', waters: ['ice'], slots: ['day'], size: 2, temper: 'brute', len: [40, 95], rarity: 1 },
++  { id: 'fish.king', waters: ['lake'], slots: ['dusk'], size: 3, temper: 'brute', len: [120, 180], rarity: 3, onePerLake: true },
++];
++
++export function slotOf(hour: number): DaySlot {
++  const h = ((hour % 24) + 24) % 24;
++  return h >= 5 && h < 8 ? 'dawn' : h >= 8 && h < 17 ? 'day' : h >= 17 && h < 20 ? 'dusk' : 'night';
++}
++
++export interface FishWeather {
++  /** rain falling now */
++  raining: boolean;
++  /** the ground still wet from rain (0…1) */
++  wetness: number;
++  /** a clear sky (no cloud cover to speak of) */
++  clear: boolean;
++}
++
++export const FAIR: FishWeather = { raining: false, wetness: 0, clear: true };
++
++/** the fish that can be met in this water at this hour and weather */
++export function speciesFor(water: WaterKind, hour: number, w: FishWeather = FAIR, out: Species[] = []): Species[] {
++  const slot = slotOf(hour);
++  for (const s of SPECIES) {
++    if (!s.waters.includes(water) || !s.slots.includes(slot)) continue;
++    if (s.clear && !w.clear) continue;
++    if (s.afterRain && !(w.raining || w.wetness > 0.25)) continue;
++    out.push(s);
++  }
++  return out;
++}
++
++/** how often each band turns up (rain: every rarer band one step likelier) */
++export function weightOf(s: Species, w: FishWeather): number {
++  const base = [10, 4, 1.4, 0.6][s.rarity];
++  if (!w.raining) return base;
++  return [10, 6, 2.4, 1][s.rarity];
++}
++
++/** a catch's shadow is drawn this long (m) from its size class */
++export const SHADOW_LEN: readonly number[] = [0.25, 0.45, 0.75, 1.4];
+diff --git a/src/core/items/catalog.ts b/src/core/items/catalog.ts
+index a7c0386..42aa577 100644
+--- a/src/core/items/catalog.ts
++++ b/src/core/items/catalog.ts
+@@ -42,7 +42,8 @@ export type ItemShape =
+   | 'egg'
+   | 'cut'
+   | 'pelt'
+-  | 'tuber';
++  | 'tuber'
++  | 'rod';
+ 
+ export interface ItemDef {
+   readonly id: string;
+@@ -177,6 +178,7 @@ def('tool.siphon', '抽油管', 'siphon hose', 'tool', 'coil', 0xd8c24a);
+ def('tool.jack', '千斤顶', 'jack', 'tool', 'machine', 0xb5402c, { size: 'medium', rarity: 1 });
+ def('tool.wrench', '扳手', 'wrench', 'tool', 'tool', 0x9aa3a6);
+ def('tool.torch', '手电筒', 'torch', 'tool', 'tool', 0xd9b23c);
++def('tool.rod', '鱼竿', 'fishing rod', 'tool', 'rod', 0x9a6a3c, { size: 'medium', rarity: 1 });
+ def('tool.binoculars', '望远镜', 'binoculars', 'tool', 'case', 0x3d3f45, { rarity: 2, fragile: true });
+ def('ammo.bullet', '子弹', 'bullets', 'ammo', 'case', 0xc9a23c, { rarity: 1 });
+ 
+@@ -190,6 +192,7 @@ def('keep.tape', '磁带', 'cassette', 'keepsake', 'tape', 0xd98a3c, { stack: 1,
+ def('keep.map', '地图残页', 'scrap of a map', 'keepsake', 'paper', 0xe6dcc0, { stack: 1, rarity: 1 });
+ def('keep.photo', '相片', 'photograph', 'keepsake', 'paper', 0xd9d3c6, { stack: 1, rarity: 1 });
+ def('keep.book', '书', 'book', 'keepsake', 'book', 0x8a4f3c, { stack: 1, rarity: 1 });
++def('keep.bottle', '漂流瓶', 'bottle with a note', 'keepsake', 'bottle', 0x9fc8bf, { stack: 1, rarity: 1, fragile: true });
+ def('keep.radio', '收音机', 'radio', 'keepsake', 'case', 0x6f8f8a, { size: 'medium', rarity: 2, fragile: true });
+ 
+ // ---- big things that take two (6.4, 8.1): the first of the vehicle's parts are here so wrecks and
+diff --git a/src/core/items/loot.ts b/src/core/items/loot.ts
+index c7c64f6..dad9c62 100644
+--- a/src/core/items/loot.ts
++++ b/src/core/items/loot.ts
+@@ -88,7 +88,7 @@ export const LOOT: Record<ContainerKind, LootTable> = {
+   // on a jetty: somebody's fishing things
+   tacklebox: {
+     picks: [2, 3],
+-    entries: [e('bait.worm', 4, 2, 4), e('bait.bread', 3, 1, 2), e('mat.rope', 2), e('bait.snail', 2, 1, 3), e('mat.bamboo', 2), e('mat.bottle', 1), e('bait.spinner', 3, 1, 2), e('mat.wire', 1), e('keep.photo', 1)],
++    entries: [e('bait.worm', 4, 2, 4), e('bait.bread', 3, 1, 2), e('mat.rope', 2), e('bait.snail', 2, 1, 3), e('mat.bamboo', 2), e('mat.bottle', 1), e('bait.spinner', 3, 1, 2), e('mat.wire', 1), e('keep.photo', 1), e('tool.rod', 2)],
+   },
+   // in a hide at the edge of a wood
+   gamebag: {
+diff --git a/src/core/items/shapes.ts b/src/core/items/shapes.ts
+index ca6b49d..711c591 100644
+--- a/src/core/items/shapes.ts
++++ b/src/core/items/shapes.ts
+@@ -38,6 +38,8 @@ export const SHAPE_SIZE: Readonly<Record<ItemShape, ShapeSize>> = {
+   cut: { hx: 0.1, h: 0.05, hz: 0.07 },
+   pelt: { hx: 0.25, h: 0.12, hz: 0.14 },
+   tuber: { hx: 0.05, h: 0.05, hz: 0.04 },
++  /** a rod lying down: 2.1 m along */
++  rod: { hx: 1.05, h: 0.04, hz: 0.04 },
+ };
+ 
+ /** a medium thing is drawn a little bigger than its shape if it is a whole animal or a big fish (pelt, fish) */
+diff --git a/src/game/player/shapes3d.ts b/src/game/player/shapes3d.ts
+index eebfeab..61f65e4 100644
+--- a/src/game/player/shapes3d.ts
++++ b/src/game/player/shapes3d.ts
+@@ -149,6 +149,14 @@ function build(shape: ItemShape): THREE.BufferGeometry {
+       b.hull([[-L / 2, 0, -W * 0.4], [L / 2, 0, -W / 2], [L / 2, 0, W / 2], [-L / 2, 0, W * 0.4], [-L * 0.3, H, 0], [L * 0.3, H * 0.9, 0], [0, H * 0.7, W * 0.4], [0, H * 0.7, -W * 0.4]], T);
+       b.sphere(L * 0.55, H * 0.4, 0, H * 0.4, TD, 0);
+       break;
++    case 'rod': {
++      // butt and reel, then a tapering blank
++      b.cyl(-L * 0.42, H / 2, 0, 0.018, L * 0.16, 0x3a3330, { rz: Math.PI / 2, segments: 6 });
++      b.cyl(-L * 0.3, H * 0.2, 0, 0.032, 0.03, TIN, { rx: Math.PI / 2, segments: 8 });
++      b.cyl(L * 0.08, H / 2, 0, 0.009, L * 0.6, T, { rz: Math.PI / 2, segments: 5, radiusTop: 0.005 });
++      b.cyl(L * 0.43, H / 2, 0, 0.005, L * 0.14, TD, { rz: Math.PI / 2, segments: 4, radiusTop: 0.003 });
++      break;
++    }
+     case 'tuber':
+       b.sphere(0, H / 2, 0, s.hx, T, 0);
+       b.sphere(s.hx * 0.7, H * 0.4, s.hz * 0.4, s.hx * 0.65, TD, 0);
+-- 
+2.47.3
+

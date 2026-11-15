@@ -1,0 +1,32 @@
+{
+  "system": "weather",
+  "id": "default",
+  "metrics": {
+    "weather_events": 8630,
+    "weather_events_per_day": 1.1507,
+    "weather_schedule_violations": 0,
+    "weather_front_lead_min_s": 29,
+    "weather_buildup_min_s": 75.0016,
+    "weather_buildup_max_s": 119.9975,
+    "weather_peak_min_s": 300.0838,
+    "weather_peak_max_s": 599.9798,
+    "weather_aftermath_min_s": 130.0036,
+    "weather_aftermath_max_s": 174.9962,
+    "weather_determinism_mismatches": 0,
+    "weather_max_change_per_s": 0.0596,
+    "weather_act_order_violations": 0,
+    "weather_wetness_peak": 1,
+    "weather_dry_time_s": 109.2744,
+    "weather_snow_cover_peak": 1,
+    "weather_blizzard_min_temp_c": -14.3825,
+    "weather_grip_wet_ratio": 0.72,
+    "weather_grip_snow_ratio": 0.38,
+    "weather_brake_snow_vs_dry": 2.4626,
+    "day_length_s": 2400,
+    "day_golden_evening_s": 349,
+    "day_night_s": 710,
+    "day_max_hour_step": 0.0149,
+    "day_max_sun_elev_deg": 58,
+    "day_set_hour_error": 0
+  }
+}

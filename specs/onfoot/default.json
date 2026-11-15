@@ -1,0 +1,31 @@
+{
+  "id": "default",
+  "system": "onfoot",
+  "title": "步行与交互底座",
+  "source": "docs/DESIGN_V2.md 6.2（步行数值）、6.3（拾取 2.2 m / 9°、按住 0.6–2.5 秒）、5.3（头部稳定：起伏 ≤ 2 cm、无高频抖动）、8.1（容器按住 1.5 秒、同一种子同样的东西）、5.6（抽油：油罐 10 L/15 秒，残车 2 L/5 秒）、10.3（状态可存取）。测量见 harness/sim/onfoot.ts。",
+  "metrics": {
+    "walk_speed": { "label": "走路速度", "unit": "m/s", "min": 1.85, "max": 1.95 },
+    "run_speed": { "label": "跑步速度", "unit": "m/s", "min": 3.5, "max": 3.7 },
+    "crouch_speed": { "label": "蹲行速度", "unit": "m/s", "min": 0.9, "max": 1.1 },
+    "carry_speed": { "label": "单人抬大件速度（按着跑也一样）", "unit": "m/s", "min": 1.15, "max": 1.25 },
+    "swim_speed": { "label": "游泳速度", "unit": "m/s", "min": 1.05, "max": 1.15 },
+    "eye_height": { "label": "站立眼高", "unit": "m", "min": 1.6, "max": 1.64 },
+    "eye_crouch": { "label": "蹲下眼高", "unit": "m", "min": 1.03, "max": 1.07 },
+    "jump_height": { "label": "跳起高度", "unit": "m", "min": 0.53, "max": 0.57 },
+    "slope_climb_max_deg": { "label": "能走上去的最陡坡", "unit": "°", "min": 36.5, "max": 39 },
+    "step_up_max": { "label": "能直接走上的台阶高度", "unit": "m", "min": 0.28, "max": 0.32 },
+    "bob_max_cm": { "label": "跑步时头部起伏最大值", "unit": "cm", "max": 2 },
+    "bob_hf_share": { "label": "头部运动中 8 Hz 以上的能量占比", "unit": "", "max": 0.02 },
+    "wall_tunnel_count": { "label": "高速（5–5000 m/s）冲墙穿过的次数", "unit": "次", "max": 0 },
+    "random_walk_inside": { "label": "院子里随机走 10 分钟，身体在固体里的次数", "unit": "次", "max": 0 },
+    "random_walk_m": { "label": "随机走 10 分钟走过的路（确认真的在走）", "unit": "m", "min": 300 },
+    "exit_failures": { "label": "各车型从各车门下车没落到空地上的次数", "unit": "次", "max": 0 },
+    "pick_range_m": { "label": "拾取距离", "unit": "m", "min": 2.15, "max": 2.25 },
+    "pick_cone_deg": { "label": "拾取视线夹角", "unit": "°", "min": 8.7, "max": 9.2 },
+    "open_hold_s": { "label": "开箱按住时长", "unit": "s", "min": 1.45, "max": 1.55 },
+    "container_reroll_diff": { "label": "同一容器两次打开内容不同", "unit": "", "max": 0 },
+    "save_load_diff": { "label": "拿走的东西存档读档后又回来", "unit": "", "max": 0 },
+    "siphon_tank_l_per_s": { "label": "油罐抽油速度（10 L / 15 s）", "unit": "L/s", "min": 0.64, "max": 0.69 },
+    "siphon_wreck_l_per_s": { "label": "残车抽油速度（2 L / 5 s）", "unit": "L/s", "min": 0.38, "max": 0.42 }
+  }
+}

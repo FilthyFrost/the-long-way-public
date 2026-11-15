@@ -1,0 +1,13 @@
+{
+  "id": "fishing",
+  "system": "render",
+  "title": "渲染门禁 · 钓鱼截图组",
+  "source": "docs/DESIGN_V2.md 8.4：栈桥上看鱼影、抛竿、浮标、浮标没入、搏鱼（竿弯）、鱼拿在手上。钓鱼时多出的绘制：鱼影一个网格、竿与浮标一个、线一个。",
+  "metrics": {
+    "shots_failed": { "label": "渲染失败的截图数", "unit": "张", "max": 0 },
+    "console_errors": { "label": "浏览器控制台报错数", "unit": "条", "max": 0 },
+    "shots_total": { "label": "截图数", "unit": "张", "min": 6 },
+    "max_draw_calls": { "label": "单帧 draw call 峰值", "unit": "次", "max": 300 },
+    "max_triangles": { "label": "单帧三角形峰值", "unit": "个", "max": 1500000 }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "id": "sites",
+  "system": "roadgen",
+  "title": "沿途兴趣点 · 站点、路边残车与箱子",
+  "source": "docs/DESIGN_V2.md 4.6（沿途兴趣点）、3.3（节拍与可选停车）、8.1（搜刮：容器与看得见的小物）、11.4（一个路段的资源流）。",
+  "metrics": {
+    "sites_places_per_10km": {
+      "label": "每 10 km 的站点数（加油站、修车铺、小店、民居、营地、钓鱼点、猎台、瞭望台）",
+      "unit": "处",
+      "min": 2.8,
+      "max": 5
+    },
+    "sites_wrecks_per_10km": {
+      "label": "每 10 km 路边的残车数（五分之三早被拆空）",
+      "unit": "辆",
+      "min": 5,
+      "max": 10
+    },
+    "sites_heaps_per_10km": {
+      "label": "每 10 km 路边散落的箱子堆数",
+      "unit": "堆",
+      "min": 1.8,
+      "max": 4.5
+    },
+    "sites_kinds_seen": {
+      "label": "出现过的站点种类数",
+      "unit": "种",
+      "min": 8
+    },
+    "sites_station_max_gap_km": {
+      "label": "相邻两座加油站的最大间隔（小货车一箱油 74 km）",
+      "unit": "km",
+      "max": 30
+    },
+    "sites_first_station_km": {
+      "label": "出发后第一座加油站最远在多少公里",
+      "unit": "km",
+      "max": 12
+    },
+    "sites_pad_max_slope": {
+      "label": "停车坪上的最大坡度",
+      "unit": "m/m",
+      "max": 0.075
+    },
+    "sites_pad_wet_points": {
+      "label": "停车坪上被水淹的采样点",
+      "unit": "个",
+      "max": 0
+    },
+    "sites_pad_missing_points": {
+      "label": "站点认为是停车坪、地形却没有整平的采样点",
+      "unit": "个",
+      "max": 0
+    },
+    "sites_objects_afloat": {
+      "label": "悬空或埋进地里的物件（离地面超过 0.4 m）",
+      "unit": "个",
+      "max": 0
+    },
+    "sites_solids_on_road": {
+      "label": "伸进车道的碰撞体（离中线不足 3.6 m）",
+      "unit": "个",
+      "max": 0
+    },
+    "sites_determinism_mismatches": {
+      "label": "同一种子、不同查询顺序得到不同站点的次数",
+      "unit": "次",
+      "max": 0
+    },
+    "sites_containers_per_building": {
+      "label": "有房子的站点平均容器数（设计 3–5 个）",
+      "unit": "个",
+      "min": 3,
+      "max": 6.5
+    },
+    "sites_loose_per_building": {
+      "label": "有房子的站点平均“看得见的小物”数（设计 6–12 件）",
+      "unit": "件",
+      "min": 6,
+      "max": 12
+    },
+    "sites_fuel_l_per_100km": {
+      "label": "每 100 km 路上留着的汽油（油站油罐 + 残车油箱；小货车耗 20，房车耗 63）",
+      "unit": "L",
+      "min": 100,
+      "max": 260
+    },
+    "sites_empty_containers": {
+      "label": "开出来是空的容器占比",
+      "unit": "比例",
+      "max": 0
+    },
+    "sites_zones_share": {
+      "label": "钓鱼点与猎台中，找到了水边 / 林间空地的占比",
+      "unit": "比例",
+      "min": 0.9
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "set": "weather",
+  "note": "Weather as a play in three acts (docs/DESIGN_V2.md §4.5, W5): the front seen before anything falls, the peak with a drawn bolt, the sky opening over a wet road. wstage: 0–1 build-up, 1–2 peak, 2–3 aftermath.",
+  "base": "scene=world&shot=1&seed=7",
+  "shots": [
+    {
+      "name": "storm_build_25",
+      "params": "view=hood&s=420&time=15&weather=storm&wstage=0.25"
+    },
+    {
+      "name": "storm_build_45",
+      "params": "view=cockpit&s=420&time=15&weather=storm&wstage=0.45"
+    },
+    {
+      "name": "storm_build_70",
+      "params": "view=hood&s=420&time=15&weather=storm&wstage=0.7"
+    },
+    {
+      "name": "storm_peak_bolt",
+      "params": "view=cockpit&s=420&time=15&weather=storm&wstage=1.5",
+      "steps": [
+        {
+          "call": "strike"
+        }
+      ]
+    },
+    {
+      "name": "storm_after_25",
+      "params": "view=hood&s=420&time=16.5&weather=storm&wstage=2.25"
+    },
+    {
+      "name": "storm_after_70",
+      "params": "view=cockpit&s=420&time=16.5&weather=storm&wstage=2.7"
+    },
+    {
+      "name": "wet_road_puddles",
+      "params": "view=hood&s=470&time=17.2&weather=rain&wstage=2.75",
+      "look": [
+        0.0,
+        -0.32
+      ]
+    },
+    {
+      "name": "wet_road_night",
+      "params": "view=cockpit&s=420&time=22&weather=rain&wstage=1.5"
+    },
+    {
+      "name": "sand_build_50",
+      "params": "biome=desert&view=hood&s=900&time=14&weather=sandstorm&wstage=0.5"
+    },
+    {
+      "name": "blizzard_build_50",
+      "params": "biome=alpine&view=hood&s=900&time=12&weather=blizzard&wstage=0.5"
+    },
+    {
+      "name": "lake_after_rain",
+      "params": "view=hood&s=3150&time=17.5&weather=rain&wstage=2.6",
+      "look": [
+        1.0,
+        -0.06
+      ]
+    },
+    {
+      "name": "snow_tracks",
+      "params": "biome=alpine&view=hood&s=900&time=14&weather=snow&wstage=2.6",
+      "look": [
+        0.0,
+        -0.22
+      ]
+    },
+    {
+      "name": "gale_leaves",
+      "params": "view=hood&s=420&time=11&weather=storm&wstage=0.55",
+      "look": [
+        0.5,
+        0.0
+      ]
+    },
+    {
+      "name": "mist_shafts",
+      "params": "view=hood&s=420&time=6.6&weather=fog&wstage=2.5",
+      "look": [
+        0.25,
+        0.02
+      ]
+    }
+  ]
+}

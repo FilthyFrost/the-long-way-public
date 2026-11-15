@@ -1,0 +1,28 @@
+{
+  "id": "water",
+  "system": "render",
+  "title": "渲染门禁 · 水体与桥截图组",
+  "source": "docs/DESIGN_V2.md 4.5（World V3 · W1）；预算沿用世界截图组。",
+  "metrics": {
+    "shots_failed": {
+      "label": "渲染失败的截图数",
+      "unit": "张",
+      "max": 0
+    },
+    "console_errors": {
+      "label": "浏览器控制台报错数",
+      "unit": "条",
+      "max": 0
+    },
+    "max_draw_calls": {
+      "label": "单帧 draw call 峰值",
+      "unit": "次",
+      "max": 300
+    },
+    "max_triangles": {
+      "label": "单帧三角形峰值",
+      "unit": "个",
+      "max": 1500000
+    }
+  }
+}

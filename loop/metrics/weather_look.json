@@ -1,0 +1,11 @@
+{
+  "system": "weather",
+  "id": "look",
+  "metrics": {
+    "look_max_light_change_per_s": 0.0175,
+    "look_max_sky_change_per_s": 0.0305,
+    "look_max_log_fog_change_per_s": 0.0892,
+    "look_min_night_ambient": 0.1439,
+    "look_storm_light_ratio": 0.1827
+  }
+}

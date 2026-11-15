@@ -1,0 +1,29 @@
+{
+  "system": "onfoot",
+  "id": "default",
+  "metrics": {
+    "walk_speed": 1.9,
+    "run_speed": 3.6,
+    "crouch_speed": 1,
+    "carry_speed": 1.2,
+    "swim_speed": 1.1,
+    "eye_height": 1.62,
+    "eye_crouch": 1.05,
+    "jump_height": 0.5501,
+    "slope_climb_max_deg": 37.5,
+    "step_up_max": 0.3,
+    "bob_max_cm": 1.7999,
+    "bob_hf_share": 0.0042,
+    "wall_tunnel_count": 0,
+    "random_walk_inside": 0,
+    "random_walk_m": 978.6602,
+    "exit_failures": 0,
+    "pick_range_m": 2.2,
+    "pick_cone_deg": 9,
+    "open_hold_s": 1.5083,
+    "container_reroll_diff": 0,
+    "save_load_diff": 0,
+    "siphon_tank_l_per_s": 0.6667,
+    "siphon_wreck_l_per_s": 0.4
+  }
+}

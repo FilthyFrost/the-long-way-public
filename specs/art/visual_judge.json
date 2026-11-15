@@ -1,0 +1,19 @@
+{
+  "id": "judge",
+  "system": "visual",
+  "stage": "M1d",
+  "title": "独立视觉裁判 · 与对标图的接近程度",
+  "source": "specs/art/STYLE.md 第 11 节、specs/art/rubric.md v2。评审智能体只看对标图（refs/targets/）和我们的风格截图组（harness/shots/sets/style.json）。",
+  "metrics": {
+    "judge_mean": {
+      "label": "十项接近程度均分",
+      "unit": "分",
+      "min": 3.5
+    },
+    "judge_min_item": {
+      "label": "单项最低分",
+      "unit": "分",
+      "min": 2.5
+    }
+  }
+}

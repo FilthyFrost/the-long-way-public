@@ -1,0 +1,14 @@
+{
+  "id": "vista",
+  "system": "roadgen",
+  "title": "地貌与远景 · 从路上看出去",
+  "source": "docs/DESIGN_V2.md 4.5（World V3 · W2）：地貌段、三层远景、有设计的远山；调研 refs/research/world_weather.md 第 2 节（三角形法则、分层色块）。",
+  "metrics": {
+    "vista_open_share": { "label": "至少一侧视野打开的路段占比（近处山丘的中位仰角 < 2°）", "unit": "", "min": 0.25 },
+    "vista_shut_share": { "label": "两侧都被挡住的路段占比（两侧中位仰角 > 6°）", "unit": "", "max": 0.45 },
+    "vista_layers_mean": { "label": "同时看得见的远近层数（近丘、中景山、远山）", "unit": "层", "min": 2 },
+    "vista_far_needles_per_view": { "label": "远山天际线上的“针尖”数（1° 步长，比两侧高出 0.5° 以上）", "unit": "个/全景", "max": 3 },
+    "vista_far_max_elev_deg": { "label": "远山最大仰角（巨峰）", "unit": "度", "max": 26 },
+    "vista_land_kinds_min_per_biome": { "label": "每个群系出现过的地貌种类数（最少的那个群系）", "unit": "种", "min": 3 }
+  }
+}

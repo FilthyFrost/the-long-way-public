@@ -1,0 +1,26 @@
+{
+  "system": "roadgen",
+  "id": "beats",
+  "metrics": {
+    "beats_sights_per_10km": 12.9292,
+    "beats_moments_per_10km": 7.9459,
+    "beats_all_per_10km": 22.5539,
+    "beats_moment_median_gap_s": 45.4047,
+    "beats_moment_p10_gap_s": 24.5612,
+    "beats_moment_p90_gap_s": 108.6195,
+    "beats_moment_max_gap_early_s": 153.7412,
+    "beats_moment_max_gap_late_s": 240.8042,
+    "beats_all_median_gap_s": 16.2385,
+    "beats_all_p90_gap_s": 49.9069,
+    "beats_quiet_stretches_per_10km_late": 0.9543,
+    "beats_same_kind_three_running_share": 0.0098,
+    "beats_kinds_seen": 6,
+    "beats_things_seen": 41,
+    "beats_determinism_mismatches": 0,
+    "beats_land_per_10km": 2.7879,
+    "beats_far_per_10km": 3.1449,
+    "beats_place_per_10km": 2.8715,
+    "beats_water_per_10km": 2.5448,
+    "beats_bridge_per_10km": 1.1015
+  }
+}

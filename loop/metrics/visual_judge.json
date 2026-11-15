@@ -1,0 +1,9 @@
+{
+  "system": "visual",
+  "id": "judge",
+  "review": 6,
+  "basis": "render style v2, sixth pass (loop/shots/style, 7 shots vs refs/targets/painted-valley); independent reviewer without access to earlier reviews; report loop/reports/judge_006.md. Reviews #5 and #6 of nearly the same frames gave 3.4 and 3.1: about ±0.3 between reviewers.",
+  "scores": [3.5, 4, 3.5, 3, 2.5, 3, 2.5, 3, 3, 3],
+  "theme": [3, 3.5],
+  "metrics": { "judge_mean": 3.1, "judge_min_item": 2.5 }
+}

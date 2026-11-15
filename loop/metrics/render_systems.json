@@ -1,0 +1,91 @@
+{
+  "system": "render",
+  "id": "systems",
+  "metrics": {
+    "shots_total": 6,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 58,
+    "max_triangles": 41216
+  },
+  "shots": {
+    "selfcheck_lamps": {
+      "ok": true,
+      "ms": 29606,
+      "errors": [],
+      "calls": 52,
+      "triangles": 39920,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "dash_running": {
+      "ok": true,
+      "ms": 38762,
+      "errors": [],
+      "calls": 52,
+      "triangles": 39920,
+      "programs": 21,
+      "kmh": 15.3,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "flat_tyre": {
+      "ok": true,
+      "ms": 37570,
+      "errors": [],
+      "calls": 58,
+      "triangles": 41216,
+      "programs": 23,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "limp_mode": {
+      "ok": true,
+      "ms": 36026,
+      "errors": [],
+      "calls": 52,
+      "triangles": 39920,
+      "programs": 21,
+      "kmh": 28.2,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "fuel_before_pour": {
+      "ok": true,
+      "ms": 24700,
+      "errors": [],
+      "calls": 52,
+      "triangles": 39920,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "fuel_after_pour": {
+      "ok": true,
+      "ms": 41847,
+      "errors": [],
+      "calls": 52,
+      "triangles": 39920,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

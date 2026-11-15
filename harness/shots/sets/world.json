@@ -1,0 +1,128 @@
+{
+  "set": "world",
+  "base": "scene=world&shot=1&chapter=0.2&seed=7",
+  "shots": [
+    {
+      "name": "plains_cockpit",
+      "params": "view=cockpit&s=300"
+    },
+    {
+      "name": "plains_chase",
+      "params": "view=chase&s=300",
+      "look": [
+        0.5,
+        0
+      ]
+    },
+    {
+      "name": "plains_drive",
+      "params": "view=cockpit&s=600",
+      "steps": [
+        {
+          "simulate": 14,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_wreck",
+      "params": "view=cockpit&s=612&time=17.2&weather=clear"
+    },
+    {
+      "name": "plains_wreck_side",
+      "params": "view=cockpit&s=629&time=17.2&weather=clear",
+      "look": [
+        -1.05,
+        -0.06
+      ]
+    },
+    {
+      "name": "desert_wreck",
+      "params": "view=cockpit&s=2372&time=10&weather=clear"
+    },
+    {
+      "name": "desert_cockpit",
+      "params": "view=cockpit&s=2900"
+    },
+    {
+      "name": "desert_chase",
+      "params": "view=chase&s=3300",
+      "look": [
+        -0.5,
+        0
+      ]
+    },
+    {
+      "name": "alpine_cockpit",
+      "params": "view=cockpit&s=6200"
+    },
+    {
+      "name": "alpine_chase",
+      "params": "view=chase&s=6600",
+      "look": [
+        0.6,
+        0
+      ]
+    },
+    {
+      "name": "alpine_drive",
+      "params": "view=cockpit&s=5600",
+      "steps": [
+        {
+          "simulate": 16,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "transition_plains_desert",
+      "params": "view=cockpit&s=1380"
+    },
+    {
+      "name": "far_from_origin",
+      "params": "view=cockpit&s=52000",
+      "checkHash": true
+    },
+    {
+      "name": "stream_drive",
+      "params": "view=cockpit&s=900",
+      "steps": [
+        {
+          "drive": 75,
+          "fps": 30
+        }
+      ]
+    },
+    {
+      "name": "audio_probe",
+      "params": "view=cockpit&s=900",
+      "steps": [
+        {
+          "simulate": 8,
+          "input": "robot"
+        }
+      ],
+      "audioProbe": true
+    },
+    {
+      "name": "landmark_hull_far",
+      "params": "view=cockpit&s=760&time=17.6&weather=clear"
+    },
+    {
+      "name": "landmark_hull_near",
+      "params": "view=cockpit&s=1590&time=17.6&weather=clear",
+      "look": [
+        0.75,
+        0.06
+      ]
+    },
+    {
+      "name": "landmark_ring",
+      "params": "view=cockpit&s=4380&time=9.5&weather=clear"
+    },
+    {
+      "name": "landmark_towers",
+      "params": "view=cockpit&s=9450&time=18.5&weather=clear"
+    }
+  ]
+}

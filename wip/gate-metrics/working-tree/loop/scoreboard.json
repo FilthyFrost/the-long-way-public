@@ -1,0 +1,5323 @@
+{
+  "history": [
+    {
+      "iter": 1,
+      "time": "2026-11-13T10:57:17.923Z",
+      "commit": "702f903",
+      "note": "M1a 物理核心：T0 小货车 23/23",
+      "passed": 23,
+      "total": 23,
+      "per": {
+        "driving/t0_truck": "23/23"
+      }
+    },
+    {
+      "iter": 2,
+      "time": "2026-11-13T11:07:21.727Z",
+      "commit": "ddfc62c",
+      "note": "M1a 浏览器运行时：驾驶舱、测试场、截图矩阵",
+      "passed": 27,
+      "total": 27,
+      "per": {
+        "driving/t0_truck": "23/23",
+        "render/driving": "4/4"
+      }
+    },
+    {
+      "iter": 3,
+      "time": "2026-11-13T11:15:05.336Z",
+      "commit": "ab6c702",
+      "note": "M1b 核心：道路脊柱 + 地形函数，机器人 500 km 零事故",
+      "passed": 42,
+      "total": 42,
+      "per": {
+        "driving/t0_truck": "23/23",
+        "render/driving": "4/4",
+        "roadgen/default": "15/15"
+      }
+    },
+    {
+      "iter": 4,
+      "time": "2026-11-13T11:25:37.097Z",
+      "commit": "b720425",
+      "note": "M1b 渲染：路面带、四叉树地形、植被、电线杆、流式加载",
+      "passed": 49,
+      "total": 49,
+      "per": {
+        "driving/t0_truck": "23/23",
+        "render/driving": "4/4",
+        "render/world": "7/7",
+        "roadgen/default": "15/15"
+      }
+    },
+    {
+      "iter": 5,
+      "time": "2026-11-13T11:41:19.760Z",
+      "commit": "dd2b5a0",
+      "note": "M1c 画面：色彩剧本、天空、降水、挡风玻璃、车灯",
+      "passed": 80,
+      "total": 80,
+      "per": {
+        "driving/t0_truck": "23/23",
+        "image/sky": "5/5",
+        "image/sky:style": "0/0",
+        "render/driving": "4/4",
+        "render/sky": "5/5",
+        "render/world": "7/7",
+        "roadgen/default": "15/15",
+        "weather/default": "21/21"
+      }
+    },
+    {
+      "iter": 6,
+      "time": "2026-11-13T12:12:55.592Z",
+      "commit": "8afe004",
+      "note": "M1d 整改三批 + 过渡平滑度门禁（修复起雨瞬间天空变亮）",
+      "passed": 95,
+      "total": 95,
+      "per": {
+        "audio/default": "8/8",
+        "driving/t0_truck": "23/23",
+        "image/sky": "5/5",
+        "image/sky:style": "0/0",
+        "render/driving": "4/4",
+        "render/sky": "5/5",
+        "render/world": "9/9",
+        "roadgen/default": "15/15",
+        "visual/judge": "0/0",
+        "weather/default": "21/21",
+        "weather/look": "5/5"
+      }
+    }
+  ],
+  "current": {
+    "specs": {
+      "audio/default": {
+        "title": "声音混音映射",
+        "passed": 13,
+        "total": 13,
+        "missing": 0,
+        "metrics": {
+          "audio_engine_hz_idle": {
+            "value": 21.25,
+            "min": 15,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_engine_hz_redline": {
+            "value": 150,
+            "min": 120,
+            "max": 180,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_non_monotonic": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_values_out_of_range": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_enclosed_wind_drop_db": {
+            "value": 10.4576,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_enclosed_rain_drop_db": {
+            "value": 12.0412,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_roof_rain_open": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_roof_rain_enclosed": {
+            "value": 0.4,
+            "min": 0.2,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_engine_off_gain": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_starter_gain_cranking": {
+            "value": 0.22,
+            "min": 0.1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_thump_gain_kerb": {
+            "value": 0.54,
+            "min": 0.3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_shift_engine_sag": {
+            "value": 0.6819,
+            "min": 0.6,
+            "max": 0.9,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_horn_detune_ratio": {
+            "value": 0.6905,
+            "min": null,
+            "max": 0.8,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "driving/t0_truck": {
+        "title": "T0 敞篷小货车 · 干燥柏油",
+        "passed": 109,
+        "total": 109,
+        "missing": 0,
+        "metrics": {
+          "accel_0_60_s": {
+            "value": 9.15,
+            "min": 9,
+            "max": 11,
+            "status": "pass",
+            "miss": 0
+          },
+          "top_speed_kmh": {
+            "value": 93.9582,
+            "min": 85,
+            "max": 95,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_60_0_m": {
+            "value": 18.1825,
+            "min": 17,
+            "max": 22,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_lat_g": {
+            "value": 0.7043,
+            "min": 0.65,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_rise_time_s": {
+            "value": 0.275,
+            "min": 0.25,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "understeer_deg_per_g": {
+            "value": 2.6226,
+            "min": 1,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "roll_deg_per_g": {
+            "value": 5.5651,
+            "min": 4.5,
+            "max": 6.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_hz": {
+            "value": 1.4286,
+            "min": 1.3,
+            "max": 1.7,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_zeta": {
+            "value": 0.3625,
+            "min": 0.25,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_shake_hf_deg_s": {
+            "value": 0.5896,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_vs_body_shake_ratio": {
+            "value": 0.1731,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill8_drift_cm": {
+            "value": 0.0003,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_bank8_drift_cm": {
+            "value": 0.0065,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill15_handbrake_drift_cm": {
+            "value": 0.0001,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_jitter_mrad_s": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuzz_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_yaw_dev_deg": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "lateral_drift_m": {
+            "value": 0,
+            "min": null,
+            "max": 0.3,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_overshoot_pct": {
+            "value": 4.2542,
+            "min": null,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "skidpad_spun": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "lane_change_settle_s": {
+            "value": 3.625,
+            "min": null,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_height_error_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_l_100km_cruise60": {
+            "value": 20.3097,
+            "min": 18,
+            "max": 23,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_range_km_cruise60": {
+            "value": 73.8562,
+            "min": 60,
+            "max": 90,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_gravel_max_pct": {
+            "value": 26,
+            "min": 20,
+            "max": 32,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_snow_max_pct": {
+            "value": 10,
+            "min": 8,
+            "max": 14,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_km": {
+            "value": 32.0007,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_lane_rms_m": {
+            "value": 0.215,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "creep_kmh": {
+            "value": 2.889,
+            "min": 2,
+            "max": 7,
+            "status": "pass",
+            "miss": 0
+          },
+          "coast_decel_60_g": {
+            "value": 0.048,
+            "min": 0.025,
+            "max": 0.08,
+            "status": "pass",
+            "miss": 0
+          },
+          "engine_brake_low_gear_gain": {
+            "value": 1.3308,
+            "min": 1.1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "tip_in_s": {
+            "value": 0.1,
+            "min": 0.05,
+            "max": 0.6,
+            "status": "pass",
+            "miss": 0
+          },
+          "upshifts_0_80": {
+            "value": 3,
+            "min": 2,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "shift_dip_g": {
+            "value": 0.254,
+            "min": 0.08,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "reverse_top_kmh": {
+            "value": 24.1576,
+            "min": 15,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "park_p_hold15_drift_cm": {
+            "value": 0.0029,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "neutral_rollaway_8pct_kmh": {
+            "value": 13.8812,
+            "min": 5,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_max_hold_pct": {
+            "value": 44,
+            "min": 25,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "p_refused_at_30kmh": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_auto_release": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_turn_yaw_deg": {
+            "value": 61.8825,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_yaw_gain": {
+            "value": 2.0901,
+            "min": 1.3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_rise_s": {
+            "value": 0.225,
+            "min": 0.12,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_centre_s": {
+            "value": 0.225,
+            "min": 0.12,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_slow_deg": {
+            "value": 35,
+            "min": 33,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_ratio_90": {
+            "value": 0.2079,
+            "min": 0.12,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_body_peak_g": {
+            "value": 0.5728,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_cam_vs_body_peak": {
+            "value": 0.4673,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_cam_peak_deg_s": {
+            "value": 1.4021,
+            "min": null,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_susp_rms_m_s": {
+            "value": 0.633,
+            "min": 0.3,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_thumps": {
+            "value": 0,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_hf_deg_s": {
+            "value": 0.1453,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_vs_body_hf": {
+            "value": 0.1093,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_detected": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_cam_vs_body_peak": {
+            "value": 0.5383,
+            "min": null,
+            "max": 0.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_feel_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_gravel_pct": {
+            "value": 24,
+            "min": 18,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_snow_pct": {
+            "value": 10,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_snowtyre_climb_snow_pct": {
+            "value": 16,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_chains_climb_snow_pct": {
+            "value": 18,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_yellow_s": {
+            "value": 475.1667,
+            "min": 150,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_warning_s": {
+            "value": 424.8333,
+            "min": 120,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_limp_min_kmh": {
+            "value": 53.8679,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_mild_max_c": {
+            "value": 89.3582,
+            "min": null,
+            "max": 104,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_desert_cooling2_max_c": {
+            "value": 89.5593,
+            "min": null,
+            "max": 107,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_cruise60_temp_c": {
+            "value": 84.1644,
+            "min": 78,
+            "max": 95,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_km": {
+            "value": 12.002,
+            "min": 10,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_engine_per_100km": {
+            "value": 7.3367,
+            "min": 4,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_suspension_per_100km": {
+            "value": 3,
+            "min": 1,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_brakes_per_100km": {
+            "value": 1.2,
+            "min": 0.5,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_tread_per_100km": {
+            "value": 3.0041,
+            "min": 1.5,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_lights_on_hours": {
+            "value": 0.8517,
+            "min": 0.5,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_night_net_per_min": {
+            "value": 1.5,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_warm_s": {
+            "value": 1.3,
+            "min": 0.8,
+            "max": 2.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_cold_s": {
+            "value": 3.5333,
+            "min": 2,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_asphalt": {
+            "value": 0.6879,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_gravel": {
+            "value": 2.2931,
+            "min": 0.8,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_heading_drift_deg": {
+            "value": 10.6153,
+            "min": 3,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_limp_top_kmh": {
+            "value": 55.5959,
+            "min": 25,
+            "max": 65,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_robot_lane_err_m": {
+            "value": 0.015,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_30_m": {
+            "value": -0.0618,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_60_m": {
+            "value": -0.1386,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_rebound_60_kmh": {
+            "value": 9.1177,
+            "min": 3,
+            "max": 15,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_penetration_max_m": {
+            "value": 0.0963,
+            "min": null,
+            "max": 0.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_30": {
+            "value": 17.4584,
+            "min": 8,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_60": {
+            "value": 37.4965,
+            "min": 25,
+            "max": 55,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_engine_damage_60": {
+            "value": 11.6424,
+            "min": 5,
+            "max": 20,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_tunnel_120": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_turn_deg": {
+            "value": 19.4493,
+            "min": 10,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_speed_kept": {
+            "value": 0.8333,
+            "min": 0.6,
+            "max": 0.95,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_penetration_m": {
+            "value": 0.0068,
+            "min": null,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_body_damage": {
+            "value": 3.9264,
+            "min": 0.5,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_turn_deg": {
+            "value": 21.2686,
+            "min": 5,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_knocks": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_speed_kept": {
+            "value": 0.945,
+            "min": 0.85,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_hits": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "solids_cost_ratio_500": {
+            "value": 1.2734,
+            "min": null,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "solids_step_us_500": {
+            "value": 1.1134,
+            "min": null,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp2_roll_ratio": {
+            "value": 0.8657,
+            "min": 0.75,
+            "max": 0.92,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp3_clearance_gain_cm": {
+            "value": 5,
+            "min": 4,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp_swap_jolt_m_s": {
+            "value": 0.1674,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_two_people_kmh": {
+            "value": 5.346,
+            "min": 2,
+            "max": 9,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_in_p_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "driving/t1_van": {
+        "title": "T1 面包车 · 干燥柏油",
+        "passed": 107,
+        "total": 107,
+        "missing": 0,
+        "metrics": {
+          "accel_0_60_s": {
+            "value": 10.575,
+            "min": 10.5,
+            "max": 12.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "top_speed_kmh": {
+            "value": 98.7976,
+            "min": 96,
+            "max": 108,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_60_0_m": {
+            "value": 19.2826,
+            "min": 18,
+            "max": 23,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_lat_g": {
+            "value": 0.6524,
+            "min": 0.6,
+            "max": 0.7,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_rise_time_s": {
+            "value": 0.3583,
+            "min": 0.3,
+            "max": 0.46,
+            "status": "pass",
+            "miss": 0
+          },
+          "understeer_deg_per_g": {
+            "value": 3.3978,
+            "min": 1.5,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "roll_deg_per_g": {
+            "value": 6.6903,
+            "min": 6.3,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_hz": {
+            "value": 1.2,
+            "min": 1.1,
+            "max": 1.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_zeta": {
+            "value": 0.3164,
+            "min": 0.22,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "lane_change_settle_s": {
+            "value": 3.5667,
+            "min": null,
+            "max": 4.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_l_100km_cruise60": {
+            "value": 35.0402,
+            "min": 30,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_range_km_cruise60": {
+            "value": 114.1545,
+            "min": 95,
+            "max": 135,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_gravel_max_pct": {
+            "value": 28,
+            "min": 22,
+            "max": 34,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_snow_max_pct": {
+            "value": 10,
+            "min": 8,
+            "max": 14,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_km": {
+            "value": 32.0003,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_lane_rms_m": {
+            "value": 0.1357,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_shake_hf_deg_s": {
+            "value": 0.3605,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_vs_body_shake_ratio": {
+            "value": 0.178,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill8_drift_cm": {
+            "value": 0.0002,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_bank8_drift_cm": {
+            "value": 0.0068,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill15_handbrake_drift_cm": {
+            "value": 0.0001,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_jitter_mrad_s": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuzz_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_yaw_dev_deg": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "lateral_drift_m": {
+            "value": 0,
+            "min": null,
+            "max": 0.3,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_overshoot_pct": {
+            "value": 2.5882,
+            "min": null,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "skidpad_spun": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_height_error_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "creep_kmh": {
+            "value": 3.9961,
+            "min": 2,
+            "max": 7,
+            "status": "pass",
+            "miss": 0
+          },
+          "coast_decel_60_g": {
+            "value": 0.0426,
+            "min": 0.025,
+            "max": 0.08,
+            "status": "pass",
+            "miss": 0
+          },
+          "engine_brake_low_gear_gain": {
+            "value": 1.177,
+            "min": 1.1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "tip_in_s": {
+            "value": 0.0917,
+            "min": 0.05,
+            "max": 0.6,
+            "status": "pass",
+            "miss": 0
+          },
+          "upshifts_0_80": {
+            "value": 2,
+            "min": 2,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "shift_dip_g": {
+            "value": 0.2189,
+            "min": 0.08,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "reverse_top_kmh": {
+            "value": 31.1845,
+            "min": 15,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "park_p_hold15_drift_cm": {
+            "value": 0.0021,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "neutral_rollaway_8pct_kmh": {
+            "value": 13.874,
+            "min": 5,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_max_hold_pct": {
+            "value": 48,
+            "min": 25,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "p_refused_at_30kmh": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_auto_release": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_turn_yaw_deg": {
+            "value": 43.0877,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_yaw_gain": {
+            "value": 1.7784,
+            "min": 1.3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_rise_s": {
+            "value": 0.2583,
+            "min": 0.12,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_centre_s": {
+            "value": 0.2583,
+            "min": 0.12,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_slow_deg": {
+            "value": 36,
+            "min": 33,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_ratio_90": {
+            "value": 0.2054,
+            "min": 0.12,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_body_peak_g": {
+            "value": 0.7707,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_cam_vs_body_peak": {
+            "value": 0.5195,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_cam_peak_deg_s": {
+            "value": 1.2712,
+            "min": null,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_susp_rms_m_s": {
+            "value": 0.6123,
+            "min": 0.3,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_thumps": {
+            "value": 0,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_hf_deg_s": {
+            "value": 0.0397,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_vs_body_hf": {
+            "value": 0.3067,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_detected": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_cam_vs_body_peak": {
+            "value": 0.5763,
+            "min": null,
+            "max": 0.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_feel_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_gravel_pct": {
+            "value": 26,
+            "min": 18,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_snow_pct": {
+            "value": 10,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_snowtyre_climb_snow_pct": {
+            "value": 18,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_chains_climb_snow_pct": {
+            "value": 20,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_yellow_s": {
+            "value": 579.8667,
+            "min": 150,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_warning_s": {
+            "value": 320.1333,
+            "min": 120,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_limp_min_kmh": {
+            "value": 40.4545,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_mild_max_c": {
+            "value": 89.5232,
+            "min": null,
+            "max": 104,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_desert_cooling2_max_c": {
+            "value": 89.6866,
+            "min": null,
+            "max": 107,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_cruise60_temp_c": {
+            "value": 84.2704,
+            "min": 78,
+            "max": 95,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_km": {
+            "value": 12.0021,
+            "min": 10,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_engine_per_100km": {
+            "value": 8.0298,
+            "min": 4,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_suspension_per_100km": {
+            "value": 3,
+            "min": 1,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_brakes_per_100km": {
+            "value": 1.2,
+            "min": 0.5,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_tread_per_100km": {
+            "value": 2.9995,
+            "min": 1.5,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_lights_on_hours": {
+            "value": 0.8517,
+            "min": 0.5,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_night_net_per_min": {
+            "value": 1.5,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_warm_s": {
+            "value": 1.3,
+            "min": 0.8,
+            "max": 2.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_cold_s": {
+            "value": 3.5333,
+            "min": 2,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_asphalt": {
+            "value": 0.6879,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_gravel": {
+            "value": 2.2931,
+            "min": 0.8,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_heading_drift_deg": {
+            "value": 8.8968,
+            "min": 3,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_limp_top_kmh": {
+            "value": 48.8793,
+            "min": 25,
+            "max": 65,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_robot_lane_err_m": {
+            "value": 0.0076,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_30_m": {
+            "value": -0.0905,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_60_m": {
+            "value": -0.0981,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_rebound_60_kmh": {
+            "value": 9.0472,
+            "min": 3,
+            "max": 15,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_penetration_max_m": {
+            "value": 0.0691,
+            "min": null,
+            "max": 0.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_30": {
+            "value": 17.5054,
+            "min": 8,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_60": {
+            "value": 37.1758,
+            "min": 25,
+            "max": 55,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_engine_damage_60": {
+            "value": 11.5228,
+            "min": 5,
+            "max": 20,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_tunnel_120": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_turn_deg": {
+            "value": 19.309,
+            "min": 10,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_speed_kept": {
+            "value": 0.8132,
+            "min": 0.6,
+            "max": 0.95,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_penetration_m": {
+            "value": 0.0042,
+            "min": null,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_body_damage": {
+            "value": 3.4368,
+            "min": 0.5,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_turn_deg": {
+            "value": 30.1625,
+            "min": 5,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_knocks": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_speed_kept": {
+            "value": 0.9645,
+            "min": 0.85,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_hits": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp2_roll_ratio": {
+            "value": 0.8451,
+            "min": 0.75,
+            "max": 0.92,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp3_clearance_gain_cm": {
+            "value": 5,
+            "min": 4,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp_swap_jolt_m_s": {
+            "value": 0.1451,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_two_people_kmh": {
+            "value": 3.8237,
+            "min": 2,
+            "max": 9,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_in_p_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "driving/t2_offroad": {
+        "title": "T2 越野车 · 干燥柏油",
+        "passed": 107,
+        "total": 107,
+        "missing": 0,
+        "metrics": {
+          "accel_0_60_s": {
+            "value": 8.1083,
+            "min": 8,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "top_speed_kmh": {
+            "value": 119.5548,
+            "min": 116,
+            "max": 130,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_60_0_m": {
+            "value": 18.9206,
+            "min": 17,
+            "max": 22,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_lat_g": {
+            "value": 0.6726,
+            "min": 0.64,
+            "max": 0.74,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_rise_time_s": {
+            "value": 0.35,
+            "min": 0.27,
+            "max": 0.42,
+            "status": "pass",
+            "miss": 0
+          },
+          "understeer_deg_per_g": {
+            "value": 2.4428,
+            "min": 1,
+            "max": 3.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "roll_deg_per_g": {
+            "value": 5.9171,
+            "min": 5.2,
+            "max": 7,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_hz": {
+            "value": 1.25,
+            "min": 1.15,
+            "max": 1.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_zeta": {
+            "value": 0.3799,
+            "min": 0.28,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "lane_change_settle_s": {
+            "value": 3.3083,
+            "min": null,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_l_100km_cruise60": {
+            "value": 29.4026,
+            "min": 26,
+            "max": 35,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_range_km_cruise60": {
+            "value": 238.0739,
+            "min": 190,
+            "max": 270,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_gravel_max_pct": {
+            "value": 46,
+            "min": 38,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_snow_max_pct": {
+            "value": 28,
+            "min": 22,
+            "max": 34,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_km": {
+            "value": 32.0007,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_lane_rms_m": {
+            "value": 0.1887,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_shake_hf_deg_s": {
+            "value": 0.4117,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_vs_body_shake_ratio": {
+            "value": 0.1659,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill8_drift_cm": {
+            "value": 0.0001,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_bank8_drift_cm": {
+            "value": 0.003,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill15_handbrake_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_jitter_mrad_s": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuzz_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_yaw_dev_deg": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "lateral_drift_m": {
+            "value": 0,
+            "min": null,
+            "max": 0.3,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_overshoot_pct": {
+            "value": 2.0054,
+            "min": null,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "skidpad_spun": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_height_error_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "creep_kmh": {
+            "value": 4.1073,
+            "min": 2,
+            "max": 7,
+            "status": "pass",
+            "miss": 0
+          },
+          "coast_decel_60_g": {
+            "value": 0.0334,
+            "min": 0.025,
+            "max": 0.08,
+            "status": "pass",
+            "miss": 0
+          },
+          "engine_brake_low_gear_gain": {
+            "value": 1.4092,
+            "min": 1.1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "tip_in_s": {
+            "value": 0.3333,
+            "min": 0.05,
+            "max": 0.6,
+            "status": "pass",
+            "miss": 0
+          },
+          "upshifts_0_80": {
+            "value": 2,
+            "min": 2,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "shift_dip_g": {
+            "value": 0.3026,
+            "min": 0.08,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "reverse_top_kmh": {
+            "value": 32.4513,
+            "min": 15,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "park_p_hold15_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "neutral_rollaway_8pct_kmh": {
+            "value": 13.9002,
+            "min": 5,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_max_hold_pct": {
+            "value": 42,
+            "min": 25,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "p_refused_at_30kmh": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_auto_release": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_turn_yaw_deg": {
+            "value": 45.8593,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_yaw_gain": {
+            "value": 1.7213,
+            "min": 1.3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_rise_s": {
+            "value": 0.2333,
+            "min": 0.12,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_centre_s": {
+            "value": 0.2333,
+            "min": 0.12,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_slow_deg": {
+            "value": 35,
+            "min": 33,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_ratio_90": {
+            "value": 0.2163,
+            "min": 0.12,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_body_peak_g": {
+            "value": 0.4595,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_cam_vs_body_peak": {
+            "value": 0.4806,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_cam_peak_deg_s": {
+            "value": 0.419,
+            "min": null,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_susp_rms_m_s": {
+            "value": 0.6593,
+            "min": 0.3,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_thumps": {
+            "value": 0,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_hf_deg_s": {
+            "value": 0.0541,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_vs_body_hf": {
+            "value": 0.1493,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_detected": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_cam_vs_body_peak": {
+            "value": 0.587,
+            "min": null,
+            "max": 0.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_feel_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_gravel_pct": {
+            "value": 46,
+            "min": 38,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_snow_pct": {
+            "value": 30,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_snowtyre_climb_snow_pct": {
+            "value": 38,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_chains_climb_snow_pct": {
+            "value": 38,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_yellow_s": {
+            "value": 900,
+            "min": 150,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_warning_s": {
+            "value": 0,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_limp_min_kmh": {
+            "value": 54.52,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_mild_max_c": {
+            "value": 89.0063,
+            "min": null,
+            "max": 104,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_desert_cooling2_max_c": {
+            "value": 89.0832,
+            "min": null,
+            "max": 107,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_cruise60_temp_c": {
+            "value": 83.7192,
+            "min": 78,
+            "max": 95,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_km": {
+            "value": 12.0023,
+            "min": 10,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_engine_per_100km": {
+            "value": 7.2531,
+            "min": 4,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_suspension_per_100km": {
+            "value": 3,
+            "min": 1,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_brakes_per_100km": {
+            "value": 1.2,
+            "min": 0.5,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_tread_per_100km": {
+            "value": 3.4495,
+            "min": 1.5,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_lights_on_hours": {
+            "value": 0.8517,
+            "min": 0.5,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_night_net_per_min": {
+            "value": 1.5,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_warm_s": {
+            "value": 1.3,
+            "min": 0.8,
+            "max": 2.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_cold_s": {
+            "value": 3.5333,
+            "min": 2,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_asphalt": {
+            "value": 0.4128,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_gravel": {
+            "value": 1.3759,
+            "min": 0.8,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_heading_drift_deg": {
+            "value": 9.3396,
+            "min": 3,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_limp_top_kmh": {
+            "value": 57.686,
+            "min": 25,
+            "max": 65,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_robot_lane_err_m": {
+            "value": 0.0099,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_30_m": {
+            "value": -0.0945,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_60_m": {
+            "value": -0.1679,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_rebound_60_kmh": {
+            "value": 9.0906,
+            "min": 3,
+            "max": 15,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_penetration_max_m": {
+            "value": 0.1258,
+            "min": null,
+            "max": 0.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_30": {
+            "value": 17.3896,
+            "min": 8,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_60": {
+            "value": 37.3605,
+            "min": 25,
+            "max": 55,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_engine_damage_60": {
+            "value": 11.5903,
+            "min": 5,
+            "max": 20,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_tunnel_120": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_turn_deg": {
+            "value": 19.3854,
+            "min": 10,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_speed_kept": {
+            "value": 0.8152,
+            "min": 0.6,
+            "max": 0.95,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_penetration_m": {
+            "value": 0.0027,
+            "min": null,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_body_damage": {
+            "value": 4.1186,
+            "min": 0.5,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_turn_deg": {
+            "value": 18.4541,
+            "min": 5,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_knocks": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_speed_kept": {
+            "value": 0.9689,
+            "min": 0.85,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_hits": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp2_roll_ratio": {
+            "value": 0.8562,
+            "min": 0.75,
+            "max": 0.92,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp3_clearance_gain_cm": {
+            "value": 5,
+            "min": 4,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp_swap_jolt_m_s": {
+            "value": 0.1444,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_two_people_kmh": {
+            "value": 3.1641,
+            "min": 2,
+            "max": 9,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_in_p_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "driving/t3_rv": {
+        "title": "T3 房车 · 干燥柏油",
+        "passed": 107,
+        "total": 107,
+        "missing": 0,
+        "metrics": {
+          "accel_0_60_s": {
+            "value": 14.4333,
+            "min": 14,
+            "max": 17.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "top_speed_kmh": {
+            "value": 91.0765,
+            "min": 88,
+            "max": 100,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_60_0_m": {
+            "value": 23.74,
+            "min": 22.5,
+            "max": 29,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_lat_g": {
+            "value": 0.5889,
+            "min": 0.52,
+            "max": 0.62,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_rise_time_s": {
+            "value": 0.4333,
+            "min": 0.38,
+            "max": 0.65,
+            "status": "pass",
+            "miss": 0
+          },
+          "understeer_deg_per_g": {
+            "value": 4.6412,
+            "min": 2.5,
+            "max": 5.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "roll_deg_per_g": {
+            "value": 7.8549,
+            "min": 7,
+            "max": 9.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_hz": {
+            "value": 1.1538,
+            "min": 0.95,
+            "max": 1.25,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_zeta": {
+            "value": 0.3371,
+            "min": 0.25,
+            "max": 0.42,
+            "status": "pass",
+            "miss": 0
+          },
+          "lane_change_settle_s": {
+            "value": 3.4833,
+            "min": null,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_l_100km_cruise60": {
+            "value": 61.4766,
+            "min": 55,
+            "max": 70,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuel_range_km_cruise60": {
+            "value": 162.6635,
+            "min": 140,
+            "max": 185,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_gravel_max_pct": {
+            "value": 24,
+            "min": 18,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "climb_snow_max_pct": {
+            "value": 12,
+            "min": 8,
+            "max": 14,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_km": {
+            "value": 32.0005,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "auto_lane_rms_m": {
+            "value": 0.0475,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_shake_hf_deg_s": {
+            "value": 0.2533,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "cam_vs_body_shake_ratio": {
+            "value": 0.192,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_drift_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill8_drift_cm": {
+            "value": 0.0001,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_bank8_drift_cm": {
+            "value": 0.0069,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_hill15_handbrake_drift_cm": {
+            "value": 0.0004,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parked_flat_jitter_mrad_s": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "fuzz_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "brake_yaw_dev_deg": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "lateral_drift_m": {
+            "value": 0,
+            "min": null,
+            "max": 0.3,
+            "status": "pass",
+            "miss": 0
+          },
+          "yaw_overshoot_pct": {
+            "value": 1.6857,
+            "min": null,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "skidpad_spun": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_height_error_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "creep_kmh": {
+            "value": 3.6629,
+            "min": 2,
+            "max": 7,
+            "status": "pass",
+            "miss": 0
+          },
+          "coast_decel_60_g": {
+            "value": 0.0365,
+            "min": 0.025,
+            "max": 0.08,
+            "status": "pass",
+            "miss": 0
+          },
+          "engine_brake_low_gear_gain": {
+            "value": 1.1918,
+            "min": 1.1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "tip_in_s": {
+            "value": 0.0917,
+            "min": 0.05,
+            "max": 0.6,
+            "status": "pass",
+            "miss": 0
+          },
+          "upshifts_0_80": {
+            "value": 3,
+            "min": 2,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "shift_dip_g": {
+            "value": 0.1736,
+            "min": 0.08,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "reverse_top_kmh": {
+            "value": 30.9904,
+            "min": 15,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "park_p_hold15_drift_cm": {
+            "value": 0.002,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "neutral_rollaway_8pct_kmh": {
+            "value": 13.8895,
+            "min": 5,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_max_hold_pct": {
+            "value": 48,
+            "min": 25,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "p_refused_at_30kmh": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "parkbrake_auto_release": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_turn_yaw_deg": {
+            "value": 25.749,
+            "min": 18,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "handbrake_yaw_gain": {
+            "value": 1.4767,
+            "min": 1.3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_rise_s": {
+            "value": 0.325,
+            "min": 0.12,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_centre_s": {
+            "value": 0.325,
+            "min": 0.12,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_slow_deg": {
+            "value": 38,
+            "min": 33,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "steer_lock_ratio_90": {
+            "value": 0.2036,
+            "min": 0.12,
+            "max": 0.35,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_body_peak_g": {
+            "value": 0.5033,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "kerb_cam_vs_body_peak": {
+            "value": 0.4906,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_thumps": {
+            "value": 4,
+            "min": 2,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "joint_cam_peak_deg_s": {
+            "value": 1.4759,
+            "min": null,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_susp_rms_m_s": {
+            "value": 0.6384,
+            "min": 0.3,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_thumps": {
+            "value": 0,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_hf_deg_s": {
+            "value": 0.0522,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "washboard_cam_vs_body_hf": {
+            "value": 0.1153,
+            "min": null,
+            "max": 0.75,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_detected": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "landing_cam_vs_body_peak": {
+            "value": 0.6932,
+            "min": null,
+            "max": 0.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "ride_feel_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_gravel_pct": {
+            "value": 24,
+            "min": 18,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_stock_climb_snow_pct": {
+            "value": 12,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_snowtyre_climb_snow_pct": {
+            "value": 18,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_chains_climb_snow_pct": {
+            "value": 18,
+            "min": 14,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_yellow_s": {
+            "value": 211.3,
+            "min": 150,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_warning_s": {
+            "value": 257.3667,
+            "min": 120,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_overheat_limp_min_kmh": {
+            "value": 36.9417,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_mild_max_c": {
+            "value": 93.5351,
+            "min": null,
+            "max": 104,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_climb_desert_cooling2_max_c": {
+            "value": 94.5082,
+            "min": null,
+            "max": 107,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_cruise60_temp_c": {
+            "value": 84.5955,
+            "min": 78,
+            "max": 95,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_km": {
+            "value": 12.002,
+            "min": 10,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_engine_per_100km": {
+            "value": 7.53,
+            "min": 4,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_suspension_per_100km": {
+            "value": 3,
+            "min": 1,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_brakes_per_100km": {
+            "value": 1.2,
+            "min": 0.5,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_wear_tread_per_100km": {
+            "value": 2.9996,
+            "min": 1.5,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_lights_on_hours": {
+            "value": 0.8517,
+            "min": 0.5,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_battery_night_net_per_min": {
+            "value": 1.5,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_warm_s": {
+            "value": 1.3,
+            "min": 0.8,
+            "max": 2.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_start_cold_s": {
+            "value": 3.5333,
+            "min": 2,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_asphalt": {
+            "value": 0.6879,
+            "min": 0.2,
+            "max": 1.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_punctures_per_100km_gravel": {
+            "value": 2.2931,
+            "min": 0.8,
+            "max": 4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_heading_drift_deg": {
+            "value": 6.1015,
+            "min": 3,
+            "max": 25,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_limp_top_kmh": {
+            "value": 45.1956,
+            "min": 25,
+            "max": 65,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_flat_robot_lane_err_m": {
+            "value": 0.0515,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_30_m": {
+            "value": -0.0593,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_travel_60_m": {
+            "value": -0.1711,
+            "min": -0.25,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_rebound_60_kmh": {
+            "value": 9.0491,
+            "min": 3,
+            "max": 15,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_penetration_max_m": {
+            "value": 0.1292,
+            "min": null,
+            "max": 0.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_30": {
+            "value": 17.7284,
+            "min": 8,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_body_damage_60": {
+            "value": 37.1914,
+            "min": 25,
+            "max": 55,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_engine_damage_60": {
+            "value": 11.5303,
+            "min": 5,
+            "max": 20,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_tunnel_120": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_turn_deg": {
+            "value": 16.8404,
+            "min": 10,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_speed_kept": {
+            "value": 0.7351,
+            "min": 0.6,
+            "max": 0.95,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_penetration_m": {
+            "value": 0.0018,
+            "min": null,
+            "max": 0.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "glance_body_damage": {
+            "value": 2.5863,
+            "min": 0.5,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_turn_deg": {
+            "value": 36.9889,
+            "min": 5,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "post_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_knocks": {
+            "value": 1,
+            "min": 1,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_speed_kept": {
+            "value": 0.9813,
+            "min": 0.85,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          },
+          "light_hits": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp2_roll_ratio": {
+            "value": 0.9001,
+            "min": 0.75,
+            "max": 0.92,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp3_clearance_gain_cm": {
+            "value": 5,
+            "min": 4,
+            "max": 6,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_susp_swap_jolt_m_s": {
+            "value": 0.1405,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_two_people_kmh": {
+            "value": 0.7778,
+            "min": 0.5,
+            "max": 9,
+            "status": "pass",
+            "miss": 0
+          },
+          "sys_push_in_p_cm": {
+            "value": 0,
+            "min": null,
+            "max": 1,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "economy/t0_truck": {
+        "title": "T0 小货车 · 机器人旅人 3 × 550 km",
+        "passed": 17,
+        "total": 17,
+        "missing": 0,
+        "metrics": {
+          "econ_km": {
+            "value": 1650.0004,
+            "min": 1600,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_dry": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_fuel_frac": {
+            "value": 0.1961,
+            "min": 0.05,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_fuel_closure": {
+            "value": 0.9991,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_burnt_l_100km": {
+            "value": 22.4699,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_offered_l_100km": {
+            "value": 346.8726,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_100km": {
+            "value": 1.0303,
+            "min": 0.2,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_no_remedy": {
+            "value": 1,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_kits_margin": {
+            "value": 22,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_stop_min_per_hour": {
+            "value": 28.9233,
+            "min": null,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_accidents": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_engine": {
+            "value": 40,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_cooling": {
+            "value": 53.4853,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_battery": {
+            "value": 61.1599,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_suspension": {
+            "value": 48.9861,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_brakes": {
+            "value": 60.3628,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_body": {
+            "value": 54.8193,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "economy/t1_van": {
+        "title": "T1 面包车 · 机器人旅人 3 × 550 km",
+        "passed": 17,
+        "total": 17,
+        "missing": 0,
+        "metrics": {
+          "econ_km": {
+            "value": 1650.0006,
+            "min": 1600,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_dry": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_fuel_frac": {
+            "value": 0.4037,
+            "min": 0.05,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_fuel_closure": {
+            "value": 0.9741,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_burnt_l_100km": {
+            "value": 37.4817,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_offered_l_100km": {
+            "value": 346.8726,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_100km": {
+            "value": 1.0303,
+            "min": 0.2,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_no_remedy": {
+            "value": 1,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_kits_margin": {
+            "value": 21,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_stop_min_per_hour": {
+            "value": 28.482,
+            "min": null,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_accidents": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_engine": {
+            "value": 40,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_cooling": {
+            "value": 49.5545,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_battery": {
+            "value": 61.1606,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_suspension": {
+            "value": 49.0194,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_brakes": {
+            "value": 59.8599,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_body": {
+            "value": 54.769,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "economy/t2_offroad": {
+        "title": "T2 越野车 · 机器人旅人 3 × 550 km",
+        "passed": 17,
+        "total": 17,
+        "missing": 0,
+        "metrics": {
+          "econ_km": {
+            "value": 1650.0007,
+            "min": 1600,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_dry": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_fuel_frac": {
+            "value": 0.4245,
+            "min": 0.05,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_fuel_closure": {
+            "value": 0.9814,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_burnt_l_100km": {
+            "value": 34.8915,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_offered_l_100km": {
+            "value": 346.8726,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_100km": {
+            "value": 0.6667,
+            "min": 0.2,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_no_remedy": {
+            "value": 1,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_kits_margin": {
+            "value": 22,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_stop_min_per_hour": {
+            "value": 29.9395,
+            "min": null,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_accidents": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_engine": {
+            "value": 40,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_cooling": {
+            "value": 53.486,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_battery": {
+            "value": 61.1603,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_suspension": {
+            "value": 49.4786,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_brakes": {
+            "value": 59.0684,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_body": {
+            "value": 55,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "economy/t3_rv": {
+        "title": "T3 房车 · 机器人旅人 3 × 550 km",
+        "passed": 17,
+        "total": 17,
+        "missing": 0,
+        "metrics": {
+          "econ_km": {
+            "value": 1650.0002,
+            "min": 1600,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_dry": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_fuel_frac": {
+            "value": 0.3858,
+            "min": 0.05,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_fuel_closure": {
+            "value": 0.9406,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_burnt_l_100km": {
+            "value": 63.2397,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_offered_l_100km": {
+            "value": 346.8727,
+            "min": null,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_100km": {
+            "value": 1.0303,
+            "min": 0.2,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_punctures_no_remedy": {
+            "value": 1,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_kits_margin": {
+            "value": 23,
+            "min": 0,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_stop_min_per_hour": {
+            "value": 27.2819,
+            "min": null,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_accidents": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_engine": {
+            "value": 40,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_cooling": {
+            "value": 53.4886,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_battery": {
+            "value": 61.1612,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_suspension": {
+            "value": 49.4812,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_brakes": {
+            "value": 56.2381,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "econ_min_cond_body": {
+            "value": 55,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "image/sky": {
+        "title": "曝光与阴影色调 · 时段与天气截图组",
+        "passed": 5,
+        "total": 5,
+        "missing": 0,
+        "metrics": {
+          "images": {
+            "value": 12,
+            "min": 12,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_black_pct": {
+            "value": 0.3537,
+            "min": null,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_white_pct": {
+            "value": 0.2307,
+            "min": null,
+            "max": 8,
+            "status": "pass",
+            "miss": 0
+          },
+          "night_min_world_luma": {
+            "value": 0.3649,
+            "min": 0.12,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "night_max_world_luma": {
+            "value": 0.4819,
+            "min": null,
+            "max": 0.55,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "image/sky:style": {
+        "title": "阴影色调 · 风格化阶段生效",
+        "passed": 0,
+        "total": 0,
+        "missing": 0,
+        "metrics": {
+          "day_min_shadow_blue_minus_red": {
+            "value": 0.0417,
+            "min": 0,
+            "max": null,
+            "status": "early",
+            "miss": 0
+          },
+          "day_min_shadow_chroma": {
+            "value": 0.0978,
+            "min": 0.04,
+            "max": null,
+            "status": "early",
+            "miss": 0
+          }
+        },
+        "stage": "M1d",
+        "active": false
+      },
+      "onfoot/default": {
+        "title": "步行与交互底座",
+        "passed": 23,
+        "total": 23,
+        "missing": 0,
+        "metrics": {
+          "walk_speed": {
+            "value": 1.9,
+            "min": 1.85,
+            "max": 1.95,
+            "status": "pass",
+            "miss": 0
+          },
+          "run_speed": {
+            "value": 3.6,
+            "min": 3.5,
+            "max": 3.7,
+            "status": "pass",
+            "miss": 0
+          },
+          "crouch_speed": {
+            "value": 1,
+            "min": 0.9,
+            "max": 1.1,
+            "status": "pass",
+            "miss": 0
+          },
+          "carry_speed": {
+            "value": 1.2,
+            "min": 1.15,
+            "max": 1.25,
+            "status": "pass",
+            "miss": 0
+          },
+          "swim_speed": {
+            "value": 1.1,
+            "min": 1.05,
+            "max": 1.15,
+            "status": "pass",
+            "miss": 0
+          },
+          "eye_height": {
+            "value": 1.62,
+            "min": 1.6,
+            "max": 1.64,
+            "status": "pass",
+            "miss": 0
+          },
+          "eye_crouch": {
+            "value": 1.05,
+            "min": 1.03,
+            "max": 1.07,
+            "status": "pass",
+            "miss": 0
+          },
+          "jump_height": {
+            "value": 0.5501,
+            "min": 0.53,
+            "max": 0.57,
+            "status": "pass",
+            "miss": 0
+          },
+          "slope_climb_max_deg": {
+            "value": 37.5,
+            "min": 36.5,
+            "max": 39,
+            "status": "pass",
+            "miss": 0
+          },
+          "step_up_max": {
+            "value": 0.3,
+            "min": 0.28,
+            "max": 0.32,
+            "status": "pass",
+            "miss": 0
+          },
+          "bob_max_cm": {
+            "value": 1.7999,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "bob_hf_share": {
+            "value": 0.0042,
+            "min": null,
+            "max": 0.02,
+            "status": "pass",
+            "miss": 0
+          },
+          "wall_tunnel_count": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "random_walk_inside": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "random_walk_m": {
+            "value": 978.6602,
+            "min": 300,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "exit_failures": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "pick_range_m": {
+            "value": 2.2,
+            "min": 2.15,
+            "max": 2.25,
+            "status": "pass",
+            "miss": 0
+          },
+          "pick_cone_deg": {
+            "value": 9,
+            "min": 8.7,
+            "max": 9.2,
+            "status": "pass",
+            "miss": 0
+          },
+          "open_hold_s": {
+            "value": 1.5083,
+            "min": 1.45,
+            "max": 1.55,
+            "status": "pass",
+            "miss": 0
+          },
+          "container_reroll_diff": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "save_load_diff": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "siphon_tank_l_per_s": {
+            "value": 0.6667,
+            "min": 0.64,
+            "max": 0.69,
+            "status": "pass",
+            "miss": 0
+          },
+          "siphon_wreck_l_per_s": {
+            "value": 0.4,
+            "min": 0.38,
+            "max": 0.42,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/biomes": {
+        "title": "渲染门禁 · 新群系截图组（森林、湖区、枫叶丘陵）",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 297,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1315262,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/driving": {
+        "title": "渲染门禁 · 驾驶截图组",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 48,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 16300,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/land": {
+        "title": "渲染门禁 · 地貌截图组",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 258,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1048417,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/onfoot": {
+        "title": "渲染门禁 · 步行截图组",
+        "passed": 5,
+        "total": 5,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "shots_total": {
+            "value": 12,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 281,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1211340,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/roads": {
+        "title": "渲染门禁 · 道路设施截图组（示廓桩、护栏、弯道导向牌、里程碑）",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 295,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1421579,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/sites": {
+        "title": "渲染门禁 · 兴趣点截图组",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 267,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1157221,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/sky": {
+        "title": "渲染门禁 · 时段与天气截图组",
+        "passed": 5,
+        "total": 5,
+        "missing": 0,
+        "metrics": {
+          "shots_total": {
+            "value": 12,
+            "min": 12,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 274,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1216262,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/vehicles": {
+        "title": "渲染门禁 · 车辆截图组（试车场）",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 64,
+            "min": null,
+            "max": 110,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 80378,
+            "min": null,
+            "max": 150000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/vehicles_world": {
+        "title": "渲染门禁 · 车辆截图组（世界）",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 277,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1008615,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/water": {
+        "title": "渲染门禁 · 水体与桥截图组",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 270,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1009725,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/weather": {
+        "title": "渲染门禁 · 天气三幕截图组",
+        "passed": 4,
+        "total": 4,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 293,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1236481,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "render/world": {
+        "title": "渲染门禁 · 世界截图组",
+        "passed": 9,
+        "total": 9,
+        "missing": 0,
+        "metrics": {
+          "shots_failed": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "console_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_draw_calls": {
+            "value": 290,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "max_triangles": {
+            "value": 1212473,
+            "min": null,
+            "max": 1500000,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_hash_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "stream_max_build_ms": {
+            "value": 3.9,
+            "min": null,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "stream_max_pending": {
+            "value": 14,
+            "min": null,
+            "max": 60,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_running": {
+            "value": 1,
+            "min": 1,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "audio_min_rms": {
+            "value": 0.1491,
+            "min": 0.005,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "roadgen/beats": {
+        "title": "旅途节奏 · 路上多久出现一样东西",
+        "passed": 16,
+        "total": 16,
+        "missing": 0,
+        "metrics": {
+          "beats_all_median_gap_s": {
+            "value": 16.2385,
+            "min": 8,
+            "max": 40,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_all_p90_gap_s": {
+            "value": 49.9069,
+            "min": null,
+            "max": 75,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moment_median_gap_s": {
+            "value": 45.4047,
+            "min": 35,
+            "max": 110,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moment_p10_gap_s": {
+            "value": 24.5612,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moment_p90_gap_s": {
+            "value": 108.6195,
+            "min": null,
+            "max": 150,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moment_max_gap_early_s": {
+            "value": 153.7412,
+            "min": null,
+            "max": 200,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moment_max_gap_late_s": {
+            "value": 240.8042,
+            "min": null,
+            "max": 300,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_quiet_stretches_per_10km_late": {
+            "value": 0.9543,
+            "min": 0.5,
+            "max": 1.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_moments_per_10km": {
+            "value": 7.9459,
+            "min": 5,
+            "max": 11,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_far_per_10km": {
+            "value": 3.1449,
+            "min": 2,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_place_per_10km": {
+            "value": 2.8715,
+            "min": 2,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_water_per_10km": {
+            "value": 2.5448,
+            "min": 1.2,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_land_per_10km": {
+            "value": 2.7879,
+            "min": 1.5,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_same_kind_three_running_share": {
+            "value": 0.0098,
+            "min": null,
+            "max": 0.08,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_things_seen": {
+            "value": 41,
+            "min": 30,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "beats_determinism_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "roadgen/default": {
+        "title": "道路与地形生成 · 机器人司机",
+        "passed": 20,
+        "total": 20,
+        "missing": 0,
+        "metrics": {
+          "spine_curvature_violations": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_max_grade_pct": {
+            "value": 8,
+            "min": null,
+            "max": 8.0001,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_max_heading_deg": {
+            "value": 51.3525,
+            "min": null,
+            "max": 55,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_min_forward_cos": {
+            "value": 0.6246,
+            "min": 0.5,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_min_radius_m": {
+            "value": 70.4754,
+            "min": 60,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "spine_determinism_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_road_surface_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_projection_errors": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_road_seam_gap_cm": {
+            "value": 0,
+            "min": null,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_max_kink_m": {
+            "value": 0.3778,
+            "min": null,
+            "max": 0.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_max_step_near_m": {
+            "value": 1.0309,
+            "min": null,
+            "max": 1.15,
+            "status": "pass",
+            "miss": 0
+          },
+          "terrain_chunk_ms": {
+            "value": 2.164,
+            "min": null,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_lane_rms_m": {
+            "value": 0.2057,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_km": {
+            "value": 96.0018,
+            "min": 90,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_wet_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_snow_accidents_per_100km": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_wet_km": {
+            "value": 40.0007,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_snow_km": {
+            "value": 40.0005,
+            "min": 35,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "robot_snow_lane_rms_m": {
+            "value": 0.0937,
+            "min": null,
+            "max": 0.6,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "roadgen/sites": {
+        "title": "沿途兴趣点 · 站点、路边残车与箱子",
+        "passed": 17,
+        "total": 17,
+        "missing": 0,
+        "metrics": {
+          "sites_places_per_10km": {
+            "value": 3.7917,
+            "min": 2.8,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_wrecks_per_10km": {
+            "value": 7.4167,
+            "min": 5,
+            "max": 10,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_heaps_per_10km": {
+            "value": 3.0278,
+            "min": 1.8,
+            "max": 4.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_kinds_seen": {
+            "value": 10,
+            "min": 8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_station_max_gap_km": {
+            "value": 25.3047,
+            "min": null,
+            "max": 30,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_first_station_km": {
+            "value": 7.7143,
+            "min": null,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_pad_max_slope": {
+            "value": 0.059,
+            "min": null,
+            "max": 0.075,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_pad_wet_points": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_pad_missing_points": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_objects_afloat": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_solids_on_road": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_determinism_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_containers_per_building": {
+            "value": 5.0763,
+            "min": 3,
+            "max": 6.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_loose_per_building": {
+            "value": 7.6949,
+            "min": 6,
+            "max": 12,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_fuel_l_per_100km": {
+            "value": 206.1111,
+            "min": 100,
+            "max": 260,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_empty_containers": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "sites_zones_share": {
+            "value": 1,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "roadgen/vista": {
+        "title": "地貌与远景 · 从路上看出去",
+        "passed": 6,
+        "total": 6,
+        "missing": 0,
+        "metrics": {
+          "vista_open_share": {
+            "value": 0.5,
+            "min": 0.25,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "vista_shut_share": {
+            "value": 0.1667,
+            "min": null,
+            "max": 0.45,
+            "status": "pass",
+            "miss": 0
+          },
+          "vista_layers_mean": {
+            "value": 2.8478,
+            "min": 2,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "vista_far_needles_per_view": {
+            "value": 2.3913,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "vista_far_max_elev_deg": {
+            "value": 22.208,
+            "min": null,
+            "max": 26,
+            "status": "pass",
+            "miss": 0
+          },
+          "vista_land_kinds_min_per_biome": {
+            "value": 3,
+            "min": 3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "roadgen/water": {
+        "title": "水体与桥 · 湖、河、桥面",
+        "passed": 13,
+        "total": 13,
+        "missing": 0,
+        "metrics": {
+          "water_lakes_per_10km": {
+            "value": 1.3393,
+            "min": 1.2,
+            "max": 5,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_rivers_per_10km": {
+            "value": 1.1964,
+            "min": 0.6,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_bridge_kinds": {
+            "value": 3,
+            "min": 3,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_road_min_clearance_m": {
+            "value": 4.3018,
+            "min": 1.2,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_flooded_verge_points": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_shore_leaks": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_dry_rivers": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_deck_max_step_mm": {
+            "value": 4.0992,
+            "min": null,
+            "max": 20,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_bridge_min_headroom_m": {
+            "value": 7.8155,
+            "min": 4,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_determinism_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_wade_stop_kmh": {
+            "value": 0.0046,
+            "min": null,
+            "max": 3,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_wade_max_depth_m": {
+            "value": 1.0344,
+            "min": null,
+            "max": 1.8,
+            "status": "pass",
+            "miss": 0
+          },
+          "water_wade_exploded": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "style/style": {
+        "title": "风格统计距离 · 对标 R1–R4",
+        "passed": 0,
+        "total": 0,
+        "missing": 0,
+        "metrics": {
+          "style_distance_mean": {
+            "value": 0.238,
+            "min": null,
+            "max": 0.35,
+            "status": "early",
+            "miss": 0
+          },
+          "style_distance_max": {
+            "value": 0.286,
+            "min": null,
+            "max": 0.6,
+            "status": "early",
+            "miss": 0
+          }
+        },
+        "stage": "M1d",
+        "active": false
+      },
+      "visual/judge": {
+        "title": "独立视觉裁判 · 与对标图的接近程度",
+        "passed": 0,
+        "total": 0,
+        "missing": 0,
+        "metrics": {
+          "judge_mean": {
+            "value": 3.1,
+            "min": 3.5,
+            "max": null,
+            "status": "later",
+            "miss": 0.114
+          },
+          "judge_min_item": {
+            "value": 2.5,
+            "min": 2.5,
+            "max": null,
+            "status": "early",
+            "miss": 0
+          }
+        },
+        "stage": "M1d",
+        "active": false
+      },
+      "weather/default": {
+        "title": "天气与昼夜 · 模拟核心",
+        "passed": 22,
+        "total": 22,
+        "missing": 0,
+        "metrics": {
+          "weather_schedule_violations": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_act_order_violations": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_buildup_min_s": {
+            "value": 75.0016,
+            "min": 60,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_buildup_max_s": {
+            "value": 119.9975,
+            "min": null,
+            "max": 120,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_peak_min_s": {
+            "value": 300.0838,
+            "min": 300,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_peak_max_s": {
+            "value": 599.9798,
+            "min": null,
+            "max": 600,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_aftermath_min_s": {
+            "value": 130.0036,
+            "min": 120,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_aftermath_max_s": {
+            "value": 174.9962,
+            "min": null,
+            "max": 180,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_events_per_day": {
+            "value": 1.1507,
+            "min": 0.6,
+            "max": 2,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_determinism_mismatches": {
+            "value": 0,
+            "min": null,
+            "max": 0,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_max_change_per_s": {
+            "value": 0.0381,
+            "min": null,
+            "max": 0.06,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_wetness_peak": {
+            "value": 1,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_dry_time_s": {
+            "value": 109.2744,
+            "min": 60,
+            "max": 420,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_snow_cover_peak": {
+            "value": 1,
+            "min": 0.9,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_grip_wet_ratio": {
+            "value": 0.72,
+            "min": 0.6,
+            "max": 0.85,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_grip_snow_ratio": {
+            "value": 0.38,
+            "min": 0.3,
+            "max": 0.5,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_brake_snow_vs_dry": {
+            "value": 2.4626,
+            "min": 1.8,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "day_golden_evening_s": {
+            "value": 349,
+            "min": 300,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "day_night_s": {
+            "value": 710,
+            "min": null,
+            "max": 720,
+            "status": "pass",
+            "miss": 0
+          },
+          "day_max_hour_step": {
+            "value": 0.0149,
+            "min": null,
+            "max": 0.03,
+            "status": "pass",
+            "miss": 0
+          },
+          "day_set_hour_error": {
+            "value": 0,
+            "min": null,
+            "max": 0.001,
+            "status": "pass",
+            "miss": 0
+          },
+          "weather_front_lead_min_s": {
+            "value": 29,
+            "min": 20,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      },
+      "weather/look": {
+        "title": "天气与时段的过渡平滑度",
+        "passed": 5,
+        "total": 5,
+        "missing": 0,
+        "metrics": {
+          "look_max_light_change_per_s": {
+            "value": 0.0175,
+            "min": null,
+            "max": 0.09,
+            "status": "pass",
+            "miss": 0
+          },
+          "look_max_sky_change_per_s": {
+            "value": 0.0305,
+            "min": null,
+            "max": 0.06,
+            "status": "pass",
+            "miss": 0
+          },
+          "look_max_log_fog_change_per_s": {
+            "value": 0.0892,
+            "min": null,
+            "max": 0.12,
+            "status": "pass",
+            "miss": 0
+          },
+          "look_min_night_ambient": {
+            "value": 0.1439,
+            "min": 0.03,
+            "max": null,
+            "status": "pass",
+            "miss": 0
+          },
+          "look_storm_light_ratio": {
+            "value": 0.1827,
+            "min": null,
+            "max": 0.4,
+            "status": "pass",
+            "miss": 0
+          }
+        },
+        "stage": null,
+        "active": true
+      }
+    },
+    "passed": 693,
+    "total": 693,
+    "missing": 0
+  }
+}

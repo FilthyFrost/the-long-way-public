@@ -1,0 +1,100 @@
+{
+  "id": "t3_rv",
+  "system": "economy",
+  "title": "T3 房车 · 机器人旅人 3 × 550 km",
+  "source": "docs/DESIGN_V2.md 11.4 的机器人旅人门禁；平均策略见 harness/sim/traveller.ts 与 docs/VEHICLE_SYSTEMS.md §9.1。三次：草原、荒漠、雪山出发，各 50 段。",
+  "metrics": {
+    "econ_km": {
+      "label": "三次各 50 段（每段 11 km）的总里程",
+      "unit": "km",
+      "min": 1600
+    },
+    "econ_dry": {
+      "label": "油箱见底的次数",
+      "unit": "次",
+      "max": 0,
+      "note": "DESIGN_V2 11.4：任何时刻油不为零超过 0 次"
+    },
+    "econ_min_fuel_frac": {
+      "label": "最低油量（占油箱）",
+      "unit": "",
+      "min": 0.05,
+      "note": "总能在见底前遇到来源"
+    },
+    "econ_fuel_closure": {
+      "label": "找到的油 / 烧掉的油",
+      "unit": "",
+      "min": 0.9,
+      "note": "经济闭合"
+    },
+    "econ_burnt_l_100km": {
+      "label": "每 100 km 烧掉的油（含停车怠速、起步）",
+      "unit": "L",
+      "note": "只报告"
+    },
+    "econ_offered_l_100km": {
+      "label": "沿途世界留着的油（油站 + 残车，拿不拿都算）",
+      "unit": "L/100km",
+      "note": "只报告：给世界侧看间距"
+    },
+    "econ_punctures_100km": {
+      "label": "每 100 km 扎胎",
+      "unit": "次",
+      "min": 0.2,
+      "max": 2
+    },
+    "econ_punctures_no_remedy": {
+      "label": "扎胎时既没有好备胎也没有补胎条的次数",
+      "unit": "次",
+      "max": 3,
+      "note": "只能瘪着开到下一处"
+    },
+    "econ_kits_margin": {
+      "label": "修理包找到 − 用掉",
+      "unit": "个",
+      "min": 0
+    },
+    "econ_stop_min_per_hour": {
+      "label": "每开 1 小时停车的分钟数（加油、搜刮、修理、换胎）",
+      "unit": "分钟",
+      "max": 40,
+      "note": "平均策略：每两处有屋顶的地方搜一处，最多开 4 只箱子"
+    },
+    "econ_accidents": {
+      "label": "自动驾驶事故（翻车、冲出、卡住）",
+      "unit": "次",
+      "max": 0
+    },
+    "econ_min_cond_engine": {
+      "label": "发动机最低车况",
+      "unit": "点",
+      "min": 35,
+      "note": "低于 40 就修"
+    },
+    "econ_min_cond_cooling": {
+      "label": "散热最低车况",
+      "unit": "点",
+      "min": 30
+    },
+    "econ_min_cond_battery": {
+      "label": "电瓶最低车况",
+      "unit": "点",
+      "min": 30
+    },
+    "econ_min_cond_suspension": {
+      "label": "悬挂最低车况",
+      "unit": "点",
+      "min": 30
+    },
+    "econ_min_cond_brakes": {
+      "label": "刹车最低车况",
+      "unit": "点",
+      "min": 30
+    },
+    "econ_min_cond_body": {
+      "label": "车身最低车况",
+      "unit": "点",
+      "min": 30
+    }
+  }
+}

@@ -1,0 +1,54 @@
+From ef2729fd323e515caa184fa1d8b33ab5b6f8ca8b Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 06:01:14 -0800
+Subject: [PATCH 2/6] Backpack panel readable at 720p (16 px labels, bigger
+ slots); the car's key, lever and manual keys do nothing on foot
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/src/game/player/overlay.ts b/src/game/player/overlay.ts
+index 2f6dfa3..8bfcddc 100644
+--- a/src/game/player/overlay.ts
++++ b/src/game/player/overlay.ts
+@@ -16,15 +16,15 @@ const CSS = `
+ .rtp-ring { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+ .rtp-ring circle { fill: none; stroke-linecap: round; }
+ .rtp-mark { position: absolute; width: 10px; height: 10px; border: 0 solid #f6e7c8; opacity: .9; filter: drop-shadow(0 1px 1px #2a1d16aa); border-radius: 2px; }
+-.rtp-pack { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 18px 20px 16px; border-radius: 12px;
+-  background: #2a2420e6; box-shadow: 0 6px 30px #0007; min-width: 340px; }
+-.rtp-pack h3 { margin: 0 0 12px; font-weight: 500; font-size: 14px; letter-spacing: .3em; color: #e8d6b4; text-align: center; }
+-.rtp-grid { display: grid; grid-template-columns: repeat(4, 76px); gap: 8px; }
+-.rtp-slot { height: 64px; border-radius: 8px; background: #3a332d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+-.rtp-slot i { width: 22px; height: 22px; border-radius: 6px; box-shadow: inset 0 -3px 0 #0003, 0 0 0 1.5px #1e1814; }
+-.rtp-slot span { font-size: 12px; color: #e9dcc4; }
+-.rtp-slot b { font-weight: 500; color: #c9b590; margin-left: 3px; }
+-.rtp-hands { margin-top: 12px; font-size: 12px; color: #c9b590; text-align: center; letter-spacing: .1em; }
++.rtp-pack { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 20px 22px 18px; border-radius: 14px;
++  background: #2a2420eb; box-shadow: 0 6px 30px #0007; min-width: 440px; }
++.rtp-pack h3 { margin: 0 0 14px; font-weight: 500; font-size: 18px; letter-spacing: .3em; color: #e8d6b4; text-align: center; }
++.rtp-grid { display: grid; grid-template-columns: repeat(4, 104px); gap: 10px; }
++.rtp-slot { height: 84px; border-radius: 8px; background: #3a332d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
++.rtp-slot i { width: 26px; height: 26px; border-radius: 6px; box-shadow: inset 0 -3px 0 #0003, 0 0 0 1.5px #1e1814; }
++.rtp-slot span { font-size: 16px; color: #f1e6cf; white-space: nowrap; }
++.rtp-slot b { font-weight: 600; color: #e8c98e; margin-left: 4px; }
++.rtp-hands { margin-top: 14px; font-size: 16px; color: #c9b590; text-align: center; letter-spacing: .1em; }
+ `;
+ 
+ function hex(c: number): string {
+diff --git a/src/game/player/player.ts b/src/game/player/player.ts
+index cac30f4..9e481f9 100644
+--- a/src/game/player/player.ts
++++ b/src/game/player/player.ts
+@@ -291,7 +291,8 @@ export class Player implements Actor {
+       this.toggleCrouch();
+       return true;
+     }
+-    if (a.startsWith('seat') || a === 'robot') return true;
++    // the car's own keys do nothing from outside it (no starting the engine from the verge)
++    if (a.startsWith('seat') || a === 'robot' || a === 'key' || a === 'leverUp' || a === 'leverDown' || a === 'manual') return true;
+     return this.offFootKey(a);
+   }
+ 
+-- 
+2.47.3
+

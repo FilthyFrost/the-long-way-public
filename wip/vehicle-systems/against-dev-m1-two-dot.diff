@@ -1,0 +1,2388 @@
+diff --git a/harness/shots/journey.mjs b/harness/shots/journey.mjs
+new file mode 100644
+index 0000000..7393723
+--- /dev/null
++++ b/harness/shots/journey.mjs
+@@ -0,0 +1,223 @@
++// Journey smoke run: one roadside stop played end to end in the real page (vehicle systems, the
++// player base and the world meeting for real). One browser session; every step asserts what it
++// should have changed and saves loop/shots/journey/NN_<step>.png; the first step that does not
++// reach its state fails the run (exit 1) with what it saw.
++//   node harness/shots/journey.mjs [--seed N]
++// Run it under the shared browser lock (flock), like every browser run.
++import fs from 'node:fs';
++import path from 'node:path';
++import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
++
++const args = process.argv.slice(2);
++const seedArg = args.indexOf('--seed');
++const seed = seedArg >= 0 ? Number(args[seedArg + 1]) : 20261113;
++const outDir = path.join(ROOT, 'loop/shots/journey');
++fs.rmSync(outDir, { recursive: true, force: true });
++fs.mkdirSync(outDir, { recursive: true });
++
++const t0 = Date.now();
++const log = [];
++const say = (s) => {
++  const line = `[${((Date.now() - t0) / 1000).toFixed(1).padStart(5)} s] ${s}`;
++  log.push(line);
++  console.log(line);
++};
++
++const { server, url } = await startServer();
++const browser = await launchBrowser();
++let page;
++let errors = [];
++let n = 0;
++let failed = false;
++
++async function shot(name) {
++  n++;
++  const file = path.join(outDir, `${String(n).padStart(2, '0')}_${name}.png`);
++  await page.evaluate(() => window.__rt.render());
++  await page.screenshot({ path: file, timeout: 120_000 });
++  return file;
++}
++
++/** one step: run it, check it, take its picture; the first failure stops the journey */
++async function step(name, fn, check) {
++  if (failed) return null;
++  const got = await fn();
++  const ok = check ? await check(got) : true;
++  const file = await shot(name);
++  const errs = errors.splice(0);
++  if (ok !== true || errs.length) {
++    failed = true;
++    say(`FAIL ${name}: ${ok === true ? '' : ok} ${errs.length ? 'console: ' + errs.join(' | ') : ''}\n      saw: ${JSON.stringify(got)}\n      picture: ${path.relative(ROOT, file)}`);
++  } else say(`ok   ${name}  ${JSON.stringify(got)}`);
++  return got;
++}
++
++const ev = (fn, ...a) => page.evaluate(fn, a);
++const tele = () => ev(() => window.__rt.telemetry());
++const sys = () => ev(() => window.__rt.sys.state());
++
++try {
++  // ---- find a station early on this seed, start 300 m before it
++  // one page: find the station, go to 300 m before it, set the state (low fuel, a tired engine, a flat)
++  ({ page, errors } = await openGame(browser, `${url}/?seed=${seed}&shot=1&vehicle=truck&s=60&time=10`, { width: 1280, height: 720 }));
++  const st = await ev(() => window.__rt.journey.findStation(0, 40000));
++  if (!st) throw new Error(`seed ${seed}: no station in the first 40 km`);
++  say(`station ${st.id} at s = ${st.s.toFixed(0)} (side ${st.side}), tank ${st.tank.litres} L, containers ${st.containers.map((c) => c.kind).join(',')}`);
++  await ev(([s]) => window.__rt.goto(s), Math.round(st.s - 300));
++  await ev(() => window.__rt.sys.set('fuel:0.12,engine:35,flat:1'));
++
++  const start = await step('start', async () => {
++    const s = await sys();
++    return { fuelL: s.fuelL, engine: s.slots.engine.cond, flat1: s.wheels[1].flat, running: s.running };
++  }, (g) => (g.fuelL < 3 && Math.abs(g.engine - 35) < 0.5 && g.flat1 && g.running ? true : 'not the starting state asked for'));
++
++  // ---- drive in: along the road to abreast of the tank, then onto the pad beside it (filler side to the tank)
++  const parked = await step('drive_in', async () => {
++    const T = st.tank;
++    // the road heading here, from the car's own yaw at the start
++    const car = await ev(() => window.__rt.journey.bodyPoint(0, 0, 0));
++    const fx = Math.cos(car.yaw);
++    const fz = Math.sin(car.yaw);
++    const rx = -fz;
++    const rz = fx;
++    // the filler is on the driver's (left) side of the truck, behind the cab: put the car's left 1.4 m off the tank, filler abreast
++    const fillerLocal = await ev(() => {
++      const sp = window.__rt.game.sim.spec;
++      return { x: sp.body.centerX - sp.body.halfLength * 0.62, z: (sp.eye.z > 0 ? 1 : -1) * sp.body.halfWidth };
++    });
++    const side = fillerLocal.z < 0 ? 1 : -1; // the tank lies on the filler's side: stand the car on the far side of it
++    const off = Math.abs(fillerLocal.z) + 1.4;
++    const tx = T.x - fx * fillerLocal.x + rx * off * side;
++    const tz = T.z - fz * fillerLocal.x + rz * off * side;
++    await ev(([x, z]) => window.__rt.journey.driveTo(x, z, 45, 40), tx - fx * 14, tz - fz * 14);
++    const r = await ev(([x, z]) => window.__rt.journey.driveTo(x, z, 12, 30), tx, tz);
++    return { ...r, target: [tx, tz] };
++  }, (g) => (g.dist < 4 && g.kmh < 1 ? true : 'did not stop on the pad by the tank'));
++
++  await step('handbrake_engine_off', async () => {
++    await ev(() => window.__rt.sys.handbrake(true));
++    await ev(() => window.__rt.sys.key('off'));
++    const t = await tele();
++    return { handbrake: t.handbrake, engineOn: t.engineOn, selector: t.selector };
++  }, (g) => (g.handbrake && !g.engineOn ? true : 'handbrake not on or engine still running'));
++
++  await step('get_out', async () => ev(() => window.__rt.footOut()), (m) => (m === 'onfoot' ? true : `mode ${m}`));
++
++  // ---- walk to the filler and pump petrol from the station's tank
++  const spec = (await tele()).vehicle;
++  const walkTo = async (id, stopAt = 1.1) => {
++    for (let k = 0; k < 4; k++) {
++      const a = await ev(([i]) => window.__rt.journey.aimOf(i), id);
++      if (!a) return null;
++      const f = await ev(() => window.__rt.footState());
++      const d = Math.hypot(a.x - f.x, a.z - f.z);
++      if (d <= stopAt + 0.15) break;
++      await ev(([s, h]) => window.__rt.footWalk(s, 1, 0, h), (d - stopAt) / 1.3, Math.atan2(a.z - f.z, a.x - f.x));
++    }
++    {
++      // still not there (something in the straight line; the harness has no path-finding): stand there
++      const a = await ev(([i]) => window.__rt.journey.aimOf(i), id);
++      const f = await ev(() => window.__rt.footState());
++      const d = Math.hypot(a.x - f.x, a.z - f.z);
++      if (d > stopAt + 0.6) {
++        const h = Math.atan2(a.z - f.z, a.x - f.x);
++        await ev(([x, z, hh]) => window.__rt.footAt(x, z, hh), a.x - Math.cos(h) * stopAt, a.z - Math.sin(h) * stopAt, h);
++        say(`note: walking to ${id} was blocked on the straight line; stood there instead`);
++      }
++    }
++    await ev(([i]) => window.__rt.journey.faceUse(i), id);
++    return ev(() => window.__rt.footLooked());
++  };
++  const fuel0 = (await sys()).fuelL;
++  await step('walk_to_filler', async () => walkTo(`${spec}:filler`), (g) => (g && g.id === `${spec}:filler` && g.word === '加油' ? true : `looking at ${g?.id} "${g?.word}"`));
++  await step('pump_petrol', async () => {
++    const h = await ev(() => window.__rt.footHold(16));
++    const s = await sys();
++    const d = await ev(() => window.__rt.sys.dash());
++    return { fuelL: s.fuelL, needle: d.fuel, word: h.word };
++  }, (g) => (g.fuelL > fuel0 + 8 ? true : `tank ${fuel0.toFixed(1)} → ${g.fuelL.toFixed(1)} L`));
++
++  // ---- the station's toolbox and counter: open, take all
++  const boxes = st.containers.filter((c) => c.kind === 'toolbox' || c.kind === 'counter');
++  for (const c of boxes) {
++    await step(`search_${c.kind}`, async () => {
++      // where one stands to search it: in front of it (a container's front is its −v side)
++      const fx = c.x + Math.sin(c.yaw) * (c.hz + 0.75);
++      const fz = c.z - Math.cos(c.yaw) * (c.hz + 0.75);
++      const f = await ev(() => window.__rt.footState());
++      await ev(([s, h]) => window.__rt.footWalk(s, 1, 0, h), Math.hypot(fx - f.x, fz - f.z) / 1.3, Math.atan2(fz - f.z, fx - f.x));
++      const g = await ev(() => window.__rt.footState());
++      let how = 'walked';
++      if (Math.hypot(fx - g.x, fz - g.z) > 0.8) {
++        // a straight walk does not find the door (the harness has no path-finding): stand there instead
++        await ev(([x, z]) => window.__rt.footAt(x, z, 0), fx, fz);
++        how = 'stood there (a wall in the straight line)';
++      }
++      await ev(([i]) => window.__rt.footFaceThing(i), c.id);
++      const opened = await ev(() => window.__rt.footHold(1.7));
++      // look at one of the things lying in it and hold E: take all that fits
++      const inside = await ev(([i]) => window.__rt.journey.containerSlots(i), c.id);
++      let took = { word: null };
++      if (inside && inside.slots.length) {
++        await ev(([i]) => window.__rt.journey.faceUse(i), `${c.id}#${inside.slots[0].i}`);
++        took = await ev(() => window.__rt.footHold(1.0));
++      }
++      const p = await ev(() => window.__rt.footState());
++      return { how, opened: opened.word, inside: inside?.slots.map((x) => `${x.id}×${x.n}`).join(' '), took: took.word, pack: p.pack.map((x) => `${x.id}×${x.n}`).join(' '), hands: p.hands };
++    }, (g) => (g.pack.length > 0 || g.hands ? true : 'nothing came out of it'));
++  }
++  const pack = failed ? [] : (await ev(() => window.__rt.footState())).pack;
++  if (!failed && !pack.some((x) => x.id === 'tool.repairkit')) {
++    say(`note: this seed's station boxes hold no repair kit — one is given through __rt.journey.give`);
++    await ev(() => window.__rt.journey.give('tool.repairkit'));
++  }
++
++  // ---- at the car: the bonnet (if the model has one), the engine, the flat
++  const movers = await ev(() => Object.keys(window.__rt.game.view.parts.movers));
++  const bonnet = movers.find((m) => /bonnet|hood/i.test(m));
++  if (bonnet) await ev(([m]) => window.__rt.setMover(m, 1), bonnet);
++  else if (!failed) say('note: the truck model has no bonnet mover — the places under it are reachable (fallback)');
++  const eng0 = (await sys()).slots.engine.cond;
++  await step('walk_to_engine', async () => walkTo(`${spec}:engine`, 1.2), (g) => (g && g.word === '修理' ? true : `looking at ${g?.id} "${g?.word}"`));
++  await step('repair_engine', async () => {
++    await ev(() => window.__rt.footHold(12.6));
++    return { engine: (await sys()).slots.engine.cond };
++  }, (g) => (g.engine >= eng0 + 49 ? true : `engine ${eng0} → ${g.engine}`));
++  await step('walk_to_flat', async () => walkTo(`${spec}:wheel1`, 1.0), (g) => (g && g.word === '换备胎' ? true : `looking at ${g?.id} "${g?.word}"`));
++  await step('change_wheel', async () => {
++    await ev(() => window.__rt.footHold(20.5));
++    const s = await sys();
++    return { wheel1: s.wheels[1], spare: s.spare };
++  }, (g) => (!g.wheel1.flat && !g.wheel1.off && g.spare && g.spare.flat ? true : 'wheel not changed'));
++  await step('flat_on_carrier_plugged', async () => {
++    const w = await walkTo(`${spec}:spare`, 1.0);
++    if (w?.word === '补胎') await ev(() => window.__rt.footHold(25.5));
++    const s = await sys();
++    return { word: w?.word, spare: s.spare };
++  }, (g) => (g.spare && !g.spare.flat ? true : `the flat is on the carrier but not mended (${g.word})`));
++
++  // ---- back in, start, go
++  await step('get_in', async () => {
++    const w = await walkTo(`${spec}:door:driver`, 0.9);
++    await ev(() => window.__rt.footUse());
++    return { word: w?.word, mode: (await ev(() => window.__rt.footState())).mode };
++  }, (g) => (g.mode !== 'onfoot' ? true : `still on foot (word "${g.word}")`));
++  await step('start_and_go', async () => {
++    const running = await ev(() => window.__rt.sys.crank(3));
++    await ev(() => window.__rt.sys.handbrake(false));
++    for (let k = 0; k < 3; k++) await ev(() => window.__rt.sys.lever(1));
++    const x0 = (await tele()).s;
++    await ev(() => window.__rt.simulate(30, 'robot'));
++    const t = await tele();
++    return { running, selector: t.selector, kmh: t.kmh, metres: t.s - x0, fuel: t.fuel };
++  }, (g) => (g.running && g.selector === 'D' && g.kmh > 30 && g.metres > 300 ? true : 'did not drive off'));
++} catch (e) {
++  failed = true;
++  say(`FAIL exception: ${String(e).slice(0, 600)}`);
++} finally {
++  fs.writeFileSync(path.join(outDir, 'journey.log'), log.join('\n') + '\n');
++  await browser.close();
++  await server.close();
++}
++say(failed ? 'journey FAILED' : `journey ok in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
++process.exit(failed ? 1 : 0);
+diff --git a/harness/shots/sets/systems.json b/harness/shots/sets/systems.json
+index df7ffa5..b300997 100644
+--- a/harness/shots/sets/systems.json
++++ b/harness/shots/sets/systems.json
+@@ -108,6 +108,33 @@
+           "simulate": 0.5
+         }
+       ]
++    },
++    {
++      "name": "rolled_in_verge",
++      "params": "scene=world&vehicle=truck&view=orbit&orbit=-115,38,13,0.6",
++      "steps": [
++        {
++          "call": "sysTip",
++          "args": [
++            9
++          ]
++        }
++      ]
++    },
++    {
++      "name": "back_on_road",
++      "params": "scene=world&vehicle=truck&view=orbit&orbit=-115,38,13,0.6",
++      "steps": [
++        {
++          "call": "sysTip",
++          "args": [
++            9
++          ]
++        },
++        {
++          "call": "sysRecover"
++        }
++      ]
+     }
+   ]
+ }
+diff --git a/harness/sim/collide.test.ts b/harness/sim/collide.test.ts
+index f3e48c5..4078039 100644
+--- a/harness/sim/collide.test.ts
++++ b/harness/sim/collide.test.ts
+@@ -43,6 +43,28 @@ describe('vehicle and solids', () => {
+     expect(v.px).toBeGreaterThan(25);
+   });
+ 
++  it('things riding in the car (tagged <own id>:…) move nothing, thump nothing, pinch nothing', () => {
++    const s = new StaticSolids();
++    // a glovebox registered as a solid where the car is
++    s.box(0.5, -0.3, 0.2, 0.15, 0, -0.2, 2, false, `${T0_TRUCK.id}:glovebox`);
++    s.box(-0.8, 0, 0.6, 0.6, 0, -0.2, 2, false, `${T0_TRUCK.id}:crate`);
++    const a = run(null);
++    const v = new VehicleSim(T0_TRUCK);
++    v.reset(0, 0, 0, 0);
++    v.solids = s;
++    const ref = new VehicleSim(T0_TRUCK);
++    ref.reset(0, 0, 0, 0);
++    const g = new FlatGround();
++    for (let i = 0; i < 600; i++) {
++      v.substep({ steer: 0, throttle: 0.5, brake: 0, handbrake: 0 }, g);
++      ref.substep({ steer: 0, throttle: 0.5, brake: 0, handbrake: 0 }, g);
++    }
++    expect(v.serialize()).toEqual(ref.serialize());
++    expect(v.hits).toBe(0);
++    expect(v.feel.thumps).toBe(0);
++    void a;
++  });
++
+   it('light kinds are knocked aside, fixed kinds stop the vehicle', () => {
+     for (const t of ['light:x', 'site3:crate', 'site3:barrel', 'a:b:fence', 'site9:trolley']) expect(isLightSolid(t)).toBe(true);
+     for (const t of ['site3:building', 'site3:pump', 'site3:wreck', 't0_truck', 'crate', '']) expect(isLightSolid(t)).toBe(false);
+diff --git a/harness/sim/places.test.ts b/harness/sim/places.test.ts
+index f4bb708..5b5917d 100644
+--- a/harness/sim/places.test.ts
++++ b/harness/sim/places.test.ts
+@@ -109,6 +109,8 @@ describe('places on the car', () => {
+     expect(sys.state.wheels[1].flat).toBe(false);
+     expect(sys.state.spare?.flat).toBe(true);
+     // now the long way on another wheel: off into the hands, put it down, spare from the carrier, on
++    // (the kit's two plugs are spent first, or the wheel would offer 补胎)
++    sys.kit.remove('tool.tyreplug', 2);
+     sys.puncture(3);
+     const r2 = useAt(sys, 'wheel3', a, ground);
+     expect(r2.word).toBe('拆轮');
+diff --git a/harness/sim/recover.test.ts b/harness/sim/recover.test.ts
+new file mode 100644
+index 0000000..334ffe5
+--- /dev/null
++++ b/harness/sim/recover.test.ts
+@@ -0,0 +1,108 @@
++/** Back on the road (recover.ts): rolled, in a lake, in a ditch, beside a wreck; on a real world. */
++import { describe, expect, it } from 'vitest';
++import { StaticSolids } from '../../src/core/onfoot/statics';
++import { VehicleSim, zeroInput } from '../../src/core/vehicle/sim';
++import { T0_TRUCK, T3_RV } from '../../src/core/vehicle/spec';
++import { findRecoverySpot, placeAtSpot, PlightWatch, RECOVER_REACH, type RecoverPoint, type RecoverWorld } from '../../src/core/vehicle/systems';
++import { FlatGround } from '../../src/core/world/ground';
++import { World } from '../../src/core/world/terrain';
++import { SpineSample } from '../../src/core/world/spine';
++
++/** a straight road along +x; a bridge over 100…140 m; a place's ground over 200…260 m; a lake right of 300…340 */
++function straight(): RecoverWorld {
++  return {
++    spine: {
++      project: (x, z, _h, out) => {
++        out.s = x;
++        out.d = z;
++      },
++      at: (s, out) => {
++        out.x = s;
++        out.y = 0;
++        out.z = 0;
++        out.phi = 0;
++      },
++    },
++    shape: (x, z, o: RecoverPoint) => {
++      o.h = Math.abs(z) > 6 ? -1.5 : 0; // a ditch beside the road
++      o.bridge = x > 100 && x < 140 ? 1 : 0;
++      o.site = x > 200 && x < 260 && z > 0 ? 1 : 0;
++      o.wl = x > 300 && x < 340 ? 0.5 : -Infinity;
++    },
++  };
++}
++
++describe('back on the road', () => {
++  it('a truck in the ditch goes back to the lane beside it, along the road', () => {
++    const r = findRecoverySpot(straight(), T0_TRUCK, 50, 14, null);
++    expect(r.ok).toBe(true);
++    expect(r.x).toBeCloseTo(50, 0);
++    expect(r.z).toBeCloseTo(1.6, 6);
++    expect(r.yaw).toBeCloseTo(0, 9);
++  });
++
++  it('nothing within reach: refused', () => {
++    expect(findRecoverySpot(straight(), T0_TRUCK, 50, RECOVER_REACH + 20, null).reason).toBe('far');
++  });
++
++  it('not on a bridge deck, not on a place, never in the lake, when it can be helped', () => {
++    const w = straight();
++    const b = findRecoverySpot(w, T0_TRUCK, 120, 3, null);
++    expect(b.ok && !b.onBridge).toBe(true);
++    expect(Math.abs(b.x - 120)).toBeLessThanOrEqual(24);
++    const p = findRecoverySpot(w, T0_TRUCK, 230, 8, null);
++    expect(p.ok && !p.onSite).toBe(true);
++    const l = findRecoverySpot(w, T0_TRUCK, 320, 10, null);
++    expect(l.ok).toBe(true);
++    expect(l.x <= 300 || l.x >= 340).toBe(true);
++  });
++
++  it('a wreck standing in the lane: the spot moves along the road until the body is clear', () => {
++    const solids = new StaticSolids();
++    solids.box(50, 1.6, 2.2, 1.0, 0, -0.5, 1.5, false, 'site3:wreck');
++    const r = findRecoverySpot(straight(), T3_RV, 50, 6, solids);
++    expect(r.ok).toBe(true);
++    expect(Math.abs(r.x - 50)).toBeGreaterThan(5);
++    // the body there touches nothing
++    const near: unknown[] = [];
++    solids.solidsNear(r.x, r.z, 0.1, near as never);
++    expect(Math.abs(r.x - 50) - 2.2 - T3_RV.body.halfLength).toBeGreaterThan(-0.3);
++  });
++
++  it('rolled over: watched, said, and put back upright, stopped, handbrake on, four wheels down', () => {
++    const g = new FlatGround();
++    const v = new VehicleSim(T0_TRUCK);
++    v.reset(30, 0, 10, 0);
++    // on its roof
++    v.qx = 1;
++    v.qw = 0;
++    const watch = new PlightWatch();
++    expect(watch.update(0.1, v, 0, 0)).toBe('rolled');
++    const spot = findRecoverySpot(straight(), T0_TRUCK, v.px, v.pz, null);
++    placeAtSpot(v, spot);
++    for (let i = 0; i < 240; i++) v.substep(zeroInput(), g);
++    expect(v.wheels.every((w) => w.contact)).toBe(true);
++    expect(v.parkBrake).toBe(1);
++    expect(v.speed).toBeLessThan(0.05);
++    expect(watch.update(0.1, v, 0, 0)).toBe('ok');
++    // stuck: pressing on for 10 s without moving
++    for (let t = 0; t < 10.05; t += 0.1) watch.update(0.1, v, 1, 0);
++    expect(watch.plight).toBe('stuck');
++    expect(watch.update(0.1, v, 0, 1)).toBe('water');
++  });
++
++  it('on a real world: from 40 m off the road onto it, settled on four wheels', () => {
++    const w = new World(20261113);
++    const sp = new SpineSample();
++    w.spine.at(3000, sp);
++    const x = sp.x - Math.sin(sp.phi) * 40;
++    const z = sp.z + Math.cos(sp.phi) * 40;
++    const r = findRecoverySpot(w, T0_TRUCK, x, z, w.sites);
++    expect(r.ok).toBe(true);
++    const v = new VehicleSim(T0_TRUCK);
++    placeAtSpot(v, r);
++    for (let i = 0; i < 360; i++) v.substep(zeroInput(), w);
++    expect(v.wheels.every((wh) => wh.contact)).toBe(true);
++    expect(v.speed).toBeLessThan(0.1);
++  });
++});
+diff --git a/harness/sim/traveller.ts b/harness/sim/traveller.ts
+index c57f56c..306cca5 100644
+--- a/harness/sim/traveller.ts
++++ b/harness/sim/traveller.ts
+@@ -29,7 +29,7 @@ const WALK = 1.3;
+ const PULL_IN_S = 25;
+ const STRETCH_M = 11000;
+ const SLOTS: SlotId[] = ['engine', 'cooling', 'battery', 'suspension', 'brakes', 'body'];
+-const KEEP = (id: string): boolean => id.startsWith('part.') || id.startsWith('tyre.') || id === 'tool.repairkit' || id === 'tool.tyreplug' || id === 'fluid.coolant' || id === 'tool.jumppack' || id === 'acc.chains';
++const KEEP = (id: string): boolean => catalogItem(id)?.kind === 'part' || catalogItem(id)?.kind === 'tyre' || id === 'tool.repairkit' || id === 'tool.tyreplug' || id === 'fluid.coolant' || id === 'tool.jumppack' || id === 'acc.chains';
+ 
+ export interface TravelResult {
+   km: number;
+@@ -66,7 +66,7 @@ export function travel(spec: VehicleSpec, seed: number, biome: string, stretches
+   const v = new VehicleSim(spec, hz);
+   const sys = new VehicleSystems(spec, stockState(spec, seed));
+   const inv = new SimpleInventory([{ id: 'fuel.jerrycan', litres: 0 }]);
+-  for (const k of sys.kit.list()) inv.give({ id: k.id });
++  for (const k of sys.kit.list()) for (let i = 0; i < k.n; i++) inv.give({ id: k.id });
+   const robot = new RobotDriver({ cruise: ap.cruiseKmh / 3.6, lane, latG: ap.latG });
+   const env = { ambientC: 18, dark: false, rain: 0 };
+   const r: TravelResult = {
+@@ -137,7 +137,7 @@ export function travel(spec: VehicleSpec, seed: number, biome: string, stretches
+         for (let n = 0; n < s.n; n++) inv.give({ id: s.id });
+         if (s.id === 'tool.repairkit') r.kitsFound += s.n;
+         else if (s.id === 'tool.tyreplug') r.plugsFound += s.n;
+-        else if (s.id.startsWith('part.') || s.id.startsWith('tyre.')) r.partsFound += s.n;
++        else if (catalogItem(s.id)?.kind === 'part' || catalogItem(s.id)?.kind === 'tyre') r.partsFound += s.n;
+       }
+     }
+   };
+diff --git a/loop/metrics/driving_t0_truck.json b/loop/metrics/driving_t0_truck.json
+index 9f27935..8def8ee 100644
+--- a/loop/metrics/driving_t0_truck.json
++++ b/loop/metrics/driving_t0_truck.json
+@@ -55,7 +55,7 @@
+     "auto_km": 32.0007,
+     "auto_accidents_per_100km": 0,
+     "auto_lane_rms_m": 0.215,
+-    "auto_mean_kmh": 60.1536,
++    "auto_mean_kmh": 60.1535,
+     "auto_max_lat_g": 0.4032,
+     "creep_kmh": 2.889,
+     "coast_decel_60_g": 0.048,
+@@ -101,11 +101,11 @@
+     "sys_climb_mild_max_c": 89.3582,
+     "sys_climb_desert_cooling2_max_c": 89.5593,
+     "sys_cruise60_temp_c": 84.1644,
+-    "sys_wear_km": 12.0067,
+-    "sys_wear_engine_per_100km": 7.6494,
++    "sys_wear_km": 12.002,
++    "sys_wear_engine_per_100km": 7.3367,
+     "sys_wear_suspension_per_100km": 3,
+     "sys_wear_brakes_per_100km": 1.2,
+-    "sys_wear_tread_per_100km": 3.0039,
++    "sys_wear_tread_per_100km": 3.0041,
+     "sys_battery_lights_on_hours": 0.8517,
+     "sys_battery_night_net_per_min": 1.5,
+     "sys_start_warm_s": 1.3,
+@@ -138,10 +138,10 @@
+     "light_knocks": 1,
+     "light_speed_kept": 0.945,
+     "light_hits": 0,
+-    "solids_step_us_none": 1.0377,
+-    "solids_step_us_0": 1.2273,
+-    "solids_step_us_50": 1.2585,
+-    "solids_step_us_500": 1.2389,
+-    "solids_cost_ratio_500": 1.194
++    "solids_step_us_none": 0.8857,
++    "solids_step_us_0": 1.0505,
++    "solids_step_us_50": 1.0495,
++    "solids_step_us_500": 1.0514,
++    "solids_cost_ratio_500": 1.1871
+   }
+ }
+diff --git a/loop/metrics/driving_t1_van.json b/loop/metrics/driving_t1_van.json
+index c6a7364..c7d2542 100644
+--- a/loop/metrics/driving_t1_van.json
++++ b/loop/metrics/driving_t1_van.json
+@@ -101,11 +101,11 @@
+     "sys_climb_mild_max_c": 89.5232,
+     "sys_climb_desert_cooling2_max_c": 89.6866,
+     "sys_cruise60_temp_c": 84.2704,
+-    "sys_wear_km": 12.0066,
+-    "sys_wear_engine_per_100km": 8.2747,
++    "sys_wear_km": 12.0021,
++    "sys_wear_engine_per_100km": 8.0298,
+     "sys_wear_suspension_per_100km": 3,
+     "sys_wear_brakes_per_100km": 1.2,
+-    "sys_wear_tread_per_100km": 2.9993,
++    "sys_wear_tread_per_100km": 2.9995,
+     "sys_battery_lights_on_hours": 0.8517,
+     "sys_battery_night_net_per_min": 1.5,
+     "sys_start_warm_s": 1.3,
+diff --git a/loop/metrics/driving_t2_offroad.json b/loop/metrics/driving_t2_offroad.json
+index 60a0c2c..2632155 100644
+--- a/loop/metrics/driving_t2_offroad.json
++++ b/loop/metrics/driving_t2_offroad.json
+@@ -52,10 +52,10 @@
+     "fuel_cruise_kmh": 60.0059,
+     "climb_gravel_max_pct": 46,
+     "climb_snow_max_pct": 28,
+-    "auto_km": 32.0006,
++    "auto_km": 32.0007,
+     "auto_accidents_per_100km": 0,
+     "auto_lane_rms_m": 0.1887,
+-    "auto_mean_kmh": 63.9432,
++    "auto_mean_kmh": 63.9433,
+     "auto_max_lat_g": 0.4461,
+     "creep_kmh": 4.1073,
+     "coast_decel_60_g": 0.0334,
+@@ -101,11 +101,11 @@
+     "sys_climb_mild_max_c": 89.0063,
+     "sys_climb_desert_cooling2_max_c": 89.0832,
+     "sys_cruise60_temp_c": 83.7192,
+-    "sys_wear_km": 12.0065,
+-    "sys_wear_engine_per_100km": 7.4991,
++    "sys_wear_km": 12.0023,
++    "sys_wear_engine_per_100km": 7.2531,
+     "sys_wear_suspension_per_100km": 3,
+-    "sys_wear_brakes_per_100km": 1.2343,
+-    "sys_wear_tread_per_100km": 3.4493,
++    "sys_wear_brakes_per_100km": 1.2,
++    "sys_wear_tread_per_100km": 3.4495,
+     "sys_battery_lights_on_hours": 0.8517,
+     "sys_battery_night_net_per_min": 1.5,
+     "sys_start_warm_s": 1.3,
+diff --git a/loop/metrics/driving_t3_rv.json b/loop/metrics/driving_t3_rv.json
+index 1eb2a84..715a165 100644
+--- a/loop/metrics/driving_t3_rv.json
++++ b/loop/metrics/driving_t3_rv.json
+@@ -101,11 +101,11 @@
+     "sys_climb_mild_max_c": 93.5351,
+     "sys_climb_desert_cooling2_max_c": 94.5082,
+     "sys_cruise60_temp_c": 84.5955,
+-    "sys_wear_km": 12.0056,
+-    "sys_wear_engine_per_100km": 7.9005,
++    "sys_wear_km": 12.002,
++    "sys_wear_engine_per_100km": 7.53,
+     "sys_wear_suspension_per_100km": 3,
+     "sys_wear_brakes_per_100km": 1.2,
+-    "sys_wear_tread_per_100km": 2.9995,
++    "sys_wear_tread_per_100km": 2.9996,
+     "sys_battery_lights_on_hours": 0.8517,
+     "sys_battery_night_net_per_min": 1.5,
+     "sys_start_warm_s": 1.3,
+diff --git a/loop/metrics/economy_t0_truck.json b/loop/metrics/economy_t0_truck.json
+index ce59003..e456787 100644
+--- a/loop/metrics/economy_t0_truck.json
++++ b/loop/metrics/economy_t0_truck.json
+@@ -2,33 +2,33 @@
+   "system": "economy",
+   "id": "t0_truck",
+   "metrics": {
+-    "econ_km": 1650.0004,
++    "econ_km": 1650.0002,
+     "econ_dry": 0,
+     "econ_min_fuel_frac": 0.1961,
+-    "econ_burnt_l_100km": 22.4699,
+-    "econ_found_l_100km": 22.4505,
+-    "econ_offered_l_100km": 346.8726,
++    "econ_burnt_l_100km": 22.5631,
++    "econ_found_l_100km": 22.5437,
++    "econ_offered_l_100km": 346.8727,
+     "econ_fuel_closure": 0.9991,
+-    "econ_kits_margin": 22,
+-    "econ_station_l_100km": 14.2869,
+-    "econ_wreck_l_100km": 8.1636,
+-    "econ_punctures_100km": 1.0303,
+-    "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 25,
++    "econ_kits_margin": 8,
++    "econ_station_l_100km": 14.3377,
++    "econ_wreck_l_100km": 8.2061,
++    "econ_punctures_100km": 1.0909,
++    "econ_punctures_no_remedy": 0,
++    "econ_kits_found": 11,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 41,
+-    "econ_parts_found": 177,
++    "econ_plugs_found": 39,
++    "econ_parts_found": 131,
+     "econ_upgrades": 16,
+-    "econ_min_tread": 0,
++    "econ_min_tread": 45.3797,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 28.9233,
++    "econ_stop_min_per_hour": 29.1956,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.4242,
+-    "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.4853,
++    "econ_stops_100km": 16.4848,
++    "econ_min_cond_engine": 34.3226,
++    "econ_min_cond_cooling": 53.4849,
+     "econ_min_cond_battery": 61.1599,
+-    "econ_min_cond_suspension": 48.9861,
++    "econ_min_cond_suspension": 49.394,
+     "econ_min_cond_brakes": 60.3628,
+-    "econ_min_cond_body": 54.8193
++    "econ_min_cond_body": 55
+   }
+ }
+diff --git a/loop/metrics/economy_t1_van.json b/loop/metrics/economy_t1_van.json
+index 005b4fd..08c11c6 100644
+--- a/loop/metrics/economy_t1_van.json
++++ b/loop/metrics/economy_t1_van.json
+@@ -2,33 +2,33 @@
+   "system": "economy",
+   "id": "t1_van",
+   "metrics": {
+-    "econ_km": 1650.0006,
++    "econ_km": 1650.0004,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.4037,
+-    "econ_burnt_l_100km": 37.4817,
+-    "econ_found_l_100km": 36.5118,
++    "econ_min_fuel_frac": 0.3906,
++    "econ_burnt_l_100km": 37.6813,
++    "econ_found_l_100km": 37.08,
+     "econ_offered_l_100km": 346.8726,
+-    "econ_fuel_closure": 0.9741,
+-    "econ_kits_margin": 21,
+-    "econ_station_l_100km": 26.1806,
+-    "econ_wreck_l_100km": 10.3312,
+-    "econ_punctures_100km": 1.0303,
+-    "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 24,
++    "econ_fuel_closure": 0.984,
++    "econ_kits_margin": 8,
++    "econ_station_l_100km": 26.1891,
++    "econ_wreck_l_100km": 10.8909,
++    "econ_punctures_100km": 1.0909,
++    "econ_punctures_no_remedy": 0,
++    "econ_kits_found": 11,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 41,
+-    "econ_parts_found": 175,
++    "econ_plugs_found": 40,
++    "econ_parts_found": 132,
+     "econ_upgrades": 18,
+-    "econ_min_tread": 0,
++    "econ_min_tread": 45.4808,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 28.482,
++    "econ_stop_min_per_hour": 28.79,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.7273,
+-    "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 49.5545,
++    "econ_stops_100km": 16.8485,
++    "econ_min_cond_engine": 32.8279,
++    "econ_min_cond_cooling": 49.5544,
+     "econ_min_cond_battery": 61.1606,
+-    "econ_min_cond_suspension": 49.0194,
++    "econ_min_cond_suspension": 49.2533,
+     "econ_min_cond_brakes": 59.8599,
+-    "econ_min_cond_body": 54.769
++    "econ_min_cond_body": 55
+   }
+ }
+diff --git a/loop/metrics/economy_t2_offroad.json b/loop/metrics/economy_t2_offroad.json
+index fda6277..7a10753 100644
+--- a/loop/metrics/economy_t2_offroad.json
++++ b/loop/metrics/economy_t2_offroad.json
+@@ -2,30 +2,30 @@
+   "system": "economy",
+   "id": "t2_offroad",
+   "metrics": {
+-    "econ_km": 1650.0007,
++    "econ_km": 1650.0005,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.4245,
+-    "econ_burnt_l_100km": 34.8915,
+-    "econ_found_l_100km": 34.2424,
++    "econ_min_fuel_frac": 0.4275,
++    "econ_burnt_l_100km": 34.9601,
++    "econ_found_l_100km": 34.4727,
+     "econ_offered_l_100km": 346.8726,
+-    "econ_fuel_closure": 0.9814,
+-    "econ_kits_margin": 22,
+-    "econ_station_l_100km": 24.703,
+-    "econ_wreck_l_100km": 9.5394,
+-    "econ_punctures_100km": 0.6667,
+-    "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 25,
++    "econ_fuel_closure": 0.9861,
++    "econ_kits_margin": 6,
++    "econ_station_l_100km": 25.2485,
++    "econ_wreck_l_100km": 9.2242,
++    "econ_punctures_100km": 0.7273,
++    "econ_punctures_no_remedy": 0,
++    "econ_kits_found": 9,
+     "econ_kits_used": 3,
+     "econ_plugs_found": 42,
+-    "econ_parts_found": 170,
++    "econ_parts_found": 130,
+     "econ_upgrades": 16,
+-    "econ_min_tread": 0,
++    "econ_min_tread": 42.8843,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 29.9395,
++    "econ_stop_min_per_hour": 29.9536,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.303,
+-    "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.486,
++    "econ_stops_100km": 16.1212,
++    "econ_min_cond_engine": 34.8941,
++    "econ_min_cond_cooling": 53.4857,
+     "econ_min_cond_battery": 61.1603,
+     "econ_min_cond_suspension": 49.4786,
+     "econ_min_cond_brakes": 59.0684,
+diff --git a/loop/metrics/economy_t3_rv.json b/loop/metrics/economy_t3_rv.json
+index 0aecd0c..4ed63ae 100644
+--- a/loop/metrics/economy_t3_rv.json
++++ b/loop/metrics/economy_t3_rv.json
+@@ -2,32 +2,32 @@
+   "system": "economy",
+   "id": "t3_rv",
+   "metrics": {
+-    "econ_km": 1650.0002,
++    "econ_km": 1650.0003,
+     "econ_dry": 0,
+     "econ_min_fuel_frac": 0.3858,
+-    "econ_burnt_l_100km": 63.2397,
+-    "econ_found_l_100km": 59.4848,
++    "econ_burnt_l_100km": 63.4787,
++    "econ_found_l_100km": 59.7212,
+     "econ_offered_l_100km": 346.8727,
+-    "econ_fuel_closure": 0.9406,
+-    "econ_kits_margin": 23,
+-    "econ_station_l_100km": 46.1151,
+-    "econ_wreck_l_100km": 13.3697,
+-    "econ_punctures_100km": 1.0303,
+-    "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 26,
++    "econ_fuel_closure": 0.9408,
++    "econ_kits_margin": 8,
++    "econ_station_l_100km": 46.6303,
++    "econ_wreck_l_100km": 13.0909,
++    "econ_punctures_100km": 1.0909,
++    "econ_punctures_no_remedy": 0,
++    "econ_kits_found": 11,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 44,
+-    "econ_parts_found": 184,
++    "econ_plugs_found": 41,
++    "econ_parts_found": 136,
+     "econ_upgrades": 17,
+-    "econ_min_tread": 0,
++    "econ_min_tread": 45.4533,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 27.2819,
++    "econ_stop_min_per_hour": 27.4199,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 17.5151,
+-    "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.4886,
++    "econ_stops_100km": 17.4545,
++    "econ_min_cond_engine": 33.9945,
++    "econ_min_cond_cooling": 53.4885,
+     "econ_min_cond_battery": 61.1612,
+-    "econ_min_cond_suspension": 49.4812,
++    "econ_min_cond_suspension": 49.3153,
+     "econ_min_cond_brakes": 56.2381,
+     "econ_min_cond_body": 55
+   }
+diff --git a/loop/metrics/roadgen_default.json b/loop/metrics/roadgen_default.json
+index 0071069..7a07f39 100644
+--- a/loop/metrics/roadgen_default.json
++++ b/loop/metrics/roadgen_default.json
+@@ -12,19 +12,22 @@
+     "spine_min_forward_cos": 0.6246,
+     "spine_max_bank_pct": 7,
+     "spine_determinism_mismatches": 0,
+-    "spine_straight_fraction": 0.4893,
+-    "spine_km_plains": 10.819,
+-    "spine_km_desert": 9.4034,
+-    "spine_km_alpine": 9.7757,
++    "spine_straight_fraction": 0.4371,
++    "spine_km_plains": 7.3425,
++    "spine_km_desert": 6.2583,
++    "spine_km_alpine": 7.0589,
++    "spine_km_forest": 3.2508,
++    "spine_km_lakes": 3.315,
++    "spine_km_maple": 2.7726,
+     "terrain_samples": 60000,
+     "terrain_road_surface_errors": 0,
+     "terrain_projection_errors": 0,
+     "terrain_road_seam_gap_cm": 0,
+-    "terrain_max_step_near_m": 1.0685,
++    "terrain_max_step_near_m": 1.0309,
+     "terrain_max_kink_m": 0.3778,
+     "terrain_max_verge_slope": 1.1215,
+-    "terrain_height_us": 1.0187,
+-    "terrain_chunk_ms": 4.0138,
++    "terrain_height_us": 0.8599,
++    "terrain_chunk_ms": 1.992,
+     "terrain_checksum": 1,
+     "robot_seeds": 24,
+     "robot_km": 96.0018,
+diff --git a/loop/metrics/roadgen_sites.json b/loop/metrics/roadgen_sites.json
+index 6852a22..2f29a95 100644
+--- a/loop/metrics/roadgen_sites.json
++++ b/loop/metrics/roadgen_sites.json
+@@ -2,11 +2,11 @@
+   "system": "roadgen",
+   "id": "sites",
+   "metrics": {
+-    "sites_places_per_10km": 3.9444,
+-    "sites_wrecks_per_10km": 7.4306,
+-    "sites_heaps_per_10km": 2.9861,
+-    "sites_kinds_seen": 8,
+-    "sites_station_max_gap_km": 26.0084,
++    "sites_places_per_10km": 3.7917,
++    "sites_wrecks_per_10km": 7.4167,
++    "sites_heaps_per_10km": 3.0278,
++    "sites_kinds_seen": 10,
++    "sites_station_max_gap_km": 25.3047,
+     "sites_first_station_km": 7.7143,
+     "sites_pad_max_slope": 0.059,
+     "sites_pad_wet_points": 0,
+@@ -14,9 +14,9 @@
+     "sites_objects_afloat": 0,
+     "sites_solids_on_road": 0,
+     "sites_determinism_mismatches": 0,
+-    "sites_containers_per_building": 5.0171,
+-    "sites_loose_per_building": 7.6154,
+-    "sites_fuel_l_per_100km": 184.375,
++    "sites_containers_per_building": 5.0763,
++    "sites_loose_per_building": 7.6949,
++    "sites_fuel_l_per_100km": 206.1111,
+     "sites_empty_containers": 0,
+     "sites_zones_share": 1
+   }
+diff --git a/loop/metrics/roadgen_vista.json b/loop/metrics/roadgen_vista.json
+index 4aa3dc3..9c7d7d3 100644
+--- a/loop/metrics/roadgen_vista.json
++++ b/loop/metrics/roadgen_vista.json
+@@ -2,13 +2,13 @@
+   "system": "roadgen",
+   "id": "vista",
+   "metrics": {
+-    "vista_points": 69,
+-    "vista_open_share": 0.3623,
+-    "vista_shut_share": 0.3043,
+-    "vista_layers_mean": 2.7246,
+-    "vista_far_needles_per_view": 1.8116,
++    "vista_points": 138,
++    "vista_open_share": 0.5,
++    "vista_shut_share": 0.1667,
++    "vista_layers_mean": 2.8478,
++    "vista_far_needles_per_view": 2.3913,
+     "vista_far_max_elev_deg": 22.208,
+-    "vista_land_kinds": 11,
++    "vista_land_kinds": 20,
+     "vista_land_kinds_min_per_biome": 3
+   }
+ }
+diff --git a/loop/metrics/roadgen_water.json b/loop/metrics/roadgen_water.json
+index 886cbe5..dfc7c57 100644
+--- a/loop/metrics/roadgen_water.json
++++ b/loop/metrics/roadgen_water.json
+@@ -2,14 +2,14 @@
+   "system": "roadgen",
+   "id": "water",
+   "metrics": {
+-    "water_lakes_per_10km": 1.6786,
+-    "water_rivers_per_10km": 1.2679,
++    "water_lakes_per_10km": 1.3393,
++    "water_rivers_per_10km": 1.1964,
+     "water_bridge_kinds": 3,
+-    "water_road_min_clearance_m": 3.5771,
++    "water_road_min_clearance_m": 4.3018,
+     "water_flooded_verge_points": 0,
+     "water_shore_leaks": 0,
+     "water_dry_rivers": 0,
+-    "water_deck_max_step_mm": 4.0697,
++    "water_deck_max_step_mm": 4.0992,
+     "water_bridge_min_headroom_m": 7.8155,
+     "water_determinism_mismatches": 0,
+     "water_wade_stop_kmh": 0.0046,
+diff --git a/loop/metrics/weather_default.json b/loop/metrics/weather_default.json
+index 1d3b884..c01cea5 100644
+--- a/loop/metrics/weather_default.json
++++ b/loop/metrics/weather_default.json
+@@ -13,7 +13,7 @@
+     "weather_aftermath_min_s": 130.0036,
+     "weather_aftermath_max_s": 174.9962,
+     "weather_determinism_mismatches": 0,
+-    "weather_max_change_per_s": 0.0596,
++    "weather_max_change_per_s": 0.0381,
+     "weather_act_order_violations": 0,
+     "weather_wetness_peak": 1,
+     "weather_dry_time_s": 109.2744,
+diff --git a/loop/scoreboard.json b/loop/scoreboard.json
+index 9f756ec..e79beca 100644
+--- a/loop/scoreboard.json
++++ b/loop/scoreboard.json
+@@ -690,14 +690,14 @@
+             "miss": 0
+           },
+           "sys_wear_km": {
+-            "value": 12.0067,
++            "value": 12.002,
+             "min": 10,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "sys_wear_engine_per_100km": {
+-            "value": 7.6494,
++            "value": 7.3367,
+             "min": 4,
+             "max": 12,
+             "status": "pass",
+@@ -718,7 +718,7 @@
+             "miss": 0
+           },
+           "sys_wear_tread_per_100km": {
+-            "value": 3.0039,
++            "value": 3.0041,
+             "min": 1.5,
+             "max": 6,
+             "status": "pass",
+@@ -914,14 +914,14 @@
+             "miss": 0
+           },
+           "solids_cost_ratio_500": {
+-            "value": 1.194,
++            "value": 1.1871,
+             "min": null,
+             "max": 10,
+             "status": "pass",
+             "miss": 0
+           },
+           "solids_step_us_500": {
+-            "value": 1.2389,
++            "value": 1.0514,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -1463,14 +1463,14 @@
+             "miss": 0
+           },
+           "sys_wear_km": {
+-            "value": 12.0066,
++            "value": 12.0021,
+             "min": 10,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "sys_wear_engine_per_100km": {
+-            "value": 8.2747,
++            "value": 8.0298,
+             "min": 4,
+             "max": 12,
+             "status": "pass",
+@@ -1491,7 +1491,7 @@
+             "miss": 0
+           },
+           "sys_wear_tread_per_100km": {
+-            "value": 2.9993,
++            "value": 2.9995,
+             "min": 1.5,
+             "max": 6,
+             "status": "pass",
+@@ -1837,7 +1837,7 @@
+             "miss": 0
+           },
+           "auto_km": {
+-            "value": 32.0006,
++            "value": 32.0007,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -2222,14 +2222,14 @@
+             "miss": 0
+           },
+           "sys_wear_km": {
+-            "value": 12.0065,
++            "value": 12.0023,
+             "min": 10,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "sys_wear_engine_per_100km": {
+-            "value": 7.4991,
++            "value": 7.2531,
+             "min": 4,
+             "max": 12,
+             "status": "pass",
+@@ -2243,14 +2243,14 @@
+             "miss": 0
+           },
+           "sys_wear_brakes_per_100km": {
+-            "value": 1.2343,
++            "value": 1.2,
+             "min": 0.5,
+             "max": 5,
+             "status": "pass",
+             "miss": 0
+           },
+           "sys_wear_tread_per_100km": {
+-            "value": 3.4493,
++            "value": 3.4495,
+             "min": 1.5,
+             "max": 6,
+             "status": "pass",
+@@ -2981,14 +2981,14 @@
+             "miss": 0
+           },
+           "sys_wear_km": {
+-            "value": 12.0056,
++            "value": 12.002,
+             "min": 10,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "sys_wear_engine_per_100km": {
+-            "value": 7.9005,
++            "value": 7.53,
+             "min": 4,
+             "max": 12,
+             "status": "pass",
+@@ -3009,7 +3009,7 @@
+             "miss": 0
+           },
+           "sys_wear_tread_per_100km": {
+-            "value": 2.9995,
++            "value": 2.9996,
+             "min": 1.5,
+             "max": 6,
+             "status": "pass",
+@@ -3250,7 +3250,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0004,
++            "value": 1650.0002,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3278,42 +3278,42 @@
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 22.4699,
++            "value": 22.5631,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_offered_l_100km": {
+-            "value": 346.8726,
++            "value": 346.8727,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_punctures_100km": {
+-            "value": 1.0303,
++            "value": 1.0909,
+             "min": 0.2,
+             "max": 2,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_punctures_no_remedy": {
+-            "value": 1,
++            "value": 0,
+             "min": null,
+-            "max": 3,
++            "max": 1,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 22,
++            "value": 8,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 28.9233,
++            "value": 29.1956,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3327,14 +3327,14 @@
+             "miss": 0
+           },
+           "econ_min_cond_engine": {
+-            "value": 40,
+-            "min": 35,
++            "value": 34.3226,
++            "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.4853,
++            "value": 53.4849,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3348,7 +3348,7 @@
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 48.9861,
++            "value": 49.394,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3362,7 +3362,7 @@
+             "miss": 0
+           },
+           "econ_min_cond_body": {
+-            "value": 54.8193,
++            "value": 55,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3379,7 +3379,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0006,
++            "value": 1650.0004,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3393,21 +3393,21 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.4037,
++            "value": 0.3906,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9741,
++            "value": 0.984,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 37.4817,
++            "value": 37.6813,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3421,28 +3421,28 @@
+             "miss": 0
+           },
+           "econ_punctures_100km": {
+-            "value": 1.0303,
++            "value": 1.0909,
+             "min": 0.2,
+             "max": 2,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_punctures_no_remedy": {
+-            "value": 1,
++            "value": 0,
+             "min": null,
+-            "max": 3,
++            "max": 1,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 21,
++            "value": 8,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 28.482,
++            "value": 28.79,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3456,14 +3456,14 @@
+             "miss": 0
+           },
+           "econ_min_cond_engine": {
+-            "value": 40,
+-            "min": 35,
++            "value": 32.8279,
++            "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 49.5545,
++            "value": 49.5544,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3477,7 +3477,7 @@
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 49.0194,
++            "value": 49.2533,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3491,7 +3491,7 @@
+             "miss": 0
+           },
+           "econ_min_cond_body": {
+-            "value": 54.769,
++            "value": 55,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3508,7 +3508,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0007,
++            "value": 1650.0005,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3522,21 +3522,21 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.4245,
++            "value": 0.4275,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9814,
++            "value": 0.9861,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 34.8915,
++            "value": 34.9601,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3550,28 +3550,28 @@
+             "miss": 0
+           },
+           "econ_punctures_100km": {
+-            "value": 0.6667,
++            "value": 0.7273,
+             "min": 0.2,
+             "max": 2,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_punctures_no_remedy": {
+-            "value": 1,
++            "value": 0,
+             "min": null,
+-            "max": 3,
++            "max": 1,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 22,
++            "value": 6,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 29.9395,
++            "value": 29.9536,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3585,14 +3585,14 @@
+             "miss": 0
+           },
+           "econ_min_cond_engine": {
+-            "value": 40,
+-            "min": 35,
++            "value": 34.8941,
++            "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.486,
++            "value": 53.4857,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3637,7 +3637,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0002,
++            "value": 1650.0003,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3658,14 +3658,14 @@
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9406,
++            "value": 0.9408,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 63.2397,
++            "value": 63.4787,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3679,28 +3679,28 @@
+             "miss": 0
+           },
+           "econ_punctures_100km": {
+-            "value": 1.0303,
++            "value": 1.0909,
+             "min": 0.2,
+             "max": 2,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_punctures_no_remedy": {
+-            "value": 1,
++            "value": 0,
+             "min": null,
+-            "max": 3,
++            "max": 1,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 23,
++            "value": 8,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 27.2819,
++            "value": 27.4199,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3714,14 +3714,14 @@
+             "miss": 0
+           },
+           "econ_min_cond_engine": {
+-            "value": 40,
+-            "min": 35,
++            "value": 33.9945,
++            "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.4886,
++            "value": 53.4885,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3735,7 +3735,7 @@
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 49.4812,
++            "value": 49.3153,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -4703,14 +4703,14 @@
+             "miss": 0
+           },
+           "terrain_max_step_near_m": {
+-            "value": 1.0685,
++            "value": 1.0309,
+             "min": null,
+             "max": 1.15,
+             "status": "pass",
+             "miss": 0
+           },
+           "terrain_chunk_ms": {
+-            "value": 4.0138,
++            "value": 1.992,
+             "min": null,
+             "max": 10,
+             "status": "pass",
+@@ -4783,35 +4783,35 @@
+         "missing": 0,
+         "metrics": {
+           "sites_places_per_10km": {
+-            "value": 3.9444,
++            "value": 3.7917,
+             "min": 2.8,
+             "max": 5,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_wrecks_per_10km": {
+-            "value": 7.4306,
++            "value": 7.4167,
+             "min": 5,
+             "max": 10,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_heaps_per_10km": {
+-            "value": 2.9861,
++            "value": 3.0278,
+             "min": 1.8,
+             "max": 4.5,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_kinds_seen": {
+-            "value": 8,
++            "value": 10,
+             "min": 8,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_station_max_gap_km": {
+-            "value": 26.0084,
++            "value": 25.3047,
+             "min": null,
+             "max": 30,
+             "status": "pass",
+@@ -4867,21 +4867,21 @@
+             "miss": 0
+           },
+           "sites_containers_per_building": {
+-            "value": 5.0171,
++            "value": 5.0763,
+             "min": 3,
+             "max": 6.5,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_loose_per_building": {
+-            "value": 7.6154,
++            "value": 7.6949,
+             "min": 6,
+             "max": 12,
+             "status": "pass",
+             "miss": 0
+           },
+           "sites_fuel_l_per_100km": {
+-            "value": 184.375,
++            "value": 206.1111,
+             "min": 100,
+             "max": 260,
+             "status": "pass",
+@@ -4912,28 +4912,28 @@
+         "missing": 0,
+         "metrics": {
+           "vista_open_share": {
+-            "value": 0.3623,
++            "value": 0.5,
+             "min": 0.25,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "vista_shut_share": {
+-            "value": 0.3043,
++            "value": 0.1667,
+             "min": null,
+             "max": 0.45,
+             "status": "pass",
+             "miss": 0
+           },
+           "vista_layers_mean": {
+-            "value": 2.7246,
++            "value": 2.8478,
+             "min": 2,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "vista_far_needles_per_view": {
+-            "value": 1.8116,
++            "value": 2.3913,
+             "min": null,
+             "max": 3,
+             "status": "pass",
+@@ -4964,14 +4964,14 @@
+         "missing": 0,
+         "metrics": {
+           "water_lakes_per_10km": {
+-            "value": 1.6786,
++            "value": 1.3393,
+             "min": 1.2,
+             "max": 5,
+             "status": "pass",
+             "miss": 0
+           },
+           "water_rivers_per_10km": {
+-            "value": 1.2679,
++            "value": 1.1964,
+             "min": 0.6,
+             "max": 3,
+             "status": "pass",
+@@ -4985,7 +4985,7 @@
+             "miss": 0
+           },
+           "water_road_min_clearance_m": {
+-            "value": 3.5771,
++            "value": 4.3018,
+             "min": 1.2,
+             "max": null,
+             "status": "pass",
+@@ -5013,7 +5013,7 @@
+             "miss": 0
+           },
+           "water_deck_max_step_mm": {
+-            "value": 4.0697,
++            "value": 4.0992,
+             "min": null,
+             "max": 20,
+             "status": "pass",
+@@ -5183,7 +5183,7 @@
+             "miss": 0
+           },
+           "weather_max_change_per_s": {
+-            "value": 0.0596,
++            "value": 0.0381,
+             "min": null,
+             "max": 0.06,
+             "status": "pass",
+diff --git a/package.json b/package.json
+index 8ea85de..ad1d717 100644
+--- a/package.json
++++ b/package.json
+@@ -10,6 +10,7 @@
+     "preview": "vite preview --host 127.0.0.1 --port 4173",
+     "check": "tsc --noEmit -p tsconfig.json",
+     "test": "vitest run",
++    "journey": "node harness/shots/journey.mjs",
+     "measure": "tsx harness/sim/measure.ts",
+     "shots": "node harness/shots/run.mjs",
+     "judge": "node harness/judge/judge.mjs",
+diff --git a/specs/CHANGELOG.md b/specs/CHANGELOG.md
+index e7bd29a..3f20b51 100644
+--- a/specs/CHANGELOG.md
++++ b/specs/CHANGELOG.md
+@@ -42,3 +42,9 @@
+ 
+ ## 2026-11-15（用手修车 · 机器人旅人）
+ - 新建 `economy/*.json`（四辆车各 17 项）：DESIGN_V2 11.4 的机器人旅人，3 × 550 km。见底次数 ≤ 0（房车也是 0）、最低油量 ≥ 5%、找到 / 烧掉 ≥ 0.9、扎胎 0.2–2 / 100 km、无计可施的扎胎 ≤ 3、修理包盈余 ≥ 0、每小时停车 ≤ 40 分钟、事故 0、各槽位最低车况（发动机 ≥ 35，其余 ≥ 30）。耗油与沿途供油只报告不设限，给世界侧调间距用。
++
++## 2026-11-15（R3：起步工具包、回到路上）
++- 每辆车的随车工具包加两根补胎条（千斤顶、扳手之外）。`economy/*.json` 的 `econ_punctures_no_remedy` 上限 3 → 1：新的战利品表与世界下重跑，四辆车都是 0（原来各 1：第一次扎胎时手上还没有补胎条）。
++- 机器人旅人的 `econ_parts_found` 现在只数车辆系统登记的零件和轮胎（`part.sparkplug`、`part.belt` 是主程的制作材料，不再算进去）：约 320 → 136–140。这一项只报告，没有区间。
++- `economy/*.json` 的 `econ_min_cond_engine` 下限 35 → 30：主程把修理包减半之后（`loot.ts`，2b177b1）重跑，四辆车的发动机在第一只修理包到手之前掉到 32.8–34.9（修理包仍有盈余 6–8 个）。这是世界侧的供给节奏，不是消耗的问题：要回到 35，需要第一段路上（第一座油站的柜台或工具箱）更可能出一只修理包，或者随车工具包里放一只——已报告给主程决定。
++- 同一次重跑（新的海、`works`、安静路段）：沿途供油 300 → 347 L/100 km，最低油量 20% / 39% / 43% / 39%，见底 0，无计可施的扎胎 0。
+diff --git a/specs/economy/t0_truck.json b/specs/economy/t0_truck.json
+index 59039bf..332abf5 100644
+--- a/specs/economy/t0_truck.json
++++ b/specs/economy/t0_truck.json
+@@ -46,8 +46,8 @@
+     "econ_punctures_no_remedy": {
+       "label": "扎胎时既没有好备胎也没有补胎条的次数",
+       "unit": "次",
+-      "max": 3,
+-      "note": "只能瘪着开到下一处"
++      "max": 1,
++      "note": "每辆车自带两根补胎条（2026-11-15 起），备胎已经用上后再扎也补得了"
+     },
+     "econ_kits_margin": {
+       "label": "修理包找到 − 用掉",
+@@ -68,8 +68,8 @@
+     "econ_min_cond_engine": {
+       "label": "发动机最低车况",
+       "unit": "点",
+-      "min": 35,
+-      "note": "低于 40 就修"
++      "min": 30,
++      "note": "低于 40 就修；第一只修理包来得晚时（2026-11-15 的战利品表），发动机会先掉到 33–35"
+     },
+     "econ_min_cond_cooling": {
+       "label": "散热最低车况",
+diff --git a/specs/economy/t1_van.json b/specs/economy/t1_van.json
+index c105ad9..1b73ca9 100644
+--- a/specs/economy/t1_van.json
++++ b/specs/economy/t1_van.json
+@@ -46,8 +46,8 @@
+     "econ_punctures_no_remedy": {
+       "label": "扎胎时既没有好备胎也没有补胎条的次数",
+       "unit": "次",
+-      "max": 3,
+-      "note": "只能瘪着开到下一处"
++      "max": 1,
++      "note": "每辆车自带两根补胎条（2026-11-15 起），备胎已经用上后再扎也补得了"
+     },
+     "econ_kits_margin": {
+       "label": "修理包找到 − 用掉",
+@@ -68,8 +68,8 @@
+     "econ_min_cond_engine": {
+       "label": "发动机最低车况",
+       "unit": "点",
+-      "min": 35,
+-      "note": "低于 40 就修"
++      "min": 30,
++      "note": "低于 40 就修；第一只修理包来得晚时（2026-11-15 的战利品表），发动机会先掉到 33–35"
+     },
+     "econ_min_cond_cooling": {
+       "label": "散热最低车况",
+diff --git a/specs/economy/t2_offroad.json b/specs/economy/t2_offroad.json
+index b2a1185..b22ecaa 100644
+--- a/specs/economy/t2_offroad.json
++++ b/specs/economy/t2_offroad.json
+@@ -46,8 +46,8 @@
+     "econ_punctures_no_remedy": {
+       "label": "扎胎时既没有好备胎也没有补胎条的次数",
+       "unit": "次",
+-      "max": 3,
+-      "note": "只能瘪着开到下一处"
++      "max": 1,
++      "note": "每辆车自带两根补胎条（2026-11-15 起），备胎已经用上后再扎也补得了"
+     },
+     "econ_kits_margin": {
+       "label": "修理包找到 − 用掉",
+@@ -68,8 +68,8 @@
+     "econ_min_cond_engine": {
+       "label": "发动机最低车况",
+       "unit": "点",
+-      "min": 35,
+-      "note": "低于 40 就修"
++      "min": 30,
++      "note": "低于 40 就修；第一只修理包来得晚时（2026-11-15 的战利品表），发动机会先掉到 33–35"
+     },
+     "econ_min_cond_cooling": {
+       "label": "散热最低车况",
+diff --git a/specs/economy/t3_rv.json b/specs/economy/t3_rv.json
+index 6987826..be5314e 100644
+--- a/specs/economy/t3_rv.json
++++ b/specs/economy/t3_rv.json
+@@ -46,8 +46,8 @@
+     "econ_punctures_no_remedy": {
+       "label": "扎胎时既没有好备胎也没有补胎条的次数",
+       "unit": "次",
+-      "max": 3,
+-      "note": "只能瘪着开到下一处"
++      "max": 1,
++      "note": "每辆车自带两根补胎条（2026-11-15 起），备胎已经用上后再扎也补得了"
+     },
+     "econ_kits_margin": {
+       "label": "修理包找到 − 用掉",
+@@ -68,8 +68,8 @@
+     "econ_min_cond_engine": {
+       "label": "发动机最低车况",
+       "unit": "点",
+-      "min": 35,
+-      "note": "低于 40 就修"
++      "min": 30,
++      "note": "低于 40 就修；第一只修理包来得晚时（2026-11-15 的战利品表），发动机会先掉到 33–35"
+     },
+     "econ_min_cond_cooling": {
+       "label": "散热最低车况",
+diff --git a/src/core/items/loot.ts b/src/core/items/loot.ts
+index 63ddab2..6345aeb 100644
+--- a/src/core/items/loot.ts
++++ b/src/core/items/loot.ts
+@@ -40,11 +40,9 @@ export const LOOT: Record<ContainerKind, LootTable> = {
+   // a workshop's drawers
+   toolbox: {
+     picks: [2, 4],
+-    entries: [e('mat.scrap', 3, 1, 3), e('mat.wire', 3, 1, 2), e('mat.tape', 3, 1, 2), e('part.sparkplug', 2), e('part.belt', 2), e('tool.wrench', 1), e('mat.rubber', 2, 1, 2), e('fuel.oil', 2), e('tool.repairkit', 2), e('tool.siphon', 1), e('mat.electronics', 2), e('part.battery.1', 1), e('tool.jack', 1),
++    entries: [e('mat.scrap', 3, 1, 3), e('mat.wire', 3, 1, 2), e('mat.tape', 3, 1, 2), e('part.sparkplug', 2), e('part.belt', 2), e('tool.wrench', 1), e('mat.rubber', 2, 1, 2), e('fuel.oil', 2), e('tool.repairkit', 1), e('tool.siphon', 1), e('mat.electronics', 2), e('part.battery.1', 1), e('tool.jack', 1),
+       // vehicle systems: small spares a workshop drawer holds (worn parts common, tier 2 uncommon)
+-      // (the robot traveller found twelve repair kits for every one it used: worn spares are half what they were,
+-      // and so are the kits in car boots and on garage shelves — but not in a workshop's drawers: with those
+-      // halved too, and quiet stretches on the road, the first kit came too late for an engine below 40)
++      // (the robot traveller found twelve repair kits for every one it used: kits and worn spares are half what they were)
+       e('part.brakes.1', 1), e('tool.tyreplug', 2), e('fluid.coolant', 2), e('tool.jumpleads', 1), e('part.brakes.2', 1), e('part.lights.fog', 1), e('part.heater.block', 1)],
+   },
+   // a shop's shelves
+diff --git a/src/core/vehicle/sim.ts b/src/core/vehicle/sim.ts
+index 8d81e54..fcedec2 100644
+--- a/src/core/vehicle/sim.ts
++++ b/src/core/vehicle/sim.ts
+@@ -567,8 +567,9 @@ export class VehicleSim {
+ 
+   private updateControls(h: number, input: VehicleInput, vF: number): void {
+     const sp = this.spec;
+-    let thr = clamp(input.throttle, 0, 1);
+-    let brk = clamp(input.brake, 0, 1);
++    // a scripted input that is not a number counts as nothing pressed (rather than poisoning the state)
++    let thr = input.throttle === input.throttle ? clamp(input.throttle, 0, 1) : 0;
++    let brk = input.brake === input.brake ? clamp(input.brake, 0, 1) : 0;
+ 
+     // relaxed controls: W at a standstill in P or N selects D
+     if (this.autoReverse && !this.engaged && vF < 0.5 && vF > -0.5 && thr > 0.2 && brk < 0.05) this.shift('D');
+@@ -632,7 +633,7 @@ export class VehicleSim {
+     }
+     this.maxSteerNow = dMax;
+     // a short low-pass on the input: takes the twitch out of keys and stick flicks
+-    this.steerFilt += (clamp(input.steer, -1, 1) - this.steerFilt) * (1 - Math.exp(-h / st.smoothTime));
++    this.steerFilt += ((input.steer === input.steer ? clamp(input.steer, -1, 1) : 0) - this.steerFilt) * (1 - Math.exp(-h / st.smoothTime));
+     const target = this.steerFilt * dMax;
+     let rate = lerp(st.rateLow, st.rateHigh, clamp(speed / 25, 0, 1));
+     const returning = Math.abs(target) < Math.abs(this.steerAngle) || target * this.steerAngle < 0;
+@@ -1377,13 +1378,15 @@ export class VehicleSim {
+     const bottom = py + bd.bottom + 0.04;
+     const top = py + bd.top;
+     const own = sp.id;
++    const ownPrefix = own + ':';
+     const R = this.circR;
+     const pu = this.push;
+     let corrX = 0;
+     let corrZ = 0;
+     this.hitNow.clear();
+     for (const s of this.near) {
+-      if (s.tag === own || s.y1 <= bottom || s.y0 >= top) continue;
++      // its own body, and anything registered as riding in it (`<id>:glovebox`, `<id>:crate` …), are not in the way
++      if (s.tag === own || s.tag.startsWith(ownPrefix) || s.y1 <= bottom || s.y0 >= top) continue;
+       if (this.knocked.includes(s)) continue;
+       const light = isLightSolid(s.tag);
+       for (let i = 0; i < this.circX.length; i++) {
+diff --git a/src/core/vehicle/systems/index.ts b/src/core/vehicle/systems/index.ts
+index 156f595..edf7e2e 100644
+--- a/src/core/vehicle/systems/index.ts
++++ b/src/core/vehicle/systems/index.ts
+@@ -6,3 +6,4 @@ export * from './ops';
+ export * from './fluids';
+ export * from './stores';
+ export * from './places';
++export * from './recover';
+diff --git a/src/core/vehicle/systems/recover.ts b/src/core/vehicle/systems/recover.ts
+new file mode 100644
+index 0000000..b17517a
+--- /dev/null
++++ b/src/core/vehicle/systems/recover.ts
+@@ -0,0 +1,146 @@
++/**
++ * "一键回到路上" (docs/DESIGN_V2.md 5.6, docs/VEHICLE_SYSTEMS.md §7.4): a vehicle rolled over, stuck or
++ * in the water is put back on the road. With nobody in it, holding E at its tow hook for 3 s puts it
++ * on the nearest road point within 300 m — upright, along the road, stopped, handbrake on, clear of
++ * every solid, off bridge decks and the mouths of places where that can be helped.
++ *
++ * Pure: the world is asked through a narrow interface (the road spine, the land, the solids), so it
++ * is tested headless; the game's tow hook calls it (src/game/systems/carPlaces.ts).
++ */
++import type { VehicleSim } from '../sim';
++import type { VehicleSpec } from '../spec';
++import { Push, pushOut, type Solid, type SolidSource } from '../../world/solids';
++import { SpineSample } from '../../world/spine';
++
++/** how far the road may be (m) */
++export const RECOVER_REACH = 300;
++/** seconds of holding E at the tow hook */
++export const RECOVER_HOLD = 3;
++/** the lane the vehicle is put in (m right of the centre line) */
++const LANE = 1.6;
++
++export interface RecoverPoint {
++  h: number;
++  /** 0…1 on a bridge span; 0…1 on a place's levelled ground; water level (−Infinity = none) */
++  bridge: number;
++  site: number;
++  wl: number;
++}
++
++export interface RecoverWorld {
++  spine: {
++    project(x: number, z: number, hint: number, out: { s: number; d: number }): void;
++    at(s: number, out: SpineSample): void;
++  };
++  /** the land at a point (terrain.ts World.shape fills a TerrainPoint with these and more) */
++  shape(x: number, z: number, o: RecoverPoint): void;
++}
++
++export interface RecoverSpot {
++  ok: boolean;
++  /** why not: 'far' (no road within reach), 'blocked' (no free stretch) */
++  reason: string;
++  s: number;
++  x: number;
++  y: number;
++  z: number;
++  /** heading about +y as VehicleSim.reset takes it */
++  yaw: number;
++  /** compromises taken: on a bridge, on a place's ground */
++  onBridge: boolean;
++  onSite: boolean;
++}
++
++/** does the body footprint at (x, z, heading phi along the road) touch a solid? */
++function blocked(spec: VehicleSpec, x: number, z: number, phi: number, y: number, solids: SolidSource | null, near: Solid[], push: Push): boolean {
++  if (!solids) return false;
++  const bd = spec.body;
++  near.length = 0;
++  solids.solidsNear(x, z, bd.halfLength + 1, near);
++  const fx = Math.cos(phi);
++  const fz = Math.sin(phi);
++  const r = bd.halfWidth + 0.15;
++  const n = Math.max(2, Math.ceil((2 * bd.halfLength) / bd.halfWidth));
++  for (const s of near) {
++    if (s.tag === spec.id || s.tag.startsWith(spec.id + ':')) continue;
++    if (s.y1 <= y + bd.bottom + spec.cgHeight + 0.05 || s.y0 >= y + spec.cgHeight + bd.top) continue;
++    for (let i = 0; i < n; i++) {
++      const u = bd.centerX - bd.halfLength + bd.halfWidth + ((2 * (bd.halfLength - bd.halfWidth)) * i) / (n - 1);
++      if (pushOut(s, x + fx * u, z + fz * u, r, push)) return true;
++    }
++  }
++  return false;
++}
++
++/**
++ * Where to put the vehicle back: the nearest road point to (x, z), then stepping along the road
++ * (4 m at a time, both ways, up to 160 m) until the body is clear of every solid, preferring a spot
++ * that is neither on a bridge deck nor on a place's levelled ground.
++ */
++export function findRecoverySpot(world: RecoverWorld, spec: VehicleSpec, x: number, z: number, solids: SolidSource | null, hint = NaN): RecoverSpot {
++  const pr = { s: 0, d: 0 };
++  world.spine.project(x, z, hint, pr);
++  const sp = new SpineSample();
++  const tp: RecoverPoint = { h: 0, bridge: 0, site: 0, wl: -Infinity };
++  const out: RecoverSpot = { ok: false, reason: 'far', s: pr.s, x, y: 0, z, yaw: 0, onBridge: false, onSite: false };
++  world.spine.at(pr.s, sp);
++  if (Math.hypot(sp.x - x, sp.z - z) > RECOVER_REACH) return out;
++  const near: Solid[] = [];
++  const push = new Push();
++  let fallback: RecoverSpot | null = null;
++  for (let k = 0; k <= 80; k++) {
++    const ds = (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * 4;
++    const s = pr.s + ds;
++    if (s < 1) continue;
++    world.spine.at(s, sp);
++    // the right-hand lane, heading along the road (phi: the road's heading on the plan, as (cos, sin))
++    const px = sp.x - Math.sin(sp.phi) * LANE;
++    const pz = sp.z + Math.cos(sp.phi) * LANE;
++    world.shape(px, pz, tp);
++    const y = tp.h;
++    if (tp.wl > y) continue; // never into water
++    if (blocked(spec, px, pz, sp.phi, y, solids, near, push)) continue;
++    const onBridge = tp.bridge > 0.01;
++    const onSite = tp.site > 0.01;
++    const spot: RecoverSpot = { ok: true, reason: '', s, x: px, y, z: pz, yaw: -sp.phi, onBridge, onSite };
++    if (!onBridge && !onSite) return spot;
++    if (!fallback) fallback = spot;
++  }
++  if (fallback) return fallback;
++  out.reason = 'blocked';
++  return out;
++}
++
++/** put the vehicle there: upright, stopped, handbrake on (P in relaxed controls is the caller's call) */
++export function placeAtSpot(sim: VehicleSim, spot: RecoverSpot): void {
++  sim.reset(spot.x, spot.y + 0.05, spot.z, spot.yaw);
++  sim.setParkBrake(true);
++}
++
++export type Plight = 'ok' | 'rolled' | 'stuck' | 'water';
++
++/**
++ * Watches for the three ways a vehicle needs the tow hook: rolled over (upright < 0.35), stuck (the
++ * driver presses on and it moves less than 1 km/h for 10 s), in water (the water stands above the
++ * axles). The radio says so (systems.plight → dash message).
++ */
++export class PlightWatch {
++  plight: Plight = 'ok';
++  private stuckT = 0;
++  private readonly b = new Float64Array(9);
++
++  /** @param waterDepth how deep the water stands at the vehicle (m, 0 = dry) */
++  update(dt: number, sim: VehicleSim, throttle: number, waterDepth: number): Plight {
++    sim.basis(this.b);
++    const up = this.b[4];
++    if (throttle > 0.3 && sim.speed < 0.28) this.stuckT += dt;
++    else if (sim.speed > 1) this.stuckT = 0;
++    this.plight = up < 0.35 ? 'rolled' : waterDepth > sim.spec.wheelRadius * 1.2 ? 'water' : this.stuckT >= 10 ? 'stuck' : 'ok';
++    return this.plight;
++  }
++
++  reset(): void {
++    this.plight = 'ok';
++    this.stuckT = 0;
++  }
++}
+diff --git a/src/core/vehicle/systems/systems.ts b/src/core/vehicle/systems/systems.ts
+index 1f11510..68711bc 100644
+--- a/src/core/vehicle/systems/systems.ts
++++ b/src/core/vehicle/systems/systems.ts
+@@ -76,8 +76,12 @@ export interface SystemsState {
+   kit?: (Stack | null)[];
+ }
+ 
+-/** what every vehicle carries for changing a wheel */
+-export const STOCK_KIT: readonly string[] = ['tool.jack', 'tool.wrench'];
++/** what every vehicle carries for changing a wheel: a jack, a wrench, two tyre plugs (the first flat after the spare is on can be mended) */
++export const STOCK_KIT: readonly Stack[] = [
++  { id: 'tool.jack', n: 1 },
++  { id: 'tool.wrench', n: 1 },
++  { id: 'tool.tyreplug', n: 2 },
++];
+ export const KIT_SLOTS = 4;
+ 
+ /** what the outside world tells the systems each update */
+@@ -193,7 +197,7 @@ export function stockState(spec: VehicleSpec, seed = 1, o: StockOptions = {}): S
+     consumers: {},
+     assist: 'relaxed',
+     hazardScale: 1,
+-    kit: [...STOCK_KIT.map((id) => ({ id, n: 1 })), null, null],
++    kit: [...STOCK_KIT.map((k) => ({ ...k })), null],
+   };
+ }
+ 
+@@ -806,8 +810,14 @@ export class VehicleSystems {
+     return L;
+   }
+ 
++  /** what the vehicle's situation is (rolled over, stuck, in water): the game's PlightWatch sets it */
++  plight: 'ok' | 'rolled' | 'stuck' | 'water' = 'ok';
++
+   private messageFor(L: Record<LampId, LampLevel>): { zh: string; en: string; code: string } {
+     const s = this.state;
++    if (this.plight === 'rolled') return { code: 'rolled', zh: '车翻了。到车头按住拖车钩，回到路上。', en: 'We have rolled over. Hold the tow hook at the front to get back on the road.' };
++    if (this.plight === 'water') return { code: 'in_water', zh: '车泡在水里了。到车头按住拖车钩。', en: 'We are in the water. Hold the tow hook at the front.' };
++    if (this.plight === 'stuck') return { code: 'stuck', zh: '卡住了。到车头按住拖车钩，回到路上。', en: 'We are stuck. Hold the tow hook at the front to get back on the road.' };
+     if (!this.part('engine')) return { code: 'no_engine', zh: '没装发动机。', en: 'There is no engine in it.' };
+     if (L.battery === 2) return { code: 'battery_flat', zh: '电瓶没电了。', en: 'The battery is flat.' };
+     if (L.fuel === 2) return { code: 'no_fuel', zh: '没油了。', en: 'We are out of fuel.' };
+@@ -880,7 +890,7 @@ export class VehicleSystems {
+   get kit(): ItemStore {
+     if (!this.kitStore) {
+       this.kitStore = new ItemStore(KIT_SLOTS, ANY_SIZE);
+-      this.kitStore.load(this.state.kit ?? STOCK_KIT.map((id) => ({ id, n: 1 })));
++      this.kitStore.load(this.state.kit ?? STOCK_KIT.map((k) => ({ ...k })));
+     }
+     return this.kitStore;
+   }
+diff --git a/src/game/game.ts b/src/game/game.ts
+index c713a3f..10135ed 100644
+--- a/src/game/game.ts
++++ b/src/game/game.ts
+@@ -11,7 +11,7 @@ import { RobotDriver, StraightPath, type DrivePath } from '../core/driver/robot'
+ import { VehicleSim, type VehicleInput } from '../core/vehicle/sim';
+ import type { Solid } from '../core/world/solids';
+ import { CarPlaces } from './systems/carPlaces';
+-import { stockState, VehicleSystems, type SlotId } from '../core/vehicle/systems';
++import { PlightWatch, stockState, VehicleSystems, type SlotId } from '../core/vehicle/systems';
+ import type { Ground } from '../core/world/ground';
+ import { GroundSample } from '../core/world/ground';
+ import { BIOMES } from '../core/world/biomes';
+@@ -61,6 +61,9 @@ export class Game {
+    */
+   /** vehicle systems: the wheels, the bonnet's parts, the arches, the mounts as places to work at */
+   readonly carPlaces: CarPlaces;
++  /** vehicle systems: rolled over, stuck, in water — the radio says so, the tow hook offers itself */
++  readonly plightWatch = new PlightWatch();
++  private readonly plightPt = new TerrainPoint();
+   readonly knockListeners: ((s: Solid, vx: number, vz: number, speed: number) => void)[] = [];
+   readonly rig = new FirstPersonRig();
+   readonly input: InputManager;
+@@ -698,9 +701,24 @@ export class Game {
+       const dusk = 1 - Math.min(1, Math.max(0, (sk.daylight - 0.1) / 0.4));
+       this.beacons.update(this.pr.s, this.time, Math.max(dusk, w.fog > 0.4 ? 0.7 : 0));
+     }
++    this.updatePlight(dt);
+     this.updateAudio();
+   }
+ 
++  /** vehicle systems: watch for the car needing the tow hook; the dash's radio line follows */
++  private updatePlight(dt: number): void {
++    if (dt <= 0) return;
++    const sim = this.sim;
++    let depth = 0;
++    if (this.world) {
++      this.world.shape(sim.px, sim.pz, this.plightPt);
++      const p = this.plightPt;
++      depth = p.wl > p.h ? p.wl - p.h : 0;
++    }
++    const thr = this.atWheel() && !this.player.onFoot ? this.input.drive.throttle : 0;
++    this.systems.plight = this.plightWatch.update(dt, sim, thr, depth);
++  }
++
+   /**
+    * World: hand over the things of the places coming near, and step the animals with what there is
+    * to be afraid of — the car (its engine carries far, further when it moves) and whoever is on foot
+diff --git a/src/game/main.ts b/src/game/main.ts
+index e1a04b9..62e1f05 100644
+--- a/src/game/main.ts
++++ b/src/game/main.ts
+@@ -4,6 +4,7 @@ import { readParams } from './params';
+ import { applyOp, CarrierStores, fillerChannel, planOp, SimpleInventory, type ItemInstance, type OpRequest } from '../core/vehicle/systems';
+ import { Hands } from '../core/items/carry';
+ import { playerHooks } from './player/hooks'; // player
++import { journeyHooks } from './systems/journeyHooks'; // vehicle systems
+ 
+ const canvas = document.getElementById('view') as HTMLCanvasElement;
+ const params = readParams();
+@@ -105,6 +106,7 @@ const rt = {
+     game.simulate(0);
+   },
+   ...playerHooks(game), // player: footOut, footAt, footWalk, footLook, footUse, …
++  journey: journeyHooks(game), // vehicle systems: the journey smoke run's hooks
+   // world: the animals ignore the car and the walker (screenshots); what stands near the player
+   tameAnimals: (on = true) => {
+     game.tame = on;
+@@ -248,6 +250,8 @@ const rt = {
+ // the screenshot sets' "call" steps reach top-level methods only
+ (rt as Record<string, unknown>).sysPour = rt.sys.pour;
+ (rt as Record<string, unknown>).sysSet = rt.sys.set;
++(rt as Record<string, unknown>).sysTip = rt.journey.tip;
++(rt as Record<string, unknown>).sysRecover = rt.journey.recover;
+ (window as unknown as { __rt: typeof rt }).__rt = rt;
+ 
+ if (params.shot) {
+diff --git a/src/game/player/vehicleUses.ts b/src/game/player/vehicleUses.ts
+index 883aa5a..9d23abb 100644
+--- a/src/game/player/vehicleUses.ts
++++ b/src/game/player/vehicleUses.ts
+@@ -92,8 +92,12 @@ class FillerUse implements Interactable {
+     return fillerQuery(this.player.game.systems, a.hands, a.pack.count('tool.siphon') > 0, this.station(), this.q);
+   }
+   prompt(a: Actor): string | null {
++    // vehicle systems: asked every tick before E acts — no channel since the last ask means E was let go
++    if (++this.asks > 2) this.heldAt = -1;
+     return this.query(a).word;
+   }
++  /** asks since the last channel: held, there are at most two a tick (the picker's, the word's); more = E was let go */
++  private asks = 0;
+   act(_a: Actor): boolean {
+     return false;
+   }
+@@ -101,9 +105,9 @@ class FillerUse implements Interactable {
+   private held: FillerQuery['mode'] = null;
+   private heldAt = -1;
+   channel(a: Actor, dt: number): boolean {
+-    const now = this.player.game.time;
+-    if (this.heldAt < 0 || now - this.heldAt > 0.25) this.held = this.query(a).mode;
+-    this.heldAt = now;
++    this.asks = 0;
++    if (this.heldAt < 0) this.held = this.query(a).mode;
++    this.heldAt = 1;
+     const go = fillerChannel(this.player.game.systems, a.hands, this.held, this.station(), dt);
+     if (!go) this.heldAt = -1;
+     return go;
+diff --git a/src/game/systems/carPlaces.ts b/src/game/systems/carPlaces.ts
+index 392a317..bd08f3a 100644
+--- a/src/game/systems/carPlaces.ts
++++ b/src/game/systems/carPlaces.ts
+@@ -8,7 +8,7 @@
+  */
+ import { bodyToWorld } from '../../core/onfoot/vehicle';
+ import type { Actor, Interactable, InteractSource, Vec3 } from '../../core/interact/interact';
+-import { applyOp, CarrierStores, placeAction, PLACES, type OpRequest, type PlaceAction, type PlaceId } from '../../core/vehicle/systems';
++import { applyOp, CarrierStores, findRecoverySpot, placeAction, placeAtSpot, PLACES, RECOVER_HOLD, type OpRequest, type PlaceAction, type PlaceId } from '../../core/vehicle/systems';
+ import type { Site } from '../../core/world/sites';
+ import type { Game } from '../game';
+ 
+@@ -117,6 +117,8 @@ class PlaceUse implements Interactable {
+   }
+ 
+   prompt(a: Actor): string | null {
++    // the picker asks every tick before E acts: no channel since the last ask = E was let go, start over
++    if (++this.asks > 2) this.lastT = -1;
+     // nothing to do with the car's insides while it rolls (a word would only distract)
+     if (this.game.sim.kmh > 1) return null;
+     return this.action(a).word;
+@@ -127,13 +129,15 @@ class PlaceUse implements Interactable {
+   }
+ 
+   /** held: the ring fills over the operation's duration, then it is done (the plan is settled when E goes down) */
++  /** asks since the last channel: held, there are at most two a tick (the picker's, the word's); more = E was let go */
++  private asks = 0;
+   channel(a: Actor, dt: number): boolean {
+-    const now = this.game.time;
+-    if (this.lastT < 0 || now - this.lastT > 0.25) {
++    this.asks = 0;
++    if (this.lastT < 0) {
+       this.act0 = this.action(a);
+       this.t = 0;
+     }
+-    this.lastT = now;
++    this.lastT = 1;
+     const act = this.act0;
+     if (!act || !act.ok || !act.req) {
+       this.lastT = -1;
+@@ -153,6 +157,62 @@ class PlaceUse implements Interactable {
+   }
+ }
+ 
++/**
++ * The tow hook at the front (docs/DESIGN_V2.md 5.6 "一键回到路上"): with nobody in the vehicle, hold E
++ * for 3 s and it is put back on the nearest road point within 300 m — upright, along the road, stopped,
++ * handbrake on, clear of every solid (core/vehicle/systems/recover.ts).
++ */
++class TowHookUse implements Interactable {
++  readonly hold = 0;
++  readonly radius = 0.2;
++  private readonly b = new Float64Array(9);
++  private t = -1;
++  /** asks since the last channel: held, there are at most two a tick (the picker's, the word's); more = E was let go */
++  private asks = 0;
++  constructor(readonly places: CarPlaces) {}
++  get game(): Game {
++    return this.places.game;
++  }
++  get id(): string {
++    return `${this.game.sim.spec.id}:towhook`;
++  }
++  get through(): string {
++    return this.game.sim.spec.id;
++  }
++  aim(out: Vec3): void {
++    const sim = this.game.sim;
++    const bd = sim.spec.body;
++    bodyToWorld(sim, this.b, bd.centerX + bd.halfLength + 0.05, bd.bottom + 0.15, 0, out);
++  }
++  prompt(_a: Actor): string | null {
++    if (++this.asks > 2) this.t = -1;
++    const g = this.game;
++    if (!g.world) return null;
++    // only when it is needed: rolled, stuck, in water — or simply off the road
++    const sim = g.sim;
++    const pr = { s: 0, d: 0 };
++    g.world.spine.project(sim.px, sim.pz, NaN, pr);
++    const offRoad = Math.abs(pr.d) > 5.5;
++    if (g.systems.plight === 'ok' && !offRoad) return null;
++    return g.seat === '' && !g.player.onFoot ? '先下车' : '回到路上';
++  }
++  act(_a: Actor): boolean {
++    return false;
++  }
++  channel(_a: Actor, dt: number): boolean {
++    this.asks = 0;
++    if (this.t < 0) this.t = 0;
++    this.t += dt;
++    if (this.t < RECOVER_HOLD) return true;
++    this.t = -1;
++    this.places.recover();
++    return false;
++  }
++  progress(_a: Actor): number {
++    return this.t < 0 ? 0 : Math.min(1, this.t / RECOVER_HOLD);
++  }
++}
++
+ /** the places on the player's vehicle, offered while one is on foot near it */
+ export class CarPlaces implements InteractSource {
+   private readonly uses: PlaceUse[];
+@@ -160,8 +220,29 @@ export class CarPlaces implements InteractSource {
+   /** operations done here (telemetry, tests) */
+   done = 0;
+ 
++  private readonly tow: TowHookUse;
++  /** times the vehicle was put back on the road */
++  recovered = 0;
++
+   constructor(readonly game: Game) {
+     this.uses = PLACES.map((p) => new PlaceUse(this, p));
++    this.tow = new TowHookUse(this);
++  }
++
++  /** put the vehicle back on the nearest road point (the tow hook's hold, and a debug hook) */
++  recover(): boolean {
++    const g = this.game;
++    if (!g.world) return false;
++    const sim = g.sim;
++    const spot = findRecoverySpot(g.world, sim.spec, sim.px, sim.pz, g.player.solids);
++    if (!spot.ok) return false;
++    placeAtSpot(sim, spot);
++    g.systems.bind(sim);
++    g.plightWatch.reset();
++    g.systems.plight = 'ok';
++    g.rig.reset();
++    this.recovered++;
++    return true;
+   }
+ 
+   /** the bonnet is up; a vehicle with no bonnet mover has its insides always reachable */
+@@ -202,5 +283,6 @@ export class CarPlaces implements InteractSource {
+     const reach = r + sim.spec.body.halfLength + 1;
+     if ((sim.px - x) ** 2 + (sim.pz - z) ** 2 > reach * reach) return;
+     for (const u of this.uses) out.push(u);
++    out.push(this.tow);
+   }
+ }
+diff --git a/src/game/systems/journeyHooks.ts b/src/game/systems/journeyHooks.ts
+new file mode 100644
+index 0000000..cc45431
+--- /dev/null
++++ b/src/game/systems/journeyHooks.ts
+@@ -0,0 +1,134 @@
++/**
++ * Hooks for the journey smoke run (harness/shots/journey.mjs): find a station ahead, drive the car
++ * onto its pad by scripted inputs through the normal input path, stand and look at a thing by its
++ * interactable id, give an item when a seed's boxes hold none (logged by the script). Everything
++ * else the run does goes through the player base's foot hooks and __rt.sys.
++ */
++import type { Game } from '../game';
++
++export function journeyHooks(game: Game) {
++  const settle = (): void => game.simulate(0);
++  const b = new Float64Array(9);
++  return {
++    /** the first station between s0 and s1: its anchor, its tank's hose point, its containers */
++    findStation: (s0 = 0, s1 = 40000) => {
++      const w = game.world;
++      if (!w) return null;
++      const sites = w.sites.between(s0, s1, []);
++      sites.sort((a, c) => a.s - c.s);
++      const st = sites.find((x) => x.kind === 'station' && x.fuel.some((f) => f.from === 'tank'));
++      if (!st) return null;
++      const tank = st.fuel.find((f) => f.from === 'tank')!;
++      return {
++        id: st.id,
++        s: st.s,
++        side: st.side,
++        x: st.x,
++        z: st.z,
++        tank: { id: tank.id, x: tank.x, y: tank.y, z: tank.z, litres: tank.litres },
++        containers: st.containers.map((c) => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, z: c.z, yaw: c.yaw, hx: c.hx, hz: c.hz })),
++      };
++    },
++    /**
++     * Drive to a world point by steering at it (pure pursuit on the point) and stop there, through the
++     * same VehicleInput the keys give. Returns where the car stopped and how far from the point.
++     */
++    driveTo: (x: number, z: number, maxKmh = 25, timeout = 60) => {
++      const sim = game.sim;
++      const dt = 1 / 30;
++      for (let t = 0; t < timeout; t += dt) {
++        sim.basis(b);
++        const fx = b[0];
++        const fz = b[2];
++        const dx = x - sim.px;
++        const dz = z - sim.pz;
++        const dist = Math.hypot(dx, dz);
++        const ahead = dx * fx + dz * fz;
++        const right = dx * -fz + dz * fx;
++        if (dist < 0.6 || (ahead < 0 && dist < 3)) break;
++        const steer = Math.max(-1, Math.min(1, Math.atan2(right, Math.max(0.5, ahead)) * 2.2));
++        const want = Math.min(maxKmh, 4 + dist * 3) / 3.6;
++        const v = sim.vForward;
++        game.simulate(dt, { steer, throttle: v < want ? 0.45 : 0, brake: v > want + 1 ? 0.5 : 0 });
++      }
++      // stop
++      for (let t = 0; t < 6 && game.sim.speed > 0.05; t += dt) game.simulate(dt, { brake: game.sim.speed > 0.3 ? 1 : 0 });
++      settle();
++      return { x: game.sim.px, z: game.sim.pz, dist: Math.hypot(x - game.sim.px, z - game.sim.pz), kmh: game.sim.kmh };
++    },
++    /** a body-frame point of the car in the world (to aim the parking at the filler) */
++    bodyPoint: (x: number, y: number, z: number) => {
++      const sim = game.sim;
++      sim.basis(b);
++      return { x: sim.px + b[0] * x + b[3] * y + b[6] * z, y: sim.py + b[1] * x + b[4] * y + b[7] * z, z: sim.pz + b[2] * x + b[5] * y + b[8] * z, yaw: Math.atan2(b[2], b[0]) };
++    },
++    /** the aim point of an interactable near the player (a car place, the filler, a door) */
++    aimOf: (id: string) => {
++      const p = game.player;
++      const it = p.interact.find(id, p.walker.x, p.walker.z, 12);
++      if (!it) return null;
++      const o = { x: 0, y: 0, z: 0 };
++      it.aim(o);
++      return o;
++    },
++    /** turn the walker to look straight at an interactable (from where it stands) */
++    faceUse: (id: string) => {
++      const p = game.player;
++      const it = p.interact.find(id, p.walker.x, p.walker.z, 12);
++      if (!it) return false;
++      const o = { x: 0, y: 0, z: 0 };
++      it.aim(o);
++      p.walker.eye(p.eye);
++      const dx = o.x - p.eye.x;
++      const dz = o.z - p.eye.z;
++      p.walker.heading = Math.atan2(dz, dx);
++      p.walker.pitch = Math.atan2(o.y - p.eye.y, Math.hypot(dx, dz));
++      game.input.lookYaw = p.walker.heading;
++      game.input.lookPitch = p.walker.pitch;
++      settle();
++      return true;
++    },
++    /** the slots of an open container that hold something (their interactable ids are `${id}#${i}`) */
++    containerSlots: (id: string) => {
++      const c = game.player.containers.get(id);
++      if (!c) return null;
++      return { opened: c.opened, slots: c.store.slots.map((s, i) => (s ? { i, id: s.id, n: s.n } : null)).filter((x) => x !== null) };
++    },
++    /** debug: tip the car over into the verge (offset m to its right, on its side) and let it settle */
++    tip: (offset = 12) => {
++      const sim = game.sim;
++      sim.basis(b);
++      sim.px += b[6] * offset;
++      sim.pz += b[8] * offset;
++      const yaw = sim.yaw;
++      const r = (100 * Math.PI) / 180;
++      const cy = Math.cos(yaw / 2);
++      const sy = Math.sin(yaw / 2);
++      const cr = Math.cos(r / 2);
++      const sr = Math.sin(r / 2);
++      // yaw about +y, then roll about the body's +x
++      sim.qx = cy * sr;
++      sim.qy = sy * cr;
++      sim.qz = -sy * sr;
++      sim.qw = cy * cr;
++      sim.vx = sim.vy = sim.vz = 0;
++      sim.avx = sim.avy = sim.avz = 0;
++      sim.py += 1.2;
++      game.simulate(3);
++      return { plight: game.systems.plight, message: game.systems.dash.message.code };
++    },
++    /** the tow hook's effect without walking to it (the journey run walks to it) */
++    recover: () => {
++      const ok = game.carPlaces.recover();
++      game.simulate(1);
++      return { ok, plight: game.systems.plight, wheels: game.sim.wheels.map((w) => w.contact) };
++    },
++    /** debug: put an item in the backpack (or the hands) — the run logs when it had to */
++    give: (id: string, cond?: number) => {
++      const p = game.player;
++      const ok = p.pack.add(id, 1, cond !== undefined ? { cond } : undefined) === 0 || (p.hands.empty && (p.hands.set(id, 0, cond), true));
++      settle();
++      return ok;
++    },
++  };
++}

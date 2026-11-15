@@ -1,0 +1,19 @@
+{
+  "system": "roadgen",
+  "id": "water",
+  "metrics": {
+    "water_lakes_per_10km": 1.3393,
+    "water_rivers_per_10km": 1.1964,
+    "water_bridge_kinds": 3,
+    "water_road_min_clearance_m": 4.3018,
+    "water_flooded_verge_points": 0,
+    "water_shore_leaks": 0,
+    "water_dry_rivers": 0,
+    "water_deck_max_step_mm": 4.0992,
+    "water_bridge_min_headroom_m": 7.8155,
+    "water_determinism_mismatches": 0,
+    "water_wade_stop_kmh": 0.0046,
+    "water_wade_max_depth_m": 1.0344,
+    "water_wade_exploded": 0
+  }
+}

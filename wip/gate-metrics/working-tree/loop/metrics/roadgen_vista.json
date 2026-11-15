@@ -1,0 +1,14 @@
+{
+  "system": "roadgen",
+  "id": "vista",
+  "metrics": {
+    "vista_points": 138,
+    "vista_open_share": 0.5,
+    "vista_shut_share": 0.1667,
+    "vista_layers_mean": 2.8478,
+    "vista_far_needles_per_view": 2.3913,
+    "vista_far_max_elev_deg": 22.208,
+    "vista_land_kinds": 20,
+    "vista_land_kinds_min_per_biome": 3
+  }
+}

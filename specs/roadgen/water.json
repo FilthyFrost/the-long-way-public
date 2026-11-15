@@ -1,0 +1,75 @@
+{
+  "id": "water",
+  "system": "roadgen",
+  "title": "水体与桥 · 湖、河、桥面",
+  "source": "docs/DESIGN_V2.md 4.5（World V3）水体数值与桥；调研 refs/research/world_weather.md 第 1 节。",
+  "metrics": {
+    "water_lakes_per_10km": {
+      "label": "每 10 km 的湖数（草原约 2.5 km 一处，全路平均更稀）",
+      "unit": "个",
+      "min": 1.2,
+      "max": 5
+    },
+    "water_rivers_per_10km": {
+      "label": "每 10 km 的过河次数",
+      "unit": "次",
+      "min": 0.6,
+      "max": 3
+    },
+    "water_bridge_kinds": {
+      "label": "出现过的桥型数（石拱、梁桥、桁架）",
+      "unit": "种",
+      "min": 3
+    },
+    "water_road_min_clearance_m": {
+      "label": "路面高出水面的最小值",
+      "unit": "m",
+      "min": 1.2
+    },
+    "water_flooded_verge_points": {
+      "label": "桥以外，路两侧 12 m 内被水淹的采样点",
+      "unit": "个",
+      "max": 0
+    },
+    "water_shore_leaks": {
+      "label": "岸线外侧低于水面的采样点（水会“漏”出去）",
+      "unit": "个",
+      "max": 0
+    },
+    "water_dry_rivers": {
+      "label": "中线上断流的河",
+      "unit": "条",
+      "max": 0
+    },
+    "water_deck_max_step_mm": {
+      "label": "桥面与两端路面的最大错台（每 0.5 m 采样）",
+      "unit": "mm",
+      "max": 20
+    },
+    "water_bridge_min_headroom_m": {
+      "label": "桥面到河床的最小净高（桥中点）",
+      "unit": "m",
+      "min": 4
+    },
+    "water_determinism_mismatches": {
+      "label": "同种子、不同查询顺序得到的水体差异",
+      "unit": "个",
+      "max": 0
+    },
+    "water_wade_stop_kmh": {
+      "label": "30 km/h 开进湖里 12 秒后的车速（水要把车留住）",
+      "unit": "km/h",
+      "max": 3
+    },
+    "water_wade_max_depth_m": {
+      "label": "30 km/h 从沙滩开进湖里能到达的最大水深",
+      "unit": "m",
+      "max": 1.8
+    },
+    "water_wade_exploded": {
+      "label": "涉水时物理发散",
+      "unit": "次",
+      "max": 0
+    }
+  }
+}

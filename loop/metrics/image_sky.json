@@ -1,0 +1,138 @@
+{
+  "system": "image",
+  "id": "sky",
+  "metrics": {
+    "images": 12,
+    "max_black_pct": 0.3132,
+    "max_white_pct": 0.2492,
+    "min_mean_luma": 0.3744,
+    "max_mean_luma": 0.6488,
+    "night_min_world_luma": 0.3653,
+    "night_max_world_luma": 0.4828,
+    "day_min_shadow_blue_minus_red": 0.0411,
+    "day_min_shadow_chroma": 0.099,
+    "day_mean_world_sat": 0.3783
+  },
+  "shots": {
+    "alpine_0100_aurora": {
+      "mean_luma": 0.45672959089279175,
+      "black_pct": 0.04405381944444445,
+      "white_pct": 0.2492404513888889,
+      "world_mean_luma": 0.4828440248966217,
+      "world_mean_sat": 0.3618049621582031,
+      "shadow_blue_minus_red": 0.14878273010253906,
+      "shadow_chroma": 0.14878273010253906,
+      "luma_top3_bins": 0.36938858695652177
+    },
+    "alpine_blizzard": {
+      "mean_luma": 0.6488446593284607,
+      "black_pct": 0.001193576388888889,
+      "white_pct": 0.034722222222222224,
+      "world_mean_luma": 0.7665021419525146,
+      "world_mean_sat": 0.10913585871458054,
+      "shadow_blue_minus_red": 0.08396583795547485,
+      "shadow_chroma": 0.08396583795547485,
+      "luma_top3_bins": 0.8286039402173913
+    },
+    "alpine_snow_dusk": {
+      "mean_luma": 0.45294150710105896,
+      "black_pct": 0.15104166666666666,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.553358793258667,
+      "world_mean_sat": 0.1538642793893814,
+      "shadow_blue_minus_red": 0.009169042110443115,
+      "shadow_chroma": 0.01711249351501465,
+      "luma_top3_bins": 0.48055366847826086
+    },
+    "desert_2300_night": {
+      "mean_luma": 0.40135762095451355,
+      "black_pct": 0.0847439236111111,
+      "white_pct": 0.05154079861111111,
+      "world_mean_luma": 0.4286513328552246,
+      "world_mean_sat": 0.30230531096458435,
+      "shadow_blue_minus_red": 0.12202207744121552,
+      "shadow_chroma": 0.12202207744121552,
+      "luma_top3_bins": 0.4788926630434783
+    },
+    "desert_sandstorm": {
+      "mean_luma": 0.5700638294219971,
+      "black_pct": 0.024739583333333336,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.6445671916007996,
+      "world_mean_sat": 0.32295483350753784,
+      "shadow_blue_minus_red": -0.09429138898849487,
+      "shadow_chroma": 0.09958964586257935,
+      "luma_top3_bins": 0.5482302989130434
+    },
+    "plains_0600_dawn": {
+      "mean_luma": 0.4779118597507477,
+      "black_pct": 0.31315104166666663,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.47695982456207275,
+      "world_mean_sat": 0.3867005407810211,
+      "shadow_blue_minus_red": 0.10438153147697449,
+      "shadow_chroma": 0.10438153147697449,
+      "luma_top3_bins": 0.40103600543478257
+    },
+    "plains_1200_noon": {
+      "mean_luma": 0.6234612464904785,
+      "black_pct": 0.007161458333333333,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.5761801600456238,
+      "world_mean_sat": 0.3801233768463135,
+      "shadow_blue_minus_red": 0.1569197177886963,
+      "shadow_chroma": 0.1577768623828888,
+      "luma_top3_bins": 0.4928125
+    },
+    "plains_1840_golden": {
+      "mean_luma": 0.5222615003585815,
+      "black_pct": 0.12890625,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.5275112986564636,
+      "world_mean_sat": 0.3681070804595947,
+      "shadow_blue_minus_red": 0.04109944403171539,
+      "shadow_chroma": 0.09896959364414215,
+      "luma_top3_bins": 0.4107914402173913
+    },
+    "plains_1930_blue": {
+      "mean_luma": 0.37439844012260437,
+      "black_pct": 0.13270399305555555,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.36527779698371887,
+      "world_mean_sat": 0.31241559982299805,
+      "shadow_blue_minus_red": 0.055150315165519714,
+      "shadow_chroma": 0.06578949093818665,
+      "luma_top3_bins": 0.41742527173913047
+    },
+    "plains_fog": {
+      "mean_luma": 0.5725904107093811,
+      "black_pct": 0.05251736111111111,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.6362581253051758,
+      "world_mean_sat": 0.17466242611408234,
+      "shadow_blue_minus_red": 0.010768413543701172,
+      "shadow_chroma": 0.08602580428123474,
+      "luma_top3_bins": 0.4172180706521739
+    },
+    "plains_hail": {
+      "mean_luma": 0.4752880036830902,
+      "black_pct": 0.0022786458333333335,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.4958518445491791,
+      "world_mean_sat": 0.28160226345062256,
+      "shadow_blue_minus_red": 0.022475436329841614,
+      "shadow_chroma": 0.11222733557224274,
+      "luma_top3_bins": 0.43132472826086954
+    },
+    "plains_storm": {
+      "mean_luma": 0.48821550607681274,
+      "black_pct": 0.004340277777777778,
+      "white_pct": 0.0,
+      "world_mean_luma": 0.5572512745857239,
+      "world_mean_sat": 0.19433721899986267,
+      "shadow_blue_minus_red": 0.04077118635177612,
+      "shadow_chroma": 0.10187220573425293,
+      "luma_top3_bins": 0.4491745923913044
+    }
+  }
+}

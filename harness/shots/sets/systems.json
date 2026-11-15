@@ -1,0 +1,113 @@
+{
+  "set": "systems",
+  "base": "scene=proving&shot=1&vehicle=van",
+  "shots": [
+    {
+      "name": "selfcheck_lamps",
+      "params": "view=cockpit&engine=off&ignition=on",
+      "look": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "name": "dash_running",
+      "params": "view=cockpit&sys=fuel:0.3,temp:110",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": {
+            "throttle": 0.5
+          }
+        }
+      ],
+      "look": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "name": "flat_tyre",
+      "params": "view=orbit&orbit=-35,6,7.5,0.6&sys=flat:0",
+      "steps": [
+        {
+          "simulate": 1
+        }
+      ]
+    },
+    {
+      "name": "limp_mode",
+      "params": "view=cockpit&sys=engine:0",
+      "steps": [
+        {
+          "simulate": 12,
+          "input": {
+            "throttle": 1
+          }
+        }
+      ],
+      "look": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "name": "fuel_before_pour",
+      "params": "view=cockpit&engine=off&sys=fuel:0.05",
+      "look": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "name": "fuel_after_pour",
+      "params": "view=cockpit&engine=off&sys=fuel:0.05",
+      "steps": [
+        {
+          "call": "sysPour",
+          "args": [
+            8
+          ]
+        }
+      ],
+      "look": [
+        0.0,
+        -0.5
+      ]
+    },
+    {
+      "name": "wheel_off",
+      "params": "view=orbit&orbit=-40,8,6.5,0.6&sys=off:0&handbrake=1",
+      "steps": [
+        {
+          "simulate": 1.5
+        }
+      ]
+    },
+    {
+      "name": "bonnet_places",
+      "params": "vehicle=offroad&onfoot=world:3.2,0.0,180&footpitch=-19&engine=off",
+      "steps": [
+        {
+          "call": "setMover",
+          "args": [
+            "bonnet",
+            1
+          ]
+        },
+        {
+          "simulate": 0.5
+        }
+      ]
+    },
+    {
+      "name": "wheel_place",
+      "params": "vehicle=truck&onfoot=world:1.0,-1.9,95&footpitch=-40&sys=flat:0&handbrake=1",
+      "steps": [
+        {
+          "simulate": 0.5
+        }
+      ]
+    }
+  ]
+}

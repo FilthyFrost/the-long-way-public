@@ -1,0 +1,13 @@
+{
+  "set": "vehicles_world",
+  "base": "scene=world&shot=1&seed=7&s=3180&vehicle=rv",
+  "shots": [
+    {"name": "rv_world_front34", "params": "view=orbit&orbit=36,9,13,1.4"},
+    {"name": "rv_world_driver", "params": "view=cockpit"},
+    {"name": "rv_world_room_rear", "params": "view=cockpit&seat=roomRear"},
+    {"name": "van_world_front34", "params": "vehicle=van&view=orbit&orbit=36,9,8,1.0"},
+    {"name": "van_world_driver", "params": "vehicle=van&view=cockpit"},
+    {"name": "offroad_world_front34", "params": "vehicle=offroad&view=orbit&orbit=36,9,8,1.1"},
+    {"name": "offroad_world_driver", "params": "vehicle=offroad&view=cockpit"}
+  ]
+}

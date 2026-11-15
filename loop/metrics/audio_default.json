@@ -1,0 +1,20 @@
+{
+  "system": "audio",
+  "id": "default",
+  "metrics": {
+    "audio_engine_hz_idle": 21.25,
+    "audio_engine_hz_redline": 150,
+    "audio_non_monotonic": 0,
+    "audio_values_out_of_range": 0,
+    "audio_enclosed_wind_drop_db": 10.4576,
+    "audio_enclosed_rain_drop_db": 12.0412,
+    "audio_roof_rain_open": 0,
+    "audio_roof_rain_enclosed": 0.4,
+    "audio_outside_cutoff_enclosed_hz": 1400,
+    "audio_engine_off_gain": 0,
+    "audio_starter_gain_cranking": 0.22,
+    "audio_thump_gain_kerb": 0.54,
+    "audio_shift_engine_sag": 0.6819,
+    "audio_horn_detune_ratio": 0.6905
+  }
+}

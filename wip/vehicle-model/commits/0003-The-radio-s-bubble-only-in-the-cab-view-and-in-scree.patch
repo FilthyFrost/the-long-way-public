@@ -1,0 +1,75 @@
+From 4b86ec92b36338079e743b5f20a2fdef8af00f6b Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 11:46:19 -0800
+Subject: [PATCH 3/3] The radio's bubble only in the cab view, and in
+ screenshot mode only when the shot asks (bubble=1: the self-check shots)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/shots/sets/vehicles.json b/harness/shots/sets/vehicles.json
+index ea28eef..d1edd83 100644
+--- a/harness/shots/sets/vehicles.json
++++ b/harness/shots/sets/vehicles.json
+@@ -74,7 +74,7 @@
+     {"name": "offroad_driver_night", "params": "vehicle=offroad&view=cockpit&time=22&cabinlight=1"},
+     {"name": "offroad_night_34", "params": "vehicle=offroad&view=orbit&orbit=140,10,8.6,1.2&time=22&cabinlight=1&camp=1&slots=all"},
+     {"name": "van_cab_dash", "params": "vehicle=van&view=cockpit", "look": [-0.3, -0.42]},
+-    {"name": "van_cab_selfcheck", "params": "vehicle=van&view=cockpit&sys=fuel:0.04", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [-0.3, -0.42]},
++    {"name": "van_cab_selfcheck", "params": "vehicle=van&view=cockpit&sys=fuel:0.04&bubble=1", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [-0.3, -0.42]},
+     {"name": "van_cab_dash_night", "params": "vehicle=van&view=cockpit&time=22&lightsw=low&sys=fuel:0.04", "look": [-0.3, -0.42]},
+     {"name": "van_cab_levers", "params": "vehicle=van&view=cockpit", "look": [0.55, -0.85]},
+     {"name": "van_cab_levers_on", "params": "vehicle=van&view=cockpit", "steps": [{"call": "cabUse", "args": ["handbrake", 1]}, {"call": "cabUse", "args": ["selector", 1]}, {"call": "cabUse", "args": ["lights", 2]}, {"call": "cabUse", "args": ["wipers", 2]}, {"call": "cabUse", "args": ["hazard", 1]}], "look": [0.55, -0.85]},
+@@ -84,7 +84,7 @@
+     {"name": "van_cab_window_down", "params": "vehicle=van&view=cockpit&weather=rain", "steps": [{"call": "cabUse", "args": ["windowL", 2]}], "look": [-1.25, -0.35]},
+     {"name": "van_cab_doors_outside", "params": "vehicle=van&view=orbit&orbit=-55,8,7.5,1.0", "steps": [{"call": "cabUse", "args": ["doorL", 1]}, {"call": "cabUse", "args": ["windowL", 3]}]},
+     {"name": "offroad_cab_dash", "params": "vehicle=offroad&view=cockpit", "look": [0.0, -0.45]},
+-    {"name": "offroad_cab_selfcheck", "params": "vehicle=offroad&view=cockpit&sys=fuel:0.04", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.0, -0.45]},
++    {"name": "offroad_cab_selfcheck", "params": "vehicle=offroad&view=cockpit&sys=fuel:0.04&bubble=1", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.0, -0.45]},
+     {"name": "offroad_cab_dash_night", "params": "vehicle=offroad&view=cockpit&time=22&lightsw=low&sys=fuel:0.04", "look": [0.0, -0.45]},
+     {"name": "offroad_cab_levers", "params": "vehicle=offroad&view=cockpit", "look": [0.55, -0.8]},
+     {"name": "offroad_cab_levers_on", "params": "vehicle=offroad&view=cockpit", "steps": [{"call": "cabUse", "args": ["handbrake", 1]}, {"call": "cabUse", "args": ["selector", 1]}, {"call": "cabUse", "args": ["lights", 2]}, {"call": "cabUse", "args": ["wipers", 2]}, {"call": "cabUse", "args": ["hazard", 1]}], "look": [0.55, -0.8]},
+@@ -94,7 +94,7 @@
+     {"name": "offroad_cab_window_down", "params": "vehicle=offroad&view=cockpit&weather=rain", "steps": [{"call": "cabUse", "args": ["windowL", 2]}], "look": [-1.3, -0.3]},
+     {"name": "offroad_cab_doors_outside", "params": "vehicle=offroad&view=orbit&orbit=-55,8,7.5,1.0", "steps": [{"call": "cabUse", "args": ["doorL", 1]}, {"call": "cabUse", "args": ["windowL", 3]}]},
+     {"name": "rv_cab_dash", "params": "vehicle=rv&view=cockpit", "look": [0.05, -0.5]},
+-    {"name": "rv_cab_selfcheck", "params": "vehicle=rv&view=cockpit&sys=fuel:0.04", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.05, -0.5]},
++    {"name": "rv_cab_selfcheck", "params": "vehicle=rv&view=cockpit&sys=fuel:0.04&bubble=1", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.05, -0.5]},
+     {"name": "rv_cab_dash_night", "params": "vehicle=rv&view=cockpit&time=22&lightsw=low&sys=fuel:0.04", "look": [0.05, -0.5]},
+     {"name": "rv_cab_levers", "params": "vehicle=rv&view=cockpit", "look": [0.6, -0.75]},
+     {"name": "rv_cab_levers_on", "params": "vehicle=rv&view=cockpit", "steps": [{"call": "cabUse", "args": ["handbrake", 1]}, {"call": "cabUse", "args": ["selector", 1]}, {"call": "cabUse", "args": ["lights", 2]}, {"call": "cabUse", "args": ["wipers", 2]}, {"call": "cabUse", "args": ["hazard", 1]}], "look": [0.6, -0.75]},
+@@ -104,7 +104,7 @@
+     {"name": "rv_cab_window_down", "params": "vehicle=rv&view=cockpit&weather=rain", "steps": [{"call": "cabUse", "args": ["windowL", 2]}], "look": [-1.3, -0.3]},
+     {"name": "rv_cab_doors_outside", "params": "vehicle=rv&view=orbit&orbit=-55,8,7.5,1.0", "steps": [{"call": "cabUse", "args": ["doorL", 1]}, {"call": "cabUse", "args": ["windowL", 3]}]},
+     {"name": "truck_cab_dash", "params": "vehicle=truck&view=cockpit", "look": [0.1, -0.45]},
+-    {"name": "truck_cab_selfcheck", "params": "vehicle=truck&view=cockpit&sys=fuel:0.04", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.1, -0.45]},
++    {"name": "truck_cab_selfcheck", "params": "vehicle=truck&view=cockpit&sys=fuel:0.04&bubble=1", "steps": [{"call": "selfCheck", "args": [0.45]}], "look": [0.1, -0.45]},
+     {"name": "truck_cab_dash_night", "params": "vehicle=truck&view=cockpit&time=22&lightsw=low&sys=fuel:0.04", "look": [0.1, -0.45]},
+     {"name": "truck_cab_levers", "params": "vehicle=truck&view=cockpit", "look": [0.6, -0.8]},
+     {"name": "truck_cab_levers_on", "params": "vehicle=truck&view=cockpit", "steps": [{"call": "cabUse", "args": ["handbrake", 1]}, {"call": "cabUse", "args": ["selector", 1]}, {"call": "cabUse", "args": ["lights", 2]}, {"call": "cabUse", "args": ["wipers", 2]}, {"call": "cabUse", "args": ["hazard", 1]}], "look": [0.6, -0.8]},
+diff --git a/src/game/vehicle/controls.ts b/src/game/vehicle/controls.ts
+index d10c3a8..c545244 100644
+--- a/src/game/vehicle/controls.ts
++++ b/src/game/vehicle/controls.ts
+@@ -119,6 +119,7 @@ export class CabControls implements InteractSource {
+   private hopV = 0;
+   private rattleT = 0;
+   private bubbleEl: HTMLDivElement | null = null;
++  private bubbleInShots: boolean | null = null;
+   glovebox: Container | null = null;
+   private readonly b = new Float64Array(9);
+   private readonly p = { x: 0, y: 0, z: 0 };
+@@ -406,7 +407,10 @@ export class CabControls implements InteractSource {
+       document.body.appendChild(el);
+       this.bubbleEl = el;
+     }
+-    const show = this.bubble !== '' && !this.game.player?.onFoot;
++    // only from inside the cab; in screenshot mode only when the shot asks for it (URL `bubble=1`)
++    if (this.bubbleInShots === null) this.bubbleInShots = new URLSearchParams(location.search).get('bubble') === '1';
++    const shotMode = this.game.params?.shot === true;
++    const show = this.bubble !== '' && !this.game.player?.onFoot && this.game.viewMode === 'cockpit' && (!shotMode || this.bubbleInShots);
+     this.bubbleEl.style.display = show ? 'block' : 'none';
+     if (show) this.bubbleEl.textContent = `收音机：${this.bubble}`;
+   }
+-- 
+2.47.3
+

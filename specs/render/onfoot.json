@@ -1,0 +1,13 @@
+{
+  "id": "onfoot",
+  "system": "render",
+  "title": "渲染门禁 · 步行截图组",
+  "source": "docs/DESIGN_V2.md 第 6 章：下车步行、准星下的一个词、开箱、手上的油桶、抬轮胎、背包、湖边、夜里的车内灯。预算与世界组相同（STYLE.md 第 10 节）：一院子的东西最多多花约 6 次绘制（地上的东西合成一个网格、手上的一个、院子一个）。",
+  "metrics": {
+    "shots_failed": { "label": "渲染失败的截图数", "unit": "张", "max": 0 },
+    "console_errors": { "label": "浏览器控制台报错数", "unit": "条", "max": 0 },
+    "shots_total": { "label": "截图数", "unit": "张", "min": 8 },
+    "max_draw_calls": { "label": "单帧 draw call 峰值", "unit": "次", "max": 300 },
+    "max_triangles": { "label": "单帧三角形峰值", "unit": "个", "max": 1500000 }
+  }
+}

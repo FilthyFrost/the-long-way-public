@@ -1,0 +1,130 @@
+{
+  "system": "render",
+  "id": "systems",
+  "metrics": {
+    "shots_total": 9,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 60,
+    "max_triangles": 45074
+  },
+  "shots": {
+    "selfcheck_lamps": {
+      "ok": true,
+      "ms": 16588,
+      "errors": [],
+      "calls": 54,
+      "triangles": 43690,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "dash_running": {
+      "ok": true,
+      "ms": 28187,
+      "errors": [],
+      "calls": 54,
+      "triangles": 43690,
+      "programs": 21,
+      "kmh": 15.3,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "flat_tyre": {
+      "ok": true,
+      "ms": 30161,
+      "errors": [],
+      "calls": 60,
+      "triangles": 44986,
+      "programs": 23,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "limp_mode": {
+      "ok": true,
+      "ms": 29522,
+      "errors": [],
+      "calls": 54,
+      "triangles": 43690,
+      "programs": 21,
+      "kmh": 28.2,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "fuel_before_pour": {
+      "ok": true,
+      "ms": 15748,
+      "errors": [],
+      "calls": 54,
+      "triangles": 43690,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "fuel_after_pour": {
+      "ok": true,
+      "ms": 29086,
+      "errors": [],
+      "calls": 54,
+      "triangles": 43690,
+      "programs": 21,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "wheel_off": {
+      "ok": true,
+      "ms": 29104,
+      "errors": [],
+      "calls": 58,
+      "triangles": 45074,
+      "programs": 23,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "bonnet_places": {
+      "ok": true,
+      "ms": 29036,
+      "errors": [],
+      "calls": 60,
+      "triangles": 44362,
+      "programs": 23,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "wheel_place": {
+      "ok": true,
+      "ms": 29550,
+      "errors": [],
+      "calls": 47,
+      "triangles": 16288,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

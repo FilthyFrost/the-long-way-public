@@ -1,0 +1,20 @@
+{
+  "id": "sky",
+  "system": "image",
+  "stage": "M1d",
+  "key": "style",
+  "title": "阴影色调 · 风格化阶段生效",
+  "source": "方案第 13 节美术指标：暗部偏蓝紫且保留色度。需要真实投影后才有意义，所以从 M1d 起计入门禁。",
+  "metrics": {
+    "day_min_shadow_blue_minus_red": {
+      "label": "晴天暗部 蓝−红（> 0 即偏冷）",
+      "unit": "",
+      "min": 0.0
+    },
+    "day_min_shadow_chroma": {
+      "label": "晴天暗部色度（不是灰或黑）",
+      "unit": "",
+      "min": 0.04
+    }
+  }
+}

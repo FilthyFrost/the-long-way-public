@@ -1,0 +1,358 @@
+From 3afea087f9dc63e75316f190f974950673e16b64 Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 06:03:19 -0800
+Subject: [PATCH 3/6] Spatial index for loose things and containers: a 16 m
+ cell grid (items/grid.ts), lookups by key / id in maps; Containers.near();
+ the items view asks the grid
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/sim/carry.test.ts b/harness/sim/carry.test.ts
+index 0c81895..78839fb 100644
+--- a/harness/sim/carry.test.ts
++++ b/harness/sim/carry.test.ts
+@@ -240,3 +240,39 @@ describe('the test yard registers everything a site would', () => {
+     expect(y.solids.all.some((s) => s.floor)).toBe(true);
+   });
+ });
++
++describe('a road full of things: the spatial index', () => {
++  it('near() and the interactables agree with a plain scan over 6000 things, and stay fast', () => {
++    const reg = new LooseItems();
++    const boxes = new Containers();
++    let s = 99;
++    const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
++    for (let i = 0; i < 6000; i++) reg.add('mat.rope', 1, rnd() * 40000 - 20000, 0, rnd() * 400 - 200);
++    for (let i = 0; i < 800; i++) boxes.add({ id: `c${i}`, kind: 'crate', x: rnd() * 40000 - 20000, y: 0, z: rnd() * 400 - 200, heading: 0, seed: i, hx: 0.5, h: 0.6, hz: 0.4 });
++    // take a third away again
++    for (let i = 1; i <= 6000; i += 3) reg.take(`loose:${i}`);
++    for (const [x, z] of [
++      [0, 0],
++      [1234, 50],
++      [-15000, -120],
++    ]) {
++      const got: { key: string }[] = [];
++      reg.near(x, z, 300, got as never);
++      const want = reg.all().filter((l) => Math.hypot(l.x - x, l.z - z) <= 300);
++      expect(got.map((l) => l.key).sort()).toEqual(want.map((l) => l.key).sort());
++      const sol: unknown[] = [];
++      boxes.solidsNear(x, z, 300, sol as never);
++      expect(sol.length).toBe(boxes.all().filter((c) => Math.hypot(c.def.x - x, c.def.z - z) < 300 + Math.hypot(0.5, 0.4)).length);
++    }
++    const t0 = performance.now();
++    const out: Interactable[] = [];
++    for (let i = 0; i < 2000; i++) {
++      out.length = 0;
++      reg.interactablesNear(i * 10 - 10000, 0, 3.2, out);
++      boxes.interactablesNear(i * 10 - 10000, 0, 3.2, out);
++    }
++    expect((performance.now() - t0) / 2000).toBeLessThan(0.05);
++    expect(reg.get('loose:2')?.key).toBe('loose:2');
++    expect(reg.get('loose:1')).toBeUndefined();
++  });
++});
+diff --git a/src/core/items/containers.ts b/src/core/items/containers.ts
+index f528527..3e68f3d 100644
+--- a/src/core/items/containers.ts
++++ b/src/core/items/containers.ts
+@@ -14,6 +14,7 @@ import { rollLoot, type ContainerKind } from './loot';
+ import { pickRadius, sizeOf } from './shapes';
+ import type { Actor, Interactable, InteractSource, LongUse, Vec3 } from '../interact/interact';
+ import { Solid, solidWithin, type SolidSource } from '../world/solids';
++import { CellIndex } from './grid';
+ 
+ export const OPEN_HOLD = 1.5;
+ export const TAKE_ALL_HOLD = 0.8;
+@@ -182,6 +183,8 @@ export interface ContainerState {
+ 
+ export class Containers implements InteractSource, SolidSource {
+   private readonly list: Container[] = [];
++  private readonly byId = new Map<string, Container>();
++  private readonly grid = new CellIndex<Container>();
+   private readonly uses = new Map<string, ContainerUse>();
+   private readonly slotUses = new Map<string, SlotUse[]>();
+ 
+@@ -189,6 +192,8 @@ export class Containers implements InteractSource, SolidSource {
+     if (this.get(def.id)) throw new Error(`container ${def.id} is already there`);
+     const c = new Container(def);
+     this.list.push(c);
++    this.byId.set(def.id, c);
++    this.grid.add(c, def.x, def.z, Math.hypot(def.hx, def.hz));
+     this.uses.set(def.id, new ContainerUse(c));
+     this.slotUses.set(
+       def.id,
+@@ -198,15 +203,18 @@ export class Containers implements InteractSource, SolidSource {
+   }
+ 
+   remove(id: string): void {
+-    const i = this.list.findIndex((c) => c.id === id);
+-    if (i >= 0) this.list.splice(i, 1);
++    const c = this.byId.get(id);
++    if (c) {
++      this.list.splice(this.list.indexOf(c), 1);
++      this.byId.delete(id);
++      this.grid.remove(c, c.def.x, c.def.z);
++    }
+     this.uses.delete(id);
+     this.slotUses.delete(id);
+   }
+ 
+   get(id: string): Container | undefined {
+-    for (const c of this.list) if (c.id === id) return c;
+-    return undefined;
++    return this.byId.get(id);
+   }
+ 
+   all(): readonly Container[] {
+@@ -225,20 +233,29 @@ export class Containers implements InteractSource, SolidSource {
+   }
+ 
+   interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
+-    for (const c of this.list) {
++    this.grid.each(x, z, r, (c) => {
+       const dx = c.def.x - x;
+       const dz = c.def.z - z;
+       const rr = r + Math.max(c.def.hx, c.def.hz);
+-      if (dx * dx + dz * dz > rr * rr) continue;
++      if (dx * dx + dz * dz > rr * rr) return;
+       out.push(this.uses.get(c.id)!);
+-      if (!c.opened) continue;
++      if (!c.opened) return;
+       const su = this.slotUses.get(c.id)!;
+       for (let i = 0; i < su.length; i++) if (c.store.slots[i]) out.push(su[i]);
+-    }
++    });
++  }
++
++  /** append the containers whose centre lies within r of (x, z) */
++  near(x: number, z: number, r: number, out: Container[]): void {
++    this.grid.each(x, z, r, (c) => {
++      if ((c.def.x - x) ** 2 + (c.def.z - z) ** 2 <= r * r) out.push(c);
++    });
+   }
+ 
+   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
+-    for (const c of this.list) if (solidWithin(c.solid, x, z, r)) out.push(c.solid);
++    this.grid.each(x, z, r, (c) => {
++      if (solidWithin(c.solid, x, z, r)) out.push(c.solid);
++    });
+   }
+ 
+   toJSON(): ContainerState[] {
+diff --git a/src/core/items/grid.ts b/src/core/items/grid.ts
+new file mode 100644
+index 0000000..9b966da
+--- /dev/null
++++ b/src/core/items/grid.ts
+@@ -0,0 +1,59 @@
++/**
++ * A coarse grid on the plan for things that are added and taken but do not wander: loose things,
++ * containers. Asking for what is near a point visits the few cells round it, so a road that has
++ * handed over thousands of things still answers in microseconds.
++ */
++export const GRID_CELL = 16;
++
++export class CellIndex<T> {
++  private readonly cells = new Map<number, T[]>();
++  /** how far any one thing reaches beyond its point (a container's half size) */
++  private reach = 0;
++
++  constructor(readonly cell = GRID_CELL) {}
++
++  private key(i: number, j: number): number {
++    return (i + 1048576) * 2097152 + (j + 1048576);
++  }
++
++  add(t: T, x: number, z: number, reach = 0): void {
++    const k = this.key(Math.floor(x / this.cell), Math.floor(z / this.cell));
++    let l = this.cells.get(k);
++    if (!l) this.cells.set(k, (l = []));
++    l.push(t);
++    if (reach > this.reach) this.reach = reach;
++  }
++
++  remove(t: T, x: number, z: number): void {
++    const k = this.key(Math.floor(x / this.cell), Math.floor(z / this.cell));
++    const l = this.cells.get(k);
++    if (!l) return;
++    const i = l.indexOf(t);
++    if (i >= 0) l.splice(i, 1);
++    if (l.length === 0) this.cells.delete(k);
++  }
++
++  clear(): void {
++    this.cells.clear();
++    this.reach = 0;
++  }
++
++  /** call fn for everything in the cells that reach within r of (x, z) (the caller checks the distance) */
++  each(x: number, z: number, r: number, fn: (t: T) => void): void {
++    const rr = r + this.reach;
++    const i0 = Math.floor((x - rr) / this.cell);
++    const i1 = Math.floor((x + rr) / this.cell);
++    const j0 = Math.floor((z - rr) / this.cell);
++    const j1 = Math.floor((z + rr) / this.cell);
++    for (let i = i0; i <= i1; i++) {
++      for (let j = j0; j <= j1; j++) {
++        const l = this.cells.get(this.key(i, j));
++        if (l) for (const t of l) fn(t);
++      }
++    }
++  }
++
++  get cellCount(): number {
++    return this.cells.size;
++  }
++}
+diff --git a/src/core/items/loose.ts b/src/core/items/loose.ts
+index b4ddaf0..d1c2ca2 100644
+--- a/src/core/items/loose.ts
++++ b/src/core/items/loose.ts
+@@ -9,6 +9,7 @@
+ import { item } from './catalog';
+ import { canTake, take, takeWord, type Carrier } from './carry';
+ import { pickRadius, sizeOf } from './shapes';
++import { CellIndex } from './grid';
+ import type { Actor, Interactable, InteractSource, Vec3 } from '../interact/interact';
+ 
+ export interface Loose {
+@@ -59,6 +60,9 @@ export interface LooseState {
+ export class LooseItems implements InteractSource {
+   private readonly items: Loose[] = [];
+   private readonly uses = new Map<string, LooseUse>();
++  /** by key, and by place on the plan (positions are fixed once added: to move a thing, take it and add it) */
++  private readonly byKey = new Map<string, Loose>();
++  private readonly grid = new CellIndex<Loose>();
+   private next = 1;
+   /** goes up whenever something is added, taken or moved (the view redraws then) */
+   version = 0;
+@@ -70,24 +74,26 @@ export class LooseItems implements InteractSource {
+     if (this.get(k)) throw new Error(`loose thing ${k} is already there`);
+     const l: Loose = { key: k, id, n, x, y, z, heading, owner, fill };
+     this.items.push(l);
++    this.byKey.set(k, l);
++    this.grid.add(l, x, z);
+     this.version++;
+     return l;
+   }
+ 
+   get(key: string): Loose | undefined {
+-    for (const l of this.items) if (l.key === key) return l;
+-    return undefined;
++    return this.byKey.get(key);
+   }
+ 
+   /** take up to n away (all by default); returns what was taken, or null */
+   take(key: string, n = Infinity): { id: string; n: number; fill: number } | null {
+-    const i = this.items.findIndex((l) => l.key === key);
+-    if (i < 0) return null;
+-    const l = this.items[i];
++    const l = this.byKey.get(key);
++    if (!l) return null;
+     const k = Math.min(n, l.n);
+     l.n -= k;
+     if (l.n <= 0) {
+-      this.items.splice(i, 1);
++      this.items.splice(this.items.indexOf(l), 1);
++      this.byKey.delete(key);
++      this.grid.remove(l, l.x, l.z);
+       this.uses.delete(key);
+     }
+     this.version++;
+@@ -108,11 +114,11 @@ export class LooseItems implements InteractSource {
+   /** append the things within r of (x, z) */
+   near(x: number, z: number, r: number, out: Loose[]): void {
+     const r2 = r * r;
+-    for (const l of this.items) {
++    this.grid.each(x, z, r, (l) => {
+       const dx = l.x - x;
+       const dz = l.z - z;
+       if (dx * dx + dz * dz <= r2) out.push(l);
+-    }
++    });
+   }
+ 
+   all(): readonly Loose[] {
+@@ -125,14 +131,14 @@ export class LooseItems implements InteractSource {
+ 
+   interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
+     const r2 = r * r;
+-    for (const l of this.items) {
++    this.grid.each(x, z, r, (l) => {
+       const dx = l.x - x;
+       const dz = l.z - z;
+-      if (dx * dx + dz * dz > r2) continue;
++      if (dx * dx + dz * dz > r2) return;
+       let u = this.uses.get(l.key);
+       if (!u) this.uses.set(l.key, (u = new LooseUse(this, l)));
+       out.push(u);
+-    }
++    });
+   }
+ 
+   toJSON(): LooseState {
+@@ -142,7 +148,14 @@ export class LooseItems implements InteractSource {
+   load(s: LooseState): this {
+     this.items.length = 0;
+     this.uses.clear();
+-    for (const l of s.items) this.items.push({ ...l });
++    this.byKey.clear();
++    this.grid.clear();
++    for (const l0 of s.items) {
++      const l = { ...l0 };
++      this.items.push(l);
++      this.byKey.set(l.key, l);
++      this.grid.add(l, l.x, l.z);
++    }
+     this.next = s.next;
+     this.version++;
+     return this;
+diff --git a/src/game/player/itemsView.ts b/src/game/player/itemsView.ts
+index 8611fc7..cf1974b 100644
+--- a/src/game/player/itemsView.ts
++++ b/src/game/player/itemsView.ts
+@@ -9,8 +9,8 @@
+  */
+ import * as THREE from 'three';
+ import { item } from '../../core/items/catalog';
+-import type { Containers } from '../../core/items/containers';
+-import type { LooseItems } from '../../core/items/loose';
++import type { Container, Containers } from '../../core/items/containers';
++import type { Loose, LooseItems } from '../../core/items/loose';
+ import { SHAPE_SIZE, sizeOf } from '../../core/items/shapes';
+ import { surfaceMaterial } from '../render/materials';
+ import type { RenderCore } from '../render/core';
+@@ -32,6 +32,8 @@ export class ItemsView {
+   private readonly v = new THREE.Vector3();
+   private readonly one = new THREE.Vector3(1, 1, 1);
+   private readonly p = { x: 0, y: 0, z: 0 };
++  private readonly nearL: Loose[] = [];
++  private readonly nearC: Container[] = [];
+   /** how many things are drawn (for the tests and telemetry) */
+   drawn = 0;
+ 
+@@ -54,14 +56,16 @@ export class ItemsView {
+   }
+ 
+   private each(fn: (id: string, x: number, y: number, z: number, heading: number, copy: number) => void): void {
+-    const r2 = RANGE * RANGE;
+-    for (const l of this.loose.all()) {
+-      if ((l.x - this.cx) ** 2 + (l.z - this.cz) ** 2 > r2) continue;
++    this.nearL.length = 0;
++    this.loose.near(this.cx, this.cz, RANGE, this.nearL);
++    for (const l of this.nearL) {
+       const n = Math.min(3, l.n);
+       for (let k = 0; k < n; k++) fn(l.id, l.x, l.y, l.z, l.heading, k);
+     }
+-    for (const c of this.containers.all()) {
+-      if (!c.opened || (c.def.x - this.cx) ** 2 + (c.def.z - this.cz) ** 2 > r2) continue;
++    this.nearC.length = 0;
++    this.containers.near(this.cx, this.cz, RANGE, this.nearC);
++    for (const c of this.nearC) {
++      if (!c.opened) continue;
+       c.store.slots.forEach((s, i) => {
+         if (!s) return;
+         c.shelfPoint(i, this.p);
+-- 
+2.47.3
+

@@ -1,0 +1,12 @@
+{
+  "id": "vehicles_world",
+  "system": "render",
+  "title": "渲染门禁 · 车辆截图组（世界）",
+  "source": "specs/vehicles/rv_model.md 第 6–7 节：世界里的房车镜头沿用世界组的预算。",
+  "metrics": {
+    "shots_failed": { "label": "渲染失败的截图数", "unit": "张", "max": 0 },
+    "console_errors": { "label": "浏览器控制台报错数", "unit": "条", "max": 0 },
+    "max_draw_calls": { "label": "单帧 draw call 峰值", "unit": "次", "max": 300 },
+    "max_triangles": { "label": "单帧三角形峰值", "unit": "个", "max": 1500000 }
+  }
+}

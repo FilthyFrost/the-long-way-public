@@ -1,0 +1,9 @@
+新指令（用户 11:48 补充，优先级高于 .go5.txt 中相冲突的部分）：
+
+1. 房车外观建模参考图：https://chrisbennettt.artstation.com/projects/d03WrJ （请自己抓取并研究这组图）。车的建模、比例、外观细节按这个参考去做，仍要符合 specs/art/STYLE.md 的吉卜力式手绘风格。
+2. 内饰、车厢之间的通道连接、驾驶室等全部由你自己设计解决，要和参考图的外观一致、逻辑自洽。
+3. 驾驶手感保持之前的定案（Nomad Drive / OUTBOUND / Arctic Drive 的参考，见 docs/DESIGN_V2.md 第 5 章），不要改。
+4. 为了节省 Fable 的 token：房车整体的程序化 Three.js 建模（外观+内饰+通道+驾驶室）请外派给 Opus 5.5 的子代理去做（用 Agent/Task 工具时指定 model: opus），你写清楚规格、验收标准和截图对比要求，再审查它的结果。
+5. 你自己（Fable 5.2）专注更有挑战性的部分：各种地形地貌、道路，以及多种复杂天气的设计与实现，目标达到 3A 级画面与体验，同时保持吉卜力式美术风格。
+6. 暂停前有未提交的改动（src/game/render/materials.ts、shaderlib.ts、src/game/vehicle/truck.ts、新建的 kit.ts），先看一下，决定保留还是交给 Opus 子代理接着做。
+7. 仍然用 HTML5 + Three.js（不要用 Godot），全程自我迭代，不需要等待人工确认，定期 git commit 并 git push（远程 origin 已设好，分支 dev/m1）。

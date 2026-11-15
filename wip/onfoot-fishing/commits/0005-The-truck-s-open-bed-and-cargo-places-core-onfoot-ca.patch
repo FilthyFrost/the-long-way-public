@@ -1,0 +1,628 @@
+From 628ae0c85230ce30a9882aca0a9e47a3412ba3c7 Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 06:14:40 -0800
+Subject: [PATCH 5/6] The truck's open bed and cargo places
+ (core/onfoot/cargo.ts)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- the truck stands in the way as boxes: a deck one can stand on, low walls, tailgate, headboard,
+  cab; 爬上去 at the tailgate puts one on the bed (jump down over the tailgate)
+- CargoBay per vehicle: Inventory(n, BIG_ONLY) with a body-frame place per slot and the litres of
+  a vessel; 放上车 / 拿 / 抬; truck bed 4, van rear deck 2, motorhome rear carrier 2 (drawn as a
+  small steel rack), the off-roader none; things ride in one inked mesh on the vehicle's root
+- the places by the road are solids for walkers (world.sites added to player.solids)
+- hooks footGive / footCargo / footClimb; shots bed_cargo, on_bed; harness/sim/cargo.test.ts
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/shots/sets/onfoot.json b/harness/shots/sets/onfoot.json
+index 1f9c112..e6b6e4a 100644
+--- a/harness/shots/sets/onfoot.json
++++ b/harness/shots/sets/onfoot.json
+@@ -14,6 +14,8 @@
+     { "name": "on_platform", "params": "onfoot=yard:4.2,6.6,200&footpitch=-18" },
+     { "name": "lake_shore", "params": "seed=7&s=3190&onfoot=road:3203,68,90&footpitch=-6&time=17" },
+     { "name": "swimming", "params": "seed=7&s=3190&onfoot=road:3203,96,60&footpitch=-2&time=17" },
++    { "name": "bed_cargo", "params": "onfoot=door", "steps": [{ "call": "footGive", "args": ["tyre.road"] }, { "call": "footCargo" }, { "call": "footGive", "args": ["fuel.jerrycan", 6] }, { "call": "footCargo" }, { "call": "footTurn", "args": [150, -14] }, { "call": "footWalk", "args": [1.6, -1, 0] }] },
++    { "name": "on_bed", "params": "onfoot=door", "steps": [{ "call": "footClimb" }, { "call": "footTurn", "args": [-90, -12] }] },
+     { "name": "night_cab", "params": "onfoot=door&time=22&cabinlight=1", "steps": [{ "call": "footTurn", "args": [180, -10] }, { "call": "footWalk", "args": [1.0, -1, 0] }, { "call": "footTurn", "args": [-15, -8] }] }
+   ]
+ }
+diff --git a/harness/sim/cargo.test.ts b/harness/sim/cargo.test.ts
+new file mode 100644
+index 0000000..e9a144c
+--- /dev/null
++++ b/harness/sim/cargo.test.ts
+@@ -0,0 +1,91 @@
++/**
++ * The truck's open bed and every vehicle's cargo places (src/core/onfoot/cargo.ts): climbed onto
++ * and stood on while parked, walls that keep one in, things put on and taken off with their litres.
++ */
++import { describe, expect, it } from 'vitest';
++import { Hands, newPack, take } from '../../src/core/items/carry';
++import { CargoBay, cargoOf } from '../../src/core/onfoot/cargo';
++import { FunctionLand } from '../../src/core/onfoot/land';
++import { VehicleSolid } from '../../src/core/onfoot/vehicle';
++import { FOOT, FootWalker } from '../../src/core/onfoot/walker';
++import { VEHICLES } from '../../src/core/vehicle/spec';
++import { VehicleSim } from '../../src/core/vehicle/sim';
++import { FlatGround } from '../../src/core/world/ground';
++import type { Actor } from '../../src/core/interact/interact';
++
++const flat = new FunctionLand(() => 0);
++
++function parked(id: string): VehicleSim {
++  const v = new VehicleSim(VEHICLES[id]);
++  v.reset(0, 0, 0, 0);
++  const g = new FlatGround();
++  for (let i = 0; i < 360; i++) v.substep({ steer: 0, throttle: 0, brake: 1, handbrake: 1 }, g);
++  return v;
++}
++
++const actor = (): Actor => ({ id: 'p', hands: new Hands(), pack: newPack(), eye: { x: 0, y: 1.6, z: 0 }, heading: 0 });
++
++describe('the truck bed', () => {
++  const v = parked('t0_truck');
++  const vs = new VehicleSolid(v);
++  const bedTop = v.py - v.spec.cgHeight + 0.64;
++  it('is not walked onto from the ground, nor jumped onto', () => {
++    const w = new FootWalker(flat, vs);
++    w.place(-4, 0, 0);
++    for (let i = 0; i < 600; i++) w.step({ forward: 1, right: 0, run: true, crouch: false, jump: i % 60 === 0 });
++    expect(w.y).toBeLessThan(0.05);
++    expect(w.x).toBeLessThan(-1.6 - FOOT.radius + 0.01);
++  });
++  it('once climbed onto, is stood on, and its walls keep one on it', () => {
++    const w = new FootWalker(flat, vs);
++    expect(w.place(-0.9, 0, 0, 0.5)).toBe(true);
++    expect(w.y).toBeCloseTo(bedTop, 2);
++    for (const heading of [Math.PI / 2, -Math.PI / 2, Math.PI, 0]) {
++      w.heading = heading;
++      for (let i = 0; i < 300; i++) w.step({ forward: 1, right: 0, run: false, crouch: false, jump: false });
++      expect(w.y).toBeCloseTo(bedTop, 2);
++      expect(w.insideSolid()).toBe(false);
++    }
++    // and jumped down from over the tailgate
++    w.heading = Math.PI;
++    for (let i = 0; i < 360; i++) w.step({ forward: 1, right: 0, run: false, crouch: false, jump: i % 30 === 0 && w.x > -1.7 });
++    expect(w.y).toBeLessThan(0.05);
++  });
++});
++
++describe('cargo', () => {
++  it('the truck, the van and the motorhome carry; the off-roader has no such place', () => {
++    expect(cargoOf(VEHICLES.t0_truck)?.places.length).toBe(4);
++    expect(cargoOf(VEHICLES.t1_van)?.places.length).toBe(2);
++    expect(cargoOf(VEHICLES.t3_rv)?.places.length).toBe(2);
++    expect(cargoOf(VEHICLES.t2_offroad)).toBe(null);
++  });
++  it('takes medium and large things with their litres, gives them back, saves and loads', () => {
++    const v = parked('t0_truck');
++    const bay = new CargoBay(v, cargoOf(v.spec)!);
++    const a = actor();
++    take(a, 'fuel.jerrycan', 1, 7.5);
++    expect(bay.putFrom(a)).toBe(true);
++    expect(a.hands.empty).toBe(true);
++    take(a, 'tyre.road');
++    expect(bay.putFrom(a)).toBe(true);
++    // a small thing is no cargo
++    take(a, 'food.can.beans');
++    a.hands.set('food.can.beans');
++    expect(bay.putFrom(a)).toBe(false);
++    a.hands.set(null);
++    const saved = JSON.parse(JSON.stringify(bay.toJSON()));
++    const again = new CargoBay(v, cargoOf(v.spec)!).load(saved);
++    expect(again.store.list().map((s) => s.id)).toEqual(['fuel.jerrycan', 'tyre.road']);
++    expect(again.takeInto(0, a)).toBe(true);
++    expect(a.hands.toJSON()).toEqual({ id: 'fuel.jerrycan', fill: 7.5 });
++    expect(again.takeInto(1, a)).toBe(false); // the hands are full
++    // full bay: the fifth thing does not go on
++    a.hands.set(null);
++    for (let i = 0; i < 4; i++) {
++      a.hands.set('tyre.road');
++      bay.putFrom(a);
++    }
++    expect(a.hands.id).toBe('tyre.road');
++  });
++});
+diff --git a/src/core/onfoot/cargo.ts b/src/core/onfoot/cargo.ts
+new file mode 100644
+index 0000000..8342409
+--- /dev/null
++++ b/src/core/onfoot/cargo.ts
+@@ -0,0 +1,216 @@
++/**
++ * What a vehicle carries outside its seats, and how it stands in the way of walkers.
++ *
++ * Shape: most vehicles are one box (spec.body); the open truck is a bed one can stand on — a floor
++ * at its deck, low side walls, a tailgate, a headboard — and a cab.
++ *
++ * Cargo (docs/DESIGN_V2.md 6.4, 8.1 "货位"): medium and large things — a jerrycan, a tyre, a
++ * generator — put down on the truck's bed, on the van's rear deck, on the motorhome's rear carrier.
++ * A slot store per vehicle (`Inventory(n, BIG_ONLY)`) with a place for each slot; the things ride
++ * there (they stay put while driving, for now: 5.6's sliding loads are a later package).
++ *
++ * Everything is in the body frame: +x forward, +y up, +z right, origin at the centre of gravity.
++ */
++import type { VehicleSpec } from '../vehicle/spec';
++import { item } from '../items/catalog';
++import { BIG_ONLY, Inventory, type Stack } from '../items/inventory';
++import { canTake, take, takeWord } from '../items/carry';
++import { pickRadius, sizeOf } from '../items/shapes';
++import type { Actor, Interactable, InteractSource, Vec3 } from '../interact/interact';
++import { bodyToWorld, type VehiclePose } from './vehicle';
++
++/** one upright box of a vehicle's body (body frame, y relative to the centre of gravity) */
++export interface BodyBox {
++  x0: number;
++  x1: number;
++  z0: number;
++  z1: number;
++  y0: number;
++  y1: number;
++  floor: boolean;
++}
++
++export interface CargoSpec {
++  /** where each slot's thing stands: body frame, y = the surface it stands on */
++  places: { x: number; y: number; z: number }[];
++  /** the point one looks at to put something on */
++  access: { x: number; y: number; z: number };
++  /** the bed can be climbed onto: where one ends up standing (body frame x, z) and where one looks to climb */
++  climb?: { x: number; z: number; aim: { x: number; y: number; z: number } };
++  /** a steel carrier is drawn under the places (the motorhome's rear rack) */
++  carrier?: { x0: number; x1: number; z: number; y: number };
++}
++
++/** the open truck as boxes: bed floor, walls, tailgate, headboard, cab (from game/vehicle/truck.ts) */
++function truckBoxes(spec: VehicleSpec): BodyBox[] {
++  const H = (h: number): number => h - spec.cgHeight;
++  return [
++    { x0: -1.6, x1: 0.15, z0: -0.7, z1: 0.7, y0: H(0.3), y1: H(0.64), floor: true }, // the bed's deck
++    { x0: -1.6, x1: 0.15, z0: -0.72, z1: -0.64, y0: H(0.64), y1: H(0.95), floor: false }, // walls
++    { x0: -1.6, x1: 0.15, z0: 0.64, z1: 0.72, y0: H(0.64), y1: H(0.95), floor: false },
++    { x0: -1.62, x1: -1.54, z0: -0.7, z1: 0.7, y0: H(0.4), y1: H(0.94), floor: false }, // tailgate
++    { x0: 0.12, x1: 0.2, z0: -0.7, z1: 0.7, y0: H(0.64), y1: H(1.06), floor: false }, // headboard
++    { x0: 0.19, x1: 1.7, z0: -0.7, z1: 0.7, y0: spec.body.bottom, y1: spec.body.top, floor: false }, // the cab
++  ];
++}
++
++/** the boxes a vehicle stands in the way with */
++export function bodyBoxes(spec: VehicleSpec): BodyBox[] {
++  if (spec.id === 't0_truck') return truckBoxes(spec);
++  const b = spec.body;
++  return [{ x0: b.centerX - b.halfLength, x1: b.centerX + b.halfLength, z0: -b.halfWidth, z1: b.halfWidth, y0: b.bottom, y1: b.top, floor: false }];
++}
++
++/** where each vehicle carries big things (none: it has no such place) */
++export function cargoOf(spec: VehicleSpec): CargoSpec | null {
++  const H = (h: number): number => h - spec.cgHeight;
++  switch (spec.id) {
++    case 't0_truck':
++      return {
++        places: [
++          { x: -1.25, y: H(0.64), z: -0.33 },
++          { x: -1.25, y: H(0.64), z: 0.33 },
++          { x: -0.55, y: H(0.64), z: -0.33 },
++          { x: -0.55, y: H(0.64), z: 0.33 },
++        ],
++        access: { x: -1.0, y: H(0.75), z: 0 },
++        climb: { x: -0.9, z: 0, aim: { x: -1.58, y: H(0.9), z: 0 } },
++      };
++    case 't1_van':
++      // the rear deck over the engine, reached through the tailgate
++      return {
++        places: [
++          { x: -1.78, y: H(0.95), z: -0.32 },
++          { x: -1.78, y: H(0.95), z: 0.32 },
++        ],
++        access: { x: -2.0, y: H(1.1), z: 0 },
++      };
++    case 't3_rv':
++      // a steel carrier on the back, behind the rear wall
++      return {
++        places: [
++          { x: -3.55, y: H(0.62), z: -0.42 },
++          { x: -3.55, y: H(0.62), z: 0.42 },
++        ],
++        access: { x: -3.55, y: H(0.8), z: 0 },
++        carrier: { x0: -3.78, x1: -3.32, z: 0.82, y: H(0.62) },
++      };
++    default:
++      return null;
++  }
++}
++
++export interface CargoState {
++  store: (Stack | null)[];
++  fills: number[];
++}
++
++/** what one vehicle carries, and its uses: put on (放上车), take (拿 / 抬) */
++export class CargoBay implements InteractSource {
++  readonly store: Inventory;
++  /** litres in a vessel standing in each slot */
++  readonly fills: number[];
++  /** goes up whenever something is put on or taken (the view redraws then) */
++  version = 0;
++  private readonly b = new Float64Array(9);
++  private readonly put: Interactable;
++  private readonly slots: Interactable[];
++
++  constructor(
++    readonly vehicle: VehiclePose,
++    readonly spec: CargoSpec,
++  ) {
++    this.store = new Inventory(spec.places.length, BIG_ONLY);
++    this.fills = spec.places.map(() => 0);
++    const bay = this;
++    const tag = vehicle.spec.id;
++    this.put = {
++      id: `${tag}:cargo`,
++      hold: 0,
++      radius: 0.45,
++      through: tag,
++      aim(out: Vec3): void {
++        bodyToWorld(bay.vehicle, bay.b, bay.spec.access.x, bay.spec.access.y, bay.spec.access.z, out);
++      },
++      prompt(a: Actor): string | null {
++        return a.hands.id && bay.store.room(a.hands.id) > 0 ? '放上车' : null;
++      },
++      act(a: Actor): boolean {
++        return bay.putFrom(a);
++      },
++    };
++    this.slots = spec.places.map((p, i) => ({
++      id: `${tag}:cargo#${i}`,
++      hold: 0,
++      through: tag,
++      get radius(): number {
++        const s = bay.store.slots[i];
++        return s ? pickRadius(s.id) : 0.1;
++      },
++      aim(out: Vec3): void {
++        const s = bay.store.slots[i];
++        bodyToWorld(bay.vehicle, bay.b, p.x, p.y + (s ? sizeOf(s.id).h * 0.5 : 0), p.z, out);
++      },
++      prompt(a: Actor): string | null {
++        const s = bay.store.slots[i];
++        return s && canTake(a, s.id) > 0 ? takeWord(s.id) : null;
++      },
++      act(a: Actor): boolean {
++        return bay.takeInto(i, a);
++      },
++    }));
++  }
++
++  /** the thing in the hands onto the first free place */
++  putFrom(a: Actor): boolean {
++    const id = a.hands.id;
++    if (!id || this.store.room(id) <= 0) return false;
++    const i = this.store.slots.findIndex((s) => s === null);
++    if (i < 0) return false;
++    this.store.slots[i] = { id, n: 1 };
++    this.fills[i] = a.hands.fill;
++    a.hands.set(null);
++    this.version++;
++    return true;
++  }
++
++  /** slot i's thing into the hands */
++  takeInto(i: number, a: Actor): boolean {
++    const s = this.store.slots[i];
++    if (!s || canTake(a, s.id) <= 0) return false;
++    take(a, s.id, 1, this.fills[i]);
++    this.store.takeSlot(i, 1);
++    this.fills[i] = 0;
++    this.version++;
++    return true;
++  }
++
++  /** a body-frame place of slot i (for the view) */
++  place(i: number): { x: number; y: number; z: number } {
++    return this.spec.places[i];
++  }
++
++  interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
++    const v = this.vehicle;
++    const reach = r + v.spec.body.halfLength + 1.5;
++    if ((v.px - x) ** 2 + (v.pz - z) ** 2 > reach * reach) return;
++    out.push(this.put);
++    for (let i = 0; i < this.slots.length; i++) if (this.store.slots[i]) out.push(this.slots[i]);
++  }
++
++  toJSON(): CargoState {
++    return { store: this.store.toJSON(), fills: [...this.fills] };
++  }
++
++  load(s: CargoState): this {
++    this.store.load(s.store);
++    s.fills.forEach((f, i) => (this.fills[i] = f));
++    this.version++;
++    return this;
++  }
++}
++
++/** is a thing of this id carried as cargo at all (medium or large) */
++export function isCargo(id: string): boolean {
++  return item(id).size !== 'small';
++}
+diff --git a/src/core/onfoot/vehicle.ts b/src/core/onfoot/vehicle.ts
+index 384e284..5f5d7ad 100644
+--- a/src/core/onfoot/vehicle.ts
++++ b/src/core/onfoot/vehicle.ts
+@@ -7,6 +7,7 @@
+ import type { VehicleSpec } from '../vehicle/spec';
+ import { Solid, solidWithin, type SolidSource } from '../world/solids';
+ import { FOOT, type FootWalker } from './walker';
++import { bodyBoxes, type BodyBox } from './cargo';
+ 
+ /** what is needed of a vehicle's pose: position of the centre of gravity and the body axes */
+ export interface VehiclePose {
+@@ -61,9 +62,29 @@ export class VehicleSolid implements SolidSource {
+     return this.solid.set(c.x, c.z, bd.halfLength, bd.halfWidth, h, v.py + bd.bottom, v.py + bd.top, false, v.spec.id);
+   }
+ 
++  /** the body's boxes as solids (the truck: a bed to stand on, walls, a cab), kept up to date with the pose */
++  private parts: Solid[] | null = null;
++  private boxes: BodyBox[] = [];
++
+   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
+     const s = this.update();
+-    if (solidWithin(s, x, z, r)) out.push(s);
++    if (!solidWithin(s, x, z, r + 0.5)) return;
++    const v = this.vehicle;
++    if (!this.parts) {
++      this.boxes = bodyBoxes(v.spec);
++      this.parts = this.boxes.map(() => new Solid());
++    }
++    if (this.boxes.length === 1) {
++      out.push(s);
++      return;
++    }
++    const h = vehicleHeading(v, this.b);
++    for (let i = 0; i < this.boxes.length; i++) {
++      const bx = this.boxes[i];
++      const c = bodyToWorld(v, this.b, (bx.x0 + bx.x1) / 2, 0, (bx.z0 + bx.z1) / 2, this.p);
++      const so = this.parts[i].set(c.x, c.z, (bx.x1 - bx.x0) / 2, (bx.z1 - bx.z0) / 2, h, v.py + bx.y0, v.py + bx.y1, bx.floor, v.spec.id);
++      if (solidWithin(so, x, z, r)) out.push(so);
++    }
+   }
+ }
+ 
+diff --git a/src/game/player/cargoUses.ts b/src/game/player/cargoUses.ts
+new file mode 100644
+index 0000000..9d0720b
+--- /dev/null
++++ b/src/game/player/cargoUses.ts
+@@ -0,0 +1,126 @@
++/**
++ * The vehicle's cargo in the game: its bay (put on / take off), climbing onto the truck's bed, and
++ * the things riding on it — drawn as one inked mesh hung on the vehicle's own root, so they move
++ * with it (nothing at all while the bay is empty and the vehicle has no carrier to show).
++ */
++import * as THREE from 'three';
++import { CargoBay, cargoOf, type CargoState } from '../../core/onfoot/cargo';
++import { bodyToWorld } from '../../core/onfoot/vehicle';
++import type { Actor, Interactable, InteractSource, Vec3 } from '../../core/interact/interact';
++import { item } from '../../core/items/catalog';
++import { surfaceMaterial } from '../render/materials';
++import { ModelBuilder } from '../vehicle/builder';
++import { bakeTinted, vertexCount } from './shapes3d';
++import { bigScale } from './itemsView';
++import { sizeOf } from '../../core/items/shapes';
++import type { Player } from './player';
++
++const STEEL = 0x5d6468;
++
++export class CargoUses implements InteractSource {
++  readonly bay: CargoBay | null;
++  private readonly climb: Interactable | null = null;
++  private readonly mesh: THREE.Mesh | null = null;
++  private readonly carrier: THREE.BufferGeometry | null = null;
++  private drawn = -1;
++  private readonly b = new Float64Array(9);
++  private readonly m = new THREE.Matrix4();
++
++  constructor(readonly player: Player) {
++    const g = player.game;
++    const spec = cargoOf(g.sim.spec);
++    this.bay = spec ? new CargoBay(g.sim, spec) : null;
++    if (!spec || !this.bay) return;
++    if (spec.climb) {
++      const c = spec.climb;
++      const self = this;
++      this.climb = {
++        id: `${g.sim.spec.id}:climb`,
++        hold: 0,
++        radius: 0.35,
++        through: g.sim.spec.id,
++        aim(out: Vec3): void {
++          bodyToWorld(g.sim, self.b, c.aim.x, c.aim.y, c.aim.z, out);
++        },
++        prompt(a: Actor): string | null {
++          // not with a big thing in the arms, not while it rolls, not when already up there
++          if (a.hands.size === 'large' || Math.abs(g.sim.kmh) > 1) return null;
++          return player.walker.y > g.sim.py - g.sim.spec.cgHeight + 0.4 ? null : '爬上去';
++        },
++        act(): boolean {
++          const p = bodyToWorld(g.sim, self.b, c.x, 0, c.z, { x: 0, y: 0, z: 0 });
++          return player.walker.place(p.x, p.z, player.walker.heading, 0.5);
++        },
++      };
++    }
++    if (spec.carrier) {
++      const k = spec.carrier;
++      const mb = new ModelBuilder();
++      // a welded rack: two arms from the frame, a slatted floor, a low rail round it
++      for (const z of [-k.z * 0.7, k.z * 0.7]) mb.span(k.x1, k.x1 + 0.3, k.y - 0.06, k.y - 0.01, z - 0.03, z + 0.03, STEEL);
++      for (let i = 0; i < 5; i++) mb.span(k.x0, k.x1, k.y - 0.04, k.y, -k.z + (i * 2 * k.z) / 4 - 0.02, -k.z + (i * 2 * k.z) / 4 + 0.02, STEEL);
++      mb.span(k.x0, k.x0 + 0.03, k.y, k.y + 0.14, -k.z, k.z, STEEL);
++      mb.span(k.x0, k.x1, k.y, k.y + 0.14, -k.z - 0.03, -k.z, STEEL);
++      mb.span(k.x0, k.x1, k.y, k.y + 0.14, k.z, k.z + 0.03, STEEL);
++      this.carrier = mb.build();
++    }
++    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), surfaceMaterial({ vertexColors: true, ink: true }));
++    this.mesh.name = 'player.cargo';
++    this.mesh.visible = false;
++    g.view.parts.root.add(this.mesh);
++  }
++
++  interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
++    if (!this.bay || !this.player.onFoot) return;
++    this.bay.interactablesNear(x, z, r, out);
++    if (this.climb) out.push(this.climb);
++  }
++
++  /** redraw what rides on the vehicle when it has changed */
++  update(): void {
++    const bay = this.bay;
++    if (!bay || !this.mesh || bay.version === this.drawn) return;
++    this.drawn = bay.version;
++    const list: { id: string; i: number }[] = [];
++    bay.store.slots.forEach((s, i) => s && list.push({ id: s.id, i }));
++    const cp = this.carrier?.getAttribute('position').count ?? 0;
++    let verts = cp;
++    for (const t of list) verts += vertexCount(item(t.id).shape);
++    if (verts === 0) {
++      this.mesh.visible = false;
++      return;
++    }
++    const pos = new Float32Array(verts * 3);
++    const nor = new Float32Array(verts * 3);
++    const col = new Float32Array(verts * 3);
++    let at = 0;
++    if (this.carrier) {
++      pos.set(this.carrier.getAttribute('position').array as Float32Array, 0);
++      nor.set(this.carrier.getAttribute('normal').array as Float32Array, 0);
++      col.set(this.carrier.getAttribute('color').array as Float32Array, 0);
++      at = cp;
++    }
++    for (const t of list) {
++      const p = bay.place(t.i);
++      const d = item(t.id);
++      // lies along the vehicle; a tyre flat, a jerrycan upright
++      this.m.makeRotationY(t.i * 0.35).setPosition(p.x, p.y, p.z);
++      void sizeOf;
++      at += bakeTinted(d.shape, d.tint, this.m, pos, nor, col, at, bigScale(t.id));
++    }
++    const geo = this.mesh.geometry;
++    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
++    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
++    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
++    geo.computeBoundingSphere();
++    this.mesh.visible = true;
++  }
++
++  toJSON(): CargoState | null {
++    return this.bay ? this.bay.toJSON() : null;
++  }
++
++  load(s: CargoState | null): void {
++    if (this.bay && s) this.bay.load(s);
++  }
++}
+diff --git a/src/game/player/hooks.ts b/src/game/player/hooks.ts
+index a9db550..1f4a247 100644
+--- a/src/game/player/hooks.ts
++++ b/src/game/player/hooks.ts
+@@ -112,6 +112,29 @@ export function playerHooks(game: Game) {
+       settle();
+       return true;
+     },
++    /** debug: put a thing straight into the hands (screenshots) */
++    footGive: (id: string, fill = 0) => {
++      p.hands.set(id, fill);
++      settle();
++    },
++    /** put what is in the hands onto the vehicle's cargo places */
++    footCargo: () => {
++      const ok = p.cargo.bay ? p.cargo.bay.putFrom(p) : false;
++      settle();
++      return ok;
++    },
++    /** climb onto the truck's bed (as the 爬上去 use does) */
++    footClimb: () => {
++      const spec = p.cargo.bay?.spec.climb;
++      if (!spec) return false;
++      const b = new Float64Array(9);
++      game.sim.basis(b);
++      const x = game.sim.px + b[0] * spec.x + b[6] * spec.z;
++      const z = game.sim.pz + b[2] * spec.x + b[8] * spec.z;
++      const ok = p.walker.place(x, z, p.walker.heading, 0.5);
++      settle();
++      return ok;
++    },
+     footSave: () => JSON.stringify(p.save()),
+     footLoad: (json: string) => {
+       p.load(JSON.parse(json));
+diff --git a/src/game/player/player.ts b/src/game/player/player.ts
+index 282ee5e..1643417 100644
+--- a/src/game/player/player.ts
++++ b/src/game/player/player.ts
+@@ -29,6 +29,8 @@ import { yardToWorld } from '../../core/onfoot/testbed';
+ import { SpineSample } from '../../core/world/spine';
+ import { Overlay } from './overlay';
+ import { VehicleUses } from './vehicleUses';
++import { CargoUses } from './cargoUses';
++import type { CargoState } from '../../core/onfoot/cargo';
+ 
+ /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
+ const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+@@ -51,6 +53,7 @@ export interface PlayerSave {
+   loose: LooseState;
+   containers: ContainerState[];
+   fuel: { id: string; litres: number }[];
++  cargo?: CargoState | null;
+ }
+ 
+ export class Player implements Actor {
+@@ -66,6 +69,8 @@ export class Player implements Actor {
+   /** what is looked at now (on foot) */
+   looked: Interactable | null = null;
+   readonly vehicleUses: VehicleUses;
++  /** the vehicle's bed / rear deck / carrier and what rides on it */
++  readonly cargo: CargoUses;
+   /** the world's things: lying about, in containers, petrol in tanks (the roadside sites fill these) */
+   readonly loose = new LooseItems();
+   readonly containers = new Containers();
+@@ -107,6 +112,10 @@ export class Player implements Actor {
+     this.walker = new FootWalker(this.land, this.solids);
+     this.vehicleUses = new VehicleUses(this);
+     this.interact.add(this.vehicleUses);
++    this.cargo = new CargoUses(this);
++    this.interact.add(this.cargo);
++    // the places by the road stand in the way (the jetty's deck is walked on)
++    if (game.world) this.solids.add(game.world.sites);
+     this.interact.add(this.loose);
+     this.interact.add(this.containers);
+     this.interact.add(this.fuel);
+@@ -354,6 +363,7 @@ export class Player implements Actor {
+     const fo = this.focus(this.fo, vx, vz);
+     // the world's things near where one is (nothing near: hidden, nothing drawn)
+     this.itemsView.update(fo.x, this.onFoot ? this.walker.y : this.game.sim.py, fo.z);
++    this.cargo.update();
+     this.heldView.update(this.onFoot && this.game.viewMode === 'cockpit' ? this.hands.id : null, cam, this.walker.sway, 0);
+     return fo;
+   }
+@@ -456,6 +466,7 @@ export class Player implements Actor {
+       loose: this.loose.toJSON(),
+       containers: this.containers.toJSON(),
+       fuel: this.fuel.toJSON(),
++      cargo: this.cargo.toJSON(),
+     };
+   }
+ 
+@@ -464,6 +475,7 @@ export class Player implements Actor {
+     this.loose.load(s.loose);
+     this.containers.load(s.containers);
+     this.fuel.load(s.fuel);
++    this.cargo.load(s.cargo ?? null);
+     if (s.mode === 'onfoot' && s.foot) {
+       this.standAt(s.foot.x, s.foot.z, s.foot.heading);
+       this.walker.restore(s.foot);
+-- 
+2.47.3
+

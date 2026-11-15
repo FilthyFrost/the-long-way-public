@@ -1,0 +1,660 @@
+{
+  "id": "t0_truck",
+  "system": "driving",
+  "title": "T0 敞篷小货车 · 干燥柏油",
+  "source": "方案第 10 节。目标初值取自真实小型货车的大致数据，待对标视频与人类盲测校准。",
+  "metrics": {
+    "accel_0_60_s": {
+      "label": "0–60 km/h 加速",
+      "unit": "s",
+      "min": 9,
+      "max": 11
+    },
+    "top_speed_kmh": {
+      "label": "极速",
+      "unit": "km/h",
+      "min": 85,
+      "max": 95
+    },
+    "brake_60_0_m": {
+      "label": "60–0 km/h 制动距离",
+      "unit": "m",
+      "min": 17,
+      "max": 22
+    },
+    "max_lat_g": {
+      "label": "最大侧向加速度",
+      "unit": "g",
+      "min": 0.65,
+      "max": 0.75
+    },
+    "yaw_rise_time_s": {
+      "label": "横摆响应时间（60 km/h 阶跃，10%→90%）",
+      "unit": "s",
+      "min": 0.25,
+      "max": 0.4
+    },
+    "understeer_deg_per_g": {
+      "label": "不足转向梯度",
+      "unit": "度/g",
+      "min": 1,
+      "max": 3
+    },
+    "roll_deg_per_g": {
+      "label": "侧倾梯度",
+      "unit": "度/g",
+      "min": 4.5,
+      "max": 6.5
+    },
+    "ride_hz": {
+      "label": "悬挂固有频率",
+      "unit": "Hz",
+      "min": 1.3,
+      "max": 1.7
+    },
+    "ride_zeta": {
+      "label": "悬挂阻尼比",
+      "unit": "",
+      "min": 0.25,
+      "max": 0.45
+    },
+    "cam_shake_hf_deg_s": {
+      "label": "相机高频抖动（8 Hz 以上角速度均方根）",
+      "unit": "度/秒",
+      "max": 3.0,
+      "note": "阈值为初始估计，待人类校准"
+    },
+    "cam_vs_body_shake_ratio": {
+      "label": "相机抖动 / 车身抖动",
+      "unit": "",
+      "max": 0.75,
+      "note": "相机必须比车身稳"
+    },
+    "parked_flat_drift_cm": {
+      "label": "平地驻车 60 秒漂移",
+      "unit": "cm",
+      "max": 1
+    },
+    "parked_hill8_drift_cm": {
+      "label": "8% 坡道驻车 60 秒漂移",
+      "unit": "cm",
+      "max": 1
+    },
+    "parked_bank8_drift_cm": {
+      "label": "8% 横坡驻车 60 秒漂移",
+      "unit": "cm",
+      "max": 1
+    },
+    "parked_hill15_handbrake_drift_cm": {
+      "label": "15% 坡道手刹驻车漂移",
+      "unit": "cm",
+      "max": 1
+    },
+    "parked_flat_jitter_mrad_s": {
+      "label": "驻车抖动（角速度均方根）",
+      "unit": "mrad/s",
+      "max": 2
+    },
+    "fuzz_exploded": {
+      "label": "随机输入 3 分钟后数值是否发散",
+      "unit": "",
+      "max": 0
+    },
+    "brake_yaw_dev_deg": {
+      "label": "直线制动跑偏",
+      "unit": "度",
+      "max": 2
+    },
+    "lateral_drift_m": {
+      "label": "直线加速 70 秒横向偏移",
+      "unit": "m",
+      "max": 0.3
+    },
+    "yaw_overshoot_pct": {
+      "label": "阶跃转向横摆超调",
+      "unit": "%",
+      "max": 25
+    },
+    "skidpad_spun": {
+      "label": "定圆极限是否甩尾失控",
+      "unit": "",
+      "max": 0
+    },
+    "lane_change_settle_s": {
+      "label": "50 km/h 变道稳定时间",
+      "unit": "s",
+      "max": 4.5
+    },
+    "ride_height_error_cm": {
+      "label": "静态车高误差",
+      "unit": "cm",
+      "max": 1
+    },
+    "fuel_l_100km_cruise60": {
+      "label": "60 km/h 定速油耗（游戏尺度）",
+      "unit": "L/100km",
+      "min": 18,
+      "max": 23
+    },
+    "fuel_range_km_cruise60": {
+      "label": "满箱续航（60 km/h）",
+      "unit": "km",
+      "min": 60,
+      "max": 90
+    },
+    "climb_gravel_max_pct": {
+      "label": "砂石路最大起步爬坡",
+      "unit": "%",
+      "min": 20,
+      "max": 32
+    },
+    "climb_snow_max_pct": {
+      "label": "雪地最大起步爬坡",
+      "unit": "%",
+      "min": 8,
+      "max": 14,
+      "note": "略高于雪山公路的最大坡度 8%"
+    },
+    "auto_accidents_per_100km": {
+      "label": "自动驾驶事故（翻车/冲出路面/卡住）",
+      "unit": "次/100km",
+      "max": 0
+    },
+    "auto_km": {
+      "label": "自动驾驶测试里程",
+      "unit": "km",
+      "min": 30
+    },
+    "auto_lane_rms_m": {
+      "label": "自动驾驶循线误差（均方根）",
+      "unit": "m",
+      "max": 0.4
+    },
+    "creep_kmh": {
+      "label": "D 挡怠速蠕行（辅助关、什么都不踩）",
+      "unit": "km/h",
+      "min": 2,
+      "max": 7,
+      "note": "自动挡的爬行：松开刹车车会自己慢慢走"
+    },
+    "coast_decel_60_g": {
+      "label": "60 km/h 松油门的减速（发动机制动+风阻+滚阻）",
+      "unit": "g",
+      "min": 0.025,
+      "max": 0.08
+    },
+    "engine_brake_low_gear_gain": {
+      "label": "手动降一挡后松油门减速 / D 挡松油门减速",
+      "unit": "",
+      "min": 1.1,
+      "note": "低挡发动机制动更强"
+    },
+    "tip_in_s": {
+      "label": "50 km/h 一脚油门到 90% 推力",
+      "unit": "s",
+      "min": 0.05,
+      "max": 0.6,
+      "note": "不迟钝"
+    },
+    "upshifts_0_80": {
+      "label": "全油门 0–80 km/h 升挡次数",
+      "unit": "次",
+      "min": 2,
+      "max": 4,
+      "note": "听得见、看得见的换挡"
+    },
+    "shift_dip_g": {
+      "label": "升挡时推背感的下沉",
+      "unit": "g",
+      "min": 0.08,
+      "max": 0.35,
+      "note": "感觉得到，但不是离合器踢一下"
+    },
+    "reverse_top_kmh": {
+      "label": "倒挡极速",
+      "unit": "km/h",
+      "min": 15,
+      "max": 40
+    },
+    "park_p_hold15_drift_cm": {
+      "label": "辅助关、只挂 P、15% 坡 30 秒漂移",
+      "unit": "cm",
+      "max": 1
+    },
+    "neutral_rollaway_8pct_kmh": {
+      "label": "辅助关、N 挡不拉手刹、8% 坡 5 秒后的速度",
+      "unit": "km/h",
+      "min": 5,
+      "note": "拟真模式下不拉手刹就会溜车"
+    },
+    "parkbrake_max_hold_pct": {
+      "label": "拉起的手刹能停住的最大坡度",
+      "unit": "%",
+      "min": 25,
+      "note": "主路最大坡 8%"
+    },
+    "p_refused_at_30kmh": {
+      "label": "30 km/h 时挂 P 被拒（齿轮打齿声）",
+      "unit": "",
+      "min": 1,
+      "max": 1
+    },
+    "parkbrake_auto_release": {
+      "label": "轻松模式：拉着手刹踩油门会自动松开",
+      "unit": "",
+      "min": 1,
+      "max": 1
+    },
+    "handbrake_turn_yaw_deg": {
+      "label": "砂石 40 km/h 打方向+拉手刹 1.2 秒的转角",
+      "unit": "度",
+      "min": 30,
+      "note": "手刹能用来甩尾"
+    },
+    "handbrake_yaw_gain": {
+      "label": "拉手刹 / 不拉手刹的转角比",
+      "unit": "",
+      "min": 1.3
+    },
+    "steer_rise_s": {
+      "label": "60 km/h 按住方向键到 90% 目标转角",
+      "unit": "s",
+      "min": 0.12,
+      "max": 0.4,
+      "note": "有分量但不拖"
+    },
+    "steer_centre_s": {
+      "label": "松开方向键回到 10% 以内",
+      "unit": "s",
+      "min": 0.12,
+      "max": 0.45,
+      "note": "自动回正"
+    },
+    "steer_lock_slow_deg": {
+      "label": "低速满舵前轮角",
+      "unit": "度",
+      "min": 33,
+      "max": 40
+    },
+    "steer_lock_ratio_90": {
+      "label": "90 km/h 满舵角 / 低速满舵角",
+      "unit": "",
+      "min": 0.12,
+      "max": 0.35,
+      "note": "随速转向"
+    },
+    "kerb_thumps": {
+      "label": "15 km/h 上 8 cm 路沿：颠簸事件数",
+      "unit": "次",
+      "min": 2,
+      "max": 6,
+      "note": "前后轴都感觉得到"
+    },
+    "kerb_body_peak_g": {
+      "label": "上路沿车身垂直冲击峰值",
+      "unit": "g",
+      "min": 0.2,
+      "max": 1.2
+    },
+    "kerb_cam_vs_body_peak": {
+      "label": "上路沿相机角速度峰值 / 车身",
+      "unit": "",
+      "max": 0.75,
+      "note": "第 5.3 节：相机比车身稳"
+    },
+    "joint_thumps": {
+      "label": "60 km/h 过 2 cm 桥缝：颠簸事件数",
+      "unit": "次",
+      "min": 2,
+      "max": 6,
+      "note": "过桥能“咯噔”两下"
+    },
+    "joint_cam_peak_deg_s": {
+      "label": "过桥缝相机角速度峰值",
+      "unit": "度/秒",
+      "max": 6,
+      "note": "感觉得到，不晃眼"
+    },
+    "washboard_susp_rms_m_s": {
+      "label": "50 km/h 搓板砂石路悬挂速度均方根",
+      "unit": "m/s",
+      "min": 0.3,
+      "max": 1.2,
+      "note": "悬挂确实在忙"
+    },
+    "washboard_thumps": {
+      "label": "搓板路的“颠簸事件”数（应是嗡嗡声，不是一下一下）",
+      "unit": "次",
+      "max": 3
+    },
+    "washboard_cam_hf_deg_s": {
+      "label": "搓板路相机 8 Hz 以上抖动",
+      "unit": "度/秒",
+      "max": 3,
+      "note": "第 5.3 节阈值"
+    },
+    "washboard_cam_vs_body_hf": {
+      "label": "搓板路相机抖动 / 车身抖动",
+      "unit": "",
+      "max": 0.75
+    },
+    "landing_detected": {
+      "label": "40 km/h 冲下 0.5 m 落差：识别出落地",
+      "unit": "次",
+      "min": 1,
+      "max": 1
+    },
+    "landing_cam_vs_body_peak": {
+      "label": "落地相机角速度峰值 / 车身",
+      "unit": "",
+      "max": 0.8
+    },
+    "ride_feel_exploded": {
+      "label": "路感场景数值发散",
+      "unit": "",
+      "max": 0
+    },
+    "sys_stock_climb_gravel_pct": {
+      "label": "原装轮胎砂石起步爬坡",
+      "unit": "%",
+      "min": 18,
+      "note": "原装胎：T2 全地形胎，其余公路胎"
+    },
+    "sys_stock_climb_snow_pct": {
+      "label": "原装轮胎雪地起步爬坡",
+      "unit": "%",
+      "min": 8,
+      "note": "雪山主路最大坡 8%：原装车永远上得去"
+    },
+    "sys_snowtyre_climb_snow_pct": {
+      "label": "雪地胎雪地起步爬坡",
+      "unit": "%",
+      "min": 14,
+      "note": "换胎摸得出来"
+    },
+    "sys_chains_climb_snow_pct": {
+      "label": "防滑链雪地起步爬坡",
+      "unit": "%",
+      "min": 14
+    },
+    "sys_overheat_yellow_s": {
+      "label": "沙漠 40°C、散热器 60 成新、+35% 载重、8% 坡全油门：到黄区",
+      "unit": "s",
+      "min": 150,
+      "note": "900 = 15 分钟内不到"
+    },
+    "sys_overheat_warning_s": {
+      "label": "同上：黄区到红区的预警时间",
+      "unit": "s",
+      "min": 120,
+      "note": "OUTBOUND 的教训：只预警，不频繁打断；T2 从不到黄区"
+    },
+    "sys_overheat_limp_min_kmh": {
+      "label": "同上：爬坡中的最低车速（红区限功率后仍在走）",
+      "unit": "km/h",
+      "min": 20,
+      "note": "不熄火"
+    },
+    "sys_climb_mild_max_c": {
+      "label": "20°C、散热器完好、+35% 载重、8% 坡 15 分钟最高水温",
+      "unit": "°C",
+      "max": 104,
+      "note": "正常天气永远不进黄区"
+    },
+    "sys_climb_desert_cooling2_max_c": {
+      "label": "沙漠 40°C 换加大水箱后同一坡最高水温",
+      "unit": "°C",
+      "max": 107,
+      "note": "升级即钥匙"
+    },
+    "sys_cruise60_temp_c": {
+      "label": "20°C 60 km/h 巡航 10 分钟水温",
+      "unit": "°C",
+      "min": 78,
+      "max": 95,
+      "note": "指针在中间"
+    },
+    "sys_wear_km": {
+      "label": "磨损测试里程",
+      "unit": "km",
+      "min": 10
+    },
+    "sys_wear_engine_per_100km": {
+      "label": "发动机每 100 km 掉的车况",
+      "unit": "点",
+      "min": 4,
+      "max": 12,
+      "note": "第 5.6 节：约 400 km 掉 30"
+    },
+    "sys_wear_suspension_per_100km": {
+      "label": "悬挂每 100 km 掉的车况（铺装路）",
+      "unit": "点",
+      "min": 1,
+      "max": 8
+    },
+    "sys_wear_brakes_per_100km": {
+      "label": "刹车每 100 km 掉的车况（自动驾驶；随里程 + 随刹车做功）",
+      "unit": "点",
+      "min": 0.5,
+      "max": 5
+    },
+    "sys_wear_tread_per_100km": {
+      "label": "胎纹每 100 km 磨掉",
+      "unit": "点",
+      "min": 1.5,
+      "max": 6
+    },
+    "sys_battery_lights_on_hours": {
+      "label": "熄火开大灯到打不着火",
+      "unit": "h",
+      "min": 0.5,
+      "max": 2,
+      "note": "忘了关灯是个小事故，不是灾难"
+    },
+    "sys_battery_night_net_per_min": {
+      "label": "夜里雨中全开时发动机运转的电量净增",
+      "unit": "单位/分钟",
+      "min": 0,
+      "note": "开着车永远不会把电用光"
+    },
+    "sys_start_warm_s": {
+      "label": "20°C 拧钥匙到着车（含 0.6 秒自检）",
+      "unit": "s",
+      "min": 0.8,
+      "max": 2.5
+    },
+    "sys_start_cold_s": {
+      "label": "−15°C 拧钥匙到着车",
+      "unit": "s",
+      "min": 2,
+      "max": 5,
+      "note": "冷车多打几下"
+    },
+    "sys_punctures_per_100km_asphalt": {
+      "label": "柏油路每 100 km 扎胎期望（整车）",
+      "unit": "次",
+      "min": 0.2,
+      "max": 1.2,
+      "note": "两三个小时一次的合作小事件"
+    },
+    "sys_punctures_per_100km_gravel": {
+      "label": "砂石路每 100 km 扎胎期望（整车）",
+      "unit": "次",
+      "min": 0.8,
+      "max": 4
+    },
+    "sys_flat_heading_drift_deg": {
+      "label": "60 km/h 左前胎瘪、松手 3 秒的航向偏移",
+      "unit": "度",
+      "min": 3,
+      "max": 25,
+      "note": "方向盘感觉得到"
+    },
+    "sys_limp_top_kmh": {
+      "label": "发动机车况 0（蹒跚模式）平路极速",
+      "unit": "km/h",
+      "min": 25,
+      "max": 65,
+      "note": "只能慢慢开，但永远不会困死"
+    },
+    "sys_flat_robot_lane_err_m": {
+      "label": "扎胎后自动驾驶 40 km/h 循线最大误差",
+      "unit": "m",
+      "max": 0.4,
+      "note": "扎胎还能开到路边"
+    },
+    "wall_travel_30_m": {
+      "label": "30 km/h 正撞墙：车头越过墙面的距离（负 = 停在墙前）",
+      "unit": "m",
+      "min": -0.25,
+      "max": 0.1,
+      "note": "不穿墙，也不在墙前留出看得见的空隙"
+    },
+    "wall_travel_60_m": {
+      "label": "60 km/h 正撞墙：车头越过墙面的距离",
+      "unit": "m",
+      "min": -0.25,
+      "max": 0.1
+    },
+    "wall_rebound_60_kmh": {
+      "label": "60 km/h 正撞墙后弹回的速度",
+      "unit": "km/h",
+      "min": 3,
+      "max": 15,
+      "note": "一点点回弹：重物撞上不动的东西"
+    },
+    "wall_penetration_max_m": {
+      "label": "撞墙时车身进入墙里最深",
+      "unit": "m",
+      "max": 0.2
+    },
+    "wall_body_damage_30": {
+      "label": "30 km/h 正撞：车身车况损失",
+      "unit": "点",
+      "min": 8,
+      "max": 30
+    },
+    "wall_body_damage_60": {
+      "label": "60 km/h 正撞：车身车况损失",
+      "unit": "点",
+      "min": 25,
+      "max": 55,
+      "note": "撞得很重，但一次撞不报废"
+    },
+    "wall_engine_damage_60": {
+      "label": "60 km/h 正撞：发动机车况损失",
+      "unit": "点",
+      "min": 5,
+      "max": 20
+    },
+    "wall_tunnel_120": {
+      "label": "120 km/h 撞 12 cm 薄墙是否穿过去",
+      "unit": "",
+      "max": 0,
+      "note": "不穿透"
+    },
+    "wall_exploded": {
+      "label": "撞墙场景数值发散",
+      "unit": "",
+      "max": 0
+    },
+    "glance_turn_deg": {
+      "label": "60 km/h 以 20° 擦墙：车头被墙带过来的角度",
+      "unit": "度",
+      "min": 10,
+      "max": 30,
+      "note": "被墙“掰”顺"
+    },
+    "glance_speed_kept": {
+      "label": "擦墙后保留的速度",
+      "unit": "",
+      "min": 0.6,
+      "max": 0.95,
+      "note": "擦墙不是撞停"
+    },
+    "glance_penetration_m": {
+      "label": "擦墙时车身进入墙里最深",
+      "unit": "m",
+      "max": 0.1
+    },
+    "glance_body_damage": {
+      "label": "擦墙的车身车况损失",
+      "unit": "点",
+      "min": 0.5,
+      "max": 10
+    },
+    "post_turn_deg": {
+      "label": "40 km/h 偏 0.5 m 撞柱：车被撞转的角度",
+      "unit": "度",
+      "min": 5,
+      "max": 60,
+      "note": "撞在哪里决定怎么转"
+    },
+    "post_exploded": {
+      "label": "撞柱场景数值发散",
+      "unit": "",
+      "max": 0
+    },
+    "light_knocks": {
+      "label": "50 km/h 撞路上的木箱（轻物）：被撞开的次数",
+      "unit": "次",
+      "min": 1,
+      "max": 1
+    },
+    "light_speed_kept": {
+      "label": "撞开木箱后保留的速度",
+      "unit": "",
+      "min": 0.85,
+      "max": 1,
+      "note": "轻东西不挡车"
+    },
+    "light_hits": {
+      "label": "撞木箱算作“撞墙”的次数（应为 0）",
+      "unit": "次",
+      "max": 0
+    },
+    "solids_cost_ratio_500": {
+      "label": "世界里有 500 个实体时每步耗时 / 没有实体（下四分位）",
+      "unit": "",
+      "max": 10,
+      "note": "计时指标：机器共享，取下四分位；比值只防数量级的退化（实测 1.2–4.4），绝对值见下一项"
+    },
+    "solids_step_us_500": {
+      "label": "500 个实体时每个物理步耗时（下四分位）",
+      "unit": "µs",
+      "max": 40,
+      "note": "120 Hz 下预算 8000 µs"
+    },
+    "sys_susp2_roll_ratio": {
+      "label": "加强悬挂（II）侧倾梯度 / 原装",
+      "unit": "",
+      "min": 0.75,
+      "max": 0.92,
+      "note": "5.5：侧倾 −15%"
+    },
+    "sys_susp3_clearance_gain_cm": {
+      "label": "升高悬挂（III）离地间隙增加",
+      "unit": "cm",
+      "min": 4,
+      "max": 6,
+      "note": "5.5：离地 +5 cm"
+    },
+    "sys_susp_swap_jolt_m_s": {
+      "label": "停着换上升高悬挂后车身的最大速度（不跳）",
+      "unit": "m/s",
+      "max": 0.4
+    },
+    "sys_push_two_people_kmh": {
+      "label": "两个人在 N 挡推 6 秒后的车速",
+      "unit": "km/h",
+      "min": 2,
+      "max": 9,
+      "note": "房车要更多人推"
+    },
+    "sys_push_in_p_cm": {
+      "label": "挂 P 时两个人推 6 秒的位移",
+      "unit": "cm",
+      "max": 1
+    }
+  }
+}

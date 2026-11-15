@@ -1,0 +1,122 @@
+{
+  "id": "default",
+  "system": "weather",
+  "title": "天气与昼夜 · 模拟核心",
+  "source": "方案第 12 节：三幕式时长、确定性、玩法挂钩、昼夜节奏。",
+  "metrics": {
+    "weather_schedule_violations": {
+      "label": "事件重叠或越界",
+      "unit": "次",
+      "max": 0
+    },
+    "weather_act_order_violations": {
+      "label": "三幕顺序错误（应为 酝酿→高潮→余韵）",
+      "unit": "次",
+      "max": 0
+    },
+    "weather_buildup_min_s": {
+      "label": "酝酿最短时长（方案 1–2 分钟）",
+      "unit": "s",
+      "min": 60
+    },
+    "weather_buildup_max_s": {
+      "label": "酝酿最长时长",
+      "unit": "s",
+      "max": 120
+    },
+    "weather_peak_min_s": {
+      "label": "高潮最短时长（方案 5–10 分钟）",
+      "unit": "s",
+      "min": 300
+    },
+    "weather_peak_max_s": {
+      "label": "高潮最长时长",
+      "unit": "s",
+      "max": 600
+    },
+    "weather_aftermath_min_s": {
+      "label": "余韵最短时长（方案 2–3 分钟）",
+      "unit": "s",
+      "min": 120
+    },
+    "weather_aftermath_max_s": {
+      "label": "余韵最长时长",
+      "unit": "s",
+      "max": 180
+    },
+    "weather_events_per_day": {
+      "label": "每个游戏日的天气事件数",
+      "unit": "次",
+      "min": 0.6,
+      "max": 2
+    },
+    "weather_determinism_mismatches": {
+      "label": "同种子同时刻天气参数差异",
+      "unit": "次",
+      "max": 0
+    },
+    "weather_max_change_per_s": {
+      "label": "天气参数每秒最大变化（平滑过渡）",
+      "unit": "",
+      "max": 0.06
+    },
+    "weather_wetness_peak": {
+      "label": "雷暴高潮时路面湿润度",
+      "unit": "",
+      "min": 0.9
+    },
+    "weather_dry_time_s": {
+      "label": "雨停后路面变干用时",
+      "unit": "s",
+      "min": 60,
+      "max": 420
+    },
+    "weather_snow_cover_peak": {
+      "label": "暴风雪后路面积雪",
+      "unit": "",
+      "min": 0.9
+    },
+    "weather_grip_wet_ratio": {
+      "label": "湿柏油抓地 / 干柏油",
+      "unit": "",
+      "min": 0.6,
+      "max": 0.85
+    },
+    "weather_grip_snow_ratio": {
+      "label": "积雪路面抓地 / 干柏油",
+      "unit": "",
+      "min": 0.3,
+      "max": 0.5
+    },
+    "weather_brake_snow_vs_dry": {
+      "label": "雪地制动距离 / 干地",
+      "unit": "倍",
+      "min": 1.8
+    },
+    "day_golden_evening_s": {
+      "label": "黄昏好光线持续的真实时间",
+      "unit": "s",
+      "min": 300
+    },
+    "day_night_s": {
+      "label": "深夜持续的真实时间",
+      "unit": "s",
+      "max": 720
+    },
+    "day_max_hour_step": {
+      "label": "时钟每秒最大跳变",
+      "unit": "小时",
+      "max": 0.03
+    },
+    "day_set_hour_error": {
+      "label": "设定钟点的往返误差",
+      "unit": "小时",
+      "max": 0.001
+    },
+    "weather_front_lead_min_s": {
+      "label": "云墙升到三分之一天高，到第一阵雨雪沙落下的最短提前量（天气在到来之前就看得见）",
+      "unit": "s",
+      "min": 20
+    }
+  }
+}

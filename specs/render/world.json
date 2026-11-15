@@ -1,0 +1,53 @@
+{
+  "id": "world",
+  "system": "render",
+  "title": "渲染门禁 · 世界截图组",
+  "source": "方案第 9 节性能预算、第 11 节指标（确定性、生成耗时）。区块目前在主线程生成，方案要求放进 Worker，见 backlog。",
+  "metrics": {
+    "shots_failed": {
+      "label": "渲染失败的截图数",
+      "unit": "张",
+      "max": 0
+    },
+    "console_errors": {
+      "label": "浏览器控制台报错数",
+      "unit": "条",
+      "max": 0
+    },
+    "max_draw_calls": {
+      "label": "单帧 draw call 峰值",
+      "unit": "次",
+      "max": 300
+    },
+    "max_triangles": {
+      "label": "单帧三角形峰值",
+      "unit": "个",
+      "max": 1500000
+    },
+    "spine_hash_mismatches": {
+      "label": "浏览器与 Node 道路哈希不一致",
+      "unit": "次",
+      "max": 0
+    },
+    "stream_max_build_ms": {
+      "label": "行驶中单块生成最长耗时",
+      "unit": "ms",
+      "max": 10
+    },
+    "stream_max_pending": {
+      "label": "行驶中待生成队列峰值",
+      "unit": "块",
+      "max": 60
+    },
+    "audio_running": {
+      "label": "浏览器里声音引擎是否运行",
+      "unit": "",
+      "min": 1
+    },
+    "audio_min_rms": {
+      "label": "行驶中输出电平（均方根，> 0 即有声音）",
+      "unit": "",
+      "min": 0.005
+    }
+  }
+}

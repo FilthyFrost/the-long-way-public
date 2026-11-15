@@ -1,0 +1,33 @@
+{
+  "id": "look",
+  "system": "weather",
+  "title": "天气与时段的过渡平滑度",
+  "source": "方案第 12 节：天气和时段切换时相邻帧亮度变化平滑、无跳变；夜晚可读。阈值为初始估计：每秒变化不超过约 6% 的满量程。",
+  "metrics": {
+    "look_max_light_change_per_s": {
+      "label": "主光+环境光每秒最大变化（满量程约 1.5）",
+      "unit": "/s",
+      "max": 0.09
+    },
+    "look_max_sky_change_per_s": {
+      "label": "天空地平线亮度每秒最大变化",
+      "unit": "/s",
+      "max": 0.06
+    },
+    "look_max_log_fog_change_per_s": {
+      "label": "雾浓度对数每秒最大变化",
+      "unit": "/s",
+      "max": 0.12
+    },
+    "look_min_night_ambient": {
+      "label": "深夜环境光下限（不是全黑）",
+      "unit": "",
+      "min": 0.03
+    },
+    "look_storm_light_ratio": {
+      "label": "雷暴最暗时主光 / 晴天主光（确实变暗）",
+      "unit": "",
+      "max": 0.4
+    }
+  }
+}

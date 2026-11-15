@@ -1,0 +1,13 @@
+【用户最新强调的分工（t765，优先级最高，高于 .go6.txt）】
+1. Opus 5.5（以子代理方式外派）负责整套“车”的系统，仿照 Drive Beyond Horizons、Arctic Drive、Pacific Drive 来设计并实现：
+   - 驾驶手感与操控（油门/刹车/手刹/挡位/转向/悬挂反馈）
+   - 内饰与可交互部件：手刹、开关车门、车窗、灯、仪表盘、收音机等
+   - 车辆维修与改装：换零件、换轮胎、损坏/磨损、油量、电量等一整套系统
+   - 房车外观仍参考 https://chrisbennettt.artstation.com/projects/d03WrJ，内饰、通道、驾驶室自行设计
+2. Fable 5.2（你本人）负责世界内容：
+   - 地形地貌、道路、多种复杂天气（3A 级别）
+   - 沿途可搜刮的各种小建筑、随机箱子、物资、废弃车辆
+   - 狩猎区、湖泊钓鱼区、加油站等兴趣点
+   - 并负责保持全局美术一致性（specs/art/STYLE.md 的吉卜力式手绘风格），审核 Opus 产出的车辆模型/内饰是否符合美术风格
+3. 仍然只用 HTML5 + Three.js，不用 Godot；全程自我迭代，不等人工确认；定期 git commit 并 push 到 origin dev/m1。
+4. 【参考图已到位】refs/rv-reference/ 里已放好 Chris Bennett 那组 5 张原图（成品图、3D 模型、线稿×3），请据此把房车外观从暂定版改成正式版（交给 Opus 子代理）。refs/artstation-1NKWJK/cover.webp 是 1NKWJK（Junwoo Park《Overgrown Facility - UE5》）的封面大图，画廊其余图抓不到，先用这张做风格对标。图片只作本地参考，不入库、不上传。

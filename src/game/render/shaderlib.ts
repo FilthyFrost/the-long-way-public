@@ -1,0 +1,315 @@
+/**
+ * Shared GLSL and the global uniforms every material reads (render style v2, specs/art/STYLE.md).
+ *
+ * Colour pipeline: materials write LINEAR radiance into a half-float target; the frame pass
+ * (frame.ts) adds bloom, the paint finish, the painter's curve and the sRGB encode.
+ * Alpha is a message to the paint finish: 1 = paint me, < 0.6 = already painted (sky, far land).
+ *
+ * Three ways of colouring things (STYLE.md §2.3):
+ *   ground  — choose one of a biome's three paints by a tone (slope to the sun, brush marks),
+ *             then light it with coloured sky in the shade and sun in the open (rtGroundLight);
+ *   clumps  — trees and bushes: four greens chosen by how a ball of leaves faces the light;
+ *   cel     — vehicles, props, buildings: a lit tone and a sky-lit shade tone with a clean edge.
+ */
+import * as THREE from 'three';
+import { BIOME_COUNT, paletteUniforms } from './style';
+import { sharedTextures } from './textures';
+
+const tex = sharedTextures();
+
+export const globals = {
+  uSunDir: { value: new THREE.Vector3(0.4, 0.75, 0.3).normalize() },
+  /** key light (sun or moon), linear, ~2.7 at noon */
+  uSunColor: { value: new THREE.Color(2.7, 2.55, 2.2) },
+  /** light from the sky, ~0.3–0.8 by day */
+  uSkyColor: { value: new THREE.Color(0.3, 0.47, 0.82) },
+  /** light thrown up from the ground */
+  uBounceColor: { value: new THREE.Color(0.1, 0.16, 0.05) },
+  uFogColor: { value: new THREE.Color(0.4, 0.67, 0.85) },
+  /** haze towards the sun */
+  uFogSunColor: { value: new THREE.Color(0.66, 0.78, 0.9) },
+  uFogDensity: { value: 0.00017 },
+  /** render-space height the haze lies on (the ground under the camera) */
+  uFogBase: { value: 0 },
+  uTime: { value: 0 },
+  /** world position of the render origin wrapped to the noise period: keeps ground patterns still when the origin moves */
+  uOriginOffset: { value: new THREE.Vector3() },
+  /** x: wetness 0..1, y: snow cover 0..1, z: precipitation 0..1, w: night 0..1 */
+  uWeather: { value: new THREE.Vector4(0, 0, 0, 0) },
+  /** headlights: lamp position and direction (render space), colour × intensity (black = off) */
+  uHeadPos: { value: new THREE.Vector3() },
+  uHeadDir: { value: new THREE.Vector3(1, 0, 0) },
+  uHeadColor: { value: new THREE.Color(0, 0, 0) },
+  /** wind for vegetation: xy = direction in the xz plane, z = strength 0…1, w = gust scroll (m) */
+  uWind: { value: new THREE.Vector4(1, 0, 0.15, 0) },
+  /** cloud shadows drifting over the land: xy = drift (m), z = cloud cover, w = strength */
+  uCloudShadow: { value: new THREE.Vector4(0, 0, 0.3, 0) },
+  /** cast shadows: fine map around the vehicle, wide map around the camera */
+  uShadowMap0: { value: null as THREE.Texture | null },
+  uShadowMap1: { value: null as THREE.Texture | null },
+  uShadowMat0: { value: new THREE.Matrix4() },
+  uShadowMat1: { value: new THREE.Matrix4() },
+  /** x: on/off, y: near texel (m), z: far texel (m), w: 1 / map size */
+  uShadowParams: { value: new THREE.Vector4(0, 0.01, 0.1, 1 / 2048) },
+  /** the paints of the country the traveller is in (for things that have no ground of their own: water) */
+  uHereGround: { value: new THREE.Color(0.05, 0.25, 0.07) },
+  uHereForest: { value: new THREE.Color(0.035, 0.2, 0.12) },
+  /** inside a closed vehicle: what is left of the sky's light (a warm tint), and the cabin lamp (black = off) */
+  uCabinAmb: { value: new THREE.Color(0.8, 0.74, 0.66) },
+  uCabinLamp: { value: new THREE.Color(0, 0, 0) },
+  tNoise: { value: tex.noise },
+  tStrokes: { value: tex.strokes },
+  ...paletteUniforms,
+};
+
+export type GlobalUniforms = typeof globals;
+
+/** period (m) of all world-space procedural patterns */
+export const NOISE_PERIOD = 4096;
+
+const B = BIOME_COUNT;
+
+export const GLSL_COMMON = /* glsl */ `
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform vec3 uSkyColor;
+uniform vec3 uBounceColor;
+uniform vec3 uFogColor;
+uniform vec3 uFogSunColor;
+uniform float uFogDensity;
+uniform float uFogBase;
+uniform float uTime;
+uniform vec3 uOriginOffset;
+uniform vec4 uWeather;
+uniform vec3 uHeadPos;
+uniform vec3 uHeadDir;
+uniform vec3 uHeadColor;
+uniform vec4 uWind;
+uniform vec4 uCloudShadow;
+uniform sampler2D uShadowMap0;
+uniform sampler2D uShadowMap1;
+uniform mat4 uShadowMat0;
+uniform mat4 uShadowMat1;
+uniform vec4 uShadowParams;
+uniform vec3 uCabinAmb;
+uniform vec3 uCabinLamp;
+uniform sampler2D tNoise;
+uniform sampler2D tStrokes;
+uniform vec3 uGroundPal[${B * 3}];
+uniform vec3 uDryPal[${B}];
+uniform vec3 uWarmPal[${B}];
+uniform vec3 uCoolPal[${B}];
+uniform vec3 uFarLiftPal[${B}];
+uniform vec3 uForestPal[${B * 4}];
+uniform vec3 uRockLitPal[${B}];
+uniform vec3 uRockShadePal[${B}];
+uniform vec3 uFlowerPal[${B * 3}];
+uniform vec4 uBiomeMisc[${B}];
+uniform vec4 uBiomeMisc2[${B}];
+uniform vec3 uHereGround;
+uniform vec3 uHereForest;
+
+float rtHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+vec4 rtHash4(vec2 p) {
+  vec4 p4 = fract(vec4(p.xyxy) * vec4(0.1031, 0.1030, 0.0973, 0.1099));
+  p4 += dot(p4, p4.wzxy + 33.33);
+  return fract((p4.xxyz + p4.yzzw) * p4.zywx);
+}
+// value noise that repeats every 'per' lattice cells
+float rtNoise(vec2 p, float per) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  vec2 i0 = mod(i, per);
+  vec2 i1 = mod(i + 1.0, per);
+  float a = rtHash(i0);
+  float b = rtHash(vec2(i1.x, i0.y));
+  float c = rtHash(vec2(i0.x, i1.y));
+  float d = rtHash(i1);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+// world-space pattern coordinates (metres), stable when the render origin moves
+vec2 rtWorldXZ(vec3 renderPos) {
+  return renderPos.xz + uOriginOffset.xz;
+}
+float rtWorldY(vec3 renderPos) {
+  return renderPos.y + uOriginOffset.y;
+}
+// texture coordinates that repeat about every 'metres', snapped so ${NOISE_PERIOD} m holds a whole number of repeats
+vec2 rtUV(vec2 w, float metres) {
+  return w * (floor(${NOISE_PERIOD.toFixed(1)} / metres + 0.5) / ${NOISE_PERIOD.toFixed(1)});
+}
+vec4 rtNoiseAt(vec2 w, float metres) {
+  return texture2D(tNoise, rtUV(w, metres));
+}
+float rtStrokeAt(vec2 w, float metres) {
+  return texture2D(tStrokes, rtUV(w, metres)).r;
+}
+// smooth fbm-like noise at wavelength 'metres', 0..1
+float rtFbm(vec2 w, float metres) {
+  return rtNoiseAt(w, metres).r;
+}
+
+// ---------------------------------------------------------------------------------------- shadows
+float rtShadowTap(sampler2D map, vec3 uvz, float bias) {
+  float s = 0.0;
+  for (int i = -1; i <= 1; i++) {
+    for (int j = -1; j <= 1; j++) {
+      float d = texture2D(map, uvz.xy + vec2(float(i), float(j)) * uShadowParams.w).r;
+      s += step(uvz.z - bias, d);
+    }
+  }
+  return s / 9.0;
+}
+// Broad cloud shadows sliding over the land: field-sized, crossing at the wind's pace.
+float rtCloudShade(vec3 pos) {
+  if (uCloudShadow.w < 0.01) return 1.0;
+  vec2 w = rtWorldXZ(pos) - uSunDir.xz / max(uSunDir.y, 0.2) * 400.0 + uCloudShadow.xy;
+  float c = rtNoiseAt(w, 2048.0).b * 0.7 + rtNoiseAt(w + 300.0, 512.0).a * 0.3;
+  float edge = mix(0.66, 0.4, uCloudShadow.z);
+  return 1.0 - uCloudShadow.w * smoothstep(edge, edge + 0.08, c);
+}
+// 1 = lit by the key light, 0 = in cast shadow
+float rtShadowMap(vec3 pos, vec3 n) {
+  if (uShadowParams.x < 0.5) return 1.0;
+  if (dot(n, uSunDir) <= 0.0) return 1.0;
+  vec4 c0 = uShadowMat0 * vec4(pos + n * uShadowParams.y * 2.0, 1.0);
+  if (all(greaterThan(c0.xyz, vec3(0.03))) && all(lessThan(c0.xyz, vec3(0.97)))) return rtShadowTap(uShadowMap0, c0.xyz, 0.0012);
+  vec4 c1 = uShadowMat1 * vec4(pos + n * uShadowParams.z * 1.6, 1.0);
+  if (all(greaterThan(c1.xyz, vec3(0.0))) && all(lessThan(c1.xyz, vec3(1.0)))) {
+    float s = rtShadowTap(uShadowMap1, c1.xyz, 0.0009);
+    vec2 e = abs(c1.xy - 0.5) * 2.0;
+    return mix(s, 1.0, smoothstep(0.8, 1.0, max(e.x, e.y)));
+  }
+  return 1.0;
+}
+float rtShadow(vec3 pos, vec3 n) {
+  return rtShadowMap(pos, n) * rtCloudShade(pos);
+}
+
+// ---------------------------------------------------------------------------------------- light
+// How a slope stands to the sun as a painter has it: 0.5 for level ground, more where it turns to
+// the light. Slopes are made 3.2 times what they are, or gentle ground shows nothing.
+float rtSlopeRel(vec3 N) {
+  vec3 n = normalize(vec3(N.x * 3.2, N.y, N.z * 3.2));
+  vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.3), uSunDir.z));
+  return clamp(0.5 + (dot(n, L) - L.y) * 1.5, 0.0, 1.0);
+}
+// how much of the sun reaches ground that stands so: a hollow is lit by the sky
+float rtSlopeSun(float rel) {
+  return mix(0.3, 1.0, smoothstep(0.04, 0.5, rel));
+}
+// The light on painted ground: coloured sky where it is shaded, the sun where it is open.
+vec3 rtGroundLight(float open) {
+  vec3 sun = mix(uSunColor, vec3(dot(uSunColor, vec3(0.333))), 0.3) * 0.42 + uSkyColor * 0.35;
+  float lum = dot(uSkyColor, vec3(0.333));
+  vec3 sky = mix(vec3(0.4, 0.74, 0.95), uSkyColor / max(lum, 0.01) * 0.62, 0.35) * (lum * 1.9 + 0.06);
+  return mix(sky * 0.85, sun, smoothstep(0.25, 0.95, open));
+}
+// Cel light for things: a lit tone and a sky-lit shade tone meeting along a clean edge.
+vec3 rtCel(vec3 albedo, vec3 N, float shadow) {
+  float ndl = dot(N, uSunDir);
+  float lit = smoothstep(-0.02, 0.08, ndl) * shadow;
+  float full = smoothstep(0.42, 0.52, ndl) * shadow;
+  vec3 sky = mix(uBounceColor * 2.0, uSkyColor, N.y * 0.5 + 0.5) * 0.9;
+  return albedo * (sky + uSunColor * (0.3 * lit + 0.1 * full));
+}
+// The same cel light inside a closed vehicle: the room keeps most of the sky out and warms the rest,
+// sun patches stay crisp where a window lets them in, and at night the lamp under the roof lights
+// what faces it (tables and floors more than ceilings).
+vec3 rtCabin(vec3 albedo, vec3 N, float shadow) {
+  float ndl = dot(N, uSunDir);
+  float lit = smoothstep(-0.02, 0.08, ndl) * shadow;
+  float full = smoothstep(0.42, 0.52, ndl) * shadow;
+  float lum = dot(uSkyColor, vec3(0.333));
+  // the daylight that finds its way in has lost most of its blue
+  vec3 sky = mix(uSkyColor, vec3(lum) * vec3(1.06, 1.0, 0.9), 0.55) * uCabinAmb * (0.82 + 0.18 * N.y);
+  vec3 lamp = uCabinLamp * (0.62 + 0.38 * N.y);
+  return albedo * (sky + uSunColor * (0.34 * lit + 0.1 * full) + lamp);
+}
+// kept for older materials: same cel light, the 'ao' darkens the sky part
+vec3 rtLight(vec3 albedo, vec3 n, float shadow, float ao) {
+  return rtCel(albedo, n, shadow) * mix(1.0, ao, 0.5);
+}
+// Headlights: a warm cone with a soft spill, falling off with distance.
+vec3 rtHeadlight(vec3 albedo, vec3 n, vec3 pos) {
+  vec3 L = uHeadPos - pos;
+  float d = length(L);
+  L /= max(d, 1e-3);
+  float c = dot(-L, uHeadDir);
+  float cone = smoothstep(0.86, 0.975, c) + 0.16 * smoothstep(0.4, 0.9, c);
+  float att = 1.0 / (1.0 + d * d / 420.0);
+  float ndl = max(dot(n, L), 0.0) * 0.75 + 0.25;
+  return albedo * uHeadColor * cone * att * ndl;
+}
+
+// ---------------------------------------------------------------------------------------- air
+// Distance haze, thinner high up (it lies in the valleys), warmer towards the sun.
+// Beyond a few kilometres the haze thickens more slowly, as it does when a painter lays in the far
+// ranges: pale and blue, but still there.
+vec3 rtFog(vec3 c, vec3 pos, vec3 cam) {
+  vec3 d = pos - cam;
+  float dist = length(d);
+  float thin = mix(1.0, 0.3, smoothstep(250.0, 2400.0, pos.y - uFogBase));
+  // a far range sits in the air as one pale shape: its foot no thicker in haze than its top
+  // (else only the snow shows, floating)
+  thin = mix(thin, 0.55, smoothstep(6000.0, 16000.0, dist));
+  float dEff = dist < 2500.0 ? dist : 2500.0 + (dist - 2500.0) * 0.5;
+  float f = 1.0 - exp(-dEff * uFogDensity * thin);
+  // the land ends 20 km out (worldView.ts): the air closes over it before it does
+  f = max(f, smoothstep(15000.0, 19500.0, dist));
+  float toSun = pow(max(dot(d / max(dist, 1e-3), uSunDir), 0.0), 6.0);
+  // far ranges stand a shade deeper and bluer than the sky behind them, so they read as shapes
+  vec3 air = mix(uFogColor, uFogSunColor, toSun) * mix(vec3(1.0), vec3(0.84, 0.9, 1.0), smoothstep(3000.0, 12000.0, dist) * (1.0 - smoothstep(15000.0, 19500.0, dist)));
+  return mix(c, air, clamp(f, 0.0, 1.0));
+}
+
+// ---------------------------------------------------------------------------------------- paints
+// A biome's three ground paints chosen by tone (0 deep shade … 1 full light).
+vec3 rtGroundPaint(int b, float tone) {
+  vec3 c = mix(uGroundPal[b * 3], uGroundPal[b * 3 + 1], smoothstep(0.2, 0.5, tone));
+  return mix(c, uGroundPal[b * 3 + 2], smoothstep(0.56, 0.9, tone));
+}
+// Four greens of a wood, from the deep inside of a crown to its sunlit top.
+vec3 rtForestPaint(int b, float tone) {
+  vec3 c = mix(uForestPal[b * 4], uForestPal[b * 4 + 1], smoothstep(0.3, 0.42, tone));
+  c = mix(c, uForestPal[b * 4 + 2], smoothstep(0.56, 0.68, tone));
+  return mix(c, uForestPal[b * 4 + 3], smoothstep(0.84, 0.92, tone));
+}
+
+// legacy name kept so older shaders compile; the frame pass encodes now
+vec3 rtEncode(vec3 c) {
+  return c;
+}
+`;
+
+/** vertex chunk: instancing + world position + log depth. Expects 'transformed' and 'objNormal'. */
+export const GLSL_VERTEX_PARS = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+varying vec3 vPos;      // render-space position
+varying vec3 vNormal;   // render-space normal
+`;
+
+export const GLSL_VERTEX_MAIN = /* glsl */ `
+  mat4 rtModel = modelMatrix;
+  #ifdef USE_INSTANCING
+    rtModel = modelMatrix * instanceMatrix;
+  #endif
+  vec4 rtWorld = rtModel * vec4(transformed, 1.0);
+  vPos = rtWorld.xyz;
+  vNormal = normalize(mat3(rtModel) * objNormal);
+  gl_Position = projectionMatrix * viewMatrix * rtWorld;
+  #include <logdepthbuf_vertex>
+`;
+
+export const GLSL_FRAGMENT_PARS = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+varying vec3 vPos;
+varying vec3 vNormal;
+`;

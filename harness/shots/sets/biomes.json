@@ -1,0 +1,135 @@
+{
+  "set": "biomes",
+  "note": "The second round of country (docs/DESIGN_V2.md 4.1, W3): forest, lake country, maple hills — each started in with biome=<id> (on a normal journey they come from the fifth chapter on). Default seed. Started in lake country, the default seed has the sea on its left: far off from s = 800, along the road from s = 3790 to 6210.",
+  "base": "scene=world&shot=1&weather=clear",
+  "shots": [
+    {
+      "name": "forest_road",
+      "params": "biome=forest&view=cockpit&s=2400&time=10.5"
+    },
+    {
+      "name": "forest_side",
+      "params": "biome=forest&view=hood&s=3300&time=16",
+      "look": [
+        0.9,
+        0.06
+      ]
+    },
+    {
+      "name": "forest_mist",
+      "params": "biome=forest&view=hood&s=4100&time=6.7&weather=fog"
+    },
+    {
+      "name": "forest_across",
+      "params": "biome=forest&view=orbit&orbit=-70,10,26,2&s=5200&time=14"
+    },
+    {
+      "name": "lakes_road",
+      "params": "biome=lakes&view=cockpit&s=1950&time=11"
+    },
+    {
+      "name": "lakes_side",
+      "params": "biome=lakes&view=hood&s=2110&time=17.5",
+      "look": [
+        1.1,
+        -0.03
+      ]
+    },
+    {
+      "name": "lakes_morning",
+      "params": "biome=lakes&view=hood&s=4190&time=6.4",
+      "look": [
+        -1.0,
+        -0.03
+      ]
+    },
+    {
+      "name": "lakes_across",
+      "params": "biome=lakes&view=orbit&orbit=-90,12,40,2&s=2121&time=14"
+    },
+    {
+      "name": "maple_road",
+      "params": "biome=maple&view=cockpit&s=2500&time=16.5"
+    },
+    {
+      "name": "maple_side",
+      "params": "biome=maple&view=hood&s=3400&time=17.6",
+      "look": [
+        -0.9,
+        0.05
+      ]
+    },
+    {
+      "name": "maple_noon",
+      "params": "biome=maple&view=hood&s=4600&time=12",
+      "look": [
+        0.7,
+        0.04
+      ]
+    },
+    {
+      "name": "maple_across",
+      "params": "biome=maple&view=orbit&orbit=80,11,30,2&s=5600&time=15.5"
+    },
+    {
+      "name": "coast_road",
+      "params": "biome=lakes&view=cockpit&s=4350&time=16"
+    },
+    {
+      "name": "coast_side",
+      "params": "biome=lakes&view=hood&s=4900&time=11",
+      "look": [
+        -1.2,
+        -0.05
+      ]
+    },
+    {
+      "name": "coast_sunset",
+      "params": "biome=lakes&view=hood&s=5176&time=18.7",
+      "look": [
+        -0.95,
+        0.0
+      ]
+    },
+    {
+      "name": "coast_across",
+      "params": "biome=lakes&view=orbit&orbit=90,14,46,2&s=4900&time=14"
+    },
+    {
+      "name": "coast_beach",
+      "params": "biome=lakes&s=4890&onfoot=road:4900,-84,-75&footpitch=-3&time=9.5"
+    },
+    {
+      "name": "coast_far",
+      "params": "biome=lakes&view=orbit&orbit=90,17,150,40&s=2500&time=15.5"
+    },
+    {
+      "name": "coast_bay",
+      "params": "biome=lakes&view=orbit&orbit=140,20,260,60&s=3900&time=10.5"
+    },
+    {
+      "name": "light_road",
+      "params": "biome=lakes&view=cockpit&s=4660&time=15"
+    },
+    {
+      "name": "light_yard",
+      "params": "biome=lakes&view=orbit&orbit=62,11,78,9&s=4802&time=11.5"
+    },
+    {
+      "name": "light_dusk",
+      "params": "biome=lakes&view=orbit&orbit=118,5,120,12&s=4802&time=19.5"
+    },
+    {
+      "name": "light_night",
+      "params": "biome=lakes&view=hood&s=4560&time=22.6",
+      "look": [
+        -0.42,
+        0.06
+      ]
+    },
+    {
+      "name": "light_pier",
+      "params": "biome=lakes&s=4800&onfoot=road:4809,-143,100&footpitch=5&time=17.2"
+    }
+  ]
+}

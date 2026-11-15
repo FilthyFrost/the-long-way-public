@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+# harness/session artefacts that are not source
+.prompt.txt
+.go*.txt
+# screenshots are evidence, not source: keep them out of history
+loop/shots/**
+!loop/shots/.gitkeep
+.watchdog.sh
+.go*.txt
+# third-party reference material: kept on disk for study, not versioned
+refs/painted-valley/
+refs/painted-valley-zip/
+refs/_raw/
+refs/artstation-1NKWJK/*
+!refs/artstation-1NKWJK/README.md
+refs/rv-reference/*
+!refs/rv-reference/README.md
+# the owner's design document repository: cloned for reading, not versioned here
+refs/design-doc/
+# agent worktrees and local tool state
+.claude/
+
+# keep copies of the owner task briefs in the public handoff pack
+!docs/handoff/instructions/.go*.txt

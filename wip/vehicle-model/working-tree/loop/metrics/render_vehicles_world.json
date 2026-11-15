@@ -1,0 +1,111 @@
+{
+  "system": "render",
+  "id": "vehicles_world",
+  "metrics": {
+    "shots_total": 7,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 278,
+    "max_triangles": 1033327
+  },
+  "shots": {
+    "rv_world_front34": {
+      "ok": true,
+      "ms": 29184,
+      "errors": [],
+      "calls": 234,
+      "triangles": 986328,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_world_driver": {
+      "ok": true,
+      "ms": 29508,
+      "errors": [],
+      "calls": 271,
+      "triangles": 915234,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_world_room_rear": {
+      "ok": true,
+      "ms": 28547,
+      "errors": [],
+      "calls": 278,
+      "triangles": 1033327,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "van_world_front34": {
+      "ok": true,
+      "ms": 30376,
+      "errors": [],
+      "calls": 230,
+      "triangles": 936236,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "van_world_driver": {
+      "ok": true,
+      "ms": 28261,
+      "errors": [],
+      "calls": 267,
+      "triangles": 872784,
+      "programs": 32,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "offroad_world_front34": {
+      "ok": true,
+      "ms": 28733,
+      "errors": [],
+      "calls": 230,
+      "triangles": 935612,
+      "programs": 33,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "offroad_world_driver": {
+      "ok": true,
+      "ms": 28302,
+      "errors": [],
+      "calls": 270,
+      "triangles": 873212,
+      "programs": 32,
+      "kmh": 0,
+      "exploded": false,
+      "biome": "plains",
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

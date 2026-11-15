@@ -1,0 +1,108 @@
+From c5ce238c4653a042814d7437c0d8fa9dd45a4084 Mon Sep 17 00:00:00 2001
+From: road-trip-loop <loop@road-trip-game.local>
+Date: Sat, 14 Nov 2026 06:04:43 -0800
+Subject: [PATCH 4/6] Motorhome: E from a seat next to a door (the cab's two)
+ gets you straight out; inner seats still stand you up (doorWithin)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/harness/sim/onfoot.test.ts b/harness/sim/onfoot.test.ts
+index c8ebe5b..ded6744 100644
+--- a/harness/sim/onfoot.test.ts
++++ b/harness/sim/onfoot.test.ts
+@@ -8,7 +8,7 @@ import { FunctionLand, TerrainPoint, type Land } from '../../src/core/onfoot/lan
+ import { Modes } from '../../src/core/onfoot/modes';
+ import { StaticSolids } from '../../src/core/onfoot/statics';
+ import { buildYardSolids, yardToWorld, YARD_AHEAD, YARD_OFFSET } from '../../src/core/onfoot/testbed';
+-import { doorsOf, nearestDoor, placeAtDoor, VehicleSolid } from '../../src/core/onfoot/vehicle';
++import { doorsOf, doorWithin, nearestDoor, placeAtDoor, VehicleSolid } from '../../src/core/onfoot/vehicle';
+ import { FOOT, FootWalker, type FootInput } from '../../src/core/onfoot/walker';
+ import { T0_TRUCK, T3_RV } from '../../src/core/vehicle/spec';
+ import { VehicleSim } from '../../src/core/vehicle/sim';
+@@ -360,6 +360,11 @@ describe('on foot: in the world, round the vehicle and the yard', () => {
+     const d = nearestDoor(doors, 1.0, 0.5, rv);
+     expect(d.name).toBe('door');
+     expect(d.side).toBe(1);
++    // the cab's seats are beside a door (E gets one straight out); the dinette is not
++    const hw = T3_RV.body.halfWidth;
++    expect(doorWithin(doors, T3_RV.eye.x, T3_RV.eye.z, hw, 1.15)?.name).toBe('driver');
++    expect(doorWithin(doors, T3_RV.eye.x, -T3_RV.eye.z, hw, 1.15)?.name).toBe('door');
++    expect(doorWithin(doors, -1.5, 0.2, hw, 1.15)).toBe(null);
+   });
+   it('the truck cannot be walked through, from either side or end', () => {
+     for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+diff --git a/src/core/onfoot/vehicle.ts b/src/core/onfoot/vehicle.ts
+index 66f141a..384e284 100644
+--- a/src/core/onfoot/vehicle.ts
++++ b/src/core/onfoot/vehicle.ts
+@@ -135,6 +135,20 @@ export function placeAtDoor(w: FootWalker, v: VehiclePose, door: Door): boolean
+   return w.place(p.x, p.z, face, 8);
+ }
+ 
++/** a door within `reach` (m, on the plan) of a body-frame point — a seat beside it — or null */
++export function doorWithin(doors: readonly Door[], x: number, z: number, halfWidth: number, reach: number): Door | null {
++  let best: Door | null = null;
++  let bd = reach;
++  for (const d of doors) {
++    const dd = Math.hypot(d.x - x, d.side * halfWidth - z);
++    if (dd <= bd) {
++      bd = dd;
++      best = d;
++    }
++  }
++  return best;
++}
++
+ /** the door nearest to a body-frame point (a seat's eye, a point on the walk area) */
+ export function nearestDoor(doors: readonly Door[], x: number, z: number, v: VehiclePose): Door {
+   const hw = v.spec.body.halfWidth;
+diff --git a/src/game/player/player.ts b/src/game/player/player.ts
+index 9e481f9..282ee5e 100644
+--- a/src/game/player/player.ts
++++ b/src/game/player/player.ts
+@@ -9,7 +9,7 @@ import * as THREE from 'three';
+ import { Walker } from '../../core/onboard/walker';
+ import { GroundLand, type Land } from '../../core/onfoot/land';
+ import { Modes, type Mode } from '../../core/onfoot/modes';
+-import { doorsOf, EXIT_KMH, nearestDoor, placeAtDoor, VehicleSolid, worldToBody, type Door } from '../../core/onfoot/vehicle';
++import { doorsOf, doorWithin, EXIT_KMH, nearestDoor, placeAtDoor, VehicleSolid, worldToBody, type Door } from '../../core/onfoot/vehicle';
+ import { InteractSet, Picker, UseDriver, type Actor, type Interactable } from '../../core/interact/interact';
+ import { Hands, loadCarrier, newPack, saveCarrier, type CarrierState } from '../../core/items/carry';
+ import { Containers, type ContainerState } from '../../core/items/containers';
+@@ -37,6 +37,9 @@ const Z = new THREE.Vector3(0, 0, 1);
+ 
+ /** field of view on foot (deg): a little wider than the driver's seat (5.3) */
+ export const FOOT_FOV = 68;
++/** a seat this close to a door (m, on the plan) is got out of straight away with E */
++export const SEAT_DOOR_REACH = 1.15;
++
+ /** seconds G is held to put down what is in the hands */
+ export const PUT_HOLD = 0.6;
+ 
+@@ -181,11 +184,21 @@ export class Player implements Actor {
+       if (dr && g.walker.x >= dr.x0 - 0.05 && g.walker.x <= dr.x1 + 0.05 && g.walker.z >= dr.z0 - 0.05 && g.walker.z <= dr.z1 + 0.05) return this.getOut();
+       return false;
+     }
+-    // seated: a vehicle one can walk about in stands one up inside; any other lets one out
+-    if (g.view.parts.walk) return false;
++    // seated: a vehicle one can walk about in stands one up inside — unless the seat is next to a
++    // door (the cab's seats): then straight out; any other vehicle lets one out
++    if (g.view.parts.walk && !this.seatByDoor()) return false;
+     return this.getOut();
+   }
+ 
++  /** the seat one sits in is within reach of a door (plan distance in the body frame) */
++  seatByDoor(reach = SEAT_DOOR_REACH): boolean {
++    const g = this.game;
++    const vp = g.seat ? g.view.parts.views[g.seat] : null;
++    const x = vp ? vp.x : g.sim.spec.eye.x;
++    const z = vp ? vp.z : g.sim.spec.eye.z;
++    return doorWithin(this.doors(), x, z, g.sim.spec.body.halfWidth, reach) !== null;
++  }
++
+   /** out of the vehicle, beside the door nearest to where one sat or stood */
+   getOut(): boolean {
+     const g = this.game;
+-- 
+2.47.3
+

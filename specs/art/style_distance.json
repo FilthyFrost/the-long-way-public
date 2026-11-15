@@ -1,0 +1,19 @@
+{
+  "id": "style",
+  "system": "style",
+  "stage": "M1d",
+  "title": "风格统计距离 · 对标 R1–R4",
+  "source": "specs/art/STYLE.md 第 3、11 节；harness/judge/style_compare.py。距离按八项统计（色彩丰富度、饱和度、亮度、天空蓝占比、云白占比、草地绿饱和度与亮度、细节能量）对参考平均值归一化后取平均。",
+  "metrics": {
+    "style_distance_mean": {
+      "label": "风格截图组到对标图的平均距离",
+      "unit": "",
+      "max": 0.35
+    },
+    "style_distance_max": {
+      "label": "单张最大距离",
+      "unit": "",
+      "max": 0.6
+    }
+  }
+}

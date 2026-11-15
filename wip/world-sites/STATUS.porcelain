@@ -1,0 +1,4 @@
+ M harness/shots/sets/sites.json
+ M src/core/world/sites.ts
+ M src/game/scene/siteBuild.ts
+?? harness/shots/posedbg.mjs

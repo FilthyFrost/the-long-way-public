@@ -1,0 +1,108 @@
+{
+  "id": "default",
+  "system": "roadgen",
+  "title": "道路与地形生成 · 机器人司机",
+  "source": "方案第 11 节指标表；机器人司机两项来自第 10 节。",
+  "metrics": {
+    "spine_curvature_violations": {
+      "label": "曲率超限的站点数",
+      "unit": "个",
+      "max": 0
+    },
+    "spine_max_grade_pct": {
+      "label": "最大坡度",
+      "unit": "%",
+      "max": 8.0001
+    },
+    "spine_max_heading_deg": {
+      "label": "最大航向偏角（方案：±55° 以内）",
+      "unit": "度",
+      "max": 55
+    },
+    "spine_min_forward_cos": {
+      "label": "前进方向分量最小值（> 0 即永不自交）",
+      "unit": "",
+      "min": 0.5
+    },
+    "spine_min_radius_m": {
+      "label": "最小弯道半径",
+      "unit": "m",
+      "min": 60
+    },
+    "spine_determinism_mismatches": {
+      "label": "同种子两次生成的哈希差异",
+      "unit": "次",
+      "max": 0
+    },
+    "terrain_road_surface_errors": {
+      "label": "路面高度与道路平面不一致的采样",
+      "unit": "个",
+      "max": 0
+    },
+    "terrain_projection_errors": {
+      "label": "最近道路点求解错误的采样",
+      "unit": "个",
+      "max": 0
+    },
+    "terrain_road_seam_gap_cm": {
+      "label": "路面与地形接缝间隙",
+      "unit": "cm",
+      "max": 2
+    },
+    "terrain_max_kink_m": {
+      "label": "地形不连续（0.5 m 步长二阶差分）",
+      "unit": "m",
+      "max": 0.5
+    },
+    "terrain_max_step_near_m": {
+      "label": "道路 150 m 内每 0.5 m 的最大高差（峡谷壁最陡 2:1，约 65°）",
+      "unit": "m",
+      "max": 1.15
+    },
+    "terrain_chunk_ms": {
+      "label": "单区块高度生成耗时（67×67）",
+      "unit": "ms",
+      "max": 10
+    },
+    "robot_lane_rms_m": {
+      "label": "机器人司机循线误差（均方根）",
+      "unit": "m",
+      "max": 0.4
+    },
+    "robot_accidents_per_100km": {
+      "label": "机器人司机事故（翻车/冲出路面/卡住）",
+      "unit": "次/100km",
+      "max": 0
+    },
+    "robot_km": {
+      "label": "机器人司机测试里程",
+      "unit": "km",
+      "min": 90
+    },
+    "robot_wet_accidents_per_100km": {
+      "label": "雨天（路面全湿）机器人司机事故",
+      "unit": "次/100km",
+      "max": 0
+    },
+    "robot_snow_accidents_per_100km": {
+      "label": "积雪路面机器人司机事故",
+      "unit": "次/100km",
+      "max": 0
+    },
+    "robot_wet_km": {
+      "label": "雨天测试里程",
+      "unit": "km",
+      "min": 35
+    },
+    "robot_snow_km": {
+      "label": "雪天测试里程",
+      "unit": "km",
+      "min": 35
+    },
+    "robot_snow_lane_rms_m": {
+      "label": "积雪路面循线误差（均方根）",
+      "unit": "m",
+      "max": 0.6
+    }
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "system": "render",
+  "id": "driving",
+  "metrics": {
+    "shots_total": 8,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 46,
+    "max_triangles": 14078
+  },
+  "shots": {
+    "cockpit_rest": {
+      "ok": true,
+      "ms": 16703,
+      "errors": [],
+      "calls": 40,
+      "triangles": 12870,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "cockpit_cruise": {
+      "ok": true,
+      "ms": 33537,
+      "errors": [],
+      "calls": 40,
+      "triangles": 12870,
+      "programs": 19,
+      "kmh": 58.6,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "cockpit_corner_right": {
+      "ok": true,
+      "ms": 29457,
+      "errors": [],
+      "calls": 40,
+      "triangles": 12870,
+      "programs": 19,
+      "kmh": 49,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "cockpit_brake": {
+      "ok": true,
+      "ms": 29121,
+      "errors": [],
+      "calls": 39,
+      "triangles": 12868,
+      "programs": 19,
+      "kmh": 36.4,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "cockpit_look_left": {
+      "ok": true,
+      "ms": 18737,
+      "errors": [],
+      "calls": 34,
+      "triangles": 12666,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "cockpit_look_down": {
+      "ok": true,
+      "ms": 17890,
+      "errors": [],
+      "calls": 40,
+      "triangles": 13458,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "chase_rest": {
+      "ok": true,
+      "ms": 16931,
+      "errors": [],
+      "calls": 46,
+      "triangles": 14078,
+      "programs": 19,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "chase_corner_left": {
+      "ok": true,
+      "ms": 29897,
+      "errors": [],
+      "calls": 46,
+      "triangles": 14078,
+      "programs": 19,
+      "kmh": 49,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

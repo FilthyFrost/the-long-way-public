@@ -1,0 +1,3294 @@
+diff --git a/harness/shots/sets/onfoot.json b/harness/shots/sets/onfoot.json
+index cfe8d79..e6b6e4a 100644
+--- a/harness/shots/sets/onfoot.json
++++ b/harness/shots/sets/onfoot.json
+@@ -7,13 +7,15 @@
+     { "name": "yard", "params": "onfoot=yard:-1.2,1.0,35&footpitch=-14" },
+     { "name": "crate_prompt", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }] },
+     { "name": "crate_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }] },
+-    { "name": "siphon", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:tank"] }, { "call": "footHold", "args": [6, false] }] },
++    { "name": "siphon", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:2"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:tank"] }, { "call": "footHold", "args": [6, false] }] },
+     { "name": "jerrycan_hand", "params": "onfoot=yard:4.6,1.7,0", "steps": [{ "call": "footFaceThing", "args": ["yard:5"] }, { "call": "footUse" }, { "call": "footTurn", "args": [-100, -4] }, { "call": "footWalk", "args": [0.6, 1, 0] }] },
+     { "name": "carry_tyre", "params": "onfoot=yard:5.3,4.4,0", "steps": [{ "call": "footFaceThing", "args": ["yard:7"] }, { "call": "footUse" }, { "call": "footTurn", "args": [150, -6] }, { "call": "footWalk", "args": [0.8, 1, 0] }] },
+     { "name": "backpack_open", "params": "onfoot=yard:1.2,1.6,0", "steps": [{ "call": "footFaceThing", "args": ["yard:0"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:1"] }, { "call": "footUse" }, { "call": "footFaceThing", "args": ["yard:crate"] }, { "call": "footHold", "args": [1.7] }, { "call": "footTurn", "args": [0, -38] }, { "call": "footHold", "args": [1.2] }, { "call": "footPack", "args": [true] }] },
+     { "name": "on_platform", "params": "onfoot=yard:4.2,6.6,200&footpitch=-18" },
+     { "name": "lake_shore", "params": "seed=7&s=3190&onfoot=road:3203,68,90&footpitch=-6&time=17" },
+     { "name": "swimming", "params": "seed=7&s=3190&onfoot=road:3203,96,60&footpitch=-2&time=17" },
++    { "name": "bed_cargo", "params": "onfoot=door", "steps": [{ "call": "footGive", "args": ["tyre.road"] }, { "call": "footCargo" }, { "call": "footGive", "args": ["fuel.jerrycan", 6] }, { "call": "footCargo" }, { "call": "footTurn", "args": [150, -14] }, { "call": "footWalk", "args": [1.6, -1, 0] }] },
++    { "name": "on_bed", "params": "onfoot=door", "steps": [{ "call": "footClimb" }, { "call": "footTurn", "args": [-90, -12] }] },
+     { "name": "night_cab", "params": "onfoot=door&time=22&cabinlight=1", "steps": [{ "call": "footTurn", "args": [180, -10] }, { "call": "footWalk", "args": [1.0, -1, 0] }, { "call": "footTurn", "args": [-15, -8] }] }
+   ]
+ }
+diff --git a/harness/sim/cargo.test.ts b/harness/sim/cargo.test.ts
+new file mode 100644
+index 0000000..e9a144c
+--- /dev/null
++++ b/harness/sim/cargo.test.ts
+@@ -0,0 +1,91 @@
++/**
++ * The truck's open bed and every vehicle's cargo places (src/core/onfoot/cargo.ts): climbed onto
++ * and stood on while parked, walls that keep one in, things put on and taken off with their litres.
++ */
++import { describe, expect, it } from 'vitest';
++import { Hands, newPack, take } from '../../src/core/items/carry';
++import { CargoBay, cargoOf } from '../../src/core/onfoot/cargo';
++import { FunctionLand } from '../../src/core/onfoot/land';
++import { VehicleSolid } from '../../src/core/onfoot/vehicle';
++import { FOOT, FootWalker } from '../../src/core/onfoot/walker';
++import { VEHICLES } from '../../src/core/vehicle/spec';
++import { VehicleSim } from '../../src/core/vehicle/sim';
++import { FlatGround } from '../../src/core/world/ground';
++import type { Actor } from '../../src/core/interact/interact';
++
++const flat = new FunctionLand(() => 0);
++
++function parked(id: string): VehicleSim {
++  const v = new VehicleSim(VEHICLES[id]);
++  v.reset(0, 0, 0, 0);
++  const g = new FlatGround();
++  for (let i = 0; i < 360; i++) v.substep({ steer: 0, throttle: 0, brake: 1, handbrake: 1 }, g);
++  return v;
++}
++
++const actor = (): Actor => ({ id: 'p', hands: new Hands(), pack: newPack(), eye: { x: 0, y: 1.6, z: 0 }, heading: 0 });
++
++describe('the truck bed', () => {
++  const v = parked('t0_truck');
++  const vs = new VehicleSolid(v);
++  const bedTop = v.py - v.spec.cgHeight + 0.64;
++  it('is not walked onto from the ground, nor jumped onto', () => {
++    const w = new FootWalker(flat, vs);
++    w.place(-4, 0, 0);
++    for (let i = 0; i < 600; i++) w.step({ forward: 1, right: 0, run: true, crouch: false, jump: i % 60 === 0 });
++    expect(w.y).toBeLessThan(0.05);
++    expect(w.x).toBeLessThan(-1.6 - FOOT.radius + 0.01);
++  });
++  it('once climbed onto, is stood on, and its walls keep one on it', () => {
++    const w = new FootWalker(flat, vs);
++    expect(w.place(-0.9, 0, 0, 0.5)).toBe(true);
++    expect(w.y).toBeCloseTo(bedTop, 2);
++    for (const heading of [Math.PI / 2, -Math.PI / 2, Math.PI, 0]) {
++      w.heading = heading;
++      for (let i = 0; i < 300; i++) w.step({ forward: 1, right: 0, run: false, crouch: false, jump: false });
++      expect(w.y).toBeCloseTo(bedTop, 2);
++      expect(w.insideSolid()).toBe(false);
++    }
++    // and jumped down from over the tailgate
++    w.heading = Math.PI;
++    for (let i = 0; i < 360; i++) w.step({ forward: 1, right: 0, run: false, crouch: false, jump: i % 30 === 0 && w.x > -1.7 });
++    expect(w.y).toBeLessThan(0.05);
++  });
++});
++
++describe('cargo', () => {
++  it('the truck, the van and the motorhome carry; the off-roader has no such place', () => {
++    expect(cargoOf(VEHICLES.t0_truck)?.places.length).toBe(4);
++    expect(cargoOf(VEHICLES.t1_van)?.places.length).toBe(2);
++    expect(cargoOf(VEHICLES.t3_rv)?.places.length).toBe(2);
++    expect(cargoOf(VEHICLES.t2_offroad)).toBe(null);
++  });
++  it('takes medium and large things with their litres, gives them back, saves and loads', () => {
++    const v = parked('t0_truck');
++    const bay = new CargoBay(v, cargoOf(v.spec)!);
++    const a = actor();
++    take(a, 'fuel.jerrycan', 1, 7.5);
++    expect(bay.putFrom(a)).toBe(true);
++    expect(a.hands.empty).toBe(true);
++    take(a, 'tyre.road');
++    expect(bay.putFrom(a)).toBe(true);
++    // a small thing is no cargo
++    take(a, 'food.can.beans');
++    a.hands.set('food.can.beans');
++    expect(bay.putFrom(a)).toBe(false);
++    a.hands.set(null);
++    const saved = JSON.parse(JSON.stringify(bay.toJSON()));
++    const again = new CargoBay(v, cargoOf(v.spec)!).load(saved);
++    expect(again.store.list().map((s) => s.id)).toEqual(['fuel.jerrycan', 'tyre.road']);
++    expect(again.takeInto(0, a)).toBe(true);
++    expect(a.hands.toJSON()).toEqual({ id: 'fuel.jerrycan', fill: 7.5 });
++    expect(again.takeInto(1, a)).toBe(false); // the hands are full
++    // full bay: the fifth thing does not go on
++    a.hands.set(null);
++    for (let i = 0; i < 4; i++) {
++      a.hands.set('tyre.road');
++      bay.putFrom(a);
++    }
++    expect(a.hands.id).toBe('tyre.road');
++  });
++});
+diff --git a/harness/sim/carry.test.ts b/harness/sim/carry.test.ts
+index cefd468..78839fb 100644
+--- a/harness/sim/carry.test.ts
++++ b/harness/sim/carry.test.ts
+@@ -201,6 +201,12 @@ describe('petrol', () => {
+     const tap = find(f, 'station');
+     expect(tap.prompt(p)).toBe(null); // nothing to put it in
+     take(p, 'fuel.jerrycan', 1, 0);
++    // the hose is needed, and the word says so
++    expect(tap.prompt(p)).toBe('缺抽油管');
++    for (let i = 0; i < 30; i++) d.update(dt, tap, true, p);
++    d.update(dt, tap, false, p);
++    expect(p.hands.fill).toBe(0);
++    take(p, 'tool.siphon');
+     expect(tap.prompt(p)).toBe('抽油');
+     let t = 0;
+     while (p.hands.fill < 10 - 1e-6 && t < 30) {
+@@ -234,3 +240,39 @@ describe('the test yard registers everything a site would', () => {
+     expect(y.solids.all.some((s) => s.floor)).toBe(true);
+   });
+ });
++
++describe('a road full of things: the spatial index', () => {
++  it('near() and the interactables agree with a plain scan over 6000 things, and stay fast', () => {
++    const reg = new LooseItems();
++    const boxes = new Containers();
++    let s = 99;
++    const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
++    for (let i = 0; i < 6000; i++) reg.add('mat.rope', 1, rnd() * 40000 - 20000, 0, rnd() * 400 - 200);
++    for (let i = 0; i < 800; i++) boxes.add({ id: `c${i}`, kind: 'crate', x: rnd() * 40000 - 20000, y: 0, z: rnd() * 400 - 200, heading: 0, seed: i, hx: 0.5, h: 0.6, hz: 0.4 });
++    // take a third away again
++    for (let i = 1; i <= 6000; i += 3) reg.take(`loose:${i}`);
++    for (const [x, z] of [
++      [0, 0],
++      [1234, 50],
++      [-15000, -120],
++    ]) {
++      const got: { key: string }[] = [];
++      reg.near(x, z, 300, got as never);
++      const want = reg.all().filter((l) => Math.hypot(l.x - x, l.z - z) <= 300);
++      expect(got.map((l) => l.key).sort()).toEqual(want.map((l) => l.key).sort());
++      const sol: unknown[] = [];
++      boxes.solidsNear(x, z, 300, sol as never);
++      expect(sol.length).toBe(boxes.all().filter((c) => Math.hypot(c.def.x - x, c.def.z - z) < 300 + Math.hypot(0.5, 0.4)).length);
++    }
++    const t0 = performance.now();
++    const out: Interactable[] = [];
++    for (let i = 0; i < 2000; i++) {
++      out.length = 0;
++      reg.interactablesNear(i * 10 - 10000, 0, 3.2, out);
++      boxes.interactablesNear(i * 10 - 10000, 0, 3.2, out);
++    }
++    expect((performance.now() - t0) / 2000).toBeLessThan(0.05);
++    expect(reg.get('loose:2')?.key).toBe('loose:2');
++    expect(reg.get('loose:1')).toBeUndefined();
++  });
++});
+diff --git a/harness/sim/fishing.test.ts b/harness/sim/fishing.test.ts
+new file mode 100644
+index 0000000..2b4b570
+--- /dev/null
++++ b/harness/sim/fishing.test.ts
+@@ -0,0 +1,181 @@
++/**
++ * Fishing (src/core/fishing, docs/DESIGN_V2.md 8.4, 11.2): who lives where and when, the bite
++ * window, the line that snaps after 1.5 s at full load, the same fish from the same seed and
++ * inputs, and robot anglers — a competent one lands its fish in 20–60 s, a careless one loses most.
++ */
++import { describe, expect, it } from 'vitest';
++import { Angling, BITE_WINDOW, BITE_WINDOW_RARE, FISH_STEP, SNAP_FULL, type FishInput, type RodTip } from '../../src/core/fishing/angling';
++import { School } from '../../src/core/fishing/school';
++import { slotOf, speciesFor, SPECIES } from '../../src/core/fishing/species';
++import { hasItem, item } from '../../src/core/items/catalog';
++import { LOOT } from '../../src/core/items/loot';
++import { FunctionLand } from '../../src/core/onfoot/land';
++import { fishFor, jetty } from './fishing';
++
++const ids = (water: 'lake' | 'stream' | 'oasis' | 'ice', hour: number, w?: Parameters<typeof speciesFor>[2]) => speciesFor(water, hour, w).map((s) => s.id).sort();
++
++describe('who lives where and when (11.2)', () => {
++  it('every lake at noon and at dusk offers what 11.2 says and nothing else', () => {
++    expect(ids('lake', 12)).toEqual(['fish.bleak', 'fish.carp', 'fish.crucian']);
++    expect(ids('lake', 18.5)).toEqual(['fish.bleak', 'fish.king', 'fish.perch']);
++  });
++  it('dawn, night, streams, the oasis, the weather', () => {
++    expect(ids('lake', 6)).toEqual(['fish.bleak', 'fish.pike']);
++    expect(ids('lake', 23)).toEqual(['fish.bleak', 'fish.catfish', 'fish.moon']);
++    expect(ids('lake', 23, { raining: false, wetness: 0, clear: false })).toEqual(['fish.bleak', 'fish.catfish']);
++    expect(ids('stream', 6)).toEqual(['fish.bleak', 'fish.trout']);
++    expect(ids('stream', 12, { raining: true, wetness: 1, clear: false })).toEqual(['fish.bleak', 'fish.eel']);
++    expect(ids('oasis', 12)).toEqual(['fish.barb']);
++    expect(ids('ice', 12)).toEqual(['fish.char']);
++    expect(slotOf(4.9)).toBe('night');
++    expect(slotOf(17)).toBe('dusk');
++  });
++  it('every fish is in the catalogue; the rod is a medium thing found in tackle boxes', () => {
++    for (const s of SPECIES) expect(hasItem(s.id)).toBe(true);
++    expect(item('tool.rod').size).toBe('medium');
++    expect(item('tool.rod').rarity).toBe(1);
++    expect(LOOT.tacklebox.entries.some((e) => e.id === 'tool.rod')).toBe(true);
++    expect(hasItem('keep.bottle')).toBe(true);
++  });
++});
++
++// a pond 2 m deep everywhere: the float lands in it wherever it goes
++const pond = new FunctionLand(
++  () => -2,
++  () => 0,
++);
++const tip = (): RodTip => ({ x: 0, y: 1.5, z: 0, heading: 0 });
++const idle = (): FishInput => ({ down: false, pullX: 0, pullY: 0, cancel: false });
++
++/** a rod with one shadow of `species` waiting beside where the float lands (8 m out) */
++function rigged(species = 'fish.crucian', seed = 3): { a: Angling; school: School } {
++  const school = new School(seed);
++  school.shadows.push({ id: 99, species, size: 0, lengthCm: 20, big: false, x: 8.0, z: 1.0, heading: 0, state: 'roam', t: 100, body: 0 });
++  const a = new Angling(seed, school);
++  const t = tip();
++  const inp = idle();
++  inp.down = true;
++  a.step(inp, t, pond);
++  const charge = Angling.chargeFor(8);
++  while (a.phase === 'charging' && a.t < charge) a.step(inp, t, pond);
++  inp.down = false;
++  while (a.phase !== 'waiting') a.step(inp, t, pond);
++  return { a, school };
++}
++
++function toBite(a: Angling): void {
++  const t = tip();
++  for (let i = 0; i < 60 * 40 && a.phase !== 'bite'; i++) a.step(idle(), t, pond);
++  expect(a.phase).toBe('bite');
++}
++
++describe('the cast and the bite', () => {
++  it('a 0.3–1.2 s charge throws 4–14 m', () => {
++    expect(Angling.castLength(0.1)).toBe(4);
++    expect(Angling.castLength(0.75)).toBeCloseTo(9, 6);
++    expect(Angling.castLength(2)).toBe(14);
++    const { a } = rigged();
++    // (the button is let go on the next step: a frame's worth of charge more)
++    expect(Math.abs(Math.hypot(a.fx, a.fz) - 8)).toBeLessThan(0.4);
++  });
++  it('struck within 0.9 s the fish is on; after it, it is gone', () => {
++    for (const [late, on] of [
++      [0.85, true],
++      [0.95, false],
++    ] as const) {
++      const { a } = rigged();
++      toBite(a);
++      const t = tip();
++      for (let i = 0; i < Math.round(late / FISH_STEP) - 1; i++) a.step(idle(), t, pond);
++      a.step({ ...idle(), down: true }, t, pond);
++      expect(a.phase === 'fight').toBe(on);
++    }
++    expect(BITE_WINDOW).toBe(0.9);
++  });
++  it('a rare fish gives 0.6 s', () => {
++    const { a } = rigged('fish.pike');
++    toBite(a);
++    expect(a.window).toBeCloseTo(BITE_WINDOW_RARE, 6);
++  });
++  it('striking before the bite loses the fish and nothing else', () => {
++    const { a, school } = rigged();
++    const t = tip();
++    for (let i = 0; i < 60 * 3; i++) a.step(idle(), t, pond);
++    expect(a.target).toBe(99);
++    a.step({ ...idle(), down: true }, t, pond);
++    expect(a.phase).toBe('idle');
++    expect(school.shadows[0].state).toBe('flee');
++  });
++});
++
++describe('the fight', () => {
++  function hooked(seed: number, species = 'fish.crucian'): Angling {
++    const { a } = rigged(species, seed);
++    toBite(a);
++    a.step({ ...idle(), down: true }, tip(), pond);
++    expect(a.phase).toBe('fight');
++    return a;
++  }
++  it('reeling hard through the runs snaps the line after 1.5 s at full load', () => {
++    for (let seed = 1; seed < 12; seed++) {
++      // a brute: its runs are long enough to load the line full
++      const a = hooked(seed, 'fish.perch');
++      const t = tip();
++      let fullFrom = -1;
++      let snapAt = -1;
++      for (let i = 0; i < 60 * 60 && a.phase === 'fight'; i++) {
++        // reel all the time, pulling the wrong way
++        const pull = a.run === 'left' ? -1 : a.run === 'right' ? 1 : a.run === 'out' ? -1 : 0;
++        a.step({ down: true, pullX: pull, pullY: a.run === 'out' ? -1 : 0, cancel: false }, t, pond);
++        if (a.events.includes('snap')) {
++          snapAt = a.clock;
++          break;
++        }
++        if (a.tension >= 0.999 && fullFrom < 0) fullFrom = a.clock - FISH_STEP;
++        if (a.tension < 0.999) fullFrom = -1;
++      }
++      if (snapAt < 0) continue; // it never ran long enough: not this seed
++      expect(snapAt - fullFrom).toBeGreaterThan(SNAP_FULL - 2 * FISH_STEP);
++      expect(snapAt - fullFrom).toBeLessThan(SNAP_FULL + 2 * FISH_STEP);
++      return;
++    }
++    throw new Error('no fish snapped the line');
++  });
++  it('the state saves and loads mid-fight and carries on the same', () => {
++    const a = hooked(4);
++    const t = tip();
++    for (let i = 0; i < 120; i++) a.step({ down: a.run === 'none', pullX: a.run === 'left' ? 1 : -1, pullY: 0, cancel: false }, t, pond);
++    const saved = JSON.parse(JSON.stringify({ a: a.toJSON(), s: a.school.toJSON() }));
++    const b = new Angling(0, new School(0).load(saved.s)).load(saved.a);
++    for (let i = 0; i < 600; i++) {
++      const inp = { down: a.run === 'none', pullX: a.run === 'left' ? 1 : -1, pullY: a.run === 'out' ? 1 : 0, cancel: false };
++      a.step(inp, t, pond);
++      b.step(inp, t, pond);
++    }
++    expect(JSON.stringify(b.toJSON())).toBe(JSON.stringify(a.toJSON()));
++  });
++});
++
++describe('robot anglers at seed 7\'s jetty', () => {
++  const place = jetty();
++  it('the same seed and the same inputs give the same fish', () => {
++    expect(JSON.stringify(fishFor('competent', 5, 3, undefined, place))).toBe(JSON.stringify(fishFor('competent', 5, 3, undefined, place)));
++  });
++  it('a competent angler lands its fish in 20–60 s and loses none', () => {
++    const s = fishFor('competent', 11, 10, undefined, place);
++    expect(s.catches.length).toBeGreaterThan(6);
++    const t = s.catches.map((c) => c.seconds).sort((x, y) => x - y);
++    expect(t[Math.floor(t.length / 4)]).toBeGreaterThan(18);
++    expect(t[Math.floor(t.length / 2)]).toBeLessThan(60);
++    expect(s.snaps).toBe(0);
++  });
++  it('a careless one loses most of what comes to its float', () => {
++    const s = fishFor('careless', 12, 10, undefined, place);
++    expect(s.catches.length / Math.max(1, s.catches.length + s.lost + s.snaps)).toBeLessThan(0.35);
++  });
++  it('at dusk the lake may give its old king, once', () => {
++    let kings = 0;
++    for (let k = 0; k < 3; k++) kings += fishFor('competent', 300 + k, 20, { hour: 18.5, weather: { raining: false, wetness: 0, clear: true } }, place).catches.filter((c) => c.id === 'fish.king').length;
++    expect(kings).toBeLessThanOrEqual(3);
++  });
++});
+diff --git a/harness/sim/fishing.ts b/harness/sim/fishing.ts
+new file mode 100644
+index 0000000..7f6a86e
+--- /dev/null
++++ b/harness/sim/fishing.ts
+@@ -0,0 +1,133 @@
++/**
++ * Fishing measured headless (docs/DESIGN_V2.md 8.4) for specs/activities/fishing.json, and the
++ * shared set-up the tests use: seed 7's jetty, a robot angler at the end of it.
++ *
++ *   npx tsx harness/sim/fishing.ts        prints the metrics
++ */
++import { Angling, BITE_WINDOW, BITE_WINDOW_RARE, CAST_MAX, CAST_MIN, FISH_STEP, SNAP_FULL, type RodTip } from '../../src/core/fishing/angling';
++import { Angler, type AnglerKind } from '../../src/core/fishing/angler';
++import { School, type FishEnv, type Zone } from '../../src/core/fishing/school';
++import { FAIR, SPECIES, speciesFor } from '../../src/core/fishing/species';
++import type { Site } from '../../src/core/world/sites';
++import { World } from '../../src/core/world/terrain';
++
++export const JETTY_SEED = 7;
++
++/** seed 7's jetty and where one stands at the end of it, facing out */
++export function jetty(world = new World(JETTY_SEED)): { world: World; site: Site; zone: Zone; stand: RodTip } {
++  const out: Site[] = [];
++  world.sites.between(2500, 3800, out);
++  const site = out.find((s) => s.kind === 'jetty');
++  if (!site) throw new Error('no jetty on seed 7 near s 3195');
++  const zone = { x: site.zoneX, z: site.zoneZ, r: site.zoneR };
++  const ex = site.e2x;
++  const ez = site.e2z;
++  const deck = site.objects.find((o) => o.kind === 'jetty')!;
++  const stand = { x: zone.x - ex * 4.6, y: deck.y + 1.5, z: zone.z - ez * 4.6, heading: Math.atan2(ez, ex) };
++  return { world, site, zone, stand };
++}
++
++export interface Session {
++  catches: { id: string; seconds: number; lengthCm: number }[];
++  lost: number;
++  snaps: number;
++  hooks: number;
++  seconds: number;
++}
++
++/** a robot angler fishes from the jetty for `minutes` */
++export function fishFor(kind: AnglerKind, seed: number, minutes: number, env: FishEnv = { hour: 12, weather: FAIR }, place = jetty()): Session {
++  const school = new School(seed);
++  const a = new Angling(seed, school);
++  const bot = new Angler(kind, seed);
++  const tip: RodTip = { ...place.stand };
++  const n = Math.round((minutes * 60) / FISH_STEP);
++  const res: Session = { catches: [], lost: 0, snaps: 0, hooks: 0, seconds: minutes * 60 };
++  // the school settles first
++  for (let i = 0; i < 600; i++) school.step(FISH_STEP, place.world, tip.x, tip.z, env, [place.zone]);
++  for (let i = 0; i < n; i++) {
++    school.step(FISH_STEP, place.world, tip.x, tip.z, env, [place.zone]);
++    const inp = bot.decide(a, tip);
++    a.events.length = 0;
++    a.step(inp, tip, place.world);
++    for (const e of a.events) {
++      if (e === 'strike') res.hooks++;
++      if (e === 'snap') res.snaps++;
++      if (e === 'miss' || e === 'early') res.lost++;
++    }
++    if (a.caught) {
++      const c = a.takeCatch()!;
++      res.catches.push({ id: c.id, seconds: c.seconds, lengthCm: c.lengthCm });
++    }
++  }
++  return res;
++}
++
++function quartile(v: number[], q: number): number {
++  if (!v.length) return NaN;
++  const s = [...v].sort((a, b) => a - b);
++  return s[Math.min(s.length - 1, Math.floor(q * (s.length - 1)))];
++}
++
++export function collectFishingMetrics(): Record<string, number> {
++  const m: Record<string, number> = {};
++  const place = jetty();
++  const good: Session[] = [];
++  const bad: Session[] = [];
++  for (let k = 0; k < 12; k++) good.push(fishFor('competent', 100 + k, 8, undefined, place));
++  for (let k = 0; k < 6; k++) bad.push(fishFor('careless', 200 + k, 8, undefined, place));
++  const fishOnly = (s: Session) => s.catches.filter((c) => c.id.startsWith('fish.'));
++  const times = good.flatMap((s) => s.catches.map((c) => c.seconds));
++  m.catch_seconds_lq = quartile(times, 0.25);
++  m.catch_seconds_median = quartile(times, 0.5);
++  m.catch_seconds_uq = quartile(times, 0.75);
++  const landRate = (ss: Session[]) => {
++    const hooks = ss.reduce((a, s) => a + s.hooks, 0);
++    const landed = ss.reduce((a, s) => a + s.catches.length, 0);
++    return landed / Math.max(1, hooks);
++  };
++  // how many of the fish that came to the float ended in the hand
++  const outcome = (ss: Session[]) => {
++    const landed = ss.reduce((a, s) => a + s.catches.length, 0);
++    const lost = ss.reduce((a, s) => a + s.lost + s.snaps, 0);
++    return landed / Math.max(1, landed + lost);
++  };
++  m.competent_landed_share = outcome(good);
++  m.careless_landed_share = outcome(bad);
++  m.competent_hook_to_land = landRate(good);
++  m.fish_per_hour_competent = (good.reduce((a, s) => a + fishOnly(s).length, 0) / good.reduce((a, s) => a + s.seconds, 0)) * 3600;
++  const all = good.flatMap((s) => s.catches);
++  m.junk_share = all.filter((c) => !c.id.startsWith('fish.')).length / Math.max(1, all.length);
++  m.cast_min_m = Angling.castLength(0);
++  m.cast_max_m = Angling.castLength(5);
++  m.bite_window_s = BITE_WINDOW;
++  m.bite_window_rare_s = BITE_WINDOW_RARE;
++  m.snap_full_s = SNAP_FULL;
++  void CAST_MIN;
++  void CAST_MAX;
++  // the species each lake offers at noon and at dusk against 11.2
++  const want: Record<string, string[]> = {
++    noon: ['fish.bleak', 'fish.crucian', 'fish.carp'],
++    dusk: ['fish.bleak', 'fish.perch', 'fish.king'],
++  };
++  let wrong = 0;
++  for (const [slot, hour] of [
++    ['noon', 12],
++    ['dusk', 18],
++  ] as const) {
++    const got = speciesFor('lake', hour).map((s) => s.id).sort();
++    if (JSON.stringify(got) !== JSON.stringify([...want[slot]].sort())) wrong++;
++  }
++  m.lake_species_mismatches = wrong;
++  m.species_count = SPECIES.length;
++  // same seed, same inputs: the same fish
++  const a = fishFor('competent', 7, 3, undefined, place);
++  const b = fishFor('competent', 7, 3, undefined, place);
++  m.determinism_diff = JSON.stringify(a) === JSON.stringify(b) ? 0 : 1;
++  return m;
++}
++
++if (process.argv[1]?.endsWith('fishing.ts')) {
++  const t = Date.now();
++  console.log(collectFishingMetrics(), `${Date.now() - t} ms`);
++}
+diff --git a/harness/sim/measure.ts b/harness/sim/measure.ts
+index 3166976..aad1f0c 100644
+--- a/harness/sim/measure.ts
++++ b/harness/sim/measure.ts
+@@ -117,3 +117,9 @@ if (what === 'onfoot' || what === 'all') {
+   writeMetrics('onfoot', 'default', m);
+   console.log(`onfoot/default: ${Object.keys(m).length} metrics`);
+ }
++if (what === 'fishing' || what === 'all') {
++  const { collectFishingMetrics } = await import('./fishing');
++  const m = collectFishingMetrics();
++  writeMetrics('activities', 'fishing', m);
++  console.log(`activities/fishing: ${Object.keys(m).length} metrics`);
++}
+diff --git a/harness/sim/onfoot.test.ts b/harness/sim/onfoot.test.ts
+index c8ebe5b..ded6744 100644
+--- a/harness/sim/onfoot.test.ts
++++ b/harness/sim/onfoot.test.ts
+@@ -8,7 +8,7 @@ import { FunctionLand, TerrainPoint, type Land } from '../../src/core/onfoot/lan
+ import { Modes } from '../../src/core/onfoot/modes';
+ import { StaticSolids } from '../../src/core/onfoot/statics';
+ import { buildYardSolids, yardToWorld, YARD_AHEAD, YARD_OFFSET } from '../../src/core/onfoot/testbed';
+-import { doorsOf, nearestDoor, placeAtDoor, VehicleSolid } from '../../src/core/onfoot/vehicle';
++import { doorsOf, doorWithin, nearestDoor, placeAtDoor, VehicleSolid } from '../../src/core/onfoot/vehicle';
+ import { FOOT, FootWalker, type FootInput } from '../../src/core/onfoot/walker';
+ import { T0_TRUCK, T3_RV } from '../../src/core/vehicle/spec';
+ import { VehicleSim } from '../../src/core/vehicle/sim';
+@@ -360,6 +360,11 @@ describe('on foot: in the world, round the vehicle and the yard', () => {
+     const d = nearestDoor(doors, 1.0, 0.5, rv);
+     expect(d.name).toBe('door');
+     expect(d.side).toBe(1);
++    // the cab's seats are beside a door (E gets one straight out); the dinette is not
++    const hw = T3_RV.body.halfWidth;
++    expect(doorWithin(doors, T3_RV.eye.x, T3_RV.eye.z, hw, 1.15)?.name).toBe('driver');
++    expect(doorWithin(doors, T3_RV.eye.x, -T3_RV.eye.z, hw, 1.15)?.name).toBe('door');
++    expect(doorWithin(doors, -1.5, 0.2, hw, 1.15)).toBe(null);
+   });
+   it('the truck cannot be walked through, from either side or end', () => {
+     for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+diff --git a/harness/sim/onfoot.ts b/harness/sim/onfoot.ts
+index f1a4df8..a41a3d9 100644
+--- a/harness/sim/onfoot.ts
++++ b/harness/sim/onfoot.ts
+@@ -261,6 +261,7 @@ export function collectOnfootMetrics(): Record<string, number> {
+   ] as const) {
+     const p = actor();
+     take(p, 'fuel.jerrycan', 1, 0);
++    take(p, 'tool.siphon');
+     const out: Interactable[] = [];
+     fuel.interactablesNear(0, 0, 1, out);
+     const tap = out.find((i) => i.id === id)!;
+diff --git a/loop/metrics/economy_t0_truck.json b/loop/metrics/economy_t0_truck.json
+index ce59003..18d8b23 100644
+--- a/loop/metrics/economy_t0_truck.json
++++ b/loop/metrics/economy_t0_truck.json
+@@ -2,33 +2,33 @@
+   "system": "economy",
+   "id": "t0_truck",
+   "metrics": {
+-    "econ_km": 1650.0004,
++    "econ_km": 1650.0003,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.1961,
+-    "econ_burnt_l_100km": 22.4699,
+-    "econ_found_l_100km": 22.4505,
+-    "econ_offered_l_100km": 346.8726,
+-    "econ_fuel_closure": 0.9991,
+-    "econ_kits_margin": 22,
+-    "econ_station_l_100km": 14.2869,
+-    "econ_wreck_l_100km": 8.1636,
++    "econ_min_fuel_frac": 0.0831,
++    "econ_burnt_l_100km": 22.6217,
++    "econ_found_l_100km": 22.7337,
++    "econ_offered_l_100km": 299.8303,
++    "econ_fuel_closure": 1.005,
++    "econ_kits_margin": 13,
++    "econ_station_l_100km": 11.2731,
++    "econ_wreck_l_100km": 11.4606,
+     "econ_punctures_100km": 1.0303,
+     "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 25,
++    "econ_kits_found": 16,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 41,
+-    "econ_parts_found": 177,
+-    "econ_upgrades": 16,
++    "econ_plugs_found": 46,
++    "econ_parts_found": 184,
++    "econ_upgrades": 18,
+     "econ_min_tread": 0,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 28.9233,
++    "econ_stop_min_per_hour": 32.1634,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.4242,
++    "econ_stops_100km": 18.7273,
+     "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.4853,
+-    "econ_min_cond_battery": 61.1599,
+-    "econ_min_cond_suspension": 48.9861,
+-    "econ_min_cond_brakes": 60.3628,
++    "econ_min_cond_cooling": 53.4898,
++    "econ_min_cond_battery": 74.4929,
++    "econ_min_cond_suspension": 48.9599,
++    "econ_min_cond_brakes": 60.3643,
+     "econ_min_cond_body": 54.8193
+   }
+ }
+diff --git a/loop/metrics/economy_t1_van.json b/loop/metrics/economy_t1_van.json
+index 005b4fd..af27e33 100644
+--- a/loop/metrics/economy_t1_van.json
++++ b/loop/metrics/economy_t1_van.json
+@@ -2,33 +2,33 @@
+   "system": "economy",
+   "id": "t1_van",
+   "metrics": {
+-    "econ_km": 1650.0006,
++    "econ_km": 1650.0004,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.4037,
+-    "econ_burnt_l_100km": 37.4817,
+-    "econ_found_l_100km": 36.5118,
+-    "econ_offered_l_100km": 346.8726,
+-    "econ_fuel_closure": 0.9741,
+-    "econ_kits_margin": 21,
+-    "econ_station_l_100km": 26.1806,
+-    "econ_wreck_l_100km": 10.3312,
++    "econ_min_fuel_frac": 0.3145,
++    "econ_burnt_l_100km": 37.6694,
++    "econ_found_l_100km": 36.7486,
++    "econ_offered_l_100km": 299.8302,
++    "econ_fuel_closure": 0.9756,
++    "econ_kits_margin": 11,
++    "econ_station_l_100km": 25.7304,
++    "econ_wreck_l_100km": 11.0182,
+     "econ_punctures_100km": 1.0303,
+     "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 24,
++    "econ_kits_found": 14,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 41,
+-    "econ_parts_found": 175,
++    "econ_plugs_found": 47,
++    "econ_parts_found": 186,
+     "econ_upgrades": 18,
+     "econ_min_tread": 0,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 28.482,
++    "econ_stop_min_per_hour": 31.21,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.7273,
++    "econ_stops_100km": 18.4848,
+     "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 49.5545,
+-    "econ_min_cond_battery": 61.1606,
+-    "econ_min_cond_suspension": 49.0194,
+-    "econ_min_cond_brakes": 59.8599,
++    "econ_min_cond_cooling": 53.4916,
++    "econ_min_cond_battery": 74.4915,
++    "econ_min_cond_suspension": 49.0173,
++    "econ_min_cond_brakes": 59.8681,
+     "econ_min_cond_body": 54.769
+   }
+ }
+diff --git a/loop/metrics/economy_t2_offroad.json b/loop/metrics/economy_t2_offroad.json
+index fda6277..f5912b5 100644
+--- a/loop/metrics/economy_t2_offroad.json
++++ b/loop/metrics/economy_t2_offroad.json
+@@ -2,33 +2,33 @@
+   "system": "economy",
+   "id": "t2_offroad",
+   "metrics": {
+-    "econ_km": 1650.0007,
++    "econ_km": 1650.0005,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.4245,
+-    "econ_burnt_l_100km": 34.8915,
+-    "econ_found_l_100km": 34.2424,
+-    "econ_offered_l_100km": 346.8726,
+-    "econ_fuel_closure": 0.9814,
+-    "econ_kits_margin": 22,
+-    "econ_station_l_100km": 24.703,
+-    "econ_wreck_l_100km": 9.5394,
++    "econ_min_fuel_frac": 0.4415,
++    "econ_burnt_l_100km": 35.1217,
++    "econ_found_l_100km": 33.6303,
++    "econ_offered_l_100km": 299.8302,
++    "econ_fuel_closure": 0.9575,
++    "econ_kits_margin": 14,
++    "econ_station_l_100km": 23.2848,
++    "econ_wreck_l_100km": 10.3455,
+     "econ_punctures_100km": 0.6667,
+     "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 25,
++    "econ_kits_found": 17,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 42,
+-    "econ_parts_found": 170,
+-    "econ_upgrades": 16,
++    "econ_plugs_found": 49,
++    "econ_parts_found": 185,
++    "econ_upgrades": 18,
+     "econ_min_tread": 0,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 29.9395,
++    "econ_stop_min_per_hour": 33.1934,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 16.303,
++    "econ_stops_100km": 18.3636,
+     "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.486,
+-    "econ_min_cond_battery": 61.1603,
+-    "econ_min_cond_suspension": 49.4786,
+-    "econ_min_cond_brakes": 59.0684,
++    "econ_min_cond_cooling": 53.4906,
++    "econ_min_cond_battery": 74.4935,
++    "econ_min_cond_suspension": 49.4801,
++    "econ_min_cond_brakes": 59.066,
+     "econ_min_cond_body": 55
+   }
+ }
+diff --git a/loop/metrics/economy_t3_rv.json b/loop/metrics/economy_t3_rv.json
+index 0aecd0c..76249fc 100644
+--- a/loop/metrics/economy_t3_rv.json
++++ b/loop/metrics/economy_t3_rv.json
+@@ -4,31 +4,31 @@
+   "metrics": {
+     "econ_km": 1650.0002,
+     "econ_dry": 0,
+-    "econ_min_fuel_frac": 0.3858,
+-    "econ_burnt_l_100km": 63.2397,
+-    "econ_found_l_100km": 59.4848,
+-    "econ_offered_l_100km": 346.8727,
+-    "econ_fuel_closure": 0.9406,
+-    "econ_kits_margin": 23,
+-    "econ_station_l_100km": 46.1151,
+-    "econ_wreck_l_100km": 13.3697,
++    "econ_min_fuel_frac": 0.3407,
++    "econ_burnt_l_100km": 63.5735,
++    "econ_found_l_100km": 60.3697,
++    "econ_offered_l_100km": 299.8303,
++    "econ_fuel_closure": 0.9496,
++    "econ_kits_margin": 14,
++    "econ_station_l_100km": 45.4667,
++    "econ_wreck_l_100km": 14.903,
+     "econ_punctures_100km": 1.0303,
+     "econ_punctures_no_remedy": 1,
+-    "econ_kits_found": 26,
++    "econ_kits_found": 17,
+     "econ_kits_used": 3,
+-    "econ_plugs_found": 44,
+-    "econ_parts_found": 184,
+-    "econ_upgrades": 17,
++    "econ_plugs_found": 49,
++    "econ_parts_found": 191,
++    "econ_upgrades": 18,
+     "econ_min_tread": 0,
+     "econ_tyres_fitted": 0,
+-    "econ_stop_min_per_hour": 27.2819,
++    "econ_stop_min_per_hour": 29.843,
+     "econ_accidents": 0,
+-    "econ_stops_100km": 17.5151,
++    "econ_stops_100km": 19.6364,
+     "econ_min_cond_engine": 40,
+-    "econ_min_cond_cooling": 53.4886,
+-    "econ_min_cond_battery": 61.1612,
+-    "econ_min_cond_suspension": 49.4812,
+-    "econ_min_cond_brakes": 56.2381,
+-    "econ_min_cond_body": 55
++    "econ_min_cond_cooling": 53.49,
++    "econ_min_cond_battery": 74.4949,
++    "econ_min_cond_suspension": 49.3276,
++    "econ_min_cond_brakes": 56.2391,
++    "econ_min_cond_body": 54.5903
+   }
+ }
+diff --git a/loop/scoreboard.json b/loop/scoreboard.json
+index 9f756ec..1c6f671 100644
+--- a/loop/scoreboard.json
++++ b/loop/scoreboard.json
+@@ -3250,7 +3250,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0004,
++            "value": 1650.0003,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3264,28 +3264,28 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.1961,
++            "value": 0.0831,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9991,
++            "value": 1.005,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 22.4699,
++            "value": 22.6217,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_offered_l_100km": {
+-            "value": 346.8726,
++            "value": 299.8303,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3306,14 +3306,14 @@
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 22,
++            "value": 13,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 28.9233,
++            "value": 32.1634,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3334,28 +3334,28 @@
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.4853,
++            "value": 53.4898,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_battery": {
+-            "value": 61.1599,
++            "value": 74.4929,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 48.9861,
++            "value": 48.9599,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_brakes": {
+-            "value": 60.3628,
++            "value": 60.3643,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3379,7 +3379,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0006,
++            "value": 1650.0004,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3393,28 +3393,28 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.4037,
++            "value": 0.3145,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9741,
++            "value": 0.9756,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 37.4817,
++            "value": 37.6694,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_offered_l_100km": {
+-            "value": 346.8726,
++            "value": 299.8302,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3435,14 +3435,14 @@
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 21,
++            "value": 11,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 28.482,
++            "value": 31.21,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3463,28 +3463,28 @@
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 49.5545,
++            "value": 53.4916,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_battery": {
+-            "value": 61.1606,
++            "value": 74.4915,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 49.0194,
++            "value": 49.0173,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_brakes": {
+-            "value": 59.8599,
++            "value": 59.8681,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3508,7 +3508,7 @@
+         "missing": 0,
+         "metrics": {
+           "econ_km": {
+-            "value": 1650.0007,
++            "value": 1650.0005,
+             "min": 1600,
+             "max": null,
+             "status": "pass",
+@@ -3522,28 +3522,28 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.4245,
++            "value": 0.4415,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9814,
++            "value": 0.9575,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 34.8915,
++            "value": 35.1217,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_offered_l_100km": {
+-            "value": 346.8726,
++            "value": 299.8302,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3564,14 +3564,14 @@
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 22,
++            "value": 14,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 29.9395,
++            "value": 33.1934,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3592,28 +3592,28 @@
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.486,
++            "value": 53.4906,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_battery": {
+-            "value": 61.1603,
++            "value": 74.4935,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 49.4786,
++            "value": 49.4801,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_brakes": {
+-            "value": 59.0684,
++            "value": 59.066,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -3651,28 +3651,28 @@
+             "miss": 0
+           },
+           "econ_min_fuel_frac": {
+-            "value": 0.3858,
++            "value": 0.3407,
+             "min": 0.05,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_fuel_closure": {
+-            "value": 0.9406,
++            "value": 0.9496,
+             "min": 0.9,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_burnt_l_100km": {
+-            "value": 63.2397,
++            "value": 63.5735,
+             "min": null,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_offered_l_100km": {
+-            "value": 346.8727,
++            "value": 299.8303,
+             "min": null,
+             "max": null,
+             "status": "pass",
+@@ -3693,14 +3693,14 @@
+             "miss": 0
+           },
+           "econ_kits_margin": {
+-            "value": 23,
++            "value": 14,
+             "min": 0,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_stop_min_per_hour": {
+-            "value": 27.2819,
++            "value": 29.843,
+             "min": null,
+             "max": 40,
+             "status": "pass",
+@@ -3721,35 +3721,35 @@
+             "miss": 0
+           },
+           "econ_min_cond_cooling": {
+-            "value": 53.4886,
++            "value": 53.49,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_battery": {
+-            "value": 61.1612,
++            "value": 74.4949,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_suspension": {
+-            "value": 49.4812,
++            "value": 49.3276,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_brakes": {
+-            "value": 56.2381,
++            "value": 56.2391,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+             "miss": 0
+           },
+           "econ_min_cond_body": {
+-            "value": 55,
++            "value": 54.5903,
+             "min": 30,
+             "max": null,
+             "status": "pass",
+@@ -4504,128 +4504,6 @@
+         "stage": null,
+         "active": true
+       },
+-      "roadgen/beats": {
+-        "title": "旅途节奏 · 路上多久出现一样东西",
+-        "passed": 16,
+-        "total": 16,
+-        "missing": 0,
+-        "metrics": {
+-          "beats_all_median_gap_s": {
+-            "value": 16.2385,
+-            "min": 8,
+-            "max": 40,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_all_p90_gap_s": {
+-            "value": 49.9069,
+-            "min": null,
+-            "max": 75,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moment_median_gap_s": {
+-            "value": 45.4047,
+-            "min": 35,
+-            "max": 110,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moment_p10_gap_s": {
+-            "value": 24.5612,
+-            "min": 20,
+-            "max": null,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moment_p90_gap_s": {
+-            "value": 108.6195,
+-            "min": null,
+-            "max": 150,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moment_max_gap_early_s": {
+-            "value": 153.7412,
+-            "min": null,
+-            "max": 200,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moment_max_gap_late_s": {
+-            "value": 240.8042,
+-            "min": null,
+-            "max": 300,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_quiet_stretches_per_10km_late": {
+-            "value": 0.9543,
+-            "min": 0.5,
+-            "max": 1.8,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_moments_per_10km": {
+-            "value": 7.9459,
+-            "min": 5,
+-            "max": 11,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_far_per_10km": {
+-            "value": 3.1449,
+-            "min": 2,
+-            "max": 4.5,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_place_per_10km": {
+-            "value": 2.8715,
+-            "min": 2,
+-            "max": 4.5,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_water_per_10km": {
+-            "value": 2.5448,
+-            "min": 1.2,
+-            "max": 4.5,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_land_per_10km": {
+-            "value": 2.7879,
+-            "min": 1.5,
+-            "max": 5,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_same_kind_three_running_share": {
+-            "value": 0.0098,
+-            "min": null,
+-            "max": 0.08,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_things_seen": {
+-            "value": 41,
+-            "min": 30,
+-            "max": null,
+-            "status": "pass",
+-            "miss": 0
+-          },
+-          "beats_determinism_mismatches": {
+-            "value": 0,
+-            "min": null,
+-            "max": 0,
+-            "status": "pass",
+-            "miss": 0
+-          }
+-        },
+-        "stage": null,
+-        "active": true
+-      },
+       "roadgen/default": {
+         "title": "道路与地形生成 · 机器人司机",
+         "passed": 20,
+@@ -5316,8 +5194,8 @@
+         "active": true
+       }
+     },
+-    "passed": 676,
+-    "total": 693,
++    "passed": 660,
++    "total": 677,
+     "missing": 17
+   }
+ }
+diff --git a/specs/activities/fishing.json b/specs/activities/fishing.json
+new file mode 100644
+index 0000000..006fec4
+--- /dev/null
++++ b/specs/activities/fishing.json
+@@ -0,0 +1,21 @@
++{
++  "id": "fishing",
++  "system": "activities",
++  "title": "钓鱼（第一版）",
++  "source": "docs/DESIGN_V2.md 8.4（看影 → 等真咬 → 反向压竿；一条鱼 20–60 秒；抛竿 0.3–1.2 秒蓄力 → 4–14 m；真咬窗口 0.9 秒、稀有 0.6 秒；绷满 1.5 秒断线；10% 杂物、5% 漂流瓶）与 11.2（第一章 12 种鱼的水域与时段）。机器人钓手在种子 7 的栈桥（s≈3195）上钓，见 harness/sim/fishing.ts；时间指标取下四分位与中位数。",
++  "metrics": {
++    "catch_seconds_lq": { "label": "熟练钓手一条鱼用时（下四分位）", "unit": "s", "min": 18, "max": 40 },
++    "catch_seconds_median": { "label": "熟练钓手一条鱼用时（中位数）", "unit": "s", "min": 20, "max": 60 },
++    "competent_landed_share": { "label": "熟练钓手：来咬钩的鱼最后拿到手的比例", "unit": "", "min": 0.85 },
++    "careless_landed_share": { "label": "毛躁钓手：来咬钩的鱼最后拿到手的比例", "unit": "", "max": 0.35 },
++    "junk_share": { "label": "钓上杂物与漂流瓶的比例（应约 15%）", "unit": "", "min": 0.06, "max": 0.25 },
++    "cast_min_m": { "label": "最短抛竿", "unit": "m", "min": 3.9, "max": 4.1 },
++    "cast_max_m": { "label": "最远抛竿", "unit": "m", "min": 13.9, "max": 14.1 },
++    "bite_window_s": { "label": "真咬后的窗口", "unit": "s", "min": 0.89, "max": 0.91 },
++    "bite_window_rare_s": { "label": "稀有鱼的窗口", "unit": "s", "min": 0.59, "max": 0.61 },
++    "snap_full_s": { "label": "线绷满多久断", "unit": "s", "min": 1.49, "max": 1.51 },
++    "lake_species_mismatches": { "label": "湖在正午与黄昏给出的鱼种与 11.2 不符", "unit": "处", "max": 0 },
++    "species_count": { "label": "鱼种数（第一章）", "unit": "种", "min": 12, "max": 12 },
++    "determinism_diff": { "label": "同种子同输入钓到的鱼不同", "unit": "", "max": 0 }
++  }
++}
+diff --git a/src/core/fishing/angler.ts b/src/core/fishing/angler.ts
+new file mode 100644
+index 0000000..2bc34cb
+--- /dev/null
++++ b/src/core/fishing/angler.ts
+@@ -0,0 +1,95 @@
++/**
++ * Robot anglers for the tests and the measurements: a competent one (casts at a shadow, waits for
++ * the real bite, strikes at once, pulls against every run and reels only while the fish rests) and
++ * a careless one (strikes at nibbles or late, keeps reeling, pulls any old way). They drive the
++ * same Angling a player does, through the same input.
++ */
++import { Angling, type FishInput, type RodTip } from './angling';
++import { Stream } from './school';
++
++export type AnglerKind = 'competent' | 'careless';
++
++export class Angler {
++  readonly input: FishInput = { down: false, pullX: 0, pullY: 0, cancel: false };
++  private readonly rng: Stream;
++  private charge = 0;
++  private react = 0;
++  private lastNibbles = 0;
++  private prev = false;
++
++  constructor(
++    readonly kind: AnglerKind,
++    seed: number,
++  ) {
++    this.rng = new Stream(seed ^ 0x7a11);
++  }
++
++  /** choose the input for this step; may turn the rod tip's heading to face a shadow before casting */
++  decide(a: Angling, tip: RodTip): FishInput {
++    const inp = this.input;
++    const careless = this.kind === 'careless';
++    inp.cancel = false;
++    inp.pullX = 0;
++    inp.pullY = 0;
++    switch (a.phase) {
++      case 'idle': {
++        // a shadow within reach: face it and charge for its distance
++        let best = null as null | { x: number; z: number; d: number };
++        for (const s of a.school.shadows) {
++          if (s.state !== 'roam') continue;
++          const d = Math.hypot(s.x - tip.x, s.z - tip.z);
++          if (d < 4.5 || d > 13.5) continue;
++          if (!best || d < best.d) best = { x: s.x, z: s.z, d };
++        }
++        if (!best) {
++          inp.down = false;
++          break;
++        }
++        tip.heading = Math.atan2(best.z - tip.z, best.x - tip.x);
++        // just short of it: right on top of it, the splash would scare it off
++        this.charge = Angling.chargeFor(best.d - 0.9 + (careless ? this.rng.range(-2.5, 2.5) : 0));
++        // (a fresh press: let go first if the button was still held from the fight)
++        inp.down = !this.prev;
++        break;
++      }
++      case 'charging':
++        inp.down = a.t < this.charge;
++        break;
++      case 'waiting':
++        inp.down = false;
++        if (careless && a.target) {
++          // strikes at a nibble half the time
++          const n = a.nibbles.length;
++          if (n < this.lastNibbles && this.rng.next() < 0.5) inp.down = true;
++          this.lastNibbles = n;
++        } else this.lastNibbles = 4;
++        // nothing came for a long while: wind in and cast again
++        if (!a.target && a.t > 12) inp.down = true;
++        this.react = careless ? this.rng.range(0.4, 1.4) : this.rng.range(0.18, 0.32);
++        break;
++      case 'bite':
++        inp.down = a.t >= this.react;
++        break;
++      case 'fight': {
++        if (careless) {
++          inp.down = true;
++          inp.pullX = this.rng.range(-1, 1);
++          inp.pullY = this.rng.range(-1, 1);
++          break;
++        }
++        const run = a.run;
++        inp.pullX = run === 'left' ? 1 : run === 'right' ? -1 : 0;
++        inp.pullY = run === 'out' ? 1 : 0;
++        inp.down = run === 'none' && a.tension < 0.8;
++        break;
++      }
++      case 'landed':
++        inp.down = false;
++        break;
++      default:
++        inp.down = false;
++    }
++    this.prev = inp.down;
++    return inp;
++  }
++}
+diff --git a/src/core/fishing/angling.ts b/src/core/fishing/angling.ts
+new file mode 100644
+index 0000000..6d2ead9
+--- /dev/null
++++ b/src/core/fishing/angling.ts
+@@ -0,0 +1,498 @@
++/**
++ * One rod in the water (docs/DESIGN_V2.md 8.4): three beats, one signal each —
++ * see the shadow → wait for the real bite → pull against the run.
++ *
++ *   cast    hold to charge 0.3–1.2 s → 4–14 m; a shadow within 1.5 m of the float comes to it
++ *   wait    4–20 s (halved with bait); 0–3 nibbles (a tap on the float), then the real bite: the
++ *           float goes under. Strike within 0.9 s (rare fish 0.6 s); too early or too late only
++ *           loses the fish (no bait is used up)
++ *   fight   the fish runs left / right / out by its temperament; pulling the other way tires it;
++ *           reeling while it runs loads the line — full for 1.5 s and it snaps; reel while it rests
++ *   land    tired out and reeled to the feet: the catch. One in ten fish is a big one; one hook in
++ *           ten brings up junk (an old boot), one in twenty a bottle with a note
++ *
++ * Pure, seeded, fixed step (1/60 s), serialisable. Input per step is what the hands do; the game
++ * reads mouse buttons and movement into it, a robot angler (angler.ts) can drive it just the same.
++ */
++import type { Land } from '../onfoot/land';
++import { TerrainPoint } from '../onfoot/land';
++import { School, Stream, waterAt, type Shadow, type WaterFacts } from './school';
++import { type Temper } from './species';
++import { speciesById } from './school';
++
++export const FISH_STEP = 1 / 60;
++export const CHARGE_MIN = 0.3;
++export const CHARGE_MAX = 1.2;
++export const CAST_MIN = 4;
++export const CAST_MAX = 14;
++export const COME_R = 1.5;
++export const WAIT: readonly [number, number] = [4, 20];
++export const BITE_WINDOW = 0.9;
++export const BITE_WINDOW_RARE = 0.6;
++export const SNAP_FULL = 1.5;
++/** within this of the rod tip the fish is landed */
++export const LAND_R = 1.3;
++/** this much line out and it parts */
++export const LINE_MAX = 30;
++export const JUNK = 'junk.boot';
++export const BOTTLE = 'keep.bottle';
++
++export type Phase = 'idle' | 'charging' | 'flight' | 'waiting' | 'bite' | 'fight' | 'landed';
++export type Run = 'none' | 'left' | 'right' | 'out';
++export type FishEvent = 'cast' | 'plop' | 'nibble' | 'dip' | 'strike' | 'early' | 'miss' | 'run' | 'jump' | 'snap' | 'land' | 'reelin';
++
++export interface FishInput {
++  /** the cast / reel button (left mouse) held */
++  down: boolean;
++  /** pull: + right / − left, + back towards oneself (−1…1 each; mouse movement) */
++  pullX: number;
++  pullY: number;
++  /** give up (right mouse): line in, whatever is on it goes */
++  cancel: boolean;
++}
++
++export interface RodTip {
++  x: number;
++  y: number;
++  z: number;
++  /** facing on the plan (solids' convention) */
++  heading: number;
++}
++
++export interface Catch {
++  id: string;
++  lengthCm: number;
++  big: boolean;
++  /** seconds from the cast to the landing */
++  seconds: number;
++}
++
++interface Hooked {
++  species: string;
++  temper: Temper;
++  size: number;
++  lengthCm: number;
++  big: boolean;
++  rare: boolean;
++  junk: boolean;
++  stamina: number;
++  stamina0: number;
++}
++
++export interface AnglingState {
++  phase: Phase;
++  rng: number;
++  t: number;
++  charge: number;
++  fx: number;
++  fz: number;
++  fy: number;
++  dip: number;
++  wet: boolean;
++  target: number;
++  wait: number;
++  nibbles: number[];
++  window: number;
++  fish: Hooked | null;
++  run: Run;
++  runT: number;
++  tension: number;
++  full: number;
++  castAt: number;
++  clock: number;
++  caught: Catch | null;
++}
++
++export class Angling {
++  phase: Phase = 'idle';
++  readonly rng: Stream;
++  /** time in the phase (s) */
++  t = 0;
++  /** the charge held so far / of the last cast (s) */
++  charge = 0;
++  /** the float on the plan, its height, and how far it is pulled under (0 floating … 1 gone) */
++  fx = 0;
++  fz = 0;
++  fy = 0;
++  dip = 0;
++  /** the float lies in water that can be fished */
++  wet = false;
++  /** the shadow that came (id; 0 = none) */
++  target = 0;
++  /** seconds of waiting left before the real bite, and the nibbles still to come (seconds before the bite) */
++  wait = 0;
++  nibbles: number[] = [];
++  /** seconds left to strike */
++  window = 0;
++  fish: Hooked | null = null;
++  run: Run = 'none';
++  runT = 0;
++  /** line load 0…1, and how long it has been full */
++  tension = 0;
++  full = 0;
++  castAt = 0;
++  clock = 0;
++  /** the last thing landed, until the game takes it */
++  caught: Catch | null = null;
++  /** with bait the wait is halved */
++  bait = false;
++  readonly events: FishEvent[] = [];
++  private wasDown = false;
++  private readonly tp = new TerrainPoint();
++  private readonly wf: WaterFacts = { fishable: false, kind: 'lake', level: 0, depth: 0, body: 0 };
++
++  constructor(
++    seed: number,
++    readonly school: School,
++  ) {
++    this.rng = new Stream(seed ^ 0x51f15e);
++  }
++
++  /** the cast's length for a charge (s) */
++  static castLength(charge: number): number {
++    const c = Math.min(CHARGE_MAX, Math.max(CHARGE_MIN, charge));
++    return CAST_MIN + ((c - CHARGE_MIN) / (CHARGE_MAX - CHARGE_MIN)) * (CAST_MAX - CAST_MIN);
++  }
++
++  /** the charge (s) that throws `d` metres */
++  static chargeFor(d: number): number {
++    const k = Math.min(1, Math.max(0, (d - CAST_MIN) / (CAST_MAX - CAST_MIN)));
++    return CHARGE_MIN + k * (CHARGE_MAX - CHARGE_MIN);
++  }
++
++  /** the line out: from the tip to the float on the plan */
++  lineLength(tip: RodTip): number {
++    return Math.hypot(this.fx - tip.x, this.fz - tip.z);
++  }
++
++  private emit(e: FishEvent): void {
++    this.events.push(e);
++    if (this.events.length > 32) this.events.shift();
++  }
++
++  private shadow(): Shadow | null {
++    if (!this.target) return null;
++    return this.school.shadows.find((s) => s.id === this.target) ?? null;
++  }
++
++  /** let go of whatever is on the line, and wind in */
++  private reset(scare = true): void {
++    const s = this.shadow();
++    if (s) {
++      if (scare) {
++        s.state = 'flee';
++        s.t = 3;
++      } else s.state = 'roam';
++    }
++    this.target = 0;
++    this.fish = null;
++    this.run = 'none';
++    this.tension = 0;
++    this.full = 0;
++    this.dip = 0;
++    this.phase = 'idle';
++    this.t = 0;
++  }
++
++  step(inp: FishInput, tip: RodTip, land: Land): void {
++    const h = FISH_STEP;
++    const pressed = inp.down && !this.wasDown;
++    const released = !inp.down && this.wasDown;
++    this.wasDown = inp.down;
++    this.clock += h;
++    this.t += h;
++    if (inp.cancel && this.phase !== 'idle' && this.phase !== 'landed') {
++      this.emit('reelin');
++      this.reset();
++      return;
++    }
++    switch (this.phase) {
++      case 'idle':
++        if (pressed) {
++          this.phase = 'charging';
++          this.t = 0;
++        }
++        break;
++      case 'charging':
++        this.charge = this.t;
++        if (released) {
++          const d = Angling.castLength(this.t);
++          this.charge = Math.min(CHARGE_MAX, Math.max(CHARGE_MIN, this.t));
++          this.fx = tip.x + Math.cos(tip.heading) * d;
++          this.fz = tip.z + Math.sin(tip.heading) * d;
++          this.phase = 'flight';
++          this.t = 0;
++          this.castAt = this.clock;
++          this.emit('cast');
++        }
++        break;
++      case 'flight':
++        if (this.t >= 0.6) {
++          const w = waterAt(land, this.fx, this.fz, this.tp, this.wf);
++          this.wet = w.fishable;
++          this.fy = Number.isFinite(w.level) && w.depth > 0 ? w.level : this.tp.h;
++          this.phase = 'waiting';
++          this.t = 0;
++          this.target = 0;
++          this.emit('plop');
++          // right on top of a shadow: it darts away
++          this.school.scare(this.fx, this.fz, 0.5, 2);
++        }
++        break;
++      case 'waiting':
++        this.waiting(h, pressed);
++        break;
++      case 'bite':
++        this.dip = Math.min(1, this.dip + h * 8);
++        this.window -= h;
++        if (pressed) {
++          this.hook();
++        } else if (this.window <= 0) {
++          this.emit('miss');
++          this.loseFish();
++        }
++        break;
++      case 'fight':
++        this.fight(h, inp, tip);
++        break;
++      case 'landed':
++        if (pressed) this.phase = 'idle';
++        break;
++    }
++  }
++
++  private waiting(h: number, pressed: boolean): void {
++    if (pressed) {
++      // winding in: a fish that was about to take it is gone
++      if (this.target) this.emit('early');
++      this.emit('reelin');
++      this.reset(true);
++      return;
++    }
++    this.dip = Math.max(0, this.dip - h * 4);
++    if (!this.wet) return;
++    let s = this.shadow();
++    if (!s) {
++      const near = this.school.nearest(this.fx, this.fz, COME_R);
++      if (!near) return;
++      near.state = 'come';
++      this.target = near.id;
++      this.wait = this.rng.range(WAIT[0], WAIT[1]) * (this.bait ? 0.5 : 1);
++      const n = this.rng.int(4);
++      this.nibbles = [];
++      for (let i = 0; i < n; i++) this.nibbles.push(this.rng.range(0.8, this.wait - 0.8));
++      this.nibbles.sort((a, b) => b - a);
++      s = near;
++    }
++    // the shadow swims up under the float
++    const dx = this.fx - s.x;
++    const dz = this.fz - s.z;
++    const d = Math.hypot(dx, dz);
++    if (d > 0.36) {
++      const v = 0.6 * h;
++      s.x += (dx / d) * Math.min(v, d - 0.35);
++      s.z += (dz / d) * Math.min(v, d - 0.35);
++      s.heading = Math.atan2(dz, dx);
++      return;
++    }
++    this.wait -= h;
++    if (this.nibbles.length && this.wait <= this.nibbles[0]) {
++      this.nibbles.shift();
++      this.dip = 0.35;
++      this.emit('nibble');
++    }
++    if (this.wait <= 0) {
++      const sp = speciesById(s.species);
++      this.phase = 'bite';
++      this.t = 0;
++      this.window = sp && sp.rarity >= 2 ? BITE_WINDOW_RARE : BITE_WINDOW;
++      this.emit('dip');
++    }
++  }
++
++  private loseFish(): void {
++    const s = this.shadow();
++    if (s) {
++      s.state = 'flee';
++      s.t = 3;
++    }
++    this.target = 0;
++    this.phase = 'waiting';
++    this.t = 0;
++    this.dip = 0;
++  }
++
++  private hook(): void {
++    const s = this.shadow();
++    if (!s) {
++      this.loseFish();
++      return;
++    }
++    const sp = speciesById(s.species)!;
++    const u = this.rng.next();
++    const junk = u < 0.15;
++    const size = junk ? 1 : sp.size;
++    const temper: Temper = junk ? 'steady' : sp.temper;
++    const base = [6, 8, 11, 18][size] * (s.big && !junk ? 1.5 : 1) * (temper === 'brute' ? 1.4 : 1);
++    this.fish = {
++      species: junk ? (u < 0.1 ? JUNK : BOTTLE) : s.species,
++      temper,
++      size,
++      lengthCm: s.lengthCm,
++      big: s.big && !junk,
++      rare: sp.rarity >= 2,
++      junk,
++      stamina: junk ? 1.5 : base,
++      stamina0: junk ? 1.5 : base,
++    };
++    s.state = 'hooked';
++    this.phase = 'fight';
++    this.t = 0;
++    this.run = 'none';
++    this.runT = this.rng.range(0.4, 0.9);
++    this.tension = 0.3;
++    this.full = 0;
++    this.emit('strike');
++  }
++
++  /** run and rest lengths by temperament (s) */
++  private nextRun(f: Hooked): void {
++    const r = this.rng;
++    if (this.run === 'none' && f.stamina > 0) {
++      const T = f.temper;
++      const lateral = T === 'darting' ? 0.85 : T === 'sinker' ? 0.25 : T === 'steady' ? 0.35 : 0.55;
++      this.run = r.next() < lateral ? (r.next() < 0.5 ? 'left' : 'right') : 'out';
++      this.runT = T === 'darting' ? r.range(0.6, 1.1) : T === 'brute' ? r.range(1.6, 2.6) : T === 'sinker' ? r.range(1.4, 2.2) : r.range(0.9, 1.6);
++      this.emit(T === 'floater' && r.next() < 0.5 ? 'jump' : 'run');
++    } else {
++      this.run = 'none';
++      this.runT = f.temper === 'darting' ? r.range(0.8, 1.3) : r.range(1.3, 2.3);
++    }
++  }
++
++  private fight(h: number, inp: FishInput, tip: RodTip): void {
++    const f = this.fish!;
++    this.runT -= h;
++    if (this.runT <= 0) this.nextRun(f);
++    if (f.stamina <= 0) this.run = 'none';
++    const dx = this.fx - tip.x;
++    const dz = this.fz - tip.z;
++    const d = Math.hypot(dx, dz) || 1e-6;
++    const ox = dx / d;
++    const oz = dz / d;
++    // its right as seen from the bank: the line's direction turned right
++    const rx = -oz;
++    const rz = ox;
++    const reel = inp.down;
++    const px = Math.max(-1, Math.min(1, inp.pullX));
++    const py = Math.max(-1, Math.min(1, inp.pullY));
++    if (this.run !== 'none') {
++      // the right counter: the other way to the run
++      const q = this.run === 'left' ? px : this.run === 'right' ? -px : py;
++      const good = Math.max(0, q);
++      const wrong = Math.max(0, -q);
++      f.stamina -= (0.3 + 1.3 * good) * h;
++      const v = (f.temper === 'brute' ? 1.6 : 1.3) * (1 - 0.6 * good) * h;
++      if (this.run === 'out') {
++        this.fx += ox * v;
++        this.fz += oz * v;
++      } else {
++        const s = this.run === 'left' ? -1 : 1;
++        this.fx += rx * s * v;
++        this.fz += rz * s * v;
++      }
++      this.tension = Math.min(1, this.tension + (reel ? 0.9 : -0.5) * h + wrong * 0.35 * h);
++      if (f.temper === 'floater' && reel) this.tension = Math.min(1, this.tension + 0.3 * h);
++    } else {
++      f.stamina -= 0.12 * h;
++      if (reel) {
++        // reel in: the fish comes; the line holds a working load
++        // a fish with fight left in it will not be drawn in to the feet
++        const v = Math.min((f.stamina > 0 ? 1.1 : 1.6) * h, Math.max(0, d - (f.stamina > 0 ? 3 : 0)));
++        this.fx -= ox * v;
++        this.fz -= oz * v;
++        this.tension += (0.35 - this.tension) * Math.min(1, h * 3);
++      } else this.tension = Math.max(0, this.tension - 0.6 * h);
++    }
++    this.full = this.tension >= 0.999 ? this.full + h : 0;
++    const s = this.shadow();
++    if (s) {
++      s.x = this.fx;
++      s.z = this.fz;
++    }
++    this.dip = 0.6 + 0.4 * this.tension;
++    if (this.full >= SNAP_FULL || this.lineLength(tip) > LINE_MAX) {
++      this.emit('snap');
++      this.school.remove(s!);
++      this.reset(false);
++      this.target = 0;
++      return;
++    }
++    if (this.lineLength(tip) <= LAND_R) {
++      this.caught = { id: f.species, lengthCm: f.junk ? 0 : f.lengthCm, big: f.big, seconds: this.clock - this.castAt };
++      if (s) {
++        if (speciesById(s.species)?.onePerLake && !f.junk) this.school.kingsTaken.add(s.body);
++        this.school.remove(s);
++      }
++      this.target = 0;
++      this.fish = null;
++      this.run = 'none';
++      this.tension = 0;
++      this.dip = 0;
++      this.phase = 'landed';
++      this.t = 0;
++      this.emit('land');
++    }
++  }
++
++  /** the game takes the catch (into the hands or the pack) */
++  takeCatch(): Catch | null {
++    const c = this.caught;
++    this.caught = null;
++    if (this.phase === 'landed') this.phase = 'idle';
++    return c;
++  }
++
++  /** how far the rod bends: 0 straight … 1 at its limit */
++  get bend(): number {
++    return this.phase === 'fight' ? 0.25 + 0.75 * this.tension : this.phase === 'bite' ? 0.2 : 0;
++  }
++
++  /** what is on the line, if anything (species id, stamina left 0…1) */
++  get hooked(): { id: string; stamina: number } | null {
++    return this.fish ? { id: this.fish.species, stamina: Math.max(0, this.fish.stamina / this.fish.stamina0) } : null;
++  }
++
++  toJSON(): AnglingState {
++    return {
++      phase: this.phase,
++      rng: this.rng.s,
++      t: this.t,
++      charge: this.charge,
++      fx: this.fx,
++      fz: this.fz,
++      fy: this.fy,
++      dip: this.dip,
++      wet: this.wet,
++      target: this.target,
++      wait: this.wait,
++      nibbles: [...this.nibbles],
++      window: this.window,
++      fish: this.fish ? { ...this.fish } : null,
++      run: this.run,
++      runT: this.runT,
++      tension: this.tension,
++      full: this.full,
++      castAt: this.castAt,
++      clock: this.clock,
++      caught: this.caught ? { ...this.caught } : null,
++    };
++  }
++
++  load(s: AnglingState): this {
++    const { rng, ...rest } = s;
++    Object.assign(this, { ...rest, nibbles: [...s.nibbles], fish: s.fish ? { ...s.fish } : null, caught: s.caught ? { ...s.caught } : null });
++    this.rng.s = rng;
++    return this;
++  }
++}
+diff --git a/src/core/fishing/school.ts b/src/core/fishing/school.ts
+new file mode 100644
+index 0000000..b2a0d69
+--- /dev/null
++++ b/src/core/fishing/school.ts
+@@ -0,0 +1,246 @@
++/**
++ * Fish shadows (docs/DESIGN_V2.md 8.4, Animal Crossing's shadows): simple agents in the water near
++ * the player. Each is one fish already — its species, length, and whether it is a big one — so what
++ * is seen is what is caught. They gather in a jetty's zone and are sparse elsewhere; they shy away
++ * from splashes and from someone wading near them; one that sees a float within 1.5 m comes to it.
++ *
++ * Pure, seeded, fixed step; the state (shadows and the random stream) is plain data.
++ */
++import type { Land } from '../onfoot/land';
++import { TerrainPoint } from '../onfoot/land';
++import { BIOMES } from '../world/biomes';
++import { SPECIES, speciesFor, weightOf, type FishWeather, type Species, type WaterKind } from './species';
++
++/** a small random stream whose state can be saved */
++export class Stream {
++  constructor(public s: number) {
++    this.s = s | 0;
++  }
++  next(): number {
++    let t = (this.s = (this.s + 0x6d2b79f5) | 0);
++    t = Math.imul(t ^ (t >>> 15), t | 1);
++    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
++    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
++  }
++  range(a: number, b: number): number {
++    return a + (b - a) * this.next();
++  }
++  int(n: number): number {
++    return Math.floor(this.next() * n);
++  }
++}
++
++/** water fishable here: deeper than this (m) */
++export const FISHABLE_DEPTH = 0.4;
++
++export interface WaterFacts {
++  fishable: boolean;
++  kind: WaterKind;
++  level: number;
++  depth: number;
++  /** which lake / river: the road stretch it lies by (one old king per lake) */
++  body: number;
++}
++
++/** what the water is at (x, z) */
++export function waterAt(land: Land, x: number, z: number, tp: TerrainPoint, out: WaterFacts): WaterFacts {
++  land.shape(x, z, tp);
++  out.level = tp.wl;
++  out.depth = Number.isFinite(tp.wl) ? tp.wl - tp.bed : 0;
++  const frozen = tp.frozen > 0.5;
++  const biome = BIOMES[tp.bt < 0.5 ? tp.ba : tp.bb]?.id ?? 'plains';
++  out.kind = frozen ? 'ice' : tp.wkind === 2 ? 'stream' : biome === 'desert' ? 'oasis' : 'lake';
++  out.body = Math.floor(tp.s / 1250) * 4 + tp.wkind;
++  // ice fishing (a hole and an auger) is a later package
++  out.fishable = out.depth > FISHABLE_DEPTH && !frozen;
++  return out;
++}
++
++export type ShadowState = 'roam' | 'flee' | 'come' | 'hooked';
++
++export interface Shadow {
++  id: number;
++  species: string;
++  size: 0 | 1 | 2 | 3;
++  lengthCm: number;
++  big: boolean;
++  x: number;
++  z: number;
++  heading: number;
++  state: ShadowState;
++  /** seconds left in this state / until the next turn */
++  t: number;
++  /** the lake it belongs to */
++  body: number;
++}
++
++export interface SchoolState {
++  rng: number;
++  next: number;
++  spawnT: number;
++  shadows: Shadow[];
++  kingsTaken: number[];
++}
++
++/** the radius round the player where shadows live, and the counts kept there */
++export const SCHOOL_R = 24;
++export const IN_ZONE = 7;
++export const OUT_ZONE = 2;
++
++export interface Zone {
++  x: number;
++  z: number;
++  r: number;
++}
++
++export interface FishEnv {
++  hour: number;
++  weather: FishWeather;
++}
++
++export class School {
++  shadows: Shadow[] = [];
++  readonly rng: Stream;
++  private next = 1;
++  private spawnT = 0;
++  /** lakes whose old king has been caught */
++  readonly kingsTaken = new Set<number>();
++  private readonly tp = new TerrainPoint();
++  private readonly wf: WaterFacts = { fishable: false, kind: 'lake', level: 0, depth: 0, body: 0 };
++  private readonly list: Species[] = [];
++
++  constructor(seed: number) {
++    this.rng = new Stream(seed ^ 0x2f1c4a7);
++  }
++
++  /** step: keep the shadows near (cx, cz) alive, moving, and as many as the place holds */
++  step(h: number, land: Land, cx: number, cz: number, env: FishEnv, zones: readonly Zone[]): void {
++    let inZone: Zone | null = null;
++    for (const z of zones) if ((z.x - cx) ** 2 + (z.z - cz) ** 2 < (z.r + SCHOOL_R) ** 2) inZone = z;
++    // the far ones go
++    this.shadows = this.shadows.filter((s) => s.state === 'hooked' || (s.x - cx) ** 2 + (s.z - cz) ** 2 < (SCHOOL_R + 10) ** 2);
++    const want = inZone ? IN_ZONE : OUT_ZONE;
++    this.spawnT -= h;
++    if (this.shadows.length < want && this.spawnT <= 0) {
++      this.spawnT = 0.8;
++      this.spawn(land, cx, cz, env, inZone);
++    }
++    for (const s of this.shadows) this.move(s, h, land, inZone);
++  }
++
++  private spawn(land: Land, cx: number, cz: number, env: FishEnv, zone: Zone | null): void {
++    const r = this.rng;
++    for (let tries = 0; tries < 6; tries++) {
++      // in a zone: inside it; elsewhere: anywhere round the player
++      const a = r.next() * Math.PI * 2;
++      const d = zone ? Math.sqrt(r.next()) * zone.r : 4 + r.next() * (SCHOOL_R - 4);
++      const x = (zone ? zone.x : cx) + Math.cos(a) * d;
++      const z = (zone ? zone.z : cz) + Math.sin(a) * d;
++      if ((x - cx) ** 2 + (z - cz) ** 2 > SCHOOL_R * SCHOOL_R) continue;
++      const w = waterAt(land, x, z, this.tp, this.wf);
++      if (!w.fishable) continue;
++      const sp = this.roll(w.kind, w.body, env);
++      if (!sp) return;
++      const big = r.next() < 0.1;
++      const [lo, hi] = sp.len;
++      const lengthCm = Math.round(big ? hi - (hi - lo) * 0.2 * r.next() : lo + (hi - lo) * 0.8 * r.next() ** 1.4);
++      this.shadows.push({ id: this.next++, species: sp.id, size: sp.size, lengthCm, big, x, z, heading: r.next() * Math.PI * 2, state: 'roam', t: r.range(1, 4), body: w.body });
++      return;
++    }
++  }
++
++  private roll(kind: WaterKind, body: number, env: FishEnv): Species | null {
++    const l = this.list;
++    l.length = 0;
++    speciesFor(kind, env.hour, env.weather, l);
++    // one old king per lake: not if caught, and not two at once
++    for (let i = l.length - 1; i >= 0; i--) {
++      if (!l[i].onePerLake) continue;
++      if (this.kingsTaken.has(body) || this.shadows.some((s) => s.species === l[i].id)) l.splice(i, 1);
++    }
++    if (l.length === 0) return null;
++    let total = 0;
++    for (const s of l) total += weightOf(s, env.weather);
++    let u = this.rng.next() * total;
++    for (const s of l) {
++      u -= weightOf(s, env.weather);
++      if (u < 0) return s;
++    }
++    return l[l.length - 1];
++  }
++
++  private move(s: Shadow, h: number, land: Land, zone: Zone | null): void {
++    if (s.state === 'hooked' || s.state === 'come') return; // the line moves these
++    s.t -= h;
++    if (s.t <= 0) {
++      if (s.state === 'flee') s.state = 'roam';
++      s.t = this.rng.range(1.5, 4.5);
++      s.heading += this.rng.range(-1.6, 1.6);
++      // keep to the zone
++      if (zone && (s.x - zone.x) ** 2 + (s.z - zone.z) ** 2 > zone.r * zone.r) s.heading = Math.atan2(zone.z - s.z, zone.x - s.x);
++    }
++    const v = s.state === 'flee' ? 2.6 : 0.35 + 0.1 * s.size;
++    const nx = s.x + Math.cos(s.heading) * v * h;
++    const nz = s.z + Math.sin(s.heading) * v * h;
++    const w = waterAt(land, nx, nz, this.tp, this.wf);
++    if (w.fishable && w.depth > 0.6) {
++      s.x = nx;
++      s.z = nz;
++    } else {
++      // the shore: turn back
++      s.heading += Math.PI * (0.6 + 0.4 * this.rng.next());
++    }
++  }
++
++  /** a splash at (x, z): those within r dart away for t seconds */
++  scare(x: number, z: number, r: number, t = 3): void {
++    for (const s of this.shadows) {
++      if (s.state === 'hooked') continue;
++      const dx = s.x - x;
++      const dz = s.z - z;
++      if (dx * dx + dz * dz > r * r) continue;
++      s.state = 'flee';
++      s.t = t;
++      s.heading = Math.atan2(dz, dx) + this.rng.range(-0.4, 0.4);
++    }
++  }
++
++  /** the roaming shadow nearest to (x, z) within r, or null */
++  nearest(x: number, z: number, r: number): Shadow | null {
++    let best: Shadow | null = null;
++    let bd = r * r;
++    for (const s of this.shadows) {
++      if (s.state !== 'roam') continue;
++      const d = (s.x - x) ** 2 + (s.z - z) ** 2;
++      if (d <= bd) {
++        bd = d;
++        best = s;
++      }
++    }
++    return best;
++  }
++
++  remove(s: Shadow): void {
++    const i = this.shadows.indexOf(s);
++    if (i >= 0) this.shadows.splice(i, 1);
++  }
++
++  toJSON(): SchoolState {
++    return { rng: this.rng.s, next: this.next, spawnT: this.spawnT, shadows: this.shadows.map((s) => ({ ...s })), kingsTaken: [...this.kingsTaken] };
++  }
++
++  load(s: SchoolState): this {
++    this.rng.s = s.rng;
++    this.next = s.next;
++    this.spawnT = s.spawnT;
++    this.shadows = s.shadows.map((x) => ({ ...x }));
++    this.kingsTaken.clear();
++    for (const k of s.kingsTaken) this.kingsTaken.add(k);
++    return this;
++  }
++}
++
++/** a species by id */
++export function speciesById(id: string): Species | undefined {
++  return SPECIES.find((s) => s.id === id);
++}
+diff --git a/src/core/fishing/species.ts b/src/core/fishing/species.ts
+new file mode 100644
+index 0000000..8387e96
+--- /dev/null
++++ b/src/core/fishing/species.ts
+@@ -0,0 +1,91 @@
++/**
++ * Which fish live where and when (docs/DESIGN_V2.md 8.4, 11.2: the first chapter's twelve).
++ *
++ *   water   lake / stream / oasis (a lake in the desert) / ice (a frozen lake: a later package)
++ *   time    dawn 5–8 h · day 8–17 h · dusk 17–20 h · night 20–5 h
++ *   weather the moonfish only on clear nights, the rain eel only while or after it rains;
++ *           rain lifts every rarer band (Dredge-like: "rain is one band rarer")
++ *
++ * Temperament (Stardew's fish behaviours, carried into the fight): steady, darting, sinker,
++ * floater, brute. Shadow sizes: 0 small, 1 medium, 2 large, 3 huge.
++ */
++export type WaterKind = 'lake' | 'stream' | 'oasis' | 'ice';
++export type DaySlot = 'dawn' | 'day' | 'dusk' | 'night';
++export type Temper = 'steady' | 'darting' | 'sinker' | 'floater' | 'brute';
++
++export interface Species {
++  /** catalogue id (items/catalog.ts) */
++  id: string;
++  waters: readonly WaterKind[];
++  slots: readonly DaySlot[];
++  /** shadow size class */
++  size: 0 | 1 | 2 | 3;
++  /** a long thin shadow (the eel) */
++  slim?: boolean;
++  temper: Temper;
++  /** length range (cm) */
++  len: readonly [number, number];
++  /** 0 common, 1 uncommon, 2 rare, 3 legendary */
++  rarity: 0 | 1 | 2 | 3;
++  /** only under a clear sky */
++  clear?: boolean;
++  /** only while it rains or the ground is still wet from it */
++  afterRain?: boolean;
++  /** one in each lake, ever */
++  onePerLake?: boolean;
++}
++
++const ALL: readonly DaySlot[] = ['dawn', 'day', 'dusk', 'night'];
++
++export const SPECIES: readonly Species[] = [
++  { id: 'fish.bleak', waters: ['lake', 'stream'], slots: ALL, size: 0, temper: 'steady', len: [8, 18], rarity: 0 },
++  { id: 'fish.crucian', waters: ['lake'], slots: ['day'], size: 0, temper: 'steady', len: [12, 28], rarity: 0 },
++  { id: 'fish.trout', waters: ['stream'], slots: ['dawn', 'dusk'], size: 1, temper: 'darting', len: [20, 45], rarity: 1 },
++  { id: 'fish.perch', waters: ['lake'], slots: ['dusk'], size: 1, temper: 'brute', len: [22, 50], rarity: 1 },
++  { id: 'fish.carp', waters: ['lake'], slots: ['day'], size: 2, temper: 'sinker', len: [35, 80], rarity: 1 },
++  { id: 'fish.catfish', waters: ['lake'], slots: ['night'], size: 2, temper: 'sinker', len: [40, 110], rarity: 1 },
++  { id: 'fish.pike', waters: ['lake'], slots: ['dawn'], size: 2, temper: 'darting', len: [45, 100], rarity: 2 },
++  { id: 'fish.moon', waters: ['lake'], slots: ['night'], size: 1, temper: 'floater', len: [15, 30], rarity: 2, clear: true },
++  { id: 'fish.eel', waters: ['stream'], slots: ALL, size: 1, slim: true, temper: 'darting', len: [40, 90], rarity: 2, afterRain: true },
++  { id: 'fish.barb', waters: ['oasis'], slots: ['day'], size: 0, temper: 'steady', len: [10, 20], rarity: 0 },
++  { id: 'fish.char', waters: ['ice'], slots: ['day'], size: 2, temper: 'brute', len: [40, 95], rarity: 1 },
++  { id: 'fish.king', waters: ['lake'], slots: ['dusk'], size: 3, temper: 'brute', len: [120, 180], rarity: 3, onePerLake: true },
++];
++
++export function slotOf(hour: number): DaySlot {
++  const h = ((hour % 24) + 24) % 24;
++  return h >= 5 && h < 8 ? 'dawn' : h >= 8 && h < 17 ? 'day' : h >= 17 && h < 20 ? 'dusk' : 'night';
++}
++
++export interface FishWeather {
++  /** rain falling now */
++  raining: boolean;
++  /** the ground still wet from rain (0…1) */
++  wetness: number;
++  /** a clear sky (no cloud cover to speak of) */
++  clear: boolean;
++}
++
++export const FAIR: FishWeather = { raining: false, wetness: 0, clear: true };
++
++/** the fish that can be met in this water at this hour and weather */
++export function speciesFor(water: WaterKind, hour: number, w: FishWeather = FAIR, out: Species[] = []): Species[] {
++  const slot = slotOf(hour);
++  for (const s of SPECIES) {
++    if (!s.waters.includes(water) || !s.slots.includes(slot)) continue;
++    if (s.clear && !w.clear) continue;
++    if (s.afterRain && !(w.raining || w.wetness > 0.25)) continue;
++    out.push(s);
++  }
++  return out;
++}
++
++/** how often each band turns up (rain: every rarer band one step likelier) */
++export function weightOf(s: Species, w: FishWeather): number {
++  const base = [10, 4, 1.4, 0.6][s.rarity];
++  if (!w.raining) return base;
++  return [10, 6, 2.4, 1][s.rarity];
++}
++
++/** a catch's shadow is drawn this long (m) from its size class */
++export const SHADOW_LEN: readonly number[] = [0.25, 0.45, 0.75, 1.4];
+diff --git a/src/core/items/catalog.ts b/src/core/items/catalog.ts
+index 7ab6644..6e09c59 100644
+--- a/src/core/items/catalog.ts
++++ b/src/core/items/catalog.ts
+@@ -42,7 +42,8 @@ export type ItemShape =
+   | 'egg'
+   | 'cut'
+   | 'pelt'
+-  | 'tuber';
++  | 'tuber'
++  | 'rod';
+ 
+ export interface ItemDef {
+   readonly id: string;
+@@ -177,6 +178,7 @@ def('tool.siphon', '抽油管', 'siphon hose', 'tool', 'coil', 0xd8c24a);
+ def('tool.jack', '千斤顶', 'jack', 'tool', 'machine', 0xb5402c, { size: 'medium', rarity: 1 });
+ def('tool.wrench', '扳手', 'wrench', 'tool', 'tool', 0x9aa3a6);
+ def('tool.torch', '手电筒', 'torch', 'tool', 'tool', 0xd9b23c);
++def('tool.rod', '鱼竿', 'fishing rod', 'tool', 'rod', 0x9a6a3c, { size: 'medium', rarity: 1 });
+ def('tool.binoculars', '望远镜', 'binoculars', 'tool', 'case', 0x3d3f45, { rarity: 2, fragile: true });
+ def('ammo.bullet', '子弹', 'bullets', 'ammo', 'case', 0xc9a23c, { rarity: 1 });
+ 
+@@ -190,6 +192,7 @@ def('keep.tape', '磁带', 'cassette', 'keepsake', 'tape', 0xd98a3c, { stack: 1,
+ def('keep.map', '地图残页', 'scrap of a map', 'keepsake', 'paper', 0xe6dcc0, { stack: 1, rarity: 1 });
+ def('keep.photo', '相片', 'photograph', 'keepsake', 'paper', 0xd9d3c6, { stack: 1, rarity: 1 });
+ def('keep.book', '书', 'book', 'keepsake', 'book', 0x8a4f3c, { stack: 1, rarity: 1 });
++def('keep.bottle', '漂流瓶', 'bottle with a note', 'keepsake', 'bottle', 0x9fc8bf, { stack: 1, rarity: 1, fragile: true });
+ def('keep.radio', '收音机', 'radio', 'keepsake', 'case', 0x6f8f8a, { size: 'medium', rarity: 2, fragile: true });
+ 
+ // ---- big things that take two (6.4, 8.1): the first of the vehicle's parts are here so wrecks and
+diff --git a/src/core/items/containers.ts b/src/core/items/containers.ts
+index a34a954..a0b5aef 100644
+--- a/src/core/items/containers.ts
++++ b/src/core/items/containers.ts
+@@ -14,6 +14,7 @@ import { rollLoot, type ContainerKind } from './loot';
+ import { pickRadius, sizeOf } from './shapes';
+ import type { Actor, Interactable, InteractSource, LongUse, Vec3 } from '../interact/interact';
+ import { Solid, solidWithin, type SolidSource } from '../world/solids';
++import { CellIndex } from './grid';
+ 
+ export const OPEN_HOLD = 1.5;
+ export const TAKE_ALL_HOLD = 0.8;
+@@ -185,6 +186,8 @@ export interface ContainerState {
+ 
+ export class Containers implements InteractSource, SolidSource {
+   private readonly list: Container[] = [];
++  private readonly byId = new Map<string, Container>();
++  private readonly grid = new CellIndex<Container>();
+   private readonly uses = new Map<string, ContainerUse>();
+   private readonly slotUses = new Map<string, SlotUse[]>();
+ 
+@@ -192,6 +195,8 @@ export class Containers implements InteractSource, SolidSource {
+     if (this.get(def.id)) throw new Error(`container ${def.id} is already there`);
+     const c = new Container(def);
+     this.list.push(c);
++    this.byId.set(def.id, c);
++    this.grid.add(c, def.x, def.z, Math.hypot(def.hx, def.hz));
+     this.uses.set(def.id, new ContainerUse(c));
+     this.slotUses.set(
+       def.id,
+@@ -201,15 +206,18 @@ export class Containers implements InteractSource, SolidSource {
+   }
+ 
+   remove(id: string): void {
+-    const i = this.list.findIndex((c) => c.id === id);
+-    if (i >= 0) this.list.splice(i, 1);
++    const c = this.byId.get(id);
++    if (c) {
++      this.list.splice(this.list.indexOf(c), 1);
++      this.byId.delete(id);
++      this.grid.remove(c, c.def.x, c.def.z);
++    }
+     this.uses.delete(id);
+     this.slotUses.delete(id);
+   }
+ 
+   get(id: string): Container | undefined {
+-    for (const c of this.list) if (c.id === id) return c;
+-    return undefined;
++    return this.byId.get(id);
+   }
+ 
+   all(): readonly Container[] {
+@@ -228,20 +236,29 @@ export class Containers implements InteractSource, SolidSource {
+   }
+ 
+   interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
+-    for (const c of this.list) {
++    this.grid.each(x, z, r, (c) => {
+       const dx = c.def.x - x;
+       const dz = c.def.z - z;
+       const rr = r + Math.max(c.def.hx, c.def.hz);
+-      if (dx * dx + dz * dz > rr * rr) continue;
++      if (dx * dx + dz * dz > rr * rr) return;
+       out.push(this.uses.get(c.id)!);
+-      if (!c.opened) continue;
++      if (!c.opened) return;
+       const su = this.slotUses.get(c.id)!;
+       for (let i = 0; i < su.length; i++) if (c.store.slots[i]) out.push(su[i]);
+-    }
++    });
++  }
++
++  /** append the containers whose centre lies within r of (x, z) */
++  near(x: number, z: number, r: number, out: Container[]): void {
++    this.grid.each(x, z, r, (c) => {
++      if ((c.def.x - x) ** 2 + (c.def.z - z) ** 2 <= r * r) out.push(c);
++    });
+   }
+ 
+   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
+-    for (const c of this.list) if (c.def.solid !== false && solidWithin(c.solid, x, z, r)) out.push(c.solid);
++    this.grid.each(x, z, r, (c) => {
++      if (c.def.solid !== false && solidWithin(c.solid, x, z, r)) out.push(c.solid);
++    });
+   }
+ 
+   toJSON(): ContainerState[] {
+diff --git a/src/core/items/fuel.ts b/src/core/items/fuel.ts
+index 3899ee8..64436ae 100644
+--- a/src/core/items/fuel.ts
++++ b/src/core/items/fuel.ts
+@@ -28,6 +28,13 @@ export function fuelFor(kind: FuelKind, seed: number): number {
+   return Math.round(lo + new Rng(seed).next() * (hi - lo));
+ }
+ 
++/** the hose that siphoning needs (8.1): in the backpack, or in the hands */
++export const HOSE = 'tool.siphon';
++
++export function hasHose(a: Actor): boolean {
++  return a.pack.count(HOSE) > 0 || a.hands.id === HOSE;
++}
++
+ class Siphon implements Interactable {
+   readonly hold = 0;
+   readonly radius = 0.3;
+@@ -44,6 +51,7 @@ class Siphon implements Interactable {
+     const cap = a.hands.holds('fuel');
+     if (cap <= 0) return null;
+     if (this.f.litres <= 1e-6) return '空了';
++    if (!hasHose(a)) return '缺抽油管';
+     return a.hands.fill < cap - 1e-6 ? '抽油' : '满了';
+   }
+   act(_a: Actor): boolean {
+@@ -52,7 +60,7 @@ class Siphon implements Interactable {
+   channel(a: Actor, dt: number): boolean {
+     const cap = a.hands.holds('fuel');
+     const room = cap - a.hands.fill;
+-    if (cap <= 0 || room <= 1e-9 || this.f.litres <= 1e-9) return false;
++    if (cap <= 0 || room <= 1e-9 || this.f.litres <= 1e-9 || !hasHose(a)) return false;
+     const l = Math.min(SIPHON_RATE[this.f.kind] * dt, room, this.f.litres);
+     a.hands.fill += l;
+     this.f.litres -= l;
+diff --git a/src/core/items/grid.ts b/src/core/items/grid.ts
+new file mode 100644
+index 0000000..9b966da
+--- /dev/null
++++ b/src/core/items/grid.ts
+@@ -0,0 +1,59 @@
++/**
++ * A coarse grid on the plan for things that are added and taken but do not wander: loose things,
++ * containers. Asking for what is near a point visits the few cells round it, so a road that has
++ * handed over thousands of things still answers in microseconds.
++ */
++export const GRID_CELL = 16;
++
++export class CellIndex<T> {
++  private readonly cells = new Map<number, T[]>();
++  /** how far any one thing reaches beyond its point (a container's half size) */
++  private reach = 0;
++
++  constructor(readonly cell = GRID_CELL) {}
++
++  private key(i: number, j: number): number {
++    return (i + 1048576) * 2097152 + (j + 1048576);
++  }
++
++  add(t: T, x: number, z: number, reach = 0): void {
++    const k = this.key(Math.floor(x / this.cell), Math.floor(z / this.cell));
++    let l = this.cells.get(k);
++    if (!l) this.cells.set(k, (l = []));
++    l.push(t);
++    if (reach > this.reach) this.reach = reach;
++  }
++
++  remove(t: T, x: number, z: number): void {
++    const k = this.key(Math.floor(x / this.cell), Math.floor(z / this.cell));
++    const l = this.cells.get(k);
++    if (!l) return;
++    const i = l.indexOf(t);
++    if (i >= 0) l.splice(i, 1);
++    if (l.length === 0) this.cells.delete(k);
++  }
++
++  clear(): void {
++    this.cells.clear();
++    this.reach = 0;
++  }
++
++  /** call fn for everything in the cells that reach within r of (x, z) (the caller checks the distance) */
++  each(x: number, z: number, r: number, fn: (t: T) => void): void {
++    const rr = r + this.reach;
++    const i0 = Math.floor((x - rr) / this.cell);
++    const i1 = Math.floor((x + rr) / this.cell);
++    const j0 = Math.floor((z - rr) / this.cell);
++    const j1 = Math.floor((z + rr) / this.cell);
++    for (let i = i0; i <= i1; i++) {
++      for (let j = j0; j <= j1; j++) {
++        const l = this.cells.get(this.key(i, j));
++        if (l) for (const t of l) fn(t);
++      }
++    }
++  }
++
++  get cellCount(): number {
++    return this.cells.size;
++  }
++}
+diff --git a/src/core/items/loose.ts b/src/core/items/loose.ts
+index c0ce205..32d3527 100644
+--- a/src/core/items/loose.ts
++++ b/src/core/items/loose.ts
+@@ -9,6 +9,7 @@
+ import { item } from './catalog';
+ import { canTake, take, takeWord, type Carrier } from './carry';
+ import { pickRadius, sizeOf } from './shapes';
++import { CellIndex } from './grid';
+ import type { Actor, Interactable, InteractSource, Vec3 } from '../interact/interact';
+ 
+ export interface Loose {
+@@ -61,6 +62,9 @@ export interface LooseState {
+ export class LooseItems implements InteractSource {
+   private readonly items: Loose[] = [];
+   private readonly uses = new Map<string, LooseUse>();
++  /** by key, and by place on the plan (positions are fixed once added: to move a thing, take it and add it) */
++  private readonly byKey = new Map<string, Loose>();
++  private readonly grid = new CellIndex<Loose>();
+   private next = 1;
+   /** goes up whenever something is added, taken or moved (the view redraws then) */
+   version = 0;
+@@ -73,24 +77,26 @@ export class LooseItems implements InteractSource {
+     const l: Loose = { key: k, id, n, x, y, z, heading, owner, fill };
+     if (cond !== undefined) l.cond = cond;
+     this.items.push(l);
++    this.byKey.set(k, l);
++    this.grid.add(l, x, z);
+     this.version++;
+     return l;
+   }
+ 
+   get(key: string): Loose | undefined {
+-    for (const l of this.items) if (l.key === key) return l;
+-    return undefined;
++    return this.byKey.get(key);
+   }
+ 
+   /** take up to n away (all by default); returns what was taken, or null */
+   take(key: string, n = Infinity): { id: string; n: number; fill: number; cond?: number } | null {
+-    const i = this.items.findIndex((l) => l.key === key);
+-    if (i < 0) return null;
+-    const l = this.items[i];
++    const l = this.byKey.get(key);
++    if (!l) return null;
+     const k = Math.min(n, l.n);
+     l.n -= k;
+     if (l.n <= 0) {
+-      this.items.splice(i, 1);
++      this.items.splice(this.items.indexOf(l), 1);
++      this.byKey.delete(key);
++      this.grid.remove(l, l.x, l.z);
+       this.uses.delete(key);
+     }
+     this.version++;
+@@ -111,11 +117,11 @@ export class LooseItems implements InteractSource {
+   /** append the things within r of (x, z) */
+   near(x: number, z: number, r: number, out: Loose[]): void {
+     const r2 = r * r;
+-    for (const l of this.items) {
++    this.grid.each(x, z, r, (l) => {
+       const dx = l.x - x;
+       const dz = l.z - z;
+       if (dx * dx + dz * dz <= r2) out.push(l);
+-    }
++    });
+   }
+ 
+   all(): readonly Loose[] {
+@@ -128,14 +134,14 @@ export class LooseItems implements InteractSource {
+ 
+   interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
+     const r2 = r * r;
+-    for (const l of this.items) {
++    this.grid.each(x, z, r, (l) => {
+       const dx = l.x - x;
+       const dz = l.z - z;
+-      if (dx * dx + dz * dz > r2) continue;
++      if (dx * dx + dz * dz > r2) return;
+       let u = this.uses.get(l.key);
+       if (!u) this.uses.set(l.key, (u = new LooseUse(this, l)));
+       out.push(u);
+-    }
++    });
+   }
+ 
+   toJSON(): LooseState {
+@@ -145,7 +151,14 @@ export class LooseItems implements InteractSource {
+   load(s: LooseState): this {
+     this.items.length = 0;
+     this.uses.clear();
+-    for (const l of s.items) this.items.push({ ...l });
++    this.byKey.clear();
++    this.grid.clear();
++    for (const l0 of s.items) {
++      const l = { ...l0 };
++      this.items.push(l);
++      this.byKey.set(l.key, l);
++      this.grid.add(l, l.x, l.z);
++    }
+     this.next = s.next;
+     this.version++;
+     return this;
+diff --git a/src/core/items/loot.ts b/src/core/items/loot.ts
+index 63ddab2..41609a9 100644
+--- a/src/core/items/loot.ts
++++ b/src/core/items/loot.ts
+@@ -40,11 +40,9 @@ export const LOOT: Record<ContainerKind, LootTable> = {
+   // a workshop's drawers
+   toolbox: {
+     picks: [2, 4],
+-    entries: [e('mat.scrap', 3, 1, 3), e('mat.wire', 3, 1, 2), e('mat.tape', 3, 1, 2), e('part.sparkplug', 2), e('part.belt', 2), e('tool.wrench', 1), e('mat.rubber', 2, 1, 2), e('fuel.oil', 2), e('tool.repairkit', 2), e('tool.siphon', 1), e('mat.electronics', 2), e('part.battery.1', 1), e('tool.jack', 1),
++    entries: [e('mat.scrap', 3, 1, 3), e('mat.wire', 3, 1, 2), e('mat.tape', 3, 1, 2), e('part.sparkplug', 2), e('part.belt', 2), e('tool.wrench', 1), e('mat.rubber', 2, 1, 2), e('fuel.oil', 2), e('tool.repairkit', 1), e('tool.siphon', 1), e('mat.electronics', 2), e('part.battery.1', 1), e('tool.jack', 1),
+       // vehicle systems: small spares a workshop drawer holds (worn parts common, tier 2 uncommon)
+-      // (the robot traveller found twelve repair kits for every one it used: worn spares are half what they were,
+-      // and so are the kits in car boots and on garage shelves — but not in a workshop's drawers: with those
+-      // halved too, and quiet stretches on the road, the first kit came too late for an engine below 40)
++      // (the robot traveller found twelve repair kits for every one it used: kits and worn spares are half what they were)
+       e('part.brakes.1', 1), e('tool.tyreplug', 2), e('fluid.coolant', 2), e('tool.jumpleads', 1), e('part.brakes.2', 1), e('part.lights.fog', 1), e('part.heater.block', 1)],
+   },
+   // a shop's shelves
+@@ -99,7 +97,7 @@ export const LOOT: Record<ContainerKind, LootTable> = {
+   // on a jetty: somebody's fishing things
+   tacklebox: {
+     picks: [2, 3],
+-    entries: [e('bait.worm', 4, 2, 4), e('bait.bread', 3, 1, 2), e('mat.rope', 2), e('bait.snail', 2, 1, 3), e('mat.bamboo', 2), e('mat.bottle', 1), e('bait.spinner', 3, 1, 2), e('mat.wire', 1), e('keep.photo', 1)],
++    entries: [e('bait.worm', 4, 2, 4), e('bait.bread', 3, 1, 2), e('mat.rope', 2), e('bait.snail', 2, 1, 3), e('mat.bamboo', 2), e('mat.bottle', 1), e('bait.spinner', 3, 1, 2), e('mat.wire', 1), e('keep.photo', 1), e('tool.rod', 2)],
+   },
+   // in a hide at the edge of a wood
+   gamebag: {
+diff --git a/src/core/items/shapes.ts b/src/core/items/shapes.ts
+index ca6b49d..711c591 100644
+--- a/src/core/items/shapes.ts
++++ b/src/core/items/shapes.ts
+@@ -38,6 +38,8 @@ export const SHAPE_SIZE: Readonly<Record<ItemShape, ShapeSize>> = {
+   cut: { hx: 0.1, h: 0.05, hz: 0.07 },
+   pelt: { hx: 0.25, h: 0.12, hz: 0.14 },
+   tuber: { hx: 0.05, h: 0.05, hz: 0.04 },
++  /** a rod lying down: 2.1 m along */
++  rod: { hx: 1.05, h: 0.04, hz: 0.04 },
+ };
+ 
+ /** a medium thing is drawn a little bigger than its shape if it is a whole animal or a big fish (pelt, fish) */
+diff --git a/src/core/onfoot/cargo.ts b/src/core/onfoot/cargo.ts
+new file mode 100644
+index 0000000..8342409
+--- /dev/null
++++ b/src/core/onfoot/cargo.ts
+@@ -0,0 +1,216 @@
++/**
++ * What a vehicle carries outside its seats, and how it stands in the way of walkers.
++ *
++ * Shape: most vehicles are one box (spec.body); the open truck is a bed one can stand on — a floor
++ * at its deck, low side walls, a tailgate, a headboard — and a cab.
++ *
++ * Cargo (docs/DESIGN_V2.md 6.4, 8.1 "货位"): medium and large things — a jerrycan, a tyre, a
++ * generator — put down on the truck's bed, on the van's rear deck, on the motorhome's rear carrier.
++ * A slot store per vehicle (`Inventory(n, BIG_ONLY)`) with a place for each slot; the things ride
++ * there (they stay put while driving, for now: 5.6's sliding loads are a later package).
++ *
++ * Everything is in the body frame: +x forward, +y up, +z right, origin at the centre of gravity.
++ */
++import type { VehicleSpec } from '../vehicle/spec';
++import { item } from '../items/catalog';
++import { BIG_ONLY, Inventory, type Stack } from '../items/inventory';
++import { canTake, take, takeWord } from '../items/carry';
++import { pickRadius, sizeOf } from '../items/shapes';
++import type { Actor, Interactable, InteractSource, Vec3 } from '../interact/interact';
++import { bodyToWorld, type VehiclePose } from './vehicle';
++
++/** one upright box of a vehicle's body (body frame, y relative to the centre of gravity) */
++export interface BodyBox {
++  x0: number;
++  x1: number;
++  z0: number;
++  z1: number;
++  y0: number;
++  y1: number;
++  floor: boolean;
++}
++
++export interface CargoSpec {
++  /** where each slot's thing stands: body frame, y = the surface it stands on */
++  places: { x: number; y: number; z: number }[];
++  /** the point one looks at to put something on */
++  access: { x: number; y: number; z: number };
++  /** the bed can be climbed onto: where one ends up standing (body frame x, z) and where one looks to climb */
++  climb?: { x: number; z: number; aim: { x: number; y: number; z: number } };
++  /** a steel carrier is drawn under the places (the motorhome's rear rack) */
++  carrier?: { x0: number; x1: number; z: number; y: number };
++}
++
++/** the open truck as boxes: bed floor, walls, tailgate, headboard, cab (from game/vehicle/truck.ts) */
++function truckBoxes(spec: VehicleSpec): BodyBox[] {
++  const H = (h: number): number => h - spec.cgHeight;
++  return [
++    { x0: -1.6, x1: 0.15, z0: -0.7, z1: 0.7, y0: H(0.3), y1: H(0.64), floor: true }, // the bed's deck
++    { x0: -1.6, x1: 0.15, z0: -0.72, z1: -0.64, y0: H(0.64), y1: H(0.95), floor: false }, // walls
++    { x0: -1.6, x1: 0.15, z0: 0.64, z1: 0.72, y0: H(0.64), y1: H(0.95), floor: false },
++    { x0: -1.62, x1: -1.54, z0: -0.7, z1: 0.7, y0: H(0.4), y1: H(0.94), floor: false }, // tailgate
++    { x0: 0.12, x1: 0.2, z0: -0.7, z1: 0.7, y0: H(0.64), y1: H(1.06), floor: false }, // headboard
++    { x0: 0.19, x1: 1.7, z0: -0.7, z1: 0.7, y0: spec.body.bottom, y1: spec.body.top, floor: false }, // the cab
++  ];
++}
++
++/** the boxes a vehicle stands in the way with */
++export function bodyBoxes(spec: VehicleSpec): BodyBox[] {
++  if (spec.id === 't0_truck') return truckBoxes(spec);
++  const b = spec.body;
++  return [{ x0: b.centerX - b.halfLength, x1: b.centerX + b.halfLength, z0: -b.halfWidth, z1: b.halfWidth, y0: b.bottom, y1: b.top, floor: false }];
++}
++
++/** where each vehicle carries big things (none: it has no such place) */
++export function cargoOf(spec: VehicleSpec): CargoSpec | null {
++  const H = (h: number): number => h - spec.cgHeight;
++  switch (spec.id) {
++    case 't0_truck':
++      return {
++        places: [
++          { x: -1.25, y: H(0.64), z: -0.33 },
++          { x: -1.25, y: H(0.64), z: 0.33 },
++          { x: -0.55, y: H(0.64), z: -0.33 },
++          { x: -0.55, y: H(0.64), z: 0.33 },
++        ],
++        access: { x: -1.0, y: H(0.75), z: 0 },
++        climb: { x: -0.9, z: 0, aim: { x: -1.58, y: H(0.9), z: 0 } },
++      };
++    case 't1_van':
++      // the rear deck over the engine, reached through the tailgate
++      return {
++        places: [
++          { x: -1.78, y: H(0.95), z: -0.32 },
++          { x: -1.78, y: H(0.95), z: 0.32 },
++        ],
++        access: { x: -2.0, y: H(1.1), z: 0 },
++      };
++    case 't3_rv':
++      // a steel carrier on the back, behind the rear wall
++      return {
++        places: [
++          { x: -3.55, y: H(0.62), z: -0.42 },
++          { x: -3.55, y: H(0.62), z: 0.42 },
++        ],
++        access: { x: -3.55, y: H(0.8), z: 0 },
++        carrier: { x0: -3.78, x1: -3.32, z: 0.82, y: H(0.62) },
++      };
++    default:
++      return null;
++  }
++}
++
++export interface CargoState {
++  store: (Stack | null)[];
++  fills: number[];
++}
++
++/** what one vehicle carries, and its uses: put on (放上车), take (拿 / 抬) */
++export class CargoBay implements InteractSource {
++  readonly store: Inventory;
++  /** litres in a vessel standing in each slot */
++  readonly fills: number[];
++  /** goes up whenever something is put on or taken (the view redraws then) */
++  version = 0;
++  private readonly b = new Float64Array(9);
++  private readonly put: Interactable;
++  private readonly slots: Interactable[];
++
++  constructor(
++    readonly vehicle: VehiclePose,
++    readonly spec: CargoSpec,
++  ) {
++    this.store = new Inventory(spec.places.length, BIG_ONLY);
++    this.fills = spec.places.map(() => 0);
++    const bay = this;
++    const tag = vehicle.spec.id;
++    this.put = {
++      id: `${tag}:cargo`,
++      hold: 0,
++      radius: 0.45,
++      through: tag,
++      aim(out: Vec3): void {
++        bodyToWorld(bay.vehicle, bay.b, bay.spec.access.x, bay.spec.access.y, bay.spec.access.z, out);
++      },
++      prompt(a: Actor): string | null {
++        return a.hands.id && bay.store.room(a.hands.id) > 0 ? '放上车' : null;
++      },
++      act(a: Actor): boolean {
++        return bay.putFrom(a);
++      },
++    };
++    this.slots = spec.places.map((p, i) => ({
++      id: `${tag}:cargo#${i}`,
++      hold: 0,
++      through: tag,
++      get radius(): number {
++        const s = bay.store.slots[i];
++        return s ? pickRadius(s.id) : 0.1;
++      },
++      aim(out: Vec3): void {
++        const s = bay.store.slots[i];
++        bodyToWorld(bay.vehicle, bay.b, p.x, p.y + (s ? sizeOf(s.id).h * 0.5 : 0), p.z, out);
++      },
++      prompt(a: Actor): string | null {
++        const s = bay.store.slots[i];
++        return s && canTake(a, s.id) > 0 ? takeWord(s.id) : null;
++      },
++      act(a: Actor): boolean {
++        return bay.takeInto(i, a);
++      },
++    }));
++  }
++
++  /** the thing in the hands onto the first free place */
++  putFrom(a: Actor): boolean {
++    const id = a.hands.id;
++    if (!id || this.store.room(id) <= 0) return false;
++    const i = this.store.slots.findIndex((s) => s === null);
++    if (i < 0) return false;
++    this.store.slots[i] = { id, n: 1 };
++    this.fills[i] = a.hands.fill;
++    a.hands.set(null);
++    this.version++;
++    return true;
++  }
++
++  /** slot i's thing into the hands */
++  takeInto(i: number, a: Actor): boolean {
++    const s = this.store.slots[i];
++    if (!s || canTake(a, s.id) <= 0) return false;
++    take(a, s.id, 1, this.fills[i]);
++    this.store.takeSlot(i, 1);
++    this.fills[i] = 0;
++    this.version++;
++    return true;
++  }
++
++  /** a body-frame place of slot i (for the view) */
++  place(i: number): { x: number; y: number; z: number } {
++    return this.spec.places[i];
++  }
++
++  interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
++    const v = this.vehicle;
++    const reach = r + v.spec.body.halfLength + 1.5;
++    if ((v.px - x) ** 2 + (v.pz - z) ** 2 > reach * reach) return;
++    out.push(this.put);
++    for (let i = 0; i < this.slots.length; i++) if (this.store.slots[i]) out.push(this.slots[i]);
++  }
++
++  toJSON(): CargoState {
++    return { store: this.store.toJSON(), fills: [...this.fills] };
++  }
++
++  load(s: CargoState): this {
++    this.store.load(s.store);
++    s.fills.forEach((f, i) => (this.fills[i] = f));
++    this.version++;
++    return this;
++  }
++}
++
++/** is a thing of this id carried as cargo at all (medium or large) */
++export function isCargo(id: string): boolean {
++  return item(id).size !== 'small';
++}
+diff --git a/src/core/onfoot/vehicle.ts b/src/core/onfoot/vehicle.ts
+index 66f141a..5f5d7ad 100644
+--- a/src/core/onfoot/vehicle.ts
++++ b/src/core/onfoot/vehicle.ts
+@@ -7,6 +7,7 @@
+ import type { VehicleSpec } from '../vehicle/spec';
+ import { Solid, solidWithin, type SolidSource } from '../world/solids';
+ import { FOOT, type FootWalker } from './walker';
++import { bodyBoxes, type BodyBox } from './cargo';
+ 
+ /** what is needed of a vehicle's pose: position of the centre of gravity and the body axes */
+ export interface VehiclePose {
+@@ -61,9 +62,29 @@ export class VehicleSolid implements SolidSource {
+     return this.solid.set(c.x, c.z, bd.halfLength, bd.halfWidth, h, v.py + bd.bottom, v.py + bd.top, false, v.spec.id);
+   }
+ 
++  /** the body's boxes as solids (the truck: a bed to stand on, walls, a cab), kept up to date with the pose */
++  private parts: Solid[] | null = null;
++  private boxes: BodyBox[] = [];
++
+   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
+     const s = this.update();
+-    if (solidWithin(s, x, z, r)) out.push(s);
++    if (!solidWithin(s, x, z, r + 0.5)) return;
++    const v = this.vehicle;
++    if (!this.parts) {
++      this.boxes = bodyBoxes(v.spec);
++      this.parts = this.boxes.map(() => new Solid());
++    }
++    if (this.boxes.length === 1) {
++      out.push(s);
++      return;
++    }
++    const h = vehicleHeading(v, this.b);
++    for (let i = 0; i < this.boxes.length; i++) {
++      const bx = this.boxes[i];
++      const c = bodyToWorld(v, this.b, (bx.x0 + bx.x1) / 2, 0, (bx.z0 + bx.z1) / 2, this.p);
++      const so = this.parts[i].set(c.x, c.z, (bx.x1 - bx.x0) / 2, (bx.z1 - bx.z0) / 2, h, v.py + bx.y0, v.py + bx.y1, bx.floor, v.spec.id);
++      if (solidWithin(so, x, z, r)) out.push(so);
++    }
+   }
+ }
+ 
+@@ -135,6 +156,20 @@ export function placeAtDoor(w: FootWalker, v: VehiclePose, door: Door): boolean
+   return w.place(p.x, p.z, face, 8);
+ }
+ 
++/** a door within `reach` (m, on the plan) of a body-frame point — a seat beside it — or null */
++export function doorWithin(doors: readonly Door[], x: number, z: number, halfWidth: number, reach: number): Door | null {
++  let best: Door | null = null;
++  let bd = reach;
++  for (const d of doors) {
++    const dd = Math.hypot(d.x - x, d.side * halfWidth - z);
++    if (dd <= bd) {
++      bd = dd;
++      best = d;
++    }
++  }
++  return best;
++}
++
+ /** the door nearest to a body-frame point (a seat's eye, a point on the walk area) */
+ export function nearestDoor(doors: readonly Door[], x: number, z: number, v: VehiclePose): Door {
+   const hw = v.spec.body.halfWidth;
+diff --git a/src/game/player/cargoUses.ts b/src/game/player/cargoUses.ts
+new file mode 100644
+index 0000000..9d0720b
+--- /dev/null
++++ b/src/game/player/cargoUses.ts
+@@ -0,0 +1,126 @@
++/**
++ * The vehicle's cargo in the game: its bay (put on / take off), climbing onto the truck's bed, and
++ * the things riding on it — drawn as one inked mesh hung on the vehicle's own root, so they move
++ * with it (nothing at all while the bay is empty and the vehicle has no carrier to show).
++ */
++import * as THREE from 'three';
++import { CargoBay, cargoOf, type CargoState } from '../../core/onfoot/cargo';
++import { bodyToWorld } from '../../core/onfoot/vehicle';
++import type { Actor, Interactable, InteractSource, Vec3 } from '../../core/interact/interact';
++import { item } from '../../core/items/catalog';
++import { surfaceMaterial } from '../render/materials';
++import { ModelBuilder } from '../vehicle/builder';
++import { bakeTinted, vertexCount } from './shapes3d';
++import { bigScale } from './itemsView';
++import { sizeOf } from '../../core/items/shapes';
++import type { Player } from './player';
++
++const STEEL = 0x5d6468;
++
++export class CargoUses implements InteractSource {
++  readonly bay: CargoBay | null;
++  private readonly climb: Interactable | null = null;
++  private readonly mesh: THREE.Mesh | null = null;
++  private readonly carrier: THREE.BufferGeometry | null = null;
++  private drawn = -1;
++  private readonly b = new Float64Array(9);
++  private readonly m = new THREE.Matrix4();
++
++  constructor(readonly player: Player) {
++    const g = player.game;
++    const spec = cargoOf(g.sim.spec);
++    this.bay = spec ? new CargoBay(g.sim, spec) : null;
++    if (!spec || !this.bay) return;
++    if (spec.climb) {
++      const c = spec.climb;
++      const self = this;
++      this.climb = {
++        id: `${g.sim.spec.id}:climb`,
++        hold: 0,
++        radius: 0.35,
++        through: g.sim.spec.id,
++        aim(out: Vec3): void {
++          bodyToWorld(g.sim, self.b, c.aim.x, c.aim.y, c.aim.z, out);
++        },
++        prompt(a: Actor): string | null {
++          // not with a big thing in the arms, not while it rolls, not when already up there
++          if (a.hands.size === 'large' || Math.abs(g.sim.kmh) > 1) return null;
++          return player.walker.y > g.sim.py - g.sim.spec.cgHeight + 0.4 ? null : '爬上去';
++        },
++        act(): boolean {
++          const p = bodyToWorld(g.sim, self.b, c.x, 0, c.z, { x: 0, y: 0, z: 0 });
++          return player.walker.place(p.x, p.z, player.walker.heading, 0.5);
++        },
++      };
++    }
++    if (spec.carrier) {
++      const k = spec.carrier;
++      const mb = new ModelBuilder();
++      // a welded rack: two arms from the frame, a slatted floor, a low rail round it
++      for (const z of [-k.z * 0.7, k.z * 0.7]) mb.span(k.x1, k.x1 + 0.3, k.y - 0.06, k.y - 0.01, z - 0.03, z + 0.03, STEEL);
++      for (let i = 0; i < 5; i++) mb.span(k.x0, k.x1, k.y - 0.04, k.y, -k.z + (i * 2 * k.z) / 4 - 0.02, -k.z + (i * 2 * k.z) / 4 + 0.02, STEEL);
++      mb.span(k.x0, k.x0 + 0.03, k.y, k.y + 0.14, -k.z, k.z, STEEL);
++      mb.span(k.x0, k.x1, k.y, k.y + 0.14, -k.z - 0.03, -k.z, STEEL);
++      mb.span(k.x0, k.x1, k.y, k.y + 0.14, k.z, k.z + 0.03, STEEL);
++      this.carrier = mb.build();
++    }
++    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), surfaceMaterial({ vertexColors: true, ink: true }));
++    this.mesh.name = 'player.cargo';
++    this.mesh.visible = false;
++    g.view.parts.root.add(this.mesh);
++  }
++
++  interactablesNear(x: number, z: number, r: number, out: Interactable[]): void {
++    if (!this.bay || !this.player.onFoot) return;
++    this.bay.interactablesNear(x, z, r, out);
++    if (this.climb) out.push(this.climb);
++  }
++
++  /** redraw what rides on the vehicle when it has changed */
++  update(): void {
++    const bay = this.bay;
++    if (!bay || !this.mesh || bay.version === this.drawn) return;
++    this.drawn = bay.version;
++    const list: { id: string; i: number }[] = [];
++    bay.store.slots.forEach((s, i) => s && list.push({ id: s.id, i }));
++    const cp = this.carrier?.getAttribute('position').count ?? 0;
++    let verts = cp;
++    for (const t of list) verts += vertexCount(item(t.id).shape);
++    if (verts === 0) {
++      this.mesh.visible = false;
++      return;
++    }
++    const pos = new Float32Array(verts * 3);
++    const nor = new Float32Array(verts * 3);
++    const col = new Float32Array(verts * 3);
++    let at = 0;
++    if (this.carrier) {
++      pos.set(this.carrier.getAttribute('position').array as Float32Array, 0);
++      nor.set(this.carrier.getAttribute('normal').array as Float32Array, 0);
++      col.set(this.carrier.getAttribute('color').array as Float32Array, 0);
++      at = cp;
++    }
++    for (const t of list) {
++      const p = bay.place(t.i);
++      const d = item(t.id);
++      // lies along the vehicle; a tyre flat, a jerrycan upright
++      this.m.makeRotationY(t.i * 0.35).setPosition(p.x, p.y, p.z);
++      void sizeOf;
++      at += bakeTinted(d.shape, d.tint, this.m, pos, nor, col, at, bigScale(t.id));
++    }
++    const geo = this.mesh.geometry;
++    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
++    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
++    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
++    geo.computeBoundingSphere();
++    this.mesh.visible = true;
++  }
++
++  toJSON(): CargoState | null {
++    return this.bay ? this.bay.toJSON() : null;
++  }
++
++  load(s: CargoState | null): void {
++    if (this.bay && s) this.bay.load(s);
++  }
++}
+diff --git a/src/game/player/hooks.ts b/src/game/player/hooks.ts
+index a9db550..1f4a247 100644
+--- a/src/game/player/hooks.ts
++++ b/src/game/player/hooks.ts
+@@ -112,6 +112,29 @@ export function playerHooks(game: Game) {
+       settle();
+       return true;
+     },
++    /** debug: put a thing straight into the hands (screenshots) */
++    footGive: (id: string, fill = 0) => {
++      p.hands.set(id, fill);
++      settle();
++    },
++    /** put what is in the hands onto the vehicle's cargo places */
++    footCargo: () => {
++      const ok = p.cargo.bay ? p.cargo.bay.putFrom(p) : false;
++      settle();
++      return ok;
++    },
++    /** climb onto the truck's bed (as the 爬上去 use does) */
++    footClimb: () => {
++      const spec = p.cargo.bay?.spec.climb;
++      if (!spec) return false;
++      const b = new Float64Array(9);
++      game.sim.basis(b);
++      const x = game.sim.px + b[0] * spec.x + b[6] * spec.z;
++      const z = game.sim.pz + b[2] * spec.x + b[8] * spec.z;
++      const ok = p.walker.place(x, z, p.walker.heading, 0.5);
++      settle();
++      return ok;
++    },
+     footSave: () => JSON.stringify(p.save()),
+     footLoad: (json: string) => {
+       p.load(JSON.parse(json));
+diff --git a/src/game/player/itemsView.ts b/src/game/player/itemsView.ts
+index 8611fc7..cf1974b 100644
+--- a/src/game/player/itemsView.ts
++++ b/src/game/player/itemsView.ts
+@@ -9,8 +9,8 @@
+  */
+ import * as THREE from 'three';
+ import { item } from '../../core/items/catalog';
+-import type { Containers } from '../../core/items/containers';
+-import type { LooseItems } from '../../core/items/loose';
++import type { Container, Containers } from '../../core/items/containers';
++import type { Loose, LooseItems } from '../../core/items/loose';
+ import { SHAPE_SIZE, sizeOf } from '../../core/items/shapes';
+ import { surfaceMaterial } from '../render/materials';
+ import type { RenderCore } from '../render/core';
+@@ -32,6 +32,8 @@ export class ItemsView {
+   private readonly v = new THREE.Vector3();
+   private readonly one = new THREE.Vector3(1, 1, 1);
+   private readonly p = { x: 0, y: 0, z: 0 };
++  private readonly nearL: Loose[] = [];
++  private readonly nearC: Container[] = [];
+   /** how many things are drawn (for the tests and telemetry) */
+   drawn = 0;
+ 
+@@ -54,14 +56,16 @@ export class ItemsView {
+   }
+ 
+   private each(fn: (id: string, x: number, y: number, z: number, heading: number, copy: number) => void): void {
+-    const r2 = RANGE * RANGE;
+-    for (const l of this.loose.all()) {
+-      if ((l.x - this.cx) ** 2 + (l.z - this.cz) ** 2 > r2) continue;
++    this.nearL.length = 0;
++    this.loose.near(this.cx, this.cz, RANGE, this.nearL);
++    for (const l of this.nearL) {
+       const n = Math.min(3, l.n);
+       for (let k = 0; k < n; k++) fn(l.id, l.x, l.y, l.z, l.heading, k);
+     }
+-    for (const c of this.containers.all()) {
+-      if (!c.opened || (c.def.x - this.cx) ** 2 + (c.def.z - this.cz) ** 2 > r2) continue;
++    this.nearC.length = 0;
++    this.containers.near(this.cx, this.cz, RANGE, this.nearC);
++    for (const c of this.nearC) {
++      if (!c.opened) continue;
+       c.store.slots.forEach((s, i) => {
+         if (!s) return;
+         c.shelfPoint(i, this.p);
+diff --git a/src/game/player/overlay.ts b/src/game/player/overlay.ts
+index 2f6dfa3..8bfcddc 100644
+--- a/src/game/player/overlay.ts
++++ b/src/game/player/overlay.ts
+@@ -16,15 +16,15 @@ const CSS = `
+ .rtp-ring { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; }
+ .rtp-ring circle { fill: none; stroke-linecap: round; }
+ .rtp-mark { position: absolute; width: 10px; height: 10px; border: 0 solid #f6e7c8; opacity: .9; filter: drop-shadow(0 1px 1px #2a1d16aa); border-radius: 2px; }
+-.rtp-pack { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 18px 20px 16px; border-radius: 12px;
+-  background: #2a2420e6; box-shadow: 0 6px 30px #0007; min-width: 340px; }
+-.rtp-pack h3 { margin: 0 0 12px; font-weight: 500; font-size: 14px; letter-spacing: .3em; color: #e8d6b4; text-align: center; }
+-.rtp-grid { display: grid; grid-template-columns: repeat(4, 76px); gap: 8px; }
+-.rtp-slot { height: 64px; border-radius: 8px; background: #3a332d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+-.rtp-slot i { width: 22px; height: 22px; border-radius: 6px; box-shadow: inset 0 -3px 0 #0003, 0 0 0 1.5px #1e1814; }
+-.rtp-slot span { font-size: 12px; color: #e9dcc4; }
+-.rtp-slot b { font-weight: 500; color: #c9b590; margin-left: 3px; }
+-.rtp-hands { margin-top: 12px; font-size: 12px; color: #c9b590; text-align: center; letter-spacing: .1em; }
++.rtp-pack { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 20px 22px 18px; border-radius: 14px;
++  background: #2a2420eb; box-shadow: 0 6px 30px #0007; min-width: 440px; }
++.rtp-pack h3 { margin: 0 0 14px; font-weight: 500; font-size: 18px; letter-spacing: .3em; color: #e8d6b4; text-align: center; }
++.rtp-grid { display: grid; grid-template-columns: repeat(4, 104px); gap: 10px; }
++.rtp-slot { height: 84px; border-radius: 8px; background: #3a332d; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
++.rtp-slot i { width: 26px; height: 26px; border-radius: 6px; box-shadow: inset 0 -3px 0 #0003, 0 0 0 1.5px #1e1814; }
++.rtp-slot span { font-size: 16px; color: #f1e6cf; white-space: nowrap; }
++.rtp-slot b { font-weight: 600; color: #e8c98e; margin-left: 4px; }
++.rtp-hands { margin-top: 14px; font-size: 16px; color: #c9b590; text-align: center; letter-spacing: .1em; }
+ `;
+ 
+ function hex(c: number): string {
+diff --git a/src/game/player/player.ts b/src/game/player/player.ts
+index 9a66465..2d33a51 100644
+--- a/src/game/player/player.ts
++++ b/src/game/player/player.ts
+@@ -9,7 +9,7 @@ import * as THREE from 'three';
+ import { Walker } from '../../core/onboard/walker';
+ import { GroundLand, type Land } from '../../core/onfoot/land';
+ import { Modes, type Mode } from '../../core/onfoot/modes';
+-import { doorsOf, EXIT_KMH, nearestDoor, placeAtDoor, VehicleSolid, worldToBody, type Door } from '../../core/onfoot/vehicle';
++import { doorsOf, doorWithin, EXIT_KMH, nearestDoor, placeAtDoor, VehicleSolid, worldToBody, type Door } from '../../core/onfoot/vehicle';
+ import { InteractSet, Picker, UseDriver, type Actor, type Interactable } from '../../core/interact/interact';
+ import { Hands, loadCarrier, newPack, saveCarrier, type CarrierState } from '../../core/items/carry';
+ import { Containers, type ContainerState } from '../../core/items/containers';
+@@ -29,6 +29,8 @@ import { yardToWorld } from '../../core/onfoot/testbed';
+ import { SpineSample } from '../../core/world/spine';
+ import { Overlay } from './overlay';
+ import { VehicleUses } from './vehicleUses';
++import { CargoUses } from './cargoUses';
++import type { CargoState } from '../../core/onfoot/cargo';
+ 
+ /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
+ const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+@@ -37,6 +39,9 @@ const Z = new THREE.Vector3(0, 0, 1);
+ 
+ /** field of view on foot (deg): a little wider than the driver's seat (5.3) */
+ export const FOOT_FOV = 68;
++/** a seat this close to a door (m, on the plan) is got out of straight away with E */
++export const SEAT_DOOR_REACH = 1.15;
++
+ /** seconds G is held to put down what is in the hands */
+ export const PUT_HOLD = 0.6;
+ 
+@@ -48,6 +53,7 @@ export interface PlayerSave {
+   loose: LooseState;
+   containers: ContainerState[];
+   fuel: { id: string; litres: number }[];
++  cargo?: CargoState | null;
+ }
+ 
+ export class Player implements Actor {
+@@ -63,6 +69,8 @@ export class Player implements Actor {
+   /** what is looked at now (on foot) */
+   looked: Interactable | null = null;
+   readonly vehicleUses: VehicleUses;
++  /** the vehicle's bed / rear deck / carrier and what rides on it */
++  readonly cargo: CargoUses;
+   /** the world's things: lying about, in containers, petrol in tanks (the roadside sites fill these) */
+   readonly loose = new LooseItems();
+   readonly containers = new Containers();
+@@ -104,6 +112,10 @@ export class Player implements Actor {
+     this.walker = new FootWalker(this.land, this.solids);
+     this.vehicleUses = new VehicleUses(this);
+     this.interact.add(this.vehicleUses);
++    this.cargo = new CargoUses(this);
++    this.interact.add(this.cargo);
++    // the places by the road stand in the way (the jetty's deck is walked on)
++    if (game.world) this.solids.add(game.world.sites);
+     this.interact.add(this.loose);
+     this.interact.add(this.containers);
+     this.interact.add(this.fuel);
+@@ -186,11 +198,21 @@ export class Player implements Actor {
+       if (dr && g.walker.x >= dr.x0 - 0.05 && g.walker.x <= dr.x1 + 0.05 && g.walker.z >= dr.z0 - 0.05 && g.walker.z <= dr.z1 + 0.05) return this.getOut();
+       return false;
+     }
+-    // seated: a vehicle one can walk about in stands one up inside; any other lets one out
+-    if (g.view.parts.walk) return false;
++    // seated: a vehicle one can walk about in stands one up inside — unless the seat is next to a
++    // door (the cab's seats): then straight out; any other vehicle lets one out
++    if (g.view.parts.walk && !this.seatByDoor()) return false;
+     return this.getOut();
+   }
+ 
++  /** the seat one sits in is within reach of a door (plan distance in the body frame) */
++  seatByDoor(reach = SEAT_DOOR_REACH): boolean {
++    const g = this.game;
++    const vp = g.seat ? g.view.parts.views[g.seat] : null;
++    const x = vp ? vp.x : g.sim.spec.eye.x;
++    const z = vp ? vp.z : g.sim.spec.eye.z;
++    return doorWithin(this.doors(), x, z, g.sim.spec.body.halfWidth, reach) !== null;
++  }
++
+   /** out of the vehicle, beside the door nearest to where one sat or stood */
+   getOut(): boolean {
+     const g = this.game;
+@@ -296,7 +318,8 @@ export class Player implements Actor {
+       this.toggleCrouch();
+       return true;
+     }
+-    if (a.startsWith('seat') || a === 'robot') return true;
++    // the car's own keys do nothing from outside it (no starting the engine from the verge)
++    if (a.startsWith('seat') || a === 'robot' || a === 'key' || a === 'leverUp' || a === 'leverDown' || a === 'manual') return true;
+     return this.offFootKey(a);
+   }
+ 
+@@ -345,6 +368,7 @@ export class Player implements Actor {
+     const fo = this.focus(this.fo, vx, vz);
+     // the world's things near where one is (nothing near: hidden, nothing drawn)
+     this.itemsView.update(fo.x, this.onFoot ? this.walker.y : this.game.sim.py, fo.z);
++    this.cargo.update();
+     this.heldView.update(this.onFoot && this.game.viewMode === 'cockpit' ? this.hands.id : null, cam, this.walker.sway, 0);
+     return fo;
+   }
+@@ -470,6 +494,7 @@ export class Player implements Actor {
+       loose: this.loose.toJSON(),
+       containers: this.containers.toJSON(),
+       fuel: this.fuel.toJSON(),
++      cargo: this.cargo.toJSON(),
+     };
+   }
+ 
+@@ -478,6 +503,7 @@ export class Player implements Actor {
+     this.loose.load(s.loose);
+     this.containers.load(s.containers);
+     this.fuel.load(s.fuel);
++    this.cargo.load(s.cargo ?? null);
+     if (s.mode === 'onfoot' && s.foot) {
+       this.standAt(s.foot.x, s.foot.z, s.foot.heading);
+       this.walker.restore(s.foot);
+diff --git a/src/game/player/shapes3d.ts b/src/game/player/shapes3d.ts
+index eebfeab..61f65e4 100644
+--- a/src/game/player/shapes3d.ts
++++ b/src/game/player/shapes3d.ts
+@@ -149,6 +149,14 @@ function build(shape: ItemShape): THREE.BufferGeometry {
+       b.hull([[-L / 2, 0, -W * 0.4], [L / 2, 0, -W / 2], [L / 2, 0, W / 2], [-L / 2, 0, W * 0.4], [-L * 0.3, H, 0], [L * 0.3, H * 0.9, 0], [0, H * 0.7, W * 0.4], [0, H * 0.7, -W * 0.4]], T);
+       b.sphere(L * 0.55, H * 0.4, 0, H * 0.4, TD, 0);
+       break;
++    case 'rod': {
++      // butt and reel, then a tapering blank
++      b.cyl(-L * 0.42, H / 2, 0, 0.018, L * 0.16, 0x3a3330, { rz: Math.PI / 2, segments: 6 });
++      b.cyl(-L * 0.3, H * 0.2, 0, 0.032, 0.03, TIN, { rx: Math.PI / 2, segments: 8 });
++      b.cyl(L * 0.08, H / 2, 0, 0.009, L * 0.6, T, { rz: Math.PI / 2, segments: 5, radiusTop: 0.005 });
++      b.cyl(L * 0.43, H / 2, 0, 0.005, L * 0.14, TD, { rz: Math.PI / 2, segments: 4, radiusTop: 0.003 });
++      break;
++    }
+     case 'tuber':
+       b.sphere(0, H / 2, 0, s.hx, T, 0);
+       b.sphere(s.hx * 0.7, H * 0.4, s.hz * 0.4, s.hx * 0.65, TD, 0);

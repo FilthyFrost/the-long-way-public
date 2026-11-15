@@ -1,0 +1,394 @@
+{
+  "system": "style",
+  "id": "style",
+  "metrics": {
+    "style_distance_mean": 0.238,
+    "style_distance_max": 0.286,
+    "scored_shots": 4,
+    "colourfulness_mean": 75.7,
+    "land_green_sat_mean": 0.494,
+    "fine_energy_mean": 4.73
+  },
+  "reference_means": {
+    "colourfulness": 79.15,
+    "mean_sat": 0.412,
+    "mean_value": 0.756,
+    "sky_blue_share": 0.113,
+    "white_share": 0.099,
+    "land_green_sat": 0.534,
+    "land_green_value": 0.714,
+    "fine_energy": 6.745
+  },
+  "references": [
+    "refs/targets/painted-valley/cover.jpg",
+    "refs/targets/painted-valley/pv_drive_15h5.jpg",
+    "refs/targets/painted-valley/pv_drive_18h8.jpg",
+    "refs/targets/painted-valley/pv_slope_15h5.jpg"
+  ],
+  "shots": {
+    "alpine_hood_13h": {
+      "colourfulness": 54.8,
+      "mean_sat": 0.206,
+      "mean_value": 0.832,
+      "sky_blue_share": 0.137,
+      "white_share": 0.246,
+      "green_share": 0.001,
+      "land_green_sat": 0.0,
+      "land_green_value": 0.0,
+      "land_green_hue": 0.0,
+      "value_p05": 0.655,
+      "value_p95": 0.953,
+      "fine_energy": 3.87,
+      "palette": [
+        [
+          "#c5b9a7",
+          0.248
+        ],
+        [
+          "#eceded",
+          0.213
+        ],
+        [
+          "#9bb9d7",
+          0.199
+        ],
+        [
+          "#c8d2db",
+          0.177
+        ],
+        [
+          "#428dc1",
+          0.112
+        ],
+        [
+          "#708a99",
+          0.052
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.812,
+        "mean_sat": 0.823,
+        "mean_value": 0.302,
+        "sky_blue_share": 0.098,
+        "white_share": 0.978,
+        "land_green_sat": 2.138,
+        "land_green_value": 2.858,
+        "fine_energy": 0.958
+      },
+      "distance_mean": 1.121,
+      "scored": false
+    },
+    "desert_hood_11h": {
+      "colourfulness": 61.5,
+      "mean_sat": 0.262,
+      "mean_value": 0.765,
+      "sky_blue_share": 0.115,
+      "white_share": 0.046,
+      "green_share": 0.001,
+      "land_green_sat": 0.429,
+      "land_green_value": 0.419,
+      "land_green_hue": 101.0,
+      "value_p05": 0.482,
+      "value_p95": 0.91,
+      "fine_energy": 2.39,
+      "palette": [
+        [
+          "#c7b89c",
+          0.542
+        ],
+        [
+          "#606e7c",
+          0.157
+        ],
+        [
+          "#aac4db",
+          0.109
+        ],
+        [
+          "#43a1db",
+          0.099
+        ],
+        [
+          "#edeeec",
+          0.049
+        ],
+        [
+          "#8ab0d2",
+          0.042
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.588,
+        "mean_sat": 0.599,
+        "mean_value": 0.034,
+        "sky_blue_share": 0.01,
+        "white_share": 0.355,
+        "land_green_sat": 0.422,
+        "land_green_value": 1.182,
+        "fine_energy": 1.452
+      },
+      "distance_mean": 0.58,
+      "scored": false
+    },
+    "plains_cockpit_15h5": {
+      "colourfulness": 77.5,
+      "mean_sat": 0.359,
+      "mean_value": 0.731,
+      "sky_blue_share": 0.175,
+      "white_share": 0.076,
+      "green_share": 0.234,
+      "land_green_sat": 0.449,
+      "land_green_value": 0.73,
+      "land_green_hue": 111.8,
+      "value_p05": 0.38,
+      "value_p95": 0.949,
+      "fine_energy": 6.5,
+      "palette": [
+        [
+          "#cdc8bb",
+          0.219
+        ],
+        [
+          "#7fafa3",
+          0.204
+        ],
+        [
+          "#436359",
+          0.159
+        ],
+        [
+          "#49a2d8",
+          0.152
+        ],
+        [
+          "#91b65d",
+          0.147
+        ],
+        [
+          "#9fcbd3",
+          0.119
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.055,
+        "mean_sat": 0.211,
+        "mean_value": 0.102,
+        "sky_blue_share": 0.25,
+        "white_share": 0.155,
+        "land_green_sat": 0.342,
+        "land_green_value": 0.062,
+        "fine_energy": 0.082
+      },
+      "distance_mean": 0.157,
+      "scored": true
+    },
+    "plains_hood_15h5": {
+      "colourfulness": 80.7,
+      "mean_sat": 0.344,
+      "mean_value": 0.763,
+      "sky_blue_share": 0.208,
+      "white_share": 0.066,
+      "green_share": 0.23,
+      "land_green_sat": 0.553,
+      "land_green_value": 0.742,
+      "land_green_hue": 91.1,
+      "value_p05": 0.592,
+      "value_p95": 0.949,
+      "fine_energy": 3.81,
+      "palette": [
+        [
+          "#b3ae9c",
+          0.375
+        ],
+        [
+          "#73af55",
+          0.217
+        ],
+        [
+          "#49a3d9",
+          0.177
+        ],
+        [
+          "#98c1da",
+          0.1
+        ],
+        [
+          "#eeeeea",
+          0.075
+        ],
+        [
+          "#75a2a6",
+          0.057
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.052,
+        "mean_sat": 0.271,
+        "mean_value": 0.026,
+        "sky_blue_share": 0.382,
+        "white_share": 0.222,
+        "land_green_sat": 0.074,
+        "land_green_value": 0.11,
+        "fine_energy": 0.978
+      },
+      "distance_mean": 0.264,
+      "scored": true
+    },
+    "plains_hood_18h8": {
+      "colourfulness": 63.8,
+      "mean_sat": 0.374,
+      "mean_value": 0.695,
+      "sky_blue_share": 0.0,
+      "white_share": 0.0,
+      "green_share": 0.163,
+      "land_green_sat": 0.609,
+      "land_green_value": 0.526,
+      "land_green_hue": 79.4,
+      "value_p05": 0.435,
+      "value_p95": 0.992,
+      "fine_energy": 3.03,
+      "palette": [
+        [
+          "#ae8164",
+          0.394
+        ],
+        [
+          "#63793b",
+          0.201
+        ],
+        [
+          "#9a97c6",
+          0.194
+        ],
+        [
+          "#daafae",
+          0.077
+        ],
+        [
+          "#fce0b1",
+          0.076
+        ],
+        [
+          "#9d8f85",
+          0.057
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.512,
+        "mean_sat": 0.151,
+        "mean_value": 0.246,
+        "sky_blue_share": 0.45,
+        "white_share": 0.662,
+        "land_green_sat": 0.298,
+        "land_green_value": 0.754,
+        "fine_energy": 1.238
+      },
+      "distance_mean": 0.539,
+      "scored": false
+    },
+    "plains_slope_15h5": {
+      "colourfulness": 66.9,
+      "mean_sat": 0.331,
+      "mean_value": 0.715,
+      "sky_blue_share": 0.055,
+      "white_share": 0.05,
+      "green_share": 0.323,
+      "land_green_sat": 0.505,
+      "land_green_value": 0.703,
+      "land_green_hue": 97.8,
+      "value_p05": 0.416,
+      "value_p95": 0.906,
+      "fine_energy": 4.74,
+      "palette": [
+        [
+          "#a3adae",
+          0.55
+        ],
+        [
+          "#91c863",
+          0.156
+        ],
+        [
+          "#65aa5d",
+          0.107
+        ],
+        [
+          "#367a5c",
+          0.087
+        ],
+        [
+          "#f0f0ed",
+          0.056
+        ],
+        [
+          "#185055",
+          0.044
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.408,
+        "mean_sat": 0.323,
+        "mean_value": 0.166,
+        "sky_blue_share": 0.23,
+        "white_share": 0.328,
+        "land_green_sat": 0.118,
+        "land_green_value": 0.046,
+        "fine_energy": 0.668
+      },
+      "distance_mean": 0.286,
+      "scored": true
+    },
+    "plains_wide_14h": {
+      "colourfulness": 77.5,
+      "mean_sat": 0.361,
+      "mean_value": 0.769,
+      "sky_blue_share": 0.158,
+      "white_share": 0.063,
+      "green_share": 0.322,
+      "land_green_sat": 0.47,
+      "land_green_value": 0.708,
+      "land_green_hue": 96.8,
+      "value_p05": 0.565,
+      "value_p95": 0.945,
+      "fine_energy": 3.88,
+      "palette": [
+        [
+          "#bfb99b",
+          0.317
+        ],
+        [
+          "#78b65a",
+          0.254
+        ],
+        [
+          "#94b9d2",
+          0.171
+        ],
+        [
+          "#47a3d9",
+          0.121
+        ],
+        [
+          "#477f6e",
+          0.072
+        ],
+        [
+          "#eef0ef",
+          0.066
+        ]
+      ],
+      "distance": {
+        "colourfulness": 0.055,
+        "mean_sat": 0.203,
+        "mean_value": 0.05,
+        "sky_blue_share": 0.182,
+        "white_share": 0.242,
+        "land_green_sat": 0.258,
+        "land_green_value": 0.026,
+        "fine_energy": 0.955
+      },
+      "distance_mean": 0.246,
+      "scored": true
+    }
+  }
+}

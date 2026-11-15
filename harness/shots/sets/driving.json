@@ -1,0 +1,35 @@
+{
+  "set": "driving",
+  "base": "scene=proving&shot=1",
+  "shots": [
+    { "name": "cockpit_rest", "params": "view=cockpit" },
+    { "name": "cockpit_cruise", "params": "view=cockpit", "steps": [{ "simulate": 9, "input": { "throttle": 1 } }] },
+    {
+      "name": "cockpit_corner_right",
+      "params": "view=cockpit",
+      "steps": [
+        { "simulate": 7, "input": { "throttle": 1 } },
+        { "simulate": 1.4, "input": { "throttle": 0.7, "steer": 1 } }
+      ]
+    },
+    {
+      "name": "cockpit_brake",
+      "params": "view=cockpit",
+      "steps": [
+        { "simulate": 8, "input": { "throttle": 1 } },
+        { "simulate": 0.7, "input": { "brake": 1 } }
+      ]
+    },
+    { "name": "cockpit_look_left", "params": "view=cockpit", "look": [-1.0, -0.12] },
+    { "name": "cockpit_look_down", "params": "view=cockpit", "look": [0.0, -0.55] },
+    { "name": "chase_rest", "params": "view=chase", "look": [0.6, 0] },
+    {
+      "name": "chase_corner_left",
+      "params": "view=chase",
+      "steps": [
+        { "simulate": 7, "input": { "throttle": 1 } },
+        { "simulate": 1.4, "input": { "throttle": 0.7, "steer": -1 } }
+      ]
+    }
+  ]
+}

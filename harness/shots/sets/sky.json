@@ -1,0 +1,126 @@
+{
+  "set": "sky",
+  "base": "scene=world&shot=1&chapter=0.2&seed=7&view=cockpit",
+  "shots": [
+    {
+      "name": "plains_0600_dawn",
+      "params": "s=420&time=6.1&weather=clear",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_1200_noon",
+      "params": "s=420&time=12.5&weather=cloudy",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_1840_golden",
+      "params": "s=420&time=18.6&weather=clear",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_1930_blue",
+      "params": "s=420&time=19.5&weather=clear",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "desert_2300_night",
+      "params": "s=2900&time=23&weather=clear",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "alpine_0100_aurora",
+      "params": "s=6200&time=1&weather=clear",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_storm",
+      "params": "s=420&time=15&weather=storm",
+      "steps": [
+        {
+          "simulate": 4.2,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_fog",
+      "params": "s=420&time=7.5&weather=fog",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "desert_sandstorm",
+      "params": "s=2900&time=16&weather=sandstorm",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "alpine_blizzard",
+      "params": "s=6200&time=14&weather=blizzard",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "alpine_snow_dusk",
+      "params": "s=6200&time=18.8&weather=snow",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    },
+    {
+      "name": "plains_hail",
+      "params": "s=420&time=14&weather=hail",
+      "steps": [
+        {
+          "simulate": 3,
+          "input": "robot"
+        }
+      ]
+    }
+  ]
+}
