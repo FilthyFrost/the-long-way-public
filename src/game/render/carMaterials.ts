@@ -469,12 +469,25 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     wear = clamp(wear, 0.0, 1.0) * uWearMax;
     float height = vCar.y;
     vec3 on = normalize(vObjN);
-    float sh = rtShadow(vPos, n);
+    float ndl = dot(n, uSunDir);
+    // inside the cabin the light comes in low through the windows and skims the lining: there the shadow map's
+    // texels show as steps and its own surface as acne, so the lookup is pushed off the surface the more the
+    // light grazes it (slope-scaled, on top of the shared offset)
+    vec3 shPos = vPos;
+    #ifdef RT_CABIN
+    float cabinShade = 1.0;
+    #else
+    float cabinShade = inCabin;
+    #endif
+    if (cabinShade > 0.5) {
+      float c = clamp(ndl, 0.05, 1.0);
+      shPos += n * uShadowParams.y * min(sqrt(1.0 - c * c) / c, 6.0) * 1.5;
+    }
+    float sh = rtShadow(shPos, n);
     #ifdef RT_CABIN
     // without shadow maps nothing keeps the sun out of the cabin: let a third of it in
     sh *= mix(0.35, 1.0, uShadowParams.x);
     #endif
-    float ndl = dot(n, uSunDir);
     float lit = smoothstep(-0.015, 0.05, ndl) * sh;
     float full = smoothstep(0.4, 0.52, ndl) * sh;
     // (the open sky — or in a room what its openings let in — and a room's lamps: shaderlib.ts)
