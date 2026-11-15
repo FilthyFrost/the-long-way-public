@@ -1,0 +1,351 @@
+{
+ "_conventions": [
+  "Written by tools/blender/parts/*.py (python: tools/blender/build.py -- parts/<group> all). Do not edit.",
+  "Frame: GAME part frame, x forward, y up, z right, metres; game(x, y, z) = blender(x, z, -y).",
+  "bbox: [[minx, miny, minz], [maxx, maxy, maxz]] of all meshes (PART and moving children).",
+  "triangles: after modifiers, PART + movers. materials: conventional names used.",
+  "eye (seats): the occupant eye position (EYE empty) in the part frame.",
+  "fit_nominal (stretch parts): [length, width, height] of the nominal box the part was modelled for.",
+  "radius/width (rims): bead-seat radius and width; tyres: radius = outer radius, inner_radius = bead,",
+  "  width = section width, sidewall = radius - inner_radius. Tyre variant files: <tyre>@<rim>.glb.",
+  "mounts: child empties M_* (sub-mounts); mount_tf: their pos and quat (x, y, z, w) in the part frame.",
+  "movers: child meshes that move (pivot = their origin in the part frame).",
+  "Origins: engines bottom centre on the mount, crank along x, pulleys +x; gearbox bottom of the case, input +x;",
+  "  radiator/battery/tanks bottom centre; rims/tyres wheel centre, axle along z (game), outer face -z (left);",
+  "  seats floor attach centre facing +x; steering column end, wheel faces -x, turns about x (bar: about y);",
+  "  lamps/mirror body mount; stretch parts: centre of the face that touches the body (bumpers: x = 0 plane,",
+  "  front bumper extends +x, rear -x; roof: bottom face; armour: inner face, extends to -z = outwards left).",
+  "  exhausts: inlet flange (front end), the system runs rearwards (-x). turbo: turbine inlet flange, sits +y."
+ ],
+ "parts": {
+  "bat_std": {
+   "bbox": [
+    [
+     -0.13,
+     0.0,
+     -0.092
+    ],
+    [
+     0.13,
+     0.207,
+     0.092
+    ]
+   ],
+   "triangles": 1582,
+   "materials": [
+    "paint",
+    "paint_b",
+    "steel",
+    "trim"
+   ]
+  },
+  "eng_i4": {
+   "bbox": [
+    [
+     -0.271,
+     -0.004,
+     -0.273
+    ],
+    [
+     0.3204,
+     0.672,
+     0.263
+    ]
+   ],
+   "triangles": 12438,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_turbo"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.075,
+      0.255,
+      0.222
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.866025,
+      0.5
+     ]
+    },
+    "M_turbo": {
+     "pos": [
+      -0.035,
+      0.43,
+      0.205
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   }
+  },
+  "rim_steel13": {
+   "bbox": [
+    [
+     -0.181,
+     -0.181,
+     -0.0685
+    ],
+    [
+     0.181,
+     0.181,
+     0.0685
+    ]
+   ],
+   "triangles": 2454,
+   "materials": [
+    "chrome",
+    "rubber",
+    "steel"
+   ],
+   "mounts": [
+    "M_tire"
+   ],
+   "mount_tf": {
+    "M_tire": {
+     "pos": [
+      0.0,
+      0.0,
+      -0.0
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    }
+   },
+   "radius": 0.165,
+   "width": 0.13,
+   "tire": true
+  },
+  "seat_bucket": {
+   "bbox": [
+    [
+     -0.4894,
+     0.0,
+     -0.289
+    ],
+    [
+     0.2548,
+     1.0132,
+     0.269
+    ]
+   ],
+   "triangles": 3452,
+   "materials": [
+    "chrome",
+    "fabric",
+    "leather",
+    "steel",
+    "trim"
+   ],
+   "eye": [
+    -0.16,
+    0.9,
+    -0.0
+   ]
+  },
+  "steer_std": {
+   "bbox": [
+    [
+     -0.084,
+     -0.1948,
+     -0.1948
+    ],
+    [
+     0.024,
+     0.1948,
+     0.1948
+    ]
+   ],
+   "triangles": 2272,
+   "materials": [
+    "alu",
+    "chrome",
+    "leather",
+    "steel",
+    "trim"
+   ]
+  },
+  "tire_road": {
+   "bbox": [
+    [
+     -0.285,
+     -0.2845,
+     -0.076
+    ],
+    [
+     0.285,
+     0.2845,
+     0.076
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_road@rim_alloy15": {
+   "bbox": [
+    [
+     -0.31,
+     -0.3095,
+     -0.096
+    ],
+    [
+     0.31,
+     0.3095,
+     0.096
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.31,
+   "inner_radius": 0.19,
+   "width": 0.196,
+   "sidewall": 0.12,
+   "rim": "rim_alloy15"
+  },
+  "tire_road@rim_dually": {
+   "bbox": [
+    [
+     -0.37,
+     -0.3694,
+     -0.116
+    ],
+    [
+     0.37,
+     0.3694,
+     0.116
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.12,
+   "rim": "rim_dually"
+  },
+  "tire_road@rim_moto18": {
+   "bbox": [
+    [
+     -0.349,
+     -0.3484,
+     -0.0755
+    ],
+    [
+     0.349,
+     0.3484,
+     0.0755
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.349,
+   "inner_radius": 0.229,
+   "width": 0.155,
+   "sidewall": 0.12,
+   "rim": "rim_moto18"
+  },
+  "tire_road@rim_off16": {
+   "bbox": [
+    [
+     -0.323,
+     -0.3225,
+     -0.111
+    ],
+    [
+     0.323,
+     0.3225,
+     0.111
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.323,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_off16"
+  },
+  "tire_road@rim_steel13": {
+   "bbox": [
+    [
+     -0.285,
+     -0.2845,
+     -0.076
+    ],
+    [
+     0.285,
+     0.2845,
+     0.076
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_road@rim_truck19": {
+   "bbox": [
+    [
+     -0.37,
+     -0.3694,
+     -0.111
+    ],
+    [
+     0.37,
+     0.3694,
+     0.111
+    ]
+   ],
+   "triangles": 3600,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_truck19"
+  }
+ }
+}
