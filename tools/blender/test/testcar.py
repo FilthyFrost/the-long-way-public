@@ -460,12 +460,15 @@ def bumper(name, x_front, sign, z, coll):
     return [bar, strip]
 
 
-def round_lamp(name, centre, normal, r, coll, lens='lens_head'):
-    """a chrome bezel and reflector cup with a bulb, under a domed lens (UV centre = lamp centre)"""
-    prof = [(r * 0.92 * i / 9, -0.05 + 0.05 * (i / 9) ** 2) for i in reversed(range(10))]
+def round_lamp(name, centre, normal, r, coll, lens='lens_head', depth=0.05):
+    """a chrome bucket standing proud of the body, a reflector cup and a bulb in it, under a domed lens
+    (UV centre = lamp centre). `centre` is on the body: the whole lamp sits in front of it (the test body has
+    no recesses), so nothing of the paint shows through the glass"""
+    centre = centre + Vector(normal).normalized() * depth
+    prof = [(r * 0.92 * i / 9, -depth + depth * (i / 9) ** 2) for i in reversed(range(10))]
     cup = ck.lathe(name + '_cup', prof, segments=40, mat='chrome', coll=coll)
-    bulb = ck.lathe(name + '_bulb', [(0.0, -0.012), (0.012, -0.01), (0.015, 0.0), (0.012, 0.01), (0.0, 0.014)], segments=16, mat='chrome', coll=coll)
-    bezel = ck.lathe(name + '_bezel', [(r * 0.94, -0.03), (r * 1.13, -0.03), (r * 1.13, -0.004), (r * 1.06, 0.004), (r * 0.94, 0.006)], segments=40, mat='chrome', closed=True, coll=coll)
+    bulb = ck.lathe(name + '_bulb', [(0.0, -depth * 0.55), (0.012, -depth * 0.5), (0.015, -depth * 0.3), (0.012, -depth * 0.12), (0.0, -depth * 0.08)], segments=16, mat='chrome', coll=coll)
+    bezel = ck.lathe(name + '_bezel', [(r * 0.94, -depth - 0.004), (r * 1.13, -depth - 0.004), (r * 1.13, -0.004), (r * 1.06, 0.004), (r * 0.94, 0.006)], segments=40, mat='chrome', closed=True, coll=coll)
     lprof = [(r * 0.98 * (1 - i / 8), 0.004 + 0.016 * math.sqrt(max(0.0, 1 - (1 - i / 8) ** 2))) for i in range(9)]
     lens_obj = ck.lathe(name + '_lens', lprof, segments=40, mat=lens, uv_radial=True, coll=coll)
     parts = [cup, bulb, bezel, lens_obj]
@@ -476,8 +479,9 @@ def round_lamp(name, centre, normal, r, coll, lens='lens_head'):
 
 def rect_lamp(name, centre, normal, w, h, coll, segs):
     """a lamp unit: black housing, a chrome reflector, lens segments [(material, share of the width)]"""
-    housing = ck.rbox(name + '_housing', (0, -0.012, 0), (w + 0.02, 0.03, h + 0.02), radius=0.008, mat='trim', coll=coll)
-    refl = ck.rbox(name + '_refl', (0, -0.004, 0), (w - 0.01, 0.006, h - 0.01), radius=0.002, mat='chrome', coll=coll)
+    # housing behind (its back inside the body), the reflector on its face, the lenses in front of that
+    housing = ck.rbox(name + '_housing', (0, -0.012, 0), (w + 0.02, 0.026, h + 0.02), radius=0.008, mat='trim', coll=coll)
+    refl = ck.rbox(name + '_refl', (0, 0.003, 0), (w - 0.006, 0.006, h - 0.006), radius=0.002, mat='chrome', coll=coll)
     parts = [housing, refl]
     x0 = -w / 2
     for k, (mat, share) in enumerate(segs):
@@ -491,7 +495,7 @@ def rect_lamp(name, centre, normal, w, h, coll, segs):
         o = mc.mesh_object(f'{name}_lens{k}', bm, mat, coll)
         mc.bevel(o, width=0.004, segments=2, angle_deg=30.0, harden=False)
         mc.apply_modifiers(o)
-        o.location = (x0 + ww / 2, 0.006, 0)
+        o.location = (x0 + ww / 2, 0.015, 0)
         ck.apply_transform(o)
         parts.append(o)
         x0 += ww
