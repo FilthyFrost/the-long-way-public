@@ -21,7 +21,10 @@
  *   GAUGE  gauge                    a dial painted from the UVs, lit at night
  *   EMIT   emit                     self-lit
  * Everything goes through the shared light of the world: rtShadow (cast shadows), rtHeadlight (beams),
- * rtFog, the cabin lamp; and opaque parts write the alpha ids the frame pass inks (frame.ts).
+ * rtFog, the cabin lamp, a room's light where there is one (the garage); and opaque parts write the alpha
+ * ids the frame pass inks (frame.ts). The world's weather (uWeather) wets the outside of the car — beads
+ * near the eye, a deeper colour and more gloss — and its snow settles on the roof; a room or setShelter()
+ * keeps both off. The part one is looking at (setHighlight) gets a lit rim and a lit outline.
  */
 import * as THREE from 'three';
 import { skyUniforms } from '../env/sky';
