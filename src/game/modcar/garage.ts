@@ -592,7 +592,7 @@ class Garage implements GarageScene {
     // daylight given back by the walls is the sky's colour a little warmed by the wood; sun on the
     // floor gives back warm light; the lamps' own bounce is warmer still
     // (what bounces in a room of wood comes back warm: the cool is in the light straight from the openings)
-    const ks = skyLum * 0.11;
+    const ks = skyLum * 0.085;
     const kw = sunIn * 0.032;
     // (at night the room is the lamps' pools and the dark between them: little of their light comes back)
     const kl = lamp * 0.012;
