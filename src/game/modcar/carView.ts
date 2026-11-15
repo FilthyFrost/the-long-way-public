@@ -636,7 +636,7 @@ export class CarView {
   private panelLook(inst: PartInstance, style: string): LookOf {
     const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
     const paint = style === 'armor' ? 0x5c6168 : style === 'fridge' ? 0xf1efe6 : style === 'rusty' ? mixHex(body, 0x8a4a26, 0.45) : body;
-    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.55, inst.rust) : inst.rust, wear: fade(inst.cond) };
+    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond) };
   }
 
   private setPart(m: MountDef, inst: PartInstance | null): void {

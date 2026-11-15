@@ -1,0 +1,8 @@
+{
+  "set": "modcar_rust",
+  "page": "modcar.html",
+  "base": "shot=1&start=road&seed=7&s=3180&time=10",
+  "shots": [
+    {"name": "sedan_rusty_door", "params": "build=stock:sedan;door_FL=door_rusty;door_RL=door_rusty&view=orbit&orbit=-70,8,4.5,0.7"}
+  ]
+}

@@ -241,6 +241,15 @@ describe('ModCar: parts change how it drives', () => {
     expect(apoc.ram).toBeGreaterThan(0.8);
   });
 
+  it('tyres too big for the arches cannot turn as far: a stock vehicle keeps its full lock', () => {
+    for (const f of ['sedan', 'pickup', 'rv']) {
+      const d = derive(decodeBuild(`stock:${f}`));
+      expect(d.spec.steering.maxDeg).toBe(d.frame.steering.maxDeg);
+    }
+    const tractor = derive(decodeBuild('stock:sedan;hub_FL=rim_off16+tire:tire_tractor;hub_FR=rim_off16+tire:tire_tractor'));
+    expect(tractor.spec.steering.maxDeg).toBeLessThan(tractor.frame.steering.maxDeg * 0.6);
+  });
+
   it('a toilet for a seat puts the driver higher, as far as the roof lets them', () => {
     // under the motorhome's high roof the whole height of the throne shows
     const rv = derive(decodeBuild('stock:rv'));

@@ -8,7 +8,7 @@
 import { RIM_GRIP, RIM_RR } from '../vehicle/mods';
 import { rescaleSuspension, type SuspensionRef } from '../vehicle/rescale';
 import { NO_ENGINE, type AxleSpec, type VehicleSpec } from '../vehicle/spec';
-import { stockBuild } from './build';
+import { stockBuild, stockTireFor } from './build';
 import { frameDef, hubsOf } from './frames';
 import { midHeight, partGeo } from './geo';
 import { partDef } from './parts';
@@ -273,6 +273,12 @@ export function boostedCurve(engine: PartDef, exhaust: PartDef | null, turbo: Pa
 }
 
 
+/** how wide the tyres a frame left the works on are (m): what its arches were made for */
+function stockWidth(frame: FrameDef): number {
+  const t = stockTireFor(frame);
+  return (t ? partDef(t).tire?.width : undefined) ?? 0.18;
+}
+
 export function derive(build: Build): Derived {
   const frame = frameDef(build.frame);
   const mp = massProps(build, true);
@@ -436,7 +442,8 @@ export function derive(build: Build): Derived {
     brakes: { maxG: Math.min(1.1, Math.max(0.2, frame.brakeN / (M * G))) },
     aero: { cdA: drag },
     steering: {
-      maxDeg: frame.steering.maxDeg,
+      // tyres bigger or wider than the arches were made for rub at full lock: less of it
+      maxDeg: single ? frame.steering.maxDeg : frame.steering.maxDeg * Math.max(0.45, 1 - 1.1 * (Math.max(0, rF - frame.hubRadius * 1.04) / frame.hubRadius + Math.max(0, sideF - stockWidth(frame) - 0.03) / 0.3)),
       ratio: st?.ratio ?? 16,
       rateLow: frame.steering.rateLow * (st?.rate ?? 1),
       rateHigh: frame.steering.rateHigh * (st?.rate ?? 1),
