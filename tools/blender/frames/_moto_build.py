@@ -96,7 +96,7 @@ def layout():
     put('fuelTank', loc, dict(cat='fuelTank', side=0), rot=R)
     put('seat_driver', (D['seat_x'], 0.0, D['seat_z']), dict(cat='seat', side=0, driver=True, floor_z=D['seat_z']))
     put('battery', D['battery'], dict(cat='battery', side=0))
-    put('radiator', (0.352, 0.0, 0.405), dict(cat='radiator', side=0))
+    put('radiator', (0.330, 0.0, 0.270), dict(cat='radiator', side=0))
     put('headlight', M.HEADLIGHT, dict(cat='headlight', side=0), rot=rot_y(1.5), on='FORK')
     put('taillight', M.TAILLIGHT, dict(cat='taillight', side=0))
     # mirrors on the stock bar's lever perches (fork frame)
@@ -218,6 +218,7 @@ def build_objects():
     body.extend(fr.head_tube())
     body.extend(fr.backbone())
     body.extend(fr.cross_tubes())
+    body.extend(MFR.both(fr.fender_mounts()))
     body.extend(fr.pivot_hardware())
     body.extend(fr.engine_bolts_centre())
     body.extend(fr.tank_mounts(tank))
@@ -310,7 +311,8 @@ def json_extra(objs, info, tris, total):
                       children='SHOCK_LOWER_L, SHOCK_LOWER_R and the mount hub_R'),
         shocks={k: dict(upper='SHOCK_UPPER_' + k, lower='SHOCK_LOWER_' + k, upper_eye=game_vec(v['upper']), lower_eye=game_vec(v['lower']),
                         length=round(float(np.linalg.norm(v['upper'] - v['lower'])), 4)) for k, v in info['shocks'].items()},
-        stand=dict(object='STAND', pivot=game_vec(M.STAND_PIVOT), axis=game_vec(M.STAND_AXIS), fold_deg=round(M.STAND_FOLD_DEG, 2)),
+        stand=dict(object='STAND', pivot=game_vec(M.STAND_PIVOT), axis=game_vec(M.STAND_AXIS), fold_deg=round(M.STAND_FOLD_DEG, 2),
+                   foot=game_vec(M.STAND_FOOT), note='modelled down, its foot pad just clear of the ground with the bike upright'),
     )
     notes = ('Game frame (+x forward, +y up, +z right), metres; axes are unit vectors and every angle follows the right-hand rule. '
              'fork: FORK has its origin on the steering axis at the top of the steering head and no rotation of its own; a turn of '
@@ -642,3 +644,45 @@ def review(args):
     for name, loc, tgt, lens in cams:
         PV.camera(loc, tgt, lens=lens)
         PV.render(f'{SCRATCH}/{name}{tag}.png', res=res, samples=smp)
+
+
+def rotate_about(obj, pivot, axis, deg):
+    """Turn an object (and its children) about a world axis through a world point."""
+    R = Matrix.Rotation(math.radians(deg), 4, Vector(axis))
+    T = Matrix.Translation(Vector(pivot))
+    obj.matrix_world = T @ R @ T.inverted() @ obj.matrix_world
+
+
+def motion(args):
+    """The moving pieces at their limits: fork at full lock (both ways), the swingarm in bump, the stand
+    folded; with the stock parts on (the bar and the fork-mounted parts turned with the fork)."""
+    mc.reset_scene()
+    objs, meshes, empties, info = build_objects()
+    lay = layout()
+    parts = place_stock(lay)
+    PV.materials()
+    factory_paints()
+    PV.scene_setup('anime', sun_elev=40.0, sun_az=-60.0)
+    # parts that ride on the fork / swingarm: by mount (re-imported per mount, so collect them by position)
+    on_fork = [p for p in parts if p.parent is None and any(np.linalg.norm(np.array(p.matrix_world.translation) - lay[m]['loc']) < 1e-4
+                                                             for m in ('steering', 'headlight', 'mirror_L', 'mirror_R', 'ignition', 'horn', 'hub_F'))]
+    on_sa = [p for p in parts if p.parent is None and np.linalg.norm(np.array(p.matrix_world.translation) - lay['hub_R']['loc']) < 1e-4]
+    lock = float(args[args.index('--lock') + 1]) if '--lock' in args else 32.0
+    rotate_about(objs['FORK'], M.FORK_ORIGIN, M.AX, lock)
+    for p in on_fork:
+        rotate_about(p, M.FORK_ORIGIN, M.AX, lock)
+    bump = 9.0
+    rr = info['rear']
+    rotate_about(objs['SWINGARM'], rr.pv, (0, 1, 0), bump)
+    for p in on_sa:
+        rotate_about(p, rr.pv, (0, 1, 0), bump)
+    rotate_about(objs['STAND'], M.STAND_PIVOT, M.STAND_AXIS, M.STAND_FOLD_DEG)
+    for name, loc, tgt, lens, ortho in (('mo_top', (0.0, 0.0, 4.0), (0.0, 0.0, 0.5), 50, 2.3), ('mo_f34', None, None, 45, None),
+                                        ('mo_side_l', (0.0, 3.4, 0.55), (0.0, 0, 0.5), 45, None), ('mo_stand', (0.05, 1.05, 0.30), (-0.10, 0.1, 0.22), 38, None)):
+        if name == 'mo_f34':
+            PV.orbit((0.1, 0, 0.6), 30, 30, 3.2, lens=45)
+        else:
+            PV.camera(loc, tgt, lens=lens, ortho=ortho)
+            if name == 'mo_top':
+                bpy.context.scene.camera.rotation_euler = (0, 0, -math.pi / 2)
+        PV.render(f'{SCRATCH}/{name}.png', res=(1280, 800), samples=24)

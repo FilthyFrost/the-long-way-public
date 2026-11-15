@@ -17,7 +17,7 @@ unit = K.unit
 
 # segments round lathes and tubes follow their size: a chord of at most LATHE_CHORD / TUBE_CHORD metres, never
 # more than the caller asks for, never fewer than 8 (lathes) / 5 (tubes) - big discs stay round, small bits cheap
-LATHE_CHORD = 0.0125
+LATHE_CHORD = 0.0135
 TUBE_CHORD = 0.0085
 
 
@@ -30,7 +30,7 @@ def tube_segs(segs, r):
 
 
 # ============================================================================================ paths
-def bend_path(pts, radii, step=0.25, arc_deg=11.0, min_seg=2):
+def bend_path(pts, radii, step=0.25, arc_deg=12.5, min_seg=2):
     """3D polyline through `pts` with each interior corner replaced by a circular arc of radius radii[i]
     (scalar or list; 0 = sharp). Arcs are sampled every `arc_deg` degrees; straight runs only get points every
     `step` metres (a straight tube needs no rings in between)."""
@@ -419,7 +419,12 @@ def box(center, size, mat, R=None, bevel=0.003, segs=2):
     s = np.asarray(size, float) / 2
     xf = np.eye(4)
     if R is not None:
-        xf[:3, :3] = np.asarray(R, float)
+        R = np.array(R, float)
+        # a mirrored basis would turn the faces inside out (bmesh keeps the winding): the box is symmetric, so
+        # flipping one of its axes gives the same box the right way out
+        if np.linalg.det(R) < 0:
+            R[:, 0] = -R[:, 0]
+        xf[:3, :3] = R
     xf[:3, 3] = center
     return K.box_buf(-s, s, mat, bevel, segs, xf=xf)
 

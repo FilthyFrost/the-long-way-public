@@ -184,7 +184,7 @@ class Fork:
         b = K.Buf()
         self.dials = []
         r = M.DIAL_R
-        segs = 38
+        segs = 34
         for name, sg in (('N_speed', 1.0), ('N_rpm', -1.0)):
             c, nrm, right, up = M.gauge_frame(sg)
             # chrome bezel (lip over the glass) and the can behind it
@@ -334,7 +334,7 @@ class Fork:
         hub = self.hub
         R0 = 0.344
         th0, th1 = -58.0, 64.0
-        n = 16
+        n = 15
         th = np.radians(np.linspace(th0, th1, n))
         radial = np.stack([np.sin(th) * -1.0, np.zeros(n), np.cos(th)], 1)
         # theta > 0 = towards the rear: x = hub - sin(th) * R  (front is negative theta)

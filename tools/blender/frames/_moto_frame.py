@@ -155,7 +155,7 @@ class Frame:
         jt = np.array([p, my(p)])
         b.extend(self.cross(p, 0.0135))
         b.extend(MK.weld(jt, 0.0135, self.bb, D['r_bb'], at='end', bead=0.003, mat=FR, segs=12))
-        p, _ = self.at_x(-0.455, self.s_junction, self.s_hoop)
+        p, _ = self.at_x(-0.505, self.s_junction, self.s_hoop)
         self.p_rail_cross = p
         b.extend(self.cross(p, 0.0105))
         return b
@@ -179,8 +179,6 @@ class Frame:
         self.stay = stay
         b.extend(MK.tube(stay, 0.0115, FR, 11))
         b.extend(MK.weld(self.loop, self.rl, stay, 0.0115, at='start', bead=0.0026, mat=FR, segs=10))
-        b.extend(MK.weld(boss, 0.0125, stay, 0.0115, at='end', bead=0.0026, mat=FR, segs=10))
-        b.extend(MK.weld(self.loop, self.rl, boss, 0.0125, at='start', bead=0.0026, mat=FR, segs=10))
         # shock stud: from the boss end out through the eye, acorn nut and washer
         stud = np.array([[bx, 0.125, bz], [bx, D['shock_hw'] + 0.016, bz]])
         b.extend(MK.tube(stud, 0.0055, 'steel', 10))
@@ -283,6 +281,9 @@ class Frame:
         loc, R = tank_m
         p = loc + R @ np.array([0.18, 0.0, 0.03])
         b.extend(MK.tube(np.array([p + [0, -0.058, 0], p + [0, 0.058, 0]]), 0.006, 'steel', 10))
+        for sg in (1, -1):
+            c = p + np.array([0, sg * 0.031, 0])
+            b.extend(MK.lathe([(0.0062, 0.0), (0.0145, 0.0), (0.0145, 0.003), (0.0128, 0.0045)], c, (0, sg, 0), FR, 16, smooth=False))
         bbd = unit(self.bb[1] - self.bb[0])
         pr = loc + R @ np.array([-0.222, 0.0, 0.03])
         # tab on the backbone's top under the tank's rear
@@ -491,22 +492,44 @@ class Frame:
             loop3 = np.vstack([ring, ring2])
             tdir = unit(path[min(k + 1, n - 1)] - path[max(k - 1, 0)]) * (1 if k == n - 1 else -1)
             b.extend(K.fill_loop(loop3, tdir, 'paint'))
+            # rolled lip: a bead across the end following the outer section
+            lip = ring[1:-1] - tdir * 0.0004 + radial[k] * 0.0006
+            b.extend(MK.tube(lip, 0.0018, 'paint', 4, cap0='flat', cap1='flat'))
         self.fender_path = path
         self.fender_radial = radial
         return b
 
     def fender_mounts(self):
-        """Tabs from the fender to the rail cross tube and to the hoop (left half; mirrored)."""
+        """How the rear fender hangs (left half; mirrored): a strap from the rail cross tube down to the fender's
+        crown, a stay from the hoop's corner down to the skirt, a tab from the shock boss to the skirt."""
         b = K.Buf()
-        pr = self.p_rail_cross
-        # strap from the cross tube down to the fender's crown on each side
         hub = M.HUB_R
-        for x in (pr[0] + 0.01,):
+        pr = self.p_rail_cross
+
+        def crown_z(x, y):
             dz = math.sqrt(max(0.356 ** 2 - (x - hub[0]) ** 2, 0.0))
-            fz = hub[2] + dz + 0.010
-            out = MK.rounded_poly2([(-0.012, fz - pr[2]), (0.012, fz - pr[2]), (0.008, 0.01), (-0.008, 0.01)], [0.003, 0.003, 0.004, 0.004])
-            out = out + np.array([x, pr[2]])
-            b.extend(MK.plate(out, (0.0, 0.045, 0.0), (1, 0, 0), (0, 0, 1), 0.004, FR))
+            u = y / 0.074
+            return hub[2] + (dz + 0.010 * (1 - u * u)) * 1.0
+        x = pr[0]
+        fz = crown_z(x, 0.04)
+        out = MK.rounded_poly2([(-0.011, fz - pr[2] - 0.002), (0.011, fz - pr[2] - 0.002), (0.008, 0.004), (-0.008, 0.004)],
+                               [0.003, 0.003, 0.004, 0.004])
+        out = out + np.array([x, pr[2]])
+        b.extend(MK.plate(out, (0.0, 0.040, 0.0), (1, 0, 0), (0, 0, 1), 0.004, FR, flat=True))
+        b.extend(MK.bolt(np.array([x, 0.0425, fz - 0.002 + 0.006]), (0, 1, 0), 0.0042, 0.003, 'steel', washer=False))
+        # stay: from the hoop's corner down to the skirt, bolted
+        hc, _ = self.at(self.s_hoop + 0.02)
+        th = math.radians(48.0)
+        skirt_pt = hub + np.array([-math.sin(th), 0.0, math.cos(th)]) * (0.356 - 0.012) + np.array([0, 0.0765, 0])
+        stay = np.array([hc + np.array([0.0, 0.0, -0.010]), skirt_pt])
+        b.extend(MK.tube(stay, 0.0055, FR, 8))
+        b.extend(MK.bolt(skirt_pt + np.array([0, 0.001, 0]), (0, 1, 0), 0.0045, 0.0032, 'steel', washer=False))
+        # tab from the shock boss's inner end down to the skirt
+        bx, bz = self.boss_shock[0], self.boss_shock[2]
+        sz = hub[2] + math.sqrt(max(0.356 ** 2 - (bx - hub[0]) ** 2, 0.0)) - 0.016
+        out = MK.rounded_poly2([(-0.010, sz - bz), (0.010, sz - bz), (0.010, 0.006), (-0.010, 0.006)], [0.003, 0.003, 0.003, 0.003])
+        out = out + np.array([bx, bz])
+        b.extend(MK.plate(out, (0.0, 0.077, 0.0), (1, 0, 0), (0, 0, 1), 0.003, FR, flat=True))
         return b
 
     def side_cover(self):
@@ -615,7 +638,7 @@ class Frame:
         tip = np.array([-0.83, 0.205, 0.66])
         b.extend(MK.tube(np.array([base, tip]), 0.0065, 'chrome', 10))
         c = tip + np.array([-0.012, 0.0, 0.0])
-        b.extend(MK.lathe(MK.round_prof([(0.0, -0.03), (0.022, -0.03), (0.026, -0.012), (0.026, 0.0)], 0.004, 2), c, (-1, 0, 0), 'chrome', 18))
+        b.extend(MK.lathe(MK.round_prof([(0.0, -0.03), (0.022, -0.03), (0.026, -0.012), (0.026, 0.0)], 0.004, 1), c, (-1, 0, 0), 'chrome', 14))
         b.extend(MK.lathe([(0.026, 0.0), (0.025, 0.006), (0.018, 0.016), (0.0, 0.02)], c + [-0.0, 0, 0], (-1, 0, 0), 'lens_amber', 18))
         for sg in (1, -1):
             M.LAMPS.append((c * np.array([1, sg, 1]) - np.array([0.01, 0, 0]), np.array([-1.0, 0, 0]), 0.026))
