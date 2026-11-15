@@ -85,6 +85,15 @@ const BODY_STIFFEN = 0.06;
 const BODY_CAP_EXT = 16;
 /** derived specs: below this depth (m) a body corner moving into the ground is stopped outright */
 const BODY_HARD = 0.08;
+/** derived specs: tyre grip against the road's camber — full up to 30°, a quarter by 60° (cosines) */
+const CAMBER_FULL = Math.cos(30 * (Math.PI / 180));
+const CAMBER_ZERO = Math.cos(60 * (Math.PI / 180));
+const CAMBER_MIN = 0.25;
+/** the body box's contact points by index: bottom corners 0–3, top corners 4–7, a derived spec's bottom edge points 8–11 */
+const BOTTOM_POINTS: readonly number[] = [0, 1, 2, 3];
+const ALL_POINTS: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7];
+const BOTTOM_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 8, 9, 10, 11];
+const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 /** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
 const BODY_MIN_ABOVE = 0.25;
 const BODY_MIN_BELOW = 0.1;
@@ -386,9 +395,14 @@ export class VehicleSim {
   private invIyaw!: number;
   private invIpitch!: number;
   private readonly gs = new GroundSample();
-  private readonly bodyPts = new Float64Array(24);
-  private readonly bodyN = new Float64Array(8);
-  private readonly bodyNrm = new Float64Array(24);
+  /** the body box's contact points: 4 bottom corners, 4 top ones, and for a derived spec 4 more along the bottom */
+  private readonly bodyPts = new Float64Array(36);
+  private readonly bodyN = new Float64Array(12);
+  private readonly bodyNrm = new Float64Array(36);
+  private nBodyPts = 8;
+  /** which of them can touch when the body is only near the road (the bottom ones), and all of them */
+  private bodyBottom: readonly number[] = BOTTOM_POINTS;
+  private bodyAll: readonly number[] = ALL_POINTS;
   private kBody!: number;
   private cBody!: number;
   private nDriven!: number;
@@ -485,6 +499,21 @@ export class VehicleSim {
         }
       }
     }
+    if (ext) {
+      // points along the bottom edges a third of the way in from each end: a long body on small wheels
+      // does not bridge a crest with its belly through it
+      for (const x of [bd.centerX + bd.halfLength / 3, bd.centerX - bd.halfLength / 3]) {
+        for (const z of [-bd.halfWidth, bd.halfWidth]) {
+          this.bodyPts[n++] = x;
+          this.bodyPts[n++] = bd.bottom;
+          this.bodyPts[n++] = z;
+        }
+      }
+    }
+    this.nBodyPts = ext ? 12 : 8;
+    this.bodyBottom = ext ? BOTTOM_POINTS_EXT : BOTTOM_POINTS;
+    this.bodyAll = ext ? ALL_POINTS_EXT : ALL_POINTS;
+    for (let k = 8; k < 12; k++) this.bodyN[k] = 0;
     this.kBody = (spec.mass * GRAVITY) / 0.03;
     this.cBody = 2 * Math.sqrt(this.kBody * spec.mass) * 0.35;
     // circles of the body's half width along its length, ends flush with the box
@@ -735,7 +764,7 @@ export class VehicleSim {
       this.basis(b);
       const bp = this.bodyPts;
       let lift = 0;
-      for (let k = 0; k < 4; k++) {
+      for (const k of this.bodyBottom) {
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -765,7 +794,7 @@ export class VehicleSim {
     if (--this.bodyTick <= 0) {
       this.bodyTick = 4;
       const gs = this.gs;
-      for (let k = 0; k < 4; k++) {
+      for (const k of this.bodyBottom) {
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -804,7 +833,7 @@ export class VehicleSim {
     cy /= n;
     cz /= n;
     const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
-    for (let k = 0; k < 4; k++) {
+    for (const k of this.bodyBottom) {
       const bx = bp[k * 3];
       const by = bp[k * 3 + 1];
       const bz = bp[k * 3 + 2];
@@ -1495,12 +1524,13 @@ export class VehicleSim {
     const bnr = this.bodyNrm;
     const bodyTilt = Uy < 0.8 || maxCompFrac > 0.97 || contacts < 3 || this.anyNone;
     const bodyActive = bodyTilt || (this.ext && this.bodyNear(ground, px, py, pz, Fx, Fy, Fz, Ux, Uy, Uz, Sx, Sy, Sz));
-    const nBody = bodyTilt ? 8 : 4;
+    const touchable = bodyTilt ? this.bodyAll : this.bodyBottom;
     if (bodyActive) {
       // (a derived spec's body stiffens as it goes in: a crash of an extreme build does not bury it)
       const nmaxBody = m * GRAVITY * (this.ext ? BODY_CAP_EXT : 6);
-      if (nBody === 4) for (let k = 4; k < 8; k++) bn[k] = 0;
-      for (let k = 0; k < nBody; k++) {
+      if (!bodyTilt) for (let k = 4; k < 8; k++) bn[k] = 0;
+      for (let j = 0; j < touchable.length; j++) {
+        const k = touchable[j];
         const bx = bp[k * 3];
         const by = bp[k * 3 + 1];
         const bz = bp[k * 3 + 2];
@@ -1555,7 +1585,7 @@ export class VehicleSim {
     {
       let touching = false;
       let imp = 0;
-      if (bodyActive) for (let k = 0; k < 8; k++) if (bn[k] > 0) {
+      if (bodyActive) for (let k = 0; k < this.nBodyPts; k++) if (bn[k] > 0) {
         touching = true;
         imp += bn[k] * h;
       }
@@ -1674,7 +1704,13 @@ export class VehicleSim {
       // (a tyre rated for a load loses grip as a power of the overload, like real ones; the legacy
       // vehicles' linear rule against their own static load is the same slope at rest)
       const ls = w.rated ? clamp(Math.pow(N / w.tyreLoad, -tire.loadSens), 0.7, 1.1) : clamp(1 - tire.loadSens * (N / w.tyreLoad - 1), 0.7, 1.1);
-      const grip = w.axle.muScale * w.mu * ls;
+      let grip = w.axle.muScale * w.mu * ls;
+      if (this.ext) {
+        // a tyre leant far over against the road runs on its shoulder, then its sidewall: a car up on
+        // two wheels, a bike that has gone down, does not drive and grip on them as if upright
+        const nu = w.nx * Ux + w.ny * Uy + w.nz * Uz;
+        if (nu < CAMBER_FULL) grip *= CAMBER_MIN + (1 - CAMBER_MIN) * smoothstep(CAMBER_ZERO, CAMBER_FULL, nu);
+      }
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;
       // (an empty hub grinds along like a locked wheel)
@@ -1817,7 +1853,7 @@ export class VehicleSim {
 
     if (bodyActive) {
       const stickB = (0.9 * m) / 4 / h;
-      for (let k = 0; k < 8; k++) {
+      for (let k = 0; k < this.nBodyPts; k++) {
         const N = bn[k];
         if (N <= 0) continue;
         const bx = bp[k * 3];
