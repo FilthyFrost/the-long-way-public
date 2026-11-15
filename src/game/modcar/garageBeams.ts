@@ -143,12 +143,16 @@ export function beamMaterial(): THREE.ShaderMaterial {
             float seen = smoothstep(0.4, 2.8, t);
             acc += rtShadowMap(p, uSunDir) * edge * fade * dust * seen;
           }
-          // brighter looking into the light (dust scatters forward)
-          float phase = 0.5 + 1.6 * pow(max(dot(rd, uSunDir), 0.0), 5.0);
+          // brighter looking into the light (dust scatters forward), faint with the sun behind one
+          float cs = dot(rd, uSunDir);
+          float phase = 0.2 + 0.4 * (0.5 + 0.5 * cs) + 1.6 * pow(max(cs, 0.0), 5.0);
           // (the clear roof sheets are corrugated and milky: what comes through them is scattered, a faint shaft)
           float milky = abs(normalize(cross(U, V)).y) > 0.3 ? 0.18 : 1.3;
           // (the dust in a morning beam glows warm, the air's blue is in the room's own light)
-          vec3 col = uSunColor * vec3(1.0, 0.9, 0.72) * acc * dt * uBeamDensity * phase * milky * rtCloudShade(ro);
+          // (looked at along its length a beam would add up to a fog: what it adds saturates past a couple of metres)
+          float depth = acc * dt;
+          depth = (1.0 - exp(-depth * 0.45)) / 0.45;
+          vec3 col = uSunColor * vec3(1.0, 0.9, 0.72) * depth * uBeamDensity * phase * milky * rtCloudShade(ro);
           gl_FragColor = vec4(col, 0.0);
         }`,
     }),

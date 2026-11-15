@@ -22,6 +22,10 @@ interface GroupLook {
   double?: boolean;
   /** lit from within (the bulbs, the charger's lamp, the radio's dial): switched by setGlow */
   glow?: boolean;
+  /** a light itself: drawn as bright as it is (everything else is held under the on-screen cap, garageSeen) */
+  light?: boolean;
+  /** the inside of a lamp's shade: its glow brightest round the bulb, falling to the rim */
+  shade?: boolean;
 }
 
 const GROUPS: Record<string, GroupLook> = {
@@ -30,12 +34,12 @@ const GROUPS: Record<string, GroupLook> = {
   prop: { ink: true, spec: 0.22 },
   shiny: { ink: true, spec: 0.9 },
   prop2: { ink: true, spec: 0.05, double: true },
-  bulb: { glow: true },
-  led: { glow: true, ink: true },
-  dial: { glow: true, ink: true },
-  fire: { glow: true },
-  lamp_out: { glow: true },
-  shade_in: { glow: true, ink: true },
+  bulb: { glow: true, light: true },
+  led: { glow: true, ink: true, light: true },
+  dial: { glow: true, ink: true, light: true },
+  fire: { glow: true, light: true },
+  lamp_out: { glow: true, light: true },
+  shade_in: { glow: true, ink: true, shade: true },
 };
 
 /** the glass, as before: its own meshes (sRGB tint, opacity) */
@@ -45,16 +49,27 @@ const GLASS: Record<string, [number, number]> = {
   skylight: [0xeef0dc, 0.55],
 };
 
+/** the frame's exposure as the garage's materials see it (GarageLook.setExposure, each frame) */
+const exposure = { value: 1.6 };
+
 /** the glowing bits that are switched (lamps, the charger's lamp, the radio's dial, the stove's fire, the lamp over the doors) */
 export type GlowName = 'bulb' | 'led' | 'dial' | 'fire' | 'lamp_out' | 'shade_in';
 const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out', 'shade_in'];
 
 /**
  * The sun indoors: its patches warmer than the sky's light round them (the room's cool is in that light),
- * and softer at the edge — the sun is no point, and the window a metre or two up — four taps of the usual
- * filter spread across the sun's plane. Outside the room, the usual shadow and the sun's own colour.
+ * softer at the edge — the sun is no point, and the window a metre or two up: four taps of the usual
+ * filter spread across the sun's plane — and that edge painted, not cut: the lookup wanders a few
+ * centimetres on a stroke-sized noise and the brush's own texture breaks it up. Outside the room, the
+ * usual shadow and the sun's own colour.
+ *
+ * garageSeen holds what the eye gets of a lit surface on screen under about 0.85 after the frame's
+ * painter's curve (0.75 before it; uExposure is the
+ * frame's): a patch of sun on the floor reads as light on concrete, not a sheet of white paper; a lamp's
+ * shade seen from under it is cream, not burnt out. The lights themselves (bulbs, the fire) are exempt.
  */
 const GLSL_GARAGE_SUN = /* glsl */ `
+  uniform float uExposure;
   const vec3 GARAGE_WARM = vec3(0.92, 0.77, 0.59);
   float garageSun(vec3 pos, vec3 n, out vec3 sunCol) {
     float inside = rtInRoom(pos);
@@ -62,9 +77,21 @@ const GLSL_GARAGE_SUN = /* glsl */ `
     if (inside < 0.5) return rtShadow(pos, n);
     vec3 t1 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
     vec3 t2 = cross(uSunDir, t1);
-    const float r = 0.03;
-    float s = rtShadowMap(pos + (t1 + t2) * r, n) + rtShadowMap(pos + (t1 - t2) * r, n) + rtShadowMap(pos - (t1 + t2) * r, n) + rtShadowMap(pos - (t1 - t2) * r, n);
-    return s * 0.25 * rtCloudShade(pos);
+    vec2 bw = rtWorldXZ(pos) + vec2(pos.y * 0.7, -pos.y * 0.4);
+    vec4 nz = rtNoiseAt(bw, 0.7);
+    vec3 q = pos + (t1 * (nz.r - 0.5) + t2 * (nz.g - 0.5)) * 0.11;
+    const float r = 0.04;
+    float s = rtShadowMap(q + (t1 + t2) * r, n) + rtShadowMap(q + (t1 - t2) * r, n) + rtShadowMap(q - (t1 + t2) * r, n) + rtShadowMap(q - (t1 - t2) * r, n);
+    s *= 0.25;
+    // (only where the edge is: the middle of a patch and the shade stay whole)
+    float stroke = rtStrokeAt(bw, 0.45) + 0.6 * (rtStrokeAt(bw + 3.7, 0.16) - 0.5) - 0.5;
+    s = smoothstep(0.04, 0.96, s + stroke * 0.75 * (1.0 - abs(2.0 * s - 1.0)));
+    return s * rtCloudShade(pos);
+  }
+  vec3 garageSeen(vec3 col) {
+    float seen = dot(col, vec3(0.2126, 0.7152, 0.0722)) * uExposure;
+    if (seen > 0.55) col *= (0.55 + 0.2 * (1.0 - exp(-(seen - 0.55) / 0.2))) / seen;
+    return col;
   }`;
 
 const VERTEX = /* glsl */ `
@@ -88,11 +115,14 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
   if (o.brush) defines.RT_BRUSH = '';
   if (o.ink) defines.RT_INK = '';
   if (o.double) defines.RT_DOUBLE = '';
+  if (!o.light) defines.RT_CAP = '';
+  if (o.shade) defines.RT_SHADE = '';
   return new THREE.ShaderMaterial({
     defines,
     side: o.double ? THREE.DoubleSide : THREE.FrontSide,
     uniforms: {
       ...globals,
+      uExposure: exposure,
       uBrush: { value: o.brush ?? 0 },
       uSpec: { value: o.spec ?? 0 },
       uEmissive: { value: new THREE.Color(0, 0, 0) },
@@ -137,6 +167,25 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
         float aoKey = mix(0.55, 1.0, smoothstep(0.1, 0.6, ao));
         vec3 lamps = rtRoomLamps(vPos, n);
         vec3 col = albedo * (rtSkyLight(n, vPos) * aoSky + (sunC * (0.3 * lit + 0.1 * full) + lamps) * aoKey);
+        // what glows (a lamp's shade from inside) and what is lit, held together under the cap on screen;
+        // the glints of the sun and the lamps on shiny things go on top, small and bright
+        #ifdef RT_SHADE
+        {
+          // (the nearest lamp is this shade's own bulb: bright round it, a warm dusk at the rim)
+          float near = 9.0;
+          for (int i = 0; i < ${ROOM_LAMPS}; i++) {
+            vec4 lp = uRoomLampP[i];
+            if (lp.w > 0.0) near = min(near, length(lp.xyz - vPos));
+          }
+          col *= 0.7;
+          col += uEmissive * (0.25 + 0.75 * (1.0 - smoothstep(0.05, 0.27, near)));
+        }
+        #else
+        col += uEmissive;
+        #endif
+        #ifdef RT_CAP
+        col = garageSeen(col);
+        #endif
         vec3 v = normalize(cameraPosition - vPos);
         if (uSpec > 0.0) {
           // the sun's sheen, and for shiny things a glint of each lamp
@@ -156,7 +205,6 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
           }
         }
         col += rtHeadlight(albedo, n, vPos);
-        col += uEmissive;
         col = rtFog(col, vPos, cameraPosition);
         float alpha = 1.0;
         #ifdef RT_INK
@@ -176,7 +224,7 @@ export function garageCelMaterial(o: GroupLook): THREE.ShaderMaterial {
  */
 export function garageFloorMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { ...globals },
+    uniforms: { ...globals, uExposure: exposure },
     vertexShader: VERTEX,
     fragmentShader: /* glsl */ `
       ${GLSL_FRAGMENT_PARS}
@@ -230,6 +278,7 @@ export function garageFloorMaterial(): THREE.ShaderMaterial {
         // a faint sheen where the sun falls on the worn tracks and the damp
         vec3 v = normalize(cameraPosition - vPos);
         col += sunC * (0.05 * tracks + 0.08 * damp) * pow(max(dot(reflect(-uSunDir, n), v), 0.0), 8.0) * sh;
+        col = garageSeen(col);
         col += rtHeadlight(albedo, n, vPos);
         col = rtFog(col, vPos, cameraPosition);
         gl_FragColor = vec4(col, 1.0);
@@ -258,6 +307,11 @@ export class GarageLook {
     m.name = `garage:${base}`;
     this.byKey.set(base, m);
     return m;
+  }
+
+  /** the frame's exposure (for the cap on what the eye gets of sunlit floor and walls) */
+  setExposure(e: number): void {
+    exposure.value = e;
   }
 
   /** a glowing bit's light (× its own colour; black = off) */
