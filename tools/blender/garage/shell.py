@@ -381,56 +381,74 @@ def corrugated_roof(K):
 
 
 def sheet(K, s, x0, x1, z0, z1, pitch_wave, amp, mat_out, mat_in):
-    """one strip of corrugated sheet on slope s between plan z0 and z1 (|z|), x0..x1; two faces, waves along x"""
-    n = max(2, int(round((x1 - x0) / (pitch_wave / 4))))
-    ni = max(1, int(round((x1 - x0) / 0.8)))
+    """
+    One strip of corrugated sheets on slope s between plan z0 and z1 (|z|), x0..x1: laid as sheets about
+    0.86 m wide, each its own shade of grey — a few gone rusty, the odd newer one brighter. Two faces,
+    the waves along x outside, flat underneath.
+    """
+    k = max(1, int(round((x1 - x0) / 0.86)))
+    w = (x1 - x0) / k
     m = max(1, int(round((z1 - z0) / 0.9)))
-    bm_o = bmesh.new()
-    bm_i = bmesh.new()
-    rows_o = []
-    rows_i = []
-    for j in range(m + 1):
-        zz = s * (z0 + (z1 - z0) * j / m)
-        y = roof_under(zz)
-        rows_i.append([bm_i.verts.new((x0 + (x1 - x0) * i / ni, y + 0.004, zz)) for i in range(ni + 1)])
-        ro = []
-        for i in range(n + 1):
-            x = x0 + (x1 - x0) * i / n
-            wv = amp * math.sin(TWO_PI * (x - X0) / pitch_wave)
-            ro.append(bm_o.verts.new((x, y + 0.012 + wv, zz)))
-        rows_o.append(ro)
-    # (the underside is drawn flat: its ribs at this pitch would only shimmer from the floor)
-    for j in range(m):
-        for i in range(n):
-            a, b, c, d = rows_o[j][i], rows_o[j][i + 1], rows_o[j + 1][i + 1], rows_o[j + 1][i]
-            bm_o.faces.new((a, b, c, d))
-        for i in range(ni):
-            a, b, c, d = rows_i[j][i], rows_i[j][i + 1], rows_i[j + 1][i + 1], rows_i[j + 1][i]
-            bm_i.faces.new((a, d, c, b))
-    # outside faces up, inside faces down
-    for f in bm_o.faces:
-        f.normal_update()
-        if f.normal.y < 0:
-            f.normal_flip()
-    for f in bm_i.faces:
-        f.normal_update()
-        if f.normal.y > 0:
-            f.normal_flip()
-    for bm in (bm_o, bm_i):
-        for f in bm.faces:
-            f.smooth = True
-    tint = 1.0 + K.jitter(0.06)
-    # the sheet casts the sun's shadow as one flat quad (a clear sheet casts none)
-    if mat_out != 'skylight':
-        q = bmesh.new()
+    clear = mat_out == 'skylight'
+    for q in range(k):
+        xa = x0 + q * w
+        xb = xa + w
+        n = max(2, int(round(w / (pitch_wave / 4))))
+        bm_o = bmesh.new()
+        bm_i = bmesh.new()
+        rows_o = []
+        rows_i = []
+        for j in range(m + 1):
+            zz = s * (z0 + (z1 - z0) * j / m)
+            y = roof_under(zz)
+            rows_i.append([bm_i.verts.new((xa, y + 0.004, zz)), bm_i.verts.new((xb, y + 0.004, zz))])
+            ro = []
+            for i in range(n + 1):
+                x = xa + w * i / n
+                wv = amp * math.sin(TWO_PI * (x - X0) / pitch_wave)
+                ro.append(bm_o.verts.new((x, y + 0.012 + wv, zz)))
+            rows_o.append(ro)
+        # (the underside is drawn flat: its ribs at this pitch would only shimmer from the floor)
+        for j in range(m):
+            for i in range(n):
+                bm_o.faces.new((rows_o[j][i], rows_o[j][i + 1], rows_o[j + 1][i + 1], rows_o[j + 1][i]))
+            bm_i.faces.new((rows_i[j][0], rows_i[j + 1][0], rows_i[j + 1][1], rows_i[j][1]))
+        # outside faces up, inside faces down
+        for f in bm_o.faces:
+            f.normal_update()
+            if f.normal.y < 0:
+                f.normal_flip()
+        for f in bm_i.faces:
+            f.normal_update()
+            if f.normal.y > 0:
+                f.normal_flip()
+        for bm in (bm_o, bm_i):
+            for f in bm.faces:
+                f.smooth = True
+        t = 1.0 + K.jitter(0.07)
+        tint_o = (t, t, t)
+        tint_i = (t, t, t)
+        if not clear:
+            r = K.rng.random()
+            if r < 0.14:
+                # gone rusty, worse outside
+                tint_o = (t * 1.16, t * 0.84, t * 0.64)
+                tint_i = (t * 1.06, t * 0.92, t * 0.8)
+            elif r < 0.22:
+                # a newer sheet put in after a storm
+                tint_o = (t * 1.14, t * 1.14, t * 1.16)
+                tint_i = (t * 1.1, t * 1.1, t * 1.1)
+        K._pour(bm_o, mat_out, tint_o)
+        K._pour(bm_i, mat_in, tint_i)
+    # the strip casts the sun's shadow as one flat quad (a clear sheet casts none)
+    if not clear:
+        qd = bmesh.new()
         za, zb = s * z0, s * z1
-        vs = [q.verts.new((x0, roof_under(za) + 0.01, za)), q.verts.new((x1, roof_under(za) + 0.01, za)),
-              q.verts.new((x1, roof_under(zb) + 0.01, zb)), q.verts.new((x0, roof_under(zb) + 0.01, zb))]
-        q.faces.new(vs)
-        K._cast(mat_out, q, None, True)
-        q.free()
-    K._pour(bm_o, mat_out, (tint, tint, tint))
-    K._pour(bm_i, mat_in, (tint, tint, tint))
+        vs = [qd.verts.new((x0, roof_under(za) + 0.01, za)), qd.verts.new((x1, roof_under(za) + 0.01, za)),
+              qd.verts.new((x1, roof_under(zb) + 0.01, zb)), qd.verts.new((x0, roof_under(zb) + 0.01, zb))]
+        qd.faces.new(vs)
+        K._cast(mat_out, qd, None, True)
+        qd.free()
 
 
 TWO_PI = math.tau

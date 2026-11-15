@@ -87,6 +87,8 @@ def lift(K, L, xc, zc, span=2.9, name='lift'):
     K.cyl('p_red', (xc_pu + 0.23, 1.12, pz - 0.08), 0.028, 0.06, axis='x', segs=12)
     K.tube('p_black', [(xc_pu, 0.89, pz), (xc_pu - 0.1, 0.3, pz), (xc, 0.05, pz - 0.2), (xc, 0.05, zc)], 0.012, segs=6, bend=0.1)
     P.device(L, 'lift', xc_pu + 0.23, 1.12, pz - 0.08, 0.16)
+    # where a car stands to be lifted (between the posts, along x)
+    L['liftBay'] = {'x': xc, 'z': zc}
     return (zl, zr)
 
 
@@ -569,11 +571,16 @@ def stove(K, L, x, z):
         K.box('p_black', (x + w / 2 + 0.027, y0 + h * 0.47, z - d * 0.14 + k * d * 0.14), (0.006, h * 0.28, 0.012), bev=0.0)
     K.cyl('brass', (x + w / 2 + 0.03, y0 + h * 0.62, z + d * 0.28), 0.014, 0.05, axis='x', segs=8)
     # the pipe: up, through the roof, a cap on top
-    top = S.roof_under(z) + 0.5
-    K.cyl('p_black', (x - 0.08, y0 + h + 0.04 + (top - y0 - h) / 2, z), 0.075, top - y0 - h - 0.04, segs=14, rings=6)
+    top = S.roof_under(z) + 1.15
+    K.cyl('p_black', (x - 0.08, y0 + h + 0.04 + (top - y0 - h) / 2, z), 0.075, top - y0 - h - 0.04, segs=14, rings=8)
     K.cyl('steel', (x - 0.08, S.roof_under(z) + 0.02, z), 0.14, 0.04, segs=14)
-    K.cyl('steel', (x - 0.08, top + 0.08, z), 0.15, 0.03, segs=14, r2=0.02)
-    K.cyl('steel', (x - 0.08, top + 0.03, z), 0.012, 0.1, segs=5)
+    # (outside: the flashing on the sheets, a rain cap up on three legs)
+    K.cyl('steel', (x - 0.08, S.roof_under(z) + 0.14, z), 0.16, 0.06, segs=14, r2=0.09)
+    K.cyl('steel', (x - 0.08, top + 0.1, z), 0.16, 0.035, segs=14, r2=0.02)
+    for k in range(3):
+        a = k / 3 * math.tau
+        K.cyl('steel', (x - 0.08 + math.cos(a) * 0.065, top + 0.04, z + math.sin(a) * 0.065), 0.006, 0.09, segs=4)
+    L['chimney'] = {'x': round(x - 0.08, 3), 'y': round(top + 0.08, 3), 'z': round(z, 3)}
     # a kettle on top
     K.lathe('galv', (x + 0.06, y0 + h + 0.04, z + 0.05), [(0.0, 0.0), (0.1, 0.0), (0.11, 0.06), (0.09, 0.13), (0.04, 0.15), (0.0, 0.15)], segs=18)
     K.tube('p_black', [(x + 0.06 - 0.07, y0 + h + 0.19, z + 0.05), (x + 0.06, y0 + h + 0.26, z + 0.05), (x + 0.06 + 0.07, y0 + h + 0.19, z + 0.05)], 0.008, segs=6, bend=0.04)
@@ -584,7 +591,7 @@ def stove(K, L, x, z):
         r = 0.05 + 0.008 * ((k * 7) % 3)
         K.cyl('wood_dark', c, r, 0.42, axis='x', segs=7, smooth=False, tint=(0.85 + 0.1 * (k % 2), 0.8, 0.75))
         for e in (-1, 1):
-            K.cyl('wood', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.15, 1.05, 0.9), cast=False)
+            K.cyl('p_cream', (c[0] + e * 0.211, c[1], c[2]), r * 0.86, 0.004, axis='x', segs=7, tint=(1.0, 0.9, 0.72), cast=False)
     P.solid(L, x, z, w / 2 + 0.05, d / 2 + 0.05, 0, y0 + h + 0.05)
     L['stove'] = {'x': round(x + w / 2 + 0.05, 3), 'y': round(y0 + h * 0.47, 3), 'z': round(z, 3)}
 

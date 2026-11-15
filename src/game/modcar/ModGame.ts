@@ -602,7 +602,18 @@ export class ModGame implements PlayerHost, CockpitHost {
         best = v;
       }
     }
-    this.radio.update({ on: !!best && level > 0.01, song: best?.radioSong ?? 0, level });
+    let song = best?.radioSong ?? 0;
+    // the garage's own set on the tool chest, heard round the workshop (and a little from a seat)
+    const set = this.garage?.radio?.();
+    if (set?.on) {
+      const d = Math.hypot(this.player.walker.x - set.x, this.player.walker.z - set.z);
+      const l = (this.seated ? 0.1 : 0.4) / (1 + (d * d) / 12);
+      if (l > level) {
+        level = l;
+        song = set.song;
+      }
+    }
+    this.radio.update({ on: level > 0.01, song, level });
   }
 
   /** the engine of the vehicle in focus: heard from the seat, or from where one stands */

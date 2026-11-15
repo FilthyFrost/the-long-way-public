@@ -3,9 +3,10 @@ The starting workshop (docs/MODCAR.md section 9), built in the background:
 
     blender -b --factory-startup --python tools/blender/build.py -- garage/garage [--noao] [--preview]
 
-Writes public/models/modcar/garage/garage.glb (one mesh per material for everything that stands
-still, and the moving pieces: the doors, the lift's carriage, the charger's needle and lamp, the light
-switch, the tyre changer's table, the radio's pointer, the clock's hands, the fan) and
+Writes public/models/modcar/garage/garage.glb (packed by glb_pack.py: one mesh per shading group for
+everything that stands still, the shadow caster, and the moving pieces: the doors, the lift's
+carriage, the charger's needle and lamp, the light switch, the tyre changer's table, the radio's
+pointer, the clock's hands, the fan) and
 src/game/modcar/data/garage.json, the layout the game reads: the room and its openings (for the light
 inside), the lamps, solids, the surfaces things can lie on, the spots where the parts wait at the start,
 the devices, where the player starts and where the cars stand.
@@ -23,6 +24,7 @@ import os
 
 from . import _kit as kit
 from . import deco as D
+from . import glb_pack
 from . import machines as M
 from . import outside as O
 from . import props as P
@@ -123,6 +125,8 @@ def main(args):
     O.sign_post(K, 21.3, 4.6)
     M.sign_board(K, L, S.DOOR_H + 0.72)
     M.barn_lamp(K, L, S.DOOR_H + 0.62, -1.95)
+    O.bench(K, L, S.X1 + 0.55, 3.55)
+    O.weathervane(K, S.X1 - 0.6, 0.0)
 
     # ---- where the cars stand, where the player starts, the spots
     L['carSpot'] = {'x': 0.4, 'z': CAR_Z, 'yaw': 0.0}
@@ -149,6 +153,8 @@ def main(args):
     K.finish(ao=not opts.get('noao'), ao_samples=24, ao_distance=0.9, no_ao=('win_glass', 'skylight', 'bulb', 'led', 'dial', 'glass', 'shadow', 'fire', 'lamp_out'))
     K.report()
     K.export(OUT_GLB)
+    # (normals as bytes, the caster without normals: a quarter smaller, the same to look at)
+    glb_pack.pack(OUT_GLB)
     L['triangles'] = K.tris
     K.layout = L
     K.write_layout(OUT_LAYOUT)

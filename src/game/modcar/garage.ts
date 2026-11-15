@@ -25,6 +25,8 @@ import { GarageLook } from './garageLook';
 import { beamUniforms, buildBeams, buildDust } from './garageBeams';
 import { Chalkboard } from './garageChalk';
 import { Plates, Sign, YardLight } from './garageFront';
+import { buildSmoke } from './garageSmoke';
+import { Swallows } from './garageBirds';
 import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
@@ -61,6 +63,10 @@ interface Layout {
   outlamp?: { x: number; y: number; z: number };
   /** number plates nailed on the front wall (garageFront.ts paints them) */
   plates?: { x: number; y: number; z: number; rot: number; kind: number }[];
+  /** the top of the stove's chimney, where its smoke comes out */
+  chimney?: { x: number; y: number; z: number };
+  /** where a car stands between the lift's posts */
+  liftBay?: { x: number; z: number };
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -111,9 +117,9 @@ const LAMP_POWER = 3.6;
 /** the wide shadow map's reach over the workshop (m round the room's middle): 2 cm texels */
 const ROOM_SHADOW_REACH = 22;
 /** how thick the air is with dust by day (garageBeams.ts) */
-const BEAM_DENSITY = 0.055;
+const BEAM_DENSITY = 0.085;
 /** the stove's glow on the floor and the back wall (its colour × this; it flickers) */
-const STOVE_POWER = 1.4;
+const STOVE_POWER = 1.15;
 const STOVE_COLOUR: V3 = [1.0, 0.42, 0.13];
 /** the lamp over the doors outside, lit from dusk (a photocell) */
 const OUTLAMP_POWER = 4.0;
@@ -157,6 +163,10 @@ class Garage implements GarageScene {
   private readonly chalk: Chalkboard | null;
   private readonly sign: Sign | null;
   private readonly plates: Plates | null;
+  private readonly smoke: THREE.Mesh | null;
+  private readonly birds = new Swallows();
+  /** dark enough out for the lamp over the doors, and for the swallows to roost */
+  private night = false;
   private readonly yard = new YardLight();
   /** the lamp over the doors: how far it has warmed up (0 … 1) */
   private outLamp = 0;
@@ -186,6 +196,7 @@ class Garage implements GarageScene {
       look: this.look,
       device: (id) => LAYOUT.devices.find((d) => d.id === id) ?? null,
       surface: (name) => LAYOUT.surfaces.find((x) => x.name === name) ?? null,
+      liftBay: LAYOUT.liftBay ?? null,
     });
     this.devices.push(...this.machines.devices);
     this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;
@@ -195,6 +206,9 @@ class Garage implements GarageScene {
     this.root.add(this.yard.mesh);
     this.plates = LAYOUT.plates?.length ? new Plates(LAYOUT.plates) : null;
     if (this.plates) this.root.add(this.plates.mesh);
+    this.smoke = LAYOUT.chimney ? buildSmoke(LAYOUT.chimney) : null;
+    if (this.smoke) this.root.add(this.smoke);
+    this.root.add(this.birds.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -339,7 +353,7 @@ class Garage implements GarageScene {
       },
       use: () => {
         this.lampsOn = !this.lampsOn;
-        this.ctx?.sound('lever');
+        this.ctx?.sound('switch');
       },
     });
     const ch = at('charger');
@@ -368,7 +382,7 @@ class Garage implements GarageScene {
     const open = !this.doorsOpen();
     for (const l of Object.values(this.leaf)) l.target = open ? 1 : 0;
     this.doorMoving = 1;
-    this.ctx?.sound('lever');
+    this.ctx?.sound('switch');
     this.ctx?.ui.say(open ? '大门慢慢滑开了。' : '大门关上了。', 2);
   }
 
@@ -448,6 +462,7 @@ class Garage implements GarageScene {
     this.machines.update(dt, ctx);
     this.chalk?.show('让「方糖」跑起来', ctx.checklist());
     this.light();
+    this.birds.update(dt, this.night);
   }
 
   /**
@@ -599,7 +614,8 @@ class Garage implements GarageScene {
     const t = this.time;
     const flick = 0.82 + 0.1 * Math.sin(t * 7.3) + 0.06 * Math.sin(t * 13.7 + 1.3) + 0.05 * Math.sin(t * 23.1 + 0.4) * Math.sin(t * 1.7);
     if (st) {
-      g.uRoomLampP.value[slot].set(st.x + 0.15 - o.x, st.y - o.y, st.z - o.z, 3.4);
+      // (the glow comes from the window in its door: a little out in front, so what stands beside it is not lit up)
+      g.uRoomLampP.value[slot].set(st.x + 0.4 - o.x, st.y - o.y, st.z - o.z, 3.4);
       const p = STOVE_POWER * flick;
       g.uRoomLampC.value[slot].set(STOVE_COLOUR[0] * p, STOVE_COLOUR[1] * p, STOVE_COLOUR[2] * p, 0);
     } else g.uRoomLampP.value[slot].w = 0;
@@ -607,6 +623,7 @@ class Garage implements GarageScene {
     this.look.setGlow('fire', 2.2 * flick, 0.8 * flick, 0.18 * flick);
     // the lamp over the doors outside comes on at dusk, warming up over a second or two
     const night = smooth(0.16, 0.07, skyLum);
+    this.night = night > 0.5;
     // (already on, or off, when the garage is first seen)
     this.outLamp = this.lit ? this.outLamp + ((night > 0.5 ? 1 : 0) - this.outLamp) * Math.min(1, this.frameDt * 1.5) : night > 0.5 ? 1 : 0;
     this.lit = true;
@@ -694,6 +711,10 @@ class Garage implements GarageScene {
     return { meshes, triangles: Math.round(triangles), casterTriangles: Math.round(casterTriangles), byName };
   }
 
+  radio(): { on: boolean; song: number; x: number; y: number; z: number } | null {
+    return this.machines.radio();
+  }
+
   telemetry(): Record<string, string | number | boolean> {
     const [g0, g1] = this.doorGap();
     return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, ...this.machines.telemetry() };
@@ -712,14 +733,20 @@ class Garage implements GarageScene {
     this.disposed = true;
     this.root.removeFromParent();
     this.outdoors.dispose();
+    // every geometry and material of the garage's own (the look's, the boards' and the birds' among them)
+    const mats = new Set<THREE.Material>();
     this.root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
+      if (!m.isMesh && !(o as THREE.Points).isPoints) return;
+      m.geometry.dispose();
+      for (const x of Array.isArray(m.material) ? m.material : [m.material]) mats.add(x);
     });
+    for (const m of mats) m.dispose();
     this.look.dispose();
     this.chalk?.dispose();
     this.sign?.dispose();
     this.plates?.dispose();
+    this.birds.dispose();
     this.yard.dispose();
     this.core.shadows?.fixFar(null);
     // the room goes with it: nothing else in the game is lit as indoors

@@ -1,6 +1,6 @@
 // The starting garage's devices, each used the way a player would (walk up, look at it, press): the big
-// doors, the light switch, the battery charger, the lift, the radio, the tap, the tyre changer and the
-// paint gun. A screenshot per step into loop/shots/modcar_garage_devices/; exits non-zero on a failure.
+// doors, the light switch, the battery charger, the lift (empty, then with the car in its bay), the
+// radio, the tap, the tyre changer and the paint gun. A screenshot per step into loop/shots/modcar_garage_devices/; exits non-zero on a failure.
 //   SHOTS_GPU=1 node harness/shots/modcar_garage_devices.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -67,6 +67,28 @@ try {
     await use('lift');
     await rt('simulate', 4.5);
   }, (t) => t.lift < 0.01);
+
+  // the project car rolled in between the posts: the lift takes it up by the sills and lets it down again
+  const carY = () => ev(() => window.__rt.game.vehicles[0].sim.py);
+  await step('lift_car_up', async () => {
+    await ev(() => {
+      const g = window.__rt.game;
+      const v = g.vehicles[0];
+      v.sim.reset(-4.45, 0, 3.2, 0, g.garage.ground);
+      v.awake = 3;
+    });
+    await rt('simulate', 2);
+    const y0 = await carY();
+    await use('lift');
+    await rt('simulate', 4.5);
+    return { y0, y1: await carY() };
+  }, (t, i) => t.lift > 0.99 && t.liftCar !== '' && i.y1 - i.y0 > 1.5);
+  await step('lift_car_down', async () => {
+    const y1 = await carY();
+    await use('lift');
+    await rt('simulate', 5.5);
+    return { y1, y2: await carY() };
+  }, (t, i) => t.lift < 0.01 && t.liftCar === '' && i.y1 - i.y2 > 1.5);
 
   await step('radio', () => use('radio'), (t) => t.radio === true);
 
