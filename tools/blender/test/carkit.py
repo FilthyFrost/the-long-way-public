@@ -207,14 +207,14 @@ def grid(name, P, us, vs, period=None, mat_of=None, keep=None, uv_of=None, flip=
     return obj
 
 
-def lathe(name, profile, segments=48, mat='steel', mats_of=None, closed=False, uv_radial=False, coll=None, axis='Y', arc=(0.0, 2 * math.pi)):
+def lathe(name, profile, segments=48, mat='steel', mats_of=None, closed=False, uv_radial=False, coll=None, axis='Y', arc=(0.0, 2 * math.pi), uv_flip_u=False):
     """
     Turn a profile of (r, a) points round an axis (default Blender Y: a is along Y, r away from it).
     Faces look to the right of the profile's direction in the (r, a) plane: a profile climbing in a
     at constant r faces outwards, one running in towards the axis while climbing faces up.
     mats_of(k) → material of the band between profile points k and k+1 (else `mat` for all).
     uv_radial: texture coordinates (0.5 + r cos, 0.5 + r sin) / (2 r_max) — a lens or a dial face
-    with its centre at (0.5, 0.5).
+    with its centre at (0.5, 0.5); uv_flip_u mirrors u (a face that will be turned to look the other way).
     """
     bm = bmesh.new()
     m = Mats()
@@ -258,7 +258,7 @@ def lathe(name, profile, segments=48, mat='steel', mats_of=None, closed=False, u
                 for loop in f.loops:
                     co = loop.vert.co
                     p1, p2 = (co.x, co.z) if axis == 'Y' else (co.y, co.z) if axis == 'X' else (co.x, co.y)
-                    loop[uvl].uv = (0.5 + 0.5 * p1 / rmax, 0.5 + 0.5 * p2 / rmax)
+                    loop[uvl].uv = (0.5 + (-0.5 if uv_flip_u else 0.5) * p1 / rmax, 0.5 + 0.5 * p2 / rmax)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-6)
     bad = [f for f in bm.faces if f.calc_area() < 1e-12]
     if bad:

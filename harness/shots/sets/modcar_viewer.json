@@ -53,6 +53,12 @@
     {"name": "debug_env", "params": "debug=env&orbit=70,6,4.2,0.75&target=-0.2,0.7,0.6"},
     {"name": "debug_env34", "params": "debug=env&orbit=35,9,7.2,0.65"},
     {"name": "night_rear_turnL", "params": "time=22&lights=1&turn=L&orbit=180,8,6.5,0.65"},
-    {"name": "night_rear_reverse", "params": "time=22&lights=1&reverse=1&orbit=180,8,6.5,0.65"}
+    {"name": "night_rear_reverse", "params": "time=22&lights=1&reverse=1&orbit=180,8,6.5,0.65"},
+    {"name": "cockpit", "params": "orbit=180,8,0.62,0&target=0.25,0.95,-0.36"},
+    {"name": "cockpit_night", "params": "time=22&lights=1&cabin=1&orbit=180,8,0.62,0&target=0.25,0.95,-0.36"},
+    {"name": "seats_close", "params": "orbit=180,32,0.95,0&target=-0.35,0.62,0.0"},
+    {"name": "dash_close", "params": "orbit=200,28,0.42,0&target=0.27,0.88,-0.36"},
+    {"name": "gauges", "params": "orbit=180,4,0.36,0&target=0.21,0.875,-0.36"},
+    {"name": "gauges_night", "params": "time=22&lights=1&cabin=1&orbit=180,4,0.36,0&target=0.21,0.875,-0.36"}
   ]
 }

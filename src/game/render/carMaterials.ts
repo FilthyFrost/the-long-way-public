@@ -209,6 +209,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform vec3 uCarGround;
   uniform float uCarDebug;
   uniform float uBodyHeight;
+  uniform vec3 uCabinMin;
+  uniform vec3 uCabinMax;
   uniform vec3 uZenith;
   uniform vec3 uMid;
   uniform vec3 uHorizon;
@@ -301,6 +303,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     return e;
   }
 
+  // Inside the cabin a polished thing mirrors the room, not the open country: dark lining, the windows as a
+  // band of daylight round it, the lamp overhead at night.
+  vec3 rtCabinEnv(vec3 R) {
+    float lum = dot(uSkyColor, vec3(0.333));
+    vec3 room = uCabinAmb * lum * 0.35 + uCabinLamp * 0.15;
+    float window = rtStep(R.y + 0.08, 0.002) * (1.0 - rtStep(R.y - 0.38, 0.002));
+    vec3 c = mix(room, mix(uHorizon, uMid, 0.3) * 0.7, window);
+    return c + uCabinLamp * 0.9 * rtStep(R.y - 0.6, 0.002);
+  }
+
   // a crisp sun spot and a soft halo round it, as the clear coat mirrors them
   float rtSunSpot(vec3 R, float cosR) {
     float d = dot(R, uSunDir);
@@ -370,6 +382,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 ne = nl > 1e-3 ? normalize(nh / nl + vec3(0.0, bend, 0.0)) : n;
     vec3 Re = reflect(-v, normalize(mix(n, ne, side)));
     float ao = clamp(vAO, 0.0, 1.0);
+    float inCabin = step(uCabinMin.x, vCar.x) * step(vCar.x, uCabinMax.x) * step(uCabinMin.y, vCar.y) * step(vCar.y, uCabinMax.y) * step(uCabinMin.z, vCar.z) * step(vCar.z, uCabinMax.z);
     vec3 base = uBase;
     #ifdef RT_VPAINT
     base = vPaint;
@@ -401,15 +414,19 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float rust = 0.0;
     float rustEdge = 0.0;
     #ifdef RT_WEAR
-    rtDirtMasks(wear.x, vObj, on, height, ao, dust, mud);
-    rust = rtRust(wear.y, vObj, on, height, ao, rustEdge);
+    // (a clean car skips the masks: the branch goes the same way over the whole car)
+    if (wear.x + wear.y > 0.001) {
+      rtDirtMasks(wear.x, vObj, on, height, ao, dust, mud);
+      rust = rtRust(wear.y, vObj, on, height, ao, rustEdge);
+    }
     #endif
 
     #if defined(RT_PAINT)
     // ---------------------------------------------------------------- car paint
     vec3 paint = base;
     // fading: sun-bleached, chalky, the gloss gone — more on top, in drifts
-    float fade = wear.z * smoothstep(0.25, 0.75, rtTriNoise(vObj, on, 0.9).a * 0.7 + n.y * 0.4 + 0.15);
+    float fade = 0.0;
+    if (wear.z > 0.001) fade = wear.z * smoothstep(0.25, 0.75, rtTriNoise(vObj, on, 0.9).a * 0.7 + n.y * 0.4 + 0.15);
     paint = mix(paint, mix(vec3(rtLuma(paint)), paint, 0.55) * 1.25 + 0.04, fade * 0.75);
     // the shade tone is tuned on its own: deeper and more saturated than the lit one, cooled by the sky
     float pk = max(max(paint.r, paint.g), max(paint.b, 1e-3));
@@ -464,11 +481,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     vec3 under = mix(e.ground * 1.3, e.land * mix(1.0, 0.25, contrast), e.dark);
     vec3 env = mix(under, skyc, e.sky);
     env = mix(env, e.bright * 2.2 + 0.1, e.line * contrast);
+    env = mix(env, rtCabinEnv(R), inCabin);
+    #ifndef RT_CABIN
+    // (and is lit as the room is)
+    diffuse = mix(diffuse, rtCabin(base, n, sh), inCabin);
+    #endif
     // a metal is what it mirrors (its gloss is how much): no white diffuse washing chrome flat
     float fres = mix(0.75, 1.0, pow(1.0 - ndv, 3.0));
     col = mix(diffuse, env * base * mix(0.85, 1.2, contrast), clamp(gloss * mix(fres, 1.0, contrast), 0.0, 1.0)) * mix(0.45, 1.0, ao);
-    col += uSunColor * mix(0.5, 2.4, contrast) * rtSunSpot(R, uLook.y) * sh;
-    col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao;
+    col += uSunColor * mix(0.5, 2.4, contrast) * rtSunSpot(R, uLook.y) * sh * mix(1.0, 0.5, inCabin);
+    col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao * (1.0 - inCabin);
     #ifdef RT_WEAR
     col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
@@ -489,10 +511,12 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       albedo *= 0.85 + 0.3 * rtTriNoise(vObj, on, 0.035).b;
       albedo *= mix(0.65, 1.0, ao);
     } else if (pat == 3) {
-      // wood: grain along the part, figure lines bent by a slow wobble
-      float g = vObj.x * 1.0 + vObj.y * 0.15 + (rtTriNoise(vObj, on, 0.2).r - 0.5) * 0.06;
-      float rings = abs(fract(g * 38.0) - 0.5) * 2.0;
-      albedo *= mix(0.62, 1.12, smoothstep(0.15, 0.85, rings)) * (0.9 + 0.2 * rtTriNoise(vObj, on, 0.08).a);
+      // wood: straight grain along the part's length in two painted tones, gently wavering
+      vec2 wq = abs(on.x) > 0.5 ? vObj.zy : vObj.xy;
+      float wl = abs(vObj.x) > abs(vObj.z) ? wq.x : wq.y;
+      float g = (abs(on.y) > 0.5 ? vObj.z : vObj.y) * 90.0 + sin(wl * 7.0 + (abs(on.y) > 0.5 ? vObj.z : vObj.y) * 30.0) * 0.8;
+      float grain = rtStep(abs(fract(g) - 0.5) - 0.32, 0.02);
+      albedo *= mix(1.0, 0.72, grain) * (0.92 + 0.16 * rtTriNoise(vObj, on, 1.5).a);
     } else if (pat == 4) {
       // rubber: matte, a touch lighter where worn
       albedo *= 0.9 + 0.25 * rtTriNoise(vObj, on, 0.1).g;
@@ -537,9 +561,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float fs = fract(s);
     float streak = rtStep(fs - 0.32, 0.004) * (1.0 - rtStep(fs - 0.44, 0.004)) + 0.7 * rtStep(fs - 0.5, 0.003) * (1.0 - rtStep(fs - 0.535, 0.003));
     streak *= 0.34 * (0.35 + 0.65 * smoothstep(0.0, 0.5, dot(uSkyColor, vec3(0.33)))) * (1.0 - smoothstep(25.0, 60.0, dist));
-    col = through + refl + (uHorizon * 0.8 + 0.25) * streak;
-    col += uSunColor * 3.0 * rtSunSpot(R, uLook.y) * sh;
-    alpha = clamp(uOpacity + fres * 0.45 + streak, 0.0, 0.97);
+    // seen from inside (its back), glass is for looking out through: clear, a faint tint, no streaks
+    float inside = gl_FrontFacing ? 0.0 : 1.0;
+    streak *= 1.0 - inside;
+    refl *= mix(1.0, 0.12, inside);
+    col = through * mix(1.0, 0.35, inside) + refl + (uHorizon * 0.8 + 0.25) * streak;
+    col += uSunColor * 3.0 * rtSunSpot(R, uLook.y) * sh * (1.0 - inside);
+    alpha = clamp(mix(uOpacity, uOpacity * 0.3, inside) + fres * mix(0.45, 0.06, inside) + streak, 0.0, 0.97);
     #ifdef RT_WEAR
     // dust on the glass: a pale haze from the bottom edge
     float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
@@ -574,11 +602,12 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     #elif defined(RT_GAUGE)
     // ---------------------------------------------------------------- a dial from the UVs
-    vec2 c = vUv - 0.5;
+    // (as laid out in Blender, seen from the front: u right, v up — glTF stores v the other way up)
+    vec2 c = vec2(vUv.x - 0.5, 0.5 - vUv.y);
     float r = length(c) * 2.0;
     float a = atan(c.y, c.x);
-    // 240° of scale, from bottom left round over the top to bottom right
-    float t = (3.92699 - a) / 4.18879;
+    // 240° of scale, from bottom left (210°) round over the top to bottom right (−30°)
+    float t = (3.66519 - a) / 4.18879;
     t = t > 1.25 ? t - 1.5 : t;
     float onScale = step(0.0, t) * step(t, 1.0);
     float major = 1.0 - smoothstep(0.02, 0.035, abs(fract(t * 8.0 + 0.5) - 0.5));
@@ -694,6 +723,9 @@ export class CarLook {
     uHighlightId: { value: -1 },
     /** height of the body (m, car frame): where on its side the mirrored horizon sits */
     uBodyHeight: { value: 1.4 },
+    /** the cabin as a box in the car frame (min > max = none): inside it metals and glass mirror the room */
+    uCabinMin: { value: new THREE.Vector3(1, 1, 1) },
+    uCabinMax: { value: new THREE.Vector3(-1, -1, -1) },
   };
   /** names met in apply() that are not conventional (drawn as plastic_int) */
   readonly unknown = new Set<string>();
@@ -799,6 +831,7 @@ export class CarLook {
       const box = painted.isEmpty() ? all : painted;
       if (!box.isEmpty()) this.shared.uBodyHeight.value = Math.max(0.3, box.max.y - Math.max(0, box.min.y));
     }
+    if (!this.fixedCabin) this.measureCabin(root);
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -829,6 +862,46 @@ export class CarLook {
     this.paint2.set(c);
     this.refresh();
   }
+
+  /**
+   * The cabin box: round the seats, cloth and dials (the materials only a cabin has), a hand's width
+   * larger, its top kept under the roof skin. A mesh that reaches above the painted body (a strap round a
+   * load on the roof) is not the cabin.
+   */
+  private measureCabin(root: THREE.Object3D): void {
+    root.updateMatrixWorld(true);
+    const inv = root.matrixWorld.clone().invert();
+    const top = this.shared.uBodyHeight.value;
+    const cabin = new THREE.Box3();
+    root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const n = carMaterialName((Array.isArray(m.material) ? m.material[0] : m.material).name);
+      if (n !== 'fabric' && n !== 'leather' && n !== 'gauge') return;
+      m.geometry.computeBoundingBox();
+      const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
+      if (b.max.y > top + 0.02) return;
+      cabin.union(b);
+    });
+    if (cabin.isEmpty()) return;
+    cabin.expandByScalar(0.05);
+    cabin.max.y = Math.min(cabin.max.y + 0.12, top - 0.05);
+    this.shared.uCabinMin.value.copy(cabin.min);
+    this.shared.uCabinMax.value.copy(cabin.max);
+  }
+
+  /** the cabin box in the car frame (null = none): set it when the measured one is wrong for a frame */
+  setCabin(box: THREE.Box3 | null): void {
+    this.fixedCabin = true;
+    if (box) {
+      this.shared.uCabinMin.value.copy(box.min);
+      this.shared.uCabinMax.value.copy(box.max);
+    } else {
+      this.shared.uCabinMin.value.set(1, 1, 1);
+      this.shared.uCabinMax.value.set(-1, -1, -1);
+    }
+  }
+  private fixedCabin = false;
 
   /** wear of the whole car (merged meshes add their own per vertex): dirt, rust, faded paint, 0…1 */
   setWear(w: { dirt?: number; rust?: number; wear?: number }): void {

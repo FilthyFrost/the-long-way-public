@@ -11,6 +11,7 @@
  *   &paint=9e2f22 &paint2=e6dccb            the two paints (sRGB hex)
  *   &dirt=0.5 &rust=0.3 &wear=0.2           wear for the whole model
  *   &lights=1|2 &brake=1 &turn=L|R &reverse=1   lamps: low / high beam, brake lamps, indicator, reversing lamps
+ *   &cabin=1                                the cabin lamp (warm, as the game has it at night)
  *   &ghost=1|empty|replace|blocked          draw the model as the install hologram
  *   &stage=studio|proving|world             painted concrete floor (default), the proving ground, or parked
  *                                           on the road of the real world (&s=3180 &seed=7 &biome= &lane=1.6)
@@ -56,6 +57,8 @@ export interface ViewerParams {
   brake: number;
   turn: '' | 'L' | 'R';
   reverse: boolean;
+  /** the cabin lamp on (as the game's VehicleView at night) */
+  cabin: boolean;
   ghost: GhostKind | null;
   stage: 'studio' | 'proving' | 'world';
   /** world stage: distance along the road (m), first biome, biome length factor, lane (m right of the centre line) */
@@ -119,6 +122,7 @@ export function readViewerParams(search: string = window.location.search): Viewe
     brake: num('brake', 0),
     turn: turn === 'L' || turn === 'R' ? turn : '',
     reverse: flag('reverse'),
+    cabin: flag('cabin'),
     ghost,
     stage: get('stage') === 'proving' ? 'proving' : get('stage') === 'world' ? 'world' : 'studio',
     s: num('s', 3180),
@@ -446,6 +450,9 @@ export class ModelViewer {
     globals.uHeadDir.value.set(Math.cos(psi), -0.1, Math.sin(psi)).normalize();
     if (this.lights > 0 && !this.ghost) globals.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(this.lights > 1 ? 3.0 : 2.4);
     else globals.uHeadColor.value.setRGB(0, 0, 0);
+    // the cabin lamp: the game's warm bulb at its strength (vehicle/view.ts)
+    if (this.params.cabin) globals.uCabinLamp.value.setRGB(1.0, 0.7, 0.42).multiplyScalar(0.62);
+    else globals.uCabinLamp.value.setRGB(0, 0, 0);
   }
 
   render(): void {
