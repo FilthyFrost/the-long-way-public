@@ -419,7 +419,12 @@ def box(center, size, mat, R=None, bevel=0.003, segs=2):
     s = np.asarray(size, float) / 2
     xf = np.eye(4)
     if R is not None:
-        xf[:3, :3] = np.asarray(R, float)
+        R = np.array(R, float)
+        # a mirrored basis would turn the faces inside out (bmesh keeps the winding): the box is symmetric, so
+        # flipping one of its axes gives the same box the right way out
+        if np.linalg.det(R) < 0:
+            R[:, 0] = -R[:, 0]
+        xf[:3, :3] = R
     xf[:3, 3] = center
     return K.box_buf(-s, s, mat, bevel, segs, xf=xf)
 
