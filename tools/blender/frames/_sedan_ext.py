@@ -963,16 +963,17 @@ class Exterior:
         b.add(V, -N, T, 'trim')
         # slats
         ys = np.linspace(0.0, gw - 0.012, 8)
-        slat = K.round_profile(np.array([(-0.006, -0.008), (0.006, -0.008), (0.006, 0.008), (-0.006, 0.008)]), 0.003, 1)
+        # three thick slats (thin ones shimmer from a few metres)
+        slat = K.round_profile(np.array([(-0.007, -0.014), (0.007, -0.014), (0.007, 0.014), (-0.007, 0.014)]), 0.005, 1)
         slat = np.vstack([slat, slat[:1]])
-        for z in np.linspace(z0 + 0.045, z1 - 0.045, 5):
+        for z in np.linspace(z0 + 0.06, z1 - 0.06, 3):
             mat = 'chrome' if abs(z - 0.66) < 0.025 else 'trim'
-            prof = slat * (1.25 if mat == 'chrome' else 1.0)
+            prof = slat * (1.1 if mat == 'chrome' else 1.0)
             path = np.stack([xs(ys, np.full(len(ys), z), 0.032), ys, np.full(len(ys), z)], 1)
             V, N, T = K.sweep(path, (0, 0, 1), prof, closed=False, closed_prof=True)
             b.add(V, N, T, mat)
             # end cap at the outer end
-            b.add(*K.lathe(np.array([[0.0, 0.0], [0.0085, 0.0]]), path[-1], (0, 1, 0), 8, prof_n=np.array([[0, 1.0], [0, 1.0]])), mat)
+            b.add(*K.lathe(np.array([[0.0, 0.0], [0.016, 0.0]]), path[-1], (0, 1, 0), 8, prof_n=np.array([[0, 1.0], [0, 1.0]])), mat)
         # surround (chrome) just inside the opening, 18 mm deep
         sur = K.offset_loop2(g, 0.0, closed=False)
         P, Ns = S.FRONT_L.to3d(sur)

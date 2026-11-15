@@ -14,7 +14,7 @@ from frames import _pickup_ext as EX  # noqa: E402
 from frames import _pickup_inner as IN  # noqa: E402
 from frames import _preview as PV  # noqa: E402
 from frames import pickup as S  # noqa: E402
-from frames._sedan_build import game_vec, mount, obj_with_origin  # noqa: E402
+from frames._sedan_build import badge_buf, game_vec, mount, obj_with_origin, plate_buf  # noqa: E402
 from lib import modcar as mc  # noqa: E402
 
 D = S.D
@@ -90,6 +90,7 @@ def build(args):
     objs.append(obj_with_origin(both(hb), 'P_hood', hinge))
     panels['P_hood'] = dict(mount='hood', hinge='y', hinge_pos=hinge, axis=(0, 1, 0), open_deg=-55.0)
     tg = ex.tailgate()
+    tg.extend(plate_buf((D['bed_xr'] - 0.006, 0.0, 0.80), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.33, 0.15, '4H 730'))
     thinge = np.array([D['bed_xr'] + 0.02, 0.0, D['bed_floor'] - 0.004])
     objs.append(obj_with_origin(tg, 'P_trunk', thinge))
     panels['P_trunk'] = dict(mount='trunk', hinge='y', hinge_pos=thinge, axis=(0, 1, 0), open_deg=-90.0)
@@ -239,9 +240,9 @@ def grille(ex):
     V, N, T = K.mesh_region(S.FRONT_L, [K.Loop(K.resample(loop2, 0.04))], [], pts, spacing=0.08, level=-0.05)
     b.add(V, -N, T, 'trim')
     ys = np.linspace(0.0, gw - 0.01, 6)
-    slat = K.round_profile(np.array([(-0.006, -0.007), (0.006, -0.007), (0.006, 0.007), (-0.006, 0.007)]), 0.003, 1)
+    slat = K.round_profile(np.array([(-0.007, -0.013), (0.007, -0.013), (0.007, 0.013), (-0.007, 0.013)]), 0.005, 1)
     slat = np.vstack([slat, slat[:1]])
-    for z in np.linspace(z0 + 0.03, z1 - 0.03, 4):
+    for z in np.linspace(z0 + 0.035, z1 - 0.035, 3):
         mat = 'alu' if abs(z - 0.5 * (z0 + z1)) < 0.03 else 'trim'
         P, _ = S.FRONT_L.to3d(np.stack([ys, np.full(len(ys), z)], 1))
         path = P - np.array([0.03, 0, 0])
@@ -253,6 +254,8 @@ def grille(ex):
     prof = np.vstack([prof, prof[:1]])
     V, N, T = K.sweep(path, (1, 0, 0), prof, closed=False, closed_prof=True)
     b.add(V, N, T, 'alu')
+    p_, n_ = S.FRONT_L.to3d(np.array([[0.0, z1 + 0.052]]))
+    b.extend(badge_buf(p_[0], n_[0], (0.0, 0.0, 1.0), 0.022))
     xb = float(S.FRONT_L.to3d(np.array([[0.0, 0.5 * (z0 + z1)]]))[0][0, 0])
     b.extend(K.box_buf((xb - 0.03, 0.0, 0.5 * (z0 + z1) - 0.022), (xb - 0.008, 0.06, 0.5 * (z0 + z1) + 0.022), 'alu', 0.008, 2))
     return b
@@ -353,7 +356,9 @@ def mounts(ex, panels):
     E.append(mount('gearbox', (0.78, 0.0, 0.285), dict(cat='gearbox', space_min=[-0.36, -0.14, 0.0], space_max=[0.20, 0.14, 0.24])))
     E.append(mount('radiator', (1.955, 0.0, 0.545), dict(cat='radiator', space_min=[-0.07, -0.36, 0.0], space_max=[0.035, 0.36, 0.42])))
     E.append(mount('battery', (1.78, 0.34, 0.70), dict(cat='battery', space_min=[-0.15, -0.10, 0.0], space_max=[0.15, 0.10, 0.25])))
-    E.append(mount('fuelTank', (-0.70, 0.0, 0.30), dict(cat='fuelTank', space_min=[-0.24, -0.40, 0.0], space_max=[0.24, 0.40, 0.30])))
+    E.append(mount('fuelTank', (-0.70, 0.0, 0.30), dict(cat='fuelTank', space_min=[-0.24, -0.40, 0.0], space_max=[0.24, 0.40, 0.30],
+                                                          note='yawed 180 deg: the filler neck of the tank part (+z) points to the flap on the left'),
+                   rot=((-1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0))))
     E.append(mount('exhaust', (1.20, -0.15, 0.36), dict(cat='exhaust', tail=[-3.45, -0.27, -0.02], route='under the cab and bed, right of the propshaft')))
     p, d = IN.steering_mount()
     ang = math.radians(32)
