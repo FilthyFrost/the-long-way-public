@@ -16,8 +16,10 @@ from parts._kit import V, mat4
 # ------------------------------------------------------------------------------------------- batteries
 
 
-def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', case_mat='trim', moto=False):
-    """A lead-acid battery: case with ribs and a base lip, a coloured lid, cell caps, two posts."""
+def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', case_mat='trim', moto=False,
+            studs=False):
+    """A lead-acid battery: case with ribs and a base lip, a coloured lid, cell caps, two posts
+    (studs=True: heavy-duty threaded stud terminals with nuts, as on a truck battery)."""
     P.ao_distance = 0.06
     lip = 0.006 if not moto else 0.0
     hcase = H * 0.84
@@ -73,6 +75,11 @@ def battery(P, L, W, H, posts_side=+1, caps=6, handle=True, lid_mat='paint', cas
             # motorcycle battery: L-tab terminals with a bolt
             P.box('tab', (0.012, 0.004, 0.016), (x, y_post, z_pad + 0.014), 'steel', bev=0.001, segs=1)
             P.bolt((x, y_post + 0.002, z_pad + 0.016), normal=(0, 1, 0), r=0.0035, h=0.003)
+        elif studs:
+            P.cyl('post', r * 1.05, 0.008, (x, y_post, z_pad + 0.01), 'steel', segs=12, bev=0.0015, bsegs=1)
+            P.bolt((x, y_post, z_pad + 0.014), normal=(0, 0, 1), r=0.0095, h=0.0065, washer=False, material='steel',
+                   name='stud_nut')
+            P.cyl('stud', 0.0042, 0.008, (x, y_post, z_pad + 0.024), 'steel', segs=8, bev=None)
         else:
             P.cyl('post', r, 0.022, (x, y_post, z_pad + 0.006 + 0.011), 'steel', segs=12, r2=r * 0.86, bev=0.0015,
                   bsegs=1)
@@ -101,7 +108,8 @@ def build_bat_std(P):
 
 
 def build_bat_truck(P):
-    battery(P, 0.33, 0.175, 0.235, caps=6)
+    """A heavy-duty battery: taller than the car's, stud terminals; short enough for a car's battery tray."""
+    battery(P, 0.258, 0.175, 0.235, caps=6, studs=True)
 
 
 def build_bat_moto(P):
@@ -111,16 +119,19 @@ def build_bat_moto(P):
 # ------------------------------------------------------------------------------------------- radiators
 
 
-def radiator(P, W=0.56, H=0.36, D=0.045, fins=16, fan=False, tank_mat='steel', side_inlet=True):
+def radiator(P, W=0.54, Htot=0.40, D=0.045, fins=12, fan=False, tank_mat='steel', side_inlet=True, tank_h=0.05):
     """
-    A cross-flow-ish radiator standing on its bottom centre, the core facing +X: a dark backing behind
-    horizontal fin bars, top and bottom tanks, filler neck and cap, hose necks towards the engine (-X),
-    side brackets with rubber feet, an overflow tube; fan=True adds an electric fan and shroud behind.
+    A down-flow radiator standing on its bottom centre, the core facing +X: a dark backing behind
+    horizontal fin bars, top and bottom tanks, a low filler neck and cap, hose necks towards the engine (-X),
+    side brackets with mounting tabs, an overflow tube; fan=True adds an electric fan and shroud behind.
+    Htot is the overall height including the neck and cap (the frames' radiator spaces are 0.40-0.42 tall);
+    the depth stays within x [-0.07, D/2 + 0.012].
     """
     P.ao_distance = 0.05
-    zb = 0.065            # top of the bottom tank = bottom of the core
-    tank_h = 0.065
-    # core: backing slab and the fin bars in front of it, vertical tube hints between
+    cap_stack = 0.036                 # filler neck + cap + cap ear above the top tank
+    zb = tank_h                       # top of the bottom tank = bottom of the core
+    H = Htot - 2 * tank_h - cap_stack
+    # core: backing slab and the fin bars in front of it
     P.box('core_back', (D * 0.6, W, H), (-D * 0.15, 0, zb + H / 2), 'trim', bev=None)
     pitch = H / fins
     bm = bmesh.new()
@@ -133,34 +144,36 @@ def radiator(P, W=0.56, H=0.36, D=0.045, fins=16, fan=False, tank_mat='steel', s
               segs=1)
     # tanks
     for (z, top) in ((zb - tank_h / 2, False), (zb + H + tank_h / 2, True)):
-        P.box('tank', (D + 0.03, W + 0.03, tank_h), (-0.005, 0, z), tank_mat, bev=0.016, segs=2)
-        P.box('tank_seam', (D + 0.042, W + 0.04, 0.008), (-0.005, 0, z + (-1 if top else 1) * (tank_h / 2 - 0.004)),
+        P.box('tank', (D + 0.026, W + 0.03, tank_h), (-0.003, 0, z), tank_mat, bev=min(0.016, tank_h * 0.3), segs=2)
+        P.box('tank_seam', (D + 0.03, W + 0.04, 0.008), (-0.003, 0, z + (-1 if top else 1) * (tank_h / 2 - 0.004)),
               tank_mat, bev=0.002, segs=1)
     ztop = zb + H + tank_h
-    # filler neck and cap on the top tank
+    # a low filler neck and cap on the top tank
     yf = -W * 0.3
-    P.cyl('neck', 0.022, 0.04, (0.0, yf, ztop + 0.015), 'steel', segs=14, bev=0.002, bsegs=1)
-    P.lathe('cap', [(0.0, 0.022), (0.026, 0.021), (0.032, 0.012), (0.032, 0.0), (0.024, 0.0)][::-1],
-            loc=(0.0, yf, ztop + 0.035), material='chrome', segs=16, close='start', sharp=40.0)
-    P.box('cap_ear', (0.07, 0.01, 0.012), (0.0, yf, ztop + 0.06), 'chrome', bev=0.003, segs=1)
-    P.tube('overflow', [(-0.01, yf - 0.02, ztop + 0.025), (-0.02, yf - 0.05, ztop + 0.01),
+    P.cyl('neck', 0.02, 0.02, (0.0, yf, ztop + 0.006), 'steel', segs=14, bev=0.002, bsegs=1)
+    P.lathe('cap', [(0.0, 0.016), (0.022, 0.0155), (0.028, 0.008), (0.028, 0.0), (0.021, 0.0)][::-1],
+            loc=(0.0, yf, ztop + 0.016), material='chrome', segs=16, close='start', sharp=40.0)
+    P.box('cap_ear', (0.05, 0.008, 0.006), (0.0, yf, ztop + 0.033), 'chrome', bev=0.002, segs=1)
+    P.tube('overflow', [(-0.012, yf - 0.018, ztop + 0.01), (-0.02, yf - 0.05, ztop + 0.006),
                         (-0.02, -W / 2 - 0.02, zb + H * 0.6), (-0.02, -W / 2 - 0.025, zb)], 0.004, 'rubber', segs=6,
            bend=0.04)
     # hose necks towards the engine: inlet high on one side, outlet low on the other
     yi = W * 0.32 if side_inlet else 0.0
-    P.tube('inlet', [(-0.01, yi, ztop - tank_h / 2), (-0.06, yi, ztop - tank_h / 2)], 0.02, 'steel', segs=12)
-    P.torus('bead', 0.021, 0.003, loc=(-0.05, yi, ztop - tank_h / 2), axis='X', segs=14, rsegs=4, material='steel')
-    P.tube('outlet', [(-0.01, -W * 0.32, zb - tank_h / 2), (-0.06, -W * 0.32, zb - tank_h / 2)], 0.02, 'steel',
+    hr = min(0.02, tank_h * 0.36)
+    P.tube('inlet', [(-0.01, yi, ztop - tank_h / 2), (-0.06, yi, ztop - tank_h / 2)], hr, 'steel', segs=12)
+    P.torus('bead', hr + 0.001, 0.003, loc=(-0.05, yi, ztop - tank_h / 2), axis='X', segs=14, rsegs=4,
+            material='steel')
+    P.tube('outlet', [(-0.01, -W * 0.32, zb - tank_h / 2), (-0.06, -W * 0.32, zb - tank_h / 2)], hr, 'steel',
            segs=12)
-    P.cyl('petcock', 0.008, 0.02, (0.02, W * 0.4, zb - tank_h + 0.002), 'chrome', segs=8, bev=None)
-    # side brackets with mounting tabs and rubber feet
+    # drain petcock out of the end of the bottom tank
+    P.cyl('petcock', 0.007, 0.018, (-0.003, W / 2 + 0.024, zb * 0.4), 'chrome', axis='Y', segs=8, bev=None)
+    # side brackets with mounting tabs
     for sg in (-1, 1):
         y = sg * (W / 2 + 0.022)
         P.box('bracket', (0.035, 0.012, H + tank_h * 2), (-0.005, y, (zb - tank_h + ztop) / 2), 'steel', bev=0.003,
               segs=1)
         P.box('tab', (0.04, 0.04, 0.008), (-0.005, y + sg * 0.02, ztop - 0.02), 'steel', bev=0.002, segs=1)
         P.bolt((-0.005, y + sg * 0.025, ztop - 0.016), r=0.006, h=0.005)
-        P.cyl('foot', 0.012, 0.02, (-0.005, sg * W * 0.4, 0.01), 'rubber', segs=10, bev=0.003, bsegs=1)
     if fan:
         R = min(W, H) * 0.45
         P.lathe('shroud', [(R + 0.01, -0.0), (R + 0.03, -0.02), (R + 0.03, -0.06), (R + 0.005, -0.065)],
@@ -184,48 +197,71 @@ def build_rad_std(P):
 
 
 def build_tank_std(P):
-    """A stamped steel fuel tank lying flat: welded seam flange, pressed beads, filler neck and cap, the
-    sender plate with its lines, two straps."""
-    P.ao_distance = 0.08
-    L, W, H = 0.76, 0.56, 0.22
+    """
+    A flat stamped-steel fuel tank that hangs under the floor (45 L in 0.45 x 0.70 x 0.13): clamshell halves
+    welded at a seam flange, pressed beads, two straps under it bolted up to the floor, the sender plate
+    with its lines, and the filler neck out of the right side (-Y, where the sedan's filler flap is).
+    Within the frames' tank spaces: x +-0.24, y +-0.40, z [0, 0.16].
+    """
+    P.ao_distance = 0.06
+    L, W, H = 0.45, 0.70, 0.13
+    z0 = 0.012                     # the straps run under it
     bm = bmesh.new()
-    K.bm_cube(bm, (L, W, H), mat4((0, 0, H / 2 + 0.004)))
+    K.bm_cube(bm, (L, W, H), mat4((0, 0, z0 + H / 2)))
     for v in bm.verts:
-        if v.co.z > 0.1:
-            v.co.x *= 0.97
-            v.co.y *= 0.97
-    P.mesh('body', bm, 'steel', bev=0.035, segs=3)
-    P.box('seam', (L + 0.024, W + 0.024, 0.01), (0, 0, H * 0.45), 'steel', bev=0.003, segs=1)
-    for y in (-W * 0.25, W * 0.25):
-        P.pillow('bead', (L * 0.7, 0.05, 0.016), (0.0, y, H + 0.002), 'steel', r=0.007, sub=1)
-    # filler neck rising at the back left, with its cap
-    base = V((-L * 0.36, W * 0.3, H - 0.01))
-    top = base + V((-0.06, 0.08, 0.12))
-    P.tube('filler', [base, base + V((0, 0, 0.04)), top], 0.03, 'steel', segs=14, bend=0.05)
-    P.lathe('filler_cap', [(0.0, 0.03), (0.036, 0.028), (0.04, 0.012), (0.04, 0.0), (0.03, 0.0)][::-1],
-            loc=tuple(top), material='chrome', segs=16, close='start', sharp=40.0)
-    P.box('cap_grip', (0.05, 0.012, 0.014), tuple(top + V((0, 0, 0.034))), 'chrome', bev=0.003, segs=1)
-    P.tube('vent', [(-L * 0.36 + 0.04, W * 0.3, H), (-L * 0.36 + 0.05, W * 0.36, H + 0.06), (-L * 0.4, W * 0.42, H + 0.1)],
-           0.006, 'rubber', segs=6, bend=0.03)
-    # sender unit: plate, screws, terminals, the fuel line out
-    sx, sy = L * 0.22, -W * 0.2
-    P.cyl('sender', 0.055, 0.01, (sx, sy, H + 0.009), 'alu', segs=18, bev=0.002, bsegs=1)
-    P.bolts([(sx + 0.042 * math.cos(a), sy + 0.042 * math.sin(a), H + 0.014) for a in (0.3, 2.4, 4.5)],
-            normal=(0, 0, 1), r=0.005, h=0.004, washer=False)
-    P.cyl('terminal', 0.009, 0.02, (sx - 0.015, sy, H + 0.024), 'trim', segs=8, bev=None)
-    P.tube('wire', [(sx - 0.015, sy, H + 0.034), (sx - 0.04, sy - 0.04, H + 0.05), (sx - 0.1, sy - 0.12, H + 0.03)],
-           0.004, 'trim', segs=5, bend=0.03)
-    P.tube('fuel_out', [(sx + 0.02, sy, H + 0.014), (sx + 0.02, sy, H + 0.04), (sx + 0.14, sy - 0.02, H + 0.04),
-                        (L / 2 + 0.06, sy - 0.03, H + 0.02)], 0.005, 'steel', segs=6, bend=0.03)
-    # two straps across with their bolts
-    for x in (-L * 0.22, L * 0.3):
-        P.tube('strap', [(x, -W / 2 - 0.03, 0.03), (x, -W / 2 - 0.03, H - 0.02), (x, -W / 2 + 0.03, H + 0.012),
-                         (x, W / 2 - 0.03, H + 0.012), (x, W / 2 + 0.03, H - 0.02), (x, W / 2 + 0.03, 0.03)],
-               1.0, 'trim', profile=[(-0.022, -0.0025), (0.022, -0.0025), (0.022, 0.0025), (-0.022, 0.0025)],
-               bend=0.03, caps=True, sharp=60.0)
+        if v.co.z > z0 + H * 0.6:
+            v.co.x *= 0.975
+            v.co.y *= 0.98
+    P.mesh('body', bm, 'steel', bev=0.026, segs=3)
+    zs = z0 + H * 0.5
+    P.box('seam', (L + 0.022, W + 0.022, 0.008), (0, 0, zs), 'steel', bev=0.003, segs=1)
+    for y in (-W * 0.26, W * 0.26):
+        P.pillow('bead', (L * 0.66, 0.05, 0.012), (0.02, y, z0 + H + 0.001), 'steel', r=0.006, sub=1)
+    P.pillow('bead_x', (0.05, W * 0.3, 0.012), (-L * 0.3, 0.0, z0 + H + 0.001), 'steel', r=0.006, sub=1)
+    # the filler neck out of the right side, tipped up a little, with its cap
+    xf, zf = -0.06, z0 + H * 0.74
+    d = V((0.0, -math.cos(math.radians(22)), math.sin(math.radians(22))))
+    p0 = V((xf, -W / 2 + 0.01, zf))
+    p1 = V((xf, -W / 2 - 0.008, zf))
+    p2 = p1 + d * 0.012
+    P.tube('filler', [p0, p1, p2], 0.022, 'steel', segs=14, bend=0.01)
+    P.torus('filler_bead', 0.0225, 0.003, loc=tuple(p1 + V((0, 0.006, 0))), axis='Y', segs=14, rsegs=4,
+            material='steel')
+    fr = K.frame_from_z(d, (1, 0, 0))
+    P.lathe('filler_cap', [(0.0, 0.016), (0.022, 0.015), (0.026, 0.007), (0.026, 0.0), (0.02, 0.0)][::-1],
+            rot=None, loc=(0, 0, 0), material='chrome', segs=16, close='start', sharp=40.0)
+    cap = P.statics[-1]
+    cap.data.transform(Matrix.Translation(p2) @ fr)
+    grip = P.box('cap_grip', (0.04, 0.008, 0.008), (0, 0, 0.018), 'chrome', bev=0.002, segs=1)
+    grip.data.transform(Matrix.Translation(p2) @ fr)
+    P.tube('vent', [(xf + 0.03, -W / 2 + 0.005, zf + 0.012), (xf + 0.05, -W / 2 - 0.006, zf + 0.022),
+                    (xf + 0.1, -W / 2 - 0.012, zf + 0.026)], 0.0045, 'rubber', segs=6, bend=0.02)
+    # sender unit on top: plate, screws, terminal and wire, the fuel line out to the front
+    zt = z0 + H
+    sx, sy = L * 0.18, -W * 0.12
+    P.cyl('sender', 0.05, 0.008, (sx, sy, zt + 0.003), 'alu', segs=18, bev=0.002, bsegs=1)
+    P.bolts([(sx + 0.038 * math.cos(a), sy + 0.038 * math.sin(a), zt + 0.007) for a in (0.3, 2.4, 4.5)],
+            normal=(0, 0, 1), r=0.0045, h=0.0035, washer=False)
+    P.cyl('terminal', 0.008, 0.008, (sx - 0.014, sy, zt + 0.011), 'trim', segs=8, bev=None)
+    P.tube('wire', [(sx - 0.014, sy, zt + 0.014), (sx - 0.05, sy - 0.03, zt + 0.012), (sx - 0.12, sy - 0.07, zt + 0.006)],
+           0.0035, 'trim', segs=5, bend=0.03)
+    P.tube('fuel_out', [(sx + 0.018, sy, zt + 0.008), (sx + 0.018, sy, zt + 0.012), (L / 2 - 0.03, sy - 0.01, zt + 0.012),
+                        (L / 2 + 0.006, sy - 0.012, zt - 0.02), (L / 2 + 0.006, sy - 0.012, zt - 0.05)], 0.0045, 'steel',
+           segs=6, bend=0.02)
+    # two straps across under the tank, up its sides (over the seam) to tabs bolted to the floor above
+    zb = 0.0035
+    for x in (-L * 0.32, L * 0.3):
+        side = []
+        for sg in (1, -1):
+            yw, yf = sg * (W / 2 + 0.004), sg * (W / 2 + 0.017)
+            side.append([(x, yw, 0.148), (x, yw, zs + 0.016), (x, yf, zs + 0.006), (x, yf, zs - 0.006),
+                         (x, yw, zs - 0.016), (x, yw, z0 + 0.01), (x, sg * (W / 2 - 0.03), zb)])
+        path = side[0] + side[1][::-1]
+        P.tube('strap', path, 1.0, 'trim', profile=[(-0.02, -0.0025), (0.02, -0.0025), (0.02, 0.0025), (-0.02, 0.0025)],
+               bend=0.012, caps=True, sharp=60.0)
         for sg in (-1, 1):
-            P.box('strap_foot', (0.05, 0.03, 0.006), (x, sg * (W / 2 + 0.035), 0.03), 'trim', bev=0.002, segs=1)
-            P.bolt((x, sg * (W / 2 + 0.035), 0.033), r=0.007, h=0.006)
+            P.box('strap_tab', (0.044, 0.03, 0.005), (x, sg * (W / 2 + 0.018), 0.1505), 'trim', bev=0.0015, segs=1)
+            P.bolt((x, sg * (W / 2 + 0.024), 0.153), r=0.0062, h=0.005, washer=False)
     P.views = [('a', 35, 26), ('b', 215, 26)]
 
 
@@ -271,11 +307,11 @@ def build_tank_drum(P):
 
 
 def build_rad_small(P):
-    radiator(P, W=0.42, H=0.27, D=0.04, fins=12)
+    radiator(P, W=0.42, Htot=0.34, D=0.04, fins=10, tank_h=0.045)
 
 
 def build_rad_big(P):
-    radiator(P, W=0.72, H=0.48, D=0.06, fins=22, fan=True)
+    radiator(P, W=0.72, Htot=0.50, D=0.06, fins=16, fan=True, tank_h=0.06)
 
 
 def moto_tank_section(w, h, zb=0.02, tw=0.075, th=0.085, n=14, scallop=0.0):

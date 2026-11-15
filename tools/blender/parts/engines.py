@@ -210,13 +210,13 @@ def build_eng_i4(P):
     P.cyl('float_bowl', 0.022, 0.04, (-0.035, 0.225, 0.56), 'alu', segs=12, bev=0.003, bsegs=1)
     P.tube('linkage', [(0.0, 0.215, 0.565), (0.04, 0.24, 0.55)], 0.003, 'steel', segs=5)
     # air cleaner: black housing, chrome lid, wing nut and a snorkel towards the front
-    xc, yc, zc2 = -0.03, 0.145, 0.588
+    xc, yc, zc2 = -0.03, 0.145, 0.582
     P.lathe('cleaner', [(0.0, 0.0), (0.105, 0.0), (0.122, 0.006), (0.128, 0.03), (0.124, 0.052), (0.118, 0.056)],
             loc=(xc, yc, zc2), material='trim', segs=36, close='end', sharp=40.0)
     P.lathe('cleaner_lid', [(0.0, 0.062), (0.06, 0.06), (0.112, 0.054), (0.126, 0.05), (0.126, 0.044)][::-1],
             loc=(xc, yc, zc2), material='chrome', segs=36, close='start', sharp=40.0)
-    P.cyl('wing_base', 0.012, 0.01, (xc, yc, zc2 + 0.067), 'chrome', segs=10, bev=None)
-    P.box('wing', (0.006, 0.05, 0.016), (xc, yc, zc2 + 0.076), 'chrome', bev=0.0025, segs=1)
+    P.cyl('wing_base', 0.012, 0.006, (xc, yc, zc2 + 0.065), 'chrome', segs=10, bev=None)
+    P.box('wing', (0.006, 0.046, 0.01), (xc, yc, zc2 + 0.071), 'chrome', bev=0.0025, segs=1)
     bm = bmesh.new()
     K.bm_cube(bm, (0.13, 0.06, 0.034), mat4((xc + 0.16, yc + 0.02, zc2 + 0.026)))
     for v in bm.verts:
@@ -782,7 +782,6 @@ def build_eng_single(P):
     for (x, z) in ((0.125, 0.06), (-0.16, 0.18)):
         P.box('lug', (0.04, 0.12, 0.03), (x, 0.0, z), 'alu', bev=0.006, segs=1)
         P.cyl('lug_bolt', 0.008, 0.14, (x, 0.0, z), 'steel', axis='Y', segs=8, bev=None)
-    P.cyl('sump_plug', 0.012, 0.012, (-0.04, 0.0, -0.004), 'steel', segs=6, bev=None)
     P.views = [('a', 35, 18), ('b', 215, 18)]
 
 

@@ -26,88 +26,91 @@ def bolt_ring(P, x, cy, cz, r, n, normal, br=0.006, a0=0.0, material='steel'):
 # ------------------------------------------------------------------------------------------------ gearboxes
 
 
-def gearbox(P, L=0.52, bell_r=0.165, case_hw=0.095, case_h=0.19, tail_len=0.16, gears=4, shifter='top',
-            material='alu'):
+def gearbox(P, L=0.39, bell_r=0.094, case_hw=0.095, case_h=0.13, tail_len=0.10, shifter='top', material='alu',
+            bell_len=0.12, xb1=0.185, zc=0.108, ribs=3):
     """
-    A longitudinal manual gearbox: bellhousing (+X), ribbed main case with a side cover, shift turret on top,
-    tapering tail with the output yoke (-X), rubber mount pad under the tail on z = 0.
+    A longitudinal manual gearbox: bellhousing (+X), ribbed main case with a side cover (left, +Y), a low shift
+    turret on top, tapering tail with the output yoke (-X), rubber mount pad under the tail on z = 0.
+    L = bell face to tail end, zc = shaft centre above the mount. Sized for the frames' gearbox spaces
+    (the cabin tunnel): everything stays within x [-0.30, 0.20], y +-0.13, z [0, 0.22].
     """
-    P.ao_distance = 0.08
-    zc = 0.17                      # shaft centre height above the mount
-    xb1 = L / 2                    # front face of the bellhousing
-    xb0 = xb1 - 0.15               # where the bell meets the case
-    xc0 = xb0 - (L - 0.15 - tail_len)   # back of the main case
-    xt1 = xc0 - tail_len
+    P.ao_distance = 0.06
+    xb0 = xb1 - bell_len           # where the bell meets the case
+    xt1 = xb1 - L                  # tail end
+    xc0 = xt1 + tail_len           # back of the main case
     # bellhousing: a cone with a bolting flange and a dark opening
-    bell = [(bell_r * 0.66, xb0 - 0.01), (bell_r * 0.74, xb0 + 0.03), (bell_r * 0.93, xb1 - 0.05),
-            (bell_r, xb1 - 0.018), (bell_r + 0.012, xb1 - 0.014), (bell_r + 0.012, xb1), (bell_r * 0.82, xb1),
-            (bell_r * 0.8, xb1 - 0.03), (0.0, xb1 - 0.03)]
+    bell = [(bell_r * 0.7, xb0 - 0.01), (bell_r * 0.78, xb0 + 0.025), (bell_r * 0.94, xb1 - 0.04),
+            (bell_r, xb1 - 0.014), (bell_r + 0.012, xb1 - 0.011), (bell_r + 0.012, xb1), (bell_r * 0.82, xb1),
+            (bell_r * 0.8, xb1 - 0.025), (0.0, xb1 - 0.025)]
     P.lathe('bell', bell, loc=(0, 0, zc), material=material, axis='X', segs=28, close='start', sharp=40.0)
     for i in range(8):
         a = math.tau * (i + 0.5) / 8
-        P.box('bell_boss', (0.03, 0.022, 0.022),
-              (xb1 - 0.03, (bell_r + 0.004) * math.cos(a), zc + (bell_r + 0.004) * math.sin(a)), material,
-              rot=(math.degrees(a), 0, 0), bev=0.005, segs=1)
-    bolt_ring(P, xb1 + 0.0005, 0, zc, bell_r + 0.004, 8, (1, 0, 0), br=0.0065, a0=math.tau * 0.5 / 8)
-    P.cyl('input', 0.016, 0.05, (xb1 - 0.01, 0, zc), 'steel', axis='X', segs=10, bev=None)
-    # clutch release arm out of the side of the bell, with a cable
-    P.box('fork_boot', (0.04, 0.03, 0.04), (xb0 + 0.07, -bell_r * 0.78, zc - 0.02), 'rubber', bev=0.01, segs=2)
-    P.tube('fork', [(xb0 + 0.07, -bell_r * 0.8, zc - 0.02), (xb0 + 0.09, -bell_r * 0.95 - 0.03, zc - 0.10)], 0.009,
-           'steel', segs=6)
-    P.tube('clutch_cable', [(xb0 + 0.09, -bell_r - 0.03, zc - 0.10), (xb0 + 0.16, -bell_r - 0.02, zc - 0.06),
-                            (xb0 + 0.22, -bell_r + 0.02, zc + 0.02)], 0.005, 'trim', segs=6, bend=0.04)
+        P.box('bell_boss', (0.026, 0.018, 0.018),
+              (xb1 - 0.024, (bell_r + 0.003) * math.cos(a), zc + (bell_r + 0.003) * math.sin(a)), material,
+              rot=(math.degrees(a), 0, 0), bev=0.004, segs=1)
+    bolt_ring(P, xb1 + 0.0005, 0, zc, bell_r + 0.004, 8, (1, 0, 0), br=0.0058, a0=math.tau * 0.5 / 8)
+    P.cyl('input', 0.014, 0.04, (xb1 - 0.008, 0, zc), 'steel', axis='X', segs=10, bev=None)
+    # clutch release arm out of the right side of the bell, its cable up to an abutment bracket on the bell
+    P.box('fork_boot', (0.034, 0.026, 0.034), (xb0 + 0.055, -bell_r * 0.8, zc - 0.015), 'rubber', bev=0.008, segs=2)
+    fork_end = (xb0 + 0.075, -bell_r - 0.02, zc - 0.07)
+    P.tube('fork', [(xb0 + 0.055, -bell_r * 0.82, zc - 0.015), fork_end], 0.0075, 'steel', segs=6)
+    P.tube('clutch_cable', [fork_end, (xb0 + 0.1, -bell_r - 0.022, zc - 0.045),
+                            (xb1 - 0.03, -bell_r - 0.016, zc + 0.012)], 0.0045, 'trim', segs=6, bend=0.03)
+    P.box('cable_bracket', (0.016, 0.022, 0.02), (xb1 - 0.024, -bell_r - 0.006, zc + 0.016), 'steel', bev=0.002,
+          segs=1)
     # main case
     cx = (xb0 + xc0) / 2
     clen = xb0 - xc0 + 0.02
-    P.box('case', (clen, case_hw * 2, case_h), (cx, 0, zc - 0.005), material, bev=0.022, segs=3)
+    P.box('case', (clen, case_hw * 2, case_h), (cx, 0, zc - 0.005), material, bev=0.02, segs=3)
     for sg in (-1, 1):
-        for i in range(3):
-            x = xc0 + clen * (i + 0.5) / 3
-            P.box('case_rib', (0.012, 0.014, case_h * 0.8), (x, sg * (case_hw + 0.004), zc - 0.005), material,
-                  bev=0.004, segs=1, open='-y' if sg > 0 else '+y')
+        for i in range(ribs):
+            x = xc0 + clen * (i + 0.5) / ribs
+            P.box('case_rib', (0.01, 0.012, case_h * 0.8), (x, sg * (case_hw + 0.004), zc - 0.005), material,
+                  bev=0.003, segs=1, open='-y' if sg > 0 else '+y')
     # side cover plate with bolts (left, +Y)
-    P.box('side_cover', (clen * 0.6, 0.012, case_h * 0.5), (cx, case_hw + 0.012, zc), material, bev=0.006, segs=2)
+    P.box('side_cover', (clen * 0.6, 0.012, case_h * 0.5), (cx, case_hw + 0.01, zc), material, bev=0.005, segs=2)
     pts = []
     for (u, w) in ((-1, -1), (0, -1), (1, -1), (1, 1), (0, 1), (-1, 1)):
-        pts.append((cx + u * clen * 0.26, case_hw + 0.018, zc + w * case_h * 0.2))
-    P.bolts(pts, normal=(0, 1, 0), r=0.0055, h=0.005, washer=False)
+        pts.append((cx + u * clen * 0.24, case_hw + 0.016, zc + w * case_h * 0.19))
+    P.bolts(pts, normal=(0, 1, 0), r=0.005, h=0.004, washer=False)
     # fill and drain plugs, reverse switch with its lead
-    P.cyl('fill', 0.012, 0.01, (cx - 0.02, -case_hw - 0.004, zc + 0.02), 'steel', axis='-Y', segs=6, bev=None)
-    P.cyl('drain', 0.012, 0.01, (cx, 0, zc - case_h / 2 - 0.009), 'steel', segs=6, bev=None)
-    P.cyl('rev_switch', 0.011, 0.02, (cx + 0.05, -case_hw - 0.008, zc + 0.05), 'steel', axis='-Y', segs=6, bev=None)
-    P.tube('rev_lead', [(cx + 0.05, -case_hw - 0.02, zc + 0.05), (cx + 0.08, -case_hw - 0.03, zc + 0.1),
-                        (cx + 0.12, -case_hw - 0.02, zc + 0.12)], 0.004, 'trim', segs=5, bend=0.02)
-    # shift turret on top (a floor-shift box: the lever itself is the cab part gl_*)
+    P.cyl('fill', 0.011, 0.01, (cx - 0.02, -case_hw - 0.004, zc + 0.02), 'steel', axis='-Y', segs=6, bev=None)
+    P.cyl('drain', 0.011, 0.01, (cx, 0, zc - 0.005 - case_h / 2 - 0.004), 'steel', segs=6, bev=None)
+    P.cyl('rev_switch', 0.01, 0.016, (cx + 0.04, -case_hw - 0.006, zc + 0.03), 'steel', axis='-Y', segs=6, bev=None)
+    P.tube('rev_lead', [(cx + 0.04, -case_hw - 0.014, zc + 0.03), (cx + 0.06, -case_hw - 0.018, zc + 0.045),
+                        (cx + 0.09, -case_hw - 0.014, zc + 0.05)], 0.0035, 'trim', segs=5, bend=0.02)
+    # a low shift turret on top (a floor-shift box: the lever itself is the cab part gl_*)
     if shifter == 'top':
-        xs = xc0 + 0.06
-        P.box('turret', (0.10, 0.09, 0.06), (xs, 0, zc + case_h / 2 + 0.02), material, bev=0.014, segs=2)
-        P.cyl('turret_neck', 0.03, 0.05, (xs - 0.01, 0, zc + case_h / 2 + 0.07), material, segs=16, bev=0.004,
-              bsegs=1)
-        P.lathe('turret_boot', [(0.034, 0.0), (0.036, 0.012), (0.028, 0.02), (0.03, 0.03), (0.022, 0.04),
-                                (0.016, 0.05), (0.0, 0.052)], loc=(xs - 0.01, 0, zc + case_h / 2 + 0.09),
-                material='rubber', segs=16, sharp=60.0)
-        P.bolts([(xs + sx * 0.04, sy * 0.035, zc + case_h / 2 + 0.051) for sx in (-1, 1) for sy in (-1, 1)],
-                normal=(0, 0, 1), r=0.005, h=0.004, washer=False)
+        xs = xc0 + 0.055
+        zt0 = zc - 0.005 + case_h / 2 - 0.005
+        P.box('turret', (0.085, 0.075, 0.026), (xs, 0, zt0 + 0.013), material, bev=0.009, segs=2)
+        P.cyl('turret_neck', 0.024, 0.013, (xs - 0.008, 0, zt0 + 0.0315), material, segs=16, bev=0.003, bsegs=1)
+        P.lathe('turret_boot', [(0.026, 0.0), (0.027, 0.004), (0.021, 0.008), (0.014, 0.0115), (0.0, 0.0125)],
+                loc=(xs - 0.008, 0, zt0 + 0.037), material='rubber', segs=16, sharp=60.0)
+        P.bolts([(xs + sx * 0.032, sy * 0.028, zt0 + 0.0265) for sx in (-1, 1) for sy in (-1, 1)],
+                normal=(0, 0, 1), r=0.0045, h=0.0035, washer=False)
     # tail housing and output yoke
-    tail = [(0.0, xt1 - 0.02), (0.03, xt1 - 0.02), (0.045, xt1), (0.05, xt1 + 0.02), (0.06, xc0 - 0.05),
-            (0.075, xc0 - 0.01), (0.075, xc0 + 0.01)]
+    tail = [(0.0, xt1 - 0.015), (0.026, xt1 - 0.015), (0.038, xt1), (0.042, xt1 + 0.015), (0.05, xc0 - 0.04),
+            (0.062, xc0 - 0.008), (0.062, xc0 + 0.01)]
     P.lathe('tail', tail, loc=(0, 0, zc), material=material, axis='X', segs=22, sharp=40.0)
-    P.lathe('yoke', [(0.0, -0.05), (0.032, -0.05), (0.035, -0.035), (0.03, 0.0), (0.032, 0.012)],
-            loc=(xt1 - 0.015, 0, zc), material='steel', axis='X', segs=16, close='end', sharp=40.0)
+    P.lathe('yoke', [(0.0, -0.035), (0.027, -0.035), (0.03, -0.026), (0.026, 0.0), (0.028, 0.008)],
+            loc=(xt1 - 0.012, 0, zc), material='steel', axis='X', segs=16, close='end', sharp=40.0)
     for sg in (-1, 1):
-        P.box('yoke_ear', (0.035, 0.012, 0.04), (xt1 - 0.07, sg * 0.03, zc), 'steel', bev=0.004, segs=1)
-    # speedometer drive with its cable
-    P.cyl('speedo', 0.012, 0.03, (xc0 - 0.06, -0.06, zc - 0.03), 'alu', axis='-Y', segs=10, bev=0.002, bsegs=1)
-    P.tube('speedo_cable', [(xc0 - 0.06, -0.08, zc - 0.03), (xc0 - 0.03, -0.12, zc - 0.07),
-                            (xc0 + 0.04, -0.13, zc - 0.1)], 0.005, 'trim', segs=6, bend=0.03)
+        P.box('yoke_ear', (0.028, 0.01, 0.034), (xt1 - 0.055, sg * 0.025, zc), 'steel', bev=0.0035, segs=1)
+    # speedometer drive with its cable, clipped to the case side
+    P.cyl('speedo', 0.011, 0.026, (xc0 - 0.045, -0.05, zc - 0.022), 'alu', axis='-Y', segs=10, bev=0.002, bsegs=1)
+    P.tube('speedo_cable', [(xc0 - 0.045, -0.066, zc - 0.022), (xc0 - 0.02, -0.098, zc - 0.05),
+                            (xc0 + 0.05, -case_hw - 0.012, zc - 0.058)], 0.0045, 'trim', segs=6, bend=0.03)
+    P.box('cable_clip', (0.014, 0.01, 0.016), (xc0 + 0.05, -case_hw - 0.004, zc - 0.058), 'steel', bev=0.002, segs=1)
     # rubber mount pad on the crossmember under the tail (z = 0)
-    xm = xc0 - tail_len * 0.4
-    P.box('mount_plate', (0.08, 0.12, 0.012), (xm, 0, zc - 0.05 - 0.07), 'steel', bev=0.003, segs=1)
-    P.box('mount_rubber', (0.06, 0.09, 0.05), (xm, 0, 0.065), 'rubber', bev=0.012, segs=2)
-    P.box('mount_base', (0.10, 0.16, 0.014), (xm, 0, 0.007), 'steel', bev=0.003, segs=1)
-    P.bolts([(xm + sx * 0.035, sy * 0.06, 0.014) for sx in (-1, 1) for sy in (-1, 1)], normal=(0, 0, 1), r=0.006,
-            h=0.005, washer=False)
+    xm = xc0 - tail_len * 0.45
+    P.box('mount_base', (0.09, 0.14, 0.012), (xm, 0, 0.006), 'steel', bev=0.003, segs=1)
+    P.box('mount_rubber', (0.05, 0.08, 0.038), (xm, 0, 0.031), 'rubber', bev=0.01, segs=2)
+    P.box('mount_plate', (0.07, 0.09, 0.01), (xm, 0, 0.054), 'steel', bev=0.003, segs=1)
+    P.bolts([(xm + sx * 0.032, sy * 0.055, 0.012) for sx in (-1, 1) for sy in (-1, 1)], normal=(0, 0, 1), r=0.0055,
+            h=0.0045, washer=False)
     P.views = [('a', 35, 22), ('b', 215, 22)]
+    return dict(xb0=xb0, xc0=xc0, xt1=xt1, cx=cx, clen=clen, zc=zc)
 
 
 def build_gb_4(P):
@@ -116,25 +119,31 @@ def build_gb_4(P):
 
 def build_gb_3(P):
     """An old three-speed: short, round-shouldered cast-iron case with a column-shift linkage on its side."""
-    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side', material='steel')
-    # side shift levers and linkage rods (column shift)
-    for i, x in enumerate((-0.02, 0.04)):
-        P.box('shift_lever', (0.012, 0.012, 0.09), (x, 0.108, 0.13), 'steel', rot=(0, 15 - 30 * i, 0), bev=0.003,
-              segs=1)
-        P.cyl('shift_boss', 0.016, 0.02, (x, 0.1, 0.17), 'alu', axis='Y', segs=12, bev=0.002, bsegs=1)
-        P.tube('shift_rod', [(x + 0.01, 0.115, 0.09), (x + 0.12, 0.13, 0.11), (x + 0.3, 0.14, 0.25)], 0.0045, 'steel',
-               segs=6, bend=0.05)
+    case_hw = 0.088
+    g = gearbox(P, L=0.335, bell_r=0.09, case_hw=case_hw, case_h=0.125, tail_len=0.085, shifter='side',
+                material='steel', bell_len=0.11)
+    cx, zc = g['cx'], g['zc']
+    # side shift levers on the side cover and their rods forward to the column linkage (column shift)
+    yl = case_hw + 0.03
+    for i, x in enumerate((cx - 0.028, cx + 0.028)):
+        P.cyl('shift_boss', 0.013, 0.016, (x, case_hw + 0.024, zc), 'alu', axis='Y', segs=12, bev=0.002, bsegs=1)
+        a = math.radians(14 - 28 * i)
+        tip = V((x - 0.055 * math.sin(a), yl, zc - 0.055 * math.cos(a)))
+        P.tube('shift_lever', [(x, yl, zc), tuple(tip)], 0.005, 'steel', segs=6)
+        end = (g['xb0'] + 0.05, yl, zc + 0.05 + 0.012 * i)
+        P.tube('shift_rod', [tuple(tip), (tip.x + 0.06, yl, tip.z + 0.01), end], 0.004, 'steel', segs=6, bend=0.03)
+        P.torus('rod_end', 0.007, 0.0025, loc=end, axis='Y', segs=10, rsegs=4, material='steel')
 
 
 def build_gb_5(P):
     """A close-ratio five-speed: longer, heavily ribbed case with the fifth-gear housing bulging before the tail."""
-    gearbox(P, L=0.58, bell_r=0.17, case_hw=0.10, case_h=0.20, tail_len=0.17)
-    x5 = -0.08
-    P.lathe('fifth', [(0.075, x5 - 0.07), (0.088, x5 - 0.055), (0.09, x5 + 0.02), (0.08, x5 + 0.04)], loc=(0, 0, 0.17),
-            material='alu', axis='X', segs=22, sharp=40.0)
+    g = gearbox(P, L=0.41, bell_r=0.094, case_hw=0.1, case_h=0.135, tail_len=0.12, ribs=4)
+    zc, x5 = g['zc'], g['xc0'] - 0.035
+    P.lathe('fifth', [(0.058, x5 - 0.05), (0.068, x5 - 0.04), (0.072, x5 + 0.015), (0.062, x5 + 0.03)],
+            loc=(0, 0, zc), material='alu', axis='X', segs=22, sharp=40.0)
     for sg in (-1, 1):
         for i in range(4):
-            P.box('rib5', (0.008, 0.016, 0.15), (x5 - 0.05 + i * 0.022, sg * 0.09, 0.17), 'alu', bev=0.002, segs=1)
+            P.box('rib5', (0.007, 0.012, 0.08), (x5 - 0.04 + i * 0.019, sg * 0.068, zc), 'alu', bev=0.002, segs=1)
 
 
 def build_gb_moto(P):
