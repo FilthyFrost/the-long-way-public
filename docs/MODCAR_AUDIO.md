@@ -48,6 +48,10 @@ snd.engine.update({
   boost,                     // 可选：物理算了增压就传 0..1，否则声音自己按转速和油门带迟滞地涨
   distance,                  // 可选：车外听者距离（m）
   stalled,                   // 可选：这次熄火是不是憋熄（否则按转速和负载猜）
+  misfire,                   // 可选 0..1：缺火概率（车况差、加错油熄火前的突突）
+  knock,                     // 可选 0..1：连杆敲击（车况很差），负载越大越响
+  steam,                     // 可选 0..1：水温红区冒蒸汽
+  approach,                  // 可选：车外听者，车朝你开来的速度（m/s，远离为负），多普勒
 });
 snd.foley.play('door_close', { material: 'fridge' }); // metal / rusty / armor / cage / fridge
 snd.foley.play('part_setdown', { mass: 235 });        // 按质量：小件叮当 → 发动机闷响
@@ -57,7 +61,8 @@ snd.foley.horn('horn_air', down);                      // horn_beep / horn_trump
 snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯）/ 挡杆进一格（P-R-N-D）
 ```
 
-- 起动机：`cranking && !running` 时播 `crank` 循环 + 合成的起动机电机声（每个压缩冲程拖慢一下）；`running` 变真时播 `catch`，循环在它尾巴下淡入。`running` 变假时按情况播 `shutdown` 或 `stall`。
+- 起动机：`cranking && !running` 时播 `crank` 循环 + 合成的起动机电机声（每个压缩冲程拖慢一下）；`starterRate < 0.15`（电瓶没电）时只有电磁开关“咔、咔”；`running` 变真时播 `catch`，循环在它尾巴下淡入。`running` 变假时按情况播 `shutdown` 或 `stall`。
+- 建议映射（§3 规则）：车况 c → `misfire = max(0, 0.6 - c) * 0.5`、`knock = max(0, 0.4 - c) * 2.5`；加错燃料熄火前 `misfire ≈ 0.6`；水温红区 → `steam`。车外听者给 `distance`（空气吸收随距离变暗）和 `approach`。
 - 混合：每个负载取转速两侧最近的两个循环，按对数距离交叉混合，回放速率 = rpm / 循环转速（精确跟转速）；两个循环同相起播，混合权重按清单里的相似度（`coh`）保持总功率。全负载与滑行按 `loadMix(throttle, load)` 混合。
 - 断油器：接近红线且油门大时淡入录下来的 `limiter`（调速器发动机——割草机和两台柴油机——不弹跳）。
 - 叠层：进气轰鸣、风扇 / 齿轮啸叫（flat6、柴油）、涡轮啸叫与泄压阀、收油回火（几声大的，或者——排气越响越常见——一串细碎的噼啪）、排气件改变响度与明亮度并叠加脉冲同步的沙哑噪声、车厢关着时低通 + 约 105 Hz 的共鸣（点火频率经过时“嗡”一下）、开门/缺门时外部声回来。

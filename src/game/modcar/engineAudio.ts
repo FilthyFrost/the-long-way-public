@@ -306,6 +306,14 @@ export interface EngineAudioState {
   distance?: number;
   /** the stop was a stall (under load) rather than switching off; default: guessed from rpm and load */
   stalled?: boolean;
+  /** chance a firing misses, 0..1: a worn engine (condition), or the wrong fuel spluttering before it dies */
+  misfire?: number;
+  /** rod knock, 0..1: a big end going (low condition); heard more under load */
+  knock?: number;
+  /** steam from the cooling system, 0..1 (boiling over in the red) */
+  steam?: number;
+  /** listener outside: the speed the car approaches at (m/s, negative = going away), for the Doppler shift */
+  approach?: number;
 }
 
 interface Slot {
@@ -373,7 +381,16 @@ export class EngineVoice {
   private readonly starterLfoDepth: GainNode;
   private readonly starterBp: BiquadFilterNode;
   private readonly starterSag: GainNode;
+  private readonly misVca: GainNode;
+  private readonly airLp: BiquadFilterNode;
+  private readonly steamGain: GainNode;
   private readonly noiseBuf: AudioBuffer;
+  private readonly knockBufs: AudioBuffer[] = [];
+  private readonly clickBuf: AudioBuffer;
+  /** next firing slot / crank turn / solenoid click already scheduled (context time) */
+  private misNext = 0;
+  private knockNext = 0;
+  private clickNext = 0;
 
   // state
   private lastT = -1;
@@ -419,21 +436,25 @@ export class EngineVoice {
 
     // engine loops -> exhaust colouring -> cabin split
     this.engBus = g(1);
+    // misfires dip this for one firing at a time
+    this.misVca = g(1);
     this.exIn = g(1);
     this.body = f('lowshelf', 120, 0.707, 0);
     this.bite = f('highshelf', 1800, 0.707, 0);
     this.exLp = f('lowpass', 7500, 0.6);
     this.exGain = g(1);
     this.pre = g(1);
-    this.engBus.connect(this.exIn);
+    this.engBus.connect(this.misVca).connect(this.exIn);
     this.exIn.connect(this.body).connect(this.bite).connect(this.exLp).connect(this.exGain).connect(this.pre);
     this.extGain = g(1);
+    // air takes the top off with distance
+    this.airLp = f('lowpass', 18000, 0.5);
     this.cabinLp = f('lowpass', 900, 0.5);
     // the cabin drones where the firing frequency passes about 105 Hz (a V8 at 1600, a four at 3200)
     this.cabinBoom = f('peaking', 105, 1.4, 6);
     const cabinLow = f('lowshelf', 220, 0.707, 2);
     this.intGain = g(0);
-    this.pre.connect(this.extGain).connect(this.out);
+    this.pre.connect(this.extGain).connect(this.airLp).connect(this.out);
     this.pre.connect(this.cabinBoom).connect(cabinLow).connect(this.cabinLp).connect(this.intGain).connect(this.out);
 
     // two seconds of white noise for every noise layer
@@ -456,7 +477,7 @@ export class EngineVoice {
     for (let i = 0; i < curve.length; i++) curve[i] = Math.abs((i / 512) - 1);
     rect.curve = curve;
     const envLp = f('lowpass', 240, 0.5);
-    this.engBus.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
+    this.misVca.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
     noiseSrc().connect(f('highpass', 1800, 0.6)).connect(f('lowpass', 7000, 0.6)).connect(this.raspVca).connect(this.exIn);
 
     // induction roar
@@ -501,9 +522,15 @@ export class EngineVoice {
     this.starterOsc.start();
     this.starterLfo.start();
 
+    // steam hissing out of the cooling system
+    this.steamGain = g(0);
+    noiseSrc().connect(f('highpass', 2200, 0.7)).connect(f('peaking', 5200, 0.9, 5)).connect(this.steamGain).connect(this.pre);
+
     // pops and the blow-off valve are pre-rendered one-shots
     for (let k = 0; k < 6; k++) this.popBufs.push(this.makeBuffer(popSample(ctx.sampleRate, 101 + k, k % 3 === 2)));
     for (let k = 0; k < 2; k++) this.bovBufs.push(this.makeBuffer(blowOffSample(ctx.sampleRate, 211 + k)));
+    for (let k = 0; k < 3; k++) this.knockBufs.push(this.makeBuffer(rodKnockSample(ctx.sampleRate, 307 + k)));
+    this.clickBuf = this.makeBuffer(solenoidSample(ctx.sampleRate, 401));
   }
 
   private makeBuffer(x: Float32Array): AudioBuffer {
@@ -673,6 +700,9 @@ export class EngineVoice {
       set(this.extGain.gain, Math.min(1.4, 3 / dist), 0.08);
       set(this.intGain.gain, 0, 0.08);
     }
+    set(this.airLp.frequency, st.inside ? 18000 : 18000 / (1 + dist / 30), 0.1);
+    // a passing car: everything it makes shifts together
+    const doppler = st.inside ? 1 : Math.min(1.25, Math.max(0.8, 343 / (343 - Math.min(80, Math.max(-80, st.approach ?? 0)))));
     // ---- exhaust fitted
     set(this.exGain.gain, Math.pow(10, ex.gainDb / 20), 0.05);
     set(this.body.gain, ex.bodyDb, 0.05);
@@ -735,7 +765,8 @@ export class EngineVoice {
       }
     }
     // the starter turning the engine over (no firing yet)
-    if (bank && st.cranking && !running) {
+    const battery = st.starterRate ?? 1;
+    if (bank && st.cranking && !running && battery >= 0.15) {
       const c = m!.oneshots['crank'];
       if (c && c.loopStart !== undefined && c.loopEnd !== undefined) {
         const rate = 0.55 + 0.45 * Math.min(1, Math.max(0.2, st.starterRate ?? 1));
@@ -745,6 +776,7 @@ export class EngineVoice {
     }
     // start the loudest new loops first, so the quieter ones align to them
     for (const wv of [...want.values()].sort((a, b) => b.gain - a.gain)) {
+      wv.rate *= doppler;
       const s = this.slot(wv.rec, t, wv.rate);
       s.level = t < this.quietUntil ? 0 : wv.gain;
       set(s.gain.gain, s.level, TAU_GAIN);
@@ -775,7 +807,7 @@ export class EngineVoice {
     set(this.intakeGain.gain, 0.55 * on * tone.intake * Math.pow(thr, 1.5) * (0.25 + 0.75 * rev) * Math.pow(10, tone.loudnessDb / 20), 0.05);
     // mechanical whine
     if (tone.whine) {
-      const hz = (tone.whine.ratio * rpm) / 60;
+      const hz = ((tone.whine.ratio * rpm) / 60) * doppler;
       set(this.whineOsc.frequency, Math.max(20, hz), TAU_RATE);
       set(this.whineBp.frequency, Math.max(40, hz), TAU_RATE);
       this.whineBp.Q.value = tone.whine.q;
@@ -841,7 +873,46 @@ export class EngineVoice {
     set(this.starterLfo.frequency, ((m?.oneshots['crank']?.rpm ?? 220) / 60) * (cyl / 2) * (0.55 + 0.45 * sr), 0.05);
     this.starterLfoDepth.gain.value = 0.6 * tone.starter.drag;
     this.starterSag.gain.value = -crankHz * 0.12 * tone.starter.drag;
-    set(this.starterGain.gain, st.cranking ? Math.pow(10, (tone.starter.gainDb + tone.loudnessDb) / 20) * (0.5 + 0.5 * sr) : 0, st.cranking ? 0.02 : 0.06);
+    const turning = st.cranking && battery >= 0.15;
+    set(this.starterGain.gain, turning ? Math.pow(10, (tone.starter.gainDb + tone.loudnessDb) / 20) * (0.5 + 0.5 * sr) : 0, turning ? 0.02 : 0.06);
+    // a flat battery: the solenoid clicks and nothing turns
+    if (st.cranking && battery < 0.15 && !running) {
+      if (this.clickNext < t) this.clickNext = t;
+      while (this.clickNext < t + 0.1) {
+        this.oneShotBuffer(this.clickBuf, this.clickNext, 0.3, this.pre, 0.95 + 0.1 * this.rng.next());
+        this.clickNext += 0.33 + 0.12 * this.rng.next();
+      }
+    }
+
+    // a worn engine: firings that miss (a dip of one firing interval), now and then a pop after one
+    const mis = running && m ? Math.min(1, Math.max(0, st.misfire ?? 0)) : 0;
+    if (mis > 0) {
+      const slotDur = 120 / (Math.max(150, rpm) * cyl);
+      if (this.misNext < t) this.misNext = t + 0.005;
+      while (this.misNext < t + 0.08) {
+        if (this.rng.next() < mis) {
+          const at = this.misNext;
+          this.misVca.gain.setTargetAtTime(0.22, at, slotDur * 0.12);
+          this.misVca.gain.setTargetAtTime(1, at + slotDur * 0.85, slotDur * 0.25);
+          if (this.rng.next() < 0.12 * mis) this.oneShotBuffer(this.popBufs[0], at + slotDur * 1.2, 0.09 * Math.pow(10, tone.loudnessDb / 20), this.exIn, 1.4);
+        }
+        this.misNext += slotDur;
+      }
+    }
+    // rod knock: a deep knock every turn of the crank, louder under load
+    const kn = running && m ? Math.min(1, Math.max(0, st.knock ?? 0)) : 0;
+    if (kn > 0) {
+      const turn = 60 / Math.max(150, rpm);
+      if (this.knockNext < t) this.knockNext = t + 0.005;
+      while (this.knockNext < t + 0.08) {
+        const kg = 0.16 * kn * (0.45 + 0.55 * load) * (0.8 + 0.4 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20);
+        this.oneShotBuffer(this.knockBufs[Math.floor(this.rng.next() * this.knockBufs.length)], this.knockNext, kg, this.pre, 0.9 + 0.2 * this.rng.next());
+        this.knockNext += turn;
+      }
+    }
+    // steam, wavering as it boils
+    const steam = Math.min(1, Math.max(0, st.steam ?? 0));
+    set(this.steamGain.gain, steam > 0 ? 0.016 * steam * (0.7 + 0.6 * this.rng.next()) * Math.pow(10, tone.loudnessDb / 20) : 0, 0.12);
   }
 
   /** stop everything and release the nodes */
@@ -890,6 +961,29 @@ export function popSample(sr: number, seed: number, big = false): Float32Array {
   // a second, smaller report now and then
   if (rng.next() < 0.4) burst(x, sr, Math.floor(rng.range(0.012, 0.03) * sr), 0.03, 0.5, rng, { attack: 0.0003, decay: 0.006, filter: [['bandpass', 1400, 0.8]] });
   return normalize(edges(x, sr, 0.1, 10), 0.95);
+}
+
+/** rod knock: a deep, dull metallic knock from inside the block */
+export function rodKnockSample(sr: number, seed: number): Float32Array {
+  const rng = new Rng(seed);
+  const x = new Float32Array(Math.floor(0.06 * sr));
+  burst(x, sr, 0, 0.004, 0.6, rng, { attack: 0.0003, decay: 0.0012, filter: [['bandpass', 1400, 1.2]] });
+  for (const [f, g, d] of [[520, 1, 0.012], [890, 0.7, 0.009], [1460, 0.45, 0.006]] as const) {
+    const fj = f * (1 + 0.04 * rng.gauss());
+    for (let i = 0; i < x.length; i++) x[i] += g * Math.sin((2 * Math.PI * fj * i) / sr) * Math.exp(-i / (d * sr));
+  }
+  return normalize(edges(x, sr, 0.2, 6), 0.9);
+}
+
+/** the starter solenoid on a flat battery: a hard click and nothing else */
+export function solenoidSample(sr: number, seed: number): Float32Array {
+  const rng = new Rng(seed);
+  const x = new Float32Array(Math.floor(0.08 * sr));
+  burst(x, sr, 0, 0.003, 1, rng, { attack: 0.0001, decay: 0.0007, filter: [['highpass', 1200]] });
+  for (const [f, g, d] of [[1750, 1, 0.01], [3100, 0.6, 0.006], [640, 0.5, 0.015]] as const) {
+    for (let i = 0; i < x.length; i++) x[i] += 0.4 * g * Math.sin((2 * Math.PI * f * i) / sr) * Math.exp(-i / (d * sr));
+  }
+  return normalize(edges(x, sr, 0.1, 6), 0.9);
 }
 
 /** blow-off valve: a fast pneumatic "pssh" with a little flutter */

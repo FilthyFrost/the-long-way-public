@@ -210,6 +210,8 @@ try {
       ['eng_i4d', { turbo: true }, 'i4d_turbo'],
       ['eng_flat6', { exhaustId: 'exh_sport' }, 'flat6_sport'],
       ['eng_2t', { exhaustId: 'exh_side' }, '2t_side'],
+      ['eng_v8', { extra: { misfire: 0.18, knock: 0.7 } }, 'v8_worn'],
+      ['eng_i4', { extra: { steam: 1 } }, 'i4_steam'],
     ];
     for (const [id, extra, name] of variants) {
       const res = await render({ engineId: id, sequence: 'tour', ...extra }, name);
@@ -218,6 +220,25 @@ try {
       const last = res.debug[res.debug.length - 1] || {};
       console.log(`${name.padEnd(18)} idle ${s.idle.rms}/${s.idle.centroid}  pull_high ${s.pull_high.rms}/${s.pull_high.centroid} hf ${s.pull_high.hf}  overrun ${s.overrun.rms}/${s.overrun.centroid}  pops ${last.popsFired ?? '?'} bov ${last.bovFired ?? '?'}`);
     }
+  }
+
+  if (doVariants) {
+    // a car going past at 20 m/s, 3 m away: pitch high then low, loud and bright as it passes
+    const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: 'eng_v8', sequence: 'passby' });
+    const x = fromBase64(r.pcm);
+    writeWav(path.join(OUT, 'v8_passby.wav'), x, r.sampleRate);
+    const near = stats(x, r.sampleRate, 3.8, 4.2);
+    const far = stats(x, r.sampleRate, 0.3, 0.8);
+    report.variants.passby = { near, far };
+    console.log(`passby             far ${far.rms} dB/${far.centroid} Hz  near ${near.rms} dB/${near.centroid} Hz`);
+    // a flat battery: the solenoid clicks, nothing turns; then a good one cranks and it catches
+    const fb = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: 'eng_i4', sequence: 'flat' });
+    const y = fromBase64(fb.pcm);
+    writeWav(path.join(OUT, 'i4_flat_battery.wav'), y, fb.sampleRate);
+    const clicks = stats(y, fb.sampleRate, 0.2, 2.4);
+    const crank = stats(y, fb.sampleRate, 2.7, 3.5);
+    report.variants.flat_battery = { clicks, crank };
+    console.log(`flat battery       clicks ${clicks.rms} dB  then cranking ${crank.rms} dB`);
   }
 
   if (doFoley) {
