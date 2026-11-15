@@ -2202,6 +2202,12 @@ export class VehicleSim {
     out.x = w.hx;
     out.y = w.hy - len;
     out.z = w.hz;
+    if (this.bal) {
+      // a single-track wheel is the pair of rays i and i^1: one wheel on the centre line between them
+      const o = this.wheels[i ^ 1];
+      out.y = 0.5 * (out.y + o.hy - clamp(o.travel - o.comp, 0, o.travel));
+      out.z = 0;
+    }
   }
 
   /**
