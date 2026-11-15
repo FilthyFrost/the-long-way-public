@@ -460,25 +460,6 @@ export class VehicleSim {
     mk(W[3], spec.rear, -b, 1, false, 3);
     this.nDriven = (spec.front.driven ? 2 : 0) + (spec.rear.driven ? 2 : 0);
 
-    let iRoll = spec.inertia.roll;
-    let iPitch = spec.inertia.pitch;
-    if (ext) {
-      // a derived spec may come with inertias that do not suit its springs: keep the body's roll and
-      // pitch modes well below what the fixed step resolves
-      let kr = 0;
-      let kp = 0;
-      for (const w of W) {
-        kr += (w.k + 2 * w.arbK) * w.hz * w.hz;
-        kp += w.k * w.hx * w.hx;
-      }
-      const o2 = MODE_OMEGA_MAX * MODE_OMEGA_MAX;
-      iRoll = Math.max(iRoll, kr / o2);
-      iPitch = Math.max(iPitch, kp / o2);
-    }
-    this.invIroll = 1 / iRoll;
-    this.invIyaw = 1 / spec.inertia.yaw;
-    this.invIpitch = 1 / iPitch;
-
     // (a derived spec's box always holds its centre of gravity: a CG above the roof, a load on a roof
     // rack, would otherwise put the CG in the ground when the vehicle lies on its back)
     const bd = ext
@@ -503,6 +484,33 @@ export class VehicleSim {
     this.circR = hw;
     this.circX = new Float64Array(nC);
     for (let i = 0; i < nC; i++) this.circX[i] = bd.centerX - (hl - hw) + (2 * (hl - hw) * i) / (nC - 1);
+
+    let iRoll = spec.inertia.roll;
+    let iPitch = spec.inertia.pitch;
+    let iYaw = spec.inertia.yaw;
+    if (ext) {
+      // a derived spec may come with inertias that do not suit it: keep the body's roll and pitch
+      // modes well below what the fixed step resolves, the yaw inertia at least a tenth of the mass
+      // spread over the axles (else the tyres' grip overcorrects it step by step), and none of them
+      // below a tenth of a solid box the size of the body (realistic ones are 2–4 times these)
+      let kr = 0;
+      let kp = 0;
+      for (const w of W) {
+        kr += (w.k + 2 * w.arbK) * w.hz * w.hz;
+        kp += w.k * w.hx * w.hx;
+      }
+      const o2 = MODE_OMEGA_MAX * MODE_OMEGA_MAX;
+      const L2 = 4 * bd.halfLength * bd.halfLength;
+      const W2 = 4 * bd.halfWidth * bd.halfWidth;
+      const H2 = (bd.top - bd.bottom) * (bd.top - bd.bottom);
+      const box = (0.1 * spec.mass) / 12;
+      iRoll = Math.max(iRoll, kr / o2, box * (W2 + H2));
+      iPitch = Math.max(iPitch, kp / o2, box * (L2 + H2));
+      iYaw = Math.max(iYaw, 0.025 * spec.mass * (a * a + b * b), box * (L2 + W2));
+    }
+    this.invIroll = 1 / iRoll;
+    this.invIyaw = 1 / iYaw;
+    this.invIpitch = 1 / iPitch;
 
     const ab = spec.absent;
     this.noEngine = ab?.engine === true;
@@ -1981,7 +1989,7 @@ export class VehicleSim {
       return out;
     }
     const m = sp.mass;
-    const invI = 1 / sp.inertia.yaw;
+    const invI = this.invIyaw;
     const bottom = py + bd.bottom + 0.04;
     const top = py + bd.top;
     const own = sp.id;
