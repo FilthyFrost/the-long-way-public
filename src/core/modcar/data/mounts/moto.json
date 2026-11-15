@@ -1,310 +1,493 @@
 {
+ "bbox": {
+  "max": [
+   0.99021,
+   1.07863,
+   0.262
+  ],
+  "min": [
+   -1.05758,
+   0.01,
+   -0.26749
+  ]
+ },
+ "eye_default": [
+  -0.44,
+  1.54,
+  -0.0
+ ],
  "frame": "moto",
- "placeholder": true,
  "mounts": {
-  "hub_F": {
+  "battery": {
+   "cat": "battery",
    "pos": [
-    0.69,
-    0.31,
-    0
+    -0.33,
+    0.517,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "rim",
-   "axle": "front",
-   "side": 0,
-   "steer": true,
-   "driven": false,
-   "handbrake": false
+   "side": 0
   },
-  "hub_R": {
+  "bumperFront": {
+   "cat": "bumperFront",
+   "fit": [
+    0.1,
+    0.3,
+    0.1
+   ],
+   "fit_anchor": "center",
+   "on": "FORK_LOWER",
    "pos": [
-    -0.69,
-    0.31,
-    0
+    0.995,
+    0.5,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "rim",
-   "axle": "rear",
-   "side": 0,
-   "steer": false,
-   "driven": true,
-   "handbrake": false
+   "side": 0
+  },
+  "bumperRear": {
+   "cat": "bumperRear",
+   "fit": [
+    0.1,
+    0.34,
+    0.11
+   ],
+   "fit_anchor": "center",
+   "pos": [
+    -1.075,
+    0.36,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0
   },
   "engine": {
-   "pos": [
-    0.05,
-    0.28,
-    0
-   ],
-   "quat": [
-    0,
-    0,
-    0,
-    1
-   ],
    "cat": "engine",
-   "side": 0
-  },
-  "gearbox": {
    "pos": [
-    -0.18,
-    0.3,
-    0
+    0.065,
+    0.255,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "gearbox",
-   "side": 0
+   "side": 0,
+   "space_max": [
+    0.24,
+    0.12,
+    0.45
+   ],
+   "space_min": [
+    -0.21,
+    -0.12,
+    0.0
+   ]
   },
-  "radiator": {
+  "exhaust": {
+   "cat": "exhaust",
    "pos": [
-    0.38,
-    0.48,
-    0
+    0.29034,
+    0.57629,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    -0.087156,
+    0.0,
+    0.0,
+    0.996195
    ],
-   "cat": "radiator",
-   "side": 0
-  },
-  "battery": {
-   "pos": [
-    -0.25,
-    0.52,
-    0
-   ],
-   "quat": [
-    0,
-    0,
-    0,
-    1
-   ],
-   "cat": "battery",
+   "route": "header round the front of the engine, silencer on the right",
    "side": 0
   },
   "fuelTank": {
-   "pos": [
-    0.12,
-    0.82,
-    0
-   ],
-   "quat": [
-    0,
-    0,
-    0,
-    1
-   ],
    "cat": "fuelTank",
-   "side": 0
-  },
-  "exhaust": {
    "pos": [
-    -0.1,
-    0.25,
-    0.18
+    0.05753,
+    0.71658,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.110186,
+    0.993911
    ],
-   "cat": "exhaust",
    "side": 0
   },
-  "steering": {
+  "gearLever": {
+   "cat": "gearLever",
+   "kind": "foot shift pedal pivot, left of the frame",
    "pos": [
-    0.42,
-    1,
-    0
+    -0.112,
+    0.318,
+    -0.1495
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "steering",
    "side": 0
   },
-  "seat_driver": {
+  "gearbox": {
+   "cat": "gearbox",
    "pos": [
-    -0.25,
-    0.8,
-    0
+    -0.15,
+    0.255,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "seat",
-   "side": 0,
-   "driver": true
+   "side": 0
   },
   "headlight": {
+   "cat": "headlight",
+   "on": "FORK",
    "pos": [
-    0.58,
-    0.88,
-    0
+    0.44432,
+    0.836,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    -0.01309,
+    0.999914
    ],
-   "cat": "headlight",
    "side": 0
   },
-  "taillight": {
+  "horn": {
+   "cat": "horn",
+   "on": "FORK",
    "pos": [
-    -0.92,
-    0.72,
-    0
+    0.51475,
+    0.615,
+    0.154
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    -1.0,
+    -0.0,
+    -0.0,
+    0.0
    ],
-   "cat": "taillight",
+   "side": 0
+  },
+  "hub_F": {
+   "axle": "front",
+   "cat": "rim",
+   "driven": false,
+   "handbrake": false,
+   "on": "FORK_LOWER",
+   "pos": [
+    0.69,
+    0.31,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0,
+   "steer": true,
+   "wheel_r": 0.309
+  },
+  "hub_R": {
+   "axle": "rear",
+   "cat": "rim",
+   "driven": true,
+   "handbrake": false,
+   "on": "SWINGARM",
+   "pos": [
+    -0.69,
+    0.31,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0,
+   "steer": false,
+   "wheel_r": 0.309
+  },
+  "ignition": {
+   "cat": "ignition",
+   "on": "FORK",
+   "pos": [
+    0.36948,
+    1.03213,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    -0.272363,
+    0.962195
+   ],
    "side": 0
   },
   "mirror_L": {
+   "cat": "mirror",
+   "on": "FORK",
    "pos": [
-    0.38,
-    1.12,
-    -0.32
+    0.21474,
+    1.03185,
+    -0.226
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.121869,
+    0.992546
    ],
-   "cat": "mirror",
    "side": -1
   },
   "mirror_R": {
+   "cat": "mirror",
+   "on": "FORK",
    "pos": [
-    0.38,
-    1.12,
-    0.32
+    0.21474,
+    1.03185,
+    0.226
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.121869,
+    0.992546
    ],
-   "cat": "mirror",
    "side": 1
   },
-  "bumperFront": {
+  "radiator": {
+   "cat": "radiator",
    "pos": [
-    0.75,
-    0.55,
-    0
+    0.352,
+    0.405,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "bumperFront",
-   "side": 0,
-   "fit": [
-    0.15,
-    0.45,
-    0.25
-   ]
-  },
-  "bumperRear": {
-   "pos": [
-    -0.95,
-    0.55,
-    0
-   ],
-   "quat": [
-    0,
-    0,
-    0,
-    1
-   ],
-   "cat": "bumperRear",
-   "side": 0,
-   "fit": [
-    0.15,
-    0.35,
-    0.2
-   ]
-  },
-  "horn": {
-   "pos": [
-    0.55,
-    0.62,
-    0
-   ],
-   "quat": [
-    0,
-    0,
-    0,
-    1
-   ],
-   "cat": "horn",
    "side": 0
   },
-  "ignition": {
+  "seat_driver": {
+   "cat": "seat",
+   "driver": true,
+   "floor_z": 0.7,
    "pos": [
-    0.4,
-    0.98,
-    0.08
+    -0.5,
+    0.7,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.0,
+    1.0
    ],
-   "cat": "ignition",
-   "side": 1
+   "side": 0
   },
-  "gearLever": {
+  "steering": {
+   "cat": "steering",
+   "on": "FORK",
    "pos": [
-    0,
-    0.32,
-    -0.15
+    0.35231,
+    0.93808,
+    -0.0
    ],
    "quat": [
-    0,
-    0,
-    0,
-    1
+    0.0,
+    0.0,
+    0.233445,
+    0.97237
    ],
-   "cat": "gearLever",
+   "side": 0,
+   "steer_axis": "z"
+  },
+  "taillight": {
+   "cat": "taillight",
+   "pos": [
+    -1.005,
+    0.585,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
    "side": 0
   }
- }
+ },
+ "needles": {
+  "N_rpm": {
+   "axis": [
+    -0.85164,
+    0.52413,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    0.37551,
+    1.0381,
+    0.0705
+   ],
+   "rest": "zero reading at 210 deg (bottom left) on the dial; the scale runs 240 deg clockwise as the rider sees it, so a full reading is -240 deg about the axis (right hand)"
+  },
+  "N_speed": {
+   "axis": [
+    -0.85164,
+    0.52413,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    0.37551,
+    1.0381,
+    -0.0705
+   ],
+   "rest": "zero reading at 210 deg (bottom left) on the dial; the scale runs 240 deg clockwise as the rider sees it, so a full reading is -240 deg about the axis (right hand)"
+  }
+ },
+ "notes": "Game frame (+x forward, +y up, +z right), metres; axes are unit vectors and every angle follows the right-hand rule. fork: FORK has its origin on the steering axis at the top of the steering head and no rotation of its own; a turn of +a about rig.fork.axis (up the raked steering axis) steers the front wheel to the LEFT (counter-clockwise seen from above, the same sense as a wheel pivot rotation.y), so use a = -sim.steerAngle. FORK_LOWER (sliders, fender, disc, caliper, hub_F) is a child of FORK with its origin on the front axle; move it by the front suspension compression (metres, + = wheel up) along rig.fork.lower.axis. The steering mount sits on the fork tubes plane (the stock bar's caps on the tubes), 35 mm ahead of the axis: parent the steering part to FORK and do not spin it about its own origin. swingarm: SWINGARM pivots about rig.swingarm.axis through its pivot; +a raises the rear axle (bump): a = asin(rise / length). shocks: SHOCK_UPPER_* are fixed on the frame (origin = top eye), SHOCK_LOWER_* ride on the swingarm (origin = bottom eye); both have local +y (game) along the shock from the bottom eye to the top eye at rest; to keep them in line aim the upper's -y at the lower eye and the lower's +y at the upper eye (optional: the lower half slides inside the upper's shroud either way). stand: STAND is modelled down (foot on the ground with the bike upright); fold it for riding by +fold_deg about rig.stand.axis through rig.stand.pivot. needles turn about their local +y (game) = Blender local +Z by deg_full * reading. Mounts with \"on\" are children of that object in the GLB (pos/quat here are at rest, in the frame space).",
+ "panels": {},
+ "rig": {
+  "fork": {
+   "axis": [
+    -0.45399,
+    0.89101,
+    -0.0
+   ],
+   "axle_lead": 0.0157,
+   "children": "FORK_LOWER, N_speed, N_rpm and the mounts steering, headlight, mirror_L, mirror_R, ignition, horn; FORK_LOWER carries hub_F and bumperFront",
+   "lower": {
+    "axis": [
+     -0.45399,
+     0.89101,
+     -0.0
+    ],
+    "object": "FORK_LOWER",
+    "travel": 0.14
+   },
+   "object": "FORK",
+   "offset": 0.035,
+   "pivot": [
+    0.32112,
+    0.92219,
+    -0.0
+   ],
+   "rake_deg": 27.0,
+   "trail": 0.101
+  },
+  "shocks": {
+   "L": {
+    "length": 0.3195,
+    "lower": "SHOCK_LOWER_L",
+    "lower_eye": [
+     -0.652,
+     0.338,
+     -0.142
+    ],
+    "upper": "SHOCK_UPPER_L",
+    "upper_eye": [
+     -0.612,
+     0.655,
+     -0.142
+    ]
+   },
+   "R": {
+    "length": 0.3195,
+    "lower": "SHOCK_LOWER_R",
+    "lower_eye": [
+     -0.652,
+     0.338,
+     0.142
+    ],
+    "upper": "SHOCK_UPPER_R",
+    "upper_eye": [
+     -0.612,
+     0.655,
+     0.142
+    ]
+   }
+  },
+  "stand": {
+   "axis": [
+    0.06866,
+    0.61466,
+    -0.7858
+   ],
+   "fold_deg": 96.62,
+   "object": "STAND",
+   "pivot": [
+    -0.052,
+    0.2,
+    -0.104
+   ]
+  },
+  "swingarm": {
+   "axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "children": "SHOCK_LOWER_L, SHOCK_LOWER_R and the mount hub_R",
+   "length": 0.374,
+   "object": "SWINGARM",
+   "pivot": [
+    -0.316,
+    0.315,
+    -0.0
+   ]
+  }
+ },
+ "triangles": {
+  "BODY": 17842,
+  "FORK": 7423,
+  "FORK_LOWER": 4948,
+  "N_rpm": 50,
+  "N_speed": 50,
+  "SHOCK_LOWER_L": 1352,
+  "SHOCK_LOWER_R": 1352,
+  "SHOCK_UPPER_L": 416,
+  "SHOCK_UPPER_R": 416,
+  "STAND": 408,
+  "SWINGARM": 5720,
+  "total": 39977
+ },
+ "units": "metres, game frame (+x forward, +y up, +z right)",
+ "wipers": {}
 }

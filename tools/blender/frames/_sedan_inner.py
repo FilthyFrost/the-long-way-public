@@ -20,8 +20,9 @@ FIREWALL_X = 0.84
 RAD_X = 1.755            # radiator support plane
 APRON_Y = 0.47           # engine bay side wall (inboard of the front wheelhouse)
 SEAT_X = -0.20           # front seat reference (H point) x
-REAR_SEAT_X = -1.02
+REAR_SEAT_X = -0.92      # the stock bench's back clears the C pillars and the parcel shelf
 DRIVER_Y = 0.36
+EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.035 + 0.90)   # the stock bucket seat's eye (parts_geo: -0.16 back, 0.90 up)
 
 
 def tunnel_h(x):
@@ -169,21 +170,19 @@ def door_frame_inner(ex, w):
 
 # ============================================================================================ hood / boot lid
 def lid_inner(ex, name):
-    """Inner frame of the hood / boot lid: a panel 25 mm under the skin with lightening holes."""
+    """Inner frame of the hood / boot lid, 28 mm under the skin. The hood's is a perimeter ring (narrow at the
+    hinge edge) so an engine can come up close under the skin; the boot lid's a panel with a lightening hole."""
     c = ex.cut[name]
     s = c.side('in')
     uv = s['uv']
     inner = K.offset_loop2(uv, (-0.035 if name == 'hood' else 0.035), closed=False)
     inner[0, 1] = 0.0
     inner[-1, 1] = 0.0
+    if name == 'hood':
+        return ring_inner(S.CT, uv, inner, -0.10, 0.065)
     xs = np.linspace(inner[-1, 0], inner[0, 0], 30)[1:-1]
     loop = np.vstack([inner, np.stack([xs, np.zeros(len(xs))], 1)])
-    holes = []
-    if name == 'hood':
-        for (cx, cy, hx, hy) in ((1.13, 0.30, 0.13, 0.17), (1.48, 0.30, 0.13, 0.17)):
-            holes.append(K.Loop(K.rrect_loop(cx, cy, hx, hy, 0.06, 0.035)))
-    else:
-        holes.append(K.Loop(K.rrect_loop(-1.80, 0.30, 0.14, 0.17, 0.06, 0.035)))
+    holes = [K.Loop(K.rrect_loop(-1.80, 0.30, 0.14, 0.17, 0.06, 0.035))]
     g = K.grid_points(uv[:, 0].min(), uv[:, 0].max(), 0.0, 0.8, 0.075, dt=0.075)
     V, N, T = K.mesh_region(S.CT, [K.Loop(K.resample_keep(loop, 0.05))], holes, g, spacing=0.075, level=-0.028)
     b = K.Buf().add(V, -N, T, 'paint')
@@ -192,6 +191,33 @@ def lid_inner(ex, name):
         E = side_out(P, Nn) * -1
         V, N, Tr = K.roll_edge(P, -Nn, E, 0.004, 0.012, 0.0, 2, closed=True)
         b.add(V, N, Tr, 'paint')
+    return b
+
+
+def ring_inner(chart, uv, outer, d_in, rear_band, level=-0.028):
+    """Half (y >= 0) of a hood inner frame ring on a top chart: between `outer` (an open polyline from the
+    centre line round to the centre line, inside the hood outline) and the outline offset by d_in, with the band
+    along the rear (hinge) edge only `rear_band` wide. Rolled inner edge."""
+    ring_in = K.offset_loop2(uv, d_in, closed=False)
+    ring_in[:, 0] = np.maximum(ring_in[:, 0], uv[:, 0].min() + rear_band)
+    ring_in[0, 1] = 0.0
+    ring_in[-1, 1] = 0.0
+    ring_in = K.resample(ring_in, 0.012, closed=False)
+    for _ in range(12):        # round the corners the rear clamp made (ends stay on the centre line)
+        ring_in[1:-1] = 0.5 * ring_in[1:-1] + 0.25 * (ring_in[:-2] + ring_in[2:])
+    ring_in = K.resample(ring_in, 0.03, closed=False)
+    ring_in[0, 1] = 0.0
+    ring_in[-1, 1] = 0.0
+    loop = np.vstack([K.resample(outer, 0.05, closed=False), ring_in[::-1]])
+    g = K.grid_points(uv[:, 0].min(), uv[:, 0].max(), 0.0, 0.85, 0.06, dt=0.06)
+    V, N, T = K.mesh_region(chart, [K.Loop(loop)], [], g, spacing=0.06, level=level)
+    b = K.Buf().add(V, -N, T, 'paint')
+    P, Nn = chart.to3d(ring_in, level)
+    P2, _ = chart.to3d(K.offset_loop2(ring_in, -0.01, closed=False), level)
+    E = K.unit(P2 - P)
+    E = K.unit(E - Nn * np.sum(E * Nn, 1)[:, None])
+    V, N, Tr = K.roll_edge(P, -Nn, E, 0.004, 0.012, 0.0, 2, closed=False)
+    b.add(V, N, Tr, 'paint')
     return b
 
 
@@ -338,6 +364,18 @@ def apertures():
 
 
 # ============================================================================================ underbody
+def dropped_crossmember(x, w, h, z_low, z_high, y_low, y_rise, y_end):
+    """Half (y >= 0) of a box section crossmember that drops under the engine: centre z_low for |y| < y_low,
+    rising to z_high at y_rise, out to y_end (centre heights; w along x, h tall)."""
+    ys = [0.0, y_low, y_low + 0.35 * (y_rise - y_low), y_low + 0.65 * (y_rise - y_low), y_rise, y_end]
+    zs = [z_low, z_low, z_low + 0.18 * (z_high - z_low), z_low + 0.82 * (z_high - z_low), z_high, z_high]
+    path = np.array([(x, y, z) for y, z in zip(ys, zs)])
+    prof = np.array([(w / 2, -h / 2), (w / 2, h / 2), (-w / 2, h / 2), (-w / 2, -h / 2)])   # CCW: outward normals
+    V, N, T = K.sweep(path, (0, 0, 1), prof, closed=False, closed_prof=True, smooth_prof=False)
+    b = K.Buf().add(V, N, T, 'steel')
+    return b
+
+
 def underbody():
     """UNDER (left half + centre parts with y >= 0 halves): floor pan, rails, crossmember, suspension, hubs,
     brake discs and calipers, rear axle, propshaft, wheelhouse liners, filler neck."""
@@ -372,8 +410,8 @@ def underbody():
     for (x0, x1, z) in ((-1.0, 1.70, PAN_Z - 0.06), ):
         b.extend(K.box_buf((x0, 0.44, z), (x1, 0.52, PAN_Z), 'steel', 0.006, 2))
     b.extend(K.box_buf((-1.98, 0.44, BOOT_Z - 0.08), (-1.40, 0.52, BOOT_Z - 0.02), 'steel', 0.006, 2))
-    # front crossmember under the engine
-    b.extend(K.box_buf((D['ax_f'] - 0.06, 0.0, 0.20), (D['ax_f'] + 0.06, 0.55, 0.27), 'steel', 0.008, 2))
+    # front crossmember, dropped under the sump between the rails
+    b.extend(dropped_crossmember(D['ax_f'], 0.12, 0.06, 0.155, 0.235, 0.29, 0.43, 0.50))
     # wheelhouse liners (front and rear)
     for xa, y0, y1 in ((D['ax_f'], APRON_Y, 0.78), (D['ax_r'], 0.50, 0.78)):
         b.extend(wheelhouse(xa, y0, y1))
@@ -498,7 +536,7 @@ def interior(ex):
     L.extend(K.box_buf((-1.42, 0.0, FLOOR_Z), (-1.30, 0.70, 0.30), 'fabric', 0.01, 2))
     L.extend(K.box_buf((-1.48, 0.0, 0.52), (-1.42, 0.70, 0.95), 'plastic_int', 0.01, 2))
     # parcel shelf under the rear window
-    L.extend(K.box_buf((-1.62, 0.0, 0.905), (-1.36, 0.73, 0.925), 'plastic_int', 0.006, 2))
+    L.extend(K.box_buf((-1.62, 0.0, 0.905), (-1.40, 0.73, 0.925), 'plastic_int', 0.006, 2))
     # sill trims and kick panels
     L.extend(K.box_buf((D['rd_rear'], 0.60, FLOOR_Z), (D['fd_front'] - 0.02, 0.66, 0.33), 'plastic_int', 0.012, 2))
     L.extend(K.box_buf((0.66, 0.58, FLOOR_Z), (FIREWALL_X - 0.02, 0.70, 0.62), 'plastic_int', 0.02, 2))
@@ -507,12 +545,13 @@ def interior(ex):
     # headliner: greenhouse roof 30 mm inside, facing down
     gus = S.g_u_samples()
     row = np.stack([gus, np.full(len(gus), S.G_T[-1] - 0.02)], 1)
-    Pr, _ = S.CG.to3d(row, -0.03)
+    Pr, _ = S.CG.to3d(row, -0.022)
     a, bb = Pr[-1], Pr[0]
     xc = np.linspace(a[0], bb[0], 30)[1:-1]
     loop = np.vstack([Pr[:, :2], np.stack([xc, np.zeros(len(xc))], 1)])
     g = K.grid_points(-1.3, 0.6, 0.0, 0.7, 0.06, dt=0.06)
-    V, N, T = K.mesh_region(S.CR, [K.Loop(loop)], [], g, spacing=0.06, level=-0.03)
+    # 8 mm above the rail / header trims (level -0.03) where the two overlap, so the trim always wins the depth test
+    V, N, T = K.mesh_region(S.CR, [K.Loop(loop)], [], g, spacing=0.06, level=-0.022)
     L.add(V, -N, T, 'fabric')
     # pillar trims (simple): A, B, C inner covers
     L.extend(pillar_trims(ex))
@@ -628,7 +667,7 @@ def dashboard():
     b.extend(K.box_buf((fx - 0.006, -0.58, 0.69), (fx + 0.004, -0.20, 0.808), 'paint', 0.01, 2))
     b.extend(K.cyl_buf((fx - 0.006, -0.39, 0.79), (fx - 0.014, -0.39, 0.79), 0.009, 'chrome', 12))
     # instrument pod: a rounded box tilted towards the driver
-    eye = np.array([SEAT_X - 0.06, DRIVER_Y, 1.23])
+    eye = np.array(EYE)
     pc = np.array([fx - 0.012, DRIVER_Y, 0.858])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))

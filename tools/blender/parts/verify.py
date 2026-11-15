@@ -29,6 +29,33 @@ TURBO = {'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'}
 STRETCH_PREFIX = ('bf_', 'br_', 'roof_', 'arm_')
 
 
+def catalogue():
+    """The non-panel part ids of the game's catalogue (src/core/modcar/parts.ts; panels - doors, bonnets,
+    boot lids - are the frames' work), or the list above when the file is not there."""
+    import re
+    path = 'src/core/modcar/parts.ts'
+    if not os.path.exists(path):
+        return CATALOGUE
+    src = open(path, encoding='utf-8').read()
+    ids = []
+    for m in re.finditer(r'\bP\(\{', src):
+        # the entry runs to its matching brace (entries may span several lines)
+        depth, i = 0, m.end() - 1
+        while i < len(src):
+            if src[i] == '{':
+                depth += 1
+            elif src[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        block = src[m.end() - 1: i + 1]
+        mid = re.search(r"\bid:\s*'([a-z0-9_]+)'", block)
+        if mid and not re.search(r'\bpanel:', block):
+            ids.append(mid.group(1))
+    return ids or CATALOGUE
+
+
 def budget(pid):
     if pid.startswith('eng_'):
         return 15000
@@ -160,7 +187,8 @@ def main(args):
             over.append(f'{tyre}@{rim} {per_wheel:.0f}')
     lines.append(f'wheels: {len(over)} rim+tyre combinations over 6000 tris per wheel' +
                  (': ' + ', '.join(over) if over else ''))
-    missing = [p for p in CATALOGUE if p not in ids]
+    cat = catalogue()
+    missing = [p for p in cat if p not in ids]
     for p in missing:
         lines.append(f'ERR  {p:28s}  missing file')
         n_err += 1
@@ -171,7 +199,7 @@ def main(args):
         n_err += 1
     out = '\n'.join(lines)
     print(out)
-    summary = f'VERIFY {len(files)} files, {len(CATALOGUE) - len(missing)}/{len(CATALOGUE)} catalogue parts, {n_err} errors'
+    summary = f'VERIFY {len(files)} files, {len(cat) - len(missing)}/{len(cat)} catalogue parts, {n_err} errors'
     print(summary)
     os.makedirs('D:/modcar-scratch/parts', exist_ok=True)
     with open('D:/modcar-scratch/parts/verify.txt', 'w', encoding='utf-8') as fh:

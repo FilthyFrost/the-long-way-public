@@ -9,8 +9,8 @@ import numpy as np  # noqa: E402
 
 from frames import _kit as K  # noqa: E402
 from frames import pickup as S  # noqa: E402
-from frames._sedan_inner import (extrude_y, face_up, flip_down, orient_out, quad_sheet,  # noqa: E402
-                                 recompute_normals, side_out, tub)
+from frames._sedan_inner import (dropped_crossmember, extrude_y, face_up, flip_down, orient_out, quad_sheet,  # noqa: E402
+                                 recompute_normals, ring_inner, side_out, tub)
 
 D = S.D
 PI = math.pi
@@ -19,8 +19,10 @@ PAN_Z = 0.43             # underside of the cab floor
 FIREWALL_X = 1.00
 RAD_X = 1.995
 APRON_Y = 0.50
-SEAT_X = 0.06            # H point x of the bench
+SEAT_X = 0.30            # seat floor attachment x: a 1.01 m bucket seat's back clears the cab's rear wall
 DRIVER_Y = 0.36
+EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.03 + 0.90)   # the stock bucket seat's eye (parts_geo: eye -0.16, 0.90)
+GEAR_X = 0.62
 DASH_FACE_X = 0.70
 FRAME_Y = 0.46           # ladder frame rails (centre)
 FRAME_Z0, FRAME_Z1 = 0.30, 0.42   # rail bottom / top under the cab (kicks up 0.18 over the rear axle)
@@ -126,28 +128,20 @@ def door_frame_inner(ex):
 
 
 def hood_inner(ex):
+    """Hood inner frame: a perimeter ring 28 mm under the skin (narrow along the hinge edge), open over the
+    engine so the stock eng_i4d clears the bonnet."""
     s = ex.cut['hood'].side('in')
     uv = s['uv']
     inner = K.offset_loop2(uv, -0.035, closed=False)
     inner[0, 1] = 0.0
     inner[-1, 1] = 0.0
-    xs = np.linspace(inner[-1, 0], inner[0, 0], 30)[1:-1]
-    loop = np.vstack([inner, np.stack([xs, np.zeros(len(xs))], 1)])
-    holes = [K.Loop(K.rrect_loop(cx, 0.32, 0.15, 0.18, 0.06, 0.035)) for cx in (1.32, 1.72)]
-    g = K.grid_points(uv[:, 0].min(), uv[:, 0].max(), 0.0, 0.8, 0.075, dt=0.075)
-    V, N, T = K.mesh_region(S.CT, [K.Loop(K.resample_keep(loop, 0.05))], holes, g, spacing=0.075, level=-0.028)
-    b = K.Buf().add(V, -N, T, 'paint')
-    for H in holes:
-        P, Nn = S.CT.to3d(H.uv, -0.028)
-        V, N, Tr = K.roll_edge(P, -Nn, -side_out(P, Nn), 0.004, 0.012, 0.0, 2, closed=True)
-        b.add(V, N, Tr, 'paint')
-    return b
+    return ring_inner(S.CT, uv, inner, -0.10, 0.065)
 
 
 # ============================================================================================ engine bay
 def engine_bay():
     b = K.Buf()
-    top = 0.975
+    top = 0.995
     xa, za = D['ax_f'], D['hub_z']
     y_out = 0.792
     b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.55), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.55), 4, 2, (0, -1, 0), 'paint'))
@@ -266,14 +260,16 @@ def underbody():
     # frame rail: a C section (open towards the centre) swept along the kicked-up centre line
     xs = np.concatenate([np.linspace(2.02, -0.55, 4), np.linspace(-0.62, -0.95, 6), np.linspace(-1.05, -2.30, 3)])[::-1]
     path = np.stack([xs, np.full(len(xs), FRAME_Y), [frame_zc(x) for x in xs]], 1)
-    prof = np.array([(0.035, -0.06), (-0.035, -0.06), (-0.035, 0.06), (0.035, 0.06), (0.035, 0.052), (-0.027, 0.052), (-0.027, -0.052), (0.035, -0.052)])
+    prof = np.array([(0.035, -0.06), (-0.035, -0.06), (-0.035, 0.06), (0.035, 0.06), (0.035, 0.052), (-0.027, 0.052), (-0.027, -0.052), (0.035, -0.052)])[::-1]   # CCW
     V, N, T = K.sweep(path, (0, 0, 1), prof, closed=False, closed_prof=True, smooth_prof=False)
     b.add(V, N, T, 'steel')
     # crossmembers (half)
-    for x in (1.95, D['ax_f'], 0.30, -1.15, -1.80, -2.27):
-        w = 0.07 if abs(x - D['ax_f']) > 0.01 else 0.12
+    for x in (1.95, 0.30, -1.15, -1.80, -2.27):
+        w = 0.07
         zc = frame_zc(x)
         b.extend(K.box_buf((x - w / 2, 0.0, zc - 0.05), (x + w / 2, FRAME_Y - 0.03, zc + 0.05), 'steel', 0.004, 1))
+    # front axle crossmember dropped under the engine's sump, rising into the rails
+    b.extend(dropped_crossmember(D['ax_f'], 0.12, 0.06, 0.235, frame_zc(D['ax_f']), 0.30, 0.40, FRAME_Y))
     # cab floor underside and bed underside (with bed sills)
     b.extend(K.box_buf((-0.24, 0.0, PAN_Z - 0.006), (FIREWALL_X, 0.70, PAN_Z), 'trim', 0.003, 1))
     b.extend(K.box_buf((D['bed_xr'] + 0.02, 0.0, D['bed_z0'] - 0.004), (D['bed_xf'] - 0.02, D['bed_hw'] - 0.03, D['bed_z0']), 'trim', 0.003, 1))
@@ -361,7 +357,7 @@ def fuel_flap(ex):
 def steering_mount():
     ang = math.radians(32.0)
     d = np.array([math.cos(ang), 0.0, -math.sin(ang)])
-    p = np.array([0.40, DRIVER_Y, 1.0])
+    p = np.array([0.58, DRIVER_Y, 0.975])
     return p, d
 
 
@@ -389,12 +385,12 @@ def interior(ex):
     # headliner
     gus = S.g_u_samples()
     row = np.stack([gus, np.full(len(gus), S.G_T[-1] - 0.02)], 1)
-    Pr, _ = S.CG.to3d(row, -0.03)
+    Pr, _ = S.CG.to3d(row, -0.022)
     a, bb = Pr[-1], Pr[0]
     xc = np.linspace(a[0], bb[0], 20)[1:-1]
     loop = np.vstack([Pr[:, :2], np.stack([xc, np.zeros(len(xc))], 1)])
     g = K.grid_points(-0.3, 0.7, 0.0, 0.8, 0.07, dt=0.07)
-    V, N, T = K.mesh_region(S.CR, [K.Loop(loop)], [], g, spacing=0.07, level=-0.03)
+    V, N, T = K.mesh_region(S.CR, [K.Loop(loop)], [], g, spacing=0.07, level=-0.022)
     L.add(V, -N, T, 'fabric')
     dash, gauges = dashboard()
     C.extend(dash)
@@ -408,7 +404,7 @@ def interior(ex):
     st = steering_mount()
     C.extend(K.cyl_buf(st[0] + st[1] * 0.05, st[0] + st[1] * 0.34, 0.045, 'plastic_int', 18, r1=0.038))
     # gear lever boot ring on the floor hump
-    gx = 0.50
+    gx = GEAR_X
     V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)]), (gx, 0.0, tunnel_h(gx) + 0.002), (0, 0, 1), 20)
     C.add(V, N, T, 'rubber')
     # bench seat rails
@@ -449,7 +445,7 @@ def dashboard():
     # glovebox
     b.extend(K.box_buf((fx - 0.006, -0.60, 0.86), (fx + 0.004, -0.22, 0.98), 'plastic_int', 0.01, 2))
     b.extend(K.box_buf((fx - 0.012, -0.43, 0.955), (fx - 0.004, -0.39, 0.97), 'chrome', 0.003, 1))
-    eye = np.array([SEAT_X - 0.05, DRIVER_Y, 1.41])
+    eye = np.array(EYE)
     pc = np.array([fx - 0.012, DRIVER_Y, 1.005])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))

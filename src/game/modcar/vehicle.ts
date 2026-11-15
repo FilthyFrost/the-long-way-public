@@ -23,6 +23,9 @@ export class ModVehicle {
   awake = 3;
   /** assist: with a driver in, the brakes hold the car once it has stopped */
   assistHold = true;
+  /** the radio part is switched on, and the station it is on (radio.ts SONGS) */
+  radioOn = false;
+  radioSong = 0;
 
   constructor(
     core: RenderCore,

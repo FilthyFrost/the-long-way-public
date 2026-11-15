@@ -78,7 +78,8 @@ export class CarView {
   private readonly catOf = new Map<string, string>();
   private readonly shown = new Map<string, Shown>();
   private readonly panels = new Map<string, PanelNode>();
-  readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string }[] = [];
+  /** riding on the fork or the swingarm (a motorcycle's): the wheel only spins, its place is the rig's */
+  readonly wheels: { pivot: THREE.Group; spin: THREE.Group; holder: THREE.Group; key: string; ridden?: boolean }[] = [];
   readonly needles: Record<string, THREE.Object3D> = {};
   readonly wipers: THREE.Object3D[] = [];
   /** the fuel filler of the frame (where a jerrycan is held), model space */
@@ -191,7 +192,8 @@ export class CarView {
   // ------------------------------------------------------------------ a motorcycle's moving frame
 
   /** the steering head's pivot (the FORK and what rides on it), the swingarm's, the stand's */
-  private fork: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion } | null = null;
+  private fork: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; lower: THREE.Object3D | null; lowerRest: THREE.Vector3; lowerAxis: THREE.Vector3; travel: number; hubY: number } | null = null;
+  private shocks: { upper: THREE.Group; lower: THREE.Group; upperRest: THREE.Vector3; lowerRest: THREE.Vector3; upperEye: THREE.Vector3; lowerEyeLocal: THREE.Vector3; upperEyeInSwing: THREE.Vector3 }[] = [];
   private swing: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; hub: THREE.Vector3; sign: number; length: number } | null = null;
   private stand: { pivot: THREE.Group; axis: THREE.Vector3; rest: THREE.Quaternion; fold: number; t: number } | null = null;
 
@@ -219,7 +221,28 @@ export class CarView {
         const node = this.mountNodes.get(m.id);
         if (node) pivot.attach(node);
       }
-      this.fork = { pivot, axis: new THREE.Vector3(...rig.fork.axis).normalize(), rest: pivot.quaternion.clone() };
+      // the lower legs slide on the stanchions with the front suspension, and carry the axle and what is on it
+      const lower = rig.fork.lower ? (fork.getObjectByName(rig.fork.lower.object) ?? null) : null;
+      if (lower) {
+        for (const m of this.frame.mounts) {
+          if (m.on !== rig.fork.lower!.object || m.cat === 'rim') continue;
+          const node = this.mountNodes.get(m.id);
+          if (node) lower.attach(node);
+        }
+      }
+      const hubF = hubsOf(this.frame).fl;
+      this.fork = {
+        pivot,
+        axis: new THREE.Vector3(...rig.fork.axis).normalize(),
+        rest: pivot.quaternion.clone(),
+        lower,
+        lowerRest: lower ? lower.position.clone() : new THREE.Vector3(),
+        lowerAxis: new THREE.Vector3(...(rig.fork.lower?.axis ?? rig.fork.axis)).normalize(),
+        travel: rig.fork.lower?.travel ?? 0.12,
+        hubY: hubF.pos.y,
+      };
+      // the front wheel rides in the fork (steering about its head, not about the vertical)
+      if (hubF.on) this.rideWheel(0, lower ?? fork, hubF.pos);
     }
     const sw = rig.swingarm ? obj.getObjectByName('SWINGARM') : undefined;
     if (sw && rig.swingarm) {
@@ -230,6 +253,28 @@ export class CarView {
       const hub = new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z).sub(pivot.position);
       const lifted = hub.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, 0.05));
       this.swing = { pivot, axis, rest: pivot.quaternion.clone(), hub: new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z), sign: lifted.y > hub.y ? 1 : -1, length: Math.max(0.2, rig.swingarm.length) };
+      if (hubMount.on) this.rideWheel(2, sw, hubMount.pos);
+      // the shocks: each half turns about its own eye to keep pointing at the other's
+      for (const k of rig.shocks ?? []) {
+        const up = obj.getObjectByName(k.upper);
+        const lo = sw.getObjectByName(k.lower);
+        if (!up || !lo) continue;
+        const ue = new THREE.Vector3(...k.upperEye);
+        const le = new THREE.Vector3(...k.lowerEye);
+        const upper = this.pivotFor(up, k.upperEye, `pivot_${k.upper}`);
+        // the lower half's pivot hangs in the swingarm: its eye in the swingarm's frame
+        const lower = new THREE.Group();
+        lower.name = `pivot_${k.lower}`;
+        sw.add(lower);
+        this.model.updateMatrixWorld(true);
+        const leW = this.model.localToWorld(le.clone());
+        lower.position.copy(sw.worldToLocal(leW.clone()));
+        lower.updateMatrixWorld(true);
+        lower.attach(lo);
+        const ueW = this.model.localToWorld(ue.clone());
+        const ueInSwing = sw.worldToLocal(ueW.clone());
+        this.shocks.push({ upper, lower, upperRest: le.clone().sub(ue).normalize(), lowerRest: ueInSwing.clone().sub(lower.position).normalize(), upperEye: ue, lowerEyeLocal: lower.position.clone(), upperEyeInSwing: ueInSwing });
+      }
     }
     const st = rig.stand ? obj.getObjectByName('STAND') : undefined;
     if (st && rig.stand) {
@@ -238,16 +283,40 @@ export class CarView {
     }
   }
 
+  /**
+   * Hang a wheel's pivot on the rig piece it rides on (a fork's lower legs, the swingarm), at the hub
+   * (model space); from then on the piece places it and the wheel only spins.
+   */
+  private rideWheel(i: number, on: THREE.Object3D, hub: { x: number; y: number; z: number }): void {
+    const w = this.wheels[i];
+    this.model.updateMatrixWorld(true);
+    const at = this.model.localToWorld(new THREE.Vector3(hub.x, hub.y, 0));
+    w.pivot.position.copy(w.pivot.parent ? w.pivot.parent.worldToLocal(at.clone()) : at);
+    w.pivot.rotation.set(0, 0, 0);
+    w.pivot.updateMatrixWorld(true);
+    on.attach(w.pivot);
+    w.ridden = true;
+  }
+
   /** whether someone rides it (the stand folds up) */
   ridden = false;
   private readonly qBike = new THREE.Quaternion();
   private readonly vBike = new THREE.Vector3();
+  private readonly qShock = new THREE.Quaternion();
+  private readonly vShock = new THREE.Vector3();
 
   private poseBike(dt: number, sim: VehicleSim): void {
     if (this.fork) {
       // as the front wheel turns about the vertical, the fork turns about its head (sign from its axis' up)
       const f = this.fork;
       f.pivot.quaternion.copy(f.rest).multiply(this.qBike.setFromAxisAngle(f.axis, -sim.steerAngle * Math.sign(f.axis.y || 1)));
+      // the lower legs slide up the stanchions as the front wheel rises (along the raked axis)
+      if (f.lower) {
+        sim.wheelLocal(0, this.local);
+        const dy = this.local.y + this.derived.cg.y - f.hubY;
+        const s = Math.max(-f.travel, Math.min(f.travel, dy / Math.max(0.3, f.lowerAxis.y)));
+        f.lower.position.copy(f.lowerRest).addScaledVector(f.lowerAxis, s);
+      }
     }
     if (this.swing) {
       // the rear hub's height in model space against where it was modelled
@@ -257,6 +326,15 @@ export class CarView {
       const dy = this.local.y + cg.y - s.hub.y;
       const a = Math.asin(Math.max(-0.9, Math.min(0.9, dy / s.length)));
       s.pivot.quaternion.copy(s.rest).multiply(this.qBike.setFromAxisAngle(s.axis, s.sign * a));
+      // the shock halves keep pointing at each other's eye
+      for (const k of this.shocks) {
+        // where the lower eye is now (model space): the swingarm turned about its pivot
+        const le = this.vBike.copy(k.lowerEyeLocal).applyQuaternion(s.pivot.quaternion).add(s.pivot.position);
+        k.upper.quaternion.setFromUnitVectors(k.upperRest, le.sub(k.upperEye).normalize());
+        // and the upper eye in the swingarm's frame
+        const ue = this.vShock.copy(k.upperEye).sub(s.pivot.position).applyQuaternion(this.qShock.copy(s.pivot.quaternion).invert());
+        k.lower.quaternion.setFromUnitVectors(k.lowerRest, ue.sub(k.lowerEyeLocal).normalize());
+      }
     }
     if (this.stand) {
       const st = this.stand;
@@ -678,11 +756,12 @@ export class CarView {
     this.lean.rotation.x = this.frame.balance ? leanRad : 0;
     for (let i = 0; i < 4; i++) {
       const w = sim.wheels[i];
-      sim.wheelLocal(i, this.local);
       const node = this.wheels[i];
+      node.spin.rotation.z = -w.spin;
+      if (node.ridden) continue;
+      sim.wheelLocal(i, this.local);
       node.pivot.position.set(this.local.x, this.local.y, this.frame.balance ? 0 : this.local.z);
       node.pivot.rotation.y = -w.steer;
-      node.spin.rotation.z = -w.spin;
     }
     const steer = this.shown.get('steering')?.holder;
     if (steer) {
