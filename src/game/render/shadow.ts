@@ -18,7 +18,7 @@ class Cascade {
   readonly matrix = new THREE.Matrix4();
   constructor(
     readonly size: number,
-    readonly radius: number,
+    public radius: number,
     readonly depth: number,
     layer: number,
   ) {
@@ -101,6 +101,16 @@ export class ShadowPass {
     cam.updateMatrixWorld(true);
     cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
     c.matrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).premultiply(BIAS);
+  }
+
+  /** how far the fine map reaches round its focus (m; 5.5 by default — a room can ask for all of itself) */
+  setNearReach(radius: number): void {
+    const c = this.near;
+    if (c.radius === radius) return;
+    c.radius = radius;
+    c.camera.left = c.camera.bottom = -radius;
+    c.camera.right = c.camera.top = radius;
+    c.camera.updateProjectionMatrix();
   }
 
   /**

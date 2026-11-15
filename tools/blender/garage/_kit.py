@@ -89,6 +89,11 @@ MATS = {
     'dial': (1.0, 0.8, 0.45),
     'led': (1.0, 0.6, 0.1),
     'pegboard': (0.72, 0.58, 0.4),
+    # white paint whose colour is all in the per-object tint: cans, labels, posters, toys in one draw
+    'tinted': (0.92, 0.9, 0.86),
+    'tinted_matte': (0.92, 0.9, 0.86),
+    'galv': (0.7, 0.72, 0.72),
+    'cloth': (0.75, 0.7, 0.6),
 }
 
 

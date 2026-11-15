@@ -22,6 +22,9 @@ import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import layoutJson from './data/garage.json';
 import type { GarageContext, GarageDevice, GarageScene } from './garageStub';
 import { GarageLook } from './garageLook';
+import { beamUniforms, buildBeams, buildDust } from './garageBeams';
+import { Chalkboard } from './garageChalk';
+import { Machines } from './garageMachines';
 import { buildOutdoors, surfaceKind, visibleHeight, type Outdoors } from './garageOutdoors';
 import type { ModVehicle } from './vehicle';
 
@@ -50,6 +53,7 @@ interface Layout {
   bay2: { x: number; z: number; yaw: number };
   spawn: { x: number; z: number; heading: number };
   exitX: number;
+  chalkboard?: { x: number; y: number; z: number; w: number; h: number };
 }
 
 const LAYOUT = layoutJson as unknown as Layout;
@@ -94,9 +98,13 @@ class Boxes implements SolidSource {
 // ------------------------------------------------------------------ the garage
 
 const text = (zh: string, en: string): Text => ({ zh, en });
-const LAMP_ON = { r: 1.0, g: 0.7, b: 0.4 };
+const LAMP_ON = { r: 1.0, g: 1.0, b: 1.0 };
 /** how strongly the pendants light the room (linear radiance × this at a metre, roughly) */
-const LAMP_POWER = 1.55;
+const LAMP_POWER = 3.6;
+/** the fine shadow map's reach while the eye is in the workshop (m round the room's middle) */
+const ROOM_SHADOW_REACH = 8.6;
+/** how thick the air is with dust by day (garageBeams.ts) */
+const BEAM_DENSITY = 0.055;
 
 export function buildGarage(core: RenderCore): GarageScene {
   return new Garage(core);
@@ -130,6 +138,8 @@ class Garage implements GarageScene {
   private time = 0;
   private ctx: GarageContext | null = null;
   private disposed = false;
+  private readonly machines: Machines;
+  private readonly chalk: Chalkboard | null;
 
   constructor(private readonly core: RenderCore) {
     this.root.name = 'garage';
@@ -144,7 +154,22 @@ class Garage implements GarageScene {
       this.leaf[name] = { t, target: t, solid };
     }
     this.outdoors = buildOutdoors(core);
+    // the sun's beams and the dust in them need the shadow maps (none at low quality)
+    if (core.shadows) {
+      this.root.add(buildBeams());
+      this.root.add(buildDust(LAYOUT.room.min, LAYOUT.room.max));
+    }
     this.makeDevices();
+    this.machines = new Machines({
+      movers: this.movers,
+      rest: this.moverRest,
+      look: this.look,
+      device: (id) => LAYOUT.devices.find((d) => d.id === id) ?? null,
+      surface: (name) => LAYOUT.surfaces.find((x) => x.name === name) ?? null,
+    });
+    this.devices.push(...this.machines.devices);
+    this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;
+    if (this.chalk) this.root.add(this.chalk.mesh);
     this.ready = this.load();
     this.placeLeaves();
   }
@@ -375,6 +400,8 @@ class Garage implements GarageScene {
     if (sw) sw.rotation.z = this.lampsOn ? -0.35 : 0.35;
     this.lampLevel += ((this.lampsOn ? 1 : 0) - this.lampLevel) * Math.min(1, dt * 12);
     for (const v of ctx.vehicles) this.keepIn(v);
+    this.machines.update(dt, ctx);
+    this.chalk?.show('让「方糖」跑起来', ctx.checklist());
     this.light();
   }
 
@@ -454,7 +481,11 @@ class Garage implements GarageScene {
     const g = globals;
     const o = this.core.origin;
     const room = LAYOUT.room;
+    const sky0 = g.uSkyColor.value;
     g.uRoomMin.value.set(room.min[0] - o.x, room.min[1] - o.y, room.min[2] - o.z, 1);
+    beamUniforms.uBeamFloor.value = -o.y;
+    // (moonbeams are a faint thing beside the sun's)
+    beamUniforms.uBeamDensity.value = BEAM_DENSITY * (0.3 + 0.7 * smooth(0.04, 0.2, (sky0.r + sky0.g + sky0.b) / 3));
     g.uRoomMax.value.set(room.max[0] - o.x, room.max[1] - o.y, room.max[2] - o.z, room.edge);
     const sky = g.uSkyColor.value;
     const sun = g.uSunColor.value;
@@ -493,8 +524,13 @@ class Garage implements GarageScene {
     const doorShare = (g1 - g0) / (2 * LAYOUT.door.z);
     const sunIn = sunLum * sunOnGround * (0.25 + 0.75 * doorShare) * Math.max(0, sd.x * 0.8 + 0.2);
     const lamp = this.lampLevel;
-    const amb = skyLum * 0.07 + sunIn * 0.03 + lamp * 0.022;
-    g.uRoomAmb.value.setRGB(amb * 1.08, amb * 0.98, amb * 0.86);
+    // daylight given back by the walls is the sky's colour a little warmed by the wood; sun on the
+    // floor gives back warm light; the lamps' own bounce is warmer still
+    // (what bounces in a room of wood comes back warm: the cool is in the light straight from the openings)
+    const ks = skyLum * 0.11;
+    const kw = sunIn * 0.032;
+    const kl = lamp * 0.03;
+    g.uRoomAmb.value.setRGB(ks * 1.12 + kw * 1.15 + kl * 1.2, ks * 0.98 + kw * 0.95 + kl * 0.9, ks * 0.8 + kw * 0.7 + kl * 0.58);
     // the lamps
     const lamps = LAYOUT.lamps;
     for (let i = 0; i < ROOM_LAMPS; i++) {
@@ -520,13 +556,29 @@ class Garage implements GarageScene {
     const inZ = smooth(r.min[2] - 0.5, r.min[2] + 0.8, z) * smooth(r.max[2] + 0.5, r.max[2] - 0.8, z);
     const inY = y < r.max[1] ? 1 : 0;
     const k = inX * inZ * inY;
-    const day = Math.min(1, (globals.uSunColor.value.r + globals.uSunColor.value.g) / 3);
-    return 1 + k * (0.55 + 0.35 * day);
+    // by day the eye opens up indoors; at night the outdoor exposure is already up and the lamps rule
+    // (and at night, used to the lamps, it sees the moonlit country outside as the dark it is)
+    const sky = globals.uSkyColor.value;
+    const day = smooth(0.08, 0.3, (sky.r + sky.g + sky.b) / 3);
+    return 1 + k * (0.6 * day - 0.36 * (1 - day));
+  }
+
+  shadowFocus(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void {
+    const r = LAYOUT.room;
+    // in the workshop (or just outside its door) the fine map takes in the whole room, sharp at about a
+    // centimetre a texel: the sun's patches through the windows and the beams keep their muntins
+    void heading;
+    const near = x > r.min[0] - 0.5 && x < r.max[0] + 4.0 && z > r.min[2] - 0.5 && z < r.max[2] + 0.5;
+    this.core.shadows?.setNearReach(near ? ROOM_SHADOW_REACH : 5.5);
+    if (!near) return;
+    out.x = (r.min[0] + r.max[0]) / 2 + 0.6;
+    out.y = 1.2;
+    out.z = (r.min[2] + r.max[2]) / 2;
   }
 
   telemetry(): Record<string, string | number | boolean> {
     const [g0, g1] = this.doorGap();
-    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn };
+    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, ...this.machines.telemetry() };
   }
 
   surfaceAt(x: number, z: number, fromY: number): number {
@@ -547,6 +599,8 @@ class Garage implements GarageScene {
       if (m.isMesh) m.geometry.dispose();
     });
     this.look.dispose();
+    this.chalk?.dispose();
+    this.core.shadows?.setNearReach(5.5);
     // the room goes with it: nothing else in the game is lit as indoors
     globals.uRoomMin.value.w = 0;
     for (const p of globals.uRoomLampP.value) p.w = 0;
