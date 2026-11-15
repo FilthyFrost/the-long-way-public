@@ -729,11 +729,12 @@ export class ModGame implements PlayerHost, CockpitHost {
       const watts = v.view.frame.mounts.find((m) => m.cat === 'radio' && v.build.parts[m.id]);
       const loud = watts && partDef(v.build.parts[watts.id].part).radio?.tape ? 1.15 : 1;
       let l: number;
-      if (this.seated === v) l = 0.5 * loud;
+      // (about as loud as the engine and the road at a cruise: measured on the master output)
+      if (this.seated === v) l = 0.14 * loud;
       else {
         const d = Math.hypot(this.player.walker.x - v.sim.px, this.player.walker.z - v.sim.pz);
         // a closed car keeps most of it in
-        l = (0.32 * loud * (0.35 + 0.65 * (1 - v.sys.derived.enclosed))) / (1 + (d * d) / 6);
+        l = (0.09 * loud * (0.35 + 0.65 * (1 - v.sys.derived.enclosed))) / (1 + (d * d) / 6);
       }
       if (l > level) {
         level = l;
@@ -745,7 +746,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const set = this.garage?.radio?.();
     if (set?.on) {
       const d = Math.hypot(this.player.walker.x - set.x, this.player.walker.z - set.z);
-      const l = (this.seated ? 0.1 : 0.4) / (1 + (d * d) / 12);
+      const l = (this.seated ? 0.03 : 0.12) / (1 + (d * d) / 12);
       if (l > level) {
         level = l;
         song = set.song;
