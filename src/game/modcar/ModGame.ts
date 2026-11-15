@@ -37,6 +37,7 @@ import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMateri
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
 import { Radio } from './radio';
+import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { Sparks } from './sparks';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
@@ -63,6 +64,8 @@ export interface ModParams extends Params {
   project: 'tutorial' | 'full';
   /** which workshop: the real one (default) or the plain stand-in (?garage=stub) */
   garage: 'workshop' | 'stub';
+  /** this is the player's game, kept in the browser (save.ts); not a test drive or the harness's run */
+  keep: boolean;
 }
 
 export function readModParams(base: Params, search: string = window.location.search): ModParams {
@@ -74,6 +77,7 @@ export function readModParams(base: Params, search: string = window.location.sea
     build: q.get('build') ?? 'stock:sedan',
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
     garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
+    keep: false,
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
     weather: base.weather === 'auto' && start === 'garage' ? 'clear' : base.weather,
   };
@@ -162,6 +166,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   constructor(
     canvas: HTMLCanvasElement,
     readonly params: ModParams,
+    /** a game in progress to go on with (save.ts), or null for a new one */
+    private readonly restore: SaveV1 | null = null,
   ) {
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
@@ -224,6 +230,12 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (this.garage) {
       const g = this.garage;
       await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
+      if (this.restore) {
+        this.restoreGarage(this.restore);
+        await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+        this.ui.say('接着上次的进度。（连按两次 F9 从头开始）', 5);
+        return;
+      }
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
       // a car that stood in a barn for a winter: dust on everything, a little rust at the edges (the sponge has work)
       weather(project, 0.42, 0.06, 1);
@@ -276,14 +288,91 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
       this.input.lookYaw = g.spawn.heading;
     } else {
-      const b = decodeBuild(p.build, { fuel: 0.7 });
+      const b = this.restore?.vehicles[0]?.build ?? decodeBuild(p.build, { fuel: 0.7 });
       const v = this.placeOnRoad(b, p.s);
+      if (this.restore) {
+        v.radioOn = !!this.restore.vehicles[0].radioOn;
+        v.radioSong = this.restore.vehicles[0].radioSong ?? 0;
+        for (const d of this.restore.done) this.done.add(d);
+        this.ui.say('接着上次的路。（连按两次 F9 从车库重新开始）', 5);
+      }
       v.sys.startNow();
       this.seated = v;
       this.focus = v;
       this.input.lookPitch = v.view.frame.balance ? -0.15 : 0;
     }
     await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+  }
+
+  /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */
+  private restoreGarage(s: SaveV1): void {
+    for (const sv of s.vehicles) {
+      const v = this.addVehicle(sv.build, sv.x, sv.z, sv.yaw);
+      v.radioOn = !!sv.radioOn;
+      v.radioSong = sv.radioSong ?? 0;
+    }
+    this.focus = this.vehicles[0] ?? null;
+    for (const l of s.loose) {
+      if (l.part) this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw);
+      else if (l.tool) this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw);
+    }
+    for (const d of s.done) this.done.add(d);
+    this.player.walker.place(s.player.x, s.player.z, s.player.heading);
+    this.input.lookYaw = s.player.heading;
+  }
+
+  // ------------------------------------------------------------------ saving
+
+  private saveT = 0;
+  /** no more saving (a new game is about to begin) */
+  private saveOff = false;
+  private newGameAsked = -1;
+
+  /** the game as it stands, for save.ts; null while it cannot be (screenshots, the fade to the road) */
+  snapshot(): SaveV1 | null {
+    if (this.params.shot || this.fadeT >= 0 || !this.vehicles.length) return null;
+    const w = this.player.walker;
+    const loose: SavedLoose[] = this.loose.list.map((l) => ({ part: l.part ?? undefined, tool: l.tool ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw }));
+    // what is in the hands is put down where one stands
+    const h = this.player.held;
+    if (h) loose.push({ part: h.kind === 'part' ? h.inst : undefined, tool: h.kind === 'tool' ? h.tool : undefined, x: w.x, y: w.y, z: w.z, yaw: w.heading });
+    const s: SaveV1 = {
+      v: 1,
+      at: Date.now(),
+      place: this.place,
+      hour: this.env.clock.hourAt(this.time),
+      done: [...this.done],
+      vehicles: this.vehicles.map((v) => ({ build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, radioOn: v.radioOn, radioSong: v.radioSong })),
+      loose,
+      player: { x: w.x, z: w.z, heading: w.heading },
+    };
+    if (this.place === 'road' && this.world) {
+      // (on the road only the vehicle one drives goes on)
+      const v = this.seated ?? this.focus ?? this.vehicles[0];
+      s.vehicles = s.vehicles.filter((_, i) => this.vehicles[i] === v);
+      s.loose = [];
+      s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
+    }
+    return s;
+  }
+
+  /** write the save now (also when the page goes out of sight) */
+  save(): void {
+    if (this.saveOff || !this.params.keep) return;
+    const s = this.snapshot();
+    if (s) writeSave(s);
+  }
+
+  /** F9 twice: the save cleared and a new game from the workshop */
+  private askNewGame(): void {
+    if (this.newGameAsked >= 0 && this.time - this.newGameAsked < 3) {
+      this.saveOff = true;
+      clearSave();
+      location.reload();
+      return;
+    }
+    this.newGameAsked = this.time;
+    this.ui.say('再按一次 F9：清除存档，从车库重新开始。', 3);
   }
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
@@ -339,6 +428,11 @@ export class ModGame implements PlayerHost, CockpitHost {
         this.ui.showAssists(this.ui.assistsShown ? null : this.assistItems());
         return;
       }
+      if (e.code === 'F9') {
+        e.preventDefault();
+        this.askNewGame();
+        return;
+      }
       // the assists card open: the number keys switch them
       const n = /^Digit([1-9])$/.exec(e.code);
       if (n && this.ui.assistsShown) {
@@ -352,6 +446,13 @@ export class ModGame implements PlayerHost, CockpitHost {
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === canvas) this.ui.showHelp(false);
     });
+    // the game is kept when the page goes out of sight or away
+    if (this.params.keep) {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) this.save();
+      });
+      window.addEventListener('pagehide', () => this.save());
+    }
     this.input.onAction((a) => {
       this.hud.dismissHint();
       if (a === 'use') {
@@ -735,6 +836,11 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.input.update(dt);
     this.applyAssists();
     this.time += dt;
+    // and every half minute
+    if (this.params.keep && (this.saveT += dt) > 30) {
+      this.saveT = 0;
+      this.save();
+    }
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;

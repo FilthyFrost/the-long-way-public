@@ -10,10 +10,21 @@ import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
 import { loadStats } from './assets';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
+import { clearSave, loadSave } from './save';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
-const params = readModParams(readParams());
-const game = new ModGame(canvas, params);
+const base = readParams();
+const fresh = readModParams(base);
+// a game in progress goes on, unless the address asks for something of its own (the harness, a test drive)
+const q = new URLSearchParams(location.search);
+if (q.has('new')) clearSave();
+const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
+// (?new=1: the save cleared, a new game kept from here on)
+const save = own || q.has('new') ? null : loadSave();
+const params = save
+  ? { ...fresh, keep: true, start: save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: save.road?.seed ?? fresh.seed, weather: save.place === 'road' ? base.weather : fresh.weather }
+  : { ...fresh, keep: !own };
+const game = new ModGame(canvas, params, save);
 
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
