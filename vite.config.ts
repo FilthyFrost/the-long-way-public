@@ -8,8 +8,9 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
     chunkSizeWarningLimit: 1500,
-    // the game, the ModCar game (modcar.html) and the ModCar model viewer (docs/MODCAR.md §6, §8)
-    rolldownOptions: { input: { main: page('./index.html'), modcar: page('./modcar.html'), viewer: page('./viewer.html') } },
+    // the game (index.html: the ModCar game, also at modcar.html), the classic game before ModCar
+    // (classic.html) and the ModCar model viewer (docs/MODCAR.md §6, §8)
+    rolldownOptions: { input: { main: page('./index.html'), modcar: page('./modcar.html'), classic: page('./classic.html'), viewer: page('./viewer.html') } },
   },
   server: { host: '127.0.0.1', port: 5173, strictPort: false },
 });

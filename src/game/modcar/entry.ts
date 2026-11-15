@@ -1,5 +1,5 @@
 /**
- * Entry of the ModCar game (modcar.html; index.html once it is the default). Builds ModGame and the
+ * Entry of the ModCar game (index.html and modcar.html; the game before it is classic.html). Builds ModGame and the
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
 import * as THREE from 'three';
