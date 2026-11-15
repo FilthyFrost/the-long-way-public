@@ -294,7 +294,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (the bumps from the noise round a circle: one loop of the azimuth, no seam; blurred: crowns, not spikes)
     float az = atan(R.z, R.x);
     vec2 rs = normalize(R.xz + vec2(1e-5));
-    float trees = clamp((texture2D(tNoise, rs * 0.6 + 0.5, 1.5).g - 0.42) * 0.32, 0.0, 0.1);
+    float trees = clamp((texture2D(tNoise, rs * 0.6 + 0.5, 1.5).g - 0.42) * 0.24, 0.0, 0.075);
+    // (where the body wraps round a corner the whole tree line is squeezed into a few pixels and would hang
+    // off the horizon like drips: there it is a plain horizon)
+    trees *= 1.0 - smoothstep(0.002, 0.008, length(fwidth(rs)));
     float hills = 0.007 * sin(az * 2.0 + 1.3) + 0.004 * sin(az * 5.0 + 0.4) - 0.012;
     float x = h - hills - trees;
     // (the band's top and the near ground's edge are the open sky and the plain: no trees on them)
