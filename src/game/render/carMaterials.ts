@@ -211,6 +211,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uBodyHeight;
   uniform vec3 uCabinMin;
   uniform vec3 uCabinMax;
+  uniform float uShelter;      // 1 = under a roof: no rain on it, no snow
+  uniform mat4 uWorldToCar;
   uniform vec3 uZenith;
   uniform vec3 uMid;
   uniform vec3 uHorizon;
@@ -373,6 +375,45 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     return 0.04 + 0.17 * fract(uInkSeed + fract(dot(floor(base * 23.0 + 0.5), vec3(0.1031, 0.1137, 0.0973)) * 7.0) * 0.43);
   }
 
+  // ---- the weather on the outside of a car
+  // Rain as a painter dots it in: beads on the waxed coat, each a little lens — a drop of deeper colour, a
+  // white fleck at its top where it mirrors the sky, the light it gathers glowing in its lower edge. Round
+  // beads in a jittered grid on the face's own plane (the dominant axis of the part's normal: up on a side is
+  // up in the grid, so every fleck sits at the top of its bead), two sizes. Only near: farther off they would
+  // fizz, and the wet gloss says it on its own.
+  // returns the bead's cover; light.x = the fleck, light.y = the glow in its lower edge
+  float rtBeads(vec3 p, vec3 n, float amount, float dist, out vec2 light) {
+    light = vec2(0.0);
+    vec3 a = abs(n);
+    vec2 q = a.y > max(a.x, a.z) ? p.xz : (a.x > a.z ? p.zy : p.xy);
+    // (how much of the face one pixel spans, taken before any branch: a derivative needs the whole quad)
+    float px = length(fwidth(q));
+    float near = 1.0 - smoothstep(2.2, 4.5, dist);
+    if (near <= 0.0) return 0.0;
+    float cover = 0.0;
+    for (int k = 0; k < 2; k++) {
+      float cells = k == 0 ? 30.0 : 19.0;
+      vec2 g = q * cells + float(k) * 17.31;
+      vec4 h = rtHash4(floor(g));
+      vec2 f = fract(g);
+      // (fewer, bigger beads in the second grid; more of both the wetter it is)
+      float here = step(h.z, amount * (k == 0 ? 0.42 : 0.28));
+      vec2 c = 0.3 + 0.4 * h.xy;
+      float r = mix(0.13, 0.27, h.w);
+      vec2 o = (f - c) / r;
+      float d = length(o);
+      float pw = px * cells / r * 0.6;
+      float b = (1.0 - smoothstep(0.97 - pw, 1.03 + pw, d)) * here;
+      cover = max(cover, b);
+      float fd = length(o - vec2(-0.3, 0.36)) / 0.26;
+      float fw = pw / 0.26 + 0.03;
+      light.x = max(light.x, (1.0 - smoothstep(1.0 - fw, 1.0 + fw, fd)) * here);
+      light.y = max(light.y, b * smoothstep(0.45, 0.85, d) * smoothstep(0.1, 0.7, -o.y));
+    }
+    light *= near;
+    return cover * near;
+  }
+
   void main() {
     #include <logdepthbuf_fragment>
     vec3 n = normalize(vNormal);
@@ -436,6 +477,31 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     }
     #endif
 
+    // ---------------------------------------------------------------- rain and snow (the world's uWeather: x wet, y snow)
+    // (within the cabin's box a face turned out of it is still the outside: the skin of a door, the glass)
+    vec3 nCar = mat3(uWorldToCar) * n;
+    vec2 fromCabin = vCar.xz - 0.5 * (uCabinMin.xz + uCabinMax.xz);
+    float facesOut = smoothstep(0.0, 0.1, dot(nCar.xz, fromCabin / max(length(fromCabin), 1e-3)));
+    // (and a room — the garage — keeps the weather out by itself; setShelter for any other roof)
+    float outside = (1.0 - uShelter) * (1.0 - rtInRoom(vPos)) * max(1.0 - inCabin, facesOut);
+    #ifdef RT_CABIN
+    outside = 0.0;
+    #endif
+    float wet = clamp(uWeather.x, 0.0, 1.0) * outside;
+    float bead = 0.0;
+    vec2 beadLight = vec2(0.0);
+    // (fewer on a side: there the water runs off. Branches on uniforms only: the masks take derivatives)
+    if (uWeather.x > 0.02) bead = rtBeads(vObj, on, wet * mix(0.6, 1.0, smoothstep(0.3, 0.8, abs(n.y))), dist, beadLight);
+    float fleck = beadLight.x;
+    // snow settles on what faces up high: the roof and what rides on it (a warm hood melts it, driving blows
+    // the lids clean), in one cap with a ragged edge
+    float snow = 0.0;
+    if (uWeather.y > 0.01) {
+      float sn = rtTriNoise(vObj, on, 0.6).g - 0.5;
+      float amt = clamp(uWeather.y, 0.0, 1.0) * outside * smoothstep(0.8, 0.92, height / max(uBodyHeight, 0.3));
+      snow = rtStep(n.y + sn * 0.35 - mix(1.0, 0.6, amt), 0.01) * step(0.02, amt);
+    }
+
     #if defined(RT_PAINT)
     // ---------------------------------------------------------------- car paint
     vec3 paint = base;
@@ -450,17 +516,23 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // the AO; only real crevices: the broad soft AO round a mirror or a bumper must not become a blurred shadow)
     float sunAO = smoothstep(0.1, 0.32, ao);
     vec3 diffuse = mix(shadeTone * sky * mix(0.55, 1.0, ao), paint * (sky * mix(0.7, 1.0, ao) + uSunColor * (0.3 + 0.08 * full) * sunAO), lit);
+    // (wet, the colour deepens under the film of water and the coat mirrors more)
+    diffuse *= 1.0 - 0.12 * wet;
     col = diffuse;
     // the clear coat: light laid over the colour, never a wash of grey across it
     // (clouds only in what faces up — a hood, a roof: on a flank they read as smudges)
     CarEnv e = rtCarEnv(Re, 0.0015, 0.7 * (1.0 - side), 0.45);
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
-    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit);
+    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
     vec3 upperT = mix(e.upper, vec3(rtLuma(e.upper)) * hue, 0.62);
-    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.82);
+    // (but looking into a low sun the coat mirrors its glow as it is: gold, not a lighter shade of the paint)
+    vec2 rs = normalize(Re.xz + vec2(1e-5));
+    vec2 ss = normalize(uSunDir.xz + vec2(1e-5));
+    float glare = uSunVis * pow(max(dot(rs, ss), 0.0), 3.0) * (1.0 - smoothstep(0.12, 0.5, uSunDir.y));
+    vec3 brightT = mix(e.bright, vec3(rtLuma(e.bright)) * hue, 0.82 * (1.0 - 0.65 * glare));
     col += upperT * (0.05 + 0.18 * f) * e.sky * (1.0 - e.band) * coat;
     col += brightT * (0.46 + 0.4 * f) * e.band * e.sky * coat;
     col += e.bright * 0.3 * e.line * coat;
@@ -482,6 +554,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky;
     // (only on what faces sideways: a hood seen at a slant is not an edge)
     col += uSunColor * 0.35 * uLook.z * pow(1.0 - ndv, 3.5) * smoothstep(0.0, 0.35, ndl) * (1.0 - smoothstep(0.45, 0.85, n.y)) * sh * ao;
+    // rain: each bead a drop of the deeper colour, a fleck of sky on it, its lower edge alight with the paint
+    col = mix(col, deep * 0.8, bead * 0.7);
+    col += paint * (sky * 0.6 + uSunColor * 0.25 * lit) * beadLight.y * 0.8;
+    col += (e.bright * 0.8 + uSkyColor * 0.3) * fleck * 0.8;
     #ifdef RT_WEAR
     // rust breaks through; the paint round it lifts and pales
     col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rust) * 0.5);
@@ -511,6 +587,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col = mix(diffuse, env * base * mix(0.85, 1.2, contrast), clamp(gloss * mix(fres, 1.0, contrast), 0.0, 1.0)) * mix(0.45, 1.0, ao);
     col += uSunColor * mix(0.5, 2.4, contrast) * rtSunSpot(R, uLook.y) * sh * mix(1.0, 0.5, inCabin);
     col += uSkyColor * uLook.z * pow(1.0 - ndv, 4.0) * ao * (1.0 - inCabin) * openSky;
+    // rain: beads break the mirror into drops, each with its fleck of sky
+    col = mix(col, col * 0.55, bead * 0.5);
+    col += (e.bright + 0.15) * fleck * 0.8;
     #ifdef RT_WEAR
     col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
@@ -565,6 +644,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += (uSkyColor * 0.6 * openSky + uSunColor * 0.12 * lit) * uLook.w * pow(1.0 - ndv, 3.0) * ao * sheenMask;
     col += uSkyColor * 0.35 * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky;
     col += mix(uSkyColor, vec3(dot(uSkyColor, vec3(0.333))), 0.5) * 0.24 * skySheen * ao * openSky;
+    // wet: rubber and plastic go darker, with a glossy sheen of sky at the edges and flecks on the beads
+    col *= 1.0 - 0.25 * wet * sheenMask;
+    col += (uSkyColor * 0.5 + uHorizon * 0.2) * 0.3 * wet * pow(1.0 - ndv, 2.0) * ao * sheenMask;
+    col += (uSkyColor * 0.5 + uHorizon * 0.3) * fleck * 0.6;
     #ifdef RT_WEAR
     col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.3 * lit, ao), rust);
     #endif
@@ -592,6 +675,11 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col = through * mix(1.0, 0.35, inside) + refl + (uHorizon * 0.8 + 0.25) * streak;
     col += uSunColor * 3.0 * rtSunSpot(R, uLook.y) * sh * (1.0 - inside);
     alpha = clamp(mix(uOpacity, uOpacity * 0.3, inside) + fres * mix(0.45, 0.06, inside) + streak, 0.0, 0.97);
+    // rain on the outside: beads, pale against the dark tint (each a little lens with the sky upside down in
+    // it, brightest low down), a fleck of sky on each
+    vec3 pale = uHorizon * 0.5 + uSkyColor * 0.4;
+    col += pale * (bead * 0.3 + beadLight.y * 0.5 + fleck) * (1.0 - inside);
+    alpha = clamp(alpha + bead * 0.3 * (1.0 - inside), 0.0, 0.97);
     #ifdef RT_WEAR
     // dust on the glass: a pale haze from the bottom edge
     float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
@@ -659,6 +747,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col = mix(col, vec3(0.3, 0.26, 0.205) * dirtLight, dust * (1.0 - mud));
     col = mix(col, mix(vec3(0.085, 0.065, 0.045), vec3(0.14, 0.11, 0.075), rtStep(rtTriStroke(vObj, on, 0.5) - 0.55, 0.01)) * dirtLight, mud);
     #endif
+    // snow: the world's own white (materials.ts), lit as the rest
+    col = mix(col, vec3(0.88, 0.92, 0.97) * (sky * mix(0.6, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full)), snow);
     #endif
 
     #if !defined(RT_CABIN) && !defined(RT_EMIT)
@@ -750,6 +840,8 @@ export class CarLook {
     /** the cabin as a box in the car frame (min > max = none): inside it metals and glass mirror the room */
     uCabinMin: { value: new THREE.Vector3(1, 1, 1) },
     uCabinMax: { value: new THREE.Vector3(-1, -1, -1) },
+    /** 1 = under a roof (a garage, a shed): the world's rain and snow do not reach it */
+    uShelter: { value: 0 },
   };
   /** names met in apply() that are not conventional (drawn as plastic_int) */
   readonly unknown = new Set<string>();
@@ -910,6 +1002,15 @@ export class CarLook {
     if (w.dirt !== undefined) u.x = w.dirt;
     if (w.rust !== undefined) u.y = w.rust;
     if (w.wear !== undefined) u.z = w.wear;
+  }
+
+  /**
+   * How far the car is out of the weather: 0 = in the open (default: the world's wetness beads on it and
+   * its snow settles on the roof), 1 = under a roof. Between = a carport, an open barn. (A room of the
+   * world's — uRoomMin/Max, the garage — keeps it out by itself.)
+   */
+  setShelter(s: number): void {
+    this.shared.uShelter.value = Math.min(1, Math.max(0, s));
   }
 
   /** the car's frame (its root's world matrix): dirt is measured up from its ground */

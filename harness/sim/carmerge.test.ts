@@ -114,6 +114,20 @@ describe('car materials', () => {
     expect((m.uniforms.uCabinMin.value as THREE.Vector3).x).toBeLessThan((m.uniforms.uCabinMax.value as THREE.Vector3).x);
   });
 
+  it('keeps the weather off a car under a roof, for every material of it', () => {
+    const look = new CarLook();
+    const paint = look.material('paint');
+    const glass = look.material('glass');
+    expect(paint.uniforms.uShelter.value).toBe(0);
+    look.setShelter(1);
+    expect(paint.uniforms.uShelter.value).toBe(1);
+    // (one uniform for the whole car: a material made later shares it)
+    expect(glass.uniforms.uShelter).toBe(paint.uniforms.uShelter);
+    expect(look.material('rubber').uniforms.uShelter.value).toBe(1);
+    look.setShelter(7);
+    expect(paint.uniforms.uShelter.value).toBe(1);
+  });
+
   it('gives ghosts a depth twin, and an x-ray twin when focused or replacing', () => {
     const part = new THREE.Group();
     part.add(box('steel', 0.5, 0.5, 0.5, 0, 0, 0));
