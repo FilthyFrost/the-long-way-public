@@ -264,6 +264,65 @@ def centre_trims(ex):
     x = float(S.rear_x(0.0, 0.79)) + 0.002
     b.extend(K.cyl_buf((x + 0.004, 0.0, 0.79), (x - 0.006, 0.0, 0.79), 0.012, 'chrome', 16))
     b.extend(K.box_buf((x - 0.0068, -0.0012, 0.784), (x - 0.0062, 0.0012, 0.796), 'trim', 0.0, 1))
+    # number plate in the rear recess, an emblem on the front panel above the grille
+    b.extend(plate_buf((ex.plate_x - 0.001, 0.0, 0.54), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.33, 0.15, '37 A52'))
+    p, n = S.FRONT_L.to3d(np.array([[0.0, 0.808]]))
+    b.extend(badge_buf(p[0], n[0], (0.0, 0.0, 1.0), 0.021))
+    return b
+
+
+# ============================================================================================ plates and badges
+SEG7 = {'0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc',
+        '8': 'abcdefg', '9': 'abcdfg', 'A': 'abcefg', 'C': 'adef', 'E': 'adefg', 'H': 'bcefg', 'L': 'def', 'P': 'abefg',
+        'U': 'bcdef', '-': 'g', ' ': ''}
+
+
+def plate_buf(c, n, up, w=0.33, h=0.15, text='37 A52', plate_mat='ceramic', ink='trim'):
+    """A plain number plate centred on c (its back on the surface, normal n towards the viewer, `up` in its
+    plane): a thin plate with a pressed rim, made-up characters as raised seven-segment strokes, two screws."""
+    n = K.unit(np.asarray(n, float))
+    up = K.unit(np.asarray(up, float) - n * float(np.dot(up, n)))
+    right = np.cross(up, n)
+    M = K.mat4_trs(np.asarray(c, float), np.stack([right, up, n], 1))
+    b = K.Buf()
+    b.extend(K.box_buf((-w / 2, -h / 2, 0.0), (w / 2, h / 2, 0.004), plate_mat, 0.002, 1, xf=M))
+    for (x0, x1, y0, y1) in ((-w / 2 + 0.006, w / 2 - 0.006, h / 2 - 0.011, h / 2 - 0.007), (-w / 2 + 0.006, w / 2 - 0.006, -h / 2 + 0.007, -h / 2 + 0.011),
+                             (-w / 2 + 0.006, -w / 2 + 0.010, -h / 2 + 0.007, h / 2 - 0.007), (w / 2 - 0.010, w / 2 - 0.006, -h / 2 + 0.007, h / 2 - 0.007)):
+        b.extend(K.box_buf((x0, y0, 0.004), (x1, y1, 0.0056), plate_mat, 0.0, 1, xf=M))
+    ch = h * 0.48
+    cw = ch * 0.46
+    gap = cw * 0.36
+    st = ch * 0.12
+    tot = len(text) * cw + (len(text) - 1) * gap
+    if tot > 0.80 * w:
+        k = 0.80 * w / tot
+        cw, gap, tot = cw * k, gap * k, tot * k
+    x = -tot / 2
+    for t in text:
+        a0, a1, b0, b1 = x, x + cw, -ch / 2, ch / 2
+        seg = {'a': (a0, a1, b1 - st, b1), 'd': (a0, a1, b0, b0 + st), 'g': (a0, a1, -st / 2, st / 2), 'b': (a1 - st, a1, 0.0, b1),
+               'c': (a1 - st, a1, b0, 0.0), 'e': (a0, a0 + st, b0, 0.0), 'f': (a0, a0 + st, 0.0, b1)}
+        for s_ in SEG7.get(t, ''):
+            x0, x1, y0, y1 = seg[s_]
+            b.extend(K.box_buf((x0, y0, 0.004), (x1, y1, 0.0062), ink, 0.0, 1, xf=M))
+        x += cw + gap
+    for sx in (-w / 2 + 0.03, w / 2 - 0.03):
+        p = M[:3, :3] @ np.array([sx, h / 2 - 0.028, 0.004]) + M[:3, 3]
+        b.extend(K.cyl_buf(p, p + n * 0.002, 0.006, 'chrome', 10))
+    return b
+
+
+def badge_buf(c, n, up, r=0.024, mat='chrome'):
+    """A small fictional emblem: a domed disc in a raised ring with a bar across it."""
+    n = K.unit(np.asarray(n, float))
+    up = K.unit(np.asarray(up, float) - n * float(np.dot(up, n)))
+    b = K.Buf()
+    prof = np.array([(r, 0.0), (r, 0.003), (r * 0.86, 0.0055), (r * 0.55, 0.0045), (0.0, 0.0068)])
+    V, N, T = K.lathe(prof, c, n, 24, ref=up)
+    b.add(V, N, T, mat)
+    right = np.cross(up, n)
+    M = K.mat4_trs(np.asarray(c, float), np.stack([right, up, n], 1))
+    b.extend(K.box_buf((-r * 1.25, -r * 0.16, 0.002), (r * 1.25, r * 0.16, 0.0075), mat, 0.0015, 1, xf=M))
     return b
 
 
