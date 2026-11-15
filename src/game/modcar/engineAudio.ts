@@ -85,27 +85,31 @@ interface EngineTone {
   starter: { hz: number; drag: number; gainDb: number };
   /** a governor holds the top speed (no rev-limiter stutter): mowers and diesels */
   governed?: boolean;
+  /** lift above 700 Hz (dB): the simulator is darker than a real exhaust in the 1-4 kHz bark */
+  presenceDb: number;
+  /** lift below 120 Hz (dB): the rumble a big engine has and the simulator under-plays */
+  bodyDb?: number;
 }
 
 /** the starter motor against the bank's loudest loop (it sits a little under the idle) */
 const STARTER_DB = -27;
 
 const TONES: Record<string, EngineTone> = {
-  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true },
-  eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB } },
-  eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB } },
-  eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB } },
-  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true },
-  eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB } },
-  eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB } },
-  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true },
+  eng_mower: { loudnessDb: -6, compression: 0.3, tiltDb: 3, intake: 0.05, pops: 0.05, starter: { hz: 190, drag: 0.55, gainDb: STARTER_DB }, governed: true, presenceDb: 3 },
+  eng_single: { loudnessDb: -5, compression: 0.32, tiltDb: 6, intake: 0.12, pops: 0.35, starter: { hz: 230, drag: 0.6, gainDb: STARTER_DB }, presenceDb: 5 },
+  eng_2t: { loudnessDb: -3, compression: 0.32, tiltDb: 8, intake: 0.1, pops: 0.15, starter: { hz: 240, drag: 0.45, gainDb: STARTER_DB }, presenceDb: 1 },
+  eng_i4: { loudnessDb: -7, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.15, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 4 },
+  eng_i4d: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 21, gainDb: -34, q: 18 }, starter: { hz: 130, drag: 0.4, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 3 },
+  eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 7, bodyDb: 2 },
+  eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 9, bodyDb: 5 },
+  eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 5 },
 };
 
-const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB } };
+const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 5 };
 
 interface ExhaustTone {
   gainDb: number;
-  /** low shelf at 120 Hz (body) and high shelf at 1.8 kHz (bite), dB */
+  /** low shelf at 120 Hz (body) and a broad lift around 1.3 kHz (the bark), dB */
   bodyDb: number;
   biteDb: number;
   lowpass: number;
@@ -116,11 +120,11 @@ interface ExhaustTone {
 }
 
 export const EXHAUSTS: Record<string, ExhaustTone> = {
-  exh_stock: { gainDb: 0, bodyDb: 0, biteDb: -1, lowpass: 7500, rasp: 0.0, pops: 0.35 },
-  exh_sport: { gainDb: 4, bodyDb: 2.5, biteDb: 3, lowpass: 11000, rasp: 0.35, pops: 1.0 },
-  exh_side: { gainDb: 8, bodyDb: 3, biteDb: 6, lowpass: 15000, rasp: 0.7, pops: 1.6 },
+  exh_stock: { gainDb: 0, bodyDb: 0, biteDb: -1, lowpass: 7500, rasp: 0.15, pops: 0.35 },
+  exh_sport: { gainDb: 4, bodyDb: 2.5, biteDb: 4, lowpass: 9000, rasp: 0.35, pops: 1.0 },
+  exh_side: { gainDb: 8, bodyDb: 3, biteDb: 7, lowpass: 11000, rasp: 0.6, pops: 1.6 },
   /** nothing fitted: open manifold */
-  none: { gainDb: 11, bodyDb: -2, biteDb: 8, lowpass: 16000, rasp: 1.0, pops: 2.0 },
+  none: { gainDb: 11, bodyDb: -2, biteDb: 8, lowpass: 13000, rasp: 0.85, pops: 2.0 },
 };
 
 // ------------------------------------------------------------------ loading
@@ -361,6 +365,7 @@ export class EngineVoice {
   private readonly exIn: GainNode;
   private readonly body: BiquadFilterNode;
   private readonly bite: BiquadFilterNode;
+  private readonly presence: BiquadFilterNode;
   private readonly exLp: BiquadFilterNode;
   private readonly exGain: GainNode;
   private readonly pre: GainNode;
@@ -444,12 +449,13 @@ export class EngineVoice {
     this.misVca = g(1);
     this.exIn = g(1);
     this.body = f('lowshelf', 120, 0.707, 0);
-    this.bite = f('highshelf', 1800, 0.707, 0);
+    this.bite = f('peaking', 1300, 0.8, 0);
+    this.presence = f('highshelf', 700, 0.6, 0);
     this.exLp = f('lowpass', 7500, 0.6);
     this.exGain = g(1);
     this.pre = g(1);
     this.engBus.connect(this.misVca).connect(this.exIn);
-    this.exIn.connect(this.body).connect(this.bite).connect(this.exLp).connect(this.exGain).connect(this.pre);
+    this.exIn.connect(this.body).connect(this.bite).connect(this.presence).connect(this.exLp).connect(this.exGain).connect(this.pre);
     this.extGain = g(1);
     // air takes the top off with distance
     this.airLp = f('lowpass', 18000, 0.5);
@@ -483,7 +489,7 @@ export class EngineVoice {
     rect.curve = curve;
     const envLp = f('lowpass', 240, 0.5);
     this.misVca.connect(rect).connect(envLp).connect(this.raspDepth).connect(this.raspVca.gain);
-    noiseSrc().connect(f('highpass', 1800, 0.6)).connect(f('lowpass', 7000, 0.6)).connect(this.raspVca).connect(this.exIn);
+    noiseSrc().connect(f('highpass', 1000, 0.6)).connect(f('lowpass', 4500, 0.6)).connect(this.raspVca).connect(this.exIn);
 
     // induction roar
     this.intakeBp = f('bandpass', 400, 0.9);
@@ -719,8 +725,9 @@ export class EngineVoice {
     const doppler = st.inside ? 1 : Math.min(1.25, Math.max(0.8, 343 / (343 - Math.min(80, Math.max(-80, st.approach ?? 0)))));
     // ---- exhaust fitted
     set(this.exGain.gain, Math.pow(10, ex.gainDb / 20), 0.05);
-    set(this.body.gain, ex.bodyDb, 0.05);
+    set(this.body.gain, ex.bodyDb + (tone.bodyDb ?? 0), 0.05);
     set(this.bite.gain, ex.biteDb, 0.05);
+    set(this.presence.gain, tone.presenceDb, 0.05);
     set(this.exLp.frequency, ex.lowpass, 0.05);
 
     const rpm = Math.max(0, st.rpm);

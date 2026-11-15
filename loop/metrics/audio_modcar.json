@@ -1,59 +1,59 @@
 {
  "eng_v8": {
-  "idle_db": -36.1,
-  "pull_high_db": -23.5,
-  "overrun_db": -29.4,
-  "idle_hz": 217,
-  "pull_high_hz": 461
+  "idle_db": -33.4,
+  "pull_high_db": -22.2,
+  "overrun_db": -27.7,
+  "idle_hz": 381,
+  "pull_high_hz": 780
  },
  "eng_mower": {
-  "idle_db": -40.1,
-  "pull_high_db": -26.8,
-  "overrun_db": -38.2,
-  "idle_hz": 363,
-  "pull_high_hz": 1502
+  "idle_db": -39.8,
+  "pull_high_db": -24.9,
+  "overrun_db": -38,
+  "idle_hz": 627,
+  "pull_high_hz": 1983
  },
  "eng_single": {
-  "idle_db": -40,
-  "pull_high_db": -27,
-  "overrun_db": -36,
-  "idle_hz": 327,
-  "pull_high_hz": 941
+  "idle_db": -39.6,
+  "pull_high_db": -25,
+  "overrun_db": -35.6,
+  "idle_hz": 718,
+  "pull_high_hz": 1434
  },
  "eng_2t": {
-  "idle_db": -42.5,
-  "pull_high_db": -24.6,
-  "overrun_db": -36.2,
-  "idle_hz": 732,
-  "pull_high_hz": 1250
+  "idle_db": -42.3,
+  "pull_high_db": -24.2,
+  "overrun_db": -36,
+  "idle_hz": 955,
+  "pull_high_hz": 1526
  },
  "eng_i4": {
-  "idle_db": -42.7,
-  "pull_high_db": -28.5,
-  "overrun_db": -35.1,
-  "idle_hz": 926,
-  "pull_high_hz": 863
+  "idle_db": -41.3,
+  "pull_high_db": -26.8,
+  "overrun_db": -34.3,
+  "idle_hz": 1748,
+  "pull_high_hz": 1067
  },
  "eng_i4d": {
-  "idle_db": -34.9,
-  "pull_high_db": -25.4,
-  "overrun_db": -31,
-  "idle_hz": 953,
-  "pull_high_hz": 954
+  "idle_db": -32.1,
+  "pull_high_db": -22.9,
+  "overrun_db": -29.5,
+  "idle_hz": 1653,
+  "pull_high_hz": 1631
  },
  "eng_flat6": {
-  "idle_db": -39.3,
-  "pull_high_db": -24.9,
-  "overrun_db": -31.3,
-  "idle_hz": 428,
-  "pull_high_hz": 667
+  "idle_db": -38.2,
+  "pull_high_db": -23.7,
+  "overrun_db": -30.5,
+  "idle_hz": 1123,
+  "pull_high_hz": 1307
  },
  "eng_d6": {
-  "idle_db": -32.4,
-  "pull_high_db": -22.8,
-  "overrun_db": -31.9,
-  "idle_hz": 689,
-  "pull_high_hz": 528
+  "idle_db": -29.7,
+  "pull_high_db": -21.7,
+  "overrun_db": -29.7,
+  "idle_hz": 1064,
+  "pull_high_hz": 683
  },
  "loops_eng_mower@48000": 0.15,
  "loops_eng_mower@44100": 0.16,
@@ -72,35 +72,35 @@
  "loops_eng_d6@48000": 0.64,
  "loops_eng_d6@44100": 0.75,
  "sweep_wobble_eng_mower": {
-  "on": 0.12,
-  "off": 0.2
+  "on": 0.19,
+  "off": 0.21
  },
  "sweep_wobble_eng_single": {
-  "on": 0.11,
-  "off": 0.17
+  "on": 0.16,
+  "off": 0.18
  },
  "sweep_wobble_eng_2t": {
-  "on": 0.11,
-  "off": 0.35
+  "on": 0.15,
+  "off": 0.34
  },
  "sweep_wobble_eng_i4": {
   "on": 0.2,
-  "off": 0.25
+  "off": 0.2
  },
  "sweep_wobble_eng_i4d": {
-  "on": 0.12,
-  "off": 0.08
+  "on": 0.18,
+  "off": 0.13
  },
  "sweep_wobble_eng_flat6": {
-  "on": 0.11,
-  "off": 0.11
+  "on": 0.16,
+  "off": 0.12
  },
  "sweep_wobble_eng_v8": {
-  "on": 0.11,
-  "off": 0.1
+  "on": 0.14,
+  "off": 0.13
  },
  "sweep_wobble_eng_d6": {
-  "on": 0.08,
-  "off": 0.09
+  "on": 0.1,
+  "off": 0.11
  }
 }
