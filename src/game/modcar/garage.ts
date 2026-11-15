@@ -725,15 +725,19 @@ class Garage implements GarageScene {
     this.disposed = true;
     this.root.removeFromParent();
     this.outdoors.dispose();
+    // every geometry and material of the garage's own (the look's, the boards' and the birds' among them)
+    const mats = new Set<THREE.Material>();
     this.root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
+      if (!m.isMesh && !(o as THREE.Points).isPoints) return;
+      m.geometry.dispose();
+      for (const x of Array.isArray(m.material) ? m.material : [m.material]) mats.add(x);
     });
+    for (const m of mats) m.dispose();
     this.look.dispose();
     this.chalk?.dispose();
     this.sign?.dispose();
     this.plates?.dispose();
-    (this.smoke?.material as THREE.Material | undefined)?.dispose();
     this.birds.dispose();
     this.yard.dispose();
     this.core.shadows?.fixFar(null);
