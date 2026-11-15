@@ -6,7 +6,7 @@
    0.262
   ],
   "min": [
-   -1.05758,
+   -1.05989,
    0.01,
    -0.27549
   ]
@@ -288,8 +288,8 @@
   "radiator": {
    "cat": "radiator",
    "pos": [
-    0.352,
-    0.405,
+    0.33,
+    0.27,
     -0.0
    ],
    "quat": [
@@ -481,18 +481,18 @@
   }
  },
  "triangles": {
-  "BODY": 17826,
-  "FORK": 7423,
-  "FORK_LOWER": 4948,
+  "BODY": 18178,
+  "FORK": 7242,
+  "FORK_LOWER": 4796,
   "N_rpm": 50,
   "N_speed": 50,
-  "SHOCK_LOWER_L": 1352,
-  "SHOCK_LOWER_R": 1352,
-  "SHOCK_UPPER_L": 416,
-  "SHOCK_UPPER_R": 416,
+  "SHOCK_LOWER_L": 1321,
+  "SHOCK_LOWER_R": 1321,
+  "SHOCK_UPPER_L": 386,
+  "SHOCK_UPPER_R": 386,
   "STAND": 408,
-  "SWINGARM": 5720,
-  "total": 39961
+  "SWINGARM": 5732,
+  "total": 39870
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {}

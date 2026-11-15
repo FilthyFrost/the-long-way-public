@@ -83,6 +83,11 @@ class Rear:
             b.extend(MK.tube(np.array([[lo[0], sg * (abs(lo[1]) - 0.013), lo[2]], [lo[0], sg * (abs(lo[1]) + 0.017), lo[2]]]), 0.0055, 'steel', 10))
             b.extend(MK.disc(np.array([lo[0], sg * (abs(lo[1]) + 0.0128), lo[2]]), (0, sg, 0), 0.012, 0.0055, 'steel', 12))
             b.extend(MK.cap_nut(np.array([lo[0], sg * (abs(lo[1]) + 0.013), lo[2]]), (0, sg, 0), 0.0075, 0.010, 'chrome'))
+        # chain slider: a hard rubber block on the left leg where the chain's upper run passes
+        lp = self.leg_y(self.pv[0] - 0.06, 1.0)
+        d = unit(self.leg_y(self.pv[0] - 0.09, 1.0) - self.leg_y(self.pv[0] - 0.03, 1.0))
+        R = MK.frame_axes(d, np.array([0, 0, 1.0]))
+        b.extend(MK.box(lp + np.array([0.0, -0.002, 0.0205]), (0.07, 0.024, 0.008), 'rubber', R, 0.0, 1))
         # cross brace: a pressed bridge between the legs just behind the pivot, under the tyre's front
         b.extend(self.brace())
         b.extend(self.axle())
