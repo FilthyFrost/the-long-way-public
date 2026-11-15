@@ -282,6 +282,72 @@
     0.22
    ]
   },
+  "door_armor_overlay": {
+   "bbox": [
+    [
+     -0.5,
+     -0.25,
+     -0.04
+    ],
+    [
+     0.5,
+     0.244,
+     0.0
+    ]
+   ],
+   "triangles": 1036,
+   "materials": [
+    "rust",
+    "steel"
+   ],
+   "fit_nominal": [
+    1.0,
+    0.03,
+    0.5
+   ]
+  },
+  "door_cage_overlay": {
+   "bbox": [
+    [
+     -0.4,
+     -0.21,
+     -0.0342
+    ],
+    [
+     0.4,
+     0.21,
+     -0.0
+    ]
+   ],
+   "triangles": 648,
+   "materials": [
+    "steel"
+   ],
+   "fit_nominal": [
+    0.8,
+    0.03,
+    0.42
+   ]
+  },
+  "door_fridge_handle": {
+   "bbox": [
+    [
+     -0.0828,
+     -0.1695,
+     -0.0716
+    ],
+    [
+     0.0828,
+     0.281,
+     0.0
+    ]
+   ],
+   "triangles": 858,
+   "materials": [
+    "ceramic",
+    "chrome"
+   ]
+  },
   "eng_2t": {
    "bbox": [
     [
@@ -899,12 +965,14 @@
     [
      0.1805,
      0.1693,
-     0.105
+     0.11
     ]
    ],
-   "triangles": 1118,
+   "triangles": 1642,
    "materials": [
     "alu",
+    "chrome",
+    "glass_dark",
     "rubber",
     "steel",
     "trim"
@@ -2140,7 +2208,7 @@
      0.1948
     ]
    ],
-   "triangles": 2048,
+   "triangles": 2568,
    "materials": [
     "alu",
     "chrome",

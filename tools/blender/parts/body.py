@@ -497,6 +497,77 @@ def build_br_spikes(P):
     P.views = [('a', 215, 18), ('b', 340, 18)]
 
 
+# ------------------------------------------------------------------------------------------------ door style add-ons
+#
+# The doors themselves take their shape from each frame; these overlays dress any door in a style. LEFT side,
+# origin at the centre of the overlay's inner face (it lies on the door skin at y = 0 and stands out to +Y),
+# stretch parts with fit_nominal = [length, thickness, height].
+
+
+def build_door_armor_overlay(P):
+    """Bolted steel armour for the lower half of a door: two overlapping plates, an angle-iron lip on top,
+    big bolts, a weld bead."""
+    P.ao_distance = 0.04
+    t = 0.01
+    plate(P, [(-0.5, -0.25), (0.12, -0.25), (0.14, 0.2), (-0.48, 0.22), (-0.5, 0.12)], 0.0, t, 'steel')
+    plate(P, [(0.04, -0.24), (0.5, -0.25), (0.5, 0.16), (0.44, 0.21), (0.06, 0.2)], t, t, 'rust', tilt=-1.0)
+    # angle iron along the top edge
+    P.box('lip_h', (0.98, 0.04, 0.008), (0.0, 0.02, 0.24), 'steel', bev=0.002, segs=1)
+    P.box('lip_v', (0.98, 0.008, 0.04), (0.0, 0.036, 0.222), 'steel', bev=0.002, segs=1)
+    pts = []
+    for x in (-0.42, -0.24, -0.06):
+        pts += [(x, t, -0.2), (x, t, 0.15)]
+    for x in (0.12, 0.28, 0.44):
+        pts += [(x, 2 * t + 0.002, -0.19), (x, 2 * t + 0.002, 0.13)]
+    P.bolts(pts, normal=(0, 1, 0), r=0.012, h=0.008, washer=True)
+    P.tube('weld', [(0.05, 2 * t, -0.23), (0.07, 2 * t, 0.19)], 0.005, 'rust', segs=6)
+    P.fit_nominal(1.00, 0.03, 0.50)
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
+def build_door_cage_overlay(P):
+    """A welded wire cage over the window opening: a square-tube frame, a grid of rods, corner gussets and
+    four bolts."""
+    P.ao_distance = 0.04
+    L, H = 0.80, 0.42
+    for (sx, sz, w, h) in ((0, 1, L, 0.025), (0, -1, L, 0.025), (1, 0, 0.025, H), (-1, 0, 0.025, H)):
+        P.box('frame', (w, 0.025, h), (sx * (L / 2 - 0.0125), 0.0125, sz * (H / 2 - 0.0125)), 'steel', bev=0.003,
+              segs=1)
+    bm = bmesh.new()
+    nx, nz = 13, 7
+    for i in range(1, nx):
+        x = -L / 2 + L * i / nx
+        K.bm_sweep(bm, [(x, 0.018, -H / 2 + 0.02), (x, 0.018, H / 2 - 0.02)], 0.004, segs=6, caps=False)
+    for j in range(1, nz):
+        z = -H / 2 + H * j / nz
+        K.bm_sweep(bm, [(-L / 2 + 0.02, 0.012, z), (L / 2 - 0.02, 0.012, z)], 0.004, segs=6, caps=False)
+    P.mesh('mesh', bm, 'steel', sharp=80.0, wn=False)
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            a, b = -sx * 0.06, -sz * 0.06
+            tri = [(0, 0), (a, 0), (0, b)] if a * b > 0 else [(0, 0), (0, b), (a, 0)]
+            P.prism('gusset', tri, 0.006, matrix=mat4((sx * (L / 2 - 0.025), 0.027, sz * (H / 2 - 0.025)), (90, 0, 0)),
+                    material='steel', bev=None)
+            P.bolt((sx * (L / 2 - 0.0125), 0.025, sz * (H / 2 - 0.0125)), normal=(0, 1, 0), r=0.009, h=0.007)
+    P.fit_nominal(0.80, 0.03, 0.42)
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
+def build_door_fridge_handle(P):
+    """The fridge-door style: a 1960s chrome lever handle on its base and a blank chrome badge (origin at the
+    handle's base on the door skin, facing +Y)."""
+    P.ao_distance = 0.02
+    P.pillow('base', (0.05, 0.016, 0.34), (0.0, 0.008, 0.0), 'chrome', r=0.006, sub=1)
+    P.tube('handle', [(0.0, 0.012, -0.15), (0.0, 0.05, -0.12), (0.0, 0.055, 0.12), (0.0, 0.012, 0.15)], 0.011,
+           'chrome', segs=12, bend=0.04)
+    P.pillow('grip', (0.03, 0.012, 0.18), (0.0, 0.066, 0.0), 'ceramic', r=0.005, sub=1)
+    P.lathe('badge', [(0.0, 0.006), (0.04, 0.005), (0.046, 0.002), (0.046, 0.0)][::-1], loc=(0.0, 0.0, 0.235),
+            material='chrome', axis='Y', segs=24, close='start', sharp=50.0)
+    P.statics[-1].data.transform(Matrix.Translation((0.0, 0, 0.235)) @ Matrix.Diagonal((1.8, 1, 1, 1)) @
+                                 Matrix.Translation((0.0, 0, -0.235)))
+    P.views = [('a', -60, 10), ('b', -120, 14)]
+
+
 PARTS = {
     'bf_stock': build_bf_stock,
     'br_stock': build_br_stock,
@@ -512,6 +583,9 @@ PARTS = {
     'roof_solar': build_roof_solar,
     'arm_plates': build_arm_plates,
     'arm_planks': build_arm_planks,
+    'door_armor_overlay': build_door_armor_overlay,
+    'door_cage_overlay': build_door_cage_overlay,
+    'door_fridge_handle': build_door_fridge_handle,
 }
 
 

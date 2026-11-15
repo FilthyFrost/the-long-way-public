@@ -151,6 +151,20 @@ def build_gb_moto(P):
         a = math.tau * i / 5
         P.bolt((0.05 + 0.058 * math.cos(a), -0.093, 0.1 + 0.058 * math.sin(a)), normal=(0, -1, 0), r=0.0045, h=0.004,
                washer=False)
+    # oil-level window and ribs on the clutch cover, cast ribs along the case
+    P.cyl('oil_ring', 0.016, 0.004, (0.03, -0.106, 0.075), 'chrome', axis='Y', segs=14, bev=None)
+    P.cyl('oil_window', 0.012, 0.002, (0.03, -0.109, 0.075), 'glass_dark', axis='Y', segs=14, bev=None)
+    for i in range(3):
+        a = math.radians(40 + 25 * i)
+        P.box('cover_rib', (0.03, 0.006, 0.006), (0.05 + 0.04 * math.cos(a), -0.104, 0.1 + 0.04 * math.sin(a)), 'alu',
+              rot=(0, -math.degrees(a), 0), bev=None)
+    for sg in (-1, 1):
+        for i in range(4):
+            x = -0.09 + i * 0.045
+            P.box('case_rib', (0.01, 0.01, 0.06), (x, sg * 0.078, 0.04), 'alu', bev=0.002, segs=1,
+                  open='-y' if sg > 0 else '+y')
+    P.cyl('kick_boss', 0.018, 0.02, (-0.09, -0.085, 0.12), 'alu', axis='Y', segs=12, bev=0.003, bsegs=1)
+    P.cyl('kick_shaft', 0.009, 0.02, (-0.09, -0.1, 0.12), 'steel', axis='Y', segs=8, bev=None)
     # front sprocket with teeth and a run of chain
     sx, sz = -0.06, 0.06
     P.cyl('sprocket', 0.04, 0.008, (sx, 0.088, sz), 'steel', axis='Y', segs=16, bev=None)
