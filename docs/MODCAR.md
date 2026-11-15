@@ -212,7 +212,7 @@ Crankcase REV（两款参考游戏用的）是按游戏授权的商业中间件�
 
 ## 8. 游戏接入
 
-- 新的顶层 `src/game/modcar/ModGame.ts`（复用渲染、环境、世界、步行、输入、HUD、镜头）；`?mode=legacy` 进旧游戏（旧四辆车），默认进新游戏。
+- 新的顶层 `src/game/modcar/ModGame.ts`（复用渲染、环境、世界、步行、输入、HUD、镜头）；首页默认进新游戏，旧游戏（旧四辆车）在 `classic.html`。
 - 开局在车库（§9）；`?start=road` 跳过车库直接上路（带一辆拼好的轿车）；`?build=<编码>` 指定一辆车的拼法（截图与测试）。
 - 车库在路的起点旁边，大门朝路；开出去就是现在的世界（地形、天气、昼夜不变）。路边站点、废车可拆等下一阶段做。
 
@@ -257,3 +257,29 @@ Crankcase REV（两款参考游戏用的）是按游戏授权的商业中间件�
 | MC10 | 实机全流程脚本、美术评审循环、打磨、报告 | 主程 |
 
 每个子代理在自己的 git worktree（`D:\公路旅游-wt\<名字>`，分支 `modcar/<名字>`）里做，交回后主程合并到 `feat/modcar`、跑门禁。只在本地提交，不推送。
+
+## 12. 现状（2026-11-16 清晨）
+
+已经接进游戏、能玩的部分：
+
+- **存档**：`src/game/modcar/save.ts`。进度存在浏览器里，每 30 s 和页面隐藏时写入；连按两次 F9 开新游戏。带 `start`、`build`、`project` 参数打开的页面既不读也不写存档。
+- **东西装车带走**：`loose.ts` 里的 `Carrier`。放在车上方的东西，落下时向下打一条射线找到车上的表面，落上去后跟着车走，也能随车开上路。
+- **收音机**：`radio.ts`。五首程序合成的电台歌，处理成老式 AM 收音机的效果。车上收音机和车库收音机共用同一套。
+- **板件风格附件**：装甲板、冰箱把手，见 `carView.setOverlay`。
+- **拉伸件规则**：`assets.stretchFit`，零件和幽灵共用。测试 `harness/sim/modcar_fit.test.ts` 检查拉伸件不出 fit 框、原厂件不出挂点空间。
+- **验证脚本**：
+  - 实机流程 `harness/shots/modcar_journey.mjs`（20 步）。
+  - 车库设备 `modcar_garage_devices.mjs`。
+  - 存档 `modcar_save.mjs`。
+  - 装车 `modcar_cargo.mjs`。
+  - 边界情况 `modcar_edges.mjs`。
+  - 声音 `modcar_audio_probe.mjs`。
+  - 性能 `modcar_perf.mjs`。
+
+还没做的：
+
+- 房车建模（进行中）。
+- 能真正照出画面的后视镜：需要把镜面单独分成 `mirror` 材质。
+- 货物的重量计入车重。
+- 路边站点、废车、生存数值（下一阶段）。
+
