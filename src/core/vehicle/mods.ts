@@ -12,7 +12,7 @@ export const SURFACE_COUNT = 7;
  * What is on a hub (SimMods.wheelFit). Tyre: a normal wheel. Rim: a rim without its tyre — the radius
  * is whatever the axle and radiusOffset give (the rim's own), grip × RIM_GRIP and rolling resistance ×
  * RIM_RR on top of mods.mu / mods.rr, a harsh ride (road feel). None: an empty hub — no wheel at that
- * corner: the corner drops onto the hub (0.45 of spec.wheelRadius) and it grinds along the road like a
+ * corner: the corner drops onto the hub (spec.emptyHubRadius, else 0.45 of spec.wheelRadius) and it grinds along the road like a
  * locked wheel with little grip (radiusOffset, drive and brakes do not apply to it); scraping shows in
  * RoadFeel.scrape.
  */

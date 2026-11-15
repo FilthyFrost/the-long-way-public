@@ -359,7 +359,7 @@ export function legacyTrace(spec: VehicleSpec): Record<string, string> {
 export const GOLDEN_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'legacy-golden.json');
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const all: Record<string, Record<string, string>> = {};
+  const all: Record<string, string | Record<string, string>> = { _recorded: `node ${process.version} (${process.platform} ${process.arch})` };
   for (const spec of Object.values(VEHICLES)) all[spec.id] = legacyTrace(spec);
   const text = JSON.stringify(all, null, 2) + '\n';
   if (process.argv.includes('--write')) {

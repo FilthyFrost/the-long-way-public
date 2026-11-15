@@ -6,6 +6,7 @@
 
 ## 已完成
 
+- 校验：`blender -b --factory-startup --python tools/blender/build.py -- parts/verify`（PART 根、材质名、AO、子挂点、EYE、fit_nominal、预算、目录覆盖）。
 - 工具：`_kit.py`（bmesh 基本体、车削/闭合截面车削、扫掠、放样、极坐标盘（轮毂开窗、辐条）、褶皱软包、软垫；
   倒角→锐边→合并→加权法线→AO 烘焙→导出；parts_geo.json 加锁合并；EEVEE 预览），`sheet.py`（预览拼图，系统 Python + Pillow），`all.py`。
 - **A 批全部完成（38 件）**：发动机 eng_i4 / eng_i4d / eng_v8 / eng_mower，turbo_small，gb_4，rad_std，bat_std，tank_std / tank_drum，
@@ -18,18 +19,21 @@
 
 - 根对象 `PART`；子挂点 `M_tire`（`rim_dually` 还有 `M_tire2`）、`M_turbo`、`M_exhaust_out`（V8 还有 `M_exhaust_out2`）；座椅 `EYE`。
 - 会动的子网格（原点在转轴上）：`LID`（马桶盖，模型为打开状态，绕局部 Y 转 +94° 合上）、`KNOB_L/KNOB_R`（收音机旋钮，绕 X）、
-  `LEVER`（手刹：绕局部 Y，拉起 = +25°；挡杆：球铰在地板下）、`KEY`（钥匙，绕 X）、`FLAP_L/FLAP_R`（侧排管防雨盖，绕局部 Y 打开）。
-- 方向盘绕 X 转（PART 属性 `steer_axis`）。
+  `TAPE_DOOR`（卡带门，底边铰链）、`LEVER`（hb_stock 绕局部 Y 拉起 = +25°；hb_drift 向驾驶员拉 = −25°；挡杆的原点是地板下的球铰）、
+  `KEY`（钥匙，绕 X）、`COVER`（一键启动的翻盖，上边铰链）/ `BUTTON`（沿 +X 按下）、`FLAP_L/FLAP_R`（侧排管防雨盖，绕局部 Y 打开）。
+- 车把 `steer_bar` 绕局部 Z（转向头轴）转，原点在转向头顶部；方向盘绕 X（PART 属性 `steer_axis`）。
 - 拉伸件 `fit_nominal` = [长, 宽, 高]；原点在贴车身的那个面的中心（前杠向 +X 伸出，后杠向 −X；车顶件站在 z=0；装甲内表面在 y=0，向 +Y 伸出）。
 - 排气：原点在进气法兰（前端），向后（−X）延伸。涡轮：原点在涡轮进气法兰，涡轮在 +Z 一侧。
 - 变速箱：原点在底部中心（尾部橡胶支座在 z=0），输入端 +X。
 
 ## 下一步
 
-B 批：eng_single / eng_d6 / eng_2t / eng_flat6，gb_moto / gb_3 / gb_5，bat_moto / bat_truck，tank_moto / tank_big，rad_small / rad_big，
-rim_moto18 / rim_dually / rim_truck19，tire_moto / tire_snow / tire_whitewall / tire_truck（已生成，待精修），steer_bar / steer_bad / steer_sport，
-seat_saddle / seat_race / seat_office / seat_crate，hl_spot，tl_round，mir_truck，roof_lightbar / roof_solar，arm_planks，horn_trumpet / horn_air，
-radio_tape，hb_drift，gl_short，ign_button，exh_sport / exh_moto，bf_plow，br_spikes。之后整体精修。
+- **B 批全部完成**（含主程追加的 exh_moto、tank_big、rim_truck19、tire_truck）：目录里 85 个非板件零件全部有 GLB；
+  `parts/verify` 复查 133 个文件（85 件 + 48 个轮胎变体）0 错误。
+- 精修：轮胎侧壁通用字样（光头胎为奶白字）、发动机尾部改成铸造飞轮壳、方向盘加镀铬喇叭圈、gb_moto 细节、
+  修了 6 处里外翻的面；构建时自动检查闭合块的有向体积（WARN inside-out），`--toon` 出赛璐璐+描线预览。
+- 门的样式饰件（不在目录里，给板件样式用）：`door_armor_overlay`（fit [1.0, 0.03, 0.5]）、`door_cage_overlay`
+  （fit [0.8, 0.03, 0.42]，罩窗洞）、`door_fridge_handle`（冰箱把手 + 铭牌，不拉伸）；都按左侧建，原点在贴门皮的内表面中心，向 +Y 凸出。
 
 ## 问题 / 给主程
 

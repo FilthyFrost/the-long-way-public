@@ -82,6 +82,12 @@ def build_steer_std(P):
     P.lathe('ring', [(0.0175, -0.0635), (0.0215, -0.0632), (0.0215, -0.0605), (0.0175, -0.0605)], material='chrome',
             axis='X', segs=16, loop=True, sharp=50.0)
     P.cyl('shaft', 0.011, 0.024, (0.012, 0, 0), 'steel', axis='X', segs=12, bev=None)
+    # chrome horn ring in front of the spokes, held by two little tabs
+    P.torus('horn_ring', 0.112, 0.0042, loc=(-0.066, 0, 0), axis='X', segs=40, rsegs=6, material='chrome')
+    for ang in (90.0, 270.0):
+        a = math.radians(ang)
+        d = V((0, -math.cos(a + math.radians(35)), math.sin(a + math.radians(35))))
+        P.tube('ring_tab', [V((-0.052, 0, 0)) + d * 0.045, V((-0.064, 0, 0)) + d * 0.108], 0.0035, 'chrome', segs=6)
     P.prop('steer_axis', 'X')
     P.ao_distance = 0.05
     P.views = [('a', 200, 16), ('b', 120, 20)]
@@ -108,8 +114,8 @@ def build_steer_ship(P):
         K.bm_lathe(bm, prof, segs=7, matrix=m)
         P.mesh('spoke', bm, 'wood', sharp=70.0)
     # hub: wooden drum with brass faces and a brass boss
-    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024), (0.0, -0.024)],
-            loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
+    P.lathe('hub', [(0.0, 0.024), (0.062, 0.024), (0.066, 0.016), (0.066, -0.016), (0.062, -0.024),
+                    (0.0, -0.024)][::-1], loc=(xr * 0.6, 0, 0), material='wood', axis='X', segs=24, sharp=40.0)
     for sx in (-1, 1):
         P.lathe('hub_band', [(0.068, -0.004), (0.072, 0.0), (0.068, 0.004), (0.06, 0.004), (0.06, -0.004)],
                 loc=(xr * 0.6 + sx * 0.02, 0, 0), material='chrome', axis='X', segs=24, loop=True, sharp=50.0)
@@ -273,14 +279,309 @@ def build_horn_beep(P):
     P.views = [('a', 35, 16), ('b', 215, 16)]
 
 
+def build_steer_bar(P):
+    """A motorcycle handlebar on its top yoke (origin = the top of the steering head; it turns about local Z,
+    the steering-head axis): chrome bar with rise and pull-back, rubber grips, perches with the clutch (left)
+    and brake (right) levers, switch housings, cables."""
+    P.ao_distance = 0.03
+    # top yoke with the fork-tube caps and the stem nut
+    poly = []
+    for (cy, a0, a1) in ((0.09, -90, 90), (-0.09, 90, 270)):
+        for i in range(7):
+            a = math.radians(a0 + (a1 - a0) * i / 6)
+            poly.append((0.03 * math.cos(a) - 0.005, cy + 0.03 * math.sin(a)))
+    P.prism('yoke', poly, 0.022, (0, 0, 0.011), 'alu', bev=0.005, segs=2)
+    for sy in (-1, 1):
+        P.cyl('fork_cap', 0.019, 0.02, (-0.005, sy * 0.09, 0.03), 'chrome', segs=14, bev=0.003, bsegs=1)
+        P.cyl('riser', 0.016, 0.04, (0.0, sy * 0.035, 0.042), 'alu', segs=12, bev=0.003, bsegs=1)
+        P.box('clamp', (0.03, 0.032, 0.018), (0.0, sy * 0.035, 0.07), 'alu', bev=0.005, segs=1)
+    P.cyl('stem_nut', 0.017, 0.012, (-0.005, 0.0, 0.028), 'chrome', segs=6, bev=None)
+    # the bar
+    half = [(0.0, 0.0, 0.07), (0.0, 0.12, 0.07), (-0.05, 0.22, 0.11), (-0.11, 0.29, 0.13), (-0.135, 0.36, 0.13)]
+    pts = [(x, -y, z) for (x, y, z) in reversed(half)] + half[1:]
+    P.tube('bar', pts, 0.011, 'chrome', segs=10, bend=0.07)
+    end_dir = V((-0.025, 0.07, 0.0)).normalized()
+    for sy in (-1, 1):
+        e = V((-0.135, sy * 0.36, 0.13))
+        d = V((end_dir.x, sy * end_dir.y, 0.0))
+        g0 = e - d * 0.115
+        P.tube('grip', [g0, e + d * 0.004], 0.0165, 'rubber', segs=12)
+        P.cyl('grip_flange', 0.021, 0.008, tuple(g0), 'rubber', axis=d, segs=12, bev=0.002, bsegs=1)
+        # perch and lever in front of the grip
+        pc = g0 - d * 0.02
+        P.box('perch', (0.035, 0.03, 0.03), tuple(pc + V((0.012, 0, 0))), 'alu', bev=0.006, segs=1)
+        lv = [pc + V((0.03, 0, 0.0)), pc + V((0.05, sy * 0.04, -0.005)), pc + V((0.035, sy * 0.15, -0.01)),
+              pc + V((0.02, sy * 0.17, -0.012))]
+        P.tube('lever', lv, 0.006, 'alu', segs=6, bend=0.02)
+        P.box('switch', (0.035, 0.03, 0.04), tuple(pc - d * 0.03 + V((0.0, 0, 0.0))), 'trim', bev=0.006, segs=1)
+        P.box('switch_btn', (0.01, 0.012, 0.008), tuple(pc - d * 0.03 + V((-0.018, 0, 0.01))),
+              'paint' if sy < 0 else 'chrome', bev=None)
+        P.tube('cable', [pc + V((0.03, 0, -0.01)), pc + V((0.08, -sy * 0.05, -0.06)), V((0.06, sy * 0.06, -0.12))],
+               0.0035, 'trim', segs=5, bend=0.04)
+    P.prop('steer_axis', 'Z')
+    P.views = [('a', 200, 26), ('b', 30, 22)]
+
+
+def build_steer_sport(P):
+    """A small leather-rimmed sport wheel: deep dish, three drilled alloy spokes, a top marker on the rim."""
+    P.ao_distance = 0.04
+    R = 0.162
+    xr = -0.085
+    o = wheel_rim(P, R, 0.016, 0.0145, xr, 'leather', segs=40, rsegs=10)
+    # top marker: recolour the rim faces near 12 o'clock
+    o.data.materials.append(K.mc.mat('paint_b'))
+    for poly in o.data.polygons:
+        c = poly.center
+        if c.z > R * 0.96 and abs(c.y) < 0.014:
+            poly.material_index = 1
+    hub_x = -0.035
+    for ang in (0.0, 180.0, 270.0):
+        a = math.radians(ang)
+        d = V((0, -math.cos(a), math.sin(a)))
+        p0 = V((hub_x - 0.004, 0, 0)) + d * 0.034
+        p1 = V((xr + 0.002, 0, 0)) + d * (R - 0.006)
+        L = (p1 - p0).length
+        w0, w1, th = 0.042, 0.026, 0.006
+        bm = bmesh.new()
+        K.bm_prism(bm, [(0, -w0 / 2), (L, -w1 / 2), (L, w1 / 2), (0, w0 / 2)], th)
+        xdir = (p1 - p0).normalized()
+        side = V((1, 0, 0)).cross(d).normalized()
+        zdir = xdir.cross(side).normalized()
+        m = Matrix((xdir, side, zdir)).transposed().to_4x4()
+        m.translation = p0
+        K.bm_transform(bm, m)
+        P.mesh('spoke', bm, 'alu', bev=0.0018, segs=2)
+        for k in range(3):
+            t = 0.28 + 0.22 * k
+            c = p0 + xdir * (L * t)
+            for sz in (-1, 1):
+                P.cyl('hole', 0.0075 - 0.0012 * k, 0.0012, tuple(c + zdir * sz * (th / 2 + 0.0004)), 'trim', axis=zdir,
+                      segs=10, bev=None)
+    P.lathe('boss', [(0.0, 0.006), (0.02, 0.006), (0.04, 0.0), (0.042, -0.02), (0.038, -0.034), (0.0, -0.034)][::-1],
+            material='trim', axis='X', segs=24, sharp=50.0)
+    P.lathe('button', [(0.0, -0.05), (0.02, -0.049), (0.03, -0.044), (0.032, -0.036)], material='trim', axis='X',
+            segs=20, close='end', sharp=60.0)
+    P.lathe('ring', [(0.032, -0.046), (0.036, -0.045), (0.036, -0.036), (0.032, -0.036)], material='chrome',
+            axis='X', segs=20, loop=True, sharp=50.0)
+    P.cyl('shaft', 0.011, 0.024, (0.012, 0, 0), 'steel', axis='X', segs=12, bev=None)
+    P.prop('steer_axis', 'X')
+    P.views = [('a', 200, 16), ('b', 120, 20)]
+
+
+def build_steer_bad(P):
+    """A worn-out wheel: the stock wheel with its horn pad gone (bare hub and loose wires), one spoke rusted
+    and bent, the rim patched with tape."""
+    P.ao_distance = 0.05
+    R = 0.182
+    xr = -0.072
+    wheel_rim(P, R, 0.0135, 0.012, xr, 'trim', segs=40, rsegs=10)
+    hub_r, hub_x = 0.040, -0.040
+    for k, ang in enumerate((0.0, 180.0, 270.0)):
+        a = math.radians(ang + (9.0 if k == 1 else 0.0))
+        d = V((0, -math.cos(a), math.sin(a)))
+        p0 = V((hub_x - 0.004, 0, 0)) + d * (hub_r - 0.006)
+        p1 = V((xr + 0.002 + (0.012 if k == 1 else 0.0), 0, 0)) + d * (R - 0.004)
+        L = (p1 - p0).length
+        bm = bmesh.new()
+        K.bm_prism(bm, [(0, -0.025), (L, -0.015), (L, 0.015), (0, 0.025)], 0.0055)
+        xdir = (p1 - p0).normalized()
+        side = V((1, 0, 0)).cross(d).normalized()
+        zdir = xdir.cross(side).normalized()
+        m = Matrix((xdir, side, zdir)).transposed().to_4x4()
+        m.translation = p0
+        K.bm_transform(bm, m)
+        P.mesh('spoke', bm, 'rust' if k == 1 else 'alu', bev=0.0016, segs=2)
+    # tape wraps on the rim (left and lower right)
+    for (a0, span) in ((150.0, 26.0), (305.0, 18.0)):
+        bm = bmesh.new()
+        path = []
+        for i in range(7):
+            aa = math.radians(a0 + span * i / 6)
+            path.append((xr, R * math.cos(aa), R * math.sin(aa)))
+        K.bm_sweep(bm, path, 0.0158, segs=10, caps=True)
+        P.mesh('tape', bm, 'paint_b', sharp=80.0)
+    # bare hub where the pad used to be, with its wires and a bolt
+    P.lathe('boss', [(0.0, 0.006), (0.02, 0.006), (0.046, 0.0), (0.05, -0.012), (0.049, -0.030), (0.044, -0.040),
+                     (0.0, -0.040)][::-1], material='trim', axis='X', segs=24, sharp=50.0)
+    P.cyl('hub_nut', 0.016, 0.012, (-0.046, 0, 0), 'steel', axis='X', segs=6, bev=None)
+    for k in range(2):
+        P.tube('wire', [(-0.04, 0.02 - 0.04 * k, 0.012), (-0.06, 0.03 - 0.06 * k, -0.01),
+                        (-0.075, 0.02 - 0.05 * k, -0.04)], 0.0022, 'paint' if k else 'paint_b', segs=5, bend=0.01)
+    P.cyl('shaft', 0.011, 0.024, (0.012, 0, 0), 'steel', axis='X', segs=12, bev=None)
+    P.prop('steer_axis', 'X')
+    P.views = [('a', 200, 16), ('b', 120, 20)]
+
+
+def build_radio_tape(P):
+    """An 1980s cassette deck: black face with a chrome strip, the tape door (TAPE_DOOR, hinged at its bottom)
+    with a cassette showing through its window, transport keys, a small lit scale, two knobs."""
+    P.ao_distance = 0.03
+    W, H = 0.18, 0.05
+    P.box('box', (0.15, 0.17, 0.048), (0.075, 0, 0), 'steel', bev=0.004, segs=1)
+    for i in range(6):
+        P.box('slot', (0.08, 0.006, 0.003), (0.08, -0.06 + i * 0.024, 0.0245), 'trim', bev=None, open='-z')
+    P.box('face', (0.014, W, H), (-0.007, 0, 0), 'trim', bev=0.006, segs=2)
+    P.box('strip', (0.003, W - 0.01, 0.004), (-0.0145, 0, H / 2 - 0.008), 'chrome', bev=None)
+    # tape door with a smoked window, the cassette behind it
+    dw, dh = 0.075, 0.03
+    door = P.box('door', (0.004, dw, dh), (-0.016, 0.012, -0.002), 'trim', bev=0.0015, segs=1)
+    win = P.box('door_glass', (0.0015, dw - 0.014, dh - 0.012), (-0.0185, 0.012, -0.0005), 'glass_dark', bev=None)
+    P.mover('TAPE_DOOR', [door, win], (-0.016, 0.012, -0.002 - dh / 2))
+    P.box('cassette', (0.004, dw - 0.008, dh - 0.006), (-0.012, 0.012, -0.002), 'trim', bev=0.001, segs=1)
+    P.box('label', (0.0012, dw - 0.03, dh - 0.016), (-0.0142, 0.012, -0.0005), 'paint_b', bev=None)
+    for sy in (-1, 1):
+        P.cyl('reel', 0.006, 0.0014, (-0.0148, 0.012 + sy * 0.016, -0.001), 'steel', axis='X', segs=10, bev=None)
+    # keys and the scale
+    for i in range(4):
+        P.box('key', (0.01, 0.012, 0.009), (-0.018, -0.045 + i * 0.0135, -0.014), 'chrome', bev=0.002, segs=1)
+    P.box('scale', (0.002, 0.05, 0.01), (-0.0142, -0.025, 0.012), 'gauge', bev=None)
+    P.box('needle', (0.001, 0.0016, 0.012), (-0.0155, -0.03, 0.012), 'paint', bev=None)
+    for (nm, y) in (('KNOB_L', 0.074), ('KNOB_R', -0.074)):
+        P.cyl('shaft', 0.003, 0.012, (-0.02, y, 0.0), 'steel', axis='X', segs=8, bev=None)
+        k1 = P.lathe('knob', [(0.0, -0.02), (0.01, -0.02), (0.012, -0.017), (0.012, -0.004), (0.01, 0.0)],
+                     loc=(-0.015, y, 0.0), material='trim', axis='X', segs=16, close='end', sharp=40.0)
+        k2 = P.cyl('knob_ring', 0.0125, 0.003, (-0.022, y, 0.0), 'chrome', axis='X', segs=16, bev=None)
+        P.mover(nm, [k1, k2], (-0.015, y, 0.0))
+    P.views = [('a', 210, 14), ('b', 140, 18)]
+
+
+def build_hb_drift(P):
+    """A hydraulic drift handbrake: a tall lever (LEVER, pivot at its foot; pulled towards the driver =
+    -25 deg about local Y) with a ball grip, on a bolted bracket with its master cylinder and braided lines."""
+    P.ao_distance = 0.04
+    P.box('base', (0.16, 0.08, 0.012), (0.0, 0, 0.006), 'steel', bev=0.003, segs=1)
+    P.bolts([(sx * 0.065, sy * 0.028, 0.012) for sx in (-1, 1) for sy in (-1, 1)], normal=(0, 0, 1), r=0.0065, h=0.005,
+            washer=False)
+    for sg in (-1, 1):
+        P.box('cheek', (0.07, 0.008, 0.075), (0.0, sg * 0.022, 0.05), 'alu', bev=0.004, segs=1)
+    P.cyl('master', 0.016, 0.09, (0.06, 0.0, 0.035), 'alu', axis='X', segs=14, bev=0.003, bsegs=1)
+    P.cyl('reservoir', 0.012, 0.03, (0.04, 0.0, 0.07), 'glass', segs=12, bev=0.002, bsegs=1)
+    P.tube('line', [(0.105, 0.0, 0.035), (0.14, 0.0, 0.03), (0.18, 0.02, 0.0), (0.22, 0.02, -0.02)], 0.004, 'steel',
+           segs=6, bend=0.03)
+    piv = V((0.0, 0, 0.06))
+    rod = P.tube('lever', [piv, piv + V((-0.02, 0, 0.2)), piv + V((-0.06, 0, 0.42))], 0.012, 'alu', segs=10,
+                 bend=0.1)
+    grip = P.sphere('grip', 0.03, tuple(piv + V((-0.064, 0, 0.445))), 'trim', u=16, v=10)
+    btn = P.cyl('lock', 0.008, 0.012, tuple(piv + V((-0.066, 0, 0.476))), 'paint', segs=10, bev=0.002, bsegs=1)
+    pin = P.cyl('pivot', 0.01, 0.06, tuple(piv), 'steel', axis='Y', segs=10, bev=None)
+    P.mover('LEVER', [rod, grip, btn, pin], tuple(piv))
+    P.views = [('a', 140, 20), ('b', 40, 20)]
+
+
+def build_gl_short(P):
+    """A short-throw shifter: stubby lever, a big billet knob, a leather gaiter with a chrome ring
+    (LEVER: origin on the ball pivot under the floor)."""
+    P.ao_distance = 0.04
+    P.cyl('bezel', 0.065, 0.008, (0, 0, 0.004), 'chrome', segs=24, bev=0.003, bsegs=1)
+    prof = [(0.058, 0.008), (0.055, 0.02), (0.045, 0.04), (0.035, 0.05), (0.03, 0.058), (0.02, 0.07),
+            (0.012, 0.075), (0.011, 0.08)]
+    P.lathe('gaiter', prof, material='leather', segs=20, sharp=60.0)
+    P.torus('gaiter_ring', 0.013, 0.0035, loc=(0, 0, 0.077), segs=14, rsegs=5, material='chrome')
+    piv = V((0, 0, -0.04))
+    rod = P.tube('rod', [piv, V((0, 0, 0.14))], 0.008, 'steel', segs=10)
+    knob = P.lathe('knob', [(0.0, 0.135), (0.012, 0.136), (0.024, 0.145), (0.03, 0.16), (0.031, 0.175),
+                            (0.026, 0.19), (0.015, 0.197), (0.0, 0.198)], material='alu', segs=20, sharp=50.0)
+    grooves = P.torus('knob_groove', 0.0312, 0.002, loc=(0, 0, 0.168), segs=20, rsegs=4, material='trim')
+    P.mover('LEVER', [rod, knob, grooves], tuple(piv))
+    P.views = [('a', 200, 22), ('b', 120, 22)]
+
+
+def build_ign_button(P):
+    """A push-to-start panel: a plate with an arming toggle and a red start button under a flip-up guard
+    (COVER, hinged at its top edge; BUTTON presses along +X)."""
+    P.ao_distance = 0.02
+    P.box('plate', (0.006, 0.09, 0.05), (-0.003, 0, 0), 'trim', bev=0.003, segs=2)
+    for (y, z) in ((-0.038, 0.018), (0.038, -0.018)):
+        P.cyl('screw', 0.003, 0.002, (-0.007, y, z), 'chrome', axis='X', segs=8, bev=None)
+    # arming toggle on the left
+    P.cyl('toggle_nut', 0.008, 0.005, (-0.008, 0.025, 0.0), 'chrome', axis='X', segs=6, bev=None)
+    P.tube('toggle', [(-0.01, 0.025, 0.0), (-0.028, 0.025, 0.008)], 0.0028, 'chrome', segs=6)
+    P.sphere('toggle_tip', 0.004, (-0.029, 0.025, 0.0085), 'chrome', u=8, v=4)
+    # the start button and its guard on the right
+    P.lathe('btn_bezel', [(0.011, 0.0), (0.016, 0.0), (0.016, -0.006), (0.012, -0.008), (0.011, -0.008)],
+            loc=(0.0, -0.015, 0.0), material='chrome', axis='X', segs=18, loop=True, sharp=50.0)
+    btn = P.cyl('button', 0.01, 0.01, (-0.008, -0.015, 0.0), 'paint', axis='X', segs=16, bev=0.002, bsegs=1)
+    P.mover('BUTTON', [btn], (-0.008, -0.015, 0.0))
+    hinge = V((-0.007, -0.015, 0.021))
+    bm = bmesh.new()
+    K.bm_cube(bm, (0.003, 0.036, 0.036), mat4((-0.022, -0.015, 0.003)))
+    K.bm_cube(bm, (0.016, 0.036, 0.003), mat4((-0.0145, -0.015, 0.0195)))
+    for sy in (-1, 1):
+        K.bm_cube(bm, (0.016, 0.003, 0.036), mat4((-0.0145, -0.015 + sy * 0.0165, 0.003)))
+    cover = P.mesh('cover', bm, 'lens_tail', bev=0.0008, segs=1)
+    P.mover('COVER', [cover], tuple(hinge))
+    P.box('hinge', (0.006, 0.038, 0.004), tuple(hinge + V((0.0, 0, 0.0))), 'chrome', bev=None)
+    P.views = [('a', 210, 14), ('b', 150, 24)]
+
+
+def trumpet(P, base, axis, length, r0, r1, name='trumpet', material='chrome'):
+    """A horn trumpet: a thin tube flaring into a bell over its last third."""
+    prof = []
+    n = 6
+    for i in range(n + 1):
+        t = i / n
+        if t < 0.5:
+            r = r0
+        else:
+            u = (t - 0.5) / 0.5
+            r = r0 + (r1 - r0) * u ** 2.2
+        prof.append((r, length * t))
+    m = Matrix.Translation(V(base)) @ K.axis_matrix(axis)
+    bm = bmesh.new()
+    K.bm_lathe(bm, K.shell_profile(prof, 0.0018), segs=10, matrix=m, loop=True)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return P.mesh(name, bm, material, sharp=60.0)
+
+
+def build_horn_trumpet(P):
+    """A musical horn: five chrome trumpets of rising length on a bar, fed by a little compressor."""
+    P.ao_distance = 0.03
+    P.box('bar', (0.03, 0.2, 0.012), (0.0, 0.0, 0.0), 'steel', bev=0.003, segs=1)
+    P.bolt((0.0, 0.0, 0.006), r=0.006, h=0.005)
+    for i in range(5):
+        y = -0.08 + i * 0.04
+        L = 0.12 + 0.045 * i
+        P.cyl('valve', 0.011, 0.025, (-0.01, y, 0.02), 'alu', segs=10, bev=0.002, bsegs=1)
+        trumpet(P, (-0.01, y, 0.03), (0.92, 0, 0.38), L, 0.0055, 0.022 + 0.004 * i)
+        P.tube('feed', [(-0.01, y, 0.008), (-0.03, y * 0.5, -0.02), (-0.06, 0.0, -0.03)], 0.003, 'rubber', segs=5,
+               bend=0.02)
+    P.box('compressor', (0.06, 0.05, 0.05), (-0.075, 0.0, -0.035), 'trim', bev=0.008, segs=2)
+    P.tube('lead', [(-0.105, 0.0, -0.03), (-0.13, 0.02, -0.02), (-0.16, 0.03, 0.0)], 0.0025, 'trim', segs=5,
+           bend=0.02)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
+def build_horn_air(P):
+    """Truck air horns: two long chrome trumpets on a bracket, the air valve and its hose."""
+    P.ao_distance = 0.04
+    P.box('bracket', (0.05, 0.12, 0.01), (0.0, 0.0, 0.0), 'steel', bev=0.003, segs=1)
+    P.bolts([(0.0, -0.04, 0.005), (0.0, 0.04, 0.005)], normal=(0, 0, 1), r=0.0065, h=0.005, washer=False)
+    for sy, L, rb in ((-1, 0.42, 0.055), (1, 0.30, 0.047)):
+        y = sy * 0.04
+        P.cyl('clamp', 0.016, 0.02, (0.0, y, 0.025), 'steel', axis='X', segs=12, bev=0.002, bsegs=1)
+        trumpet(P, (-0.06, y, 0.025), (1, 0, 0), L, 0.011, rb)
+    P.box('valve', (0.05, 0.06, 0.04), (-0.085, 0.0, 0.025), 'alu', bev=0.008, segs=2)
+    P.tube('hose', [(-0.11, 0.0, 0.025), (-0.15, 0.0, 0.0), (-0.2, 0.02, -0.03)], 0.006, 'rubber', segs=8, bend=0.03)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
 PARTS = {
     'steer_std': build_steer_std,
     'steer_ship': build_steer_ship,
+    'steer_bar': build_steer_bar,
+    'steer_sport': build_steer_sport,
+    'steer_bad': build_steer_bad,
     'radio_old': build_radio_old,
+    'radio_tape': build_radio_tape,
     'hb_stock': build_hb_stock,
+    'hb_drift': build_hb_drift,
     'gl_stock': build_gl_stock,
+    'gl_short': build_gl_short,
     'ign_key': build_ign_key,
+    'ign_button': build_ign_button,
     'horn_beep': build_horn_beep,
+    'horn_trumpet': build_horn_trumpet,
+    'horn_air': build_horn_air,
 }
 
 

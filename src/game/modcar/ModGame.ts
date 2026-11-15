@@ -31,6 +31,9 @@ import { BeaconView } from '../scene/beacons';
 import { preload } from './assets';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
+import { EngineVoice } from './engineAudio';
+import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { HeldThing } from './held';
 import { LooseThings } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
@@ -72,6 +75,28 @@ export function readModParams(base: Params, search: string = window.location.sea
   };
 }
 
+/** a number 0…1 from a string (the same every time) */
+function hash01(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  return ((h >>> 0) % 10007) / 10007;
+}
+
+/** a build that has stood about: dust and rust on its body and every part, a little different each */
+function weather(b: Build, dirt: number, rust: number, seed: number): void {
+  b.dirt = dirt;
+  b.rust = rust;
+  for (const [mount, inst] of Object.entries(b.parts)) {
+    const k = hash01(`${seed}:${mount}`);
+    inst.dirt = Math.min(1, dirt * (0.7 + 0.6 * k));
+    inst.rust = Math.min(1, rust * (0.5 + 1.0 * k));
+    for (const sub of Object.values(inst.sub)) {
+      sub.dirt = inst.dirt;
+      sub.rust = inst.rust * 0.5;
+    }
+  }
+}
+
 /** what the first project car is missing: the things the checklist asks for, in order */
 export const TUTORIAL_MISSING = ['battery', 'hub_FL', 'hub_RR', 'engine'] as const;
 
@@ -89,6 +114,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   readonly player: ModPlayer;
   /** the controls in the cab, worked with the mouse from the driver's seat */
   readonly cockpit = new Cockpit(this);
+  /** what is in the hands, in first person */
+  readonly heldThing: HeldThing;
   place: 'garage' | 'road';
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -149,6 +176,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.ground = this.world!;
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
+    this.heldThing = new HeldThing(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     if (this.garage) this.player.addSolids(this.garage.solids);
@@ -187,6 +215,8 @@ export class ModGame implements PlayerHost, CockpitHost {
       const g = this.garage;
       await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
+      // a car that stood in a barn for a winter: dust on everything, a little rust at the edges (the sponge has work)
+      weather(project, 0.42, 0.06, 1);
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
       // the missing parts and the tools, round the bay; the fun parts on the shelves
@@ -202,6 +232,10 @@ export class ModGame implements PlayerHost, CockpitHost {
         const s = take(where);
         const inst = newInstance(id, { charge: 0.85 });
         if (withTyre) fitSub(inst, 'tire', newInstance(withTyre));
+        // things found round the farm: some dustier than others, the odd one rusty
+        const k = hash01(`${id}:${spots.length}`);
+        inst.dirt = 0.15 + 0.4 * k;
+        inst.rust = id.startsWith('rim_') || id.startsWith('bf_') || id.startsWith('roof_') ? 0.2 + 0.4 * k : 0.05 * k;
         this.loose.addPart(inst, s.x, s.y + 0.4, s.z, s.yaw);
       };
       if (p.project === 'tutorial') {
@@ -227,6 +261,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       put('rim_cart', 'floor');
       // a second frame to take parts from
       const donor = stockBuild('pickup', { fuel: 0.3 });
+      weather(donor, 0.6, 0.32, 2);
       this.addVehicle(donor, g.bay2.x, g.bay2.z, g.bay2.yaw);
       this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
       this.input.lookYaw = g.spawn.heading;
@@ -242,7 +277,7 @@ export class ModGame implements PlayerHost, CockpitHost {
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
     const gy = this.groundAt(x, z);
-    const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw);
+    const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw, this.ground);
     this.vehicles.push(v);
     this.player.addSolids(v.solid);
     return v;
@@ -307,12 +342,12 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (a === 'key') {
         if (v.sys.running) v.sys.stop('');
         else v.sys.crank(true);
-        this.audio.oneShot('key');
+        this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
-        this.audio.oneShot('key');
+        this.sound('latch');
       } else if (a === 'horn') v.sys.setHorn(true);
-      else if (a === 'leverUp' || a === 'leverDown') this.audio.oneShot(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
+      else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
       else if (a === 'reset') this.resetUpright(v);
     });
@@ -363,6 +398,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     const heading = Math.atan2(b[2], b[0]);
     this.seated = null;
     v.view.highlight(null);
+    // nothing holds it now but the handbrake (or P): say so when it is off
+    if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.ui.say(v.sys.hasPart('handbrake') ? '没拉手刹——车会溜。' : '这车没有手刹，停在坡上会溜。', 3);
     this.player.walker.place(x, z, heading);
     this.input.freeLook = true;
     this.input.lookYaw = heading;
@@ -388,23 +425,135 @@ export class ModGame implements PlayerHost, CockpitHost {
     this.checkTutorial();
   }
 
-  /** a one-shot by name (the foley module replaces this mapping onto the old synth's few sounds) */
-  sound(name: string, gain = 1): void {
-    const map: Record<string, 'lever' | 'grind' | 'ratchet' | 'key' | 'shift'> = {
-      ratchet_done: 'ratchet',
-      ratchet: 'ratchet',
-      door_open: 'lever',
-      door_close: 'lever',
-      pickup: 'key',
-      putdown: 'key',
-      key: 'key',
-      lever: 'lever',
-      grind: 'grind',
-      shift: 'shift',
+  // ------------------------------------------------------------------ sound
+
+  /** the engine voice and the mechanical sounds (docs/MODCAR_AUDIO.md), on the game's context once a gesture started it */
+  private voice: EngineVoice | null = null;
+  private foley: Foley | null = null;
+  /** loops asked for this frame (spray, sponge, pour, the wrench) and the ones playing */
+  private readonly loopsNow = new Map<FoleyLoop, FoleyOpts>();
+  private readonly loopsOn = new Set<FoleyLoop>();
+  private hornOn: 'horn_beep' | 'horn_trumpet' | 'horn_air' | '' = '';
+
+  private sounds(): Foley | null {
+    const ctx = this.audio.context;
+    const out = this.audio.output;
+    if (!ctx || !out) return null;
+    if (!this.foley) {
+      this.voice = new EngineVoice(ctx, out);
+      this.foley = new Foley(ctx, out);
+      this.foley.warm(['door_open', 'door_close', 'part_pickup', 'part_setdown', 'part_install', 'key_turn', 'handbrake_pull', 'gear_shift', 'ratchet']);
+    }
+    return this.foley;
+  }
+
+  /** the material a door makes its sound in, by the style of the part on it */
+  private panelMaterial(v: ModVehicle | null | undefined, mount?: string): PanelMaterial {
+    const inst = v && mount ? v.build.parts[mount] : undefined;
+    const style = inst ? partDef(inst.part).panel?.style : undefined;
+    return style === 'rusty' || style === 'armor' || style === 'cage' || style === 'fridge' ? style : 'metal';
+  }
+
+  /**
+   * A sound by name, from the player, the cab and the garage: one-shots play at once; the names of things
+   * that go on while a button is held (spray, scrub, pour) keep their loop going for this frame.
+   * @param gain a mass (kg) for things picked up and put down, litres moved for a pour, else a level
+   */
+  sound(name: string, gain = 1, mount?: string): void {
+    const f = this.sounds();
+    if (!f) return;
+    const held = this.player.held;
+    const v = this.seated ?? this.focus;
+    switch (name) {
+      case 'spray':
+        this.loopsNow.set('spray', {});
+        return;
+      case 'scrub':
+        this.loopsNow.set('sponge', {});
+        return;
+      case 'pour': {
+        const liquid = held?.kind === 'tool' ? (held.tool.kind === 'bottle' ? 'water' : held.tool.kind === 'oilcan' ? 'oil' : 'fuel') : 'fuel';
+        this.loopsNow.set('pour', { liquid });
+        return;
+      }
+    }
+    const shot: Partial<Record<string, [FoleyShot, FoleyOpts]>> = {
+      ratchet_done: ['part_install', { mass: held?.kind === 'part' ? partDef(held.inst.part).mass : 10 }],
+      remove_done: ['part_remove', { mass: gain }],
+      pickup: ['part_pickup', { mass: gain }],
+      putdown: ['part_setdown', { mass: gain }],
+      door_open: [mount && /hood/.test(mount) ? 'hood_open' : mount && /trunk/.test(mount) ? 'trunk_open' : 'door_open', { material: this.panelMaterial(v, mount) }],
+      door_close: [mount && /hood/.test(mount) ? 'hood_close' : mount && /trunk/.test(mount) ? 'trunk_close' : 'door_close', { material: this.panelMaterial(v, mount) }],
+      key: ['key_turn', {}],
+      ratchet: [v && v.sim.parkBrake > 0 ? 'handbrake_pull' : 'handbrake_release', {}],
+      lever: ['gear_shift', {}],
+      shift: ['gear_shift', { gain: 0.6 }],
+      grind: ['gear_grind', { gain: Math.min(1, gain) }],
+      latch: ['latch', {}],
     };
-    const s = map[name];
-    if (s) this.audio.oneShot(s);
-    void gain;
+    const s = shot[name];
+    if (s) f.play(s[0], s[1]);
+  }
+
+  /** start the loops asked for this frame, stop the rest; the horn of the vehicle in focus */
+  private updateFoley(): void {
+    const f = this.foley;
+    if (!f) return;
+    // the wrench turns while a part goes on or comes off
+    const t = this.player.target;
+    if (!this.seated && this.player.progress > 0 && t && (t.kind === 'ghost' || t.kind === 'looseSub' || ((t.kind === 'part' || t.kind === 'loose') && this.player.secondary))) this.loopsNow.set('ratchet', {});
+    for (const [k, o] of this.loopsNow) {
+      if (!this.loopsOn.has(k)) {
+        f.start(k, o);
+        this.loopsOn.add(k);
+      }
+    }
+    for (const k of [...this.loopsOn]) {
+      if (this.loopsNow.has(k)) continue;
+      f.stop(k);
+      this.loopsOn.delete(k);
+    }
+    this.loopsNow.clear();
+    const d = (this.seated ?? this.focus)?.sys.dash;
+    const want = d?.horn ? (d.hornSound === 'trumpet' ? 'horn_trumpet' : d.hornSound === 'air' ? 'horn_air' : 'horn_beep') : '';
+    if (want !== this.hornOn) {
+      if (this.hornOn) f.horn(this.hornOn, false);
+      if (want) f.horn(want, true);
+      this.hornOn = want;
+    }
+  }
+
+  /** the engine of the vehicle in focus: heard from the seat, or from where one stands */
+  private updateEngineVoice(): void {
+    const voice = this.voice;
+    const v = this.seated ?? this.focus;
+    if (!voice || !v) return;
+    const d = v.sys.dash;
+    const sim = v.sim;
+    const ex = v.view.frame.mounts.find((m) => m.cat === 'exhaust' && v.build.parts[m.id]);
+    const eng = v.view.frame.mounts.find((m) => m.cat === 'engine' && v.build.parts[m.id]);
+    const engInst = eng ? v.build.parts[eng.id] : undefined;
+    const inGear = sim.selector === 'D' || sim.selector === 'R';
+    // the cabin is as open as its missing and open doors (and a frame that has none) make it
+    let open = 1 - v.sys.derived.enclosed;
+    for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
+    const inside = this.seated === v && this.viewMode === 'cockpit';
+    const dist = this.seated === v ? (this.viewMode === 'chase' ? v.view.frame.chase.dist : 3) : Math.hypot(this.player.walker.x - sim.px, this.player.walker.z - sim.pz);
+    voice.update({
+      engineId: engInst?.part ?? null,
+      exhaustId: ex ? v.build.parts[ex.id].part : null,
+      turbo: !!engInst?.sub.turbo,
+      rpm: d.rpm,
+      load: d.running ? sim.throttle * (inGear ? 1 : 0.35) : 0,
+      throttle: sim.throttle,
+      running: d.running,
+      cranking: d.cranking,
+      inside,
+      doorsOpen: Math.min(1, Math.max(0, open)),
+      starterRate: Math.min(1, d.battery * 1.6),
+      boost: d.boost,
+      distance: Math.max(1, dist),
+    });
   }
 
   // ------------------------------------------------------------------ the checklist
@@ -414,7 +563,9 @@ export class ModGame implements PlayerHost, CockpitHost {
     if (!v) return [];
     const b = v.build;
     const fuel = v.sys.dash.tankL > 0 ? v.sys.dash.fuel : 0;
+    const hood = v.view.hasPanel('hood') && !!b.parts.hood;
     return [
+      ...(hood || this.done.has('hood') ? [{ id: 'hood', text: '打开引擎盖', done: this.done.has('hood') || (!!b.parts.battery && !!b.parts.engine) }] : []),
       { id: 'battery', text: '装上电瓶', done: !!b.parts.battery },
       { id: 'wheels', text: '装上两个车轮', done: !!b.parts.hub_FL && !!b.parts.hub_RR },
       { id: 'engine', text: '装上发动机', done: !!b.parts.engine },
@@ -431,6 +582,7 @@ export class ModGame implements PlayerHost, CockpitHost {
     const v = this.vehicles[0];
     if (!v) return;
     if (this.garage?.doorsOpen?.()) this.done.add('door');
+    if (v.view.panelOpen('hood') > 0.6 || (v.view.hasPanel('hood') && !v.build.parts.hood)) this.done.add('hood');
     if (this.seated === v) this.done.add('seat');
     if (v.sys.running) this.done.add('start');
   }
@@ -567,7 +719,14 @@ export class ModGame implements PlayerHost, CockpitHost {
     const core = this.core;
     const cam = core.camera;
     const o = core.origin;
-    for (const v of this.vehicles) v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
+    // the weather's wipers on the car one sits in; the filler cap open while fuel goes in
+    this.env.wiperMode = this.seated?.view.wipers.length ? 'auto' : 'off';
+    const t = this.player.target;
+    for (const v of this.vehicles) {
+      v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
+      v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
+    }
     const f = this.seated ?? this.focus;
     // the floating origin follows whoever the camera is with
     const fx = this.seated ? this.seated.sim.px : this.player.walker.x;
@@ -631,6 +790,17 @@ export class ModGame implements PlayerHost, CockpitHost {
       this.rig.update(dt, sim, this.seated.view.pose);
       cam.position.set(this.rig.x - o.x, this.rig.y - o.y, this.rig.z - o.z);
       cam.quaternion.set(this.rig.qx, this.rig.qy, this.rig.qz, this.rig.qw).multiply(QFIX);
+      // a motorcycle leans: the rider's eye goes round the line the tyres touch the road on, and the view rolls with it
+      if (this.seated.view.frame.balance && sim.lean !== 0) {
+        const b = this.basis;
+        sim.basis(b);
+        const pose = this.seated.view.pose;
+        const py = sim.leanPivotY;
+        const pv = this.leanP.set(pose.x + b[3] * py - o.x, pose.y + b[4] * py - o.y, pose.z + b[5] * py - o.z);
+        this.qa.setFromAxisAngle(this.leanAxis.set(b[0], b[1], b[2]), sim.lean);
+        cam.position.sub(pv).applyQuaternion(this.qa).add(pv);
+        cam.quaternion.premultiply(this.qa);
+      }
       if (Math.abs(cam.fov - this.rig.fov) > 0.01) {
         cam.fov = this.rig.fov;
         cam.updateProjectionMatrix();
@@ -649,6 +819,9 @@ export class ModGame implements PlayerHost, CockpitHost {
         cam.updateProjectionMatrix();
       }
     }
+    // the thing in the hands, on foot in first person
+    this.heldThing.set(this.player.held);
+    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit', this.player.walker.sway, 0);
     // in the seat: the mark on the cab's controls (the one it is on lights up)
     if (this.seated) {
       this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
@@ -739,7 +912,21 @@ export class ModGame implements PlayerHost, CockpitHost {
     const v = this.seated;
     if (v) {
       const d = v.sys.dash;
-      this.ui.showDash(`${d.kmh.toFixed(0).padStart(3)} km/h  ${d.gearLabel}${d.handbrake ? ' 手刹' : ''}  ${d.rpm.toFixed(0)} rpm  油 ${(d.fuel * 100).toFixed(0)}%  水温 ${d.coolantC.toFixed(0)}°C  电 ${(d.battery * 100).toFixed(0)}%${d.running ? '' : '  熄火'}`);
+      const red = v.sim.spec.engine.redline;
+      this.ui.showDash({
+        kmh: d.kmh,
+        gear: d.gearLabel,
+        rpm: red > 0 ? d.rpm / red : 0,
+        rpmText: `${(d.rpm / 1000).toFixed(1)}k`,
+        fuel: d.fuel,
+        temp: (d.coolantC - 40) / 90,
+        tempText: `${d.coolantC.toFixed(0)}°`,
+        battery: d.battery,
+        running: d.running,
+        handbrake: d.handbrake,
+        lights: d.lights,
+        warn: d.lamps,
+      });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
     if (this.place === 'garage' && this.vehicles[0]) {
@@ -773,6 +960,8 @@ export class ModGame implements PlayerHost, CockpitHost {
     };
     const b = v.build.parts;
     switch (step.id) {
+      case 'hood':
+        return at('hood', '打开引擎盖', 0.25);
       case 'battery':
         return holding('bat_std') ? at('battery', '电瓶装这里') : lying('bat_std', '电瓶');
       case 'wheels': {
@@ -803,6 +992,8 @@ export class ModGame implements PlayerHost, CockpitHost {
   }
 
   private readonly markerV = new THREE.Vector3();
+  private readonly leanP = new THREE.Vector3();
+  private readonly leanAxis = new THREE.Vector3();
   /** the objective's diamond on screen (at the edge on its side when it is off screen) */
   private updateMarker(): void {
     const t = this.objective();
@@ -837,6 +1028,9 @@ export class ModGame implements PlayerHost, CockpitHost {
   }
 
   private updateAudio(): void {
+    this.sounds();
+    this.updateFoley();
+    this.updateEngineVoice();
     const v = this.focus;
     if (!v) return;
     const sim = v.sim;
@@ -865,15 +1059,16 @@ export class ModGame implements PlayerHost, CockpitHost {
         dust: w.dust,
         wind: w.wind,
         enclosed: this.seated ? v.sys.derived.enclosed : 0,
-        engineOn: d.running,
-        cranking: d.cranking,
+        // (the engine and its starter are the EngineVoice's)
+        engineOn: false,
+        cranking: false,
         starterRate: Math.min(1, d.battery * 2),
         shifting: sim.shiftTimer > 0 ? sim.shiftTimer / Math.max(0.05, sim.spec.gearbox.shiftTime) : 0,
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
         flat: false,
-        horn: d.horn,
+        horn: false,
         hornDetune: false,
       },
       this.env.flash,
@@ -916,6 +1111,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       vehicles: this.vehicles.map((x) => ({ frame: x.build.frame, parts: Object.keys(x.build.parts).length, running: x.sys.running, x: x.sim.px, z: x.sim.pz })),
       loose: this.loose.list.length,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
+      steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };

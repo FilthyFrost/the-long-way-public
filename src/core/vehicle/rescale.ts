@@ -11,7 +11,7 @@
 import { GRAVITY } from './sim';
 import type { AxleSpec, VehicleSpec } from './spec';
 
-/** a tyre's own vertical rate (N/m) per metre of sidewall is about this over its sidewall height */
+/** a tyre's own vertical rate (N/m) is about this divided by its sidewall height (m): a road tyre 200 kN/m */
 const TYRE_RATE_X_SIDEWALL = 20000;
 /** damping ratios the rescaled axle is kept within: under-damped enough to feel, never undamped */
 const ZETA_MIN = 0.12;
@@ -39,8 +39,10 @@ function withTyre(k: number, sidewall: number | undefined): number {
 
 /**
  * The axle as the same physical springs, dampers and bar make it when the corner carries `now`
- * instead of `ref` (the load the tuning in `axle` was made for). Travel, grip, brakes and the
- * steering and drive flags are left alone.
+ * instead of `ref` (the load the tuning in `axle` was made for). It also records the reference ride
+ * (rideComp: more weight sinks the body) and the reference tyre load (tyreLoad: more weight, less
+ * grip per newton) unless the axle has its own. Travel, brakes and the steering and drive flags are
+ * left alone.
  */
 export function rescaleAxle(axle: AxleSpec, ref: CornerLoad, now: CornerLoad): AxleSpec {
   const mr = Math.max(1e-3, ref.mass);
@@ -63,7 +65,9 @@ export function rescaleAxle(axle: AxleSpec, ref: CornerLoad, now: CornerLoad): A
   // the hub mounts are placed for the reference ride: what the springs compress beyond it sinks the body
   const naturalRef = (mr * GRAVITY) / kRefEff;
   const rideComp = axle.rideComp ?? (axle.sag !== undefined ? Math.min(naturalRef, axle.sag * axle.travel) : naturalRef);
-  const out: AxleSpec = { ...axle, springHz, dampingRatio, antiRollRatio, rideComp };
+  // the tyres were chosen for the frame's load: more weight on them, less grip per newton
+  const tyreLoad = axle.tyreLoad ?? mr * GRAVITY;
+  const out: AxleSpec = { ...axle, springHz, dampingRatio, antiRollRatio, rideComp, tyreLoad };
   const maxSag = Math.max(0.05, (axle.travel * (1 - BUMP_CLEAR) - BUMP_STOP) / axle.travel);
   if (axle.sag !== undefined) {
     // the preload is a fixed spring length: the extra weight compresses the spring past it

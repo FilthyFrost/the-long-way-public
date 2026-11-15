@@ -114,6 +114,79 @@ def build_gb_4(P):
     gearbox(P)
 
 
+def build_gb_3(P):
+    """An old three-speed: short, round-shouldered case with a column-shift linkage on its side."""
+    gearbox(P, L=0.46, bell_r=0.16, case_hw=0.09, case_h=0.18, tail_len=0.13, shifter='side')
+    # side shift levers and linkage rods (column shift)
+    for i, x in enumerate((-0.02, 0.04)):
+        P.box('shift_lever', (0.012, 0.012, 0.09), (x, 0.108, 0.13), 'steel', rot=(0, 15 - 30 * i, 0), bev=0.003,
+              segs=1)
+        P.cyl('shift_boss', 0.016, 0.02, (x, 0.1, 0.17), 'alu', axis='Y', segs=12, bev=0.002, bsegs=1)
+        P.tube('shift_rod', [(x + 0.01, 0.115, 0.09), (x + 0.12, 0.13, 0.11), (x + 0.3, 0.14, 0.25)], 0.0045, 'steel',
+               segs=6, bend=0.05)
+
+
+def build_gb_5(P):
+    """A close-ratio five-speed: longer, heavily ribbed case with the fifth-gear housing bulging before the tail."""
+    gearbox(P, L=0.58, bell_r=0.17, case_hw=0.10, case_h=0.20, tail_len=0.17)
+    x5 = -0.08
+    P.lathe('fifth', [(0.075, x5 - 0.07), (0.088, x5 - 0.055), (0.09, x5 + 0.02), (0.08, x5 + 0.04)], loc=(0, 0, 0.17),
+            material='alu', axis='X', segs=22, sharp=40.0)
+    for sg in (-1, 1):
+        for i in range(4):
+            P.box('rib5', (0.008, 0.016, 0.15), (x5 - 0.05 + i * 0.022, sg * 0.09, 0.17), 'alu', bev=0.002, segs=1)
+
+
+def build_gb_moto(P):
+    """A motorcycle five-speed (no reverse): compact alloy case, the front sprocket on the left with a short
+    run of chain, the shift lever with its rubber peg, the clutch housing bulge on the right."""
+    P.ao_distance = 0.05
+    outline = [(-0.13, 0.03), (-0.1, 0.0), (0.08, 0.0), (0.12, 0.04), (0.12, 0.12), (0.08, 0.16), (-0.08, 0.17),
+               (-0.13, 0.12)]
+    P.prism('case', outline, 0.15, matrix=mat4((0, 0, 0), (90, 0, 0)), material='alu', bev=0.012, segs=2)
+    P.box('seam', (0.24, 0.155, 0.006), (0.0, 0.0, 0.09), 'alu', bev=0.002, segs=1)
+    P.lathe('clutch', [(0.0, -0.03), (0.045, -0.028), (0.065, -0.014), (0.07, 0.0)], loc=(0.05, -0.075, 0.1),
+            material='alu', axis='Y', segs=22, close='end', sharp=40.0)
+    for i in range(5):
+        a = math.tau * i / 5
+        P.bolt((0.05 + 0.058 * math.cos(a), -0.093, 0.1 + 0.058 * math.sin(a)), normal=(0, -1, 0), r=0.0045, h=0.004,
+               washer=False)
+    # oil-level window and ribs on the clutch cover, cast ribs along the case
+    P.cyl('oil_ring', 0.016, 0.004, (0.03, -0.106, 0.075), 'chrome', axis='Y', segs=14, bev=None)
+    P.cyl('oil_window', 0.012, 0.002, (0.03, -0.109, 0.075), 'glass_dark', axis='Y', segs=14, bev=None)
+    for i in range(3):
+        a = math.radians(40 + 25 * i)
+        P.box('cover_rib', (0.03, 0.006, 0.006), (0.05 + 0.04 * math.cos(a), -0.104, 0.1 + 0.04 * math.sin(a)), 'alu',
+              rot=(0, -math.degrees(a), 0), bev=None)
+    for sg in (-1, 1):
+        for i in range(4):
+            x = -0.09 + i * 0.045
+            P.box('case_rib', (0.01, 0.01, 0.06), (x, sg * 0.078, 0.04), 'alu', bev=0.002, segs=1,
+                  open='-y' if sg > 0 else '+y')
+    P.cyl('kick_boss', 0.018, 0.02, (-0.09, -0.085, 0.12), 'alu', axis='Y', segs=12, bev=0.003, bsegs=1)
+    P.cyl('kick_shaft', 0.009, 0.02, (-0.09, -0.1, 0.12), 'steel', axis='Y', segs=8, bev=None)
+    # front sprocket with teeth and a run of chain
+    sx, sz = -0.06, 0.06
+    P.cyl('sprocket', 0.04, 0.008, (sx, 0.088, sz), 'steel', axis='Y', segs=16, bev=None)
+    bm = bmesh.new()
+    for i in range(15):
+        a = math.tau * i / 15
+        K.bm_cube(bm, (0.012, 0.008, 0.01), mat4((sx + 0.044 * math.cos(a), 0.088, sz + 0.044 * math.sin(a)),
+                                                  (0, -math.degrees(a), 0)))
+    P.mesh('teeth', bm, 'steel', sharp=50)
+    P.cyl('sprocket_nut', 0.016, 0.012, (sx, 0.097, sz), 'steel', axis='Y', segs=6, bev=None)
+    for k in (-1, 1):
+        P.box('chain', (0.22, 0.012, 0.012), (sx - 0.11, 0.088, sz + k * 0.046), 'trim', bev=0.003, segs=1)
+    # shift lever on the left: spline shaft, the lever forward, the rubber peg
+    P.cyl('shift_shaft', 0.008, 0.03, (0.03, 0.085, 0.035), 'steel', axis='Y', segs=8, bev=None)
+    P.tube('shift_lever', [(0.03, 0.1, 0.035), (0.1, 0.11, 0.03), (0.17, 0.115, 0.04)], 0.007, 'steel', segs=8,
+           bend=0.03)
+    P.cyl('shift_peg', 0.011, 0.045, (0.17, 0.14, 0.04), 'rubber', axis='Y', segs=10, bev=0.003, bsegs=1)
+    P.tube('neutral_wire', [(-0.1, 0.06, 0.02), (-0.12, 0.07, 0.0), (-0.16, 0.08, -0.01)], 0.003, 'trim', segs=5,
+           bend=0.02)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
 # ------------------------------------------------------------------------------------------------ exhausts
 
 
@@ -121,7 +194,7 @@ def inlet_flange(P, r=0.025):
     """A two-bolt inlet flange on the origin, facing +X, with the pipe leaving towards -X."""
     poly = [(0.0, 0.07), (-0.03, 0.06), (-0.045, 0.0), (-0.03, -0.06), (0.0, -0.07), (0.03, -0.06), (0.045, 0.0),
             (0.03, 0.06)]
-    poly = [(py * 0.9, pz * 0.75) for (pz, py) in poly]
+    poly = [(py * 0.9, pz * 0.75) for (pz, py) in reversed(poly)]  # swapping axes mirrors: keep it CCW
     P.prism('flange', poly, 0.01, (-0.005, 0, 0), 'rust', rot=(0, 90, 0), bev=0.003, segs=1)
     P.bolts([(0.0, 0.048, 0.0), (0.0, -0.048, 0.0)], normal=(1, 0, 0), r=0.0065, h=0.006, washer=False)
     P.torus('gasket', r + 0.004, 0.003, loc=(0.001, 0, 0), axis='X', segs=16, rsegs=4, material='steel')
@@ -220,10 +293,86 @@ def build_exh_side(P):
     P.views = [('a', 30, 18), ('b', 210, 18)]
 
 
+def build_exh_sport(P):
+    """Sport exhaust: the inlet splits into two pipes that run back into a twin-chamber box silencer with two
+    big rolled chrome tips."""
+    P.ao_distance = 0.07
+    r = 0.025
+    inlet_flange(P, r)
+    P.tube('pipe', [(0.0, 0, 0), (-0.2, 0, -0.01), (-0.38, 0, -0.02)], r, 'steel', segs=12, bend=0.08)
+    P.lathe('split', [(r, 0.0), (0.034, 0.04), (0.04, 0.09)], loc=(-0.38, 0, -0.02), material='steel', axis='-X',
+            segs=14, sharp=50.0)
+    for sg in (-1, 1):
+        P.tube('twin', [(-0.47, sg * 0.022, -0.02), (-0.6, sg * 0.07, -0.025), (-1.12, sg * 0.07, -0.025)], 0.022,
+               'steel', segs=12, bend=0.08)
+    # resonators on both pipes and the transverse box silencer at the back
+    for sg in (-1, 1):
+        P.lathe('resonator', [(0.022, 0.0), (0.04, 0.03), (0.042, 0.06), (0.042, 0.24), (0.04, 0.27), (0.022, 0.3)],
+                loc=(-0.65, sg * 0.07, -0.025), material='steel', axis='-X', segs=16, sharp=50.0)
+    bm = bmesh.new()
+    sec = K.rounded_rect(0.34, 0.13, 0.05, seg=4)
+    rings = [K.section_x(sec, x, 1.0, 0.0, -0.025) for x in (-1.12, -1.13, -1.42, -1.43)]
+    rings[0] = K.section_x(sec, -1.12, 0.94, 0.0, -0.025)
+    rings[-1] = K.section_x(sec, -1.43, 0.94, 0.0, -0.025)
+    vr, faces = K.bm_loft(bm, rings, cap_start=True, cap_end=True)
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    P.mesh('silencer', bm, 'steel', sharp=40.0)
+    P.box('silencer_band', (0.012, 0.35, 0.135), (-1.275, 0.0, -0.025), 'chrome', bev=0.003, segs=1)
+    for sg in (-1, 1):
+        y = sg * 0.1
+        P.tube('tail', [(-1.42, y, -0.03), (-1.52, y, -0.035)], 0.024, 'steel', segs=12)
+        P.lathe('tip', [(0.024, 0.0), (0.042, 0.0), (0.046, 0.012), (0.046, 0.12), (0.042, 0.13), (0.036, 0.125),
+                        (0.036, 0.01)], loc=(-1.5, y, -0.035), material='chrome', axis='-X', segs=20, loop=True,
+                sharp=50.0)
+    hanger(P, (-0.8, 0.07, -0.003))
+    hanger(P, (-1.3, 0.0, 0.04))
+    P.views = [('a', 30, 30), ('b', 210, 30)]
+
+
+def build_exh_moto(P):
+    """Motorcycle exhaust: a chrome header from the exhaust port (the origin) down under the engine, then an
+    upswept peashooter silencer along the right side with a slotted heat shield and a hanger."""
+    P.ao_distance = 0.05
+    r = 0.019
+    P.cyl('port_flange', 0.03, 0.01, (0.005, 0, 0), 'chrome', axis='X', segs=14, bev=0.002, bsegs=1)
+    P.bolts([(0.011, 0.0, 0.022), (0.011, 0.0, -0.022)], normal=(1, 0, 0), r=0.006, h=0.005, washer=False)
+    header = [(0.0, 0, 0), (0.05, 0, -0.03), (0.08, -0.01, -0.12), (0.03, -0.05, -0.22), (-0.12, -0.12, -0.24),
+              (-0.35, -0.14, -0.2)]
+    P.tube('header', header, r, 'chrome', segs=12, bend=0.06)
+    # silencer: a long cone swelling then tapering, swept up about 8 degrees
+    up = math.radians(8)
+    ax = V((-math.cos(up), 0, math.sin(up)))
+    s0 = V((-0.35, -0.14, -0.2))
+    prof = [(r, 0.0), (0.032, 0.05), (0.042, 0.12), (0.044, 0.36), (0.04, 0.44), (0.026, 0.48), (0.024, 0.53),
+            (0.02, 0.53)]
+    m = Matrix.Translation(s0) @ K.axis_matrix(ax)
+    bm = bmesh.new()
+    K.bm_lathe(bm, prof, segs=18, matrix=m)
+    P.mesh('silencer', bm, 'chrome', sharp=40.0)
+    # heat shield over the header bend: a curved slotted plate
+    bm = bmesh.new()
+    sh = Matrix.Translation(V((0.0, -0.075, -0.235))) @ mat4(rot=(0, 90, 0))
+    K.bm_lathe(bm, [(0.028, -0.07), (0.028, 0.07)], segs=8, angle=math.radians(150), start=math.radians(-150),
+               matrix=sh)
+    P.mesh('shield', bm, 'chrome', sharp=60.0)
+    for i in range(4):
+        P.box('shield_slot', (0.03, 0.006, 0.008), (-0.045 + i * 0.03, -0.1, -0.212), 'trim', bev=None)
+    # hanger bracket on the silencer
+    hp = s0 + ax * 0.25 + V((0, 0, 0.045))
+    P.box('hanger', (0.04, 0.012, 0.06), tuple(hp), 'steel', bev=0.004, segs=1)
+    P.bolt(tuple(hp + V((0, 0.006, 0.02))), normal=(0, 1, 0), r=0.006, h=0.005)
+    P.views = [('a', 30, 20), ('b', 210, 20)]
+
+
 PARTS = {
     'gb_4': build_gb_4,
+    'gb_3': build_gb_3,
+    'gb_5': build_gb_5,
+    'gb_moto': build_gb_moto,
     'exh_stock': build_exh_stock,
     'exh_side': build_exh_side,
+    'exh_sport': build_exh_sport,
+    'exh_moto': build_exh_moto,
 }
 
 

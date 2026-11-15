@@ -36,17 +36,35 @@ try {
     console.log(`${ok ? ' ok ' : 'FAIL'} ${name}  ${JSON.stringify(log.at(-1)).slice(0, 220)}`);
   };
   const fitFrom = async (part, mount, dist, seconds) => {
-    if (!(await rt('pickUp', part))) throw new Error(`no ${part} lying about`);
+    const now = await rt('telemetry');
+    if (now.held !== part && !(await rt('pickUp', part))) throw new Error(`no ${part} lying about`);
     await rt('aim', 0, mount, dist);
     const t = await rt('telemetry');
     if (!String(t.target).startsWith('ghost:')) throw new Error(`not aimed at a ghost (target ${t.target})`);
     return rt('useFor', seconds);
   };
-  await step('00_spawn', async () => null, (t) => t.place === 'garage' && /^0+$/.test(t.tutorial));
-  await step('01_battery', () => fitFrom('bat_std', 'battery', 1.4, 1.5), (t) => t.tutorial.startsWith('1') && t.held === '');
+  // (the checklist's steps by id: t.steps lists the ones done)
+  const done = (t, ...ids) => ids.every((id) => t.steps.includes(id));
+  await step('00_spawn', async () => null, (t) => t.place === 'garage' && t.steps.length === 0);
+  // the battery and the engine go in under the bonnet: held up to the shut bonnet, the battery's place
+  // offers the bonnet to open (E), and one press opens it with the battery still in the hands
+  await step(
+    '00b_open_hood',
+    async () => {
+      if (!(await rt('pickUp', 'bat_std'))) throw new Error('no battery lying about');
+      await rt('aim', 0, 'battery', 1.4);
+      const t = await rt('telemetry');
+      if (!String(t.target).endsWith(':hood')) throw new Error(`the shut bonnet is not what E would do (target ${t.target})`);
+      await rt('press');
+      await rt('simulate', 0.8);
+      return t.target;
+    },
+    (t) => done(t, 'hood') && t.held === 'bat_std' && String(t.target).startsWith('ghost:'),
+  );
+  await step('01_battery', () => fitFrom('bat_std', 'battery', 1.4, 1.5), (t) => done(t, 'hood', 'battery') && t.held === '');
   await step('02_wheel_FL', () => fitFrom('rim_steel13', 'hub_FL', 1.6, 1.6), (t) => t.held === '');
-  await step('03_wheel_RR', () => fitFrom('rim_steel13', 'hub_RR', 1.6, 1.6), (t) => t.tutorial.startsWith('11') && t.held === '');
-  await step('04_engine', () => fitFrom('eng_i4', 'engine', 1.9, 3.3), (t) => t.tutorial.startsWith('111') && t.held === '');
+  await step('03_wheel_RR', () => fitFrom('rim_steel13', 'hub_RR', 1.6, 1.6), (t) => done(t, 'wheels') && t.held === '');
+  await step('04_engine', () => fitFrom('eng_i4', 'engine', 1.9, 3.3), (t) => done(t, 'engine') && t.held === '');
   await step(
     '05_fuel',
     async () => {
@@ -58,7 +76,7 @@ try {
       await rt('drop');
       return null;
     },
-    (t) => t.tutorial.startsWith('1111'),
+    (t) => done(t, 'fuel'),
   );
   // the workshop's big doors are shut but for a crack: the button beside them opens them
   await step(
@@ -69,10 +87,10 @@ try {
       await rt('simulate', 4);
       return target;
     },
-    (t) => t.doorsOpen === true && t.doorGap > 3.5 && t.tutorial.startsWith('11111'),
+    (t) => t.doorsOpen === true && t.doorGap > 3.5 && done(t, 'door'),
   );
-  await step('06_get_in', () => rt('enter', 0), (t) => t.seated && t.tutorial.startsWith('111111'));
-  await step('07_start', () => rt('crank', 1.6), (t, ran) => ran === true && t.tutorial.startsWith('1111111'));
+  await step('06_get_in', () => rt('enter', 0), (t) => t.seated && done(t, 'seat'));
+  await step('07_start', () => rt('crank', 1.6), (t, ran) => ran === true && done(t, 'start'));
   await step('08_drive_out', () => rt('drive', 9, 0.7, 0), (t) => t.place === 'road');
   await step('09_on_the_road', async () => {
     const r = await rt('drive', 8, 0.6, 0);

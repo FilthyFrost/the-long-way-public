@@ -1,19 +1,24 @@
 # ModCar 物理线（physics 子代理）进度
 
-分支 `modcar/physics`，工作树 `D:/公路旅游-wt/physics`。规范见 `docs/MODCAR.md` §4「物理实现说明」。
+分支 `modcar/physics`，工作树 `D:/公路旅游-wt/physics`。字段与确切含义见 `docs/MODCAR.md` §4「物理实现说明」。
 
 ## 已完成
-- 旧四辆车逐位不变的门禁：`harness/sim/modcar_legacy.test.ts`（8 个场景 × 4 辆车的全状态哈希，录自未改动的物理）。
-- 每轴轮半径 `AxleSpec.wheelRadius`；每轮尺寸 `SimMods.radiusOffset`（角抬升/下沉、滚动半径、传动比、左右差往小轮跑偏）；`SimMods.wheelFit`（轮胎 / 光钢圈 / 空轮毂）。
-- 单辙车 `spec.balance`：双射线站姿 + 骑手扶正 + 弯中侧倾力矩由“压弯”承担，`sim.lean` 给渲染；翘头自然出现。
-- 缺件 `spec.absent`：发动机 / 变速箱 / 转向 / 手刹。
-- 换件不弹车：`applySpec` 与换轮在原地重新落座（0.29 → 0.62 m 停车换装无冲击）。
-- 悬挂重算 `src/core/vehicle/rescale.ts`（同一根弹簧、减振、防倾杆；高胎侧串联变软；超载下沉）。`AxleSpec.rideComp` 让加重真的“沉”。
-- 极端组合：小轮车身落地时车身盒参与接触（不再穿地）；reset 可带地面。
-- 手感测量 `harness/sim/modcar/feel.ts`；测试 `modcar_{legacy,moto,wheels,parts,fuzz,feel}.test.ts`。
+- 旧四辆车逐位不变：`harness/sim/modcar_legacy.test.ts`（8 个场景 × 4 辆车的全状态哈希，录自未改的物理，node v24.16.0）；`npm run measure driving` 与改前完全一致，economy（T0）28 项一致，judge 无新失败。
+- 轮子：`AxleSpec.wheelRadius`、`SimMods.radiusOffset`（角升降、滚动半径/传动、左右差往小轮跑偏）、`SimMods.wheelFit`（轮胎 / 光钢圈 / 空轮毂刮地）、`spec.emptyHubRadius`。
+- 单辙车 `spec.balance`：双射线站姿、骑手扶正、压弯承担侧倾力矩；`sim.lean`（受抓地限制）、`leanPivotY`、`wheelie`；翘头自然出现，猛磕会倒。
+- 缺件 `spec.absent`：发动机 / 变速箱 / 转向 / 手刹（`NO_ENGINE` 占位）。
+- 换件：`applySpec` 与换轮原地重新落座，不弹车；挡位数变少自动钳挡。
+- 载重：`src/core/vehicle/rescale.ts`；`AxleSpec.rideComp`（加重下沉）、`AxleSpec.tyreLoad`（加重推头、超载更早滑，幂律）。
+- 极端组合护栏（只对衍生 spec）：车身盒近地参与接触 + 底边加点、随深度变硬、深处按速度止住、包住重心；惯量下限；外倾过大掉抓地；NaN 偏移保护；`reset(…, ground)`。
+- 测量 `harness/sim/modcar/feel.ts`（每车 0.1–0.3 s，含不足转向梯度）；测试 `modcar_{legacy,moto,wheels,parts,fuzz,feel}.test.ts`。
 
-## 下一步
-- 主程接入 derive.ts（见报告“主程要做的”）；按需要调参（摩托车把、刹车分配）。
+## 主程接入要点
+- derive 用“平均轮径”写法时给 `emptyHubRadius`（如 0.45 × 车架轮径）。
+- 摩托 V8 抬头余量很薄：后胎有效 μ 要 ≳ b/h（现数值约 0.90 对 1.0），建议摩托胎抓地上调或单辙车不吃窄胎折扣。
+- 可用 `feel.scrape`（火花）、`feel.rim`（钢圈声）、`sim.wheelie`；ModCar 出生用 `reset(x, y, z, yaw, ground)`。
+- “没手刹会溜”要在下车/熄火时关掉 `autoHold`。
 
-## 问题 / 注意
-- 后驱车空一个前轮、给油时，对角线承重使后轮驱动不对称，可能反而偏向另一侧（滑行时偏向空轮毂一侧）。这是“每个驱动轮各自封顶”的旧模型带来的，未改。
+## 问题 / 已知不足
+- 驱动轮各自封顶（旧模型，像锁止差速）：后驱空一个前轮给油时可能偏向另一侧。
+- 急刹翻车把（endo）不拦；摩托物理车身不倾斜（脚踏/整流罩擦地不模拟）。
+- 撞墙（固体）沿用旧算法：极端车 100 km/h 以上正撞最深进墙约 0.15–0.23 m。

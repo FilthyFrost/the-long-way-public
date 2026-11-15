@@ -386,6 +386,21 @@ export interface FrameDef {
   balance?: boolean;
   chase: { dist: number; height: number; look: number };
   mounts: MountDef[];
+  /** how the frame model's moving pieces move (from its mounts JSON; absent for a placeholder) */
+  rig?: FrameRig;
+}
+
+/**
+ * The frame model's hinges, needles and wipers as its modeller measured them (game frame, metres,
+ * degrees; a rotation of `openDeg` / `fullDeg` / `sweepDeg` about `axis`, right hand).
+ */
+export interface FrameRig {
+  /** by object name: P_<mount>, FUEL_CAP */
+  panels: Record<string, { axis: [number, number, number]; openDeg: number; glass: string | null; mount: string | null }>;
+  /** by object name: N_speed, N_rpm, N_fuel, N_temp — a full reading is `fullDeg` from rest (zero) */
+  needles: Record<string, { axis: [number, number, number]; fullDeg: number }>;
+  /** by object name: WIPER_L, WIPER_R */
+  wipers: Record<string, { axis: [number, number, number]; sweepDeg: number }>;
 }
 
 // ------------------------------------------------------------------ the things in the world

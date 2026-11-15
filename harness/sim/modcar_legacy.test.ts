@@ -8,12 +8,15 @@ import { describe, expect, it } from 'vitest';
 import { VEHICLES } from '../../src/core/vehicle/spec';
 import { GOLDEN_FILE, legacyTrace } from './modcar/legacyTrace';
 
-const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as Record<string, Record<string, string>>;
+const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as Record<string, Record<string, string>> & { _recorded: string };
 
 describe('modcar · legacy vehicles are bit-identical', () => {
   for (const spec of Object.values(VEHICLES)) {
     it(`${spec.id}: every scenario hashes as before`, () => {
-      expect(legacyTrace(spec)).toEqual(golden[spec.id]);
+      // (exact doubles: a Node whose Math functions round differently changes them too — then record
+      // them again from the legacy simulation, `git checkout f6541e4 -- src/core/vehicle` in a scratch
+      // copy and `npx tsx harness/sim/modcar/legacyTrace.ts --write`)
+      expect(legacyTrace(spec), `golden hashes recorded with ${golden._recorded}; this is node ${process.version}`).toEqual(golden[spec.id]);
     });
   }
 });

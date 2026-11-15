@@ -1,0 +1,23 @@
+{
+  "set": "modcar_parts",
+  "page": "viewer.html",
+  "base": "shot=1&sun=50",
+  "shots": [
+    {"name": "eng_v8", "params": "glb=parts/eng_v8&orbit=35,18,1.8,0.25"},
+    {"name": "eng_i4", "params": "glb=parts/eng_i4&orbit=35,18,1.5,0.25"},
+    {"name": "seat_toilet", "params": "glb=parts/seat_toilet&orbit=35,15,1.4,0.3"},
+    {"name": "seat_bucket", "params": "glb=parts/seat_bucket&orbit=35,15,1.6,0.4"},
+    {"name": "hl_round", "params": "glb=parts/hl_round&orbit=20,10,0.6,0.1"},
+    {"name": "hl_spot_night", "params": "glb=parts/hl_spot&orbit=20,10,0.7,0.1&time=22&lights=1"},
+    {"name": "rim_steel13", "params": "glb=parts/rim_steel13&orbit=70,8,0.9,0.15"},
+    {"name": "tire_road", "params": "glb=parts/tire_road&orbit=70,8,1.1,0.25"},
+    {"name": "steer_std", "params": "glb=parts/steer_std&orbit=160,15,0.8,0.1"},
+    {"name": "roof_lightbar", "params": "glb=parts/roof_lightbar&orbit=20,20,2.2,0.1"},
+    {"name": "bf_bullbar", "params": "glb=parts/bf_bullbar&orbit=20,15,2.4,0.3"},
+    {"name": "exh_sport", "params": "glb=parts/exh_sport&orbit=60,15,1.4,0.1"},
+    {"name": "radio_old", "params": "glb=parts/radio_old&orbit=180,10,0.5,0.05"},
+    {"name": "tl_stock_night", "params": "glb=parts/tl_stock&orbit=180,8,0.6,0.05&time=22&lights=1&brake=1"},
+    {"name": "mir_stock", "params": "glb=parts/mir_stock&orbit=160,10,0.6,0.1"},
+    {"name": "eng_v8_dirty", "params": "glb=parts/eng_v8&orbit=35,18,1.8,0.25&dirt=0.7&rust=0.5"}
+  ]
+}

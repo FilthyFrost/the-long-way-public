@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from '../../src/core/math/rng';
 import { feel } from './modcar/feel';
-import { fuzzBuild, swapFuzz } from './modcar/fuzz';
+import { fuzzBuild, harshFuzz, swapFuzz } from './modcar/fuzz';
 import { randomBuild } from './modcar/specgen';
 
 const N = Number(process.env.MODCAR_FUZZ ?? 1000);
@@ -35,12 +35,30 @@ describe(`modcar · ${N} extreme builds × ${SECONDS} s`, () => {
       if (s.exploded || top.exploded) why.push('exploded');
       if (s.maxKmh > 300 || top.top > 300) why.push(`speed ${Math.max(s.maxKmh, top.top).toFixed(0)} km/h`);
       if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
-      if (s.maxSink > 0.3) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
+      if (s.maxSink > 0.2) why.push(`body ${s.maxSink.toFixed(2)} m in the ground`);
       if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the ground`);
       if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
     }
     if (bad.length > 0) console.log(bad.slice(0, 20).join('\n'));
     console.log(`modcar fuzz: ${N} builds, worst body sink ${worstSink.toFixed(3)} m, fastest ${worstKmh.toFixed(0)} km/h, ${flips} roll-overs put right`);
+    expect(bad).toEqual([]);
+  });
+
+  it('steep hills flat out and a field of walls and posts at full throttle', () => {
+    const rng = new Rng(SEED + 2);
+    const bad: string[] = [];
+    const runs = Math.max(20, Math.round(N / 10));
+    for (let i = 0; i < runs; i++) {
+      const b = randomBuild(rng);
+      const s = harshFuzz(b, rng, Math.min(25, SECONDS));
+      const why: string[] = [];
+      if (s.exploded) why.push('exploded');
+      if (s.maxSpin > 30) why.push(`spin ${s.maxSpin.toFixed(1)} rad/s`);
+      if (s.minCgClear < 0.05) why.push(`centre of gravity ${s.minCgClear.toFixed(2)} m over the hill`);
+      // (the legacy vehicles keep within 0.2 m hitting a wall at 60 km/h; these hit at up to 150)
+      if (s.maxWallPenetration > 0.3) why.push(`${s.maxWallPenetration.toFixed(2)} m into a wall`);
+      if (why.length > 0) bad.push(`#${i} ${why.join(', ')}: ${b.note}`);
+    }
     expect(bad).toEqual([]);
   });
 

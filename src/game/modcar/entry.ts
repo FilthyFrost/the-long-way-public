@@ -1,5 +1,5 @@
 /**
- * Entry of the ModCar game (modcar.html; index.html once it is the default). Builds ModGame and the
+ * Entry of the ModCar game (index.html and modcar.html; the game before it is classic.html). Builds ModGame and the
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
 import * as THREE from 'three';
@@ -242,6 +242,14 @@ const rt = {
   },
   /** what the garage itself costs to draw (meshes, triangles, shadow casters) */
   garageCost: () => (game.garage as unknown as { cost?: () => unknown } | null)?.cost?.() ?? null,
+  /** the seated (or focused) vehicle's lights to a position: 'low', 'high' or 'off' */
+  lights: (mode: 'off' | 'low' | 'high' = 'low') => {
+    const v = game.seated ?? game.focus;
+    if (!v) return false;
+    for (let i = 0; i < 3 && v.sys.lights !== mode; i++) v.sys.cycleLights();
+    game.simulate(0);
+    return v.sys.lightsOn;
+  },
   dash: () => JSON.parse(JSON.stringify(game.seated?.sys.dash ?? game.focus?.sys.dash ?? null)) as unknown,
   builds: () => game.vehicles.map((v) => encodeBuild(v.build)),
   partName: (id: string) => partDef(id).name,

@@ -16,10 +16,19 @@ import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
-import { cloneModel, frameModel, partModel, standInFrame, type Model } from './assets';
+import { measureCarShape, type CarLook } from '../render/carMaterials';
+import { MergedCar, type PartLook } from '../render/carMerge';
+import { cloneModel, frameModel, partModel, seatTyres, standInFrame, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
+/** parts that move as a whole or are worked in the cab: never merged */
+const UNMERGED = new Set(['steering', 'handbrake', 'gearLever', 'ignition', 'radio', 'horn']);
+/** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|ghost:)/;
+/** how far a merged part's dirt or rust may drift before its vertices are written again */
+const WEAR_STEP = 0.02;
+
 /** categories that wear the body colour unless painted themselves */
 const BODY_COLOURED = new Set(['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'mirror']);
 /** what an engine block, a seat frame or a lamp housing is painted at the factory */
@@ -77,6 +86,21 @@ export class CarView {
   private readonly local = { x: 0, y: 0, z: 0 };
   /** model loads in flight (parts appear when theirs arrive) */
   private readonly loads = new Set<Promise<unknown>>();
+  /** past the first build: a part fitted from now on drops into place (and a wheel slides onto its hub) */
+  private live = false;
+  private readonly settling: { obj: THREE.Object3D; t: number; axis: 'y' | 'z'; from: number }[] = [];
+  /**
+   * The static parts merged into a mesh per material (docs/MODCAR.md §6 合批): built once the models of a
+   * build are in and nothing is settling, thrown away at the next fit or removal (the originals show
+   * meanwhile). Ids: 1 = the frame's body, then one per mount.
+   */
+  private merged: MergedCar | null = null;
+  private mergedLook: CarLook | null = null;
+  private mergeDirty = true;
+  private readonly mergeIds = new Map<string, number>();
+  /** what each merged part's vertices were last written with */
+  private readonly mergedAs = new Map<number, { paint: number; paint2: number; dirt: number; rust: number; wear: number }>();
+  private litMerged = -1;
 
   constructor(
     readonly build: Build,
@@ -156,6 +180,7 @@ export class CarView {
       if (w) this.wipers.push(w);
     }
     this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
+    this.covers = null;
   }
 
   private hangPanel(mt: MountDef, p: THREE.Object3D): void {
@@ -182,19 +207,28 @@ export class CarView {
       pivot.attach(pg);
       glass.push(pg);
     }
-    // which way is open: Blender's hinge axis z (doors) is our y, its y (bonnets, lids) our z
-    const axis = mt.hinge === 'y' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-    const box = new THREE.Box3().setFromObject(p);
-    const c = box.getCenter(new THREE.Vector3());
-    pivot.worldToLocal(c);
-    const openRad = (mt.openDeg ?? 70) * DEG;
-    // try both ways: open = the panel's middle moves away from the body's middle
-    const away = (sign: number): number => {
-      const q = new THREE.Quaternion().setFromAxisAngle(axis, sign * openRad);
-      const moved = c.clone().applyQuaternion(q).applyQuaternion(pivot.quaternion).add(pivot.position);
-      return Math.abs(moved.z) * 2 + moved.y;
-    };
-    if (away(-1) > away(1)) axis.negate();
+    const rig = this.frame.rig?.panels[p.name];
+    let axis: THREE.Vector3;
+    let openRad: number;
+    if (rig) {
+      // as modelled: a turn of openDeg about the hinge axis (frame space, right hand) opens it
+      axis = new THREE.Vector3(...rig.axis).applyQuaternion(pivot.quaternion.clone().invert()).normalize();
+      openRad = rig.openDeg * DEG;
+    } else {
+      // which way is open: Blender's hinge axis z (doors) is our y, its y (bonnets, lids) our z
+      axis = mt.hinge === 'y' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+      const box = new THREE.Box3().setFromObject(p);
+      const c = box.getCenter(new THREE.Vector3());
+      pivot.worldToLocal(c);
+      openRad = Math.abs(mt.openDeg ?? 70) * DEG;
+      // try both ways: open = the panel's middle moves away from the body's middle
+      const away = (sign: number): number => {
+        const q = new THREE.Quaternion().setFromAxisAngle(axis, sign * openRad);
+        const moved = c.clone().applyQuaternion(q).applyQuaternion(pivot.quaternion).add(pivot.position);
+        return Math.abs(moved.z) * 2 + moved.y;
+      };
+      if (away(-1) > away(1)) axis.negate();
+    }
     this.panels.set(mt.id, { mount: mt.id, pivot, axis, openRad, t: 0, target: 0, skin, glass, cage: null, style: 'stock' });
     pivot.visible = false;
   }
@@ -215,6 +249,40 @@ export class CarView {
     return this.panels.has(mount);
   }
 
+  /** mount → the lid (hood, trunk) over it, measured from the lids at rest */
+  private covers: Map<string, string> | null = null;
+
+  /**
+   * The lid (hood or trunk) that is shut over a mount, or null: the parts under a closed bonnet can be
+   * reached only once it is open or off. Found by where the lid lies at rest: a mount inside its outline
+   * and below it.
+   */
+  shutOver(mount: string): string | null {
+    if (!this.covers) {
+      this.covers = new Map();
+      const box = new THREE.Box3();
+      const inv = new THREE.Matrix4();
+      this.model.updateMatrixWorld(true);
+      inv.copy(this.model.matrixWorld).invert();
+      for (const [id, p] of this.panels) {
+        const cat = this.catOf.get(id);
+        if (cat !== 'hood' && cat !== 'trunk') continue;
+        box.makeEmpty();
+        for (const s of p.skin) box.expandByObject(s);
+        if (box.isEmpty()) continue;
+        box.applyMatrix4(inv);
+        for (const m of this.frame.mounts) {
+          if (m.panel || m.cat === 'rim' || m.cat === 'bumperFront' || m.cat === 'bumperRear' || m.cat === 'headlight' || m.cat === 'taillight') continue;
+          const q = m.pos;
+          if (q.x > box.min.x - 0.05 && q.x < box.max.x + 0.05 && q.z > box.min.z - 0.05 && q.z < box.max.z + 0.05 && q.y < box.max.y) this.covers.set(m.id, id);
+        }
+      }
+    }
+    const lid = this.covers.get(mount);
+    if (!lid || !this.build.parts[lid] || this.panelOpen(lid) > 0.6) return null;
+    return lid;
+  }
+
   // ------------------------------------------------------------------ parts
 
   /** make the scene match the build (call after any fit, removal or repaint) */
@@ -230,6 +298,82 @@ export class CarView {
       else this.setPart(m, inst);
     }
     this.setWheels();
+    this.live = true;
+    this.shapeDirty = true;
+    // a new build: the merge goes (the originals show) and is made again once the models are in
+    this.unmerge();
+    this.mergeDirty = true;
+  }
+
+  private unmerge(): void {
+    if (!this.merged) return;
+    this.merged.dispose();
+    this.merged = null;
+    this.mergeIds.clear();
+    this.mergedAs.clear();
+    this.litMerged = -1;
+  }
+
+  /** merge the static parts when the build has settled */
+  private tryMerge(): void {
+    if (!this.mergeDirty || this.loads.size || this.settling.length || !this.frameObj) return;
+    this.mergeDirty = false;
+    const entries: { id: number; object: THREE.Object3D; look: PartLook }[] = [];
+    this.mergeIds.clear();
+    this.mergedAs.clear();
+    const add = (mount: string, object: THREE.Object3D, look: LookOf): void => {
+      const id = entries.length + 1;
+      this.mergeIds.set(mount, id);
+      this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt: look.dirt ?? 0, rust: look.rust ?? 0, wear: look.wear ?? 0 });
+      entries.push({ id, object, look: { paint: look.paint, paint2: look.paint2, dirt: look.dirt, rust: look.rust, wear: look.wear } });
+    };
+    add(BODY, this.frameObj, this.bodyLook());
+    for (const [mount, sh] of this.shown) {
+      const inst = this.build.parts[mount];
+      const cat = this.catOf.get(mount) ?? '';
+      if (!inst || UNMERGED.has(cat)) continue;
+      add(mount, sh.holder, this.partLook(inst, cat));
+    }
+    this.model.updateMatrixWorld(true);
+    const merged = new MergedCar(this.model, entries, (o) => MOVES.test(o.name) || !!o.userData.mover);
+    this.model.add(merged.group);
+    // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
+    const look = this.mats.look('merged', { paint: paintHex(this.build.paint), paint2: paintHex(this.build.paint2) });
+    applyMaterials(merged.group, look, true);
+    this.merged = merged;
+    this.mergedLook = look;
+  }
+
+  /** a merged part's paint or wear moved on (the spray can, the sponge, the road's dust): write its vertices again */
+  private syncMerged(mount: string, look: LookOf): void {
+    const id = this.mergeIds.get(mount);
+    const m = this.merged;
+    if (!m || id === undefined) return;
+    const was = this.mergedAs.get(id);
+    if (!was) return;
+    const dirt = look.dirt ?? 0;
+    const rust = look.rust ?? 0;
+    const wear = look.wear ?? 0;
+    const paintMoved = was.paint !== look.paint || was.paint2 !== look.paint2;
+    const wearMoved = Math.abs(was.dirt - dirt) > WEAR_STEP || Math.abs(was.rust - rust) > WEAR_STEP || Math.abs(was.wear - wear) > WEAR_STEP;
+    if (!paintMoved && !wearMoved) return;
+    m.updatePart(id, paintMoved && wearMoved ? { paint: look.paint, paint2: look.paint2, dirt, rust, wear } : paintMoved ? { paint: look.paint, paint2: look.paint2 } : { dirt, rust, wear });
+    this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt, rust, wear });
+  }
+
+  /** the body's height and the cabin, measured again once the models of a new build are in */
+  private shapeDirty = true;
+  private measure(): void {
+    if (!this.shapeDirty || this.loads.size) return;
+    this.shapeDirty = false;
+    this.mats.setShape(measureCarShape(this.model));
+  }
+
+  /** a part just fitted eases into its place from a few centimetres off */
+  private settle(obj: THREE.Object3D, axis: 'y' | 'z', from: number): void {
+    if (!this.live) return;
+    obj.position[axis] = from;
+    this.settling.push({ obj, t: 0, axis, from });
   }
 
   private paintOf(inst: PartInstance, cat: string): number {
@@ -273,6 +417,7 @@ export class CarView {
     holder.userData.mount = m.id;
     node.add(holder);
     this.shown.set(m.id, { key, holder });
+    this.settle(holder, 'y', 0.07);
     const def = partDef(inst.part);
     const look = this.mats.look(partOwner(m.id), this.partLook(inst, m.cat));
     void this.track(partModel(inst.part)).then((model) => {
@@ -346,9 +491,13 @@ export class CarView {
       }
       const holder = w.holder;
       holder.scale.set(1, 1, hub.side > 0 ? -1 : 1);
+      holder.position.set(0, 0, 0);
+      // onto the hub along the axle, from outside
+      this.settle(holder, 'z', (hub.side || 1) * 0.09);
       const rimDef = partDef(inst.part);
       const rimLook = this.mats.look(wheelOwner(i), this.wheelLook(inst));
-      void this.track(partModel(inst.part)).then((rm) => {
+      const rimLoad = this.track(partModel(inst.part));
+      void rimLoad.then((rm) => {
         if (w.key !== key) return;
         const r = cloneModel(rm);
         applyMaterials(r, rimLook);
@@ -358,16 +507,11 @@ export class CarView {
       if (!tire) this.mats.drop(`${wheelOwner(i)}+tire`);
       if (tire && rimDef.rim?.tire) {
         const tireLook = this.mats.look(`${wheelOwner(i)}+tire`, this.tireLook(tire));
-        void this.track(partModel(tire.part, inst.part)).then((tm) => {
+        void this.track(Promise.all([rimLoad, partModel(tire.part, inst.part)])).then(([rm, tm]) => {
           if (w.key !== key) return;
-          const t = cloneModel(tm);
+          // on the rim's tyre seats (two on a dually), stretched to this rim when made for another
+          const t = seatTyres(rm, tm, rimDef.rim!.radius, partDef(tire.part).tire!.sidewall, !!tire.flat);
           applyMaterials(t, tireLook);
-          // a tyre model made for another rim: stretch its ring to this rim (keeping the sidewall)
-          const td = partDef(tire.part).tire!;
-          const made = (tm.box.max.y - tm.box.min.y) / 2;
-          const want = rimDef.rim!.radius + td.sidewall;
-          if (made > 0 && Math.abs(made - want) > 0.005) t.scale.set(want / made, want / made, 1);
-          if (tire.flat) t.scale.y *= 0.92;
           holder.add(t);
         });
       }
@@ -387,11 +531,15 @@ export class CarView {
   /** keep every look in step with the build: paint, dust, rust (cheap: uniforms only) */
   private updateLooks(): void {
     const b = this.build;
-    this.mats.set(BODY, this.bodyLook());
+    const body = this.bodyLook();
+    this.mats.set(BODY, body);
+    this.syncMerged(BODY, body);
     for (const mount of this.shown.keys()) {
       const inst = b.parts[mount];
       if (!inst) continue;
-      this.mats.set(partOwner(mount), this.partLook(inst, this.catOf.get(mount) ?? ''));
+      const look = this.partLook(inst, this.catOf.get(mount) ?? '');
+      this.mats.set(partOwner(mount), look);
+      this.syncMerged(mount, look);
       const t = inst.sub.turbo;
       if (t) this.mats.set(`${partOwner(mount)}+turbo`, this.partLook(t, 'turbo'));
     }
@@ -411,7 +559,12 @@ export class CarView {
 
   /** light up what is on a mount (the part the mark is on, about to come off); null = nothing */
   highlight(mount: string | null): void {
-    if (!mount) {
+    const id = mount ? (this.mergeIds.get(mount) ?? -1) : -1;
+    if (id !== this.litMerged) {
+      this.mergedLook?.setHighlight(id > 0 ? id : null);
+      this.litMerged = id;
+    }
+    if (!mount || id > 0) {
       this.mats.highlight('');
       return;
     }
@@ -432,10 +585,11 @@ export class CarView {
     core.place(this.root, pose.x, pose.y, pose.z);
     this.root.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw);
     // a motorcycle's lean (the simulation keeps the body upright and reports the lean it should show)
-    const leanRad = (sim as unknown as { lean?: number }).lean ?? 0;
-    const cgH = sim.spec.cgHeight;
-    this.lean.position.set(0, -cgH, 0);
-    this.leanInner.position.set(0, cgH, 0);
+    // (about the line where the tyres meet the road: sim.leanPivotY, in the body frame)
+    const leanRad = this.frame.balance ? sim.lean : 0;
+    const pivot = this.frame.balance ? sim.leanPivotY : -sim.spec.cgHeight;
+    this.lean.position.set(0, pivot, 0);
+    this.leanInner.position.set(0, -pivot, 0);
     this.lean.rotation.x = this.frame.balance ? leanRad : 0;
     for (let i = 0; i < 4; i++) {
       const w = sim.wheels[i];
@@ -453,24 +607,64 @@ export class CarView {
       if (bar) steer.rotation.y = -sim.steerAngle;
       else steer.rotation.x = sim.steerAngle * ratio;
     }
-    // the speedometer with a little lag, like a cable-driven gauge
+    // the speedometer with a little lag, like a cable-driven gauge (0–180 km/h, 0–8000 rpm, fuel, 40–130 °C)
     this.needle += (sim.kmh - this.needle) * Math.min(1, dt * 9);
-    const sp = this.needles.N_speed;
-    if (sp) sp.rotation.x = -Math.min(1, this.needle / 180) * 240 * DEG;
-    const tach = this.needles.N_rpm;
-    if (tach && dash) tach.rotation.x = -Math.min(1, dash.rpm / 8000) * 240 * DEG;
-    const fuel = this.needles.N_fuel;
-    if (fuel && dash) fuel.rotation.x = -dash.fuel * 90 * DEG;
-    const temp = this.needles.N_temp;
-    if (temp && dash) temp.rotation.x = -Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) * 90 * DEG;
+    const on = !!dash && dash.battery > 0.02;
+    this.turnNeedle('N_speed', Math.min(1, Math.abs(this.needle) / 180));
+    if (dash) {
+      this.turnNeedle('N_rpm', Math.min(1, dash.rpm / 8000));
+      this.turnNeedle('N_fuel', on ? Math.min(1, dash.fuel) : 0);
+      this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
+    }
+    // the wipers sweep with the weather's wipers (0…1 of their sweep)
+    for (const w of this.wipers) {
+      const r = this.frame.rig?.wipers[w.name];
+      if (!r) continue;
+      const rest = (w.userData.rest as THREE.Quaternion | undefined) ?? (w.userData.rest = w.quaternion.clone());
+      w.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), this.wiperAngle * r.sweepDeg * DEG));
+    }
+    // the filler cap stands open while fuel goes in
+    const cap = this.fuelCap;
+    const capRig = this.frame.rig?.panels.FUEL_CAP;
+    if (cap && capRig) {
+      this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 8);
+      const rest = (cap.userData.rest as THREE.Quaternion | undefined) ?? (cap.userData.rest = cap.quaternion.clone());
+      cap.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...capRig.axis), this.cap * capRig.openDeg * DEG));
+    }
+    // the rain caps of side stacks ride on the exhaust: shut at rest, fluttering open under load
+    for (const [mount, sh] of this.shown) {
+      if (this.catOf.get(mount) !== 'exhaust') continue;
+      const flaps = (sh.holder.userData.flaps as THREE.Object3D[] | undefined) ?? this.findFlaps(sh.holder);
+      if (!flaps.length) continue;
+      const flow = dash && dash.running ? Math.min(1, (dash.rpm / Math.max(1000, sim.spec.engine.redline)) * (0.35 + 0.65 * sim.throttle)) : 0;
+      this.flap += (flow - this.flap) * Math.min(1, dt * 10);
+      const flutter = flow > 0.05 ? 0.06 * Math.sin(this.flapT += dt * (18 + 40 * flow)) : 0;
+      for (const f of flaps) f.rotation.z = Math.max(0, this.flap * 1.15 + flutter);
+    }
     // lamps: dipped / main beam, tail lamps and brake lights (the brake lights need a battery)
     const lit = dash?.lightsOn ?? false;
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
-    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, dash: lit ? 1 : 0 });
+    // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)
+    const reverse = sim.dir < 0 && sim.selector === 'R' && !!dash && (dash.running || dash.battery > 0.02);
+    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0 });
     // dirt is measured up from the vehicle's own ground; colours and wear follow the build
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
     this.updateLooks();
+    this.measure();
+    this.tryMerge();
+    // parts just fitted settle (a little past their place and back)
+    for (let i = this.settling.length - 1; i >= 0; i--) {
+      const st = this.settling[i];
+      st.t = Math.min(1, st.t + dt / 0.22);
+      const u = st.t - 1;
+      const back = 1 + 2.2 * u * u * u + 1.2 * u * u;
+      st.obj.position[st.axis] = st.from * (1 - back);
+      if (st.t >= 1) {
+        st.obj.position[st.axis] = 0;
+        this.settling.splice(i, 1);
+      }
+    }
     // panels swing
     for (const p of this.panels.values()) {
       if (p.t === p.target) continue;
@@ -479,6 +673,38 @@ export class CarView {
       const e = p.t * p.t * (3 - 2 * p.t);
       p.pivot.quaternion.copy(this.restQuat(p)).multiply(new THREE.Quaternion().setFromAxisAngle(p.axis, e * p.openRad));
     }
+  }
+
+  private flap = 0;
+  private flapT = 0;
+  private cap = 0;
+  /** the filler cap is held open (fuel going in) */
+  capOpen = false;
+  /** the wipers' place in their sweep, 0…1 (the weather's wipers) */
+  wiperAngle = 0;
+  private readonly qTmp = new THREE.Quaternion();
+  private readonly vTmp = new THREE.Vector3();
+
+  /** a needle at `reading` (0…1 of its dial) about its modelled axis; a stand-in's about x */
+  private turnNeedle(name: string, reading: number): void {
+    const n = this.needles[name];
+    if (!n) return;
+    const r = this.frame.rig?.needles[name];
+    if (!r) {
+      n.rotation.x = -reading * (name === 'N_fuel' || name === 'N_temp' ? 90 : 240) * DEG;
+      return;
+    }
+    const rest = (n.userData.rest as THREE.Quaternion | undefined) ?? (n.userData.rest = n.quaternion.clone());
+    n.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), reading * r.fullDeg * DEG));
+  }
+  /** an exhaust's FLAP_ movers, found once its model is in (none yet: looked for again next time) */
+  private findFlaps(holder: THREE.Object3D): THREE.Object3D[] {
+    const out: THREE.Object3D[] = [];
+    holder.traverse((o) => {
+      if (o.name.startsWith('FLAP_')) out.push(o);
+    });
+    if (out.length) holder.userData.flaps = out;
+    return out;
   }
 
   private readonly rest = new Map<string, THREE.Quaternion>();
@@ -526,6 +752,7 @@ export class CarView {
   }
 
   dispose(): void {
+    this.unmerge();
     this.root.removeFromParent();
     this.mats.dispose();
   }

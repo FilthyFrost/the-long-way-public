@@ -233,12 +233,28 @@ def fillet_path(pts, bend):
     return out
 
 
-def bm_sweep(bm, path, radius, segs=12, caps=True, twist=0.0, radius_fn=None, profile=None, closed=False):
+def densify(path, max_seg):
+    """Split path segments longer than max_seg (so vertex AO has samples along long straight runs)."""
+    out = [V(path[0])]
+    for a, b in zip(path[:-1], path[1:]):
+        a, b = V(a), V(b)
+        n = int((b - a).length / max_seg) if max_seg else 0
+        for k in range(1, n + 1):
+            out.append(a + (b - a) * (k / (n + 1)))
+        out.append(b)
+    return out
+
+
+def bm_sweep(bm, path, radius, segs=12, caps=True, twist=0.0, radius_fn=None, profile=None, closed=False,
+             max_seg=0.22):
     """
     Sweep a circle (or a 2D profile [(x, y), ...]) along a polyline with rotation-minimising frames.
-    radius_fn(t) (t = 0..1 along the path) scales the section. Returns the rings.
+    radius_fn(t) (t = 0..1 along the path) scales the section. Long straight runs are split every max_seg m.
+    Returns the rings.
     """
     path = [V(p) for p in path]
+    if max_seg and not closed:
+        path = densify(path, max_seg)
     n = len(path)
     if closed:
         tang = [(path[(i + 1) % n] - path[i - 1]).normalized() for i in range(n)]
@@ -438,6 +454,24 @@ def section_x(pts2d, x, scale=1.0, dy=0.0, dz=0.0):
     return [(x, y * scale + dy, z * scale + dz) for (y, z) in pts2d]
 
 
+def shell_profile(prof, thick):
+    """
+    Give an open lathe profile [(r, z), ...] (outside on the right of travel) a wall: returns a closed loop of
+    the profile followed by its inward offset, for P.lathe(..., loop=True). Bells, stacks, drums seen from
+    inside then show a real inner wall instead of culled back faces.
+    """
+    n = len(prof)
+    inner = []
+    for i in range(n):
+        a = prof[max(0, i - 1)]
+        b = prof[min(n - 1, i + 1)]
+        tr, tz = b[0] - a[0], b[1] - a[1]
+        ln = math.hypot(tr, tz) or 1.0
+        nr, nz = -tz / ln, tr / ln  # the inside (left of travel)
+        inner.append((max(0.0005, prof[i][0] + nr * thick), prof[i][1] + nz * thick))
+    return list(prof) + inner[::-1]
+
+
 def bm_transform(bm, matrix, verts=None):
     bmesh.ops.transform(bm, matrix=matrix, verts=list(verts) if verts is not None else bm.verts[:])
 
@@ -497,6 +531,15 @@ class Part:
         """open: faces to leave out, e.g. '-z' or '-z+y' (local axes before rot): they sit against something."""
         bm = bm_new()
         verts = bm_cube(bm, size)
+        # a long thin bar gets loop cuts every ~0.2 m so its vertex AO is not decided by its two ends
+        dims = list(size)
+        il = max(range(3), key=lambda i: dims[i])
+        others = sorted(dims[i] for i in range(3) if i != il)
+        if dims[il] > 0.35 and others[1] < 0.12:
+            cuts = int(dims[il] / 0.2)
+            long_edges = [e for e in bm.edges
+                          if abs((e.verts[0].co - e.verts[1].co)[il]) > dims[il] * 0.99]
+            bmesh.ops.subdivide_edges(bm, edges=long_edges, cuts=cuts, use_grid_fill=True)
         if open:
             dead = []
             for f in bm.faces:
@@ -713,6 +756,9 @@ class Part:
             m.boundary_smooth = 'PRESERVE_CORNERS'
         if obj.modifiers:
             mc.apply_modifiers(obj)
+        bad = _inside_out(obj)
+        if bad:
+            print(f'  WARN inside-out: {obj.name} ({bad} closed island(s) with negative volume)')
         for c in cfg['cutters']:
             if c.name in bpy.data.objects:
                 bpy.data.objects.remove(c)
@@ -818,6 +864,39 @@ class Part:
                 e['movers'][o.name] = {'pivot': pos}
         e.update(self.info)
         return e
+
+
+def _inside_out(obj):
+    """Number of closed islands of obj whose signed volume is negative (faces pointing inwards)."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    seen = set()
+    bad = 0
+    for f0 in bm.faces:
+        if f0.index in seen:
+            continue
+        stack = [f0]
+        island = []
+        seen.add(f0.index)
+        while stack:
+            f = stack.pop()
+            island.append(f)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if g.index not in seen:
+                        seen.add(g.index)
+                        stack.append(g)
+        if any(len(e.link_faces) != 2 for f in island for e in f.edges):
+            continue
+        vol = 0.0
+        for f in island:
+            vs = [v.co for v in f.verts]
+            for i in range(1, len(vs) - 1):
+                vol += vs[0].dot(vs[i].cross(vs[i + 1])) / 6.0
+        if vol < -1e-10:
+            bad += 1
+    bm.free()
+    return bad
 
 
 def _mark_sharp(obj, angle_deg, smooth=True):
@@ -1073,6 +1152,164 @@ def render(P, views=None, size=(900, 720), engine='BLENDER_EEVEE', samples=48, s
     return outs
 
 
+# --------------------------------------------------------------------------------------------- toon previews
+
+def _toon_materials():
+    """Preview-only cel look close to the game's: lit / shadow tones split by a hard terminator, the shadow
+    tinted by the sky, chrome as hard horizon bands, AO from 'Col' darkening both tones."""
+    for m in bpy.data.materials:
+        if m.name.startswith('_'):
+            continue
+        base = m.name.split('.')[0]
+        if base not in mc.MAT_NAMES:
+            continue
+        c3, rough, metal = mc.MAT_NAMES[base]
+        m.use_nodes = True
+        nt = m.node_tree
+        for n in list(nt.nodes):
+            nt.nodes.remove(n)
+        out = nt.nodes.new('ShaderNodeOutputMaterial')
+        em = nt.nodes.new('ShaderNodeEmission')
+        nt.links.new(em.outputs[0], out.inputs['Surface'])
+        ao = nt.nodes.new('ShaderNodeVertexColor')
+        ao.layer_name = 'Col'
+        if base == 'chrome':
+            geo = nt.nodes.new('ShaderNodeNewGeometry')
+            sep = nt.nodes.new('ShaderNodeSeparateXYZ')
+            ramp = nt.nodes.new('ShaderNodeValToRGB')
+            ramp.color_ramp.interpolation = 'CONSTANT'
+            els = ramp.color_ramp.elements
+            els[0].position = 0.0
+            els[0].color = (0.16, 0.15, 0.17, 1)
+            els[1].position = 0.47
+            els[1].color = (0.95, 0.97, 1.0, 1)
+            e = els.new(0.62)
+            e.color = (0.55, 0.62, 0.75, 1)
+            e = els.new(0.86)
+            e.color = (1.0, 1.0, 1.0, 1)
+            mr = nt.nodes.new('ShaderNodeMapRange')
+            mr.inputs['From Min'].default_value = -1.0
+            mr.inputs['From Max'].default_value = 1.0
+            nt.links.new(geo.outputs['Normal'], sep.inputs[0])
+            nt.links.new(sep.outputs['Z'], mr.inputs['Value'])
+            nt.links.new(mr.outputs['Result'], ramp.inputs['Fac'])
+            col_out = ramp.outputs['Color']
+        else:
+            dif = nt.nodes.new('ShaderNodeBsdfDiffuse')
+            dif.inputs['Color'].default_value = (1, 1, 1, 1)
+            s2r = nt.nodes.new('ShaderNodeShaderToRGB')
+            nt.links.new(dif.outputs[0], s2r.inputs[0])
+            bw = nt.nodes.new('ShaderNodeRGBToBW')
+            nt.links.new(s2r.outputs['Color'], bw.inputs[0])
+            ramp = nt.nodes.new('ShaderNodeValToRGB')
+            ramp.color_ramp.interpolation = 'CONSTANT'
+            els = ramp.color_ramp.elements
+            lit = [min(1.0, c * 1.05) for c in c3]
+            shade = [c * k for c, k in zip(c3, (0.42, 0.48, 0.66))]
+            els[0].position = 0.0
+            els[0].color = (*shade, 1)
+            els[1].position = 0.3
+            els[1].color = (*lit, 1)
+            if metal > 0.5 or base in ('ceramic', 'paint', 'paint_b'):
+                e = els.new(0.92)
+                e.color = (min(1, lit[0] * 1.35 + 0.1), min(1, lit[1] * 1.35 + 0.1), min(1, lit[2] * 1.35 + 0.1), 1)
+            nt.links.new(bw.outputs[0], ramp.inputs['Fac'])
+            col_out = ramp.outputs['Color']
+        mul = nt.nodes.new('ShaderNodeMix')
+        mul.data_type = 'RGBA'
+        mul.blend_type = 'MULTIPLY'
+        _sock(mul.inputs, 'Factor', 'VALUE').default_value = 0.85
+        nt.links.new(col_out, _sock(mul.inputs, 'A', 'RGBA'))
+        nt.links.new(ao.outputs['Color'], _sock(mul.inputs, 'B', 'RGBA'))
+        nt.links.new(_sock(mul.outputs, 'Result', 'RGBA'), em.inputs['Color'])
+        if base == 'emit':
+            em.inputs['Strength'].default_value = 2.0
+
+
+def render_toon(P, views=None, size=(480, 384), suffix='_toon', lens=50.0, margin=1.1):
+    """Cel-look previews with Freestyle outlines into SCRATCH/<id><suffix>_<view>.png."""
+    scene = bpy.context.scene
+    meshes = [P.root] + P.mover_objs
+    pts = []
+    dg = bpy.context.evaluated_depsgraph_get()
+    for o in meshes:
+        ev = o.evaluated_get(dg)
+        me = ev.to_mesh()
+        pts += [o.matrix_world @ v.co for v in me.vertices]
+        ev.to_mesh_clear()
+    lo = V((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = V((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    c = (lo + hi) / 2
+    rad = max((p - c).length for p in pts)
+    _toon_materials()
+    w = scene.world or bpy.data.worlds.new('World')
+    scene.world = w
+    w.use_nodes = True
+    bg = w.node_tree.nodes.get('Background')
+    if bg is None:
+        for n in list(w.node_tree.nodes):
+            w.node_tree.nodes.remove(n)
+        bg = w.node_tree.nodes.new('ShaderNodeBackground')
+        o = w.node_tree.nodes.new('ShaderNodeOutputWorld')
+        w.node_tree.links.new(bg.outputs[0], o.inputs[0])
+    for lk in list(bg.inputs['Color'].links):
+        w.node_tree.links.remove(lk)
+    bg.inputs['Color'].default_value = (0.62, 0.70, 0.80, 1)
+    bg.inputs['Strength'].default_value = 1.0
+    sun = bpy.data.lights.new('toon_sun', 'SUN')
+    sun.energy = 4.0
+    so = bpy.data.objects.new('toon_sun', sun)
+    scene.collection.objects.link(so)
+    scene.render.engine = 'BLENDER_EEVEE'
+    scene.render.resolution_x, scene.render.resolution_y = size
+    scene.view_settings.view_transform = 'Standard'
+    scene.view_settings.look = 'None'
+    scene.render.use_freestyle = True
+    scene.render.line_thickness_mode = 'ABSOLUTE'
+    scene.render.line_thickness = 1.1
+    vl = scene.view_layers[0]
+    fs = vl.freestyle_settings
+    fs.crease_angle = math.radians(128)
+    ls = fs.linesets[0] if fs.linesets else fs.linesets.new('lines')
+    ls.select_by_visibility = True
+    ls.select_silhouette = True
+    ls.select_border = True
+    ls.select_crease = True
+    ls.select_material_boundary = True
+    if ls.linestyle is None:
+        ls.linestyle = bpy.data.linestyles.new('toon_lines')
+    ls.linestyle.color = (0.16, 0.10, 0.09)
+    ls.linestyle.thickness = 1.1
+    try:
+        scene.eevee.taa_render_samples = 16
+    except Exception:
+        pass
+    cam_data = bpy.data.cameras.new('toon_cam')
+    cam_data.lens = lens
+    cam = bpy.data.objects.new('toon_cam', cam_data)
+    scene.collection.objects.link(cam)
+    scene.camera = cam
+    fov = 2 * math.atan(18.0 / lens) * min(1.0, size[1] / size[0])
+    dist = rad / math.sin(fov / 2) * margin
+    views = views or [('a', 35, 20)]
+    outs = []
+    for tag, yaw, pitch in views:
+        yw, pt = math.radians(yaw), math.radians(pitch)
+        d = V((math.cos(yw) * math.cos(pt), -math.sin(yw) * math.cos(pt), math.sin(pt)))
+        az = -yaw + 50.0
+        so.rotation_euler = (math.radians(90 - 45), 0, math.radians(az + 90))
+        cam.location = c + d * dist
+        cam.rotation_euler = (c - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        path = os.path.join(SCRATCH, f'{P.id}{suffix}_{tag}.png')
+        scene.render.filepath = path
+        bpy.ops.render.render(write_still=True)
+        outs.append(path)
+    scene.render.use_freestyle = False
+    for h in (so, cam):
+        bpy.data.objects.remove(h)
+    return outs
+
+
 # --------------------------------------------------------------------------------------------- running
 
 def parse(args):
@@ -1111,7 +1348,10 @@ def run(table, args, after=None):
         print(f'PART {pid}: {P.tris} tris, bbox {e["bbox"]} ({time.time() - t0:.1f}s)')
         if not opts.get('norender'):
             views = getattr(P, 'views', None)
-            render(P, views=views)
+            if opts.get('toon'):
+                render_toon(P, views=views[:1] if views else None)
+            else:
+                render(P, views=views)
         if after:
             after(P, opts)
     if not opts.get('nogeo'):

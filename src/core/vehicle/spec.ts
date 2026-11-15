@@ -48,6 +48,13 @@ export interface AxleSpec {
    * springs further and the body sinks by the difference, a lighter one rides higher.
    */
   rideComp?: number;
+  /**
+   * Load one tyre of this axle is rated at (N): its grip is nominal there and falls by tire.loadSens
+   * per 100 % more (a lighter load gains a little). Omitted = each wheel's own static load, so the
+   * static weight never changes the grip. Given the frame's design load (rescale.ts fills it in), a
+   * heavier engine makes the nose push and an overloaded build slides sooner.
+   */
+  tyreLoad?: number;
 }
 
 /**
@@ -167,6 +174,12 @@ export interface VehicleSpec {
   balance?: BalanceSpec;
   /** parts the build lacks */
   absent?: AbsentParts;
+  /**
+   * How far an empty hub's lowest point — brake drum, stub axle — is from the hub centre (m): the
+   * radius an empty hub (SimMods.wheelFit None) grinds on. Default 0.45 × wheelRadius; give it when
+   * wheelRadius follows the fitted wheels rather than the frame.
+   */
+  emptyHubRadius?: number;
 }
 
 /** placeholder engine for a build without one (`absent.engine`): no torque anywhere */
@@ -188,7 +201,17 @@ export const NO_ENGINE: VehicleSpec['engine'] = {
 export function usesExtensions(spec: VehicleSpec): boolean {
   const f = spec.front;
   const r = spec.rear;
-  return f.wheelRadius !== undefined || r.wheelRadius !== undefined || f.rideComp !== undefined || r.rideComp !== undefined || spec.balance !== undefined || spec.absent !== undefined;
+  return (
+    f.wheelRadius !== undefined ||
+    r.wheelRadius !== undefined ||
+    f.rideComp !== undefined ||
+    r.rideComp !== undefined ||
+    f.tyreLoad !== undefined ||
+    r.tyreLoad !== undefined ||
+    spec.balance !== undefined ||
+    spec.absent !== undefined ||
+    spec.emptyHubRadius !== undefined
+  );
 }
 
 /**
