@@ -1,74 +1,94 @@
 /**
  * The few words on screen while working on a vehicle (docs/MODCAR.md §5): the mark in the middle and its
  * progress ring, the item cards, the hotbar and the keys (hudItems.ts), the vehicle's own messages, the
- * paint colours, the garage's checklist, the cluster while driving, the key card and the loading card.
+ * paint colours, the garage's checklist (as a quest in the top right corner), the cluster while driving,
+ * the key card and the loading card.
  *
- * Plain DOM over the canvas, styled like a note pinned to a workshop board: cream paper, dark ink.
+ * Plain DOM over the canvas, laid out and coloured as Arctic Drive's HUD is (dark smoky glass, white words
+ * with a shadow where they stand on the scene), in a cartoon frame: a cream rim, an ink line round it and a
+ * hard shadow under (.mc-frame). Drawn for a 1280 × 720 window and scaled with the window, so the words
+ * keep their share of the screen on a bigger one.
  */
 import type { Text } from '../../core/modcar/types';
 import { ItemHud } from './hudItems';
 
+/** the cartoon frame round every panel: Arctic Drive's dark smoky glass inside a cream rim, an ink line round that and a hard shadow under */
+const SMOKE = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0125' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.11 -0.02'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23a)'/%3E%3C/svg%3E")`;
+const GRAIN = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")`;
+
 const CSS = `
-.mc-ui { position: fixed; inset: 0; pointer-events: none; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #2b2622; z-index: 5; }
-.mc-mark { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255,250,236,0.9); box-shadow: 0 0 0 1.5px rgba(40,30,24,0.55); }
-.mc-ring { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; }
-.mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); padding: 4px 12px; border-radius: 12px; background: rgba(250,244,228,0.92); box-shadow: 0 2px 0 rgba(60,40,24,0.25); font-size: 15px; white-space: nowrap; }
-.mc-word b { color: #a3472e; font-weight: 600; }
-.mc-word small { color: #7a6a5a; margin-left: 6px; font-size: 12px; }
-.mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 6px 16px; border-radius: 13px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); color: #2b2622; font-size: 15px; transition: opacity 0.4s; }
-.mc-paint { position: absolute; left: calc(50% + 86px); bottom: 26px; display: flex; gap: 3px; padding: 6px 8px; border-radius: 10px; background: rgba(250,244,228,0.84); box-shadow: 0 2px 0 rgba(60,40,24,0.2); }
-.mc-paint i { width: 14px; height: 22px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(40,30,24,0.3); }
-.mc-paint i.on { transform: translateY(-5px); box-shadow: 0 0 0 2px #2b2622; }
-.mc-list { position: absolute; left: 22px; top: 22px; min-width: 210px; padding: 10px 14px; border-radius: 10px; background: rgba(250,244,228,0.92); box-shadow: 0 3px 0 rgba(60,40,24,0.22); font-size: 14px; }
-.mc-list h4 { margin: 0 0 6px; font-size: 15px; }
-.mc-list div { margin: 2px 0; } .mc-list .done { color: #7a8a6a; text-decoration: line-through; } .mc-list .now { color: #a3472e; font-weight: 600; }
-.mc-dash { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 12px; padding: 9px 14px 9px 12px; border-radius: 13px; background: rgba(250,244,228,0.93); color: #2b2622; font-variant-numeric: tabular-nums; box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); }
-.mc-dash .spd { font-size: 34px; line-height: 0.9; font-weight: 700; min-width: 62px; text-align: right; letter-spacing: -0.02em; }
-.mc-dash .unit { font-size: 11px; color: #7a6a5a; margin-left: -8px; margin-bottom: 2px; }
-.mc-dash .gear { min-width: 30px; padding: 2px 6px; border-radius: 7px; background: #2b2622; color: #fbf3e1; font-size: 18px; font-weight: 700; text-align: center; margin-bottom: 1px; }
-.mc-dash .col { display: flex; flex-direction: column; gap: 4px; min-width: 124px; }
-.mc-dash .row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #6a5a4a; }
-.mc-dash .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(60,40,24,0.13); overflow: hidden; }
-.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #a3472e; }
-.mc-dash .bar.rpm i { background: linear-gradient(90deg, #6a5a4a 78%, #c4552e 100%); }
-.mc-dash .bar.fuelBar i { background: #e0912f; }
-.mc-dash .bar.temp i { background: #4a9bd6; }
-.mc-dash .bar.low i { background: #c4552e; }
-.mc-dash .lamps { display: flex; gap: 5px; font-size: 11px; min-height: 15px; }
-.mc-dash .lamps span { padding: 0 5px; border-radius: 4px; background: rgba(60,40,24,0.08); color: #8a7a6a; }
-.mc-dash .lamps span.on { background: #f3c35a; color: #2b2622; }
-.mc-dash .lamps span.warn { background: #c4552e; color: #fff6e6; }
-.mc-fade { position: absolute; inset: 0; background: #0e0c0a; opacity: 0; transition: opacity 0.6s; }
-.mc-help { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 16px 20px 12px; border-radius: 14px; background: rgba(250,244,228,0.96); box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.12); font-size: 14px; line-height: 1.55; }
-.mc-help h3 { margin: 0 0 2px; font-size: 18px; }
-.mc-help .lead { color: #7a6a5a; font-size: 13px; margin-bottom: 10px; }
-.mc-help h5 { margin: 10px 0 4px; font-size: 13px; color: #a3472e; letter-spacing: 0.05em; }
+.mc-ui { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; transform-origin: 0 0; pointer-events: none; z-index: 5; color: #fff;
+  font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --ink: #17120f; --rim: #efe6d3; --tx-2: #c9c6c0; --tx-3: #8d8a85; --rule: rgba(255,255,255,0.16); --track: #4e4d4c; --gold: #e9c14a;
+  --key-font: "Bahnschrift","Arial",sans-serif;
+  --smoke: ${SMOKE}; --grain: ${GRAIN};
+  --say-shadow: 0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45); }
+.mc-frame { box-sizing: border-box; border-radius: 14px; background: var(--grain), var(--smoke), linear-gradient(180deg, rgba(22,21,20,0.9), rgba(30,29,28,0.86)); border: 3px solid var(--rim); box-shadow: 0 0 0 2.5px var(--ink), 0 6px 0 1px rgba(10,8,6,0.55); }
+.mc-mark { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,0.5); }
+.mc-ring { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); }
+.mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
+.mc-word b { color: var(--gold); }
+.mc-word small { color: var(--tx-2); margin-left: 6px; font-size: 13px; font-weight: 400; }
+.mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 8px 20px; white-space: nowrap; font-size: 16px; font-weight: 700; transition: opacity 0.4s; }
+.mc-paint { position: absolute; left: calc(50% + 86px); bottom: 26px; display: grid; grid-template-columns: repeat(12, 16px); gap: 7px 6px; padding: 10px 13px; border-radius: 18px; }
+.mc-paint i { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 2px var(--ink); transition: transform 0.1s; }
+.mc-paint i.on { transform: translateY(-4px) scale(1.12); box-shadow: 0 0 0 2px var(--ink), 0 0 0 4.5px var(--rim), 0 0 0 6.5px var(--ink); }
+.mc-list { position: absolute; right: 30px; top: 22px; width: 320px; text-align: right; text-shadow: var(--say-shadow); }
+.mc-list h4 { margin: 0; padding-bottom: 7px; font-size: 19px; font-weight: 700; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75)) left bottom / 100% 1.5px no-repeat; }
+.mc-list .now { display: flex; justify-content: flex-end; align-items: center; gap: 9px; margin-top: 8px; font-size: 16px; }
+.mc-list .ring { position: relative; flex: none; width: 32px; height: 32px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid var(--rim); box-shadow: 0 0 0 2px var(--ink); text-shadow: none; }
+.mc-list .ring b { position: absolute; inset: 4px; border-radius: 50%; background: rgba(20,18,16,0.95); font-size: 9.5px; font-weight: 700; line-height: 19px; text-align: center; }
+.mc-dash { position: absolute; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 14px; padding: 11px 18px 12px 16px; }
+.mc-dash .sp { display: flex; flex-direction: column; align-items: flex-end; min-width: 66px; }
+.mc-dash .spd { font-size: 40px; line-height: 0.95; font-weight: 700; letter-spacing: -0.02em; }
+.mc-dash .unit { margin-top: 3px; font-size: 12px; color: var(--tx-2); }
+.mc-dash .gear { min-width: 32px; padding: 4px 6px; border-radius: 8px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 19px/1 var(--key-font); text-align: center; }
+.mc-dash .col { display: flex; flex-direction: column; gap: 7px; min-width: 150px; }
+.mc-dash .row { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--tx-2); }
+.mc-dash .rpmT, .mc-dash .tempT { min-width: 34px; text-align: right; color: #fff; font-weight: 700; }
+.mc-dash .bar { position: relative; flex: 1; height: 8px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: #f2efe8; }
+.mc-dash .bar.red i { background: #ff6b5a; }
+.mc-dash .bar.fuelBar i { background: #ff9a2a; }
+.mc-dash .bar.temp i { background: #4f9cf2; }
+.mc-dash .bar.low i { background: #ff6b5a; }
+.mc-dash .lamps { display: flex; gap: 5px; min-height: 19px; }
+.mc-dash .lamps span { padding: 0 8px; border-radius: 999px; background: rgba(255,255,255,0.09); color: var(--tx-3); font-size: 12px; line-height: 19px; }
+.mc-dash .lamps span.on { background: #f2efe8; color: var(--ink); font-weight: 700; }
+.mc-dash .lamps span.warn { background: #ff6b5a; color: #fff; font-weight: 700; }
+.mc-fade { position: absolute; z-index: 5; inset: 0; background: #0b0a09; opacity: 0; transition: opacity 0.6s; }
+.mc-help, .mc-assist { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); max-height: calc(100% - 40px); overflow: auto; font-size: 14.5px; line-height: 1.55; }
+.mc-help { width: min(660px, calc(100% - 32px)); padding: 16px 22px 14px; }
+.mc-assist { width: min(440px, calc(100% - 32px)); padding: 16px 22px 12px; }
+.mc-help h3, .mc-assist h3 { margin: 0 0 3px; font-size: 21px; font-weight: 700; }
+.mc-help .lead { color: var(--tx-2); margin-bottom: 4px; }
+.mc-help h5 { margin: 12px 0 4px; padding-bottom: 5px; border-bottom: 1px solid var(--rule); font-size: 13.5px; font-weight: 400; color: var(--tx-2); }
 .mc-help table { width: 100%; border-collapse: collapse; }
-.mc-help td { padding: 2px 0; vertical-align: top; }
-.mc-help td.k { width: 150px; white-space: nowrap; color: #2b2622; }
-.mc-help td.k b { display: inline-block; min-width: 18px; padding: 0 5px; margin-right: 2px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-weight: 600; font-size: 12px; text-align: center; }
-.mc-help td.v { color: #5a4c40; }
-.mc-help .foot { margin-top: 10px; color: #7a6a5a; font-size: 12px; text-align: center; }
-.mc-assist { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); padding: 14px 18px 10px; border-radius: 14px; background: rgba(250,244,228,0.96); box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.12); font-size: 14px; line-height: 1.6; }
-.mc-assist h3 { margin: 0 0 6px; font-size: 17px; }
-.mc-assist div.row { display: flex; gap: 8px; align-items: baseline; }
-.mc-assist b.k { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 12px; text-align: center; }
-.mc-assist span.on { color: #3f7d3a; font-weight: 600; } .mc-assist span.off { color: #9a6a4a; }
-.mc-assist .foot { margin-top: 8px; color: #7a6a5a; font-size: 12px; }
-.mc-load { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #1a1612; transition: opacity 0.8s; }
-.mc-load .box { width: min(360px, calc(100vw - 48px)); color: #fbf3e1; text-align: center; }
-.mc-load h2 { margin: 0 0 4px; font-size: 26px; font-weight: 600; letter-spacing: 0.08em; }
-.mc-load .sub { color: #c9bba6; font-size: 13px; margin-bottom: 18px; }
-.mc-load .bar { height: 4px; border-radius: 2px; background: rgba(251,243,225,0.15); overflow: hidden; }
-.mc-load .bar i { display: block; height: 100%; width: 0; background: #f3c35a; transition: width 0.2s; }
-.mc-load .what { margin-top: 10px; color: #8f8270; font-size: 12px; }
-.mc-pause { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); padding: 6px 16px; border-radius: 13px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22); color: #2b2622; font-size: 14px; }
-.mc-pause b { color: #a3472e; }
-.mc-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #fbf3e1; font-size: 13px; text-shadow: 0 1px 2px rgba(20,14,10,0.8); white-space: nowrap; }
-.mc-marker i { display: block; width: 14px; height: 14px; margin: 3px auto 0; transform: rotate(45deg); border: 2px solid #f3c35a; border-radius: 2px; background: rgba(243,195,90,0.25); animation: mc-bob 1.6s ease-in-out infinite; }
-.mc-marker.edge i { border-color: #fbf3e1; }
+.mc-help td { padding: 3px 0; vertical-align: top; }
+.mc-help td.k { width: 172px; white-space: nowrap; font-weight: 700; }
+.mc-help td.v { color: #ece9e3; }
+.mc-help td.v b { color: var(--gold); }
+.mc-help td.k b, .mc-help .foot b, .mc-assist b.k { display: inline-flex; align-items: center; justify-content: center; min-width: 23px; height: 23px; margin-right: 3px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 13px/1 var(--key-font); vertical-align: middle; }
+.mc-help .foot, .mc-assist .foot { margin-top: 12px; padding-top: 9px; border-top: 1px solid var(--rule); color: var(--tx-2); font-size: 13px; text-align: center; }
+.mc-assist .row { display: flex; gap: 10px; align-items: center; padding: 4px 0; }
+.mc-assist span.on, .mc-assist span.off { min-width: 30px; padding: 0 8px; border-radius: 999px; font-size: 13px; font-weight: 700; line-height: 21px; text-align: center; }
+.mc-assist span.on { background: #f2efe8; color: var(--ink); }
+.mc-assist span.off { background: rgba(255,255,255,0.09); color: var(--tx-3); }
+.mc-load { position: absolute; z-index: 6; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--grain), var(--smoke) 0 0 / 1600px 1600px, #181716; transition: opacity 0.8s; }
+.mc-load .box { width: min(400px, calc(100% - 48px)); text-align: center; }
+.mc-load h2 { margin: 0 0 6px; font-size: 34px; font-weight: 700; letter-spacing: 0.08em; }
+.mc-load .sub { color: var(--tx-2); font-size: 15px; margin-bottom: 22px; }
+.mc-load .bar { height: 14px; padding: 0; border-radius: 999px; overflow: hidden; }
+.mc-load .bar i { display: block; height: 100%; width: 0; border-radius: 999px; background: #f2efe8; transition: width 0.2s; }
+.mc-load .what { margin-top: 12px; color: var(--tx-3); font-size: 13px; }
+.mc-pause { position: absolute; z-index: 4; left: 50%; top: 64%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 999px; white-space: nowrap; font-size: 16px; font-weight: 700; }
+.mc-pause b { display: inline-flex; align-items: center; justify-content: center; min-width: 23px; height: 23px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 13px/1 var(--key-font); }
+.mc-pause i { font-style: normal; color: var(--tx-3); font-weight: 400; }
+.mc-marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; white-space: nowrap; font-size: 15px; font-weight: 700; text-shadow: var(--say-shadow); }
+.mc-marker svg { width: 22px; height: 26px; margin-top: 3px; filter: drop-shadow(0 2px 0 rgba(10,8,6,0.5)); animation: mc-bob 1.6s ease-in-out infinite; }
+.mc-marker.edge svg path.f { fill: #f2efe8; }
 .mc-marker.dim { opacity: 0.32; }
-@keyframes mc-bob { 0%, 100% { transform: translateY(0) rotate(45deg); } 50% { transform: translateY(-5px) rotate(45deg); } }
+@keyframes mc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 `;
 
 /** the keys (docs/MODCAR.md §5.1), as the help card shows them */
@@ -94,6 +114,9 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
 </table>
 <div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · <b>\`</b>（1 左边那个键）开发者面板 · 连按 <b>F9</b> 新游戏 · <b>Esc</b> 放开鼠标</div>`;
+
+/** the marker's flag: a gold pennant on a pole, in the cartoon ink */
+const FLAG = '<svg viewBox="0 0 22 26"><path d="M5 24.5V2.5" stroke="#17120f" stroke-width="3.2" stroke-linecap="round" fill="none" /><path d="M5 24.5V2.5" stroke="#efe6d3" stroke-width="1.4" stroke-linecap="round" fill="none" /><path class="f" d="M6 3h13l-3.6 4.6L19 12.2H6z" fill="#e9c14a" stroke="#17120f" stroke-width="2.2" stroke-linejoin="round" /></svg>';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -139,6 +162,8 @@ export class ModUI {
   /** the item cards, the hotbar, the keys (hudItems.ts) */
   readonly items: ItemHud;
   private toastT = 0;
+  /** the HUD's scale: the window against the 1280 × 720 it is drawn for */
+  private scale = 1;
   private lastMarker = '';
   private lastWord = '';
   private lastList = '';
@@ -149,33 +174,35 @@ export class ModUI {
     style.textContent = CSS;
     document.head.appendChild(style);
     this.root = el('div', 'mc-ui', document.body);
+    this.fitScreen();
+    window.addEventListener('resize', () => this.fitScreen());
     this.mark = el('div', 'mc-mark', this.root);
     const ns = 'http://www.w3.org/2000/svg';
     this.ring = document.createElementNS(ns, 'svg');
     this.ring.setAttribute('class', 'mc-ring');
     this.ring.setAttribute('viewBox', '0 0 46 46');
     const bg = document.createElementNS(ns, 'circle');
-    for (const [k, v] of Object.entries({ cx: '23', cy: '23', r: '18', fill: 'none', stroke: 'rgba(250,244,228,0.45)', 'stroke-width': '4' })) bg.setAttribute(k, v);
+    for (const [k, v] of Object.entries({ cx: '23', cy: '23', r: '18', fill: 'none', stroke: 'rgba(20,18,16,0.7)', 'stroke-width': '5' })) bg.setAttribute(k, v);
     this.arc = document.createElementNS(ns, 'circle');
-    for (const [k, v] of Object.entries({ cx: '23', cy: '23', r: '18', fill: 'none', stroke: '#f3c35a', 'stroke-width': '4', 'stroke-linecap': 'round', transform: 'rotate(-90 23 23)', 'stroke-dasharray': '113.1', 'stroke-dashoffset': '113.1' })) this.arc.setAttribute(k, v);
+    for (const [k, v] of Object.entries({ cx: '23', cy: '23', r: '18', fill: 'none', stroke: '#f2efe8', 'stroke-width': '4', 'stroke-linecap': 'round', transform: 'rotate(-90 23 23)', 'stroke-dasharray': '113.1', 'stroke-dashoffset': '113.1' })) this.arc.setAttribute(k, v);
     this.ring.appendChild(bg);
     this.ring.appendChild(this.arc);
     this.root.appendChild(this.ring);
     this.word = el('div', 'mc-word', this.root);
     this.items = new ItemHud(this.root);
-    this.toast = el('div', 'mc-toast', this.root);
-    this.paint = el('div', 'mc-paint', this.root);
+    this.toast = el('div', 'mc-toast mc-frame', this.root);
+    this.paint = el('div', 'mc-paint mc-frame', this.root);
     this.list = el('div', 'mc-list', this.root);
-    this.dash = el('div', 'mc-dash', this.root);
+    this.dash = el('div', 'mc-dash mc-frame', this.root);
     this.marker = el('div', 'mc-marker', this.root);
-    this.pause = el('div', 'mc-pause', this.root);
-    this.pause.innerHTML = '点击画面继续 · <b>F1</b> 按键';
-    this.help = el('div', 'mc-help', this.root);
+    this.pause = el('div', 'mc-pause mc-frame', this.root);
+    this.pause.innerHTML = '点击画面继续 <i>·</i> <b>F1</b> 按键';
+    this.help = el('div', 'mc-help mc-frame', this.root);
     this.help.innerHTML = HELP;
-    this.assist = el('div', 'mc-assist', this.root);
+    this.assist = el('div', 'mc-assist mc-frame', this.root);
     this.fade = el('div', 'mc-fade', this.root);
     this.load = el('div', 'mc-load', this.root);
-    this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
+    this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar mc-frame"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
     this.load.style.display = 'none';
     for (const e of [this.word, this.toast, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
@@ -183,6 +210,17 @@ export class ModUI {
 
   t(text: Text): string {
     return text[this.lang];
+  }
+
+  /** the HUD drawn for 1280 × 720 and scaled to the window (never below 0.7 or above 3) */
+  private fitScreen(): void {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const s = Math.min(3, Math.max(0.7, Math.min(w / 1280, h / 720)));
+    this.scale = s;
+    this.root.style.width = `${w / s}px`;
+    this.root.style.height = `${h / s}px`;
+    this.root.style.transform = s === 1 ? '' : `scale(${s})`;
   }
 
   /** the mark, the word under it ("装上 <b>V8</b>"), and the progress ring (−1 = none) */
@@ -210,7 +248,7 @@ export class ModUI {
       this.paint.style.display = 'none';
       return;
     }
-    this.paint.style.display = 'flex';
+    this.paint.style.display = '';
     if (this.paint.childElementCount !== colours.length) {
       this.paint.innerHTML = colours.map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`).join('');
     }
@@ -220,13 +258,22 @@ export class ModUI {
   showList(title: string | null, items: { text: string; done: boolean; now: boolean }[]): void {
     if (!title) {
       this.list.style.display = 'none';
+      this.items.topRight = 0;
+      this.lastList = '';
       return;
     }
     const key = title + JSON.stringify(items);
     this.list.style.display = '';
     if (key === this.lastList) return;
     this.lastList = key;
-    this.list.innerHTML = `<h4>${title}</h4>${items.map((i) => `<div class="${i.done ? 'done' : i.now ? 'now' : ''}">${i.done ? '✓' : i.now ? '▸' : '·'} ${i.text}</div>`).join('')}`;
+    const done = items.filter((i) => i.done).length;
+    const now = items.find((i) => i.now) ?? items.find((i) => !i.done);
+    const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+    this.list.innerHTML =
+      `<h4>${title}</h4><div class="now"><span>${now ? now.text : '全部完成'}</span>` +
+      `<span class="ring" style="background: conic-gradient(#8ad46a 0 ${pct}%, rgba(20,18,16,0.88) ${pct}% 100%)"><b>${pct}%</b></span></div>`;
+    // (the held card keeps below it)
+    this.items.topRight = this.list.offsetTop + this.list.offsetHeight;
   }
 
   private dashEls: { spd: HTMLElement; gear: HTMLElement; rpm: HTMLElement; rpmT: HTMLElement; fuel: HTMLElement; fuelBar: HTMLElement; temp: HTMLElement; tempT: HTMLElement; lamps: HTMLElement } | null = null;
@@ -323,13 +370,17 @@ export class ModUI {
       return;
     }
     this.marker.style.display = '';
-    this.marker.style.left = `${m.x.toFixed(0)}px`;
-    this.marker.style.top = `${m.y.toFixed(0)}px`;
+    const x = m.x / this.scale;
+    let y = m.y / this.scale;
+    // (held at the edge of the screen: below the quest in the top right corner, not over it)
+    if (m.edge && this.items.topRight > 0 && x > window.innerWidth / this.scale - 380) y = Math.max(y, this.items.topRight + 64);
+    this.marker.style.left = `${x.toFixed(0)}px`;
+    this.marker.style.top = `${y.toFixed(0)}px`;
     const key = `${m.text}|${m.edge}|${!!m.dim}`;
     if (key !== this.lastMarker) {
       this.lastMarker = key;
       this.marker.className = `mc-marker${m.edge ? ' edge' : ''}${m.dim ? ' dim' : ''}`;
-      this.marker.innerHTML = `${m.text}<i></i>`;
+      this.marker.innerHTML = `${m.text ? `<span>${m.text}</span>` : ''}${FLAG}`;
     }
   }
 

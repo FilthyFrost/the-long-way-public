@@ -889,9 +889,7 @@ export class ModPlayer {
     const other = this.slots[1 - this.sel];
     if (!h) {
       out.push({ keys: E, text: '拿起 / 开关 / 上车' }, { keys: F, hold: true, text: '拆下零件' });
-    } else if (h.kind === 'part') {
-      out.push({ keys: E, hold: true, text: '装到亮起的位置' });
-    } else {
+    } else if (h.kind === 'tool') {
       const liquid = liquidOf(h.tool);
       if (liquid) {
         const L = LIQUID[liquid];
@@ -901,7 +899,8 @@ export class ModPlayer {
       else out.push({ keys: ['LMB'], hold: true, text: '擦洗' });
     }
     if (h) out.push({ keys: ['G'], hold: true, text: '放下' });
-    out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : TOOL_INFO[other.tool.kind].name.zh}` : h ? '空出手' : '快捷栏另一格' });
+    // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)
+    if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
     out.push({ keys: ['I'], text: this.cardsOn ? '隐藏物品信息' : '显示物品信息' });
     return out;
   }

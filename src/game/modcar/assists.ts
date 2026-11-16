@@ -23,7 +23,7 @@ export const ASSIST_LABELS: [keyof Assists, string][] = [
   ['autoReverse', '停稳后按 S 直接倒车'],
   ['ghosts', '零件幽灵（能装的位置亮起来）'],
   ['card', '属性卡（旧值 → 新值）'],
-  ['guide', '清单和指引菱形'],
+  ['guide', '任务和指引小旗'],
 ];
 
 /** the hardcore default: the handbrake stays on until one releases it; the rest helps */

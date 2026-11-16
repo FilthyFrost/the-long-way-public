@@ -77,46 +77,46 @@ const GROUPS: { id: string; zh: string; cats?: Category[] }[] = [
 ];
 
 const CSS = `
-.mc-dev { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; z-index: 20; pointer-events: auto; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #2b2622; background: rgba(250,244,228,0.97); border-radius: 14px; box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.14); user-select: none; }
-.mc-dev .hd { padding: 12px 14px 6px; }
+.mc-dev { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; z-index: 20; pointer-events: auto; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #fff; box-sizing: border-box; border-radius: 14px; border: 3px solid #efe6d3; box-shadow: 0 0 0 2.5px #17120f, 0 6px 0 1px rgba(10,8,6,0.55); background: linear-gradient(180deg, rgba(8,8,8,0.96) 0px, rgba(18,18,17,0.95) 46px, rgba(30,29,28,0.94) 100%); user-select: none; overflow: hidden; }
+.mc-dev .hd { padding: 11px 14px 6px; }
 .mc-dev .hd h3 { margin: 0; font-size: 17px; display: flex; align-items: baseline; gap: 8px; }
-.mc-dev .hd h3 small { flex: 1; min-width: 0; font-size: 12px; font-weight: 400; color: #7a6a5a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mc-dev .hd h3 .restart { flex: none; align-self: center; padding: 3px 10px; border: 0; border-radius: 8px; background: rgba(163,71,46,0.11); color: #a3472e; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
-.mc-dev .hd h3 .restart:hover, .mc-dev .hd h3 .restart.on { background: #a3472e; color: #fbf3e1; }
-.mc-dev .ask { margin: 8px 0 2px; padding: 9px 11px 10px; border-radius: 10px; background: #fffaf0; box-shadow: 0 0 0 1.5px rgba(163,71,46,0.45); font-size: 13px; line-height: 1.5; }
+.mc-dev .hd h3 small { flex: 1; min-width: 0; font-size: 12px; font-weight: 400; color: #c9c6c0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-dev .hd h3 .restart { flex: none; align-self: center; padding: 3px 11px; border: 2px solid #17120f; border-radius: 8px; background: #f6f2ea; color: #17120f; box-shadow: 0 2px 0 #17120f; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.mc-dev .hd h3 .restart:hover, .mc-dev .hd h3 .restart.on { background: #e9c14a; }
+.mc-dev .ask { margin: 8px 0 2px; padding: 9px 11px 10px; border-radius: 10px; background: rgba(255,255,255,0.06); box-shadow: inset 0 0 0 1.5px rgba(233,193,74,0.6); font-size: 13px; line-height: 1.5; }
 .mc-dev .ask > b { display: block; font-size: 14px; margin-bottom: 2px; }
 .mc-dev .ask .note { margin: 2px 0 4px; }
 .mc-dev .ask .btns { margin-top: 8px; }
 .mc-dev .ask button:disabled { opacity: 0.55; cursor: default; }
-.mc-dev .hint { margin-top: 3px; font-size: 12px; color: #7a6a5a; line-height: 1.5; }
-.mc-dev .hint b { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 11px; text-align: center; }
-.mc-dev input.q { margin: 6px 14px 4px; padding: 6px 10px; border: 1px solid rgba(60,40,24,0.22); border-radius: 9px; background: #fffaf0; font: inherit; font-size: 13px; color: #2b2622; outline: none; }
-.mc-dev input.q:focus { border-color: #a3472e; box-shadow: 0 0 0 2px rgba(163,71,46,0.15); }
+.mc-dev .hint { margin-top: 3px; font-size: 12px; color: #c9c6c0; line-height: 1.5; }
+.mc-dev .hint b { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 5px; border: 1.5px solid #17120f; background: #f6f2ea; color: #17120f; font-size: 11px; text-align: center; }
+.mc-dev input.q { margin: 6px 14px 4px; padding: 6px 10px; border: 1.5px solid rgba(239,230,211,0.35); border-radius: 9px; background: rgba(0,0,0,0.35); font: inherit; font-size: 13px; color: #fff; outline: none; }
+.mc-dev input.q:focus { border-color: #e9c14a; box-shadow: 0 0 0 2px rgba(233,193,74,0.2); }
 .mc-dev .chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 14px 8px; }
-.mc-dev .chips span { padding: 2px 9px; border-radius: 10px; font-size: 12px; background: rgba(60,40,24,0.07); color: #5a4c40; cursor: pointer; }
-.mc-dev .chips span.on { background: #2b2622; color: #fbf3e1; }
+.mc-dev .chips span { padding: 2px 9px; border-radius: 10px; font-size: 12px; background: rgba(255,255,255,0.08); color: #c9c6c0; cursor: pointer; }
+.mc-dev .chips span.on { background: #f6f2ea; color: #17120f; font-weight: 700; }
 .mc-dev .list { flex: 1; overflow-y: auto; padding: 0 10px 8px 14px; overscroll-behavior: contain; }
 .mc-dev .pane[data-p="parts"] input.q { margin-top: 8px; }
-.mc-dev h5 { margin: 10px 0 5px; font-size: 12px; color: #a3472e; letter-spacing: 0.06em; }
-.mc-dev .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.mc-dev .tile { position: relative; padding: 4px 4px 5px; border-radius: 9px; background: #fffaf0; box-shadow: 0 1px 0 rgba(60,40,24,0.18), 0 0 0 1px rgba(60,40,24,0.08); cursor: grab; touch-action: none; }
-.mc-dev .tile:hover { box-shadow: 0 1px 0 rgba(60,40,24,0.18), 0 0 0 2px rgba(163,71,46,0.55); }
-.mc-dev .tile .pic { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; background: radial-gradient(ellipse at 50% 70%, #efe4cc 0%, #f7efdd 70%); object-fit: contain; }
-.mc-dev .tile .pic.wait { background: repeating-linear-gradient(135deg, #f3ead6 0 6px, #efe4cc 6px 12px); }
+.mc-dev h5 { margin: 10px 0 5px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.14); font-size: 12px; font-weight: 400; color: #c9c6c0; letter-spacing: 0.06em; }
+.mc-dev .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.mc-dev .tile { position: relative; padding: 4px 4px 5px; border-radius: 10px; background: linear-gradient(180deg, rgba(120,124,122,0.32), rgba(26,26,26,0.6) 40%, rgba(20,20,20,0.7)); box-shadow: inset 0 0 0 1.5px rgba(239,230,211,0.28); cursor: grab; touch-action: none; }
+.mc-dev .tile:hover { box-shadow: inset 0 0 0 2px #efe6d3; }
+.mc-dev .tile .pic { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 7px; background: radial-gradient(ellipse at 50% 70%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.02) 70%); object-fit: contain; }
+.mc-dev .tile .pic.wait { background: repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0 6px, rgba(255,255,255,0.02) 6px 12px); }
 .mc-dev .tile .nm { margin-top: 3px; font-size: 12px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mc-dev .tile .mt { font-size: 10.5px; color: #8a7a6a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-dev .tile .mt { font-size: 10.5px; color: #a8a49e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mc-dev .tag { display: inline-block; margin-left: 3px; padding: 0 4px; border-radius: 4px; font-size: 10px; line-height: 1.5; }
-.mc-dev .tag.stock { background: rgba(63,125,58,0.14); color: #3f7d3a; }
-.mc-dev .tag.apoc { background: rgba(163,71,46,0.14); color: #a3472e; }
-.mc-dev .tag.meme { background: rgba(196,140,40,0.18); color: #946414; }
-.mc-dev .tag.bare { background: rgba(60,40,24,0.1); color: #5a4c40; }
-.mc-dev .ft { display: flex; gap: 6px; padding: 8px 14px 12px; border-top: 1px solid rgba(60,40,24,0.1); }
-.mc-dev .ft button { flex: 1; padding: 6px 8px; border: 0; border-radius: 9px; background: #2b2622; color: #fbf3e1; font: inherit; font-size: 12.5px; cursor: pointer; }
-.mc-dev .ft button:hover { background: #a3472e; }
-.mc-dev-drag { position: fixed; z-index: 30; pointer-events: none; transform: translate(-50%, -60%); padding: 3px 4px 4px; width: 92px; border-radius: 9px; background: rgba(255,250,240,0.92); box-shadow: 0 3px 8px rgba(40,28,18,0.35); font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; font-size: 11px; color: #2b2622; text-align: center; transition: opacity 0.1s; }
+.mc-dev .tag.stock { background: rgba(143,212,122,0.18); color: #a6ea92; }
+.mc-dev .tag.apoc { background: rgba(255,171,94,0.18); color: #ffbe82; }
+.mc-dev .tag.meme { background: rgba(233,193,74,0.2); color: #f0d27a; }
+.mc-dev .tag.bare { background: rgba(255,255,255,0.1); color: #c9c6c0; }
+.mc-dev .ft { display: flex; gap: 6px; padding: 9px 14px 12px; border-top: 1px solid rgba(255,255,255,0.14); }
+.mc-dev .ft button { flex: 1; padding: 6px 8px; border: 2px solid #17120f; border-radius: 9px; background: #f6f2ea; color: #17120f; box-shadow: 0 2px 0 #17120f; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.mc-dev .ft button:hover { background: #e9c14a; }
+.mc-dev-drag { position: fixed; z-index: 30; pointer-events: none; transform: translate(-50%, -60%); padding: 3px 4px 4px; width: 92px; box-sizing: border-box; border-radius: 10px; border: 2.5px solid #efe6d3; box-shadow: 0 0 0 2px #17120f, 0 4px 10px rgba(0,0,0,0.4); background: rgba(24,23,22,0.92); font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; font-size: 11px; color: #fff; text-align: center; transition: opacity 0.1s; }
 .mc-dev-drag img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; }
 .mc-dev-drag.drop { opacity: 0.55; }
-.mc-dev-drag.none::after { content: '这里放不下'; display: block; color: #a3472e; }
+.mc-dev-drag.none::after { content: '这里放不下'; display: block; color: #ff9a7e; }
 `;
 
 /** what the button at the top does, in the bubble beside the panel (no double quotes: it stands in an attribute) */

@@ -12,48 +12,48 @@ import { DevWorld, PLACES } from './devWorld';
 export type PaneId = 'place' | DialTab;
 
 export const PANE_CSS = `
-.mc-dev .tabs { display: flex; gap: 0; padding: 0 8px; border-bottom: 1px solid rgba(60,40,24,0.12); }
-.mc-dev .tabs span { flex: 1; text-align: center; padding: 6px 2px 7px; font-size: 13px; color: #7a6a5a; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-.mc-dev .tabs span:hover { color: #2b2622; }
-.mc-dev .tabs span.on { color: #2b2622; font-weight: 600; border-bottom-color: #a3472e; }
-.mc-dev .tabs span i { font-style: normal; font-size: 10px; color: #fbf3e1; background: #a3472e; border-radius: 7px; padding: 0 4px; margin-left: 2px; vertical-align: 1px; }
+.mc-dev .tabs { display: flex; gap: 0; padding: 0 8px; border-bottom: 1px solid rgba(255,255,255,0.14); }
+.mc-dev .tabs span { flex: 1; text-align: center; padding: 6px 2px 7px; font-size: 13px; color: #a8a49e; cursor: pointer; border-bottom: 2.5px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.mc-dev .tabs span:hover { color: #fff; }
+.mc-dev .tabs span.on { color: #fff; font-weight: 700; border-bottom-color: #e9c14a; }
+.mc-dev .tabs span i { font-style: normal; font-size: 10px; color: #17120f; background: #e9c14a; border-radius: 7px; padding: 0 4px; margin-left: 2px; vertical-align: 1px; }
 .mc-dev .pane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .mc-dev .pane .body { flex: 1; overflow-y: auto; padding: 2px 12px 10px 14px; overscroll-behavior: contain; }
 .mc-dev .dial { padding: 4px 0 2px; }
 .mc-dev .dial .top { display: flex; align-items: baseline; gap: 6px; font-size: 13px; }
 .mc-dev .dial .lb { flex: 1; cursor: help; }
-.mc-dev .dial.moved .lb::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 3px; background: #a3472e; margin-right: 5px; vertical-align: 1px; }
-.mc-dev .dial .val { font-variant-numeric: tabular-nums; color: #5a4c40; min-width: 56px; text-align: right; cursor: text; border-radius: 5px; padding: 0 3px; }
-.mc-dev .dial .val:hover { background: rgba(60,40,24,0.07); }
-.mc-dev .dial .val input { width: 70px; font: inherit; font-size: 12.5px; text-align: right; border: 1px solid #a3472e; border-radius: 5px; background: #fffaf0; color: #2b2622; outline: none; }
-.mc-dev .dial .rs { visibility: hidden; cursor: pointer; color: #a3472e; font-weight: 400; padding: 0 2px; }
+.mc-dev .dial.moved .lb::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 3px; background: #e9c14a; margin-right: 5px; vertical-align: 1px; }
+.mc-dev .dial .val { font-variant-numeric: tabular-nums; color: #c9c6c0; min-width: 56px; text-align: right; cursor: text; border-radius: 5px; padding: 0 3px; }
+.mc-dev .dial .val:hover { background: rgba(255,255,255,0.08); }
+.mc-dev .dial .val input { width: 70px; font: inherit; font-size: 12.5px; text-align: right; border: 1.5px solid #e9c14a; border-radius: 5px; background: rgba(0,0,0,0.4); color: #fff; outline: none; }
+.mc-dev .dial .rs { visibility: hidden; cursor: pointer; color: #e9c14a; font-weight: 400; padding: 0 2px; }
 .mc-dev .dial.moved .rs { visibility: visible; }
-.mc-dev .dial.moved .val { color: #a3472e; font-weight: 600; }
-.mc-dev input[type=range] { display: block; width: 100%; accent-color: #a3472e; margin: 1px 0 0; height: 18px; cursor: pointer; }
-.mc-dev .btns { display: flex; flex-wrap: wrap; gap: 5px; }
+.mc-dev .dial.moved .val { color: #e9c14a; font-weight: 700; }
+.mc-dev input[type=range] { display: block; width: 100%; accent-color: #e9c14a; margin: 1px 0 0; height: 18px; cursor: pointer; }
+.mc-dev .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .mc-dev .btns.two { display: grid; grid-template-columns: 1fr 1fr; }
 .mc-dev .btns.three { display: grid; grid-template-columns: 1fr 1fr 1fr; }
-.mc-dev .btns button { padding: 6px 8px; border: 0; border-radius: 9px; background: #fffaf0; box-shadow: 0 1px 0 rgba(60,40,24,0.16), 0 0 0 1px rgba(60,40,24,0.08); color: #2b2622; font: inherit; font-size: 12.5px; cursor: pointer; }
-.mc-dev .btns button:hover { box-shadow: 0 1px 0 rgba(60,40,24,0.16), 0 0 0 2px rgba(163,71,46,0.5); }
-.mc-dev .btns button.on { background: #2b2622; color: #fbf3e1; }
-.mc-dev .btns button.go { background: #a3472e; color: #fbf3e1; }
-.mc-dev .where { font-size: 13px; line-height: 1.5; padding: 7px 10px; border-radius: 9px; background: #fffaf0; box-shadow: 0 0 0 1px rgba(60,40,24,0.08); }
-.mc-dev .msg { min-height: 18px; font-size: 12px; color: #3f7d3a; margin-top: 5px; line-height: 1.45; }
-.mc-dev .msg.bad { color: #a3472e; }
-.mc-dev .big { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
-.mc-dev .big small { font-size: 13px; font-weight: 400; color: #7a6a5a; margin-left: 8px; letter-spacing: 0; }
-.mc-dev .note { font-size: 12px; color: #7a6a5a; line-height: 1.5; margin: 3px 0 6px; }
+.mc-dev .btns button { padding: 6px 8px; border: 0; border-radius: 9px; background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1.5px rgba(239,230,211,0.3); color: #fff; font: inherit; font-size: 12.5px; cursor: pointer; }
+.mc-dev .btns button:hover { box-shadow: inset 0 0 0 2px #efe6d3; }
+.mc-dev .btns button.on { background: #f6f2ea; color: #17120f; font-weight: 700; box-shadow: inset 0 0 0 2px #17120f; }
+.mc-dev .btns button.go { background: #e9c14a; color: #17120f; font-weight: 700; box-shadow: inset 0 0 0 2px #17120f; }
+.mc-dev .where { font-size: 13px; line-height: 1.5; padding: 7px 10px; border-radius: 9px; background: rgba(255,255,255,0.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); }
+.mc-dev .msg { min-height: 18px; font-size: 12px; color: #a6ea92; margin-top: 5px; line-height: 1.45; }
+.mc-dev .msg.bad { color: #ff9a7e; }
+.mc-dev .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.mc-dev .big small { font-size: 13px; font-weight: 400; color: #c9c6c0; margin-left: 8px; letter-spacing: 0; }
+.mc-dev .note { font-size: 12px; color: #c9c6c0; line-height: 1.5; margin: 3px 0 6px; }
 .mc-dev .row { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 4px 0; }
-.mc-dev .row input[type=number] { width: 84px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid rgba(60,40,24,0.22); border-radius: 7px; background: #fffaf0; color: #2b2622; }
+.mc-dev .row input[type=number] { width: 84px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1.5px solid rgba(239,230,211,0.35); border-radius: 7px; background: rgba(0,0,0,0.35); color: #fff; }
 .mc-dev label.check { display: flex; align-items: center; gap: 6px; font-size: 13px; margin: 7px 0 2px; cursor: pointer; }
-.mc-dev label.check input { accent-color: #a3472e; }
-.mc-dev .ft2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; padding: 8px 12px 12px; border-top: 1px solid rgba(60,40,24,0.1); }
-.mc-dev .ft2 button { padding: 6px 4px; border: 0; border-radius: 9px; background: #2b2622; color: #fbf3e1; font: inherit; font-size: 12px; cursor: pointer; }
-.mc-dev .ft2 button:hover { background: #a3472e; }
+.mc-dev label.check input { accent-color: #e9c14a; }
+.mc-dev .ft2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; padding: 9px 12px 12px; border-top: 1px solid rgba(255,255,255,0.14); }
+.mc-dev .ft2 button { padding: 6px 4px; border: 2px solid #17120f; border-radius: 9px; background: #f6f2ea; color: #17120f; box-shadow: 0 2px 0 #17120f; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.mc-dev .ft2 button:hover { background: #e9c14a; }
 .mc-dev .ft2 .msg { grid-column: 1 / -1; margin: 0; }
-.mc-dev-tip { position: fixed; z-index: 40; max-width: 280px; padding: 9px 12px 10px; border-radius: 10px; background: #2b2622; color: #fbf3e1; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; font-size: 13px; line-height: 1.6; pointer-events: none; box-shadow: 0 4px 14px rgba(20,14,10,0.38); }
-.mc-dev-tip b { color: #f0c28a; font-weight: 600; }
-.mc-dev-tip small { display: block; margin-top: 5px; color: #cdbfa8; font-size: 11.5px; line-height: 1.45; }
+.mc-dev-tip { position: fixed; z-index: 40; max-width: 280px; padding: 9px 12px 10px; box-sizing: border-box; border-radius: 10px; border: 2.5px solid #efe6d3; box-shadow: 0 0 0 2px #17120f, 0 5px 0 rgba(10,8,6,0.5); background: rgba(22,21,20,0.96); color: #fff; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; font-size: 13px; line-height: 1.6; pointer-events: none; }
+.mc-dev-tip b { color: #e9c14a; font-weight: 700; }
+.mc-dev-tip small { display: block; margin-top: 5px; color: #c9c6c0; font-size: 11.5px; line-height: 1.45; }
 `;
 
 /** the bubble beside the panel with what the thing under the mouse does */

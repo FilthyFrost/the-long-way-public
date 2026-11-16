@@ -1,9 +1,9 @@
 /**
- * The words round the hands (docs/MODCAR.md §5.5), after the way Arctic Drive lays them out, drawn in the
- * workshop's cream paper and ink: the two item cards (cards.ts), the two-slot hotbar along the bottom,
- * what the buttons do right now just above it with the keys drawn, every action of the thing in the hands
- * down the right, and while liquid goes from one thing into another, in the place of those words, a strip
- * saying from what into what and how much is in each.
+ * The words round the hands (docs/MODCAR.md §5.5), laid out and drawn as Arctic Drive's are, in a cartoon
+ * frame of our own (ui.ts .mc-frame): the two item cards (cards.ts), the two-slot hotbar along the bottom,
+ * what the buttons do right now just above it in white words with the keys drawn, every action of the
+ * thing in the hands down the right, and while liquid goes from one thing into another, in the place of
+ * those words, a strip saying from what into what and how much is in each.
  */
 import { CARD_CSS, CardView, TONE_COLOUR } from './cards';
 import type { ItemCard, Tone } from './itemInfo';
@@ -37,45 +37,48 @@ export interface TransferView {
 
 const CSS = `
 ${CARD_CSS}
-.mc-ic.held { right: 22px; top: calc(50% - 24px); transform: translateY(-50%); max-height: calc(100vh - 250px); }
-.mc-ic.aim { top: 50%; transform: translateY(-46%); }
-.mc-ic.aim.l { right: calc(50% + 34px); }
-.mc-ic.aim.r { left: calc(50% + 34px); }
-.mc-hot { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 8px; }
-.mc-hot .s { position: relative; width: 62px; height: 62px; border-radius: 11px; background: rgba(250,244,228,0.78); box-shadow: 0 2px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); transition: transform 0.12s; }
-.mc-hot .s.on { background: rgba(250,244,228,0.96); box-shadow: 0 2px 0 rgba(60,40,24,0.25), 0 0 0 2.5px #a3472e; transform: translateY(-4px); }
-.mc-hot .s img { position: absolute; inset: 5px 5px 9px; width: calc(100% - 10px); height: calc(100% - 14px); object-fit: contain; }
-.mc-hot .s .n { position: absolute; left: -4px; bottom: -4px; width: 17px; height: 17px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 11px; font-weight: 700; line-height: 17px; text-align: center; }
-.mc-hot .s .f { position: absolute; left: 9px; right: 9px; bottom: 5px; height: 4px; border-radius: 2px; background: rgba(60,40,24,0.14); overflow: hidden; }
-.mc-hot .s .f i { display: block; height: 100%; }
-.mc-hot .s .w { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4px; font-size: 10.5px; line-height: 1.25; color: #5a4c40; text-align: center; }
-.mc-acts { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.mc-acts div { padding: 4px 12px; border-radius: 12px; background: rgba(250,244,228,0.92); box-shadow: 0 2px 0 rgba(60,40,24,0.22); font-size: 14px; white-space: nowrap; }
-.mc-acts div.off { color: #9a6a4a; }
-.mc-acts div b { color: #a3472e; font-weight: 700; }
-.mc-keys { position: absolute; right: 22px; bottom: 22px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; padding: 7px 11px; border-radius: 11px; background: rgba(250,244,228,0.84); box-shadow: 0 2px 0 rgba(60,40,24,0.2); font-size: 12.5px; color: #3a322c; }
-.mc-keys div { white-space: nowrap; }
-.mc-keys div.off { color: #9a8a7a; }
-.mc-ui kbd { display: inline-block; min-width: 18px; height: 18px; margin: 0 2px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font: 700 11.5px/18px "PingFang SC","Microsoft YaHei",sans-serif; text-align: center; box-shadow: 0 1.5px 0 rgba(0,0,0,0.35); vertical-align: 1px; }
-.mc-ui svg.ms { display: inline-block; width: 13px; height: 17px; margin: 0 2px; vertical-align: -3px; }
-.mc-ui i.or { font-style: normal; color: #9a8a7a; margin: 0 1px; }
-.mc-xfer { position: absolute; z-index: 3; left: 50%; bottom: 94px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-radius: 13px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); font-size: 13px; white-space: nowrap; }
-.mc-xfer .sd { display: flex; flex-direction: column; gap: 3px; min-width: 96px; }
-.mc-xfer .sd b { font-weight: 700; }
-.mc-xfer .sd span { font-variant-numeric: tabular-nums; color: #5a4c40; font-size: 12.5px; }
-.mc-xfer .sd .tr { height: 6px; border-radius: 3px; background: rgba(60,40,24,0.13); overflow: hidden; }
-.mc-xfer .sd .tr i { display: block; height: 100%; transition: width 0.12s linear; }
-.mc-xfer .ar { display: flex; gap: 1px; font-size: 20px; font-weight: 800; line-height: 1; }
-.mc-xfer .ar i { font-style: normal; opacity: 0.18; animation: mc-flow 0.9s linear infinite; }
-.mc-xfer .ar i:nth-child(2) { animation-delay: 0.15s; } .mc-xfer .ar i:nth-child(3) { animation-delay: 0.3s; } .mc-xfer .ar i:nth-child(4) { animation-delay: 0.45s; }
-@keyframes mc-flow { 0% { opacity: 0.18; } 30% { opacity: 1; } 60%, 100% { opacity: 0.18; } }
-.mc-done { position: absolute; z-index: 3; left: 50%; bottom: 94px; transform: translateX(-50%); padding: 5px 14px; border-radius: 12px; background: rgba(250,244,228,0.95); box-shadow: 0 2px 0 rgba(60,40,24,0.22); font-size: 14px; transition: opacity 0.5s; }
-.mc-done b { color: #a3472e; }
+.mc-ic.held { right: 22px; top: 96px; }
+.mc-ic.aim { top: 200px; }
+.mc-ic.aim.l { right: calc(50% + 32px); }
+.mc-ic.aim.r { left: calc(50% + 32px); }
+.mc-hot { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; gap: 10px; }
+.mc-hot .s { position: relative; width: 62px; height: 62px; box-sizing: border-box; border-radius: 12px; background: var(--grain), linear-gradient(180deg, rgba(120,124,122,0.55), rgba(26,26,26,0.75) 40%, rgba(20,20,20,0.8)); border: 2.5px solid rgba(239,230,211,0.55); box-shadow: 0 0 0 2px var(--ink); transition: transform 0.12s; }
+.mc-hot .s.on { border: 3px solid var(--rim); box-shadow: 0 0 0 2.5px var(--ink), 0 5px 0 1px rgba(10,8,6,0.5); transform: translateY(-4px); }
+.mc-hot .s img { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: contain; }
+.mc-hot .s .n { position: absolute; left: -7px; bottom: -7px; width: 20px; height: 20px; box-sizing: border-box; border-radius: 6px; background: #2b2a28; border: 2px solid var(--rim); box-shadow: 0 0 0 1.5px var(--ink); color: #fff; font: 700 12px/16px var(--key-font); text-align: center; }
+.mc-hot .s .f { position: absolute; left: 18px; right: 6px; bottom: -11px; height: 7px; box-sizing: border-box; border-radius: 999px; background: #2b2a28; border: 1.5px solid var(--ink); overflow: hidden; }
+.mc-hot .s .f i { display: block; height: 100%; border-radius: 999px; }
+.mc-hot .s .w { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4px; font-size: 11px; line-height: 1.25; color: #fff; text-align: center; }
+.mc-bot { position: absolute; left: 50%; bottom: 106px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mc-acts { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mc-acts div { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
+.mc-acts div b { color: var(--gold); }
+.mc-acts div.off { color: #cfcbc4; font-weight: 400; }
+.mc-acts div.off kbd, .mc-acts div.off .mk { opacity: 0.6; }
+.mc-keys { position: absolute; right: 30px; bottom: 26px; display: flex; flex-direction: column; align-items: flex-end; gap: 9px; }
+.mc-keys div { display: flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 15.5px; text-shadow: var(--say-shadow); }
+.mc-keys div.off { opacity: 0.5; }
+.mc-ui kbd, .mc-ui .mk { display: inline-flex; align-items: center; justify-content: center; min-width: 23px; height: 23px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 13px/1 var(--key-font); text-shadow: none; vertical-align: middle; }
+.mc-ui .mk { padding: 0 5px; }
+.mc-ui .mk svg { width: 12px; height: 16px; }
+.mc-ui i.or { font-style: normal; color: var(--tx-2); font-weight: 400; }
+.mc-xfer { position: absolute; z-index: 3; left: 50%; bottom: 112px; transform: translateX(-50%); display: grid; grid-template-columns: 1fr 64px 1fr; align-items: center; width: 520px; padding: 12px 18px 13px; box-sizing: border-box; }
+.mc-xfer .sd b { font-size: 15px; font-weight: 700; }
+.mc-xfer .sd span { display: block; margin-top: 2px; font-size: 18px; font-weight: 700; }
+.mc-xfer .sd .tr { height: 8px; margin-top: 7px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.mc-xfer .sd .tr i { display: block; height: 100%; border-radius: 999px; transition: width 0.12s linear; }
+.mc-xfer .sd.to { text-align: right; }
+.mc-xfer .ar { text-align: center; font: 900 34px/1 var(--key-font); letter-spacing: -0.08em; text-shadow: 0 2px 0 var(--ink); }
+.mc-xfer .ar i { font-style: normal; opacity: 0.25; animation: mc-flow 0.9s linear infinite; }
+.mc-xfer .ar i:nth-child(2) { animation-delay: 0.15s; } .mc-xfer .ar i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes mc-flow { 30% { opacity: 1; } 60%, 100% { opacity: 0.25; } }
+.mc-done { white-space: nowrap; font-size: 18px; font-weight: 700; text-shadow: var(--say-shadow); transition: opacity 0.5s; }
+.mc-done b { color: var(--gold); }
 `;
 
 const MOUSE = (which: 'LMB' | 'RMB' | 'Wheel'): string => {
-  const fill = which === 'LMB' ? '<path d="M6.5 1.3a5.2 5.2 0 0 0-5.2 5.2v.7h5.2z" fill="#a3472e" />' : which === 'RMB' ? '<path d="M6.5 1.3a5.2 5.2 0 0 1 5.2 5.2v.7H6.5z" fill="#a3472e" />' : '<rect x="5.3" y="3.2" width="2.4" height="4" rx="1.2" fill="#a3472e" />';
-  return `<svg class="ms" viewBox="0 0 13 17">${fill}<rect x="1.3" y="1.3" width="10.4" height="14.4" rx="5.2" fill="none" stroke="#2b2622" stroke-width="1.4" /><path d="M1.3 7.2h10.4${which === 'Wheel' ? '' : 'M6.5 1.3v5.9'}" stroke="#2b2622" stroke-width="1.2" fill="none" /></svg>`;
+  const fill = which === 'LMB' ? '<path d="M6.5 1.3a5.2 5.2 0 0 0-5.2 5.2v.7h5.2z" fill="#17120f" />' : which === 'RMB' ? '<path d="M6.5 1.3a5.2 5.2 0 0 1 5.2 5.2v.7H6.5z" fill="#17120f" />' : '<rect x="5.3" y="3.2" width="2.4" height="4" rx="1.2" fill="#17120f" />';
+  return `<span class="mk"><svg viewBox="0 0 13 17">${fill}<rect x="1.3" y="1.3" width="10.4" height="14.4" rx="5.2" fill="none" stroke="#17120f" stroke-width="1.5" /><path d="M1.3 7.2h10.4${which === 'Wheel' ? '' : 'M6.5 1.3v5.9'}" stroke="#17120f" stroke-width="1.2" fill="none" /></svg></span>`;
 };
 
 const KEY_TEXT: Partial<Record<KeyName, string>> = { Space: '空格', Shift: 'Shift' };
@@ -87,12 +90,15 @@ export function keyHtml(k: KeyName): string {
 
 /** "长按 [E]/[左键] 装上 V8" (the text may carry <b>) */
 export function actionHtml(a: Action): string {
-  return `${a.hold ? '长按 ' : ''}${a.keys.map(keyHtml).join('<i class="or">/</i>')} ${a.text}`;
+  return `${a.hold ? '<span>长按</span>' : ''}${a.keys.map(keyHtml).join('<i class="or">/</i>')}<span>${a.text}</span>`;
 }
 
 export class ItemHud {
   readonly held: CardView;
   readonly aim: CardView;
+  /** how far down the right-hand side is taken from the top (the quest), for the held card to keep clear of */
+  topRight = 0;
+  private readonly root: HTMLElement;
   private readonly hot: HTMLDivElement;
   private readonly acts: HTMLDivElement;
   private readonly keys: HTMLDivElement;
@@ -103,8 +109,16 @@ export class ItemHud {
   private lastKeys = '';
   private lastXfer = '';
   private doneT = 0;
+  /** what the cards were last placed for (their drawings, the keys' height, the room) */
+  private placed = '';
+  /** the keys' height and the height of the lines over the hotbar (−1 = to be measured: they changed) */
+  private keysH = -1;
+  private botH = -1;
+  private xferH = -1;
+  private readonly bot: HTMLDivElement;
 
   constructor(root: HTMLElement) {
+    this.root = root;
     const st = document.createElement('style');
     st.textContent = CSS;
     document.head.appendChild(st);
@@ -118,10 +132,14 @@ export class ItemHud {
       return e;
     };
     this.hot = div('mc-hot');
-    this.acts = div('mc-acts');
-    this.keys = div('mc-keys');
-    this.xfer = div('mc-xfer');
+    this.bot = document.createElement('div');
+    this.bot.className = 'mc-bot';
+    root.appendChild(this.bot);
     this.done = div('mc-done');
+    this.acts = div('mc-acts');
+    this.bot.append(this.done, this.acts);
+    this.keys = div('mc-keys');
+    this.xfer = div('mc-xfer mc-frame');
   }
 
   /** the cards: what is in the hands (right), what the mark is on (beside the mark); on = shown at all (I) */
@@ -162,6 +180,7 @@ export class ItemHud {
     this.lastActs = html;
     this.acts.innerHTML = html;
     this.acts.style.display = html ? '' : 'none';
+    this.botH = -1;
   }
 
   /** every action of what is in the hands (or of driving), down the right */
@@ -171,6 +190,7 @@ export class ItemHud {
     this.lastKeys = html;
     this.keys.innerHTML = html;
     this.keys.style.display = html ? '' : 'none';
+    this.keysH = -1;
   }
 
   /** liquid going from one thing into another; null = none */
@@ -185,8 +205,9 @@ export class ItemHud {
     const key = `${t.from.name}|${t.to.name}|${t.tone}`;
     if (key !== this.lastXfer) {
       this.lastXfer = key;
-      const side = (s: TransferView['from'], k: string): string => `<div class="sd" data-s="${k}"><b>${s.name}</b><span></span><div class="tr"><i style="background:${c}"></i></div></div>`;
-      this.xfer.innerHTML = `${side(t.from, 'a')}<div class="ar" style="color:${c}"><i>›</i><i>›</i><i>›</i><i>›</i></div>${side(t.to, 'b')}`;
+      this.xferH = -1;
+      const side = (s: TransferView['from'], k: string): string => `<div class="sd${k === 'b' ? ' to' : ''}" data-s="${k}"><b>${s.name}</b><span></span><div class="tr"><i style="background:${c}"></i></div></div>`;
+      this.xfer.innerHTML = `${side(t.from, 'a')}<div class="ar" style="color:${c}"><i>›</i><i>›</i><i>›</i></div>${side(t.to, 'b')}`;
     }
     for (const [k, s] of [['a', t.from], ['b', t.to]] as const) {
       const e = this.xfer.querySelector(`[data-s="${k}"]`);
@@ -202,14 +223,50 @@ export class ItemHud {
     this.done.style.display = '';
     this.done.style.opacity = '1';
     this.doneT = seconds;
+    this.botH = -1;
+  }
+
+  /**
+   * The cards' heights: each beside its middle (the held one a little above the screen's, the aimed one by
+   * the mark) but clear of what is above it (the quest, on the right) and of the words at the bottom (the
+   * keys under the held card, the hotbar and its lines under the aimed one); a card taller than the room
+   * left is cut at the bottom.
+   */
+  private place(): void {
+    const H = this.root.clientHeight || window.innerHeight;
+    if (this.keysH < 0) this.keysH = this.keys.style.display === 'none' ? 0 : this.keys.offsetHeight;
+    if (this.botH < 0) this.botH = this.bot.offsetHeight;
+    const strip = this.xfer.style.display !== 'none';
+    if (strip && this.xferH < 0) this.xferH = this.xfer.offsetHeight;
+    const key = `${this.held.drawn}|${this.aim.drawn}|${this.keysH}|${this.botH}|${strip ? this.xferH : 0}|${H}|${this.topRight}|${this.held.el.style.display}|${this.aim.el.style.display}`;
+    if (key === this.placed) return;
+    this.placed = key;
+    const fit = (v: CardView, mid: number, top: number, bottom: number, up: number): void => {
+      if (v.el.style.display === 'none') return;
+      const room = Math.max(160, bottom - top);
+      v.el.style.maxHeight = `${room}px`;
+      const h = Math.min(room, v.el.scrollHeight);
+      v.el.classList.toggle('cut', v.el.scrollHeight > room + 1);
+      v.el.style.top = `${Math.round(Math.max(top, Math.min(mid - h * up, bottom - h)))}px`;
+    };
+    fit(this.held, H / 2 - 24, Math.max(16, this.topRight + 12), H - 26 - this.keysH - 18, 0.5);
+    // (the aimed card stands by the mark, over the hotbar and the lines above it)
+    fit(this.aim, H / 2, 16, Math.min(H - 112, H - 106 - this.botH - 12, strip ? H - 112 - this.xferH - 12 : H), 0.44);
   }
 
   update(dt: number): void {
-    if (this.doneT > 0) {
+    this.place();
+    if (this.doneT > -1) {
       this.doneT -= dt;
       if (this.doneT <= 0) this.done.style.opacity = '0';
+      if (this.doneT <= -0.5 && this.done.style.display !== 'none') {
+        this.done.style.display = 'none';
+        this.botH = -1;
+      }
     }
-    // (the strip hides the line while it shows)
-    if (this.xfer.style.display !== 'none') this.done.style.display = 'none';
+    // (the strip hides the lines while it shows)
+    const strip = this.xfer.style.display !== 'none';
+    if (strip) this.done.style.display = 'none';
+    this.acts.style.visibility = strip ? 'hidden' : '';
   }
 }

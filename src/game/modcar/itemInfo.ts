@@ -237,7 +237,11 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
     notes: [],
     foot: { cond: inst.cond, mass: instanceMass(inst), fits: fitsOf(def) },
   };
-  if (ctx.mount) card.badges.unshift({ text: `装在：${ctx.mount}`, tone: 'note' });
+  if (ctx.mount) {
+    card.badges.unshift({ text: `装在：${ctx.mount}`, tone: 'note' });
+    // (on a vehicle already: where else it goes is beside the point)
+    card.foot.fits = undefined;
+  }
   const row = (value: string, label: string, tone?: CardRow['tone']): void => {
     card.rows.push({ value, label, tone });
   };
@@ -246,12 +250,11 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
     const turbo = inst.sub.turbo ? partDef(inst.sub.turbo.part) : null;
     card.curve = torqueCurve(def, turbo);
     const p = peakPower(turbo ? boostedCurve(def, null, turbo) : e.curve);
-    row(`${p.kw.toFixed(0)} kW`, `最大功率 · 约 ${Math.round(p.kw * 1.36)} 马力`);
+    row(`${p.kw.toFixed(0)} kW`, '最大功率');
     row(`${Math.round(card.curve.peak![1])} N·m`, '峰值扭矩');
     row(FUEL_ZH[e.fuel], e.fuel === 'mix2t' ? '燃料 · 汽油里要掺机油' : '燃料');
     row(e.cooling === 'water' ? '水冷' : '风冷', e.cooling === 'water' ? '要装散热器、加水' : '不用水箱');
-    row(`${e.cylinders} 缸`, `${{ single: '单缸', twin: '双缸', inline: '直列', flat: '水平对置', v: 'V 型' }[e.layout]} · 红线 ${e.redline} 转`);
-    if (e.turbo) row(turbo ? '已装' : '能装', turbo ? `涡轮：${turbo.name.zh}` : '涡轮');
+    if (e.turbo) card.badges.push({ text: turbo ? `已装涡轮：${turbo.name.zh}` : '能装涡轮', tone: 'note' });
     if (e.oilL > 0) card.bars.push({ label: '机油', value: inst.fluids.oilL ?? 0, max: e.oilL, text: `${L(inst.fluids.oilL ?? 0)} / ${L(e.oilL)} L`, tone: 'oil' });
     else card.notes.push({ text: '二冲程：不用加机油，机油掺在汽油里', tone: 'info' });
   }
@@ -460,16 +463,18 @@ export function fitCard(v: ModVehicle, mountLabel: string, inst: PartInstance, l
   const card: ItemCard = {
     key: `fit:${v.build.uid}:${mountLabel}:${inst.uid}`,
     icon: 'car',
-    cat: `装上之后 · ${frame.name.zh}`,
+    cat: `装上之后 · ${frame.name.zh}的${mountLabel}`,
     name: partDef(inst.part).name.zh,
     stars: 0,
-    badges: [{ text: `装在：${mountLabel}`, tone: 'note' }, replaced ? { text: `换下来的 ${partDef(replaced.part).name.zh} 到手上`, tone: 'note' } : { text: '这里现在是空的', tone: 'note' }],
+    badges: replaced ? [{ text: `换下来的 ${partDef(replaced.part).name.zh} 到手上`, tone: 'note' }] : [],
     blurb: '',
-    rows: lines.map((l) => (l.note ? { value: s(l.after), label: l.label.zh } : { value: s(l.after), from: s(l.before), label: l.label.zh, tone: l.better > 0 ? 'good' : l.better < 0 ? 'bad' : undefined })),
+    // (only what it changes)
+    rows: lines.filter((l) => l.note || s(l.before) !== s(l.after)).map((l) => (l.note ? { value: s(l.after), label: l.label.zh } : { value: s(l.after), from: s(l.before), label: l.label.zh, tone: l.better > 0 ? 'good' : l.better < 0 ? 'bad' : undefined })),
     bars: [],
     notes: warn ? [{ text: warn, tone: 'warn' }] : [],
     foot: {},
   };
+  if (!card.rows.length && !warn) card.notes.push({ text: '装上之后各项数值不变', tone: 'info' });
   return card;
 }
 

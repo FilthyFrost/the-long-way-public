@@ -42,6 +42,7 @@ try {
       return {
         aim: shown('.mc-ic.aim') ? document.querySelector('.mc-ic.aim .nm').textContent : '',
         aimText: text('.mc-ic.aim'),
+        aimStars: Number(document.querySelector('.mc-ic.aim .st')?.dataset.stars ?? 0),
         held: shown('.mc-ic.held') ? document.querySelector('.mc-ic.held .nm').textContent : '',
         heldText: text('.mc-ic.held'),
         acts: text('.mc-acts'),
@@ -59,7 +60,7 @@ try {
   let h = await hud();
   console.log('at the battery', JSON.stringify({ aim: h.aim, acts: h.acts }));
   if (h.aim !== '电瓶') fail(`no card for the battery beside the mark (${h.aim})`);
-  if (!/电量/.test(h.aimText) || !/★/.test(h.aimText)) fail('the battery card lacks its charge or its stars');
+  if (!/电量/.test(h.aimText) || !h.aimStars) fail('the battery card lacks its charge or its stars');
   if (!/拿起/.test(h.acts)) fail(`no "pick up" over the hotbar (${h.acts})`);
   await shot('01_lying');
   await page.keyboard.press('KeyE');
