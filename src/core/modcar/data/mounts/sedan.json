@@ -878,7 +878,7 @@
   }
  },
  "triangles": {
-  "BODY": 37396,
+  "BODY": 37804,
   "FUEL_CAP": 526,
   "GLASS": 636,
   "INTERIOR": 7484,
@@ -899,7 +899,7 @@
   "UNDER": 6568,
   "WIPER_L": 204,
   "WIPER_R": 204,
-  "total": 78634
+  "total": 79042
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

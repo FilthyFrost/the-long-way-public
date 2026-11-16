@@ -145,7 +145,8 @@ def engine_bay():
     top = 0.995
     xa, za = D['ax_f'], D['hub_z']
     y_out = 0.792
-    b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.55), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.55), 4, 2, (0, -1, 0), 'paint'))
+    # (side wall and ledge finely divided: the baked occlusion lives on their vertices)
+    b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.55), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.55), 10, 5, (0, -1, 0), 'paint'))
     R = 0.425
     b.extend(tub(xa, za, R, APRON_Y, y_out, 4, 176, 'paint', True))
     # shock tower bulging into the bay from the side wall (the shock's top mount on its cap), the upper
@@ -156,10 +157,10 @@ def engine_bay():
         b.extend(K.cyl_buf((bx0, APRON_Y - 0.012, bz0), (bx0, APRON_Y - 0.020, bz0), 0.008, 'steel', 6))
     for (x0, x1) in ((FIREWALL_X + 0.06, xa - 0.23), (xa + 0.11, RAD_X - 0.06)):
         b.extend(K.tube_buf(np.array([(x0, APRON_Y, 0.70), (x1, APRON_Y, 0.70)]), 0.007, 'paint', 6))
-    b.extend(quad_sheet((FIREWALL_X, APRON_Y, top), (RAD_X - FIREWALL_X, 0, 0), (0, y_out - APRON_Y, 0), 4, 1, (0, 0, 1), 'paint'))
+    b.extend(quad_sheet((FIREWALL_X, APRON_Y, top), (RAD_X - FIREWALL_X, 0, 0), (0, y_out - APRON_Y, 0), 10, 4, (0, 0, 1), 'paint'))
     for x0 in (xa - R - 0.01, xa + R + 0.01):
         b.extend(quad_sheet((x0, APRON_Y, 0.55), (0, y_out - APRON_Y, 0), (0, 0, top - 0.55), 1, 2, (1 if x0 > xa else -1, 0, 0), 'paint'))
-    b.extend(quad_sheet((FIREWALL_X, 0.0, 0.47), (0, APRON_Y, 0), (0, 0, 0.53), 2, 3, (1, 0, 0), 'paint'))
+    b.extend(quad_sheet((FIREWALL_X, 0.0, 0.47), (0, APRON_Y, 0), (0, 0, 0.53), 5, 6, (1, 0, 0), 'paint'))
     b.extend(K.box_buf((FIREWALL_X - 0.02, 0.0, 0.985), (D['hood_rear'] + 0.005, 0.79, 0.998), 'paint', 0.004, 2))
     b.extend(K.box_buf((RAD_X, 0.0, 0.925), (RAD_X + 0.045, APRON_Y + 0.01, 0.972), 'paint', 0.008, 2))
     b.extend(K.box_buf((RAD_X, 0.0, 0.50), (RAD_X + 0.045, APRON_Y + 0.01, 0.545), 'paint', 0.008, 2))

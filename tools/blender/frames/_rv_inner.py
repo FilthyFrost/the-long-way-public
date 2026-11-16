@@ -148,12 +148,13 @@ def engine_bay():
     R = 0.47
     # side wall in two steps: narrow beside the front wheel, wide ahead of it (a transverse wall between)
     for (x0, x1, wy) in ((FIREWALL_X, STEP_X, APRON_Y), (STEP_X, RAD_X, APRON_Y2)):
-        b.extend(quad_sheet((x0, wy, 0.78), (x1 - x0, 0, 0), (0, 0, top - 0.78), 2, 2, (0, -1, 0), 'paint'))
-        b.extend(quad_sheet((x0, wy, top), (x1 - x0, 0, 0), (0, y_out - wy, 0), 2, 1, (0, 0, 1), 'paint'))
+        nx = max(2, int(round((x1 - x0) / 0.08)))
+        b.extend(quad_sheet((x0, wy, 0.78), (x1 - x0, 0, 0), (0, 0, top - 0.78), nx, 5, (0, -1, 0), 'paint'))
+        b.extend(quad_sheet((x0, wy, top), (x1 - x0, 0, 0), (0, y_out - wy, 0), nx, 3, (0, 0, 1), 'paint'))
         b.extend(quad_sheet((x0, wy, top - 0.004), (x1 - x0, 0, 0), (0, 0, 0.004), 1, 1, (0, -1, 0), 'paint'))
         for (bx0, bx1) in ((x0 + 0.05, x1 - 0.05),):
             b.extend(K.tube_buf(np.array([(bx0, wy, 0.98), (bx1, wy, 0.98)]), 0.008, 'paint', 6))
-    b.extend(quad_sheet((STEP_X, APRON_Y, 0.78), (0, APRON_Y2 - APRON_Y, 0), (0, 0, top - 0.78), 1, 2, (1, 0, 0), 'paint'))
+    b.extend(quad_sheet((STEP_X, APRON_Y, 0.78), (0, APRON_Y2 - APRON_Y, 0), (0, 0, top - 0.78), 3, 5, (1, 0, 0), 'paint'))
     b.extend(tub(xa, za, R, APRON_Y, y_out, 4, FW_DEG, 'paint', True))
     for x0 in (xa - R - 0.01, xa + R + 0.01):
         if FIREWALL_X < x0 < RAD_X:
