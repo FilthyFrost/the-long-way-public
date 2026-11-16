@@ -1297,6 +1297,81 @@ class Buf:
         return obj
 
 
+def rebake_mats(target, hide, mats, samples=32, distance=0.35):
+    """Bake the AO of `target` again with the objects `hide` left out, and keep the new values only on the
+    corners of faces with the given materials: a dial face is shaded by its bezel and hood, not by the needle
+    hovering over it (the needle's hub would darken the face from the centre out to its middle ring)."""
+    a = target.data.color_attributes.get('Col')
+    if a is None:
+        return
+    old = np.zeros(len(a.data) * 4)
+    a.data.foreach_get('color', old)
+    was = [(o, o.hide_render) for o in hide]
+    for o in hide:
+        o.hide_render = True
+    mc.bake_ao([target], samples=samples, distance=distance)
+    for o, h in was:
+        o.hide_render = h
+    a = target.data.color_attributes.get('Col')
+    new = np.zeros(len(a.data) * 4)
+    a.data.foreach_get('color', new)
+    me = target.data
+    names = [m.name if m else '' for m in me.materials]
+    want = np.array([n in mats for n in names], bool)
+    mi = np.zeros(len(me.polygons), np.int64)
+    me.polygons.foreach_get('material_index', mi)
+    ls = np.zeros(len(me.polygons), np.int64)
+    lt = np.zeros(len(me.polygons), np.int64)
+    me.polygons.foreach_get('loop_start', ls)
+    me.polygons.foreach_get('loop_total', lt)
+    sel = np.zeros(len(me.loops), bool)
+    for p in np.nonzero(want[mi])[0]:
+        sel[ls[p]:ls[p] + lt[p]] = True
+    old = old.reshape(-1, 4)
+    new = new.reshape(-1, 4)
+    old[sel] = new[sel]
+    a.data.foreach_set('color', old.ravel())
+
+
+def split_mat(buf, mats):
+    """(buf without the triangles of the given materials, a buffer of just those), normals, UVs and per-triangle
+    materials kept."""
+    V, N, T, M = buf.arrays()
+    UV = buf.uv_array() if buf.has_uv() else None
+    M = np.array(M, dtype=object)
+    sel = np.isin(M, list(mats)) if len(M) else np.zeros(0, bool)
+    out = []
+    for mask in (~sel, sel):
+        b = Buf()
+        if len(M) and mask.any():
+            Tm = T[mask]
+            used = np.unique(Tm)
+            remap = -np.ones(len(V), np.int64)
+            remap[used] = np.arange(len(used))
+            b.add(V[used], N[used], remap[Tm], 'paint', uv=None if UV is None else UV[used])
+            b.M = list(M[mask])
+        out.append(b)
+    return out[0], out[1]
+
+
+def join_white(target, buf, name='_join_tmp'):
+    """Make `buf` an object placed like `target` (built in the same frame) with a white 'Col' if the target has
+    one, and join it into the target: geometry kept out of the AO bake, such as the dial glass, which would
+    otherwise bake the gauge faces and needles behind it black."""
+    if not buf.V:
+        return
+    o = buf.to_object(name)
+    o.matrix_world = target.matrix_world.copy()
+    if target.data.color_attributes.get('Col') is not None:
+        a = o.data.color_attributes.new('Col', 'BYTE_COLOR', 'CORNER')
+        a.data.foreach_set('color', np.ones(len(a.data) * 4, np.float32))
+    bpy.ops.object.select_all(action='DESELECT')
+    o.select_set(True)
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.join()
+
+
 def drop_all(objs, empties, panels, infos, dz, abs_props=('floor_z', 'cushion_z')):
     """Move the whole built frame by dz (z, metres): the root objects, the mount empties (and their absolute
     height properties), the panels' hinge positions and the needle / wiper pivots. A frame modelled with its

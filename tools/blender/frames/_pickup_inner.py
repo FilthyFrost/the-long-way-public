@@ -469,13 +469,19 @@ def dashboard():
     def pad_sec(y):
         ay = abs(y - DRIVER_Y)
         hood = 0.035 * float(K.sstep(0.27, 0.22, ay)) if y > 0 else 0.0
+        # (the hood's lower lip is lifted over the cluster: from the eye it hid the top small dial)
         pts = np.array([(0.92, 1.065), (0.86, 1.095), (fx + 0.03, 1.105 + hood * 0.6), (fx - 0.005 - hood, 1.10 + hood * 0.6),
-                        (fx - 0.02 - hood, 1.08), (fx - 0.012 - hood, 1.058), (fx + 0.01, 1.05), (0.92, 1.045)])
+                        (fx - 0.02 - hood, 1.08 + hood * 0.85), (fx - 0.012 - hood, 1.058 + hood * 0.85), (fx + 0.01, 1.05), (0.92, 1.045)])
         return K.round_profile(pts, [0, 0.03, 0.02, 0.012, 0.01, 0.008, 0.01, 0], 1)
     ys = np.concatenate([np.linspace(-0.70, 0.06, 3), np.linspace(0.08, 0.64, 8), [0.71]])
     b.extend(extrude_y(None, ys, 'plastic_int', inside=(0.85, 0.0, 1.07), sec_fn=pad_sec))
     fas = K.round_profile(np.array([(fx, 1.05), (fx, 0.84), (fx + 0.04, 0.81), (0.93, 0.81), (0.93, 1.05)]), [0, 0.025, 0.02, 0, 0], 2)
-    b.extend(extrude_y(fas, np.linspace(-0.66, 0.66, 3), 'paint', inside=(0.82, 0.0, 0.94)))
+    # behind the instrument box the fascia stops lower: the box leans back towards the driver and its top
+    # half sat behind the fascia's face (a painted band across the top small dial)
+    fas_low = K.round_profile(np.array([(fx, 0.995), (fx, 0.84), (fx + 0.04, 0.81), (0.93, 0.81), (0.93, 0.995)]), [0, 0.025, 0.02, 0, 0], 2)
+    yb0, yb1 = DRIVER_Y - 0.222, DRIVER_Y + 0.222
+    for (y0, y1, sec) in ((-0.66, yb0, fas), (yb0, yb1, fas_low), (yb1, 0.66, fas)):
+        b.extend(extrude_y(sec, np.linspace(y0, y1, 3), 'paint', inside=(0.82, 0.5 * (y0 + y1), 0.94)))
     for sy in (1.0, -1.0):
         b.extend(K.box_buf((fx - 0.004, min(sy * 0.66, sy * 0.72), 0.815), (0.93, max(sy * 0.66, sy * 0.72), 1.05), 'plastic_int', 0.02, 2))
     # glovebox

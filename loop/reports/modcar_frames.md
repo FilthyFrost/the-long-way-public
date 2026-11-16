@@ -14,15 +14,15 @@
   2. 轿车 C 柱根部黑楔是后搁板伸出车身，已缩回后窗脚下；A 柱 X 形纹是长三角形扇面把高光拆碎，已沿窗边加点行（皮卡同样处理）。
   3. 发动机舱：减震塔（带顶座、三颗螺柱）、防火墙上的瓦楞隔热板、线束（夹子、插头）、刹车管、冲压筋、保险盒/继电器盒、铭牌。助力泵、暖风箱、雨刷电机原来伸进发动机空间盒，已移出或去掉。房车的电瓶原来被藏在翼子板里，现在舱在前轮前方加宽，电瓶露在舱里。舱内 AO 改为开盖烘焙（第二遍 AO 只用于舱内顶点）。
   4. 比例（轿车、皮卡）：车身相对车轮低 2 cm（hub 仍在轮半径高度）、轮拱半径小 1.5 cm、轮距宽 5 cm（轮胎外侧离车身线约 3 cm）、侧面加一条肩线折线（上方内倾 12°），供反射带勾出线条。npx vitest run 全过；派生手感：轿车侧倾 4.38→3.98 °/g、侧向 0.771→0.775 g；皮卡侧倾 5.53→5.06 °/g、侧向 0.830→0.879 g，其余不变。
-- 三角形：轿车 79.2k（≤ 80k），皮卡 62.6k，房车 106.1k。
+- 仪表 AO：仪表玻璃不参与 AO 烘焙（烘完再合进 INTERIOR，AO 为白），表盘再单独烘一遍（不算指针）。表盘 AO 中位数 0.53–0.62，指针均值 0.34–0.61（原来都是 0）。皮卡仪表罩下沿抬高、仪表盒后面的面板降低，驾驶员视角能看全上面的小表。
+- 三角形：轿车 79.2k（≤ 80k），皮卡 62.7k，房车 106.1k。
 
 ## 下一步
 - 等主程看比例改动在游戏里的效果（frames.ts 的 body.bottom/top、cg.y 可能要随车身降 2 cm）。
 - 若需要：尾箱也做开盖 AO；房车的比例和腰线同样处理。
 
 ## 问题 / 需要主程知道
-- 工具包新增（只加不改）：`mesh_region_split` + `add_zones`（精确分色区域）、Buf 带 UV、`sweep` 法线按截面围出的区域自动朝外、`coarse_idx`、`panel_back`、`bake_ao_open`、`drop_all`；`_sedan_inner` 新增 `dial`、`ring_inner(back=True)`、`lid_back`、`lid_beads`、`strut_tower`、`heat_shield`、`harness`、`smooth_path`；`_sedan_ext` 新增 `edge_rows`；`_sedan_build.needle` 可选 `scale_deg`（摩托请用 240 与 gauge UV）。
-- 仪表盘面和指针的 AO 烘出来是 0（被仪表玻璃挡住），游戏里 gauge 的 mix(0.6, 1, ao) 只按 60% 亮度出；需要的话我可以把玻璃排除在 AO 之外。
+- 工具包新增（只加不改）：`mesh_region_split` + `add_zones`（精确分色区域）、Buf 带 UV、`sweep` 法线按截面围出的区域自动朝外、`coarse_idx`、`panel_back`、`bake_ao_open`、`drop_all`、`split_mat`、`join_white`、`rebake_mats`；`_sedan_inner` 新增 `dial`、`ring_inner(back=True)`、`lid_back`、`lid_beads`、`strut_tower`、`heat_shield`、`harness`、`smooth_path`；`_sedan_ext` 新增 `edge_rows`；`_sedan_build.needle` 可选 `scale_deg`（摩托请用 240 与 gauge UV）。
 - 发动机空间盒是长方体：房车 doghouse 下（x < 1.93）实际只有 1.21 m 高（盒子 1.27 m），D6 后部 1.18 m。
 - 长凳装在前排座椅挂点上会伸出车身（零件宽度问题，原厂是桶椅）。
 - `tools/blender/lib/__pycache__` 等被提交进仓库，每次跑 Blender 都会改；建议删掉并忽略。

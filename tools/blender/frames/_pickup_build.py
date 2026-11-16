@@ -107,7 +107,11 @@ def build(args):
     objs.append(g.to_object('GLASS'))
     objs.append(both(IN.underbody(), IN.centre_under()).to_object('UNDER'))
     it = IN.interior(ex)
-    objs.append(both(it['L'], it['C']).to_object('INTERIOR'))
+    # the dial glass stays out of the AO bake (it would bake the gauge faces and the needles behind it black);
+    # it is joined into INTERIOR after the bake
+    ib, dial_glass = K.split_mat(both(it['L'], it['C']), ('glass',))
+    o_int = ib.to_object('INTERIOR')
+    objs.append(o_int)
     needles = {}
     from frames._sedan_build import needle
     for gdesc in it['gauges']:
@@ -134,6 +138,12 @@ def build(args):
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
                        ((IN.FIREWALL_X - 0.01, -0.78, -0.05), (IN.RAD_X + 0.10, 0.78, 1.01 - D.get('body_drop', 0.0))), samples=32, distance=0.35)
+    if not quick:
+        # the dial faces once more without the needles over them
+        K.rebake_mats(o_int, [o for o in meshes if o.name.startswith('N_')], ('gauge',), samples=32, distance=0.35)
+    K.join_white(o_int, dial_glass)
+    tris = {o.name: mc.triangles([o]) for o in meshes}
+    total = sum(tris.values())
     mc.export_glb(OUT_GLB, meshes + empties)
     mc.mounts_json(OUT_JSON, 'pickup', json_extra(objs, panels, needles, wipers, tris, total))
     print('[pickup] exported', round(time.time() - t0, 1), 's')
