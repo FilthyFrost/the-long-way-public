@@ -671,7 +671,7 @@ def centre_under():
     for x in (0.50, D['ax_r'] + 0.14):
         b.extend(K.cyl_buf((x - 0.02, 0.0, 0.30 if x > 0 else hz + 0.01), (x + 0.02, 0.0, 0.30 if x > 0 else hz + 0.01), 0.045, 'steel', 16))
     # fuel filler neck from the right rear flap down to the tank
-    path = np.array([(-1.63, -0.76, 0.765), (-1.66, -0.66, 0.66), (-1.70, -0.45, 0.42), (-1.70, -0.35, 0.36)])
+    path = np.array([(-1.63, -0.76, 0.712), (-1.66, -0.66, 0.63), (-1.70, -0.45, 0.42), (-1.70, -0.35, 0.36)])
     b.extend(K.tube_buf(path, 0.022, 'rubber', 12))
     return b
 

@@ -28,10 +28,15 @@ PI = math.pi
 
 # ============================================================================================ dimensions
 D = dict(
-    wb=2.42, ax_f=1.21, ax_r=-1.21, hub_z=0.285, track_f=1.35, track_r=1.32, wheel_r=0.285,
+    # the hubs sit body_drop above the wheel radius here; the build moves the whole frame down by it (the body
+    # sits lower over its wheels), the tracks are wide enough to bring the tyres out near the body line
+    wb=2.42, ax_f=1.21, ax_r=-1.21, hub_z=0.305, track_f=1.40, track_r=1.37, wheel_r=0.285, body_drop=0.02,
     # lower body: plan rounded rectangle at the bulge line
     xf=1.875, xr=-2.065, hw=0.81, rho_f=0.15, rho_r=0.12,
-    arch_r=0.338,
+    arch_r=0.323,
+    # a shoulder crease runs along the sides at this height: above it the side leans in by shoulder_deg (the
+    # paint's reflection band breaks there into a line)
+    shoulder_z=0.785, shoulder_deg=12.0, shoulder_r=0.003,
     # greenhouse
     belt_z=0.93, gw=0.760, tumble_deg=15.0,
     ws_x=0.835, ws_bow=0.05, ws_rake=51.0,     # windscreen base centre x, plan bow at |y| = 0.70, rake from horizontal
@@ -68,6 +73,14 @@ def side_w(x, z):
     return D['hw'] - 0.008 * ((x + 0.10) / 1.95) ** 2 - _tumble(z)
 
 
+_SH_TAN = math.tan(math.radians(D['shoulder_deg']))
+
+
+def side_w_up(x, z):
+    """Half width of the side above the shoulder crease: leaning in from the crease line."""
+    return side_w(x, D['shoulder_z']) - (z - D['shoulder_z']) * _SH_TAN
+
+
 def front_x(ay, z):
     return D['xf'] + 0.022 * (1 - (ay / D['hw']) ** 2) + _front_lean(z)
 
@@ -91,7 +104,7 @@ def r_bot(x):
 def L_sdf(P):
     x, y, z = P[:, 0], P[:, 1], P[:, 2]
     ay = np.abs(y)
-    a_side = ay - side_w(x, z)
+    a_side = K.r_int(ay - side_w(x, z), ay - side_w_up(x, z), D['shoulder_r'])
     a_front = x - front_x(ay, z)
     a_rear = rear_x(ay, z) - x
     a_top = z - top_z(x, ay)
@@ -198,6 +211,11 @@ L_T = np.cumsum([0.0, 0.06, 0.055, 0.62, 0.03, 0.03])
 L_GUIDE = RRect(D['xf'], D['xr'], D['hw'], D['rho_f'], D['rho_r'])
 LEAN = 0.016
 UNDER = 0.06
+T_S = L_T[2] + 6.0 / 7.0 * (L_T[3] - L_T[2])     # the shoulder crease's t: on a row of l_t_samples
+
+
+def _zs(z0, z1):
+    return np.clip(D['shoulder_z'], z0 + 0.01, z1 - 0.01)
 
 
 def w_top(x):
@@ -228,20 +246,27 @@ def _l_section(u, t):
     a = -PI / 2 + f * PI / 2
     n[m] = -rb[m] + rb[m] * np.cos(a)
     z[m] = zb[m] + rb[m] + rb[m] * np.sin(a)
+    # the wall in two pieces meeting at the shoulder crease (t = T_S); above it the section leans in on the
+    # sides (sw: 1 along the sides, 0 across the front and the rear)
+    sw = ny ** 2
     m = (t >= L_T[2]) & (t < L_T[3])
-    f = (t[m] - L_T[2]) / (L_T[3] - L_T[2])
+    tt = t[m]
     z0 = zb[m] + rb[m]
     z1 = zt[m] - rs[m]
-    n[m] = -LEAN * f
-    z[m] = z0 + (z1 - z0) * f
+    zs = _zs(z0, z1)
+    zz = np.where(tt < T_S, z0 + (zs - z0) * (tt - L_T[2]) / (T_S - L_T[2]), zs + (z1 - zs) * (tt - T_S) / (L_T[3] - T_S))
+    f = (zz - z0) / (z1 - z0)
+    n[m] = -LEAN * f - np.maximum(0.0, zz - zs) * _SH_TAN * sw[m]
+    z[m] = zz
+    up = (zt - rs - _zs(zb + rb, zt - rs)) * _SH_TAN * sw
     m = (t >= L_T[3]) & (t < L_T[4])
     f = (t[m] - L_T[3]) / (L_T[4] - L_T[3])
     a = f * PI / 2
-    n[m] = -LEAN - rs[m] + rs[m] * np.cos(a)
+    n[m] = -LEAN - up[m] - rs[m] + rs[m] * np.cos(a)
     z[m] = zt[m] - rs[m] + rs[m] * np.sin(a)
     m = t >= L_T[4]
     f = (t[m] - L_T[4]) / (L_T[5] - L_T[4])
-    n[m] = -LEAN - rs[m] - wt[m] * f
+    n[m] = -LEAN - up[m] - rs[m] - wt[m] * f
     z[m] = zt[m]
     return n, z
 
@@ -383,7 +408,8 @@ def t_of_z(x, z):
     x = np.asarray(x, float)
     z = np.asarray(z, float)
     z0, z1 = l_z0z1(x)
-    t = L_T[2] + (z - z0) / (z1 - z0) * (L_T[3] - L_T[2])
+    zs = _zs(z0, z1)
+    t = np.where(z < zs, L_T[2] + (z - z0) / (zs - z0) * (T_S - L_T[2]), T_S + (z - zs) / (z1 - zs) * (L_T[3] - T_S))
     zb = _bot(x)
     rb = r_bot(x)
     a = np.arcsin(np.clip((z - zb - rb) / rb, -1, 0))
@@ -407,7 +433,7 @@ def l_u_samples():
 def l_t_samples():
     T = L_T
     parts = [np.linspace(T[0], T[1], 3), np.linspace(T[1], T[2], 5), np.linspace(T[2], T[3], 8),
-             np.linspace(T[3], T[4], 7), np.linspace(T[4], T[5], 3)]
+             np.linspace(T[3], T[4], 7), np.linspace(T[4], T[5], 3), [T_S - 0.006, T_S + 0.006]]
     return np.unique(np.concatenate(parts))
 
 
