@@ -315,6 +315,17 @@ export class ModGame implements PlayerHost, CockpitHost {
       const donor = stockBuild('pickup', { fuel: 0.3 });
       weather(donor, 0.6, 0.32, 2);
       this.addVehicle(donor, g.bay2.x, g.bay2.z, g.bay2.yaw);
+      // and the others found round the place (the workshop's yard): a motorcycle on its stand by the door, a
+      // motorhome by the pump with its tank dry (the diesel can is for it)
+      if (p.garage === 'workshop') {
+        const bike = stockBuild('moto', { fuel: 0.3 });
+        weather(bike, 0.45, 0.18, 3);
+        // (by the barn's front corner, out of the way of what drives out)
+        this.addVehicle(bike, g.bay2.x - 2.9, g.bay2.z + 1.5, -1.25);
+        const rv = stockBuild('rv', { fuel: 0 });
+        weather(rv, 0.5, 0.22, 4);
+        this.addVehicle(rv, g.bay2.x + 4.3, -3.7, 0.18);
+      }
       this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
       this.input.lookYaw = g.spawn.heading;
     } else {

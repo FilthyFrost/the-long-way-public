@@ -52,7 +52,7 @@ try {
   if (!after.battery) fail('the battery is not on the car after the reload');
   // (the wheel that was in the hands lies where one stood: one more thing about than before it was taken up)
   if (after.loose !== fitted.loose + 1) fail(`things lying about: ${after.loose}, expected ${fitted.loose + 1}`);
-  if (after.vehicles !== 2) fail('the donor is gone');
+  if (after.vehicles !== 4) fail('the vehicles in the yard are gone');
   if (!after.canRides) fail("the can in the donor's bed did not come back on board");
   if (!after.done.includes('hood')) fail('the checklist forgot the bonnet');
   // F9 twice: a new game
@@ -71,7 +71,9 @@ try {
     window.__rt.game.save();
     return { keep: window.__rt.params.keep, saved: localStorage.getItem('modcar.save.v1') };
   });
-  if (drive.keep || (drive.saved && drive.saved.includes('"moto"'))) fail('a test drive was kept');
+  // (what is stored is still the game in the workshop, written as its page went away: not the moto on the road)
+  const stored = drive.saved ? JSON.parse(drive.saved) : null;
+  if (drive.keep || stored?.place === 'road') fail('a test drive was kept');
   // a game left on the road goes on on the road, in the same vehicle, about as far along
   const left = await page.evaluate(async () => {
     const g = window.__rt.game;
