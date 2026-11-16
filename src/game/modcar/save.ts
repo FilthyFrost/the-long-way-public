@@ -46,6 +46,9 @@ export interface SaveV1 {
   vehicles: SavedVehicle[];
   loose: SavedLoose[];
   player: { x: number; z: number; heading: number };
+  /** the hotbar: what is in each slot, and which is in the hands (absent in older saves: they put it down) */
+  hands?: ({ part?: PartInstance; tool?: Tool } | null)[];
+  sel?: number;
   /** on the road: how far along it the vehicle is (m), on which road (the world's seed) */
   road?: { s: number; seed: number };
 }
@@ -63,6 +66,7 @@ function check(s: SaveV1): void {
     for (const i of Object.values(v.build.parts)) inst(i);
   }
   for (const l of s.loose) if (l.part) inst(l.part);
+  for (const h of s.hands ?? []) if (h?.part) inst(h.part);
 }
 
 export function loadSave(): SaveV1 | null {
@@ -84,6 +88,7 @@ export function loadSave(): SaveV1 | null {
       for (const i of Object.values(v.build.parts)) inst(i);
     }
     for (const l of s.loose) if (l.part) inst(l.part);
+    for (const h of s.hands ?? []) if (h?.part) inst(h.part);
     reserveUids(ids);
     return s;
   } catch {

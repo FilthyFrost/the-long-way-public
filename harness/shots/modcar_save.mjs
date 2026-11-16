@@ -1,5 +1,6 @@
 // The game kept in the browser (src/game/modcar/save.ts): fit a part, save, reload — the workshop comes
-// back as it was left; F9 twice — a new game; a test drive (?start=road) is never kept.
+// back as it was left, what was in the hands in them again; F9 twice — a new game; a test drive
+// (?start=road) is never kept.
 //   SHOTS_GPU=1 node harness/shots/modcar_save.mjs
 import { launchBrowser, startServer } from './lib.mjs';
 
@@ -50,8 +51,9 @@ try {
   console.log('fitted', JSON.stringify(fitted));
   console.log('after reload', JSON.stringify(after));
   if (!after.battery) fail('the battery is not on the car after the reload');
-  // (the wheel that was in the hands lies where one stood: one more thing about than before it was taken up)
-  if (after.loose !== fitted.loose + 1) fail(`things lying about: ${after.loose}, expected ${fitted.loose + 1}`);
+  // (the wheel that was in the hands is in them again: the hotbar is kept)
+  if (after.held !== 'rim_steel13') fail(`the wheel is not back in the hands (${after.held})`);
+  if (after.loose !== fitted.loose) fail(`things lying about: ${after.loose}, expected ${fitted.loose}`);
   if (after.vehicles !== 4) fail('the vehicles in the yard are gone');
   if (!after.canRides) fail("the can in the donor's bed did not come back on board");
   if (!after.done.includes('hood')) fail('the checklist forgot the bonnet');

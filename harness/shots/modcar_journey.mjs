@@ -76,10 +76,14 @@ try {
     '05_fuel',
     async () => {
       if (!(await rt('pickUp', 'tool:jerrycan'))) throw new Error('no jerrycan');
-      // (at the filler flap on the body's side: the can opens it and pours)
+      // the filler flap on the body's side opened by hand (the other slot: empty hands), then the can held to it
+      await rt('select', 1);
+      await rt('aimCap', 0, 1.1);
+      await rt('press');
+      await rt('select', 0);
       await rt('aimCap', 0, 1.1);
       const t = await rt('telemetry');
-      if (!String(t.target).startsWith('pour:')) throw new Error(`not aimed at the filler (target ${t.target})`);
+      if (!String(t.target).startsWith('filler:')) throw new Error(`not aimed at the filler (target ${t.target})`);
       await rt('useFor', 7);
       await rt('drop');
       return null;

@@ -341,6 +341,9 @@ class Garage implements GarageScene {
       get word(): Text {
         return self.doorsOpen() ? text('按下 · 关上大门', 'Press · close the big doors') : text('按下 · 打开大门', 'Press · open the big doors');
       },
+      get state(): Text {
+        return self.doorsOpen() ? text('大门开着：车能开出去', 'The doors are open') : text('大门关着', 'The doors are shut');
+      },
       use: () => this.toggleDoors(),
     });
     const sw = at('lights');
@@ -352,6 +355,9 @@ class Garage implements GarageScene {
       radius: sw.radius,
       get word(): Text {
         return self.lampsOn ? text('关灯', 'Lights off') : text('开灯', 'Lights on');
+      },
+      get state(): Text {
+        return self.lampsOn ? text('灯开着', 'The lights are on') : text('灯关着', 'The lights are off');
       },
       use: () => {
         this.lampsOn = !this.lampsOn;

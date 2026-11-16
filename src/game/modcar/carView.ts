@@ -8,6 +8,7 @@
  * of the wheelbase), offset by the derived centre of gravity.
  */
 import * as THREE from 'three';
+import type { FillerKind } from './fillers';
 import { frameDef, hubsOf } from '../../core/modcar/frames';
 import type { Derived } from '../../core/modcar/derive';
 import { paintHex } from '../../core/modcar/palette';
@@ -515,9 +516,17 @@ export class CarView {
     return !!this.capPivot || (this.frame.mounts.some((m) => m.cat === 'fuelTank') && !!this.build.parts.fuelTank);
   }
 
-  /** has it a flap over its filler that opens and shuts */
+  /** has it a flap over its filler that opens and shuts (a car's on its body, a motorcycle's cap on its tank) */
   get hasFlap(): boolean {
-    return !!this.capPivot;
+    return !!this.capPivot || !!this.tankCap();
+  }
+
+  /** the hinged cap on a motorcycle's tank (fillers.ts), while its tank is fitted */
+  private tankCap(): THREE.Object3D | null {
+    if (this.capPivot) return null;
+    const m = this.fillerMount('fuel');
+    const n = m ? this.nodeOf(m) : null;
+    return n?.getObjectByName('pivot_FILLER') ?? null;
   }
 
   /** how far the flap stands open, 0…1 */
@@ -547,6 +556,7 @@ export class CarView {
       const d = p.distanceTo(local.origin);
       return d <= max ? d : null;
     }
+    if (this.tankCap()) return this.fillerHit('fuel', ray, max);
     if (!this.hasFiller) return null;
     const b = this.boundsOf('fuelTank', this.capBig);
     if (!b) return null;
@@ -562,6 +572,7 @@ export class CarView {
       this.model.updateMatrixWorld();
       return this.model.localToWorld(this.capBox.getCenter(out));
     }
+    if (this.fillerMouth('fuel', out, this.fillN)) return out;
     const b = this.hasFiller ? this.boundsOf('fuelTank', this.capBig) : null;
     if (!b) return null;
     b.getCenter(out);
@@ -575,6 +586,65 @@ export class CarView {
     const c = this.capBox.getCenter(this.capHitV);
     const end = c.x < -0.3 ? '后' : c.x > 0.3 ? '前' : '中';
     return `车身${this.capSide > 0 ? '右' : '左'}${end}侧`;
+  }
+
+  // ------------------------------------------------------------------ the fillers: fuel, water, oil
+
+  private readonly fillP = new THREE.Vector3();
+  private readonly fillN = new THREE.Vector3();
+  private readonly fillS = new THREE.Sphere();
+
+  /** the mount of the part a filler is on (the tank, the radiator, the engine), when that part is fitted */
+  fillerMount(kind: FillerKind): string | null {
+    const cat = kind === 'fuel' ? 'fuelTank' : kind === 'water' ? 'radiator' : 'engine';
+    return this.frame.mounts.find((m) => m.cat === cat && this.build.parts[m.id])?.id ?? null;
+  }
+
+  /** the FILLER marker on a fitted part (a motorcycle's tank cap, a radiator's cap, an engine's oil cap) */
+  private fillerMarker(kind: FillerKind): THREE.Object3D | null {
+    const m = this.fillerMount(kind);
+    const n = m ? this.nodeOf(m) : null;
+    const f = n?.getObjectByName('FILLER') ?? null;
+    return f && f.userData.filler === kind ? f : null;
+  }
+
+  /**
+   * A filler's mouth (render space) and the way out of it (a unit vector): the neck behind a car's flap
+   * (out of the body's side), the top of a motorcycle's tank cap, a radiator's or an engine's cap (up).
+   * False when there is none (the part is not fitted, or has no filler).
+   */
+  fillerMouth(kind: FillerKind, p: THREE.Vector3, n: THREE.Vector3): boolean {
+    if (kind === 'fuel' && this.capPivot && this.capNeck) {
+      this.model.updateMatrixWorld();
+      this.capNeck.getWorldPosition(p);
+      n.set(0, 0, this.capSide).transformDirection(this.model.matrixWorld);
+      return true;
+    }
+    const f = this.fillerMarker(kind);
+    if (!f) return false;
+    f.updateWorldMatrix(true, false);
+    f.getWorldPosition(p);
+    n.set(0, 1, 0).transformDirection(f.matrixWorld);
+    return true;
+  }
+
+  /** how far along a ray (render space) it meets a filler (a little enlarged, to be easy to aim at); null when it misses or is beyond max */
+  fillerHit(kind: FillerKind, ray: THREE.Ray, max: number): number | null {
+    if (kind === 'fuel' && this.capPivot) return this.capHit(ray, max);
+    if (!this.fillerMouth(kind, this.fillP, this.fillN)) return null;
+    const r = Math.max(0.11, (this.fillerMarker(kind)?.userData.radius ?? 0.03) * 4);
+    this.fillS.set(this.fillP, r);
+    const p = ray.intersectSphere(this.fillS, this.capHitV);
+    if (!p) return null;
+    const d = p.distanceTo(ray.origin);
+    return d <= max ? d : null;
+  }
+
+  /** can liquid go in there now: fuel when the flap (or the tank's cap) is open; water and oil when no shut bonnet is over them */
+  fillerOpen(kind: FillerKind): boolean {
+    if (kind === 'fuel') return this.hasFlap ? this.capOpen : !!this.fillerMount('fuel');
+    const m = this.fillerMount(kind);
+    return !!m && !this.shutOver(m);
   }
 
   /**
@@ -1081,6 +1151,15 @@ export class CarView {
       this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 9);
       this.capPivot.rotation.y = this.capSide * this.cap * CAP_OPEN_DEG * DEG;
       if (this.capNeck) this.capNeck.visible = this.cap > 0.04;
+    } else {
+      // a motorcycle's tank cap flips up off its neck
+      const tc = this.tankCap();
+      if (tc) {
+        this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 9);
+        tc.rotation.z = -this.cap * 100 * DEG;
+        const neck = tc.parent?.getObjectByName('FLAP_FILLER_neck');
+        if (neck) neck.visible = this.cap > 0.04;
+      }
     }
     // the rain caps of side stacks ride on the exhaust: shut at rest, fluttering open under load
     for (const [mount, sh] of this.shown) {

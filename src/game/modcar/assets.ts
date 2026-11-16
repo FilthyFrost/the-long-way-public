@@ -4,6 +4,7 @@
  * simple stand-in of about the right size, so every part can be fitted and seen before its art exists.
  */
 import * as THREE from 'three';
+import { addFiller } from './fillers';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { frameDef } from '../../core/modcar/frames';
@@ -180,7 +181,10 @@ export function partModel(partId: string, variant = ''): Promise<Model> {
     p = fetchGlb(`${BASE}${file}.glb`).then((scene) => {
       if (!scene && variant) return partModel(partId);
       const s = scene ?? standInPart(def);
-      return { scene: s, standIn: scene === null, box: new THREE.Box3().setFromObject(s) };
+      const box = new THREE.Box3().setFromObject(s);
+      // (its filler's cap and mouth: the oil cap on an engine, the water cap on a radiator)
+      if (scene) addFiller(partId, s);
+      return { scene: s, standIn: scene === null, box };
     });
     cache.set(file, p);
   }

@@ -12,6 +12,7 @@ import { allInstances, decodeBuild, encodeBuild, newInstance, fitSub, stockBuild
 import { frameDef } from '../../core/modcar/frames';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { newTool } from '../../core/modcar/tools';
+import { PALETTE } from '../../core/modcar/palette';
 import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
@@ -31,7 +32,12 @@ import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
-import { cloneModel, frameModel, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
+import { cloneModel, frameModel, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
+import { TONE_COLOUR } from './cards';
+import type { Dock } from './held';
+import type { Action } from './hudItems';
+import { LiquidStream } from './stream';
+import { PartThumbs } from './thumbs';
 import { DevPanel, type DevHost, type DevItem, type DevPoint } from './devPanel';
 import { Tune } from './devTune';
 import { DevWorld } from './devWorld';
@@ -46,7 +52,7 @@ import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { Sparks } from './sparks';
 import { LooseThings, toolModel } from './loose';
 import { CarMaterials } from './materials';
-import { ModPlayer, type PlayerHost } from './player';
+import { ModPlayer, type Held, type PlayerHost } from './player';
 import { Cockpit, type CockpitHost } from './cockpit';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
@@ -152,6 +158,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly cockpit = new Cockpit(this);
   /** what is in the hands, in first person */
   readonly heldThing: HeldThing;
+  /** the right mouse button is down (take off; with a can, draw it back out) */
+  rightButton = false;
+  /** the liquid going in from a can at a filler */
+  readonly stream: LiquidStream;
   /** rain bursting on the ground and on the vehicles' tops */
   readonly splashes: Splashes;
   /** metal on the road */
@@ -235,10 +245,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // (things put on a vehicle ride with it)
     this.loose.carriers = () => this.vehicles;
     this.heldThing = new HeldThing(this.core);
+    this.stream = new LiquidStream(this.core.scene);
     this.splashes = new Splashes(this.core.renderer, this.core.scene);
     this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
+    try {
+      this.player.cardsOn = localStorage.getItem('modcar.ui.cards') !== '0';
+    } catch {
+      /* storage unavailable: shown */
+    }
     if (this.garage) this.player.addSolids(this.garage.solids);
     else this.worldSolids();
     this.ready = this.populate();
@@ -466,6 +482,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         v.radioSong = this.restore.vehicles[0].radioSong ?? 0;
         for (const d of this.restore.done) this.done.add(d);
         this.restoreLoose(this.restore.loose.filter((l) => l.on === 0));
+        this.restoreHands(this.restore);
         this.ui.say('接着上次的路。（回车库从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
       }
       v.sys.startNow();
@@ -515,6 +532,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     for (const d of s.done) this.done.add(d);
     this.player.walker.place(s.player.x, s.player.z, s.player.heading);
     this.input.lookYaw = s.player.heading;
+    this.restoreHands(s);
+  }
+
+  /** the hotbar as it was */
+  private restoreHands(s: SaveV1): void {
+    (s.hands ?? []).forEach((h, i) => {
+      if (i < this.player.slots.length) this.player.slots[i] = h?.part ? { kind: 'part', inst: h.part } : h?.tool ? { kind: 'tool', tool: h.tool } : null;
+    });
+    this.player.sel = s.sel === 1 ? 1 : 0;
   }
 
   // ------------------------------------------------------------------ saving
@@ -533,9 +559,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const on = r ? this.vehicles.indexOf(r.on as ModVehicle) : -1;
       return { part: l.part ?? undefined, tool: l.tool ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray() } : {}) };
     });
-    // what is in the hands is put down where one stands
-    const h = this.player.held;
-    if (h) loose.push({ part: h.kind === 'part' ? h.inst : undefined, tool: h.kind === 'tool' ? h.tool : undefined, x: w.x, y: w.y, z: w.z, yaw: w.heading });
     const s: SaveV1 = {
       v: 1,
       at: Date.now(),
@@ -545,6 +568,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       vehicles: this.vehicles.map((v) => ({ build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, radioOn: v.radioOn, radioSong: v.radioSong })),
       loose,
       player: { x: w.x, z: w.z, heading: w.heading },
+      // (the two slots go on with the player, to the road too)
+      hands: this.player.slots.map((h) => (h ? (h.kind === 'part' ? { part: h.inst } : { tool: h.tool }) : null)),
+      sel: this.player.sel,
     };
     if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
@@ -606,6 +632,56 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const z = st.z + Math.cos(st.phi) * lane;
     const v = this.addVehicle(build, x, z, -st.phi);
     return v;
+  }
+
+  // ------------------------------------------------------------------ the hotbar's pictures, the keys in the seat
+
+  private icons: PartThumbs | null = null;
+  private readonly iconUrl = new Map<string, string | null>();
+  private readonly dockMouth = new THREE.Vector3();
+  private readonly dockOut = new THREE.Vector3();
+  private readonly spoutV = new THREE.Vector3();
+
+  /** the picture of a held thing for the hotbar (drawn once per kind; null while it is drawn) */
+  iconOf(h: NonNullable<Held>): string | null {
+    const key = h.kind === 'part' ? `part:${h.inst.part}:${h.inst.sub.tire?.part ?? ''}` : `tool:${h.tool.kind}:${h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : ''}:${h.tool.kind === 'spray' ? (h.tool.colour ?? 0) : ''}`;
+    if (this.iconUrl.has(key)) return this.iconUrl.get(key) ?? null;
+    this.iconUrl.set(key, null);
+    this.icons ??= new PartThumbs();
+    let item: DevItem;
+    let paint: number | undefined;
+    if (h.kind === 'part') {
+      item = { kind: 'part', id: h.inst.part };
+      const def = partDef(h.inst.part);
+      paint = def.panel ? panelPaint(def.panel.style, 0xa3472e) : undefined;
+    } else {
+      const t = h.tool;
+      item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined };
+      paint = t.kind === 'jerrycan' ? (t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a) : t.kind === 'oilcan' ? 0xd8a531 : t.kind === 'spray' ? PALETTE[t.colour ?? 0]?.hex : t.kind === 'sponge' ? 0xe8d257 : undefined;
+    }
+    this.icons.request(key, () => this.devModel(item), (url) => this.iconUrl.set(key, url), paint);
+    return null;
+  }
+
+  /** the colour of what a can holds (sRGB hex) */
+  private liquidColour(h: Held): number {
+    if (h?.kind !== 'tool') return 0xffffff;
+    const tone = h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : h.tool.kind === 'bottle' ? 'water' : 'oil';
+    return parseInt(TONE_COLOUR[tone].slice(1), 16);
+  }
+
+  /** what the keys do in the seat (down the right) */
+  private driveKeys(v: ModVehicle): Action[] {
+    const running = v.sys.running;
+    return [
+      { keys: ['W'], text: '油门' },
+      { keys: ['S'], text: '刹车 / 倒车' },
+      { keys: ['Space'], hold: true, text: '手刹' },
+      running ? { keys: ['K'], text: '熄火' } : { keys: ['K'], hold: true, text: '打火' },
+      { keys: ['L'], text: '车灯' },
+      { keys: ['C'], text: '换视角' },
+      { keys: ['E'], text: '下车' },
+    ];
   }
 
   // ------------------------------------------------------------------ the developer's parts bin (`)
@@ -895,12 +971,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         return;
       }
       if (e.button === 0) this.player.press();
-      if (e.button === 2) this.player.secondary = true;
+      if (e.button === 2) this.rightButton = true;
     });
     window.addEventListener('mouseup', (e) => {
       if (this.seated) this.cockpit.release(this.seated);
       if (e.button === 0) this.player.release();
-      if (e.button === 2) this.player.secondary = false;
+      if (e.button === 2) this.rightButton = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // the parts bin open (the mouse free): a drag on the view turns it (either button: a trackpad has only the one)
@@ -946,6 +1022,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (e.code === 'F9') {
         e.preventDefault();
         this.askNewGame();
+        return;
+      }
+      // on foot: 1 and 2 put the hotbar's slots in the hands; I shows and hides the item cards
+      if (!this.ui.assistsShown && !this.seated && (e.code === 'Digit1' || e.code === 'Digit2')) {
+        this.player.select(Number(e.code.slice(5)) - 1);
+        return;
+      }
+      if (e.code === 'KeyI' && !e.repeat) {
+        this.player.cardsOn = !this.player.cardsOn;
+        try {
+          localStorage.setItem('modcar.ui.cards', this.player.cardsOn ? '1' : '0');
+        } catch {
+          /* kept for this page */
+        }
         return;
       }
       // the assists card open: the number keys switch them
@@ -1031,7 +1121,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ui.say('驾驶位没有座椅，坐不进去。');
       return;
     }
-    if (this.player.held) this.player.putDown();
+    // (what is in the two slots goes along)
     this.player.ghosts.clear();
     this.player.clearHighlight();
     this.seated = v;
@@ -1367,13 +1457,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         run: i.isDown('ShiftLeft') || i.isDown('ShiftRight'),
         jump: i.isDown('Space'),
         drop: i.isDown('KeyG'),
-        take: this.player.secondary || i.isDown('KeyF'),
+        // (the right button or F, as they are now: what the player made of them last frame is not fed back)
+        take: this.rightButton || i.isDown('KeyF'),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
+      this.input.lookHold = this.player.transferring;
     } else {
-      // seated: the workbench words go away (the cab's controls have the mark now)
-      this.ui.showCard(null);
-      this.ui.showHeld(null);
+      // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
+      this.input.lookHold = false;
+      const items = this.ui.items;
+      items.showCards(null, null, false);
+      items.showTransfer(null);
+      items.showKeys(this.driveKeys(this.seated));
+      items.showHotbar(this.player.slotViews(), this.player.sel);
       this.ui.showPaint(null, 0);
     }
     // vehicles
@@ -1620,9 +1716,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         cam.updateProjectionMatrix();
       }
     }
-    // the thing in the hands, on foot in first person
+    // the thing in the hands, on foot in first person (a can held to an open filler goes to it)
     this.heldThing.set(this.player.held);
-    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit', this.player.walker.sway, 0);
+    const pt = this.player.target;
+    let dock: Dock | null = null;
+    if (!this.seated && pt?.kind === 'filler' && pt.open && pt.v.view.fillerMouth(pt.liquid, this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
+    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit', this.player.walker.sway, 0, dock);
+    // the liquid itself, from the spout into the mouth once the can is tipped over
+    const flow = this.player.flow;
+    const tip = flow && dock && this.player.lastMoved > 0 && this.heldThing.pouring > 0.7 ? this.heldThing.spoutWorld(this.spoutV) : null;
+    this.stream.update(dt, tip, this.dockMouth, this.liquidColour(this.player.held), flow?.dir === 'out' ? -1 : 1);
+    this.icons?.pump();
     // in the seat: the mark on the cab's controls (the one it is on lights up)
     if (this.seated) {
       this.cockpit.update(dt, this.seated, cam, this.viewMode === 'cockpit');
@@ -1874,11 +1978,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       case 'engine':
         return holding('eng_i4') ? at('engine', '发动机装这里', 0.6) : lying('eng_i4', '发动机');
       case 'fuel': {
-        if (held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol') {
-          // the filler (the flap on the body), not the tank behind the boot
+        const can = held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol';
+        const canSlot = this.player.slots.some((h) => h?.kind === 'tool' && h.tool.kind === 'jerrycan' && h.tool.fuel === 'petrol');
+        if (can || canSlot) {
+          // the filler (the flap on the body), not the tank behind the boot: its flap opened by hand first
           const c = v.view.capWorld(this.markerV);
           const o = this.core.origin;
-          return c ? { x: c.x + o.x, y: c.y + o.y + 0.22, z: c.z + o.z, text: '加油口：对着它按住 E' } : at('fuelTank', '加油口', 0.5);
+          const text = !v.view.capOpen ? (held ? `加油口盖：按 ${this.player.sel === 0 ? 2 : 1} 空出手，再按 E 打开` : '加油口盖：按 E 打开') : can ? '加油口：拿油桶对着它，按住 E' : `加油口：按 ${this.player.sel === 0 ? 2 : 1} 拿出油桶`;
+          return c ? { x: c.x + o.x, y: c.y + o.y + 0.22, z: c.z + o.z, text } : at('fuelTank', '加油口', 0.5);
         }
         return lying('tool:jerrycan', '油桶（汽油）');
       }

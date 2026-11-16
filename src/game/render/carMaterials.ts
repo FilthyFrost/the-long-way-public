@@ -53,6 +53,9 @@ export const CAR_MATERIAL_NAMES = [
   'ceramic',
   'rust',
   'emit',
+  // (the fillers' caps, added in the game: src/game/modcar/fillers.ts)
+  'cap_oil',
+  'cap_water',
 ] as const;
 
 export type CarMaterialName = (typeof CAR_MATERIAL_NAMES)[number];
@@ -108,6 +111,9 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   lens_amber: { family: 'lens', base: [0.75, 0.3, 0.02], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.45, 0.05], opacity: 0.66, wear: [0.6, 0, 0], ink: 0.0 },
   gauge: { family: 'gauge', base: [0.8, 0.77, 0.68], look: [0.3, 0.99, 0.0, 0], cabin: true, ink: 0.18 },
   emit: { family: 'emit', base: [1.0, 0.78, 0.45], look: [0, 0, 0, 0], ink: 0.87 },
+  // an engine's oil filler cap and a radiator's, the colours they have in a real engine bay
+  cap_oil: { family: 'matte', base: [0.82, 0.5, 0.03], look: [0.3, 0.99, 0.3, 0.0], pattern: 6, wear: [1, 0, 0.5], ink: 0.25 },
+  cap_water: { family: 'matte', base: [0.06, 0.24, 0.62], look: [0.3, 0.99, 0.3, 0.0], pattern: 6, wear: [1, 0, 0.5], ink: 0.25 },
 };
 
 /**

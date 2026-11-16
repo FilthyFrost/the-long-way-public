@@ -1,12 +1,12 @@
 /**
- * The few words on screen while working on a vehicle (docs/MODCAR.md §5): the mark in the middle with
- * the one thing E / the mouse would do and its progress ring, the stat card beside a ghost, the
- * vehicle's own messages, what is in the hands, the paint colour, and the garage's checklist.
+ * The few words on screen while working on a vehicle (docs/MODCAR.md §5): the mark in the middle and its
+ * progress ring, the item cards, the hotbar and the keys (hudItems.ts), the vehicle's own messages, the
+ * paint colours, the garage's checklist, the cluster while driving, the key card and the loading card.
  *
  * Plain DOM over the canvas, styled like a note pinned to a workshop board: cream paper, dark ink.
  */
-import type { StatLine } from '../../core/modcar/stats';
 import type { Text } from '../../core/modcar/types';
+import { ItemHud } from './hudItems';
 
 const CSS = `
 .mc-ui { position: fixed; inset: 0; pointer-events: none; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #2b2622; z-index: 5; }
@@ -15,38 +15,29 @@ const CSS = `
 .mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); padding: 4px 12px; border-radius: 12px; background: rgba(250,244,228,0.92); box-shadow: 0 2px 0 rgba(60,40,24,0.25); font-size: 15px; white-space: nowrap; }
 .mc-word b { color: #a3472e; font-weight: 600; }
 .mc-word small { color: #7a6a5a; margin-left: 6px; font-size: 12px; }
-.mc-card { position: absolute; left: calc(50% + 110px); top: calc(50% - 170px); width: 236px; padding: 10px 12px 8px; border-radius: 10px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); font-size: 13px; }
-.mc-card h4 { margin: 0 0 2px; font-size: 15px; }
-.mc-card .sub { color: #7a6a5a; font-size: 12px; margin-bottom: 6px; }
-.mc-card table { width: 100%; border-collapse: collapse; }
-.mc-card td { padding: 1px 0; }
-.mc-card td.k { color: #6a5a4a; width: 56px; }
-.mc-card td.v { text-align: right; font-variant-numeric: tabular-nums; }
-.mc-card .up { color: #3f7d3a; } .mc-card .down { color: #c0602a; } .mc-card .same { color: #7a6a5a; }
-.mc-card .warn { margin-top: 6px; color: #b0482a; font-size: 12px; }
-.mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 6px 16px; border-radius: 14px; background: rgba(43,38,34,0.82); color: #fbf3e1; font-size: 15px; transition: opacity 0.4s; }
-.mc-held { position: absolute; right: 22px; bottom: 22px; padding: 6px 12px; border-radius: 10px; background: rgba(250,244,228,0.9); font-size: 13px; box-shadow: 0 2px 0 rgba(60,40,24,0.2); }
-.mc-held small { color: #7a6a5a; display: block; }
-.mc-paint { position: absolute; right: 22px; bottom: 70px; display: flex; gap: 3px; }
+.mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 6px 16px; border-radius: 13px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); color: #2b2622; font-size: 15px; transition: opacity 0.4s; }
+.mc-paint { position: absolute; left: calc(50% + 86px); bottom: 26px; display: flex; gap: 3px; padding: 6px 8px; border-radius: 10px; background: rgba(250,244,228,0.84); box-shadow: 0 2px 0 rgba(60,40,24,0.2); }
 .mc-paint i { width: 14px; height: 22px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(40,30,24,0.3); }
 .mc-paint i.on { transform: translateY(-5px); box-shadow: 0 0 0 2px #2b2622; }
 .mc-list { position: absolute; left: 22px; top: 22px; min-width: 210px; padding: 10px 14px; border-radius: 10px; background: rgba(250,244,228,0.92); box-shadow: 0 3px 0 rgba(60,40,24,0.22); font-size: 14px; }
 .mc-list h4 { margin: 0 0 6px; font-size: 15px; }
 .mc-list div { margin: 2px 0; } .mc-list .done { color: #7a8a6a; text-decoration: line-through; } .mc-list .now { color: #a3472e; font-weight: 600; }
-.mc-dash { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 12px; padding: 8px 14px 8px 12px; border-radius: 14px; background: rgba(36,31,28,0.72); color: #fbf3e1; font-variant-numeric: tabular-nums; box-shadow: 0 2px 0 rgba(0,0,0,0.25); }
-.mc-dash .spd { font-size: 34px; line-height: 0.9; font-weight: 600; min-width: 62px; text-align: right; letter-spacing: -0.02em; }
-.mc-dash .unit { font-size: 11px; color: #c9bba6; margin-left: -8px; margin-bottom: 2px; }
-.mc-dash .gear { min-width: 30px; padding: 2px 6px; border-radius: 7px; background: #fbf3e1; color: #2b2622; font-size: 18px; font-weight: 700; text-align: center; margin-bottom: 1px; }
-.mc-dash .col { display: flex; flex-direction: column; gap: 4px; min-width: 116px; }
-.mc-dash .row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #c9bba6; }
-.mc-dash .bar { position: relative; flex: 1; height: 5px; border-radius: 3px; background: rgba(251,243,225,0.16); overflow: hidden; }
-.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #f3e3c0; }
-.mc-dash .bar.rpm i { background: linear-gradient(90deg, #f3e3c0 80%, #e2704a 100%); }
-.mc-dash .bar.low i { background: #e2704a; }
+.mc-dash { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: flex-end; gap: 12px; padding: 9px 14px 9px 12px; border-radius: 13px; background: rgba(250,244,228,0.93); color: #2b2622; font-variant-numeric: tabular-nums; box-shadow: 0 3px 0 rgba(60,40,24,0.22), 0 0 0 1px rgba(60,40,24,0.12); }
+.mc-dash .spd { font-size: 34px; line-height: 0.9; font-weight: 700; min-width: 62px; text-align: right; letter-spacing: -0.02em; }
+.mc-dash .unit { font-size: 11px; color: #7a6a5a; margin-left: -8px; margin-bottom: 2px; }
+.mc-dash .gear { min-width: 30px; padding: 2px 6px; border-radius: 7px; background: #2b2622; color: #fbf3e1; font-size: 18px; font-weight: 700; text-align: center; margin-bottom: 1px; }
+.mc-dash .col { display: flex; flex-direction: column; gap: 4px; min-width: 124px; }
+.mc-dash .row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #6a5a4a; }
+.mc-dash .bar { position: relative; flex: 1; height: 6px; border-radius: 3px; background: rgba(60,40,24,0.13); overflow: hidden; }
+.mc-dash .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #a3472e; }
+.mc-dash .bar.rpm i { background: linear-gradient(90deg, #6a5a4a 78%, #c4552e 100%); }
+.mc-dash .bar.fuelBar i { background: #e0912f; }
+.mc-dash .bar.temp i { background: #4a9bd6; }
+.mc-dash .bar.low i { background: #c4552e; }
 .mc-dash .lamps { display: flex; gap: 5px; font-size: 11px; min-height: 15px; }
-.mc-dash .lamps span { padding: 0 5px; border-radius: 4px; background: rgba(251,243,225,0.12); color: #8f8270; }
+.mc-dash .lamps span { padding: 0 5px; border-radius: 4px; background: rgba(60,40,24,0.08); color: #8a7a6a; }
 .mc-dash .lamps span.on { background: #f3c35a; color: #2b2622; }
-.mc-dash .lamps span.warn { background: #e2704a; color: #fff6e6; }
+.mc-dash .lamps span.warn { background: #c4552e; color: #fff6e6; }
 .mc-fade { position: absolute; inset: 0; background: #0e0c0a; opacity: 0; transition: opacity 0.6s; }
 .mc-help { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 16px 20px 12px; border-radius: 14px; background: rgba(250,244,228,0.96); box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.12); font-size: 14px; line-height: 1.55; }
 .mc-help h3 { margin: 0 0 2px; font-size: 18px; }
@@ -71,8 +62,8 @@ const CSS = `
 .mc-load .bar { height: 4px; border-radius: 2px; background: rgba(251,243,225,0.15); overflow: hidden; }
 .mc-load .bar i { display: block; height: 100%; width: 0; background: #f3c35a; transition: width 0.2s; }
 .mc-load .what { margin-top: 10px; color: #8f8270; font-size: 12px; }
-.mc-pause { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); padding: 6px 16px; border-radius: 14px; background: rgba(43,38,34,0.78); color: #fbf3e1; font-size: 14px; }
-.mc-pause b { color: #f3c35a; }
+.mc-pause { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); padding: 6px 16px; border-radius: 13px; background: rgba(250,244,228,0.95); box-shadow: 0 3px 0 rgba(60,40,24,0.22); color: #2b2622; font-size: 14px; }
+.mc-pause b { color: #a3472e; }
 .mc-marker { position: absolute; transform: translate(-50%, -100%); text-align: center; color: #fbf3e1; font-size: 13px; text-shadow: 0 1px 2px rgba(20,14,10,0.8); white-space: nowrap; }
 .mc-marker i { display: block; width: 14px; height: 14px; margin: 3px auto 0; transform: rotate(45deg); border: 2px solid #f3c35a; border-radius: 2px; background: rgba(243,195,90,0.25); animation: mc-bob 1.6s ease-in-out infinite; }
 .mc-marker.edge i { border-color: #fbf3e1; }
@@ -84,12 +75,13 @@ const CSS = `
 const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」装好、加上油，开出车库上路。拿着零件靠近车，能装的地方会亮起来。</div>
 <h5>走路</h5><table>
 <tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · 鼠标</td><td class="v">走动、环顾 · <b>Shift</b> 跑 · <b>空格</b> 跳</td></tr>
-<tr><td class="k"><b>E</b> / 左键</td><td class="v">拿起看着的东西；对着亮起的幽灵<b>按住</b>装上（已有零件就是替换，旧的到手上）</td></tr>
+<tr><td class="k"><b>E</b> / 左键</td><td class="v">拿起看着的东西（放进快捷栏）；对着亮起的幽灵<b>按住</b>装上（已有零件就是替换，旧的到手上）</td></tr>
 <tr><td class="k">按住右键 / <b>F</b></td><td class="v">拆下看着的零件</td></tr>
-<tr><td class="k">按住 <b>G</b></td><td class="v">把手上的东西放下</td></tr>
+<tr><td class="k"><b>1</b> <b>2</b> · 滚轮</td><td class="v">快捷栏两格：能同时带两样东西，按 1、2 换到手上</td></tr>
+<tr><td class="k">按住 <b>G</b> · <b>I</b></td><td class="v">把手上的东西放下 · 隐藏 / 显示物品信息卡</td></tr>
 <tr><td class="k"><b>E</b> 看着车门、引擎盖</td><td class="v">开 / 关；看着车身 = 上车</td></tr>
-<tr><td class="k">油桶</td><td class="v">对着车身侧面的<b>加油口</b>按住 E 加油（加油口盖自己会打开；空手按 E 也能开关它）</td></tr>
-<tr><td class="k">水壶、机油</td><td class="v">对着车按住 E 倒进水箱、发动机</td></tr>
+<tr><td class="k">油桶</td><td class="v">先空手按 E 打开车身侧面的<b>加油口盖</b>，再拿着油桶对准它：油桶自己对上去，按住 E 加油，按住右键抽回</td></tr>
+<tr><td class="k">水壶 · 机油壶</td><td class="v">打开引擎盖，对着散热器的<b>蓝色盖子</b> / 发动机的<b>黄色盖子</b>，按住 E 倒进去</td></tr>
 <tr><td class="k">喷罐 · 海绵</td><td class="v">对着零件或车身按住左键喷漆 / 擦洗；滚轮换颜色</td></tr>
 </table>
 <h5>开车</h5><table>
@@ -128,22 +120,13 @@ export interface DashView {
   warn: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
 }
 
-export interface CardData {
-  title: string;
-  sub: string;
-  lines: StatLine[];
-  warn?: string;
-}
-
 export class ModUI {
   readonly root: HTMLDivElement;
   private readonly mark: HTMLDivElement;
   private readonly ring: SVGSVGElement;
   private readonly arc: SVGCircleElement;
   private readonly word: HTMLDivElement;
-  private readonly card: HTMLDivElement;
   private readonly toast: HTMLDivElement;
-  private readonly held: HTMLDivElement;
   private readonly paint: HTMLDivElement;
   private readonly list: HTMLDivElement;
   private readonly dash: HTMLDivElement;
@@ -153,9 +136,10 @@ export class ModUI {
   private readonly marker: HTMLDivElement;
   private readonly assist: HTMLDivElement;
   private readonly load: HTMLDivElement;
+  /** the item cards, the hotbar, the keys (hudItems.ts) */
+  readonly items: ItemHud;
   private toastT = 0;
   private lastMarker = '';
-  private lastCard = '';
   private lastWord = '';
   private lastList = '';
   lang: 'zh' | 'en' = 'zh';
@@ -178,9 +162,8 @@ export class ModUI {
     this.ring.appendChild(this.arc);
     this.root.appendChild(this.ring);
     this.word = el('div', 'mc-word', this.root);
-    this.card = el('div', 'mc-card', this.root);
+    this.items = new ItemHud(this.root);
     this.toast = el('div', 'mc-toast', this.root);
-    this.held = el('div', 'mc-held', this.root);
     this.paint = el('div', 'mc-paint', this.root);
     this.list = el('div', 'mc-list', this.root);
     this.dash = el('div', 'mc-dash', this.root);
@@ -194,7 +177,7 @@ export class ModUI {
     this.load = el('div', 'mc-load', this.root);
     this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
     this.load.style.display = 'none';
-    for (const e of [this.word, this.card, this.toast, this.held, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
+    for (const e of [this.word, this.toast, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
   }
 
@@ -215,38 +198,11 @@ export class ModUI {
     if (on) this.arc.setAttribute('stroke-dashoffset', String(113.1 * (1 - Math.min(1, ring))));
   }
 
-  showCard(c: CardData | null): void {
-    if (!c) {
-      this.card.style.display = 'none';
-      this.lastCard = '';
-      return;
-    }
-    const key = JSON.stringify(c);
-    this.card.style.display = '';
-    if (key === this.lastCard) return;
-    this.lastCard = key;
-    const rows = c.lines
-      .map((l) => {
-        const cls = l.better > 0 ? 'up' : l.better < 0 ? 'down' : 'same';
-        const arrow = l.better > 0 ? '▲' : l.better < 0 ? '▼' : '';
-        const s = (x: StatLine['before']): string => (typeof x === 'string' ? x : x[this.lang]);
-        if (l.note) return `<tr><td class="k">${l.label[this.lang]}</td><td class="v">${s(l.after)}</td></tr>`;
-        return `<tr><td class="k">${l.label[this.lang]}</td><td class="v">${s(l.before)} → <span class="${cls}">${s(l.after)} ${arrow}</span></td></tr>`;
-      })
-      .join('');
-    this.card.innerHTML = `<h4>${c.title}</h4><div class="sub">${c.sub}</div><table>${rows}</table>${c.warn ? `<div class="warn">${c.warn}</div>` : ''}`;
-  }
-
   say(text: string, seconds = 3.5): void {
     this.toast.textContent = text;
     this.toast.style.display = '';
     this.toast.style.opacity = '1';
     this.toastT = seconds;
-  }
-
-  showHeld(html: string | null): void {
-    this.held.style.display = html ? '' : 'none';
-    if (html) this.held.innerHTML = html;
   }
 
   showPaint(colours: readonly number[] | null, at: number): void {
@@ -383,6 +339,7 @@ export class ModUI {
   }
 
   update(dt: number): void {
+    this.items.update(dt);
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) this.toast.style.opacity = '0';

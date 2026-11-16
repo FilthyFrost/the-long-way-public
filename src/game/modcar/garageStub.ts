@@ -26,6 +26,8 @@ export interface GarageDevice {
   radius: number;
   /** what pressing would do, as the mark shows it (may change with the device's state) */
   readonly word: Text;
+  /** how it stands now, for its card ("大门关着"); absent: its word says it */
+  readonly state?: Text;
   use(): void;
 }
 

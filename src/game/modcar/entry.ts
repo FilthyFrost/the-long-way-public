@@ -149,6 +149,38 @@ const rt = {
     game.simulate(0);
     return true;
   },
+  /** stand by one of a vehicle's fillers (fuel, water, oil), looking at its mouth (from whichever side one can stand on) */
+  aimFiller: (vi: number, liquid: 'fuel' | 'water' | 'oil', dist = 0.95) => {
+    const v = vehicle(vi);
+    game.simulate(0);
+    const m = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    if (!v.view.fillerMouth(liquid, m, n)) return false;
+    const o = game.core.origin;
+    const p = m.clone().add(new THREE.Vector3(o.x, o.y, o.z));
+    // out from the body: the way the mouth faces (a cap on top: away from the vehicle's middle)
+    let a0 = Math.atan2(n.z, n.x);
+    if (Math.hypot(n.x, n.z) < 0.3) a0 = Math.atan2(p.z - v.sim.pz, p.x - v.sim.px);
+    if (game.seated) game.getOut();
+    const w = game.player.walker;
+    game.viewMode = 'cockpit';
+    for (const d of [dist, dist * 1.35, dist * 1.8]) {
+      for (const da of [0, 0.6, -0.6, 1.2, -1.2, Math.PI]) {
+        w.place(p.x + Math.cos(a0 + da) * d, p.z + Math.sin(a0 + da) * d, 0, 0);
+        // (the body pushes one out: look again from where one ends up)
+        for (let i = 0; i < 3; i++) {
+          game.simulate(i ? 0.05 : 0);
+          const eye = w.eye();
+          game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
+          game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+        }
+        game.simulate(0);
+        const t = String(game.player.telemetry().target);
+        if (t.startsWith('filler:') || t.startsWith('cap:')) return true;
+      }
+    }
+    return false;
+  },
   /** the fuel filler's state: flap open (0…1), litres in the tank by kind */
   filler: (vi: number) => {
     const v = vehicle(vi);
@@ -186,14 +218,46 @@ const rt = {
     game.simulate(0);
     return game.player.telemetry();
   },
-  /** pick up the first loose thing of a part id */
+  /** pick up the first loose thing of a part id (into the hands, or the hotbar's free slot as the game does) */
   pickUp: (id: string) => {
     const l = game.loose.list.find((x) => x.part?.part === id || (x.tool && `tool:${x.tool.kind}` === id));
     if (!l) return false;
+    const slot = game.player.freeSlot();
+    if (slot < 0) return false;
+    game.player.sel = slot;
     game.loose.remove(l);
     game.player.held = l.part ? { kind: 'part', inst: l.part } : { kind: 'tool', tool: l.tool! };
     game.simulate(0);
     return true;
+  },
+  /** stand before the first loose thing of a part id (tool:<kind> for a tool), looking at it (from whichever side one can stand on) */
+  aimLoose: (id: string, dist = 1.0) => {
+    const l = game.loose.list.find((x) => x.part?.part === id || (x.tool && `tool:${x.tool.kind}` === id));
+    if (!l) return false;
+    if (game.seated) game.getOut();
+    const w = game.player.walker;
+    game.viewMode = 'cockpit';
+    const a0 = Math.atan2(w.z - l.z, w.x - l.x);
+    for (let k = 0; k < 8; k++) {
+      const a = a0 + (k * Math.PI) / 4;
+      w.place(l.x + Math.cos(a) * dist, l.z + Math.sin(a) * dist, 0, 0);
+      // (the walls and benches push one out: look again from where one ends up)
+      for (let i = 0; i < 3; i++) {
+        game.simulate(i ? 0.05 : 0);
+        const e = w.eye();
+        game.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);
+        game.input.lookPitch = Math.atan2(l.y + l.mid - e.y, Math.hypot(l.x - w.x, l.z - w.z));
+      }
+      game.simulate(0);
+      if (game.player.telemetry().target === `loose:${l.uid}`) return true;
+    }
+    return false;
+  },
+  /** put a slot of the hotbar in the hands (0 or 1) */
+  select: (i: number) => {
+    game.player.select(i);
+    game.simulate(0);
+    return game.player.telemetry();
   },
   /** hold the use button for a while (fit, pour, spray) */
   useFor: (seconds: number) => {
@@ -211,10 +275,10 @@ const rt = {
   takeFor: (seconds: number) => {
     const dt = 1 / 60;
     for (let t = 0; t < seconds; t += dt) {
-      game.player.secondary = true;
+      game.rightButton = true;
       game.step(dt, 1);
     }
-    game.player.secondary = false;
+    game.rightButton = false;
     game.simulate(0);
     return game.player.telemetry();
   },

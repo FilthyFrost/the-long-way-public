@@ -3,6 +3,7 @@
  * gear lever, the key, the radio, the horn and the doors; a click works them (the key: hold to crank),
  * exactly like their keys. The parts move: the lever goes up, the gear lever leans, the key turns.
  */
+import type { Action } from './hudItems';
 import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
 import type { MountDef } from '../../core/modcar/types';
@@ -60,18 +61,19 @@ export class Cockpit {
     this.aimed = cockpit ? this.pick(v, cam) : null;
     const ui = this.host.ui;
     const m = this.aimed;
+    const acts: Action[] = [];
     if (m) {
       const name = partDef(v.build.parts[m.id].part).name[ui.lang];
       const s = v.sim;
-      let word = '';
-      if (m.cat === 'handbrake') word = s.parkBrake > 0 ? `松手刹 <b>${name}</b>` : `拉手刹 <b>${name}</b>`;
-      else if (m.cat === 'gearLever') word = `挡位 <b>${v.sys.dash.gearLabel}</b><small>左键加挡 · 右键减挡</small>`;
-      else if (m.cat === 'ignition') word = v.sys.running ? `熄火 <b>${name}</b>` : `打火 <b>${name}</b><small>按住</small>`;
-      else if (m.cat === 'radio') word = v.radioOn ? `关 <b>${name}</b><small>右键换台 · 「${SONGS[v.radioSong % SONGS.length].name}」</small>` : `开 <b>${name}</b>`;
-      else if (m.cat === 'horn' || m.cat === 'steering') word = `喇叭<small>按住</small>`;
-      else if (m.cat === 'door') word = `${v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门'}<small>E 下车</small>`;
-      ui.prompt(true, word, -1);
+      if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
+      else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: `加挡 · 现在 <b>${v.sys.dash.gearLabel}</b>` }, { keys: ['RMB'], text: '减挡' });
+      else if (m.cat === 'ignition') acts.push(v.sys.running ? { keys: ['LMB'], text: `熄火 <b>${name}</b>` } : { keys: ['LMB'], hold: true, text: `打火 <b>${name}</b>` });
+      else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: `换台 · 「${SONGS[v.radioSong % SONGS.length].name}」` }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
+      else if (m.cat === 'horn' || m.cat === 'steering') acts.push({ keys: ['LMB'], hold: true, text: '按喇叭' });
+      else if (m.cat === 'door') acts.push({ keys: ['LMB'], text: v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门' }, { keys: ['E'], text: '下车' });
+      ui.prompt(true, '', -1);
     } else ui.prompt(cockpit, '', -1);
+    ui.items.showActions(acts);
     // the parts that move
     this.pose(v, dt);
     if (this.cranking && !v.sys.cranking && !v.sys.running) this.cranking = false;

@@ -10,6 +10,14 @@ import type { Build, FuelType, PartInstance, Text } from './types';
 
 export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge';
 
+/** what goes in where: fuel into the tank, water into the radiator, oil into the engine */
+export type LiquidKind = 'fuel' | 'water' | 'oil';
+
+/** the liquid a tool carries (null: a spray can, a sponge) */
+export function liquidOf(t: Tool): LiquidKind | null {
+  return t.kind === 'jerrycan' ? 'fuel' : t.kind === 'bottle' ? 'water' : t.kind === 'oilcan' ? 'oil' : null;
+}
+
 export interface Tool {
   uid: string;
   kind: ToolKind;
@@ -124,6 +132,59 @@ export function pour(t: Tool, build: Build, dt: number): number {
     return l;
   }
   return 0;
+}
+
+/** how fast liquid is drawn back out into a can (a share of how fast it pours) */
+export const SIPHON_RATE = 0.7;
+
+/** what drawing liquid back out of a vehicle into the held can would do */
+export function siphonUse(t: Tool, build: Build): { can: boolean; why?: Text } {
+  const info = TOOL_INFO[t.kind];
+  if ((t.litres ?? 0) >= info.capacity - 0.02) return { can: false, why: { zh: `${info.name.zh}满了`, en: 'Full' } };
+  if (t.kind === 'jerrycan') {
+    const tank = instOf(build, 'fuelTank');
+    const f = tank?.fluids.fuel ?? {};
+    const k = (t.litres ?? 0) > 0.01 ? (t.fuel ?? 'petrol') : null;
+    const there = k ? (f[k] ?? 0) : fuelIn(tank ?? ({ fluids: {} } as PartInstance));
+    if (there <= 0.01) return { can: false, why: k && fuelIn(tank ?? ({ fluids: {} } as PartInstance)) > 0.01 ? { zh: `油箱里没有${FUEL_NAME[k].zh}`, en: `No ${FUEL_NAME[k].en} in the tank` } : { zh: '油箱是空的', en: 'The tank is empty' } };
+    return { can: true };
+  }
+  if (t.kind === 'bottle') return (instOf(build, 'radiator')?.fluids.coolantL ?? 0) > 0.01 ? { can: true } : { can: false, why: { zh: '散热器里没有水', en: 'No water in the radiator' } };
+  if (t.kind === 'oilcan') return (instOf(build, 'engine')?.fluids.oilL ?? 0) > 0.01 ? { can: true } : { can: false, why: { zh: '发动机里没有机油', en: 'No oil in the engine' } };
+  return { can: false };
+}
+
+/**
+ * Draw liquid back out of a vehicle into the held can for dt seconds (a siphon): fuel out of the tank — an
+ * empty can takes the kind there is most of, a can with some in it only its own kind — water out of the
+ * radiator, oil out of the engine. Returns the litres moved.
+ */
+export function siphon(t: Tool, build: Build, dt: number): number {
+  const info = TOOL_INFO[t.kind];
+  const want = Math.min(info.capacity - (t.litres ?? 0), info.rate * SIPHON_RATE * dt);
+  if (want <= 0) return 0;
+  if (t.kind === 'jerrycan') {
+    const f = instOf(build, 'fuelTank')?.fluids.fuel;
+    if (!f) return 0;
+    if ((t.litres ?? 0) <= 0.01) {
+      const most = (['petrol', 'diesel', 'mix2t'] as FuelType[]).reduce((a, k) => ((f[k] ?? 0) > (f[a] ?? 0) ? k : a), 'petrol' as FuelType);
+      if ((f[most] ?? 0) > 0) t.fuel = most;
+    }
+    const k = t.fuel ?? 'petrol';
+    const l = Math.min(want, f[k] ?? 0);
+    if (l <= 0) return 0;
+    f[k] = (f[k] ?? 0) - l;
+    t.litres = (t.litres ?? 0) + l;
+    return l;
+  }
+  const inst = instOf(build, t.kind === 'bottle' ? 'radiator' : t.kind === 'oilcan' ? 'engine' : '');
+  if (!inst) return 0;
+  const key = t.kind === 'bottle' ? 'coolantL' : 'oilL';
+  const l = Math.min(want, inst.fluids[key] ?? 0);
+  if (l <= 0) return 0;
+  inst.fluids[key] = (inst.fluids[key] ?? 0) - l;
+  t.litres = (t.litres ?? 0) + l;
+  return l;
 }
 
 /**

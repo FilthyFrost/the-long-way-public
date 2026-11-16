@@ -55,6 +55,8 @@ export class InputManager {
   /** free-look in radians: yaw + = right, pitch + = up */
   lookYaw = 0;
   lookPitch = 0;
+  /** the view does not turn (liquid flowing from a can held to a filler) */
+  lookHold = false;
   /** walking about: the mouse turns all the way round and the view does not ease back */
   freeLook = false;
   /** walking stick: forward and right, −1 … 1 */
@@ -99,6 +101,7 @@ export class InputManager {
 
   /** turn the view by a movement of the mouse (px), as the captured mouse does (also: dragged with the right button) */
   turn(dx: number, dy: number, k = 0.0022): void {
+    if (this.lookHold) return;
     this.lookYaw = this.freeLook ? this.lookYaw + dx * k : Math.max(-2.4, Math.min(2.4, this.lookYaw + dx * k));
     this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - dy * k));
     this.lastLook = performance.now();
