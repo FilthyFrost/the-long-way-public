@@ -59,9 +59,10 @@ const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out'
 /**
  * The sun indoors: its patches warmer than the sky's light round them (the room's cool is in that light),
  * softer at the edge — the sun is no point, and the window a metre or two up: four taps of the usual
- * filter spread across the sun's plane — and that edge painted, not cut: the lookup wanders a few
- * centimetres on a stroke-sized noise and the brush's own texture breaks it up. Outside the room, the
- * usual shadow and the sun's own colour.
+ * filter spread across the sun's plane — and the patch's outline painted, not cut: there the lookup
+ * wanders a few centimetres on a stroke-sized noise and the brush's own texture breaks it up. The
+ * window bars' shadows inside a patch stay straight and the patch's middle clean. Outside the room,
+ * the usual shadow and the sun's own colour.
  *
  * garageSeen holds what the eye gets of a lit surface on screen under about 0.85 after the frame's
  * painter's curve (0.75 before it; uExposure is the
@@ -71,21 +72,49 @@ const GLOW_NAMES: readonly string[] = ['bulb', 'led', 'dial', 'fire', 'lamp_out'
 const GLSL_GARAGE_SUN = /* glsl */ `
   uniform float uExposure;
   const vec3 GARAGE_WARM = vec3(0.92, 0.77, 0.59);
+  // one look into the shadow maps, no filter (for the wide ring below: it only has to say "in or out")
+  float garageShadow1(vec3 pos, vec3 n) {
+    if (uShadowParams.x < 0.5) return 1.0;
+    if (dot(n, uSunDir) <= 0.0) return 1.0;
+    vec4 c0 = uShadowMat0 * vec4(pos + n * uShadowParams.y * 2.0, 1.0);
+    if (all(greaterThan(c0.xyz, vec3(0.03))) && all(lessThan(c0.xyz, vec3(0.97)))) return step(c0.z - 0.0012, texture2D(uShadowMap0, c0.xy).r);
+    vec4 c1 = uShadowMat1 * vec4(pos + n * uShadowParams.z * 1.6, 1.0);
+    if (all(greaterThan(c1.xyz, vec3(0.0))) && all(lessThan(c1.xyz, vec3(1.0)))) return step(c1.z - 0.0009, texture2D(uShadowMap1, c1.xy).r);
+    return 1.0;
+  }
+  float garageSoft(vec3 q, vec3 n, vec3 t1, vec3 t2, float r) {
+    return 0.25 * (rtShadowMap(q + (t1 + t2) * r, n) + rtShadowMap(q + (t1 - t2) * r, n) + rtShadowMap(q - (t1 + t2) * r, n) + rtShadowMap(q - (t1 - t2) * r, n));
+  }
   float garageSun(vec3 pos, vec3 n, out vec3 sunCol) {
     float inside = rtInRoom(pos);
     sunCol = uSunColor * mix(vec3(1.0), GARAGE_WARM, inside);
     if (inside < 0.5) return rtShadow(pos, n);
-    vec3 t1 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)) + vec3(1e-4, 0.0, 0.0));
-    vec3 t2 = cross(uSunDir, t1);
-    vec2 bw = rtWorldXZ(pos) + vec2(pos.y * 0.7, -pos.y * 0.4);
-    vec4 nz = rtNoiseAt(bw, 0.7);
-    vec3 q = pos + (t1 * (nz.r - 0.5) + t2 * (nz.g - 0.5)) * 0.11;
-    const float r = 0.04;
-    float s = rtShadowMap(q + (t1 + t2) * r, n) + rtShadowMap(q + (t1 - t2) * r, n) + rtShadowMap(q - (t1 + t2) * r, n) + rtShadowMap(q - (t1 - t2) * r, n);
-    s *= 0.25;
-    // (only where the edge is: the middle of a patch and the shade stay whole)
-    float stroke = rtStrokeAt(bw, 0.45) + 0.6 * (rtStrokeAt(bw + 3.7, 0.16) - 0.5) - 0.5;
-    s = smoothstep(0.04, 0.96, s + stroke * 0.75 * (1.0 - abs(2.0 * s - 1.0)));
+    // (the looks spread over the receiving surface itself: off it, a floor would shade its own lookups)
+    vec3 t1 = normalize(abs(n.z) < 0.9 ? cross(n, vec3(0.0, 0.0, 1.0)) : cross(n, vec3(1.0, 0.0, 0.0)));
+    vec3 t2 = cross(n, t1);
+    // the patch as it falls: softly blurred, the window bars' shadows in it straight
+    float s = garageSoft(pos, n, t1, t2, 0.035);
+    // the patch's outline, told from a window bar's shadow in it: a ring of looks 10 cm out. By the
+    // outline half the ring is in shade (a half-plane of it); a bar's shadow is a thin line, crossing the
+    // ring twice — a sixth of it, two crossing bars a third — and in the middle of a pane it is all lit
+    float ring = 0.0;
+    for (int k = 0; k < 12; k++) {
+      float a = float(k) * 0.5236;
+      ring += garageShadow1(pos + (t1 * cos(a) + t2 * sin(a)) * 0.1, n);
+    }
+    ring /= 12.0;
+    float outline = (1.0 - smoothstep(0.5, 0.64, ring)) * step(0.02, max(ring, s));
+    if (outline > 0.01) {
+      // there the edge is painted, not cut: the lookup wanders a few centimetres on a stroke-sized noise
+      // and the brush's texture breaks it up
+      vec2 bw = rtWorldXZ(pos) + vec2(pos.y * 0.7, -pos.y * 0.4);
+      vec4 nz = rtNoiseAt(bw, 0.7);
+      vec3 q = pos + (t1 * (nz.r - 0.5) + t2 * (nz.g - 0.5)) * 0.11;
+      float w = garageSoft(q, n, t1, t2, 0.04);
+      float stroke = rtStrokeAt(bw, 0.45) + 0.6 * (rtStrokeAt(bw + 3.7, 0.16) - 0.5) - 0.5;
+      w = smoothstep(0.04, 0.96, w + stroke * 0.75 * (1.0 - abs(2.0 * w - 1.0)));
+      s = mix(s, w, outline);
+    }
     return s * rtCloudShade(pos);
   }
   vec3 garageSeen(vec3 col) {
