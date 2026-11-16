@@ -31,6 +31,8 @@ const DEG = Math.PI / 180;
 const UNMERGED = new Set(['steering']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|ghost:)/;
+/** how far the filler flap swings open (deg) */
+const CAP_OPEN_DEG = 105;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
 const WEAR_STEP = 0.02;
 
@@ -188,6 +190,7 @@ export class CarView {
       if (w) this.wipers.push(w);
     }
     this.fuelCap = obj.getObjectByName('FUEL_CAP') ?? null;
+    if (this.fuelCap) this.hangCap(this.fuelCap);
     this.covers = null;
     this.rigBike(obj);
   }
@@ -446,6 +449,132 @@ export class CarView {
 
   hasPanel(mount: string): boolean {
     return this.panels.has(mount);
+  }
+
+  // ------------------------------------------------------------------ the fuel filler
+
+  /** the filler flap's hinge (null: the frame has no flap — a motorcycle's filler is the cap on its tank) */
+  private capPivot: THREE.Group | null = null;
+  /** the neck and its screw cap behind the flap, seen while it stands open */
+  private capNeck: THREE.Group | null = null;
+  /** which side of the body the flap is on (+1 right, −1 left) */
+  private capSide = 1;
+  /** the flap's bounds in the model's frame, shut */
+  private readonly capBox = new THREE.Box3();
+
+  /**
+   * The filler flap (FUEL_CAP of the frame) hung on its front edge, so that it swings out from the body, and
+   * the neck with its screw cap put behind it.
+   */
+  private hangCap(cap: THREE.Object3D): void {
+    const parent = cap.parent;
+    if (!parent) return;
+    this.model.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+    const box = new THREE.Box3().setFromObject(cap).applyMatrix4(inv);
+    if (box.isEmpty()) return;
+    this.capBox.copy(box);
+    const side = box.min.z + box.max.z >= 0 ? 1 : -1;
+    this.capSide = side;
+    // (a point of the model's frame in the parent's)
+    const toParent = (x: number, y: number, z: number): THREE.Vector3 => parent.worldToLocal(this.model.localToWorld(new THREE.Vector3(x, y, z)));
+    // the hinge: up the flap's front edge, on the body's skin
+    const skin = side > 0 ? box.min.z : box.max.z;
+    const pivot = new THREE.Group();
+    pivot.name = 'pivot_FUEL_CAP';
+    parent.add(pivot);
+    pivot.position.copy(toParent(box.max.x, (box.min.y + box.max.y) / 2, skin));
+    pivot.updateMatrixWorld(true);
+    pivot.attach(cap);
+    this.capPivot = pivot;
+    // the neck: a dark round mouth on the skin and the screw cap in it
+    const size = Math.min(box.max.x - box.min.x, box.max.y - box.min.y);
+    const neck = new THREE.Group();
+    neck.name = 'FUEL_CAP_neck';
+    const disc = (r: number, proud: number, mat: string): void => {
+      const m = new THREE.MeshStandardMaterial();
+      m.name = mat;
+      const d = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 0.004, 24), m);
+      d.name = 'FUEL_CAP_neck_part';
+      d.rotation.x = Math.PI / 2;
+      d.position.z = side * proud;
+      neck.add(d);
+    };
+    disc(size * 0.4, 0.002, 'rubber');
+    disc(size * 0.23, 0.007, 'chrome');
+    disc(size * 0.08, 0.011, 'trim');
+    parent.add(neck);
+    neck.position.copy(toParent((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, skin));
+    neck.visible = false;
+    applyMaterials(neck, this.mats.look(BODY, this.bodyLook()));
+    this.capNeck = neck;
+  }
+
+  /** has it a filler one can pour fuel into: a flap on the body, or (a motorcycle) the cap on the tank */
+  get hasFiller(): boolean {
+    return !!this.capPivot || (this.frame.mounts.some((m) => m.cat === 'fuelTank') && !!this.build.parts.fuelTank);
+  }
+
+  /** has it a flap over its filler that opens and shuts */
+  get hasFlap(): boolean {
+    return !!this.capPivot;
+  }
+
+  /** how far the flap stands open, 0…1 */
+  get capAmount(): number {
+    return this.cap;
+  }
+
+  private readonly capRay = new THREE.Ray();
+  private readonly capHitV = new THREE.Vector3();
+  private readonly capBig = new THREE.Box3();
+
+  /**
+   * Where a ray (render space) meets the filler — the flap (shut where it closes, a little enlarged so it is
+   * easy to aim at), or a motorcycle's tank — and how far along it; null when it misses or is further than max.
+   */
+  capHit(ray: THREE.Ray, max: number): number | null {
+    if (this.capPivot) {
+      this.model.updateMatrixWorld();
+      const inv = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+      const local = this.capRay.copy(ray).applyMatrix4(inv);
+      // (towards the outside the flap swings out: the box reaches that far)
+      this.capBig.copy(this.capBox).expandByScalar(0.07);
+      if (this.capSide > 0) this.capBig.max.z += 0.12;
+      else this.capBig.min.z -= 0.12;
+      const p = local.intersectBox(this.capBig, this.capHitV);
+      if (!p) return null;
+      const d = p.distanceTo(local.origin);
+      return d <= max ? d : null;
+    }
+    if (!this.hasFiller) return null;
+    const b = this.boundsOf('fuelTank', this.capBig);
+    if (!b) return null;
+    const p = ray.intersectBox(b.expandByScalar(0.05), this.capHitV);
+    if (!p) return null;
+    const d = p.distanceTo(ray.origin);
+    return d <= max ? d : null;
+  }
+
+  /** the filler's place (render space): the middle of the flap shut, or the top of a motorcycle's tank; null without one */
+  capWorld(out: THREE.Vector3): THREE.Vector3 | null {
+    if (this.capPivot) {
+      this.model.updateMatrixWorld();
+      return this.model.localToWorld(this.capBox.getCenter(out));
+    }
+    const b = this.hasFiller ? this.boundsOf('fuelTank', this.capBig) : null;
+    if (!b) return null;
+    b.getCenter(out);
+    out.y = b.max.y;
+    return out;
+  }
+
+  /** where the filler is, in words ("车身右后侧") */
+  get capWhere(): string {
+    if (!this.capPivot) return '油箱上面';
+    const c = this.capBox.getCenter(this.capHitV);
+    const end = c.x < -0.3 ? '后' : c.x > 0.3 ? '前' : '中';
+    return `车身${this.capSide > 0 ? '右' : '左'}${end}侧`;
   }
 
   /**
@@ -947,13 +1076,11 @@ export class CarView {
       const rest = (w.userData.rest as THREE.Quaternion | undefined) ?? (w.userData.rest = w.quaternion.clone());
       w.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), this.wiperAngle * r.sweepDeg * DEG));
     }
-    // the filler cap stands open while fuel goes in
-    const cap = this.fuelCap;
-    const capRig = this.frame.rig?.panels.FUEL_CAP;
-    if (cap && capRig) {
-      this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 8);
-      const rest = (cap.userData.rest as THREE.Quaternion | undefined) ?? (cap.userData.rest = cap.quaternion.clone());
-      cap.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...capRig.axis), this.cap * capRig.openDeg * DEG));
+    // the filler flap swings out on its hinge while it is open (opened by hand, or by a can held to it)
+    if (this.capPivot) {
+      this.cap += ((this.capOpen ? 1 : 0) - this.cap) * Math.min(1, dt * 9);
+      this.capPivot.rotation.y = this.capSide * this.cap * CAP_OPEN_DEG * DEG;
+      if (this.capNeck) this.capNeck.visible = this.cap > 0.04;
     }
     // the rain caps of side stacks ride on the exhaust: shut at rest, fluttering open under load
     for (const [mount, sh] of this.shown) {
@@ -1012,7 +1139,7 @@ export class CarView {
   private flap = 0;
   private flapT = 0;
   private cap = 0;
-  /** the filler cap is held open (fuel going in) */
+  /** the filler flap is open (the player opens and shuts it; a can held to it opens it) */
   capOpen = false;
   /** the hazard lights are on */
   hazard = false;

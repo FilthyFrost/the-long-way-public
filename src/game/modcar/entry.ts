@@ -43,6 +43,8 @@ const vehicle = (i: number) => {
 
 const rt = {
   ready: false,
+  /** the last error a frame threw (the loop goes on past it) */
+  lastError: '' as string,
   game,
   params,
   info: { renderer: dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : 'unknown', three: THREE.REVISION },
@@ -123,6 +125,35 @@ const rt = {
     game.viewMode = 'cockpit';
     game.simulate(0);
     return true;
+  },
+  /** stand beside a vehicle's fuel filler (the flap, or a motorcycle's tank), looking at it */
+  aimCap: (vi: number, dist = 1.1) => {
+    const v = vehicle(vi);
+    game.simulate(0);
+    const c = v.view.capWorld(new THREE.Vector3());
+    if (!c) return false;
+    const o = game.core.origin;
+    const p = c.add(new THREE.Vector3(o.x, o.y, o.z));
+    const b = new Float64Array(9);
+    v.sim.basis(b);
+    // out from the side it is on (a tank on top: from the side of it)
+    const local = v.view.model.worldToLocal(new THREE.Vector3(p.x - o.x, p.y - o.y, p.z - o.z));
+    const s = local.z >= 0 ? 1 : -1;
+    if (game.seated) game.getOut();
+    game.player.walker.place(p.x + b[6] * s * dist, p.z + b[8] * s * dist, 0, 0);
+    const w = game.player.walker;
+    const eye = w.eye();
+    game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
+    game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+    game.viewMode = 'cockpit';
+    game.simulate(0);
+    return true;
+  },
+  /** the fuel filler's state: flap open (0…1), litres in the tank by kind */
+  filler: (vi: number) => {
+    const v = vehicle(vi);
+    const tank = v.build.parts.fuelTank;
+    return { open: v.view.capOpen, amount: v.view.capAmount, flap: v.view.hasFlap, fuel: tank ? { ...(tank.fluids.fuel ?? {}) } : null };
   },
   /**
    * Walk up to a garage device (the door button, the light switch, …), look at it and press, the way a
@@ -381,12 +412,24 @@ void game.ready.then(() => {
     return;
   }
   let last = performance.now();
+  let failed = '';
   const loop = (now: number): void => {
+    // (the next frame is asked for first: a frame that throws must not stop the game for good)
+    requestAnimationFrame(loop);
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    game.frame(dt);
+    try {
+      game.frame(dt);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      rt.lastError = msg;
+      if (msg !== failed) {
+        failed = msg;
+        console.error(e);
+        game.ui.say('出了个小错，已跳过，游戏继续。', 3);
+      }
+    }
     rt.ready = true;
-    requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
 });

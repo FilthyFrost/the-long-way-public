@@ -88,7 +88,8 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k">按住右键 / <b>F</b></td><td class="v">拆下看着的零件</td></tr>
 <tr><td class="k">按住 <b>G</b></td><td class="v">把手上的东西放下</td></tr>
 <tr><td class="k"><b>E</b> 看着车门、引擎盖</td><td class="v">开 / 关；看着车身 = 上车</td></tr>
-<tr><td class="k">油桶、水壶、机油</td><td class="v">对着油箱盖、水箱、发动机按住左键倒进去</td></tr>
+<tr><td class="k">油桶</td><td class="v">对着车身侧面的<b>加油口</b>按住 E 加油（加油口盖自己会打开；空手按 E 也能开关它）</td></tr>
+<tr><td class="k">水壶、机油</td><td class="v">对着车按住 E 倒进水箱、发动机</td></tr>
 <tr><td class="k">喷罐 · 海绵</td><td class="v">对着零件或车身按住左键喷漆 / 擦洗；滚轮换颜色</td></tr>
 </table>
 <h5>开车</h5><table>

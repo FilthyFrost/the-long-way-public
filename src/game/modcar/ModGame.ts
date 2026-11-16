@@ -1089,7 +1089,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (!this.foley) {
       this.voice = new EngineVoice(ctx, out);
       this.foley = new Foley(ctx, out);
-      this.foley.warm(['door_open', 'door_close', 'part_pickup', 'part_setdown', 'part_install', 'key_turn', 'handbrake_pull', 'gear_shift', 'ratchet']);
+      this.foley.warm(['door_open', 'door_close', 'part_pickup', 'part_setdown', 'part_install', 'key_turn', 'handbrake_pull', 'gear_shift', 'ratchet', 'latch']);
     }
     return this.foley;
   }
@@ -1499,7 +1499,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const t = this.player.target;
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
-      v.view.capOpen = !this.seated && t?.kind === 'pour' && t.v === v && this.player.primary;
+      // (a flap left open shuts itself once the vehicle drives off)
+      if (v.view.capOpen && Math.abs(v.sim.kmh) > 3) v.view.capOpen = false;
       v.view.ridden = v === this.seated;
       v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
     }
@@ -1850,9 +1851,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
       case 'engine':
         return holding('eng_i4') ? at('engine', '发动机装这里', 0.6) : lying('eng_i4', '发动机');
-      case 'fuel':
-        if (held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol') return at('fuelTank', '加油口', 0.5);
+      case 'fuel': {
+        if (held?.kind === 'tool' && held.tool.kind === 'jerrycan' && held.tool.fuel === 'petrol') {
+          // the filler (the flap on the body), not the tank behind the boot
+          const c = v.view.capWorld(this.markerV);
+          const o = this.core.origin;
+          return c ? { x: c.x + o.x, y: c.y + o.y + 0.22, z: c.z + o.z, text: '加油口：对着它按住 E' } : at('fuelTank', '加油口', 0.5);
+        }
         return lying('tool:jerrycan', '油桶（汽油）');
+      }
       case 'door': {
         const d = this.devices.find((x) => x.id === 'door');
         return d ? { x: d.x, y: d.y + 0.3, z: d.z, text: '大门按钮' } : null;

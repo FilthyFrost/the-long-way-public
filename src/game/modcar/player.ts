@@ -32,7 +32,10 @@ type Target =
   | { kind: 'ghost'; v: ModVehicle; mount: MountDef; sub: string | null; replace: boolean; dist: number }
   | { kind: 'looseSub'; loose: Loose; sub: string; dist: number }
   | { kind: 'part'; v: ModVehicle; mount: MountDef; dist: number }
-  | { kind: 'pour'; v: ModVehicle; dist: number }
+  /** a can at the filler (cap: at it — fuel goes in; false: elsewhere on the body, a word on where the filler is) */
+  | { kind: 'pour'; v: ModVehicle; dist: number; cap: boolean }
+  /** the filler flap, empty-handed: E opens and shuts it */
+  | { kind: 'cap'; v: ModVehicle; dist: number }
   | { kind: 'surface'; v: ModVehicle; mount: MountDef | null; dist: number }
   | { kind: 'enter'; v: ModVehicle; dist: number }
   | { kind: 'device'; device: GarageDevice; dist: number };
@@ -262,6 +265,12 @@ export class ModPlayer {
           better(working ? { kind: 'surface', v, mount: m, dist: d } : { kind: 'part', v, mount: m, dist: d });
         }
       }
+      // the filler: its flap opened and shut with E; a jerrycan held to it pours
+      const fd = v.view.capHit(this.ray, REACH + 0.3);
+      if (fd !== null) {
+        if (held?.kind === 'tool' && held.tool.kind === 'jerrycan') better({ kind: 'pour', v, dist: Math.max(0, fd - 0.2), cap: true });
+        else if (!held && v.view.hasFlap) better({ kind: 'cap', v, dist: Math.max(0, fd - 0.05) });
+      }
       // the body itself: get in, pour, or paint and wash the frame
       const sd = v.solid.update();
       const c = this.v3.set(sd.x - o.x, (sd.y0 + sd.y1) / 2 - o.y, sd.z - o.z);
@@ -280,7 +289,9 @@ export class ModPlayer {
       if (held?.kind === 'tool') {
         const use = toolUse(held.tool, v.build);
         if (use.where === 'any') better({ kind: 'surface', v, mount: null, dist: d + 0.05 });
-        else better({ kind: 'pour', v, dist: d });
+        // (fuel goes in at the filler: held anywhere else on the body, the word says where that is)
+        else if (held.tool.kind === 'jerrycan' && v.view.hasFiller) better({ kind: 'pour', v, dist: d + 0.3, cap: false });
+        else better({ kind: 'pour', v, dist: d, cap: true });
         // (the body's box is coarse: a part the mark is on wins, an open bonnet standing well inside it too)
       } else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25 });
     }
@@ -378,6 +389,7 @@ export class ModPlayer {
         return `surface:${t.v.build.uid}:${t.mount?.id ?? 'frame'}`;
       case 'pour':
       case 'enter':
+      case 'cap':
         return `${t.kind}:${t.v.build.uid}`;
       case 'device':
         return `device:${t.device.id}`;
@@ -432,6 +444,11 @@ export class ModPlayer {
         t.device.use();
         return;
       }
+      if (t.kind === 'cap' && !this.held) {
+        t.v.view.capOpen = !t.v.view.capOpen;
+        host.sound('latch', 0.7);
+        return;
+      }
     }
 
     // holds: fit, take off, pour, spray, wash
@@ -476,6 +493,8 @@ export class ModPlayer {
         const inst = removePart(t.v.build, t.mount.id);
         if (inst) {
           this.held = { kind: 'part', inst };
+          // (what the mark was on is in the hands now: the words this frame must not look for it on the mount)
+          this.target = null;
           host.changed(t.v, `off:${t.mount.id}`);
           host.sound('remove_done', partDef(inst.part).mass);
         }
@@ -496,6 +515,8 @@ export class ModPlayer {
       return;
     }
     if (t.kind === 'pour' && held?.kind === 'tool' && this.primary) {
+      if (!t.cap) return;
+      if (held.tool.kind === 'jerrycan') t.v.view.capOpen = true;
       const moved = pour(held.tool, t.v.build, dt);
       if (moved > 0) {
         t.v.sys.rebuild();
@@ -596,6 +617,7 @@ export class ModPlayer {
         }
         case 'part': {
           const inst = t.v.build.parts[t.mount.id];
+          if (!inst) break;
           const panel = t.v.view.hasPanel(t.mount.id);
           const seat = t.mount.cat === 'seat' || t.mount.cat === 'steering';
           const e = panel ? (t.v.view.panelOpen(t.mount.id) > 0.5 ? '关上' : '打开') : seat ? '上车' : '';
@@ -609,9 +631,16 @@ export class ModPlayer {
         case 'pour': {
           if (held?.kind !== 'tool') break;
           const use = toolUse(held.tool, t.v.build);
-          word = use.can ? `${use.word[ui.lang]}<small>按住 E</small>` : `${use.word[ui.lang]}：${use.why?.[ui.lang] ?? ''}`;
+          if (!t.cap) {
+            word = `加油口在<b>${t.v.view.capWhere}</b><small>对着加油口按住 E</small>`;
+            break;
+          }
+          word = use.can ? `${use.word[ui.lang]}<small>按住 E${held.tool.kind === 'jerrycan' && t.v.view.hasFlap && t.v.view.capAmount < 0.5 ? ' · 加油口盖会自己打开' : ''}</small>` : `${use.word[ui.lang]}：${use.why?.[ui.lang] ?? ''}`;
           break;
         }
+        case 'cap':
+          word = `${t.v.view.capOpen ? '关上' : '打开'} <b>加油口盖</b><small>按 E${held ? '' : ' · 拿着油桶对着它按住 E 加油'}</small>`;
+          break;
         case 'surface': {
           if (held?.kind !== 'tool') break;
           const tool = held.tool;
