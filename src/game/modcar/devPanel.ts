@@ -43,6 +43,8 @@ export interface DevHost extends PaneHost {
   devModel(item: DevItem): Promise<THREE.Object3D | null>;
   /** the bin opened (true) or shut */
   devOpened(open: boolean): void;
+  /** the save cleared and a new game from the workshop (the page opened again); the moved dials back to the game's own too, asked */
+  devNewGame(resetDials: boolean): void | Promise<void>;
 }
 
 /** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]], vehicle:<frame>:stock|bare */
@@ -78,7 +80,14 @@ const CSS = `
 .mc-dev { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; z-index: 20; pointer-events: auto; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #2b2622; background: rgba(250,244,228,0.97); border-radius: 14px; box-shadow: 0 4px 0 rgba(60,40,24,0.25), 0 0 0 1px rgba(60,40,24,0.14); user-select: none; }
 .mc-dev .hd { padding: 12px 14px 6px; }
 .mc-dev .hd h3 { margin: 0; font-size: 17px; display: flex; align-items: baseline; gap: 8px; }
-.mc-dev .hd h3 small { font-size: 12px; font-weight: 400; color: #7a6a5a; }
+.mc-dev .hd h3 small { flex: 1; min-width: 0; font-size: 12px; font-weight: 400; color: #7a6a5a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mc-dev .hd h3 .restart { flex: none; align-self: center; padding: 3px 10px; border: 0; border-radius: 8px; background: rgba(163,71,46,0.11); color: #a3472e; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.mc-dev .hd h3 .restart:hover, .mc-dev .hd h3 .restart.on { background: #a3472e; color: #fbf3e1; }
+.mc-dev .ask { margin: 8px 0 2px; padding: 9px 11px 10px; border-radius: 10px; background: #fffaf0; box-shadow: 0 0 0 1.5px rgba(163,71,46,0.45); font-size: 13px; line-height: 1.5; }
+.mc-dev .ask > b { display: block; font-size: 14px; margin-bottom: 2px; }
+.mc-dev .ask .note { margin: 2px 0 4px; }
+.mc-dev .ask .btns { margin-top: 8px; }
+.mc-dev .ask button:disabled { opacity: 0.55; cursor: default; }
 .mc-dev .hint { margin-top: 3px; font-size: 12px; color: #7a6a5a; line-height: 1.5; }
 .mc-dev .hint b { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 4px; background: #2b2622; color: #fbf3e1; font-size: 11px; text-align: center; }
 .mc-dev input.q { margin: 6px 14px 4px; padding: 6px 10px; border: 1px solid rgba(60,40,24,0.22); border-radius: 9px; background: #fffaf0; font: inherit; font-size: 13px; color: #2b2622; outline: none; }
@@ -109,6 +118,9 @@ const CSS = `
 .mc-dev-drag.drop { opacity: 0.55; }
 .mc-dev-drag.none::after { content: '这里放不下'; display: block; color: #a3472e; }
 `;
+
+/** what the button at the top does, in the bubble beside the panel (no double quotes: it stands in an attribute) */
+const RESTART_TIP = '<b>从头开始</b>：清空存档，回到车库，像第一次打开游戏那样从头玩。适合给别人从头演示。<small>点了会先问你一次。调过的参数默认留着。</small>';
 
 /** a part's line under its name: its weight and where it comes from */
 function partTags(p: PartDef): string {
@@ -164,7 +176,7 @@ export class DevPanel {
     const root = document.createElement('div');
     root.className = 'mc-dev';
     root.style.display = 'none';
-    root.innerHTML = `<div class="hd"><h3><span>开发者面板</span><small class="sub"></small></h3><div class="hint"></div></div>
+    root.innerHTML = `<div class="hd"><h3><span>开发者面板</span><small class="sub"></small><button class="restart" data-act="restart" data-tip="${RESTART_TIP}">从头开始</button></h3><div class="hint"></div><div class="ask" style="display:none"></div></div>
 <div class="tabs">${TABS.map(([id, zh]) => `<span data-t="${id}"${id === 'parts' ? ' class="on"' : ''}>${zh}</span>`).join('')}</div>
 <div class="pane" data-p="parts">
 <input class="q" type="search" placeholder="搜索：名字或编号（如 V8、马桶、rim）" />
@@ -250,9 +262,41 @@ export class DevPanel {
     if (!open) {
       this.endDrag(false);
       this.q.blur();
+      this.askRestart(false);
       cancelAnimationFrame(this.raf);
     } else this.loop();
     this.host.devOpened(open);
+  }
+
+  // ------------------------------------------------------------------ from the start
+
+  /** the question under the title — a new game from the workshop? — shown or put away */
+  private askRestart(show: boolean): void {
+    const ask = this.root.querySelector('.hd .ask') as HTMLElement;
+    const button = this.root.querySelector('.hd .restart') as HTMLElement;
+    if (ask.dataset.going) return;
+    button.classList.toggle('on', show);
+    if (!show) {
+      ask.style.display = 'none';
+      ask.innerHTML = '';
+      return;
+    }
+    const n = this.host.tune.changed().length;
+    ask.innerHTML = `<b>清空存档，回到车库从头开始？</b>
+<div class="note">车的改装、地上的零件、教学清单的进度都会清掉，找不回来。页面会重新载入，就像第一次打开游戏。</div>
+${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把调过的 ${n} 项参数恢复默认</label><div class="note">不勾就留着这些参数。勾了也会先自动存一份给 Claude。</div>` : ''}
+<div class="btns two"><button class="go" data-act="restart-yes">清空，从头开始</button><button data-act="restart-no">取消</button></div>`;
+    ask.style.display = '';
+  }
+
+  private restart(): void {
+    const ask = this.root.querySelector('.hd .ask') as HTMLElement;
+    if (ask.dataset.going) return;
+    ask.dataset.going = '1';
+    const dials = (ask.querySelector('input[data-act="dials"]') as HTMLInputElement | null)?.checked ?? false;
+    for (const el of ask.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')) el.disabled = true;
+    ask.insertAdjacentHTML('beforeend', '<div class="msg">正在清空存档，马上回到车库…</div>');
+    void this.host.devNewGame(dials);
   }
 
   toggle(): void {
@@ -384,6 +428,12 @@ export class DevPanel {
   // ------------------------------------------------------------------ the mouse
 
   private bind(): void {
+    this.root.querySelector('.hd')!.addEventListener('click', (e) => {
+      const act = (e.target as HTMLElement).closest('button')?.dataset.act;
+      if (act === 'restart') this.askRestart(!(this.root.querySelector('.hd .restart') as HTMLElement).classList.contains('on'));
+      else if (act === 'restart-no') this.askRestart(false);
+      else if (act === 'restart-yes') this.restart();
+    });
     this.q.addEventListener('input', () => this.filter());
     this.root.querySelector('.chips')!.addEventListener('click', (e) => {
       const g = (e.target as HTMLElement).closest('span')?.dataset.g;

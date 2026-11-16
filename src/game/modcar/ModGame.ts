@@ -393,7 +393,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (this.restore) {
         this.restoreGarage(this.restore);
         await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
-        this.ui.say('接着上次的进度。（连按两次 F9 从头开始）', 5);
+        this.ui.say('接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
         return;
       }
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
@@ -466,7 +466,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         v.radioSong = this.restore.vehicles[0].radioSong ?? 0;
         for (const d of this.restore.done) this.done.add(d);
         this.restoreLoose(this.restore.loose.filter((l) => l.on === 0));
-        this.ui.say('接着上次的路。（连按两次 F9 从车库重新开始）', 5);
+        this.ui.say('接着上次的路。（回车库从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
       }
       v.sys.startNow();
       this.seated = v;
@@ -568,13 +568,24 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** F9 twice: the save cleared and a new game from the workshop */
   private askNewGame(): void {
     if (this.newGameAsked >= 0 && this.time - this.newGameAsked < 3) {
-      this.saveOff = true;
-      clearSave();
-      location.reload();
+      this.newGame();
       return;
     }
     this.newGameAsked = this.time;
     this.ui.say('再按一次 F9：清除存档，从车库重新开始。', 3);
+  }
+
+  /**
+   * The save cleared and a new game from the workshop, as on a first visit: nothing more written as the page
+   * goes, and the page opened again at its plain address — what the address asked for of its own (the road, a
+   * build, a seed, the developer's panel open again after the world was made again) dropped, the picture's
+   * quality kept.
+   */
+  newGame(): void {
+    this.saveOff = true;
+    clearSave();
+    const quality = new URLSearchParams(location.search).get('quality');
+    location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
@@ -860,6 +871,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       v.changed();
     }
     this.ui.say('所有车都修好了：汽油、机油、冷却液、电瓶都加满了。', 2.5);
+  }
+
+  async devNewGame(resetDials: boolean): Promise<void> {
+    this.ui.say('正在清空存档，回车库从头开始…', 8);
+    if (resetDials && this.tune.changed().length) {
+      // (the moved dials kept on the dev server first, loop/dev-tune-before-restart.json, so that none is lost)
+      const { text, json } = this.tune.export(this.devTools.context());
+      await Promise.race([this.devTools.saveTune(text, json, 'dev-tune-before-restart'), new Promise((r) => setTimeout(r, 1500))]);
+      this.tune.resetAll();
+    }
+    this.newGame();
   }
 
   // ------------------------------------------------------------------ input
