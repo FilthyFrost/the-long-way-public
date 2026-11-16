@@ -13,7 +13,7 @@ import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
 import type { CarLook } from '../render/carMaterials';
 import { MergedCar } from '../render/carMerge';
-import { cloneModel, partModel, seatTyres, toolGlb } from './assets';
+import { cloneModel, panelPaint, partModel, seatTyres, toolGlb } from './assets';
 import { applyMaterials, type CarMaterials, type LookOf } from './materials';
 
 export interface Loose {
@@ -107,9 +107,17 @@ let n = 0;
 
 const ownerOf = (l: Loose): string => `l:${l.uid}`;
 
-/** what an engine block, a seat frame or a lamp housing is painted at the factory (as on a vehicle) */
-function partLook(inst: PartInstance): LookOf {
-  return { paint: inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c, paint2: 0xd8d4c8, dirt: inst.dirt, rust: inst.rust, wear: Math.max(0, Math.min(1, (0.7 - inst.cond) / 0.6)) };
+/** what an engine block, a seat frame or a lamp housing is painted at the factory (as on a vehicle; a panel by its style) */
+export function partLook(inst: PartInstance): LookOf {
+  const base = inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c;
+  const style = partDef(inst.part).panel?.style;
+  return {
+    paint: style ? panelPaint(style, base) : base,
+    paint2: 0xd8d4c8,
+    dirt: inst.dirt,
+    rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust,
+    wear: Math.max(0, Math.min(1, (0.7 - inst.cond) / 0.6)),
+  };
 }
 
 /** the movers inside a part stay out of a merge (render/carMerge default rule plus the parts' movers) */

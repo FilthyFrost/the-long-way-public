@@ -349,10 +349,12 @@ export class ModPlayer {
         continue;
       }
       for (const m of mountsFor(frame, def)) {
-        const node = v.view.mountNode(m.id);
+        // (a door, a bonnet, a boot lid: its ghost is the frame's own panel there)
+        const shape = def.panel ? v.view.panelShape(m.id) : null;
+        const node = shape?.node ?? v.view.mountNode(m.id);
         if (!node) continue;
         const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
-        list.push({ node, mount: m, partId: def.id, variant: frameVariant(def.id, v.view.frame), kind, key: `${v.build.uid}:${m.id}:${def.id}` });
+        list.push({ node, mount: shape ? null : m, partId: def.id, variant: frameVariant(def.id, v.view.frame), kind, key: `${v.build.uid}:${m.id}:${def.id}`, make: shape?.make });
       }
     }
     this.ghosts.show(this.showGhostsOn ? list : []);

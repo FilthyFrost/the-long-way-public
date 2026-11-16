@@ -19,7 +19,7 @@ import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { partGeo } from '../../core/modcar/geo';
-import { addonModel, frameVariant, cloneModel, frameModel, partModel, seatTyres, standInFrame, stretchFit, type Model } from './assets';
+import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
 const DEG = Math.PI / 180;
@@ -635,7 +635,7 @@ export class CarView {
   /** a panel's look: the frame's opening in the part's style */
   private panelLook(inst: PartInstance, style: string): LookOf {
     const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
-    const paint = style === 'armor' ? 0x5c6168 : style === 'fridge' ? 0xf1efe6 : style === 'rusty' ? mixHex(body, 0x8a4a26, 0.45) : body;
+    const paint = panelPaint(style, body);
     return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond) };
   }
 
@@ -705,7 +705,7 @@ export class CarView {
     for (const s of p.skin) s.visible = style !== 'cage';
     if (style === 'cage') {
       if (!p.cage) {
-        p.cage = cageFor(p.skin, p.pivot);
+        p.cage = cageFor(this.skinBox(p, false));
         applyMaterials(p.cage, this.mats.look(`${panelOwner(m.id)}+cage`, { paint: 0x3a3c40, paint2: 0x3a3c40 }));
         p.pivot.add(p.cage);
       }
@@ -720,11 +720,53 @@ export class CarView {
    * The add-on that makes a panel's style read on the car: an armour door or lid gets steel plates riveted
    * over its skin, a fridge door the fridge's handle. Placed from the skin's bounds in the hinge's frame.
    */
+  /** the bounds of a panel's skin in its hinge's frame (shut: the open angle taken off, unless `asIs`) */
+  private skinBox(p: PanelNode, asIs: boolean): THREE.Box3 {
+    const box = new THREE.Box3();
+    const q = p.pivot.quaternion.clone();
+    if (!asIs) p.pivot.quaternion.identity();
+    this.model.updateMatrixWorld(true);
+    for (const s of p.skin) box.expandByObject(s);
+    box.applyMatrix4(new THREE.Matrix4().copy(p.pivot.matrixWorld).invert());
+    p.pivot.quaternion.copy(q);
+    return box;
+  }
+
+  /**
+   * A copy of a mount's panel as it hangs shut (its skin and glass, nothing added on) and what to hang it
+   * from: the ghost of a panel to come is in the frame's own shape. Null where the frame has no panel there.
+   */
+  panelShape(mount: string): { node: THREE.Object3D; make: () => THREE.Object3D } | null {
+    const p = this.panels.get(mount);
+    const node = p?.pivot.parent;
+    if (!p || !node) return null;
+    return {
+      node,
+      make: () => {
+        const g = new THREE.Group();
+        g.position.copy(p.pivot.position);
+        g.quaternion.copy(this.restQuat(p));
+        this.model.updateMatrixWorld(true);
+        const inv = new THREE.Matrix4().copy(p.pivot.matrixWorld).invert();
+        for (const s of [...p.skin, ...p.glass]) {
+          s.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (!mesh.isMesh || mesh.userData.ghostDepth || mesh.userData.ghostXray) return;
+            const c = new THREE.Mesh(mesh.geometry, mesh.material);
+            inv.clone().multiply(mesh.matrixWorld).decompose(c.position, c.quaternion, c.scale);
+            g.add(c);
+          });
+        }
+        return g;
+      },
+    };
+  }
+
   private setOverlay(p: PanelNode, m: MountDef, style: string, part = ''): void {
     p.overlay?.removeFromParent();
     p.overlay = null;
     this.mats.drop(`${panelOwner(m.id)}+add`);
-    const file = part === 'hood_scoop' ? 'hood_scoop_overlay' : style === 'armor' ? 'door_armor_overlay' : style === 'fridge' && m.cat === 'door' ? 'door_fridge_handle' : null;
+    const file = panelAddOn(style, part, m.cat);
     if (!file) return;
     const holder = new THREE.Group();
     holder.name = `overlay_${m.id}`;
@@ -732,16 +774,8 @@ export class CarView {
     p.pivot.add(holder);
     p.overlay = holder;
     // (measured shut: the open angle taken off)
-    const box = new THREE.Box3();
-    const q = p.pivot.quaternion.clone();
-    p.pivot.quaternion.identity();
-    this.model.updateMatrixWorld(true);
-    for (const s of p.skin) box.expandByObject(s);
-    box.applyMatrix4(new THREE.Matrix4().copy(p.pivot.matrixWorld).invert());
-    p.pivot.quaternion.copy(q);
+    const box = this.skinBox(p, false);
     if (box.isEmpty()) return;
-    const size = box.getSize(new THREE.Vector3());
-    const c = box.getCenter(new THREE.Vector3());
     // (a scoop is the bonnet's own sheet: the car's paint; armour plates are bare steel)
     const scoop = file === 'hood_scoop_overlay';
     const look = this.mats.look(`${panelOwner(m.id)}+add`, scoop ? this.panelLook(this.build.parts[m.id]!, 'stock') : { paint: 0x5c6168, paint2: 0x5c6168, rust: 0.25 });
@@ -750,24 +784,7 @@ export class CarView {
       const o = cloneModel(model);
       applyMaterials(o, look);
       // which way is out of the skin: a door's side, the top of a bonnet or a boot lid
-      const out = m.side > 0 ? 1 : -1;
-      if (scoop) {
-        // standing on the bonnet's crown a little ahead of its middle, the mouth forward
-        o.position.set(c.x + size.x * 0.08, box.max.y - 0.012, c.z);
-      } else if (file === 'door_fridge_handle') {
-        // by the back edge (doors hang on their front edge), at the waist
-        o.scale.z = out > 0 ? -1 : 1;
-        o.position.set(box.min.x + 0.1, box.min.y + size.y * 0.42, out > 0 ? box.max.z : box.min.z);
-      } else if (m.cat === 'door') {
-        // over the lower door, below the window
-        o.scale.set((size.x * 0.84) / 1.0, (size.y * 0.4) / 0.5, out > 0 ? -1 : 1);
-        o.position.set(c.x, box.min.y + size.y * 0.27, out > 0 ? box.max.z : box.min.z);
-      } else {
-        // lying on top: the plate's thickness turned upwards, its height across the car
-        o.rotation.x = Math.PI / 2;
-        o.scale.set((size.x * 0.78) / 1.0, (size.z * 0.78) / 0.5, 1);
-        o.position.set(c.x, box.max.y - 0.006, c.z);
-      }
+      placeAddOn(o, file, box, m.cat, m.side > 0 ? 1 : -1);
       holder.add(o);
     });
   }
@@ -1087,32 +1104,4 @@ function fade(cond: number): number {
   return Math.max(0, Math.min(1, (0.7 - cond) / 0.6));
 }
 
-function mixHex(a: number, b: number, t: number): number {
-  const ca = new THREE.Color(a);
-  const cb = new THREE.Color(b);
-  return ca.lerp(cb, t).getHex();
-}
 
-/** a wire cage in a door's outline: a frame tube round its bounds and a grid of wires */
-function cageFor(skin: THREE.Object3D[], pivot: THREE.Group): THREE.Object3D {
-  const box = new THREE.Box3();
-  for (const s of skin) box.expandByObject(s);
-  const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
-  box.applyMatrix4(inv);
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial();
-  mat.name = 'steel';
-  const size = box.getSize(new THREE.Vector3());
-  const c = box.getCenter(new THREE.Vector3());
-  const bar = (len: number, axis: 'x' | 'y', x: number, y: number): void => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, len, 6), mat);
-    if (axis === 'x') m.rotation.z = Math.PI / 2;
-    m.position.set(x, y, c.z);
-    g.add(m);
-  };
-  const nx = Math.max(3, Math.round(size.x / 0.12));
-  const ny = Math.max(3, Math.round(size.y / 0.12));
-  for (let i = 0; i <= nx; i++) bar(size.y, 'y', box.min.x + (size.x * i) / nx, c.y);
-  for (let j = 0; j <= ny; j++) bar(size.x, 'x', c.x, box.min.y + (size.y * j) / ny);
-  return g;
-}

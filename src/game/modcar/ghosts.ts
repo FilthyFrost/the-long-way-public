@@ -33,6 +33,8 @@ export interface GhostSpec {
   kind: GhostKind;
   /** a key that stays the same while the ghost should stay */
   key: string;
+  /** the ghost's own shape, in place of the part's model (a panel: the frame's own skin) */
+  make?: () => THREE.Object3D;
 }
 
 export class GhostLayer {
@@ -62,6 +64,14 @@ export class GhostLayer {
       s.node.add(obj);
       const g: Ghost = { key: s.key, obj, kind: s.kind, model: null, focused: false };
       this.ghosts.set(s.key, g);
+      if (s.make) {
+        const c = s.make();
+        g.focused = s.key === this.selected;
+        applyGhost(c, g.kind, g.focused);
+        g.model = c;
+        obj.add(c);
+        continue;
+      }
       const def = partDef(s.partId);
       void partModel(s.partId, s.variant ?? '').then((model) => {
         if (this.ghosts.get(s.key) !== g) return;

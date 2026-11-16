@@ -12,7 +12,7 @@ import { paintHex } from '../../core/modcar/palette';
 import type { RenderCore } from '../render/core';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { cloneModel, partModel, seatTyres, toolGlb } from './assets';
-import { toolModel } from './loose';
+import { partLook, toolModel } from './loose';
 import { applyMaterials, CarMaterials } from './materials';
 import type { Held } from './player';
 
@@ -74,7 +74,7 @@ export class HeldThing {
     const def = partDef(inst.part);
     this.large = def.carry === 'large';
     this.mass = def.mass;
-    const look = this.mats.look(OWNER, { paint: inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c, paint2: 0xd8d4c8, dirt: inst.dirt, rust: inst.rust });
+    const look = this.mats.look(OWNER, partLook(inst));
     const group = new THREE.Group();
     const want = key;
     void partModel(inst.part).then((m) => {

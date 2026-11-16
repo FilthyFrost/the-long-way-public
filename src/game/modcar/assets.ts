@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { frameDef } from '../../core/modcar/frames';
 import { partDef } from '../../core/modcar/parts';
 import type { Category, PartDef } from '../../core/modcar/types';
 
@@ -171,6 +172,8 @@ export function frameModel(frameId: string, standIn: () => THREE.Group): Promise
 /** a part's model: parts/<model or id>.glb, or a stand-in shaped by its category */
 export function partModel(partId: string, variant = ''): Promise<Model> {
   const def = partDef(partId);
+  // (a body panel has no file: it takes a frame's shape)
+  if (def.panel && !def.model) return panelModel(def);
   const file = variant ? `${def.model ?? `parts/${partId}`}@${variant}` : (def.model ?? `parts/${partId}`);
   let p = cache.get(file);
   if (!p) {
@@ -284,6 +287,156 @@ export function stretchFit(m: Model, fit: [number, number, number]): { scale: TH
     else shift[i] = at[i] * (k - 1);
   }
   return { scale: new THREE.Vector3(...scale), shift: new THREE.Vector3(...shift) };
+}
+
+// ------------------------------------------------------------------ body panels
+
+/** the add-on that makes a panel's style read (armour plates riveted on, a fridge's handle, a bonnet's scoop), or null */
+export function panelAddOn(style: string, partId: string, cat: Category): string | null {
+  if (partId === 'hood_scoop') return 'hood_scoop_overlay';
+  if (style === 'armor') return 'door_armor_overlay';
+  return style === 'fridge' && cat === 'door' ? 'door_fridge_handle' : null;
+}
+
+/**
+ * Put a panel's add-on in place over its skin. `box`: the skin's bounds in the hinge's frame, shut; `out`:
+ * +1 when the outside is towards +z (a door on the right), else −1.
+ */
+export function placeAddOn(o: THREE.Object3D, file: string, box: THREE.Box3, cat: Category, out: number): void {
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  if (file === 'hood_scoop_overlay') {
+    // standing on the bonnet's crown a little ahead of its middle, the mouth forward
+    o.position.set(c.x + size.x * 0.08, box.max.y - 0.012, c.z);
+  } else if (file === 'door_fridge_handle') {
+    // by the back edge (doors hang on their front edge), at the waist
+    o.scale.z = out > 0 ? -1 : 1;
+    o.position.set(box.min.x + 0.1, box.min.y + size.y * 0.42, out > 0 ? box.max.z : box.min.z);
+  } else if (cat === 'door') {
+    // over the lower door, below the window
+    o.scale.set((size.x * 0.84) / 1.0, (size.y * 0.4) / 0.5, out > 0 ? -1 : 1);
+    o.position.set(c.x, box.min.y + size.y * 0.27, out > 0 ? box.max.z : box.min.z);
+  } else {
+    // lying on top: the plate's thickness turned upwards, its height across the car
+    o.rotation.x = Math.PI / 2;
+    o.scale.set((size.x * 0.78) / 1.0, (size.z * 0.78) / 0.5, 1);
+    o.position.set(c.x, box.max.y - 0.006, c.z);
+  }
+}
+
+/** a wire cage in a door's outline (`box`: its bounds in the frame the cage is added to): a grid of steel wires */
+export function cageFor(box: THREE.Box3): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'cage';
+  const mat = new THREE.MeshStandardMaterial();
+  mat.name = 'steel';
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const bar = (len: number, axis: 'x' | 'y', x: number, y: number): void => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, len, 6), mat);
+    if (axis === 'x') m.rotation.z = Math.PI / 2;
+    m.position.set(x, y, c.z);
+    g.add(m);
+  };
+  const nx = Math.max(3, Math.round(size.x / 0.12));
+  const ny = Math.max(3, Math.round(size.y / 0.12));
+  for (let i = 0; i <= nx; i++) bar(size.y, 'y', box.min.x + (size.x * i) / nx, c.y);
+  for (let j = 0; j <= ny; j++) bar(size.x, 'x', c.x, box.min.y + (size.y * j) / ny);
+  return g;
+}
+
+/** a panel's paint by its style, from the paint it would have: armour is bare steel, a fridge door white, a rusty one half rust */
+export function panelPaint(style: string, base: number): number {
+  if (style === 'armor') return 0x5c6168;
+  if (style === 'fridge') return 0xf1efe6;
+  return style === 'rusty' ? new THREE.Color(base).lerp(new THREE.Color(0x8a4a26), 0.45).getHex() : base;
+}
+
+const matNamesOf = (mesh: THREE.Mesh): string[] => (mesh.userData.mat as string[] | undefined) ?? (Array.isArray(mesh.material) ? mesh.material.map((x) => x.name) : [mesh.material.name]);
+
+const panels = new Map<string, Promise<Model>>();
+/**
+ * A body panel off its vehicle (a door, a bonnet, a boot lid). Panels have no model of their own — on a
+ * vehicle they are the frame's own skin — so this is the same panel of a frame the part is a factory fit
+ * of (else the saloon's, the pickup's, the motorhome's): its skin and window glass, shut, with its style's
+ * add-on or cage; laid down on its inside (outside up), centred, its lowest point at the origin.
+ */
+function panelModel(def: PartDef): Promise<Model> {
+  let p = panels.get(def.id);
+  if (!p) {
+    p = (async (): Promise<Model> => {
+      const stock = def.tags?.find((t) => t.startsWith('stock:'))?.slice(6);
+      for (const frameId of new Set([stock ?? 'sedan', 'sedan', 'pickup', 'rv'])) {
+        const scene = await panelOf(def, frameId);
+        if (scene) return { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) };
+      }
+      const s = standInPart(def);
+      return { scene: s, standIn: true, box: new THREE.Box3().setFromObject(s) };
+    })();
+    panels.set(def.id, p);
+  }
+  return p;
+}
+
+async function panelOf(def: PartDef, frameId: string): Promise<THREE.Group | null> {
+  const f = frameDef(frameId);
+  const mounts = f.mounts.filter((x) => x.cat === def.cat && x.panel);
+  // (a door as it hangs on the left: its outside towards −z)
+  const mt = mounts.find((x) => x.side < 0) ?? mounts[0];
+  if (!mt?.panel) return null;
+  const model = await frameModel(frameId, () => standInFrame(f.body, f.kind));
+  if (model.standIn) return null;
+  model.scene.updateMatrixWorld(true);
+  const src = model.scene.getObjectByName(mt.panel);
+  if (!src) return null;
+  // out of the frame, as it stands on it
+  const inner = new THREE.Group();
+  for (const o of [src, model.scene.getObjectByName(`PG_${mt.id}`)]) {
+    if (!o) continue;
+    const c = o.clone(true);
+    o.matrixWorld.decompose(c.position, c.quaternion, c.scale);
+    inner.add(c);
+  }
+  const style = def.panel?.style ?? 'stock';
+  const skin: THREE.Mesh[] = [];
+  const glass: THREE.Mesh[] = [];
+  const helpers: THREE.Object3D[] = [];
+  inner.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    // (what rides on the panel — a mirror's mount — is no part of it)
+    if (o !== inner && /^M_/.test(o.name)) helpers.push(o);
+    else if (mesh.isMesh) (matNamesOf(mesh).some((n) => n.startsWith('glass')) ? glass : skin).push(mesh);
+  });
+  for (const h of helpers) h.removeFromParent();
+  // the skin's bounds, in the frame's space
+  inner.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  for (const s of skin) box.expandByObject(s);
+  if (box.isEmpty()) return null;
+  if (style === 'cage' || style === 'fridge') for (const g of glass) g.removeFromParent();
+  if (style === 'cage') {
+    for (const s of skin) s.removeFromParent();
+    inner.add(cageFor(box));
+  }
+  const file = panelAddOn(style, def.id, def.cat);
+  const addOn = file ? await addonModel(file) : null;
+  if (file && addOn) {
+    const o = cloneModel(addOn);
+    placeAddOn(o, file, box, def.cat, mt.side > 0 ? 1 : -1);
+    inner.add(o);
+  }
+  // laid down outside up: a door on its inside face, a tailgate on its inside, a bonnet as it is
+  const size = box.getSize(new THREE.Vector3());
+  if (size.z <= size.x && size.z <= size.y) inner.rotation.x = mt.side > 0 ? -Math.PI / 2 : Math.PI / 2;
+  else if (size.x <= size.y && size.x <= size.z) inner.rotation.z = box.getCenter(new THREE.Vector3()).x < 0 ? -Math.PI / 2 : Math.PI / 2;
+  const g = new THREE.Group();
+  g.name = 'PART';
+  g.add(inner);
+  g.updateMatrixWorld(true);
+  const laid = new THREE.Box3().setFromObject(inner);
+  const c = laid.getCenter(new THREE.Vector3());
+  inner.position.set(-c.x, -laid.min.y, -c.z);
+  return g;
 }
 
 /** load everything a list of parts needs, ahead of time (the garage at the start) */
