@@ -1,0 +1,65 @@
+{
+  "system": "render",
+  "id": "modcar_v8",
+  "metrics": {
+    "shots_total": 4,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 383,
+    "max_triangles": 1255783
+  },
+  "shots": {
+    "sedan_v8_hood": {
+      "ok": true,
+      "ms": 12975,
+      "errors": [],
+      "calls": 364,
+      "triangles": 1250711,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_flat6_hood": {
+      "ok": true,
+      "ms": 1513,
+      "errors": [],
+      "calls": 363,
+      "triangles": 1242759,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_d6_hood": {
+      "ok": true,
+      "ms": 3084,
+      "errors": [],
+      "calls": 383,
+      "triangles": 1168149,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_v8_turbo": {
+      "ok": true,
+      "ms": 1433,
+      "errors": [],
+      "calls": 372,
+      "triangles": 1255783,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

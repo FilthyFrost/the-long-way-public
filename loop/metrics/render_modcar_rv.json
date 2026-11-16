@@ -1,0 +1,104 @@
+{
+  "system": "render",
+  "id": "modcar_rv",
+  "metrics": {
+    "shots_total": 7,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 421,
+    "max_triangles": 1446150
+  },
+  "shots": {
+    "rv_front34": {
+      "ok": true,
+      "ms": 13072,
+      "errors": [],
+      "calls": 405,
+      "triangles": 1388780,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_rear34": {
+      "ok": true,
+      "ms": 2494,
+      "errors": [],
+      "calls": 411,
+      "triangles": 1285559,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_side": {
+      "ok": true,
+      "ms": 1680,
+      "errors": [],
+      "calls": 389,
+      "triangles": 1395885,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_rear_wheels": {
+      "ok": true,
+      "ms": 1724,
+      "errors": [],
+      "calls": 393,
+      "triangles": 1261034,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_cockpit": {
+      "ok": true,
+      "ms": 1804,
+      "errors": [],
+      "calls": 372,
+      "triangles": 1234247,
+      "programs": 39,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_night": {
+      "ok": true,
+      "ms": 1398,
+      "errors": [],
+      "calls": 421,
+      "triangles": 1446150,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "rv_apoc": {
+      "ok": true,
+      "ms": 1409,
+      "errors": [],
+      "calls": 406,
+      "triangles": 1414788,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

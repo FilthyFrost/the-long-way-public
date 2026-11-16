@@ -1,0 +1,52 @@
+{
+  "system": "render",
+  "id": "modcar_night",
+  "metrics": {
+    "shots_total": 3,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 413,
+    "max_triangles": 1317763
+  },
+  "shots": {
+    "sedan_rear_night": {
+      "ok": true,
+      "ms": 12836,
+      "errors": [],
+      "calls": 391,
+      "triangles": 1121813,
+      "programs": 39,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_rear_night": {
+      "ok": true,
+      "ms": 2152,
+      "errors": [],
+      "calls": 413,
+      "triangles": 1057649,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_front_night": {
+      "ok": true,
+      "ms": 1772,
+      "errors": [],
+      "calls": 387,
+      "triangles": 1317763,
+      "programs": 39,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

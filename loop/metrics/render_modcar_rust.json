@@ -1,0 +1,26 @@
+{
+  "system": "render",
+  "id": "modcar_rust",
+  "metrics": {
+    "shots_total": 1,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 338,
+    "max_triangles": 1210012
+  },
+  "shots": {
+    "sedan_rusty_door": {
+      "ok": true,
+      "ms": 12983,
+      "errors": [],
+      "calls": 338,
+      "triangles": 1210012,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}

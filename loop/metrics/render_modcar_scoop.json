@@ -1,0 +1,52 @@
+{
+  "system": "render",
+  "id": "modcar_scoop",
+  "metrics": {
+    "shots_total": 3,
+    "shots_failed": 0,
+    "console_errors": 0,
+    "max_draw_calls": 395,
+    "max_triangles": 1253801
+  },
+  "shots": {
+    "sedan_scoop": {
+      "ok": true,
+      "ms": 13437,
+      "errors": [],
+      "calls": 378,
+      "triangles": 1253801,
+      "programs": 40,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "pickup_scoop": {
+      "ok": true,
+      "ms": 2780,
+      "errors": [],
+      "calls": 395,
+      "triangles": 1177193,
+      "programs": 41,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    },
+    "sedan_sidepipes": {
+      "ok": true,
+      "ms": 1372,
+      "errors": [],
+      "calls": 339,
+      "triangles": 1209578,
+      "programs": 38,
+      "kmh": 0,
+      "exploded": false,
+      "drive": null,
+      "hashOk": null,
+      "audio": null
+    }
+  }
+}
