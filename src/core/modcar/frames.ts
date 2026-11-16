@@ -73,7 +73,7 @@ const SIDE_LABEL: Record<string, Text> = {
   R: { zh: '后', en: 'rear' },
   L: { zh: '左', en: 'left' },
 };
-const CAT_LABEL: Record<Category, Text> = {
+export const CAT_LABEL: Record<Category, Text> = {
   engine: { zh: '发动机', en: 'engine' },
   gearbox: { zh: '变速箱', en: 'gearbox' },
   radiator: { zh: '散热器', en: 'radiator' },

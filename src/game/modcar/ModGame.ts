@@ -8,28 +8,30 @@
  */
 import * as THREE from 'three';
 import { FirstPersonRig } from '../../core/camera/rig';
-import { decodeBuild, newInstance, fitSub, stockBuild } from '../../core/modcar/build';
+import { allInstances, decodeBuild, newInstance, fitSub, stockBuild, stockTireFor } from '../../core/modcar/build';
+import { frameDef } from '../../core/modcar/frames';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { newTool } from '../../core/modcar/tools';
-import type { Build } from '../../core/modcar/types';
+import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
 import { World } from '../../core/world/terrain';
 import { GroundSample, SURFACES, type Ground } from '../../core/world/ground';
-import type { Solid } from '../../core/world/solids';
+import { Push, pushOut, type Solid } from '../../core/world/solids';
 import { AudioEngine } from '../audio';
 import { Environment } from '../env/environment';
 import { Hud } from '../hud';
 import { InputManager } from '../input';
 import type { Params } from '../params';
-import { carEnvUniforms } from '../render/carMaterials';
+import { applyGhost, carEnvUniforms } from '../render/carMaterials';
 import { RenderCore } from '../render/core';
 import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
-import { preload } from './assets';
+import { cloneModel, frameModel, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
+import { DevPanel, type DevHost, type DevItem, type DevPoint } from './devPanel';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { EngineVoice } from './engineAudio';
@@ -39,12 +41,12 @@ import { HeldThing } from './held';
 import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { Sparks } from './sparks';
-import { LooseThings } from './loose';
+import { LooseThings, toolModel } from './loose';
 import { CarMaterials } from './materials';
 import { ModPlayer, type PlayerHost } from './player';
 import { Cockpit, type CockpitHost } from './cockpit';
 import { ModUI } from './ui';
-import { ModVehicle } from './vehicle';
+import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
 import { applyWheelMods } from '../../core/modcar/simlink';
 
@@ -108,7 +110,30 @@ function weather(b: Build, dirt: number, rust: number, seed: number): void {
 /** what the first project car is missing: the things the checklist asks for, in order */
 export const TUTORIAL_MISSING = ['battery', 'hub_FL', 'hub_RR', 'engine'] as const;
 
-export class ModGame implements PlayerHost, CockpitHost {
+/** do two boxes on the plan overlap (a round post taken as its square)? */
+function boxesMeet(a: { x: number; z: number; hx: number; hz: number; yaw: number }, b: { x: number; z: number; hx: number; hz: number; yaw: number }): boolean {
+  const ext = (o: typeof a, ux: number, uz: number): number => {
+    const hz = o.hz === 0 ? o.hx : o.hz;
+    const c = Math.cos(o.yaw);
+    const s = Math.sin(o.yaw);
+    return Math.abs(o.hx * (c * ux + s * uz)) + Math.abs(hz * (-s * ux + c * uz));
+  };
+  for (const ang of [a.yaw, a.yaw + Math.PI / 2, b.yaw, b.yaw + Math.PI / 2]) {
+    const ux = Math.cos(ang);
+    const uz = Math.sin(ang);
+    if (Math.abs((b.x - a.x) * ux + (b.z - a.z) * uz) > ext(a, ux, uz) + ext(b, ux, uz)) return false;
+  }
+  return true;
+}
+
+/** the tyre the parts bin puts on a rim: its frame's factory tyre, else a road tyre (none on a wheel that is all rubber) */
+function devTyreFor(def: PartDef): string | null {
+  if (def.cat !== 'rim' || !def.rim?.tire) return null;
+  const tag = def.tags?.find((t) => t.startsWith('stock:'));
+  return (tag ? stockTireFor(frameDef(tag.slice(6))) : null) ?? 'tire_road';
+}
+
+export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly core: RenderCore;
   readonly env: Environment;
   readonly input: InputManager;
@@ -467,6 +492,271 @@ export class ModGame implements PlayerHost, CockpitHost {
     return v;
   }
 
+  // ------------------------------------------------------------------ the developer's parts bin (`)
+
+  private dev: DevPanel | null = null;
+  private devGhost: { key: string; group: THREE.Group } | null = null;
+  private readonly devRay = new THREE.Raycaster();
+  private readonly devNdc = new THREE.Vector2();
+  private readonly devNear: Solid[] = [];
+  private readonly devPush = new Push();
+
+  /** the parts bin, once it has been opened */
+  get devPanel(): DevPanel | null {
+    return this.dev;
+  }
+
+  /** open or shut the parts bin */
+  toggleDev(open = !this.dev?.open): void {
+    if (!open && !this.dev) return;
+    this.dev ??= new DevPanel(this);
+    this.dev.setOpen(open);
+  }
+
+  devOpened(open: boolean): void {
+    const canvas = this.core.renderer.domElement;
+    this.input.lockable = !open;
+    if (open) {
+      // the mouse let go, for the tiles
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      this.ui.showHelp(false);
+      return;
+    }
+    this.devPreview(null, null);
+    // back to the game: the mouse taken again (a key press lets a page do it; else a click will)
+    if (!this.params.shot) {
+      try {
+        void (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {});
+      } catch {
+        /* a click will do */
+      }
+    }
+  }
+
+  devModel(item: DevItem): Promise<THREE.Object3D | null> {
+    if (item.kind === 'part') {
+      const def = partDef(item.id);
+      const tyre = devTyreFor(def);
+      return partModel(item.id).then(async (m) => {
+        const g = new THREE.Group();
+        g.add(cloneModel(m));
+        if (tyre && def.rim) g.add(seatTyres(m, await partModel(tyre, item.id), def.rim.radius, partDef(tyre).tire!.sidewall, false));
+        return g;
+      });
+    }
+    if (item.kind === 'tool') {
+      const kind = item.tool;
+      return toolGlb(kind).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel })));
+    }
+    const f = frameDef(item.frame);
+    return frameModel(item.frame, () => standInFrame(f.body, f.kind)).then((m) => cloneModel(m));
+  }
+
+  /** is (x, y, z) inside a wall, a post, a bench's side (not a vehicle: those are met by their meshes) */
+  private devInSolid(x: number, y: number, z: number): boolean {
+    const near = this.devNear;
+    near.length = 0;
+    this.player.solids.solidsNear(x, z, 0.02, near);
+    for (const s of near) {
+      if (s.tag.startsWith('modcar:') || y < s.y0 || y > s.y1) continue;
+      if (pushOut(s, x, z, 0.01, this.devPush)) return true;
+    }
+    return false;
+  }
+
+  devPick(clientX: number, clientY: number): DevPoint | null {
+    const canvas = this.core.renderer.domElement;
+    const r = canvas.getBoundingClientRect();
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+    this.devNdc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    this.core.camera.updateMatrixWorld();
+    this.devRay.setFromCamera(this.devNdc, this.core.camera);
+    const o = this.core.origin;
+    const ray = this.devRay.ray;
+    // a vehicle under it: where the ray first meets its body (a roof, a bed, a bonnet, a seat)
+    let far = 40;
+    let onCar: DevPoint | null = null;
+    for (const v of this.vehicles) {
+      v.view.root.updateMatrixWorld(true);
+      for (const h of this.devRay.intersectObject(v.view.root, true)) {
+        if (h.distance >= far) break;
+        if (!h.face || !visibleUp(h.object) || h.object.renderOrder >= 20) continue;
+        far = h.distance;
+        onCar = { x: h.point.x + o.x, y: h.point.y + o.y, z: h.point.z + o.z };
+        break;
+      }
+    }
+    // the floor and what stands on it (a bench, a shelf); a wall stops it short, on the floor before the wall
+    const at = (t: number): DevPoint => ({ x: ray.origin.x + ray.direction.x * t + o.x, y: ray.origin.y + ray.direction.y * t + o.y, z: ray.origin.z + ray.direction.z * t + o.z });
+    const under = (p: DevPoint): number => this.loose.surfaceAt(p.x, p.z, p.y + 0.15) ?? -Infinity;
+    const step = 0.1;
+    let prev = at(0);
+    for (let t = step; t < far; t += step) {
+      const p = at(t);
+      if (p.y <= under(p)) {
+        // back up to where it went under
+        let a = t - step;
+        let b = t;
+        for (let k = 0; k < 6; k++) {
+          const m = (a + b) / 2;
+          const q = at(m);
+          if (q.y <= under(q)) b = m;
+          else a = m;
+        }
+        const q = at(b);
+        return { x: q.x, y: under(q), z: q.z };
+      }
+      if (this.devInSolid(p.x, p.y, p.z)) return { x: prev.x, y: this.loose.surfaceAt(prev.x, prev.z, prev.y) ?? prev.y, z: prev.z };
+      prev = p;
+    }
+    return onCar;
+  }
+
+  /** where a thing goes when its tile is only clicked: a step ahead of one's feet (from a seat: beside the vehicle) */
+  private devFeet(ahead: number): DevPoint {
+    const v = this.seated;
+    if (v) {
+      const b = this.basis;
+      v.sim.basis(b);
+      const side = (v.sim.spec.eye.z < 0 ? -1 : 1) * (v.sim.spec.body.halfWidth + 0.9 + ahead * 0.4);
+      const x = v.sim.px + b[6] * side;
+      const z = v.sim.pz + b[8] * side;
+      return { x, y: this.loose.surfaceAt(x, z, v.sim.py + 1) ?? v.sim.py, z };
+    }
+    const w = this.player.walker;
+    const x = w.x + Math.cos(w.heading) * ahead;
+    const z = w.z + Math.sin(w.heading) * ahead;
+    return { x, y: this.loose.surfaceAt(x, z, w.y + 1.2) ?? w.y, z };
+  }
+
+  devSpawn(item: DevItem, at: DevPoint | null): void {
+    const yaw = this.player.walker.heading;
+    if (item.kind === 'vehicle') {
+      const p = at ?? this.devFeet(5);
+      const b = stockBuild(item.frame, { fuel: 0.6 });
+      if (!item.stock) b.parts = {};
+      // facing the way one looks; where another vehicle, a wall or oneself already is, the nearest free place round it
+      this.devRoom(this.addVehicle(b, p.x, p.z, -yaw));
+      this.ui.say(`放下了：${frameDef(item.frame).name.zh}${item.stock ? '' : '（空车架）'}`, 1.8);
+      return;
+    }
+    const p = at ?? this.devFeet(1.1);
+    if (item.kind === 'part') {
+      const def = partDef(item.id);
+      const inst = newInstance(item.id, { charge: 0.9 });
+      const tyre = devTyreFor(def);
+      if (tyre) fitSub(inst, 'tire', newInstance(tyre));
+      this.loose.addPart(inst, p.x, p.y + 0.3, p.z, yaw);
+      this.sound('putdown', def.mass);
+      this.ui.say(`放下了：${def.name.zh}`, 1.5);
+      return;
+    }
+    const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { colour: 13 }) : newTool(item.tool);
+    this.loose.addTool(tool, p.x, p.y + 0.25, p.z, yaw);
+    this.sound('putdown', 3);
+  }
+
+  /** a vehicle let go on top of another, in a wall or on oneself: moved to the nearest free place round there */
+  private devRoom(v: ModVehicle): void {
+    const own = v.solid.update();
+    const dx = own.x - v.sim.px;
+    const dz = own.z - v.sim.pz;
+    const w = this.player.walker;
+    const me = { x: 0, z: 0, hx: own.hx + 0.2, hz: own.hz + 0.2, yaw: own.yaw };
+    const free = (x: number, z: number): boolean => {
+      me.x = x + dx;
+      me.z = z + dz;
+      if (boxesMeet(me, { x: w.x, z: w.z, hx: 0.45, hz: 0.45, yaw: 0 })) return false;
+      const near = this.devNear;
+      near.length = 0;
+      this.player.solids.solidsNear(me.x, me.z, Math.hypot(me.hx, me.hz), near);
+      for (const s of near) {
+        // (low things, a kerb or a mat, and what is overhead stay out of it)
+        if (s === own || s.y1 - s.y0 < 0.3 || s.y0 > v.sim.py + 1) continue;
+        if (boxesMeet(me, s)) return false;
+      }
+      return true;
+    };
+    const px = v.sim.px;
+    const pz = v.sim.pz;
+    for (let r = 0; r <= 9; r += 0.6) {
+      const n = r === 0 ? 1 : Math.round(r * 7);
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const x = px + Math.cos(a) * r;
+        const z = pz + Math.sin(a) * r;
+        if (!free(x, z)) continue;
+        if (r > 0) {
+          v.sim.reset(x, this.groundAt(x, z) + 0.05, z, v.sim.yaw, this.ground);
+          v.awake = 3;
+        }
+        return;
+      }
+    }
+  }
+
+  devPreview(item: DevItem | null, at: DevPoint | null): void {
+    const key = item ? JSON.stringify(item) : '';
+    if ((this.devGhost?.key ?? '') !== key) {
+      this.devGhost?.group.removeFromParent();
+      this.devGhost = null;
+      if (item) {
+        const group = new THREE.Group();
+        group.name = 'ghost:dev';
+        group.visible = false;
+        this.core.scene.add(group);
+        const g = { key, group };
+        this.devGhost = g;
+        void this.devModel(item).then((obj) => {
+          if (this.devGhost !== g || !obj) return;
+          // as it will lie: a wheel on its side
+          const def = item.kind === 'part' ? partDef(item.id) : null;
+          if (def && (def.cat === 'rim' || def.cat === 'tire')) {
+            obj.rotation.x = Math.PI / 2;
+            obj.position.y = (def.rim?.width ?? def.tire?.width ?? 0.15) / 2;
+          }
+          applyGhost(obj, 'empty', true);
+          group.add(obj);
+        });
+      }
+    }
+    const g = this.devGhost;
+    if (!g) return;
+    g.group.visible = !!at;
+    if (at) {
+      this.core.place(g.group, at.x, at.y, at.z);
+      g.group.rotation.set(0, -this.player.walker.heading, 0);
+    }
+  }
+
+  devClear(): void {
+    const n = this.loose.list.length;
+    for (const l of [...this.loose.list]) this.loose.remove(l);
+    this.ui.say(n ? `清掉了 ${n} 件。` : '地上本来就没有东西。', 2);
+  }
+
+  devRepair(): void {
+    for (const v of this.vehicles) {
+      const b = v.build;
+      const eng = Object.values(b.parts).find((i) => partDef(i.part).cat === 'engine');
+      const fuelType = eng ? (partDef(eng.part).engine?.fuel ?? 'petrol') : 'petrol';
+      b.cond = 1;
+      b.dirt = 0;
+      b.rust = 0;
+      for (const { inst } of allInstances(b)) {
+        const fresh = newInstance(inst.part, { charge: 1, fuelL: 1e6, fuelType });
+        inst.cond = 1;
+        inst.dirt = 0;
+        inst.rust = 0;
+        inst.flat = false;
+        inst.fluids = fresh.fluids;
+        if (fresh.tread !== undefined) inst.tread = fresh.tread;
+      }
+      v.changed();
+    }
+    this.ui.say('所有车都修好了：汽油、机油、冷却液、电瓶都加满了。', 2.5);
+  }
+
   // ------------------------------------------------------------------ input
 
   private bindInput(canvas: HTMLCanvasElement): void {
@@ -486,11 +776,36 @@ export class ModGame implements PlayerHost, CockpitHost {
       if (e.button === 2) this.player.secondary = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // the parts bin open (the mouse free): a drag on the view turns it (either button: a trackpad has only the one)
+    let turning = -1;
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!this.dev?.open || (e.button !== 0 && e.button !== 2)) return;
+      turning = e.pointerId;
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerId === turning) this.input.turn(e.movementX, e.movementY, 0.0045);
+    });
+    const stopTurning = (e: PointerEvent): void => {
+      if (e.pointerId === turning) turning = -1;
+    };
+    canvas.addEventListener('pointerup', stopTurning);
+    canvas.addEventListener('pointercancel', stopTurning);
     canvas.addEventListener('wheel', (e) => this.player.wheel(e.deltaY));
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
     // the key card: at the start until the first click, and on F1 any time
     if (!this.params.shot) this.ui.showHelp(true);
     window.addEventListener('keydown', (e) => {
+      // the key left of 1 (` on a US keyboard; § on a Mac's international one): the developer's parts bin
+      if (e.code === 'Backquote' || e.code === 'IntlBackslash' || e.key === '`' || e.key === '§') {
+        e.preventDefault();
+        if (!e.repeat) this.toggleDev();
+        return;
+      }
+      if (e.key === 'Escape' && this.dev?.open) {
+        this.toggleDev(false);
+        return;
+      }
       if (e.code === 'F1') {
         e.preventDefault();
         this.ui.showHelp(!this.ui.helpShown);
@@ -1315,7 +1630,7 @@ export class ModGame implements PlayerHost, CockpitHost {
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open);
     this.updateMarker();
   }
 

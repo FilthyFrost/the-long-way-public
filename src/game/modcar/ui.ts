@@ -100,7 +100,7 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k">鼠标 + 左键</td><td class="v">直接扳手刹杆、拨挡杆、拧钥匙、开收音机（右键换台）、按喇叭、开车门</td></tr>
 <tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
 </table>
-<div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · 连按 <b>F9</b> 新游戏 · <b>Esc</b> 放开鼠标</div>`;
+<div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · <b>\`</b>（1 左边那个键）零件库，测试用 · 连按 <b>F9</b> 新游戏 · <b>Esc</b> 放开鼠标</div>`;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);

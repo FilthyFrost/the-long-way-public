@@ -60,6 +60,8 @@ export class InputManager {
   /** walking stick: forward and right, −1 … 1 */
   readonly walk = { forward: 0, right: 0 };
   locked = false;
+  /** false: a click on the canvas does not take the mouse (the developer's parts bin is open) */
+  lockable = true;
   private readonly keys = new Set<string>();
   private readonly listeners: ((a: Action) => void)[] = [];
   private readonly releaseListeners: ((a: Action) => void)[] = [];
@@ -85,17 +87,21 @@ export class InputManager {
     });
     window.addEventListener('blur', () => this.keys.clear());
     canvas.addEventListener('click', () => {
-      if (!this.locked) canvas.requestPointerLock?.();
+      if (!this.locked && this.lockable) canvas.requestPointerLock?.();
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
     });
     document.addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
-      this.lookYaw = this.freeLook ? this.lookYaw + e.movementX * 0.0022 : Math.max(-2.4, Math.min(2.4, this.lookYaw + e.movementX * 0.0022));
-      this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - e.movementY * 0.0022));
-      this.lastLook = performance.now();
+      if (this.locked) this.turn(e.movementX, e.movementY);
     });
+  }
+
+  /** turn the view by a movement of the mouse (px), as the captured mouse does (also: dragged with the right button) */
+  turn(dx: number, dy: number, k = 0.0022): void {
+    this.lookYaw = this.freeLook ? this.lookYaw + dx * k : Math.max(-2.4, Math.min(2.4, this.lookYaw + dx * k));
+    this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - dy * k));
+    this.lastLook = performance.now();
   }
 
   /** player: is a key held right now (KeyboardEvent.code) */

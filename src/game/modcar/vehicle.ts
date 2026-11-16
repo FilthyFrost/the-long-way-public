@@ -19,7 +19,7 @@ const IDLE: VehicleInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 const DOWN = new THREE.Vector3(0, -1, 0);
 
 /** a mesh one can put a thing on: shown, and no ghost (the hologram of a part to come) */
-function visibleUp(o: THREE.Object3D): boolean {
+export function visibleUp(o: THREE.Object3D): boolean {
   for (let p: THREE.Object3D | null = o; p; p = p.parent) {
     if (!p.visible || p.name.startsWith('ghost:')) return false;
   }

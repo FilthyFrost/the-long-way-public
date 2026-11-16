@@ -9,6 +9,7 @@ import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
 import { loadStats } from './assets';
+import { devItemOf } from './devPanel';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 import { clearSave, loadSave } from './save';
 
@@ -290,6 +291,32 @@ const rt = {
     return inst ? { part: inst.part, paint: inst.paint, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
   },
   partName: (id: string) => partDef(id).name,
+  /** the developer's parts bin open (true) or shut; what it shows */
+  dev: (open?: boolean) => {
+    game.toggleDev(open ?? !game.devPanel?.open);
+    const p = game.devPanel;
+    return { open: !!p?.open, pictures: p?.pictures ?? 0 };
+  },
+  /** where a point of the view (fractions of the canvas) would put a thing dropped there, or null */
+  devPick: (fx: number, fy: number) => {
+    const r = canvas.getBoundingClientRect();
+    return game.devPick(r.left + fx * r.width, r.top + fy * r.height);
+  },
+  /** a tile of the bin (part:<id>, tool:<kind>[:fuel[:litres]], vehicle:<frame>:stock|bare) let go at a point of the view; none = clicked (at one's feet) */
+  devDrop: (key: string, fx?: number, fy?: number) => {
+    const item = devItemOf(key);
+    if (!item) throw new Error(`no tile ${key}`);
+    let at = null;
+    if (fx !== undefined && fy !== undefined) {
+      const r = canvas.getBoundingClientRect();
+      at = game.devPick(r.left + fx * r.width, r.top + fy * r.height);
+      if (!at) return null;
+    }
+    game.devSpawn(item, at);
+    return at ?? { feet: true };
+  },
+  /** the things lying about */
+  loose: () => game.loose.list.map((l) => ({ part: l.part?.part ?? null, tool: l.tool?.kind ?? null, x: l.x, y: l.y, z: l.z, resting: l.resting })),
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 
