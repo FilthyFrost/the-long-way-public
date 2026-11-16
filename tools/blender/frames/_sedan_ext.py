@@ -529,7 +529,7 @@ class Exterior:
         P, N = S.REAR_L.to3d(pl)
         self.open['plate'] = dict(uv=S.CL.to2d(P), P=P, N=N, yz=pl)
         # fuel flap (built into the right half: same loft coordinates as the left)
-        f = K.circle_loop(-1.63, 0.765, 0.054, 0.009)
+        f = K.circle_loop(-1.63, 0.712, 0.054, 0.009)      # (under the shoulder crease)
         P, N = S.SIDE_L.to3d(f)
         self.open['fuel'] = dict(uv=S.CL.to2d(P), P=P, N=N, xz=f)
         cut = Cut(S.SIDE_L, f, True, +1.0)
@@ -636,6 +636,8 @@ class Exterior:
             so = self.cut['fuel'].side('out')
             holes.append(K.Loop(S.CL.to2d(so['P']), so['P'], so['N']))
         pts, sp = S.grid_from(self.us, self.ts)
+        # rows under the belt where the body meets the greenhouse (fender tops, rear quarters)
+        pts, sp = edge_rows(S.CL, [self.J['P']], pts, sp, loop.uv, offs=(0.011, 0.024, 0.040, 0.060), step=0.024, clear=0.075)
         V, N, T = K.mesh_region(S.CL, [loop], holes, pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
 

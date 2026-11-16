@@ -1297,6 +1297,31 @@ class Buf:
         return obj
 
 
+def drop_all(objs, empties, panels, infos, dz, abs_props=('floor_z', 'cushion_z')):
+    """Move the whole built frame by dz (z, metres): the root objects, the mount empties (and their absolute
+    height properties), the panels' hinge positions and the needle / wiper pivots. A frame modelled with its
+    hubs dz higher than its wheel radius and then moved down by dz sits that much lower over its wheels while
+    the hubs stay at the wheel radius above the ground."""
+    if not dz:
+        return
+    for o in list(objs) + list(empties):
+        if o.parent is None:
+            m = o.matrix_world.copy()
+            m.translation.z += dz
+            o.matrix_world = m
+    for e in empties:
+        for k in abs_props:
+            if k in e:
+                e[k] = round(float(e[k]) + dz, 4)
+    for p in panels.values():
+        p['hinge_pos'] = np.asarray(p['hinge_pos'], float) + (0.0, 0.0, dz)
+    for group in infos:
+        for info in group.values():
+            if 'pivot' in info:
+                info['pivot'] = np.asarray(info['pivot'], float) + (0.0, 0.0, dz)
+    bpy.context.view_layer.update()
+
+
 def bake_ao_open(meshes, open_objs, region, targets=('BODY', 'UNDER'), samples=32, distance=0.35, fade=0.04):
     """Ambient occlusion as mc.bake_ao, then a second pass for the vertices of `targets` inside `region`
     ((lo, hi), an axis-aligned box in world coordinates) with panels opened (open_objs: (object, local axis,

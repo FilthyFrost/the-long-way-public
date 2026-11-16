@@ -141,7 +141,7 @@ def build(args):
         panels['P_' + name] = dict(mount=name, hinge='y', hinge_pos=np.array(hinge), axis=(0, 1, 0), open_deg=odeg)
     # ---------------------------------------------------------------- fuel flap
     ff = ex.fuel_flap().mirrored()
-    fhinge = np.array([-1.63 + 0.052, -0.790, 0.765])
+    fhinge = np.array([-1.63 + 0.052, -0.790, 0.712])
     o = obj_with_origin(ff, 'FUEL_CAP', fhinge)
     objs.append(o)
     panels['FUEL_CAP'] = dict(mount=None, hinge='z', hinge_pos=fhinge, axis=(0, 0, 1), open_deg=85.0)
@@ -175,6 +175,9 @@ def build(args):
 
     # ---------------------------------------------------------------- mounts
     empties = mounts(ex, panels, it)
+    # the frame is modelled with its hubs body_drop above the wheel radius and moved down by it: it sits
+    # that much lower over its wheels, the hubs stay at the wheel radius above the ground
+    K.drop_all(objs, empties, panels, (needles, wipers), -D.get('body_drop', 0.0))
     # ---------------------------------------------------------------- AO, export, JSON
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
@@ -184,7 +187,7 @@ def build(args):
         # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open)
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((IN.FIREWALL_X - 0.01, -0.76, 0.0), (IN.RAD_X + 0.10, 0.76, 0.85)), samples=32, distance=0.35)
+                       ((IN.FIREWALL_X - 0.01, -0.76, -0.05), (IN.RAD_X + 0.10, 0.76, 0.85 - D.get('body_drop', 0.0))), samples=32, distance=0.35)
         print('[sedan] AO', round(time.time() - t0, 1), 's')
     mc.export_glb(OUT_GLB, meshes + empties)
     extra = json_extra(objs, panels, needles, wipers, tris, total)
@@ -483,6 +486,7 @@ def json_extra(objs, panels, needles, wipers, tris, total):
     ghi = game_vec(hi)
     bb = dict(min=[min(glo[0], ghi[0]), min(glo[1], ghi[1]), min(glo[2], ghi[2])], max=[max(glo[0], ghi[0]), max(glo[1], ghi[1]), max(glo[2], ghi[2])])
     eye = np.array(getattr(IN, 'EYE', (IN.SEAT_X - 0.06, IN.DRIVER_Y, 1.23)))
+    eye = eye + (0.0, 0.0, -D.get('body_drop', 0.0))
     return dict(panels=ps, needles=ns, wipers=ws, eye_default=game_vec(eye), bbox=bb,
                 triangles=dict(total=total, **tris), units='metres, game frame (+x forward, +y up, +z right)',
                 notes='hinge: Blender-local axis name (z = vertical door hinge, y = transverse lid hinge); hinge_axis: '
@@ -503,7 +507,7 @@ def previews(quick):
     PV.orbit((-0.1, 0, 0.6), 270, 89.5, 9, ortho=4.6)
     PV.render(f'{SCRATCH}_top.png', res=(1400, 720), samples=16)
     # driver's eye
-    eye = Vector(IN.EYE)
+    eye = Vector(IN.EYE) + Vector((0.0, 0.0, -D.get('body_drop', 0.0)))
     PV.camera(tuple(eye), tuple(eye + Vector((1.0, -0.02, -0.12))), lens=24)
     PV.render(f'{SCRATCH}_driver.png', res=res, samples=smp)
     # engine bay (hood hidden), panels removed

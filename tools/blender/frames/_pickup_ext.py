@@ -408,8 +408,11 @@ class Exterior:
         p.add(s['uv'], s['P'], s['N'])
         uv, P, NL, NG, _ = self.jl.between(s['uv'][-1, 0], s['uv'][0, 0])
         p.add(uv, P, NL, drop_first=True, drop_last=True)
+        loop = p.loop()
         pts, sp = S.grid_from(self.us, self.ts)
-        V, N, T = K.mesh_region(S.CL, [p.loop()], [], pts, spacing=sp)
+        # rows of points under the belt (no fans of thin triangles from its dense edge)
+        pts, sp = edge_rows(S.CL, [P], pts, sp, loop.uv, offs=(0.011, 0.024, 0.040, 0.060), step=0.024, clear=0.075)
+        V, N, T = K.mesh_region(S.CL, [loop], [], pts, spacing=sp)
         return K.Buf().add(V, N, T, 'paint')
 
     def top_front(self):

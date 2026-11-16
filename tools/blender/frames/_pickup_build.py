@@ -122,6 +122,9 @@ def build(args):
         wipers[wname] = info
     print('[pickup] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
+    # the frame is modelled with its hubs body_drop above the wheel radius and moved down by it: it sits
+    # that much lower over its wheels, the hubs stay at the wheel radius above the ground
+    K.drop_all(objs, empties, panels, (needles, wipers), -D.get('body_drop', 0.0))
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
@@ -130,7 +133,7 @@ def build(args):
         # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open)
         hood = next(o for o in meshes if o.name == 'P_hood')
         K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((IN.FIREWALL_X - 0.01, -0.78, 0.0), (IN.RAD_X + 0.10, 0.78, 1.01)), samples=32, distance=0.35)
+                       ((IN.FIREWALL_X - 0.01, -0.78, -0.05), (IN.RAD_X + 0.10, 0.78, 1.01 - D.get('body_drop', 0.0))), samples=32, distance=0.35)
     mc.export_glb(OUT_GLB, meshes + empties)
     mc.mounts_json(OUT_JSON, 'pickup', json_extra(objs, panels, needles, wipers, tris, total))
     print('[pickup] exported', round(time.time() - t0, 1), 's')
@@ -405,7 +408,7 @@ def mounts(ex, panels):
 def json_extra(objs, panels, needles, wipers, tris, total):
     from frames._sedan_build import json_extra as je
     out = je(objs, panels, needles, wipers, tris, total)
-    eye = np.array(IN.EYE)
+    eye = np.array(IN.EYE) + (0.0, 0.0, -D.get('body_drop', 0.0))
     out['eye_default'] = game_vec(eye)
     return out
 
@@ -422,7 +425,7 @@ def previews(quick):
         PV.render(f'{SCRATCH}_{name}.png', res=res, samples=smp)
     PV.orbit((-0.1, 0, 0.7), 270, 89.5, 10, ortho=5.2)
     PV.render(f'{SCRATCH}_top.png', res=(1400, 720), samples=16)
-    eye = Vector(IN.EYE)
+    eye = Vector(IN.EYE) + Vector((0.0, 0.0, -D.get('body_drop', 0.0)))
     PV.camera(tuple(eye), tuple(eye + Vector((1.0, -0.02, -0.14))), lens=24)
     PV.render(f'{SCRATCH}_driver.png', res=res, samples=smp)
 

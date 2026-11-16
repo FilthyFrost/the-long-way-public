@@ -23,10 +23,15 @@ PI = math.pi
 
 # ============================================================================================ dimensions
 D = dict(
-    wb=2.80, ax_f=1.40, ax_r=-1.40, hub_z=0.34, track_f=1.40, track_r=1.38, wheel_r=0.34,
+    # the hubs sit body_drop above the wheel radius here; the build moves the whole frame down by it (the body
+    # sits lower over its wheels), the tracks are wide enough to bring the tyres out near the body line
+    wb=2.80, ax_f=1.40, ax_r=-1.40, hub_z=0.36, track_f=1.45, track_r=1.43, wheel_r=0.34, body_drop=0.02,
     # cab and front clip: plan rounded rectangle at the bulge line
     xf=2.125, xr=-0.255, hw=0.835, rho_f=0.11, rho_r=0.05,
-    arch_f=0.405, arch_r=0.412,
+    arch_f=0.39, arch_r=0.397,
+    # a shoulder crease runs along the cab and the bed sides at this height: above it the sides lean in by
+    # shoulder_deg (the paint's reflection band breaks there into a line)
+    shoulder_z=0.93, shoulder_deg=12.0, shoulder_r=0.003,
     # greenhouse
     belt_z=1.055, gw=0.792, tumble_deg=8.0,
     ws_x=0.958, ws_bow=0.025, ws_rake=54.0,
@@ -62,6 +67,14 @@ def side_w(x, z):
     return D['hw'] - 0.004 * ((x - 0.9) / 1.3) ** 2 - _tumble(z)
 
 
+_SH_TAN = math.tan(math.radians(D['shoulder_deg']))
+
+
+def side_w_up(x, z):
+    """Half width of the cab side above the shoulder crease: leaning in from the crease line."""
+    return side_w(x, D['shoulder_z']) - (z - D['shoulder_z']) * _SH_TAN
+
+
 def front_x(ay, z):
     return D['xf'] + 0.012 * (1 - (ay / D['hw']) ** 2) + _front_lean(z)
 
@@ -85,7 +98,7 @@ def r_bot(x):
 def L_sdf(P):
     x, y, z = P[:, 0], P[:, 1], P[:, 2]
     ay = np.abs(y)
-    a_side = ay - side_w(x, z)
+    a_side = K.r_int(ay - side_w(x, z), ay - side_w_up(x, z), D['shoulder_r'])
     a_front = x - front_x(ay, z)
     a_rear = rear_x(ay, z) - x
     a_top = z - top_z(x, ay)
@@ -142,10 +155,15 @@ def G_sdf(P):
 
 
 # ============================================================================================ bed (B)
+def bed_side_w(z):
+    return D['bed_hw'] - 0.010 * K.sstep(0.80, 0.64, z)
+
+
 def bed_outer(P):
     x, y, z = P[:, 0], P[:, 1], P[:, 2]
     ay = np.abs(y)
-    a_side = ay - (D['bed_hw'] - 0.010 * K.sstep(0.80, 0.64, z))
+    zs = D['shoulder_z']
+    a_side = K.r_int(ay - bed_side_w(z), ay - (bed_side_w(zs) - (z - zs) * _SH_TAN), D['shoulder_r'])
     a_front = x - D['bed_xf']
     a_rear = D['bed_xr'] - x
     a_top = z - D['bed_z1']
@@ -186,6 +204,11 @@ L_T = np.cumsum([0.0, 0.05, 0.047, 0.54, 0.026, 0.03])
 L_GUIDE = RRect(D['xf'], D['xr'], D['hw'], D['rho_f'], D['rho_r'])
 LEAN = 0.012
 UNDER = 0.05
+T_S = L_T[2] + 6.0 / 7.0 * (L_T[3] - L_T[2])     # the shoulder crease's t: on a row of l_t_samples
+
+
+def _zs(z0, z1):
+    return np.clip(D['shoulder_z'], z0 + 0.01, z1 - 0.01)
 
 
 def w_top(x):
@@ -214,20 +237,27 @@ def _l_section(u, t):
     a = -PI / 2 + f * PI / 2
     n[m] = -rb[m] + rb[m] * np.cos(a)
     z[m] = zb[m] + rb[m] + rb[m] * np.sin(a)
+    # the wall in two pieces meeting at the shoulder crease (t = T_S); above it the section leans in on the
+    # sides (sw: 1 along the sides, 0 across the front and the rear)
+    sw = ny ** 2
     m = (t >= L_T[2]) & (t < L_T[3])
-    f = (t[m] - L_T[2]) / (L_T[3] - L_T[2])
+    tt = t[m]
     z0 = zb[m] + rb[m]
     z1 = zt[m] - rs[m]
-    n[m] = -LEAN * f
-    z[m] = z0 + (z1 - z0) * f
+    zs = _zs(z0, z1)
+    zz = np.where(tt < T_S, z0 + (zs - z0) * (tt - L_T[2]) / (T_S - L_T[2]), zs + (z1 - zs) * (tt - T_S) / (L_T[3] - T_S))
+    f = (zz - z0) / (z1 - z0)
+    n[m] = -LEAN * f - np.maximum(0.0, zz - zs) * _SH_TAN * sw[m]
+    z[m] = zz
+    up = (zt - rs - _zs(zb + rb, zt - rs)) * _SH_TAN * sw
     m = (t >= L_T[3]) & (t < L_T[4])
     f = (t[m] - L_T[3]) / (L_T[4] - L_T[3])
     a = f * PI / 2
-    n[m] = -LEAN - rs[m] + rs[m] * np.cos(a)
+    n[m] = -LEAN - up[m] - rs[m] + rs[m] * np.cos(a)
     z[m] = zt[m] - rs[m] + rs[m] * np.sin(a)
     m = t >= L_T[4]
     f = (t[m] - L_T[4]) / (L_T[5] - L_T[4])
-    n[m] = -LEAN - rs[m] - wt[m] * f
+    n[m] = -LEAN - up[m] - rs[m] - wt[m] * f
     z[m] = zt[m]
     return n, z
 
@@ -345,12 +375,17 @@ def G_proxy(u, t):
 # bed outer skin proxy: a loft round the bed's plan (front centre -> side -> rear centre) from the bottom edge
 # over the top edge onto the top rail (t pieces: underside, bottom fillet, wall, top fillet, rail top)
 BED_T = np.cumsum([0.0, 0.03, 0.03, 0.37, 0.016, 0.07])
+T_SB = BED_T[2] + 4.0 / 5.0 * (BED_T[3] - BED_T[2])   # the bed's shoulder crease t: on a row of b_t_samples
 BED_GUIDE = RRect(D['bed_xf'], D['bed_xr'], D['bed_hw'], 0.04, 0.015)
 
 
 def _bed_section(u, t):
     zb, zt = D['bed_z0'], D['bed_z1']
     rb, rs = 0.02, 0.010
+    _, _, _, ny = BED_GUIDE.point(u)
+    sw = ny ** 2
+    zs = D['shoulder_z']
+    up = (zt - rs - zs) * _SH_TAN * sw
     n = np.empty_like(u)
     z = np.empty_like(u)
     m = t < BED_T[1]
@@ -363,17 +398,19 @@ def _bed_section(u, t):
     n[m] = -rb + rb * np.cos(a)
     z[m] = zb + rb + rb * np.sin(a)
     m = (t >= BED_T[2]) & (t < BED_T[3])
-    f = (t[m] - BED_T[2]) / (BED_T[3] - BED_T[2])
-    n[m] = 0.0
-    z[m] = (zb + rb) + (zt - rs - zb - rb) * f
+    tt = t[m]
+    z0, z1 = zb + rb, zt - rs
+    zz = np.where(tt < T_SB, z0 + (zs - z0) * (tt - BED_T[2]) / (T_SB - BED_T[2]), zs + (z1 - zs) * (tt - T_SB) / (BED_T[3] - T_SB))
+    n[m] = -np.maximum(0.0, zz - zs) * _SH_TAN * sw[m]
+    z[m] = zz
     m = (t >= BED_T[3]) & (t < BED_T[4])
     f = (t[m] - BED_T[3]) / (BED_T[4] - BED_T[3])
     a = f * PI / 2
-    n[m] = -rs + rs * np.cos(a)
+    n[m] = -up[m] - rs + rs * np.cos(a)
     z[m] = zt - rs + rs * np.sin(a)
     m = t >= BED_T[4]
     f = (t[m] - BED_T[4]) / (BED_T[5] - BED_T[4])
-    n[m] = -rs - 0.07 * f
+    n[m] = -up[m] - rs - 0.07 * f
     z[m] = zt
     return n, z
 
@@ -420,7 +457,8 @@ def t_of_z(x, z):
     x = np.asarray(x, float)
     z = np.asarray(z, float)
     z0, z1 = l_z0z1(x)
-    t = L_T[2] + (z - z0) / (z1 - z0) * (L_T[3] - L_T[2])
+    zs = _zs(z0, z1)
+    t = np.where(z < zs, L_T[2] + (z - z0) / (zs - z0) * (T_S - L_T[2]), T_S + (z - zs) / (z1 - zs) * (L_T[3] - T_S))
     zb = _bot(x)
     rb = r_bot(x)
     a = np.arcsin(np.clip((z - zb - rb) / rb, -1, 0))
@@ -434,7 +472,9 @@ def tb_of_z(z):
     """Bed loft t for height z on the wall (rocker and below continue downwards)."""
     z = np.asarray(z, float)
     zb, zt, rb, rs = D['bed_z0'], D['bed_z1'], 0.02, 0.010
-    t = BED_T[2] + (z - zb - rb) / (zt - rs - zb - rb) * (BED_T[3] - BED_T[2])
+    zs = D['shoulder_z']
+    z0, z1 = zb + rb, zt - rs
+    t = np.where(z < zs, BED_T[2] + (z - z0) / (zs - z0) * (T_SB - BED_T[2]), T_SB + (z - zs) / (z1 - zs) * (BED_T[3] - T_SB))
     a = np.arcsin(np.clip((z - zb - rb) / rb, -1, 0))
     tf = BED_T[1] + (a + PI / 2) / (PI / 2) * (BED_T[2] - BED_T[1])
     t = np.where(z < zb + rb, tf, t)
@@ -456,7 +496,7 @@ def l_u_samples():
 def l_t_samples():
     T = L_T
     parts = [np.linspace(T[0], T[1], 3), np.linspace(T[1], T[2], 5), np.linspace(T[2], T[3], 8),
-             np.linspace(T[3], T[4], 7), np.linspace(T[4], T[5], 3)]
+             np.linspace(T[3], T[4], 7), np.linspace(T[4], T[5], 3), [T_S - 0.006, T_S + 0.006]]
     return np.unique(np.concatenate(parts))
 
 
@@ -485,7 +525,7 @@ def b_u_samples():
 def b_t_samples():
     T = BED_T
     parts = [np.linspace(T[0], T[1], 2), np.linspace(T[1], T[2], 4), np.linspace(T[2], T[3], 6),
-             np.linspace(T[3], T[4], 5), np.linspace(T[4], T[5], 3)]
+             np.linspace(T[3], T[4], 5), np.linspace(T[4], T[5], 3), [T_SB - 0.006, T_SB + 0.006]]
     return np.unique(np.concatenate(parts))
 
 
