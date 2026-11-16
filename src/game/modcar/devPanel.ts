@@ -1,9 +1,10 @@
 /**
- * The developer's parts bin, for trying builds quickly (` — the key left of 1 — opens and shuts it):
- * every part of the catalogue, the tools, and the four frames as they left the works or bare, as tiles with
- * a picture, by kind and searchable. Drag a tile out over the world and let go: the thing lands there (the
- * floor, a bench, a pickup's bed, a roof); a click puts it at one's feet. With the bin open the mouse is
- * free: WASD still walks, the right button held turns the view.
+ * The developer's panel (` — the key left of 1 — opens and shuts it). Its first tab is the parts bin, for
+ * trying builds quickly: every part of the catalogue, the tools, and the four frames as they left the works or
+ * bare, as tiles with a picture, by kind and searchable. Drag a tile out over the world and let go: the thing
+ * lands there (the floor, a bench, a pickup's bed, a roof); a click puts it at one's feet. The other tabs
+ * (devPanes.ts) send one to another kind of country and set the weather, the hour, the look and the terrain.
+ * With the panel open the mouse is free: WASD still walks, a drag on the view turns it.
  */
 import type * as THREE from 'three';
 import { stockBuild } from '../../core/modcar/build';
@@ -13,6 +14,7 @@ import { PARTS } from '../../core/modcar/parts';
 import { TOOL_INFO, type ToolKind } from '../../core/modcar/tools';
 import type { Category, PartDef } from '../../core/modcar/types';
 import { panelPaint } from './assets';
+import { PANE_CSS, WorldPanes, type PaneHost, type PaneId } from './devPanes';
 import { PartThumbs } from './thumbs';
 
 export type DevItem =
@@ -26,7 +28,7 @@ export interface DevPoint {
   z: number;
 }
 
-export interface DevHost {
+export interface DevHost extends PaneHost {
   /** the world point under a point of the window (CSS px), or null where the view meets nothing near */
   devPick(clientX: number, clientY: number): DevPoint | null;
   /** put a thing at a world point, or (null) at the walker's feet */
@@ -52,6 +54,15 @@ export function devItemOf(key: string): DevItem | null {
   return null;
 }
 
+const TABS: [PaneId | 'parts', string][] = [
+  ['parts', '零件'],
+  ['place', '传送'],
+  ['weather', '天气'],
+  ['time', '时间'],
+  ['look', '画面'],
+  ['terrain', '地形'],
+];
+
 const GROUPS: { id: string; zh: string; cats?: Category[] }[] = [
   { id: 'all', zh: '全部' },
   { id: 'power', zh: '动力', cats: ['engine', 'turbo', 'gearbox', 'radiator', 'fuelTank', 'exhaust'] },
@@ -76,6 +87,7 @@ const CSS = `
 .mc-dev .chips span { padding: 2px 9px; border-radius: 10px; font-size: 12px; background: rgba(60,40,24,0.07); color: #5a4c40; cursor: pointer; }
 .mc-dev .chips span.on { background: #2b2622; color: #fbf3e1; }
 .mc-dev .list { flex: 1; overflow-y: auto; padding: 0 10px 8px 14px; overscroll-behavior: contain; }
+.mc-dev .pane[data-p="parts"] input.q { margin-top: 8px; }
 .mc-dev h5 { margin: 10px 0 5px; font-size: 12px; color: #a3472e; letter-spacing: 0.06em; }
 .mc-dev .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .mc-dev .tile { position: relative; padding: 4px 4px 5px; border-radius: 9px; background: #fffaf0; box-shadow: 0 1px 0 rgba(60,40,24,0.18), 0 0 0 1px rgba(60,40,24,0.08); cursor: grab; touch-action: none; }
@@ -131,6 +143,10 @@ export class DevPanel {
   private shown = false;
   private raf = 0;
   private drag: { tile: Tile; x0: number; y0: number; x: number; y: number; moved: boolean; chip: HTMLDivElement | null; id: number } | null = null;
+  private readonly panes: WorldPanes;
+  private current: PaneId | 'parts' = 'parts';
+  private readonly built = new Set<string>();
+  private lastTick = 0;
 
   constructor(private readonly host: DevHost) {
     if (!document.getElementById('mc-dev-css')) {
@@ -139,20 +155,41 @@ export class DevPanel {
       st.textContent = CSS;
       document.head.appendChild(st);
     }
+    if (!document.getElementById('mc-dev-panes-css')) {
+      const st = document.createElement('style');
+      st.id = 'mc-dev-panes-css';
+      st.textContent = PANE_CSS;
+      document.head.appendChild(st);
+    }
     const root = document.createElement('div');
     root.className = 'mc-dev';
     root.style.display = 'none';
-    const parts = PARTS.length;
-    root.innerHTML = `<div class="hd"><h3>零件库<small>${parts} 个零件 · 5 种工具 · 4 种车架</small></h3>
-<div class="hint">拖到场景里松开就放在那儿 · 单击放到脚边<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>\`</b> 关闭</div></div>
+    root.innerHTML = `<div class="hd"><h3><span>开发者面板</span><small class="sub"></small></h3><div class="hint"></div></div>
+<div class="tabs">${TABS.map(([id, zh]) => `<span data-t="${id}"${id === 'parts' ? ' class="on"' : ''}>${zh}</span>`).join('')}</div>
+<div class="pane" data-p="parts">
 <input class="q" type="search" placeholder="搜索：名字或编号（如 V8、马桶、rim）" />
 <div class="chips">${GROUPS.map((g) => `<span data-g="${g.id}"${g.id === 'all' ? ' class="on"' : ''}>${g.zh}</span>`).join('')}</div>
 <div class="list"></div>
-<div class="ft"><button data-act="clear">清空地上的零件</button><button data-act="repair">修好并加满所有车</button></div>`;
+<div class="ft"><button data-act="clear">清空地上的零件</button><button data-act="repair">修好并加满所有车</button></div>
+</div>${TABS.filter(([id]) => id !== 'parts').map(([id]) => `<div class="pane" data-p="${id}" style="display:none"></div>`).join('')}`;
     document.body.appendChild(root);
     this.root = root;
     this.list = root.querySelector('.list') as HTMLDivElement;
     this.q = root.querySelector('input.q') as HTMLInputElement;
+    this.panes = new WorldPanes(host, root);
+    // typing in a box of the panel is not walking (the key that shuts the panel still shuts it)
+    for (const type of ['keydown', 'keyup'] as const) {
+      root.addEventListener(type, (e) => {
+        const t = e.target as HTMLElement;
+        if ((t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && e.code !== 'Backquote' && e.code !== 'IntlBackslash' && e.key !== 'Escape') e.stopPropagation();
+      });
+    }
+    root.querySelector('.tabs')!.addEventListener('click', (e) => {
+      const id = (e.target as HTMLElement).closest('span')?.dataset.t;
+      if (id) this.showTab(id as PaneId | 'parts');
+    });
+    host.tune.onChange(() => this.header());
+    this.header();
     this.seen = new IntersectionObserver((es) => {
       for (const e of es) if (e.isIntersecting) this.ask(e.target as HTMLElement);
     }, { root: this.list, rootMargin: '120px' });
@@ -162,6 +199,48 @@ export class DevPanel {
 
   get open(): boolean {
     return this.shown;
+  }
+
+  /** the tab showing */
+  get tab(): PaneId | 'parts' {
+    return this.current;
+  }
+
+  /** show a tab (its content made the first time) */
+  showTab(id: PaneId | 'parts'): void {
+    if (!TABS.some(([t]) => t === id)) return;
+    this.current = id;
+    for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) s.classList.toggle('on', s.dataset.t === id);
+    for (const p of this.root.querySelectorAll<HTMLElement>('.pane')) {
+      const on = p.dataset.p === id;
+      p.style.display = on ? '' : 'none';
+      if (on && id !== 'parts' && !this.built.has(id)) {
+        this.built.add(id);
+        this.panes.build(id, p);
+      }
+    }
+    this.header();
+    this.panes.tick();
+  }
+
+  private header(): void {
+    const sub = this.root.querySelector('.hd .sub') as HTMLElement;
+    const hint = this.root.querySelector('.hd .hint') as HTMLElement;
+    const moved = this.host.tune.changed().length;
+    if (this.current === 'parts') {
+      sub.textContent = `${PARTS.length} 个零件 · 5 种工具 · 4 种车架`;
+      hint.innerHTML = '拖到场景里松开就放在那儿 · 单击放到脚边<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
+    } else {
+      sub.textContent = moved ? `改过 ${moved} 项参数` : '还没改过参数';
+      hint.innerHTML = '鼠标放在参数上会显示它是干嘛的 · 改过的会自动记住<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
+    }
+    // (how many dials each tab has moved, on its tab)
+    for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) {
+      const t = s.dataset.t as PaneId | 'parts';
+      const label = TABS.find(([id]) => id === t)?.[1] ?? '';
+      const n = t === 'parts' || t === 'place' ? 0 : this.host.tune.changed(t).length;
+      s.innerHTML = n ? `${label}<i>${n}</i>` : label;
+    }
   }
 
   setOpen(open: boolean): void {
@@ -186,9 +265,14 @@ export class DevPanel {
   }
 
   private loop(): void {
-    this.raf = requestAnimationFrame(() => {
+    this.raf = requestAnimationFrame((now) => {
       if (!this.shown) return;
       this.thumbs.pump();
+      // the live bits of the world tabs (where one is, the hour), a few times a second
+      if (this.current !== 'parts' && now - this.lastTick > 200) {
+        this.lastTick = now;
+        this.panes.tick();
+      }
       // walking or turning while a tile is held: where it would land moves with the view
       if (this.drag?.moved) this.aimAt(this.drag.x, this.drag.y);
       this.loop();
@@ -301,12 +385,6 @@ export class DevPanel {
 
   private bind(): void {
     this.q.addEventListener('input', () => this.filter());
-    // typing in the box is not walking (the key that shuts the bin still shuts it)
-    for (const type of ['keydown', 'keyup'] as const) {
-      this.q.addEventListener(type, (e) => {
-        if (e.code !== 'Backquote' && e.code !== 'IntlBackslash' && e.key !== 'Escape') e.stopPropagation();
-      });
-    }
     this.root.querySelector('.chips')!.addEventListener('click', (e) => {
       const g = (e.target as HTMLElement).closest('span')?.dataset.g;
       if (!g) return;
@@ -379,6 +457,7 @@ export class DevPanel {
   dispose(): void {
     this.setOpen(false);
     this.seen.disconnect();
+    this.panes.dispose();
     this.root.remove();
   }
 }

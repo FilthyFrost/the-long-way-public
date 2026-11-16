@@ -29,3 +29,6 @@ refs/design-doc/
 tools/enginesim/engines/_tune_*.mr
 tools/enginesim/__pycache__/
 __pycache__/
+# the developer panel's saved dials (to be written into the game, not versioned)
+loop/dev-tune*.json
+loop/dev-tune*.txt

@@ -105,6 +105,11 @@ export class CarMaterials {
    * mirrored horizon runs along its sides, and its cabin, where metal mirrors the inside — the same for
    * every part's look, a door's or a knob's as much as the body's.
    */
+  /** the cabin box in the vehicle's model frame, once it has been measured (null: none, or not yet) */
+  get cabin(): THREE.Box3 | null {
+    return this.shape?.cabin ?? null;
+  }
+
   setShape(shape: { bodyHeight: number; cabin: THREE.Box3 | null }): void {
     this.shape = shape;
     for (const o of this.owned.values()) {

@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { DayClock, SkyState } from '../../core/env/time';
-import { WEATHER_KINDS, WeatherSystem, type WeatherKind, type WeatherState } from '../../core/env/weather';
+import { WEATHER_KINDS, WeatherState, WeatherSystem, type WeatherKind } from '../../core/env/weather';
 import { fbm1 } from '../../core/math/noise';
 import { hash2 } from '../../core/math/rng';
 import { BIOMES } from '../../core/world/biomes';
@@ -35,7 +35,14 @@ export class Environment {
   dark = false;
   /** lightning flash level right now, 0…1 */
   flash = 0;
-  private readonly precip: Precipitation;
+  /** the developer's dials on the weather, after each step and before anything is drawn from it (null: none) */
+  tune: ((w: WeatherState) => void) | null = null;
+  /** how much rain the glass holds, and how fast the wipers sweep (1 = as designed) */
+  glassRain = 1;
+  wiperRate = 1;
+  readonly precip: Precipitation;
+  /** the weather as the dials have it (a copy: the system's own state stays as the schedule makes it) */
+  private readonly tuned = new WeatherState();
   private readonly wind = new THREE.Vector3();
   private readonly camVel = new THREE.Vector3();
   private readonly cloudOff = new THREE.Vector2();
@@ -92,13 +99,19 @@ export class Environment {
     const sky = this.sky;
     this.clock.state(time, sky);
 
-    // weather advances in fixed steps so its slow state is reproducible
-    let w = this.state;
+    // weather advances in fixed steps so its slow state is reproducible (from the system's own state: the
+    // dials' copy of it is made again each frame)
+    let w = this.weather.state;
     this.stepAcc += dt;
     if (dt === 0) w = this.weather.step(0, time, sky.hour, sky.daylight, ba, bb, bt);
     while (this.stepAcc >= 0.25) {
       w = this.weather.step(0.25, time, sky.hour, sky.daylight, ba, bb, bt);
       this.stepAcc -= 0.25;
+    }
+    if (this.tune) {
+      this.tuned.copy(w);
+      this.tune(this.tuned);
+      w = this.tuned;
     }
     this.state = w;
     if (world) {
@@ -164,7 +177,7 @@ export class Environment {
     }
     // the haze lies on the ground under the camera
     globals.uFogBase.value = this.core.camera.position.y - 2;
-    globals.uWeather.value.set(w.wetness, w.snowCover, Math.max(w.rain, w.snow, w.dust), sky.night);
+    globals.uWeather.value.set(w.wetness, w.snowCover, Math.min(1, Math.max(w.rain, w.snow, w.dust)), sky.night);
 
     skyUniforms.uZenith.value.copy(look.zenith);
     skyUniforms.uMid.value.copy(look.mid);
@@ -236,12 +249,12 @@ export class Environment {
     this.precip.update(dt, this.amounts, this.wind, this.camVel);
 
     // ---- windscreen: rain on the glass, wipers run by themselves when it rains
-    const onGlass = Math.min(1, w.rain + w.hail * 0.5 + w.snow * 0.25);
+    const onGlass = Math.min(1, (w.rain + w.hail * 0.5 + w.snow * 0.25) * this.glassRain);
     windscreenUniforms.uRain.value = Math.max(onGlass, w.wetness * 0.25 * (w.rain > 0 ? 1 : 0.4));
     waterUniforms.uWaterRain.value = w.rain;
     const mode = this.wiperMode;
     this.wipersOn = mode === 'off' ? false : mode === 'auto' ? onGlass > 0.06 : true;
-    const period = mode === 'fast' ? 0.9 : mode === 'slow' ? 1.6 : THREE.MathUtils.lerp(3.0, 1.15, Math.min(1, onGlass * 1.2));
+    const period = (mode === 'fast' ? 0.9 : mode === 'slow' ? 1.6 : THREE.MathUtils.lerp(3.0, 1.15, Math.min(1, onGlass * 1.2))) / Math.max(0.1, this.wiperRate);
     if (this.wipersOn || this.wipePhase > 0) {
       this.wipePhase += dt / period;
       if (this.wipePhase >= 1) this.wipePhase = this.wipersOn ? this.wipePhase - 1 : 0;

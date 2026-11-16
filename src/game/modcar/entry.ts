@@ -5,11 +5,13 @@
 import * as THREE from 'three';
 import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
+import { BIOMES } from '../../core/world/biomes';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
 import { loadStats } from './assets';
 import { devItemOf } from './devPanel';
+import { Tune } from './devTune';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 import { clearSave, loadSave } from './save';
 
@@ -25,7 +27,10 @@ const save = own || q.has('new') ? null : loadSave();
 const params = save
   ? { ...fresh, keep: true, start: save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: save.road?.seed ?? fresh.seed, weather: save.place === 'road' ? base.weather : fresh.weather }
   : { ...fresh, keep: !own };
-const game = new ModGame(canvas, params, save);
+// the developer's dials, the terrain's among them, are in before the world is made
+const tune = new Tune();
+tune.applyAll();
+const game = new ModGame(canvas, params, save, tune);
 
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
@@ -317,6 +322,36 @@ const rt = {
   },
   /** the things lying about */
   loose: () => game.loose.list.map((l) => ({ part: l.part?.part ?? null, tool: l.tool?.kind ?? null, x: l.x, y: l.y, z: l.z, resting: l.resting })),
+  /** the developer's panel open on a tab (parts, place, weather, time, look, terrain) */
+  devTab: (tab: string) => {
+    game.toggleDev(true);
+    game.devPanel?.showTab(tab as never);
+    return game.devPanel?.tab ?? null;
+  },
+  /** off to a random place of a kind (devWorld.ts PLACES), or to a distance down the road */
+  devGo: (kind: string, bring = true) => game.devTools.go(kind, bring),
+  devGoKm: (km: number, bring = true) => game.devTools.goKm(km, bring),
+  devWhere: () => game.devTools.where(),
+  /** the weather forced (null: the schedule's), the hour, a dial (no value: back to the game's own) */
+  devWeather: (kind: string | null, stage?: number | null) => {
+    game.devTools.setWeather(kind as never);
+    if (stage !== undefined) game.devTools.setStage(stage);
+    return game.devTools.forced;
+  },
+  devHour: (h: number) => {
+    game.devTools.setHour(h);
+    return game.devTools.hour;
+  },
+  devDial: (id: string, v?: number) => {
+    if (v === undefined) tune.reset(id);
+    else tune.set(id, v);
+    return tune.get(id);
+  },
+  devExport: () => tune.export(game.devTools.context()).text,
+  /** pieces of the world still to build round the camera */
+  worldPending: () => game.worldView?.pending ?? -1,
+  /** a biome's numbers as the world was made with them (the terrain dials write into them) */
+  biomeDef: (id: string) => ({ ...BIOMES.find((b) => b.id === id) }),
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 
@@ -333,6 +368,12 @@ if (!params.shot) {
 
 void game.ready.then(() => {
   game.ui.showLoading(null);
+  // back from making the world again (the panel's terrain tab, a new world): the panel open where it was
+  const dp = q.get('devpanel');
+  if (dp) {
+    game.toggleDev(true);
+    game.devPanel?.showTab(dp as never);
+  }
   if (params.shot) {
     game.simulate(0.8);
     game.render();

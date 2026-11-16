@@ -30,6 +30,15 @@ export interface FrameOptions {
 export class Frame {
   readonly rtScene: THREE.WebGLRenderTarget;
   bloom = STYLE.pipeline.bloom.strength;
+  /** the finish (specs/art/style.json pipeline), read every frame: the developer's dials move it */
+  readonly grade = {
+    vignette: STYLE.pipeline.vignette,
+    knee: STYLE.pipeline.curve.knee,
+    shoulder: STYLE.pipeline.curve.shoulder,
+    saturation: STYLE.pipeline.saturation,
+    ink: STYLE.pipeline.ink.strength,
+    threshold: STYLE.pipeline.bloom.threshold,
+  };
   exposure = 1;
   /** shafts of light from a low sun through haze and between whatever stands before it: strength 0…1 and colour */
   shafts = 0;
@@ -340,6 +349,13 @@ export class Frame {
     const u = this.finalMat.uniforms;
     u.uBloom.value = this.bloom;
     u.uExposure.value = this.exposure;
+    const gr = this.grade;
+    u.uVignette.value = gr.vignette;
+    u.uKnee.value = gr.knee;
+    u.uShoulder.value = Math.max(0.01, gr.shoulder);
+    u.uSat.value = gr.saturation;
+    u.uInk.value = gr.ink;
+    this.bloomFirst.uniforms.uThreshold.value = gr.threshold;
     u.uPaint.value = this.paint;
     u.uPaintTexel.value.set(1 / size.x, 1 / size.y);
     u.uLogFar.value = Math.log2(camera.far + 1);

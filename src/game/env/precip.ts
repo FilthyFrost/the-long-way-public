@@ -26,7 +26,8 @@ interface LayerDef {
   drift: number;
 }
 
-const DEFS: Record<PrecipKind, LayerDef> = {
+/** the layers' looks (read every frame: the developer's dials write into them) */
+export const PRECIP_DEFS: Record<PrecipKind, LayerDef> = {
   rain: { box: 22, count: 7000, width: 0.014, exposure: 0.03, minLen: 0.2, maxLen: 1.1, flutter: 0, alpha: 0.5, color: 0xcfe0ee, fall: 9.5, drift: 0.6 },
   snow: { box: 18, count: 6000, width: 0.036, exposure: 0.012, minLen: 0.036, maxLen: 0.3, flutter: 0.12, alpha: 0.9, color: 0xffffff, fall: 1.4, drift: 0.9 },
   hail: { box: 16, count: 1600, width: 0.03, exposure: 0.012, minLen: 0.05, maxLen: 0.3, flutter: 0, alpha: 0.95, color: 0xf4f8ff, fall: 17, drift: 0.3 },
@@ -37,6 +38,12 @@ const DEFS: Record<PrecipKind, LayerDef> = {
   gust: { box: 46, count: 70, width: 0.035, exposure: 0.3, minLen: 2.5, maxLen: 7.0, flutter: 0.15, alpha: 0.22, color: 0xf4f8fb, fall: 0.0, drift: 1.25 },
 };
 
+/**
+ * How many times its usual number of particles a layer holds: the extra stay hidden until the weather (or the
+ * developer's dial for the number of drops) asks for more than a full fall.
+ */
+const HEADROOM: Record<PrecipKind, number> = { rain: 3, snow: 3, hail: 3, dust: 2, leaf: 1, gust: 1 };
+
 class Layer {
   readonly mesh: THREE.InstancedMesh;
   readonly mat: THREE.ShaderMaterial;
@@ -44,8 +51,9 @@ class Layer {
   constructor(
     readonly def: LayerDef,
     density: number,
+    readonly headroom: number,
   ) {
-    const count = Math.max(200, Math.round(def.count * density));
+    const count = Math.max(200, Math.round(def.count * density * headroom));
     const geo = new THREE.InstancedBufferGeometry();
     const base = new THREE.PlaneGeometry(1, 1);
     geo.index = base.index;
@@ -101,6 +109,8 @@ class Layer {
         uniform vec3 uHeadPos;
         uniform vec3 uHeadDir;
         uniform vec3 uHeadColor;
+        uniform vec4 uRoomMin;
+        uniform vec4 uRoomMax;
         varying vec2 vQ;
         varying float vFade;
         varying vec3 vLamp;
@@ -116,6 +126,8 @@ class Layer {
             vec3 lp = (uCabInv * vec4(center, 1.0)).xyz;
             if (all(greaterThan(lp, uCabMin)) && all(lessThan(lp, uCabMax))) hidden = true;
           }
+          // nothing falls in a room of the world's (the starting garage)
+          if (uRoomMin.w > 0.5 && all(greaterThan(center, uRoomMin.xyz)) && all(lessThan(center, uRoomMax.xyz))) hidden = true;
           gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : projectionMatrix * viewMatrix * vec4(wp, 1.0);
           #include <logdepthbuf_vertex>
           vQ = position.xy * 2.0;
@@ -155,15 +167,20 @@ const rel = new THREE.Vector3();
 
 export class Precipitation {
   private readonly layers: Record<PrecipKind, Layer>;
+  /** how many particles a layer shows for a given amount (1 = as designed; up to its headroom) */
+  readonly count: Record<PrecipKind, number> = { rain: 1, snow: 1, hail: 1, dust: 1, leaf: 1, gust: 1 };
+  /** how long the streaks are drawn (1 = as designed) */
+  readonly length: Record<PrecipKind, number> = { rain: 1, snow: 1, hail: 1, dust: 1, leaf: 1, gust: 1 };
 
   constructor(scene: THREE.Scene, density: number) {
+    const D = PRECIP_DEFS;
     this.layers = {
-      rain: new Layer(DEFS.rain, density),
-      snow: new Layer(DEFS.snow, density),
-      hail: new Layer(DEFS.hail, density),
-      dust: new Layer(DEFS.dust, density),
-      leaf: new Layer(DEFS.leaf, density),
-      gust: new Layer(DEFS.gust, 1),
+      rain: new Layer(D.rain, density, HEADROOM.rain),
+      snow: new Layer(D.snow, density, HEADROOM.snow),
+      hail: new Layer(D.hail, density, HEADROOM.hail),
+      dust: new Layer(D.dust, density, HEADROOM.dust),
+      leaf: new Layer(D.leaf, density, HEADROOM.leaf),
+      gust: new Layer(D.gust, 1, HEADROOM.gust),
     };
     for (const l of Object.values(this.layers)) scene.add(l.mesh);
   }
@@ -187,8 +204,12 @@ export class Precipitation {
       if (!l.mesh.visible) continue;
       const u = l.mat.uniforms;
       (u.uRelDir.value as THREE.Vector3).copy(rel).divideScalar(Math.max(speed, 1e-3));
-      u.uAmount.value = amt;
-      (u.uSize.value as THREE.Vector2).set(d.width, THREE.MathUtils.clamp(speed * d.exposure, d.minLen, d.maxLen));
+      // (the layer holds `headroom` times its particles: a full fall shows its usual share of them)
+      u.uAmount.value = Math.min(1, (amt * this.count[kind]) / l.headroom);
+      (u.uSize.value as THREE.Vector2).set(d.width, THREE.MathUtils.clamp(speed * d.exposure, d.minLen, d.maxLen) * this.length[kind]);
+      u.uBox.value = d.box;
+      u.uFlutter.value = d.flutter;
+      u.uAlpha.value = d.alpha;
     }
   }
 

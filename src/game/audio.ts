@@ -188,11 +188,15 @@ export class AudioEngine {
     return this.ctx ? this.ctx.currentTime : 0;
   }
 
+  /** the weather's voices, louder or softer (1 = as mixed): the developer's dials */
+  readonly weatherGain = { rain: 1, roof: 1, hail: 1, wind: 1, thunder: 1 };
+
   update(inp: AudioInputs, flash: number): void {
     const ctx = this.ctx;
     const n = this.nodes;
     if (!ctx || !n) return;
     const m = computeMix(inp, this.mix);
+    const wg = this.weatherGain;
     const t = ctx.currentTime;
     const set = (p: AudioParam, v: number, tc = 0.06): void => {
       p.setTargetAtTime(v, t, tc);
@@ -205,13 +209,13 @@ export class AudioEngine {
     set(n.engGain.gain, m.engineGain * on);
     set(n.subGain.gain, m.subGain * on);
     set(n.windFilter.frequency, m.windCutoff, 0.2);
-    set(n.windGain.gain, m.windGain * on, 0.2);
+    set(n.windGain.gain, m.windGain * on * wg.wind, 0.2);
     set(n.roadFilter.frequency, m.roadCutoff, 0.15);
     set(n.roadGain.gain, m.roadGain * on, 0.1);
     set(n.skidGain.gain, m.skidGain * on, 0.04);
-    set(n.rainGain.gain, m.rainGain * on, 0.4);
-    set(n.roofGain.gain, m.roofGain * on, 0.4);
-    set(n.hailGain.gain, m.hailGain * on, 0.2);
+    set(n.rainGain.gain, m.rainGain * on * wg.rain, 0.4);
+    set(n.roofGain.gain, m.roofGain * on * wg.roof, 0.4);
+    set(n.hailGain.gain, m.hailGain * on * wg.hail, 0.2);
     set(n.outside.frequency, m.outsideCutoff, 0.3);
     set(n.starterGain.gain, m.starterGain * on, 0.03);
     set(n.starterLfo.frequency, m.starterHz, 0.05);
@@ -229,7 +233,7 @@ export class AudioEngine {
       this.thunderAt = t + delay + 4;
       n.thunderGain.gain.cancelScheduledValues(t);
       n.thunderGain.gain.setValueAtTime(0.0001, t + delay);
-      n.thunderGain.gain.exponentialRampToValueAtTime(0.9 * on + 0.0001, t + delay + 0.08);
+      n.thunderGain.gain.exponentialRampToValueAtTime(0.9 * on * wg.thunder + 0.0001, t + delay + 0.08);
       n.thunderGain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 3.5);
     }
   }

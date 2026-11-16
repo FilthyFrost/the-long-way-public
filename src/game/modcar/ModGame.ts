@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { FirstPersonRig } from '../../core/camera/rig';
-import { allInstances, decodeBuild, newInstance, fitSub, stockBuild, stockTireFor } from '../../core/modcar/build';
+import { allInstances, decodeBuild, encodeBuild, newInstance, fitSub, stockBuild, stockTireFor } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { newTool } from '../../core/modcar/tools';
@@ -17,10 +17,11 @@ import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
 import { World } from '../../core/world/terrain';
-import { GroundSample, SURFACES, type Ground } from '../../core/world/ground';
+import { GroundSample, Surface, SURFACES, type Ground } from '../../core/world/ground';
 import { Push, pushOut, type Solid } from '../../core/world/solids';
 import { AudioEngine } from '../audio';
 import { Environment } from '../env/environment';
+import { Splashes, type SplashVehicle } from '../env/splash';
 import { Hud } from '../hud';
 import { InputManager } from '../input';
 import type { Params } from '../params';
@@ -32,6 +33,8 @@ import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { cloneModel, frameModel, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
 import { DevPanel, type DevHost, type DevItem, type DevPoint } from './devPanel';
+import { Tune } from './devTune';
+import { DevWorld } from './devWorld';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { EngineVoice } from './engineAudio';
@@ -149,6 +152,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly cockpit = new Cockpit(this);
   /** what is in the hands, in first person */
   readonly heldThing: HeldThing;
+  /** rain bursting on the ground and on the vehicles' tops */
+  readonly splashes: Splashes;
   /** metal on the road */
   readonly sparks: Sparks;
   /** the assists (F2) */
@@ -188,12 +193,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private hbIgnore = false;
   readonly ready: Promise<void>;
 
+  /** the developer's dials (devTune.ts) and the world tools that apply them */
+  readonly tune: Tune;
+  readonly devTools: DevWorld;
+
   constructor(
     canvas: HTMLCanvasElement,
     readonly params: ModParams,
     /** a game in progress to go on with (save.ts), or null for a new one */
     private readonly restore: SaveV1 | null = null,
+    tune?: Tune,
   ) {
+    if (tune) this.tune = tune;
+    else {
+      this.tune = new Tune();
+      this.tune.applyAll();
+    }
     this.core = new RenderCore(canvas, params.quality);
     this.core.usePost = params.post;
     this.viewMode = params.view === 'chase' ? 'chase' : params.view === 'orbit' ? 'orbit' : 'cockpit';
@@ -203,6 +218,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
     this.env.shotMode = params.shot;
+    this.devTools = new DevWorld(this, this.tune);
     this.orbit.yaw = (params.orbit[0] * Math.PI) / 180;
     this.orbit.pitch = (params.orbit[1] * Math.PI) / 180;
     this.orbit.dist = params.orbit[2];
@@ -219,6 +235,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // (things put on a vehicle ride with it)
     this.loose.carriers = () => this.vehicles;
     this.heldThing = new HeldThing(this.core);
+    this.splashes = new Splashes(this.core.renderer, this.core.scene);
     this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
@@ -231,6 +248,94 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   get origin(): { x: number; y: number; z: number } {
     return this.core.origin;
+  }
+
+  /** how far down the road one is (m; on the road) */
+  get roadS(): number {
+    return this.pr.s;
+  }
+
+  private probeWorld: World | null = null;
+  /** the road's world, or (in the garage) the same world to look for places in */
+  devWorld(): World {
+    const p = this.params;
+    return this.world ?? (this.probeWorld ??= new World(p.seed, { chapterScale: p.chapter, startBiome: p.biome }));
+  }
+
+  /** seconds left of building the world fast after a teleport (under a fade) */
+  private devLoad = 0;
+
+  /**
+   * The developer's teleport: onto the road at arc length s (out of the garage first, when one is in it). The
+   * vehicle one sits in comes along; on foot, with `bring`, the one last driven is parked on the verge ahead.
+   */
+  teleport(s: number, bring: boolean): void {
+    // (on foot: the one last driven, else the nearest one about)
+    let v = this.seated ?? (bring ? this.focus : null);
+    if (!v && bring) {
+      const w = this.player.walker;
+      let best = 15;
+      for (const o of this.vehicles) {
+        const d = Math.hypot(o.sim.px - w.x, o.sim.pz - w.z);
+        if (d < best) {
+          best = d;
+          v = o;
+        }
+      }
+    }
+    if (this.place === 'garage') this.exitGarage(v);
+    const w = this.world!;
+    const st = new SpineSample();
+    w.spine.at(s, st);
+    const sn = Math.sin(st.phi);
+    const cs = Math.cos(st.phi);
+    if (v) {
+      // in the lane, facing down the road; on foot, it waits a few metres ahead on the verge
+      const ahead = this.seated ? 0 : 7;
+      const lane = this.seated ? 1.6 : 2.6;
+      const x = st.x + cs * ahead - sn * lane;
+      const z = st.z + sn * ahead + cs * lane;
+      w.sample(x, z, this.gs);
+      v.sim.reset(x, this.gs.h + 0.05, z, -st.phi, this.ground);
+      v.sys.bind(v.sim);
+      v.awake = 3;
+      this.focus = v;
+    }
+    if (!this.seated) {
+      // on the verge, looking down the road
+      const x = st.x - sn * 5.2;
+      const z = st.z + cs * 5.2;
+      this.player.walker.place(x, z, st.phi);
+      this.input.lookYaw = st.phi;
+      this.input.lookPitch = 0;
+    }
+    this.chaseInit = false;
+    this.rig.reset();
+    this.env.cloudsNow = true;
+    this.devLoad = 4;
+    // (screenshots go without the fade: the harness builds the world before it draws)
+    if (!this.params.shot) this.ui.setFade(1);
+  }
+
+  /** out of the garage onto the road's world: the garage, what lies in it and the other vehicles stay behind */
+  private exitGarage(keep: ModVehicle | null): void {
+    if (!this.garage) return;
+    this.garage.dispose();
+    this.player.removeSolids(this.garage.solids);
+    this.garage = null;
+    // (but what is on board goes too)
+    for (const l of [...this.loose.list]) if (!keep || l.riding?.on !== keep) this.loose.remove(l);
+    for (const o of this.vehicles.filter((x) => x !== keep)) {
+      o.view.dispose();
+      this.player.removeSolids(o.solid);
+    }
+    this.vehicles.splice(0, this.vehicles.length, ...(keep ? [keep] : []));
+    if (this.focus && this.focus !== keep) this.focus = null;
+    this.makeWorld();
+    this.ground = this.world!;
+    this.player.walker.land = this.world!;
+    this.place = 'road';
+    this.fadeT = -1;
   }
 
   get devices(): readonly GarageDevice[] {
@@ -1364,17 +1469,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.fadeT += dt;
     if (this.fadeT > 0.7 && v) {
       const speed = v.sim.vForward;
-      // the garage and what lies in it stay behind
-      this.garage.dispose();
-      this.player.removeSolids(this.garage.solids);
-      this.garage = null;
-      // (but what is on board goes too)
-      for (const l of [...this.loose.list]) if (l.riding?.on !== v) this.loose.remove(l);
-      for (const o of this.vehicles.filter((x) => x !== v)) o.view.dispose();
-      this.vehicles.splice(0, this.vehicles.length, v);
-      this.makeWorld();
-      this.ground = this.world!;
-      this.player.walker.land = this.world!;
+      // the garage, what lies in it and the other vehicles stay behind
+      this.exitGarage(v);
       const st = new SpineSample();
       this.world!.spine.at(this.params.s, st);
       const x = st.x - Math.sin(st.phi) * 1.6;
@@ -1387,10 +1483,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       v.sim.basis(b);
       v.sim.vx = b[0] * speed;
       v.sim.vz = b[2] * speed;
-      this.place = 'road';
       this.chaseInit = false;
       this.rig.reset();
-      this.fadeT = -1;
       this.ui.setFade(0);
       this.ui.say('上路了。');
     }
@@ -1483,8 +1577,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         cam.position.sub(pv).applyQuaternion(this.qa).add(pv);
         cam.quaternion.premultiply(this.qa);
       }
-      if (Math.abs(cam.fov - this.rig.fov) > 0.01) {
-        cam.fov = this.rig.fov;
+      const seatFov = this.rig.fov + this.tune.get('look.fov') - 68;
+      if (Math.abs(cam.fov - seatFov) > 0.01) {
+        cam.fov = seatFov;
         cam.updateProjectionMatrix();
       }
       this.chaseInit = false;
@@ -1496,8 +1591,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.qa.setFromAxisAngle(Y, -w.heading);
       this.qb.setFromAxisAngle(Z, w.pitch);
       cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
-      if (Math.abs(cam.fov - 68) > 0.01) {
-        cam.fov = 68;
+      const footFov = this.tune.get('look.fov');
+      if (Math.abs(cam.fov - footFov) > 0.01) {
+        cam.fov = footFov;
         cam.updateProjectionMatrix();
       }
     }
@@ -1522,7 +1618,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       core.shadowFocus.z -= o.z;
       core.shadowFocus.y -= o.y;
     }
-    if (this.worldView) this.worldView.update(fx, fz, 3.5);
+    if (this.worldView) {
+      // after a teleport: the world round the new place built fast, behind the fade, until it is there
+      if (this.devLoad > 0) {
+        this.devLoad -= dt;
+        this.worldView.update(fx, fz, 45);
+        if (this.worldView.pending === 0 || this.devLoad <= 0) {
+          this.devLoad = 0;
+          this.ui.setFade(0);
+        }
+      } else this.worldView.update(fx, fz, 3.5);
+    }
     // biome and light
     const bl = this.bl;
     if (this.world) {
@@ -1536,12 +1642,82 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.env.camX = cam.position.x + o.x;
     this.env.camZ = cam.position.z + o.z;
     const sim = f?.sim;
+    this.keepRainOut();
+    this.devTools.beforeEnv(dt);
     this.env.update(dt, this.time, bl.a, bl.b, bl.t, this.world, sim?.vx ?? 0, sim?.vy ?? 0, sim?.vz ?? 0);
+    this.devTools.afterEnv();
+    this.updateSplashes(dt);
     // indoors the eye opens up
     if (this.garage) core.exposure *= this.garage.exposureAt(cam.position.x + o.x, cam.position.y + o.y, cam.position.z + o.z);
     this.ui.update(dt);
     this.updateHudBits();
     this.updateAudio();
+  }
+
+  private readonly splashGs = new GroundSample();
+  /** where the rain lands: the ground (not under the garage's roof), and the tops of the vehicles out in it */
+  private updateSplashes(dt: number): void {
+    const sp = this.splashes;
+    const t = this.tune;
+    sp.groundRate = t.get('splash.ground');
+    sp.carRate = t.get('splash.car');
+    sp.size = t.get('splash.size');
+    const o = this.core.origin;
+    const rm = globals.uRoomMin.value;
+    const rx = globals.uRoomMax.value;
+    const indoors = (x: number, z: number): boolean => rm.w > 0.5 && x - o.x > rm.x && x - o.x < rx.x && z - o.z > rm.z && z - o.z < rx.z;
+    const vehicles: SplashVehicle[] = [];
+    for (const v of this.vehicles) {
+      if (indoors(v.sim.px, v.sim.pz)) continue;
+      vehicles.push({
+        model: v.view.model,
+        get key() {
+          return encodeBuild(v.build);
+        },
+        x: v.sim.px,
+        z: v.sim.pz,
+      });
+    }
+    const w = this.env.state;
+    sp.update(dt, w.rain, w.wetness, this.time, this.core.camera, o, (x, z, out) => {
+      if (indoors(x, z)) {
+        out.h = NaN;
+        return;
+      }
+      this.ground.sample(x, z, this.splashGs);
+      out.h = this.splashGs.h;
+      // (water stands on a road, a track, a bare floor; it soaks into grass, settles in snow)
+      const sf = this.splashGs.surface;
+      out.hard = sf === Surface.Asphalt || sf === Surface.Gravel || sf === Surface.Dirt || sf === Surface.Ice;
+    }, vehicles);
+  }
+
+  private readonly cabInv = new THREE.Matrix4();
+  /**
+   * The rain, snow and dust stay out of the cabin of the vehicle one sits in (or stands by): a closed body
+   * keeps the weather out. A motorcycle has none.
+   */
+  private keepRainOut(): void {
+    let v = this.seated;
+    if (!v) {
+      const w = this.player.walker;
+      let best = 9;
+      for (const o of this.vehicles) {
+        const d = Math.hypot(o.sim.px - w.x, o.sim.pz - w.z);
+        if (d < best) {
+          best = d;
+          v = o;
+        }
+      }
+    }
+    const cab = v?.view.mats.cabin;
+    if (!v || !cab) {
+      this.env.precip.setCabin(null);
+      return;
+    }
+    v.view.model.updateMatrixWorld();
+    this.cabInv.copy(v.view.model.matrixWorld).invert();
+    this.env.precip.setCabin(this.cabInv, cab.min, cab.max);
   }
 
   /**

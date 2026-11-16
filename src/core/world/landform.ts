@@ -79,7 +79,7 @@ interface Stretch {
 }
 
 /** odds of each kind of country, by biome: open, hillside, valley, ridge, canyon */
-const ODDS: Record<string, [number, number, number, number, number]> = {
+export const LAND_ODDS: Record<string, [number, number, number, number, number]> = {
   plains: [0.26, 0.38, 0.14, 0.22, 0],
   desert: [0.4, 0.14, 0.02, 0.18, 0.26],
   alpine: [0.08, 0.5, 0.24, 0.18, 0],
@@ -92,7 +92,7 @@ const ODDS: Record<string, [number, number, number, number, number]> = {
 const KINDS: LandKind[] = ['open', 'hillside', 'valley', 'ridge', 'canyon'];
 
 /** strength of each kind by biome: [tilt, wall (m), drop (m), canyon (m)] at their fullest */
-const SIZE: Record<string, [number, number, number, number]> = {
+export const LAND_SIZE: Record<string, [number, number, number, number]> = {
   plains: [0.2, 80, 45, 0],
   desert: [0.14, 70, 40, 85],
   alpine: [0.34, 170, 90, 0],
@@ -134,8 +134,8 @@ export class LandformPlan {
       let side = h & 0x10000 ? 1 : -1;
       this.spine.biomeAt((i + 0.5) * LAND_SLOT, bl);
       const id = BIOMES[bl.t < 0.5 ? bl.a : bl.b].id;
-      const odds = ODDS[id] ?? ODDS.plains;
-      const size = SIZE[id] ?? SIZE.plains;
+      const odds = LAND_ODDS[id] ?? LAND_ODDS.plains;
+      const size = LAND_SIZE[id] ?? LAND_SIZE.plains;
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
       if (i < 1 || water === 'river') kind = 'open';
@@ -148,7 +148,9 @@ export class LandformPlan {
         kind = prev.kind;
         side = prev.side;
       } else {
-        let u = r(8);
+        // (odds that have been moved from their sum of one are taken as shares of it)
+        const total = odds[0] + odds[1] + odds[2] + odds[3] + odds[4];
+        let u = Math.abs(total - 1) > 1e-6 ? r(8) * total : r(8);
         for (let q = 0; q < KINDS.length; q++) {
           if (u < odds[q]) {
             kind = KINDS[q];

@@ -82,6 +82,18 @@ export class DayClock {
     this.offset = DayClock.phaseOfHour(hour) - t / this.dayLength;
   }
 
+  /** move the clock on by this many seconds of the day's cycle (negative: back) without the time passing */
+  advance(seconds: number): void {
+    this.offset += seconds / this.dayLength;
+  }
+
+  /** a day of another length (real seconds), the hour at time `t` kept */
+  setDayLength(seconds: number, t: number): void {
+    const h = this.hourAt(t);
+    this.dayLength = Math.max(10, seconds);
+    this.setHour(h, t);
+  }
+
   hourAt(t: number): number {
     return DayClock.hourOfPhase(t / this.dayLength + this.offset);
   }
