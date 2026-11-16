@@ -1297,6 +1297,46 @@ class Buf:
         return obj
 
 
+def bake_ao_open(meshes, open_objs, region, targets=('BODY', 'UNDER'), samples=32, distance=0.35, fade=0.04):
+    """Ambient occlusion as mc.bake_ao, then a second pass for the vertices of `targets` inside `region`
+    ((lo, hi), an axis-aligned box in world coordinates) with panels opened (open_objs: (object, local axis,
+    degrees)): an engine bay is baked as the player sees it, bonnet up, instead of near-black under a shut
+    bonnet. Outside the box the first pass is kept, blended over `fade`."""
+    mc.bake_ao(meshes, samples=samples, distance=distance)
+    objs = [o for o in meshes if o.name in targets]
+    saved = {}
+    for o in objs:
+        a = o.data.color_attributes.get('Col')
+        c = np.zeros(len(a.data) * 4)
+        a.data.foreach_get('color', c)
+        saved[o.name] = c.reshape(-1, 4).copy()
+    keep = []
+    for (o, axis, deg) in open_objs:
+        keep.append((o, o.matrix_world.copy()))
+        o.matrix_world = o.matrix_world @ Matrix.Rotation(math.radians(deg), 4, Vector(axis))
+    bpy.context.view_layer.update()
+    mc.bake_ao(objs, samples=samples, distance=distance)
+    for (o, m) in keep:
+        o.matrix_world = m
+    bpy.context.view_layer.update()
+    lo, hi = np.asarray(region[0], float), np.asarray(region[1], float)
+    for o in objs:
+        me = o.data
+        a = me.color_attributes.get('Col')
+        c = np.zeros(len(a.data) * 4)
+        a.data.foreach_get('color', c)
+        c = c.reshape(-1, 4)
+        vi = np.zeros(len(me.loops), np.int64)
+        me.loops.foreach_get('vertex_index', vi)
+        co = np.zeros(len(me.vertices) * 3)
+        me.vertices.foreach_get('co', co)
+        W = np.array(o.matrix_world)
+        P = co.reshape(-1, 3) @ W[:3, :3].T + W[:3, 3]
+        d = np.linalg.norm(np.maximum(np.maximum(lo - P, P - hi), 0.0), axis=1)
+        w = np.clip(1.0 - d / fade, 0.0, 1.0)[vi][:, None]
+        a.data.foreach_set('color', (saved[o.name] * (1.0 - w) + c * w).ravel())
+
+
 def obj_to_buf(obj, angle=35.0, xf=None):
     """Evaluated Blender object -> Buf with angle-split, area-weighted normals (for hard-surface pieces)."""
     dg = bpy.context.evaluated_depsgraph_get()

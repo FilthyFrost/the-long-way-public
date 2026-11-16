@@ -340,7 +340,8 @@ def engine_bay():
     xa, za = D['ax_f'], D['hub_z']
     y_out = 0.772
     # side wall of the bay, facing the engine
-    b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.40), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.40), 4, 2, (0, -1, 0), 'paint'))
+    # (side wall and ledge finely divided: the baked occlusion lives on their vertices)
+    b.extend(quad_sheet((FIREWALL_X, APRON_Y, 0.40), (RAD_X - FIREWALL_X, 0, 0), (0, 0, top - 0.40), 10, 5, (0, -1, 0), 'paint'))
     # wheelhouse tub seen from the bay (painted top side), outboard of the side wall
     R = 0.372
     b.extend(tub(xa, za, R, APRON_Y, y_out, 4, 176, 'paint', True))
@@ -350,13 +351,13 @@ def engine_bay():
     for (x0, x1) in ((FIREWALL_X + 0.06, xa - 0.11), (xa + 0.10, RAD_X - 0.06)):
         b.extend(K.tube_buf(np.array([(x0, APRON_Y, 0.60), (x1, APRON_Y, 0.60)]), 0.007, 'paint', 6))
     # fender top ledge (under the hood gutter) from the side wall out to the body
-    b.extend(quad_sheet((FIREWALL_X, APRON_Y, top), (RAD_X - FIREWALL_X, 0, 0), (0, y_out - APRON_Y, 0), 4, 1, (0, 0, 1), 'paint'))
+    b.extend(quad_sheet((FIREWALL_X, APRON_Y, top), (RAD_X - FIREWALL_X, 0, 0), (0, y_out - APRON_Y, 0), 10, 4, (0, 0, 1), 'paint'))
     b.extend(quad_sheet((FIREWALL_X, APRON_Y, top - 0.004), (RAD_X - FIREWALL_X, 0, 0), (0, 0, 0.004), 2, 1, (0, -1, 0), 'paint'))
     # closing walls of the fender cavity in front of / behind the wheelhouse
     for x0 in (xa - R - 0.01, xa + R + 0.01):
         b.extend(quad_sheet((x0, APRON_Y, 0.40), (0, y_out - APRON_Y, 0), (0, 0, top - 0.40), 1, 2, (1 if x0 > xa else -1, 0, 0), 'paint'))
     # firewall and cowl ledge
-    b.extend(quad_sheet((FIREWALL_X, 0.0, 0.30), (0, APRON_Y, 0), (0, 0, 0.58), 2, 3, (1, 0, 0), 'paint'))
+    b.extend(quad_sheet((FIREWALL_X, 0.0, 0.30), (0, APRON_Y, 0), (0, 0, 0.58), 5, 6, (1, 0, 0), 'paint'))
     b.extend(K.box_buf((FIREWALL_X - 0.02, 0.0, 0.862), (0.935, 0.765, 0.876), 'paint', 0.004, 2))
     # radiator support: top bar, side post, bottom bar
     b.extend(K.box_buf((RAD_X, 0.0, 0.785), (RAD_X + 0.045, APRON_Y + 0.01, 0.832), 'paint', 0.008, 2))

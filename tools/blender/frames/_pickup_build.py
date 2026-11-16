@@ -127,7 +127,10 @@ def build(args):
     total = sum(tris.values())
     print('[pickup] triangles', total, {k: v for k, v in sorted(tris.items(), key=lambda kv: -kv[1])[:8]})
     if not quick:
-        mc.bake_ao(meshes, samples=32, distance=0.35)
+        # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open)
+        hood = next(o for o in meshes if o.name == 'P_hood')
+        K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
+                       ((IN.FIREWALL_X - 0.01, -0.78, 0.0), (IN.RAD_X + 0.10, 0.78, 1.01)), samples=32, distance=0.35)
     mc.export_glb(OUT_GLB, meshes + empties)
     mc.mounts_json(OUT_JSON, 'pickup', json_extra(objs, panels, needles, wipers, tris, total))
     print('[pickup] exported', round(time.time() - t0, 1), 's')
