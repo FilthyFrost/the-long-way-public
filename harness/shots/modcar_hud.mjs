@@ -1,9 +1,9 @@
 // The item cards and the hotbar (docs/MODCAR.md §5.5), in the live game loop with the real keys: what the mark
-// is on gets a card beside it (a thing lying about, a part on a vehicle, the vehicle itself with what it
-// still needs, a workshop machine), what is in the hands a card on the right; E picks things up into the
-// hotbar's two slots (a third will not go: two hands), 1 and 2 put one or the other in the hands, I hides
-// and shows the cards (and is remembered), G held puts down; in the seat the hotbar stays and the right
-// lists the driving keys. Writes loop/shots/modcar_hud/*.png.
+// is on close by gets a card (a thing lying about, a part on a vehicle, the vehicle itself with what it
+// still needs, a workshop machine; nothing from a few metres off), what is in the hands a card on the right;
+// E picks things up into the hotbar's two slots (a third will not go: two hands), 1 and 2 put one or the
+// other in the hands, I hides and shows the cards (and is remembered), G held puts down; in the seat the
+// hotbar stays and the right lists the driving keys. Writes loop/shots/modcar_hud/*.png.
 //   SHOTS_GPU=1 node harness/shots/modcar_hud.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -57,6 +57,11 @@ try {
   // ---- a thing lying about: its card beside the mark, E picks it up into the hands
   if (!(await rt('aimLoose', 'bat_std', 1.0))) fail('could not stand before the battery');
   await settle();
+  // (the first frames of the loop can still nudge the walker off it: stand there again)
+  for (let i = 0; i < 3 && !(await tele()).target.startsWith('loose'); i++) {
+    await rt('aimLoose', 'bat_std', 1.0);
+    await settle(400);
+  }
   let h = await hud();
   console.log('at the battery', JSON.stringify({ aim: h.aim, acts: h.acts }));
   if (h.aim !== '电瓶') fail(`no card for the battery beside the mark (${h.aim})`);
@@ -138,21 +143,45 @@ try {
   if (h.aim !== '车门' || !/装在：左前车门/.test(h.aimText)) fail(`no card for the fitted door (${h.aim})`);
   if (!/拆下/.test(h.acts)) fail(`no "take off" for the door (${h.acts})`);
   await shot('03_fitted');
-  await page.evaluate(() => {
-    const g = window.__rt.game;
-    const v = g.vehicles[0];
-    const w = g.player.walker;
-    // a few metres off its side, looking at it (out of reach: its card, read from there)
-    const b = new Float64Array(9);
-    v.sim.basis(b);
-    w.place(v.sim.px + b[6] * 4.5, v.sim.pz + b[8] * 4.5, 0, 0);
-    g.input.lookYaw = Math.atan2(v.sim.pz - w.z, v.sim.px - w.x);
-    g.input.lookPitch = -0.18;
-  });
+  // a few metres off its side, looking at it: no card from there (it would stand in the way of the view)
+  const standOff = (m) =>
+    page.evaluate((m) => {
+      const g = window.__rt.game;
+      const v = g.vehicles[0];
+      const w = g.player.walker;
+      const b = new Float64Array(9);
+      v.sim.basis(b);
+      w.place(v.sim.px + b[6] * m, v.sim.pz + b[8] * m, 0, 0);
+      g.input.lookYaw = Math.atan2(v.sim.pz - w.z, v.sim.px - w.x);
+      g.input.lookPitch = -0.18;
+    }, m);
+  await standOff(4.5);
   await settle(400);
   h = await hud();
+  if (h.aim) fail(`a card for what the mark is on from 4.5 m off (${h.aim})`);
+  // close by: the vehicle's card, with what it still needs (looked for over its side: the body between its parts)
+  await standOff(1.9);
+  await settle(300);
+  h = await hud();
+  search: for (const pitch of [-0.18, -0.35, -0.05, -0.5, 0.05]) {
+    for (const yaw of [0, -0.25, 0.25, -0.5, 0.5, -0.75, 0.75]) {
+      if (h.aim === '方糖') break search;
+      await page.evaluate(
+        ({ pitch, yaw }) => {
+          const g = window.__rt.game;
+          const v = g.vehicles[0];
+          const w = g.player.walker;
+          g.input.lookYaw = Math.atan2(v.sim.pz - w.z, v.sim.px - w.x) + yaw;
+          g.input.lookPitch = pitch;
+        },
+        { pitch, yaw },
+      );
+      await settle(150);
+      h = await hud();
+    }
+  }
   console.log('at the car', JSON.stringify({ aim: h.aim, text: h.aimText.slice(0, 200) }));
-  if (h.aim !== '方糖') fail(`no card for the vehicle (${h.aim})`);
+  if (h.aim !== '方糖') fail(`no card for the vehicle close by (${h.aim})`);
   if (!/电瓶|发动机/.test(h.aimText)) fail('the vehicle card does not say what it still needs');
   await shot('04_vehicle');
   await page.evaluate(() => {

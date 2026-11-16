@@ -30,8 +30,8 @@ import type { GarageDevice } from './garageStub';
 
 export type Held = { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | null;
 
-/** what the mark is on, and what the buttons would do to it */
-type Target =
+/** what the mark is on, and what the buttons would do to it (dist may be nudged to rank one over another; at = how far it really is then) */
+type Target = (
   | { kind: 'loose'; loose: Loose; dist: number }
   | { kind: 'ghost'; v: ModVehicle; mount: MountDef; sub: string | null; replace: boolean; dist: number }
   | { kind: 'looseSub'; loose: Loose; sub: string; dist: number }
@@ -44,7 +44,8 @@ type Target =
   | { kind: 'cap'; v: ModVehicle; dist: number }
   | { kind: 'surface'; v: ModVehicle; mount: MountDef | null; dist: number }
   | { kind: 'enter'; v: ModVehicle; dist: number }
-  | { kind: 'device'; device: GarageDevice; dist: number };
+  | { kind: 'device'; device: GarageDevice; dist: number }
+) & { at?: number };
 
 export interface PlayerHost {
   readonly vehicles: readonly ModVehicle[];
@@ -61,6 +62,8 @@ export interface PlayerHost {
 }
 
 const REACH = 2.6;
+/** the card of what the mark is on shows only this close (m): from further off it would stand in the way of the view */
+const CARD_NEAR = 2.2;
 const GHOST_RANGE = 4.2;
 /** angle (rad) within which the mark picks a ghost */
 const GHOST_CONE = 0.2;
@@ -247,7 +250,7 @@ export class ModPlayer {
         const p = this.ray.intersectBox(b, this.hit);
         if (!p) continue;
         const d = p.distanceTo(this.ray.origin);
-        if (d <= REACH) better({ kind: 'part', v, mount: m, dist: d + extra });
+        if (d <= REACH) better({ kind: 'part', v, mount: m, dist: d + extra, at: d });
       }
     }
   }
@@ -344,19 +347,19 @@ export class ModPlayer {
       if (liquid) {
         const fd = v.view.fillerHit(liquid, this.ray, REACH + 0.3);
         // (a cap one aims at on purpose, with the can for it in the hands: it wins over the boxes round it)
-        if (fd !== null) better({ kind: 'filler', v, liquid, open: v.view.fillerOpen(liquid), dist: Math.max(0, fd - 1) });
+        if (fd !== null) better({ kind: 'filler', v, liquid, open: v.view.fillerOpen(liquid), dist: Math.max(0, fd - 1), at: fd });
       } else if (!held && v.view.hasFlap) {
         const fd = v.view.fillerHit('fuel', this.ray, REACH + 0.3);
         // (a small thing one aims at on purpose: it wins over the coarse boxes of the parts round it)
-        if (fd !== null) better({ kind: 'cap', v, dist: Math.max(0, fd - 0.3) });
+        if (fd !== null) better({ kind: 'cap', v, dist: Math.max(0, fd - 0.3), at: fd });
       }
       // the body itself: get in, or paint and wash the frame; a can anywhere else on it: where its filler is
       const d = this.bodyDist(v);
       if (d === null || d > REACH + 0.4) continue;
-      if (working) better({ kind: 'surface', v, mount: null, dist: d + 0.05 });
-      else if (liquid) better({ kind: 'pour', v, dist: d + 0.3 });
+      if (working) better({ kind: 'surface', v, mount: null, dist: d + 0.05, at: d });
+      else if (liquid) better({ kind: 'pour', v, dist: d + 0.3, at: d });
       // (the body's box is coarse: a part the mark is on wins, an open bonnet standing well inside it too)
-      else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25 });
+      else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25, at: d });
     }
     // garage devices
     for (const dv of this.host.devices) {
@@ -393,20 +396,6 @@ export class ModPlayer {
   private readonly ld = new THREE.Vector3();
   private readonly hb = new THREE.Box3();
   private readonly bodyRay = new THREE.Ray();
-
-  /** nothing in reach under the mark: a vehicle further off it is on (its card, to read from where one stands) */
-  private lookedAt(): ModVehicle | null {
-    let best: ModVehicle | null = null;
-    let bd = 7;
-    for (const v of this.near(8)) {
-      const d = this.bodyDist(v);
-      if (d !== null && d < bd) {
-        bd = d;
-        best = v;
-      }
-    }
-    return best;
-  }
 
   // ------------------------------------------------------------------ highlights
 
@@ -835,11 +824,8 @@ export class ModPlayer {
           break;
       }
     }
-    // (the mark on nothing in reach: the card of a vehicle further off it is on)
-    if (!t && !this.flow) {
-      const v = this.lookedAt();
-      if (v) aim = this.vehicleCard(v);
-    }
+    // (the card only for what is close by: from further off it would stand in the way of the view)
+    if (aim && t && (t.at ?? t.dist) > CARD_NEAR) aim = null;
     if (t?.kind === 'loose' && both) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
     if (this.dropT > 0 && held) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: `放下 <b>${held.kind === 'part' ? name(held.inst) : toolName(held.tool)}</b>` });
     // (while liquid flows the strip saying from what into what stands where these words are)

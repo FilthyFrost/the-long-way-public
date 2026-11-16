@@ -37,10 +37,7 @@ export interface TransferView {
 
 const CSS = `
 ${CARD_CSS}
-.mc-ic.held { right: 22px; top: 96px; }
-.mc-ic.aim { top: 200px; }
-.mc-ic.aim.l { right: calc(50% + 32px); }
-.mc-ic.aim.r { left: calc(50% + 32px); }
+.mc-ic.held, .mc-ic.aim { right: 22px; top: 96px; }
 .mc-hot { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); display: flex; gap: 10px; }
 .mc-hot .s { position: relative; width: 62px; height: 62px; box-sizing: border-box; border-radius: 12px; background: var(--grain), linear-gradient(180deg, rgba(120,124,122,0.55), rgba(26,26,26,0.75) 40%, rgba(20,20,20,0.8)); border: 2.5px solid rgba(239,230,211,0.55); box-shadow: 0 0 0 2px var(--ink); transition: transform 0.12s; }
 .mc-hot .s.on { border: 3px solid var(--rim); box-shadow: 0 0 0 2.5px var(--ink), 0 5px 0 1px rgba(10,8,6,0.5); transform: translateY(-4px); }
@@ -109,12 +106,12 @@ export class ItemHud {
   private lastKeys = '';
   private lastXfer = '';
   private doneT = 0;
+  /** how much longer the held card stays cut down (s) */
+  private compactT = 0;
   /** what the cards were last placed for (their drawings, the keys' height, the room) */
   private placed = '';
-  /** the keys' height and the height of the lines over the hotbar (−1 = to be measured: they changed) */
+  /** the keys' height (−1 = to be measured: they changed) */
   private keysH = -1;
-  private botH = -1;
-  private xferH = -1;
   private readonly bot: HTMLDivElement;
 
   constructor(root: HTMLElement) {
@@ -142,15 +139,14 @@ export class ItemHud {
     this.xfer = div('mc-xfer mc-frame');
   }
 
-  /** the cards: what is in the hands (right), what the mark is on (beside the mark); on = shown at all (I) */
+  /**
+   * The cards, both down the right of the screen, out of the way of the view: what the mark is on at the top,
+   * what is in the hands under it (cut down to what it is and what is in it while the other card is up, and
+   * a moment after it goes, so it does not jump about as the mark passes over things); on = shown at all (I).
+   */
   showCards(held: ItemCard | null, aim: ItemCard | null, on: boolean): void {
-    this.held.show(on ? held : null);
-    // beside the mark on the side the held card leaves free
-    const side = on && held ? 'l' : 'r';
-    if (!this.aim.el.classList.contains(side)) {
-      this.aim.el.classList.remove('l', 'r');
-      this.aim.el.classList.add(side);
-    }
+    if (on && aim) this.compactT = 0.35;
+    this.held.show(on ? held : null, this.compactT > 0);
     this.aim.show(on ? aim : null);
   }
 
@@ -180,7 +176,6 @@ export class ItemHud {
     this.lastActs = html;
     this.acts.innerHTML = html;
     this.acts.style.display = html ? '' : 'none';
-    this.botH = -1;
   }
 
   /** every action of what is in the hands (or of driving), down the right */
@@ -205,7 +200,6 @@ export class ItemHud {
     const key = `${t.from.name}|${t.to.name}|${t.tone}`;
     if (key !== this.lastXfer) {
       this.lastXfer = key;
-      this.xferH = -1;
       const side = (s: TransferView['from'], k: string): string => `<div class="sd${k === 'b' ? ' to' : ''}" data-s="${k}"><b>${s.name}</b><span></span><div class="tr"><i style="background:${c}"></i></div></div>`;
       this.xfer.innerHTML = `${side(t.from, 'a')}<div class="ar" style="color:${c}"><i>›</i><i>›</i><i>›</i></div>${side(t.to, 'b')}`;
     }
@@ -223,46 +217,53 @@ export class ItemHud {
     this.done.style.display = '';
     this.done.style.opacity = '1';
     this.doneT = seconds;
-    this.botH = -1;
   }
 
   /**
-   * The cards' heights: each beside its middle (the held one a little above the screen's, the aimed one by
-   * the mark) but clear of what is above it (the quest, on the right) and of the words at the bottom (the
-   * keys under the held card, the hotbar and its lines under the aimed one); a card taller than the room
-   * left is cut at the bottom.
+   * The cards' heights, in the column down the right between the quest and the keys: one alone a little
+   * above the middle of the screen; with both, the held one (cut down) just over the keys and the other
+   * over it. A card taller than the room left is cut at the bottom and fades out there.
    */
   private place(): void {
     const H = this.root.clientHeight || window.innerHeight;
     if (this.keysH < 0) this.keysH = this.keys.style.display === 'none' ? 0 : this.keys.offsetHeight;
-    if (this.botH < 0) this.botH = this.bot.offsetHeight;
-    const strip = this.xfer.style.display !== 'none';
-    if (strip && this.xferH < 0) this.xferH = this.xfer.offsetHeight;
-    const key = `${this.held.drawn}|${this.aim.drawn}|${this.keysH}|${this.botH}|${strip ? this.xferH : 0}|${H}|${this.topRight}|${this.held.el.style.display}|${this.aim.el.style.display}`;
+    const key = `${this.held.drawn}|${this.aim.drawn}|${this.keysH}|${H}|${this.topRight}|${this.held.el.style.display}|${this.aim.el.style.display}|${this.compactT > 0}`;
     if (key === this.placed) return;
     this.placed = key;
-    const fit = (v: CardView, mid: number, top: number, bottom: number, up: number): void => {
+    /** a card into [top, bottom], about mid (up: how much of it stands above mid); least = the room it gets at the least */
+    const fit = (v: CardView, mid: number, top: number, bottom: number, up: number, least = 160): void => {
       if (v.el.style.display === 'none') return;
-      const room = Math.max(160, bottom - top);
+      const room = Math.max(least, bottom - top);
       v.el.style.maxHeight = `${room}px`;
       const h = Math.min(room, v.el.scrollHeight);
       v.el.classList.toggle('cut', v.el.scrollHeight > room + 1);
       v.el.style.top = `${Math.round(Math.max(top, Math.min(mid - h * up, bottom - h)))}px`;
     };
-    fit(this.held, H / 2 - 24, Math.max(16, this.topRight + 12), H - 26 - this.keysH - 18, 0.5);
-    // (the aimed card stands by the mark, over the hotbar and the lines above it)
-    fit(this.aim, H / 2, 16, Math.min(H - 112, H - 106 - this.botH - 12, strip ? H - 112 - this.xferH - 12 : H), 0.44);
+    const top = Math.max(16, this.topRight + 12);
+    const bottom = H - 26 - this.keysH - 16;
+    const held = this.held.el.style.display !== 'none';
+    const aim = this.aim.el.style.display !== 'none';
+    // (the held card stays down by the keys while it is cut down, also the moment after the other goes)
+    if (!held || (!aim && this.compactT <= 0)) {
+      fit(this.held, H / 2 - 24, top, bottom, 0.5);
+      fit(this.aim, H / 2 - 24, top, bottom, 0.5);
+      return;
+    }
+    // what the mark is on comes first; the held card keeps at least its name
+    const heldH = this.held.el.scrollHeight;
+    const aimRoom = aim ? Math.min(this.aim.el.scrollHeight, bottom - top - Math.min(heldH, 92) - 12) : 0;
+    const hh = Math.min(heldH, bottom - top - (aim ? aimRoom + 12 : 0));
+    fit(this.held, bottom, bottom - hh, bottom, 1, 0);
+    fit(this.aim, H / 2 - 24, top, bottom - hh - 12, 0.5, 60);
   }
 
   update(dt: number): void {
+    this.compactT -= dt;
     this.place();
     if (this.doneT > -1) {
       this.doneT -= dt;
       if (this.doneT <= 0) this.done.style.opacity = '0';
-      if (this.doneT <= -0.5 && this.done.style.display !== 'none') {
-        this.done.style.display = 'none';
-        this.botH = -1;
-      }
+      if (this.doneT <= -0.5 && this.done.style.display !== 'none') this.done.style.display = 'none';
     }
     // (the strip hides the lines while it shows)
     const strip = this.xfer.style.display !== 'none';

@@ -21,8 +21,7 @@ export const TONE_COLOUR: Record<Tone, string> = {
 };
 
 export const CARD_CSS = `
-.mc-ic { position: absolute; z-index: 2; width: 356px; overflow: hidden; color: #fff; font-size: 14.5px; line-height: 1.4; transition: opacity 0.12s; }
-.mc-ic.aim { width: 330px; }
+.mc-ic { position: absolute; z-index: 2; width: 340px; overflow: hidden; color: #fff; font-size: 14.5px; line-height: 1.4; transition: opacity 0.12s; }
 .mc-ic .hd { padding: 11px 18px 10px; background: linear-gradient(180deg, rgba(8,8,8,0.92) 0%, rgba(14,14,14,0.85) 52%, rgba(86,85,84,0.78) 100%); }
 .mc-ic .cat { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--tx-2); }
 .mc-ic .cat svg { width: 16px; height: 16px; flex: none; }
@@ -130,12 +129,13 @@ function barFills(bar: CardBar): { colour: string; w: number }[] {
   return [{ colour: TONE_COLOUR[bar.tone], w: Math.min(100, (Math.max(0, bar.value) / max) * 100) }];
 }
 
-function barHtml(bar: CardBar, i: number): string {
+/** legend = the line of each liquid's share under the bar (left out where the card is cut down) */
+function barHtml(bar: CardBar, i: number, legend = true): string {
   const fills = barFills(bar)
     .map((f) => `<i style="width:${f.w.toFixed(1)}%;background:${f.colour}"></i>`)
     .join('');
-  const legend = bar.parts?.length ? `<div class="lg">${bar.parts.map((p) => `<div style="--c:${TONE_COLOUR[p.tone]}">${esc(p.text)}</div>`).join('')}</div>` : '';
-  return `<div class="br" data-bar="${i}"><div class="t">${esc(bar.label)}</div><div class="tr">${fills}</div><div class="n">${esc(bar.text)}</div>${legend}</div>`;
+  const lines = legend && bar.parts?.length ? `<div class="lg">${bar.parts.map((p) => `<div style="--c:${TONE_COLOUR[p.tone]}">${esc(p.text)}</div>`).join('')}</div>` : '';
+  return `<div class="br" data-bar="${i}"><div class="t">${esc(bar.label)}</div><div class="tr">${fills}</div><div class="n">${esc(bar.text)}</div>${lines}</div>`;
 }
 
 /** the card's HTML without its bars' moving numbers (what decides whether it is drawn again) */
@@ -146,10 +146,15 @@ function structureOf(c: ItemCard): string {
 /** "缺发动机" in the before column: nothing to compare against */
 const beforeOf = (s: string): string => (/\d/.test(s) ? s : '—');
 
-export function cardHtml(c: ItemCard): string {
+/** the card's HTML; compact = only what it is and what is in it (the held thing's card while another card is up) */
+export function cardHtml(c: ItemCard, compact = false): string {
   const stars = c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars)).join('')}</div>` : '';
   const tags = c.badges.length ? `<div class="tg">${c.badges.map((b) => `<span class="${b.tone}">${esc(b.text)}</span>`).join('')}</div>` : '';
   const secs: string[] = [];
+  if (compact) {
+    if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i, false)).join('')}</div>`);
+    return `<div class="hd"><div class="cat">${iconSvg(c.icon)}${esc(c.cat)}</div><div class="nm">${esc(c.name)}</div>${stars}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
+  }
   if (c.blurb) secs.push(`<div class="sec"><div class="desc">${esc(c.blurb)}</div></div>`);
   if (c.curve) secs.push(`<div class="sec"><div class="lab">${esc(c.curve.label)}</div>${curveSvg(c.curve)}</div>`);
   if (c.columns) secs.push(`<div class="sec"><div class="lab">${esc(c.columns.label)}</div>${columnsHtml(c.columns)}</div>`);
@@ -162,7 +167,7 @@ export function cardHtml(c: ItemCard): string {
       );
     else secs.push(`<div class="sec"><div class="rw">${c.rows.map((r) => `<b class="${r.tone ?? ''}">${esc(r.value)}</b><span>${esc(r.label)}</span>`).join('')}</div></div>`);
   }
-  if (c.bars.length) secs.push(`<div class="sec">${c.bars.map(barHtml).join('')}</div>`);
+  if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i)).join('')}</div>`);
   if (c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
   const f = c.foot;
   if (f.fits) secs.push(`<div class="sec"><div class="fits">${f.fits.startsWith('装在') ? esc(f.fits) : `能装：<b>${esc(f.fits)}</b>`}</div></div>`);
@@ -192,7 +197,8 @@ export class CardView {
     return this.card;
   }
 
-  show(c: ItemCard | null): void {
+  /** compact: only what it is and what is in it */
+  show(c: ItemCard | null, compact = false): void {
     this.card = c;
     if (!c) {
       this.el.style.display = 'none';
@@ -200,10 +206,11 @@ export class CardView {
       return;
     }
     this.el.style.display = '';
-    const s = structureOf(c);
+    const s = `${compact ? 'c' : 'f'}${structureOf(c)}`;
     if (s !== this.structure) {
       this.structure = s;
-      this.el.innerHTML = cardHtml(c);
+      this.el.classList.toggle('compact', compact);
+      this.el.innerHTML = cardHtml(c, compact);
       this.drawn++;
       return;
     }
