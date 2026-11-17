@@ -22,7 +22,7 @@ import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
 import { World } from '../../core/world/terrain';
 import { GroundSample, Surface, SURFACES, type Ground } from '../../core/world/ground';
-import { Push, pushOut, type Solid } from '../../core/world/solids';
+import { Push, pushOut, Solid } from '../../core/world/solids';
 import { AudioEngine } from '../audio';
 import { Environment } from '../env/environment';
 import { Splashes, type SplashVehicle } from '../env/splash';
@@ -80,6 +80,10 @@ import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
 import { ModPlayer, type Held, type PlayerHost } from './player';
 import { glintsOf, WithoutWrecks, WreckGlints, Wrecks, type WreckHost } from './wrecks';
+import { isContainer, Places, type PlaceContainer, type PlacesHost } from './places';
+import { SiteArt } from './siteArt';
+import { solidWithin, type SolidSource } from '../../core/world/solids';
+import type { Site } from '../../core/world/sites';
 import { Cockpit, type CockpitHost } from './cockpit';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
@@ -201,6 +205,14 @@ const DUST_BITS = new THREE.Color(0.32, 0.27, 0.21);
 const RUST_BITS = new THREE.Color(0.38, 0.12, 0.035);
 const FOAM = new THREE.Color(0.85, 0.88, 0.9);
 
+/** a few solids of the game's own (a roadside garage's machines) */
+class SolidList implements SolidSource {
+  readonly list: Solid[] = [];
+  solidsNear(x: number, z: number, r: number, out: Solid[]): void {
+    for (const sd of this.list) if (solidWithin(sd, x, z, r)) out.push(sd);
+  }
+}
+
 export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly core: RenderCore;
   readonly env: Environment;
@@ -285,7 +297,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private jumpsSeen = 0;
   /** what is in a vehicle, as a list (Tab): the vehicle it is open on, the row picked */
   private cargoList: CargoList | null = null;
-  private listV: ModVehicle | 'self' | null = null;
+  private listV: ModVehicle | 'self' | PlaceContainer | null = null;
   private listSel = 0;
   /** the liquid going in from a can at a filler */
   readonly stream: LiquidStream;
@@ -310,6 +322,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   wrecks: Wrecks | null = null;
   /** a rare part on a wreck catching the light */
   private glints: WreckGlints | null = null;
+  /** the places by the road: their containers, pumps and things lying about (places.ts, docs/MODCAR.md §20) */
+  places: Places | null = null;
+  /** … and their things drawn as our models (siteArt.ts) */
+  siteArt: SiteArt | null = null;
   /** when the wrecks about were last looked over for a find close by (s), and the glint's level from it */
   private greetT = 0;
   private glintGain = 0;
@@ -515,13 +531,28 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.fadeT = -1;
   }
 
+  /** every workshop there now: the starting one, and the roadside garages' about */
+  private allWorkshops(): Workshop[] {
+    const road = this.places?.workshops ?? [];
+    return this.workshop ? [this.workshop, ...road] : road;
+  }
+
+  /** the workshop whose bench is open or at work (its view, its keys, its blows), else the starting one */
+  private get benchWs(): Workshop | null {
+    for (const w of this.allWorkshops()) if (w.open || w.crafting) return w;
+    return this.workshop;
+  }
+
   get devices(): readonly GarageDevice[] {
-    if (!this.workshop) return this.garage?.devices ?? [];
-    return (this.devicesAll ??= [...(this.garage?.devices ?? []), ...this.workshop.devices]);
+    const pl = this.places?.devices ?? [];
+    const base = this.workshop ? (this.devicesAll ??= [...(this.garage?.devices ?? []), ...this.workshop.devices]) : (this.garage?.devices ?? []);
+    return pl.length ? [...base, ...pl] : base;
   }
 
   get tanks(): readonly TankPort[] {
-    return this.workshop?.tanks ?? [];
+    const pl = this.places?.ports ?? [];
+    const w = this.workshop?.tanks ?? [];
+    return pl.length ? [...w, ...pl] : w;
   }
 
   /** the workshop's machines, in the starting garage (its power, its recycler, its bench) */
@@ -549,7 +580,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         loop: (name, gain) => game.loopFor(name, gain),
         stockChanged: (d) => game.stockChanged(d),
         benchMode: (on) => game.benchMode(on),
-        genSound: (s) => game.genSound(s),
+        genSound: (s) => {
+          if (game.workshop) game.genAsked.set(game.workshop, s);
+        },
         sparks: (x, y, z, n) => game.sparks.emit(x, y, z, { x: 0, z: 0 }, 2.2, n),
         iconOf: (h) => game.iconOf(h),
         cardOf: (h) => game.player.cardOf(h),
@@ -561,6 +594,145 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.restore?.workshop,
     );
     this.devicesAll = null;
+  }
+
+  /** the generators' sounds asked for this frame, by their workshop: the nearest running one is heard */
+  private readonly genAsked = new Map<Workshop, Parameters<ModGame['genSound']>[0]>();
+
+  /**
+   * A roadside garage's machines (Arctic Drive's outposts): its working bench where its old one stood, against the
+   * back wall facing into the room; the recycler beside it; the generator outside its end wall; the cable between
+   * them along the floor and the walls. Null when the garage has no bench.
+   */
+  private makeRoadWorkshop(site: Site, save?: WorkshopSave): Workshop | null {
+    const shop = site.objects.find((o) => o.kind === 'building' && o.b?.gate);
+    const bench = site.objects.find((o) => o.kind === 'workbench');
+    if (!shop || !bench) return null;
+    const c = Math.cos(shop.yaw);
+    const s = Math.sin(shop.yaw);
+    // (the building's own frame: u along it, v across, its gate's wall at −v)
+    const W = (u: number, v: number): { x: number; z: number } => ({ x: shop.x + c * u - s * v, z: shop.z + s * u + c * v });
+    const bu = (bench.x - shop.x) * c + (bench.z - shop.z) * s;
+    const bv = -(bench.x - shop.x) * s + (bench.z - shop.z) * c;
+    const f = Math.sign(bu) || 1;
+    const hw = shop.w / 2;
+    const hd = shop.d / 2;
+    const inward = Math.atan2(-c, s);
+    const outward = (side: number): number => Math.atan2(s * side, c * side);
+    const floor = shop.y;
+    const benchAt = W(bu, bv);
+    // (a spot clear of everything else the place has: the lift, the car on it, the shelves, the crates and drums outside)
+    const others = site.objects.filter((o) => o !== shop && o !== bench);
+    const clear = (u: number, v: number, r: number): boolean => {
+      const p = W(u, v);
+      for (const o of others) {
+        const oc = Math.cos(o.yaw);
+        const os = Math.sin(o.yaw);
+        const lu = (p.x - o.x) * oc + (p.z - o.z) * os;
+        const lv = -(p.x - o.x) * os + (p.z - o.z) * oc;
+        if (Math.abs(lu) < o.w / 2 + r && Math.abs(lv) < o.d / 2 + r) return false;
+      }
+      return true;
+    };
+    // the recycler along the back wall, beside the bench towards the middle; the generator outside an end wall
+    let ru = bu - f * 2.4;
+    for (let k = 0; k < 8 && !clear(ru, hd - 0.65, 0.65); k++) ru -= f * 0.5;
+    const rec = W(ru, hd - 0.65);
+    let gu = f * (hw + 0.95);
+    let gv = hd - 1.7;
+    search: for (const side of [f, -f]) {
+      for (let k = 0; k < 12; k++) {
+        const v = hd - 1.0 - k * 0.6;
+        if (v < -hd + 1.0) break;
+        if (clear(side * (hw + 0.95), v, 0.75)) {
+          gu = side * (hw + 0.95);
+          gv = v;
+          break search;
+        }
+      }
+    }
+    const gen = W(gu, gv);
+    const gf = Math.sign(gu) || f;
+    const P = (u: number, v: number, y: number): [number, number, number] => {
+      const p = W(u, v);
+      return [p.x, floor + y, p.z];
+    };
+    const plan = {
+      generator: { ...gen, heading: outward(gf) },
+      recycler: { ...rec, heading: inward },
+      bench: { ...benchAt, heading: inward },
+      spec: WORKSHOP_PLAN.spec,
+      cable: {
+        toBox: [P(gf * (hw + 0.55), gv, 0.03), P(gf * (hw + 0.14), gv, 0.03), P(gf * (hw - 0.14), gv, 0.12), P(gf * (hw - 0.18), gv, 1.1)],
+        box: P(gf * (hw - 0.17), gv, 1.28),
+        toRecycler: [P(gf * (hw - 0.18), gv, 0.04), P(gf * (hw - 0.6), hd - 0.3, 0.02), P(ru + f * 0.45, hd - 0.3, 0.02)],
+        toBench: [P(gf * (hw - 0.18), gv, 1.6), P(gf * (hw - 0.18), hd - 0.18, 1.6), P(bu + f * 0.9, hd - 0.18, 1.6)],
+      },
+    };
+    const inside = (x: number, z: number): boolean => {
+      const u = (x - shop.x) * c + (z - shop.z) * s;
+      const v = -(x - shop.x) * s + (z - shop.z) * c;
+      return Math.abs(u) < hw && Math.abs(v) < hd;
+    };
+    const root = new THREE.Group();
+    root.name = `roadshop:${site.id}`;
+    this.core.scene.add(root);
+    this.core.place(root, 0, 0, 0);
+    const solids = new SolidList();
+    this.player.addSolids(solids);
+    this.vehicleSolids.add(solids);
+    const core = this.core;
+    const game = this;
+    let ws: Workshop | null = null;
+    ws = new Workshop(
+      {
+        root,
+        loose: this.loose,
+        ui: this.ui,
+        stock: this.stock,
+        get origin() {
+          return core.origin;
+        },
+        camera: core.camera,
+        groundAt: (x, z) => (inside(x, z) ? floor : game.groundAt(x, z)),
+        addSolid: (x, z, hx, hz, yaw, y0, y1) => {
+          const base = inside(x, z) ? floor : game.groundAt(x, z);
+          solids.list.push(new Solid().set(x, z, hx, hz, yaw, base + y0, base + y1, false, `${site.id}:machine`));
+        },
+        addSurface: () => undefined,
+        sound: (name, gain) => game.sound(name, gain),
+        loop: (name, gain) => game.loopFor(name, gain),
+        stockChanged: (d) => game.stockChanged(d),
+        benchMode: (on) => game.benchMode(on),
+        genSound: (st) => {
+          if (ws) game.genAsked.set(ws, st);
+        },
+        sparks: (x, y, z, n) => game.sparks.emit(x, y, z, { x: 0, z: 0 }, 2.2, n),
+        iconOf: (h) => game.iconOf(h),
+        cardOf: (h) => game.player.cardOf(h),
+        crafted: () => undefined,
+      },
+      plan,
+      save,
+    );
+    this.roadShops.set(ws, { root, solids });
+    return ws;
+  }
+
+  /** the roadside garages' machines there now: their root and their solids */
+  private readonly roadShops = new Map<Workshop, { root: THREE.Group; solids: SolidList }>();
+
+  private dropRoadWorkshop(ws: Workshop): void {
+    const r = this.roadShops.get(ws);
+    if (ws.open) ws.closeBench();
+    ws.dispose();
+    this.genAsked.delete(ws);
+    if (r) {
+      r.root.removeFromParent();
+      this.player.removeSolids(r.solids);
+      this.vehicleSolids.remove(r.solids);
+      this.roadShops.delete(ws);
+    }
   }
 
   /** materials came in or went out: a few words over the vitals */
@@ -589,8 +761,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or not)
     this.world = new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome }));
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
-    // (the wrecks by the road are vehicles of their own: wrecks.ts)
-    this.worldView.skipObject = (o) => o.kind === 'wreck';
+    // (the wrecks by the road are vehicles of their own: wrecks.ts; the places' things our models where we have them)
+    this.siteArt ??= new SiteArt(this.core);
+    const art = this.siteArt;
+    this.worldView.skipObject = (o, site) => o.kind === 'wreck' || (o.kind === 'workbench' && site.kind === 'garage') || art.draws(o, site);
     this.landmarks = new LandmarkView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
     // (from the start on the road the walker comes after the world)
@@ -637,6 +811,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** the vehicles and the things lying about at the start */
   private async populate(): Promise<void> {
     const p = this.params;
+    // (the places' models in before any place is drawn: what is ours is never drawn twice)
+    if (this.siteArt) await this.siteArt.ready;
     if (this.garage) {
       const g = this.garage;
       await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
@@ -1001,16 +1177,44 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private moveListSel(d: number): void {
     const v = this.listV;
     if (!v) return;
-    const n = v === 'self' ? this.selfRows().length : this.cargo.ridersOf(v).length;
+    const n = v === 'self' ? this.selfRows().length : isContainer(v) ? (v.contents?.length ?? 0) : this.cargo.ridersOf(v).length;
     if (!n) return;
     this.listSel = (this.listSel + d + n) % n;
     this.sound('switch', 0.25);
+  }
+
+  /** a container's list of what is in it (a place's cupboard, its crate, its shelves) */
+  private openContainerList(pc: PlaceContainer): void {
+    this.listV = pc;
+    this.listSel = 0;
+  }
+
+  /** the things in a container, as the list's rows */
+  private containerRows(pc: PlaceContainer): CargoRow[] {
+    return (pc.contents ?? []).map((h) => ({ zone: pc.name, name: heldName(h), mass: massOf(h), icon: this.iconOf(h) }));
   }
 
   /** the picked thing out of the vehicle, into the hands */
   takeFromList(): void {
     const v = this.listV;
     if (!v) return;
+    if (isContainer(v)) {
+      const n = v.contents?.length ?? 0;
+      if (!n) return;
+      const slot = this.player.freeSlot();
+      if (slot < 0) {
+        this.ui.say('两只手都占着：先放下一件（长按 G）。', 2.2);
+        return;
+      }
+      const h = this.places?.take(v, Math.min(this.listSel, n - 1));
+      if (!h) return;
+      this.player.sel = slot;
+      this.player.held = h;
+      this.sound('pickup', massOf(h));
+      this.listSel = Math.max(0, Math.min(this.listSel, n - 2));
+      if (n <= 1) this.closeCargoList();
+      return;
+    }
     if (v === 'self') {
       // the backpack off, into the hands
       const p = this.player.pack;
@@ -1054,6 +1258,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       return;
     }
     const w = this.player.walker;
+    if (isContainer(v)) {
+      // (walked off from it: the list shuts)
+      if (this.seated || Math.hypot(v.c.x - w.x, v.c.z - w.z) - Math.max(v.c.hx, v.c.hz) > 2.6) {
+        this.closeCargoList();
+        return;
+      }
+      const rows = this.containerRows(v);
+      this.listSel = Math.max(0, Math.min(this.listSel, rows.length - 1));
+      this.cargoList.show(v.name, rows, this.listSel, rows.reduce((a, r) => a + r.mass, 0), `${v.name}里的东西`, `${v.name}里什么也没有了。`, '拿出来');
+      return;
+    }
     if (this.seated || !this.vehicles.includes(v) || Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) - v.sim.spec.body.halfLength > 4 || Math.abs(v.sim.kmh) > 3) {
       this.closeCargoList();
       return;
@@ -1119,7 +1334,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const w = this.player.walker;
     // (the wrecks by the road are not one's own: they come back from the world, the touched ones as `wrecks` keeps them)
     const own = this.vehicles.filter((v) => !this.wrecks?.isWreck(v));
-    const loose: SavedLoose[] = this.loose.list.filter((l) => !(l.riding && this.wrecks?.isWreck(l.riding.on as ModVehicle))).map((l) => {
+    const loose: SavedLoose[] = this.loose.list.filter((l) => !(l.riding && this.wrecks?.isWreck(l.riding.on as ModVehicle)) && !this.places?.owns(l)).map((l) => {
       const r = l.riding;
       const on = r ? own.indexOf(r.on as ModVehicle) : -1;
       return { part: l.part ?? undefined, tool: l.tool ?? undefined, item: l.item ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray(), ...(l.stow ? { zone: l.stow } : {}), ...(l.lie ? { lie: l.lie } : {}) } : {}) };
@@ -1155,6 +1370,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
+    if (this.places) s.places = this.places.snapshot();
     return s;
   }
 
@@ -1299,6 +1515,38 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (this.focus === v) this.focus = null;
     if (this.seated === v) this.seated = null;
     v.view.dispose();
+  }
+
+  /** what the places need of the game */
+  private placesHost(): PlacesHost {
+    const game = this;
+    return {
+      get world() {
+        return game.world;
+      },
+      get origin() {
+        return game.core.origin;
+      },
+      loose: this.loose,
+      get vehicles() {
+        return game.vehicles;
+      },
+      play: (name, opts) => {
+        const f = this.sounds();
+        if (f && (FOLEY_SHOTS as readonly string[]).includes(name)) f.play(name as FoleyShot, (opts ?? {}) as FoleyOpts);
+      },
+      loop: (name, opts) => {
+        if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, (opts ?? {}) as FoleyOpts);
+      },
+      say: (text, seconds) => this.ui.say(text, seconds),
+      openContainer: (pc) => this.openContainerList(pc),
+      fuelled: (v) => {
+        v.sys.rebuild();
+        v.awake = 1;
+      },
+      makeWorkshop: (site, save) => this.makeRoadWorkshop(site, save),
+      dropWorkshop: (ws) => this.dropRoadWorkshop(ws),
+    };
   }
 
   /** what the wrecks need of the game */
@@ -1727,8 +1975,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private bindInput(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('mousedown', (e) => {
       // (the bench's blows: a click anywhere on the view strikes the next one)
-      if (this.workshop?.crafting && e.button === 0) {
-        this.workshop.strike();
+      if (this.benchWs?.crafting && e.button === 0) {
+        this.benchWs.strike();
         return;
       }
       if (!this.input.locked || this.deadT >= 0) return;
@@ -1778,7 +2026,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (!this.params.shot) this.ui.showHelp(true);
     window.addEventListener('keydown', (e) => {
       // at the bench: its list and its blows have the keys
-      if (this.workshop?.open && !e.repeat && this.workshop.key(e.code)) {
+      if (this.benchWs?.open && !e.repeat && this.benchWs.key(e.code)) {
         e.preventDefault();
         return;
       }
@@ -2133,6 +2381,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     switch (name) {
       case 'spray':
         this.loopsNow.set('spray_hiss', {});
+        return;
+      case 'pump_run':
+        this.loopFor('pump_run', 0.9);
         return;
       case 'scrub':
         this.loopsNow.set('sponge', {});
@@ -2958,10 +3209,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
     this.stepBody(dt, shift);
-    if (this.workshop) {
+    {
       const e = this.player.walker.eye(this.eyeP);
-      this.workshop.update(dt, this.wsEye.set(e.x, e.y, e.z));
-      if (this.garage) this.garage.power = this.workshop.power;
+      this.wsEye.set(e.x, e.y, e.z);
+      this.genAsked.clear();
+      for (const [, r] of this.roadShops) this.core.place(r.root, 0, 0, 0);
+      for (const w of this.allWorkshops()) w.update(dt, this.wsEye);
+      if (this.workshop && this.garage) this.garage.power = this.workshop.power;
+      // (the generators: the nearest one running is heard, else the last one's run-down)
+      let best: Parameters<ModGame['genSound']>[0] = null;
+      let bd = Infinity;
+      const cam = this.core.camera.position;
+      for (const st of this.genAsked.values()) {
+        if (!st) continue;
+        const d = st.at.distanceTo(cam);
+        if (d < bd) {
+          bd = d;
+          best = st;
+        }
+      }
+      if (this.genAsked.size) this.genSound(best);
     }
     this.stepGrime(dt);
     // the wrecks by the road: the ones within reach there, the ones far behind gone (kept as they were left)
@@ -2969,12 +3236,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.wrecks ??= new Wrecks(this.wreckHost(), this.restore?.wrecks);
       const sv = this.seated;
       this.wrecks.update(dt, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
+      // the places by the road: their containers, pumps and things lying about, while one is by them
+      this.places ??= new Places(this.placesHost(), this.restore?.places);
+      this.places.update(dt, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
+      this.siteArt?.update(dt, this.world, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
     }
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
       const down = this.deadT >= 0;
-      const listing = !!this.listV || down || !!this.workshop?.open;
+      const listing = !!this.listV || down || !!this.benchWs?.open;
       this.player.update(dt, i.lookYaw, i.lookPitch, {
         forward: listing ? 0 : i.walk.forward,
         right: listing ? 0 : i.walk.right,
@@ -3259,7 +3530,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
     }
     // at the bench: the view goes over to it (a quarter of a second), a blow shakes it a little
-    const ws = this.workshop;
+    const ws = this.benchWs;
     this.benchB += ((ws?.open ? 1 : 0) - this.benchB) * Math.min(1, dt * 12);
     if (this.benchB < 0.002) this.benchB = 0;
     if (ws && this.benchB > 0 && !this.seated) {
@@ -3277,17 +3548,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const pt = this.player.target;
     let dock: Dock | null = null;
     if (!this.seated && pt?.kind === 'filler' && pt.open && pt.v.view.fillerMouth(pt.liquid, this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
-    else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
+    else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow && !pt.port.pump ? 1 : 0 };
     const sc = this.player.scrub;
     this.heldThing.pin(!this.seated && sc?.hit ? this.scrubPose(sc, cam) : null);
     this.heldThing.aimSpray(!this.seated && this.player.spraying ? this.player.spraying.aim.point : null);
     this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit' && this.benchB < 0.05, this.player.walker.sway, 0, dock);
     this.showScrub(cam);
     this.stepSpray(dt);
-    this.workshop?.frame();
+    for (const w of this.allWorkshops()) w.frame();
     // the liquid itself, from the spout into the mouth once the can is tipped over
     const flow = this.player.flow;
-    const tip = flow && dock && this.player.lastMoved > 0 && this.heldThing.pouring > 0.7 ? this.heldThing.spoutWorld(this.spoutV) : null;
+    const atPump = pt?.kind === 'tank' && !!pt.port.pump;
+    const tip = flow && dock && this.player.lastMoved > 0 && (this.heldThing.pouring > 0.7 || atPump) ? this.heldThing.spoutWorld(this.spoutV) : null;
     this.stream.update(dt, tip, this.dockMouth, this.liquidColour(this.player.held), flow?.dir === 'out' ? -1 : 1);
     this.icons?.pump();
     // in the seat: the mark on the cab's controls (the one it is on lights up)
@@ -3501,7 +3773,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open && !this.workshop?.open && this.deadT < 0);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0);
     this.updateMarker();
   }
 
@@ -3853,6 +4125,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       vehicles: this.vehicles.map((x) => ({ frame: x.build.frame, parts: Object.keys(x.build.parts).length, running: x.sys.running, x: x.sim.px, z: x.sim.pz })),
       loose: this.loose.list.length,
       wrecks: this.wreckTelemetry(),
+      places: this.places?.telemetry() ?? null,
+      siteArt: this.siteArt?.telemetry() ?? null,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),

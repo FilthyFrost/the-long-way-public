@@ -103,7 +103,7 @@ export class WorldView {
   private readonly group = new THREE.Group();
   private sCam = 0;
   /** the sites' objects not drawn here, the game making them things of their own (ModCar's wrecks: vehicles) */
-  skipObject: ((o: SiteObject) => boolean) | null = null;
+  skipObject: ((o: SiteObject, site: Site) => boolean) | null = null;
   /** longest single build so far this session (ms): a proxy for streaming hitches */
   maxBuildMs = 0;
   totalBuilds = 0;

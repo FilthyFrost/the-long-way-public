@@ -31,6 +31,9 @@ import { BiomeBlend, SpineSample } from './spine';
 import type { TerrainPoint, World } from './terrain';
 import type { Lake, River } from './water';
 
+/** how likely a stretch is to have a place, one, two, three or more stretches after the last (WorldOptions.placeOdds) */
+const PLACE_ODDS: readonly [number, number, number] = [0.2, 0.45, 0.8];
+
 /** metres of road per stretch (the same as a water slot and a landform) */
 export const SITE_SLOT = LAND_SLOT;
 /** the levelled ground starts where the shoulder ends (terrain.ts ROAD_EDGE) */
@@ -306,6 +309,8 @@ export class SitePlan implements SolidSource {
   /** list[k] = what slot k holds: the place (if any) first, then the verge's odds and ends; filled in order */
   private readonly list: Site[][] = [];
   private readonly places: (Site | null)[] = [];
+  /** a second place in a slot that has one (WorldOptions.secondPlace: ModCar's), well away from the first */
+  private readonly seconds: (Site | null)[] = [];
   private readonly byId = new Map<string, Site>();
   private readonly seed: number;
   private growing = false;
@@ -379,7 +384,13 @@ export class SitePlan implements SolidSource {
   padWeight(s: number, d: number): number {
     const k = Math.floor(s / SITE_SLOT);
     if (k < 0 || k >= this.places.length) return 0;
-    const p = this.places[k];
+    const a = this.padOf(this.places[k], s, d);
+    if (a > 0) return a;
+    return this.padOf(this.seconds[k] ?? null, s, d);
+  }
+
+  /** padWeight of one place's levelled ground */
+  private padOf(p: Site | null, s: number, d: number): number {
     if (!p || p.depth <= 0) return 0;
     const dd = d * p.side;
     if (dd <= 0 || dd >= p.depth + p.skirt) return 0;
@@ -445,6 +456,7 @@ export class SitePlan implements SolidSource {
     // (pushed before it is built: the land, asked about this slot meanwhile, finds nothing levelled yet)
     this.list.push(here);
     this.places.push(null);
+    this.seconds.push(null);
     const r = new Rng(hash2(k, 0x51e0, this.seed));
     const place = k >= 1 ? this.makePlace(k, r) : null;
     if (place) {
@@ -462,7 +474,11 @@ export class SitePlan implements SolidSource {
     // stays what it was.
     const extra = place ? null : this.makeWorks(k);
     if (extra) here.push(extra);
-    for (const v of this.makeVerge(k, place ?? extra, new Rng(hash2(k, 0x51e1, this.seed)))) here.push(v);
+    // (ModCar: a second place in a stretch that has one, well away from it — dice of their own, so that the
+    // first place and the verges are what they would be without it)
+    const second = place && this.world.secondPlace > 0 ? this.makeSecond(k, place, new Rng(hash2(k, 0x51e2, this.seed))) : null;
+    if (second) here.push(second);
+    for (const v of this.makeVerge(k, place ?? extra, new Rng(hash2(k, 0x51e1, this.seed)), second)) here.push(v);
     for (const site of here) this.byId.set(site.id, site);
   }
 
@@ -502,7 +518,8 @@ export class SitePlan implements SolidSource {
     // (not every lake has its jetty: two in five; the others keep their shores to themselves)
     else if (lake && this.shoreGap(lake) < 60 && r.next() < 0.42) kind = 'jetty';
     else {
-      const p = this.sincePlace === 0 ? 0.2 : this.sincePlace === 1 ? 0.45 : 0.8;
+      const po = this.world.placeOdds ?? PLACE_ODDS;
+      const p = this.sincePlace === 0 ? po[0] : this.sincePlace === 1 ? po[1] : po[2];
       if (r.next() >= p) return null;
       kind = 'camp';
       for (let tries = 0; tries < 4; tries++) {
@@ -522,6 +539,28 @@ export class SitePlan implements SolidSource {
     if (site) return site;
     // no room for it as drawn: a lay-by with a few crates may still fit
     return kind !== 'camp' ? this.tryPlace(k, 'camp', null, r) : null;
+  }
+
+  /**
+   * A second place in slot k (ModCar's), of another kind than the first and never a filling station, a jetty or a
+   * lookout, at least 300 m beyond the first's levelled ground; null when the dice say no or there is no room
+   */
+  private makeSecond(k: number, first: Site, r: Rng): Site | null {
+    const world = this.world;
+    if (r.next() >= world.secondPlace) return null;
+    const land = world.land.kindOf(k);
+    if (land === 'canyon' || world.quiet(k)) return null;
+    const water = world.water.feature(k);
+    if (water && water.kind === 'river') return null;
+    const odds = ODDS[this.biomeId((k + 0.5) * SITE_SLOT)] ?? ODDS.plains;
+    let kind: SiteKind = 'camp';
+    for (let tries = 0; tries < 6; tries++) {
+      const pick = PICKS[r.weighted(odds)];
+      if (pick === 'station' || pick === 'lookout' || pick === first.kind) continue;
+      kind = pick;
+      break;
+    }
+    return this.tryPlace(k, kind, null, r, null, first) ?? (kind !== 'camp' && first.kind !== 'camp' ? this.tryPlace(k, 'camp', null, r, null, first) : null);
   }
 
   /**
@@ -548,7 +587,7 @@ export class SitePlan implements SolidSource {
     return Math.abs(-dx * l.az + dz * l.ax) - l.b;
   }
 
-  private tryPlace(k: number, kind: SiteKind, lake: Lake | null, r: Rng, coast: CoastRun | null = null): Site | null {
+  private tryPlace(k: number, kind: SiteKind, lake: Lake | null, r: Rng, coast: CoastRun | null = null, avoid: Site | null = null): Site | null {
     const world = this.world;
     const land = world.land.kindOf(k);
     const pad = PADS[kind];
@@ -568,11 +607,12 @@ export class SitePlan implements SolidSource {
         W = Math.max(9, Math.min(W, this.shoreGap(lake) - 10));
         skirt = 8;
       }
-      const fit = this.fit(k, L, W, skirt, kind === 'jetty' ? lake : null, only, wantSide, kind === 'jetty' || coast ? 7.5 : 5, r, coast);
+      const fit = this.fit(k, L, W, skirt, kind === 'jetty' ? lake : null, only, wantSide, kind === 'jetty' || coast ? 7.5 : 5, r, coast, avoid);
       if (!fit) continue;
-      const site = this.open(k, kind, fit, L, W, skirt, r);
+      const site = this.open(k, kind, fit, L, W, skirt, r, avoid ? 'q' : null);
       // (from here on the land of this slot is levelled: heights asked now are the heights things stand on)
-      this.places[k] = site;
+      if (avoid) this.seconds[k] = site;
+      else this.places[k] = site;
       this.furnish(site, lake, r);
       this.finish(site);
       return site;
@@ -585,7 +625,7 @@ export class SitePlan implements SolidSource {
    * straight, nearly level road, no bridge, no water, and land that need not be cut or filled
    * much to meet it. The best of twelve places (with a little chance, so it is not always the flattest).
    */
-  private fit(k: number, L: number, W: number, skirt: number, lake: Lake | null, only: number, wantSide: number, maxCut: number, r: Rng, coast: CoastRun | null = null): Fit | null {
+  private fit(k: number, L: number, W: number, skirt: number, lake: Lake | null, only: number, wantSide: number, maxCut: number, r: Rng, coast: CoastRun | null = null, avoid: Site | null = null): Fit | null {
     const world = this.world;
     const sp = world.spine;
     const tp = this.tp;
@@ -605,6 +645,8 @@ export class SitePlan implements SolidSource {
       // (a jetty stands where the lake comes nearest the road: about the middle of its length)
       if (lake) sc = Math.max(lo, Math.min(hi, lake.s + lake.a * 0.05 * (c - 5.5)));
       else sc = lo + (hi - lo) * ((c + r.next()) / 12);
+      // (a second place in the slot: well away from the first)
+      if (avoid && Math.abs(sc - avoid.s) < avoid.halfL + L + 300) continue;
       // ---- the road there
       let bend = 0;
       let slope = 0;
@@ -665,11 +707,11 @@ export class SitePlan implements SolidSource {
   }
 
   /** a site anchored at a road point, with its frame */
-  private open(k: number, kind: SiteKind, fit: Fit, L: number, W: number, skirt: number, r: Rng): Site {
+  private open(k: number, kind: SiteKind, fit: Fit, L: number, W: number, skirt: number, r: Rng, tag: string | null = null): Site {
     const site = new Site();
     site.slot = k;
     site.kind = kind;
-    site.id = `site${k}${kind === 'roadside' ? 'v' : 'p'}`;
+    site.id = `site${k}${tag ?? (kind === 'roadside' ? 'v' : 'p')}`;
     site.seed = r.nextU32();
     site.biome = this.biomeId(fit.s);
     site.s = fit.s;
@@ -1259,7 +1301,7 @@ export class SitePlan implements SolidSource {
    * What lies about on the verges of slot k: wrecks and crates, clear of the place if there is
    * one. Each wreck and each heap of crates is a small site of its own, anchored at its road point.
    */
-  private makeVerge(k: number, place: Site | null, r: Rng): Site[] {
+  private makeVerge(k: number, place: Site | null, r: Rng, second: Site | null = null): Site[] {
     const world = this.world;
     const sp = world.spine;
     const tp = this.tp;
@@ -1268,6 +1310,7 @@ export class SitePlan implements SolidSource {
     /** a free spot on the verge: null when the dice land on a bridge, in water, on a steep bank, or on the place */
     const spot = (s: number, off: number): Site | null => {
       if (place && Math.abs(s - place.s) < place.halfL + 70) return null;
+      if (second && Math.abs(s - second.s) < second.halfL + 70) return null;
       world.water.bridgeAt(s - 14, this.br);
       if (this.br.mask > 0) return null;
       world.water.bridgeAt(s + 14, this.br);

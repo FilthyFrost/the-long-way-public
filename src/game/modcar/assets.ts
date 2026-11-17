@@ -294,6 +294,17 @@ export function itemGlb(model: string): Promise<Model | null> {
 }
 
 const machines = new Map<string, Promise<Model | null>>();
+const places = new Map<string, Promise<Model | null>>();
+
+/** a model of the places by the road (public/models/modcar/places/<name>.glb, tools/blender/places), null if there is none */
+export function placeGlb(name: string): Promise<Model | null> {
+  let p = places.get(name);
+  if (!p) {
+    p = fetchGlb(`${BASE}places/${name}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    places.set(name, p);
+  }
+  return p;
+}
 /** a workshop machine's model (public/models/modcar/machines/<id>.glb: the generator, the recycler, the bench), null if there is none yet */
 export function machineGlb(id: string): Promise<Model | null> {
   let p = machines.get(id);

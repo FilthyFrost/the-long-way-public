@@ -9,7 +9,7 @@ import { BIOMES } from '../../core/world/biomes';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { newItem } from '../../core/modcar/items';
 import { zonesOf } from '../../core/modcar/cargo';
-import { heldOf } from './player';
+import { heldName, heldOf } from './player';
 import type { Loose } from './loose';
 import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
@@ -635,6 +635,41 @@ const rt = {
   devExport: () => tune.export(game.devTools.context()).text,
   /** pieces of the world still to build round the camera */
   worldPending: () => game.worldView?.pending ?? -1,
+  /**
+   * The world's places anchored within [s0, s1] of the road (of a kind, or any but the verges): their containers
+   * (with the side to stand at, the front: −v of the sites' frame) and pumps
+   */
+  placeSites: (s0: number, s1: number, kind = '') => {
+    if (!game.world) return [];
+    const out: import('../../core/world/sites').Site[] = [];
+    game.world.sites.between(s0, s1, out);
+    return out
+      .filter((x) => (kind ? x.kind === kind : x.kind !== 'roadside'))
+      .map((x) => ({
+        id: x.id,
+        kind: x.kind,
+        s: x.s,
+        x: x.x,
+        z: x.z,
+        containers: x.containers.map((c) => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, z: c.z, h: c.solid ? c.h : 1, hz: c.hz, solid: c.solid, from: Math.atan2(-Math.cos(c.yaw), Math.sin(c.yaw)) })),
+        pumps: x.objects.filter((o) => o.kind === 'pump').map((o) => ({ x: o.x, y: o.y, z: o.z, d: o.d, from: Math.atan2(-Math.cos(o.yaw), Math.sin(o.yaw)) })),
+        loose: x.loose.length,
+      }));
+  },
+  /** the places there now (places.ts) */
+  places: () => JSON.parse(JSON.stringify(game.places?.telemetry() ?? null)) as unknown,
+  /** what the list shows now (a container's: its name and rows; null: shut) */
+  listOpen: () => {
+    const g = game as unknown as { listV: unknown; containerRows?: (pc: unknown) => { name: string }[] };
+    const v = g.listV as { kind?: string; name?: string; contents?: unknown[] } | null;
+    if (!v) return null;
+    return v.kind === 'container' ? { container: v.name ?? '', n: v.contents?.length ?? 0 } : { other: true };
+  },
+  take: () => {
+    game.takeFromList();
+    game.simulate(0);
+    return game.player.held ? heldName(game.player.held) : null;
+  },
   /** the wrecks about (wrecks.ts): how many there, kept, taken, and each one there */
   wrecks: () => JSON.parse(JSON.stringify(game.wreckTelemetry())) as unknown,
   /** the world's wrecks anchored within [s0, s1] of the road, each with what it is (its roll) */

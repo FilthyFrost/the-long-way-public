@@ -1373,12 +1373,12 @@ const ONE = new THREE.Vector3(1, 1, 1);
  * The mesh of one site, in pieces: a few objects at a time so that no frame waits for a whole
  * filling station. Geometry is relative to the site's anchor (site.x, site.y, site.z).
  */
-export function* siteSlices(site: Site, skip?: (o: SiteObject) => boolean): Slices<THREE.BufferGeometry> {
+export function* siteSlices(site: Site, skip?: (o: SiteObject, site: Site) => boolean): Slices<THREE.BufferGeometry> {
   const b = new PaintBuilder();
   for (let i = 0; i < site.objects.length; i++) {
     const o = site.objects[i];
     // (what the game draws as a thing of its own: ModCar's wrecks are vehicles)
-    if (skip?.(o)) continue;
+    if (skip?.(o, site)) continue;
     // object frame → world: x along (cos yaw, sin yaw), z across; a wreck's lean on top
     E.set(o.roll, -o.yaw, o.pitch, 'YZX');
     Q.setFromEuler(E);

@@ -39,6 +39,8 @@ export interface GarageDevice {
   take?(held: NonNullable<Held>): { ok: boolean; word: Text } | null;
   /** E with it in the hands, take() saying ok: the device has it now */
   useWith?(held: NonNullable<Held>): void;
+  /** where along the line of sight (render space) it is met, null: missed (a box of its own: a cupboard, a pump); absent: the point and radius */
+  hit?(ray: THREE.Ray, reach: number): number | null;
 }
 
 /** what a garage may look at and touch each frame: its devices work on the things in it */

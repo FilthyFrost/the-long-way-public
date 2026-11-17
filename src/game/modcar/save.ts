@@ -13,6 +13,7 @@ import type { Vitals } from '../../core/modcar/vitals';
 import type { Stock } from '../../core/modcar/crafting';
 import type { WorkshopSave } from './workshop';
 import type { WrecksSave } from './wrecks';
+import type { PlacesSave } from './places';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance } from '../../core/modcar/types';
@@ -75,6 +76,8 @@ export interface SaveV1 {
   seat?: number;
   /** the wrecks by the road (docs/MODCAR.md §19): the ones kept as they were left, by id; the ones taken (vehicles of one's own now) */
   wrecks?: WrecksSave;
+  /** the places by the road (§20): the containers searched and what is left in them, the pumps' litres, the things taken */
+  places?: PlacesSave;
 }
 
 const KEY = 'modcar.save.v1';
@@ -90,6 +93,10 @@ function check(s: SaveV1): void {
     for (const i of Object.values(v.build.parts)) inst(i);
   }
   for (const w of Object.values(s.wrecks?.kept ?? {})) for (const l of w.loose) if (l.part) inst(l.part);
+  for (const list of Object.values(s.places?.left ?? {})) for (const t of list) {
+    if (t.part) inst(t.part);
+    if (t.item) itemDef(t.item.item);
+  }
   for (const l of s.loose) if (l.part) inst(l.part);
   for (const h of s.hands ?? []) if (h?.part) inst(h.part);
   for (const x of [...s.loose, ...(s.hands ?? [])]) if (x?.item) itemDef(x.item.item);
@@ -115,7 +122,7 @@ export function loadSave(): SaveV1 | null {
       ids.push(v.build.uid);
       for (const i of Object.values(v.build.parts)) inst(i);
     }
-    const riders = kept.flatMap((w) => w.loose);
+    const riders = [...kept.flatMap((w) => w.loose), ...Object.values(s.places?.left ?? {}).flat()];
     for (const l of [...s.loose, ...riders]) if (l.part) inst(l.part);
     for (const h of s.hands ?? []) if (h?.part) inst(h.part);
     reserveUids(ids);

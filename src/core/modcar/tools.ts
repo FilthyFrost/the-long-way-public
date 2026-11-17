@@ -267,6 +267,24 @@ export function pour(t: Tool, build: Build, dt: number): number {
   return 0;
 }
 
+/** the room left in a vehicle's fuel tank (L); null: it has none */
+export function tankRoomOf(build: Build): number | null {
+  const tank = instOf(build, 'fuelTank');
+  if (!tank) return null;
+  return Math.max(0, partDef(tank.part).fuelTank!.litres - fuelIn(tank));
+}
+
+/** so many litres of a fuel straight into a vehicle's tank (a filling station's pump): what went in */
+export function pumpInto(build: Build, fuel: FuelType, litres: number): number {
+  const tank = instOf(build, 'fuelTank');
+  if (!tank || !(litres > 0)) return 0;
+  const l = Math.min(litres, partDef(tank.part).fuelTank!.litres - fuelIn(tank));
+  if (l <= 0) return 0;
+  const f = (tank.fluids.fuel ??= {});
+  f[fuel] = (f[fuel] ?? 0) + l;
+  return l;
+}
+
 /** how fast liquid is drawn back out into a can (a share of how fast it pours) */
 export const SIPHON_RATE = 0.7;
 

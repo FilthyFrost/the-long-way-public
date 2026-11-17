@@ -10,9 +10,19 @@ import type { Land } from '../../core/onfoot/land';
 import type { TerrainPoint, World, WorldOptions } from '../../core/world/terrain';
 import { onPlot, ROAD_START_X, YARD_PLOT } from './garageOutdoors';
 
+/**
+ * How likely a stretch of road (1.25 km) is to have a place by it, one, two, three or more stretches after the last
+ * (sites.ts): a place most stretches, the next one seldom more than a stretch on (Arctic Drive's buildings come every
+ * few hundred metres; the old game's one every three kilometres or so)
+ */
+export const MODCAR_PLACE_ODDS: readonly [number, number, number] = [0.62, 0.88, 1];
+
+/** … and a second place in most stretches that have one */
+export const MODCAR_SECOND_PLACE = 0.8;
+
 /** ModCar's world: the road begins at the workshop's gate, level with its yard, and the yard is a plot of its land */
 export function modcarWorldOptions(o: { chapterScale?: number; startBiome?: string }): WorldOptions {
-  return { ...o, start: { x: ROAD_START_X, z: 0, y: 0 }, deadEnd: true, plots: [YARD_PLOT] };
+  return { ...o, start: { x: ROAD_START_X, z: 0, y: 0 }, deadEnd: true, plots: [YARD_PLOT], placeOdds: MODCAR_PLACE_ODDS, secondPlace: MODCAR_SECOND_PLACE };
 }
 
 /** the wheels' ground: the garage's on its plot, the world's beyond */

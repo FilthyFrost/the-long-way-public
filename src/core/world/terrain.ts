@@ -98,6 +98,16 @@ export interface WorldOptions extends SpineOptions {
    */
   deadEnd?: boolean;
   plots?: readonly Plot[];
+  /**
+   * How likely a stretch is to have a place by the road, one stretch, two, three or more after the last one
+   * (sites.ts; default 0.2, 0.45, 0.8). ModCar's are higher: Arctic Drive's buildings come every few hundred metres.
+   */
+  placeOdds?: readonly [number, number, number];
+  /**
+   * How likely a stretch with a place is to have a second one too, well away from the first (sites.ts; default
+   * none). ModCar's: most of them.
+   */
+  secondPlace?: number;
 }
 
 /** how fully (x, z) lies on a plot: 1 within its box, falling off smoothly over its skirt */
@@ -181,11 +191,17 @@ export class World implements Ground {
   /** the road ends at its start (WorldOptions.deadEnd) */
   readonly deadEnd: boolean;
   readonly plots: readonly Plot[];
+  /** WorldOptions.placeOdds (null: the old game's) */
+  readonly placeOdds: readonly [number, number, number] | null;
+  /** WorldOptions.secondPlace (0: none) */
+  readonly secondPlace: number;
 
   constructor(seed: number, opts: WorldOptions = {}) {
     this.seed = seed | 0;
     this.deadEnd = !!opts.deadEnd;
     this.plots = opts.plots ?? [];
+    this.placeOdds = opts.placeOdds ?? null;
+    this.secondPlace = opts.secondPlace ?? 0;
     this.spine = new RoadSpine(seed, opts);
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
