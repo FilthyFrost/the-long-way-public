@@ -118,7 +118,6 @@ const ENGINES: PartDef[] = [
     name: { zh: '直列四缸 1.3', en: 'Inline-four 1.3' },
     mass: 115,
     carry: 'large',
-    installS: 3,
     tags: ['stock:sedan'],
     engine: {
       curve: [
@@ -152,7 +151,6 @@ const ENGINES: PartDef[] = [
     name: { zh: '直列四缸柴油 2.4', en: 'Diesel four 2.4' },
     mass: 185,
     carry: 'large',
-    installS: 3.2,
     tags: ['stock:pickup'],
     engine: {
       curve: [
@@ -186,7 +184,6 @@ const ENGINES: PartDef[] = [
     name: { zh: '水平对置六缸 2.7', en: 'Flat-six 2.7' },
     mass: 160,
     carry: 'large',
-    installS: 3,
     engine: {
       curve: [
         [900, 140],
@@ -220,7 +217,6 @@ const ENGINES: PartDef[] = [
     name: { zh: 'V8 5.0', en: 'V8 5.0' },
     mass: 235,
     carry: 'large',
-    installS: 3.6,
     engine: {
       curve: [
         [700, 280],
@@ -253,7 +249,6 @@ const ENGINES: PartDef[] = [
     name: { zh: '大柴油直六 6.0', en: 'Big diesel six 6.0' },
     mass: 470,
     carry: 'large',
-    installS: 4.5,
     tags: ['stock:rv'],
     engine: {
       curve: [
@@ -362,20 +357,20 @@ const CAB: PartDef[] = [
 // ------------------------------------------------------------------ the body
 
 const BODY: PartDef[] = [
-  P({ id: 'door_stock', cat: 'door', name: { zh: '车门', en: 'Door' }, mass: 22, carry: 'large', installS: 1.8, tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: true } }),
-  P({ id: 'door_rusty', cat: 'door', name: { zh: '锈补丁车门', en: 'Patched rusty door' }, mass: 24, carry: 'large', installS: 1.8, tags: ['apoc'], panel: { style: 'rusty', armor: 0.05, drag: 0.01, window: true } }),
-  P({ id: 'door_armor', cat: 'door', name: { zh: '装甲车门', en: 'Armoured door' }, mass: 48, carry: 'large', installS: 2.4, tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: true } }),
-  P({ id: 'door_cage', cat: 'door', name: { zh: '铁丝网车门', en: 'Wire-cage door' }, mass: 18, carry: 'large', installS: 1.8, tags: ['apoc'], panel: { style: 'cage', armor: 0.2, drag: 0.03, window: false } }),
-  P({ id: 'door_fridge', cat: 'door', name: { zh: '冰箱门', en: 'Fridge door' }, mass: 30, carry: 'large', installS: 2, tags: ['meme'], panel: { style: 'fridge', armor: 0.3, drag: 0.02, window: false } }),
-  P({ id: 'hood_stock', cat: 'hood', name: { zh: '引擎盖', en: 'Bonnet' }, mass: 14, carry: 'large', installS: 1.6, tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
-  P({ id: 'hood_scoop', cat: 'hood', name: { zh: '进气口引擎盖', en: 'Scoop bonnet' }, mass: 15, carry: 'large', installS: 1.6, panel: { style: 'stock', armor: 0.1, drag: 0.03, window: false, cooling: 0.15 } }),
-  P({ id: 'hood_armor', cat: 'hood', name: { zh: '装甲引擎盖', en: 'Armoured bonnet' }, mass: 30, carry: 'large', installS: 2.2, tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
-  P({ id: 'trunk_stock', cat: 'trunk', name: { zh: '尾箱盖', en: 'Boot lid' }, mass: 10, carry: 'large', installS: 1.4, tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
-  P({ id: 'trunk_armor', cat: 'trunk', name: { zh: '装甲尾箱盖', en: 'Armoured boot lid' }, mass: 24, carry: 'large', installS: 2, tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
+  P({ id: 'door_stock', cat: 'door', name: { zh: '车门', en: 'Door' }, mass: 22, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: true } }),
+  P({ id: 'door_rusty', cat: 'door', name: { zh: '锈补丁车门', en: 'Patched rusty door' }, mass: 24, carry: 'large', tags: ['apoc'], panel: { style: 'rusty', armor: 0.05, drag: 0.01, window: true } }),
+  P({ id: 'door_armor', cat: 'door', name: { zh: '装甲车门', en: 'Armoured door' }, mass: 48, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: true } }),
+  P({ id: 'door_cage', cat: 'door', name: { zh: '铁丝网车门', en: 'Wire-cage door' }, mass: 18, carry: 'large', tags: ['apoc'], panel: { style: 'cage', armor: 0.2, drag: 0.03, window: false } }),
+  P({ id: 'door_fridge', cat: 'door', name: { zh: '冰箱门', en: 'Fridge door' }, mass: 30, carry: 'large', tags: ['meme'], panel: { style: 'fridge', armor: 0.3, drag: 0.02, window: false } }),
+  P({ id: 'hood_stock', cat: 'hood', name: { zh: '引擎盖', en: 'Bonnet' }, mass: 14, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
+  P({ id: 'hood_scoop', cat: 'hood', name: { zh: '进气口引擎盖', en: 'Scoop bonnet' }, mass: 15, carry: 'large', panel: { style: 'stock', armor: 0.1, drag: 0.03, window: false, cooling: 0.15 } }),
+  P({ id: 'hood_armor', cat: 'hood', name: { zh: '装甲引擎盖', en: 'Armoured bonnet' }, mass: 30, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
+  P({ id: 'trunk_stock', cat: 'trunk', name: { zh: '尾箱盖', en: 'Boot lid' }, mass: 10, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
+  P({ id: 'trunk_armor', cat: 'trunk', name: { zh: '装甲尾箱盖', en: 'Armoured boot lid' }, mass: 24, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
   P({ id: 'bf_stock', cat: 'bumperFront', name: { zh: '前保险杠', en: 'Front bumper' }, mass: 9, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], bumper: { ram: 0.2, drag: 0 } }),
   P({ id: 'bf_bullbar', cat: 'bumperFront', name: { zh: '防撞杠', en: 'Bull bar' }, mass: 22, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.55, drag: 0.05 } }),
-  P({ id: 'bf_ram', cat: 'bumperFront', name: { zh: '尖刺撞角', en: 'Spiked ram' }, mass: 38, carry: 'large', stretch: true, installS: 2.6, tags: ['apoc'], bumper: { ram: 0.85, drag: 0.08 } }),
-  P({ id: 'bf_plow', cat: 'bumperFront', name: { zh: '推雪铲', en: 'Snow plough' }, mass: 65, carry: 'large', stretch: true, installS: 3, tags: ['apoc'], bumper: { ram: 0.7, drag: 0.25, plow: true } }),
+  P({ id: 'bf_ram', cat: 'bumperFront', name: { zh: '尖刺撞角', en: 'Spiked ram' }, mass: 38, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.85, drag: 0.08 } }),
+  P({ id: 'bf_plow', cat: 'bumperFront', name: { zh: '推雪铲', en: 'Snow plough' }, mass: 65, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.7, drag: 0.25, plow: true } }),
   P({ id: 'br_stock', cat: 'bumperRear', name: { zh: '后保险杠', en: 'Rear bumper' }, mass: 8, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], bumper: { ram: 0.2, drag: 0 } }),
   P({ id: 'br_spikes', cat: 'bumperRear', name: { zh: '尖刺后杠', en: 'Spiked rear bar' }, mass: 20, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.6, drag: 0.05 } }),
   P({ id: 'hl_round', cat: 'headlight', name: { zh: '圆大灯', en: 'Round headlamp' }, mass: 1.5, carry: 'small', tags: ['stock:sedan', 'stock:moto'], lamp: { light: 1, reach: 1, watts: 55 } }),
@@ -389,8 +384,8 @@ const BODY: PartDef[] = [
   P({ id: 'roof_lightbar', cat: 'roof', name: { zh: '车顶灯排', en: 'Light bar' }, mass: 9, carry: 'large', stretch: true, tags: ['apoc'], roof: { drag: 0.06, lightW: 200 } }),
   P({ id: 'roof_solar', cat: 'roof', name: { zh: '太阳能板', en: 'Solar panel' }, mass: 20, carry: 'large', stretch: true, tags: ['stock:rv'], roof: { drag: 0.05, solarW: 250 } }),
   P({ id: 'roof_spikes', cat: 'roof', name: { zh: '车顶尖刺', en: 'Roof spikes' }, mass: 25, carry: 'large', stretch: true, tags: ['apoc'], roof: { drag: 0.08, ram: 0.3 } }),
-  P({ id: 'arm_plates', cat: 'armor', name: { zh: '钢板装甲', en: 'Steel plates' }, mass: 60, carry: 'large', stretch: true, installS: 2.8, tags: ['apoc'], armor: { armor: 0.6, drag: 0.02 } }),
-  P({ id: 'arm_planks', cat: 'armor', name: { zh: '木板装甲', en: 'Plank armour' }, mass: 25, carry: 'large', stretch: true, installS: 2.2, tags: ['apoc'], armor: { armor: 0.3, drag: 0.03 } }),
+  P({ id: 'arm_plates', cat: 'armor', name: { zh: '钢板装甲', en: 'Steel plates' }, mass: 60, carry: 'large', stretch: true, tags: ['apoc'], armor: { armor: 0.6, drag: 0.02 } }),
+  P({ id: 'arm_planks', cat: 'armor', name: { zh: '木板装甲', en: 'Plank armour' }, mass: 25, carry: 'large', stretch: true, tags: ['apoc'], armor: { armor: 0.3, drag: 0.03 } }),
 ];
 
 export const PARTS: readonly PartDef[] = [...ENGINES, ...DRIVETRAIN, ...WHEELS, ...CAB, ...BODY];
@@ -411,7 +406,16 @@ export function partsOf(cat: Category): PartDef[] {
   return PARTS.filter((p) => p.cat === cat);
 }
 
-/** seconds it takes to fit or take off a part (by how it is carried unless the part says) */
+/**
+ * Seconds it takes to fit or take off a part: never more than a second (waiting longer is no fun). By how
+ * it is carried - small 0.3, medium 0.5, large 0.7 - and an engine of 100 kg or more from 0.8 up to 1.0
+ * with its weight (the D6 diesel takes the whole second). A part may say less.
+ */
 export function installSeconds(p: PartDef): number {
-  return p.installS ?? (p.carry === 'small' ? 0.5 : p.carry === 'medium' ? 1.2 : 2.2);
+  const byCarry = p.carry === 'small' ? 0.3 : p.carry === 'medium' ? 0.5 : 0.7;
+  const s = p.cat === 'engine' && p.mass >= 100 ? 0.8 + 0.2 * Math.min(1, (p.mass - 100) / 370) : byCarry;
+  return Math.min(1, p.installS ?? s);
 }
+
+/** seconds to put a tyre on a rim or take it off by hand (lying about) */
+export const TYRE_SWAP_S = 0.5;

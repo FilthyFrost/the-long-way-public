@@ -12,7 +12,7 @@
 import { frameVariant } from './assets';
 import * as THREE from 'three';
 import { fitPart, fitSub, mountsFor, removePart, removeSub, subMountsOf } from '../../core/modcar/build';
-import { installSeconds, partDef } from '../../core/modcar/parts';
+import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { PALETTE } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
 import { liquidOf, pour, siphon, siphonUse, TOOL_INFO, toolName, toolUse, workSurface, type LiquidKind, type Tool } from '../../core/modcar/tools';
@@ -61,6 +61,11 @@ export interface PlayerHost {
   iconOf(h: NonNullable<Held>): string | null;
 }
 
+/** what F takes off a part lying about: its tyre (a wheel), else its turbo (an engine) */
+function subOff(l: Loose): 'tire' | 'turbo' | null {
+  return l.part?.sub.tire ? 'tire' : l.part?.sub.turbo ? 'turbo' : null;
+}
+
 const REACH = 2.6;
 /** the card of what the mark is on shows only this close (m): from further off it would stand in the way of the view */
 const CARD_NEAR = 2.2;
@@ -100,6 +105,11 @@ export class ModPlayer {
   private progressKey = '';
   private surfaceT = 0;
   private dropT = 0;
+  /**
+   * A fit or a take-off just finished with the button still down: nothing more until it is let go (with
+   * holds this short, a button held on would put the part on, the old one back, and so on)
+   */
+  private spent = false;
   /** the buttons */
   primary = false;
   secondary = false;
@@ -298,10 +308,11 @@ export class ModPlayer {
           }
         }
       }
-      // a tyre onto a rim lying about
-      if (sub === 'tire') {
-        const r = this.host.loose.pick(this.eye, this.dir, REACH, (l) => !!l.part && !!partDef(l.part.part).rim?.tire && !l.part.sub.tire);
-        if (r && (!best || r.dist < best.dist)) best = { kind: 'looseSub', loose: r.loose, sub: 'tire', dist: r.dist };
+      // a tyre onto a rim lying about, a turbo onto an engine lying about
+      if (sub === 'tire' || sub === 'turbo') {
+        const takes = (l: Loose): boolean => !!l.part && !l.part.sub[sub] && (sub === 'tire' ? !!partDef(l.part.part).rim?.tire : !!partDef(l.part.part).engine?.turbo);
+        const r = this.host.loose.pick(this.eye, this.dir, REACH, takes);
+        if (r && (!best || r.dist < best.dist)) best = { kind: 'looseSub', loose: r.loose, sub, dist: r.dist };
       }
       // the ghost one aims at is under a shut lid: the lid itself is what E does (open it first)
       const g = best as Target | null;
@@ -489,6 +500,7 @@ export class ModPlayer {
 
   private act(dt: number, dropKey: boolean): void {
     this.lastMoved = 0;
+    if (!this.primary && !this.secondary) this.spent = false;
     const t = this.target;
     const key = this.keyOf(t);
     const host = this.host;
@@ -560,14 +572,16 @@ export class ModPlayer {
     const held = this.held;
     if (!t) return;
     if ((t.kind === 'ghost' || t.kind === 'looseSub') && held?.kind === 'part' && this.primary) {
+      if (this.spent) return;
       if (t.kind === 'ghost' && (moving(t.v) || t.v.view.shutOver(t.mount.id))) {
         this.progress = 0;
         return;
       }
-      const need = installSeconds(partDef(held.inst.part));
+      const need = t.kind === 'looseSub' && t.sub === 'tire' ? TYRE_SWAP_S : installSeconds(partDef(held.inst.part));
       this.progress += dt / need;
       if (this.progress >= 1) {
         this.progress = 0;
+        this.spent = true;
         if (t.kind === 'ghost') this.fit(t.v, t.mount, t.sub, held.inst);
         else {
           fitSub(t.loose.part!, t.sub, held.inst);
@@ -582,6 +596,7 @@ export class ModPlayer {
       return;
     }
     if (t.kind === 'part' && !held && this.secondary) {
+      if (this.spent) return;
       if (moving(t.v) || t.v.view.shutOver(t.mount.id)) {
         this.progress = 0;
         return;
@@ -590,6 +605,7 @@ export class ModPlayer {
       this.progress += dt / need;
       if (this.progress >= 1) {
         this.progress = 0;
+        this.spent = true;
         const inst = removePart(t.v.build, t.mount.id);
         if (inst) {
           this.held = { kind: 'part', inst };
@@ -601,16 +617,23 @@ export class ModPlayer {
       }
       return;
     }
-    if (t.kind === 'loose' && !held && this.secondary && t.loose.part?.sub.tire) {
-      // a tyre off a wheel lying about
-      this.progress += dt / 1.2;
+    const looseSub = t.kind === 'loose' && !held ? subOff(t.loose) : null;
+    if (t.kind === 'loose' && looseSub && this.secondary) {
+      if (this.spent) return;
+      // a tyre off a wheel lying about, a turbo off an engine
+      const sub = t.loose.part!.sub[looseSub];
+      this.progress += dt / (looseSub === 'tire' ? TYRE_SWAP_S : installSeconds(partDef(sub.part)));
       if (this.progress >= 1) {
         this.progress = 0;
-        const tyre = removeSub(t.loose.part, 'tire');
+        this.spent = true;
+        const off = removeSub(t.loose.part!, looseSub);
         const l = t.loose;
         host.loose.remove(l);
         host.loose.addPart(l.part!, l.x, l.y, l.z, l.yaw).resting = true;
-        if (tyre) this.held = { kind: 'part', inst: tyre };
+        if (off) {
+          this.held = { kind: 'part', inst: off };
+          host.sound('remove_done', partDef(off.part).mass);
+        }
       }
       return;
     }
@@ -737,7 +760,8 @@ export class ModPlayer {
           const nm = t.loose.part ? name(t.loose.part) : toolName(t.loose.tool!);
           aim = t.loose.part ? partCard(t.loose.part) : toolCard(t.loose.tool!);
           acts.push({ keys: E, text: `拿起 <b>${nm}</b>${held ? `（放进快捷栏 ${this.freeSlot() + 1}）` : ''}` });
-          if (!held && t.loose.part?.sub.tire) acts.push({ keys: F, hold: true, text: '拆下轮胎' });
+          const off = held ? null : subOff(t.loose);
+          if (off) acts.push({ keys: F, hold: true, text: off === 'tire' ? '拆下轮胎' : '拆下涡轮' });
           break;
         }
         case 'looseSub':

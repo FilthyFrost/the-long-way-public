@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { decodeBuild, fitPart, fitSub, newInstance, removePart, stockBuild } from '../../src/core/modcar/build';
+import { installSeconds, PARTS, partDef, TYRE_SWAP_S } from '../../src/core/modcar/parts';
 import { ModSystems, type ModEnv } from '../../src/core/modcar/systems';
 import type { Build } from '../../src/core/modcar/types';
 import { VehicleSim, type VehicleInput } from '../../src/core/vehicle/sim';
@@ -183,3 +184,29 @@ describe('ModCar systems', () => {
   });
 });
 
+
+describe('ModCar hands and wear', () => {
+  it('every part goes on and comes off within a second (an engine by its weight, the big diesel the longest)', () => {
+    for (const p of PARTS) {
+      const s = installSeconds(p);
+      expect(s, p.id).toBeGreaterThan(0);
+      expect(s, p.id).toBeLessThanOrEqual(1);
+    }
+    expect(installSeconds(partDef('eng_d6'))).toBe(1);
+    expect(installSeconds(partDef('eng_i4'))).toBeLessThan(installSeconds(partDef('eng_v8')));
+    expect(TYRE_SWAP_S).toBeLessThanOrEqual(1);
+  });
+
+  it('a tyre worn down slides as it wears, not only after the next part goes on', () => {
+    const r = rig(stockBuild('sedan'));
+    start(r);
+    r.sim.setParkBrake(false);
+    run(r, 2, { throttle: 0.5 });
+    const tyre = r.sys.build.parts[r.sys.derived.wheels[0].hub].sub.tire!;
+    const mu0 = r.sim.mods.mu[0];
+    // (as if the miles had worn it: the next stretch of road puts the grip it has left in force)
+    tyre.tread = 0.2;
+    run(r, 1, { throttle: 0.5 });
+    expect(r.sim.mods.mu[0]).toBeCloseTo((mu0 * (0.75 + 0.25 * tyre.tread)) / (0.75 + 0.25 * 1), 3);
+  });
+});

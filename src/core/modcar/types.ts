@@ -285,7 +285,7 @@ export interface PartDef {
   stretch?: boolean;
   /** stock:<frame> marks the factory fit of a frame; meme / apoc mark the fun ones */
   tags?: string[];
-  /** seconds to fit or remove (default by carry class) */
+  /** seconds to fit or remove (default by carry class and, for an engine, weight; never over 1) */
   installS?: number;
   engine?: EngineStats;
   gearbox?: GearboxStats;

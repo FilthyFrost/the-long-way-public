@@ -189,7 +189,7 @@ export class Machines {
     const tyre = held?.kind === 'part' && partDef(held.inst.part).cat === 'tire' ? held.inst : null;
     if (!tyre && (held || !wheel.sub.tire)) return;
     // the turntable spins while the head works round the bead; then the swap is done
-    this.tcLeft = 1.6;
+    this.tcLeft = 1;
     ctx.sound('ratchet');
     this.tcJob = () => {
       const loose = ctx.loose;
@@ -262,7 +262,7 @@ export class Machines {
     if (!t || held?.kind !== 'tool' || held.tool.kind !== 'spray') return;
     const colour = held.tool.colour ?? 0;
     const v = t.v;
-    this.paintLeft = 1.8;
+    this.paintLeft = 1;
     ctx.sound('spray');
     this.paintJob = () => {
       v.build.paint = colour;

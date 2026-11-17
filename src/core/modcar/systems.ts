@@ -16,6 +16,8 @@ import { applyToSim, applyWheelMods } from './simlink';
 import type { Build, PartInstance, Text } from './types';
 
 const GAME = 5;
+/** how much tread a tyre loses before its grip is derived again (a fraction of new) */
+const GRIP_TREAD_STEP = 0.005;
 const AMBIENT_DEFAULT = 15;
 /** heat capacity of block + coolant (kJ/K): how slowly the temperature moves */
 const HEAT_CAP = 100;
@@ -90,6 +92,8 @@ export class ModSystems {
   private lastFuelUsed = 0;
   private readonly rolled = [0, 0, 0, 0];
   private readonly slid = [0, 0, 0, 0];
+  /** the tread of each wheel's tyre when its grip was last put in force */
+  private readonly gripTread = [1, 1, 1, 1];
   private lastOdo = 0;
   readonly dash: Dash = {
     rpm: 0,
@@ -114,6 +118,7 @@ export class ModSystems {
 
   constructor(public build: Build) {
     this.derived = derive(build);
+    this.noteGripTread();
   }
 
   /** take charge of a simulation made for this build (its spec is derived.spec) */
@@ -139,6 +144,7 @@ export class ModSystems {
    */
   rebuild(): Derived {
     this.derived = derive(this.build);
+    this.noteGripTread();
     const sim = this.sim;
     if (sim) {
       this.syncFuelOut();
@@ -149,6 +155,12 @@ export class ModSystems {
     // an engine taken out, or its fuel or battery, stops it
     if (this.running && (crankProblems(this.build).some((p) => p.code === 'no_engine') || !this.derived.engine)) this.stop('');
     return this.derived;
+  }
+
+  /** remember the tread each wheel's grip was derived with */
+  private noteGripTread(): void {
+    const hubs = this.derived.wheels;
+    for (let i = 0; i < 4; i++) this.gripTread[i] = this.build.parts[hubs[i]?.hub]?.sub.tire?.tread ?? 1;
   }
 
   // ------------------------------------------------------------------ the driver's controls
@@ -511,6 +523,7 @@ export class ModSystems {
     if (metres <= 0) return;
     // tyres: tread per distance rolled, faster sliding
     const hubs = this.derived.wheels;
+    let regrip = false;
     for (let i = 0; i < 4; i++) {
       const w = sim.wheels[i];
       const dr = w.rolled - this.rolled[i];
@@ -524,6 +537,13 @@ export class ModSystems {
       // motorcycles list each wheel twice: halve so a wheel is not worn twice as fast
       const share = this.derived.frame.balance ? 0.5 : 1;
       tyre.tread = Math.max(0, tyre.tread - share * ((def.wear * (dr + ds * 8)) / 100000));
+      if (Math.abs(tyre.tread - this.gripTread[i]) > GRIP_TREAD_STEP) regrip = true;
+    }
+    // (a step of wear puts the grip it leaves in force: derive again, the wheels' facts only)
+    if (regrip) {
+      this.derived.wheels = derive(this.build).wheels;
+      applyWheelMods(sim, this.derived);
+      this.noteGripTread();
     }
     // dirt: dust and mud by the ground, faster in the rain on soft ground
     const soft = env.surface === undefined ? 0 : env.surface >= 1 && env.surface <= 4 ? 1 : env.surface === 5 ? 0.6 : 0.1;

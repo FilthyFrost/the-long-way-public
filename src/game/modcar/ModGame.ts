@@ -192,6 +192,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private readonly pr = { s: 0, d: 0 };
   private readonly chasePos = new THREE.Vector3();
   private chaseInit = false;
+  /** a part just went on or came off: the view nods down a touch with its weight, then back (0-1) */
+  private thunk = 0;
   private readonly basis = new Float64Array(9);
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
@@ -436,13 +438,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         inst.rust = id.startsWith('rim_') || id.startsWith('bf_') || id.startsWith('roof_') ? 0.2 + 0.4 * k : 0.05 * k;
         this.loose.addPart(inst, s.x, s.y + 0.4, s.z, s.yaw);
       };
+      // (one engine lies about, no more: several to choose from would only confuse - the tutorial's I4, or
+      // a V8 to play with when the project car is whole)
       if (p.project === 'tutorial') {
         // the battery waits on the charger
         put('bat_std', 'charger');
         put('rim_steel13', 'floor', 'tire_road');
         put('rim_steel13', 'floor', 'tire_road');
         put('eng_i4', 'floor');
-      }
+      } else put('eng_v8', 'rack');
       // the jerrycans stand by the drums, the rest of the tools lie on the bench
       const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), newTool('spray', { colour: 13 }), newTool('spray', { colour: 4 }), newTool('sponge')];
       for (const t of tools) {
@@ -450,9 +454,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
       }
       // the heavy fun on the steel rack, the light on the shelves
-      for (const id of ['eng_v8', 'seat_toilet', 'seat_race', 'gb_5', 'exh_side', 'roof_spikes']) put(id, 'rack');
+      for (const id of ['seat_toilet', 'seat_race', 'gb_5', 'exh_side', 'roof_spikes']) put(id, 'rack');
       for (const id of ['steer_ship', 'turbo_small', 'hl_spot', 'horn_trumpet', 'steer_sport', 'hb_drift']) put(id, 'shelf');
-      for (const id of ['bf_ram', 'seat_armchair', 'tank_drum', 'eng_flat6']) put(id, 'floor');
+      for (const id of ['bf_ram', 'seat_armchair', 'tank_drum']) put(id, 'floor');
       put('rim_off16', 'floor', 'tire_tractor');
       put('rim_off16', 'floor', 'tire_tractor');
       put('rim_cart', 'floor');
@@ -1236,6 +1240,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         return;
       }
     }
+    if (name === 'ratchet_done' || name === 'remove_done') {
+      const kg = name === 'remove_done' ? gain : held?.kind === 'part' ? partDef(held.inst.part).mass : 10;
+      this.thunk = Math.min(1, 0.35 + kg / 250);
+    }
     const shot: Partial<Record<string, [FoleyShot, FoleyOpts]>> = {
       ratchet_done: ['part_install', { mass: held?.kind === 'part' ? partDef(held.inst.part).mass : 10 }],
       remove_done: ['part_remove', { mass: gain }],
@@ -1708,7 +1716,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const e = w.eye(this.eyeP);
       cam.position.set(e.x - o.x, e.y - o.y, e.z - o.z);
       this.qa.setFromAxisAngle(Y, -w.heading);
-      this.qb.setFromAxisAngle(Z, w.pitch);
+      // (the nod: down at once, back within a fifth of a second)
+      this.thunk *= Math.exp(-dt * 13);
+      this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk);
       cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
       const footFov = this.tune.get('look.fov');
       if (Math.abs(cam.fov - footFov) > 0.01) {
