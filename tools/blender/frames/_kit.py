@@ -1297,6 +1297,35 @@ class Buf:
         return obj
 
 
+# what of a frame gets no grime mask: the cabin, the underside, the needles, the wipers, the fuel flap (and the
+# panels, which have their own)
+NO_MASK = ('P_', 'PG_', 'N_', 'WIPER_', 'FUEL_CAP', 'INTERIOR', 'UNDER')
+
+
+def mask_groups(meshes):
+    """The frame's meshes by the grime mask they share (src/game/modcar/grime.ts): the body first (with its glass
+    and the pieces that move on it), then each hinged panel P_<id> with its glass PG_<id>."""
+    by = {o.name: o for o in meshes}
+    groups = [[o for o in meshes if not o.name.startswith(NO_MASK)]]
+    for o in meshes:
+        if o.name.startswith('P_'):
+            g = [o]
+            pg = by.get('PG_' + o.name[2:])
+            if pg is not None:
+                g.append(pg)
+            groups.append(g)
+    return groups
+
+
+def mask_frame(meshes):
+    """Give every grime group of a frame its MASK UVs (lib mask_uv); returns {first mesh name: mask_px}."""
+    out = {}
+    for g in mask_groups(meshes):
+        if g:
+            out[g[0].name] = mc.mask_uv(g)
+    return out
+
+
 def rebake_mats(target, hide, mats, samples=32, distance=0.35):
     """Bake the AO of `target` again with the objects `hide` left out, and keep the new values only on the
     corners of faces with the given materials: a dial face is shaded by its bezel and hood, not by the needle

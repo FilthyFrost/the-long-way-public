@@ -408,6 +408,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       tool('tool:scraper:1', { kind: 'tool', tool: 'scraper', tier: 1 }, SCRAPERS[1].name.zh, '刀口 10 cm', toolLook(newTool('scraper', { tier: 1 })).paint),
       tool('tool:scraper:2', { kind: 'tool', tool: 'scraper', tier: 2 }, SCRAPERS[2].name.zh, '刀口 22 cm', toolLook(newTool('scraper', { tier: 2 })).paint),
       tool('tool:scraper:3', { kind: 'tool', tool: 'scraper', tier: 3 }, SCRAPERS[3].name.zh, '刀口 25 cm', toolLook(newTool('scraper', { tier: 3 })).paint),
+      tool('tool:brush', { kind: 'tool', tool: 'brush' }, TOOL_INFO.brush.name.zh, '刷锈', toolLook(newTool('brush')).paint),
     ]);
     for (const cat of ITEM_ORDER) {
       add(

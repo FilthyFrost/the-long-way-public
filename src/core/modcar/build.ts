@@ -31,6 +31,7 @@ export interface InstanceOpts {
   paint?: number;
   dirt?: number;
   rust?: number;
+  crust?: number;
   /** tanks: litres of petrol (or `fuelType`) in it; default empty */
   fuelL?: number;
   fuelType?: 'petrol' | 'diesel' | 'mix2t';
@@ -52,6 +53,7 @@ export function newInstance(partId: string, o: InstanceOpts = {}): PartInstance 
     paint: o.paint ?? -1,
     dirt: o.dirt ?? 0,
     rust: o.rust ?? 0,
+    ...(o.crust ? { crust: o.crust } : {}),
     fluids: {},
     sub: {},
   };

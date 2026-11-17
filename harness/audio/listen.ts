@@ -1,10 +1,11 @@
 /**
  * ModCar sound audition page (harness/audio/listen.html, served by `npm run dev`): every engine,
- * exhaust and cabin option on a toy drivetrain, and every foley sound, for listening and tuning.
- * Nothing makes a sound until the Start button is clicked.
+ * exhaust and cabin option on a toy drivetrain, and every foley sound, for listening and tuning; a
+ * scrub pad to rub with the mouse, which drives the scrubbing loops as the game does (every frame a
+ * gain and a rate from the tool's speed). Nothing makes a sound until the Start button is clicked.
  */
 import { EngineVoice, bankConfig, loadBank, type BankManifest } from '../../src/game/modcar/engineAudio';
-import { FOLEY_LOOPS, Foley, type FoleyLoop, type FoleyOpts, type FoleyShot } from '../../src/game/modcar/foley';
+import { FOLEY_LOOPS, Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
 
 bankConfig.baseUrl = '/audio/modcar/engines/';
 
@@ -132,6 +133,10 @@ const shotButtons: Array<[string, FoleyShot, FoleyOpts]> = [
   ['计数', 'tally', {}], ['摆工具', 'craft_start', {}], ['挥锤', 'hammer_swing', {}],
   ['锤 金属', 'hammer_hit', { grind: 'metal' }], ['锤 塑料', 'hammer_hit', { grind: 'plastic' }], ['锤 木头', 'hammer_hit', { grind: 'wood' }], ['锤 布', 'hammer_hit', { grind: 'cloth' }],
   ['做好了', 'craft_done', {}], ['来电', 'power_on', {}], ['断电', 'power_off', {}], ['没电', 'no_power', {}],
+  // scrubbing
+  ['刮刀起手 玻璃', 'scrape_start', { surface: 'glass' }], ['刮刀起手 漆面', 'scrape_start', { surface: 'metal' }], ['刮刀起手 锈', 'scrape_start', { surface: 'rust' }], ['刮刀起手 泥', 'scrape_start', { surface: 'mud' }],
+  ['碎屑落地', 'flake_drop', {}], ['擦干净了（叮）', 'clean_ding', {}], ['除锈完成', 'clean_rust_done', {}], ['整车翻新完成', 'clean_car_done', {}],
+  ['工具用坏了', 'tool_worn', {}], ['显示剩余污渍（H）', 'highlight_ping', {}],
 ];
 for (const [label, kind, opts] of shotButtons) {
   const b = document.createElement('button');
@@ -144,17 +149,97 @@ const loopButtons: Array<[string, FoleyLoop, FoleyOpts]> = [
   ['扳手（开关）', 'ratchet', {}], ['喷漆（开关）', 'spray', {}], ['海绵（开关）', 'sponge', {}],
   ['加油（开关）', 'pour', { liquid: 'fuel' }], ['加水（开关）', 'pour', { liquid: 'water' }], ['加机油（开关）', 'pour', { liquid: 'oil' }],
   ['粉碎机空转（开关）', 'recycler_run', {}], ['粉碎中（开关）', 'recycler_grind', {}], ['灯管（开关）', 'lamp_buzz', {}],
+  // scrubbing (at the rate and gain of the sliders under the scrub pad)
+  ['刮玻璃（开关）', 'scrape_glass', {}], ['刮漆面（开关）', 'scrape_metal', {}], ['刮锈（开关）', 'scrape_rust', {}], ['刮泥（开关）', 'scrape_mud', {}],
+  ['钢丝刷（开关）', 'brush_wire', {}], ['海绵擦洗（开关）', 'sponge_scrub', {}],
 ];
+/** the scrubbing loops switched on by their buttons (they follow the rate and gain sliders) */
+const SCRUBS: readonly FoleyLoop[] = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'];
+const scrubOn = new Set<FoleyLoop>();
+const sliders = (): FoleyOpts => ({ rate: Number($<HTMLInputElement>('scrubRate').value), gain: Number($<HTMLInputElement>('scrubGain').value) });
 for (const [label, kind, opts] of loopButtons) {
   const b = document.createElement('button');
   b.textContent = label;
   b.onclick = () => {
     if (!foley) return;
     const on = b.classList.toggle('on');
-    if (on) foley.start(kind, opts);
+    const scrub = SCRUBS.includes(kind);
+    if (on) foley.start(kind, scrub ? { ...opts, ...sliders() } : opts);
     else foley.stop(kind);
+    if (scrub && on) scrubOn.add(kind);
+    else scrubOn.delete(kind);
   };
   foleyBox.append(b);
+}
+for (const id of ['scrubRate', 'scrubGain']) {
+  $<HTMLInputElement>(id).oninput = () => {
+    $('scrubRateV').textContent = Number($<HTMLInputElement>('scrubRate').value).toFixed(2);
+    $('scrubGainV').textContent = Number($<HTMLInputElement>('scrubGain').value).toFixed(2);
+    // (a loop already playing glides to the new rate and gain: start() again, as the game does every frame)
+    for (const k of scrubOn) foley?.start(k, sliders());
+  };
+}
+
+// the scrub pad: rub it with the mouse; the tool's speed, smoothed over about 60 ms, gives the gain and the rate
+const pad = $('scrubPad');
+const CATCH: Partial<Record<FoleyLoop, ScrapeSurface>> = { scrape_glass: 'glass', scrape_metal: 'metal', scrape_rust: 'rust', scrape_mud: 'mud', brush_wire: 'rust' };
+const DONE: Record<string, FoleyShot> = { scrape_glass: 'clean_ding', scrape_metal: 'clean_ding', scrape_rust: 'clean_rust_done', scrape_mud: 'clean_ding', brush_wire: 'clean_rust_done', sponge_scrub: 'clean_ding' };
+const rub = { down: false, kind: 'scrape_metal' as FoleyLoop, x: 0, y: 0, moved: 0, speed: 0, last: 0, still: true, travel: 0, flakeAt: 0 };
+pad.onpointerdown = (e) => {
+  if (!foley) return;
+  pad.setPointerCapture(e.pointerId);
+  pad.classList.add('on');
+  rub.down = true;
+  rub.kind = $<HTMLSelectElement>('scrubTool').value as FoleyLoop;
+  rub.x = e.clientX;
+  rub.y = e.clientY;
+  rub.moved = 0;
+  rub.speed = 0;
+  rub.still = true;
+  rub.last = performance.now() / 1000;
+  foley.start(rub.kind, { gain: 0, rate: 0.7 });
+  requestAnimationFrame(scrubFrame);
+};
+pad.onpointermove = (e) => {
+  if (!rub.down) return;
+  rub.moved += Math.hypot(e.clientX - rub.x, e.clientY - rub.y);
+  rub.x = e.clientX;
+  rub.y = e.clientY;
+};
+pad.onpointerup = pad.onpointercancel = () => {
+  if (!rub.down) return;
+  rub.down = false;
+  pad.classList.remove('on');
+  foley?.stop(rub.kind);
+};
+function scrubFrame(nowMs: number): void {
+  if (!rub.down || !foley) return;
+  requestAnimationFrame(scrubFrame);
+  const now = nowMs / 1000;
+  const dt = Math.max(1 / 240, Math.min(0.1, now - rub.last));
+  rub.last = now;
+  // pixels a second, smoothed (the raw mouse speed jitters from frame to frame)
+  rub.speed += (rub.moved / dt - rub.speed) * Math.min(1, dt / 0.06);
+  rub.travel += rub.moved;
+  rub.moved = 0;
+  const v = Math.min(1, rub.speed / 1400);
+  const gain = Math.pow(v, 0.8);
+  const rate = 0.7 + 0.9 * v;
+  foley.start(rub.kind, { gain, rate });
+  // the blade catches as a stroke begins; bits fall off rust and mud as it goes
+  const surface = CATCH[rub.kind];
+  if (rub.still && v > 0.08 && surface) foley.play('scrape_start', { surface });
+  rub.still = v < 0.04;
+  if ((rub.kind === 'scrape_rust' || rub.kind === 'scrape_mud') && v > 0.3 && now > rub.flakeAt) {
+    foley.play('flake_drop');
+    rub.flakeAt = now + 0.25 + 0.35 * Math.random();
+  }
+  // rubbed enough: the part is clean
+  if ($<HTMLInputElement>('scrubDone').checked && rub.travel > 9000) {
+    rub.travel = 0;
+    foley.play(DONE[rub.kind]);
+  }
+  $('scrubStatus').textContent = `${rub.kind}  速度 ${rub.speed.toFixed(0).padStart(5)} px/s  gain ${gain.toFixed(2)}  rate ${rate.toFixed(2)}  已擦 ${rub.travel.toFixed(0)} / 9000 px`;
 }
 foleyBox.append(document.createElement('br'));
 for (const [label, kind] of [['喇叭 嘀（按住）', 'horn_beep'], ['喇叭 乐曲', 'horn_trumpet'], ['汽笛（按住）', 'horn_air']] as const) {

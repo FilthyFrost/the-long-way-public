@@ -199,6 +199,7 @@ def build(args):
     K.join_white(o_int, dial_glass)
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())
+    print('[sedan] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
     extra = json_extra(objs, panels, needles, wipers, tris, total)
     mc.mounts_json(OUT_JSON, 'sedan', extra)

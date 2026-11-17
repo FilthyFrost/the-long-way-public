@@ -397,7 +397,7 @@ export function toolCard(t: Tool): ItemCard {
     card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '现在的颜色（滚轮换）' });
   } else if (t.kind === 'scraper') {
     card.rows.push({ value: `${Math.round(SCRAPERS[t.tier ?? 1].width * 100)} cm`, label: '刀口宽' });
-    card.notes.push({ text: '刮车窗、车身上的泥和锈：下一批接上', tone: 'info' });
+    card.notes.push({ text: '按住左键刮：车窗、车身上糊死的泥壳；鼠标带着走，来回两三遍', tone: 'info' });
   }
   const s = salvageText(toolSalvage(t));
   if (s) card.rows.push({ value: s, label: '回收能得' });

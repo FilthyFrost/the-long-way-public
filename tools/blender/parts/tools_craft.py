@@ -1,6 +1,6 @@
 """
 The crafting bench's hand tools as models: the three cleaning scrapers the bench makes (the cheap plastic one,
-the stainless one, the brass one) and the bench's claw hammer:
+the stainless one, the brass one), the wire brush for rust and the bench's claw hammer:
 
     blender -b --factory-startup --python tools/blender/build.py -- parts/tools_craft [<kind>|all] [--toon]
         [--norender] [--stats] [--hi] [--views=yaw:pitch,...]
@@ -363,11 +363,58 @@ def claw_hammer(P):
     P.views = [('a', 35, 32), ('b', 215, 32)]
 
 
+def wire_brush(P):
+    """A wire brush for rust (about 0.27 long), lying on its bristles: the wooden stock (0.13 by 0.036, its edges
+    rounded) running back into a wooden handle that rises a little towards its end, a hang hole through it and a
+    painted band (paint) round it; four rows of fourteen steel tufts set in the stock's underside, the outer
+    rows splayed out, the tips a little ragged."""
+    P.ao_distance = 0.02
+    P.box('stock', (0.13, 0.036, 0.016), (0.085, 0, 0.034), 'wood', bev=0.005, segs=2)
+    secs = [(0.03, 0.0125, 0.0074, 0.036), (0.0, 0.0116, 0.0073, 0.0385), (-0.04, 0.011, 0.0071, 0.0415),
+            (-0.08, 0.0114, 0.0074, 0.045), (-0.115, 0.0124, 0.0079, 0.0485), (-0.128, 0.0126, 0.008, 0.0496),
+            (-0.134, 0.0098, 0.0063, 0.0502), (-0.1355, 0.005, 0.0032, 0.0503)]
+    handle = loft_x(P, 'handle', secs, 'wood', n=12, e=2.2)
+    hole = bmesh.new()
+    K.bm_cyl(hole, 0.0048, 0.04, segs=10, matrix=Matrix.Translation((-0.112, 0, 0.03)))
+    P.cut(handle, hole)
+    band = [(-0.062, 0.0116, 0.0076, 0.0434), (-0.0605, 0.01195, 0.00785, 0.0433), (-0.0335, 0.01155, 0.00765, 0.0409),
+            (-0.032, 0.0112, 0.0073, 0.0408)]
+    loft_x(P, 'band', band, 'paint', n=12, e=2.2)
+    # the tufts: square bundles from the stock's underside, splaying a little to their tips
+    bm = bmesh.new()
+    top = 0.0262
+    tips = []
+    for i in range(14):
+        x = 0.028 + i * (0.114 / 13)
+        for j in range(4):
+            y = (j - 1.5) * 0.0079
+            h = 0.0215 + 0.0018 * (((i * 7919 + j * 104729) % 97) / 96.0)
+            sx = (i - 6.5) / 6.5 * 0.0011
+            sy = (j - 1.5) * 0.0015
+            w0, w1 = 0.0017, 0.0023
+            root = [V((x - w0, y - w0, top)), V((x + w0, y - w0, top)), V((x + w0, y + w0, top)), V((x - w0, y + w0, top))]
+            t = top - h
+            tip = [V((x + sx - w1, y + sy - w1, t)), V((x + sx + w1, y + sy - w1, t)), V((x + sx + w1, y + sy + w1, t)),
+                   V((x + sx - w1, y + sy + w1, t))]
+            K.bm_loft(bm, [root, tip], cap_start=False, cap_end=True)
+            tips.append(t)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    P.mesh('bristles', bm, 'steel', sharp=30.0)
+    z_tip = sum(tips) / len(tips)
+    P.empty('M_grip', (-0.08, 0, 0.045), rot=(0, 90, 0))
+    # M_edge: the middle of the bristles' face, +Z along the stroke (as the scrapers'); M_face: +Z out of the bristles
+    P.empty('M_edge', (0.085, 0, z_tip), rot=(0, 90, 0))
+    P.empty('M_face', (0.085, 0, z_tip), rot=(180, 0, 0))
+    settle(P)
+    P.views = [('a', 35, 30), ('b', 215, 30)]
+
+
 MODELS = {
     'scraper_plastic': scraper_plastic,
     'scraper_metal': scraper_metal,
     'scraper_gold': scraper_gold,
     'claw_hammer': claw_hammer,
+    'brush': wire_brush,
 }
 
 

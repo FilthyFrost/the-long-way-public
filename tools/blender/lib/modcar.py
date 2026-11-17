@@ -212,6 +212,90 @@ def bake_ao(objs, samples=24, distance=0.35):
     bpy.ops.object.bake(type='AO', target='VERTEX_COLORS')
 
 
+# ------------------------------------------------------------------------------------------- grime masks
+
+GLASS_MATS = ('glass', 'glass_dark')
+# the mask texels per metre the game gives a model's surface (src/game/modcar/grime.ts reads mask_px)
+MASK_DENSITY = 400.0
+
+
+def mask_size(meshes, glass_scale=2.0):
+    """The side (texels) of the square grime mask the game gives these meshes together: their surface at
+    MASK_DENSITY per metre, glass counted glass_scale times finer, a power of two from 64 to 2048."""
+    area = 0.0
+    for o in meshes:
+        me = o.data
+        names = [m.name.split('.')[0] if m else '' for m in me.materials]
+        for p in me.polygons:
+            g = names[p.material_index] in GLASS_MATS if p.material_index < len(names) else False
+            area += p.area * (glass_scale * glass_scale if g else 1.0)
+    # (the packer fills about two thirds of the square)
+    side = math.sqrt(area / 0.66) * MASK_DENSITY
+    px = 64
+    while px < side and px < 2048:
+        px *= 2
+    return px
+
+
+def mask_uv(objs, glass_scale=2.0, angle_deg=66.0):
+    """
+    A second UV map 'MASK' over the given meshes, packed together into one square: the grime mask the game
+    paints as dirt is scrubbed off (src/game/modcar/grime.ts). Faces are grouped by angle and projected
+    (Smart UV Project), glass islands made glass_scale times larger (the windows are scraped at a finer
+    grain), then everything packed with three texels between islands. A UV map the mesh had stays the first
+    (the lens and gauge faces read it) and MASK comes after it (TEXCOORD_1); without one MASK is the only map
+    (TEXCOORD_0). Each mesh is given mask_px, the side of the square, as a custom property (glTF extras),
+    which also tells the game that it has a mask. Returns it.
+    """
+    from bpy_extras import bmesh_utils
+    meshes = [o for o in objs if o.type == 'MESH' and len(o.data.polygons)]
+    if not meshes:
+        return 0
+    for o in meshes:
+        if o.modifiers:
+            apply_modifiers(o)
+    px = mask_size(meshes, glass_scale)
+    margin = 3.0 / px
+    for o in meshes:
+        me = o.data
+        lay = me.uv_layers.get('MASK') or me.uv_layers.new(name='MASK')
+        me.uv_layers.active = lay
+        o['mask_px'] = px
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in meshes:
+        o.hide_set(False)
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.reveal()
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle_deg), island_margin=margin, area_weight=0.0,
+                             correct_aspect=True, scale_to_bounds=False)
+    if glass_scale != 1.0:
+        for o in meshes:
+            bm = bmesh.from_edit_mesh(o.data)
+            uvl = bm.loops.layers.uv['MASK']
+            names = [m.name.split('.')[0] if m else '' for m in o.data.materials]
+            for isl in bmesh_utils.bmesh_linked_uv_islands(bm, uvl):
+                if not all(f.material_index < len(names) and names[f.material_index] in GLASS_MATS for f in isl):
+                    continue
+                pts = [l[uvl].uv.copy() for f in isl for l in f.loops]
+                cu = sum((q.x for q in pts)) / len(pts)
+                cv = sum((q.y for q in pts)) / len(pts)
+                for f in isl:
+                    for l in f.loops:
+                        uv = l[uvl].uv
+                        uv.x = cu + (uv.x - cu) * glass_scale
+                        uv.y = cv + (uv.y - cv) * glass_scale
+            bmesh.update_edit_mesh(o.data)
+    bpy.ops.uv.pack_islands(rotate=True, scale=True, margin_method='FRACTION', margin=margin)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+    return px
+
+
 def to_game(v):
     """Blender point/vector -> game body frame (+x forward, +y up, +z right)."""
     return (v[0], v[2], -v[1])

@@ -125,6 +125,7 @@ const TOOL_SALVAGE: Record<ToolKind, Cost> = {
   spray: { scrap: 1 },
   sponge: { organics: 2 },
   scraper: { scrap: 3 },
+  brush: { scrap: 2, organics: 1 },
 };
 
 /** what the recycler gives for a tool: its own, and the liquid in it */

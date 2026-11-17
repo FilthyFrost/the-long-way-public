@@ -38,6 +38,7 @@ function fetchGlb(url: string): Promise<THREE.Group | null> {
           const mesh = o as THREE.Mesh;
           if (mesh.isMesh) rgbColours(mesh.geometry);
         });
+        maskUvs(g.scene);
         mergeRigid(g.scene);
         resolve(g.scene);
       },
@@ -67,12 +68,39 @@ function rgbColours(g: THREE.BufferGeometry): void {
 }
 
 /**
+ * The grime masks' UVs (tools/blender/lib/modcar.py mask_uv; src/game/modcar/grime.ts): a model object given
+ * mask_px has its MASK map as TEXCOORD_1 (uv1), or as TEXCOORD_0 when it had no other; each of its meshes (a
+ * glTF mesh of several materials comes as a group of them) gets it as aMaskUv, and mask_px, the side of its
+ * square. Read before the rigid pieces are merged (which keep aMaskUv, −1 where a mesh had none).
+ */
+function maskUvs(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    let px = 0;
+    for (let n: THREE.Object3D | null = mesh; n && n !== root.parent; n = n.parent) {
+      if (typeof n.userData?.mask_px === 'number') {
+        px = n.userData.mask_px as number;
+        break;
+      }
+      if (n === root) break;
+    }
+    if (!px) return;
+    const g = mesh.geometry;
+    const uv = g.getAttribute('uv1') ?? g.getAttribute('uv');
+    if (!uv) return;
+    g.setAttribute('aMaskUv', uv);
+    mesh.userData.mask_px = px;
+  });
+}
+
+/**
  * Nodes that move or are looked up by name (docs/MODCAR.md §6): hinged panels and their glass, needles,
  * wipers, the filler cap, mount empties. Each is a rigid piece of its own; everything else in a model
  * stands still relative to the model's root.
  */
 const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_)/;
-const KEEP = new Set(['position', 'normal', 'uv', 'color']);
+const KEEP = new Set(['position', 'normal', 'uv', 'color', 'aMaskUv']);
 
 /**
  * Merge every rigid piece of a loaded model (the model itself, and each node RIGID names) into one mesh per
@@ -116,6 +144,10 @@ function mergeRigid(root: THREE.Object3D): void {
       merged.computeBoundingSphere();
       const mesh = new THREE.Mesh(merged, list[0].material);
       mesh.name = `merged:${name}`;
+      // (the grime mask's square: the pieces of one rigid piece share it)
+      const px = list.find((m) => m.userData.mask_px)?.userData.mask_px;
+      if (px) mesh.userData.mask_px = px;
+      else merged.deleteAttribute('aMaskUv');
       g.add(mesh);
       for (const m of list) m.removeFromParent();
     }
@@ -141,6 +173,8 @@ function rigidCopy(m: THREE.Mesh, toGroup: THREE.Matrix4): THREE.BufferGeometry 
   if (!g.hasAttribute('normal')) g.computeVertexNormals();
   if (!g.hasAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
   if (!g.hasAttribute('color')) g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  // (no grime mask on this piece: −1, which the shader reads as none)
+  if (!g.hasAttribute('aMaskUv')) g.setAttribute('aMaskUv', new THREE.Float32BufferAttribute(new Float32Array(n * 2).fill(-1), 2));
   for (const k of Object.keys(g.attributes)) if (!KEEP.has(k)) g.deleteAttribute(k);
   // (normalised or not, as the glTF brought it: merge needs one kind)
   for (const k of KEEP) {

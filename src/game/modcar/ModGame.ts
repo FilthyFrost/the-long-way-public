@@ -48,14 +48,20 @@ import { Foley, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type F
 import { salvageOfHeld, Workshop, WORKSHOP_PLAN, type WorkshopSave } from './workshop';
 import { MaterialsHud } from './vitalsHud';
 import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
-import type { TankPort } from './player';
+import type { ScrubHit, Scrub, TankPort } from './player';
+import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
+import { Flakes } from './flakes';
+import { triGrid } from '../render/triGrid';
+import { forgetMasks, keepMask, keepOnly, keptMask } from './grimeStore';
+import { ScrubHud } from './scrubHud';
+import type { Cleaner, Tool } from '../../core/modcar/tools';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
 import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
-import { itemStandIn, LooseThings, toolLook, toolModel } from './loose';
+import { itemStandIn, LooseThings, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
@@ -115,16 +121,22 @@ function hash01(key: string): number {
 }
 
 /** a build that has stood about: dust and rust on its body and every part, a little different each */
-function weather(b: Build, dirt: number, rust: number, seed: number): void {
+function weather(b: Build, dirt: number, rust: number, seed: number, crust = 0): void {
   b.dirt = dirt;
   b.rust = rust;
+  b.crust = crust;
   for (const [mount, inst] of Object.entries(b.parts)) {
     const k = hash01(`${seed}:${mount}`);
     inst.dirt = Math.min(1, dirt * (0.7 + 0.6 * k));
     inst.rust = Math.min(1, rust * (0.5 + 1.0 * k));
+    // (the crust where a barn's years settle: the panels, the bumpers, the lamps; not what was under the bonnet)
+    const cat = partDef(inst.part).cat;
+    const outside = ['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'headlight', 'taillight', 'mirror', 'rim', 'roof'].includes(cat);
+    if (crust > 0 && outside) inst.crust = Math.min(1, crust * (0.75 + 0.5 * k));
     for (const sub of Object.values(inst.sub)) {
       sub.dirt = inst.dirt;
       sub.rust = inst.rust * 0.5;
+      if (inst.crust) sub.crust = inst.crust * 0.6;
     }
   }
 }
@@ -154,6 +166,29 @@ function devTyreFor(def: PartDef): string | null {
   const tag = def.tags?.find((t) => t.startsWith('stock:'));
   return (tag ? stockTireFor(frameDef(tag.slice(6))) : null) ?? 'tire_road';
 }
+
+/** something being cleaned (grime.ts): whose it is, its units as last measured, a unit's flash */
+interface Cleaning {
+  v: ModVehicle | null;
+  /** a part lying about (and not on a vehicle) */
+  loose: Loose | null;
+  owner: string;
+  key: string;
+  label: string;
+  kind: 0 | 1;
+  units: UnitLeft[];
+  measuredAt: number;
+  dirty: boolean;
+  flash: number;
+  flashUnit: number;
+}
+
+/** what comes off as one cleans (linear colours): caked crust, crumbs of dust, rust, the sponge's foam */
+const CRUST_BITS = new THREE.Color(0.12, 0.095, 0.07);
+const GLASS_CRUST = new THREE.Color(0.16, 0.13, 0.1);
+const DUST_BITS = new THREE.Color(0.32, 0.27, 0.21);
+const RUST_BITS = new THREE.Color(0.38, 0.12, 0.035);
+const FOAM = new THREE.Color(0.85, 0.88, 0.9);
 
 export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly core: RenderCore;
@@ -186,6 +221,24 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** the workshop as last seen (kept through a trip down the road) */
   private workshopKept: WorkshopSave | undefined;
   private matHud: MaterialsHud | null = null;
+  /** the grime masks of what is being cleaned (grime.ts) */
+  private grime: Grime | null = null;
+  /** what is being cleaned: its units as last measured, when, a unit's flash as it comes clean */
+  private readonly cleaning = new Map<string, Cleaning>();
+  /** looks that came clean all over: their flash fading */
+  private readonly lookFlashes: { look: import('../render/carMaterials').CarLook; t: number }[] = [];
+  /** H: the dirt still left lit up (s to go) */
+  private grimeShowT = 0;
+  private flakes: Flakes | null = null;
+  private scrubHud: ScrubHud | null = null;
+  private readonly gcV = new THREE.Vector3();
+  private readonly gcM = new THREE.Matrix4();
+  /** the scrub's sound: its loop (kept through a pause), its level smoothed, how long the tool has been still */
+  private scrubLoop: FoleyLoop | '' = '';
+  private scrubGain = 0;
+  private scrubStill = 1;
+  private flakeTickT = 0;
+  private warmedScrub = false;
   /** at the bench: how far the view has gone over to it (0 … 1) */
   private benchB = 0;
   private readonly benchEye = new THREE.Vector3();
@@ -299,6 +352,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.stream = new LiquidStream(this.core.scene);
     this.splashes = new Splashes(this.core.renderer, this.core.scene);
     this.sparks = new Sparks(this.core);
+    this.grime = new Grime(this.core.renderer);
+    this.flakes = new Flakes(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
@@ -529,12 +584,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (this.restore) {
         this.restoreGarage(this.restore);
         await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+        await this.restoreGrime();
         this.ui.say('接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
         return;
       }
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
-      // a car that stood in a barn for a winter: dust on everything, a little rust at the edges (the sponge has work)
-      weather(project, 0.42, 0.06, 1);
+      // a car that stood in a barn for years: caked with grime (the windows too: nothing to be seen through
+      // them until they are scraped), dust over it, rust at the edges (docs/MODCAR.md §15)
+      weather(project, 0.5, 0.1, 1, p.project === 'tutorial' ? 0.62 : 0.32);
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
       // the missing parts and the tools, round the bay; the fun parts on the shelves (not under the workshop's machines)
@@ -566,7 +623,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         put('eng_i4', 'floor');
       } else put('eng_v8', 'rack');
       // the jerrycans stand by the drums, the rest of the tools lie on the bench
-      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), newTool('spray', { colour: 13 }), newTool('spray', { colour: 4 }), newTool('sponge')];
+      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), newTool('spray', { colour: 13 }), newTool('spray', { colour: 4 }), newTool('sponge'), newTool('brush')];
       for (const t of tools) {
         const s = take(t.kind === 'jerrycan' ? 'cans' : 'bench');
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
@@ -1001,7 +1058,78 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   save(): void {
     if (this.saveOff || !this.params.keep || this.deadT >= 0) return;
     const s = this.snapshot();
-    if (s) writeSave(s);
+    if (s) {
+      writeSave(s);
+      this.keepGrime();
+    }
+  }
+
+  /** the masks of what is being cleaned kept with the save (IndexedDB): the ones changed since; the rest forgotten */
+  private keepGrime(): void {
+    const g = this.grime;
+    if (!g || this.player.scrub) return;
+    const keys = new Set(g.keys);
+    // (a mask still on its way back from the store after a reload is kept too)
+    for (const v of this.vehicles) {
+      if (v.build.grime) keys.add(`${v.build.uid}:body`);
+      for (const inst of Object.values(v.build.parts)) {
+        if (inst.grime) keys.add(inst.uid);
+        for (const sub of Object.values(inst.sub)) if (sub.grime) keys.add(sub.uid);
+      }
+    }
+    for (const l of this.loose.list) if (l.part?.grime) keys.add(l.part.uid);
+    for (const key of g.keys) {
+      const m = g.get(key)!;
+      if (!m.changed) continue;
+      m.changed = false;
+      void keepMask(key, m.size, g.read(m), { dirt: [...m.doneDirt], rust: [...m.doneRust] });
+    }
+    void keepOnly(keys);
+  }
+
+  /** after a reload: the parts marked as being cleaned take their masks back from the store */
+  private async restoreGrime(): Promise<void> {
+    const g = this.grime;
+    if (!g) return;
+    for (const v of this.vehicles) {
+      for (const p of v.view.grimeParts()) {
+        const marked = p.inst ? p.inst.grime : v.build.grime;
+        if (!marked || g.get(p.key)) continue;
+        const kept = await keptMask(p.key, p.size);
+        const o = this.grimeOwnerOf(v, p.owner);
+        if (!o) continue;
+        if (!kept) {
+          // (the store lost it: the part as its figures show it)
+          if (p.inst) p.inst.grime = false;
+          else v.build.grime = false;
+          continue;
+        }
+        const m = g.open(o, kept.texels);
+        for (const u of kept.doneDirt) m.doneDirt.add(u);
+        for (const u of kept.doneRust) m.doneRust.add(u);
+        m.changed = false;
+        v.view.setGrimeHeld(p.owner, true);
+        this.cleaning.set(p.key, { v, loose: null, owner: p.owner, key: p.key, label: p.label, kind: p.kind, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
+      }
+    }
+    // (and the things lying about)
+    for (const l of this.loose.list) {
+      for (const p of this.loose.grimeParts(l)) {
+        if (!p.inst.grime || g.get(p.inst.uid)) continue;
+        const kept = await keptMask(p.inst.uid, p.size);
+        const o = this.grimeOwnerOf(null, p.owner, l);
+        if (!o) continue;
+        if (!kept) {
+          p.inst.grime = false;
+          continue;
+        }
+        const m = g.open(o, kept.texels);
+        for (const u of kept.doneDirt) m.doneDirt.add(u);
+        for (const u of kept.doneRust) m.doneRust.add(u);
+        m.changed = false;
+        this.loose.setGrimeHeld(l.uid, true);
+      }
+    }
   }
 
   /** F9 twice: the save cleared and a new game from the workshop */
@@ -1023,6 +1151,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   newGame(): void {
     this.saveOff = true;
     clearSave();
+    void forgetMasks();
     const quality = new URLSearchParams(location.search).get('quality');
     location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
@@ -1415,12 +1544,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         if (e.button === 0) this.takeFromList();
         return;
       }
-      if (e.button === 0) this.player.press();
+      if (e.button === 0) this.player.press('mouse');
       if (e.button === 2) this.rightButton = true;
+    });
+    // scrubbing: the mouse moves the tool over the surface (the view holds still)
+    document.addEventListener('mousemove', (e) => {
+      if (this.player.scrub && this.input.locked) this.player.scrubMove(e.movementX, e.movementY);
     });
     window.addEventListener('mouseup', (e) => {
       if (this.seated) this.cockpit.release(this.seated);
-      if (e.button === 0) this.player.release();
+      if (e.button === 0) this.player.release('mouse');
       if (e.button === 2) this.rightButton = false;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -1490,6 +1623,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const slotKey = /^Digit([1-6])$/.exec(e.code);
       if (!this.ui.assistsShown && !this.seated && slotKey) {
         this.player.select(Number(slotKey[1]) - 1);
+        return;
+      }
+      // H: where the dirt still is, lit up for a couple of seconds
+      if (e.code === 'KeyH' && !e.repeat && !this.seated) {
+        this.grimeShowT = 2.4;
+        this.sound('highlight_ping', 0.7);
         return;
       }
       if (e.code === 'KeyI' && !e.repeat) {
@@ -1751,8 +1890,426 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   /** a loop of the workshop's (the recycler) kept going this frame */
-  loopFor(name: string, gain = 1): void {
-    if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, { gain });
+  loopFor(name: string, gain = 1, rate?: number): void {
+    if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, (rate !== undefined ? { gain, rate } : { gain }) as FoleyOpts);
+  }
+
+  // ------------------------------------------------------------------ cleaning (grime.ts, docs/MODCAR.md §15)
+
+  get camera(): THREE.Camera {
+    return this.core.camera;
+  }
+
+  /** the point of something that can be cleaned a ray (render space) meets first, within far */
+  grimeCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): ScrubHit | null {
+    let best: ScrubHit | null = null;
+    for (const v of this.vehicles) {
+      v.view.root.getWorldPosition(this.gcV);
+      if (this.gcV.distanceTo(origin) > far + 7) continue;
+      const h = v.view.grimeCast(origin, dir, best ? best.dist : far);
+      if (!h || (best && h.dist >= best.dist)) continue;
+      best = { v, loose: null, key: h.part.key, owner: h.part.owner, inst: h.part.inst, kind: h.part.kind, label: h.part.label, point: h.point, normal: h.normal, dist: h.dist, glass: h.glass };
+    }
+    const lh = this.loose.grimeCast(origin, dir, best ? best.dist : far);
+    if (lh && (!best || lh.dist < best.dist)) best = { v: null, loose: lh.part.loose, key: lh.part.inst.uid, owner: lh.part.owner, inst: lh.part.inst, kind: 0, label: lh.part.label, point: lh.point, normal: lh.normal, dist: lh.dist, glass: lh.glass };
+    if (best) best.label = unitName(best.kind, this.unitOfHit(best), best.label);
+    return best;
+  }
+
+  /** the unit of a part the point is in (by its normal in the vehicle's frame) */
+  private unitOfHit(h: ScrubHit): number {
+    if (!h.v) return h.glass ? 1 : 0;
+    this.gcM.copy(h.v.view.model.matrixWorld).invert();
+    const n = this.gcV.copy(h.normal).transformDirection(this.gcM);
+    return unitAt(h.kind, n, h.glass);
+  }
+
+  /** a part as the masks see it (null: it is not on the vehicle any more, or not lying about) */
+  private grimeOwnerOf(v: ModVehicle | null, owner: string, loose: Loose | null = null): GrimeOwner | null {
+    if (loose) {
+      const p = this.loose.grimeParts(loose).find((x) => x.owner === owner);
+      const look = p ? this.loose.lookOfOwner(owner) : undefined;
+      if (!p || !look) return null;
+      return { key: p.inst.uid, meshes: p.meshes, look, size: p.size, kind: 0, frame: loose.obj, around: loose.obj, amounts: { dirt: p.inst.dirt, crust: p.inst.crust ?? 0, rust: p.inst.rust }, loose: true };
+    }
+    if (!v) return null;
+    const p = v.view.grimeParts().find((x) => x.owner === owner);
+    if (!p) return null;
+    const b = v.build;
+    const i = p.inst;
+    return {
+      key: p.key,
+      meshes: p.meshes,
+      look: p.look,
+      size: p.size,
+      kind: p.kind,
+      frame: v.view.model,
+      around: v.view.root,
+      amounts: i ? { dirt: i.dirt, crust: i.crust ?? 0, rust: i.rust } : { dirt: b.dirt, crust: b.crust ?? 0, rust: b.rust },
+    };
+  }
+
+  /** the mask of what is under the tool, opened the first time a tool goes over it */
+  private openGrime(v: ModVehicle | null, owner: string, label: string, o: GrimeOwner, loose: Loose | null = null): GrimeMask | null {
+    const g = this.grime;
+    if (!g) return null;
+    let m = g.get(o.key);
+    const fresh = !m;
+    m ??= g.open(o);
+    if (v) v.view.setGrimeHeld(owner, true);
+    if (loose) this.loose.setGrimeHeld(loose.uid, true);
+    const p = v?.view.grimeParts().find((x) => x.owner === owner);
+    const li = loose ? this.loose.grimeParts(loose).find((x) => x.owner === owner)?.inst : undefined;
+    if (p?.inst) p.inst.grime = true;
+    else if (li) li.grime = true;
+    else if (v && owner === 'body') v.build.grime = true;
+    if (!this.cleaning.has(o.key)) this.cleaning.set(o.key, { v, loose, owner, key: o.key, label, kind: o.kind, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
+    if (fresh) this.measureClean(o.key, this.cleaning.get(o.key)!, o, m);
+    return m;
+  }
+
+  /** a stroke of a cleaning tool, from a to b: the band it takes off, what comes off it */
+  scrubStroke(hit: ScrubHit, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, tool: Tool, c: Cleaner, dt: number): void {
+    const g = this.grime;
+    const o = this.grimeOwnerOf(hit.v, hit.owner, hit.loose);
+    if (!g || !o) return;
+    const base = hit.v?.view.grimeParts().find((x) => x.owner === hit.owner)?.label ?? (hit.loose ? this.loose.grimeParts(hit.loose).find((x) => x.owner === hit.owner)?.label : undefined) ?? hit.label;
+    const m = this.openGrime(hit.v, hit.owner, base, o, hit.loose);
+    if (!m) return;
+    g.stroke(m, o, { a, b, normal: hit.normal, side, half: c.width / 2, soft: 0.006, depth: c.depth, take: c.take, wet: c.wet });
+    const cl = this.cleaning.get(o.key);
+    if (cl) cl.dirty = true;
+    // what comes off: flakes of crust, crumbs of dirt, flecks of rust, the sponge's foam
+    const len = a.distanceTo(b);
+    const u = cl ? this.unitLeft(cl, this.unitOfHit(hit)) : null;
+    const left = u ? (tool.kind === 'brush' ? Math.max(u.rust, u.dirt * 0.5) : u.dirt) : 1;
+    if (this.flakes && left > 0.04 && len > 0.002) {
+      const n = Math.min(4, Math.max(1, Math.round(len * 90 * Math.min(1, left * 2))));
+      const am = o.amounts;
+      const col =
+        tool.kind === 'sponge'
+          ? FOAM
+          : tool.kind === 'brush' && am.rust > 0.05
+            ? RUST_BITS
+            : am.crust > 0.15
+              ? hit.glass
+                ? GLASS_CRUST
+                : CRUST_BITS
+              : DUST_BITS;
+      const push = this.gcV.subVectors(b, a).normalize();
+      this.flakes.emit(b, hit.normal, push, col, n, tool.kind === 'sponge');
+    }
+    void dt;
+  }
+
+  /** the scrubbing stopped: what it was on is measured at once */
+  scrubEnd(last: ScrubHit | null, tool: Tool): void {
+    void tool;
+    if (!last) return;
+    const c = this.cleaning.get(last.key);
+    if (c) {
+      c.dirty = true;
+      c.measuredAt = -1;
+    }
+  }
+
+  /** how much is left of a unit of what is being cleaned (its last measure), or null */
+  private unitLeft(c: Cleaning, unit: number): UnitLeft | null {
+    return c.units.find((u) => u.unit === unit) ?? null;
+  }
+
+  /**
+   * What is being cleaned measured again (only: just these units, the side being scrubbed — the rest when the
+   * tool is lifted); units come clean (the ding, the flash), and the whole part
+   */
+  private measureClean(key: string, c: Cleaning, o: GrimeOwner, m: GrimeMask, only?: number[]): void {
+    const g = this.grime;
+    if (!g) return;
+    const got = g.measure(o, only);
+    if (only && c.units.length) {
+      for (const u of got) {
+        const i = c.units.findIndex((x) => x.unit === u.unit);
+        if (i >= 0) c.units[i] = u;
+        else c.units.push(u);
+      }
+    } else {
+      c.units = got;
+      c.dirty = false;
+    }
+    c.measuredAt = this.time;
+    const MIN = 2.5;
+    for (const u of c.units) {
+      const name = unitName(c.kind, u.unit, c.label);
+      if (u.dirtWas > MIN && !m.doneDirt.has(u.unit) && u.dirt <= 0.08) {
+        m.doneDirt.add(u.unit);
+        g.snap(m, o, u.unit, 'dirt');
+        c.flash = 1;
+        c.flashUnit = u.unit;
+        this.sound('clean_ding', 0.9);
+        const rusty = u.rustWas > MIN && u.rust > 0.08;
+        this.ui.say(rusty ? `${name} · 泥壳刮掉了，还有锈：用钢丝刷刷` : `${name} · 干净了`, 2.2);
+        if (/挡风玻璃/.test(name)) this.done.add('windscreen');
+      }
+      if (u.rustWas > MIN && !m.doneRust.has(u.unit) && u.rust <= 0.08 && (m.doneDirt.has(u.unit) || u.dirtWas <= MIN)) {
+        m.doneRust.add(u.unit);
+        g.snap(m, o, u.unit, 'rust');
+        c.flash = 1;
+        c.flashUnit = u.unit;
+        this.sound('clean_rust_done', 0.9);
+        this.ui.say(`${name} · 锈刷干净了`, 2.2);
+      }
+    }
+    const left = c.units.some((u) => (u.dirtWas > MIN && !m.doneDirt.has(u.unit)) || (u.rustWas > MIN && !m.doneRust.has(u.unit)));
+    if (!left && c.units.length) this.cleanDone(key, c, o);
+  }
+
+  /** a whole part came clean: its figures to nothing, its mask goes; the whole vehicle: its own fanfare */
+  private cleanDone(key: string, c: Cleaning, o: GrimeOwner): void {
+    const v = c.v;
+    const p = v?.view.grimeParts().find((x) => x.owner === c.owner);
+    const inst = p?.inst ?? (c.loose ? (this.loose.grimeParts(c.loose).find((x) => x.owner === c.owner)?.inst ?? null) : null);
+    if (inst) {
+      inst.dirt = 0;
+      inst.crust = 0;
+      inst.rust = 0;
+      inst.grime = false;
+    } else if (v) {
+      v.build.dirt = 0;
+      v.build.crust = 0;
+      v.build.rust = 0;
+      v.build.grime = false;
+    }
+    this.grime?.close(key, o.look);
+    v?.view.setGrimeHeld(c.owner, false);
+    if (c.loose && !this.loose.grimeParts(c.loose).some((x) => x.inst !== inst && this.grime?.get(x.inst.uid))) this.loose.setGrimeHeld(c.loose.uid, false);
+    this.cleaning.delete(key);
+    o.look.setGrimeFlash(1, -1);
+    this.lookFlashes.push({ look: o.look, t: 1 });
+    if (v) {
+      v.sys.rebuild();
+      // the whole vehicle clean: its own sound
+      const all = v.view.grimeParts().every((x) => {
+        const f = x.inst ? x.inst.dirt + (x.inst.crust ?? 0) + x.inst.rust : v.build.dirt + (v.build.crust ?? 0) + v.build.rust;
+        return f < 0.05 && !this.grime?.get(x.key);
+      });
+      if (all) {
+        this.sound('clean_car_done', 1);
+        this.ui.say(`${v.view.frame.name.zh} · 里里外外焕然一新！`, 3.2);
+      }
+    }
+  }
+
+  /** every frame: the masks follow what grew on their parts, dry, flash; what was scrubbed is measured again */
+  private stepGrime(dt: number): void {
+    const g = this.grime;
+    if (!g) return;
+    this.grimeShowT = Math.max(0, this.grimeShowT - dt);
+    carEnvUniforms.uGrimeShow.value = this.grimeShowT > 0 ? Math.min(1, this.grimeShowT / 0.4, (2.4 - this.grimeShowT) / 0.2) : 0;
+    // a part with a mask fitted again (or loaded): its look takes the mask, it is drawn on its own
+    for (const v of this.vehicles) {
+      for (const p of v.view.grimeParts()) {
+        if (!g.get(p.key)) continue;
+        if (!p.look.hasGrime) g.bind(p.key, p.look);
+        v.view.setGrimeHeld(p.owner, true);
+        const c = this.cleaning.get(p.key);
+        if (!c) this.cleaning.set(p.key, { v, loose: null, owner: p.owner, key: p.key, label: p.label, kind: p.kind, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
+        else if (c.v !== v || c.owner !== p.owner) {
+          c.v = v;
+          c.loose = null;
+          c.owner = p.owner;
+          c.label = p.label;
+        }
+      }
+    }
+    for (const l of this.loose.list) {
+      for (const p of this.loose.grimeParts(l)) {
+        if (!g.get(p.inst.uid)) continue;
+        const look = this.loose.lookOfOwner(p.owner);
+        if (look && !look.hasGrime) g.bind(p.inst.uid, look);
+        this.loose.setGrimeHeld(l.uid, true);
+        const c = this.cleaning.get(p.inst.uid);
+        if (!c) this.cleaning.set(p.inst.uid, { v: null, loose: l, owner: p.owner, key: p.inst.uid, label: p.label, kind: 0, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
+        else if (c.loose !== l || c.owner !== p.owner) {
+          c.v = null;
+          c.loose = l;
+          c.owner = p.owner;
+          c.label = p.label;
+        }
+      }
+    }
+    // (a part with its mask in the hands shows it there too)
+    const hp = this.player.held;
+    const hl = hp?.kind === 'part' ? this.heldThing.look : undefined;
+    if (hp?.kind === 'part' && hl && g.get(hp.inst.uid) && !hl.hasGrime) g.bind(hp.inst.uid, hl);
+    for (const [key, c] of this.cleaning) {
+      const o = this.grimeOwnerOf(c.v, c.owner, c.loose);
+      const m = g.get(key);
+      if (!o || !m || o.key !== key) continue;
+      g.grow(m, o);
+      g.dry(m, o, dt);
+      if (c.flash > 0) {
+        c.flash = Math.max(0, c.flash - dt * 2.2);
+        o.look.setGrimeFlash(c.flash, c.flashUnit);
+      }
+      const sh = this.player.scrub?.hit;
+      const scrubbing = sh?.key === key;
+      // (while the tool is on it: the unit under it, a few times a second; the whole part once it is lifted)
+      if (c.dirty && scrubbing && c.units.length && this.time - c.measuredAt > 0.25) this.measureClean(key, c, o, m, [this.unitOfHit(sh!)]);
+      else if (c.dirty && !scrubbing && this.time - c.measuredAt > 0.05) this.measureClean(key, c, o, m);
+    }
+    for (let i = this.lookFlashes.length - 1; i >= 0; i--) {
+      const f = this.lookFlashes[i];
+      f.t = Math.max(0, f.t - dt * 1.6);
+      f.look.setGrimeFlash(f.t, -1);
+      if (f.t <= 0) this.lookFlashes.splice(i, 1);
+    }
+    // the bits that came off fall to the floor
+    const floor = (this.garage ? 0 : this.groundAt(this.player.walker.x, this.player.walker.z)) - this.core.origin.y;
+    const landed = this.flakes?.update(dt, floor) ?? 0;
+    this.flakeTickT -= dt;
+    if (landed > 0 && this.flakeTickT <= 0) {
+      this.sound('flake_drop', 0.6);
+      this.flakeTickT = 0.25;
+    }
+    // the sound of the scrub, by what it is on and how fast it goes: its loop goes on (silent) while the tool
+    // stands still, so the next stroke picks it up where it was; a stroke after a pause catches the surface
+    const sc = this.player.scrub;
+    const held = this.player.held;
+    const f = this.foley;
+    const cleaningTool = held?.kind === 'tool' && (held.tool.kind === 'sponge' || held.tool.kind === 'scraper' || held.tool.kind === 'brush');
+    if (cleaningTool && f && !this.warmedScrub) {
+      this.warmedScrub = true;
+      f.warm(['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'] as FoleyLoop[]);
+      for (const surface of ['glass', 'metal', 'rust', 'mud'] as const) f.warm(['scrape_start' as FoleyShot], { surface } as FoleyOpts);
+    }
+    // a cleaning tool in the hands: the vehicles near got ready to be scrubbed, a little each frame (the rays'
+    // grids over their meshes, the measure's programs), so the first stroke does not stall
+    if (cleaningTool) this.readyScrub();
+    if (sc && held?.kind === 'tool') {
+      const h = sc.hit;
+      const c = h ? this.cleaning.get(h.key) : null;
+      const u = c && h ? this.unitLeft(c, this.unitOfHit(h)) : null;
+      const dirty = u ? (held.tool.kind === 'brush' ? Math.max(u.rust, u.dirt) : u.dirt) > 0.05 : true;
+      const am = h ? this.grimeOwnerOf(h.v, h.owner, h.loose)?.amounts : undefined;
+      const surface: 'glass' | 'metal' | 'rust' | 'mud' = h?.glass ? 'glass' : am && am.crust > 0.25 ? 'rust' : am && am.dirt > 0.35 ? 'mud' : 'metal';
+      const name: FoleyLoop | '' = !h
+        ? this.scrubLoop
+        : ((held.tool.kind === 'sponge' ? 'sponge_scrub' : held.tool.kind === 'brush' ? 'brush_wire' : `scrape_${surface}`) as FoleyLoop);
+      // (the level smoothed over a few frames: the mouse's jitter would make it flutter)
+      const want = h ? Math.min(1, sc.speed / 0.7) * (dirty ? 1 : 0.4) : 0;
+      this.scrubGain += (want - this.scrubGain) * (1 - Math.exp(-dt / 0.06));
+      if (name) {
+        this.scrubLoop = name;
+        this.loopFor(name, this.scrubGain, 0.7 + Math.min(0.9, sc.speed * 0.6));
+      }
+      // the blade catching as a stroke begins
+      if (sc.speed > 0.06 && this.scrubStill > 0.15 && h && held.tool.kind !== 'sponge' && f) f.play('scrape_start' as FoleyShot, { surface: held.tool.kind === 'brush' ? 'rust' : surface, gain: 0.8 } as FoleyOpts);
+      this.scrubStill = sc.speed < 0.02 ? this.scrubStill + dt : 0;
+    } else {
+      this.scrubLoop = '';
+      this.scrubGain = 0;
+      this.scrubStill = 1;
+    }
+  }
+
+  /** the vehicles made ready to scrub (their measure's programs compiled), and the meshes whose ray grids are still to build */
+  private readonly scrubReady = new Set<ModVehicle>();
+  private readonly gridQueue: THREE.Mesh[] = [];
+
+  private readyScrub(): void {
+    const g = this.grime;
+    if (!g) return;
+    const w = this.player.walker;
+    for (const v of this.vehicles) {
+      if (this.scrubReady.has(v) || Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) > 8) continue;
+      this.scrubReady.add(v);
+      const parts = v.view.grimeParts();
+      for (const p of parts) this.gridQueue.push(...p.meshes);
+      // (the body and a panel between them have every material a measure draws)
+      for (const p of [parts.find((x) => x.kind === 1), parts.find((x) => x.kind === 0 && x.owner.startsWith('p:'))]) {
+        const o = p ? this.grimeOwnerOf(v, p.owner) : null;
+        if (o) void g.prewarm(o);
+      }
+    }
+    // two meshes' grids a frame
+    for (let i = 0; i < 2 && this.gridQueue.length; i++) triGrid(this.gridQueue.shift()!.geometry);
+  }
+
+  /** where the scrubbing tool sits: its working face on the point, turned to the stroke and the surface */
+  private scrubPose(sc: Scrub, cam: THREE.Camera): { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null {
+    const h = sc.hit;
+    const held = this.player.held;
+    if (!h || held?.kind !== 'tool') return null;
+    const n = h.normal.clone();
+    const toEye = cam.position.clone().sub(h.point);
+    if (n.dot(toEye) < 0) n.negate();
+    const d = sc.dir.clone().addScaledVector(n, -sc.dir.dot(n));
+    if (d.lengthSq() < 1e-6) d.set(0, 1, 0).cross(n);
+    d.normalize();
+    // (the handle towards the eye: the tool pushes away along the stroke's line, whichever way it goes)
+    if (d.dot(toEye) > 0) d.negate();
+    const x = new THREE.Vector3();
+    const y = new THREE.Vector3();
+    const z = new THREE.Vector3();
+    let at: THREE.Vector3;
+    const wiggle = 0.05 * Math.sin(this.time * 23) * Math.min(1, sc.speed);
+    if (held.tool.kind === 'scraper') {
+      // the blade's edge on the point, leaning into the surface (the models' +x the working end, +y up)
+      const t = 0.5;
+      x.copy(d).multiplyScalar(Math.cos(t)).addScaledVector(n, -Math.sin(t)).normalize();
+      y.copy(n).multiplyScalar(Math.cos(t)).addScaledVector(d, Math.sin(t)).normalize();
+      z.crossVectors(x, y);
+      at = this.heldThing.marker('M_edge') ?? new THREE.Vector3(0.13, 0, 0);
+    } else if (held.tool.kind === 'brush') {
+      // the bristles on it, the block across the stroke
+      y.copy(n);
+      x.crossVectors(n, d).normalize();
+      z.crossVectors(x, y);
+      at = this.heldThing.marker('M_face') ?? new THREE.Vector3(0.08, 0, 0);
+    } else {
+      // the sponge flat on it
+      y.copy(n);
+      x.copy(d);
+      z.crossVectors(x, y);
+      at = new THREE.Vector3(0, 0, 0);
+    }
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    q.premultiply(new THREE.Quaternion().setFromAxisAngle(n, wiggle));
+    return { pos: h.point.clone().addScaledVector(n, 0.0015), q, at };
+  }
+
+  /** the scrub's ring at the tool (how clean that piece is) and the mouse's point */
+  private showScrub(cam: THREE.Camera): void {
+    const hud = (this.scrubHud ??= new ScrubHud(this.ui.root));
+    const sc = this.player.scrub;
+    const held = this.player.held;
+    const s = this.ui.hudScale;
+    const toHud = (p: THREE.Vector3): { x: number; y: number } => {
+      const q = p.clone().project(cam);
+      return { x: (((q.x + 1) / 2) * window.innerWidth) / s, y: (((1 - q.y) / 2) * window.innerHeight) / s };
+    };
+    const h = sc?.hit ?? (!this.seated && held?.kind === 'tool' ? this.player.scrubAim : null);
+    const c = h ? this.cleaning.get(h.key) : null;
+    let what: { key: string; name: string; clean: number; done: boolean } | null = null;
+    if (h && held?.kind === 'tool' && !this.seated) {
+      const unit = this.unitOfHit(h);
+      const u = c ? this.unitLeft(c, unit) : null;
+      const brush = held.tool.kind === 'brush';
+      const left = u ? (brush ? (u.rustWas > 2.5 ? u.rust : u.dirt) : u.dirtWas > 2.5 ? u.dirt : 0) : 1;
+      const m = this.grime?.get(h.key);
+      const done = !!m && (brush ? m.doneRust.has(unit) : m.doneDirt.has(unit));
+      what = { key: `${h.key}:${unit}`, name: h.label, clean: c || !this.grime?.get(h.key) ? (u ? 1 - left : this.figuresClean(h) ? 1 : 0) : 0, done: done || (u ? left <= 0.08 : this.figuresClean(h)) };
+    }
+    const cursor = sc ? { x: (((sc.cursor.x + 1) / 2) * window.innerWidth) / s, y: (((1 - sc.cursor.y) / 2) * window.innerHeight) / s } : null;
+    hud.show(h && what && sc ? toHud(h.point) : null, sc ? what : null, cursor);
+  }
+
+  /** is what the tool is on clean by its figures (no mask) */
+  private figuresClean(h: ScrubHit): boolean {
+    const i = h.inst;
+    const b = h.v?.build;
+    const f = i ? i.dirt + (i.crust ?? 0) + i.rust : b ? b.dirt + (b.crust ?? 0) + b.rust : 0;
+    return f < 0.05;
   }
 
   // ------------------------------------------------------------------ the generator's engine
@@ -1925,6 +2482,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
             { id: 'power', text: '到门外拉发电机，车库来电', done: this.done.has('power') || ws.power },
             { id: 'scrap', text: '旧零件箱丢进回收台，攒 70 废料', done: made || this.stock.scrap >= 70 },
             { id: 'scraper', text: '在制作台做一把清理铲', done: made },
+            { id: 'windscreen', text: '拿清理铲刮干净挡风玻璃', done: this.done.has('windscreen') || this.windscreenClean() },
           ]
         : []),
       ...(hood || this.done.has('hood') ? [{ id: 'hood', text: '打开引擎盖', done: this.done.has('hood') || (!!b.parts.battery && !!b.parts.engine) }] : []),
@@ -1999,6 +2557,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.workshop.update(dt, this.wsEye.set(e.x, e.y, e.z));
       if (this.garage) this.garage.power = this.workshop.power;
     }
+    this.stepGrime(dt);
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
@@ -2015,7 +2574,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         take: !listing && (this.rightButton || i.isDown('KeyF')),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
-      this.input.lookHold = this.player.transferring || listing;
+      this.input.lookHold = this.player.transferring || listing || !!this.player.scrub;
       this.showCargoList();
     } else {
       // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
@@ -2301,7 +2860,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     let dock: Dock | null = null;
     if (!this.seated && pt?.kind === 'filler' && pt.open && pt.v.view.fillerMouth(pt.liquid, this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
     else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
+    const sc = this.player.scrub;
+    this.heldThing.pin(!this.seated && sc?.hit ? this.scrubPose(sc, cam) : null);
     this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit' && this.benchB < 0.05, this.player.walker.sway, 0, dock);
+    this.showScrub(cam);
     this.workshop?.frame();
     // the liquid itself, from the spout into the mouth once the can is tipped over
     const flow = this.player.flow;
@@ -2452,8 +3014,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const inst = v.build.parts[m.id];
       if (!inst) continue;
       const def = partDef(inst.part);
-      // (a lamp smashed in a crash gives no light; a worn one less)
-      const w = inst.cond < 0.15 ? 0 : (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond);
+      // (a lamp smashed in a crash gives no light; a worn one less; a dirty one dimmer, a caked one far dimmer —
+      // as much as is left on it, a lamp being cleaned by its measure)
+      const left = this.cleaning.get(inst.uid)?.units.find((x) => x.unit === 0)?.dirt ?? 1;
+      const grime = Math.min(1, (inst.dirt * 0.6 + (inst.crust ?? 0) * 1.2) * left);
+      const w = inst.cond < 0.15 ? 0 : (def.lamp?.light ?? 1) * Math.max(0.3, inst.cond) * (1 - 0.7 * grime);
       light += w;
       lx += m.pos.x * w;
       ly += m.pos.y * w;
@@ -2565,6 +3130,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
       case 'scraper':
         return device('bench', '制作台：做一把清理铲', 0.25);
+      case 'windscreen': {
+        // the scraper in the hands: to the windscreen; else where the scraper lies
+        if (!(held?.kind === 'tool' && held.tool.kind === 'scraper')) {
+          const l = this.loose.list.find((x) => x.tool?.kind === 'scraper');
+          if (l) return { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text: '拿起清理铲' };
+        }
+        const w = v.view.windscreenAt(new THREE.Vector3());
+        if (!w) return null;
+        const o = this.core.origin;
+        return { x: w.x + o.x, y: w.y + o.y + 0.35, z: w.z + o.z, text: '挡风玻璃：按住左键刮' };
+      }
       case 'hood':
       case 'shut': {
         // (shut: on top towards its front edge; standing open: on its middle)
@@ -2776,6 +3352,37 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const dt = seconds / n;
     for (let i = 0; i < n; i++) this.step(dt, 1);
     if (seconds === 0) this.step(0, 1);
+  }
+
+  /** is the project car's windscreen clean (its body has no crust or dirt left on it, or the unit is done) */
+  private windscreenClean(): boolean {
+    const v = this.vehicles[0];
+    if (!v) return false;
+    const key = `${v.build.uid}:body`;
+    const m = this.grime?.get(key);
+    if (m) return m.doneDirt.has(5);
+    return (v.build.crust ?? 0) + v.build.dirt < 0.05;
+  }
+
+  /** what is being cleaned, unit by unit (the probes') */
+  grimeTelemetry(): Record<string, unknown> {
+    return {
+      masks: this.grime?.keys ?? [],
+      texels: this.grime?.texels ?? 0,
+      cleaning: [...this.cleaning.values()].map((c) => {
+        const m = this.grime?.get(c.key);
+        return {
+          key: c.key,
+          owner: c.owner,
+          label: c.label,
+          units: c.units.map((u) => ({ unit: u.unit, name: unitName(c.kind, u.unit, c.label), dirt: +u.dirt.toFixed(3), dirtWas: +u.dirtWas.toFixed(1), rust: +u.rust.toFixed(3), rustWas: +u.rustWas.toFixed(1) })),
+          doneDirt: m ? [...m.doneDirt] : [],
+          doneRust: m ? [...m.doneRust] : [],
+        };
+      }),
+      scrub: this.player.scrub ? { hit: this.player.scrub.hit?.label ?? '', speed: +this.player.scrub.speed.toFixed(2) } : null,
+      aim: this.player.scrubAim?.label ?? '',
+    };
   }
 
   telemetry(): Record<string, unknown> {

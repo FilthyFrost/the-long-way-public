@@ -2,7 +2,8 @@
  * ModCar sound checks (Node, no browser): the engine banks are complete and consistent (every
  * manifest entry has its files in both formats, the containers decode to the lengths the loop
  * points assume, rpm steps cover idle to redline within the pitch budget, seams measured clean when
- * the bank was built), the mixing maths behaves, and every foley recipe renders sane audio. The
+ * the bank was built), the mixing maths behaves, and every foley recipe renders sane audio (the
+ * scrubbing sounds also: seamless, textured, at their levels, following a stroke's rate). The
  * workshop generator (gen_d1) is a bank of its own kind: a few loops round its governed speed, no
  * rev limiter, started on a rope (pullStart). The decoded, played-back seam check and the voice's
  * pull start (no starter whine, no solenoid clicks) are in harness/audio/modcar_render.mjs (Chrome).
@@ -12,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { blendWeights, healLoop, loadMix, loopGain, engineTone, rpmWeights, popSample, blowOffSample, rodKnockSample, solenoidSample, type BankManifest, type LoopRec } from '../../src/game/modcar/engineAudio';
-import { Foley, recipe, foleyLevel, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial } from '../../src/game/modcar/foley';
+import { Foley, recipe, foleyLevel, loopPlaybackRate, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial, type ScrapeSurface } from '../../src/game/modcar/foley';
 import { Rng, biquad, fft, measure } from '../../src/game/modcar/synth';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -551,5 +552,622 @@ describe('ModCar workshop foley', () => {
     f.play('shred', { grind: 'cloth' });
     for (const s of started) expect(metalBufs.has(s.buffer)).toBe(false);
     expect(started[0].buffer).not.toBe(started[1].buffer);
+  });
+});
+
+// ------------------------------------------------------------------ scrubbing (Batch 5)
+
+const SCRUB_LOOPS: readonly FoleyLoop[] = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'];
+/** the blade's and the brush's loops (the sponge is meant to sit a little under them) */
+const SCRAPES: readonly FoleyLoop[] = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire'];
+const SCRUB_SHOTS: readonly FoleyShot[] = ['scrape_start', 'flake_drop', 'clean_ding', 'clean_rust_done', 'clean_car_done', 'tool_worn', 'highlight_ping'];
+const CHIMES: readonly FoleyShot[] = ['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping'];
+const SURFACES: readonly ScrapeSurface[] = ['glass', 'metal', 'rust', 'mud'];
+
+/** an AudioParam that keeps its automation: [what, value, time, time constant] */
+type KeptParam = { value: number; events: Array<[string, number, number, number?]>; setValueAtTime: (v: number, t: number) => KeptParam; setTargetAtTime: (v: number, t: number, c: number) => KeptParam; cancelScheduledValues: (t: number) => KeptParam };
+function keptParam(value = 1): KeptParam {
+  const p: KeptParam = {
+    value,
+    events: [],
+    setValueAtTime: (v, t) => {
+      p.events.push(['set', v, t]);
+      p.value = v;
+      return p;
+    },
+    setTargetAtTime: (v, t, c) => {
+      p.events.push(['target', v, t, c]);
+      return p;
+    },
+    cancelScheduledValues: (t) => {
+      p.events.push(['cancel', 0, t]);
+      return p;
+    },
+  };
+  return p;
+}
+type KeptSource = { buffer: unknown; loop: boolean; playbackRate: KeptParam; out: { gain: KeptParam } | null; started: number };
+
+/** a stand-in AudioContext that keeps what the player does: every rendering it makes (the samples), every source it starts (its buffer, rate and gain with their automation) */
+function keptContext(sr: number): { ctx: { sampleRate: number; currentTime: number; destination: { channelCount: number } } & Record<string, unknown>; made: Float32Array[]; sources: KeptSource[] } {
+  const made: Float32Array[] = [];
+  const sources: KeptSource[] = [];
+  const gainNode = (): Record<string, unknown> => ({ gain: keptParam(1), connect: (n: unknown) => n, disconnect: () => undefined });
+  const ctx = {
+    sampleRate: sr,
+    currentTime: 0,
+    destination: { channelCount: 1 },
+    createGain: gainNode,
+    createBuffer: (_c: number, n: number) => ({ length: n, duration: n / sr, copyToChannel: (x: Float32Array) => made.push(Float32Array.from(x)) }),
+    createBufferSource: () => {
+      const s: KeptSource & Record<string, unknown> = {
+        buffer: null,
+        loop: false,
+        playbackRate: keptParam(1),
+        out: null,
+        started: 0,
+        onended: null,
+        connect: (n: { gain: KeptParam }) => {
+          s.out = n;
+          return n;
+        },
+        disconnect: () => undefined,
+        start: () => {
+          s.started++;
+          sources.push(s);
+        },
+        stop: () => undefined,
+      };
+      return s;
+    },
+  };
+  return { ctx, made, sources };
+}
+
+/** K-weighted loudness (BS.1770's shelf and low cut): integrated over a loop (a second turn of it), the 400 ms momentary maximum of a shot */
+function kLoudness(x: Float32Array, sr: number, loop: boolean): number {
+  const y = new Float32Array(loop ? 2 * x.length : x.length);
+  y.set(x);
+  if (loop) y.set(x, x.length);
+  biquad(y, sr, 'highshelf', 1500, 0.707, 4);
+  biquad(y, sr, 'highpass', 38, 0.5);
+  if (loop) {
+    let s = 0;
+    for (let i = x.length; i < y.length; i++) s += y[i] * y[i];
+    return 10 * Math.log10(s / x.length) - 0.691;
+  }
+  const w = Math.floor(0.4 * sr);
+  let s = 0;
+  let best = 0;
+  for (let i = 0; i < y.length + w; i++) {
+    if (i < y.length) s += y[i] * y[i];
+    if (i >= w) s -= y[i - w] * y[i - w];
+    best = Math.max(best, s / w);
+  }
+  return 10 * Math.log10(best) - 0.691;
+}
+
+/**
+ * A splice at a loop's wrap, by linear prediction (as clicks are found in old recordings): an
+ * order-32 predictor fitted to the loop played round, its error just after the wrap against the
+ * 99.9th percentile of its error everywhere else. A seamless loop is as predictable across its wrap
+ * as anywhere (well under 1); one cut short jumps there wherever its sound is smooth enough for the
+ * jump to be heard (in dense crackle a cut is itself a crackle, and as inaudible).
+ */
+function spliceAt(x: Float32Array, p = 32): number {
+  const n = x.length;
+  const r = new Float64Array(p + 1);
+  for (let k = 0; k <= p; k++) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += x[i] * x[(i + k) % n];
+    r[k] = s;
+  }
+  r[0] *= 1 + 1e-9;
+  const a = new Float64Array(p + 1);
+  a[0] = 1;
+  let e = r[0];
+  for (let i = 1; i <= p; i++) {
+    let acc = r[i];
+    for (let j = 1; j < i; j++) acc += a[j] * r[i - j];
+    const k = -acc / e;
+    const prev = Float64Array.from(a);
+    for (let j = 1; j < i; j++) a[j] = prev[j] + k * prev[i - j];
+    a[i] = k;
+    e *= 1 - k * k;
+  }
+  const err = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = x[i];
+    for (let j = 1; j <= p; j++) s += a[j] * x[(i - j + n) % n];
+    err[i] = Math.abs(s);
+  }
+  let at = 0;
+  for (let i = 0; i < 8; i++) at = Math.max(at, err[i]);
+  err.sort();
+  return at / err[Math.floor(n * 0.999)];
+}
+
+/** the power spectrum of x over [a, b) samples (Hann 4096, half-overlapped, summed) */
+function powerOf(x: Float32Array, a = 0, b = x.length): Float64Array {
+  const N = 4096;
+  const P = new Float64Array(N / 2);
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  for (let o = a; o + N <= b; o += N / 2) {
+    re.fill(0);
+    im.fill(0);
+    for (let i = 0; i < N; i++) re[i] = x[o + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+    fft(re, im);
+    for (let k = 0; k < N / 2; k++) P[k] += re[k] * re[k] + im[k] * im[k];
+  }
+  return P;
+}
+const binHz = (k: number, sr: number): number => (k * sr) / 4096;
+/** the share of the power between lo and hi Hz */
+function shareOf(P: Float64Array, sr: number, lo: number, hi: number): number {
+  let s = 0;
+  let t = 0;
+  for (let k = 1; k < P.length; k++) {
+    t += P[k];
+    if (binHz(k, sr) >= lo && binHz(k, sr) < hi) s += P[k];
+  }
+  return s / t;
+}
+function centroidOf(P: Float64Array, sr: number): number {
+  let a = 0;
+  let b = 0;
+  for (let k = 1; k < P.length; k++) {
+    a += P[k] * binHz(k, sr);
+    b += P[k];
+  }
+  return a / b;
+}
+/** spectral flatness between lo and hi Hz: near 1 for noise, small where a tone stands out */
+function flatnessOf(P: Float64Array, sr: number, lo: number, hi: number): number {
+  let g = 0;
+  let m = 0;
+  let c = 0;
+  for (let k = 1; k < P.length; k++) {
+    if (binHz(k, sr) < lo || binHz(k, sr) >= hi) continue;
+    g += Math.log(P[k] + 1e-30);
+    m += P[k];
+    c++;
+  }
+  return Math.exp(g / c) / (m / c);
+}
+/** the strongest bins between lo and hi Hz, as frequencies (local maxima, strongest first) */
+function peaksOf(P: Float64Array, sr: number, lo: number, hi: number, count: number): number[] {
+  const idx: number[] = [];
+  for (let k = 3; k < P.length - 3; k++) {
+    const f = binHz(k, sr);
+    if (f < lo || f >= hi) continue;
+    if (P[k] > P[k - 1] && P[k] >= P[k + 1] && P[k] > P[k - 2] && P[k] >= P[k + 2]) idx.push(k);
+  }
+  idx.sort((p, q) => P[q] - P[p]);
+  return idx.slice(0, count).map((k) => binHz(k, sr));
+}
+/** texture: kurtosis (3 for a hiss, far more for crackle) and how much the level moves from one 5 ms / 50 ms window to the next (sd / mean of their rms) */
+function textureOf(x: Float32Array, sr: number): { kurtosis: number; cv5: number; cv50: number } {
+  let m2 = 0;
+  let m4 = 0;
+  for (const v of x) {
+    m2 += v * v;
+    m4 += v * v * v * v;
+  }
+  m2 /= x.length;
+  m4 /= x.length;
+  const cv = (w: number): number => {
+    const lv: number[] = [];
+    for (let o = 0; o + w <= x.length; o += w) {
+      let e = 0;
+      for (let i = 0; i < w; i++) e += x[o + i] * x[o + i];
+      lv.push(Math.sqrt(e / w));
+    }
+    const mean = lv.reduce((p, q) => p + q, 0) / lv.length;
+    return Math.sqrt(lv.reduce((p, q) => p + (q - mean) ** 2, 0) / lv.length) / mean;
+  };
+  return { kurtosis: m4 / (m2 * m2), cv5: cv(Math.floor(0.005 * sr)), cv50: cv(Math.floor(0.05 * sr)) };
+}
+/** a loop read round at a playback rate, the way a buffer source does it (linear interpolation) */
+function atRate(x: Float32Array, rate: number, seconds: number, sr: number): Float32Array {
+  const y = new Float32Array(Math.floor(seconds * sr));
+  for (let i = 0, p = 0; i < y.length; i++, p += rate) {
+    const k = Math.floor(p);
+    const f = p - k;
+    y[i] = x[k % x.length] * (1 - f) + x[(k + 1) % x.length] * f;
+  }
+  return y;
+}
+
+describe('ModCar scrubbing foley', () => {
+  const sr = 48000;
+  const render = (kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}, seed = 1234): Float32Array => recipe(kind, o)(sr, new Rng(seed));
+  const variants: Array<[FoleyShot, FoleyOpts]> = SCRUB_SHOTS.flatMap((k) => (k === 'scrape_start' ? SURFACES.map((surface) => [k, { surface }] as [FoleyShot, FoleyOpts]) : [[k, {}] as [FoleyShot, FoleyOpts]]));
+  const rmsOf = (x: Float32Array, a: number, b: number): number => {
+    let e = 0;
+    const i0 = Math.floor(a * sr);
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) e += x[i] * x[i];
+    return Math.sqrt(e / Math.max(1, i1 - i0));
+  };
+
+  it('has every scrubbing sound in the catalogue, with a level', () => {
+    for (const k of [...SCRUB_SHOTS, ...SCRUB_LOOPS]) {
+      expect([...FOLEY_SHOTS, ...FOLEY_LOOPS] as string[], k).toContain(k);
+      expect(foleyLevel(k), k).toBeGreaterThan(0);
+      expect(foleyLevel(k), k).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('renders every scrubbing shot non-silent and unclipped at its level, from silence to silence, for any seed', () => {
+    for (const [kind, o] of variants) {
+      for (const seed of [1, 1234, 777]) {
+        const x = render(kind, o, seed);
+        const tag = `${kind} ${o.surface ?? ''} seed ${seed}`;
+        let bad = 0;
+        let dc = 0;
+        for (const v of x) {
+          if (!Number.isFinite(v)) bad++;
+          dc += v;
+        }
+        expect(bad, tag).toBe(0);
+        const s = measure(x, sr);
+        // (the player varies most shots' level by up to 8 % per play)
+        expect(s.peak * foleyLevel(kind) * 1.08, tag).toBeLessThan(1);
+        expect(s.rms, tag).toBeGreaterThan(0.003);
+        expect(Math.abs(x[0]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(x[x.length - 1]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(dc / x.length), tag).toBeLessThan(0.01 * s.peak);
+      }
+    }
+  });
+
+  it('lasts as long as the brief says', () => {
+    const len = (k: FoleyShot, o: FoleyOpts = {}): number => render(k, o).length / sr;
+    for (const surface of SURFACES) {
+      expect(len('scrape_start', { surface }), surface).toBeGreaterThan(0.06);
+      expect(len('scrape_start', { surface }), surface).toBeLessThan(0.12);
+    }
+    expect(len('flake_drop')).toBeGreaterThan(0.25);
+    expect(len('flake_drop')).toBeLessThan(0.45);
+    expect(len('clean_ding')).toBeGreaterThanOrEqual(0.6);
+    expect(len('clean_ding')).toBeLessThanOrEqual(0.9);
+    expect(len('clean_rust_done')).toBeGreaterThan(0.6);
+    expect(len('clean_rust_done')).toBeLessThan(1.1);
+    expect(len('clean_car_done')).toBeGreaterThanOrEqual(1.5);
+    expect(len('clean_car_done')).toBeLessThanOrEqual(2.5);
+    expect(len('tool_worn')).toBeGreaterThan(0.2);
+    expect(len('tool_worn')).toBeLessThan(0.45);
+    expect(len('highlight_ping')).toBeGreaterThan(0.4);
+    expect(len('highlight_ping')).toBeLessThan(0.7);
+    // the flakes land over about 0.3 s: the last tick late in most renderings, never past the end
+    const last = (x: Float32Array): number => {
+      const pk = measure(x, sr).peak;
+      let i = x.length - 1;
+      while (i > 0 && Math.abs(x[i]) < 0.05 * pk) i--;
+      return i / sr;
+    };
+    const lastTicks = Array.from({ length: 8 }, (_, s) => last(render('flake_drop', {}, 100 + s))).sort((p, q) => p - q);
+    expect(lastTicks[4]).toBeGreaterThan(0.12);
+    expect(lastTicks[7]).toBeLessThan(0.37);
+    // the chimes have died away by their ends
+    for (const k of CHIMES) {
+      const x = render(k);
+      expect(rmsOf(x, x.length / sr - 0.05, x.length / sr), k).toBeLessThan(0.05 * rmsOf(x, 0, 0.1));
+    }
+  });
+
+  it(
+    'loops seamlessly for 2.5 s or more: no step, no kink, no splice, no level jump at the wrap, no DC',
+    () => {
+      for (const kind of SCRUB_LOOPS) {
+        for (const seed of [1234, 99]) {
+          const x = render(kind, {}, seed);
+          const n = x.length;
+          const tag = `${kind} seed ${seed}`;
+          // long enough not to be heard repeating at a fast stroke (rate 1.6), short enough for the cache
+          expect(n / sr, tag).toBeGreaterThanOrEqual(2.5);
+          expect(n / sr, tag).toBeLessThan(4);
+          // the end runs on into the start: the step across the wrap is an ordinary step ...
+          const steps = new Float32Array(n);
+          for (let i = 0; i < n; i++) steps[i] = Math.abs(x[(i + 1) % n] - x[i]);
+          const across = steps[n - 1];
+          steps.sort();
+          expect(across, `${tag} (step)`).toBeLessThan(steps[Math.floor(n * 0.999)]);
+          // ... and so is the curvature
+          const d2 = (i: number): number => Math.abs(x[(i + 1) % n] - 2 * x[i % n] + x[(i - 1 + n) % n]);
+          const all = new Float32Array(n);
+          for (let i = 0; i < n; i++) all[i] = d2(i);
+          all.sort();
+          let wrap = 0;
+          for (let i = n - 3; i <= n + 3; i++) wrap = Math.max(wrap, d2(i));
+          expect(wrap, `${tag} (kink)`).toBeLessThan(all[Math.floor(n * 0.999)] * 1.5);
+          // the low band carries straight on (three turns of it filtered)
+          const low = new Float32Array(3 * n);
+          for (let k = 0; k < 3; k++) low.set(x, k * n);
+          biquad(low, sr, 'lowpass', 400, 0.7);
+          biquad(low, sr, 'lowpass', 400, 0.7);
+          const lsteps = new Float32Array(n);
+          for (let i = 0; i < n; i++) lsteps[i] = Math.abs(low[n + i] - low[n + i - 1]);
+          const lacross = lsteps[0];
+          lsteps.sort();
+          expect(lacross, `${tag} (low band)`).toBeLessThan(lsteps[Math.floor(n * 0.999)] * 1.5);
+          // no splice: as predictable across the wrap as anywhere
+          expect(spliceAt(x), `${tag} (splice)`).toBeLessThan(1);
+          // no dip (10 ms) and no bump (50 ms) in the level across the wrap
+          const win = (c: number, w: number): number => {
+            let e = 0;
+            for (let i = c - (w >> 1); i < c + (w >> 1); i++) e += x[((i % n) + n) % n] ** 2;
+            return Math.sqrt(e / w);
+          };
+          const short = Math.floor(0.01 * sr);
+          const quietest = Math.min(...Array.from({ length: 128 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 128), short)));
+          expect(win(0, short) / quietest, `${tag} (dip)`).toBeGreaterThan(0.7);
+          const w = Math.floor(0.05 * sr);
+          const levels = Array.from({ length: 64 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 64), w)).sort((p, q) => p - q);
+          expect(win(0, w) / levels[32], `${tag} (bump)`).toBeLessThan(Math.max(2, levels[60] / levels[32]));
+          let dc = 0;
+          for (const v of x) dc += v;
+          expect(Math.abs(dc / n), tag).toBeLessThan(1e-4);
+        }
+        // the splice check does see a loop cut short (3 or 7 ms)
+        const x = render(kind);
+        expect(
+          [3, 7].some((ms) => spliceAt(x.slice(0, x.length - Math.round((ms * sr) / 1000))) > 1),
+          `${kind} cut short`,
+        ).toBe(true);
+      }
+    },
+    30_000,
+  );
+
+  it(
+    'carries its own texture at every rate: crackles, catches and grains at varying density, never a steady hiss',
+    () => {
+      for (const kind of SCRUB_LOOPS) {
+        for (const seed of [1234, 99]) {
+          const x = render(kind, {}, seed);
+          const t = textureOf(x, sr);
+          const tag = `${kind} seed ${seed}`;
+          expect(t.kurtosis, tag).toBeGreaterThan(5);
+          expect(t.cv5, tag).toBeGreaterThan(0.4);
+          expect(t.cv50, tag).toBeGreaterThan(0.18);
+          // a slow stroke and a fast one keep it
+          for (const rate of [0.7, 1.6]) {
+            const y = textureOf(atRate(x, rate, 3, sr), sr);
+            expect(y.kurtosis, `${tag} at ${rate}`).toBeGreaterThan(4.5);
+            expect(y.cv5, `${tag} at ${rate}`).toBeGreaterThan(0.35);
+          }
+        }
+      }
+      // (the measure tells: the spray is a steady hiss, and fails it)
+      const spray = textureOf(render('spray'), sr);
+      expect(spray.kurtosis).toBeLessThan(3.5);
+      expect(spray.cv5).toBeLessThan(0.25);
+    },
+    30_000,
+  );
+
+  it(
+    'sounds like what is being scrubbed',
+    () => {
+      for (const seed of [1234, 99]) {
+        const P = Object.fromEntries(SCRUB_LOOPS.map((k) => [k, powerOf(render(k, {}, seed))])) as Record<FoleyLoop, Float64Array>;
+        const tag = `seed ${seed}`;
+        // glass: the blade's squeal stands out of its crunch, round 2 kHz (a tone, where the painted metal is all noise)
+        expect(flatnessOf(P.scrape_glass, sr, 1500, 4000), tag).toBeLessThan(0.65);
+        expect(flatnessOf(P.scrape_metal, sr, 1500, 4000), tag).toBeGreaterThan(flatnessOf(P.scrape_glass, sr, 1500, 4000) + 0.15);
+        const squeal = peaksOf(P.scrape_glass, sr, 1500, 4000, 1)[0];
+        expect(squeal, tag).toBeGreaterThan(1600);
+        expect(squeal, tag).toBeLessThan(2800);
+        // painted metal: a rasp focused in 2-6 kHz, over the panel's lowest mode ringing faintly
+        expect(shareOf(P.scrape_metal, sr, 2000, 6000), tag).toBeGreaterThan(0.7);
+        expect(shareOf(P.scrape_metal, sr, 0, 1000), tag).toBeLessThan(0.06);
+        const mode = peaksOf(P.scrape_metal, sr, 100, 900, 1)[0];
+        expect(Math.min(...[176, 262, 409, 597, 868].map((f) => Math.abs(mode / (f / 1.15) - 1))), `${tag} panel mode ${mode}`).toBeLessThan(0.04);
+        // rust: rougher than the paint, over a low scrape the paint has not got
+        expect(shareOf(P.scrape_rust, sr, 0, 1500), tag).toBeGreaterThan(Math.max(0.1, 3 * shareOf(P.scrape_metal, sr, 0, 1500)));
+        expect(textureOf(render('scrape_rust', {}, seed), sr).cv5, tag).toBeGreaterThan(textureOf(render('scrape_metal', {}, seed), sr).cv5 + 0.1);
+        // mud: muffled, mostly under 1.5 kHz, even at a fast stroke
+        expect(shareOf(P.scrape_mud, sr, 0, 1500), tag).toBeGreaterThan(0.9);
+        expect(shareOf(powerOf(atRate(render('scrape_mud', {}, seed), 1.6, 3, sr)), sr, 0, 1500), tag).toBeGreaterThan(0.85);
+        // the wire brush: high, most of it over 4 kHz, the brightest of them all
+        expect(shareOf(P.brush_wire, sr, 4000, 24000), tag).toBeGreaterThan(0.6);
+        for (const k of SCRUB_LOOPS) if (k !== 'brush_wire') expect(centroidOf(P.brush_wire, sr), `${tag} ${k}`).toBeGreaterThan(centroidOf(P[k], sr));
+        // the sponge: soft and dark, under every blade but the mud's
+        expect(centroidOf(P.sponge_scrub, sr), tag).toBeLessThan(2500);
+        for (const k of ['scrape_glass', 'scrape_metal', 'scrape_rust'] as const) expect(centroidOf(P.sponge_scrub, sr), `${tag} ${k}`).toBeLessThan(centroidOf(P[k], sr));
+      }
+    },
+    30_000,
+  );
+
+  it('sits in the mix at full gain: the scrapes as loud as the ratchet, the sponge softer, the chimes over them, the flakes far under', () => {
+    // the renderings the player itself makes (its own seeds), at their levels
+    const { ctx, made } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    const loud = (kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): number[] => {
+      const a = made.length;
+      f.warm([kind], o);
+      const loop = (FOLEY_LOOPS as readonly string[]).includes(kind);
+      return made.slice(a).map((x) => kLoudness(x.map((v) => v * foleyLevel(kind)), sr, loop));
+    };
+    const ratchet = loud('ratchet')[0];
+    const door = Math.max(...loud('door_close', { material: 'metal' }));
+    const scrapes = SCRAPES.map((k) => loud(k)[0]);
+    scrapes.forEach((l, i) => expect(Math.abs(l - ratchet), SCRAPES[i]).toBeLessThan(2));
+    const sponge = loud('sponge_scrub')[0];
+    expect(sponge).toBeLessThan(Math.min(...scrapes) - 1.5);
+    expect(sponge).toBeGreaterThan(ratchet - 5);
+    // the blade's catch: an accent about as loud as the scrape it starts, whatever the surface
+    const catches = SURFACES.map((surface) => {
+      const l = loud('scrape_start', { surface });
+      return l.reduce((p, q) => p + q, 0) / l.length;
+    });
+    const mean = scrapes.reduce((p, q) => p + q, 0) / scrapes.length;
+    catches.forEach((l, i) => expect(Math.abs(l - mean), SURFACES[i]).toBeLessThan(2.5));
+    expect(Math.max(...catches) - Math.min(...catches)).toBeLessThan(3);
+    // the chimes: clearly over a scrub at full speed, never louder than a door slammed; the fanfare the loudest
+    const ding = loud('clean_ding');
+    const rust = loud('clean_rust_done')[0];
+    const car = loud('clean_car_done')[0];
+    for (const l of [...ding, rust, car]) {
+      expect(l).toBeGreaterThan(Math.max(...scrapes) + 5);
+      expect(l).toBeLessThan(door);
+    }
+    expect(car).toBeGreaterThanOrEqual(Math.max(...ding));
+    // the ding is the same reward every time: its renderings as loud as one another
+    expect(Math.max(...ding) - Math.min(...ding)).toBeLessThan(0.5);
+    // the flakes: very quiet, under everything else of theirs
+    const flakes = Math.max(...loud('flake_drop'));
+    expect(flakes).toBeLessThan(ratchet - 7);
+    for (const k of ['tool_worn', 'highlight_ping'] as const) expect(flakes, k).toBeLessThan(Math.max(...loud(k)) - 5);
+    expect(flakes).toBeLessThan(Math.min(...catches) - 5);
+  });
+
+  it('dings a bright bell; chimes warmer, in two notes, for the rust; rises in a chord for the whole vehicle', () => {
+    for (const seed of [1234, 99]) {
+      const ding = render('clean_ding', {}, seed);
+      // its two strongest partials in its first 0.17 s: D6 and its octave
+      const top = peaksOf(powerOf(ding, 0, 8192), sr, 300, 8000, 2).sort((p, q) => p - q);
+      expect(top[0]).toBeGreaterThan(1150);
+      expect(top[0]).toBeLessThan(1200);
+      expect(top[1] / top[0]).toBeCloseTo(2, 1);
+      // the glint: light over 4 kHz as it is struck, gone by the time it fades
+      expect(shareOf(powerOf(ding, 0, 8192), sr, 4000, 24000)).toBeGreaterThan(10 * shareOf(powerOf(ding, Math.floor(0.4 * sr), Math.floor(0.6 * sr)), sr, 4000, 24000) + 1e-4);
+      // the rust's: G5, then D6, rounder than the ding
+      const rust = render('clean_rust_done', {}, seed);
+      const first = peaksOf(powerOf(rust, 0, Math.floor(0.12 * sr)), sr, 300, 8000, 1)[0];
+      const second = peaksOf(powerOf(rust, Math.floor(0.16 * sr), Math.floor(0.5 * sr)), sr, 300, 8000, 1)[0];
+      expect(first).toBeGreaterThan(760);
+      expect(first).toBeLessThan(810);
+      expect(second).toBeGreaterThan(1150);
+      expect(second).toBeLessThan(1200);
+      expect(centroidOf(powerOf(rust), sr)).toBeLessThan(centroidOf(powerOf(ding), sr));
+      // the vehicle's: G, B, D, G rising, one a tenth of a second
+      const car = render('clean_car_done', {}, seed);
+      const run = [0, 0.1, 0.2, 0.3].map((t) => peaksOf(powerOf(car, Math.floor((t + 0.005) * sr), Math.floor((t + 0.18) * sr)), sr, 300, 8000, 1)[0]);
+      [783.99, 987.77, 1174.66, 1567.98].forEach((f, i) => expect(Math.abs(run[i] / f - 1), `note ${i}: ${run[i]}`).toBeLessThan(0.03));
+    }
+  });
+
+  it('follows a stroke through the player: its rate set at the start and glided on every call, the loop never restarted nor rendered again', () => {
+    const { ctx, made, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    f.start('scrape_metal', { gain: 0.3, rate: 0.7 });
+    expect(sources.length).toBe(1);
+    const s = sources[0];
+    expect(s.loop).toBe(true);
+    expect(s.playbackRate.events[0]).toEqual(['set', 0.7, 0]);
+    const rendered = made.length;
+    expect(rendered).toBe(1);
+    // a stroke: a new gain and rate every frame
+    const speed = (k: number): number => Math.abs(Math.sin(k / 9));
+    for (let k = 1; k <= 60; k++) {
+      ctx.currentTime = k / 60;
+      f.start('scrape_metal', { gain: speed(k), rate: 0.7 + 0.9 * speed(k) });
+    }
+    expect(sources.length).toBe(1);
+    expect(made.length).toBe(rendered);
+    const glides = s.playbackRate.events.filter((e) => e[0] === 'target');
+    expect(glides.length).toBe(60);
+    for (const [, , t, c] of glides) {
+      expect(c).toBeGreaterThanOrEqual(0.02);
+      expect(c).toBeLessThanOrEqual(0.05);
+      expect(t).toBeGreaterThan(0);
+    }
+    expect(glides[59][1]).toBeCloseTo(0.7 + 0.9 * speed(60), 9);
+    // the gain glides the same way, at the loop's own level
+    const gains = s.out!.gain.events.filter((e) => e[0] === 'target');
+    expect(gains[gains.length - 1][1]).toBeCloseTo(foleyLevel('scrape_metal') * speed(60), 9);
+    // kept to what the loops are made for; not given, back to 1 (as the gain is)
+    const lastRate = (): number => s.playbackRate.events[s.playbackRate.events.length - 1][1];
+    f.start('scrape_metal', { rate: 5 });
+    expect(lastRate()).toBe(2);
+    f.start('scrape_metal', { rate: 0.1 });
+    expect(lastRate()).toBe(0.5);
+    f.start('scrape_metal', { rate: Number.NaN });
+    expect(lastRate()).toBe(1);
+    f.start('scrape_metal', { rate: 1.3 });
+    f.start('scrape_metal', {});
+    expect(lastRate()).toBe(1);
+    expect(sources.length).toBe(1);
+    // let go and begun again: a new source on the same rendering, at its new rate from the start
+    f.stop('scrape_metal');
+    f.start('scrape_metal', { gain: 1, rate: 1.6 });
+    expect(sources.length).toBe(2);
+    expect(sources[1].buffer).toBe(s.buffer);
+    expect(made.length).toBe(rendered);
+    expect(sources[1].playbackRate.events[0]).toEqual(['set', 1.6, ctx.currentTime]);
+    // a loop that is not a scrub keeps playing at its own pitch
+    f.start('ratchet');
+    f.start('ratchet', { gain: 0.5 });
+    expect(sources[2].playbackRate.events.map((e) => e[1])).toEqual([1, 1]);
+    // the glass scrape's squeal follows the rate half way (a tone swept an octave every stroke is a slide whistle); the rest all the way
+    f.start('scrape_glass', { gain: 1, rate: 1.6 });
+    f.start('scrape_glass', { gain: 1, rate: 0.7 });
+    expect(sources[3].playbackRate.events.map((e) => e[1])).toEqual([loopPlaybackRate('scrape_glass', 1.6), loopPlaybackRate('scrape_glass', 0.7)]);
+    expect(loopPlaybackRate('scrape_glass', 1.6)).toBeCloseTo(1.3, 9);
+    expect(loopPlaybackRate('scrape_glass', 0.7)).toBeCloseTo(0.85, 9);
+    for (const k of SCRUB_LOOPS) if (k !== 'scrape_glass') expect([loopPlaybackRate(k, 0.7), loopPlaybackRate(k, 1.6)], k).toEqual([0.7, 1.6]);
+  });
+
+  it('keys the blade catch by its surface, and nothing else by it', () => {
+    const { ctx, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    const played = (kind: FoleyShot, o: FoleyOpts, n = 24): Set<unknown> => {
+      const a = sources.length;
+      for (let k = 0; k < n; k++) f.play(kind, o);
+      return new Set(sources.slice(a).map((s) => s.buffer));
+    };
+    const by = SURFACES.map((surface) => played('scrape_start', { surface }));
+    by.forEach((b, i) => expect(b.size, SURFACES[i]).toBe(4));
+    // no surface given: the metal's recipe, under a key of its own
+    const plain = played('scrape_start', {});
+    const sets = [...by, plain];
+    for (let i = 0; i < sets.length; i++) for (let j = i + 1; j < sets.length; j++) for (const b of sets[i]) expect(sets[j].has(b), `${i} ${j}`).toBe(false);
+    // the same surface again (a gain given): the same renderings
+    for (const b of played('scrape_start', { surface: 'rust', gain: 0.4 })) expect(by[2].has(b)).toBe(true);
+    // a surface given to anything else changes nothing: a loop keeps its rendering (and is not restarted), a shot its renderings
+    f.start('scrape_glass');
+    const live = sources.length;
+    f.start('scrape_glass', { surface: 'mud', gain: 0.5, rate: 1.2 });
+    expect(sources.length).toBe(live);
+    const loopBuf = sources[live - 1].buffer;
+    f.stop('scrape_glass');
+    f.start('scrape_glass', { surface: 'rust' });
+    expect(sources[sources.length - 1].buffer).toBe(loopBuf);
+    const ding = played('clean_ding', {}, 12);
+    for (const b of played('clean_ding', { surface: 'glass' }, 12)) expect(ding.has(b)).toBe(true);
+  });
+
+  it('plays the chimes in tune and at their own level; the other shots keep their variation', () => {
+    const { ctx, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    for (const kind of CHIMES) {
+      for (let k = 0; k < 6; k++) f.play(kind, { gain: 0.5 });
+      for (const s of sources.splice(0)) {
+        expect(s.playbackRate.value, kind).toBe(1);
+        expect(s.out!.gain.value, kind).toBeCloseTo(foleyLevel(kind) * 0.5, 12);
+      }
+    }
+    for (let k = 0; k < 12; k++) f.play('flake_drop');
+    expect(new Set(sources.map((s) => s.playbackRate.value)).size).toBeGreaterThan(6);
+    expect(new Set(sources.map((s) => s.out!.gain.value)).size).toBeGreaterThan(6);
+    // eight renderings of the flakes, never the same twice running; three of the ding, one of each tune
+    for (let k = 1; k < sources.length; k++) expect(sources[k].buffer).not.toBe(sources[k - 1].buffer);
+    sources.length = 0;
+    for (let k = 0; k < 64; k++) f.play('flake_drop');
+    expect(new Set(sources.map((s) => s.buffer)).size).toBe(8);
+    const count = (kind: FoleyShot): number => {
+      sources.length = 0;
+      for (let k = 0; k < 24; k++) f.play(kind);
+      return new Set(sources.map((s) => s.buffer)).size;
+    };
+    expect(count('clean_ding')).toBe(3);
+    expect(count('clean_rust_done')).toBe(1);
+    expect(count('clean_car_done')).toBe(1);
+    expect(count('highlight_ping')).toBe(1);
+    expect(count('tool_worn')).toBe(3);
   });
 });

@@ -16,6 +16,9 @@
       #start { font-size: 16px; padding: 8px 18px; background: #2f6d3a; }
       #status { font-family: ui-monospace, monospace; white-space: pre; color: #b8d8a8; }
       input[type='range'] { width: 220px; vertical-align: middle; }
+      #scrubPad { height: 170px; margin: 8px 0; border: 1px dashed #5b6a8a; border-radius: 8px; background: repeating-linear-gradient(45deg, #1c2029, #1c2029 12px, #20252f 12px, #20252f 24px); cursor: crosshair; touch-action: none; user-select: none; }
+      #scrubPad.on { border-color: #9fc4ff; background: #232a38; }
+      #scrubStatus { font-family: ui-monospace, monospace; color: #b8d8a8; }
     </style>
   </head>
   <body>
@@ -56,6 +59,25 @@
     <fieldset>
       <legend>机械声</legend>
       <div id="foley"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>擦洗（按住鼠标在方框里来回擦：越快越响、越亮；停住不动就静音，松开停止）</legend>
+      <label>工具 / 表面 <select id="scrubTool">
+        <option value="scrape_glass">刮刀 · 玻璃上的污垢 scrape_glass</option>
+        <option value="scrape_metal" selected>刮刀 · 漆面上的污垢 scrape_metal</option>
+        <option value="scrape_rust">刮刀 · 锈皮 scrape_rust</option>
+        <option value="scrape_mud">刮刀 · 湿泥 scrape_mud</option>
+        <option value="brush_wire">钢丝刷 · 金属 brush_wire</option>
+        <option value="sponge_scrub">湿海绵 · 车身 sponge_scrub</option>
+      </select></label>
+      <label><input type="checkbox" id="scrubDone" checked /> 擦够了响“完成”提示</label>
+      <div id="scrubPad"></div>
+      <div id="scrubStatus">（先点“开始”）</div>
+      <div>循环开关按钮用的速度和力度：
+        <label>rate <input type="range" id="scrubRate" min="0.6" max="1.8" step="0.05" value="1" /> <span id="scrubRateV">1.00</span></label>
+        <label>gain <input type="range" id="scrubGain" min="0" max="1" step="0.05" value="1" /> <span id="scrubGainV">1.00</span></label>
+      </div>
     </fieldset>
 
     <div id="status"></div>

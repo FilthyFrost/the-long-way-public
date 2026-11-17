@@ -20,6 +20,8 @@ export interface LookOf {
   rust?: number;
   /** faded paint */
   wear?: number;
+  /** caked grime and scale (the scraper's) */
+  crust?: number;
 }
 
 interface Owned {
@@ -43,7 +45,7 @@ export class CarMaterials {
   look(owner: string, of: LookOf): CarLook {
     let o = this.owned.get(owner);
     if (!o) {
-      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0 });
+      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0 });
       look.setLights(this.lights);
       if (this.framed) look.setCarFrame(this.frame);
       if (this.shape) {
@@ -62,6 +64,11 @@ export class CarMaterials {
     return this.owned.has(owner);
   }
 
+  /** an owner's look as it is (undefined: none yet) */
+  lookOf(owner: string): CarLook | undefined {
+    return this.owned.get(owner)?.look;
+  }
+
   /** an owner's paint or wear changed (the spray can, the sponge, the dust of the road) */
   set(owner: string, of: LookOf): void {
     const o = this.owned.get(owner);
@@ -74,7 +81,7 @@ export class CarMaterials {
       o.look.setPaint2(of.paint2);
       o.paint2 = of.paint2;
     }
-    o.look.setWear({ dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0 });
+    o.look.setWear({ dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0 });
   }
 
   /** the owner is gone (a part taken off, a loose thing picked up): its materials go with it */
@@ -169,12 +176,24 @@ export function applyMaterials(root: THREE.Object3D, look: CarLook, merged = fal
     }
     const g = mesh.geometry;
     // a merged group (render/carMerge) carries each part's paint, wear and id in its vertices
-    const out = (mesh.userData.mat as string[]).map((n) => {
-      const name = carMaterialName(n) ?? 'plastic_int';
+    const names = (mesh.userData.mat as string[]).map((n) => carMaterialName(n) ?? 'plastic_int');
+    const out = names.map((name) => {
       const paint = name === 'paint' || name === 'paint_b';
-      return look.material(name, { ao: g.hasAttribute('color'), vpaint: merged && paint, vwear: merged, vpart: merged });
+      return look.material(name, { ao: g.hasAttribute('color'), vpaint: merged && paint, vwear: merged, vpart: merged, vmask: !merged && g.hasAttribute('aMaskUv') });
     });
-    mesh.material = Array.isArray(mesh.material) ? out : out[0];
+    // a window is drawn twice over the same faces (two groups of the whole of it): see-through, and its opaque
+    // twin where the crust is thick, which hides the cabin behind it, its lines and all
+    if (names.length === 1 && (names[0] === 'glass' || names[0] === 'glass_dark')) {
+      if (!g.userData.crustGroups) {
+        const n = g.index ? g.index.count : g.getAttribute('position').count;
+        g.clearGroups();
+        g.addGroup(0, n, 0);
+        g.addGroup(0, n, 1);
+        g.userData.crustGroups = true;
+      }
+      const cut = look.material(names[0], { ao: g.hasAttribute('color'), vpaint: false, vwear: merged, vpart: merged, vmask: !merged && g.hasAttribute('aMaskUv'), crustCut: true });
+      mesh.material = [out[0], cut];
+    } else mesh.material = Array.isArray(mesh.material) ? out : out[0];
     const see = out.some((m) => m.transparent);
     mesh.renderOrder = see ? 9 : 0;
     if (see) {

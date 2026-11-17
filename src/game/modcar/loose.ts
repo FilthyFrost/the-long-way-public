@@ -16,7 +16,20 @@ import type { RenderCore } from '../render/core';
 import type { CarLook } from '../render/carMaterials';
 import { MergedCar } from '../render/carMerge';
 import { cloneModel, itemGlb, panelPaint, partModel, seatTyres, toolGlb } from './assets';
-import { applyMaterials, type CarMaterials, type LookOf } from './materials';
+import { applyMaterials, matNames, type CarMaterials, type LookOf } from './materials';
+import { castMesh } from '../render/triGrid';
+import { glassName } from './grime';
+
+/** a part lying about that can be cleaned (grime.ts): its look's meshes with MASK UVs (a wheel: its rim, its tyre) */
+export interface LooseGrime {
+  loose: Loose;
+  /** the look's owner (CarMaterials), the part (the rim's, or its tyre's) */
+  owner: string;
+  inst: PartInstance;
+  meshes: THREE.Mesh[];
+  size: number;
+  label: string;
+}
 
 export interface Loose {
   uid: string;
@@ -129,6 +142,8 @@ export function toolLook(t: Tool): { paint: number; paint2: number } {
   if (t.kind === 'oilcan') return { paint: 0xd8a531, paint2: 0xd8a531 };
   if (t.kind === 'spray') return { paint: paintHex(t.colour ?? 0), paint2: paintHex(t.colour ?? 0) };
   if (t.kind === 'scraper') return t.tier === 3 ? { paint: 0xd4a53b, paint2: 0x6b3d24 } : t.tier === 2 ? { paint: 0xc8323a, paint2: 0x2f3236 } : { paint: 0x3e8ec7, paint2: 0xf0c23c };
+  // (the wire brush's painted band)
+  if (t.kind === 'brush') return { paint: 0xc8473a, paint2: 0xc8473a };
   return { paint: 0xe8d257, paint2: 0xe8d257 };
 }
 
@@ -146,6 +161,7 @@ export function partLook(inst: PartInstance): LookOf {
     dirt: inst.dirt,
     rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust,
     wear: Math.max(0, Math.min(1, (0.7 - inst.cond) / 0.6)),
+    crust: inst.crust ?? 0,
   };
 }
 
@@ -168,6 +184,8 @@ export class LooseThings {
   private readonly mergeIds = new Map<string, number>();
   private readonly mergedAs = new Map<number, { dirt: number; rust: number }>();
   private litId = -1;
+  /** things being cleaned (with grime masks): drawn on their own, never merged */
+  private readonly grimeHeld = new Set<string>();
   private readonly sphere = new THREE.Sphere();
   private readonly ray = new THREE.Ray();
   private readonly hit = new THREE.Vector3();
@@ -206,7 +224,7 @@ export class LooseThings {
       this.mergeDirty = true;
       const t = inst.sub.tire;
       if (t && def.cat === 'rim') {
-        const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt });
+        const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, crust: t.crust ?? 0 });
         void this.track(partModel(t.part, inst.part)).then((tmodel) => {
           if (!this.list.includes(l)) return;
           const to = seatTyres(model, tmodel, def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);
@@ -352,8 +370,8 @@ export class LooseThings {
     this.mergeDirty = false;
     const entries: { id: number; object: THREE.Object3D; look: { paint: number; paint2: number; dirt?: number; rust?: number; wear?: number } }[] = [];
     for (const l of this.list) {
-      // (what rides on a vehicle moves with it: not merged)
-      if (l.riding) continue;
+      // (what rides on a vehicle moves with it: not merged; what is being cleaned has its mask)
+      if (l.riding || this.grimeHeld.has(l.uid)) continue;
       const id = entries.length + 1;
       const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
       this.mergeIds.set(l.uid, id);
@@ -504,7 +522,7 @@ export class LooseThings {
         const id = this.mergeIds.get(l.uid);
         const was = id !== undefined ? this.mergedAs.get(id) : undefined;
         if (this.merged && id !== undefined && was && (Math.abs(was.dirt - (look.dirt ?? 0)) > 0.02 || Math.abs(was.rust - (look.rust ?? 0)) > 0.02)) {
-          this.merged.updatePart(id, { dirt: look.dirt, rust: look.rust });
+          this.merged.updatePart(id, { dirt: look.dirt, rust: look.rust, crust: look.crust });
           this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
         }
       }
@@ -518,6 +536,73 @@ export class LooseThings {
       this.root.updateMatrixWorld();
       this.mergedLook.setCarFrame(this.root.matrixWorld);
     }
+  }
+
+  // ------------------------------------------------------------------ grime (grime.ts)
+
+  /** what of a part lying about can be cleaned: the part's meshes with MASK UVs, and its tyre's */
+  grimeParts(l: Loose): LooseGrime[] {
+    if (!l.part) return [];
+    const out: LooseGrime[] = [];
+    const own = this.mats.lookOf(ownerOf(l));
+    const tire = this.mats.lookOf(`${ownerOf(l)}+tire`);
+    const mine: THREE.Mesh[] = [];
+    const tires: THREE.Mesh[] = [];
+    let size = 0;
+    let tsize = 0;
+    l.obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || !m.geometry.hasAttribute('aMaskUv') || !m.userData.mask_px) return;
+      const mat = Array.isArray(m.material) ? m.material[0] : m.material;
+      if (tire && tire.materials.includes(mat as never)) {
+        tires.push(m);
+        tsize = Math.max(tsize, m.userData.mask_px as number);
+      } else if (own && own.materials.includes(mat as never)) {
+        mine.push(m);
+        size = Math.max(size, m.userData.mask_px as number);
+      }
+    });
+    const name = partDef(l.part.part).name.zh;
+    if (mine.length) out.push({ loose: l, owner: ownerOf(l), inst: l.part, meshes: mine, size, label: name });
+    const t = l.part.sub.tire;
+    if (t && tires.length) out.push({ loose: l, owner: `${ownerOf(l)}+tire`, inst: t, meshes: tires, size: tsize, label: partDef(t.part).name.zh });
+    return out;
+  }
+
+  /** the point of a part lying about that can be cleaned a ray (render space) meets first, within far */
+  grimeCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): { part: LooseGrime; point: THREE.Vector3; normal: THREE.Vector3; dist: number; glass: boolean } | null {
+    let best: { part: LooseGrime; point: THREE.Vector3; normal: THREE.Vector3; dist: number; glass: boolean } | null = null;
+    const o = this.core.origin;
+    this.ray.origin.copy(origin);
+    this.ray.direction.copy(dir);
+    for (const l of this.list) {
+      if (!l.part) continue;
+      // (the sphere round it first: render space)
+      this.sphere.center.set(l.x - o.x, l.y + l.mid - o.y, l.z - o.z);
+      this.sphere.radius = l.radius * 1.3 + 0.05;
+      if (!this.ray.intersectsSphere(this.sphere)) continue;
+      for (const part of this.grimeParts(l)) {
+        for (const mesh of part.meshes) {
+          const h = castMesh(mesh, origin, dir, best ? best.dist : far);
+          if (!h || (best && h.dist >= best.dist)) continue;
+          best = { part, point: h.point, normal: h.normal, dist: h.dist, glass: matNames(mesh).some((n) => glassName(n)) };
+        }
+      }
+    }
+    return best;
+  }
+
+  /** a thing is being cleaned (its mask on) or not: the merge goes without it, or with it */
+  setGrimeHeld(uid: string, on: boolean): void {
+    if (this.grimeHeld.has(uid) === on) return;
+    if (on) this.grimeHeld.add(uid);
+    else this.grimeHeld.delete(uid);
+    this.unmerge();
+  }
+
+  /** a part's look as it is now (the masks bind to it) */
+  lookOfOwner(owner: string): CarLook | undefined {
+    return this.mats.lookOf(owner);
   }
 
   /** the nearest thing the ray from eye along dir passes through, within maxDist (world coordinates) */

@@ -343,6 +343,31 @@ const rt = {
     game.simulate(0);
     return game.player.telemetry();
   },
+  /**
+   * Scrub what the mark is on with the cleaning tool in the hands (the left button held): the mouse's point
+   * swept across and back `passes` times over a patch w by h (fractions of the screen's half) round the middle,
+   * stepping down it, for `seconds`. What is being cleaned afterwards, unit by unit.
+   */
+  scrub: (seconds = 2, passes = 6, w = 0.3, h = 0.25, cx = 0, cy = 0) => {
+    game.player.press('mouse');
+    if (!game.player.scrub) return { started: false, target: game.player.telemetry().target, grime: game.grimeTelemetry() };
+    const dt = 1 / 60;
+    const n = Math.round(seconds / dt);
+    for (let k = 0; k < n; k++) {
+      const sc = game.player.scrub;
+      if (!sc) break;
+      const t = k / n;
+      const row = t * passes;
+      const f = row % 1;
+      const x = (Math.floor(row) % 2 === 0 ? f : 1 - f) - 0.5;
+      sc.cursor.set(cx + x * w * 2, cy + (0.5 - t) * h * 2);
+      game.step(dt, 1);
+    }
+    game.player.release('mouse');
+    for (let k = 0; k < 12; k++) game.step(dt, 1);
+    return { started: true, grime: game.grimeTelemetry() };
+  },
+  grime: () => game.grimeTelemetry(),
   /** hold the use button for a while (fit, pour, spray) */
   useFor: (seconds: number) => {
     game.player.press();

@@ -4,9 +4,12 @@
  * mass, spray can, sponge, pouring fuel / water / oil, the key, three horns, the handbrake, gear
  * changes and a grind; the body (eating, drinking, medicine); the workshop (the generator's rope,
  * switch and last splutter, the recycler running, grinding and shredding things by material, its
- * counter, the crafting bench and its hammer, the power and the lamps). Each sound is a recipe that
- * renders a short Float32Array (synth.ts); the player caches a few variations of each and plays
- * them on the game's AudioContext.
+ * counter, the crafting bench and its hammer, the power and the lamps); scrubbing (a scraper blade
+ * on grimy glass, painted metal, rust and mud, a wire brush, a wet sponge, the blade's catch as a
+ * stroke begins, flakes falling, the chimes of a part come clean, of its rust gone and of a whole
+ * vehicle restored, a tool worn out, the dirt shown). Each sound is a recipe that renders a short
+ * Float32Array (synth.ts); the player caches a few variations of each and plays them on the game's
+ * AudioContext.
  */
 import { Rng, biquad, burst, edges, mixInto, noise, normalize, ring, saturate, strike, type BiquadKind } from './synth';
 
@@ -74,7 +77,22 @@ export type FoleyShot =
   /** the power going off: a click and the hum dying away */
   | 'power_off'
   /** a switch thrown with no power: a dull dead click */
-  | 'no_power';
+  | 'no_power'
+  // scrubbing: dirt, rust and the cleaning tools
+  /** the blade catching on the surface as a stroke begins (~0.09 s, by `surface`) */
+  | 'scrape_start'
+  /** bits of dirt or rust landing on the floor: a few faint ticks over ~0.3 s (very quiet, played often) */
+  | 'flake_drop'
+  /** a part has come clean: a bright little bell and a glint (~0.85 s), the reward */
+  | 'clean_ding'
+  /** rust brushed off a part: a warmer two-note chime (~1 s) */
+  | 'clean_rust_done'
+  /** the whole vehicle restored: a rising arpeggio of bells blooming into a chord, sparkling (~2.2 s) */
+  | 'clean_car_done'
+  /** a cleaning tool worn out (a sponge torn, a blade blunt, bristles gone): a dull tearing crunch (~0.3 s) */
+  | 'tool_worn'
+  /** the dirt that is left shown (H): a soft sonar ping with a shimmer (~0.6 s) */
+  | 'highlight_ping';
 
 export type FoleyLoop =
   | 'ratchet'
@@ -92,13 +110,28 @@ export type FoleyLoop =
   /** something being ground (over recycler_run, faded with the work): dense crunching over a straining motor */
   | 'recycler_grind'
   /** the workshop's fluorescent tubes humming, very quietly */
-  | 'lamp_buzz';
+  | 'lamp_buzz'
+  // scrubbing (each driven every frame: gain with how hard and fast the tool moves, rate with the stroke's speed)
+  /** a scraper blade over a window caked in dried grime: a wavering stick-slip squeal over gritty crunching */
+  | 'scrape_glass'
+  /** the blade over painted sheet metal with grime on it: a dry rasp, the panel ringing faintly */
+  | 'scrape_metal'
+  /** rust scale and crust breaking off under the blade: dense crackling, flakes popping, a low scrape */
+  | 'scrape_rust'
+  /** soft damp dirt pushed off: a muffled smear, wet clumps */
+  | 'scrape_mud'
+  /** a steel wire brush scrubbing metal: dense high scratching, a metallic sheen, a slight back-and-forth swell */
+  | 'brush_wire'
+  /** a wet sponge scrubbed over a panel: squelches, foam crackling, a wet squeak now and then (richer than `sponge`) */
+  | 'sponge_scrub';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
 export type Liquid = 'fuel' | 'water' | 'oil';
 /** what a thing is mostly made of, for the recycler's shred and the bench's hammer */
 export type GrindMaterial = 'metal' | 'plastic' | 'organic' | 'cloth' | 'wood';
+/** what a scraper blade bites into as a stroke begins (scrape_start) */
+export type ScrapeSurface = 'glass' | 'metal' | 'rust' | 'mud';
 
 export interface FoleyOpts {
   material?: PanelMaterial;
@@ -107,8 +140,12 @@ export interface FoleyOpts {
   liquid?: Liquid;
   /** shred: what is ground up; hammer_hit: the work on the anvil (default metal) */
   grind?: GrindMaterial;
+  /** scrape_start: what the blade bites into (default metal) */
+  surface?: ScrapeSurface;
   /** linear gain on top of the sound's own level */
   gain?: number;
+  /** loops: playback rate (about 0.6..1.8, kept to 0.5..2; default 1), glided to like the gain on every start(): a scrub follows its stroke's speed with it (the glass scrape half way, see loopPlaybackRate) */
+  rate?: number;
   /** -1..1 stereo position (only with a stereo output) */
   pan?: number;
 }
@@ -1380,6 +1417,688 @@ function lampBuzz(): Recipe {
   };
 }
 
+// ------------------------------------------------------------------ scrubbing: dirt, rust and the cleaning tools
+
+/** filters run over a loop as the loop it is (two turns, the second kept: it starts from where the first ended), so it wraps as cleanly after as before */
+function loopFilter(x: Float32Array, sr: number, filters: ReadonlyArray<readonly [BiquadKind, number, number?, number?]>): Float32Array {
+  const n = x.length;
+  const y = new Float32Array(2 * n);
+  y.set(x, 0);
+  y.set(x, n);
+  for (const [kind, f, q, g] of filters) biquad(y, sr, kind, f, q ?? 0.707, g ?? 0);
+  return y.slice(n);
+}
+
+/** a slow random curve round a loop (u = 0..1 of it): k values between lo and hi eased into one another, the last back into the first */
+function wander(rng: Rng, k: number, lo: number, hi: number): (u: number) => number {
+  const v = Array.from({ length: k }, () => rng.range(lo, hi));
+  return (u) => {
+    const p = (u - Math.floor(u)) * k;
+    const i = Math.floor(p);
+    const f = p - i;
+    return v[i % k] + (v[(i + 1) % k] - v[i % k]) * f * f * (3 - 2 * f);
+  };
+}
+
+/** events at a mean rate (per second) over len seconds, thinned by a density d(t) in 0..1 */
+function scatter(rng: Rng, len: number, rate: number, d: (t: number) => number, fn: (t: number, d: number) => void): void {
+  for (let t = -Math.log(1 - rng.next()) / rate; t < len; t -= Math.log(1 - rng.next()) / rate) {
+    const v = d(t);
+    if (rng.next() < v) fn(t, v);
+  }
+}
+
+/** a size from a power law, lo..1: most specks tiny, the odd big one, as things crack and break */
+const powerLaw = (rng: Rng, lo: number, alpha: number): number => Math.min(1, lo * Math.pow(1 - rng.next(), -1 / alpha));
+
+/** a speck of grit: a fraction of a millisecond of raw noise, its colour left to the filters of the bus it goes into */
+function grainInto(x: Float32Array, sr: number, at: number, amp: number, decay: number, rng: Rng, attack = 0.0001): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  const na = Math.max(1, Math.round(attack * sr));
+  const n = Math.min(x.length - a, na + Math.ceil(decay * 5 * sr));
+  const k = Math.exp(-1 / (decay * sr));
+  let e = amp;
+  for (let i = 0; i < n; i++) {
+    const env = i < na ? (amp * (i + 1)) / na : (e *= k);
+    x[a + i] += env * (rng.next() * 2 - 1);
+  }
+}
+
+/**
+ * A stick-slip squeal: an edge catching and slipping on a smooth surface many hundred times a
+ * second. A tone near f0 whose every cycle is a little longer or shorter than the last (friction
+ * never quite repeats), wavering and drifting, its overtones rolled off by `bright`, the grip
+ * catching and letting go, perhaps flipping to another mode part way (`flip`: [when 0..1, ratio]);
+ * len seconds from `at`, eased in and out.
+ */
+function squealInto(x: Float32Array, sr: number, at: number, len: number, f0: number, amp: number, rng: Rng, o: { bright?: number; waver?: number; glide?: number; grip?: number; jitter?: number; flip?: [number, number] } = {}): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  const n = Math.min(x.length - a, Math.floor(len * sr));
+  if (n <= 2) return;
+  const b = o.bright ?? 0.6;
+  const h1 = 0.5 * b;
+  const h2 = 0.28 * b * b;
+  const h3 = 0.14 * b * b * b;
+  const waver = o.waver ?? 0.03;
+  const glide = (o.glide ?? 0.05) * (rng.next() * 2 - 1);
+  const grip = o.grip ?? 0.4;
+  const jit = o.jitter ?? 0.012;
+  const vf = rng.range(4, 8);
+  const vp = rng.range(0, 6.283);
+  const gf = rng.range(8, 20);
+  const gp = rng.range(0, 6.283);
+  const ease = Math.max(1, Math.floor(Math.min(0.012, len / 4) * sr));
+  let ph = rng.next();
+  let cyc = Math.floor(ph);
+  let j = 0;
+  let drift = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const u = i / n;
+    drift += (rng.next() - 0.5) * 0.002 - drift * 0.001;
+    const step = o.flip && u >= o.flip[0] ? o.flip[1] : 1;
+    ph += (f0 * step * (1 + waver * Math.sin(2 * Math.PI * vf * t + vp) + drift + j) * (1 + glide * u)) / sr;
+    if (ph - cyc >= 1) {
+      cyc = Math.floor(ph);
+      j = rng.gauss() * jit;
+    }
+    // (the overtones from the one sine and cosine)
+    const sp = Math.sin(2 * Math.PI * ph);
+    const cp = Math.cos(2 * Math.PI * ph);
+    const s2 = 2 * sp * cp;
+    const s = sp + h1 * s2 + h2 * sp * (3 - 4 * sp * sp) + h3 * 2 * s2 * (1 - 2 * sp * sp);
+    const g = 1 - grip * (0.5 + 0.5 * Math.sin(2 * Math.PI * gf * t + gp + 1.7 * Math.sin(2 * Math.PI * gf * 0.31 * t)));
+    const e = Math.min(1, i / ease, (n - 1 - i) / ease) * Math.pow(Math.sin(Math.PI * u), 0.35);
+    x[a + i] += amp * s * g * e;
+  }
+}
+
+/** back and forth: k strokes of a little different lengths round a loop; where each starts, its level, and for a time which one it is in and how far through */
+function strokes(rng: Rng, k: number, len: number): { at: (t: number) => { u: number; i: number }; amp: number[]; starts: number[] } {
+  const w = Array.from({ length: k }, () => rng.range(0.8, 1.25));
+  const tot = w.reduce((a, b) => a + b, 0);
+  const starts: number[] = [];
+  let acc = 0;
+  for (const v of w) {
+    starts.push((acc / tot) * len);
+    acc += v;
+  }
+  const amp = w.map(() => rng.range(0.75, 1));
+  return {
+    amp,
+    starts,
+    at: (t) => {
+      const tt = ((t % len) + len) % len;
+      let i = k - 1;
+      while (i > 0 && starts[i] > tt) i--;
+      const end = i + 1 < k ? starts[i + 1] : len;
+      return { u: (tt - starts[i]) / (end - starts[i]), i };
+    },
+  };
+}
+
+const rmsOf = (x: Float32Array): number => {
+  let s = 0;
+  for (const v of x) s += v * v;
+  return Math.sqrt(s / Math.max(1, x.length)) || 1;
+};
+
+/** soft-limit a crackling bus so its rare big cracks stand no more than crestDb above its rms: it keeps its bite, the loop its level */
+function tame(x: Float32Array, crestDb: number): Float32Array {
+  const lim = rmsOf(x) * Math.pow(10, crestDb / 20);
+  for (let i = 0; i < x.length; i++) x[i] = lim * Math.tanh(x[i] / lim);
+  return x;
+}
+
+/** turn a seamless loop round so its wrap falls on an ordinary moment (the game starts it anywhere; this keeps a crust breaking from sitting right on the seam) */
+function settle(x: Float32Array, sr: number): Float32Array {
+  const n = x.length;
+  const w = Math.floor(0.05 * sr);
+  const lv: Array<[number, number]> = [];
+  for (let j = 0; (j + 1) * w <= n; j++) {
+    let e = 0;
+    for (let i = j * w; i < (j + 1) * w; i++) e += x[i] * x[i];
+    lv.push([e, j]);
+  }
+  lv.sort((p, q) => p[0] - q[0]);
+  const at = lv[lv.length >> 1][1] * w + (w >> 1);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = x[(i + at) % n];
+  return out;
+}
+
+/** a loop's events drawn over twice its length, the second half (the tails) folded back onto the first */
+function fold(b: Float32Array): Float32Array {
+  const n = b.length >> 1;
+  const y = new Float32Array(n);
+  for (let i = 0; i < n; i++) y[i] = b[i] + b[i + n];
+  return y;
+}
+
+/**
+ * A scraper blade over a window caked in dried grime: where there is crust, grit crackles under the
+ * edge and patches of it give way in little crunches; where the glass shows through, the blade
+ * chatters on it and squeals, a wavering, slightly whistly tone round 2 kHz in catches of a few
+ * hundredths to half a second, now and then flipping up or down a step. Seamless.
+ */
+function scrapeGlass(): Recipe {
+  return (sr, rng) => {
+    const len = 3.6;
+    const n = Math.floor(len * sr);
+    const crust = wander(rng, 16, 0, 1);
+    const press = wander(rng, 7, 0.6, 1);
+    const thick = (t: number): number => Math.pow(crust(t / len), 1.6);
+    const grit = cyclic(sr, len, (x) => {
+      scatter(rng, len, 1100, (t) => 0.06 + 0.94 * thick(t) * press(t / len), (t, d) => grainInto(x, sr, t, powerLaw(rng, 0.15, 2) * (0.4 + 0.6 * d), rng.range(0.0001, 0.0006), rng));
+      // a patch of crust giving way: a little crunch
+      scatter(rng, len, 11, thick, (t) => {
+        const m = 8 + Math.floor(rng.next() * 16);
+        const g = rng.range(0.5, 1);
+        const span = rng.range(0.015, 0.045);
+        for (let k = 0; k < m; k++) grainInto(x, sr, t + span * Math.pow(rng.next(), 1.3), g * rng.range(0.4, 1.2), rng.range(0.0002, 0.001), rng);
+      });
+    });
+    const crunch = tame(loopFilter(grit, sr, [['highpass', 1900, 0.7], ['highpass', 1900, 0.7], ['peaking', 4400, 0.9, 4], ['lowpass', 8000, 0.7], ['lowpass', 9000, 0.7]]), 14);
+    // the squeal: louder where the glass is clean, never the same catch twice
+    const squeal = cyclic(sr, len, (x) => {
+      let t = rng.range(0, 0.05);
+      while (t < len) {
+        const dur = rng.range(0.08, 0.55);
+        const r = rng.next();
+        const mode = r < 0.62 ? 1 : r < 0.78 ? 1.19 : r < 0.9 ? 0.86 : 1.33;
+        squealInto(x, sr, t, dur, 2100 * mode * rng.range(0.96, 1.04), rng.range(0.55, 1) * (1 - 0.4 * thick(t + dur / 2)), rng, {
+          bright: rng.range(0.25, 0.55), waver: rng.range(0.01, 0.035), glide: 0.08, grip: rng.range(0.1, 0.45),
+          flip: rng.next() < 0.3 ? [rng.range(0.3, 0.7), rng.next() < 0.5 ? 1.19 : 0.84] : undefined,
+        });
+        t += dur + rng.range(0.02, 0.15) * (0.3 + thick(t));
+      }
+    });
+    // the edge hissing faintly on the glass, and its drag as it is pressed on: a little body under it all
+    const bed = loopNoise(n, sr, rng, [['bandpass', 3200, 0.6], ['highpass', 1500, 0.7]]);
+    const drag = loopNoise(n, sr, rng, [['bandpass', 750, 0.8]]);
+    const [rc, rs, rb, rd] = [rmsOf(crunch), rmsOf(squeal), rmsOf(bed), rmsOf(drag)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = crunch[i] / rc + (1.1 * squeal[i]) / rs + (0.15 * bed[i] * press(u)) / rb + (0.2 * drag[i] * press(u) * (0.5 + 0.5 * thick(u * len))) / rd;
+    }
+    return normalize(settle(centre(loopFilter(out, sr, [['lowpass', 12000, 0.7]])), sr), 0.5);
+  };
+}
+
+/**
+ * The blade over painted sheet metal with grime on it: a dry rasp, the edge catching and slipping
+ * fifty to eighty-five times a second, each catch a spray of grit focused in 2-6 kHz, now biting
+ * harder, now skipping a ridge; harder specks scratching through, the panel answering faintly in
+ * its lowest modes and knocking now and then as the blade judders. Seamless.
+ */
+function scrapeMetal(): Recipe {
+  return (sr, rng) => {
+    const len = 3.4;
+    const n = Math.floor(len * sr);
+    const press = wander(rng, 9, 0.55, 1);
+    const grime = wander(rng, 15, 0.12, 1);
+    const chat = wander(rng, 6, 50, 85);
+    const raw = cyclic(sr, len, (x) => {
+      for (let t = 0; t < len; ) {
+        const T = rng.range(0.75, 1.3) / chat(t / len);
+        const r = rng.next();
+        if (r < 0.035) {
+          // skipping over a ridge: a few catches missed
+          t += T * rng.range(2, 5);
+          continue;
+        }
+        const bite = r > 0.95 ? 1.8 : 1;
+        const d = press(t / len) * grime(t / len);
+        const m = 4 + Math.floor(rng.range(6, 26) * d * bite);
+        const g = rng.range(0.55, 1) * (0.5 + 0.5 * d) * Math.sqrt(bite);
+        for (let k = 0; k < m; k++) grainInto(x, sr, t + 0.55 * T * Math.pow(rng.next(), 1.6), g * powerLaw(rng, 0.25, 2.5), rng.range(0.0001, 0.0005), rng);
+        t += T;
+      }
+      // (between the catches it still drags a little grit)
+      scatter(rng, len, 900, (t) => 0.3 + 0.7 * press(t / len) * grime(t / len), (t) => grainInto(x, sr, t, 0.3 * powerLaw(rng, 0.25, 2.5), rng.range(0.0001, 0.0004), rng));
+    });
+    const rasp = tame(loopFilter(raw, sr, [['highpass', 1800, 0.7], ['highpass', 1800, 0.7], ['peaking', 3800, 0.8, 5], ['lowpass', 6500, 0.7], ['lowpass', 7000, 0.7]]), 12);
+    const scratch = cyclic(sr, len, (x) => scatter(rng, len, 110, (t) => grime(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.5, 2), rng.range(0.00008, 0.00025), rng)));
+    const scr = tame(loopFilter(scratch, sr, [['highpass', 2600, 0.7], ['peaking', 5200, 1, 4], ['lowpass', 9000, 0.7]]), 12);
+    // the panel's lowest modes rung by all of it (the grit unfiltered reaches them), faintly
+    const panel = new Float32Array(n);
+    for (const [f, g, d] of panelModes(1.15, 1.4).slice(0, 5)) mixInto(panel, loopFilter(raw, sr, [['bandpass', f, Math.PI * f * d]]), 0, g);
+    const knocks = cyclic(sr, len, (x) => scatter(rng, len, 1.6, (t) => press(t / len), (t) => strike(x, sr, Math.floor(t * sr), panelModes(1.15, 2.2), rng.range(0.4, 1), rng, 0.03)));
+    const drag = loopNoise(n, sr, rng, [['bandpass', 900, 0.8]]);
+    const [ra, rs, rp, rk, rd] = [rmsOf(rasp), rmsOf(scr), rmsOf(panel), rmsOf(knocks), rmsOf(drag)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = rasp[i] / ra + (0.45 * scr[i]) / rs + (0.12 * panel[i]) / rp + (0.06 * knocks[i]) / rk + (0.16 * drag[i] * press(u) * grime(u)) / rd;
+    }
+    return normalize(settle(centre(loopFilter(out, sr, [['lowpass', 12000, 0.7]])), sr), 0.5);
+  };
+}
+
+/**
+ * Rust scale and thick crust breaking off under the blade: dense crackling in runs (most cracks
+ * tiny, the odd big one), brittle flakes popping off with a tick and sometimes tumbling, and under it
+ * the steel ground in a low, juddering scrape. Rougher and harder than the painted metal. Seamless.
+ */
+function scrapeRust(): Recipe {
+  return (sr, rng) => {
+    const len = 3.3;
+    const n = Math.floor(len * sr);
+    const scale = wander(rng, 12, 0.3, 1);
+    const press = wander(rng, 8, 0.6, 1);
+    const judder = wander(rng, Math.round(len * 36), 0.15, 1);
+    // the runs of cracks, each in one of four colours
+    const bus = [0, 1, 2, 3].map(() => new Float32Array(2 * n));
+    scatter(rng, len, 140, (t) => scale(t / len), (t) => {
+      const b = bus[Math.floor(rng.next() * 4)];
+      const m = 2 + Math.floor(powerLaw(rng, 0.1, 1.3) * 10);
+      const g = powerLaw(rng, 0.2, 1.8);
+      for (let k = 0, tt = t; k < m; k++) {
+        grainInto(b, sr, tt, g * rng.range(0.35, 1), rng.range(0.00005, 0.0004), rng);
+        tt -= Math.log(1 - rng.next()) * 0.0018;
+      }
+    });
+    const [b0, b1, b2, b3] = bus.map(fold);
+    const crackle = new Float32Array(n);
+    mixInto(crackle, loopFilter(b0, sr, [['bandpass', 1500, 1.2]]), 0, 1.6);
+    mixInto(crackle, loopFilter(b1, sr, [['bandpass', 2800, 1.2]]), 0, 1.3);
+    mixInto(crackle, loopFilter(b2, sr, [['bandpass', 4800, 1.1]]), 0, 1);
+    mixInto(crackle, loopFilter(b3, sr, [['highpass', 2000, 0.7], ['lowpass', 8000, 0.7]]), 0, 0.7);
+    tame(crackle, 12);
+    const pops = cyclic(sr, len, (x) => {
+      scatter(rng, len, 12, (t) => scale(t / len), (t) => {
+        // a flake snapping off: a brittle tick, sometimes the panel thumped, sometimes the bits tumbling away
+        const f = rng.range(1200, 3200);
+        const d = rng.range(0.002, 0.005);
+        const a = powerLaw(rng, 0.35, 2);
+        strike(x, sr, Math.floor(t * sr), [[f, 1, d], [f * 1.53, 0.6, d * 0.7], [f * 2.37, 0.35, d * 0.5]], 0.5 * a, rng, 0.04);
+        grainInto(x, sr, t, 0.8 * a, 0.0003, rng);
+        if (rng.next() < 0.3) thudInto(x, sr, t, rng, 0.25 * a, rng.range(140, 200), 0.006);
+        if (rng.next() < 0.4) for (let k = 0; k < 2 + Math.floor(rng.next() * 2); k++) strike(x, sr, Math.floor((t + rng.range(0.01, 0.045)) * sr), [[rng.range(4000, 7000), 1, 0.0007]], 0.25 * a * rng.range(0.3, 1), rng);
+      });
+    });
+    tame(pops, 14);
+    const low = loopNoise(n, sr, rng, [['bandpass', 550, 0.8], ['lowpass', 1600, 0.7]]);
+    const grind = loopNoise(n, sr, rng, [['bandpass', 1600, 0.8]]);
+    const [rc, rp, rl, rg] = [rmsOf(crackle), rmsOf(pops), rmsOf(low), rmsOf(grind)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const j = judder(u);
+      out[i] = crackle[i] / rc + (0.7 * pops[i]) / rp + (0.55 * low[i] * press(u) * j) / rl + (0.3 * grind[i] * j * scale(u)) / rg;
+    }
+    return normalize(settle(centre(loopFilter(saturate(normalize(out, 1), 1.4), sr, [['lowpass', 11000, 0.7]])), sr), 0.5);
+  };
+}
+
+/**
+ * Soft damp dirt pushed off: a muffled smear (the blade's face through the mud, mostly below a
+ * kilohertz and a half), wet clumps thumping off, squelches, a smack and a suck as it lets go.
+ * Seamless.
+ */
+function scrapeMud(): Recipe {
+  return (sr, rng) => {
+    const len = 3.4;
+    const n = Math.floor(len * sr);
+    const press = wander(rng, 9, 0.45, 1);
+    const smear = wander(rng, Math.round(len * 9), 0.3, 1);
+    const wet = wander(rng, 10, 0.3, 1);
+    const ev = cyclic(sr, len, (x) => {
+      scatter(rng, len, 7, (t) => press(t / len), (t) => burst(x, sr, Math.floor(t * sr), rng.range(0.02, 0.06), rng.range(0.4, 0.9), rng, { attack: rng.range(0.002, 0.006), decay: rng.range(0.008, 0.02), filter: [['lowpass', rng.range(350, 700)], ['lowpass', 900]] }));
+      scatter(rng, len, 18, (t) => wet(t / len), (t) => plipInto(x, sr, t, rng.range(250, 700), rng.range(0.1, 0.35), rng.range(0.006, 0.014), rng.range(0.3, 0.6)));
+      // the mud letting go: a wet smack falling in pitch
+      scatter(rng, len, 3, (t) => wet(t / len), (t) => {
+        const m = Math.floor(rng.range(0.03, 0.06) * sr);
+        const f0 = rng.range(800, 1200);
+        const sm = sweptBand(noise(m, rng), sr, (tt) => f0 - 9000 * tt, 3);
+        for (let i = 0; i < m; i++) sm[i] *= Math.min(1, i / (0.003 * sr)) * Math.exp(-i / (0.012 * sr));
+        mixInto(x, sm, Math.floor(t * sr), 0.5);
+      });
+      scatter(rng, len, 60, (t) => press(t / len), (t) => grainInto(x, sr, t, 0.15 * rng.range(0.3, 1), rng.range(0.0005, 0.002), rng));
+    });
+    tame(ev, 14);
+    const body = loopFilter(noise(n, rng), sr, [['lowpass', 700, 0.7], ['highpass', 80, 0.7], ['peaking', 300, 1, 4]]);
+    const [re, rb] = [rmsOf(ev), rmsOf(body)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = ev[i] / re + (0.85 * body[i] * press(u) * smear(u)) / rb;
+    }
+    return normalize(settle(centre(loopFilter(out, sr, [['lowpass', 1500, 0.7], ['lowpass', 2200, 0.7]])), sr), 0.5);
+  };
+}
+
+/**
+ * A steel wire brush scrubbed over metal: bristle tips flicking over it by the thousand (tiny sharp
+ * ticks, the odd one standing out), the wires catching on pits and scale so it rasps rather than
+ * hisses, single wires scratching in little chirps, the wires ringing a metallic sheen above 4 kHz,
+ * the brush's back thrumming; back and forth, seven strokes a loop never quite equal, swelling a
+ * little in each and flicking over where it turns. Seamless.
+ */
+function brushWire(): Recipe {
+  return (sr, rng) => {
+    const len = 3.2;
+    const n = Math.floor(len * sr);
+    const st = strokes(rng, 7, len);
+    const swell = (t: number): number => {
+      const { u, i } = st.at(t);
+      return (0.55 + 0.45 * Math.pow(Math.sin(Math.PI * u), 0.6)) * st.amp[i];
+    };
+    // the bristles catching: a rough, irregular flutter of 20-80 Hz
+    const catchy = wander(rng, Math.round(len * 140), 0, 1);
+    const rough = (u: number): number => 0.12 + 0.88 * catchy(u) ** 2;
+    const ticks = new Float32Array(2 * n);
+    const tick = (t: number, v: number): void => {
+      const a = Math.floor(t * sr);
+      ticks[a] += v;
+      ticks[a + 1] -= 0.6 * v;
+    };
+    scatter(rng, len, 2000, swell, (t) => tick(t, powerLaw(rng, 0.1, 1.6) * (rng.next() < 0.5 ? -1 : 1)));
+    for (const t0 of st.starts) for (let j = 0; j < 40; j++) tick(t0 + 0.015 * rng.next(), powerLaw(rng, 0.3, 1.5) * (rng.next() < 0.5 ? -1 : 1));
+    const tk = fold(ticks);
+    const sharp = loopFilter(tk, sr, [['highpass', 2200, 0.7], ['highpass', 2200, 0.7], ['peaking', 4800, 0.9, 4], ['lowpass', 8500, 0.7], ['lowpass', 9500, 0.7]]);
+    // the wires ringing, each tick through their modes
+    const sheen = new Float32Array(n);
+    for (const [f, d] of [[4250, 0.006], [5350, 0.005], [6450, 0.0045], [7600, 0.004], [8700, 0.0035]] as const) mixInto(sheen, loopFilter(tk, sr, [['bandpass', f, Math.PI * f * d]]), 0, 1);
+    const scr = cyclic(sr, len, (x) => scatter(rng, len, 30, swell, (t) => squealInto(x, sr, t, rng.range(0.006, 0.025), rng.range(3400, 6500), rng.range(0.3, 1), rng, { bright: 0.25, waver: 0.06, glide: 0.25, grip: 0.6, jitter: 0.03 })));
+    const sand = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 1500, swell, (t) => grainInto(x, sr, t, powerLaw(rng, 0.2, 2.5), rng.range(0.00015, 0.0005), rng))), sr, [['bandpass', 3800, 0.8], ['lowpass', 8000, 0.7]]);
+    const thrum = loopNoise(n, sr, rng, [['bandpass', 1000, 0.7]]);
+    const [r1, r2, r3, r4, r5] = [rmsOf(sharp), rmsOf(sheen), rmsOf(scr), rmsOf(sand), rmsOf(thrum)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (sharp[i] / r1 + (0.35 * sheen[i]) / r2 + (0.5 * sand[i]) / r4) * rough(u) + (0.3 * scr[i]) / r3 + (0.16 * thrum[i] * swell(u * len)) / r5;
+    }
+    return normalize(settle(centre(loopFilter(tame(out, 13), sr, [['lowpass', 11000, 0.7]])), sr), 0.5);
+  };
+}
+
+/**
+ * A wet sponge scrubbed over a panel (richer than `sponge`, which other things use): the soft swish
+ * of it back and forth (six strokes a loop), the foam fizzing and crackling with bubbles in it,
+ * water squelched out where it turns, now and then a wet squeak of friction on the paint, a drip.
+ * Seamless.
+ */
+function spongeScrub(): Recipe {
+  return (sr, rng) => {
+    const len = 3.6;
+    const n = Math.floor(len * sr);
+    const st = strokes(rng, 6, len);
+    const swell = (t: number): number => {
+      const { u, i } = st.at(t);
+      return (0.3 + 0.7 * Math.pow(Math.sin(Math.PI * u), 1.1)) * st.amp[i];
+    };
+    const foam = wander(rng, 9, 0.4, 1);
+    // the foam: tiny bubbles bursting all the time, more under the sponge's pressure
+    const fizz = cyclic(sr, len, (x) => scatter(rng, len, 1400, (t) => (0.3 + 0.7 * swell(t)) * foam(t / len), (t) => ring(x, sr, Math.floor(t * sr), rng.range(2200, 7000), powerLaw(rng, 0.15, 2), rng.range(0.0003, 0.001), rng.range(0, 6.283))));
+    const wet = cyclic(sr, len, (x) => {
+      scatter(rng, len, 40, (t) => foam(t / len), (t) => plipInto(x, sr, t, rng.range(600, 2000), rng.range(0.3, 1), rng.range(0.003, 0.007), -rng.range(0.1, 0.4)));
+      for (const t0 of st.starts) {
+        // where it turns: water squelched out of it, a gurgle falling in pitch
+        const m = Math.floor(rng.range(0.08, 0.14) * sr);
+        const f0 = rng.range(1000, 1300);
+        const sq = sweptBand(noise(m, rng), sr, (tt) => f0 - 5500 * tt, 3);
+        for (let i = 0; i < m; i++) sq[i] *= Math.min(1, i / (0.01 * sr)) * Math.exp(-i / (0.035 * sr)) * (0.6 + 0.4 * Math.sin((2 * Math.PI * 45 * i) / sr));
+        mixInto(x, sq, Math.floor(t0 * sr), 1.2);
+        for (let j = 0; j < 4 + Math.floor(rng.next() * 4); j++) plipInto(x, sr, t0 + rng.range(0, 0.09), rng.range(300, 1000), rng.range(0.5, 1), rng.range(0.006, 0.014), rng.range(0.2, 0.5));
+      }
+      // a wet squeak of friction, a drip
+      scatter(rng, len, 1.5, (t) => swell(t), (t) => squealInto(x, sr, t, rng.range(0.05, 0.14), rng.range(600, 1200), rng.range(0.6, 1), rng, { bright: 0.5, waver: 0.05, glide: 0.2, grip: 0.6 }));
+      scatter(rng, len, 1.5, () => 1, (t) => plipInto(x, sr, t, rng.range(1400, 2800), rng.range(0.3, 0.6), rng.range(0.003, 0.005), -0.15));
+    });
+    const rub = loopFilter(noise(n, rng), sr, [['lowpass', 1300, 0.7], ['highpass', 200, 0.7], ['peaking', 550, 1, 3]]);
+    const tex = wander(rng, Math.round(len * 30), 0.5, 1);
+    const [rf, rw, rr] = [rmsOf(fizz), rmsOf(wet), rmsOf(rub)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * len;
+      out[i] = (0.55 * rub[i] * Math.pow(swell(t), 1.4) * tex(i / n)) / rr + (0.5 * fizz[i]) / rf + wet[i] / rw;
+    }
+    return normalize(settle(centre(loopFilter(out, sr, [['lowpass', 12000, 0.7]])), sr), 0.45);
+  };
+}
+
+/** the blade catching on the surface as a stroke begins (~0.09 s), by what it bites into; the four about as loud as one another */
+function scrapeStart(s: ScrapeSurface): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, s === 'mud' ? 0.11 : 0.09);
+    if (s === 'glass') {
+      // the edge tapping onto the pane, a little grit, the first squeak as it bites
+      strike(x, sr, 0, [[rng.range(4300, 5200), 1, 0.003], [rng.range(6600, 7600), 0.45, 0.002], [rng.range(2600, 3100), 0.3, 0.004]], 0.5, rng);
+      burst(x, sr, 0, 0.002, 0.3, rng, { attack: 0.0001, decay: 0.0004, filter: [['highpass', 2500], ['lowpass', 9000]] });
+      const grit = S(sr, 0.04);
+      for (let k = 0; k < 8; k++) burst(grit, sr, Math.floor(rng.range(0.003, 0.03) * sr), 0.002, rng.range(0.1, 0.3), rng, { attack: 0.0001, decay: 0.0005, filter: [['highpass', 2200], ['lowpass', 9000]] });
+      mixInto(x, biquad(grit, sr, 'peaking', 4800, 1, 4), 0);
+      squealInto(x, sr, rng.range(0.008, 0.014), rng.range(0.03, 0.05), rng.range(2000, 2300), 0.2, rng, { bright: 0.3, waver: 0.02, glide: 0.12, grip: 0.3 });
+      return normalize(edges(x, sr, 0.5, 20), 0.55);
+    }
+    if (s === 'rust') {
+      // a crust cracking as the edge bites into it: a run of cracks and a pop, the panel thumped
+      for (let k = 0, t = 0.002; k < 12; k++) {
+        burst(x, sr, Math.floor(t * sr), rng.range(0.0015, 0.004), rng.range(0.3, 1) * (1 - k / 14), rng, { attack: 0.0001, decay: rng.range(0.0003, 0.001), filter: [['bandpass', rng.range(1200, 6000), 1.2]] });
+        t += rng.range(0.001, 0.005);
+      }
+      const f = rng.range(1500, 2600);
+      strike(x, sr, Math.floor(0.004 * sr), [[f, 1, 0.005], [f * 1.6, 0.5, 0.003], [f * 2.4, 0.3, 0.002]], 0.6, rng);
+      thudInto(x, sr, 0.003, rng, 0.3, 150, 0.008);
+      return normalize(edges(x, sr, 0.5, 20), 0.75);
+    }
+    if (s === 'mud') {
+      // a soft wet "puh" as the blade meets the dirt
+      burst(x, sr, 0, 0.06, 1, rng, { attack: 0.004, decay: 0.018, filter: [['lowpass', 500], ['lowpass', 700]] });
+      plipInto(x, sr, 0.006, rng.range(300, 480), 0.35, 0.01, 0.4);
+      burst(x, sr, Math.floor(0.004 * sr), 0.02, 0.12, rng, { attack: 0.002, decay: 0.005, filter: [['bandpass', 1000, 1.5]] });
+      return normalize(edges(x, sr, 0.5, 20), 0.6);
+    }
+    // painted metal: a dry scuff as the edge catches, a tick, the panel barely tapped
+    const scuff = S(sr, 0.05);
+    burst(scuff, sr, 0, 0.05, 0.8, rng, { attack: 0.003, decay: 0.012, filter: [['highpass', 1500], ['lowpass', 7000], ['lowpass', 8000]] });
+    mixInto(x, biquad(scuff, sr, 'peaking', 3500, 0.8, 6), 0);
+    strike(x, sr, 0, [[rng.range(3600, 4400), 1, 0.004], [rng.range(5800, 6600), 0.5, 0.003]], 0.45, rng);
+    strike(x, sr, 0, panelModes(1.3, 6), 0.03, rng);
+    for (let k = 0; k < 6; k++) burst(x, sr, Math.floor(rng.range(0.004, 0.035) * sr), 0.0015, rng.range(0.15, 0.4), rng, { attack: 0.0001, decay: 0.0004, filter: [['highpass', 2500], ['lowpass', 8000]] });
+    return normalize(edges(x, sr, 0.5, 20), 0.65);
+  };
+}
+
+/** bits of dirt or rust landing on the floor: a few faint ticks and crumbs spread over about 0.3 s, never twice the same */
+function flakeDrop(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.38);
+    const count = 3 + Math.floor(rng.next() * 5);
+    // (most land together, the rest trickle after them)
+    const times = Array.from({ length: count }, () => 0.004 + 0.3 * Math.pow(rng.next(), 1.5)).sort((p, q) => p - q);
+    for (const t of times) {
+      const a = rng.range(0.35, 1) * (1 - 0.45 * (t / 0.3));
+      if (rng.next() < 0.6) {
+        // a hard flake on the concrete: a tiny bright tick, maybe a bounce
+        const f = rng.range(3500, 7000);
+        const d = rng.range(0.0008, 0.002);
+        strike(x, sr, Math.floor(t * sr), [[f, 1, d], [f * 1.5, 0.4, d * 0.6]], a, rng, 0.05);
+        if (rng.next() < 0.5) strike(x, sr, Math.floor((t + rng.range(0.01, 0.03)) * sr), [[f * rng.range(0.95, 1.05), 1, d * 0.8]], 0.3 * a, rng);
+      } else {
+        // a crumb of dirt: a soft dull tick
+        burst(x, sr, Math.floor(t * sr), 0.003, 0.6 * a, rng, { attack: 0.0002, decay: 0.0007, filter: [['bandpass', rng.range(1500, 3000), 1]] });
+      }
+    }
+    biquad(x, sr, 'lowpass', 9000, 0.7);
+    return normalize(edges(x, sr, 0.5, 20), 0.4);
+  };
+}
+
+/** a bell partial as a slowly beating pair (two strikes a hair apart in pitch, starting together; `depth` of the second) from `at`; at `phase` if given, else a random one */
+function bellInto(x: Float32Array, sr: number, at: number, f: number, amp: number, decay: number, beat: number, rng: Rng, attack = 0.0015, depth = 0.38, phase?: number): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  const n = Math.min(x.length - a, Math.ceil(decay * 8 * sr));
+  const p1 = phase ?? rng.range(0, 6.283);
+  const p2 = phase ?? p1 + rng.range(-0.3, 0.3);
+  // two phasors turned a step each sample (no sine to work out per sample: the fanfare has dozens of these)
+  const c1 = Math.cos((2 * Math.PI * f) / sr);
+  const s1 = Math.sin((2 * Math.PI * f) / sr);
+  const c2 = Math.cos((2 * Math.PI * (f + beat)) / sr);
+  const s2 = Math.sin((2 * Math.PI * (f + beat)) / sr);
+  let u1 = Math.cos(p1);
+  let v1 = Math.sin(p1);
+  let u2 = Math.cos(p2);
+  let v2 = Math.sin(p2);
+  const k = Math.exp(-1 / (decay * sr));
+  const na = Math.max(1, attack * sr);
+  let e = amp;
+  for (let i = 0; i < n; i++) {
+    x[a + i] += e * Math.min(1, i / na) * ((1 - depth) * v1 + depth * v2);
+    const t1 = u1 * c1 - v1 * s1;
+    v1 = v1 * c1 + u1 * s1;
+    u1 = t1;
+    const t2 = u2 * c2 - v2 * s2;
+    v2 = v2 * c2 + u2 * s2;
+    u2 = t2;
+    e *= k;
+  }
+}
+
+/** a clean bell struck once: harmonic partials (a tuned bar), beating gently (at `beats` Hz, the same bell every time; else a little different every time) */
+function chimeInto(x: Float32Array, sr: number, at: number, f: number, amp: number, rng: Rng, decay = 0.32, bright = 1, beats?: readonly [number, number, number]): void {
+  // (given its beats its phases are fixed too: peak normalisation then gives every rendering the same level)
+  const ph = beats ? 0 : undefined;
+  bellInto(x, sr, at, f, amp, decay, beats ? beats[0] : rng.range(1.8, 2.8), rng, 0.0015, 0.2, ph);
+  bellInto(x, sr, at, f * 2, 0.42 * amp * bright, decay * 0.5, beats ? beats[1] : rng.range(3, 4.5), rng, 0.0015, 0.3, ph);
+  bellInto(x, sr, at, f * 3, 0.13 * amp * bright, decay * 0.22, beats ? beats[2] : rng.range(4.5, 6), rng, 0.0015, 0.3, ph);
+  bellInto(x, sr, at, f * 4.17, 0.05 * amp * bright, decay * 0.08, 0, rng, 0.0015, 0.38, ph);
+}
+
+/** light glinting off something clean: a quick run of tiny pings up the bell's own overtones */
+function glintInto(x: Float32Array, sr: number, at: number, f: number, amp: number, rng: Rng, steps = [4, 5, 6, 8, 10, 12]): void {
+  let t = at;
+  steps.forEach((h, k) => {
+    ring(x, sr, Math.floor(t * sr), f * h * (1 + 0.002 * rng.gauss()), amp * (1 - 0.1 * k) * rng.range(0.7, 1), rng.range(0.025, 0.05), rng.range(0, 6.283));
+    t += rng.range(0.014, 0.022);
+  });
+}
+
+/**
+ * THE reward: a part has come clean. A small bright bell (D6, its octave and twelfth, beating
+ * gently), a soft bloom an octave under it, and a glint of light running up its overtones (~0.85 s).
+ * Heard every few seconds while working, so: no hard click, nothing shrill, the same bell every time
+ * (only the glint and a few sparkles differ between its renderings).
+ */
+function cleanDing(): Recipe {
+  return (sr, rng) => {
+    const len = 0.85;
+    const x = S(sr, len);
+    const f = 1174.66;
+    burst(x, sr, 0, 0.002, 0.06, rng, { attack: 0.0002, decay: 0.0004, filter: [['highpass', 3000]] });
+    chimeInto(x, sr, 0, f, 1, rng, 0.3, 1, [2.2, 3.7, 5.2]);
+    // the bloom: body, so it is a ding and not a beep
+    bellInto(x, sr, 0, f / 2, 0.14, 0.32, 1.1, rng, 0.006, 0.38, 0);
+    glintInto(x, sr, rng.range(0.02, 0.035), f, 0.08, rng);
+    for (let k = 0; k < 3; k++) ring(x, sr, Math.floor(rng.range(0.16, 0.42) * sr), f * [5, 6, 8, 10][Math.floor(rng.next() * 4)], 0.02, rng.range(0.03, 0.05), rng.range(0, 6.283));
+    for (let i = Math.floor(0.62 * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - 0.62) / 0.23);
+    return normalize(edges(x, sr, 0.5, 20), 0.7);
+  };
+}
+
+/** rust brushed off a part: a warmer two-note chime (G5, then D6 a fifth above, where the ding sits), a vibraphone's round tone with its slow tremolo (~1 s) */
+function cleanRustDone(): Recipe {
+  return (sr, rng) => {
+    const len = 1.0;
+    const x = S(sr, len);
+    const note = (at: number, f: number, amp: number): void => {
+      bellInto(x, sr, at, f, amp, 0.4, 1.3, rng, 0.003, 0.38, 0);
+      bellInto(x, sr, at, f * 4, 0.12 * amp, 0.05, 2.6, rng, 0.002, 0.38, 0);
+      bellInto(x, sr, at, f * 2, 0.08 * amp, 0.12, 2, rng, 0.003, 0.38, 0);
+    };
+    note(0, 783.99, 0.85);
+    note(0.13, 1174.66, 1);
+    for (let i = 0; i < x.length; i++) x[i] *= 1 - 0.16 * (0.5 + 0.5 * Math.sin(2 * Math.PI * 5.2 * (i / sr) - 1.2));
+    for (let i = Math.floor(0.75 * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - 0.75) / 0.25);
+    return normalize(edges(x, sr, 1, 20), 0.7);
+  };
+}
+
+/** the whole vehicle restored: G major rising in bells, the chord blooming over a warm pad and a soft low hit, sparkle all over it (~2.2 s) */
+function cleanCarDone(): Recipe {
+  return (sr, rng) => {
+    const len = 2.2;
+    const x = S(sr, len);
+    const G5 = 783.99;
+    const notes = [G5, 987.77, 1174.66, 1567.98];
+    notes.forEach((f, k) => chimeInto(x, sr, k * 0.1, f, 0.7 + 0.1 * k, rng, 0.35));
+    const t1 = 0.42;
+    for (const f of notes) chimeInto(x, sr, t1, f, 0.45, rng, 0.8, 0.8);
+    // the pad: a soft chord swelling under the bells (each partial a pair half a percent apart) and dying away
+    for (const [f, a] of [[392, 0.14], [587.33, 0.1], [783.99, 0.08], [987.77, 0.06]] as const) {
+      for (const [h, g] of [[1, 1], [2, 0.3], [3, 0.12]] as const) bellInto(x, sr, t1 - 0.04, f * h, a * g, 0.9, f * h * 0.005, rng, 0.12, 0.5);
+    }
+    // the low hit: weight under the chord, a G two octaves down
+    const lo = Math.floor(t1 * sr);
+    for (let i = 0; lo + i < x.length && i < sr; i++) {
+      const t = i / sr;
+      x[lo + i] += 0.35 * Math.sin(2 * Math.PI * 196 * t) * Math.exp(-t / 0.22) * Math.min(1, t / 0.004);
+    }
+    thudInto(x, sr, t1, rng, 0.2, 120, 0.02);
+    for (let k = 0; k < 34; k++) {
+      const t = 0.32 + 1.3 * Math.pow(rng.next(), 1.6);
+      ring(x, sr, Math.floor(t * sr), G5 * [5, 6, 8, 10, 12, 15][Math.floor(rng.next() * 6)] * (1 + 0.002 * rng.gauss()), 0.035 * (1 - 0.5 * ((t - 0.32) / 1.3)) * rng.range(0.4, 1), rng.range(0.03, 0.07), rng.range(0, 6.283));
+    }
+    for (let i = Math.floor(1.75 * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - 1.75) / 0.45);
+    return normalize(edges(x, sr, 1, 30), 0.8);
+  };
+}
+
+/** a cleaning tool worn out (a sponge torn, a blade blunt, bristles gone): a strain, a dull tearing crunch, a last soft thump (~0.3 s) */
+function toolWorn(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.32);
+    creakInto(x, sr, 0, 0.06, rng, 0.06, false);
+    // the tear: fibres and bits giving way one after another, fraying out
+    const t0 = 0.035;
+    const tl = rng.range(0.1, 0.14);
+    for (let t = t0; t < t0 + tl; t += rng.range(0.0015, 0.005)) {
+      const u = (t - t0) / tl;
+      burst(x, sr, Math.floor(t * sr), 0.002, 0.55 * Math.pow(1 - u, 0.7) * rng.range(0.3, 1), rng, { attack: 0.0001, decay: 0.0006, filter: [['bandpass', rng.range(800, 2800), 1.1]] });
+    }
+    // the dull crack of it giving up
+    burst(x, sr, Math.floor(0.045 * sr), 0.004, 0.45, rng, { attack: 0.0001, decay: 0.001, filter: [['lowpass', 2500]] });
+    const f = rng.range(500, 850);
+    strike(x, sr, Math.floor(0.045 * sr), [[f, 1, 0.012], [f * 1.7, 0.5, 0.008], [f * 2.6, 0.25, 0.005]], 0.3, rng, 0.04);
+    thudInto(x, sr, 0.17, rng, 0.4, 180, 0.015);
+    biquad(x, sr, 'lowpass', 3500, 0.7);
+    biquad(x, sr, 'lowpass', 4500, 0.7);
+    return normalize(edges(x, sr, 0.5, 30), 0.8);
+  };
+}
+
+/** H, to show the dirt that is left: a soft sonar ping (A5, sliding up onto its pitch), two duller returns, a gentle shimmer of air (~0.6 s) */
+function highlightPing(): Recipe {
+  return (sr, rng) => {
+    const len = 0.6;
+    const x = S(sr, len);
+    const p = S(sr, len);
+    const f = 880;
+    let ph = 0;
+    for (let i = 0; i < p.length; i++) {
+      const t = i / sr;
+      ph += (2 * Math.PI * f * (1 - 0.035 * Math.exp(-t / 0.012))) / sr;
+      p[i] = (Math.sin(ph) + 0.15 * Math.sin(2 * ph) * Math.exp(-t / 0.05)) * Math.exp(-t / 0.11) * Math.min(1, t / 0.004);
+    }
+    mixInto(x, p, 0, 1);
+    const echo = biquad(Float32Array.from(p), sr, 'lowpass', 2200, 0.7);
+    mixInto(x, echo, Math.floor(0.13 * sr), 0.3);
+    mixInto(x, echo, Math.floor(0.26 * sr), 0.12);
+    bellInto(x, sr, 0.01, f * 4, 0.05, 0.2, 5, rng, 0.02);
+    const air = noise(Math.floor(0.4 * sr), rng);
+    biquad(air, sr, 'bandpass', 6500, 3);
+    for (let i = 0; i < air.length; i++) {
+      const t = i / air.length;
+      air[i] *= Math.pow(Math.sin(Math.PI * t), 2) * (0.7 + 0.3 * Math.sin(2 * Math.PI * 9 * (i / sr)));
+    }
+    mixInto(x, air, Math.floor(0.02 * sr), 0.06);
+    for (let i = Math.floor(0.45 * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - 0.45) / 0.15);
+    return normalize(edges(x, sr, 0.5, 20), 0.6);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -1393,15 +2112,27 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   // door slam -19 LUFS, a 25 kg part set down -23, the generator at 4 m -31 running light; see docs/MODCAR_AUDIO.md)
   cord_pull: 0.31, gen_switch: 0.5, gen_cough: 0.39, shred: 0.36, tally: 0.44, craft_start: 0.35, hammer_swing: 0.35, hammer_hit: 0.9, craft_done: 0.33,
   power_on: 0.28, power_off: 0.55, no_power: 0.6,
+  // scrubbing (the catch and the chimes over a scrub loop at full gain: the catch a touch under it, the
+  // ding -22.5 like the bench's, the fanfare -20.5, the flakes falling far under it at -44)
+  scrape_start: 0.63, flake_drop: 0.35, clean_ding: 0.34, clean_rust_done: 0.29, clean_car_done: 0.37, tool_worn: 0.7, highlight_ping: 0.3,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
   ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36, glug: 0.5, breath: 0.4, heart: 0.5, pee: 0.3,
   recycler_run: 0.17, recycler_grind: 0.23, lamp_buzz: 0.03,
+  // (at gain 1 the scrapes and the brush about as loud as the ratchet, -30 LUFS, rust a touch harder, mud and the sponge softer)
+  scrape_glass: 0.29, scrape_metal: 0.39, scrape_rust: 0.32, scrape_mud: 0.36, brush_wire: 0.29, sponge_scrub: 0.38,
 };
 
-/** more renderings of the sounds that come in quick runs (a hammer struck 1-3 times, things shredded one after another, the counter) */
-const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4 };
+/**
+ * more renderings of the sounds that come in quick runs (a hammer struck 1-3 times, things shredded one
+ * after another, the counter, strokes begun, bits falling); one of a tune (the chimes that are the same
+ * every time; the ding has a few, only its glint different)
+ */
+const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1 };
+
+/** the chimes are tuned: they play at their own pitch and level every time (detuned by a percent or so they would be out of tune with one another, and with themselves) */
+const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping']);
 
 function massClass(m: number): number {
   // 0.25, 1, 4, 16, 64, 250 kg classes keep the cache small
@@ -1454,9 +2185,22 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'power_on': return powerOn();
     case 'power_off': return powerOff();
     case 'no_power': return noPower();
+    case 'scrape_start': return scrapeStart(o.surface ?? 'metal');
+    case 'flake_drop': return flakeDrop();
+    case 'clean_ding': return cleanDing();
+    case 'clean_rust_done': return cleanRustDone();
+    case 'clean_car_done': return cleanCarDone();
+    case 'tool_worn': return toolWorn();
+    case 'highlight_ping': return highlightPing();
     case 'recycler_run': return recyclerRun();
     case 'recycler_grind': return recyclerGrind();
     case 'lamp_buzz': return lampBuzz();
+    case 'scrape_glass': return scrapeGlass();
+    case 'scrape_metal': return scrapeMetal();
+    case 'scrape_rust': return scrapeRust();
+    case 'scrape_mud': return scrapeMud();
+    case 'brush_wire': return brushWire();
+    case 'sponge_scrub': return spongeScrub();
     case 'glug': return glugLoop();
     case 'breath': return breathLoop();
     case 'heart': return heartLoop();
@@ -1480,6 +2224,19 @@ export function foleyLevel(kind: FoleyShot | FoleyLoop): number {
 
 const VARIANTS = 3;
 
+/**
+ * How far a loop's pitch follows the rate it is given (1, all the way, if not here). The glass
+ * scrape's squeal is a tone, and a tone swept more than an octave by every stroke is a slide
+ * whistle: half way, it still rises with a fast stroke as a squeak does, by a fifth at most.
+ */
+const RATE_SPAN: Partial<Record<FoleyLoop, number>> = { scrape_glass: 0.5 };
+
+/** the playback rate a loop plays at for the rate asked (FoleyOpts.rate): kept to 0.5..2, then followed as far as the loop's span (exported for tests and the harness) */
+export function loopPlaybackRate(kind: FoleyLoop, rate: number | undefined): number {
+  const r = rate !== undefined && Number.isFinite(rate) ? Math.min(2, Math.max(0.5, rate)) : 1;
+  return 1 + (RATE_SPAN[kind] ?? 1) * (r - 1);
+}
+
 /** plays the mechanical sounds on an AudioContext (the game's, or an offline one) */
 export class Foley {
   readonly ctx: BaseAudioContext;
@@ -1497,8 +2254,10 @@ export class Foley {
   }
 
   private key(kind: string, o: FoleyOpts): string {
-    // (the grind only when given: the other sounds keep their keys, and with them their seeds)
-    return `${kind}|${o.material ?? ''}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}`;
+    // (the grind only when given: the other sounds keep their keys, and with them their seeds; the surface
+    // likewise, and only for the blade's catch: each scrub loop is a kind of its own whatever it is given;
+    // the gain and the rate are how it is played, never another rendering)
+    return `${kind}|${o.material ?? ''}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}`;
   }
 
   /** how many renderings of a one-shot to keep (a tune is the same every time: one is enough) */
@@ -1555,9 +2314,12 @@ export class Foley {
     if (list.length > 1 && pick === this.lastPick.get(k)) pick = (pick + 1 + Math.floor(this.rng.next() * (list.length - 1))) % list.length;
     this.lastPick.set(k, pick);
     src.buffer = list[pick];
-    // a hair of pitch and level variation so repeats are not identical
-    src.playbackRate.value = 1 + 0.03 * (this.rng.next() - 0.5);
-    const g = this.route(src, SHOT_LEVEL[kind] * (o.gain ?? 1) * (0.92 + 0.16 * this.rng.next()), o.pan);
+    // a hair of pitch and level variation so repeats are not identical (not for the chimes: they are tuned)
+    const detune = 1 + 0.03 * (this.rng.next() - 0.5);
+    const vary = 0.92 + 0.16 * this.rng.next();
+    const tuned = TUNED.has(kind);
+    src.playbackRate.value = tuned ? 1 : detune;
+    const g = this.route(src, SHOT_LEVEL[kind] * (o.gain ?? 1) * (tuned ? 1 : vary), o.pan);
     const t = Math.max(this.ctx.currentTime, when);
     src.start(t);
     src.onended = () => {
@@ -1566,19 +2328,27 @@ export class Foley {
     };
   }
 
-  /** start or keep a loop going (the ratchet while a part is being fitted, a horn while held, ...) */
+  /**
+   * start or keep a loop going (the ratchet while a part is being fitted, a horn while held, a scrub
+   * while the tool moves, ...); called again while it plays, its level and rate glide to the new gain
+   * and rate (a scrub calls this every frame with the stroke's speed: it never restarts for that)
+   */
   start(kind: FoleyLoop, o: FoleyOpts = {}): void {
     const k = this.key(kind, o);
     const live = this.loops.get(kind);
     const t = this.ctx.currentTime;
+    const rate = loopPlaybackRate(kind, o.rate);
     if (live && live.src.buffer && this.cache.get(k)?.includes(live.src.buffer)) {
       live.gain.gain.setTargetAtTime(LOOP_LEVEL[kind] * (o.gain ?? 1), t, 0.02);
+      // (the pitch slides, it does not step: a step in playback rate is heard as a jump)
+      live.src.playbackRate.setTargetAtTime(rate, t, 0.03);
       return;
     }
     if (live) this.stop(kind);
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffers(kind, o, 1)[0];
     src.loop = true;
+    src.playbackRate.setValueAtTime(rate, t);
     const g = this.route(src, 0, o.pan);
     // horns snap on; the rest ease in
     const attack = kind === 'horn_beep' || kind === 'horn_air' ? 0.006 : 0.03;

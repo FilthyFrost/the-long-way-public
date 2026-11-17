@@ -2,13 +2,16 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--all] [--no-metrics]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--all] [--no-metrics]
 //
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
 // load, light again, switched off; plus running dry, and two checks of its pull start (no starter
 // motor to hear, a flat battery changes nothing). --loops checks the engines named, else all.
 // --workshop renders the workshop scene (the generator and the workshop foley together) as a mix check.
+// --scrub renders scrubbing as the game drives it (every frame a gain and a rate from the tool's speed,
+// the blade's catch at each stroke, flakes, the chimes) and checks each scrub loop: unclipped, silent once
+// let go, no step added by a rate changing every frame, a fast stroke heard brighter than a slow one.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
 // as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
 // Exit code 1 if a loop clicks or a check fails.
@@ -19,6 +22,8 @@ import { ROOT, launchBrowser, startServer } from '../shots/lib.mjs';
 const ENGINES = ['eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'];
 /** machines that are not driven: their own sequence, not the tour */
 const MACHINES = ['gen_d1'];
+/** the scrubbing loops (foley.ts) */
+const SCRUBS = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'];
 const OUT = process.env.MODCAR_AUDIO_OUT || 'D:/modcar-scratch/sound/out';
 const args = process.argv.slice(2);
 const all = args.includes('--all');
@@ -27,9 +32,10 @@ const doLoops = all || args.includes('--loops');
 const doVariants = all || args.includes('--variants');
 const doSweep = all || args.includes('--sweep');
 const doWorkshop = all || args.includes('--workshop');
+const doScrub = all || args.includes('--scrub');
 const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop) ? [...ENGINES, ...MACHINES] : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -310,11 +316,15 @@ try {
       ['cord_pull', {}], ['gen_switch', {}], ['gen_cough', {}], ...['metal', 'plastic', 'organic', 'cloth', 'wood'].map((grind) => ['shred', { grind }]), ['tally', {}], ['craft_start', {}], ['hammer_swing', {}],
       ...['metal', 'plastic', 'wood', 'organic', 'cloth'].map((grind) => ['hammer_hit', { grind }]), ['craft_done', {}], ['power_on', {}], ['power_off', {}], ['no_power', {}],
       ['recycler_run', {}], ['recycler_grind', {}], ['lamp_buzz', {}],
+      // scrubbing: the catch on each surface, the flakes, the chimes; each loop at a mid, a slow and a fast stroke's rate
+      ...['glass', 'metal', 'rust', 'mud'].map((surface) => ['scrape_start', { surface }]), ['flake_drop', {}],
+      ['clean_ding', {}], ['clean_rust_done', {}], ['clean_car_done', {}], ['tool_worn', {}], ['highlight_ping', {}],
+      ...SCRUBS.flatMap((kind) => [[kind, {}], [kind, { rate: 0.7 }], [kind, { rate: 1.6 }]]),
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
       const x = fromBase64(r.pcm);
-      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind].filter(Boolean).join('_');
+      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind, opts.surface, opts.rate !== undefined ? `rate${opts.rate}` : null].filter(Boolean).join('_');
       writeWav(path.join(OUT, `foley_${tag}.wav`), x, r.sampleRate);
       const st = stats(x, r.sampleRate);
       report.foley[tag] = st;
@@ -332,6 +342,65 @@ try {
     console.log(`workshop scene: ${Object.entries(w).map(([k, v]) => `${k} ${v.rms}`).join('  ')} (dB rms)  peak ${stats(x, r.sampleRate).peak} dB`);
     check(stats(x, r.sampleRate).peak < -0.5, `workshop scene: no clipping (peak ${stats(x, r.sampleRate).peak} dB)`);
     check(w.quiet.rms < -60, `workshop scene: silent once everything is off (${w.quiet.rms} dB)`);
+  }
+
+  if (doScrub) {
+    const scrub = (spec) => page.evaluate((s) => window.__modcarAudio.renderScrub(s), spec);
+    // all of it as the game will play it: a hand on each scrub, the catches, the flakes, the chimes, the fanfare
+    const scene = await scrub({ kinds: SCRUBS, motion: 'stroke', shots: true, seconds: 3.5 });
+    const x = fromBase64(scene.pcm);
+    writeWav(path.join(OUT, 'scrub_scene.wav'), x, scene.sampleRate);
+    report.scrub = { scene: {}, loops: {} };
+    for (const [k, [a, b]] of Object.entries(scene.marks)) report.scrub.scene[k] = stats(x, scene.sampleRate, a, b);
+    const s = report.scrub.scene;
+    const peak = stats(x, scene.sampleRate).peak;
+    console.log(`scrub scene, ${scene.strokes} strokes: ${SCRUBS.map((k) => `${k} ${s[k].rms} dB/${s[k].centroid} Hz`).join('  ')}  ping ${s.ping.rms}  fanfare ${s.fanfare.rms} (dB rms)  peak ${peak} dB`);
+    check(peak < -0.5, `scrub scene: no clipping (peak ${peak} dB)`);
+    for (const k of SCRUBS) check(s[`${k}_after`].rms < -60, `scrub scene: ${k} let go and its chime rung out, silence (${s[`${k}_after`].rms} dB)`);
+    // each loop: at a steady rate, held at a slow and a fast stroke's, stepping 0.7 -> 1.6 half way, a new rate every frame
+    for (const kind of SCRUBS) {
+      const one = async (motion, rate, seconds = 3) => {
+        const r = await scrub({ kinds: [kind], motion, rate, seconds });
+        const y = fromBase64(r.pcm);
+        writeWav(path.join(OUT, `scrub_${kind}_${motion}${rate !== undefined ? `_${rate}` : ''}.wav`), y, r.sampleRate);
+        return { x: y, sr: r.sampleRate, marks: r.marks, rates: r.rates[kind], turn: r.loopSeconds[kind] };
+      };
+      const steady = await one('steady');
+      const step = await one('step');
+      const jitter = await one('jitter');
+      // one whole turn of the loop at each (the same sound at both rates: the brightness moves with the rate alone)
+      const [pSlow, pFast] = steady.rates;
+      const held = async (rate, p) => {
+        const r = await one('steady', rate, steady.turn / p + 0.4);
+        const a = r.marks[kind][0] + 0.1;
+        return stats(r.x, r.sr, a, a + r.turn / p);
+      };
+      // the largest sample-to-sample step over [a, b) seconds
+      const maxStep = (r, a, b) => {
+        let m = 0;
+        for (let i = Math.floor(a * r.sr); i < Math.floor(b * r.sr); i++) m = Math.max(m, Math.abs(r.x[i] - r.x[i - 1]));
+        return m;
+      };
+      const [a, b] = jitter.marks[kind];
+      // (a faster rate makes bigger steps by itself: compare with the fast half of the stepped render too)
+      const ref = Math.max(maxStep(steady, a + 0.05, b), maxStep(step, ...step.marks[`${kind}_fast`]));
+      const added = maxStep(jitter, a + 0.05, b) / ref;
+      const slow = await held(0.7, pSlow);
+      const fast = await held(1.6, pFast);
+      const quiet = stats(steady.x, steady.sr, ...steady.marks[`${kind}_after`]).rms;
+      report.scrub.loops[kind] = { steady: stats(steady.x, steady.sr, a, b), slow, fast, jitterStep: +added.toFixed(2), quiet };
+      console.log(`scrub ${kind.padEnd(13)} steady ${report.scrub.loops[kind].steady.rms} dB/${report.scrub.loops[kind].steady.centroid} Hz  rate 0.7 ${slow.rms} dB/${slow.centroid} Hz  rate 1.6 ${fast.rms} dB/${fast.centroid} Hz  jitter step x${added.toFixed(2)}  after ${quiet} dB`);
+      check(added < 1.3, `${kind}: a new rate every frame adds no step (largest ${added.toFixed(2)}x that at a steady rate)`);
+      // (by about the ratio of the playback rates: 1.6 / 0.7, the glass's squeal half way)
+      const heard = fast.centroid / slow.centroid / (pFast / pSlow);
+      check(heard > 0.85 && heard < 1.15, `${kind}: a fast stroke heard brighter than a slow one (${slow.centroid} -> ${fast.centroid} Hz, playback ${pSlow} -> ${pFast})`);
+      // the step from slow to fast glides: no step at the change bigger than the fast half's own
+      const [sa, sb] = step.marks[kind];
+      const mid = (sa + sb) / 2;
+      check(maxStep(step, mid - 0.05, mid + 0.15) <= 1.05 * maxStep(step, ...step.marks[`${kind}_fast`]), `${kind}: the rate's change glides (no step at it)`);
+      check(Math.abs(fast.rms - slow.rms) < 3, `${kind}: as loud fast as slow (${slow.rms} / ${fast.rms} dB)`);
+      check(quiet < -60, `${kind}: silent once let go (${quiet} dB)`);
+    }
   }
 
   if (doLoops) {

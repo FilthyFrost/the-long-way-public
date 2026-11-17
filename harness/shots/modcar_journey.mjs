@@ -106,7 +106,8 @@ try {
     },
     (t, part) => part === 'seat_bucket' && t.held === '',
   );
-  // a spray can on the front-left door, the sponge on the right one
+  // a spray can on the front-left door; the right one scrubbed (its grime mask, docs/MODCAR.md §15): the sponge
+  // takes its dust but not the barn's crust, the scraper the crust
   await step(
     '05d_paint',
     async () => {
@@ -124,13 +125,17 @@ try {
     async () => {
       if (!(await rt('pickUp', 'tool:sponge'))) throw new Error('no sponge');
       // (the bonnet stands open: the right front door)
-      const before = (await rt('part', 0, 'door_FR'))?.dirt;
-      await rt('aim', 0, 'door_FR', 1.4);
-      await rt('useFor', 2.2);
+      await rt('aim', 0, 'door_FR', 1.0);
+      const r = await rt('scrub', 2.2, 6, 0.3, 0.25);
       await rt('drop');
-      return { before, after: (await rt('part', 0, 'door_FR'))?.dirt };
+      const left = (g) => g?.cleaning?.find((c) => c.owner === 'p:door_FR')?.units?.find((u) => u.unit === 0)?.dirt ?? 1;
+      await rt('hold', 'tool:scraper', { tier: 2 });
+      await rt('aim', 0, 'door_FR', 0.95);
+      const s = await rt('scrub', 2.6, 8, 0.42, 0.36);
+      await page.evaluate(() => (window.__rt.game.player.held = null));
+      return { started: r.started && s.started, sponged: left(r.grime), scraped: left(s.grime) };
     },
-    (t, r) => r.after < r.before - 0.1 && t.held === '',
+    (t, r) => r.started && r.sponged <= 1 && r.scraped < 0.6 && t.held === '',
   );
   // what went under the bonnet is in: shut it again (it fills the windscreen)
   await step(

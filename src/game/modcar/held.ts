@@ -8,7 +8,8 @@
  *
  * A can held to an open filler goes to it by itself (the way Arctic Drive does it): it leaves the hands
  * and, at its real size, lines its spout up with the filler's mouth, leaning in; with the button held it
- * tips over and pours. Off the filler it comes back to the hands.
+ * tips over and pours. Off the filler it comes back to the hands. A cleaning tool being scrubbed with is
+ * pinned to the surface the same way (pin): at its real size, its working face on the point the mouse is on.
  */
 import * as THREE from 'three';
 import { itemDef, itemMass, itemPaint } from '../../core/modcar/items';
@@ -90,6 +91,12 @@ export class HeldThing {
   private readonly qHand = new THREE.Quaternion();
   private readonly qMouth = new THREE.Quaternion();
   private readonly mouthAt = new THREE.Vector3();
+  /** the model's markers in its own frame (M_edge, M_face, M_grip: a tool's working edge, its face, its grip) */
+  private readonly marks = new Map<string, THREE.Vector3>();
+  /** pinned to a surface (a tool scrubbing it): the model's point `at` put on `pos`, its frame turned to `q` */
+  private pinned: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null = null;
+  private pinB = 0;
+  private readonly pp = new THREE.Vector3();
 
   /** what is being done with it (the player's use), every frame */
   setUse(u: { kind: 'eat' | 'pill' | 'drink'; t: number } | null): void {
@@ -189,6 +196,10 @@ export class HeldThing {
     const box = new THREE.Box3().setFromObject(obj);
     const size = box.getSize(new THREE.Vector3());
     const c = box.getCenter(new THREE.Vector3());
+    this.marks.clear();
+    obj.traverse((o) => {
+      if (o.name === 'M_edge' || o.name === 'M_face' || o.name === 'M_grip') this.marks.set(o.name, o.getWorldPosition(new THREE.Vector3()));
+    });
     const big = Math.max(size.x, size.y, size.z, 0.05);
     // how big it may look at arm's length close to the eye: a can fills a hand, an engine the arms
     const k = Math.min(1, (this.large ? 0.36 : 0.19) / big);
@@ -299,8 +310,42 @@ export class HeldThing {
       this.root.quaternion.slerp(this.dq, b);
       this.root.scale.setScalar(1 + (1 / this.fitK - 1) * b);
     }
+    // pinned to a surface it scrubs: at its real size, its working point on the point
+    const pw = this.pinned ? 1 : 0;
+    this.pinB += (pw - this.pinB) * (1 - Math.exp(-dt * (pw ? 22 : 12)));
+    if (pw === 0 && this.pinB < 0.002) this.pinB = 0;
+    if (this.pinB > 0 && this.pinned) {
+      const p = this.pinned;
+      // (the model hangs centred under the root: its own point at goes to the root's at − centre)
+      this.pp.subVectors(p.at, this.fitC).applyQuaternion(p.q);
+      this.pp.subVectors(p.pos, this.pp);
+      const b = this.pinB * this.pinB * (3 - 2 * this.pinB);
+      this.root.position.lerp(this.pp, b);
+      this.root.quaternion.slerp(p.q, b);
+      this.root.scale.setScalar(1 + (1 / this.fitK - 1) * b);
+    }
     this.root.updateMatrixWorld(true);
     this.mats.setFrameOf(OWNER, this.root.matrixWorld);
+  }
+
+  /** pin the held thing to a point of a surface (its own point `at` on `pos`, turned to `q`); null: back in the hands */
+  pin(p: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null): void {
+    this.pinned = p;
+  }
+
+  /** a marker of the held model, in its own frame (null: it has none) */
+  marker(name: 'M_edge' | 'M_face' | 'M_grip'): THREE.Vector3 | null {
+    return this.marks.get(name) ?? null;
+  }
+
+  /** the look of what is in the hands (a part's: its grime mask binds to it) */
+  get look(): import('../render/carMaterials').CarLook | undefined {
+    return this.mats.lookOf(OWNER);
+  }
+
+  /** the held model's box centre, in its own frame */
+  get centre(): THREE.Vector3 {
+    return this.fitC;
   }
 
   /** at the filler (0…1 of the way there) */

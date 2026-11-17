@@ -1,15 +1,17 @@
 /**
  * The things one works on a vehicle with (docs/MODCAR.md §5.3): a jerrycan of petrol or diesel, a
  * bottle of water for the radiator, a can of oil, a spray can, a sponge, a cleaning scraper (made at the
- * bench, §14) — and what each does when it is held up to the right place and the button is held. A tank that
- * is not a vehicle's (the generator's) takes a can's fuel the same way (FuelTank).
+ * bench, §14), a wire brush — and what each does when it is held up to the right place and the button is held.
+ * A tank that is not a vehicle's (the generator's) takes a can's fuel the same way (FuelTank). The sponge, the
+ * scrapers and the brush clean (CLEANERS, §15): each pass over a surface takes off so much of the dirt, the
+ * crust and the rust, in a band as wide as the tool, and wears the tool down by the area it went over.
  */
 import { frameDef } from './frames';
 import { partDef } from './parts';
 import { PALETTE } from './palette';
 import type { Build, FuelType, PartInstance, Text } from './types';
 
-export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge' | 'scraper';
+export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge' | 'scraper' | 'brush';
 
 /** what goes in where: fuel into the tank, water into the radiator, oil into the engine */
 export type LiquidKind = 'fuel' | 'water' | 'oil';
@@ -29,6 +31,8 @@ export interface Tool {
   colour?: number;
   /** scrapers: which (1 plastic, 2 metal, 3 gold) */
   tier?: 1 | 2 | 3;
+  /** the sponge, the scrapers, the brush: how much of it is left (1 new … 0 worn out) */
+  life?: number;
 }
 
 /**
@@ -53,7 +57,51 @@ export const TOOL_INFO: Record<ToolKind, { name: Text; capacity: number; rate: n
   spray: { name: { zh: '喷漆罐', en: 'Spray can' }, capacity: 1, rate: 1 / 1.2 },
   sponge: { name: { zh: '海绵', en: 'Sponge' }, capacity: 1, rate: 1 / 1.6 },
   scraper: { name: { zh: '清理铲', en: 'Scraper' }, capacity: 1, rate: 1 },
+  brush: { name: { zh: '钢丝刷', en: 'Wire brush' }, capacity: 1, rate: 1 },
 };
+
+/**
+ * How each cleaning tool works (docs/MODCAR.md §15): the band it cleans (m), what one pass takes off of the
+ * dirt (dust, mud), the crust (caked grime, scale) and the rust (the amounts the parts carry, 0…1), how far off
+ * the surface it still reaches (m: a pane's two faces, a panel's curve under a straight blade), how wet it
+ * leaves it, and how many square metres of passes it lasts. The sponge takes the dirt in one pass and leaves a
+ * wet trail; the scrapers (Arctic Drive's ice scrapers, 10 / 22 / 25 cm) the crust in two or three, the dirt
+ * on the way; the brush the rust in three. A part of a car is about 1 m²; a whole car's outside about 12.
+ */
+export interface Cleaner {
+  width: number;
+  take: [number, number, number];
+  depth: number;
+  wet: number;
+  /** m² of passes it lasts */
+  lasts: number;
+  /** what the button does, in words */
+  word: Text;
+}
+
+export const CLEANERS: Record<'sponge' | 'brush' | 'scraper_1' | 'scraper_2' | 'scraper_3', Cleaner> = {
+  sponge: { width: 0.14, take: [0.85, 0.05, 0], depth: 0.03, wet: 1, lasts: 24, word: { zh: '擦洗', en: 'Scrub' } },
+  scraper_1: { width: SCRAPERS[1].width, take: [0.6, 0.3, 0.03], depth: 0.025, wet: 0, lasts: 60, word: { zh: '刮', en: 'Scrape' } },
+  scraper_2: { width: SCRAPERS[2].width, take: [0.6, 0.34, 0.04], depth: 0.025, wet: 0, lasts: 140, word: { zh: '刮', en: 'Scrape' } },
+  scraper_3: { width: SCRAPERS[3].width, take: [0.65, 0.4, 0.05], depth: 0.025, wet: 0, lasts: 320, word: { zh: '刮', en: 'Scrape' } },
+  brush: { width: 0.11, take: [0.3, 0.2, 0.34], depth: 0.03, wet: 0, lasts: 40, word: { zh: '刷锈', en: 'Brush off rust' } },
+};
+
+/** a cleaning tool's way of working, or null (not one) */
+export function cleanerOf(t: Pick<Tool, 'kind' | 'tier'>): Cleaner | null {
+  if (t.kind === 'sponge') return CLEANERS.sponge;
+  if (t.kind === 'brush') return CLEANERS.brush;
+  if (t.kind === 'scraper') return CLEANERS[`scraper_${t.tier ?? 1}` as 'scraper_1'];
+  return null;
+}
+
+/** the tool worn by a stroke over `area` m² of surface: its life left (0 = worn out) */
+export function wearCleaner(t: Tool, area: number): number {
+  const c = cleanerOf(t);
+  if (!c) return t.life ?? 1;
+  t.life = Math.max(0, (t.life ?? 1) - area / c.lasts);
+  return t.life;
+}
 
 const FUEL_NAME: Record<FuelType, Text> = {
   petrol: { zh: '汽油', en: 'petrol' },
@@ -64,7 +112,8 @@ const FUEL_NAME: Record<FuelType, Text> = {
 let n = 0;
 export function newTool(kind: ToolKind, o: Partial<Tool> = {}): Tool {
   n++;
-  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...(kind === 'scraper' ? { tier: o.tier ?? 1 } : {}), ...o };
+  const cleans = kind === 'sponge' || kind === 'scraper' || kind === 'brush';
+  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...(kind === 'scraper' ? { tier: o.tier ?? 1 } : {}), ...(cleans ? { life: 1 } : {}), ...o };
 }
 
 export function toolName(t: Tool, lang: 'zh' | 'en' = 'zh'): string {
@@ -161,8 +210,9 @@ export function toolUse(t: Tool, build: Build): { where: 'fuelTank' | 'radiator'
     return { where: 'engine', word: { zh: '加机油', en: 'Add oil' }, can: room > 0.05 && (t.litres ?? 0) > 0, why: room <= 0.05 ? { zh: '机油满了', en: 'Full' } : undefined };
   }
   if (t.kind === 'spray') return { where: 'any', word: { zh: '喷漆', en: 'Spray' }, can: true };
-  if (t.kind === 'scraper') return { where: '', word: { zh: '刮', en: 'Scrape' }, can: false, why: { zh: '刮脏刮锈下一批接上', en: 'Scraping comes with the next batch' } };
-  return { where: 'any', word: { zh: '擦洗', en: 'Wash' }, can: true };
+  const c = cleanerOf(t);
+  if (c && (t.life ?? 1) <= 0) return { where: 'any', word: c.word, can: false, why: { zh: `${TOOL_INFO[t.kind].name.zh}用坏了`, en: 'Worn out' } };
+  return { where: 'any', word: c?.word ?? { zh: '擦洗', en: 'Wash' }, can: true };
 }
 
 function fuelIn(tank: PartInstance): number {

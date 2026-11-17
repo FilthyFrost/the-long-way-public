@@ -440,6 +440,10 @@ export interface PartInstance {
   paint: number;
   dirt: number;
   rust: number;
+  /** caked grime and scale over the dirt (a barn find, a wreck): the scraper's (docs/MODCAR.md §15) */
+  crust?: number;
+  /** being cleaned: a grime mask is kept for it (grime.ts), what is left texel by texel */
+  grime?: boolean;
   fluids: Fluids;
   /** tyres: tread left 0…1, and a puncture */
   tread?: number;
@@ -459,6 +463,10 @@ export interface Build {
   paint2: number;
   dirt: number;
   rust: number;
+  /** caked grime and scale on the body (its windows too): the scraper's */
+  crust?: number;
+  /** the body is being cleaned: a grime mask is kept for it */
+  grime?: boolean;
   cond: number;
   /** mount id → the part on it */
   parts: Record<string, PartInstance>;

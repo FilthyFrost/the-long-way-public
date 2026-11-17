@@ -8,6 +8,10 @@
  *
  * Keys: E or the left button = use (press) / fit, pour, spray (hold); the right button or F held = take
  * off (with a can: draw back out); G held = put down; 1 / 2 (or the wheel) = the other slot; I = the cards.
+ *
+ * With a sponge, a scraper or a wire brush the left button held on a part (or the body) scrubs it (docs/MODCAR.md
+ * §15): the view holds still and the mouse moves the tool over the surface, as a finger on a screen, every
+ * stroke taking a band of dirt off where it goes (grime.ts); E still opens doors and lids.
  */
 import { frameVariant } from './assets';
 import * as THREE from 'three';
@@ -16,7 +20,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { PALETTE } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
 import { itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
-import { liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, workSurface, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
+import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, workSurface, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
 import type { Land } from '../../core/onfoot/land';
@@ -64,6 +68,41 @@ type Target = (
   | { kind: 'stow'; aim: StowAim; dist: number }
 ) & { at?: number };
 
+/** what a cleaning tool is on (grime.ts): a vehicle's part or its body, or a part lying about, and the point */
+export interface ScrubHit {
+  v: ModVehicle | null;
+  loose: Loose | null;
+  /** the grime mask's key, the look's owner, the part (null: a body) */
+  key: string;
+  owner: string;
+  inst: PartInstance | null;
+  /** 1 a body (its sides and windows), 0 a part */
+  kind: 0 | 1;
+  /** what to call it */
+  label: string;
+  /** where (render space), the surface's normal there, how far from the eye */
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  dist: number;
+  glass: boolean;
+}
+
+/** the scrubbing in hand: the view held still, the mouse moving the tool over the surface */
+export interface Scrub {
+  /** the mouse's point on the screen (−1…1 both ways) */
+  cursor: THREE.Vector2;
+  /** what is under it now (null: nothing that cleans) */
+  hit: ScrubHit | null;
+  /** where the tool was last frame (on the same thing), and what that was */
+  last: THREE.Vector3 | null;
+  lastKey: string;
+  /** the line of the strokes (smoothed, along the surface), and how fast it moves (m/s) */
+  dir: THREE.Vector3;
+  speed: number;
+  /** the tool's way of working */
+  cleaner: Cleaner;
+}
+
 /** a fuel tank that is not a vehicle's, which a jerrycan is held to (the generator's) */
 export interface TankPort {
   readonly id: string;
@@ -103,6 +142,14 @@ export interface PlayerHost {
   consume(item: ItemInstance): void;
   /** drunk: so much of a liquid */
   drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void;
+  /** the eye (the scrub's cursor is cast from it) */
+  readonly camera: THREE.Camera;
+  /** the point of something that can be cleaned a ray (render space) meets first, within far */
+  grimeCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): ScrubHit | null;
+  /** a stroke of a cleaning tool over it, from a to b (render space); side: the blade's line across */
+  scrubStroke(hit: ScrubHit, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, tool: Tool, c: Cleaner, dt: number): void;
+  /** the scrubbing stopped (the button let go): what it was last on */
+  scrubEnd(last: ScrubHit | null, tool: Tool): void;
 }
 
 /** a zone is in reach: one of the panels it is reached through open, or not there at all */
@@ -171,6 +218,14 @@ export class ModPlayer {
   /** the buttons */
   primary = false;
   secondary = false;
+  /** with a cleaning tool: what the mark is on that it can clean (the left button held scrubs it) */
+  scrubAim: ScrubHit | null = null;
+  /** scrubbing (the left button held with a cleaning tool): null when not */
+  scrub: Scrub | null = null;
+  private readonly sv1 = new THREE.Vector3();
+  private readonly sv2 = new THREE.Vector3();
+  private readonly sv3 = new THREE.Vector3();
+  private readonly sv4 = new THREE.Vector3();
   private secondaryWas = false;
   /**
    * Something being eaten, drunk or taken (F or the right button): what, how long since it began, from which
@@ -265,13 +320,102 @@ export class ModPlayer {
   }
 
   /** the button went down this frame (a tap shorter than a frame still counts) */
-  press(): void {
+  /** the use button down: E (key) or the left button (mouse) — with a cleaning tool the mouse's scrubs */
+  press(from: 'key' | 'mouse' = 'key'): void {
+    if (from === 'mouse' && this.startScrub()) return;
     this.primaryEdge = true;
     this.primary = true;
   }
 
-  release(): void {
+  release(from: 'key' | 'mouse' = 'key'): void {
+    if (from === 'mouse' && this.scrub) {
+      this.endScrub();
+      return;
+    }
     this.primary = false;
+  }
+
+  /** the mouse moved while scrubbing (px): the tool goes with it over the surface */
+  scrubMove(dx: number, dy: number): void {
+    const s = this.scrub;
+    if (!s) return;
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    s.cursor.x = Math.max(-0.96, Math.min(0.96, s.cursor.x + (dx * 2) / w));
+    s.cursor.y = Math.max(-0.96, Math.min(0.96, s.cursor.y - (dy * 2) / h));
+  }
+
+  /** the left button with a cleaning tool on something it can clean: the scrub begins */
+  private startScrub(): boolean {
+    const held = this.held;
+    const c = held?.kind === 'tool' ? cleanerOf(held.tool) : null;
+    const aim = this.scrubAim;
+    if (!c || !aim || held?.kind !== 'tool') return false;
+    if ((held.tool.life ?? 1) <= 0) {
+      this.host.ui.say(`${TOOL_INFO[held.tool.kind].name.zh}用坏了：丢进回收台，再做一个。`, 2.4);
+      return true;
+    }
+    // (the tool's line across the strokes starts level along the surface)
+    const dir = new THREE.Vector3(0, 1, 0).cross(aim.normal);
+    if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
+    this.scrub = { cursor: new THREE.Vector2(0, 0), hit: aim, last: null, lastKey: '', dir: dir.normalize(), speed: 0, cleaner: c };
+    return true;
+  }
+
+  private endScrub(): void {
+    const s = this.scrub;
+    this.scrub = null;
+    const held = this.held;
+    if (s && held?.kind === 'tool') this.host.scrubEnd(s.hit, held.tool);
+  }
+
+  /** every frame of a scrub: the cursor's ray onto the surface, a stroke from where the tool was to where it is */
+  private stepScrub(dt: number): void {
+    const s = this.scrub!;
+    const held = this.held;
+    const c = held?.kind === 'tool' ? cleanerOf(held.tool) : null;
+    if (!c || held?.kind !== 'tool') {
+      this.endScrub();
+      return;
+    }
+    const cam = this.host.camera;
+    const o = cam.getWorldPosition(this.sv1);
+    const d = this.sv2.set(s.cursor.x, s.cursor.y, 0.5).unproject(cam).sub(o).normalize();
+    const hit = this.host.grimeCast(o, d, REACH + 0.6);
+    s.hit = hit;
+    if (!hit) {
+      s.last = null;
+      s.speed *= Math.exp(-dt * 10);
+      return;
+    }
+    const prev = s.last && s.lastKey === hit.key ? s.last : null;
+    s.lastKey = hit.key;
+    if (prev) {
+      const move = this.sv3.subVectors(hit.point, prev);
+      const len = move.length();
+      // (a jump over a gap or onto another face: no stroke across it)
+      if (len < 0.25) {
+        s.speed = s.speed * 0.6 + (len / Math.max(dt, 1e-3)) * 0.4;
+        if (len > 2e-4) {
+          // the blade's line follows the strokes' (either way along them)
+          move.addScaledVector(hit.normal, -move.dot(hit.normal));
+          if (move.lengthSq() > 1e-10) {
+            move.normalize();
+            if (move.dot(s.dir) < 0) move.negate();
+            s.dir.lerp(move, Math.min(1, dt * 14)).normalize();
+          }
+          const side = this.sv4.subVectors(hit.point, prev).cross(hit.normal).normalize();
+          this.host.scrubStroke(hit, prev, hit.point, side, held.tool, c, dt);
+          if (wearCleaner(held.tool, len * c.width) <= 0) {
+            this.host.sound('tool_worn');
+            this.host.ui.say(`${TOOL_INFO[held.tool.kind].name.zh}用坏了。`, 2.4);
+            this.endScrub();
+            return;
+          }
+        }
+      } else s.speed = 0;
+    } else s.speed = 0;
+    s.last = (s.last ?? new THREE.Vector3()).copy(hit.point);
   }
 
   wheel(delta: number): void {
@@ -300,7 +444,7 @@ export class ModPlayer {
     // (while liquid flows one stands still: from the frame the button goes down at an open filler)
     const t0 = this.target;
     const atOpen = (t0?.kind === 'filler' && t0.open) || (t0?.kind === 'tank' && t0.port.open && this.held?.kind === 'tool');
-    const still = !!this.flow || (atOpen && (this.primary || keys.take));
+    const still = !!this.flow || (atOpen && (this.primary || keys.take)) || !!this.scrub;
     this.input.forward = still ? 0 : keys.forward;
     this.input.right = still ? 0 : keys.right;
     this.input.run = keys.run;
@@ -318,6 +462,7 @@ export class ModPlayer {
     this.secondary = keys.take;
 
     this.target = this.aside ? null : this.pick();
+    if (this.scrub) this.stepScrub(dt);
     this.showHighlight();
     this.showGhosts();
     this.host.cargo.showGhost(this.target?.kind === 'stow' ? this.target.aim : null, this.held);
@@ -431,7 +576,12 @@ export class ModPlayer {
     }
 
     const liquid = held?.kind === 'tool' ? liquidOf(held.tool) : null;
-    const working = held?.kind === 'tool' && (held.tool.kind === 'spray' || held.tool.kind === 'sponge');
+    const working = held?.kind === 'tool' && held.tool.kind === 'spray';
+    // a cleaning tool: the exact point of the part (or body) the mark is on, from its meshes
+    this.scrubAim = null;
+    if (held?.kind === 'tool' && cleanerOf(held.tool)) {
+      this.scrubAim = this.host.grimeCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), REACH);
+    }
     // something in the hands held into a boot, a bed, onto a seat: where it would go (a shut lid or door
     // over it: that is what E does, open it first)
     if (held && !working) {
@@ -1097,6 +1247,13 @@ export class ModPlayer {
     let aim: ItemCard | null = null;
     let xfer: TransferView | null = null;
     const both = this.freeSlot() < 0;
+    // a cleaning tool: the left button scrubs what the mark is on (E keeps opening doors and lids)
+    if (held?.kind === 'tool' && cleanerOf(held.tool)) {
+      const c = cleanerOf(held.tool)!;
+      const sc = this.scrub;
+      if (sc) acts.push({ keys: ['LMB'], text: `${c.word.zh}中 · 鼠标带着${TOOL_INFO[held.tool.kind].name.zh}走，松开停下` });
+      else if (this.scrubAim) acts.push((held.tool.life ?? 1) > 0 ? { keys: ['LMB'], hold: true, text: `${c.word.zh} <b>${this.scrubAim.label}</b>` } : { keys: ['LMB'], hold: true, text: `${TOOL_INFO[held.tool.kind].name.zh}用坏了`, off: true });
+    }
     if (t) {
       switch (t.kind) {
         case 'loose': {
@@ -1228,7 +1385,7 @@ export class ModPlayer {
     // (while liquid flows the strip saying from what into what stands where these words are)
     if (xfer) acts.length = 0;
     const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : -1;
-    ui.prompt(true, '', ring);
+    ui.prompt(!this.scrub, '', ring);
     const items = ui.items;
     items.showActions(acts);
     items.showCards(held ? this.cardOf(held) : null, aim, this.cardsOn);
@@ -1289,8 +1446,11 @@ export class ModPlayer {
         out.push({ keys: E, hold: true, text: `${liquid === 'fuel' ? '加油' : liquid === 'water' ? '加水' : '加机油'}（对着${L.filler}）` });
         out.push({ keys: F, hold: true, text: `把${L.zh}抽回来` });
       } else if (h.tool.kind === 'spray') out.push({ keys: ['LMB'], hold: true, text: '喷漆' }, { keys: ['Wheel'], text: '换颜色' });
-      else if (h.tool.kind === 'scraper') out.push({ keys: ['LMB'], hold: true, text: '刮（下一批接上）', off: true });
-      else out.push({ keys: ['LMB'], hold: true, text: '擦洗' });
+      else {
+        const c = cleanerOf(h.tool);
+        if (c && (h.tool.life ?? 1) <= 0) out.push({ keys: ['LMB'], hold: true, text: `${TOOL_INFO[h.tool.kind].name.zh}用坏了`, off: true });
+        else if (c) out.push({ keys: ['LMB'], hold: true, text: `${c.word.zh}（对着车身、零件；鼠标带着走）` }, { keys: ['H'], text: '看看哪里还脏' });
+      }
     } else if (h.kind === 'item' && itemDef(h.item.item).pack) {
       out.push({ keys: F, hold: true, text: `背上（快捷栏 +${itemDef(h.item.item).pack!.slots} 格）` });
     } else if (h.kind === 'item') {

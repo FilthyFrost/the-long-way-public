@@ -2,10 +2,10 @@
  * Offline render harness page for the ModCar sounds (loaded by harness/audio/modcar_render.mjs in
  * headless Chrome). Everything renders through OfflineAudioContext: nothing reaches a speaker.
  * The engine voice is stepped at 100 Hz with suspend/resume, exactly as a game frame loop would
- * call update().
+ * call update(); a scrub is driven at 60 frames a second the same way (renderScrub).
  */
 import { EngineVoice, bankConfig, engineTone, loadBank, type EngineAudioState, type BankManifest } from '../../src/game/modcar/engineAudio';
-import { FOLEY_LOOPS, Foley, recipe, type FoleyLoop, type FoleyOpts, type FoleyShot } from '../../src/game/modcar/foley';
+import { FOLEY_LOOPS, Foley, loopPlaybackRate, recipe, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
 import { Rng } from '../../src/game/modcar/synth';
 
 type Key = [number, Partial<EngineAudioState>];
@@ -317,6 +317,124 @@ async function renderWorkshop(sampleRate = 48000): Promise<{ pcm: string; sample
   return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks };
 }
 
+/** how a scrub is driven in renderScrub: frame by frame, 60 a second, as the game does it */
+export interface ScrubRenderSpec {
+  /** the scrubbing loops, a session each, one after another */
+  kinds: FoleyLoop[];
+  /** seconds of each session (the tool on the surface) */
+  seconds?: number;
+  /**
+   * 'stroke': a hand going back and forth, now and then holding the tool still (gain 0), the gain and
+   * the rate following its speed; 'steady': gain 1, rate 1; 'step': gain 1, rate 0.7 for the first
+   * half and 1.6 for the second; 'jitter': gain 1, a new rate anywhere in 0.7..1.6 every frame (the
+   * worst a twitchy mouse can do)
+   */
+  motion?: 'stroke' | 'steady' | 'step' | 'jitter';
+  /** 'steady': the rate held (default 1) */
+  rate?: number;
+  /** the one-shots too: the blade catching as each stroke begins, flakes falling, the chime as the part comes clean, the ping and the fanfare at the end */
+  shots?: boolean;
+}
+
+/** the blade's catch for each scrub, and the chime when its part is done */
+const SCRUB_CATCH: Partial<Record<FoleyLoop, ScrapeSurface>> = { scrape_glass: 'glass', scrape_metal: 'metal', scrape_rust: 'rust', scrape_mud: 'mud', brush_wire: 'rust' };
+const SCRUB_DONE: Record<string, FoleyShot> = { scrape_glass: 'clean_ding', scrape_metal: 'clean_ding', scrape_rust: 'clean_rust_done', scrape_mud: 'clean_ding', brush_wire: 'clean_rust_done', sponge_scrub: 'clean_ding' };
+
+/**
+ * Scrubbing as the game will play it: each loop started on contact and driven every frame with a
+ * gain and a rate from the tool's speed (start() called each frame, as ModGame does with a gain),
+ * stopped on release; with shots, the catch as each stroke begins, flakes falling off rust and mud,
+ * the part's chime, then the dirt highlighted and the whole vehicle done. Marks: each session, the
+ * quiet after it, and for 'step' the slow and fast halves.
+ */
+async function renderScrub(spec: ScrubRenderSpec, sampleRate = 48000): Promise<{ pcm: string; sampleRate: number; marks: Record<string, [number, number]>; strokes: number; rates: Record<string, [number, number]>; loopSeconds: Record<string, number> }> {
+  const seconds = spec.seconds ?? 3;
+  const motion = spec.motion ?? 'stroke';
+  const after = spec.shots ? 1.6 : 0.8;
+  const total = 0.2 + spec.kinds.length * (seconds + after) + (spec.shots ? 3.4 : 0.2);
+  const ctx = new OfflineAudioContext(1, Math.ceil(total * sampleRate), sampleRate);
+  const f = new Foley(ctx, ctx.destination);
+  // rendered ahead, as the game should when a cleaning tool is taken up
+  f.warm(spec.kinds);
+  for (const surface of ['glass', 'metal', 'rust', 'mud'] as const) f.warm(['scrape_start'], { surface });
+  f.warm(['flake_drop', 'clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'tool_worn']);
+  const rng = new Rng(0x5c7b);
+  const marks: Record<string, [number, number]> = {};
+  // the playback rates a slow (0.7) and a fast (1.6) stroke give each loop
+  const rates = Object.fromEntries(spec.kinds.map((k) => [k, [loopPlaybackRate(k, 0.7), loopPlaybackRate(k, 1.6)]])) as Record<string, [number, number]>;
+  // and how long a turn of each is (to measure the same sound at two rates: one whole turn at each)
+  const loopSeconds = Object.fromEntries(spec.kinds.map((k) => [k, recipe(k)(sampleRate, new Rng(1)).length / sampleRate]));
+  // what to do each frame, worked out ahead: [time, action]
+  const plan: Array<[number, () => void]> = [];
+  let strokes = 0;
+  let t0 = 0.2;
+  for (const kind of spec.kinds) {
+    const end = t0 + seconds;
+    marks[kind] = [t0, end];
+    if (motion === 'step') {
+      marks[`${kind}_slow`] = [t0 + 0.1 * seconds, t0 + 0.45 * seconds];
+      marks[`${kind}_fast`] = [t0 + 0.55 * seconds, t0 + 0.9 * seconds];
+    }
+    // (quiet once the loop is let go, and its chime has rung out)
+    marks[`${kind}_after`] = [end + (spec.shots ? 1.25 : 0.5), end + after - 0.05];
+    // the hand: strokes of 0.35-0.6 s, the tool sometimes held still between them
+    const moves: Array<[number, number]> = [];
+    for (let t = t0; t < end; ) {
+      const d = rng.range(0.35, 0.6);
+      moves.push([t, Math.min(end, t + d)]);
+      t += d + (rng.next() < 0.3 ? rng.range(0.15, 0.4) : 0);
+    }
+    const speed = (t: number): number => {
+      for (const [a, b] of moves) if (t >= a && t < b) return Math.pow(Math.sin((Math.PI * (t - a)) / (b - a)), 0.8);
+      return 0;
+    };
+    let wasStill = true;
+    let flakeAt = t0 + rng.range(0.2, 0.5);
+    for (let k = 0; t0 + k / 60 < end; k++) {
+      const t = t0 + k / 60;
+      const v = motion === 'stroke' ? speed(t) : 1;
+      const rate = motion === 'stroke' ? 0.7 + 0.9 * v : motion === 'step' ? (t < t0 + seconds / 2 ? 0.7 : 1.6) : motion === 'jitter' ? rng.range(0.7, 1.6) : (spec.rate ?? 1);
+      const catchNow = spec.shots && SCRUB_CATCH[kind] !== undefined && wasStill && v > 0.05;
+      if (v > 0.05 && wasStill) strokes++;
+      wasStill = v <= 0.05;
+      const flake = spec.shots && (kind === 'scrape_rust' || kind === 'scrape_mud') && v > 0.3 && t >= flakeAt;
+      if (flake) flakeAt = t + rng.range(0.25, 0.6);
+      plan.push([t, () => {
+        f.start(kind, { gain: v, rate });
+        if (catchNow) f.play('scrape_start', { surface: SCRUB_CATCH[kind] }, t);
+        if (flake) f.play('flake_drop', {}, t);
+      }]);
+    }
+    plan.push([end, () => f.stop(kind)]);
+    if (spec.shots) plan.push([end + 0.12, () => f.play(SCRUB_DONE[kind], {}, end + 0.12)]);
+    t0 = end + after;
+  }
+  if (spec.shots) {
+    marks.ping = [t0 + 0.2, t0 + 0.85];
+    marks.fanfare = [t0 + 1.0, t0 + 3.2];
+    plan.push([t0 + 0.2, () => f.play('highlight_ping', {}, t0 + 0.2)]);
+    plan.push([t0 + 1.0, () => f.play('clean_car_done', {}, t0 + 1.0)]);
+  }
+  // one suspend per render quantum that has something to do
+  const q = 128 / sampleRate;
+  const due = new Map<number, Array<() => void>>();
+  for (const [t, fn] of plan) {
+    const k = Math.floor(t / q);
+    const list = due.get(k) ?? [];
+    list.push(fn);
+    due.set(k, list);
+  }
+  for (const [k, list] of due) {
+    // (a quarter into the quantum: however the browser rounds a suspend time, two never land in one quantum)
+    void ctx.suspend((k + 0.25) * q).then(() => {
+      for (const fn of list) fn();
+      void ctx.resume();
+    });
+  }
+  const out = await ctx.startRendering();
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks, strokes, rates, loopSeconds };
+}
+
 async function checkLoops(engineId: string, sampleRate = 48000): Promise<Array<{ file: string; ratio: number; turns: number; seconds: number }>> {
   const ctx0 = new OfflineAudioContext(1, 128, sampleRate);
   const bank = await loadBank(ctx0, engineId);
@@ -372,9 +490,10 @@ declare global {
       renderEngine: typeof renderEngine;
       renderFoley: typeof renderFoley;
       renderWorkshop: typeof renderWorkshop;
+      renderScrub: typeof renderScrub;
       checkLoops: typeof checkLoops;
     };
   }
 }
 
-window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, checkLoops };
+window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, checkLoops };

@@ -545,9 +545,10 @@ export class ModSystems {
       applyWheelMods(sim, this.derived);
       this.noteGripTread();
     }
-    // dirt: dust and mud by the ground, faster in the rain on soft ground
-    const soft = env.surface === undefined ? 0 : env.surface >= 1 && env.surface <= 4 ? 1 : env.surface === 5 ? 0.6 : 0.1;
-    const rate = (0.004 + 0.03 * soft * (1 + 2 * env.rain)) / 1000;
+    // dirt: dust and mud by the ground (docs/MODCAR.md §15): two hours and more of road to very dirty (0.8),
+    // twice as fast on dirt and gravel, faster still in the rain on soft ground
+    const soft = env.surface === undefined ? 0 : env.surface >= 1 && env.surface <= 4 ? 1 : env.surface === 5 ? 0.6 : 0;
+    const rate = (0.006 * (1 + soft) * (1 + 0.5 * env.rain * soft)) / 1000;
     const add = rate * metres;
     this.build.dirt = Math.min(1, this.build.dirt + add);
     for (const inst of Object.values(this.build.parts)) inst.dirt = Math.min(1, inst.dirt + add * 0.8);

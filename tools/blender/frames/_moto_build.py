@@ -458,6 +458,7 @@ def build(args):
     if not quick:
         bake_ao_bvh(meshes, distance=0.07, rays=40)
         print('[moto] AO', round(time.time() - t0, 1), 's')
+    print('[moto] grime masks', K.mask_frame(meshes))
     mc.export_glb(OUT_GLB, meshes + empties)
     extra = json_extra(objs, info, tris, total)
     mc.mounts_json(OUT_JSON, 'moto', extra)

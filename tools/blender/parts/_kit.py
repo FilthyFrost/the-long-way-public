@@ -814,6 +814,9 @@ class Part:
         self.tris = mc.triangles(meshes)
         if not self.opts.get('no_ao'):
             bake_ao_bvh(meshes, distance=self.ao_distance, samples=self.ao_samples)
+        # the grime mask's UVs (root and movers in one square), for the parts the car wears
+        if self.opts.get('mask'):
+            self.mask_px = mc.mask_uv(meshes)
         # clean names of the mesh data
         for o in meshes:
             o.data.name = o.name
@@ -1515,7 +1518,7 @@ def run(table, args, after=None, out_dir=None, geo=True):
         if pid not in table:
             raise SystemExit(f'unknown part id {pid!r}; known: {sorted(table)}')
         t0 = time.time()
-        P = Part(pid, {'no_ao': bool(opts.get('noao')), 'stats': bool(opts.get('stats'))})
+        P = Part(pid, {'no_ao': bool(opts.get('noao')), 'stats': bool(opts.get('stats')), 'mask': out_dir is None})
         res = table[pid](P)
         if res is not None and isinstance(res, dict):
             # a builder may return {extra_id: entry} for generated variants (already exported)

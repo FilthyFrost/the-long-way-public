@@ -8,8 +8,15 @@
  *
  * Per-instance colour and wear come from uniforms (a part drawn on its own: a door, a part in the hand)
  * AND from vertex attributes (a merged mesh of many parts): `aPaint` (vec3, linear colour), `aWear`
- * (vec3: dirt, rust, faded paint, added to the car's own) and `aPartId` (float, 1…: which part a vertex
+ * (vec4: dirt, rust, faded paint, crust, added to the car's own) and `aPartId` (float, 1…: which part a vertex
  * belongs to, for the highlight of one part inside a merged mesh). See carMerge.ts.
+ *
+ * Wear comes in layers, from the top: dirt (dust and mud, the sponge's), crust (caked grime and scale, the
+ * scraper's), rust (the wire brush's), and faded paint. A part being cleaned has a grime mask (setGrime,
+ * src/game/modcar/grime.ts): what is left of the dirt, crust and rust at each texel of its MASK UVs (the
+ * models' TEXCOORD_1, or 0 without another map: `aMaskUv`), and where it is wet; it stands in for the
+ * look's own amounts there, so a scraper's stroke leaves a clean band. setGrimeShow lights up the dirt still
+ * left; setGrimeFlash makes one of the look's units (a side of a body, its windscreen) flash as it comes clean.
  *
  * Shading families (one program each, the rest is uniforms):
  *   PAINT  paint, paint_b, ceramic  cel diffuse (lit tone, a separately tuned saturated shade tone, one clean
@@ -73,8 +80,8 @@ type Family = 'paint' | 'metal' | 'matte' | 'glass' | 'lens' | 'gauge' | 'emit';
 /**
  * How each name is shaded. Colours are linear. look = (gloss, sun spot size as cos, rim, sheen);
  * pattern: 0 none, 1 cloth weave, 2 leather grain, 3 wood grain, 4 rubber, 5 rusty metal, 6 plastic pebble.
- * wear: how much dirt, rust and fading may show on it (0…1 each). ink: a seed that keeps the ids of
- * neighbouring materials apart.
+ * wear: how much dirt, rust and fading may show on it (0…1 each), and crust (the dirt's when not given). ink:
+ * a seed that keeps the ids of neighbouring materials apart.
  */
 interface Recipe {
   family: Family;
@@ -82,7 +89,7 @@ interface Recipe {
   look: [number, number, number, number];
   pattern?: number;
   cabin?: boolean;
-  wear?: [number, number, number];
+  wear?: [number, number, number] | [number, number, number, number];
   ink: number;
   /** glass: tint; lens: the lamp's light */
   tint?: [number, number, number];
@@ -103,8 +110,9 @@ const RECIPES: Record<CarMaterialName, Recipe> = {
   leather: { family: 'matte', base: [0.2, 0.075, 0.035], look: [0.25, 0.985, 0.2, 0.15], pattern: 2, cabin: true, ink: 0.56 },
   wood: { family: 'matte', base: [0.36, 0.17, 0.07], look: [0.4, 0.993, 0.2, 0.0], pattern: 3, cabin: true, ink: 0.68 },
   plastic_int: { family: 'matte', base: [0.07, 0.068, 0.07], look: [0.1, 0.985, 0.15, 0.1], pattern: 6, cabin: true, ink: 0.37 },
-  glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.33, wear: [0.6, 0, 0], ink: 0.0 },
-  glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0], ink: 0.0 },
+  // (a window takes crust whole: a barn find's are caked over until scraped)
+  glass: { family: 'glass', base: [0.012, 0.018, 0.024], look: [1.0, 0.9992, 0.0, 0], tint: [0.05, 0.08, 0.1], opacity: 0.33, wear: [0.6, 0, 0, 1], ink: 0.0 },
+  glass_dark: { family: 'glass', base: [0.004, 0.006, 0.008], look: [1.0, 0.9992, 0.0, 0], tint: [0.012, 0.016, 0.02], opacity: 0.86, wear: [0.6, 0, 0, 1], ink: 0.0 },
   lens_head: { family: 'lens', base: [0.8, 0.82, 0.84], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.86, 0.62], opacity: 0.18, wear: [0.6, 0, 0], ink: 0.0 },
   // (its light a deep red: what little green there is comes up a lot in sRGB, and a tail lamp reads orange)
   lens_tail: { family: 'lens', base: [0.5, 0.02, 0.012], look: [1.0, 0.9992, 0.3, 0], tint: [1.0, 0.035, 0.018], opacity: 0.72, wear: [0.6, 0, 0], ink: 0.0 },
@@ -124,6 +132,10 @@ export const carEnvUniforms = {
   uCarGround: { value: new THREE.Color(0.2, 0.21, 0.17) },
   /** debug views for modellers (viewer ?debug=): 0 off, 1 baked AO, 2 flat colour per material, 3 normals */
   uCarDebug: { value: 0 },
+  /** the dirt still left on every car, lit up (the H key): 0…1 */
+  uGrimeShow: { value: 0 },
+  /** the grime measure's pass (grime.ts): 1 = the glass, 0 = the rest */
+  uMeasureGlass: { value: 0 },
 };
 
 export interface CarLookOptions {
@@ -134,6 +146,7 @@ export interface CarLookOptions {
   dirt?: number;
   rust?: number;
   wear?: number;
+  crust?: number;
   /** height of the painted body above its ground (m): where the mirrored horizon runs along its sides.
    *  Default: measured from the paint meshes at apply() (roof loads and antennas left out) */
   bodyHeight?: number;
@@ -169,12 +182,16 @@ const GLSL_CAR_VERTEX = /* glsl */ `
   varying vec3 vPaint;
   #endif
   #ifdef RT_VWEAR
-  attribute vec3 aWear;
-  varying vec3 vWear;
+  attribute vec4 aWear;
+  varying vec4 vWear;
   #endif
   #ifdef RT_VPART
   attribute float aPartId;
   varying float vPartId;
+  #endif
+  #ifdef RT_MASK
+  attribute vec2 aMaskUv;
+  varying vec2 vMaskUv;
   #endif
   void main() {
     vec3 transformed = position;
@@ -196,6 +213,9 @@ const GLSL_CAR_VERTEX = /* glsl */ `
     #ifdef RT_VPART
     vPartId = aPartId;
     #endif
+    #ifdef RT_MASK
+    vMaskUv = aMaskUv;
+    #endif
     ${GLSL_VERTEX_MAIN}
     vCar = (uWorldToCar * rtWorld).xyz;
   }
@@ -206,8 +226,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   ${GLSL_COMMON}
   uniform vec3 uBase;
   uniform vec4 uLook;          // gloss, sun spot (cos of its radius), rim, sheen
-  uniform vec3 uWearMax;       // how much dirt, rust, fading this material shows
-  uniform vec3 uWear;          // the car's dirt, rust, fading
+  uniform vec4 uWearMax;       // how much dirt, rust, fading, crust this material shows
+  uniform vec4 uWear;          // the car's dirt, rust, fading, crust
+  uniform float uGrimeOn;      // 1: the look has a grime mask (tGrime) for the meshes with MASK UVs
+  uniform sampler2D tGrime;    // what is left of dirt, crust, rust (rgb) and the wet (a; 0 = no surface)
+  uniform vec2 uGrimeSize;     // its texels
+  uniform float uGrimeKind;    // how the look's surface splits into units: 0 a part (its paint, its glass), 1 a body
+  uniform vec2 uGrimeFlash;    // a unit coming clean: x how bright (0…1), y which unit (−1 all)
+  uniform float uGrimeWet;     // how much of the sponge's wet is still there (it dries over the whole part at once)
+  uniform float uGrimeShow;    // the dirt still left lit up (H): 0…1
+  uniform float uMeasureGlass; // the grime measure: 1 on its glass pass
   uniform float uPattern;
   uniform float uInkSeed;
   uniform vec4 uHighlight;     // rgb, strength 0…1
@@ -239,10 +267,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   varying vec3 vPaint;
   #endif
   #ifdef RT_VWEAR
-  varying vec3 vWear;
+  varying vec4 vWear;
   #endif
   #ifdef RT_VPART
   varying float vPartId;
+  #endif
+  #ifdef RT_MASK
+  varying vec2 vMaskUv;
   #endif
 
   float rtLuma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -391,6 +422,77 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     rim = rtStep(field - thr + 0.045, 0.004) * step(0.02, amount);
     return rtStep(field - thr, 0.004) * step(0.02, amount);
   }
+  // Crust: grime caked on over years (a barn find, a wreck): whole from 0.55 or so, a dusty coat over
+  // everything; thinner (a scraper's first pass), it breaks into blotches with ragged edges that keep to the
+  // crevices and the bottom; a darker rim just inside its edge reads as its thickness.
+  float rtCrust(float amount, vec3 p, vec3 n, float height, float ao, out float rim) {
+    float blot = rtTriNoise(p, n, 0.55).r - 0.5;
+    float fine = rtTriStroke(p + 1.3, n, 0.22) - 0.5;
+    float field = amount * 1.6 + blot * 0.45 + fine * 0.16 + (1.0 - ao) * 0.25 + (1.0 - smoothstep(0.2, 1.0, height)) * 0.12;
+    float c = rtStep(field - 0.55, 0.006) * step(0.02, amount);
+    rim = c * (1.0 - rtStep(field - 0.62, 0.006));
+    return c;
+  }
+  // its colour: dried dirt in two browns, paler where dust settled on what faces up, dark cracks through it,
+  // lit as dirt is
+  vec3 rtCrustColor(vec3 p, vec3 n, vec3 light, float rim) {
+    float t = rtTriNoise(p, n, 0.4).g;
+    vec3 c = mix(vec3(0.15, 0.115, 0.08), vec3(0.25, 0.2, 0.14), rtStep(t - 0.45, 0.01));
+    c = mix(c, vec3(0.37, 0.32, 0.25), smoothstep(0.25, 0.85, n.y) * 0.7);
+    float crack = rtStep(rtTriStroke(p + 4.1, n, 0.12) - 0.72, 0.004);
+    c = mix(c, c * 0.42, crack * 0.8);
+    c *= 1.0 - 0.3 * rim;
+    return c * light;
+  }
+  // a pane's crust where it is thin: a film (0…0.85) by how much of it there is
+  float rtGlassFilm(float amount) {
+    float a = clamp(amount * 1.7, 0.0, 1.0);
+    return 0.85 * a * a * (3.0 - 2.0 * a);
+  }
+  // and how caked it is (the blotches' amount): only the upper half of the crust a pane can carry
+  float rtGlassThick(float amount) {
+    return clamp((amount * 1.7 - 0.5) * 2.0, 0.0, 1.0);
+  }
+  #ifdef RT_MASK
+  // the grime mask at a point: a bilinear tap that leaves out the texels off every island (alpha 0), so the
+  // islands' edges never take in what lies beside them (no seams). w < 0: no surface here, use the amounts
+  vec4 rtGrimeTap(vec2 uv) {
+    // (a piece without a mask merged with ones that have it: its UVs are −1)
+    if (uv.x < -0.5) return vec4(-1.0);
+    vec2 p = uv * uGrimeSize - 0.5;
+    vec2 i = floor(p);
+    vec2 f = p - i;
+    vec2 t0 = (i + 0.5) / uGrimeSize;
+    vec2 dx = vec2(1.0 / uGrimeSize.x, 0.0);
+    vec2 dy = vec2(0.0, 1.0 / uGrimeSize.y);
+    vec4 a = texture2D(tGrime, t0);
+    vec4 b = texture2D(tGrime, t0 + dx);
+    vec4 c = texture2D(tGrime, t0 + dy);
+    vec4 d = texture2D(tGrime, t0 + dx + dy);
+    float wa = (1.0 - f.x) * (1.0 - f.y) * step(0.002, a.a);
+    float wb = f.x * (1.0 - f.y) * step(0.002, b.a);
+    float wc = (1.0 - f.x) * f.y * step(0.002, c.a);
+    float wd = f.x * f.y * step(0.002, d.a);
+    float w = wa + wb + wc + wd;
+    if (w < 1e-4) return vec4(-1.0);
+    return (a * wa + b * wb + c * wc + d * wd) / w;
+  }
+  #endif
+  // which unit of the look a point is in, by its normal in the car's frame (+x forward, +y up, +z right):
+  // a part has its paint (0) and its glass (1); a body its front, back, left, right, top (0…4), its windscreen,
+  // back window, left and right windows (5…8), and what faces down (9, no unit)
+  float rtGrimeUnit(vec3 nc, float glass) {
+    if (uGrimeKind < 0.5) return glass;
+    if (glass > 0.5) {
+      if (abs(nc.x) > 0.3) return nc.x > 0.0 ? 5.0 : 6.0;
+      return nc.z < 0.0 ? 7.0 : 8.0;
+    }
+    vec3 a = abs(nc);
+    if (a.y >= a.x && a.y >= a.z) return nc.y > 0.0 ? 4.0 : 9.0;
+    if (a.x >= a.z) return nc.x > 0.0 ? 0.0 : 1.0;
+    return nc.z < 0.0 ? 2.0 : 3.0;
+  }
+
   // bare rusty iron in two painted tones (dark scale, orange bloom) and a few pits, lit as the rest
   vec3 rtRustColor(vec3 p, vec3 n, vec3 light, float ao) {
     float t = rtTriNoise(p, n, 0.9).b * 0.75 + (rtTriStroke(p, n, 0.35) - 0.5) * 0.5;
@@ -474,9 +576,23 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #ifdef RT_VPAINT
     base = vPaint;
     #endif
-    vec3 wear = uWear;
+    vec4 wear = uWear;
     #ifdef RT_VWEAR
     wear += vWear;
+    #endif
+    // (the amounts as they are without a mask: what the grime measure compares the mask with)
+    vec4 wearAll = clamp(wear, 0.0, 1.0) * uWearMax;
+    float wetMask = 0.0;
+    #ifdef RT_MASK
+    if (uGrimeOn > 0.5) {
+      vec4 gm = rtGrimeTap(vMaskUv);
+      if (gm.a >= 0.0) {
+        wear.x = gm.r;
+        wear.w = gm.g;
+        wear.y = gm.b;
+        wetMask = clamp((gm.a * 255.0 - 1.0) / 254.0, 0.0, 1.0) * uGrimeWet;
+      }
+    }
     #endif
     wear = clamp(wear, 0.0, 1.0) * uWearMax;
     float height = vCar.y;
@@ -534,16 +650,31 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float gloss = uLook.x;
     vec3 inkBase = base;
 
-    // ---------------------------------------------------------------- dirt, rust (masks; applied per family)
+    // ---------------------------------------------------------------- dirt, crust, rust (masks; applied per family)
     float dust = 0.0;
     float mud = 0.0;
     float rust = 0.0;
     float rustEdge = 0.0;
+    float crust = 0.0;
+    float crustRim = 0.0;
     #ifdef RT_WEAR
-    // (a clean car skips the masks: the branch goes the same way over the whole car)
-    if (wear.x + wear.y > 0.001) {
+    // (a clean car skips the masks: the branch goes the same way over the whole car — on uniforms, as the masks
+    // take derivatives; a merged mesh's amounts are its parts', the same over each)
+    #ifdef RT_VWEAR
+    bool anyWear = wear.x + wear.y + wear.w > 0.001;
+    #else
+    bool anyWear = uWear.x + uWear.y + uWear.w + uGrimeOn > 0.001;
+    #endif
+    if (anyWear) {
       rtDirtMasks(wear.x, vObj, on, height, ao, dust, mud);
       rust = rtRust(wear.y, vObj, on, height, ao, rustEdge);
+      #ifdef RT_GLASS
+      // (on a window: a film over the whole pane (rtGlassFilm) long before it is thick, its blotches only where
+      // it is caked — a scraper's first pass takes those, the second the film)
+      crust = rtCrust(rtGlassThick(wear.w), vObj, on, 0.6, 1.0, crustRim);
+      #else
+      crust = rtCrust(wear.w, vObj, on, height, ao, crustRim);
+      #endif
     }
     #endif
 
@@ -554,7 +685,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #ifdef RT_CABIN
     outside = 0.0;
     #endif
-    float wet = clamp(uWeather.x, 0.0, 1.0) * outside;
+    float wet = max(clamp(uWeather.x, 0.0, 1.0) * outside, wetMask * 0.85);
     float bead = 0.0;
     vec2 beadLight = vec2(0.0);
     // (fewer on a side: there the water runs off. Branches on uniforms only: the masks take derivatives)
@@ -779,6 +910,25 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
     col = mix(col, vec3(0.32, 0.28, 0.22) * (sky + uSunColor * 0.2) * alpha, haze * 0.5);
     alpha = mix(alpha, 0.85, haze * 0.4);
+    // crust: caked grime over the pane, nothing of the cabin through it (from inside the light through it is
+    // a dull brown glow); thinner, a smeary film the cabin shows dimly through (a scraper's first pass leaves it,
+    // the second clears it); the band a scraper leaves is clear glass again
+    float film = rtGlassFilm(wear.w);
+    float cover = max(crust, film);
+    vec3 crustCol = rtCrustColor(vObj, on, (sky + uSunColor * 0.25 * lit) * mix(1.0, 0.55, inside), crustRim * crust);
+    if (cover > 0.0) {
+      col = mix(col, crustCol, cover * 0.97);
+      alpha = mix(alpha, 0.97, cover);
+    }
+    #ifdef RT_CRUSTCUT
+    // (the window's opaque twin: where the crust is thick it is all one sees, nothing behind it)
+    if (cover < 0.6) discard;
+    col = crustCol;
+    #endif
+    #endif
+
+    #if defined(RT_CRUSTCUT) && !defined(RT_WEAR)
+    discard;
     #endif
 
     #elif defined(RT_LENS)
@@ -836,8 +986,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 
     #if !defined(RT_GLASS) && !defined(RT_LENS) && !defined(RT_EMIT)
     #ifdef RT_WEAR
-    // dirt over everything: pale dust, dark mud low down (both matte: they kill the gloss under them)
+    // dirt over everything: the crust caked on, pale dust, dark mud low down (all matte: they kill the gloss under them)
     vec3 dirtLight = sky * mix(0.55, 1.0, ao) + uSunColor * 0.3 * lit;
+    col = mix(col, rtCrustColor(vObj, on, dirtLight, crustRim), crust);
     col = mix(col, vec3(0.3, 0.26, 0.205) * dirtLight, dust * (1.0 - mud));
     col = mix(col, mix(vec3(0.085, 0.065, 0.045), vec3(0.14, 0.11, 0.075), rtStep(rtTriStroke(vObj, on, 0.5) - 0.55, 0.01)) * dirtLight, mud);
     #endif
@@ -882,6 +1033,31 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       }
     }
 
+    // the dirt still left, lit up (H): orange over what a scrub would still take off, breathing
+    #if defined(RT_GLASS)
+    float glassHere = 1.0;
+    #else
+    float glassHere = 0.0;
+    #endif
+    float dirtHere = max(max(dust, mud), crust);
+    #ifdef RT_GLASS
+    dirtHere = max(max(crust, rtGlassFilm(wear.w)), smoothstep(0.08, 0.3, wear.x * (1.0 - smoothstep(0.55, 1.15, height))));
+    #endif
+    float leftHere = max(dirtHere, rust * (1.0 - crust));
+    if (uGrimeShow > 0.0) {
+      float k = smoothstep(0.04, 0.3, leftHere) * uGrimeShow * (0.7 + 0.3 * sin(uTime * 6.0));
+      col = mix(col, vec3(1.0, 0.42, 0.06) * 0.85, k * 0.5);
+      #if defined(RT_GLASS) || defined(RT_LENS)
+      alpha = mix(alpha, 0.9, k * 0.7);
+      #endif
+    }
+    // a unit coming clean: a white flash over it, fading
+    if (uGrimeFlash.x > 0.0) {
+      float unit = rtGrimeUnit(nCar, glassHere);
+      float inUnit = uGrimeFlash.y < 0.0 ? 1.0 : 1.0 - step(0.5, abs(unit - uGrimeFlash.y));
+      col += vec3(1.0, 0.98, 0.9) * uGrimeFlash.x * inUnit * (0.35 + 0.65 * pow(1.0 - ndv, 2.0));
+    }
+
     col = rtFog(col, vPos, cameraPosition);
 
     if (uCarDebug > 0.5) {
@@ -899,9 +1075,42 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       col *= 0.8;
     }
 
-    #if defined(RT_GLASS) || defined(RT_LENS)
+    #ifdef RT_MEASURE
+    // ---------------------------------------------------------------- the grime measure (grime.ts)
+    // what is left here (with the mask) beside what there is without it: dirt and crust in red and green, rust
+    // (where no crust hides it) in blue and alpha; on the glass pass only the glass, the rest of the car black
+    // (it still hides what is behind it)
+    float dAll = 0.0;
+    float rAll = 0.0;
+    #ifdef RT_WEAR
+    {
+      float du;
+      float mu;
+      float rr;
+      float cr;
+      float cRim;
+      rtDirtMasks(wearAll.x, vObj, on, height, ao, du, mu);
+      float rAllRaw = rtRust(wearAll.y, vObj, on, height, ao, rr);
+      #ifdef RT_GLASS
+      cr = rtCrust(rtGlassThick(wearAll.w), vObj, on, 0.6, 1.0, cRim);
+      dAll = max(max(cr, rtGlassFilm(wearAll.w)), smoothstep(0.08, 0.3, wearAll.x * (1.0 - smoothstep(0.55, 1.15, height))));
+      #else
+      cr = rtCrust(wearAll.w, vObj, on, height, ao, cRim);
+      dAll = max(max(du, mu), cr);
+      #endif
+      rAll = rAllRaw * (1.0 - cr);
+    }
+    #endif
+    float rHere = rust * (1.0 - crust);
+    if (uMeasureGlass > 0.5) gl_FragColor = glassHere > 0.5 ? vec4(dirtHere, dAll, 0.0, 0.0) : vec4(0.0);
+    else gl_FragColor = glassHere > 0.5 ? vec4(0.0) : vec4(dirtHere, dAll, rHere, rAll);
+    #elif (defined(RT_GLASS) || defined(RT_LENS)) && !defined(RT_CRUSTCUT)
     gl_FragColor = vec4(col, alpha);
     #else
+    #ifdef RT_CRUSTCUT
+    // (caked on a window: its own lines, not the cabin's behind it)
+    inkBase = vec3(0.15, 0.12, 0.09);
+    #endif
     float ink = rtCarInk(inkBase);
     // the cabin seen from outside (through the glass): its own lines faint, about 40%, its outline — the window
     // frame, the edge of a door — as strong as ever. Its ids are packed into a band of their own above all the
@@ -923,19 +1132,37 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
 // ------------------------------------------------------------------------------------------ materials
 
 /** what a geometry carries, which picks the variant of a material */
-interface Variant {
+export interface Variant {
   ao: boolean;
   vpaint: boolean;
   vwear: boolean;
   vpart: boolean;
+  /** MASK UVs (aMaskUv): the look's grime mask applies */
+  vmask?: boolean;
+  /** the grime measure's twin (grime.ts): writes what dirt is left, not a colour */
+  measure?: boolean;
+  /** a window's opaque twin (drawn again over the same faces): the crust where it is thick, hiding what is
+   *  behind it — the cabin, its lines — as glass drawn see-through cannot */
+  crustCut?: boolean;
 }
 
 function variantOf(g: THREE.BufferGeometry, name: CarMaterialName): Variant {
   const paint = name === 'paint' || name === 'paint_b';
-  return { ao: g.hasAttribute('color'), vpaint: paint && g.hasAttribute('aPaint'), vwear: g.hasAttribute('aWear'), vpart: g.hasAttribute('aPartId') };
+  return { ao: g.hasAttribute('color'), vpaint: paint && g.hasAttribute('aPaint'), vwear: g.hasAttribute('aWear'), vpart: g.hasAttribute('aPartId'), vmask: g.hasAttribute('aMaskUv') };
 }
 
-const variantKey = (name: string, v: Variant): string => `${name}|${v.ao ? 'a' : ''}${v.vpaint ? 'p' : ''}${v.vwear ? 'w' : ''}${v.vpart ? 'i' : ''}`;
+const variantKey = (name: string, v: Variant): string =>
+  `${name}|${v.ao ? 'a' : ''}${v.vpaint ? 'p' : ''}${v.vwear ? 'w' : ''}${v.vpart ? 'i' : ''}${v.vmask ? 'm' : ''}${v.measure ? 'M' : ''}${v.crustCut ? 'C' : ''}`;
+
+/** a 1 by 1 stand-in for a look without a grime mask (never sampled: uGrimeOn is 0) */
+const NO_GRIME = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+NO_GRIME.needsUpdate = true;
+
+/** a recipe's wear limits as four: dirt, rust, fading, crust (the crust as the dirt unless given) */
+function wearMax(r: Recipe): [number, number, number, number] {
+  const w = r.wear ?? [0, 0, 0];
+  return [w[0], w[1], w[2], w[3] ?? w[0]];
+}
 
 /** the materials of one car */
 export class CarLook {
@@ -945,7 +1172,14 @@ export class CarLook {
   readonly paint2 = new THREE.Color();
   /** shared by every material of this car */
   private readonly shared = {
-    uWear: { value: new THREE.Vector3() },
+    uWear: { value: new THREE.Vector4() },
+    /** the grime mask (grime.ts) over the meshes with MASK UVs, its size, and how the look splits into units */
+    uGrimeOn: { value: 0 },
+    tGrime: { value: NO_GRIME as THREE.Texture },
+    uGrimeSize: { value: new THREE.Vector2(1, 1) },
+    uGrimeKind: { value: 0 },
+    uGrimeFlash: { value: new THREE.Vector2(0, -1) },
+    uGrimeWet: { value: 1 },
     uWorldToCar: { value: new THREE.Matrix4() },
     uHighlight: { value: new THREE.Vector4(0.55, 0.92, 1.0, 0) },
     uHighlightId: { value: -1 },
@@ -969,11 +1203,11 @@ export class CarLook {
     if (opts.bodyHeight !== undefined) this.shared.uBodyHeight.value = opts.bodyHeight;
     this.paint.set(opts.paint ?? 0x9e2f22);
     this.paint2.set(opts.paint2 ?? 0xe6dccb);
-    this.shared.uWear.value.set(opts.dirt ?? 0, opts.rust ?? 0, opts.wear ?? 0);
+    this.shared.uWear.value.set(opts.dirt ?? 0, opts.rust ?? 0, opts.wear ?? 0, opts.crust ?? 0);
   }
 
   /** the material for a conventional name (created on first use, then shared by every mesh like it) */
-  material(name: CarMaterialName, v: Variant = { ao: true, vpaint: false, vwear: false, vpart: false }): THREE.ShaderMaterial {
+  material(name: CarMaterialName, v: Variant = { ao: true, vpaint: false, vwear: false, vpart: false, vmask: false }): THREE.ShaderMaterial {
     const key = variantKey(name, v);
     let m = this.mats.get(key);
     if (m) return m;
@@ -987,20 +1221,23 @@ export class CarLook {
     const r = RECIPES[name];
     const defines: Record<string, string> = { [`RT_${r.family.toUpperCase()}`]: '' };
     if (r.cabin) defines.RT_CABIN = '';
-    if (r.wear && (r.wear[0] > 0 || r.wear[1] > 0 || r.wear[2] > 0)) defines.RT_WEAR = '';
+    if (r.wear && (r.wear[0] > 0 || r.wear[1] > 0 || r.wear[2] > 0 || (r.wear[3] ?? 0) > 0)) defines.RT_WEAR = '';
+    if (v.vmask) defines.RT_MASK = '';
+    if (v.measure) defines.RT_MEASURE = '';
+    if (v.crustCut) defines.RT_CRUSTCUT = '';
     // only paint takes its colour from the vertices (a merged chrome mesh carries no paint of its own)
     if (v.vpaint && (name === 'paint' || name === 'paint_b')) defines.RT_VPAINT = '';
     if (v.vwear) defines.RT_VWEAR = '';
     if (v.vpart) defines.RT_VPART = '';
-    const transparent = r.family === 'glass' || r.family === 'lens';
-    if (transparent) defines.RT_DOUBLE = '';
+    const transparent = (r.family === 'glass' || r.family === 'lens') && !v.measure && !v.crustCut;
+    if (r.family === 'glass' || r.family === 'lens') defines.RT_DOUBLE = '';
     const base = new THREE.Color(r.base[0], r.base[1], r.base[2]);
     if (name === 'paint') base.copy(this.paint);
     if (name === 'paint_b') base.copy(this.paint2);
     const mat = new THREE.ShaderMaterial({
       defines,
       vertexColors: v.ao,
-      side: transparent ? THREE.DoubleSide : THREE.FrontSide,
+      side: r.family === 'glass' || r.family === 'lens' ? THREE.DoubleSide : THREE.FrontSide,
       uniforms: {
         ...globals,
         ...carEnvUniforms,
@@ -1014,7 +1251,7 @@ export class CarLook {
         ...this.shared,
         uBase: { value: base },
         uLook: { value: new THREE.Vector4(...r.look) },
-        uWearMax: { value: new THREE.Vector3(...(r.wear ?? [0, 0, 0])) },
+        uWearMax: { value: new THREE.Vector4(...wearMax(r)) },
         uPattern: { value: r.pattern ?? 0 },
         uInkSeed: { value: r.ink },
         uTint: { value: new THREE.Color(...(r.tint ?? [1, 1, 1])) },
@@ -1025,6 +1262,10 @@ export class CarLook {
       vertexShader: GLSL_CAR_VERTEX,
       fragmentShader: GLSL_CAR_FRAGMENT,
     });
+    if (v.measure) {
+      mat.blending = THREE.NoBlending;
+      mat.depthWrite = true;
+    }
     if (transparent) {
       // premultiplied: the shader writes what the glass adds and alpha = how much of the back it hides;
       // the alpha channel (ink ids, paint mask) is kept as it is
@@ -1038,6 +1279,7 @@ export class CarLook {
     }
     mat.name = `car:${name}`;
     mat.userData.carName = name;
+    if (v.crustCut) mat.userData.crustCut = true;
     return mat;
   }
 
@@ -1110,12 +1352,40 @@ export class CarLook {
     if (h !== null) this.shared.uBodyHeight.value = Math.max(0.3, h);
   }
 
-  /** wear of the whole car (merged meshes add their own per vertex): dirt, rust, faded paint, 0…1 */
-  setWear(w: { dirt?: number; rust?: number; wear?: number }): void {
+  /** wear of the whole car (merged meshes add their own per vertex): dirt, rust, faded paint, crust, 0…1 */
+  setWear(w: { dirt?: number; rust?: number; wear?: number; crust?: number }): void {
     const u = this.shared.uWear.value;
     if (w.dirt !== undefined) u.x = w.dirt;
     if (w.rust !== undefined) u.y = w.rust;
     if (w.wear !== undefined) u.z = w.wear;
+    if (w.crust !== undefined) u.w = w.crust;
+  }
+
+  /**
+   * The look's grime mask (grime.ts): what is left of the dirt, crust and rust over its meshes' MASK UVs, in
+   * place of the amounts setWear gives (null: none, the amounts as they are). kind: how its surface splits into
+   * units for the flash (0 a part, 1 a body).
+   */
+  setGrime(mask: { texture: THREE.Texture; size: number } | null, kind: 0 | 1 = 0): void {
+    this.shared.uGrimeOn.value = mask ? 1 : 0;
+    this.shared.tGrime.value = mask?.texture ?? NO_GRIME;
+    this.shared.uGrimeSize.value.set(mask?.size ?? 1, mask?.size ?? 1);
+    this.shared.uGrimeKind.value = kind;
+  }
+
+  /** has a grime mask */
+  get hasGrime(): boolean {
+    return this.shared.uGrimeOn.value > 0.5;
+  }
+
+  /** how much of the sponge's wet is left on the look (0…1: it dries all over at once) */
+  setGrimeWet(k: number): void {
+    this.shared.uGrimeWet.value = Math.min(1, Math.max(0, k));
+  }
+
+  /** a unit coming clean flashes (strength 0…1, fading in the caller's hands; unit −1 = the whole look) */
+  setGrimeFlash(strength: number, unit = -1): void {
+    this.shared.uGrimeFlash.value.set(Math.max(0, strength), unit);
   }
 
   /**

@@ -19,6 +19,8 @@ import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { measureCarShape, type CarLook } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
+import { castMesh } from '../render/triGrid';
+import { glassName } from './grime';
 import { partGeo } from '../../core/modcar/geo';
 import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
@@ -63,6 +65,24 @@ interface PanelNode {
 interface Shown {
   key: string;
   holder: THREE.Group;
+}
+
+/** a part of a vehicle that can be cleaned (grime.ts): a look's meshes with MASK UVs, and whose they are */
+export interface GrimePart {
+  /** the look's owner (CarMaterials) */
+  owner: string;
+  /** the grime mask's key: the instance's uid, or the build's uid and ':body' */
+  key: string;
+  /** the part (null: the body) */
+  inst: PartInstance | null;
+  meshes: THREE.Mesh[];
+  look: CarLook;
+  /** the side of its mask */
+  size: number;
+  /** 1 the body (sides, windows), 0 a part */
+  kind: 0 | 1;
+  /** what to call it (the mount's name; the vehicle's for its body) */
+  label: string;
 }
 
 /** owner names of the looks (CarMaterials): the body, a mount's part, a panel, a wheel (+tire, +turbo, +cage) */
@@ -110,8 +130,11 @@ export class CarView {
   private mergeDirty = true;
   private readonly mergeIds = new Map<string, number>();
   /** what each merged part's vertices were last written with */
-  private readonly mergedAs = new Map<number, { paint: number; paint2: number; dirt: number; rust: number; wear: number }>();
+  private readonly mergedAs = new Map<number, { paint: number; paint2: number; dirt: number; rust: number; wear: number; crust: number }>();
   private litMerged = -1;
+  /** the looks being cleaned (with grime masks): drawn on their own, never merged */
+  private readonly grimeHeld = new Set<string>();
+  private grimeCache: GrimePart[] | null = null;
 
   constructor(
     readonly build: Build,
@@ -742,6 +765,126 @@ export class CarView {
     // a new build: the merge goes (the originals show) and is made again once the models are in
     this.unmerge();
     this.mergeDirty = true;
+    this.grimeCache = null;
+  }
+
+  // ------------------------------------------------------------------ grime (grime.ts)
+
+  /** the part (null: the body) a look's owner name stands for; undefined: none, or not one that is cleaned */
+  instOfOwner(owner: string): PartInstance | null | undefined {
+    if (owner === BODY) return null;
+    const [base, sub] = owner.split('+');
+    let inst: PartInstance | undefined;
+    if (base.startsWith('m:') || base.startsWith('p:')) inst = this.build.parts[base.slice(2)];
+    else if (base.startsWith('w:')) {
+      const h = hubsOf(this.frame);
+      inst = this.build.parts[[h.fl, h.fr, h.rl, h.rr][Number(base.slice(2))]?.id ?? ''];
+    }
+    if (!inst) return undefined;
+    if (sub === 'turbo') return inst.sub.turbo;
+    if (sub === 'tire') return inst.sub.tire;
+    // (a cage, an add-on: not cleaned)
+    return sub ? undefined : inst;
+  }
+
+  /** what a look's owner is called (its mount's name; the vehicle's for the body) */
+  private ownerLabel(owner: string): string {
+    if (owner === BODY) return this.frame.name.zh;
+    const [base, sub] = owner.split('+');
+    let mount = base.slice(2);
+    if (base.startsWith('w:')) {
+      const h = hubsOf(this.frame);
+      mount = [h.fl, h.fr, h.rl, h.rr][Number(base.slice(2))]?.id ?? '';
+    }
+    const label = this.frame.mounts.find((m) => m.id === mount)?.label.zh ?? mount;
+    return sub === 'tire' ? `${label}轮胎` : sub === 'turbo' ? '涡轮' : label;
+  }
+
+  /**
+   * What of this vehicle can be cleaned: each look's meshes with MASK UVs (the body's with its windows, a part's,
+   * a panel's with its glass, a wheel's rim, its tyre, a turbo), merged away or not.
+   */
+  grimeParts(): GrimePart[] {
+    if (this.grimeCache) return this.grimeCache;
+    const ownerOf = new Map<THREE.Material, string>();
+    for (const owner of this.mats.owners()) {
+      const look = this.mats.lookOf(owner);
+      if (look) for (const m of look.materials) ownerOf.set(m, owner);
+    }
+    const parts = new Map<string, GrimePart>();
+    this.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry.hasAttribute('aMaskUv') || !mesh.userData.mask_px) return;
+      const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const owner = ownerOf.get(mat);
+      if (!owner || owner === 'merged') return;
+      let g = parts.get(owner);
+      if (!g) {
+        const inst = this.instOfOwner(owner);
+        const look = this.mats.lookOf(owner);
+        if (inst === undefined || !look) return;
+        g = { owner, key: inst ? inst.uid : `${this.build.uid}:body`, inst, meshes: [], look, size: mesh.userData.mask_px as number, kind: owner === BODY ? 1 : 0, label: this.ownerLabel(owner) };
+        parts.set(owner, g);
+      }
+      g.meshes.push(mesh);
+      g.size = Math.max(g.size, mesh.userData.mask_px as number);
+    });
+    this.grimeCache = [...parts.values()];
+    return this.grimeCache;
+  }
+
+  /** the middle of the windscreen (render space): the body's glass that faces forward; null: none */
+  windscreenAt(out: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.wsAt) {
+      const body = this.grimeParts().find((p) => p.owner === BODY);
+      if (!body) return null;
+      this.model.updateMatrixWorld(true);
+      const toModel = this.model.matrixWorld.clone().invert();
+      const box = new THREE.Box3();
+      const p = new THREE.Vector3();
+      const n = new THREE.Vector3();
+      for (const mesh of body.meshes) {
+        if (!matNames(mesh).some((x) => glassName(x))) continue;
+        const pos = mesh.geometry.getAttribute('position');
+        const nor = mesh.geometry.getAttribute('normal');
+        const m = toModel.clone().multiply(mesh.matrixWorld);
+        for (let i = 0; i < pos.count; i++) {
+          n.fromBufferAttribute(nor, i).transformDirection(m);
+          if (Math.abs(n.x) < 0.3 || n.x < 0) continue;
+          box.expandByPoint(p.fromBufferAttribute(pos, i).applyMatrix4(m));
+        }
+      }
+      if (box.isEmpty()) return null;
+      this.wsAt = box.getCenter(new THREE.Vector3());
+    }
+    this.model.updateMatrixWorld(true);
+    return out.copy(this.wsAt).applyMatrix4(this.model.matrixWorld);
+  }
+  private wsAt: THREE.Vector3 | null = null;
+
+  /** a look is being cleaned (its mask on) or not: the merge is made again without it, or with it */
+  setGrimeHeld(owner: string, on: boolean): void {
+    if (this.grimeHeld.has(owner) === on) return;
+    if (on) this.grimeHeld.add(owner);
+    else this.grimeHeld.delete(owner);
+    this.unmerge();
+    this.mergeDirty = true;
+    this.grimeCache = null;
+  }
+
+  /** the point of a part that can be cleaned a world-space ray meets first, within far (m) */
+  grimeCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): { part: GrimePart; point: THREE.Vector3; normal: THREE.Vector3; dist: number; glass: boolean } | null {
+    let best: { part: GrimePart; point: THREE.Vector3; normal: THREE.Vector3; dist: number; glass: boolean } | null = null;
+    for (const part of this.grimeParts()) {
+      for (const mesh of part.meshes) {
+        // (a part merged away still has its meshes, hidden: they are where it is)
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        const h = castMesh(mesh, origin, dir, best ? best.dist : far);
+        if (!h || (best && h.dist >= best.dist)) continue;
+        best = { part, point: h.point, normal: h.normal, dist: h.dist, glass: matNames(mesh).some((n) => glassName(n)) };
+      }
+    }
+    return best;
   }
 
   private unmerge(): void {
@@ -763,20 +906,23 @@ export class CarView {
     const add = (mount: string, object: THREE.Object3D, look: LookOf): void => {
       const id = entries.length + 1;
       this.mergeIds.set(mount, id);
-      this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt: look.dirt ?? 0, rust: look.rust ?? 0, wear: look.wear ?? 0 });
-      entries.push({ id, object, look: { paint: look.paint, paint2: look.paint2, dirt: look.dirt, rust: look.rust, wear: look.wear } });
+      this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt: look.dirt ?? 0, rust: look.rust ?? 0, wear: look.wear ?? 0, crust: look.crust ?? 0 });
+      entries.push({ id, object, look: { paint: look.paint, paint2: look.paint2, dirt: look.dirt, rust: look.rust, wear: look.wear, crust: look.crust } });
     };
-    add(BODY, this.frameObj, this.bodyLook());
+    // (a look being cleaned has its grime mask: drawn on its own)
+    if (!this.grimeHeld.has(BODY)) add(BODY, this.frameObj, this.bodyLook());
     for (const [mount, sh] of this.shown) {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
       // (what rides on a fork moves with it)
       if (!inst || UNMERGED.has(cat) || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
+      if (this.grimeHeld.has(partOwner(mount)) || this.grimeHeld.has(`${partOwner(mount)}+turbo`)) continue;
       add(mount, sh.holder, this.partLook(inst, cat));
     }
     this.model.updateMatrixWorld(true);
     const merged = new MergedCar(this.model, entries, (o) => MOVES.test(o.name) || !!o.userData.mover);
     this.model.add(merged.group);
+    this.grimeCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
     const look = this.mats.look('merged', { paint: paintHex(this.build.paint), paint2: paintHex(this.build.paint2) });
     applyMaterials(merged.group, look, true);
@@ -795,10 +941,11 @@ export class CarView {
     const rust = look.rust ?? 0;
     const wear = look.wear ?? 0;
     const paintMoved = was.paint !== look.paint || was.paint2 !== look.paint2;
-    const wearMoved = Math.abs(was.dirt - dirt) > WEAR_STEP || Math.abs(was.rust - rust) > WEAR_STEP || Math.abs(was.wear - wear) > WEAR_STEP;
+    const crust = look.crust ?? 0;
+    const wearMoved = Math.abs(was.dirt - dirt) > WEAR_STEP || Math.abs(was.rust - rust) > WEAR_STEP || Math.abs(was.wear - wear) > WEAR_STEP || Math.abs(was.crust - crust) > WEAR_STEP;
     if (!paintMoved && !wearMoved) return;
-    m.updatePart(id, paintMoved && wearMoved ? { paint: look.paint, paint2: look.paint2, dirt, rust, wear } : paintMoved ? { paint: look.paint, paint2: look.paint2 } : { dirt, rust, wear });
-    this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt, rust, wear });
+    m.updatePart(id, paintMoved && wearMoved ? { paint: look.paint, paint2: look.paint2, dirt, rust, wear, crust } : paintMoved ? { paint: look.paint, paint2: look.paint2 } : { dirt, rust, wear, crust });
+    this.mergedAs.set(id, { paint: look.paint, paint2: look.paint2, dirt, rust, wear, crust });
   }
 
   /** the body's height and the cabin, measured again once the models of a new build are in */
@@ -823,19 +970,19 @@ export class CarView {
 
   private bodyLook(): LookOf {
     const b = this.build;
-    return { paint: paintHex(b.paint), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond) };
+    return { paint: paintHex(b.paint), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond), crust: b.crust ?? 0 };
   }
 
   /** a part's look: its own paint (or the body's / the factory's) and its own wear */
   private partLook(inst: PartInstance, cat: string): LookOf {
-    return { paint: this.paintOf(inst, cat), paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond) };
+    return { paint: this.paintOf(inst, cat), paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
   }
 
   /** a panel's look: the frame's opening in the part's style */
   private panelLook(inst: PartInstance, style: string): LookOf {
     const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
     const paint = panelPaint(style, body);
-    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond) };
+    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
   }
 
   private setPart(m: MountDef, inst: PartInstance | null): void {
@@ -897,7 +1044,8 @@ export class CarView {
     const style = partDef(inst.part).panel?.style ?? 'stock';
     const fresh = !this.mats.has(panelOwner(m.id));
     const look = this.mats.look(panelOwner(m.id), this.panelLook(inst, style));
-    if (fresh) for (const s of p.skin) applyMaterials(s, look);
+    // (its glass too: the door's window is the door's, its grime mask the door's)
+    if (fresh) for (const s of [...p.skin, ...p.glass]) applyMaterials(s, look);
     p.style = style;
     const showGlass = style !== 'cage' && style !== 'fridge';
     for (const g of p.glass) g.visible = showGlass;
@@ -1041,12 +1189,12 @@ export class CarView {
 
   private wheelLook(inst: PartInstance): LookOf {
     const paint = inst.paint >= 0 ? paintHex(inst.paint) : 0xc8ccd0;
-    return { paint, paint2: paint, dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond) };
+    return { paint, paint2: paint, dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
   }
 
   private tireLook(t: PartInstance): LookOf {
     // the white of a whitewall is its second paint
-    return { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, rust: 0, wear: 0 };
+    return { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, rust: 0, wear: 0, crust: t.crust ?? 0 };
   }
 
   /** keep every look in step with the build: paint, dust, rust (cheap: uniforms only) */

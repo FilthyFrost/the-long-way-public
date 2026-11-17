@@ -2,8 +2,10 @@
  * Merge a car's static parts into one mesh per material (docs/MODCAR.md §6 "合批"): every part keeps its own
  * colour, wear and id in vertex attributes that the car materials read (carMaterials.ts):
  *   aPaint  (vec3)  linear colour of the part's paint (paint faces) or second paint (paint_b faces)
- *   aWear   (vec3)  the part's dirt, rust, faded paint (added to the car's own uniform: road dust that
+ *   aWear   (vec4)  the part's dirt, rust, faded paint, crust (added to the car's own uniform: road dust that
  *                   settles on everything evenly belongs there, the sponge or a rusty find on the part)
+ * (a part being cleaned — one with a grime mask, src/game/modcar/grime.ts — is drawn on its own: the caller
+ * leaves it out)
  *   aPartId (float) 1…; CarLook.setHighlight(id) lights up that part inside the merged mesh
  * Parts that move (panels, wheels, the steering wheel, levers, the key, needles) stay out and are drawn on
  * their own.
@@ -32,6 +34,7 @@ export interface MergePart {
   dirt?: number;
   rust?: number;
   wear?: number;
+  crust?: number;
   /** 1… (0 = no id) */
   id?: number;
 }
@@ -50,6 +53,7 @@ export interface PartLook {
   dirt?: number;
   rust?: number;
   wear?: number;
+  crust?: number;
 }
 
 /**
@@ -61,7 +65,7 @@ export const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_)/;
 /** attributes every merged geometry carries (missing ones are filled with neutral values) */
 const KEEP = ['position', 'normal', 'uv', 'color', 'aPaint', 'aWear', 'aPartId'] as const;
 
-function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Color | null, wear: THREE.Vector3, id: number): THREE.BufferGeometry {
+function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Color | null, wear: THREE.Vector4, id: number): THREE.BufferGeometry {
   const g = src.clone();
   g.applyMatrix4(m);
   // a mirrored part (the right-hand twin of a left part) comes out inside out: turn its faces back
@@ -90,9 +94,9 @@ function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Colo
     for (let i = 0; i < n; i++) pa.set([paint.r, paint.g, paint.b], i * 3);
     g.setAttribute('aPaint', new THREE.Float32BufferAttribute(pa, 3));
   }
-  const wa = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) wa.set([wear.x, wear.y, wear.z], i * 3);
-  g.setAttribute('aWear', new THREE.Float32BufferAttribute(wa, 3));
+  const wa = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) wa.set([wear.x, wear.y, wear.z, wear.w], i * 4);
+  g.setAttribute('aWear', new THREE.Float32BufferAttribute(wa, 4));
   g.setAttribute('aPartId', new THREE.Float32BufferAttribute(new Float32Array(n).fill(id), 1));
   for (const name of Object.keys(g.attributes)) if (!(KEEP as readonly string[]).includes(name)) g.deleteAttribute(name);
   g.morphAttributes = {};
@@ -104,6 +108,8 @@ function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Colo
 function pieces(mesh: THREE.Mesh): { geo: THREE.BufferGeometry; slot: number; temp: boolean }[] {
   const g = mesh.geometry;
   if (!Array.isArray(mesh.material) || g.groups.length === 0) return [{ geo: g, slot: 0, temp: false }];
+  // (a window's opaque twin is the same faces again: merged once, as glass; the merged glass gets its own twin)
+  if (g.userData.crustGroups) return [{ geo: g, slot: 0, temp: false }];
   const out: { geo: THREE.BufferGeometry; slot: number; temp: boolean }[] = [];
   for (const grp of g.groups) {
     const sub = new THREE.BufferGeometry();
@@ -148,7 +154,7 @@ interface Collected {
 }
 
 function collect(
-  parts: { object: THREE.Object3D; id: number; paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector3 }[],
+  parts: { object: THREE.Object3D; id: number; paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector4 }[],
   toFrame: THREE.Matrix4,
   skip: (o: THREE.Object3D) => boolean,
   boxes?: Map<number, THREE.Box3>,
@@ -206,7 +212,7 @@ export function mergeCarParts(parts: MergePart[], frame: THREE.Object3D, opts: M
     id: p.id ?? 0,
     paint: p.paint !== undefined ? new THREE.Color(p.paint) : defPaint,
     paint2: p.paint2 !== undefined ? new THREE.Color(p.paint2) : defPaint2,
-    wear: new THREE.Vector3(p.dirt ?? 0, p.rust ?? 0, p.wear ?? 0),
+    wear: new THREE.Vector4(p.dirt ?? 0, p.rust ?? 0, p.wear ?? 0, p.crust ?? 0),
   }));
   const group = new THREE.Group();
   group.name = 'merged';
@@ -238,7 +244,7 @@ export class MergedCar {
   readonly group = new THREE.Group();
   private readonly ranges = new Map<number, Range[]>();
   private readonly boxes = new Map<number, THREE.Box3>();
-  private readonly looks = new Map<number, { paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector3 }>();
+  private readonly looks = new Map<number, { paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector4 }>();
   private readonly hidden: THREE.Mesh[] = [];
   private readonly tmpBox = new THREE.Box3();
   private readonly tmpRay = new THREE.Ray();
@@ -262,7 +268,7 @@ export class MergedCar {
       const look = {
         paint: new THREE.Color(e.look.paint),
         paint2: new THREE.Color(e.look.paint2 ?? e.look.paint),
-        wear: new THREE.Vector3(e.look.dirt ?? 0, e.look.rust ?? 0, e.look.wear ?? 0),
+        wear: new THREE.Vector4(e.look.dirt ?? 0, e.look.rust ?? 0, e.look.wear ?? 0, e.look.crust ?? 0),
       };
       this.looks.set(e.id, look);
       return { object: e.object, id: e.id, ...look };
@@ -320,8 +326,9 @@ export class MergedCar {
     if (look.dirt !== undefined) cur.wear.x = look.dirt;
     if (look.rust !== undefined) cur.wear.y = look.rust;
     if (look.wear !== undefined) cur.wear.z = look.wear;
+    if (look.crust !== undefined) cur.wear.w = look.crust;
     const paintChanged = look.paint !== undefined || look.paint2 !== undefined;
-    const wearChanged = look.dirt !== undefined || look.rust !== undefined || look.wear !== undefined;
+    const wearChanged = look.dirt !== undefined || look.rust !== undefined || look.wear !== undefined || look.crust !== undefined;
     for (const r of ranges) {
       const g = r.mesh.geometry;
       if (paintChanged && r.paint) {
@@ -342,11 +349,12 @@ export class MergedCar {
         const a = g.getAttribute('aWear') as THREE.BufferAttribute;
         const arr = a.array as Float32Array;
         for (let i = r.start; i < r.start + r.count; i++) {
-          arr[i * 3] = cur.wear.x;
-          arr[i * 3 + 1] = cur.wear.y;
-          arr[i * 3 + 2] = cur.wear.z;
+          arr[i * 4] = cur.wear.x;
+          arr[i * 4 + 1] = cur.wear.y;
+          arr[i * 4 + 2] = cur.wear.z;
+          arr[i * 4 + 3] = cur.wear.w;
         }
-        a.addUpdateRange(r.start * 3, r.count * 3);
+        a.addUpdateRange(r.start * 4, r.count * 4);
         a.needsUpdate = true;
       }
     }
