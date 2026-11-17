@@ -84,6 +84,12 @@ const ICON_PATH: Record<CardIcon, string> = {
   tool: '<path d="M10.2 2.2a3 3 0 0 0-3.4 4L2.4 10.6a1.4 1.4 0 0 0 2 2l4.4-4.4a3 3 0 0 0 4-3.4L11 6.6 9.4 5z" />',
   car: '<path d="M1.8 10.5V8.3l1.6-3.3h9.2l1.6 3.3v2.2z" /><circle cx="4.6" cy="10.8" r="1.4" /><circle cx="11.4" cy="10.8" r="1.4" />',
   device: '<rect x="3" y="2" width="10" height="12" rx="1.6" /><circle cx="8" cy="6.5" r="1.8" /><path d="M5.5 11h5" />',
+  food: '<path d="M2.5 8h11a5.5 5.5 0 0 1-11 0z" /><path d="M6 5.2c0-1.2 1-1.2 1-2.4M9 5.2c0-1.2 1-1.2 1-2.4" />',
+  drink: '<path d="M6.2 1.8h3.6M6.6 1.8v2.6L5 6.6v7.6h6V6.6L9.4 4.4V1.8" /><path d="M5 9h6" />',
+  med: '<rect x="2.5" y="2.5" width="11" height="11" rx="2.4" /><path d="M8 5.2v5.6M5.2 8h5.6" />',
+  wear: '<path d="M5.6 2.2L2 4.6l1.6 3 1.6-.8v7h5.6v-7l1.6.8 1.6-3-3.6-2.4c-.4 1.2-1.4 1.8-2.4 1.8s-2-.6-2.4-1.8z" />',
+  pack: '<rect x="3.4" y="4.2" width="9.2" height="9.8" rx="2.2" /><path d="M6 4.2V3a2 2 0 0 1 4 0v1.2M5.6 9h4.8v2.6H5.6z" />',
+  box: '<path d="M2.4 5.2L8 2.6l5.6 2.6v6L8 13.8l-5.6-2.6z" /><path d="M2.4 5.2L8 7.8l5.6-2.6M8 7.8v6" />',
 };
 
 export function iconSvg(icon: CardIcon, colour = '#c9c6c0'): string {

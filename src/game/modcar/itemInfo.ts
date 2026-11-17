@@ -6,6 +6,7 @@
  * the mark is on are both made here.
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
+import { ITEM_CATS, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
@@ -60,7 +61,7 @@ export interface CardColumns {
   max: number;
 }
 
-export type CardIcon = 'engine' | 'wheel' | 'body' | 'cab' | 'electric' | 'tool' | 'car' | 'device';
+export type CardIcon = 'engine' | 'wheel' | 'body' | 'cab' | 'electric' | 'tool' | 'car' | 'device' | 'food' | 'drink' | 'med' | 'wear' | 'pack' | 'box';
 
 export interface ItemCard {
   /** what it is (a new key = drawn again; the same key = only its bars move) */
@@ -392,6 +393,64 @@ export function toolCard(t: Tool): ItemCard {
   } else if (t.kind === 'spray') {
     card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '现在的颜色（滚轮换）' });
   }
+  return card;
+}
+
+// ------------------------------------------------------------------ items (food, drinks, clothes, junk …)
+
+const ITEM_ICON: Record<ItemCat, CardIcon> = { food: 'food', drink: 'drink', med: 'med', wear: 'wear', pack: 'pack', lamp: 'electric', gear: 'tool', junk: 'box', crate: 'box' };
+const SLOT_ZH: Record<WearSlot, string> = { hat: '戴在头上', jacket: '穿在身上', pants: '穿在腿上', shoes: '穿在脚上', gloves: '戴在手上' };
+const DRINK_ZH = { water: '水', alcohol: '酒', energy: '能量饮料' } as const;
+
+/** what the recycler gives for it, in words ("20 废料 · 8 有机物"), or '' for nothing */
+export function salvageText(s: Partial<Record<string, number>>): string {
+  return MATERIAL_IDS.filter((m) => (s[m] ?? 0) > 0)
+    .map((m) => `${s[m]} ${MATERIALS[m].name.zh}`)
+    .join(' · ');
+}
+
+export function itemCard(inst: ItemInstance): ItemCard {
+  const d = itemDef(inst.item);
+  const card: ItemCard = {
+    key: `item:${inst.uid}:${inst.item}`,
+    icon: ITEM_ICON[d.cat],
+    cat: ITEM_CATS[d.cat].zh,
+    name: d.name.zh,
+    stars: d.stars,
+    badges: [],
+    blurb: d.blurb,
+    rows: [],
+    bars: [],
+    notes: [],
+    foot: { mass: itemMass(inst) },
+  };
+  if (d.eat && (d.eat.food > 0 || d.eat.hp > 0)) {
+    if (d.eat.food > 0) card.rows.push({ value: `+${d.eat.food}`, label: '饱腹', tone: 'good' });
+    if (d.eat.hp > 0) card.rows.push({ value: `+${d.eat.hp}`, label: '生命', tone: 'good' });
+  }
+  if (d.eat?.effect === 'warm1' || d.eat?.effect === 'warm2') card.notes.push({ text: `吃完身上暖和一阵（${d.eat.effect === 'warm2' ? '5' : '3'} 分钟）`, tone: 'ok' });
+  if (d.eat?.effect === 'sick1' || d.eat?.effect === 'sick2') card.notes.push({ text: '吃了会闹肚子：一阵子掉水分', tone: 'warn' });
+  if (d.drink) {
+    const l = inst.litres ?? 0;
+    const tone: Tone = d.drink.liquid === 'water' ? 'water' : d.drink.liquid === 'alcohol' ? 'mix2t' : 'charge';
+    card.bars.push({ label: '还剩', value: l, max: d.drink.litres, text: `${l.toFixed(2)} / ${d.drink.litres} L`, tone, parts: [{ tone, value: l, text: `${l.toFixed(2)} L ${DRINK_ZH[d.drink.liquid]}` }] });
+    if (d.drink.liquid === 'water') card.rows.push({ value: '+10', label: '解渴（每 0.1 L）', tone: 'good' });
+    else if (d.drink.liquid === 'alcohol') card.notes.push({ text: '喝了会醉：看东西晃，手脚慢半拍，但不怕冷', tone: 'warn' });
+    else card.notes.push({ text: '喝完半分钟里跑得快一半，但不解渴', tone: 'ok' });
+  }
+  if (d.heal) {
+    if (d.heal.hp > 0) card.rows.push({ value: `+${d.heal.hp}`, label: '生命（马上）', tone: 'good' });
+    if (d.heal.warm) card.rows.push({ value: `+${d.heal.warm} °C`, label: '体温', tone: 'good' });
+    if (d.heal.side) card.notes.push({ text: `${Math.round(d.heal.side * 100)}% 会有副作用（醉或中毒）`, tone: 'warn' });
+  }
+  if (d.revive) card.notes.push({ text: `带在身上：倒下时自动用掉，站起来时生命 ${d.revive.hp}`, tone: 'ok' });
+  if (d.wear) card.rows.push({ value: `+${d.wear.warmth}`, label: `保暖 · ${SLOT_ZH[d.wear.slot]}`, tone: 'good' });
+  if (d.pack) card.rows.push({ value: `+${d.pack.slots} 格`, label: '快捷栏', tone: 'good' });
+  if (d.lamp) card.rows.push({ value: `${d.lamp.range} m`, label: '照多远' });
+  if (d.gear?.kind === 'hammer') card.bars.push({ label: '还能砸', value: inst.uses ?? 0, max: d.gear.uses ?? 1, text: `${inst.uses ?? 0} / ${d.gear.uses} 下`, tone: 'mid' });
+  if (d.gear?.kind === 'repair') card.bars.push({ label: '修理点数', value: inst.uses ?? 0, max: d.gear.points ?? 1, text: `${inst.uses ?? 0} / ${d.gear.points}`, tone: 'good' });
+  const s = salvageText(salvageOf(inst));
+  if (s) card.rows.push({ value: s, label: '回收能得' });
   return card;
 }
 

@@ -462,4 +462,9 @@ export interface Build {
   cond: number;
   /** mount id → the part on it */
   parts: Record<string, PartInstance>;
+  /**
+   * What rides in it (cargo.ts): each thing's mass where it sits, frame model space. Not the vehicle's own:
+   * the game puts it in from what is stowed, and the derived mass and centre of gravity take it in.
+   */
+  cargo?: { m: number; x: number; y: number; z: number }[];
 }

@@ -7,6 +7,10 @@ import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } fr
 import { partDef } from '../../core/modcar/parts';
 import { BIOMES } from '../../core/world/biomes';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
+import { newItem } from '../../core/modcar/items';
+import { zonesOf } from '../../core/modcar/cargo';
+import { heldOf } from './player';
+import type { Loose } from './loose';
 import { GroundSample } from '../../core/world/ground';
 import { readParams } from '../params';
 import { loadStats } from './assets';
@@ -14,6 +18,11 @@ import { devItemOf } from './devPanel';
 import { Tune } from './devTune';
 import { ModGame, readModParams, type ViewMode } from './ModGame';
 import { clearSave, loadSave } from './save';
+
+/** is a thing lying about the one asked for: a part id, tool:<kind> or item:<id> */
+function looseIs(l: Loose, id: string): boolean {
+  return l.part?.part === id || (!!l.tool && `tool:${l.tool.kind}` === id) || (!!l.item && `item:${l.item.item}` === id);
+}
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const base = readParams();
@@ -211,28 +220,29 @@ const rt = {
     game.simulate(0);
     return target;
   },
-  /** put a new part (or a tool kind prefixed with "tool:") into the hands */
+  /** put a new part (or a tool kind prefixed with "tool:", an item with "item:") into the hands */
   hold: (id: string, opts: Record<string, unknown> = {}) => {
     if (id.startsWith('tool:')) game.player.held = { kind: 'tool', tool: newTool(id.slice(5) as ToolKind, opts) };
+    else if (id.startsWith('item:')) game.player.held = { kind: 'item', item: newItem(id.slice(5), opts) };
     else game.player.held = { kind: 'part', inst: newInstance(id) };
     game.simulate(0);
     return game.player.telemetry();
   },
   /** pick up the first loose thing of a part id (into the hands, or the hotbar's free slot as the game does) */
   pickUp: (id: string) => {
-    const l = game.loose.list.find((x) => x.part?.part === id || (x.tool && `tool:${x.tool.kind}` === id));
+    const l = game.loose.list.find((x) => looseIs(x, id));
     if (!l) return false;
     const slot = game.player.freeSlot();
     if (slot < 0) return false;
     game.player.sel = slot;
     game.loose.remove(l);
-    game.player.held = l.part ? { kind: 'part', inst: l.part } : { kind: 'tool', tool: l.tool! };
+    game.player.held = heldOf(l);
     game.simulate(0);
     return true;
   },
   /** stand before the first loose thing of a part id (tool:<kind> for a tool), looking at it (from whichever side one can stand on) */
   aimLoose: (id: string, dist = 1.0) => {
-    const l = game.loose.list.find((x) => x.part?.part === id || (x.tool && `tool:${x.tool.kind}` === id));
+    const l = game.loose.list.find((x) => looseIs(x, id));
     if (!l) return false;
     if (game.seated) game.getOut();
     const w = game.player.walker;
@@ -290,6 +300,71 @@ const rt = {
     return game.player.telemetry();
   },
   drop: () => game.player.putDown(),
+  /** hold G for a while (put down; looking at a vehicle: into it) */
+  dropFor: (seconds: number) => {
+    const dt = 1 / 60;
+    for (let t = 0; t < seconds; t += dt) {
+      game.dropButton = true;
+      game.step(dt, 1);
+    }
+    game.dropButton = false;
+    game.simulate(0);
+    return game.player.telemetry();
+  },
+  /** stand by one of a vehicle's zones (cargo.ts: trunk, rear, pass, bed, cabin, pillion), looking at the middle of its floor */
+  aimZone: (vi: number, zoneId: string, dist = 1.4) => {
+    const v = vehicle(vi);
+    const zone = zonesOf(v.view.frame.id).find((z) => z.id === zoneId);
+    if (!zone) return false;
+    game.simulate(0);
+    const model = v.view.model;
+    model.updateMatrixWorld(true);
+    const o = game.core.origin;
+    const cx = (zone.x[0] + zone.x[1]) / 2;
+    const cz = (zone.z[0] + zone.z[1]) / 2;
+    const p = model.localToWorld(new THREE.Vector3(cx, zone.floor + 0.05, cz)).add(new THREE.Vector3(o.x, o.y, o.z));
+    // from behind for what is at the back (a boot, a bed), else from its side
+    const back = zone.id === 'trunk' || zone.id === 'bed';
+    const lx = back ? zone.x[0] - dist : cx;
+    const lz = back ? cz : (cz >= 0 ? zone.z[1] : zone.z[0]) + Math.sign(cz || 1) * dist;
+    const s = model.localToWorld(new THREE.Vector3(lx, 0, lz)).add(new THREE.Vector3(o.x, o.y, o.z));
+    if (game.seated) game.getOut();
+    game.player.walker.place(s.x, s.z, 0, 0);
+    const w = game.player.walker;
+    const eye = w.eye();
+    game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
+    game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+    game.viewMode = 'cockpit';
+    game.simulate(0);
+    return game.player.telemetry();
+  },
+  /** a zone's floor as drawn from above: how much of it has a floor, its heights, a row across its middle */
+  floorOf: (vi: number, zoneId: string) => {
+    const v = vehicle(vi);
+    const zone = zonesOf(v.view.frame.id).find((z) => z.id === zoneId);
+    if (!zone) return null;
+    game.cargo.invalidate(v);
+    const g = game.cargo.grid(v, zone);
+    let n = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const h of g.h) {
+      if (Number.isNaN(h)) continue;
+      n++;
+      lo = Math.min(lo, h);
+      hi = Math.max(hi, h);
+    }
+    const mid = Math.floor(g.nz / 2);
+    const row: string[] = [];
+    for (let i = 0; i < g.nx; i += Math.max(1, Math.floor(g.nx / 14))) row.push(Number.isNaN(g.h[mid * g.nx + i]) ? '.' : g.h[mid * g.nx + i].toFixed(2));
+    return { nx: g.nx, nz: g.nz, floor: n / g.h.length, lo, hi, row: row.join(' ') };
+  },
+  /** what rides in a vehicle: by zone, and its load (kg) and mass */
+  stowed: (vi: number) => {
+    const v = vehicle(vi);
+    const things = game.cargo.ridersOf(v).map((l) => ({ what: l.part?.part ?? (l.tool ? `tool:${l.tool.kind}` : `item:${l.item?.item}`), zone: l.stow ?? '' }));
+    return { things, load: game.cargo.loadOf(v), mass: v.sys.derived.mass };
+  },
   /** fit a part straight onto a mount (screenshots of builds) */
   fit: (vi: number, mount: string, partId: string) => {
     const v = vehicle(vi);

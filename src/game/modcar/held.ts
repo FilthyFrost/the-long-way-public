@@ -11,12 +11,13 @@
  * tips over and pours. Off the filler it comes back to the hands.
  */
 import * as THREE from 'three';
+import { itemDef, itemMass, itemPaint } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import type { RenderCore } from '../render/core';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
-import { cloneModel, partModel, seatTyres, toolGlb } from './assets';
-import { partLook, toolModel } from './loose';
+import { cloneModel, itemGlb, partModel, seatTyres, toolGlb } from './assets';
+import { itemStandIn, partLook, toolModel } from './loose';
 import { applyMaterials, CarMaterials } from './materials';
 import type { Held } from './player';
 
@@ -87,7 +88,7 @@ export class HeldThing {
 
   /** what to show (null = empty hands); a new thing loads its model */
   set(held: Held): void {
-    const key = !held ? '' : held.kind === 'part' ? `p:${held.inst.uid}:${held.inst.part}:${held.inst.paint}:${held.inst.sub.tire?.part ?? ''}` : `t:${held.tool.kind}:${held.tool.colour ?? ''}:${held.tool.fuel ?? ''}`;
+    const key = !held ? '' : held.kind === 'part' ? `p:${held.inst.uid}:${held.inst.part}:${held.inst.paint}:${held.inst.sub.tire?.part ?? ''}` : held.kind === 'item' ? `i:${held.item.uid}:${held.item.item}:${held.item.tint ?? ''}` : `t:${held.tool.kind}:${held.tool.colour ?? ''}:${held.tool.fuel ?? ''}`;
     if (key === this.key) return;
     this.key = key;
     this.toolKind = held?.kind === 'tool' ? held.tool.kind : '';
@@ -97,6 +98,25 @@ export class HeldThing {
     this.mats.drop(OWNER);
     this.mats.drop(`${OWNER}+tire`);
     if (!held) return;
+    if (held.kind === 'item') {
+      const it = held.item;
+      const d = itemDef(it.item);
+      const look = this.mats.look(OWNER, itemPaint(it));
+      const obj = itemStandIn(it);
+      applyMaterials(obj, look);
+      this.large = d.carry === 'large';
+      this.mass = itemMass(it);
+      this.fit(obj);
+      const want = key;
+      void itemGlb(d.model).then((m) => {
+        if (!m || this.key !== want) return;
+        this.inner.clear();
+        const real = cloneModel(m);
+        applyMaterials(real, look);
+        this.fit(real);
+      });
+      return;
+    }
     if (held.kind === 'tool') {
       const t = held.tool;
       const obj = toolModel(t);

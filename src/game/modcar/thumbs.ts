@@ -36,6 +36,7 @@ interface Job {
   key: string;
   load: () => Promise<THREE.Object3D | null>;
   paint?: number;
+  paint2?: number;
   done: ((url: string | null) => void)[];
 }
 
@@ -80,7 +81,7 @@ export class PartThumbs {
   }
 
   /** a picture of the thing `load` gives (the same key asked again: the same picture); null when none can be drawn */
-  request(key: string, load: () => Promise<THREE.Object3D | null>, done: (url: string | null) => void, paint?: number): void {
+  request(key: string, load: () => Promise<THREE.Object3D | null>, done: (url: string | null) => void, paint?: number, paint2?: number): void {
     if (this.urls.has(key)) {
       done(this.urls.get(key) ?? null);
       return;
@@ -90,7 +91,7 @@ export class PartThumbs {
       j.done.push(done);
       return;
     }
-    this.jobs.set(key, { key, load, paint, done: [done] });
+    this.jobs.set(key, { key, load, paint, paint2, done: [done] });
     this.order.push(key);
   }
 
@@ -103,7 +104,7 @@ export class PartThumbs {
     this.busy = true;
     void job
       .load()
-      .then((obj) => this.draw(obj, job.paint))
+      .then((obj) => this.draw(obj, job.paint, job.paint2))
       .catch(() => null)
       .then((url) => {
         this.urls.set(key, url);
@@ -131,9 +132,10 @@ export class PartThumbs {
     return this.renderer;
   }
 
-  private material(name: string, vc: boolean, paint?: number): THREE.MeshToonMaterial {
+  private material(name: string, vc: boolean, paint?: number, paint2?: number): THREE.MeshToonMaterial {
     const base = name.replace(/^car:/, '').replace(/\.\d+$/, '');
-    const colour = (base === 'paint' || base === 'paint_b') && paint !== undefined ? paint : (COLOURS[base] ?? 0x9a8e80);
+    // (a second colour of its own for paint_b: an item's two; else paint_b takes the paint too)
+    const colour = base === 'paint_b' && paint2 !== undefined ? paint2 : (base === 'paint' || base === 'paint_b') && paint !== undefined ? paint : (COLOURS[base] ?? 0x9a8e80);
     const key = `${colour}:${vc}`;
     let m = this.toon.get(key);
     if (!m) {
@@ -143,7 +145,7 @@ export class PartThumbs {
     return m;
   }
 
-  private draw(obj: THREE.Object3D | null, paint?: number): string | null {
+  private draw(obj: THREE.Object3D | null, paint?: number, paint2?: number): string | null {
     const r = this.ensure();
     if (!r || !obj) return null;
     const root = obj.clone(true);
@@ -156,7 +158,7 @@ export class PartThumbs {
       const names = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((m) => m?.name ?? '');
       const kept = mesh.userData.mat as string[] | undefined;
       const vc = !!mesh.geometry.getAttribute('color');
-      const mats = names.map((n, i) => this.material(kept?.[i] ?? n, vc, paint));
+      const mats = names.map((n, i) => this.material(kept?.[i] ?? n, vc, paint, paint2));
       mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
       const line = new THREE.Mesh(mesh.geometry, this.ink);
       line.matrixAutoUpdate = false;

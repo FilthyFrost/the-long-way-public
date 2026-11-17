@@ -6,20 +6,24 @@
  * wherever it goes: the spare jerrycan on the road.
  */
 import * as THREE from 'three';
+import { itemDef, itemPaint, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import type { Tool } from '../../core/modcar/tools';
+import type { ThingBox } from '../../core/modcar/cargo';
 import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
 import type { CarLook } from '../render/carMaterials';
 import { MergedCar } from '../render/carMerge';
-import { cloneModel, panelPaint, partModel, seatTyres, toolGlb } from './assets';
+import { cloneModel, itemGlb, panelPaint, partModel, seatTyres, toolGlb } from './assets';
 import { applyMaterials, type CarMaterials, type LookOf } from './materials';
 
 export interface Loose {
   uid: string;
   part: PartInstance | null;
   tool: Tool | null;
+  /** food, a drink, clothes, junk, a box of components (items.ts) */
+  item: ItemInstance | null;
   /** world position of its base, and its heading */
   x: number;
   y: number;
@@ -33,6 +37,12 @@ export interface Loose {
   mid: number;
   /** lying on a vehicle, riding with it */
   riding?: Riding | null;
+  /** stowed in one of the vehicle's zones (cargo.ts: 'trunk', 'bed' …) */
+  stow?: string;
+  /** its box as it lies, in its own frame (for packing round it) */
+  box?: ThingBox;
+  /** stowed on its side (too tall to stand where it went) */
+  lie?: 'z' | 'x';
   /** where it will land as it falls: found once when it starts, the floor or a vehicle's surface */
   landing?: { y: number; on: Carrier | null };
 }
@@ -93,6 +103,20 @@ export function toolModel(t: Tool): THREE.Group {
   } else {
     add(new THREE.BoxGeometry(0.14, 0.06, 0.09), 'paint', 0, 0.03, 0);
   }
+  return g;
+}
+
+/** an item without its model yet: a box about its size (by how it is carried) */
+export function itemStandIn(inst: ItemInstance): THREE.Group {
+  const d = itemDef(inst.item);
+  const g = new THREE.Group();
+  const [w, h, l] = d.carry === 'large' ? [0.5, 0.6, 0.5] : d.carry === 'medium' ? [0.32, 0.28, 0.26] : [0.14, 0.12, 0.1];
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), tm('paint'));
+  m.position.y = h / 2;
+  g.add(m);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(w * 1.02, h * 0.3, l * 1.02), tm('paint_b'));
+  band.position.y = h / 2;
+  g.add(band);
   return g;
 }
 
@@ -208,6 +232,26 @@ export class LooseThings {
     while (this.loads.size) await Promise.all([...this.loads]);
   }
 
+  addItem(item: ItemInstance, x: number, y: number, z: number, yaw = 0): Loose {
+    const l = this.make(null, null, x, y, z, yaw, item);
+    const look = this.mats.look(ownerOf(l), itemPaint(item));
+    const obj = itemStandIn(item);
+    applyMaterials(obj, look);
+    l.obj.add(obj);
+    this.mergeDirty = true;
+    this.measure(l);
+    void this.track(itemGlb(itemDef(item.item).model)).then((m) => {
+      if (!m || !this.list.includes(l)) return;
+      const real = cloneModel(m);
+      applyMaterials(real, look);
+      obj.removeFromParent();
+      l.obj.add(real);
+      this.unmerge();
+      this.measure(l);
+    });
+    return l;
+  }
+
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
     const l = this.make(null, tool, x, y, z, yaw);
     const look = this.mats.look(ownerOf(l), { paint: toolPaint(tool), paint2: toolPaint(tool) });
@@ -227,6 +271,44 @@ export class LooseThings {
       this.measure(l);
     });
     return l;
+  }
+
+  /**
+   * The thing as it would lie, its models loaded (no materials: for its box, and for a ghost): a wheel on
+   * its side with its tyre, a tool's or an item's own model or its stand-in.
+   */
+  async objectFor(h: { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance }): Promise<THREE.Object3D> {
+    const g = new THREE.Group();
+    if (h.kind === 'part') {
+      const inst = h.inst;
+      const def = partDef(inst.part);
+      const model = await partModel(inst.part);
+      const obj = cloneModel(model);
+      const flat = def.cat === 'rim' || def.cat === 'tire';
+      if (flat) {
+        obj.rotation.x = Math.PI / 2;
+        obj.position.y = (def.rim?.width ?? def.tire?.width ?? 0.15) / 2;
+      }
+      g.add(obj);
+      const t = inst.sub.tire;
+      if (t && def.cat === 'rim') {
+        const to = seatTyres(model, await partModel(t.part, inst.part), def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);
+        const wrap = new THREE.Group();
+        wrap.add(to);
+        wrap.rotation.x = Math.PI / 2;
+        wrap.position.y = (def.rim?.width ?? 0.15) / 2;
+        g.add(wrap);
+      }
+      return g;
+    }
+    if (h.kind === 'tool') {
+      const m = await toolGlb(h.tool.kind);
+      g.add(m ? cloneModel(m) : toolModel(h.tool));
+      return g;
+    }
+    const m = await itemGlb(itemDef(h.item.item).model);
+    g.add(m ? cloneModel(m) : itemStandIn(h.item));
+    return g;
   }
 
   /** a tool's look changed (a spray can's colour) */
@@ -268,7 +350,7 @@ export class LooseThings {
       // (what rides on a vehicle moves with it: not merged)
       if (l.riding) continue;
       const id = entries.length + 1;
-      const look: LookOf = l.part ? partLook(l.part) : { paint: toolPaint(l.tool!), paint2: toolPaint(l.tool!) };
+      const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : { paint: toolPaint(l.tool!), paint2: toolPaint(l.tool!) };
       this.mergeIds.set(l.uid, id);
       this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
       entries.push({ id, object: l.obj, look });
@@ -284,12 +366,12 @@ export class LooseThings {
     this.mergedLook = look;
   }
 
-  private make(part: PartInstance | null, tool: Tool | null, x: number, y: number, z: number, yaw: number): Loose {
+  private make(part: PartInstance | null, tool: Tool | null, x: number, y: number, z: number, yaw: number, item: ItemInstance | null = null): Loose {
     n++;
     const obj = new THREE.Group();
-    obj.name = `loose:${part?.part ?? tool?.kind}`;
+    obj.name = `loose:${part?.part ?? tool?.kind ?? item?.item}`;
     this.root.add(obj);
-    const l: Loose = { uid: `l${n.toString(36)}`, part, tool, x, y, z, yaw, vy: 0, resting: false, obj, radius: 0.3, mid: 0.2 };
+    const l: Loose = { uid: `l${n.toString(36)}`, part, tool, item, x, y, z, yaw, vy: 0, resting: false, obj, radius: 0.3, mid: 0.2 };
     this.list.push(l);
     return l;
   }

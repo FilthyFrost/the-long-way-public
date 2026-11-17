@@ -32,7 +32,7 @@ import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
-import { cloneModel, frameModel, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
+import { cloneModel, frameModel, itemGlb, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
 import { TONE_COLOUR } from './cards';
 import type { Dock } from './held';
 import type { Action } from './hudItems';
@@ -49,8 +49,13 @@ import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists
 import { HeldThing } from './held';
 import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
+import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
-import { LooseThings, toolModel } from './loose';
+import { itemStandIn, LooseThings, toolModel } from './loose';
+import { CargoBay, massOf } from './cargo';
+import { CargoList, type CargoRow } from './cargoList';
+import { zoneOf } from '../../core/modcar/cargo';
+import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
 import { ModPlayer, type Held, type PlayerHost } from './player';
 import { Cockpit, type CockpitHost } from './cockpit';
@@ -153,6 +158,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly mats = new CarMaterials();
   readonly vehicles: ModVehicle[] = [];
   readonly loose: LooseThings;
+  /** the things stowed in the vehicles: their floors, where the held thing would go, what the load weighs */
+  readonly cargo: CargoBay;
   readonly player: ModPlayer;
   /** the controls in the cab, worked with the mouse from the driver's seat */
   readonly cockpit = new Cockpit(this);
@@ -160,6 +167,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly heldThing: HeldThing;
   /** the right mouse button is down (take off; with a can, draw it back out) */
   rightButton = false;
+  /** G held (by the harness; the keyboard's own is read from the input) */
+  dropButton = false;
+  /** what is in a vehicle, as a list (Tab): the vehicle it is open on, the row picked */
+  private cargoList: CargoList | null = null;
+  private listV: ModVehicle | 'self' | null = null;
+  private listSel = 0;
   /** the liquid going in from a can at a filler */
   readonly stream: LiquidStream;
   /** rain bursting on the ground and on the vehicles' tops */
@@ -246,6 +259,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     // (things put on a vehicle ride with it)
     this.loose.carriers = () => this.vehicles;
+    this.cargo = new CargoBay(this.core, this.loose);
     this.heldThing = new HeldThing(this.core);
     this.stream = new LiquidStream(this.core.scene);
     this.splashes = new Splashes(this.core.renderer, this.core.scene);
@@ -518,10 +532,137 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** the things of a save: on the floor where they lay, on board the vehicle they rode on */
   private restoreLoose(list: SavedLoose[]): void {
     for (const l of list) {
-      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : null;
+      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(l.item, l.x, l.y + 0.05, l.z, l.yaw) : null;
       const v = l.on !== undefined ? this.vehicles[l.on] : undefined;
-      if (thing && v && l.pos && l.rot) this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
+      if (thing && v && l.pos && l.rot) {
+        this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
+        if (l.zone) thing.stow = l.zone;
+        if (l.lie) thing.lie = l.lie;
+      }
     }
+    // (what rides in each vehicle weighs on it again)
+    for (const v of this.vehicles) this.cargo.weigh(v);
+  }
+
+  cargoChanged(v: ModVehicle): void {
+    this.cargo.weigh(v);
+  }
+
+  // ------------------------------------------------------------------ what is in a vehicle (Tab)
+
+  /** Tab: the list of what is in the vehicle the mark is on (or one stands by), or shut it */
+  toggleCargoList(): void {
+    if (this.listV) {
+      this.closeCargoList();
+      return;
+    }
+    if (this.seated) return;
+    const w = this.player.walker;
+    let v = this.player.lookVehicle;
+    if (!v) {
+      let bd = 2.5;
+      for (const c of this.vehicles) {
+        const d = Math.hypot(c.sim.px - w.x, c.sim.pz - w.z) - c.sim.spec.body.halfLength;
+        if (d < bd) {
+          bd = d;
+          v = c;
+        }
+      }
+    }
+    // (no vehicle by: what one has on)
+    this.listV = v ?? 'self';
+    this.listSel = 0;
+    this.sound('door_open', 0.5, 'trunk');
+  }
+
+  closeCargoList(): void {
+    this.listV = null;
+    this.cargoList?.show(null, [], 0, 0);
+  }
+
+  /** what one has on, as the list's rows */
+  private selfRows(): CargoRow[] {
+    const p = this.player.pack;
+    return p ? [{ zone: '背着', name: `${itemDef(p.item).name.zh}（快捷栏 +${itemDef(p.item).pack?.slots ?? 0} 格）`, mass: itemMass(p), icon: this.iconOf({ kind: 'item', item: p }) }] : [];
+  }
+
+  /** the things in the listed vehicle, by zone (in the zones' order), each with its loose thing */
+  private listRows(v: ModVehicle): { row: CargoRow; loose: import('./loose').Loose }[] {
+    const frame = v.view.frame.id;
+    return this.cargo
+      .ridersOf(v)
+      .map((l) => {
+        const h = heldOf(l);
+        const zone = l.stow ? zoneOf(frame, l.stow) : null;
+        return { order: zone?.order ?? 99, row: { zone: zone?.label.zh ?? '车上', name: heldName(h), mass: massOf(h), icon: this.iconOf(h) }, loose: l };
+      })
+      .sort((a, b) => a.order - b.order || a.row.name.localeCompare(b.row.name))
+      .map(({ row, loose }) => ({ row, loose }));
+  }
+
+  private moveListSel(d: number): void {
+    const v = this.listV;
+    if (!v) return;
+    const n = v === 'self' ? this.selfRows().length : this.cargo.ridersOf(v).length;
+    if (!n) return;
+    this.listSel = (this.listSel + d + n) % n;
+    this.sound('switch', 0.25);
+  }
+
+  /** the picked thing out of the vehicle, into the hands */
+  takeFromList(): void {
+    const v = this.listV;
+    if (!v) return;
+    if (v === 'self') {
+      // the backpack off, into the hands
+      const p = this.player.pack;
+      if (!p) return;
+      if (this.player.wearPack(null)) {
+        this.sound('pickup', 1);
+        this.closeCargoList();
+      } else this.ui.say('先把背包那几格里的东西拿出来，手上也要空一只。', 2.4);
+      return;
+    }
+    const rows = this.listRows(v);
+    const r = rows[Math.min(this.listSel, rows.length - 1)];
+    if (!r) return;
+    const slot = this.player.freeSlot();
+    if (slot < 0) {
+      this.ui.say('两只手都占着：先放下一件（长按 G）。', 2.2);
+      return;
+    }
+    this.player.sel = slot;
+    this.loose.remove(r.loose);
+    this.player.held = heldOf(r.loose);
+    this.cargo.weigh(v);
+    this.sound('pickup', massOf(this.player.held!));
+    this.listSel = Math.max(0, Math.min(this.listSel, rows.length - 2));
+    if (rows.length <= 1) this.closeCargoList();
+  }
+
+  /** the list as it stands (shut when one walked off or the vehicle drove away) */
+  private showCargoList(): void {
+    const v = this.listV;
+    if (!v) return;
+    this.cargoList ??= new CargoList(this.ui.root);
+    if (v === 'self') {
+      if (this.seated) {
+        this.closeCargoList();
+        return;
+      }
+      const rows = this.selfRows();
+      this.listSel = Math.max(0, Math.min(this.listSel, rows.length - 1));
+      this.cargoList.show('我身上', rows, this.listSel, rows.reduce((a, r) => a + r.mass, 0), '身上的东西', '身上没背东西。拿着背包长按 F 背上。', '取下来');
+      return;
+    }
+    const w = this.player.walker;
+    if (this.seated || !this.vehicles.includes(v) || Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) - v.sim.spec.body.halfLength > 4 || Math.abs(v.sim.kmh) > 3) {
+      this.closeCargoList();
+      return;
+    }
+    const rows = this.listRows(v);
+    this.listSel = Math.max(0, Math.min(this.listSel, rows.length - 1));
+    this.cargoList.show(v.view.frame.name.zh, rows.map((r) => r.row), this.listSel, this.cargo.loadOf(v));
   }
 
   /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */
@@ -541,10 +682,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** the hotbar as it was */
   private restoreHands(s: SaveV1): void {
+    // (a backpack on: its slots first)
+    if (s.pack) {
+      this.player.pack = s.pack;
+      const n = 2 + (itemDef(s.pack.item).pack?.slots ?? 0);
+      while (this.player.slots.length < n) this.player.slots.push(null);
+    }
     (s.hands ?? []).forEach((h, i) => {
-      if (i < this.player.slots.length) this.player.slots[i] = h?.part ? { kind: 'part', inst: h.part } : h?.tool ? { kind: 'tool', tool: h.tool } : null;
+      if (i < this.player.slots.length) this.player.slots[i] = h?.part ? { kind: 'part', inst: h.part } : h?.tool ? { kind: 'tool', tool: h.tool } : h?.item ? { kind: 'item', item: h.item } : null;
     });
-    this.player.sel = s.sel === 1 ? 1 : 0;
+    this.player.sel = s.sel !== undefined && s.sel >= 0 && s.sel < this.player.slots.length ? s.sel : 0;
   }
 
   // ------------------------------------------------------------------ saving
@@ -561,7 +708,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const loose: SavedLoose[] = this.loose.list.map((l) => {
       const r = l.riding;
       const on = r ? this.vehicles.indexOf(r.on as ModVehicle) : -1;
-      return { part: l.part ?? undefined, tool: l.tool ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray() } : {}) };
+      return { part: l.part ?? undefined, tool: l.tool ?? undefined, item: l.item ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray(), ...(l.stow ? { zone: l.stow } : {}), ...(l.lie ? { lie: l.lie } : {}) } : {}) };
     });
     const s: SaveV1 = {
       v: 1,
@@ -573,8 +720,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       loose,
       player: { x: w.x, z: w.z, heading: w.heading },
       // (the two slots go on with the player, to the road too)
-      hands: this.player.slots.map((h) => (h ? (h.kind === 'part' ? { part: h.inst } : { tool: h.tool }) : null)),
+      hands: this.player.slots.map((h) => (h ? (h.kind === 'part' ? { part: h.inst } : h.kind === 'item' ? { item: h.item } : { tool: h.tool }) : null)),
       sel: this.player.sel,
+      ...(this.player.pack ? { pack: this.player.pack } : {}),
     };
     if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
@@ -648,22 +796,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** the picture of a held thing for the hotbar (drawn once per kind; null while it is drawn) */
   iconOf(h: NonNullable<Held>): string | null {
-    const key = h.kind === 'part' ? `part:${h.inst.part}:${h.inst.sub.tire?.part ?? ''}` : `tool:${h.tool.kind}:${h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : ''}:${h.tool.kind === 'spray' ? (h.tool.colour ?? 0) : ''}`;
+    const key = h.kind === 'part' ? `part:${h.inst.part}:${h.inst.sub.tire?.part ?? ''}` : h.kind === 'item' ? `item:${h.item.item}:${h.item.tint ?? ''}` : `tool:${h.tool.kind}:${h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : ''}:${h.tool.kind === 'spray' ? (h.tool.colour ?? 0) : ''}`;
     if (this.iconUrl.has(key)) return this.iconUrl.get(key) ?? null;
     this.iconUrl.set(key, null);
     this.icons ??= new PartThumbs();
     let item: DevItem;
     let paint: number | undefined;
+    let paint2: number | undefined;
     if (h.kind === 'part') {
       item = { kind: 'part', id: h.inst.part };
       const def = partDef(h.inst.part);
       paint = def.panel ? panelPaint(def.panel.style, 0xa3472e) : undefined;
+    } else if (h.kind === 'item') {
+      item = { kind: 'item', id: h.item.item };
+      ({ paint, paint2 } = itemPaint(h.item));
     } else {
       const t = h.tool;
       item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined };
       paint = t.kind === 'jerrycan' ? (t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a) : t.kind === 'oilcan' ? 0xd8a531 : t.kind === 'spray' ? PALETTE[t.colour ?? 0]?.hex : t.kind === 'sponge' ? 0xe8d257 : undefined;
     }
-    this.icons.request(key, () => this.devModel(item), (url) => this.iconUrl.set(key, url), paint);
+    this.icons.request(key, () => this.devModel(item), (url) => this.iconUrl.set(key, url), paint, paint2);
     return null;
   }
 
@@ -743,6 +895,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (item.kind === 'tool') {
       const kind = item.tool;
       return toolGlb(kind).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel })));
+    }
+    if (item.kind === 'item') {
+      const it = newItem(item.id);
+      return itemGlb(itemDef(item.id).model).then((m) => (m ? cloneModel(m) : itemStandIn(it)));
     }
     const f = frameDef(item.frame);
     return frameModel(item.frame, () => standInFrame(f.body, f.kind)).then((m) => cloneModel(m));
@@ -845,6 +1001,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.loose.addPart(inst, p.x, p.y + 0.3, p.z, yaw);
       this.sound('putdown', def.mass);
       this.ui.say(`放下了：${def.name.zh}`, 1.5);
+      return;
+    }
+    if (item.kind === 'item') {
+      const it = newItem(item.id);
+      this.loose.addItem(it, p.x, p.y + 0.25, p.z, yaw);
+      this.sound('putdown', itemMass(it));
+      this.ui.say(`放下了：${itemDef(item.id).name.zh}`, 1.5);
       return;
     }
     const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { colour: 13 }) : newTool(item.tool);
@@ -974,6 +1137,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         this.cockpit.press(this.seated, e.button === 2);
         return;
       }
+      if (this.listV) {
+        if (e.button === 0) this.takeFromList();
+        return;
+      }
       if (e.button === 0) this.player.press();
       if (e.button === 2) this.rightButton = true;
     });
@@ -998,7 +1165,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     };
     canvas.addEventListener('pointerup', stopTurning);
     canvas.addEventListener('pointercancel', stopTurning);
-    canvas.addEventListener('wheel', (e) => this.player.wheel(e.deltaY));
+    canvas.addEventListener('wheel', (e) => {
+      if (this.listV) this.moveListSel(e.deltaY > 0 ? 1 : -1);
+      else this.player.wheel(e.deltaY);
+    });
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
     // the key card: at the start until the first click, and on F1 any time
     if (!this.params.shot) this.ui.showHelp(true);
@@ -1007,6 +1177,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (e.code === 'Backquote' || e.code === 'IntlBackslash' || e.key === '`' || e.key === '§') {
         e.preventDefault();
         if (!e.repeat) this.toggleDev();
+        return;
+      }
+      if (this.listV && (e.code === 'KeyW' || e.code === 'ArrowUp' || e.code === 'KeyS' || e.code === 'ArrowDown')) {
+        this.moveListSel(e.code === 'KeyW' || e.code === 'ArrowUp' ? -1 : 1);
+        return;
+      }
+      if (e.key === 'Escape' && this.listV) {
+        this.closeCargoList();
         return;
       }
       if (e.key === 'Escape' && this.dev?.open) {
@@ -1064,8 +1242,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     this.input.onAction((a) => {
       this.hud.dismissHint();
+      if (a === 'pack') {
+        this.toggleCargoList();
+        return;
+      }
       if (a === 'use') {
-        if (this.seated) this.getOut();
+        if (this.listV) this.takeFromList();
+        else if (this.seated) this.getOut();
         else this.player.press();
         return;
       }
@@ -1178,6 +1361,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   changed(v: ModVehicle, what: string): void {
     v.changed();
+    // (a seat taken out or a part on the bed: its floors are drawn again)
+    this.cargo.invalidate(v);
     // a wheel or a spec change keeps the per-wheel grip in force
     applyWheelMods(v.sim, v.sys.derived);
     void what;
@@ -1459,17 +1644,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
+      const listing = !!this.listV;
       this.player.update(dt, i.lookYaw, i.lookPitch, {
-        forward: i.walk.forward,
-        right: i.walk.right,
+        forward: listing ? 0 : i.walk.forward,
+        right: listing ? 0 : i.walk.right,
         run: i.isDown('ShiftLeft') || i.isDown('ShiftRight'),
         jump: i.isDown('Space'),
-        drop: i.isDown('KeyG'),
+        drop: this.dropButton || i.isDown('KeyG'),
         // (the right button or F, as they are now: what the player made of them last frame is not fed back)
         take: this.rightButton || i.isDown('KeyF'),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
-      this.input.lookHold = this.player.transferring;
+      this.input.lookHold = this.player.transferring || listing;
+      this.showCargoList();
     } else {
       // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
       this.input.lookHold = false;

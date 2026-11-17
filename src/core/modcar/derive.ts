@@ -129,6 +129,8 @@ function masses(build: Build, frame: FrameDef, withDriver: boolean): Mass[] {
     const seat = frame.mounts.find((m) => m.driver) ?? frame.mounts.find((m) => m.cat === 'seat');
     if (seat) out.push({ m: DRIVER_KG, p: { x: seat.pos.x, y: seat.pos.y + 0.38, z: seat.pos.z } });
   }
+  // what rides in it: a boot full of jerrycans, a bed with an engine in it
+  for (const c of build.cargo ?? []) if (c.m > 0) out.push({ m: c.m, p: { x: c.x, y: c.y, z: c.z } });
   return out;
 }
 

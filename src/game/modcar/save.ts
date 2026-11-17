@@ -8,6 +8,7 @@
  */
 import { reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
+import { itemDef, reserveItemUids, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance } from '../../core/modcar/types';
@@ -24,14 +25,17 @@ export interface SavedVehicle {
 export interface SavedLoose {
   part?: PartInstance;
   tool?: Tool;
+  item?: ItemInstance;
   x: number;
   y: number;
   z: number;
   yaw: number;
-  /** riding on a vehicle (its index in `vehicles`): where in its frame, turned how */
+  /** riding on a vehicle (its index in `vehicles`): where in its frame, turned how; in which of its zones */
   on?: number;
   pos?: number[];
   rot?: number[];
+  zone?: string;
+  lie?: 'z' | 'x';
 }
 
 export interface SaveV1 {
@@ -47,8 +51,10 @@ export interface SaveV1 {
   loose: SavedLoose[];
   player: { x: number; z: number; heading: number };
   /** the hotbar: what is in each slot, and which is in the hands (absent in older saves: they put it down) */
-  hands?: ({ part?: PartInstance; tool?: Tool } | null)[];
+  hands?: ({ part?: PartInstance; tool?: Tool; item?: ItemInstance } | null)[];
   sel?: number;
+  /** the backpack one has on (its slots are the hands' after the first two) */
+  pack?: ItemInstance;
   /** on the road: how far along it the vehicle is (m), on which road (the world's seed) */
   road?: { s: number; seed: number };
 }
@@ -67,6 +73,8 @@ function check(s: SaveV1): void {
   }
   for (const l of s.loose) if (l.part) inst(l.part);
   for (const h of s.hands ?? []) if (h?.part) inst(h.part);
+  for (const x of [...s.loose, ...(s.hands ?? [])]) if (x?.item) itemDef(x.item.item);
+  if (s.pack) itemDef(s.pack.item);
 }
 
 export function loadSave(): SaveV1 | null {
@@ -90,6 +98,7 @@ export function loadSave(): SaveV1 | null {
     for (const l of s.loose) if (l.part) inst(l.part);
     for (const h of s.hands ?? []) if (h?.part) inst(h.part);
     reserveUids(ids);
+    reserveItemUids([...[...s.loose, ...(s.hands ?? [])].flatMap((x) => (x?.item ? [x.item.uid] : [])), ...(s.pack ? [s.pack.uid] : [])]);
     return s;
   } catch {
     // (put aside: a later build may read it again)

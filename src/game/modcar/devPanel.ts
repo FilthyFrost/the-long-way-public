@@ -10,6 +10,7 @@ import type * as THREE from 'three';
 import { stockBuild } from '../../core/modcar/build';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { paintHex } from '../../core/modcar/palette';
+import { ITEM_CATS, ITEMS, type ItemCat } from '../../core/modcar/items';
 import { PARTS } from '../../core/modcar/parts';
 import { TOOL_INFO, type ToolKind } from '../../core/modcar/tools';
 import type { Category, PartDef } from '../../core/modcar/types';
@@ -20,6 +21,7 @@ import { PartThumbs } from './thumbs';
 export type DevItem =
   | { kind: 'part'; id: string }
   | { kind: 'tool'; tool: ToolKind; fuel?: 'petrol' | 'diesel'; litres?: number }
+  | { kind: 'item'; id: string }
   | { kind: 'vehicle'; frame: string; stock: boolean };
 
 export interface DevPoint {
@@ -47,13 +49,28 @@ export interface DevHost extends PaneHost {
   devNewGame(resetDials: boolean): void | Promise<void>;
 }
 
-/** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]], vehicle:<frame>:stock|bare */
+/** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]], item:<id>, vehicle:<frame>:stock|bare */
 export function devItemOf(key: string): DevItem | null {
   const [k, a, b, c] = key.split(':');
   if (k === 'part' && a) return { kind: 'part', id: a };
+  if (k === 'item' && a) return { kind: 'item', id: a };
   if (k === 'tool' && a) return { kind: 'tool', tool: a as ToolKind, fuel: b === 'diesel' ? 'diesel' : b === 'petrol' ? 'petrol' : undefined, litres: c !== undefined ? Number(c) : undefined };
   if (k === 'vehicle' && a) return { kind: 'vehicle', frame: a, stock: b !== 'bare' };
   return null;
+}
+
+/** a tile's second line for an item: what it does, in a few words */
+function itemMeta(d: (typeof ITEMS)[number]): string {
+  const star = d.stars ? `${'★'.repeat(d.stars)} · ` : '';
+  if (d.eat && d.eat.food) return `${star}饱腹 +${d.eat.food}`;
+  if (d.drink) return `${star}${d.drink.litres} L`;
+  if (d.heal?.hp) return `${star}生命 +${d.heal.hp}`;
+  if (d.heal?.warm) return `${star}暖身`;
+  if (d.revive) return `${star}倒下时用`;
+  if (d.wear) return `${star}保暖 +${d.wear.warmth}`;
+  if (d.pack) return `${star}+${d.pack.slots} 格`;
+  const s = Object.entries(d.salvage).map(([k, v]) => `${v}${k === 'scrap' ? '废料' : k === 'organics' ? '有机' : '化学'}`).join(' ');
+  return `${star}${s || `${d.mass} kg`}`;
 }
 
 const TABS: [PaneId | 'parts', string][] = [
@@ -73,8 +90,12 @@ const GROUPS: { id: string; zh: string; cats?: Category[] }[] = [
   { id: 'cab', zh: '驾驶舱', cats: ['seat', 'steering', 'gearLever', 'handbrake', 'ignition'] },
   { id: 'electric', zh: '电气', cats: ['battery', 'headlight', 'taillight', 'horn', 'radio'] },
   { id: 'tools', zh: '工具' },
+  { id: 'items', zh: '物品' },
   { id: 'vehicles', zh: '车辆' },
 ];
+
+/** the item kinds, in the order the bin lists them */
+const ITEM_ORDER: ItemCat[] = ['food', 'drink', 'med', 'wear', 'pack', 'lamp', 'gear', 'crate', 'junk'];
 
 const CSS = `
 .mc-dev { position: fixed; top: 12px; right: 12px; bottom: 12px; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; z-index: 20; pointer-events: auto; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; color: #fff; box-sizing: border-box; border-radius: 14px; border: 3px solid #efe6d3; box-shadow: 0 0 0 2.5px #17120f, 0 6px 0 1px rgba(10,8,6,0.55); background: linear-gradient(180deg, rgba(8,8,8,0.96) 0px, rgba(18,18,17,0.95) 46px, rgba(30,29,28,0.94) 100%); user-select: none; overflow: hidden; }
@@ -140,6 +161,7 @@ interface Tile {
   text: string;
   /** the picture's paint, where the item's own colour shows (a diesel can, a frame's factory colour) */
   paint?: number;
+  paint2?: number;
   asked: boolean;
 }
 
@@ -339,7 +361,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
   // ------------------------------------------------------------------ the tiles
 
   private build(): void {
-    const add = (group: string, title: string, entries: { key: string; item: DevItem; name: string; meta: string; text: string; paint?: number }[]): void => {
+    const add = (group: string, title: string, entries: { key: string; item: DevItem; name: string; meta: string; text: string; paint?: number; paint2?: number }[]): void => {
       if (!entries.length) return;
       const sec = document.createElement('section');
       sec.innerHTML = `<h5>${title}</h5><div class="grid"></div>`;
@@ -352,7 +374,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         el.title = `${e.name}（${e.key.split(':').slice(1).join(':')}）`;
         el.innerHTML = `<img class="pic wait" alt="" draggable="false"><div class="nm">${e.name}</div><div class="mt">${e.meta}</div>`;
         grid.appendChild(el);
-        const t: Tile = { key: e.key, item: e.item, el, group, text: e.text.toLowerCase(), paint: e.paint, asked: false };
+        const t: Tile = { key: e.key, item: e.item, el, group, text: e.text.toLowerCase(), paint: e.paint, paint2: e.paint2, asked: false };
         tiles.push(t);
         this.tiles.push(t);
         this.seen.observe(el);
@@ -380,6 +402,13 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       tool('tool:spray', { kind: 'tool', tool: 'spray' }, TOOL_INFO.spray.name.zh, '滚轮换颜色', paintHex(13)),
       tool('tool:sponge', { kind: 'tool', tool: 'sponge' }, TOOL_INFO.sponge.name.zh, '擦洗', 0xe8d257),
     ]);
+    for (const cat of ITEM_ORDER) {
+      add(
+        'items',
+        ITEM_CATS[cat].zh,
+        ITEMS.filter((d) => d.cat === cat).map((d) => ({ key: `item:${d.id}`, item: { kind: 'item', id: d.id } as DevItem, name: d.name.zh, meta: itemMeta(d), text: `${d.name.zh} ${d.name.en} ${d.id} ${ITEM_CATS[cat].zh} 物品`, paint: d.paint, paint2: d.paint2 })),
+      );
+    }
     add(
       'vehicles',
       '车辆',
@@ -409,6 +438,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         if (url) img.src = url;
       },
       t.paint,
+      t.paint2,
     );
   }
 

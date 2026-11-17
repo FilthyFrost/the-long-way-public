@@ -244,6 +244,21 @@ export function addonModel(name: string): Promise<Model | null> {
   return p;
 }
 
+const items = new Map<string, Promise<Model | null>>();
+/**
+ * An item's model (items/<model>.glb, tools/blender/items: food, drinks, clothes, junk, boxes of components),
+ * or null while it has none (loose.ts draws a stand-in box). Its paint and paint_b materials take the item's
+ * own two colours.
+ */
+export function itemGlb(model: string): Promise<Model | null> {
+  let p = items.get(model);
+  if (!p) {
+    p = fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    items.set(model, p);
+  }
+  return p;
+}
+
 const tools = new Map<string, Promise<Model | null>>();
 /**
  * A tool's own model (tools/<kind>.glb: the jerrycan, bottle, oil can, spray can, sponge), or null while
