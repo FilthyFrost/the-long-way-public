@@ -78,6 +78,23 @@ export class HeldThing {
   private readonly t0 = new THREE.Vector3();
   private readonly t1 = new THREE.Vector3();
   private readonly t2 = new THREE.Vector3();
+  /** eating, drinking, a pill: how it goes up to the mouth (null: in the hands as usual) */
+  private use: { kind: 'eat' | 'pill' | 'drink'; t: number } | null = null;
+  /** 0 in the hands … 1 at the mouth, eased; the drink's tilt; what it went up for (the way down) */
+  private mouthB = 0;
+  private tiltB = 0;
+  private mouthKind: 'eat' | 'pill' | 'drink' = 'eat';
+  /** the model's height as held (its own up), and whether it lies flat (a packet, a tin) */
+  private fitH = 0.19;
+  private fitFlat = false;
+  private readonly qHand = new THREE.Quaternion();
+  private readonly qMouth = new THREE.Quaternion();
+  private readonly mouthAt = new THREE.Vector3();
+
+  /** what is being done with it (the player's use), every frame */
+  setUse(u: { kind: 'eat' | 'pill' | 'drink'; t: number } | null): void {
+    this.use = u;
+  }
 
   constructor(core: RenderCore) {
     this.root.name = 'modcar:held';
@@ -180,6 +197,8 @@ export class HeldThing {
     obj.position.set(-c.x * k, -c.y * k, -c.z * k);
     this.fitK = k;
     this.fitC.copy(c);
+    this.fitH = size.y * k;
+    this.fitFlat = size.y < 0.6 * Math.max(size.x, size.z);
     obj.traverse((o) => {
       o.layers.disable(LAYER_SHADOW_FAR);
       o.layers.disable(LAYER_SHADOW_NEAR);
@@ -210,11 +229,56 @@ export class HeldThing {
     // camera space: +x right, +y up, −z ahead
     if (this.large) this.off.set(sway * 0.6, -0.44 + bob * 0.7, -0.8);
     else this.off.set(0.3 + sway, -0.27 + bob, -0.6);
-    this.off.applyQuaternion(this.lagQ).add(cam.position);
-    this.root.position.copy(this.off);
     // seen three-quarters: carried across the arms (large), turned a little inward in the hand (small)
     this.e.set(this.large ? 0.32 : 0.15, this.large ? -0.65 : -0.9, this.large ? 0 : 0.08);
-    this.q.setFromEuler(this.e);
+    this.qHand.setFromEuler(this.e);
+    // eating and drinking (Arctic Drive's timing): up to the mouth in 0.7 s, bites, down again; a drink's
+    // neck at the lips with the bottle rising away in front, tipping further while it flows; a pill tips once
+    const u = this.use;
+    let toMouth = 0;
+    let tilt = 0;
+    let bite = 0;
+    if (u) {
+      this.mouthKind = u.kind;
+      if (u.kind === 'eat') {
+        toMouth = u.t < 3.63 ? Math.min(1, u.t / 0.7) : Math.max(0, 1 - (u.t - 3.63) / 0.27);
+        if (u.t > 1.07 && u.t < 3.63) bite = Math.max(0, Math.sin(((u.t - 1.07) / 0.45) * Math.PI * 2));
+      } else if (u.kind === 'pill') {
+        toMouth = u.t < 1.4 ? Math.min(1, u.t / 0.7) : Math.max(0, 1 - (u.t - 1.4) / 0.8);
+        tilt = u.t > 0.7 && u.t < 1.4 ? 1 : 0;
+      } else {
+        toMouth = Math.min(1, u.t / 0.45);
+        tilt = u.t > 0.4 ? 1 : 0;
+      }
+    }
+    this.mouthB += (toMouth - this.mouthB) * (1 - Math.exp(-dt * 14));
+    this.tiltB += (tilt - this.tiltB) * (1 - Math.exp(-dt * 8));
+    const mb = this.mouthB * this.mouthB * (3 - 2 * this.mouthB);
+    this.q.copy(this.qHand);
+    if (mb > 0.001) {
+      const m = this.mouthAt;
+      if (this.mouthKind === 'drink') {
+        // its top at the lips, a little below the eye; level at first, tipped up as it flows
+        this.e.set(1.62 + 0.5 * this.tiltB, -0.4, 0.12);
+        this.qMouth.setFromEuler(this.e);
+        this.t1.set(0, 1, 0).applyQuaternion(this.qMouth);
+        m.set(0.02, -0.09, -0.13).addScaledVector(this.t1, -this.fitH / 2);
+      } else if (this.mouthKind === 'eat') {
+        // held up before the mouth (a packet or a tin facing one), towards it with every bite
+        this.e.set((this.fitFlat ? 1.15 : 0.4) + 0.25 * bite, -0.3, 0.1);
+        this.qMouth.setFromEuler(this.e);
+        m.set(0.02, -0.13 + 0.04 * bite, -0.31 + 0.1 * bite);
+      } else {
+        // the box up to the mouth, tipped once
+        this.e.set((this.fitFlat ? 1.15 : 0.45) + 0.9 * this.tiltB, -0.3, 0.1);
+        this.qMouth.setFromEuler(this.e);
+        m.set(0.02, -0.12, -0.27);
+      }
+      this.off.lerp(m, mb);
+      this.q.slerp(this.qMouth, mb);
+    }
+    this.off.applyQuaternion(this.lagQ).add(cam.position);
+    this.root.position.copy(this.off);
     this.root.quaternion.copy(this.lagQ).multiply(this.q);
     this.root.scale.setScalar(1);
     // held to a filler: off to it, lined up, tipping over while it pours

@@ -54,6 +54,10 @@ import { Sparks } from './sparks';
 import { itemStandIn, LooseThings, toolModel } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
+import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
+import { DeathCard, VitalsHud } from './vitalsHud';
+import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
+import type { ItemInstance } from '../../core/modcar/items';
 import { zoneOf } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
@@ -169,6 +173,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   rightButton = false;
   /** G held (by the harness; the keyboard's own is read from the input) */
   dropButton = false;
+  /** the body (vitals.ts): health, stamina, food, water, temperature, the bladder */
+  body: Vitals = newVitals();
+  private vitHud: VitalsHud | null = null;
+  private death: DeathCard | null = null;
+  /** the bladder went by itself: emptying until it is empty */
+  private autoPee = false;
+  /** since one died (s; −1 alive); since the last restore point (s) */
+  private deadT = -1;
+  private restoreT = 0;
+  /** sprinting now (blended for the view's widening) */
+  private sprintB = 0;
+  private jumpsSeen = 0;
   /** what is in a vehicle, as a list (Tab): the vehicle it is open on, the row picked */
   private cargoList: CargoList | null = null;
   private listV: ModVehicle | 'self' | null = null;
@@ -266,6 +282,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.sparks = new Sparks(this.core);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
+    // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
+    this.player.walker.speeds = { walk: 2.5, run: 5.0 };
     try {
       this.player.cardsOn = localStorage.getItem('modcar.ui.cards') !== '0';
     } catch {
@@ -548,6 +566,130 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.cargo.weigh(v);
   }
 
+  // ------------------------------------------------------------------ the body (vitals.ts)
+
+  /** the air round one: the weather's, the workshop's (never under 15 °C), a running cab's heater */
+  bodyAirC(): number {
+    const out = this.env.state.temp;
+    if (this.seated && this.seated.sys.running && this.seated.sys.derived.enclosed > 0.5) return Math.max(out, 20);
+    if (this.place === 'garage') return Math.max(out, 15);
+    return out;
+  }
+
+  /** the body, every step: what one does to it, what it does to one */
+  private stepBody(dt: number, shift: boolean): void {
+    const b = this.body;
+    this.vitHud ??= new VitalsHud(this.ui.root);
+    const w = this.player.walker;
+    const moving = !this.seated && Math.hypot(w.vx ?? 0, w.vz ?? 0) > 0.6;
+    const sprinting = !this.seated && shift && moving && canSprint(b);
+    const jumps = w.jumps - this.jumpsSeen;
+    this.jumpsSeen = w.jumps;
+    const peeing = !this.seated && (this.input.isDown('KeyP') || this.autoPee) && b.bladder > 0.5;
+    if (b.bladder < 0.5) this.autoPee = false;
+    if (this.deadT < 0) {
+      if (this.assists.needs) {
+        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && this.place === 'road' && this.env.state.rain > 0.15, peeing });
+        if (ev.hurt > 0) {
+          this.vitHud.hurt();
+          this.sound('hurt', Math.min(1, ev.hurt / 4));
+        }
+        if (ev.wet && !this.autoPee) {
+          this.autoPee = true;
+          this.ui.say('憋不住了……', 2.2);
+        }
+        if (ev.died) this.onDeath(ev.why);
+      } else {
+        // (the needs off: only stamina, as one sprints)
+        const keep = { food: b.food, water: b.water, temp: b.temp, bladder: b.bladder };
+        stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: 20, warmth: 37, rain: false, peeing: false });
+        Object.assign(b, keep);
+      }
+    } else this.stepDeath(dt);
+    // on foot: slower frozen or relieving oneself, quicker on an energy drink
+    w.speedScale = speedFactor(b, peeing);
+    this.sprintB += ((sprinting ? 1 : 0) - this.sprintB) * (1 - Math.exp(-dt * 6));
+    this.vitHud.update(b, this.bodyAirC(), dt);
+    // breathing hard, the heart, relieving oneself
+    if (!this.seated && b.stamina < 20 + (this.loopsOn.has('breath') ? 15 : 0)) this.loopsNow.set('breath', {});
+    if (b.hp < 25 && this.deadT < 0) this.loopsNow.set('heart', {});
+    if (peeing) this.loopsNow.set('pee', {});
+    // the restore points: every five minutes of play
+    if (this.params.keep && this.deadT < 0 && (this.restoreT += dt) > 300) {
+      this.restoreT = 0;
+      const s = this.snapshot();
+      if (s) pushRestore(s);
+    }
+  }
+
+  /** eaten or taken: what it does (food and health over five seconds, a pill at once, its effect) */
+  consume(item: ItemInstance): void {
+    const d = itemDef(item.item);
+    if (d.eat && (d.eat.food > 0 || d.eat.hp > 0 || d.eat.effect)) eatVital(this.body, d.eat.food, d.eat.hp, d.eat.effect);
+    if (d.heal) {
+      const side = medicate(this.body, d.heal.hp, d.heal.warm ?? 0, d.heal.side ?? 0, Math.random());
+      if (side) this.ui.say(side === 'drunk' ? '药劲上头了，有点晕……' : '肚子不太舒服……', 2.4);
+    }
+    this.ui.say(`${d.cat === 'med' ? '吃了' : '吃完了'}${d.name.zh}。`, 1.6);
+  }
+
+  drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void {
+    drinkVital(this.body, liquid, litres);
+  }
+
+  /** one died: a first-aid kit carried brings one up again; else the restore points */
+  private onDeath(why: '' | 'starve' | 'thirst' | 'cold'): void {
+    this.deadT = 0;
+    this.deathWhy = why === 'starve' ? '饿得撑不住了。' : why === 'thirst' ? '渴得撑不住了。' : why === 'cold' ? '冻得撑不住了。' : '伤得太重了。';
+    this.player.use = null;
+    this.closeCargoList();
+  }
+
+  private deathWhy = '';
+
+  private stepDeath(dt: number): void {
+    this.deadT += dt;
+    if (this.deadT < 1.6) return;
+    // a first-aid kit in the hands or the backpack: up again
+    const slot = this.player.slots.findIndex((h) => h?.kind === 'item' && !!itemDef(h.item.item).revive);
+    if (slot >= 0 && !this.death?.open) {
+      const h = this.player.slots[slot] as { kind: 'item'; item: ItemInstance };
+      const hp = itemDef(h.item.item).revive!.hp;
+      this.player.slots[slot] = null;
+      reviveVital(this.body, hp);
+      this.deadT = -1;
+      this.ui.say(`${itemDef(h.item.item).name.zh}救了你一命。`, 3);
+      return;
+    }
+    // (a test page, not kept: straight up again)
+    if (!this.params.keep) {
+      reviveVital(this.body, 50);
+      this.deadT = -1;
+      this.ui.say('（不存档的页面：直接站起来了）', 2.5);
+      return;
+    }
+    if (this.death?.open) return;
+    this.death ??= new DeathCard(this.ui.root);
+    this.ui.showHelp(false);
+    this.ui.showAssists(null);
+    const canvas = this.core.renderer.domElement;
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    this.input.lockable = false;
+    const pts = restorePoints();
+    this.saveOff = true;
+    this.death.show(
+      this.deathWhy,
+      pts.map((p) => ({ label: p.place === 'road' ? '在路上' : '在车库', ago: agoText(p.at) })),
+      (i) => {
+        if (useRestore(i)) location.reload();
+      },
+      () => {
+        clearRestores();
+        this.newGame();
+      },
+    );
+  }
+
   // ------------------------------------------------------------------ what is in a vehicle (Tab)
 
   /** Tab: the list of what is in the vehicle the mark is on (or one stands by), or shut it */
@@ -618,7 +760,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const p = this.player.pack;
       if (!p) return;
       if (this.player.wearPack(null)) {
-        this.sound('pickup', 1);
+        this.sound('cloth');
         this.closeCargoList();
       } else this.ui.say('先把背包那几格里的东西拿出来，手上也要空一只。', 2.4);
       return;
@@ -682,6 +824,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** the hotbar as it was */
   private restoreHands(s: SaveV1): void {
+    if (s.body && typeof s.body.hp === 'number') {
+      this.body = { ...newVitals(), ...s.body };
+      if (this.body.dead || this.body.hp <= 0) {
+        this.body.dead = true;
+        this.onDeath('');
+      }
+    }
     // (a backpack on: its slots first)
     if (s.pack) {
       this.player.pack = s.pack;
@@ -723,6 +872,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       hands: this.player.slots.map((h) => (h ? (h.kind === 'part' ? { part: h.inst } : h.kind === 'item' ? { item: h.item } : { tool: h.tool }) : null)),
       sel: this.player.sel,
       ...(this.player.pack ? { pack: this.player.pack } : {}),
+      body: this.body,
     };
     if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
@@ -738,7 +888,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** write the save now (also when the page goes out of sight) */
   save(): void {
-    if (this.saveOff || !this.params.keep) return;
+    if (this.saveOff || !this.params.keep || this.deadT >= 0) return;
     const s = this.snapshot();
     if (s) writeSave(s);
   }
@@ -1131,7 +1281,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   private bindInput(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('mousedown', (e) => {
-      if (!this.input.locked) return;
+      if (!this.input.locked || this.deadT >= 0) return;
       this.audio.start();
       if (this.seated) {
         this.cockpit.press(this.seated, e.button === 2);
@@ -1206,9 +1356,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         this.askNewGame();
         return;
       }
-      // on foot: 1 and 2 put the hotbar's slots in the hands; I shows and hides the item cards
-      if (!this.ui.assistsShown && !this.seated && (e.code === 'Digit1' || e.code === 'Digit2')) {
-        this.player.select(Number(e.code.slice(5)) - 1);
+      // on foot: the number keys put the hotbar's slots in the hands (1 and 2, a backpack's 3 to 6 after
+      // them); I shows and hides the item cards
+      const slotKey = /^Digit([1-6])$/.exec(e.code);
+      if (!this.ui.assistsShown && !this.seated && slotKey) {
+        this.player.select(Number(slotKey[1]) - 1);
         return;
       }
       if (e.code === 'KeyI' && !e.repeat) {
@@ -1242,6 +1394,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     this.input.onAction((a) => {
       this.hud.dismissHint();
+      if (this.deadT >= 0) return;
       if (a === 'pack') {
         this.toggleCargoList();
         return;
@@ -1419,6 +1572,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       case 'scrub':
         this.loopsNow.set('sponge', {});
         return;
+      case 'glug':
+        this.loopsNow.set('glug', {});
+        return;
       case 'pour': {
         const liquid = held?.kind === 'tool' ? (held.tool.kind === 'bottle' ? 'water' : held.tool.kind === 'oilcan' ? 'oil' : 'fuel') : 'fuel';
         this.loopsNow.set('pour', { liquid });
@@ -1444,6 +1600,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       grind: ['gear_grind', { gain: Math.min(1, gain) }],
       latch: ['latch', {}],
       switch: ['switch', {}],
+      // the body
+      bite: ['bite', {}],
+      wrapper: ['wrapper', {}],
+      can_open: ['can_open', {}],
+      cap_open: ['cap_open', {}],
+      pills: ['pills', {}],
+      gulp: ['gulp', {}],
+      hurt: ['hurt', { gain }],
+      cloth: ['cloth', {}],
     };
     const s = shot[name];
     if (s) f.play(s[0], s[1]);
@@ -1641,18 +1806,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.saveT = 0;
       this.save();
     }
+    const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
+    this.stepBody(dt, shift);
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
-      const listing = !!this.listV;
+      const down = this.deadT >= 0;
+      const listing = !!this.listV || down;
       this.player.update(dt, i.lookYaw, i.lookPitch, {
         forward: listing ? 0 : i.walk.forward,
         right: listing ? 0 : i.walk.right,
-        run: i.isDown('ShiftLeft') || i.isDown('ShiftRight'),
-        jump: i.isDown('Space'),
-        drop: this.dropButton || i.isDown('KeyG'),
+        // (sprinting while there is stamina)
+        run: shift && canSprint(this.body),
+        jump: !down && i.isDown('Space'),
+        drop: !down && (this.dropButton || i.isDown('KeyG')),
         // (the right button or F, as they are now: what the player made of them last frame is not fed back)
-        take: this.rightButton || i.isDown('KeyF'),
+        take: !down && (this.rightButton || i.isDown('KeyF')),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
       this.input.lookHold = this.player.transferring || listing;
@@ -1672,7 +1841,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       let input = null;
       if (v === this.seated) {
         const d = this.input.drive;
-        input = this.scripted ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
+        input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
       // a knock against something hard, heard from the seat
@@ -1907,7 +2076,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.thunk *= Math.exp(-dt * 13);
       this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk);
       cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
-      const footFov = this.tune.get('look.fov');
+      // (sprinting widens the view by 4°; drunk, it sways)
+      const footFov = this.tune.get('look.fov') + 4 * this.sprintB;
+      if (hasEffect(this.body, 'drunk')) {
+        const t = this.time;
+        this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk + 0.025 * Math.sin(t * 1.3));
+        this.qa.setFromAxisAngle(Y, -w.heading + 0.035 * Math.sin(t * 0.9));
+        cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
+        cam.rotateZ(0.04 * Math.sin(t * 0.7));
+      }
       if (Math.abs(cam.fov - footFov) > 0.01) {
         cam.fov = footFov;
         cam.updateProjectionMatrix();
@@ -1915,6 +2092,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     // the thing in the hands, on foot in first person (a can held to an open filler goes to it)
     this.heldThing.set(this.player.held);
+    this.heldThing.setUse(this.player.use);
     const pt = this.player.target;
     let dock: Dock | null = null;
     if (!this.seated && pt?.kind === 'filler' && pt.open && pt.v.view.fillerMouth(pt.liquid, this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };

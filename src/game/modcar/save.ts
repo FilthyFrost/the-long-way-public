@@ -9,6 +9,7 @@
 import { reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
 import { itemDef, reserveItemUids, type ItemInstance } from '../../core/modcar/items';
+import type { Vitals } from '../../core/modcar/vitals';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance } from '../../core/modcar/types';
@@ -55,6 +56,8 @@ export interface SaveV1 {
   sel?: number;
   /** the backpack one has on (its slots are the hands' after the first two) */
   pack?: ItemInstance;
+  /** the body: health, stamina, food, water, temperature, the bladder, what lasts a while */
+  body?: Vitals;
   /** on the road: how far along it the vehicle is (m), on which road (the world's seed) */
   road?: { s: number; seed: number };
 }

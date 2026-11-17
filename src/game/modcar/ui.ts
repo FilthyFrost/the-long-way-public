@@ -94,12 +94,13 @@ const CSS = `
 /** the keys (docs/MODCAR.md §5.1), as the help card shows them */
 const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」装好、加上油，开出车库上路。拿着零件靠近车，能装的地方会亮起来。</div>
 <h5>走路</h5><table>
-<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · 鼠标</td><td class="v">走动、环顾 · <b>Shift</b> 跑 · <b>空格</b> 跳</td></tr>
+<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · 鼠标</td><td class="v">走动、环顾 · <b>Shift</b> 跑（耗体力）· <b>空格</b> 跳 · 按住 <b>P</b> 方便</td></tr>
 <tr><td class="k"><b>E</b> / 左键</td><td class="v">拿起看着的东西（放进快捷栏）；对着亮起的幽灵<b>按住</b>装上（已有零件就是替换，旧的到手上）</td></tr>
-<tr><td class="k">按住右键 / <b>F</b></td><td class="v">拆下看着的零件</td></tr>
-<tr><td class="k"><b>1</b> <b>2</b> · 滚轮</td><td class="v">快捷栏两格：能同时带两样东西，按 1、2 换到手上</td></tr>
-<tr><td class="k">按住 <b>G</b> · <b>I</b></td><td class="v">把手上的东西放下 · 隐藏 / 显示物品信息卡</td></tr>
-<tr><td class="k"><b>E</b> 看着车门、引擎盖</td><td class="v">开 / 关；看着车身 = 上车</td></tr>
+<tr><td class="k">按住右键 / <b>F</b></td><td class="v">拆下看着的零件；拿着吃的、药：吃，拿着喝的：按住喝</td></tr>
+<tr><td class="k"><b>1</b> <b>2</b> · 滚轮</td><td class="v">快捷栏两格（背上背包多几格，数字键换）：按 1、2 换到手上</td></tr>
+<tr><td class="k">按住 <b>G</b> · <b>I</b></td><td class="v">把手上的东西放下（看着车：自己塞进车里）· 隐藏 / 显示物品信息卡</td></tr>
+<tr><td class="k"><b>E</b> 看着车门、引擎盖</td><td class="v">开 / 关；看着车身 = 上车；拿着东西对着后备箱、车斗：放进去</td></tr>
+<tr><td class="k"><b>Tab</b></td><td class="v">车里装着的东西（<b>W</b> <b>S</b> 选，<b>E</b> 拿出来）；身边没车：身上的背包</td></tr>
 <tr><td class="k">油桶</td><td class="v">先空手按 E 打开车身侧面的<b>加油口盖</b>，再拿着油桶对准它：油桶自己对上去，按住 E 加油，按住右键抽回</td></tr>
 <tr><td class="k">水壶 · 机油壶</td><td class="v">打开引擎盖，对着散热器的<b>蓝色盖子</b> / 发动机的<b>黄色盖子</b>，按住 E 倒进去</td></tr>
 <tr><td class="k">喷罐 · 海绵</td><td class="v">对着零件或车身按住左键喷漆 / 擦洗；滚轮换颜色</td></tr>

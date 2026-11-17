@@ -1,0 +1,308 @@
+/**
+ * The body (docs/MODCAR.md §13): health, stamina, food, water, body temperature and the bladder, as Arctic
+ * Drive keeps them on its normal setting (its numbers are the starting point; the dials can move them), and
+ * the effects that last a while — a drink too many, an energy drink, something bad eaten, a warming meal or
+ * pill, hypothermia. Pure data and maths, no three, no DOM: the game steps it, feeds it what one does, and
+ * draws it.
+ *
+ *   health 100   does not come back by itself; food gives a little over five seconds, painkillers at once
+ *   stamina 100  sprinting −6/s, a jump −12; back at +7.5/s two seconds after the last of them
+ *   food 100     −0.035/s (48 minutes); at 0: −2 health every 10 s
+ *   water 100    −0.03/s (56 minutes); +10 a tenth of a litre of water; at 0: −3 health every 3 s
+ *   body 37.5 °C colder than (20 − what one wears) round one: it falls (the gap × 0.0005 °C/s, never below
+ *                28); else it climbs back at 0.3 °C/s; under 32 °C hypothermia: slower, −1 health every 5 s
+ *   bladder 0-100 fills as one drinks (and slowly with the water in one); P held empties it; at 100 it goes
+ */
+
+export interface VitalsRules {
+  hpMax: number;
+  staminaMax: number;
+  sprintCost: number;
+  jumpCost: number;
+  staminaBack: number;
+  staminaDelay: number;
+  foodDrain: number;
+  waterDrain: number;
+  starveHp: number;
+  starveEvery: number;
+  thirstHp: number;
+  thirstEvery: number;
+  tempNormal: number;
+  tempFloor: number;
+  tempComfort: number;
+  tempLoss: number;
+  tempGain: number;
+  hypoBelow: number;
+  hypoHp: number;
+  hypoEvery: number;
+  hypoLinger: number;
+  bladderFill: number;
+  peeRate: number;
+  /** spread over this long, the gains of a meal or a drink (s) */
+  gainOver: number;
+}
+
+export const VITALS: VitalsRules = {
+  hpMax: 100,
+  staminaMax: 100,
+  sprintCost: 6,
+  jumpCost: 12,
+  staminaBack: 7.5,
+  staminaDelay: 2,
+  foodDrain: 0.035,
+  waterDrain: 0.03,
+  starveHp: 2,
+  starveEvery: 10,
+  thirstHp: 3,
+  thirstEvery: 3,
+  tempNormal: 37.5,
+  tempFloor: 28,
+  tempComfort: 20,
+  tempLoss: 0.0005,
+  tempGain: 0.3,
+  hypoBelow: 32,
+  hypoHp: 1,
+  hypoEvery: 5,
+  hypoLinger: 30,
+  bladderFill: 0.1,
+  peeRate: 18,
+  gainOver: 5,
+};
+
+/** what lasts a while */
+export type VitalEffect = 'drunk' | 'energy' | 'sick1' | 'sick2' | 'warm1' | 'warm2' | 'hypo' | 'wet';
+
+export const EFFECT_ZH: Record<VitalEffect, string> = {
+  drunk: '醉了',
+  energy: '精神抖擞',
+  sick1: '闹肚子',
+  sick2: '肚子疼得厉害',
+  warm1: '身上暖和',
+  warm2: '浑身发热',
+  hypo: '冻僵了',
+  wet: '淋湿了',
+};
+
+/** how long each lasts when it starts (s); hypothermia lasts while one is cold */
+const EFFECT_S: Record<VitalEffect, number> = { drunk: 30, energy: 30, sick1: 30, sick2: 30, warm1: 180, warm2: 300, hypo: 0, wet: 60 };
+
+export interface Vitals {
+  hp: number;
+  stamina: number;
+  food: number;
+  water: number;
+  /** body temperature (°C) */
+  temp: number;
+  bladder: number;
+  /** seconds since the last sprint or jump */
+  rest: number;
+  /** effects running: seconds left */
+  effects: Partial<Record<VitalEffect, number>>;
+  /** what a meal, a drink or a warming is still giving, a share each second until it is spent */
+  gains: { food: number; hp: number; water: number; temp: number; left: number }[];
+  /** the clocks of what hurts or helps every few seconds */
+  ticks: { starve: number; thirst: number; cold: number; sick: number; warm: number };
+  /** hypothermia goes on this long after one is warm again (s) */
+  coldHold: number;
+  dead: boolean;
+}
+
+export function newVitals(): Vitals {
+  return { hp: 100, stamina: 100, food: 100, water: 100, temp: 37.5, bladder: 0, rest: 99, effects: {}, gains: [], ticks: { starve: 0, thirst: 0, cold: 0, sick: 0, warm: 0 }, coldHold: 0, dead: false };
+}
+
+/** what one is doing and what is round one, this step */
+export interface VitalsInput {
+  dt: number;
+  /** running with Shift (and moving) */
+  sprinting: boolean;
+  /** jumped this step */
+  jumped: boolean;
+  /** the air round one (°C): the weather's, a room's, a cab with its heater */
+  ambientC: number;
+  /** what one wears keeps this much of the cold out (each point lowers the comfortable air by a degree) */
+  warmth: number;
+  /** out in the rain */
+  rain: boolean;
+  /** P held */
+  peeing: boolean;
+}
+
+/** what happened this step, for the screen and the sounds */
+export interface VitalsEvents {
+  /** health lost (and why) */
+  hurt: number;
+  why: '' | 'starve' | 'thirst' | 'cold';
+  died: boolean;
+  /** the bladder went by itself */
+  wet: boolean;
+}
+
+function add(v: Vitals, e: VitalEffect, s = EFFECT_S[e]): void {
+  v.effects[e] = Math.max(v.effects[e] ?? 0, s);
+}
+
+export function has(v: Vitals, e: VitalEffect): boolean {
+  return (v.effects[e] ?? 0) > 0;
+}
+
+/** step the body by dt */
+export function stepVitals(v: Vitals, inp: VitalsInput, R: VitalsRules = VITALS): VitalsEvents {
+  const ev: VitalsEvents = { hurt: 0, why: '', died: false, wet: false };
+  if (v.dead) return ev;
+  const dt = inp.dt;
+  // stamina: spent sprinting and jumping, back two seconds after
+  if (inp.sprinting && v.stamina > 0) {
+    v.stamina = Math.max(0, v.stamina - R.sprintCost * dt);
+    v.rest = 0;
+  }
+  if (inp.jumped) {
+    v.stamina = Math.max(0, v.stamina - R.jumpCost);
+    v.rest = 0;
+  }
+  if (!inp.sprinting && !inp.jumped) v.rest += dt;
+  if (v.rest >= R.staminaDelay) v.stamina = Math.min(R.staminaMax, v.stamina + R.staminaBack * dt);
+  // food and water go down
+  v.food = Math.max(0, v.food - R.foodDrain * dt);
+  v.water = Math.max(0, v.water - R.waterDrain * dt);
+  // what a meal or a drink is still giving
+  for (const g of v.gains) {
+    const k = Math.min(1, dt / Math.max(1e-6, g.left));
+    v.food = Math.min(100, v.food + g.food * k);
+    v.hp = Math.min(R.hpMax, v.hp + g.hp * k);
+    v.water = Math.min(100, v.water + g.water * k);
+    v.temp = Math.min(R.tempNormal, v.temp + g.temp * k);
+    g.food -= g.food * k;
+    g.hp -= g.hp * k;
+    g.water -= g.water * k;
+    g.temp -= g.temp * k;
+    g.left -= dt;
+  }
+  v.gains = v.gains.filter((g) => g.left > 1e-6);
+  // the bladder fills with the water in one
+  v.bladder = Math.min(100, v.bladder + R.bladderFill * (v.water / 100) * dt);
+  if (inp.peeing && v.bladder > 0) v.bladder = Math.max(0, v.bladder - R.peeRate * dt);
+  if (v.bladder >= 100) ev.wet = true;
+  // body temperature: the cold gets in below what one wears keeps out (not while drunk: one does not feel it)
+  if (inp.rain) add(v, 'wet');
+  const warmth = inp.warmth - (has(v, 'wet') ? 25 : 0);
+  const comfort = R.tempComfort - warmth;
+  if (inp.ambientC < comfort && !has(v, 'drunk')) v.temp = Math.max(R.tempFloor, v.temp - (comfort - inp.ambientC) * R.tempLoss * dt);
+  else v.temp = Math.min(R.tempNormal, v.temp + R.tempGain * dt);
+  // a warming meal: five degrees every minute while it lasts
+  if (has(v, 'warm1') || has(v, 'warm2')) {
+    v.ticks.warm += dt;
+    if (v.ticks.warm >= 60 - 1e-6) {
+      v.ticks.warm -= 60;
+      v.temp = Math.min(R.tempNormal, v.temp + 5);
+    }
+  } else v.ticks.warm = 0;
+  // hypothermia: under 32 °C, and half a minute after
+  if (v.temp < R.hypoBelow) {
+    v.coldHold = R.hypoLinger;
+    v.effects.hypo = 1;
+  } else if (v.coldHold > 0) {
+    v.coldHold -= dt;
+    v.effects.hypo = v.coldHold > 0 ? 1 : 0;
+  } else v.effects.hypo = 0;
+  // what hurts: hunger, thirst, the cold, something bad eaten
+  const hurt = (hp: number, why: VitalsEvents['why']): void => {
+    v.hp = Math.max(0, v.hp - hp);
+    ev.hurt += hp;
+    ev.why = why;
+  };
+  if (v.food <= 0) {
+    v.ticks.starve += dt;
+    if (v.ticks.starve >= R.starveEvery - 1e-6) {
+      v.ticks.starve -= R.starveEvery;
+      hurt(R.starveHp, 'starve');
+    }
+  } else v.ticks.starve = 0;
+  if (v.water <= 0) {
+    v.ticks.thirst += dt;
+    if (v.ticks.thirst >= R.thirstEvery - 1e-6) {
+      v.ticks.thirst -= R.thirstEvery;
+      hurt(R.thirstHp, 'thirst');
+    }
+  } else v.ticks.thirst = 0;
+  if (has(v, 'hypo')) {
+    v.ticks.cold += dt;
+    if (v.ticks.cold >= R.hypoEvery - 1e-6) {
+      v.ticks.cold -= R.hypoEvery;
+      hurt(R.hypoHp, 'cold');
+    }
+  } else v.ticks.cold = 0;
+  if (has(v, 'sick1') || has(v, 'sick2')) {
+    v.ticks.sick += dt;
+    const every = has(v, 'sick2') ? 5 : 10;
+    if (v.ticks.sick >= every - 1e-6) {
+      v.ticks.sick -= every;
+      v.water = Math.max(0, v.water - (has(v, 'sick2') ? 2 : 1));
+    }
+  } else v.ticks.sick = 0;
+  // the effects run down
+  for (const k of Object.keys(v.effects) as VitalEffect[]) {
+    if (k === 'hypo') continue;
+    v.effects[k] = Math.max(0, (v.effects[k] ?? 0) - dt);
+    if (!v.effects[k]) delete v.effects[k];
+  }
+  if (v.hp <= 0) {
+    v.dead = true;
+    ev.died = true;
+  }
+  return ev;
+}
+
+/** something eaten (food, pills): its food and health over five seconds, its effect after */
+export function eat(v: Vitals, food: number, hp: number, effect?: VitalEffect, R: VitalsRules = VITALS): void {
+  if (food > 0 || hp > 0) v.gains.push({ food, hp, water: 0, temp: 0, left: R.gainOver });
+  if (effect) add(v, effect);
+}
+
+/** medicine: health at once, a warming over five seconds, a side effect with its chance (roll 0-1) */
+export function medicate(v: Vitals, hp: number, warm: number, side: number, roll: number, R: VitalsRules = VITALS): VitalEffect | null {
+  v.hp = Math.min(R.hpMax, v.hp + hp);
+  if (warm > 0) v.gains.push({ food: 0, hp: 0, water: 0, temp: warm, left: R.gainOver });
+  if (side > 0 && roll < side) {
+    const e: VitalEffect = roll < side / 2 ? 'drunk' : 'sick2';
+    add(v, e);
+    return e;
+  }
+  return null;
+}
+
+/** a drink: every tenth of a litre of water quenches 10 (and fills the bladder as much); alcohol makes one drunk, an energy drink quick */
+export function drink(v: Vitals, liquid: 'water' | 'alcohol' | 'energy', litres: number, R: VitalsRules = VITALS): void {
+  if (litres <= 0) return;
+  if (liquid === 'water') {
+    const pts = (litres / 0.1) * 10;
+    v.gains.push({ food: 0, hp: 0, water: pts, temp: 0, left: R.gainOver });
+    v.bladder = Math.min(100, v.bladder + pts);
+  } else if (liquid === 'alcohol') add(v, 'drunk');
+  else add(v, 'energy');
+}
+
+/** a first-aid kit: up again with this much health, half fed and half watered at least */
+export function revive(v: Vitals, hp: number): void {
+  v.dead = false;
+  v.hp = hp;
+  v.food = Math.max(v.food, 50);
+  v.water = Math.max(v.water, 50);
+  v.temp = Math.max(v.temp, 34);
+  v.effects = {};
+  v.gains = [];
+}
+
+/** how fast one goes on foot (a share of the usual): quicker on an energy drink, slower frozen or relieving oneself, never under 35 % */
+export function speedFactor(v: Vitals, peeing: boolean): number {
+  let k = 1;
+  if (has(v, 'energy')) k *= 1.5;
+  if (has(v, 'hypo')) k *= 0.75;
+  if (peeing) k *= 0.2;
+  return Math.max(0.35, k);
+}
+
+/** may one sprint now */
+export function canSprint(v: Vitals): boolean {
+  return v.stamina > 0.5;
+}

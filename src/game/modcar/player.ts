@@ -78,6 +78,10 @@ export interface PlayerHost {
   readonly cargo: CargoBay;
   /** something came out of a vehicle or went into it: its load weighed again */
   cargoChanged(v: ModVehicle): void;
+  /** eaten or taken (food, pills): what it does to one */
+  consume(item: ItemInstance): void;
+  /** drunk: so much of a liquid */
+  drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void;
 }
 
 /** a zone is in reach: one of the panels it is reached through open, or not there at all */
@@ -146,6 +150,13 @@ export class ModPlayer {
   /** the buttons */
   primary = false;
   secondary = false;
+  private secondaryWas = false;
+  /**
+   * Something being eaten, drunk or taken (F or the right button): what, how long since it began, from which
+   * slot; drinking goes on while the button is held
+   */
+  use: { kind: 'eat' | 'pill' | 'drink'; t: number; slot: number; item: ItemInstance; dur: number } | null = null;
+  private bites = 0;
   private primaryEdge = false;
   readonly eye = { x: 0, y: 0, z: 0 };
   readonly dir = { x: 1, y: 0, z: 0 };
@@ -210,6 +221,7 @@ export class ModPlayer {
   select(i: number): void {
     if (i === this.sel || i < 0 || i >= this.slots.length || this.flow) return;
     this.selectT = 0;
+    this.use = null;
     this.sel = i;
     this.progress = 0;
     this.dropT = 0;
@@ -277,6 +289,7 @@ export class ModPlayer {
     this.input.jump = false;
     w.eye(this.eye);
     w.look(this.dir);
+    this.secondaryWas = this.secondary;
     this.secondary = keys.take;
 
     this.target = this.pick();
@@ -686,6 +699,30 @@ export class ModPlayer {
       this.surfaceT = 0;
     }
     const held = this.held;
+    // eating, drinking, taking medicine: F or the right button with it in the hands (wherever one looks)
+    if (this.use) {
+      this.stepUse(dt);
+      return;
+    }
+    if (held?.kind === 'item') {
+      const d = itemDef(held.item.item);
+      const pressed = this.secondary && !this.secondaryWas;
+      if (d.drink && this.secondary && (held.item.litres ?? 0) > 0.001) {
+        this.use = { kind: 'drink', t: 0, slot: this.sel, item: held.item, dur: Infinity };
+        if (!held.item.opened) {
+          held.item.opened = true;
+          host.sound(d.model === 'drink_soda' || d.model === 'drink_energy' ? 'can_open' : 'cap_open');
+        }
+        return;
+      }
+      if (d.eat && pressed) {
+        const pill = d.cat === 'med';
+        this.use = { kind: pill ? 'pill' : 'eat', t: 0, slot: this.sel, item: held.item, dur: d.eat.sec };
+        this.bites = 0;
+        host.sound(pill ? 'pills' : 'wrapper');
+        return;
+      }
+    }
     // F held with a backpack in the hands (wherever one looks): on it goes
     if (held?.kind === 'item' && itemDef(held.item.item).pack && this.secondary) {
       if (this.spent) return;
@@ -697,7 +734,7 @@ export class ModPlayer {
         this.spent = true;
         const it = held.item;
         if (this.wearPack(it)) {
-          host.sound('pickup', 1);
+          host.sound('cloth');
           host.ui.say(`背上了${itemDef(it.item).name.zh}：快捷栏多了 ${itemDef(it.item).pack!.slots} 格。`, 2.2);
         } else host.ui.say('先把多出来那几格里的东西拿出来。', 2.2);
       }
@@ -829,6 +866,53 @@ export class ModPlayer {
     this.held = old ? { kind: 'part', inst: old } : null;
     this.host.changed(v, `on:${mount.id}${sub ? `:${sub}` : ''}`);
     this.host.sound('ratchet_done');
+  }
+
+  /** a meal, a drink or a pill going on: bites, swallows, and what it does at the end */
+  private stepUse(dt: number): void {
+    const u = this.use!;
+    const host = this.host;
+    // (the thing gone from the hands: nothing to go on with)
+    const h = this.slots[u.slot];
+    if (!h || h.kind !== 'item' || h.item !== u.item) {
+      this.use = null;
+      return;
+    }
+    const d = itemDef(u.item.item);
+    u.t += dt;
+    if (u.kind === 'drink') {
+      // held to the mouth while the button is held; the liquid flows after half a second
+      if (!this.secondary || (u.item.litres ?? 0) <= 0.001) {
+        if (u.t > 0.5) host.sound('gulp');
+        this.use = null;
+        return;
+      }
+      if (u.t > 0.5 && d.drink) {
+        const l = Math.min(u.item.litres ?? 0, d.drink.rate * dt);
+        u.item.litres = Math.max(0, (u.item.litres ?? 0) - l);
+        host.drank(d.drink.liquid, l);
+        host.sound('glug');
+      }
+      this.progress = d.drink ? 1 - (u.item.litres ?? 0) / d.drink.litres : 0;
+      return;
+    }
+    // eating: about five bites between the hand coming up and going down
+    if (u.kind === 'eat') {
+      const want = Math.min(6, Math.floor((u.t - 1.07) / 0.45) + 1);
+      if (u.t > 1.07 && want > this.bites && u.t < 3.7) {
+        this.bites = want;
+        host.sound('bite');
+      }
+    }
+    this.progress = Math.min(1, u.t / u.dur);
+    if (u.t >= u.dur) {
+      // gone: out of the hands, into one
+      this.slots[u.slot] = null;
+      this.use = null;
+      this.progress = 0;
+      host.consume(u.item);
+      host.sound('gulp');
+    }
   }
 
   /**
@@ -1099,6 +1183,11 @@ export class ModPlayer {
       else out.push({ keys: ['LMB'], hold: true, text: '擦洗' });
     } else if (h.kind === 'item' && itemDef(h.item.item).pack) {
       out.push({ keys: F, hold: true, text: `背上（快捷栏 +${itemDef(h.item.item).pack!.slots} 格）` });
+    } else if (h.kind === 'item') {
+      const d = itemDef(h.item.item);
+      if (d.drink) out.push((h.item.litres ?? 0) > 0.001 ? { keys: F, hold: true, text: '喝' } : { keys: F, hold: true, text: '空了', off: true });
+      else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : '吃掉' });
+      else if (d.revive) out.push({ keys: F, text: '倒下时自己用上', off: true });
     }
     if (h) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
     // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)

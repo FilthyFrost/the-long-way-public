@@ -29,9 +29,26 @@ export type FoleyShot =
   | 'switch'
   | 'lever'
   /** the body striking something hard: thump, crumpling sheet metal, a rattle settling */
-  | 'crash';
+  | 'crash'
+  // the body (vitals): eating, drinking, medicine, getting hurt, a backpack
+  /** a bite of something crunchy */
+  | 'bite'
+  /** a packet torn open, its wrapper crinkling */
+  | 'wrapper'
+  /** a ring-pull can opened: a click and a hiss */
+  | 'can_open'
+  /** a screw cap twisted off */
+  | 'cap_open'
+  /** pills shaken out of their box */
+  | 'pills'
+  /** a swallow */
+  | 'gulp'
+  /** hurt: a dull thump in the chest */
+  | 'hurt'
+  /** cloth and straps: a backpack put on or taken off, clothes */
+  | 'cloth';
 
-export type FoleyLoop = 'ratchet' | 'spray' | 'sponge' | 'pour' | 'horn_beep' | 'horn_air';
+export type FoleyLoop = 'ratchet' | 'spray' | 'sponge' | 'pour' | 'horn_beep' | 'horn_air' | 'glug' | 'breath' | 'heart' | 'pee';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
@@ -568,6 +585,192 @@ function seamless(x: Float32Array, sr: number): Float32Array {
   return out;
 }
 
+// ------------------------------------------------------------------ the body
+
+function bite(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.22);
+    // a crunch: a few dry grains in quick succession, over a soft thud of the jaw
+    for (let k = 0; k < 6; k++) {
+      const t = 0.004 + k * rng.range(0.008, 0.016);
+      burst(x, sr, Math.floor(t * sr), rng.range(0.004, 0.009), rng.range(0.5, 1), rng, { attack: 0.0003, decay: 0.003, filter: [['bandpass', rng.range(1800, 3800), 1.1]] });
+    }
+    burst(x, sr, 0, 0.05, 0.6, rng, { attack: 0.002, decay: 0.03, filter: [['lowpass', 260]] });
+    return normalize(edges(x, sr, 1, 20), 0.8);
+  };
+}
+
+function wrapper(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.5);
+    // plastic crinkle: many tiny bright crackles, thinning out
+    for (let k = 0; k < 46; k++) {
+      const t = Math.pow(rng.next(), 1.6) * 0.45;
+      burst(x, sr, Math.floor(t * sr), rng.range(0.001, 0.004), rng.range(0.2, 1), rng, { attack: 0.0001, decay: 0.0015, filter: [['highpass', 2600], ['peaking', rng.range(4000, 7000), 2]] });
+    }
+    return normalize(edges(x, sr, 1, 30), 0.6);
+  };
+}
+
+function canOpen(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.6);
+    // the tab's click, then the gas
+    strike(x, sr, Math.floor(0.01 * sr), [[rng.range(3200, 3600), 1, 0.008], [rng.range(5200, 5800), 0.5, 0.005]], 0.9, rng);
+    const h = noise(Math.floor(0.5 * sr), rng);
+    biquad(h, sr, 'highpass', 3000, 0.7);
+    biquad(h, sr, 'peaking', 7000, 1.4, 6);
+    for (let i = 0; i < h.length; i++) h[i] *= Math.exp(-i / (0.09 * sr)) * Math.min(1, i / (0.004 * sr));
+    mixInto(x, h, Math.floor(0.02 * sr), 0.7);
+    return normalize(edges(x, sr, 1, 40), 0.75);
+  };
+}
+
+function capOpen(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.35);
+    // the seal's little ticks as the cap turns, a puff
+    for (let k = 0; k < 4; k++) strike(x, sr, Math.floor((0.02 + k * 0.045) * sr), [[rng.range(2400, 3000), 0.7, 0.006]], 0.6, rng);
+    burst(x, sr, Math.floor(0.2 * sr), 0.08, 0.3, rng, { attack: 0.005, decay: 0.05, filter: [['highpass', 2500]] });
+    return normalize(edges(x, sr, 1, 20), 0.6);
+  };
+}
+
+function pills(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.5);
+    // a handful rattling in a plastic tub
+    for (let k = 0; k < 14; k++) {
+      const t = rng.range(0, 0.32);
+      strike(x, sr, Math.floor(t * sr), [[rng.range(2600, 4200), 1, 0.006], [rng.range(5000, 6800), 0.4, 0.004]], rng.range(0.3, 0.8), rng);
+    }
+    return normalize(edges(x, sr, 1, 30), 0.6);
+  };
+}
+
+/** one swallow: a low gloop (a falling bubble) over a little noise */
+function gulpInto(x: Float32Array, sr: number, at: number, rng: Rng, amp = 1): void {
+  const n = Math.floor(0.12 * sr);
+  const a = Math.floor(at * sr);
+  const f0 = rng.range(260, 340);
+  let ph = 0;
+  for (let i = 0; i < n && a + i < x.length; i++) {
+    const t = i / sr;
+    const f = f0 * (1 - 0.45 * (i / n));
+    ph += (2 * Math.PI * f) / sr;
+    x[a + i] += amp * Math.sin(ph) * Math.exp(-t / 0.04) * Math.min(1, t / 0.004);
+  }
+  burst(x, sr, a, 0.05, 0.12 * amp, rng, { attack: 0.002, decay: 0.03, filter: [['bandpass', 900, 1]] });
+}
+
+function gulp(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.25);
+    gulpInto(x, sr, 0.01, rng);
+    return normalize(edges(x, sr, 1, 20), 0.7);
+  };
+}
+
+function hurt(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.35);
+    // a dull blow felt in the chest, no voice
+    let ph = 0;
+    for (let i = 0; i < x.length; i++) {
+      const t = i / sr;
+      ph += (2 * Math.PI * (70 - 25 * Math.min(1, t / 0.2))) / sr;
+      x[i] = Math.sin(ph) * Math.exp(-t / 0.09) * Math.min(1, t / 0.003);
+    }
+    burst(x, sr, 0, 0.06, 0.35, rng, { attack: 0.001, decay: 0.03, filter: [['lowpass', 500]] });
+    return normalize(edges(x, sr, 1, 30), 0.85);
+  };
+}
+
+function cloth(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.45);
+    const n = noise(Math.floor(0.4 * sr), rng);
+    biquad(n, sr, 'lowpass', 2200, 0.7);
+    biquad(n, sr, 'highpass', 250, 0.7);
+    // a swish: up and down, with a strap's buckle at the end
+    for (let i = 0; i < n.length; i++) n[i] *= Math.pow(Math.sin((Math.PI * i) / n.length), 2);
+    mixInto(x, n, 0, 0.8);
+    strike(x, sr, Math.floor(0.38 * sr), [[rng.range(2000, 2600), 0.6, 0.01]], 0.4, rng);
+    return normalize(edges(x, sr, 2, 30), 0.55);
+  };
+}
+
+function glugLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 1.8;
+    return normalize(
+      cyclic(sr, len, (x) => {
+        // a swallow every 0.45 s, the liquid gurgling into the neck between
+        for (let k = 0; k < 4; k++) gulpInto(x, sr, k * 0.45 + rng.range(0, 0.04), rng, rng.range(0.8, 1));
+        for (let k = 0; k < 18; k++) ring(x, sr, Math.floor(rng.range(0, len) * sr), rng.range(500, 1300), rng.range(0.04, 0.12), rng.range(0.006, 0.014));
+      }),
+      0.55,
+    );
+  };
+}
+
+function breathLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 1.6;
+    return normalize(
+      cyclic(sr, len, (x) => {
+        // out of breath: in and out, twice a loop
+        const n = Math.floor(len * sr);
+        const b = noise(n, rng);
+        biquad(b, sr, 'lowpass', 1500, 0.7);
+        biquad(b, sr, 'highpass', 220, 0.7);
+        biquad(b, sr, 'peaking', 700, 1.2, 4);
+        for (let i = 0; i < n; i++) {
+          const ph = (i / n) * 2;
+          const k = ph % 1;
+          // the out-breath stronger than the in
+          b[i] *= (k < 0.45 ? 0.55 * Math.sin((Math.PI * k) / 0.45) : Math.sin((Math.PI * (k - 0.45)) / 0.55)) ** 2;
+        }
+        mixInto(x, b, 0, 0.7);
+      }),
+      0.45,
+    );
+  };
+}
+
+function heartLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 0.85;
+    return normalize(
+      cyclic(sr, len, (x) => {
+        // lub-dub
+        for (const [at, amp] of [[0, 1], [0.22, 0.7]] as const) {
+          const a = Math.floor(at * sr);
+          for (let i = 0; i < Math.floor(0.12 * sr); i++) {
+            const t = i / sr;
+            x[a + i] += amp * Math.sin(2 * Math.PI * 52 * t) * Math.exp(-t / 0.035) * Math.min(1, t / 0.004);
+          }
+        }
+        void rng;
+      }),
+      0.6,
+    );
+  };
+}
+
+function peeLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 2.0;
+    const n = Math.floor(len * sr);
+    const x = noise(3 * n, rng);
+    biquad(x, sr, 'bandpass', 1600, 0.8);
+    biquad(x, sr, 'peaking', 3200, 1.5, 4);
+    const out = x.slice(n, 2 * n);
+    for (let i = 0; i < n; i++) out[i] *= 0.8 + 0.2 * Math.sin((2 * Math.PI * 9 * i) / n);
+    return normalize(seamless(out, sr), 0.35);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -575,9 +778,10 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   part_pickup: 0.5, part_setdown: 0.8, part_install: 0.75, part_remove: 0.65, key_turn: 0.45, handbrake_pull: 0.6,
   handbrake_release: 0.55, gear_shift: 0.55, gear_grind: 0.6, spray_shake: 0.45, horn_trumpet: 0.42, switch: 0.35, lever: 0.45,
   crash: 1.0,
+  bite: 0.55, wrapper: 0.4, can_open: 0.5, cap_open: 0.4, pills: 0.4, gulp: 0.5, hurt: 0.8, cloth: 0.45,
 };
 
-const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36 };
+const LOOP_LEVEL: Record<FoleyLoop, number> = { ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36, glug: 0.5, breath: 0.4, heart: 0.5, pee: 0.3 };
 
 function massClass(m: number): number {
   // 0.25, 1, 4, 16, 64, 250 kg classes keep the cache small
@@ -610,6 +814,18 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'switch': return toggleSwitch();
     case 'lever': return selectorLever();
     case 'crash': return crash();
+    case 'bite': return bite();
+    case 'wrapper': return wrapper();
+    case 'can_open': return canOpen();
+    case 'cap_open': return capOpen();
+    case 'pills': return pills();
+    case 'gulp': return gulp();
+    case 'hurt': return hurt();
+    case 'cloth': return cloth();
+    case 'glug': return glugLoop();
+    case 'breath': return breathLoop();
+    case 'heart': return heartLoop();
+    case 'pee': return peeLoop();
     case 'ratchet': return ratchetLoop();
     case 'spray': return sprayLoop();
     case 'sponge': return spongeLoop();

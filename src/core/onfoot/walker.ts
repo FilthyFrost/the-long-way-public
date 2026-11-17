@@ -169,10 +169,19 @@ export class FootWalker {
     return this.crouched ? FOOT.heightCrouch : FOOT.height;
   }
 
+  /** this walker's own walking and running speeds (m/s), where they are not FOOT's (ModCar: Arctic Drive's) */
+  speeds: { walk: number; run: number } | null = null;
+  /** a share of the speed it walks at (a drink, the cold, a load: ModCar's vitals) */
+  speedScale = 1;
+  /** jumps made so far (whoever counts stamina takes them off) */
+  jumps = 0;
+
   /** the speed asked for right now (m/s) */
   topSpeed(run: boolean): number {
-    if (this.swimming) return FOOT.swim;
-    let v: number = this.load === 'large' ? FOOT.carry : this.crouched ? FOOT.crouch : run ? FOOT.run : FOOT.walk;
+    if (this.swimming) return FOOT.swim * this.speedScale;
+    const walk = this.speeds?.walk ?? FOOT.walk;
+    const runV = this.speeds?.run ?? FOOT.run;
+    let v: number = (this.load === 'large' ? FOOT.carry : this.crouched ? FOOT.crouch : run ? runV : walk) * this.speedScale;
     if (this.depth > FOOT.wadeFrom) {
       const k = Math.min(1, (this.depth - FOOT.wadeFrom) / (FOOT.swimDepth - FOOT.wadeFrom));
       v *= 1 - (1 - FOOT.wadeKeep) * k;
@@ -362,6 +371,7 @@ export class FootWalker {
       if (this.grounded && !this.swimming && this.load !== 'large' && !this.sliding) {
         this.vy = JUMP_V;
         this.grounded = false;
+        this.jumps++;
       }
     }
 

@@ -90,6 +90,8 @@ export interface ItemInstance {
   uses?: number;
   /** a coloured variant: paint instead of the kind's own (clothes) */
   tint?: number;
+  /** a can or a bottle opened already (its hiss or its cap only the first time) */
+  opened?: boolean;
 }
 
 interface Opt {
