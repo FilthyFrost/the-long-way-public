@@ -68,7 +68,7 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
-import { SeatShake, type ShakeEngine } from './seatShake';
+import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
 import { ModPad, type PadHost } from './pad';
 import { WheelDust } from './wheelDust';
 import { tyreLoops } from './tyreSound';
@@ -3552,6 +3552,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     return n ? sum / n : 1;
   }
 
+  /** how much of the shake the driver's seat passes on (seatShake.ts: an armchair less, a crate more; none fitted, the bare frame) */
+  private cushionOf(v: ModVehicle): number {
+    const m = v.view.frame.mounts.find((x) => x.cat === 'seat' && x.driver);
+    const inst = m ? v.build.parts[m.id] : undefined;
+    return seatCushion(inst ? (partDef(inst.part).seat?.comfort ?? 0.6) : 0);
+  }
+
   /** how open a vehicle's cabin is (0 shut … 1 open): a frame without doors, the doors missing, the ones standing open */
   private cabinOpen(v: ModVehicle): number {
     let open = 1 - v.sys.derived.enclosed;
@@ -3741,6 +3748,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const sh = this.shake;
       sh.scale = this.tune.get('look.shake');
       sh.stiffness = this.stiffnessOf(this.seated);
+      sh.cushion = this.cushionOf(this.seated);
       sh.update(dt, sim, this.engineFelt(this.seated));
       if (sh.scale > 0) {
         const b = this.basis;

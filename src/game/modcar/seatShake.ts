@@ -4,7 +4,8 @@
  * left as it is for the older game; this is ModCar's own, added after it:
  *  - the road coming up through the tyres and the seat: a fine buzz on asphalt, a hard chatter on gravel and over
  *    grass, more the faster one goes and the busier the suspension is (a washboard), and through a stiffer
- *    suspension more of it (a sport strut passes it on, a soft one soaks it up);
+ *    suspension more of it (a sport strut passes it on, a soft one soaks it up); a soft seat takes some of it all
+ *    out, a hard one (a crate, a toilet seat) passes it on;
  *  - the engine on its mounts: a single or a twin at idle shaking the whole cab, a six or an eight hardly; a
  *    worn engine missing a beat now and then; the cab shuddering as the engine catches, jerking as it stalls;
  *  - the knocks: a kerb, a joint, a pothole's edge, the bump stops struck, a landing, the body grounding, a crash
@@ -55,6 +56,11 @@ const ROAD_PER_SUSP = 0.006;
 /** the engine's shake (m) at idle by cylinders: a thumper, a twin, a triple, a four, a six, an eight */
 const ENGINE_AMP: Record<number, number> = { 1: 0.0011, 2: 0.0007, 3: 0.0004, 4: 0.00022, 5: 0.00016, 6: 0.0001, 8: 0.00008 };
 
+/** how much of the shake a seat of this comfort (0 … 1) passes on: the factory bucket seat's (0.6) all of it */
+export function seatCushion(comfort: number): number {
+  return Math.max(0.5, 1 + 0.9 * (0.6 - comfort));
+}
+
 /** a smooth noise: gradient noise in one dimension, about −1 … 1 */
 function noise1(x: number, seed: number): number {
   const i = Math.floor(x);
@@ -83,6 +89,8 @@ export class SeatShake {
   scale = 1;
   /** how stiff the suspension is against stock (a sport strut passes more of the road on) */
   stiffness = 1;
+  /** how much of it all the seat passes on (seatCushion: an armchair less, a crate more) */
+  cushion = 1;
   /** the last frame's parts (for the probes and the tests) */
   readonly parts = { road: 0, engine: 0, jolt: 0 };
 
@@ -214,7 +222,7 @@ export class SeatShake {
       ey = Math.sin(t * 2 * Math.PI * fire) * 0.7 + 0.3 * noise1(t * 9, 53);
       er = noise1(t * fire * 0.5, 59);
     }
-    const sc = this.scale;
+    const sc = this.scale * this.cushion;
     this.parts.road = road * sc;
     this.parts.engine = eng * sc;
     this.parts.jolt = Math.abs(this.jy) * sc;

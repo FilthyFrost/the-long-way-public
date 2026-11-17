@@ -21,6 +21,7 @@ import { quickPerf, type StatLine } from '../../core/modcar/stats';
 import { SCRAPERS, TOOL_INFO, toolName, type Tool } from '../../core/modcar/tools';
 import type { Category, FuelType, PartDef, PartInstance } from '../../core/modcar/types';
 import type { GarageDevice } from './garageStub';
+import { seatCushion } from './seatShake';
 import type { ModVehicle } from './vehicle';
 
 /** what a bar is filled with (its colour) */
@@ -325,6 +326,9 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   }
   if (def.seat) {
     row(pct(def.seat.comfort), '舒适');
+    // (what of the road and the engine it passes on to the driver: seatShake.ts)
+    const k = seatCushion(def.seat.comfort);
+    row(k < 0.97 ? `少 ${Math.round((1 - k) * 100)}%` : k > 1.03 ? `多 ${Math.round((k - 1) * 100)}%` : '跟原厂一样', '开车颠簸');
     if (def.seat.swivel) row('能', '转圈');
   }
   if (def.radio) {

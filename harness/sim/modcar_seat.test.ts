@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Surface } from '../../src/core/world/ground';
-import { SeatShake, type ShakeEngine, type ShakeSim } from '../../src/game/modcar/seatShake';
+import { SeatShake, seatCushion, type ShakeEngine, type ShakeSim } from '../../src/game/modcar/seatShake';
 import { DUST_MAX, dustRate, WheelDust, type DustWheel } from '../../src/game/modcar/wheelDust';
 
 /** a vehicle the shake reads: its speed, what its four wheels are on, its road feel (all of it to be changed by the test) */
@@ -74,6 +74,17 @@ describe('modcar · the seat shakes', () => {
     const soft = new SeatShake();
     soft.stiffness = 0.7;
     expect(run(hard, fakeSim(16.7, Surface.Gravel), null, 4).rms).toBeGreaterThan(run(soft, fakeSim(16.7, Surface.Gravel), null, 4).rms * 1.3);
+  });
+
+  it('a soft seat takes some of it out, a hard one passes it on; the factory seat all of it', () => {
+    expect(seatCushion(0.6)).toBeCloseTo(1, 9);
+    const armchair = new SeatShake();
+    armchair.cushion = seatCushion(0.95);
+    const crate = new SeatShake();
+    crate.cushion = seatCushion(0.15);
+    const a = run(armchair, fakeSim(16.7, Surface.Gravel), null, 4).rms;
+    const c = run(crate, fakeSim(16.7, Surface.Gravel), null, 4).rms;
+    expect(c).toBeGreaterThan(a * 1.8);
   });
 
   it('a knock is a jolt that rings out within a second', () => {
