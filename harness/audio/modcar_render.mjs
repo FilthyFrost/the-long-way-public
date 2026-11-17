@@ -2,7 +2,7 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--road] [--places] [--all] [--no-metrics]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--road] [--places] [--tyres] [--all] [--no-metrics]
 //
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
@@ -20,6 +20,11 @@
 // --places renders the roadside places as the game drives them (five containers searched, two found empty,
 // a house's door and a shop's with its bell, the pump filling a tank until it clicks off and a can until it
 // runs dry) and checks each search busy all through, silent once let go, the bell's notes, the pump's flow.
+// --tyres renders the tyres on the road as the game drives them (asphalt at 30 and 100 km/h, the road
+// getting wet, a door shut and opened, gravel, a hard stop on locked wheels, a slide on gravel, ice) and
+// checks a faster roll brighter, its rate gliding with no step, wet louder and brighter, a cutoff given to a
+// playing loop muffling its top and not its body, with no click as it comes and goes, the squeal a tone,
+// ice quiet, silence after.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
 // as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
 // Exit code 1 if a loop clicks or a check fails.
@@ -32,6 +37,8 @@ const ENGINES = ['eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_
 const MACHINES = ['gen_d1'];
 /** the scrubbing loops (foley.ts) */
 const SCRUBS = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'];
+/** the tyres on the road (foley.ts): rolling and sliding on each surface */
+const TYRES = ['roll_asphalt', 'roll_wet', 'roll_gravel', 'roll_dirt', 'roll_grass', 'roll_sand', 'roll_snow', 'roll_ice', 'skid_asphalt', 'skid_gravel', 'skid_dirt', 'skid_grass', 'skid_sand', 'skid_snow', 'skid_ice'];
 const OUT = process.env.MODCAR_AUDIO_OUT || 'D:/modcar-scratch/sound/out';
 const args = process.argv.slice(2);
 const all = args.includes('--all');
@@ -44,9 +51,10 @@ const doScrub = all || args.includes('--scrub');
 const doSpray = all || args.includes('--spray');
 const doRoad = all || args.includes('--road');
 const doPlaces = all || args.includes('--places');
+const doTyres = all || args.includes('--tyres');
 const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray && !doRoad && !doPlaces) ? [...ENGINES, ...MACHINES] : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray && !doRoad && !doPlaces && !doTyres) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -340,11 +348,13 @@ try {
       ...['wood', 'crate', 'metal', 'cloth', 'card'].flatMap((material) => [['container_open', { material }], ['rummage', { material }], ['container_empty', { material }]]), ['rummage', { material: 'wood', rate: 1.3 }],
       ['door_house_open', {}], ['door_house_close', {}], ['door_shop_open', {}], ['door_shop_close', {}],
       ['pump_lift', {}], ['pump_hang', {}], ['pump_click', {}], ['pump_run', {}], ['pump_run', { rate: 0.8 }], ['pump_run', { rate: 1.2 }], ['pump_dry', {}],
+      // the tyres on the road: each loop at 25, 50 and 100 km/h (a slide slow, steady and fast); two heard from a closed cabin
+      ...TYRES.flatMap((kind) => [[kind, { rate: 0.5 }], [kind, {}], [kind, { rate: 2 }]]), ['roll_asphalt', { cutoff: 1200 }], ['roll_gravel', { cutoff: 2000 }],
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
       const x = fromBase64(r.pcm);
-      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind, opts.surface, opts.tier !== undefined ? `t${opts.tier}` : null, opts.rate !== undefined ? `rate${opts.rate}` : null].filter(Boolean).join('_');
+      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind, opts.surface, opts.tier !== undefined ? `t${opts.tier}` : null, opts.rate !== undefined ? `rate${opts.rate}` : null, opts.cutoff !== undefined ? `cut${opts.cutoff}` : null].filter(Boolean).join('_');
       writeWav(path.join(OUT, `foley_${tag}.wav`), x, r.sampleRate);
       const st = stats(x, r.sampleRate);
       report.foley[tag] = st;
@@ -549,6 +559,92 @@ try {
     check(s.dry.rms > s.can_run.rms - 4, `places: running dry heard over the run that went before it (${s.can_run.rms} -> ${s.dry.rms} dB)`);
     check(s.after_dry.rms < -55, `places: the pump wound down to nothing (${s.after_dry.rms} dB)`);
     check(s.quiet.rms < -60, `places: silent at the end (${s.quiet.rms} dB)`);
+  }
+
+  if (doTyres) {
+    const r = await page.evaluate(() => window.__modcarAudio.renderTyres());
+    const x = fromBase64(r.pcm);
+    const sr = r.sampleRate;
+    writeWav(path.join(OUT, 'tyres_scene.wav'), x, sr);
+    report.tyres = {};
+    for (const [k, [a, b]] of Object.entries(r.marks)) report.tyres[k] = stats(x, sr, a, b);
+    const s = report.tyres;
+    const peak = stats(x, sr).peak;
+    console.log(`tyres scene: ${Object.entries(s).map(([k, v]) => `${k} ${v.rms} dB/${v.centroid} Hz`).join('  ')}  peak ${peak} dB`);
+    check(peak < -0.5, `tyres: no clipping (peak ${peak} dB)`);
+    // a faster roll brighter, by about its playback rates; and louder
+    const brighter = s.asphalt_100.centroid / s.asphalt_30.centroid / (r.rates.asphalt_100 / r.rates.asphalt_30);
+    check(brighter > 0.75 && brighter < 1.25, `tyres: asphalt at 100 km/h brighter than at 30 (${s.asphalt_30.centroid} -> ${s.asphalt_100.centroid} Hz, playback ${r.rates.asphalt_30.toFixed(2)} -> ${r.rates.asphalt_100.toFixed(2)})`);
+    check(s.asphalt_100.rms > s.asphalt_30.rms + 6, `tyres: asphalt louder at 100 km/h than at 30 (${s.asphalt_30.rms} -> ${s.asphalt_100.rms} dB)`);
+    // the largest sample step over [a, b) s
+    const maxStep = (a, b) => {
+      let m = 0;
+      for (let i = Math.floor(a * sr) + 1; i < Math.floor(b * sr); i++) m = Math.max(m, Math.abs(x[i] - x[i - 1]));
+      return m;
+    };
+    const held = Math.max(maxStep(...r.marks.asphalt_30), maxStep(...r.marks.asphalt_100));
+    check(maxStep(...r.marks.speeding_up) <= 1.3 * held, `tyres: the rate gliding every frame adds no step (largest ${(maxStep(...r.marks.speeding_up) / held).toFixed(2)}x that held)`);
+    check(s.wet_100.rms > s.asphalt_100.rms + 1.5 && s.wet_100.centroid > 1.3 * s.asphalt_100.centroid, `tyres: wet louder and brighter (${s.asphalt_100.rms} dB/${s.asphalt_100.centroid} Hz -> ${s.wet_100.rms} dB/${s.wet_100.centroid} Hz)`);
+    // the energy between lo and hi Hz over [a, b) s, per second (dB): a cutoff takes the top, not the body
+    const band = (a, b, lo, hi) => {
+      const N = 4096;
+      let e = 0;
+      let frames = 0;
+      for (let o = Math.floor(a * sr); o + N <= Math.floor(b * sr); o += N) {
+        const re = new Float64Array(N);
+        const im = new Float64Array(N);
+        for (let i = 0; i < N; i++) re[i] = x[o + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+        fft(re, im);
+        for (let k = 1; k < N / 2; k++) {
+          const f = (k * sr) / N;
+          if (f >= lo && f < hi) e += re[k] * re[k] + im[k] * im[k];
+        }
+        frames++;
+      }
+      return 10 * Math.log10(e / Math.max(1, frames) + 1e-30);
+    };
+    const topDrop = band(...r.marks.cabin_open, 3000, 20000) - band(...r.marks.cabin_shut, 3000, 20000);
+    const lowDiff = band(...r.marks.cabin_open, 30, 400) - band(...r.marks.cabin_shut, 30, 400);
+    report.tyres.cabin = { topDropDb: +topDrop.toFixed(1), lowDiffDb: +lowDiff.toFixed(1) };
+    check(topDrop > 15 && Math.abs(lowDiff) < 1.5, `tyres: the door shut muffles the wet road (over 3 kHz down ${topDrop.toFixed(1)} dB, under 400 Hz ${lowDiff.toFixed(1)} dB)`);
+    const gTop = band(...r.marks.gravel_open, 3000, 20000) - band(...r.marks.gravel_shut, 3000, 20000);
+    check(gTop > 8, `tyres: gravel started behind a shut door muffled from its first frame, opened after (over 3 kHz ${gTop.toFixed(1)} dB more once open)`);
+    // the low-pass coming and going adds no click: the largest step near each door no bigger than the loop's own either side
+    for (const t of r.doors) {
+      const near = maxStep(t - 0.02, t + 0.25);
+      const around = Math.max(maxStep(t - 0.6, t - 0.1), maxStep(t + 0.35, t + 0.8));
+      check(near <= 1.3 * around, `tyres: the cutoff at ${t} s comes or goes with no click (largest step ${(near / around).toFixed(2)}x that either side)`);
+    }
+    check(s.gravel_open.peak - s.gravel_open.rms > s.asphalt_100.peak - s.asphalt_100.rms + 2.5, `tyres: gravel crunching in grains, its crest over the asphalt's (${(s.gravel_open.peak - s.gravel_open.rms).toFixed(1)} against ${(s.asphalt_100.peak - s.asphalt_100.rms).toFixed(1)} dB)`);
+    // the squeal: a tone standing out of the slide (the strongest bin 800 Hz - 1.6 kHz over the mean 200 Hz - 8 kHz)
+    const tone = (() => {
+      const [a, b] = r.marks.skid_asphalt;
+      const N = 8192;
+      const P = new Float64Array(N / 2);
+      for (let o = Math.floor(a * sr); o + N <= Math.floor(b * sr); o += N / 2) {
+        const re = new Float64Array(N);
+        const im = new Float64Array(N);
+        for (let i = 0; i < N; i++) re[i] = x[o + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+        fft(re, im);
+        for (let k = 0; k < N / 2; k++) P[k] += re[k] * re[k] + im[k] * im[k];
+      }
+      let best = 0;
+      let m = 0;
+      let c = 0;
+      for (let k = 1; k < N / 2; k++) {
+        const f = (k * sr) / N;
+        if (f >= 200 && f < 8000) {
+          m += P[k];
+          c++;
+        }
+        if (f >= 800 && f < 1600) best = Math.max(best, P[k]);
+      }
+      return 10 * Math.log10(best / (m / c));
+    })();
+    check(tone > 15, `tyres: the wheels locked on asphalt squeal, a tone ${tone.toFixed(1)} dB over the slide's spectrum`);
+    check(s.after_stop.rms < -60, `tyres: silent once stopped (${s.after_stop.rms} dB)`);
+    check(s.ice_30.rms < s.asphalt_30.rms - 6, `tyres: ice very quiet beside asphalt at the same speed (${s.asphalt_30.rms} -> ${s.ice_30.rms} dB)`);
+    check(s.quiet.rms < -60, `tyres: silent at the end (${s.quiet.rms} dB)`);
   }
 
   if (doLoops) {

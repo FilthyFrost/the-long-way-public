@@ -4,7 +4,7 @@
  * The engine voice is stepped at 100 Hz with suspend/resume, exactly as a game frame loop would
  * call update(); a scrub is driven at 60 frames a second the same way (renderScrub), and so are the
  * flat tyre, the bare rim and the walk up to a rare part (renderRoad), the searches by hand and the
- * pump's flow (renderPlaces).
+ * pump's flow (renderPlaces), the tyres on each surface and a closed cabin's cutoff (renderTyres).
  */
 import { EngineVoice, bankConfig, engineTone, loadBank, type EngineAudioState, type BankManifest } from '../../src/game/modcar/engineAudio';
 import { FOLEY_LOOPS, Foley, loopPlaybackRate, recipe, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
@@ -547,6 +547,82 @@ async function renderRoad(sampleRate = 48000): Promise<{ pcm: string; sampleRate
 }
 
 /**
+ * The tyres on the road as the game will drive them, every frame (60 a second) a gain and a rate for
+ * each surface under the wheels (the rate from the speed, km/h / 50; the gain a power of it): dry
+ * asphalt held at 30 km/h, speeding up to 100 and held; the road getting wet (roll_wet over it by how
+ * wet); a door shut (both loops given a cutoff of 1200 Hz while playing, as from inside a closed cabin)
+ * and opened again; onto gravel at 60 (the gravel's loop started with a cutoff of 2000 Hz from its first
+ * frame, then opened); back onto asphalt, a hard stop with the wheels locked (the squeal from the slide
+ * speed, the roll gone with the wheels' turning); a slide on gravel; ice at 30. Marks: each part held,
+ * the quiet after; rates: the playback rates held; steps: the frames where the cutoff came and went.
+ */
+async function renderTyres(sampleRate = 48000): Promise<{ pcm: string; sampleRate: number; marks: Record<string, [number, number]>; rates: Record<string, number>; doors: number[] }> {
+  const seconds = 21.5;
+  const ctx = new OfflineAudioContext(1, Math.ceil(seconds * sampleRate), sampleRate);
+  const f = new Foley(ctx, ctx.destination);
+  f.warm(['roll_asphalt', 'roll_wet', 'roll_gravel', 'roll_ice', 'skid_asphalt', 'skid_gravel']);
+  // the gains suggested for rolling: (km/h / 50) to a power, capped; a slide's from how hard and how fast it slides
+  const ROLL: Record<string, [number, number]> = { asphalt: [1, 2], wet: [1.2, 2], gravel: [0.6, 1.8], ice: [1, 2] };
+  const roll = (s: string, kmh: number): number => Math.min(ROLL[s][1], Math.pow(Math.max(0, kmh) / 50, ROLL[s][0]));
+  const slideRate = (ms: number): number => Math.min(2, Math.max(0.5, 0.5 + ms / 8));
+  const ramp = (t: number, a: number, b: number, va: number, vb: number): number => (t <= a ? va : t >= b ? vb : va + ((vb - va) * (t - a)) / (b - a));
+  // the car's speed (km/h), how wet, the cabin shut, how much of the wheels is on gravel, the wheels locked
+  const kmh = (t: number): number => (t < 1.7 ? 30 : t < 3.2 ? ramp(t, 1.7, 3.2, 30, 100) : t < 10 ? 100 : t < 10.5 ? ramp(t, 10, 10.5, 100, 60) : t < 14.2 ? 60 : t < 15.8 ? ramp(t, 14.2, 15.8, 60, 0) : t < 16.5 ? 0 : t < 18.1 ? 40 : 30);
+  const wet = (t: number): number => (t < 4.7 ? 0 : t < 6.2 ? ramp(t, 4.7, 6.2, 0, 1) : t < 10 ? 1 : ramp(t, 10, 10.3, 1, 0));
+  const shut = (t: number): boolean => (t >= 7.2 && t < 8.8) || (t >= 10.5 && t < 12.2);
+  const gravel = (t: number): number => (t < 10.5 ? 0 : t < 11 ? ramp(t, 10.5, 11, 0, 1) : t < 13.6 ? 1 : t < 14 ? ramp(t, 13.6, 14, 1, 0) : t < 16.5 ? 0 : t < 18.1 ? 1 : 0);
+  const locked = (t: number): number => (t < 14.2 ? 0 : t < 14.3 ? ramp(t, 14.2, 14.3, 0, 1) : t < 15.6 ? 1 : ramp(t, 15.6, 15.8, 1, 0));
+  const plan: Array<[number, () => void]> = [];
+  for (let k = 0; 0.2 + k / 60 < 19.8; k++) {
+    const t = 0.2 + k / 60;
+    plan.push([
+      t,
+      () => {
+        const v = kmh(t);
+        const r = v / 50;
+        const lock = locked(t);
+        // (the wheels' own turning: nothing once they are locked)
+        const wheel = v * (1 - lock);
+        const cut = shut(t) ? { cutoff: 1200 } : {};
+        const g = gravel(t);
+        if (t < 18.1) f.start('roll_asphalt', { gain: roll('asphalt', wheel) * (1 - g), rate: Math.max(0.1, wheel / 50), ...cut });
+        else f.stop('roll_asphalt');
+        if (t < 10.3) f.start('roll_wet', { gain: wet(t) * roll('wet', v), rate: r, ...cut });
+        else f.stop('roll_wet');
+        if (g > 0) f.start('roll_gravel', { gain: g * roll('gravel', wheel), rate: Math.max(0.1, wheel / 50), ...(shut(t) ? { cutoff: 2000 } : {}) });
+        else f.stop('roll_gravel');
+        if (lock > 0) f.start('skid_asphalt', { gain: lock * Math.min(1, v / 8), rate: slideRate(v / 3.6) });
+        else f.stop('skid_asphalt');
+        if (t >= 16.5 && t < 18.1) f.start('skid_gravel', { gain: 1, rate: slideRate(4) });
+        else f.stop('skid_gravel');
+        if (t >= 18.1) f.start('roll_ice', { gain: roll('ice', v), rate: r });
+      },
+    ]);
+  }
+  plan.push([19.8, () => (['roll_asphalt', 'roll_wet', 'roll_gravel', 'roll_ice', 'skid_asphalt', 'skid_gravel'] as FoleyLoop[]).forEach((k) => f.stop(k))]);
+  const q = 128 / sampleRate;
+  const due = new Map<number, Array<() => void>>();
+  for (const [t, fn] of plan) {
+    const k = Math.floor(t / q);
+    due.set(k, [...(due.get(k) ?? []), fn]);
+  }
+  for (const [k, list] of due) {
+    void ctx.suspend((k + 0.25) * q).then(() => {
+      for (const fn of list) fn();
+      void ctx.resume();
+    });
+  }
+  const out = await ctx.startRendering();
+  const marks: Record<string, [number, number]> = {
+    asphalt_30: [0.6, 1.7], speeding_up: [1.75, 3.2], asphalt_100: [3.4, 4.7], getting_wet: [4.7, 6.2], wet_100: [6.3, 7.2],
+    cabin_shut: [7.6, 8.8], cabin_open: [9.3, 10], gravel_shut: [11.2, 12.2], gravel_open: [12.6, 13.6],
+    skid_asphalt: [14.35, 15.3], after_stop: [16.1, 16.45], skid_gravel: [16.8, 18], ice_30: [18.6, 19.7], quiet: [20.5, 21.3],
+  };
+  const rates = { asphalt_30: loopPlaybackRate('roll_asphalt', 30 / 50), asphalt_100: loopPlaybackRate('roll_asphalt', 100 / 50) };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks, rates, doors: [7.2, 8.8, 10.5, 12.2] };
+}
+
+/**
  * The roadside places as the game will play them: five containers searched (E held: the opening, the
  * search driven every frame, let go after 0.8 s; a crate searched for longer and found empty, a bag
  * empty too, a shop's shelf in a hurry, rate 1.25), a house's door opened and shut, a shop's door with
@@ -681,9 +757,10 @@ declare global {
       renderSpray: typeof renderSpray;
       renderRoad: typeof renderRoad;
       renderPlaces: typeof renderPlaces;
+      renderTyres: typeof renderTyres;
       checkLoops: typeof checkLoops;
     };
   }
 }
 
-window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, renderRoad, renderPlaces, checkLoops };
+window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, renderRoad, renderPlaces, renderTyres, checkLoops };

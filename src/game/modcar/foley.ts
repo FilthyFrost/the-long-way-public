@@ -13,7 +13,10 @@
  * something rare glinting nearby); the roadside places (a container searched by hand, by what it is
  * and holds: its door, lid or zip, the search, nothing in it; a house's door and a shop's with its
  * bell; a filling station's pump: the nozzle lifted and hung back, the pump running, its shut-off,
- * running dry). Each sound is a recipe that renders a short
+ * running dry); the tyres on the road by the surface under them (rolling on dry and wet asphalt,
+ * gravel, dirt, grass, sand, snow and ice, brighter as they go faster; sliding on each: the asphalt's
+ * squeal, the gravel sprayed, the turf torn, the ice's hiss), each loop with its own low-pass when
+ * asked (FoleyOpts.cutoff: heard from a closed cabin). Each sound is a recipe that renders a short
  * Float32Array (synth.ts); the player caches a few variations of each and plays them on the game's
  * AudioContext.
  */
@@ -178,7 +181,40 @@ export type FoleyLoop =
   /** hands going through a container while E is held (by `material`); rate 1 a calm search */
   | 'rummage'
   /** an old pump running: its motor humming in the dispenser, the meter whirring, fuel rushing through the hose (gain with the flow, rate 0.8-1.2) */
-  | 'pump_run';
+  | 'pump_run'
+  // tyres on the road, by the surface under them: each driven every frame for the surfaces the wheels are on. Rolling: gain
+  // from the speed, rate from it too (1 about 50 km/h; 0.1-3, a crawl to 150 km/h, the sound brighter and busier as it goes
+  // faster, part of the way: RATE_SPAN). Sliding: gain from how hard the tyres slide, rate from how fast (0.5-2)
+  /** rolling on dry asphalt: a smooth, broadband tyre roar round 850 Hz with the tread's faint whine in it, the drone through the body under it; the steady bed under everything */
+  | 'roll_asphalt'
+  /** rolling on wet asphalt (mixed over roll_asphalt by how wet the road is): the water's hiss off the tread, the spray sizzling, droplets drumming in the arch, the water swishing under it */
+  | 'roll_wet'
+  /** rolling on loose gravel: stones crunching and popping under the tread, pebbles flicked into the arch ticking now and then; clearly granular */
+  | 'roll_gravel'
+  /** rolling on packed dirt: a soft low rumble with grit in it, a small stone now and then */
+  | 'roll_dirt'
+  /** rolling on grass: the soft swish of the blades, tuft after tuft, over a low thrum of the turf; quieter than gravel */
+  | 'roll_grass'
+  /** rolling in sand: a heavy, dull, soft rumble, the grains hissing off the tread, sand pattering in the arches in flurries */
+  | 'roll_sand'
+  /** rolling on packed snow: dense crunching and the squeak cold snow gives as it packs */
+  | 'roll_snow'
+  /** rolling on ice: very quiet: a thin hum, a faint crackle now and then, once in a while the ice's ringing "pew" somewhere off */
+  | 'roll_ice'
+  /** sliding on dry asphalt: the tyre's squeal (a wavering tone near 1 kHz, its pitch wandering a little, a second tyre beating with it) over the rubber's rough scrub */
+  | 'skid_asphalt'
+  /** sliding on gravel: a harsh crunching rush, stones sprayed against the arches and the sills in barrages */
+  | 'skid_gravel'
+  /** sliding on packed dirt: a gritty scrub, the crust crumbling, dirt spattering on the arch */
+  | 'skid_dirt'
+  /** sliding on grass: the turf ripping, a wet swish of the blades, the earth squelching, clods thrown */
+  | 'skid_grass'
+  /** sliding in sand: a soft hissing slide, the sand pushed aside in a whoosh and sprayed pattering on the arches */
+  | 'skid_sand'
+  /** sliding on packed snow: squeaks in quick runs over a crunching slide, the snow sprayed off hissing */
+  | 'skid_snow'
+  /** sliding on ice: a hissing scrape, frost crackling off, almost no squeal */
+  | 'skid_ice';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
@@ -204,8 +240,15 @@ export interface FoleyOpts {
   tier?: number;
   /** linear gain on top of the sound's own level */
   gain?: number;
-  /** loops: playback rate (about 0.6..1.8, kept to 0.5..2; default 1), glided to like the gain on every start(): a scrub follows its stroke's speed with it (the glass scrape half way, see loopPlaybackRate) */
+  /** loops: playback rate (about 0.6..1.8, kept to 0.5..2; default 1), glided to like the gain on every start(): a scrub follows its stroke's speed with it (the glass scrape half way, see loopPlaybackRate); a rolling tyre's 0.1..3 (rate 1 about 50 km/h, see RATE_RANGE) */
   rate?: number;
+  /**
+   * loops: a low-pass on this loop alone (Hz: the tyres heard from inside a closed cabin, say), glided
+   * to like the gain and the rate on every start(). Not given, a loop plays as it always has, through
+   * no filter (and one given a cutoff before opens its low-pass right up). Kept to 10 Hz .. the Nyquist
+   * frequency; a Butterworth slope, 3 dB down at the cutoff and 12 dB an octave past it.
+   */
+  cutoff?: number;
   /** -1..1 stereo position (only with a stereo output) */
   pan?: number;
 }
@@ -3207,6 +3250,779 @@ function pumpDry(): Recipe {
   };
 }
 
+// ------------------------------------------------------------------ tyres on the road: rolling and sliding, by the surface under them
+
+/** a road tyre's turns a second at rate 1: 50 km/h on a wheel 0.64 m across */
+const TYRE_TURN_HZ = 6.9;
+
+/** scale a loop to an rms (a steady loop's level is its rms: where its loudest speck falls is luck) */
+function toRms(x: Float32Array, r: number): Float32Array {
+  const k = r / rmsOf(x);
+  for (let i = 0; i < x.length; i++) x[i] *= k;
+  return x;
+}
+
+/** the largest magnitude in a buffer (1 if silent): sparse events are set against a bed by their peaks, not their rms */
+const peakOf = (x: Float32Array): number => {
+  let m = 0;
+  for (const v of x) m = Math.max(m, Math.abs(v));
+  return m || 1;
+};
+
+/**
+ * turn a tyre loop round so its wrap falls on an ordinary moment and, in it, on the quietest
+ * millisecond of its specks (a seamless loop wraps cleanly anywhere; a grain just starting on the
+ * wrap would only look like a splice to a check, and an ordinary wrap keeps the loop's first moment
+ * like any other wherever the game starts it)
+ */
+function settleTyre(x: Float32Array, sr: number): Float32Array {
+  const n = x.length;
+  const w = Math.floor(0.05 * sr);
+  const lv: Array<[number, number]> = [];
+  for (let j = 0; (j + 1) * w <= n; j++) {
+    let e = 0;
+    for (let i = j * w; i < (j + 1) * w; i++) e += x[i] * x[i];
+    lv.push([e, j]);
+  }
+  lv.sort((p, q) => p[0] - q[0]);
+  const a = lv[lv.length >> 1][1] * w;
+  const m = Math.max(2, Math.floor(0.001 * sr));
+  const hop = Math.max(1, m >> 2);
+  let best = Infinity;
+  let at = a + (w >> 1);
+  for (let o = a + m; o + 2 * m <= a + w; o += hop) {
+    let e = 0;
+    for (let i = o; i < o + m; i++) e += (x[i] - x[i - 1]) ** 2;
+    if (e < best) {
+      best = e;
+      at = o + (m >> 1);
+    }
+  }
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = x[(i + at) % n];
+  return out;
+}
+
+/** a tyre loop's last steps: the odd big speck tamed, its top rolled off from lp Hz (nothing to fold back at the fastest rate), the mean taken out, its wrap turned to an ordinary, quiet moment, set to its rms */
+function tyreFinish(out: Float32Array, sr: number, lp: number): Float32Array {
+  return toRms(settleTyre(centre(loopFilter(tame(out, 18), sr, [['lowpass', lp, 0.7], ['lowpass', lp * 1.12, 0.7]])), sr), 0.1);
+}
+
+/**
+ * The phase (in cycles) of a tone running round a loop, its frequency f0 times fm[i] at every sample
+ * (a periodic curve: its end runs on into its start), its pitch taken a hair up or down so that it
+ * turns a whole number of cycles in the loop: a tone and its overtones drawn from it wrap without a seam.
+ */
+function loopPhase(sr: number, f0: number, fm: Float64Array): Float64Array {
+  const n = fm.length;
+  let tot = 0;
+  for (let i = 0; i < n; i++) tot += (f0 * fm[i]) / sr;
+  const k = (Math.max(1, Math.round(tot)) / tot) * (f0 / sr);
+  const ph = new Float64Array(n);
+  let p = 0;
+  for (let i = 0; i < n; i++) {
+    ph[i] = p;
+    p += fm[i] * k;
+  }
+  return ph;
+}
+
+/** a curve round a loop (u = 0..1) holding one of `values` a while, k holds of a little different lengths, gliding into the next over the last `glide` (of the loop) of each, the last into the first */
+function holds(rng: Rng, k: number, values: readonly number[], glide: number): (u: number) => number {
+  const v = Array.from({ length: k }, () => values[Math.floor(rng.next() * values.length)]);
+  const w = Array.from({ length: k }, () => rng.range(0.6, 1.4));
+  const tot = w.reduce((a, b) => a + b, 0);
+  const starts: number[] = [];
+  let acc = 0;
+  for (const x of w) {
+    starts.push(acc / tot);
+    acc += x;
+  }
+  return (u) => {
+    const uu = u - Math.floor(u);
+    let i = k - 1;
+    while (i > 0 && starts[i] > uu) i--;
+    const left = (i + 1 < k ? starts[i + 1] : 1) - uu;
+    if (left >= glide) return v[i];
+    const f = 1 - left / glide;
+    return v[i] + (v[(i + 1) % k] - v[i]) * f * f * (3 - 2 * f);
+  };
+}
+
+/** a bus of grains and its colour: the filters it goes through, its weight in the mix */
+type GrainColour = readonly [ReadonlyArray<readonly [BiquadKind, number, number?, number?]>, number];
+
+/**
+ * Loose stuff crushed under a tread (stones grinding on one another, a crust breaking, snow's crystals
+ * giving way): runs of sharp specks, `rate` runs a second thinned by the density d(t) (0..1), each run a
+ * few specks to `most` more a millisecond or two apart (most runs small, the odd big one), each run in
+ * one of the colours; the whole tamed so its biggest stands no more than crestDb over it. len s, seamless.
+ */
+function crunchLoop(sr: number, len: number, rng: Rng, rate: number, d: (t: number) => number, colours: readonly GrainColour[], o: { gap?: number; most?: number; decay?: readonly [number, number]; crestDb?: number } = {}): Float32Array {
+  const n = Math.floor(len * sr);
+  const bus = colours.map(() => new Float32Array(2 * n));
+  const gap = o.gap ?? 0.0018;
+  const most = o.most ?? 10;
+  const [d0, d1] = o.decay ?? [0.00005, 0.0004];
+  scatter(rng, len, rate, d, (t, v) => {
+    const b = bus[Math.floor(rng.next() * bus.length)];
+    const m = 1 + Math.floor(powerLaw(rng, 0.1, 1.3) * most);
+    const g = powerLaw(rng, 0.2, 1.8) * (0.4 + 0.6 * v);
+    for (let k = 0, tt = t; k < m; k++) {
+      grainInto(b, sr, tt, g * rng.range(0.35, 1), rng.range(d0, d1), rng);
+      tt -= Math.log(1 - rng.next()) * gap;
+    }
+  });
+  const out = new Float32Array(n);
+  bus.forEach((b, k) => mixInto(out, loopFilter(fold(b), sr, colours[k][0]), 0, colours[k][1]));
+  return tame(out, o.crestDb ?? 13);
+}
+
+/**
+ * Something flicked up into the wheel arch (a pebble, a clod, a lump of ice): a sharp tick on its
+ * plastic liner, or (`steel` of the time) on bare steel, ringing a little; now and then it bounces once
+ * more. At `at` s, strength a.
+ */
+function archInto(x: Float32Array, sr: number, at: number, a: number, rng: Rng, steel = 0.25): void {
+  const hit = (t: number, g: number): void => {
+    const s = Math.floor(t * sr);
+    if (rng.next() < steel) strike(x, sr, s, metalModes(rng.range(1700, 3400), rng.range(0.003, 0.007)), 0.45 * g, rng, 0.04);
+    else {
+      const f = rng.range(900, 2300);
+      const dd = rng.range(0.0008, 0.002);
+      strike(x, sr, s, [[f, 1, dd], [f * 1.87, 0.5, dd * 0.6], [f * 3.05, 0.25, dd * 0.4]], 0.6 * g, rng, 0.05);
+    }
+    grainInto(x, sr, t, g, rng.range(0.0001, 0.0003), rng);
+  };
+  hit(at, a);
+  if (rng.next() < 0.3) hit(at + rng.range(0.006, 0.025), a * rng.range(0.2, 0.45));
+}
+
+/** a flurry of fine stuff thrown up against the arch (sand, snow, grit): `count` specks over len s from `at`, thickest at first */
+function patterInto(x: Float32Array, sr: number, at: number, len: number, a: number, count: number, rng: Rng): void {
+  for (let k = 0; k < count; k++) grainInto(x, sr, at + len * Math.pow(rng.next(), 1.6), a * powerLaw(rng, 0.25, 2.2), rng.range(0.00008, 0.0003), rng);
+}
+
+/** an envelope round a loop of len s, its mean 1: soft swells (a sine squared each, `rate` a second, lo..hi s long, of power-law strengths) over a floor */
+function swells(sr: number, len: number, rng: Rng, rate: number, lo: number, hi: number, floor: number): Float32Array {
+  const e = cyclic(sr, len, (x) =>
+    scatter(rng, len, rate, () => 1, (t) => {
+      const a = Math.floor(t * sr);
+      const m = Math.floor(rng.range(lo, hi) * sr);
+      const g = powerLaw(rng, 0.3, 2);
+      for (let i = 0; i < m && a + i < x.length; i++) x[a + i] += g * Math.sin((Math.PI * i) / m) ** 2;
+    }),
+  );
+  let mean = 0;
+  for (const v of e) mean += v;
+  mean /= Math.max(1, e.length);
+  for (let i = 0; i < e.length; i++) e[i] = floor + ((1 - floor) * e[i]) / mean;
+  return e;
+}
+
+/**
+ * A tyre's tread going round a loop of n samples, `turns` turns: `blocks` blocks a turn of three
+ * pitches in runs (a pattern is sequenced so that it does not whine on one note), each striking the
+ * road as it comes round, a little harder or softer with the road (`rough`); the clicks alone, their
+ * colour left to the filters they go through.
+ */
+function treadClicks(n: number, turns: number, blocks: number, rng: Rng, rough: number): Float32Array {
+  const pitch: number[] = [];
+  while (pitch.length < blocks) {
+    const p = [0.82, 1, 1.18][Math.floor(rng.next() * 3)];
+    for (let k = 1 + Math.floor(rng.next() * 4); k > 0 && pitch.length < blocks; k--) pitch.push(p);
+  }
+  const tot = pitch.reduce((a, b) => a + b, 0);
+  const x = new Float32Array(n);
+  const per = n / turns;
+  for (let r = 0; r < turns; r++) {
+    let acc = 0;
+    for (const p of pitch) {
+      const at = (r + acc / tot) * per;
+      const i = Math.floor(at);
+      const f = at - i;
+      const v = 1 + 0.5 * rough * rng.gauss();
+      // (split between the two samples it falls between: the same click wherever it lands)
+      x[i % n] += v * (1 - f);
+      x[(i + 1) % n] += v * f;
+      acc += p;
+    }
+  }
+  return x;
+}
+
+/** ice cracking somewhere off: the crack's sound running through the sheet highs first (a thin chirp falling from a few kHz to a few hundred Hz), a tick where it broke */
+function pewInto(x: Float32Array, sr: number, at: number, amp: number, rng: Rng): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  const len = rng.range(0.05, 0.11);
+  const m = Math.min(x.length - a, Math.floor(len * sr));
+  const f1 = rng.range(2800, 4200);
+  const f2 = rng.range(450, 750);
+  const tau = len / rng.range(2.5, 4);
+  let ph = 0;
+  for (let i = 0; i < m; i++) {
+    const t = i / sr;
+    ph += (f2 + (f1 - f2) * Math.exp(-t / tau)) / sr;
+    x[a + i] += amp * Math.sin(2 * Math.PI * ph) * Math.min(1, t / 0.002) * Math.exp(-t / (0.35 * len));
+  }
+  grainInto(x, sr, at, 0.6 * amp, 0.0002, rng);
+}
+
+/**
+ * Rolling on dry asphalt (rate 1 about 50 km/h): the tyre's roar, broadband and smooth (the tread's air
+ * pumped out of its grooves and its blocks meeting the road, weighted round 900 Hz), the drone it sends
+ * through the wheel and the body, the air in the tyre ringing faintly (its cavity, near 220 Hz), the
+ * tread's faint whine (64 blocks a turn in three pitches), a fine sizzle of the stone in the asphalt;
+ * breathing a little with the road and once a turn. The steady bed under everything. Seamless (29
+ * turns of the wheel).
+ */
+function rollAsphalt(): Recipe {
+  return (sr, rng) => {
+    const turns = 29;
+    const len = turns / TYRE_TURN_HZ;
+    const n = Math.floor(len * sr);
+    const road = wander(rng, 9, 0.82, 1.12);
+    const grain = wander(rng, Math.round(len * 5), 0.85, 1.15);
+    const roar = loopFilter(loopPink(n, rng), sr, [['highpass', 160, 0.6], ['peaking', 900, 0.8, 6], ['lowpass', 2600, 0.6]]);
+    const drone = loopFilter(loopPink(n, rng), sr, [['lowpass', 240, 0.7], ['lowpass', 300, 0.7], ['highpass', 45, 0.7]]);
+    const cavity = loopFilter(noise(n, rng), sr, [['bandpass', 222, 14]]);
+    const tread = loopFilter(treadClicks(n, turns, 64, rng, 0.25), sr, [['highpass', 300, 0.7], ['lowpass', 1300, 0.7], ['peaking', 460, 2, 6]]);
+    const sizzle = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 1800, () => 1, (t) => grainInto(x, sr, t, powerLaw(rng, 0.3, 3), rng.range(0.00006, 0.0002), rng))), sr, [['highpass', 2000, 0.7], ['lowpass', 6500, 0.7]]);
+    const [ra, rd, rc, rt, rs] = [rmsOf(roar), rmsOf(drone), rmsOf(cavity), rmsOf(tread), rmsOf(sizzle)];
+    const out = new Float32Array(n);
+    const w = (2 * Math.PI * turns) / n;
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const swell = road(u) * (1 + 0.03 * Math.cos(w * i));
+      out[i] = (roar[i] / ra) * swell * grain(u) + (0.55 * drone[i] * road(u)) / rd + (0.12 * cavity[i]) / rc + (0.3 * tread[i] * grain(u)) / rt + (0.06 * sizzle[i]) / rs;
+    }
+    return tyreFinish(out, sr, 7500);
+  };
+}
+
+/**
+ * Rolling on wet asphalt (played over roll_asphalt, by how wet it is): the water squeezed out of the
+ * tread's grooves and thrown off it in a steady hiss, the spray sizzling and fizzing off the tread,
+ * droplets drumming on the arch's liner, the film of water swishing under the tyre, deeper and
+ * shallower by turns. Seamless.
+ */
+function rollWet(): Recipe {
+  return (sr, rng) => {
+    const len = 4.4;
+    const n = Math.floor(len * sr);
+    const depth = wander(rng, 10, 0.55, 1);
+    const flutter = wander(rng, Math.round(len * 24), 0.8, 1.2);
+    const hiss = loopFilter(noise(n, rng), sr, [['highpass', 1000, 0.6], ['peaking', 3600, 0.7, 6], ['lowpass', 8000, 0.7], ['lowpass', 9000, 0.7]]);
+    const sizzle = tame(loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 3200, (t) => depth(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.15, 1.8), rng.range(0.00005, 0.00025), rng))), sr, [['highpass', 2600, 0.7], ['lowpass', 8500, 0.7]]), 12);
+    const drops = tame(
+      loopFilter(
+        cyclic(sr, len, (x) =>
+          scatter(rng, len, 70, (t) => depth(t / len), (t) => {
+            ring(x, sr, Math.floor(t * sr), rng.range(1400, 4200), powerLaw(rng, 0.3, 2), rng.range(0.0005, 0.0018), rng.range(0, 6.283));
+            grainInto(x, sr, t, 0.5 * powerLaw(rng, 0.3, 2), 0.0002, rng);
+          }),
+        ),
+        sr,
+        [['highpass', 900, 0.7], ['lowpass', 8000, 0.7]],
+      ),
+      14,
+    );
+    const swish = loopFilter(loopPink(n, rng), sr, [['bandpass', 600, 0.6], ['lowpass', 2000, 0.7]]);
+    const [rh, rz, rp, rw] = [rmsOf(hiss), rmsOf(sizzle), rmsOf(drops), rmsOf(swish)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const d = depth(u);
+      out[i] = (hiss[i] / rh) * flutter(u) * Math.sqrt(d) + (0.5 * sizzle[i]) / rz + (0.3 * drops[i]) / rp + (0.45 * swish[i] * d) / rw;
+    }
+    return tyreFinish(out, sr, 8500);
+  };
+}
+
+/**
+ * Rolling on loose gravel: the stones crunching and grinding against one another under the tread (runs
+ * of sharp specks in four colours), stones popping out from under it (a click and the stone's short
+ * ring), pebbles flicked into the arch ticking on its liner now and then (on bare steel now and then,
+ * sometimes bouncing), the tyre rumbling over the loose bed and crushing it. Clearly granular. Seamless.
+ */
+function rollGravel(): Recipe {
+  return (sr, rng) => {
+    const len = 4.6;
+    const n = Math.floor(len * sr);
+    const bed = wander(rng, 11, 0.55, 1);
+    const rough = wander(rng, Math.round(len * 60), 0.35, 1);
+    const crunch = crunchLoop(sr, len, rng, 220, (t) => bed(t / len), [
+      [[['bandpass', 1000, 1.1]], 1.3],
+      [[['bandpass', 1900, 1.1]], 1.2],
+      [[['bandpass', 3300, 1.1]], 1],
+      [[['highpass', 2400, 0.7], ['lowpass', 7000, 0.7]], 0.7],
+    ]);
+    const pops = tame(
+      cyclic(sr, len, (x) =>
+        scatter(rng, len, 38, (t) => bed(t / len), (t) => {
+          const f = rng.range(1800, 4600);
+          const d = rng.range(0.0006, 0.0018);
+          const a = powerLaw(rng, 0.3, 2);
+          strike(x, sr, Math.floor(t * sr), [[f, 1, d], [f * 1.71, 0.55, d * 0.7], [f * 2.63, 0.3, d * 0.5]], 0.6 * a, rng, 0.05);
+          grainInto(x, sr, t, a, rng.range(0.0001, 0.0003), rng);
+        }),
+      ),
+      15,
+    );
+    const arch = tame(cyclic(sr, len, (x) => scatter(rng, len, 3.5, () => 1, (t) => archInto(x, sr, t, powerLaw(rng, 0.35, 2), rng, 0.25))), 16);
+    const rumble = loopFilter(loopPink(n, rng), sr, [['lowpass', 300, 0.7], ['lowpass', 380, 0.7], ['highpass', 40, 0.7]]);
+    const crush = loopFilter(noise(n, rng), sr, [['bandpass', 650, 0.8]]);
+    const [rc, rp, ra, rr, rk] = [rmsOf(crunch), rmsOf(pops), rmsOf(arch), rmsOf(rumble), rmsOf(crush)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = crunch[i] / rc + (0.7 * pops[i]) / rp + (0.5 * arch[i]) / ra + (0.55 * rumble[i] * (0.6 + 0.4 * rough(u))) / rr + (0.35 * crush[i] * rough(u) * bed(u)) / rk;
+    }
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * Rolling on packed dirt: a soft low rumble (the tyre over a firm, uneven floor, its little bumps), the
+ * tread's softer hush on it, grit crackling in it, a small stone now and then, a speck of grit in the
+ * arch. Darker and smoother than gravel. Seamless.
+ */
+function rollDirt(): Recipe {
+  return (sr, rng) => {
+    const len = 4.3;
+    const n = Math.floor(len * sr);
+    const bumps = wander(rng, Math.round(len * 7), 0.55, 1);
+    const firm = wander(rng, 8, 0.7, 1);
+    const rumble = loopFilter(loopPink(n, rng), sr, [['lowpass', 380, 0.7], ['lowpass', 450, 0.7], ['highpass', 35, 0.7], ['peaking', 110, 1, 3]]);
+    const hush = loopFilter(loopPink(n, rng), sr, [['bandpass', 550, 0.7], ['lowpass', 1800, 0.7]]);
+    const grit = crunchLoop(sr, len, rng, 260, (t) => firm(t / len), [[[['bandpass', 1600, 0.9]], 1], [[['bandpass', 2800, 0.9]], 0.8]], { most: 4, crestDb: 12 });
+    const stones = tame(
+      cyclic(sr, len, (x) => {
+        scatter(rng, len, 5, () => 1, (t) => {
+          const f = rng.range(1300, 3000);
+          const d = rng.range(0.001, 0.002);
+          strike(x, sr, Math.floor(t * sr), [[f, 1, d], [f * 1.6, 0.5, d * 0.7]], 0.5 * powerLaw(rng, 0.35, 2), rng, 0.05);
+          thudInto(x, sr, t, rng, 0.2, rng.range(120, 200), 0.006);
+        });
+        scatter(rng, len, 1.2, () => 1, (t) => archInto(x, sr, t, 0.5 * powerLaw(rng, 0.35, 2), rng, 0.15));
+      }),
+      15,
+    );
+    const [rr, rh, rg, rs] = [rmsOf(rumble), rmsOf(hush), rmsOf(grit), rmsOf(stones)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (rumble[i] * bumps(u)) / rr + (0.45 * hush[i] * firm(u)) / rh + (0.33 * grit[i]) / rg + (0.3 * stones[i]) / rs;
+    }
+    return tyreFinish(out, sr, 6500);
+  };
+}
+
+/**
+ * Rolling on grass: the soft swish of the blades brushing the tread, the sidewalls and the underside,
+ * tuft after tuft, now thicker, now thinner; blades flicking off; under it the tyre's own muffled hush
+ * and a low thrum of the turf giving; a stalk snapping now and then. Quieter than gravel. Seamless.
+ */
+function rollGrass(): Recipe {
+  return (sr, rng) => {
+    const len = 4.5;
+    const n = Math.floor(len * sr);
+    const thick = wander(rng, 10, 0.5, 1);
+    const tufts = swells(sr, len, rng, 22, 0.05, 0.18, 0.35);
+    const tufts2 = swells(sr, len, rng, 14, 0.08, 0.25, 0.4);
+    const swishHi = loopFilter(noise(n, rng), sr, [['highpass', 1500, 0.6], ['peaking', 3800, 0.8, 4], ['lowpass', 7500, 0.7]]);
+    const swishLo = loopFilter(noise(n, rng), sr, [['bandpass', 1200, 0.7]]);
+    const flick = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 500, (t) => thick(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.2, 2), rng.range(0.00005, 0.00015), rng))), sr, [['highpass', 3000, 0.7], ['lowpass', 8000, 0.7]]);
+    const hush = loopFilter(loopPink(n, rng), sr, [['bandpass', 550, 0.7]]);
+    const thrum = loopFilter(loopPink(n, rng), sr, [['lowpass', 160, 0.7], ['lowpass', 200, 0.7], ['highpass', 30, 0.7]]);
+    const give = wander(rng, Math.round(len * 5), 0.6, 1);
+    const snaps = cyclic(sr, len, (x) =>
+      scatter(rng, len, 1.5, () => 1, (t) => {
+        grainInto(x, sr, t, 1, 0.00015, rng);
+        strike(x, sr, Math.floor(t * sr), [[rng.range(2200, 4200), 1, 0.0012]], 0.4, rng);
+      }),
+    );
+    const [rh, rl, rf, ru, rt] = [rmsOf(swishHi), rmsOf(swishLo), rmsOf(flick), rmsOf(hush), rmsOf(thrum)];
+    // (a snap stands about as high as the swishing's own rms: heard, not a crack)
+    const ks = 1.2 / peakOf(snaps);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (swishHi[i] * tufts[i] * thick(u)) / rh + (0.5 * swishLo[i] * tufts2[i]) / rl + (0.25 * flick[i]) / rf + (0.3 * hush[i] * give(u)) / ru + (0.65 * thrum[i] * give(u)) / rt + ks * snaps[i];
+    }
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * Rolling in sand: heavy, dull and soft: the tyre sunk in and ploughing it (a deep, muffled rumble,
+ * surging as it digs in and climbs), the grains streaming off the tread in a soft hiss, sand thrown up
+ * pattering on the arches in flurries. Seamless.
+ */
+function rollSand(): Recipe {
+  return (sr, rng) => {
+    const len = 4.4;
+    const n = Math.floor(len * sr);
+    const surge = wander(rng, 9, 0.6, 1);
+    const plough = loopFilter(loopPink(n, rng), sr, [['lowpass', 220, 0.7], ['lowpass', 280, 0.7], ['highpass', 28, 0.7]]);
+    const body = loopFilter(loopPink(n, rng), sr, [['bandpass', 420, 0.8]]);
+    const hiss = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 5000, (t) => surge(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.3, 3), rng.range(0.00004, 0.00012), rng))), sr, [['highpass', 2200, 0.7], ['lowpass', 7000, 0.7]]);
+    const patter = tame(loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 5, () => 1, (t) => patterInto(x, sr, t, rng.range(0.05, 0.15), powerLaw(rng, 0.4, 2), 25 + Math.floor(rng.next() * 40), rng))), sr, [['bandpass', 3800, 1], ['lowpass', 8000, 0.7]]), 14);
+    const [rp, rb, rh, rt] = [rmsOf(plough), rmsOf(body), rmsOf(hiss), rmsOf(patter)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const s = surge(u);
+      out[i] = (plough[i] * s) / rp + (0.3 * body[i]) / rb + (0.3 * hiss[i] * s) / rh + (0.32 * patter[i]) / rt;
+    }
+    return tyreFinish(out, sr, 7000);
+  };
+}
+
+/**
+ * Rolling on packed snow: dense crunching (its crystals crushed under the tread in little runs, the
+ * snow packing hissing between them), the squeak cold snow gives as it packs (short creaking squeals
+ * round 1.3-2.8 kHz, now one, now a run of them), a soft low thud of the tyre on it, snow flicked off
+ * the tread hissing faintly. Seamless.
+ */
+function rollSnow(): Recipe {
+  return (sr, rng) => {
+    const len = 4.6;
+    const n = Math.floor(len * sr);
+    const pack = wander(rng, 11, 0.55, 1);
+    const crunch = crunchLoop(sr, len, rng, 280, (t) => pack(t / len), [
+      [[['bandpass', 1500, 1]], 1.1],
+      [[['bandpass', 2700, 1]], 1],
+      [[['bandpass', 4300, 1]], 0.8],
+      [[['highpass', 3000, 0.7], ['lowpass', 7500, 0.7]], 0.5],
+    ], { gap: 0.0012, most: 10, crestDb: 12 });
+    const squeak = cyclic(sr, len, (x) =>
+      scatter(rng, len, 12, (t) => pack(t / len), (t) => squealInto(x, sr, t, rng.range(0.02, 0.09), rng.range(1300, 2800), rng.range(0.4, 1), rng, { bright: rng.range(0.5, 0.85), waver: 0.06, glide: 0.3, grip: 0.65, jitter: 0.045 })),
+    );
+    // the snow packing between the runs: a fine, fast-fluttering hiss of compaction
+    const packing = loopFilter(noise(n, rng), sr, [['bandpass', 1900, 0.7], ['lowpass', 6000, 0.7]]);
+    const flutter = wander(rng, Math.round(len * 90), 0.15, 1);
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 230, 0.7], ['highpass', 40, 0.7]]);
+    const flick = loopFilter(noise(n, rng), sr, [['highpass', 2500, 0.7], ['lowpass', 7000, 0.7]]);
+    const press = wander(rng, Math.round(len * 6), 0.6, 1);
+    const [rc, rq, rk, rl, rf] = [rmsOf(crunch), rmsOf(squeak), rmsOf(packing), rmsOf(low), rmsOf(flick)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = crunch[i] / rc + (0.5 * squeak[i]) / rq + (0.3 * packing[i] * flutter(u) * pack(u)) / rk + (0.4 * low[i] * press(u)) / rl + (0.08 * flick[i]) / rf;
+    }
+    return tyreFinish(out, sr, 8500);
+  };
+}
+
+/**
+ * Rolling on ice: very quiet. The tyre's thin hum on the smooth ice (the tread's note cleaner than on
+ * asphalt, the air it pumps hushing, the air in the tyre ringing), a faint hiss of frost, now and then
+ * a faint crackle of rime breaking, and once in a while the ice answering somewhere off with a thin
+ * ringing "pew" (a crack's sound running through the sheet, its highs first). Seamless (33 turns of
+ * the wheel).
+ */
+function rollIce(): Recipe {
+  return (sr, rng) => {
+    const turns = 33;
+    const len = turns / TYRE_TURN_HZ;
+    const n = Math.floor(len * sr);
+    const tread = loopFilter(treadClicks(n, turns, 64, rng, 0.3), sr, [['bandpass', 470, 1.6], ['bandpass', 470, 1.6]]);
+    const air = loopFilter(loopPink(n, rng), sr, [['bandpass', 900, 0.9], ['lowpass', 2500, 0.7]]);
+    const cavity = loopFilter(noise(n, rng), sr, [['bandpass', 230, 10]]);
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 180, 0.7], ['highpass', 40, 0.7]]);
+    const frost = loopFilter(noise(n, rng), sr, [['highpass', 3000, 0.7], ['lowpass', 7000, 0.7]]);
+    const crackle = loopFilter(
+      cyclic(sr, len, (x) =>
+        scatter(rng, len, 2.2, () => 1, (t) => {
+          for (let k = 2 + Math.floor(rng.next() * 5); k > 0; k--) grainInto(x, sr, t + rng.range(0, 0.02), powerLaw(rng, 0.3, 2), rng.range(0.00005, 0.0002), rng);
+        }),
+      ),
+      sr,
+      [['bandpass', 4500, 1]],
+    );
+    const pews = cyclic(sr, len, (x) => scatter(rng, len, 0.35, () => 1, (t) => pewInto(x, sr, t, rng.range(0.4, 1), rng)));
+    const [rt, ra, rc, rl, rf] = [rmsOf(tread), rmsOf(air), rmsOf(cavity), rmsOf(low), rmsOf(frost)];
+    // (the crackles and the pews faint: their peaks about the hum's rms, heard only because nothing else is up there)
+    const [kc, kp] = [1 / peakOf(crackle), 0.9 / peakOf(pews)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = (0.6 * tread[i]) / rt + (0.5 * air[i]) / ra + (0.35 * cavity[i]) / rc + (0.3 * low[i]) / rl + (0.06 * frost[i]) / rf + kc * crackle[i] + kp * pews[i];
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * A tyre sliding on dry asphalt: its squeal, the tread's blocks catching and slipping on the stone some
+ * thousand times a second (a tone near 1 kHz with its overtones, brighter as it bites, wavering, its
+ * pitch wandering a little and now and then stepping to another note as the slide changes), a second
+ * tyre squealing with it a little apart (the two beat), the rubber scrubbing under them in a rough rasp,
+ * the carcass rumbling. Seamless: every tone turns a whole number of cycles in the loop.
+ */
+function skidAsphalt(): Recipe {
+  return (sr, rng) => {
+    const len = 4.2;
+    const n = Math.floor(len * sr);
+    const notes = holds(rng, 7, [1, 1, 1, 1.08, 0.93, 1.04], 0.05 / len);
+    const drift = wander(rng, 9, 0.965, 1.035);
+    const warble = wander(rng, Math.round(len * 14), -1, 1);
+    const jitter = wander(rng, Math.round(len * 320), -1, 1);
+    const wv = (2 * Math.PI * snapHz(rng.range(5.5, 7.5), n, sr)) / sr;
+    const p1 = rng.range(0, 6.283);
+    const fm = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      fm[i] = notes(u) * drift(u) * (1 + 0.012 * Math.sin(wv * i + p1) + 0.012 * warble(u) + 0.007 * jitter(u));
+    }
+    const f0 = rng.range(950, 1150);
+    const ph1 = loopPhase(sr, f0, fm);
+    const apart = wander(rng, 7, 1.045, 1.07);
+    for (let i = 0; i < n; i++) fm[i] *= apart(i / n);
+    const ph2 = loopPhase(sr, f0, fm);
+    const grip = wander(rng, Math.round(len * 26), 0.55, 1);
+    const grip2 = wander(rng, Math.round(len * 22), 0.5, 1);
+    const body = wander(rng, 8, 0.65, 1);
+    const second = wander(rng, 6, 0, 1);
+    const q = Array.from({ length: 6 }, () => rng.range(0, 6.283));
+    const tone = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const a = 2 * Math.PI * ph1[i];
+      const b = 2 * Math.PI * ph2[i];
+      const g = grip(u);
+      const s1 = Math.sin(a) + g * (0.45 * Math.sin(2 * a + q[0]) + 0.2 * Math.sin(3 * a + q[1]) + 0.08 * Math.sin(4 * a + q[2]));
+      const s2 = Math.sin(b) + 0.35 * Math.sin(2 * b + q[3]) + 0.12 * Math.sin(3 * b + q[4]);
+      tone[i] = s1 * g * body(u) + 0.55 * s2 * Math.pow(second(u), 1.5) * grip2(u);
+    }
+    const rasp = loopFilter(noise(n, rng), sr, [['bandpass', 1600, 0.5], ['lowpass', 5500, 0.7]]);
+    const rough = wander(rng, Math.round(len * 90), 0.3, 1);
+    const rumble = loopFilter(loopPink(n, rng), sr, [['lowpass', 260, 0.7], ['highpass', 45, 0.7]]);
+    const [rt, rr, rb] = [rmsOf(tone), rmsOf(rasp), rmsOf(rumble)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = tone[i] / rt + (0.3 * rasp[i] * rough(i / n)) / rr + (0.22 * rumble[i]) / rb;
+    return tyreFinish(out, sr, 9000);
+  };
+}
+
+/**
+ * A slide on gravel: the stones scattered and sprayed: a harsh, crunching rush as the tread ploughs
+ * through them (denser and rougher than rolling), stones sprayed against the arches and the sills in
+ * barrages, bigger ones knocking, the loose gravel pouring away in a hiss, the slide's low rumble.
+ * Seamless.
+ */
+function skidGravel(): Recipe {
+  return (sr, rng) => {
+    const len = 4.4;
+    const n = Math.floor(len * sr);
+    const dig = wander(rng, 12, 0.55, 1);
+    const crunch = crunchLoop(sr, len, rng, 520, (t) => dig(t / len), [
+      [[['bandpass', 900, 1]], 1.2],
+      [[['bandpass', 1800, 1]], 1.2],
+      [[['bandpass', 3200, 1]], 1],
+      [[['highpass', 2600, 0.7], ['lowpass', 7500, 0.7]], 0.8],
+    ], { most: 14, crestDb: 12 });
+    const spray = tame(
+      cyclic(sr, len, (x) =>
+        scatter(rng, len, 3.5, (t) => dig(t / len), (t, v) => {
+          // a barrage: a fistful of stones against the arch and the sill
+          const m = 5 + Math.floor(rng.next() * 14);
+          const span = rng.range(0.05, 0.2);
+          for (let k = 0; k < m; k++) archInto(x, sr, t + span * Math.pow(rng.next(), 1.4), v * powerLaw(rng, 0.25, 2), rng, 0.3);
+        }),
+      ),
+      15,
+    );
+    const knocks = tame(
+      cyclic(sr, len, (x) =>
+        scatter(rng, len, 2.5, () => 1, (t) => {
+          thudInto(x, sr, t, rng, 0.4, rng.range(150, 260), 0.008);
+          strike(x, sr, Math.floor(t * sr), woodModes(rng.range(700, 1300), 0.004), 0.5, rng);
+        }),
+      ),
+      15,
+    );
+    const pour = loopFilter(noise(n, rng), sr, [['bandpass', 2000, 0.5], ['lowpass', 7000, 0.7]]);
+    const rough = wander(rng, Math.round(len * 70), 0.3, 1);
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 260, 0.7], ['highpass', 35, 0.7]]);
+    const [rc, rs, rk, rp, rl] = [rmsOf(crunch), rmsOf(spray), rmsOf(knocks), rmsOf(pour), rmsOf(low)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = crunch[i] / rc + (0.6 * spray[i]) / rs + (0.3 * knocks[i]) / rk + (0.5 * pour[i] * rough(u) * dig(u)) / rp + (0.4 * low[i]) / rl;
+    }
+    return tyreFinish(out, sr, 9000);
+  };
+}
+
+/**
+ * A slide on packed dirt: a gritty scrub (the tread scraping and tearing the crust: a rough broadband
+ * rasp, mostly 300 Hz - 3 kHz), grit crackling in it, the crust breaking up in crumbles, dirt sprayed in
+ * soft spatters against the arch, a small stone ticking. Seamless.
+ */
+function skidDirt(): Recipe {
+  return (sr, rng) => {
+    const len = 4.3;
+    const n = Math.floor(len * sr);
+    const dig = wander(rng, 10, 0.55, 1);
+    const rough = wander(rng, Math.round(len * 70), 0.25, 1);
+    const scrub = loopFilter(noise(n, rng), sr, [['bandpass', 1000, 0.5], ['peaking', 2200, 1, 3], ['lowpass', 5000, 0.7]]);
+    const grit = crunchLoop(sr, len, rng, 300, (t) => dig(t / len), [[[['bandpass', 1500, 1]], 1], [[['bandpass', 2800, 1]], 0.9], [[['highpass', 3000, 0.7], ['lowpass', 6500, 0.7]], 0.6]], { most: 6 });
+    const ev = tame(
+      cyclic(sr, len, (x) => {
+        // the crust crumbling
+        scatter(rng, len, 30, (t) => dig(t / len), (t) => pinkBurstInto(x, sr, t, 0.03, powerLaw(rng, 0.3, 2), 0.001, 0.006, rng, [['bandpass', rng.range(500, 1800), 1.2]]));
+        // dirt spattering on the arch: a soft "pff" and the grit in it
+        scatter(rng, len, 5, () => 1, (t) => {
+          const a = powerLaw(rng, 0.4, 2);
+          pinkBurstInto(x, sr, t, 0.08, 0.6 * a, 0.004, 0.02, rng, [['lowpass', 2500], ['highpass', 300]]);
+          patterInto(x, sr, t, 0.06, 0.4 * a, 8 + Math.floor(rng.next() * 10), rng);
+        });
+        scatter(rng, len, 3, () => 1, (t) => archInto(x, sr, t, 0.6 * powerLaw(rng, 0.35, 2), rng, 0.2));
+      }),
+      15,
+    );
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 240, 0.7], ['highpass', 35, 0.7]]);
+    const [rs, rg, re, rl] = [rmsOf(scrub), rmsOf(grit), rmsOf(ev), rmsOf(low)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (scrub[i] * rough(u) * dig(u)) / rs + (0.5 * grit[i]) / rg + (0.55 * ev[i]) / re + (0.4 * low[i]) / rl;
+    }
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * A slide on grass: the turf torn up under the tread: a ripping (fibres and roots snapping in quick runs,
+ * quicker as the sod tears), a wet swish of the blades over the rubber, the wet earth squishing, clods
+ * of it thrown against the arch, the slide's low rumble. Seamless.
+ */
+function skidGrass(): Recipe {
+  return (sr, rng) => {
+    const len = 4.3;
+    const n = Math.floor(len * sr);
+    const tear = wander(rng, 10, 0.5, 1);
+    const colours: GrainColour[] = [[[['bandpass', 1200, 1]], 1], [[['bandpass', 2400, 1]], 0.9], [[['highpass', 3500, 0.7], ['lowpass', 8000, 0.7]], 0.6]];
+    const bus = colours.map(() => new Float32Array(2 * n));
+    scatter(rng, len, 9, (t) => tear(t / len), (t, v) => {
+      // a rip: fibres snapping one after another, quicker and quicker
+      const b = bus[Math.floor(rng.next() * bus.length)];
+      const m = 15 + Math.floor(rng.next() * 45);
+      const span = rng.range(0.04, 0.15);
+      const g = v * rng.range(0.5, 1);
+      for (let k = 0; k < m; k++) grainInto(b, sr, t + span * Math.sqrt(k / m), g * powerLaw(rng, 0.3, 2), rng.range(0.00005, 0.0003), rng);
+    });
+    const rip = new Float32Array(n);
+    bus.forEach((b, k) => mixInto(rip, loopFilter(fold(b), sr, colours[k][0]), 0, colours[k][1]));
+    tame(rip, 13);
+    const sw = swells(sr, len, rng, 10, 0.08, 0.3, 0.4);
+    const swish = loopFilter(noise(n, rng), sr, [['highpass', 1400, 0.6], ['peaking', 3200, 0.8, 4], ['lowpass', 7000, 0.7]]);
+    const wet = tame(
+      cyclic(sr, len, (x) => {
+        // the wet earth squished: a short smack of noise falling in pitch
+        scatter(rng, len, 9, () => 1, (t) => {
+          const m = Math.floor(rng.range(0.025, 0.06) * sr);
+          const f0 = rng.range(900, 1600);
+          const sq = sweptBand(noise(m, rng), sr, (tt) => f0 * (1 - 8 * tt), 2.5);
+          const a = rng.range(0.3, 1);
+          for (let i = 0; i < m; i++) sq[i] *= a * Math.min(1, i / (0.003 * sr)) * Math.exp(-i / (0.012 * sr));
+          mixInto(x, sq, Math.floor(t * sr), 1);
+        });
+        scatter(rng, len, 3, () => 1, (t) => {
+          pinkBurstInto(x, sr, t, 0.06, 0.8, 0.002, 0.015, rng, [['lowpass', 700], ['highpass', 80]]);
+          thudInto(x, sr, t, rng, 0.25, rng.range(110, 170), 0.01);
+        });
+      }),
+      14,
+    );
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 220, 0.7], ['highpass', 35, 0.7]]);
+    const [rr, rs, rw, rl] = [rmsOf(rip), rmsOf(swish), rmsOf(wet), rmsOf(low)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = rip[i] / rr + (0.7 * swish[i] * sw[i]) / rs + (0.4 * wet[i]) / rw + (0.35 * low[i]) / rl;
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * A slide in sand: a soft hissing (the grains streaming and sliding over one another: a fine, dense
+ * hiss), the whoosh of sand pushed aside in a wave, sand sprayed up pattering hard on the arches and the
+ * sills, a soft low rumble. Seamless.
+ */
+function skidSand(): Recipe {
+  return (sr, rng) => {
+    const len = 4.4;
+    const n = Math.floor(len * sr);
+    const surge = wander(rng, 10, 0.55, 1);
+    const surge2 = wander(rng, Math.round(len * 4), 0.5, 1);
+    const hiss = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 9000, (t) => surge(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.3, 3), rng.range(0.00004, 0.00012), rng))), sr, [['highpass', 1800, 0.7], ['lowpass', 7500, 0.7]]);
+    const whoosh = loopFilter(loopPink(n, rng), sr, [['bandpass', 600, 0.5]]);
+    const spray = tame(loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 7, () => 1, (t) => patterInto(x, sr, t, rng.range(0.08, 0.25), powerLaw(rng, 0.4, 2), 40 + Math.floor(rng.next() * 60), rng))), sr, [['bandpass', 3500, 0.8], ['lowpass', 8000, 0.7]]), 14);
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 200, 0.7], ['highpass', 30, 0.7]]);
+    const [rh, rw, rs, rl] = [rmsOf(hiss), rmsOf(whoosh), rmsOf(spray), rmsOf(low)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (hiss[i] * surge(u)) / rh + (0.6 * whoosh[i] * surge2(u)) / rw + (0.55 * spray[i]) / rs + (0.35 * low[i]) / rl;
+    }
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
+/**
+ * A slide on packed snow: the snow squeaking under the sliding tread (squeals of 1.1-2.4 kHz, longer
+ * and more often than rolling, now in quick runs), crunching, snow sprayed off in a soft hiss, a low
+ * rumble. Seamless.
+ */
+function skidSnow(): Recipe {
+  return (sr, rng) => {
+    const len = 4.4;
+    const n = Math.floor(len * sr);
+    const pack = wander(rng, 10, 0.5, 1);
+    const squeak = cyclic(sr, len, (x) =>
+      scatter(rng, len, 12, (t) => pack(t / len), (t) => squealInto(x, sr, t, rng.range(0.04, 0.16), rng.range(1100, 2400), rng.range(0.5, 1), rng, { bright: rng.range(0.45, 0.8), waver: 0.05, glide: 0.25, grip: 0.55, jitter: 0.03 })),
+    );
+    const crunch = crunchLoop(sr, len, rng, 260, (t) => pack(t / len), [
+      [[['bandpass', 1500, 1]], 1.1],
+      [[['bandpass', 2700, 1]], 1],
+      [[['highpass', 3200, 0.7], ['lowpass', 7500, 0.7]], 0.6],
+    ], { gap: 0.0012, most: 12, crestDb: 12 });
+    const sp = swells(sr, len, rng, 6, 0.15, 0.5, 0.5);
+    const spray = loopFilter(noise(n, rng), sr, [['highpass', 1600, 0.7], ['lowpass', 6500, 0.7]]);
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 220, 0.7], ['highpass', 35, 0.7]]);
+    const [rq, rc, rs, rl] = [rmsOf(squeak), rmsOf(crunch), rmsOf(spray), rmsOf(low)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = squeak[i] / rq + (0.75 * crunch[i]) / rc + (0.4 * spray[i] * sp[i]) / rs + (0.3 * low[i]) / rl;
+    return tyreFinish(out, sr, 8500);
+  };
+}
+
+/**
+ * A slide on ice: a hissing scrape (the rubber gliding over the polished ice: a smooth broadband hiss,
+ * 1.5-6 kHz, a little rough where the tread drags), frost and ice crystals scraped off crackling faintly,
+ * almost no squeal (the faintest, rarely), a faint low hum. Seamless.
+ */
+function skidIce(): Recipe {
+  return (sr, rng) => {
+    const len = 4.3;
+    const n = Math.floor(len * sr);
+    const flutter = wander(rng, Math.round(len * 20), 0.85, 1.15);
+    const rough = wander(rng, Math.round(len * 50), 0.2, 1);
+    const hiss = loopFilter(noise(n, rng), sr, [['highpass', 1200, 0.7], ['peaking', 3600, 0.8, 4], ['lowpass', 7500, 0.7]]);
+    const rasp = loopFilter(noise(n, rng), sr, [['bandpass', 1400, 0.8]]);
+    const frost = crunchLoop(sr, len, rng, 120, () => 1, [[[['highpass', 3500, 0.7], ['lowpass', 8000, 0.7]], 1], [[['bandpass', 2500, 1]], 0.6]], { most: 4, crestDb: 12 });
+    const squeak = cyclic(sr, len, (x) => scatter(rng, len, 0.6, () => 1, (t) => squealInto(x, sr, t, rng.range(0.06, 0.2), rng.range(1800, 2600), rng.range(0.5, 1), rng, { bright: 0.4, waver: 0.04, glide: 0.2, grip: 0.5 })));
+    const low = loopFilter(loopPink(n, rng), sr, [['lowpass', 200, 0.7], ['highpass', 40, 0.7]]);
+    const [rh, rr, rf, rl] = [rmsOf(hiss), rmsOf(rasp), rmsOf(frost), rmsOf(low)];
+    // (the squeal barely there: its peak a third of the hiss's rms)
+    const kq = 0.35 / peakOf(squeak);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (hiss[i] * flutter(u)) / rh + (0.35 * rasp[i] * rough(u)) / rr + (0.3 * frost[i]) / rf + kq * squeak[i] + (0.2 * low[i]) / rl;
+    }
+    return tyreFinish(out, sr, 8000);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -3245,6 +4061,12 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
   flat_flap: 0.56, rim_grind: 0.56, rare_glint: 0.085,
   // (the search about as loud as the scrapes and the sponge at gain 1, the pump at full flow under an engine's idle)
   rummage: 0.4, pump_run: 0.116,
+  // tyres on the road (gain 1, rate 1: 50 km/h, or a full slide): rolling, the asphalt the bed under it all at -36 LUFS (6 dB under
+  // a scrape, under an engine pulling), gravel the loudest roll (-32), snow -34, dirt and sand with the asphalt, wet asphalt's water
+  // -35 over it, grass far under gravel (-40), ice very quiet (-45); sliding, the asphalt's squeal -28 (over every roll, under the
+  // bare rim), gravel's -28.5, dirt -30, snow -30.5, sand -31, grass -32, ice -34
+  roll_asphalt: 0.165, roll_wet: 0.13, roll_gravel: 0.2, roll_dirt: 0.18, roll_grass: 0.083, roll_sand: 0.185, roll_snow: 0.153, roll_ice: 0.06,
+  skid_asphalt: 0.375, skid_gravel: 0.3, skid_dirt: 0.27, skid_grass: 0.195, skid_sand: 0.22, skid_snow: 0.233, skid_ice: 0.145,
 };
 
 /**
@@ -3362,6 +4184,21 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'rare_glint': return rareGlint();
     case 'rummage': return rummage(containerOf(o.material));
     case 'pump_run': return pumpRun();
+    case 'roll_asphalt': return rollAsphalt();
+    case 'roll_wet': return rollWet();
+    case 'roll_gravel': return rollGravel();
+    case 'roll_dirt': return rollDirt();
+    case 'roll_grass': return rollGrass();
+    case 'roll_sand': return rollSand();
+    case 'roll_snow': return rollSnow();
+    case 'roll_ice': return rollIce();
+    case 'skid_asphalt': return skidAsphalt();
+    case 'skid_gravel': return skidGravel();
+    case 'skid_dirt': return skidDirt();
+    case 'skid_grass': return skidGrass();
+    case 'skid_sand': return skidSand();
+    case 'skid_snow': return skidSnow();
+    case 'skid_ice': return skidIce();
     case 'glug': return glugLoop();
     case 'breath': return breathLoop();
     case 'heart': return heartLoop();
@@ -3389,11 +4226,22 @@ const VARIANTS = 3;
  * How far a loop's pitch follows the rate it is given (1, all the way, if not here). The glass
  * scrape's squeal is a tone, and a tone swept more than an octave by every stroke is a slide
  * whistle: half way, it still rises with a fast stroke as a squeak does, by a fifth at most.
+ * The tyres on the road follow their speed part of the way: a tyre's roar stays round the same
+ * pitch from 30 to 120 km/h, only brighter, and gravel crushed slowly still crunches, not thuds (so
+ * a crawl, rate 0.15, plays them about an octave down and 120 km/h, 2.4, about one up); the
+ * asphalt's squeal hardly moves (about a fifth from the slowest slide to the fastest).
  */
-const RATE_SPAN: Partial<Record<FoleyLoop, number>> = { scrape_glass: 0.5, rim_grind: 0.5 };
+const RATE_SPAN: Partial<Record<FoleyLoop, number>> = {
+  scrape_glass: 0.5, rim_grind: 0.5,
+  roll_asphalt: 0.55, roll_wet: 0.5, roll_gravel: 0.6, roll_dirt: 0.55, roll_grass: 0.55, roll_sand: 0.5, roll_snow: 0.55, roll_ice: 0.55,
+  skid_asphalt: 0.3, skid_gravel: 0.6, skid_dirt: 0.6, skid_grass: 0.6, skid_sand: 0.5, skid_snow: 0.4, skid_ice: 0.5,
+};
 
-/** the rates a loop takes (0.5..2 if not here): a wheel's from walking pace to a hundred, for the tyres' (the bare rim's grind follows half way) */
-const RATE_RANGE: Partial<Record<FoleyLoop, readonly [number, number]>> = { flat_flap: [0.25, 3.5], rim_grind: [0.25, 3.5] };
+/** the rates a loop takes (0.5..2 if not here): a wheel's from walking pace to a hundred, for the tyres' (the bare rim's grind follows half way); a rolling tyre's from a crawl to 150 km/h (rate 1 about 50) */
+const RATE_RANGE: Partial<Record<FoleyLoop, readonly [number, number]>> = {
+  flat_flap: [0.25, 3.5], rim_grind: [0.25, 3.5],
+  roll_asphalt: [0.1, 3], roll_wet: [0.1, 3], roll_gravel: [0.1, 3], roll_dirt: [0.1, 3], roll_grass: [0.1, 3], roll_sand: [0.1, 3], roll_snow: [0.1, 3], roll_ice: [0.1, 3],
+};
 
 /** the playback rate a loop plays at for the rate asked (FoleyOpts.rate): kept to its range, then followed as far as the loop's span (exported for tests and the harness) */
 export function loopPlaybackRate(kind: FoleyLoop, rate: number | undefined): number {
@@ -3402,12 +4250,28 @@ export function loopPlaybackRate(kind: FoleyLoop, rate: number | undefined): num
   return 1 + (RATE_SPAN[kind] ?? 1) * (r - 1);
 }
 
+/** a loop's own low-pass (FoleyOpts.cutoff): its Q, in dB as a Web Audio low-pass reads it (−3.01 dB is 1/√2: Butterworth, flat up to its corner, no bump), and how fast it glides to a new cutoff (s: a door shut muffles it in about a tenth of a second) */
+const CUTOFF_Q_DB = -3.0103;
+const CUTOFF_GLIDE = 0.05;
+
+/** the cutoff (Hz) a loop is muffled to for the cutoff asked (FoleyOpts.cutoff): kept to 10 Hz .. the Nyquist frequency; none (not given, or not a number) is no low-pass (exported for tests and the harness) */
+export function loopCutoff(sampleRate: number, cutoff: number | undefined): number | undefined {
+  return cutoff !== undefined && Number.isFinite(cutoff) ? Math.min(sampleRate / 2, Math.max(10, cutoff)) : undefined;
+}
+
+/** a loop playing: its source, its gain, and its low-pass between them once it has been given a cutoff */
+interface LiveLoop {
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  filter?: BiquadFilterNode;
+}
+
 /** plays the mechanical sounds on an AudioContext (the game's, or an offline one) */
 export class Foley {
   readonly ctx: BaseAudioContext;
   readonly out: GainNode;
   private readonly cache = new Map<string, AudioBuffer[]>();
-  private readonly loops = new Map<string, { src: AudioBufferSourceNode; gain: GainNode }>();
+  private readonly loops = new Map<string, LiveLoop>();
   private readonly rng = new Rng(0xf01e7);
   /** the rendering each one-shot played last (the next one is never the same) */
   private readonly lastPick = new Map<string, number>();
@@ -3457,17 +4321,45 @@ export class Foley {
     for (const k of kinds) this.buffers(k, o, this.variants(k));
   }
 
-  private route(src: AudioBufferSourceNode, gain: number, pan?: number): GainNode {
+  private route(src: AudioBufferSourceNode, gain: number, pan?: number, filter?: BiquadFilterNode): GainNode {
     const g = this.ctx.createGain();
     g.gain.value = gain;
+    // (a loop given a cutoff goes through its own low-pass first)
+    const from: AudioNode = filter ? src.connect(filter) : src;
     if (pan !== undefined && this.ctx.destination.channelCount > 1) {
       const p = this.ctx.createStereoPanner();
       p.pan.value = Math.max(-1, Math.min(1, pan));
-      src.connect(g).connect(p).connect(this.out);
+      from.connect(g).connect(p).connect(this.out);
     } else {
-      src.connect(g).connect(this.out);
+      from.connect(g).connect(this.out);
     }
     return g;
+  }
+
+  /** a loop's own low-pass at f Hz from t (FoleyOpts.cutoff) */
+  private lowpass(f: number, t: number): BiquadFilterNode {
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.Q.value = CUTOFF_Q_DB;
+    lp.frequency.setValueAtTime(f, t);
+    return lp;
+  }
+
+  /**
+   * glide a playing loop's low-pass to a cutoff, or (none given) open to the Nyquist frequency, where it
+   * passes everything; a loop playing without one is given one first, open, between its source and its
+   * gain (the new path made before the old one is let go: no gap in the sound)
+   */
+  private cutoffTo(live: LiveLoop, cutoff: number | undefined, t: number): void {
+    const open = this.ctx.sampleRate / 2;
+    if (!live.filter) {
+      const lp = this.lowpass(open, t);
+      lp.connect(live.gain);
+      live.src.connect(lp);
+      live.src.disconnect(live.gain);
+      live.filter = lp;
+    }
+    live.filter.frequency.setTargetAtTime(cutoff ?? open, t, CUTOFF_GLIDE);
   }
 
   /** a one-shot */
@@ -3496,18 +4388,22 @@ export class Foley {
 
   /**
    * start or keep a loop going (the ratchet while a part is being fitted, a horn while held, a scrub
-   * while the tool moves, ...); called again while it plays, its level and rate glide to the new gain
-   * and rate (a scrub calls this every frame with the stroke's speed: it never restarts for that)
+   * while the tool moves, a tyre while it rolls, ...); called again while it plays, its level, its rate
+   * and its cutoff glide to the new gain, rate and cutoff (a scrub calls this every frame with the
+   * stroke's speed: it never restarts for that)
    */
   start(kind: FoleyLoop, o: FoleyOpts = {}): void {
     const k = this.key(kind, o);
     const live = this.loops.get(kind);
     const t = this.ctx.currentTime;
     const rate = loopPlaybackRate(kind, o.rate);
+    const cutoff = loopCutoff(this.ctx.sampleRate, o.cutoff);
     if (live && live.src.buffer && this.cache.get(k)?.includes(live.src.buffer)) {
       live.gain.gain.setTargetAtTime(LOOP_LEVEL[kind] * (o.gain ?? 1), t, 0.02);
       // (the pitch slides, it does not step: a step in playback rate is heard as a jump)
       live.src.playbackRate.setTargetAtTime(rate, t, 0.03);
+      // (and the muffling with them; a loop never given a cutoff is left as it is)
+      if (cutoff !== undefined || live.filter) this.cutoffTo(live, cutoff, t);
       return;
     }
     if (live) this.stop(kind);
@@ -3515,13 +4411,14 @@ export class Foley {
     src.buffer = this.buffers(kind, o, 1)[0];
     src.loop = true;
     src.playbackRate.setValueAtTime(rate, t);
-    const g = this.route(src, 0, o.pan);
+    const filter = cutoff !== undefined ? this.lowpass(cutoff, t) : undefined;
+    const g = this.route(src, 0, o.pan, filter);
     // horns snap on; the rest ease in
     const attack = kind === 'horn_beep' || kind === 'horn_air' ? 0.006 : 0.03;
     g.gain.setValueAtTime(0, t);
     g.gain.setTargetAtTime(LOOP_LEVEL[kind] * (o.gain ?? 1), t, attack);
     src.start(t, this.rng.next() * src.buffer.duration);
-    this.loops.set(kind, { src, gain: g });
+    this.loops.set(kind, { src, gain: g, filter });
   }
 
   stop(kind: FoleyLoop): void {
@@ -3533,9 +4430,11 @@ export class Foley {
     live.gain.gain.cancelScheduledValues(t);
     live.gain.gain.setTargetAtTime(0, t, release);
     live.src.stop(t + release * 8);
+    // (everything let go once it has rung out: its low-pass too, if it had one)
     live.src.onended = () => {
       live.src.disconnect();
       live.gain.disconnect();
+      live.filter?.disconnect();
     };
   }
 

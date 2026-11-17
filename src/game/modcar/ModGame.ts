@@ -71,6 +71,7 @@ import { Sparks } from './sparks';
 import { SeatShake, type ShakeEngine } from './seatShake';
 import { ModPad, type PadHost } from './pad';
 import { WheelDust } from './wheelDust';
+import { tyreLoops } from './tyreSound';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
@@ -346,6 +347,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** sounds to render before they are wanted, one a frame (a render can take tens of milliseconds) */
   private readonly warmQueue: [FoleyShot | FoleyLoop, FoleyOpts][] = [];
   private warmedTyres = false;
+  /** the tyres' rolls rendered (the first time one sits in a vehicle) */
+  private warmedRolls = false;
+  /** how much of the shared road-noise bed the tyres' own sounds leave (tyreSound.ts), this frame */
+  private roadLeft = 1;
+  /** the tyres' loops this frame (tyreSound.ts) */
+  private tyreNow: ReturnType<typeof tyreLoops> | null = null;
   private warmedWrecks = false;
   garage: GarageScene | null = null;
   world: World | null = null;
@@ -2428,10 +2435,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     return Math.hypot(v.sim.px - (sv ? sv.sim.px : this.player.walker.x), v.sim.pz - (sv ? sv.sim.pz : this.player.walker.z));
   }
 
-  /** the loops of the road (a flat flapping, a bare rim grinding) and of a find close by, kept going this frame */
+  /** the loops of the road (the tyres on what they roll on, a flat flapping, a bare rim grinding) and of a find close by, kept going this frame */
   private worldLoops(): void {
-    if (!this.foley) return;
+    this.roadLeft = 1;
     const v = this.focus;
+    // the tyres on what they roll on (tyreSound.ts): from the seat through the cab (as open as its doors), or as one
+    // stands by (worked out with the sound off too: the probes read it)
+    this.tyreNow = null;
+    if (v) {
+      const near = this.seated === v ? 1 : Math.max(0, 1 - this.listenerDist(v) / 60);
+      const inside = this.seated === v && this.viewMode === 'cockpit';
+      this.tyreNow = tyreLoops(v.sim.wheels, { wet: this.env.state.wetness, near, cabin: inside ? this.cabinOpen(v) : null });
+      this.roadLeft = this.tyreNow.road;
+    }
+    if (!this.foley) return;
     if (v) {
       const sim = v.sim;
       const near = this.seated === v ? 1 : Math.max(0, 1 - this.listenerDist(v) / 60);
@@ -2444,6 +2461,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
       const rim = sim.feel.rim ?? 0;
       if (rim > 0.05 && near > 0) this.loopFor('rim_grind', near * Math.min(1, rim / 5), Math.max(0.25, Math.min(3.5, rim / 8.33)));
+      for (const l of this.tyreNow?.loops ?? []) this.loopFor(l.name, l.gain, l.rate, l.cutoff);
+      if (!this.warmedRolls && v === this.seated) {
+        this.warmedRolls = true;
+        this.warmLater(['roll_asphalt', 'roll_wet', 'skid_asphalt', 'roll_gravel']);
+      }
       // (a tyre in its last stage: its blow-out and what follows rendered before they are wanted)
       if (!this.warmedTyres && v === this.seated && v.sys.dash.tyres.some((t) => t.tread >= 0 && t.tread <= 0.25)) {
         this.warmedTyres = true;
@@ -2556,8 +2578,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   /** a loop of the workshop's (the recycler) kept going this frame */
-  loopFor(name: string, gain = 1, rate?: number): void {
-    if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, (rate !== undefined ? { gain, rate } : { gain }) as FoleyOpts);
+  loopFor(name: string, gain = 1, rate?: number, cutoff?: number): void {
+    if (!(FOLEY_LOOPS as readonly string[]).includes(name)) return;
+    const o: FoleyOpts = { gain };
+    if (rate !== undefined) o.rate = rate;
+    if (cutoff !== undefined) o.cutoff = cutoff;
+    this.loopsNow.set(name as FoleyLoop, o);
   }
 
   // ------------------------------------------------------------------ cleaning (grime.ts, docs/MODCAR.md §15)
@@ -4176,12 +4202,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (!v) return;
     const sim = v.sim;
     const d = v.sys.dash;
+    // (the tyres' own rolls and slides are foley's, by surface (tyreSound.ts): the shared bed under them is asphalt's,
+    // turned down, and its old skid hiss is kept for a hub or the body dragging on the road)
     let slip = 0;
     let rough = 0;
     for (const wh of sim.wheels) {
       if (wh.util > slip) slip = wh.util;
-      if (wh.contact) rough = Math.max(rough, SURFACES[wh.surface].rough);
+      if (wh.contact) rough = SURFACES[Surface.Asphalt].rough;
     }
+    slip = Math.min(slip, 0.9);
     // a hub or the body dragging on the road screeches like a skid (a bare rim grinds: foley's rim_grind)
     const grind = Math.min(1, (sim.feel.scrape ?? 0) / 4);
     if (grind > slip) slip = grind;
@@ -4214,6 +4243,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
+        roadScale: this.roadLeft,
         flat,
         horn: false,
         hornDetune: false,
@@ -4324,6 +4354,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       siteArt: this.siteArt?.telemetry() ?? null,
       shake: { ...this.shake.parts },
       dust: { live: this.dust.live, thrown: this.dust.thrown },
+      tyres: (this.tyreNow?.loops ?? []).map((l) => `${l.name}:${l.gain.toFixed(2)}${l.cutoff ? `@${Math.round(l.cutoff)}` : ''}`),
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),

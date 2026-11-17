@@ -1,9 +1,10 @@
 // The first-person feel (docs/MODCAR.md §23), in the game:
-//  1. a pickup driven over the desert's sand: a cloud of dust behind it;
-//  2. on the asphalt road beside it: no dust, the seat's shake a fine buzz;
+//  1. a pickup driven over the desert's sand: a cloud of dust behind it, its tyres heard on sand;
+//  2. on the asphalt road beside it: no dust, the seat's shake a fine buzz, the tyres heard on asphalt, muffled by the cab;
 //  3. the sand wet through: no dust off it either;
-//  4. over the plains' grass: the seat shaking much harder than on the road;
+//  4. over the plains' grass: the seat shaking much harder than on the road, the tyres heard on grass;
 //  5. at idle: a single-cylinder motorcycle shakes more than the six of the camper.
+// (what the tyres would sound like is read off the telemetry: the probe never starts the sound)
 //   SHOTS_GPU=1 node harness/shots/modcar_seat.mjs
 import { launchBrowser, startServer } from './lib.mjs';
 
@@ -50,7 +51,7 @@ try {
   }, vi);
   // drive a while, then a couple of seconds more reading how it feels (the seat's shake, the dust, what the wheels are on)
   const feel = async (secs, throttle) => {
-    const out = { road: 0, engine: 0, live: 0, kmh: 0, surfaces: [] };
+    const out = { road: 0, engine: 0, live: 0, kmh: 0, surfaces: [], tyres: [] };
     const t0 = (await rt('telemetry')).dust.thrown;
     const seen = new Set();
     for (let t = 0; t < secs; t += 0.25) {
@@ -60,6 +61,7 @@ try {
       out.engine = Math.max(out.engine, tl.shake.engine);
       out.live = Math.max(out.live, tl.dust.live);
       out.kmh = d?.kmh ?? 0;
+      out.tyres = tl.tyres;
       for (const s of await page.evaluate(() => window.__rt.game.seated.sim.wheels.filter((w) => w.contact).map((w) => w.surface))) seen.add(s);
     }
     out.thrown = (await rt('telemetry')).dust.thrown - t0;
@@ -79,6 +81,7 @@ try {
   console.log('sand', JSON.stringify(sand));
   if (!sand.surfaces.includes(SAND)) fail(`the wheels were not on sand (${sand.surfaces})`);
   if (sand.live < 30) fail(`hardly any dust behind it on the sand (${sand.live} puffs)`);
+  if (!sand.tyres.some((t) => t.startsWith('roll_sand'))) fail(`the tyres are not heard on the sand (${sand.tyres})`);
   await rt('setOrbit', 200, 9, 12, 1.0, vi);
   await shot('sand_cloud');
   await rt('setView', 'cockpit');
@@ -91,6 +94,7 @@ try {
   if (tar.surfaces.some((s) => s !== ASPHALT)) console.log('(a wheel off the asphalt:', tar.surfaces, ')');
   else if (tar.thrown > 0) fail(`dust came off the asphalt (${tar.thrown} puffs)`);
   if (!(tar.road > 0)) fail('the seat does not buzz at all on the road');
+  if (!tar.tyres.some((t) => /^roll_asphalt:[\d.]+@1200$/.test(t))) fail(`the tyres are not heard on the asphalt through a shut cab (${tar.tyres})`);
 
   // 3. the sand wet through
   await rt('devDial', 'ground.wet', 1);
@@ -124,6 +128,7 @@ try {
   console.log('grass', JSON.stringify(grass));
   if (!grass.surfaces.includes(3)) console.log('(not on grass:', grass.surfaces, ')');
   else if (!(grass.road > tar.road * 1.5)) fail(`the seat shook no harder over grass than on the road (${grass.road} vs ${tar.road})`);
+  if (grass.surfaces.includes(3) && !grass.tyres.some((t) => t.startsWith('roll_grass'))) fail(`the tyres are not heard on the grass (${grass.tyres})`);
 
   // 5. the engine at idle: a single's cab shakes more than a six's (the motorcycle against the van)
   await rt('drive', 1, 0, 0, 1);

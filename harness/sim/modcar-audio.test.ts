@@ -8,7 +8,9 @@
  * tyres' and wrecks': a blowout's bang and its air, a flat's slaps keeping time with the wheel, a bare
  * rim's grind, a rusted panel forced open, the find's sting by its tier, a rare part's glint; the
  * roadside places': a container searched by hand by its material, a house's and a shop's door and
- * its bell, a filling station's pump running, clicking off and running dry). The
+ * its bell, a filling station's pump running, clicking off and running dry; the tyres on the road: rolling
+ * and sliding on each surface, seamless, granular where the ground is loose, the asphalt's squeal a
+ * tone, brighter with speed, at their levels, and a loop's own cutoff routed through a low-pass). The
  * workshop generator (gen_d1) is a bank of its own kind: a few loops round its governed speed, no
  * rev limiter, started on a rope (pullStart). The decoded, played-back seam check and the voice's
  * pull start (no starter whine, no solenoid clicks) are in harness/audio/modcar_render.mjs (Chrome).
@@ -18,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { blendWeights, healLoop, loadMix, loopGain, engineTone, rpmWeights, popSample, blowOffSample, rodKnockSample, solenoidSample, type BankManifest, type LoopRec } from '../../src/game/modcar/engineAudio';
-import { Foley, recipe, foleyLevel, loopPlaybackRate, FOLEY_LOOPS, FOLEY_SHOTS, type ContainerMaterial, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial, type ScrapeSurface } from '../../src/game/modcar/foley';
+import { Foley, recipe, foleyLevel, loopCutoff, loopPlaybackRate, FOLEY_LOOPS, FOLEY_SHOTS, type ContainerMaterial, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial, type ScrapeSurface } from '../../src/game/modcar/foley';
 import { Rng, biquad, fft, measure } from '../../src/game/modcar/synth';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -290,6 +292,10 @@ describe('ModCar engine mixing maths', () => {
 });
 
 const GRINDS: readonly GrindMaterial[] = ['metal', 'plastic', 'organic', 'cloth', 'wood'];
+/** the tyres on the road: rolling and sliding on each surface; longer loops than the rest (4 s or more: a crunch heard coming round again would give them away) */
+const TYRE_ROLLS: readonly FoleyLoop[] = ['roll_asphalt', 'roll_wet', 'roll_gravel', 'roll_dirt', 'roll_grass', 'roll_sand', 'roll_snow', 'roll_ice'];
+const TYRE_SKIDS: readonly FoleyLoop[] = ['skid_asphalt', 'skid_gravel', 'skid_dirt', 'skid_grass', 'skid_sand', 'skid_snow', 'skid_ice'];
+const TYRE_LOOPS: readonly FoleyLoop[] = [...TYRE_ROLLS, ...TYRE_SKIDS];
 
 describe('ModCar foley recipes', () => {
   const sr = 48000;
@@ -311,7 +317,7 @@ describe('ModCar foley recipes', () => {
       const s = measure(x, sr);
       expect(s.peak, `${kind} ${JSON.stringify(o)}`).toBeLessThanOrEqual(1.0001);
       expect(s.rms, `${kind} ${JSON.stringify(o)}`).toBeGreaterThan(0.003);
-      expect(x.length / sr).toBeLessThan(4);
+      expect(x.length / sr, kind).toBeLessThan(TYRE_LOOPS.includes(kind as FoleyLoop) ? 6 : 4);
     }
   });
 
@@ -786,13 +792,14 @@ function atRate(x: Float32Array, rate: number, seconds: number, sr: number): Flo
 
 /**
  * A loop that wraps without a seam, 2.5 s or more (long enough not to be heard repeating at a fast
- * stroke, rate 1.6) and under 4: the step and the curvature across the wrap ordinary ones, the low
- * band carrying straight on, no splice (spliceAt), no dip or bump in the level across it, no DC.
+ * stroke, rate 1.6) and under 4 (or within `seconds`): the step and the curvature across the wrap
+ * ordinary ones, the low band carrying straight on, no splice (spliceAt), no dip or bump in the level
+ * across it, no DC.
  */
-function expectSeamless(x: Float32Array, sr: number, tag: string): void {
+function expectSeamless(x: Float32Array, sr: number, tag: string, seconds: readonly [number, number] = [2.5, 4]): void {
   const n = x.length;
-  expect(n / sr, tag).toBeGreaterThanOrEqual(2.5);
-  expect(n / sr, tag).toBeLessThan(4);
+  expect(n / sr, tag).toBeGreaterThanOrEqual(seconds[0]);
+  expect(n / sr, tag).toBeLessThan(seconds[1]);
   // the end runs on into the start: the step across the wrap is an ordinary step ...
   const steps = new Float32Array(n);
   for (let i = 0; i < n; i++) steps[i] = Math.abs(x[(i + 1) % n] - x[i]);
@@ -2450,5 +2457,381 @@ describe('ModCar roadside places foley', () => {
       expect(l).toBeGreaterThan(run + 0.5);
       expect(l).toBeLessThan(run + 4);
     }
+  });
+});
+
+// ------------------------------------------------------------------ tyres on the road
+
+describe('ModCar tyres on the road foley', () => {
+  const sr = 48000;
+  const render = (kind: FoleyLoop, seed = 1234): Float32Array => recipe(kind)(sr, new Rng(seed));
+  /** seeds spread over the whole range (a small one's first draw is small, and a recipe's first choice with it) */
+  const mixed = (s: number): number => Math.imul(s, 2654435761) | 0;
+  const mean = (v: number[]): number => v.reduce((a, b) => a + b, 0) / v.length;
+  const sd = (v: number[]): number => {
+    const m = mean(v);
+    return Math.sqrt(mean(v.map((q) => (q - m) ** 2)));
+  };
+  /** a player on a stand-in context: the renderings it makes itself (its own seeds) */
+  const player = (): { f: Foley; made: (kind: FoleyLoop) => Float32Array[] } => {
+    const { ctx, made } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    return {
+      f,
+      made: (kind) => {
+        const a = made.length;
+        f.warm([kind]);
+        return made.slice(a);
+      },
+    };
+  };
+  /** peak over rms, dB */
+  const crestOf = (x: Float32Array): number => {
+    const s = measure(x, sr);
+    return 20 * Math.log10(s.peak / s.rms);
+  };
+  /** transients a second: 1 ms windows standing four times over the median 1 ms level, 5 ms apart or more */
+  const transientsOf = (x: Float32Array): number => {
+    const w = Math.floor(0.001 * sr);
+    const e: number[] = [];
+    for (let o = 0; o + w <= x.length; o += w) {
+      let v = 0;
+      for (let i = o; i < o + w; i++) v += x[i] * x[i];
+      e.push(Math.sqrt(v / w));
+    }
+    const med = [...e].sort((p, q) => p - q)[e.length >> 1];
+    let count = 0;
+    let last = -99;
+    for (let k = 1; k < e.length - 1; k++) {
+      if (e[k] > 4 * med && e[k] >= e[k - 1] && e[k] >= e[k + 1] && k - last >= 5) {
+        count++;
+        last = k;
+      }
+    }
+    return count / (x.length / sr);
+  };
+  /** the strongest bin between lo and hi Hz over the mean of the bins there (dB), and where it is */
+  const peakToMean = (P: Float64Array, lo: number, hi: number): { db: number; at: number } => {
+    let m = 0;
+    let c = 0;
+    let best = 0;
+    let at = 0;
+    for (let k = 1; k < P.length; k++) {
+      const f = binHz(k, sr);
+      if (f < lo || f >= hi) continue;
+      m += P[k];
+      c++;
+      if (P[k] > best) {
+        best = P[k];
+        at = f;
+      }
+    }
+    return { db: 10 * Math.log10(best / (m / c)), at };
+  };
+  /** a tone's pitch between lo and hi Hz, 40 ms frames every 20 ms (zero-padded, the peak's bin interpolated), in cents round its median */
+  const pitchCents = (x: Float32Array, lo: number, hi: number): number[] => {
+    const n = Math.floor(0.04 * sr);
+    const N = 8192;
+    const re = new Float64Array(N);
+    const im = new Float64Array(N);
+    const fs: number[] = [];
+    for (let o = 0; o + n <= x.length; o += Math.floor(0.02 * sr)) {
+      re.fill(0);
+      im.fill(0);
+      for (let i = 0; i < n; i++) re[i] = x[o + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / n));
+      fft(re, im);
+      let k = 0;
+      let best = 0;
+      for (let j = Math.ceil((lo * N) / sr); j <= Math.floor((hi * N) / sr); j++) {
+        const p = re[j] * re[j] + im[j] * im[j];
+        if (p > best) {
+          best = p;
+          k = j;
+        }
+      }
+      const [a, b, c] = [k - 1, k, k + 1].map((j) => Math.log(re[j] * re[j] + im[j] * im[j] + 1e-30));
+      fs.push(((k + (0.5 * (a - c)) / (a - 2 * b + c)) * sr) / N);
+    }
+    const med = [...fs].sort((p, q) => p - q)[fs.length >> 1];
+    return fs.map((f) => 1200 * Math.log2(f / med));
+  };
+
+  it('has every tyre loop in the catalogue, with a level', () => {
+    expect(TYRE_LOOPS.length).toBe(15);
+    for (const k of TYRE_LOOPS) {
+      expect(FOLEY_LOOPS as readonly string[], k).toContain(k);
+      // (the workshop's lamps stay the quietest loop of all)
+      expect(foleyLevel(k), k).toBeGreaterThan(foleyLevel('lamp_buzz'));
+      expect(foleyLevel(k), k).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('renders every loop finite, at a steady level and unclipped at its level, 4-6 s long, for any seed', () => {
+    for (const kind of TYRE_LOOPS) {
+      for (const seed of [1, 1234, mixed(5)]) {
+        const x = render(kind, seed);
+        const tag = `${kind} seed ${seed}`;
+        let bad = 0;
+        let dc = 0;
+        for (const v of x) {
+          if (!Number.isFinite(v)) bad++;
+          dc += v;
+        }
+        expect(bad, tag).toBe(0);
+        const s = measure(x, sr);
+        // (set to its rms whatever its seed: a loop's level is its rms, not where its loudest speck falls)
+        expect(s.rms, tag).toBeCloseTo(0.1, 3);
+        expect(s.peak, tag).toBeLessThan(0.9);
+        // at its level, room for a gain of 2 (a fast car's roll, a hard slide)
+        expect(s.peak * foleyLevel(kind) * 2, tag).toBeLessThan(1);
+        expect(Math.abs(dc / x.length), tag).toBeLessThan(1e-4);
+        expect(x.length / sr, tag).toBeGreaterThanOrEqual(4);
+        expect(x.length / sr, tag).toBeLessThan(6);
+      }
+    }
+  });
+
+  it(
+    'loops seamlessly for 4 s or more: no step, no kink, no splice, no level jump at the wrap, no DC (and a loop cut short is caught)',
+    () => {
+      for (const kind of TYRE_LOOPS) {
+        for (const seed of [1234, 99]) expectSeamless(render(kind, seed), sr, `${kind} seed ${seed}`, [4, 6]);
+        const x = render(kind);
+        expect(
+          [3, 7].some((ms) => spliceAt(x.slice(0, x.length - Math.round((ms * sr) / 1000))) > 1),
+          `${kind} cut short`,
+        ).toBe(true);
+      }
+    },
+    120_000,
+  );
+
+  it("rolls on gravel and snow in grains: sharper peaks, a more broken level, more transients than the asphalt's steady roar", () => {
+    for (const seed of [1234, mixed(3)]) {
+      const asphalt = render('roll_asphalt', seed);
+      const a = textureOf(asphalt, sr);
+      // (the asphalt a steady bed: as near a hiss as the kurtosis can tell)
+      expect(a.kurtosis, `seed ${seed}`).toBeLessThan(3.5);
+      expect(a.cv5, `seed ${seed}`).toBeLessThan(0.3);
+      for (const kind of ['roll_gravel', 'roll_snow'] as const) {
+        const x = render(kind, seed);
+        const t = textureOf(x, sr);
+        const tag = `${kind} seed ${seed}`;
+        expect(t.kurtosis, tag).toBeGreaterThan(2 * a.kurtosis);
+        expect(t.cv5, tag).toBeGreaterThan(2 * a.cv5);
+        expect(crestOf(x), tag).toBeGreaterThan(crestOf(asphalt) + 2.5);
+        expect(transientsOf(x), tag).toBeGreaterThan(transientsOf(asphalt) + 3);
+      }
+      // gravel the most granular roll of all
+      const gravel = textureOf(render('roll_gravel', seed), sr).kurtosis;
+      for (const kind of TYRE_ROLLS) if (kind !== 'roll_gravel') expect(textureOf(render(kind, seed), sr).kurtosis, `${kind} seed ${seed}`).toBeLessThan(gravel);
+    }
+  });
+
+  it('squeals on asphalt: a tone near 1 kHz standing far out of its spectrum with its overtones, wavering, over a scrub; the other slides are noise', () => {
+    for (const seed of [1234, 99, mixed(3)]) {
+      const x = render('skid_asphalt', seed);
+      const P = powerOf(x);
+      const tag = `seed ${seed}`;
+      const peak = peakToMean(P, 200, 8000);
+      expect(peak.db, tag).toBeGreaterThan(15);
+      expect(peak.at, tag).toBeGreaterThan(800);
+      expect(peak.at, tag).toBeLessThan(1400);
+      expect(flatnessOf(P, sr, 500, 3000), tag).toBeLessThan(0.2);
+      // its second partial an octave up, standing well over the scrub between the two
+      const band = (lo: number, hi: number): number[] => Array.from(P).filter((_, k) => k > 0 && binHz(k, sr) >= lo * peak.at && binHz(k, sr) < hi * peak.at);
+      expect(10 * Math.log10(Math.max(...band(1.8, 2.25)) / mean(band(1.35, 1.65))), tag).toBeGreaterThan(12);
+      expect(Math.abs(peaksOf(P, sr, 1.8 * peak.at, 2.25 * peak.at, 1)[0] / peak.at - 2), tag).toBeLessThan(0.05);
+      // wavering: its pitch moving by tens of cents, quickly as well as slowly, never sliding more than a few semitones away
+      const c = pitchCents(x, 800, 1400);
+      expect(sd(c), tag).toBeGreaterThan(15);
+      expect(sd(c), tag).toBeLessThan(150);
+      expect(Math.max(...c.map(Math.abs)), tag).toBeLessThan(400);
+      const quick = c.slice(6, -6).map((v, i) => v - mean(c.slice(i, i + 13)));
+      expect(sd(quick), tag).toBeGreaterThan(8);
+      // the rubber's scrub and the carcass's rumble under it
+      expect(shareOf(P, sr, 0, 600), tag).toBeGreaterThan(0.01);
+    }
+    for (const kind of TYRE_SKIDS) {
+      if (kind === 'skid_asphalt') continue;
+      const P = powerOf(render(kind));
+      expect(peakToMean(P, 200, 8000).db, kind).toBeLessThan(13);
+      expect(flatnessOf(P, sr, 500, 3000), kind).toBeGreaterThan(0.45);
+    }
+  });
+
+  it('rolls brighter the faster it goes and slides brighter the faster it slides: the centroid rising with the rate, nothing folding back at the fastest', () => {
+    for (const kind of TYRE_LOOPS) {
+      const x = render(kind);
+      const c = [0.5, 1, 2].map((r) => centroidOf(powerOf(atRate(x, loopPlaybackRate(kind, r), 5, sr)), sr));
+      expect(c[1], kind).toBeGreaterThan(1.15 * c[0]);
+      expect(c[2], kind).toBeGreaterThan(1.15 * c[1]);
+      // (what would fold back past the Nyquist frequency read at its fastest: next to nothing)
+      const top = loopPlaybackRate(kind, 100);
+      expect(shareOf(powerOf(x), sr, sr / 2 / top, sr / 2), kind).toBeLessThan(3e-3);
+    }
+    // a rolling tyre from a crawl to 150 km/h (rate 1 about 50), part of the way: a crawl about an octave down, 120 km/h about one up
+    for (const kind of TYRE_ROLLS) {
+      expect(loopPlaybackRate(kind, 1), kind).toBe(1);
+      expect(loopPlaybackRate(kind, undefined), kind).toBe(1);
+      expect(loopPlaybackRate(kind, 0.15), kind).toBeGreaterThan(0.45);
+      expect(loopPlaybackRate(kind, 0.15), kind).toBeLessThan(0.62);
+      expect(loopPlaybackRate(kind, 2.4), kind).toBeGreaterThan(1.65);
+      expect(loopPlaybackRate(kind, 2.4), kind).toBeLessThan(1.9);
+      expect(loopPlaybackRate(kind, 0.01), kind).toBeCloseTo(loopPlaybackRate(kind, 0.1), 12);
+      expect(loopPlaybackRate(kind, 9), kind).toBeCloseTo(loopPlaybackRate(kind, 3), 12);
+      expect(loopPlaybackRate(kind, 2.4), kind).toBeLessThan(loopPlaybackRate(kind, 3));
+    }
+    // a slide 0.5-2; the asphalt's squeal hardly moving (about a fifth from the slowest slide to the fastest)
+    for (const kind of TYRE_SKIDS) {
+      expect(loopPlaybackRate(kind, 0.2), kind).toBeCloseTo(loopPlaybackRate(kind, 0.5), 12);
+      expect(loopPlaybackRate(kind, 5), kind).toBeCloseTo(loopPlaybackRate(kind, 2), 12);
+    }
+    expect(loopPlaybackRate('skid_asphalt', 2) / loopPlaybackRate('skid_asphalt', 0.5)).toBeLessThan(1.6);
+  });
+
+  it('sits in the mix at gain 1, rate 1: the asphalt the bed under a scrape, gravel the loudest roll, grass and ice far under it, the squeal over every roll', () => {
+    const p = player();
+    const loud = (k: FoleyLoop): number => kLoudness(p.made(k)[0].map((v) => v * foleyLevel(k)), sr, true);
+    const L = Object.fromEntries(TYRE_LOOPS.map((k) => [k, loud(k)])) as Record<FoleyLoop, number>;
+    const scrape = mean(SCRAPES.map(loud));
+    // the bed: well under a scrape at full speed, over a pump running
+    expect(L.roll_asphalt).toBeLessThan(scrape - 4);
+    expect(L.roll_asphalt).toBeGreaterThan(loud('pump_run'));
+    expect(L.roll_asphalt).toBeGreaterThan(-40);
+    // gravel the loudest roll; grass and ice much quieter than it, ice the quietest of all
+    for (const k of TYRE_ROLLS) if (k !== 'roll_gravel') expect(L[k], k).toBeLessThan(L.roll_gravel - 1);
+    expect(L.roll_grass).toBeLessThan(L.roll_gravel - 6);
+    expect(L.roll_ice).toBeLessThan(L.roll_gravel - 10);
+    for (const k of TYRE_LOOPS) if (k !== 'roll_ice') expect(L.roll_ice, k).toBeLessThan(L[k] - 3);
+    // the water over the asphalt about as loud as the asphalt itself (wet through, the road is louder)
+    expect(Math.abs(L.roll_wet - L.roll_asphalt)).toBeLessThan(3);
+    // a full slide louder than the roll on the same ground; the asphalt's squeal over every roll and under the bare rim; ice's the quietest slide
+    for (const s of ['asphalt', 'gravel', 'dirt', 'grass', 'sand', 'snow', 'ice']) expect(L[`skid_${s}` as FoleyLoop], s).toBeGreaterThan(L[`roll_${s}` as FoleyLoop] + 2);
+    for (const k of TYRE_ROLLS) expect(L.skid_asphalt, k).toBeGreaterThan(L[k] + 3);
+    expect(L.skid_asphalt).toBeLessThan(loud('rim_grind'));
+    for (const k of TYRE_SKIDS) if (k !== 'skid_ice') expect(L.skid_ice, k).toBeLessThan(L[k]);
+    // under an engine pulling hard (-22 .. -27 dB rms at 3 m, loop/metrics/audio_modcar.json): every one of them under -27 at gain 1
+    for (const k of TYRE_LOOPS) expect(L[k], k).toBeLessThan(-27);
+  });
+
+  it('muffles a loop with its cutoff: a low-pass of its own between its source and its gain, glided like them, let go with them; without one, as it always was', () => {
+    type Node = { kind: string; to: Node[]; connect: (n: Node) => Node; disconnect: (n?: Node) => void } & Record<string, unknown>;
+    const log: string[] = [];
+    const node = (kind: string, extra: Record<string, unknown> = {}): Node => {
+      const n = {
+        kind,
+        to: [] as Node[],
+        connect: (m: Node): Node => {
+          n.to.push(m);
+          log.push(`${kind}>${m.kind}`);
+          return m;
+        },
+        disconnect: (m?: Node): void => {
+          n.to = m ? n.to.filter((k) => k !== m) : [];
+          log.push(`${kind}x${m ? m.kind : 'all'}`);
+        },
+        ...extra,
+      } as Node;
+      return n;
+    };
+    const sources: Node[] = [];
+    const filters: Node[] = [];
+    let rendered = 0;
+    const ctx = {
+      sampleRate: sr,
+      currentTime: 0,
+      destination: { kind: 'destination', channelCount: 1 },
+      createGain: () => node('gain', { gain: keptParam(1) }),
+      createBiquadFilter: () => {
+        const lp = node('filter', { type: 'peaking', Q: keptParam(1), frequency: keptParam(350) });
+        filters.push(lp);
+        return lp;
+      },
+      createBuffer: (_c: number, n: number) => {
+        rendered++;
+        return { length: n, duration: n / sr, copyToChannel: () => undefined };
+      },
+      createBufferSource: () => {
+        const s = node('source', { buffer: null, loop: false, playbackRate: keptParam(1), onended: null, start: () => undefined, stop: () => undefined });
+        sources.push(s);
+        return s;
+      },
+    };
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    const freq = (lp: Node): KeptParam => lp.frequency as KeptParam;
+    const lastOf = (q: KeptParam): number => q.events[q.events.length - 1][1];
+    // started without one: no low-pass made at all, the source straight into its gain, as before
+    f.start('roll_asphalt', { gain: 0.5 });
+    expect(filters.length).toBe(0);
+    expect(sources[0].to.map((n) => n.kind)).toEqual(['gain']);
+    // started with one: a Butterworth low-pass (its Q in dB, as Web Audio reads a low-pass's) at that cutoff from the start, the source through it into the gain
+    f.start('roll_gravel', { gain: 1, rate: 1.2, cutoff: 1400 });
+    expect(filters.length).toBe(1);
+    const lp = filters[0];
+    expect(lp.type).toBe('lowpass');
+    expect((lp.Q as KeptParam).value).toBeCloseTo(-3.0103, 4);
+    expect(freq(lp).events[0]).toEqual(['set', 1400, 0]);
+    const src = sources[1];
+    expect(src.to).toEqual([lp]);
+    expect(lp.to.map((n) => n.kind)).toEqual(['gain']);
+    const gain = lp.to[0];
+    // every frame after, the cutoff glides as the gain and the rate do: never a new source, a new low-pass or another rendering
+    const made = rendered;
+    for (let k = 1; k <= 30; k++) {
+      ctx.currentTime = k / 60;
+      f.start('roll_gravel', { gain: 1, rate: 1.2, cutoff: 1400 - 20 * k });
+    }
+    expect(sources.length).toBe(2);
+    expect(filters.length).toBe(1);
+    expect(rendered).toBe(made);
+    const glides = freq(lp).events.filter((e) => e[0] === 'target');
+    expect(glides.length).toBe(30);
+    for (const [, , t, c] of glides) {
+      expect(t).toBeGreaterThan(0);
+      expect(c).toBeGreaterThanOrEqual(0.02);
+      expect(c).toBeLessThanOrEqual(0.1);
+    }
+    expect(glides[29][1]).toBeCloseTo(800, 9);
+    // none given: it opens right up, to the Nyquist frequency (where a low-pass passes everything); kept to 10 Hz .. Nyquist; not a number: none
+    f.start('roll_gravel', { gain: 1 });
+    expect(lastOf(freq(lp))).toBe(sr / 2);
+    f.start('roll_gravel', { cutoff: 1e6 });
+    expect(lastOf(freq(lp))).toBe(sr / 2);
+    f.start('roll_gravel', { cutoff: 2 });
+    expect(lastOf(freq(lp))).toBe(10);
+    f.start('roll_gravel', { cutoff: Number.NaN });
+    expect(lastOf(freq(lp))).toBe(sr / 2);
+    expect([loopCutoff(sr, undefined), loopCutoff(sr, Number.POSITIVE_INFINITY), loopCutoff(sr, 900)]).toEqual([undefined, undefined, 900]);
+    // let go: nothing cut while it rings out; once it has, its source, its gain and its low-pass all disconnected
+    f.stop('roll_gravel');
+    expect(log.filter((e) => e.startsWith('filterx'))).toEqual([]);
+    (src.onended as () => void)();
+    expect(log).toContain('sourcexall');
+    expect(log).toContain('filterxall');
+    expect(gain.to).toEqual([]);
+    expect(lp.to).toEqual([]);
+    // started again with a cutoff: a new low-pass, the same rendering
+    f.start('roll_gravel', { cutoff: 2000 });
+    expect(filters.length).toBe(2);
+    expect(sources[2].buffer).toBe(src.buffer);
+    expect(rendered).toBe(made);
+    // a loop playing without one, then given one: a low-pass put in between, open at first, then gliding down to it;
+    // the new path made before the old one is let go (no gap in the sound)
+    const plain = sources[0];
+    const plainGain = plain.to[0];
+    const at = log.length;
+    f.start('roll_asphalt', { gain: 0.5, cutoff: 1200 });
+    expect(filters.length).toBe(3);
+    const lp3 = filters[2];
+    expect(plain.to).toEqual([lp3]);
+    expect(lp3.to).toEqual([plainGain]);
+    expect(log.slice(at)).toEqual(['filter>gain', 'source>filter', 'sourcexgain']);
+    expect(freq(lp3).events[0].slice(0, 2)).toEqual(['set', sr / 2]);
+    expect(freq(lp3).events[1].slice(0, 2)).toEqual(['target', 1200]);
+    expect(sources.length).toBe(3);
+    // the one-shots take no notice of it
+    f.play('door_close', { cutoff: 500 });
+    expect(filters.length).toBe(3);
   });
 });

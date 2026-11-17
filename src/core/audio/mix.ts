@@ -46,6 +46,8 @@ export interface AudioInputs {
   hornDetune?: boolean;
   /** extra rumble from the surface texture 0…1 (RoadFeel.buzz) */
   buzz?: number;
+  /** how much of the road-noise bed to keep (absent: all; ModCar turns it down under its tyres' own sounds by surface) */
+  roadScale?: number;
 }
 
 export class AudioMix {
@@ -104,7 +106,7 @@ export function computeMix(i: AudioInputs, o: AudioMix): AudioMix {
   const air = (v / 28) * (v / 28) * 0.42 + (i.wind / 22) * 0.22 + i.dust * 0.25;
   o.windGain = clamp(air * (0.3 + 0.7 * open), 0, 0.7);
   o.windCutoff = 350 + 60 * v + 30 * i.wind;
-  o.roadGain = clamp((v / 26) * (0.12 + i.rough * 9) * (0.55 + 0.45 * open), 0, 0.6);
+  o.roadGain = clamp((v / 26) * (0.12 + i.rough * 9) * (0.55 + 0.45 * open), 0, 0.6) * (i.roadScale ?? 1);
   o.roadCutoff = 240 + 22 * v + i.rough * 30000;
   o.skidGain = clamp((i.slip - 0.9) * 8, 0, 1) * clamp(v / 6, 0, 1) * 0.3;
   o.rainGain = clamp(i.rain * 0.42 * (0.25 + 0.75 * open), 0, 0.6);
