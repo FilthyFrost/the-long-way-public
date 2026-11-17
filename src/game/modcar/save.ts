@@ -12,6 +12,7 @@ import { itemDef, reserveItemUids, type ItemInstance } from '../../core/modcar/i
 import type { Vitals } from '../../core/modcar/vitals';
 import type { Stock } from '../../core/modcar/crafting';
 import type { WorkshopSave } from './workshop';
+import type { WrecksSave } from './wrecks';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance } from '../../core/modcar/types';
@@ -72,6 +73,8 @@ export interface SaveV1 {
    */
   world?: { seed: number };
   seat?: number;
+  /** the wrecks by the road (docs/MODCAR.md §19): the ones kept as they were left, by id; the ones taken (vehicles of one's own now) */
+  wrecks?: WrecksSave;
 }
 
 const KEY = 'modcar.save.v1';
@@ -82,10 +85,11 @@ function check(s: SaveV1): void {
     partDef(i.part);
     for (const sub of Object.values(i.sub ?? {})) inst(sub);
   };
-  for (const v of s.vehicles) {
+  for (const v of [...s.vehicles, ...Object.values(s.wrecks?.kept ?? {})]) {
     frameDef(v.build.frame);
     for (const i of Object.values(v.build.parts)) inst(i);
   }
+  for (const w of Object.values(s.wrecks?.kept ?? {})) for (const l of w.loose) if (l.part) inst(l.part);
   for (const l of s.loose) if (l.part) inst(l.part);
   for (const h of s.hands ?? []) if (h?.part) inst(h.part);
   for (const x of [...s.loose, ...(s.hands ?? [])]) if (x?.item) itemDef(x.item.item);
@@ -106,14 +110,16 @@ export function loadSave(): SaveV1 | null {
       ids.push(i.uid);
       for (const sub of Object.values(i.sub ?? {})) inst(sub);
     };
-    for (const v of s.vehicles) {
+    const kept = Object.values(s.wrecks?.kept ?? {});
+    for (const v of [...s.vehicles, ...kept]) {
       ids.push(v.build.uid);
       for (const i of Object.values(v.build.parts)) inst(i);
     }
-    for (const l of s.loose) if (l.part) inst(l.part);
+    const riders = kept.flatMap((w) => w.loose);
+    for (const l of [...s.loose, ...riders]) if (l.part) inst(l.part);
     for (const h of s.hands ?? []) if (h?.part) inst(h.part);
     reserveUids(ids);
-    reserveItemUids([...[...s.loose, ...(s.hands ?? [])].flatMap((x) => (x?.item ? [x.item.uid] : [])), ...(s.pack ? [s.pack.uid] : [])]);
+    reserveItemUids([...[...s.loose, ...riders, ...(s.hands ?? [])].flatMap((x) => (x?.item ? [x.item.uid] : [])), ...(s.pack ? [s.pack.uid] : [])]);
     return s;
   } catch {
     // (put aside: a later build may read it again)

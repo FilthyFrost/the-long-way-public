@@ -2,7 +2,8 @@
  * Offline render harness page for the ModCar sounds (loaded by harness/audio/modcar_render.mjs in
  * headless Chrome). Everything renders through OfflineAudioContext: nothing reaches a speaker.
  * The engine voice is stepped at 100 Hz with suspend/resume, exactly as a game frame loop would
- * call update(); a scrub is driven at 60 frames a second the same way (renderScrub).
+ * call update(); a scrub is driven at 60 frames a second the same way (renderScrub), and so are the
+ * flat tyre, the bare rim and the walk up to a rare part (renderRoad).
  */
 import { EngineVoice, bankConfig, engineTone, loadBank, type EngineAudioState, type BankManifest } from '../../src/game/modcar/engineAudio';
 import { FOLEY_LOOPS, Foley, loopPlaybackRate, recipe, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
@@ -479,6 +480,71 @@ async function renderSpray(sampleRate = 48000): Promise<{ pcm: string; sampleRat
   return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks };
 }
 
+/**
+ * Tyres and wrecks as the game will play them: a tyre blowing out at 50 km/h and the car driven on on
+ * the flat (its rate from the speed every frame, rate 1 at 30 km/h: held, braking to a crawl, held,
+ * away to 90 km/h, held), the tyre coming off and the bare rim grinding (held fast, braking, held
+ * slow, stopped); then two wrecks by the road forced open, a small find and a golden one, and the
+ * player walking up to the rare part and away again (the glint's gain from the distance, heard within
+ * 4 m). Marks: each part of it and the quiet after; rates: the playback rates held.
+ */
+async function renderRoad(sampleRate = 48000): Promise<{ pcm: string; sampleRate: number; marks: Record<string, [number, number]>; rates: Record<string, number> }> {
+  const seconds = 20.6;
+  const ctx = new OfflineAudioContext(1, Math.ceil(seconds * sampleRate), sampleRate);
+  const f = new Foley(ctx, ctx.destination);
+  // rendered ahead, as the game should (the blowout while a tyre is in its last stage, the wreck's as one comes near)
+  f.warm(['tyre_burst', 'flat_flap', 'rim_grind', 'wreck_creak', 'rare_glint']);
+  for (const tier of [2, 5]) f.warm(['loot_reveal'], { tier });
+  // the speed driven on the flat and then on the rim (km/h)
+  const ramp = (t: number, a: number, b: number, va: number, vb: number): number => va + ((vb - va) * (t - a)) / (b - a);
+  const kmh = (t: number): number => (t < 1.5 ? 50 : t < 3 ? ramp(t, 1.5, 3, 50, 9) : t < 5.5 ? 9 : t < 7 ? ramp(t, 5.5, 7, 9, 90) : t < 9 ? 90 : t < 10 ? ramp(t, 9, 10, 90, 12) : 12);
+  // the rare part: walked up to from 5 m (nearest, 0.6 m, at 18 s) and away again
+  const metres = (t: number): number => 0.6 + (4.4 * Math.abs(t - 18)) / 1.4;
+  const plan: Array<[number, () => void]> = [];
+  plan.push([0.5, () => f.play('tyre_burst', {}, 0.5)]);
+  // every frame, as ModGame does: the flap from the next frame on, then the rim once the tyre is gone
+  for (let k = 0; 0.55 + k / 60 < 8; k++) {
+    const t = 0.55 + k / 60;
+    plan.push([t, () => f.start('flat_flap', { gain: 1, rate: kmh(t) / 30 })]);
+  }
+  plan.push([8, () => f.stop('flat_flap')]);
+  for (let k = 0; 8 + k / 60 < 11; k++) {
+    const t = 8 + k / 60;
+    plan.push([t, () => f.start('rim_grind', { gain: Math.min(1, kmh(t) / 18), rate: kmh(t) / 30 })]);
+  }
+  plan.push([11, () => f.stop('rim_grind')]);
+  plan.push([12, () => f.play('wreck_creak', {}, 12)]);
+  plan.push([13.2, () => f.play('loot_reveal', { tier: 2 }, 13.2)]);
+  plan.push([14.4, () => f.play('wreck_creak', {}, 14.4)]);
+  plan.push([15.6, () => f.play('loot_reveal', { tier: 5 }, 15.6)]);
+  for (let k = 0; 16.6 + k / 60 < 19.4; k++) {
+    const t = 16.6 + k / 60;
+    plan.push([t, () => f.start('rare_glint', { gain: Math.max(0, Math.min(1, (4 - metres(t)) / 3.4)) })]);
+  }
+  plan.push([19.4, () => f.stop('rare_glint')]);
+  // one suspend per render quantum that has something to do (a quarter into it, however the browser rounds)
+  const q = 128 / sampleRate;
+  const due = new Map<number, Array<() => void>>();
+  for (const [t, fn] of plan) {
+    const k = Math.floor(t / q);
+    due.set(k, [...(due.get(k) ?? []), fn]);
+  }
+  for (const [k, list] of due) {
+    void ctx.suspend((k + 0.25) * q).then(() => {
+      for (const fn of list) fn();
+      void ctx.resume();
+    });
+  }
+  const out = await ctx.startRendering();
+  const marks: Record<string, [number, number]> = {
+    burst: [0.5, 0.75], flap_cruise: [0.9, 1.5], flap_braking: [1.5, 3], flap_crawl: [3.2, 5.45], flap_away: [5.5, 7], flap_fast: [7.1, 7.95],
+    rim_fast: [8.1, 9], rim_braking: [9, 10], rim_slow: [10.1, 10.95], after_rim: [11.4, 11.95],
+    creak: [12, 13.2], find_small: [13.2, 13.6], creak2: [14.4, 15.6], find_golden: [15.6, 16], glint_far: [16.62, 16.9], glint_near: [17.8, 18.2], quiet: [19.9, 20.5],
+  };
+  const rates = { flap_cruise: loopPlaybackRate('flat_flap', 50 / 30), flap_crawl: loopPlaybackRate('flat_flap', 9 / 30), flap_fast: loopPlaybackRate('flat_flap', 3), rim_fast: loopPlaybackRate('rim_grind', 3), rim_slow: loopPlaybackRate('rim_grind', 12 / 30) };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks, rates };
+}
+
 async function checkLoops(engineId: string, sampleRate = 48000): Promise<Array<{ file: string; ratio: number; turns: number; seconds: number }>> {
   const ctx0 = new OfflineAudioContext(1, 128, sampleRate);
   const bank = await loadBank(ctx0, engineId);
@@ -536,9 +602,10 @@ declare global {
       renderWorkshop: typeof renderWorkshop;
       renderScrub: typeof renderScrub;
       renderSpray: typeof renderSpray;
+      renderRoad: typeof renderRoad;
       checkLoops: typeof checkLoops;
     };
   }
 }
 
-window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, checkLoops };
+window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, renderRoad, checkLoops };

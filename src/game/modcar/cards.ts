@@ -97,7 +97,11 @@ export function iconSvg(icon: CardIcon, colour = '#c9c6c0'): string {
 }
 
 const STAR_PATH = 'M12 2.6l2.8 6 6.5.7-4.9 4.4 1.4 6.5L12 16.9l-5.8 3.3 1.4-6.5-4.9-4.4 6.5-.7z';
-const star = (on: boolean): string => `<svg viewBox="0 0 24 24"><path d="${STAR_PATH}" fill="${on ? '#f2efe8' : '#2a2826'}" stroke="${on ? '#f2efe8' : '#4a4744'}" stroke-width="1.2" stroke-linejoin="round" /></svg>`;
+/** a star of a card's grade: white, gold on a find (★4 and ★5) */
+const star = (on: boolean, gold = false): string => {
+  const c = on ? (gold ? '#f2c14e' : '#f2efe8') : '#2a2826';
+  return `<svg viewBox="0 0 24 24"><path d="${STAR_PATH}" fill="${c}" stroke="${on ? c : '#4a4744'}" stroke-width="1.2" stroke-linejoin="round" /></svg>`;
+};
 /** the condition's cross and the weight's bell, as Arctic Drive draws them in a card's last line */
 const COND = '<svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round" /></svg>';
 const MASS = '<svg viewBox="0 0 16 16"><path d="M5.2 6.2h5.6l2.4 7.6H2.8z" fill="#fff" /><circle cx="8" cy="4.2" r="1.9" fill="none" stroke="#fff" stroke-width="1.6" /></svg>';
@@ -154,7 +158,7 @@ const beforeOf = (s: string): string => (/\d/.test(s) ? s : '—');
 
 /** the card's HTML; compact = only what it is and what is in it (the held thing's card while another card is up) */
 export function cardHtml(c: ItemCard, compact = false): string {
-  const stars = c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars)).join('')}</div>` : '';
+  const stars = c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars, c.stars >= 4)).join('')}</div>` : '';
   const tags = c.badges.length ? `<div class="tg">${c.badges.map((b) => `<span class="${b.tone}">${esc(b.text)}</span>`).join('')}</div>` : '';
   const secs: string[] = [];
   if (compact) {

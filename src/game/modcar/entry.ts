@@ -18,6 +18,8 @@ import { devItemOf } from './devPanel';
 import { Tune } from './devTune';
 import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
 import { clearSave, loadSave } from './save';
+import { wreckSpots } from './wrecks';
+import { isRare, rollWreck } from '../../core/modcar/wrecks';
 
 /** is a thing lying about the one asked for: a part id, tool:<kind> or item:<id> */
 function looseIs(l: Loose, id: string): boolean {
@@ -508,7 +510,10 @@ const rt = {
     game.simulate(0);
   },
   openPanel: (vi: number, mount: string, open = true) => {
-    const ok = vehicle(vi).view.setPanelOpen(mount, open);
+    const v = vehicle(vi);
+    const ok = v.view.setPanelOpen(mount, open);
+    // (as the player's hand does it: a wreck's first look under its bonnet)
+    game.panelOpened(v, mount, open);
     game.simulate(0.6);
     return ok;
   },
@@ -630,6 +635,16 @@ const rt = {
   devExport: () => tune.export(game.devTools.context()).text,
   /** pieces of the world still to build round the camera */
   worldPending: () => game.worldView?.pending ?? -1,
+  /** the wrecks about (wrecks.ts): how many there, kept, taken, and each one there */
+  wrecks: () => JSON.parse(JSON.stringify(game.wreckTelemetry())) as unknown,
+  /** the world's wrecks anchored within [s0, s1] of the road, each with what it is (its roll) */
+  wreckSpots: (s0: number, s1: number) =>
+    game.world
+      ? wreckSpots(game.world, s0, s1).map((w) => {
+          const r = rollWreck(w.seed, w.type, w.stripped, w.s);
+          return { ...w, frame: r.build.frame, parts: Object.keys(r.build.parts).length, finds: r.finds.map((f) => f.part), rare: r.finds.filter((f) => isRare(r.build.frame, f.part)).map((f) => f.part), things: r.items.length + r.tools.length, hood: !!r.build.parts.hood, seat: !!r.build.parts.seat_driver };
+        })
+      : [],
   /** a biome's numbers as the world was made with them (the terrain dials write into them) */
   biomeDef: (id: string) => ({ ...BIOMES.find((b) => b.id === id) }),
 };

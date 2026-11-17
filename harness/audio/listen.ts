@@ -2,7 +2,9 @@
  * ModCar sound audition page (harness/audio/listen.html, served by `npm run dev`): every engine,
  * exhaust and cabin option on a toy drivetrain, and every foley sound, for listening and tuning; a
  * scrub pad to rub with the mouse, which drives the scrubbing loops as the game does (every frame a
- * gain and a rate from the tool's speed). Nothing makes a sound until the Start button is clicked.
+ * gain and a rate from the tool's speed); the tyres and wrecks, the flat and the bare rim following a
+ * speed and a load slider, the rare part's glint a distance one. Nothing makes a sound until the Start
+ * button is clicked.
  */
 import { EngineVoice, bankConfig, loadBank, type BankManifest } from '../../src/game/modcar/engineAudio';
 import { FOLEY_LOOPS, Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
@@ -267,6 +269,71 @@ foleyBox.append(document.createElement('br'));
   };
   foleyBox.append(spray, dry);
 }
+
+// tyres and wrecks by the road: the flat and the bare rim at the speed and load of the sliders (rate 1 at
+// 30 km/h, as the game should set it from the wheel), the glint by the distance to the rare part
+const roadBox = $('road');
+const roadOpts = (kind: FoleyLoop): FoleyOpts =>
+  kind === 'rare_glint'
+    ? { gain: Math.max(0, Math.min(1, (4 - Number($<HTMLInputElement>('glintDist').value)) / 3.4)) }
+    : { rate: Number($<HTMLInputElement>('roadKmh').value) / 30, gain: Number($<HTMLInputElement>('roadGain').value) };
+const roadToggles = new Map<FoleyLoop, HTMLButtonElement>();
+const roadLoop = (kind: FoleyLoop, on: boolean): void => {
+  if (!foley) return;
+  roadToggles.get(kind)?.classList.toggle('on', on);
+  if (on) foley.start(kind, roadOpts(kind));
+  else foley.stop(kind);
+};
+const roadShots: Array<[string, FoleyShot, FoleyOpts]> = [
+  ['爆胎', 'tyre_burst', {}], ['撬开锈死的车门 / 引擎盖', 'wreck_creak', {}],
+  ...[1, 2, 3, 4, 5].map((tier): [string, FoleyShot, FoleyOpts] => [`开盖找到 ★${tier}`, 'loot_reveal', { tier }]),
+];
+for (const [label, kind, opts] of roadShots) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => foley?.play(kind, opts);
+  roadBox.append(b);
+}
+roadBox.append(document.createElement('br'));
+for (const [label, kind] of [['瘪胎拍打（开关）', 'flat_flap'], ['钢圈磨地（开关）', 'rim_grind'], ['稀有零件微光（开关）', 'rare_glint']] as const) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => roadLoop(kind, !b.classList.contains('on'));
+  roadToggles.set(kind, b);
+  roadBox.append(b);
+}
+// a blowout as the game should play it: the bang, the flap from the next frame on; the tyre coming off: the flap giving way to the rim
+{
+  const burst = document.createElement('button');
+  burst.textContent = '行驶中爆胎（爆，接着瘪胎拍打）';
+  burst.onclick = () => {
+    foley?.play('tyre_burst');
+    roadLoop('rim_grind', false);
+    roadLoop('flat_flap', true);
+  };
+  const off = document.createElement('button');
+  off.textContent = '轮胎甩脱（拍打变成钢圈磨地）';
+  off.onclick = () => {
+    roadLoop('flat_flap', false);
+    roadLoop('rim_grind', true);
+  };
+  roadBox.append(burst, off);
+}
+const showRoad = (): void => {
+  const v = Number($<HTMLInputElement>('roadKmh').value);
+  $('roadKmhV').textContent = `${v} km/h · rate ${(v / 30).toFixed(2)}`;
+  $('roadGainV').textContent = Number($<HTMLInputElement>('roadGain').value).toFixed(2);
+  $('glintDistV').textContent = `${Number($<HTMLInputElement>('glintDist').value).toFixed(1)} m · gain ${(roadOpts('rare_glint').gain ?? 0).toFixed(2)}`;
+};
+for (const id of ['roadKmh', 'roadGain', 'glintDist']) {
+  $<HTMLInputElement>(id).oninput = () => {
+    showRoad();
+    // (a loop already playing glides to the new rate and gain: start() again, as the game does every frame)
+    for (const [kind, b] of roadToggles) if (b.classList.contains('on')) foley?.start(kind, roadOpts(kind));
+  };
+}
+showRoad();
+
 for (const [label, kind] of [['喇叭 嘀（按住）', 'horn_beep'], ['喇叭 乐曲', 'horn_trumpet'], ['汽笛（按住）', 'horn_air']] as const) {
   const b = document.createElement('button');
   b.textContent = label;

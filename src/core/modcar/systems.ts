@@ -9,7 +9,9 @@
  */
 import type { VehicleSim } from '../vehicle/sim';
 import { frameDef } from './frames';
-import { derive, tankFuel, type Derived } from './derive';
+import { derive, SURFACE_N, tankFuel, type Derived } from './derive';
+import { burstPerKm, SLIDE_WEAR, wearPerMetre, wetGrip } from './tyres';
+import { Surface } from '../world/ground';
 import { partDef } from './parts';
 import { batteryCharge, crankProblems, driveProblems, fuelQuality, runProblems, type Problem } from './rules';
 import { applyToSim, applyWheelMods } from './simlink';
@@ -34,10 +36,15 @@ const ALTERNATOR_KW = 0.35 * GAME;
 
 export type LightSwitch = 'off' | 'low' | 'high';
 
+/** what each wheel is called (0 FL, 1 FR, 2 RL, 3 RR) */
+const WHEEL_ZH = ['左前胎', '右前胎', '左后胎', '右后胎'];
+
 export interface ModEnv {
   ambientC: number;
   dark: boolean;
   rain: number;
+  /** how wet the road is (0 dry … 1 soaked): a worn tyre's grip in it (tyres.ts) */
+  wet?: number;
   /** 0 night … 1 full sun (solar panels) */
   sun: number;
   /** ground surface under the vehicle (src/core/world/ground.ts), for dirt */
@@ -66,6 +73,8 @@ export interface Dash {
   /** what the car is telling you right now (self-check, a stall, overheating) */
   message: { code: string; text: Text } | null;
   lamps: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
+  /** the four tyres (FL, FR, RL, RR): tread left (−1: no tyre on that corner), blown */
+  tyres: { tread: number; flat: boolean }[];
 }
 
 export class ModSystems {
@@ -94,6 +103,13 @@ export class ModSystems {
   private readonly slid = [0, 0, 0, 0];
   /** the tread of each wheel's tyre when its grip was last put in force */
   private readonly gripTread = [1, 1, 1, 1];
+  /** tyres that blew so far (the game hears each one), and the wheel of the last (0 FL, 1 FR, 2 RL, 3 RR) */
+  bursts = 0;
+  burstWheel = -1;
+  /** the road's wetness the worn tyres' grip was last set for (−1: still to set) */
+  private wetWas = -1;
+  /** the dice for a blow-out: a sequence of its own (the same drive on the same tyres, the same luck) */
+  private dice: number;
   private lastOdo = 0;
   readonly dash: Dash = {
     rpm: 0,
@@ -114,11 +130,25 @@ export class ModSystems {
     boost: 0,
     message: null,
     lamps: { battery: false, oil: false, temp: false, fuel: false, check: false },
+    tyres: [0, 1, 2, 3].map(() => ({ tread: 1, flat: false })),
   };
 
   constructor(public build: Build) {
     this.derived = derive(build);
     this.noteGripTread();
+    let h = 0x811c9dc5;
+    for (let i = 0; i < build.uid.length; i++) h = Math.imul(h ^ build.uid.charCodeAt(i), 0x01000193);
+    this.dice = (h >>> 0) || 1;
+  }
+
+  /** 0…1 (xorshift) */
+  private rand(): number {
+    let x = this.dice;
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    this.dice = x >>> 0;
+    return this.dice / 4294967296;
   }
 
   /** take charge of a simulation made for this build (its spec is derived.spec) */
@@ -130,6 +160,7 @@ export class ModSystems {
     sim.cranking = false;
     this.lastFuelUsed = sim.fuelUsedL;
     this.lastOdo = sim.odometer;
+    this.wetWas = -1;
     for (let i = 0; i < 4; i++) {
       this.rolled[i] = sim.wheels[i].rolled;
       this.slid[i] = sim.wheels[i].slid;
@@ -145,6 +176,7 @@ export class ModSystems {
   rebuild(): Derived {
     this.derived = derive(this.build);
     this.noteGripTread();
+    this.wetWas = -1;
     const sim = this.sim;
     if (sim) {
       this.syncFuelOut();
@@ -521,7 +553,8 @@ export class ModSystems {
   private wear(metres: number, env: ModEnv): void {
     const sim = this.sim!;
     if (metres <= 0) return;
-    // tyres: tread per distance rolled, faster sliding
+    // tyres (tyres.ts, Drive Beyond Horizons'): tread per distance rolled on the ground it rolls on, six times
+    // as fast sliding; in its last stage a tyre may blow
     const hubs = this.derived.wheels;
     let regrip = false;
     for (let i = 0; i < 4; i++) {
@@ -536,14 +569,42 @@ export class ModSystems {
       const def = partDef(tyre.part).tire!;
       // motorcycles list each wheel twice: halve so a wheel is not worn twice as fast
       const share = this.derived.frame.balance ? 0.5 : 1;
-      tyre.tread = Math.max(0, tyre.tread - share * ((def.wear * (dr + ds * 8)) / 100000));
+      const surface = w.contact ? w.surface : Surface.Asphalt;
+      tyre.tread = Math.max(0, tyre.tread - share * wearPerMetre(def, surface) * (dr + ds * SLIDE_WEAR));
       if (Math.abs(tyre.tread - this.gripTread[i]) > GRIP_TREAD_STEP) regrip = true;
+      // the last stage: it may go at any moment, the balder the likelier (a puncture, rolling or sliding)
+      if (!tyre.flat && tyre.tread <= 0.25 && dr + ds > 0) {
+        const p = burstPerKm(tyre.tread, surface) * ((dr + ds) / 1000) * share;
+        if (this.rand() < p) {
+          tyre.flat = true;
+          this.bursts++;
+          this.burstWheel = i;
+          regrip = true;
+          this.sayText('tyre_burst', { zh: `砰！${WHEEL_ZH[i]}爆胎了。`, en: 'Bang! A tyre blew.' });
+        }
+      }
     }
-    // (a step of wear puts the grip it leaves in force: derive again, the wheels' facts only)
+    // a worn tyre in the wet: the grip it keeps besides, on the hard ground (asphalt, gravel), wheel by wheel
+    const wet = env.wet ?? 0;
+    if (wet !== this.wetWas || regrip) {
+      this.wetWas = wet;
+      for (let i = 0; i < 4; i++) {
+        const tread = this.build.parts[hubs[i].hub]?.sub.tire?.tread ?? 1;
+        for (const k of [Surface.Asphalt, Surface.Gravel]) sim.mods.mu[i * SURFACE_N + k] = (this.derived.wheels[i].grip[k] ?? 1) * wetGrip(tread, wet, k);
+      }
+    }
+    // (a step of wear or a blow-out puts the grip it leaves in force: derive again, the wheels' facts only (and a flat
+    // tyre's sag); the wet's share on top again)
     if (regrip) {
-      this.derived.wheels = derive(this.build).wheels;
+      const d = derive(this.build);
+      this.derived.wheels = d.wheels;
+      this.derived.radiusDrop = d.radiusDrop;
       applyWheelMods(sim, this.derived);
       this.noteGripTread();
+      for (let i = 0; i < 4; i++) {
+        const tread = this.build.parts[hubs[i].hub]?.sub.tire?.tread ?? 1;
+        for (const k of [Surface.Asphalt, Surface.Gravel]) sim.mods.mu[i * SURFACE_N + k] = (this.derived.wheels[i].grip[k] ?? 1) * wetGrip(tread, wet, k);
+      }
     }
     // dirt: dust and mud by the ground (docs/MODCAR.md §15): two hours and more of road to very dirty (0.8),
     // twice as fast on dirt and gravel, faster still in the rain on soft ground
@@ -593,6 +654,12 @@ export class ModSystems {
     dd.lamps.temp = this.coolantC > HOT_C - 4;
     dd.lamps.fuel = dd.fuel < 0.1;
     dd.lamps.check = keyOn && this.firstProblem() !== null;
+    const hubs = this.derived.wheels;
+    for (let i = 0; i < 4; i++) {
+      const t = this.build.parts[hubs[i]?.hub]?.sub.tire;
+      dd.tyres[i].tread = t ? (t.tread ?? 1) : -1;
+      dd.tyres[i].flat = !!t?.flat;
+    }
     void env;
   }
 }

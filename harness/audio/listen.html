@@ -80,6 +80,16 @@
       </div>
     </fieldset>
 
+    <fieldset>
+      <legend>轮胎与路边废车（爆胎、瘪胎、钢圈磨地、撬开废车、开盖找到好东西、稀有零件的微光）</legend>
+      <div id="road"></div>
+      <div>瘪胎、钢圈跟着车速（rate 1 = 30 km/h）和负载走，微光跟着离零件的距离走（4 m 外听不到）：
+        <label>车速 <input type="range" id="roadKmh" min="5" max="110" step="1" value="30" /> <span id="roadKmhV">30 km/h</span></label>
+        <label>负载 gain <input type="range" id="roadGain" min="0" max="1" step="0.05" value="1" /> <span id="roadGainV">1.00</span></label>
+        <label>离稀有零件 <input type="range" id="glintDist" min="0.3" max="6" step="0.1" value="1" /> <span id="glintDistV">1.0 m</span></label>
+      </div>
+    </fieldset>
+
     <div id="status"></div>
     <script type="module" src="./listen.ts"></script>
   </body>

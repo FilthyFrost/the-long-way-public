@@ -4,7 +4,9 @@
  * points assume, rpm steps cover idle to redline within the pitch budget, seams measured clean when
  * the bank was built), the mixing maths behaves, and every foley recipe renders sane audio (the
  * scrubbing sounds also: seamless, textured, at their levels, following a stroke's rate; the spray
- * paint's: the can shaken, the valve's pssht into a steady hiss, running dry, the coat's chime). The
+ * paint's: the can shaken, the valve's pssht into a steady hiss, running dry, the coat's chime; the
+ * tyres' and wrecks': a blowout's bang and its air, a flat's slaps keeping time with the wheel, a bare
+ * rim's grind, a rusted panel forced open, the find's sting by its tier, a rare part's glint). The
  * workshop generator (gen_d1) is a bank of its own kind: a few loops round its governed speed, no
  * rev limiter, started on a rope (pullStart). The decoded, played-back seam check and the voice's
  * pull start (no starter whine, no solenoid clicks) are in harness/audio/modcar_render.mjs (Chrome).
@@ -1441,5 +1443,468 @@ describe('ModCar spray-paint foley', () => {
       expect(l).toBeLessThan(hiss - 0.5);
       expect(l).toBeGreaterThan(hiss - 5);
     }
+  });
+});
+
+// ------------------------------------------------------------------ tyres and wrecks (Batch 8)
+
+const ROAD_SHOTS: readonly FoleyShot[] = ['tyre_burst', 'wreck_creak', 'loot_reveal'];
+const ROAD_LOOPS: readonly FoleyLoop[] = ['flat_flap', 'rim_grind', 'rare_glint'];
+/** the sting's notes, in G major like the cleaning chimes and the coat's shimmer */
+const STING = { B5: 987.77, D6: 1174.66, G6: 1567.98, B6: 1975.53 };
+
+describe('ModCar tyres and wrecks foley', () => {
+  const sr = 48000;
+  const render = (kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}, seed = 1234): Float32Array => recipe(kind, o)(sr, new Rng(seed));
+  /** seeds spread over the whole range (a small one's first draw is small, and a recipe's first choice with it) */
+  const mixed = (s: number): number => Math.imul(s, 2654435761) | 0;
+  const rmsOf = (x: Float32Array, a: number, b: number): number => {
+    let e = 0;
+    const i0 = Math.max(0, Math.floor(a * sr));
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) e += x[i] * x[i];
+    return Math.sqrt(e / Math.max(1, i1 - i0));
+  };
+  /** x through a filter twice (a steeper slope) */
+  const filtered = (x: Float32Array, kind: Parameters<typeof biquad>[2], f: number, q = 0.707): Float32Array => {
+    const y = Float32Array.from(x);
+    biquad(y, sr, kind, f, q);
+    biquad(y, sr, kind, f, q);
+    return y;
+  };
+  /** the rms of x in windows of w s, one after another */
+  const envelope = (x: Float32Array, w: number): number[] => {
+    const n = Math.floor(w * sr);
+    const env: number[] = [];
+    for (let o = 0; o + n <= x.length; o += n) {
+      let e = 0;
+      for (let i = o; i < o + n; i++) e += x[i] * x[i];
+      env.push(Math.sqrt(e / n));
+    }
+    return env;
+  };
+  /** a player on a stand-in context: the renderings it makes itself (its own seeds), and what it plays */
+  const player = (): { f: Foley; sources: KeptSource[]; made: (kind: FoleyShot | FoleyLoop, o?: FoleyOpts) => Float32Array[]; count: () => number } => {
+    const { ctx, made, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    return {
+      f,
+      sources,
+      made: (kind, o = {}) => {
+        const a = made.length;
+        f.warm([kind], o);
+        return made.slice(a);
+      },
+      count: () => made.length,
+    };
+  };
+  /** the slaps of a flap: 2 ms windows over a third of its loudest, at least `gap` s apart (the arch's flap after each is closer) */
+  const slapsOf = (x: Float32Array, gap: number): number[] => {
+    const env = envelope(x, 0.002);
+    const max = Math.max(...env);
+    const at: number[] = [];
+    env.forEach((v, k) => {
+      const t = k * 0.002;
+      if (v > max / 3 && (at.length === 0 || t - at[at.length - 1] >= gap)) at.push(t);
+    });
+    return at;
+  };
+  /** how strongly a note of f Hz sounds over [a, b) s: the amplitude of its own frequency there */
+  const toneOf = (x: Float32Array, f: number, a: number, b: number): number => {
+    let c = 0;
+    let s = 0;
+    const i0 = Math.floor(a * sr);
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) {
+      c += x[i] * Math.cos((2 * Math.PI * f * i) / sr);
+      s += x[i] * Math.sin((2 * Math.PI * f * i) / sr);
+    }
+    return Math.hypot(c, s) / Math.max(1, i1 - i0);
+  };
+  /** a note's strongest (20 ms windows, 5 ms apart, over the first 0.4 s) and when it comes in (the first window at 30 % of that) */
+  const noteOf = (x: Float32Array, f: number): { max: number; at: number } => {
+    const lv = Array.from({ length: 80 }, (_, k) => toneOf(x, f, k * 0.005, k * 0.005 + 0.02));
+    const max = Math.max(...lv);
+    return { max, at: 0.005 * lv.findIndex((v) => v > 0.3 * max) };
+  };
+  /** how far a pitch lies from G major's pentatonic (G A B D E, in any octave), in cents */
+  const offKey = (f: number): number =>
+    Math.min(
+      ...[392, 440, 493.88, 587.33, 659.26].map((p) => {
+        const c = 1200 * Math.log2(f / p);
+        return Math.abs(c - 1200 * Math.round(c / 1200));
+      }),
+    );
+  /**
+   * how softly a loop's loudest moments come: for its five loudest 1 ms windows (60 ms apart or more),
+   * the level 3 ms before over the level there (a glint swelling in is already well on its way; a
+   * note struck out of silence would read nothing)
+   */
+  const swellsOf = (x: Float32Array): number[] => {
+    const n = x.length;
+    const at = (t: number): number => {
+      let e = 0;
+      const i0 = Math.floor(t * sr);
+      const w = Math.floor(0.001 * sr);
+      for (let i = i0; i < i0 + w; i++) e += x[((i % n) + n) % n] ** 2;
+      return Math.sqrt(e / w);
+    };
+    const T = n / sr;
+    const lv = Array.from({ length: Math.floor(T / 0.0005) }, (_, k) => [k * 0.0005, at(k * 0.0005)]).sort((p, q) => q[1] - p[1]);
+    const top: number[][] = [];
+    for (const [t, v] of lv) {
+      if (top.length >= 5) break;
+      if (top.every(([u]) => Math.min(Math.abs(t - u), T - Math.abs(t - u)) >= 0.06)) top.push([t, v]);
+    }
+    return top.map(([t, v]) => at(t - 0.003) / v);
+  };
+
+  it('has the tyre and wreck sounds in the catalogue, with levels', () => {
+    for (const k of [...ROAD_SHOTS, ...ROAD_LOOPS]) {
+      expect([...FOLEY_SHOTS, ...FOLEY_LOOPS] as string[], k).toContain(k);
+      expect(foleyLevel(k), k).toBeGreaterThan(0);
+      expect(foleyLevel(k), k).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('renders every shot non-silent and unclipped at its level, from silence to silence, for any seed and tier', () => {
+    const variants: Array<[FoleyShot, FoleyOpts]> = [['tyre_burst', {}], ['wreck_creak', {}], ...[1, 2, 3, 4, 5].map((tier) => ['loot_reveal', { tier }] as [FoleyShot, FoleyOpts])];
+    for (const [kind, o] of variants) {
+      for (const seed of [1, 1234, 777, mixed(5)]) {
+        const x = render(kind, o, seed);
+        const tag = `${kind} ${JSON.stringify(o)} seed ${seed}`;
+        let bad = 0;
+        let dc = 0;
+        for (const v of x) {
+          if (!Number.isFinite(v)) bad++;
+          dc += v;
+        }
+        expect(bad, tag).toBe(0);
+        const s = measure(x, sr);
+        expect(s.peak * foleyLevel(kind) * 1.08, tag).toBeLessThan(1);
+        expect(s.rms, tag).toBeGreaterThan(0.003);
+        expect(Math.abs(x[0]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(x[x.length - 1]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(dc / x.length), tag).toBeLessThan(0.01 * s.peak);
+      }
+    }
+  });
+
+  it('lasts as long as the brief says', () => {
+    const len = (k: FoleyShot, o: FoleyOpts = {}, seed = 1234): number => render(k, o, seed).length / sr;
+    expect(len('tyre_burst')).toBeGreaterThan(0.8);
+    expect(len('tyre_burst')).toBeLessThan(1);
+    for (let s = 1; s <= 8; s++) {
+      expect(len('wreck_creak', {}, mixed(s)), `seed ${s}`).toBeGreaterThanOrEqual(0.8);
+      expect(len('wreck_creak', {}, mixed(s)), `seed ${s}`).toBeLessThanOrEqual(1.2);
+    }
+    // about 0.7 s; a small find shorter, a golden one longer
+    const sting = [1, 2, 3, 4, 5].map((tier) => len('loot_reveal', { tier }));
+    expect(sting[2]).toBeGreaterThan(0.65);
+    expect(sting[2]).toBeLessThan(0.8);
+    expect(sting[0]).toBeGreaterThan(0.5);
+    expect(sting[4]).toBeLessThan(1);
+    for (let k = 1; k < 5; k++) expect(sting[k]).toBeGreaterThanOrEqual(sting[k - 1]);
+  });
+
+  it('blows out with a bang, the air roaring out after it for half a second and falling, the torn rubber slapping', () => {
+    for (const seed of [1, 1234, 777, mixed(3), mixed(9)]) {
+      const x = render('tyre_burst', {}, seed);
+      const tag = `seed ${seed}`;
+      // the bang: its loudest at once
+      let bang = 0;
+      let at = 0;
+      for (let t = 0; t + 0.002 < x.length / sr; t += 0.0005) {
+        const v = rmsOf(x, t, t + 0.002);
+        if (v > bang) {
+          bang = v;
+          at = t;
+        }
+      }
+      expect(at, tag).toBeLessThan(0.03);
+      // the air still roaring a quarter of a second on, then going, gone before the end
+      expect(rmsOf(x, 0.15, 0.45) / bang, tag).toBeGreaterThan(0.05);
+      expect(rmsOf(x, 0.15, 0.45) / bang, tag).toBeLessThan(0.25);
+      expect(rmsOf(x, 0.3, 0.5) / bang, tag).toBeGreaterThan(0.015);
+      expect(rmsOf(x, 0.8, 0.9) / bang, tag).toBeLessThan(0.006);
+      // falling as the pressure goes (over the boom's range)
+      const air = filtered(x, 'highpass', 600);
+      const c0 = centroidOf(powerOf(air, Math.floor(0.03 * sr), Math.floor(0.03 * sr) + 8192), sr);
+      const c1 = centroidOf(powerOf(air, Math.floor(0.25 * sr), Math.floor(0.25 * sr) + 8192), sr);
+      expect(c0, tag).toBeGreaterThan(1.4 * c1);
+      // the rubber: a slap standing out of the low band after the bang (a 5 ms window over those 15 ms either side of it)
+      const low = filtered(x, 'lowpass', 1800);
+      let slap = 0;
+      for (let t = 0.04; t < 0.13; t += 0.001) slap = Math.max(slap, rmsOf(low, t, t + 0.005) / (0.5 * (rmsOf(low, t - 0.02, t - 0.015) + rmsOf(low, t + 0.015, t + 0.02))));
+      expect(slap, tag).toBeGreaterThan(1.25);
+      // heavy, and sharp
+      const P = powerOf(x);
+      expect(shareOf(P, sr, 0, 1500), tag).toBeGreaterThan(0.8);
+      expect(shareOf(P, sr, 3000, 24000), tag).toBeGreaterThan(0.02);
+    }
+  });
+
+  it(
+    'flaps on a flat in time with the wheel: six slaps a second at rate 1, the same thwack from rate 0.3 to 3, seamless',
+    () => {
+      for (const seed of [1234, mixed(3)]) {
+        const x = render('flat_flap', {}, seed);
+        const tag = `seed ${seed}`;
+        expectSeamless(x, sr, tag);
+        // loose rubber slapping: impulsive, its level leaping from one 5 ms to the next; mostly low
+        const tex = textureOf(x, sr);
+        expect(tex.kurtosis, tag).toBeGreaterThan(6);
+        expect(tex.cv5, tag).toBeGreaterThan(0.7);
+        const P = powerOf(x);
+        expect(shareOf(P, sr, 0, 1500), tag).toBeGreaterThan(0.75);
+        // (nothing up high to fold back when it is played three and a half times as fast)
+        expect(shareOf(P, sr, 8000, 24000), tag).toBeLessThan(5e-4);
+        // an octave's power against the 500 Hz - 1 kHz one's, in dB
+        const octave = (Q: Float64Array, lo: number): number => 10 * Math.log10(shareOf(Q, sr, lo, 2 * lo) / shareOf(Q, sr, 500, 1000));
+        for (const rate of [0.3, 1, 3]) {
+          const y = atRate(x, rate, Math.max(3, 6 / rate), sr);
+          const period = 1 / (6 * rate);
+          const s = slapsOf(y, 0.6 * period);
+          // a slap every turn, evenly
+          expect(Math.abs((s[s.length - 1] - s[0]) / (s.length - 1) / period - 1), `${tag} rate ${rate}`).toBeLessThan(0.02);
+          for (const [k, t] of s.slice(1).entries()) {
+            expect((t - s[k]) / period, `${tag} rate ${rate}`).toBeGreaterThan(0.8);
+            expect((t - s[k]) / period, `${tag} rate ${rate}`).toBeLessThan(1.2);
+          }
+          // the same thwack: its body (250 Hz - 1 kHz) in the same balance at any rate, its slap (1-2 kHz) never lost
+          const Q = powerOf(y);
+          expect(Math.abs(octave(Q, 250)), `${tag} rate ${rate}`).toBeLessThan(3);
+          expect(octave(Q, 1000), `${tag} rate ${rate}`).toBeGreaterThan(-6);
+        }
+      }
+    },
+    60_000,
+  );
+
+  it('follows the wheel: the flap and the rim from walking pace to a hundred (0.25-3.5), the grind half way, the others as they were', () => {
+    expect(loopPlaybackRate('flat_flap', 1)).toBe(1);
+    expect(loopPlaybackRate('flat_flap', undefined)).toBe(1);
+    expect(loopPlaybackRate('flat_flap', 0.3)).toBeCloseTo(0.3, 12);
+    expect(loopPlaybackRate('flat_flap', 3)).toBeCloseTo(3, 12);
+    expect(loopPlaybackRate('flat_flap', 9)).toBeCloseTo(3.5, 12);
+    expect(loopPlaybackRate('flat_flap', 0.05)).toBeCloseTo(0.25, 12);
+    expect(loopPlaybackRate('rim_grind', 3)).toBeCloseTo(2, 12);
+    expect(loopPlaybackRate('rim_grind', 0.3)).toBeCloseTo(0.65, 12);
+    expect(loopPlaybackRate('rim_grind', 9)).toBeCloseTo(2.25, 12);
+    // (the scrubbing loops keep to 0.5-2, the glass following half way; the glint has no speed of its own)
+    expect(loopPlaybackRate('scrape_metal', 3)).toBe(2);
+    expect(loopPlaybackRate('scrape_glass', 3)).toBeCloseTo(1.5, 12);
+    expect(loopPlaybackRate('rare_glint', 3)).toBe(2);
+    // through the player: set as it starts, glided after, never restarted
+    const p = player();
+    p.f.start('flat_flap', { gain: 0.5, rate: 0.3 });
+    p.f.start('flat_flap', { gain: 1, rate: 3 });
+    p.f.start('flat_flap', { gain: 1, rate: 12 });
+    expect(p.sources.length).toBe(1);
+    const ev = p.sources[0].playbackRate.events;
+    expect(ev.map((e) => e[0])).toEqual(['set', 'target', 'target']);
+    expect(ev[0][1]).toBeCloseTo(0.3, 12);
+    expect(ev[1][1]).toBeCloseTo(3, 12);
+    expect(ev[2][1]).toBeCloseTo(3.5, 12);
+  });
+
+  it(
+    'grinds a bare rim on the road: rough and harsh, sparks in it, the bent rim knocking once a turn',
+    () => {
+      for (const seed of [1234, mixed(4)]) {
+        const x = render('rim_grind', {}, seed);
+        const tag = `seed ${seed}`;
+        expectSeamless(x, sr, tag);
+        // rougher than a hiss (the rim catching on the stones), yet a grind going on, not a flap
+        const tex = textureOf(x, sr);
+        expect(tex.kurtosis, tag).toBeGreaterThan(3.4);
+        expect(tex.kurtosis, tag).toBeLessThan(6);
+        expect(tex.cv5, tag).toBeGreaterThan(0.2);
+        expect(tex.cv50, tag).toBeLessThan(0.35);
+        const P = powerOf(x);
+        expect(centroidOf(P, sr), tag).toBeGreaterThan(1800);
+        expect(centroidOf(P, sr), tag).toBeLessThan(3500);
+        expect(shareOf(P, sr, 1500, 6000), tag).toBeGreaterThan(0.42);
+        // the knock: the envelope round 550 Hz comes round every sixth of a second (2 ms windows, read round)
+        const env = envelope(filtered(x, 'bandpass', 550, 1.2), 0.002);
+        const mean = env.reduce((a, b) => a + b, 0) / env.length;
+        const d = env.map((v) => v - mean);
+        let best = 0;
+        let lag = 0;
+        for (let l = 40; l <= 150; l++) {
+          let s = 0;
+          for (let i = 0; i < d.length; i++) s += d[i] * d[(i + l) % d.length];
+          if (s > best) {
+            best = s;
+            lag = l;
+          }
+        }
+        expect(Math.abs(lag * 0.002 - 1 / 6), tag).toBeLessThan(0.006);
+      }
+    },
+    60_000,
+  );
+
+  it('forces a rusted panel open: a low groan straining, the rust letting go with a crack, the hinge groaning on higher', () => {
+    for (const seed of [1, 2, 3, 1234, mixed(7), mixed(8), mixed(9)]) {
+      const x = render('wreck_creak', {}, seed);
+      const tag = `seed ${seed}`;
+      const len = x.length / sr;
+      // the crack: its loudest moment, a third of a second or so in
+      let crack = 0;
+      let at = 0;
+      for (let t = 0; t + 0.002 < len; t += 0.001) {
+        const v = rmsOf(x, t, t + 0.002);
+        if (v > crack) {
+          crack = v;
+          at = t;
+        }
+      }
+      expect(at, tag).toBeGreaterThan(0.28);
+      expect(at, tag).toBeLessThan(0.46);
+      // a long groan either side of it, not a slam
+      expect(rmsOf(x, 0.1, at - 0.05) / crack, tag).toBeGreaterThan(0.15);
+      expect(rmsOf(x, at + 0.15, len - 0.15) / crack, tag).toBeGreaterThan(0.15);
+      // the strain low, the swing higher
+      const groan = (a: number, b: number): number => peaksOf(powerOf(x, Math.floor(a * sr), Math.floor(b * sr)), sr, 80, 600, 1)[0];
+      const before = groan(0.02, at - 0.01);
+      const after = groan(at + 0.05, len - 0.05);
+      expect(before, tag).toBeGreaterThan(90);
+      expect(before, tag).toBeLessThan(230);
+      expect(after, tag).toBeGreaterThan(230);
+      expect(after, tag).toBeLessThan(460);
+    }
+  });
+
+  it('reveals a find with a warm sting in G: two notes for a small find, three for a good one, four and a golden shimmer for the best', () => {
+    const NOTES: Record<number, number[]> = { 1: [STING.D6, STING.G6], 2: [STING.D6, STING.G6], 3: [STING.B5, STING.D6, STING.G6], 4: [STING.B5, STING.D6, STING.G6, STING.B6], 5: [STING.B5, STING.D6, STING.G6, STING.B6] };
+    /** the share over 3 kHz of the sting's last third: its shimmer tail */
+    const tail = (x: Float32Array): number => shareOf(powerOf(x, Math.floor((x.length * 2) / 3)), sr, 3000, 24000);
+    const p = player();
+    const theirs = [1, 2, 3, 4, 5].map((tier) => p.made('loot_reveal', { tier })[0]);
+    const takes = [[1, 2, 3, 4, 5].map((tier) => render('loot_reveal', { tier })), [1, 2, 3, 4, 5].map((tier) => render('loot_reveal', { tier }, 1)), theirs];
+    for (const [t, take] of takes.entries()) {
+      for (const [k, x] of take.entries()) {
+        const tier = k + 1;
+        const tag = `tier ${tier} take ${t}`;
+        // the notes rising one after another, about 70 ms apart
+        const notes = NOTES[tier].map((f) => noteOf(x, f));
+        expect(notes[0].at, tag).toBeLessThan(0.01);
+        for (let j = 1; j < notes.length; j++) {
+          expect(notes[j].at - notes[j - 1].at, tag).toBeGreaterThan(0.04);
+          expect(notes[j].at - notes[j - 1].at, tag).toBeLessThan(0.1);
+        }
+        // the B6 a note of its own only for the best (under them it is no more than the B5's overtone)
+        const b6 = noteOf(x, STING.B6).max / noteOf(x, STING.G6).max;
+        if (tier >= 4) expect(b6, tag).toBeGreaterThan(0.8);
+        else expect(b6, tag).toBeLessThan(0.3);
+        // nothing out of the key: its strongest partials all on G major's pentatonic
+        for (const f of peaksOf(powerOf(x), sr, 300, 8000, 6)) expect(offKey(f), `${tag}: ${f.toFixed(0)} Hz`).toBeLessThan(30);
+        // and gone by its end
+        expect(rmsOf(x, x.length / sr - 0.03, x.length / sr), tag).toBeLessThan(0.05 * rmsOf(x, 0, 0.3));
+      }
+      // the shimmer tail: the best ones' last third glittering, the very best's most
+      const tails = take.map(tail);
+      expect(tails[3], `take ${t}`).toBeGreaterThan(1.4 * tails[2]);
+      expect(tails[4], `take ${t}`).toBeGreaterThan(tails[3]);
+      expect(tails[4], `take ${t}`).toBeGreaterThan(4 * tails[2]);
+    }
+    // a tune: the small and good ones the same whatever the seed (the best ones' shimmer falls as it will)
+    for (const k of [0, 1, 2]) expect(takes[1][k]).toEqual(takes[0][k]);
+  });
+
+  it('plays the sting in tune and at its level, louder with the tier: a good find a little over the coat done, the best under the fanfare', () => {
+    const p = player();
+    const loud = [1, 2, 3, 4, 5].map((tier) => kLoudness(p.made('loot_reveal', { tier })[0].map((v) => v * foleyLevel('loot_reveal')), sr, false));
+    for (let k = 1; k < 5; k++) expect(loud[k], `tier ${k + 1}`).toBeGreaterThan(loud[k - 1]);
+    const coat = Math.max(...p.made('paint_done').map((x) => kLoudness(x.map((v) => v * foleyLevel('paint_done')), sr, false)));
+    expect(loud[2]).toBeGreaterThan(coat + 0.3);
+    expect(loud[2]).toBeLessThan(coat + 3);
+    expect(Math.abs(loud[0] - coat)).toBeLessThan(1.5);
+    const fanfare = kLoudness(p.made('clean_car_done')[0].map((v) => v * foleyLevel('clean_car_done')), sr, false);
+    expect(loud[4]).toBeLessThan(fanfare);
+    // no detune, no variation
+    for (let k = 0; k < 10; k++) p.f.play('loot_reveal', { tier: 1 + (k % 5), gain: 0.8 });
+    expect(p.sources.length).toBe(10);
+    for (const s of p.sources) {
+      expect(s.playbackRate.value).toBe(1);
+      expect(s.out!.gain.value).toBeCloseTo(foleyLevel('loot_reveal') * 0.8, 12);
+    }
+  });
+
+  it('keys the sting by its tier, a whole one from 1 to 5 (none the middle one), and nothing else by it', () => {
+    const p = player();
+    const renders = (go: () => void): number => {
+      const a = p.count();
+      go();
+      return p.count() - a;
+    };
+    expect(renders(() => p.f.play('loot_reveal', { tier: 3 }))).toBe(1);
+    for (const tier of [undefined, 2.6, 3.4, Number.NaN]) expect(renders(() => p.f.play('loot_reveal', { tier })), `tier ${tier}`).toBe(0);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 4 }))).toBe(1);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 4.3 }))).toBe(0);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 5 }))).toBe(1);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 12 }))).toBe(0);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 1 }))).toBe(1);
+    expect(renders(() => p.f.play('loot_reveal', { tier: -2 }))).toBe(0);
+    expect(renders(() => p.f.play('loot_reveal', { tier: 2 }))).toBe(1);
+    // the other sounds take no notice of it
+    expect(renders(() => p.f.play('tyre_burst'))).toBe(3);
+    expect(renders(() => p.f.play('tyre_burst', { tier: 5 }))).toBe(0);
+    expect(renders(() => p.f.play('wreck_creak', { tier: 2 }))).toBe(3);
+    expect(renders(() => p.f.play('wreck_creak'))).toBe(0);
+    expect(renders(() => p.f.start('rare_glint', { gain: 0.4, tier: 5 }))).toBe(1);
+    expect(renders(() => p.f.start('rare_glint', { gain: 0.2 }))).toBe(0);
+    expect(p.sources.filter((s) => s.loop).length).toBe(1);
+  });
+
+  it(
+    'glints faintly near something rare: high, soft, sparse, on the pentatonic, seamless',
+    () => {
+      for (const seed of [1234, mixed(6), 5]) {
+        const x = render('rare_glint', {}, seed);
+        const tag = `seed ${seed}`;
+        expectSeamless(x, sr, tag);
+        const P = powerOf(x);
+        // high: nothing under a kilohertz
+        expect(shareOf(P, sr, 1400, 12000), tag).toBeGreaterThan(0.98);
+        expect(shareOf(P, sr, 0, 1000), tag).toBeLessThan(1e-3);
+        // every glint on G major's pentatonic: nothing to clash with the chimes or the sting
+        for (const f of peaksOf(P, sr, 1400, 8000, 8)) expect(offKey(f), `${tag}: ${f.toFixed(0)} Hz`).toBeLessThan(30);
+        // drifting in and out, not a steady ring
+        expect(textureOf(x, sr).cv50, tag).toBeGreaterThan(0.6);
+        // soft: its loudest moments swell in
+        for (const v of swellsOf(x)) expect(v, tag).toBeGreaterThan(0.15);
+      }
+    },
+    60_000,
+  );
+
+  it('sits in the mix at full gain: the burst a jump over all but the crash, the flap as loud as the scrapes, the rim over it, the creak under a door, the glint far under all', () => {
+    const p = player();
+    const shotLoud = (k: FoleyShot): number[] => p.made(k).map((x) => kLoudness(x.map((v) => v * foleyLevel(k)), sr, false));
+    const loopLoud = (k: FoleyLoop): number => kLoudness(p.made(k)[0].map((v) => v * foleyLevel(k)), sr, true);
+    const scrapes = SCRAPES.map(loopLoud);
+    const scrape = scrapes.reduce((a, b) => a + b, 0) / scrapes.length;
+    const door = shotLoud('door_close');
+    const crash = shotLoud('crash');
+    for (const l of shotLoud('tyre_burst')) {
+      expect(l).toBeGreaterThan(Math.max(...door) + 3);
+      expect(l).toBeGreaterThan(scrape + 12);
+      expect(l).toBeLessThan(Math.min(...crash));
+    }
+    for (const l of shotLoud('wreck_creak')) {
+      expect(l).toBeLessThan(Math.min(...door) - 0.5);
+      expect(l).toBeGreaterThan(Math.max(...door) - 5);
+    }
+    const flap = loopLoud('flat_flap');
+    expect(Math.abs(flap - scrape)).toBeLessThan(1.5);
+    const rim = loopLoud('rim_grind');
+    expect(rim).toBeGreaterThan(flap + 2);
+    expect(rim).toBeLessThan(flap + 8);
+    const glint = loopLoud('rare_glint');
+    expect(glint).toBeLessThan(scrape - 10);
+    expect(glint).toBeLessThan(-40);
+    expect(glint).toBeGreaterThan(-50);
   });
 });

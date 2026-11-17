@@ -740,6 +740,14 @@ export class CarView {
     return lid;
   }
 
+  /** the mounts under a lid (hood or trunk), whether it is shut or not */
+  under(lid: string): string[] {
+    this.shutOver('');
+    const out: string[] = [];
+    for (const [m, l] of this.covers ?? []) if (l === lid) out.push(m);
+    return out;
+  }
+
   // ------------------------------------------------------------------ parts
 
   /** make the scene match the build (call after any fit, removal or repaint) */
@@ -1240,8 +1248,8 @@ export class CarView {
   }
 
   private tireLook(t: PartInstance): LookOf {
-    // the white of a whitewall is its second paint
-    return { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, rust: 0, wear: 0, crust: t.crust ?? 0 };
+    // the white of a whitewall is its second paint; its wear is the tread gone (a bald one shines: carMaterials)
+    return { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, rust: 0, wear: 1 - (t.tread ?? 1), crust: t.crust ?? 0 };
   }
 
   /** keep every look in step with the build: paint, dust, rust (cheap: uniforms only) */

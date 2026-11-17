@@ -14,6 +14,8 @@ import { partDef, PARTS } from '../../core/modcar/parts';
 import { newTool, toolModelId } from '../../core/modcar/tools';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { coatOf, keepPartColours, paintTargets, SPRAY_TIERS, sprayFound, sprayLeft, sprayStep, sprayTier, takesPaint, type SprayResult } from '../../core/modcar/paint';
+import { tyreStage } from '../../core/modcar/tyres';
+import { gradesOn, isRare, type WreckRoll } from '../../core/modcar/wrecks';
 import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
@@ -77,6 +79,7 @@ import { zoneOf } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
 import { ModPlayer, type Held, type PlayerHost } from './player';
+import { glintsOf, WithoutWrecks, WreckGlints, Wrecks, type WreckHost } from './wrecks';
 import { Cockpit, type CockpitHost } from './cockpit';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
@@ -303,6 +306,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly seamless: boolean;
   /** what the vehicles keep out of in the world: what stands by the road, and each other (not the garage's walls: keepIn) */
   private readonly vehicleSolids = new SolidSet();
+  /** the wrecks by the road as vehicles one can take apart (wrecks.ts, docs/MODCAR.md §19); made with the world */
+  wrecks: Wrecks | null = null;
+  /** a rare part on a wreck catching the light */
+  private glints: WreckGlints | null = null;
+  /** when the wrecks about were last looked over for a find close by (s), and the glint's level from it */
+  private greetT = 0;
+  private glintGain = 0;
+  /** sounds to render before they are wanted, one a frame (a render can take tens of milliseconds) */
+  private readonly warmQueue: [FoleyShot | FoleyLoop, FoleyOpts][] = [];
+  private warmedTyres = false;
+  private warmedWrecks = false;
   garage: GarageScene | null = null;
   world: World | null = null;
   worldView: WorldView | null = null;
@@ -575,6 +589,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or not)
     this.world = new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome }));
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
+    // (the wrecks by the road are vehicles of their own: wrecks.ts)
+    this.worldView.skipObject = (o) => o.kind === 'wreck';
     this.landmarks = new LandmarkView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
     // (from the start on the road the walker comes after the world)
@@ -584,9 +600,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** what stands by the road (walls, pumps, benches, signs, guard rails): the walker and the vehicles keep out of it */
   private worldSolids(): void {
     if (!this.world) return;
-    this.player.addSolids(this.world.sites);
+    // (not the wrecks' boxes: the wrecks are vehicles, solids of their own)
+    const sites = new WithoutWrecks(this.world.sites);
+    this.player.addSolids(sites);
     this.player.addSolids(this.world.furniture);
-    this.vehicleSolids.add(this.world.sites);
+    this.vehicleSolids.add(sites);
     this.vehicleSolids.add(this.world.furniture);
     for (const v of this.vehicles) this.roadSolids(v);
   }
@@ -1099,9 +1117,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   snapshot(): SaveV1 | null {
     if (this.params.shot || this.fadeT >= 0 || !this.vehicles.length) return null;
     const w = this.player.walker;
-    const loose: SavedLoose[] = this.loose.list.map((l) => {
+    // (the wrecks by the road are not one's own: they come back from the world, the touched ones as `wrecks` keeps them)
+    const own = this.vehicles.filter((v) => !this.wrecks?.isWreck(v));
+    const loose: SavedLoose[] = this.loose.list.filter((l) => !(l.riding && this.wrecks?.isWreck(l.riding.on as ModVehicle))).map((l) => {
       const r = l.riding;
-      const on = r ? this.vehicles.indexOf(r.on as ModVehicle) : -1;
+      const on = r ? own.indexOf(r.on as ModVehicle) : -1;
       return { part: l.part ?? undefined, tool: l.tool ?? undefined, item: l.item ?? undefined, x: l.x, y: l.y, z: l.z, yaw: l.yaw, ...(r && on >= 0 ? { on, pos: r.pos.toArray(), rot: r.rot.toArray(), ...(l.stow ? { zone: l.stow } : {}), ...(l.lie ? { lie: l.lie } : {}) } : {}) };
     });
     const s: SaveV1 = {
@@ -1110,7 +1130,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       place: this.place,
       hour: this.env.clock.hourAt(this.time),
       done: [...this.done],
-      vehicles: this.vehicles.map((v) => ({ build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, radioOn: v.radioOn, radioSong: v.radioSong })),
+      vehicles: own.map((v) => ({ build: v.build, x: v.sim.px, z: v.sim.pz, yaw: v.sim.yaw, radioOn: v.radioOn, radioSong: v.radioSong })),
       loose,
       player: { x: w.x, z: w.z, heading: w.heading },
       // (the two slots go on with the player, to the road too)
@@ -1124,16 +1144,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (this.seamless && this.world) {
       // (one world: everything where it is, the world's seed, the vehicle one sits in)
       s.world = { seed: this.params.seed };
-      if (this.seated) s.seat = this.vehicles.indexOf(this.seated);
+      if (this.seated && own.includes(this.seated)) s.seat = own.indexOf(this.seated);
     } else if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
-      const v = this.seated ?? this.focus ?? this.vehicles[0];
-      const vi = this.vehicles.indexOf(v);
+      const v = this.seated ?? this.focus ?? own[0];
+      const vi = own.indexOf(v);
       s.vehicles = s.vehicles.filter((_, i) => i === vi);
       // (and what rides on it)
       s.loose = s.loose.filter((l) => l.on === vi).map((l) => ({ ...l, on: 0 }));
       s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
     }
+    if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     return s;
   }
 
@@ -1161,6 +1182,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
     }
     for (const l of this.loose.list) if (l.part?.grime) keys.add(l.part.uid);
+    for (const k of this.wrecks?.keptGrimeKeys() ?? []) keys.add(k);
     for (const key of g.keys) {
       const m = g.get(key)!;
       if (!m.changed) continue;
@@ -1174,27 +1196,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private async restoreGrime(): Promise<void> {
     const g = this.grime;
     if (!g) return;
-    for (const v of this.vehicles) {
-      for (const p of v.view.grimeParts()) {
-        const marked = p.inst ? p.inst.grime : v.build.grime;
-        if (!marked || g.get(p.key)) continue;
-        const kept = await keptMask(p.key, p.size);
-        const o = this.grimeOwnerOf(v, p.owner);
-        if (!o) continue;
-        if (!kept) {
-          // (the store lost it: the part as its figures show it)
-          if (p.inst) p.inst.grime = false;
-          else v.build.grime = false;
-          continue;
-        }
-        const m = g.open(o, kept.texels);
-        for (const u of kept.doneDirt) m.doneDirt.add(u);
-        for (const u of kept.doneRust) m.doneRust.add(u);
-        m.changed = false;
-        v.view.setGrimeHeld(p.owner, true);
-        this.cleaning.set(p.key, { v, loose: null, owner: p.owner, key: p.key, label: p.label, kind: p.kind, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
-      }
-    }
+    for (const v of this.vehicles) await this.restoreGrimeOf(v);
     // (and the things lying about)
     for (const l of this.loose.list) {
       for (const p of this.loose.grimeParts(l)) {
@@ -1212,6 +1214,31 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         m.changed = false;
         this.loose.setGrimeHeld(l.uid, true);
       }
+    }
+  }
+
+  /** a vehicle's parts marked as being cleaned take their masks back from the store (after a reload; a kept wreck come back) */
+  private async restoreGrimeOf(v: ModVehicle): Promise<void> {
+    const g = this.grime;
+    if (!g) return;
+    for (const p of v.view.grimeParts()) {
+      const marked = p.inst ? p.inst.grime : v.build.grime;
+      if (!marked || g.get(p.key)) continue;
+      const kept = await keptMask(p.key, p.size);
+      const o = this.grimeOwnerOf(v, p.owner);
+      if (!o || g.get(p.key)) continue;
+      if (!kept) {
+        // (the store lost it: the part as its figures show it)
+        if (p.inst) p.inst.grime = false;
+        else v.build.grime = false;
+        continue;
+      }
+      const m = g.open(o, kept.texels);
+      for (const u of kept.doneDirt) m.doneDirt.add(u);
+      for (const u of kept.doneRust) m.doneRust.add(u);
+      m.changed = false;
+      v.view.setGrimeHeld(p.owner, true);
+      this.cleaning.set(p.key, { v, loose: null, owner: p.owner, key: p.key, label: p.label, kind: p.kind, units: [], measuredAt: -1, dirty: true, flash: 0, flashUnit: -1 });
     }
   }
 
@@ -1253,6 +1280,86 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.vehicleSolids.add(v.solid);
     this.roadSolids(v);
     return v;
+  }
+
+  /** a vehicle gone from the world (a wreck left far behind), with what rode in it */
+  removeVehicle(v: ModVehicle): void {
+    const i = this.vehicles.indexOf(v);
+    if (i < 0) return;
+    for (const l of this.loose.ridersOf(v)) this.loose.remove(l);
+    this.vehicles.splice(i, 1);
+    this.player.removeSolids(v.solid);
+    this.vehicleSolids.remove(v.solid);
+    this.cargo.forget(v);
+    this.sparkDue.delete(v);
+    // (what was being cleaned on it: its masks stay, taken up again if it comes back)
+    for (const [key, c] of this.cleaning) if (c.v === v) this.cleaning.delete(key);
+    for (const [key, p] of this.paintHeld) if (p.v === v) this.paintHeld.delete(key);
+    if (this.lastGear.v === v) this.lastGear.v = null;
+    if (this.focus === v) this.focus = null;
+    if (this.seated === v) this.seated = null;
+    v.view.dispose();
+  }
+
+  /** what the wrecks need of the game */
+  private wreckHost(): WreckHost {
+    const game = this;
+    return {
+      get world() {
+        return game.world;
+      },
+      core: this.core,
+      addVehicle: (b, x, z, yaw) => this.addVehicle(b, x, z, yaw),
+      removeVehicle: (v) => this.removeVehicle(v),
+      stowLoot: (v, roll) => this.stowLoot(v, roll),
+      ridersOf: (v) => this.ridersSaved(v),
+      restoreRiders: (v, list) => this.restoreRiders(v, list),
+      restoreGrimeOf: (v) => void v.view.settled().then(() => this.restoreGrimeOf(v)),
+    };
+  }
+
+  /** what was left in a wreck, put in its boot or its bed (the first zone with room; what finds none is left out) */
+  private async stowLoot(v: ModVehicle, roll: WreckRoll): Promise<void> {
+    const things: NonNullable<Held>[] = [...roll.items.map((id): NonNullable<Held> => ({ kind: 'item', item: newItem(id) })), ...roll.tools.map((t): NonNullable<Held> => ({ kind: 'tool', tool: t }))];
+    for (const h of things) {
+      // (its own box once its model is in: packed by its real size)
+      if (!this.cargo.boxOf(h)) {
+        await this.loose.objectFor(h);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      if (!this.vehicles.includes(v)) return;
+      const at = this.cargo.packSpot(v, h);
+      if (at) this.cargo.stow(v, at.zone, at.spot, h);
+    }
+  }
+
+  /** what rides in a vehicle, as a save has it (in its frame) */
+  private ridersSaved(v: ModVehicle): SavedLoose[] {
+    return this.loose.ridersOf(v).map((l) => ({
+      part: l.part ?? undefined,
+      tool: l.tool ?? undefined,
+      item: l.item ?? undefined,
+      x: l.x,
+      y: l.y,
+      z: l.z,
+      yaw: l.yaw,
+      pos: l.riding!.pos.toArray(),
+      rot: l.riding!.rot.toArray(),
+      ...(l.stow ? { zone: l.stow } : {}),
+      ...(l.lie ? { lie: l.lie } : {}),
+    }));
+  }
+
+  /** what rode in a vehicle, in it again where it was */
+  private restoreRiders(v: ModVehicle, list: readonly SavedLoose[]): void {
+    for (const l of list) {
+      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(l.item, l.x, l.y + 0.05, l.z, l.yaw) : null;
+      if (!thing || !l.pos || !l.rot) continue;
+      this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
+      if (l.zone) thing.stow = l.zone;
+      if (l.lie) thing.lie = l.lie;
+    }
+    this.cargo.weigh(v);
   }
 
   private placeOnRoad(build: Build, s: number): ModVehicle {
@@ -1819,6 +1926,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ui.say('驾驶位没有座椅，坐不进去。');
       return;
     }
+    // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
+    if (this.wrecks?.claim(v)) this.ui.say(`坐进了这辆${v.view.frame.name.zh}——现在它归你了。`, 2.6);
     // (what is in the two slots goes along)
     this.player.ghosts.clear();
     this.player.clearHighlight();
@@ -1878,6 +1987,104 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     applyWheelMods(v.sim, v.sys.derived);
     void what;
     this.checkTutorial();
+  }
+
+  /**
+   * A door or a lid opened or shut. On a wreck, the first look under its bonnet or into its boot: the hinges
+   * that stood for years, and what is in there — a find under the bonnet said with its stars (and heard: the
+   * better it is the brighter), what was left in the boot listed
+   */
+  panelOpened(v: ModVehicle, mount: string, open: boolean): void {
+    const w = this.wrecks?.wreckOf(v);
+    if (!w || !open || w.opened.has(mount)) return;
+    w.opened.add(mount);
+    const m = v.view.frame.mounts.find((x) => x.id === mount);
+    if (!m || (m.cat !== 'hood' && m.cat !== 'trunk')) return;
+    this.sound('wreck_creak', 1, mount);
+    const lid = m.cat === 'hood' ? '引擎盖' : '后备箱';
+    // (what is under it, the best first: a find, or what an old car has; the sting only for a find, the brighter the better)
+    const under = gradesOn(v.build, v.view.under(mount));
+    const things = this.loose.ridersOf(v).filter((l) => l.stow && zoneOf(v.build.frame, l.stow)?.via?.includes(mount));
+    if (things.length) {
+      const names = things.slice(0, 3).map((l) => (l.item ? itemDef(l.item.item).name.zh : l.tool ? heldName({ kind: 'tool', tool: l.tool }) : l.part ? partDef(l.part.part).name.zh : ''));
+      this.sounds()?.play('loot_reveal', { tier: 1 });
+      this.ui.say(`${lid}里：${names.join('、')}${things.length > 3 ? '……' : ''}`, 2.8);
+    } else if (under.length) {
+      const best = under[0];
+      if (best.star >= 3) this.sounds()?.play('loot_reveal', { tier: best.star });
+      const rare = under.filter((g) => isRare(v.build.frame, g.part) && g !== best);
+      const more = rare.length ? `，还有${rare.slice(0, 2).map((g) => partDef(g.part).name.zh).join('、')}` : '';
+      this.ui.say(`${lid}下面：${partDef(best.part).name.zh} ${'★'.repeat(best.star)}${more}`, 3.4);
+    } else if (m.cat === 'hood') this.ui.say(`${lid}下面是空的：早被人拆光了。`, 2.4);
+  }
+
+  /** every frame: a find on a wreck catching the light; seen close to for the first time, heard */
+  private stepGlints(dt: number): void {
+    const wr = this.wrecks;
+    if (!wr) return;
+    this.glints ??= new WreckGlints(this.core.scene);
+    const sky = this.env.sky as unknown as { daylight?: number };
+    const light = Math.max(sky.daylight ?? 1, this.seated?.sys.lightsOn ? 0.45 : 0);
+    const live = [...wr.live.values()];
+    this.glints.update(dt, live, this.core.camera.position, light, this.time);
+    // (a wreck about: its creak, its reveal and the glint rendered before they are wanted)
+    if (live.length && !this.warmedWrecks) {
+      this.warmedWrecks = true;
+      this.warmLater(['wreck_creak', 'rare_glint']);
+      for (let tier = 1; tier <= 5; tier++) this.warmQueue.push(['loot_reveal', { tier }]);
+    }
+    if ((this.greetT -= dt) > 0) return;
+    this.greetT = 0.2;
+    // the glint heard within a few metres of the nearest find not under a shut lid (one loop, the nearest sets it)
+    const eye = this.core.camera.position;
+    const box = this.glintBox;
+    let near = Infinity;
+    for (const l of live) {
+      if (!l.sig || l.v.view.root.position.distanceTo(eye) > 12) continue;
+      for (const g of glintsOf(l.v)) {
+        if (!l.v.view.boundsOf(g.mount, box)) continue;
+        near = Math.min(near, box.distanceToPoint(eye));
+      }
+    }
+    this.glintGain = light > 0.08 ? Math.max(0, Math.min(1, (4 - near) / 3.4)) : 0;
+  }
+
+  private readonly glintBox = new THREE.Box3();
+
+  /** these rendered one a frame from now on */
+  private warmLater(kinds: readonly (FoleyShot | FoleyLoop)[]): void {
+    for (const k of kinds) this.warmQueue.push([k, {}]);
+  }
+
+  /** how far a vehicle is from where one hears from (the seat one is in, or one's feet) */
+  private listenerDist(v: ModVehicle): number {
+    const sv = this.seated;
+    return Math.hypot(v.sim.px - (sv ? sv.sim.px : this.player.walker.x), v.sim.pz - (sv ? sv.sim.pz : this.player.walker.z));
+  }
+
+  /** the loops of the road (a flat flapping, a bare rim grinding) and of a find close by, kept going this frame */
+  private worldLoops(): void {
+    if (!this.foley) return;
+    const v = this.focus;
+    if (v) {
+      const sim = v.sim;
+      const near = this.seated === v ? 1 : Math.max(0, 1 - this.listenerDist(v) / 60);
+      const flats = Object.values(v.build.parts).filter((p) => !!p.sub.tire?.flat).length;
+      const sp = sim.speed;
+      // (a slap a turn of the wheel: six a second at rate 1)
+      if (flats > 0 && sp > 0.3 && near > 0) {
+        const turns = sp / (2 * Math.PI * Math.max(0.15, sim.spec.wheelRadius));
+        this.loopFor('flat_flap', near * Math.min(1, 0.8 + 0.2 * (flats - 1)) * Math.min(1, sp / 1.5), Math.max(0.25, Math.min(3.5, turns / 6)));
+      }
+      const rim = sim.feel.rim ?? 0;
+      if (rim > 0.05 && near > 0) this.loopFor('rim_grind', near * Math.min(1, rim / 5), Math.max(0.25, Math.min(3.5, rim / 8.33)));
+      // (a tyre in its last stage: its blow-out and what follows rendered before they are wanted)
+      if (!this.warmedTyres && v === this.seated && v.sys.dash.tyres.some((t) => t.tread >= 0 && t.tread <= 0.25)) {
+        this.warmedTyres = true;
+        this.warmLater(['tyre_burst', 'flat_flap', 'rim_grind']);
+      }
+    }
+    if (this.glintGain > 0.01) this.loopFor('rare_glint', this.glintGain);
   }
 
   // ------------------------------------------------------------------ sound
@@ -2536,6 +2743,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private updateFoley(): void {
     const f = this.foley;
     if (!f) return;
+    const w = this.warmQueue.shift();
+    if (w) f.warm([w[0]], w[1]);
     // the wrench turns while a part goes on or comes off
     const t = this.player.target;
     if (!this.seated && this.player.progress > 0 && t && (t.kind === 'ghost' || t.kind === 'looseSub' || ((t.kind === 'part' || t.kind === 'loose') && this.player.secondary))) this.loopsNow.set('ratchet', {});
@@ -2712,7 +2921,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const sky = e.sky as unknown as { daylight?: number };
     let surface: number | undefined;
     for (const w of v.sim.wheels) if (w.contact) surface = w.surface;
-    return { ambientC: e.state.temp, dark: e.dark, rain: e.state.rain, sun: sky.daylight ?? 1, surface };
+    return { ambientC: e.state.temp, dark: e.dark, rain: e.state.rain, wet: e.state.wetness, sun: sky.daylight ?? 1, surface };
   }
 
   private handbrakeKey(dt: number, down: boolean, v: ModVehicle): number {
@@ -2755,6 +2964,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (this.garage) this.garage.power = this.workshop.power;
     }
     this.stepGrime(dt);
+    // the wrecks by the road: the ones within reach there, the ones far behind gone (kept as they were left)
+    if (this.world) {
+      this.wrecks ??= new Wrecks(this.wreckHost(), this.restore?.wrecks);
+      const sv = this.seated;
+      this.wrecks.update(dt, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
+    }
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
@@ -2795,6 +3010,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         v.knocksHeard = v.sim.hits;
         if (v === this.seated && v.sim.lastHitSpeed > 2.5) this.sound('crash', Math.min(1, 0.3 + v.sim.lastHitSpeed / 14));
       }
+      // a tyre blew out (tyres.ts): the bang, from the seat through the body, or from the roadside the further off the quieter
+      if (v.sys.bursts !== v.burstsHeard) {
+        v.burstsHeard = v.sys.bursts;
+        const gain = v === this.seated ? 1 : Math.max(0, 1 - this.listenerDist(v) / 150);
+        if (gain > 0.02) this.sounds()?.play('tyre_burst', { gain });
+      }
     }
     this.loose.update(dt);
     this.throwSparks(dt);
@@ -2803,6 +3024,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.leaveGarage(dt);
     this.updateViews(dt, alpha);
     this.loose.follow();
+    this.stepGlints(dt);
   }
 
   private garageContext(): GarageContext {
@@ -3269,6 +3491,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         handbrake: d.handbrake,
         lights: d.lights,
         warn: d.lamps,
+        // (a motorcycle's two wheels each twice in the simulation: front and back once)
+        tyres: (v.view.frame.balance ? [d.tyres[0], d.tyres[2]] : d.tyres).map((t) => (t.tread < 0 ? -1 : t.flat ? 4 : tyreStage(t.tread))),
       });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
@@ -3478,6 +3702,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   private updateAudio(): void {
     this.sounds();
+    this.worldLoops();
     this.updateFoley();
     this.updateEngineVoice();
     this.updateRadio();
@@ -3491,11 +3716,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (wh.util > slip) slip = wh.util;
       if (wh.contact) rough = Math.max(rough, SURFACES[wh.surface].rough);
     }
-    // a bare rim grinding on the road and a hub or the body dragging on it screech like a skid
-    const grind = Math.min(1, (sim.feel.rim ?? 0) / 8 + (sim.feel.scrape ?? 0) / 4);
+    // a hub or the body dragging on the road screeches like a skid (a bare rim grinds: foley's rim_grind)
+    const grind = Math.min(1, (sim.feel.scrape ?? 0) / 4);
     if (grind > slip) slip = grind;
-    // a flat tyre flaps
-    const flat = sim.speed > 0.5 && Object.values(v.build.parts).some((p) => !!p.sub.tire?.flat);
+    // (a flat tyre flaps: foley's flat_flap, in time with the wheel)
+    const flat = false;
     const w = this.env.state;
     const eng = v.sys.derived.engine?.engine;
     this.audio.update(
@@ -3583,6 +3808,37 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     };
   }
 
+  /** the wrecks about: how many there, kept, taken; each one there, what it is and where (the probes') */
+  wreckTelemetry(): Record<string, unknown> | null {
+    const wr = this.wrecks;
+    if (!wr) return null;
+    const sv = this.seated;
+    const x = sv ? sv.sim.px : this.player.walker.x;
+    const z = sv ? sv.sim.pz : this.player.walker.z;
+    return {
+      live: wr.live.size,
+      kept: wr.kept.size,
+      gone: wr.gone.size,
+      spawned: wr.spawned,
+      despawned: wr.despawned,
+      flares: this.glints?.flares ?? 0,
+      list: [...wr.live.values()].map((l) => ({
+        id: l.spot.id,
+        frame: l.v.build.frame,
+        index: this.vehicles.indexOf(l.v),
+        parts: Object.keys(l.v.build.parts).length,
+        dist: Math.round(Math.hypot(l.v.sim.px - x, l.v.sim.pz - z) * 10) / 10,
+        x: l.v.sim.px,
+        z: l.v.sim.pz,
+        y: l.v.sim.py,
+        ready: !!l.sig,
+        touched: wr.touched(l),
+        finds: l.roll?.finds.map((f) => f.part) ?? [],
+        riders: this.loose.ridersOf(l.v).length,
+      })),
+    };
+  }
+
   telemetry(): Record<string, unknown> {
     const st = this.core.stats;
     const v = this.seated ?? this.focus;
@@ -3596,6 +3852,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       exploded: this.vehicles.some((x) => x.sim.exploded),
       vehicles: this.vehicles.map((x) => ({ frame: x.build.frame, parts: Object.keys(x.build.parts).length, running: x.sys.running, x: x.sim.px, z: x.sim.pz })),
       loose: this.loose.list.length,
+      wrecks: this.wreckTelemetry(),
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),

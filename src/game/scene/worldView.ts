@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { Coast } from '../../core/world/sea';
-import type { Site } from '../../core/world/sites';
+import type { Site, SiteObject } from '../../core/world/sites';
 import type { World } from '../../core/world/terrain';
 import type { QualitySettings, RenderCore } from '../render/core';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
@@ -102,6 +102,8 @@ export class WorldView {
   private readonly proj = { s: 0, d: 0 };
   private readonly group = new THREE.Group();
   private sCam = 0;
+  /** the sites' objects not drawn here, the game making them things of their own (ModCar's wrecks: vehicles) */
+  skipObject: ((o: SiteObject) => boolean) | null = null;
   /** longest single build so far this session (ms): a proxy for streaming hitches */
   maxBuildMs = 0;
   totalBuilds = 0;
@@ -612,7 +614,7 @@ export class WorldView {
     const want = this.wantSites.get(key);
     if (!want || this.sites.has(key)) return;
     const site = want.site;
-    const r = this.slice<THREE.BufferGeometry>(`s|${key}|`, () => siteSlices(site), () => this.makeSite(key));
+    const r = this.slice<THREE.BufferGeometry>(`s|${key}|`, () => siteSlices(site, this.skipObject ?? undefined), () => this.makeSite(key));
     if (!r.done) return;
     const mesh = this.add(new THREE.Mesh(r.value, site.biome === 'alpine' ? this.siteSnowMat : this.siteMat), site.x, site.y, site.z);
     castShadows(mesh);

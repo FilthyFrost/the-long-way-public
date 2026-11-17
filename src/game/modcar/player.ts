@@ -177,6 +177,8 @@ export interface PlayerHost {
   scrubEnd(last: ScrubHit | null, tool: Tool): void;
   /** what a spray can held along the ray would paint (the thing the ray meets first, within far) */
   paintCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): PaintAim | null;
+  /** a door or a lid was opened or shut (a wreck's first look under its bonnet: wrecks.ts) */
+  panelOpened?(v: ModVehicle, mount: string, open: boolean): void;
   /** the can sprayed at it for dt seconds: the coat goes on, the can empties (paint.ts) */
   spray(aim: PaintAim, can: Tool, dt: number): SprayResult;
 }
@@ -881,6 +883,7 @@ export class ModPlayer {
           const open = t.v.view.panelOpen(t.mount.id) < 0.5;
           t.v.view.setPanelOpen(t.mount.id, open);
           host.sound(open ? 'door_open' : 'door_close', 1, t.mount.id);
+          host.panelOpened?.(t.v, t.mount.id, open);
           // shut onto something too tall for it: say so
           const rest = open ? null : t.v.view.lidRest(t.mount.id).part;
           if (rest) host.ui.say(`${t.mount.label[host.ui.lang]}盖不严：${partDef(rest).name[host.ui.lang]}太高了。`, 3);

@@ -175,8 +175,10 @@ export interface TireStats {
   grip: number[];
   /** rolling resistance multiplier */
   rr: number;
-  /** tread worn per 100 km of ordinary driving (0…1) */
-  wear: number;
+  /** km of asphalt it rolls before it is bald (tyres.ts: four stages of a quarter each) */
+  life: number;
+  /** how much faster it wears on rough ground (gravel, dirt, sand): 1.3 a road tyre's; under 1 an off-road tyre's */
+  roughWear?: number;
   /** road noise for the sound (1 = a road tyre) */
   noise: number;
 }

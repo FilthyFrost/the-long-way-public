@@ -2,7 +2,7 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--all] [--no-metrics]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--road] [--all] [--no-metrics]
 //
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
@@ -14,6 +14,9 @@
 // let go, no step added by a rate changing every frame, a fast stroke heard brighter than a slow one.
 // --spray renders spray painting as the game drives it (the can shaken, pressed, held, let go, pressed
 // again, the coat done, the can run dry) and checks the valve's pssht into the hiss and the quiet after.
+// --road renders tyres and wrecks as the game drives them (a blowout, the flat driven on, its rate from
+// the speed every frame, the bare rim, two wrecks forced open, a small and a golden find, the walk up to a
+// rare part) and checks the flap keeping time with the wheel, the rate gliding, the glint heard only near.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
 // as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
 // Exit code 1 if a loop clicks or a check fails.
@@ -36,9 +39,10 @@ const doSweep = all || args.includes('--sweep');
 const doWorkshop = all || args.includes('--workshop');
 const doScrub = all || args.includes('--scrub');
 const doSpray = all || args.includes('--spray');
+const doRoad = all || args.includes('--road');
 const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray) ? [...ENGINES, ...MACHINES] : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray && !doRoad) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -325,11 +329,14 @@ try {
       ...SCRUBS.flatMap((kind) => [[kind, {}], [kind, { rate: 0.7 }], [kind, { rate: 1.6 }]]),
       // spray paint
       ['spray_rattle', {}], ['spray_start', {}], ['spray_sputter', {}], ['paint_done', {}], ['spray_hiss', {}], ['spray_hiss', { rate: 0.9 }],
+      // tyres and wrecks: the find at each tier; the flap and the rim at a crawl, at 30 km/h and at 90
+      ['tyre_burst', {}], ['wreck_creak', {}], ...[1, 2, 3, 4, 5].map((tier) => ['loot_reveal', { tier }]),
+      ...['flat_flap', 'rim_grind'].flatMap((kind) => [[kind, { rate: 0.3 }], [kind, {}], [kind, { rate: 3 }]]), ['rare_glint', {}],
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
       const x = fromBase64(r.pcm);
-      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind, opts.surface, opts.rate !== undefined ? `rate${opts.rate}` : null].filter(Boolean).join('_');
+      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind, opts.surface, opts.tier !== undefined ? `t${opts.tier}` : null, opts.rate !== undefined ? `rate${opts.rate}` : null].filter(Boolean).join('_');
       writeWav(path.join(OUT, `foley_${tag}.wav`), x, r.sampleRate);
       const st = stats(x, r.sampleRate);
       report.foley[tag] = st;
@@ -434,6 +441,60 @@ try {
     }
     check(s.released.rms < -60, `spray: silent once let go (${s.released.rms} dB)`);
     check(s.quiet.rms < -60, `spray: silent once the can has run dry (${s.quiet.rms} dB)`);
+  }
+
+  if (doRoad) {
+    const r = await page.evaluate(() => window.__modcarAudio.renderRoad());
+    const x = fromBase64(r.pcm);
+    const sr = r.sampleRate;
+    writeWav(path.join(OUT, 'road_scene.wav'), x, sr);
+    report.road = {};
+    for (const [k, [a, b]] of Object.entries(r.marks)) report.road[k] = stats(x, sr, a, b);
+    const s = report.road;
+    const peak = stats(x, sr).peak;
+    console.log(`road scene: ${Object.entries(s).map(([k, v]) => `${k} ${v.rms} dB/${v.centroid} Hz`).join('  ')}  peak ${peak} dB`);
+    check(peak < -0.5, `road scene: no clipping (peak ${peak} dB)`);
+    // the flap keeps time with the wheel: six slaps a second at rate 1, wherever the speed is held
+    const slaps = (a, b, period) => {
+      const w = Math.floor(0.002 * sr);
+      const env = [];
+      for (let o = Math.floor(a * sr); o + w <= Math.floor(b * sr); o += w) {
+        let e = 0;
+        for (let i = o; i < o + w; i++) e += x[i] * x[i];
+        env.push([o / sr, Math.sqrt(e / w)]);
+      }
+      const max = Math.max(...env.map(([, v]) => v));
+      const at = [];
+      for (const [t, v] of env) if (v > max / 3 && (at.length === 0 || t - at[at.length - 1] >= 0.6 * period)) at.push(t);
+      return at.length > 1 ? (at[at.length - 1] - at[0]) / (at.length - 1) : 0;
+    };
+    for (const k of ['flap_cruise', 'flap_crawl', 'flap_fast']) {
+      const period = 1 / (6 * r.rates[k]);
+      const heard = slaps(...r.marks[k], period);
+      check(Math.abs(heard / period - 1) < 0.05, `road: ${k} slaps once every ${heard.toFixed(4)} s (the wheel ${period.toFixed(4)} s, rate ${r.rates[k].toFixed(2)})`);
+    }
+    // the rate followed every frame adds no step: the largest sample step braking or speeding up no bigger than held fast
+    const maxStep = (a, b) => {
+      let m = 0;
+      for (let i = Math.floor(a * sr); i < Math.floor(b * sr); i++) m = Math.max(m, Math.abs(x[i] - x[i - 1]));
+      return m;
+    };
+    const held = Math.max(maxStep(...r.marks.flap_cruise), maxStep(...r.marks.flap_fast));
+    const moving = Math.max(maxStep(...r.marks.flap_braking), maxStep(...r.marks.flap_away));
+    check(moving <= 1.3 * held, `road: the flap's rate gliding adds no step (largest ${(moving / held).toFixed(2)}x that held)`);
+    const rimHeld = Math.max(maxStep(...r.marks.rim_fast), maxStep(...r.marks.rim_slow));
+    check(maxStep(...r.marks.rim_braking) <= 1.3 * rimHeld, `road: the rim's rate gliding adds no step (largest ${(maxStep(...r.marks.rim_braking) / rimHeld).toFixed(2)}x that held)`);
+    // the rim grinding higher the faster it goes, by its playback rates (half the wheel's)
+    const brighter = s.rim_fast.centroid / s.rim_slow.centroid / (r.rates.rim_fast / r.rates.rim_slow);
+    check(brighter > 0.75 && brighter < 1.25, `road: the rim heard brighter fast than slow (${s.rim_slow.centroid} -> ${s.rim_fast.centroid} Hz, playback ${r.rates.rim_slow.toFixed(2)} -> ${r.rates.rim_fast.toFixed(2)})`);
+    check(s.after_rim.rms < -60, `road: silent once the car has stopped on its rim (${s.after_rim.rms} dB)`);
+    // the wrecks: the panel's groan well under the blowout, the golden find louder than the small one
+    check(s.creak.rms < s.burst.rms - 4 && s.creak2.rms < s.burst.rms - 4, `road: a wreck forced open under the blowout (${s.creak.rms} / ${s.creak2.rms} dB against ${s.burst.rms} dB)`);
+    check(s.find_golden.rms > s.find_small.rms + 1, `road: the golden find fuller than the small one (${s.find_small.rms} -> ${s.find_golden.rms} dB)`);
+    // the rare part heard only near it, and faintly
+    check(s.glint_far.rms < -70 && s.glint_near.rms > s.glint_far.rms + 20, `road: the glint heard near the rare part, not from 4 m (${s.glint_far.rms} -> ${s.glint_near.rms} dB)`);
+    check(s.glint_near.rms < s.burst.rms - 25, `road: the glint faint even at its nearest (${s.glint_near.rms} dB)`);
+    check(s.quiet.rms < -60, `road: silent at the end (${s.quiet.rms} dB)`);
   }
 
   if (doLoops) {

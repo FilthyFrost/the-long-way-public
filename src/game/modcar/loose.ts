@@ -240,7 +240,7 @@ export class LooseThings {
       this.mergeDirty = true;
       const t = inst.sub.tire;
       if (t && def.cat === 'rim') {
-        const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, crust: t.crust ?? 0 });
+        const tl = this.mats.look(`${ownerOf(l)}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, wear: 1 - (t.tread ?? 1), crust: t.crust ?? 0 });
         void this.track(partModel(t.part, inst.part)).then((tmodel) => {
           if (!this.list.includes(l)) return;
           const to = seatTyres(model, tmodel, def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);

@@ -838,10 +838,14 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       float grain = rtStep(abs(fract(g) - 0.5) - 0.32, 0.02);
       albedo *= mix(1.0, 0.72, grain) * (0.92 + 0.16 * rtTriNoise(vObj, on, 1.5).a);
     } else if (pat == 4) {
-      // rubber: matte, a touch lighter where worn
-      albedo *= 0.9 + 0.25 * rtTriNoise(vObj, on, 0.1).g;
-      // the bulge of a sidewall turned to the sky catches a soft sheen: the tyre reads as a shape, not a hole
-      skySheen = smoothstep(-0.05, 0.45, R.y);
+      // rubber: matte, a touch lighter where worn; a tyre worn down (its look's wear is the tread gone, tyres.ts)
+      // smoother and greyer on its running face (the axle is the model's z: the face is what does not face it)
+      float tw = clamp(wear.z / 0.6, 0.0, 1.0) * (1.0 - smoothstep(0.4, 0.75, abs(on.z)));
+      albedo *= mix(0.9 + 0.25 * rtTriNoise(vObj, on, 0.1).g, 1.02, tw * 0.8);
+      albedo = mix(albedo, vec3(0.075, 0.074, 0.078), 0.45 * tw);
+      // the bulge of a sidewall turned to the sky catches a soft sheen: the tyre reads as a shape, not a hole; a
+      // bald running face shines like it (polished on the road)
+      skySheen = smoothstep(-0.05, 0.45, R.y) + 0.9 * tw * smoothstep(-0.3, 0.5, R.y);
     } else if (pat == 5) {
       // rusty metal: brown with orange flakes and dark pits
       float f = rtTriNoise(vObj, on, 0.06).r;

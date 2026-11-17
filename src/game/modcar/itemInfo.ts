@@ -13,6 +13,7 @@ import { boostedCurve } from '../../core/modcar/derive';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { SPRAY_TIERS, sprayLeft, sprayTier } from '../../core/modcar/paint';
+import { kmLeft, TYRE_STAGES, tyreStage } from '../../core/modcar/tyres';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
@@ -303,16 +304,15 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
       const td = partDef(t.part);
       row(td.name.zh, '轮胎');
       card.columns = { label: '各种路面的抓地', items: td.tire!.grip.map((g, i) => ({ label: SURFACES_ZH[i], value: g })), max: 1.6 };
-      card.bars.push({ label: '胎纹', value: t.tread ?? 1, max: 1, text: pct(t.tread ?? 1), tone: condTone(t.tread ?? 1) });
-      if (t.flat) card.notes.push({ text: '轮胎扎破了：车会往这边偏', tone: 'warn' });
+      card.bars.push({ label: '胎纹', value: t.tread ?? 1, max: 1, text: `${pct(t.tread ?? 1)} · ${TYRE_STAGES[tyreStage(t.tread ?? 1)].zh}`, tone: condTone(t.tread ?? 1) });
+      tyreLines(card, row, t, td.tire!);
     } else card.notes.push({ text: '只有钢圈，没装轮胎：又滑又吵', tone: 'warn' });
   }
   if (def.tire) {
     const t = def.tire;
     card.columns = { label: '各种路面的抓地', items: t.grip.map((g, i) => ({ label: SURFACES_ZH[i], value: g })), max: 1.6 };
-    row(`${(t.wear * 100).toFixed(1)}%`, '每百公里磨掉的胎纹');
-    card.bars.push({ label: '胎纹', value: inst.tread ?? 1, max: 1, text: pct(inst.tread ?? 1), tone: condTone(inst.tread ?? 1) });
-    if (inst.flat) card.notes.push({ text: '扎破了：装上去车会往这边偏', tone: 'warn' });
+    card.bars.push({ label: '胎纹', value: inst.tread ?? 1, max: 1, text: `${pct(inst.tread ?? 1)} · ${TYRE_STAGES[tyreStage(inst.tread ?? 1)].zh}`, tone: condTone(inst.tread ?? 1) });
+    tyreLines(card, row, inst, t);
   }
   if (def.steering) {
     const s = def.steering;
@@ -365,6 +365,20 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   if (inst.rust > 0.25) card.notes.push({ text: `锈了 ${pct(inst.rust)}：用钢丝刷刷一刷`, tone: 'info' });
   else if (inst.dirt > 0.4) card.notes.push({ text: '有点脏：用海绵擦一擦', tone: 'info' });
   return card;
+}
+
+/** a tyre's stage, how far it has left, what a new one goes, what to watch for (tyres.ts) */
+function tyreLines(card: ItemCard, row: (value: string, label: string) => void, t: PartInstance, def: NonNullable<PartDef['tire']>): void {
+  const tread = t.tread ?? 1;
+  const stage = tyreStage(tread);
+  const left = kmLeft(def, tread);
+  row(TYRE_STAGES[stage].zh, '现在');
+  if (stage < 3) row(`约 ${Math.max(1, Math.round(left.lastStage))} km`, '离“听天由命”还有');
+  else row(`约 ${Math.round(left.bald)} km`, '离磨平还有');
+  row(`${def.life} km`, '新胎能跑（柏油路）');
+  if (t.flat) card.notes.push({ text: '爆了：装上去那个角会塌下去，车往这边偏', tone: 'warn' });
+  else if (stage === 3) card.notes.push({ text: '听天由命：随时可能爆胎，碎石路、土路上更容易', tone: 'warn' });
+  else if (stage === 2) card.notes.push({ text: '很旧了：下雨天容易打滑', tone: 'info' });
 }
 
 // ------------------------------------------------------------------ tools

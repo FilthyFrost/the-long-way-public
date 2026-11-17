@@ -53,6 +53,16 @@ const CSS = `
 .mc-dash .lamps span { padding: 0 8px; border-radius: 999px; background: rgba(255,255,255,0.09); color: var(--tx-3); font-size: 12px; line-height: 19px; }
 .mc-dash .lamps span.on { background: #f2efe8; color: var(--ink); font-weight: 700; }
 .mc-dash .lamps span.warn { background: #ff6b5a; color: #fff; font-weight: 700; }
+.mc-dash .tyres { display: grid; grid-template-columns: 9px 9px; grid-template-rows: 15px 15px; column-gap: 12px; row-gap: 10px; padding: 3px 6px; border-radius: 9px; background: rgba(255,255,255,0.06); position: relative; }
+.mc-dash .tyres::before { content: ''; position: absolute; left: 50%; top: 6px; bottom: 6px; width: 8px; margin-left: -4px; border-radius: 3px; background: rgba(255,255,255,0.13); }
+.mc-dash .tyres i { display: block; border-radius: 3px; border: 1.5px solid var(--ink); box-shadow: 0 1px 0 var(--ink); }
+.mc-dash .tyres i.s0 { background: #55cf6a; }
+.mc-dash .tyres i.s1 { background: #b9d94f; }
+.mc-dash .tyres i.s2 { background: #f0b43a; }
+.mc-dash .tyres i.s3 { background: #ff6b5a; }
+.mc-dash .tyres i.flat { background: #2a1512; border-color: #ff6b5a; animation: mc-blink 0.8s steps(2) infinite; }
+.mc-dash .tyres i.none { background: transparent; border-style: dashed; opacity: 0.5; }
+@keyframes mc-blink { 50% { opacity: 0.35; } }
 .mc-fade { position: absolute; z-index: 5; inset: 0; background: #0b0a09; opacity: 0; transition: opacity 0.6s; }
 .mc-help, .mc-assist { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); max-height: calc(100% - 40px); overflow: auto; font-size: 14.5px; line-height: 1.55; }
 .mc-help { width: min(660px, calc(100% - 32px)); padding: 16px 22px 14px; }
@@ -139,6 +149,8 @@ export interface DashView {
   handbrake: boolean;
   lights: 'off' | 'low' | 'high';
   warn: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
+  /** the four tyres (FL, FR, RL, RR, as seen from above): their stage (0 new … 3 "good luck", tyres.ts), −1 none, 4 blown */
+  tyres?: number[];
 }
 
 export class ModUI {
@@ -265,8 +277,9 @@ export class ModUI {
     this.items.topRight = this.list.offsetTop + this.list.offsetHeight;
   }
 
-  private dashEls: { spd: HTMLElement; gear: HTMLElement; rpm: HTMLElement; rpmT: HTMLElement; fuel: HTMLElement; fuelBar: HTMLElement; temp: HTMLElement; tempT: HTMLElement; lamps: HTMLElement } | null = null;
+  private dashEls: { spd: HTMLElement; gear: HTMLElement; rpm: HTMLElement; rpmT: HTMLElement; fuel: HTMLElement; fuelBar: HTMLElement; temp: HTMLElement; tempT: HTMLElement; lamps: HTMLElement; tyres: HTMLElement } | null = null;
   private lastLamps = '';
+  private lastTyres = '';
 
   /** the cluster in the corner while driving (the real gauges are on the dash in the cab) */
   showDash(d: DashView | null): void {
@@ -277,9 +290,9 @@ export class ModUI {
         '<div class="spd"></div><div class="unit">km/h</div><div class="gear"></div>' +
         '<div class="col"><div class="row"><div class="bar rpm"><i></i></div><span class="rpmT"></span></div>' +
         '<div class="row">油<div class="bar fuelBar"><i></i></div>水<div class="bar temp"><i></i></div><span class="tempT"></span></div>' +
-        '<div class="lamps"></div></div>';
+        '<div class="lamps"></div></div><div class="tyres" title="轮胎"></div>';
       const q = (sel: string): HTMLElement => this.dash.querySelector(sel) as HTMLElement;
-      this.dashEls = { spd: q('.spd'), gear: q('.gear'), rpm: q('.rpm i'), rpmT: q('.rpmT'), fuel: q('.fuelBar i'), fuelBar: q('.fuelBar'), temp: q('.temp i'), tempT: q('.tempT'), lamps: q('.lamps') };
+      this.dashEls = { spd: q('.spd'), gear: q('.gear'), rpm: q('.rpm i'), rpmT: q('.rpmT'), fuel: q('.fuelBar i'), fuelBar: q('.fuelBar'), temp: q('.temp i'), tempT: q('.tempT'), lamps: q('.lamps'), tyres: q('.tyres') };
     }
     const e = this.dashEls;
     e.spd.textContent = Math.abs(d.kmh).toFixed(0);
@@ -302,6 +315,13 @@ export class ModUI {
     if (lamps !== this.lastLamps) {
       e.lamps.innerHTML = lamps;
       this.lastLamps = lamps;
+    }
+    // the four tyres from above, in their stages' colours (a blown one blinks)
+    const ty = (d.tyres ?? []).map((s) => (s < 0 ? 'none' : s >= 4 ? 'flat' : `s${s}`)).join(' ');
+    if (ty !== this.lastTyres) {
+      this.lastTyres = ty;
+      e.tyres.style.display = d.tyres ? '' : 'none';
+      e.tyres.innerHTML = (d.tyres ?? []).map((s) => `<i class="${s < 0 ? 'none' : s >= 4 ? 'flat' : `s${s}`}"></i>`).join('');
     }
   }
 

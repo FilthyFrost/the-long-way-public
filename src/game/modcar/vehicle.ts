@@ -41,6 +41,8 @@ export class ModVehicle implements Carrier {
   radioSong = 0;
   /** knocks against solids already heard */
   knocksHeard = 0;
+  /** blow-outs already heard (its systems count them) */
+  burstsHeard = 0;
 
   constructor(
     core: RenderCore,
