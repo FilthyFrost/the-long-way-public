@@ -17,6 +17,7 @@ import { newTool, SCRAPERS, TOOL_INFO, toolName, type ToolKind } from '../../cor
 import { toolLook } from './loose';
 import type { Category, PartDef } from '../../core/modcar/types';
 import { panelPaint } from './assets';
+import { LAB_CSS, LabPane, type LabHost } from './devLab';
 import { PANE_CSS, WorldPanes, type PaneHost, type PaneId } from './devPanes';
 import { PartThumbs } from './thumbs';
 
@@ -32,7 +33,7 @@ export interface DevPoint {
   z: number;
 }
 
-export interface DevHost extends PaneHost {
+export interface DevHost extends PaneHost, LabHost {
   /** the world point under a point of the window (CSS px), or null where the view meets nothing near */
   devPick(clientX: number, clientY: number): DevPoint | null;
   /** put a thing at a world point, or (null) at the walker's feet */
@@ -78,8 +79,11 @@ function itemMeta(d: (typeof ITEMS)[number]): string {
   return `${star}${s || `${d.mass} kg`}`;
 }
 
-const TABS: [PaneId | 'parts', string][] = [
+type TabId = PaneId | 'parts' | 'lab';
+
+const TABS: [TabId, string][] = [
   ['parts', '零件'],
+  ['lab', '手感'],
   ['place', '传送'],
   ['weather', '天气'],
   ['time', '时间'],
@@ -184,7 +188,9 @@ export class DevPanel {
   private raf = 0;
   private drag: { tile: Tile; x0: number; y0: number; x: number; y: number; moved: boolean; chip: HTMLDivElement | null; id: number } | null = null;
   private readonly panes: WorldPanes;
-  private current: PaneId | 'parts' = 'parts';
+  /** the handling lab's tab (devLab.ts) */
+  private readonly lab: LabPane;
+  private current: TabId = 'parts';
   private readonly built = new Set<string>();
   private lastTick = 0;
 
@@ -198,7 +204,7 @@ export class DevPanel {
     if (!document.getElementById('mc-dev-panes-css')) {
       const st = document.createElement('style');
       st.id = 'mc-dev-panes-css';
-      st.textContent = PANE_CSS;
+      st.textContent = PANE_CSS + LAB_CSS;
       document.head.appendChild(st);
     }
     const root = document.createElement('div');
@@ -217,6 +223,7 @@ export class DevPanel {
     this.list = root.querySelector('.list') as HTMLDivElement;
     this.q = root.querySelector('input.q') as HTMLInputElement;
     this.panes = new WorldPanes(host, root);
+    this.lab = new LabPane(host);
     // typing in a box of the panel is not walking (the key that shuts the panel still shuts it)
     for (const type of ['keydown', 'keyup'] as const) {
       root.addEventListener(type, (e) => {
@@ -226,7 +233,7 @@ export class DevPanel {
     }
     root.querySelector('.tabs')!.addEventListener('click', (e) => {
       const id = (e.target as HTMLElement).closest('span')?.dataset.t;
-      if (id) this.showTab(id as PaneId | 'parts');
+      if (id) this.showTab(id as TabId);
     });
     host.tune.onChange(() => this.header());
     this.header();
@@ -242,12 +249,12 @@ export class DevPanel {
   }
 
   /** the tab showing */
-  get tab(): PaneId | 'parts' {
+  get tab(): TabId {
     return this.current;
   }
 
   /** show a tab (its content made the first time) */
-  showTab(id: PaneId | 'parts'): void {
+  showTab(id: TabId): void {
     if (!TABS.some(([t]) => t === id)) return;
     this.current = id;
     for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) s.classList.toggle('on', s.dataset.t === id);
@@ -256,7 +263,8 @@ export class DevPanel {
       p.style.display = on ? '' : 'none';
       if (on && id !== 'parts' && !this.built.has(id)) {
         this.built.add(id);
-        this.panes.build(id, p);
+        if (id === 'lab') this.lab.build(p);
+        else this.panes.build(id, p);
       }
     }
     this.header();
@@ -267,7 +275,10 @@ export class DevPanel {
     const sub = this.root.querySelector('.hd .sub') as HTMLElement;
     const hint = this.root.querySelector('.hd .hint') as HTMLElement;
     const moved = this.host.tune.changed().length;
-    if (this.current === 'parts') {
+    if (this.current === 'lab') {
+      sub.textContent = '换一个零件，看哪些数变了';
+      hint.innerHTML = '先坐进一辆车，或者走到车旁边 · 测量时画面会停一下<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
+    } else if (this.current === 'parts') {
       sub.textContent = `${PARTS.length} 个零件 · 5 种工具 · 4 种车架`;
       hint.innerHTML = '拖到场景里松开就放在那儿 · 单击放到脚边<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
     } else {
@@ -276,9 +287,9 @@ export class DevPanel {
     }
     // (how many dials each tab has moved, on its tab)
     for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) {
-      const t = s.dataset.t as PaneId | 'parts';
+      const t = s.dataset.t as TabId;
       const label = TABS.find(([id]) => id === t)?.[1] ?? '';
-      const n = t === 'parts' || t === 'place' ? 0 : this.host.tune.changed(t).length;
+      const n = t === 'parts' || t === 'place' || t === 'lab' ? 0 : this.host.tune.changed(t).length;
       s.innerHTML = n ? `${label}<i>${n}</i>` : label;
     }
   }
@@ -344,6 +355,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       if (this.current !== 'parts' && now - this.lastTick > 200) {
         this.lastTick = now;
         this.panes.tick();
+        if (this.current === 'lab') this.lab.tick();
       }
       // walking or turning while a tile is held: where it would land moves with the view
       if (this.drag?.moved) this.aimAt(this.drag.x, this.drag.y);

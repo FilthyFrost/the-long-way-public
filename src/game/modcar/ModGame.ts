@@ -1985,6 +1985,23 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.ui.say(n ? `清掉了 ${n} 件。` : '地上本来就没有东西。', 2);
   }
 
+  /** the vehicle the handling lab measures (devLab.ts): the one sat in, else the one in focus, else the nearest within 12 m */
+  devLabVehicle(): { build: Build; name: string } | null {
+    let v = this.seated ?? this.focus;
+    if (!v) {
+      const w = this.player.walker;
+      let best = 12;
+      for (const o of this.vehicles) {
+        const d = Math.hypot(o.sim.px - w.x, o.sim.pz - w.z);
+        if (d < best) {
+          best = d;
+          v = o;
+        }
+      }
+    }
+    return v ? { build: v.build, name: frameDef(v.build.frame).name.zh } : null;
+  }
+
   devRepair(): void {
     for (const v of this.vehicles) {
       const b = v.build;

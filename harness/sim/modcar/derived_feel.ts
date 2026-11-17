@@ -1,38 +1,13 @@
 /**
- * Derived ModCar builds measured on the physics line's feel harness (docs/MODCAR.md §10.4): the stock
- * frames and the swaps the spec says must feel different — a V8 in the motorcycle must lift its front.
+ * Derived ModCar builds measured on the feel harness: src/core/modcar/lab/derived.ts; this prints a few builds.
  *
  *   npx tsx harness/sim/modcar/derived_feel.ts [build text …]
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { decodeBuild } from '../../../src/core/modcar/build';
-import { derive, SURFACE_N, type Derived } from '../../../src/core/modcar/derive';
-import type { SimMods } from '../../../src/core/vehicle/mods';
-import type { VehicleSpec } from '../../../src/core/vehicle/spec';
-import { measureFeel, type ModcarFeel } from './feel';
+import { feelOf } from '../../../src/core/modcar/lab/derived';
 
-/** the per-wheel grip, rolling resistance, size and fit a build's derive writes into the sim */
-export function derivedMods(d: Derived): (m: SimMods) => void {
-  return (m) => {
-    for (let i = 0; i < 4; i++) {
-      const w = d.wheels[i];
-      for (let k = 0; k < SURFACE_N; k++) {
-        m.mu[i * SURFACE_N + k] = w.grip[k] ?? 1;
-        m.rr[i * SURFACE_N + k] = w.rr;
-      }
-      m.radiusDrop[i] = d.radiusDrop[i];
-      m.radiusOffset[i] = d.radiusOffset[i];
-      m.wheelFit[i] = w.fit;
-    }
-    m.steerPlay = d.steerPlayRad;
-  };
-}
-
-export function feelOf(text: string): ModcarFeel {
-  const d = derive(decodeBuild(text, { fuel: 0.5 }));
-  return measureFeel(d.spec as VehicleSpec, { mods: derivedMods(d) });
-}
+export * from '../../../src/core/modcar/lab/derived';
 
 const here = fileURLToPath(import.meta.url);
 if (process.argv[1] && path.resolve(process.argv[1]) === here) {
