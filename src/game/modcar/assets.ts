@@ -110,15 +110,17 @@ const KEEP = new Set(['position', 'normal', 'uv', 'color', 'aMaskUv']);
  */
 function mergeRigid(root: THREE.Object3D): void {
   root.updateMatrixWorld(true);
+  // (and what its modeller marked as moving: a cupboard's doors, a drawer, a pump's nozzle — tools/blender/places)
+  const rigid = (o: THREE.Object3D): boolean => RIGID.test(o.name) || !!o.userData?.move;
   const groups: THREE.Object3D[] = [root];
   root.traverse((o) => {
-    if (o !== root && RIGID.test(o.name)) groups.push(o);
+    if (o !== root && rigid(o)) groups.push(o);
   });
   for (const g of groups) {
     const meshes: THREE.Mesh[] = [];
     const collect = (node: THREE.Object3D): void => {
       for (const c of node.children) {
-        if (RIGID.test(c.name)) continue;
+        if (rigid(c)) continue;
         const mesh = c as THREE.Mesh;
         if (mesh.isMesh && !Array.isArray(mesh.material) && !mesh.children.length) meshes.push(mesh);
         collect(c);

@@ -82,6 +82,7 @@ import { ModPlayer, type Held, type PlayerHost } from './player';
 import { glintsOf, WithoutWrecks, WreckGlints, Wrecks, type WreckHost } from './wrecks';
 import { isContainer, Places, type PlaceContainer, type PlacesHost } from './places';
 import { SiteArt } from './siteArt';
+import { Doors } from './doors';
 import { solidWithin, type SolidSource } from '../../core/world/solids';
 import type { Site } from '../../core/world/sites';
 import { Cockpit, type CockpitHost } from './cockpit';
@@ -326,6 +327,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   places: Places | null = null;
   /** … and their things drawn as our models (siteArt.ts) */
   siteArt: SiteArt | null = null;
+  /** … their buildings' doors (doors.ts) */
+  doors: Doors | null = null;
   /** when the wrecks about were last looked over for a find close by (s), and the glint's level from it */
   private greetT = 0;
   private glintGain = 0;
@@ -544,7 +547,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   get devices(): readonly GarageDevice[] {
-    const pl = this.places?.devices ?? [];
+    const dd = this.doors?.devices ?? [];
+    const pl = dd.length ? [...(this.places?.devices ?? []), ...dd] : (this.places?.devices ?? []);
     const base = this.workshop ? (this.devicesAll ??= [...(this.garage?.devices ?? []), ...this.workshop.devices]) : (this.garage?.devices ?? []);
     return pl.length ? [...base, ...pl] : base;
   }
@@ -762,8 +766,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.world = new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome }));
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
     // (the wrecks by the road are vehicles of their own: wrecks.ts; the places' things our models where we have them)
-    this.siteArt ??= new SiteArt(this.core);
+    this.siteArt ??= new SiteArt(this.core, (id) => this.places?.isSearched(id) ?? false);
     const art = this.siteArt;
+    this.doors ??= new Doors(
+      {
+        core: this.core,
+        origin: this.core.origin,
+        model: (name) => art.kitModel(name),
+        play: (name) => {
+          const f = this.sounds();
+          if (f && (FOLEY_SHOTS as readonly string[]).includes(name)) f.play(name as FoleyShot, {});
+        },
+      },
+      this.restore?.places?.doors,
+    );
+    art.doors = this.doors;
     this.worldView.skipObject = (o, site) => o.kind === 'wreck' || (o.kind === 'workbench' && site.kind === 'garage') || art.draws(o, site);
     this.landmarks = new LandmarkView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
@@ -780,6 +797,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.player.addSolids(this.world.furniture);
     this.vehicleSolids.add(sites);
     this.vehicleSolids.add(this.world.furniture);
+    // (the buildings' doors, while they are shut)
+    if (this.doors) {
+      this.player.addSolids(this.doors.solids);
+      this.vehicleSolids.add(this.doors.solids);
+    }
     for (const v of this.vehicles) this.roadSolids(v);
   }
 
@@ -1370,7 +1392,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
-    if (this.places) s.places = this.places.snapshot();
+    if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
     return s;
   }
 
@@ -1550,6 +1572,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       },
       makeWorkshop: (site, save) => this.makeRoadWorkshop(site, save),
       dropWorkshop: (ws) => this.dropRoadWorkshop(ws),
+      opened: (id) => this.siteArt?.open(id),
     };
   }
 
@@ -3244,6 +3267,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.places ??= new Places(this.placesHost(), this.restore?.places);
       this.places.update(dt, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
       this.siteArt?.update(dt, this.world, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
+      this.doors?.update(dt);
     }
     // on foot: walk, look, use
     if (!this.seated) {

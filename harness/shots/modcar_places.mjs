@@ -180,7 +180,8 @@ try {
     if (!Object.keys(saved?.pumps ?? {}).length) fail('the pumps are not in the save');
   }
 
-  // 6. a house's cupboard and wardrobe; a garage's shelves
+  // 6. a house's cupboard and wardrobe; a garage's shelves (what opens, opened when searched)
+  const movers = [];
   for (const site of [house, garage].filter(Boolean)) {
     await goTo(site);
     const got = [];
@@ -191,7 +192,15 @@ try {
         got.push(`${c.kind}: mark on ${m}`);
         continue;
       }
+      // (its doors, drawers or lid: shut before, open once searched)
+      const shut = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
       await rt('holdFor', 1.0);
+      await rt('simulate', 0.6);
+      const opened = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
+      if (shut >= 0) {
+        movers.push(`${c.kind} ${shut.toFixed(2)}→${opened.toFixed(2)}`);
+        if (shut > 0.01 || opened < 0.99) fail(`the ${c.kind}'s doors do not open when it is searched (${shut} → ${opened})`);
+      }
       const l = await rt('listOpen');
       const rows = await page.evaluate(() => {
         const g = window.__rt.game;
@@ -205,6 +214,49 @@ try {
     console.log(site.kind, JSON.stringify(got));
     if (got.some((x) => /no list/.test(x))) fail(`a container at the ${site.kind} searched gave neither a list nor its emptiness (${got.join(' | ')})`);
     if (got.some((x) => /mark on/.test(x))) fail(`some containers at the ${site.kind} could not be aimed at (${got.filter((x) => /mark on/.test(x)).join(' | ')})`);
+  }
+  console.log('opened', JSON.stringify(movers));
+  if (!movers.length) fail('no container searched had doors, drawers or a lid to open');
+  // (left far behind and come back to: the searched ones still open)
+  if (house) {
+    const opened = house.containers.filter((c) => c.kind === 'cupboard' || c.kind === 'wardrobe');
+    await rt('devGoKm', (house.s + 3000) / 1000, false);
+    await rt('simulate', 2);
+    await goTo(house);
+    for (const c of opened) {
+      const t = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
+      if (t >= 0 && t < 0.99) fail(`come back to, the searched ${c.kind} is shut again (${t})`);
+    }
+  }
+  // (a house's door: shut, it keeps one out; opened with E it swings in and lets one through; the save has it)
+  if (house) {
+    await goTo(house);
+    const door = await page.evaluate((sid) => (window.__rt.game.doors?.telemetry() ?? []).find((d) => d.id.startsWith(sid + '/') && d.name === 'door_wood') ?? null, house.id);
+    console.log('house door', JSON.stringify(door));
+    if (!door) fail('the house has no door hung');
+    else {
+      const blocks = () =>
+        page.evaluate((d) => {
+          const out = [];
+          window.__rt.game.doors.solids.solidsNear(d.x, d.z, 0.4, out);
+          return out.length;
+        }, door);
+      const shutBlocks = door.open < 0.5 ? await blocks() : -1;
+      await page.evaluate((d) => {
+        const g = window.__rt.game;
+        g.doors.devices.find((x) => x.id === 'door:' + d.id)?.use();
+        g.simulate(0.8);
+      }, door);
+      const now = await page.evaluate((id) => window.__rt.game.doors.telemetry().find((d) => d.id === id)?.open ?? -1, door.id);
+      const openBlocks = await blocks();
+      console.log('door', JSON.stringify({ was: door.open, now, shutBlocks, openBlocks }));
+      if (Math.abs(now - (door.open < 0.5 ? 1 : 0)) > 0.01) fail(`the door did not swing (${door.open} → ${now})`);
+      if (door.open < 0.5 && shutBlocks < 1) fail('the shut door does not keep one out');
+      if (now > 0.5 && openBlocks > 0) fail('the open door still keeps one out');
+      await page.evaluate(() => window.__rt.game.save());
+      const kept = await page.evaluate((id) => JSON.parse(localStorage.getItem('modcar.save.v1') ?? '{}').places?.doors?.[id], door.id);
+      if (kept === undefined) fail('the door is not in the save');
+    }
   }
   // 7. a roadside garage's machines: its generator started, a thing recycled, its bench opened
   if (garage) {

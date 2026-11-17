@@ -150,6 +150,11 @@ export interface CarLookOptions {
   /** height of the painted body above its ground (m): where the mirrored horizon runs along its sides.
    *  Default: measured from the paint meshes at apply() (roof loads and antennas left out) */
   bodyHeight?: number;
+  /**
+   * A painted thing that is not a car (a building's plaster, a place's cupboards, its doors): its paint's gloss and
+   * rim this share of a car's clear coat (default 1)
+   */
+  matte?: number;
 }
 
 export interface CarLights {
@@ -1202,7 +1207,11 @@ export class CarLook {
 
   private fixedHeight: boolean;
 
+  /** the paint's share of a car's gloss (CarLookOptions.matte) */
+  private readonly gloss: number;
+
   constructor(opts: CarLookOptions = {}) {
+    this.gloss = opts.matte ?? 1;
     this.fixedHeight = opts.bodyHeight !== undefined;
     if (opts.bodyHeight !== undefined) this.shared.uBodyHeight.value = opts.bodyHeight;
     this.paint.set(opts.paint ?? 0x9e2f22);
@@ -1254,7 +1263,8 @@ export class CarLook {
         uCloudsOn: skyUniforms.uCloudsOn,
         ...this.shared,
         uBase: { value: base },
-        uLook: { value: new THREE.Vector4(...r.look) },
+        // (a painted thing that is not a car: its clear coat dulled)
+        uLook: { value: r.family === 'paint' && this.gloss !== 1 ? new THREE.Vector4(r.look[0] * this.gloss, r.look[1], r.look[2] * this.gloss, r.look[3]) : new THREE.Vector4(...r.look) },
         uWearMax: { value: new THREE.Vector4(...wearMax(r)) },
         uPattern: { value: r.pattern ?? 0 },
         uInkSeed: { value: r.ink },

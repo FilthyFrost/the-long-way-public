@@ -63,6 +63,8 @@ export type SavedThing = { item?: ItemInstance; tool?: Tool; part?: PartInstance
 export interface PlacesSave {
   /** the containers searched */
   searched: string[];
+  /** the buildings' doors one opened or shut (doors.ts) */
+  doors?: Record<string, 0 | 1>;
   /** what is left in those something was taken out of */
   left: Record<string, SavedThing[]>;
   /** the pumps' litres left, by the station's tank */
@@ -128,6 +130,8 @@ export interface PlacesHost {
   openContainer(pc: PlaceContainer): void;
   /** fuel went into a vehicle */
   fuelled(v: ModVehicle): void;
+  /** a container's doors, drawers or lid opening as it is searched (drawn: siteArt.ts) */
+  opened?(id: string): void;
   /** a roadside garage's machines, made as one comes (null: it has no room for them) and taken away as one goes */
   makeWorkshop?(site: Site, save?: WorkshopSave): Workshop | null;
   dropWorkshop?(ws: Workshop): void;
@@ -368,14 +372,22 @@ export class Places {
         };
       },
       holding: (p: number): void => {
-        // (the lid, the door, the drawer: once a hold)
-        if (places.searching.id !== c.id || p < places.searching.p) host.play('container_open', { material });
+        // (the lid, the door, the drawer: once a hold — opened, and left open)
+        if (places.searching.id !== c.id || p < places.searching.p) {
+          host.play('container_open', { material });
+          host.opened?.(c.id);
+        }
         places.searching = { id: c.id, p };
         host.loop('rummage', { material, gain: 0.9 });
       },
       use: (): void => places.open(pc),
       hit: (ray: THREE.Ray, reach: number): number | null => boxHit(ray, host.origin, c.x, c.y, c.z, c.yaw, c.hx, h, c.hz, reach),
     };
+  }
+
+  /** has this container been searched? */
+  isSearched(id: string): boolean {
+    return this.searched.has(id);
   }
 
   /** a container searched (the first time: what is in it rolled) and its list opened */

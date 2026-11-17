@@ -22,6 +22,8 @@ export interface LookOf {
   wear?: number;
   /** caked grime and scale (the scraper's) */
   crust?: number;
+  /** not a car's paint: its gloss this share of a car's (CarLookOptions.matte) */
+  matte?: number;
 }
 
 interface Owned {
@@ -45,7 +47,7 @@ export class CarMaterials {
   look(owner: string, of: LookOf): CarLook {
     let o = this.owned.get(owner);
     if (!o) {
-      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0 });
+      const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0, ...(of.matte !== undefined ? { matte: of.matte } : {}) });
       look.setLights(this.lights);
       if (this.framed) look.setCarFrame(this.frame);
       if (this.shape) {

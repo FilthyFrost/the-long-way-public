@@ -1,8 +1,9 @@
 /**
  * The doors of the buildings by the road (docs/MODCAR.md §20): each building our kit draws (siteArt.ts) has its
- * door's leaf — a house's wooden one, a shop's glass one, a shed's two leaves of boards — hung on its hinge in the
- * opening the walls leave (buildingKit.ts), swinging inward with E, shut against the walker and the vehicles while
- * it is closed. Most are found shut; what one leaves open or shut stays so (the save's `doors`).
+ * doorway's leaves — a house's wooden door, a shop's glass pair, a shed's two board doors — hung at their hinges in
+ * the opening the walls leave (buildingKit.ts), swung into the room with E, shut against the walker and the vehicles
+ * while they are closed. Most are found shut, a shed's now and then open; what one leaves open or shut stays so (the
+ * places' save, `doors`).
  */
 import * as THREE from 'three';
 import { hash2 } from '../../core/math/rng';
@@ -11,28 +12,29 @@ import type { Site, SiteObject } from '../../core/world/sites';
 import type { Text } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
 import { cloneModel, type Model } from './assets';
-import { buildingKit, type KitDoor } from './buildingKit';
+import { buildingKit, coatOf, kitSeed, leafMatrix, type KitLeaf, type KitOpening } from './buildingKit';
 import type { GarageDevice } from './garageStub';
 import { applyMaterials, CarMaterials } from './materials';
+import { PLACE_GLOSS } from './siteArt';
 
 /** how far a door swings open (rad), and how long it takes (s) */
 const OPEN = 1.65;
 const SWING_S = 0.55;
+/** shut enough to keep one out */
+const SHUT = 0.18;
 
-/** a door there now */
-export interface LiveDoor {
+/** a doorway there now */
+interface LiveDoor {
   id: string;
   site: Site;
   o: SiteObject;
-  k: KitDoor;
-  /** its hinge (world, at the floor) */
-  x: number;
-  y: number;
-  z: number;
+  op: KitOpening;
   /** how far open (0 … 1) and where it is going */
   t: number;
   target: 0 | 1;
-  pivot: THREE.Group;
+  leaves: { l: KitLeaf; pivot: THREE.Group }[];
+  /** the object's frame (world, metres) */
+  frame: THREE.Matrix4;
   solid: Solid;
   device: GarageDevice;
 }
@@ -41,7 +43,7 @@ export interface LiveDoor {
 export class DoorSolids implements SolidSource {
   readonly list: { solid: Solid; door: LiveDoor }[] = [];
   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
-    for (const d of this.list) if (d.door.t < 0.18 && solidWithin(d.solid, x, z, r)) out.push(d.solid);
+    for (const d of this.list) if (d.door.t < SHUT && solidWithin(d.solid, x, z, r)) out.push(d.solid);
   }
 }
 
@@ -49,28 +51,29 @@ export class DoorSolids implements SolidSource {
 export interface DoorHost {
   readonly core: RenderCore;
   readonly origin: { x: number; y: number; z: number };
-  /** the leaf's model (the kit's door_wood, door_shop, door_shed), null while it is not there */
+  /** a kit piece's model (kit/door_wood …), null while it is not there */
   model(name: string): Model | null;
   play(name: string): void;
 }
 
-const DOOR_LOOK: Record<KitDoor['name'], { paint: number; paint2: number }> = {
-  door_wood: { paint: 0x8a6a48, paint2: 0x5a3a2b },
-  door_shop: { paint: 0xb4b8b4, paint2: 0x6f7a82 },
-  door_shed: { paint: 0x7a7f45, paint2: 0x5a3a2b },
-};
+const E = new THREE.Euler();
+const Q = new THREE.Quaternion();
+const ONE = new THREE.Vector3(1, 1, 1);
 
 export class Doors {
   readonly solids = new DoorSolids();
+  /** the doors' devices there now (the game's devices take them in) */
+  devices: GarageDevice[] = [];
   private readonly live = new Map<string, LiveDoor[]>();
   private readonly mats = new CarMaterials();
   /** the doors one opened or shut (their state from then on) */
   private readonly state = new Map<string, 0 | 1>();
-  private readonly box = new THREE.Box3();
   private readonly tmpM = new THREE.Matrix4();
+  private readonly tmpL = new THREE.Matrix4();
   private readonly tmpInv = new THREE.Matrix4();
   private readonly tmpRay = new THREE.Ray();
   private readonly tmpHit = new THREE.Vector3();
+  private readonly box = new THREE.Box3();
 
   constructor(
     private readonly host: DoorHost,
@@ -79,37 +82,39 @@ export class Doors {
     for (const [id, v] of Object.entries(saved ?? {})) this.state.set(id, v);
   }
 
-  /** a place's doors, hung (its buildings the kit draws) */
+  /** a place's doors hung (the buildings the kit draws); their devices */
   come(site: Site): GarageDevice[] {
     const out: LiveDoor[] = [];
     site.objects.forEach((o, bi) => {
       if (o.kind !== 'building' || !o.b) return;
-      const { doors } = buildingKit(o, hash2(site.seed, bi, 0xb1d));
-      doors.forEach((k, di) => {
-        const model = this.host.model(k.name);
+      const { openings } = buildingKit(o, kitSeed(site.seed, bi));
+      openings.forEach((op, di) => {
+        const model = this.host.model(`kit/${op.name}`);
         if (!model) return;
         const id = `${site.id}/b${bi}/d${di}`;
+        // (most are found shut; a shed's now and then left open)
+        const found: 0 | 1 = (hash2(site.seed, bi * 8 + di, 0xd0) & 0xff) / 255 < (op.name === 'door_shed' ? 0.4 : 0.15) ? 1 : 0;
+        const st = this.state.get(id) ?? found;
+        E.set(o.roll, -o.yaw, o.pitch, 'YZX');
+        Q.setFromEuler(E);
+        const frame = new THREE.Matrix4().compose(new THREE.Vector3(o.x, o.y, o.z), Q.clone(), ONE);
+        const coat = coatOf(o);
+        const look = this.mats.look(`door:${id}`, { paint: coat.door, paint2: coat.trim, dirt: 0.25 + 0.3 * ((hash2(site.seed, bi, di) & 0xff) / 255), rust: 0.06, wear: 0.3, matte: PLACE_GLOSS });
+        const leaves = op.leaves.map((l) => {
+          const pivot = new THREE.Group();
+          pivot.name = `door:${id}`;
+          pivot.matrixAutoUpdate = false;
+          const leaf = cloneModel(model);
+          applyMaterials(leaf, look);
+          pivot.add(leaf);
+          this.host.core.scene.add(pivot);
+          return { l, pivot };
+        });
+        // the shut leaves' solid: the opening's width, thin, the door's height
         const c = Math.cos(o.yaw);
         const s = Math.sin(o.yaw);
-        const x = o.x + c * k.hx - s * k.hz;
-        const z = o.z + s * k.hx + c * k.hz;
-        // (most are found shut; a shed's now and then left open)
-        const found: 0 | 1 = (hash2(site.seed, bi * 8 + di, 0xd0) & 0xff) / 255 < (k.name === 'door_shed' ? 0.4 : 0.15) ? 1 : 0;
-        const st = this.state.get(id) ?? found;
-        const pivot = new THREE.Group();
-        pivot.name = `door:${id}`;
-        const leaf = cloneModel(model);
-        const size = model.box.getSize(new THREE.Vector3());
-        // (the leaf's own frame: along +X from the hinge, up Y; stretched to the opening)
-        leaf.scale.set(size.x > 1e-3 ? k.width / size.x : 1, size.y > 1e-3 ? k.height / size.y : 1, 1);
-        pivot.add(leaf);
-        const look = this.mats.look(`door:${id}`, { ...DOOR_LOOK[k.name], dirt: 0.3 + 0.3 * ((hash2(site.seed, bi, di) & 0xff) / 255), rust: 0.08, wear: 0.35 });
-        applyMaterials(leaf, look);
-        this.host.core.scene.add(pivot);
-        // the shut leaf's solid: the opening's width, thin, the door's height
-        const cx = k.hx + (k.dir * k.width) / 2;
-        const solid = new Solid().set(o.x + c * cx - s * k.hz, o.z + s * cx + c * k.hz, k.width / 2, 0.06, o.yaw, o.y, o.y + k.height, false, `${site.id}:door`);
-        const door: LiveDoor = { id, site, o, k, x, y: o.y, z, t: st, target: st, pivot, solid, device: null as unknown as GarageDevice };
+        const solid = new Solid().set(o.x + c * op.cx - s * op.cz, o.z + s * op.cx + c * op.cz, op.width / 2, 0.06, o.yaw, o.y, o.y + op.height, false, `${site.id}:door`);
+        const door: LiveDoor = { id, site, o, op, t: st, target: st, leaves, frame, solid, device: null as unknown as GarageDevice };
         door.device = this.device(door);
         this.solids.list.push({ solid, door });
         this.place(door);
@@ -117,6 +122,7 @@ export class Doors {
       });
     });
     this.live.set(site.id, out);
+    this.devices = [...this.live.values()].flat().map((d) => d.device);
     return out.map((d) => d.device);
   }
 
@@ -125,26 +131,26 @@ export class Doors {
     const list = this.live.get(site.id);
     if (!list) return;
     for (const d of list) {
-      d.pivot.removeFromParent();
+      for (const lf of d.leaves) lf.pivot.removeFromParent();
       this.mats.drop(`door:${d.id}`);
       const i = this.solids.list.findIndex((x) => x.door === d);
       if (i >= 0) this.solids.list.splice(i, 1);
     }
     this.live.delete(site.id);
+    this.devices = [...this.live.values()].flat().map((d) => d.device);
   }
 
   private device(d: LiveDoor): GarageDevice {
     const self = this;
-    const shop = d.k.name === 'door_shop';
+    const shop = d.op.name === 'door_shop';
     const c = Math.cos(d.o.yaw);
     const s = Math.sin(d.o.yaw);
-    const cx = d.k.hx + (d.k.dir * d.k.width) / 2;
-    const wx = d.o.x + c * cx - s * d.k.hz;
-    const wz = d.o.z + s * cx + c * d.k.hz;
+    const wx = d.o.x + c * d.op.cx - s * d.op.cz;
+    const wz = d.o.z + s * d.op.cx + c * d.op.cz;
     return {
       id: `door:${d.id}`,
       x: wx,
-      y: d.y + 1.1,
+      y: d.o.y + 1.1,
       z: wz,
       radius: 0.5,
       get word(): Text {
@@ -157,15 +163,15 @@ export class Doors {
       },
       hit: (ray: THREE.Ray, reach: number): number | null => {
         // (the opening: the door's width, its height, a little either side of the wall)
-        const o = this.host.origin;
-        this.tmpM.makeRotationY(-d.o.yaw).setPosition(wx - o.x, d.y - o.y, wz - o.z);
-        this.tmpInv.copy(this.tmpM).invert();
-        this.tmpRay.copy(ray).applyMatrix4(this.tmpInv);
-        this.box.min.set(-d.k.width / 2, 0, -0.35);
-        this.box.max.set(d.k.width / 2, d.k.height, 0.35);
-        const p = this.tmpRay.intersectBox(this.box, this.tmpHit);
+        const o = self.host.origin;
+        self.tmpM.makeRotationY(-d.o.yaw).setPosition(wx - o.x, d.o.y - o.y, wz - o.z);
+        self.tmpInv.copy(self.tmpM).invert();
+        self.tmpRay.copy(ray).applyMatrix4(self.tmpInv);
+        self.box.min.set(-d.op.width / 2, 0, -0.35);
+        self.box.max.set(d.op.width / 2, d.op.height, 0.35);
+        const p = self.tmpRay.intersectBox(self.box, self.tmpHit);
         if (!p) return null;
-        const dist = p.distanceTo(this.tmpRay.origin);
+        const dist = p.distanceTo(self.tmpRay.origin);
         return dist <= reach ? dist : null;
       },
     };
@@ -187,11 +193,16 @@ export class Doors {
   private place(d: LiveDoor): void {
     // eased as a door swings: quick, slowing at the end
     const e = d.t * d.t * (3 - 2 * d.t);
-    const a = OPEN * e;
-    // (the building's turn, then the leaf's: along +x from the hinge, or −x; swinging inward, to +z)
-    const turn = -d.o.yaw + (d.k.dir > 0 ? -a : Math.PI + a);
-    this.host.core.place(d.pivot, d.x, d.y, d.z);
-    d.pivot.rotation.set(0, turn, 0);
+    const o = this.host.origin;
+    for (const { l, pivot } of d.leaves) {
+      leafMatrix(l, OPEN * e, this.tmpL);
+      pivot.matrix.copy(d.frame).multiply(this.tmpL);
+      // (the floating origin)
+      pivot.matrix.elements[12] -= o.x;
+      pivot.matrix.elements[13] -= o.y;
+      pivot.matrix.elements[14] -= o.z;
+      pivot.matrixWorldNeedsUpdate = true;
+    }
   }
 
   /** the doors opened or shut (for the save) */
@@ -199,8 +210,8 @@ export class Doors {
     return Object.fromEntries(this.state);
   }
 
-  /** the doors there now (the probes') */
-  telemetry(): { id: string; open: number }[] {
-    return [...this.live.values()].flat().map((d) => ({ id: d.id, open: d.t }));
+  /** the doors there now (the probes'): their ids, how far open, the doorway's middle (world) */
+  telemetry(): { id: string; open: number; x: number; z: number; y: number; name: string }[] {
+    return [...this.live.values()].flat().map((d) => ({ id: d.id, open: d.t, x: d.device.x, z: d.device.z, y: d.o.y, name: d.op.name }));
   }
 }
