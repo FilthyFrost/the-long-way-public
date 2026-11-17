@@ -3,7 +3,8 @@
  * headless Chrome). Everything renders through OfflineAudioContext: nothing reaches a speaker.
  * The engine voice is stepped at 100 Hz with suspend/resume, exactly as a game frame loop would
  * call update(); a scrub is driven at 60 frames a second the same way (renderScrub), and so are the
- * flat tyre, the bare rim and the walk up to a rare part (renderRoad).
+ * flat tyre, the bare rim and the walk up to a rare part (renderRoad), the searches by hand and the
+ * pump's flow (renderPlaces).
  */
 import { EngineVoice, bankConfig, engineTone, loadBank, type EngineAudioState, type BankManifest } from '../../src/game/modcar/engineAudio';
 import { FOLEY_LOOPS, Foley, loopPlaybackRate, recipe, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
@@ -545,6 +546,82 @@ async function renderRoad(sampleRate = 48000): Promise<{ pcm: string; sampleRate
   return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks, rates };
 }
 
+/**
+ * The roadside places as the game will play them: five containers searched (E held: the opening, the
+ * search driven every frame, let go after 0.8 s; a crate searched for longer and found empty, a bag
+ * empty too, a shop's shelf in a hurry, rate 1.25), a house's door opened and shut, a shop's door with
+ * its bell, then the pump: the nozzle lifted, the trigger squeezed (the flow rising every frame), the
+ * tank filled until the nozzle clicks off, hung back; a can filled until the pump runs dry. Marks:
+ * each part of it and the quiet after.
+ */
+async function renderPlaces(sampleRate = 48000): Promise<{ pcm: string; sampleRate: number; marks: Record<string, [number, number]> }> {
+  const seconds = 23.2;
+  const ctx = new OfflineAudioContext(1, Math.ceil(seconds * sampleRate), sampleRate);
+  const f = new Foley(ctx, ctx.destination);
+  // rendered ahead, as the game should when a place is near
+  for (const material of ['wood', 'crate', 'metal', 'cloth', 'card'] as const) f.warm(['container_open', 'container_empty', 'rummage'], { material });
+  f.warm(['door_house_open', 'door_house_close', 'door_shop_open', 'door_shop_close', 'pump_lift', 'pump_hang', 'pump_click', 'pump_run', 'pump_dry']);
+  const plan: Array<[number, () => void]> = [];
+  // a search: the opening, then the hands every frame (as ModGame's loops do) until E is let go
+  const search = (at: number, until: number, material: 'wood' | 'crate' | 'metal' | 'cloth' | 'card', rate = 1): void => {
+    plan.push([at, () => f.play('container_open', { material }, at)]);
+    for (let k = 0; at + k / 60 < until; k++) plan.push([at + k / 60, () => f.start('rummage', { material, gain: 1, rate })]);
+    plan.push([until, () => f.stop('rummage')]);
+  };
+  search(0.2, 1.0, 'wood');
+  // (a crate searched for longer, the lid's heavy knock long done before its search's last stretches)
+  search(1.6, 4.0, 'crate');
+  plan.push([4.05, () => f.play('container_empty', { material: 'crate' }, 4.05)]);
+  search(4.7, 5.5, 'metal');
+  search(6.0, 6.8, 'cloth');
+  plan.push([6.85, () => f.play('container_empty', { material: 'cloth' }, 6.85)]);
+  search(7.4, 8.2, 'card', 1.25);
+  plan.push([8.8, () => f.play('door_house_open', {}, 8.8)]);
+  plan.push([10.2, () => f.play('door_house_close', {}, 10.2)]);
+  plan.push([11.2, () => f.play('door_shop_open', {}, 11.2)]);
+  plan.push([12.6, () => f.play('door_shop_close', {}, 12.6)]);
+  // the pump: the flow rising as the trigger is squeezed, held, the nozzle clicking off as the tank is full
+  plan.push([13.6, () => f.play('pump_lift', {}, 13.6)]);
+  for (let k = 0; 14.0 + k / 60 < 16.4; k++) {
+    const t = 14.0 + k / 60;
+    plan.push([t, () => f.start('pump_run', { gain: Math.min(1, (t - 14.0) / 0.3), rate: 1 })]);
+  }
+  plan.push([16.4, () => f.stop('pump_run')]);
+  plan.push([16.4, () => f.play('pump_click', {}, 16.4)]);
+  plan.push([17.0, () => f.play('pump_hang', {}, 17.0)]);
+  // a can filled until the pump runs dry
+  plan.push([17.8, () => f.play('pump_lift', {}, 17.8)]);
+  for (let k = 0; 18.1 + k / 60 < 19.8; k++) {
+    const t = 18.1 + k / 60;
+    plan.push([t, () => f.start('pump_run', { gain: Math.min(1, (t - 18.1) / 0.2), rate: 1.1 })]);
+  }
+  plan.push([19.8, () => f.stop('pump_run')]);
+  plan.push([19.8, () => f.play('pump_dry', {}, 19.8)]);
+  plan.push([21.8, () => f.play('pump_hang', {}, 21.8)]);
+  // one suspend per render quantum that has something to do (a quarter into it, however the browser rounds)
+  const q = 128 / sampleRate;
+  const due = new Map<number, Array<() => void>>();
+  for (const [t, fn] of plan) {
+    const k = Math.floor(t / q);
+    due.set(k, [...(due.get(k) ?? []), fn]);
+  }
+  for (const [k, list] of due) {
+    void ctx.suspend((k + 0.25) * q).then(() => {
+      for (const fn of list) fn();
+      void ctx.resume();
+    });
+  }
+  const out = await ctx.startRendering();
+  const marks: Record<string, [number, number]> = {
+    search_wood: [0.25, 1.0], after_wood: [1.2, 1.55], search_crate: [1.65, 4.0], crate_on: [2.55, 3.25], crate_later: [3.3, 4.0], empty_crate: [4.05, 4.4],
+    search_metal: [4.75, 5.5], search_cloth: [6.05, 6.8], empty_cloth: [6.85, 7.2], search_card: [7.45, 8.2], after_search: [8.4, 8.75],
+    house_open: [8.8, 9.85], house_close: [10.2, 11.0], shop_open: [11.2, 12.35], shop_close: [12.6, 13.3],
+    lift: [13.6, 13.98], flow_rising: [14.0, 14.15], run: [14.4, 16.3], click: [16.4, 16.62], after_click: [16.7, 16.95], hang: [17.0, 17.48],
+    can_run: [18.4, 19.75], dry: [19.8, 20.8], after_dry: [21.45, 21.75], hang2: [21.8, 22.28], quiet: [22.55, 23.15],
+  };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks };
+}
+
 async function checkLoops(engineId: string, sampleRate = 48000): Promise<Array<{ file: string; ratio: number; turns: number; seconds: number }>> {
   const ctx0 = new OfflineAudioContext(1, 128, sampleRate);
   const bank = await loadBank(ctx0, engineId);
@@ -603,9 +680,10 @@ declare global {
       renderScrub: typeof renderScrub;
       renderSpray: typeof renderSpray;
       renderRoad: typeof renderRoad;
+      renderPlaces: typeof renderPlaces;
       checkLoops: typeof checkLoops;
     };
   }
 }
 
-window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, renderRoad, checkLoops };
+window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, renderRoad, renderPlaces, checkLoops };

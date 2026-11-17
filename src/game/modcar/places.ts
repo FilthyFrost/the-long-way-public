@@ -117,8 +117,10 @@ export interface PlacesHost {
   readonly origin: { x: number; y: number; z: number };
   readonly loose: LooseThings;
   readonly vehicles: readonly ModVehicle[];
-  /** a sound (foley.ts) by name, with its options */
-  play(name: string, opts?: Record<string, unknown>): void;
+  /** a sound (foley.ts) by name, with its options, so many seconds from now */
+  play(name: string, opts?: Record<string, unknown>, delay?: number): void;
+  /** sounds rendered before they are wanted */
+  warm?(name: string, opts?: Record<string, unknown>): void;
   /** a loop kept going this frame */
   loop(name: string, opts?: Record<string, unknown>): void;
   say(text: string, seconds?: number): void;
@@ -182,6 +184,10 @@ export class Places {
   private readonly owned = new Map<Loose, { site: string; id: string }>();
   /** a pump filling a vehicle: how much it was to take when the hold began, how much has gone in */
   private fill: { dev: string; need: number; given: number; p: number } | null = null;
+  /** the container being searched (its opening heard once a hold) and how far */
+  private searching = { id: '', p: 0 };
+  /** the container sounds rendered already, by material */
+  private readonly warmed = new Set<string>();
 
   constructor(
     private readonly host: PlacesHost,
@@ -258,6 +264,12 @@ export class Places {
     for (const c of site.containers) {
       // (a wreck's glovebox and boot are the wreck's own: wrecks.ts)
       if (c.kind === 'glovebox' || c.kind === 'boot') continue;
+      // (its sounds rendered before they are wanted)
+      const mat = CONTAINER_MATERIAL[c.kind];
+      if (!this.warmed.has(mat)) {
+        this.warmed.add(mat);
+        for (const n of ['container_open', 'rummage', 'container_empty']) this.host.warm?.(n, { material: mat });
+      }
       const pc = new PlaceContainer(c, site, CONTAINER_NAMES[c.kind] ?? '箱子');
       const kept = this.left.get(c.id);
       if (kept) pc.contents = kept.map(heldOfSaved).filter((h): h is NonNullable<Held> => !!h);
@@ -356,7 +368,9 @@ export class Places {
         };
       },
       holding: (p: number): void => {
-        if (p < 0.05) host.play('container_open', { material });
+        // (the lid, the door, the drawer: once a hold)
+        if (places.searching.id !== c.id || p < places.searching.p) host.play('container_open', { material });
+        places.searching = { id: c.id, p };
         host.loop('rummage', { material, gain: 0.9 });
       },
       use: (): void => places.open(pc),
@@ -366,11 +380,12 @@ export class Places {
 
   /** a container searched (the first time: what is in it rolled) and its list opened */
   open(pc: PlaceContainer): void {
+    this.searching = { id: '', p: 0 };
     if (!pc.searched) {
       pc.contents = this.roll(pc);
       this.searched.add(pc.id);
       if (!pc.contents.length) {
-        this.host.play('container_empty');
+        this.host.play('container_empty', { material: CONTAINER_MATERIAL[pc.c.kind] });
         this.host.say(`${pc.name}是空的：有人先来过了。`, 2.2);
         return;
       }
@@ -514,7 +529,8 @@ export class Places {
             host.fuelled(v);
           }
           host.play(left() <= 0.5 ? 'pump_dry' : 'pump_click');
-          host.play('pump_hang');
+          // (the nozzle hung back a moment after)
+          host.play('pump_hang', {}, left() <= 0.5 ? 1.5 : 0.45);
           host.say(`加了 ${f.given.toFixed(1)} L ${FUEL_ZH[fuel]}${left() <= 0.5 ? '：加油机空了' : ''}`, 2.4);
         }
       },

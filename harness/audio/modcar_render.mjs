@@ -2,7 +2,7 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--road] [--all] [--no-metrics]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--road] [--places] [--all] [--no-metrics]
 //
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
@@ -17,6 +17,9 @@
 // --road renders tyres and wrecks as the game drives them (a blowout, the flat driven on, its rate from
 // the speed every frame, the bare rim, two wrecks forced open, a small and a golden find, the walk up to a
 // rare part) and checks the flap keeping time with the wheel, the rate gliding, the glint heard only near.
+// --places renders the roadside places as the game drives them (five containers searched, two found empty,
+// a house's door and a shop's with its bell, the pump filling a tank until it clicks off and a can until it
+// runs dry) and checks each search busy all through, silent once let go, the bell's notes, the pump's flow.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
 // as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
 // Exit code 1 if a loop clicks or a check fails.
@@ -40,9 +43,10 @@ const doWorkshop = all || args.includes('--workshop');
 const doScrub = all || args.includes('--scrub');
 const doSpray = all || args.includes('--spray');
 const doRoad = all || args.includes('--road');
+const doPlaces = all || args.includes('--places');
 const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray && !doRoad) ? [...ENGINES, ...MACHINES] : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray && !doRoad && !doPlaces) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -332,6 +336,10 @@ try {
       // tyres and wrecks: the find at each tier; the flap and the rim at a crawl, at 30 km/h and at 90
       ['tyre_burst', {}], ['wreck_creak', {}], ...[1, 2, 3, 4, 5].map((tier) => ['loot_reveal', { tier }]),
       ...['flat_flap', 'rim_grind'].flatMap((kind) => [[kind, { rate: 0.3 }], [kind, {}], [kind, { rate: 3 }]]), ['rare_glint', {}],
+      // roadside places: each container's opening, its search and nothing in it; the doors; the pump
+      ...['wood', 'crate', 'metal', 'cloth', 'card'].flatMap((material) => [['container_open', { material }], ['rummage', { material }], ['container_empty', { material }]]), ['rummage', { material: 'wood', rate: 1.3 }],
+      ['door_house_open', {}], ['door_house_close', {}], ['door_shop_open', {}], ['door_shop_close', {}],
+      ['pump_lift', {}], ['pump_hang', {}], ['pump_click', {}], ['pump_run', {}], ['pump_run', { rate: 0.8 }], ['pump_run', { rate: 1.2 }], ['pump_dry', {}],
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
@@ -495,6 +503,52 @@ try {
     check(s.glint_far.rms < -70 && s.glint_near.rms > s.glint_far.rms + 20, `road: the glint heard near the rare part, not from 4 m (${s.glint_far.rms} -> ${s.glint_near.rms} dB)`);
     check(s.glint_near.rms < s.burst.rms - 25, `road: the glint faint even at its nearest (${s.glint_near.rms} dB)`);
     check(s.quiet.rms < -60, `road: silent at the end (${s.quiet.rms} dB)`);
+  }
+
+  if (doPlaces) {
+    const r = await page.evaluate(() => window.__modcarAudio.renderPlaces());
+    const x = fromBase64(r.pcm);
+    const sr = r.sampleRate;
+    writeWav(path.join(OUT, 'places_scene.wav'), x, sr);
+    report.places = {};
+    for (const [k, [a, b]] of Object.entries(r.marks)) report.places[k] = stats(x, sr, a, b);
+    const s = report.places;
+    const peak = stats(x, sr).peak;
+    console.log(`places scene: ${Object.entries(s).map(([k, v]) => `${k} ${v.rms} dB/${v.centroid} Hz`).join('  ')}  peak ${peak} dB`);
+    check(peak < -0.5, `places scene: no clipping (peak ${peak} dB)`);
+    // each search heard all through, from its first moment to its last: no 0.4 s of it (a pause between two moves) more than 16 dB under its loudest
+    const win = (a, b) => stats(x, sr, a, b).rms;
+    for (const k of ['search_wood', 'search_crate', 'search_metal', 'search_cloth', 'search_card']) {
+      const [a, b] = r.marks[k];
+      const lv = [];
+      for (let t = a; t + 0.4 <= b + 1e-9; t += 0.05) lv.push(win(t, t + 0.4));
+      check(Math.min(...lv) > Math.max(...lv) - 16, `places: ${k} heard all through (0.4 s windows ${Math.min(...lv).toFixed(1)} .. ${Math.max(...lv).toFixed(1)} dB)`);
+    }
+    // the crate held three times as long: its search goes on, its last stretch as its first after the lid
+    check(Math.abs(s.crate_on.rms - s.crate_later.rms) < 6, `places: a longer search goes on as it was (${s.crate_on.rms} / ${s.crate_later.rms} dB)`);
+    check(s.after_wood.rms < -60 && s.after_search.rms < -60, `places: silent once E is let go (${s.after_wood.rms} / ${s.after_search.rms} dB)`);
+    // the shop's bell: B6 and G6 standing out of the door's sound
+    const tone = (f, a, b) => {
+      let c = 0;
+      let q = 0;
+      for (let i = Math.floor(a * sr); i < Math.floor(b * sr); i++) {
+        c += x[i] * Math.cos((2 * Math.PI * f * i) / sr);
+        q += x[i] * Math.sin((2 * Math.PI * f * i) / sr);
+      }
+      return Math.hypot(c, q);
+    };
+    const [sa] = r.marks.shop_open;
+    const bell = Math.min(tone(1975.53, sa, sa + 0.6), tone(1567.98, sa, sa + 0.6)) / tone(1760, sa, sa + 0.6);
+    check(bell > 10, `places: the shop's bell rings B6 and G6 (${(20 * Math.log10(bell)).toFixed(1)} dB over the A between them)`);
+    // the pump: the flow rising under the trigger, then steady; silent once the nozzle clicks off and once it has run dry
+    const runLv = [];
+    for (let t = r.marks.run[0]; t + 0.2 <= r.marks.run[1] + 1e-9; t += 0.2) runLv.push(win(t, t + 0.2));
+    check(s.flow_rising.rms < s.run.rms - 4, `places: the pump's flow rising as the trigger is squeezed (${s.flow_rising.rms} -> ${s.run.rms} dB)`);
+    check(Math.max(...runLv) - Math.min(...runLv) < 3, `places: the pump steady at full flow (0.2 s windows within ${(Math.max(...runLv) - Math.min(...runLv)).toFixed(1)} dB)`);
+    check(s.after_click.rms < -60, `places: silent once the nozzle clicks off (${s.after_click.rms} dB)`);
+    check(s.dry.rms > s.can_run.rms - 4, `places: running dry heard over the run that went before it (${s.can_run.rms} -> ${s.dry.rms} dB)`);
+    check(s.after_dry.rms < -55, `places: the pump wound down to nothing (${s.after_dry.rms} dB)`);
+    check(s.quiet.rms < -60, `places: silent at the end (${s.quiet.rms} dB)`);
   }
 
   if (doLoops) {

@@ -90,6 +90,23 @@
       </div>
     </fieldset>
 
+    <fieldset>
+      <legend>路边的地方（搜柜子箱子、民居和商店的门、加油站的油泵）</legend>
+      <label>容器 <select id="container">
+        <option value="wood" selected>柜子 / 衣柜 / 抽屉 wood</option>
+        <option value="crate">木箱 crate</option>
+        <option value="metal">工具箱 / 铁皮柜 / 货架 metal</option>
+        <option value="cloth">衣服 / 包 cloth</option>
+        <option value="card">商店货架（纸盒、罐头）card</option>
+      </select></label>
+      <label>搜得多急 rate <input type="range" id="searchRate" min="0.7" max="1.5" step="0.05" value="1" /> <span id="searchRateV">1.00</span></label>
+      <div id="places"></div>
+      <div>油泵：
+        <label>流量 gain <input type="range" id="pumpFlow" min="0" max="1" step="0.05" value="1" /> <span id="pumpFlowV">1.00</span></label>
+        <label>rate <input type="range" id="pumpRate" min="0.8" max="1.2" step="0.02" value="1" /> <span id="pumpRateV">1.00</span></label>
+      </div>
+    </fieldset>
+
     <div id="status"></div>
     <script type="module" src="./listen.ts"></script>
   </body>

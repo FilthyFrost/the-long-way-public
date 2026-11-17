@@ -1531,9 +1531,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       get vehicles() {
         return game.vehicles;
       },
-      play: (name, opts) => {
+      play: (name, opts, delay) => {
         const f = this.sounds();
-        if (f && (FOLEY_SHOTS as readonly string[]).includes(name)) f.play(name as FoleyShot, (opts ?? {}) as FoleyOpts);
+        const ctx = this.audio.context;
+        if (f && ctx && (FOLEY_SHOTS as readonly string[]).includes(name)) f.play(name as FoleyShot, (opts ?? {}) as FoleyOpts, delay ? ctx.currentTime + delay : 0);
+      },
+      warm: (name, opts) => {
+        if ((FOLEY_SHOTS as readonly string[]).includes(name) || (FOLEY_LOOPS as readonly string[]).includes(name)) this.warmQueue.push([name as FoleyShot, (opts ?? {}) as FoleyOpts]);
       },
       loop: (name, opts) => {
         if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, (opts ?? {}) as FoleyOpts);

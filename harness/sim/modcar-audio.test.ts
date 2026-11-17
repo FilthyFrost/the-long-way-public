@@ -6,7 +6,9 @@
  * scrubbing sounds also: seamless, textured, at their levels, following a stroke's rate; the spray
  * paint's: the can shaken, the valve's pssht into a steady hiss, running dry, the coat's chime; the
  * tyres' and wrecks': a blowout's bang and its air, a flat's slaps keeping time with the wheel, a bare
- * rim's grind, a rusted panel forced open, the find's sting by its tier, a rare part's glint). The
+ * rim's grind, a rusted panel forced open, the find's sting by its tier, a rare part's glint; the
+ * roadside places': a container searched by hand by its material, a house's and a shop's door and
+ * its bell, a filling station's pump running, clicking off and running dry). The
  * workshop generator (gen_d1) is a bank of its own kind: a few loops round its governed speed, no
  * rev limiter, started on a rope (pullStart). The decoded, played-back seam check and the voice's
  * pull start (no starter whine, no solenoid clicks) are in harness/audio/modcar_render.mjs (Chrome).
@@ -16,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { blendWeights, healLoop, loadMix, loopGain, engineTone, rpmWeights, popSample, blowOffSample, rodKnockSample, solenoidSample, type BankManifest, type LoopRec } from '../../src/game/modcar/engineAudio';
-import { Foley, recipe, foleyLevel, loopPlaybackRate, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial, type ScrapeSurface } from '../../src/game/modcar/foley';
+import { Foley, recipe, foleyLevel, loopPlaybackRate, FOLEY_LOOPS, FOLEY_SHOTS, type ContainerMaterial, type FoleyLoop, type FoleyOpts, type FoleyShot, type GrindMaterial, type ScrapeSurface } from '../../src/game/modcar/foley';
 import { Rng, biquad, fft, measure } from '../../src/game/modcar/synth';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -1906,5 +1908,547 @@ describe('ModCar tyres and wrecks foley', () => {
     expect(glint).toBeLessThan(scrape - 10);
     expect(glint).toBeLessThan(-40);
     expect(glint).toBeGreaterThan(-50);
+  });
+});
+
+// ------------------------------------------------------------------ roadside places (Batch 9)
+
+const CONTAINERS_ALL: readonly ContainerMaterial[] = ['wood', 'crate', 'metal', 'cloth', 'card'];
+const PLACE_SHOTS: readonly FoleyShot[] = ['container_open', 'container_empty', 'door_house_open', 'door_house_close', 'door_shop_open', 'door_shop_close', 'pump_lift', 'pump_hang', 'pump_click', 'pump_dry'];
+const PLACE_LOOPS: readonly FoleyLoop[] = ['rummage', 'pump_run'];
+
+describe('ModCar roadside places foley', () => {
+  const sr = 48000;
+  const render = (kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}, seed = 1234): Float32Array => recipe(kind, o)(sr, new Rng(seed));
+  /** seeds spread over the whole range (a small one's first draw is small, and a recipe's first choice with it) */
+  const mixed = (s: number): number => Math.imul(s, 2654435761) | 0;
+  const rmsOf = (x: Float32Array, a: number, b: number): number => {
+    let e = 0;
+    const i0 = Math.max(0, Math.floor(a * sr));
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) e += x[i] * x[i];
+    return Math.sqrt(e / Math.max(1, i1 - i0));
+  };
+  const db = (v: number): number => 20 * Math.log10(v + 1e-12);
+  /** x through a filter twice (a steeper slope) */
+  const filtered = (x: Float32Array, kind: Parameters<typeof biquad>[2], f: number, q = 0.707): Float32Array => {
+    const y = Float32Array.from(x);
+    biquad(y, sr, kind, f, q);
+    biquad(y, sr, kind, f, q);
+    return y;
+  };
+  /** the rms of x in windows of w s, one after another */
+  const envelope = (x: Float32Array, w: number): number[] => {
+    const n = Math.floor(w * sr);
+    const env: number[] = [];
+    for (let o = 0; o + n <= x.length; o += n) {
+      let e = 0;
+      for (let i = o; i < o + n; i++) e += x[i] * x[i];
+      env.push(Math.sqrt(e / n));
+    }
+    return env;
+  };
+  /** when x is loudest (2 ms windows, 0.5 ms apart) and how loud */
+  const loudest = (x: Float32Array, a = 0, b = x.length / sr): { at: number; v: number } => {
+    let v = 0;
+    let at = a;
+    for (let t = a; t + 0.002 <= b; t += 0.0005) {
+      const r = rmsOf(x, t, t + 0.002);
+      if (r > v) {
+        v = r;
+        at = t;
+      }
+    }
+    return { at, v };
+  };
+  /** a shot padded to at least one 4096-sample frame (for its spectrum) */
+  const padded = (x: Float32Array): Float32Array => {
+    const y = new Float32Array(Math.max(4096, x.length));
+    y.set(x);
+    return y;
+  };
+  /** how strongly a tone of f Hz sounds over [a, b) s: the amplitude of its own frequency there */
+  const toneOf = (x: Float32Array, f: number, a = 0, b = x.length / sr): number => {
+    let c = 0;
+    let s = 0;
+    const i0 = Math.floor(a * sr);
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) {
+      c += x[i] * Math.cos((2 * Math.PI * f * i) / sr);
+      s += x[i] * Math.sin((2 * Math.PI * f * i) / sr);
+    }
+    return Math.hypot(c, s) / Math.max(1, i1 - i0);
+  };
+  /** a note's strongest (20 ms windows, 5 ms apart, over the first 0.6 s) and when it comes in (the first window at 30 % of that) */
+  const noteOf = (x: Float32Array, f: number): { max: number; at: number } => {
+    const lv = Array.from({ length: 120 }, (_, k) => toneOf(x, f, k * 0.005, k * 0.005 + 0.02));
+    const max = Math.max(...lv);
+    return { max, at: 0.005 * lv.findIndex((v) => v > 0.3 * max) };
+  };
+  /** how far a pitch lies from G major's pentatonic (G A B D E, in any octave), in cents */
+  const offKey = (f: number): number =>
+    Math.min(
+      ...[392, 440, 493.88, 587.33, 659.26].map((p) => {
+        const c = 1200 * Math.log2(f / p);
+        return Math.abs(c - 1200 * Math.round(c / 1200));
+      }),
+    );
+  /** a player on a stand-in context: the renderings it makes itself (its own seeds), and what it plays */
+  const player = (): { f: Foley; sources: KeptSource[]; made: (kind: FoleyShot | FoleyLoop, o?: FoleyOpts) => Float32Array[]; count: () => number } => {
+    const { ctx, made, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    return {
+      f,
+      sources,
+      made: (kind, o = {}) => {
+        const a = made.length;
+        f.warm([kind], o);
+        return made.slice(a);
+      },
+      count: () => made.length,
+    };
+  };
+  /** the moves of a search: 10 ms windows standing 6 dB over the loop's median 10 ms level, 0.1 s apart or more (read round), a second */
+  const movesOf = (x: Float32Array): number => {
+    const e = envelope(x, 0.01);
+    const med = [...e].sort((p, q) => p - q)[e.length >> 1];
+    let count = 0;
+    let last = -1e9;
+    for (let k = 0; k < e.length; k++) {
+      if (e[k] >= e[(k - 1 + e.length) % e.length] && e[k] >= e[(k + 1) % e.length] && e[k] > 2 * med && k - last >= 10) {
+        count++;
+        last = k;
+      }
+    }
+    return count / (x.length / sr);
+  };
+  /** the quietest 0.8 s of a loop (a search started anywhere in it, read round) against its loudest, dB */
+  const quietestSearch = (x: Float32Array): number => {
+    const n = x.length;
+    const w = Math.floor(0.8 * sr);
+    const lv: number[] = [];
+    for (let a = 0; a < n; a += Math.floor(0.05 * sr)) {
+      let e = 0;
+      for (let i = 0; i < w; i++) e += x[(a + i) % n] ** 2;
+      lv.push(Math.sqrt(e / w));
+    }
+    return db(Math.min(...lv) / Math.max(...lv));
+  };
+
+  it('has the places\' sounds in the catalogue, with levels', () => {
+    for (const k of [...PLACE_SHOTS, ...PLACE_LOOPS]) {
+      expect([...FOLEY_SHOTS, ...FOLEY_LOOPS] as string[], k).toContain(k);
+      expect(foleyLevel(k), k).toBeGreaterThan(0);
+      expect(foleyLevel(k), k).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('renders every shot non-silent and unclipped at its level, from silence to silence, for any seed and container', () => {
+    const variants: Array<[FoleyShot, FoleyOpts]> = PLACE_SHOTS.flatMap((k) => (k === 'container_open' || k === 'container_empty' ? CONTAINERS_ALL.map((material) => [k, { material }] as [FoleyShot, FoleyOpts]) : [[k, {}] as [FoleyShot, FoleyOpts]]));
+    for (const [kind, o] of variants) {
+      for (const seed of [1, 1234, 777, mixed(5)]) {
+        const x = render(kind, o, seed);
+        const tag = `${kind} ${JSON.stringify(o)} seed ${seed}`;
+        let bad = 0;
+        let dc = 0;
+        for (const v of x) {
+          if (!Number.isFinite(v)) bad++;
+          dc += v;
+        }
+        expect(bad, tag).toBe(0);
+        const s = measure(x, sr);
+        expect(s.peak * foleyLevel(kind) * 1.08, tag).toBeLessThan(1);
+        expect(s.rms, tag).toBeGreaterThan(0.002);
+        expect(Math.abs(x[0]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(x[x.length - 1]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(dc / x.length), tag).toBeLessThan(0.01 * s.peak);
+      }
+    }
+  });
+
+  it('lasts as long as the brief says', () => {
+    const len = (k: FoleyShot, o: FoleyOpts = {}, seed = 1234): number => render(k, o, seed).length / sr;
+    for (let s = 1; s <= 4; s++) {
+      for (const material of ['wood', 'metal', 'card'] as const) {
+        expect(len('container_open', { material }, mixed(s)), material).toBeGreaterThan(0.35);
+        expect(len('container_open', { material }, mixed(s)), material).toBeLessThan(0.6);
+      }
+      // (a crate's lid is prised up and set down: longer; a zip as long as the hand pulls it)
+      expect(len('container_open', { material: 'crate' }, mixed(s))).toBeCloseTo(0.9, 2);
+      expect(len('container_open', { material: 'cloth' }, mixed(s))).toBeGreaterThan(0.35);
+      expect(len('container_open', { material: 'cloth' }, mixed(s))).toBeLessThan(0.53);
+      for (const material of CONTAINERS_ALL) {
+        expect(len('container_empty', { material }, mixed(s)), material).toBeGreaterThan(0.25);
+        expect(len('container_empty', { material }, mixed(s)), material).toBeLessThan(0.5);
+      }
+    }
+    expect(len('door_house_open')).toBeCloseTo(1.05, 2);
+    expect(len('door_house_close')).toBeCloseTo(0.8, 2);
+    expect(len('door_shop_open')).toBeCloseTo(1.15, 2);
+    expect(len('door_shop_close')).toBeCloseTo(0.7, 2);
+    expect(len('pump_lift')).toBeLessThan(0.45);
+    expect(len('pump_hang')).toBeLessThan(0.55);
+    expect(len('pump_click')).toBeLessThan(0.3);
+    expect(len('pump_dry')).toBeGreaterThan(1.3);
+    expect(len('pump_dry')).toBeLessThan(1.8);
+  });
+
+  it(
+    'searches by hand: a move every third of a second or so, every 0.8 s of it busy, each container its own sound, seamless',
+    () => {
+      for (const seed of [1234, mixed(3)]) {
+        const x: Record<string, Float32Array> = {};
+        const P: Record<string, Float64Array> = {};
+        for (const material of CONTAINERS_ALL) {
+          const tag = `${material} seed ${seed}`;
+          x[material] = render('rummage', { material }, seed);
+          P[material] = powerOf(x[material]);
+          expectSeamless(x[material], sr, tag);
+          // a calm search: two to six things moved a second, and a search of 0.8 s started anywhere is never near silent
+          expect(movesOf(x[material]), tag).toBeGreaterThan(2);
+          expect(movesOf(x[material]), tag).toBeLessThan(6);
+          expect(quietestSearch(x[material]), tag).toBeGreaterThan(-14);
+        }
+        const kurt = (m: string): number => textureOf(x[m], sr).kurtosis;
+        // things knocked about: impulsive, the hard ones the most; clothes the softest of all
+        for (const m of ['wood', 'crate', 'metal', 'card']) expect(kurt(m), `${m} seed ${seed}`).toBeGreaterThan(kurt('cloth'));
+        expect(kurt('cloth'), `seed ${seed}`).toBeLessThan(10);
+        expect(kurt('cloth'), `seed ${seed}`).toBeGreaterThan(4);
+        // the wooden ones knock low, the steel one hardly at all; the shop's packets and wrappers the brightest
+        for (const m of ['wood', 'crate']) expect(shareOf(P[m], sr, 0, 500), `${m} seed ${seed}`).toBeGreaterThan(0.12);
+        expect(shareOf(P.metal, sr, 0, 500), `seed ${seed}`).toBeLessThan(0.08);
+        expect(shareOf(P.card, sr, 6000, 24000), `seed ${seed}`).toBeGreaterThan(0.1);
+        for (const m of ['wood', 'crate', 'metal', 'cloth']) expect(shareOf(P.card, sr, 6000, 24000), `${m} seed ${seed}`).toBeGreaterThan(shareOf(P[m], sr, 6000, 24000));
+      }
+      // its rate followed as far as any loop's (0.5-2): a hurried search is quicker and a little brighter
+      expect(loopPlaybackRate('rummage', 1.3)).toBeCloseTo(1.3, 12);
+      expect(loopPlaybackRate('rummage', 0.8)).toBeCloseTo(0.8, 12);
+    },
+    90_000,
+  );
+
+  it('opens each container its own way: a cupboard\'s catch, a crate\'s nails and lid, a toolbox or a drawer, a zip, the packets', () => {
+    for (const seed of [1, 1234, mixed(3), mixed(9)]) {
+      const tag = `seed ${seed}`;
+      // the cupboard: its catch the sharpest moment, then the door comes to rest against its stop
+      const wood = render('container_open', { material: 'wood' }, seed);
+      const c = loudest(wood);
+      expect(c.at, tag).toBeLessThan(0.01);
+      expect(db(rmsOf(wood, 0.28, 0.5) / c.v), tag).toBeGreaterThan(-30);
+      // the crate: a nail squealing out (a tone standing well out of the noise in its first fifth of a second), the lid set down the loudest
+      const crate = render('container_open', { material: 'crate' }, seed);
+      const Pn = powerOf(crate, 0, Math.floor(0.2 * sr) + 4096);
+      const nail = peaksOf(Pn, sr, 500, 1400, 1)[0];
+      const floor = (() => {
+        const v: number[] = [];
+        for (let k = 1; k < Pn.length; k++) if (binHz(k, sr) >= 300 && binHz(k, sr) < 3000) v.push(Pn[k]);
+        return v.sort((p, q) => p - q)[v.length >> 1];
+      })();
+      expect(10 * Math.log10(Pn[Math.round((nail * 4096) / sr)] / floor), `${tag}: ${nail} Hz`).toBeGreaterThan(18);
+      expect(loudest(crate).at, tag).toBeGreaterThan(0.58);
+      expect(loudest(crate).at, tag).toBeLessThan(0.75);
+      // a bag's zip: in the teeth's band, and drawn out (its energy spread over a tenth of a second and more), not one click
+      const zip = render('container_open', { material: 'cloth' }, seed);
+      expect(shareOf(powerOf(padded(zip)), sr, 2000, 6000), tag).toBeGreaterThan(0.4);
+      const hz2 = filtered(zip, 'highpass', 2000);
+      let tot = 0;
+      for (const v of hz2) tot += v * v;
+      let acc = 0;
+      let t10 = 0;
+      let t90 = 0;
+      for (let i = 0; i < hz2.length; i++) {
+        acc += hz2[i] * hz2[i];
+        if (!t10 && acc > 0.1 * tot) t10 = i / sr;
+        if (!t90 && acc > 0.9 * tot) t90 = i / sr;
+      }
+      expect(t90 - t10, tag).toBeGreaterThan(0.1);
+      // the shop's packets: crinkly, bright
+      const card = render('container_open', { material: 'card' }, seed);
+      expect(shareOf(powerOf(card), sr, 6000, 24000), tag).toBeGreaterThan(0.05);
+      expect(centroidOf(powerOf(card), sr), tag).toBeGreaterThan(2000);
+    }
+    // metal: a toolbox (its lid clanks back on its stay, a third of a second in) or a steel drawer (its stop a quarter in): the game's four renderings both
+    const kinds = player()
+      .made('container_open', { material: 'metal' })
+      .map((x) => (loudest(x).at >= 0.29 ? 'toolbox' : 'drawer'));
+    expect(kinds.length).toBe(4);
+    expect(kinds).toContain('toolbox');
+    expect(kinds).toContain('drawer');
+  });
+
+  it('finds nothing: a short, dry, hollow sound, by what the container is', () => {
+    for (const seed of [1234, mixed(3), mixed(7)]) {
+      for (const material of CONTAINERS_ALL) {
+        const x = render('container_empty', { material }, seed);
+        const tag = `${material} seed ${seed}`;
+        // dry: nothing rings on; hollow: its strongest low, a box's or a drawer's, not a bell's
+        expect(x.length / sr, tag).toBeLessThan(0.46);
+        const f = peaksOf(powerOf(padded(x)), sr, 80, 2000, 1)[0];
+        expect(f, tag).toBeLessThan(material === 'metal' ? 800 : material === 'card' ? 700 : 450);
+        expect(db(rmsOf(x, x.length / sr - 0.03, x.length / sr) / loudest(x).v), tag).toBeLessThan(-30);
+      }
+    }
+  });
+
+  it('opens a house door with its latch and its hinges (unoiled now and then, dry or quiet otherwise) and shuts it with a heavy thud and the latch', () => {
+    /** how loud its hinges are against its handle and latch, dB */
+    const hinge = (x: Float32Array): number => db(rmsOf(x, 0.18, 0.7) / rmsOf(x, 0, 0.12));
+    // the game's four renderings: one squealing, one hardly heard, the rest between
+    const mine = player()
+      .made('door_house_open')
+      .map(hinge);
+    expect(mine.length).toBe(4);
+    expect(Math.max(...mine)).toBeGreaterThan(-10);
+    expect(Math.min(...mine)).toBeLessThan(-18);
+    // and over many: unoiled sometimes, not often
+    let loud = 0;
+    let quiet = 0;
+    for (let s = 1; s <= 40; s++) {
+      const h = hinge(render('door_house_open', {}, mixed(s)));
+      if (h > -10) loud++;
+      if (h < -18) quiet++;
+    }
+    expect(loud).toBeGreaterThan(5);
+    expect(loud).toBeLessThan(20);
+    expect(quiet).toBeGreaterThan(5);
+    expect(quiet).toBeLessThan(25);
+    // the squeal is a tone (an unoiled hinge), round 500-1000 Hz
+    const squealing = render('door_house_open', {}, mixed(Array.from({ length: 40 }, (_, s) => s + 1).find((s) => hinge(render('door_house_open', {}, mixed(s))) > -10)!));
+    const Ph = powerOf(squealing, Math.floor(0.18 * sr), Math.floor(0.75 * sr));
+    expect(peaksOf(Ph, sr, 300, 2000, 1)[0]).toBeGreaterThan(450);
+    expect(peaksOf(Ph, sr, 300, 2000, 1)[0]).toBeLessThan(1100);
+    expect(flatnessOf(Ph, sr, 400, 2000)).toBeLessThan(0.2);
+    for (const seed of [1234, 1, mixed(3)]) {
+      const x = render('door_house_close', {}, seed);
+      const tag = `seed ${seed}`;
+      // the thud: heavy, low, the loudest a moment in; the latch snapping home with it
+      const t = loudest(x);
+      expect(t.at, tag).toBeGreaterThan(0.04);
+      expect(t.at, tag).toBeLessThan(0.1);
+      expect(shareOf(powerOf(x), sr, 0, 500), tag).toBeGreaterThan(0.8);
+      expect(Math.abs(loudest(filtered(x, 'highpass', 2000)).at - t.at), tag).toBeLessThan(0.012);
+    }
+  });
+
+  it('opens a shop door under a soft two-note bell in G (B6, then G6), the same bell every time; shuts it softly on its closer', () => {
+    for (const seed of [1234, 1, mixed(3)]) {
+      const x = render('door_shop_open', {}, seed);
+      const tag = `seed ${seed}`;
+      const b6 = noteOf(x, 1975.53);
+      const g6 = noteOf(x, 1567.98);
+      expect(g6.at - b6.at, tag).toBeGreaterThan(0.1);
+      expect(g6.at - b6.at, tag).toBeLessThan(0.16);
+      expect(g6.max / b6.max, tag).toBeGreaterThan(0.6);
+      // the bell in the key of the chimes and the find's sting (its partials: the push bar's knock under it is a door's,
+      // not tuned); soft and round, nothing shrill over it
+      const P = powerOf(x);
+      for (const f of peaksOf(P, sr, 1400, 8000, 4)) expect(offKey(f), `${tag}: ${f.toFixed(0)} Hz`).toBeLessThan(30);
+      expect(shareOf(P, sr, 4000, 24000), tag).toBeLessThan(0.01);
+      // the closer: a faint hydraulic sigh before the seal meets the frame, the hit soft but the loudest
+      const c = render('door_shop_close', {}, seed);
+      const hit = loudest(c);
+      expect(hit.at, tag).toBeGreaterThan(0.13);
+      expect(hit.at, tag).toBeLessThan(0.2);
+      expect(db(rmsOf(c, 0.02, hit.at - 0.02) / hit.v), tag).toBeGreaterThan(-45);
+      expect(db(rmsOf(c, 0.02, hit.at - 0.02) / hit.v), tag).toBeLessThan(-20);
+    }
+    // the game's three renderings ring the same bell (the door a little different each time), played as it is
+    const p = player();
+    const bells = p.made('door_shop_open').map((x) => [db(noteOf(x, 1975.53).max), db(noteOf(x, 1567.98).max)]);
+    expect(bells.length).toBe(3);
+    for (const k of [0, 1]) expect(Math.max(...bells.map((b) => b[k])) - Math.min(...bells.map((b) => b[k]))).toBeLessThan(0.5);
+    for (let k = 0; k < 4; k++) p.f.play('door_shop_open', { gain: 0.9 });
+    for (const s of p.sources) {
+      expect(s.playbackRate.value).toBe(1);
+      expect(s.out!.gain.value).toBeCloseTo(foleyLevel('door_shop_open') * 0.9, 12);
+    }
+  });
+
+  it('lifts the nozzle with a clack and the lever, hangs it back with a heavier clunk, clicks off sharp when full', () => {
+    for (const seed of [1234, 1, mixed(3)]) {
+      const tag = `seed ${seed}`;
+      const lift = render('pump_lift', {}, seed);
+      const hang = render('pump_hang', {}, seed);
+      const click = render('pump_click', {}, seed);
+      expect(loudest(lift).at, tag).toBeLessThan(0.01);
+      // the switch lever flipping up under it: a click in its band a few hundredths in, well over the hose after it
+      const lever = filtered(lift, 'bandpass', 3000, 0.8);
+      expect(db(rmsOf(lever, 0.03, 0.08) / rmsOf(lever, 0.1, 0.3)), tag).toBeGreaterThan(12);
+      // the clunk into the holster lower and heavier than the clack off it
+      expect(shareOf(powerOf(padded(hang)), sr, 0, 1000), tag).toBeGreaterThan(shareOf(powerOf(padded(lift)), sr, 0, 1000) + 0.2);
+      // the shut-off: all over in a few hundredths, bright
+      let tot = 0;
+      let early = 0;
+      for (let i = 0; i < click.length; i++) {
+        tot += click[i] * click[i];
+        if (i < 0.04 * sr) early += click[i] * click[i];
+      }
+      expect(early / tot, tag).toBeGreaterThan(0.95);
+      expect(centroidOf(powerOf(padded(click)), sr), tag).toBeGreaterThan(800);
+    }
+  });
+
+  it(
+    'runs the pump: the motor humming at 100 Hz with its vanes\' pulses, the meter ticking, the fuel rushing; seamless; following its rate',
+    () => {
+      for (const seed of [1234, mixed(3)]) {
+        const x = render('pump_run', {}, seed);
+        const tag = `seed ${seed}`;
+        expectSeamless(x, sr, tag);
+        // (every tone fits the loop a whole number of times: measured at the frequencies it was snapped to)
+        const len = x.length / sr;
+        const snap = (f: number): number => Math.round(f * len) / len;
+        const between = (f: number): number => toneOf(x, snap(f) + 7.5 / len);
+        expect(toneOf(x, snap(100)) / between(100), tag).toBeGreaterThan(10);
+        const vanes = 6 * snap(24.2);
+        expect(toneOf(x, vanes) / toneOf(x, vanes + 7.5 / len), tag).toBeGreaterThan(10);
+        // the meter: a tick every 0.16 s or so (the 1.9 kHz band's envelope comes round)
+        const env = envelope(filtered(x, 'bandpass', 1900, 2), 0.002);
+        const mean = env.reduce((a, b) => a + b, 0) / env.length;
+        const d = env.map((v) => v - mean);
+        let best = 0;
+        let lag = 0;
+        for (let l = 50; l <= 125; l++) {
+          let s = 0;
+          for (let i = 0; i < d.length; i++) s += d[i] * d[(i + l) % d.length];
+          if (s > best) {
+            best = s;
+            lag = l;
+          }
+        }
+        expect(Math.abs(lag * 0.002 - 0.16), tag).toBeLessThan(0.01);
+        // the fuel: a noise through the hose and the nozzle, a good part of it all
+        const P = powerOf(x);
+        expect(shareOf(P, sr, 500, 2000), tag).toBeGreaterThan(0.25);
+        expect(flatnessOf(P, sr, 500, 2000), tag).toBeGreaterThan(0.5);
+      }
+      expect(loopPlaybackRate('pump_run', 0.8)).toBeCloseTo(0.8, 12);
+      expect(loopPlaybackRate('pump_run', 1.2)).toBeCloseTo(1.2, 12);
+    },
+    60_000,
+  );
+
+  it('runs dry: labouring and spluttering, then cut out: the hum gone at once, the rotor winding down to nothing', () => {
+    for (const seed of [1234, 1, mixed(3)]) {
+      const x = render('pump_dry', {}, seed);
+      const tag = `seed ${seed}`;
+      // the relay's click, a second or so in
+      const cut = loudest(filtered(x, 'bandpass', 2300, 1.5), 0.85, 1.05).at;
+      expect(cut, tag).toBeGreaterThan(0.88);
+      expect(cut, tag).toBeLessThan(1.02);
+      // the hum (its 400 Hz, clear of the rotor winding down through the low ones) gone within a few hundredths
+      expect(db(toneOf(x, 400, cut + 0.06, cut + 0.14) / toneOf(x, 400, cut - 0.1, cut - 0.02)), tag).toBeLessThan(-15);
+      // the rotor winding down: the low end's weight sinking
+      const low = (a: number, b: number): number => {
+        const P = powerOf(x, Math.floor(a * sr), Math.floor(b * sr));
+        let num = 0;
+        let den = 0;
+        for (let k = 1; k < P.length; k++) {
+          const f = binHz(k, sr);
+          if (f < 20 || f > 300) continue;
+          num += P[k] * f;
+          den += P[k];
+        }
+        return num / den;
+      };
+      expect(low(cut + 0.1, cut + 0.35), tag).toBeLessThan(0.8 * low(cut - 0.15, cut));
+      expect(low(cut + 0.3, cut + 0.55), tag).toBeLessThan(0.8 * low(cut + 0.1, cut + 0.35));
+      // spluttering before it: the fuel and air coming in fits
+      expect(textureOf(filtered(x.slice(Math.floor(0.05 * sr), Math.floor((cut - 0.05) * sr)), 'bandpass', 1100, 0.7), sr).cv5, tag).toBeGreaterThan(0.6);
+      // and nothing at the end
+      expect(db(rmsOf(x, x.length / sr - 0.05, x.length / sr) / rmsOf(x, 0.2, 0.6)), tag).toBeLessThan(-20);
+    }
+  });
+
+  it('keys a container\'s sounds by its material (none a wooden cupboard\'s), and only those', () => {
+    const p = player();
+    const renders = (go: () => void): number => {
+      const a = p.count();
+      go();
+      return p.count() - a;
+    };
+    expect(renders(() => p.f.play('container_open', { material: 'metal' }))).toBe(4);
+    expect(renders(() => p.f.play('container_open', { material: 'metal' }))).toBe(0);
+    expect(renders(() => p.f.play('container_open', { material: 'wood' }))).toBe(4);
+    // (no material, or a door's: the wooden cupboard's own renderings)
+    expect(renders(() => p.f.play('container_open'))).toBe(0);
+    expect(renders(() => p.f.play('container_open', { material: 'rusty' }))).toBe(0);
+    expect(renders(() => p.f.play('container_empty', { material: 'crate' }))).toBe(3);
+    expect(renders(() => p.f.play('container_empty', { material: 'card' }))).toBe(3);
+    // the search: its own rendering for each container; the gain and the rate glide, a new container starts afresh
+    expect(renders(() => p.f.start('rummage', { material: 'cloth', gain: 1 }))).toBe(1);
+    expect(renders(() => p.f.start('rummage', { material: 'cloth', gain: 0.5, rate: 1.2 }))).toBe(0);
+    expect(p.sources.filter((s) => s.loop).length).toBe(1);
+    expect(renders(() => p.f.start('rummage', { material: 'card' }))).toBe(1);
+    expect(p.sources.filter((s) => s.loop).length).toBe(2);
+    // a door given a container's material is the stock door, as it always was
+    for (const seed of [1, 1234]) {
+      expect(render('door_open', { material: 'wood' }, seed)).toEqual(render('door_open', { material: 'metal' }, seed));
+      expect(render('door_close', { material: 'cloth' }, seed)).toEqual(render('door_close', {}, seed));
+    }
+    // and the containers' materials change no other sound
+    expect(render('pump_run', { material: 'crate' })).toEqual(render('pump_run'));
+    expect(render('door_house_open', { material: 'metal' })).toEqual(render('door_house_open'));
+  });
+
+  it('sits in the mix at full gain: the search with the sponge and the scrapes, the doors about a car\'s, the bell gentle, the pump under an idle', () => {
+    const p = player();
+    const shotLoud = (k: FoleyShot, o: FoleyOpts = {}): number[] => p.made(k, o).map((x) => kLoudness(x.map((v) => v * foleyLevel(k)), sr, false));
+    const loopLoud = (k: FoleyLoop, o: FoleyOpts = {}): number => kLoudness(p.made(k, o)[0].map((v) => v * foleyLevel(k)), sr, true);
+    const mean = (v: number[]): number => v.reduce((a, b) => a + b, 0) / v.length;
+    const scrapes = mean(SCRAPES.map((k) => loopLoud(k)));
+    const sponge = loopLoud('sponge_scrub');
+    const searches = CONTAINERS_ALL.map((material) => loopLoud('rummage', { material }));
+    for (const l of searches) {
+      expect(l).toBeGreaterThan(sponge - 0.5);
+      expect(l).toBeLessThan(scrapes + 0.5);
+    }
+    expect(Math.max(...searches) - Math.min(...searches)).toBeLessThan(1);
+    // the car's door, its latch (the references)
+    const carOpen = shotLoud('door_open', { material: 'metal' });
+    const carClose = shotLoud('door_close', { material: 'metal' });
+    const latch = mean(shotLoud('latch'));
+    // a container opened about as loud as a car door opened (a crate's heavy lid the loudest of them), nothing in it a little under
+    const opens = Object.fromEntries(CONTAINERS_ALL.map((material) => [material, shotLoud('container_open', { material })]));
+    for (const [m, ls] of Object.entries(opens)) for (const l of ls) {
+      expect(l, m).toBeGreaterThan(Math.min(...carOpen) - 4);
+      expect(l, m).toBeLessThan(Math.max(...carOpen) + 5);
+    }
+    for (const m of ['wood', 'metal', 'cloth', 'card']) expect(mean(opens.crate), m).toBeGreaterThan(mean(opens[m]));
+    for (const material of CONTAINERS_ALL) for (const l of shotLoud('container_empty', { material })) {
+      expect(l, material).toBeGreaterThan(mean(carOpen) - 3);
+      expect(l, material).toBeLessThan(mean(carOpen) + 3);
+    }
+    // a house door a little under a car door, opening and shutting
+    const houseOpen = mean(shotLoud('door_house_open'));
+    expect(houseOpen).toBeLessThan(mean(carOpen) - 0.3);
+    expect(houseOpen).toBeGreaterThan(mean(carOpen) - 3);
+    const houseClose = shotLoud('door_house_close');
+    for (const l of houseClose) {
+      expect(l).toBeLessThan(Math.min(...carClose));
+      expect(l).toBeGreaterThan(Math.min(...carClose) - 3);
+    }
+    // the shop's bell gentle: well under the ding, over a car door opened; the shop's door shut on its closer softer than a house's
+    const ding = mean(shotLoud('clean_ding'));
+    for (const l of shotLoud('door_shop_open')) {
+      expect(l).toBeLessThan(ding - 3);
+      expect(l).toBeGreaterThan(ding - 8);
+      expect(l).toBeGreaterThan(Math.max(...carOpen));
+    }
+    for (const l of shotLoud('door_shop_close')) {
+      expect(l).toBeLessThan(Math.min(...houseClose) - 2);
+      expect(l).toBeGreaterThan(Math.min(...houseClose) - 7);
+    }
+    // the pump: its click like a latch, the nozzle about as loud as a car door opened, running under a V8 idling 3 m off
+    // (-34.9 LUFS, docs/MODCAR_AUDIO.md), running dry a little over it running
+    for (const l of shotLoud('pump_click')) expect(Math.abs(l - latch)).toBeLessThan(2);
+    for (const k of ['pump_lift', 'pump_hang'] as const) for (const l of shotLoud(k)) expect(Math.abs(l - mean(carOpen)), k).toBeLessThan(2.5);
+    const run = loopLoud('pump_run');
+    expect(run).toBeLessThan(-34.9 - 3);
+    expect(run).toBeGreaterThan(-42);
+    for (const l of shotLoud('pump_dry')) {
+      expect(l).toBeGreaterThan(run + 0.5);
+      expect(l).toBeLessThan(run + 4);
+    }
   });
 });

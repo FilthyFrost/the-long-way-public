@@ -300,9 +300,9 @@ export const CONTAINER_NAMES: Record<ContainerKind, string> = {
   garage: '零件架',
 };
 
-/** what a search sounds like by the container (foley.ts rummage's material) */
-export const CONTAINER_MATERIAL: Record<ContainerKind, 'wood' | 'metal' | 'cloth' | 'card'> = {
-  crate: 'wood',
+/** what a search sounds like by the container (foley.ts rummage's material: a crate's lid prised up on its nails) */
+export const CONTAINER_MATERIAL: Record<ContainerKind, 'wood' | 'crate' | 'metal' | 'cloth' | 'card'> = {
+  crate: 'crate',
   toolbox: 'metal',
   shelf: 'card',
   counter: 'card',

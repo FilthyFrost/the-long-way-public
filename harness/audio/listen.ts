@@ -3,11 +3,12 @@
  * exhaust and cabin option on a toy drivetrain, and every foley sound, for listening and tuning; a
  * scrub pad to rub with the mouse, which drives the scrubbing loops as the game does (every frame a
  * gain and a rate from the tool's speed); the tyres and wrecks, the flat and the bare rim following a
- * speed and a load slider, the rare part's glint a distance one. Nothing makes a sound until the Start
- * button is clicked.
+ * speed and a load slider, the rare part's glint a distance one; the roadside places, a container
+ * searched by holding a button (the opening, the search until let go), the doors, the pump filled from
+ * with a flow and a rate slider. Nothing makes a sound until the Start button is clicked.
  */
 import { EngineVoice, bankConfig, loadBank, type BankManifest } from '../../src/game/modcar/engineAudio';
-import { FOLEY_LOOPS, Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
+import { FOLEY_LOOPS, Foley, type ContainerMaterial, type FoleyLoop, type FoleyOpts, type FoleyShot, type ScrapeSurface } from '../../src/game/modcar/foley';
 
 bankConfig.baseUrl = '/audio/modcar/engines/';
 
@@ -333,6 +334,58 @@ for (const id of ['roadKmh', 'roadGain', 'glintDist']) {
   };
 }
 showRoad();
+
+// roadside places: a container searched as the game does it (E held: the opening, then the hands until it is let go),
+// nothing in it; the doors; the pump (the trigger held: the run at the flow and rate of the sliders; full: the click; dry)
+const placesBox = $('places');
+const material = (): ContainerMaterial => $<HTMLSelectElement>('container').value as ContainerMaterial;
+const searchRate = (): number => Number($<HTMLInputElement>('searchRate').value);
+const pumpOpts = (): FoleyOpts => ({ gain: Number($<HTMLInputElement>('pumpFlow').value), rate: Number($<HTMLInputElement>('pumpRate').value) });
+const button = (label: string, box: HTMLElement): HTMLButtonElement => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  box.append(b);
+  return b;
+};
+{
+  const search = button('按住搜（开 + 翻找，松开停）', placesBox);
+  search.onpointerdown = () => {
+    if (!foley) return;
+    foley.play('container_open', { material: material() });
+    foley.start('rummage', { material: material(), rate: searchRate() });
+  };
+  search.onpointerup = search.onpointerleave = () => foley?.stop('rummage');
+  button('只放开的声音', placesBox).onclick = () => foley?.play('container_open', { material: material() });
+  button('搜完：空的', placesBox).onclick = () => foley?.play('container_empty', { material: material() });
+  placesBox.append(document.createElement('br'));
+  for (const [label, kind] of [['开民居门', 'door_house_open'], ['关民居门', 'door_house_close'], ['开商店门（门铃）', 'door_shop_open'], ['关商店门', 'door_shop_close']] as const) {
+    button(label, placesBox).onclick = () => foley?.play(kind);
+  }
+  placesBox.append(document.createElement('br'));
+  button('提起油枪', placesBox).onclick = () => foley?.play('pump_lift');
+  const fill = button('按住扳机加油（松开停）', placesBox);
+  fill.onpointerdown = () => foley?.start('pump_run', pumpOpts());
+  fill.onpointerup = fill.onpointerleave = () => foley?.stop('pump_run');
+  button('加满了（跳枪）', placesBox).onclick = () => {
+    foley?.stop('pump_run');
+    foley?.play('pump_click');
+  };
+  button('油泵抽干', placesBox).onclick = () => {
+    foley?.stop('pump_run');
+    foley?.play('pump_dry');
+  };
+  button('挂回油枪', placesBox).onclick = () => foley?.play('pump_hang');
+}
+for (const id of ['searchRate', 'pumpFlow', 'pumpRate']) {
+  $<HTMLInputElement>(id).oninput = () => {
+    $('searchRateV').textContent = searchRate().toFixed(2);
+    $('pumpFlowV').textContent = Number($<HTMLInputElement>('pumpFlow').value).toFixed(2);
+    $('pumpRateV').textContent = Number($<HTMLInputElement>('pumpRate').value).toFixed(2);
+    // (a search or a fill going on glides to the new rate and flow, as the game's every frame)
+    if (foley?.playing('rummage')) foley.start('rummage', { material: material(), rate: searchRate() });
+    if (foley?.playing('pump_run')) foley.start('pump_run', pumpOpts());
+  };
+}
 
 for (const [label, kind] of [['喇叭 嘀（按住）', 'horn_beep'], ['喇叭 乐曲', 'horn_trumpet'], ['汽笛（按住）', 'horn_air']] as const) {
   const b = document.createElement('button');

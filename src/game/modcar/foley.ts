@@ -10,7 +10,10 @@
  * vehicle restored, a tool worn out, the dirt shown); spray paint (the can shaken, its valve opening,
  * the hiss, a can running dry, a part come to its new colour); tyres and wrecks (a blowout, driving on
  * a flat, a bare rim on the road, a rusted wreck's panel forced open, the find under its bonnet,
- * something rare glinting nearby). Each sound is a recipe that renders a short
+ * something rare glinting nearby); the roadside places (a container searched by hand, by what it is
+ * and holds: its door, lid or zip, the search, nothing in it; a house's door and a shop's with its
+ * bell; a filling station's pump: the nozzle lifted and hung back, the pump running, its shut-off,
+ * running dry). Each sound is a recipe that renders a short
  * Float32Array (synth.ts); the player caches a few variations of each and plays them on the game's
  * AudioContext.
  */
@@ -111,7 +114,28 @@ export type FoleyShot =
   /** a rusted wreck's door or bonnet forced open the first time: a long groan, the rust letting go with a crack (~1 s) */
   | 'wreck_creak'
   /** a wreck's bonnet up on something good: a short warm sting, fuller with `tier` (1-5) */
-  | 'loot_reveal';
+  | 'loot_reveal'
+  // roadside places: containers searched by hand (by `material`), a house's and a shop's door, a filling station's pump
+  /** the start of a search (E pressed on a container), by `material`: a cupboard door's catch and hinge, a crate's lid prised up on its nails, a toolbox's clasps or a steel drawer, a bag's zip, a shop's packets shuffled (~0.4-0.9 s) */
+  | 'container_open'
+  /** nothing in it: a hollow knock on the bare inside, the drawer pushed back, a bag patted flat (~0.3-0.45 s, by `material`) */
+  | 'container_empty'
+  /** a house's wooden door opened: the lever handle and the latch, the door off its stop, the hinges (unoiled, dry or quiet by turns) (~1 s) */
+  | 'door_house_open'
+  /** a house's wooden door pulled shut: the air before it, the heavy thud into the frame, the latch snapping home (~0.8 s) */
+  | 'door_house_close'
+  /** a shop's glass-and-aluminium door pushed open: the push bar's clack, the glass shivering, the little bell over the door (two soft notes, B6 and G6) (~1.15 s) */
+  | 'door_shop_open'
+  /** the shop's door drawn shut by its closer: a hydraulic sigh, the seal's padded thup, the latch's click, the glass shivering (~0.7 s) */
+  | 'door_shop_close'
+  /** a pump's nozzle lifted off its hook: a clack, the switch lever flipping up, the hose dragging (~0.38 s) */
+  | 'pump_lift'
+  /** the nozzle hung back: a clunk into the holster, the lever pushed down, the hose swinging (~0.48 s) */
+  | 'pump_hang'
+  /** the nozzle's automatic shut-off as the tank or the can is full: a hard click, a last spit (~0.22 s) */
+  | 'pump_click'
+  /** the pump running dry: the motor labouring, fuel and air spluttering, a gurgle, the motor cut and winding down (~1.6 s) */
+  | 'pump_dry';
 
 export type FoleyLoop =
   | 'ratchet'
@@ -150,7 +174,11 @@ export type FoleyLoop =
   /** a bare rim on the road: steel grinding on asphalt, sparks, the bent rim knocking (rate from the wheel's speed, 0.25-3.5) */
   | 'rim_grind'
   /** something rare lying near: a very faint high shimmer (gain from how near it is) */
-  | 'rare_glint';
+  | 'rare_glint'
+  /** hands going through a container while E is held (by `material`); rate 1 a calm search */
+  | 'rummage'
+  /** an old pump running: its motor humming in the dispenser, the meter whirring, fuel rushing through the hose (gain with the flow, rate 0.8-1.2) */
+  | 'pump_run';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
@@ -159,9 +187,12 @@ export type Liquid = 'fuel' | 'water' | 'oil';
 export type GrindMaterial = 'metal' | 'plastic' | 'organic' | 'cloth' | 'wood';
 /** what a scraper blade bites into as a stroke begins (scrape_start) */
 export type ScrapeSurface = 'glass' | 'metal' | 'rust' | 'mud';
+/** what a container searched by hand is (rummage, container_open, container_empty): a cupboard, a wardrobe or a desk's drawers (wood), a crate, a toolbox, a filing cabinet, a garage shelf or a drum (metal), clothes or a bag (cloth), a shop's shelf of packets and tins (card) */
+export type ContainerMaterial = 'wood' | 'crate' | 'metal' | 'cloth' | 'card';
 
 export interface FoleyOpts {
-  material?: PanelMaterial;
+  /** a door's or a panel's (door_*, hood, trunk; default metal), or a container's (rummage, container_open, container_empty; default wood) */
+  material?: PanelMaterial | ContainerMaterial;
   /** kg, for parts picked up / set down / installed */
   mass?: number;
   liquid?: Liquid;
@@ -2612,6 +2643,570 @@ function rareGlint(): Recipe {
   };
 }
 
+// ------------------------------------------------------------------ roadside places: containers searched by hand, a house's and a shop's door, a filling station's pump
+
+const CONTAINERS: readonly string[] = ['wood', 'crate', 'metal', 'cloth', 'card'];
+
+/** a container's material from FoleyOpts.material: a container's, else (a door's, or none) a wooden cupboard's */
+function containerOf(m: FoleyOpts['material']): ContainerMaterial {
+  return m !== undefined && CONTAINERS.includes(m) ? (m as ContainerMaterial) : 'wood';
+}
+
+/** the strongly damped, inharmonic modes of a piece of wood knocked (a shelf, a drawer's side, a board) round f0 */
+function woodModes(f0: number, decay: number): Array<[number, number, number]> {
+  return [[f0, 1, decay], [f0 * 2.26, 0.55, decay * 0.6], [f0 * 3.71, 0.32, decay * 0.42], [f0 * 5.3, 0.16, decay * 0.3]];
+}
+
+/** a food tin's thin shell, damped by what is in it (scaled by its size) */
+function tinModes(size: number): Array<[number, number, number]> {
+  return [[1240, 1, 0.012], [1810, 0.75, 0.01], [2530, 0.6, 0.008], [3370, 0.4, 0.006], [4420, 0.25, 0.005]].map(([f, g, d]) => [f / size, g, d * size] as [number, number, number]);
+}
+
+/** something set down or knocked inside a container: the touch (a click of noise round `touch` Hz) and the ringing of what was struck */
+function knockInto(x: Float32Array, sr: number, at: number, amp: number, rng: Rng, modes: ReadonlyArray<readonly [number, number, number]>, touch: number): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  burst(x, sr, a, 0.003, 0.45 * amp, rng, { attack: 0.0001, decay: 0.0006, filter: [['bandpass', touch, 1.2]] });
+  strike(x, sr, a, modes, amp, rng, 0.03);
+}
+
+/** something slid or rubbed for len s from `at`: noise between lo and hi Hz, swelling in and out, roughened (`rough` 0..1) by its grain catching */
+function rubInto(x: Float32Array, sr: number, at: number, len: number, amp: number, rng: Rng, lo: number, hi: number, rough = 0.5): void {
+  const n = Math.max(2, Math.floor(len * sr));
+  const b = noise(n, rng);
+  biquad(b, sr, 'highpass', lo, 0.7);
+  biquad(b, sr, 'lowpass', hi, 0.7);
+  // its grain: the level catching and letting go, the faster the rougher
+  const g = wander(rng, Math.max(3, Math.round(len * (40 + 160 * rough))), 1 - 0.9 * rough, 1);
+  for (let i = 0; i < n; i++) {
+    const u = i / n;
+    b[i] *= Math.pow(Math.sin(Math.PI * u), 0.8) * g(u);
+  }
+  mixInto(x, b, Math.floor(at * sr), amp);
+}
+
+/** a crackle for len s from `at` (paper, a wrapper, straw): grains at `rate` a second, swelling in and out, coloured between lo and hi Hz */
+function crackleInto(x: Float32Array, sr: number, at: number, len: number, amp: number, rate: number, rng: Rng, lo: number, hi: number): void {
+  const b = new Float32Array(Math.max(2, Math.floor((len + 0.01) * sr)));
+  scatter(rng, len, rate, (t) => Math.sqrt(Math.sin(Math.PI * Math.min(1, t / len))), (t) => grainInto(b, sr, t, powerLaw(rng, 0.2, 1.8), rng.range(0.0001, 0.0006), rng));
+  biquad(b, sr, 'highpass', lo, 0.7);
+  biquad(b, sr, 'lowpass', hi, 0.7);
+  mixInto(x, b, Math.floor(at * sr), amp);
+}
+
+/** small hard things shaken together (screws in a tray, pasta in its box): `count` tiny clicks over len s, ringing a little if `ringy` (s) */
+function jingleInto(x: Float32Array, sr: number, at: number, len: number, amp: number, count: number, rng: Rng, lo: number, hi: number, ringy = 0): void {
+  for (let k = 0; k < count; k++) {
+    const t = at + len * Math.pow(rng.next(), 0.8);
+    const f = rng.range(lo, hi);
+    if (ringy > 0) strike(x, sr, Math.floor(t * sr), [[f, 1, ringy], [f * 1.6, 0.4, ringy * 0.6]], amp * rng.range(0.3, 1), rng, 0.05);
+    else burst(x, sr, Math.floor(t * sr), 0.002, amp * rng.range(0.3, 1), rng, { attack: 0.0001, decay: 0.0004, filter: [['bandpass', f, 2]] });
+  }
+}
+
+/** one move of a hand searching a container (a thing picked up, slid, shuffled, knocked), from `at` at strength a, by what the container holds */
+function gestureInto(x: Float32Array, sr: number, at: number, a: number, m: ContainerMaterial, rng: Rng): void {
+  const r = rng.next();
+  if (m === 'wood') {
+    // a cupboard or a desk: things lifted and set down on its shelves, slid, papers, the odd jar
+    if (r < 0.35) {
+      knockInto(x, sr, at, 0.6 * a, rng, woodModes(rng.range(380, 820), rng.range(0.008, 0.016)), rng.range(1500, 3500));
+      if (rng.next() < 0.5) knockInto(x, sr, at + rng.range(0.04, 0.1), 0.25 * a, rng, woodModes(rng.range(380, 820), 0.01), 2500);
+    } else if (r < 0.6) {
+      const d = rng.range(0.08, 0.22);
+      rubInto(x, sr, at, d, 0.35 * a, rng, 500, 2600, 0.6);
+      knockInto(x, sr, at + d * 0.9, 0.2 * a, rng, woodModes(rng.range(450, 900), 0.008), 2000);
+    } else if (r < 0.8) {
+      const d = rng.range(0.1, 0.25);
+      crackleInto(x, sr, at, d, 0.5 * a, 900, rng, 1500, 7000);
+      rubInto(x, sr, at, d, 0.15 * a, rng, 1500, 6000, 0.4);
+    } else if (r < 0.92) {
+      // the hand bumping the cupboard's side: the box itself, low
+      thudInto(x, sr, at, rng, 0.15 * a, rng.range(150, 230), 0.012);
+      strike(x, sr, Math.floor(at * sr), woodModes(rng.range(200, 320), 0.02), 0.35 * a, rng);
+    } else {
+      const f = rng.range(1800, 3200);
+      knockInto(x, sr, at, 0.35 * a, rng, [[f, 1, 0.03], [f * 2.7, 0.4, 0.015], [f * 5.1, 0.15, 0.008]], 5000);
+    }
+  } else if (m === 'crate') {
+    // a crate: heavier things shifted on rough boards, straw or wood wool, a bottle
+    if (r < 0.35) {
+      knockInto(x, sr, at, 0.6 * a, rng, woodModes(rng.range(230, 480), 0.014), rng.range(1000, 2500));
+      thudInto(x, sr, at, rng, 0.12 * a, rng.range(110, 160), 0.015);
+    } else if (r < 0.6) {
+      const d = rng.range(0.15, 0.35);
+      crackleInto(x, sr, at, d, 0.8 * a, 1400, rng, 1200, 6500);
+      rubInto(x, sr, at, d, 0.2 * a, rng, 300, 2500, 0.8);
+    } else if (r < 0.85) {
+      rubInto(x, sr, at, rng.range(0.1, 0.25), 0.45 * a, rng, 400, 2200, 0.9);
+    } else {
+      const f = rng.range(1500, 2600);
+      knockInto(x, sr, at, 0.35 * a, rng, [[f, 1, 0.03], [f * 2.6, 0.45, 0.014], [f * 4.9, 0.15, 0.007]], 4500);
+    }
+  } else if (m === 'metal') {
+    // a toolbox, a cabinet, a shelf: tools clinking, screws rattling, a tool slid in its tray, the steel box ringing
+    if (r < 0.35) {
+      knockInto(x, sr, at, 0.5 * a, rng, metalModes(rng.range(1100, 2600), rng.range(0.02, 0.05)), 4000);
+      if (rng.next() < 0.6) knockInto(x, sr, at + rng.range(0.03, 0.09), 0.3 * a, rng, metalModes(rng.range(1100, 2600), 0.03), 4000);
+    } else if (r < 0.55) {
+      jingleInto(x, sr, at, rng.range(0.05, 0.12), 0.35 * a, 6 + Math.floor(rng.next() * 8), rng, 2500, 6500, 0.004);
+    } else if (r < 0.75) {
+      rubInto(x, sr, at, rng.range(0.08, 0.2), 0.3 * a, rng, 1500, 6000, 0.7);
+    } else {
+      strike(x, sr, Math.floor(at * sr), panelModes(rng.range(0.45, 0.7), 2.5), 0.12 * a, rng);
+      thudInto(x, sr, at, rng, 0.15 * a, 220, 0.012);
+      knockInto(x, sr, at, 0.3 * a, rng, metalModes(rng.range(600, 1000), 0.03), 3000);
+    }
+  } else if (m === 'cloth') {
+    // clothes or a bag: fabric pushed aside, hangers clicking along their rail, nylon crumpled, a buckle
+    if (r < 0.45) {
+      rubInto(x, sr, at, rng.range(0.15, 0.4), 0.6 * a, rng, 200, 2600, 0.15);
+    } else if (r < 0.7) {
+      let t = at;
+      for (let k = 0; k < 1 + Math.floor(rng.next() * 3); k++) {
+        knockInto(x, sr, t, 0.3 * a, rng, woodModes(rng.range(900, 1600), 0.006), 3000);
+        t += rng.range(0.03, 0.07);
+      }
+      rubInto(x, sr, at, rng.range(0.05, 0.1), 0.15 * a, rng, 2000, 7000, 0.8);
+    } else if (r < 0.85) {
+      const d = rng.range(0.1, 0.25);
+      crackleInto(x, sr, at, d, 0.35 * a, 600, rng, 1500, 6000);
+      rubInto(x, sr, at, d, 0.25 * a, rng, 400, 3000, 0.3);
+    } else {
+      const f = rng.range(2600, 4200);
+      knockInto(x, sr, at, 0.25 * a, rng, [[f, 1, 0.012], [f * 1.7, 0.4, 0.007]], 5000);
+    }
+  } else {
+    // a shop's shelf: packets slid and knocked, wrappers crinkled, tins knocking together, a box with something in it
+    if (r < 0.35) {
+      const d = rng.range(0.08, 0.2);
+      rubInto(x, sr, at, d, 0.45 * a, rng, 1200, 6000, 0.5);
+      knockInto(x, sr, at + d * 0.9, 0.35 * a, rng, woodModes(rng.range(450, 900), 0.006), 2500);
+    } else if (r < 0.55) {
+      crackleInto(x, sr, at, rng.range(0.08, 0.2), 0.45 * a, 1500, rng, 2500, 8000);
+    } else if (r < 0.8) {
+      const s = rng.range(0.85, 1.2);
+      knockInto(x, sr, at, 0.45 * a, rng, tinModes(s), 4000);
+      if (rng.next() < 0.6) knockInto(x, sr, at + rng.range(0.02, 0.06), 0.3 * a, rng, tinModes(s * rng.range(0.95, 1.08)), 4000);
+    } else {
+      const d = rng.range(0.08, 0.16);
+      jingleInto(x, sr, at, d, 0.3 * a, 14 + Math.floor(rng.next() * 14), rng, 2000, 6000);
+      rubInto(x, sr, at, d, 0.15 * a, rng, 1200, 5000, 0.5);
+    }
+  }
+}
+
+/** the hand brushing over what is in the container all the time under its moves (a pause between two is never dead): [its band, how much of it] */
+const RUMMAGE_BED: Record<ContainerMaterial, [Array<[BiquadKind, number, number?, number?]>, number]> = {
+  wood: [[['bandpass', 1400, 0.7]], 0.55],
+  crate: [[['bandpass', 2200, 0.6]], 0.6],
+  metal: [[['bandpass', 3000, 0.8]], 0.55],
+  cloth: [[['lowpass', 1600, 0.7], ['highpass', 180, 0.7]], 0.55],
+  card: [[['bandpass', 3500, 0.7]], 0.55],
+};
+/** each container's loop peak, so that at the one level they sit about as loud as one another */
+const RUMMAGE_PEAK: Record<ContainerMaterial, number> = { wood: 0.575, crate: 0.5, metal: 0.37, cloth: 0.28, card: 0.41 };
+
+/**
+ * Hands going through a container while E is held: a calm search (rate 1), a thing moved about three
+ * times a second (never quite evenly, now and then two at once), a little lighter or busier by turns,
+ * the hand brushing over what is there all the time; by what the container is and holds: a cupboard or a desk (`wood`: things knocked and slid on
+ * its shelves, papers, a jar), a crate (heavier things shifted on rough boards, straw), a toolbox or a
+ * cabinet (`metal`: spanners clinking, screws rattling, the steel box ringing), clothes or a bag
+ * (`cloth`: fabric swishing, hangers clicking along their rail, a buckle), a shop's shelf (`card`:
+ * packets slid and crinkled, tins knocking, a box with something rattling in it). Seamless.
+ */
+function rummage(m: ContainerMaterial): Recipe {
+  return (sr, rng) => {
+    const len = 3.4;
+    const n = Math.floor(len * sr);
+    // (a move every third of a second or so, not at random: a search of 0.8 s started anywhere in the loop has two or three in it)
+    const busy = wander(rng, 8, 0.6, 1);
+    const moves = Math.round(len * 3);
+    const ev = tame(cyclic(sr, len, (x) => {
+      for (let k = 0; k < moves; k++) {
+        const t = ((k + 0.5 + rng.range(-0.22, 0.22)) * len) / moves;
+        const d = busy(t / len);
+        gestureInto(x, sr, t, d * rng.range(0.7, 1), m, rng);
+        if (rng.next() < 0.15) gestureInto(x, sr, t + rng.range(0.08, 0.15), 0.6 * d * rng.range(0.7, 1), m, rng);
+      }
+    }), 14);
+    const [bands, amount] = RUMMAGE_BED[m];
+    const bed = loopFilter(noise(n, rng), sr, bands);
+    const tex = wander(rng, Math.round(len * 18), 0.45, 1);
+    const [re, rb] = [rmsOf(ev), rmsOf(bed)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = ev[i] / re + (amount * bed[i] * busy(i / n) * tex(i / n)) / rb;
+    return normalize(settle(centre(loopFilter(out, sr, [['highpass', 50, 0.7], ['lowpass', 11000, 0.7]])), sr), RUMMAGE_PEAK[m]);
+  };
+}
+
+/** each container's opening and its empty knock: their peaks, so that they sit where they should against one another */
+const OPEN_PEAK: Record<ContainerMaterial, number> = { wood: 0.75, crate: 0.4, metal: 0.55, cloth: 0.25, card: 0.32 };
+const EMPTY_PEAK: Record<ContainerMaterial, number> = { wood: 0.53, crate: 0.5, metal: 0.39, cloth: 0.29, card: 0.55 };
+
+/**
+ * The start of a search (E pressed on a container), by what it is: a cupboard door's magnetic catch,
+ * the door swinging out on a small dry hinge, perhaps knocking the next one (`wood`); a crate's lid
+ * prised up, its nails squealing out of the wood, a crack, the lid set down against the side
+ * (`crate`); a toolbox's two clasps snapped and its lid falling back on its stay, or a steel drawer
+ * rolling out on its runners to its stop (`metal`, either); a bag's zip (`cloth`); the packets on a
+ * shop's shelf shuffled, a wrapper, a tin (`card`) (~0.4-0.9 s)
+ */
+function containerOpen(m: ContainerMaterial): Recipe {
+  return (sr, rng) => {
+    if (m === 'crate') {
+      const x = S(sr, 0.9);
+      // the first nail squealing out under the bar, the wood creaking with it
+      const f = rng.range(700, 1100);
+      squealInto(x, sr, 0, rng.range(0.14, 0.22), f, 0.35, rng, { bright: 0.65, waver: 0.04, glide: 0.35, grip: 0.6, jitter: 0.03 });
+      creakInto(x, sr, 0, 0.2, rng, 0.08, false);
+      // the board giving with a crack, the second nail
+      const c = rng.range(0.18, 0.24);
+      for (let k = 0, t = c; k < 6; k++, t += rng.range(0.002, 0.008)) burst(x, sr, Math.floor(t * sr), rng.range(0.002, 0.006), rng.range(0.3, 0.8) * (1 - k / 8), rng, { attack: 0.0001, decay: 0.001, filter: [['bandpass', rng.range(900, 3500), 1.2]] });
+      knockInto(x, sr, c, 0.5, rng, woodModes(rng.range(260, 420), 0.012), 1500);
+      squealInto(x, sr, c + rng.range(0.06, 0.1), rng.range(0.1, 0.16), f * rng.range(0.85, 1.15), 0.25, rng, { bright: 0.6, waver: 0.05, glide: 0.4, grip: 0.6, jitter: 0.03 });
+      // the lid lifted off and set down against the side: a heavy wooden knock, the loose lid rocking
+      const d = rng.range(0.6, 0.68);
+      thudInto(x, sr, d, rng, 0.6, rng.range(110, 150), 0.02);
+      knockInto(x, sr, d, 0.8, rng, woodModes(rng.range(170, 260), 0.02), 1200);
+      knockInto(x, sr, d + rng.range(0.05, 0.08), 0.25, rng, woodModes(rng.range(200, 300), 0.015), 1500);
+      return normalize(saturate(edges(x, sr, 0.5, 30), 1.2), OPEN_PEAK[m]);
+    }
+    if (m === 'metal') {
+      const x = S(sr, 0.55);
+      if (rng.next() < 0.5) {
+        // a toolbox: its two clasps snapped open, the lid swung up on a dry hinge and back against its stay
+        for (const t of [0, rng.range(0.06, 0.1)]) {
+          burst(x, sr, Math.floor(t * sr), 0.003, 0.4, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1500]] });
+          strike(x, sr, Math.floor(t * sr), [[rng.range(2300, 2900), 1, 0.01], [rng.range(3800, 4600), 0.5, 0.006], [rng.range(1300, 1700), 0.3, 0.03]], 0.5, rng);
+        }
+        creakInto(x, sr, 0.14, 0.15, rng, 0.02, false);
+        const s = rng.range(0.3, 0.38);
+        knockInto(x, sr, s, 0.7, rng, metalModes(rng.range(450, 750), 0.035), 3000);
+        strike(x, sr, Math.floor(s * sr), panelModes(0.55, 2.2), 0.12, rng);
+        thudInto(x, sr, s, rng, 0.2, 240, 0.012);
+      } else {
+        // a steel drawer rolling out on its ball runners to its stop, what is in it shifting
+        const d = rng.range(0.18, 0.28);
+        rubInto(x, sr, 0, d, 0.35, rng, 900, 4500, 0.95);
+        jingleInto(x, sr, 0, d, 0.15, 30, rng, 2500, 6000);
+        knockInto(x, sr, d, 0.8, rng, metalModes(rng.range(600, 950), 0.03), 2500);
+        strike(x, sr, Math.floor(d * sr), panelModes(0.6, 2.5), 0.15, rng);
+        for (let k = 0; k < 2 + Math.floor(rng.next() * 2); k++) knockInto(x, sr, d + rng.range(0.01, 0.08), 0.25, rng, metalModes(rng.range(1400, 2800), 0.02), 4000);
+      }
+      return normalize(edges(x, sr, 0.5, 30), OPEN_PEAK[m]);
+    }
+    if (m === 'cloth') {
+      // a bag's zip: the slider over the teeth, quickening then easing, the fabric pulled with it, the pull's tag at the end
+      const zl = rng.range(0.22, 0.38);
+      const x = S(sr, zl + 0.14);
+      for (let t = 0.01; t < zl; ) {
+        const u = t / zl;
+        burst(x, sr, Math.floor(t * sr), 0.0012, 0.35 * Math.sqrt(Math.sin(Math.PI * u)) * rng.range(0.6, 1), rng, { attack: 0.00005, decay: 0.00025, filter: [['bandpass', rng.range(2800, 5500), 2.5]] });
+        t += rng.range(0.85, 1.15) / (250 + 450 * Math.pow(Math.sin(Math.PI * u), 0.7));
+      }
+      rubInto(x, sr, 0, zl + 0.08, 0.25, rng, 250, 3000, 0.2);
+      knockInto(x, sr, zl + 0.01, 0.2, rng, [[rng.range(3000, 4200), 1, 0.006]], 6000);
+      return normalize(edges(x, sr, 0.5, 30), OPEN_PEAK[m]);
+    }
+    if (m === 'card') {
+      // the packets on the shelf shuffled: two or three slid and knocked, a wrapper crinkling, a tin touched
+      const x = S(sr, 0.42);
+      let t = 0;
+      for (let k = 0; k < 2 + Math.floor(rng.next() * 2); k++) {
+        const d = rng.range(0.08, 0.14);
+        rubInto(x, sr, t, d, 0.5, rng, 1200, 6000, 0.5);
+        knockInto(x, sr, t + d * 0.9, 0.35, rng, woodModes(rng.range(450, 800), 0.006), 2500);
+        t += rng.range(0.06, 0.1);
+      }
+      crackleInto(x, sr, rng.range(0.05, 0.15), rng.range(0.1, 0.18), 0.35, 2000, rng, 2500, 8000);
+      knockInto(x, sr, rng.range(0.1, 0.25), 0.3, rng, tinModes(rng.range(0.85, 1.2)), 4000);
+      return normalize(edges(x, sr, 0.5, 30), OPEN_PEAK[m]);
+    }
+    // a cupboard door: its magnetic catch letting go, the door swinging out on a small dry hinge (squeaking sometimes), the next door knocked now and then
+    const x = S(sr, 0.55);
+    knockInto(x, sr, 0, 0.5, rng, woodModes(rng.range(700, 1000), 0.006), 2500);
+    strike(x, sr, 0, [[rng.range(2800, 3600), 1, 0.004]], 0.2, rng);
+    thudInto(x, sr, 0.002, rng, 0.15, rng.range(260, 340), 0.01);
+    rubInto(x, sr, 0.02, rng.range(0.25, 0.35), 0.12, rng, 150, 700, 0.1);
+    creakInto(x, sr, rng.range(0.05, 0.09), rng.range(0.15, 0.22), rng, rng.range(0.02, 0.03), false);
+    if (rng.next() < 0.35) squealInto(x, sr, 0.06, rng.range(0.08, 0.15), rng.range(1100, 1700), 0.03, rng, { bright: 0.5, waver: 0.05, glide: 0.2, grip: 0.5 });
+    knockInto(x, sr, rng.range(0.3, 0.42), rng.range(0.18, 0.26), rng, woodModes(rng.range(350, 550), 0.01), 1800);
+    return normalize(edges(x, sr, 0.5, 30), OPEN_PEAK[m]);
+  };
+}
+
+/**
+ * Nothing in it: a short dry sound, by what it is. A knuckle's hollow knock on the bare drawer and the
+ * drawer pushed back shut (`wood`); two hollow knocks on the empty crate's bottom (`crate`); the empty
+ * steel box bonking, the drawer rolled back to its clack (`metal`); the empty bag patted flat
+ * (`cloth`); a palm on the bare shelf, a scuff (`card`) (~0.3-0.45 s)
+ */
+function containerEmpty(m: ContainerMaterial): Recipe {
+  return (sr, rng) => {
+    if (m === 'crate') {
+      const x = S(sr, 0.36);
+      for (const t of [0, rng.range(0.1, 0.14)]) {
+        knockInto(x, sr, t, t === 0 ? 0.8 : 0.6, rng, woodModes(rng.range(170, 260), 0.025), 900);
+        ring(x, sr, Math.floor(t * sr), rng.range(110, 150), 0.25, 0.035);
+      }
+      return normalize(edges(x, sr, 0.5, 30), EMPTY_PEAK[m]);
+    }
+    if (m === 'metal') {
+      const x = S(sr, 0.45);
+      knockInto(x, sr, 0, 0.6, rng, metalModes(rng.range(380, 620), 0.04), 1800);
+      strike(x, sr, 0, panelModes(0.5, 2), 0.2, rng);
+      const d = rng.range(0.13, 0.17);
+      rubInto(x, sr, d, 0.12, 0.25, rng, 900, 4500, 0.95);
+      knockInto(x, sr, d + 0.12, 0.5, rng, metalModes(rng.range(650, 900), 0.025), 2500);
+      return normalize(edges(x, sr, 0.5, 30), EMPTY_PEAK[m]);
+    }
+    if (m === 'cloth') {
+      const x = S(sr, 0.36);
+      thudInto(x, sr, 0, rng, 0.6, rng.range(180, 280), 0.012);
+      rubInto(x, sr, 0, 0.2, 0.4, rng, 250, 2500, 0.2);
+      thudInto(x, sr, rng.range(0.12, 0.18), rng, 0.4, rng.range(180, 280), 0.012);
+      return normalize(edges(x, sr, 0.5, 30), EMPTY_PEAK[m]);
+    }
+    if (m === 'card') {
+      const x = S(sr, 0.3);
+      const f = rng.range(380, 520);
+      knockInto(x, sr, 0, 0.6, rng, [[f, 1, 0.03], [f * 2.4, 0.5, 0.02], [f * 4.1, 0.25, 0.012]], 1000);
+      thudInto(x, sr, 0, rng, 0.3, 220, 0.01);
+      rubInto(x, sr, 0.04, 0.12, 0.2, rng, 1500, 6000, 0.5);
+      return normalize(edges(x, sr, 0.5, 30), EMPTY_PEAK[m]);
+    }
+    // a knuckle on the bare drawer (once or twice), its hollow, then the drawer pushed back shut
+    const x = S(sr, 0.45);
+    const raps = rng.next() < 0.5 ? [0] : [0, rng.range(0.08, 0.11)];
+    for (const t of raps) {
+      knockInto(x, sr, t, t === 0 ? 0.7 : 0.5, rng, woodModes(rng.range(240, 360), 0.018), 1200);
+      ring(x, sr, Math.floor(t * sr), rng.range(150, 210), 0.25, 0.03);
+    }
+    const p = raps[raps.length - 1] + rng.range(0.1, 0.13);
+    const d = rng.range(0.1, 0.15);
+    rubInto(x, sr, p, d, 0.25, rng, 400, 1800, 0.5);
+    thudInto(x, sr, p + d, rng, 0.35, 180, 0.012);
+    knockInto(x, sr, p + d, 0.35, rng, woodModes(rng.range(300, 450), 0.012), 1500);
+    return normalize(edges(x, sr, 0.5, 30), EMPTY_PEAK[m]);
+  };
+}
+
+/**
+ * A house's wooden door opened: the lever handle pressed down on its spring (a brass click), the
+ * latch drawn back in the lock, the door coming off its stop with a soft wooden knock, the air drawn
+ * after it, and the hinges: unoiled and squealing long, or dry and creaking, or hardly a sound (~1 s)
+ */
+function doorHouseOpen(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 1.05);
+    const hinge = rng.next();
+    strike(x, sr, 0, [[rng.range(1800, 2200), 1, 0.01], [rng.range(3000, 3500), 0.5, 0.007], [rng.range(4700, 5300), 0.25, 0.004]], 0.25, rng);
+    burst(x, sr, 0, 0.004, 0.25, rng, { attack: 0.0001, decay: 0.0007, filter: [['highpass', 1500]] });
+    const bolt = rng.range(0.03, 0.05);
+    latchInto(x, sr, bolt, rng, 0.35, true);
+    const off = bolt + rng.range(0.04, 0.07);
+    thudInto(x, sr, off, rng, 0.3, rng.range(160, 220), 0.012);
+    strike(x, sr, Math.floor(off * sr), woodModes(rng.range(150, 210), 0.025), 0.22, rng);
+    rubInto(x, sr, off, rng.range(0.4, 0.6), 0.1, rng, 80, 500, 0.05);
+    const h0 = off + rng.range(0.02, 0.06);
+    if (hinge < 0.3) squealInto(x, sr, h0, rng.range(0.4, 0.62), rng.range(520, 880), 0.1, rng, { bright: 0.7, waver: 0.06, glide: 0.3, grip: 0.55, jitter: 0.03 });
+    // (a creak is a sparse train of slips: it takes a good deal more amplitude than a squeal to be heard as well)
+    else if (hinge < 0.65) creakInto(x, sr, h0, rng.range(0.22, 0.38), rng, rng.range(0.12, 0.18), false);
+    else creakInto(x, sr, h0, 0.15, rng, 0.02, false);
+    return normalize(edges(x, sr, 0.5, 40), 0.6);
+  };
+}
+
+/** a house's wooden door pulled shut: the air pushed before it, the heavy thud of the door into its frame, the latch bolt snapping home, the door settling, its handle and the letterbox shivering (~0.8 s) */
+function doorHouseClose(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.8);
+    const hit = rng.range(0.05, 0.07);
+    rubInto(x, sr, 0, hit + 0.01, 0.15, rng, 60, 400, 0.05);
+    thudInto(x, sr, hit, rng, 1.0, rng.range(110, 150), 0.03);
+    burst(x, sr, Math.floor(hit * sr), 0.2, 0.45, rng, { attack: 0.002, decay: 0.04, filter: [['lowpass', 80]] });
+    strike(x, sr, Math.floor(hit * sr), woodModes(rng.range(95, 130), 0.045), 0.45, rng);
+    strike(x, sr, Math.floor(hit * sr), woodModes(rng.range(330, 470), 0.02), 0.2, rng);
+    latchInto(x, sr, hit + rng.range(0.004, 0.01), rng, 0.75, true);
+    rattleInto(x, sr, hit + 0.02, rng, 0.07, 5, 0.12, [900, 2400]);
+    return normalize(saturate(edges(x, sr, 0.5, 30), 1.3), 0.9);
+  };
+}
+
+/** the shop's little bell over the door: two small bells on a spring, B6 knocked by the opening door, then G6 as it swings back, soft and round (a slow strike, few overtones), bobbing a little after; the same every time, in G major with the chimes */
+function shopBellInto(x: Float32Array, sr: number, at: number, amp: number, rng: Rng): void {
+  const note = (t: number, f: number, a: number, beat: number): void => {
+    bellInto(x, sr, t, f, a, 0.42, beat, rng, 0.004, 0.25, 0);
+    bellInto(x, sr, t, f * 2, 0.22 * a, 0.16, beat * 1.6, rng, 0.003, 0.3, 0);
+    bellInto(x, sr, t, f * 3, 0.06 * a, 0.07, 0, rng, 0.003, 0.3, 0);
+  };
+  note(at, NOTE.B6, amp, 2.3);
+  note(at + 0.13, NOTE.G6, 0.85 * amp, 1.9);
+  note(at + 0.3, NOTE.B6, 0.22 * amp, 2.3);
+  note(at + 0.42, NOTE.G6, 0.12 * amp, 1.9);
+}
+
+/** the shop's bell, how loud against the door's clack under it */
+const SHOP_BELL = 0.12;
+
+/**
+ * A shop's glass-and-aluminium door pushed open: the push bar's hollow clack, the latch letting go,
+ * the glass shivering in its frame, the closer's arm stiffening with a soft hydraulic sigh, and the
+ * little bell over the door (two soft notes). The door is a little different every time, the bell the
+ * same (played at its own pitch and level, like the chimes) (~1.15 s)
+ */
+function doorShopOpen(): Recipe {
+  return (sr, rng) => {
+    const len = 1.15;
+    const x = S(sr, len);
+    const f = rng.range(850, 1150);
+    strike(x, sr, 0, [[f, 1, 0.014], [f * 2.76, 0.5, 0.009], [f * 5.4, 0.22, 0.005]], 0.4, rng);
+    burst(x, sr, 0, 0.003, 0.3, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1800]] });
+    latchInto(x, sr, rng.range(0.008, 0.014), rng, 0.3, false);
+    rattleInto(x, sr, 0.012, rng, 0.05, 4, 0.06, [2600, 5200]);
+    strike(x, sr, Math.floor(0.01 * sr), [[rng.range(2900, 3600), 1, 0.02], [rng.range(5000, 6200), 0.45, 0.012]], 0.04, rng);
+    const sigh = sweptBand(noise(Math.floor(0.35 * sr), rng), sr, (t) => 350 + 500 * t, 1.2);
+    for (let i = 0; i < sigh.length; i++) sigh[i] *= Math.pow(Math.sin((Math.PI * i) / sigh.length), 1.5);
+    mixInto(x, sigh, Math.floor(0.03 * sr), 0.05);
+    // (the door to its own peak, then the bell on it at a fixed level: every rendering's bell as loud)
+    normalize(x, 0.45);
+    shopBellInto(x, sr, rng.range(0.06, 0.09), SHOP_BELL, rng);
+    for (let i = Math.floor((len - 0.2) * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - (len - 0.2)) / 0.2);
+    return edges(x, sr, 0.5, 20);
+  };
+}
+
+/** the shop's door drawn shut by its closer: a soft hydraulic sigh as it comes round, the rubber seal meeting the frame (a padded thup), the aluminium frame knocked, the latch's light click, the glass shivering a moment (~0.7 s) */
+function doorShopClose(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.7);
+    const hit = rng.range(0.14, 0.18);
+    const sigh = sweptBand(noise(Math.floor((hit + 0.02) * sr), rng), sr, (t) => 800 - 1800 * t, 1.2);
+    for (let i = 0; i < sigh.length; i++) sigh[i] *= Math.pow(Math.sin((Math.PI * i) / sigh.length), 1.2);
+    mixInto(x, sigh, 0, 0.08);
+    thudInto(x, sr, hit, rng, 0.9, rng.range(150, 210), 0.018);
+    const f = rng.range(520, 680);
+    strike(x, sr, Math.floor(hit * sr), [[f, 1, 0.025], [f * 2.31, 0.5, 0.016], [f * 4.2, 0.25, 0.009]], 0.3, rng);
+    latchInto(x, sr, hit + rng.range(0.004, 0.009), rng, 0.4, false);
+    rattleInto(x, sr, hit + 0.008, rng, 0.06, 5, 0.09, [2500, 5500]);
+    strike(x, sr, Math.floor((hit + 0.004) * sr), [[rng.range(3000, 3800), 1, 0.025], [rng.range(5200, 6400), 0.45, 0.015]], 0.05, rng);
+    return normalize(saturate(edges(x, sr, 0.5, 30), 1.2), 0.85);
+  };
+}
+
+/** a pump's nozzle lifted off its hook: its alloy body knocked off the holster, the switch lever under it flipping up to its stop (the pump on), the hose dragged after it (~0.38 s) */
+function pumpLift(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.38);
+    knockInto(x, sr, 0, 0.55, rng, metalModes(rng.range(750, 1050), 0.02), 3500);
+    const up = rng.range(0.035, 0.06);
+    burst(x, sr, Math.floor(up * sr), 0.003, 0.45, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1500]] });
+    strike(x, sr, Math.floor(up * sr), [[rng.range(2300, 2800), 1, 0.008], [rng.range(3800, 4400), 0.5, 0.005]], 0.45, rng);
+    strike(x, sr, Math.floor((up + rng.range(0.008, 0.012)) * sr), [[rng.range(1200, 1500), 1, 0.012], [rng.range(2000, 2400), 0.4, 0.008]], 0.3, rng);
+    rubInto(x, sr, 0.02, rng.range(0.2, 0.3), 0.18, rng, 120, 900, 0.3);
+    return normalize(edges(x, sr, 0.5, 30), 0.55);
+  };
+}
+
+/** the nozzle hung back: dropped into its holster with a clunk (the dispenser's panel ringing a moment), the switch lever pushed down (the pump off), the hose swinging against the dispenser (~0.48 s) */
+function pumpHang(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.48);
+    thudInto(x, sr, 0, rng, 0.55, rng.range(230, 290), 0.014);
+    knockInto(x, sr, 0, 0.6, rng, metalModes(rng.range(480, 720), 0.03), 2500);
+    strike(x, sr, 0, panelModes(0.85, 3), 0.08, rng);
+    const down = rng.range(0.02, 0.04);
+    burst(x, sr, Math.floor(down * sr), 0.003, 0.4, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1500]] });
+    strike(x, sr, Math.floor(down * sr), [[rng.range(1700, 2000), 1, 0.01], [rng.range(2900, 3300), 0.5, 0.007]], 0.4, rng);
+    const sw = rng.range(0.2, 0.3);
+    thudInto(x, sr, sw, rng, 0.18, rng.range(150, 200), 0.012);
+    rubInto(x, sr, sw - 0.02, 0.1, 0.08, rng, 120, 800, 0.3);
+    return normalize(edges(x, sr, 0.5, 30), 0.7);
+  };
+}
+
+/** the nozzle's automatic shut-off as the tank or the can is full: the trigger snapping free with a hard click, the lever hitting its guard, the flow cut with a last spit (~0.22 s) */
+function pumpClick(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.22);
+    burst(x, sr, 0, 0.003, 0.7, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1600]] });
+    strike(x, sr, 0, [[rng.range(2700, 3200), 1, 0.008], [rng.range(4300, 5000), 0.55, 0.005], [rng.range(1500, 1800), 0.4, 0.012]], 0.6, rng);
+    const g = Math.floor(rng.range(0.006, 0.01) * sr);
+    strike(x, sr, g, [[rng.range(900, 1100), 1, 0.015], [rng.range(1700, 2000), 0.5, 0.01]], 0.35, rng);
+    thudInto(x, sr, g / sr, rng, 0.25, 320, 0.008);
+    burst(x, sr, Math.floor(0.012 * sr), 0.05, 0.12, rng, { attack: 0.002, decay: 0.012, filter: [['bandpass', rng.range(900, 1800), 1.2]] });
+    plipInto(x, sr, rng.range(0.02, 0.035), rng.range(700, 1100), 0.1, 0.006, -0.3);
+    return normalize(edges(x, sr, 0.3, 20), 0.5);
+  };
+}
+
+/**
+ * An old pump running: its induction motor humming in the dispenser (the mains hum, the vane pump's
+ * pulses six a turn of its 24 Hz rotor, a bearing's whine), the meter's counter wheels whirring with a
+ * tick each tenth of a litre, and the fuel rushing through the hose and the nozzle, gurgling into the
+ * filler neck. Seamless (whole cycles of every tone in the loop).
+ */
+function pumpRun(): Recipe {
+  return (sr, rng) => {
+    const len = 2.6;
+    const n = Math.floor(len * sr);
+    const rot = snapHz(24.2, n, sr);
+    const motor = new Float32Array(n);
+    for (const [f, a] of [[100, 1], [200, 0.45], [300, 0.22], [400, 0.1], [50, 0.12]] as const) toneInto(motor, sr, snapHz(f, n, sr), a, rng, n);
+    const pulse = (i: number): number => 0.65 + 0.35 * Math.sin((2 * Math.PI * rot * i) / sr);
+    for (const [h, a] of [[6, 0.8], [12, 0.35], [18, 0.15]] as const) toneInto(motor, sr, rot * h, a, rng, n, pulse);
+    const whine = wander(rng, 6, 0.5, 1);
+    toneInto(motor, sr, snapHz(1180, n, sr), 0.06, rng, n, (i) => whine(i / n));
+    const ticks = Math.round(len / 0.16);
+    const meter = cyclic(sr, len, (y) => {
+      for (let k = 0; k < ticks; k++) strike(y, sr, Math.floor(((k * len) / ticks) * sr), [[rng.range(1700, 2100), 1, 0.004], [rng.range(3200, 3700), 0.4, 0.003]], rng.range(0.7, 1), rng, 0.02);
+    });
+    const whirr = loopFilter(noise(n, rng), sr, [['bandpass', 700, 4]]);
+    const rush = loopFilter(noise(n, rng), sr, [['bandpass', 750, 0.5], ['peaking', 2200, 1, 4], ['lowpass', 5000, 0.7]]);
+    const flutter = wander(rng, Math.round(len * 22), 0.7, 1);
+    const glugs = cyclic(sr, len, (y) => scatter(rng, len, 10, () => 1, (t) => plipInto(y, sr, t, rng.range(500, 1300), powerLaw(rng, 0.3, 1.8), rng.range(0.004, 0.009), -rng.range(0.15, 0.45))));
+    const [rm, rt, rw, rr, rg] = [rmsOf(motor), rmsOf(meter), rmsOf(whirr), rmsOf(rush), rmsOf(glugs)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = (0.55 * motor[i]) / rm + (0.08 * meter[i]) / rt + (0.06 * whirr[i]) / rw + (0.6 * rush[i] * flutter(i / n)) / rr + (0.25 * glugs[i]) / rg;
+    // (to its rms, not its peak: where the motor's steady partials happen to peak together is luck, and with it the level)
+    const y = settle(centre(loopFilter(out, sr, [['lowpass', 9000, 0.7]])), sr);
+    const k = 0.1 / rmsOf(y);
+    for (let i = 0; i < n; i++) y[i] *= k;
+    return y;
+  };
+}
+
+/**
+ * The pump running dry: the motor labouring and hunting as it draws air, its vanes knocking unevenly,
+ * fuel and air spluttering through the hose, a gurgle as the last of it goes; then the motor cut out by
+ * its relay (a click), the hum gone at once, the rotor winding down (~1.6 s)
+ */
+function pumpDry(): Recipe {
+  return (sr, rng) => {
+    const len = 1.6;
+    const x = S(sr, len);
+    const cut = rng.range(0.9, 1.0);
+    const hunt = wander(rng, 12, 0.94, 1.04);
+    const env = (t: number): number => (t < cut ? Math.min(1, t / 0.02) * (0.8 + 0.3 * (t / cut)) : Math.exp(-(t - cut) / 0.02));
+    humInto(x, sr, 0, len, (t) => 0.1 * env(t), rng, (t) => hunt(t / len));
+    const rough = wander(rng, 30, 0.4, 1);
+    let ph = 0;
+    for (let i = 0; i < x.length; i++) {
+      const t = i / sr;
+      const spin = t < cut ? hunt(t / len) : hunt(cut / len) * Math.exp(-(t - cut) / 0.3);
+      ph += (2 * Math.PI * 24.2 * spin) / sr;
+      const amp = (t < cut ? 0.12 * (0.6 + 0.4 * rough(t / len)) : 0.12 * Math.exp(-(t - cut) / 0.25)) * Math.min(1, t / 0.02);
+      x[i] += amp * (Math.sin(6 * ph) + 0.4 * Math.sin(12 * ph)) * (0.65 + 0.35 * Math.sin(ph));
+    }
+    for (let t = 0.04; t < cut - 0.05; t += rng.range(0.04, 0.14)) burst(x, sr, Math.floor(t * sr), rng.range(0.02, 0.06), rng.range(0.25, 0.6), rng, { attack: 0.002, decay: 0.012, filter: [['bandpass', rng.range(600, 1800), 1]] });
+    for (let k = 0; k < 8 + Math.floor(rng.next() * 5); k++) plipInto(x, sr, rng.range(0.35, cut - 0.03), rng.range(280, 800), rng.range(0.25, 0.6), rng.range(0.008, 0.016), rng.range(0.25, 0.5));
+    strike(x, sr, Math.floor(cut * sr), [[rng.range(2100, 2500), 1, 0.006], [rng.range(3600, 4100), 0.5, 0.004]], 0.35, rng);
+    burst(x, sr, Math.floor(cut * sr), 0.003, 0.25, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1500]] });
+    return normalize(saturate(edges(x, sr, 0.5, 40), 1.3), 0.6);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -2634,6 +3229,10 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   // tyres and wrecks (the blowout a little under the crash, far over a door; the wreck forced open a little under a
   // door; the find a little over paint_done, a golden one over the ding, under the fanfare)
   tyre_burst: 0.89, wreck_creak: 0.35, loot_reveal: 0.36,
+  // roadside places (a container opened about as loud as a car door opened, its search under it like the sponge; a
+  // house door a little under a car door, the shop's bell gentle; the pump's click like a latch, its run under an idle)
+  container_open: 0.5, container_empty: 0.5, door_house_open: 0.29, door_house_close: 0.8, door_shop_open: 0.5, door_shop_close: 0.69,
+  pump_lift: 0.42, pump_hang: 0.45, pump_click: 0.4, pump_dry: 0.114,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
@@ -2644,6 +3243,8 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
   spray_hiss: 0.27,
   // (the flap about as loud as the scrapes at gain 1, the bare rim louder, the glint very faint)
   flat_flap: 0.56, rim_grind: 0.56, rare_glint: 0.085,
+  // (the search about as loud as the scrapes and the sponge at gain 1, the pump at full flow under an engine's idle)
+  rummage: 0.4, pump_run: 0.116,
 };
 
 /**
@@ -2651,10 +3252,20 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
  * after another, the counter, strokes begun, bits falling); one of a tune (the chimes that are the same
  * every time; the ding has a few, only its glint different)
  */
-const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1, loot_reveal: 1 };
+const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1, loot_reveal: 1, container_open: 4, door_house_open: 4 };
 
 /** the chimes are tuned: they play at their own pitch and level every time (detuned by a percent or so they would be out of tune with one another, and with themselves) */
-const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done', 'loot_reveal']);
+const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done', 'loot_reveal', 'door_shop_open']);
+
+/** the sounds of a container searched: their material is a container's, always in their key (none is a wooden cupboard's) */
+const CONTAINER_KINDS: ReadonlySet<string> = new Set<FoleyShot | FoleyLoop>(['rummage', 'container_open', 'container_empty']);
+
+const PANELS: readonly string[] = ['metal', 'rusty', 'armor', 'cage', 'fridge'];
+
+/** a door's material from FoleyOpts.material: a panel's, else (a container's, or none) the stock steel door's */
+function panelOf(m: FoleyOpts['material']): PanelMaterial {
+  return m !== undefined && PANELS.includes(m) ? (m as PanelMaterial) : 'metal';
+}
 
 /** loot_reveal's tier as a whole 1..5 (3 for anything that is not a number) */
 function tierOf(t: number | undefined): number {
@@ -2668,7 +3279,7 @@ function massClass(m: number): number {
 
 /** the recipe for a sound and its options (exported for tests and the render harness) */
 export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
-  const mat = o.material ?? 'metal';
+  const mat = panelOf(o.material);
   const mass = massClass(o.mass ?? 5);
   switch (kind) {
     case 'door_open': return doorOpen(mat);
@@ -2726,6 +3337,16 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'tyre_burst': return tyreBurst();
     case 'wreck_creak': return wreckCreak();
     case 'loot_reveal': return lootReveal(tierOf(o.tier));
+    case 'container_open': return containerOpen(containerOf(o.material));
+    case 'container_empty': return containerEmpty(containerOf(o.material));
+    case 'door_house_open': return doorHouseOpen();
+    case 'door_house_close': return doorHouseClose();
+    case 'door_shop_open': return doorShopOpen();
+    case 'door_shop_close': return doorShopClose();
+    case 'pump_lift': return pumpLift();
+    case 'pump_hang': return pumpHang();
+    case 'pump_click': return pumpClick();
+    case 'pump_dry': return pumpDry();
     case 'recycler_run': return recyclerRun();
     case 'recycler_grind': return recyclerGrind();
     case 'lamp_buzz': return lampBuzz();
@@ -2739,6 +3360,8 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'flat_flap': return flatFlap();
     case 'rim_grind': return rimGrind();
     case 'rare_glint': return rareGlint();
+    case 'rummage': return rummage(containerOf(o.material));
+    case 'pump_run': return pumpRun();
     case 'glug': return glugLoop();
     case 'breath': return breathLoop();
     case 'heart': return heartLoop();
@@ -2798,8 +3421,9 @@ export class Foley {
   private key(kind: string, o: FoleyOpts): string {
     // (the grind only when given: the other sounds keep their keys, and with them their seeds; the surface
     // likewise, and only for the blade's catch (the tier only for the find's sting, always: no tier is the middle one): each scrub loop is a kind of its own whatever it is given;
-    // the gain and the rate are how it is played, never another rendering)
-    return `${kind}|${o.material ?? ''}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}`;
+    // the gain and the rate are how it is played, never another rendering; a container's material always, resolved:
+    // none is a wooden cupboard's)
+    return `${kind}|${CONTAINER_KINDS.has(kind) ? containerOf(o.material) : (o.material ?? '')}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}`;
   }
 
   /** how many renderings of a one-shot to keep (a tune is the same every time: one is enough) */
