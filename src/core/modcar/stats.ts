@@ -27,6 +27,12 @@ export interface Perf {
   handling: number;
   /** peak power (kW) */
   power: number;
+  /** metres to stop from 100 km/h on asphalt (null: no brakes) */
+  stop: number | null;
+  /** the body's lowest point above the ground at rest (m) */
+  clear: number;
+  /** body roll in a corner (° per g of cornering) */
+  roll: number;
   /** why it cannot drive at all (then t100, vmax and fuel mean nothing) */
   why?: 'engine' | 'gearbox' | 'wheels' | 'other';
 }
@@ -78,9 +84,21 @@ export function quickPerf(d: Derived, canDrive = true): Perf {
   const tip = Math.max(0, s.cgHeight / track - 0.42);
   const handling = Math.max(0, Math.min(100, 100 * Math.pow(grip, 0.6) * Math.pow(rate / 1.9, 0.25) * Math.pow(1300 / M, 0.15) / (1 + 2.2 * tip) * (d.frame.balance ? 1.05 : 1)));
   const power = d.peakKw;
+  // stopping: the brakes or the tyres, whichever gives first
+  const brakeG = Math.min(s.brakes.maxG, s.tire.muLong * 0.95 * ((s.front.muScale + s.rear.muScale) / 2) * ((wAsph(0) + wAsph(1) + wAsph(2) + wAsph(3)) / 4));
+  const stop = brakeG > 0.02 ? (100 / 3.6) ** 2 / (2 * brakeG * G) : null;
+  const clear = s.cgHeight + s.body.bottom;
+  // roll: the weight's moment over the springs' and bars' roll stiffness (a motorcycle leans instead)
+  const corner = (share: number, a: typeof s.front): number => {
+    const m = (M * share) / 2;
+    const k = m * (2 * Math.PI * a.springHz) ** 2;
+    return k * (a.track * a.track) * 0.5 * (1 + a.antiRollRatio);
+  };
+  const kRoll = corner(wf, s.front) + corner(1 - wf, s.rear);
+  const roll = d.frame.balance || kRoll <= 0 ? 0 : ((M * G * Math.max(0.1, s.cgHeight - 0.1)) / kRoll) * (180 / Math.PI);
   if (!canDrive || traction <= 0 || power <= 0 || !d.gearbox) {
     const why = power <= 0 ? 'engine' : !d.gearbox ? 'gearbox' : traction <= 0 ? 'wheels' : 'other';
-    return { t100: null, vmax: 0, fuel: 0, mass: M, grip, handling, power, why };
+    return { t100: null, vmax: 0, fuel: 0, mass: M, grip, handling, power, why, stop, clear, roll };
   }
 
   const k = (60 / (2 * Math.PI)) * gb.final;
@@ -114,11 +132,11 @@ export function quickPerf(d: Derived, canDrive = true): Perf {
   const pKw = vf > 0 ? ((0.5 * RHO * cdA * vf * vf + rrN) * vf) / eff / 1000 : 0;
   const lph = pKw * (s.fuel?.lPerKWh ?? 1.5) + (s.fuel?.idleLph ?? 0);
   const fuel = vf > 0 ? lph / (vf * 3.6) * 100 : 0;
-  return { t100, vmax, fuel, mass: M, grip, handling, power };
+  return { t100, vmax, fuel, mass: M, grip, handling, power, stop, clear, roll };
 }
 
 export interface StatLine {
-  key: 'accel' | 'top' | 'fuel' | 'mass' | 'grip' | 'handling' | 'drive';
+  key: 'accel' | 'top' | 'fuel' | 'mass' | 'grip' | 'handling' | 'brake' | 'clear' | 'roll' | 'drive';
   label: { zh: string; en: string };
   /** the value as shown (a number with its unit, or what is missing) */
   before: string | { zh: string; en: string };
@@ -153,6 +171,10 @@ export function compare(before: Perf, after: Perf): StatLine[] {
     line('mass', '重量', 'Weight', before.mass, after.mass, 0, ' kg', false),
     line('grip', '抓地', 'Grip', before.grip, after.grip, 2, ' g', true),
     line('handling', '操控', 'Handling', before.handling, after.handling, 0, '', true),
+    line('brake', '百公里刹停', 'Stopping from 100', before.stop, after.stop, 0, ' m', false),
+    line('clear', '离地间隙', 'Ground clearance', before.clear * 100, after.clear * 100, 0, ' cm', true),
+    // (a motorcycle leans: no roll to show)
+    ...(before.roll > 0 || after.roll > 0 ? [line('roll', '侧倾', 'Body roll', before.roll, after.roll, 1, '°/g', false)] : []),
   ];
   // neither way can it drive: say once what it lacks instead of three empty lines
   if (before.why && after.why) return [{ key: 'drive', label: { zh: '还开不动', en: "Won't drive" }, before: WHY[after.why], after: WHY[after.why], better: 0, change: NaN, note: true }, ...rest];

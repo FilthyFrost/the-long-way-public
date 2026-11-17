@@ -17,7 +17,7 @@ import { PARTS, partDef } from '../../../src/core/modcar/parts';
 import type { Build, PartDef } from '../../../src/core/modcar/types';
 import { VehicleSim, type VehicleInput } from '../../../src/core/vehicle/sim';
 import type { VehicleSpec } from '../../../src/core/vehicle/spec';
-import { FlatGround } from '../../../src/core/world/ground';
+import { FlatGround, GroundSample, Surface, SURFACES, type Ground } from '../../../src/core/world/ground';
 import { derivedMods } from './derived_feel';
 import { measureFeel, spawn, type FeelSetup, type ModcarFeel } from './feel';
 
@@ -82,6 +82,42 @@ export function handbrakeTurn(spec: VehicleSpec, setup?: FeelSetup): number {
   return beta;
 }
 
+/** the left wheels on ice, the right ones on asphalt: a car pulling out of a frozen verge */
+class SplitGround implements Ground {
+  sample(_x: number, z: number, out: GroundSample): void {
+    out.h = 0;
+    out.nx = 0;
+    out.ny = 1;
+    out.nz = 0;
+    const s = z < 0 ? Surface.Ice : Surface.Asphalt;
+    out.surface = s;
+    out.mu = SURFACES[s].mu;
+    out.rr = SURFACES[s].rr;
+  }
+}
+
+/**
+ * Full throttle from rest with the left wheels on ice and the right ones on asphalt, steered to keep straight
+ * along the line between them: the time to 30 km/h (s; NaN: not within 20 s). What a differential is for.
+ */
+export function splitLaunch(spec: VehicleSpec, setup?: FeelSetup): number {
+  const g = new SplitGround();
+  const v = spawn(spec, setup, g);
+  v.autoReverse = false;
+  const inp: VehicleInput = { steer: 0, throttle: 1, brake: 0, handbrake: 0 };
+  const b = new Float64Array(9);
+  const t0 = v.time;
+  while (v.time - t0 < 20) {
+    v.basis(b);
+    // (the heading off +x, and how far the car has wandered off the line: steer back onto it)
+    const head = Math.atan2(b[2], b[0]);
+    inp.steer = Math.max(-1, Math.min(1, -(2.5 * head + 0.8 * v.pz)));
+    v.substep(inp, g);
+    if (v.vForward >= 30 * KMH) return v.time - t0;
+  }
+  return NaN;
+}
+
 /** the figures read off the build without driving it: what a part is, not how it drives */
 export interface SpecFigures {
   /** the drive cut at each gear change (s) */
@@ -121,6 +157,7 @@ export interface Figures extends ModcarFeel, SpecFigures {
   steerYaw: number;
   hbSlip: number;
   t60to100: number;
+  splitS: number;
 }
 
 export function specFiguresOf(b: Build): SpecFigures {
@@ -169,7 +206,7 @@ export function figuresOf(b: Build): Figures {
   const setup = { mods: derivedMods(d) };
   const f = measureFeel(spec, setup);
   const s = stepSteer(spec, setup);
-  return { ...f, ...specFiguresOf(b), steerT63: s.t63, steerYaw: s.yaw, hbSlip: handbrakeTurn(spec, setup), t60to100: f.t0to100 - f.t0to60 };
+  return { ...f, ...specFiguresOf(b), steerT63: s.t63, steerYaw: s.yaw, hbSlip: handbrakeTurn(spec, setup), t60to100: f.t0to100 - f.t0to60, splitS: splitLaunch(spec, setup) };
 }
 
 export const FIGURES: { key: keyof Figures; zh: string; higher: boolean }[] = [
@@ -185,6 +222,7 @@ export const FIGURES: { key: keyof Figures; zh: string; higher: boolean }[] = [
   { key: 'steerT63', zh: '转向响应', higher: false },
   { key: 'steerYaw', zh: '转向增益', higher: true },
   { key: 'hbSlip', zh: '手刹甩尾', higher: true },
+  { key: 'splitS', zh: '单边冰起步', higher: false },
   { key: 'shiftS', zh: '换挡', higher: false },
   { key: 'eyeY', zh: '坐姿', higher: true },
   { key: 'comfort', zh: '舒适', higher: true },
@@ -209,7 +247,7 @@ export const FIGURES: { key: keyof Figures; zh: string; higher: boolean }[] = [
 ];
 
 /** the categories whose parts are judged by how the build drives (the rest by what they are: spec figures only) */
-export const DRIVEN_CATS: ReadonlySet<string> = new Set(['engine', 'gearbox', 'exhaust', 'turbo', 'rim', 'tire', 'steering', 'handbrake']);
+export const DRIVEN_CATS: ReadonlySet<string> = new Set(['engine', 'gearbox', 'exhaust', 'turbo', 'rim', 'tire', 'steering', 'handbrake', 'suspension', 'brakes', 'diff']);
 
 /** the categories that need not change a figure: they are what they do (a radio plays, a horn sounds, a key starts it) */
 export const EXEMPT_CATS: ReadonlySet<string> = new Set(['radio', 'horn', 'ignition', 'taillight', 'mirror']);

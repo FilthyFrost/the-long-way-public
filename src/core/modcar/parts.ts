@@ -323,6 +323,25 @@ const WHEELS: PartDef[] = [
   P({ id: 'tire_truck', cat: 'tire', name: { zh: '卡车胎', en: 'Truck tyre' }, mass: 16, carry: 'medium', tags: ['stock:rv'], tire: { sidewall: 0.14, width: 0.215, grip: [0.97, 1.0, 1.0, 0.95, 0.9, 0.92, 0.9], rr: 1.02, life: 60, roughWear: 1.0, noise: 1.2 } }),
 ];
 
+// ------------------------------------------------------------------ the axles (docs/MODCAR.md §22)
+
+// (a set for an axle: both its struts, both its brakes; the weight is the pair's)
+const AXLES: PartDef[] = [
+  P({ id: 'susp_stock', cat: 'suspension', name: { zh: '原厂悬挂', en: 'Stock suspension' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], suspension: { spring: 1, damping: 1, travel: 1, antiRoll: 1, lift: 0 } }),
+  P({ id: 'susp_soft', cat: 'suspension', name: { zh: '软悬挂', en: 'Soft suspension' }, mass: 15, carry: 'medium', suspension: { spring: 0.7, damping: 0.7, travel: 1.1, antiRoll: 0.55, lift: -0.02 } }),
+  P({ id: 'susp_sport', cat: 'suspension', name: { zh: '运动悬挂', en: 'Sport suspension' }, mass: 14, carry: 'medium', suspension: { spring: 1.7, damping: 1.55, travel: 0.75, antiRoll: 2.0, lift: -0.045 } }),
+  P({ id: 'susp_lift', cat: 'suspension', name: { zh: '越野加高悬挂', en: 'Lift kit' }, mass: 21, carry: 'medium', suspension: { spring: 1.1, damping: 1.25, travel: 1.6, antiRoll: 0.8, lift: 0.1 } }),
+  P({ id: 'susp_leaf', cat: 'suspension', name: { zh: '加强钢板弹簧', en: 'Heavy-duty leaf springs' }, mass: 30, carry: 'large', suspension: { spring: 1.8, damping: 1.2, travel: 0.95, antiRoll: 1.3, lift: 0.03 } }),
+  P({ id: 'brakes_drum', cat: 'brakes', name: { zh: '鼓刹', en: 'Drum brakes' }, mass: 16, carry: 'medium', brakes: { kind: 'drum', power: 0.72 } }),
+  P({ id: 'brakes_disc', cat: 'brakes', name: { zh: '盘刹', en: 'Disc brakes' }, mass: 14, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], brakes: { kind: 'disc', power: 1 } }),
+  P({ id: 'brakes_vented', cat: 'brakes', name: { zh: '通风盘刹', en: 'Vented disc brakes' }, mass: 16, carry: 'medium', brakes: { kind: 'vented', power: 1.26 } }),
+  P({ id: 'brakes_sport', cat: 'brakes', name: { zh: '运动刹车', en: 'Sport brakes' }, mass: 15, carry: 'medium', brakes: { kind: 'drilled', power: 1.42 } }),
+  P({ id: 'brakes_moto', cat: 'brakes', name: { zh: '摩托碟刹', en: 'Motorcycle disc brake' }, mass: 3, carry: 'small', tags: ['stock:moto'], brakes: { kind: 'disc', power: 1 } }),
+  P({ id: 'diff_open', cat: 'diff', name: { zh: '开放式差速器', en: 'Open differential' }, mass: 28, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv'], diff: { kind: 'open', bias: 1.25 } }),
+  P({ id: 'diff_lsd', cat: 'diff', name: { zh: '限滑差速器', en: 'Limited-slip differential' }, mass: 30, carry: 'medium', diff: { kind: 'lsd', bias: 2.8 } }),
+  P({ id: 'diff_locked', cat: 'diff', name: { zh: '锁止差速器', en: 'Locked differential' }, mass: 31, carry: 'medium', diff: { kind: 'locked', bias: 0 } }),
+];
+
 // ------------------------------------------------------------------ the cab
 
 const CAB: PartDef[] = [
@@ -388,7 +407,7 @@ const BODY: PartDef[] = [
   P({ id: 'arm_planks', cat: 'armor', name: { zh: '木板装甲', en: 'Plank armour' }, mass: 25, carry: 'large', stretch: true, tags: ['apoc'], armor: { armor: 0.3, drag: 0.03 } }),
 ];
 
-export const PARTS: readonly PartDef[] = [...ENGINES, ...DRIVETRAIN, ...WHEELS, ...CAB, ...BODY];
+export const PARTS: readonly PartDef[] = [...ENGINES, ...DRIVETRAIN, ...WHEELS, ...AXLES, ...CAB, ...BODY];
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]));
 

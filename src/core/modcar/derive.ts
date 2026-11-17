@@ -8,16 +8,16 @@
 import { RIM_GRIP, RIM_RR } from '../vehicle/mods';
 import { rescaleSuspension, type SuspensionRef } from '../vehicle/rescale';
 import { NO_ENGINE, type AxleSpec, type VehicleSpec } from '../vehicle/spec';
-import { stockBuild, stockTireFor } from './build';
+import { AXLE_CATS, stockBuild, stockTireFor } from './build';
 import { frameDef, hubsOf } from './frames';
 import { midHeight, partGeo } from './geo';
 import { partDef } from './parts';
-import type { Build, FrameDef, MountDef, PartDef, PartInstance, V3 } from './types';
+import type { Build, Category, FrameDef, MountDef, PartDef, PartInstance, SuspensionStats, V3 } from './types';
 
 const G = 9.81;
 export const DRIVER_KG = 75;
 export const SURFACE_N = 7;
-const FUEL_KG_PER_L: Record<string, number> = { petrol: 0.74, diesel: 0.84, mix2t: 0.75 };
+export const FUEL_KG_PER_L: Record<string, number> = { petrol: 0.74, diesel: 0.84, mix2t: 0.75 };
 /** a flat tyre keeps this share of its sidewall */
 const FLAT_SIDEWALL = 0.45;
 /** extra drag area for each panel missing on an enclosed body (m²) */
@@ -88,6 +88,7 @@ interface Mass {
 
 /** how high above its mount point a part's own mass sits (m), by category */
 const CG_UP: Partial<Record<PartDef['cat'], number>> = {
+  suspension: 0.15,
   engine: 0.3,
   gearbox: 0.12,
   radiator: 0.25,
@@ -113,17 +114,77 @@ function fuelKg(inst: PartInstance): number {
 }
 
 /** every mass in the vehicle with where it sits (frame model space): frame, parts, fluids and the driver */
+/** a part's mass where it sits on its mount (an axle's set: half at each end) */
+function partMasses(m: MountDef, inst: PartInstance, out: Mass[]): void {
+  const p = partDef(inst.part);
+  let kg = p.mass + fuelKg(inst) + (inst.fluids.oilL ?? 0) * 0.9 + (inst.fluids.coolantL ?? 0);
+  for (const si of Object.values(inst.sub)) kg += partDef(si.part).mass;
+  // the model's bounds say where its mass sits; without a model, a rule of thumb per category
+  const up = midHeight(p.id) ?? CG_UP[p.cat] ?? 0;
+  if (m.pair !== undefined) {
+    out.push({ m: kg / 2, p: { x: m.pos.x, y: m.pos.y + up, z: m.pos.z - m.pair } });
+    out.push({ m: kg / 2, p: { x: m.pos.x, y: m.pos.y + up, z: m.pos.z + m.pair } });
+  } else out.push({ m: kg, p: { x: m.pos.x, y: m.pos.y + up, z: m.pos.z } });
+}
+
+/** the bare frame: its own mass, centre and inertia without the axles' factory parts */
+interface Bare {
+  mass: number;
+  cg: V3;
+  inertia: { roll: number; yaw: number; pitch: number };
+}
+const bareCache = new Map<string, Bare>();
+
+/**
+ * The frames were weighed with their factory suspension, brakes and differential on them (docs/MODCAR.md §22).
+ * These are parts now, so the bare frame is what is left: its weight less theirs, its centre and its own inertia
+ * moved to match — and a factory build weighs, balances and turns as it did.
+ */
+function bareOf(frame: FrameDef): Bare {
+  let b = bareCache.get(frame.id);
+  if (b) return b;
+  const pts: Mass[] = [];
+  const stock = stockBuild(frame.id);
+  for (const m of frame.mounts) {
+    const inst = stock.parts[m.id];
+    if (inst && AXLE_CATS.has(m.cat)) partMasses(m, inst, pts);
+  }
+  const mA = pts.reduce((a, p) => a + p.m, 0);
+  if (mA <= 0) b = { mass: frame.mass, cg: frame.cg, inertia: frame.inertia };
+  else {
+    const c = frame.cg;
+    const mf = frame.mass - mA;
+    const cg = {
+      x: (frame.mass * c.x - pts.reduce((a, p) => a + p.m * p.p.x, 0)) / mf,
+      y: (frame.mass * c.y - pts.reduce((a, p) => a + p.m * p.p.y, 0)) / mf,
+      z: (frame.mass * c.z - pts.reduce((a, p) => a + p.m * p.p.z, 0)) / mf,
+    };
+    // (what the split gives the second moment about where the frame's mass was: the frame's own inertia gives it up)
+    let roll = 0;
+    let yaw = 0;
+    let pitch = 0;
+    const add = (m: number, p: V3): void => {
+      const dx = p.x - c.x;
+      const dy = p.y - c.y;
+      const dz = p.z - c.z;
+      roll += m * (dy * dy + dz * dz);
+      yaw += m * (dx * dx + dz * dz);
+      pitch += m * (dx * dx + dy * dy);
+    };
+    add(mf, cg);
+    for (const p of pts) add(p.m, p.p);
+    b = { mass: mf, cg, inertia: { roll: frame.inertia.roll - roll, yaw: frame.inertia.yaw - yaw, pitch: frame.inertia.pitch - pitch } };
+  }
+  bareCache.set(frame.id, b);
+  return b;
+}
+
 function masses(build: Build, frame: FrameDef, withDriver: boolean): Mass[] {
-  const out: Mass[] = [{ m: frame.mass, p: frame.cg }];
+  const bare = bareOf(frame);
+  const out: Mass[] = [{ m: bare.mass, p: bare.cg }];
   for (const m of frame.mounts) {
     const inst = build.parts[m.id];
-    if (!inst) continue;
-    const p = partDef(inst.part);
-    let kg = p.mass + fuelKg(inst) + (inst.fluids.oilL ?? 0) * 0.9 + (inst.fluids.coolantL ?? 0);
-    for (const si of Object.values(inst.sub)) kg += partDef(si.part).mass;
-    // the model's bounds say where its mass sits; without a model, a rule of thumb per category
-    const up = midHeight(p.id) ?? CG_UP[p.cat] ?? 0;
-    out.push({ m: kg, p: { x: m.pos.x, y: m.pos.y + up, z: m.pos.z } });
+    if (inst) partMasses(m, inst, out);
   }
   if (withDriver) {
     const seat = frame.mounts.find((m) => m.driver) ?? frame.mounts.find((m) => m.cat === 'seat');
@@ -155,7 +216,8 @@ export function massProps(build: Build, withDriver = true): MassProps {
     z += it.m * it.p.z;
   }
   const cg = { x: x / M, y: y / M, z: z / M };
-  const I = { roll: frame.inertia.roll, yaw: frame.inertia.yaw, pitch: frame.inertia.pitch };
+  const own = bareOf(frame).inertia;
+  const I = { roll: own.roll, yaw: own.yaw, pitch: own.pitch };
   for (const it of list) {
     const dx = it.p.x - cg.x;
     const dy = it.p.y - cg.y;
@@ -284,6 +346,11 @@ function stockWidth(frame: FrameDef): number {
 /** a stock handbrake's pull on each of its wheels, as a share of the wheel's static load (VehicleSpec.handbrakeG) */
 export const HANDBRAKE_G = 0.62;
 
+/** an axle without its suspension: down on its rubber bump stops (stiff, short, little damping) */
+const ON_STOPS: SuspensionStats = { spring: 5, damping: 1.5, travel: 0.3, antiRoll: 5, lift: 0 };
+/** how far the body drops onto them, as a share of the frame's travel there */
+const STOPS_DROP = 0.6;
+
 export function derive(build: Build): Derived {
   const frame = frameDef(build.frame);
   const mp = massProps(build, true);
@@ -337,26 +404,58 @@ export function derive(build: Build): Derived {
   const wallR = (wheelSidewall(wheels[2]) + wheelSidewall(wheels[3])) / 2;
   const muScale = (w: number): number => Math.min(1.25, Math.max(0.7, Math.pow(w / 0.175, 0.18)));
   const steerable = steering !== null;
+  // the axles' own parts (docs/MODCAR.md §22): each one's springs and dampers, its brakes, the driven one's differential
+  const onAxle = (cat: Category, front: boolean): { def: PartDef | null } | null => {
+    const m = frame.mounts.find((x) => x.cat === cat && x.axle === (front ? 'front' : 'rear'));
+    if (!m) return null;
+    const inst = build.parts[m.id];
+    return { def: inst ? partDef(inst.part) : null };
+  };
+  const suspOf = (front: boolean): SuspensionStats | null => {
+    const a = onAxle('suspension', front);
+    return a ? (a.def?.suspension ?? ON_STOPS) : null;
+  };
+  const liftOf = (front: boolean): number => {
+    const su = suspOf(front);
+    if (!su) return 0;
+    return su === ON_STOPS ? -STOPS_DROP * (front ? frame.suspension.front : frame.suspension.rear).travel : su.lift;
+  };
+  const brakePower = (front: boolean): number => {
+    const a = onAxle('brakes', front);
+    return a ? (a.def?.brakes?.power ?? 0) : 1;
+  };
+  const pF = brakePower(true);
+  const pR = brakePower(false);
+  const bfront = frame.brakeFront;
+  // (the factory's brakes on both axles: the frame's own figures, exactly)
+  const stockBrakes = pF === 1 && pR === 1;
+  const brakeK = stockBrakes ? 1 : bfront * pF + (1 - bfront) * pR;
+  const shareF = stockBrakes || brakeK <= 0 ? bfront : (bfront * pF) / brakeK;
   const axle = (s: FrameDef['suspension']['front'], front: boolean): ModAxleSpec => {
     const hubL = front ? hubs.fl : hubs.rl;
     const hubR = front ? hubs.fr : hubs.rr;
     const wall = front ? wallF : wallR;
+    const su = suspOf(front);
+    const dp = onAxle('diff', front);
+    const df = dp?.def?.diff;
     return {
       track: single ? 0 : front ? trackF : trackR,
-      springHz: s.springHz,
-      dampingRatio: s.dampingRatio,
+      springHz: su ? s.springHz * Math.sqrt(su.spring) : s.springHz,
+      dampingRatio: su ? (s.dampingRatio * su.damping) / Math.sqrt(su.spring) : s.dampingRatio,
       bumpScale: s.bumpScale,
       reboundScale: s.reboundScale,
-      travel: s.travel,
-      antiRollRatio: s.antiRollRatio,
+      travel: su ? s.travel * su.travel : s.travel,
+      antiRollRatio: su ? (s.antiRollRatio * su.antiRoll) / su.spring : s.antiRollRatio,
       // (a motorcycle's tyres are narrow by nature: no narrow-tyre discount on a single track)
       muScale: single ? 1 : muScale(front ? sideF : sideR),
       slipPeakDeg: s.slipPeakDeg * (0.85 + 1.2 * wall),
-      brakeShare: front ? frame.brakeFront : 1 - frame.brakeFront,
+      brakeShare: front ? shareF : 1 - shareF,
       steerable: steerable && (hubL.steer === true || hubR.steer === true),
-      driven: hubL.driven === true || hubR.driven === true,
+      // (a driven axle without its differential: the shaft turns, the wheels do not)
+      driven: (hubL.driven === true || hubR.driven === true) && !(dp && !dp.def),
       handbrake: handbrake !== null && (hubL.handbrake === true || hubR.handbrake === true),
       wheelRadius: front ? rF : rR,
+      ...(df ? { diff: { kind: df.kind, bias: df.bias } } : {}),
     };
   };
 
@@ -444,7 +543,8 @@ export function derive(build: Build): Derived {
       downRpm: [0.28 * redline, 0.5 * redline],
       shiftTime: (gb?.shiftTime ?? 0.3) * (lever?.def.gearLever?.shift ?? 1),
     },
-    brakes: { maxG: Math.min(1.1, Math.max(0.2, frame.brakeN / (M * G))) },
+    // (stronger brakes than the factory's may stop harder than the frame's cap; none at all do not stop)
+    brakes: { maxG: brakeK > 0 ? Math.min(1.1 * Math.max(1, brakeK), Math.max(0.2 * brakeK, (frame.brakeN * brakeK) / (M * G))) : 0 },
     aero: { cdA: drag },
     steering: {
       // tyres bigger or wider than the arches were made for rub at full lock: less of it
@@ -478,6 +578,15 @@ export function derive(build: Build): Derived {
   const sprung = rescaleSuspension(spec as VehicleSpec, stockLoads(frame), [wallF, wallR]);
   spec.front = { ...spec.front, ...sprung.front, wheelRadius: spec.front.wheelRadius };
   spec.rear = { ...spec.rear, ...sprung.rear, wheelRadius: spec.rear.wheelRadius };
+  // a lift kit, lowered springs, an axle down on its stops: the body that much higher or lower over it
+  const liftF = liftOf(true);
+  const liftR = liftOf(false);
+  if (liftF !== 0 || liftR !== 0) {
+    const atCg = liftR + (liftF - liftR) * wf;
+    spec.cgHeight += atCg;
+    spec.front = { ...spec.front, rideComp: (spec.front.rideComp ?? 0) + (liftF - atCg) };
+    spec.rear = { ...spec.rear, rideComp: (spec.rear.rideComp ?? 0) + (liftR - atCg) };
+  }
   // the handbrake's pull (a share of each rear wheel's static load): a stock cable lever brakes the rear on
   // asphalt and locks it on gravel and snow; a hydraulic drift lever locks it anywhere — the tail comes round
   if (handbrake) spec.handbrakeG = HANDBRAKE_G * (handbrake.def.handbrake?.strength ?? 1);

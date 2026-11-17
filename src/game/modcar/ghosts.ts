@@ -37,6 +37,17 @@ export interface GhostSpec {
   make?: () => THREE.Object3D;
 }
 
+/** an axle's part's ghost: at both ends of its axle, the right one mirrored */
+function pairOf(c: THREE.Object3D, pair: number): THREE.Group {
+  const g = new THREE.Group();
+  const r = c.clone(true);
+  c.position.z -= pair;
+  r.position.z += pair;
+  r.scale.z *= -1;
+  g.add(c, r);
+  return g;
+}
+
 export class GhostLayer {
   private ghosts = new Map<string, Ghost>();
   selected = '';
@@ -75,7 +86,7 @@ export class GhostLayer {
       const def = partDef(s.partId);
       void partModel(s.partId, s.variant ?? '').then((model) => {
         if (this.ghosts.get(s.key) !== g) return;
-        const c = cloneModel(model);
+        let c: THREE.Object3D = cloneModel(model);
         const m = s.mount;
         if (m && m.side > 0) c.scale.z = -1;
         // (placed as the part itself would be)
@@ -84,6 +95,7 @@ export class GhostLayer {
           c.scale.multiply(st.scale);
           c.position.add(st.shift.multiply(new THREE.Vector3(1, 1, Math.sign(c.scale.z))));
         }
+        if (m?.pair !== undefined) c = pairOf(c, m.pair);
         g.focused = s.key === this.selected;
         applyGhost(c, g.kind, g.focused);
         g.model = c;

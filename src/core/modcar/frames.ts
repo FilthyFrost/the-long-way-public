@@ -4,7 +4,7 @@
  * (data/mounts/<frame>.json, written by tools/blender/frames/<frame>.py — the geometry owns them); the
  * physical numbers live here.
  */
-import type { AxleSuspension, Category, FrameDef, FrameRig, MountDef, Text } from './types';
+import type { AxleSuspension, Category, FrameDef, FrameRig, MountDef, Text, V3 } from './types';
 import { CATEGORIES } from './types';
 import sedanMounts from './data/mounts/sedan.json';
 import pickupMounts from './data/mounts/pickup.json';
@@ -83,6 +83,9 @@ export const CAT_LABEL: Record<Category, Text> = {
   turbo: { zh: '涡轮', en: 'turbo' },
   rim: { zh: '车轮', en: 'wheel' },
   tire: { zh: '轮胎', en: 'tyre' },
+  suspension: { zh: '悬挂', en: 'suspension' },
+  brakes: { zh: '刹车', en: 'brakes' },
+  diff: { zh: '差速器', en: 'differential' },
   steering: { zh: '方向盘', en: 'steering' },
   seat: { zh: '座椅', en: 'seat' },
   door: { zh: '车门', en: 'door' },
@@ -148,6 +151,42 @@ function readMounts(t: MountTable): MountDef[] {
   return out;
 }
 
+/** an axle's strut: its lower eye this far above the hub's centre, this far in from the hub's face (m) */
+const STRUT_UP = 0.05;
+const STRUT_IN = 0.2;
+/** a disc's outer face this far in from the hub's face (m) */
+const DISC_IN = 0.012;
+/** a motorcycle's discs: this far beside the middle of the wheel (the front's on the left, the rear's on the right) */
+const MOTO_DISC = 0.065;
+
+/**
+ * The axles' parts (docs/MODCAR.md §22): each axle's suspension and brakes — a strut inside each wheel, a disc behind
+ * each hub's face, riding with the wheel — and the driven axle's differential at its middle. The frame models own
+ * their hubs; these mounts are placed on them. A motorcycle's fork and shocks are its frame's: it has its brakes only.
+ */
+function withAxles(mounts: MountDef[]): MountDef[] {
+  const out = [...mounts];
+  const hubs = mounts.filter((m) => m.cat === 'rim');
+  for (const axle of ['front', 'rear'] as const) {
+    const ends = hubs.filter((h) => h.axle === axle);
+    if (!ends.length) continue;
+    const k = axle === 'front' ? 'F' : 'R';
+    const x = ends.reduce((a, h) => a + h.pos.x, 0) / ends.length;
+    const y = ends.reduce((a, h) => a + h.pos.y, 0) / ends.length;
+    const half = ends.reduce((a, h) => a + Math.abs(h.pos.z), 0) / ends.length;
+    const mk = (cat: Category, id: string, pos: V3, more: Partial<MountDef> = {}): MountDef => ({ id, cat, pos, quat: [0, 0, 0, 1], side: 0, label: labelFor(id, cat), axle, on: ends[0].on, ...more });
+    if (ends.length >= 2) {
+      out.push(mk('suspension', `susp_${k}`, { x, y: y + STRUT_UP, z: 0 }, { pair: half - STRUT_IN }));
+      out.push(mk('brakes', `brakes_${k}`, { x, y, z: 0 }, { pair: half - DISC_IN }));
+      if (ends.some((h) => h.driven)) out.push(mk('diff', `diff_${k}`, { x, y, z: 0 }));
+    } else {
+      const side = axle === 'front' ? -1 : 1;
+      out.push(mk('brakes', `brakes_${k}`, { x, y, z: side * MOTO_DISC }, { side }));
+    }
+  }
+  return out;
+}
+
 const susp = (springHz: number, travel: number, antiRollRatio: number, slipPeakDeg: number, dampingRatio = 0.33): AxleSuspension => ({
   springHz,
   dampingRatio,
@@ -176,7 +215,7 @@ export const SEDAN: FrameDef = {
   body: { front: 2.02, rear: -2.02, halfWidth: 0.8, bottom: 0.16, top: 1.4 },
   enclosed: 1,
   chase: { dist: 5.6, height: 1.9, look: 0.9 },
-  mounts: readMounts(sedanMounts as MountTable),
+  mounts: withAxles(readMounts(sedanMounts as MountTable)),
   rig: readRig(sedanMounts as MountTable),
 };
 
@@ -197,7 +236,7 @@ export const PICKUP: FrameDef = {
   body: { front: 2.3, rear: -2.3, halfWidth: 0.84, bottom: 0.2, top: 1.6 },
   enclosed: 1,
   chase: { dist: 6.2, height: 2.1, look: 1.0 },
-  mounts: readMounts(pickupMounts as MountTable),
+  mounts: withAxles(readMounts(pickupMounts as MountTable)),
   rig: readRig(pickupMounts as MountTable),
   bare: ['seat_rear'],
 };
@@ -220,7 +259,7 @@ export const MOTO: FrameDef = {
   enclosed: 0,
   balance: true,
   chase: { dist: 4.2, height: 1.6, look: 0.9 },
-  mounts: readMounts(motoMounts as MountTable),
+  mounts: withAxles(readMounts(motoMounts as MountTable)),
   rig: readRig(motoMounts as MountTable),
 };
 
@@ -241,7 +280,7 @@ export const RV: FrameDef = {
   body: { front: 3.4, rear: -3.4, halfWidth: 1.12, bottom: 0.3, top: 3.05 },
   enclosed: 1,
   chase: { dist: 10, height: 3.2, look: 1.6 },
-  mounts: readMounts(rvMounts as MountTable),
+  mounts: withAxles(readMounts(rvMounts as MountTable)),
   rig: readRig(rvMounts as MountTable),
 };
 

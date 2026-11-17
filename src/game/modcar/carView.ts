@@ -66,6 +66,8 @@ interface PanelNode {
 interface Shown {
   key: string;
   holder: THREE.Group;
+  /** an axle's part (its struts, its brakes): one at each of its wheels, riding with them */
+  units?: THREE.Group[];
 }
 
 /** a part of a vehicle that can be cleaned (grime.ts): a look's meshes with MASK UVs, and whose they are */
@@ -287,6 +289,12 @@ export class CarView {
       const lifted = hub.clone().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(axis, 0.05));
       this.swing = { pivot, axis, rest: pivot.quaternion.clone(), hub: new THREE.Vector3(hubMount.pos.x, hubMount.pos.y, hubMount.pos.z), sign: lifted.y > hub.y ? 1 : -1, length: Math.max(0.2, rig.swingarm.length) };
       if (hubMount.on) this.rideWheel(2, sw, hubMount.pos);
+      // (what else rides on the swingarm: the rear brake)
+      for (const m of this.frame.mounts) {
+        if (m.on !== 'SWINGARM' || m.cat === 'rim') continue;
+        const node = this.mountNodes.get(m.id);
+        if (node) sw.attach(node);
+      }
       // the shocks: each half turns about its own eye to keep pointing at the other's
       for (const k of rig.shocks ?? []) {
         const up = obj.getObjectByName(k.upper);
@@ -729,7 +737,8 @@ export class CarView {
         if (box.isEmpty()) continue;
         box.applyMatrix4(inv);
         for (const m of this.frame.mounts) {
-          if (m.panel || m.cat === 'rim' || m.cat === 'bumperFront' || m.cat === 'bumperRear' || m.cat === 'headlight' || m.cat === 'taillight') continue;
+          // (an axle's parts are got at from under the car and through the wheel arches)
+          if (m.panel || m.cat === 'rim' || m.cat === 'bumperFront' || m.cat === 'bumperRear' || m.cat === 'headlight' || m.cat === 'taillight' || m.cat === 'suspension' || m.cat === 'brakes' || m.cat === 'diff') continue;
           const q = m.pos;
           if (q.x > box.min.x - 0.05 && q.x < box.max.x + 0.05 && q.z > box.min.z - 0.05 && q.z < box.max.z + 0.05 && q.y < box.max.y) this.covers.set(m.id, id);
         }
@@ -969,7 +978,7 @@ export class CarView {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
       // (what rides on a fork moves with it)
-      if (!inst || UNMERGED.has(cat) || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
+      if (!inst || UNMERGED.has(cat) || sh.units || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
       if (this.grimeHeld.has(partOwner(mount)) || this.grimeHeld.has(`${partOwner(mount)}+turbo`) || this.paintHeld.has(partOwner(mount))) continue;
       add(mount, sh.holder, this.partLook(inst, cat));
     }
@@ -1045,7 +1054,10 @@ export class CarView {
     const key = inst ? `${inst.uid}|${inst.part}|${sub}` : '';
     const was = this.shown.get(m.id);
     if (was?.key === key) return;
-    if (was) was.holder.removeFromParent();
+    if (was) {
+      was.holder.removeFromParent();
+      for (const u of was.units ?? []) u.removeFromParent();
+    }
     if (!inst) {
       this.shown.delete(m.id);
       this.mats.drop(partOwner(m.id));
@@ -1058,7 +1070,8 @@ export class CarView {
     holder.name = `part_${m.id}`;
     holder.userData.mount = m.id;
     node.add(holder);
-    this.shown.set(m.id, { key, holder });
+    const shown: Shown = { key, holder };
+    this.shown.set(m.id, shown);
     this.settle(holder, 'y', 0.07);
     const def = partDef(inst.part);
     const look = this.mats.look(partOwner(m.id), this.partLook(inst, m.cat));
@@ -1066,6 +1079,10 @@ export class CarView {
       if (this.shown.get(m.id)?.holder !== holder) return;
       const obj = cloneModel(model);
       applyMaterials(obj, look);
+      if (m.pair !== undefined) {
+        this.pairUp(m, obj, model, look, shown);
+        return;
+      }
       if (m.side > 0) obj.scale.z = -1;
       if (def.stretch && m.fit) {
         const s = stretchFit(model, m.fit);
@@ -1086,6 +1103,34 @@ export class CarView {
         });
       } else this.mats.drop(`${partOwner(m.id)}+turbo`);
     });
+  }
+
+  /**
+   * An axle's part at each of its wheels (docs/MODCAR.md §22): the left one as modelled, the right one mirrored, each
+   * on its wheel's pivot — up and down with the suspension and round with the steering, but not spinning
+   */
+  private pairUp(m: MountDef, obj: THREE.Group, model: Model, look: CarLook, shown: Shown): void {
+    const h = hubsOf(this.frame);
+    const ends = m.axle === 'front' ? [h.fl, h.fr] : [h.rl, h.rr];
+    const at = m.axle === 'front' ? 0 : 2;
+    shown.units = [];
+    for (let s = 0; s < 2; s++) {
+      const hub = ends[s];
+      const u = new THREE.Group();
+      u.name = `part_${m.id}_${s ? 'R' : 'L'}`;
+      u.userData.mount = m.id;
+      const o = s === 0 ? obj : cloneModel(model);
+      if (s === 1) {
+        applyMaterials(o, look);
+        o.scale.z = -1;
+      }
+      // (in from the hub's face by what the mount leaves: towards the middle of the car)
+      const inward = Math.abs(hub.pos.z) - (m.pair ?? 0);
+      u.position.set(m.pos.x - hub.pos.x, m.pos.y - hub.pos.y, s === 0 ? inward : -inward);
+      u.add(o);
+      this.wheels[at + s].pivot.add(u);
+      shown.units.push(u);
+    }
   }
 
   private setPanel(m: MountDef, inst: PartInstance | null): void {
@@ -1494,11 +1539,31 @@ export class CarView {
 
   /** world bounds of what is on a mount (render space); null when nothing is shown */
   boundsOf(mount: string, out: THREE.Box3): THREE.Box3 | null {
+    const units = this.shown.get(mount)?.units;
+    if (units) {
+      out.makeEmpty();
+      for (const u of units) out.expandByObject(u);
+      return out.isEmpty() ? null : out;
+    }
     const n = this.nodeOf(mount);
     if (!n || !n.visible) return null;
     out.makeEmpty();
     out.expandByObject(n);
     return out.isEmpty() ? null : out;
+  }
+
+  /** the world bounds of each of what is on a mount (an axle's part: one at each wheel) into `boxes`: how many */
+  boundsEach(mount: string, boxes: THREE.Box3[]): number {
+    const units = this.shown.get(mount)?.units;
+    if (!units) return this.boundsOf(mount, boxes[0]) ? 1 : 0;
+    let n = 0;
+    for (const u of units) {
+      const b = boxes[n];
+      b.makeEmpty();
+      b.expandByObject(u);
+      if (!b.isEmpty()) n++;
+    }
+    return n;
   }
 
   dispose(): void {

@@ -627,6 +627,19 @@ export function standInPart(def: PartDef): THREE.Group {
   else if (cat === 'horn') g.add(cyl(0.05, 0.05, chrome, 'x'));
   else if (cat === 'radio') g.add(box(0.06, 0.06, 0.18, trim));
   else if (cat === 'handbrake' || cat === 'gearLever') g.add(box(0.04, 0.3, 0.04, trim, 0, 0.15));
+  else if (cat === 'suspension') {
+    // (the left strut: a damper in a coil spring; inboard is +z)
+    g.add(cyl(0.025, 0.42, steel).translateY(0.21));
+    g.add(cyl(0.065, 0.26, def.id === 'susp_sport' ? m('paint_b', 0xc8332b) : trim).translateY(0.24));
+  } else if (cat === 'brakes') {
+    // (the left disc behind the hub's face, its caliper behind and above)
+    g.add(cyl(0.115, 0.024, steel, 'z').translateZ(0.012));
+    g.add(box(0.07, 0.09, 0.05, def.id === 'brakes_sport' ? m('paint_b', 0xc8332b) : trim, -0.08, 0.06, 0.02));
+  } else if (cat === 'diff') {
+    g.add(cyl(0.13, 0.16, m('steel', 0x55585c), 'z'));
+    g.add(cyl(0.04, 0.6, steel, 'z'));
+    g.add(cyl(0.05, 0.14, steel, 'x').translateX(0.15));
+  }
   else if (cat === 'ignition') g.add(cyl(0.025, 0.03, chrome, 'x'));
   else g.add(box(0.4, 0.4, 0.4, steel));
   return g;

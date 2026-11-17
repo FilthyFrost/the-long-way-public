@@ -19,6 +19,9 @@ export type Category =
   | 'turbo'
   | 'rim'
   | 'tire'
+  | 'suspension'
+  | 'brakes'
+  | 'diff'
   | 'steering'
   | 'seat'
   | 'door'
@@ -47,6 +50,9 @@ export const CATEGORIES: readonly Category[] = [
   'turbo',
   'rim',
   'tire',
+  'suspension',
+  'brakes',
+  'diff',
   'steering',
   'seat',
   'door',
@@ -271,6 +277,36 @@ export interface HandbrakeStats {
   strength: number;
 }
 
+/** an axle's springs, dampers and anti-roll bar (docs/MODCAR.md §22): against the frame's factory tuning (×) */
+export interface SuspensionStats {
+  /** the springs' rate: the ride's frequency goes with its square root */
+  spring: number;
+  /** the dampers' force */
+  damping: number;
+  /** the travel, droop to bump */
+  travel: number;
+  /** the anti-roll bar's rate */
+  antiRoll: number;
+  /** how much higher (+) or lower (−) it holds the body over the wheels (m) */
+  lift: number;
+}
+
+/** an axle's brakes: what kind, and how hard they stop against the frame's factory ones (×) */
+export interface BrakeStats {
+  kind: 'drum' | 'disc' | 'vented' | 'drilled';
+  power: number;
+}
+
+/**
+ * A driven axle's differential: open (equal torque: the wheel that grips gets little more than the one that
+ * slips holds), limited-slip (up to `bias` times as much), locked (both wheels turn together)
+ */
+export interface DiffStats {
+  kind: 'open' | 'lsd' | 'locked';
+  /** the torque bias ratio (an open one's own friction, a limited-slip's clutches; a locked one: 0, unused) */
+  bias: number;
+}
+
 export interface GearLeverStats {
   /** multiplier on the gearbox's shift time */
   shift: number;
@@ -316,6 +352,9 @@ export interface PartDef {
   horn?: HornStats;
   radio?: RadioStats;
   handbrake?: HandbrakeStats;
+  suspension?: SuspensionStats;
+  brakes?: BrakeStats;
+  diff?: DiffStats;
   gearLever?: GearLeverStats;
   ignition?: IgnitionStats;
 }
@@ -349,6 +388,11 @@ export interface MountDef {
   on?: string;
   /** the room the mount leaves its part (mount frame, game axes): under a bonnet, its top is the bonnet's */
   room?: { min: V3; max: V3 };
+  /**
+   * An axle's part (its springs, its brakes) is one at each end of the axle: the left one `pair` metres to the
+   * left of the mount, the right one as far to the right and mirrored; absent = one part at the mount
+   */
+  pair?: number;
 }
 
 export interface AxleSuspension {

@@ -157,6 +157,24 @@ export function stockPartFor(frame: FrameDef, mount: MountDef): string | null {
   return cands[0].id;
 }
 
+/** the axles' categories (docs/MODCAR.md §22) */
+export const AXLE_CATS: ReadonlySet<string> = new Set(['suspension', 'brakes', 'diff']);
+
+/**
+ * A build saved before the axles had parts of their own (none of them on it): its frame's factory suspension, brakes
+ * and differential fitted, as worn as the build. True when it was one.
+ */
+export function fitAxles(build: Build): boolean {
+  const frame = frameDef(build.frame);
+  const mounts = frame.mounts.filter((m) => AXLE_CATS.has(m.cat));
+  if (!mounts.length || mounts.some((m) => build.parts[m.id])) return false;
+  for (const m of mounts) {
+    const id = stockPartFor(frame, m);
+    if (id) fitPart(build, m.id, newInstance(id, { cond: build.cond, dirt: build.dirt, rust: build.rust }));
+  }
+  return true;
+}
+
 /** the tyre a frame's factory rims wear */
 export function stockTireFor(frame: FrameDef): string | null {
   const tag = `stock:${frame.id}`;

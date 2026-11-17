@@ -55,6 +55,13 @@ export interface AxleSpec {
    * heavier engine makes the nose push and an overloaded build slides sooner.
    */
   tyreLoad?: number;
+  /**
+   * How a driven axle's differential shares the drive between its two wheels (ModCar's, docs/MODCAR.md §22; omitted =
+   * each wheel its equal share whatever the other grips, the legacy rule): open — the wheel that grips gets no more
+   * than `bias` times what the slipping one holds (a wheel in the air: next to nothing); limited-slip — `bias` times;
+   * locked — both turn together: the wheel that grips takes it all, and the pair scrubs round a corner
+   */
+  diff?: { kind: 'open' | 'lsd' | 'locked'; bias: number };
 }
 
 /**
@@ -219,7 +226,9 @@ export function usesExtensions(spec: VehicleSpec): boolean {
     spec.balance !== undefined ||
     spec.absent !== undefined ||
     spec.emptyHubRadius !== undefined ||
-    spec.handbrakeG !== undefined
+    spec.handbrakeG !== undefined ||
+    f.diff !== undefined ||
+    r.diff !== undefined
   );
 }
 

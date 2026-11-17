@@ -512,6 +512,26 @@ export class ModPlayer {
     return out;
   }
 
+  private readonly aimPts = [new THREE.Vector3(), new THREE.Vector3()];
+  private readonly boxes = [new THREE.Box3(), new THREE.Box3()];
+
+  /** where a mount's ghost is aimed at (world): its node; an axle's part (docs/MODCAR.md §22), either of its ends */
+  private aimPoints(v: ModVehicle, mount: MountDef): THREE.Vector3[] {
+    const n = v.view.mountNode(mount.id);
+    if (!n) return [];
+    n.updateWorldMatrix(true, false);
+    const o = this.host.origin;
+    const out = mount.pair !== undefined ? this.aimPts : [this.aimPts[0]];
+    for (let i = 0; i < out.length; i++) {
+      out[i].set(0, 0, mount.pair !== undefined ? (i === 0 ? -mount.pair : mount.pair) : 0);
+      n.localToWorld(out[i]);
+      out[i].x += o.x;
+      out[i].y += o.y;
+      out[i].z += o.z;
+    }
+    return out;
+  }
+
   /** world position of a mount's node (or of what is on it) */
   private mountWorld(v: ModVehicle, mount: MountDef, out: THREE.Vector3): THREE.Vector3 | null {
     const n = v.view.mountNode(mount.id);
@@ -566,20 +586,20 @@ export class ModPlayer {
           }
         } else for (const m of mountsFor(frame, def)) mounts.push({ m, sub: null });
         for (const { m, sub: s } of mounts) {
-          const p = this.mountWorld(v, m, this.v3);
-          if (!p) continue;
-          const dx = p.x - this.eye.x;
-          const dy = p.y - this.eye.y;
-          const dz = p.z - this.eye.z;
-          const d = Math.hypot(dx, dy, dz);
-          if (d > GHOST_RANGE) continue;
-          const ang = Math.acos(Math.min(1, (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / Math.max(1e-6, d)));
-          // nearer ghosts get a wider cone (they are bigger on screen)
-          const cone = bestAng * Math.min(2.2, 1.6 / Math.max(0.7, d));
-          if (ang < cone && ang < bestAng * 2.2) {
-            bestAng = ang;
-            const replace = s ? !!v.build.parts[m.id]?.sub[s] : !!v.build.parts[m.id];
-            best = { kind: 'ghost', v, mount: m, sub: s, replace, dist: d };
+          for (const p of this.aimPoints(v, m)) {
+            const dx = p.x - this.eye.x;
+            const dy = p.y - this.eye.y;
+            const dz = p.z - this.eye.z;
+            const d = Math.hypot(dx, dy, dz);
+            if (d > GHOST_RANGE) continue;
+            const ang = Math.acos(Math.min(1, (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / Math.max(1e-6, d)));
+            // nearer ghosts get a wider cone (they are bigger on screen)
+            const cone = bestAng * Math.min(2.2, 1.6 / Math.max(0.7, d));
+            if (ang < cone && ang < bestAng * 2.2) {
+              bestAng = ang;
+              const replace = s ? !!v.build.parts[m.id]?.sub[s] : !!v.build.parts[m.id];
+              best = { kind: 'ghost', v, mount: m, sub: s, replace, dist: d };
+            }
           }
         }
       }
@@ -652,14 +672,16 @@ export class ModPlayer {
       if (!held) {
         for (const m of v.view.frame.mounts) {
           if (!v.build.parts[m.id]) continue;
-          const b = v.view.boundsOf(m.id, this.box);
-          if (!b) continue;
-          const p = this.ray.intersectBox(b, this.hit);
-          if (!p) continue;
-          const d = p.distanceTo(this.ray.origin);
-          if (d > REACH) continue;
-          onPart = true;
-          better({ kind: 'part', v, mount: m, dist: d });
+          // (an axle's part: either of its two, at its wheels)
+          const n = v.view.boundsEach(m.id, this.boxes);
+          for (let k = 0; k < n; k++) {
+            const p = this.ray.intersectBox(this.boxes[k], this.hit);
+            if (!p) continue;
+            const d = p.distanceTo(this.ray.origin);
+            if (d > REACH) continue;
+            onPart = true;
+            better({ kind: 'part', v, mount: m, dist: d });
+          }
         }
       }
       // the fillers: a can lines up with the one its liquid goes into; empty hands open and shut the flap

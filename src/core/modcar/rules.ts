@@ -28,6 +28,9 @@ export type ProblemCode =
   | 'two_stroke_oil'
   | 'fuel_mixed'
   | 'no_handbrake'
+  | 'no_diff'
+  | 'no_brakes'
+  | 'no_suspension'
   | 'no_gearlever'
   | 'no_headlights';
 
@@ -134,6 +137,9 @@ export function driveProblems(build: Build): Problem[] {
   if (seat && !build.parts[seat.id]) out.push({ code: 'no_driver_seat', severity: 'block', mount: seat.id, text: T('驾驶位没有座椅：够不着踏板。', 'No seat at the wheel: you cannot reach the pedals.') });
   const hubs = frame.mounts.filter((m) => m.cat === 'rim' && m.driven);
   if (hubs.length && hubs.every((h) => !build.parts[h.id])) out.push({ code: 'no_driven_wheel', severity: 'block', mount: hubs[0].id, text: T('驱动轮一个都没有：发动机的劲没处使。', 'No driven wheels at all: the power has nowhere to go.') });
+  for (const m of frame.mounts) {
+    if (m.cat === 'diff' && !build.parts[m.id]) out.push({ code: 'no_diff', severity: 'block', mount: m.id, text: T('没有差速器：传动轴空转，劲到不了车轮。', 'No differential: the prop shaft spins and the wheels do not.') });
+  }
   return out;
 }
 
@@ -167,6 +173,13 @@ export function warnings(build: Build): Problem[] {
       const rs = partDef(ri.part).radiator!;
       if ((ri.fluids.coolantL ?? 0) < rs.coolantL * 0.3) out.push({ code: 'low_coolant', severity: 'warn', mount: rad ?? undefined, text: T('散热器缺水：加点水。', 'The radiator is low: add some water.') });
     }
+  }
+  const brakes = frame.mounts.filter((m) => m.cat === 'brakes');
+  const noBrakes = brakes.filter((m) => !build.parts[m.id]);
+  if (brakes.length && noBrakes.length === brakes.length) out.push({ code: 'no_brakes', severity: 'warn', mount: brakes[0].id, text: T('一个刹车都没有：刹车踩下去什么也不会发生。', 'No brakes at all: the pedal does nothing.') });
+  else for (const m of noBrakes) out.push({ code: 'no_brakes', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}：刹车距离长一大截。`, `No ${m.label.en}: it stops a long way later.`) });
+  for (const m of frame.mounts) {
+    if (m.cat === 'suspension' && !build.parts[m.id]) out.push({ code: 'no_suspension', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}：车身直接坐在限位块上，又颠又蹭底。`, `No ${m.label.en}: the body sits on its bump stops — harsh, and it scrapes.`) });
   }
   const hb = firstMountOf(build, 'handbrake');
   if (hb && !build.parts[hb]) out.push({ code: 'no_handbrake', severity: 'warn', mount: hb, text: T('没有手刹：停在坡上会溜。', 'No handbrake: it rolls away on a slope.') });

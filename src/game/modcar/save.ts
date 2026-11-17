@@ -6,7 +6,7 @@
  * out of sight. A save that no longer reads (a part renamed in a newer build) is set aside, not deleted,
  * and a new game begins.
  */
-import { reserveUids } from '../../core/modcar/build';
+import { fitAxles, reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
 import { itemDef, reserveItemUids, type ItemInstance } from '../../core/modcar/items';
 import type { Vitals } from '../../core/modcar/vitals';
@@ -126,6 +126,8 @@ export function loadSave(): SaveV1 | null {
     for (const l of [...s.loose, ...riders]) if (l.part) inst(l.part);
     for (const h of s.hands ?? []) if (h?.part) inst(h.part);
     reserveUids(ids);
+    // (one from before the axles had parts of their own: their factory ones fitted, docs/MODCAR.md §22)
+    for (const v of [...s.vehicles, ...kept]) fitAxles(v.build);
     reserveItemUids([...[...s.loose, ...riders, ...(s.hands ?? [])].flatMap((x) => (x?.item ? [x.item.uid] : [])), ...(s.pack ? [s.pack.uid] : [])]);
     return s;
   } catch {

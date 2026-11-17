@@ -33,12 +33,15 @@ const SHELL: ReadonlySet<string> = new Set(['door', 'hood', 'trunk', 'bumperFron
 /** how likely each of the shell is still on (one not stripped long ago; one that was, about half as likely) */
 const SHELL_KEEP: Record<string, number> = { door: 0.8, hood: 0.88, trunk: 0.82, bumperFront: 0.62, bumperRear: 0.66, mirror: 0.45, headlight: 0.55, taillight: 0.6 };
 
+/** the axles' parts (docs/MODCAR.md §22): still on a wreck, mostly — hard to get at, nobody's first pick */
+const CHASSIS_KEEP: Record<string, number> = { suspension: 0.92, brakes: 0.85, diff: 0.88 };
+
 /** a wheel left on a hub (one stripped long ago: on blocks, mostly) */
 const WHEEL_KEEP = 0.6;
 const WHEEL_KEEP_STRIPPED = 0.22;
 
 /** what only a motorcycle's own fits a motorcycle (its wheels, bars, saddle, box, lever, tank), and a car's nothing of these of a motorcycle's */
-const MOTO_OWN: ReadonlySet<string> = new Set(['rim', 'tire', 'steering', 'seat', 'gearbox', 'gearLever', 'fuelTank']);
+const MOTO_OWN: ReadonlySet<string> = new Set(['rim', 'tire', 'steering', 'seat', 'gearbox', 'gearLever', 'fuelTank', 'brakes']);
 
 const FOUR_WHEELS = ['sedan', 'pickup', 'rv'];
 
@@ -53,6 +56,9 @@ const FIND_ON: Partial<Record<string, number>> = {
   tire: 1.8,
   gearbox: 1.4,
   exhaust: 1,
+  suspension: 0.9,
+  brakes: 0.8,
+  diff: 0.7,
   seat: 1,
   steering: 1,
   hood: 1,
@@ -248,6 +254,8 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
       if (!r.chance((SHELL_KEEP[m.cat] ?? 0.6) * (stripped ? 0.5 : 1))) removePart(b, m.id);
     } else if (m.cat === 'rim') {
       if (!r.chance(stripped ? WHEEL_KEEP_STRIPPED : WHEEL_KEEP)) removePart(b, m.id);
+    } else if (CHASSIS_KEEP[m.cat] !== undefined) {
+      if (!r.chance(CHASSIS_KEEP[m.cat] * (stripped ? 0.6 : 1))) removePart(b, m.id);
     } else works.push(m.id);
   }
   const keep = stripped ? 1 + r.int(4) : 3 + r.int(6);
@@ -324,9 +332,10 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
     const id = pickExact(r, candsOf(m).filter((c) => partStars(c.id) === g && (!inst || g > partStars(inst.part))));
     if (!id) return false;
     if (m.cat === 'rim') {
-      // (the whole set: every hub that had the same wheel)
+      // (the whole set: every hub that had the same wheel and takes this one — twin rims only where twins were)
       const old = inst.part;
-      for (const w of f.mounts) if (b.parts[w.id]?.part === old) swapIn(b, f, w.id, id);
+      const pd = partDef(id);
+      for (const w of f.mounts) if (b.parts[w.id]?.part === old && foundWeight(f, w, pd) > 0) swapIn(b, f, w.id, id);
     } else swapIn(b, f, m.id, id);
     finds.push({ mount: m.id, part: id });
     return true;

@@ -91,6 +91,7 @@ const GROUPS: { id: string; zh: string; cats?: Category[] }[] = [
   { id: 'all', zh: '全部' },
   { id: 'power', zh: '动力', cats: ['engine', 'turbo', 'gearbox', 'radiator', 'fuelTank', 'exhaust'] },
   { id: 'wheels', zh: '车轮', cats: ['rim', 'tire'] },
+  { id: 'chassis', zh: '底盘', cats: ['suspension', 'brakes', 'diff'] },
   { id: 'body', zh: '车身', cats: ['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'roof', 'armor', 'mirror'] },
   { id: 'cab', zh: '驾驶舱', cats: ['seat', 'steering', 'gearLever', 'handbrake', 'ignition'] },
   { id: 'electric', zh: '电气', cats: ['battery', 'headlight', 'taillight', 'horn', 'radio'] },

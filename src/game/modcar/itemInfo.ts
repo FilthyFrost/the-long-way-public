@@ -96,6 +96,9 @@ const GROUP: Partial<Record<Category, [string, CardIcon]>> = {
   exhaust: ['动力', 'engine'],
   rim: ['车轮', 'wheel'],
   tire: ['车轮', 'wheel'],
+  suspension: ['底盘', 'wheel'],
+  brakes: ['底盘', 'wheel'],
+  diff: ['底盘', 'wheel'],
   seat: ['驾驶舱', 'cab'],
   steering: ['驾驶舱', 'cab'],
   gearLever: ['驾驶舱', 'cab'],
@@ -328,6 +331,24 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
     row(`${def.radio.watts} W`, '功率');
   }
   if (def.handbrake) row(`×${def.handbrake.strength}`, '刹住后轮的力气');
+  if (def.suspension) {
+    const s = def.suspension;
+    row(signPct(s.spring - 1), '弹簧硬度');
+    row(signPct(s.damping - 1), '减震力度');
+    row(signPct(s.travel - 1), '行程');
+    row(signPct(s.antiRoll - 1), '防倾杆');
+    if (s.lift) row(`${s.lift > 0 ? '+' : '−'}${Math.round(Math.abs(s.lift) * 100)} 厘米`, '车身高度');
+    card.notes.push({ text: '一套是一根轴的：左右两边一起换', tone: 'info' });
+  }
+  if (def.brakes) {
+    row({ drum: '鼓刹', disc: '实心盘', vented: '通风盘', drilled: '打孔盘' }[def.brakes.kind], '形式');
+    row(signPct(def.brakes.power - 1), '制动力');
+  }
+  if (def.diff) {
+    row({ open: '开放', lsd: '限滑', locked: '锁止' }[def.diff.kind], '形式');
+    if (def.diff.kind === 'lsd') row(`${def.diff.bias} : 1`, '锁止比');
+    card.notes.push({ text: def.diff.kind === 'open' ? '一边打滑，另一边也没劲' : def.diff.kind === 'lsd' ? '打滑的一边少分劲，抓地的一边多分' : '两边一起转：烂路最强，铺装路转弯发涩', tone: 'info' });
+  }
   if (def.gearLever) row(def.gearLever.shift < 1 ? `快 ${Math.round((1 - def.gearLever.shift) * 100)}%` : '一般', '换挡');
   if (def.ignition) row(def.ignition.kind === 'key' ? '拧钥匙' : '按按钮', '点火方式');
   if (def.horn) row({ beep: '嘀嘀', trumpet: '一段曲子', air: '汽笛' }[def.horn.sound] ?? def.horn.sound, '声音');
@@ -519,6 +540,8 @@ export function vehicleCard(v: ModVehicle): ItemCard {
     card.rows.push({ value: perf.t100 === null ? '到不了' : `${perf.t100.toFixed(1)} 秒`, label: '0 到 100 km/h' });
     if (Number.isFinite(perf.fuel)) card.rows.push({ value: `${perf.fuel.toFixed(1)} L`, label: '每百公里油耗' });
   }
+  card.rows.push(perf.stop === null ? { value: '刹不住', label: '百公里刹停', tone: 'bad' } : { value: `${perf.stop.toFixed(0)} 米`, label: '百公里刹停' });
+  card.rows.push({ value: `${Math.round(perf.clear * 100)} 厘米`, label: '离地间隙' });
   const at = (cat: Category): PartInstance | null => {
     const m = frame.mounts.find((mm) => mm.cat === cat && b.parts[mm.id]);
     return m ? b.parts[m.id] : null;

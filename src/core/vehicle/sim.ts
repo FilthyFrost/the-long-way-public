@@ -231,6 +231,19 @@ export class Wheel {
   slid = 0;
 }
 
+/**
+ * A differential's numbers (docs/MODCAR.md §22). An open one still gives the wheel that grips a little more than the
+ * slipping one holds while that one spins up (its own friction, the spinning wheel's inertia): never quite nothing.
+ * A limited-slip one's clutches are preloaded: some drive to the gripping wheel even with the other in the air.
+ */
+const OPEN_FLOOR = 0.15;
+const LSD_FLOOR = 0.3;
+/** a locked pair's scrub: a tyre's longitudinal stiffness (N per N of load per unit of slip), its cap (share of the grip) */
+const SCRUB_K = 8;
+const SCRUB_CAP = 0.5;
+/** (the slip's speed is taken against no less than this: m/s) */
+const SCRUB_V0 = 2;
+
 export class VehicleSim {
   /** the description in force (a suspension upgrade swaps it: applySpec) */
   get spec(): VehicleSpec {
@@ -1287,6 +1300,48 @@ export class VehicleSim {
     if (this.toeOn) for (let i = 0; i < 4; i++) this.wheels[i].steer += this.toe[i >> 1];
   }
 
+  /** the drive force each wheel gets this step (N): its equal share, or as its axle's differential shares it */
+  private readonly fDrv = new Float64Array(4);
+
+  /**
+   * An axle's drive shared by its differential (docs/MODCAR.md §22). What each wheel can put down is its grip along
+   * the road (none off the ground, none locked): an open one gives the wheel that grips no more than `bias` times what
+   * the slipping one holds, a limited-slip one up to `bias` times as much of the axle's drive, a locked one all that
+   * is left. A locked pair, made to turn together, scrubs too: the wheel rolling faster (the outer one) is held back
+   * and the other pushed on, which turns the car against its turn.
+   */
+  private splitDrive(i0: number, df: NonNullable<AxleSpec['diff']>): void {
+    const L = this.wheels[i0];
+    const R = this.wheels[i0 + 1];
+    const f = this.fDrv;
+    const onL = L.contact && L.load >= 1 && !L.locked;
+    const onR = R.contact && R.load >= 1 && !R.locked;
+    const cL = onL ? L.capLong : 0;
+    const cR = onR ? R.capLong : 0;
+    const tot = f[i0] + f[i0 + 1];
+    const half = 0.5 * (tot < 0 ? -tot : tot);
+    const lo = cL < cR ? cL : cR;
+    if (half > 0 && lo < half) {
+      const sgn = tot > 0 ? 1 : -1;
+      let hi: number;
+      if (df.kind === 'open') hi = Math.min(half, Math.max(lo, OPEN_FLOOR * half) * df.bias);
+      else if (df.kind === 'lsd') hi = Math.min(2 * half - lo, Math.max(lo, LSD_FLOOR * half) * df.bias);
+      else hi = 2 * half - lo;
+      // (the slipping wheel keeps its half: it takes what it holds and spins)
+      if (cR >= cL) f[i0 + 1] = sgn * hi;
+      else f[i0] = sgn * hi;
+    }
+    if (df.kind === 'locked' && onL && onR) {
+      const v = Math.max(SCRUB_V0, 0.5 * Math.abs(L.vLong + R.vLong));
+      const cap = SCRUB_CAP * (cL < cR ? cL : cR);
+      let s = (SCRUB_K * 0.25 * (L.load + R.load) * (R.vLong - L.vLong)) / v;
+      if (s > cap) s = cap;
+      else if (s < -cap) s = -cap;
+      f[i0] += s;
+      f[i0 + 1] -= s;
+    }
+  }
+
   /** Returns the drive force per driven wheel (N, + = along the wheel heading). */
   private updateDrivetrain(h: number, vDrive: number): number {
     const sp = this.spec;
@@ -1834,6 +1889,19 @@ export class VehicleSim {
       sumLat += w.capLat;
       sumOpp += w.capOpp;
     }
+    // the drive each wheel gets (equal torque to every driven wheel: one of another size pushes torque / its own
+    // radius), then as each driven axle's differential shares it (ModCar's)
+    const fDrv = this.fDrv;
+    for (let i = 0; i < 4; i++) {
+      const w = wheels[i];
+      fDrv[i] = w.axle.driven ? (this.uniformDrive ? drive : (drive * this.rDrive) / w.radius) : 0;
+    }
+    if (this.ext && !sp.balance) {
+      for (let k = 0; k < 4; k += 2) {
+        const df = wheels[k].axle.diff;
+        if (df && wheels[k].axle.driven) this.splitDrive(k, df);
+      }
+    }
     for (let i = 0; i < 4; i++) {
       const w = wheels[i];
       if (!w.contact) {
@@ -1883,8 +1951,7 @@ export class VehicleSim {
         if (w.fit === WheelFit.None && speedC > scrape) scrape = speedC;
       } else {
         // longitudinal: engine drive plus motion-opposing forces (brake, rolling resistance)
-        // (equal torque to every driven wheel: one of another size pushes torque / its own radius)
-        const fDrive = w.axle.driven ? (this.uniformDrive ? drive : (drive * this.rDrive) / w.radius) : 0;
+        const fDrive = fDrv[i];
         const fOpp = w.capOpp;
         const vPred = w.vLong + (fDrive / meff) * h;
         const aPred = vPred < 0 ? -vPred : vPred;
