@@ -292,6 +292,173 @@
     0.22
    ]
   },
+  "brakes_disc": {
+   "bbox": [
+    [
+     -0.1245,
+     -0.115,
+     -0.0048
+    ],
+    [
+     0.115,
+     0.115,
+     0.0849
+    ]
+   ],
+   "triangles": 1778,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "brakes_drum": {
+   "bbox": [
+    [
+     -0.1275,
+     -0.1275,
+     -0.0048
+    ],
+    [
+     0.1275,
+     0.1275,
+     0.0899
+    ]
+   ],
+   "triangles": 2152,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "brakes_moto": {
+   "bbox": [
+    [
+     -0.1198,
+     -0.1102,
+     -0.0048
+    ],
+    [
+     0.1102,
+     0.1102,
+     0.039
+    ]
+   ],
+   "triangles": 2544,
+   "materials": [
+    "alu",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "brakes_sport": {
+   "bbox": [
+    [
+     -0.1293,
+     -0.1155,
+     -0.0049
+    ],
+    [
+     0.1155,
+     0.1155,
+     0.0878
+    ]
+   ],
+   "triangles": 2500,
+   "materials": [
+    "alu",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "brakes_vented": {
+   "bbox": [
+    [
+     -0.1276,
+     -0.115,
+     -0.0048
+    ],
+    [
+     0.115,
+     0.115,
+     0.0892
+    ]
+   ],
+   "triangles": 2408,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "diff_locked": {
+   "bbox": [
+    [
+     -0.1683,
+     -0.134,
+     -0.3125
+    ],
+    [
+     0.264,
+     0.143,
+     0.3125
+    ]
+   ],
+   "triangles": 3424,
+   "materials": [
+    "alu",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "diff_lsd": {
+   "bbox": [
+    [
+     -0.1768,
+     -0.134,
+     -0.3125
+    ],
+    [
+     0.264,
+     0.134,
+     0.3125
+    ]
+   ],
+   "triangles": 2810,
+   "materials": [
+    "alu",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "diff_open": {
+   "bbox": [
+    [
+     -0.1683,
+     -0.134,
+     -0.3125
+    ],
+    [
+     0.264,
+     0.134,
+     0.3125
+    ]
+   ],
+   "triangles": 2818,
+   "materials": [
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
   "door_armor_overlay": {
    "bbox": [
     [
@@ -2284,6 +2451,116 @@
     "alu",
     "chrome",
     "leather",
+    "steel",
+    "trim"
+   ]
+  },
+  "susp_leaf": {
+   "bbox": [
+    [
+     -0.4682,
+     -0.0749,
+     -0.0434
+    ],
+    [
+     0.4516,
+     0.421,
+     0.1055
+    ]
+   ],
+   "triangles": 2584,
+   "materials": [
+    "alu",
+    "chrome",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "susp_lift": {
+   "bbox": [
+    [
+     -0.0852,
+     -0.0248,
+     -0.0476
+    ],
+    [
+     0.0735,
+     0.4813,
+     0.1329
+    ]
+   ],
+   "triangles": 2554,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "susp_soft": {
+   "bbox": [
+    [
+     -0.0675,
+     -0.0218,
+     -0.0529
+    ],
+    [
+     0.0675,
+     0.4594,
+     0.126
+    ]
+   ],
+   "triangles": 2456,
+   "materials": [
+    "chrome",
+    "rubber",
+    "rust",
+    "steel"
+   ]
+  },
+  "susp_sport": {
+   "bbox": [
+    [
+     -0.0589,
+     -0.0218,
+     -0.0219
+    ],
+    [
+     0.0589,
+     0.3886,
+     0.1095
+    ]
+   ],
+   "triangles": 2558,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ]
+  },
+  "susp_stock": {
+   "bbox": [
+    [
+     -0.0715,
+     -0.0218,
+     -0.0552
+    ],
+    [
+     0.0715,
+     0.4133,
+     0.1226
+    ]
+   ],
+   "triangles": 2214,
+   "materials": [
+    "chrome",
+    "rubber",
     "steel",
     "trim"
    ]

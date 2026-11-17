@@ -9,7 +9,7 @@ public/models/modcar/tools/).
 import importlib
 import time
 
-GROUPS = ['engines', 'drivetrain', 'fluids', 'wheels', 'cockpit', 'seats', 'body', 'lamps', 'tools']
+GROUPS = ['engines', 'drivetrain', 'fluids', 'wheels', 'cockpit', 'seats', 'body', 'lamps', 'tools', 'chassis']
 
 
 def main(args):

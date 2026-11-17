@@ -69,7 +69,7 @@ def budget(pid):
         return 4500
     if pid.startswith('seat_'):
         return 5000
-    if pid.startswith(('bf_', 'br_', 'roof_', 'arm_', 'exh_', 'gb_', 'tank_', 'rad_')):
+    if pid.startswith(('bf_', 'br_', 'roof_', 'arm_', 'exh_', 'gb_', 'tank_', 'rad_', 'diff_')):
         return 5000
     return 2600   # small parts (2k target, a few meme parts allowed a little more)
 
