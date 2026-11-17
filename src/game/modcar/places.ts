@@ -188,6 +188,9 @@ export class Places {
   private readonly owned = new Map<Loose, { site: string; id: string }>();
   /** a pump filling a vehicle: how much it was to take when the hold began, how much has gone in */
   private fill: { dev: string; need: number; given: number; p: number } | null = null;
+  /** the pump whose nozzle is out (in a vehicle's filler), until when (the places' clock): drawn by siteArt.ts */
+  private nozzleOut: { site: string; obj: number; v: ModVehicle; until: number } | null = null;
+  private clock = 0;
   /** the container being searched (its opening heard once a hold) and how far */
   private searching = { id: '', p: 0 };
   /** the container sounds rendered already, by material */
@@ -220,6 +223,8 @@ export class Places {
 
   /** every frame: the places within reach of (x, z) there, the ones left behind gone */
   update(dt: number, x: number, z: number): void {
+    this.clock += dt;
+    if (this.nozzleOut && this.clock > this.nozzleOut.until) this.nozzleOut = null;
     const world = this.host.world;
     if (!world) return;
     // (a thing of a place's picked up or moved: one's own from then on)
@@ -385,6 +390,11 @@ export class Places {
     };
   }
 
+  /** the pump whose nozzle is out, in the vehicle being filled (siteArt.ts draws it there): its place and object */
+  nozzle(): { site: string; obj: number; v: ModVehicle } | null {
+    return this.nozzleOut;
+  }
+
   /** has this container been searched? */
   isSearched(id: string): boolean {
     return this.searched.has(id);
@@ -515,6 +525,8 @@ export class Places {
         }
         const f = places.fill;
         f.p = p;
+        // (the nozzle out of its hook and in the filler while the hold lasts)
+        places.nozzleOut = { site: site.id, obj: i, v, until: places.clock + 0.25 };
         const want = f.need * p - f.given;
         if (want > 0) {
           const moved = pumpInto(v.build, fuel, want);
@@ -543,6 +555,7 @@ export class Places {
           host.play(left() <= 0.5 ? 'pump_dry' : 'pump_click');
           // (the nozzle hung back a moment after)
           host.play('pump_hang', {}, left() <= 0.5 ? 1.5 : 0.45);
+          places.nozzleOut = { site: site.id, obj: i, v, until: places.clock + (left() <= 0.5 ? 1.5 : 0.45) };
           host.say(`加了 ${f.given.toFixed(1)} L ${FUEL_ZH[fuel]}${left() <= 0.5 ? '：加油机空了' : ''}`, 2.4);
         }
       },

@@ -303,6 +303,32 @@ export const PLACE_GLOSS = 0.22;
 /** how long a door or a drawer takes to open (s) */
 const OPEN_S = 0.45;
 
+/**
+ * A pump's nozzle and hose (the model's free movers, NOZZLE and HOSE): on the hook, or out in the filler of the
+ * vehicle being filled with the hose drawn to it (a sagging tube from where the hose leaves the pump).
+ * In the place's root frame (it is not turned: directions are the world's).
+ */
+interface PumpRig {
+  nozzle: THREE.Object3D | null;
+  hose: THREE.Object3D | null;
+  /** the nozzle on its hook, and its tip there from its origin */
+  p0: THREE.Vector3;
+  q0: THREE.Quaternion;
+  tip0: THREE.Vector3;
+  /** where the hose leaves the pump */
+  base: THREE.Vector3;
+  /** the lowest the hose may hang (the ground at the pump, a hand above it) */
+  floor: number;
+  /** how far out (0 on the hook … 1 in the filler), and the pose it goes to */
+  t: number;
+  pOut: THREE.Vector3;
+  qOut: THREE.Quaternion;
+  tube: THREE.Mesh | null;
+  look: import('../render/carMaterials').CarLook | null;
+}
+/** how long the nozzle takes from its hook to the filler and back (s) */
+const NOZZLE_S = 0.35;
+
 /** a place drawn: its root (at its anchor), its merged models, its containers' moving pieces */
 interface Drawn {
   site: Site;
@@ -312,6 +338,8 @@ interface Drawn {
   movers: Map<string, Mover[]>;
   /** the moving pieces' own looks (their dirt laid out in the place's frame like the merged ones') */
   moverLooks: import('../render/carMaterials').CarLook[];
+  /** its pumps' nozzles and hoses, by object */
+  pumps: Map<number, PumpRig>;
 }
 
 const E = new THREE.Euler();
@@ -374,6 +402,83 @@ export class SiteArt {
     return n;
   }
 
+  /** the pump whose nozzle is out (places.ts) and the filler it is in (render space: its mouth and the way out of it); null, every nozzle on its hook */
+  private nozzleTo: { site: string; obj: number; mouth: THREE.Vector3; out: THREE.Vector3 } | null = null;
+
+  pumpNozzle(to: { site: string; obj: number; mouth: THREE.Vector3; out: THREE.Vector3 } | null): void {
+    this.nozzleTo = to;
+  }
+
+  /** each pump's nozzle on its way to the filler or back, and its hose after it */
+  private stepPumps(d: Drawn, dt: number): void {
+    const to = this.nozzleTo;
+    for (const [i, rig] of d.pumps) {
+      const nz = rig.nozzle;
+      if (!nz) continue;
+      const here = !!to && to.site === d.site.id && to.obj === i;
+      if (here) {
+        // the tip in the mouth, the spout pointing in (a hair back out, so it sits in it rather than through it)
+        d.root.updateMatrixWorld(true);
+        const m = d.root.worldToLocal(PV.copy(to.mouth));
+        const into = PD.copy(to.out).normalize().negate();
+        PQ.setFromUnitVectors(PT.copy(rig.tip0).normalize(), into);
+        rig.qOut.copy(PQ).multiply(rig.q0);
+        rig.pOut.copy(m).sub(PT.copy(rig.tip0).applyQuaternion(PQ)).addScaledVector(into, -0.02);
+      }
+      const want = here ? 1 : 0;
+      if (rig.t === want && !here) continue;
+      rig.t = want > rig.t ? Math.min(1, rig.t + dt / NOZZLE_S) : Math.max(0, rig.t - dt / NOZZLE_S);
+      const e = rig.t * rig.t * (3 - 2 * rig.t);
+      nz.position.lerpVectors(rig.p0, rig.pOut, e);
+      nz.quaternion.slerpQuaternions(rig.q0, rig.qOut, e);
+      // the hose: on its hook as modelled; out, a tube from the pump to the nozzle, sagging
+      const out = rig.t > 0.001;
+      if (rig.hose) rig.hose.visible = !out;
+      if (!out) {
+        if (rig.tube) rig.tube.visible = false;
+        continue;
+      }
+      if (!rig.tube) {
+        rig.tube = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ name: 'rubber' }));
+        rig.tube.name = 'pump:hose';
+        d.root.add(rig.tube);
+        if (rig.look) applyMaterials(rig.tube, rig.look);
+      }
+      rig.tube.visible = true;
+      const a = rig.base;
+      const b = nz.position;
+      const span = a.distanceTo(b);
+      const sag = 0.12 + 0.25 * span;
+      const p1 = new THREE.Vector3().lerpVectors(a, b, 0.3);
+      const p2 = new THREE.Vector3().lerpVectors(a, b, 0.7);
+      p1.y = Math.max(rig.floor, p1.y - sag);
+      p2.y = Math.max(rig.floor, p2.y - sag * 0.8);
+      const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([a.clone(), p1, p2, b.clone()]), 24, 0.013, 6, false);
+      // (the attributes the car materials read: no baked shadow, no grime mask)
+      const n = geo.getAttribute('position').count;
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+      geo.setAttribute('aMaskUv', new THREE.Float32BufferAttribute(new Float32Array(n * 2).fill(-1), 2));
+      rig.tube.geometry.dispose();
+      rig.tube.geometry = geo;
+    }
+  }
+
+  /** where each pump's nozzle is, the probes': out (0 … 1) and its tip (render space) */
+  pumpTelemetry(): { site: string; obj: number; out: number; tip: [number, number, number] }[] {
+    const list: { site: string; obj: number; out: number; tip: [number, number, number] }[] = [];
+    for (const d of this.drawn.values()) {
+      for (const [i, rig] of d.pumps) {
+        const nz = rig.nozzle;
+        if (!nz) continue;
+        d.root.updateMatrixWorld(true);
+        const tip = PT.copy(rig.tip0).applyQuaternion(nz.quaternion.clone().multiply(rig.q0.clone().invert())).add(nz.position);
+        d.root.localToWorld(tip);
+        list.push({ site: d.site.id, obj: i, out: rig.t, tip: [tip.x, tip.y, tip.z] });
+      }
+    }
+    return list;
+  }
+
   /** a container's doors, drawers or lid opening (it is being searched) */
   open(id: string): void {
     for (const d of this.drawn.values()) for (const m of d.movers.get(id) ?? []) m.target = 1;
@@ -391,6 +496,7 @@ export class SiteArt {
         }
       }
       this.core.place(d.root, d.site.x, d.site.y, d.site.z);
+      if (d.pumps.size) this.stepPumps(d, dt);
       // (the dirt's height and patterns are in the place's own frame)
       if (d.look || d.moverLooks.length) {
         d.root.updateMatrixWorld();
@@ -425,6 +531,9 @@ export class SiteArt {
     const containerOf = new Map(site.containers.filter((c) => c.obj >= 0).map((c) => [c.obj, c.id]));
     const moving = new Set<THREE.Object3D>();
     const pending: { id: string; obj: THREE.Object3D; look: { paint: number; paint2: number; dirt: number; rust: number; wear: number; crust: number } }[] = [];
+    // (a pump's nozzle and hose stay out of it too: the nozzle goes into the filler)
+    const free: { obj: number; piece: THREE.Object3D; look: { paint: number; paint2: number; dirt: number; rust: number; wear: number; crust: number } }[] = [];
+    const hoseAt = new Map<number, THREE.Object3D>();
     for (let i = 0; i < site.objects.length; i++) {
       const o = site.objects[i];
       if (o.kind === 'building' && o.b && this.kitAll) {
@@ -457,6 +566,15 @@ export class SiteArt {
         root.add(holder);
         holders.push(holder);
         parts.push({ object: holder, paint: pick[0], paint2: pick[1], dirt: wear.dirt, rust: wear.rust, wear: wear.wear, crust: wear.crust });
+        if (pm.name === 'pump') {
+          holder.traverse((x) => {
+            if (x.userData?.move !== 'free') return;
+            moving.add(x);
+            free.push({ obj: i, piece: x, look: { paint: pick[0], paint2: pick[1], ...wear } });
+          });
+          const hb = holder.getObjectByName('M_hose');
+          if (hb) hoseAt.set(i, hb);
+        }
         const cid = containerOf.get(i);
         if (cid) {
           holder.traverse((x) => {
@@ -480,8 +598,12 @@ export class SiteArt {
     let look: Drawn['look'] = null;
     const movers = new Map<string, Mover[]>();
     const moverLooks: Drawn['moverLooks'] = [];
+    const pumps = new Map<number, PumpRig>();
     if (parts.length) {
       root.updateMatrixWorld(true);
+      // (where each pump's hose leaves it, before the pieces are merged away)
+      const bases = new Map<number, THREE.Vector3>();
+      for (const [i, hb] of hoseAt) bases.set(i, root.worldToLocal(hb.getWorldPosition(new THREE.Vector3())));
       merged = mergeCarParts(parts, root, { skip: (o) => moving.has(o) });
       // the moving pieces drawn on their own, at their place (closed, or open if it was searched)
       for (const p of pending) {
@@ -500,6 +622,30 @@ export class SiteArt {
         if (!list) movers.set(p.id, (list = []));
         list.push(m);
       }
+      for (const f of free) {
+        root.attach(f.piece);
+        const owner = `site:${site.id}:pump${f.obj}`;
+        const ml = this.mats.look(owner, { ...f.look, matte: PLACE_GLOSS });
+        if (!moverLooks.includes(ml)) moverLooks.push(ml);
+        applyMaterials(f.piece, ml);
+        let rig = pumps.get(f.obj);
+        if (!rig) {
+          const o = site.objects[f.obj];
+          rig = { nozzle: null, hose: null, p0: new THREE.Vector3(), q0: new THREE.Quaternion(), tip0: new THREE.Vector3(), base: bases.get(f.obj) ?? new THREE.Vector3(o.x - site.x, o.y - site.y + 1.2, o.z - site.z), floor: o.y - site.y + 0.06, t: 0, pOut: new THREE.Vector3(), qOut: new THREE.Quaternion(), tube: null, look: ml };
+          pumps.set(f.obj, rig);
+        }
+        if (f.piece.name === 'NOZZLE') {
+          rig.nozzle = f.piece;
+          rig.p0.copy(f.piece.position);
+          rig.q0.copy(f.piece.quaternion);
+          // (its tip: the spout's end, the model's M_nozzle)
+          const tip = f.piece.getObjectByName('M_nozzle');
+          root.updateMatrixWorld(true);
+          if (tip) rig.tip0.copy(root.worldToLocal(tip.getWorldPosition(new THREE.Vector3()))).sub(rig.p0);
+          rig.pOut.copy(rig.p0);
+          rig.qOut.copy(rig.q0);
+        } else if (f.piece.name === 'HOSE') rig.hose = f.piece;
+      }
       for (const h of holders) h.removeFromParent();
       // (plaster, painted wood and old enamel: not a car's clear coat)
       look = this.mats.look(`site:${site.id}`, { paint: 0xffffff, paint2: 0xffffff, matte: PLACE_GLOSS });
@@ -510,7 +656,7 @@ export class SiteArt {
     }
     root.updateMatrixWorld(true);
     for (const l of moverLooks) l.setCarFrame(root.matrixWorld);
-    this.drawn.set(site.id, { site, root, merged, look, movers, moverLooks });
+    this.drawn.set(site.id, { site, root, merged, look, movers, moverLooks, pumps });
     // (its doors hung in the doorways the walls leave)
     this.doors?.come(site);
   }
@@ -544,6 +690,10 @@ export class SiteArt {
     });
     this.mats.drop(`site:${id}`);
     for (const cid of d.movers.keys()) this.mats.drop(`site:${id}:${cid}`);
+    for (const [i, rig] of d.pumps) {
+      rig.tube?.geometry.dispose();
+      this.mats.drop(`site:${id}:pump${i}`);
+    }
     this.drawn.delete(id);
   }
 
@@ -572,6 +722,8 @@ export class SiteArt {
 
 const PQ = new THREE.Quaternion();
 const PV = new THREE.Vector3();
+const PD = new THREE.Vector3();
+const PT = new THREE.Vector3();
 
 /** a moving piece where it is now: turned about its hinge or slid out along its runners, eased */
 function pose(m: Mover): void {

@@ -3400,6 +3400,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       // the places by the road: their containers, pumps and things lying about, while one is by them
       this.places ??= new Places(this.placesHost(), this.restore?.places);
       this.places.update(dt, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
+      // (a pump filling a vehicle: its flap open, the nozzle out of its hook and in the filler)
+      const noz = this.places.nozzle();
+      let to: Parameters<SiteArt['pumpNozzle']>[0] = null;
+      if (noz) {
+        noz.v.view.capOpen = true;
+        if (noz.v.view.fillerMouth('fuel', this.nozMouth, this.nozOut)) to = { site: noz.site, obj: noz.obj, mouth: this.nozMouth, out: this.nozOut };
+      }
+      this.siteArt?.pumpNozzle(to);
       this.siteArt?.update(dt, this.world, sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z);
       this.doors?.update(dt);
     }
@@ -3522,6 +3530,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   private readonly dustWind = { x: 0, z: 0 };
+  /** the filler a pump's nozzle goes into (render space) */
+  private readonly nozMouth = new THREE.Vector3();
+  private readonly nozOut = new THREE.Vector3();
   /** each hot brake's share of a smoke puff not given off yet */
   private readonly smokeDue = new WeakMap<object, number>();
 

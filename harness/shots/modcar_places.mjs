@@ -2,7 +2,8 @@
 //  1. the world's places down the first 80 km: filling stations, houses, garages, shops … with their containers;
 //  2. at a filling station: its containers and pumps there as one comes; the till searched by holding E on it (the
 //     list of what is in it opens), a thing taken out into the hands;
-//  3. a jerrycan held to a pump fills from it; a vehicle parked at a pump fills from it with empty hands;
+//  3. a jerrycan held to a pump fills from it; a vehicle parked at a pump fills from it with empty hands (its flap
+//     open, the pump's nozzle out of its hook and in the filler, back on the hook a moment after);
 //  4. the things lying in plain sight are ModCar's; one picked up is taken for good;
 //  5. left behind and come back: what was searched and taken stays so; the pump's litres stay; saved and read back too;
 //  6. a house's cupboard and wardrobe, a garage's shelves: what each holds.
@@ -132,7 +133,23 @@ try {
       const p2 = station.pumps[1] ?? pump;
       const m2 = await rt('aimPoint', p2.x, p2.y + 1.0, p2.z, p2.from + 0.9, p2.d / 2 + 0.8);
       console.log('empty hands at the pump', m2);
-      await rt('holdFor', 14);
+      // (part way: the nozzle off its hook and in the pickup's filler, the hose drawn to it)
+      await rt('holdFor', 4);
+      const noz = await page.evaluate(() => {
+        const g = window.__rt.game;
+        const v = g.vehicles.find((x) => x.build.frame === 'pickup' && !g.wrecks?.isWreck(x));
+        const m = g.core.camera.position.clone();
+        const n = m.clone();
+        const has = v.view.fillerMouth('fuel', m, n);
+        const out = (g.siteArt?.pumpTelemetry() ?? []).find((t) => t.out > 0.5);
+        return { has, cap: v.view.capOpen, out: out ? out.out : 0, gap: out && has ? Math.hypot(out.tip[0] - m.x, out.tip[1] - m.y, out.tip[2] - m.z) : -1 };
+      });
+      console.log('nozzle', JSON.stringify(noz));
+      if (!(noz.out > 0.9)) fail(`the nozzle is not out while the pickup fills (${noz.out})`);
+      else if (!(noz.gap >= 0 && noz.gap < 0.08)) fail(`the nozzle's tip is not in the filler (${noz.gap} m off)`);
+      if (!noz.cap) fail("the pickup's filler flap is not open while it fills");
+      await shot('nozzle');
+      await rt('holdFor', 10);
       const after = await page.evaluate(() => {
         const g = window.__rt.game;
         const v = g.vehicles.find((x) => x.build.frame === 'pickup' && !g.wrecks?.isWreck(x));
@@ -143,6 +160,10 @@ try {
       const total = Object.values(after.fuel).reduce((a, b) => a + b, 0);
       if (!(total > filled.before + 10)) fail(`the pickup did not fill at the pump (${filled.before} → ${total} L)`);
       await shot('pump');
+      // (a moment after, the nozzle hung back on its hook)
+      await rt('simulate', 1.5);
+      const back = await page.evaluate(() => (window.__rt.game.siteArt?.pumpTelemetry() ?? []).every((t) => t.out < 0.01));
+      if (!back) fail('the nozzle did not go back on its hook after the fill');
     }
 
     // 4. what lies in plain sight: ModCar's things, one taken for good
