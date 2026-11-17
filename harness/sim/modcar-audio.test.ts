@@ -3,7 +3,8 @@
  * manifest entry has its files in both formats, the containers decode to the lengths the loop
  * points assume, rpm steps cover idle to redline within the pitch budget, seams measured clean when
  * the bank was built), the mixing maths behaves, and every foley recipe renders sane audio (the
- * scrubbing sounds also: seamless, textured, at their levels, following a stroke's rate). The
+ * scrubbing sounds also: seamless, textured, at their levels, following a stroke's rate; the spray
+ * paint's: the can shaken, the valve's pssht into a steady hiss, running dry, the coat's chime). The
  * workshop generator (gen_d1) is a bank of its own kind: a few loops round its governed speed, no
  * rev limiter, started on a rope (pullStart). The decoded, played-back seam check and the voice's
  * pull start (no starter whine, no solenoid clicks) are in harness/audio/modcar_render.mjs (Chrome).
@@ -779,6 +780,58 @@ function atRate(x: Float32Array, rate: number, seconds: number, sr: number): Flo
   return y;
 }
 
+/**
+ * A loop that wraps without a seam, 2.5 s or more (long enough not to be heard repeating at a fast
+ * stroke, rate 1.6) and under 4: the step and the curvature across the wrap ordinary ones, the low
+ * band carrying straight on, no splice (spliceAt), no dip or bump in the level across it, no DC.
+ */
+function expectSeamless(x: Float32Array, sr: number, tag: string): void {
+  const n = x.length;
+  expect(n / sr, tag).toBeGreaterThanOrEqual(2.5);
+  expect(n / sr, tag).toBeLessThan(4);
+  // the end runs on into the start: the step across the wrap is an ordinary step ...
+  const steps = new Float32Array(n);
+  for (let i = 0; i < n; i++) steps[i] = Math.abs(x[(i + 1) % n] - x[i]);
+  const across = steps[n - 1];
+  steps.sort();
+  expect(across, `${tag} (step)`).toBeLessThan(steps[Math.floor(n * 0.999)]);
+  // ... and so is the curvature
+  const d2 = (i: number): number => Math.abs(x[(i + 1) % n] - 2 * x[i % n] + x[(i - 1 + n) % n]);
+  const all = new Float32Array(n);
+  for (let i = 0; i < n; i++) all[i] = d2(i);
+  all.sort();
+  let wrap = 0;
+  for (let i = n - 3; i <= n + 3; i++) wrap = Math.max(wrap, d2(i));
+  expect(wrap, `${tag} (kink)`).toBeLessThan(all[Math.floor(n * 0.999)] * 1.5);
+  // the low band carries straight on (three turns of it filtered)
+  const low = new Float32Array(3 * n);
+  for (let k = 0; k < 3; k++) low.set(x, k * n);
+  biquad(low, sr, 'lowpass', 400, 0.7);
+  biquad(low, sr, 'lowpass', 400, 0.7);
+  const lsteps = new Float32Array(n);
+  for (let i = 0; i < n; i++) lsteps[i] = Math.abs(low[n + i] - low[n + i - 1]);
+  const lacross = lsteps[0];
+  lsteps.sort();
+  expect(lacross, `${tag} (low band)`).toBeLessThan(lsteps[Math.floor(n * 0.999)] * 1.5);
+  // no splice: as predictable across the wrap as anywhere
+  expect(spliceAt(x), `${tag} (splice)`).toBeLessThan(1);
+  // no dip (10 ms) and no bump (50 ms) in the level across the wrap
+  const win = (c: number, w: number): number => {
+    let e = 0;
+    for (let i = c - (w >> 1); i < c + (w >> 1); i++) e += x[((i % n) + n) % n] ** 2;
+    return Math.sqrt(e / w);
+  };
+  const short = Math.floor(0.01 * sr);
+  const quietest = Math.min(...Array.from({ length: 128 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 128), short)));
+  expect(win(0, short) / quietest, `${tag} (dip)`).toBeGreaterThan(0.7);
+  const w = Math.floor(0.05 * sr);
+  const levels = Array.from({ length: 64 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 64), w)).sort((p, q) => p - q);
+  expect(win(0, w) / levels[32], `${tag} (bump)`).toBeLessThan(Math.max(2, levels[60] / levels[32]));
+  let dc = 0;
+  for (const v of x) dc += v;
+  expect(Math.abs(dc / n), tag).toBeLessThan(1e-4);
+}
+
 describe('ModCar scrubbing foley', () => {
   const sr = 48000;
   const render = (kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}, seed = 1234): Float32Array => recipe(kind, o)(sr, new Rng(seed));
@@ -861,55 +914,7 @@ describe('ModCar scrubbing foley', () => {
     'loops seamlessly for 2.5 s or more: no step, no kink, no splice, no level jump at the wrap, no DC',
     () => {
       for (const kind of SCRUB_LOOPS) {
-        for (const seed of [1234, 99]) {
-          const x = render(kind, {}, seed);
-          const n = x.length;
-          const tag = `${kind} seed ${seed}`;
-          // long enough not to be heard repeating at a fast stroke (rate 1.6), short enough for the cache
-          expect(n / sr, tag).toBeGreaterThanOrEqual(2.5);
-          expect(n / sr, tag).toBeLessThan(4);
-          // the end runs on into the start: the step across the wrap is an ordinary step ...
-          const steps = new Float32Array(n);
-          for (let i = 0; i < n; i++) steps[i] = Math.abs(x[(i + 1) % n] - x[i]);
-          const across = steps[n - 1];
-          steps.sort();
-          expect(across, `${tag} (step)`).toBeLessThan(steps[Math.floor(n * 0.999)]);
-          // ... and so is the curvature
-          const d2 = (i: number): number => Math.abs(x[(i + 1) % n] - 2 * x[i % n] + x[(i - 1 + n) % n]);
-          const all = new Float32Array(n);
-          for (let i = 0; i < n; i++) all[i] = d2(i);
-          all.sort();
-          let wrap = 0;
-          for (let i = n - 3; i <= n + 3; i++) wrap = Math.max(wrap, d2(i));
-          expect(wrap, `${tag} (kink)`).toBeLessThan(all[Math.floor(n * 0.999)] * 1.5);
-          // the low band carries straight on (three turns of it filtered)
-          const low = new Float32Array(3 * n);
-          for (let k = 0; k < 3; k++) low.set(x, k * n);
-          biquad(low, sr, 'lowpass', 400, 0.7);
-          biquad(low, sr, 'lowpass', 400, 0.7);
-          const lsteps = new Float32Array(n);
-          for (let i = 0; i < n; i++) lsteps[i] = Math.abs(low[n + i] - low[n + i - 1]);
-          const lacross = lsteps[0];
-          lsteps.sort();
-          expect(lacross, `${tag} (low band)`).toBeLessThan(lsteps[Math.floor(n * 0.999)] * 1.5);
-          // no splice: as predictable across the wrap as anywhere
-          expect(spliceAt(x), `${tag} (splice)`).toBeLessThan(1);
-          // no dip (10 ms) and no bump (50 ms) in the level across the wrap
-          const win = (c: number, w: number): number => {
-            let e = 0;
-            for (let i = c - (w >> 1); i < c + (w >> 1); i++) e += x[((i % n) + n) % n] ** 2;
-            return Math.sqrt(e / w);
-          };
-          const short = Math.floor(0.01 * sr);
-          const quietest = Math.min(...Array.from({ length: 128 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 128), short)));
-          expect(win(0, short) / quietest, `${tag} (dip)`).toBeGreaterThan(0.7);
-          const w = Math.floor(0.05 * sr);
-          const levels = Array.from({ length: 64 }, (_, k) => win(Math.floor(((k + 0.5) * n) / 64), w)).sort((p, q) => p - q);
-          expect(win(0, w) / levels[32], `${tag} (bump)`).toBeLessThan(Math.max(2, levels[60] / levels[32]));
-          let dc = 0;
-          for (const v of x) dc += v;
-          expect(Math.abs(dc / n), tag).toBeLessThan(1e-4);
-        }
+        for (const seed of [1234, 99]) expectSeamless(render(kind, {}, seed), sr, `${kind} seed ${seed}`);
         // the splice check does see a loop cut short (3 or 7 ms)
         const x = render(kind);
         expect(
@@ -1169,5 +1174,272 @@ describe('ModCar scrubbing foley', () => {
     expect(count('clean_car_done')).toBe(1);
     expect(count('highlight_ping')).toBe(1);
     expect(count('tool_worn')).toBe(3);
+  });
+});
+
+// ------------------------------------------------------------------ spray paint (Batch 6)
+
+const SPRAY_SHOTS: readonly FoleyShot[] = ['spray_rattle', 'spray_start', 'spray_sputter', 'paint_done'];
+
+describe('ModCar spray-paint foley', () => {
+  const sr = 48000;
+  const render = (kind: FoleyShot | FoleyLoop, seed = 1234): Float32Array => recipe(kind)(sr, new Rng(seed));
+  /** seeds spread over the whole range (a small one's first draw is small, and a recipe's first choice with it) */
+  const mixed = (s: number): number => Math.imul(s, 2654435761) | 0;
+  const rmsOf = (x: Float32Array, a: number, b: number): number => {
+    let e = 0;
+    const i0 = Math.floor(a * sr);
+    const i1 = Math.min(x.length, Math.floor(b * sr));
+    for (let i = i0; i < i1; i++) e += x[i] * x[i];
+    return Math.sqrt(e / Math.max(1, i1 - i0));
+  };
+  /** a player on a stand-in context: the renderings it makes itself (its own seeds), and what it plays */
+  const player = (): { f: Foley; sources: KeptSource[]; made: (kind: FoleyShot | FoleyLoop) => Float32Array[] } => {
+    const { ctx, made, sources } = keptContext(sr);
+    const f = new Foley(ctx as unknown as BaseAudioContext, ctx.destination as unknown as AudioNode);
+    return {
+      f,
+      sources,
+      made: (kind) => {
+        const a = made.length;
+        f.warm([kind]);
+        return made.slice(a);
+      },
+    };
+  };
+  /** dips in the first 80 ms: a 2 ms window under 55 % of the mean of those 4 ms either side of it */
+  const dips = (x: Float32Array): number => {
+    const w = 0.002;
+    const lv: number[] = [];
+    for (let t = 0.008; t + w <= 0.08; t += w) lv.push(rmsOf(x, t, t + w));
+    let count = 0;
+    for (let k = 2; k < lv.length - 2; k++) if (lv[k] < 0.55 * 0.5 * (lv[k - 2] + lv[k + 2])) count++;
+    return count;
+  };
+  /** the main knocks of a rattle: 2 ms windows over a quarter of its loudest, 60 ms or more apart (the bounces are closer) */
+  const knocks = (x: Float32Array): number[] => {
+    const w = Math.floor(0.002 * sr);
+    const env: number[] = [];
+    for (let o = 0; o + w <= x.length; o += w) {
+      let e = 0;
+      for (let i = o; i < o + w; i++) e += x[i] * x[i];
+      env.push(Math.sqrt(e / w));
+    }
+    const max = Math.max(...env);
+    const at: number[] = [];
+    env.forEach((v, k) => {
+      const t = (k * w) / sr;
+      if (v > 0.25 * max && (at.length === 0 || t - at[at.length - 1] >= 0.06)) at.push(t);
+    });
+    return at;
+  };
+
+  it('has the spray sounds in the catalogue, with levels, and keeps the older spray and shake as they were', () => {
+    for (const k of [...SPRAY_SHOTS, 'spray_hiss'] as const) {
+      expect([...FOLEY_SHOTS, ...FOLEY_LOOPS] as string[], k).toContain(k);
+      expect(foleyLevel(k), k).toBeGreaterThan(0);
+      expect(foleyLevel(k), k).toBeLessThanOrEqual(1);
+    }
+    // (other code may use them)
+    expect(foleyLevel('spray')).toBe(0.45);
+    expect(foleyLevel('spray_shake')).toBe(0.45);
+    expect(render('spray').length / sr).toBeCloseTo(1.95, 2);
+    expect(render('spray_shake').length / sr).toBeCloseTo(0.7, 2);
+  });
+
+  it('renders every spray shot non-silent and unclipped at its level, from silence to silence, for any seed', () => {
+    for (const kind of SPRAY_SHOTS) {
+      for (const seed of [1, 1234, 777, mixed(5)]) {
+        const x = render(kind, seed);
+        const tag = `${kind} seed ${seed}`;
+        let bad = 0;
+        let dc = 0;
+        for (const v of x) {
+          if (!Number.isFinite(v)) bad++;
+          dc += v;
+        }
+        expect(bad, tag).toBe(0);
+        const s = measure(x, sr);
+        expect(s.peak * foleyLevel(kind) * 1.08, tag).toBeLessThan(1);
+        expect(s.rms, tag).toBeGreaterThan(0.003);
+        expect(Math.abs(x[0]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(x[x.length - 1]), tag).toBeLessThan(1e-3);
+        expect(Math.abs(dc / x.length), tag).toBeLessThan(0.01 * s.peak);
+      }
+    }
+  });
+
+  it('lasts as long as the brief says', () => {
+    const len = (k: FoleyShot): number => render(k).length / sr;
+    expect(len('spray_rattle')).toBeGreaterThan(0.7);
+    expect(len('spray_rattle')).toBeLessThan(0.95);
+    expect(len('spray_start')).toBeGreaterThan(0.1);
+    expect(len('spray_start')).toBeLessThan(0.2);
+    expect(len('spray_sputter')).toBeGreaterThan(0.6);
+    expect(len('spray_sputter')).toBeLessThan(0.85);
+    expect(len('paint_done')).toBeGreaterThan(0.5);
+    expect(len('paint_done')).toBeLessThan(0.7);
+  });
+
+  it('rattles the can: five to seven clacks, never quite evenly, each ringing the tin', () => {
+    const counts = new Set<number>();
+    for (let s = 1; s <= 16; s++) {
+      const x = render('spray_rattle', mixed(s));
+      const k = knocks(x);
+      expect(k.length, `seed ${s}`).toBeGreaterThanOrEqual(5);
+      expect(k.length, `seed ${s}`).toBeLessThanOrEqual(7);
+      counts.add(k.length);
+      // a hand shaking it: the gaps between the clacks never all alike
+      const gaps = k.slice(1).map((t, i) => t - k[i]);
+      const mean = gaps.reduce((p, q) => p + q, 0) / gaps.length;
+      const sd = Math.sqrt(gaps.reduce((p, q) => p + (q - mean) ** 2, 0) / gaps.length);
+      expect(sd / mean, `seed ${s}`).toBeGreaterThan(0.005);
+      // the tin: nearly all of it in its shell modes' range, its strongest at one of them
+      const P = powerOf(x);
+      expect(shareOf(P, sr, 1000, 6000), `seed ${s}`).toBeGreaterThan(0.85);
+      const top = peaksOf(P, sr, 1000, 6000, 1)[0];
+      expect(Math.min(...[1180, 1720, 2380, 3150, 4060, 5240].map((f) => Math.abs(top / f - 1))), `seed ${s}: ${top} Hz`).toBeLessThan(0.06);
+    }
+    expect(counts.size).toBeGreaterThan(1);
+    // the player's own three renderings: 5, 6 and 7 clacks
+    expect(
+      player()
+        .made('spray_rattle')
+        .map((x) => knocks(x).length)
+        .sort((a, b) => a - b),
+    ).toEqual([5, 6, 7]);
+  });
+
+  it(
+    'hisses steadily, as a pressurised can does: seamless, with more body than the old spray, the tin ringing faintly in it',
+    () => {
+      const old = powerOf(render('spray'));
+      for (const seed of [1234, 99]) {
+        const x = render('spray_hiss', seed);
+        const tag = `seed ${seed}`;
+        expectSeamless(x, sr, tag);
+        // steady: no pulsing (a little fizz in it, but its level holds from one 50 ms to the next)
+        expect(textureOf(x, sr).cv50, tag).toBeLessThan(0.15);
+        const P = powerOf(x);
+        expect(centroidOf(P, sr), tag).toBeGreaterThan(4500);
+        expect(centroidOf(P, sr), tag).toBeLessThan(7500);
+        // a body under it, which the old spray has not
+        expect(shareOf(P, sr, 0, 2000), tag).toBeGreaterThan(Math.max(0.04, 4 * shareOf(old, sr, 0, 2000)));
+        expect(shareOf(P, sr, 0, 2000), tag).toBeLessThan(0.2);
+        // the can's tin: its two lowest rings stand out of the hiss
+        const tin = peaksOf(P, sr, 1500, 4500, 4);
+        for (const f of [1850, 2950]) expect(Math.min(...tin.map((p) => Math.abs(p / f - 1))), `${tag} ${f}: ${tin}`).toBeLessThan(0.03);
+      }
+    },
+    30_000,
+  );
+
+  it('opens the valve with a short pssht over the hiss easing in, then is the hiss', () => {
+    // a press as the player plays it: the loop easing in (time constant 0.03 s), the valve at its level on top
+    const p = player();
+    const hiss = p.made('spray_hiss')[0];
+    const valves = p.made('spray_start');
+    expect(valves.length).toBe(3);
+    const L = foleyLevel('spray_hiss');
+    const S = foleyLevel('spray_start');
+    for (const [v, shot] of valves.entries()) {
+      const n = Math.floor(0.4 * sr);
+      const y = new Float32Array(n);
+      const off = 9000 * (v + 1);
+      for (let i = 0; i < n; i++) y[i] = L * (1 - Math.exp(-i / sr / 0.03)) * hiss[(off + i) % hiss.length] + (i < shot.length ? S * shot[i] : 0);
+      const steady = rmsOf(y, 0.25, 0.4);
+      const db = (a: number, b: number): number => 20 * Math.log10(rmsOf(y, a, b) / steady);
+      // the pssht: a few dB over the hiss, at once
+      const onset = Math.max(db(0.005, 0.015), db(0.01, 0.02), db(0.015, 0.025));
+      expect(onset, `valve ${v}`).toBeGreaterThan(2);
+      expect(onset, `valve ${v}`).toBeLessThan(7);
+      // then the hiss's own level: no hole while the loop eases in under it, no second push
+      for (let t = 0.04; t < 0.24; t += 0.01) {
+        expect(db(t, t + 0.01), `valve ${v} at ${t.toFixed(2)} s`).toBeGreaterThan(-3);
+        expect(db(t, t + 0.01), `valve ${v} at ${t.toFixed(2)} s`).toBeLessThan(3);
+      }
+      // the sputter in its first hundredths: the rush catches and lets go (where the steady hiss never dips so)
+      expect(dips(shot), `valve ${v}`).toBeGreaterThanOrEqual(1);
+    }
+    expect(dips(hiss)).toBe(0);
+  });
+
+  it('runs dry: going on from the hiss a little weaker, coughing in fits, darker, out to nothing', () => {
+    const hiss = render('spray_hiss');
+    const hissRms = rmsOf(hiss, 0, hiss.length / sr) * foleyLevel('spray_hiss');
+    for (const seed of [1, 2, 3, mixed(7)]) {
+      const x = render('spray_sputter', seed);
+      const tag = `seed ${seed}`;
+      const begin = (rmsOf(x, 0.01, 0.07) * foleyLevel('spray_sputter')) / hissRms;
+      expect(begin, tag).toBeGreaterThan(0.7);
+      expect(begin, tag).toBeLessThan(1.1);
+      // the fits: it drops out at least three times between them (5 ms windows)
+      const w = 0.005;
+      const lv: number[] = [];
+      for (let t = 0.1; t < 0.6; t += w) lv.push(rmsOf(x, t, t + w));
+      const loudest = Math.max(...lv);
+      let drops = 0;
+      for (let k = 1; k < lv.length; k++) if (lv[k] < 0.15 * loudest && lv[k - 1] >= 0.15 * loudest) drops++;
+      expect(drops, tag).toBeGreaterThanOrEqual(3);
+      // darker as the pressure goes
+      const c0 = centroidOf(powerOf(x, 0, Math.floor(0.1 * sr) + 4096), sr);
+      const c1 = centroidOf(powerOf(x, Math.floor(0.3 * sr), Math.floor(0.7 * sr)), sr);
+      expect(c1, tag).toBeLessThan(0.85 * c0);
+      // and nothing at the end
+      expect(rmsOf(x, x.length / sr - 0.08, x.length / sr), tag).toBeLessThan(0.03 * rmsOf(x, 0, 0.1));
+    }
+  });
+
+  it('finishes a coat with a soft two-note shimmer: G6 then B6, no strike, in tune and a little under the ding', () => {
+    const ding = render('clean_ding');
+    const peakWindow = (x: Float32Array): number => {
+      let m = 0;
+      for (let t = 0; t < 0.3; t += 0.005) m = Math.max(m, rmsOf(x, t, t + 0.01));
+      return m;
+    };
+    for (const seed of [1234, 99]) {
+      const x = render('paint_done', seed);
+      const first = peaksOf(powerOf(x, 0, 4096), sr, 300, 8000, 1)[0];
+      const second = peaksOf(powerOf(x, Math.floor(0.12 * sr), Math.floor(0.4 * sr)), sr, 300, 8000, 1)[0];
+      expect(Math.abs(first / 1567.98 - 1), `${first} Hz`).toBeLessThan(0.015);
+      expect(Math.abs(second / 1975.53 - 1), `${second} Hz`).toBeLessThan(0.015);
+      // (G and B: the key of the cleaning chimes, and not the ding's D)
+      for (const f of [first, second]) expect(Math.abs(f / 1174.66 - 1)).toBeGreaterThan(0.1);
+      // it swells in where the ding is struck
+      expect(rmsOf(x, 0, 0.005) / peakWindow(x)).toBeLessThan(0.3);
+      expect(rmsOf(ding, 0, 0.005) / peakWindow(ding)).toBeGreaterThan(0.5);
+      // and has died away by its end
+      expect(rmsOf(x, x.length / sr - 0.04, x.length / sr)).toBeLessThan(0.05 * peakWindow(x));
+    }
+    // its three renderings as loud as one another, a little under the ding; played at its own pitch and level
+    const p = player();
+    const coat = p.made('paint_done');
+    expect(coat.length).toBe(3);
+    for (let k = 0; k < 6; k++) p.f.play('paint_done', { gain: 0.8 });
+    for (const s of p.sources) {
+      expect(s.playbackRate.value).toBe(1);
+      expect(s.out!.gain.value).toBeCloseTo(foleyLevel('paint_done') * 0.8, 12);
+    }
+    const loud = coat.map((x) => kLoudness(x.map((v) => v * foleyLevel('paint_done')), sr, false));
+    expect(Math.max(...loud) - Math.min(...loud)).toBeLessThan(1);
+    const dings = p.made('clean_ding').map((x) => kLoudness(x.map((v) => v * foleyLevel('clean_ding')), sr, false));
+    for (const l of loud) {
+      expect(l).toBeLessThan(Math.min(...dings) - 0.5);
+      expect(l).toBeGreaterThan(Math.max(...dings) - 4);
+    }
+  });
+
+  it('sits in the mix at full gain: the hiss as loud as the scrapes, the shake a little under it', () => {
+    const p = player();
+    const loopLoud = (k: FoleyLoop): number => kLoudness(p.made(k)[0].map((v) => v * foleyLevel(k)), sr, true);
+    const hiss = loopLoud('spray_hiss');
+    const scrapes = SCRAPES.map(loopLoud);
+    const mean = scrapes.reduce((a, b) => a + b, 0) / scrapes.length;
+    expect(Math.abs(hiss - mean)).toBeLessThan(1.5);
+    for (const x of p.made('spray_rattle')) {
+      const l = kLoudness(x.map((v) => v * foleyLevel('spray_rattle')), sr, false);
+      expect(l).toBeLessThan(hiss - 0.5);
+      expect(l).toBeGreaterThan(hiss - 5);
+    }
   });
 });

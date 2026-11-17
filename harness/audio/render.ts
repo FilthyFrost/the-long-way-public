@@ -435,6 +435,50 @@ async function renderScrub(spec: ScrubRenderSpec, sampleRate = 48000): Promise<{
   return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks, strokes, rates, loopSeconds };
 }
 
+/**
+ * Spray painting as the game will play it: the can shaken before its first use, the button pressed
+ * (the valve's pssht, the hiss started) and held, let go, pressed again with the can a little emptier
+ * (rate 0.93), the part reaching its colour, the can running dry (the hiss stopped, the sputter).
+ * Marks: each part of it, and the quiet at the end.
+ */
+async function renderSpray(sampleRate = 48000): Promise<{ pcm: string; sampleRate: number; marks: Record<string, [number, number]> }> {
+  const seconds = 7.6;
+  const ctx = new OfflineAudioContext(1, Math.ceil(seconds * sampleRate), sampleRate);
+  const f = new Foley(ctx, ctx.destination);
+  // rendered ahead, as the game should when a can is taken up
+  f.warm(['spray_rattle', 'spray_start', 'spray_hiss', 'spray_sputter', 'paint_done']);
+  const ev: SceneEvent[] = [
+    { t: 0.2, play: 'spray_rattle' },
+    { t: 1.3, play: 'spray_start' }, { t: 1.3, start: 'spray_hiss' },
+    { t: 3.8, stop: 'spray_hiss' },
+    { t: 4.4, play: 'spray_start' }, { t: 4.4, start: 'spray_hiss', opts: { rate: 0.93 } },
+    { t: 5.1, play: 'paint_done' },
+    { t: 5.9, stop: 'spray_hiss' }, { t: 5.9, play: 'spray_sputter' },
+  ];
+  // one suspend per render quantum with something to do (a quarter into it, however the browser rounds)
+  const q = 128 / sampleRate;
+  const due = new Map<number, SceneEvent[]>();
+  for (const e of ev) {
+    const k = Math.floor(e.t / q);
+    due.set(k, [...(due.get(k) ?? []), e]);
+  }
+  for (const [k, list] of due) {
+    void ctx.suspend((k + 0.25) * q).then(() => {
+      for (const e of list) {
+        if (e.play) f.play(e.play, e.opts, e.t);
+        if (e.start) f.start(e.start, e.opts);
+        if (e.stop) f.stop(e.stop);
+      }
+      void ctx.resume();
+    });
+  }
+  const out = await ctx.startRendering();
+  const marks: Record<string, [number, number]> = {
+    shake: [0.2, 1.1], press: [1.3, 1.6], held: [1.7, 3.7], released: [4.0, 4.35], press2: [4.4, 4.7], coat: [5.1, 5.75], dry: [5.9, 6.65], quiet: [6.9, 7.5],
+  };
+  return { pcm: toBase64(out.getChannelData(0)), sampleRate, marks };
+}
+
 async function checkLoops(engineId: string, sampleRate = 48000): Promise<Array<{ file: string; ratio: number; turns: number; seconds: number }>> {
   const ctx0 = new OfflineAudioContext(1, 128, sampleRate);
   const bank = await loadBank(ctx0, engineId);
@@ -491,9 +535,10 @@ declare global {
       renderFoley: typeof renderFoley;
       renderWorkshop: typeof renderWorkshop;
       renderScrub: typeof renderScrub;
+      renderSpray: typeof renderSpray;
       checkLoops: typeof checkLoops;
     };
   }
 }
 
-window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, checkLoops };
+window.__modcarAudio = { ready: true, renderEngine, renderFoley, renderWorkshop, renderScrub, renderSpray, checkLoops };

@@ -1,7 +1,8 @@
 /**
- * The 24 paints (docs/MODCAR.md §5.3). Picked from the colours of specs/art/STYLE.md — a little muted and
- * warm, like a hand-painted background — so that any mix of parts still sits in the picture.
- * Stored as sRGB hex (what a colour picker shows); the renderer converts to linear.
+ * The 27 paints (docs/MODCAR.md §5.3, §16: as many as Arctic Drive's spray cans come in). Picked from the
+ * colours of specs/art/STYLE.md — a little muted and warm, like a hand-painted background — so that any mix
+ * of parts still sits in the picture. Stored as sRGB hex (what a colour picker shows); the renderer converts
+ * to linear.
  */
 import type { Text } from './types';
 
@@ -35,7 +36,17 @@ export const PALETTE: readonly Paint[] = [
   { hex: 0x6f7a82, name: { zh: '石板灰', en: 'Slate' } },
   { hex: 0x2f3236, name: { zh: '炭黑', en: 'Charcoal' } },
   { hex: 0xf7f7f2, name: { zh: '白', en: 'White' } },
+  { hex: 0x2f5847, name: { zh: '云杉绿', en: 'Spruce' } },
+  { hex: 0xb4b8b4, name: { zh: '银灰', en: 'Silver' } },
+  { hex: 0x3e66a3, name: { zh: '钴蓝', en: 'Cobalt' } },
 ];
+
+/**
+ * The eight plain colours (Arctic Drive's black, blue, green, pink, purple, red, white and yellow): the small
+ * cans come only in these, the large in these but the yellow; the medium in every colour
+ */
+export const BASIC_PAINTS: readonly number[] = [22, 26, 7, 15, 17, 13, 23, 9];
+export const PAINT_YELLOW = 9;
 
 /** each frame's factory colours: [body, second tone] */
 export const FACTORY_PAINT: Record<string, [number, number]> = {

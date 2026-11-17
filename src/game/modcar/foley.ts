@@ -7,7 +7,8 @@
  * counter, the crafting bench and its hammer, the power and the lamps); scrubbing (a scraper blade
  * on grimy glass, painted metal, rust and mud, a wire brush, a wet sponge, the blade's catch as a
  * stroke begins, flakes falling, the chimes of a part come clean, of its rust gone and of a whole
- * vehicle restored, a tool worn out, the dirt shown). Each sound is a recipe that renders a short
+ * vehicle restored, a tool worn out, the dirt shown); spray paint (the can shaken, its valve opening,
+ * the hiss, a can running dry, a part come to its new colour). Each sound is a recipe that renders a short
  * Float32Array (synth.ts); the player caches a few variations of each and plays them on the game's
  * AudioContext.
  */
@@ -92,7 +93,16 @@ export type FoleyShot =
   /** a cleaning tool worn out (a sponge torn, a blade blunt, bristles gone): a dull tearing crunch (~0.3 s) */
   | 'tool_worn'
   /** the dirt that is left shown (H): a soft sonar ping with a shimmer (~0.6 s) */
-  | 'highlight_ping';
+  | 'highlight_ping'
+  // spray paint (`spray_shake` above is the older shake, kept as it was)
+  /** shaking a spray can before its first use: the mixing ball clacking five to seven times, the tin ringing short (~0.8 s) */
+  | 'spray_rattle'
+  /** the valve opening as the button goes down: a tick and a short pssht, handing over to spray_hiss (~0.16 s) */
+  | 'spray_start'
+  /** a can running dry: the hiss coughing and spitting out to nothing (~0.7 s) */
+  | 'spray_sputter'
+  /** a part has reached the can's colour: a soft two-note glossy shimmer (~0.6 s) */
+  | 'paint_done';
 
 export type FoleyLoop =
   | 'ratchet'
@@ -123,7 +133,9 @@ export type FoleyLoop =
   /** a steel wire brush scrubbing metal: dense high scratching, a metallic sheen, a slight back-and-forth swell */
   | 'brush_wire'
   /** a wet sponge scrubbed over a panel: squelches, foam crackling, a wet squeak now and then (richer than `sponge`) */
-  | 'sponge_scrub';
+  | 'sponge_scrub'
+  /** a spray can held open: a steady pressurised hiss, the paint fizzing (the older `spray` is kept as it was) */
+  | 'spray_hiss';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
@@ -2099,6 +2111,208 @@ function highlightPing(): Recipe {
   };
 }
 
+// ------------------------------------------------------------------ spray paint: the can shaken, its valve, the hiss, running dry, the coat done
+
+/** the jet of an aerosol: broadband, its weight round 5 kHz, a little body under it (a shot's worth: filtered from silence) */
+function jetNoise(n: number, sr: number, rng: Rng): Float32Array {
+  const x = noise(n, rng);
+  biquad(x, sr, 'highpass', 700, 0.5);
+  biquad(x, sr, 'peaking', 5000, 0.5, 4);
+  biquad(x, sr, 'lowpass', 11000, 0.7);
+  return x;
+}
+
+/**
+ * A spray can held open: the propellant's jet hissing out of the nozzle (broadband, weighted round
+ * 5 kHz, a little body), the paint fizzing as it atomises (fine crackle), the plume's softer rush,
+ * the can's tin ringing faintly with it; steady, as a pressurised can is, only its turbulence
+ * wandering a little. Seamless.
+ */
+function sprayHiss(): Recipe {
+  return (sr, rng) => {
+    const len = 3.2;
+    const n = Math.floor(len * sr);
+    const jet = loopFilter(noise(n, rng), sr, [['highpass', 700, 0.5], ['peaking', 5000, 0.5, 4], ['lowpass', 11000, 0.7], ['lowpass', 13000, 0.7]]);
+    const plume = loopFilter(noise(n, rng), sr, [['bandpass', 1300, 0.8]]);
+    // the paint atomising: a fine fizz of tiny crackles, thicker and thinner
+    const thick = wander(rng, 10, 0.6, 1);
+    const fizz = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 2200, (t) => thick(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.15, 1.8), rng.range(0.00005, 0.0002), rng))), sr, [['highpass', 3000, 0.7], ['lowpass', 11000, 0.7]]);
+    tame(fizz, 12);
+    // the can's tin, rung faintly by the flow through it
+    const tin = new Float32Array(n);
+    for (const [f, g] of [[1850, 1], [2950, 0.7], [4150, 0.5]] as const) mixInto(tin, loopFilter(jet, sr, [['bandpass', f, 40]]), 0, g);
+    // its turbulence: a small, irregular flutter, and a slower drift
+    const flutter = wander(rng, Math.round(len * 14), -1, 1);
+    const drift = wander(rng, 8, -1, 1);
+    const [rj, rp, rf, rt] = [rmsOf(jet), rmsOf(plume), rmsOf(fizz), rmsOf(tin)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = (jet[i] / rj + (0.28 * plume[i]) / rp + (0.55 * fizz[i]) / rf + (0.12 * tin[i]) / rt) * (1 + 0.07 * flutter(u) + 0.05 * drift(u));
+    }
+    return normalize(settle(centre(out), sr), 0.45);
+  };
+}
+
+/** the valve opening as the button goes down: the actuator's tick, a pssht as the propellant rushes in, a spit or two, then handing over to the hiss (~0.16 s) */
+function sprayStart(): Recipe {
+  return (sr, rng) => {
+    const len = 0.16;
+    const x = S(sr, len);
+    // the actuator going down
+    strike(x, sr, 0, [[rng.range(2400, 3000), 1, 0.004], [rng.range(4200, 5000), 0.5, 0.003]], 0.25, rng);
+    burst(x, sr, 0, 0.002, 0.2, rng, { attack: 0.0001, decay: 0.0004, filter: [['highpass', 2000], ['lowpass', 9000]] });
+    // the rush: a little over the hiss it becomes, sputtering in the first few hundredths, then handing over
+    const a = Math.floor(0.006 * sr);
+    const m = x.length - a;
+    const h = jetNoise(m, sr, rng);
+    const gaps: Array<[number, number]> = [];
+    // (in its first few hundredths, before the hiss easing in under it fills them)
+    for (let k = 0, t = rng.range(0.008, 0.013); k < 2 + Math.floor(rng.next() * 3) && t < 0.045; k++) {
+      const d = rng.range(0.003, 0.007);
+      gaps.push([t, t + d]);
+      t += d + rng.range(0.004, 0.012);
+    }
+    for (let i = 0; i < m; i++) {
+      const t = i / sr;
+      // (the rush over a sustain that, with the hiss easing in under it, holds the level the hiss settles at)
+      let e = Math.min(1, t / 0.004) * (0.55 + 1.05 * Math.exp(-t / 0.02));
+      for (const [g0, g1] of gaps) if (t >= g0 && t < g1) e *= 0.15 + 0.85 * Math.abs(Math.cos((Math.PI * (t - g0)) / (g1 - g0)));
+      if (t > 0.08) e *= Math.exp(-(t - 0.08) / 0.025);
+      h[i] *= e;
+    }
+    mixInto(x, h, a, 1);
+    // the spits: paint and air through together
+    for (const [g0] of gaps) if (rng.next() < 0.7) burst(x, sr, a + Math.floor((g0 + 0.002) * sr), rng.range(0.003, 0.006), 0.6, rng, { attack: 0.0002, decay: 0.0015, filter: [['bandpass', rng.range(1200, 3000), 1.2]] });
+    // the propellant's soft low puff as it expands
+    burst(x, sr, a, 0.03, 0.25, rng, { attack: 0.002, decay: 0.01, filter: [['lowpass', 900], ['lowpass', 1200]] });
+    return normalize(edges(x, sr, 0.5, 15), 0.6);
+  };
+}
+
+/** a can running dry: the hiss weakening, coughing and spitting in fits, darker each time, a last weak puff and nothing (~0.7 s) */
+function spraySputter(): Recipe {
+  return (sr, rng) => {
+    const len = 0.75;
+    const x = S(sr, len);
+    const n = x.length;
+    const bright = jetNoise(n, sr, rng);
+    const dark = Float32Array.from(bright);
+    biquad(dark, sr, 'lowpass', 2500, 0.7);
+    biquad(dark, sr, 'lowpass', 3000, 0.7);
+    // the fits: [start, length, level, brightness]
+    const fits: Array<[number, number, number, number]> = [[0, rng.range(0.08, 0.12), 0.75, 1]];
+    let t = fits[0][1] + rng.range(0.015, 0.035);
+    let lvl = 0.9;
+    while (t < 0.46) {
+      const d = rng.range(0.025, 0.07);
+      fits.push([t, d, lvl * rng.range(0.75, 1), Math.max(0, 1 - t / 0.5)]);
+      t += d + rng.range(0.015, 0.06) * (1 + t);
+      lvl *= rng.range(0.72, 0.85);
+    }
+    // the last puff: gas alone, weak and dull, done by two thirds of a second
+    fits.push([Math.min(0.56, t + rng.range(0.02, 0.05)), rng.range(0.07, 0.1), 0.18, 0]);
+    for (let i = 0; i < n; i++) {
+      const tt = i / sr;
+      let e = 0;
+      let b = 0;
+      for (const [f0, d, l, br] of fits) {
+        if (tt < f0 || tt > f0 + d + 0.03) continue;
+        const u = (tt - f0) / d;
+        // each fit: a fast catch, held, let go
+        const env = Math.min(1, (tt - f0) / 0.003) * (u < 1 ? 1 - 0.3 * u : Math.exp(-(tt - f0 - d) / 0.008));
+        if (l * env > e) {
+          e = l * env;
+          b = br;
+        }
+      }
+      // the first fit still hisses steadily, only weakening; the rest flutter as they cough
+      x[i] = e * (b * bright[i] + (1 - b) * dark[i] * 1.6) * (1 + 0.25 * Math.sin(2 * Math.PI * 37 * tt + 3 * Math.sin(2 * Math.PI * 9 * tt)));
+    }
+    // paint spitting out with the gas: little splats and crackles in the fits
+    for (const [f0, d, l] of fits.slice(1)) {
+      if (rng.next() < 0.75) {
+        const at = f0 + rng.range(0, d);
+        burst(x, sr, Math.floor(at * sr), rng.range(0.004, 0.01), 0.5 * l, rng, { attack: 0.0003, decay: 0.002, filter: [['bandpass', rng.range(800, 1600), 1.4]] });
+        for (let k = 0; k < 3 + Math.floor(rng.next() * 5); k++) grainInto(x, sr, at + rng.range(0, 0.015), 0.5 * l * rng.range(0.3, 1), rng.range(0.0001, 0.0004), rng);
+      }
+    }
+    return normalize(edges(x, sr, 0.5, 30), 0.6);
+  };
+}
+
+/** the shell modes of a spray can's thin tin (65 mm across, 20 cm tall): each its weight and ring, short with the paint in it */
+const CAN_MODES: ReadonlyArray<readonly [number, number, number]> = [[1180, 0.6, 0.016], [1720, 1, 0.014], [2380, 0.8, 0.012], [3150, 0.6, 0.01], [4060, 0.4, 0.008], [5240, 0.25, 0.006]];
+
+/**
+ * Shaking a spray can before its first use: the mixing ball clacking end to end, five to seven
+ * times as a hand shakes it (never quite evenly), each clack a hard knock that bounces once or twice
+ * ("kl-lack"), the tin ringing short round it with the paint damping it, the paint sloshing (~0.8 s)
+ */
+function sprayRattle(): Recipe {
+  return (sr, rng) => {
+    const len = 0.85;
+    const x = S(sr, len);
+    const count = 5 + Math.floor(rng.next() * 3);
+    // the hand: a little slower to start, then brisk
+    const gap = 0.7 / count;
+    let t = rng.range(0.005, 0.02);
+    for (let k = 0; k < count; k++) {
+      // up against the valve cup (harder, brighter), down on the domed bottom through the paint (duller)
+      const top = k % 2 === 0;
+      const a = (top ? 1 : 0.75) * rng.range(0.75, 1) * (k === count - 1 ? 0.8 : 1);
+      // the knock and its bounces (the ball coming to rest against the end in a few hundredths)
+      let bt = 0;
+      let ba = a;
+      const bounces = 1 + Math.floor(rng.next() * 3);
+      for (let j = 0; j <= bounces; j++) {
+        const at = Math.floor((t + bt) * sr);
+        burst(x, sr, at, 0.003, 0.7 * ba, rng, { attack: 0.0001, decay: 0.0007, filter: [['bandpass', rng.range(2500, 5500), 0.9], ['lowpass', 11000]] });
+        strike(x, sr, at, [[rng.range(6000, 8500), 1, 0.001]], 0.2 * ba, rng);
+        strike(x, sr, at, CAN_MODES.map(([f, g, d], i) => [f * rng.range(0.96, 1.04), g * rng.range(0.4, 1.2) * (top ? 1 : 1.25 - 0.12 * i), d * (top ? 1 : 0.7)] as [number, number, number]), 0.3 * ba, rng, 0.015);
+        bt += rng.range(0.006, 0.016) * (1 - 0.25 * j);
+        ba *= rng.range(0.25, 0.45);
+      }
+      // the paint sloshing after it
+      burst(x, sr, Math.floor((t + 0.01) * sr), rng.range(0.05, 0.08), 0.08 * a, rng, { attack: 0.015, decay: 0.025, filter: [['lowpass', 800], ['highpass', 200]] });
+      t += gap * rng.range(0.82, 1.18) * (k === 0 ? 1.15 : 1);
+    }
+    return normalize(edges(x, sr, 0.5, 30), 0.6);
+  };
+}
+
+/**
+ * A part has reached the can's colour: a soft glossy shimmer, two pure notes swelling in a major
+ * third apart (G6, then B6: the key of the cleaning chimes, above the ding), light sliding over the
+ * new coat, a few glints (~0.6 s). Softer than the ding, no strike: a coat drying to a shine.
+ */
+function paintDone(): Recipe {
+  return (sr, rng) => {
+    const len = 0.62;
+    const x = S(sr, len);
+    const G6 = 1567.98;
+    const B6 = 1975.53;
+    // (the notes the same every time, phases fixed: only the sheen and the glints differ)
+    bellInto(x, sr, 0, G6, 0.8, 0.2, 3.5, rng, 0.02, 0.25, 0);
+    bellInto(x, sr, 0, G6 * 2, 0.1, 0.07, 0, rng, 0.015, 0.38, 0);
+    bellInto(x, sr, 0.085, B6, 1, 0.24, 4.2, rng, 0.02, 0.25, 0);
+    bellInto(x, sr, 0.085, B6 * 2, 0.08, 0.07, 0, rng, 0.015, 0.38, 0);
+    // the sheen: a breath of air sliding up over the gloss
+    const m = Math.floor(0.3 * sr);
+    const sw = sweptBand(noise(m, rng), sr, (tt) => 2500 + 6500 * Math.min(1, tt / 0.3), 4);
+    for (let i = 0; i < m; i++) sw[i] *= Math.pow(Math.sin((Math.PI * i) / m), 2);
+    mixInto(x, sw, Math.floor(rng.range(0.03, 0.05) * sr), 0.15);
+    // glints
+    let gt = rng.range(0.09, 0.12);
+    for (const h of [3, 4, 5, 6]) {
+      ring(x, sr, Math.floor(gt * sr), G6 * h * (1 + 0.002 * rng.gauss()), rng.range(0.03, 0.05) * (1 - 0.12 * (h - 3)), rng.range(0.025, 0.045), rng.range(0, 6.283));
+      gt += rng.range(0.022, 0.034);
+    }
+    for (let i = Math.floor(0.45 * sr); i < x.length; i++) x[i] *= Math.max(0, 1 - (i / sr - 0.45) / 0.17);
+    return normalize(edges(x, sr, 1, 20), 0.6);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -2115,6 +2329,9 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   // scrubbing (the catch and the chimes over a scrub loop at full gain: the catch a touch under it, the
   // ding -22.5 like the bench's, the fanfare -20.5, the flakes falling far under it at -44)
   scrape_start: 0.63, flake_drop: 0.35, clean_ding: 0.34, clean_rust_done: 0.29, clean_car_done: 0.37, tool_worn: 0.7, highlight_ping: 0.3,
+  // spray paint (the valve's pssht set against spray_hiss easing in under it: a few dB over it, then the hiss's own level;
+  // the sputter going on from it a little weaker; the shake a little under it; the coat done a little under the ding)
+  spray_rattle: 0.42, spray_start: 0.17, spray_sputter: 0.13, paint_done: 0.27,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
@@ -2122,6 +2339,7 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
   recycler_run: 0.17, recycler_grind: 0.23, lamp_buzz: 0.03,
   // (at gain 1 the scrapes and the brush about as loud as the ratchet, -30 LUFS, rust a touch harder, mud and the sponge softer)
   scrape_glass: 0.29, scrape_metal: 0.39, scrape_rust: 0.32, scrape_mud: 0.36, brush_wire: 0.29, sponge_scrub: 0.38,
+  spray_hiss: 0.27,
 };
 
 /**
@@ -2132,7 +2350,7 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
 const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1 };
 
 /** the chimes are tuned: they play at their own pitch and level every time (detuned by a percent or so they would be out of tune with one another, and with themselves) */
-const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping']);
+const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done']);
 
 function massClass(m: number): number {
   // 0.25, 1, 4, 16, 64, 250 kg classes keep the cache small
@@ -2192,6 +2410,10 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'clean_car_done': return cleanCarDone();
     case 'tool_worn': return toolWorn();
     case 'highlight_ping': return highlightPing();
+    case 'spray_rattle': return sprayRattle();
+    case 'spray_start': return sprayStart();
+    case 'spray_sputter': return spraySputter();
+    case 'paint_done': return paintDone();
     case 'recycler_run': return recyclerRun();
     case 'recycler_grind': return recyclerGrind();
     case 'lamp_buzz': return lampBuzz();
@@ -2201,6 +2423,7 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'scrape_mud': return scrapeMud();
     case 'brush_wire': return brushWire();
     case 'sponge_scrub': return spongeScrub();
+    case 'spray_hiss': return sprayHiss();
     case 'glug': return glugLoop();
     case 'breath': return breathLoop();
     case 'heart': return heartLoop();

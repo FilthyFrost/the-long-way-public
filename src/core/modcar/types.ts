@@ -430,14 +430,22 @@ export interface Fluids {
   charge?: number;
 }
 
+/** a coat of paint going on (paint.ts): the colour it started from (sRGB hex), how far along it is (0…1) */
+export interface PaintMix {
+  from: number;
+  t: number;
+}
+
 /** one real part: what it is and the state it is in */
 export interface PartInstance {
   uid: string;
   part: string;
   /** condition 0 (wrecked) … 1 (new) */
   cond: number;
-  /** palette index of its paint; −1 = its own factory finish */
+  /** palette index of its paint; −1 = its own factory finish (a door's, a bonnet's: the body's colour) */
   paint: number;
+  /** a spray can's coat on its way to that paint, left half-done (paint.ts) */
+  paintMix?: PaintMix;
   dirt: number;
   rust: number;
   /** caked grime and scale over the dirt (a barn find, a wreck): the scraper's (docs/MODCAR.md §15) */
@@ -461,6 +469,8 @@ export interface Build {
   /** the frame's own paint (palette index) and second colour */
   paint: number;
   paint2: number;
+  /** a spray can's coat on its way to that paint, left half-done (paint.ts) */
+  paintMix?: PaintMix;
   dirt: number;
   rust: number;
   /** caked grime and scale on the body (its windows too): the scraper's */

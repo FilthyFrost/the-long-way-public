@@ -12,22 +12,27 @@
  * With a sponge, a scraper or a wire brush the left button held on a part (or the body) scrubs it (docs/MODCAR.md
  * §15): the view holds still and the mouse moves the tool over the surface, as a finger on a screen, every
  * stroke taking a band of dirt off where it goes (grime.ts); E still opens doors and lids.
+ *
+ * With a spray can (Arctic Drive's, §16): the button held on the body, a door, a lid, a bumper or a mirror
+ * paints it, its colour going over to the can's while the can empties (paint.ts); aimed at one, the buttons
+ * do nothing else (no door opens under the nozzle).
  */
 import { frameVariant } from './assets';
 import * as THREE from 'three';
 import { fitPart, fitSub, mountsFor, removePart, removeSub, subMountsOf } from '../../core/modcar/build';
 import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
-import { PALETTE } from '../../core/modcar/palette';
+import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
+import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
 import { itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
-import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, workSurface, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
+import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
 import type { Land } from '../../core/onfoot/land';
 import { SolidSet, type SolidSource } from '../../core/world/solids';
 import { GhostLayer, type GhostSpec } from './ghosts';
 import type { Action, SlotView, TransferView } from './hudItems';
-import { deviceCard, fitCard, FUEL_ZH, itemCard, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
+import { deviceCard, fitCard, FUEL_ZH, hexCss, itemCard, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
 import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
@@ -59,7 +64,8 @@ type Target = (
   | { kind: 'pour'; v: ModVehicle; dist: number }
   /** the filler flap (or a motorcycle's tank cap), empty-handed: E opens and shuts it */
   | { kind: 'cap'; v: ModVehicle; dist: number }
-  | { kind: 'surface'; v: ModVehicle; mount: MountDef | null; dist: number }
+  /** a spray can on what takes paint (the body, a door, a lid, a bumper, a mirror; lying about too) */
+  | { kind: 'paint'; aim: PaintAim; dist: number }
   | { kind: 'enter'; v: ModVehicle; dist: number }
   | { kind: 'device'; device: GarageDevice; dist: number }
   /** a fuel tank that is not a vehicle's (the generator's): empty hands open its cap, a jerrycan pours */
@@ -85,6 +91,25 @@ export interface ScrubHit {
   normal: THREE.Vector3;
   dist: number;
   glass: boolean;
+}
+
+/** what a spray can is on (paint.ts): the body or a part of a vehicle, or a part lying about, and the point */
+export interface PaintAim {
+  v: ModVehicle | null;
+  loose: Loose | null;
+  /** the part (null: the vehicle's body), the mount it is on */
+  inst: PartInstance | null;
+  mount: string | null;
+  /** the look's owner (CarMaterials) */
+  owner: string;
+  /** what to call it ("左前门", the vehicle's name for its body) */
+  label: string;
+  /** where (render space), the surface's normal there, how far from the eye */
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  dist: number;
+  /** it takes paint (else: a seat, a wheel, a lamp — said so) */
+  paintable: boolean;
 }
 
 /** the scrubbing in hand: the view held still, the mouse moving the tool over the surface */
@@ -150,6 +175,10 @@ export interface PlayerHost {
   scrubStroke(hit: ScrubHit, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, tool: Tool, c: Cleaner, dt: number): void;
   /** the scrubbing stopped (the button let go): what it was last on */
   scrubEnd(last: ScrubHit | null, tool: Tool): void;
+  /** what a spray can held along the ray would paint (the thing the ray meets first, within far) */
+  paintCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): PaintAim | null;
+  /** the can sprayed at it for dt seconds: the coat goes on, the can empties (paint.ts) */
+  spray(aim: PaintAim, can: Tool, dt: number): SprayResult;
 }
 
 /** a zone is in reach: one of the panels it is reached through open, or not there at all */
@@ -197,8 +226,12 @@ export class ModPlayer {
   showCardOn = true;
   /** the item cards (I shows and hides them) */
   cardsOn = true;
-  /** the colour a spray can is set to */
-  paintIndex = 3;
+  /** with a spray can: what it is on (paintable or not) */
+  paintAim: PaintAim | null = null;
+  /** spraying (the button held on what takes paint, paint in the can): what, how far along its coat is */
+  spraying: { aim: PaintAim; t: number } | null = null;
+  /** the button went down with an empty can (the game sputters) */
+  sprayDry = false;
   /** the turn of the thing about to be stowed (the wheel, in steps of 15°), relative to the vehicle */
   stowYaw = 0;
   /** the vehicle the line of sight is on (its body, within reach): G held puts the thing in it */
@@ -206,7 +239,6 @@ export class ModPlayer {
   /** progress of the hold in hand (0…1), and what it is for (a target key) */
   progress = 0;
   private progressKey = '';
-  private surfaceT = 0;
   private dropT = 0;
   /**
    * A fit or a take-off just finished with the button still down: nothing more until it is let go (with
@@ -301,8 +333,6 @@ export class ModPlayer {
     this.sel = i;
     this.progress = 0;
     this.dropT = 0;
-    const h = this.held;
-    if (h?.kind === 'tool' && h.tool.kind === 'spray') this.paintIndex = h.tool.colour ?? this.paintIndex;
     this.host.sound('pickup', 0.3);
   }
 
@@ -424,12 +454,7 @@ export class ModPlayer {
       this.stowYaw += (delta > 0 ? -1 : 1) * (Math.PI / 12);
       return;
     }
-    if (this.held?.kind === 'tool' && this.held.tool.kind === 'spray') {
-      this.paintIndex = (this.paintIndex + (delta > 0 ? 1 : -1) + PALETTE.length) % PALETTE.length;
-      this.held.tool.colour = this.paintIndex;
-      return;
-    }
-    // (otherwise the wheel goes through the hotbar)
+    // (otherwise the wheel goes through the hotbar: a spray can is one colour, Arctic Drive's)
     this.select((this.sel + (delta > 0 ? 1 : this.slots.length - 1)) % this.slots.length);
   }
 
@@ -576,7 +601,19 @@ export class ModPlayer {
     }
 
     const liquid = held?.kind === 'tool' ? liquidOf(held.tool) : null;
-    const working = held?.kind === 'tool' && held.tool.kind === 'spray';
+    // a spray can: the exact thing the mark is on, from its meshes; on what takes paint the buttons only
+    // paint (Arctic Drive's lock: no door opens under the nozzle, nothing is picked up)
+    this.paintAim = null;
+    if (held?.kind === 'tool' && held.tool.kind === 'spray') {
+      const a = this.host.paintCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), REACH);
+      this.paintAim = a;
+      if (a?.paintable && !(a.v && moving(a.v))) {
+        // (G held still packs the can into the vehicle the mark is on)
+        this.lookVehicle = a.v;
+        this.scrubAim = null;
+        return { kind: 'paint', aim: a, dist: a.dist };
+      }
+    }
     // a cleaning tool: the exact point of the part (or body) the mark is on, from its meshes
     this.scrubAim = null;
     if (held?.kind === 'tool' && cleanerOf(held.tool)) {
@@ -584,7 +621,7 @@ export class ModPlayer {
     }
     // something in the hands held into a boot, a bed, onto a seat: where it would go (a shut lid or door
     // over it: that is what E does, open it first)
-    if (held && !working) {
+    if (held) {
       const aim = this.host.cargo.aim(this.near(REACH + 1), this.ray, held, this.stowYaw);
       if (aim && !moving(aim.v)) {
         if (zoneOpen(aim.v, aim.zone)) better({ kind: 'stow', aim, dist: aim.dist + 0.02 });
@@ -600,14 +637,15 @@ export class ModPlayer {
       // (a thing in a boot or a bed wins over the vehicle's coarse body box round it)
       if (r) better({ kind: 'loose', loose: r.loose, dist: r.loose.riding ? Math.max(0, r.dist - 1.2) : r.dist, at: r.dist });
     }
-    // with a can the doors and lids still open (the bonnet over the radiator and the engine)
-    if (liquid) this.panels(better, 0.05);
+    // with a can the doors and lids still open (the bonnet over the radiator and the engine); a spray can
+    // off what takes paint too
+    if (liquid || this.paintAim) this.panels(better, 0.05);
     let lookAt: ModVehicle | null = null;
     let lookD = Infinity;
     for (const v of this.near(REACH + 1)) {
       let onPart = false;
-      // parts on vehicles (empty hands: to take off; a spray can or sponge: to work on)
-      if (!held || working) {
+      // parts on vehicles (empty hands: to take off)
+      if (!held) {
         for (const m of v.view.frame.mounts) {
           if (!v.build.parts[m.id]) continue;
           const b = v.view.boundsOf(m.id, this.box);
@@ -617,7 +655,7 @@ export class ModPlayer {
           const d = p.distanceTo(this.ray.origin);
           if (d > REACH) continue;
           onPart = true;
-          better(working ? { kind: 'surface', v, mount: m, dist: d } : { kind: 'part', v, mount: m, dist: d });
+          better({ kind: 'part', v, mount: m, dist: d });
         }
       }
       // the fillers: a can lines up with the one its liquid goes into; empty hands open and shut the flap
@@ -637,8 +675,7 @@ export class ModPlayer {
         lookAt = v;
         lookD = d;
       }
-      if (working) better({ kind: 'surface', v, mount: null, dist: d + 0.05, at: d });
-      else if (liquid) better({ kind: 'pour', v, dist: d + 0.3, at: d });
+      if (liquid) better({ kind: 'pour', v, dist: d + 0.3, at: d });
       // (the body's box is coarse: a part the mark is on wins, an open bonnet standing well inside it too)
       else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25, at: d });
     }
@@ -782,8 +819,8 @@ export class ModPlayer {
         return `ghost:${t.v.build.uid}:${t.mount.id}:${t.sub ?? ''}`;
       case 'part':
         return `part:${t.v.build.uid}:${t.mount.id}`;
-      case 'surface':
-        return `surface:${t.v.build.uid}:${t.mount?.id ?? 'frame'}`;
+      case 'paint':
+        return `paint:${t.aim.v?.build.uid ?? t.aim.loose?.uid ?? ''}:${t.aim.mount ?? (t.aim.v ? 'frame' : 'loose')}`;
       case 'filler':
         return `filler:${t.v.build.uid}:${t.liquid}`;
       case 'pour':
@@ -829,7 +866,6 @@ export class ModPlayer {
         host.loose.remove(t.loose);
         this.held = heldOf(t.loose);
         if (rode && host.vehicles.includes(rode)) host.cargoChanged(rode);
-        if (this.held.kind === 'tool' && this.held.tool.kind === 'spray') this.paintIndex = this.held.tool.colour ?? this.paintIndex;
         host.sound('pickup', partMass(this.held));
         // (what the mark was on is in the hands now)
         this.target = null;
@@ -894,13 +930,19 @@ export class ModPlayer {
       }
     }
 
-    // holds: fit, take off, pour, spray, wash
+    // holds: fit, take off, pour, spray
     if (key !== this.progressKey) {
       this.progress = 0;
       this.progressKey = key;
-      this.surfaceT = 0;
     }
     const held = this.held;
+    this.spraying = null;
+    // the button down with an empty spray can: it only sputters
+    this.sprayDry = false;
+    if (this.primaryEdge && held?.kind === 'tool' && held.tool.kind === 'spray' && sprayLeft(held.tool) <= 0) {
+      this.sprayDry = true;
+      host.ui.say('罐子空了：丢进回收台。', 2);
+    }
     // eating, drinking, taking medicine: F or the right button with it in the hands (wherever one looks)
     if (this.use) {
       this.stepUse(dt);
@@ -1049,17 +1091,18 @@ export class ModPlayer {
       }
       return;
     }
-    if (t.kind === 'surface' && held?.kind === 'tool' && this.primary) {
-      const inst = t.mount ? t.v.build.parts[t.mount.id] : null;
-      const before = inst ? inst.paint : t.v.build.paint;
-      this.surfaceT = workSurface(held.tool, t.v.build, inst, dt, this.surfaceT);
-      this.progress = this.surfaceT;
-      host.sound(held.tool.kind === 'spray' ? 'spray' : 'scrub');
-      if (held.tool.kind === 'spray' && (inst ? inst.paint : t.v.build.paint) !== before) host.changed(t.v, `paint:${t.mount?.id ?? 'frame'}`);
-      if (held.tool.kind === 'sponge' && this.surfaceT >= 1) {
-        this.surfaceT = 0;
-        host.changed(t.v, `wash:${t.mount?.id ?? 'frame'}`);
-      }
+    // the button held on what takes paint: the coat goes on (paint.ts), the ring shows how far
+    if (t.kind === 'paint' && held?.kind === 'tool' && held.tool.kind === 'spray') {
+      const c = held.tool.colour ?? 0;
+      const a = t.aim;
+      const p = a.inst ?? a.v?.build;
+      // (the ring: how far its coat of this colour is — while spraying, or one left half-done)
+      const coat = p ? coatOf(p, c) : 0;
+      this.progress = this.primary || (coat > 0 && coat < 1) ? coat : 0;
+      if (!this.primary || this.sprayDry || sprayLeft(held.tool) <= 0) return;
+      const r = host.spray(a, held.tool, dt);
+      this.progress = r.t;
+      if (!r.already && (r.used > 0 || r.done)) this.spraying = { aim: a, t: r.t };
       return;
     }
     if (!this.primary && !this.secondary) this.progress = 0;
@@ -1329,13 +1372,22 @@ export class ModPlayer {
           acts.push({ keys: E, text: `${open ? '关上' : '打开'} <b>加油口盖</b>` });
           break;
         }
-        case 'surface': {
-          if (held?.kind !== 'tool') break;
-          const tool = held.tool;
-          const inst = t.mount ? t.v.build.parts[t.mount.id] : null;
-          const what = inst ? name(inst) : t.v.view.frame.name[ui.lang];
-          aim = inst ? partCard(inst, { mount: t.mount!.label[ui.lang] }) : this.vehicleCard(t.v);
-          acts.push({ keys: ['LMB'], hold: true, text: `${tool.kind === 'spray' ? '喷漆' : '擦洗'} <b>${what}</b>` });
+        case 'paint': {
+          if (held?.kind !== 'tool' || held.tool.kind !== 'spray') break;
+          const a = t.aim;
+          const c = held.tool.colour ?? 0;
+          const colour = PALETTE[c]?.name[ui.lang] ?? '';
+          const mount = a.v && a.mount ? a.v.view.frame.mounts.find((m) => m.id === a.mount) : undefined;
+          aim = a.inst ? partCard(a.inst, mount ? { mount: mount.label[ui.lang] } : undefined) : a.v ? this.vehicleCard(a.v) : null;
+          const p = a.inst ?? a.v?.build;
+          const there = !!p && p.paint === c && !p.paintMix;
+          const left = sprayLeft(held.tool);
+          if (left <= 0) acts.push({ keys: E, hold: true, text: '罐子空了', off: true });
+          else if (there) acts.push({ keys: E, hold: true, text: `<b>${a.label}</b> 已经是${colour}了`, off: true });
+          else acts.push({ keys: E, hold: true, text: `喷漆 <b>${a.label}</b> · ${colour}` });
+          // (the paint is its colour, not a coat over the dirt: a dirty thing painted stays dirty)
+          const dirty = p ? Math.max(p.dirt, p.crust ?? 0, p.rust) : 0;
+          if (left > 0 && !there && dirty > 0.35) acts.push({ keys: ['LMB'], text: '脏东西和锈盖不住：先刮干净再喷', off: true });
           break;
         }
         case 'enter':
@@ -1377,7 +1429,9 @@ export class ModPlayer {
         }
       }
     }
-    if (held && this.lookVehicle && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
+    // a spray can off what takes paint: what the mark is on does not
+    if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: `<b>${this.paintAim.label}</b> 不能喷漆`, off: true });
+    if (held && this.lookVehicle && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
     // (the card only for what is close by: from further off it would stand in the way of the view)
     if (aim && t && (t.at ?? t.dist) > CARD_NEAR) aim = null;
     if (t?.kind === 'loose' && both) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
@@ -1392,7 +1446,6 @@ export class ModPlayer {
     items.showKeys(this.heldKeys());
     items.showTransfer(xfer);
     items.showHotbar(this.slotViews(), this.sel);
-    ui.showPaint(held?.kind === 'tool' && held.tool.kind === 'spray' ? PALETTE.map((p) => p.hex) : null, this.paintIndex);
   }
 
   /** what liquid goes from what into what, with how much is in each */
@@ -1445,7 +1498,7 @@ export class ModPlayer {
         const L = LIQUID[liquid];
         out.push({ keys: E, hold: true, text: `${liquid === 'fuel' ? '加油' : liquid === 'water' ? '加水' : '加机油'}（对着${L.filler}）` });
         out.push({ keys: F, hold: true, text: `把${L.zh}抽回来` });
-      } else if (h.tool.kind === 'spray') out.push({ keys: ['LMB'], hold: true, text: '喷漆' }, { keys: ['Wheel'], text: '换颜色' });
+      } else if (h.tool.kind === 'spray') out.push(sprayLeft(h.tool) > 0 ? { keys: E, hold: true, text: '喷漆（对着车身、车门、引擎盖、尾门、保险杠、后视镜）' } : { keys: E, hold: true, text: '罐子空了', off: true });
       else {
         const c = cleanerOf(h.tool);
         if (c && (h.tool.life ?? 1) <= 0) out.push({ keys: ['LMB'], hold: true, text: `${TOOL_INFO[h.tool.kind].name.zh}用坏了`, off: true });
@@ -1474,7 +1527,9 @@ export class ModPlayer {
       const t = h.kind === 'tool' ? h.tool : null;
       const liquid = t ? liquidOf(t) : null;
       const drink = h.kind === 'item' ? itemDef(h.item.item).drink : undefined;
-      const fill = t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : undefined;
+      // (a spray can: the paint left, Arctic Drive's usage bar, in the can's colour)
+      const spray = t?.kind === 'spray' ? { value: sprayLeft(t), max: SPRAY_TIERS[sprayTier(t)].capacity, tone: 'good' as Tone, colour: hexCss(paintHex(t.colour ?? 0)) } : undefined;
+      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : undefined);
       return { icon: this.host.iconOf(h), name: nameOf, empty: false, fill };
     });
   }

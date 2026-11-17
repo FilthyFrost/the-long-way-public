@@ -24,8 +24,8 @@ export interface SlotView {
   icon: string | null;
   name: string;
   empty: boolean;
-  /** a liquid container's fill under the slot */
-  fill?: { value: number; max: number; tone: Tone };
+  /** a liquid container's fill under the slot (a spray can's paint, in its colour) */
+  fill?: { value: number; max: number; tone: Tone; colour?: string };
 }
 
 export interface TransferView {
@@ -157,12 +157,12 @@ export class ItemHud {
       return;
     }
     this.hot.style.display = '';
-    const key = JSON.stringify([slots.map((s) => [s.icon?.length ?? 0, s.name, s.empty, s.fill ? Math.round((s.fill.value / s.fill.max) * 50) : -1, s.fill?.tone]), sel]);
+    const key = JSON.stringify([slots.map((s) => [s.icon?.length ?? 0, s.name, s.empty, s.fill ? Math.round((s.fill.value / s.fill.max) * 50) : -1, s.fill?.tone, s.fill?.colour]), sel]);
     if (key === this.lastHot) return;
     this.lastHot = key;
     this.hot.innerHTML = slots
       .map((s, i) => {
-        const fill = s.fill ? `<div class="f"><i style="width:${Math.min(100, (s.fill.value / Math.max(1e-6, s.fill.max)) * 100).toFixed(0)}%;background:${TONE_COLOUR[s.fill.tone]}"></i></div>` : '';
+        const fill = s.fill ? `<div class="f"><i style="width:${Math.min(100, (s.fill.value / Math.max(1e-6, s.fill.max)) * 100).toFixed(0)}%;background:${s.fill.colour ?? TONE_COLOUR[s.fill.tone]}"></i></div>` : '';
         const body = s.empty ? '' : s.icon ? `<img src="${s.icon}" alt="">` : `<div class="w">${s.name}</div>`;
         return `<div class="s${i === sel ? ' on' : ''}" title="${s.name}">${body}${fill}<div class="n">${i + 1}</div></div>`;
       })

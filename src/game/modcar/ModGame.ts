@@ -12,7 +12,8 @@ import { allInstances, decodeBuild, encodeBuild, newInstance, fitSub, stockBuild
 import { frameDef } from '../../core/modcar/frames';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { newTool, toolModelId } from '../../core/modcar/tools';
-import { PALETTE } from '../../core/modcar/palette';
+import { PALETTE, paintHex } from '../../core/modcar/palette';
+import { coatOf, keepPartColours, paintTargets, SPRAY_TIERS, sprayFound, sprayLeft, sprayStep, sprayTier, takesPaint, type SprayResult } from '../../core/modcar/paint';
 import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
@@ -48,7 +49,8 @@ import { Foley, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type F
 import { salvageOfHeld, Workshop, WORKSHOP_PLAN, type WorkshopSave } from './workshop';
 import { MaterialsHud } from './vitalsHud';
 import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
-import type { ScrubHit, Scrub, TankPort } from './player';
+import type { PaintAim, ScrubHit, Scrub, TankPort } from './player';
+import { SprayMist } from './sprayMist';
 import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
 import { Flakes } from './flakes';
 import { triGrid } from '../render/triGrid';
@@ -61,7 +63,7 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
-import { itemStandIn, LooseThings, toolLook, toolModel, type Loose } from './loose';
+import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
@@ -239,6 +241,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private scrubStill = 1;
   private flakeTickT = 0;
   private warmedScrub = false;
+  /** the spray can's mist (sprayMist.ts) */
+  private mist: SprayMist | null = null;
+  /** the looks a spray can went on lately (drawn on their own while it is about: their colour moves, they flash), and when */
+  private readonly paintHeld = new Map<string, { v: ModVehicle | null; loose: Loose | null; owner: string; at: number }>();
+  /** sprayed last frame (the valve opened, the hiss is on) */
+  private sprayWas = false;
+  /** the spray can in the hands last frame, and when each can was last shaken */
+  private heldCanUid = '';
+  private readonly shookAt = new Map<string, number>();
+  private warmedSpray = false;
+  private readonly nozV = new THREE.Vector3();
+  private readonly nozD = new THREE.Vector3();
+  private readonly canUp = new THREE.Vector3();
   /** at the bench: how far the view has gone over to it (0 … 1) */
   private benchB = 0;
   private readonly benchEye = new THREE.Vector3();
@@ -354,6 +369,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.sparks = new Sparks(this.core);
     this.grime = new Grime(this.core.renderer);
     this.flakes = new Flakes(this.core.scene);
+    this.mist = new SprayMist(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.world ?? land, this);
     // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
@@ -623,7 +639,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         put('eng_i4', 'floor');
       } else put('eng_v8', 'rack');
       // the jerrycans stand by the drums, the rest of the tools lie on the bench
-      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), newTool('spray', { colour: 13 }), newTool('spray', { colour: 4 }), newTool('sponge'), newTool('brush')];
+      // (the spray cans as Arctic Drive's starting garage has them: two small ones, part full; and, while there is
+      // no world yet to find more in, a medium and a large one beside them)
+      const can = (tier: 1 | 2 | 3, colour: number): ReturnType<typeof newTool> => newTool('spray', { tier, colour, paint: sprayFound(tier, hash01(`spray:${tier}:${colour}`)) });
+      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), can(1, 13), can(1, 26), can(2, 3), can(3, 23), newTool('sponge'), newTool('brush')];
       for (const t of tools) {
         const s = take(t.kind === 'jerrycan' ? 'cans' : 'bench');
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
@@ -1202,7 +1221,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       ({ paint, paint2 } = itemPaint(h.item));
     } else {
       const t = h.tool;
-      item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined, tier: t.tier };
+      item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined, tier: t.tier, colour: t.colour };
       ({ paint, paint2 } = toolLook(t));
     }
     this.icons.request(key, () => this.devModel(item), (url) => this.iconUrl.set(key, url), paint, paint2);
@@ -1284,7 +1303,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     if (item.kind === 'tool') {
       const kind = item.tool;
-      return toolGlb(toolModelId({ kind, tier: item.tier })).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel, tier: item.tier })));
+      return toolGlb(toolModelId({ kind, tier: item.tier })).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel, tier: item.tier, colour: item.colour })));
     }
     if (item.kind === 'item') {
       const it = newItem(item.id);
@@ -1408,7 +1427,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ui.say(`放下了：${itemDef(item.id).name.zh}`, 1.5);
       return;
     }
-    const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { colour: 13 }) : item.tool === 'scraper' ? newTool('scraper', { tier: item.tier ?? 1 }) : newTool(item.tool);
+    const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { tier: item.tier ?? 2, colour: item.colour ?? 13 }) : item.tool === 'scraper' ? newTool('scraper', { tier: item.tier ?? 1 }) : newTool(item.tool);
     this.loose.addTool(tool, p.x, p.y + 0.25, p.z, yaw);
     this.sound('putdown', 3);
   }
@@ -1835,7 +1854,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const v = this.seated ?? this.focus;
     switch (name) {
       case 'spray':
-        this.loopsNow.set('spray', {});
+        this.loopsNow.set('spray_hiss', {});
         return;
       case 'scrub':
         this.loopsNow.set('sponge', {});
@@ -2183,8 +2202,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       for (const surface of ['glass', 'metal', 'rust', 'mud'] as const) f.warm(['scrape_start' as FoleyShot], { surface } as FoleyOpts);
     }
     // a cleaning tool in the hands: the vehicles near got ready to be scrubbed, a little each frame (the rays'
-    // grids over their meshes, the measure's programs), so the first stroke does not stall
-    if (cleaningTool) this.readyScrub();
+    // grids over their meshes, the measure's programs), so the first stroke does not stall (a spray can aims by them too)
+    if (cleaningTool || (held?.kind === 'tool' && held.tool.kind === 'spray')) this.readyScrub();
     if (sc && held?.kind === 'tool') {
       const h = sc.hit;
       const c = h ? this.cleaning.get(h.key) : null;
@@ -2209,6 +2228,103 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.scrubLoop = '';
       this.scrubGain = 0;
       this.scrubStill = 1;
+    }
+  }
+
+  // ------------------------------------------------------------------ spray paint (paint.ts, docs/MODCAR.md §16)
+
+  /** what a spray can held along the ray would paint: the thing the ray meets first (by its meshes), within far */
+  paintCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): PaintAim | null {
+    const h = this.grimeCast(origin, dir, far);
+    if (!h) return null;
+    if (h.v) {
+      const t = h.v.view.paintTarget(h.owner);
+      if (!t) return null;
+      return { v: h.v, loose: null, inst: t.inst, mount: t.mount, owner: h.owner, label: t.label, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: t.paintable };
+    }
+    if (!h.loose || !h.inst) return null;
+    // (a tyre on a wheel lying about: the wheel's, and no paint)
+    const own = h.owner === `l:${h.loose.uid}`;
+    return { v: null, loose: h.loose, inst: h.inst, mount: null, owner: h.owner, label: partDef(h.inst.part).name.zh, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: own && takesPaint(h.inst.part) };
+  }
+
+  /** the can sprayed at it for dt seconds: the coat goes on, the can empties; the thing drawn on its own meanwhile, a flash when it is whole */
+  spray(aim: PaintAim, can: Tool, dt: number): SprayResult {
+    const v = aim.v;
+    const p = aim.inst ?? v?.build;
+    if (!p) return { t: 0, used: 0, done: false, already: true, empty: sprayLeft(can) <= 0 };
+    const colour = can.colour ?? 0;
+    // the body taking a colour of its own: the doors and lids that wore its colour keep theirs (each is painted on its own)
+    if (v && !aim.inst && v.build.paint !== colour) keepPartColours(v.build);
+    const from = v ? v.view.paintBase(aim.owner) : paintBaseOf(aim.inst!);
+    const r = sprayStep(can, p, from, dt);
+    if (r.already) return r;
+    // (drawn on its own while the can is on it: its colour moves every frame, it flashes when whole)
+    const key = `${v?.build.uid ?? aim.loose?.uid ?? ''}|${aim.owner}`;
+    if (!this.paintHeld.has(key)) {
+      if (v) v.view.setPaintHeld(aim.owner, true);
+      else if (aim.loose) this.loose.setPaintHeld(aim.loose.uid, true);
+    }
+    this.paintHeld.set(key, { v, loose: aim.loose, owner: aim.owner, at: this.time });
+    if (r.done) {
+      const look = v ? v.view.mats.lookOf(aim.owner) : this.loose.lookOfOwner(aim.owner);
+      if (look) {
+        look.setGrimeFlash(1, -1);
+        this.lookFlashes.push({ look, t: 1 });
+      }
+      this.sound('paint_done', 1);
+      const name = PALETTE[colour]?.name.zh ?? '';
+      // the whole vehicle one colour (Arctic Drive's "Class Above All")
+      const all = v ? paintTargets(v.build).every((x) => coatOf(x.mount ? v.build.parts[x.mount] : v.build, colour) >= 1) : false;
+      if (v && all && paintTargets(v.build).length > 1) {
+        this.sound('clean_car_done', 0.8);
+        this.ui.say(`${v.view.frame.name.zh} · 从头到尾都是${name}了！`, 3);
+      } else this.ui.say(`${aim.label} · 喷成${name}了`, 1.6);
+    }
+    if (r.empty && r.used > 0) this.ui.say('罐子喷空了。', 2);
+    return r;
+  }
+
+  /** every frame: the mist out of the nozzle and over the surface, the hiss, the can shaken when it is taken up */
+  private stepSpray(dt: number): void {
+    const held = this.player.held;
+    const can = held?.kind === 'tool' && held.tool.kind === 'spray' ? held.tool : null;
+    const f = this.foley;
+    if (can && f && !this.warmedSpray) {
+      this.warmedSpray = true;
+      f.warm(['spray_rattle', 'spray_start', 'spray_sputter', 'paint_done'] as FoleyShot[]);
+      f.warm(['spray_hiss'] as FoleyLoop[]);
+    }
+    // a can taken up (with paint in it): shaken, the ball rattling, once in a while
+    if ((can?.uid ?? '') !== this.heldCanUid) {
+      this.heldCanUid = can?.uid ?? '';
+      if (can && !this.seated && sprayLeft(can) > 0 && this.time - (this.shookAt.get(can.uid) ?? -1e9) > 30) {
+        this.shookAt.set(can.uid, this.time);
+        this.heldThing.shake();
+        this.sound('spray_rattle', 0.9);
+      }
+    }
+    const s = this.seated ? null : this.player.spraying;
+    if (s && can) {
+      if (!this.sprayWas) this.sound('spray_start', 1);
+      // (the hiss a little lower as the can empties: the pressure falls)
+      const fill = sprayLeft(can) / SPRAY_TIERS[sprayTier(can)].capacity;
+      this.loopFor('spray_hiss', 1, 0.9 + 0.1 * fill);
+      const noz = this.heldThing.nozzleWorld(this.nozV, this.nozD);
+      if (noz && this.mist) {
+        this.canUp.set(0, 1, 0).applyQuaternion(this.heldThing.root.quaternion);
+        this.mist.emit(dt, noz, this.nozD, this.canUp, s.aim.point, s.aim.normal, paintHex(can.colour ?? 0), fill);
+      }
+      if (sprayLeft(can) <= 0) this.sound('spray_sputter', 1);
+    } else if (this.player.sprayDry) this.sound('spray_sputter', 0.8);
+    this.sprayWas = !!(s && can && sprayLeft(can) > 0);
+    this.mist?.update(dt);
+    // the looks sprayed lately go back into their merge a while after the can left them
+    for (const [key, h] of this.paintHeld) {
+      if (this.time - h.at < 4 && can) continue;
+      this.paintHeld.delete(key);
+      if (h.v) h.v.view.setPaintHeld(h.owner, false);
+      else if (h.loose && ![...this.paintHeld.values()].some((x) => x.loose === h.loose)) this.loose.setPaintHeld(h.loose.uid, false);
     }
   }
 
@@ -2584,7 +2700,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       items.showTransfer(null);
       items.showKeys(this.driveKeys(this.seated));
       items.showHotbar(this.player.slotViews(), this.player.sel);
-      this.ui.showPaint(null, 0);
     }
     // vehicles
     for (const v of this.vehicles) {
@@ -2862,8 +2977,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
     const sc = this.player.scrub;
     this.heldThing.pin(!this.seated && sc?.hit ? this.scrubPose(sc, cam) : null);
+    this.heldThing.aimSpray(!this.seated && this.player.spraying ? this.player.spraying.aim.point : null);
     this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit' && this.benchB < 0.05, this.player.walker.sway, 0, dock);
     this.showScrub(cam);
+    this.stepSpray(dt);
     this.workshop?.frame();
     // the liquid itself, from the spout into the mouth once the can is tipped over
     const flow = this.player.flow;

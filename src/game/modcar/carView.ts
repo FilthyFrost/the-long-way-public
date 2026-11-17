@@ -12,6 +12,7 @@ import type { FillerKind } from './fillers';
 import { frameDef, hubsOf } from '../../core/modcar/frames';
 import type { Derived } from '../../core/modcar/derive';
 import { paintHex } from '../../core/modcar/palette';
+import { PAINTED_CATS, paintNow, takesPaint } from '../../core/modcar/paint';
 import { partDef } from '../../core/modcar/parts';
 import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
@@ -39,8 +40,8 @@ const CAP_OPEN_DEG = 105;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
 const WEAR_STEP = 0.02;
 
-/** categories that wear the body colour unless painted themselves */
-const BODY_COLOURED = new Set(['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'mirror']);
+/** categories that wear the body colour unless painted themselves (paint.ts: what a spray can takes) */
+const BODY_COLOURED = PAINTED_CATS;
 /** what an engine block, a seat frame or a lamp housing is painted at the factory */
 const FACTORY_PART_PAINT = 0x8f3a2c;
 
@@ -134,6 +135,8 @@ export class CarView {
   private litMerged = -1;
   /** the looks being cleaned (with grime masks): drawn on their own, never merged */
   private readonly grimeHeld = new Set<string>();
+  /** the looks a spray can is on (their colour moving every frame, their flash): drawn on their own too */
+  private readonly paintHeld = new Set<string>();
   private grimeCache: GrimePart[] | null = null;
 
   constructor(
@@ -862,6 +865,49 @@ export class CarView {
   }
   private wsAt: THREE.Vector3 | null = null;
 
+  /** a look is being painted (a spray can on it) or not: the merge is made again without it, or with it */
+  setPaintHeld(owner: string, on: boolean): void {
+    if (this.paintHeld.has(owner) === on) return;
+    if (on) this.paintHeld.add(owner);
+    else this.paintHeld.delete(owner);
+    this.unmerge();
+    this.mergeDirty = true;
+  }
+
+  /**
+   * What a look's owner is as a thing a spray can goes on (paint.ts): the body, or the part on a mount, and
+   * whether it takes paint (a door, a bonnet, a boot lid, a bumper, a mirror); null: not this vehicle's
+   */
+  paintTarget(owner: string): { inst: PartInstance | null; mount: string | null; paintable: boolean; label: string } | null {
+    if (owner === BODY) return { inst: null, mount: null, paintable: true, label: this.frame.name.zh };
+    const [base, sub] = owner.split('+');
+    if (!base.startsWith('m:') && !base.startsWith('p:') && !base.startsWith('w:')) return null;
+    const inst = this.instOfOwner(owner);
+    if (!inst) return null;
+    const mount = base.startsWith('w:') ? null : base.slice(2);
+    const cat = mount ? (this.catOf.get(mount) ?? '') : '';
+    const label = sub ? partDef(inst.part).name.zh : this.ownerLabel(owner);
+    return { inst, mount, paintable: !sub && !!mount && PAINTED_CATS.has(cat) && takesPaint(inst.part), label };
+  }
+
+  /** the look's owner of what is on a mount (null: the body): a door's, a lid's panel, else the part's */
+  paintOwner(mount: string | null): string {
+    return !mount ? BODY : this.panels.has(mount) ? panelOwner(mount) : partOwner(mount);
+  }
+
+  /** the colour a coat of paint on it starts from (sRGB hex): the body's, a part's, a door's under its style */
+  paintBase(owner: string): number {
+    if (owner === BODY) return paintNow(this.build, 0xd8d4c8);
+    const t = this.paintTarget(owner);
+    if (!t?.inst || !t.mount) return paintNow(this.build, 0xd8d4c8);
+    if (owner.startsWith('p:')) {
+      const style = partDef(t.inst.part).panel?.style ?? 'stock';
+      if (t.inst.paint >= 0) return paintNow(t.inst, 0);
+      return style === 'armor' || style === 'fridge' ? panelPaint(style, 0) : paintNow(this.build, 0xd8d4c8);
+    }
+    return this.paintOf(t.inst, this.catOf.get(t.mount) ?? '');
+  }
+
   /** a look is being cleaned (its mask on) or not: the merge is made again without it, or with it */
   setGrimeHeld(owner: string, on: boolean): void {
     if (this.grimeHeld.has(owner) === on) return;
@@ -910,13 +956,13 @@ export class CarView {
       entries.push({ id, object, look: { paint: look.paint, paint2: look.paint2, dirt: look.dirt, rust: look.rust, wear: look.wear, crust: look.crust } });
     };
     // (a look being cleaned has its grime mask: drawn on its own)
-    if (!this.grimeHeld.has(BODY)) add(BODY, this.frameObj, this.bodyLook());
+    if (!this.grimeHeld.has(BODY) && !this.paintHeld.has(BODY)) add(BODY, this.frameObj, this.bodyLook());
     for (const [mount, sh] of this.shown) {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
       // (what rides on a fork moves with it)
       if (!inst || UNMERGED.has(cat) || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
-      if (this.grimeHeld.has(partOwner(mount)) || this.grimeHeld.has(`${partOwner(mount)}+turbo`)) continue;
+      if (this.grimeHeld.has(partOwner(mount)) || this.grimeHeld.has(`${partOwner(mount)}+turbo`) || this.paintHeld.has(partOwner(mount))) continue;
       add(mount, sh.holder, this.partLook(inst, cat));
     }
     this.model.updateMatrixWorld(true);
@@ -924,7 +970,7 @@ export class CarView {
     this.model.add(merged.group);
     this.grimeCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
-    const look = this.mats.look('merged', { paint: paintHex(this.build.paint), paint2: paintHex(this.build.paint2) });
+    const look = this.mats.look('merged', { paint: paintNow(this.build, 0xd8d4c8), paint2: paintHex(this.build.paint2) });
     applyMaterials(merged.group, look, true);
     this.merged = merged;
     this.mergedLook = look;
@@ -963,14 +1009,15 @@ export class CarView {
     this.settling.push({ obj, t: 0, axis, from });
   }
 
+  /** a part's colour now (a coat of paint going on: on its way there) */
   private paintOf(inst: PartInstance, cat: string): number {
-    if (inst.paint >= 0) return paintHex(inst.paint);
-    return BODY_COLOURED.has(cat) ? paintHex(this.build.paint) : FACTORY_PART_PAINT;
+    if (inst.paint >= 0) return paintNow(inst, FACTORY_PART_PAINT);
+    return BODY_COLOURED.has(cat) ? paintNow(this.build, FACTORY_PART_PAINT) : FACTORY_PART_PAINT;
   }
 
   private bodyLook(): LookOf {
     const b = this.build;
-    return { paint: paintHex(b.paint), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond), crust: b.crust ?? 0 };
+    return { paint: paintNow(b, 0xd8d4c8), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond), crust: b.crust ?? 0 };
   }
 
   /** a part's look: its own paint (or the body's / the factory's) and its own wear */
@@ -980,14 +1027,14 @@ export class CarView {
 
   /** a panel's look: the frame's opening in the part's style */
   private panelLook(inst: PartInstance, style: string): LookOf {
-    const body = paintHex(inst.paint >= 0 ? inst.paint : this.build.paint);
-    const paint = panelPaint(style, body);
+    const own = inst.paint >= 0;
+    const paint = panelPaint(style, own ? paintNow(inst, 0) : paintNow(this.build, 0xd8d4c8), own);
     return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
   }
 
   private setPart(m: MountDef, inst: PartInstance | null): void {
     const sub = inst ? Object.entries(inst.sub).map(([k, v]) => `${k}:${v.part}`).join(',') : '';
-    const key = inst ? `${inst.uid}|${inst.part}|${inst.paint}|${sub}|${this.build.paint}` : '';
+    const key = inst ? `${inst.uid}|${inst.part}|${sub}` : '';
     const was = this.shown.get(m.id);
     if (was?.key === key) return;
     if (was) was.holder.removeFromParent();
@@ -1147,7 +1194,7 @@ export class CarView {
       // a motorcycle's simulation has two wheels per axle on the centre line: draw one of each
       const drawn = !(single && (i === 1 || i === 3));
       const inst = drawn ? (this.build.parts[hub.id] ?? null) : null;
-      const key = inst ? `${inst.uid}|${inst.part}|${inst.sub.tire?.part ?? ''}|${inst.paint}|${inst.sub.tire?.flat ? 1 : 0}` : '';
+      const key = inst ? `${inst.uid}|${inst.part}|${inst.sub.tire?.part ?? ''}|${inst.sub.tire?.flat ? 1 : 0}` : '';
       if (w.key === key) continue;
       w.key = key;
       w.holder.clear();

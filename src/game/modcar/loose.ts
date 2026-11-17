@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { itemDef, itemPaint, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
+import { paintNow, sprayTier } from '../../core/modcar/paint';
 import { toolModelId, type Tool } from '../../core/modcar/tools';
 import type { ThingBox } from '../../core/modcar/cargo';
 import type { PartInstance } from '../../core/modcar/types';
@@ -140,7 +141,12 @@ export function toolLook(t: Tool): { paint: number; paint2: number } {
     return { paint: c, paint2: c };
   }
   if (t.kind === 'oilcan') return { paint: 0xd8a531, paint2: 0xd8a531 };
-  if (t.kind === 'spray') return { paint: paintHex(t.colour ?? 0), paint2: paintHex(t.colour ?? 0) };
+  // (a spray can in its paint's colour, its label's stripes ivory: charcoal on a pale can; the large can's gold)
+  if (t.kind === 'spray') {
+    const c = paintHex(t.colour ?? 0);
+    const pale = ((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (c & 255) * 0.11 > 190;
+    return { paint: c, paint2: pale ? 0x2f3236 : sprayTier(t) === 3 ? 0xe6c46a : 0xf4efe2 };
+  }
   if (t.kind === 'scraper') return t.tier === 3 ? { paint: 0xd4a53b, paint2: 0x6b3d24 } : t.tier === 2 ? { paint: 0xc8323a, paint2: 0x2f3236 } : { paint: 0x3e8ec7, paint2: 0xf0c23c };
   // (the wire brush's painted band)
   if (t.kind === 'brush') return { paint: 0xc8473a, paint2: 0xc8473a };
@@ -151,12 +157,20 @@ let n = 0;
 
 const ownerOf = (l: Loose): string => `l:${l.uid}`;
 
+/** the colour a coat of paint on a part lying about starts from (sRGB hex): its own, else its factory's (a panel's style's) */
+export function paintBaseOf(inst: PartInstance): number {
+  if (inst.paint >= 0) return paintNow(inst, 0x8f3a2c);
+  const style = partDef(inst.part).panel?.style;
+  return style === 'armor' || style === 'fridge' ? panelPaint(style, 0) : 0x8f3a2c;
+}
+
 /** what an engine block, a seat frame or a lamp housing is painted at the factory (as on a vehicle; a panel by its style) */
 export function partLook(inst: PartInstance): LookOf {
-  const base = inst.paint >= 0 ? paintHex(inst.paint) : 0x8f3a2c;
+  const own = inst.paint >= 0;
+  const base = own ? paintNow(inst, 0x8f3a2c) : 0x8f3a2c;
   const style = partDef(inst.part).panel?.style;
   return {
-    paint: style ? panelPaint(style, base) : base,
+    paint: style ? panelPaint(style, base, own) : base,
     paint2: 0xd8d4c8,
     dirt: inst.dirt,
     rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust,
@@ -182,10 +196,12 @@ export class LooseThings {
   private mergedLook: CarLook | null = null;
   private mergeDirty = true;
   private readonly mergeIds = new Map<string, number>();
-  private readonly mergedAs = new Map<number, { dirt: number; rust: number }>();
+  private readonly mergedAs = new Map<number, { dirt: number; rust: number; paint: number }>();
   private litId = -1;
   /** things being cleaned (with grime masks): drawn on their own, never merged */
   private readonly grimeHeld = new Set<string>();
+  /** the things a spray can is on (their colour moving every frame, their flash): drawn on their own */
+  private readonly paintHeld = new Set<string>();
   private readonly sphere = new THREE.Sphere();
   private readonly ray = new THREE.Ray();
   private readonly hit = new THREE.Vector3();
@@ -371,11 +387,11 @@ export class LooseThings {
     const entries: { id: number; object: THREE.Object3D; look: { paint: number; paint2: number; dirt?: number; rust?: number; wear?: number } }[] = [];
     for (const l of this.list) {
       // (what rides on a vehicle moves with it: not merged; what is being cleaned has its mask)
-      if (l.riding || this.grimeHeld.has(l.uid)) continue;
+      if (l.riding || this.grimeHeld.has(l.uid) || this.paintHeld.has(l.uid)) continue;
       const id = entries.length + 1;
       const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
       this.mergeIds.set(l.uid, id);
-      this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
+      this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0, paint: look.paint });
       entries.push({ id, object: l.obj, look });
     }
     if (!entries.length) return;
@@ -521,9 +537,9 @@ export class LooseThings {
         this.mats.set(ownerOf(l), look);
         const id = this.mergeIds.get(l.uid);
         const was = id !== undefined ? this.mergedAs.get(id) : undefined;
-        if (this.merged && id !== undefined && was && (Math.abs(was.dirt - (look.dirt ?? 0)) > 0.02 || Math.abs(was.rust - (look.rust ?? 0)) > 0.02)) {
-          this.merged.updatePart(id, { dirt: look.dirt, rust: look.rust, crust: look.crust });
-          this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
+        if (this.merged && id !== undefined && was && (Math.abs(was.dirt - (look.dirt ?? 0)) > 0.02 || Math.abs(was.rust - (look.rust ?? 0)) > 0.02 || was.paint !== look.paint)) {
+          this.merged.updatePart(id, { paint: look.paint, dirt: look.dirt, rust: look.rust, crust: look.crust });
+          this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0, paint: look.paint });
         }
       }
       if (!l.riding) {
@@ -590,6 +606,14 @@ export class LooseThings {
       }
     }
     return best;
+  }
+
+  /** a thing is being painted (a spray can on it) or not: the merge goes without it, or with it */
+  setPaintHeld(uid: string, on: boolean): void {
+    if (this.paintHeld.has(uid) === on) return;
+    if (on) this.paintHeld.add(uid);
+    else this.paintHeld.delete(uid);
+    this.unmerge();
   }
 
   /** a thing is being cleaned (its mask on) or not: the merge goes without it, or with it */

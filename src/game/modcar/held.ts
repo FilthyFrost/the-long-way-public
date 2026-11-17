@@ -10,6 +10,8 @@
  * and, at its real size, lines its spout up with the filler's mouth, leaning in; with the button held it
  * tips over and pours. Off the filler it comes back to the hands. A cleaning tool being scrubbed with is
  * pinned to the surface the same way (pin): at its real size, its working face on the point the mouse is on.
+ * A spray can being sprayed comes up before the eye, its nozzle turned to where the paint goes (aimSpray);
+ * taken up, it is shaken (shake).
  */
 import * as THREE from 'three';
 import { itemDef, itemMass, itemPaint } from '../../core/modcar/items';
@@ -31,6 +33,15 @@ const SPOUT: Partial<Record<string, [number, number, number]>> = {
   bottle: [0, 0.363, 0],
   oilcan: [0, 0.293, 0.05],
 };
+
+/** where the nozzle's tip is on each spray can's model (its own frame, m: the nozzle points +x, the top +y) */
+const NOZZLE: Partial<Record<string, [number, number, number]>> = {
+  spray_s: [0.0122, 0.168, 0],
+  spray: [0.0122, 0.212, 0],
+  spray_l: [0.0122, 0.253, 0],
+};
+/** how long a spray can is shaken when it is taken up (s) */
+const SHAKE_S = 0.8;
 
 /** a filler a can is held to (render space) */
 export interface Dock {
@@ -66,6 +77,16 @@ export class HeldThing {
   private fitK = 1;
   private readonly fitC = new THREE.Vector3();
   private toolKind = '';
+  /** the tool's model (a spray can's by its size) */
+  private modelId = '';
+  /** spraying: the point the nozzle turns to (render space), how far it has come up to it (0…1) */
+  private sprayAt: THREE.Vector3 | null = null;
+  private sprayB = 0;
+  private readonly sprayPos = new THREE.Vector3();
+  private readonly sprayQ = new THREE.Quaternion();
+  /** being shaken: the time left (s) */
+  private shakeT = 0;
+  private readonly shakeQ = new THREE.Quaternion();
   /** 0 in the hands … 1 at the filler; how far tipped over (0…1) */
   private dockB = 0;
   private pourB = 0;
@@ -112,10 +133,13 @@ export class HeldThing {
 
   /** what to show (null = empty hands); a new thing loads its model */
   set(held: Held): void {
-    const key = !held ? '' : held.kind === 'part' ? `p:${held.inst.uid}:${held.inst.part}:${held.inst.paint}:${held.inst.sub.tire?.part ?? ''}` : held.kind === 'item' ? `i:${held.item.uid}:${held.item.item}:${held.item.tint ?? ''}` : `t:${held.tool.kind}:${held.tool.colour ?? ''}:${held.tool.fuel ?? ''}`;
+    const key = !held ? '' : held.kind === 'part' ? `p:${held.inst.uid}:${held.inst.part}:${held.inst.paint}:${held.inst.sub.tire?.part ?? ''}` : held.kind === 'item' ? `i:${held.item.uid}:${held.item.item}:${held.item.tint ?? ''}` : `t:${held.tool.kind}:${held.tool.colour ?? ''}:${held.tool.fuel ?? ''}:${held.tool.tier ?? ''}`;
     if (key === this.key) return;
     this.key = key;
     this.toolKind = held?.kind === 'tool' ? held.tool.kind : '';
+    this.modelId = held?.kind === 'tool' ? toolModelId(held.tool) : '';
+    this.sprayB = 0;
+    this.shakeT = 0;
     this.dockB = 0;
     this.pourB = 0;
     this.inner.clear();
@@ -291,6 +315,34 @@ export class HeldThing {
     this.root.position.copy(this.off);
     this.root.quaternion.copy(this.lagQ).multiply(this.q);
     this.root.scale.setScalar(1);
+    // shaken when taken up: a few brisk strokes up and down, tipping, swelling and dying away
+    if (this.shakeT > 0) {
+      this.shakeT = Math.max(0, this.shakeT - dt);
+      const e = Math.sin((this.shakeT / SHAKE_S) * Math.PI);
+      const w = Math.sin(this.shakeT * 44) * e;
+      this.t1.set(0, 1, 0).applyQuaternion(this.root.quaternion);
+      this.root.position.addScaledVector(this.t1, w * 0.024);
+      this.root.quaternion.multiply(this.shakeQ.setFromAxisAngle(this.t2.set(0, 0, 1), w * 0.14));
+    }
+    // spraying: the can up before the eye, a little in from where it is carried, its nozzle (+x) turned to the
+    // point the paint goes to, its top to the view's up
+    const sw = this.sprayAt && NOZZLE[this.modelId] ? 1 : 0;
+    this.sprayB += (sw - this.sprayB) * (1 - Math.exp(-dt * (sw ? 14 : 9)));
+    if (sw === 0 && this.sprayB < 0.002) this.sprayB = 0;
+    if (this.sprayB > 0) {
+      if (this.sprayAt) {
+        this.sprayPos.set(0.21 + sway * 0.5, -0.2 + bob * 0.5, -0.5).applyQuaternion(this.lagQ).add(cam.position);
+        this.ax.subVectors(this.sprayAt, this.sprayPos).normalize();
+        this.t0.set(0, 1, 0).applyQuaternion(this.lagQ);
+        this.az.crossVectors(this.ax, this.t0).normalize();
+        this.ay.crossVectors(this.az, this.ax).normalize();
+        this.m4.makeBasis(this.ax, this.ay, this.az);
+        this.sprayQ.setFromRotationMatrix(this.m4);
+      }
+      const b = this.sprayB * this.sprayB * (3 - 2 * this.sprayB);
+      this.root.position.lerp(this.sprayPos, b);
+      this.root.quaternion.slerp(this.sprayQ, b);
+    }
     // held to a filler: off to it, lined up, tipping over while it pours
     const spout = SPOUT[this.toolKind];
     if (dock && spout) {
@@ -326,6 +378,27 @@ export class HeldThing {
     }
     this.root.updateMatrixWorld(true);
     this.mats.setFrameOf(OWNER, this.root.matrixWorld);
+  }
+
+  /** spraying: the point (render space) the can's nozzle turns to; null: back in the hands */
+  aimSpray(p: THREE.Vector3 | null): void {
+    this.sprayAt = p;
+  }
+
+  /** the can in the hands is shaken (taken up: the ball rattles in it) */
+  shake(): void {
+    this.shakeT = SHAKE_S;
+  }
+
+  /** where a spray can's nozzle is now and which way it points (render space); null: no spray can in the hands */
+  nozzleWorld(out: THREE.Vector3, dir?: THREE.Vector3): THREE.Vector3 | null {
+    const n = NOZZLE[this.modelId];
+    const obj = this.inner.children[0];
+    if (!n || !obj || !this.root.visible) return null;
+    obj.updateWorldMatrix(true, false);
+    obj.localToWorld(out.set(n[0], n[1], n[2]));
+    if (dir) obj.localToWorld(dir.set(n[0] + 1, n[1], n[2])).sub(out).normalize();
+    return out;
   }
 
   /** pin the held thing to a point of a surface (its own point `at` on `pos`, turned to `q`); null: back in the hands */

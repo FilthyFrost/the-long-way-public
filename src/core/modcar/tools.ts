@@ -1,7 +1,8 @@
 /**
  * The things one works on a vehicle with (docs/MODCAR.md §5.3): a jerrycan of petrol or diesel, a
- * bottle of water for the radiator, a can of oil, a spray can, a sponge, a cleaning scraper (made at the
- * bench, §14), a wire brush — and what each does when it is held up to the right place and the button is held.
+ * bottle of water for the radiator, a can of oil, a spray can (one colour, three sizes, so much paint in it:
+ * paint.ts, §16), a sponge, a cleaning scraper (made at the bench, §14), a wire brush — and what each does
+ * when it is held up to the right place and the button is held.
  * A tank that is not a vehicle's (the generator's) takes a can's fuel the same way (FuelTank). The sponge, the
  * scrapers and the brush clean (CLEANERS, §15): each pass over a surface takes off so much of the dirt, the
  * crust and the rust, in a band as wide as the tool, and wears the tool down by the area it went over.
@@ -9,6 +10,7 @@
 import { frameDef } from './frames';
 import { partDef } from './parts';
 import { PALETTE } from './palette';
+import { SPRAY_TIERS, sprayLeft, sprayTier } from './paint';
 import type { Build, FuelType, PartInstance, Text } from './types';
 
 export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge' | 'scraper' | 'brush';
@@ -29,8 +31,10 @@ export interface Tool {
   litres?: number;
   /** spray cans: palette index */
   colour?: number;
-  /** scrapers: which (1 plastic, 2 metal, 3 gold) */
+  /** scrapers: which (1 plastic, 2 metal, 3 gold); spray cans: the size (1 small, 2 medium, 3 large) */
   tier?: 1 | 2 | 3;
+  /** spray cans: units of paint left (paint.ts SPRAY_TIERS; without it, full) */
+  paint?: number;
   /** the sponge, the scrapers, the brush: how much of it is left (1 new … 0 worn out) */
   life?: number;
 }
@@ -45,9 +49,10 @@ export const SCRAPERS: Record<1 | 2 | 3, { model: string; name: Text; width: num
   3: { model: 'scraper_gold', name: { zh: '金色清理铲', en: 'Golden scraper' }, width: 0.25, stars: 5, salvage: { scrap: 10 } },
 };
 
-/** the model a tool is drawn with (public/models/modcar/tools/<id>.glb): its kind, a scraper's by its tier */
+/** the model a tool is drawn with (public/models/modcar/tools/<id>.glb): its kind, a scraper's or a spray can's by its tier */
 export function toolModelId(t: Pick<Tool, 'kind' | 'tier'>): string {
-  return t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].model : t.kind;
+  if (t.kind === 'scraper') return SCRAPERS[t.tier ?? 1].model;
+  return t.kind === 'spray' ? SPRAY_TIERS[sprayTier(t)].model : t.kind;
 }
 
 export const TOOL_INFO: Record<ToolKind, { name: Text; capacity: number; rate: number }> = {
@@ -113,14 +118,16 @@ let n = 0;
 export function newTool(kind: ToolKind, o: Partial<Tool> = {}): Tool {
   n++;
   const cleans = kind === 'sponge' || kind === 'scraper' || kind === 'brush';
-  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...(kind === 'scraper' ? { tier: o.tier ?? 1 } : {}), ...(cleans ? { life: 1 } : {}), ...o };
+  // (a spray can: a medium one, cherry red, full, unless said otherwise — a can found lying about is not full: paint.ts sprayFound)
+  const spray = kind === 'spray' ? { tier: o.tier ?? 2, colour: o.colour ?? 13, paint: o.paint ?? SPRAY_TIERS[o.tier ?? 2].capacity } : {};
+  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...(kind === 'scraper' ? { tier: o.tier ?? 1 } : {}), ...spray, ...(cleans ? { life: 1 } : {}), ...o };
 }
 
 export function toolName(t: Tool, lang: 'zh' | 'en' = 'zh'): string {
   const base = TOOL_INFO[t.kind].name[lang];
   if (t.kind === 'jerrycan') return `${base}（${FUEL_NAME[t.fuel ?? 'petrol'][lang]} ${(t.litres ?? 0).toFixed(0)} L）`;
   if (t.kind === 'bottle' || t.kind === 'oilcan') return `${base}（${(t.litres ?? 0).toFixed(1)} L）`;
-  if (t.kind === 'spray') return `${base}（${PALETTE[t.colour ?? 0]?.name[lang] ?? ''}）`;
+  if (t.kind === 'spray') return `${SPRAY_TIERS[sprayTier(t)].name[lang]}（${PALETTE[t.colour ?? 0]?.name[lang] ?? ''}）`;
   if (t.kind === 'scraper') return SCRAPERS[t.tier ?? 1].name[lang];
   return base;
 }
@@ -209,7 +216,7 @@ export function toolUse(t: Tool, build: Build): { where: 'fuelTank' | 'radiator'
     const room = cap - (eng.fluids.oilL ?? 0);
     return { where: 'engine', word: { zh: '加机油', en: 'Add oil' }, can: room > 0.05 && (t.litres ?? 0) > 0, why: room <= 0.05 ? { zh: '机油满了', en: 'Full' } : undefined };
   }
-  if (t.kind === 'spray') return { where: 'any', word: { zh: '喷漆', en: 'Spray' }, can: true };
+  if (t.kind === 'spray') return sprayLeft(t) > 0 ? { where: 'any', word: { zh: '喷漆', en: 'Spray' }, can: true } : { where: 'any', word: { zh: '喷漆', en: 'Spray' }, can: false, why: { zh: '罐子空了', en: 'The can is empty' } };
   const c = cleanerOf(t);
   if (c && (t.life ?? 1) <= 0) return { where: 'any', word: c.word, can: false, why: { zh: `${TOOL_INFO[t.kind].name.zh}用坏了`, en: 'Worn out' } };
   return { where: 'any', word: c?.word ?? { zh: '擦洗', en: 'Wash' }, can: true };
@@ -313,23 +320,3 @@ export function siphon(t: Tool, build: Build, dt: number): number {
   return l;
 }
 
-/**
- * Spray or wash a part (or the frame itself when `inst` is null) for dt seconds: paint creeps over
- * in 1.2 s, dirt comes off in 1.6 s. Returns how far along it is (0…1) for the progress ring.
- */
-export function workSurface(t: Tool, build: Build, inst: PartInstance | null, dt: number, progress: number): number {
-  const k = TOOL_INFO[t.kind].rate * dt;
-  const p = Math.min(1, progress + k);
-  if (t.kind === 'spray' && p >= 1) {
-    const c = t.colour ?? 0;
-    if (inst) inst.paint = c;
-    else build.paint = c;
-  }
-  if (t.kind === 'sponge') {
-    if (inst) {
-      inst.dirt = Math.max(0, inst.dirt - k * 1.2);
-      inst.rust = Math.max(0, inst.rust - k * 0.15);
-    } else build.dirt = Math.max(0, build.dirt - k * 1.2);
-  }
-  return p;
-}

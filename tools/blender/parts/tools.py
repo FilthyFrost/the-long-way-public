@@ -127,21 +127,45 @@ def oilcan(P):
 
 # ------------------------------------------------------------------------------------------------ spray can
 
-def spray(P):
-    """An aerosol paint can: the body in the paint's colour, rolled tin seams top and bottom, the domed top
-    with the valve cup and the actuator with its nozzle pointing forward (+X)."""
+def _spray(P, r, shoulder, stripes):
+    """An aerosol paint can (src/core/modcar/paint.ts SPRAY_TIERS): the body in the paint's colour (`paint`), rolled
+    tin seams top and bottom, the domed top with the valve cup and the actuator with its nozzle pointing forward
+    (+X), the label's stripes round the body in the second colour (`paint_b`), one for every size up. The medium
+    can is r 33 mm with its shoulder at 174 mm; the others are its top on a body of another girth and height."""
     P.ao_distance = 0.02
-    r = 0.033
-    P.lathe('can', [(0.0, 0.012), (0.022, 0.008), (0.031, 0.005), (r, 0.011), (r, 0.174), (0.0315, 0.18)],
+    k = r / 0.033
+    dz = shoulder - 0.174
+    P.lathe('can', [(0.0, 0.012), (0.022 * k, 0.008), (0.031 * k, 0.005), (r, 0.011), (r, shoulder), (r - 0.0015, shoulder + 0.006)],
             material='paint', segs=24, close='end', sharp=50.0)
-    P.torus('seam_bottom', 0.0312, 0.0026, loc=(0, 0, 0.0021), segs=24, rsegs=5, material='chrome')
-    P.torus('seam_top', 0.0312, 0.0026, loc=(0, 0, 0.1795), segs=24, rsegs=5, material='chrome')
-    P.lathe('dome', [(0.0305, 0.18), (0.027, 0.188), (0.018, 0.195), (0.0125, 0.197), (0.0125, 0.2015), (0.0, 0.2015)],
+    P.torus('seam_bottom', r - 0.0018, 0.0026, loc=(0, 0, 0.0021), segs=24, rsegs=5, material='chrome')
+    P.torus('seam_top', r - 0.0018, 0.0026, loc=(0, 0, shoulder + 0.0055), segs=24, rsegs=5, material='chrome')
+    # (the dome from the shoulder in to the valve cup, as wide as the can)
+    kk = (r - 0.0025 - 0.0125) / (0.0305 - 0.0125)
+    dome = [(0.0305, 0.18), (0.027, 0.188), (0.018, 0.195), (0.0125, 0.197), (0.0125, 0.2015), (0.0, 0.2015)]
+    P.lathe('dome', [((0.0125 + (x - 0.0125) * kk) if x > 0.0125 else x, z + dz) for x, z in dome],
             material='chrome', segs=24, close='start', sharp=50.0)
-    P.lathe('actuator', [(0.0, 0.2005), (0.0105, 0.2005), (0.0105, 0.212), (0.0085, 0.2175), (0.0, 0.219)],
+    P.lathe('actuator', [(0.0, 0.2005 + dz), (0.0105, 0.2005 + dz), (0.0105, 0.212 + dz), (0.0085, 0.2175 + dz), (0.0, 0.219 + dz)],
             material='chrome', segs=16, sharp=45.0)
-    P.cyl('nozzle', 0.0024, 0.004, (0.0102, 0, 0.212), 'trim', axis='X', segs=8, bev=None)
+    P.cyl('nozzle', 0.0024, 0.004, (0.0102, 0, 0.212 + dz), 'trim', axis='X', segs=8, bev=None)
+    for i, (z0, z1) in enumerate(stripes):
+        P.lathe('stripe%d' % i, [(r, z0), (r + 0.0008, z0 + 0.0006), (r + 0.0008, z1 - 0.0006), (r, z1)],
+                material='paint_b', segs=24, sharp=30.0)
     P.views = [('a', 35, 14), ('b', 215, 14)]
+
+
+def spray_s(P):
+    """The small can (Arctic Drive's Lv1): squat, one wide label band."""
+    _spray(P, 0.029, 0.13, [(0.052, 0.086)])
+
+
+def spray(P):
+    """The medium can (Lv2): two stripes."""
+    _spray(P, 0.033, 0.174, [(0.07, 0.082), (0.094, 0.106)])
+
+
+def spray_l(P):
+    """The large can (Lv3): tall and broad, three stripes."""
+    _spray(P, 0.036, 0.215, [(0.08, 0.092), (0.104, 0.116), (0.128, 0.14)])
 
 
 # ------------------------------------------------------------------------------------------------ sponge
@@ -227,6 +251,8 @@ TOOLS = {
     'bottle': bottle,
     'oilcan': oilcan,
     'spray': spray,
+    'spray_s': spray_s,
+    'spray_l': spray_l,
     'sponge': sponge,
 }
 

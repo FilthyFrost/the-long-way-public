@@ -410,9 +410,10 @@ export function cageFor(box: THREE.Box3): THREE.Group {
 }
 
 /** a panel's paint by its style, from the paint it would have: armour is bare steel, a fridge door white, a rusty one half rust */
-export function panelPaint(style: string, base: number): number {
-  if (style === 'armor') return 0x5c6168;
-  if (style === 'fridge') return 0xf1efe6;
+/** a panel's colour by its style, over `base` (the body's, or its own paint); `own`: painted on its own (a spray can: an armour plate, a fridge's door take it too) */
+export function panelPaint(style: string, base: number, own = false): number {
+  if (style === 'armor' && !own) return 0x5c6168;
+  if (style === 'fridge' && !own) return 0xf1efe6;
   return style === 'rusty' ? new THREE.Color(base).lerp(new THREE.Color(0x8a4a26), 0.45).getHex() : base;
 }
 

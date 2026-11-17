@@ -132,7 +132,7 @@ function columnsHtml(c: CardColumns): string {
 function barFills(bar: CardBar): { colour: string; w: number }[] {
   const max = Math.max(1e-6, bar.max);
   if (bar.parts?.length) return bar.parts.map((p) => ({ colour: TONE_COLOUR[p.tone], w: Math.min(100, (p.value / max) * 100) }));
-  return [{ colour: TONE_COLOUR[bar.tone], w: Math.min(100, (Math.max(0, bar.value) / max) * 100) }];
+  return [{ colour: bar.colour ?? TONE_COLOUR[bar.tone], w: Math.min(100, (Math.max(0, bar.value) / max) * 100) }];
 }
 
 /** legend = the line of each liquid's share under the bar (left out where the card is cut down) */
@@ -146,7 +146,7 @@ function barHtml(bar: CardBar, i: number, legend = true): string {
 
 /** the card's HTML without its bars' moving numbers (what decides whether it is drawn again) */
 function structureOf(c: ItemCard): string {
-  return JSON.stringify({ ...c, bars: c.bars.map((b) => ({ label: b.label, tone: b.tone, parts: b.parts?.map((p) => p.tone) })) });
+  return JSON.stringify({ ...c, bars: c.bars.map((b) => ({ label: b.label, tone: b.tone, colour: b.colour, parts: b.parts?.map((p) => p.tone) })) });
 }
 
 /** "缺发动机" in the before column: nothing to compare against */

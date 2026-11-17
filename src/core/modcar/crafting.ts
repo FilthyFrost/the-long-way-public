@@ -9,6 +9,8 @@
  */
 import { PART_BLURB } from './blurbs';
 import { MATERIAL_IDS, salvageOf, type ItemInstance, type Material } from './items';
+import { PALETTE } from './palette';
+import { spraySalvage } from './paint';
 import { partDef } from './parts';
 import { SCRAPERS, type Tool, type ToolKind } from './tools';
 import type { Category, PartInstance, Text } from './types';
@@ -117,7 +119,7 @@ export function partSalvage(inst: PartInstance): Cost {
   return plus(out, liquidSalvage(fuel + (f.oilL ?? 0) + (f.coolantL ?? 0)));
 }
 
-/** the tools' own scrap (Arctic Drive's: a jerrycan 3, a spray can 1, the scrapers 3, 7 and 10) */
+/** the tools' own scrap (Arctic Drive's: a jerrycan 3, a spray can 1 or 5 by its size and colour, the scrapers 3, 7 and 10) */
 const TOOL_SALVAGE: Record<ToolKind, Cost> = {
   jerrycan: { scrap: 3 },
   bottle: { scrap: 1 },
@@ -130,7 +132,7 @@ const TOOL_SALVAGE: Record<ToolKind, Cost> = {
 
 /** what the recycler gives for a tool: its own, and the liquid in it */
 export function toolSalvage(t: Tool): Cost {
-  const own = t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].salvage : TOOL_SALVAGE[t.kind];
+  const own = t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].salvage : t.kind === 'spray' ? { scrap: spraySalvage(t) } : TOOL_SALVAGE[t.kind];
   const liquid = t.kind === 'jerrycan' || t.kind === 'bottle' || t.kind === 'oilcan' ? (t.litres ?? 0) : 0;
   return plus(own, liquidSalvage(liquid));
 }
@@ -142,10 +144,11 @@ export function itemSalvage(inst: ItemInstance): Cost {
 
 // ------------------------------------------------------------------ the bench's recipes
 
-export type RecipeCat = 'tools' | 'vehicle' | 'clothing' | 'supplies';
+export type RecipeCat = 'tools' | 'paint' | 'vehicle' | 'clothing' | 'supplies';
 
 export const RECIPE_CATS: Record<RecipeCat, Text> = {
   tools: { zh: '工具', en: 'Tools' },
+  paint: { zh: '喷漆', en: 'Spray paint' },
   vehicle: { zh: '零件', en: 'Vehicle parts' },
   clothing: { zh: '衣物', en: 'Clothing' },
   supplies: { zh: '吃喝药', en: 'Food and medicine' },
@@ -153,7 +156,7 @@ export const RECIPE_CATS: Record<RecipeCat, Text> = {
 
 /** what a recipe makes */
 export type Makes =
-  | { kind: 'tool'; tool: ToolKind; tier?: 1 | 2 | 3; fuel?: 'petrol' | 'diesel' }
+  | { kind: 'tool'; tool: ToolKind; tier?: 1 | 2 | 3; fuel?: 'petrol' | 'diesel'; colour?: number }
   | { kind: 'part'; part: string; tire?: string }
   | { kind: 'item'; item: string };
 
@@ -177,13 +180,14 @@ export const RECIPES: readonly Recipe[] = [
   R('scraper_2', 'tools', 3, { kind: 'tool', tool: 'scraper', tier: 2 }, { scrap: 200 }),
   R('scraper_3', 'tools', 5, { kind: 'tool', tool: 'scraper', tier: 3 }, { scrap: 450 }),
   R('jerrycan', 'tools', 3, { kind: 'tool', tool: 'jerrycan', fuel: 'petrol' }, { scrap: 75 }),
-  R('spray', 'tools', 2, { kind: 'tool', tool: 'spray' }, { organics: 20, scrap: 10 }),
   R('lamp_old', 'tools', 1, { kind: 'item', item: 'lamp_old' }, { scrap: 40 }),
   R('repair_1', 'tools', 1, { kind: 'item', item: 'repair_1' }, { scrap: 70 }),
   R('repair_2', 'tools', 4, { kind: 'item', item: 'repair_2' }, { scrap: 250 }),
   R('hammer_1', 'tools', 1, { kind: 'item', item: 'hammer_1' }, { scrap: 70 }),
   R('hammer_2', 'tools', 3, { kind: 'item', item: 'hammer_2' }, { scrap: 240 }),
   R('flare_gun', 'tools', 6, { kind: 'item', item: 'flare_gun' }, { scrap: 300 }),
+  // spray paint: a medium can in every colour, made full (Arctic Drive's 27 recipes, 20 organics and 10 scrap each)
+  ...PALETTE.map((_, i) => R(`spray_${i}`, 'paint', 2, { kind: 'tool', tool: 'spray', tier: 2, colour: i }, { organics: 20, scrap: 10 })),
   // vehicle parts
   R('steer_std', 'vehicle', 1, { kind: 'part', part: 'steer_std' }, { scrap: 20 }),
   R('wheel_road', 'vehicle', 1, { kind: 'part', part: 'rim_steel13', tire: 'tire_road' }, { scrap: 80 }),

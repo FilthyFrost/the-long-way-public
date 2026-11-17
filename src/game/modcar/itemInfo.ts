@@ -5,17 +5,18 @@
  * weight, the vehicles it fits. Plain data; cards.ts draws it. The held thing's card and the card of what
  * the mark is on are both made here.
  */
-import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
+import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
 import { ITEM_CATS, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
-import { PALETTE } from '../../core/modcar/palette';
+import { PALETTE, paintHex } from '../../core/modcar/palette';
+import { SPRAY_TIERS, sprayLeft, sprayTier } from '../../core/modcar/paint';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
-import { SCRAPERS, TOOL_INFO, type Tool } from '../../core/modcar/tools';
+import { SCRAPERS, TOOL_INFO, toolName, type Tool } from '../../core/modcar/tools';
 import type { Category, FuelType, PartDef, PartInstance } from '../../core/modcar/types';
 import type { GarageDevice } from './garageStub';
 import type { ModVehicle } from './vehicle';
@@ -33,6 +34,8 @@ export interface CardBar {
   tone: Tone;
   /** a bar of several liquids: each kind's share, with its own colour and line under the bar */
   parts?: { tone: Tone; value: number; text: string }[];
+  /** its own colour (CSS) over the tone's (a spray can's paint) */
+  colour?: string;
 }
 
 export interface CardRow {
@@ -108,6 +111,8 @@ export const FUEL_ZH: Record<FuelType, string> = { petrol: '汽油', diesel: '�
 const SURFACES_ZH = ['柏油', '砂石', '土路', '草地', '沙地', '雪地', '冰面'];
 
 const L = (v: number): string => `${Math.max(0, v).toFixed(v >= 100 ? 0 : 1)}`;
+/** an sRGB hex colour as CSS */
+export const hexCss = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 const pct = (v: number): string => `${Math.round(v * 100)}%`;
 const signPct = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%`;
 
@@ -126,7 +131,7 @@ export function toolMass(t: Tool): number {
   if (t.kind === 'jerrycan') return 4 + (t.litres ?? 0) * 0.75;
   if (t.kind === 'bottle') return 0.3 + (t.litres ?? 0);
   if (t.kind === 'oilcan') return 0.4 + (t.litres ?? 0) * 0.9;
-  return t.kind === 'spray' ? 0.4 : 0.1;
+  return t.kind === 'spray' ? SPRAY_TIERS[sprayTier(t)].mass : 0.1;
 }
 
 function badgesOf(def: PartDef): ItemCard['badges'] {
@@ -357,7 +362,7 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   }
   const s = salvageText(partSalvage(inst));
   if (s) row(s, '回收能得');
-  if (inst.rust > 0.25) card.notes.push({ text: `锈了 ${pct(inst.rust)}：用海绵擦一擦`, tone: 'info' });
+  if (inst.rust > 0.25) card.notes.push({ text: `锈了 ${pct(inst.rust)}：用钢丝刷刷一刷`, tone: 'info' });
   else if (inst.dirt > 0.4) card.notes.push({ text: '有点脏：用海绵擦一擦', tone: 'info' });
   return card;
 }
@@ -366,12 +371,12 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
 
 export function toolCard(t: Tool): ItemCard {
   const info = TOOL_INFO[t.kind];
-  const blurb = t.kind === 'scraper' ? SCRAPER_BLURB[t.tier ?? 1] : TOOL_BLURB[t.kind];
+  const blurb = t.kind === 'scraper' ? SCRAPER_BLURB[t.tier ?? 1] : t.kind === 'spray' ? SPRAY_BLURB[sprayTier(t)] : TOOL_BLURB[t.kind];
   const card: ItemCard = {
     key: `tool:${t.uid}:${t.kind}:${t.fuel ?? ''}:${t.colour ?? ''}:${t.tier ?? ''}`,
     icon: 'tool',
     cat: '工具',
-    name: t.kind === 'jerrycan' ? `油桶（${FUEL_ZH[t.fuel ?? 'petrol']}）` : t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].name.zh : info.name.zh,
+    name: t.kind === 'jerrycan' ? `油桶（${FUEL_ZH[t.fuel ?? 'petrol']}）` : t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].name.zh : t.kind === 'spray' ? toolName(t) : info.name.zh,
     stars: blurb.stars,
     badges: [],
     blurb: blurb.zh,
@@ -394,7 +399,15 @@ export function toolCard(t: Tool): ItemCard {
     card.rows.push({ value: `${info.rate} L/秒`, label: '倒得多快' });
     card.notes.push({ text: '打开引擎盖，对着发动机上的机油盖按住 E 加机油', tone: 'info' });
   } else if (t.kind === 'spray') {
-    card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '现在的颜色（滚轮换）' });
+    // (Arctic Drive's: the paint left, a part's worth at a time; the can's colour)
+    const size = SPRAY_TIERS[sprayTier(t)];
+    const left = sprayLeft(t);
+    card.bars.push({ label: '剩余漆量', value: left, max: size.capacity, text: `${Math.ceil(left - 1e-6)} / ${size.capacity}`, tone: 'good', colour: hexCss(paintHex(t.colour ?? 0)) });
+    card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '颜色' });
+    card.rows.push({ value: `${(1 / size.speed).toFixed(1)} 秒`, label: '喷好一个部件' });
+    card.rows.push({ value: left > 0 ? `约 ${Math.max(1, Math.round(left * size.speed))} 个` : '0 个', label: '还能喷' });
+    if (left <= 0) card.notes.push({ text: '空了：丢进回收台', tone: 'warn' });
+    else card.notes.push({ text: '对着车身、车门、引擎盖、尾门、保险杠、后视镜按住左键；已经是这个颜色的不耗漆', tone: 'info' });
   } else if (t.kind === 'scraper') {
     card.rows.push({ value: `${Math.round(SCRAPERS[t.tier ?? 1].width * 100)} cm`, label: '刀口宽' });
     card.notes.push({ text: '按住左键刮：车窗、车身上糊死的泥壳；鼠标带着走，来回两三遍', tone: 'info' });

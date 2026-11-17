@@ -296,7 +296,7 @@ const HAMMER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="#17120f" strok
 
 /** what a thing would be, as held (for its picture, its card and its model) */
 export function heldOfMakes(m: Makes): NonNullable<Held> {
-  if (m.kind === 'tool') return { kind: 'tool', tool: newTool(m.tool, { ...(m.tier ? { tier: m.tier } : {}), ...(m.fuel ? { fuel: m.fuel, litres: 0 } : {}) }) };
+  if (m.kind === 'tool') return { kind: 'tool', tool: newTool(m.tool, { ...(m.tier ? { tier: m.tier } : {}), ...(m.fuel ? { fuel: m.fuel, litres: 0 } : {}), ...(m.colour !== undefined ? { colour: m.colour } : {}) }) };
   if (m.kind === 'item') return { kind: 'item', item: newItem(m.item) };
   const inst = newInstance(m.part, { charge: 1 });
   if (m.tire) fitSub(inst, 'tire', newInstance(m.tire));
@@ -926,7 +926,7 @@ export class Workshop {
   }
 
   private nameOf(m: Makes): string {
-    if (m.kind === 'tool') return m.tool === 'scraper' ? SCRAPERS[m.tier ?? 1].name.zh : toolName(newTool(m.tool, { litres: 0 }));
+    if (m.kind === 'tool') return m.tool === 'scraper' ? SCRAPERS[m.tier ?? 1].name.zh : toolName(newTool(m.tool, { litres: 0, ...(m.tier ? { tier: m.tier } : {}), ...(m.colour !== undefined ? { colour: m.colour } : {}) }));
     if (m.kind === 'item') return itemDef(m.item).name.zh;
     return m.tire ? `${partDef(m.part).name.zh} + ${partDef(m.tire).name.zh}` : partDef(m.part).name.zh;
   }

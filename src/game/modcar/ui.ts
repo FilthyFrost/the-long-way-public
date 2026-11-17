@@ -1,7 +1,7 @@
 /**
  * The few words on screen while working on a vehicle (docs/MODCAR.md §5): the mark in the middle and its
  * progress ring, the item cards, the hotbar and the keys (hudItems.ts), the vehicle's own messages, the
- * paint colours, the garage's checklist (as a quest in the top right corner), the cluster while driving,
+ * garage's checklist (as a quest in the top right corner), the cluster while driving,
  * the key card and the loading card.
  *
  * Plain DOM over the canvas, laid out and coloured as Arctic Drive's HUD is (dark smoky glass, white words
@@ -30,9 +30,6 @@ const CSS = `
 .mc-word b { color: var(--gold); }
 .mc-word small { color: var(--tx-2); margin-left: 6px; font-size: 13px; font-weight: 400; }
 .mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 8px 20px; white-space: nowrap; font-size: 16px; font-weight: 700; transition: opacity 0.4s; }
-.mc-paint { position: absolute; left: calc(50% + 86px); bottom: 26px; display: grid; grid-template-columns: repeat(12, 16px); gap: 7px 6px; padding: 10px 13px; border-radius: 18px; }
-.mc-paint i { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 2px var(--ink); transition: transform 0.1s; }
-.mc-paint i.on { transform: translateY(-4px) scale(1.12); box-shadow: 0 0 0 2px var(--ink), 0 0 0 4.5px var(--rim), 0 0 0 6.5px var(--ink); }
 .mc-list { position: absolute; right: 30px; top: 22px; width: 320px; text-align: right; text-shadow: var(--say-shadow); }
 .mc-list h4 { margin: 0; padding-bottom: 7px; font-size: 19px; font-weight: 700; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75)) left bottom / 100% 1.5px no-repeat; }
 .mc-list .now { display: flex; justify-content: flex-end; align-items: center; gap: 9px; margin-top: 8px; font-size: 16px; }
@@ -151,7 +148,6 @@ export class ModUI {
   private readonly arc: SVGCircleElement;
   private readonly word: HTMLDivElement;
   private readonly toast: HTMLDivElement;
-  private readonly paint: HTMLDivElement;
   private readonly list: HTMLDivElement;
   private readonly dash: HTMLDivElement;
   private readonly fade: HTMLDivElement;
@@ -192,7 +188,6 @@ export class ModUI {
     this.word = el('div', 'mc-word', this.root);
     this.items = new ItemHud(this.root);
     this.toast = el('div', 'mc-toast mc-frame', this.root);
-    this.paint = el('div', 'mc-paint mc-frame', this.root);
     this.list = el('div', 'mc-list', this.root);
     this.dash = el('div', 'mc-dash mc-frame', this.root);
     this.marker = el('div', 'mc-marker', this.root);
@@ -205,7 +200,7 @@ export class ModUI {
     this.load = el('div', 'mc-load', this.root);
     this.load.innerHTML = '<div class="box"><h2>公路旅行</h2><div class="sub">前方三百公里，再无修理厂</div><div class="bar mc-frame"><i></i></div><div class="what">正在把零件搬进车库……</div></div>';
     this.load.style.display = 'none';
-    for (const e of [this.word, this.toast, this.paint, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
+    for (const e of [this.word, this.toast, this.list, this.dash, this.marker, this.pause, this.help, this.assist]) e.style.display = 'none';
     this.ring.style.display = 'none';
   }
 
@@ -247,18 +242,6 @@ export class ModUI {
     this.toast.style.display = '';
     this.toast.style.opacity = '1';
     this.toastT = seconds;
-  }
-
-  showPaint(colours: readonly number[] | null, at: number): void {
-    if (!colours) {
-      this.paint.style.display = 'none';
-      return;
-    }
-    this.paint.style.display = '';
-    if (this.paint.childElementCount !== colours.length) {
-      this.paint.innerHTML = colours.map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`).join('');
-    }
-    [...this.paint.children].forEach((e, i) => e.classList.toggle('on', i === at));
   }
 
   showList(title: string | null, items: { text: string; done: boolean; now: boolean }[]): void {

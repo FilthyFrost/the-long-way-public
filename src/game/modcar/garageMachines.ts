@@ -3,7 +3,9 @@
  * between its posts it takes it up by the sills, the wheels left hanging), the tyre changer
  * puts a tyre on a wheel lying on its turntable (or takes it off), the radio plays (its dial lights, the
  * pointer finds the station; the game plays the song, radio.ts), the sink fills the water bottle, the paint gun on
- * its long hose gives the car standing nearest a whole new coat in the colour of the can in hand, the
+ * its long hose gives the car standing nearest a whole new coat in the colour of the can in hand — its body and
+ * every door, lid, bumper and mirror at once, twice as fast as by hand, from the can's paint by the same rules
+ * (paint.ts: what is that colour already costs nothing, the can may run dry half-way) — the
  * clock keeps the day's time, the fan turns.
  *
  * Each is a GarageDevice (aim point, word, use) plus a little state stepped every frame.
@@ -11,8 +13,9 @@
 import type * as THREE from 'three';
 import { fitSub, removeSub } from '../../core/modcar/build';
 import { PALETTE } from '../../core/modcar/palette';
+import { coatOf, keepPartColours, paintTargets, SPRAY_TIERS, sprayLeft, sprayStep, sprayTier } from '../../core/modcar/paint';
 import { partDef } from '../../core/modcar/parts';
-import { TOOL_INFO } from '../../core/modcar/tools';
+import { TOOL_INFO, type Tool } from '../../core/modcar/tools';
 import type { Text } from '../../core/modcar/types';
 import type { GarageContext, GarageDevice } from './garageStub';
 import type { GarageLook } from './garageLook';
@@ -56,9 +59,8 @@ export class Machines {
   radioOn = false;
   private radioNeedle = 0;
   private song = 0;
-  // the paint gun
-  private paintLeft = 0;
-  private paintJob: (() => void) | null = null;
+  // the paint gun: the car it is painting, with which can
+  private paintJob: { v: ModVehicle; can: Tool } | null = null;
 
   constructor(private readonly rig: MachineRig) {
     const self = this;
@@ -243,32 +245,59 @@ export class Machines {
     return best;
   }
 
+  /** the paint a whole new coat in this can's colour would take (units): what is not that colour yet */
+  private paintNeed(v: ModVehicle, can: Tool): number {
+    const c = can.colour ?? 0;
+    const per = 1 / SPRAY_TIERS[sprayTier(can)].speed;
+    return paintTargets(v.build).reduce((s, x) => s + (1 - coatOf(x.mount ? v.build.parts[x.mount] : v.build, c)) * per, 0);
+  }
+
   private paintWord(): Text {
-    if (this.paintLeft > 0) return text('喷漆中……', 'Spraying…');
+    if (this.paintJob) return text('喷漆中……', 'Spraying…');
     const held = this.ctx?.player.held;
     const t = this.paintTarget();
     if (!t) return text('喷枪 · 管子够不着车', 'Spray gun · no car in reach');
     const name = t.v.view.frame.name;
     if (held?.kind !== 'tool' || held.tool.kind !== 'spray') return text(`喷枪 · 手里拿一罐漆，给${name.zh}整车喷漆`, `Spray gun · hold a spray can to paint the ${name.en}`);
     const p = PALETTE[held.tool.colour ?? 0];
-    return text(`喷枪 · 把${name.zh}整车喷成${p.name.zh}`, `Spray gun · paint the ${name.en} ${p.name.en}`);
+    if (sprayLeft(held.tool) <= 0) return text('喷枪 · 罐子空了', 'Spray gun · the can is empty');
+    const need = this.paintNeed(t.v, held.tool);
+    if (need <= 0.01) return text(`喷枪 · ${name.zh}已经整车是${p.name.zh}了`, `Spray gun · the ${name.en} is ${p.name.en} all over`);
+    return text(`喷枪 · 把${name.zh}整车喷成${p.name.zh}（约 ${Math.ceil(need)} 单位漆，罐里有 ${Math.ceil(sprayLeft(held.tool) - 1e-6)}）`, `Spray gun · paint the ${name.en} ${p.name.en} (about ${Math.ceil(need)} units of paint)`);
   }
 
   private paintUse(): void {
     const ctx = this.ctx;
-    if (!ctx || this.paintLeft > 0) return;
+    if (!ctx || this.paintJob) return;
     const held = ctx.player.held;
     const t = this.paintTarget();
-    if (!t || held?.kind !== 'tool' || held.tool.kind !== 'spray') return;
-    const colour = held.tool.colour ?? 0;
-    const v = t.v;
-    this.paintLeft = 1;
-    ctx.sound('spray');
-    this.paintJob = () => {
-      v.build.paint = colour;
-      ctx.changed(v, 'paint:frame');
-      ctx.ui.say(`${v.view.frame.name.zh}换上了${PALETTE[colour].name.zh}的新漆。`, 2.5);
-    };
+    if (!t || held?.kind !== 'tool' || held.tool.kind !== 'spray' || sprayLeft(held.tool) <= 0 || this.paintNeed(t.v, held.tool) <= 0.01) return;
+    // (the body takes its own coat: the doors and lids keep theirs until the gun gets to them, at once)
+    if (t.v.build.paint !== (held.tool.colour ?? 0)) keepPartColours(t.v.build);
+    this.paintJob = { v: t.v, can: held.tool };
+  }
+
+  /** a moment of the gun at work: every thing of the car that is not the colour yet takes its coat, the can empties */
+  private stepPaint(dt: number, ctx: GarageContext): void {
+    const job = this.paintJob;
+    if (!job) return;
+    const { v, can } = job;
+    let busy = false;
+    for (const x of paintTargets(v.build)) {
+      if (sprayLeft(can) <= 0) break;
+      const p = x.mount ? v.build.parts[x.mount] : v.build;
+      const r = sprayStep(can, p, v.view.paintBase(v.view.paintOwner(x.mount)), dt, 2);
+      if (!r.already && !r.done) busy = true;
+    }
+    if (busy && sprayLeft(can) > 0) {
+      ctx.sound('spray');
+      return;
+    }
+    this.paintJob = null;
+    const c = can.colour ?? 0;
+    const all = paintTargets(v.build).every((x) => coatOf(x.mount ? v.build.parts[x.mount] : v.build, c) >= 1);
+    ctx.sound(all ? 'paint_done' : 'spray_sputter');
+    ctx.ui.say(all ? `${v.view.frame.name.zh}换上了${PALETTE[c].name.zh}的新漆。` : `罐子喷空了：${v.view.frame.name.zh}只喷了一部分。`, 2.5);
   }
 
   // ------------------------------------------------------------------ every frame
@@ -308,15 +337,7 @@ export class Machines {
     const dial = this.radioOn ? 1 : 0;
     this.rig.look.setGlow('dial', 2.2 * dial, 1.4 * dial, 0.55 * dial);
     // the paint gun
-    if (this.paintLeft > 0) {
-      this.paintLeft -= dt;
-      if (this.paintLeft <= 0) {
-        this.paintLeft = 0;
-        const job = this.paintJob;
-        this.paintJob = null;
-        job?.();
-      }
-    }
+    this.stepPaint(dt, ctx);
     // the clock shows the hour of the day; the fan turns
     const h = ctx.hour;
     const hh = mv.get('CLOCK_H');

@@ -9,10 +9,11 @@
 import type * as THREE from 'three';
 import { stockBuild } from '../../core/modcar/build';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
-import { paintHex } from '../../core/modcar/palette';
+import { PALETTE, paintHex } from '../../core/modcar/palette';
+import { SPRAY_TIERS, sprayColours } from '../../core/modcar/paint';
 import { ITEM_CATS, ITEMS, type ItemCat } from '../../core/modcar/items';
 import { PARTS } from '../../core/modcar/parts';
-import { newTool, SCRAPERS, TOOL_INFO, type ToolKind } from '../../core/modcar/tools';
+import { newTool, SCRAPERS, TOOL_INFO, toolName, type ToolKind } from '../../core/modcar/tools';
 import { toolLook } from './loose';
 import type { Category, PartDef } from '../../core/modcar/types';
 import { panelPaint } from './assets';
@@ -21,7 +22,7 @@ import { PartThumbs } from './thumbs';
 
 export type DevItem =
   | { kind: 'part'; id: string }
-  | { kind: 'tool'; tool: ToolKind; fuel?: 'petrol' | 'diesel'; litres?: number; tier?: 1 | 2 | 3 }
+  | { kind: 'tool'; tool: ToolKind; fuel?: 'petrol' | 'diesel'; litres?: number; tier?: 1 | 2 | 3; colour?: number }
   | { kind: 'item'; id: string }
   | { kind: 'vehicle'; frame: string; stock: boolean };
 
@@ -396,20 +397,31 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         );
       }
     }
-    const tool = (key: string, item: DevItem, name: string, meta: string, paint?: number): { key: string; item: DevItem; name: string; meta: string; text: string; paint?: number } => ({ key, item, name, meta, text: `${name} ${key}`, paint });
+    const tool = (key: string, item: DevItem, name: string, meta: string, paint?: number, paint2?: number): { key: string; item: DevItem; name: string; meta: string; text: string; paint?: number; paint2?: number } => ({ key, item, name, meta, text: `${name} ${key}`, paint, paint2 });
     add('tools', '工具', [
       tool('tool:jerrycan:petrol:20', { kind: 'tool', tool: 'jerrycan', fuel: 'petrol', litres: 20 }, '汽油桶（满）', '20 L 汽油', 0xb8302a),
       tool('tool:jerrycan:diesel:20', { kind: 'tool', tool: 'jerrycan', fuel: 'diesel', litres: 20 }, '柴油桶（满）', '20 L 柴油', 0x2f6a3a),
       tool('tool:jerrycan:petrol:0', { kind: 'tool', tool: 'jerrycan', fuel: 'petrol', litres: 0 }, '空油桶', '空的', 0xb8302a),
       tool('tool:bottle', { kind: 'tool', tool: 'bottle' }, TOOL_INFO.bottle.name.zh, '5 L 水'),
       tool('tool:oilcan', { kind: 'tool', tool: 'oilcan' }, TOOL_INFO.oilcan.name.zh, '4 L 机油', 0xd8a531),
-      tool('tool:spray', { kind: 'tool', tool: 'spray' }, TOOL_INFO.spray.name.zh, '滚轮换颜色', paintHex(13)),
       tool('tool:sponge', { kind: 'tool', tool: 'sponge' }, TOOL_INFO.sponge.name.zh, '擦洗', 0xe8d257),
       tool('tool:scraper:1', { kind: 'tool', tool: 'scraper', tier: 1 }, SCRAPERS[1].name.zh, '刀口 10 cm', toolLook(newTool('scraper', { tier: 1 })).paint),
       tool('tool:scraper:2', { kind: 'tool', tool: 'scraper', tier: 2 }, SCRAPERS[2].name.zh, '刀口 22 cm', toolLook(newTool('scraper', { tier: 2 })).paint),
       tool('tool:scraper:3', { kind: 'tool', tool: 'scraper', tier: 3 }, SCRAPERS[3].name.zh, '刀口 25 cm', toolLook(newTool('scraper', { tier: 3 })).paint),
       tool('tool:brush', { kind: 'tool', tool: 'brush' }, TOOL_INFO.brush.name.zh, '刷锈', toolLook(newTool('brush')).paint),
     ]);
+    // the spray cans as Arctic Drive has them: the small in eight colours, the medium in all, the large in seven (full)
+    add(
+      'tools',
+      '喷漆罐',
+      ([1, 2, 3] as const).flatMap((tier) =>
+        sprayColours(tier).map((c) => {
+          const t = newTool('spray', { tier, colour: c });
+          const look = toolLook(t);
+          return { ...tool(`tool:spray:${tier}:${c}`, { kind: 'tool', tool: 'spray', tier, colour: c }, toolName(t), `${SPRAY_TIERS[tier].capacity} 单位 · 喷一个部件 ${(1 / SPRAY_TIERS[tier].speed).toFixed(1)} 秒`, look.paint, look.paint2), text: `${toolName(t)} ${PALETTE[c].name.en} 喷漆 spray tool:spray:${tier}:${c}` };
+        }),
+      ),
+    );
     for (const cat of ITEM_ORDER) {
       add(
         'items',

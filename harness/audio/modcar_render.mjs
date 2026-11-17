@@ -2,7 +2,7 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--all] [--no-metrics]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--scrub] [--spray] [--all] [--no-metrics]
 //
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
@@ -12,6 +12,8 @@
 // --scrub renders scrubbing as the game drives it (every frame a gain and a rate from the tool's speed,
 // the blade's catch at each stroke, flakes, the chimes) and checks each scrub loop: unclipped, silent once
 // let go, no step added by a rate changing every frame, a fast stroke heard brighter than a slow one.
+// --spray renders spray painting as the game drives it (the can shaken, pressed, held, let go, pressed
+// again, the coat done, the can run dry) and checks the valve's pssht into the hiss and the quiet after.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
 // as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
 // Exit code 1 if a loop clicks or a check fails.
@@ -33,9 +35,10 @@ const doVariants = all || args.includes('--variants');
 const doSweep = all || args.includes('--sweep');
 const doWorkshop = all || args.includes('--workshop');
 const doScrub = all || args.includes('--scrub');
+const doSpray = all || args.includes('--spray');
 const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub) ? [...ENGINES, ...MACHINES] : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop && !doScrub && !doSpray) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -320,6 +323,8 @@ try {
       ...['glass', 'metal', 'rust', 'mud'].map((surface) => ['scrape_start', { surface }]), ['flake_drop', {}],
       ['clean_ding', {}], ['clean_rust_done', {}], ['clean_car_done', {}], ['tool_worn', {}], ['highlight_ping', {}],
       ...SCRUBS.flatMap((kind) => [[kind, {}], [kind, { rate: 0.7 }], [kind, { rate: 1.6 }]]),
+      // spray paint
+      ['spray_rattle', {}], ['spray_start', {}], ['spray_sputter', {}], ['paint_done', {}], ['spray_hiss', {}], ['spray_hiss', { rate: 0.9 }],
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
@@ -401,6 +406,34 @@ try {
       check(Math.abs(fast.rms - slow.rms) < 3, `${kind}: as loud fast as slow (${slow.rms} / ${fast.rms} dB)`);
       check(quiet < -60, `${kind}: silent once let go (${quiet} dB)`);
     }
+  }
+
+  if (doSpray) {
+    const r = await page.evaluate(() => window.__modcarAudio.renderSpray());
+    const x = fromBase64(r.pcm);
+    writeWav(path.join(OUT, 'spray_scene.wav'), x, r.sampleRate);
+    report.spray = {};
+    for (const [k, [a, b]] of Object.entries(r.marks)) report.spray[k] = stats(x, r.sampleRate, a, b);
+    const s = report.spray;
+    const peak = stats(x, r.sampleRate).peak;
+    console.log(`spray scene: ${Object.entries(s).map(([k, v]) => `${k} ${v.rms} dB/${v.centroid} Hz`).join('  ')}  peak ${peak} dB`);
+    check(peak < -0.5, `spray scene: no clipping (peak ${peak} dB)`);
+    // each press: the valve's pssht a few dB over the hiss at once, then the hiss with no hole while it eases in
+    const steady = stats(x, r.sampleRate, 2.0, 3.6).rms;
+    const win = (a) => stats(x, r.sampleRate, a, a + 0.01).rms;
+    for (const t0 of [1.3, 4.4]) {
+      const onset = Math.max(win(t0 + 0.005), win(t0 + 0.01), win(t0 + 0.015)) - steady;
+      let hole = 0;
+      let push = -99;
+      for (let t = t0 + 0.04; t < t0 + 0.25; t += 0.01) {
+        hole = Math.min(hole, win(t) - steady);
+        push = Math.max(push, win(t) - steady);
+      }
+      check(onset > 1.5 && onset < 7.5, `spray press at ${t0} s: the valve's pssht over the hiss (${onset.toFixed(1)} dB)`);
+      check(hole > -3.5 && push < 3.5, `spray press at ${t0} s: then the hiss, no hole and no second push while it eases in (${hole.toFixed(1)} / +${push.toFixed(1)} dB)`);
+    }
+    check(s.released.rms < -60, `spray: silent once let go (${s.released.rms} dB)`);
+    check(s.quiet.rms < -60, `spray: silent once the can has run dry (${s.quiet.rms} dB)`);
   }
 
   if (doLoops) {

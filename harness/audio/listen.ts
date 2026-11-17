@@ -137,6 +137,8 @@ const shotButtons: Array<[string, FoleyShot, FoleyOpts]> = [
   ['刮刀起手 玻璃', 'scrape_start', { surface: 'glass' }], ['刮刀起手 漆面', 'scrape_start', { surface: 'metal' }], ['刮刀起手 锈', 'scrape_start', { surface: 'rust' }], ['刮刀起手 泥', 'scrape_start', { surface: 'mud' }],
   ['碎屑落地', 'flake_drop', {}], ['擦干净了（叮）', 'clean_ding', {}], ['除锈完成', 'clean_rust_done', {}], ['整车翻新完成', 'clean_car_done', {}],
   ['工具用坏了', 'tool_worn', {}], ['显示剩余污渍（H）', 'highlight_ping', {}],
+  // spray paint
+  ['摇喷罐（新）', 'spray_rattle', {}], ['喷漆阀门', 'spray_start', {}], ['喷罐喷干', 'spray_sputter', {}], ['喷漆完成', 'paint_done', {}],
 ];
 for (const [label, kind, opts] of shotButtons) {
   const b = document.createElement('button');
@@ -152,6 +154,7 @@ const loopButtons: Array<[string, FoleyLoop, FoleyOpts]> = [
   // scrubbing (at the rate and gain of the sliders under the scrub pad)
   ['刮玻璃（开关）', 'scrape_glass', {}], ['刮漆面（开关）', 'scrape_metal', {}], ['刮锈（开关）', 'scrape_rust', {}], ['刮泥（开关）', 'scrape_mud', {}],
   ['钢丝刷（开关）', 'brush_wire', {}], ['海绵擦洗（开关）', 'sponge_scrub', {}],
+  ['喷漆嘶声（开关）', 'spray_hiss', {}],
 ];
 /** the scrubbing loops switched on by their buttons (they follow the rate and gain sliders) */
 const SCRUBS: readonly FoleyLoop[] = ['scrape_glass', 'scrape_metal', 'scrape_rust', 'scrape_mud', 'brush_wire', 'sponge_scrub'];
@@ -242,6 +245,28 @@ function scrubFrame(nowMs: number): void {
   $('scrubStatus').textContent = `${rub.kind}  速度 ${rub.speed.toFixed(0).padStart(5)} px/s  gain ${gain.toFixed(2)}  rate ${rate.toFixed(2)}  已擦 ${rub.travel.toFixed(0)} / 9000 px`;
 }
 foleyBox.append(document.createElement('br'));
+// a spray can as the game plays it: the valve and the hiss while held, stopped on release; run dry: the hiss stopped, the sputter
+{
+  const spray = document.createElement('button');
+  spray.textContent = '按住喷漆（阀门 + 嘶声，松开停）';
+  spray.onpointerdown = () => {
+    foley?.play('spray_start');
+    foley?.start('spray_hiss');
+  };
+  spray.onpointerup = spray.onpointerleave = () => foley?.stop('spray_hiss');
+  const dry = document.createElement('button');
+  dry.textContent = '喷着喷着喷干了';
+  dry.onclick = () => {
+    if (!foley) return;
+    foley.play('spray_start');
+    foley.start('spray_hiss');
+    setTimeout(() => {
+      foley?.stop('spray_hiss');
+      foley?.play('spray_sputter');
+    }, 1500);
+  };
+  foleyBox.append(spray, dry);
+}
 for (const [label, kind] of [['喇叭 嘀（按住）', 'horn_beep'], ['喇叭 乐曲', 'horn_trumpet'], ['汽笛（按住）', 'horn_air']] as const) {
   const b = document.createElement('button');
   b.textContent = label;
