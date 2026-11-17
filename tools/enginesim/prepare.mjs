@@ -4,9 +4,10 @@
 //   node tools/enginesim/prepare.mjs --src <engine-sim clone> --out <dir> [--build] [--flex <win_flex.exe>] [--bison <win_bison.exe>]
 //
 // The clone is read only. <out>/patched gets a copy of the simulation, scripting and script library
-// sources with two small patches (a stub for the renderer header the synthesizer includes, and
-// std::filesystem in place of Boost in piranha's path class) plus our recorder; --build compiles it
-// with MSVC + Ninja into <out>/build/esim_render.exe.
+// sources with three small patches (a stub for the renderer header the synthesizer includes,
+// std::filesystem in place of Boost in piranha's path class, and room for more than eight cylinders
+// in the synthesizer feed) plus our recorder; --build compiles it with MSVC + Ninja into
+// <out>/build/esim_render.exe.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -103,7 +104,17 @@ bool piranha::Path::isAbsolute() const { return m_path->is_complete(); }
 bool piranha::Path::exists() const { std::error_code ec; return std::filesystem::exists(*m_path, ec); }
 `);
 
-// 3. our recorder and its build
+// 3. the synthesizer feed keeps each cylinder's last exhaust valve lift in a static array of eight
+// (written, never read): an engine with more than eight cylinders (the V12) would write past its end
+{
+  const file = path.join(patched, 'src/piston_engine_simulator.cpp');
+  const before = fs.readFileSync(file, 'utf8');
+  const after = before.replace('static double lastValveLift[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };', 'static double lastValveLift[64] = { 0 };');
+  if (after === before) throw new Error(`${file}: the lastValveLift array was not found`);
+  fs.writeFileSync(file, after);
+}
+
+// 4. our recorder and its build
 fs.mkdirSync(path.join(patched, 'headless'), { recursive: true });
 for (const f of ['CMakeLists.txt', 'esim_render.cpp']) fs.copyFileSync(path.join(HERE, f), path.join(patched, 'headless', f));
 console.log(`patched sources in ${patched}`);

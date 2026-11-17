@@ -1,0 +1,245 @@
+// eng_boxer4: 1.6 litre air-cooled flat-four (the old van's and the beetle's), pushrod OHV, two
+// valves a cylinder, one small carburettor on a long manifold, redline 4600.
+// 85.5 x 69 mm, two banks of two opposed at 180 degrees, firing 1-4-3-2 every 180 degrees; but each
+// side's pair fires 180 then 540 degrees apart into its own heat exchanger, and the two sides reach
+// the one muffler down pipes of different lengths: the pulses arrive unevenly, the boxer's chatter.
+// Solid lifters (their tick and the fins' ring are layered on, bank_build.py); the cooling fan on
+// the generator shaft is a run-time whine (it follows the crank, not the exhaust), as eng_flat6's.
+import "engine_sim.mr"
+import "modcar_lib.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node wires {
+    output wire1: ignition_wire();
+    output wire2: ignition_wire();
+    output wire3: ignition_wire();
+    output wire4: ignition_wire();
+}
+
+public node eng_boxer4 {
+    alias output __out: engine;
+
+    engine engine(
+        name: "eng_boxer4",
+        starter_torque: 70 * units.lb_ft,
+        starter_speed: 220 * units.rpm,
+        redline: 4600 * units.rpm,
+        fuel: fuel(
+            max_burning_efficiency: 0.82,
+            burning_efficiency_randomness: 0.3
+        ),
+        throttle_gamma: 2.0,
+        hf_gain: 0.008,
+        noise: 0.8,
+        jitter: 0.5,
+        simulation_frequency: 20000
+    )
+
+    wires wires()
+
+    label stroke(69 * units.mm)
+    label bore(85.5 * units.mm)
+    label rod_length(137 * units.mm)
+    label compression_height(36 * units.mm)
+
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: 8 * units.kg,
+        mass: 9 * units.kg,
+        friction_torque: 6.0 * units.Nm,
+        moment_of_inertia: 1.5 * disk_moment_of_inertia(mass: 9 * units.kg, radius: stroke / 2)
+            + disk_moment_of_inertia(mass: 8 * units.kg, radius: 14 * units.cm),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: 180 * units.deg
+    )
+
+    rod_journal rj1(angle: 0 * units.deg)
+    rod_journal rj2(angle: 180 * units.deg)
+    rod_journal rj3(angle: 180 * units.deg)
+    rod_journal rj4(angle: 0 * units.deg)
+    c0
+        .add_rod_journal(rj1)
+        .add_rod_journal(rj2)
+        .add_rod_journal(rj3)
+        .add_rod_journal(rj4)
+
+    piston_parameters piston_params(
+        mass: 480 * units.g,
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement: 0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: 600 * units.g,
+        moment_of_inertia: rod_moment_of_inertia(mass: 600 * units.g, length: rod_length),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    // one small carburettor in the middle, a long manifold arm out to each side
+    intake intake(
+        plenum_volume: 1.0 * units.L,
+        plenum_cross_section_area: 7.0 * units.cm2,
+        intake_flow_rate: k_carb(170.0),
+        runner_flow_rate: k_carb(75.0),
+        runner_length: 16.0 * units.inch,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: 0.993,
+        velocity_decay: 0.5
+    )
+
+    exhaust_system_parameters es_params(
+        outlet_flow_rate: k_carb(220.0),
+        primary_tube_length: 16.0 * units.inch,
+        primary_flow_rate: k_carb(200.0),
+        velocity_decay: 0.8,
+        volume: 4.0 * units.L
+    )
+
+    // the right-hand heat exchanger reaches the muffler directly, the left one across the back
+    exhaust_system exhaust0(
+        es_params,
+        audio_volume: 1.0,
+        length: 24 * units.inch,
+        impulse_response: ir_lib.minimal_muffling_01
+    )
+    exhaust_system exhaust1(
+        es_params,
+        audio_volume: 1.0,
+        length: 38 * units.inch,
+        impulse_response: ir_lib.minimal_muffling_01
+    )
+
+    cylinder_bank b0(bank_params, angle: 90 * units.deg)
+    cylinder_bank b1(bank_params, angle: -90 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.003)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj1,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            sound_attenuation: 1.0,
+            primary_length: 10 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.003)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj2,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire2,
+            sound_attenuation: 0.92,
+            primary_length: 15 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 61 * units.cc,
+                intake_runner_volume: 160 * units.cc,
+                intake_runner_cross_section_area: 8.0 * units.cm2,
+                exhaust_runner_volume: 60 * units.cc,
+                exhaust_runner_cross_section_area: 6.5 * units.cm2,
+                flow_attenuation: 0.85,
+                flip_display: true,
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0
+            )
+        )
+    b1
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.003)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj3,
+            intake: intake,
+            exhaust_system: exhaust1,
+            ignition_wire: wires.wire3,
+            sound_attenuation: 1.06,
+            primary_length: 18 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.003)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj4,
+            intake: intake,
+            exhaust_system: exhaust1,
+            ignition_wire: wires.wire4,
+            sound_attenuation: 0.97,
+            primary_length: 12 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 61 * units.cc,
+                intake_runner_volume: 160 * units.cc,
+                intake_runner_cross_section_area: 8.0 * units.cm2,
+                exhaust_runner_volume: 60 * units.cc,
+                exhaust_runner_cross_section_area: 6.5 * units.cm2,
+                flow_attenuation: 0.85,
+                intake_camshaft: camshaft.intake_cam_1,
+                exhaust_camshaft: camshaft.exhaust_cam_1
+            )
+        )
+
+    engine
+        .add_cylinder_bank(b0)
+        .add_cylinder_bank(b1)
+    engine.add_crankshaft(c0)
+
+    harmonic_cam_lobe intake_lobe(
+        duration_at_50_thou: 212 * units.deg,
+        gamma: 1.0,
+        lift: 330 * units.thou,
+        steps: 100
+    )
+    harmonic_cam_lobe exhaust_lobe(
+        duration_at_50_thou: 208 * units.deg,
+        gamma: 1.0,
+        lift: 320 * units.thou,
+        steps: 100
+    )
+
+    mc_cam_boxer4 camshaft(
+        intake_lobe_profile: intake_lobe,
+        exhaust_lobe_profile: exhaust_lobe,
+        intake_lobe_center: 108 * units.deg,
+        exhaust_lobe_center: 108 * units.deg,
+        base_radius: 500 * units.thou
+    )
+
+    // a distributor's centrifugal advance, retarded at idle (the low-speed pull of a beetle's engine)
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 2 * units.deg)
+        .add_sample(1000 * units.rpm, 3 * units.deg)
+        .add_sample(2000 * units.rpm, 22 * units.deg)
+        .add_sample(3000 * units.rpm, 30 * units.deg)
+        .add_sample(4000 * units.rpm, 32 * units.deg)
+        .add_sample(5000 * units.rpm, 32 * units.deg)
+        .add_sample(6000 * units.rpm, 32 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve: timing_curve,
+        rev_limit: 4900 * units.rpm,
+        limiter_duration: 0.08)
+    ignition_module
+        .connect_wire(wires.wire1, 0 * units.deg)
+        .connect_wire(wires.wire4, 180 * units.deg)
+        .connect_wire(wires.wire3, 360 * units.deg)
+        .connect_wire(wires.wire2, 540 * units.deg)
+    engine.add_ignition_module(ignition_module)
+}
+
+public node main {
+    set_engine(eng_boxer4())
+}

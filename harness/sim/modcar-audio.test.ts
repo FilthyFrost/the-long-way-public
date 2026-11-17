@@ -25,12 +25,19 @@ import { Rng, biquad, fft, measure } from '../../src/game/modcar/synth';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const BANKS = path.join(ROOT, 'public', 'audio', 'modcar', 'engines');
-const VEHICLE_ENGINES = ['eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'];
+const VEHICLE_ENGINES = [
+  'eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6',
+  // (docs/MODCAR.md §25: a kei triple to a V12, the walking tractor's single and two bikes')
+  'eng_i3', 'eng_boxer4', 'eng_i4tc', 'eng_i6', 'eng_v6', 'eng_v12', 'eng_d1', 'eng_i6d', 'eng_moto4', 'eng_vtwin',
+];
 /** machines that are not driven: the workshop's generator (a few loops round its governed speed, no limiter) */
 const MACHINES = ['gen_d1'];
 const ENGINES = [...VEHICLE_ENGINES, ...MACHINES];
 // MODCAR.md 2.3: the redline of every engine (the generator: the top of its governor's band)
-const REDLINE: Record<string, number> = { eng_mower: 3600, eng_single: 9000, eng_2t: 9500, eng_i4: 6200, eng_i4d: 4400, eng_flat6: 7200, eng_v8: 6000, eng_d6: 2800, gen_d1: 3300 };
+const REDLINE: Record<string, number> = {
+  eng_mower: 3600, eng_single: 9000, eng_2t: 9500, eng_i4: 6200, eng_i4d: 4400, eng_flat6: 7200, eng_v8: 6000, eng_d6: 2800, gen_d1: 3300,
+  eng_i3: 7500, eng_boxer4: 4600, eng_i4tc: 7600, eng_i6: 6500, eng_v6: 6200, eng_v12: 7000, eng_d1: 2200, eng_i6d: 3600, eng_moto4: 13500, eng_vtwin: 6000,
+};
 
 function manifest(id: string): BankManifest {
   return JSON.parse(fs.readFileSync(path.join(BANKS, id, 'manifest.json'), 'utf8')) as BankManifest;

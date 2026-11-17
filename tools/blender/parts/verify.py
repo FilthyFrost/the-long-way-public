@@ -25,7 +25,7 @@ radio_tape hb_stock hb_drift gl_stock gl_short gl_foot ign_key ign_button horn_b
 bf_bullbar bf_ram bf_plow br_stock br_spikes hl_round hl_square hl_spot tl_stock tl_round mir_stock mir_truck
 roof_rack roof_lightbar roof_solar roof_spikes arm_plates arm_planks""".split()
 
-TURBO = {'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'}
+TURBO = {'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6', 'eng_i3', 'eng_i4tc', 'eng_i6', 'eng_v6', 'eng_i6d'}
 STRETCH_PREFIX = ('bf_', 'br_', 'roof_', 'arm_')
 
 

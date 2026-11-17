@@ -172,17 +172,38 @@ def event_phase(x, fs, period):
     return int(np.argmax(fold))
 
 
-def knock_layer(x, fs, rng, events_per_loop, level_db, modes, decay_ms, tick_db=-6.0, advance_ms=2.5):
-    """Combustion knock: a ring of block modes plus an injector tick at every firing (cyclic)."""
+def pattern_phase(x, fs, cycle, pattern):
+    """Phase (samples) at which an uneven firing pattern (fractions of an engine cycle) lines up best
+    with the pulses: the envelope folded onto one cycle, summed at the pattern's events."""
+    env = envelope(x, fs, 0.5)
+    C = int(round(cycle))
+    reps = len(env) // C
+    if reps < 1:
+        return 0
+    fold = env[:reps * C].reshape(reps, C).mean(axis=0)
+    score = sum(np.roll(fold, -int(round(f * C))) for f in pattern)
+    return int(np.argmax(score))
+
+
+def knock_layer(x, fs, rng, events_per_loop, level_db, modes, decay_ms, tick_db=-6.0, advance_ms=2.5, pattern=None, cycles=1, offsets=(0.0,)):
+    """Combustion knock: a ring of block modes plus an injector tick at every firing (cyclic).
+    pattern: an odd-firing engine's firings as fractions of its cycle (cycles per loop), each event
+    then at a firing plus each of offsets (fractions of a cycle), instead of evenly spaced."""
     L = len(x)
-    period = L / events_per_loop
-    ph = event_phase(x, fs, period) - int(advance_ms * fs / 1000)
+    if pattern is None:
+        period = L / events_per_loop
+        ph = event_phase(x, fs, period) - int(advance_ms * fs / 1000)
+        times = [ph + j * period for j in range(events_per_loop)]
+    else:
+        C = L / cycles
+        ph = pattern_phase(x, fs, C, pattern) - int(advance_ms * fs / 1000)
+        times = sorted(ph + (c + (f + o) % 1.0) * C for c in range(cycles) for f in pattern for o in offsets)
     out = np.zeros(L)
     ring = int(fs * decay_ms * 5 / 1000)
     t = np.arange(ring) / fs
     hp = signal.butter(2, 2500 / (fs / 2), 'highpass', output='sos')
-    for j in range(events_per_loop):
-        at = int(round(ph + j * period + rng.normal(0, 0.00025 * fs))) % L
+    for t0 in times:
+        at = int(round(t0 + rng.normal(0, 0.00025 * fs))) % L
         amp = 1.0 + rng.normal(0, 0.22)
         burst = np.zeros(ring)
         for f, g in modes:
@@ -267,6 +288,20 @@ LAYERS = {
                    # pulled over by hand the simulator gives only the deep compression thumps: the air
                    # chuffing through the filter and the muffler, and the valve gear ticking
                    'crank': {'rasp': ((450, 3500), -9), 'valves': -17}},
+    # (docs/MODCAR.md §25) raspRamp: (from rpm, to rpm, dB): the full-load rasp grows by that much
+    # through that range (a free-breathing engine's hard edge near the top); firing: an odd-firing
+    # engine's firings as fractions of its cycle (the fins ring and the valves tick on its beat)
+    'eng_i3':     {'rasp': ((1400, 6500), -19, -22), 'valves': (-29, -25)},
+    # solid lifters and a pushrod valvetrain: the boxer's chatter; finned barrels (the fan is run-time)
+    'eng_boxer4': {'rasp': ((1000, 5500), -18, -21), 'fins': (-24, -22), 'valves': (-23, -20)},
+    'eng_i4tc':   {'rasp': ((1500, 7500), -22, -25), 'raspRamp': (5000, 7800, 9), 'valves': (-29, -25)},
+    'eng_i6':     {'rasp': ((1500, 6500), -25, -27), 'valves': (-34, -30)},
+    'eng_v6':     {'rasp': ((1200, 6500), -16, -19), 'raspRamp': (3500, 6400, 3), 'valves': (-31, -27)},
+    'eng_v12':    {'rasp': ((1800, 8000), -21, -24), 'valves': (-34, -30)},
+    'eng_d1':     {'rasp': ((900, 4500), -19, -22), 'knock': (-10, -28, -6)},
+    'eng_i6d':    {'rasp': ((800, 4000), -20, -23), 'knock': (-11, -29, -5)},
+    'eng_moto4':  {'rasp': ((2500, 9000), -18, -22), 'raspRamp': (9000, 13800, 6), 'valves': (-28, -24)},
+    'eng_vtwin':  {'rasp': ((1000, 5500), -17, -21), 'fins': (-23, -22), 'valves': (-27, -23), 'firing': (0.0, 315 / 720)},
 }
 # air-cooled cylinders: the fins ring a little at every firing (the two-stroke's "ring-ding")
 FIN_MODES = {
@@ -274,13 +309,23 @@ FIN_MODES = {
     'eng_single': ([(2050, 1.0), (2900, 0.6), (4100, 0.35)], 4.5),
     'eng_flat6': ([(1850, 1.0), (2700, 0.6), (3800, 0.4)], 3.5),
     'gen_d1': ([(1950, 1.0), (2800, 0.6), (3900, 0.35)], 4.0),
+    'eng_boxer4': ([(1700, 1.0), (2500, 0.6), (3600, 0.4)], 3.5),
+    # two big finned barrels and heads: lower, longer
+    'eng_vtwin': ([(1500, 1.0), (2200, 0.7), (3300, 0.45), (4600, 0.25)], 5.0),
 }
 KNOCK_MODES = {
     'eng_i4d': ([(1150, 1.0), (1900, 0.8), (2900, 0.55), (4100, 0.3)], 2.6),
     'eng_d6': ([(820, 1.0), (1400, 0.75), (2300, 0.5), (3300, 0.25)], 3.4),
     # a small block and a finned barrel: higher, shorter
     'gen_d1': ([(1500, 1.0), (2400, 0.8), (3500, 0.55), (5000, 0.3)], 2.2),
+    # the walking tractor's big single in its hopper: lower than the generator's, longer
+    'eng_d1': ([(1250, 1.0), (2050, 0.8), (3000, 0.55), (4300, 0.3)], 2.6),
+    # an old cast-iron six: deep and long
+    'eng_i6d': ([(950, 1.0), (1600, 0.8), (2500, 0.55), (3600, 0.3)], 3.0),
 }
+# where the valves seat in an odd-firing engine's cycle, after each firing (fractions of the cycle):
+# the exhaust valve about 20 degrees after the overlap top centre, the intake 50 after bottom centre
+VALVE_OFFSETS = (380 / 720, 590 / 720)
 
 
 def enrich_crank(eid, loop, fs, cylinders, cycles, rng):
@@ -308,12 +353,20 @@ def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
         y = pipe_resonance(y, fs, rpm)
     if 'rasp' in cfg:
         band, on_db, off_db = cfg['rasp']
-        y += rasp_layer(loop, fs, rng, band, on_db if load == 'on' else off_db)
+        db = on_db if load == 'on' else off_db
+        if 'raspRamp' in cfg and load == 'on':
+            lo, hi, extra = cfg['raspRamp']
+            db += extra * min(1.0, max(0.0, (rpm - lo) / (hi - lo)))
+        y += rasp_layer(loop, fs, rng, band, db)
+    # an odd-firing engine's beat (else the events are spread evenly through the cycle)
+    firing = cfg.get('firing')
+    beat = {'pattern': firing, 'cycles': cycles} if firing else {}
     if 'valves' in cfg:
         # the valvetrain: every valve seating is a small high tick (two per cylinder per cycle)
         on_db, off_db = cfg['valves']
         y += knock_layer(y, fs, rng, 2 * cylinders * cycles, on_db if load == 'on' else off_db,
-                         [(3600, 1.0), (5300, 0.7), (7400, 0.4)], 0.9, tick_db=-40, advance_ms=-1.5)
+                         [(3600, 1.0), (5300, 0.7), (7400, 0.4)], 0.9, tick_db=-40, advance_ms=-1.5,
+                         **({**beat, 'offsets': VALVE_OFFSETS} if firing else {}))
     if 'crack' in cfg:
         # a port opens all at once: a sharp broadband crack at every blowdown (two-strokes)
         on_db, off_db = cfg['crack']
@@ -322,7 +375,7 @@ def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
     if 'fins' in cfg:
         on_db, off_db = cfg['fins']
         modes, decay = FIN_MODES[eid]
-        y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db, modes, decay, tick_db=-30, advance_ms=0.5)
+        y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db, modes, decay, tick_db=-30, advance_ms=0.5, **beat)
     if 'knock' in cfg and (load == 'on' or is_idle or light):
         on_db, off_db, idle_db = cfg['knock']
         modes, decay = KNOCK_MODES[eid]
@@ -437,8 +490,9 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         T = 120.0 / rpm * fs
         k = max(3, int(round(LOOP_SECONDS[load] * fs / T)))
         # the dyno holds the speed exactly: stay within a tenth of a cycle of k whole cycles (an
-        # engine whose pulses all look alike correlates as well a quarter cycle off)
-        L, corr = best_period(x, k * T, span=min(0.006, 0.1 / k))
+        # engine whose pulses all look alike correlates as well a quarter cycle off), and within less
+        # than half a firing interval of it (a balanced V12's loop one firing short matches as well)
+        L, corr = best_period(x, k * T, span=min(0.006, 0.1 / k, 0.45 / (k * model_cyl)))
         loop, start, seam = cut_loop(x, L, int(0.010 * fs))
         is_idle = load == 'off' and int(rpm_s) == e['idle']
         nat = rms(loop)
@@ -469,7 +523,10 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     L, corr = best_period(x, L0, span=0.03)
     loop, _, seam = cut_loop(x, L, int(0.008 * fs))
     y = resample_cyclic(enrich_crank(eid, loop, fs, model_cyl, k, rng) if 'crank' in LAYERS.get(eid, {}) else loop, int(round(L * FS / fs)))
-    items.append({'kind': 'loop', 'file': 'crank', 'rpm': round(crpm, 1), 'cycles': k, 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
+    # (crankTrimDb: a level correction for the cranking loop, as offTrimDb for the overrun: a single's
+    # compressions come through the simulator far louder against its full load than a big engine's)
+    items.append({'kind': 'loop', 'file': 'crank', 'rpm': round(crpm, 1), 'cycles': k, 'nat': rms(loop) * 10 ** (e.get('crankTrimDb', 0) / 20),
+                  'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
 
     # rev limiter: not periodic, find the best ~1 s seam (a governed machine has none: no take)
     if e.get('limiterTake', True):

@@ -1,0 +1,187 @@
+// eng_d1: the walking tractor's single-cylinder diesel, 815 cc (95 x 115 mm), about 20:1, horizontal,
+// water-cooled through an open hopper, redline 2200. A relative of the generator gen_d1 (the same
+// approximated compression ignition: a hard, fast burn, early timing, high compression; the injection
+// knock layered on afterwards, bank_build.py) but bigger, slower and not governed: it revs freely
+// over its whole range. A long stroke and a huge open flywheel; a short pipe with a small muffler on
+// the end: one heavy bark every second turn, the dug-dug-dug.
+import "engine_sim.mr"
+import "modcar_lib.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node wires {
+    output wire1: ignition_wire();
+}
+
+private node hard_burn {
+    alias output __out:
+        function(5.0)
+            .add_sample(0.0, 4.0)
+            .add_sample(5.0, 2.2 * 5.0)
+            .add_sample(10.0, 2.4 * 10.0)
+            .add_sample(15.0, 2.5 * 15.0)
+            .add_sample(20.0, 2.5 * 20.0)
+            .add_sample(25.0, 2.5 * 25.0)
+            .add_sample(30.0, 2.5 * 30.0)
+            .add_sample(35.0, 2.5 * 35.0)
+            .add_sample(40.0, 2.5 * 40.0)
+            .add_sample(45.0, 2.5 * 45.0);
+}
+
+public node eng_d1 {
+    alias output __out: engine;
+
+    engine engine(
+        name: "eng_d1",
+        starter_torque: 110 * units.lb_ft,
+        starter_speed: 200 * units.rpm,
+        redline: 2200 * units.rpm,
+        fuel: fuel(
+            turbulence_to_flame_speed_ratio: hard_burn(),
+            max_burning_efficiency: 0.9,
+            burning_efficiency_randomness: 0.3
+        ),
+        throttle_gamma: 1.0,
+        hf_gain: 0.01,
+        noise: 0.5,
+        jitter: 0.45,
+        simulation_frequency: 30000
+    )
+
+    wires wires()
+
+    label stroke(115 * units.mm)
+    label bore(95 * units.mm)
+    label rod_length(210 * units.mm)
+    label compression_height(60 * units.mm)
+
+    // the big open flywheel (and the belt pulley on it), a heavy crank
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: 28 * units.kg,
+        mass: 10 * units.kg,
+        friction_torque: 8.0 * units.Nm,
+        moment_of_inertia: disk_moment_of_inertia(mass: 28 * units.kg, radius: 21 * units.cm)
+            + 1.5 * disk_moment_of_inertia(mass: 10 * units.kg, radius: stroke / 2),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: 180 * units.deg
+    )
+
+    rod_journal rj0(angle: 0.0)
+    c0.add_rod_journal(rj0)
+
+    piston_parameters piston_params(
+        mass: 1100 * units.g,
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement: 0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: 1300 * units.g,
+        moment_of_inertia: rod_moment_of_inertia(mass: 1300 * units.g, length: rod_length),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    // no throttle plate on a diesel: the "throttle" is the fuel rack (load)
+    intake intake(
+        plenum_volume: 0.6 * units.L,
+        plenum_cross_section_area: 6.0 * units.cm2,
+        intake_flow_rate: k_carb(70.0),
+        runner_flow_rate: k_carb(55.0),
+        runner_length: 10.0 * units.inch,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: 0.996,
+        velocity_decay: 0.5
+    )
+
+    exhaust_system_parameters es_params(
+        outlet_flow_rate: k_carb(160.0),
+        primary_tube_length: 4.0 * units.inch,
+        primary_flow_rate: k_carb(100.0),
+        velocity_decay: 0.6,
+        volume: 1.4 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params,
+        audio_volume: 1.0,
+        length: 14 * units.inch,
+        impulse_response: ir_lib.mild_exhaust_0
+    )
+
+    cylinder_bank b0(bank_params, angle: 90 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj0,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            primary_length: 2 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 42.9 * units.cc,
+                intake_runner_volume: 60 * units.cc,
+                intake_runner_cross_section_area: 5.0 * units.cm2,
+                exhaust_runner_volume: 40 * units.cc,
+                exhaust_runner_cross_section_area: 4.5 * units.cm2,
+                flow_attenuation: 0.9,
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0
+            )
+        )
+
+    engine.add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    harmonic_cam_lobe lobe(
+        duration_at_50_thou: 216 * units.deg,
+        gamma: 1.0,
+        lift: 300 * units.thou,
+        steps: 100
+    )
+
+    mc_cam_single camshaft(
+        intake_lobe_profile: lobe,
+        exhaust_lobe_profile: lobe,
+        intake_lobe_center: 112 * units.deg,
+        exhaust_lobe_center: 112 * units.deg,
+        base_radius: 500 * units.thou
+    )
+
+    // injection timing: early, as the other diesels
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 16 * units.deg)
+        .add_sample(500 * units.rpm, 16 * units.deg)
+        .add_sample(1000 * units.rpm, 18 * units.deg)
+        .add_sample(1500 * units.rpm, 20 * units.deg)
+        .add_sample(2000 * units.rpm, 22 * units.deg)
+        .add_sample(2500 * units.rpm, 23 * units.deg)
+        .add_sample(3000 * units.rpm, 24 * units.deg)
+        .add_sample(3500 * units.rpm, 24 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve: timing_curve,
+        rev_limit: 2400 * units.rpm,
+        limiter_duration: 0.15)
+    ignition_module.connect_wire(wires.wire1, 0 * units.deg)
+    engine.add_ignition_module(ignition_module)
+}
+
+public node main {
+    set_engine(eng_d1())
+}

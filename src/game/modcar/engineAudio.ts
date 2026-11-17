@@ -115,6 +115,18 @@ const TONES: Record<string, EngineTone> = {
   // the workshop's generator: a 418 cc air-cooled single diesel governed to 3000 rpm, pulled on its
   // rope; the fan on the flywheel whines at its blade rate (18 blades: 900 Hz at 3000 rpm)
   gen_d1: { loudnessDb: -6, compression: 0.3, tiltDb: 0, intake: 0.05, pops: 0.0, whine: { ratio: 18, gainDb: -31, q: 9 }, starter: { hz: 150, drag: 0.4, gainDb: STARTER_DB }, governed: true, pullStart: true, presenceDb: 4, bodyDb: 1 },
+  // (docs/MODCAR.md §25: each within about 2 dB of the nearest of the eight; the tractor single under the big six everywhere)
+  eng_i3: { loudnessDb: -8, compression: 0.3, tiltDb: 3, intake: 0.1, pops: 0.1, starter: { hz: 180, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 5 },
+  // (the air-cooled boxer's fan whines off the crank pulley, as the flat-six's does)
+  eng_boxer4: { loudnessDb: -5, compression: 0.3, tiltDb: 2, intake: 0.12, pops: 0.3, whine: { ratio: 1.8 * 14, gainDb: -27, q: 6 }, starter: { hz: 160, drag: 0.4, gainDb: STARTER_DB }, presenceDb: 6, bodyDb: 1 },
+  eng_i4tc: { loudnessDb: -5, compression: 0.3, tiltDb: 3, intake: 0.18, pops: 0.4, starter: { hz: 160, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 6 },
+  eng_i6: { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.12, pops: 0.2, starter: { hz: 150, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 4, bodyDb: 2 },
+  eng_v6: { loudnessDb: -3, compression: 0.3, tiltDb: 2, intake: 0.14, pops: 0.45, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 7, bodyDb: 3 },
+  eng_v12: { loudnessDb: -3, compression: 0.3, tiltDb: 6, intake: 0.18, pops: 0.5, starter: { hz: 130, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 7, bodyDb: 3 },
+  eng_d1: { loudnessDb: -6, compression: 0.3, tiltDb: 2, intake: 0.04, pops: 0, starter: { hz: 120, drag: 0.6, gainDb: STARTER_DB }, governed: true, presenceDb: 3, bodyDb: 2 },
+  eng_i6d: { loudnessDb: -3, compression: 0.3, tiltDb: 2, intake: 0.06, pops: 0, whine: { ratio: 19, gainDb: -33, q: 14 }, starter: { hz: 115, drag: 0.45, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 4 },
+  eng_moto4: { loudnessDb: -4, compression: 0.3, tiltDb: 6, intake: 0.2, pops: 0.3, starter: { hz: 260, drag: 0.4, gainDb: STARTER_DB }, presenceDb: 6 },
+  eng_vtwin: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.1, pops: 0.5, starter: { hz: 150, drag: 0.5, gainDb: STARTER_DB }, presenceDb: 4, bodyDb: 2 },
 };
 
 const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 5 };

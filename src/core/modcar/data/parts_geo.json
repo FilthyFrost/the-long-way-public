@@ -579,6 +579,104 @@
     }
    }
   },
+  "eng_boxer4": {
+   "bbox": [
+    [
+     -0.322,
+     0.0,
+     -0.3922
+    ],
+    [
+     0.202,
+     0.55,
+     0.3922
+    ]
+   ],
+   "triangles": 14154,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.292,
+      0.05,
+      0.28324
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      -0.292,
+      0.05,
+      -0.28324
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    }
+   }
+  },
+  "eng_d1": {
+   "bbox": [
+    [
+     -0.397,
+     0.0,
+     -0.267
+    ],
+    [
+     0.399,
+     0.664,
+     0.324
+    ]
+   ],
+   "triangles": 8630,
+   "materials": [
+    "alu",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      0.1941,
+      0.56316,
+      0.19
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.820276,
+      0.571968
+     ]
+    }
+   }
+  },
   "eng_d6": {
    "bbox": [
     [
@@ -704,6 +802,63 @@
     }
    }
   },
+  "eng_i3": {
+   "bbox": [
+    [
+     -0.2481,
+     -0.0,
+     -0.225
+    ],
+    [
+     0.2072,
+     0.5425,
+     0.207
+    ]
+   ],
+   "triangles": 12196,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_turbo",
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_turbo": {
+     "pos": [
+      -0.02,
+      0.358,
+      0.158
+     ],
+     "quat": [
+      -0.0,
+      -0.707107,
+      -0.0,
+      0.707107
+     ]
+    },
+    "M_exhaust_out": {
+     "pos": [
+      -0.078,
+      0.2,
+      0.172
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.866025,
+      0.5
+     ]
+    }
+   }
+  },
   "eng_i4": {
    "bbox": [
     [
@@ -817,6 +972,217 @@
     }
    }
   },
+  "eng_i4tc": {
+   "bbox": [
+    [
+     -0.3588,
+     -0.0,
+     -0.2887
+    ],
+    [
+     0.3292,
+     0.603,
+     0.259
+    ]
+   ],
+   "triangles": 14648,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_turbo",
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_turbo": {
+     "pos": [
+      -0.025,
+      0.297,
+      0.215
+     ],
+     "quat": [
+      -0.0,
+      -0.707107,
+      -0.0,
+      0.707107
+     ]
+    },
+    "M_exhaust_out": {
+     "pos": [
+      -0.085,
+      0.151,
+      0.222
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.866025,
+      0.5
+     ]
+    }
+   }
+  },
+  "eng_i6": {
+   "bbox": [
+    [
+     -0.422,
+     -0.0,
+     -0.273
+    ],
+    [
+     0.3875,
+     0.6505,
+     0.258
+    ]
+   ],
+   "triangles": 14676,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_turbo",
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_turbo": {
+     "pos": [
+      -0.06,
+      0.481,
+      0.2
+     ],
+     "quat": [
+      -0.0,
+      -0.707107,
+      -0.0,
+      0.707107
+     ]
+    },
+    "M_exhaust_out": {
+     "pos": [
+      -0.13,
+      0.27,
+      0.213
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.866025,
+      0.5
+     ]
+    }
+   }
+  },
+  "eng_i6d": {
+   "bbox": [
+    [
+     -0.51,
+     -0.0,
+     -0.3064
+    ],
+    [
+     0.4935,
+     0.88,
+     0.324
+    ]
+   ],
+   "triangles": 14548,
+   "materials": [
+    "alu",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_turbo",
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_turbo": {
+     "pos": [
+      -0.06,
+      0.677,
+      0.232
+     ],
+     "quat": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "M_exhaust_out": {
+     "pos": [
+      -0.3025,
+      0.4,
+      0.252
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.887011,
+      0.461749
+     ]
+    }
+   }
+  },
+  "eng_moto4": {
+   "bbox": [
+    [
+     -0.215,
+     0.0,
+     -0.12
+    ],
+    [
+     0.2368,
+     0.4374,
+     0.1215
+    ]
+   ],
+   "triangles": 7802,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.208,
+      0.046,
+      -0.0
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    }
+   }
+  },
   "eng_mower": {
    "bbox": [
     [
@@ -899,6 +1265,133 @@
     }
    }
   },
+  "eng_v12": {
+   "bbox": [
+    [
+     -0.5802,
+     -0.0,
+     -0.3851
+    ],
+    [
+     0.4702,
+     0.656,
+     0.3851
+    ]
+   ],
+   "triangles": 14456,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.548,
+      0.268,
+      0.3381
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      -0.523,
+      0.268,
+      -0.3381
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    }
+   }
+  },
+  "eng_v6": {
+   "bbox": [
+    [
+     -0.308,
+     -0.0,
+     -0.3272
+    ],
+    [
+     0.3086,
+     0.635,
+     0.3396
+    ]
+   ],
+   "triangles": 13804,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "paint_b",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2",
+    "M_turbo"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.242,
+      0.238,
+      0.28224
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.707107,
+      0.707107
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      -0.212,
+      0.238,
+      -0.28224
+     ],
+     "quat": [
+      -0.0,
+      -0.0,
+      -0.707107,
+      0.707107
+     ]
+    },
+    "M_turbo": {
+     "pos": [
+      -0.01,
+      0.36045,
+      0.31345
+     ],
+     "quat": [
+      0.382683,
+      0.0,
+      0.0,
+      0.92388
+     ]
+    }
+   }
+  },
   "eng_v8": {
    "bbox": [
     [
@@ -966,6 +1459,60 @@
       0.0,
       0.0,
       0.92388
+     ]
+    }
+   }
+  },
+  "eng_vtwin": {
+   "bbox": [
+    [
+     -0.286,
+     0.0,
+     -0.1335
+    ],
+    [
+     0.2182,
+     0.4634,
+     0.171
+    ]
+   ],
+   "triangles": 8024,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "steel",
+    "trim"
+   ],
+   "mounts": [
+    "M_exhaust_out",
+    "M_exhaust_out2"
+   ],
+   "mount_tf": {
+    "M_exhaust_out": {
+     "pos": [
+      -0.244,
+      0.055,
+      0.128
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
+     ]
+    },
+    "M_exhaust_out2": {
+     "pos": [
+      -0.287,
+      0.15,
+      0.12
+     ],
+     "quat": [
+      -0.0,
+      -1.0,
+      -0.0,
+      0.0
      ]
     }
    }

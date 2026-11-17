@@ -1,0 +1,229 @@
+// eng_moto4: 600 cc sportbike inline four, DOHC sixteen-valve, water-cooled, redline 13500.
+// 67 x 42.5 mm, very oversquare, a flat 180-degree crank firing every 180 degrees, light pistons, a
+// tiny flywheel: it spins up in an instant. Long cams, short intake stacks and a four-two-one header
+// into a short, barely muffled can: it only really pulls past 9000 (62 Nm at 10500), and up there the
+// second order is past 400 Hz with every harmonic of it bright: the shriek.
+import "engine_sim.mr"
+import "modcar_lib.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node wires {
+    output wire1: ignition_wire();
+    output wire2: ignition_wire();
+    output wire3: ignition_wire();
+    output wire4: ignition_wire();
+}
+
+public node eng_moto4 {
+    alias output __out: engine;
+
+    engine engine(
+        name: "eng_moto4",
+        starter_torque: 30 * units.lb_ft,
+        starter_speed: 300 * units.rpm,
+        redline: 13500 * units.rpm,
+        fuel: fuel(
+            max_burning_efficiency: 0.92,
+            burning_efficiency_randomness: 0.15
+        ),
+        throttle_gamma: 2.0,
+        hf_gain: 0.010,
+        noise: 0.55,
+        jitter: 0.3,
+        simulation_frequency: 50000
+    )
+
+    wires wires()
+
+    label stroke(42.5 * units.mm)
+    label bore(67 * units.mm)
+    label rod_length(92 * units.mm)
+    label compression_height(17 * units.mm)
+
+    // a small flywheel and the alternator's rotor on the crank
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: 1.6 * units.kg,
+        mass: 4.5 * units.kg,
+        friction_torque: 2.0 * units.Nm,
+        moment_of_inertia: 1.5 * disk_moment_of_inertia(mass: 4.5 * units.kg, radius: stroke / 2)
+            + disk_moment_of_inertia(mass: 1.6 * units.kg, radius: 7 * units.cm),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: 90 * units.deg
+    )
+
+    rod_journal rj0(angle: 0 * units.deg)
+    rod_journal rj1(angle: 180 * units.deg)
+    rod_journal rj2(angle: 180 * units.deg)
+    rod_journal rj3(angle: 0 * units.deg)
+    c0
+        .add_rod_journal(rj0)
+        .add_rod_journal(rj1)
+        .add_rod_journal(rj2)
+        .add_rod_journal(rj3)
+
+    piston_parameters piston_params(
+        mass: 140 * units.g,
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement: 0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: 200 * units.g,
+        moment_of_inertia: rod_moment_of_inertia(mass: 200 * units.g, length: rod_length),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    // the airbox and four short throttle bodies; the charge keeps its momentum (ram) through them
+    intake intake(
+        plenum_volume: 3.5 * units.L,
+        plenum_cross_section_area: 12.0 * units.cm2,
+        intake_flow_rate: k_carb(520.0),
+        runner_flow_rate: k_carb(200.0),
+        runner_length: 6.0 * units.inch,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: 0.9973,
+        velocity_decay: 0.05
+    )
+
+    exhaust_system_parameters es_params(
+        outlet_flow_rate: k_carb(600.0),
+        primary_tube_length: 26.0 * units.inch,
+        primary_flow_rate: k_carb(420.0),
+        velocity_decay: 0.4,
+        volume: 4.0 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params,
+        audio_volume: 1.0,
+        length: 30 * units.inch,
+        impulse_response: ir_lib.minimal_muffling_03
+    )
+
+    cylinder_bank b0(bank_params, angle: 0 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj0,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            sound_attenuation: 1.0,
+            primary_length: 4 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj1,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire2,
+            sound_attenuation: 0.96,
+            primary_length: 3 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj2,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire3,
+            sound_attenuation: 1.03,
+            primary_length: 3 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.001)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj3,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire4,
+            sound_attenuation: 0.98,
+            primary_length: 4 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 13.6 * units.cc,
+                intake_runner_volume: 150 * units.cc,
+                intake_runner_cross_section_area: 7.0 * units.cm2,
+                exhaust_runner_volume: 60 * units.cc,
+                exhaust_runner_cross_section_area: 5.5 * units.cm2,
+                flow_attenuation: 1.25,
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0
+            )
+        )
+
+    engine.add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    harmonic_cam_lobe intake_lobe(
+        duration_at_50_thou: 240 * units.deg,
+        gamma: 1.15,
+        lift: 330 * units.thou,
+        steps: 100
+    )
+    harmonic_cam_lobe exhaust_lobe(
+        duration_at_50_thou: 232 * units.deg,
+        gamma: 1.15,
+        lift: 310 * units.thou,
+        steps: 100
+    )
+
+    mc_cam_i4 camshaft(
+        intake_lobe_profile: intake_lobe,
+        exhaust_lobe_profile: exhaust_lobe,
+        intake_lobe_center: 108 * units.deg,
+        exhaust_lobe_center: 108 * units.deg,
+        base_radius: 400 * units.thou
+    )
+
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 10 * units.deg)
+        .add_sample(1000 * units.rpm, 12 * units.deg)
+        .add_sample(2000 * units.rpm, 18 * units.deg)
+        .add_sample(3000 * units.rpm, 30 * units.deg)
+        .add_sample(4000 * units.rpm, 35 * units.deg)
+        .add_sample(5000 * units.rpm, 37 * units.deg)
+        .add_sample(6000 * units.rpm, 36 * units.deg)
+        .add_sample(7000 * units.rpm, 38 * units.deg)
+        .add_sample(8000 * units.rpm, 39 * units.deg)
+        .add_sample(9000 * units.rpm, 40 * units.deg)
+        .add_sample(10000 * units.rpm, 40 * units.deg)
+        .add_sample(11000 * units.rpm, 40 * units.deg)
+        .add_sample(12000 * units.rpm, 40 * units.deg)
+        .add_sample(13000 * units.rpm, 40 * units.deg)
+        .add_sample(14000 * units.rpm, 40 * units.deg)
+        .add_sample(15000 * units.rpm, 40 * units.deg)
+        .add_sample(16000 * units.rpm, 40 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve: timing_curve,
+        rev_limit: 14000 * units.rpm,
+        limiter_duration: 0.03)
+    ignition_module
+        .connect_wire(wires.wire1, 0 * units.deg)
+        .connect_wire(wires.wire3, 180 * units.deg)
+        .connect_wire(wires.wire4, 360 * units.deg)
+        .connect_wire(wires.wire2, 540 * units.deg)
+    engine.add_ignition_module(ignition_module)
+}
+
+public node main {
+    set_engine(eng_moto4())
+}

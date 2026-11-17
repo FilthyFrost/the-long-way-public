@@ -1,6 +1,9 @@
 // ModCar engine library for Engine Simulator (scripts for the headless bank recorder).
-// Heads and camshaft builders shared by the eight ModCar engines. Firing angles are crank degrees
-// in the 720-degree cycle; the cylinder order is the order the cylinders are added to their bank.
+// Heads and camshaft builders shared by the ModCar engines. Firing angles are crank degrees in the
+// 720-degree cycle; the cylinder order is the order the cylinders are added to their bank.
+// Geometry (as the simulator has it): with the crankshaft's tdc at 90 - v/2 degrees and the banks at
+// -v/2 (bank 0) and +v/2 (bank 1), a bank-0 cylinder on a journal at a degrees reaches top dead
+// centre at cycle angle a (and a + 360), a bank-1 cylinder on the same journal v degrees earlier.
 import "engine_sim.mr"
 
 units units()
@@ -223,4 +226,180 @@ public node mc_cam_v8 {
         .add_lobe(rot360 + intake_lobe_center + 6 * rot)
         .add_lobe(rot360 + intake_lobe_center + 4 * rot)
         .add_lobe(rot360 + intake_lobe_center + 1 * rot)
+}
+
+// Inline three, cylinders 1..3 firing 1-3-2 every 240 degrees (journals 0, 120, 240)
+public node mc_cam_i3 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake;
+    output exhaust_cam_0: _exhaust;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 240 * units.deg)
+    _intake
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 240 * units.deg)
+}
+
+// Boxer four (banks at +90 and -90 degrees, crankshaft tdc 180), bank A cylinders 1, 2 and bank B
+// cylinders 3, 4, firing 1-4-3-2 (journals 0, 180 | 180, 0): each bank fires 180 then 540 degrees apart
+public node mc_cam_boxer4 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust0
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 540 * units.deg)
+    _intake0
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 540 * units.deg)
+    _exhaust1
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 180 * units.deg)
+    _intake1
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 180 * units.deg)
+}
+
+// 60-degree V6 on six split pins, bank 0 cylinders 1, 3, 5 (journals 0, 240, 120) and bank 1
+// cylinders 2, 4, 6 (journals 180, 60, 300), firing 1-2-3-4-5-6 every 120 degrees: each bank fires
+// every 240 degrees, like an inline three
+public node mc_cam_v6 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust0
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 480 * units.deg)
+    _intake0
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 480 * units.deg)
+    _exhaust1
+        .add_lobe(rot360 - exhaust_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 600 * units.deg)
+    _intake1
+        .add_lobe(rot360 + intake_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 600 * units.deg)
+}
+
+// 60-degree V12 on an inline-six crank (journals 0, 120, 240, 240, 120, 0, each shared by a pair):
+// bank 0 cylinders 1..6 fire as an inline six, 1-5-3-6-2-4, bank 1 cylinders 7..12 each 60 degrees
+// before its journal partner: 1-11-5-9-3-12-6-8-2-10-4-7, one firing every 60 degrees
+public node mc_cam_v12 {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust0
+        .add_lobe(rot360 - exhaust_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 360 * units.deg)
+    _intake0
+        .add_lobe(rot360 + intake_lobe_center + 0 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 480 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 240 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 600 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 120 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 360 * units.deg)
+    _exhaust1
+        .add_lobe(rot360 - exhaust_lobe_center + 660 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 420 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 180 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 540 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 60 * units.deg)
+        .add_lobe(rot360 - exhaust_lobe_center + 300 * units.deg)
+    _intake1
+        .add_lobe(rot360 + intake_lobe_center + 660 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 420 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 180 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 540 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 60 * units.deg)
+        .add_lobe(rot360 + intake_lobe_center + 300 * units.deg)
+}
+
+// V-twin on one crank pin: the front cylinder (bank 0) fires at 0, the rear one (bank 1) at
+// rear_firing = 360 - the vee angle (315 for a 45-degree twin): 315 then 405 degrees, the uneven beat
+public node mc_cam_vtwin {
+    input intake_lobe_profile;
+    input exhaust_lobe_profile;
+    input intake_lobe_center: 110 * units.deg;
+    input exhaust_lobe_center: 110 * units.deg;
+    input rear_firing: 315 * units.deg;
+    input advance: 0 * units.deg;
+    input base_radius: 0.5 * units.inch;
+    output intake_cam_0: _intake0;
+    output exhaust_cam_0: _exhaust0;
+    output intake_cam_1: _intake1;
+    output exhaust_cam_1: _exhaust1;
+
+    camshaft_parameters params(advance: advance, base_radius: base_radius)
+    camshaft _intake0(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust0(params, lobe_profile: exhaust_lobe_profile)
+    camshaft _intake1(params, lobe_profile: intake_lobe_profile)
+    camshaft _exhaust1(params, lobe_profile: exhaust_lobe_profile)
+    label rot360(360 * units.deg)
+    _exhaust0.add_lobe(rot360 - exhaust_lobe_center)
+    _intake0.add_lobe(rot360 + intake_lobe_center)
+    _exhaust1.add_lobe(rot360 - exhaust_lobe_center + rear_firing)
+    _intake1.add_lobe(rot360 + intake_lobe_center + rear_firing)
 }

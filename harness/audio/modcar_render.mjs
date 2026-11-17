@@ -7,7 +7,7 @@
 // Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
 // pulls on the rope (the second catches), running light with the governor hunting, the recycler's
 // load, light again, switched off; plus running dry, and two checks of its pull start (no starter
-// motor to hear, a flat battery changes nothing). --loops checks the engines named, else all.
+// motor to hear, a flat battery changes nothing). --loops and --sweep check the engines named, else all.
 // --workshop renders the workshop scene (the generator and the workshop foley together) as a mix check.
 // --scrub renders scrubbing as the game drives it (every frame a gain and a rate from the tool's speed,
 // the blade's catch at each stroke, flakes, the chimes) and checks each scrub loop: unclipped, silent once
@@ -32,7 +32,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, startServer } from '../shots/lib.mjs';
 
-const ENGINES = ['eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'];
+const ENGINES = [
+  'eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6',
+  'eng_i3', 'eng_boxer4', 'eng_i4tc', 'eng_i6', 'eng_v6', 'eng_v12', 'eng_d1', 'eng_i6d', 'eng_moto4', 'eng_vtwin',
+];
 /** machines that are not driven: their own sequence, not the tour */
 const MACHINES = ['gen_d1'];
 /** the scrubbing loops (foley.ts) */
@@ -241,7 +244,7 @@ try {
 
   if (doSweep) {
     // a slow full-load sweep and overrun: the level should glide, not step, between loops
-    for (const id of ENGINES) {
+    for (const id of named.length ? named.filter((e) => !MACHINES.includes(e)) : ENGINES) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), { engineId: id, sequence: 'sweep' });
       const x = fromBase64(r.pcm);
       writeWav(path.join(OUT, `${id}_sweep.wav`), x, r.sampleRate);

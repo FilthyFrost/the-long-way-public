@@ -1,0 +1,258 @@
+// eng_i6d: 4.2 litre straight-six diesel, indirect injection, no turbo, water-cooled, redline 3600.
+// 94 x 100 mm, about 22.7:1, firing 1-5-3-6-2-4 on a heavy seven-bearing crank and a big flywheel.
+// As eng_d6 the compression ignition is approximated (hard fast burn, early timing, high compression)
+// and the knock layered on afterwards (bank_build.py), harder here: an old, gruff engine that clatters
+// at idle and growls deep under load, through one long pipe and a big muffler.
+import "engine_sim.mr"
+import "modcar_lib.mr"
+
+units units()
+constants constants()
+impulse_response_library ir_lib()
+label cycle(2 * 360 * units.deg)
+
+private node wires {
+    output wire1: ignition_wire();
+    output wire2: ignition_wire();
+    output wire3: ignition_wire();
+    output wire4: ignition_wire();
+    output wire5: ignition_wire();
+    output wire6: ignition_wire();
+}
+
+private node hard_burn {
+    alias output __out:
+        function(5.0)
+            .add_sample(0.0, 4.0)
+            .add_sample(5.0, 2.2 * 5.0)
+            .add_sample(10.0, 2.4 * 10.0)
+            .add_sample(15.0, 2.5 * 15.0)
+            .add_sample(20.0, 2.5 * 20.0)
+            .add_sample(25.0, 2.5 * 25.0)
+            .add_sample(30.0, 2.5 * 30.0)
+            .add_sample(35.0, 2.5 * 35.0)
+            .add_sample(40.0, 2.5 * 40.0)
+            .add_sample(45.0, 2.5 * 45.0);
+}
+
+public node eng_i6d {
+    alias output __out: engine;
+
+    engine engine(
+        name: "eng_i6d",
+        starter_torque: 330 * units.lb_ft,
+        starter_speed: 170 * units.rpm,
+        redline: 3600 * units.rpm,
+        fuel: fuel(
+            turbulence_to_flame_speed_ratio: hard_burn(),
+            max_burning_efficiency: 0.9,
+            burning_efficiency_randomness: 0.28
+        ),
+        throttle_gamma: 1.0,
+        hf_gain: 0.012,
+        noise: 0.6,
+        jitter: 0.5,
+        simulation_frequency: 16000
+    )
+
+    wires wires()
+
+    label stroke(100 * units.mm)
+    label bore(94 * units.mm)
+    label rod_length(165 * units.mm)
+    label compression_height(50 * units.mm)
+
+    crankshaft c0(
+        throw: stroke / 2,
+        flywheel_mass: 22 * units.kg,
+        mass: 32 * units.kg,
+        friction_torque: 18.0 * units.Nm,
+        moment_of_inertia: 1.5 * disk_moment_of_inertia(mass: 32 * units.kg, radius: stroke / 2)
+            + disk_moment_of_inertia(mass: 22 * units.kg, radius: 17 * units.cm),
+        position_x: 0.0,
+        position_y: 0.0,
+        tdc: 90 * units.deg
+    )
+
+    rod_journal rj0(angle: 0 * units.deg)
+    rod_journal rj1(angle: 120 * units.deg)
+    rod_journal rj2(angle: 240 * units.deg)
+    rod_journal rj3(angle: 240 * units.deg)
+    rod_journal rj4(angle: 120 * units.deg)
+    rod_journal rj5(angle: 0 * units.deg)
+    c0
+        .add_rod_journal(rj0)
+        .add_rod_journal(rj1)
+        .add_rod_journal(rj2)
+        .add_rod_journal(rj3)
+        .add_rod_journal(rj4)
+        .add_rod_journal(rj5)
+
+    piston_parameters piston_params(
+        mass: 1100 * units.g,
+        compression_height: compression_height,
+        wrist_pin_position: 0.0,
+        displacement: 0.0
+    )
+
+    connecting_rod_parameters cr_params(
+        mass: 1500 * units.g,
+        moment_of_inertia: rod_moment_of_inertia(mass: 1500 * units.g, length: rod_length),
+        center_of_mass: 0.0,
+        length: rod_length
+    )
+
+    cylinder_bank_parameters bank_params(
+        bore: bore,
+        deck_height: stroke / 2 + rod_length + compression_height
+    )
+
+    intake intake(
+        plenum_volume: 5.0 * units.L,
+        plenum_cross_section_area: 40.0 * units.cm2,
+        intake_flow_rate: k_carb(650.0),
+        runner_flow_rate: k_carb(100.0),
+        runner_length: 12.0 * units.inch,
+        idle_flow_rate: k_carb(0.0),
+        idle_throttle_plate_position: 0.998,
+        velocity_decay: 0.5
+    )
+
+    exhaust_system_parameters es_params(
+        outlet_flow_rate: k_carb(700.0),
+        primary_tube_length: 16.0 * units.inch,
+        primary_flow_rate: k_carb(550.0),
+        velocity_decay: 1.0,
+        volume: 18.0 * units.L
+    )
+
+    exhaust_system exhaust0(
+        es_params,
+        audio_volume: 1.0,
+        length: 140 * units.inch,
+        impulse_response: ir_lib.real_engine_0
+    )
+
+    cylinder_bank b0(bank_params, angle: 0 * units.deg)
+    b0
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj0,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire1,
+            sound_attenuation: 1.0,
+            primary_length: 9 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj1,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire2,
+            sound_attenuation: 0.94,
+            primary_length: 6 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj2,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire3,
+            sound_attenuation: 1.06,
+            primary_length: 3 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj3,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire4,
+            sound_attenuation: 0.96,
+            primary_length: 3 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj4,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire5,
+            sound_attenuation: 1.04,
+            primary_length: 6 * units.inch
+        )
+        .add_cylinder(
+            piston: piston(piston_params, blowby: k_28inH2O(0.004)),
+            connecting_rod: connecting_rod(cr_params),
+            rod_journal: rj5,
+            intake: intake,
+            exhaust_system: exhaust0,
+            ignition_wire: wires.wire6,
+            sound_attenuation: 1.0,
+            primary_length: 9 * units.inch
+        )
+        .set_cylinder_head(
+            mc_head(
+                chamber_volume: 32 * units.cc,
+                intake_runner_volume: 260 * units.cc,
+                intake_runner_cross_section_area: 12.0 * units.cm2,
+                exhaust_runner_volume: 100 * units.cc,
+                exhaust_runner_cross_section_area: 10.0 * units.cm2,
+                flow_attenuation: 1.2,
+                intake_camshaft: camshaft.intake_cam_0,
+                exhaust_camshaft: camshaft.exhaust_cam_0
+            )
+        )
+
+    engine.add_cylinder_bank(b0)
+    engine.add_crankshaft(c0)
+
+    harmonic_cam_lobe lobe(
+        duration_at_50_thou: 214 * units.deg,
+        gamma: 1.0,
+        lift: 400 * units.thou,
+        steps: 100
+    )
+
+    mc_cam_i6 camshaft(
+        intake_lobe_profile: lobe,
+        exhaust_lobe_profile: lobe,
+        intake_lobe_center: 114 * units.deg,
+        exhaust_lobe_center: 114 * units.deg,
+        base_radius: 650 * units.thou
+    )
+
+    function timing_curve(1000 * units.rpm)
+    timing_curve
+        .add_sample(0 * units.rpm, 16 * units.deg)
+        .add_sample(500 * units.rpm, 16 * units.deg)
+        .add_sample(1000 * units.rpm, 18 * units.deg)
+        .add_sample(1500 * units.rpm, 20 * units.deg)
+        .add_sample(2000 * units.rpm, 22 * units.deg)
+        .add_sample(2500 * units.rpm, 22 * units.deg)
+        .add_sample(3000 * units.rpm, 18 * units.deg)
+        .add_sample(3500 * units.rpm, 14 * units.deg)
+        .add_sample(4000 * units.rpm, 12 * units.deg)
+        .add_sample(4500 * units.rpm, 12 * units.deg)
+
+    ignition_module ignition_module(
+        timing_curve: timing_curve,
+        rev_limit: 3800 * units.rpm,
+        limiter_duration: 0.15)
+    ignition_module
+        .connect_wire(wires.wire1, 0 * units.deg)
+        .connect_wire(wires.wire5, 120 * units.deg)
+        .connect_wire(wires.wire3, 240 * units.deg)
+        .connect_wire(wires.wire6, 360 * units.deg)
+        .connect_wire(wires.wire2, 480 * units.deg)
+        .connect_wire(wires.wire4, 600 * units.deg)
+    engine.add_ignition_module(ignition_module)
+}
+
+public node main {
+    set_engine(eng_i6d())
+}

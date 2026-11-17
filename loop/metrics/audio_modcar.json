@@ -102,5 +102,135 @@
  "sweep_wobble_eng_d6": {
   "on": 0.1,
   "off": 0.11
+ },
+ "eng_i3": {
+  "idle_db": -38.6,
+  "pull_high_db": -23.1,
+  "overrun_db": -30.5,
+  "idle_hz": 1852,
+  "pull_high_hz": 1086
+ },
+ "eng_boxer4": {
+  "idle_db": -37,
+  "pull_high_db": -24.1,
+  "overrun_db": -30.4,
+  "idle_hz": 1422,
+  "pull_high_hz": 907
+ },
+ "eng_i4tc": {
+  "idle_db": -37.3,
+  "pull_high_db": -24.4,
+  "overrun_db": -31.1,
+  "idle_hz": 444,
+  "pull_high_hz": 725
+ },
+ "eng_i6": {
+  "idle_db": -39.7,
+  "pull_high_db": -24.5,
+  "overrun_db": -30.5,
+  "idle_hz": 171,
+  "pull_high_hz": 389
+ },
+ "eng_v6": {
+  "idle_db": -40.7,
+  "pull_high_db": -24.7,
+  "overrun_db": -31.6,
+  "idle_hz": 359,
+  "pull_high_hz": 652
+ },
+ "eng_v12": {
+  "idle_db": -38.9,
+  "pull_high_db": -23.7,
+  "overrun_db": -29.9,
+  "idle_hz": 560,
+  "pull_high_hz": 911
+ },
+ "eng_d1": {
+  "idle_db": -38.9,
+  "pull_high_db": -24.5,
+  "overrun_db": -30.1,
+  "idle_hz": 1017,
+  "pull_high_hz": 494
+ },
+ "eng_i6d": {
+  "idle_db": -33.8,
+  "pull_high_db": -23.6,
+  "overrun_db": -33.4,
+  "idle_hz": 1911,
+  "pull_high_hz": 1130
+ },
+ "eng_moto4": {
+  "idle_db": -38.4,
+  "pull_high_db": -24.1,
+  "overrun_db": -33.4,
+  "idle_hz": 618,
+  "pull_high_hz": 1187
+ },
+ "eng_vtwin": {
+  "idle_db": -37.5,
+  "pull_high_db": -24.2,
+  "overrun_db": -30.7,
+  "idle_hz": 957,
+  "pull_high_hz": 829
+ },
+ "loops_eng_i3@48000": 0.69,
+ "loops_eng_i3@44100": 1.07,
+ "loops_eng_boxer4@48000": 0.95,
+ "loops_eng_boxer4@44100": 1.09,
+ "loops_eng_i4tc@48000": 0.63,
+ "loops_eng_i4tc@44100": 0.72,
+ "loops_eng_i6@48000": 0.77,
+ "loops_eng_i6@44100": 1.41,
+ "loops_eng_v6@48000": 0.77,
+ "loops_eng_v6@44100": 0.97,
+ "loops_eng_v12@48000": 0.9,
+ "loops_eng_v12@44100": 0.89,
+ "loops_eng_d1@48000": 0.74,
+ "loops_eng_d1@44100": 1.06,
+ "loops_eng_i6d@48000": 0.44,
+ "loops_eng_i6d@44100": 0.59,
+ "loops_eng_moto4@48000": 0.73,
+ "loops_eng_moto4@44100": 0.81,
+ "loops_eng_vtwin@48000": 0.71,
+ "loops_eng_vtwin@44100": 0.82,
+ "sweep_wobble_eng_i3": {
+  "on": 0.2,
+  "off": 0.19
+ },
+ "sweep_wobble_eng_boxer4": {
+  "on": 0.12,
+  "off": 0.13
+ },
+ "sweep_wobble_eng_i4tc": {
+  "on": 0.1,
+  "off": 0.09
+ },
+ "sweep_wobble_eng_i6": {
+  "on": 0.13,
+  "off": 0.09
+ },
+ "sweep_wobble_eng_v6": {
+  "on": 0.13,
+  "off": 0.11
+ },
+ "sweep_wobble_eng_v12": {
+  "on": 0.12,
+  "off": 0.11
+ },
+ "sweep_wobble_eng_d1": {
+  "on": 0.16,
+  "off": 0.13
+ },
+ "sweep_wobble_eng_i6d": {
+  "on": 0.15,
+  "off": 0.12
+ },
+ "sweep_wobble_eng_moto4": {
+  "on": 0.17,
+  "off": 0.1
+ },
+ "sweep_wobble_eng_vtwin": {
+  "on": 0.11,
+  "off": 0.11
  }
 }
