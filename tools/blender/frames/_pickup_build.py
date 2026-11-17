@@ -14,7 +14,7 @@ from frames import _pickup_ext as EX  # noqa: E402
 from frames import _pickup_inner as IN  # noqa: E402
 from frames import _preview as PV  # noqa: E402
 from frames import pickup as S  # noqa: E402
-from frames._sedan_build import badge_buf, game_vec, mount, obj_with_origin, plate_buf  # noqa: E402
+from frames._sedan_build import badge_buf, game_vec, knuckles, mount, obj_with_origin, plate_buf  # noqa: E402
 from lib import modcar as mc  # noqa: E402
 
 D = S.D
@@ -126,6 +126,7 @@ def build(args):
         wipers[wname] = info
     print('[pickup] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
+    objs += knuckles(empties, IN.knuckle)
     # the frame is modelled with its hubs body_drop above the wheel radius and moved down by it: it sits
     # that much lower over its wheels, the hubs stay at the wheel radius above the ground
     K.drop_all(objs, empties, panels, (needles, wipers), -D.get('body_drop', 0.0))

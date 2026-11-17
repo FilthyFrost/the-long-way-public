@@ -872,6 +872,10 @@
   "FUEL_CAP": 406,
   "GLASS": 1778,
   "INTERIOR": 14336,
+  "KNUCKLE_hub_FL": 456,
+  "KNUCKLE_hub_FR": 456,
+  "KNUCKLE_hub_RL": 412,
+  "KNUCKLE_hub_RR": 412,
   "N_fuel": 50,
   "N_rpm": 50,
   "N_speed": 50,
@@ -884,10 +888,10 @@
   "P_door_side": 4409,
   "P_hood": 4112,
   "P_trunk": 933,
-  "UNDER": 8672,
+  "UNDER": 3976,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 106097
+  "total": 103137
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

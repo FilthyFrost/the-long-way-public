@@ -29,6 +29,8 @@ interface MountJson {
   floor_z?: number;
   /** the frame object the part moves with (FORK) */
   on?: string;
+  /** hubs: how far out from the middle the wheel's mounting face is (m) */
+  hub_face?: number;
   space_min?: number[];
   space_max?: number[];
 }
@@ -144,6 +146,7 @@ function readMounts(t: MountTable): MountDef[] {
       hinge: m.hinge === 'y' || m.hinge === 'z' ? m.hinge : undefined,
       openDeg: m.open_deg,
       on: m.on,
+      hubFace: m.hub_face,
       // (the files are in Blender's axes: x forward, y left, z up)
       room: m.space_min && m.space_max ? { min: { x: m.space_min[0], y: m.space_min[2], z: -m.space_max[1] }, max: { x: m.space_max[0], y: m.space_max[2], z: -m.space_min[1] } } : undefined,
     });
@@ -173,7 +176,8 @@ function withAxles(mounts: MountDef[]): MountDef[] {
     const k = axle === 'front' ? 'F' : 'R';
     const x = ends.reduce((a, h) => a + h.pos.x, 0) / ends.length;
     const y = ends.reduce((a, h) => a + h.pos.y, 0) / ends.length;
-    const half = ends.reduce((a, h) => a + Math.abs(h.pos.z), 0) / ends.length;
+    // (from the wheels' mounting faces: a dual wheel's mount is between its tyres, its face further in)
+    const half = ends.reduce((a, h) => a + (h.hubFace ?? Math.abs(h.pos.z)), 0) / ends.length;
     const mk = (cat: Category, id: string, pos: V3, more: Partial<MountDef> = {}): MountDef => ({ id, cat, pos, quat: [0, 0, 0, 1], side: 0, label: labelFor(id, cat), axle, on: ends[0].on, ...more });
     if (ends.length >= 2) {
       out.push(mk('suspension', `susp_${k}`, { x, y: y + STRUT_UP, z: 0 }, { pair: half - STRUT_IN }));

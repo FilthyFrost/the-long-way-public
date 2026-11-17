@@ -14,7 +14,7 @@ from frames import _preview as PV  # noqa: E402
 from frames import _rv_ext as EX  # noqa: E402
 from frames import _rv_inner as IN  # noqa: E402
 from frames import rv as S  # noqa: E402
-from frames._sedan_build import badge_buf, game_vec, mount, obj_with_origin, plate_buf  # noqa: E402
+from frames._sedan_build import badge_buf, game_vec, knuckles, mount, obj_with_origin, plate_buf  # noqa: E402
 from lib import modcar as mc  # noqa: E402
 
 D = S.D
@@ -138,6 +138,7 @@ def build(args):
         wipers[wname] = info
     print('[rv] objects', round(time.time() - t0, 1), 's')
     empties = mounts(ex, panels)
+    objs += knuckles(empties, IN.knuckle)
     meshes = [o for o in objs if o.type == 'MESH']
     tris = {o.name: mc.triangles([o]) for o in meshes}
     total = sum(tris.values())

@@ -3,8 +3,7 @@ SWINGARM, rear shocks and side stand of the moto (frames/moto.py).
 
 SWINGARM: origin on the pivot axis (transverse, Blender Y), axes = the frame's; pivot tube, oval legs, axle
 plates with the chain adjusters, the axle with its spacers and nut, the shock studs, the rear sprocket and the
-chain's rear run (the gearbox part carries the front run), the chain guard, the drum brake's backing plate with
-its cam lever, torque arm and brake rod.
+chain's rear run (the gearbox part carries the front run), the chain guard. The rear brake is a part of its own.
 SHOCK_UPPER_L/R (on the frame, origin at the top eye) and SHOCK_LOWER_L/R (children of SWINGARM, origin at the
 bottom eye): local +Z runs along the shock from the bottom eye towards the top eye at rest; the lower half
 (spring, damper body) slides up inside the upper's chrome shroud.
@@ -94,7 +93,6 @@ class Rear:
         b.extend(self.sprocket())
         b.extend(self.chain())
         b.extend(self.chain_guard())
-        b.extend(self.drum_plate())
         return b
 
     def brace(self):
@@ -245,48 +243,6 @@ class Rear:
             lp = self.leg_y(p[0], 1.0)
             b.extend(MK.box(np.array([p[0], lp[1] + 0.013, 0.5 * (p[2] - 0.01 + lp[2])]), (0.016, 0.004, abs(p[2] - lp[2]) + 0.006), FR, None,
                             0.0015, 1))
-        return b
-
-    def drum_plate(self):
-        """Rear brake: the alloy backing plate on the right of the hub, the cam lever, the torque arm to the
-        right leg and the brake rod forward to the pedal."""
-        b = K.Buf()
-        hub = self.hub
-        c = np.array([hub[0], -0.0690, hub[2]])
-        # walked with the air on the right: up the rim's outside, over it, down inside, the face inwards, the boss
-        prof = [(0.0805, -0.008), (0.0805, 0.004), (0.0775, 0.0068), (0.0725, 0.0045), (0.070, 0.0015), (0.034, 0.0015),
-                (0.026, 0.006), (0.0115, 0.0072)]
-        b.extend(MK.lathe(prof, c, (0, -1, 0), 'alu', 30))
-        # ribs
-        for k in range(8):
-            a = 2 * math.pi * k / 8
-            p = c + np.array([0.048 * math.cos(a), -0.002, 0.048 * math.sin(a)])
-            R = np.stack([np.array([math.cos(a), 0, math.sin(a)]), np.array([0, 1.0, 0]), np.array([-math.sin(a), 0, math.cos(a)])], 1)
-            b.extend(MK.box(p, (0.03, 0.004, 0.004), 'alu', R, 0.0, 1))
-        # cam boss at the front-top and the lever
-        cam = c + np.array([0.040, -0.004, 0.042])
-        b.extend(MK.tube(np.array([cam, cam + [0, -0.016, 0]]), 0.0095, 'alu', 14))
-        lv0 = cam + np.array([0, -0.017, 0])
-        lv1 = lv0 + np.array([0.020, -0.002, 0.070])
-        R = MK.frame_axes(unit(lv1 - lv0), np.array([1.0, 0, 0]))
-        b.extend(MK.box(0.5 * (lv0 + lv1), (np.linalg.norm(lv1 - lv0) + 0.014, 0.006, 0.014), 'steel', R, 0.0025, 2))
-        b.extend(MK.bolt(lv0 + [0, -0.003, 0], (0, -1, 0), 0.0055, 0.004, 'steel', washer=False))
-        self.rod_rear = lv1 + np.array([0.0, -0.002, -0.004])
-        # rod forward to the pedal's arm (its front end sits at the pedal at rest)
-        front = M.PEDAL_PIVOT + np.array([-0.006, -0.004, -0.04])
-        rod = MK.bend_path([self.rod_rear + [0, -0.003, 0], (self.rod_rear[0] + 0.05, -0.128, self.rod_rear[2] - 0.016),
-                            (front[0] - 0.06, -0.130, front[2] - 0.006), front], [0, 0.05, 0.05, 0])
-        b.extend(MK.tube(rod, 0.0032, 'steel', 8))
-        # adjuster nut (wing nut) at the lever
-        b.extend(MK.box(self.rod_rear + np.array([-0.006, -0.004, 0.0]), (0.01, 0.008, 0.018), 'steel', R, 0.002, 1))
-        # torque arm: flat bar from the plate's front-bottom to the leg
-        ta0 = c + np.array([0.050, -0.006, -0.036])
-        lp = self.leg_y(hub[0] + 0.22, -1.0)
-        ta1 = np.array([hub[0] + 0.22, lp[1] - 0.004, lp[2] - 0.022])
-        R = MK.frame_axes(unit(ta1 - ta0), np.array([0, 0, 1.0]))
-        b.extend(MK.box(0.5 * (ta0 + ta1), (np.linalg.norm(ta1 - ta0) + 0.02, 0.005, 0.014), FR, R, 0.0022, 2))
-        for p in (ta0, ta1):
-            b.extend(MK.bolt(p + np.array([0, -0.003, 0]), (0, -1, 0), 0.0055, 0.0045, 'steel', washer=False))
         return b
 
     # ---------------------------------------------------------------- shocks

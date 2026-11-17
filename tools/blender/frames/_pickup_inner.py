@@ -238,57 +238,31 @@ def wheelhouse(xa, y0, y1, r):
     return b
 
 
-def hub_and_brake(hx, hy, hz, front=True):
-    """Frame-owned hub carrier, hub flange with six studs, brake disc (front) or drum (rear)."""
-    b = K.Buf()
-    yf = hy + 0.012
-    if front:
-        disc = np.array([(0.04, -0.007), (0.125, -0.007), (0.127, -0.004), (0.127, 0.004), (0.125, 0.007), (0.04, 0.007)])
-        V, N, T = K.lathe(disc, (hx, yf - 0.034, hz), (0, 1, 0), 22)
-        b.add(V, N, T, 'steel')
-        a = math.radians(160)
-        cp = np.array([hx + 0.105 * math.cos(a), yf - 0.034, hz + 0.105 * math.sin(a)])
-        R = K.mat4_rot((0, 1, 0), -math.degrees(a) + 90, cp)
-        b.extend(K.box_buf(cp + (-0.032, -0.03, -0.045), cp + (0.032, 0.014, 0.045), 'alu', 0.008, 2, xf=R))
-    else:
-        drum = np.array([(0.0, -0.075), (0.13, -0.075), (0.135, -0.07), (0.135, -0.012), (0.12, -0.004), (0.06, 0.0), (0.0, 0.0)])
-        V, N, T = K.lathe(drum, (hx, yf, hz), (0, 1, 0), 22)
-        b.add(V, N, T, 'steel')
-    hat = np.array([(0.0, -0.026), (0.065, -0.026), (0.067, -0.02), (0.067, 0.0), (0.0, 0.0)])
-    V, N, T = K.lathe(hat, (hx, yf, hz), (0, 1, 0), 16)
-    b.add(V, N, T, 'steel')
-    for k in range(6):
-        a = math.radians(30 + 60 * k)
-        p = np.array([hx + 0.0695 * math.cos(a), yf, hz + 0.0695 * math.sin(a)])
-        b.extend(K.cyl_buf(p, p + (0, 0.008, 0), 0.006, 'steel', 6))
-    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.006, hz), 0.025, 'steel', 14))
-    b.extend(K.box_buf((hx - 0.055, yf - 0.085, hz - 0.12), (hx + 0.055, yf - 0.05, hz + 0.14), 'steel', 0.012, 2))
-    return b
+# the rear axle's tubes start this far out from the centre: 2 cm inside the differential part's tube ends
+AXLE_IN = 0.29
+# the front of the differential part's pinion (its companion flange and nut), ahead of the axle centre, and the
+# pinion's height below it
+DIFF_FLANGE = (0.2645, -0.024)
 
 
-def leaf_spring(x0, x1, y, z_mid, sag=0.06, leaves=5):
-    """Semi-elliptic leaf spring pack under the frame rail, eye to eye."""
-    b = K.Buf()
-    xs = np.linspace(x0, x1, 14)
-    for k in range(leaves):
-        L = 1.0 - 0.17 * k
-        xm = 0.5 * (x0 + x1)
-        xa, xb = xm - (xm - x0) * L, xm + (x1 - xm) * L
-        xl = np.linspace(xa, xb, 10)
-        f = (xl - xm) / (0.5 * (x1 - x0))
-        z = z_mid + sag * f ** 2 - 0.009 * k
-        path = np.stack([xl, np.full(len(xl), y), z], 1)
-        prof = np.array([(-0.03, -0.004), (0.03, -0.004), (0.03, 0.004), (-0.03, 0.004)])
-        V, N, T = K.sweep(path, (0, 0, 1), prof, closed=False, closed_prof=True)
-        b.add(V, N, T, 'steel')
-    for xe in (x0, x1):
-        b.extend(K.cyl_buf((xe, y - 0.035, z_mid + sag + 0.005), (xe, y + 0.035, z_mid + sag + 0.005), 0.016, 'steel', 10))
-    return b
+def axle_end(hy):
+    """Where a live axle's tube ends: in the middle of its hub's carrier (knuckle())."""
+    return hy - K.BRAKE_IN[1] - 0.003 - 0.015
+
+
+def knuckle(hx, hy, hz, front=True):
+    """A hub's carrier (left side: outer face +Y): the hub flange at the hub face with six studs and the centre
+    cap, the spindle, and the knuckle just inboard of the brake (front: up to the upper arm's ball joint; rear:
+    the axle's end). An object of its own, KNUCKLE_<hub>, the game hangs on the wheel's pivot."""
+    return K.knuckle_buf(hx, hy, hz, hy + 0.012, 0.08, 6, 0.0695, 30.0, stud_r=0.006, stud_len=0.008, cap_r=0.025,
+                         cap_out=0.006, carrier=(0.055, 0.03, 0.12, 0.21 if front else 0.14))
 
 
 def underbody():
-    """UNDER (left half): ladder frame rail and crossmember halves, front suspension, rear leaf springs, hubs,
-    brakes, cab floor and bed underside, wheelhouse liners."""
+    """UNDER (left half): ladder frame rail and crossmember halves, the front arms and torsion bar, the rear
+    axle's tubes, cab floor and bed underside, wheelhouse liners. The hubs' carriers are objects of their own
+    (knuckle()); shocks, springs, the leaf packs and their hangers, brakes and the differential are the axles'
+    parts."""
     b = K.Buf()
     # frame rail: a C section (open towards the centre) swept along the kicked-up centre line
     xs = np.concatenate([np.linspace(2.02, -0.55, 4), np.linspace(-0.62, -0.95, 6), np.linspace(-1.05, -2.30, 3)])[::-1]
@@ -310,24 +284,14 @@ def underbody():
         b.extend(K.box_buf((x - 0.03, 0.0, D['bed_z0'] - 0.07), (x + 0.03, 0.80, D['bed_z0'] - 0.004), 'steel', 0.004, 1))
     # wheelhouse liners
     b.extend(wheelhouse(D['ax_f'], APRON_Y, 0.80, 0.41))
-    # front suspension: lower / upper arms, torsion bar, shock
+    # front suspension: lower / upper arms out to the knuckle, the torsion bar
     hx, hy, hz = D['ax_f'], D['track_f'] / 2, D['hub_z']
-    b.extend(hub_and_brake(hx, hy, hz, True))
     b.extend(K.tube_buf(np.array([(hx + 0.14, FRAME_Y - 0.04, 0.33), (hx, hy - 0.14, 0.27), (hx - 0.16, FRAME_Y - 0.04, 0.33)]), 0.016, 'steel', 8))
     b.extend(K.tube_buf(np.array([(hx + 0.10, APRON_Y, 0.66), (hx, hy - 0.15, 0.56), (hx - 0.10, APRON_Y, 0.66)]), 0.013, 'steel', 8))
     b.extend(K.tube_buf(np.array([(hx - 0.16, FRAME_Y - 0.04, 0.33), (0.45, FRAME_Y - 0.05, 0.34)]), 0.013, 'steel', 8))
-    b.extend(K.cyl_buf((hx + 0.03, hy - 0.16, 0.29), (hx + 0.02, 0.60, 0.76), 0.022, 'trim', 10))
-    # rear: leaf spring, axle half, shock, drum
+    # rear: the axle's tube from the differential part's tube end out into the hub's carrier
     rx, ry = D['ax_r'], D['track_r'] / 2
-    b.extend(hub_and_brake(rx, ry, hz, False))
-    b.extend(leaf_spring(rx + 0.62, rx - 0.62, FRAME_Y, hz + 0.045, 0.06))
-    for xe in (rx + 0.62, rx - 0.62):
-        zt = frame_zc(xe) - 0.06
-        b.extend(K.box_buf((xe - 0.025, FRAME_Y - 0.035, hz + 0.105), (xe + 0.025, FRAME_Y + 0.035, zt), 'steel', 0.003, 1))
-    b.extend(K.cyl_buf((rx, 0.0, hz), (rx, ry - 0.075, hz), 0.042, 'steel', 14, cap=False))
-    b.extend(K.cyl_buf((rx + 0.12, FRAME_Y + 0.07, hz - 0.03), (rx + 0.20, FRAME_Y + 0.02, frame_zc(rx + 0.2) - 0.05), 0.02, 'trim', 10))
-    for dx in (-0.06, 0.06):
-        b.extend(K.box_buf((rx + dx - 0.006, FRAME_Y - 0.035, hz - 0.06), (rx + dx + 0.006, FRAME_Y + 0.035, hz + 0.08), 'steel', 0.002, 1))
+    b.extend(K.cyl_buf((rx, AXLE_IN, hz), (rx, axle_end(ry), hz), 0.042, 'steel', 14))
     return b
 
 
@@ -335,12 +299,12 @@ def centre_under():
     b = K.Buf()
     hz = D['hub_z']
     rx = D['ax_r']
-    dif = np.array([(0.0, -0.15), (0.08, -0.14), (0.13, -0.07), (0.14, 0.0), (0.12, 0.06), (0.07, 0.10), (0.0, 0.11)])
-    V, N, T = K.lathe(dif, (rx, 0.0, hz), (1, 0, 0), 20)
-    b.add(V, N, T, 'steel')
+    # the two-piece propshaft on its centre bearing, back to the differential part's companion flange
+    xe, ze = rx + DIFF_FLANGE[0] + 0.022, hz + DIFF_FLANGE[1]
     b.extend(K.cyl_buf((0.30, 0.0, 0.43), (-0.35, 0.0, 0.40), 0.035, 'steel', 14))
     b.extend(K.box_buf((-0.40, -0.06, 0.38), (-0.30, 0.06, 0.44), 'rubber', 0.01, 1))
-    b.extend(K.cyl_buf((-0.35, 0.0, 0.40), (rx + 0.15, 0.0, hz + 0.02), 0.035, 'steel', 14))
+    b.extend(K.cyl_buf((-0.35, 0.0, 0.40), (xe, 0.0, ze), 0.035, 'steel', 14))
+    b.extend(K.cyl_buf((xe - 0.02, 0.0, ze), (xe + 0.02, 0.0, ze), 0.045, 'steel', 14))
     # spare wheel cradle under the rear of the bed
     b.extend(K.box_buf((-2.20, -0.32, 0.36), (-1.86, 0.32, 0.375), 'steel', 0.004, 1))
     b.extend(K.tube_buf(np.array([(-1.86, 0.0, 0.37), (-1.84, 0.0, 0.60)]), 0.008, 'steel', 6))

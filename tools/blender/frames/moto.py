@@ -12,10 +12,10 @@ dimension is in the table D below and the steering / suspension geometry derived
 
 What the frame is: a tubular steel double-cradle frame (head tube, backbone, down tubes running into the
 cradle under the engine and up behind the gearbox, seat rails and rear subframe, gussets, lugs, brackets),
-the front fork with its triple clamps, fender, disc and caliper and the instrument binnacle (FORK), the
-swingarm with the chain, sprocket, chain guard and the rear brake drum plate (SWINGARM), the rear shocks
+the front fork with its triple clamps, fender and the instrument binnacle (FORK), the swingarm with the
+chain, sprocket and chain guard (SWINGARM), the rear shocks
 (SHOCK_UPPER_* on the frame, SHOCK_LOWER_* on the swingarm), the side stand (STAND), the rear fender, side
-covers, footpegs, pedals, grab rail. The engine, gearbox, tank, seat, wheels, bar, lamps, mirrors ... are
+covers, footpegs, pedals, grab rail. The engine, gearbox, tank, seat, wheels, brakes, bar, lamps, mirrors ... are
 parts placed by the game at the mount empties M_<id>.
 """
 import math

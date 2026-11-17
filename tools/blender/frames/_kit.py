@@ -1297,9 +1297,9 @@ class Buf:
         return obj
 
 
-# what of a frame gets no grime mask: the cabin, the underside, the needles, the wipers, the fuel flap (and the
-# panels, which have their own)
-NO_MASK = ('P_', 'PG_', 'N_', 'WIPER_', 'FUEL_CAP', 'INTERIOR', 'UNDER')
+# what of a frame gets no grime mask: the cabin, the underside and the hubs' carriers under it, the needles, the
+# wipers, the fuel flap (and the panels, which have their own)
+NO_MASK = ('P_', 'PG_', 'N_', 'WIPER_', 'FUEL_CAP', 'INTERIOR', 'UNDER', 'KNUCKLE_')
 
 
 def mask_groups(meshes):
@@ -1847,6 +1847,40 @@ def cyl_buf(p0, p1, r, mat, segs=16, cap=True, r1=None):
         pn = np.array([sl, sl])
     V, N, T = lathe(prof, p0, ax / max(L, 1e-9), segs, prof_n=pn)
     return Buf().add(V, N, T, mat)
+
+
+# a brake part (docs/MODCAR.md section 22) reaches from 9 mm to 102 mm in from its hub mount: a hub's carrier
+# keeps clear of that
+BRAKE_IN = (0.009, 0.102)
+
+
+def knuckle_buf(hx, hy, hz, face, flange_r, n_studs, pcd, stud_a0, stud_r=0.0055, stud_len=0.007, cap_r=None,
+                cap_out=0.005, carrier=None, back=None, spindle_r=0.028, segs=16):
+    """
+    A wheel's hub carrier on its own (left side, outer face +Y; a frame's KNUCKLE_<hub> object, which the game
+    hangs on the wheel's pivot so that it rides and steers with its wheel and brake): the hub flange at the hub
+    face y = face, 8 mm deep, with n_studs studs on the pitch circle pcd and the centre cap, and the spindle
+    back through the brake's centre bore to the carrier. carrier = (x half length, depth, z below, z above the
+    hub centre): a box just inboard of the brake (the knuckle, or the end of a live axle); without one the
+    spindle runs back to y = back. The brake part sits between flange and carrier (BRAKE_IN).
+    """
+    b = Buf()
+    prof = np.array([(0.0, -0.008), (flange_r - 0.002, -0.008), (flange_r, -0.006), (flange_r, 0.0), (0.0, 0.0)])
+    V, N, T = lathe(prof, (hx, face, hz), (0, 1, 0), segs)
+    b.add(V, N, T, 'steel')
+    for k in range(n_studs):
+        a = math.radians(stud_a0 + 360.0 * k / n_studs)
+        p = np.array([hx + pcd * math.cos(a), face, hz + pcd * math.sin(a)])
+        b.extend(cyl_buf(p, p + (0, stud_len, 0), stud_r, 'steel', 6))
+    if cap_r:
+        b.extend(cyl_buf((hx, face - 0.002, hz), (hx, face + cap_out, hz), cap_r, 'steel', 16))
+    if carrier is not None:
+        xh, depth, z0, z1 = carrier
+        y1 = min(hy, face) - BRAKE_IN[1] - 0.003
+        b.extend(box_buf((hx - xh, y1 - depth, hz - z0), (hx + xh, y1, hz + z1), 'steel', 0.012, 2))
+        back = y1 - 0.004
+    b.extend(cyl_buf((hx, back, hz), (hx, face - 0.006, hz), spindle_r, 'steel', 12))
+    return b
 
 
 class OffsetChart:

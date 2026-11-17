@@ -4,8 +4,8 @@ at the top of the steering head, axes = the frame's): top and lower triple clamp
 painted fork shrouds with the headlight ears, chrome stanchions, front indicators, the instrument binnacle
 (speedometer + tachometer with needles N_speed / N_rpm, the warning lamps, the ignition's console), the horn tab,
 the cables' upper runs. Lower part (FORK_LOWER, a child of FORK, origin on the front axle; it slides along the
-fork tubes with the front suspension): sliders with the axle clamps, the front fender and its stays, the brake
-disc and caliper, the brake hose, the speedometer drive and the lower run of its cable.
+fork tubes with the front suspension): sliders with the axle clamps, the front fender and its stays, the
+speedometer drive and the lower run of its cable. The front brake (disc, caliper, hose) is a part of its own.
 """
 import math
 import sys
@@ -289,7 +289,6 @@ class Fork:
         for sg in (1, -1):
             b.extend(self.slider(sg))
         b.extend(self.fender())
-        b.extend(self.disc_caliper())
         b.extend(self.speedo_drive())
         return b
 
@@ -386,59 +385,6 @@ class Fork:
         for sg in (1, -1):
             b.extend(MK.bolt(np.array([pl[0], sg * 0.0640, pl[2]]), (0, -sg, 0), 0.005, 0.004, 'steel', washer=True))
         self.fender_path = path
-        return b
-
-    def disc_caliper(self):
-        """Brake disc on the right of the hub (with its carrier and bolts) and the caliper behind the right
-        slider on a cast bracket, the bleed nipple and the hose up the slider's back."""
-        b = K.Buf()
-        hub = self.hub
-        yd = -0.0590
-        c = np.array([hub[0], yd, hub[2]])
-        ax = np.array([0, 1.0, 0])
-        h = 0.0025
-        b.extend(MK.lathe([(0.079, -h), (0.135, -h), (0.135, h), (0.079, h), (0.079, -h)], c, ax, 'steel', 44, smooth=False))
-        # carrier
-        b.extend(MK.lathe(MK.round_prof([(0.046, yd - 0.004), (0.081, yd - 0.004), (0.081, yd + 0.003), (0.058, yd + 0.012),
-                                         (0.046, yd + 0.012)], 0.002, 1), np.array([hub[0], 0.0, hub[2]]), ax, 'alu', 28))
-        for k in range(6):
-            a = 2 * math.pi * k / 6 + 0.3
-            p = np.array([hub[0] + 0.064 * math.cos(a), yd - 0.0045, hub[2] + 0.064 * math.sin(a)])
-            b.extend(MK.bolt(p, (0, -1, 0), 0.0045, 0.0035, 'steel', washer=False))
-        # caliper behind the slider: two halves bridged over the disc's rim
-        phi = math.radians(186.0)
-        rc = 0.112
-        cc = np.array([hub[0] + rc * math.cos(phi), yd, hub[2] + rc * math.sin(phi)])
-        tang = np.array([-math.sin(phi), 0, math.cos(phi)])
-        radv = np.array([math.cos(phi), 0, math.sin(phi)])
-        R = np.stack([tang, ax, radv], 1)
-        for (dy, w) in ((-0.0155, 0.017), (0.0145, 0.015)):
-            body = MK.box(cc + ax * dy, (0.072, w, 0.050), 'alu', R, 0.006, 1)
-            b.extend(body)
-        b.extend(MK.box(cc + radv * 0.027, (0.060, 0.044, 0.012), 'alu', R, 0.004, 1))
-        for s in (-1, 1):
-            b.extend(MK.bolt(cc + ax * -0.024 + tang * s * 0.024 + radv * 0.012, -ax, 0.0045, 0.0035, 'steel', washer=False))
-        # bleed nipple and banjo + hose
-        top = cc + tang * 0.036 * -1 + radv * 0.02
-        b.extend(MK.tube(np.array([cc + ax * -0.02 + tang * -0.03 + radv * 0.018, cc + ax * -0.02 + tang * -0.04 + radv * 0.024]), 0.0025,
-                         'steel', 8))
-        banjo = cc + ax * -0.026 + tang * 0.02 + radv * 0.004
-        b.extend(MK.bolt(banjo, -ax, 0.006, 0.006, 'steel', washer=True))
-        # mounting bracket to the slider's back
-        sl = M.tube_pt(self.t_ax + 0.035, -1.0) - M.NF * 0.022
-        br = MK.bend_path([cc + tang * 0.03 + ax * -0.006, sl + np.array([0.0, 0.004, 0.0])], [0, 0])
-        prof = np.array([(-0.008, -0.004), (0.008, -0.004), (0.008, 0.004), (-0.008, 0.004)])
-        V, N, T = K.sweep(br, ax, prof, closed=False, closed_prof=True)
-        b.add(V, N, T, 'alu')
-        hose_pts = [banjo + np.array([0.0, -0.007, 0.0]), banjo + np.array([0.018, -0.012, 0.02]),
-                    M.tube_pt(self.t_ax + 0.13, -1.0) - M.NF * 0.034 + np.array([0, -0.004, 0]),
-                    M.tube_pt(D['t_slider'] - 0.03, -1.0) - M.NF * 0.034 + np.array([0, -0.012, 0]),
-                    M.tube_pt(D['t_slider'] + 0.06, -1.0) - M.NF * 0.05 + np.array([0, 0.006, 0])]
-        cab, path = MK.cable(hose_pts, 0.0043, 'rubber', 8, [0, 0.03, 0.08, 0.08, 0])
-        b.extend(cab)
-        # hose clip on the slider
-        p = M.tube_pt(D['t_slider'] - 0.07, -1.0) - M.NF * 0.024
-        b.extend(MK.box(p + np.array([0, -0.004, 0]), (0.012, 0.01, 0.012), 'steel', RF, 0.002, 1))
         return b
 
     def speedo_drive(self):

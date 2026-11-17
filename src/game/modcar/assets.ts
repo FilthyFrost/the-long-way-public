@@ -96,10 +96,10 @@ function maskUvs(root: THREE.Object3D): void {
 
 /**
  * Nodes that move or are looked up by name (docs/MODCAR.md §6): hinged panels and their glass, needles,
- * wipers, the filler cap, mount empties. Each is a rigid piece of its own; everything else in a model
- * stands still relative to the model's root.
+ * wipers, the filler cap, mount empties, a hub's carrier (it rides with its wheel). Each is a rigid piece of
+ * its own; everything else in a model stands still relative to the model's root.
  */
-const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_)/;
+const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_)/;
 const KEEP = new Set(['position', 'normal', 'uv', 'color', 'aMaskUv']);
 
 /**

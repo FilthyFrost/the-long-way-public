@@ -376,6 +376,8 @@ export interface MountDef {
   steer?: boolean;
   driven?: boolean;
   handbrake?: boolean;
+  /** how far out from the middle the wheel's mounting face is (m): what the axle's struts and brakes are placed from */
+  hubFace?: number;
   // seats
   driver?: boolean;
   /** stretch box [length x, width (across), height] (m) */

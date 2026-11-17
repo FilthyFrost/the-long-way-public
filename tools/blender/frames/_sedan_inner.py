@@ -599,8 +599,9 @@ def dropped_crossmember(x, w, h, z_low, z_high, y_low, y_rise, y_end):
 
 
 def underbody():
-    """UNDER (left half + centre parts with y >= 0 halves): floor pan, rails, crossmember, suspension, hubs,
-    brake discs and calipers, rear axle, propshaft, wheelhouse liners, filler neck."""
+    """UNDER (left half + centre parts with y >= 0 halves): floor pan, rails, crossmember, wishbones and tie rod,
+    the rear axle's tubes and trailing arm, propshaft, wheelhouse liners, filler neck. The hubs' carriers are
+    objects of their own (knuckle()); springs, dampers, brakes and the differential are the axles' parts."""
     b = K.Buf()
     # floor pan underside with the tunnel (extruded section)
     xw = rear_arch_front(PAN_Z) + 0.02
@@ -641,35 +642,48 @@ def underbody():
     # wheelhouse liners (front and rear)
     for xa, y0, y1 in ((D['ax_f'], APRON_Y, 0.78), (D['ax_r'], 0.50, 0.78)):
         b.extend(wheelhouse(xa, y0, y1))
-    # front suspension (left): knuckle, wishbones, spring + damper, disc, caliper, tie rod
+    # front suspension (left): wishbones and the tie rod out to the knuckle (the spring and damper are the
+    # suspension part's, the knuckle with its hub is an object of its own)
     hx, hy, hz = D['ax_f'], D['track_f'] / 2, D['hub_z']
-    b.extend(hub_and_brake(hx, hy, hz, front=True))
     b.extend(K.tube_buf(np.array([(hx + 0.12, 0.30, 0.235), (hx, hy - 0.12, 0.22), (hx - 0.14, 0.30, 0.235)]), 0.014, 'steel', 10))
     b.extend(K.tube_buf(np.array([(hx + 0.10, 0.42, 0.52), (hx, hy - 0.13, 0.50), (hx - 0.10, 0.42, 0.52)]), 0.012, 'steel', 10))
-    b.extend(K.helix((hx, 0.47, 0.25), (0, 0.0, 1), 0.055, 0.30, 5.5, n=33, wire=0.009, mat='steel', segs=4))
-    b.extend(K.cyl_buf((hx, 0.47, 0.24), (hx, 0.47, 0.58), 0.022, 'trim', 12))
     b.extend(K.tube_buf(np.array([(hx - 0.10, 0.12, 0.27), (hx - 0.11, hy - 0.10, 0.27)]), 0.010, 'steel', 8))
-    # rear axle (left half of the housing + diff half), springs, dampers, trailing arm
+    # rear axle (left): its tube from the differential part's tube end out into the hub's carrier, the trailing
+    # arm (the differential, springs and dampers are the axle's parts)
     rx, ry = D['ax_r'], D['track_r'] / 2
-    b.extend(hub_and_brake(rx, ry, hz, front=False))
-    b.extend(K.cyl_buf((rx, 0.0, hz), (rx, ry - 0.07, hz), 0.038, 'steel', 16, cap=False))
-    dif = np.array([(0.0, -0.13), (0.07, -0.12), (0.115, -0.06), (0.125, 0.0), (0.11, 0.05), (0.06, 0.09), (0.0, 0.10)])
-    V, N, T = K.lathe(dif, (rx, 0.0, hz), (1, 0, 0), 12, a0=-90, a1=90)
-    b.add(V, N, T, 'steel')
-    b.extend(K.helix((rx, 0.48, hz + 0.04), (0, 0, 1), 0.06, 0.24, 4.5, n=28, wire=0.009, mat='steel', segs=4))
-    b.extend(K.cyl_buf((rx + 0.10, 0.50, hz), (rx + 0.06, 0.52, 0.55), 0.02, 'trim', 12))
+    b.extend(K.cyl_buf((rx, AXLE_IN, hz), (rx, axle_end(ry), hz), 0.038, 'steel', 16))
     b.extend(K.tube_buf(np.array([(rx, 0.45, hz - 0.03), (rx + 0.45, 0.45, PAN_Z - 0.03)]), 0.016, 'steel', 10))
-    # propshaft (half: y >= 0 surfaces are the full tube, mirrored copy is harmless) - built on the centre line
     return b
 
 
+# the rear axle's tubes start this far out from the centre: 2 cm inside the differential part's tube ends
+AXLE_IN = 0.29
+# where the differential part's companion flange is (ahead of the axle and below it: x, z from the axle centre)
+DIFF_FLANGE = (0.2645, -0.024)
+
+
+def axle_end(hy):
+    """Where a live axle's tube ends: in the middle of its hub's carrier (knuckle())."""
+    return hy - K.BRAKE_IN[1] - 0.003 - 0.015
+
+
+def knuckle(hx, hy, hz, front=True):
+    """A hub's carrier (left side: outer face +Y): the hub flange at the hub face with four studs and the centre
+    cap, the spindle, and the knuckle just inboard of the brake (front: up to the upper wishbone's ball joint;
+    rear: the axle's end). An object of its own, KNUCKLE_<hub>, the game hangs on the wheel's pivot."""
+    return K.knuckle_buf(hx, hy, hz, hy + 0.010, 0.062, 4, 0.049, 45.0, stud_r=0.0055, stud_len=0.007, cap_r=0.022,
+                         cap_out=0.005, carrier=(0.05, 0.03, 0.11, 0.20 if front else 0.13))
+
+
 def centre_under():
-    """Parts on the centre line that must not be mirrored: propshaft, diff cover, filler neck (right)."""
+    """Parts on the centre line that must not be mirrored: propshaft (back to the differential part's companion
+    flange), filler neck (right)."""
     b = K.Buf()
     hz = D['hub_z']
-    b.extend(K.cyl_buf((0.50, 0.0, 0.30), (D['ax_r'] + 0.14, 0.0, hz + 0.01), 0.032, 'steel', 16))
-    for x in (0.50, D['ax_r'] + 0.14):
-        b.extend(K.cyl_buf((x - 0.02, 0.0, 0.30 if x > 0 else hz + 0.01), (x + 0.02, 0.0, 0.30 if x > 0 else hz + 0.01), 0.045, 'steel', 16))
+    xe, ze = D['ax_r'] + DIFF_FLANGE[0] + 0.022, hz + DIFF_FLANGE[1]
+    b.extend(K.cyl_buf((0.50, 0.0, 0.30), (xe, 0.0, ze), 0.032, 'steel', 16))
+    for x, z in ((0.50, 0.30), (xe, ze)):
+        b.extend(K.cyl_buf((x - 0.02, 0.0, z), (x + 0.02, 0.0, z), 0.045, 'steel', 16))
     # fuel filler neck from the right rear flap down to the tank
     path = np.array([(-1.63, -0.76, 0.712), (-1.66, -0.66, 0.63), (-1.70, -0.45, 0.42), (-1.70, -0.35, 0.36)])
     b.extend(K.tube_buf(path, 0.022, 'rubber', 12))
@@ -705,33 +719,6 @@ def wheelhouse(xa, y0, y1, r=0.355):
     ring = np.array([(xa + r * math.cos(t), y0, za + r * math.sin(t)) for t in ths])
     bottom = np.array([(ring[-1, 0], y0, ring[-1, 2]), (ring[0, 0], y0, ring[0, 2])])
     b.extend(K.fill_loop(np.vstack([ring, bottom[:1] * 0 + ring[-1]])[:-1], (0, 1, 0), 'trim'))
-    return b
-
-
-def hub_and_brake(hx, hy, hz, front=True):
-    """Frame-owned hub carrier, hub flange, brake disc and caliper at a wheel (left side: outer face +Y)."""
-    b = K.Buf()
-    yf = hy + 0.010           # hub flange face (the rim mounts here)
-    # disc
-    disc = np.array([(0.035, -0.006), (0.112, -0.006), (0.114, -0.004), (0.114, 0.004), (0.112, 0.006), (0.035, 0.006)])
-    V, N, T = K.lathe(disc, (hx, yf - 0.030, hz), (0, 1, 0), 20)
-    b.add(V, N, T, 'steel')
-    # hat and hub flange with studs
-    hat = np.array([(0.0, -0.024), (0.06, -0.024), (0.062, -0.02), (0.062, 0.0), (0.0, 0.0)])
-    V, N, T = K.lathe(hat, (hx, yf, hz), (0, 1, 0), 16)
-    b.add(V, N, T, 'steel')
-    for k in range(4):
-        a = math.radians(45 + 90 * k)
-        p = np.array([hx + 0.049 * math.cos(a), yf, hz + 0.049 * math.sin(a)])
-        b.extend(K.cyl_buf(p, p + (0, 0.007, 0), 0.0055, 'steel', 6))
-    b.extend(K.cyl_buf((hx, yf - 0.002, hz), (hx, yf + 0.005, hz), 0.022, 'steel', 16))
-    # caliper at the rear of the disc (front) / front of the disc (rear wheels)
-    a = math.radians(160 if front else 20)
-    cp = np.array([hx + 0.10 * math.cos(a), yf - 0.030, hz + 0.10 * math.sin(a)])
-    R = K.mat4_rot((0, 1, 0), -math.degrees(a) + 90, cp)
-    b.extend(K.box_buf(cp + (-0.03, -0.028, -0.055), cp + (0.03, 0.012, 0.055), 'alu', 0.008, 2, xf=R))
-    # knuckle / carrier behind the disc
-    b.extend(K.box_buf((hx - 0.05, yf - 0.075, hz - 0.11), (hx + 0.05, yf - 0.045, hz + 0.13), 'steel', 0.012, 2))
     return b
 
 

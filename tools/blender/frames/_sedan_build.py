@@ -71,6 +71,20 @@ def mount(name, loc, props, rot=None, size=0.12):
     return e
 
 
+def knuckles(empties, build_left):
+    """KNUCKLE_<hub>: each car hub's carrier as an object of its own, its origin on its hub mount (no rotation,
+    no parent: the game hangs it on that wheel's pivot, so that the hub rides and steers with its wheel and its
+    brake). build_left(x, y, z, front) builds the left-hand one in place; the right-hand ones are its mirror."""
+    out = []
+    for e in empties:
+        if not e.name.startswith('M_hub_'):
+            continue
+        p = np.array(e.matrix_world.translation)
+        buf = build_left(p[0], abs(p[1]), p[2], e.get('axle') == 'front')
+        out.append(obj_with_origin(buf if p[1] > 0 else buf.mirrored(), 'KNUCKLE_' + e.name[2:], p))
+    return out
+
+
 def game_vec(v):
     return [round(float(v[0]), 5), round(float(v[2]), 5), round(float(-v[1]), 5)]
 
@@ -179,6 +193,7 @@ def build(args):
 
     # ---------------------------------------------------------------- mounts
     empties = mounts(ex, panels, it)
+    objs += knuckles(empties, IN.knuckle)
     # the frame is modelled with its hubs body_drop above the wheel radius and moved down by it: it sits
     # that much lower over its wheels, the hubs stay at the wheel radius above the ground
     K.drop_all(objs, empties, panels, (needles, wipers), -D.get('body_drop', 0.0))

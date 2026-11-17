@@ -34,7 +34,7 @@ const DEG = Math.PI / 180;
  */
 const UNMERGED = new Set(['steering']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
-const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|ghost:)/;
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|ghost:)/;
 /** how far the filler flap swings open (deg) */
 const CAP_OPEN_DEG = 105;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
@@ -222,6 +222,24 @@ export class CarView {
     if (this.fuelCap) this.hangCap(this.fuelCap);
     this.covers = null;
     this.rigBike(obj);
+    this.hangKnuckles(obj);
+  }
+
+  /**
+   * Each hub's carrier (the frame's KNUCKLE_<hub>: its flange, studs, spindle and arm: tools/blender/frames) on its
+   * wheel's pivot, as the struts and the brakes are (pairUp): it rides and steers with its wheel, and with the
+   * wheel off it is what the brake sits behind. (Its origin is the hub's: where the pivot's is at rest.)
+   */
+  private hangKnuckles(obj: THREE.Object3D): void {
+    const h = hubsOf(this.frame);
+    [h.fl, h.fr, h.rl, h.rr].forEach((m, i) => {
+      const k = m ? obj.getObjectByName(`KNUCKLE_${m.id}`) : undefined;
+      if (!k) return;
+      k.removeFromParent();
+      k.position.set(0, 0, 0);
+      k.quaternion.identity();
+      this.wheels[i].pivot.add(k);
+    });
   }
 
   // ------------------------------------------------------------------ a motorcycle's moving frame

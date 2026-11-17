@@ -483,7 +483,7 @@
  "triangles": {
   "BODY": 18178,
   "FORK": 7242,
-  "FORK_LOWER": 4796,
+  "FORK_LOWER": 3386,
   "N_rpm": 50,
   "N_speed": 50,
   "SHOCK_LOWER_L": 1321,
@@ -491,8 +491,8 @@
   "SHOCK_UPPER_L": 386,
   "SHOCK_UPPER_R": 386,
   "STAND": 408,
-  "SWINGARM": 5732,
-  "total": 39870
+  "SWINGARM": 4800,
+  "total": 37528
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {}
