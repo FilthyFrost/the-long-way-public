@@ -32,6 +32,12 @@ const KINDS: Partial<Record<number, DustKind>> = {
   [Surface.Snow]: { rate: 6, life: 1.7, size: 1.5, alpha: 0.5, tint: [0.93, 0.95, 1.0], dryTo: 0.9 },
 };
 
+/** a hot brake's smoke (brakeHeat.ts): thin and pale, rising off the hub */
+const SMOKE: DustKind = { rate: 0, life: 2.4, size: 0.75, alpha: 0.5, tint: [0.94, 0.94, 0.96], dryTo: 1 };
+/** how fast a puff rises once its throw has died away (m/s): dust hangs, smoke climbs */
+const DUST_RISE = 0.12;
+const SMOKE_RISE = 0.7;
+
 /**
  * Puffs a second one wheel throws up (0: none): on a dusty surface, more the faster it rolls and much more where
  * it spins or slides; none below a walking pace's roll, none once the ground is wet enough.
@@ -78,6 +84,7 @@ export class WheelDust {
   private readonly vel = new Float32Array(DUST_MAX * 3);
   private readonly age = new Float32Array(DUST_MAX);
   private readonly life = new Float32Array(DUST_MAX);
+  private readonly rise = new Float32Array(DUST_MAX);
   /** per puff, to the GPU: where (render space); its age 0…1, start and end size, its own random; colour and thickness */
   private readonly aPos = new Float32Array(DUST_MAX * 3);
   private readonly aInfo = new Float32Array(DUST_MAX * 4);
@@ -165,9 +172,10 @@ export class WheelDust {
   }
 
   /** one puff, from a world point */
-  private puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, k: DustKind, grow: number, thick: number): void {
+  private puff(x: number, y: number, z: number, vx: number, vy: number, vz: number, k: DustKind, grow: number, thick: number, rise = DUST_RISE): void {
     if (this.live >= DUST_MAX) return;
     const i = this.live++;
+    this.rise[i] = rise;
     const r = Math.random();
     this.world[i * 3] = x;
     this.world[i * 3 + 1] = y;
@@ -236,6 +244,11 @@ export class WheelDust {
     }
   }
 
+  /** smoke off a hot brake, `n` puffs from its hub (world), carried a little with the vehicle (vx, vz: its velocity) */
+  smoke(x: number, y: number, z: number, vx: number, vz: number, n: number): void {
+    for (let p = 0; p < n; p++) this.puff(x + (Math.random() - 0.5) * 0.15, y, z + (Math.random() - 0.5) * 0.15, vx * 0.4, 0.8 + 0.6 * Math.random(), vz * 0.4, SMOKE, 1, 1, SMOKE_RISE);
+  }
+
   /** every frame: the puffs drifting on the wind (world m/s), slowing, rising a little; the dead ones gone */
   update(dt: number, wind: { x: number; z: number }): void {
     const o = this.origin;
@@ -251,7 +264,7 @@ export class WheelDust {
       // (the air it is in moves with the wind; the throw dies away into it; a warm puff rises slowly)
       this.vel[i * 3] = wind.x + (this.vel[i * 3] - wind.x) * drag;
       this.vel[i * 3 + 2] = wind.z + (this.vel[i * 3 + 2] - wind.z) * drag;
-      this.vel[i * 3 + 1] = 0.12 + (this.vel[i * 3 + 1] - 0.12) * lift;
+      this.vel[i * 3 + 1] = this.rise[i] + (this.vel[i * 3 + 1] - this.rise[i]) * lift;
       this.world[i * 3] += this.vel[i * 3] * dt;
       this.world[i * 3 + 1] += this.vel[i * 3 + 1] * dt;
       this.world[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
@@ -280,6 +293,7 @@ export class WheelDust {
     }
     this.age[i] = this.age[j];
     this.life[i] = this.life[j];
+    this.rise[i] = this.rise[j];
     for (let c = 0; c < 4; c++) {
       this.aInfo[i * 4 + c] = this.aInfo[j * 4 + c];
       this.aTint[i * 4 + c] = this.aTint[j * 4 + c];

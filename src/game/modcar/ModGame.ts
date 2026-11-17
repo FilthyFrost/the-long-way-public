@@ -3482,6 +3482,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (Math.hypot(v.sim.px - c.x - o.x, v.sim.pz - c.z - o.z) > 180) continue;
       // (a motorcycle's two tracks are four contacts a hand apart: half each)
       this.dust.kick(dt, v, v.sim.wheels, wet, v.view.frame.balance ? 0.5 : 1);
+      // a hot brake smokes from its hub, the more the more it has faded (brakeHeat.ts)
+      for (let i = 0; i < 4; i++) {
+        const fade = 1 - v.sys.dash.brakes[i].bite;
+        if (fade < 0.02) continue;
+        const key = v.sim.wheels[i];
+        const due = (this.smokeDue.get(key) ?? 0) + dt * 14 * Math.min(1, fade * 4);
+        const n = Math.floor(due);
+        this.smokeDue.set(key, due - n);
+        if (!n) continue;
+        const b = this.sparkB;
+        v.sim.basis(b);
+        v.sim.wheelLocal(i, this.sparkL);
+        const L = this.sparkL;
+        this.dust.smoke(v.sim.px + b[0] * L.x + b[3] * L.y + b[6] * L.z, v.sim.py + b[1] * L.x + b[4] * L.y + b[7] * L.z, v.sim.pz + b[2] * L.x + b[5] * L.y + b[8] * L.z, v.sim.vx, v.sim.vz, n);
+      }
     }
     const w = this.env.state;
     this.dustWind.x = Math.cos(w.windDir) * w.wind;
@@ -3490,6 +3505,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   private readonly dustWind = { x: 0, z: 0 };
+  /** each hot brake's share of a smoke puff not given off yet */
+  private readonly smokeDue = new WeakMap<object, number>();
 
   /** the engine as the seat feels it (seatShake.ts): running or not, its revs, its cylinders, how worn */
   private engineFelt(v: ModVehicle): ShakeEngine {

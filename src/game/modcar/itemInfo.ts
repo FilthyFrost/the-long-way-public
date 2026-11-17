@@ -8,6 +8,7 @@
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
 import { ITEM_CATS, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
@@ -343,6 +344,8 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   if (def.brakes) {
     row({ drum: '鼓刹', disc: '实心盘', vented: '通风盘', drilled: '打孔盘' }[def.brakes.kind], '形式');
     row(signPct(def.brakes.power - 1), '制动力');
+    // (where it starts to fade: brakeHeat.ts, over a 20 °C day)
+    row(`${Math.round((20 + BRAKE_HEAT[heatKindOf(def.id, def.brakes.kind)].fadeAt) / 10) * 10} °C`, '过热变软');
   }
   if (def.diff) {
     row({ open: '开放', lsd: '限滑', locked: '锁止' }[def.diff.kind], '形式');

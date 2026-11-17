@@ -1,6 +1,6 @@
 /**
  * A ModCar build alive (docs/MODCAR.md §3, §5): the key and the starter, fuel by type, oil, coolant
- * temperature, the battery, lamps and horn, turbo lag, wear and dirt. Reads what the simulation did and
+ * temperature, the battery, lamps and horn, turbo lag, the brakes' heat (§22), wear and dirt. Reads what the simulation did and
  * writes `sim.mods`, `sim.engineOn`, `sim.cranking` — the same narrow link as the old slot systems
  * (src/core/vehicle/systems), but everything comes from the parts that are actually fitted.
  *
@@ -8,6 +8,7 @@
  * five times faster than in a real car as well.
  */
 import type { VehicleSim } from '../vehicle/sim';
+import { BRAKE_HEAT, brakeBite, heatKindOf, stepBrakeHeat, type BrakeHeatKind } from './brakeHeat';
 import { frameDef } from './frames';
 import { derive, SURFACE_N, tankFuel, type Derived } from './derive';
 import { burstPerKm, SLIDE_WEAR, wearPerMetre, wetGrip } from './tyres';
@@ -75,6 +76,8 @@ export interface Dash {
   lamps: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
   /** the four tyres (FL, FR, RL, RR): tread left (−1: no tyre on that corner), blown */
   tyres: { tread: number; flat: boolean }[];
+  /** the brakes (FL, FR, RL, RR): how hot (°C), how much they still bite (1 cold … faded) */
+  brakes: { c: number; bite: number }[];
 }
 
 export class ModSystems {
@@ -131,11 +134,18 @@ export class ModSystems {
     message: null,
     lamps: { battery: false, oil: false, temp: false, fuel: false, check: false },
     tyres: [0, 1, 2, 3].map(() => ({ tread: 1, flat: false })),
+    brakes: [0, 1, 2, 3].map(() => ({ c: AMBIENT_DEFAULT, bite: 1 })),
   };
+  /** each wheel's brake: how hot it is above the air (K), its kind and the part it is (brakeHeat.ts) */
+  readonly brakeHeat = [0, 0, 0, 0];
+  private readonly brakeKind: (BrakeHeatKind | null)[] = [null, null, null, null];
+  private readonly brakeUid = ['', '', '', ''];
+  private brakesSaid = false;
 
   constructor(public build: Build) {
     this.derived = derive(build);
     this.noteGripTread();
+    this.noteBrakes();
     let h = 0x811c9dc5;
     for (let i = 0; i < build.uid.length; i++) h = Math.imul(h ^ build.uid.charCodeAt(i), 0x01000193);
     this.dice = (h >>> 0) || 1;
@@ -176,6 +186,7 @@ export class ModSystems {
   rebuild(): Derived {
     this.derived = derive(this.build);
     this.noteGripTread();
+    this.noteBrakes();
     this.wetWas = -1;
     const sim = this.sim;
     if (sim) {
@@ -187,6 +198,46 @@ export class ModSystems {
     // an engine taken out, or its fuel or battery, stops it
     if (this.running && (crankProblems(this.build).some((p) => p.code === 'no_engine') || !this.derived.engine)) this.stop('');
     return this.derived;
+  }
+
+  /** each wheel's brake (its axle's: brakes_F the front two, brakes_R the back two): a new one comes on cold */
+  private noteBrakes(): void {
+    for (let i = 0; i < 4; i++) {
+      const inst = this.build.parts[i < 2 ? 'brakes_F' : 'brakes_R'];
+      const bs = inst ? partDef(inst.part).brakes : undefined;
+      this.brakeKind[i] = inst && bs ? heatKindOf(inst.part, bs.kind) : null;
+      const uid = inst?.uid ?? '';
+      if (uid !== this.brakeUid[i]) this.brakeHeat[i] = 0;
+      this.brakeUid[i] = uid;
+    }
+  }
+
+  /**
+   * The brakes' heat (brakeHeat.ts): each takes in its force times how fast its wheel turns, sheds it faster the
+   * faster the vehicle goes, and bites less once it is too hot (sim.mods.brake). Says so the first time they fade.
+   */
+  private heatBrakes(sim: VehicleSim, dt: number): void {
+    const cmd = sim.hold ? 0 : sim.brake;
+    let worst = 1;
+    for (let i = 0; i < 4; i++) {
+      const k = this.brakeKind[i];
+      if (!k) {
+        this.brakeHeat[i] = 0;
+        sim.mods.brake[i] = 1;
+        continue;
+      }
+      const s = BRAKE_HEAT[k];
+      const w = sim.wheels[i];
+      const kw = (cmd * w.brakeMax * sim.mods.brake[i] * Math.abs(w.omega * w.radius)) / 1000;
+      this.brakeHeat[i] = stepBrakeHeat(this.brakeHeat[i], s, kw, sim.speed, dt);
+      const bite = brakeBite(s, this.brakeHeat[i]);
+      sim.mods.brake[i] = bite;
+      worst = Math.min(worst, bite);
+    }
+    if (worst < 0.85 && !this.brakesSaid) {
+      this.brakesSaid = true;
+      this.sayText('brakes_hot', { zh: '刹车过热，越踩越软。挂低挡让发动机拖着，开一段让它凉下来。', en: 'The brakes are overheating and fading. Use a low gear and let them cool.' });
+    } else if (worst > 0.98) this.brakesSaid = false;
   }
 
   /** remember the tread each wheel's grip was derived with */
@@ -421,6 +472,8 @@ export class ModSystems {
     const roof = this.instOf('roof');
     const solar = roof ? (partDef(roof.part).roof?.solarW ?? 0) : 0;
     if (solar > 0) this.drain((-solar / 1000) * env.sun * GAME * dt);
+
+    this.heatBrakes(sim, dt);
 
     // what goes to the simulation
     const m = sim.mods;
@@ -659,6 +712,8 @@ export class ModSystems {
       const t = this.build.parts[hubs[i]?.hub]?.sub.tire;
       dd.tyres[i].tread = t ? (t.tread ?? 1) : -1;
       dd.tyres[i].flat = !!t?.flat;
+      dd.brakes[i].c = env.ambientC + this.brakeHeat[i];
+      dd.brakes[i].bite = sim.mods.brake[i];
     }
     void env;
   }
