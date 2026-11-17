@@ -180,6 +180,14 @@ export interface VehicleSpec {
    * wheelRadius follows the fitted wheels rather than the frame.
    */
   emptyHubRadius?: number;
+  /**
+   * How hard the handbrake pulls on each of its wheels, as a share of that wheel's static load: a wheel whose
+   * tyre grips less than that along the road locks (and slides: the tail comes round), one that grips more is
+   * only braked. Omitted = the handbrake locks its wheels outright (the legacy vehicles). Near rest it always
+   * holds (parked). ModCar's lever decides it (a stock one brakes on asphalt and locks on gravel and snow, a
+   * hydraulic drift lever locks everywhere).
+   */
+  handbrakeG?: number;
 }
 
 /** placeholder engine for a build without one (`absent.engine`): no torque anywhere */
@@ -210,7 +218,8 @@ export function usesExtensions(spec: VehicleSpec): boolean {
     r.tyreLoad !== undefined ||
     spec.balance !== undefined ||
     spec.absent !== undefined ||
-    spec.emptyHubRadius !== undefined
+    spec.emptyHubRadius !== undefined ||
+    spec.handbrakeG !== undefined
   );
 }
 

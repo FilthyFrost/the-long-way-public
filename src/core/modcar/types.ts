@@ -165,6 +165,13 @@ export interface RimStats {
   rr: number;
   /** two rims side by side (a motorhome's rear) */
   dual?: boolean;
+  /**
+   * A bigger rim runs its tyre on a lower profile (plus sizing): the share of the tyre's sidewall it keeps
+   * (default 1) — the wheel about as tall, the tyre answering the wheel sooner
+   */
+  profile?: number;
+  /** a rim that holds its tyre true and stiff: its grip multiplied (default 1) */
+  gripMul?: number;
 }
 
 export interface TireStats {

@@ -200,14 +200,14 @@ export function wheelOn(build: Build, hub: MountDef): DerivedWheel {
   }
   const flat = tInst?.flat === true;
   const tread = tInst?.tread ?? 1;
-  // a bald tyre keeps three quarters of its grip; a flat one rides on its sidewall
-  const k = (0.75 + 0.25 * tread) * (flat ? 0.6 : 1);
+  // a bald tyre keeps three quarters of its grip; a flat one rides on its sidewall; a stiff alloy rim holds it true
+  const k = (0.75 + 0.25 * tread) * (flat ? 0.6 : 1) * (rim.gripMul ?? 1);
   return {
     hub: hub.id,
     present: true,
     rim: inst.part,
     tire: tInst?.part ?? null,
-    radius: rim.radius + tire.sidewall,
+    radius: rim.radius + tire.sidewall * (rim.profile ?? 1),
     width: tire.width * (dual ? 1.7 : 1),
     grip: tire.grip.map((g) => g * k),
     rr: tire.rr * (flat ? 3 : 1),
@@ -280,6 +280,9 @@ function stockWidth(frame: FrameDef): number {
   const t = stockTireFor(frame);
   return (t ? partDef(t).tire?.width : undefined) ?? 0.18;
 }
+
+/** a stock handbrake's pull on each of its wheels, as a share of the wheel's static load (VehicleSpec.handbrakeG) */
+export const HANDBRAKE_G = 0.62;
 
 export function derive(build: Build): Derived {
   const frame = frameDef(build.frame);
@@ -449,10 +452,12 @@ export function derive(build: Build): Derived {
       ratio: st?.ratio ?? 16,
       rateLow: frame.steering.rateLow * (st?.rate ?? 1),
       rateHigh: frame.steering.rateHigh * (st?.rate ?? 1),
-      smoothTime: frame.steering.smoothTime,
+      // (a quick wheel answers sooner: its input filtered less; a lazy one, a ship's wheel, more)
+      smoothTime: frame.steering.smoothTime / Math.max(0.5, Math.min(1.6, st?.rate ?? 1)),
       returnScale: frame.steering.returnScale,
       ackermann: frame.steering.ackermann,
-      gripLimitG: frame.steering.gripLimitG,
+      // (a quicker ratio turns the road wheels further for the same hand: full lock asks for more grip at speed)
+      gripLimitG: frame.steering.gripLimitG * Math.max(0.6, Math.min(1.35, Math.pow(16 / (st?.ratio ?? 16), 0.6))),
       slipMarginDeg: frame.steering.slipMarginDeg,
     },
     body: {
@@ -473,6 +478,9 @@ export function derive(build: Build): Derived {
   const sprung = rescaleSuspension(spec as VehicleSpec, stockLoads(frame), [wallF, wallR]);
   spec.front = { ...spec.front, ...sprung.front, wheelRadius: spec.front.wheelRadius };
   spec.rear = { ...spec.rear, ...sprung.rear, wheelRadius: spec.rear.wheelRadius };
+  // the handbrake's pull (a share of each rear wheel's static load): a stock cable lever brakes the rear on
+  // asphalt and locks it on gravel and snow; a hydraulic drift lever locks it anywhere — the tail comes round
+  if (handbrake) spec.handbrakeG = HANDBRAKE_G * (handbrake.def.handbrake?.strength ?? 1);
   // what is missing, for the physics (docs/MODCAR.md §3; the systems and rules say it in words)
   if (!engine || !gearbox || !steering || !handbrake) spec.absent = { engine: !engine, gearbox: !gearbox, steering: !steering, handbrake: !handbrake };
 
@@ -502,7 +510,8 @@ export function derive(build: Build): Derived {
 function wheelSidewall(w: DerivedWheel): number {
   if (!w.tire) return 0.02;
   const t = partDef(w.tire).tire;
-  return (t?.sidewall ?? 0.12) * (w.flat ? FLAT_SIDEWALL : 1);
+  const profile = w.rim ? (partDef(w.rim).rim?.profile ?? 1) : 1;
+  return (t?.sidewall ?? 0.12) * profile * (w.flat ? FLAT_SIDEWALL : 1);
 }
 
 /** litres of fuel in a build's tank, by type */

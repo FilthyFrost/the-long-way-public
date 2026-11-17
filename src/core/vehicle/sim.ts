@@ -208,6 +208,8 @@ export class Wheel {
   capLong = 0;
   capLat = 0;
   capOpp = 0;
+  /** held locked this step (the handbrake strong enough, the parking pawl, an empty hub) */
+  locked = false;
   /** rolling angle and speed, for visuals and audio */
   spin = 0;
   omega = 0;
@@ -1816,8 +1818,19 @@ export class VehicleSim {
       w.capLong = tire.muLong * grip * N;
       w.capLat = tire.muLat * grip * N;
       // (an empty hub grinds along like a locked wheel)
-      const locked = (this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven) || w.fit === WheelFit.None;
-      w.capOpp = locked ? w.capLong : Math.min(w.capLong, N * w.rr + brakeCmd * w.brakeMax * mods.brake[i]);
+      let hb = this.handbrake > 0 && w.axle.handbrake;
+      // a handbrake of a given strength (ModCar's): it locks a wheel only where the tyre grips less than it
+      // pulls, or near rest; elsewhere it brakes the rolling wheel
+      let hbForce = 0;
+      if (hb && this.ext && sp.handbrakeG !== undefined) {
+        hbForce = sp.handbrakeG * w.staticLoad;
+        const sc = Math.sqrt(w.vLong * w.vLong + w.vLat * w.vLat);
+        if (sc > 1.5 && hbForce < w.capLong) hb = false;
+        else hbForce = 0;
+      }
+      const locked = hb || (pawl && w.axle.driven) || w.fit === WheelFit.None;
+      w.locked = locked;
+      w.capOpp = locked ? w.capLong : Math.min(w.capLong, N * w.rr + brakeCmd * w.brakeMax * mods.brake[i] + hbForce);
       sumLat += w.capLat;
       sumOpp += w.capOpp;
     }
@@ -1846,7 +1859,7 @@ export class VehicleSim {
       const speedC = Math.sqrt(w.vLong * w.vLong + w.vLat * w.vLat);
       const wStick = 1 - smoothstep(0.4, 1.6, speedC);
 
-      if ((this.handbrake > 0 && w.axle.handbrake) || (pawl && w.axle.driven) || w.fit === WheelFit.None) {
+      if (w.locked) {
         // locked wheel. Near rest it takes exactly its share of the stopping impulse in each direction
         // (shares along and across the car differ, and mixing them lets a heavy vehicle creep on a hill);
         // once that exceeds the grip it slides, and friction simply opposes the sliding direction.
