@@ -122,6 +122,14 @@ export const TOOL_BLURB: Record<ToolKind, Blurb> = {
   oilcan: b(2, '机油壶。发动机缺了机油会抱死，常看看。'),
   spray: b(2, '喷漆罐，滚一下滚轮换颜色，想喷哪里喷哪里。'),
   sponge: b(1, '一块海绵，擦掉灰，也能擦掉一点点锈。'),
+  scraper: b(1, '清理铲：刮掉车窗上、车身上糊死的泥和锈。'),
+};
+
+/** the scrapers' own lines (by tier) */
+export const SCRAPER_BLURB: Record<1 | 2 | 3, Blurb> = {
+  1: b(1, '塑料的清理铲，刀口十厘米。刮得慢，但不伤漆。'),
+  2: b(3, '不锈钢刀口二十二厘米，一铲下去一大片。'),
+  3: b(5, '黄铜刀口二十五厘米，刮得又快又干净，拿在手上都有面子。'),
 };
 
 export const FRAME_BLURB: Record<string, string> = {

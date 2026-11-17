@@ -1,5 +1,5 @@
 // The starting garage's devices, each used the way a player would (walk up, look at it, press): the big
-// doors, the light switch, the battery charger, the lift (empty, then with the car in its bay), the
+// doors, the light switch, the generator outside (the charger needs its power), the battery charger, the lift (empty, then with the car in its bay), the
 // radio, the tap, the tyre changer and the paint gun. A screenshot per step into loop/shots/modcar_garage_devices/; exits non-zero on a failure.
 //   SHOTS_GPU=1 node harness/shots/modcar_garage_devices.mjs
 import fs from 'node:fs';
@@ -51,6 +51,15 @@ try {
   await step('lights_off', () => use('lights'), (t) => t.lamps === false);
   await step('lights_on', () => use('lights'), (t) => t.lamps === true);
 
+  // (the charger needs the power: the generator outside started first, docs/MODCAR.md §14)
+  await step('generator', async () => {
+    for (let i = 0; i < 4 && !(await rt('workshop')).power; i++) {
+      await rt('aimAt', 'gen_cord', 0, 1.0);
+      await rt('holdFor', 0.7);
+      await rt('simulate', 0.3);
+    }
+    return (await rt('workshop')).power;
+  }, (t, on) => on === true);
   await step('charger', async () => {
     const before = await ev(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'bat_std')?.part.fluids.charge ?? -1);
     await rt('simulate', 12);

@@ -13,7 +13,8 @@ import type { Text } from '../../core/modcar/types';
 import { surfaceMaterial } from '../render/materials';
 import type { RenderCore } from '../render/core';
 import type { LooseThings } from './loose';
-import type { ModPlayer } from './player';
+import type { ItemCard } from './itemInfo';
+import type { Held, ModPlayer } from './player';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 
@@ -28,7 +29,16 @@ export interface GarageDevice {
   readonly word: Text;
   /** how it stands now, for its card ("大门关着"); absent: its word says it */
   readonly state?: Text;
+  /** a card of its own (the workshop's machines: fuel, power, what it gives); absent: the plain one */
+  readonly card?: ItemCard;
   use(): void;
+  /** E held this long does it (the generator's rope), use() at the end; the progress meanwhile */
+  readonly holdS?: number;
+  holding?(p: number): void;
+  /** what E would do with this in the hands (the recycler: take it in), null: nothing — the thing then stays put */
+  take?(held: NonNullable<Held>): { ok: boolean; word: Text } | null;
+  /** E with it in the hands, take() saying ok: the device has it now */
+  useWith?(held: NonNullable<Held>): void;
 }
 
 /** what a garage may look at and touch each frame: its devices work on the things in it */
@@ -80,6 +90,10 @@ export interface GarageScene {
   radio?(): { on: boolean; song: number; x: number; y: number; z: number } | null;
   /** for the test hook: the doors, the lamps, the devices' state */
   telemetry(): Record<string, string | number | boolean>;
+  /** the workshop's power (the generator, workshop.ts): the lamps and the charger need it */
+  power?: boolean;
+  /** more surfaces things lie on (the workshop's machines: the bench's top, the recycler's rotors) */
+  addSurface?(x0: number, x1: number, z0: number, z1: number, y: number): void;
   dispose(): void;
 }
 

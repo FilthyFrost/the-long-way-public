@@ -16,7 +16,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { PALETTE } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
 import { itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
-import { liquidOf, pour, siphon, siphonUse, TOOL_INFO, toolName, toolUse, workSurface, type LiquidKind, type Tool } from '../../core/modcar/tools';
+import { liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, workSurface, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
 import type { Land } from '../../core/onfoot/land';
@@ -58,9 +58,28 @@ type Target = (
   | { kind: 'surface'; v: ModVehicle; mount: MountDef | null; dist: number }
   | { kind: 'enter'; v: ModVehicle; dist: number }
   | { kind: 'device'; device: GarageDevice; dist: number }
+  /** a fuel tank that is not a vehicle's (the generator's): empty hands open its cap, a jerrycan pours */
+  | { kind: 'tank'; port: TankPort; dist: number }
   /** the thing in the hands held into a vehicle's boot, bed or seat: where it would go */
   | { kind: 'stow'; aim: StowAim; dist: number }
 ) & { at?: number };
+
+/** a fuel tank that is not a vehicle's, which a jerrycan is held to (the generator's) */
+export interface TankPort {
+  readonly id: string;
+  readonly tank: FuelTank;
+  /** what it is called on the strip ("发电机的油箱") */
+  readonly name: string;
+  /** its cap off (it can be poured into) */
+  open: boolean;
+  /** how far along the line of sight (render space) it meets the filler; null: it misses */
+  hit(ray: THREE.Ray, reach: number): number | null;
+  /** the mouth and the way out of it (render space), for the can to line up with */
+  mouth(m: THREE.Vector3, out: THREE.Vector3): boolean;
+  readonly card: ItemCard;
+  /** liquid went in or out, or the cap moved */
+  changed(): void;
+}
 
 export interface PlayerHost {
   readonly vehicles: readonly ModVehicle[];
@@ -68,6 +87,8 @@ export interface PlayerHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
   readonly devices: readonly GarageDevice[];
+  /** the tanks that are not vehicles' (the generator's) */
+  readonly tanks: readonly TankPort[];
   /** a vehicle's build changed: tell the systems, the view and any listeners (the checklist) */
   changed(v: ModVehicle, what: string): void;
   enter(v: ModVehicle): void;
@@ -167,7 +188,7 @@ export class ModPlayer {
   private cardKey = '';
   private cardCache: ReturnType<typeof compare> | null = null;
   /** liquid going from the can into a vehicle (in) or out of it into the can (out), and how much so far */
-  flow: { dir: 'in' | 'out'; v: ModVehicle; liquid: LiquidKind; moved: number; fuel: string } | null = null;
+  flow: { dir: 'in' | 'out'; v: ModVehicle | null; port?: TankPort; liquid: LiquidKind; moved: number; fuel: string } | null = null;
   /** litres the flow moved this frame (0: none, or nothing left to move) */
   lastMoved = 0;
   private vehicleCardCache: { key: string; t: number; card: ItemCard } | null = null;
@@ -268,6 +289,9 @@ export class ModPlayer {
     this.select((this.sel + (delta > 0 ? 1 : this.slots.length - 1)) % this.slots.length);
   }
 
+  /** the hands are busy elsewhere (the bench has the view): nothing is aimed at, no prompts */
+  aside = false;
+
   // ------------------------------------------------------------------ every frame on foot
 
   update(dt: number, lookYaw: number, lookPitch: number, keys: { run: boolean; jump: boolean; drop: boolean; take: boolean; forward: number; right: number }): void {
@@ -275,7 +299,8 @@ export class ModPlayer {
     this.clock += dt;
     // (while liquid flows one stands still: from the frame the button goes down at an open filler)
     const t0 = this.target;
-    const still = !!this.flow || (t0?.kind === 'filler' && t0.open && (this.primary || keys.take));
+    const atOpen = (t0?.kind === 'filler' && t0.open) || (t0?.kind === 'tank' && t0.port.open && this.held?.kind === 'tool');
+    const still = !!this.flow || (atOpen && (this.primary || keys.take));
     this.input.forward = still ? 0 : keys.forward;
     this.input.right = still ? 0 : keys.right;
     this.input.run = keys.run;
@@ -292,7 +317,7 @@ export class ModPlayer {
     this.secondaryWas = this.secondary;
     this.secondary = keys.take;
 
-    this.target = this.pick();
+    this.target = this.aside ? null : this.pick();
     this.showHighlight();
     this.showGhosts();
     this.host.cargo.showGhost(this.target?.kind === 'stow' ? this.target.aim : null, this.held);
@@ -468,6 +493,13 @@ export class ModPlayer {
       else if (!held && !onPart) better({ kind: 'enter', v, dist: d + 0.25, at: d });
     }
     this.lookVehicle = lookAt ?? (best && (best as Target).kind === 'stow' ? (best as Extract<Target, { kind: 'stow' }>).aim.v : null);
+    // the tanks that are not vehicles': a jerrycan lines up with an open one, empty hands open and shut the cap
+    if (liquid === 'fuel' || !held) {
+      for (const port of this.host.tanks) {
+        const d = port.hit(this.ray, REACH + 0.3);
+        if (d !== null) better({ kind: 'tank', port, dist: Math.max(0, d - (liquid ? 1 : 0.3)), at: d });
+      }
+    }
     // garage devices
     for (const dv of this.host.devices) {
       const dx = dv.x - this.eye.x;
@@ -610,6 +642,8 @@ export class ModPlayer {
         return `${t.kind}:${t.v.build.uid}`;
       case 'device':
         return `device:${t.device.id}`;
+      case 'tank':
+        return `tank:${t.port.id}`;
       case 'stow':
         return `stow:${t.aim.v.build.uid}:${t.aim.zone.id}`;
     }
@@ -622,7 +656,7 @@ export class ModPlayer {
     const key = this.keyOf(t);
     const host = this.host;
     // the liquid stops when the buttons are let go or the can is off the filler
-    const flowing = t?.kind === 'filler' && t.open && this.held?.kind === 'tool' && (this.primary || this.secondary);
+    const flowing = ((t?.kind === 'filler' && t.open) || (t?.kind === 'tank' && t.port.open)) && this.held?.kind === 'tool' && (this.primary || this.secondary);
     if (!flowing && this.flow) this.endFlow();
     // G held: put down what is in the hands
     if (dropKey && this.held) {
@@ -672,7 +706,25 @@ export class ModPlayer {
         }
       }
       if (t.kind === 'device') {
-        t.device.use();
+        const dv = t.device;
+        const take = this.held && dv.take ? dv.take(this.held) : null;
+        if (take) {
+          if (take.ok && dv.useWith) {
+            const h = this.held!;
+            this.held = null;
+            this.target = null;
+            dv.useWith(h);
+          } else host.ui.say(take.word[host.ui.lang], 2.2);
+          return;
+        }
+        // (one held down: below)
+        if (!dv.holdS) dv.use();
+        return;
+      }
+      if (t.kind === 'tank' && !this.held) {
+        t.port.open = !t.port.open;
+        t.port.changed();
+        host.sound('cap_open', 0.8);
         return;
       }
       if (t.kind === 'stow' && this.held) {
@@ -804,6 +856,31 @@ export class ModPlayer {
           this.held = { kind: 'part', inst: off };
           host.sound('remove_done', partDef(off.part).mass);
         }
+      }
+      return;
+    }
+    if (t?.kind === 'device' && t.device.holdS && this.primary && !(held && t.device.take?.(held))) {
+      if (this.spent) return;
+      this.progress += dt / t.device.holdS;
+      t.device.holding?.(Math.min(1, this.progress));
+      if (this.progress >= 1) {
+        this.progress = 0;
+        this.spent = true;
+        t.device.use();
+      }
+      return;
+    }
+    if (flowing && t.kind === 'tank' && held?.kind === 'tool') {
+      const dir = this.primary ? 'in' : 'out';
+      if (this.flow && (this.flow.dir !== dir || this.flow.port !== t.port)) this.endFlow();
+      this.flow ??= { dir, v: null, port: t.port, liquid: 'fuel', moved: 0, fuel: '' };
+      const moved = dir === 'in' ? pourTank(held.tool, t.port.tank, dt) : siphonTank(held.tool, t.port.tank, dt);
+      this.lastMoved = moved;
+      if (moved > 0) {
+        this.flow.moved += moved;
+        this.flow.fuel = FUEL_ZH[held.tool.fuel ?? 'petrol'];
+        t.port.changed();
+        host.sound('pour', moved);
       }
       return;
     }
@@ -1108,10 +1185,32 @@ export class ModPlayer {
           aim = this.vehicleCard(t.v);
           acts.push({ keys: E, text: `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
           break;
-        case 'device':
+        case 'device': {
           aim = deviceCard(t.device);
-          acts.push({ keys: E, text: t.device.word[ui.lang] });
+          const take = held && t.device.take ? t.device.take(held) : null;
+          if (take) acts.push({ keys: E, text: take.word[ui.lang], off: !take.ok });
+          else acts.push({ keys: E, hold: !!t.device.holdS, text: t.device.word[ui.lang] });
           break;
+        }
+        case 'tank': {
+          const p = t.port;
+          aim = p.card;
+          if (!held) {
+            acts.push({ keys: E, text: `${p.open ? '拧上' : '拧开'} <b>油箱盖</b>` });
+            break;
+          }
+          if (held.kind !== 'tool' || held.tool.kind !== 'jerrycan') break;
+          if (!p.open) {
+            acts.push({ keys: ['E'], text: '油箱盖拧着：空手按 E 拧开', off: true });
+            acts.push(both ? { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true } : { keys: [this.sel === 0 ? '2' : '1'], text: '切到空手' });
+            break;
+          }
+          const u = tankUse(held.tool, p.tank);
+          acts.push(u.in.can ? { keys: E, hold: true, text: `加${FUEL_ZH[held.tool.fuel ?? 'petrol']} · 倒进<b>${p.name}</b>` } : { keys: E, hold: true, text: `加油：${u.in.why?.[ui.lang] ?? ''}`, off: true });
+          acts.push(u.out.can ? { keys: F, hold: true, text: '把油抽回油桶里' } : { keys: F, hold: true, text: `抽回来：${u.out.why?.[ui.lang] ?? ''}`, off: true });
+          if (this.flow?.port === p) xfer = this.tankTransfer(p, held.tool);
+          break;
+        }
         case 'stow': {
           const { v, zone, spot, why } = t.aim;
           aim = this.zoneCard(v, zone);
@@ -1166,6 +1265,16 @@ export class ModPlayer {
     return this.flow?.dir === 'out' ? { from: box, to: can, tone } : { from: can, to: box, tone };
   }
 
+  /** the strip while a can pours into a tank that is not a vehicle's (or draws from it) */
+  private tankTransfer(p: TankPort, tool: Tool): TransferView {
+    const info = TOOL_INFO.jerrycan;
+    const have = tankLitres(p.tank);
+    const tone: Tone = tool.fuel ?? 'petrol';
+    const can = { name: `油桶 · ${FUEL_ZH[tool.fuel ?? 'petrol']}`, amount: `${(tool.litres ?? 0).toFixed(1)} / ${info.capacity} L`, fill: (tool.litres ?? 0) / info.capacity };
+    const box = { name: p.name, amount: `${have.toFixed(1)} / ${p.tank.capacity.toFixed(0)} L`, fill: have / Math.max(1e-6, p.tank.capacity) };
+    return this.flow?.dir === 'out' ? { from: box, to: can, tone } : { from: can, to: box, tone };
+  }
+
   /** every action of the thing in the hands (down the right) */
   private heldKeys(): Action[] {
     const h = this.held;
@@ -1180,6 +1289,7 @@ export class ModPlayer {
         out.push({ keys: E, hold: true, text: `${liquid === 'fuel' ? '加油' : liquid === 'water' ? '加水' : '加机油'}（对着${L.filler}）` });
         out.push({ keys: F, hold: true, text: `把${L.zh}抽回来` });
       } else if (h.tool.kind === 'spray') out.push({ keys: ['LMB'], hold: true, text: '喷漆' }, { keys: ['Wheel'], text: '换颜色' });
+      else if (h.tool.kind === 'scraper') out.push({ keys: ['LMB'], hold: true, text: '刮（下一批接上）', off: true });
       else out.push({ keys: ['LMB'], hold: true, text: '擦洗' });
     } else if (h.kind === 'item' && itemDef(h.item.item).pack) {
       out.push({ keys: F, hold: true, text: `背上（快捷栏 +${itemDef(h.item.item).pack!.slots} 格）` });

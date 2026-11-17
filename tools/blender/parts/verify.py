@@ -114,13 +114,20 @@ TOOLS_DIR = 'public/models/modcar/tools'
 
 
 def tool_kinds():
-    """The garage tools (src/core/modcar/tools.ts ToolKind): each wants tools/<kind>.glb."""
+    """The garage tools' models (src/core/modcar/tools.ts): tools/<kind>.glb for each ToolKind, but a kind
+    drawn by tier (the scrapers: SCRAPERS' models) wants a model per tier instead."""
     import re
     path = 'src/core/modcar/tools.ts'
     if os.path.exists(path):
-        m = re.search(r"export type ToolKind\s*=\s*([^;]+);", open(path, encoding='utf-8').read())
+        src = open(path, encoding='utf-8').read()
+        m = re.search(r"export type ToolKind\s*=\s*([^;]+);", src)
         if m:
-            return re.findall(r"'([a-z0-9_]+)'", m.group(1))
+            kinds = re.findall(r"'([a-z0-9_]+)'", m.group(1))
+            tiers = re.search(r"export const SCRAPERS[^=]*=\s*\{(.*?)\n\};", src, re.S)
+            if 'scraper' in kinds and tiers:
+                kinds.remove('scraper')
+                kinds += re.findall(r"model: '([a-z0-9_]+)'", tiers.group(1))
+            return kinds
     return ['jerrycan', 'bottle', 'oilcan', 'spray', 'sponge']
 
 

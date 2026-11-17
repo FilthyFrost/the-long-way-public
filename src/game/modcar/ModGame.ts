@@ -11,7 +11,7 @@ import { FirstPersonRig } from '../../core/camera/rig';
 import { allInstances, decodeBuild, encodeBuild, newInstance, fitSub, stockBuild, stockTireFor } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
 import { partDef, PARTS } from '../../core/modcar/parts';
-import { newTool } from '../../core/modcar/tools';
+import { newTool, toolModelId } from '../../core/modcar/tools';
 import { PALETTE } from '../../core/modcar/palette';
 import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
@@ -43,15 +43,19 @@ import { Tune } from './devTune';
 import { DevWorld } from './devWorld';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
-import { EngineVoice } from './engineAudio';
-import { Foley, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { EngineVoice, loadBank } from './engineAudio';
+import { Foley, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { salvageOfHeld, Workshop, WORKSHOP_PLAN, type WorkshopSave } from './workshop';
+import { MaterialsHud } from './vitalsHud';
+import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
+import type { TankPort } from './player';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
 import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
-import { itemStandIn, LooseThings, toolModel } from './loose';
+import { itemStandIn, LooseThings, toolLook, toolModel } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
@@ -175,6 +179,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   dropButton = false;
   /** the body (vitals.ts): health, stamina, food, water, temperature, the bladder */
   body: Vitals = newVitals();
+  /** the materials (crafting.ts): shared counts the recycler gives and the bench takes */
+  readonly stock: Stock = newStock();
+  /** the workshop's generator, recycler and bench (workshop.ts; in the garage) */
+  workshop: Workshop | null = null;
+  /** the workshop as last seen (kept through a trip down the road) */
+  private workshopKept: WorkshopSave | undefined;
+  private matHud: MaterialsHud | null = null;
+  /** at the bench: how far the view has gone over to it (0 … 1) */
+  private benchB = 0;
+  private readonly benchEye = new THREE.Vector3();
+  private readonly benchAt = new THREE.Vector3();
+  private readonly benchM = new THREE.Matrix4();
+  private readonly benchQ = new THREE.Quaternion();
+  private readonly wsEye = new THREE.Vector3();
+  private devicesAll: GarageDevice[] | null = null;
   private vitHud: VitalsHud | null = null;
   private death: DeathCard | null = null;
   /** the bladder went by itself: emptying until it is empty */
@@ -389,7 +408,72 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   get devices(): readonly GarageDevice[] {
-    return this.garage?.devices ?? [];
+    if (!this.workshop) return this.garage?.devices ?? [];
+    return (this.devicesAll ??= [...(this.garage?.devices ?? []), ...this.workshop.devices]);
+  }
+
+  get tanks(): readonly TankPort[] {
+    return this.workshop?.tanks ?? [];
+  }
+
+  /** the workshop's machines, in the starting garage (its power, its recycler, its bench) */
+  private makeWorkshop(): void {
+    const g = this.garage;
+    if (!g || this.params.garage !== 'workshop') return;
+    const core = this.core;
+    const game = this;
+    this.workshop = new Workshop(
+      {
+        root: g.root,
+        loose: this.loose,
+        ui: this.ui,
+        stock: this.stock,
+        get origin() {
+          return core.origin;
+        },
+        camera: core.camera,
+        groundAt: (x, z) => g.surfaceAt(x, z, 0.4),
+        addSolid: (x, z, hx, hz, yaw, y0, y1) => {
+          (g.solids as unknown as { add: (x: number, z: number, hx: number, hz: number, y0: number, y1: number, floor?: boolean, yaw?: number, tag?: string) => void }).add(x, z, hx, hz, y0, y1, false, yaw, 'garage:machine');
+        },
+        addSurface: (x0, x1, z0, z1, y) => g.addSurface?.(x0, x1, z0, z1, y),
+        sound: (name, gain) => game.sound(name, gain),
+        loop: (name, gain) => game.loopFor(name, gain),
+        stockChanged: (d) => game.stockChanged(d),
+        benchMode: (on) => game.benchMode(on),
+        genSound: (s) => game.genSound(s),
+        sparks: (x, y, z, n) => game.sparks.emit(x, y, z, { x: 0, z: 0 }, 2.2, n),
+        iconOf: (h) => game.iconOf(h),
+        cardOf: (h) => game.player.cardOf(h),
+        crafted: (id) => {
+          if (id.startsWith('scraper_')) game.done.add('scraper');
+        },
+      },
+      WORKSHOP_PLAN,
+      this.restore?.workshop,
+    );
+    this.devicesAll = null;
+  }
+
+  /** materials came in or went out: a few words over the vitals */
+  private stockChanged(d: Cost): void {
+    this.matHud ??= new MaterialsHud(this.ui.root);
+    this.matHud.show(d, this.stock);
+  }
+
+  /** the bench has the view and the mouse; given back */
+  private benchMode(on: boolean): void {
+    const canvas = this.core.renderer.domElement;
+    this.player.aside = on;
+    if (on) {
+      if (document.pointerLockElement === canvas) document.exitPointerLock();
+      this.input.lockable = false;
+      this.ui.showHelp(false);
+      this.player.use = null;
+    } else {
+      // (back to looking about: the next click takes the mouse again, the pause card says so)
+      this.input.lockable = true;
+    }
   }
 
   private makeWorld(): void {
@@ -440,6 +524,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (this.garage) {
       const g = this.garage;
       await Promise.all([preload(PARTS.map((x) => x.id)), g.ready]);
+      if (this.restore?.stock) Object.assign(this.stock, this.restore.stock);
+      this.makeWorkshop();
       if (this.restore) {
         this.restoreGarage(this.restore);
         await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
@@ -451,8 +537,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       weather(project, 0.42, 0.06, 1);
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
-      // the missing parts and the tools, round the bay; the fun parts on the shelves
-      const spots = [...g.spots];
+      // the missing parts and the tools, round the bay; the fun parts on the shelves (not under the workshop's machines)
+      const spots = g.spots.filter((s) => !this.workshop?.occupies(s.x, s.z));
       // a garage without a spot of some kind offers the nearest kind it has
       const instead: Record<string, string> = { charger: 'bench', rack: 'shelf', cans: 'floor' };
       const take = (where: string): (typeof spots)[number] => {
@@ -485,6 +571,27 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         const s = take(t.kind === 'jerrycan' ? 'cans' : 'bench');
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
       }
+      // junk to recycle (Arctic Drive's starting garage has its boxes of old components): enough scrap for the
+      // plastic scraper and a little over, piled by the recycler, on the bench and the shelves
+      if (this.workshop) {
+        const pile: [string, number, number, number][] = [
+          ['crate_parts', 3.85, -3.45, 0.3],
+          ['crate_parts', 3.55, -2.72, -0.25],
+          ['crate_junk', 2.95, -3.7, 0.1],
+          ['junk_tv', 2.55, -3.95, -0.4],
+          ['junk_bucket', 4.15, -4.15, 0],
+          ['junk_chair_office', -5.2, -3.6, 2.2],
+          ['junk_bag', -6.45, 2.45, 0.4],
+          ['junk_bag', -6.35, 3.0, -0.6],
+        ];
+        for (const [id, x, z, yaw] of pile) this.loose.addItem(newItem(id), x, 0.3, z, yaw);
+        for (const id of ['junk_fax', 'junk_coffee']) {
+          const s = take('bench');
+          if (s) this.loose.addItem(newItem(id), s.x, s.y + 0.3, s.z, s.yaw);
+        }
+        const sh = take('shelf');
+        if (sh) this.loose.addItem(newItem('crate_supps'), sh.x, sh.y + 0.3, sh.z, sh.yaw);
+      }
       // the heavy fun on the steel rack, the light on the shelves
       for (const id of ['seat_toilet', 'seat_race', 'gb_5', 'exh_side', 'roof_spikes']) put(id, 'rack');
       for (const id of ['steer_ship', 'turbo_small', 'hl_spot', 'horn_trumpet', 'steer_sport', 'hb_drift']) put(id, 'shelf');
@@ -511,6 +618,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
       this.input.lookYaw = g.spawn.heading;
     } else {
+      if (this.restore?.stock) Object.assign(this.stock, this.restore.stock);
+      this.workshopKept = this.restore?.workshop;
       const b = this.restore?.vehicles[0]?.build ?? decodeBuild(p.build, { fuel: 0.7 });
       const v = this.placeOnRoad(b, p.s);
       if (this.restore) {
@@ -873,6 +982,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       sel: this.player.sel,
       ...(this.player.pack ? { pack: this.player.pack } : {}),
       body: this.body,
+      stock: { ...this.stock },
+      ...(this.workshop ? { workshop: this.workshop.snapshot() } : this.workshopKept ? { workshop: this.workshopKept } : {}),
     };
     if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
@@ -946,7 +1057,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** the picture of a held thing for the hotbar (drawn once per kind; null while it is drawn) */
   iconOf(h: NonNullable<Held>): string | null {
-    const key = h.kind === 'part' ? `part:${h.inst.part}:${h.inst.sub.tire?.part ?? ''}` : h.kind === 'item' ? `item:${h.item.item}:${h.item.tint ?? ''}` : `tool:${h.tool.kind}:${h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : ''}:${h.tool.kind === 'spray' ? (h.tool.colour ?? 0) : ''}`;
+    const key = h.kind === 'part' ? `part:${h.inst.part}:${h.inst.sub.tire?.part ?? ''}` : h.kind === 'item' ? `item:${h.item.item}:${h.item.tint ?? ''}` : `tool:${h.tool.kind}:${h.tool.kind === 'jerrycan' ? (h.tool.fuel ?? 'petrol') : ''}:${h.tool.kind === 'spray' ? (h.tool.colour ?? 0) : ''}:${h.tool.tier ?? ''}`;
     if (this.iconUrl.has(key)) return this.iconUrl.get(key) ?? null;
     this.iconUrl.set(key, null);
     this.icons ??= new PartThumbs();
@@ -962,8 +1073,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       ({ paint, paint2 } = itemPaint(h.item));
     } else {
       const t = h.tool;
-      item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined };
-      paint = t.kind === 'jerrycan' ? (t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a) : t.kind === 'oilcan' ? 0xd8a531 : t.kind === 'spray' ? PALETTE[t.colour ?? 0]?.hex : t.kind === 'sponge' ? 0xe8d257 : undefined;
+      item = { kind: 'tool', tool: t.kind, fuel: t.fuel === 'diesel' ? 'diesel' : t.fuel === 'petrol' ? 'petrol' : undefined, tier: t.tier };
+      ({ paint, paint2 } = toolLook(t));
     }
     this.icons.request(key, () => this.devModel(item), (url) => this.iconUrl.set(key, url), paint, paint2);
     return null;
@@ -1044,7 +1155,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     if (item.kind === 'tool') {
       const kind = item.tool;
-      return toolGlb(kind).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel })));
+      return toolGlb(toolModelId({ kind, tier: item.tier })).then((m) => (m ? cloneModel(m) : toolModel({ uid: 'dev', kind, fuel: item.fuel, tier: item.tier })));
     }
     if (item.kind === 'item') {
       const it = newItem(item.id);
@@ -1131,6 +1242,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     return { x, y: this.loose.surfaceAt(x, z, w.y + 1.2) ?? w.y, z };
   }
 
+  devStock(): void {
+    const d = { scrap: 100, organics: 100, chemicals: 100 };
+    this.stock.scrap += 100;
+    this.stock.organics += 100;
+    this.stock.chemicals += 100;
+    this.stockChanged(d);
+  }
+
   devSpawn(item: DevItem, at: DevPoint | null): void {
     const yaw = this.player.walker.heading;
     if (item.kind === 'vehicle') {
@@ -1160,7 +1279,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ui.say(`放下了：${itemDef(item.id).name.zh}`, 1.5);
       return;
     }
-    const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { colour: 13 }) : newTool(item.tool);
+    const tool = item.tool === 'jerrycan' ? newTool('jerrycan', { fuel: item.fuel ?? 'petrol', litres: item.litres ?? 20 }) : item.tool === 'spray' ? newTool('spray', { colour: 13 }) : item.tool === 'scraper' ? newTool('scraper', { tier: item.tier ?? 1 }) : newTool(item.tool);
     this.loose.addTool(tool, p.x, p.y + 0.25, p.z, yaw);
     this.sound('putdown', 3);
   }
@@ -1281,6 +1400,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   private bindInput(canvas: HTMLCanvasElement): void {
     canvas.addEventListener('mousedown', (e) => {
+      // (the bench's blows: a click anywhere on the view strikes the next one)
+      if (this.workshop?.crafting && e.button === 0) {
+        this.workshop.strike();
+        return;
+      }
       if (!this.input.locked || this.deadT >= 0) return;
       this.audio.start();
       if (this.seated) {
@@ -1323,6 +1447,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // the key card: at the start until the first click, and on F1 any time
     if (!this.params.shot) this.ui.showHelp(true);
     window.addEventListener('keydown', (e) => {
+      // at the bench: its list and its blows have the keys
+      if (this.workshop?.open && !e.repeat && this.workshop.key(e.code)) {
+        e.preventDefault();
+        return;
+      }
       // the key left of 1 (` on a US keyboard; § on a Mac's international one): the developer's parts bin
       if (e.code === 'Backquote' || e.code === 'IntlBackslash' || e.key === '`' || e.key === '§') {
         e.preventDefault();
@@ -1611,7 +1740,52 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       cloth: ['cloth', {}],
     };
     const s = shot[name];
-    if (s) f.play(s[0], s[1]);
+    if (s) {
+      f.play(s[0], s[1]);
+      return;
+    }
+    // the workshop's (foley.ts names, a material after the last _ for the grinding and the hammer)
+    const m = /^(shred|hammer_hit)_(\w+)$/.exec(name);
+    const kind = m ? m[1] : name;
+    if ((FOLEY_SHOTS as readonly string[]).includes(kind)) f.play(kind as FoleyShot, { gain, ...(m ? { grind: m[2] } : {}) } as FoleyOpts);
+  }
+
+  /** a loop of the workshop's (the recycler) kept going this frame */
+  loopFor(name: string, gain = 1): void {
+    if ((FOLEY_LOOPS as readonly string[]).includes(name)) this.loopsNow.set(name as FoleyLoop, { gain });
+  }
+
+  // ------------------------------------------------------------------ the generator's engine
+
+  private genVoice: EngineVoice | null = null;
+  /** the generator's own bank (gen_d1), or the mower's single while that is not there */
+  private genBank = '';
+  private readonly listenV = new THREE.Vector3();
+
+  genSound(s: { running: boolean; cranking: boolean; rpm: number; load: number; at: THREE.Vector3; stalled?: boolean } | null): void {
+    const ctx = this.audio.context;
+    const out = this.audio.output;
+    if (!ctx || !out) return;
+    if (!this.genVoice) {
+      this.genVoice = new EngineVoice(ctx, out);
+      this.genBank = 'eng_mower';
+      void loadBank(ctx, 'gen_d1').then(
+        () => (this.genBank = 'gen_d1'),
+        () => undefined,
+      );
+    }
+    if (!s) {
+      // (switched off or run dry: its own run-down, never a stall)
+      this.genVoice.update({ engineId: this.genBank, rpm: 0, load: 0, throttle: 0, running: false, cranking: false, inside: false, doorsOpen: 1, distance: 30, stalled: false });
+      return;
+    }
+    const cam = this.core.camera.getWorldPosition(this.listenV);
+    const d = Math.max(0.5, cam.distanceTo(s.at));
+    // (heard through the wall from inside, the doors shut: duller and quieter)
+    const inside = this.place === 'garage' && this.player.walker.x < 7 && !this.seated;
+    const shut = inside && !(this.garage?.doorsOpen?.() ?? true);
+    // (the rack follows the load: light running sounds light, the recycler's grinding loads it)
+    this.genVoice.update({ engineId: this.genBank, rpm: s.rpm, load: s.load, throttle: s.running ? s.load : 0, running: s.running, cranking: s.cranking, inside: shut, doorsOpen: shut ? 0.25 : 1, distance: d + (shut ? 4 : 0), starterRate: 1, stalled: s.stalled ?? false });
   }
 
   /** start the loops asked for this frame, stop the rest; the horn of the vehicle in focus */
@@ -1622,7 +1796,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const t = this.player.target;
     if (!this.seated && this.player.progress > 0 && t && (t.kind === 'ghost' || t.kind === 'looseSub' || ((t.kind === 'part' || t.kind === 'loose') && this.player.secondary))) this.loopsNow.set('ratchet', {});
     for (const [k, o] of this.loopsNow) {
-      if (!this.loopsOn.has(k)) {
+      // (one with a level of its own, a machine heard from further off or nearer, follows it every frame)
+      if (!this.loopsOn.has(k) || o.gain !== undefined) {
         f.start(k, o);
         this.loopsOn.add(k);
       }
@@ -1741,7 +1916,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const b = v.build;
     const fuel = v.sys.dash.tankL > 0 ? v.sys.dash.fuel : 0;
     const hood = v.view.hasPanel('hood') && !!b.parts.hood;
+    // (the workshop's, before the car: the power, the materials, a scraper made at the bench)
+    const ws = this.workshop && this.params.project === 'tutorial' ? this.workshop : null;
+    const made = this.done.has('scraper');
     return [
+      ...(ws
+        ? [
+            { id: 'power', text: '到门外拉发电机，车库来电', done: this.done.has('power') || ws.power },
+            { id: 'scrap', text: '旧零件箱丢进回收台，攒 70 废料', done: made || this.stock.scrap >= 70 },
+            { id: 'scraper', text: '在制作台做一把清理铲', done: made },
+          ]
+        : []),
       ...(hood || this.done.has('hood') ? [{ id: 'hood', text: '打开引擎盖', done: this.done.has('hood') || (!!b.parts.battery && !!b.parts.engine) }] : []),
       { id: 'battery', text: '装上电瓶', done: !!b.parts.battery },
       { id: 'wheels', text: '装上两个车轮', done: !!b.parts.hub_FL && !!b.parts.hub_RR },
@@ -1761,6 +1946,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const v = this.vehicles[0];
     if (!v) return;
     if (this.garage?.doorsOpen?.()) this.done.add('door');
+    if (this.workshop?.power) this.done.add('power');
     if (v.view.panelOpen('hood') > 0.6 || (v.view.hasPanel('hood') && !v.build.parts.hood)) this.done.add('hood');
     // shut once what goes under it is in (or there is no bonnet left to shut)
     const under = !!v.build.parts.battery && !!v.build.parts.engine;
@@ -1808,20 +1994,25 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
     this.stepBody(dt, shift);
+    if (this.workshop) {
+      const e = this.player.walker.eye(this.eyeP);
+      this.workshop.update(dt, this.wsEye.set(e.x, e.y, e.z));
+      if (this.garage) this.garage.power = this.workshop.power;
+    }
     // on foot: walk, look, use
     if (!this.seated) {
       const i = this.input;
       const down = this.deadT >= 0;
-      const listing = !!this.listV || down;
+      const listing = !!this.listV || down || !!this.workshop?.open;
       this.player.update(dt, i.lookYaw, i.lookPitch, {
         forward: listing ? 0 : i.walk.forward,
         right: listing ? 0 : i.walk.right,
         // (sprinting while there is stamina)
         run: shift && canSprint(this.body),
-        jump: !down && i.isDown('Space'),
-        drop: !down && (this.dropButton || i.isDown('KeyG')),
+        jump: !listing && i.isDown('Space'),
+        drop: !listing && (this.dropButton || i.isDown('KeyG')),
         // (the right button or F, as they are now: what the player made of them last frame is not fed back)
-        take: !down && (this.rightButton || i.isDown('KeyF')),
+        take: !listing && (this.rightButton || i.isDown('KeyF')),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
       this.input.lookHold = this.player.transferring || listing;
@@ -2090,13 +2281,28 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         cam.updateProjectionMatrix();
       }
     }
+    // at the bench: the view goes over to it (a quarter of a second), a blow shakes it a little
+    const ws = this.workshop;
+    this.benchB += ((ws?.open ? 1 : 0) - this.benchB) * Math.min(1, dt * 12);
+    if (this.benchB < 0.002) this.benchB = 0;
+    if (ws && this.benchB > 0 && !this.seated) {
+      ws.benchView(this.benchEye, this.benchAt);
+      const k = this.benchB * this.benchB * (3 - 2 * this.benchB);
+      this.benchM.lookAt(this.benchEye, this.benchAt, Y);
+      this.benchQ.setFromRotationMatrix(this.benchM);
+      cam.position.lerp(this.benchEye, k);
+      cam.quaternion.slerp(this.benchQ, k);
+      cam.position.y -= 0.008 * ws.blowShake;
+    }
     // the thing in the hands, on foot in first person (a can held to an open filler goes to it)
     this.heldThing.set(this.player.held);
     this.heldThing.setUse(this.player.use);
     const pt = this.player.target;
     let dock: Dock | null = null;
     if (!this.seated && pt?.kind === 'filler' && pt.open && pt.v.view.fillerMouth(pt.liquid, this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
-    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit', this.player.walker.sway, 0, dock);
+    else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow ? 1 : 0 };
+    this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit' && this.benchB < 0.05, this.player.walker.sway, 0, dock);
+    this.workshop?.frame();
     // the liquid itself, from the spout into the mouth once the can is tipped over
     const flow = this.player.flow;
     const tip = flow && dock && this.player.lastMoved > 0 && this.heldThing.pouring > 0.7 ? this.heldThing.spoutWorld(this.spoutV) : null;
@@ -2308,7 +2514,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open && !this.workshop?.open && this.deadT < 0);
     this.updateMarker();
   }
 
@@ -2334,7 +2540,31 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       return { x: p.x + o.x, y: p.y + o.y + up, z: p.z + o.z, text };
     };
     const b = v.build.parts;
+    const device = (id: string, text: string, up = 0.3): { x: number; y: number; z: number; text: string } | null => {
+      const d = this.devices.find((x) => x.id === id);
+      return d ? { x: d.x, y: d.y + up, z: d.z, text } : null;
+    };
     switch (step.id) {
+      case 'power':
+        return device('gen_cord', '发电机：按住 E 拉启动绳');
+      case 'scrap': {
+        // something that gives scrap in the hands: to the recycler; else the nearest box of old components
+        const w = this.player.walker;
+        if (held && (salvageOfHeld(held).scrap ?? 0) > 0) return device('recycler', '回收台：按 E 丢进去', 0.35);
+        let best: { x: number; y: number; z: number; text: string } | null = null;
+        let bd = Infinity;
+        for (const l of this.loose.list) {
+          if (!l.item || l.riding || !(itemDef(l.item.item).salvage.scrap ?? 0)) continue;
+          const d = Math.hypot(l.x - w.x, l.z - w.z) - (itemDef(l.item.item).cat === 'crate' ? 3 : 0);
+          if (d < bd) {
+            bd = d;
+            best = { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text: itemDef(l.item.item).name.zh };
+          }
+        }
+        return best;
+      }
+      case 'scraper':
+        return device('bench', '制作台：做一把清理铲', 0.25);
       case 'hood':
       case 'shut': {
         // (shut: on top towards its front edge; standing open: on its middle)

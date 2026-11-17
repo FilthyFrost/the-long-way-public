@@ -17,6 +17,7 @@ const ENGINES: Array<[string, string]> = [
   ['eng_flat6', '水平对置六缸 2.7'],
   ['eng_v8', 'V8 5.0'],
   ['eng_d6', '直六柴油 6.0'],
+  ['gen_d1', '发电机 风冷单缸柴油 418（拉绳，调速 3000）'],
 ];
 const RATIOS = [0, 3.5, 2.1, 1.4, 1.0];
 
@@ -31,7 +32,9 @@ let foley: Foley | null = null;
 let manifest: BankManifest | null = null;
 
 // toy drivetrain
-const car = { rpm: 0, running: false, cranking: false, crankFor: 0, catchAt: 1, gear: 0, throttle: 0, load: 0, shiftUntil: 0, stalled: false };
+const car = { rpm: 0, running: false, cranking: false, crankFor: 0, catchAt: 1, gear: 0, throttle: 0, load: 0, shiftUntil: 0, stalled: false, pullUntil: 0, pulls: 0 };
+/** the generator: no key, a rope; it holds its speed (the governor hunting a little), the throttle slider is its load */
+const isGenerator = (): boolean => engineSel.value === 'gen_d1';
 let keyHeld = false;
 let pedal = 0;
 const keys = new Set<string>();
@@ -66,6 +69,12 @@ $('start').onclick = async () => {
   requestAnimationFrame(frame);
 };
 
+$('pull').onclick = () => {
+  if (!isGenerator() || car.running) return;
+  foley?.play('cord_pull');
+  car.pullUntil = performance.now() / 1000 + 0.6;
+  car.pulls++;
+};
 const keyBtn = $('key');
 keyBtn.onpointerdown = () => {
   keyHeld = true;
@@ -117,6 +126,12 @@ const shotButtons: Array<[string, FoleyShot, FoleyOpts]> = [
   ['装上', 'part_install', { mass: 10 }], ['拆下', 'part_remove', { mass: 10 }], ['钥匙', 'key_turn', {}],
   ['拉手刹', 'handbrake_pull', {}], ['松手刹', 'handbrake_release', {}], ['换挡', 'gear_shift', {}], ['打齿', 'gear_grind', {}], ['摇喷罐', 'spray_shake', {}],
   ['开关', 'switch', {}], ['挡杆一格', 'lever', {}],
+  // the workshop
+  ['拉绳', 'cord_pull', {}], ['发电机开关', 'gen_switch', {}], ['烧干油', 'gen_cough', {}],
+  ['粉碎 金属', 'shred', { grind: 'metal' }], ['粉碎 塑料', 'shred', { grind: 'plastic' }], ['粉碎 有机', 'shred', { grind: 'organic' }], ['粉碎 布', 'shred', { grind: 'cloth' }], ['粉碎 木头', 'shred', { grind: 'wood' }],
+  ['计数', 'tally', {}], ['摆工具', 'craft_start', {}], ['挥锤', 'hammer_swing', {}],
+  ['锤 金属', 'hammer_hit', { grind: 'metal' }], ['锤 塑料', 'hammer_hit', { grind: 'plastic' }], ['锤 木头', 'hammer_hit', { grind: 'wood' }], ['锤 布', 'hammer_hit', { grind: 'cloth' }],
+  ['做好了', 'craft_done', {}], ['来电', 'power_on', {}], ['断电', 'power_off', {}], ['没电', 'no_power', {}],
 ];
 for (const [label, kind, opts] of shotButtons) {
   const b = document.createElement('button');
@@ -128,6 +143,7 @@ foleyBox.append(document.createElement('br'));
 const loopButtons: Array<[string, FoleyLoop, FoleyOpts]> = [
   ['扳手（开关）', 'ratchet', {}], ['喷漆（开关）', 'spray', {}], ['海绵（开关）', 'sponge', {}],
   ['加油（开关）', 'pour', { liquid: 'fuel' }], ['加水（开关）', 'pour', { liquid: 'water' }], ['加机油（开关）', 'pour', { liquid: 'oil' }],
+  ['粉碎机空转（开关）', 'recycler_run', {}], ['粉碎中（开关）', 'recycler_grind', {}], ['灯管（开关）', 'lamp_buzz', {}],
 ];
 for (const [label, kind, opts] of loopButtons) {
   const b = document.createElement('button');
@@ -169,6 +185,24 @@ function frame(nowMs: number): void {
   car.throttle = shifting ? 0 : pedal;
 
   // key: crank, catch after a while if the battery can turn it fast enough
+  if (isGenerator()) {
+    // the rope: about 0.6 s at the pull's speed; the second pull catches
+    const pulling = now < car.pullUntil && !car.running;
+    if (car.cranking && !pulling && car.pulls >= 2 && !car.running) {
+      car.running = true;
+      car.pulls = 0;
+    }
+    car.cranking = pulling;
+    if (pulling) car.rpm = m.oneshots['crank']?.rpm ?? 500;
+    else if (car.running) {
+      // governed: 3000 rpm, hunting about 100 either way, drooping a little under load
+      car.load = 0.15 + 0.45 * car.throttle;
+      car.rpm = I - 120 * (car.load - 0.15) + 70 * Math.sin(now * 4.3) + 25 * Math.sin(now * 11.9);
+    } else car.rpm += (0 - car.rpm) * Math.min(1, dt * 3);
+    voice.update({ engineId: 'gen_d1', rpm: car.rpm, load: car.load, throttle: car.load, running: car.running, cranking: car.cranking, inside: false, doorsOpen: 1, distance: 4, starterRate: 1, stalled: false });
+    $('status').textContent = `gen_d1  rpm ${car.rpm.toFixed(0).padStart(5)}  负载 ${car.load.toFixed(2)}  ${car.running ? '运转' : car.cranking ? '拉绳中' : '停'}`;
+    return;
+  }
   car.cranking = keyHeld && !car.running && battery > 0.15;
   if (car.cranking) {
     car.crankFor += dt;

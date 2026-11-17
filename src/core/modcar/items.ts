@@ -1,5 +1,5 @@
 /**
- * Things one carries that are neither a vehicle's part nor a tool for working on it (docs/MODCAR.md §13):
+ * Things one carries that are neither a vehicle's part nor a tool for working on it (docs/MODCAR.md §5.7):
  * food, drinks, medicine, clothes, backpacks, head lamps, heavy tools, and the junk and boxes of old
  * components that go into the recycler for materials. The kinds follow Arctic Drive's (its numbers were the
  * starting point; the names, the lines and the economy are ours). Pure data, no three, no DOM.

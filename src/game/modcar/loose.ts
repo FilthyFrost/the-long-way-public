@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { itemDef, itemPaint, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
-import type { Tool } from '../../core/modcar/tools';
+import { toolModelId, type Tool } from '../../core/modcar/tools';
 import type { ThingBox } from '../../core/modcar/cargo';
 import type { PartInstance } from '../../core/modcar/types';
 import type { RenderCore } from '../render/core';
@@ -120,11 +120,16 @@ export function itemStandIn(inst: ItemInstance): THREE.Group {
   return g;
 }
 
-function toolPaint(t: Tool): number {
-  if (t.kind === 'jerrycan') return t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a;
-  if (t.kind === 'oilcan') return 0xd8a531;
-  if (t.kind === 'spray') return paintHex(t.colour ?? 0);
-  return 0xe8d257;
+/** the colours a tool's model is painted: a petrol can red, a diesel can green, a spray can its colour, a scraper by its tier */
+export function toolLook(t: Tool): { paint: number; paint2: number } {
+  if (t.kind === 'jerrycan') {
+    const c = t.fuel === 'diesel' ? 0x2f6a3a : 0xb8302a;
+    return { paint: c, paint2: c };
+  }
+  if (t.kind === 'oilcan') return { paint: 0xd8a531, paint2: 0xd8a531 };
+  if (t.kind === 'spray') return { paint: paintHex(t.colour ?? 0), paint2: paintHex(t.colour ?? 0) };
+  if (t.kind === 'scraper') return t.tier === 3 ? { paint: 0xd4a53b, paint2: 0x6b3d24 } : t.tier === 2 ? { paint: 0xc8323a, paint2: 0x2f3236 } : { paint: 0x3e8ec7, paint2: 0xf0c23c };
+  return { paint: 0xe8d257, paint2: 0xe8d257 };
 }
 
 let n = 0;
@@ -254,14 +259,14 @@ export class LooseThings {
 
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
     const l = this.make(null, tool, x, y, z, yaw);
-    const look = this.mats.look(ownerOf(l), { paint: toolPaint(tool), paint2: toolPaint(tool) });
+    const look = this.mats.look(ownerOf(l), toolLook(tool));
     const obj = toolModel(tool);
     applyMaterials(obj, look);
     l.obj.add(obj);
     this.mergeDirty = true;
     this.measure(l);
     // its own model, when there is one, takes the stand-in's place
-    void this.track(toolGlb(tool.kind)).then((m) => {
+    void this.track(toolGlb(toolModelId(tool))).then((m) => {
       if (!m || !this.list.includes(l)) return;
       const real = cloneModel(m);
       applyMaterials(real, look);
@@ -302,7 +307,7 @@ export class LooseThings {
       return g;
     }
     if (h.kind === 'tool') {
-      const m = await toolGlb(h.tool.kind);
+      const m = await toolGlb(toolModelId(h.tool));
       g.add(m ? cloneModel(m) : toolModel(h.tool));
       return g;
     }
@@ -314,7 +319,7 @@ export class LooseThings {
   /** a tool's look changed (a spray can's colour) */
   repaintTool(l: Loose): void {
     if (!l.tool) return;
-    this.mats.set(ownerOf(l), { paint: toolPaint(l.tool), paint2: toolPaint(l.tool) });
+    this.mats.set(ownerOf(l), toolLook(l.tool));
     this.unmerge();
   }
 
@@ -350,7 +355,7 @@ export class LooseThings {
       // (what rides on a vehicle moves with it: not merged)
       if (l.riding) continue;
       const id = entries.length + 1;
-      const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : { paint: toolPaint(l.tool!), paint2: toolPaint(l.tool!) };
+      const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
       this.mergeIds.set(l.uid, id);
       this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0 });
       entries.push({ id, object: l.obj, look });

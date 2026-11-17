@@ -5,7 +5,8 @@
  * weight, the vehicles it fits. Plain data; cards.ts draws it. The held thing's card and the card of what
  * the mark is on are both made here.
  */
-import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
+import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
+import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
 import { ITEM_CATS, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -14,7 +15,7 @@ import { PALETTE } from '../../core/modcar/palette';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
-import { TOOL_INFO, type Tool } from '../../core/modcar/tools';
+import { SCRAPERS, TOOL_INFO, type Tool } from '../../core/modcar/tools';
 import type { Category, FuelType, PartDef, PartInstance } from '../../core/modcar/types';
 import type { GarageDevice } from './garageStub';
 import type { ModVehicle } from './vehicle';
@@ -149,7 +150,7 @@ function fitsOf(def: PartDef): string {
 }
 
 /** the fuel in a tank (or a jerrycan's) as a bar of its kinds */
-function fuelBar(label: string, fuel: Partial<Record<FuelType, number>>, max: number): CardBar {
+export function fuelBar(label: string, fuel: Partial<Record<FuelType, number>>, max: number): CardBar {
   const kinds = (['petrol', 'diesel', 'mix2t'] as FuelType[]).filter((k) => (fuel[k] ?? 0) > 0.005);
   const total = kinds.reduce((s, k) => s + (fuel[k] ?? 0), 0);
   return {
@@ -354,6 +355,8 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
     row(pct(def.armor.armor), '防护');
     row(`+${def.armor.drag.toFixed(2)}`, '风阻');
   }
+  const s = salvageText(partSalvage(inst));
+  if (s) row(s, '回收能得');
   if (inst.rust > 0.25) card.notes.push({ text: `锈了 ${pct(inst.rust)}：用海绵擦一擦`, tone: 'info' });
   else if (inst.dirt > 0.4) card.notes.push({ text: '有点脏：用海绵擦一擦', tone: 'info' });
   return card;
@@ -363,12 +366,12 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
 
 export function toolCard(t: Tool): ItemCard {
   const info = TOOL_INFO[t.kind];
-  const blurb = TOOL_BLURB[t.kind];
+  const blurb = t.kind === 'scraper' ? SCRAPER_BLURB[t.tier ?? 1] : TOOL_BLURB[t.kind];
   const card: ItemCard = {
-    key: `tool:${t.uid}:${t.kind}:${t.fuel ?? ''}:${t.colour ?? ''}`,
+    key: `tool:${t.uid}:${t.kind}:${t.fuel ?? ''}:${t.colour ?? ''}:${t.tier ?? ''}`,
     icon: 'tool',
     cat: '工具',
-    name: t.kind === 'jerrycan' ? `油桶（${FUEL_ZH[t.fuel ?? 'petrol']}）` : info.name.zh,
+    name: t.kind === 'jerrycan' ? `油桶（${FUEL_ZH[t.fuel ?? 'petrol']}）` : t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].name.zh : info.name.zh,
     stars: blurb.stars,
     badges: [],
     blurb: blurb.zh,
@@ -392,7 +395,12 @@ export function toolCard(t: Tool): ItemCard {
     card.notes.push({ text: '打开引擎盖，对着发动机上的机油盖按住 E 加机油', tone: 'info' });
   } else if (t.kind === 'spray') {
     card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '现在的颜色（滚轮换）' });
+  } else if (t.kind === 'scraper') {
+    card.rows.push({ value: `${Math.round(SCRAPERS[t.tier ?? 1].width * 100)} cm`, label: '刀口宽' });
+    card.notes.push({ text: '刮车窗、车身上的泥和锈：下一批接上', tone: 'info' });
   }
+  const s = salvageText(toolSalvage(t));
+  if (s) card.rows.push({ value: s, label: '回收能得' });
   return card;
 }
 
@@ -540,6 +548,7 @@ export function fitCard(v: ModVehicle, mountLabel: string, inst: PartInstance, l
 // ------------------------------------------------------------------ the workshop's machines
 
 export function deviceCard(dv: GarageDevice): ItemCard {
+  if (dv.card) return dv.card;
   const info = DEVICE_BLURB[dv.id];
   return {
     key: `device:${dv.id}`,

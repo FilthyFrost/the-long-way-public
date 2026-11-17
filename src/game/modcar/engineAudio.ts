@@ -54,7 +54,9 @@ export interface BankManifest {
   idleRpm: number;
   redlineRpm: number;
   limiterRpm: number;
-  offMode: 'closed' | 'fuelcut';
+  /** closed = throttle shut, spark on; fuelcut = air open, no fuel (diesel overrun); light = a
+   * machine that never coasts (the generator): its off loops are light-load runs */
+  offMode: 'closed' | 'fuelcut' | 'light';
   loops: LoopRec[];
   oneshots: Record<string, ShotRec>;
 }
@@ -86,6 +88,12 @@ interface EngineTone {
   starter: { hz: number; drag: number; gainDb: number };
   /** a governor holds the top speed (no rev-limiter stutter): mowers and diesels */
   governed?: boolean;
+  /**
+   * no electric starter: a recoil rope turns it over (the rope's own sound is the foley cord_pull).
+   * While cranking: no starter-motor whine, no solenoid clicks, the battery does not matter, and the
+   * cranking loop follows the rpm the rope gives (rpm / the bank's crank rpm).
+   */
+  pullStart?: boolean;
   /** lift above 700 Hz (dB): the simulator is darker than a real exhaust in the 1-4 kHz bark */
   presenceDb: number;
   /** lift below 120 Hz (dB): the rumble a big engine has and the simulator under-plays */
@@ -104,6 +112,9 @@ const TONES: Record<string, EngineTone> = {
   eng_flat6: { loudnessDb: -4, compression: 0.3, tiltDb: 3, intake: 0.16, pops: 0.45, whine: { ratio: 11 * 1.8, gainDb: -27, q: 7 }, starter: { hz: 170, drag: 0.3, gainDb: STARTER_DB }, presenceDb: 7, bodyDb: 2 },
   eng_v8: { loudnessDb: 0, compression: 0.3, tiltDb: 0, intake: 0.16, pops: 0.6, starter: { hz: 140, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 9, bodyDb: 5 },
   eng_d6: { loudnessDb: -2, compression: 0.3, tiltDb: 2, intake: 0.08, pops: 0.0, whine: { ratio: 17, gainDb: -32, q: 14 }, starter: { hz: 110, drag: 0.45, gainDb: STARTER_DB }, governed: true, presenceDb: 5, bodyDb: 5 },
+  // the workshop's generator: a 418 cc air-cooled single diesel governed to 3000 rpm, pulled on its
+  // rope; the fan on the flywheel whines at its blade rate (18 blades: 900 Hz at 3000 rpm)
+  gen_d1: { loudnessDb: -6, compression: 0.3, tiltDb: 0, intake: 0.05, pops: 0.0, whine: { ratio: 18, gainDb: -31, q: 9 }, starter: { hz: 150, drag: 0.4, gainDb: STARTER_DB }, governed: true, pullStart: true, presenceDb: 4, bodyDb: 1 },
 };
 
 const DEFAULT_TONE: EngineTone = { loudnessDb: -4, compression: 0.3, tiltDb: 2, intake: 0.1, pops: 0.2, starter: { hz: 150, drag: 0.35, gainDb: STARTER_DB }, presenceDb: 5 };
@@ -804,12 +815,15 @@ export class EngineVoice {
         want.set(rec.file, { rec, gain: limW * inCatch * loopGain(tone, { ...rec, rpm: m!.redlineRpm }, m!.idleRpm, m!.redlineRpm), rate });
       }
     }
-    // the starter turning the engine over (no firing yet)
+    // the starter turning the engine over (no firing yet); a rope needs no battery and turns it at
+    // whatever speed the pull gives
     const battery = st.starterRate ?? 1;
-    if (bank && st.cranking && !running && battery >= 0.15) {
+    if (bank && st.cranking && !running && (tone.pullStart || battery >= 0.15)) {
       const c = m!.oneshots['crank'];
       if (c && c.loopStart !== undefined && c.loopEnd !== undefined) {
-        const rate = 0.55 + 0.45 * Math.min(1, Math.max(0.2, st.starterRate ?? 1));
+        const rate = tone.pullStart
+          ? rpm > 30 && c.rpm ? Math.min(1.3, Math.max(0.6, rpm / c.rpm)) : 1
+          : 0.55 + 0.45 * Math.min(1, Math.max(0.2, st.starterRate ?? 1));
         const rec: LoopRec = { file: c.file, load: 0, rpm: c.rpm ?? 200, db: c.db, loopStart: c.loopStart, loopEnd: c.loopEnd, duration: c.duration };
         want.set(c.file, { rec, gain: Math.pow(10, (tone.loudnessDb + tone.compression * c.db + 6) / 20), rate });
       }
@@ -912,10 +926,11 @@ export class EngineVoice {
     set(this.starterLfo.frequency, ((m?.oneshots['crank']?.rpm ?? 220) / 60) * (cyl / 2) * (0.55 + 0.45 * sr), 0.05);
     this.starterLfoDepth.gain.value = 0.6 * tone.starter.drag;
     this.starterSag.gain.value = -crankHz * 0.12 * tone.starter.drag;
-    const turning = st.cranking && battery >= 0.15;
+    // (a rope: no motor to hear)
+    const turning = st.cranking && battery >= 0.15 && !tone.pullStart;
     set(this.starterGain.gain, turning ? Math.pow(10, (tone.starter.gainDb + tone.loudnessDb) / 20) * (0.5 + 0.5 * sr) : 0, turning ? 0.02 : 0.06);
     // a flat battery: the solenoid clicks and nothing turns
-    if (st.cranking && battery < 0.15 && !running) {
+    if (st.cranking && battery < 0.15 && !running && !tone.pullStart) {
       if (this.clickNext < t) this.clickNext = t;
       while (this.clickNext < t + 0.1) {
         this.oneShotBuffer(this.clickBuf, this.clickNext, 0.3, this.pre, 0.95 + 0.1 * this.rng.next());

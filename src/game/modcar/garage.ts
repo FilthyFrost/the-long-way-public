@@ -156,7 +156,10 @@ class Garage implements GarageScene {
   private readonly leaf: Record<string, { t: number; target: number; solid: Solid }> = {};
   private doorMoving = 0;
   lampsOn = true;
+  /** the generator outside runs (workshop.ts): without it the lamps stay dark and the charger does not charge */
+  power = true;
   private lampLevel = 1;
+  private readonly moreSurfaces: { x0: number; x1: number; z0: number; z1: number; y: number }[] = [];
   private chargeShown = -1;
   private time = 0;
   private ctx: GarageContext | null = null;
@@ -354,14 +357,17 @@ class Garage implements GarageScene {
       z: sw.z,
       radius: sw.radius,
       get word(): Text {
+        if (!self.power) return self.lampsOn ? text('关灯 · 没电（门外的发电机没开）', 'Lights off · no power') : text('开灯 · 没电（门外的发电机没开）', 'Lights on · no power');
         return self.lampsOn ? text('关灯', 'Lights off') : text('开灯', 'Lights on');
       },
       get state(): Text {
+        if (!self.power) return text('没电：去门外把发电机拉着', 'No power: start the generator outside');
         return self.lampsOn ? text('灯开着', 'The lights are on') : text('灯关着', 'The lights are off');
       },
       use: () => {
         this.lampsOn = !this.lampsOn;
         this.ctx?.sound('switch');
+        if (!this.power) this.ctx?.ui.say('没电：门外的发电机没开。拉一下启动绳就有电了。', 2.6);
       },
     });
     const ch = at('charger');
@@ -375,6 +381,7 @@ class Garage implements GarageScene {
         const b = self.batteryOnCharger();
         if (!b) return text('充电器 · 把电瓶放到上面的托盘里', 'Charger · put a battery on the tray');
         const c = Math.round((b.part!.fluids.charge ?? 0) * 100);
+        if (!self.power) return text(`充电器 · 没电（电瓶 ${c}%）：先开门外的发电机`, `Charger · no power (${c}%)`);
         return c >= 99 ? text(`充电器 · 电瓶已充满`, 'Charger · battery full') : text(`充电器 · 正在充电 ${c}%`, `Charger · charging ${c}%`);
       },
       use: () => {},
@@ -446,7 +453,7 @@ class Garage implements GarageScene {
     // the charger: a battery on its tray takes charge (full from flat in two minutes)
     const bat = this.batteryOnCharger();
     let charging = false;
-    if (bat?.part) {
+    if (bat?.part && this.power) {
       const f = bat.part.fluids;
       const c = f.charge ?? 0;
       if (c < 0.999) {
@@ -465,7 +472,9 @@ class Garage implements GarageScene {
     // the light switch's lever
     const sw = this.movers.get('LIGHT_SWITCH');
     if (sw) sw.rotation.z = this.lampsOn ? -0.35 : 0.35;
-    this.lampLevel += ((this.lampsOn ? 1 : 0) - this.lampLevel) * Math.min(1, dt * 12);
+    // (the lamps come on with the power with a little flicker, as tubes do)
+    const lit = this.lampsOn && this.power ? (this.lampLevel < 0.6 && Math.sin(this.time * 47) > 0.3 ? 0.35 : 1) : 0;
+    this.lampLevel += (lit - this.lampLevel) * Math.min(1, dt * 12);
     for (const v of ctx.vehicles) this.keepIn(v);
     this.machines.update(dt, ctx);
     this.chalk?.show('让「方糖」跑起来', ctx.checklist());
@@ -639,7 +648,8 @@ class Garage implements GarageScene {
     const night = smooth(0.16, 0.07, skyLum);
     this.night = night > 0.5;
     // (already on, or off, when the garage is first seen)
-    this.outLamp = this.lit ? this.outLamp + ((night > 0.5 ? 1 : 0) - this.outLamp) * Math.min(1, this.frameDt * 1.5) : night > 0.5 ? 1 : 0;
+    const outOn = night > 0.5 && this.power ? 1 : 0;
+    this.outLamp = this.lit ? this.outLamp + (outOn - this.outLamp) * Math.min(1, this.frameDt * 1.5) : outOn;
     this.lit = true;
     const ol = LAYOUT.outlamp;
     const out = this.outLamp;
@@ -731,16 +741,24 @@ class Garage implements GarageScene {
 
   telemetry(): Record<string, string | number | boolean> {
     const [g0, g1] = this.doorGap();
-    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, ...this.machines.telemetry() };
+    return { garage: 'workshop', doorGap: Math.round((g1 - g0) * 100) / 100, doorsOpen: this.doorsOpen(), lamps: this.lampsOn, lit: Math.round(this.lampLevel * 100) / 100, power: this.power, ...this.machines.telemetry() };
   }
 
   surfaceAt(x: number, z: number, fromY: number): number {
     let best = visibleHeight(x, z);
-    for (const s of LAYOUT.surfaces) {
-      if (x < s.x0 || x > s.x1 || z < s.z0 || z > s.z1) continue;
-      if (fromY >= s.y - 0.02 && s.y > best) best = s.y;
-    }
+    for (const list of [LAYOUT.surfaces, this.moreSurfaces])
+      for (const s of list) {
+        if (x < s.x0 || x > s.x1 || z < s.z0 || z > s.z1) continue;
+        if (fromY >= s.y - 0.02 && s.y > best) best = s.y;
+      }
     return best;
+  }
+
+  addSurface(x0: number, x1: number, z0: number, z1: number, y: number): void {
+    // (the same place again: moved, not doubled)
+    const was = this.moreSurfaces.find((s) => Math.abs(s.x0 - x0) < 1e-3 && Math.abs(s.z0 - z0) < 1e-3);
+    if (was) Object.assign(was, { x1, z1, y });
+    else this.moreSurfaces.push({ x0, x1, z0, z1, y });
   }
 
   dispose(): void {

@@ -213,6 +213,11 @@ export class ModUI {
     return text[this.lang];
   }
 
+  /** the HUD's scale (window px per HUD px): a point of the window over it is in HUD px */
+  get hudScale(): number {
+    return this.scale;
+  }
+
   /** the HUD drawn for 1280 × 720 and scaled to the window (never below 0.7 or above 3) */
   private fitScreen(): void {
     const w = window.innerWidth;

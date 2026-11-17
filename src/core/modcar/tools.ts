@@ -1,14 +1,15 @@
 /**
  * The things one works on a vehicle with (docs/MODCAR.md §5.3): a jerrycan of petrol or diesel, a
- * bottle of water for the radiator, a can of oil, a spray can, a sponge — and what each does when it
- * is held up to the right place and the button is held.
+ * bottle of water for the radiator, a can of oil, a spray can, a sponge, a cleaning scraper (made at the
+ * bench, §14) — and what each does when it is held up to the right place and the button is held. A tank that
+ * is not a vehicle's (the generator's) takes a can's fuel the same way (FuelTank).
  */
 import { frameDef } from './frames';
 import { partDef } from './parts';
 import { PALETTE } from './palette';
 import type { Build, FuelType, PartInstance, Text } from './types';
 
-export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge';
+export type ToolKind = 'jerrycan' | 'bottle' | 'oilcan' | 'spray' | 'sponge' | 'scraper';
 
 /** what goes in where: fuel into the tank, water into the radiator, oil into the engine */
 export type LiquidKind = 'fuel' | 'water' | 'oil';
@@ -26,6 +27,23 @@ export interface Tool {
   litres?: number;
   /** spray cans: palette index */
   colour?: number;
+  /** scrapers: which (1 plastic, 2 metal, 3 gold) */
+  tier?: 1 | 2 | 3;
+}
+
+/**
+ * The cleaning scrapers (Arctic Drive's ice scrapers, at its costs): a blade 10, 22 or 25 cm wide — the wider,
+ * the quicker the work; their models, grades and what the recycler gives for them.
+ */
+export const SCRAPERS: Record<1 | 2 | 3, { model: string; name: Text; width: number; stars: number; salvage: { scrap: number } }> = {
+  1: { model: 'scraper_plastic', name: { zh: '塑料清理铲', en: 'Plastic scraper' }, width: 0.1, stars: 1, salvage: { scrap: 3 } },
+  2: { model: 'scraper_metal', name: { zh: '金属清理铲', en: 'Metal scraper' }, width: 0.22, stars: 3, salvage: { scrap: 7 } },
+  3: { model: 'scraper_gold', name: { zh: '金色清理铲', en: 'Golden scraper' }, width: 0.25, stars: 5, salvage: { scrap: 10 } },
+};
+
+/** the model a tool is drawn with (public/models/modcar/tools/<id>.glb): its kind, a scraper's by its tier */
+export function toolModelId(t: Pick<Tool, 'kind' | 'tier'>): string {
+  return t.kind === 'scraper' ? SCRAPERS[t.tier ?? 1].model : t.kind;
 }
 
 export const TOOL_INFO: Record<ToolKind, { name: Text; capacity: number; rate: number }> = {
@@ -34,6 +52,7 @@ export const TOOL_INFO: Record<ToolKind, { name: Text; capacity: number; rate: n
   oilcan: { name: { zh: '机油壶', en: 'Oil can' }, capacity: 4, rate: 0.6 },
   spray: { name: { zh: '喷漆罐', en: 'Spray can' }, capacity: 1, rate: 1 / 1.2 },
   sponge: { name: { zh: '海绵', en: 'Sponge' }, capacity: 1, rate: 1 / 1.6 },
+  scraper: { name: { zh: '清理铲', en: 'Scraper' }, capacity: 1, rate: 1 },
 };
 
 const FUEL_NAME: Record<FuelType, Text> = {
@@ -45,7 +64,7 @@ const FUEL_NAME: Record<FuelType, Text> = {
 let n = 0;
 export function newTool(kind: ToolKind, o: Partial<Tool> = {}): Tool {
   n++;
-  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...o };
+  return { uid: `t${n.toString(36)}`, kind, litres: o.litres ?? TOOL_INFO[kind].capacity, ...(kind === 'scraper' ? { tier: o.tier ?? 1 } : {}), ...o };
 }
 
 export function toolName(t: Tool, lang: 'zh' | 'en' = 'zh'): string {
@@ -53,7 +72,63 @@ export function toolName(t: Tool, lang: 'zh' | 'en' = 'zh'): string {
   if (t.kind === 'jerrycan') return `${base}（${FUEL_NAME[t.fuel ?? 'petrol'][lang]} ${(t.litres ?? 0).toFixed(0)} L）`;
   if (t.kind === 'bottle' || t.kind === 'oilcan') return `${base}（${(t.litres ?? 0).toFixed(1)} L）`;
   if (t.kind === 'spray') return `${base}（${PALETTE[t.colour ?? 0]?.name[lang] ?? ''}）`;
+  if (t.kind === 'scraper') return SCRAPERS[t.tier ?? 1].name[lang];
   return base;
+}
+
+// ------------------------------------------------------------------ a tank of its own (the generator's)
+
+/** a fuel tank that is not a vehicle's: how much it holds, and what is in it */
+export interface FuelTank {
+  capacity: number;
+  fuel: Partial<Record<FuelType, number>>;
+}
+
+export function tankLitres(t: FuelTank): number {
+  return (t.fuel.petrol ?? 0) + (t.fuel.diesel ?? 0) + (t.fuel.mix2t ?? 0);
+}
+
+/** pour a jerrycan into such a tank for dt seconds (litres moved) */
+export function pourTank(can: Tool, tank: FuelTank, dt: number): number {
+  if (can.kind !== 'jerrycan') return 0;
+  const l = Math.min(can.litres ?? 0, TOOL_INFO.jerrycan.rate * dt, tank.capacity - tankLitres(tank));
+  if (l <= 0) return 0;
+  const k = can.fuel ?? 'petrol';
+  tank.fuel[k] = (tank.fuel[k] ?? 0) + l;
+  can.litres = (can.litres ?? 0) - l;
+  return l;
+}
+
+/** draw a tank's fuel back into a jerrycan for dt seconds: an empty can takes the kind there is most of */
+export function siphonTank(can: Tool, tank: FuelTank, dt: number): number {
+  if (can.kind !== 'jerrycan') return 0;
+  const f = tank.fuel;
+  if ((can.litres ?? 0) <= 0.01) {
+    const most = (['petrol', 'diesel', 'mix2t'] as FuelType[]).reduce((a, k) => ((f[k] ?? 0) > (f[a] ?? 0) ? k : a), 'petrol' as FuelType);
+    if ((f[most] ?? 0) > 0) can.fuel = most;
+  }
+  const k = can.fuel ?? 'petrol';
+  const l = Math.min(TOOL_INFO.jerrycan.capacity - (can.litres ?? 0), TOOL_INFO.jerrycan.rate * SIPHON_RATE * dt, f[k] ?? 0);
+  if (l <= 0) return 0;
+  f[k] = (f[k] ?? 0) - l;
+  can.litres = (can.litres ?? 0) + l;
+  return l;
+}
+
+/** what a jerrycan held to such a tank would do: pour (in) or draw back (out) */
+export function tankUse(can: Tool, tank: FuelTank): { in: { can: boolean; why?: Text }; out: { can: boolean; why?: Text } } {
+  if (can.kind !== 'jerrycan') return { in: { can: false }, out: { can: false } };
+  const room = tank.capacity - tankLitres(tank);
+  const pin = (can.litres ?? 0) <= 0.01 ? { can: false, why: { zh: '油桶空了', en: 'The can is empty' } } : room <= 0.05 ? { can: false, why: { zh: '油箱满了', en: 'The tank is full' } } : { can: true };
+  const k = (can.litres ?? 0) > 0.01 ? (can.fuel ?? 'petrol') : null;
+  const there = k ? (tank.fuel[k] ?? 0) : tankLitres(tank);
+  const pout =
+    (can.litres ?? 0) >= TOOL_INFO.jerrycan.capacity - 0.02
+      ? { can: false, why: { zh: '油桶满了', en: 'The can is full' } }
+      : there <= 0.01
+        ? { can: false, why: k && tankLitres(tank) > 0.01 ? { zh: `油箱里没有${FUEL_NAME[k].zh}`, en: `No ${FUEL_NAME[k].en} in the tank` } : { zh: '油箱是空的', en: 'The tank is empty' } }
+        : { can: true };
+  return { in: pin, out: pout };
 }
 
 /** the part instance on the first mount of a category (the tank, the radiator, the engine) */
@@ -86,6 +161,7 @@ export function toolUse(t: Tool, build: Build): { where: 'fuelTank' | 'radiator'
     return { where: 'engine', word: { zh: '加机油', en: 'Add oil' }, can: room > 0.05 && (t.litres ?? 0) > 0, why: room <= 0.05 ? { zh: '机油满了', en: 'Full' } : undefined };
   }
   if (t.kind === 'spray') return { where: 'any', word: { zh: '喷漆', en: 'Spray' }, can: true };
+  if (t.kind === 'scraper') return { where: '', word: { zh: '刮', en: 'Scrape' }, can: false, why: { zh: '刮脏刮锈下一批接上', en: 'Scraping comes with the next batch' } };
   return { where: 'any', word: { zh: '擦洗', en: 'Wash' }, can: true };
 }
 

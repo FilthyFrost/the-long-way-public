@@ -93,22 +93,26 @@ export class Chalkboard {
     c.moveTo(48, 100);
     c.quadraticCurveTo(300, 108, 600, 98);
     c.stroke();
+    // (a long list closes up: the lines and the hand smaller)
+    const gap = steps.length > 1 ? Math.min(56, (H - 178) / (steps.length - 1)) : 56;
+    const size = Math.min(38, gap * 0.7);
     steps.forEach((st, i) => {
-      const y = 158 + i * 56;
+      const y = 158 + i * gap;
       // a box, ticked when done
       c.strokeStyle = 'rgba(240,240,232,0.85)';
       c.lineWidth = 3;
-      c.strokeRect(56, y - 30, 30, 30);
+      const bx = size * 0.8;
+      c.strokeRect(56, y - bx, bx, bx);
       if (st.done) {
         c.strokeStyle = '#f3c35a';
         c.lineWidth = 6;
         c.beginPath();
-        c.moveTo(58, y - 16);
-        c.lineTo(70, y - 2);
-        c.lineTo(96, y - 40);
+        c.moveTo(58, y - bx * 0.53);
+        c.lineTo(56 + bx * 0.47, y - 2);
+        c.lineTo(56 + bx * 1.33, y - bx * 1.33);
         c.stroke();
       }
-      chalk(st.text, 108, y, 38, st.done ? 'rgba(220,226,214,0.6)' : '#f2f1e8', st.done);
+      chalk(st.text, 64 + bx * 1.45, y, size, st.done ? 'rgba(220,226,214,0.6)' : '#f2f1e8', st.done);
     });
     // a drawing of the little car, and an arrow to the door
     c.strokeStyle = 'rgba(240,240,232,0.85)';

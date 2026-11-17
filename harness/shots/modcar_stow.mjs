@@ -106,7 +106,7 @@ try {
   await rt('drop');
 
   // 7. the box out of the bed with E
-  await rt('aimLoose', 'item:crate_parts', 1.2);
+  await rt('aimLoose', 'item:crate_parts', 1.2, 'stowed');
   const t7 = await rt('telemetry');
   await rt('press');
   const out = await rt('telemetry');

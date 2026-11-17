@@ -44,6 +44,22 @@ const game = new ModGame(canvas, params, save, tune);
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 
+/** stand off a point (world) on the side `from` (0 = +x), looking at it; what the mark is on */
+function aimPoint(x: number, y: number, z: number, from: number, dist: number): string {
+  if (game.seated) game.getOut();
+  const w = game.player.walker;
+  game.viewMode = 'cockpit';
+  w.place(x + Math.cos(from) * dist, z + Math.sin(from) * dist, from + Math.PI);
+  for (let i = 0; i < 3; i++) {
+    game.simulate(i ? 0.05 : 0);
+    const eye = w.eye();
+    game.input.lookYaw = Math.atan2(z - w.z, x - w.x);
+    game.input.lookPitch = Math.atan2(y - eye.y, Math.hypot(x - w.x, z - w.z));
+  }
+  game.simulate(0);
+  return String(game.player.telemetry().target);
+}
+
 const vehicle = (i: number) => {
   const v = game.vehicles[i];
   if (!v) throw new Error(`no vehicle ${i}`);
@@ -240,9 +256,67 @@ const rt = {
     game.simulate(0);
     return true;
   },
+  /**
+   * Stand `dist` off a device (the workshop's too: gen_cord, gen_switch, recycler, bench) on the side `from`
+   * (0 = +x, π/2 = +z), looking at it; what the mark is on then
+   */
+  aimAt: (id: string, from: number, dist = 1.0) => {
+    const d = game.devices.find((x) => x.id === id);
+    if (!d) return `no device ${id}`;
+    return aimPoint(d.x, d.y, d.z, from, dist);
+  },
+  /** stand off a point (world) on the side `from`, looking at it */
+  aimPoint: (x: number, y: number, z: number, from: number, dist = 1.0) => aimPoint(x, y, z, from, dist),
+  /** the generator's filler (world), for aiming a can at it */
+  genFiller: () => {
+    const p = game.tanks[0];
+    if (!p) return null;
+    const m = new THREE.Vector3();
+    const o = new THREE.Vector3();
+    p.mouth(m, o);
+    const g = game.origin;
+    return { x: m.x + g.x, y: m.y + g.y, z: m.z + g.z, open: p.open };
+  },
+  /** the workshop: the generator, the recycler, the bench; the materials */
+  workshop: () => ({ ...(game.workshop?.telemetry() ?? {}), stock: { ...game.stock }, garage: game.garage?.telemetry() ?? null }),
+  /** materials given (the developer's) */
+  addStock: (scrap = 0, organics = 0, chemicals = 0) => {
+    game.stock.scrap += scrap;
+    game.stock.organics += organics;
+    game.stock.chemicals += chemicals;
+    return { ...game.stock };
+  },
+  /** E held for a while on what the mark is on (the generator's rope: 0.6 s a pull) */
+  holdFor: (seconds: number) => {
+    game.player.press();
+    const dt = 1 / 60;
+    for (let t = 0; t < seconds; t += dt) {
+      game.player.primary = true;
+      game.step(dt, 1);
+    }
+    game.player.release();
+    game.simulate(0);
+    return game.player.telemetry();
+  },
+  /** at the bench (open): make a recipe and strike every blow; the thing is there after its second */
+  craftAll: (id: string) => {
+    const ws = game.workshop as unknown as { open: boolean; crafting: boolean; strike(i?: number): void; craftNow?: (id: string) => void } | null;
+    if (!ws?.open) return 'bench not open';
+    (game.workshop as unknown as { craft: (id: string) => void }).craft(id);
+    game.simulate(0.3);
+    let n = 0;
+    while (ws.crafting && n < 12) {
+      ws.strike();
+      game.simulate(0.7);
+      n++;
+    }
+    game.simulate(1.2);
+    return { struck: n, open: ws.open };
+  },
   /** stand before the first loose thing of a part id (tool:<kind> for a tool), looking at it (from whichever side one can stand on) */
-  aimLoose: (id: string, dist = 1.0) => {
-    const l = game.loose.list.find((x) => looseIs(x, id));
+  aimLoose: (id: string, dist = 1.0, which: 'any' | 'stowed' | 'free' = 'any') => {
+    // (the garage's own junk lies about too: 'stowed' finds the one riding in a vehicle)
+    const l = game.loose.list.find((x) => looseIs(x, id) && (which === 'any' || (which === 'stowed') === !!x.riding));
     if (!l) return false;
     if (game.seated) game.getOut();
     const w = game.player.walker;

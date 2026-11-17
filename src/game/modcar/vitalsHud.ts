@@ -7,6 +7,8 @@
  * when one is cold.
  */
 import { EFFECT_ZH, has, type VitalEffect, type Vitals } from '../../core/modcar/vitals';
+import { MATERIAL_IDS, MATERIALS, type Material } from '../../core/modcar/items';
+import { materialIcon } from './craftUi';
 
 const CSS = `
 .mc-vit { position: absolute; left: 22px; top: 20px; display: flex; align-items: flex-start; gap: 10px; z-index: 2; pointer-events: none; color: #fff; }
@@ -218,5 +220,64 @@ export class DeathCard {
     this.open = false;
     this.el.classList.remove('on');
     this.el.innerHTML = '';
+  }
+}
+
+const MAT_CSS = `
+.mc-mats { position: absolute; left: 24px; top: 134px; display: flex; flex-direction: column; gap: 5px; pointer-events: none; z-index: 2; }
+.mc-mats .m { display: flex; align-items: center; gap: 7px; padding: 4px 12px 4px 7px; border-radius: 12px; font: 700 15px var(--key-font); color: #fff; transition: opacity 0.45s, transform 0.45s; }
+.mc-mats .m svg { width: 22px; height: 22px; }
+.mc-mats .m i { font-style: normal; font-weight: 400; color: var(--tx-2); font-size: 13px; }
+.mc-mats .m.gain b { color: #a9ef9a; }
+.mc-mats .m.spend b { color: #ffb0a6; }
+.mc-mats .m.out { opacity: 0; transform: translateX(-12px); }
+`;
+
+/**
+ * The materials as they change (Arctic Drive's popup): under the dial, a line for each that came in or went
+ * out — how much, and how much there is now — fading after a few seconds.
+ */
+export class MaterialsHud {
+  private readonly el: HTMLDivElement;
+  private readonly lines = new Map<string, { el: HTMLDivElement; n: number; timer: number }>();
+
+  constructor(root: HTMLElement) {
+    if (!document.getElementById('mc-mats-css')) {
+      const st = document.createElement('style');
+      st.id = 'mc-mats-css';
+      st.textContent = MAT_CSS;
+      document.head.appendChild(st);
+    }
+    this.el = document.createElement('div');
+    this.el.className = 'mc-mats';
+    root.appendChild(this.el);
+  }
+
+  show(delta: Partial<Record<Material, number>>, stock: Record<Material, number>): void {
+    for (const m of MATERIAL_IDS) {
+      const d = delta[m] ?? 0;
+      if (!d) continue;
+      let line = this.lines.get(m);
+      if (!line || Math.sign(line.n) !== Math.sign(d)) {
+        line?.el.remove();
+        const el = document.createElement('div');
+        el.className = 'm mc-frame';
+        this.el.appendChild(el);
+        line = { el, n: 0, timer: 0 };
+        this.lines.set(m, line);
+      }
+      line.n += d;
+      line.el.className = `m mc-frame ${line.n > 0 ? 'gain' : 'spend'}`;
+      line.el.innerHTML = `${materialIcon(m)}<b>${line.n > 0 ? '+' : ''}${line.n}</b> ${MATERIALS[m].name.zh}<i>共 ${stock[m]}</i>`;
+      window.clearTimeout(line.timer);
+      const l = line;
+      l.timer = window.setTimeout(() => {
+        l.el.classList.add('out');
+        window.setTimeout(() => {
+          l.el.remove();
+          if (this.lines.get(m) === l) this.lines.delete(m);
+        }, 480);
+      }, 2600);
+    }
   }
 }

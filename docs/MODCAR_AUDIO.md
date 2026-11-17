@@ -1,14 +1,14 @@
 # ModCar 声音：做法、接口、加发动机
 
-> 声音子代理 2026-11-16。发动机用 Engine Simulator 离线录成音色库，运行时按转速和负载交叉混合；机械声全部程序合成。夜里机器静音，全程不外放：录音直接写文件，检查用无头 Chrome 的 OfflineAudioContext。
+> 声音子代理 2026-11-16；工坊一批 2026-11-17（发电机音色库 `gen_d1`、拉绳起动、工坊机械声）。发动机用 Engine Simulator 离线录成音色库，运行时按转速和负载交叉混合；机械声全部程序合成。夜里机器静音，全程不外放：录音直接写文件，检查用无头 Chrome 的 OfflineAudioContext。
 
 ## 1. 文件
 
 | 位置 | 内容 |
 | --- | --- |
-| `public/audio/modcar/engines/<id>/` | 八台发动机的音色库：`on_<rpm>` / `off_<rpm>` 循环、`crank`（起动机空转）、`catch`（着车）、`shutdown`、`stall`、`limiter`（撞断油器）；每个文件 `.ogg`（Opus）和 `.m4a`（AAC）各一份，`manifest.json` 记转速、负载、循环点、相位、原始响度。合计约 10 MB。 |
-| `src/game/modcar/engineAudio.ts` | `EngineVoice`：运行时发动机声 |
-| `src/game/modcar/foley.ts` | `Foley`：门、锁扣、扳手、零件、喷罐、海绵、倒液体、钥匙、喇叭、手刹、挡位 |
+| `public/audio/modcar/engines/<id>/` | 九个音色库：八台车用发动机，`on_<rpm>` / `off_<rpm>` 循环、`crank`（起动机空转）、`catch`（着车）、`shutdown`、`stall`、`limiter`（撞断油器）；工坊发电机 `gen_d1`：调速转速附近 2700 / 3000 / 3300 三档的 `on`（带载）/ `off`（轻载运转），`crank`（拉绳）、`catch`、`shutdown`、`stall`，没有 `limiter`（见 §2.1）。每个文件 `.ogg`（Opus）和 `.m4a`（AAC）各一份，`manifest.json` 记转速、负载、循环点、相位、原始响度。合计约 10.6 MB（gen_d1 0.37 MB）。 |
+| `src/game/modcar/engineAudio.ts` | `EngineVoice`：运行时发动机声（`TONES` 里每台一行；`pullStart` = 拉绳起动） |
+| `src/game/modcar/foley.ts` | `Foley`：门、锁扣、扳手、零件、喷罐、海绵、倒液体、钥匙、喇叭、手刹、挡位；身体（吃喝、药、受伤、背包）；工坊（发电机拉绳 / 开关 / 烧干油，粉碎机空转 / 粉碎中 / 按材质碎一件，计数器，工作台摆工具 / 挥锤 / 锤击 / 做好了，来电 / 断电 / 没电，灯管） |
 | `src/game/modcar/synth.ts` | 两者共用的离线合成小工具（不依赖 Web Audio，Node 里也能跑） |
 | `src/game/modcar/sound.ts` | `attachModCarSound(audio)`：挂到现有 `AudioEngine` 的同一个 AudioContext 和总线上 |
 | `tools/enginesim/` | 音色库的生成工具链（见第 2 节） |
@@ -28,6 +28,20 @@
    - 统一到同一响度，原始响度（相对本库全负载最大）记进清单的 `db`；
    - ffmpeg 编码成 Opus 56 kbps 和 AAC 72 kbps，并用解码结果核对接缝。
    需要的路径用环境变量 `MODCAR_ESIM`、`MODCAR_RAW`、`MODCAR_FFMPEG` 指定（默认在 `D:/modcar-scratch/sound/`）。
+
+### 2.1 工坊发电机 `gen_d1`
+
+- **机器**：风冷单缸柴油，418 cc（缸径 86、行程 72 mm），约 19:1，50 Hz 发电机组，调速 3000 rpm（“游车” ±100 rpm 由游戏自己给）。飞轮 8 kg（带拉绳起动盘和风扇）加发电机转子；消声罐直接装在排气口。脚本 `tools/enginesim/engines/gen_d1.mr`（单缸结构照 `eng_mower.mr`，柴油设定照 `eng_i4d.mr` / `eng_d6.mr`：高压缩、快燃、早喷油；“油门”就是调速器的油门齿条，`throttle_gamma` 2 让轻载不那么敏感），冲激响应 `mild_exhaust_0`（单缸的“突突”脉冲清楚、有低频体量；`minimal_muffling_03` 太薄）。
+- **录音计划**：`engines.json` 里 `offMode: "light"` 的机器走 `make_banks.py` 的 `make_plan_light`（八台车用发动机的计划逐字节没变，生成后对比过）：
+  - 转速档只录 `steps` 2700 / 3000 / 3300；`on` = 齿条全开（粉碎机满负荷，测功机吸收约 54 N·m），`off` = 轻载运转（`offThrottle` 0.2，约 10 N·m，点火开着）——发电机组从不滑行，`off` **不是**断油滑行。3000 的 `off` 记为 `idle`（调速转速、空载）。
+  - `crank` = 拉绳：进气全开（柴油没有节气门，每个压缩冲程都“顶”一下），绳子 80 lb·ft、350 rpm，膨胀冲程把它甩到 600 多，平均约 510 rpm，循环 4 个发动机循环（约 0.96 s）；`crankSpeed: "mean"`：转速摆动大，循环长度按平均转速定（中位数会偏）。
+  - 起动：**先**用绳子（录音器的起动机）在进气关着时平稳地正转 0.35 s，让测功机接过去，**再**打开齿条点火。高压缩单缸着车会反冲，测功机按当时的转向接管（录音器读到的转速没有符号），接在反冲上就会倒着拖、永远不着——第一次试录就是这样。`catch` 用 0.6 s（`catchRamp`）冲到 3150（`flare` 1.05）再落到 3000。
+  - `shutdown`：轻载运转中断油，靠飞轮转停（约 2.3 s，最后几下压缩的闷响）；`stall`：齿条全开（`stallThrottle` 1，调速器拼命加油）仍被拖停（过载，粉碎机卡死）；`limiterTake: false`：没有断油器录音（调速器管着，`TONES` 里 `governed`）。
+- **切库**（`bank_build.py`，八台车用发动机的构建结果没变：重建 eng_mower / eng_i4d / eng_2t，清单和仓库里的完全一致）：
+  - `LAYERS['gen_d1']`：排气沙哑噪声、风冷散热片余振、喷油敲缸——`lightOff`：轻载的 `off` 也在燃烧，按 idle 档（−7 dB）加，带载反而轻一点（−11 dB）：柴油空载最“咔咔”响，带载更闷更沉；发电机 100 Hz 嗡声（`hum`：两极转子跟曲轴同转，电频 = 曲轴频率，按曲轴阶次 2、4、6、8、12、24 叠，整周期，带载 −19 dB、轻载 −25 dB，随每次点火轻微起伏）。
+  - `crank` 层（只有 gen_d1）：Engine Simulator 拉绳只给出很低的压缩闷响（频谱质心 30 Hz），加上随脉冲起伏的进排气“噗”声和气门“嗒”声后质心约 340 Hz。
+  - 电平：模拟器里轻载和满载几乎一样响（差 1 dB 以内），真机带载约响 3 dB，所以 `offTrimDb` −8（运行时压缩 0.3 后约 −2.4 dB）；轻载机器的 `idle` 也是轻载运转，同样调；`catch` / `shutdown` / `stall` 起止都在轻载运转上，也按 `offTrimDb` 调，再加 `shotTrimDb` −6.5（声部给一次性声音比循环高 2 dB），这样关机 / 着车接得上循环。
+- 检查：`node harness/audio/modcar_render.mjs gen_d1 --loops --no-metrics` 渲染发电机序列（拉一下没着、再拉着车、轻载运转带游车、粉碎机带载（掉速再回）、轻载、关机）、烧干油、两种拉绳 A/B（见 §5），并在 Chrome 里解码检查 7 个循环的接缝。
 
 ## 3. 运行时接口
 
@@ -59,7 +73,31 @@ snd.foley.start('ratchet'); snd.foley.stop('ratchet'); // 装 / 拆进度期间
 snd.foley.start('pour', { liquid: 'oil' });            // fuel / water / oil
 snd.foley.horn('horn_air', down);                      // horn_beep / horn_trumpet（按一下奏一遍）/ horn_air
 snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯）/ 挡杆进一格（P-R-N-D）
+
+// 工坊：发电机是另一个声部
+const gen = snd.voice();
+gen.update({ engineId: 'gen_d1', rpm, load, throttle: load, running, cranking, inside: false, doorsOpen: 1, distance, starterRate: 1, stalled: false });
+snd.foley.play('cord_pull');                           // 每拉一下绳（约 0.85 s：拉出、2–3 下压缩闷响、回绳棘爪响、把手回位）
+snd.foley.play('gen_switch');                          // 发电机的重型拨动开关：开 / 关
+snd.foley.play('gen_cough');                           // 烧干油 / 油不对：几下突突和最后一口气（同时 running = false）
+snd.foley.start('recycler_run');                       // 粉碎机空转：电机嗡声、齿轮箱啸叫、刀辊转动的轻响
+snd.foley.start('recycler_grind', { gain: work });     // 粉碎中，叠在 recycler_run 上；每帧调用，gain 0..1 跟着工作量
+snd.foley.play('shred', { grind: 'metal' });           // 碎一件东西：metal / plastic / organic / cloth / wood（默认 metal）
+snd.foley.play('tally');                               // 计数器翻一格（每计 5 个）
+snd.foley.play('craft_start');                         // 工作台：摆出工具
+snd.foley.play('hammer_swing');                        // 挥锤
+snd.foley.play('hammer_hit', { grind: 'wood' });       // 锤在铁砧上的工件：metal 铁砧长鸣 / plastic 闷 / wood 木“哒” / organic、cloth 软垫
+snd.foley.play('craft_done');                          // 做好了：明亮的“叮”（两个钟声分音加一点闪光，约 0.85 s）
+snd.foley.play('power_on');                            // 来电：接触器“咔嗒”、嗡声升起、灯管跳几下亮（约 1.25 s，尾巴交给下面两个循环）
+snd.foley.start('lamp_buzz');                          // 灯管的微弱嗡声
+snd.foley.play('power_off'); snd.foley.play('no_power'); // 断电：一声“咔”、嗡声和电机一起落下；没电时按开关：闷闷的一下
 ```
+
+- **`grind`**（`FoleyOpts.grind`，`'metal' | 'plastic' | 'organic' | 'cloth' | 'wood'`）：`shred` 是被碎的东西，`hammer_hit` 是铁砧上的工件；另起的字段，和门的 `material` 无关。缓存键只在给了 `grind` 时才加这一段（其他声音的键和随机种子不变）。
+- **不重复**：一次性声音每次随机挑一个渲染版本，但不会连着两次挑同一个（锤连敲两三下、一件接一件地碎，每下都不一样）；`hammer_hit` 5 个版本，`shred` / `tally` / `cord_pull` 4 个，其余 3 个。
+- **`pullStart`**（`EngineTone`，gen_d1 为 true）：拉绳起动。`cranking` 时没有起动机电机声、没有电磁开关“咔、咔”，与电瓶（`starterRate`）无关，`crank` 循环的回放速率跟着 rpm（rpm / 库里的 crank 转速 510，限 0.6–1.3）；绳子本身的声音是 foley 的 `cord_pull`。车用发动机的行为一点没变（`modcar_render.mjs` 的 A/B：运转时两种渲染逐样本相同，差 −115 dB）。
+- **发电机的驱动建议**：运转时 rpm = 3000 ± 100（调速器游车，周期 1–2 s），`load` 0.15（空载）… 0.6（粉碎中），**`throttle` 就给 `load`**（调速器的齿条跟着负载走）——这样空载时约 80 % 是轻载循环、粉碎时约 64 % 是带载循环；若给 `0.35 + 0.4 * load`，空载就已混进 42 % 的带载声，带载对比变小。粉碎机开始吃料时 rpm 先掉 120–150 再回来（调速器下垂），这是发电机“接上负载”最像的声音。**`stalled: false`**：关机和烧干油都给它，否则 `load > 0.35` 时会按“憋熄火”放 `stall`；粉碎机卡死拖停才给 `stalled: true`。拉绳：`cranking` 约 0.3–0.6 s、rpm ≈ 450–510；`catch` 只在上一帧还在 `cranking` 时才放，所以着车那一下也要先拉 0.3 s 以上再在 `cranking` 变假的同一帧给 `running: true`（不然循环直接冷启动，没有着车声）。烧干油：最后 0.5 s `misfire` 0 → 0.7、rpm 掉 200 左右，同时 `play('gen_cough')` 并让 `running = false`。机器的 foley 不按距离衰减，离得远时用 `gain` 自己降。
+- **电平**（`SHOT_LEVEL` / `LOOP_LEVEL`，K 计权响度：一次性声音取 400 ms 最大，循环取整体）：参照门关上 −18.7、开门 −33、锁扣 −36、钥匙 −36、放下 25 kg 零件 −23、撞击 −11、扳手循环 −30；发电机 4 m 外轻载 −30.6、带载 −28.8（V8 在 3 m 外怠速 −34.8）。新声音：拉绳 −21、发电机开关 −27、烧干油 −24、碎一件 金属 −18…−20 / 塑料 −22 / 木 −24 / 有机 −24 / 布 −29、计数 −38、摆工具 −28、挥锤 −33、锤 金属 −17 / 木 −23 / 塑料 −25 / 有机 −26 / 布 −27、做好了 −22、来电 −24、断电 −27、没电 −35；粉碎机空转 −31.5、粉碎中 −24.7、灯管 −47.5。整个工坊场景（`--workshop`）里最响的是三下锤（−16 瞬时）、粉碎（−18）、门（−19）、“叮”（−19），机器的持续声在 −29 左右。
 
 - 起动机：`cranking && !running` 时播 `crank` 循环 + 合成的起动机电机声（每个压缩冲程拖慢一下）；`starterRate < 0.15`（电瓶没电）时只有电磁开关“咔、咔”；`running` 变真时播 `catch`，循环在它尾巴下淡入。`running` 变假时按情况播 `shutdown` 或 `stall`。
 - 建议映射（§3 规则）：车况 c → `misfire = max(0, 0.6 - c) * 0.5`、`knock = max(0, 0.4 - c) * 2.5`；加错燃料熄火前 `misfire ≈ 0.6`；水温红区 → `steam`。车外听者给 `distance`（空气吸收随距离变暗）和 `approach`。
@@ -77,11 +115,13 @@ snd.foley.play('switch'); snd.foley.play('lever');     // 仪表台开关（灯�
 2. 在 `tools/enginesim/engines.json` 加一行：缸数、怠速、库顶转速（略高于红线）、红线、断油转速、松起动机的转速、着车冲高比例、滑行方式。
 3. 如需离线叠层，在 `bank_build.py` 的 `LAYERS` 里加；在 `engineAudio.ts` 的 `TONES` 里加一行响度、压缩、进气、回火、起动机参数（不加用默认值）。
 4. `python -I tools/enginesim/make_banks.py all eng_xxx`，然后 `npm test` 和 `node harness/audio/modcar_render.mjs eng_xxx --loops`。
+5. 不开车、从不滑行的机器（发电机、水泵……）：`offMode: "light"`，再给 `steps`（工作转速附近几档）、`offThrottle`（轻载齿条）、`idleThrottle`、`crankThrottle`、`catchRamp`、`stallThrottle`、`limiterTake: false`、`offTrimDb` / `shotTrimDb`（见 §2.1 和 `engines.json` 的 `_doc`）；`TONES` 里 `governed: true`，手拉起动加 `pullStart: true`；测试里加进 `harness/sim/modcar-audio.test.ts` 的 `MACHINES`，渲染工具里加进 `modcar_render.mjs` 的 `MACHINES`。
 
 ## 5. 验证
 
-- `npm test`：`harness/sim/modcar-audio.test.ts` 检查每个清单条目两种格式都在、容器解码长度和清单一致（Ogg granule / MP4 edit list）、循环点在填充之内、转速档覆盖怠速到红线且相邻比 < 1.14、构建时测得的接缝干净、混合数学、所有机械声配方。
-- `node harness/audio/modcar_render.mjs --all`：无头 Chrome 里用真正的 `EngineVoice` / `Foley` 渲染每台发动机的“巡游”（起动 → 怠速 → 轰油 → 一挡拉到断油 → 换挡 → 二挡 → 收油滑行 → 熄火）、慢扫转速、排气与车厢变体、全部机械声，WAV 写到 `D:/modcar-scratch/sound/out/`，打印响度和频谱质心；`--loops` 用 Chrome 自己解码每个循环、循环播放三圈，检查接缝处的二阶差分（0 个咔嗒）。摘要写进 `loop/metrics/audio_modcar.json`。
+- `npm test`：`harness/sim/modcar-audio.test.ts` 检查每个清单条目两种格式都在、容器解码长度和清单一致（Ogg granule / MP4 edit list）、循环点在填充之内、转速档覆盖怠速到红线且相邻比 < 1.14（发电机：至少 3 档、没有 `limiter`）、构建时测得的接缝干净、混合数学、所有机械声配方；发电机：调速、拉绳、只有 `gen_d1` 是 `pullStart`、三档两种负载、带载比轻载响 1.5–4 dB、拉绳转速约 400–560；工坊机械声：都在目录里、每个一次性声音（含五种 `grind`）任意种子都有声、在自己的电平上不削波、首尾为零、无直流、时长合乎要求；循环无台阶、无拐点、低频不跳相、首尾无凹陷 / 鼓包、无直流（用故意弄坏的循环验证过这些检查会报）；材质各有颜色、铁砧长鸣而塑料 / 木头很快停、“叮”是两个分音（E6 和上方五度）、来电嗡声升起 / 断电落下、`Foley` 播放器不连续重复同一个渲染、不同 `grind` 分开缓存。
+- `node harness/audio/modcar_render.mjs --all`：无头 Chrome 里用真正的 `EngineVoice` / `Foley` 渲染每台发动机的“巡游”（起动 → 怠速 → 轰油 → 一挡拉到断油 → 换挡 → 二挡 → 收油滑行 → 熄火）、慢扫转速、排气与车厢变体、全部机械声，WAV 写到 `D:/modcar-scratch/sound/out/`，打印响度和频谱质心；`--loops` 用 Chrome 自己解码每个循环、循环播放三圈，检查接缝处的二阶差分（0 个咔嗒；点了名就只查点名的库）。发电机不走巡游，走自己的序列，并检查：拉绳听得见、带载更响且音色变了、转停后无声、不削波、拉绳 A/B（`tone: { pullStart: false }` 时会多出 −52 dB 的起动机电机声、电瓶没电时只剩电磁开关的“咔”；`pullStart` 时都没有、没电也照常拉）。`--workshop` 渲染整个工坊场景（发电机在 6 m 外，人在机器旁：两下拉绳、来电、灯、粉碎机、碎三件东西（发电机带载）、计数、做一件东西（三下锤、“叮”）、关门作参照、烧干油、断电、没电时按开关），检查不削波、全停后无声。摘要写进 `loop/metrics/audio_modcar.json`；加 `--no-metrics` 不写。
+- 试听台 `harness/audio/listen.html`：发动机列表里有 `gen_d1`（“拉绳”按钮，第二下着车；油门滑块就是负载），机械声里有全部工坊声音。
 
 ## 6. 频谱校准
 
@@ -93,7 +133,8 @@ presence 提升、1.3 kHz 的排气“吠”峰（随排气件加大）、脉冲
 
 ## 7. 已知不足
 
-- 没有人耳试听过：电平、叠层比例都按频谱和响度测量定的，第二天需要试听调 `TONES` / `EXHAUSTS` / `LAYERS`。
+- 没有人耳试听过：电平、叠层比例都按频谱和响度测量定的，第二天需要试听调 `TONES` / `EXHAUSTS` / `LAYERS`（工坊声音调 `SHOT_LEVEL` / `LOOP_LEVEL`）。
+- 发电机：模拟器的轻载和满载几乎一样响，带载对比是用 `offTrimDb` 和叠层（敲缸、发电机嗡声）做出来的；拉绳平均转速约 510 rpm（比“400–500”略高，运行时按 rpm 降调）；柴油压燃仍是近似。工坊机械声的接缝检查对粉碎循环里藏在密集碎声下的低频跳相不够敏感（那些分音都是按整周期造的）。
 - 柴油和二冲程是近似；Engine Simulator 本身偏暗，亮度主要靠冲激响应和离线叠层。
 - 只有两档负载（全负载 / 滑行），半油门是两者混合。
 - 车外只做了距离衰减，没有多普勒和左右声像。

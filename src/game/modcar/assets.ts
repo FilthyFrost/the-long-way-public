@@ -259,6 +259,17 @@ export function itemGlb(model: string): Promise<Model | null> {
   return p;
 }
 
+const machines = new Map<string, Promise<Model | null>>();
+/** a workshop machine's model (public/models/modcar/machines/<id>.glb: the generator, the recycler, the bench), null if there is none yet */
+export function machineGlb(id: string): Promise<Model | null> {
+  let p = machines.get(id);
+  if (!p) {
+    p = fetchGlb(`${BASE}machines/${id}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    machines.set(id, p);
+  }
+  return p;
+}
+
 const tools = new Map<string, Promise<Model | null>>();
 /**
  * A tool's own model (tools/<kind>.glb: the jerrycan, bottle, oil can, spray can, sponge), or null while

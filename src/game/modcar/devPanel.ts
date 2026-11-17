@@ -12,7 +12,8 @@ import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { paintHex } from '../../core/modcar/palette';
 import { ITEM_CATS, ITEMS, type ItemCat } from '../../core/modcar/items';
 import { PARTS } from '../../core/modcar/parts';
-import { TOOL_INFO, type ToolKind } from '../../core/modcar/tools';
+import { newTool, SCRAPERS, TOOL_INFO, type ToolKind } from '../../core/modcar/tools';
+import { toolLook } from './loose';
 import type { Category, PartDef } from '../../core/modcar/types';
 import { panelPaint } from './assets';
 import { PANE_CSS, WorldPanes, type PaneHost, type PaneId } from './devPanes';
@@ -20,7 +21,7 @@ import { PartThumbs } from './thumbs';
 
 export type DevItem =
   | { kind: 'part'; id: string }
-  | { kind: 'tool'; tool: ToolKind; fuel?: 'petrol' | 'diesel'; litres?: number }
+  | { kind: 'tool'; tool: ToolKind; fuel?: 'petrol' | 'diesel'; litres?: number; tier?: 1 | 2 | 3 }
   | { kind: 'item'; id: string }
   | { kind: 'vehicle'; frame: string; stock: boolean };
 
@@ -41,6 +42,8 @@ export interface DevHost extends PaneHost {
   devClear(): void;
   /** every vehicle like new, its tank, oil, water and battery full */
   devRepair(): void;
+  /** materials: a hundred more of each (the bench can be tried without the recycler) */
+  devStock(): void;
   /** the model an item's tile shows */
   devModel(item: DevItem): Promise<THREE.Object3D | null>;
   /** the bin opened (true) or shut */
@@ -49,11 +52,12 @@ export interface DevHost extends PaneHost {
   devNewGame(resetDials: boolean): void | Promise<void>;
 }
 
-/** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]], item:<id>, vehicle:<frame>:stock|bare */
+/** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]] (tool:scraper:<tier>), item:<id>, vehicle:<frame>:stock|bare */
 export function devItemOf(key: string): DevItem | null {
   const [k, a, b, c] = key.split(':');
   if (k === 'part' && a) return { kind: 'part', id: a };
   if (k === 'item' && a) return { kind: 'item', id: a };
+  if (k === 'tool' && a === 'scraper') return { kind: 'tool', tool: 'scraper', tier: b === '3' ? 3 : b === '2' ? 2 : 1 };
   if (k === 'tool' && a) return { kind: 'tool', tool: a as ToolKind, fuel: b === 'diesel' ? 'diesel' : b === 'petrol' ? 'petrol' : undefined, litres: c !== undefined ? Number(c) : undefined };
   if (k === 'vehicle' && a) return { kind: 'vehicle', frame: a, stock: b !== 'bare' };
   return null;
@@ -204,7 +208,7 @@ export class DevPanel {
 <input class="q" type="search" placeholder="搜索：名字或编号（如 V8、马桶、rim）" />
 <div class="chips">${GROUPS.map((g) => `<span data-g="${g.id}"${g.id === 'all' ? ' class="on"' : ''}>${g.zh}</span>`).join('')}</div>
 <div class="list"></div>
-<div class="ft"><button data-act="clear">清空地上的零件</button><button data-act="repair">修好并加满所有车</button></div>
+<div class="ft"><button data-act="clear">清空地上的零件</button><button data-act="repair">修好并加满所有车</button><button data-act="stock">材料各 +100</button></div>
 </div>${TABS.filter(([id]) => id !== 'parts').map(([id]) => `<div class="pane" data-p="${id}" style="display:none"></div>`).join('')}`;
     document.body.appendChild(root);
     this.root = root;
@@ -401,6 +405,9 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       tool('tool:oilcan', { kind: 'tool', tool: 'oilcan' }, TOOL_INFO.oilcan.name.zh, '4 L 机油', 0xd8a531),
       tool('tool:spray', { kind: 'tool', tool: 'spray' }, TOOL_INFO.spray.name.zh, '滚轮换颜色', paintHex(13)),
       tool('tool:sponge', { kind: 'tool', tool: 'sponge' }, TOOL_INFO.sponge.name.zh, '擦洗', 0xe8d257),
+      tool('tool:scraper:1', { kind: 'tool', tool: 'scraper', tier: 1 }, SCRAPERS[1].name.zh, '刀口 10 cm', toolLook(newTool('scraper', { tier: 1 })).paint),
+      tool('tool:scraper:2', { kind: 'tool', tool: 'scraper', tier: 2 }, SCRAPERS[2].name.zh, '刀口 22 cm', toolLook(newTool('scraper', { tier: 2 })).paint),
+      tool('tool:scraper:3', { kind: 'tool', tool: 'scraper', tier: 3 }, SCRAPERS[3].name.zh, '刀口 25 cm', toolLook(newTool('scraper', { tier: 3 })).paint),
     ]);
     for (const cat of ITEM_ORDER) {
       add(
@@ -477,6 +484,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       const act = (e.target as HTMLElement).closest('button')?.dataset.act;
       if (act === 'clear') this.host.devClear();
       if (act === 'repair') this.host.devRepair();
+      if (act === 'stock') this.host.devStock();
     });
     this.list.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;

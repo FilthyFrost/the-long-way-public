@@ -5,7 +5,8 @@ Per engine, into public/audio/modcar/engines/<id>/:
   crank.*                             starter turning the engine over, no spark (loop)
   catch.*                             first firing, flare and settle into idle (one-shot)
   shutdown.* / stall.*                spark off at idle / dragged down under load (one-shots)
-  limiter.*                           free revving against the rev limiter (loop)
+  limiter.*                           free revving against the rev limiter (loop; a governed machine
+                                      with no limiter take has none)
   manifest.json                       rpm, load, loop points, natural levels
 
 Loops are written with a cyclic pre-roll and post-roll around the loop region: any window of the
@@ -234,6 +235,21 @@ def pipe_resonance(x, fs, rpm, onset=5200.0, full=8000.0, f0=2600.0):
     return y
 
 
+def hum_layer(x, fs, rng, cycles, level_db, partials=((2, 1.0), (4, 0.5), (6, 0.32), (8, 0.2), (12, 0.12), (24, 0.05))):
+    """A generating set's alternator: its two-pole rotor turns with the crank, so the mains frequency
+    is the crank's (50 Hz at 3000 rpm) and the iron hums at twice that and on up (partials in crank
+    orders, whole cycles per loop: seamless), pulled a little by every firing (cyclic)."""
+    L = len(x)
+    revs = 2 * cycles
+    t = np.arange(L) / L
+    out = np.zeros(L)
+    for order, g in partials:
+        out += g * np.sin(2 * np.pi * order * revs * t + rng.uniform(0, 2 * np.pi))
+    # the field sags a touch with the torque pulse of each firing
+    out *= 1 + 0.18 * np.sin(2 * np.pi * cycles * t + rng.uniform(0, 2 * np.pi))
+    return out * (rms(x) * 10 ** (level_db / 20) / (rms(out) + 1e-30))
+
+
 # per engine: what is layered onto the recorded exhaust (levels relative to the exhaust itself)
 LAYERS = {
     'eng_mower':  {'rasp': ((1800, 7000), -15, -19), 'valves': (-27, -22)},
@@ -244,22 +260,46 @@ LAYERS = {
     'eng_flat6':  {'rasp': ((1500, 7000), -17, -21), 'fins': (-28, -26), 'valves': (-30, -26)},
     'eng_v8':     {'rasp': ((1000, 6000), -17, -21), 'valves': (-33, -28)},
     'eng_d6':     {'rasp': ((900, 4500), -22, -24), 'knock': (-14, -32, -8)},
+    # the generator: its 'off' is a light-load run (lightOff: the injection knock at the idle level on
+    # every off loop), finned cylinder, the alternator's hum
+    # (a diesel clatters most running light; loaded it thumps deeper and the alternator hums harder)
+    'gen_d1':     {'rasp': ((1200, 6000), -18, -21), 'fins': (-24, -26), 'knock': (-11, -30, -7), 'lightOff': True, 'hum': (-19, -25),
+                   # pulled over by hand the simulator gives only the deep compression thumps: the air
+                   # chuffing through the filter and the muffler, and the valve gear ticking
+                   'crank': {'rasp': ((450, 3500), -9), 'valves': -17}},
 }
 # air-cooled cylinders: the fins ring a little at every firing (the two-stroke's "ring-ding")
 FIN_MODES = {
     'eng_2t': ([(2350, 1.0), (3150, 0.7), (4420, 0.45), (5600, 0.25)], 7.0),
     'eng_single': ([(2050, 1.0), (2900, 0.6), (4100, 0.35)], 4.5),
     'eng_flat6': ([(1850, 1.0), (2700, 0.6), (3800, 0.4)], 3.5),
+    'gen_d1': ([(1950, 1.0), (2800, 0.6), (3900, 0.35)], 4.0),
 }
 KNOCK_MODES = {
     'eng_i4d': ([(1150, 1.0), (1900, 0.8), (2900, 0.55), (4100, 0.3)], 2.6),
     'eng_d6': ([(820, 1.0), (1400, 0.75), (2300, 0.5), (3300, 0.25)], 3.4),
+    # a small block and a finned barrel: higher, shorter
+    'gen_d1': ([(1500, 1.0), (2400, 0.8), (3500, 0.55), (5000, 0.3)], 2.2),
 }
+
+
+def enrich_crank(eid, loop, fs, cylinders, cycles, rng):
+    """Layers on the cranking loop (only for engines whose LAYERS say 'crank'; cyclic)."""
+    cfg = LAYERS.get(eid, {}).get('crank', {})
+    y = loop.copy()
+    if 'rasp' in cfg:
+        band, db = cfg['rasp']
+        y += rasp_layer(loop, fs, rng, band, db, power=1.2)
+    if 'valves' in cfg:
+        y += knock_layer(y, fs, rng, 2 * cylinders * cycles, cfg['valves'], [(2900, 1.0), (4300, 0.7), (6200, 0.4)], 1.2, tick_db=-30, advance_ms=-2.0)
+    return y
 
 
 def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
     cfg = LAYERS.get(eid, {})
     y = loop.copy()
+    # a machine that never coasts: its off loops fire too, lightly
+    light = bool(cfg.get('lightOff')) and load == 'off'
     if 'misfire' in cfg and (load == 'off' or is_idle):
         p_low, p_high = cfg['misfire']
         a = min(1.0, max(0.0, (rpm - 1500) / 4500))
@@ -283,14 +323,17 @@ def enrich(eid, loop, fs, load, cylinders, cycles, is_idle, rng, rpm=0.0):
         on_db, off_db = cfg['fins']
         modes, decay = FIN_MODES[eid]
         y += knock_layer(y, fs, rng, cylinders * cycles, on_db if load == 'on' else off_db, modes, decay, tick_db=-30, advance_ms=0.5)
-    if 'knock' in cfg and (load == 'on' or is_idle):
+    if 'knock' in cfg and (load == 'on' or is_idle or light):
         on_db, off_db, idle_db = cfg['knock']
         modes, decay = KNOCK_MODES[eid]
-        y += knock_layer(loop, fs, rng, cylinders * cycles, idle_db if is_idle else on_db, modes, decay)
+        y += knock_layer(loop, fs, rng, cylinders * cycles, idle_db if (is_idle or light) else on_db, modes, decay)
     elif 'knock' in cfg:
         # fuel cut: no combustion knock, only the injection pump ticking faintly
         modes, decay = KNOCK_MODES[eid]
         y += knock_layer(loop, fs, rng, cylinders * cycles, cfg['knock'][1], modes, decay * 0.5)
+    if 'hum' in cfg:
+        on_db, off_db = cfg['hum']
+        y += hum_layer(loop, fs, rng, cycles, on_db if load == 'on' else off_db)
     return y
 
 
@@ -399,7 +442,8 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         loop, start, seam = cut_loop(x, L, int(0.010 * fs))
         is_idle = load == 'off' and int(rpm_s) == e['idle']
         nat = rms(loop)
-        if load == 'off' and not is_idle:
+        # (a light-load machine's idle is one of its light-load runs: trimmed like the rest)
+        if load == 'off' and (not is_idle or e['offMode'] == 'light'):
             nat *= 10 ** (e.get('offTrimDb', 0) / 20)
         rich = enrich(eid, loop, fs, load, model_cyl, k, is_idle, rng, rpm)
         m = int(round(L * FS / fs))
@@ -412,6 +456,10 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     x, fs = read_wav(os.path.join(src, 'crank.wav'))
     tel = read_log(os.path.join(src, 'crank.csv'))
     crpm = float(np.median(tel['rpm'][len(tel['rpm']) // 2:]))
+    if e.get('crankSpeed') == 'mean':
+        # pulled over with the air open the speed swings hard with every compression: the cycle
+        # takes as long as the mean speed says, which the median does not
+        crpm = float(np.mean(tel['rpm'][len(tel['rpm']) // 2:]))
     x = x[int(0.5 * fs):]
     T = 120.0 / max(crpm, 30) * fs
     k = max(1, int((len(x) - 0.15 * fs) // T))
@@ -420,17 +468,18 @@ def build_one(eid, e, raw, out_root, ffmpeg):
     L0 = min(k * T, len(x) * 0.62)
     L, corr = best_period(x, L0, span=0.03)
     loop, _, seam = cut_loop(x, L, int(0.008 * fs))
-    y = resample_cyclic(loop, int(round(L * FS / fs)))
+    y = resample_cyclic(enrich_crank(eid, loop, fs, model_cyl, k, rng) if 'crank' in LAYERS.get(eid, {}) else loop, int(round(L * FS / fs)))
     items.append({'kind': 'loop', 'file': 'crank', 'rpm': round(crpm, 1), 'cycles': k, 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
 
-    # rev limiter: not periodic, find the best ~1 s seam
-    x, fs = read_wav(os.path.join(src, 'limiter.wav'))
-    x = x[int(0.3 * fs):]
-    L, corr = best_period(x, 0.8 * fs, span=0.2)
-    loop, _, seam = cut_loop(x, L, int(0.012 * fs))
-    lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng, e['limiter'])
-    y = resample_cyclic(lim, int(round(L * FS / fs)))
-    items.append({'kind': 'loop', 'file': 'limiter', 'rpm': e['limiter'], 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
+    # rev limiter: not periodic, find the best ~1 s seam (a governed machine has none: no take)
+    if e.get('limiterTake', True):
+        x, fs = read_wav(os.path.join(src, 'limiter.wav'))
+        x = x[int(0.3 * fs):]
+        L, corr = best_period(x, 0.8 * fs, span=0.2)
+        loop, _, seam = cut_loop(x, L, int(0.012 * fs))
+        lim = enrich(eid, loop, fs, 'on', model_cyl, max(1, int(round(L / (120.0 / e['limiter'] * fs)))), False, rng, e['limiter'])
+        y = resample_cyclic(lim, int(round(L * FS / fs)))
+        items.append({'kind': 'loop', 'file': 'limiter', 'rpm': e['limiter'], 'nat': rms(loop), 'corr': round(corr, 4), 'seam': round(seam, 5), 'y': y})
 
     # one-shots
     def oneshot(name, x, fs, lead=0.05, tail_fade=0.05):
@@ -441,12 +490,16 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         y[:fi] *= np.linspace(0, 1, fi)
         return y
 
+    # a light-load machine's one-shots start or end at its light-load run: they take the trim of its
+    # off loops, and shotTrimDb more (the voice plays a one-shot 2 dB over the loops it hands over to)
+    shot_trim = 10 ** ((e.get('offTrimDb', 0) + e.get('shotTrimDb', 0)) / 20) if e['offMode'] == 'light' else 1.0
+
     x, fs = read_wav(os.path.join(src, 'start.wav'))
     tel = read_log(os.path.join(src, 'start.csv'))
     # the catch: from just before the first strong firing to the settled idle
     o = onset(x, fs, 0.2)
     s0 = max(0, o - int(0.06 * fs))
-    items.append({'kind': 'oneshot', 'file': 'catch', 'nat': rms(x[o:]), 'y': oneshot('catch', x[s0:], fs), 'at': round(s0 / fs, 3)})
+    items.append({'kind': 'oneshot', 'file': 'catch', 'nat': rms(x[o:]) * shot_trim, 'y': oneshot('catch', x[s0:], fs), 'at': round(s0 / fs, 3)})
 
     for name in ('shutdown', 'stall'):
         x, fs = read_wav(os.path.join(src, name + '.wav'))
@@ -454,7 +507,7 @@ def build_one(eid, e, raw, out_root, ffmpeg):
         env = signal.lfilter([0.01], [1, -0.99], np.abs(x))
         live = np.nonzero(env > 0.002 * env.max())[0]
         end = min(len(x), int(live[-1]) + int(0.15 * fs)) if len(live) else len(x)
-        items.append({'kind': 'oneshot', 'file': name, 'nat': rms(x[: int(0.25 * fs)]), 'y': oneshot(name, x[:end], fs)})
+        items.append({'kind': 'oneshot', 'file': name, 'nat': rms(x[: int(0.25 * fs)]) * shot_trim, 'y': oneshot(name, x[:end], fs)})
 
     # cycle phase of every steady loop, so the player can start each one in step with its
     # neighbour: each load chained up by rpm (coh = likeness to the loop below), then the whole

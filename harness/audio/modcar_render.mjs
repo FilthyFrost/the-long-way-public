@@ -2,15 +2,23 @@
 // EngineVoice / Foley code in headless Chrome with OfflineAudioContext (nothing reaches a speaker;
 // Chrome also runs with --mute-audio), writes WAVs and prints levels and spectral centroids.
 //
-//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--all]
+//   node harness/audio/modcar_render.mjs [engines...] [--foley] [--loops] [--variants] [--workshop] [--all] [--no-metrics]
 //
+// Vehicle engines render the 'tour'; the generator (gen_d1) renders its own sequence instead: two
+// pulls on the rope (the second catches), running light with the governor hunting, the recycler's
+// load, light again, switched off; plus running dry, and two checks of its pull start (no starter
+// motor to hear, a flat battery changes nothing). --loops checks the engines named, else all.
+// --workshop renders the workshop scene (the generator and the workshop foley together) as a mix check.
 // WAVs go to $MODCAR_AUDIO_OUT (default D:/modcar-scratch/sound/out); the summary is written there
-// as report.json and, compactly, to loop/metrics/audio_modcar.json. Exit code 1 if a loop clicks.
+// as report.json and, compactly, to loop/metrics/audio_modcar.json (not with --no-metrics).
+// Exit code 1 if a loop clicks or a check fails.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, startServer } from '../shots/lib.mjs';
 
 const ENGINES = ['eng_mower', 'eng_single', 'eng_2t', 'eng_i4', 'eng_i4d', 'eng_flat6', 'eng_v8', 'eng_d6'];
+/** machines that are not driven: their own sequence, not the tour */
+const MACHINES = ['gen_d1'];
 const OUT = process.env.MODCAR_AUDIO_OUT || 'D:/modcar-scratch/sound/out';
 const args = process.argv.slice(2);
 const all = args.includes('--all');
@@ -18,8 +26,10 @@ const doFoley = all || args.includes('--foley');
 const doLoops = all || args.includes('--loops');
 const doVariants = all || args.includes('--variants');
 const doSweep = all || args.includes('--sweep');
+const doWorkshop = all || args.includes('--workshop');
+const doMetrics = !args.includes('--no-metrics');
 const named = args.filter((a) => !a.startsWith('--'));
-const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep) ? ENGINES : [];
+const engines = named.length ? named : all || (!doFoley && !doLoops && !doVariants && !doSweep && !doWorkshop) ? [...ENGINES, ...MACHINES] : [];
 
 // ---------------------------------------------------------------- analysis
 
@@ -117,6 +127,9 @@ function stats(x, sr, a = 0, b = x.length / sr) {
 
 // tour segments (seconds, see harness/audio/render.ts)
 const SEGMENTS = { crank: [0.2, 1.2], idle: [2.6, 3.9], blip: [4.3, 4.9], pull_low: [7.4, 8.4], pull_high: [9.6, 10.5], limiter: [10.6, 11.05], second: [12.5, 14.3], overrun: [15.0, 18.0], off: [20.6, 21.8] };
+// the generator's sequence: the first pull (no catch), between the pulls, the catch, running light,
+// under the recycler's load, light again, the run-down, after it
+const GEN_SEGMENTS = { pull: [0.35, 0.9], quiet: [1.4, 1.85], catch: [2.5, 3.6], light: [4.5, 7.9], loaded: [9.0, 11.9], light2: [13.0, 14.9], rundown: [15.05, 17.3], after: [17.5, 18.0] };
 
 // ---------------------------------------------------------------- run
 
@@ -148,7 +161,51 @@ try {
     return { all: stats(x, r.sampleRate), seg, debug: r.debug };
   };
 
-  for (const id of engines) {
+  const check = (ok, what) => {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`);
+    if (!ok) failed = true;
+  };
+
+  for (const id of engines.filter((e) => MACHINES.includes(e))) {
+    const genSeg = async (spec, name) => {
+      const r = await page.evaluate((s) => window.__modcarAudio.renderEngine(s), spec);
+      const x = fromBase64(r.pcm);
+      writeWav(path.join(OUT, `${name}.wav`), x, r.sampleRate);
+      const seg = {};
+      for (const [k, [a, b]] of Object.entries(GEN_SEGMENTS)) seg[k] = stats(x, r.sampleRate, a, b);
+      return { all: stats(x, r.sampleRate), seg, x, sr: r.sampleRate };
+    };
+    // what one render has that another has not (the renders are deterministic)
+    const diff = (p, q, a, b) => {
+      const d = new Float32Array(p.x.length);
+      for (let i = 0; i < d.length; i++) d[i] = p.x[i] - (q.x[i] ?? 0);
+      return stats(d, p.sr, a, b).rms;
+    };
+    const g = await genSeg({ engineId: id, sequence: 'genset' }, `${id}_genset`);
+    report.engines[id] = g.seg;
+    const s = g.seg;
+    console.log(`${id.padEnd(10)} pull ${s.pull.rms} dB/${s.pull.centroid} Hz  catch ${s.catch.rms}  light ${s.light.rms}/${s.light.centroid}  loaded ${s.loaded.rms}/${s.loaded.centroid}  run-down ${s.rundown.rms}  after ${s.after.rms}  peak ${g.all.peak}`);
+    check(s.pull.rms > s.quiet.rms + 12, `${id}: the pull is heard (${s.pull.rms} dB against ${s.quiet.rms} dB between pulls)`);
+    // (loaded it thumps louder and deeper; running light it clatters)
+    check(s.loaded.rms > s.light.rms + 0.5 && Math.abs(s.loaded.centroid / s.light.centroid - 1) > 0.05, `${id}: the recycler's load is heard (${s.light.rms} -> ${s.loaded.rms} dB, ${s.light.centroid} -> ${s.loaded.centroid} Hz)`);
+    check(s.after.rms < s.light.rms - 30, `${id}: silent once run down (${s.after.rms} dB)`);
+    check(g.all.peak < -0.5, `${id}: no clipping (peak ${g.all.peak} dB)`);
+    // the pull start: with it the voice adds no starter motor; with a starter (an A/B render) it would
+    const ab = await genSeg({ engineId: id, sequence: 'genset', tone: { pullStart: false } }, `${id}_genset_starter_ab`);
+    const whine = diff(ab, g, ...GEN_SEGMENTS.pull);
+    const same = diff(ab, g, ...GEN_SEGMENTS.light);
+    check(whine > -70 && same < -90, `${id}: no starter-motor whine on the rope (an electric starter would add ${whine} dB over the pull; running, the two renders differ by ${same} dB)`);
+    // a rope needs no battery: a flat one changes nothing (no solenoid clicks, it still turns over)
+    const flat = await genSeg({ engineId: id, sequence: 'genset', extra: { starterRate: 0.05 } }, `${id}_genset_flat`);
+    const flatDiff = diff(flat, g, 0, 4.0);
+    // (with an electric starter a flat battery only clicks: no cranking loop under the clicks)
+    const clicksB = await genSeg({ engineId: id, sequence: 'genset', extra: { starterRate: 0.05 }, tone: { pullStart: false } }, `${id}_genset_flat_starter_ab`);
+    check(flatDiff < -90 && clicksB.seg.pull.rms > -80, `${id}: a flat battery changes nothing on the rope (difference ${flatDiff} dB; an electric starter would only click instead: ${clicksB.seg.pull.rms} dB over the pull)`);
+    const dry = await genSeg({ engineId: id, sequence: 'dry' }, `${id}_dry`);
+    report.variants[`${id}_dry`] = dry.seg;
+  }
+
+  for (const id of engines.filter((e) => !MACHINES.includes(e))) {
     const res = await render({ engineId: id, sequence: 'tour' }, `${id}_tour`);
     report.engines[id] = res.seg;
     const s = res.seg;
@@ -249,11 +306,15 @@ try {
       ['part_pickup', { mass: 0.3 }], ['part_pickup', { mass: 20 }], ['part_setdown', { mass: 0.3 }], ['part_setdown', { mass: 4 }], ['part_setdown', { mass: 25 }], ['part_setdown', { mass: 235 }],
       ['part_install', { mass: 10 }], ['part_remove', { mass: 10 }], ['key_turn', {}], ['handbrake_pull', {}], ['handbrake_release', {}], ['gear_shift', {}], ['gear_grind', {}], ['spray_shake', {}], ['switch', {}], ['lever', {}],
       ['horn_trumpet', {}], ['ratchet', {}], ['spray', {}], ['sponge', {}], ['pour', { liquid: 'fuel' }], ['pour', { liquid: 'water' }], ['pour', { liquid: 'oil' }], ['horn_beep', {}], ['horn_air', {}],
+      // the workshop
+      ['cord_pull', {}], ['gen_switch', {}], ['gen_cough', {}], ...['metal', 'plastic', 'organic', 'cloth', 'wood'].map((grind) => ['shred', { grind }]), ['tally', {}], ['craft_start', {}], ['hammer_swing', {}],
+      ...['metal', 'plastic', 'wood', 'organic', 'cloth'].map((grind) => ['hammer_hit', { grind }]), ['craft_done', {}], ['power_on', {}], ['power_off', {}], ['no_power', {}],
+      ['recycler_run', {}], ['recycler_grind', {}], ['lamp_buzz', {}],
     ];
     for (const [kind, opts] of list) {
       const r = await page.evaluate((s) => window.__modcarAudio.renderFoley(s), { kind, opts, hold: 2.5 });
       const x = fromBase64(r.pcm);
-      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid].filter(Boolean).join('_');
+      const tag = [kind, opts.material, opts.mass !== undefined ? `${opts.mass}kg` : null, opts.liquid, opts.grind].filter(Boolean).join('_');
       writeWav(path.join(OUT, `foley_${tag}.wav`), x, r.sampleRate);
       const st = stats(x, r.sampleRate);
       report.foley[tag] = st;
@@ -261,8 +322,20 @@ try {
     }
   }
 
+  if (doWorkshop) {
+    const r = await page.evaluate(() => window.__modcarAudio.renderWorkshop());
+    const x = fromBase64(r.pcm);
+    writeWav(path.join(OUT, 'workshop_scene.wav'), x, r.sampleRate);
+    report.workshop = {};
+    for (const [k, [a, b]] of Object.entries(r.marks)) report.workshop[k] = stats(x, r.sampleRate, a, b);
+    const w = report.workshop;
+    console.log(`workshop scene: ${Object.entries(w).map(([k, v]) => `${k} ${v.rms}`).join('  ')} (dB rms)  peak ${stats(x, r.sampleRate).peak} dB`);
+    check(stats(x, r.sampleRate).peak < -0.5, `workshop scene: no clipping (peak ${stats(x, r.sampleRate).peak} dB)`);
+    check(w.quiet.rms < -60, `workshop scene: silent once everything is off (${w.quiet.rms} dB)`);
+  }
+
   if (doLoops) {
-    for (const id of ENGINES) {
+    for (const id of named.length ? named : [...ENGINES, ...MACHINES]) {
       for (const sr of [48000, 44100]) {
         const res = await page.evaluate(([e, s]) => window.__modcarAudio.checkLoops(e, s), [id, sr]);
         const worst = res.reduce((a, b) => (b.ratio > a.ratio ? b : a), { ratio: 0, file: '' });
@@ -284,10 +357,14 @@ try {
 fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(report, null, 1));
 const metricsFile = path.join(ROOT, 'loop', 'metrics', 'audio_modcar.json');
 const compact = {};
-for (const [id, s] of Object.entries(report.engines)) compact[id] = { idle_db: s.idle.rms, pull_high_db: s.pull_high.rms, overrun_db: s.overrun.rms, idle_hz: s.idle.centroid, pull_high_hz: s.pull_high.centroid };
+for (const [id, s] of Object.entries(report.engines)) {
+  compact[id] = MACHINES.includes(id)
+    ? { light_db: s.light.rms, loaded_db: s.loaded.rms, pull_db: s.pull.rms, light_hz: s.light.centroid, loaded_hz: s.loaded.centroid }
+    : { idle_db: s.idle.rms, pull_high_db: s.pull_high.rms, overrun_db: s.overrun.rms, idle_hz: s.idle.centroid, pull_high_hz: s.pull_high.centroid };
+}
 for (const [k, v] of Object.entries(report.loops)) compact[`loops_${k}`] = v.worst;
 for (const [k, v] of Object.entries(report.sweeps || {})) compact[`sweep_wobble_${k}`] = { on: v.on.rms, off: v.off.rms };
-if (Object.keys(compact).length) {
+if (doMetrics && Object.keys(compact).length) {
   let prev = {};
   try {
     prev = JSON.parse(fs.readFileSync(metricsFile, 'utf8'));
