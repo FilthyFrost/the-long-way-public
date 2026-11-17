@@ -281,6 +281,7 @@ function makeDials(): Dial[] {
   lm('look.fog', '空气感（远处发白）', '远处的山和路被空气「冲淡」的程度。调大更有空气感、远山更淡；调小远处更清楚。', 'specs/art/style.json lightKeys[].haze × 这个数', 5);
   lm('look.shafts', '光束', '太阳低的时候穿过雾气、树缝的那种一道道光柱有多明显。', 'game/env/environment.ts core.shafts × 这个数', 5);
   add({ id: 'look.fov', label: '视野角度', help: '第一人称时一眼能看多宽。调大视野更广（更有速度感），调小像长焦镜头。', min: 40, max: 110, step: 1, def: 68, unit: 'deg', code: 'game/modcar/ModGame.ts 第一人称的 cam.fov' }, tab, sec);
+  add({ id: 'look.shake', label: '座椅震动', help: '开车时镜头跟着路面、发动机和颠簸抖动的程度。0 就完全不抖（容易晕车的话调小），2 是加倍。', min: 0, max: 2, step: 0.05, def: 1, unit: 'x', code: 'game/modcar/seatShake.ts SeatShake.scale' }, tab, sec);
 
   // ---------------------------------------------------------------- terrain (by biome; the world made again)
   tab = 'terrain';

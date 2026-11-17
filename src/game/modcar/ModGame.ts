@@ -68,6 +68,8 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
+import { SeatShake, type ShakeEngine } from './seatShake';
+import { WheelDust } from './wheelDust';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
@@ -221,6 +223,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly hud: Hud;
   readonly audio = new AudioEngine();
   readonly rig = new FirstPersonRig();
+  /** the seat's shake on top of the head's sway: the road, the engine, the knocks (seatShake.ts) */
+  readonly shake = new SeatShake();
+  private readonly felt: ShakeEngine = { running: false, rpm: 0, idle: 800, cylinders: 4, misfire: 0 };
   readonly ui = new ModUI();
   readonly mats = new CarMaterials();
   readonly vehicles: ModVehicle[] = [];
@@ -306,6 +311,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly splashes: Splashes;
   /** metal on the road */
   readonly sparks: Sparks;
+  /** the dust the wheels throw up (wheelDust.ts) */
+  readonly dust: WheelDust;
   /** the assists (F2) */
   readonly assists: Assists = loadAssists();
   private readonly sparkDue = new Map<ModVehicle, number>();
@@ -423,6 +430,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.stream = new LiquidStream(this.core.scene);
     this.splashes = new Splashes(this.core.renderer, this.core.scene);
     this.sparks = new Sparks(this.core);
+    this.dust = new WheelDust(this.core.origin);
+    this.core.scene.add(this.dust.mesh);
     this.grime = new Grime(this.core.renderer);
     this.flakes = new Flakes(this.core.scene);
     this.mist = new SprayMist(this.core.scene);
@@ -507,6 +516,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     this.chaseInit = false;
     this.rig.reset();
+    this.shake.reset();
     this.env.cloudsNow = true;
     this.devLoad = 4;
     // (screenshots go without the fade: the harness builds the world before it draws)
@@ -2214,6 +2224,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     // astride a bike one looks down the road over the clocks (level, they sit under the view's edge)
     this.input.lookPitch = this.seatPitch(v);
     this.rig.reset();
+    this.shake.reset();
     // (no door on a motorcycle: the stand folds up)
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
     this.checkTutorial();
@@ -2250,6 +2261,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     s.reset(s.px, this.gs.h + 0.15, s.pz, s.yaw);
     v.sys.bind(s);
     this.rig.reset();
+    this.shake.reset();
   }
 
   // ------------------------------------------------------------------ PlayerHost
@@ -3104,8 +3116,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const engInst = eng ? v.build.parts[eng.id] : undefined;
     const inGear = sim.selector === 'D' || sim.selector === 'R';
     // the cabin is as open as its missing and open doors (and a frame that has none) make it
-    let open = 1 - v.sys.derived.enclosed;
-    for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
+    const open = this.cabinOpen(v);
     const inside = this.seated === v && this.viewMode === 'cockpit';
     const dx = this.player.walker.x - sim.px;
     const dz = this.player.walker.z - sim.pz;
@@ -3124,7 +3135,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       running: d.running,
       cranking: d.cranking,
       inside,
-      doorsOpen: Math.min(1, Math.max(0, open)),
+      doorsOpen: open,
       starterRate: Math.min(1, d.battery * 1.6),
       boost: d.boost,
       distance: Math.max(1, dist),
@@ -3318,6 +3329,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     this.loose.update(dt);
     this.throwSparks(dt);
+    this.kickDust(dt);
     this.checkTutorial();
     if (this.garage) this.garage.update(dt, this.garageContext());
     this.leaveGarage(dt);
@@ -3348,6 +3360,61 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       };
     }
     return this.garageCtx;
+  }
+
+  /**
+   * The dust the wheels throw up (wheelDust.ts): every vehicle near enough to be seen, on what it rolls on,
+   * none off ground the weather has wet; then the puffs drifting on the wind.
+   */
+  private kickDust(dt: number): void {
+    const c = this.core.camera.position;
+    const o = this.core.origin;
+    const wet = this.env.state.wetness;
+    for (const v of this.vehicles) {
+      if (Math.hypot(v.sim.px - c.x - o.x, v.sim.pz - c.z - o.z) > 180) continue;
+      // (a motorcycle's two tracks are four contacts a hand apart: half each)
+      this.dust.kick(dt, v, v.sim.wheels, wet, v.view.frame.balance ? 0.5 : 1);
+    }
+    const w = this.env.state;
+    this.dustWind.x = Math.cos(w.windDir) * w.wind;
+    this.dustWind.z = Math.sin(w.windDir) * w.wind;
+    this.dust.update(dt, this.dustWind);
+  }
+
+  private readonly dustWind = { x: 0, z: 0 };
+
+  /** the engine as the seat feels it (seatShake.ts): running or not, its revs, its cylinders, how worn */
+  private engineFelt(v: ModVehicle): ShakeEngine {
+    const d = v.sys.dash;
+    const eng = v.view.frame.mounts.find((m) => m.cat === 'engine' && v.build.parts[m.id]);
+    const cond = eng ? v.build.parts[eng.id].cond : 1;
+    const f = this.felt;
+    f.running = d.running;
+    f.rpm = d.rpm;
+    f.idle = v.sim.spec.engine.idle;
+    f.cylinders = v.sys.derived.engine?.engine?.cylinders ?? 4;
+    f.misfire = Math.max(0, Math.min(1, (0.55 - cond) / 0.45));
+    return f;
+  }
+
+  /** how stiff a vehicle's springs are against its frame's own (a sport strut passes more of the road on; none, it rides on its stops) */
+  private stiffnessOf(v: ModVehicle): number {
+    let sum = 0;
+    let n = 0;
+    for (const m of v.view.frame.mounts) {
+      if (m.cat !== 'suspension') continue;
+      const p = v.build.parts[m.id];
+      sum += p ? (partDef(p.part).suspension?.spring ?? 1) : 3;
+      n++;
+    }
+    return n ? sum / n : 1;
+  }
+
+  /** how open a vehicle's cabin is (0 shut … 1 open): a frame without doors, the doors missing, the ones standing open */
+  private cabinOpen(v: ModVehicle): number {
+    let open = 1 - v.sys.derived.enclosed;
+    for (const m of v.view.frame.mounts) if (m.cat === 'door' && v.build.parts[m.id]) open += v.view.panelOpen(m.id) * 0.25;
+    return Math.min(1, Math.max(0, open));
   }
 
   private readonly sparkB = new Float64Array(9);
@@ -3434,6 +3501,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       v.sim.vz = b[2] * speed;
       this.chaseInit = false;
       this.rig.reset();
+      this.shake.reset();
       this.ui.setFade(0);
       this.ui.say('上路了。');
     }
@@ -3526,6 +3594,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         this.qa.setFromAxisAngle(this.leanAxis.set(b[0], b[1], b[2]), sim.lean);
         cam.position.sub(pv).applyQuaternion(this.qa).add(pv);
         cam.quaternion.premultiply(this.qa);
+      }
+      // the seat's shake on top (seatShake.ts): the road through the tyres, the engine on its mounts, the knocks
+      const sh = this.shake;
+      sh.scale = this.tune.get('look.shake');
+      sh.stiffness = this.stiffnessOf(this.seated);
+      sh.update(dt, sim, this.engineFelt(this.seated));
+      if (sh.scale > 0) {
+        const b = this.basis;
+        sim.basis(b);
+        cam.position.x += b[0] * sh.x + b[3] * sh.y + b[6] * sh.z;
+        cam.position.y += b[1] * sh.x + b[4] * sh.y + b[7] * sh.z;
+        cam.position.z += b[2] * sh.x + b[5] * sh.y + b[8] * sh.z;
+        // (the camera's own axes: x to the right, y up, looking down −z)
+        cam.rotateX(sh.pitch);
+        cam.rotateZ(-sh.roll);
+        cam.rotateY(sh.yaw);
       }
       const seatFov = this.rig.fov + this.tune.get('look.fov') - 68;
       if (Math.abs(cam.fov - seatFov) > 0.01) {
@@ -4038,7 +4122,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         snow: w.snow,
         dust: w.dust,
         wind: w.wind,
-        enclosed: this.seated ? v.sys.derived.enclosed : 0,
+        // (the wind and the rain come in at a door standing open as at one that is not there)
+        enclosed: this.seated ? 1 - this.cabinOpen(v) : 0,
         // (the engine and its starter are the EngineVoice's)
         engineOn: false,
         cranking: false,
@@ -4155,6 +4240,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       wrecks: this.wreckTelemetry(),
       places: this.places?.telemetry() ?? null,
       siteArt: this.siteArt?.telemetry() ?? null,
+      shake: { ...this.shake.parts },
+      dust: { live: this.dust.live, thrown: this.dust.thrown },
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),
