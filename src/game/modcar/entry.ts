@@ -16,7 +16,7 @@ import { readParams } from '../params';
 import { loadStats } from './assets';
 import { devItemOf } from './devPanel';
 import { Tune } from './devTune';
-import { ModGame, readModParams, type ViewMode } from './ModGame';
+import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
 import { clearSave, loadSave } from './save';
 
 /** is a thing lying about the one asked for: a part id, tool:<kind> or item:<id> */
@@ -33,8 +33,19 @@ if (q.has('new')) clearSave();
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
 // (?new=1: the save cleared, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();
+// (a new game of one's own, no world asked for: the new world's seed ModGame.newGame left for it)
+if (!save && !own && !q.has('seed')) {
+  try {
+    const ns = Number(localStorage.getItem(NEW_SEED_KEY));
+    if (ns > 0) fresh.seed = ns;
+    localStorage.removeItem(NEW_SEED_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+// (a save of the one world with the workshop in it starts there, in the yard or down the road, as the save has it)
 const params = save
-  ? { ...fresh, keep: true, start: save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: save.road?.seed ?? fresh.seed, weather: save.place === 'road' ? base.weather : fresh.weather }
+  ? { ...fresh, keep: true, start: save.world ? 'garage' : save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: save.world?.seed ?? save.road?.seed ?? fresh.seed, weather: save.place === 'road' ? base.weather : fresh.weather }
   : { ...fresh, keep: !own };
 // the developer's dials, the terrain's among them, are in before the world is made
 const tune = new Tune();

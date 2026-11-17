@@ -82,6 +82,8 @@ export interface GarageScene {
   update(dt: number, ctx: GarageContext): void;
   /** exposure factor for an eye at (x, y, z) (world): the eye opens up indoors */
   exposureAt(x: number, y: number, z: number): number;
+  /** is (x, z) under the building's roof (world): warm, out of the rain */
+  indoors?(x: number, z: number): boolean;
   /** where the fine shadow map should be centred for someone at (x, z) looking along heading (world; fills out) */
   shadowFocus?(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void;
   /** a garage whose doors open: are they open (wide enough to drive out)? */

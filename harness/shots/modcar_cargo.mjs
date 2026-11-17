@@ -1,5 +1,6 @@
 // Things ride on vehicles: a jerrycan put down into the donor pickup's bed lands on its floor, goes out to
-// the road with it, and can be taken out there. Writes loop/shots/modcar_cargo/*.png.
+// the road with it (the other can stays in the workshop: nothing is thrown away, docs/MODCAR.md §17), and can be
+// taken out there. Writes loop/shots/modcar_cargo/*.png.
 //   SHOTS_GPU=1 node harness/shots/modcar_cargo.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -63,7 +64,7 @@ try {
   const road = await page.evaluate(() => {
     const g = window.__rt.game;
     const v = g.seated;
-    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan');
+    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan' && x.tool.fuel === 'petrol');
     return { place: g.place, things: g.loose.list.length, riding: l?.riding?.on === v, d: l ? Math.hypot(l.x - v.sim.px, l.z - v.sim.pz) : -1 };
   });
   console.log('on the road', JSON.stringify(road));
@@ -87,7 +88,7 @@ try {
   if (t1.seated) fail(`could not get out (${JSON.stringify({ kmh: t1.kmh, place: t1.place })})`);
   const took = await page.evaluate(() => {
     const g = window.__rt.game;
-    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan');
+    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan' && x.tool.fuel === 'petrol');
     if (!l) return 'gone';
     g.player.walker.place(l.x + 0.9, l.z, Math.PI);
     return 'ok';
@@ -95,7 +96,7 @@ try {
   if (took !== 'ok') fail('the can is gone');
   const held = await page.evaluate(async () => {
     const g = window.__rt.game;
-    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan');
+    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan' && x.tool.fuel === 'petrol');
     const w = g.player.walker;
     const eye = w.eye();
     g.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);

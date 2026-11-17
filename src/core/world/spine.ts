@@ -25,6 +25,12 @@ export interface SpineOptions {
   chapterScale?: number;
   /** id of the first biome */
   startBiome?: string;
+  /**
+   * Where the road begins (s = 0, heading +x) and at what height: by default the origin, at the first biome's
+   * base elevation. The road's whole profile is the same either way, carried by the difference (ModCar: the
+   * road begins at its workshop's gate, level with the yard).
+   */
+  start?: { x: number; z: number; y?: number };
 }
 
 export class BiomeBlend {
@@ -157,6 +163,8 @@ export class RoadSpine implements DrivePath {
   private readonly bl = new BiomeBlend();
   private cursor = 0;
   private readonly tmp = new SpineSample();
+  /** the start's height less the first biome's base elevation: the profile's pull towards each biome's base is carried by it */
+  private readonly lift: number;
 
   constructor(seed: number, opts: SpineOptions = {}) {
     this.seed = seed | 0;
@@ -164,7 +172,10 @@ export class RoadSpine implements DrivePath {
     this.plan = new ChapterPlan(this.seed, opts.chapterScale ?? 1, first);
     this.rng = new Rng(hash2(this.seed, 0x50ad, 13));
     this.gradeSeed = hash2(this.seed, 0x6ade, 5);
-    this.gy = BIOMES[first].baseElev;
+    this.gx = opts.start?.x ?? 0;
+    this.gz = opts.start?.z ?? 0;
+    this.gy = opts.start?.y ?? BIOMES[first].baseElev;
+    this.lift = this.gy - BIOMES[first].baseElev;
     this.ensure(400);
   }
 
@@ -257,7 +268,7 @@ export class RoadSpine implements DrivePath {
 
     const gMax = this.style('gradeMax');
     let gT = this.style('gradeAmp') * 1.6 * fbm1(s / this.style('gradeLen'), this.gradeSeed, 2);
-    gT -= clamp((this.gy - this.style('baseElev')) / 2500, -0.035, 0.035);
+    gT -= clamp((this.gy - this.lift - this.style('baseElev')) / 2500, -0.035, 0.035);
     gT = clamp(gT, -gMax, gMax);
     const gRate = 0.00065;
     this.ggrade += clamp(gT - this.ggrade, -gRate * ds, gRate * ds);

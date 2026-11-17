@@ -41,6 +41,17 @@ export function stripSink(ad: number): number {
 }
 
 /**
+ * How much of that a shaped point gets: not on a plot of the world's caller (WorldOptions.plots), and on a road
+ * that ends at its start (deadEnd) nothing behind the start, where there is no strip, and only from a few metres
+ * past it (the strip's first metres lie on the land as it is, a hand proud of it: no step, no fighting)
+ */
+export function sinkShare(world: World, t: TerrainPoint): number {
+  let k = 1 - t.plot;
+  if (world.deadEnd) k *= t.behind > 0 ? 0 : smoothstep(4, 12, t.s);
+  return k;
+}
+
+/**
  * Ground paint inputs for a vertex (terrainMaterials.ts): the weight of each palette slot, and
  * (distance from the road centre, relief, woodland, 0).
  */
@@ -129,7 +140,10 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
       world.shape(wx, wz, tp);
       pos[k * 3] = wx - ox;
       // (the kerb of a bridge is the bridge mesh's: the strip stays flat under it)
-      const hd = tp.zone === 3 && (d > KERB_AT || d < -KERB_AT) ? tp.h - KERB_HEIGHT : tp.zone !== 0 ? tp.h : tp.bed;
+      let hd = tp.zone === 3 && (d > KERB_AT || d < -KERB_AT) ? tp.h - KERB_HEIGHT : tp.zone !== 0 ? tp.h : tp.bed;
+      // (a road that ends at its start: there the land beside it is not sunk under the strip, which stands a
+      // hand proud of it for its first metres)
+      if (world.deadEnd && tp.zone === 0 && s < 12) hd += 0.03 * (1 - smoothstep(4, 12, s));
       pos[k * 3 + 1] = hd - oy - (skirt && !onBridge ? 1.6 : 0);
       pos[k * 3 + 2] = wz - oz;
       road[k * 4] = d;
@@ -242,7 +256,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
       const wz = z0 + j * step;
       world.shape(wx, wz, tp, level < 0);
       const ad = tp.d < 0 ? -tp.d : tp.d;
-      let h = tp.bed - stripSink(ad) * (1 - tp.bridge);
+      let h = tp.bed - stripSink(ad) * (1 - tp.bridge) * sinkShare(world, tp);
       let wood = 0;
       if (canopy) {
         const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
@@ -387,7 +401,7 @@ export function buildScatter(world: World, tx: number, tz: number, far: boolean,
       const ad = tp.d < 0 ? -tp.d : tp.d;
       if (ad < 7.5) continue;
       // nothing grows in the water or on the wet shore, nor on the ground of a place by the road
-      if (tp.wl > tp.bed - 0.9 || tp.site > 0.2) continue;
+      if (tp.wl > tp.bed - 0.9 || tp.site > 0.2 || tp.plot > 0.9) continue;
       const bi = (tp.bt < 0.5 ? tp.ba : tp.bb) | 0;
       const id = BIOMES[bi].id;
       // a coast road keeps its view: between the road and the water only the odd low bush
@@ -513,7 +527,7 @@ export function polePosition(world: World, poleIndex: number, out: Pole): void {
   // the line does not cross a river on poles, and none stands in the water
   if (tp.bridge > 0.02 || tp.wl > tp.bed - 0.3) out.state = 3;
   // nor on the ground of a place: whoever built the forecourt took the pole away
-  if (tp.site > 0.3) out.state = 3;
+  if (tp.site > 0.3 || tp.plot > 0.3 || (world.deadEnd && s < 0)) out.state = 3;
   const lean = out.state === 1 ? 0.2 + 0.22 * (((h >>> 12) & 255) / 255) : 0.02 + 0.07 * (((h >>> 12) & 255) / 255);
   const dir = (((h >>> 20) & 1023) / 1023) * Math.PI * 2;
   const hgt = out.state === 2 ? 2.1 : POLE_H;
@@ -709,7 +723,7 @@ export function buildPoles(world: World, c: number, span = 1): { poles: THREE.Bu
     const wx = st.x - Math.sin(st.phi) * d;
     const wz = st.z + Math.cos(st.phi) * d;
     world.shape(wx, wz, tp);
-    if (tp.bridge > 0.02 || tp.wl > tp.bed - 0.3 || tp.site > 0.2) continue;
+    if (tp.bridge > 0.02 || tp.wl > tp.bed - 0.3 || tp.site > 0.2 || tp.plot > 0.2) continue;
     addSign(b, wx, tp.h, wz, -st.phi, h, ox, oy, oz);
   }
   addFurniture(b, world, i0 * sp.ds, (i0 + STRIP_STATIONS * span) * sp.ds, ox, oy, oz);
@@ -877,7 +891,7 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       const k = j * G + i;
       hs[k] = tp.bed;
       // (… nor on the sand of a sea beach)
-      bare[k] = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || world.sites.bareAt(x0 + i * GRID, z0 + j * GRID) ? 1 : 0;
+      bare[k] = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || tp.plot > 0.999 || world.sites.bareAt(x0 + i * GRID, z0 + j * GRID) ? 1 : 0;
       // towards a shore the meadow is grazed short (and the water shows over it)
       shore[k] = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
       ds[k] = tp.d < 0 ? -tp.d : tp.d;

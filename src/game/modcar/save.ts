@@ -66,6 +66,12 @@ export interface SaveV1 {
   workshop?: WorkshopSave;
   /** on the road: how far along it the vehicle is (m), on which road (the world's seed) */
   road?: { s: number; seed: number };
+  /**
+   * The workshop a place in the world (docs/MODCAR.md §17): which world (its seed). Everything is where it was in
+   * it, in the yard or down the road; the vehicle one sat in (an index into `vehicles`), to sit in it again.
+   */
+  world?: { seed: number };
+  seat?: number;
 }
 
 const KEY = 'modcar.save.v1';

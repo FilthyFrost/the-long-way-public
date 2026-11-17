@@ -174,7 +174,12 @@ try {
   await step(
     '10_get_out',
     async () => {
-      await rt('drive', 6, 0, 0, 1);
+      // (to a standstill: held on at a stop, the brake would back the car up)
+      for (let k = 0; k < 60; k++) {
+        const kmh = await page.evaluate(() => window.__rt.game.seated?.sim.kmh ?? 0);
+        if (kmh < 0.8) break;
+        await rt('drive', 0.2, 0, 0, 1);
+      }
       await page.evaluate(() => window.__rt.game.seated.sim.setParkBrake(true));
       await rt('exit');
       await rt('setView', 'cockpit');

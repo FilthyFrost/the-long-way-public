@@ -165,7 +165,8 @@ export class WorldView {
     const ds = sp.ds;
     const len = STRIP_STATIONS * ds;
     const wantS = new Map<number, number>();
-    const c0 = Math.floor((this.sCam - 520) / len);
+    // (a road that ends at its start: no strip behind it)
+    const c0 = this.world.deadEnd ? Math.max(0, Math.floor((this.sCam - 520) / len)) : Math.floor((this.sCam - 520) / len);
     const c1 = Math.floor((this.sCam + 3400 * vs) / len);
     for (let c = c0; c <= c1; c++) {
       const dist = Math.abs((c + 0.5) * len - this.sCam);

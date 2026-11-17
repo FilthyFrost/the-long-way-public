@@ -188,7 +188,7 @@ class Garage implements GarageScene {
       const t = d.open[name] ?? 0;
       this.leaf[name] = { t, target: t, solid };
     }
-    this.outdoors = buildOutdoors(core);
+    this.outdoors = buildOutdoors(this.root);
     // the sun's beams and the dust in them need the shadow maps (none at low quality)
     if (core.shadows) {
       this.root.add(buildBeams());
@@ -561,9 +561,12 @@ class Garage implements GarageScene {
     const sky0 = g.uSkyColor.value;
     g.uRoomMin.value.set(room.min[0] - o.x, room.min[1] - o.y, room.min[2] - o.z, 1);
     beamUniforms.uBeamFloor.value = -o.y;
-    // the wide shadow map stays over the workshop and its yard, sharp enough (2 cm) for every window's patch
+    // the wide shadow map stays over the workshop and its yard, sharp enough (2 cm) for every window's patch,
+    // while the eye is about it; further off (out on the road) it goes with the eye again
     this.farFocus.set(1.5 - o.x, 1.0 - o.y, -o.z);
-    this.core.shadows?.fixFar(this.farFocus, ROOM_SHADOW_REACH);
+    const cam = this.core.camera.position;
+    const away = Math.hypot(cam.x + o.x - 1.5, cam.z + o.z) > 60;
+    this.core.shadows?.fixFar(away ? null : this.farFocus, ROOM_SHADOW_REACH);
     // (moonbeams are a faint thing beside the sun's)
     beamUniforms.uBeamDensity.value = BEAM_DENSITY * (0.3 + 0.7 * smooth(0.04, 0.2, (sky0.r + sky0.g + sky0.b) / 3));
     g.uRoomMax.value.set(room.max[0] - o.x, room.max[1] - o.y, room.max[2] - o.z, room.edge);
@@ -683,6 +686,11 @@ class Garage implements GarageScene {
   private readonly farFocus = new THREE.Vector3();
   private readonly c2 = new THREE.Color();
 
+  indoors(x: number, z: number): boolean {
+    const r = LAYOUT.room;
+    return x > r.min[0] && x < r.max[0] && z > r.min[2] && z < r.max[2];
+  }
+
   exposureAt(x: number, y: number, z: number): number {
     const r = LAYOUT.room;
     // inside the eye opens up; it eases in over the last metre and a half before the door
@@ -717,7 +725,7 @@ class Garage implements GarageScene {
       const n = g.index ? g.index.count / 3 : g.getAttribute('position').count / 3;
       return n * ((g as THREE.InstancedBufferGeometry).isInstancedBufferGeometry ? (g as THREE.InstancedBufferGeometry).instanceCount : 1);
     };
-    for (const root of [this.root, this.outdoors.root]) {
+    for (const root of [this.root]) {
       root.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;

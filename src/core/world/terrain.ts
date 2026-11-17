@@ -71,6 +71,42 @@ export class TerrainPoint {
   /** how fully it lies on the levelled ground of a place by the road, 0…1; and what that ground is (0 gravel, 1 concrete) */
   site = 0;
   siteGround = 0;
+  /** how fully it lies on a plot of the caller's (WorldOptions.plots: ModCar's farmyard), 0…1 */
+  plot = 0;
+  /** a road that ends at its start (WorldOptions.deadEnd): how far behind its start the point lies (m), 0 beside it */
+  behind = 0;
+}
+
+/**
+ * A plot of ground of the caller's (ModCar's workshop and its yard at the road's start): within the box the land
+ * takes the plot's own height, outside it blends back into the land over `skirt` metres. Not where the road is.
+ */
+export interface Plot {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  skirt: number;
+  height(x: number, z: number): number;
+}
+
+export interface WorldOptions extends SpineOptions {
+  /**
+   * The road ends at its start: behind it there is no road bed, no ditch, no poles, and the land closes round
+   * the end of the road (ModCar: the road begins at the workshop's gate). Without it the road runs on
+   * straight behind its start.
+   */
+  deadEnd?: boolean;
+  plots?: readonly Plot[];
+}
+
+/** how fully (x, z) lies on a plot: 1 within its box, falling off smoothly over its skirt */
+export function plotWeight(p: Plot, x: number, z: number): number {
+  const dx = x < p.x0 ? p.x0 - x : x > p.x1 ? x - p.x1 : 0;
+  const dz = z < p.z0 ? p.z0 - z : z > p.z1 ? z - p.z1 : 0;
+  if (dx === 0 && dz === 0) return 1;
+  const d = Math.sqrt(dx * dx + dz * dz);
+  return d >= p.skirt ? 0 : 1 - smoothstep(0, p.skirt, d);
 }
 
 function smax(a: number, b: number, k: number): number {
@@ -142,9 +178,14 @@ export class World implements Ground {
   private readonly lp = new LandParams();
   private readonly we = new WaterEffect();
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
+  /** the road ends at its start (WorldOptions.deadEnd) */
+  readonly deadEnd: boolean;
+  readonly plots: readonly Plot[];
 
-  constructor(seed: number, opts: SpineOptions = {}) {
+  constructor(seed: number, opts: WorldOptions = {}) {
     this.seed = seed | 0;
+    this.deadEnd = !!opts.deadEnd;
+    this.plots = opts.plots ?? [];
     this.spine = new RoadSpine(seed, opts);
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
@@ -284,6 +325,8 @@ export class World implements Ground {
         s += kd > -0.7 && kd < 0.7 ? along / (1 - kd) : along;
         if (along < 0.01 && along > -0.01) break;
       }
+      // (a road that ends at its start: the nearest road is its end, the point measured from there)
+      if (s < 0 && this.deadEnd) s = 0;
       sp.at(s, q);
       cs = Math.cos(q.phi);
       sn = Math.sin(q.phi);
@@ -292,7 +335,8 @@ export class World implements Ground {
       // this station: count the leftover distance along the road too, so it is never mistaken for road
       const rest = (x - q.x) * cs + (z - q.z) * sn;
       ad = rest > 0.5 || rest < -0.5 ? Math.sqrt(d * d + rest * rest) : d < 0 ? -d : d;
-    }
+      o.behind = this.deadEnd && s === 0 && rest < 0 ? -rest : 0;
+    } else o.behind = 0;
 
     // biome mix is indexed by x, so it is continuous everywhere
     const bl = this.bl;
@@ -358,6 +402,8 @@ export class World implements Ground {
     if (!near) {
       o.h = o.bed = T;
       if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;
+      o.plot = 0;
+      if (this.plots.length) this.onPlots(x, z, o, ad);
       return;
     }
     // on a bridge span the road is a deck and the land beside and below it is the river's
@@ -408,6 +454,24 @@ export class World implements Ground {
     }
     // a frozen lake carries the wheels on its ice
     if (o.frozen > 0.5 && o.wl > o.h && o.zone === 0) o.h = o.wl;
+    o.plot = 0;
+    if (this.plots.length) this.onPlots(x, z, o, ad);
+  }
+
+  /** the caller's plots: the land within takes their height (never the road's bed and shoulders: they fade out by the road) */
+  private onPlots(x: number, z: number, o: TerrainPoint, ad: number): void {
+    if (o.zone !== 0) return;
+    for (const p of this.plots) {
+      let w = plotWeight(p, x, z);
+      if (w <= 0) continue;
+      // (beside the road the land keeps its verge for a few metres)
+      if (o.behind <= 0) w *= smoothstep(ROAD_EDGE + 0.5, ROAD_EDGE + 6, ad);
+      if (w <= 0) continue;
+      const h = p.height(x, z);
+      o.h += (h - o.h) * w;
+      o.bed += (h - o.bed) * w;
+      if (w > o.plot) o.plot = w;
+    }
   }
 
   /** Smooth ground height (what the meshes show). */
@@ -508,7 +572,7 @@ export class World implements Ground {
     out.rr = rr;
   }
 
-  static create(seed: number, opts?: SpineOptions): World {
+  static create(seed: number, opts?: WorldOptions): World {
     return new World(seed, opts);
   }
 }

@@ -245,6 +245,7 @@ export class DevWorld {
   /** the country, the lie of the land, the distance down the road; the garage when one is in it */
   where(): string {
     const g = this.game;
+    if (g.place === 'garage' && g.seamless) return '在车库的院子里（公路从大门口开始；传送不会动车库）';
     if (g.place === 'garage' || !g.world) return '在车库里（传送会离开车库，上路）';
     return describePlace(g.world, g.roadS);
   }

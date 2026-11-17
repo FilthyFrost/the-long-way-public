@@ -51,6 +51,9 @@ import { MaterialsHud } from './vitalsHud';
 import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
 import type { PaintAim, ScrubHit, Scrub, TankPort } from './player';
 import { SprayMist } from './sprayMist';
+import { modcarWorldOptions, SeamlessGround, SeamlessLand } from './seamless';
+import { onPlot } from './garageOutdoors';
+import { SolidSet } from '../../core/world/solids';
 import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
 import { Flakes } from './flakes';
 import { triGrid } from '../render/triGrid';
@@ -116,6 +119,9 @@ export function readModParams(base: Params, search: string = window.location.sea
 }
 
 /** a number 0…1 from a string (the same every time) */
+/** where a new game's world seed waits for it (ModGame.newGame: a new world each new game) */
+export const NEW_SEED_KEY = 'modcar.newSeed';
+
 function hash01(key: string): number {
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
@@ -251,6 +257,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private heldCanUid = '';
   private readonly shookAt = new Map<string, number>();
   private warmedSpray = false;
+  /** said once: out of the yard onto the road */
+  private saidOnRoad = false;
   private readonly nozV = new THREE.Vector3();
   private readonly nozD = new THREE.Vector3();
   private readonly canUp = new THREE.Vector3();
@@ -285,7 +293,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** the assists (F2) */
   readonly assists: Assists = loadAssists();
   private readonly sparkDue = new Map<ModVehicle, number>();
+  /**
+   * Where one is: in the workshop's yard ('garage') or out on the road. With the workshop a place in the world
+   * (`seamless`, docs/MODCAR.md §17) it is only where one is, worked out every frame; with the stand-in garage
+   * (?garage=stub) it is which of the two stages is loaded.
+   */
   place: 'garage' | 'road';
+  /** the workshop is a place in the world: one world, the road beginning at its gate, nothing faded or thrown away */
+  readonly seamless: boolean;
+  /** what the vehicles keep out of in the world: what stands by the road, and each other (not the garage's walls: keepIn) */
+  private readonly vehicleSolids = new SolidSet();
   garage: GarageScene | null = null;
   world: World | null = null;
   worldView: WorldView | null = null;
@@ -352,6 +369,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.orbit.dist = params.orbit[2];
     this.orbit.target = params.orbit[3];
     this.place = params.start;
+    this.seamless = params.start === 'garage' && params.garage !== 'stub';
     if (params.start === 'garage') {
       this.garage = params.garage === 'stub' ? buildGarageStub(this.core) : buildGarage(this.core);
       this.ground = this.garage.ground;
@@ -359,7 +377,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.makeWorld();
       this.ground = this.world!;
     }
-    this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
+    // the workshop in the world: the world made with it, the garage's ground on its plot, the world's beyond
+    if (this.seamless && this.garage) {
+      this.makeWorld();
+      this.ground = new SeamlessGround(this.garage.ground, this.world!);
+    }
+    this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage && (!this.seamless || onPlot(x, z)) ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     // (things put on a vehicle ride with it)
     this.loose.carriers = () => this.vehicles;
     this.cargo = new CargoBay(this.core, this.loose);
@@ -371,7 +394,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.flakes = new Flakes(this.core.scene);
     this.mist = new SprayMist(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
-    this.player = new ModPlayer(this.world ?? land, this);
+    this.player = new ModPlayer(this.seamless && this.garage ? new SeamlessLand(this.garage.land, this.world!) : (this.world ?? land), this);
     // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
     this.player.walker.speeds = { walk: 2.5, run: 5.0 };
     try {
@@ -380,7 +403,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       /* storage unavailable: shown */
     }
     if (this.garage) this.player.addSolids(this.garage.solids);
-    else this.worldSolids();
+    if (!this.garage || this.seamless) this.worldSolids();
     this.ready = this.populate();
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
@@ -396,10 +419,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   private probeWorld: World | null = null;
-  /** the road's world, or (in the garage) the same world to look for places in */
+  /** the road's world, or (in the stand-in garage) the same world to look for places in */
   devWorld(): World {
     const p = this.params;
-    return this.world ?? (this.probeWorld ??= new World(p.seed, { chapterScale: p.chapter, startBiome: p.biome }));
+    return this.world ?? (this.probeWorld ??= new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome })));
   }
 
   /** seconds left of building the world fast after a teleport (under a fade) */
@@ -423,7 +446,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         }
       }
     }
-    if (this.place === 'garage') this.exitGarage(v);
+    if (this.place === 'garage' && !this.seamless) this.exitGarage(v);
     const w = this.world!;
     const st = new SpineSample();
     w.spine.at(s, st);
@@ -549,7 +572,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   private makeWorld(): void {
     const p = this.params;
-    this.world = new World(p.seed, { chapterScale: p.chapter, startBiome: p.biome });
+    // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or not)
+    this.world = new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome }));
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
     this.landmarks = new LandmarkView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
@@ -562,13 +586,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (!this.world) return;
     this.player.addSolids(this.world.sites);
     this.player.addSolids(this.world.furniture);
+    this.vehicleSolids.add(this.world.sites);
+    this.vehicleSolids.add(this.world.furniture);
     for (const v of this.vehicles) this.roadSolids(v);
   }
 
   /** a vehicle on the road keeps out of what stands by it, and of the other vehicles (not of itself) */
   private roadSolids(v: ModVehicle): void {
     if (!this.world) return;
-    v.sim.solids = this.player.solids;
+    // (in the world with the workshop: not the garage's walls and benches, which keepIn deals with)
+    v.sim.solids = this.seamless ? this.vehicleSolids : this.player.solids;
     v.sim.onKnock = (sd, vx, vz, speed) => {
       // a crate, a barrel, a bench shoved: the place moves it and is drawn again …
       const site = this.world?.sites.knock(sd, vx, vz, speed);
@@ -601,6 +628,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         this.restoreGarage(this.restore);
         await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
         await this.restoreGrime();
+        if (this.seamless) await this.buildWorldAround();
+        if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
         this.ui.say('接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
         return;
       }
@@ -711,8 +740,25 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.focus = v;
     }
     await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+    // (the world round the workshop built before the game shows: the country seen through its door, the road out)
+    if (this.seamless) await this.buildWorldAround();
     // (once the model is in: where its clocks are)
     if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
+  }
+
+  /** the world round where one is, built under the loading card (a few seconds at most) */
+  private async buildWorldAround(): Promise<void> {
+    const wv = this.worldView;
+    if (!wv) return;
+    const sv = this.seated;
+    const x = sv ? sv.sim.px : this.player.walker.x;
+    const z = sv ? sv.sim.pz : this.player.walker.z;
+    const t0 = performance.now();
+    wv.update(x, z, 40);
+    while (wv.pending > 0 && performance.now() - t0 < 15000) {
+      wv.update(x, z, 40);
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
 
   private readonly pitchV = new THREE.Vector3();
@@ -753,11 +799,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   // ------------------------------------------------------------------ the body (vitals.ts)
 
+  /** is one under the workshop's roof (in a vehicle: is it) */
+  private indoors(): boolean {
+    const sv = this.seated;
+    const w = this.player.walker;
+    return !!this.garage?.indoors?.(sv ? sv.sim.px : w.x, sv ? sv.sim.pz : w.z);
+  }
+
   /** the air round one: the weather's, the workshop's (never under 15 °C), a running cab's heater */
   bodyAirC(): number {
     const out = this.env.state.temp;
     if (this.seated && this.seated.sys.running && this.seated.sys.derived.enclosed > 0.5) return Math.max(out, 20);
-    if (this.place === 'garage') return Math.max(out, 15);
+    if (this.place === 'garage' && (!this.seamless || this.indoors())) return Math.max(out, 15);
     return out;
   }
 
@@ -774,7 +827,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (b.bladder < 0.5) this.autoPee = false;
     if (this.deadT < 0) {
       if (this.assists.needs) {
-        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && this.place === 'road' && this.env.state.rain > 0.15, peeing });
+        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.env.state.rain > 0.15, peeing });
         if (ev.hurt > 0) {
           this.vitHud.hurt();
           this.sound('hurt', Math.min(1, ev.hurt / 4));
@@ -1005,6 +1058,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.player.walker.place(s.player.x, s.player.z, s.player.heading);
     this.input.lookYaw = s.player.heading;
     this.restoreHands(s);
+    // (the one world: back in the seat of the vehicle one sat in, down the road or in the yard)
+    const sv = s.seat !== undefined ? this.vehicles[s.seat] : undefined;
+    if (sv && this.seamless) {
+      this.seated = sv;
+      this.focus = sv;
+      if (s.place === 'road') sv.sys.startNow();
+    }
   }
 
   /** the hotbar as it was */
@@ -1061,7 +1121,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       stock: { ...this.stock },
       ...(this.workshop ? { workshop: this.workshop.snapshot() } : this.workshopKept ? { workshop: this.workshopKept } : {}),
     };
-    if (this.place === 'road' && this.world) {
+    if (this.seamless && this.world) {
+      // (one world: everything where it is, the world's seed, the vehicle one sits in)
+      s.world = { seed: this.params.seed };
+      if (this.seated) s.seat = this.vehicles.indexOf(this.seated);
+    } else if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
       const v = this.seated ?? this.focus ?? this.vehicles[0];
       const vi = this.vehicles.indexOf(v);
@@ -1171,6 +1235,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.saveOff = true;
     clearSave();
     void forgetMasks();
+    // (a new world each new game, Arctic Drive's: a seed of its own for it, kept with its save from then on)
+    try {
+      localStorage.setItem(NEW_SEED_KEY, String(1 + Math.floor(Math.random() * 999_999)));
+    } catch {
+      /* storage unavailable: the first world again */
+    }
     const quality = new URLSearchParams(location.search).get('quality');
     location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
@@ -1180,6 +1250,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw, this.ground);
     this.vehicles.push(v);
     this.player.addSolids(v.solid);
+    this.vehicleSolids.add(v.solid);
     this.roadSolids(v);
     return v;
   }
@@ -2183,7 +2254,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (f.t <= 0) this.lookFlashes.splice(i, 1);
     }
     // the bits that came off fall to the floor
-    const floor = (this.garage ? 0 : this.groundAt(this.player.walker.x, this.player.walker.z)) - this.core.origin.y;
+    const floor = (this.garage && !this.seamless ? 0 : this.groundAt(this.player.walker.x, this.player.walker.z)) - this.core.origin.y;
     const landed = this.flakes?.update(dt, floor) ?? 0;
     this.flakeTickT -= dt;
     if (landed > 0 && this.flakeTickT <= 0) {
@@ -2455,7 +2526,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const cam = this.core.camera.getWorldPosition(this.listenV);
     const d = Math.max(0.5, cam.distanceTo(s.at));
     // (heard through the wall from inside, the doors shut: duller and quieter)
-    const inside = this.place === 'garage' && this.player.walker.x < 7 && !this.seated;
+    const inside = this.place === 'garage' && (this.seamless ? this.indoors() : this.player.walker.x < 7) && !this.seated;
     const shut = inside && !(this.garage?.doorsOpen?.() ?? true);
     // (the rack follows the load: light running sounds light, the recycler's grinding loads it)
     this.genVoice.update({ engineId: this.genBank, rpm: s.rpm, load: s.load, throttle: s.running ? s.load : 0, running: s.running, cranking: s.cranking, inside: shut, doorsOpen: shut ? 0.25 : 1, distance: d + (shut ? 4 : 0), starterRate: 1, stalled: s.stalled ?? false });
@@ -2658,6 +2729,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   step(dt: number, alpha?: number): void {
+    // (one world with the workshop in it: in its yard or out on the road is only where one is)
+    if (this.seamless) {
+      const sv = this.seated;
+      const was = this.place;
+      this.place = onPlot(sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z) ? 'garage' : 'road';
+      if (sv && was === 'garage' && this.place === 'road' && !this.saidOnRoad) {
+        this.saidOnRoad = true;
+        this.ui.say('上路了。想回车库，掉头开回来就是。', 3);
+      }
+    }
     this.input.update(dt);
     this.applyAssists();
     this.time += dt;
@@ -2804,7 +2885,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   /** drove out past the apron: fade out, onto the road, fade in */
   private leaveGarage(dt: number): void {
-    if (this.place !== 'garage' || !this.garage) return;
+    if (this.place !== 'garage' || !this.garage || this.seamless) return;
     const v = this.seated;
     if (this.fadeT < 0) {
       if (v && v.sim.px > this.garage.exitX) {

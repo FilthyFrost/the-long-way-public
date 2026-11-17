@@ -98,7 +98,7 @@ export class Furniture implements SolidSource {
     // (the rail runs right up to where the deck's own railing takes over)
     if (this.br.mask > 0.9) return false;
     world.shape(x + nx * 5.2, z + nz * 5.2, tp);
-    if (tp.site > 0.05) return false;
+    if (tp.site > 0.05 || tp.plot > 0.05) return false;
     const h5 = tp.h;
     // up to a bridge, on both sides
     if (this.br.mask > 0) return true;
@@ -139,7 +139,7 @@ export class Furniture implements SolidSource {
           world.water.bridgeAt(sm, this.br);
           sp.at(sm, st);
           world.shape(st.x - Math.sin(st.phi) * side * 5.2, st.z + Math.cos(st.phi) * side * 5.2, this.tp);
-          if (this.br.mask > 0.9 || this.tp.site > 0.05) ok = false;
+          if (this.br.mask > 0.9 || this.tp.site > 0.05 || this.tp.plot > 0.05) ok = false;
         }
         has.push(ok);
       }
@@ -224,7 +224,7 @@ export class Furniture implements SolidSource {
     const z = st.z + Math.cos(st.phi) * side * off;
     world.shape(x, z, this.tp);
     // nothing stands in water or on the ground of a place
-    if (this.tp.site > 0.05 || (this.tp.wl > -1e8 && this.tp.wl > this.tp.bed - 0.2)) return;
+    if (this.tp.site > 0.05 || this.tp.plot > 0.05 || (this.tp.wl > -1e8 && this.tp.wl > this.tp.bed - 0.2)) return;
     const fall = this.flat.get(`${kind}|${s}|${side}`);
     blk.posts.push({ kind, s, side, x, y: this.tp.h, z, phi: st.phi, state: fall !== undefined ? 2 : lean < 40 ? 1 : 0, fall: fall ?? 0, h });
     // what lies flat keeps nobody out; a kilometre stone is too low and too far from the road to matter
