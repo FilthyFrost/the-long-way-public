@@ -69,6 +69,7 @@ import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { Sparks } from './sparks';
 import { SeatShake, type ShakeEngine } from './seatShake';
+import { ModPad, type PadHost } from './pad';
 import { WheelDust } from './wheelDust';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
@@ -225,6 +226,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   readonly rig = new FirstPersonRig();
   /** the seat's shake on top of the head's sway: the road, the engine, the knocks (seatShake.ts) */
   readonly shake = new SeatShake();
+  /** a gamepad's buttons for the hands, the lists, the bench and the seat (pad.ts; the sticks and the pedals are the shared input's) */
+  readonly pad = new ModPad();
+  private padHostObj: PadHost | null = null;
   private readonly felt: ShakeEngine = { running: false, rpm: 0, idle: 800, cylinders: 4, misfire: 0 };
   readonly ui = new ModUI();
   readonly mats = new CarMaterials();
@@ -2114,12 +2118,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         return;
       }
       if (e.code === 'KeyI' && !e.repeat) {
-        this.player.cardsOn = !this.player.cardsOn;
-        try {
-          localStorage.setItem('modcar.ui.cards', this.player.cardsOn ? '1' : '0');
-        } catch {
-          /* kept for this page */
-        }
+        this.toggleCards();
         return;
       }
       // the assists card open: the number keys switch them
@@ -2185,6 +2184,86 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (a === 'horn') v.sys.setHorn(false);
       else if (a === 'key') v.sys.crank(false);
     });
+  }
+
+  /** the item cards shown or hidden (I), kept for next time */
+  private toggleCards(): void {
+    this.player.cardsOn = !this.player.cardsOn;
+    try {
+      localStorage.setItem('modcar.ui.cards', this.player.cardsOn ? '1' : '0');
+    } catch {
+      /* kept for this page */
+    }
+  }
+
+  /** what the gamepad's buttons do in the game (pad.ts): what the mouse buttons and the keys do */
+  private padHost(): PadHost {
+    if (this.padHostObj) return this.padHostObj;
+    const g = this;
+    const wake = (): boolean => {
+      g.ui.showHelp(false);
+      g.hud.dismissHint();
+      g.audio.start();
+      return g.deadT < 0;
+    };
+    this.padHostObj = {
+      seated: () => !!g.seated,
+      listing: () => !!g.listV,
+      benchOpen: () => !!g.benchWs?.open,
+      bench: (code) => !!g.benchWs?.key(code),
+      primary: (down) => {
+        if (!down) {
+          if (g.seated) g.cockpit.release(g.seated);
+          g.player.release('mouse');
+          return;
+        }
+        if (!wake()) return;
+        if (g.seated) g.cockpit.press(g.seated, false);
+        else if (g.listV) g.takeFromList();
+        else g.player.press('mouse');
+      },
+      use: (down) => {
+        if (!down) {
+          if (!g.seated) g.player.release();
+          return;
+        }
+        if (!wake()) return;
+        if (g.listV) g.takeFromList();
+        else if (g.seated) g.getOut();
+        else g.player.press();
+      },
+      pack: () => {
+        if (wake()) g.toggleCargoList();
+      },
+      hotbar: (step) => g.player.wheel(step * 100),
+      listMove: (step) => g.moveListSel(step),
+      listClose: () => g.closeCargoList(),
+      cards: () => g.toggleCards(),
+      help: () => g.ui.showHelp(!g.ui.helpShown),
+      highlight: () => {
+        g.grimeShowT = 2.4;
+        g.sound('highlight_ping', 0.7);
+      },
+      camera: () => {
+        g.viewMode = g.viewMode === 'cockpit' ? 'chase' : 'cockpit';
+      },
+      horn: (down) => {
+        if (!down || wake()) g.seated?.sys.setHorn(down);
+      },
+      hazard: () => {
+        const v = g.seated;
+        if (!v) return;
+        v.view.hazard = !v.view.hazard;
+        g.sound('switch');
+      },
+      upright: () => {
+        if (g.seated) g.resetUpright(g.seated);
+      },
+      connected: (name) => {
+        if (name) g.ui.say('手柄已连接。按菜单键看手柄的按键。', 3.5);
+      },
+    };
+    return this.padHostObj;
   }
 
   private assistItems(): { label: string; on: boolean }[] {
@@ -3238,6 +3317,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       }
     }
     this.input.update(dt);
+    this.pad.update(this.padHost());
     this.applyAssists();
     this.time += dt;
     // and every half minute
@@ -3245,7 +3325,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.saveT = 0;
       this.save();
     }
-    const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
+    const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || this.pad.run;
     this.stepBody(dt, shift);
     {
       const e = this.player.walker.eye(this.eyeP);
@@ -3290,13 +3370,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         right: listing ? 0 : i.walk.right,
         // (sprinting while there is stamina)
         run: shift && canSprint(this.body),
-        jump: !listing && i.isDown('Space'),
-        drop: !listing && (this.dropButton || i.isDown('KeyG')),
+        jump: !listing && (i.isDown('Space') || this.pad.jump),
+        drop: !listing && (this.dropButton || i.isDown('KeyG') || this.pad.drop),
         // (the right button or F, as they are now: what the player made of them last frame is not fed back)
-        take: !listing && (this.rightButton || i.isDown('KeyF')),
+        take: !listing && (this.rightButton || i.isDown('KeyF') || this.pad.take),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
       this.input.lookHold = this.player.transferring || listing || !!this.player.scrub;
+      // (a pad's right stick moves the scrubbing tool as the mouse does)
+      if (this.player.scrub && (this.pad.rx !== 0 || this.pad.ry !== 0)) this.player.scrubMove(this.pad.rx * dt * 700, this.pad.ry * dt * 700);
       this.showCargoList();
     } else {
       // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
@@ -3885,7 +3967,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.pad.name && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0);
     this.updateMarker();
   }
 

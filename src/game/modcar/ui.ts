@@ -121,6 +121,14 @@ const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」�
 <tr><td class="k">鼠标 + 左键</td><td class="v">直接扳手刹杆、拨挡杆、拧钥匙、开收音机（右键换台）、按喇叭、开车门</td></tr>
 <tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
 </table>
+<h5>手柄</h5><table>
+<tr><td class="k">左摇杆 · 右摇杆</td><td class="v">走动 / 转向 · 环顾（擦洗时移动工具）· 按下左摇杆跑</td></tr>
+<tr><td class="k"><b>RT</b> · <b>LT</b></td><td class="v">走路：等于左键 · 右键（装、喷、擦 / 拆、吃、抽回）；开车：油门 · 刹车</td></tr>
+<tr><td class="k"><b>X</b> · <b>Y</b> · <b>A</b> · <b>B</b></td><td class="v">E · 按住放下 · 跳 · 拆下；开车：下车 · 手动挡切换 · 手刹 · 双闪</td></tr>
+<tr><td class="k"><b>LB</b> <b>RB</b> · 按下右摇杆</td><td class="v">快捷栏换格 · 物品信息卡；开车：喇叭 · 换视角 · 按看着的车内按钮和拉杆</td></tr>
+<tr><td class="k">十字键</td><td class="v">开车：上下拨挡杆、按住左打火、右车灯；走路：下 = 看哪里还脏；清单和工作台里选</td></tr>
+<tr><td class="k">视图键 · 菜单键</td><td class="v">背包 / 车里的东西（开车：翻车时扶正）· 这张按键卡</td></tr>
+</table>
 <div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · <b>\`</b>（1 左边那个键）开发者面板 · 连按 <b>F9</b> 新游戏 · <b>Esc</b> 放开鼠标</div>`;
 
 /** the marker's flag: a gold pennant on a pole, in the cartoon ink */

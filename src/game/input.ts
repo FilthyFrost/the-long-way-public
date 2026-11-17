@@ -164,7 +164,7 @@ export class InputManager {
       const ly = dz(pad.axes[3] ?? 0);
       this.walk.forward = -dz(pad.axes[1] ?? 0);
       this.walk.right = dz(pad.axes[0] ?? 0);
-      if (lx !== 0 || ly !== 0) {
+      if ((lx !== 0 || ly !== 0) && !this.lookHold) {
         this.lookYaw = this.freeLook ? this.lookYaw + lx * dt * 2.2 : Math.max(-2.4, Math.min(2.4, this.lookYaw + lx * dt * 2.2));
         this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - ly * dt * 1.6));
         this.lastLook = performance.now();
