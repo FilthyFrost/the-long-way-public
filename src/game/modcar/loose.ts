@@ -66,6 +66,12 @@ export interface Loose {
   landing?: { y: number; on: Carrier | null };
   /** an item: the kind its model was made for (one that has gone off is another kind now: its model is made again) */
   madeAs?: string;
+  /**
+   * It has changed in itself where it lies (some taken off its stack, a thing put into it or taken out of it:
+   * LooseThings.touch). A place that had it lying in plain sight lets it go then, as it does a thing that was
+   * moved: it is one's own from there on, and saved (places.ts).
+   */
+  touched?: boolean;
 }
 
 /** where a dropped thing comes to rest: the highest surface at (x, z) not above `fromY` */
@@ -222,6 +228,11 @@ export class LooseThings {
   rev = 0;
   /** which thing is looked at next for having gone off (one a frame) */
   private settleAt = 0;
+  /**
+   * Told when a thing riding on a carrier has come to weigh something else by itself (it, or a thing in it,
+   * turned into another kind): whoever weighs what a vehicle carries weighs it again (cargo.ts sets this).
+   */
+  weightChanged: ((on: Carrier) => void) | null = null;
   private readonly qa = new THREE.Quaternion();
   private readonly va = new THREE.Vector3();
 
@@ -316,12 +327,24 @@ export class LooseThings {
 
   /**
    * A thing lying about that has turned becomes what its kind goes off into (items.ts settleItem), where it
-   * lies, and is drawn again as that. True when it changed. update looks at one thing a frame; whoever lists
-   * a thing or hands it over asks at once.
+   * lies, and is drawn again as that; and so do the things in it, if it holds any. True when anything changed:
+   * lists of the things lying about are built again then, and a vehicle the thing rides in is told that its
+   * weight may be another (weightChanged). update looks at one thing a frame; whoever lists a thing or hands
+   * it over asks at once.
    */
   settle(l: Loose, nowS: number): boolean {
-    if (!l.item || !settleItem(l.item, nowS)) return false;
-    this.redress(l);
+    const it = l.item;
+    if (!it) return false;
+    let inside = false;
+    const ins = it.inside;
+    if (ins) for (let i = 0; i < ins.length; i++) if (settleItem(ins[i], nowS)) inside = true;
+    if (settleItem(it, nowS)) {
+      this.redress(l);
+      return true;
+    }
+    if (!inside) return false;
+    this.rev++;
+    if (l.riding) this.weightChanged?.(l.riding.on);
     return true;
   }
 
@@ -335,11 +358,18 @@ export class LooseThings {
     this.unmerge();
     this.dressItem(l, item);
     this.rev++;
+    // (another kind, another weight perhaps: what it rides in carries that now)
+    if (l.riding) this.weightChanged?.(l.riding.on);
   }
 
-  /** a thing lying about changed in itself (some taken off a stack, a thing put into a box): lists of them are built again */
-  touch(): void {
+  /**
+   * A thing lying about changed in itself (some taken off a stack, a thing put into a box or taken out of it):
+   * lists of the things lying about are built again, and the thing, when it is said which, is marked as
+   * touched, so that a place it belonged to lets it go and it is saved from then on (places.ts).
+   */
+  touch(l?: Loose): void {
     this.rev++;
+    if (l) l.touched = true;
   }
 
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
@@ -602,13 +632,16 @@ export class LooseThings {
         this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
       }
     }
-    // one thing a frame: an item that goes off, has it turned into what its kind becomes? (and one that whoever
-    // looked at it last has settled already is drawn as what it is now)
+    // one thing a frame: an item that goes off, or holds things that may, has it (have they) turned into what
+    // their kinds become? (and one that whoever looked at it last has settled already is drawn as what it is now)
     if (this.list.length) {
       this.settleAt = (this.settleAt + 1) % this.list.length;
       const l = this.list[this.settleAt];
       const it = l.item;
-      if (it && ((it.fresh !== undefined && settleItem(it, itemNow())) || (l.madeAs !== undefined && l.madeAs !== it.item))) this.redress(l);
+      if (it) {
+        if (it.fresh !== undefined || it.inside !== undefined) this.settle(l, itemNow());
+        if (l.madeAs !== undefined && l.madeAs !== it.item) this.redress(l);
+      }
     }
     this.tryMerge();
     if (this.mergedLook) {
