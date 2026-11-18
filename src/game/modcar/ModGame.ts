@@ -57,6 +57,7 @@ import { modcarWorldOptions, SeamlessGround, SeamlessLand } from './seamless';
 import { onPlot } from './garageOutdoors';
 import { SolidSet } from '../../core/world/solids';
 import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
+import { FloorGround } from './floorGround';
 import { Flakes } from './flakes';
 import { triGrid } from '../render/triGrid';
 import { forgetMasks, keepMask, keepOnly, keptMask } from './grimeStore';
@@ -209,6 +210,12 @@ const GLASS_CRUST = new THREE.Color(0.16, 0.13, 0.1);
 const DUST_BITS = new THREE.Color(0.32, 0.27, 0.21);
 const RUST_BITS = new THREE.Color(0.38, 0.12, 0.035);
 const FOAM = new THREE.Color(0.85, 0.88, 0.9);
+/** how big a turbo is to the ear: 0 the small one … 1 the big one (by its boost) */
+function turboSizeOf(partId: string): number {
+  const boost = partDef(partId).turbo?.boost ?? 1.28;
+  return Math.min(1, Math.max(0, (boost - 1.28) / (1.7 - 1.28)));
+}
+
 /** how fast the wipers take the dust off their arcs of the windscreen, sweeping the rain (the body's dirt figure a second) */
 const WIPE_RATE = 0.15;
 
@@ -428,12 +435,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ground = this.garage.ground;
     } else {
       this.makeWorld();
-      this.ground = this.world!;
+      this.ground = this.floored(this.world!);
     }
     // the workshop in the world: the world made with it, the garage's ground on its plot, the world's beyond
     if (this.seamless && this.garage) {
       this.makeWorld();
-      this.ground = new SeamlessGround(this.garage.ground, this.world!);
+      this.ground = this.floored(new SeamlessGround(this.garage.ground, this.world!));
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage && (!this.seamless || onPlot(x, z)) ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     // (things put on a vehicle ride with it)
@@ -551,7 +558,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.vehicles.splice(0, this.vehicles.length, ...(keep ? [keep] : []));
     if (this.focus && this.focus !== keep) this.focus = null;
     this.makeWorld();
-    this.ground = this.world!;
+    this.ground = this.floored(this.world!);
     this.player.walker.land = this.world!;
     this.place = 'road';
     this.fadeT = -1;
@@ -849,6 +856,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   private groundAt(x: number, z: number): number {
     this.ground.sample(x, z, this.gs);
     return this.gs.h;
+  }
+
+  /** the wheels' ground with the places' floors on it: a building's plinth is driven onto, not into (floorGround.ts) */
+  private floored(land: Ground): Ground {
+    return new FloorGround(land, this.vehicleSolids, () => this.time);
   }
 
   // ------------------------------------------------------------------ setting up
@@ -3253,6 +3265,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       engineId: engInst?.part ?? null,
       exhaustId: ex ? v.build.parts[ex.id].part : null,
       turbo: !!engInst?.sub.turbo,
+      turboSize: engInst?.sub.turbo ? turboSizeOf(engInst.sub.turbo.part) : 0,
       rpm: d.rpm,
       load: d.running ? sim.throttle * (inGear ? 1 : 0.35) : 0,
       throttle: sim.throttle,
@@ -3363,6 +3376,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     }
     this.input.update(dt);
     this.pad.update(this.padHost());
+    this.padFeel(dt);
     this.applyAssists();
     this.time += dt;
     // and every half minute
@@ -3550,6 +3564,39 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     f.cylinders = v.sys.derived.engine?.engine?.cylinders ?? 4;
     f.misfire = Math.max(0, Math.min(1, (0.55 - cond) / 0.45));
     return f;
+  }
+
+  /** the seat's shake was worked out with the eye this frame (in the cockpit); else the pad's motors work it out themselves */
+  private shookFrame = false;
+
+  /**
+   * The pad's motors (pad.ts rumble), by what the seat feels, in any view: the knocks on the strong one; on the
+   * weak one the road's buzz and the engine's, the limiter cutting in, wheels locked under the brake
+   */
+  private padFeel(dt: number): void {
+    const v = this.seated;
+    const k = this.tune.get('pad.rumble');
+    if (!v || !this.pad.name || k <= 0) {
+      this.pad.rumble(0, 0, this.time);
+      this.shookFrame = false;
+      return;
+    }
+    const sh = this.shake;
+    const sim = v.sim;
+    if (!this.shookFrame) sh.update(dt, sim, this.engineFelt(v));
+    this.shookFrame = false;
+    const r = sh.raw;
+    const strong = Math.min(1, r.jolt / 0.012);
+    let weak = Math.min(0.6, r.road / 0.006) + Math.min(0.3, r.engine / 0.004);
+    // the limiter: held against it the engine buzzes in the hands (its cut, a dozen times a second)
+    const d = v.sys.dash;
+    if (d.running && sim.throttle > 0.5 && d.rpm > sim.spec.engine.redline * 0.985) weak += Math.sin(this.time * 2 * Math.PI * 12) > 0 ? 0.45 : 0.1;
+    // wheels locked under the brake at speed: a judder
+    if (sim.speed > 3 && sim.brake > 0.3) {
+      const rad = sim.spec.wheelRadius;
+      if (sim.wheels.some((w) => w.contact && Math.abs(w.omega * rad) < 0.2 * sim.speed)) weak += 0.35;
+    }
+    this.pad.rumble(strong * k, Math.min(1, weak) * k, this.time);
   }
 
   /** how stiff a vehicle's springs are against its frame's own (a sport strut passes more of the road on; none, it rides on its stops) */
@@ -3776,6 +3823,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       sh.stiffness = this.stiffnessOf(this.seated);
       sh.cushion = this.cushionOf(this.seated);
       sh.update(dt, sim, this.engineFelt(this.seated));
+      this.shookFrame = true;
       if (sh.scale > 0) {
         const b = this.basis;
         sim.basis(b);
@@ -4421,6 +4469,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       places: this.places?.telemetry() ?? null,
       siteArt: this.siteArt?.telemetry() ?? null,
       shake: { ...this.shake.parts },
+      rumble: { ...this.pad.rumbleNow },
       dust: { live: this.dust.live, thrown: this.dust.thrown },
       tyres: (this.tyreNow?.loops ?? []).map((l) => `${l.name}:${l.gain.toFixed(2)}${l.cutoff ? `@${Math.round(l.cutoff)}` : ''}`),
       wipers: v ? { ...v.view.wipe, dirt: v.build.dirt, crust: v.build.crust ?? 0, blades: v.view.wipers.length } : null,

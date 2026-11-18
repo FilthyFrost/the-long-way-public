@@ -293,6 +293,11 @@ describe('ModCar engine mixing maths', () => {
       expect(s.peak).toBeLessThanOrEqual(1);
     }
     expect(measure(blowOffSample(48000, 1), 48000).centroid).toBeGreaterThan(1500);
+    // (a big turbo's blow-off: longer and lower than a small one's)
+    const small = blowOffSample(48000, 1, 0);
+    const big = blowOffSample(48000, 1, 1);
+    expect(big.length).toBeGreaterThan(small.length * 1.5);
+    expect(measure(big, 48000).centroid).toBeLessThan(measure(small, 48000).centroid * 0.85);
     // the rod knock is a low, dull knock; the solenoid a bright click
     expect(measure(rodKnockSample(48000, 1), 48000).centroid).toBeLessThan(measure(solenoidSample(48000, 1), 48000).centroid);
   });

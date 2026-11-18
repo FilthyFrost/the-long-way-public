@@ -116,7 +116,8 @@ try {
   if (!rim) fail('the rim found nowhere to land');
   if (s.vehicles !== cars + 2) fail(`vehicles: ${cars} then ${s.vehicles}`);
   const tyred = await page.evaluate(() => window.__rt.game.loose.list.find((l) => l.part?.part === 'rim_alloy15')?.part.sub.tire?.part ?? null);
-  if (tyred !== 'tire_road') fail(`the rim came without its tyre (${tyred})`);
+  // (its frame's factory tyre: the alloy is the Fox's, on sport tyres)
+  if (tyred !== 'tire_sport') fail(`the rim came without its tyre (${tyred})`);
   // everything settles
   await page.evaluate(() => window.__rt.game.simulate(2.5));
   const rest = await page.evaluate(() => window.__rt.loose().map((l) => ({ what: l.part ?? l.tool, y: +l.y.toFixed(2), resting: l.resting })));

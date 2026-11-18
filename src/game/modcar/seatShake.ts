@@ -93,6 +93,8 @@ export class SeatShake {
   cushion = 1;
   /** the last frame's parts (for the probes and the tests) */
   readonly parts = { road: 0, engine: 0, jolt: 0 };
+  /** the same before the settings and the seat take their share (what a pad's motors are driven by: pad.ts) */
+  readonly raw = { road: 0, engine: 0, jolt: 0 };
 
   private t = 0;
   /** the jolt's spring: vertical (m), pitch and roll (rad), each with its speed */
@@ -223,6 +225,9 @@ export class SeatShake {
       er = noise1(t * fire * 0.5, 59);
     }
     const sc = this.scale * this.cushion;
+    this.raw.road = road;
+    this.raw.engine = eng;
+    this.raw.jolt = Math.abs(this.jy);
     this.parts.road = road * sc;
     this.parts.engine = eng * sc;
     this.parts.jolt = Math.abs(this.jy) * sc;

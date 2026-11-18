@@ -313,8 +313,10 @@ export interface EngineAudioState {
   engineId: string | null;
   /** exhaust part fitted: exh_stock / exh_sport / exh_side; null = none fitted (open manifold); left out = stock */
   exhaustId?: string | null;
-  /** turbo_small fitted */
+  /** a turbo fitted */
   turbo?: boolean;
+  /** how big it is: 0 the small one … 1 the big one (its whistle lower, slower to rise and louder, its blow-off longer and fuller) */
+  turboSize?: number;
   rpm: number;
   /** torque asked of the engine, 0..1 */
   load: number;
@@ -571,7 +573,8 @@ export class EngineVoice {
 
     // pops and the blow-off valve are pre-rendered one-shots
     for (let k = 0; k < 6; k++) this.popBufs.push(this.makeBuffer(popSample(ctx.sampleRate, 101 + k, k % 3 === 2)));
-    for (let k = 0; k < 2; k++) this.bovBufs.push(this.makeBuffer(blowOffSample(ctx.sampleRate, 211 + k)));
+    // (two takes for each of the three sizes: small, medium, big)
+    for (const size of [0, 0.5, 1]) for (let k = 0; k < 2; k++) this.bovBufs.push(this.makeBuffer(blowOffSample(ctx.sampleRate, 211 + k + size * 10, size)));
     for (let k = 0; k < 3; k++) this.knockBufs.push(this.makeBuffer(rodKnockSample(ctx.sampleRate, 307 + k)));
     this.clickBuf = this.makeBuffer(solenoidSample(ctx.sampleRate, 401));
   }
@@ -887,19 +890,23 @@ export class EngineVoice {
     const tauDown = 0.35;
     this.boost += (target - this.boost) * (1 - Math.exp(-dt / (target > this.boost ? tauUp : tauDown)));
     const b = st.turbo && running ? this.boost : 0;
-    // the whine a small turbo makes in the bay: about 1.5 kHz spooling up to 5-6 kHz on full boost
-    const shaft = 1500 + 3800 * b + 0.12 * rpm;
+    // the whine a turbo makes in the bay: a small one about 1.5 kHz spooling up to 5-6 kHz on full boost, a big one
+    // lower (its wheels are bigger and turn slower), louder and with more of the rush of air in it
+    const ts = Math.min(1, Math.max(0, st.turboSize ?? 0));
+    const shaft = 1500 - 650 * ts + (3800 - 1300 * ts) * b + 0.12 * rpm;
     set(this.turboOsc.frequency, shaft, 0.03);
     set(this.turboBp.frequency, shaft * 1.02, 0.03);
     const lvl = Math.pow(10, tone.loudnessDb / 20);
-    set(this.turboGain.gain, 0.011 * lvl * Math.pow(b, 1.6) * (0.5 + 0.5 * thr), 0.04);
-    set(this.turboHiss.gain, 0.025 * lvl * b * (0.3 + 0.7 * thr), 0.05);
+    set(this.turboGain.gain, 0.011 * (1 + 0.7 * ts) * lvl * Math.pow(b, 1.6) * (0.5 + 0.5 * thr), 0.04);
+    set(this.turboHiss.gain, 0.025 * (1 + 1.3 * ts) * lvl * b * (0.3 + 0.7 * thr), 0.05);
     // a lift: the pedal has come up a long way within the last ~0.15 s
     this.thrPeak = Math.max(thr, this.thrPeak - dt * 4);
     const lift = this.thrPeak - thr > 0.45;
     // blow-off on a sharp lift with boost up
     if (st.turbo && running && lift && this.boost > 0.35 && t > this.bovReadyAt) {
-      this.oneShotBuffer(this.bovBufs[Math.floor(this.rng.next() * this.bovBufs.length)], t, 0.35 * this.boost * Math.pow(10, tone.loudnessDb / 20), this.pre);
+      // (the takes of its size: small, medium, big)
+      const set3 = Math.min(2, Math.round(ts * 2));
+      this.oneShotBuffer(this.bovBufs[set3 * 2 + Math.floor(this.rng.next() * 2)], t, 0.35 * (1 + 0.6 * ts) * this.boost * Math.pow(10, tone.loudnessDb / 20), this.pre);
       this.bovFired++;
       this.boost *= 0.4;
       this.bovReadyAt = t + 0.8;
@@ -1054,19 +1061,29 @@ export function solenoidSample(sr: number, seed: number): Float32Array {
   return normalize(edges(x, sr, 0.1, 6), 0.9);
 }
 
-/** blow-off valve: a fast pneumatic "pssh" with a little flutter */
-export function blowOffSample(sr: number, seed: number): Float32Array {
+/**
+ * blow-off valve: a fast pneumatic "pssh" with a little flutter. size 0 (a small turbo's: short and bright) … 1 (a
+ * big one's: longer, fuller and lower, the compressor chattering as the air surges back through it)
+ */
+export function blowOffSample(sr: number, seed: number, size = 0.5): Float32Array {
   const rng = new Rng(seed);
-  const len = 0.55;
+  const s = Math.min(1, Math.max(0, size));
+  const len = 0.42 + 0.45 * s;
   const n = Math.floor(len * sr);
   const x = noise(n, rng);
-  biquad(x, sr, 'highpass', 900, 0.7);
-  biquad(x, sr, 'peaking', 3200, 1.2, 6);
-  biquad(x, sr, 'lowpass', 9000, 0.7);
+  biquad(x, sr, 'highpass', 1000 - 450 * s, 0.7);
+  biquad(x, sr, 'peaking', 3800 - 1500 * s, 1.2, 6);
+  biquad(x, sr, 'lowpass', 9500 - 2500 * s, 0.7);
   const flutter = rng.range(14, 22);
+  const decay = 0.1 + 0.09 * s;
+  // (the surge: a slower chatter, only a big one has much of)
+  const surge = rng.range(8, 11);
   for (let i = 0; i < n; i++) {
     const tt = i / sr;
-    const env = (tt < 0.012 ? tt / 0.012 : Math.exp(-(tt - 0.012) / 0.13)) * (0.82 + 0.18 * Math.sin(2 * Math.PI * flutter * tt));
+    const env =
+      (tt < 0.012 ? tt / 0.012 : Math.exp(-(tt - 0.012) / decay)) *
+      (0.82 + 0.18 * Math.sin(2 * Math.PI * flutter * tt)) *
+      (1 - 0.38 * s * (0.5 + 0.5 * Math.sin(2 * Math.PI * surge * tt)));
     x[i] *= env;
   }
   return normalize(edges(x, sr, 0.5, 30), 0.9);

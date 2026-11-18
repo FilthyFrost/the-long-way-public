@@ -3,7 +3,9 @@
 //  2. the left stick walks;
 //  3. RT takes up what one looks at; RB and LB go through the hotbar; Y held puts it down;
 //  4. in the seat: A lets the handbrake off (a press, as Space does), RT is the throttle (the engine running, it
-//     drives off), LT the brake, RB changes the view, X gets out.
+//     drives off), LT the brake, RB changes the view, X gets out;
+//  5. the pad's motors: shaken while seated with the engine running (the small one by the engine and the road),
+//     still once out of the seat.
 //   SHOTS_GPU=1 node harness/shots/modcar_pad.mjs
 import { launchBrowser, startServer } from './lib.mjs';
 
@@ -26,7 +28,9 @@ try {
   // the pretend pad: nothing held
   await page.evaluate(() => {
     const b = () => ({ pressed: false, touched: false, value: 0 });
-    window.__pad = { id: 'Pretend Pad (STANDARD GAMEPAD Vendor: 0000)', index: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, b), timestamp: 0 };
+    window.__rumble = [];
+    const vibrationActuator = { type: 'dual-rumble', playEffect: (type, p) => (window.__rumble.push({ type, ...p }), Promise.resolve('complete')) };
+    window.__pad = { id: 'Pretend Pad (STANDARD GAMEPAD Vendor: 0000)', index: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, b), timestamp: 0, vibrationActuator };
     Object.defineProperty(navigator, 'getGamepads', { value: () => [window.__pad], configurable: true });
   });
   const press = (i, v = 1) =>
@@ -126,11 +130,21 @@ try {
   console.log('views', v1, v2);
   if (v1 !== 'chase' || v2 !== 'cockpit') fail(`RB does not change the view (${v1}, ${v2})`);
   await rt('simulate', 1.0);
+  // 5. the motors, while seated with the engine running
+  const shook = await page.evaluate(() => window.__rumble.slice());
+  const weak = Math.max(0, ...shook.map((e) => e.weakMagnitude));
+  console.log('rumble', shook.length, 'effects, weak up to', weak.toFixed(2), 'strong up to', Math.max(0, ...shook.map((e) => e.strongMagnitude)).toFixed(2));
+  if (!shook.length || weak < 0.02) fail(`the pad was not shaken in the seat (${shook.length} effects, weak ${weak})`);
+  if (shook.some((e) => e.type !== 'dual-rumble' || !(e.duration > 0))) fail('a rumble effect of the wrong kind');
   await tap(2);
   await rt('simulate', 0.3);
   const seated = await page.evaluate(() => !!window.__rt.game.seated);
   console.log('got out', !seated);
   if (seated) fail('X did not get out');
+  const n0 = await page.evaluate(() => window.__rumble.length);
+  await rt('simulate', 0.8);
+  const n1 = await page.evaluate(() => window.__rumble.length);
+  if (n1 !== n0) fail(`the pad went on shaking out of the seat (${n1 - n0} effects)`);
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
 } catch (e) {
   fail(String(e?.stack ?? e));

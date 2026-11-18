@@ -12,6 +12,9 @@
  *  - in the seat: X gets out, LB the horn (held), RB the view, B the hazard lights, View sets it upright, the
  *    right stick pressed in works what one looks at in the cab (the left button's job: a lever, the radio);
  *  - Menu (start) shows and hides the key card, which has the pad's buttons on it too.
+ * A pad with motors (the Gamepad API's dual rumble) is shaken by what the seat feels: the big, slow one by the
+ * knocks (a kerb, the bump stops, a landing, a crash), the small, quick one by the road's buzz, the engine on its
+ * mounts, the rev limiter cutting in and wheels locked under the brake.
  */
 
 /** what the pad does in the game */
@@ -45,6 +48,10 @@ const B = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, View: 8, Menu: 9
 /** a trigger counts as pressed past this */
 const TRIGGER = 0.55;
 
+/** a rumble effect's length and the gap between them (it runs on while it is asked for) */
+const RUMBLE_MS = 110;
+const RUMBLE_GAP = 0.08;
+
 export class ModPad {
   /** held this frame (on foot): take off (LT, B), put down (Y), jump (A), run (the left stick in) */
   take = false;
@@ -57,10 +64,34 @@ export class ModPad {
   /** the pad in use ('' none) */
   name = '';
   private prev: boolean[] = [];
+  private pad: Gamepad | null = null;
+  private rumbleAt = -1;
+  /** what the motors were last asked for (0 … 1), and how many effects have been sent (the probes) */
+  readonly rumbleNow = { strong: 0, weak: 0, sent: 0 };
+
+  /**
+   * Shake the pad: the strong motor (the big, low one) and the weak (the small, quick one), 0 … 1, at the game's
+   * time `now` (s). Each effect lasts a little longer than the gap between them, so they run on while asked and
+   * stop by themselves when they are not; a pad without motors ignores it.
+   */
+  rumble(strong: number, weak: number, now: number): void {
+    const s = Math.min(1, Math.max(0, strong));
+    const w = Math.min(1, Math.max(0, weak));
+    this.rumbleNow.strong = s;
+    this.rumbleNow.weak = w;
+    if (s < 0.02 && w < 0.02) return;
+    if (now >= this.rumbleAt && now - this.rumbleAt < RUMBLE_GAP) return;
+    const act = (this.pad as unknown as { vibrationActuator?: { playEffect?: (type: string, p: object) => Promise<unknown> } } | null)?.vibrationActuator;
+    if (!act?.playEffect) return;
+    this.rumbleAt = now;
+    this.rumbleNow.sent++;
+    void act.playEffect('dual-rumble', { startDelay: 0, duration: RUMBLE_MS, strongMagnitude: s, weakMagnitude: w }).catch(() => undefined);
+  }
 
   /** read the pad (once a frame, after the shared input's update) */
   update(host: PadHost, pads: readonly (Gamepad | null)[] = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []): void {
     const pad = pads.find((p) => !!p && p.connected) ?? null;
+    this.pad = pad;
     const name = pad?.id ?? '';
     if (name !== this.name) {
       this.name = name;

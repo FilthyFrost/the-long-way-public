@@ -427,7 +427,8 @@ export class SiteArt {
       }
       const want = here ? 1 : 0;
       if (rig.t === want && !here) continue;
-      rig.t = want > rig.t ? Math.min(1, rig.t + dt / NOZZLE_S) : Math.max(0, rig.t - dt / NOZZLE_S);
+      // (in the filler it stays there: a step back each frame it was already in made it flicker)
+      if (rig.t !== want) rig.t = want > rig.t ? Math.min(1, rig.t + dt / NOZZLE_S) : Math.max(0, rig.t - dt / NOZZLE_S);
       const e = rig.t * rig.t * (3 - 2 * rig.t);
       nz.position.lerpVectors(rig.p0, rig.pOut, e);
       nz.quaternion.slerpQuaternions(rig.q0, rig.qOut, e);

@@ -292,6 +292,8 @@ try {
       ['eng_v8', { inside: true, doorsOpen: 0 }, 'v8_inside'],
       ['eng_v8', { inside: true, doorsOpen: 1 }, 'v8_inside_nodoors'],
       ['eng_i4', { turbo: true }, 'i4_turbo'],
+      ['eng_i4', { turbo: true, extra: { turboSize: 0.5 } }, 'i4_turbo_mid'],
+      ['eng_i4', { turbo: true, extra: { turboSize: 1 } }, 'i4_turbo_big'],
       ['eng_i4d', { turbo: true }, 'i4d_turbo'],
       ['eng_flat6', { exhaustId: 'exh_sport' }, 'flat6_sport'],
       ['eng_2t', { exhaustId: 'exh_side' }, '2t_side'],
