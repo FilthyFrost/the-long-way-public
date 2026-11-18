@@ -12,7 +12,7 @@
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
-import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -569,6 +569,12 @@ function keepsFor(hours: number): string {
 /** a weight inside a thing ("0.15", "1.2", "12"): small things to the gram's hundred */
 const kgOf = (kg: number): string => (kg >= 10 ? kg.toFixed(0) : kg >= 1 ? kg.toFixed(1) : kg.toFixed(2));
 
+/** how full a thing that holds things is, 0 ... 1: by its slots or by the weight it bears, whichever is nearer its limit (the card's bar, and the bar under its slot on the hotbar) */
+export function boxFullness(inst: ItemInstance, holds: NonNullable<ItemDef['holds']>): number {
+  const used = inst.inside ? inst.inside.length : 0;
+  return Math.max(used / holds.slots, holds.maxKg !== undefined ? insideMass(inst) / holds.maxKg : 0);
+}
+
 /** the most things in a basket a card names one by one (the rest are counted) */
 const INSIDE_ROWS = 6;
 
@@ -692,7 +698,7 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
     const used = ins ? ins.length : 0;
     const kg = insideMass(inst);
     const weight = h.maxKg !== undefined ? `${kgOf(kg)} / ${h.maxKg} kg` : `${kgOf(kg)} kg`;
-    card.bars.push({ label: '装着', value: Math.max(used / h.slots, h.maxKg !== undefined ? kg / h.maxKg : 0), max: 1, text: `${used} / ${h.slots} 格 · ${weight}`, tone: 'mid' });
+    card.bars.push({ label: '装着', value: boxFullness(inst, h), max: 1, text: `${used} / ${h.slots} 格 · ${weight}`, tone: 'mid' });
     if (ins) {
       for (let i = 0; i < ins.length && i < INSIDE_ROWS; i++) {
         const x = ins[i];

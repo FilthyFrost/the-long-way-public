@@ -4,7 +4,8 @@
 // on the hotbar; F eats one of them and the game says one was eaten; G puts the stack down as one thing and E
 // takes it up again; with a full stack in a slot the next berry takes the other slot; of a stack lying about
 // only what the hands have room for goes in and the rest stays lying, the same thing with fewer in it; with a
-// basket in a slot the pick goes into the basket, and the basket goes down and comes up with it inside; a day
+// basket in a slot the pick goes into the basket (its slot on the hotbar shows how full it is), and the basket
+// goes down and comes up with it inside; while a list is open the hands do not offer G for putting down; a day
 // on, the stack in the hands has turned into what its kind says, by its name, its card and the model in the
 // hand, and the berries in the basket have not; a thing with a quality shows it as stars. On a page without
 // v3test=1 none of these kinds exist.
@@ -205,7 +206,20 @@ try {
   check(s.slots[0]?.n === 12 && s.slots[1]?.item === 'v3t_basket' && s.slots[1].inside.join() === 'v3t_berry*2' && s.lying.length === 0 && s.sel === 1, `the berries did not go into the basket (${JSON.stringify(s.slots)})`);
   // (the card in the hands cut down while another card is up shows only its bars: wait for the whole of it)
   check(await until(() => /×2试验莓/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && /1 \/ 4 格 · 0\.10 \/ 3 kg/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && /坏得慢/.test(document.querySelector('.mc-ic.held')?.textContent ?? '')), `the basket card lacks what is in it, how full it is or how it keeps things (${(await look()).heldText})`);
+  // (the bar under the basket's slot: one of its four slots taken)
+  const bar = await page.evaluate(() => [...document.querySelectorAll('.mc-hot .s')].map((e) => e.querySelector('.f i')?.style.width ?? ''));
+  check(bar[0] === '' && bar[1] === '25%', `the hotbar does not show how full the basket is (${JSON.stringify(bar)})`);
   await shot('02_in_the_basket');
+  // a list open (Tab): G is the list's then, and the hands do not offer it for putting down
+  const keysSay = (re) => until((src) => new RegExp(src).test(document.querySelector('.mc-keys')?.textContent ?? ''), re.source, 30_000);
+  const keysLack = (re) => until((src) => !new RegExp(src).test(document.querySelector('.mc-keys')?.textContent ?? ''), re.source, 30_000);
+  check(await keysSay(/放下/), 'G is not offered for putting the basket down');
+  await page.keyboard.press('Tab');
+  check(await until(() => window.__rt.listOpen() !== null, null, 30_000), 'Tab did not open a list');
+  check(await keysLack(/放下/), 'G is still offered for putting down while a list is open');
+  await page.keyboard.press('Tab');
+  check(await until(() => window.__rt.listOpen() === null, null, 30_000), 'Tab did not shut the list');
+  check(await keysSay(/放下/), 'G is not offered for putting down again once the list is shut');
   // the basket goes down and comes up again with the berry in it
   const basketUid = s.slots[1]?.uid;
   check(await holdKeyUntil(page, 'KeyG', () => window.__rt.game.player.telemetry().held === '', null, 60_000), 'G did not put the basket down');

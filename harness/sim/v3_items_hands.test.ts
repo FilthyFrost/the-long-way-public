@@ -37,9 +37,14 @@ function hands() {
   const lying: Loose[] = [];
   const ate: ItemInstance[] = [];
   const sounds: [string, number | undefined][] = [];
-  const seen = { acts: [] as Action[], held: null as ItemCard | null, aim: null as ItemCard | null, slots: [] as SlotView[] };
+  const seen = { acts: [] as Action[], keys: [] as Action[], held: null as ItemCard | null, aim: null as ItemCard | null, slots: [] as SlotView[] };
+  /** what the game says of itself to the hands: whether a list is open */
+  const game = { listOpen: false };
   /** the thing lying about the mark is on (null: on nothing) */
   const mark = { on: null as Loose | null };
+  /** a vehicle far off (nothing of it is near enough to be looked at) that a thing may ride in, and the vehicles weighed again */
+  const truck = { sim: { px: 1e6, pz: 0, kmh: 0, spec: { body: { halfLength: 2 } } } };
+  const weighed: unknown[] = [];
   let n = 0;
   const add = (item: ItemInstance): Loose => {
     const l = { uid: `l${++n}`, part: null, tool: null, item, x: 1, y: 0, z: 0, yaw: 0, vy: 0, resting: true, obj: null, radius: 0.2, mid: 0.1 } as unknown as Loose;
@@ -47,7 +52,7 @@ function hands() {
     return l;
   };
   const host = {
-    vehicles: [],
+    vehicles: [truck],
     devices: [],
     tanks: [],
     origin: { x: 0, y: 0, z: 0 },
@@ -69,7 +74,7 @@ function hands() {
           seen.held = h;
           seen.aim = a;
         },
-        showKeys: () => {},
+        showKeys: (a: Action[]) => void (seen.keys = a),
         showTransfer: () => {},
         showHotbar: (s: SlotView[]) => void (seen.slots = s),
         showDone: () => {},
@@ -80,12 +85,15 @@ function hands() {
     enter: () => {},
     sound: (name: string, gain?: number) => void sounds.push([name, gain]),
     iconOf: () => null,
-    cargoChanged: () => {},
+    cargoChanged: (v: unknown) => void weighed.push(v),
     consume: (item: ItemInstance) => void ate.push(item),
     drank: () => {},
     camera: null,
     grimeCast: () => null,
     paintCast: () => null,
+    get listOpen() {
+      return game.listOpen;
+    },
   } as unknown as PlayerHost;
   const player = new ModPlayer(new FunctionLand(() => 0), host);
   const keys = { run: false, jump: false, drop: false, take: false, forward: 0, right: 0 };
@@ -107,7 +115,7 @@ function hands() {
     return h?.kind === 'item' ? h.item : null;
   };
   const say = (): string => seen.acts.map((a) => a.text).join(' | ');
-  return { player, lying, ate, sounds, seen, mark, add, frames, pickUp, item, say };
+  return { player, lying, ate, sounds, seen, mark, game, truck, weighed, add, frames, pickUp, item, say };
 }
 
 const berry = (n = 1, o: Partial<ItemInstance> = {}): ItemInstance => newItem('h_berry', { ...(n > 1 ? { n } : {}), ...o });
@@ -158,11 +166,11 @@ describe('the hands take things that stack and hold things', () => {
     expect(player.roomFor(held(b))).toBe(4);
     expect(player.receive(held(b))).toBe(0);
     expect([countOf(a), countOf(b), item(1)]).toEqual([9, 0, null]);
-    // a stack fills up, the rest goes into the free slot, which is then the one in the hands
+    // a stack fills up, the rest goes into the free slot; which slot is selected is the caller's to say
     const c = berry(8);
     expect(player.roomFor(held(c))).toBe(8);
     expect(player.receive(held(c))).toBe(0);
-    expect([countOf(a), item(1), countOf(c), player.sel]).toEqual([12, c, 5, 1]);
+    expect([countOf(a), item(1), countOf(c), player.sel]).toEqual([12, c, 5, 0]);
     // both slots taken: only what the stacks have room for goes in, the rest stays with its count
     const d = berry(10);
     expect(player.roomFor(held(d))).toBe(7);
@@ -193,7 +201,7 @@ describe('the hands take things that stack and hold things', () => {
     // a thing the basket does not hold goes into the free slot
     const chips = newItem('food_chips');
     expect(player.receive(held(chips))).toBe(0);
-    expect([item(1), player.sel]).toEqual([chips, 1]);
+    expect([item(1), player.sel]).toEqual([chips, 0]);
     // both slots taken: berries still go into the basket, chips nowhere
     expect(player.roomFor(held(berry(2)))).toBe(2);
     expect(player.roomFor(held(newItem('food_chips')))).toBe(0);
@@ -216,7 +224,7 @@ describe('the hands take things that stack and hold things', () => {
     // (2.55 kg in it: room for four more by weight, but no slot and no stack of jerky with room)
     expect(player.roomFor(held(last))).toBe(8);
     expect(player.receive(held(last))).toBe(0);
-    expect([item(1), countOf(last), player.sel]).toEqual([last, 8, 1]);
+    expect([item(1), countOf(last), player.sel]).toEqual([last, 8, 0]);
     // by weight: an empty basket (3 kg) takes three stacks of jerky and six of a fourth; the two left over go into the free slot
     const { player: p2, item: item2 } = hands();
     const b2 = newItem('h_basket');
@@ -237,6 +245,64 @@ describe('the hands take things that stack and hold things', () => {
     expect(p3.roomFor(held(rest))).toBe(6);
     expect(p3.receive(held(rest))).toBe(2);
     expect([countOf(rest), b3.inside!.map((x) => countOf(x))]).toEqual([2, [8, 8, 8, 6]]);
+  });
+
+  it('a list taking a thing out of a basket in the hands lets the basket step out of its slot: nothing about the slots is remembered', () => {
+    world.worldSeconds = 0;
+    const { player, item } = hands();
+    const basket = newItem('h_basket', { inside: [berry(5, { fk: 0.5, t0: 0 })] });
+    player.receive(held(basket));
+    player.receive(held(newItem('food_chips')));
+    player.sel = 1;
+    const row = basket.inside![0];
+    // with the basket in its slot the berries would go straight back into it
+    expect(player.roomFor(held(row))).toBe(5);
+    // stepped out: no slot is free and nothing else takes berries, so there is no room; the basket's own slot,
+    // empty meanwhile, counts as free to whoever asks then (the list moves what lands there)
+    const box = player.slots[0];
+    player.slots[0] = null;
+    expect(player.roomFor(held(row))).toBe(5);
+    player.slots[0] = { kind: 'tool', tool: newTool('bottle') };
+    expect(player.roomFor(held(row))).toBe(0);
+    expect(player.receive(held(row))).toBe(5);
+    // back in its slot, it is asked again as it stands, and the selection never moved
+    player.slots[0] = box;
+    expect([player.roomFor(held(berry(3))), player.sel, item(0)]).toEqual([3, 1, basket]);
+    // the same with a stack of the same sort in the other hand: out of the basket onto the stack
+    const { player: p2 } = hands();
+    const b2 = newItem('h_basket', { inside: [berry(5, { t0: 0 })] });
+    p2.receive(held(b2));
+    const stack = berry(4, { t0: 0 });
+    // (put there by hand: handed to the hands it would have gone into the basket)
+    p2.slots[1] = held(stack);
+    const mine = p2.slots[0];
+    p2.slots[0] = null;
+    const out = b2.inside!.pop()!;
+    delete b2.inside;
+    expect(p2.receive(held(out))).toBe(0);
+    p2.slots[0] = mine;
+    expect([countOf(stack), countOf(out), b2.inside, p2.sel]).toEqual([9, 0, undefined, 0]);
+  });
+
+  it('G is not offered for putting down while a list is open; a basket in a slot shows how full it is under it', () => {
+    world.worldSeconds = 0;
+    const { player, frames, seen, game } = hands();
+    player.receive(held(newItem('h_basket', { inside: [berry(12, { fk: 0.5, t0: 0 }), newItem('h_jerky', { n: 2 })] })));
+    frames(1);
+    const g = (): string[] => seen.keys.filter((a) => a.keys.includes('G')).map((a) => a.text);
+    expect(g()).toEqual(['放下（看着车：收进车里）']);
+    game.listOpen = true;
+    frames(1);
+    expect(g()).toEqual([]);
+    game.listOpen = false;
+    frames(1);
+    expect(g().length).toBe(1);
+    // two of its four slots taken, 0.8 of its 3 kg: half full; the bar is the same object from frame to frame
+    const fill = seen.slots[0].fill;
+    expect([fill?.value, fill?.max, fill?.tone, seen.slots[0].count]).toEqual([0.5, 1, 'mid', 1]);
+    frames(1);
+    expect(seen.slots[0].fill).toBe(fill);
+    expect(seen.slots[1].fill).toBeUndefined();
   });
 
   it('roomFor says what receive then does, whatever is in the hands', () => {
@@ -321,6 +387,25 @@ describe('the hands take things that stack and hold things', () => {
     expect(player.target).toBeNull();
     pickUp(five);
     expect(countOf(five.item!)).toBe(4);
+  });
+
+  it('E on a stack riding in a vehicle: the vehicle is weighed again, whether all of the stack is taken or part of it', () => {
+    world.worldSeconds = 0;
+    const { player, lying, add, pickUp, item, truck, weighed } = hands();
+    player.receive(held(berry(12)));
+    player.slots[1] = held(berry(10));
+    const stowed = add(berry(5));
+    stowed.riding = { on: truck } as unknown as Loose['riding'];
+    // room for two of the five: they go, the rest rides on, and what the vehicle carries is weighed again
+    pickUp(stowed);
+    expect([countOf(item(1)!), lying.length, countOf(stowed.item!), weighed]).toEqual([12, 1, 3, [truck]]);
+    // a slot freed: the rest is taken whole, and the vehicle is weighed again
+    player.slots[0] = null;
+    pickUp(stowed);
+    expect([lying.length, countOf(item(0)!), weighed, player.sel]).toEqual([0, 3, [truck, truck], 0]);
+    // a thing that rode in nothing: nothing is weighed
+    pickUp(add(berry(2)));
+    expect([countOf(item(0)!), weighed.length]).toEqual([5, 2]);
   });
 
   it('E with a basket in a slot: the pick goes into the basket, and the words say so', () => {

@@ -30,7 +30,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
-import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, type ItemInstance } from '../../core/modcar/items';
+import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, type ItemDef, type ItemInstance } from '../../core/modcar/items';
 import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance, FuelType } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
@@ -38,7 +38,7 @@ import type { Land } from '../../core/onfoot/land';
 import { SolidSet, type SolidSource } from '../../core/world/solids';
 import { GhostLayer, type GhostSpec } from './ghosts';
 import type { Action, SlotView, TransferView } from './hudItems';
-import { deviceCard, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, itemLabelPlain, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
+import { boxFullness, deviceCard, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, itemLabelPlain, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
 import { itemNow } from './itemTime';
 import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
@@ -77,6 +77,19 @@ function settleThing(it: ItemInstance, now: number, start: boolean): boolean {
     }
   }
   return changed;
+}
+
+/** the bar under the slot of each thing that holds things: one object a thing, filled in again when asked (nothing is made per frame) */
+const BOX_FILL = new WeakMap<ItemInstance, { value: number; max: number; tone: Tone }>();
+
+function boxFill(it: ItemInstance, holds: NonNullable<ItemDef['holds']>): { value: number; max: number; tone: Tone } {
+  let f = BOX_FILL.get(it);
+  if (!f) {
+    f = { value: 0, max: 1, tone: 'mid' };
+    BOX_FILL.set(it, f);
+  }
+  f.value = boxFullness(it, holds);
+  return f;
 }
 
 /** a loose thing as it would be in the hands */
@@ -218,6 +231,8 @@ export interface PlayerHost {
   panelOpened?(v: ModVehicle, mount: string, open: boolean): void;
   /** the can sprayed at it for dt seconds: the coat goes on, the can empties (paint.ts) */
   spray(aim: PaintAim, can: Tool, dt: number): SprayResult;
+  /** a list is open (Tab): G there puts the thing in the hands into the list, so the hands do not offer G for putting it down */
+  readonly listOpen?: boolean;
 }
 
 /** a zone is in reach: one of the panels it is reached through open, or not there at all */
@@ -436,11 +451,16 @@ export class ModPlayer {
   /**
    * The hands take a thing: THE one way a thing enters the hands (a list, a bench, a device, a script, and
    * the player's own pick-up). It goes onto the stacks of its sort in the slots, then into the things in the
-   * slots that hold its sort, then into a free slot (the selected one when empty, else the first empty), which
-   * is then the one in the hands, as a thing picked up always was. Returns how many of it did not go in: 0
-   * when all of it did — the caller lets go of it then, whatever its count reads (it sits in a slot or in a
-   * basket itself, or it went onto stacks and its count reads 0); otherwise the thing stays the caller's,
-   * with that count. `not`: a thing in the hands it must not go into (the basket it is being taken out of).
+   * slots that hold its sort, then into a free slot (the selected one when empty, else the first empty).
+   * Returns how many of it did not go in: 0 when all of it did — the caller lets go of it then, whatever its
+   * count reads (it sits in a slot or in a basket itself, or it went onto stacks and its count reads 0);
+   * otherwise the thing stays the caller's, with that count. `not`: a thing in the hands it must not go into
+   * (the basket it is being taken out of).
+   *
+   * Which slot is selected is left alone: a caller that wants the thing in the hands selects the slot it is
+   * in afterwards (the player's own pick-up does, and the lists). Nothing about the slots is remembered from
+   * one call to the next: a caller may empty a slot for the call and fill it again after (a list taking a
+   * thing out of a basket that is itself in the hands lets the basket step out of its slot meanwhile).
    *
    * A thing that has turned is what it turned into by now (settled as it is handed over, whether it then goes
    * in or not). One that goes into a slot goes off in the open air from now on, and is started if it never
@@ -476,13 +496,11 @@ export class ModPlayer {
       stampFresh(it, now);
       setFreshRate(it, now, 1);
       s[slot] = h;
-      this.sel = slot;
       return 0;
     }
     const slot = this.freeSlot();
     if (slot < 0) return 1;
     this.slots[slot] = h;
-    this.sel = slot;
     return 0;
   }
 
@@ -1189,9 +1207,14 @@ export class ModPlayer {
         const left = this.receive(h);
         // (no room for any of it: it lies where it was)
         if (left >= all) return;
+        // into a slot of its own: that one is in the hands now, as a thing picked up always was (onto a stack or
+        // into a basket: the hands stay as they are)
+        const at = this.slots.indexOf(h);
+        if (at >= 0) this.sel = at;
         const rode = l.riding?.on as ModVehicle | undefined;
         // only part of a stack went in: the rest lies where it was, the same thing with what is left of its count
         if (left <= 0) host.loose.remove(l);
+        // (taken out of a vehicle, all of it or some: what rides in the vehicle is weighed again)
         if (rode && host.vehicles.includes(rode)) host.cargoChanged(rode);
         host.sound('pickup', left > 0 ? (kg * (all - left)) / all : kg);
         // (what the mark was on is in the hands now)
@@ -1803,7 +1826,9 @@ export class ModPlayer {
     }
     // a spray can off what takes paint: what the mark is on does not
     if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: `<b>${this.paintAim.label}</b> 不能喷漆`, off: true });
-    if (held && this.lookVehicle && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
+    // (while a list is open G puts the thing into the list, and the list says so itself: the hands do not offer it)
+    const listOpen = !!this.host.listOpen;
+    if (held && this.lookVehicle && !listOpen && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
     // (the card only for what is close by: from further off it would stand in the way of the view)
     if (aim && t && (t.at ?? t.dist) > CARD_NEAR) aim = null;
     if (t?.kind === 'loose' && noRoom) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
@@ -1884,7 +1909,8 @@ export class ModPlayer {
       else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : countOf(h.item) > 1 ? '吃一个' : '吃掉' });
       else if (d.revive) out.push({ keys: F, text: '倒下时自己用上', off: true });
     }
-    if (h) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
+    // (while a list is open G puts the thing into the list, and the list says so itself)
+    if (h && !this.host.listOpen) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
     // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)
     if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : other.kind === 'item' ? itemDef(other.item.item).name.zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
     out.push({ keys: ['I'], text: this.cardsOn ? '隐藏物品信息' : '显示物品信息' });
@@ -1905,7 +1931,9 @@ export class ModPlayer {
       const drink = h.kind === 'item' ? itemDef(h.item.item).drink : undefined;
       // (a spray can: the paint left, Arctic Drive's usage bar, in the can's colour)
       const spray = t?.kind === 'spray' ? { value: sprayLeft(t), max: SPRAY_TIERS[sprayTier(t)].capacity, tone: 'good' as Tone, colour: hexCss(paintHex(t.colour ?? 0)) } : undefined;
-      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : undefined);
+      // (a thing that holds things: how full it is, as on its card)
+      const holds = h.kind === 'item' ? itemDef(h.item.item).holds : undefined;
+      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : holds && h.kind === 'item' ? boxFill(h.item, holds) : undefined);
       return { icon: this.host.iconOf(h), name: nameOf, empty: false, fill, count: many };
     });
   }

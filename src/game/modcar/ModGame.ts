@@ -1218,6 +1218,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.cargo.weigh(v);
   }
 
+  /** a list is open (Tab): G there puts the thing in the hands into the list, so the hands do not offer G for putting it down (player.ts) */
+  get listOpen(): boolean {
+    return !!this.listV;
+  }
+
   // ------------------------------------------------------------------ the body (vitals.ts)
 
   /** is one under the workshop's roof (in a vehicle: is it) */
