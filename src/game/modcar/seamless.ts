@@ -21,8 +21,16 @@ export const MODCAR_PLACE_ODDS: readonly [number, number, number] = [0.62, 0.88,
 /** … and a second place in most stretches that have one */
 export const MODCAR_SECOND_PLACE = 0.8;
 
+/**
+ * Which world is asked for: how its chapters are scaled and where it begins, and which generator makes it
+ * (core/world/rules.ts): its version — absent: 1, every world from before there were versions — and how many
+ * regions of the registry it knows — absent: the version's own count. A new game names version 2; a save names
+ * the version, the count and the seed it was begun with.
+ */
+export type ModcarWorldChoice = Pick<WorldOptions, 'chapterScale' | 'startBiome' | 'worldVersion' | 'regionCount'>;
+
 /** ModCar's world: the road begins at the workshop's gate, level with its yard, and the yard is a plot of its land */
-export function modcarWorldOptions(o: { chapterScale?: number; startBiome?: string }): WorldOptions {
+export function modcarWorldOptions(o: ModcarWorldChoice): WorldOptions {
   return { ...o, start: { x: ROAD_START_X, z: 0, y: 0 }, deadEnd: true, plots: [YARD_PLOT], placeOdds: MODCAR_PLACE_ODDS, secondPlace: MODCAR_SECOND_PLACE };
 }
 
@@ -30,7 +38,7 @@ export function modcarWorldOptions(o: { chapterScale?: number; startBiome?: stri
  * ModCar's world with its proving ground behind the workshop (core/modcar/proving/layout.ts), a plot of its land
  * too: levelled at the height of the land it is cut out of (found on the same world made without it first)
  */
-export function modcarWorld(seed: number, o: { chapterScale?: number; startBiome?: string }): { world: World; level: number } {
+export function modcarWorld(seed: number, o: ModcarWorldChoice): { world: World; level: number } {
   const level = provingLevel(new World(seed, modcarWorldOptions(o)));
   const opts = modcarWorldOptions(o);
   return { world: new World(seed, { ...opts, plots: [...(opts.plots ?? []), provingPlot(level)] }), level };

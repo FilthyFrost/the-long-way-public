@@ -23,8 +23,8 @@ import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
 // reached: before anything below runs, so before the save is read and checked against those catalogues)
 import { MODULES } from './kernel/discovery';
 import type { GameModule } from './kernel/modules';
-import { clearSave, loadSave } from './save';
-import { loadLoss, lossWords } from './save';
+import { clearSave, loadSave, worldOfSave } from './save';
+import { loadLoss, loadRefusal, lossWords } from './save';
 import { wreckSpots } from './wrecks';
 import { isRare, rollWreck } from '../../core/modcar/wrecks';
 
@@ -45,6 +45,9 @@ const save = own || q.has('new') ? null : loadSave();
 // (things of kinds this build does not have — a system that is not in it, a kind renamed since — were left out
 // of the save as it was read, and everything else was read: how many, to be said once the game is up)
 const unread = save ? loadLoss() : null;
+// (a save of a world this build cannot make again — a later build's, with more regions than this one has — was
+// set aside and a new game begins: why, to be said once the game is up)
+const refused = loadRefusal();
 // (a new game of one's own, no world asked for: the new world's seed ModGame.newGame left for it)
 if (!save && !own && !q.has('seed')) {
   try {
@@ -55,9 +58,12 @@ if (!save && !own && !q.has('seed')) {
     /* storage unavailable */
   }
 }
-// (a save of the one world with the workshop in it starts there, in the yard or down the road, as the save has it)
+// (a save of the one world with the workshop in it starts there, in the yard or down the road, as the save has it;
+// and in the world it was made in: its seed, the version of the generator and the regions it knows — a save from
+// before there were versions is of version 1 — whatever the address says)
+const made = save ? worldOfSave(save) : null;
 const params = save
-  ? { ...fresh, keep: true, start: save.world ? 'garage' : save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: save.world?.seed ?? save.road?.seed ?? fresh.seed, weather: save.place === 'road' ? base.weather : fresh.weather }
+  ? { ...fresh, keep: true, start: save.world ? 'garage' : save.place, time: save.hour, s: save.road?.s ?? fresh.s, seed: made?.seed ?? fresh.seed, world: made?.version ?? 1, regions: made?.regionCount, weather: save.place === 'road' ? base.weather : fresh.weather }
   : { ...fresh, keep: !own };
 // the developer's dials, the terrain's among them, are in before the world is made
 const tune = new Tune();
@@ -72,6 +78,7 @@ if (unread && unread.unknown > 0) {
   const words = lossWords(unread.unknown, unread.kinds);
   void game.ready.then(() => game.kernel.report('save', new Error(words.en), words.zh));
 }
+if (refused) void game.ready.then(() => game.kernel.report('save', new Error(refused.en), refused.zh));
 
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');

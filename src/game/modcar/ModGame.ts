@@ -54,6 +54,8 @@ import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
 import type { PaintAim, ScrubHit, Scrub, TankPort } from './player';
 import { SprayMist } from './sprayMist';
 import { modcarWorld, SeamlessGround, SeamlessLand } from './seamless';
+import { rehome, savedWorldOf, stampWorld, WORLD_CHANGED, worldMoved } from './worldSave';
+import type { WorldVersion } from '../../core/world/rules';
 import { ProvingGround } from '../../core/modcar/proving/layout';
 import { ConeField, type ConeBody } from '../../core/modcar/proving/cones';
 import { provingSolids } from '../../core/modcar/proving/props';
@@ -128,11 +130,19 @@ export interface ModParams extends Params {
   garage: 'workshop' | 'stub';
   /** this is the player's game, kept in the browser (save.ts); not a test drive or the harness's run */
   keep: boolean;
+  /**
+   * Which version of the world's generator (core/world/rules.ts): 2 for a new game — the address may ask for 1,
+   * the worlds from before there were versions (?world=1) — and a save's own for a game gone on with
+   */
+  world: WorldVersion;
+  /** how many regions of the registry the world knows: a save's own count, or the address's (?regions=); absent: the version's own — all there are now, for a new world of version 2 */
+  regions?: number;
 }
 
 export function readModParams(base: Params, search: string = window.location.search): ModParams {
   const q = new URLSearchParams(search);
   const start = q.get('start') === 'road' ? 'road' : 'garage';
+  const regions = Number(q.get('regions') ?? NaN);
   return {
     ...base,
     start,
@@ -140,6 +150,8 @@ export function readModParams(base: Params, search: string = window.location.sea
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
     garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
     keep: false,
+    world: q.get('world') === '1' ? 1 : 2,
+    ...(Number.isInteger(regions) ? { regions } : {}),
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
     weather: base.weather === 'auto' && start === 'garage' ? 'clear' : base.weather,
   };
@@ -552,7 +564,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the road's world, or (in the stand-in garage) the same world to look for places in */
   devWorld(): World {
     const p = this.params;
-    return this.world ?? (this.probeWorld ??= modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome }).world);
+    return this.world ?? (this.probeWorld ??= modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions }).world);
   }
 
   /** seconds left of building the world fast after a teleport (under a fade) */
@@ -920,12 +932,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
   }
 
+  /** the save gone on with was written under another revision of the generator and has been made fit for this one (said once the game is up) */
+  private movedWorld = false;
+
   private makeWorld(): void {
     const p = this.params;
     // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or
     // not; the proving ground behind it another, its ground what the wheels and the feet have there)
-    const made = modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome });
+    const made = modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions });
     this.world = made.world;
+    // (a save written under another revision of the generator: its vehicles back on the road, what lies about
+    // down on the land as it is now, before anything reads it — worldSave.ts)
+    if (this.restore && worldMoved(this.restore)) {
+      if (this.restore.world) rehome(this.restore, this.world);
+      this.movedWorld = true;
+    }
     this.proving = new ProvingGround(made.level, this.world);
     this.provingCones = new ConeField(this.proving);
     this.provingProps = provingSolids(this.proving);
@@ -1056,7 +1077,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         await this.restoreGrime();
         if (this.seamless) await this.buildWorldAround();
         if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
-        this.ui.say('接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
+        this.ui.say(this.movedWords() ?? '接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
         return;
       }
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
@@ -1159,7 +1180,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         for (const d of this.restore.done) this.done.add(d);
         this.restoreLoose(this.restore.loose.filter((l) => l.on === 0));
         this.restoreHands(this.restore);
-        this.ui.say('接着上次的路。（回车库从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
+        this.ui.say(this.movedWords() ?? '接着上次的路。（回车库从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
       }
       v.sys.startNow();
       this.seated = v;
@@ -1170,6 +1191,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (this.seamless) await this.buildWorldAround();
     // (once the model is in: where its clocks are)
     if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
+  }
+
+  /** the line for a save that was made fit for another revision of the generator (written out in English, as the kernel writes its own); null: it was not */
+  private movedWords(): string | null {
+    if (!this.movedWorld) return null;
+    console.info(`[world] ${WORLD_CHANGED.en}`);
+    return WORLD_CHANGED.zh;
   }
 
   /** the world round where one is, built under the loading card (a few seconds at most) */
@@ -1584,8 +1612,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       ...(this.workshop ? { workshop: this.workshop.snapshot() } : this.workshopKept ? { workshop: this.workshopKept } : {}),
     };
     if (this.seamless && this.world) {
-      // (one world: everything where it is, the world's seed, the vehicle one sits in)
-      s.world = { seed: this.params.seed };
+      // (one world: everything where it is, the world's seed and the generator it is of, the vehicle one sits in)
+      s.world = savedWorldOf(this.world, this.params.seed);
       if (this.seated && own.includes(this.seated)) s.seat = own.indexOf(this.seated);
     } else if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
@@ -1594,10 +1622,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       s.vehicles = s.vehicles.filter((_, i) => i === vi);
       // (and what rides on it)
       s.loose = s.loose.filter((l) => l.on === vi).map((l) => ({ ...l, on: 0 }));
-      s.road = { s: this.world.spine.sAtX(v.sim.px), seed: this.params.seed };
+      s.road = { ...savedWorldOf(this.world, this.params.seed), s: this.world.spine.sAtX(v.sim.px) };
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
+    // (a world of version 2: how far along the road everything is, and what kind each place remembered is, for
+    // a later revision of the generator to put it back by — worldSave.ts)
+    if (this.world) stampWorld(s, this.world, this.restore?.world?.sites);
     // (the V3 systems' parts, where any has something to keep, and the world's clock)
     this.kernel.write(s);
     return s;
@@ -1703,7 +1734,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    * The save cleared and a new game from the workshop, as on a first visit: nothing more written as the page
    * goes, and the page opened again at its plain address — what the address asked for of its own (the road, a
    * build, a seed, the developer's panel open again after the world was made again) dropped, the picture's
-   * quality kept.
+   * quality and the version of the generator it asked for kept.
    */
   newGame(): void {
     this.saveOff = true;
@@ -1717,9 +1748,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     } catch {
       /* storage unavailable: the first world again */
     }
-    const quality = new URLSearchParams(location.search).get('quality');
+    // (the picture's quality stays, and a version of the generator the address asked for: a new game is of
+    // version 2 unless it did)
+    const asked = new URLSearchParams(location.search);
+    const kept = new URLSearchParams();
+    for (const k of ['quality', 'world']) {
+      const v = asked.get(k);
+      if (v) kept.set(k, v);
+    }
+    const q = kept.toString();
     this.dispose();
-    location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
+    location.replace(`${location.pathname}${q ? `?${q}` : ''}`);
   }
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {

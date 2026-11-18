@@ -315,6 +315,10 @@ export class DevWorld {
     q.set('start', 'road');
     q.set('s', String(Math.round(newSeed ? 3000 : g.place === 'road' ? g.roadS : g.params.s)));
     q.set('seed', String(newSeed ? 1 + Math.floor(Math.random() * 999_999) : g.params.seed));
+    // (the same generator, and the regions this world knows: the page made again is no save's, and would be a new world's)
+    q.set('world', String(g.params.world));
+    if (!newSeed && g.world) q.set('regions', String(g.world.rules.regionCount));
+    else q.delete('regions');
     q.set('time', this.hour.toFixed(2));
     const f = this.forced;
     if (f) q.set('weather', f);
