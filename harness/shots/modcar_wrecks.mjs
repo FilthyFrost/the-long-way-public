@@ -7,7 +7,7 @@
 //  5. untouched wrecks come and go as one passes (none left behind, none twice), and the frame time near one;
 //  6. the dash's four tyres in their stages' colours, a blown one blinking.
 //   SHOTS_GPU=1 node harness/shots/modcar_wrecks.mjs
-import { launchBrowser, startServer } from './lib.mjs';
+import { launchBrowser, ON_GPU, startServer } from './lib.mjs';
 
 const { server, url } = await startServer();
 const browser = await launchBrowser();
@@ -238,7 +238,9 @@ try {
       return (performance.now() - t0) / 60;
     });
     console.log('frame by a wreck', ms.toFixed(2), 'ms');
-    if (ms > 40) fail(`the frame by a wreck is slow (${ms.toFixed(1)} ms)`);
+    // (a frame time means something on a GPU only: a software renderer takes hundreds of milliseconds here)
+    if (ON_GPU && ms > 40) fail(`the frame by a wreck is slow (${ms.toFixed(1)} ms)`);
+    if (!ON_GPU) console.log('(software renderer: the frame time by a wreck is printed, not judged)');
     await shot('passing');
   }
 

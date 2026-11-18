@@ -7,7 +7,7 @@
 //   SHOTS_GPU=1 node harness/shots/modcar_hud.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, launchBrowser, startServer } from './lib.mjs';
+import { ROOT, holdKeyUntil, launchBrowser, settle as settleGame, startServer } from './lib.mjs';
 
 const out = path.join(ROOT, 'loop/shots/modcar_hud');
 fs.mkdirSync(out, { recursive: true });
@@ -51,7 +51,8 @@ try {
         hot: shown('.mc-hot'),
       };
     });
-  const settle = (ms = 250) => page.waitForTimeout(ms);
+  // (a wait for the game's own frames as well as the clock: a software renderer is slower than 250 ms a frame)
+  const settle = (ms = 250) => settleGame(page, ms, 3);
   const shot = (name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 
   // ---- a thing lying about: its card beside the mark, E picks it up into the hands
@@ -128,9 +129,8 @@ try {
   if (!(await hud()).held) fail('I did not show the cards again');
 
   // ---- G held puts down what is in the hands
-  await page.keyboard.down('KeyG');
-  await page.waitForTimeout(800);
-  await page.keyboard.up('KeyG');
+  // (held until the can is down, however slowly the frames come; the check below still fails if it never is)
+  await holdKeyUntil(page, 'KeyG', () => window.__rt.game.player.telemetry().slot2 === '', null, 60_000);
   await settle();
   t = await tele();
   if (t.slot2 !== '' || t.slot1 !== 'bat_std') fail(`G did not put the can down (${JSON.stringify(t)})`);

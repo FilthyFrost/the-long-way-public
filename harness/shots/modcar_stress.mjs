@@ -3,7 +3,7 @@
 // panel opened and shut; every tool used on it — and nothing may throw (a throw used to freeze the game). Then
 // the same in the live loop for the engine, the fuel tank and a wheel. Writes nothing.
 //   SHOTS_GPU=1 node harness/shots/modcar_stress.mjs
-import { launchBrowser, openGame, startServer } from './lib.mjs';
+import { holdKeyUntil, launchBrowser, ON_GPU, openGame, startServer, waitFrames } from './lib.mjs';
 
 const { server, url } = await startServer();
 const browser = await launchBrowser();
@@ -128,15 +128,23 @@ try {
     if (lid) await lrt('openPanel', vi, lid, true);
     await live.evaluate(() => (window.__rt.game.player.held = null));
     await lrt('aim', vi, mount, 1.3);
-    await live.keyboard.down('KeyF');
-    await live.waitForTimeout(3400);
-    await live.keyboard.up('KeyF');
+    // F held until the part is in the hands (a software renderer's game time runs slower than the wall clock:
+    // SHOTS_GPU=1 keeps the old 3.4 s); then the loop must still be turning: five more frames, however long
+    // they take to draw, within the bound
+    if (ON_GPU) {
+      await live.keyboard.down('KeyF');
+      await live.waitForTimeout(3400);
+      await live.keyboard.up('KeyF');
+    } else {
+      await holdKeyUntil(live, 'KeyF', () => !!window.__rt.telemetry().held, null, 90_000);
+    }
     const a = await live.evaluate(() => window.__gameFrames);
-    await live.waitForTimeout(400);
+    const turning = await waitFrames(live, 5, ON_GPU ? 400 : 60_000);
     const b = await live.evaluate(() => window.__gameFrames);
     const held = await live.evaluate(() => window.__rt.telemetry().held);
-    console.log(`live: ${mount} of vehicle ${vi} off → in the hands ${held}, ${b - a} frames in 0.4 s`);
-    if (b - a < 5) fail(`live: the game stopped after taking off ${mount}`);
+    console.log(`live: ${mount} of vehicle ${vi} off → in the hands ${held}, ${b - a} frames after`);
+    if (!held) fail(`live: ${mount} did not come off with F held`);
+    if (!turning) fail(`live: the game stopped after taking off ${mount}`);
     await live.evaluate(() => window.__rt.game.player.putDown());
   }
   const le = await live.evaluate(() => window.__rt.lastError);

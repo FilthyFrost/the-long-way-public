@@ -47,15 +47,74 @@ export async function launchBrowser() {
   browser.newPage = async (...a) => {
     const page = await newPage(...a);
     page.setDefaultNavigationTimeout(nav);
+    page.setDefaultTimeout(nav);
     return page;
   };
   const newContext = browser.newContext.bind(browser);
   browser.newContext = async (...a) => {
     const context = await newContext(...a);
     context.setDefaultNavigationTimeout(nav);
+    context.setDefaultTimeout(nav);
     return context;
   };
   return browser;
+}
+
+/** true when the run draws on a real GPU (SHOTS_GPU=1): only then does a frame time mean anything */
+export const ON_GPU = process.env.SHOTS_GPU === '1';
+
+// ---- waiting for the game instead of the wall clock
+// A software renderer draws a frame of the live game in half a second or more, and the live loop caps a
+// frame's time step at 0.1 s (src/game/modcar/entry.ts), so game time runs several times slower than the
+// clock on the wall. A script that presses a key and waits 250 ms, or holds a key for 3 s, then finds that
+// nothing has happened yet. Wait for the game's own frames or for the condition itself.
+
+/** count the live game's frames in window.__gameFrames (safe to call again) */
+export async function countFrames(page) {
+  await page.evaluate(() => {
+    if (window.__gameFrames !== undefined) return;
+    const g = window.__rt.game;
+    window.__gameFrames = 0;
+    const f = g.frame.bind(g);
+    g.frame = (dt) => {
+      window.__gameFrames++;
+      f(dt);
+    };
+  });
+}
+
+/** wait until the live loop has run n more frames; false if it has not within the timeout (the loop stopped) */
+export async function waitFrames(page, n = 3, timeout = 120_000) {
+  await countFrames(page);
+  const to = (await page.evaluate(() => window.__gameFrames)) + n;
+  try {
+    await page.waitForFunction((to) => window.__gameFrames >= to, to, { timeout, polling: 50 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** let the game settle: at least ms on the wall AND n frames of the game */
+export async function settle(page, ms = 250, n = 3) {
+  await page.waitForTimeout(ms);
+  await waitFrames(page, n);
+}
+
+/**
+ * Hold a key until fn(arg) is true in the page, then let go. Returns whether it became true within the
+ * timeout: a hold that never completes still fails the script that asked for it.
+ */
+export async function holdKeyUntil(page, code, fn, arg, timeout = 120_000) {
+  await page.keyboard.down(code);
+  let ok = true;
+  try {
+    await page.waitForFunction(fn, arg, { timeout, polling: 50 });
+  } catch {
+    ok = false;
+  }
+  await page.keyboard.up(code);
+  return ok;
 }
 
 /** Open a page, wait until the game says it is ready, return {page, errors}. */
