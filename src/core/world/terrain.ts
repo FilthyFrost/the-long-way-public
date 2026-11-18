@@ -15,7 +15,10 @@ import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
+import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
+import { FloraField } from './flora';
+import { floraTableOf } from './floraTables';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
@@ -268,6 +271,9 @@ export class World implements Ground {
   readonly placeOdds: readonly [number, number, number] | null;
   /** WorldOptions.secondPlace (0: none) */
   readonly secondPlace: number;
+  /** the ecotope field and the flora field of a world of version 2, once they have been asked for (`eco`, `flora`) */
+  private ecoField: EcotopeField | null = null;
+  private floraField: FloraField | null = null;
 
   constructor(seed: number, opts: WorldOptions = {}) {
     this.seed = seed | 0;
@@ -340,6 +346,29 @@ export class World implements Ground {
   /** is stretch k one of the journey's quiet ones? (the rules' quiet rule; version 1's is quiet.ts: no place, no lake, no bridge, no landmark there) */
   quiet(k: number): boolean {
     return this.rules.quiet(this.spine.plan, this.seed, k);
+  }
+
+  /**
+   * The ecotope field of a world of version 2 (ecotope.ts): what kind of spot each place is for a plant,
+   * by the parameters each region's flora table gives (floraTables.ts), with the water's own account of
+   * how far its edge is (the lakes', the rivers' and the sea's: `shoreOf`). It is made the first time it
+   * is asked for and computes nothing until a tile of it is asked for. Null in a world of version 1, whose
+   * plants are the renderer's own as they always were.
+   */
+  get eco(): EcotopeField | null {
+    if (this.rules.version < 2) return null;
+    return (this.ecoField ??= new EcotopeField(this, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, shoreOf(this)));
+  }
+
+  /**
+   * The flora field of a world of version 2 (flora.ts), over its ecotope field: what grows where, by each
+   * region's flora table. Made the first time it is asked for, computing nothing until a cell is asked;
+   * null in a world of version 1.
+   */
+  get flora(): FloraField | null {
+    const eco = this.eco;
+    if (eco === null) return null;
+    return (this.floraField ??= new FloraField(this, new TerrainPoint(), eco, (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin)));
   }
 
   private relief(b: BiomeDef, bi: number, x: number, z: number, g1: number, lat: number, farK: number, coarse = false): number {
