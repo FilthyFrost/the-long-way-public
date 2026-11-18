@@ -971,7 +971,7 @@ def build_eng_2t(P):
 def build_eng_flat6(P):
     """Air-cooled flat-six: alloy crankcase, three finned barrels per side, black cooling tin, the upright fan
     housing on top driven by a belt from the crank, intake runners to two plenums, exhaust collectors at the
-    back on both sides, oil cooler."""
+    back on both sides (the right one feeding a turbo pad low at the back), oil cooler."""
     P.ao_distance = 0.12
     xs = [-0.17, -0.02, 0.13]
     P.box('crankcase', (0.56, 0.24, 0.24), (-0.03, 0, 0.18), 'alu', bev=0.016, segs=2)
@@ -1002,8 +1002,13 @@ def build_eng_flat6(P):
                0.026, 'rust', segs=12, bend=0.04)
         P.cyl('ex_flange', 0.04, 0.012, (-0.345, y * 0.85, 0.05), 'rust', axis='X', segs=14, bev=0.003, bsegs=1)
         P.empty('M_exhaust_out' if sg < 0 else 'M_exhaust_out2', (-0.352, y * 0.85, 0.05), rot=(0, 0, 180))
-    P.cyl('turbo_pad', 0.045, 0.014, (-0.2, -0.27, 0.065), 'rust', segs=16, bev=0.003, bsegs=1)
-    P.empty('M_turbo', (-0.2, -0.27, 0.072))
+    # the turbo pad low at the back on the right, outboard of the flywheel housing and behind the head, fed by a short
+    # pipe off the right collector that runs round the outside of its flange; the turbo's shaft fore-and-aft, its
+    # compressor to the rear
+    P.tube('turbo_feed', [(-0.25, -0.272, 0.035), (-0.31, -0.322, 0.035), (-0.375, -0.312, 0.035), (-0.40, -0.28, 0.045),
+                          (-0.40, -0.28, 0.07)], 0.019, 'rust', segs=10, bend=0.03)
+    P.cyl('turbo_pad', 0.045, 0.014, (-0.40, -0.28, 0.073), 'rust', segs=16, bev=0.003, bsegs=1)
+    P.empty('M_turbo', (-0.40, -0.28, 0.08), rot=(0, 0, 90))
     # the fan housing on top: a drum with its axis along X, the fan visible at the front, the alternator hub
     fx, fz, fr = 0.10, 0.37, 0.15
     P.lathe('fan_housing', K.shell_profile([(fr - 0.01, -0.07), (fr + 0.01, -0.065), (fr + 0.012, 0.05),
