@@ -14,8 +14,8 @@
 //   B. in the player's kept game: its slice and the clock are in the save and come back after a reload, a slice
 //      of a system that is not there is kept untouched, a slice that hands out what cannot be written does not
 //      keep the save from being written, a save the browser will not keep is said, a page on which the system
-//      does not come up keeps what the save had of it, a save from before slices loads as it did, and a new
-//      game starts everything again.
+//      does not come up keeps what the save had of it, a save written while the clock waits is taken up without
+//      a day gone by, a save from before slices loads as it did, and a new game starts everything again.
 //   SHOTS_GL=llvmpipe node harness/shots/modcar_kernel.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -672,6 +672,24 @@ try {
     p = await P();
     k = await rt('kernel');
     check(p.restored === 7 && p.value === 7 && k.systems.probe.failed === false && k.slices.held.length === 0 && k.lastError === '', `the system did not have its state back on the next page: ${JSON.stringify({ restored: p.restored, slices: k.slices, last: k.lastError })}`);
+
+    // a save written while the world's clock waits (a step of negative seconds, and the page hidden there and
+    // then): the hour in it stands behind its clock, and the page that takes it up must not take that for the
+    // hour set back — which would be a day gone by
+    const waited = await page.evaluate(() => {
+      const g = window.__rt.game;
+      g.step(-0.3, 1);
+      g.save();
+      // (nothing written over it before the page is opened again)
+      g.saveOff = true;
+      const s = JSON.parse(localStorage.getItem('modcar.save.v1'));
+      return { waiting: g.clock.waiting, hour: s.hour, clock: s.clock, seconds: g.clock.worldSeconds };
+    });
+    await reloadWith('');
+    k = await rt('kernel');
+    console.log('a save written while the clock waited', JSON.stringify({ waited, clock: k.clock }));
+    check(waited.waiting === true && waited.hour < waited.clock.hour, `the save was not written while the clock waited: ${JSON.stringify(waited)}`);
+    check(k.clock.day === waited.clock.day && k.clock.worldSeconds >= waited.seconds && k.clock.worldSeconds - waited.seconds < 300, `the page that took it up is not where the clock was: ${JSON.stringify(k.clock)} after ${waited.seconds}`);
 
     // a save from before there were slices and the clock: loads as it did
     await reloadWith('delete s.slices; delete s.clock;');
