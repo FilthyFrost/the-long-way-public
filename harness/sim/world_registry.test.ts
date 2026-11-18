@@ -438,4 +438,16 @@ describe('world · the rules stand below the road', () => {
     // (and the check sees what it should: the road does load the rules)
     expect(loads(path.join(ROOT, 'src/core/world/spine.ts')).map((f) => path.basename(f))).toContain('rules.ts');
   });
+
+  it('nothing the registry loads to run loads the rules or the road: a region\'s file is data', () => {
+    // (rules.ts counts the registry as it is loaded; a region's file that loaded the rules, or the road,
+    // or anything that does, would have them read a registry that is not there yet)
+    const start = path.join(ROOT, 'src/core/world/biomes.ts');
+    const seen = new Set<string>([start]);
+    const queue = [start];
+    while (queue.length) for (const f of loads(queue.pop()!)) if (!seen.has(f)) (seen.add(f), queue.push(f));
+    const reached = [...seen].map((f) => path.relative(ROOT, f));
+    expect(reached).toContain(path.join('src/core/world/regions', 'index.ts'));
+    for (const f of reached) expect(f, `${f} is loaded by biomes.ts`).not.toMatch(/world[\\/](rules|quiet|spine|landform|water|sea|sites|terrain|furniture|landmarks)\.ts$/);
+  });
 });

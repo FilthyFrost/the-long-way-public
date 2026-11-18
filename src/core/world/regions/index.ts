@@ -7,6 +7,11 @@
  * it, and it seeds the noise of the land and of the weather. A new region goes at the END of the list and
  * nowhere else; an entry is never taken out, moved or replaced by another, or every world that knew it
  * becomes a different world. (Worlds of version 1 know the first six only, whatever stands here.)
+ *
+ * A region's file is data: it takes its types from the other modules of the world (RegionDef, and the
+ * kinds of surface from ground.ts) and loads none of them to run. The registry is put together before the
+ * road, the rules and the land exist, and a region that loaded any of those would be loading them in a
+ * circle (harness/sim/world_registry.test.ts watches for it).
  */
 import type { RegionDef } from '../biomes';
 
