@@ -15,7 +15,7 @@ import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
-import { FeaturePlan, type FeatureRecipe } from './features';
+import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
@@ -143,7 +143,8 @@ function smax(a: number, b: number, k: number): number {
 /**
  * Mountains with a designed shape on a grid of cells of size C: 0…1.
  * shape 0 = rounded (broad shoulders, a soft top), 1 = a pyramid with three or four buttresses,
- * 2 = a table with steep sides. Neighbours merge softly, so a row of them reads as one range.
+ * 2 = a table with steep sides, 3 = a sugarloaf (the towers of karst country, seen whole on the skyline).
+ * Neighbours merge softly, so a row of them reads as one range.
  */
 function peakField(x: number, z: number, seed: number, C: number, shape: number): number {
   const ci = Math.floor(x / C);
@@ -168,10 +169,45 @@ function peakField(x: number, z: number, seed: number, C: number, shape: number)
         v = Math.pow(k, 1.12) * (1 + 0.2 * Math.cos(nb * Math.atan2(dz, dx) + (hh & 7)) * (1 - k));
       } else if (shape === 2) {
         v = smoothstep(0, 0.22, k) * (0.85 + 0.15 * k);
+      } else if (shape === 3) {
+        v = featureProfile('tower', 1 - k);
       } else {
         v = k * k * (3 - 2 * k) * 0.8 + 0.2 * k;
       }
       h = smax(h, v * tall, 0.1);
+    }
+  }
+  return h;
+}
+
+/**
+ * A field of sugarloaf towers on a grid of cells of size C: 0…1 (far shape 3: karst country beyond its
+ * near towers). A little over half the cells hold one, between half the full height and all of it; where
+ * two lean on each other the taller shows. `cap` is the most a tower may stand per metre of its radius, as a
+ * share of the full height: the caller's amplitude turned into the slope's limit (features.ts MAX_ASPECT),
+ * so that at that amplitude no flank is steeper than two in one. A tower reaches at most a third of a cell
+ * beyond its own, so the nine cells round a point hold every tower that covers it: no edge anywhere.
+ */
+function towerField(x: number, z: number, seed: number, C: number, cap: number): number {
+  const ci = Math.floor(x / C);
+  const cj = Math.floor(z / C);
+  let h = 0;
+  for (let dj = -1; dj <= 1; dj++) {
+    for (let di = -1; di <= 1; di++) {
+      const hh = hash2(ci + di, cj + dj, seed);
+      if ((hh & 0xff) > 150) continue;
+      const px = (ci + di + 0.15 + 0.7 * (((hh >>> 8) & 0xff) / 255)) * C;
+      const pz = (cj + dj + 0.15 + 0.7 * (((hh >>> 16) & 0xff) / 255)) * C;
+      const rad = C * (0.32 + 0.18 * (((hh >>> 24) & 0xff) / 255));
+      const dx = x - px;
+      const dz = z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= rad * rad) continue;
+      // (its height from bits of its own: the lowest eight decided whether the cell holds a tower at all)
+      let tall = 0.5 + 0.5 * ((((hh >>> 12) ^ (hh >>> 20) ^ (hh >>> 28)) & 0xff) / 255);
+      if (tall > cap * rad) tall = cap * rad;
+      const v = tall * featureProfile('tower', Math.sqrt(d2) / rad);
+      if (v > h) h = v;
     }
   }
   return h;
@@ -312,6 +348,14 @@ export class World implements Ground {
         const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 3);
         const top = smoothstep(0.1, 0.19, n);
         f = top * (0.8 + 0.2 * fbm2(x / 160, z / 160, seed + 4, 2)) + 0.05 * smoothstep(-0.1, 0.1, n);
+      } else if (b.farShape === 3) {
+        // towers: sugarloaves in cells of farLen, half to all of farAmp tall, and smaller ones half their
+        // size between them — the same towers for the far ring's coarse land, so that none changes as
+        // it comes nearer
+        const cap = MAX_ASPECT.tower / b.farAmp;
+        const big = towerField(x, z, seed + 5, b.farLen, cap);
+        const small = 0.5 * towerField(x + 0.37 * b.farLen, z + 0.61 * b.farLen, seed + 6, b.farLen * 0.5, 2 * cap);
+        f = big > small ? big : small;
       } else {
         const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 4);
         const k = smoothstep(-0.3, 0.75, n);
