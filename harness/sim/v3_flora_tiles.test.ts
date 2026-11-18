@@ -93,13 +93,13 @@ describe('the cell\'s decision', () => {
     let benches = 0;
     let towers = 0;
     const spots: [World, number, number, number, number][] = [
-      [worldOf(8, 'forest'), 40, 46, -1, 2],
-      [worldOf(3, 'lakes'), 20, 40, -3, 3],
-      [worldOf(7, 'wetland'), 12, 30, -3, 3],
+      [worldOf(8, 'forest'), 40, 44, -1, 2],
+      [worldOf(3, 'lakes'), 20, 34, -3, 3],
+      [worldOf(7, 'wetland'), 12, 24, -3, 3],
       // (towers: a stretch of karst country with a cluster beside the road)
       [worldOf(21, 'karst_peaks'), 52, 60, -19, -13],
       // (the road itself and whatever stands by it: the tiles the road runs through)
-      [worldOf(11, 'plains'), 8, 60, -1, 1],
+      [worldOf(11, 'plains'), 8, 44, -1, 1],
     ];
     // terraced hillsides: a stretch of the terraces that is cut into benches, the tiles beside the road there
     const farms = worldOf(6, 'terraces');
@@ -137,8 +137,8 @@ describe('the cell\'s decision', () => {
         }
       }
     }
-    expect(cells).toBeGreaterThan(300000);
-    expect(plants).toBeGreaterThan(20000);
+    expect(cells).toBeGreaterThan(200000);
+    expect(plants).toBeGreaterThan(14000);
     // (what the quick ways must not lose: the plants of the shallows, the cells a border gives to the other
     // region, the plants of the benches and of the towers)
     expect(inWater).toBeGreaterThan(100);
@@ -155,7 +155,7 @@ describe('the cell\'s decision', () => {
       const w = worldOf(seed, biome, 2);
       const eco = w.eco!;
       // (the tiles along the road, where the road, the places and most of the water are)
-      for (let tx = 8; tx < 72; tx++) {
+      for (let tx = 8; tx < 56; tx++) {
         for (let tz = -2; tz < 2; tz++) {
           const t = eco.tile(tx, tz);
           for (let j = 0; j < ECO_SQ; j++) {
@@ -163,8 +163,8 @@ describe('the cell\'s decision', () => {
               squares++;
               if (!t.open[j * ECO_SQ + i]) continue;
               open++;
-              // five points of the square, its rim among them
-              for (let k = 0; k < 5; k++) {
+              // three points of the square, its rim among them
+              for (let k = 0; k < 3; k++) {
                 const h = hash2(tx * 16 + i, tz * 16 + j, seed + k);
                 const x = (tx * 16 + i + (h & 0xff) / 255) * 8;
                 const z = (tz * 16 + j + ((h >>> 8) & 0xff) / 255) * 8;

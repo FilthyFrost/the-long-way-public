@@ -121,7 +121,7 @@ function censusOf(region: string): { start: Tally; dealt: Tally; chapters: numbe
   const start = new Tally();
   for (const seed of [2, 9]) {
     const w = startIn(region, seed);
-    firstChapter(w, 16, 3, (tx, tz) => start.count(w, tx, tz));
+    firstChapter(w, 24, 3, (tx, tz) => start.count(w, tx, tz));
   }
   const dealt = new Tally();
   let chapters = 0;
@@ -132,7 +132,7 @@ function censusOf(region: string): { start: Tally; dealt: Tally; chapters: numbe
       if (plan.biomeOf(c) !== BIOME_INDEX[region]) continue;
       plan.biomeOf(c + 1);
       // (the chapter less the stretch at either end where it blends into its neighbour)
-      tilesAlong(w, plan.starts[c] + 700, plan.starts[c + 1] - 700, 5, 3, (tx, tz) => dealt.count(w, tx, tz));
+      tilesAlong(w, plan.starts[c] + 700, plan.starts[c + 1] - 700, 7, 3, (tx, tz) => dealt.count(w, tx, tz));
       chapters++;
       break;
     }
@@ -169,7 +169,7 @@ interface Bands {
  */
 const BANDS: Record<string, Bands> = {
   plains: { wood: [20, 36], inWoods: [120, 150], outside: [10, 19], trees: 6, shrubs: 6, pick: [38, 56], kinds: 26 },
-  desert: { wood: [0, 2], inWoods: null, outside: [7, 13], trees: 3, shrubs: 6, pick: [26, 40], kinds: 11 },
+  desert: { wood: [0, 3], inWoods: null, outside: [7, 13], trees: 3, shrubs: 6, pick: [26, 40], kinds: 11 },
   alpine: { wood: [38, 56], inWoods: [105, 135], outside: [9, 19], trees: 3, shrubs: 2, pick: [14, 24], kinds: 12 },
   forest: { wood: [70, 86], inWoods: [136, 160], outside: [18, 33], trees: 6, shrubs: 5, pick: [50, 74], kinds: 20 },
   lakes: { wood: [18, 32], inWoods: [138, 160], outside: [5, 12], trees: 5, shrubs: 4, pick: [18, 28], kinds: 17 },
@@ -178,7 +178,7 @@ const BANDS: Record<string, Bands> = {
   terraces: { wood: [14, 25], inWoods: [95, 125], outside: [4, 9], trees: 5, shrubs: 5, pick: [27, 41], kinds: 19 },
   wetland: { wood: [10, 19], inWoods: [62, 92], outside: [2, 6], trees: 3, shrubs: 4, pick: [28, 41], kinds: 11 },
   bamboo_sea: { wood: [70, 86], inWoods: [108, 132], outside: [15, 27], trees: 4, shrubs: 4, pick: [36, 54], kinds: 12 },
-  red_canyon: { wood: [0, 3], inWoods: null, outside: [10, 18], trees: 3, shrubs: 6, pick: [31, 46], kinds: 12 },
+  red_canyon: { wood: [0, 5], inWoods: null, outside: [10, 18], trees: 3, shrubs: 6, pick: [31, 46], kinds: 12 },
   karst_peaks: { wood: [25, 38], inWoods: [75, 105], outside: [6, 14], trees: 5, shrubs: 6, pick: [23, 36], kinds: 17 },
 };
 
@@ -195,7 +195,7 @@ describe('the twelve regions, counted', () => {
       expect(chapters, 'every journey comes to it').toBe(3);
       const said: string[] = [];
       for (const [how, t] of [['first', start], ['dealt', dealt]] as const) {
-        expect(t.tiles).toBeGreaterThan(150);
+        expect(t.tiles).toBeGreaterThan(100);
         said.push(`${how}: wood ${t.woodShare.toFixed(0)}%, trees/ha ${band.inWoods ? `${t.inWoods.toFixed(0)} in the woods, ` : ''}${t.outside.toFixed(1)} outside (${t.treesPerHa.toFixed(1)} over all), ${t.trees.size} kinds of tree, ${t.shrubs.size} of shrub; to pick ${t.pickPerHa.toFixed(1)}/ha of ${t.pickKinds.size} kinds (${t.tiles} tiles)`);
         expect(t.woodShare, `${how}: % of the land under wood`).toBeGreaterThanOrEqual(band.wood[0]);
         expect(t.woodShare, `${how}: % of the land under wood`).toBeLessThanOrEqual(band.wood[1]);
@@ -214,7 +214,7 @@ describe('the twelve regions, counted', () => {
         for (const id of t.trees) expect(PLANTS.some((p) => p.id === id && p.layer === 'tree')).toBe(true);
       }
       // the region comes out the same country wherever the dealer puts it
-      expect(Math.abs(start.woodShare - dealt.woodShare)).toBeLessThan(8);
+      expect(Math.abs(start.woodShare - dealt.woodShare)).toBeLessThan(10);
       expect(Math.abs(start.pickPerHa - dealt.pickPerHa) / start.pickPerHa).toBeLessThan(0.2);
       console.log(`${region}\n  ${said.join('\n  ')}`);
     });

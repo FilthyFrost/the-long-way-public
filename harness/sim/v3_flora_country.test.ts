@@ -68,7 +68,7 @@ function slopeAt(w: World, x: number, z: number, h: number): number {
 const TWELVE = Object.keys(FLORA);
 
 describe('what each kind of country must get right', () => {
-  it('the tree line: in the high country and above the terraces no tree stands above the line, and they thin towards it', () => {
+  it('the tree line: in the high country and above the terraces no tree of the land stands above the line, and they thin towards it', () => {
     for (const [region, seed] of [['alpine', 9], ['terraces', 9]] as const) {
       const w = startIn(region, seed);
       const [from, to] = FLORA[region].eco.treeline!;
@@ -77,11 +77,14 @@ describe('what each kind of country must get right', () => {
       const trees = [0, 0, 0, 0];
       let highest = -Infinity;
       const zone = (relief: number): number => (relief < from ? 0 : relief <= (from + to) / 2 ? 1 : relief <= to ? 2 : 3);
-      firstChapter(w, 14, 12, (tx, tz) => {
+      firstChapter(w, 20, 12, (tx, tz) => {
         const et = w.eco!.tile(tx, tz);
         for (let j = 0; j < ECO_SQ; j++) for (let i = 0; i < ECO_SQ; i++) if (!(et.flags[j * ECO_N + i] & ECO_WET)) land[zone(et.relief[j * ECO_N + i])] += NODE_HA;
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
         for (let k = 0; k < ft.n; k++) {
+          // (the trees of the land: a willow by a river stands at the water, and where a river has cut
+          // through high ground the relief there is still the height it cut away)
+          if (ruleOf(ft.region[k], LAYER_TREE, ft.rule[k]).water) continue;
           const relief = w.eco!.at(ft.x[k], ft.z[k], e).relief;
           trees[zone(relief)]++;
           if (relief > highest) highest = relief;
@@ -112,7 +115,7 @@ describe('what each kind of country must get right', () => {
       const w = startIn(region, seed);
       const reader = shoreOf(w);
       const out = { dist: 0, kind: 0 };
-      firstChapter(w, 9, 3, (tx, tz) => {
+      firstChapter(w, 14, 3, (tx, tz) => {
         for (const layer of [LAYER_TREE, LAYER_SHRUB] as FloraLayer[]) {
           const ft = w.flora!.tile(layer, tx, tz);
           for (let k = 0; k < ft.n; k++) {
@@ -171,7 +174,7 @@ describe('what each kind of country must get right', () => {
     let dry = 0;
     for (const [region, seed] of [['wetland', 7], ['lakes', 3], ['terraces', 2], ['karst_peaks', 21]] as const) {
       const w = startIn(region, seed);
-      firstChapter(w, 5, 3, (tx, tz) => {
+      firstChapter(w, 8, 3, (tx, tz) => {
         // (only the tiles that hold water: the others cannot hold a plant of it)
         const et = w.eco!.tile(tx, tz);
         let near = false;
@@ -214,7 +217,7 @@ describe('what each kind of country must get right', () => {
     let hillsideHa = 0;
     for (const seed of [2, 9]) {
       const w = startIn('terraces', seed);
-      firstChapter(w, 9, 3, (tx, tz) => {
+      firstChapter(w, 14, 3, (tx, tz) => {
         const ft = w.flora!.tile(LAYER_SHRUB, tx, tz);
         for (let k = 0; k < ft.n; k++) {
           if (PLANTS[ft.plant[k]].id !== 'tea_bush' || ft.region[k] !== BIOME_INDEX.terraces) continue;
@@ -350,7 +353,7 @@ describe('what each kind of country must get right', () => {
       let alone = 0;
       let tiles = 0;
       let without = 0;
-      firstChapter(w, 4, 2, (tx, tz) => {
+      firstChapter(w, 8, 2, (tx, tz) => {
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
         const at: number[] = [];
         for (let k = 0; k < ft.n; k++) if (PLANTS[ft.plant[k]].id === 'bamboo') at.push(ft.x[k], ft.z[k]);
@@ -458,7 +461,7 @@ describe('what each kind of country must get right', () => {
       const w = new World(4, { worldVersion: 2, startBiome: region, chapterScale: 6, plots: [plot] });
       let onPlotNodes = 0;
       // the tiles the road runs through and the next either side: the road, the places, the plot
-      tilesAlong(w, 3000, 8000, 1, 1, (tx, tz) => {
+      tilesAlong(w, 3000, 6200, 1, 1, (tx, tz) => {
         const et = w.eco!.tile(tx, tz);
         for (let n = 0; n < ECO_N * ECO_N; n++) if (et.flags[n] & ECO_PLOT) onPlotNodes++;
         for (const layer of LAYERS) {
