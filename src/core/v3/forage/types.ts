@@ -1,5 +1,5 @@
 /**
- * Foraging's contract (node N1, docs/V3/nodes/N1-forage.md): what one row of the table of forage kinds says,
+ * Foraging's contract (node N1, docs/V3/nodes/W3-forage.md): what one row of the table of forage kinds says,
  * what a forage point is, and under which conditions it shows. Types and a few constants only: the 80 rows are
  * kinds.ts, the points are made in field.ts, how much a pick gives is rules.ts. Pure, no three, no DOM.
  *
