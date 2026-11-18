@@ -7,7 +7,7 @@
  * lines a system adds. The same in the real game with the real keys: harness/shots/v3_items_hands.mjs.
  */
 import { describe, expect, it } from 'vitest';
-import { countOf, freshNow, itemSig, newItem, registerItemCat, registerItems, type ItemInstance } from '../../src/core/modcar/items';
+import { countOf, freshNow, itemSig, newItem, registerItemCat, registerItems, takeInside, type ItemInstance } from '../../src/core/modcar/items';
 import { FunctionLand } from '../../src/core/onfoot/land';
 import { newTool } from '../../src/core/modcar/tools';
 import { cardHtml } from '../../src/game/modcar/cards';
@@ -254,20 +254,20 @@ describe('the hands take things that stack and hold things', () => {
     player.receive(held(basket));
     player.receive(held(newItem('food_chips')));
     player.sel = 1;
-    const row = basket.inside![0];
-    // with the basket in its slot the berries would go straight back into it
-    expect(player.roomFor(held(row))).toBe(5);
-    // stepped out: no slot is free and nothing else takes berries, so there is no room; the basket's own slot,
-    // empty meanwhile, counts as free to whoever asks then (the list moves what lands there)
+    // the row taken out of the basket: with the basket in its slot the berries would go straight back into it
+    const row = takeInside(basket, 0, 0)!;
+    expect([countOf(row), basket.inside, player.roomFor(held(row))]).toEqual([5, undefined, 5]);
+    // stepped out, its own slot, empty meanwhile, counts as free to whoever asks then (the list moves what lands there)
     const box = player.slots[0];
     player.slots[0] = null;
     expect(player.roomFor(held(row))).toBe(5);
+    // with something else there: no slot is free and nothing else takes berries, so there is no room, and none go
     player.slots[0] = { kind: 'tool', tool: newTool('bottle') };
     expect(player.roomFor(held(row))).toBe(0);
     expect(player.receive(held(row))).toBe(5);
     // back in its slot, it is asked again as it stands, and the selection never moved
     player.slots[0] = box;
-    expect([player.roomFor(held(berry(3))), player.sel, item(0)]).toEqual([3, 1, basket]);
+    expect([player.roomFor(held(row)), player.roomFor(held(berry(3))), player.sel, item(0)]).toEqual([5, 3, 1, basket]);
     // the same with a stack of the same sort in the other hand: out of the basket onto the stack
     const { player: p2 } = hands();
     const b2 = newItem('h_basket', { inside: [berry(5, { t0: 0 })] });
