@@ -9,10 +9,13 @@
  * Wheels, meshes and object placement all call this, so the road always fits the land and what
  * you see is what you drive on.
  */
+import { dcos, dsin } from '../math/detmath';
 import { fbm2, ridged2, simplex2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, type BiomeDef } from './biomes';
+import { featureSlots, runAt } from './director';
+import { FeaturePlan, type FeatureRecipe } from './features';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
@@ -202,6 +205,11 @@ export class World implements Ground {
   readonly sites: SitePlan;
   /** what the road carries along its edges: delineators, guard rails, chevrons, kilometre stones */
   readonly furniture: Furniture;
+  /**
+   * The anchored landforms beside the road — tower clusters, buttes — in a world of version 2 (features.ts);
+   * null in a world of version 1, which has none.
+   */
+  readonly features: FeaturePlan | null;
   private readonly lp = new LandParams();
   private readonly we = new WaterEffect();
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
@@ -238,6 +246,43 @@ export class World implements Ground {
     );
     this.sites = new SitePlan(this, new TerrainPoint(), this.seed);
     this.furniture = new Furniture(this, new TerrainPoint(), this.seed);
+    this.features = this.rules.version >= 2 ? this.featurePlan() : null;
+  }
+
+  /**
+   * The plan of the anchored landforms. It is laid out stretch by stretch from the road, the water plan's
+   * boxes and the director's programme, none of which asks the land for a height: the land asks this plan
+   * at every point (`shape`), so nothing it reads may ask the land in its turn.
+   */
+  private featurePlan(): FeaturePlan {
+    const sp = this.spine;
+    const st = new SpineSample();
+    const road = {
+      at(s: number, out: { x: number; z: number; cos: number; sin: number }): void {
+        sp.at(s, st);
+        out.x = st.x;
+        out.z = st.z;
+        out.cos = dcos(st.phi);
+        out.sin = dsin(st.phi);
+      },
+    };
+    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s) => this.water.mayReach(x, z, s), this.rules.slot);
+  }
+
+  /**
+   * What a cluster of anchored landforms in stretch k is made of: its region's recipes, if the director
+   * gives the stretch to landforms (as many stretches of a chapter as the region asks for) and it is
+   * neither one of the quiet ones nor by the sea; null otherwise.
+   */
+  private featureRecipes(k: number): readonly FeatureRecipe[] | null {
+    const plan = this.spine.plan;
+    const run = runAt(plan, k);
+    const region = BIOMES[plan.biomes[run.chapter]];
+    const want = region.featureSlots ?? 0;
+    if (want <= 0 || !region.features || region.features.length === 0) return null;
+    if (!featureSlots(this.seed, { chapter: run.chapter, k0: run.k0, k1: run.k1, features: want }).includes(k)) return null;
+    if (this.quiet(k) || this.sea.near(k) || this.sea.along(k)) return null;
+    return region.features;
   }
 
   /** is stretch k one of the journey's quiet ones? (the rules' quiet rule; version 1's is quiet.ts: no place, no lake, no bridge, no landmark there) */
@@ -439,6 +484,11 @@ export class World implements Ground {
         o.frozen = 0;
       }
     }
+    // The anchored landforms of a world of version 2 stand on the land as it lies by now — near the
+    // road, far from it and in the far ring's coarse land alike, so that a tower is the same tower
+    // whoever draws it. They keep clear of the road's corridor (features.ts CLEAR), so the road, its
+    // shoulders, its verge and the ground of the places are what they were.
+    if (this.features !== null) T += this.features.heightAt(x, z, s0);
     if (!near) {
       o.h = o.bed = T;
       if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;

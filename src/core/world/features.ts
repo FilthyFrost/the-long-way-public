@@ -114,7 +114,7 @@ export interface RoadReader {
   at(s: number, out: { x: number; z: number; cos: number; sin: number }): void;
 }
 
-/** metres of road in a stretch */
+/** metres of road in a stretch, for a plan that is not told (the world tells its plan: its rules' `slot`) */
 const SLOT = 1250;
 const SALT = 0x0fea;
 /** how many places are tried for one landform before the cluster goes without it */
@@ -132,7 +132,11 @@ function lerp(span: Span, u: number): number {
 /**
  * The anchored landforms along the road. `recipesOf(k)` gives the recipes of stretch k (null or empty: the
  * stretch holds none; the caller decides that from the region and the director); `wet(x, z, s)` says whether
- * water could reach a point (the water plan's bounding boxes: false means certainly dry).
+ * water could reach a point, s being the arc length of the road point with the same x (the water plan's
+ * bounding boxes: false means certainly dry); `slot` is the length of a stretch (m).
+ *
+ * Neither of the two is ever to ask the land for a height: the land asks this plan at every point, and a
+ * stretch is laid out the first time it does.
  */
 export class FeaturePlan {
   private readonly list: (readonly LandFeature[])[] = [];
@@ -144,6 +148,7 @@ export class FeaturePlan {
     seed: number,
     private readonly recipesOf: (k: number) => readonly FeatureRecipe[] | null,
     private readonly wet: (x: number, z: number, s: number) => boolean = () => false,
+    private readonly slot: number = SLOT,
   ) {
     this.seed = hash2(seed | 0, 0x0feb, 17);
   }
@@ -155,9 +160,13 @@ export class FeaturePlan {
     return this.list[k];
   }
 
-  /** the height the anchored landforms add at (x, z), where s is the arc length of the road point with the same x */
+  /**
+   * The height the anchored landforms add at (x, z), where s is the arc length of the road point with the
+   * same x. It reads the stretch s lies in and the one on either side: `layout` sees to it that no landform
+   * lies over any other.
+   */
   heightAt(x: number, z: number, s: number): number {
-    const k = Math.floor(s / SLOT);
+    const k = Math.floor(s / this.slot);
     let h = 0;
     for (let i = k - 1; i <= k + 1; i++) {
       if (i < 0) continue;
@@ -173,8 +182,16 @@ export class FeaturePlan {
   private layout(k: number): readonly LandFeature[] {
     const recipes = this.recipesOf(k);
     if (!recipes || recipes.length === 0) return NONE;
+    const SLOT = this.slot;
     const out: LandFeature[] = [];
     const before = k > 0 ? this.list[k - 1] : NONE;
+    // the x the road has where the stretch before this one begins and where the one after it ends: a
+    // landform of this stretch lies wholly between them (the road's x only ever grows along it), so that
+    // `heightAt`, which reads three stretches round the road point of the same x, finds all of it
+    this.road.at((k - 1) * SLOT, this.p);
+    const xLo = this.p.x;
+    this.road.at((k + 2) * SLOT, this.p);
+    const xHi = this.p.x;
     let n = 0;
     const next = (): number => dice(this.seed, k, n++);
     for (const r of recipes) {
@@ -222,7 +239,11 @@ export class FeaturePlan {
             zMin: z - reach,
             zMax: z + reach,
           };
-          if (!this.clearOfRoad(f, s) || this.inWater(f, s) || crowds(f, out) || crowds(f, before)) continue;
+          if (f.xMin < xLo || f.xMax >= xHi) continue;
+          // (the road point with the same x as its middle: out to one side of a road that runs aslant, a
+          // landform lies abreast of a point well along from the one it was measured from)
+          const sx = this.stationAtX(x, s);
+          if (!this.clearOfRoad(f, sx) || this.inWater(f, sx) || crowds(f, out) || crowds(f, before)) continue;
           out.push(f);
           break;
         }
@@ -231,12 +252,29 @@ export class FeaturePlan {
     return out;
   }
 
-  /** is the whole foot at least CLEAR m from the road, along all the road that passes it? */
-  private clearOfRoad(f: LandFeature, s: number): boolean {
+  /** the arc length of the road point that has world x, found from a guess (the road's x only ever grows along it, by more than half a metre a metre) */
+  private stationAtX(x: number, s: number): number {
+    for (let i = 0; i < 8; i++) {
+      this.road.at(s, this.p);
+      const dx = x - this.p.x;
+      if (dx < 0.5 && dx > -0.5) break;
+      s += dx / (this.p.cos > 0.5 ? this.p.cos : 0.5);
+    }
+    return s;
+  }
+
+  /**
+   * Is the whole foot at least CLEAR m from the road, along all the road that could pass it? `sx` is the
+   * arc length of the road point with the same x as the landform's middle. A road point within `need` of
+   * the middle has an x within `need` of it, and the road gains at least 0.55 m of x a metre (its heading
+   * stays within 55° of +x): so it lies within need / 0.55 of sx along the road. The road is read every
+   * 12 m, and asked for a metre more than CLEAR to cover what lies between two readings.
+   */
+  private clearOfRoad(f: LandFeature, sx: number): boolean {
     const reach = f.r * f.stretch;
-    const need = reach + CLEAR;
-    const span = reach + CLEAR + 260;
-    for (let q = s - span; q <= s + span; q += 12) {
+    const need = reach + CLEAR + 1;
+    const span = need / 0.55 + 24;
+    for (let q = sx - span; q <= sx + span; q += 12) {
       this.road.at(q < 0 ? 0 : q, this.p);
       const dx = this.p.x - f.x;
       const dz = this.p.z - f.z;
