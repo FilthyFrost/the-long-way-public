@@ -18,24 +18,43 @@ function smooth(t: number): number {
   return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
 }
 
-/** the share of a bench's height band that is riser (the rest is the level bench) */
+/** the share of a bench's height band that is riser (the rest is the level bench), on ground gentle enough for it */
 export const TERRACE_RISER = 0.26;
+/**
+ * The steepest a riser is made (rise over run). At four metres a step, a riser of 1.7 in 1 is the steepest
+ * whose foot and brow are not a kink in the land (the land card's measure); the slope it is cut from is an
+ * estimate, so the risers are made a little gentler than that.
+ */
+export const RISER_SLOPE = 1.5;
 
 /**
- * A height (m, measured from the road's level, positive or negative) remapped into benches `step` m apart.
- * Within each band of `step` the first three quarters are level and the last quarter rises smoothly to the
- * next bench, so height and slope stay continuous. `k` (0 … 1) mixes the benches in.
+ * A height (m, positive or negative) remapped into benches `step` m apart. Within each band of `step` the
+ * first part is level and the last part — `riser` of it, a quarter where nothing else is said — rises
+ * smoothly to the next bench, so height and slope stay continuous. `k` (0 … 1) mixes the benches in.
  *
- * The riser is steeper than the slope it replaces by 1.5 / TERRACE_RISER: a hillside that climbs 0.3 m per
- * metre gets risers of about 1.7 in 1.
+ * The riser is steeper than the slope it replaces by 1.5 / riser: with a quarter of the band, a hillside
+ * that climbs 0.3 m per metre gets risers of about 1.7 in 1, and one that climbs 0.6 would get risers no
+ * height field can hold. So the caller that knows how steep the ground is hands in `riserFor(slope)`:
+ * steeper ground has narrower benches and risers no steeper than RISER_SLOPE.
  */
-export function terrace(h: number, step: number, k: number): number {
+export function terrace(h: number, step: number, k: number, riser = TERRACE_RISER): number {
   if (k <= 0 || step <= 0) return h;
   const u = h / step;
   const i = Math.floor(u);
   const f = u - i;
-  const t = (i + smooth((f - (1 - TERRACE_RISER)) / TERRACE_RISER)) * step;
+  const t = (i + smooth((f - (1 - riser)) / riser)) * step;
   return h + (t - h) * k;
+}
+
+/**
+ * The share of a band the riser takes on ground that climbs `slope` m per metre, so that the riser is no
+ * steeper than RISER_SLOPE: the more, the steeper the ground, until at two in three there is no bench left.
+ * It has no least value of its own: the caller's measure of the slope has one (the land's slope and a
+ * margin, joined smoothly, so that the share never turns a corner where the slope passes through nothing).
+ */
+export function riserFor(slope: number): number {
+  const r = (1.5 / RISER_SLOPE) * slope;
+  return r > 0.999 ? 0.999 : r;
 }
 
 /**

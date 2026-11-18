@@ -14,7 +14,19 @@
  * circle (harness/sim/world_registry.test.ts watches for it).
  */
 import type { RegionDef } from '../biomes';
+import { BAMBOO_SEA } from './bamboo_sea';
+import { FLOWER_FIELDS } from './flower_fields';
+import { KARST_PEAKS } from './karst_peaks';
+import { RED_CANYON } from './red_canyon';
+import { TERRACES } from './terraces';
+import { WETLAND } from './wetland';
 
 export const ADDED_REGIONS: readonly RegionDef[] = [
-  // (none yet: the first six new regions come with docs/V3/nodes/W1-worldgen.md, step W1.3)
+  // the first six (docs/V3/nodes/W1-worldgen.md, step W1.3): registry indices 6 to 11
+  FLOWER_FIELDS,
+  TERRACES,
+  WETLAND,
+  BAMBOO_SEA,
+  RED_CANYON,
+  KARST_PEAKS,
 ];

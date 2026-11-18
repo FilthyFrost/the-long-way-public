@@ -19,7 +19,7 @@ import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './f
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
-import { DUNE_MEAN, dunes, terrace } from './operators';
+import { DUNE_MEAN, dunes, riserFor, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
 import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
@@ -32,6 +32,10 @@ export const ROAD_HALF = 3.25;
 export const ROAD_EDGE = 4.5;
 /** beyond this distance from the road the cheaper far-field formula is used */
 const NEAR_FIELD = 200;
+/** how far the foot of an anchored landform stays from a river's water (m): the gravel bar, the bank, and room to walk between */
+const FEATURE_SHORE = 30;
+/** how far apart the two points lie between which a terraced stretch measures the land's slope (m) */
+const TERRACE_PROBE = 2;
 /** how far a bridge deck stands proud of the road at its ends, and the joint over a beam bridge's pier (m) */
 export const DECK_PROUD = 0.015;
 export const PIER_JOINT_DEPTH = 0.012;
@@ -303,7 +307,11 @@ export class World implements Ground {
         out.sin = dsin(st.phi);
       },
     };
-    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s) => this.water.mayReach(x, z, s), this.rules.slot);
+    // (water: a landform stands clear of a lake's basin and of a river's water with FEATURE_SHORE m of
+    // bank, wherever its foot reaches. The water plan's quick answer, `mayReach`, is yes for the whole
+    // strip of country a river runs through, a kilometre wide: with it a stretch that has a river kept
+    // one landform in nine)
+    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s, reach) => this.water.touches(x, z, s, reach, FEATURE_SHORE), this.rules.slot);
   }
 
   /**
@@ -489,7 +497,7 @@ export class World implements Ground {
     // land: the base follows the nearest road point close in, and the same-x road point far out
     const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
     // (a world of version 2: the stretch's terraces and dunes; no stretch of a world of version 1 has either)
-    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse);
+    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse, dzl, cs0, (sn0 / cs0) * (1 + (dzl * p.kappa) / cs0), y0 - q.y);
     o.s = s;
     o.d = d;
     o.roadY = q.y;
@@ -604,19 +612,71 @@ export class World implements Ground {
    *   terraces  from 14 m out, in full from 34 m; in full to 350 m and gone by 600 m, where the far ring's
    *             grid could not draw a step of four metres. The benches are cut in the land's own height,
    *             not in its height above the road: a bench stays level where the road beside it climbs.
-   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes. The far
-   *             ring's coarse land is raised by their mean height instead: its grid is wider than a dune.
+   *             How much of each step is riser goes by how steep the land is there (the same land asked
+   *             once more, a few metres further from the road): steeper ground has narrower benches, never
+   *             steeper risers, and ground too steep to bench at all is left as it lies.
+   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes; beyond
+   *             1.5 to 3 km, and in the far ring's coarse land, their mean height instead of the dunes.
+   *
+   * @param dzl  the point's z less the road's at the same x
+   * @param cs0  the cosine of the road's heading at the road point of the same x
+   * @param skew how fast the distance across the road (dzl · cs0) changes along x, against how fast it
+   *             changes along z: the heading's tangent, and more than that beside a bend, where the road
+   *             point of the same x turns as x goes on
+   * @param rise how much higher the road is at the same x than at the nearest road point (close to the
+   *             road the land's base goes from the one to the other)
    */
-  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean): number {
+  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean, dzl: number, cs0: number, skew: number, rise: number): number {
     if (lp.terrace > 0 && !coarse) {
-      const w = smoothstep(14, 34, ad) * (1 - smoothstep(350, 600, ad));
-      if (w > 0) rel = terrace(base + rel, lp.step, lp.terrace * w) - base;
+      // (the fade far from the road goes by the distance across the road from the road point of the same
+      // x, which changes smoothly everywhere; `ad`, the distance to the nearest road point, is only good
+      // near the road: inside a bend, a hundred metres and more from it, the search for the nearest point
+      // settles now here, now there, and nothing but what lies within 60 m of the road may go by it)
+      const w = smoothstep(14, 34, ad) * (1 - smoothstep(350, 600, (dzl < 0 ? -dzl : dzl) * cs0));
+      if (w > 0) {
+        // How steep the land is here. It is the cross-section that makes a hillside, and the cross-section
+        // is a function of the distance across the road: so the slope along z is measured (the same land
+        // a few metres further out) and the slope along x follows from how that distance changes along x.
+        // Then a margin for what the relief and the road's own grade add along the road, joined to it
+        // smoothly: where the slope passes through nothing the measure does not turn a corner, and
+        // neither does the riser that goes by it.
+        const e = dzl < 0 ? -TERRACE_PROBE : TERRACE_PROBE;
+        // (that point lies this far from the road: close to the road the near relief is still coming in
+        // and the base still turning from the nearest road point's height to the same-x one's)
+        const out = ad + TERRACE_PROBE * cs0;
+        const dh = this.reliefAt(lp, x, z + e, dzl + e, cs0, smoothstep(7, 58, out)) - rel + rise * (smoothstep(18, 55, out) - smoothstep(18, 55, ad));
+        const across = dh / TERRACE_PROBE;
+        const slope = Math.sqrt(across * across * (1 + skew * skew) + 0.04) + 0.12;
+        const k = lp.terrace * w * (1 - smoothstep(0.6, 0.9, slope));
+        if (k > 0) rel = terrace(base + rel, lp.step, k, riserFor(slope)) - base;
+      }
     }
     if (lp.dune > 0) {
       const w = smoothstep(16, 60, ad);
-      if (w > 0) rel += (coarse ? DUNE_MEAN * lp.dune : dunes(x, z, this.seed, lp.dune, lp.duneLen)) * w;
+      if (w > 0) {
+        // (kilometres out the land is drawn too coarsely for a dune a hundred metres long: there, and in
+        // the far ring's coarse land everywhere, the ground is raised by the dunes' mean height instead)
+        const far = coarse ? 1 : smoothstep(1500, 3000, (dzl < 0 ? -dzl : dzl) * cs0);
+        let dune = far < 1 ? dunes(x, z, this.seed, lp.dune, lp.duneLen) : 0;
+        dune += (DUNE_MEAN * lp.dune - dune) * far;
+        rel += dune * w;
+      }
     }
     return rel;
+  }
+
+  /**
+   * The relief at a point with the same x as the one `shape` is working on (so the same road point, the
+   * same mix of biomes in `this.bl`, the same cross-section) and another z: what `shape` itself adds up,
+   * before the operators.
+   */
+  private reliefAt(lp: LandParams, x: number, z: number, dzl: number, cs0: number, g1: number): number {
+    const bl = this.bl;
+    const lat = dzl < 0 ? -dzl : dzl;
+    const farK = lp.farAt(dzl * cs0);
+    let rel = this.relief(BIOMES[bl.a], bl.a, x, z, g1, lat, farK);
+    if (bl.t > 0) rel += (this.relief(BIOMES[bl.b], bl.b, x, z, g1, lat, farK) - rel) * bl.t;
+    return rel + LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
   }
 
   /** is (x, z) wholly on a plot that lets no grass of the world's grow there (Plot.bare) */

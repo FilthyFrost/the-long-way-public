@@ -586,6 +586,39 @@ export class WaterPlan {
     return false;
   }
 
+  /**
+   * Does anything round within `r` m of (x, z) touch water or the ground water has shaped: the box a lake's
+   * basin lies in, or a river's water and `shore` m of its banks? Exact for rivers (their centre line is
+   * walked across the whole round), where `mayReach` answers for the whole strip of country a river runs
+   * through. For what is to stand beside water and not in it (the anchored landforms of a world of
+   * version 2); like everything here it needs only the road.
+   * @param s0 arc length of the road point with the same x
+   */
+  touches(x: number, z: number, s0: number, r: number, shore: number): boolean {
+    if (s0 < WATER_SLOT * 0.4) return false;
+    const k0 = Math.floor(s0 / WATER_SLOT);
+    for (let k = k0 - REACH_SLOTS; k <= k0 + REACH_SLOTS; k++) {
+      const f = this.feature(k);
+      if (!f || x + r < f.xMin || x - r > f.xMax) continue;
+      if (f.kind === 'lake') {
+        if (z + r >= f.zMin && z - r <= f.zMax) return true;
+        continue;
+      }
+      // the river's centre line every few metres of z across the round, and a little beyond for its width
+      const reach = r + shore + f.w0 * 1.25;
+      for (let zz = z - reach; zz <= z + reach; zz += 12) {
+        const zr = zz - f.z0;
+        if (zr >= f.zEnd || zr <= -f.zEnd) continue;
+        WaterPlan.riverCentre(f, zr, rc);
+        const dx = rc.x - x;
+        const dz = zz - z;
+        const need = r + shore + WaterPlan.riverHalfWidth(f, zr);
+        if (dx * dx + dz * dz < need * need) return true;
+      }
+    }
+    return false;
+  }
+
   /** features whose slots lie within [sMin, sMax] of road (for building their meshes) */
   between(sMin: number, sMax: number, out: WaterFeature[]): WaterFeature[] {
     out.length = 0;

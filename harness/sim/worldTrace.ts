@@ -12,10 +12,19 @@
  * Appendix A; taken on the generator as it stood at 473d257, before the weather's branches on a region's
  * id became tables): a region's weather is part of what an old save comes back to.
  *
+ * Worlds of version 2 have reference worlds of their own, with one part more (their anchored landforms),
+ * recorded under the generator's revision (rules.ts WORLD_REV). Version 2 may change — a rule of the
+ * dealer, a number of a region, a landform — but only on purpose: whoever changes what its worlds look
+ * like raises WORLD_REV and records them again.
+ *
  * The hashes are over exact doubles, and the height function, the water and the places go through the
- * engine's Math functions: they hold for one Node (the file says which). Write the file again only to add
- * a reference world, or on a Node whose Math rounds differently — never to make a changed version 1 pass:
- *   npx tsx harness/sim/worldTrace.ts --write
+ * engine's Math functions: they hold for one Node (the file says which).
+ *   npx tsx harness/sim/worldTrace.ts            prints the fingerprints as they are now
+ *   npx tsx harness/sim/worldTrace.ts --write    records the worlds of version 2 under the present
+ *       WORLD_REV, and any world of version 1 that is not on file yet; it stops, and writes nothing, if a
+ *       world of version 1 that is on file no longer hashes as recorded — version 1 never changes
+ *   npx tsx harness/sim/worldTrace.ts --write --v1   records version 1 again as well: only ever on a
+ *       Node whose Math rounds differently, with the generator unchanged
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +33,7 @@ import { WEATHER_KINDS, WeatherState, WeatherSystem } from '../../src/core/env/w
 import { provingLevel, provingPlot } from '../../src/core/modcar/proving/layout';
 import { Rng } from '../../src/core/math/rng';
 import { BIOMES } from '../../src/core/world/biomes';
+import { WORLD_REV } from '../../src/core/world/rules';
 import type { RailRun, RoadPost } from '../../src/core/world/furniture';
 import { LandParams } from '../../src/core/world/landform';
 import { Landmark, landmarkAt, landmarkRange } from '../../src/core/world/landmarks';
@@ -61,8 +71,10 @@ export const TRACE_PARTS = ['spine', 'spineHash', 'chapters', 'land', 'water', '
 export type TracePart = (typeof TRACE_PARTS)[number];
 
 export type WorldFingerprint = Record<TracePart, string> & {
+  /** worlds of version 2 only: their anchored landforms (a world of version 1 has no such part) */
+  features?: string;
   /** how many of each the trace met: the first thing to look at when a hash differs */
-  counts: { chapters: number; water: number; seas: number; sites: number; landmarks: number; posts: number; rails: number };
+  counts: { chapters: number; water: number; seas: number; sites: number; landmarks: number; posts: number; rails: number; features?: number };
 };
 
 /** a stretch of road, as the trace counts them (m): the definition's own number, whatever the generator calls its slots */
@@ -151,6 +163,18 @@ export function worldTrace(world: World, km = 60): WorldFingerprint {
   for (const p of posts) furniture.str(p.kind).num(p.s).num(p.side).num(p.x).num(p.y).num(p.z).num(p.phi).num(p.state).num(p.h);
   for (const r of rails) furniture.num(r.side).num(r.s0).num(r.s1);
 
+  // ---- the anchored landforms, stretch by stretch (a world of version 2; a world of version 1 has no such part)
+  const landforms = world.features ? new Hasher() : null;
+  let landformCount = 0;
+  if (world.features && landforms) {
+    for (let k = 0; k < Math.floor(len / SLOT); k++) {
+      for (const f of world.features.of(k)) {
+        landforms.str(f.kind).num(f.x).num(f.z).num(f.r).num(f.stretch).num(f.h).num(f.ca).num(f.sa).num(f.xMin).num(f.xMax).num(f.zMin).num(f.zMax);
+        landformCount++;
+      }
+    }
+  }
+
   // ---- the land itself: twenty thousand points beside the road, near and far, one in ten asked coarsely
   const heights = new Hasher();
   const rng = new Rng(0x7ace);
@@ -175,7 +199,17 @@ export function worldTrace(world: World, km = 60): WorldFingerprint {
     landmarks: landmarks.hex,
     furniture: furniture.hex,
     heights: heights.hex,
-    counts: { chapters: lastChapter + 1, water: features.length, seas: seas.length, sites: places.length, landmarks: l1 - l0 + 1, posts: posts.length, rails: rails.length },
+    ...(landforms ? { features: landforms.hex } : {}),
+    counts: {
+      chapters: lastChapter + 1,
+      water: features.length,
+      seas: seas.length,
+      sites: places.length,
+      landmarks: l1 - l0 + 1,
+      posts: posts.length,
+      rails: rails.length,
+      ...(landforms ? { features: landformCount } : {}),
+    },
   };
 }
 
@@ -237,8 +271,25 @@ export function weatherTrace(): string {
  * traced after this must hash exactly as one traced from its start ("whoever asks first" must not matter).
  */
 export function askOutOfOrder(world: World, km = 60): void {
+  // (a world of version 2: its landforms far down the road before anything else has been asked at all)
+  world.features?.of(Math.floor((km * 1000 * 50) / 60 / SLOT));
   world.heightAt((km * 1000 * 55) / 60, 40);
   world.sites.between(km * 500, (km * 1000 * 5) / 6, []);
+}
+
+/**
+ * Ask a fresh world the way a journey does: a little further down the road each time, the land to one
+ * side and then the other. A world traced after this must hash exactly as one traced in one go.
+ */
+export function askInBites(world: World, km = 60): void {
+  const sp = world.spine;
+  const st = new SpineSample();
+  let n = 0;
+  for (let s = 0; s < km * 1000; s += 137) {
+    sp.ensure(s);
+    sp.at(s, st);
+    world.heightAt(st.x, st.z + (n++ % 2 ? 45 : -260));
+  }
 }
 
 /**
@@ -305,21 +356,69 @@ export const REFERENCE_WORLDS: Record<string, ReferenceWorld> = {
   },
 };
 
+/**
+ * The reference worlds of version 2: the game's own two kinds of world at full length of chapter, which
+ * between them hold a sea, clusters of towers and of buttes, terraced slopes, dunes, quiet runs and frozen
+ * water in 60 km, and two that begin in a new region with chapters of two or three stretches, so that all
+ * twelve regions pass in 60 km. They are recorded under WORLD_REV.
+ */
+export const REFERENCE_WORLDS_V2: Record<string, ReferenceWorld> = {
+  'v2-default-144': {
+    km: 60,
+    about: 'new World(144, { worldVersion: 2 }): plains, terraces, desert, red canyon, karst peaks, lakes with their sea, bamboo sea, wetland',
+    make: (extra) => new World(144, { worldVersion: 2, ...extra }),
+  },
+  'v2-modcar-77': {
+    km: 60,
+    about: "ModCar's world of seed 77 made as version 2: plains, desert, red canyon, wetland, karst peaks, lakes with their sea, flower fields, alpine",
+    make: (extra) => modcar(77, { worldVersion: 2, ...extra }),
+  },
+  'v2-karst-small-7': {
+    km: 60,
+    about: "new World(7, { worldVersion: 2, startBiome: 'karst_peaks', chapterScale: 0.4 }): nineteen regions, all twelve kinds",
+    make: (extra) => new World(7, { worldVersion: 2, startBiome: 'karst_peaks', chapterScale: 0.4, ...extra }),
+  },
+  'v2-terraces-small-13': {
+    km: 60,
+    about: "new World(13, { worldVersion: 2, startBiome: 'terraces', chapterScale: 0.4 }): nineteen regions, all twelve kinds, seven terraced stretches",
+    make: (extra) => new World(13, { worldVersion: 2, startBiome: 'terraces', chapterScale: 0.4, ...extra }),
+  },
+};
+
 export const GOLDEN_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'world-golden.json');
 
-/** the golden file's contents: one fingerprint per reference world, the weather's, and where they were taken */
-export type WorldGolden = Record<string, WorldFingerprint> & { _recorded: string; _weather: string };
+/**
+ * The golden file's contents: one fingerprint per reference world, the weather's, where they were taken,
+ * and the revision of version 2's generator its worlds were recorded under.
+ */
+export type WorldGolden = Record<string, WorldFingerprint> & { _recorded: string; _weather: string; _rev: number };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const all: Record<string, string | WorldFingerprint> = {
+  const write = process.argv.includes('--write');
+  const old = fs.existsSync(GOLDEN_FILE) ? (JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as Partial<WorldGolden>) : {};
+  const all: Record<string, string | number | WorldFingerprint> = {
     _recorded: `node ${process.version} (${process.platform} ${process.arch}); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c`,
     _weather: weatherTrace(),
+    _rev: WORLD_REV,
   };
-  for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) all[name] = worldTrace(ref.make(), ref.km);
-  const text = JSON.stringify(all, null, 2) + '\n';
-  if (process.argv.includes('--write')) {
-    fs.writeFileSync(GOLDEN_FILE, text);
-    console.log(`wrote ${GOLDEN_FILE}`);
+  // version 1 never changes: what is on file stays on file, and a world that no longer hashes as recorded stops the writing
+  const changed: string[] = [];
+  if (old._weather !== undefined && old._weather !== all._weather) changed.push('the weather of the six regions');
+  for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) {
+    const now = worldTrace(ref.make(), ref.km);
+    const was = old[name];
+    if (was !== undefined && JSON.stringify(was) !== JSON.stringify(now)) changed.push(name);
+    all[name] = now;
   }
+  for (const [name, ref] of Object.entries(REFERENCE_WORLDS_V2)) all[name] = worldTrace(ref.make(), ref.km);
+  const text = JSON.stringify(all, null, 2) + '\n';
   console.log(text);
+  if (write) {
+    if (changed.length > 0 && !process.argv.includes('--v1')) {
+      console.error(`NOT WRITTEN: version 1 no longer hashes as recorded (${changed.join(', ')}). Version 1 never changes: find what moved it. (Only on a Node whose Math rounds differently, with the generator unchanged: --write --v1.)`);
+      process.exit(1);
+    }
+    fs.writeFileSync(GOLDEN_FILE, text);
+    console.log(`wrote ${GOLDEN_FILE} (version 2 under revision ${WORLD_REV})`);
+  }
 }
