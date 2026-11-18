@@ -429,15 +429,19 @@ describe('world v2 · what the height function costs', () => {
       const v2 = new World(4242, { worldVersion: 2, startBiome: start, chapterScale: 3 });
       const p1 = points(v1);
       const p2 = points(v2);
+      // The design allows 0.3 µs a call. Measured on a quiet machine (µs a call, version 1 → version 2):
+      // terraces 0.80 → 1.03 at 40 m from the road and 0.98 → 1.28 at 150 m, the desert's dunes
+      // 0.66 → 0.83, karst 0.76 → 0.85. A busy machine makes every call slower by the same share, so the
+      // limit is a share too (half as much again, where the worst measured is three tenths more), taken
+      // from the best of many rounds of each in turn.
       let best1 = Infinity;
       let best2 = Infinity;
-      for (let round = 0; round < 14; round++) {
+      for (let round = 0; round < 40; round++) {
         best1 = Math.min(best1, time(v1, p1));
         best2 = Math.min(best2, time(v2, p2));
+        if (round >= 8 && best2 < best1 * 1.4) break;
       }
-      // The design allows 0.3 µs a call. Measured (µs, 40 to 200 m from the road): terraces +0.21 to
-      // +0.28, the desert's dunes +0.16, karst +0.05. The limit here leaves room for a busy machine.
-      expect(best2 - best1, `${start}: ${best1.toFixed(3)} µs in version 1, ${best2.toFixed(3)} µs in version 2`).toBeLessThan(0.5);
+      expect(best2, `${start}: ${best1.toFixed(3)} µs in version 1, ${best2.toFixed(3)} µs in version 2`).toBeLessThan(best1 * 1.5);
     }
   });
 });
