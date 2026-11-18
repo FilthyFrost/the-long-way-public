@@ -257,7 +257,7 @@ export const JUDGED: readonly (keyof Figures)[] = FIGURES.map((f) => f.key).filt
 /** a part on every mount of its kind of the frame it belongs on (a wheel keeps its tyre; a tyre goes on every rim) */
 export function withPart(p: PartDef): Build | null {
   const tags = p.tags ?? [];
-  const frame = tags.includes('stock:moto') && !tags.some((t) => t === 'stock:sedan' || t === 'stock:pickup' || t === 'stock:rv') ? 'moto' : p.rim?.dual ? 'rv' : 'sedan';
+  const frame = (tags.includes('stock:moto') || tags.includes('for:moto')) && !tags.some((t) => t === 'stock:sedan' || t === 'stock:pickup' || t === 'stock:rv') ? 'moto' : p.rim?.dual ? 'rv' : 'sedan';
   const b = stockBuild(frame, { fuel: 0.5 });
   const f = frameDef(frame);
   if (p.cat === 'tire') {

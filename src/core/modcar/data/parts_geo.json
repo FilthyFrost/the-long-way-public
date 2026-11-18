@@ -3198,6 +3198,328 @@
     "trim"
    ]
   },
+  "tire_at": {
+   "bbox": [
+    [
+     -0.295,
+     -0.295,
+     -0.1064
+    ],
+    [
+     0.295,
+     0.295,
+     0.1055
+    ]
+   ],
+   "triangles": 3872,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.295,
+   "inner_radius": 0.165,
+   "width": 0.215,
+   "sidewall": 0.13,
+   "rim": "rim_steel13"
+  },
+  "tire_at@rim_alloy15": {
+   "bbox": [
+    [
+     -0.32,
+     -0.32,
+     -0.1064
+    ],
+    [
+     0.32,
+     0.32,
+     0.1055
+    ]
+   ],
+   "triangles": 3908,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.32,
+   "inner_radius": 0.19,
+   "width": 0.215,
+   "sidewall": 0.13,
+   "rim": "rim_alloy15"
+  },
+  "tire_at@rim_dually": {
+   "bbox": [
+    [
+     -0.38,
+     -0.38,
+     -0.1169
+    ],
+    [
+     0.38,
+     0.38,
+     0.116
+    ]
+   ],
+   "triangles": 3980,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.38,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.13,
+   "rim": "rim_dually"
+  },
+  "tire_at@rim_moto18": {
+   "bbox": [
+    [
+     -0.359,
+     -0.359,
+     -0.1064
+    ],
+    [
+     0.359,
+     0.359,
+     0.1055
+    ]
+   ],
+   "triangles": 3956,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.359,
+   "inner_radius": 0.229,
+   "width": 0.215,
+   "sidewall": 0.13,
+   "rim": "rim_moto18"
+  },
+  "tire_at@rim_off16": {
+   "bbox": [
+    [
+     -0.333,
+     -0.333,
+     -0.1119
+    ],
+    [
+     0.333,
+     0.333,
+     0.111
+    ]
+   ],
+   "triangles": 3920,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.333,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.13,
+   "rim": "rim_off16"
+  },
+  "tire_at@rim_steel13": {
+   "bbox": [
+    [
+     -0.295,
+     -0.295,
+     -0.1064
+    ],
+    [
+     0.295,
+     0.295,
+     0.1055
+    ]
+   ],
+   "triangles": 3872,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.295,
+   "inner_radius": 0.165,
+   "width": 0.215,
+   "sidewall": 0.13,
+   "rim": "rim_steel13"
+  },
+  "tire_at@rim_truck19": {
+   "bbox": [
+    [
+     -0.38,
+     -0.38,
+     -0.1119
+    ],
+    [
+     0.38,
+     0.38,
+     0.111
+    ]
+   ],
+   "triangles": 3980,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.38,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.13,
+   "rim": "rim_truck19"
+  },
+  "tire_eco": {
+   "bbox": [
+    [
+     -0.2849,
+     -0.2832,
+     -0.0775
+    ],
+    [
+     0.2849,
+     0.2832,
+     0.076
+    ]
+   ],
+   "triangles": 3376,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_eco@rim_alloy15": {
+   "bbox": [
+    [
+     -0.3099,
+     -0.3081,
+     -0.0975
+    ],
+    [
+     0.3099,
+     0.3081,
+     0.096
+    ]
+   ],
+   "triangles": 3412,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.31,
+   "inner_radius": 0.19,
+   "width": 0.196,
+   "sidewall": 0.12,
+   "rim": "rim_alloy15"
+  },
+  "tire_eco@rim_dually": {
+   "bbox": [
+    [
+     -0.3699,
+     -0.3677,
+     -0.1175
+    ],
+    [
+     0.3699,
+     0.3677,
+     0.116
+    ]
+   ],
+   "triangles": 3496,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.12,
+   "rim": "rim_dually"
+  },
+  "tire_eco@rim_moto18": {
+   "bbox": [
+    [
+     -0.3489,
+     -0.3468,
+     -0.072
+    ],
+    [
+     0.3489,
+     0.3468,
+     0.0705
+    ]
+   ],
+   "triangles": 3460,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.349,
+   "inner_radius": 0.229,
+   "width": 0.145,
+   "sidewall": 0.12,
+   "rim": "rim_moto18"
+  },
+  "tire_eco@rim_off16": {
+   "bbox": [
+    [
+     -0.3229,
+     -0.321,
+     -0.1125
+    ],
+    [
+     0.3229,
+     0.321,
+     0.111
+    ]
+   ],
+   "triangles": 3448,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.323,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_off16"
+  },
+  "tire_eco@rim_steel13": {
+   "bbox": [
+    [
+     -0.2849,
+     -0.2832,
+     -0.0775
+    ],
+    [
+     0.2849,
+     0.2832,
+     0.076
+    ]
+   ],
+   "triangles": 3376,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_eco@rim_truck19": {
+   "bbox": [
+    [
+     -0.3699,
+     -0.3677,
+     -0.1125
+    ],
+    [
+     0.3699,
+     0.3677,
+     0.111
+    ]
+   ],
+   "triangles": 3496,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_truck19"
+  },
   "tire_moto": {
    "bbox": [
     [
@@ -3357,6 +3679,328 @@
    "inner_radius": 0.25,
    "width": 0.226,
    "sidewall": 0.08,
+   "rim": "rim_truck19"
+  },
+  "tire_moto_off": {
+   "bbox": [
+    [
+     -0.253,
+     -0.253,
+     -0.083
+    ],
+    [
+     0.253,
+     0.253,
+     0.083
+    ]
+   ],
+   "triangles": 2760,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.255,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.09,
+   "rim": "rim_steel13"
+  },
+  "tire_moto_off@rim_alloy15": {
+   "bbox": [
+    [
+     -0.2781,
+     -0.2781,
+     -0.1011
+    ],
+    [
+     0.2781,
+     0.2781,
+     0.1011
+    ]
+   ],
+   "triangles": 2808,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.28,
+   "inner_radius": 0.19,
+   "width": 0.196,
+   "sidewall": 0.09,
+   "rim": "rim_alloy15"
+  },
+  "tire_moto_off@rim_dually": {
+   "bbox": [
+    [
+     -0.3381,
+     -0.3381,
+     -0.1193
+    ],
+    [
+     0.3381,
+     0.3381,
+     0.1193
+    ]
+   ],
+   "triangles": 2928,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.34,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.09,
+   "rim": "rim_dually"
+  },
+  "tire_moto_off@rim_moto18": {
+   "bbox": [
+    [
+     -0.3167,
+     -0.3167,
+     -0.0625
+    ],
+    [
+     0.3167,
+     0.3167,
+     0.0625
+    ]
+   ],
+   "triangles": 2892,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.319,
+   "inner_radius": 0.229,
+   "width": 0.11,
+   "sidewall": 0.09,
+   "rim": "rim_moto18"
+  },
+  "tire_moto_off@rim_off16": {
+   "bbox": [
+    [
+     -0.2911,
+     -0.2911,
+     -0.1148
+    ],
+    [
+     0.2911,
+     0.2911,
+     0.1148
+    ]
+   ],
+   "triangles": 2832,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.293,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.09,
+   "rim": "rim_off16"
+  },
+  "tire_moto_off@rim_steel13": {
+   "bbox": [
+    [
+     -0.253,
+     -0.253,
+     -0.083
+    ],
+    [
+     0.253,
+     0.253,
+     0.083
+    ]
+   ],
+   "triangles": 2760,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.255,
+   "inner_radius": 0.165,
+   "width": 0.156,
+   "sidewall": 0.09,
+   "rim": "rim_steel13"
+  },
+  "tire_moto_off@rim_truck19": {
+   "bbox": [
+    [
+     -0.3381,
+     -0.3381,
+     -0.1148
+    ],
+    [
+     0.3381,
+     0.3381,
+     0.1148
+    ]
+   ],
+   "triangles": 2928,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.34,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.09,
+   "rim": "rim_truck19"
+  },
+  "tire_mud": {
+   "bbox": [
+    [
+     -0.3249,
+     -0.3249,
+     -0.1245
+    ],
+    [
+     0.3249,
+     0.3249,
+     0.1245
+    ]
+   ],
+   "triangles": 2892,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.325,
+   "inner_radius": 0.165,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_steel13"
+  },
+  "tire_mud@rim_alloy15": {
+   "bbox": [
+    [
+     -0.3499,
+     -0.3499,
+     -0.1245
+    ],
+    [
+     0.3499,
+     0.3499,
+     0.1245
+    ]
+   ],
+   "triangles": 2904,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.35,
+   "inner_radius": 0.19,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_alloy15"
+  },
+  "tire_mud@rim_dually": {
+   "bbox": [
+    [
+     -0.4099,
+     -0.4099,
+     -0.1245
+    ],
+    [
+     0.4099,
+     0.4099,
+     0.1245
+    ]
+   ],
+   "triangles": 2976,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.41,
+   "inner_radius": 0.25,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_dually"
+  },
+  "tire_mud@rim_moto18": {
+   "bbox": [
+    [
+     -0.3889,
+     -0.3889,
+     -0.1245
+    ],
+    [
+     0.3889,
+     0.3889,
+     0.1245
+    ]
+   ],
+   "triangles": 2964,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.389,
+   "inner_radius": 0.229,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_moto18"
+  },
+  "tire_mud@rim_off16": {
+   "bbox": [
+    [
+     -0.3629,
+     -0.3629,
+     -0.1245
+    ],
+    [
+     0.3629,
+     0.3629,
+     0.1245
+    ]
+   ],
+   "triangles": 2928,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.363,
+   "inner_radius": 0.203,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_off16"
+  },
+  "tire_mud@rim_steel13": {
+   "bbox": [
+    [
+     -0.3249,
+     -0.3249,
+     -0.1245
+    ],
+    [
+     0.3249,
+     0.3249,
+     0.1245
+    ]
+   ],
+   "triangles": 2892,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.325,
+   "inner_radius": 0.165,
+   "width": 0.255,
+   "sidewall": 0.16,
+   "rim": "rim_steel13"
+  },
+  "tire_mud@rim_truck19": {
+   "bbox": [
+    [
+     -0.4099,
+     -0.4099,
+     -0.1245
+    ],
+    [
+     0.4099,
+     0.4099,
+     0.1245
+    ]
+   ],
+   "triangles": 2976,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.41,
+   "inner_radius": 0.25,
+   "width": 0.255,
+   "sidewall": 0.16,
    "rim": "rim_truck19"
   },
   "tire_offroad": {
@@ -4010,6 +4654,335 @@
    "sidewall": 0.12,
    "rim": "rim_truck19"
   },
+  "tire_sport": {
+   "bbox": [
+    [
+     -0.265,
+     -0.265,
+     -0.1017
+    ],
+    [
+     0.265,
+     0.265,
+     0.1005
+    ]
+   ],
+   "triangles": 3356,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.265,
+   "inner_radius": 0.165,
+   "width": 0.205,
+   "sidewall": 0.1,
+   "rim": "rim_steel13"
+  },
+  "tire_sport@rim_alloy15": {
+   "bbox": [
+    [
+     -0.29,
+     -0.29,
+     -0.1017
+    ],
+    [
+     0.29,
+     0.29,
+     0.1005
+    ]
+   ],
+   "triangles": 3404,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.29,
+   "inner_radius": 0.19,
+   "width": 0.205,
+   "sidewall": 0.1,
+   "rim": "rim_alloy15"
+  },
+  "tire_sport@rim_dually": {
+   "bbox": [
+    [
+     -0.35,
+     -0.35,
+     -0.1172
+    ],
+    [
+     0.35,
+     0.35,
+     0.116
+    ]
+   ],
+   "triangles": 3500,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.35,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.1,
+   "rim": "rim_dually"
+  },
+  "tire_sport@rim_moto18": {
+   "bbox": [
+    [
+     -0.329,
+     -0.329,
+     -0.1017
+    ],
+    [
+     0.329,
+     0.329,
+     0.1005
+    ]
+   ],
+   "triangles": 3464,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.329,
+   "inner_radius": 0.229,
+   "width": 0.205,
+   "sidewall": 0.1,
+   "rim": "rim_moto18"
+  },
+  "tire_sport@rim_off16": {
+   "bbox": [
+    [
+     -0.303,
+     -0.303,
+     -0.1122
+    ],
+    [
+     0.303,
+     0.303,
+     0.111
+    ]
+   ],
+   "triangles": 3416,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.303,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.1,
+   "rim": "rim_off16"
+  },
+  "tire_sport@rim_steel13": {
+   "bbox": [
+    [
+     -0.265,
+     -0.265,
+     -0.1017
+    ],
+    [
+     0.265,
+     0.265,
+     0.1005
+    ]
+   ],
+   "triangles": 3356,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.265,
+   "inner_radius": 0.165,
+   "width": 0.205,
+   "sidewall": 0.1,
+   "rim": "rim_steel13"
+  },
+  "tire_sport@rim_truck19": {
+   "bbox": [
+    [
+     -0.35,
+     -0.35,
+     -0.1122
+    ],
+    [
+     0.35,
+     0.35,
+     0.111
+    ]
+   ],
+   "triangles": 3500,
+   "materials": [
+    "rubber"
+   ],
+   "radius": 0.35,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.1,
+   "rim": "rim_truck19"
+  },
+  "tire_studded": {
+   "bbox": [
+    [
+     -0.2849,
+     -0.2849,
+     -0.0868
+    ],
+    [
+     0.2849,
+     0.2849,
+     0.0855
+    ]
+   ],
+   "triangles": 3980,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.175,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_studded@rim_alloy15": {
+   "bbox": [
+    [
+     -0.3099,
+     -0.3099,
+     -0.0973
+    ],
+    [
+     0.3099,
+     0.3099,
+     0.096
+    ]
+   ],
+   "triangles": 4016,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.31,
+   "inner_radius": 0.19,
+   "width": 0.196,
+   "sidewall": 0.12,
+   "rim": "rim_alloy15"
+  },
+  "tire_studded@rim_dually": {
+   "bbox": [
+    [
+     -0.3699,
+     -0.3699,
+     -0.1173
+    ],
+    [
+     0.3699,
+     0.3699,
+     0.116
+    ]
+   ],
+   "triangles": 4088,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.236,
+   "sidewall": 0.12,
+   "rim": "rim_dually"
+  },
+  "tire_studded@rim_moto18": {
+   "bbox": [
+    [
+     -0.3489,
+     -0.3489,
+     -0.0868
+    ],
+    [
+     0.3489,
+     0.3489,
+     0.0855
+    ]
+   ],
+   "triangles": 4052,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.349,
+   "inner_radius": 0.229,
+   "width": 0.175,
+   "sidewall": 0.12,
+   "rim": "rim_moto18"
+  },
+  "tire_studded@rim_off16": {
+   "bbox": [
+    [
+     -0.3229,
+     -0.3229,
+     -0.1123
+    ],
+    [
+     0.3229,
+     0.3229,
+     0.111
+    ]
+   ],
+   "triangles": 4016,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.323,
+   "inner_radius": 0.203,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_off16"
+  },
+  "tire_studded@rim_steel13": {
+   "bbox": [
+    [
+     -0.2849,
+     -0.2849,
+     -0.0868
+    ],
+    [
+     0.2849,
+     0.2849,
+     0.0855
+    ]
+   ],
+   "triangles": 3980,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.285,
+   "inner_radius": 0.165,
+   "width": 0.175,
+   "sidewall": 0.12,
+   "rim": "rim_steel13"
+  },
+  "tire_studded@rim_truck19": {
+   "bbox": [
+    [
+     -0.3699,
+     -0.3699,
+     -0.1123
+    ],
+    [
+     0.3699,
+     0.3699,
+     0.111
+    ]
+   ],
+   "triangles": 4088,
+   "materials": [
+    "rubber",
+    "steel"
+   ],
+   "radius": 0.37,
+   "inner_radius": 0.25,
+   "width": 0.226,
+   "sidewall": 0.12,
+   "rim": "rim_truck19"
+  },
   "tire_tractor": {
    "bbox": [
     [
@@ -4542,6 +5515,53 @@
     "lens_amber",
     "lens_head",
     "lens_tail",
+    "steel",
+    "trim"
+   ]
+  },
+  "turbo_big": {
+   "bbox": [
+    [
+     -0.1489,
+     -0.0378,
+     -0.193
+    ],
+    [
+     0.16,
+     0.2743,
+     0.1516
+    ]
+   ],
+   "triangles": 2574,
+   "materials": [
+    "alu",
+    "chrome",
+    "paint",
+    "rubber",
+    "rust",
+    "steel",
+    "trim"
+   ]
+  },
+  "turbo_mid": {
+   "bbox": [
+    [
+     -0.1114,
+     -0.0054,
+     -0.2064
+    ],
+    [
+     0.1172,
+     0.3155,
+     0.1255
+    ]
+   ],
+   "triangles": 2494,
+   "materials": [
+    "alu",
+    "paint",
+    "rubber",
+    "rust",
     "steel",
     "trim"
    ]

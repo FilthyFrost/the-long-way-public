@@ -36,6 +36,12 @@ RIMS = {
 # row), or a string of row indices that are raised ('0' = row 0, '02' = rows 0 and 2). For a side-specific
 # pattern use a pair (outer, inner) [u > 0 is the outer side]. shear(u) shifts the rows round the tyre
 # (in pitches), zig(row, col) shifts a breakpoint sideways (m).
+# Optional (the second batch): shoulder = how far round the shoulder the outermost breakpoint goes (deg, 58 if
+# not given; with walls set lower the band reaches down onto the sidewall); depth(u) scales the blocks' height
+# by |u| (lugs that taper down the sidewall); studs = [(u, f), ...] steel stud heads set into the blocks, one
+# at each per pitch (f = the fraction of the pitch, before the shear), stud_r / stud_h their radius and how
+# far they stand proud (m); side_gap = the largest angle (deg) between the sidewall's rows, which then keeps only
+# the tread's rows it needs to stay round.
 
 TYRES = {
     'tire_road': dict(h=0.12, W=0.155, Tw=0.80, d=0.0085, c=0.006, n=24, fr=[0, 0.76],
@@ -73,6 +79,51 @@ TYRES = {
                        cells=['01', '01', 'G', 'R', 'G', 'R', 'G', 'R', 'G', '01', '01'],
                        zig=lambda k, j: (0.0045 if k % 2 else -0.0045) if j in (2, 3, 4, 5, 6, 7, 8, 9) else 0.0,
                        notch=True),
+    # --- the second batch (2026-11-18)
+    # economy: five plain ribs between four narrow straight grooves, only the shoulders' edge notched
+    'tire_eco': dict(h=0.12, W=0.145, Tw=0.80, d=0.0065, c=0.0055, n=22, fr=[0, 0.88],
+                     cols=[-1.12, -1.0, -0.60, -0.53, -0.21, -0.14, 0.14, 0.21, 0.53, 0.60, 1.0, 1.12],
+                     cells=['0', 'R', 'G', 'R', 'G', 'R', 'G', 'R', 'G', 'R', '0'],
+                     walls=[(0.40, -0.004), (0.72, -0.002)], text_at=0.56, text_size=0.8, side_gap=11),
+    # sport: directional arrows across the middle (their tips lead), big solid shoulder blocks, shallow
+    'tire_sport': dict(h=0.10, W=0.205, Tw=0.88, d=0.006, c=0.005, n=20, fr=[0, 0.76, 0.88],
+                       cols=[-1.12, -1.0, -0.64, -0.55, -0.06, 0.06, 0.55, 0.64, 1.0, 1.12],
+                       cells=['01', '01', 'G', '0', '0', '0', 'G', '01', '01'],
+                       walls=[(0.42, -0.004), (0.74, -0.002)], side_gap=14,
+                       shear=lambda u: -0.42 * min(abs(u), 0.64) - 0.12 * max(0.0, abs(u) - 0.64)),
+    # all-terrain: chunky blocks, each column a half pitch round from the next (they interlock across zigzag
+    # grooves); the middle ones cut across by a sipe, the shoulder ones siped part-way and stepping down the sidewall
+    'tire_at': dict(h=0.13, W=0.215, Tw=0.84, d=0.012, c=0.008, n=16, fr=[0, 0.36, 0.42, 0.78],
+                    cols=[-1.34, -1.17, -1.0, -0.64, -0.56, -0.06, 0.06, 0.56, 0.64, 1.0, 1.17, 1.34],
+                    cells=['01', '012', '02', 'G', '02', 'G', '02', 'G', '02', '012', '01'],
+                    walls=[(0.40, -0.005), (0.66, -0.002)], shoulder=70, side_gap=13.2,
+                    depth=lambda au: 1.0 if au <= 1.0 else 1.0 - 0.55 * (au - 1.0) / 0.34,
+                    shear=lambda u: 0.10 * abs(u) + (0.5 if (-0.6 < u < 0.0 or u > 0.6) else 0.0),
+                    zig=lambda k, j: (0.003 if k % 2 else -0.003) if j in (3, 4, 7, 8) else 0.0),
+    # mud-terrain: huge staggered lugs, a long one reaching past the middle and a short one in turn from each
+    # side, deep open voids, the lugs carried far round the shoulder onto the sidewall
+    'tire_mud': dict(h=0.16, W=0.255, Tw=0.86, d=0.022, c=0.012, n=10, fr=[0, 0.30, 0.50, 0.80],
+                     cols=[-1.50, -1.30, -1.12, -1.0, -0.56, -0.08, 0.08, 0.56, 1.0, 1.12, 1.30, 1.50],
+                     cells=['0', '02', '02', '02', '0', '02', '2', '02', '02', '02', '2'],
+                     walls=[(0.30, -0.008), (0.52, -0.003)], shoulder=82, side_gap=12,
+                     depth=lambda au: 1.0 if au <= 1.0 else 1.0 - 0.7 * (au - 1.0) / 0.5,
+                     shear=lambda u: 0.12 * max(-0.56, min(0.56, u)) - 0.08 * (u - max(-0.56, min(0.56, u))),
+                     text_at=0.34, text_size=0.9),
+    # studded winter: a snow pattern in a slight arrow, zigzag-edged blocks with the middle ones a half pitch round,
+    # three steel studs a pitch
+    'tire_studded': dict(h=0.12, W=0.175, Tw=0.82, d=0.010, c=0.007, n=20, fr=[0, 0.80],
+                         cols=[-1.16, -1.0, -0.64, -0.55, -0.22, -0.13, 0.13, 0.22, 0.55, 0.64, 1.0, 1.16],
+                         cells=['0', '0', 'G', '0', 'G', '0', 'G', '0', 'G', '0', '0'],
+                         walls=[(0.40, -0.004), (0.72, -0.002)],
+                         shear=lambda u: -0.30 * abs(u) + (0.5 if 0.2 < abs(u) < 0.6 else 0.0),
+                         zig=lambda k, j: (0.003 if k % 2 else -0.003) if 2 <= j <= 9 else 0.0,
+                         studs=[(-0.82, 0.40), (0.0, 0.40), (0.82, 0.40)], stud_r=0.0034, stud_h=0.0015),
+    # off-road motorcycle: tall separate knobs on the round profile, centre and shoulder knobs a half pitch
+    # from the ones between them
+    'tire_moto_off': dict(h=0.09, W=0.11, Tw=0.96, d=0.013, c=0.036, n=18, fr=[0, 0.30, 0.50, 0.80],
+                          cols=[-1.0, -0.66, -0.22, 0.22, 0.66, 1.0],
+                          cells=['0', '2', '0', '2', '0'], walls=[(0.25, -0.006), (0.42, -0.002)], side_gap=10,
+                          shear=lambda u: -0.10 * abs(u), round=True, text_at=0.42, text_size=0.85),
 }
 
 TYRE_RIMS = ['rim_steel13', 'rim_alloy15', 'rim_off16', 'rim_moto18', 'rim_truck19', 'rim_dually']
@@ -115,13 +166,21 @@ def tyre_profile(T, R, wb, fh):
             y = u * tw2
             r = Ro - c * au * au - d
         else:
-            phi = (au - 1.0) / vmax * math.radians(58)
+            phi = (au - 1.0) / vmax * math.radians(T.get('shoulder', 58))
             sy = ex + (wx - ex) * math.sin(phi)
             sr = wr + (er - wr) * math.cos(phi)
-            ny, nr = (er - wr) * math.sin(phi), (wx - ex) * math.cos(phi)
-            ln = math.hypot(ny, nr) or 1.0
-            y = math.copysign(sy - d * ny / ln, u)
-            r = sr - d * nr / ln
+            if 'shoulder' in T:
+                # (the second batch: the floor lies in from the shoulder along (sin, cos) of the angle round it, which
+                # turns steadily - no fold however tight the shoulder against the blocks' height - and only as deep
+                # as depth() makes the blocks there; build_tyre raises them back along it onto the shoulder)
+                dd = d * (T['depth'](au) if 'depth' in T else 1.0)
+                y = math.copysign(sy - dd * math.sin(phi), u)
+                r = sr - dd * math.cos(phi)
+            else:
+                ny, nr = (er - wr) * math.sin(phi), (wx - ex) * math.cos(phi)
+                ln = math.hypot(ny, nr) or 1.0
+                y = math.copysign(sy - d * ny / ln, u)
+                r = sr - d * nr / ln
         band.append((y, r, 'band', u))
     # assemble the loop: inner bead (y<0) -> inner side up -> band from y<0 to y>0 -> outer side down
     pts = []
@@ -188,6 +247,75 @@ def sidewall_text(bm, pts, R, h, mat_index=0, arcs=((90.0, 70.0), (270.0, 50.0))
     return faces
 
 
+def tyre_studs(bm, T, pts, band_idx, nrm_col, mat_index=0):
+    """
+    Steel stud heads set into the tread blocks (T['studs'] = [(u, f), ...]: one per pitch at each, f the fraction
+    of the pitch before the shear): short hexagonal pins along the block's normal, sunk 2 mm into the rubber and
+    standing stud_h proud of the block top, their heads a little narrower than their bodies. In lathe space.
+    """
+    n, d = T['n'], T['d']
+    pitch = math.tau / n
+    shear = T.get('shear')
+    depth = T.get('depth')
+    sr, proud, sunk = T.get('stud_r', 0.0034), T.get('stud_h', 0.0015), 0.002
+    us = [pts[i][3] for i in band_idx]
+    faces = []
+    for (u, f) in T['studs']:
+        k = max(i for i in range(len(us) - 1) if us[i] <= u)
+        t = (u - us[k]) / (us[k + 1] - us[k])
+        # the block top there: both band points raised along their normals, then between them
+        tops = []
+        for j in (k, k + 1):
+            y0, r0 = pts[band_idx[j]][:2]
+            ny, nr = nrm_col[j]
+            dd = d * (depth(abs(us[j])) if depth else 1.0)
+            tops.append((y0 + ny * dd, r0 + nr * dd, ny, nr))
+        y = tops[0][0] + (tops[1][0] - tops[0][0]) * t
+        r = tops[0][1] + (tops[1][1] - tops[0][1]) * t
+        ny = tops[0][2] + (tops[1][2] - tops[0][2]) * t
+        nr = tops[0][3] + (tops[1][3] - tops[0][3]) * t
+        ln = math.hypot(ny, nr)
+        ny, nr = ny / ln, nr / ln
+        sh = 0.0
+        if shear:
+            sh = shear(us[k]) + (shear(us[k + 1]) - shear(us[k])) * t
+        for p in range(n):
+            a = (p + f + sh) * pitch
+            c, s = math.cos(a), math.sin(a)
+            z = V((nr * c, nr * s, ny))
+            m = K.frame_from_z(z, (-s, c, 0.0)).to_3x3()
+            at = V((r * c, r * s, y))
+            low, high = [], []
+            for j in range(6):
+                q = V((math.cos(math.tau * j / 6), math.sin(math.tau * j / 6), 0.0))
+                low.append(bm.verts.new(at + m @ (q * sr) - z * sunk))
+                high.append(bm.verts.new(at + m @ (q * sr * 0.8) + z * proud))
+            for j in range(6):
+                j2 = (j + 1) % 6
+                faces.append(bm.faces.new((low[j], low[j2], high[j2], high[j])))
+            faces.append(bm.faces.new(high))
+    for f in faces:
+        f.material_index = mat_index
+    return faces
+
+
+def shoulder_phi(T, au):
+    """How far round the shoulder (rad) a breakpoint |u| > 1 lies, as tyre_profile places it."""
+    vmax = max(abs(x) for x in T['cols']) - 1.0
+    return (au - 1.0) / vmax * math.radians(T.get('shoulder', 58))
+
+
+def side_rows(fr, gap):
+    """The rows of a pitch (indices into fr) the sidewall keeps: each start no more than `gap` (a fraction of the
+    pitch) after the last kept one, when the rows allow."""
+    keep = [0]
+    for k in range(1, len(fr)):
+        nxt = fr[k + 1] if k + 1 < len(fr) else 1.0
+        if nxt - fr[keep[-1]] > gap + 1e-9:
+            keep.append(k)
+    return keep
+
+
 def build_tyre(P, tid, rim_id):
     T = TYRES[tid]
     rim = RIMS[rim_id]
@@ -206,6 +334,11 @@ def build_tyre(P, tid, rim_id):
     nb = len(band_idx)
     u_edges = [abs(pts[band_idx[0]][3]), abs(pts[band_idx[-1]][3])]
     bm = bmesh.new()
+    # (the second batch's tyres carry each band vertex's column in a layer: breakpoints far round the shoulder or
+    # moved by zig lie too close together sideways to be told apart by the axial coordinate, and depth() wants the
+    # column; made before any vertex, as a new layer drops the references to the ones there are)
+    exact = any(k in T for k in ('shoulder', 'depth', 'studs', 'side_gap'))
+    lay = bm.verts.layers.int.new('band_col') if exact else None
     grid = []  # grid[i_profile][i_row] -> vert
     for ip, (y, r, tag, u) in enumerate(pts):
         if tag == 'band':
@@ -232,6 +365,14 @@ def build_tyre(P, tid, rim_id):
     bm.normal_update()
     # make sure the normals point out of the tyre
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    # (recalc goes by the face farthest out, which a fold in the profile can turn: the volume decides)
+    vol = 0.0
+    for f in bm.faces:
+        vs = [v.co for v in f.verts]
+        for i in range(1, len(vs) - 1):
+            vol += vs[0].dot(vs[i].cross(vs[i + 1]))
+    if vol < 0:
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
     # whitewall: the outer side band of the sidewall
     if T.get('white'):
         lo, hi = T['white']
@@ -242,8 +383,23 @@ def build_tyre(P, tid, rim_id):
                 rm = (r0 + r1) / 2
                 if R + lo * T['h'] <= rm <= R + hi * T['h']:
                     f.material_index = 1
+    # the sidewall keeps only the rows it needs to stay round (side_gap degrees apart at most): its faces span several
+    # of the tread's rows, those next to the band take the band's rows
+    if T.get('side_gap'):
+        keep = side_rows(fr, math.radians(T['side_gap']) / pitch)
+        # (the edges across the profile at the rows it drops go, then the vertices left between two edges)
+        drop = []
+        for ip in range(M):
+            jp = (ip + 1) % M
+            if pts[ip][2] == 'band' and pts[jp][2] == 'band':
+                continue
+            for ir, (p, k) in enumerate(rows):
+                if k not in keep:
+                    drop.append(bm.edges.get((grid[ip][ir], grid[jp][ir])))
+        bmesh.ops.dissolve_edges(bm, edges=drop, use_verts=True, use_face_split=False)
     # raise the tread blocks
     d = T['d']
+    nrm_col = []
     if d > 0:
         cells = T['cells']
         sel = []
@@ -267,20 +423,36 @@ def build_tyre(P, tid, rim_id):
             if nr < 0:
                 ny, nr = -ny, -nr
             nrm[round(pts[ip][0], 5)] = (ny, nr)
+            u = pts[ip][3]
+            if 'shoulder' in T and abs(u) > 1.0:
+                # (over the shoulder the blocks rise along the direction its floor was set in by: onto the shoulder)
+                phi = shoulder_phi(T, abs(u))
+                ny, nr = math.copysign(math.sin(phi), u), math.cos(phi)
+            nrm_col.append((ny, nr))
+        if exact:
+            for ci, ip in enumerate(band_idx):
+                for v in grid[ip]:
+                    v[lay] = ci
         res = bmesh.ops.extrude_face_region(bm, geom=sel)
         # the operator keeps the original faces (now hidden under the blocks): drop them
         bmesh.ops.delete(bm, geom=sel, context='FACES')
         new_verts = [g for g in res['geom'] if isinstance(g, bmesh.types.BMVert)]
         band_y = sorted(nrm.keys())
         for v in new_verts:
-            # find the band column by its axial coordinate (zig offsets are small)
-            yk = min(band_y, key=lambda q: abs(q - v.co.z))
-            ny, nr = nrm[yk]
+            if exact:
+                ci = v[lay]
+                ny, nr = nrm_col[ci]
+                dd = d * T['depth'](abs(pts[band_idx[ci]][3])) if 'depth' in T else d
+            else:
+                # find the band column by its axial coordinate (zig offsets are small)
+                yk = min(band_y, key=lambda q: abs(q - v.co.z))
+                ny, nr = nrm[yk]
+                dd = d
             rr = math.hypot(v.co.x, v.co.y)
             cx, cy = v.co.x / rr, v.co.y / rr
-            v.co.x += cx * nr * d
-            v.co.y += cy * nr * d
-            v.co.z += ny * d
+            v.co.x += cx * nr * dd
+            v.co.y += cy * nr * dd
+            v.co.z += ny * dd
         if T.get('chamfer'):
             nv = set(new_verts)
             top = [f for f in res['geom'] if isinstance(f, bmesh.types.BMFace) and all(v in nv for v in f.verts)]
@@ -292,6 +464,8 @@ def build_tyre(P, tid, rim_id):
                         edges.add(e)
             bmesh.ops.bevel(bm, geom=list(edges), offset=T['chamfer'], offset_type='OFFSET', segments=1,
                             profile=0.5, affect='EDGES', clamp_overlap=True)
+    if lay is not None:
+        bm.verts.layers.int.remove(lay)
     # generic raised lettering on the outer sidewall
     mats = ['rubber', 'ceramic'] if T.get('white') else ['rubber']
     if T.get('text', True):
@@ -301,6 +475,10 @@ def build_tyre(P, tid, rim_id):
         sidewall_text(bm, pts, R, T['h'], mat_index=mats.index(tm), frac=T.get('text_at', 0.52),
                       size=T.get('text_size', 1.0), seed=sum(map(ord, tid)) % 97,
                       arcs=T.get('text_arcs', ((90.0, 70.0), (270.0, 50.0))))
+    # steel stud heads in the blocks
+    if T.get('studs'):
+        mats.append('steel')
+        tyre_studs(bm, T, pts, band_idx, nrm_col, mat_index=mats.index('steel'))
     # axle along Blender Y (lathe z -> +Y)
     K.bm_transform(bm, K.axis_matrix('Y'))
     P.mesh('tyre', bm, mats, sharp=42.0)

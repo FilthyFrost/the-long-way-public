@@ -616,6 +616,9 @@ const DRIVETRAIN: PartDef[] = [
   P({ id: 'exh_side', cat: 'exhaust', name: { zh: '侧排管', en: 'Side stacks' }, mass: 10, carry: 'medium', tags: ['apoc'], exhaust: { torque: 1.14, loud: 2.4 } }),
   P({ id: 'exh_moto', cat: 'exhaust', name: { zh: '摩托排气', en: 'Motorcycle exhaust' }, mass: 4, carry: 'medium', tags: ['stock:moto'], exhaust: { torque: 1.0, loud: 1.2 } }),
   P({ id: 'turbo_small', cat: 'turbo', name: { zh: '小涡轮', en: 'Small turbo' }, mass: 8, carry: 'small', turbo: { boost: 1.28, spoolRpm: 2600, lag: 0.7 } }),
+  // (bigger ones push harder and wake later: §26)
+  P({ id: 'turbo_mid', cat: 'turbo', name: { zh: '中号涡轮', en: 'Medium turbo' }, mass: 11, carry: 'medium', turbo: { boost: 1.45, spoolRpm: 3000, lag: 1.0 } }),
+  P({ id: 'turbo_big', cat: 'turbo', name: { zh: '大涡轮', en: 'Big turbo' }, mass: 16, carry: 'medium', tags: ['apoc'], turbo: { boost: 1.7, spoolRpm: 3600, lag: 1.5 } }),
 ];
 
 // ------------------------------------------------------------------ wheels
@@ -638,6 +641,13 @@ const WHEELS: PartDef[] = [
   P({ id: 'tire_tractor', cat: 'tire', name: { zh: '拖拉机胎', en: 'Tractor tyre' }, mass: 38, carry: 'large', tags: ['meme', 'apoc'], tire: { sidewall: 0.3, width: 0.32, grip: [0.68, 1.15, 1.25, 1.55, 1.35, 1.2, 0.7], rr: 1.45, life: 70, roughWear: 0.6, noise: 2.4 } }),
   P({ id: 'tire_moto', cat: 'tire', name: { zh: '摩托胎', en: 'Motorcycle tyre' }, mass: 3, carry: 'medium', tags: ['stock:moto'], tire: { sidewall: 0.08, width: 0.1, grip: [1.05, 0.9, 0.88, 0.8, 0.75, 0.8, 0.85], rr: 0.85, life: 30, roughWear: 1.4, noise: 0.7 } }),
   P({ id: 'tire_truck', cat: 'tire', name: { zh: '卡车胎', en: 'Truck tyre' }, mass: 16, carry: 'medium', tags: ['stock:rv'], tire: { sidewall: 0.14, width: 0.215, grip: [0.97, 1.0, 1.0, 0.95, 0.9, 0.92, 0.9], rr: 1.02, life: 60, roughWear: 1.0, noise: 1.2 } }),
+  // (docs/MODCAR.md §26: six more — an economy tyre, a sport one, all-terrain and mud-terrain, studs for ice, a knobbly bike tyre)
+  P({ id: 'tire_eco', cat: 'tire', name: { zh: '省油胎', en: 'Eco tyre' }, mass: 7, carry: 'medium', tire: { sidewall: 0.12, width: 0.145, grip: [0.93, 0.86, 0.85, 0.78, 0.72, 0.8, 0.86], rr: 0.8, life: 52, roughWear: 1.3, noise: 0.75 } }),
+  P({ id: 'tire_sport', cat: 'tire', name: { zh: '运动胎', en: 'Sport tyre' }, mass: 9, carry: 'medium', tire: { sidewall: 0.1, width: 0.205, grip: [1.14, 0.88, 0.85, 0.75, 0.7, 0.72, 0.8], rr: 1.0, life: 26, roughWear: 1.6, noise: 1.05 } }),
+  P({ id: 'tire_at', cat: 'tire', name: { zh: '全地形胎', en: 'All-terrain tyre' }, mass: 12, carry: 'medium', tire: { sidewall: 0.13, width: 0.215, grip: [0.97, 1.06, 1.08, 1.1, 1.06, 1.04, 0.92], rr: 1.06, life: 52, roughWear: 0.85, noise: 1.3 } }),
+  P({ id: 'tire_mud', cat: 'tire', name: { zh: '泥地胎', en: 'Mud-terrain tyre' }, mass: 17, carry: 'medium', tire: { sidewall: 0.16, width: 0.255, grip: [0.86, 1.12, 1.25, 1.35, 1.1, 1.12, 0.82], rr: 1.22, life: 40, roughWear: 0.6, noise: 2.0 } }),
+  P({ id: 'tire_studded', cat: 'tire', name: { zh: '钉胎', en: 'Studded tyre' }, mass: 10, carry: 'medium', tire: { sidewall: 0.12, width: 0.175, grip: [0.9, 1.0, 1.0, 0.98, 0.92, 1.5, 2.1], rr: 1.08, life: 30, roughWear: 1.2, noise: 1.8 } }),
+  P({ id: 'tire_moto_off', cat: 'tire', name: { zh: '越野摩托胎', en: 'Knobbly bike tyre' }, mass: 4, carry: 'medium', tags: ['for:moto'], tire: { sidewall: 0.09, width: 0.11, grip: [0.86, 1.15, 1.25, 1.3, 1.2, 1.1, 0.78], rr: 1.05, life: 22, roughWear: 0.7, noise: 1.4 } }),
 ];
 
 // ------------------------------------------------------------------ the axles (docs/MODCAR.md §22)

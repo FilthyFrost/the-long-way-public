@@ -119,9 +119,10 @@ try {
   }
   const hot = await state();
   if (!(hot.bite < 0.85)) fail(`the drums did not fade (${hot.bite})`);
-  // (against the first stop made from speed)
+  // (against the first stop made from speed; the longer of the last two, as a stop now and then ends early on
+  // the way down the road — a rise, the verge)
   const first = fromKmh.findIndex((k) => k > 80);
-  if (first < 0 || first > 2 || !(stopsM[5] > stopsM[first] * 1.3)) fail(`the stops did not grow (${stopsM.map((m) => m.toFixed(0))} from ${fromKmh.map((k) => k.toFixed(0))} km/h)`);
+  if (first < 0 || first > 2 || !(Math.max(stopsM[4], stopsM[5]) > stopsM[first] * 1.3)) fail(`the stops did not grow (${stopsM.map((m) => m.toFixed(0))} from ${fromKmh.map((k) => k.toFixed(0))} km/h)`);
   if (!said.has('brakes_hot')) fail(`the car did not say the brakes were fading (${[...said]})`);
   if (smoked < 3) fail(`the hot brakes did not smoke (${smoked} puffs over a stop)`);
   // the smoke, from outside by the front wheel

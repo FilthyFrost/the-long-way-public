@@ -99,9 +99,9 @@ function countOf(r: Rng, mean: number): number {
   return k;
 }
 
-/** the frames a part came on from the works (its stock: tags) */
+/** the frames a part came on from the works (its stock: tags), or is made for (for:, a motorcycle's knobbly tyre) */
 function stockFrames(p: PartDef): string[] {
-  return (p.tags ?? []).filter((t) => t.startsWith('stock:')).map((t) => t.slice(6));
+  return (p.tags ?? []).filter((t) => t.startsWith('stock:') || t.startsWith('for:')).map((t) => t.slice(t.indexOf(':') + 1));
 }
 
 /**
