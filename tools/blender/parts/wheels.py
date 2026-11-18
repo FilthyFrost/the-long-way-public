@@ -7,7 +7,10 @@ Rims: origin at the wheel centre (= hub centre), axle along Blender Y, the outer
 (the LEFT side; the game mirrors for right-hand hubs). Each rim has the sub-mount empty M_tire at the wheel
 centre (rim_dually: M_tire outer, M_tire2 inner). rim_cart has its own rubber and takes no tyre.
 Tyres: origin at the wheel centre, axle along Y; the bead (inner radius) sits on the rim's bead seat.
-Every tyre is generated for every rim that takes tyres: <tyre>@<rim>.glb; <tyre>.glb is the 13" preview.
+Every tyre is generated for every rim that takes tyres: <tyre>@<rim>.glb; <tyre>.glb is the 13" preview. On a rim
+with a profile (RIMS) the variant's sidewall is the tyre's times that profile, its crown that much lower - the radius
+the game rolls it at (derive.ts: rim radius + sidewall x profile) - its width, its bead and its tread as they are; the
+sidewall above the bead's lip over the flange is the part that comes down (side_h).
 """
 import math
 
@@ -18,10 +21,11 @@ from mathutils import Matrix, Vector
 from parts import _kit as K
 from parts._kit import V, mat4
 
-# bead-seat radius R, rim width w (between the flanges), flange height fh above R, flange thickness t
+# bead-seat radius R, rim width w (between the flanges), flange height fh above R, flange thickness t; profile = the
+# share of a tyre's sidewall the rim keeps (a bigger rim runs its tyre lower: rim.profile in src/core/modcar/parts.ts)
 RIMS = {
     'rim_steel13': dict(R=0.165, w=0.13, fh=0.016, t=0.0035),
-    'rim_alloy15': dict(R=0.19, w=0.17, fh=0.017, t=0.004),
+    'rim_alloy15': dict(R=0.19, w=0.17, fh=0.017, t=0.004, profile=0.72),
     'rim_off16': dict(R=0.203, w=0.20, fh=0.018, t=0.004),
     'rim_moto18': dict(R=0.229, w=0.07, fh=0.011, t=0.003),
     'rim_truck19': dict(R=0.25, w=0.20, fh=0.020, t=0.0045),
@@ -129,18 +133,36 @@ TYRES = {
 TYRE_RIMS = ['rim_steel13', 'rim_alloy15', 'rim_off16', 'rim_moto18', 'rim_truck19', 'rim_dually']
 
 
-def tyre_profile(T, R, wb, fh):
+def side_h(T, fh, h):
+    """
+    The sidewall's stations at a sidewall height h: station(f) = the height above the rim's seat of what lies at f of
+    the tyre's own sidewall T['h'], and k, how much of its height the part above the bead's lip keeps. At the tyre's
+    own height station(f) = f * T['h'], k = 1; lower (a rim with a profile) the bead and its lip over the flange
+    (fh + 3.5 mm) stay as they are and the sidewall above them comes down to h.
+    """
+    h0 = T['h']
+    if h == h0:
+        return (lambda f: f * h0), 1.0
+    lip = fh + 0.0035
+    k = (h - lip) / (h0 - lip)
+    return (lambda f: lip + (f * h0 - lip) * k), k
+
+
+def tyre_profile(T, R, wb, fh, h=None):
     """
     The section of the tyre as a closed loop of (y, r) points with tags, counter-clockwise in (r, y):
-    returns (points, band_indices) where band points carry their u.
+    returns (points, band_indices) where band points carry their u. h: the sidewall height (T['h'] if not given;
+    a rim with a profile takes it lower, see side_h).
     """
-    h = T['h']
+    h = T['h'] if h is None else h
+    station, keep = side_h(T, fh, h)
     Ro = R + h
     Wt = max(T['W'], wb + 0.026)
     half = Wt / 2
     Tw = T['Tw'] * Wt
     tw2 = Tw / 2
-    c = T['c']
+    # (a round profile's crown is its shoulder too: it comes down with the sidewall)
+    c = T['c'] * (keep if T.get('round') else 1.0)
     d = T['d']
     rnd = T.get('round', False)
     # outer side (y > 0) from the bead up to the shoulder (surface level)
@@ -152,7 +174,7 @@ def tyre_profile(T, R, wb, fh):
     ]
     walls = T.get('walls', [(0.34, -0.006), (0.56, 0.0), (0.80, -0.004)])
     for (f, dy) in walls:
-        side.append((half + dy, R + f * h, 'wall'))
+        side.append((half + dy, R + station(f), 'wall'))
     # the band (lowered by d) across the crown; beyond the tread edge it follows an elliptic shoulder
     # from the edge E (phi = 0) towards the top of the sidewall W (phi = 90 deg)
     cols = T['cols']
@@ -194,17 +216,20 @@ def tyre_profile(T, R, wb, fh):
     return pts, Ro, Wt
 
 
-def sidewall_text(bm, pts, R, h, mat_index=0, arcs=((90.0, 70.0), (270.0, 50.0)), frac=0.52, size=1.0, seed=3):
+def sidewall_text(bm, pts, R, h, mat_index=0, arcs=((90.0, 70.0), (270.0, 50.0)), frac=0.52, size=1.0, seed=3,
+                  stations=None):
     """
     Raised generic 'lettering' on the outer sidewall (no brand): blocks of letter-like widths in arcs
     centred on the given angles (deg) at radius R + frac * h, following the sidewall's profile. In lathe
-    space (axis = Z, the outer side is +Z).
+    space (axis = Z, the outer side is +Z). stations = side_h()'s (station, k) on a lower sidewall: the lettering at
+    the station of frac, its height k of the tyre's own.
     """
     import random
     rnd = random.Random(seed)
     side = [(y, r) for (y, r, tag, u) in pts if y > 0 and tag != 'band']
     side.sort(key=lambda q: q[1])
-    rt = R + frac * h
+    station, keep = stations or ((lambda f: f * h), 1.0)
+    rt = R + station(frac)
 
     def surf(r):
         for (ya, ra), (yb, rb) in zip(side[:-1], side[1:]):
@@ -219,7 +244,7 @@ def sidewall_text(bm, pts, R, h, mat_index=0, arcs=((90.0, 70.0), (270.0, 50.0))
         return side[-1][0], 1.0, 0.0
 
     y0, ny, nr = surf(rt)
-    lh = 0.2 * h * size          # letter height (radial)
+    lh = 0.2 * h * keep * size   # letter height (radial)
     faces = []
     for (ac, span) in arcs:
         a = math.radians(ac - span / 2)
@@ -320,7 +345,10 @@ def build_tyre(P, tid, rim_id):
     T = TYRES[tid]
     rim = RIMS[rim_id]
     R, wb, fh = rim['R'], rim['w'], rim['fh']
-    pts, Ro, Wt = tyre_profile(T, R, wb, fh)
+    # (a rim with a profile keeps only that share of the sidewall: the tyre rolls lower on it)
+    h = T['h'] * rim['profile'] if 'profile' in rim else T['h']
+    pts, Ro, Wt = tyre_profile(T, R, wb, fh, h)
+    stations = side_h(T, fh, h)
     n, fr = T['n'], T['fr']
     rows = [(p, k) for p in range(n) for k in range(len(fr))]
     N = len(rows)
@@ -381,7 +409,7 @@ def build_tyre(P, tid, rim_id):
             y1, r1 = pts[(ip + 1) % M][0], pts[(ip + 1) % M][1]
             if y0 > 0 and y1 > 0 and pts[ip][2] != 'band' and pts[(ip + 1) % M][2] != 'band':
                 rm = (r0 + r1) / 2
-                if R + lo * T['h'] <= rm <= R + hi * T['h']:
+                if R + stations[0](lo) <= rm <= R + stations[0](hi):
                     f.material_index = 1
     # the sidewall keeps only the rows it needs to stay round (side_gap degrees apart at most): its faces span several
     # of the tread's rows, those next to the band take the band's rows
@@ -474,7 +502,7 @@ def build_tyre(P, tid, rim_id):
             mats.append(tm)
         sidewall_text(bm, pts, R, T['h'], mat_index=mats.index(tm), frac=T.get('text_at', 0.52),
                       size=T.get('text_size', 1.0), seed=sum(map(ord, tid)) % 97,
-                      arcs=T.get('text_arcs', ((90.0, 70.0), (270.0, 50.0))))
+                      arcs=T.get('text_arcs', ((90.0, 70.0), (270.0, 50.0))), stations=stations)
     # steel stud heads in the blocks
     if T.get('studs'):
         mats.append('steel')
