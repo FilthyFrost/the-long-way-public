@@ -684,9 +684,9 @@ interface KeptCard {
   q: number;
   /** freshness in fiftieths (−1: it does not go off) */
   fresh: number;
-  /** how many things are in it, and what it weighs with them */
+  /** how many stacks are in it, and how many things in all */
   inside: number;
-  kg: number;
+  many: number;
   /** when it was made, on the asker's clock */
   t: number;
 }
@@ -696,9 +696,9 @@ const KEPT = new WeakMap<ItemInstance, KeptCard>();
 /**
  * A thing's card for the words on screen, which ask for it every frame: the card made last time, the same
  * object, while nothing it says has changed — its kind, its count, its level, how fresh it is (in fiftieths),
- * what is in it (by number and weight) — and for CARD_KEEP_S at the most (what the things inside or a
- * system's own lines read is not followed here). So a card costs nothing in the frames between, and a
- * count or a kind that changes shows at once. `t`: the asker's own clock in seconds (the player's).
+ * what is in it (how many stacks, how many things) — and for CARD_KEEP_S at the most (what the things inside
+ * are, how fresh they are and what a system's own lines read is not followed here). So a card costs nothing
+ * in the frames between, and a count or a kind that changes shows at once. `t`: the asker's own clock in seconds (the player's).
  * The card is marked `kept`: do not write into it.
  */
 export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemCard {
@@ -708,14 +708,16 @@ export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemC
   const uses = inst.uses ?? -1;
   const q = inst.q ?? 0;
   const fresh = d.perish ? Math.round(freshNow(inst, nowS) * 50) : -1;
-  const inside = inst.inside ? inst.inside.length : 0;
-  const kg = inside ? itemMass(inst) : 0;
+  const ins = inst.inside;
+  const inside = ins ? ins.length : 0;
+  let many = 0;
+  if (ins) for (let i = 0; i < ins.length; i++) many += ins[i].n ?? 1;
   let m = KEPT.get(inst);
-  if (m && m.item === inst.item && m.n === n && m.litres === litres && m.uses === uses && m.q === q && m.fresh === fresh && m.inside === inside && m.kg === kg && t >= m.t && t - m.t < CARD_KEEP_S) return m.card;
+  if (m && m.item === inst.item && m.n === n && m.litres === litres && m.uses === uses && m.q === q && m.fresh === fresh && m.inside === inside && m.many === many && t >= m.t && t - m.t < CARD_KEEP_S) return m.card;
   const card = itemCard(inst, nowS);
   card.kept = true;
   if (!m) {
-    m = { card, item: inst.item, n, litres, uses, q, fresh, inside, kg, t };
+    m = { card, item: inst.item, n, litres, uses, q, fresh, inside, many, t };
     KEPT.set(inst, m);
     return card;
   }
@@ -727,7 +729,7 @@ export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemC
   m.q = q;
   m.fresh = fresh;
   m.inside = inside;
-  m.kg = kg;
+  m.many = many;
   m.t = t;
   return card;
 }

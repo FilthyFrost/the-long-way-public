@@ -16,6 +16,7 @@ import { FRESH_WORD, itemCard, itemCardKept, itemLabel, registerItemCardLines, t
 import { setItemClock } from '../../src/game/modcar/itemTime';
 import type { Loose } from '../../src/game/modcar/loose';
 import { ModPlayer, heldName, type Held, type PlayerHost } from '../../src/game/modcar/player';
+import { ALLOCATES, heapGrowth } from './v3/heap';
 
 registerItemCat({ id: 'h_t', name: { zh: '试验品', en: 'Test things' } });
 registerItems([
@@ -112,6 +113,37 @@ function hands() {
 const berry = (n = 1, o: Partial<ItemInstance> = {}): ItemInstance => newItem('h_berry', { ...(n > 1 ? { n } : {}), ...o });
 const held = (it: ItemInstance): NonNullable<Held> => ({ kind: 'item', item: it });
 
+// (first in the file: measured before the tests below have put things of every shape through the same code, after
+// which the engine no longer compiles it as tightly and puts the fractions it computes on the heap)
+describe('what the hands ask every frame', () => {
+  it('allocates nothing: the room, the look at the hands, the pick-up line, the name, the kept card', () => {
+    world.worldSeconds = 0;
+    const { player } = hands();
+    const stack = berry(5);
+    player.receive(held(stack));
+    player.receive(held(newItem('h_basket', { inside: [berry(12, { fk: 0.5, t0: 0 }), newItem('h_jerky', { n: 3 })] })));
+    const lying = held(berry(9));
+    const chips = held(newItem('food_chips'));
+    const inner = player as unknown as { settleHands(): void; pickWords(name: string, held: boolean, part: number): string };
+    expect(player.roomFor(lying)).toBe(9);
+    expect(inner.pickWords(heldName(lying), true, 0)).toBe('拿起 <b>试验莓 ×9</b>（叠到快捷栏 1）');
+    expect(heapGrowth(() => void player.roomFor(lying))).toBeLessThan(ALLOCATES);
+    expect(heapGrowth(() => void player.roomFor(chips))).toBeLessThan(ALLOCATES);
+    expect(heapGrowth(() => inner.settleHands())).toBeLessThan(ALLOCATES);
+    // (each measured by itself: put together in one function the engine no longer folds the core's sums into
+    // the caller, and the weights they return are then numbers on the heap, which nothing here can help)
+    expect(heapGrowth(() => void heldName(lying))).toBeLessThan(ALLOCATES);
+    const name = heldName(lying);
+    player.roomFor(lying);
+    expect(heapGrowth(() => void inner.pickWords(name, true, 0))).toBeLessThan(ALLOCATES);
+    expect(heapGrowth(() => void itemLabel(stack))).toBeLessThan(ALLOCATES);
+    expect(heapGrowth(() => void player.cardOf(player.slots[0]!))).toBeLessThan(ALLOCATES);
+    expect(heapGrowth(() => void player.cardOf(player.slots[1]!))).toBeLessThan(ALLOCATES);
+    // (the measure sees an allocation where there is one: the card made anew every time)
+    expect(heapGrowth(() => void itemCard(stack, 0))).toBeGreaterThan(ALLOCATES);
+  });
+});
+
 describe('the hands take things that stack and hold things', () => {
   it('receive: onto the stack of its sort, then into the basket, then into a free slot; what does not go in stays the caller\'s', () => {
     world.worldSeconds = 0;
@@ -136,6 +168,8 @@ describe('the hands take things that stack and hold things', () => {
     expect(player.roomFor(held(d))).toBe(7);
     expect(player.receive(held(d))).toBe(3);
     expect([countOf(a), countOf(c), countOf(d)]).toEqual([12, 12, 3]);
+    // (what stays outside was not started by the attempt)
+    expect(d.t0).toBeUndefined();
     expect(player.roomFor(held(d))).toBe(0);
     expect(player.receive(held(d))).toBe(3);
     // a thing that does not stack with anything there, a part, a tool: a free slot or nothing
@@ -168,13 +202,41 @@ describe('the hands take things that stack and hold things', () => {
     expect(player.roomFor(held(out), basket)).toBe(0);
     expect(player.receive(held(out), basket)).toBe(2);
     expect(countOf(basket.inside![0])).toBe(3);
-    // the basket bears 3 kg: of twelve jerky (1.2 kg) all go in, of thirty more only what the weight leaves (two stacks of eight)
+    // the basket has four slots: with the berries in one, three stacks of eight jerky go in; a fourth finds no
+    // slot in it and no stack of jerky with room, and goes into the free slot of the hands whole
     player.slots[1] = null;
     player.sel = 0;
     const j = newItem('h_jerky', { n: 8 });
     expect(player.receive(held(j))).toBe(0);
     expect(basket.inside!.length).toBe(2);
     expect(player.slots[1]).toBeNull();
+    for (const k of [8, 8]) expect(player.receive(held(newItem('h_jerky', { n: k })))).toBe(0);
+    expect(basket.inside!.map((x) => `${x.item}*${countOf(x)}`)).toEqual(['h_berry*3', 'h_jerky*8', 'h_jerky*8', 'h_jerky*8']);
+    const last = newItem('h_jerky', { n: 8 });
+    // (2.55 kg in it: room for four more by weight, but no slot and no stack of jerky with room)
+    expect(player.roomFor(held(last))).toBe(8);
+    expect(player.receive(held(last))).toBe(0);
+    expect([item(1), countOf(last), player.sel]).toEqual([last, 8, 1]);
+    // by weight: an empty basket (3 kg) takes three stacks of jerky and six of a fourth; the two left over go into the free slot
+    const { player: p2, item: item2 } = hands();
+    const b2 = newItem('h_basket');
+    p2.receive(held(b2));
+    for (let i = 0; i < 3; i++) p2.receive(held(newItem('h_jerky', { n: 8 })));
+    const split = newItem('h_jerky', { n: 8 });
+    expect(p2.roomFor(held(split))).toBe(8);
+    expect(p2.receive(held(split))).toBe(0);
+    expect(b2.inside!.map((x) => countOf(x))).toEqual([8, 8, 8, 6]);
+    expect([item2(1), countOf(split)]).toEqual([split, 2]);
+    // and with no slot free the two stay the caller's
+    const { player: p3 } = hands();
+    const b3 = newItem('h_basket');
+    p3.receive(held(b3));
+    p3.receive(held(newItem('food_chips')));
+    for (let i = 0; i < 3; i++) p3.receive(held(newItem('h_jerky', { n: 8 })));
+    const rest = newItem('h_jerky', { n: 8 });
+    expect(p3.roomFor(held(rest))).toBe(6);
+    expect(p3.receive(held(rest))).toBe(2);
+    expect([countOf(rest), b3.inside!.map((x) => countOf(x))]).toEqual([2, [8, 8, 8, 6]]);
   });
 
   it('roomFor says what receive then does, whatever is in the hands', () => {

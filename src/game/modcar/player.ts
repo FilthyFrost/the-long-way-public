@@ -442,8 +442,9 @@ export class ModPlayer {
    * basket itself, or it went onto stacks and its count reads 0); otherwise the thing stays the caller's,
    * with that count. `not`: a thing in the hands it must not go into (the basket it is being taken out of).
    *
-   * A thing that goes off is started here if it never was, is what it has turned into by now, and goes off
-   * in the open air from now on (in a basket: at the basket's rate).
+   * A thing that has turned is what it turned into by now (settled as it is handed over, whether it then goes
+   * in or not). One that goes into a slot goes off in the open air from now on, and is started if it never
+   * was; into a basket: at the basket's rate. What does not go in is left as it was.
    */
   receive(h: NonNullable<Held>, not: ItemInstance | null = null): number {
     if (h.kind === 'item') {
@@ -455,9 +456,7 @@ export class ModPlayer {
         const x = s[i];
         if (x?.kind === 'item' && x.item === it) return 0;
       }
-      stampFresh(it, now);
-      settleThing(it, now, true);
-      setFreshRate(it, now, 1);
+      settleThing(it, now, false);
       let left = countOf(it);
       if (left <= 0) return 0;
       if (stackMax(it.item) > 1) {
@@ -473,6 +472,9 @@ export class ModPlayer {
       if (left <= 0) return 0;
       const slot = this.freeSlot();
       if (slot < 0) return left;
+      // (into a slot: in the open air from here, and started if it never was, with what is in it)
+      stampFresh(it, now);
+      setFreshRate(it, now, 1);
       s[slot] = h;
       this.sel = slot;
       return 0;
@@ -505,13 +507,13 @@ export class ModPlayer {
    */
   private settleHands(): void {
     const s = this.slots;
-    const now = itemNow();
     for (let i = 0; i < s.length; i++) {
       const h = s[i];
       if (h?.kind !== 'item') continue;
       const it = h.item;
+      // (a thing that neither goes off nor has anything in it: nothing to look at, the clock is not even read)
       if (it.fresh === undefined && !it.inside) continue;
-      if (settleThing(it, now, true) && this.use?.item === it) {
+      if (settleThing(it, itemNow(), true) && this.use?.item === it) {
         this.use = null;
         this.progress = 0;
       }
