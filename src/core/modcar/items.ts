@@ -617,9 +617,32 @@ export function itemMass(inst: ItemInstance): number {
   return KG[0];
 }
 
-/** its name, with what is in it and how many there are */
+/**
+ * A veil over kinds the player does not know yet (foraging: a mushroom never met is "an unknown mushroom" in
+ * every list, prompt and card until it is identified). The system that keeps the player's knowledge sets one
+ * function: it answers with the name a kind goes by while unknown, or null when the kind is known (or is none
+ * of its business). The thing itself is always its true kind; only what it is called changes.
+ */
+let veil: ((id: string) => Text | null) | null = null;
+
+/** set (or with null, lift) the veil; one system owns it */
+export function setItemVeil(fn: ((id: string) => Text | null) | null): void {
+  veil = fn;
+}
+
+/** the name a kind goes by while the player does not know it; null: it is known */
+export function itemVeil(id: string): Text | null {
+  return veil ? veil(id) : null;
+}
+
+/** its name, with what is in it and how many there are (a kind under the veil by the veil's name) */
 export function itemName(inst: ItemInstance, lang: 'zh' | 'en' = 'zh'): string {
   const d = itemDef(inst.item);
+  const v = veil ? veil(inst.item) : null;
+  if (v) {
+    const k = inst.n ?? 1;
+    return k > 1 ? `${v[lang]} ×${k}` : v[lang];
+  }
   if (d.drink) return `${d.name[lang]}（${(inst.litres ?? 0).toFixed(2)} L）`;
   const n = inst.n ?? 1;
   return n > 1 ? `${d.name[lang]} ×${n}` : d.name[lang];

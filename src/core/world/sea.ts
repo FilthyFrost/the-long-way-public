@@ -11,6 +11,8 @@
  *
  * Like the lakes, the sea is part of the height function: `carve` turns the land a point would
  * have had into coast, beach or sea bed. Pure and seeded.
+ *
+ * Like them it also says how far any point is from its waterline (`shore`), for the ecotope field.
  */
 import { fbm1 } from '../math/noise';
 import { hash2 } from '../math/rng';
@@ -31,6 +33,21 @@ export const SEA_DEPTH = 14;
 const SHORE_RISE = 320;
 /** the nearest a far coast ever comes to the road (m): FAR_COAST less the most its noise can take off */
 const FAR_MIN = FAR_COAST * (1 - 0.32 - 0.07);
+/** a sea's waterline is traced every this many metres of x (`lineOf`), and kept in runs of this many stretches, each with the span of z it lies in */
+const LINE_STEP = 4;
+const LINE_RUN = 8;
+/** a waterline farther from the road than this is traced as being this far (m): the far coast leaving for the horizon at the ends of a sea */
+const LINE_FAR = 1e5;
+
+/** a sea's waterline, traced (`SeaPlan.lineOf`): z at x0, x0 + LINE_STEP, …, and for every run of LINE_RUN stretches the least and the greatest z in it */
+interface ShoreLine {
+  readonly x0: number;
+  /** how many stretches there are (one fewer than there are points) */
+  readonly n: number;
+  readonly z: Float64Array;
+  readonly lo: Float64Array;
+  readonly hi: Float64Array;
+}
 
 /** a stretch where the shore comes in to the road: whole slots */
 export interface CoastRun {
@@ -78,6 +95,8 @@ export function seaAlong(region: RegionDef): boolean {
 
 export class SeaPlan {
   private readonly seas = new Map<number, Coast | null>();
+  /** the traced waterlines of the seas asked about so far, by chapter (`lineOf`) */
+  private readonly lines = new Map<number, ShoreLine>();
   private readonly seed: number;
 
   constructor(
@@ -293,6 +312,112 @@ export class SeaPlan {
     // close to the road the land stays the road's; and at the ends of the sea, where the coast is
     // leaving for the horizon, the land goes back to what it would have been
     return T + (h - T) * smoothstep(16, 34, L) * smoothstep(0, 0.22, ws);
+  }
+
+  /**
+   * A sea's waterline, traced once. The land function finds the sea from the road point with the same x as
+   * the point it is asked about (`carve`: the shore lies `shoreAt` metres across the road from there), so
+   * the waterline is one z for every x: the road's z there, and the shore's distance across the road
+   * turned into a distance along z by the road's heading. Here it is at every LINE_STEP m of x from one end
+   * of the sea to the other; joined, the points are the waterline to within a hand's width or two.
+   */
+  private lineOf(c: Coast): ShoreLine {
+    let line = this.lines.get(c.chapter);
+    if (line) return line;
+    const sp = this.spine;
+    sp.at(c.s0, st);
+    const x0 = Math.ceil(st.x / LINE_STEP) * LINE_STEP;
+    sp.at(c.s1, st);
+    const n = Math.max(1, Math.floor((st.x - x0) / LINE_STEP));
+    const z = new Float64Array(n + 1);
+    for (let i = 0; i <= n; i++) {
+      const s = sp.sAtX(x0 + i * LINE_STEP);
+      sp.at(s, st);
+      const D = s > c.s0 && s < c.s1 ? SeaPlan.shoreAt(c, s) : Infinity;
+      z[i] = st.z + (c.side * (D < LINE_FAR ? D : LINE_FAR)) / Math.cos(st.phi);
+    }
+    const runs = Math.ceil(n / LINE_RUN);
+    const lo = new Float64Array(runs);
+    const hi = new Float64Array(runs);
+    for (let r = 0; r < runs; r++) {
+      let l = Infinity;
+      let h = -Infinity;
+      for (let i = r * LINE_RUN; i <= Math.min(n, (r + 1) * LINE_RUN); i++) {
+        if (z[i] < l) l = z[i];
+        if (z[i] > h) h = z[i];
+      }
+      lo[r] = l;
+      hi[r] = h;
+    }
+    line = { x0, n, z, lo, hi };
+    this.lines.set(c.chapter, line);
+    return line;
+  }
+
+  /**
+   * The sea's own account of its edge: how far (x, z) is from its waterline (m), 0 in the sea; `far` where
+   * no sea lies within `far` m. From the plan's geometry alone: it is the distance to the traced waterline
+   * (`lineOf`), which is the line where `carve` puts the water's edge. So it has no step anywhere, and it
+   * is the distance itself, also where the shore swings in to the road at the ends of a coast run and
+   * runs square to it.
+   * @param s0 arc length of the road point with the same x
+   */
+  shore(x: number, z: number, s0: number, far: number): number {
+    const c = this.seaAt(s0);
+    if (!c) return far;
+    // Most of what is ever asked lies by the road with the coast kilometres off: settled without tracing
+    // anything. Away from the coast runs the shore is nowhere nearer the road than FAR_MIN; within `far`
+    // of the point in x the road's own z changes by no more than `far` and a fifth, at its steepest
+    // heading; so a point no farther out from the road than FAR_MIN less twice `far` and a fifth has no
+    // shore within `far`. (The road covers no more than a metre of x for a metre of its length, and no
+    // less than two thirds: 1.6 times `far` along the road is beyond `far` in x.)
+    let runs = false;
+    for (const r of c.runs) if (s0 + 1.6 * far > r.s0 && s0 - 1.6 * far < r.s1) runs = true;
+    if (!runs) {
+      this.spine.at(s0, st);
+      if ((z - st.z) * c.side < FAR_MIN - 2.2 * far) return far;
+    }
+    const line = this.lineOf(c);
+    const Z = line.z;
+    const u = (x - line.x0) / LINE_STEP;
+    if (u < 0 || u >= line.n) return far;
+    const i = Math.floor(u);
+    // in the sea: beyond the waterline at this x, on the sea's side
+    const out = (z - (Z[i] + (Z[i + 1] - Z[i]) * (u - i))) * c.side;
+    if (out >= 0) return 0;
+    // The nearest of the line's stretches: from the one at this x outwards both ways, as far as a stretch
+    // can still be nearer than the nearest found (or than `far`), run by run; a run is asked into only
+    // when the box it lies in comes nearer than that.
+    let best = out > -far ? out * out : far * far;
+    const px = u * LINE_STEP;
+    for (let turn = 0; turn < 2; turn++) {
+      for (let k = turn === 0 ? i : i - 1; k >= 0 && k < line.n; ) {
+        const r = Math.floor(k / LINE_RUN);
+        const first = r * LINE_RUN;
+        const last = Math.min(line.n, first + LINE_RUN) - 1;
+        // (how far along x this run's nearest end is; within the run the point's own x: nothing)
+        const gap = turn === 0 ? (k === i ? 0 : first * LINE_STEP - px) : k === i - 1 && first <= i ? 0 : px - (last + 1) * LINE_STEP;
+        if (gap * gap >= best) break;
+        const dz = z < line.lo[r] ? line.lo[r] - z : z > line.hi[r] ? z - line.hi[r] : 0;
+        if (gap * gap + dz * dz < best) {
+          for (let q = turn === 0 ? k : first; q <= (turn === 0 ? last : k); q++) {
+            const ex = LINE_STEP;
+            const ez = Z[q + 1] - Z[q];
+            const wx = px - q * LINE_STEP;
+            const wz = z - Z[q];
+            let t = (wx * ex + wz * ez) / (ex * ex + ez * ez);
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const dx = wx - t * ex;
+            const dd = wz - t * ez;
+            const d2 = dx * dx + dd * dd;
+            if (d2 < best) best = d2;
+          }
+        }
+        k = turn === 0 ? last + 1 : first - 1;
+      }
+    }
+    const d = Math.sqrt(best);
+    return d < far ? d : far;
   }
 
   /**
