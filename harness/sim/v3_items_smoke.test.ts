@@ -81,6 +81,10 @@ describe('item model, V3 additions (smoke)', () => {
     expect(loss.unknown).toBe(6);
     expect(box.inside!.length).toBe(1);
     expect(box.inside![0].fresh).toBe(1);
-    expect(cleanItem({ uid: 'i5', item: 'food_chips', n: -3, fresh: 0.5, q: 9 }, loss)).toEqual({ uid: 'i5', item: 'food_chips' });
+    expect(cleanItem({ uid: 'i5', item: 'food_chips', n: 'three', fresh: 0.5, q: 9 }, loss)).toEqual({ uid: 'i5', item: 'food_chips' });
+    // a stack used up (its count reads 0, or less) is gone: it never comes back as one thing, and nothing is counted for it
+    expect(cleanItem({ uid: 'i6', item: 't_berry', n: 0 }, loss)).toBeNull();
+    expect(cleanItem({ uid: 'i7', item: 'food_chips', n: -3 }, loss)).toBeNull();
+    expect(loss.unknown).toBe(6);
   });
 });

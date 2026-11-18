@@ -308,6 +308,13 @@ export const BASE_ITEMS: readonly ItemDef[] = Object.freeze(ALL.slice());
 
 const BY_ID = new Map(ALL.map((d) => [d.id, d]));
 
+/**
+ * Each kind's weight (kg, empty), beside the catalogue: a weight is asked every frame, and a number looked up
+ * here comes back as it is, where one read out of a kind's own record — the records are of many shapes — is
+ * handed back by the engine as a new number on the heap every time.
+ */
+const KIND_KG = new Map(ALL.map((d) => [d.id, d.mass]));
+
 export function itemDef(id: string): ItemDef {
   const d = BY_ID.get(id);
   if (!d) throw new Error(`no item ${id}`);
@@ -335,10 +342,21 @@ const CATS: ItemCatDef[] = (Object.keys(ITEM_CATS) as ItemCat[]).map((id, i) => 
 const CAT_BY_ID = new Map(CATS.map((c) => [c.id, c]));
 let catSeq = 0;
 
-/** a new category of things (a system does this once, as its module is loaded); an id taken already throws */
+const ID_RE = /^[a-z][a-z0-9_]*$/;
+const TAG_RE = /^[a-z][a-z0-9_]*$/;
+
+/** a name in both languages */
+function isText(t: unknown): t is Text {
+  const x = t as Partial<Text> | null | undefined;
+  return !!x && typeof x === 'object' && typeof x.zh === 'string' && typeof x.en === 'string' && !!x.zh && !!x.en;
+}
+
+/** a new category of things (a system does this once, as its module is loaded); an id taken already, a name that is not one in both languages or an order that is no number throws, and nothing is registered */
 export function registerItemCat(def: { readonly id: string; readonly name: Text; readonly order?: number }): void {
-  if (!ID_RE.test(def.id)) throw new Error(`item category "${def.id}": an id is lower-case letters, digits and _`);
+  if (typeof def?.id !== 'string' || !ID_RE.test(def.id)) throw new Error(`item category "${String(def?.id)}": an id is lower-case letters, digits and _`);
   if (CAT_BY_ID.has(def.id)) throw new Error(`item category ${def.id} is registered already`);
+  if (!isText(def.name)) throw new Error(`item category ${def.id}: needs a name in both languages`);
+  if (def.order !== undefined && (typeof def.order !== 'number' || !Number.isFinite(def.order))) throw new Error(`item category ${def.id}: its order is a number`);
   const c: ItemCatDef = { id: def.id, name: def.name, order: def.order ?? 1000 + catSeq++ };
   CATS.push(c);
   CAT_BY_ID.set(c.id, c);
@@ -364,33 +382,73 @@ export function itemCats(): readonly ItemCatDef[] {
 /** a kind as a system writes it: what the catalogue can work out may be left out (carried by its weight, modelled by its id, kraft and cream, nothing for the recycler, no line on its card) */
 export type ItemRow = Omit<ItemDef, 'carry' | 'model' | 'paint' | 'paint2' | 'salvage' | 'blurb'> & Partial<Pick<ItemDef, 'carry' | 'model' | 'paint' | 'paint2' | 'salvage' | 'blurb'>>;
 
-const ID_RE = /^[a-z][a-z0-9_]*$/;
-const TAG_RE = /^[a-z][a-z0-9_]*$/;
+const CARRIES: readonly string[] = ['small', 'medium', 'large'];
 
-/** what is wrong with one row (nothing: an empty list) */
-function rowProblems(r: ItemRow, taken: (id: string) => boolean): string[] {
+/** a weight, a rate, a time: a number that is one, from nothing up */
+function isAmount(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
+/** a colour as the paints are written: 0xrrggbb */
+function isHex(v: unknown): boolean {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
+}
+
+/**
+ * What is wrong with one row (nothing: an empty list). It is handed whatever a system wrote, so nothing in
+ * it is taken on trust: a row that is no object, a list that is no list and a number that is none are each
+ * named, never thrown on.
+ */
+function rowProblems(r: ItemRow, seen: ReadonlySet<string>): string[] {
+  if (!r || typeof r !== 'object') return ['an item is an object with an id, a category, a name, stars and a mass'];
   const bad: string[] = [];
-  const say = (m: string): void => void bad.push(`item ${r.id}: ${m}`);
+  const say = (m: string): void => void bad.push(`item ${String(r.id)}: ${m}`);
   if (typeof r.id !== 'string' || !ID_RE.test(r.id)) say('an id is lower-case letters, digits and _');
-  else if (taken(r.id)) say('is registered already');
-  if (!CAT_BY_ID.has(r.cat)) say(`no category ${r.cat} (register it first)`);
-  if (!r.name || typeof r.name.zh !== 'string' || typeof r.name.en !== 'string' || !r.name.zh || !r.name.en) say('needs a name in both languages');
+  else if (BY_ID.has(r.id)) say('is registered already');
+  else if (seen.has(r.id)) say('is in this list twice');
+  if (typeof r.cat !== 'string' || !CAT_BY_ID.has(r.cat)) say(`no category ${String(r.cat)} (register it first)`);
+  if (!isText(r.name)) say('needs a name in both languages');
   if (!Number.isInteger(r.stars) || r.stars < 0 || r.stars > 5) say('stars are 0 to 5');
-  if (!(r.mass >= 0) || !Number.isFinite(r.mass)) say('mass is a weight in kg');
-  for (const t of r.tags ?? []) if (!TAG_RE.test(t)) say(`tag "${t}": lower-case letters, digits and _`);
+  if (!isAmount(r.mass)) say('mass is a weight in kg');
+  // what the catalogue would otherwise work out: said, it has to be right
+  if (r.carry !== undefined && !CARRIES.includes(r.carry)) say('carry is small, medium or large');
+  if (r.model !== undefined && (typeof r.model !== 'string' || !r.model)) say('model is the name of a model');
+  if (r.blurb !== undefined && typeof r.blurb !== 'string') say('blurb is a line of text');
+  if ((r.paint !== undefined && !isHex(r.paint)) || (r.paint2 !== undefined && !isHex(r.paint2))) say('paint and paint2 are colours (0xrrggbb)');
+  if (r.salvage !== undefined) {
+    if (!r.salvage || typeof r.salvage !== 'object' || Array.isArray(r.salvage)) say('salvage says how much of which material');
+    else for (const [m, v] of Object.entries(r.salvage)) if (!isAmount(v)) say(`salvage.${m} is an amount from 0`);
+  }
+  if (r.tags !== undefined) {
+    if (!Array.isArray(r.tags)) say('tags is a list of words');
+    else for (const t of r.tags as readonly unknown[]) if (typeof t !== 'string' || !TAG_RE.test(t)) say(`tag "${String(t)}": lower-case letters, digits and _`);
+  }
   if (r.stack !== undefined) {
     if (!Number.isInteger(r.stack) || r.stack < 1 || r.stack > MAX_COUNT) say(`stack is a whole number from 1 to ${MAX_COUNT}`);
     // a thing with a level of its own (litres, blows left) or with things in it is one of a kind
-    if (r.stack > 1 && (r.drink || r.gear?.uses !== undefined || r.gear?.points !== undefined || r.holds || r.pack)) say('a thing that is drunk from, wears out, holds things or is a backpack does not stack');
+    else if (r.stack > 1 && (r.drink || r.gear?.uses !== undefined || r.gear?.points !== undefined || r.holds || r.pack)) say('a thing that is drunk from, wears out, holds things or is a backpack does not stack');
   }
-  if (r.holds) {
-    if (!Number.isInteger(r.holds.slots) || r.holds.slots < 1) say('holds.slots is a whole number from 1');
-    if (!r.holds.accepts.length) say('holds.accepts is empty');
-    for (const a of r.holds.accepts) if (a !== '*' && !(a.startsWith('#') ? TAG_RE.test(a.slice(1)) : ID_RE.test(a))) say(`holds.accepts "${a}": a category id, "#tag" or "*"`);
-    if (r.holds.maxKg !== undefined && !(r.holds.maxKg > 0)) say('holds.maxKg is a weight in kg');
-    if (r.holds.decay !== undefined && !(r.holds.decay >= 0 && Number.isFinite(r.holds.decay))) say('holds.decay is a rate from 0');
+  const h = r.holds as ItemDef['holds'] | null;
+  if (h !== undefined) {
+    if (!h || typeof h !== 'object') say('holds says how many slots and what it accepts');
+    else {
+      if (!Number.isInteger(h.slots) || h.slots < 1) say('holds.slots is a whole number from 1');
+      if (!Array.isArray(h.accepts) || !h.accepts.length) say('holds.accepts is a list of category ids, "#tag" or "*", and not empty');
+      else for (const a of h.accepts as readonly unknown[]) if (typeof a !== 'string' || (a !== '*' && !(a.startsWith('#') ? TAG_RE.test(a.slice(1)) : ID_RE.test(a)))) say(`holds.accepts "${String(a)}": a category id, "#tag" or "*"`);
+      if (h.maxKg !== undefined && !(isAmount(h.maxKg) && h.maxKg > 0)) say('holds.maxKg is a weight in kg');
+      if (h.decay !== undefined && !isAmount(h.decay)) say('holds.decay is a rate from 0');
+      // (what would become of the things in it when it turned into something that holds nothing?)
+      if (r.perish !== undefined) say('a thing that holds things does not go off');
+    }
   }
-  if (r.perish && !(r.perish.hours > 0 && Number.isFinite(r.perish.hours))) say('perish.hours is a time in game hours');
+  const p = r.perish as ItemDef['perish'] | null;
+  if (p !== undefined) {
+    if (!p || typeof p !== 'object' || !(isAmount(p.hours) && p.hours > 0)) say('perish.hours is a time in game hours');
+    else if (p.into !== undefined) {
+      if (typeof p.into !== 'string' || !ID_RE.test(p.into)) say('perish.into is the id of a kind');
+      else if (p.into === r.id) say('turns into itself');
+    }
+  }
   return bad;
 }
 
@@ -400,11 +458,12 @@ function rowProblems(r: ItemRow, taken: (id: string) => boolean): string[] {
  * stack) throws with every problem found and nothing is added.
  */
 export function registerItems(rows: readonly ItemRow[]): void {
+  if (!Array.isArray(rows)) throw new Error('registerItems takes a list of items');
   const bad: string[] = [];
   const seen = new Set<string>();
   for (const r of rows) {
-    bad.push(...rowProblems(r, (id) => BY_ID.has(id) || seen.has(id)));
-    seen.add(r.id);
+    bad.push(...rowProblems(r, seen));
+    if (r && typeof r.id === 'string') seen.add(r.id);
   }
   if (bad.length) throw new Error(bad.join('; '));
   for (const r of rows) {
@@ -419,6 +478,7 @@ export function registerItems(rows: readonly ItemRow[]): void {
     };
     ALL.push(d);
     BY_ID.set(d.id, d);
+    KIND_KG.set(d.id, d.mass);
   }
 }
 
@@ -429,8 +489,8 @@ export function registerItems(rows: readonly ItemRow[]): void {
  */
 export function itemCatalogueProblems(): string[] {
   const bad: string[] = [];
-  const tags = new Set<string>();
-  for (const d of ALL) for (const t of d.tags ?? []) tags.add(t);
+  // (what may go into a container at all: containers do not nest)
+  const loose = ALL.filter((k) => !k.holds);
   for (const d of ALL) {
     if (!CAT_BY_ID.has(d.cat)) bad.push(`item ${d.id}: no category ${d.cat}`);
     const into = d.perish?.into;
@@ -442,7 +502,8 @@ export function itemCatalogueProblems(): string[] {
     }
     for (const a of d.holds?.accepts ?? []) {
       if (a === '*') continue;
-      if (a.startsWith('#') ? !tags.has(a.slice(1)) : !CAT_BY_ID.has(a)) bad.push(`item ${d.id}: accepts ${a}, which nothing is`);
+      const tag = a.startsWith('#') ? a.slice(1) : null;
+      if (!loose.some((k) => (tag !== null ? hasTag(k, tag) : k.cat === a))) bad.push(`item ${d.id}: accepts ${a}, which nothing is`);
     }
   }
   return bad;
@@ -457,11 +518,17 @@ function nextUid(): string {
   return `i${uidN.toString(36)}`;
 }
 
+/** a uid's number past this is none of ours: a counter of whole numbers could never get there, and counted on from there it would no longer move */
+const UID_MAX = 2 ** 50;
+
 /** things read back from a save keep their ids: new ones are numbered past them (pass the uids of things inside things too: forEachItem) */
 export function reserveItemUids(uids: readonly string[]): void {
   for (const u of uids) {
+    if (typeof u !== 'string') continue;
     const k = /^i([0-9a-z]+)$/.exec(u);
-    if (k) uidN = Math.max(uidN, parseInt(k[1], 36));
+    if (!k) continue;
+    const v = parseInt(k[1], 36);
+    if (v < UID_MAX && v > uidN) uidN = v;
   }
 }
 
@@ -527,11 +594,27 @@ export function salvageOf(inst: ItemInstance): Partial<Record<Material, number>>
   return out;
 }
 
+/**
+ * Where weights are summed. A fraction handed back from one function to another is put on the heap, a slot of
+ * this is not: so a box's weight is added up here, thing by thing, and a weight is asked every frame (the
+ * prompt, the cargo's load) without leaving anything behind.
+ */
+const KG = new Float64Array(1);
+
+/** the weight of a thing, with what is in it, added to KG[0] */
+function addMass(inst: ItemInstance): void {
+  const kg = KIND_KG.get(inst.item);
+  if (kg === undefined) throw new Error(`no item ${inst.item}`);
+  KG[0] += (kg + (inst.litres ?? 0)) * (inst.n ?? 1);
+  const list = inst.inside;
+  if (list) for (let i = 0; i < list.length; i++) addMass(list[i]);
+}
+
 /** how heavy it is now (kg): all of a stack, with what is in it */
 export function itemMass(inst: ItemInstance): number {
-  let m = (itemDef(inst.item).mass + (inst.litres ?? 0)) * (inst.n ?? 1);
-  if (inst.inside) for (let i = 0; i < inst.inside.length; i++) m += itemMass(inst.inside[i]);
-  return m;
+  KG[0] = 0;
+  addMass(inst);
+  return KG[0];
 }
 
 /** its name, with what is in it and how many there are */
@@ -565,18 +648,38 @@ export function hasTag(d: ItemDef, tag: string): boolean {
 
 const HOUR_S = 3600;
 
-/** how fresh it is now, 1 ... 0 (1 for a thing that does not go off) */
-export function freshNow(inst: ItemInstance, nowS: number): number {
-  const f0 = inst.fresh;
-  if (f0 === undefined) return 1;
+/**
+ * Where the questions asked every frame keep their fractions: [0] the time a question is asked at, [1] and
+ * [2] the freshness of the two things it compares. (As KG above: a fraction handed from one function to
+ * another may be put on the heap; canStack and roomInside ask about every stack in a box, every frame.)
+ */
+const FR = new Float64Array(3);
+
+/** how fresh a thing that has a freshness is at the time FR[0]: into FR[slot] */
+function freshInto(inst: ItemInstance, slot: number): void {
+  let f = inst.fresh as number;
+  // (never more than fresh, whatever was written into it)
+  if (!(f < 1)) f = 1;
   const t0 = inst.t0;
-  if (t0 === undefined) return f0;
-  const p = itemDef(inst.item).perish;
-  if (!p) return f0;
-  const dt = nowS - t0;
-  if (!(dt > 0)) return f0;
-  const f = f0 - (dt / (p.hours * HOUR_S)) * (inst.fk ?? 1);
-  return f > 0 ? f : 0;
+  if (t0 !== undefined) {
+    const dt = FR[0] - t0;
+    if (dt > 0) {
+      const p = itemDef(inst.item).perish;
+      if (p) f -= (dt / (p.hours * HOUR_S)) * (inst.fk ?? 1);
+    }
+  }
+  FR[slot] = f > 0 ? f : 0;
+}
+
+/**
+ * How fresh it is now, 1 ... 0 (1 for a thing that does not go off). A function of the time alone: read once
+ * or brought up to date any number of times on the way (rebaseFresh), it says the same.
+ */
+export function freshNow(inst: ItemInstance, nowS: number): number {
+  if (inst.fresh === undefined) return 1;
+  FR[0] = nowS;
+  freshInto(inst, 1);
+  return FR[1];
 }
 
 /** fresh (0), still good (1), going off (2), turned (3): the card's word, and what a recipe may ask */
@@ -586,20 +689,58 @@ export function freshStage(f: number): FreshStage {
   return f > 0.6 ? 0 : f > 0.3 ? 1 : f > 0 ? 2 : 3;
 }
 
-/** start a thing's freshness counting if it has not started (a thing that goes off, made without a time); with what is in it */
+/**
+ * Start a thing's freshness counting if it has not started (a thing that goes off, made without a time); with
+ * what is in it, which starts at the rate of what holds it unless it has a rate of its own already (a basket
+ * made with berries in it, never put in by putInside).
+ */
 export function stampFresh(inst: ItemInstance, nowS: number): void {
-  if (itemDef(inst.item).perish) {
+  const d = itemDef(inst.item);
+  if (d.perish) {
     if (inst.fresh === undefined) inst.fresh = 1;
     if (inst.t0 === undefined) inst.t0 = nowS;
   }
-  if (inst.inside) for (let i = 0; i < inst.inside.length; i++) stampFresh(inst.inside[i], nowS);
+  const list = inst.inside;
+  if (!list) return;
+  const k = d.holds?.decay ?? 1;
+  for (let i = 0; i < list.length; i++) {
+    const x = list[i];
+    if (k !== 1 && x.t0 === undefined && x.fk === undefined && itemDef(x.item).perish) x.fk = k;
+    stampFresh(x, nowS);
+  }
 }
 
-/** bring its freshness up to now (it goes off from here): before its rate changes, before two stacks become one */
+/**
+ * Bring its freshness up to now (it goes off from here): before its rate changes, before two stacks become
+ * one. A thing that had not started starts. A time that is not after the one it was last brought up to
+ * changes nothing: the clock never runs backwards, and a time moved back would age the thing twice. A thing
+ * that has turned is written as of the moment it ran out, and stays so however often this is called.
+ */
 export function rebaseFresh(inst: ItemInstance, nowS: number): void {
   if (inst.fresh === undefined) return;
-  inst.fresh = freshNow(inst, nowS);
-  inst.t0 = nowS;
+  const t0 = inst.t0;
+  if (t0 !== undefined && !(nowS > t0)) return;
+  const f = freshNow(inst, nowS);
+  if (f > 0 || t0 === undefined) {
+    inst.fresh = f;
+    inst.t0 = nowS;
+    return;
+  }
+  // turned: it stays written as of the moment it ran out, which is when what it becomes began (settleItem)
+  const p = itemDef(inst.item).perish;
+  inst.t0 = p ? ranOutAt(inst, p.hours) : t0;
+  inst.fresh = 0;
+}
+
+/**
+ * The moment the freshness of a thing that has turned ran out (the time it is written as of, when it was
+ * turned by then already). Only for a thing that has started and has turned.
+ */
+function ranOutAt(inst: ItemInstance, hours: number): number {
+  const t0 = inst.t0 as number;
+  const f0 = (inst.fresh as number) < 1 ? (inst.fresh as number) : 1;
+  const k = inst.fk ?? 1;
+  return f0 > 0 && k > 0 ? t0 + (f0 * hours * HOUR_S) / k : t0;
 }
 
 /** how fast it goes off from now on: 1 in the open air, what holds it says otherwise (ItemDef.holds.decay) */
@@ -620,14 +761,25 @@ export function turned(inst: ItemInstance, nowS: number): boolean {
  * A thing that has turned becomes what its kind says (perish.into), in place: the same uid, the same count
  * and the same place, nothing else of what it was. True when it changed kind (its picture, its name and its
  * card must be made again). Call it where the world looks at a thing: as it is picked up, listed, shown on a
- * card, eaten, saved. A kind without perish.into stays what it is, turned.
+ * card, eaten. A kind without perish.into stays what it is, turned.
+ *
+ * It makes no difference when it is called: what the thing has become is counted from the moment the first
+ * ran out, and where that kind goes off in its turn it does so from then, at the rate of where it lies now
+ * (a thing moved to another rate between turning and being looked at is counted at the new rate for all of
+ * that stretch: the one place where the order of things shows). Not called for a save: writing a save
+ * changes nothing, and what is read back settles the same way later.
  */
 export function settleItem(inst: ItemInstance, nowS: number): boolean {
   if (inst.fresh === undefined || freshNow(inst, nowS) > 0) return false;
-  const into = itemDef(inst.item).perish?.into;
-  if (into === undefined) return false;
+  const p = itemDef(inst.item).perish;
+  const into = p?.into;
+  if (!p || into === undefined) return false;
   const d = BY_ID.get(into);
   if (!d) return false;
+  // when it turned: the moment its freshness ran out, not the moment somebody looked (what it has become
+  // goes off from then, so it is as old whenever it is settled); a thing that never started has no moment
+  const rate = inst.fk;
+  const at = inst.t0 === undefined ? undefined : ranOutAt(inst, p.hours);
   inst.item = into;
   delete inst.fresh;
   delete inst.t0;
@@ -636,9 +788,17 @@ export function settleItem(inst: ItemInstance, nowS: number): boolean {
   delete inst.state;
   delete inst.tint;
   delete inst.opened;
+  // a level of its own only as its new kind has one (a drink stays as full as it was, a thing that was none comes as newItem makes it)
+  if (d.drink) inst.litres = Math.min(inst.litres ?? d.drink.litres, d.drink.litres);
+  else delete inst.litres;
+  const uses = d.gear?.uses ?? d.gear?.points;
+  if (uses !== undefined) inst.uses = Math.min(inst.uses ?? uses, uses);
+  else delete inst.uses;
   if (d.perish) {
+    // (it is where it was: it goes off at the rate it did)
     inst.fresh = 1;
-    inst.t0 = nowS;
+    if (at !== undefined) inst.t0 = at < nowS ? at : nowS;
+    if (rate !== undefined) inst.fk = rate;
   }
   return true;
 }
@@ -660,9 +820,43 @@ function stableJson(v: unknown): string {
     .join(',')}}`;
 }
 
+/** how deep a thing's state is looked into (and kept, when it is read back from a save): no state of ours is anywhere near */
+const STATE_DEPTH = 12;
+
+/**
+ * The same JSON value: objects whatever the order of their keys, a key that holds undefined as good as absent
+ * (as stableJson has it). Compared in place, nothing made: this is asked while the player looks at things.
+ */
+function sameJson(a: unknown, b: unknown, depth: number): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object' || depth > STATE_DEPTH) return false;
+  const arr = Array.isArray(a);
+  if (arr !== Array.isArray(b)) return false;
+  if (arr) {
+    const x = a as unknown[];
+    const y = b as unknown[];
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (!sameJson(x[i] ?? null, y[i] ?? null, depth + 1)) return false;
+    return true;
+  }
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  let n = 0;
+  for (const k in x) {
+    const v = x[k];
+    if (v === undefined) continue;
+    n++;
+    const w = y[k];
+    if (w === undefined || !sameJson(v, w, depth + 1)) return false;
+  }
+  for (const k in y) if (y[k] !== undefined) n--;
+  return n === 0;
+}
+
+const NO_STATE: ItemState = Object.freeze({});
+
 function sameState(a: ItemState | undefined, b: ItemState | undefined): boolean {
-  if (a === undefined && b === undefined) return true;
-  return stableJson(a ?? {}) === stableJson(b ?? {});
+  return a === b || sameJson(a ?? NO_STATE, b ?? NO_STATE, 0);
 }
 
 /** the same sort of thing, apart from how fresh: the same kind, a kind that stacks, nothing inside, no level of their own (litres, blows left), the same colour, quality and state */
@@ -675,12 +869,14 @@ function sameSort(a: ItemInstance, b: ItemInstance): boolean {
   return a.state === b.state || sameState(a.state, b.state);
 }
 
-/** about as fresh as each other (STACK_FRESH_TOL), each read at its own rate; a turned one only with turned ones */
-function freshClose(a: ItemInstance, b: ItemInstance, nowS: number): boolean {
+/** about as fresh as each other at the time FR[0] (STACK_FRESH_TOL), each read at its own rate; a turned one only with turned ones */
+function freshClose(a: ItemInstance, b: ItemInstance): boolean {
   if ((a.fresh === undefined) !== (b.fresh === undefined)) return false;
   if (a.fresh === undefined) return true;
-  const fa = freshNow(a, nowS);
-  const fb = freshNow(b, nowS);
+  freshInto(a, 1);
+  freshInto(b, 2);
+  const fa = FR[1];
+  const fb = FR[2];
   if ((fa <= 0) !== (fb <= 0)) return false;
   return Math.abs(fa - fb) <= STACK_FRESH_TOL;
 }
@@ -691,16 +887,33 @@ function freshClose(a: ItemInstance, b: ItemInstance, nowS: number): boolean {
  * state, going off at the same rate and about as fresh (STACK_FRESH_TOL; a turned one only with turned ones).
  */
 export function canStack(a: ItemInstance, b: ItemInstance, nowS: number): boolean {
-  return sameSort(a, b) && (a.fk ?? 1) === (b.fk ?? 1) && freshClose(a, b, nowS);
+  // (a stack used up is no stack: nothing joins it, and it joins nothing)
+  FR[0] = nowS;
+  return (a.n ?? 1) > 0 && (b.n ?? 1) > 0 && sameSort(a, b) && (a.fk ?? 1) === (b.fk ?? 1) && freshClose(a, b);
 }
 
 /** move k of `from` onto `into` (the caller has checked that they stack and that k fit) */
 function mergeSome(into: ItemInstance, from: ItemInstance, k: number, nowS: number): void {
   const na = countOf(into);
   if (into.fresh !== undefined) {
-    // the mean by count: no freshness is made or lost by putting things together
-    into.fresh = (freshNow(into, nowS) * na + freshNow(from, nowS) * k) / (na + k);
-    into.t0 = nowS;
+    const fi = freshNow(into, nowS);
+    const ff = freshNow(from, nowS);
+    const p = fi <= 0 && ff <= 0 ? itemDef(into.item).perish : undefined;
+    if (p) {
+      // two turned ones: one that ran out at the mean, by count, of the moments the two did (what they
+      // become is counted from then: the same as settling each first and putting them together after)
+      const ti = into.t0 === undefined ? undefined : ranOutAt(into, p.hours);
+      const tf = from.t0 === undefined ? undefined : ranOutAt(from, p.hours);
+      into.fresh = 0;
+      if (ti !== undefined && tf !== undefined) into.t0 = (ti * na + tf * k) / (na + k);
+      else if (tf !== undefined) into.t0 = tf;
+      else if (ti !== undefined) into.t0 = ti;
+    } else {
+      // the mean by count: no freshness is made or lost by putting things together
+      into.fresh = (fi * na + ff * k) / (na + k);
+      // (two that have not started are one that has not started; and a time it is written as of is never moved back)
+      if ((into.t0 !== undefined || from.t0 !== undefined) && !(into.t0 !== undefined && into.t0 > nowS)) into.t0 = nowS;
+    }
   }
   setCount(into, na + k);
   setCount(from, countOf(from) - k);
@@ -712,7 +925,8 @@ function mergeSome(into: ItemInstance, from: ItemInstance, k: number, nowS: numb
  */
 export function mergeStacks(into: ItemInstance, from: ItemInstance, nowS: number): number {
   const left = countOf(from);
-  if (left <= 0 || !canStack(into, from, nowS)) return left;
+  if (left <= 0) return 0;
+  if (!canStack(into, from, nowS)) return left;
   const room = stackMax(into.item) - countOf(into);
   if (room <= 0) return left;
   const k = Math.min(room, left);
@@ -720,10 +934,14 @@ export function mergeStacks(into: ItemInstance, from: ItemInstance, nowS: number
   return left - k;
 }
 
-/** take k off a stack as a new stack (a new uid). null when k is not a whole number from 1 to one less than what there is (to take all of it, take the thing itself). */
+/**
+ * Take k off a stack as a new stack (a new uid). null when k is not a whole number from 1 to one less than
+ * what there is (to take all of it, take the thing itself), and for a thing with things in it, which is one
+ * of a kind.
+ */
 export function splitStack(inst: ItemInstance, k: number): ItemInstance | null {
   const n = countOf(inst);
-  if (!Number.isInteger(k) || k < 1 || k >= n) return null;
+  if (!Number.isInteger(k) || k < 1 || k >= n || inst.inside !== undefined) return null;
   const out: ItemInstance = { ...inst, uid: nextUid() };
   if (inst.state !== undefined) out.state = JSON.parse(JSON.stringify(inst.state)) as ItemState;
   setCount(out, k);
@@ -755,9 +973,10 @@ export function accepts(box: ItemInstance, inst: ItemInstance): boolean {
 
 /** the weight of what is in it (kg) */
 export function insideMass(box: ItemInstance): number {
-  let m = 0;
-  if (box.inside) for (let i = 0; i < box.inside.length; i++) m += itemMass(box.inside[i]);
-  return m;
+  KG[0] = 0;
+  const list = box.inside;
+  if (list) for (let i = 0; i < list.length; i++) addMass(list[i]);
+  return KG[0];
 }
 
 /**
@@ -767,28 +986,39 @@ export function insideMass(box: ItemInstance): number {
 export function roomInside(box: ItemInstance, inst: ItemInstance, nowS: number): number {
   const total = countOf(inst);
   if (total <= 0 || !accepts(box, inst)) return 0;
+  FR[0] = nowS;
   const h = itemDef(box.item).holds!;
   let can = total;
-  if (h.maxKg !== undefined) {
-    const unit = itemMass(inst) / total;
-    if (unit > 0) can = Math.min(can, Math.floor((h.maxKg - insideMass(box)) / unit + 1e-9));
-    if (can <= 0) return 0;
-  }
   const list = box.inside;
   const used = list ? list.length : 0;
+  if (h.maxKg !== undefined) {
+    // (the weights are summed in KG, not handed back from itemMass and insideMass: see there)
+    KG[0] = 0;
+    addMass(inst);
+    const unit = KG[0] / total;
+    if (unit > 0) {
+      KG[0] = 0;
+      for (let i = 0; i < used; i++) addMass(list![i]);
+      const fit = Math.floor((h.maxKg - KG[0]) / unit + 1e-9);
+      if (fit < can) can = fit > 0 ? fit : 0;
+    }
+    if (can <= 0) return 0;
+  }
+  // (what is in it already is not put in again)
+  for (let i = 0; i < used; i++) if (list![i] === inst) return 0;
   if (used < h.slots) return can;
   // no free slot: only what fits onto stacks it would join (as if it were at the box's rate already)
   let room = 0;
   for (let i = 0; i < used && room < can; i++) {
     const s = list![i];
-    if (stacksInside(s, inst, nowS)) room += Math.max(0, stackMax(s.item) - countOf(s));
+    if (stacksInside(s, inst)) room += Math.max(0, stackMax(s.item) - countOf(s));
   }
   return Math.min(can, room);
 }
 
-/** canStack for a thing about to join a stack inside a box: its own rate is not compared, since it takes the box's as it goes in */
-function stacksInside(s: ItemInstance, inst: ItemInstance, nowS: number): boolean {
-  return sameSort(s, inst) && freshClose(s, inst, nowS);
+/** canStack, at the time FR[0], for a thing about to join a stack inside a box: its own rate is not compared, since it takes the box's as it goes in */
+function stacksInside(s: ItemInstance, inst: ItemInstance): boolean {
+  return sameSort(s, inst) && freshClose(s, inst);
 }
 
 /**
@@ -809,7 +1039,9 @@ export function putInside(box: ItemInstance, inst: ItemInstance, nowS: number): 
   let left = total;
   for (let i = 0; i < list.length && can > 0 && left > 0; i++) {
     const s = list[i];
-    if (!stacksInside(s, inst, nowS)) continue;
+    // (the time is said again each round: what was asked in between asked at this same time, but need not have)
+    FR[0] = nowS;
+    if (!stacksInside(s, inst)) continue;
     const m = Math.min(stackMax(s.item) - countOf(s), can, left);
     if (m <= 0) continue;
     mergeSome(s, inst, m, nowS);
@@ -833,11 +1065,16 @@ export function putInside(box: ItemInstance, inst: ItemInstance, nowS: number): 
   return left;
 }
 
-/** take the i-th thing out of a box (or k off it, as a new stack); it goes off in the open air from now. null when there is no such thing. */
+/**
+ * Take the i-th thing out of a box (or k off it, as a new stack; k of all there is or more: the thing itself);
+ * it goes off in the open air from now. null, and nothing changed, when there is no such thing or k is not a
+ * whole number from 1.
+ */
 export function takeInside(box: ItemInstance, i: number, nowS: number, k?: number): ItemInstance | null {
   const list = box.inside;
   const s = list?.[i];
   if (!list || !s) return null;
+  if (k !== undefined && !(Number.isInteger(k) && k >= 1)) return null;
   let out: ItemInstance;
   if (k !== undefined && k < countOf(s)) {
     const part = splitStack(s, k);
@@ -875,35 +1112,88 @@ export interface LoadLoss {
   unknown: number;
 }
 
-function lostCount(raw: Record<string, unknown>): number {
-  const n = raw.n;
-  let c = typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= MAX_COUNT ? n : 1;
-  if (Array.isArray(raw.inside)) for (const x of raw.inside) if (x && typeof x === 'object') c += lostCount(x as Record<string, unknown>);
+/** how deep things inside things are counted in a save that is not ours (ours hold one level: containers do not nest) */
+const NEST_MAX = 6;
+
+/** how many things something from a save stands for, with what is in it: what is counted when it cannot be read back */
+function lostCount(raw: unknown, depth: number): number {
+  if (!raw || typeof raw !== 'object' || depth > NEST_MAX) return 0;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.uid !== 'string' || typeof r.item !== 'string') return 0;
+  const n = r.n;
+  let c = typeof n !== 'number' || n !== n ? 1 : n < 1 ? 0 : Math.min(Math.floor(n), MAX_COUNT);
+  if (Array.isArray(r.inside)) for (const x of r.inside) c += lostCount(x, depth + 1);
   return c;
 }
 
+/** JSON no deeper than STATE_DEPTH (what is deeper is not a state any code here could have written, and would be walked without end) */
+function shallow(v: unknown, depth: number): boolean {
+  if (v === null || typeof v !== 'object') return true;
+  if (depth >= STATE_DEPTH) return false;
+  if (Array.isArray(v)) {
+    for (let i = 0; i < v.length; i++) if (!shallow(v[i], depth + 1)) return false;
+    return true;
+  }
+  const o = v as Record<string, unknown>;
+  for (const k in o) if (!shallow(o[k], depth + 1)) return false;
+  return true;
+}
+
 /**
- * A thing read back from a save, made sound, in place. null when it is not a thing at all, or when its kind
- * is not in the catalogue (a kind from a system this build does not have): then it and what was in it are
- * counted in `loss` and whoever was holding it drops it. A count, a freshness or a quality out of range is
- * brought back into range; fields its kind has no use for are removed; what is inside is cleaned the same way.
+ * A thing read back from a save, made sound, in place. null when it is not a thing at all, when it is a stack
+ * used up (a count of 0 or less: it is gone, and never comes back as one), or when its kind is not in the
+ * catalogue (a kind from a system this build does not have): then it and what was in it are counted in `loss`.
+ * Whoever was holding it drops it. A count, a level, a freshness or a quality out of range is brought back
+ * into range (a count that is no number at all is one thing; a stack over its kind's maximum is kept as it
+ * is); fields its kind has no use for are removed; what is inside is cleaned the same way, and what was
+ * inside a thing that cannot hold it (a box in a box, a kind that holds nothing any more) is counted in
+ * `loss` too. It never throws, whatever it is handed.
  */
 export function cleanItem(raw: unknown, loss: LoadLoss): ItemInstance | null {
-  if (!raw || typeof raw !== 'object') return null;
+  try {
+    return cleaned(raw, loss, false);
+  } catch {
+    // (what cannot be made sound is no thing)
+    return null;
+  }
+}
+
+function cleaned(raw: unknown, loss: LoadLoss, inner: boolean): ItemInstance | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.uid !== 'string' || typeof r.item !== 'string') return null;
   const d = BY_ID.get(r.item);
   if (!d) {
-    loss.unknown += lostCount(r);
+    loss.unknown += lostCount(r, 0);
     return null;
   }
   const inst = raw as ItemInstance;
-  if (r.n !== undefined) {
-    const n = r.n;
-    if (typeof n !== 'number' || !Number.isInteger(n) || n <= 1) delete inst.n;
-    else if (n > MAX_COUNT) inst.n = MAX_COUNT;
+  const n = r.n;
+  if (n !== undefined) {
+    // (no number at all: one thing, as a thing without a count is)
+    if (typeof n !== 'number' || n !== n) delete inst.n;
+    else if (n < 1) {
+      // a stack used up: gone (what such a thing claims to hold is not read back either)
+      if (Array.isArray(r.inside)) for (const x of r.inside) loss.unknown += lostCount(x, 1);
+      return null;
+    } else {
+      const k = Math.min(Math.floor(n), MAX_COUNT);
+      // (written only when it is more than one; a thing that holds things is one of a kind)
+      if (k === 1 || d.holds) delete inst.n;
+      else inst.n = k;
+    }
   }
-  for (const k of ['litres', 'uses', 'tint'] as const) if (r[k] !== undefined && (typeof r[k] !== 'number' || !Number.isFinite(r[k] as number))) delete inst[k];
+  // a level of its own, as its kind has one
+  if (r.litres !== undefined) {
+    if (d.drink && typeof r.litres === 'number' && Number.isFinite(r.litres)) inst.litres = Math.min(d.drink.litres, Math.max(0, r.litres));
+    else delete inst.litres;
+  }
+  if (r.uses !== undefined) {
+    const full = d.gear?.uses ?? d.gear?.points;
+    if (full !== undefined && typeof r.uses === 'number' && Number.isFinite(r.uses)) inst.uses = Math.min(full, Math.max(0, r.uses));
+    else delete inst.uses;
+  }
+  if (r.tint !== undefined && !isHex(r.tint)) delete inst.tint;
   if (r.opened !== undefined && typeof r.opened !== 'boolean') delete inst.opened;
   if (!d.perish) {
     delete inst.fresh;
@@ -916,20 +1206,18 @@ export function cleanItem(raw: unknown, loss: LoadLoss): ItemInstance | null {
     if (r.fk !== undefined && (typeof r.fk !== 'number' || !Number.isFinite(r.fk) || r.fk < 0 || r.fk === 1)) delete inst.fk;
   }
   if (r.q !== undefined && (typeof r.q !== 'number' || !Number.isInteger(r.q) || r.q < 1 || r.q > 5)) delete inst.q;
-  if (r.state !== undefined && (r.state === null || typeof r.state !== 'object' || Array.isArray(r.state))) delete inst.state;
+  if (r.state !== undefined && (r.state === null || typeof r.state !== 'object' || Array.isArray(r.state) || !shallow(r.state, 0))) delete inst.state;
   if (r.inside !== undefined) {
-    if (!d.holds || !Array.isArray(r.inside)) delete inst.inside;
-    else {
+    const list: readonly unknown[] = Array.isArray(r.inside) ? r.inside : [];
+    if (!d.holds || inner) {
+      // containers do not nest, and a kind that holds nothing holds nothing: it stays, without what was in it
+      for (const x of list) loss.unknown += lostCount(x, 1);
+      delete inst.inside;
+    } else {
       const kept: ItemInstance[] = [];
-      for (const x of r.inside) {
-        const c = cleanItem(x, loss);
-        if (!c) continue;
-        // containers do not nest: a box found inside a box stays, without what was in it
-        if (c.inside) {
-          for (const y of c.inside) loss.unknown += countOf(y);
-          delete c.inside;
-        }
-        kept.push(c);
+      for (const x of list) {
+        const c = cleaned(x, loss, true);
+        if (c && c !== inst) kept.push(c);
       }
       if (kept.length) inst.inside = kept;
       else delete inst.inside;
