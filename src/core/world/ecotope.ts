@@ -12,10 +12,13 @@
  * last bits of a height may differ between engines.)
  *
  * The world makes its own field when it is first asked for it (terrain.ts `World.eco`), so this file knows
- * the land by its types only and loads nothing of it to run: the world hands the field a terrain point to
- * work with, as it does for the places and the road's furniture.
+ * the land function by its types only and does not load its file to run (it loads the registry of regions
+ * and the landforms' parameters, which stand below it): the world hands the field a terrain point to work
+ * with, as it does for the places and the road's furniture.
  */
 import { fbm2 } from '../math/noise';
+import { BIOMES } from './biomes';
+import { LandParams } from './landform';
 import type { TerrainPoint, World } from './terrain';
 
 /** the side of a tile (m), the grid's step (m), and the nodes along a side (both ends counted) */
@@ -43,6 +46,9 @@ export const ECO_SQ = ECO_N - 1;
 const SQUARES = ECO_SQ * ECO_SQ;
 /** a square of the grid is open ground only if water is at least this far from each of its corners (m): more than a square's half diagonal */
 export const OPEN_WATER = 8;
+/** woods thin out on ground steeper than the first of these (rise over run) and hold on none steeper than the second: a cliff is rock */
+export const WOOD_STEEP = 0.8;
+export const WOOD_SHEER = 1.4;
 
 /** how a region's country is wooded and how wet it is, where nothing else speaks (a region carries one of these) */
 export interface EcoParams {
@@ -82,6 +88,15 @@ export class Ecotope {
   moisture = 0;
   /** metres above the road's base */
   relief = 0;
+  /** how much of the land's height here is an anchored landform's (m): a tower, a butte; 0 where none stands (`relief` does not count it) */
+  landform = 0;
+  /**
+   * How fully the country here is cut into benches, 0 … 1 (the stretch's terraces, landform.ts), and the
+   * height from bench to bench (m; the nearest node's, 0 where there are none): on terraced land a spot is
+   * a level bench where its own height is a whole number of steps.
+   */
+  terrace = 0;
+  step = 0;
   /** ECO_ROAD, ECO_WET, ECO_SITE, ECO_PLOT of the nearest node */
   flags = 0;
   /** the regions that meet here (indices in the registry) and how far it is the second's (0 … 1) */
@@ -101,6 +116,9 @@ export class EcoTile {
   readonly canopy = new Float32Array(NODES);
   readonly moisture = new Float32Array(NODES);
   readonly relief = new Float32Array(NODES);
+  readonly landform = new Float32Array(NODES);
+  readonly terrace = new Float32Array(NODES);
+  readonly step = new Float32Array(NODES);
   readonly flags = new Uint8Array(NODES);
   readonly waterKind = new Uint8Array(NODES);
   readonly ra = new Uint8Array(NODES);
@@ -150,15 +168,19 @@ function smooth(t: number): number {
 
 /**
  * How much of the sky the trees close at a point, 0 … 1, for a region's parameters: patches of wood where a
- * slow noise is high (how high, `wood` says), kept back from the road, thinning to the tree line, and crowding
- * to the water where the country is `thirsty`.
+ * slow noise is high (how high, `wood` says; none at all where it says 0), kept back from the road, thinning
+ * to the tree line and on steep ground (from WOOD_STEEP, none by WOOD_SHEER), and crowding to the water
+ * where the country is `thirsty`.
  */
-export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: number, relief: number, waterDist: number): number {
-  if (ad < p.clear || p.woodScale <= 0) return 0;
-  const n = fbm2(x / p.woodScale, z / p.woodScale, seed + 0x5c1, 3);
-  // (the noise lies mostly within ±0.6: `wood` 0.5 puts the threshold at its middle)
-  const t = (0.5 - p.wood) * 1.1;
-  let c = smooth((n - t + 0.11) / 0.22);
+export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: number, relief: number, waterDist: number, slope = 0): number {
+  if (ad < p.clear || p.woodScale <= 0 || slope >= WOOD_SHEER) return 0;
+  let c = 0;
+  if (p.wood > 0) {
+    const n = fbm2(x / p.woodScale, z / p.woodScale, seed + 0x5c1, 3);
+    // (the noise lies mostly within ±0.6: `wood` 0.5 puts the threshold at its middle)
+    const t = (0.5 - p.wood) * 1.1;
+    c = smooth((n - t + 0.11) / 0.22);
+  }
   if (p.thirsty > 0 && waterDist < WATER_FAR) {
     const bank = p.thirsty * (1 - smooth((waterDist - 5) / 60));
     if (bank > c) c = bank;
@@ -168,6 +190,7 @@ export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: n
   const e = smooth((ad + 9 * fbm2(x / 55, z / 55, seed + 0x5c2, 2) - p.clear) / p.edge);
   let k = c * e;
   if (p.treeline) k *= 1 - smooth((relief - p.treeline[0]) / (p.treeline[1] - p.treeline[0]));
+  if (slope > WOOD_STEEP) k *= 1 - smooth((slope - WOOD_STEEP) / (WOOD_SHEER - WOOD_STEEP));
   return k;
 }
 
@@ -190,6 +213,9 @@ export class EcotopeField {
   private readonly H = new Float64Array(WIDE * WIDE);
   /** what each node of the wide grid is besides open land (the flags of the tile's own nodes and of the ring round them) */
   private readonly F = new Uint8Array(WIDE * WIDE);
+  /** how much of its wood each node keeps where a coast road keeps its view (1: all of it) */
+  private readonly view = new Float32Array(NODES);
+  private readonly lp = new LandParams();
   private readonly shoreOut = { dist: WATER_FAR, kind: 0 };
 
   constructor(
@@ -255,11 +281,20 @@ export class EcotopeField {
         t.h[n] = tp.bed;
         t.ad[n] = ad;
         t.relief[n] = tp.relief;
+        t.landform[n] = tp.landform;
         t.flags[n] = flags;
         t.waterKind[n] = wet ? tp.wkind : 0;
         t.ra[n] = tp.ba;
         t.rb[n] = tp.bb;
         t.rt[n] = tp.bt;
+        // a coast road keeps its view: between the road and the sea nothing tall grows (sea.ts `open`)
+        this.view[n] = 1 - w.sea.open(tp.s, tp.d);
+        // the benches of terraced country, where a region here has them: the stretch's own account (landform.ts)
+        if (BIOMES[tp.ba].land?.terrace || (tp.bt > 0 && BIOMES[tp.bb].land?.terrace)) {
+          const lp = w.land.at(w.spine.sAtX(x), this.lp);
+          t.terrace[n] = lp.terrace;
+          t.step[n] = lp.terrace > 0 ? lp.step : 0;
+        } else t.terrace[n] = t.step[n] = 0;
         if (this.shore) {
           this.shore(x, z, this.shoreOut);
           t.waterDist[n] = wet ? 0 : this.shoreOut.dist < WATER_FAR ? this.shoreOut.dist : WATER_FAR;
@@ -286,16 +321,16 @@ export class EcotopeField {
         const x = x0 + i * ECO_STEP;
         const z = z0 + j * ECO_STEP;
         const pa = this.paramsOf(t.ra[n]);
-        let canopy = canopyAt(pa, seed + t.ra[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n]);
+        let canopy = canopyAt(pa, seed + t.ra[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope);
         let moist = moistureAt(pa, seed, x, z, slope, t.shade[n], t.hollow[n], t.waterDist[n]);
         const mix = t.rt[n];
         if (mix > 0 && t.rb[n] !== t.ra[n]) {
           const pb = this.paramsOf(t.rb[n]);
-          canopy += (canopyAt(pb, seed + t.rb[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n]) - canopy) * mix;
+          canopy += (canopyAt(pb, seed + t.rb[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope) - canopy) * mix;
           moist += (moistureAt(pb, seed, x, z, slope, t.shade[n], t.hollow[n], t.waterDist[n]) - moist) * mix;
         }
         if (t.flags[n] & (ECO_WET | ECO_ROAD)) canopy = 0;
-        t.canopy[n] = canopy;
+        t.canopy[n] = canopy * this.view[n];
         t.moisture[n] = t.flags[n] & ECO_WET ? 1 : moist;
       }
     }
@@ -377,8 +412,11 @@ export class EcotopeField {
     out.canopy = t.canopy[a] * wa + t.canopy[b] * wb + t.canopy[c] * wc + t.canopy[d] * wd;
     out.moisture = t.moisture[a] * wa + t.moisture[b] * wb + t.moisture[c] * wc + t.moisture[d] * wd;
     out.relief = t.relief[a] * wa + t.relief[b] * wb + t.relief[c] * wc + t.relief[d] * wd;
+    out.landform = t.landform[a] * wa + t.landform[b] * wb + t.landform[c] * wc + t.landform[d] * wd;
+    out.terrace = t.terrace[a] * wa + t.terrace[b] * wb + t.terrace[c] * wc + t.terrace[d] * wd;
     // what is not a quantity is the nearest node's
     const near = u < 0.5 ? (v < 0.5 ? a : c) : v < 0.5 ? b : d;
+    out.step = t.step[near];
     out.flags = t.flags[near];
     out.waterKind = t.waterKind[near];
     out.ra = t.ra[near];
