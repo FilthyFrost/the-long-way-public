@@ -1,10 +1,15 @@
 /**
  * The art spec (specs/art/style.json) as typed data, plus the light of the hour interpolated
  * from its keys. Renderer code reads colours from here, never from literals scattered around.
+ *
+ * A region's painted look (`BiomeStyle`) is its own entry of the spec where it has one (the first six
+ * regions); otherwise it is made from the region's row of the palette table (scene/palette.ts) over the look
+ * of its kin, and without a row it is its kin's look (`regionStyle`). Never the plains' for want of an entry.
  */
 import * as THREE from 'three';
 import styleJson from '../../../specs/art/style.json';
-import { BIOMES } from '../../core/world/biomes';
+import { BIOMES, type BiomeDef } from '../../core/world/biomes';
+import { PALETTES, paletteOf, type BiomePalette } from '../scene/palette';
 
 type RGB = [number, number, number];
 
@@ -76,8 +81,77 @@ export interface StyleSpec {
 
 export const STYLE = styleJson as unknown as StyleSpec;
 
+/** an sRGB hex colour as the linear triple the paints are written in */
+function linear(hex: number): RGB {
+  const c = new THREE.Color(hex);
+  return [c.r, c.g, c.b];
+}
+
+const luma = (c: RGB): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+
+/** the mean of some colours (linear) */
+function mean(list: readonly RGB[]): RGB {
+  const m: RGB = [0, 0, 0];
+  for (const c of list) for (let i = 0; i < 3; i++) m[i] += c[i] / list.length;
+  return m;
+}
+
+/**
+ * A paint of the kin's look carried over to a region: changed, channel by channel, as the region's row
+ * differs from its kin's row at the colour the paint answers to. (Held within a factor of four, and within
+ * what a paint may be: a row that is far off its kin's cannot blow a paint out.)
+ */
+function carried(paint: RGB, row: RGB, kinRow: RGB): RGB {
+  const out: RGB = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const by = Math.min(4, Math.max(0.25, row[i] / Math.max(kinRow[i], 1e-3)));
+    out[i] = Math.round(Math.min(1, paint[i] * by) * 1000) / 1000;
+  }
+  return out;
+}
+
+/**
+ * The painted look of a region that has a row of the palette table and no entry of the art spec: its kin's
+ * hand-made look with every paint carried over by how the two rows differ. The three ground tones of a row,
+ * from dark to light, answer to the shade, middle and light paints of the ground; its dust to the dry earth;
+ * its two rocks to the lit and the shaded rock; its forest tint to the two deep paints of the woods and its
+ * crowns to the two light ones. What a row does not hold (the warm and cool patches, the lift of the far land)
+ * stays the kin's; its flowers and the numbers of its `look` are its own where it gives them. A row equal to
+ * its kin's gives the kin's look to the last figure.
+ */
+export function styleFromPalette(row: BiomePalette, kinRow: BiomePalette, kin: BiomeStyle): BiomeStyle {
+  const tones = (p: BiomePalette): RGB[] => p.ground.map(linear).sort((a, b) => luma(a) - luma(b));
+  const g = tones(row);
+  const kg = tones(kinRow);
+  const forest = linear(row.forest);
+  const kinForest = linear(kinRow.forest);
+  const crowns = row.crowns.map(linear);
+  const kinCrowns = kinRow.crowns.map(linear);
+  const lightest = (list: readonly RGB[]): RGB => list.reduce((a, b) => (luma(b) > luma(a) ? b : a));
+  return {
+    ...kin,
+    ground: { deep: carried(kin.ground.deep, g[0], kg[0]), mid: carried(kin.ground.mid, g[1], kg[1]), lit: carried(kin.ground.lit, g[2], kg[2]) },
+    dry: carried(kin.dry, linear(row.dust), linear(kinRow.dust)),
+    forest: [carried(kin.forest[0], forest, kinForest), carried(kin.forest[1], forest, kinForest), carried(kin.forest[2], mean(crowns), mean(kinCrowns)), carried(kin.forest[3], lightest(crowns), lightest(kinCrowns))],
+    rock: { lit: carried(kin.rock.lit, linear(row.rock), linear(kinRow.rock)), shade: carried(kin.rock.shade, linear(row.rock2), linear(kinRow.rock2)) },
+    flowers: row.flowers ? [linear(row.flowers[0]), linear(row.flowers[1]), linear(row.flowers[2])] : kin.flowers,
+    ...row.look,
+  };
+}
+
+/**
+ * The painted look of a region: its own entry of the art spec; else made from its row of the palette table
+ * over its kin's look; else its kin's look (a copy: a dial moved on one region does not move its kin's).
+ */
+export function regionStyle(region: BiomeDef): BiomeStyle {
+  if (Object.prototype.hasOwnProperty.call(STYLE.biomes, region.id)) return STYLE.biomes[region.id];
+  const kin = STYLE.biomes[region.kin];
+  const row = paletteOf(region);
+  return row ? styleFromPalette(row, PALETTES[region.kin], kin) : { ...kin };
+}
+
 /** biome styles in the order of BIOMES (index = biome id used everywhere else) */
-export const BIOME_STYLES: BiomeStyle[] = BIOMES.map((b) => STYLE.biomes[b.id] ?? STYLE.biomes.plains);
+export const BIOME_STYLES: BiomeStyle[] = BIOMES.map(regionStyle);
 
 const COLOR_KEYS = ['sun', 'amb', 'bounce', 'zenith', 'mid', 'horizon', 'glow', 'fog', 'fogSun', 'cloudLit', 'cloudMid', 'cloudShade', 'cloudUnder'] as const;
 type ColorKey = (typeof COLOR_KEYS)[number];

@@ -4,6 +4,7 @@
  * retires old ones only once their replacements are in place — no holes, no pops to black.
  */
 import * as THREE from 'three';
+import { regionById } from '../../core/world/biomes';
 import type { Coast } from '../../core/world/sea';
 import type { Site, SiteObject } from '../../core/world/sites';
 import type { World } from '../../core/world/terrain';
@@ -616,7 +617,7 @@ export class WorldView {
     const site = want.site;
     const r = this.slice<THREE.BufferGeometry>(`s|${key}|`, () => siteSlices(site, this.skipObject ?? undefined), () => this.makeSite(key));
     if (!r.done) return;
-    const mesh = this.add(new THREE.Mesh(r.value, site.biome === 'alpine' ? this.siteSnowMat : this.siteMat), site.x, site.y, site.z);
+    const mesh = this.add(new THREE.Mesh(r.value, regionById(site.biome).kin === 'alpine' ? this.siteSnowMat : this.siteMat), site.x, site.y, site.z);
     castShadows(mesh);
     this.sites.set(key, { objects: [mesh] });
   }

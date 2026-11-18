@@ -8,6 +8,7 @@
  * patches, grass coming up along every wall. Nothing here is new and nothing is square any more.
  */
 import * as THREE from 'three';
+import { regionById } from '../../core/world/biomes';
 import { Rng, hash2 } from '../../core/math/rng';
 import { SIGN, shelfBoards, type Site, type SiteObject } from '../../core/world/sites';
 import { PaintBuilder, type Paint } from './paintBuilder';
@@ -1383,7 +1384,8 @@ export function* siteSlices(site: Site, skip?: (o: SiteObject, site: Site) => bo
     E.set(o.roll, -o.yaw, o.pitch, 'YZX');
     Q.setFromEuler(E);
     M.compose(V.set(o.x - site.x, o.y - site.y, o.z - site.z), Q, ONE);
-    b.within(M, () => draw(b, o, new Rng(hash2(site.seed, i, 0xd7a3)), site.biome));
+    // (what grows over a thing or drifts against it goes by the kin of the country: green, dry or snowed in)
+    b.within(M, () => draw(b, o, new Rng(hash2(site.seed, i, 0xd7a3)), regionById(site.biome).kin));
     yield;
   }
   return b.build();

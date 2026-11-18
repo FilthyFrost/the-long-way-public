@@ -1,17 +1,28 @@
 /**
- * Biome palettes and the ground colour function. Colours are authored in sRGB hex; THREE.Color
- * converts to linear working space, and vertex colours store those linear values.
+ * The regions' palettes, whose plants a region grows, and the woodland field.
+ *
+ * PALETTES is the render side's table of the regions: one row to a region, colours authored in sRGB hex. A
+ * region the painted look has an entry of its own for (specs/art/style.json `biomes`: the first six) is drawn
+ * from that entry; any other region's row is turned into such an entry over its kin's (render/style.ts
+ * regionStyle), so a row here is all the look a new region needs. A region without a row is drawn as its kin.
+ *
+ * Nothing on the render side falls back to the plains for a region it does not know: it falls back to the
+ * region's kin (core/world/biomes.ts: plains, desert or alpine) — `floraOf` for the plants and the woods.
+ *
+ * (PAL and groundColor are the palette of the first renderer, in linear working space; nothing draws with them
+ * now, and they keep to the same rule.)
  */
 import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { smoothstep } from '../../core/math/util';
-import { BIOMES } from '../../core/world/biomes';
+import { BIOMES, regionRow, type BiomeDef } from '../../core/world/biomes';
 import type { TerrainPoint } from '../../core/world/terrain';
+import type { BiomeStyle } from '../render/style';
 
 export interface BiomePalette {
   /** three ground tones that mix into broad painted patches */
   ground: [number, number, number];
-  /** dusty verge near the road */
+  /** dusty verge near the road, and the bare earth that shows in patches where the region is dry */
   dust: number;
   rock: number;
   rock2: number;
@@ -20,9 +31,16 @@ export interface BiomePalette {
   /** tree crown tints (instance colours) */
   crowns: number[];
   trunk: number;
+  /** the three colours of its meadow flowers (absent: its kin's) */
+  flowers?: [number, number, number];
+  /**
+   * What else of the painted look sets it apart from its kin (render/style.ts BiomeStyle): how dry it is, how
+   * much grass grows and how tall, how many flowers, how steep the ground is where bare rock begins
+   */
+  look?: Partial<Pick<BiomeStyle, 'grassDensity' | 'dryness' | 'rockStart' | 'strata' | 'grassGrow' | 'grassLush' | 'grassSize' | 'flowerAmount' | 'crownVariety'>>;
 }
 
-const PALETTES: Record<string, BiomePalette> = {
+export const PALETTES: Record<string, BiomePalette> = {
   plains: {
     ground: [0x8ebe69, 0xaccd74, 0x79ad67],
     dust: 0xbcb07e,
@@ -77,7 +95,101 @@ const PALETTES: Record<string, BiomePalette> = {
     crowns: [0xc9503c, 0xe0892f, 0xa63c34, 0xe9b03c, 0xd96a2c],
     trunk: 0x5a4034,
   },
+  // ---- the first regions added to the registry (docs/V3/nodes/W1-worldgen.md step W1.3, docs/V3/CATALOG.md):
+  // each a row over its kin, chosen against specs/art/STYLE.md. Their trees and bushes are their kin's until
+  // the flora field of the next node places plants by region.
+  flower_fields: {
+    // a bright meadow, lighter and yellower than the plains, with drifts of lavender, rape and sunflower yellow
+    ground: [0x9ccf6e, 0xb7d97a, 0x86bd68],
+    dust: 0xc9bb86,
+    rock: 0xa39c8e,
+    rock2: 0x8b867d,
+    forest: 0x5f9662,
+    crowns: [0x72b062, 0x86c06a, 0x62a05e, 0x96c874, 0xaece6e],
+    trunk: 0x7a5b43,
+    flowers: [0xa78fe0, 0xf3da3c, 0xf5a92e],
+    look: { flowerAmount: 1.45, grassGrow: 0.95, dryness: 0.08 },
+  },
+  terraces: {
+    // paddy greens, and the dark wet earth of the banks between them
+    ground: [0x86b85e, 0x9cc768, 0x6fa457],
+    dust: 0x7a6248,
+    rock: 0x8f897c,
+    rock2: 0x77736a,
+    forest: 0x4f8a58,
+    crowns: [0x5e9e58, 0x70ae5e, 0x508f54, 0x80b866],
+    trunk: 0x6a5140,
+    look: { dryness: 0.34, flowerAmount: 0.35, grassSize: 0.9 },
+  },
+  wetland: {
+    // muted reed greens over peat: greyer and browner than the lake country, the grass tall
+    ground: [0x7fa568, 0x93b46f, 0x6c9560],
+    dust: 0x8f8a66,
+    rock: 0x8e8c80,
+    rock2: 0x76766e,
+    forest: 0x587e5c,
+    crowns: [0x6a9a60, 0x7aa866, 0x5c8a5a, 0x88b06e],
+    trunk: 0x6e5a48,
+    look: { dryness: 0.22, grassSize: 1.3, grassLush: 1.0, flowerAmount: 0.3 },
+  },
+  bamboo_sea: {
+    // fresh yellow-greens in the light, under a deep green wood
+    ground: [0x6fae5c, 0x86be62, 0x5c9c56],
+    dust: 0xa39a6c,
+    rock: 0x8c8c7e,
+    rock2: 0x75776d,
+    forest: 0x4f9a4c,
+    crowns: [0x7fbf55, 0x93cc5e, 0x6aae4e],
+    trunk: 0x7d8a4a,
+    look: { flowerAmount: 0.3, grassGrow: 0.7 },
+  },
+  red_canyon: {
+    // orange-red rock in layers over pale sand, sage scrub
+    ground: [0xd9905f, 0xcf7f52, 0xe2a877],
+    dust: 0xe0b98c,
+    rock: 0xb85a3c,
+    rock2: 0x9c4630,
+    forest: 0x93a07a,
+    crowns: [0x8e9f74, 0x7d9068, 0xa0ad84],
+    trunk: 0x8a6a4c,
+  },
+  karst_peaks: {
+    // jade greens under towers of grey-blue limestone
+    ground: [0x7fb86a, 0x95c672, 0x6aa860],
+    dust: 0xb3ad86,
+    rock: 0x8a938c,
+    rock2: 0x737c78,
+    forest: 0x4c8c62,
+    crowns: [0x5fa46c, 0x70b276, 0x4f9464, 0x82bd7e],
+    trunk: 0x6a5545,
+    look: { rockStart: 0.24 },
+  },
 };
+
+/** the ids the plants and the woods have rules of their own for (`woodland` below, worldBuild.ts buildScatter and its canopy) */
+const FLORA_IDS: readonly string[] = ['plains', 'desert', 'alpine', 'forest', 'lakes', 'maple'];
+const floraIds: string[] = [];
+const floraFor: string[] = [];
+
+/**
+ * Whose plants and woods a region has, as an id: its own where the rules know it, else its kin's. (A region
+ * added since the first six grows its kin's plants until the flora field of the next node places plants by
+ * region.) Kept by registry index, and looked up again when another region stands at that index (tests put
+ * regions in and take them out).
+ */
+export function floraOf(biome: number): string {
+  const b = BIOMES[biome] ?? BIOMES[0];
+  if (floraFor[biome] !== b.id) {
+    floraFor[biome] = b.id;
+    floraIds[biome] = FLORA_IDS.includes(b.id) ? b.id : b.kin;
+  }
+  return floraIds[biome];
+}
+
+/** a region's row of the table: its own, else none (render/style.ts then draws it as its kin) */
+export function paletteOf(region: BiomeDef): BiomePalette | undefined {
+  return Object.prototype.hasOwnProperty.call(PALETTES, region.id) ? PALETTES[region.id] : undefined;
+}
 
 interface LinearPalette {
   ground: THREE.Color[];
@@ -90,7 +202,7 @@ interface LinearPalette {
 }
 
 export const PAL: LinearPalette[] = BIOMES.map((b) => {
-  const p = PALETTES[b.id] ?? PALETTES.plains;
+  const p = regionRow(PALETTES, b);
   return {
     ground: p.ground.map((c) => new THREE.Color(c)),
     dust: new THREE.Color(p.dust),
@@ -104,7 +216,7 @@ export const PAL: LinearPalette[] = BIOMES.map((b) => {
 
 /** How wooded the land is at (x, z), 0…1. Shared by ground tint and tree placement. */
 export function woodland(biome: number, seed: number, x: number, z: number, ad: number, relief: number, withBelt = true): number {
-  const id = BIOMES[biome].id;
+  const id = floraOf(biome);
   if (ad < 11) return 0;
   const edge = smoothstep(14, 40, ad + 14 * fbm2(x / 90, z / 90, seed + 509, 2));
   // a forest belt along the valley sides, beyond where single trees are modelled (STYLE.md §5):
@@ -143,7 +255,8 @@ const tmpB = new THREE.Color();
 
 function biomeGround(bi: number, seed: number, t: TerrainPoint, x: number, z: number, ny: number, ad: number, out: THREE.Color): void {
   const p = PAL[bi];
-  const id = BIOMES[bi].id;
+  // (snow country and dry country by kin: a region is steep and rocky, or layered, as its kin is)
+  const id = BIOMES[bi].kin;
   const n1 = fbm2(x / 97, z / 97, seed + 601, 2);
   const n2 = fbm2(x / 31, z / 31, seed + 602, 1);
   out.copy(p.ground[0]).lerp(p.ground[1], smoothstep(-0.25, 0.3, n1));

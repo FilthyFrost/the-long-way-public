@@ -12,7 +12,6 @@ import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { hash2 } from '../../core/math/rng';
 import { smoothstep } from '../../core/math/util';
-import { BIOMES } from '../../core/world/biomes';
 import { SpineSample } from '../../core/world/spine';
 import { ROAD_EDGE, TerrainPoint, type World } from '../../core/world/terrain';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, type River } from '../../core/world/water';
@@ -21,7 +20,7 @@ import { ModelBuilder } from '../vehicle/builder';
 import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
 import { BIOME_STYLES, STYLE } from '../render/style';
-import { woodland } from './palette';
+import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
 
 export const STRIP_STATIONS = 32;
@@ -271,7 +270,8 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
         const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
         // (no wood stands in water: a lifted lake bed or sea bed would come up through it as green shoals)
         wood = tp.wl > tp.bed - 1 ? 0 : woodland(bi, world.seed, wx, wz, ad, tp.relief);
-        h += wood * (BIOMES[bi].id === 'alpine' ? 9 : BIOMES[bi].id === 'forest' ? 11 : 6.5);
+        const flora = floraOf(bi);
+        h += wood * (flora === 'alpine' ? 9 : flora === 'forest' ? 11 : 6.5);
       }
       if (i === 0 && j === 0) oy = h;
       hs[(j + 1) * P + (i + 1)] = h;
@@ -412,7 +412,8 @@ export function buildScatter(world: World, tx: number, tz: number, far: boolean,
       // nothing grows in the water or on the wet shore, nor on the ground of a place by the road
       if (tp.wl > tp.bed - 0.9 || tp.site > 0.2 || tp.plot > 0.9) continue;
       const bi = (tp.bt < 0.5 ? tp.ba : tp.bb) | 0;
-      const id = BIOMES[bi].id;
+      // (whose plants grow here: the region's own where the rules below know it, else its kin's)
+      const id = floraOf(bi);
       // a coast road keeps its view: between the road and the water only the odd low bush
       if (world.sea.open(tp.s, tp.d) > 0.5) {
         if (!far && r2 > 0.988) push('bush', wx, tp.h, wz, 0.6 + 0.5 * r3, 0.55 + 0.2 * r1, r0 * 6.283, 0, bi);
