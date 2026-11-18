@@ -23,7 +23,8 @@ const DEFAULT_CHROME = process.platform === 'win32' ? 'C:/Program Files/Google/C
  * of version 2 (src/game/modcar/ModGame.ts readModParams): so an address of the game that names no world is
  * given world=1, and a script that wants the new generator says world=2. Every page opened through
  * launchBrowser goes this way, whichever of its own calls opens it; a game gone on with from a save is of its
- * save's world whatever the address says.
+ * save's world whatever the address says, and a new game the page begins of itself (F9 twice, the panel's
+ * 「从头开始」) opens the plain address, as it always did: that one is of version 2.
  */
 export function withWorld(url) {
   let at;

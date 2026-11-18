@@ -1735,8 +1735,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /**
    * The save cleared and a new game from the workshop, as on a first visit: nothing more written as the page
    * goes, and the page opened again at its plain address — what the address asked for of its own (the road, a
-   * build, a seed, the developer's panel open again after the world was made again) dropped, the picture's
-   * quality and the version of the generator it asked for kept.
+   * build, a seed, a version of the world's generator, the developer's panel open again after the world was made
+   * again) dropped, the picture's quality kept.
    */
   newGame(): void {
     this.saveOff = true;
@@ -1750,17 +1750,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     } catch {
       /* storage unavailable: the first world again */
     }
-    // (the picture's quality stays, and a version of the generator the address asked for: a new game is of
-    // version 2 unless it did)
-    const asked = new URLSearchParams(location.search);
-    const kept = new URLSearchParams();
-    for (const k of ['quality', 'world']) {
-      const v = asked.get(k);
-      if (v) kept.set(k, v);
-    }
-    const q = kept.toString();
+    const quality = new URLSearchParams(location.search).get('quality');
     this.dispose();
-    location.replace(`${location.pathname}${q ? `?${q}` : ''}`);
+    location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
 
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
