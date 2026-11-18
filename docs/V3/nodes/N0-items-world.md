@@ -50,7 +50,10 @@ of sight is on, lying within reach; else a box in the selected slot; else as bef
 wheel choose; E takes; a slot's number key changes the thing in the hands; **G puts it in**, shown in the list's
 foot only while it would go. A take of a stack takes what the hands have room for; the rest stays in its row.
 Taking out of a box that is itself in the hands, the box steps out of its slot for the hand-over, so that hands
-which fill a box they hold (`receive`) do not put the thing straight back.
+which fill a box they hold (`receive`) do not put the thing straight back. A box's `room` goes back to the core
+(`roomInside`) only when the thing, its count or what is in the box has changed. Every source is asked through
+`guardedSource`: what its code throws is reported by the kernel as a system's device that throws is (`list
+source <title> (<what was asked>)`), the source then says it is out of reach, the list shuts, the frame goes on.
 
 ## Adding a source, without editing ModGame.ts
 
@@ -68,5 +71,6 @@ off); `WrecksSave.kept[wreckId].loose[i].item` (`Wrecks.keep`, from `ModGame.rid
 `loose.ts`, `workshop.ts` and the list save no item themselves.
 
 Checked by `harness/sim/v3_lists.test.ts` (the sources against plain hands and hands that stack, a found stack,
-no allocation in what a source is asked every frame) and `harness/shots/v3_items_world.mjs` (the real game with
-the test content). Not done here: a gamepad button for putting in (`pad.ts`).
+no allocation in what a source is asked every frame, a source that throws in each thing asked of it) and
+`harness/shots/v3_items_world.mjs` (the real game with the test content). Not done here: a gamepad button for
+putting in (`pad.ts`).

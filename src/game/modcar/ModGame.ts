@@ -84,7 +84,7 @@ import { tyreLoops } from './tyreSound';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
-import { boxInHand, boxOnMark, boxSource, countOfHeld, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
+import { boxInHand, boxOnMark, boxSource, countOfHeld, guardedSource, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
@@ -1367,9 +1367,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   /** the lists' desk (listSources.ts): a system opens a list of its own with openList(source), without knowing the game */
   private readonly listDeskSet = setListDesk(this);
-  /** the source of what the list is open on, and what that was when the source was made */
+  /**
+   * The source of what the list is open on, and what that was when the source was made. It is asked through a
+   * guard (listSources.ts guardedSource): what a source's code throws is reported, as the kernel reports a
+   * system's device that throws, the source then says it is out of reach and the list shuts; the frame goes on.
+   */
   private listSrc: ListSource | null = null;
   private listSrcOf: unknown = null;
+  private readonly listFault = (title: string, asked: string, e: unknown): void => this.kernel.report(`list source ${title} (${asked})`, e);
   /** its rows as last built, for which source and at which of its versions; they are built again only when that moves */
   private listRows: readonly CargoRow[] = [];
   private listRowsOf: ListSource | null = null;
@@ -1442,7 +1447,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (!v) return null;
     if (this.listSrcOf !== v || !this.listSrc) {
       this.listSrcOf = v;
-      this.listSrc = v === 'self' ? selfSource(this) : isContainer(v) ? placeSource(this, v) : v instanceof ModVehicle ? vehicleSource(this, v) : v;
+      this.listSrc = guardedSource(v === 'self' ? selfSource(this) : isContainer(v) ? placeSource(this, v) : v instanceof ModVehicle ? vehicleSource(this, v) : v, this.listFault);
     }
     return this.listSrc;
   }

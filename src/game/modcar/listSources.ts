@@ -88,6 +88,198 @@ export interface ListHost {
   sound(name: string, gain?: number, mount?: string): void;
 }
 
+// ------------------------------------------------------------------ a source that throws
+
+/** told once when a source threw: its name (what its title last read as; '?' when it never did), what was asked of it, what it threw */
+export type ListFault = (title: string, asked: string, error: unknown) => void;
+
+const NO_ROWS: CargoRow[] = [];
+
+/**
+ * A source as the game asks it. Whatever its code throws (in near, version, rows, load, takeAt, room, put, or
+ * in reading what it is called) is caught here: told once to `fault`, after which the source is gone as far as
+ * the list is concerned: near() says false, so the list shuts, and everything else answers harmlessly (no rows,
+ * nothing taken, nothing put in). The frame goes on. A safety net, as the kernel's is for a system's devices,
+ * not a way of working. A source that throws nothing costs a call more for each thing asked of it, and
+ * nothing is allocated on the way.
+ */
+class Guarded implements ListSource {
+  private dead = false;
+  private name = '';
+  private headWas = '';
+  private emptyWas = '';
+  private takeWas = '';
+  load?: () => number;
+  room?: (held: NonNullable<Held>) => number;
+  put?: (held: NonNullable<Held>) => number;
+
+  constructor(
+    readonly src: ListSource,
+    private readonly fault: ListFault,
+  ) {
+    // (its name first, for the telling)
+    void this.title;
+    // (what the source may leave out is left out here too: the list asks whether each is there)
+    try {
+      if (src.load) this.load = (): number => this.askLoad();
+      if (src.room) this.room = (held): number => this.askRoom(held);
+      if (src.put) this.put = (held): number => this.askPut(held);
+    } catch (e) {
+      this.fail('load, room, put', e);
+    }
+  }
+
+  private fail(asked: string, e: unknown): void {
+    if (this.dead) return;
+    this.dead = true;
+    try {
+      this.fault(this.name || '?', asked, e);
+    } catch {
+      // (whoever was to be told threw as well: nothing more can be done about it here)
+    }
+  }
+
+  get title(): string {
+    if (!this.dead) {
+      try {
+        this.name = this.src.title;
+      } catch (e) {
+        this.fail('title', e);
+      }
+    }
+    return this.name;
+  }
+
+  get head(): string {
+    if (!this.dead) {
+      try {
+        this.headWas = this.src.head;
+      } catch (e) {
+        this.fail('head', e);
+      }
+    }
+    return this.headWas;
+  }
+
+  get empty(): string {
+    if (!this.dead) {
+      try {
+        this.emptyWas = this.src.empty;
+      } catch (e) {
+        this.fail('empty', e);
+      }
+    }
+    return this.emptyWas;
+  }
+
+  get takeWord(): string {
+    if (!this.dead) {
+      try {
+        this.takeWas = this.src.takeWord;
+      } catch (e) {
+        this.fail('takeWord', e);
+      }
+    }
+    return this.takeWas;
+  }
+
+  get shutEmpty(): boolean | undefined {
+    if (this.dead) return true;
+    try {
+      return this.src.shutEmpty;
+    } catch (e) {
+      this.fail('shutEmpty', e);
+      return true;
+    }
+  }
+
+  get cap(): { readonly slots: number; readonly maxKg?: number } | undefined {
+    if (this.dead) return undefined;
+    try {
+      return this.src.cap;
+    } catch (e) {
+      this.fail('cap', e);
+      return undefined;
+    }
+  }
+
+  near(): boolean {
+    if (this.dead) return false;
+    try {
+      return this.src.near();
+    } catch (e) {
+      this.fail('near', e);
+      return false;
+    }
+  }
+
+  version(): number | string {
+    if (this.dead) return 0;
+    try {
+      return this.src.version();
+    } catch (e) {
+      this.fail('version', e);
+      return 0;
+    }
+  }
+
+  rows(): CargoRow[] {
+    if (this.dead) return NO_ROWS;
+    try {
+      return this.src.rows();
+    } catch (e) {
+      this.fail('rows', e);
+      return NO_ROWS;
+    }
+  }
+
+  takeAt(i: number): boolean {
+    if (this.dead) return false;
+    try {
+      return this.src.takeAt(i);
+    } catch (e) {
+      this.fail('takeAt', e);
+      return false;
+    }
+  }
+
+  private askLoad(): number {
+    if (this.dead) return 0;
+    try {
+      return this.src.load!();
+    } catch (e) {
+      this.fail('load', e);
+      return 0;
+    }
+  }
+
+  private askRoom(held: NonNullable<Held>): number {
+    if (this.dead) return 0;
+    try {
+      return this.src.room!(held);
+    } catch (e) {
+      this.fail('room', e);
+      return 0;
+    }
+  }
+
+  /** (a source gone, or one that threw half way: as far as the hands are told, none of it went in) */
+  private askPut(held: NonNullable<Held>): number {
+    if (this.dead) return countOfHeld(held);
+    try {
+      return this.src.put!(held);
+    } catch (e) {
+      this.fail('put', e);
+      return countOfHeld(held);
+    }
+  }
+}
+
+/** a source as the game asks it: what it throws is told to `fault`, once, and the list shuts (see Guarded) */
+export function guardedSource(src: ListSource, fault: ListFault): ListSource {
+  return new Guarded(src, fault);
+}
+
 // ------------------------------------------------------------------ the desk: how a system opens a list of its own
 
 /** the game as the lists' desk: what the sources work with, and what shows them */
@@ -403,6 +595,12 @@ class BoxList implements ListSource {
   /** where it lies, when it lies about (looked for again only when the things lying about have changed) */
   private lying: Loose | null = null;
   private lyingRev = -1;
+  /** what room() last worked out, and what it was asked of: the thing, its kind then, how many of it, what was in the box */
+  private roomOf: ItemInstance | null = null;
+  private roomKind = '';
+  private roomN = -1;
+  private roomKey = -1;
+  private roomWas = 0;
 
   constructor(
     private readonly host: ListHost,
@@ -528,8 +726,26 @@ class BoxList implements ListSource {
     return true;
   }
 
+  /**
+   * How many of the thing in the hands would go in. The core is asked (roomInside) only when the thing, its
+   * kind, its count or what is in the box has changed since the last time: asked again and again in between
+   * (the list may, every frame), the answer is the one it has, and nothing is worked out or allocated. (How
+   * fresh the things are moves with time, and with it whether two stacks still join: put() asks at the moment
+   * it puts, whatever was said here.)
+   */
   room(h: NonNullable<Held>): number {
-    return h.kind === 'item' && h.item !== this.box ? roomInside(this.box, h.item, itemNow()) : 0;
+    if (h.kind !== 'item' || h.item === this.box) return 0;
+    const it = h.item;
+    const n = countOf(it);
+    const key = insideKey(this.box);
+    if (it !== this.roomOf || it.item !== this.roomKind || n !== this.roomN || key !== this.roomKey) {
+      this.roomOf = it;
+      this.roomKind = it.item;
+      this.roomN = n;
+      this.roomKey = key;
+      this.roomWas = roomInside(this.box, it, itemNow());
+    }
+    return this.roomWas;
   }
 
   /** the thing in the hands into the box, as much of it as goes (the box itself never goes into itself) */

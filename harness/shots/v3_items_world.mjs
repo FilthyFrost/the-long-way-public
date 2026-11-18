@@ -11,7 +11,8 @@
 //    mark on the basket lying there opens it again, and G puts the berries into it where it lies;
 //  - a stack that has gone off is another kind where it lies, drawn again;
 //  - the recycler gives five berries' organics for the stack (counted up as it is ground), and for the basket
-//    with five berries in it the basket's and theirs, its list shutting as it goes in.
+//    with five berries in it the basket's and theirs, its list shutting as it goes in;
+//  - a system's own source that throws is reported by the kernel, its list shuts and the game goes on.
 // The page is not drawn (shot=1): the game is stepped from here, so nothing waits on the clock on the wall.
 //   SHOTS_GL=llvmpipe node harness/shots/v3_items_world.mjs
 import { launchBrowser, openGame, startServer } from './lib.mjs';
@@ -283,6 +284,27 @@ try {
   const last = await page.evaluate(() => window.__rt.lastError);
   if (last) fail(`the game reported an error: ${last}`);
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
+
+  // 7. a system's own source that throws (opened as a system would, with openList): told by the kernel, the list shut, the game going on
+  // (the kernel writes what it sets apart to the console: the one error in this script's output is this one, thrown on purpose)
+  const broke = await page.evaluate(async () => {
+    const L = await import('/src/game/modcar/listSources.ts');
+    const g = window.__rt.game;
+    const rows = () => {
+      throw new Error('thrown on purpose by v3_items_world.mjs');
+    };
+    const opened = L.openList({ title: '坏箱子', head: '坏箱子里的东西', empty: '', takeWord: '拿出来', near: () => true, version: () => 1, rows, takeAt: () => false });
+    const listed = !!g.listV;
+    g.simulate(0.2);
+    const t0 = g.time;
+    g.simulate(0.2);
+    return { opened, listed, open: !!g.listV, last: window.__rt.lastError, went: g.time > t0 };
+  });
+  console.log('a source that throws', JSON.stringify(broke));
+  if (!broke.opened || !broke.listed) fail('a source of a system\'s own did not open with openList');
+  if (broke.open) fail('the list of a source that threw did not shut');
+  if (!/list source 坏箱子 \(rows\): thrown on purpose/.test(broke.last)) fail(`the source that threw was not reported by the kernel (${broke.last})`);
+  if (!broke.went) fail('the game did not go on after a source threw');
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e));
 } finally {
