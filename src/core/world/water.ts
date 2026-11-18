@@ -15,6 +15,10 @@
  * Slots are filled in order, each looking only at the ones before it (a lake gives way to a
  * river already there, a river looks for a crossing clear of the lakes): same seed, same water,
  * whoever asks first. Nothing here asks the terrain for a height: the recipes need only the road.
+ *
+ * The plan also says how far any point is from its water's edge (`shore`, with `lakeShore` and
+ * `riverShore`): the water's own account, from the same geometry the land is cut with, for whoever
+ * must know what grows, lives or is caught by the water (the ecotope field, ecotope.ts).
  */
 import { dcos, dsin } from '../math/detmath';
 import { fbm2 } from '../math/noise';
@@ -38,6 +42,19 @@ const REACH_SLOTS = 3;
 const BANK = 0.62;
 /** a lake reshapes the land out to this many times its own size: the basin it lies in */
 const BASIN = 1.72;
+/** a lake's water stands where its shore measure (`lakeRho`) is below this: where the bowl `carve` sinks crosses the lake's level */
+const LAKE_EDGE = Math.sqrt(0.8);
+/** a lake's shore is traced along this many rays from its centre (`shoreOf`), each searched in this many steps from outside in */
+const SHORE_RAYS = 256;
+const SHORE_SCAN = 16;
+/** the traced shore's stretches are kept in runs of this many, each with a round that holds it (`shoreOf`): a point far off asks run by run */
+const SHORE_RUN = 8;
+/** a point this near the traced shore (m) asks stretch by stretch: there are only a few to ask */
+const SHORE_NEAR = 12;
+/** where a river's channel begins to fade out of the land towards its end (m before the end): `carve`'s fade */
+const RIVER_FADE = 500;
+/** how much farther a river's water counts as being, half way through the first half of that fade (m): by there little of it is left */
+const RIVER_GONE = 150;
 
 export type BridgeKind = 'arch' | 'beam' | 'truss';
 
@@ -152,9 +169,68 @@ interface RiverHit {
 const hits: RiverHit[] = [0, 1, 2, 3].map(() => ({ f: null as unknown as River, zr: 0, dist: 0, w: 0, level: 0 }));
 const lakeHits: { f: Lake; rho: number }[] = [0, 1, 2].map(() => ({ f: null as unknown as Lake, rho: 0 }));
 
+/** the square of the distance from (x, z) to the stretch between points i and j of a traced shore */
+function segment2(tab: Float64Array, i: number, j: number, x: number, z: number): number {
+  const ax = tab[2 * i];
+  const az = tab[2 * i + 1];
+  const ex = tab[2 * j] - ax;
+  const ez = tab[2 * j + 1] - az;
+  const wx = x - ax;
+  const wz = z - az;
+  let t = (wx * ex + wz * ez) / (ex * ex + ez * ez);
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const px = wx - t * ex;
+  const pz = wz - t * ez;
+  return px * px + pz * pz;
+}
+
+/**
+ * The square of the distance from a point outside a traced shore to that shore, the closed line through its
+ * points. `at` is the first point of the stretch that crosses the point's own ray from the lake's centre
+ * (cx, cz). From there the search goes round both ways, and each way it stops at the first ray that passes
+ * the point farther off than the nearest stretch found: everything beyond that ray is farther still. `run`
+ * is 1 to ask stretch by stretch, or SHORE_RUN to ask run by run, a run being asked into only when the
+ * round that holds it comes nearer than the nearest stretch found. Both give the same answer, the exact one.
+ */
+function shoreRing2(tab: Float64Array, run: number, at: number, x: number, z: number, cx: number, cz: number): number {
+  const N = SHORE_RAYS;
+  const px = x - cx;
+  const pz = z - cz;
+  let best = segment2(tab, at, at + 1 === N ? 0 : at + 1, x, z);
+  const first = at - (at % run);
+  for (let turn = 0; turn < 2; turn++) {
+    // (one way round from the run the point's ray crosses, that run included; then the other)
+    for (let n = 0, a = turn === 0 ? first : (first + N - run) % N; n < N / (2 * run); n++, a = (a + (turn === 0 ? run : N - run)) % N) {
+      if (n > 0 || turn === 1) {
+        // the ray at the near end of this run
+        const e = turn === 0 ? a : (a + run) % N;
+        const rx = tab[2 * e] - cx;
+        const rz = tab[2 * e + 1] - cz;
+        if (px * rx + pz * rz <= 0) break;
+        const across = px * rz - pz * rx;
+        if (across * across > best * (rx * rx + rz * rz)) break;
+      }
+      if (run > 1) {
+        const q = 2 * N + 3 * (a / run);
+        const qx = x - tab[q];
+        const qz = z - tab[q + 1];
+        const reach = Math.sqrt(best) + tab[q + 2];
+        if (qx * qx + qz * qz >= reach * reach) continue;
+      }
+      for (let i = a; i < a + run; i++) {
+        const d = segment2(tab, i, i + 1 === N ? 0 : i + 1, x, z);
+        if (d < best) best = d;
+      }
+    }
+  }
+  return best;
+}
+
 export class WaterPlan {
   /** list[k] = the feature of slot k (null: dry); filled in order */
   private readonly list: (WaterFeature | null)[] = [null];
+  /** shores[k] = the traced shore of the lake of slot k, once it has been asked for (`shoreOf`) */
+  private readonly shores: (Float64Array | undefined)[] = [];
   private readonly seed: number;
 
   /**
@@ -572,6 +648,155 @@ export class WaterPlan {
       }
     }
     return h;
+  }
+
+  /**
+   * A lake's shore, traced once from its shore measure: SHORE_RAYS points of it (x, z each), one on each of
+   * as many rays from the lake's centre, evenly turned in the lake's own frame (u / a, v / b) — the
+   * outermost place on the ray where `lakeRho` passes LAKE_EDGE. The bays only ever draw the shore in, so
+   * it lies between LAKE_EDGE and what the deepest bay leaves of it. Joined in their order the points are
+   * the shore as a closed line, a hand's width from the true one (they stand some 3 to 9 m apart, and a
+   * bay turns over tens of metres). After the points, for every run of SHORE_RUN stretches, a round that
+   * holds it (centre x, z and radius).
+   */
+  private shoreOf(f: Lake): Float64Array {
+    let t = this.shores[f.slot];
+    if (t) return t;
+    t = new Float64Array(2 * SHORE_RAYS + (3 * SHORE_RAYS) / SHORE_RUN);
+    const amp = Math.min(0.34, 30 / Math.min(f.a, f.b));
+    const hi = LAKE_EDGE * 1.02;
+    const lo = LAKE_EDGE / (1 + 1.2 * amp);
+    for (let i = 0; i < SHORE_RAYS; i++) {
+      const an = (i / SHORE_RAYS) * 6.283185307179586;
+      // a unit of the plain measure along this ray, in the world
+      const u = Math.cos(an) * f.a;
+      const v = Math.sin(an) * f.b;
+      const ex = u * f.ax - v * f.az;
+      const ez = u * f.az + v * f.ax;
+      // from outside in, in steps, to the first water; then the edge between that step and the one before
+      let dry = hi;
+      let wet = lo;
+      for (let k = 1; k <= SHORE_SCAN; k++) {
+        const r = hi + ((lo - hi) * k) / SHORE_SCAN;
+        if (WaterPlan.lakeRho(f, f.cx + ex * r, f.cz + ez * r) < LAKE_EDGE) {
+          wet = r;
+          break;
+        }
+        dry = r;
+      }
+      for (let k = 0; k < 14; k++) {
+        const r = 0.5 * (dry + wet);
+        if (WaterPlan.lakeRho(f, f.cx + ex * r, f.cz + ez * r) < LAKE_EDGE) wet = r;
+        else dry = r;
+      }
+      t[2 * i] = f.cx + ex * 0.5 * (dry + wet);
+      t[2 * i + 1] = f.cz + ez * 0.5 * (dry + wet);
+    }
+    for (let a = 0, q = 2 * SHORE_RAYS; a < SHORE_RAYS; a += SHORE_RUN, q += 3) {
+      // (round the middle of the run's ends: every point of the run within the radius)
+      const e = (a + SHORE_RUN) % SHORE_RAYS;
+      const mx = 0.5 * (t[2 * a] + t[2 * e]);
+      const mz = 0.5 * (t[2 * a + 1] + t[2 * e + 1]);
+      let r2 = 0;
+      for (let i = a; i <= a + SHORE_RUN; i++) {
+        const k = i % SHORE_RAYS;
+        const d2 = (t[2 * k] - mx) * (t[2 * k] - mx) + (t[2 * k + 1] - mz) * (t[2 * k + 1] - mz);
+        if (d2 > r2) r2 = d2;
+      }
+      t[q] = mx;
+      t[q + 1] = mz;
+      t[q + 2] = Math.sqrt(r2);
+    }
+    this.shores[f.slot] = t;
+    return t;
+  }
+
+  /**
+   * How far a point is from a lake's water (m), 0 in it: the distance to the lake's traced shore
+   * (`shoreOf`), which is the line where `carve` puts the water's edge to within a hand's width. So it is
+   * 0 in the water and on its edge, it has no step anywhere, and it is the distance itself, not an
+   * estimate of it. `far` or more where the lake is at least `far` m off (nothing is traced or measured
+   * for such a point).
+   */
+  lakeShore(f: Lake, x: number, z: number, far = Infinity): number {
+    const dx = x - f.cx;
+    const dz = z - f.cz;
+    const U = (dx * f.ax + dz * f.az) / f.a;
+    const V = (-dx * f.az + dz * f.ax) / f.b;
+    const rho = Math.sqrt(U * U + V * V);
+    const small = Math.min(f.a, f.b);
+    // (deep in the lake, within the shore however far a bay has drawn it in: nothing more is asked)
+    if (rho * (1 + 1.2 * Math.min(0.34, 30 / small)) <= LAKE_EDGE) return 0;
+    // (the plain measure is a norm, so it falls by no more than a unit over the lake's short half axis: a
+    // point this far out in it is at least `far` from the shore's plain oval, which holds all the water)
+    if ((rho - LAKE_EDGE * 1.02) * small >= far) return far;
+    const tab = this.shoreOf(f);
+    // the stretch of the shore that crosses the point's own ray
+    let t = (Math.atan2(V, U) / 6.283185307179586) * SHORE_RAYS;
+    if (t < 0) t += SHORE_RAYS;
+    let i = Math.floor(t);
+    if (i >= SHORE_RAYS) i = SHORE_RAYS - 1;
+    const j = i + 1 === SHORE_RAYS ? 0 : i + 1;
+    // (the points run round the lake with the centre on their left, in the world as in the lake's frame)
+    if ((tab[2 * j] - tab[2 * i]) * (z - tab[2 * i + 1]) - (tab[2 * j + 1] - tab[2 * i + 1]) * (x - tab[2 * i]) >= 0) return 0;
+    const own = segment2(tab, i, j, x, z);
+    return Math.sqrt(shoreRing2(tab, own <= SHORE_NEAR * SHORE_NEAR ? 1 : SHORE_RUN, i, x, z, f.cx, f.cz));
+  }
+
+  /**
+   * How far a point is from a river's water (m), 0 in it, by the measure `carve` cuts the channel with: the
+   * distance to the centre line at the point's own z, taken square to the line, less the half width there.
+   * It is 0 on the very line where the channel's water ends, has no step anywhere, and is the true distance
+   * to within a few hundredths over the first tens of metres; by 150 m, inside a tight bend, it may be a
+   * seventh off. Towards the river's end the channel fades out of the land and whether water still stands
+   * in it is the land's to say: from where that fade begins the distance grows by more and more (150 m a
+   * quarter of the way through it), and half way through it, as beyond the river's ends, there is no river
+   * to be near (Infinity).
+   */
+  static riverShore(f: River, x: number, z: number): number {
+    const zr = z - f.z0;
+    const at = zr < 0 ? -zr : zr;
+    if (at >= f.zEnd - RIVER_FADE / 2) return Infinity;
+    WaterPlan.riverCentre(f, zr, rc);
+    const lat = x - rc.x;
+    const d = (lat < 0 ? -lat : lat) / Math.sqrt(1 + rc.dx * rc.dx) - WaterPlan.riverHalfWidth(f, zr);
+    const out = d > 0 ? d : 0;
+    const gone = smoothstep(f.zEnd - RIVER_FADE, f.zEnd - RIVER_FADE / 2, at);
+    return gone > 0 ? out + (RIVER_GONE * gone) / (1 - gone) : out;
+  }
+
+  /**
+   * The fresh water's own account of its edge: how far (x, z) is from the nearest lake's or river's water
+   * (m; 0 in the water) and which it is (1 lake, 2 river), from the plan's geometry alone — nothing is
+   * asked of the land, and the answer is the same whoever asks and from whichever side. `far` and no
+   * water (kind 0) where none lies within `far` m. The distances are `lakeShore`'s and `riverShore`'s.
+   * @param s0 arc length of the road point with the same x
+   */
+  shore(x: number, z: number, s0: number, far: number, out: { dist: number; kind: number }): void {
+    out.dist = far;
+    out.kind = 0;
+    if (s0 < WATER_SLOT * 0.4) return;
+    const k0 = Math.floor(s0 / WATER_SLOT);
+    for (let k = k0 - REACH_SLOTS; k <= k0 + REACH_SLOTS; k++) {
+      const f = this.feature(k);
+      if (!f) continue;
+      if (f.kind === 'lake') {
+        if (x < f.xMin - far || x > f.xMax + far || z < f.zMin - far || z > f.zMax + far) continue;
+        const d = this.lakeShore(f, x, z, far);
+        if (d < out.dist) {
+          out.dist = d;
+          out.kind = 1;
+        }
+      } else {
+        // (a river's own reach in x is its water and 430 m more: every point within `far` of it lies inside)
+        if (x < f.xMin || x > f.xMax) continue;
+        const d = WaterPlan.riverShore(f, x, z);
+        if (d < out.dist) {
+          out.dist = d;
+          out.kind = 2;
+        }
+      }
+    }
   }
 
   /** Could any water reach (x, z)? Bounding boxes only: cheap, and false means certainly dry. */
