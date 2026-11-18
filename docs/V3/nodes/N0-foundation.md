@@ -416,6 +416,11 @@ Rules a system must keep (each comes from how the game is built, or was measured
   restored game lacks, on `game:restored` — by then every slice has reserved its own.
 - A slice's `snapshot` returns JSON data and changes nothing. It may be called any number of times, and it is
   not called at all while the system is down. `restore` is only called once `init` has run.
+- Give a module its slices in its `slices` list (or register them in `setup`), not from inside an `init`: the
+  kernel knows whose a slice is from what the module brought when it was installed, and only those are set
+  aside when the module's system does not come up. What else such a module registered stays in the game — its
+  sources, its tabs, the listeners of its `setup` — each behind its own guard, working on a system that never
+  set itself up: they must stand that.
 - A device handed out by `near()` is the system's own code in every member: what it throws is reported and the
   device passed over (section 2), which is a safety net, not a way of working.
 
@@ -454,11 +459,13 @@ do not run in Node): every node that touches one of them, or the kernel, runs it
   does with one kind of source in the process and does not with two (measured: 0 bytes a call with the example
   alone, 32 with a second module whose source is an object literal). The test bounds it and prints it.
 - Browser, software renderer (functional only): `modcar_journey`, `modcar_save`, `modcar_restart`, `modcar_dev`
-  before the first edit to the game's files and after the last — the same steps pass and the journey prints the
-  same lines; `modcar_kernel` tries every seam in the real game with a probe module, the faults among them: a
-  hook that throws, two hooks, a listener, a device that throws when asked for its shape, its word, on a press
-  and during a hold, a slice that hands out a circle, a storage that refuses the save, a system whose `init`
-  fails on one page and works on the next.
+  before the first edit to the game's files and after the last — the same steps pass, and the journey, the
+  restart and the panel print the same lines to the letter (of the save's lines one differs from run to run of
+  the same code: how far a test drive got on a live page); `modcar_kernel` tries every seam in the real game
+  with a probe module, the faults among them: a hook that throws, two hooks, a listener, a device that throws
+  when asked for its shape, its word, on a press and during a hold, a slice that hands out a circle, a storage
+  that refuses the save, a system whose `init` fails on one page and works on the next, a save written while
+  the clock waits out a step of negative seconds.
 
 ## 9. Left for later nodes, on purpose
 

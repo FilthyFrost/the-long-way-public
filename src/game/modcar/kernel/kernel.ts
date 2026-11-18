@@ -113,7 +113,9 @@ export class Kernel {
    *
    * A system that did not come up (its init threw, or the order of the systems cannot be) can neither take its
    * state back nor give it out: the slices its module brought are set aside before the save is read, their
-   * records kept as they came for the day it runs again.
+   * records kept as they came for the day it runs again. (Whose a slice is, is known from what each module
+   * brought when it was installed — its list, and what its setup registered. A slice registered later, from
+   * inside an init, is nobody's here, and is read whatever became of the system.)
    */
   async start(ctx: GameContext): Promise<void> {
     try {
