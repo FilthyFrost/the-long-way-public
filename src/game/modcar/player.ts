@@ -37,6 +37,7 @@ import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 import type { GarageDevice } from './garageStub';
+import type { InteractSources } from './kernel/interact';
 import type { CargoBay, StowAim } from './cargo';
 import type { CargoZone } from '../../core/modcar/cargo';
 
@@ -67,7 +68,8 @@ type Target = (
   /** a spray can on what takes paint (the body, a door, a lid, a bumper, a mirror; lying about too) */
   | { kind: 'paint'; aim: PaintAim; dist: number }
   | { kind: 'enter'; v: ModVehicle; dist: number }
-  | { kind: 'device'; device: GarageDevice; dist: number }
+  /** own: the device is one a V3 system put in the world (kernel/interact.ts): whatever its code throws is set apart */
+  | { kind: 'device'; device: GarageDevice; dist: number; own?: true }
   /** a fuel tank that is not a vehicle's (the generator's): empty hands open its cap, a jerrycan pours */
   | { kind: 'tank'; port: TankPort; dist: number }
   /** the thing in the hands held into a vehicle's boot, bed or seat: where it would go */
@@ -153,6 +155,8 @@ export interface PlayerHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
   readonly devices: readonly GarageDevice[];
+  /** more devices, handed out by where one stands: what the V3 systems put in the world (kernel/interact.ts); absent: none */
+  readonly interact?: InteractSources;
   /** the tanks that are not vehicles' (the generator's) */
   readonly tanks: readonly TankPort[];
   /** a vehicle's build changed: tell the systems, the view and any listeners (the checklist) */
@@ -716,22 +720,48 @@ export class ModPlayer {
       }
     }
     // garage devices
-    for (const dv of this.host.devices) {
-      // (one with a shape of its own: a cupboard's box, a pump's)
-      if (dv.hit) {
-        const d = dv.hit(this.ray, REACH + 0.3);
-        if (d !== null) better({ kind: 'device', device: dv, dist: d });
-        continue;
+    for (const dv of this.host.devices) this.markDevice(dv, better);
+    // … and the devices the V3 systems put in the world, the ones near where one stands (with none: nothing asked)
+    const sources = this.host.interact;
+    if (sources && !sources.empty) {
+      const near = this.nearDevices;
+      // (emptied by popping: a list cut to nothing with `length = 0` lets go of its store, and the next push allocates a new one)
+      while (near.length > 0) near.pop();
+      sources.near(this.eye.x, this.eye.z, REACH + 0.5, near);
+      for (let i = 0; i < near.length; i++) {
+        // (a system's device is its own code: one whose shape throws is reported and passed over, and the frame goes on)
+        try {
+          this.markDevice(near[i], better, true);
+        } catch (e) {
+          sources.fault(near[i], 'hit', e);
+        }
       }
-      const dx = dv.x - this.eye.x;
-      const dy = dv.y - this.eye.y;
-      const dz = dv.z - this.eye.z;
-      const d = Math.hypot(dx, dy, dz);
-      if (d > REACH + 0.5) continue;
-      const along = (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / d;
-      if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better({ kind: 'device', device: dv, dist: d });
+      while (near.length > 0) near.pop();
     }
     return best;
+  }
+
+  /** the systems' devices near, asked for every frame into the one list */
+  private readonly nearDevices: GarageDevice[] = [];
+
+  /**
+   * A device offered as what the mark is on, when the mark is on it (its own shape, or its point within its
+   * radius). own: it is one of a V3 system's, and the target says so.
+   */
+  private markDevice(dv: GarageDevice, better: (t: Target) => void, own = false): void {
+    // (one with a shape of its own: a cupboard's box, a pump's)
+    if (dv.hit) {
+      const d = dv.hit(this.ray, REACH + 0.3);
+      if (d !== null) better(own ? { kind: 'device', device: dv, dist: d, own } : { kind: 'device', device: dv, dist: d });
+      return;
+    }
+    const dx = dv.x - this.eye.x;
+    const dy = dv.y - this.eye.y;
+    const dz = dv.z - this.eye.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > REACH + 0.5) return;
+    const along = (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / d;
+    if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better(own ? { kind: 'device', device: dv, dist: d, own } : { kind: 'device', device: dv, dist: d });
   }
 
   /** of the panels a zone is reached through, the one nearest the eye */
@@ -870,6 +900,47 @@ export class ModPlayer {
     }
   }
 
+  /** E pressed on a device: the thing in the hands given to it when it takes that, else the device used (one that wants E held: by the hold) */
+  private pressDevice(dv: GarageDevice): void {
+    const host = this.host;
+    const take = this.held && dv.take ? dv.take(this.held) : null;
+    if (take) {
+      if (take.ok && dv.useWith) {
+        const h = this.held!;
+        this.held = null;
+        this.target = null;
+        dv.useWith(h);
+      } else host.ui.say(take.word[host.ui.lang], 2.2);
+      return;
+    }
+    // (one held down: holdDevice)
+    if (!dv.holdS) dv.use();
+  }
+
+  /** E held on a device that wants it held: its progress told, the device used when the hold is full; false: no hold on this device now */
+  private holdDevice(dv: GarageDevice, held: Held, dt: number): boolean {
+    if (!(dv.holdS && this.primary && !(held && dv.take?.(held)))) return false;
+    if (this.spent) return true;
+    this.progress += dt / dv.holdS;
+    dv.holding?.(Math.min(1, this.progress));
+    if (this.progress >= 1) {
+      this.progress = 0;
+      this.spent = true;
+      dv.use();
+    }
+    return true;
+  }
+
+  /** a device's card, and among what the buttons would do, its line */
+  private deviceWords(dv: GarageDevice, held: Held, acts: Action[]): ItemCard {
+    const ui = this.host.ui;
+    const card = deviceCard(dv);
+    const take = held && dv.take ? dv.take(held) : null;
+    if (take) acts.push({ keys: E, text: take.word[ui.lang], off: !take.ok });
+    else acts.push({ keys: E, hold: !!dv.holdS, text: dv.word[ui.lang] });
+    return card;
+  }
+
   private act(dt: number, dropKey: boolean): void {
     this.lastMoved = 0;
     if (!this.primary && !this.secondary) this.spent = false;
@@ -927,19 +998,14 @@ export class ModPlayer {
         }
       }
       if (t.kind === 'device') {
-        const dv = t.device;
-        const take = this.held && dv.take ? dv.take(this.held) : null;
-        if (take) {
-          if (take.ok && dv.useWith) {
-            const h = this.held!;
-            this.held = null;
-            this.target = null;
-            dv.useWith(h);
-          } else host.ui.say(take.word[host.ui.lang], 2.2);
-          return;
-        }
-        // (one held down: below)
-        if (!dv.holdS) dv.use();
+        if (t.own) {
+          // (a system's device: a press that throws is reported, and is over — the frame goes on)
+          try {
+            this.pressDevice(t.device);
+          } catch (e) {
+            host.interact?.fault(t.device, 'use', e);
+          }
+        } else this.pressDevice(t.device);
         return;
       }
       if (t.kind === 'tank' && !this.held) {
@@ -1086,16 +1152,18 @@ export class ModPlayer {
       }
       return;
     }
-    if (t?.kind === 'device' && t.device.holdS && this.primary && !(held && t.device.take?.(held))) {
-      if (this.spent) return;
-      this.progress += dt / t.device.holdS;
-      t.device.holding?.(Math.min(1, this.progress));
-      if (this.progress >= 1) {
-        this.progress = 0;
-        this.spent = true;
-        t.device.use();
-      }
-      return;
+    if (t?.kind === 'device') {
+      if (t.own) {
+        // (a system's device: a hold that throws is reported, and is over until E is let go — the frame goes on)
+        try {
+          if (this.holdDevice(t.device, held, dt)) return;
+        } catch (e) {
+          host.interact?.fault(t.device, 'hold', e);
+          this.progress = 0;
+          this.spent = true;
+          return;
+        }
+      } else if (this.holdDevice(t.device, held, dt)) return;
     }
     if (flowing && t.kind === 'tank' && held?.kind === 'tool') {
       // (a filling station's pump: E fills the can from it, at a pump's pace; nothing goes back into it)
@@ -1433,10 +1501,14 @@ export class ModPlayer {
           acts.push({ keys: E, text: `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
           break;
         case 'device': {
-          aim = deviceCard(t.device);
-          const take = held && t.device.take ? t.device.take(held) : null;
-          if (take) acts.push({ keys: E, text: take.word[ui.lang], off: !take.ok });
-          else acts.push({ keys: E, hold: !!t.device.holdS, text: t.device.word[ui.lang] });
+          if (t.own) {
+            // (a system's device: its words and its card are its own code — one that throws is reported and shown without them)
+            try {
+              aim = this.deviceWords(t.device, held, acts);
+            } catch (e) {
+              this.host.interact?.fault(t.device, 'word', e);
+            }
+          } else aim = this.deviceWords(t.device, held, acts);
           break;
         }
         case 'tank': {

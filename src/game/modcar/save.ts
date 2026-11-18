@@ -17,6 +17,8 @@ import type { PlacesSave } from './places';
 import { partDef } from '../../core/modcar/parts';
 import type { Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance } from '../../core/modcar/types';
+import type { ClockSave } from '../../core/kernel/clock';
+import type { SliceRecord } from '../../core/kernel/slices';
 
 export interface SavedVehicle {
   build: Build;
@@ -78,6 +80,17 @@ export interface SaveV1 {
   wrecks?: WrecksSave;
   /** the places by the road (§20): the containers searched and what is left in them, the pumps' litres, the things taken */
   places?: PlacesSave;
+  /**
+   * The V3 systems' parts of the save (core/kernel/slices.ts), by slice id: the version each was written with
+   * and its data. Read back slice by slice, tolerantly: one that does not read never sets the save aside, and
+   * one this build does not know is kept as it is. Absent in older saves and while no system keeps anything.
+   */
+  slices?: SliceRecord;
+  /**
+   * The world's clock (core/kernel/clock.ts): the day and the hour of the journey, and the hour it began at.
+   * Absent in older saves: their journey's clock begins at the hour they were saved at.
+   */
+  clock?: ClockSave;
 }
 
 const KEY = 'modcar.save.v1';
@@ -142,11 +155,13 @@ export function loadSave(): SaveV1 | null {
   }
 }
 
-export function writeSave(s: SaveV1): void {
+/** write the save; false when the browser would not keep it (its storage full or unavailable): the game goes on unsaved */
+export function writeSave(s: SaveV1): boolean {
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
+    return true;
   } catch {
-    // storage full or unavailable: the game goes on unsaved
+    return false;
   }
 }
 

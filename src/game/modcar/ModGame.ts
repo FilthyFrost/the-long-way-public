@@ -101,6 +101,10 @@ import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
 import { applyWheelMods } from '../../core/modcar/simlink';
+import type { WorldTime } from '../../core/kernel/clock';
+import type { GameContext } from './kernel/context';
+import { Kernel } from './kernel/kernel';
+import type { GameModule } from './kernel/modules';
 
 /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
 const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
@@ -233,7 +237,7 @@ class SolidList implements SolidSource {
   }
 }
 
-export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
+export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, GameContext {
   readonly core: RenderCore;
   readonly env: Environment;
   readonly input: InputManager;
@@ -408,12 +412,41 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
   readonly tune: Tune;
   readonly devTools: DevWorld;
 
+  // ------------------------------------------------------------------ the V3 kernel (docs/V3/nodes/N0-foundation.md)
+  // What a V3 system plugs into. The game itself is the context every system is handed (kernel/context.ts);
+  // the kernel's six parts stand here under the names the context gives them.
+
+  /** the kernel: its parts, and what is done with them at the game's fixed moments (kernel/kernel.ts) */
+  readonly kernel = new Kernel({
+    now: () => performance.now(),
+    // (a fault set apart is said in a line, but not into a screenshot)
+    say: (text, seconds) => {
+      if (!this.params.shot) this.ui.say(text, seconds);
+    },
+  });
+  /** what happened, said and heard: the systems' events and the game's own (kernel/context.ts lists those) */
+  readonly events = this.kernel.events;
+  /** the systems and their hooks in the frame (preStep, step, lateUpdate), each timed against its budget */
+  readonly systems = this.kernel.systems;
+  /** each system's part of the save */
+  readonly slices = this.kernel.slices;
+  /** the world's time: saved, never backwards; it follows the hour the environment shows */
+  readonly clock: WorldTime = this.kernel.clock;
+  /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
+  readonly interact = this.kernel.interact;
+  /** the systems' tabs of the developer's panel */
+  readonly devTabs = this.kernel.devTabs;
+  /** the payload of body:drank, used again every frame a drink flows */
+  private readonly drankEvent: { liquid: 'water' | 'alcohol' | 'energy'; litres: number } = { liquid: 'water', litres: 0 };
+
   constructor(
     canvas: HTMLCanvasElement,
     readonly params: ModParams,
     /** a game in progress to go on with (save.ts), or null for a new one */
     private readonly restore: SaveV1 | null = null,
     tune?: Tune,
+    /** the V3 modules to install (the page hands in the ones kernel/discovery.ts found; none: the game as it is without them) */
+    modules: readonly GameModule[] = [],
   ) {
     if (tune) this.tune = tune;
     else {
@@ -472,9 +505,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     }
     if (this.garage) this.player.addSolids(this.garage.solids);
     if (!this.garage || this.seamless) this.worldSolids();
-    this.ready = this.populate();
+    // the V3 kernel: its clock set (a journey begins at the hour the page starts at; a save with a clock goes on
+    // from its own) and the modules installed before anything is stepped; their systems are set up once the
+    // garage, the vehicles and the things lying about are there, and then the save's slices are read
+    this.kernel.install(modules, this, this.env.clock.hourAt(0), this.restore);
+    this.ready = this.populate().then(() => this.kernel.start(this));
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
+  }
+
+  /**
+   * The V3 systems taken down, the last set up first (a new game: the page is about to go). The rest of the
+   * game has no teardown of its own: it ends with its page.
+   */
+  dispose(): void {
+    this.kernel.dispose();
   }
 
   get origin(): { x: number; y: number; z: number } {
@@ -1242,10 +1287,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       if (side) this.ui.say(side === 'drunk' ? '药劲上头了，有点晕……' : '肚子不太舒服……', 2.4);
     }
     this.ui.say(`${d.cat === 'med' ? '吃了' : '吃完了'}${d.name.zh}。`, 1.6);
+    this.events.emit('body:ate', { item });
   }
 
   drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void {
     drinkVital(this.body, liquid, litres);
+    // (said every frame the drink flows: only when someone listens, and with the one payload)
+    if (this.events.has('body:drank')) {
+      const e = this.drankEvent;
+      e.liquid = liquid;
+      e.litres = litres;
+      this.events.emit('body:drank', e);
+    }
   }
 
   /** one died: a first-aid kit carried brings one up again; else the restore points */
@@ -1550,6 +1603,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
+    // (the V3 systems' parts, where any has something to keep, and the world's clock)
+    this.kernel.write(s);
     return s;
   }
 
@@ -1558,7 +1613,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     if (this.saveOff || !this.params.keep || this.deadT >= 0) return;
     const s = this.snapshot();
     if (s) {
-      writeSave(s);
+      // (a save the browser will not keep was a silent thing; with the systems' parts in it, and six restore
+      // points beside it, a full storage is nearer: said once, and it is the test hook's last error)
+      if (!writeSave(s)) this.kernel.report('save', new Error('the browser would not keep the save (its storage is full or shut): the game goes on unsaved'), '存档没能写进去：浏览器的存储满了或者用不了，眼下的进度存不下来。');
       this.keepGrime();
     }
   }
@@ -1657,6 +1714,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.saveOff = true;
     clearSave();
     void forgetMasks();
+    // (the V3 systems' parts of the save and the world's clock: as a new game starts, and said)
+    this.kernel.newGame(this.env.clock.hourAt(this.time));
     // (a new world each new game, Arctic Drive's: a seed of its own for it, kept with its save from then on)
     try {
       localStorage.setItem(NEW_SEED_KEY, String(1 + Math.floor(Math.random() * 999_999)));
@@ -1664,6 +1723,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       /* storage unavailable: the first world again */
     }
     const quality = new URLSearchParams(location.search).get('quality');
+    this.dispose();
     location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
 
@@ -3508,6 +3568,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       this.saveT = 0;
       this.save();
     }
+    // the V3 systems, before the body, the player and the vehicles are stepped
+    this.systems.preStep(dt, this);
     const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || this.pad.run;
     this.stepBody(dt, shift);
     {
@@ -3610,6 +3672,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.stepCones(dt);
     this.provingRun?.update(dt);
     this.loose.update(dt);
+    // the V3 systems, after the vehicles and the loose things have moved and before any view
+    this.systems.step(dt, this);
     this.throwSparks(dt);
     this.kickDust(dt);
     this.checkTutorial();
@@ -4096,6 +4160,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.updateSplashes(dt);
     // indoors the eye opens up
     if (this.garage) core.exposure *= this.garage.exposureAt(cam.position.x + o.x, cam.position.y + o.y, cam.position.z + o.z);
+    // the world's clock goes on to this frame's hour; then the V3 systems, the camera, the origin and the weather final
+    this.kernel.tick(this.env.sky, this);
+    this.systems.lateUpdate(dt, this);
     this.ui.update(dt);
     this.updateHudBits();
     this.updateAudio();
@@ -4624,6 +4691,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       wipers: v ? { ...v.view.wipe, dirt: v.build.dirt, crust: v.build.crust ?? 0, blades: v.view.wipers.length } : null,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
+      kernel: this.kernel.telemetry(),
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };
