@@ -42,7 +42,8 @@ describe('the plant catalogue and the tables', () => {
     expect(() => plantDef('no_such_plant')).toThrow();
     for (const id of Object.keys(FLORA)) expect(floraTableProblems(id, FLORA[id]), id).toEqual([]);
     for (const b of BIOMES.slice(0, 6)) expect(FLORA[b.id], b.id).toBeDefined();
-    expect(floraTableOf('a_region_without_a_table', 'desert')).toBe(FLORA.desert);
+    expect(floraTableOf('a_region_without_a_table', 'desert').eco).toBe(FLORA.desert.eco);
+    expect(floraTableOf('desert', 'desert')).toBe(floraTableOf('a_region_without_a_table', 'desert'));
   });
 
   it('a band is 1 inside, 0 well outside, and falls smoothly between', () => {

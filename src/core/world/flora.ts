@@ -18,7 +18,7 @@
 import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_WET, ROAD_CLEAR, Ecotope, type EcoParams, type EcotopeField } from './ecotope';
-import { plantIndex, PLANTS } from './plants';
+import { AQUATIC_DEPTH, plantIndex, PLANTS } from './plants';
 import { TerrainPoint, type World } from './terrain';
 
 /** the layers, the side of a cell of each (m) */
@@ -220,7 +220,10 @@ export class FloraField {
     // the exact ground under it: not in water, not on a place's ground or a plot, not on the road's own bed
     const tp = this.tp;
     this.world.shape(x, z, tp);
-    if (tp.zone !== 0 || tp.site > 0.02 || tp.plot > 0.02 || tp.wl > tp.bed + 0.02) return false;
+    if (tp.zone !== 0 || tp.site > 0.02 || tp.plot > 0.02) return false;
+    const depth = tp.wl - tp.bed;
+    // a plant of the water stands in the shallows and nowhere else; every other plant stands on dry ground
+    if (PLANTS[lay.plants[pick]].aquatic ? !(depth > 0.02 && depth <= AQUATIC_DEPTH) : depth > 0.02) return false;
     const r = rules[pick];
     const s0 = r.size ? r.size[0] : 0.75;
     const s1 = r.size ? r.size[1] : 1.2;
