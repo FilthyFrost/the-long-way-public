@@ -7,15 +7,32 @@ import { Rng } from '../../src/core/math/rng';
 import { VehicleSim } from '../../src/core/vehicle/sim';
 import { T0_TRUCK, type VehicleSpec } from '../../src/core/vehicle/spec';
 import { BIOMES, MIN_RADIUS_ANY, minRadius } from '../../src/core/world/biomes';
-import { BiomeBlend, RoadSpine, SpineSample } from '../../src/core/world/spine';
-import { ROAD_EDGE, ROAD_HALF, TerrainPoint, World } from '../../src/core/world/terrain';
+import { BiomeBlend, RoadSpine, SpineSample, type SpineOptions } from '../../src/core/world/spine';
+import { ROAD_EDGE, ROAD_HALF, TerrainPoint, World, type WorldOptions } from '../../src/core/world/terrain';
 import type { Metrics } from './scenarios';
 
 const DEG = 180 / Math.PI;
 const FULL = process.env.FULL === '1';
 
-function spineChecks(): Metrics {
-  const seeds = FULL ? 1000 : 150;
+/** which roads the spine's rules are checked on (absent: the card's own, 150 roads of world version 1 with short chapters) */
+export interface SpineRun {
+  seeds?: number;
+  road?: SpineOptions;
+}
+
+/** which worlds the land's rules are checked on (absent: the card's own, 10 worlds of version 1 with short chapters) */
+export interface TerrainRun {
+  seeds?: number;
+  world?: WorldOptions;
+  /** how far down the road the land is sampled (m; absent: 22 km), fixed or by the world (a chapter's end) */
+  reach?: number | ((w: World) => number);
+  /** time the height function too (the card does; a run over many kinds of world need not) */
+  cost?: boolean;
+}
+
+export function spineChecks(run: SpineRun = {}): Metrics {
+  const seeds = run.seeds ?? (FULL ? 1000 : 150);
+  const road = run.road ?? { chapterScale: 0.25 };
   const len = 30000;
   let maxPhi = 0;
   let maxGrade = 0;
@@ -31,7 +48,7 @@ function spineChecks(): Metrics {
   const bl = new BiomeBlend();
   const biomeKm = new Array(BIOMES.length).fill(0);
   for (let seed = 1; seed <= seeds; seed++) {
-    const sp = new RoadSpine(seed, { chapterScale: 0.25 });
+    const sp = new RoadSpine(seed, road);
     sp.ensure(len);
     const n = Math.floor(len / sp.ds);
     for (let i = 1; i < n; i++) {
@@ -59,7 +76,7 @@ function spineChecks(): Metrics {
     }
     // determinism: a second generator, grown in small bites, must give the same road
     if (seed <= 40) {
-      const sp2 = new RoadSpine(seed, { chapterScale: 0.25 });
+      const sp2 = new RoadSpine(seed, road);
       for (let s = 0; s < 6000; s += 137) sp2.ensure(s);
       if (sp2.hash(2500) !== sp.hash(2500)) mism++;
     }
@@ -81,8 +98,8 @@ function spineChecks(): Metrics {
   return out;
 }
 
-function terrainChecks(): Metrics {
-  const seeds = FULL ? 40 : 10;
+export function terrainChecks(run: TerrainRun = {}): Metrics {
+  const seeds = run.seeds ?? (FULL ? 40 : 10);
   const tp = new TerrainPoint();
   const st = new SpineSample();
   let surfaceErr = 0;
@@ -93,12 +110,13 @@ function terrainChecks(): Metrics {
   let maxVergeSlope = 0;
   let samples = 0;
   for (let seed = 1; seed <= seeds; seed++) {
-    const w = new World(seed * 31 + 7, { chapterScale: 0.25 });
+    const w = new World(seed * 31 + 7, run.world ?? { chapterScale: 0.25 });
     const sp = w.spine;
     const rng = new Rng(seed);
-    sp.ensure(24000);
+    const reach = typeof run.reach === 'function' ? run.reach(w) : (run.reach ?? 22000);
+    sp.ensure(reach + 2000);
     for (let k = 0; k < 6000; k++) {
-      const s = rng.range(50, 22000);
+      const s = rng.range(50, reach);
       sp.at(s, st);
       const nx = -Math.sin(st.phi);
       const nz = Math.cos(st.phi);
@@ -130,7 +148,7 @@ function terrainChecks(): Metrics {
     }
     // 5) continuity: straight walks across the corridor
     for (let k = 0; k < 60; k++) {
-      const s = rng.range(200, 22000);
+      const s = rng.range(200, reach);
       sp.at(s, st);
       const ang = rng.range(0, Math.PI * 2);
       const dx = Math.cos(ang) * 0.5;
@@ -156,6 +174,16 @@ function terrainChecks(): Metrics {
       }
     }
   }
+  const checks: Metrics = {
+    terrain_samples: samples,
+    terrain_road_surface_errors: surfaceErr,
+    terrain_projection_errors: projErr,
+    terrain_road_seam_gap_cm: seam * 100,
+    terrain_max_step_near_m: maxStepNear,
+    terrain_max_kink_m: maxKink,
+    terrain_max_verge_slope: maxVergeSlope,
+  };
+  if (run.cost === false) return checks;
   // 6) cost
   const w = new World(4242, { chapterScale: 0.25 });
   w.spine.ensure(8000);
@@ -182,18 +210,7 @@ function terrainChecks(): Metrics {
     chunks.push(performance.now() - t0);
   }
   const chunkMs = quartile(chunks);
-  return {
-    terrain_samples: samples,
-    terrain_road_surface_errors: surfaceErr,
-    terrain_projection_errors: projErr,
-    terrain_road_seam_gap_cm: seam * 100,
-    terrain_max_step_near_m: maxStepNear,
-    terrain_max_kink_m: maxKink,
-    terrain_max_verge_slope: maxVergeSlope,
-    terrain_height_us: usPer,
-    terrain_chunk_ms: chunkMs,
-    terrain_checksum: Number.isFinite(acc) ? 1 : 0,
-  };
+  return { ...checks, terrain_height_us: usPer, terrain_chunk_ms: chunkMs, terrain_checksum: Number.isFinite(acc) ? 1 : 0 };
 }
 
 export interface RobotRun {
