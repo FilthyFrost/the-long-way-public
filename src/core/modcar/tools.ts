@@ -115,6 +115,21 @@ const FUEL_NAME: Record<FuelType, Text> = {
 };
 
 let n = 0;
+
+/** a uid's number past this is none of ours (a counter of whole numbers could never get there, and counted on from there it would no longer move) */
+const UID_MAX = 2 ** 50;
+
+/** tools read back from a save keep their ids: new ones are numbered past them (as reserveItemUids does for things) */
+export function reserveToolUids(uids: readonly string[]): void {
+  for (const u of uids) {
+    if (typeof u !== 'string') continue;
+    const k = /^t([0-9a-z]+)$/.exec(u);
+    if (!k) continue;
+    const v = parseInt(k[1], 36);
+    if (v < UID_MAX && v > n) n = v;
+  }
+}
+
 export function newTool(kind: ToolKind, o: Partial<Tool> = {}): Tool {
   n++;
   const cleans = kind === 'sponge' || kind === 'scraper' || kind === 'brush';
