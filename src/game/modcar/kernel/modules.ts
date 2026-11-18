@@ -33,7 +33,9 @@ export interface GameModule {
   /**
    * Called once when the game is constructed, after the lists above are registered: subscribe to events, or
    * register by hand what depends on the game. The vehicles and the things lying about are not there yet
-   * (a system's `init` runs when they are).
+   * (a system's `init` runs when they are). Make nothing here, or in an `init`, that draws a uid (a part, an
+   * item, a tool): the save's slices have not been read yet, and the uids they hold are not reserved until
+   * they are — a new game's content is made on `game:new`.
    */
   setup?(ctx: GameContext): void;
 }
