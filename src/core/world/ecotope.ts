@@ -38,6 +38,12 @@ export const ECO_PLOT = 8;
 /** nothing grows this near the road's centre line (m): the pavement, the shoulder, the ditch */
 export const ROAD_CLEAR = 7.5;
 
+/** the squares of the grid along a tile's side, and in a tile */
+export const ECO_SQ = ECO_N - 1;
+const SQUARES = ECO_SQ * ECO_SQ;
+/** a square of the grid is open ground only if water is at least this far from each of its corners (m): more than a square's half diagonal */
+export const OPEN_WATER = 8;
+
 /** how a region's country is wooded and how wet it is, where nothing else speaks (a region carries one of these) */
 export interface EcoParams {
   /** how much of the land is under trees: 0 none, 0.5 about half, 1 nearly all */
@@ -100,6 +106,15 @@ export class EcoTile {
   readonly ra = new Uint8Array(NODES);
   readonly rb = new Uint8Array(NODES);
   readonly rt = new Float32Array(NODES);
+  /**
+   * For every square of the grid (ECO_SQ a side, row by row; square (i, j) has node (i, j) at its low
+   * corner): 1 where it is open ground for certain — none of the sixteen nodes on and round it is road,
+   * water, a place's ground or a plot, and water is at least OPEN_WATER m from each of its corners. A road,
+   * a place, a plot or a water wider than a few metres that touched the square would hold one of those
+   * nodes; so whatever stands anywhere in an open square stands on dry land that is nobody's, and need
+   * not ask the land to make sure.
+   */
+  readonly open = new Uint8Array(SQUARES);
   /** when it was last asked for (the cache drops the longest unasked) */
   used = 0;
 
@@ -173,6 +188,8 @@ export class EcotopeField {
   private readonly tiles = new Map<number, EcoTile>();
   private clock = 0;
   private readonly H = new Float64Array(WIDE * WIDE);
+  /** what each node of the wide grid is besides open land (the flags of the tile's own nodes and of the ring round them) */
+  private readonly F = new Uint8Array(WIDE * WIDE);
   private readonly shoreOut = { dist: WATER_FAR, kind: 0 };
 
   constructor(
@@ -180,8 +197,8 @@ export class EcotopeField {
     private readonly tp: TerrainPoint,
     private readonly paramsOf: (region: number) => EcoParams,
     private readonly shore: ShoreReader | null = null,
-    /** how many tiles are kept */
-    private readonly cap = 320,
+    /** how many tiles are kept (whoever asks for more tiles at a time than this may raise it) */
+    public capacity = 320,
   ) {}
 
   /** how many tiles are in the cache now (for the tests and the budget's report) */
@@ -195,7 +212,7 @@ export class EcotopeField {
     const key = (tx + 32768) * 65536 + (tz + 32768);
     let t = this.tiles.get(key);
     if (!t) {
-      if (this.tiles.size >= this.cap) this.evict();
+      if (this.tiles.size >= this.capacity) this.evict();
       t = this.build(new EcoTile(tx, tz));
       this.tiles.set(key, t);
     }
@@ -229,14 +246,16 @@ export class EcotopeField {
         const z = z0 + j * ECO_STEP;
         w.shape(x, z, tp);
         H[(j + 1) * WIDE + i + 1] = tp.bed;
+        const ad = tp.d < 0 ? -tp.d : tp.d;
+        const wet = tp.wl > tp.bed + 0.02;
+        const flags = (ad < ROAD_CLEAR || tp.zone !== 0 ? ECO_ROAD : 0) | (wet ? ECO_WET : 0) | (tp.site > 0.02 ? ECO_SITE : 0) | (tp.plot > 0.02 ? ECO_PLOT : 0);
+        this.F[(j + 1) * WIDE + i + 1] = flags;
         if (i < 0 || j < 0 || i >= ECO_N || j >= ECO_N) continue;
         const n = j * ECO_N + i;
-        const ad = tp.d < 0 ? -tp.d : tp.d;
         t.h[n] = tp.bed;
         t.ad[n] = ad;
         t.relief[n] = tp.relief;
-        const wet = tp.wl > tp.bed + 0.02;
-        t.flags[n] = (ad < ROAD_CLEAR || tp.zone !== 0 ? ECO_ROAD : 0) | (wet ? ECO_WET : 0) | (tp.site > 0.02 ? ECO_SITE : 0) | (tp.plot > 0.02 ? ECO_PLOT : 0);
+        t.flags[n] = flags;
         t.waterKind[n] = wet ? tp.wkind : 0;
         t.ra[n] = tp.ba;
         t.rb[n] = tp.bb;
@@ -278,6 +297,19 @@ export class EcotopeField {
         if (t.flags[n] & (ECO_WET | ECO_ROAD)) canopy = 0;
         t.canopy[n] = canopy;
         t.moisture[n] = t.flags[n] & ECO_WET ? 1 : moist;
+      }
+    }
+    // the open squares: nothing but land at the sixteen nodes on and round each, and no water near its corners
+    const F = this.F;
+    const d = t.waterDist;
+    for (let j = 0; j < ECO_SQ; j++) {
+      for (let i = 0; i < ECO_SQ; i++) {
+        // (node (i, j) of the tile is node (i + 1, j + 1) of the wide grid: the sixteen begin one before it)
+        const c = j * WIDE + i;
+        let any = 0;
+        for (let r = 0; r < 4; r++) any |= F[c + r * WIDE] | F[c + r * WIDE + 1] | F[c + r * WIDE + 2] | F[c + r * WIDE + 3];
+        const n = j * ECO_N + i;
+        t.open[j * ECO_SQ + i] = any === 0 && d[n] >= OPEN_WATER && d[n + 1] >= OPEN_WATER && d[n + ECO_N] >= OPEN_WATER && d[n + ECO_N + 1] >= OPEN_WATER ? 1 : 0;
       }
     }
     return t;
