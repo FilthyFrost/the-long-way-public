@@ -9,6 +9,16 @@
  * Read `world` and `seated` each time they are needed, never keep them: the world is null in the stand-in
  * garage until one drives out, and the seat changes.
  *
+ * Two things about time that a system's author would otherwise have to guess:
+ *
+ *   - The environment is first brought up to date in the first frame, between `step` and `lateUpdate`. In
+ *     `setup`, in `init` and in the first frame's `preStep` and `step`, `env.sky` and `env.state` are still what
+ *     the environment was made with (noon, and the weather's first state), not the hour and the weather of the
+ *     game. `clock` is right from the start: before the first `lateUpdate`, read the hour from `clock.hour`.
+ *   - A hook is never handed negative seconds, though the game's own first frame can be a step of them (its
+ *     loop's first time stamp may lie before the time the loop was started at): the hooks are then handed none.
+ *     Every other part of the game, `env` among them, is stepped back by that little all the same, once.
+ *
  * This file also declares the events the game itself emits (the list is open: core/kernel/events.ts).
  */
 import type { EventBus, GameEvents, NoPayload } from '../../../core/kernel/events';
@@ -35,7 +45,7 @@ export interface GameContext {
   readonly systems: SystemRegistry<GameContext>;
   /** each system's part of the save (core/kernel/slices.ts) */
   readonly slices: SaveSliceRegistry;
-  /** the world's time: saved, never backwards (core/kernel/clock.ts) */
+  /** the world's time: saved, never backwards; right from `setup` on (core/kernel/clock.ts) */
   readonly clock: WorldTime;
   /** things in the world the mark finds and E works (interact.ts) */
   readonly interact: InteractSources;
@@ -47,7 +57,7 @@ export interface GameContext {
   readonly params: ModParams;
   /** the renderer: the scene, the camera, the floating origin (place things with `core.place`, in lateUpdate) */
   readonly core: RenderCore;
-  /** the hour's light and the weather (`env.state`; during preStep and step it is still last frame's) */
+  /** the hour's light and the weather (`env.sky`, `env.state`): during preStep and step still last frame's, and before the first frame's lateUpdate not yet the game's at all (see above) */
   readonly env: Environment;
   /** the world; null in the stand-in garage until one drives out */
   readonly world: World | null;

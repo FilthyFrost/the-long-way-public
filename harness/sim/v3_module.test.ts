@@ -4,30 +4,65 @@
  * a system can be written against them alone: how modules are found and installed, the set of interactable
  * sources, the registry of developer tabs, and an example module (harness/sim/v3/example) that uses every seam
  * and is played here from a new game to a save, a reload, a midnight and a new game again by a stand-in for
- * the game (harness/sim/v3/fakeGame.ts) that drives the kernel in the real game's order.
+ * the game (harness/sim/v3/fakeGame.ts) that holds the kernel the real game holds (kernel/kernel.ts) and calls
+ * it at the real game's moments.
+ *
+ * Nothing here depends on which modules the game itself has: the tests hold with none (today) and with any.
  */
+import { performance } from 'node:perf_hooks';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { DayClock } from '../../src/core/env/time';
 import type { System } from '../../src/core/kernel/systems';
 import type { GarageDevice } from '../../src/game/modcar/garageStub';
 import type { GameContext } from '../../src/game/modcar/kernel/context';
 import { BUILT_IN_DEV_TABS, DevTabs, type DevTab } from '../../src/game/modcar/kernel/devTabs';
 import { InteractSources, type InteractSource } from '../../src/game/modcar/kernel/interact';
-import { collectModules, installModules, MODULES, type GameModule } from '../../src/game/modcar/kernel/modules';
-import { exampleModule, type BerriesSavedV1 } from './v3/example';
+import { collectModules, installModules, type GameModule } from '../../src/game/modcar/kernel/modules';
+import { exampleModule, type BerriesSaved, type BerriesSavedV1 } from './v3/example';
 import { FakeGame } from './v3/fakeGame';
-import { ALLOCATES, heapGrowth } from './v3/heap';
+import { ALLOCATES, HEAP_RUNS, heapGrowth } from './v3/heap';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/** every .ts file under a folder of the repository */
+function sources(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`;
+    if (e.isDirectory()) out.push(...sources(rel));
+    else if (e.name.endsWith('.ts')) out.push(rel);
+  }
+  return out;
+}
 
 // ------------------------------------------------------------------ finding and installing modules
 
 describe('kernel: modules', () => {
-  it('the game itself has no V3 module yet: it runs as it did', () => {
-    expect(MODULES).toEqual([]);
-    expect(fs.existsSync(path.join(ROOT, 'src/game/modcar/v3'))).toBe(false);
+  it('the game finds one module for every folder under src/game/modcar/v3 that has an index.ts, in the order of their ids', async () => {
+    const dir = path.join(ROOT, 'src/game/modcar/v3');
+    const folders = fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs.existsSync(path.join(dir, e.name, 'index.ts'))) : [];
+    // (imported here and not at the top of the file: this evaluates every real module with all it imports, and
+    // one that cannot be imported in Node then fails this one test, by name)
+    const found = await import('../../src/game/modcar/kernel/discovery').catch((e: unknown) => {
+      throw new Error(`a V3 module could not be imported in Node (nothing at a module's top level may touch the page): ${e instanceof Error ? e.message : String(e)}`);
+    });
+    const ids = found.MODULES.map((m) => m.id);
+    expect(ids).toHaveLength(folders.length);
+    expect(ids).toEqual([...ids].sort());
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9_-]*$/);
+  });
+
+  it('only the page’s entry imports the discovery, and nothing else in the kernel needs the bundler', () => {
+    // (whatever imports kernel/discovery.ts cannot run in plain Node and evaluates every real module: the game's
+    // other files and the tests' stand-in must not; this file imports it inside the one test above)
+    const importers = [...sources('src'), ...sources('harness/sim')].filter((f) => /from '[^']*kernel\/discovery'/.test(fs.readFileSync(path.join(ROOT, f), 'utf8')));
+    expect(importers).toEqual(['src/game/modcar/entry.ts']);
+    const globbing = [...sources('src/game/modcar/kernel'), ...sources('src/core/kernel'), ...sources('harness/sim/v3')].filter((f) => /import\.meta\.glob\(/.test(fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '')));
+    expect(globbing).toEqual(['src/game/modcar/kernel/discovery.ts']);
   });
 
   it('finds every folder with an index.ts whose default export is a module (here: the example, by the same glob the game uses)', () => {
@@ -83,6 +118,33 @@ describe('kernel: modules', () => {
     expect(failed).toEqual(['broken: no table']);
     expect(log).toEqual(['setup sees: true, one, 1, true']);
     expect(game.systems.ids()).toEqual(['before-the-throw', 'one']);
+  });
+
+  it('says what each module brought: its lists, and what its setup registered by hand', () => {
+    const game = new FakeGame([]);
+    const parts = installModules(
+      [
+        { id: 'plain', systems: [{ id: 'plain' }], slices: [{ id: 'plain', version: 1, snapshot: () => 1, restore: () => {} }] },
+        { id: 'nothing' },
+        {
+          id: 'by-hand',
+          systems: [{ id: 'listed' }],
+          setup: (ctx) => {
+            ctx.systems.add({ id: 'added-in-setup' });
+            ctx.slices.register({ id: 'registered-in-setup', version: 1, snapshot: () => 1, restore: () => {} });
+          },
+        },
+        { id: 'half', slices: [{ id: 'half', version: 1, snapshot: () => 1, restore: () => {} }], setup: () => { throw new Error('stops here'); } },
+      ],
+      game.ctx,
+      () => {},
+    );
+    expect(parts).toEqual([
+      { id: 'plain', systems: ['plain'], slices: ['plain'] },
+      { id: 'nothing', systems: [], slices: [] },
+      { id: 'by-hand', systems: ['listed', 'added-in-setup'], slices: ['registered-in-setup'] },
+      { id: 'half', systems: [], slices: ['half'] },
+    ]);
   });
 });
 
@@ -473,6 +535,156 @@ describe('kernel: an example module against the interfaces alone', () => {
     expect(m.berries.ran).toMatchObject({ pre: 3, step: 3, late: 3 });
     expect(game.reports).toEqual(['system broken (step): nil herd', 'system broken (step): nil herd', 'system broken (step): nil herd']);
     expect(game.systems.telemetry().broken.errors).toBe(3);
+    // (written out once, and the player told once)
+    expect(game.written).toEqual(['error: [kernel] system broken (step)']);
+    expect(game.said).toEqual(['出了个小错，已跳过，游戏继续。']);
+  });
+
+  it('writes a fault out and says it once per kind, however many hooks throw and for however long', async () => {
+    const boom = (phase: string) => (): void => {
+      throw new Error(`nil herd in ${phase}`);
+    };
+    const m = exampleModule();
+    const game = await new FakeGame([{ id: 'aaa-broken', systems: [{ id: 'broken', preStep: boom('pre'), step: boom('step'), lateUpdate: boom('late') }] }, m]).start();
+    // (ten seconds of a system with broken state: it throws in each of its three hooks, every frame)
+    for (let i = 0; i < 600; i++) game.frame();
+    expect(game.reports).toHaveLength(1800);
+    expect(game.kernel.log).toEqual({ last: 'system broken (lateUpdate): nil herd in late', count: 1800 });
+    expect(game.written).toEqual(['error: [kernel] system broken (preStep)', 'error: [kernel] system broken (step)', 'error: [kernel] system broken (lateUpdate)']);
+    expect(game.said).toEqual(['出了个小错，已跳过，游戏继续。', '出了个小错，已跳过，游戏继续。', '出了个小错，已跳过，游戏继续。']);
+    expect(m.berries.ran).toMatchObject({ pre: 600, step: 600, late: 600 });
+    // a fault whose words change every time is a new kind every time: two dozen are written and said, the rest counted
+    let n = 0;
+    const counting = await new FakeGame([{ id: 'counting', systems: [{ id: 'counting', step: () => { throw new Error(`bush ${n++} is gone`); } }] }]).start();
+    for (let i = 0; i < 500; i++) counting.frame();
+    expect(counting.reports).toHaveLength(500);
+    expect(counting.written.filter((w) => w.startsWith('error: '))).toHaveLength(24);
+    expect(counting.written.at(-1)).toBe('warn: [kernel] 24 kinds of fault so far: further kinds are only counted');
+    expect(counting.said).toHaveLength(24);
+    expect(counting.kernel.telemetry()).toMatchObject({ lastError: 'system counting (step): bush 499 is gone', errors: 500 });
+    // (whatever was thrown, the report itself does not throw)
+    expect(() => counting.kernel.report('odd', Object.create(null))).not.toThrow();
+    expect(counting.kernel.log.last).toBe('odd: something that cannot be put into words');
+  });
+
+  it('a system that does not come up keeps what the save has of it: its slice is set aside, not emptied', async () => {
+    // the first page: three bushes picked, saved
+    const first = await play(null, { seed: 9 });
+    for (const i of [0, 3, 5]) first.berries.harness.pick(i);
+    const save1 = first.game.saved();
+    const record = save1.slices!.example;
+    expect(Object.keys((record.d as BerriesSaved).bare)).toEqual(['0', '3', '5']);
+    // the second page: the system's init fails (a model would not load, this once)
+    const m = exampleModule();
+    (m.berries as { init: unknown }).init = (): void => {
+      throw new Error('a model would not load');
+    };
+    const second = await new FakeGame([m], save1, { seed: 9 }).start();
+    expect(second.reports).toEqual(['system example (init): a model would not load']);
+    expect(second.systems.telemetry().example.failed).toBe(true);
+    expect(second.slices.heldIds).toEqual(['example']);
+    expect(second.written).toEqual(['error: [kernel] system example (init)', 'warn: [kernel] save slice example (version 2) is kept unread: its system is not running']);
+    // (nothing was handed to a system that never laid its bushes out)
+    expect([m.berries.picked, m.berries.bushes.length]).toEqual([0, 0]);
+    for (let i = 0; i < 5; i++) second.frame();
+    expect(m.berries.ran).toMatchObject({ pre: 0, step: 0, late: 0 });
+    // its next autosave: the record as it came
+    const save2 = second.saved();
+    expect(save2.slices!.example).toEqual(record);
+    // the third page, on which the model loads: everything is there
+    const third = await play(save2, { seed: 9 });
+    expect(third.berries.bare()).toEqual([0, 3, 5]);
+    expect(third.berries.picked).toBe(first.berries.picked);
+    expect(third.game.reports).toEqual([]);
+    // (a new game on a page whose system is down: nothing to keep, nothing written, nothing asked of it)
+    const down = exampleModule();
+    (down.berries as { init: unknown }).init = (): void => {
+      throw new Error('a model would not load');
+    };
+    const fresh = await new FakeGame([down]).start();
+    expect(fresh.snapshot().slices).toBeUndefined();
+    expect(down.berries.began).toBe('new');
+  });
+
+  it('when the systems cannot be ordered none runs and none of their slices is read: every record goes on as it came', async () => {
+    const save = { hour: 10, slices: { example: { v: 2, d: { bare: { 5: 0 }, picked: 4 } }, lone: { v: 1, d: 'of a module without a system' } } };
+    const m = exampleModule();
+    const lone = { value: '' };
+    const game = await new FakeGame(
+      [m, { id: 'needy', systems: [{ id: 'needy', after: ['nobody'] }] }, { id: 'lone', slices: [{ id: 'lone', version: 1, snapshot: () => lone.value, restore: (d: string) => void (lone.value = d) }] }],
+      save,
+    ).start();
+    expect(game.reports).toEqual(["systems: the system 'needy' is to come after 'nobody', but no system with that id is registered (there are: example, needy)"]);
+    expect(m.berries.ran.init).toBe(0);
+    // (the slice of the module whose system is not up is set aside; the one of a module with no system is read)
+    expect(game.slices.heldIds).toEqual(['example']);
+    expect(lone.value).toBe('of a module without a system');
+    game.frame();
+    expect(game.saved().slices).toEqual(save.slices);
+    // the game itself goes on, and says how it began
+    expect(m.berries.began).toBe('restored');
+  });
+
+  it('a slice that will not read starts as new, and the record it could not read is kept beside it', async () => {
+    const bad = { v: 2, d: { bare: null, picked: 30 } };
+    const { game, berries } = await play({ hour: 10, slices: { example: bad } });
+    expect(game.reports).toHaveLength(1);
+    expect(game.reports[0]).toMatch(/^save slice example \(restore\): /);
+    expect([berries.picked, berries.bare()]).toEqual([0, []]);
+    berries.harness.pick(2);
+    const save = game.saved();
+    expect(save.slices).toEqual({ example: { v: 2, d: { bare: { 2: 0 }, picked: berries.bushes[2].berries } }, 'example.unread': bad });
+  });
+
+  it('a first frame of negative seconds: the hooks are handed none, the world’s clock waits, and a save written then is taken up without a day gone by', async () => {
+    /** a step as the game makes it: the session's time goes on, and the environment shows the hour at that time */
+    const step = (g: FakeGame, clock: DayClock, dt: number): void => {
+      g.sky.hour = clock.hourAt(g.time + dt);
+      g.frame(dt);
+    };
+    const day = new DayClock();
+    day.setHour(9.2, 0);
+    const { game, berries } = await play(null, { hour: day.hourAt(0) });
+    const days: number[] = [];
+    game.events.on('clock:day', (e) => days.push(e.day));
+    // (the game's loop can hand its first frame a step of negative seconds: the whole game goes back by it, once)
+    step(game, day, -0.3);
+    expect(berries.ran).toMatchObject({ pre: 1, step: 1, late: 1, seconds: 0 });
+    expect(game.sky.hour).toBeLessThan(game.clock.hour);
+    expect(game.clock.waiting).toBe(true);
+    // the page is hidden there and then, and writes its save
+    const save = game.saved();
+    expect(save.hour).toBeLessThan(save.clock!.hour);
+    for (let i = 0; i < 120; i++) step(game, day, 1 / 60);
+    expect([game.clock.day, days, game.clock.waiting]).toEqual([0, [], false]);
+    expect(game.clock.worldSeconds).toBeGreaterThan(0);
+    // the page that takes that save up
+    const day2 = new DayClock();
+    day2.setHour(save.hour, 0);
+    const again = await play(save);
+    again.game.events.on('clock:day', (e) => days.push(e.day));
+    for (let i = 0; i < 120; i++) step(again.game, day2, 1 / 60);
+    expect([again.game.clock.day, days, again.game.clock.waiting]).toEqual([0, [], false]);
+    expect(again.game.clock.worldSeconds).toBeGreaterThan(0);
+    expect(again.game.clock.worldSeconds).toBeLessThan(120);
+  });
+
+  it('says of itself what the test hook shows: the modules, the systems, the slices, the clock, the last fault', async () => {
+    const { game } = await play({ hour: 10, slices: { hunting: { v: 1, d: 1 } }, clock: { day: 3, hour: 10, start: 9 } });
+    game.frame();
+    const t = game.kernel.telemetry();
+    expect(Object.keys(t)).toEqual(['modules', 'systems', 'slices', 'clock', 'interact', 'devTabs', 'lastError', 'errors']);
+    expect(t).toMatchObject({
+      modules: ['example'],
+      slices: { ids: ['example'], carried: ['hunting'], held: [], reports: [{ id: 'hunting', what: 'unknown', v: 1 }] },
+      clock: { worldSeconds: (3 * 24 + 1) * 3600, day: 3, hour: 10, startHour: 9, waiting: false },
+      interact: 1,
+      devTabs: ['example'],
+      lastError: '',
+      errors: 0,
+    });
+    expect(Object.keys(t.systems as object)).toEqual(['example']);
+    expect(JSON.parse(JSON.stringify(t))).toEqual(t);
   });
 
   it('a new game clears its slice, says so, and takes the systems down', async () => {
@@ -497,13 +709,61 @@ describe('kernel: an example module against the interfaces alone', () => {
     game.walker.x = berries.bushes[3].x - 1;
     const frame = (): void => game.frame(0);
     expect(heapGrowth(frame)).toBeLessThan(ALLOCATES / 4);
-    // … nor the pick's question to the sources, with the list the player keeps for the answer
+  });
+
+  it('the pick’s question to the sources: the set and the source allocate nothing; a fraction for a coordinate costs what the engine makes of it', async () => {
+    const { game, berries } = await play();
+    const bush = berries.bushes[3];
+    // (the list the player keeps for the answer, emptied the way the pick empties it)
     const near: GarageDevice[] = [];
-    const ask = (): void => {
+    // Whole numbers for the coordinates first. The engine never puts those on the heap, however the call is
+    // made, so this measures the set's and the source's own code and nothing else — whatever other sources
+    // there are in the process (what the engine folds into what depends on that, see below).
+    const x = Math.round(bush.x - 1) | 0;
+    const z = Math.round(bush.z) | 0;
+    const whole = (): void => {
       while (near.length > 0) near.pop();
-      game.interact.near(berries.bushes[3].x - 1, berries.bushes[3].z, 3.1, near);
+      game.interact.near(x, z, 3, near);
     };
-    expect(heapGrowth(ask)).toBeLessThan(ALLOCATES / 4);
-    expect(near.map((d) => d.id)).toEqual(['example:3']);
+    expect(heapGrowth(whole)).toBeLessThan(ALLOCATES / 4);
+    expect(near).toHaveLength(1);
+    expect(near[0]).toBe(bush);
+    // Fractions, as the player's eye has them. A fraction handed to a function the engine has not folded into
+    // its caller is put on the heap first, 16 bytes of it; and whether the engine folds a source's `near` in
+    // depends on how many kinds of source it has seen, not on this source. So: nothing when it is folded in,
+    // 16 bytes for each of the two coordinates when it is not, and never more — the source adds none of its own.
+    const eye = { x: bush.x - 1.25, z: bush.z + 0.125 };
+    const fractions = (): void => {
+      while (near.length > 0) near.pop();
+      game.interact.near(eye.x, eye.z, 3.1, near);
+    };
+    const bytes = Math.max(0, heapGrowth(fractions) / HEAP_RUNS);
+    console.log(`[v3 kernel] the pick's question to one source, fractions for coordinates: ${bytes.toFixed(1)} bytes a call (0 when the engine folds the call in, 16 for each coordinate it puts on the heap)`);
+    expect(bytes).toBeLessThan(40);
+    expect(near[0]).toBe(bush);
+  });
+
+  it('with no module the kernel’s part of a frame costs a few nanoseconds and allocates nothing', async () => {
+    // (how the game runs until the first system is in: the three hooks and the world's clock, through the kernel the game holds)
+    const game = await new FakeGame([]).start();
+    const hours = new Float64Array(4096);
+    for (let i = 0; i < hours.length; i++) hours[i] = 9.2 + i * 0.000001;
+    const at = new Int32Array(1);
+    const frame = (): void => {
+      at[0] = (at[0] + 1) & 4095;
+      game.sky.hour = hours[at[0]];
+      game.frame(0.016);
+    };
+    expect(heapGrowth(frame)).toBeLessThan(ALLOCATES / 4);
+    let best = Infinity;
+    const N = 1_000_000;
+    for (let round = 0; round < 5; round++) {
+      const t0 = performance.now();
+      for (let i = 0; i < N; i++) frame();
+      best = Math.min(best, ((performance.now() - t0) / N) * 1e6);
+    }
+    console.log(`[v3 kernel] the kernel's part of a frame with no module: ${best.toFixed(1)} ns, no allocation (three hooks and the world clock through kernel.ts; Node ${process.version})`);
+    expect(best).toBeLessThan(1000);
+    expect(game.kernel.telemetry()).toMatchObject({ modules: [], systems: {}, errors: 0 });
   });
 });

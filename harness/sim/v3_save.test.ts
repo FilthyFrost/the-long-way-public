@@ -1,31 +1,40 @@
 /**
  * The save with the V3 kernel's two new parts in it (src/game/modcar/save.ts: `slices` and `clock`,
- * docs/V3/nodes/N0-foundation.md), through the game's real save functions — `writeSave` and `loadSave` run in
- * Node as they are, with the browser's storage stood in for by a map — and the kernel's registries: a save
- * from before there were slices loads as it always did; a save with slices comes back the same, a slice of a
- * system that is absent, a slice from a newer build and a slice that will not read among them, and none of
- * the three costs the player the save or the other slices.
+ * docs/V3/nodes/N0-foundation.md), through the game's real save functions — `writeSave`, `loadSave` and the
+ * restore points' `pushRestore` run in Node as they are, with the browser's storage stood in for by a map —
+ * and the kernel's registries: a save from before there were slices loads as it always did; a save with slices
+ * comes back the same, a slice of a system that is absent, a slice from a newer build and a slice that will
+ * not read among them, and none of the three costs the player the save or the other slices; nor does a slice
+ * whose data cannot be written keep the save, or the restore points, from being written.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorldClock } from '../../src/core/kernel/clock';
 import { SaveSliceRegistry, type SaveSlice, type SliceReport } from '../../src/core/kernel/slices';
 import { newInstance, stockBuild } from '../../src/core/modcar/build';
 import { newItem } from '../../src/core/modcar/items';
+import { pushRestore, restorePoints } from '../../src/game/modcar/restore';
 import { clearSave, loadSave, writeSave, type SaveV1 } from '../../src/game/modcar/save';
 
 const KEY = 'modcar.save.v1';
 
-/** the browser's storage, as much of it as save.ts uses */
-function fakeStorage(): { store: Map<string, string>; api: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> } {
+/** the browser's storage, as much of it as save.ts uses; `room`: how many characters it holds before it refuses more */
+function fakeStorage(): { store: Map<string, string>; room: number; api: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> } {
   const store = new Map<string, string>();
-  return {
+  const self = {
     store,
+    room: Infinity,
     api: {
-      getItem: (k) => store.get(k) ?? null,
-      setItem: (k, v) => void store.set(k, String(v)),
-      removeItem: (k) => void store.delete(k),
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        let used = 0;
+        for (const [key, text] of store) if (key !== k) used += key.length + text.length;
+        if (used + k.length + String(v).length > self.room) throw new Error('QuotaExceededError');
+        store.set(k, String(v));
+      },
+      removeItem: (k: string) => void store.delete(k),
     },
   };
+  return self;
 }
 
 /** a game in the yard as the game writes it today, without the kernel's parts: two vehicles, things lying about, something in the hands */
@@ -199,7 +208,8 @@ describe('the save with slices and the world clock, through save.ts', () => {
     expect(fishing.log).toEqual(['clear']);
     expect(told.map((r) => `${r.id}:${r.what}:${r.v}`)).toEqual(['hunting:unknown:3', 'cooking:newer:9', 'fishing:restore:1']);
     expect((told[2].error as Error).message).toBe('caught is not a list');
-    expect(reg.carriedIds).toEqual(['cooking', 'hunting']);
+    // (carried: the two that are not this build's to read, and the record that would not read, set aside)
+    expect(reg.carriedIds).toEqual(['cooking', 'fishing.unread', 'hunting']);
 
     // played on and saved: the absent system's slice and the newer one are in the save exactly as they came
     cooking.value = { known: ['what this older build cooked meanwhile'] };
@@ -211,8 +221,9 @@ describe('the save with slices and the world clock, through save.ts', () => {
     expect(again.slices!.cooking).toEqual(cookingNewer);
     expect(again.slices!.forage).toEqual({ v: 2, d: { known: ['dandelion'] } });
     expect(again.slices!.fishing).toEqual({ v: 1, d: { caught: [] } });
+    expect(again.slices!['fishing.unread']).toEqual({ v: 1, d: { caught: 'not what this version wrote' } });
     expect(again.slices!.skills).toEqual({ v: 1, d: [1, 2, 4] });
-    expect(Object.keys(again.slices!)).toEqual(['cooking', 'fishing', 'forage', 'hunting', 'skills']);
+    expect(Object.keys(again.slices!)).toEqual(['cooking', 'fishing', 'fishing.unread', 'forage', 'hunting', 'skills']);
     expect(again.clock).toEqual({ day: 4, hour: 21.5, start: 9.2 });
 
     // the build that knows them all reads every one of them
@@ -224,6 +235,69 @@ describe('the save with slices and the world clock, through save.ts', () => {
     full.restore(again.slices);
     expect(cooking9.value).toEqual(cookingNewer.d);
     expect(hunting3.value).toEqual(hunting.d);
+  });
+
+  it('a slice whose data cannot be written keeps neither the save nor the restore points from being written', () => {
+    // (a circle between live objects is one line away: a thing that knows its owner, in a list its owner keeps)
+    const bush: Record<string, unknown> = { index: 3 };
+    bush.owner = { bushes: [bush] };
+    const cases: [string, () => unknown][] = [
+      ['a circle', () => ({ bushes: [bush] })],
+      ['a BigInt', () => ({ seed: 12345678901234567890n })],
+      ['a toJSON that throws', () => ({ toJSON: () => { throw new Error('half built'); } })],
+    ];
+    for (const [name, bad] of cases) {
+      storage.store.clear();
+      const told: SliceReport[] = [];
+      const reg = new SaveSliceRegistry();
+      reg.onReport = (r) => told.push(r);
+      let faulty = false;
+      const good = slice('good', 1, { picked: 1 });
+      reg.register(good);
+      reg.register<unknown>({ id: 'larder', version: 1, snapshot: () => (faulty ? bad() : { jars: 2 }), restore: () => {} });
+      /** the game's save as it stands (ModGame.snapshot), written and kept as a restore point (ModGame.save, stepBody) */
+      const save = (x: number): boolean => {
+        const s = plainSave();
+        s.at += x;
+        s.vehicles[0].x = x;
+        const slices = reg.snapshot();
+        if (slices) s.slices = slices;
+        pushRestore(s);
+        return writeSave(s);
+      };
+      expect(save(0.4), name).toBe(true);
+      expect(restorePoints(), name).toHaveLength(1);
+      // the fault sets in; the vehicle has moved and the good slice has gone on
+      faulty = true;
+      good.value = { picked: 2 };
+      expect(save(77), name).toBe(true);
+      const back = loadSave()!;
+      expect(back.vehicles[0].x, name).toBe(77);
+      expect(back.slices, name).toEqual({ good: { v: 1, d: { picked: 2 } }, larder: { v: 1, d: { jars: 2 } } });
+      expect(told.map((r) => `${r.id}:${r.what}`), name).toEqual(['larder:snapshot']);
+      // … and the restore points go on being kept
+      expect(restorePoints().map((p) => p.save.vehicles[0].x), name).toEqual([77, 0.4]);
+      expect(restorePoints()[0].save.slices, name).toEqual(back.slices);
+    }
+  });
+
+  it('says so when the browser will not keep the save: writeSave is false, and what was there stays', () => {
+    const s = plainSave();
+    expect(writeSave(s)).toBe(true);
+    const text = storage.store.get(KEY)!;
+    // the storage has room for what is there and no more; a slice grows the save
+    storage.room = KEY.length + text.length + 100;
+    const grown: SaveV1 = { ...s, vehicles: [{ ...s.vehicles[0], x: 77 }, s.vehicles[1]], slices: { larder: { v: 1, d: 'x'.repeat(2000) } } };
+    expect(writeSave(grown)).toBe(false);
+    expect(storage.store.get(KEY)).toBe(text);
+    expect(loadSave()!.vehicles[0].x).toBe(0.4);
+    // room again: written
+    storage.room = Infinity;
+    expect(writeSave(grown)).toBe(true);
+    expect(loadSave()!.vehicles[0].x).toBe(77);
+    // no storage at all (it throws when it is touched): false as well, and nothing thrown on
+    vi.stubGlobal('localStorage', { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => { throw new Error('denied'); } });
+    expect(writeSave(s)).toBe(false);
   });
 
   it('slices and a clock that are not what they should be never set the save aside', () => {

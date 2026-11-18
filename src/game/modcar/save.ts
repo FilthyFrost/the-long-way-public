@@ -155,11 +155,13 @@ export function loadSave(): SaveV1 | null {
   }
 }
 
-export function writeSave(s: SaveV1): void {
+/** write the save; false when the browser would not keep it (its storage full or unavailable): the game goes on unsaved */
+export function writeSave(s: SaveV1): boolean {
   try {
     localStorage.setItem(KEY, JSON.stringify(s));
+    return true;
   } catch {
-    // storage full or unavailable: the game goes on unsaved
+    return false;
   }
 }
 

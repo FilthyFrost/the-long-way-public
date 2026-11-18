@@ -1,15 +1,15 @@
-/// <reference types="vite/types/importMeta.d.ts" />
 /**
  * The modules of the V3 kernel (docs/V3/nodes/N0-foundation.md): a gameplay system is a folder,
  * src/game/modcar/v3/<system>/, whose index.ts has a `GameModule` as its default export. The game finds every
- * such folder by itself (the bundler lists them here at build time), so adding a system adds no line to any
- * shared file.
+ * such folder by itself (kernel/discovery.ts, which only the page's entry imports), so adding a system adds no
+ * line to any shared file.
  *
  * Two things happen to a module, at two times:
  *
- *   - It is imported, with everything it imports, when this file is — before the page's entry runs, so before
- *     the save is read. Content a module registers at its top level (items it adds to the catalogue) is
- *     therefore known when the save is checked.
+ *   - It is imported, with everything it imports, before the page's entry runs, so before the save is read.
+ *     Content a module registers at its top level (items it adds to the catalogue) is therefore known when the
+ *     save is checked. A module's index.ts must also import in plain Node, where the tests read it: nothing at
+ *     its top level may touch the page (no DOM, no storage, no renderer).
  *   - It is installed into the game (`installModules`) when the game is constructed: its systems, save slices,
  *     interactable sources and developer tabs are registered, then its `setup` is called.
  *
@@ -60,15 +60,23 @@ export function collectModules(found: Record<string, unknown>): GameModule[] {
   return out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** every module there is, found when this file is imported */
-export const MODULES: readonly GameModule[] = collectModules(import.meta.glob('../v3/*/index.ts', { eager: true }));
+/** which systems and which save slices a module brought: its lists, and whatever its setup registered by hand */
+export interface ModuleParts {
+  readonly id: string;
+  readonly systems: readonly string[];
+  readonly slices: readonly string[];
+}
 
 /**
  * Register what each module brings, in order. A module that throws is reported and the next is still
- * installed (what it had registered before it threw stays).
+ * installed (what it had registered before it threw stays). Returns what each module brought, so that the
+ * slices of a module whose system does not come up can be told from the rest (kernel.ts sets them aside).
  */
-export function installModules(modules: readonly GameModule[], ctx: GameContext, onError: (id: string, error: unknown) => void): void {
+export function installModules(modules: readonly GameModule[], ctx: GameContext, onError: (id: string, error: unknown) => void): ModuleParts[] {
+  const parts: ModuleParts[] = [];
   for (const m of modules) {
+    const systems = ctx.systems.size;
+    const slices = ctx.slices.ids.length;
     try {
       for (const s of m.systems ?? []) ctx.systems.add(s);
       for (const s of m.slices ?? []) ctx.slices.register(s);
@@ -78,5 +86,7 @@ export function installModules(modules: readonly GameModule[], ctx: GameContext,
     } catch (error) {
       onError(m.id, error);
     }
+    parts.push({ id: m.id, systems: ctx.systems.registered.slice(systems), slices: ctx.slices.ids.slice(slices) });
   }
+  return parts;
 }

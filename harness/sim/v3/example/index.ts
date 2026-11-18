@@ -208,6 +208,8 @@ export class Berries implements System<GameContext>, InteractSource {
   }
 
   // ---------------------------------------------------------------- the save slice
+  // (restore writes into the bushes that init lays out. That is sound: the slices are read once the systems are
+  // set up, and the slice of a system that did not come up is set aside, neither read nor asked — kernel.ts start)
 
   readonly slice: SaveSlice<BerriesSaved> = {
     id: 'example',

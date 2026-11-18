@@ -1,44 +1,44 @@
 /**
- * A stand-in for the game in Node, for the tests of V3 modules (harness/sim/v3_module.test.ts): it owns the
- * kernel's objects and drives them in the order the real game does (src/game/modcar/ModGame.ts — startKernel,
- * startSystems, the three hooks of step and updateViews, tickClock, snapshot, newGame; the names below are the
- * same), and gives a system a `GameContext` whose game half is a handful of plain objects: a player with a
- * walker, an environment with a sky that shows the hour, a renderer with a floating origin, a UI that keeps
- * what it was told to say. A module that only uses what the context promises cannot tell the difference.
+ * A stand-in for the game in Node, for the tests of V3 modules (harness/sim/v3_module.test.ts). It holds the
+ * kernel the real game holds (src/game/modcar/kernel/kernel.ts: the same class, not a copy of it) and calls it
+ * at the moments the real game does (src/game/modcar/ModGame.ts — installed when the game is constructed,
+ * started when it has populated itself, the three hooks of a step with the world's clock before the last of
+ * them, written into every save, a new game), and gives a system a `GameContext` whose game half is a handful
+ * of plain objects: a player with a walker, an environment with a sky that shows the hour, a renderer with a
+ * floating origin, a UI that keeps what it was told to say. A module that only uses what the context promises
+ * cannot tell the difference.
  *
  * It is not the game: nothing here walks, drives or draws. What a system needs beyond the kernel is set from
- * the test (where the player stands, what hour it is).
+ * the test (where the player stands, what hour it is). What is the game's own and only mirrored here is where
+ * in a step the kernel is called (`frame`), and how the player's pick asks the sources (`mark`, `pressE`).
  */
-import { WorldClock, type ClockSave } from '../../../src/core/kernel/clock';
-import { EventBus, NOTHING, type GameEvents } from '../../../src/core/kernel/events';
-import { SaveSliceRegistry, type SliceRecord } from '../../../src/core/kernel/slices';
-import { SystemRegistry } from '../../../src/core/kernel/systems';
 import type { GarageDevice } from '../../../src/game/modcar/garageStub';
 import type { GameContext } from '../../../src/game/modcar/kernel/context';
-import { DevTabs, type DevButton, type DevPane } from '../../../src/game/modcar/kernel/devTabs';
-import { InteractSources } from '../../../src/game/modcar/kernel/interact';
-import { installModules, type GameModule } from '../../../src/game/modcar/kernel/modules';
+import type { DevButton, DevPane } from '../../../src/game/modcar/kernel/devTabs';
+import { Kernel, type KernelSave } from '../../../src/game/modcar/kernel/kernel';
+import type { GameModule } from '../../../src/game/modcar/kernel/modules';
 
-/** the part of a save the kernel writes (save.ts SaveV1 has the same two fields) */
-export interface KernelSave {
+/** the part of a save the stand-in writes: the hour (save.ts SaveV1 has it too) and the kernel's two parts */
+export interface FakeSave extends KernelSave {
   hour: number;
-  slices?: SliceRecord;
-  clock?: ClockSave;
 }
 
 /** how far the player's pick asks the sources (player.ts: REACH + 0.5) */
 const PICK_RANGE = 3.1;
 
 export class FakeGame {
-  readonly events = new EventBus<GameEvents>();
-  readonly systems: SystemRegistry<GameContext>;
-  readonly slices = new SaveSliceRegistry();
-  readonly clock = new WorldClock();
-  readonly interact = new InteractSources();
-  readonly devTabs = new DevTabs();
-  /** what the kernel reported (ModGame.kernelReport) */
+  readonly kernel: Kernel;
+  readonly events: Kernel['events'];
+  readonly systems: Kernel['systems'];
+  readonly slices: Kernel['slices'];
+  readonly clock: Kernel['clock'];
+  readonly interact: Kernel['interact'];
+  readonly devTabs: Kernel['devTabs'];
+  /** every report of the kernel, as the test hook's last error would be told of it (ModGame: kernel.onError) */
   readonly reports: string[] = [];
-  /** what the UI was told to say */
+  /** what the kernel wrote out: a fault the first time it is seen ('error: …'), a line worth a note ('warn: …') */
+  readonly written: string[] = [];
+  /** what the UI was told to say: the systems' own lines, and the kernel's when it sets a fault apart */
   readonly said: string[] = [];
   /** the timing's clock (ms), moved by hand: `passes(ms)` inside a hook is what that hook cost */
   private nowMs = 0;
@@ -51,15 +51,24 @@ export class FakeGame {
   seated: GameContext['seated'] = null;
   readonly ctx: GameContext;
   private readonly nearDevices: GarageDevice[] = [];
-  /** the systems are set up and the slices have taken their parts back (ModGame.slicesRead) */
-  private slicesRead = false;
 
   constructor(
     modules: readonly GameModule[],
-    private readonly restore: KernelSave | null = null,
+    restore: FakeSave | null = null,
     opts: { seed?: number; hour?: number } = {},
   ) {
-    this.systems = new SystemRegistry<GameContext>({ now: () => this.nowMs });
+    this.kernel = new Kernel({
+      now: () => this.nowMs,
+      say: (text) => void this.said.push(text),
+      out: { error: (text) => void this.written.push(`error: ${text}`), warn: (text) => void this.written.push(`warn: ${text}`) },
+    });
+    this.kernel.onError = (message) => void this.reports.push(message);
+    this.events = this.kernel.events;
+    this.systems = this.kernel.systems;
+    this.slices = this.kernel.slices;
+    this.clock = this.kernel.clock;
+    this.interact = this.kernel.interact;
+    this.devTabs = this.kernel.devTabs;
     this.sky.hour = restore ? restore.hour : (opts.hour ?? 9.2);
     const game = this;
     this.ctx = {
@@ -81,20 +90,8 @@ export class FakeGame {
       loose: {} as GameContext['loose'],
       ui: { say: (text: string) => void this.said.push(text) } as GameContext['ui'],
     };
-    // (ModGame.startKernel)
-    this.events.onError = (type, e) => this.report(`event ${type}`, e);
-    this.systems.onError = (id, phase, e) => this.report(`system ${id} (${phase})`, e);
-    this.interact.onError = (e) => this.report('interactable source', e);
-    this.slices.onReport = (r) => {
-      if (r.what !== 'unknown' && r.what !== 'newer') this.report(`save slice ${r.id} (${r.what})`, r.error ?? new Error('not a slice'));
-    };
-    this.clock.begin(this.sky.hour);
-    if (restore?.clock !== undefined && !this.clock.restore(restore.clock)) this.report('world clock', new Error('the clock in the save does not read'));
-    installModules(modules, this.ctx, (id, e) => this.report(`module ${id}`, e));
-  }
-
-  private report(where: string, e: unknown): void {
-    this.reports.push(`${where}: ${e instanceof Error ? e.message : String(e)}`);
+    // (ModGame's constructor: the journey begins at the hour the page starts at, or goes on from the save's clock)
+    this.kernel.install(modules, this.ctx, this.sky.hour, restore);
   }
 
   /** the timing's clock moved on (called from inside a hook: that hook took this long) */
@@ -102,29 +99,21 @@ export class FakeGame {
     this.nowMs += ms;
   }
 
-  /** the systems set up, then the save's slices read back, then the game says which start this is (ModGame.startSystems) */
+  /** the game has populated itself: the systems set up, the save's slices read back, the start announced (ModGame: `ready`) */
   async start(): Promise<this> {
-    try {
-      await this.systems.init(this.ctx);
-    } catch (e) {
-      this.report('systems', e);
-    }
-    if (this.restore) this.slices.restore(this.restore.slices);
-    this.slicesRead = true;
-    this.events.emit(this.restore ? 'game:restored' : 'game:new', NOTHING);
+    await this.kernel.start(this.ctx);
     return this;
   }
 
-  /** one step of the game: the three hooks, and the world's clock before the last of them (ModGame.step, updateViews, tickClock) */
+  /**
+   * One step of the game as far as the kernel is in it (ModGame.step and updateViews): the session's seconds go
+   * on, then preStep, then step, then the world's clock is brought up to the hour, then lateUpdate.
+   */
   frame(dt = 1 / 60): void {
     this.time += dt;
     this.systems.preStep(dt, this.ctx);
     this.systems.step(dt, this.ctx);
-    const c = this.clock;
-    if (c.sync(this.sky, this) && c.hoursCrossed > 0) {
-      if (c.daysCrossed > 0) this.events.emit('clock:day', { day: c.day, crossed: c.daysCrossed });
-      this.events.emit('clock:hour', { day: c.day, hour: c.hour | 0, crossed: c.hoursCrossed });
-    }
+    this.kernel.tick(this.sky, this);
     this.systems.lateUpdate(dt, this.ctx);
   }
 
@@ -134,26 +123,22 @@ export class FakeGame {
     this.frame(0);
   }
 
-  /** what the kernel puts into the save (ModGame.snapshot) */
-  snapshot(): KernelSave {
-    const s: KernelSave = { hour: this.sky.hour };
-    const slices = this.slicesRead ? this.slices.snapshot() : this.restore?.slices;
-    if (slices) s.slices = slices;
-    s.clock = this.clock.snapshot();
+  /** the save as the game would write it now (ModGame.snapshot: the hour, and the kernel's parts) */
+  snapshot(): FakeSave {
+    const s: FakeSave = { hour: this.sky.hour };
+    this.kernel.write(s);
     return s;
   }
 
   /** the save as its text gives it back (what a reload reads) */
-  saved(): KernelSave {
-    return JSON.parse(JSON.stringify(this.snapshot())) as KernelSave;
+  saved(): FakeSave {
+    return JSON.parse(JSON.stringify(this.snapshot())) as FakeSave;
   }
 
   /** a new game asked for (ModGame.newGame, up to where the page is opened again) */
   newGame(): void {
-    this.slices.clear();
-    this.clock.begin(this.sky.hour);
-    this.events.emit('game:new', NOTHING);
-    this.systems.dispose();
+    this.kernel.newGame(this.sky.hour);
+    this.kernel.dispose();
   }
 
   /**

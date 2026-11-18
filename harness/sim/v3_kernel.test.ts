@@ -318,6 +318,43 @@ describe('kernel: system registry', () => {
     expect(() => reg.step(0.016, ctx)).not.toThrow();
   });
 
+  it('never hands a hook negative seconds: a frame of them is a frame of none', async () => {
+    const ctx: Ctx = { log: [] };
+    const seen: number[] = [];
+    const reg = new SystemRegistry<Ctx>({ now: () => 0 });
+    reg.add({ id: 'a', preStep: (dt) => void seen.push(dt), step: (dt) => void seen.push(dt), lateUpdate: (dt) => void seen.push(dt) });
+    await reg.init(ctx);
+    // (the game's loop can make its first frame a step of negative seconds; a harness steps with none)
+    for (const dt of [-0.3, 0, 1 / 60, NaN, -0]) {
+      reg.preStep(dt, ctx);
+      reg.step(dt, ctx);
+      reg.lateUpdate(dt, ctx);
+    }
+    expect(seen).toEqual([0, 0, 0, 0, 0, 0, 1 / 60, 1 / 60, 1 / 60, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('knows which systems are up: none before they are set up, not one whose init failed, none once they are taken down', async () => {
+    const reg = new SystemRegistry<Ctx>({ now: () => 0 });
+    reg.add({ id: 'second', after: ['first'] });
+    reg.add({ id: 'broken', init: () => { throw new Error('x'); } });
+    reg.add({ id: 'first' });
+    // (as they were registered, whatever order they run in)
+    expect(reg.registered).toEqual(['second', 'broken', 'first']);
+    expect(reg.ids()).toEqual(['broken', 'first', 'second']);
+    expect(['first', 'second', 'broken', 'nobody'].map((id) => reg.isLive(id))).toEqual([false, false, false, false]);
+    await reg.init({ log: [] });
+    expect(['first', 'second', 'broken', 'nobody'].map((id) => reg.isLive(id))).toEqual([true, true, false, false]);
+    reg.dispose();
+    expect(['first', 'second', 'broken'].map((id) => reg.isLive(id))).toEqual([false, false, false]);
+    // an order that cannot be: nothing is set up, nothing is up
+    const ring = new SystemRegistry<Ctx>({ now: () => 0 });
+    ring.add({ id: 'a', after: ['b'] });
+    ring.add({ id: 'b', after: ['a'] });
+    ring.add({ id: 'free' });
+    await expect(ring.init({ log: [] })).rejects.toThrow(/in a circle/);
+    expect(['a', 'b', 'free'].map((id) => ring.isLive(id))).toEqual([false, false, false]);
+  });
+
   it('runs only the hooks a system has', async () => {
     const ctx: Ctx = { log: [] };
     const reg = new SystemRegistry<Ctx>({ now: () => 0 });
@@ -655,8 +692,199 @@ describe('kernel: save slices', () => {
       { id: 'b-breaks', what: 'restore', v: 1, error: 'bad shape' },
       { id: 'c-migrates', what: 'migrate', v: 1, error: 'too old' },
     ]);
-    // (the cleared slices write their new-game state from now on)
-    expect(reg.snapshot()).toEqual({ 'a-before': { v: 1, d: 1 }, 'b-breaks': { v: 1, d: 'fresh' }, 'c-migrates': { v: 2, d: 'fresh' }, 'd-after': { v: 1, d: 4 } });
+    // (the cleared slices write their new-game state from now on; the records that would not read go on beside them)
+    expect(reg.snapshot()).toEqual({
+      'a-before': { v: 1, d: 1 },
+      'b-breaks': { v: 1, d: 'fresh' },
+      'b-breaks.unread': { v: 1, d: 'x' },
+      'c-migrates': { v: 2, d: 'fresh' },
+      'c-migrates.unread': { v: 1, d: 'y' },
+      'd-after': { v: 1, d: 4 },
+    });
+    expect(reg.carriedIds).toEqual(['b-breaks.unread', 'c-migrates.unread']);
+  });
+
+  it('keeps a record that would not read under <id>.unread, from save to save, until a build takes it back', () => {
+    const worth = { v: 1, d: { known: ['morel', 'nettle'], picked: 212 } };
+    /** a build whose forage slice cannot read what is there (it throws whatever it is handed) */
+    const broken = (): { reg: SaveSliceRegistry; told: SliceReport[]; forage: ReturnType<typeof slice<unknown>> } => {
+      const x = slices();
+      const forage = slice<unknown>('forage', 1, { known: [], picked: 0 }, {
+        restore: () => {
+          throw new Error('known is not a set');
+        },
+      });
+      x.reg.register(forage);
+      return { ...x, forage };
+    };
+    // the first page: the record does not read; the slice starts as new and is played on
+    const first = broken();
+    first.reg.restore({ forage: worth });
+    expect(first.told.map((r) => `${r.id}:${r.what}`)).toEqual(['forage:restore']);
+    first.forage.value = { known: ['dandelion'], picked: 1 };
+    const save1 = JSON.parse(JSON.stringify(first.reg.snapshot())) as SliceRecord;
+    expect(save1).toEqual({ forage: { v: 1, d: { known: ['dandelion'], picked: 1 } }, 'forage.unread': worth });
+    // the second page, the same build: it fails again, on what the first page wrote — the record worth having stays
+    const second = broken();
+    second.reg.restore(save1);
+    expect(second.told.map((r) => `${r.id}:${r.what}`)).toEqual(['forage.unread:unknown', 'forage:restore']);
+    const save2 = JSON.parse(JSON.stringify(second.reg.snapshot())) as SliceRecord;
+    expect(save2['forage.unread']).toEqual(worth);
+    // a later build reads the slice again, and registers one under the other id to take the old record back
+    const later = slices();
+    const forage = slice('forage', 1, { known: [] as string[], picked: 0 });
+    const rescued = slice<unknown>('forage.unread', 1, undefined);
+    later.reg.register(forage);
+    later.reg.register(rescued);
+    later.reg.restore(save2);
+    expect(rescued.value).toEqual(worth.d);
+    expect(later.told).toEqual([]);
+    expect(later.reg.carriedIds).toEqual([]);
+    // (and a new game lets go of it)
+    second.reg.clear();
+    expect(second.reg.carriedIds).toEqual([]);
+  });
+
+  it('takes a slice’s data through the save’s own format: what it hands out is a copy, and what it keeps for a bad day is not the slice’s own object', () => {
+    const { reg, told } = slices();
+    // (a slice that hands out the very object it works on, and keeps the one it is handed: nothing forbids either)
+    const state = { picked: 1, bare: [1] };
+    let live = state;
+    let broken = false;
+    reg.register<typeof state>({
+      id: 'live',
+      version: 1,
+      snapshot: () => {
+        if (broken) throw new Error('mid-change');
+        return live;
+      },
+      restore: (d) => void (live = d),
+    });
+    const first = reg.snapshot()!;
+    expect(first.live).toEqual({ v: 1, d: { picked: 1, bare: [1] } });
+    expect(first.live.d).not.toBe(state);
+    // the slice's state moves on: the snapshot handed out does not
+    state.picked = 2;
+    state.bare.push(2, 3);
+    expect(first.live.d).toEqual({ picked: 1, bare: [1] });
+    // … and when the next snapshot throws, the slice is written as it last WAS
+    broken = true;
+    expect(reg.snapshot()).toEqual({ live: { v: 1, d: { picked: 1, bare: [1] } } });
+    // the same for what it was restored from: the slice keeps the object it is handed and changes it
+    const record = { live: { v: 1, d: { picked: 40, bare: [7] } } };
+    broken = false;
+    reg.restore(record);
+    live.picked = 41;
+    live.bare.length = 0;
+    broken = true;
+    expect(reg.snapshot()).toEqual({ live: { v: 1, d: { picked: 40, bare: [7] } } });
+    expect(told.map((r) => `${r.id}:${r.what}`)).toEqual(['live:snapshot', 'live:snapshot']);
+    // (what cannot be had in JSON is written as JSON has it: a member that is not there, a number that is not one)
+    const odd = slices();
+    odd.reg.register({ id: 'odd', version: 1, snapshot: () => ({ a: undefined, n: NaN, when: new Date(0) }), restore: () => {} });
+    expect(odd.reg.snapshot()).toEqual({ odd: { v: 1, d: { n: null, when: '1970-01-01T00:00:00.000Z' } } });
+  });
+
+  it('a slice whose data JSON cannot hold is reported and written as it last was; the others are written, and the whole is a save that can be', () => {
+    const circle: Record<string, unknown> = { name: 'bush' };
+    circle.owner = { bushes: [circle] };
+    const cases: [string, () => unknown, RegExp][] = [
+      ['a circle between live objects', () => circle, /circular/i],
+      ['a BigInt', () => ({ n: 10n }), /BigInt/],
+      ['a toJSON that throws', () => ({ toJSON: () => { throw new Error('half built'); } }), /half built/],
+      ['a function for its data', () => () => 1, /not something JSON can hold/],
+    ];
+    for (const [name, bad, why] of cases) {
+      const { reg, told } = slices();
+      let faulty = false;
+      const picked = { picked: 1 };
+      reg.register<unknown>({ id: 'bad', version: 3, snapshot: () => (faulty ? bad() : { fine: true }), restore: () => {} });
+      const good = slice('good', 1, picked);
+      reg.register(good);
+      expect(JSON.stringify(reg.snapshot()), name).toBe('{"bad":{"v":3,"d":{"fine":true}},"good":{"v":1,"d":{"picked":1}}}');
+      // the fault sets in; the good slice has moved on meanwhile
+      faulty = true;
+      picked.picked = 2;
+      const snap = reg.snapshot();
+      // (the test of it: the save's text can be made — this is what writeSave does, and what used to throw)
+      expect(JSON.stringify(snap), name).toBe('{"bad":{"v":3,"d":{"fine":true}},"good":{"v":1,"d":{"picked":2}}}');
+      expect(told.map((r) => `${r.id}:${r.what}`), name).toEqual(['bad:snapshot']);
+      expect((told[0].error as Error).message, name).toMatch(why);
+      // every save from then on is written the same way, and reported
+      picked.picked = 3;
+      expect(JSON.stringify(reg.snapshot()), name).toContain('"good":{"v":1,"d":{"picked":3}}');
+      expect(told).toHaveLength(2);
+      // (what there is to report holds one entry for the slice, however often it fails)
+      expect(reg.reports).toHaveLength(1);
+      expect(reg.telemetry().reports[0]).toMatchObject({ id: 'bad', what: 'snapshot' });
+    }
+    // one that never had anything good to write is left out, alone
+    const { reg } = slices();
+    reg.register<unknown>({ id: 'bad', version: 1, snapshot: () => circle, restore: () => {} });
+    reg.register(slice('good', 1, 5));
+    expect(reg.snapshot()).toEqual({ good: { v: 1, d: 5 } });
+  });
+
+  it('a slice set aside is neither read, cleared nor asked: its record goes on as it came until the slice is read again', () => {
+    const record = { forage: { v: 2, d: { bare: { 0: 0, 3: 0, 5: 0 }, picked: 12 } }, skills: { v: 1, d: [3, 0, 1] } };
+    const { reg, told } = slices();
+    const forage = slice<unknown>('forage', 2, { bare: {}, picked: 0 });
+    const skills = slice('skills', 1, [0, 0, 0]);
+    reg.register(forage);
+    reg.register(skills);
+    // (the system the forage slice belongs to did not come up)
+    reg.hold('forage');
+    reg.hold('forage');
+    reg.hold('nobody');
+    expect(reg.heldIds).toEqual(['forage']);
+    reg.restore(JSON.parse(JSON.stringify(record)));
+    expect(forage.log).toEqual([]);
+    expect(skills.value).toEqual([3, 0, 1]);
+    expect(told).toEqual([{ id: 'forage', what: 'held', v: 2 }]);
+    expect(reg.carriedIds).toEqual(['forage']);
+    // played on: the slice's own state (a system that never built its bushes) is not what is written
+    forage.value = { bare: {}, picked: 12 };
+    skills.value = [4, 0, 1];
+    const save = JSON.parse(JSON.stringify(reg.snapshot())) as SliceRecord;
+    expect(save).toEqual({ forage: record.forage, skills: { v: 1, d: [4, 0, 1] } });
+    expect(forage.log).toEqual([]);
+    expect(reg.telemetry()).toMatchObject({ held: ['forage'], carried: ['forage'] });
+    // the next page, on which the system comes up: the record is read as if nothing had been
+    const next = slices();
+    const forage2 = slice<unknown>('forage', 2, { bare: {}, picked: 0 });
+    next.reg.register(forage2);
+    next.reg.register(slice('skills', 1, [0, 0, 0]));
+    next.reg.restore(save);
+    expect(forage2.value).toEqual(record.forage.d);
+    expect(next.told).toEqual([]);
+    // set aside with nothing in the save: nothing is written of it, and nothing said
+    const fresh = slices();
+    const idle = slice('forage', 2, 'state of a system that is not running');
+    fresh.reg.register(idle);
+    fresh.reg.hold('forage');
+    fresh.reg.restore(undefined);
+    expect(fresh.reg.snapshot()).toBeUndefined();
+    expect(fresh.told).toEqual([]);
+    // a new game: its record is let go like the others, the slice itself still left alone
+    reg.clear();
+    expect(forage.log).toEqual([]);
+    expect(reg.snapshot()).toEqual({ skills: { v: 1, d: [0, 0, 0] } });
+  });
+
+  it('a slice set aside after it was read goes on as it was read, or as it last wrote', () => {
+    const { reg } = slices();
+    const a = slice('a', 1, 0);
+    const b = slice('b', 1, 0);
+    reg.register(a);
+    reg.register(b);
+    reg.restore({ a: { v: 1, d: 7 }, b: { v: 1, d: 8 } });
+    b.value = 9;
+    reg.snapshot();
+    a.value = 100;
+    b.value = 100;
+    reg.hold('a');
+    reg.hold('b');
+    expect(reg.snapshot()).toEqual({ a: { v: 1, d: 7 }, b: { v: 1, d: 9 } });
   });
 
   it('a slice whose clear throws, or whose record is not a record, stops nothing', () => {
@@ -751,7 +979,7 @@ describe('kernel: save slices', () => {
     reg.clear();
     expect(a.value).toBe('fresh');
     expect(reg.snapshot()).toEqual({ a: { v: 1, d: 'fresh' }, 'no-clear': { v: 1, d: 1 } } satisfies SliceRecord);
-    expect(reg.telemetry()).toEqual({ ids: ['a', 'no-clear'], carried: [], reports: [] });
+    expect(reg.telemetry()).toEqual({ ids: ['a', 'no-clear'], carried: [], held: [], reports: [] });
   });
 });
 
@@ -779,13 +1007,16 @@ describe('kernel: world clock', () => {
     let h = 10.25;
     let hours = 0;
     let days = 0;
-    while (c.day === 0 || c.hour < 9.2) {
+    // (24 hours in steps of 0.013: some 1,850 of them; a clock that stopped counting days must fail here, not spin)
+    let steps = 0;
+    while ((c.day === 0 || c.hour < 9.2) && steps++ < 4000) {
       h = (h + 0.013) % 24;
       if (c.day === 1 && h > 9.2) h = 9.2;
       tell(c, h);
       hours += c.hoursCrossed;
       days += c.daysCrossed;
     }
+    expect(steps).toBeLessThan(4000);
     expect(c.worldSeconds).toBeCloseTo(DAY_SECONDS, 6);
     expect([c.day, c.hour]).toEqual([1, 9.2]);
     expect(days).toBe(1);
@@ -984,6 +1215,134 @@ describe('kernel: world clock', () => {
     expect(step(0.6)).toBe(true);
     expect(c.day).toBe(1);
     expect(c.worldSeconds - there).toBeLessThan(10);
+  });
+
+  it('waits for the hour hand when the day’s length is set on a first frame of negative seconds (the developer’s dial)', () => {
+    // A step of the game, in its order (ModGame.step, updateViews): the session's time goes on; the developer's
+    // tools give the day its length the first time they run, keeping the hour AT THAT TIME (devWorld.ts
+    // beforeEnv); the environment reads the hour; the clock is told. With the first step one of negative
+    // seconds, the day is anchored at a time before the session began, and a longer day then brings the hour
+    // back to where the clock stands more slowly than the time comes back.
+    for (const [minutes, first] of [[120, -0.01], [240, -0.004], [60, -0.04], [240, -0.5], [40, -0.3], [2, -0.3]] as const) {
+      const day = new DayClock();
+      day.setHour(9.2, 0);
+      const c = new WorldClock();
+      c.begin(day.hourAt(0));
+      const sky = { hour: 0 };
+      const session = { time: 0 };
+      let applied = false;
+      let days = 0;
+      let behind = 0;
+      const step = (dt: number): void => {
+        session.time += dt;
+        if (!applied) {
+          day.setDayLength(minutes * 60, session.time);
+          applied = true;
+        }
+        sky.hour = day.hourAt(session.time);
+        // (the time has caught up, the hour has not: the case that used to cost a day)
+        if (session.time >= 0 && sky.hour < c.hour - 1e-6) behind++;
+        c.sync(sky, session);
+        days += c.daysCrossed;
+      };
+      step(first);
+      expect(c.waiting, `${minutes} min`).toBe(true);
+      for (let i = 0; i < 600; i++) step(1 / 60);
+      expect([c.day, days], `${minutes} min, first frame ${first} s`).toEqual([0, 0]);
+      expect(c.waiting).toBe(false);
+      // ten seconds on, the clock has gone on with the hour and by no more than the hour went
+      expect(c.hour).toBe(sky.hour);
+      expect(c.worldSeconds).toBeCloseTo((sky.hour - 9.2) * 3600, 6);
+      expect(c.worldSeconds).toBeGreaterThan(0);
+      // (the longer days are the ones that leave the hour behind for a while)
+      if (minutes > 40) expect(behind, `${minutes} min`).toBeGreaterThan(0);
+    }
+  });
+
+  it('a save written while the clock waits is taken up without a day gone by', () => {
+    const day = new DayClock();
+    day.setHour(9.2, 0);
+    const c = new WorldClock();
+    c.begin(day.hourAt(0));
+    const sky = { hour: 0 };
+    const session = { time: 0 };
+    // the first frame, a third of a second backwards; the page is hidden there and then and writes its save
+    // (ModGame.snapshot: the hour the environment shows at the session's time, and the clock beside it)
+    session.time -= 0.3;
+    sky.hour = day.hourAt(session.time);
+    expect(c.sync(sky, session)).toBe(false);
+    expect(c.waiting).toBe(true);
+    const save = JSON.parse(JSON.stringify({ hour: day.hourAt(session.time), clock: c.snapshot() })) as { hour: number; clock: unknown };
+    expect(save.clock).toEqual({ day: 0, hour: day.hourAt(0), start: day.hourAt(0) });
+    // (the hour in it is behind the clock in it)
+    expect(save.hour).toBeLessThan(day.hourAt(0) - 1e-3);
+    // The page opened again (ModGame: the environment starts at the saved hour, the clock is begun there and
+    // then takes the saved clock back), and played for ten seconds — its own first frame backwards again or not
+    for (const first of [1 / 60, -0.05, 0]) {
+      const day2 = new DayClock();
+      day2.setHour(save.hour, 0);
+      const c2 = new WorldClock();
+      c2.begin(day2.hourAt(0));
+      expect(c2.restore(save.clock)).toBe(true);
+      expect(c2.waiting).toBe(true);
+      const session2 = { time: 0 };
+      let crossed = 0;
+      const step = (dt: number): void => {
+        session2.time += dt;
+        sky.hour = day2.hourAt(session2.time);
+        c2.sync(sky, session2);
+        crossed += c2.daysCrossed + c2.hoursCrossed;
+      };
+      step(first);
+      // (still behind where the clock was saved: nothing has passed, and above all not a day)
+      expect([c2.day, c2.worldSeconds, c2.waiting], `first frame ${first} s`).toEqual([0, 0, true]);
+      for (let i = 0; i < 600; i++) step(1 / 60);
+      expect([c2.day, crossed, c2.waiting]).toEqual([0, 0, false]);
+      expect(c2.hour).toBe(sky.hour);
+      expect(c2.worldSeconds).toBeGreaterThan(0);
+      expect(c2.worldSeconds).toBeLessThan(600);
+    }
+  });
+
+  it('waits only for a hand a little behind, and only until the hand has come up: after that an hour set back is the next day again', () => {
+    const saved = { day: 2, hour: 14, start: 9 };
+    // a clock taken back from a save waits; a hand at its hour, or past it, ends the wait at once
+    for (const first of [14, 14.0001, 17.5, 3]) {
+      const c = new WorldClock();
+      c.restore(saved);
+      expect(c.waiting).toBe(true);
+      tell(c, first);
+      expect(c.waiting, `first hour ${first}`).toBe(false);
+      // (3 o'clock is 13 hours on round the dial: the next day)
+      expect([c.day, c.hour]).toEqual([first < 14 ? 3 : 2, first]);
+      // … and from then on a minute back by hand is the next day, as it always was
+      const day = c.day;
+      tell(c, first - 1 / 60);
+      expect(c.day).toBe(day + 1);
+    }
+    // a hand found a little behind is waited for: nothing passes until it has come up to the clock
+    const c = new WorldClock();
+    c.restore(saved);
+    expect(tell(c, 13.95)).toBe(false);
+    expect(tell(c, 13.99)).toBe(false);
+    expect([c.day, c.hour, c.worldSeconds, c.waiting]).toEqual([2, 14, (2 * 24 + 14 - 9) * 3600, true]);
+    expect(tell(c, 14.02)).toBe(true);
+    expect([c.day, c.waiting]).toEqual([2, false]);
+    // a hand found further behind than a quarter of an hour was set there by hand: the next day, wait or no wait
+    const d = new WorldClock();
+    d.restore(saved);
+    expect(tell(d, 13.5)).toBe(true);
+    expect([d.day, d.hour, d.waiting]).toEqual([3, 13.5, false]);
+    // a journey begun (not taken up) does not wait: its first hour set back is the next day
+    const e = new WorldClock();
+    e.begin(14);
+    expect(e.waiting).toBe(false);
+    tell(e, 13.95);
+    expect(e.day).toBe(1);
+    // … and beginning again ends a wait
+    c.restore(saved);
+    c.begin(8);
+    expect(c.waiting).toBe(false);
   });
 
   it('goes into the save and comes back the same', () => {

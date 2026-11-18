@@ -13,7 +13,8 @@
  * day, 0 ≤ hour < 24. Each sync says how many whole hours and midnights it crossed, for the game to announce.
  *
  * Two things that look like the hour set back and are not, are waited out instead of taken for a day gone by:
- * an hour hand that quivers back by a rounding error, and a session whose own time has stepped back (see sync).
+ * an hour hand that quivers back by a rounding error, and an hour hand found a little behind the clock after
+ * the session's own time has stepped back, or as a save is taken up (see sync).
  *
  * Pure: no three, no DOM.
  */
@@ -25,6 +26,15 @@ export const DAY_SECONDS = 86_400;
  * the developer's panel holds time still by taking every frame's seconds off again). The clock holds its hour.
  */
 const HOLD = 1e-6;
+
+/**
+ * While the clock waits for the hour hand (see sync), a hand that stands behind it by less than this (hours) is
+ * waited for; one further back than that was set back by hand all the same. A step back of the session's time
+ * puts the hand back by the hour's pace times the seconds of the step: even at night, when the hour runs
+ * fastest, a quarter of an hour is a step of over fifteen seconds at the game's own length of day, and one of
+ * nearly a second at the shortest day the developer's panel can set.
+ */
+const WAIT = 0.25;
 
 /** the clock as the save holds it */
 export interface ClockSave {
@@ -72,6 +82,11 @@ export class WorldClock implements WorldTime {
   /** whole hours and midnights the last sync crossed (0 when it crossed none) */
   hoursCrossed = 0;
   daysCrossed = 0;
+  /**
+   * The clock is waiting for the hour hand: the hand may stand a little behind it without anyone having set it
+   * back (see sync), and until it has come up with the clock again that is not taken for the next day.
+   */
+  waiting = false;
   /** the latest session time the clock has followed the hour at */
   private followedAt = 0;
 
@@ -84,6 +99,7 @@ export class WorldClock implements WorldTime {
     this.worldSeconds = 0;
     this.hoursCrossed = 0;
     this.daysCrossed = 0;
+    this.waiting = false;
   }
 
   /**
@@ -93,7 +109,13 @@ export class WorldClock implements WorldTime {
    *
    * With `session`, a call at an earlier session time than one already followed does nothing: the game's loop
    * can hand its first frame a step of negative seconds, which puts the session's time — and so the hour — back
-   * a little without any hand having set it; the clock waits until the time has caught up.
+   * a little without any hand having set it. From then on the clock is waiting for the hand, and it goes on
+   * waiting once the time has caught up for as long as the hand still stands a little behind it (less than
+   * WAIT): the hour does not always catch up when the time does — a day of another length anchored at the
+   * earlier time brings it on more slowly. A clock taken back from a save waits the same way: a save written
+   * in such a moment holds an hour a little behind its clock. The wait is over when the hand is found at the
+   * clock's hour or past it; a hand found further behind than WAIT was set back by hand, and that is the next
+   * day as ever.
    *
    * (It is handed the things that show the hour and the time, not the numbers: a fraction passed from one
    * function to another may be put on the heap on the way, and this is called every frame.)
@@ -102,7 +124,10 @@ export class WorldClock implements WorldTime {
     this.hoursCrossed = 0;
     this.daysCrossed = 0;
     if (session) {
-      if (session.time < this.followedAt) return false;
+      if (session.time < this.followedAt) {
+        this.waiting = true;
+        return false;
+      }
       this.followedAt = session.time;
     }
     // (Comparisons and arithmetic only, no call to another function with the hour for its argument or its
@@ -119,8 +144,18 @@ export class WorldClock implements WorldTime {
     const was = this.hour;
     let forward = to - was;
     if (forward < 0) forward += 24;
-    // (no move, or a quiver backwards — across midnight too: held)
-    if (forward === 0 || forward > 24 - HOLD) return false;
+    // (no move: the hand is where the clock is, and there is nothing left to wait for)
+    if (forward === 0) {
+      this.waiting = false;
+      return false;
+    }
+    // (a quiver backwards — across midnight too: held)
+    if (forward > 24 - HOLD) return false;
+    if (this.waiting) {
+      // (a little behind: not set back by hand — waited for)
+      if (forward > 24 - WAIT) return false;
+      this.waiting = false;
+    }
     // (the whole hours: both hours are 0 or more, so cutting the fraction off rounds down)
     let crossed = (to | 0) - (was | 0);
     if (to < was) {
@@ -138,7 +173,10 @@ export class WorldClock implements WorldTime {
     return { day: this.day, hour: this.hour, start: this.startHour };
   }
 
-  /** take a saved clock back; false (and nothing changed) when it is not one */
+  /**
+   * Take a saved clock back; false (and nothing changed) when it is not one. The clock then waits for the hour
+   * hand (see sync): the first hour it is shown may stand a little behind the one it was saved at.
+   */
   restore(saved: unknown): boolean {
     const s = saved as ClockSave | null | undefined;
     if (typeof s !== 'object' || s === null) return false;
@@ -152,6 +190,7 @@ export class WorldClock implements WorldTime {
     this.worldSeconds = (s.day * 24 + s.hour - s.start) * 3600;
     this.hoursCrossed = 0;
     this.daysCrossed = 0;
+    this.waiting = true;
     return true;
   }
 }

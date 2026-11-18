@@ -101,14 +101,10 @@ import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
 import { applyWheelMods } from '../../core/modcar/simlink';
-import { WorldClock } from '../../core/kernel/clock';
-import { EventBus, NOTHING, type GameEvents } from '../../core/kernel/events';
-import { SaveSliceRegistry } from '../../core/kernel/slices';
-import { SystemRegistry } from '../../core/kernel/systems';
+import type { WorldTime } from '../../core/kernel/clock';
 import type { GameContext } from './kernel/context';
-import { DevTabs } from './kernel/devTabs';
-import { InteractSources } from './kernel/interact';
-import { installModules, type GameModule } from './kernel/modules';
+import { Kernel } from './kernel/kernel';
+import type { GameModule } from './kernel/modules';
 
 /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
 const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
@@ -417,28 +413,29 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly devTools: DevWorld;
 
   // ------------------------------------------------------------------ the V3 kernel (docs/V3/nodes/N0-foundation.md)
-  // What a V3 system plugs into. The game itself is the context every system is handed (kernel/context.ts).
+  // What a V3 system plugs into. The game itself is the context every system is handed (kernel/context.ts);
+  // the kernel's six parts stand here under the names the context gives them.
 
+  /** the kernel: its parts, and what is done with them at the game's fixed moments (kernel/kernel.ts) */
+  readonly kernel = new Kernel({
+    now: () => performance.now(),
+    // (a fault set apart is said in a line, but not into a screenshot)
+    say: (text, seconds) => {
+      if (!this.params.shot) this.ui.say(text, seconds);
+    },
+  });
   /** what happened, said and heard: the systems' events and the game's own (kernel/context.ts lists those) */
-  readonly events = new EventBus<GameEvents>();
+  readonly events = this.kernel.events;
   /** the systems and their hooks in the frame (preStep, step, lateUpdate), each timed against its budget */
-  readonly systems = new SystemRegistry<GameContext>({ now: () => performance.now() });
+  readonly systems = this.kernel.systems;
   /** each system's part of the save */
-  readonly slices = new SaveSliceRegistry();
-  /** the world's time: saved, never backwards; it follows the hour the environment shows (tickClock) */
-  readonly clock = new WorldClock();
+  readonly slices = this.kernel.slices;
+  /** the world's time: saved, never backwards; it follows the hour the environment shows */
+  readonly clock: WorldTime = this.kernel.clock;
   /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
-  readonly interact = new InteractSources();
+  readonly interact = this.kernel.interact;
   /** the systems' tabs of the developer's panel */
-  readonly devTabs = new DevTabs();
-  /** the modules installed, by id in order */
-  private readonly moduleIds: string[] = [];
-  /** the systems are set up and the slices have taken their parts of the save back (startSystems is through) */
-  private slicesRead = false;
-  /** what the kernel last reported going wrong and set apart (a system, a listener, a slice, a module), and how many times anything was */
-  readonly kernelLog = { last: '', count: 0 };
-  /** told of each such report (entry.ts: the test hook's lastError) */
-  onKernelError: ((message: string) => void) | null = null;
+  readonly devTabs = this.kernel.devTabs;
   /** the payload of body:drank, used again every frame a drink flows */
   private readonly drankEvent: { liquid: 'water' | 'alcohol' | 'energy'; litres: number } = { liquid: 'water', litres: 0 };
 
@@ -448,7 +445,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     /** a game in progress to go on with (save.ts), or null for a new one */
     private readonly restore: SaveV1 | null = null,
     tune?: Tune,
-    /** the V3 modules to install (kernel/modules.ts MODULES; none: the game as it is without them) */
+    /** the V3 modules to install (the page hands in the ones kernel/discovery.ts found; none: the game as it is without them) */
     modules: readonly GameModule[] = [],
   ) {
     if (tune) this.tune = tune;
@@ -508,67 +505,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     if (this.garage) this.player.addSolids(this.garage.solids);
     if (!this.garage || this.seamless) this.worldSolids();
-    // the V3 kernel: its clock set and the modules installed before anything is stepped; their systems are set up
-    // once the garage, the vehicles and the things lying about are there, and then the save's slices are read
-    this.startKernel(modules);
-    this.ready = this.populate().then(() => this.startSystems());
+    // the V3 kernel: its clock set (a journey begins at the hour the page starts at; a save with a clock goes on
+    // from its own) and the modules installed before anything is stepped; their systems are set up once the
+    // garage, the vehicles and the things lying about are there, and then the save's slices are read
+    this.kernel.install(modules, this, this.env.clock.hourAt(0), this.restore);
+    this.ready = this.populate().then(() => this.kernel.start(this));
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
-  }
-
-  /** the kernel's reports wired, the world's clock set, the modules installed (the constructor) */
-  private startKernel(modules: readonly GameModule[]): void {
-    this.events.onError = (type, e) => this.kernelReport(`event ${type}`, e);
-    this.systems.onError = (id, phase, e) => this.kernelReport(`system ${id} (${phase})`, e);
-    this.interact.onError = (e) => this.kernelReport('interactable source', e);
-    this.slices.onReport = (r) => {
-      // (a slice nobody here reads, or one from a newer build, is kept as it came: worth a line, not an error)
-      if (r.what === 'unknown' || r.what === 'newer') console.warn(`[kernel] save slice ${r.id} (version ${r.v}) is ${r.what === 'newer' ? 'from a newer build' : 'not known to this build'}: kept unread`);
-      else this.kernelReport(`save slice ${r.id} (${r.what})`, r.error ?? new Error('not a slice'));
-    };
-    // (a journey begins at the hour the page starts at; a save with a clock goes on from its own)
-    this.clock.begin(this.env.clock.hourAt(0));
-    if (this.restore?.clock !== undefined && !this.clock.restore(this.restore.clock)) this.kernelReport('world clock', new Error('the clock in the save does not read: begun again at this hour'));
-    installModules(modules, this, (id, e) => this.kernelReport(`module ${id}`, e));
-    for (const m of modules) this.moduleIds.push(m.id);
-  }
-
-  /**
-   * The V3 systems set up (after populate: the garage, the vehicles and the things lying about are there), each
-   * waiting for the one before it; then every slice takes its part of the save back — or, with no save, stays as
-   * a new game starts — and the game says which of the two this is.
-   */
-  private async startSystems(): Promise<void> {
-    try {
-      await this.systems.init(this);
-    } catch (e) {
-      // (an order that cannot be: no system runs, the game does)
-      this.kernelReport('systems', e);
-    }
-    if (this.restore) this.slices.restore(this.restore.slices);
-    this.slicesRead = true;
-    this.events.emit(this.restore ? 'game:restored' : 'game:new', NOTHING);
-  }
-
-  /** something in the kernel went wrong and was set apart: kept for the test hook, said once */
-  private kernelReport(where: string, e: unknown): void {
-    const message = `${where}: ${e instanceof Error ? e.message : String(e)}`;
-    const log = this.kernelLog;
-    log.count++;
-    if (message !== log.last) {
-      log.last = message;
-      console.error(`[kernel] ${where}`, e);
-      if (!this.params.shot) this.ui.say('出了个小错，已跳过，游戏继续。', 3);
-    }
-    this.onKernelError?.(message);
-  }
-
-  /** the world's clock brought up to the hour the environment shows now; a whole hour or a midnight passed is said */
-  private tickClock(): void {
-    const c = this.clock;
-    if (!c.sync(this.env.sky, this) || c.hoursCrossed === 0) return;
-    if (c.daysCrossed > 0) this.events.emit('clock:day', { day: c.day, crossed: c.daysCrossed });
-    this.events.emit('clock:hour', { day: c.day, hour: c.hour | 0, crossed: c.hoursCrossed });
   }
 
   /**
@@ -576,22 +519,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    * game has no teardown of its own: it ends with its page.
    */
   dispose(): void {
-    this.systems.dispose();
-  }
-
-  /** the kernel for the test hook: the modules, each system's times against its budget, the slices, the clock, what was last reported */
-  kernelTelemetry(): Record<string, unknown> {
-    const c = this.clock;
-    return {
-      modules: [...this.moduleIds],
-      systems: this.systems.telemetry(),
-      slices: this.slices.telemetry(),
-      clock: { worldSeconds: c.worldSeconds, day: c.day, hour: c.hour, startHour: c.startHour },
-      interact: this.interact.size,
-      devTabs: this.devTabs.list().map((t) => t.id),
-      lastError: this.kernelLog.last,
-      errors: this.kernelLog.count,
-    };
+    this.kernel.dispose();
   }
 
   get origin(): { x: number; y: number; z: number } {
@@ -1675,11 +1603,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
-    // (the V3 systems' parts, where any has something to keep, and the world's clock; a save written while the
-    // page is still loading, before the slices have taken their parts back, keeps the parts it was loaded with)
-    const slices = this.slicesRead ? this.slices.snapshot() : this.restore?.slices;
-    if (slices) s.slices = slices;
-    s.clock = this.clock.snapshot();
+    // (the V3 systems' parts, where any has something to keep, and the world's clock)
+    this.kernel.write(s);
     return s;
   }
 
@@ -1688,7 +1613,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (this.saveOff || !this.params.keep || this.deadT >= 0) return;
     const s = this.snapshot();
     if (s) {
-      writeSave(s);
+      // (a save the browser will not keep was a silent thing; with the systems' parts in it, and six restore
+      // points beside it, a full storage is nearer: said once, and it is the test hook's last error)
+      if (!writeSave(s)) this.kernel.report('save', new Error('the browser would not keep the save (its storage is full or shut): the game goes on unsaved'), '存档没能写进去：浏览器的存储满了或者用不了，眼下的进度存不下来。');
       this.keepGrime();
     }
   }
@@ -1787,10 +1714,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.saveOff = true;
     clearSave();
     void forgetMasks();
-    // (the V3 systems' parts of the save and the world's clock: as a new game starts)
-    this.slices.clear();
-    this.clock.begin(this.env.sky.hour);
-    this.events.emit('game:new', NOTHING);
+    // (the V3 systems' parts of the save and the world's clock: as a new game starts, and said)
+    this.kernel.newGame(this.env.clock.hourAt(this.time));
     // (a new world each new game, Arctic Drive's: a seed of its own for it, kept with its save from then on)
     try {
       localStorage.setItem(NEW_SEED_KEY, String(1 + Math.floor(Math.random() * 999_999)));
@@ -4236,7 +4161,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // indoors the eye opens up
     if (this.garage) core.exposure *= this.garage.exposureAt(cam.position.x + o.x, cam.position.y + o.y, cam.position.z + o.z);
     // the world's clock goes on to this frame's hour; then the V3 systems, the camera, the origin and the weather final
-    this.tickClock();
+    this.kernel.tick(this.env.sky, this);
     this.systems.lateUpdate(dt, this);
     this.ui.update(dt);
     this.updateHudBits();
@@ -4766,7 +4691,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       wipers: v ? { ...v.view.wipe, dirt: v.build.dirt, crust: v.build.crust ?? 0, blades: v.view.wipers.length } : null,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
-      kernel: this.kernelTelemetry(),
+      kernel: this.kernel.telemetry(),
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };

@@ -21,7 +21,8 @@ import { Tune } from './devTune';
 import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
 // (the V3 modules are found, and whatever they add to the catalogues at their top level is in, when this line is
 // reached: before anything below runs, so before the save is read and checked against those catalogues)
-import { MODULES, type GameModule } from './kernel/modules';
+import { MODULES } from './kernel/discovery';
+import type { GameModule } from './kernel/modules';
 import { clearSave, loadSave } from './save';
 import { wreckSpots } from './wrecks';
 import { isRare, rollWreck } from '../../core/modcar/wrecks';
@@ -58,7 +59,7 @@ const params = save
 const tune = new Tune();
 tune.applyAll();
 // (a test script may hand the page modules of its own before this runs, installed after the game's: that is how
-// harness/shots/modcar_kernel.mjs tries the kernel's seams in the real game while no system exists yet)
+// harness/shots/modcar_kernel.mjs tries the kernel's seams in the real game, with a probe module of its own)
 const handed = (window as unknown as { __rtModules?: GameModule[] }).__rtModules;
 const game = new ModGame(canvas, params, save, tune, handed?.length ? [...MODULES, ...handed] : MODULES);
 
@@ -741,15 +742,15 @@ const rt = {
    * budget, the save slices, the world's clock, and the last thing the kernel reported and set apart. A
    * system's own test functions are reached through the game: game.systems.harness(id, name, ...args).
    */
-  kernel: () => game.kernelTelemetry(),
+  kernel: () => game.kernel.telemetry(),
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 // what the kernel sets apart (a V3 system that throws in its hook, a listener, a slice) is the last error too:
 // the scripts look there to know that a run went wrong
-game.onKernelError = (message) => {
+game.kernel.onError = (message) => {
   rt.lastError = message;
 };
-if (game.kernelLog.last) rt.lastError = game.kernelLog.last;
+if (game.kernel.log.last) rt.lastError = game.kernel.log.last;
 
 // the loading card until the garage and its parts are in (not in screenshots)
 if (!params.shot) {

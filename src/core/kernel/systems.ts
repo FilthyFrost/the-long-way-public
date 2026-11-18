@@ -11,9 +11,17 @@
  * The order is the order of registration, except that a system named in another's `after` comes first. Every
  * call is wrapped: a system that throws is reported (id, phase, error) and the frame goes on with the others.
  * Every call is timed with the clock handed in (nothing here reads a clock of its own): per system and phase a
- * smoothed time and the longest seen, and the frame's total against the budget the system declared.
+ * smoothed time and the longest seen, and the frame's total against the budget the system declared. A hook is
+ * never handed negative seconds: a frame of them (the game's loop can make its first one so) is one of none.
  *
- * Pure: no three, no DOM. The three per-frame calls allocate nothing.
+ * Pure: no three, no DOM. The three per-frame calls allocate nothing of their own, and with no system there is
+ * nothing else. With systems the clock is read once per phase and once more per system in it, and what a reading
+ * costs is the clock's: a whole number costs nothing; a fraction, which is what the browser's performance clock
+ * returns, the engine may put on the heap. Measured in Node 24 with its performance clock, the loop run by
+ * itself: about 50 ns and up to 16 bytes a reading — one system, 0.3 µs and 96 bytes a frame; twelve, 2 µs and
+ * about 100 bytes (harness/sim/v3_kernel.test.ts measures the same loop inside the test runner and prints
+ * what it finds there, which is more). That is the price of timing every system in every frame, and it is paid
+ * on purpose: see "Timing every frame" in the node's document for the way out, should it ever matter.
  */
 
 export type SystemPhase = 'init' | 'preStep' | 'step' | 'lateUpdate' | 'dispose' | 'telemetry';
@@ -35,7 +43,7 @@ export interface System<C> {
   readonly budget?: SystemBudget;
   /** once, before the first frame; a system whose init throws or rejects is reported and never run */
   init?(ctx: C): void | Promise<void>;
-  /** every frame; must stand dt = 0 (the test harness steps with it), so never divide by dt */
+  /** every frame; dt is never negative but must be stood at 0 (the test harness steps with it), so never divide by dt */
   preStep?(dt: number, ctx: C): void;
   step?(dt: number, ctx: C): void;
   lateUpdate?(dt: number, ctx: C): void;
@@ -150,6 +158,16 @@ export class SystemRegistry<C> {
     return this.byId.get(id)?.sys as T | undefined;
   }
 
+  /** the ids in the order the systems were registered (ids() gives the order they run in) */
+  get registered(): string[] {
+    return this.entries.map((e) => e.sys.id);
+  }
+
+  /** is this system set up and running: false until init has got through it, when its init failed, once it is taken down, and for an id nobody registered */
+  isLive(id: string): boolean {
+    return this.byId.get(id)?.state === 'live';
+  }
+
   /**
    * The ids in the order the systems are set up and run: the order they were registered in, a system named in
    * another's `after` moved before it. Throws when an `after` names a system that is not there, or when
@@ -218,17 +236,19 @@ export class SystemRegistry<C> {
     this.late = live.filter((e) => !!e.sys.lateUpdate);
   }
 
+  // (each of the three hands on the frame's seconds, or none when they are not more than none: negative, or not a number)
+
   preStep(dt: number, ctx: C): void {
-    this.run(0, this.pre, dt, ctx);
+    this.run(0, this.pre, dt > 0 ? dt : 0, ctx);
   }
 
   step(dt: number, ctx: C): void {
-    this.run(1, this.steps, dt, ctx);
+    this.run(1, this.steps, dt > 0 ? dt : 0, ctx);
   }
 
   /** the last of a frame's three: the frame's times are added up and counted here */
   lateUpdate(dt: number, ctx: C): void {
-    this.run(2, this.late, dt, ctx);
+    this.run(2, this.late, dt > 0 ? dt : 0, ctx);
     const live = this.live;
     for (let i = 0; i < live.length; i++) fold(live[i]);
   }
