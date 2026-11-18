@@ -101,6 +101,14 @@ import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
 import { applyWheelMods } from '../../core/modcar/simlink';
+import { WorldClock } from '../../core/kernel/clock';
+import { EventBus, NOTHING, type GameEvents } from '../../core/kernel/events';
+import { SaveSliceRegistry } from '../../core/kernel/slices';
+import { SystemRegistry } from '../../core/kernel/systems';
+import type { GameContext } from './kernel/context';
+import { DevTabs } from './kernel/devTabs';
+import { InteractSources } from './kernel/interact';
+import { installModules, type GameModule } from './kernel/modules';
 
 /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
 const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
@@ -233,7 +241,7 @@ class SolidList implements SolidSource {
   }
 }
 
-export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
+export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, GameContext {
   readonly core: RenderCore;
   readonly env: Environment;
   readonly input: InputManager;
@@ -408,12 +416,38 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
   readonly tune: Tune;
   readonly devTools: DevWorld;
 
+  // ------------------------------------------------------------------ the V3 kernel (docs/V3/nodes/N0-foundation.md)
+  // What a V3 system plugs into. The game itself is the context every system is handed (kernel/context.ts).
+
+  /** what happened, said and heard: the systems' events and the game's own (kernel/context.ts lists those) */
+  readonly events = new EventBus<GameEvents>();
+  /** the systems and their hooks in the frame (preStep, step, lateUpdate), each timed against its budget */
+  readonly systems = new SystemRegistry<GameContext>({ now: () => performance.now() });
+  /** each system's part of the save */
+  readonly slices = new SaveSliceRegistry();
+  /** the world's time: saved, never backwards; it follows the hour the environment shows (tickClock) */
+  readonly clock = new WorldClock();
+  /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
+  readonly interact = new InteractSources();
+  /** the systems' tabs of the developer's panel */
+  readonly devTabs = new DevTabs();
+  /** the modules installed, by id in order */
+  private readonly moduleIds: string[] = [];
+  /** what the kernel last reported going wrong and set apart (a system, a listener, a slice, a module), and how many times anything was */
+  readonly kernelLog = { last: '', count: 0 };
+  /** told of each such report (entry.ts: the test hook's lastError) */
+  onKernelError: ((message: string) => void) | null = null;
+  /** the payload of body:drank, used again every frame a drink flows */
+  private readonly drankEvent: { liquid: 'water' | 'alcohol' | 'energy'; litres: number } = { liquid: 'water', litres: 0 };
+
   constructor(
     canvas: HTMLCanvasElement,
     readonly params: ModParams,
     /** a game in progress to go on with (save.ts), or null for a new one */
     private readonly restore: SaveV1 | null = null,
     tune?: Tune,
+    /** the V3 modules to install (kernel/modules.ts MODULES; none: the game as it is without them) */
+    modules: readonly GameModule[] = [],
   ) {
     if (tune) this.tune = tune;
     else {
@@ -472,9 +506,91 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     }
     if (this.garage) this.player.addSolids(this.garage.solids);
     if (!this.garage || this.seamless) this.worldSolids();
-    this.ready = this.populate();
+    // the V3 kernel: its clock set and the modules installed before anything is stepped; their systems are set up
+    // once the garage, the vehicles and the things lying about are there, and then the save's slices are read
+    this.startKernel(modules);
+    this.ready = this.populate().then(() => this.startSystems());
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
+  }
+
+  /** the kernel's reports wired, the world's clock set, the modules installed (the constructor) */
+  private startKernel(modules: readonly GameModule[]): void {
+    this.events.onError = (type, e) => this.kernelReport(`event ${type}`, e);
+    this.systems.onError = (id, phase, e) => this.kernelReport(`system ${id} (${phase})`, e);
+    this.interact.onError = (e) => this.kernelReport('interactable source', e);
+    this.slices.onReport = (r) => {
+      // (a slice nobody here reads, or one from a newer build, is kept as it came: worth a line, not an error)
+      if (r.what === 'unknown' || r.what === 'newer') console.warn(`[kernel] save slice ${r.id} (version ${r.v}) is ${r.what === 'newer' ? 'from a newer build' : 'not known to this build'}: kept unread`);
+      else this.kernelReport(`save slice ${r.id} (${r.what})`, r.error ?? new Error('not a slice'));
+    };
+    // (a journey begins at the hour the page starts at; a save with a clock goes on from its own)
+    this.clock.begin(this.env.clock.hourAt(0));
+    if (this.restore?.clock !== undefined && !this.clock.restore(this.restore.clock)) this.kernelReport('world clock', new Error('the clock in the save does not read: begun again at this hour'));
+    installModules(modules, this, (id, e) => this.kernelReport(`module ${id}`, e));
+    for (const m of modules) this.moduleIds.push(m.id);
+  }
+
+  /**
+   * The V3 systems set up (after populate: the garage, the vehicles and the things lying about are there), each
+   * waiting for the one before it; then every slice takes its part of the save back — or, with no save, stays as
+   * a new game starts — and the game says which of the two this is.
+   */
+  private async startSystems(): Promise<void> {
+    try {
+      await this.systems.init(this);
+    } catch (e) {
+      // (an order that cannot be: no system runs, the game does)
+      this.kernelReport('systems', e);
+    }
+    if (this.restore) {
+      this.slices.restore(this.restore.slices);
+      this.events.emit('game:restored', NOTHING);
+    } else this.events.emit('game:new', NOTHING);
+  }
+
+  /** something in the kernel went wrong and was set apart: kept for the test hook, said once */
+  private kernelReport(where: string, e: unknown): void {
+    const message = `${where}: ${e instanceof Error ? e.message : String(e)}`;
+    const log = this.kernelLog;
+    log.count++;
+    if (message !== log.last) {
+      log.last = message;
+      console.error(`[kernel] ${where}`, e);
+      if (!this.params.shot) this.ui.say('出了个小错，已跳过，游戏继续。', 3);
+    }
+    this.onKernelError?.(message);
+  }
+
+  /** the world's clock brought up to the hour the environment shows now; a whole hour or a midnight passed is said */
+  private tickClock(): void {
+    const c = this.clock;
+    if (!c.sync(this.env.sky, this) || c.hoursCrossed === 0) return;
+    if (c.daysCrossed > 0) this.events.emit('clock:day', { day: c.day, crossed: c.daysCrossed });
+    this.events.emit('clock:hour', { day: c.day, hour: c.hour | 0, crossed: c.hoursCrossed });
+  }
+
+  /**
+   * The V3 systems taken down, the last set up first (a new game: the page is about to go). The rest of the
+   * game has no teardown of its own: it ends with its page.
+   */
+  dispose(): void {
+    this.systems.dispose();
+  }
+
+  /** the kernel for the test hook: the modules, each system's times against its budget, the slices, the clock, what was last reported */
+  kernelTelemetry(): Record<string, unknown> {
+    const c = this.clock;
+    return {
+      modules: [...this.moduleIds],
+      systems: this.systems.telemetry(),
+      slices: this.slices.telemetry(),
+      clock: { worldSeconds: c.worldSeconds, day: c.day, hour: c.hour, startHour: c.startHour },
+      interact: this.interact.size,
+      devTabs: this.devTabs.list().map((t) => t.id),
+      lastError: this.kernelLog.last,
+      errors: this.kernelLog.count,
+    };
   }
 
   get origin(): { x: number; y: number; z: number } {
@@ -1242,10 +1358,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       if (side) this.ui.say(side === 'drunk' ? '药劲上头了，有点晕……' : '肚子不太舒服……', 2.4);
     }
     this.ui.say(`${d.cat === 'med' ? '吃了' : '吃完了'}${d.name.zh}。`, 1.6);
+    this.events.emit('body:ate', { item });
   }
 
   drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void {
     drinkVital(this.body, liquid, litres);
+    // (said every frame the drink flows: only when someone listens, and with the one payload)
+    if (this.events.has('body:drank')) {
+      const e = this.drankEvent;
+      e.liquid = liquid;
+      e.litres = litres;
+      this.events.emit('body:drank', e);
+    }
   }
 
   /** one died: a first-aid kit carried brings one up again; else the restore points */
@@ -1550,6 +1674,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
+    // (the V3 systems' parts, where any has something to keep, and the world's clock)
+    const slices = this.slices.snapshot();
+    if (slices) s.slices = slices;
+    s.clock = this.clock.snapshot();
     return s;
   }
 
@@ -1657,6 +1785,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.saveOff = true;
     clearSave();
     void forgetMasks();
+    // (the V3 systems' parts of the save and the world's clock: as a new game starts)
+    this.slices.clear();
+    this.clock.begin(this.env.sky.hour);
+    this.events.emit('game:new', NOTHING);
     // (a new world each new game, Arctic Drive's: a seed of its own for it, kept with its save from then on)
     try {
       localStorage.setItem(NEW_SEED_KEY, String(1 + Math.floor(Math.random() * 999_999)));
@@ -1664,6 +1796,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       /* storage unavailable: the first world again */
     }
     const quality = new URLSearchParams(location.search).get('quality');
+    this.dispose();
     location.replace(`${location.pathname}${quality ? `?quality=${encodeURIComponent(quality)}` : ''}`);
   }
 
@@ -3508,6 +3641,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       this.saveT = 0;
       this.save();
     }
+    // the V3 systems, before the body, the player and the vehicles are stepped
+    this.systems.preStep(dt, this);
     const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || this.pad.run;
     this.stepBody(dt, shift);
     {
@@ -3610,6 +3745,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.stepCones(dt);
     this.provingRun?.update(dt);
     this.loose.update(dt);
+    // the V3 systems, after the vehicles and the loose things have moved and before any view
+    this.systems.step(dt, this);
     this.throwSparks(dt);
     this.kickDust(dt);
     this.checkTutorial();
@@ -4096,6 +4233,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
     this.updateSplashes(dt);
     // indoors the eye opens up
     if (this.garage) core.exposure *= this.garage.exposureAt(cam.position.x + o.x, cam.position.y + o.y, cam.position.z + o.z);
+    // the world's clock goes on to this frame's hour; then the V3 systems, the camera, the origin and the weather final
+    this.tickClock();
+    this.systems.lateUpdate(dt, this);
     this.ui.update(dt);
     this.updateHudBits();
     this.updateAudio();
@@ -4624,6 +4764,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
       wipers: v ? { ...v.view.wipe, dirt: v.build.dirt, crust: v.build.crust ?? 0, blades: v.view.wipers.length } : null,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
+      kernel: this.kernelTelemetry(),
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };

@@ -5,6 +5,9 @@
  * lands there (the floor, a bench, a pickup's bed, a roof); a click puts it at one's feet. The other tabs
  * (devPanes.ts) send one to another kind of country and set the weather, the hour, the look and the terrain.
  * With the panel open the mouse is free: WASD still walks, a drag on the view turns it.
+ *
+ * The V3 systems add tabs of their own (kernel/devTabs.ts): they stand in a second row under these, which is
+ * only there when there is one.
  */
 import type * as THREE from 'three';
 import { stockBuild } from '../../core/modcar/build';
@@ -20,6 +23,7 @@ import { panelPaint } from './assets';
 import { LAB_CSS, LabPane, type LabHost } from './devLab';
 import { PROVING_CSS, ProvingPane, type ProvingPaneHost } from './devProving';
 import { PANE_CSS, WorldPanes, type PaneHost, type PaneId } from './devPanes';
+import { devPane, type DevTab, type DevTabs } from './kernel/devTabs';
 import { PartThumbs } from './thumbs';
 
 export type DevItem =
@@ -53,6 +57,8 @@ export interface DevHost extends PaneHost, LabHost, ProvingPaneHost {
   devOpened(open: boolean): void;
   /** the save cleared and a new game from the workshop (the page opened again); the moved dials back to the game's own too, asked */
   devNewGame(resetDials: boolean): void | Promise<void>;
+  /** the tabs the V3 systems add (kernel/devTabs.ts) */
+  readonly devTabs: DevTabs;
 }
 
 /** the item a tile's key stands for: part:<id>, tool:<kind>[:<fuel>[:<litres>]] (tool:scraper:<tier>), item:<id>, vehicle:<frame>:stock|bare */
@@ -150,6 +156,8 @@ const CSS = `
 .mc-dev-drag img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; }
 .mc-dev-drag.drop { opacity: 0.55; }
 .mc-dev-drag.none::after { content: '这里放不下'; display: block; color: #ff9a7e; }
+.mc-dev .tabs.more { flex-wrap: wrap; }
+.mc-dev .tabs.more span { flex: 0 0 auto; padding-left: 9px; padding-right: 9px; }
 `;
 
 /** what the button at the top does, in the bubble beside the panel (no double quotes: it stands in an attribute) */
@@ -164,6 +172,9 @@ function partTags(p: PartDef): string {
   if (t.includes('meme')) tags.push('<span class="tag meme">整活</span>');
   return `${p.mass} kg${tags.join('')}`;
 }
+
+/** under the title while one of the systems' tabs shows and has no words of its own */
+const OWN_HINT = 'WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
 
 interface Tile {
   key: string;
@@ -193,9 +204,13 @@ export class DevPanel {
   /** the handling lab's tab (devLab.ts) and the proving ground's (devProving.ts) */
   private readonly lab: LabPane;
   private readonly proving: ProvingPane;
-  private current: TabId = 'parts';
+  /** the tab showing: one of the panel's own (TabId) or one a system registered */
+  private current: string = 'parts';
   private readonly built = new Set<string>();
   private lastTick = 0;
+  /** the systems' tabs whose tick has thrown (said once each) */
+  private readonly tickFailed = new Set<string>();
+  private stopWatching: () => void = () => {};
 
   constructor(private readonly host: DevHost) {
     if (!document.getElementById('mc-dev-css')) {
@@ -235,10 +250,10 @@ export class DevPanel {
         if ((t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && e.code !== 'Backquote' && e.code !== 'IntlBackslash' && e.key !== 'Escape') e.stopPropagation();
       });
     }
-    root.querySelector('.tabs')!.addEventListener('click', (e) => {
-      const id = (e.target as HTMLElement).closest('span')?.dataset.t;
-      if (id) this.showTab(id as TabId);
-    });
+    root.querySelector('.tabs')!.addEventListener('click', this.tabClicked);
+    // the tabs the V3 systems registered, and any that comes later
+    for (const t of host.devTabs.list()) this.addTab(t);
+    this.stopWatching = host.devTabs.onAdd((t) => this.addTab(t));
     host.tune.onChange(() => this.header());
     this.header();
     this.seen = new IntersectionObserver((es) => {
@@ -253,13 +268,75 @@ export class DevPanel {
   }
 
   /** the tab showing */
-  get tab(): TabId {
+  get tab(): string {
     return this.current;
   }
 
-  /** show a tab (its content made the first time) */
-  showTab(id: TabId): void {
-    if (!TABS.some(([t]) => t === id)) return;
+  private readonly tabClicked = (e: Event): void => {
+    const id = (e.target as HTMLElement).closest('span')?.dataset.t;
+    if (id) this.showTab(id);
+  };
+
+  /**
+   * One of the systems' tabs into the panel: its name in the second row (made with the first of them), in its
+   * place by order, and an empty pane for its content, which is built the first time it is shown
+   */
+  private addTab(tab: DevTab): void {
+    if (this.root.querySelector(`.pane[data-p="${tab.id}"]`)) return;
+    let row = this.root.querySelector<HTMLElement>('.tabs.more');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'tabs more';
+      this.root.querySelector('.tabs')!.after(row);
+      row.addEventListener('click', this.tabClicked);
+    }
+    const name = document.createElement('span');
+    name.dataset.t = tab.id;
+    name.textContent = tab.title;
+    // (before the first of the tabs after it that is already there)
+    const ids = this.host.devTabs.list().map((t) => t.id);
+    let next: Element | null = null;
+    for (const id of ids.slice(ids.indexOf(tab.id) + 1)) {
+      next = row.querySelector(`span[data-t="${id}"]`);
+      if (next) break;
+    }
+    row.insertBefore(name, next);
+    const pane = document.createElement('div');
+    pane.className = 'pane';
+    pane.dataset.p = tab.id;
+    pane.style.display = 'none';
+    this.root.appendChild(pane);
+  }
+
+  /** the content of one of the systems' tabs made (a builder that throws leaves the panel whole: the tab says what went wrong) */
+  private buildOwn(tab: DevTab, pane: HTMLElement): void {
+    try {
+      tab.build(devPane(pane));
+    } catch (e) {
+      console.error(`[dev tab ${tab.id}]`, e);
+      const said = document.createElement('div');
+      said.className = 'msg bad';
+      said.style.padding = '10px 14px';
+      said.textContent = `这个页签出错了：${e instanceof Error ? e.message : String(e)}`;
+      pane.appendChild(said);
+    }
+  }
+
+  private tickOwn(tab: DevTab): void {
+    try {
+      tab.tick?.();
+    } catch (e) {
+      // (said once: a tab that throws every time would fill the console)
+      if (this.tickFailed.has(tab.id)) return;
+      this.tickFailed.add(tab.id);
+      console.error(`[dev tab ${tab.id}]`, e);
+    }
+  }
+
+  /** show a tab (its content made the first time): one of the panel's own, or one a system registered */
+  showTab(id: string): void {
+    const own = this.host.devTabs.get(id);
+    if (!own && !TABS.some(([t]) => t === id)) return;
     this.current = id;
     for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) s.classList.toggle('on', s.dataset.t === id);
     for (const p of this.root.querySelectorAll<HTMLElement>('.pane')) {
@@ -267,20 +344,26 @@ export class DevPanel {
       p.style.display = on ? '' : 'none';
       if (on && id !== 'parts' && !this.built.has(id)) {
         this.built.add(id);
-        if (id === 'lab') this.lab.build(p);
+        if (own) this.buildOwn(own, p);
+        else if (id === 'lab') this.lab.build(p);
         else if (id === 'proving') this.proving.build(p);
-        else this.panes.build(id, p);
+        else this.panes.build(id as PaneId, p);
       }
     }
     this.header();
     this.panes.tick();
+    if (own) this.tickOwn(own);
   }
 
   private header(): void {
     const sub = this.root.querySelector('.hd .sub') as HTMLElement;
     const hint = this.root.querySelector('.hd .hint') as HTMLElement;
     const moved = this.host.tune.changed().length;
-    if (this.current === 'proving') {
+    const own = this.host.devTabs.get(this.current);
+    if (own) {
+      sub.textContent = own.sub ?? '';
+      hint.innerHTML = own.hint ?? OWN_HINT;
+    } else if (this.current === 'proving') {
       sub.textContent = '直线加速、刹车、定圆、绕桩、越野、坡道';
       hint.innerHTML = '点一段路就过去 · 开过起点线自动计时 · 可以让机器人开<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
     } else if (this.current === 'lab') {
@@ -293,8 +376,8 @@ export class DevPanel {
       sub.textContent = moved ? `改过 ${moved} 项参数` : '还没改过参数';
       hint.innerHTML = '鼠标放在参数上会显示它是干嘛的 · 改过的会自动记住<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
     }
-    // (how many dials each tab has moved, on its tab)
-    for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) {
+    // (how many dials each tab has moved, on its tab: the panel's own tabs, not the systems')
+    for (const s of this.root.querySelectorAll<HTMLElement>('.tabs:not(.more) span')) {
       const t = s.dataset.t as TabId;
       const label = TABS.find(([id]) => id === t)?.[1] ?? '';
       const n = t === 'parts' || t === 'place' || t === 'lab' || t === 'proving' ? 0 : this.host.tune.changed(t).length;
@@ -365,6 +448,8 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         this.panes.tick();
         if (this.current === 'lab') this.lab.tick();
         if (this.current === 'proving') this.proving.tick();
+        const own = this.host.devTabs.get(this.current);
+        if (own) this.tickOwn(own);
       }
       // walking or turning while a tile is held: where it would land moves with the view
       if (this.drag?.moved) this.aimAt(this.drag.x, this.drag.y);
@@ -579,6 +664,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
 
   dispose(): void {
     this.setOpen(false);
+    this.stopWatching();
     this.seen.disconnect();
     this.panes.dispose();
     this.root.remove();

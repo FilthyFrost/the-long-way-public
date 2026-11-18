@@ -938,6 +938,54 @@ describe('kernel: world clock', () => {
     expect(wentBack).toBe(0);
   });
 
+  it('waits when the session’s time steps back (the loop can hand its first frame negative seconds), then goes on', () => {
+    const day = new DayClock();
+    day.setHour(9.2, 0);
+    const sky = { hour: 0 };
+    const session = { time: 0 };
+    const c = new WorldClock();
+    c.begin(day.hourAt(0));
+    const step = (dt: number): boolean => {
+      session.time += dt;
+      sky.hour = day.hourAt(session.time);
+      return c.sync(sky, session);
+    };
+    // the first frame: a third of a second backwards. The hour is behind the one the journey began at
+    expect(step(-0.3)).toBe(false);
+    expect(sky.hour).toBeLessThan(c.hour - 1e-4);
+    expect([c.day, c.worldSeconds, c.hoursCrossed, c.daysCrossed]).toEqual([0, 0, 0, 0]);
+    // the next frames catch up: still nothing
+    expect(step(0.1)).toBe(false);
+    expect(step(0.1)).toBe(false);
+    expect([c.day, c.worldSeconds]).toEqual([0, 0]);
+    // caught up and past: the clock goes on, on the same day
+    step(0.1);
+    expect(step(0.1)).toBe(true);
+    expect(c.day).toBe(0);
+    expect(c.worldSeconds).toBeGreaterThan(3);
+    expect(c.worldSeconds).toBeLessThan(6);
+    // (a clock not told the session's time takes the same first frame for the hour set back: a day gone)
+    const naive = new WorldClock();
+    naive.begin(day.hourAt(0));
+    sky.hour = day.hourAt(-0.3);
+    naive.sync(sky);
+    expect(naive.day).toBe(1);
+    // the hour set back by hand, at a time that has not stepped back, is still the next day
+    const before = c.worldSeconds;
+    day.setHour(c.hour - 0.5, session.time);
+    expect(step(0)).toBe(true);
+    expect(c.day).toBe(1);
+    expect(c.worldSeconds - before).toBeCloseTo(23.5 * 3600, 3);
+    // and a step back in the middle of a session is waited out the same way
+    const there = c.worldSeconds;
+    expect(step(-1)).toBe(false);
+    expect(step(0.5)).toBe(false);
+    expect(c.worldSeconds).toBe(there);
+    expect(step(0.6)).toBe(true);
+    expect(c.day).toBe(1);
+    expect(c.worldSeconds - there).toBeLessThan(10);
+  });
+
   it('goes into the save and comes back the same', () => {
     const c = new WorldClock();
     c.begin(9.2);
@@ -972,11 +1020,14 @@ describe('kernel: world clock', () => {
     c.begin(9.2);
     const at = new Int32Array(1);
     const sky = { hour: 9.2 };
+    // (as the game tells it: the sky, and itself for the session's seconds)
+    const session = { time: 0.5 };
     expect(
       heapGrowth(() => {
         at[0] = (at[0] + 1) & 4095;
         sky.hour = hours[at[0]];
-        c.sync(sky);
+        session.time += 0.016;
+        c.sync(sky, session);
       }),
     ).toBeLessThan(ALLOCATES / 4);
     expect(c.day).toBeGreaterThan(10);
@@ -996,12 +1047,14 @@ describe('kernel: the cost of the per-frame calls', () => {
     const hours = new Float64Array(4096);
     for (let i = 0; i < hours.length; i++) hours[i] = 9.2 + i * 0.000001;
     const sky = { hour: 9.2 };
+    const session = { time: 0 };
     // (one frame of the game's additions: the three hooks, the clock told the hour, the test for a crossed hour)
     const frame = (i: number): void => {
       reg.preStep(0.016, ctx);
       reg.step(0.016, ctx);
       sky.hour = hours[i & 4095];
-      clock.sync(sky);
+      session.time += 0.016;
+      clock.sync(sky, session);
       if (clock.hoursCrossed > 0) bus.emit('clock:hour', { day: clock.day, hour: Math.floor(clock.hour), crossed: clock.hoursCrossed });
       reg.lateUpdate(0.016, ctx);
     };

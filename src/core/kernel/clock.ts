@@ -12,6 +12,9 @@
  * `day` counts midnights passed since the calendar day the journey began on (day 0); `hour` is the hour of the
  * day, 0 ≤ hour < 24. Each sync says how many whole hours and midnights it crossed, for the game to announce.
  *
+ * Two things that look like the hour set back and are not, are waited out instead of taken for a day gone by:
+ * an hour hand that quivers back by a rounding error, and a session whose own time has stepped back (see sync).
+ *
  * Pure: no three, no DOM.
  */
 
@@ -48,6 +51,11 @@ export interface HourHand {
   readonly hour: number;
 }
 
+/** whatever counts the seconds of the session, from nothing when the page opens (the game does) */
+export interface SessionTime {
+  readonly time: number;
+}
+
 /** an hour of the day from any number of hours */
 function wrap(hour: number): number {
   const h = hour % 24;
@@ -64,6 +72,8 @@ export class WorldClock implements WorldTime {
   /** whole hours and midnights the last sync crossed (0 when it crossed none) */
   hoursCrossed = 0;
   daysCrossed = 0;
+  /** the latest session time the clock has followed the hour at */
+  private followedAt = 0;
 
   /** a journey begins at this hour of the day: day 0, no time passed yet */
   begin(hour: number): void {
@@ -81,14 +91,22 @@ export class WorldClock implements WorldTime {
    * the way round the dial, so an hour earlier than the clock's is that hour the next day — and says whether
    * it moved. One call can see less than a day go by.
    *
-   * (It is handed the thing that shows the hour, not the hour: a fraction passed from one function to another
-   * may be put on the heap on the way, and this is called every frame.)
+   * With `session`, a call at an earlier session time than one already followed does nothing: the game's loop
+   * can hand its first frame a step of negative seconds, which puts the session's time — and so the hour — back
+   * a little without any hand having set it; the clock waits until the time has caught up.
+   *
+   * (It is handed the things that show the hour and the time, not the numbers: a fraction passed from one
+   * function to another may be put on the heap on the way, and this is called every frame.)
    */
-  sync(from: HourHand): boolean {
+  sync(from: HourHand, session?: SessionTime): boolean {
     this.hoursCrossed = 0;
     this.daysCrossed = 0;
+    if (session) {
+      if (session.time < this.followedAt) return false;
+      this.followedAt = session.time;
+    }
     // (Comparisons and arithmetic only, no call to another function with the hour for its argument or its
-    // result — not even to wrap() below: a fraction that goes into or comes out of a call the engine has not
+    // result — not even to wrap() above: a fraction that goes into or comes out of a call the engine has not
     // folded in is put on the heap, and one such call on a branch never taken was measured to cost an
     // allocation on every call of this function.)
     let to = from.hour;

@@ -37,6 +37,7 @@ import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 import type { GarageDevice } from './garageStub';
+import type { InteractSources } from './kernel/interact';
 import type { CargoBay, StowAim } from './cargo';
 import type { CargoZone } from '../../core/modcar/cargo';
 
@@ -153,6 +154,8 @@ export interface PlayerHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
   readonly devices: readonly GarageDevice[];
+  /** more devices, handed out by where one stands: what the V3 systems put in the world (kernel/interact.ts); absent: none */
+  readonly interact?: InteractSources;
   /** the tanks that are not vehicles' (the generator's) */
   readonly tanks: readonly TankPort[];
   /** a vehicle's build changed: tell the systems, the view and any listeners (the checklist) */
@@ -716,22 +719,38 @@ export class ModPlayer {
       }
     }
     // garage devices
-    for (const dv of this.host.devices) {
-      // (one with a shape of its own: a cupboard's box, a pump's)
-      if (dv.hit) {
-        const d = dv.hit(this.ray, REACH + 0.3);
-        if (d !== null) better({ kind: 'device', device: dv, dist: d });
-        continue;
-      }
-      const dx = dv.x - this.eye.x;
-      const dy = dv.y - this.eye.y;
-      const dz = dv.z - this.eye.z;
-      const d = Math.hypot(dx, dy, dz);
-      if (d > REACH + 0.5) continue;
-      const along = (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / d;
-      if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better({ kind: 'device', device: dv, dist: d });
+    for (const dv of this.host.devices) this.markDevice(dv, better);
+    // … and the devices the V3 systems put in the world, the ones near where one stands (with none: nothing asked)
+    const sources = this.host.interact;
+    if (sources && !sources.empty) {
+      const near = this.nearDevices;
+      // (emptied by popping: a list cut to nothing with `length = 0` lets go of its store, and the next push allocates a new one)
+      while (near.length > 0) near.pop();
+      sources.near(this.eye.x, this.eye.z, REACH + 0.5, near);
+      for (let i = 0; i < near.length; i++) this.markDevice(near[i], better);
+      while (near.length > 0) near.pop();
     }
     return best;
+  }
+
+  /** the systems' devices near, asked for every frame into the one list */
+  private readonly nearDevices: GarageDevice[] = [];
+
+  /** a device offered as what the mark is on, when the mark is on it (its own shape, or its point within its radius) */
+  private markDevice(dv: GarageDevice, better: (t: Target) => void): void {
+    // (one with a shape of its own: a cupboard's box, a pump's)
+    if (dv.hit) {
+      const d = dv.hit(this.ray, REACH + 0.3);
+      if (d !== null) better({ kind: 'device', device: dv, dist: d });
+      return;
+    }
+    const dx = dv.x - this.eye.x;
+    const dy = dv.y - this.eye.y;
+    const dz = dv.z - this.eye.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > REACH + 0.5) return;
+    const along = (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / d;
+    if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better({ kind: 'device', device: dv, dist: d });
   }
 
   /** of the panels a zone is reached through, the one nearest the eye */
