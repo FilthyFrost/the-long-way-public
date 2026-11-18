@@ -170,8 +170,9 @@ export function gainXp(ctx: GameContext, skill: string, n: number, o: Quiet = {}
   if (ctx.events.has('skill:xp')) ctx.events.emit('skill:xp', { skill, gained: n, xp: progress.xp(skill), level });
   if (gained > 0) {
     rev++;
-    ctx.events.emit('skill:level', { skill, level, from });
+    // (the line first: what the level's listeners have to say of it comes after it)
     if (!o.quiet) announce(ctx, levelLine(skill, from, level, lang(ctx)), 2.6);
+    ctx.events.emit('skill:level', { skill, level, from });
   }
   return gained;
 }

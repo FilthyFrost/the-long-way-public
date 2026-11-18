@@ -30,7 +30,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
-import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, type ItemDef, type ItemInstance } from '../../core/modcar/items';
+import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, itemVeil, type ItemDef, type ItemInstance } from '../../core/modcar/items';
 import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance, FuelType } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
@@ -1914,7 +1914,8 @@ export class ModPlayer {
     // (while a list is open G puts the thing into the list, and the list says so itself)
     if (h && !this.host.listOpen) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
     // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)
-    if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : other.kind === 'item' ? itemDef(other.item.item).name.zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
+    // (a thing goes by the name it goes by everywhere: a kind the player does not know yet by the veil's, items.ts)
+    if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : other.kind === 'item' ? (itemVeil(other.item.item) ?? itemDef(other.item.item).name).zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
     out.push({ keys: ['I'], text: this.cardsOn ? '隐藏物品信息' : '显示物品信息' });
     return out;
   }

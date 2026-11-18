@@ -82,7 +82,8 @@ messages further kinds are only counted (a message with a changing number in it 
 
 `GameContext` is the game itself (`ModGame implements GameContext`), narrowed: `events`, `systems`, `slices`,
 `clock`, `interact`, `devTabs`, and of the game `params`, `core`, `env`, `world`, `player`, `vehicles`,
-`seated`, `loose`, `ui`. It is small on purpose. **A later node that needs more of the game adds a member to
+`seated`, `loose`, `ui`, and (since node W3, which plays a sound when a plant is picked) `sound(name, gain?)`.
+It is small on purpose. **A later node that needs more of the game adds a member to
 the interface; when `ModGame` already has a public member of that name and type (`ground`, `input`, `cargo`,
 `body`, `stock`, `sound()`, `place`, …) nothing else changes.** The file also declares the events the game
 emits (section 5).
@@ -516,7 +517,9 @@ And what belongs to later nodes:
   save by letting old points go.
 - **A queue for `ui.say`**, a seeded `rng(stream)` on the context, `sound()` on the context: added by the node
   that first needs them (the last two are one line each in `context.ts`). The toast is last-writer-wins, so a
-  fault's line can still hide another message for three seconds, once per kind of fault.
+  fault's line can still hide another message for three seconds, once per kind of fault. *Node W3 added
+  `sound()` to the context, and a queue of its own for the lines said about the player's progress
+  (`v3/progress/api.ts` `announce`: one line at a time, none while driving); `ui.say` itself is as it was.*
 - **A save written while the page is still loading.** A kept page that is hidden or closed after its vehicles
   are back but before its first step writes its save then (`visibilitychange`, `pagehide`). The slices are safe
   through that window (the record the save was loaded with is written again), and the clock is restored at
