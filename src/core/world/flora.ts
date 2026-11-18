@@ -191,6 +191,7 @@ function edgeFit(v: number, band: Band, m: number): number {
   if (v >= band[0] && v <= band[1]) return 1;
   return smooth(1 - (v < band[0] ? band[0] - v : v - band[1]) / m);
 }
+
 /** a spot is a bench where its height is within this share of a step of a bench's level (a hand or two) */
 export const BENCH_TOL = 0.02;
 
