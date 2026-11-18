@@ -260,9 +260,12 @@ const rt = {
   },
   /** put a new part (or a tool kind prefixed with "tool:", an item with "item:") into the hands */
   hold: (id: string, opts: Record<string, unknown> = {}) => {
-    if (id.startsWith('tool:')) game.player.held = { kind: 'tool', tool: newTool(id.slice(5) as ToolKind, opts) };
-    else if (id.startsWith('item:')) game.player.held = { kind: 'item', item: newItem(id.slice(5), opts) };
-    else game.player.held = { kind: 'part', inst: newInstance(id) };
+    // (what was in the hands gives way, as it always did here; the new thing then enters them the one way things do:
+    // onto a stack of its sort or into a basket in the other slots when there is one, else into the hand just emptied)
+    game.player.held = null;
+    if (id.startsWith('tool:')) game.player.receive({ kind: 'tool', tool: newTool(id.slice(5) as ToolKind, opts) });
+    else if (id.startsWith('item:')) game.player.receive({ kind: 'item', item: newItem(id.slice(5), opts) });
+    else game.player.receive({ kind: 'part', inst: newInstance(id) });
     game.simulate(0);
     return game.player.telemetry();
   },

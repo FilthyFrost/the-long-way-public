@@ -4,7 +4,8 @@
  * its numbers, what is in it as bars, its condition and weight. Laid out and coloured as Arctic Drive's
  * item cards are (a dark smoky glass, a header shading from black into grey, white words, thin rules between
  * the parts); only the frame is ours, a cartoon one (ui.ts .mc-frame). A card with the same contents is
- * not drawn again; its bars move in place (fuel going in while the can pours).
+ * not drawn again; its bars move in place (fuel going in while the can pours). A card that says it is kept
+ * (itemInfo.ts itemCardKept: the same object until something on it changes) is not even looked into again.
  */
 import type { CardBar, CardCurve, CardColumns, CardIcon, ItemCard, Tone } from './itemInfo';
 
@@ -48,6 +49,7 @@ export const CARD_CSS = `
 .mc-ic .rw b { font-weight: 700; white-space: nowrap; }
 .mc-ic .rw span { color: var(--tx-2); }
 .mc-ic .rw b.good { color: #8fe07a; } .mc-ic .rw b.bad { color: #ff8a6a; }
+.mc-ic .rw b.qs { display: inline-flex; gap: 2px; align-self: center; } .mc-ic .rw b.qs svg { width: 13px; height: 13px; }
 .mc-ic .cmp { display: grid; grid-template-columns: 1fr auto auto auto; column-gap: 8px; row-gap: 5px; align-items: baseline; font-size: 15px; }
 .mc-ic .cmp .k { color: var(--tx-2); }
 .mc-ic .cmp .a { text-align: right; color: var(--tx-3); white-space: nowrap; }
@@ -102,6 +104,8 @@ const star = (on: boolean, gold = false): string => {
   const c = on ? (gold ? '#f2c14e' : '#f2efe8') : '#2a2826';
   return `<svg viewBox="0 0 24 24"><path d="${STAR_PATH}" fill="${c}" stroke="${on ? c : '#4a4744'}" stroke-width="1.2" stroke-linejoin="round" /></svg>`;
 };
+/** a row's number drawn as stars out of five (a thing's quality), the same star as the grade's, smaller; what it says in words is its title */
+const starsHtml = (n: number, words: string): string => `<b class="qs" data-q="${n}" title="${esc(words)}">${[0, 1, 2, 3, 4].map((i) => star(i < n, n >= 4)).join('')}</b>`;
 /** the condition's cross and the weight's bell, as Arctic Drive draws them in a card's last line */
 const COND = '<svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round" /></svg>';
 const MASS = '<svg viewBox="0 0 16 16"><path d="M5.2 6.2h5.6l2.4 7.6H2.8z" fill="#fff" /><circle cx="8" cy="4.2" r="1.9" fill="none" stroke="#fff" stroke-width="1.6" /></svg>';
@@ -175,7 +179,7 @@ export function cardHtml(c: ItemCard, compact = false): string {
           .map((r) => `<span class="k">${esc(r.label)}</span>${r.from !== undefined ? `<span class="a">${esc(beforeOf(r.from))}</span><span class="ar">→</span>` : '<span></span><span></span>'}<span class="b ${r.tone ?? ''}">${esc(r.value)}</span>`)
           .join('')}</div></div>`,
       );
-    else secs.push(`<div class="sec"><div class="rw">${c.rows.map((r) => `<b class="${r.tone ?? ''}">${esc(r.value)}</b><span>${esc(r.label)}</span>`).join('')}</div></div>`);
+    else secs.push(`<div class="sec"><div class="rw">${c.rows.map((r) => `${r.stars !== undefined ? starsHtml(r.stars, r.value) : `<b class="${r.tone ?? ''}">${esc(r.value)}</b>`}<span>${esc(r.label)}</span>`).join('')}</div></div>`);
   }
   if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i)).join('')}</div>`);
   if (c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
@@ -193,6 +197,7 @@ export class CardView {
   readonly el: HTMLDivElement;
   private structure = '';
   private card: ItemCard | null = null;
+  private compact = false;
   /** counts the times it was drawn anew (its height may have changed) */
   drawn = 0;
 
@@ -209,7 +214,10 @@ export class CardView {
 
   /** compact: only what it is and what is in it */
   show(c: ItemCard | null, compact = false): void {
+    // (a kept card shown again the same way: nothing on it can have changed, it is not looked into)
+    if (c && c.kept && c === this.card && compact === this.compact) return;
     this.card = c;
+    this.compact = compact;
     if (!c) {
       this.el.style.display = 'none';
       this.structure = '';
