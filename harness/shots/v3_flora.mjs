@@ -338,7 +338,10 @@ try {
           const near = point(s, d);
           list.push({ plant, x: near.x - o.x, y: near.y - o.y, z: near.z - o.z, bears: true, slot, vary: (i * 0.37) % 1, yaw: i * 1.3 });
           const far = point(s, d + back);
-          list.push({ plant, x: far.x - o.x, y: far.y - o.y, z: far.z - o.z, far: true, slot, vary: (i * 0.37) % 1, yaw: i * 1.3 });
+          list.push({ plant, x: far.x - o.x, y: far.y - o.y, z: far.z - o.z, level: 1, slot, vary: (i * 0.37) % 1, yaw: i * 1.3 });
+          // (and a tree's smallest model behind that)
+          const last = point(s, d + 2 * back);
+          list.push({ plant, x: last.x - o.x, y: last.y - o.y, z: last.z - o.z, level: 2, slot, vary: (i * 0.37) % 1, yaw: i * 1.3 });
           into.push({ plant, s });
         });
       };

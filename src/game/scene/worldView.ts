@@ -11,13 +11,13 @@ import type { World } from '../../core/world/terrain';
 import type { QualitySettings, RenderCore } from '../render/core';
 import { floraMaterial, floraUniforms } from '../render/floraMaterial';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
-import { castShadows } from '../render/shadow';
+import { LAYER_SHADOW_FAR, castShadows } from '../render/shadow';
 import { coverUniforms, showChapters } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
 import { floraMesh } from './floraMesh';
-import { LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraLod } from './floraScatter';
+import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
 import { siteSlices } from './siteBuild';
 import { LakeBuild, RIVER_CHUNK, SEA_CHUNK, buildBridge, buildRiverChunk, riverChunks, riverPoint, seaChunks, seaSlices, type WaterSheet } from './waterBuild';
@@ -33,7 +33,13 @@ const FAR_SPAN = 4;
 const POLE_SPAN = 4;
 /** scatter tiles nearer than this (m, to their middle) hold every plant in its full model */
 const SCATTER_NEAR = 230;
-/** … and, in a world of version 2, tiles nearer than this still show their larger shrubs, in low models */
+/**
+ * … and in a world of version 2 (scene/floraScatter.ts): within the first of these a tile is at its nearest
+ * level — every plant in its full model, throwing its own shadow; beyond it, the trees inside a thick wood are
+ * in their far models already and the tile's shadows are thrown by far models; within the second a tile still
+ * shows its larger shrubs, in low models; beyond it, its trees alone, in their smallest
+ */
+const SCATTER_FULL = 120;
 const SCATTER_MID = 420;
 
 interface Piece {
@@ -260,7 +266,9 @@ export class WorldView {
         const dist = Math.hypot((tx + 0.5) * TILE - cx, (tz + 0.5) * TILE - cz);
         if (dist > Rt) continue;
         const far = dist > SCATTER_NEAR;
-        wantK.set(`${tx},${tz}`, { tx, tz, far, lod: !far ? LOD_NEAR : this.plants && dist <= SCATTER_MID ? LOD_MID : LOD_FAR, dist });
+        // (a world of version 1 knows two levels: near and far)
+        const lod = !this.plants ? (far ? LOD_FAR : LOD_NEAR) : dist <= SCATTER_FULL ? LOD_NEAR : !far ? LOD_CLOSE : dist <= SCATTER_MID ? LOD_MID : LOD_FAR;
+        wantK.set(`${tx},${tz}`, { tx, tz, far, lod, dist });
       }
     }
     this.wantTiles = wantK;
@@ -520,8 +528,15 @@ export class WorldView {
     const objects: THREE.Object3D[] = [];
     for (const b of s.batches) {
       const mesh = floraMesh(b, this.floraMat!, TILE);
-      // (the shadow map reaches some 150 m from the camera: only near tiles can stand in it)
+      // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
+      // nearest a plant throws its own shadow; at the close level the trees' far models throw the tile's, below)
       if (lod === LOD_NEAR) castShadows(mesh);
+      objects.push(this.add(mesh, s.wx, s.wy, s.wz));
+    }
+    if (s.shadows) {
+      // drawn into the shadow map and nowhere else
+      const mesh = floraMesh(s.shadows, this.floraMat!, TILE);
+      mesh.layers.set(LAYER_SHADOW_FAR);
       objects.push(this.add(mesh, s.wx, s.wy, s.wz));
     }
     if (s.discs) {
@@ -534,7 +549,7 @@ export class WorldView {
     }
     const old = this.tiles.get(key);
     if (old) this.drop(old);
-    this.tiles.set(key, { objects, far: lod !== LOD_NEAR, lod });
+    this.tiles.set(key, { objects, far: lod >= LOD_MID, lod });
   }
 
   /** an instanced mesh of `template` with per-instance root and info attributes */

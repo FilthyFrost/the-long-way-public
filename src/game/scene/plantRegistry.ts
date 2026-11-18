@@ -31,16 +31,22 @@ import { buildPlants } from './vegetation';
 export type PlantClass = 'tree' | 'small';
 
 export interface PlantFamily {
-  /** the model drawn near (a name of the atlas), and the one drawn far off (absent: not drawn beyond the near ring) */
+  /**
+   * The model drawn near (a name of the atlas), the one drawn far off (absent: not drawn beyond the near ring),
+   * and for a tree the one drawn furthest off, where it is a few pixels
+   */
   near: string;
   far?: string;
+  tiny?: string;
   cls: PlantClass;
   /** the height and the radius of the near model that a plant's height and crown are measured against (m) */
   h: number;
   r: number;
-  /** the same of its far model (absent: as the near model's) */
+  /** the same of its far model (absent: as the near model's), and of its furthest */
   farH?: number;
   farR?: number;
+  tinyH?: number;
+  tinyR?: number;
   /** the radius of the soft disc it throws on the ground where no shadow map is drawn, at the model's own size (0: none) */
   shadow: number;
   /** what the second colour paints when the plant gives none (0xRRGGBB): bark, a cane, a flower */
@@ -62,22 +68,22 @@ export interface PlantFamily {
 /** the families the regions' flora tables name (core/world/floraTables.ts through plants.ts) */
 export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
   // ---- the first renderer's templates (vegetation.ts)
-  broadleaf: { near: 'broadleaf', far: 'broadleafFar', cls: 'tree', h: 5.6, r: 2.9, farH: 5.8, farR: 3.0, shadow: 1.9, sink: 0.12, lean: 0.05 },
-  broadleaf2: { near: 'broadleaf2', far: 'broadleafFar', cls: 'tree', h: 6.5, r: 2.8, farH: 5.8, farR: 3.0, shadow: 1.8, sink: 0.12, lean: 0.05 },
-  broadleaf3: { near: 'broadleaf3', far: 'broadleafFar', cls: 'tree', h: 5.2, r: 3.3, farH: 5.8, farR: 3.0, shadow: 2.4, sink: 0.12, lean: 0.05 },
-  conifer: { near: 'conifer', far: 'coniferFar', cls: 'tree', h: 6.4, r: 1.9, farH: 6.4, farR: 1.75, shadow: 1.5, sink: 0.15, lean: 0.04 },
-  conifer2: { near: 'conifer2', far: 'coniferFar', cls: 'tree', h: 7.9, r: 1.5, farH: 6.4, farR: 1.75, shadow: 1.3, sink: 0.15, lean: 0.03 },
+  broadleaf: { near: 'broadleaf', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 5.6, r: 2.9, farH: 5.8, farR: 3.0, shadow: 1.9, sink: 0.12, lean: 0.05 },
+  broadleaf2: { near: 'broadleaf2', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 6.5, r: 2.8, farH: 5.8, farR: 3.0, shadow: 1.8, sink: 0.12, lean: 0.05 },
+  broadleaf3: { near: 'broadleaf3', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 5.2, r: 3.3, farH: 5.8, farR: 3.0, shadow: 2.4, sink: 0.12, lean: 0.05 },
+  conifer: { near: 'conifer', far: 'coniferFar', tiny: 'coniferTiny', tinyH: 6.4, tinyR: 1.5, cls: 'tree', h: 6.4, r: 1.9, farH: 6.4, farR: 1.75, shadow: 1.5, sink: 0.15, lean: 0.04 },
+  conifer2: { near: 'conifer2', far: 'coniferFar', tiny: 'coniferTiny', tinyH: 6.4, tinyR: 1.5, cls: 'tree', h: 7.9, r: 1.5, farH: 6.4, farR: 1.75, shadow: 1.3, sink: 0.15, lean: 0.03 },
   bush: { near: 'bush', far: 'bushFar', cls: 'small', h: 1.45, r: 1.1, farH: 1.6, farR: 1.25, shadow: 0.8, lies: true, sink: 0.05 },
-  cactus: { near: 'cactus', far: 'cactusFar', cls: 'tree', h: 3.2, r: 0.7, shadow: 0.5, sink: 0.05, lean: 0.03 },
+  cactus: { near: 'cactus', far: 'cactusFar', tiny: 'cactusTiny', tinyH: 3.05, tinyR: 0.68, cls: 'tree', h: 3.2, r: 0.7, shadow: 0.5, sink: 0.05, lean: 0.03 },
   rock: { near: 'rock', cls: 'small', h: 0.63, r: 0.62, shadow: 0.6, lies: true, sink: 0.04 },
   // ---- the new trees
-  birch: { near: 'birch', far: 'birchFar', cls: 'tree', h: 7.3, r: 1.75, farR: 2.0, shadow: 1.3, accent: 0xe9e6dc, sink: 0.05, lean: 0.05 },
-  poplar: { near: 'poplar', far: 'poplarFar', cls: 'tree', h: 9.0, r: 1.65, farH: 7.8, farR: 1.85, shadow: 1.1, sink: 0.12, lean: 0.03 },
-  willow: { near: 'willow', far: 'willowFar', cls: 'tree', h: 6.5, r: 3.2, farH: 7.0, farR: 3.4, shadow: 2.6, accent: 0x6e5a40, sink: 0.05, lean: 0.04 },
-  juniper: { near: 'juniper', far: 'juniperFar', cls: 'tree', h: 3.5, r: 1.75, farH: 3.8, farR: 1.95, shadow: 1.2, accent: 0x7a6248, sink: 0.05, lean: 0.04 },
-  bamboo: { near: 'bamboo', far: 'bambooFar', cls: 'tree', h: 9.3, r: 3.0, farH: 9.6, shadow: 1.6, accent: 0x9fcf6a, sink: 0.05, lean: 0.02 },
-  fruit_tree: { near: 'fruit_tree', far: 'broadleafFar', cls: 'tree', h: 5.0, r: 2.5, farH: 5.8, farR: 3.0, shadow: 1.6, accent: 0xd8483a, sink: 0.1, lean: 0.05 },
-  baobab: { near: 'baobab', far: 'baobabFar', cls: 'tree', h: 8.2, r: 3.6, farH: 8.6, farR: 3.2, shadow: 2.4, accent: 0x8a7a66, sink: 0.05 },
+  birch: { near: 'birch', far: 'birchFar', tiny: 'birchTiny', tinyH: 7.4, tinyR: 2.1, cls: 'tree', h: 7.3, r: 1.75, farR: 2.0, shadow: 1.3, accent: 0xe9e6dc, sink: 0.05, lean: 0.05 },
+  poplar: { near: 'poplar', far: 'poplarFar', tiny: 'poplarTiny', tinyH: 8.4, tinyR: 1.85, cls: 'tree', h: 9.0, r: 1.65, farH: 7.8, farR: 1.85, shadow: 1.1, sink: 0.12, lean: 0.03 },
+  willow: { near: 'willow', far: 'willowFar', tiny: 'willowTiny', tinyH: 7.2, tinyR: 3.2, cls: 'tree', h: 6.5, r: 3.2, farH: 7.0, farR: 3.4, shadow: 2.6, accent: 0x6e5a40, sink: 0.05, lean: 0.04 },
+  juniper: { near: 'juniper', far: 'juniperFar', tiny: 'juniperTiny', tinyH: 3.6, tinyR: 1.95, cls: 'tree', h: 3.5, r: 1.75, farH: 3.8, farR: 1.95, shadow: 1.2, accent: 0x7a6248, sink: 0.05, lean: 0.04 },
+  bamboo: { near: 'bamboo', far: 'bambooFar', tiny: 'bambooTiny', tinyH: 9.6, tinyR: 3.0, cls: 'tree', h: 9.3, r: 3.0, farH: 9.6, shadow: 1.6, accent: 0x9fcf6a, sink: 0.05, lean: 0.02 },
+  fruit_tree: { near: 'fruit_tree', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 5.0, r: 2.5, farH: 5.8, farR: 3.0, shadow: 1.6, accent: 0xd8483a, sink: 0.1, lean: 0.05 },
+  baobab: { near: 'baobab', far: 'baobabFar', tiny: 'baobabTiny', tinyH: 9.0, tinyR: 3.3, cls: 'tree', h: 8.2, r: 3.6, farH: 8.6, farR: 3.2, shadow: 2.4, accent: 0x8a7a66, sink: 0.05 },
   // ---- the new shrubs
   berry_bush: { near: 'berry_bush', far: 'bushFar', cls: 'small', h: 1.3, r: 1.1, farH: 1.6, farR: 1.25, shadow: 0.8, accent: 0xc2334a, lies: true, sink: 0.05 },
   tea_bush: { near: 'tea_bush', far: 'teaFar', cls: 'small', h: 0.9, r: 0.8, shadow: 0, lies: true, sink: 0.03, turn: 'row' },
@@ -85,11 +91,11 @@ export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
   agave: { near: 'agave', cls: 'small', h: 1.06, r: 1.0, shadow: 0.5, lies: true, sink: 0.03 },
   prickly_pear: { near: 'prickly_pear', cls: 'small', h: 1.0, r: 0.75, shadow: 0.5, accent: 0xd0406a, lies: true, sink: 0.03 },
   // (a plant of reeds, of sunflowers or of tall grass is a patch of several: its radius here is the patch's own measure)
-  reed: { near: 'reed', far: 'reedFar', cls: 'small', h: 2.3, r: 1.0, farH: 2.1, shadow: 0, accent: 0xcbb890, lies: true, sink: 0.02 },
+  reed: { near: 'reed', far: 'reedFar', cls: 'small', h: 2.6, r: 1.0, farH: 2.1, shadow: 0, accent: 0xcbb890, lies: true, sink: 0.02 },
   fern: { near: 'fern', cls: 'small', h: 0.8, r: 0.95, shadow: 0, lies: true, sink: 0.02 },
   vine: { near: 'vine', far: 'bushFar', cls: 'small', h: 1.6, r: 1.4, farH: 1.6, farR: 1.25, shadow: 0.8, accent: 0x5a2a6a, lies: true, sink: 0.04 },
   sunflower: { near: 'sunflower', far: 'sunflowerFar', cls: 'small', h: 2.1, r: 0.5, shadow: 0, accent: 0xf2c23c, lies: true, sink: 0.02, turn: 'sun' },
-  tall_grass: { near: 'tall_grass', far: 'reedFar', cls: 'small', h: 1.6, r: 0.7, farH: 2.1, farR: 1.2, shadow: 0, accent: 0xc8b46a, lies: true, sink: 0.02 },
+  tall_grass: { near: 'tall_grass', far: 'reedFar', cls: 'small', h: 1.75, r: 0.7, farH: 2.1, farR: 1.2, shadow: 0, accent: 0xc8b46a, lies: true, sink: 0.02 },
   // ---- what lies on the ground
   boulder: { near: 'boulder', cls: 'small', h: 1.3, r: 1.6, shadow: 1.2, lies: true, sink: 0.1 },
   log: { near: 'log', cls: 'small', h: 0.46, r: 1.6, shadow: 0, lies: true, sink: 0.03 },
@@ -101,6 +107,7 @@ export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
 const SWAY: Readonly<Record<string, number>> = {
   conifer: 0.6, conifer2: 0.6, coniferFar: 0.6, rock: 0, boulder: 0, log: 0, stump: 0, cactus: 0.5, cactusFar: 0.5, baobab: 0.5, baobabFar: 0.5,
   reed: 9, reedFar: 9, tall_grass: 9, sunflower: 2.5, sunflowerFar: 2.5, flower_clump: 30, fern: 12, agave: 0, prickly_pear: 0, bamboo: 1.5, bambooFar: 1.5, tea_bush: 0.3, teaFar: 0.3,
+  coniferTiny: 0.6, cactusTiny: 0.5, baobabTiny: 0.5, bambooTiny: 1.5,
 };
 
 /** texels to a row of the atlas, and to a vertex */
@@ -186,11 +193,14 @@ export interface PlantDraw {
   cls: PlantClass;
   near: AtlasModel;
   far: AtlasModel | null;
-  /** the scale across and up of a plant of size 1, near and far */
+  tiny: AtlasModel | null;
+  /** the scale across and up of a plant of size 1: near, far and furthest */
   kx: number;
   ky: number;
   fkx: number;
   fky: number;
+  tkx: number;
+  tky: number;
   /** its first colour as 0xRRGGBB (−1: its region's palette paints it), and its second */
   tintA: number;
   tintB: number;
@@ -224,17 +234,21 @@ export class PlantRegistry {
     const fam = f ?? FAMILIES.bush;
     const near = this.atlas.models[fam.near];
     const far = fam.far ? this.atlas.models[fam.far] : null;
-    if (!near || (fam.far && !far)) throw new Error(`the plant registry names a model the atlas does not hold (${fam.near}, ${fam.far ?? '-'})`);
+    const tiny = fam.tiny ? this.atlas.models[fam.tiny] : null;
+    if (!near || (fam.far && !far) || (fam.tiny && !tiny)) throw new Error(`the plant registry names a model the atlas does not hold (${fam.near}, ${fam.far ?? '-'}, ${fam.tiny ?? '-'})`);
     return {
       drawn,
       family: fam,
       cls: fam.cls,
       near: drawn ? near : NO_MODEL,
       far: drawn ? far : null,
+      tiny: drawn ? tiny : null,
       kx: p.crown / fam.r,
       ky: p.height / fam.h,
       fkx: p.crown / (fam.farR ?? fam.r),
       fky: p.height / (fam.farH ?? fam.h),
+      tkx: p.crown / (fam.tinyR ?? fam.farR ?? fam.r),
+      tky: p.height / (fam.tinyH ?? fam.farH ?? fam.h),
       tintA: p.tint ? p.tint[0] : -1,
       tintB: p.tint ? p.tint[1] : (fam.accent ?? 0x5a4a3c),
       regionAccent: !p.tint && p.model === 'flower_clump',

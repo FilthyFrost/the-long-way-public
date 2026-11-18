@@ -149,8 +149,9 @@ export function trunk(b: PlantBuilder, h: number, r: number, color: THREE.Color,
  * A clump: a dark ball with cards of leaves around it, more on top. `crown` is the centre of the
  * whole crown: the clumps lean their shading normals away from it, so the crown reads as one mass.
  */
-export function clump(b: PlantBuilder, rnd: () => number, c: THREE.Vector3, r: number, cards: number, crown: THREE.Vector3, cardScale = 1): void {
-  const ball = new THREE.IcosahedronGeometry(r * 0.8, 0);
+export function clump(b: PlantBuilder, rnd: () => number, c: THREE.Vector3, r: number, cards: number, crown: THREE.Vector3, cardScale = 1, core = 0.8): void {
+  // (`core`: the dark ball's share of the clump's radius — smaller for a light crown the sky shows through)
+  const ball = new THREE.IcosahedronGeometry(r * core, 0);
   b.solid(ball, place(c.x, c.y, c.z), WHITE, 1, (p) => 0.62 + 0.22 * THREE.MathUtils.clamp((p.y - crown.y) / (r * 2.5) + 0.5, 0, 1), c);
   const out = new THREE.Vector3();
   const n = new THREE.Vector3();

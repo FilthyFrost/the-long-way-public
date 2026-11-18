@@ -14,11 +14,13 @@ import { PLANTS, bearsAt, plantDef, plantIndex } from '../../src/core/world/plan
 import { LandParams } from '../../src/core/world/landform';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
-import { LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraBatch } from '../../src/game/scene/floraScatter';
+import { DENSE_TREES, LOD_CLOSE, LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, floraSheet, type FloraBatch, type FloraScatter } from '../../src/game/scene/floraScatter';
 import { PART_ACCENT, PART_FRUIT, PART_LEAF, PART_ROCK, PART_WOOD } from '../../src/game/scene/plantModels';
 import { ATLAS_ROW, ATLAS_WIDTH, FAMILIES, plantRegistry } from '../../src/game/scene/plantRegistry';
 
 const reg = plantRegistry();
+/** how many plants the draws of a class hold together (a class may be cut in two draws by model size) */
+const countOf = (s: FloraScatter, cls: string): number => s.batches.filter((b) => b.cls === cls).reduce((n, b) => n + b.count, 0);
 const world2 = (startBiome: string, seed = 7): World => new World(seed, { worldVersion: 2, startBiome });
 
 /** the tile under a point `off` m to the side of the road, `s` m along it */
@@ -50,7 +52,10 @@ describe('the plant registry', () => {
       const d = reg.draws[i];
       if (!d.drawn) continue;
       expect(d.cls, p.id).toBe(p.layer === 'tree' ? 'tree' : 'small');
-      if (p.layer === 'tree') expect(d.far, `${p.id} far off`).not.toBeNull();
+      if (p.layer === 'tree') {
+        expect(d.far, `${p.id} far off`).not.toBeNull();
+        expect(d.tiny, `${p.id} furthest off`).not.toBeNull();
+      } else expect(d.tiny, `${p.id} furthest off`).toBeNull();
       if (p.layer === 'ground') expect(d.far, `${p.id} far off`).toBeNull();
       // a plant of size 1 stands as tall and as wide as the catalogue says, to the model's own measure
       expect(d.ky * d.family.h).toBeCloseTo(p.height, 6);
@@ -106,6 +111,7 @@ describe('the plants\' atlas', () => {
         expect(near, name).toBeGreaterThanOrEqual(200);
         expect(near, name).toBeLessThanOrEqual(520);
         expect(reg.atlas.models[f.far!].count / 3, `${name} far`).toBeLessThanOrEqual(90);
+        expect(reg.atlas.models[f.tiny!].count / 3, `${name} furthest`).toBeLessThanOrEqual(30);
       } else {
         expect(near, name).toBeLessThanOrEqual(165);
         if (f.far) expect(reg.atlas.models[f.far].count / 3, `${name} far`).toBeLessThanOrEqual(40);
@@ -191,12 +197,10 @@ describe('a scatter tile of a world of version 2', () => {
             core.set(`${(t.x[i] - s.wx).toFixed(2)},${(t.z[i] - s.wz).toFixed(2)}`, { plant: t.plant[i], x: t.x[i] - s.wx, z: t.z[i] - s.wz, y: t.y[i], size: t.size[i], seen: 0 });
           }
         }
-        const trees = s.batches.find((b) => b.cls === 'tree');
-        const small = s.batches.find((b) => b.cls === 'small');
-        expect(trees?.count ?? 0, `${id} trees`).toBe(wantTrees);
+        expect(countOf(s, 'tree'), `${id} trees`).toBe(wantTrees);
         // (a plant of tea is drawn as up to three rows: its own and one on either side)
-        expect(small?.count ?? 0, `${id} small`).toBeGreaterThanOrEqual(wantSmall);
-        expect(small?.count ?? 0, `${id} small`).toBeLessThanOrEqual(wantSmall + 2 * teas);
+        expect(countOf(s, 'small'), `${id} small`).toBeGreaterThanOrEqual(wantSmall);
+        expect(countOf(s, 'small'), `${id} small`).toBeLessThanOrEqual(wantSmall + 2 * teas);
         for (const b of s.batches) {
           for (const r of rows(b)) {
             let c = core.get(`${r.x.toFixed(2)},${r.z.toFixed(2)}`);
@@ -267,8 +271,7 @@ describe('a scatter tile of a world of version 2', () => {
         plants += here;
         const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
         const et = w.eco!.tile(tx, tz);
-        const b = s.batches.find((x) => x.cls === 'small')!;
-        for (const r of rows(b)) {
+        for (const r of s.batches.filter((x) => x.cls === 'small').flatMap(rows)) {
           if (r.first !== first) continue;
           rowsSeen++;
           // (a row is drawn at the model's own measure across, whatever the plant's size)
@@ -347,35 +350,97 @@ describe('a scatter tile of a world of version 2', () => {
     expect(bearing).toBeGreaterThan(3);
   });
 
-  it('keeps the trees and the larger shrubs in low models at the middle level, the trees alone at the far level', () => {
+  it('keeps the trees and the larger shrubs in low models at the middle level, the trees alone in their smallest at the far level', () => {
     const w = world2('lakes');
     const flora = w.flora!;
     let reeds = 0;
+    let open = 0;
+    let thick = 0;
+    const models = { near: new Set(reg.draws.map((d) => d.near.first)), far: new Set(reg.draws.filter((d) => d.far).map((d) => d.far!.first)) };
     for (let s0 = 500; s0 < 12000; s0 += 400) {
       const [tx, tz] = tileAt(w, s0, 120);
       const near = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
+      const close = buildFloraScatter(w, reg, tx, tz, LOD_CLOSE);
       const mid = buildFloraScatter(w, reg, tx, tz, LOD_MID);
       const far = buildFloraScatter(w, reg, tx, tz, LOD_FAR);
-      const count = (s: typeof near, cls: string): number => s.batches.find((b) => b.cls === cls)?.count ?? 0;
-      expect(count(mid, 'tree')).toBe(count(near, 'tree'));
-      expect(count(far, 'tree')).toBe(count(near, 'tree'));
-      expect(count(far, 'small')).toBe(0);
+      for (const s of [close, mid]) expect(countOf(s, 'tree')).toBe(countOf(near, 'tree'));
+      expect(countOf(close, 'small')).toBe(countOf(near, 'small'));
+      expect(countOf(far, 'small')).toBe(0);
       const shrubs = flora.tile(LAYER_SHRUB, tx, tz);
       let withFar = 0;
       for (let i = 0; i < shrubs.n; i++) {
         if (reg.draws[shrubs.plant[i]].far) withFar++;
         if (PLANTS[shrubs.plant[i]].id === 'reed') reeds++;
       }
-      expect(count(mid, 'small')).toBe(withFar);
-      for (const b of far.batches) {
-        expect(b.verts).toBeLessThanOrEqual(90 * 3);
-        for (const r of rows(b)) expect(r.count).toBeLessThanOrEqual(90 * 3);
+      expect(countOf(mid, 'small')).toBe(withFar);
+      // a tile that is not thick wood: every tree in its full model at the close level, in its far model at
+      // the middle level, in its smallest (and every one of them) at the far level
+      const dense = flora.tile(LAYER_TREE, tx, tz).n > DENSE_TREES;
+      const level = (r: { first: number }): number => (models.near.has(r.first) ? 0 : models.far.has(r.first) ? 1 : 2);
+      const levels = (s: FloraScatter): number[] => s.batches.filter((b) => b.cls === 'tree').flatMap(rows).map(level);
+      if (!dense) {
+        expect(levels(close).every((l) => l === 0)).toBe(true);
+        expect(levels(mid).every((l) => l === 1)).toBe(true);
+        expect(countOf(far, 'tree')).toBe(countOf(near, 'tree'));
+        open++;
+      } else {
+        // thick wood: the trees inside it a level lower than its edge, and at the far level every other one of them
+        expect(levels(close).some((l) => l === 1)).toBe(true);
+        expect(levels(close).every((l) => l <= 1)).toBe(true);
+        expect(levels(mid).every((l) => l >= 1)).toBe(true);
+        expect(countOf(far, 'tree')).toBeLessThanOrEqual(countOf(near, 'tree'));
+        expect(countOf(far, 'tree')).toBeGreaterThanOrEqual(countOf(near, 'tree') * 0.4);
+        thick++;
       }
-      for (const b of mid.batches) if (b.cls === 'small') expect(b.verts).toBeLessThanOrEqual(40 * 3);
+      expect(levels(near).every((l) => l === 0)).toBe(true);
+      expect(levels(far).every((l) => l === 2)).toBe(true);
+      // the close level's shadows are thrown by every tree of the tile in its far model; no other level has such a draw
+      expect(near.shadows).toBeNull();
+      expect(mid.shadows).toBeNull();
+      expect(far.shadows).toBeNull();
+      if (countOf(near, 'tree') > 0) {
+        expect(close.shadows!.count).toBe(countOf(near, 'tree'));
+        expect(rows(close.shadows!).every((r) => level(r) === 1)).toBe(true);
+        expect(buildFloraScatter(w, reg, tx, tz, LOD_CLOSE, true).shadows).toBeNull();
+      } else expect(close.shadows).toBeNull();
+      for (const b of mid.batches) expect(b.verts).toBeLessThanOrEqual(b.cls === 'tree' ? 90 * 3 : 40 * 3);
+      for (const b of far.batches) expect(b.verts).toBeLessThanOrEqual(30 * 3);
     }
+    expect(open).toBeGreaterThan(3);
+    expect(thick).toBeGreaterThan(0);
     // (lake country has reed beds: they are among what the middle level keeps)
     expect(reeds).toBeGreaterThan(20);
     expect(reg.draws[plantIndex('reed')].far).not.toBeNull();
+    for (const [i, p] of PLANTS.entries()) if (p.layer === 'tree') expect(reg.draws[i].tiny, `${p.id} furthest`).not.toBeNull();
+  });
+
+  it('cuts a draw in two where small models stand among large ones, and never draws a plant with fewer vertices than its model has', () => {
+    // a row of rocks (20 triangles) among sunflowers (160): together they would all be drawn as the largest
+    const list = [];
+    for (let i = 0; i < 120; i++) list.push({ plant: i % 4 === 0 ? 'sunflower' : 'rock', x: i, y: 0, z: 0 });
+    const cut = floraSheet(reg, list);
+    expect(cut.length).toBe(2);
+    expect(cut[0].count + cut[1].count).toBe(120);
+    expect(cut[0].verts).toBe(reg.atlas.models.sunflower.count);
+    expect(cut[1].verts).toBe(reg.atlas.models.rock.count);
+    for (const b of cut) for (const r of rows(b)) expect(r.count).toBeLessThanOrEqual(b.verts);
+    // a handful of them: not worth a second draw
+    expect(floraSheet(reg, list.slice(0, 8)).length).toBe(1);
+    // and in the world: what a tile's draws hold in all is never more than a third over its models' own triangles
+    const w = world2('forest');
+    let padded = 0;
+    let own = 0;
+    for (let s0 = 600; s0 < 9000; s0 += 600) {
+      const [tx, tz] = tileAt(w, s0, 90);
+      const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
+      expect(s.batches.length).toBeLessThanOrEqual(4);
+      for (const b of s.batches) {
+        padded += (b.verts / 3) * b.count;
+        own += b.triangles;
+        for (const r of rows(b)) expect(r.count).toBeLessThanOrEqual(b.verts);
+      }
+    }
+    expect(padded / own).toBeLessThan(1.34);
   });
 
   it('comes out the same whenever it is built, and soft discs only when asked for', () => {
@@ -399,12 +464,11 @@ describe('a scatter tile of a world of version 2', () => {
     expect(withDiscs.discCount).toBeGreaterThan(0);
     expect(withDiscs.discs!.length).toBe(withDiscs.discCount * 16);
     expect(buildFloraScatter(w, reg, tx, tz, LOD_FAR, true).discs).toBeNull();
-    // a grove of bamboo: most of its trees are bamboo, drawn with the bamboo's model
-    const trees = a.batches.find((x) => x.cls === 'tree')!;
+    // a grove of bamboo: its trees are drawn with the bamboo's model
     const bamboo = reg.atlas.models.bamboo.first;
     let n = 0;
-    for (let i = 0; i < trees.count; i++) if (trees.shape[i * 4 + 2] === bamboo) n++;
-    expect(trees.count).toBeGreaterThan(20);
+    for (const b of a.batches) if (b.cls === 'tree') for (const r of rows(b)) if (r.first === bamboo) n++;
+    expect(countOf(a, 'tree')).toBeGreaterThan(20);
     expect(n).toBeGreaterThan(0);
   });
 
@@ -425,14 +489,15 @@ describe('a scatter tile of a world of version 2', () => {
       const [tx, tz] = tileAt(w, s0, 90);
       const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
       const trees = flora.tile(LAYER_TREE, tx, tz);
-      const b = s.batches.find((x) => x.cls === 'tree');
-      if (!b) continue;
       const regions = new Set<number>();
       for (let i = 0; i < trees.n; i++) regions.add(trees.region[i]);
       if (regions.size < 2) continue;
-      for (let i = 0; i < b.count; i++) {
-        const share = b.look[i * 4 + 1] % 2;
-        if (share < 0.001 || share > 0.998) pure++;
+      for (const b of s.batches) {
+        if (b.cls !== 'tree') continue;
+        for (let i = 0; i < b.count; i++) {
+          const share = b.look[i * 4 + 1] % 2;
+          if (share < 0.001 || share > 0.998) pure++;
+        }
       }
     }
     expect(pure).toBeGreaterThan(0);

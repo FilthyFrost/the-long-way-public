@@ -91,25 +91,24 @@ function disc(b: PlantBuilder, c: THREE.Vector3, f: THREE.Vector3, r0: number, r
   for (let i = 0; i < n; i++) b.tri(c, at(i), at(i + 1), fn, part, color, k, k, k);
 }
 
-/** a tuft of blades standing from one foot: reeds, tall grass; `heads` of them carry a plume in the second colour */
+/** a tuft of blades standing from one foot: reeds, tall grass; `heads` of its tallest carry a seed head of the second colour at their tip */
 function tuft(b: PlantBuilder, rnd: () => number, x: number, z: number, blades: number, h: number, spread: number, half: number, heads: number, headLen: number, droop: number): void {
   for (let k = 0; k < blades; k++) {
     const a = (k / blades) * Math.PI * 2 + rnd() * 0.8;
     const out = 0.25 + 0.75 * rnd();
     const foot = V(x + Math.cos(a) * 0.06 * out, -0.08, z + Math.sin(a) * 0.06 * out);
-    const hh = h * (0.62 + 0.38 * rnd());
-    const tip = V(x + Math.cos(a) * spread * out, hh, z + Math.sin(a) * spread * out);
-    blade(b, foot, tip, half * (0.7 + 0.6 * rnd()), V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.72, 1.02 + 0.16 * rnd());
-  }
-  for (let k = 0; k < heads; k++) {
-    const a = rnd() * Math.PI * 2;
-    const foot = V(x + Math.cos(a) * 0.04, -0.05, z + Math.sin(a) * 0.04);
-    const top = V(x + Math.cos(a) * spread * 0.45, h * (0.92 + 0.14 * rnd()), z + Math.sin(a) * spread * 0.45);
+    // (the first few stand tallest and straightest: the ones that carry a head)
+    const head = k < heads;
+    const hh = h * (head ? 0.98 + 0.14 * rnd() : 0.62 + 0.36 * rnd());
+    const lean = head ? 0.35 : 1;
+    const tip = V(x + Math.cos(a) * spread * out * lean, hh, z + Math.sin(a) * spread * out * lean);
     const side = V(-Math.sin(a), 0, Math.cos(a));
-    blade(b, foot, top, half * 0.45, side, PART_LEAF, 0.74, 0.95);
-    // the head: a narrow diamond leaning on from the stalk's top, hanging a little where the plant's do
-    const end = top.clone().add(V(Math.cos(a) * headLen * (0.35 + droop), headLen * (1 - 1.5 * droop), Math.sin(a) * headLen * (0.35 + droop)));
-    leaf(b, top, end, half * 1.5, side, 0, PART_ACCENT, 0.86, 1.0, 1.08);
+    // (light even at the foot: a stand of reeds is thin, the sky comes through it)
+    blade(b, foot, tip, half * (0.7 + 0.6 * rnd()), side, PART_LEAF, 0.92, 1.12 + 0.12 * rnd());
+    if (!head) continue;
+    // the head: a narrow spindle on from the blade's tip, hanging a little where the plant's do
+    const end = tip.clone().add(V(Math.cos(a) * headLen * (0.25 + droop), headLen * (1 - 1.5 * droop), Math.sin(a) * headLen * (0.25 + droop)));
+    leaf(b, tip.clone().add(V(0, -0.05, 0)), end, half * 0.95, side, 0, PART_ACCENT, 0.9, 1.0, 1.06);
   }
 }
 
@@ -164,15 +163,15 @@ export function buildPlantModels(): PlantModels {
   for (const [y, r, x] of [[0.55, 0.15, 0.01], [1.45, 0.135, 0.03], [2.7, 0.118, 0.07], [3.6, 0.1, 0.12]] as const) tube(b, V(x, y, 0), V(x, y + 0.1, 0), r * 1.07, r * 1.07, 5, grey(0.2), PART_ACCENT);
   let crown = V(0.1, 5.0, 0);
   for (const [x, y, z, r] of [[0.15, 6.3, 0, 0.85], [0.95, 5.3, 0.3, 0.75], [-0.85, 5.5, -0.3, 0.8], [0.1, 4.6, -0.95, 0.7], [-0.3, 4.3, 0.9, 0.7], [0.95, 4.0, -0.5, 0.55]] as const) {
-    clump(b, rnd, V(x, y, z), r, Math.round(10 * r * r + 4), crown, 0.85);
+    clump(b, rnd, V(x, y, z), r, Math.round(13 * r * r + 5), crown, 0.85, 0.5);
   }
   curtain(b, rnd, 7, 0.9, 1.5, 4.3, 0.42, 1.3, 0.95);
   out.birch = b.build();
   rnd = mulberry(62);
   birchTrunk(4);
   crown = V(0.1, 5.0, 0);
-  clump(b, rnd, V(0.1, 5.5, 0), 1.3, 7, crown, 1.2);
-  clump(b, rnd, V(0.5, 4.3, 0.3), 0.9, 4, crown, 1.2);
+  clump(b, rnd, V(0.1, 5.5, 0), 1.3, 8, crown, 1.2, 0.55);
+  clump(b, rnd, V(0.5, 4.3, 0.3), 0.9, 5, crown, 1.2, 0.55);
   out.birchFar = b.build();
 
   // ---- poplar: a tall narrow column of clumps on a short trunk
@@ -333,7 +332,7 @@ export function buildPlantModels(): PlantModels {
     const d = V(4.0, -0.1, side * 0.7);
     const t0 = V(-3.6, 0.85, 0);
     const t1 = V(3.6, 0.85, 0);
-    const n = V(0, 0.6, side * 0.8);
+    const n = V(0, 0.9, side * 0.436);
     b.tri(a, t0, t1, n, PART_LEAF, WHITE, 0.84, 1.12, 1.12);
     b.tri(a, t1, d, n, PART_LEAF, WHITE, 0.84, 1.12, 0.84);
   }
@@ -358,7 +357,7 @@ export function buildPlantModels(): PlantModels {
     const o = V(Math.cos(a), 0, Math.sin(a));
     const reach = inner ? 0.42 : 0.95 + 0.1 * rnd();
     const rise = inner ? 0.95 + 0.15 * rnd() : 0.55 + 0.2 * rnd();
-    leaf(b, V(o.x * 0.08, 0, o.z * 0.08), V(o.x * reach, rise, o.z * reach), 0.12, V(-o.z, 0, o.x), inner ? 0 : -0.08, PART_LEAF, 0.7, 0.95, 1.16, WHITE, 0.4);
+    leaf(b, V(o.x * 0.08, 0, o.z * 0.08), V(o.x * reach, rise, o.z * reach), 0.12, V(-o.z, 0, o.x), inner ? 0 : -0.08, PART_LEAF, 0.86, 1.06, 1.22, WHITE, 0.4);
   }
   out.agave = b.build();
 
@@ -367,7 +366,7 @@ export function buildPlantModels(): PlantModels {
   const pads: [number, number, number, number, number][] = [[0, 0.3, 0, 0.36, 0.2], [0.34, 0.26, 0.2, 0.3, 1.2], [-0.3, 0.25, -0.18, 0.3, 2.3], [0.12, 0.72, 0.05, 0.3, 0.6], [0.52, 0.62, 0.3, 0.25, 1.6], [-0.42, 0.63, -0.25, 0.26, 2.7]];
   for (const [x, y, z, r, yaw] of pads) {
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((rnd() - 0.5) * 0.4, yaw, (rnd() - 0.5) * 0.4));
-    blob(b, V(x, y, z), r * 0.85, r, 0.075, PART_LEAF, WHITE, (p, n) => 0.82 + 0.25 * Math.min(1, Math.max(0, p.y)) + 0.06 * n.y, 20, q);
+    blob(b, V(x, y, z), r * 0.85, r, 0.075, PART_LEAF, WHITE, (p, n) => 0.96 + 0.2 * Math.min(1, Math.max(0, p.y)) + 0.06 * n.y, 20, q);
   }
   for (let k = 0; k < 6; k++) {
     const [x, y, z, r, yaw] = pads[3 + (k % 3)];
@@ -381,13 +380,13 @@ export function buildPlantModels(): PlantModels {
   // after cell they close into a bed)
   const reedAt: [number, number][] = [[0, 0], [2.3, 0.8], [-1.9, 1.6], [-1.1, -2.3], [2.0, -1.9], [0.4, 2.9], [-3.0, -0.4]];
   rnd = mulberry(87);
-  for (const [x, z] of reedAt) tuft(b, rnd, x, z, 9, 2.0, 0.5, 0.05, 2, 0.42, 0.1);
+  for (const [x, z] of reedAt) tuft(b, rnd, x, z, 12, 2.15, 0.55, 0.065, 3, 0.36, 0.08);
   out.reed = b.build();
   rnd = mulberry(88);
   for (const [x, z] of reedAt) {
     const a = rnd() * Math.PI * 2;
-    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.5, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.74, 1.08);
-    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.45, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.72, 1.0);
+    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.5, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.92, 1.2);
+    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.45, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.9, 1.14);
   }
   out.reedFar = b.build();
 
@@ -397,7 +396,7 @@ export function buildPlantModels(): PlantModels {
     const a = (k / 9) * Math.PI * 2 + rnd() * 0.4;
     const o = V(Math.cos(a), 0, Math.sin(a));
     const reach = 0.8 + 0.25 * rnd();
-    leaf(b, V(o.x * 0.05, 0.02, o.z * 0.05), V(o.x * reach, 0.2 + 0.2 * rnd(), o.z * reach), 0.17, V(-o.z, 0, o.x), 0.36, PART_LEAF, 0.72, 0.98, 1.16, WHITE, 0.55);
+    leaf(b, V(o.x * 0.05, 0.02, o.z * 0.05), V(o.x * reach, 0.2 + 0.2 * rnd(), o.z * reach), 0.17, V(-o.z, 0, o.x), 0.36, PART_LEAF, 0.84, 1.04, 1.2, WHITE, 0.55);
   }
   for (let k = 0; k < 3; k++) {
     const a = k * 2.1 + 0.4;
@@ -449,7 +448,7 @@ export function buildPlantModels(): PlantModels {
   // ---- tall grass (sorghum, wild rice, fibre grass): tufts of long blades, seed heads of the second colour nodding over them
   rnd = mulberry(93);
   // (a stand of it is its cell's: tufts over a few metres)
-  for (const [x, z] of [[0, 0], [1.4, 0.5], [-1.1, 1.0], [-0.6, -1.4], [1.2, -1.1]] as const) tuft(b, rnd, x, z, 8, 1.45, 0.45, 0.045, 2, 0.3, 0.32);
+  for (const [x, z] of [[0, 0], [1.4, 0.5], [-1.1, 1.0], [-0.6, -1.4], [1.2, -1.1]] as const) tuft(b, rnd, x, z, 10, 1.45, 0.45, 0.05, 3, 0.3, 0.3);
   out.tall_grass = b.build();
 
   // ---- boulder: a big stone and a smaller one against it
@@ -500,6 +499,55 @@ export function buildPlantModels(): PlantModels {
   tube(b, V(-0.2, 1.72, 0), V(-0.5, 1.75, 0), 0.12, 0.12, 4, WHITE, PART_LEAF, cg);
   tube(b, V(-0.5, 1.65, 0), V(-0.5, 2.55, 0), 0.13, 0.11, 4, WHITE, PART_LEAF, cg);
   out.cactusFar = b.build();
+
+  // ---- the trees as they are drawn furthest off (some hundreds of metres: a tree is a few pixels): a stem, one
+  // dark lump for the crown's body and a handful of large leaf cards — a kind's outline and no more
+  const tiny = (seed: number, stem: [number, number, number, number] | null, accent: boolean, core: [number, number, number, number, number, number], cards: number, size: number, hang = 0): THREE.BufferGeometry => {
+    const r = mulberry(seed);
+    if (stem) tube(b, V(0, -0.4, 0), V(stem[0], stem[1], 0), stem[2], stem[3], 3, accent ? WHITE : TRUNK, accent ? PART_ACCENT : PART_WOOD, accent ? () => 0.88 : undefined);
+    const c = V(core[0], core[1], core[2]);
+    blob(b, c, core[3], core[4], core[5], PART_LEAF, WHITE, (p) => 0.64 + 0.22 * Math.min(1, Math.max(0, (p.y - c.y) / (core[4] * 2) + 0.5)), 8);
+    for (let k = 0; k < cards; k++) {
+      const a = (k / cards) * Math.PI * 2 + r() * 0.6;
+      const up = k === 0 ? 1 : 0.15 + 0.5 * r();
+      const n = V(Math.cos(a) * (1 - up * 0.6), up, Math.sin(a) * (1 - up * 0.6)).normalize();
+      b.leafCard(V(c.x + n.x * core[3] * 0.75, c.y + n.y * core[4] * 0.75, c.z + n.z * core[5] * 0.75), n.clone().add(V(r() - 0.5, r() - 0.5, r() - 0.5).multiplyScalar(0.5)), n.clone().lerp(UP, 0.35).normalize(), size * (0.9 + 0.3 * r()), r() * Math.PI, 0.9 + 0.3 * (n.y * 0.5 + 0.5));
+    }
+    for (let k = 0; k < hang; k++) {
+      const a = (k / hang) * Math.PI * 2 + 0.4;
+      const o = V(Math.cos(a), 0, Math.sin(a));
+      b.spray(V(o.x * core[3] * 1.05, c.y - 1.5, o.z * core[5] * 1.05), o, o.clone().multiplyScalar(0.7).add(V(0, 0.55, 0)).normalize(), 2.4, 2.8, 0, 0.93);
+    }
+    return b.build();
+  };
+  out.broadleafTiny = tiny(101, [0, 2.2, 0.2, 0.14], false, [0, 3.5, 0, 1.7, 1.5, 1.7], 5, 3.1);
+  out.birchTiny = tiny(102, [0.1, 6.0, 0.15, 0.05], true, [0.1, 5.2, 0, 1.1, 1.3, 1.1], 4, 2.3);
+  out.poplarTiny = tiny(103, [0, 1.8, 0.16, 0.12], false, [0, 5.0, 0, 1.0, 3.4, 1.0], 5, 2.3);
+  out.willowTiny = tiny(104, [0.1, 2.0, 0.32, 0.24], true, [0, 4.4, 0, 2.2, 1.5, 2.2], 3, 3.8, 2);
+  out.juniperTiny = tiny(105, [0.2, 1.6, 0.2, 0.1], true, [0.3, 2.3, 0, 1.2, 0.9, 1.2], 3, 1.9);
+  // (the baobab's trunk is most of it: laid down first, the crown's lump and cards on top)
+  tube(b, V(0, -0.6, 0), V(0, 4.9, 0), 1.08, 0.5, 4, WHITE, PART_ACCENT, (p) => 0.84 + 0.1 * Math.sin(p.y * 1.7));
+  out.baobabTiny = tiny(106, null, true, [0, 6.3, 0, 2.5, 1.1, 2.5], 4, 3.2);
+  // a fir: one ragged cone on its stem
+  tube(b, V(0, -0.4, 0), V(0, 1.6, 0), 0.16, 0.12, 3, new THREE.Color(0x5a4638));
+  b.solid(new THREE.CylinderGeometry(0.04, 1.5, 5.4, 5, 1, true), new THREE.Matrix4().makeTranslation(0, 3.7, 0), WHITE, PART_LEAF, (p) => 0.72 + 0.4 * Math.min(1, Math.max(0, (p.y - 1.2) / 5.2)));
+  out.coniferTiny = b.build();
+  // bamboo: two canes and the light of its top
+  rnd = mulberry(107);
+  for (const [x, z, h] of [[0.3, 0.1, 8.6], [-0.25, -0.2, 7.8]] as const) {
+    blade(b, V(x, -0.4, z), V(x * 2.4, h * 0.74, z * 2.4), 0.11, V(1, 0, 0.3), PART_ACCENT, 0.86, 1.0);
+    for (let j = 0; j < 3; j++) {
+      const t = (j + 0.5) / 3;
+      const o = V(x, 0, z).normalize();
+      b.spray(V(x * 2.4 + o.x * (2.0 * t * t + 0.2), h * (0.76 + 0.2 * t), z * 2.4 + o.z * (2.0 * t * t + 0.2)), o.clone().multiplyScalar(0.4).add(V(rnd() - 0.5, 0.8, rnd() - 0.5)), o.clone().multiplyScalar(0.4).add(V(0, 0.9, 0)).normalize(), 5.4, 3.8, rnd() * Math.PI, 1.0 + 0.2 * t);
+    }
+  }
+  out.bambooTiny = b.build();
+  // a cactus: its trunk and one arm
+  tube(b, V(0, -0.2, 0), V(0, 3.05, 0), 0.26, 0.2, 4, WHITE, PART_LEAF, cg);
+  tube(b, V(0.2, 1.2, 0), V(0.55, 1.25, 0), 0.13, 0.13, 3, WHITE, PART_LEAF, cg);
+  tube(b, V(0.55, 1.15, 0), V(0.55, 2.3, 0), 0.14, 0.12, 3, WHITE, PART_LEAF, cg);
+  out.cactusTiny = b.build();
 
   return out;
 }

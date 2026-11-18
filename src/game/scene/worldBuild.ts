@@ -1039,7 +1039,7 @@ export interface GrassTile {
 const GRID = 2;
 /** a world of version 2: the cover's grass at its thickest is this share of the cells with a tuft, a grass of this height (m) is a tuft of size 1 */
 const COVER_GROW = 1.15;
-const COVER_HEIGHT = 0.45;
+const COVER_HEIGHT = 0.43;
 /** … and where its flowers are a carpet, this share of the tufts carry one: in a meadow, and in a row of a field */
 const COVER_FLOWERS = 0.55;
 const ROW_FLOWERS = 0.8;
@@ -1131,7 +1131,8 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
         eco.flags = 0;
         coverBase(eco, c, cb);
         gGrow[k] = cb.grass * COVER_GROW;
-        gSize[k] = cb.height / COVER_HEIGHT;
+        // (a grass twice as tall is not drawn twice as tall: the tufts were always taller than the grass they stand for)
+        gSize[k] = Math.pow(cb.height / COVER_HEIGHT, 0.6);
         gFlower[k] = cb.flowers;
         gSlope[k] = eco.slope;
         gBend[k] = c.rows ? rowCoord(world.seed, x0 + i * GRID, z0 + j * GRID) - (z0 + j * GRID) : 0;
