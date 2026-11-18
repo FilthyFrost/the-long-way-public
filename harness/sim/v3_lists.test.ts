@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { accepts, countOf, itemSig, mergeStacks, newItem, putInside, registerItemCat, registerItems, roomInside, stackMax, type ItemInstance } from '../../src/core/modcar/items';
 import { setItemClock } from '../../src/game/modcar/itemTime';
-import { boxSource, placeSource, vehicleSource, type ListHost } from '../../src/game/modcar/listSources';
+import { boxSource, guardedSource, placeSource, vehicleSource, type ListHost, type ListSource } from '../../src/game/modcar/listSources';
 import type { Loose } from '../../src/game/modcar/loose';
 import { heldOfFound, PlaceContainer } from '../../src/game/modcar/places';
 import type { Held } from '../../src/game/modcar/player';
@@ -202,9 +202,13 @@ describe.each([
     expect(itemSig(box)).toBe('tl_basket[tl_berry*12,tl_berry*3]');
     const eight = item(berries(8));
     expect(src.room!(eight)).toBe(5);
+    // (asked again with nothing changed: the same answer, which the box source does not work out twice)
+    expect(src.room!(eight)).toBe(5);
     expect(src.put!(eight)).toBe(3);
     expect(countOf((eight as { item: ItemInstance }).item)).toBe(3);
     expect(itemSig(box)).toBe('tl_basket[tl_berry*12,tl_berry*8]');
+    // the same thing, fewer of it, the box fuller: asked afresh, and now none would go
+    expect(src.room!(eight)).toBe(0);
     // itself (said: bring the thing to put in into the hands first), and a kind it does not hold (said too)
     expect(src.room!(item(box))).toBe(0);
     expect(src.put!(item(box))).toBe(1);
@@ -310,6 +314,93 @@ describe('what the list asks of its source every frame it is open', () => {
     expect(inHand.room!(held)).toBe(4);
     expect(heapGrowth(ask)).toBeLessThan(ALLOCATES / 4);
     expect(sum).toBeGreaterThan(0);
+    // and the same asked as the game asks it, through the guard that catches what a source throws
+    const told: string[] = [];
+    const guarded = all.map((src) => guardedSource(src, (title, asked) => void told.push(`${title} ${asked}`)));
+    const gHand = guarded[0];
+    const gCar = guarded[2];
+    const askGuarded = (): void => {
+      for (let i = 0; i < guarded.length; i++) {
+        if (guarded[i].near()) sum++;
+        if (guarded[i].version() === 0) sum++;
+        if (guarded[i].title === '') sum++;
+      }
+      sum += gHand.room!(held) + gCar.load!();
+    };
+    expect(gHand.room!(held)).toBe(4);
+    expect(heapGrowth(askGuarded)).toBeLessThan(ALLOCATES / 4);
+    expect(told).toEqual([]);
+  });
+});
+
+describe('a source that throws', () => {
+  /** a source that works, with every member the list may ask */
+  const sound = (): ListSource => ({
+    title: '冰箱',
+    head: '冰箱里的东西',
+    empty: '空的',
+    takeWord: '拿出来',
+    near: () => true,
+    version: () => 7,
+    rows: () => [{ zone: '冰箱', name: '试验莓 ×5', mass: 0.25, icon: null }],
+    load: () => 0.25,
+    takeAt: () => true,
+    room: () => 3,
+    put: () => 0,
+  });
+  const boom = (): never => {
+    throw new Error('boom');
+  };
+
+  it('is asked through as it is while it throws nothing, with what it leaves out left out', () => {
+    const told: string[] = [];
+    const src = sound();
+    const g = guardedSource(src, (title, asked) => void told.push(`${title} ${asked}`));
+    expect([g.title, g.head, g.empty, g.takeWord, g.shutEmpty, g.cap]).toEqual(['冰箱', '冰箱里的东西', '空的', '拿出来', undefined, undefined]);
+    expect([g.near(), g.version(), g.rows().length, g.load!(), g.takeAt(0), g.room!(item(berries(2))), g.put!(item(berries(2)))]).toEqual([true, 7, 1, 0.25, true, 3, 0]);
+    // (the three old lists take nothing in: neither does what guards them)
+    const p = new PlainHands();
+    const plain = guardedSource(placeSource(hostOf(p).host, new PlaceContainer({ id: 'c1', x: 0, z: 0, hx: 0.4, hz: 0.3 } as never, {} as never, '橱柜')), () => {});
+    expect([plain.put, plain.room, plain.load]).toEqual([undefined, undefined, undefined]);
+    expect(plain.shutEmpty).toBe(true);
+    expect(told).toEqual([]);
+  });
+
+  it.each(['near', 'version', 'rows', 'load', 'takeAt', 'room', 'put'] as const)('in %s: the throw is told once, the source is out of reach from then on and answers harmlessly', (member) => {
+    const told: string[] = [];
+    const src = { ...sound(), [member]: boom } as ListSource;
+    const g = guardedSource(src, (title, asked, e) => void told.push(`${title} ${asked}: ${(e as Error).message}`));
+    const held = item(berries(4));
+    const askAll = (): unknown[] => [g.near(), g.version(), g.rows().length, g.load!(), g.takeAt(0), g.room!(held), g.put!(held), g.title];
+    // (nothing escapes, whichever is asked first; what comes before the one that throws still answers)
+    const first = askAll();
+    expect(told).toEqual([`冰箱 ${member}: boom`]);
+    expect(g.near()).toBe(false);
+    // from then on: no rows, nothing taken, none of the held thing put in, and its name still there for the list's last frame
+    expect(askAll()).toEqual([false, 0, 0, 0, false, 0, 4, '冰箱']);
+    expect(told.length).toBe(1);
+    expect(first.length).toBe(8);
+    expect(countOf((held as { item: ItemInstance }).item)).toBe(4);
+  });
+
+  it('in what it is called, or in telling it apart: nothing escapes either', () => {
+    const told: string[] = [];
+    const nameless = guardedSource(
+      {
+        ...sound(),
+        get title(): string {
+          throw new Error('no name');
+        },
+      } as ListSource,
+      (title, asked) => void told.push(`${title} ${asked}`),
+    );
+    expect(nameless.title).toBe('');
+    expect(nameless.near()).toBe(false);
+    expect(told).toEqual(['? title']);
+    // whoever is told throws as well
+    const loud = guardedSource({ ...sound(), near: boom } as ListSource, boom);
+    expect(loud.near()).toBe(false);
+    expect(loud.rows()).toEqual([]);
   });
 });
 
