@@ -159,8 +159,8 @@
     "sites": "0d94ed69",
     "landmarks": "a8b05b1e",
     "furniture": "a8f7b6b0",
-    "heights": "ee64344d",
-    "features": "108618fd",
+    "heights": "68032a76",
+    "features": "0cfc3f4e",
     "counts": {
       "chapters": 8,
       "water": 14,
@@ -169,7 +169,7 @@
       "landmarks": 23,
       "posts": 2618,
       "rails": 59,
-      "features": 22
+      "features": 29
     }
   },
   "v2-modcar-77": {
@@ -182,7 +182,7 @@
     "sites": "f48f1bae",
     "landmarks": "50ecfba8",
     "furniture": "4f436061",
-    "heights": "35b30b09",
+    "heights": "92cdc3e3",
     "features": "bdd7ca0d",
     "counts": {
       "chapters": 8,
@@ -205,8 +205,8 @@
     "sites": "1157787c",
     "landmarks": "3b264299",
     "furniture": "a44f0821",
-    "heights": "d516bae8",
-    "features": "30dbd5c5",
+    "heights": "31bb7633",
+    "features": "829d6825",
     "counts": {
       "chapters": 19,
       "water": 24,
@@ -215,7 +215,7 @@
       "landmarks": 23,
       "posts": 2605,
       "rails": 194,
-      "features": 19
+      "features": 33
     }
   },
   "v2-terraces-small-13": {
@@ -228,8 +228,8 @@
     "sites": "5c36250b",
     "landmarks": "f3f06e29",
     "furniture": "d84cb32c",
-    "heights": "48acccc2",
-    "features": "3508f626",
+    "heights": "a4a52ce9",
+    "features": "511fd796",
     "counts": {
       "chapters": 20,
       "water": 16,

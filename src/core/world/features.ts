@@ -131,9 +131,11 @@ function lerp(span: Span, u: number): number {
 
 /**
  * The anchored landforms along the road. `recipesOf(k)` gives the recipes of stretch k (null or empty: the
- * stretch holds none; the caller decides that from the region and the director); `wet(x, z, s)` says whether
- * water could reach a point, s being the arc length of the road point with the same x (the water plan's
- * bounding boxes: false means certainly dry); `slot` is the length of a stretch (m).
+ * stretch holds none; the caller decides that from the region and the director); `wet(x, z, s, reach)` says
+ * whether water could reach a point, s being the arc length of the road point with the same x (false
+ * means certainly dry) — it is asked about a landform's middle, with how far its foot reaches from there
+ * (a test that knows the water's shape can then answer for the whole foot), and about four points of the
+ * foot with a reach of nothing; `slot` is the length of a stretch (m).
  *
  * Neither of the two is ever to ask the land for a height: the land asks this plan at every point, and a
  * stretch is laid out the first time it does.
@@ -147,7 +149,7 @@ export class FeaturePlan {
     private readonly road: RoadReader,
     seed: number,
     private readonly recipesOf: (k: number) => readonly FeatureRecipe[] | null,
-    private readonly wet: (x: number, z: number, s: number) => boolean = () => false,
+    private readonly wet: (x: number, z: number, s: number, reach: number) => boolean = () => false,
     private readonly slot: number = SLOT,
   ) {
     this.seed = hash2(seed | 0, 0x0feb, 17);
@@ -173,7 +175,8 @@ export class FeaturePlan {
       const fs = this.of(i);
       for (let j = 0; j < fs.length; j++) {
         const v = featureHeight(fs[j], x, z);
-        if (v > h) h = v;
+        if (v <= 0) continue;
+        h = h <= 0 ? v : join(h, v);
       }
     }
     return h;
@@ -286,12 +289,29 @@ export class FeaturePlan {
   /** could water reach its middle or its foot? */
   private inWater(f: LandFeature, s: number): boolean {
     const reach = f.r * f.stretch;
-    if (this.wet(f.x, f.z, s)) return true;
-    return this.wet(f.x - reach, f.z, s) || this.wet(f.x + reach, f.z, s) || this.wet(f.x, f.z - reach, s) || this.wet(f.x, f.z + reach, s);
+    if (this.wet(f.x, f.z, s, reach)) return true;
+    return this.wet(f.x - reach, f.z, s, 0) || this.wet(f.x + reach, f.z, s, 0) || this.wet(f.x, f.z - reach, s, 0) || this.wet(f.x, f.z + reach, s, 0);
   }
 }
 
 const NONE: readonly LandFeature[] = [];
+
+/** the height band within which two landforms that lean on each other are joined round (m) */
+const COL = 4;
+
+/**
+ * The height where two landforms cover the same ground: the taller of the two, and where they are within
+ * COL of each other a little more, so that the col between them is rounded and not a crease (the land's
+ * slope stays continuous). Near the ground the rounding dies away: where one of them has only just begun,
+ * the other is not lifted.
+ */
+function join(a: number, b: number): number {
+  const hi = a > b ? a : b;
+  const lo = a > b ? b : a;
+  const d = COL - (hi - lo);
+  if (d <= 0) return hi;
+  return hi + ((lo < COL ? lo / COL : 1) * d * d) / (4 * COL);
+}
 
 /** does it stand too much inside one already there? (they may lean on each other: their feet may overlap by a third) */
 function crowds(f: LandFeature, others: readonly LandFeature[]): boolean {

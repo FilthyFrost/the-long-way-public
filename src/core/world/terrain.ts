@@ -32,6 +32,8 @@ export const ROAD_HALF = 3.25;
 export const ROAD_EDGE = 4.5;
 /** beyond this distance from the road the cheaper far-field formula is used */
 const NEAR_FIELD = 200;
+/** how far the foot of an anchored landform stays from a river's water (m): the gravel bar, the bank, and room to walk between */
+const FEATURE_SHORE = 30;
 /** how far apart the two points lie between which a terraced stretch measures the land's slope (m) */
 const TERRACE_PROBE = 2;
 /** how far a bridge deck stands proud of the road at its ends, and the joint over a beam bridge's pier (m) */
@@ -305,7 +307,11 @@ export class World implements Ground {
         out.sin = dsin(st.phi);
       },
     };
-    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s) => this.water.mayReach(x, z, s), this.rules.slot);
+    // (water: a landform stands clear of a lake's basin and of a river's water with FEATURE_SHORE m of
+    // bank, wherever its foot reaches. The water plan's quick answer, `mayReach`, is yes for the whole
+    // strip of country a river runs through, a kilometre wide: with it a stretch that has a river kept
+    // one landform in nine)
+    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s, reach) => this.water.touches(x, z, s, reach, FEATURE_SHORE), this.rules.slot);
   }
 
   /**
@@ -609,8 +615,8 @@ export class World implements Ground {
    *             How much of each step is riser goes by how steep the land is there (the same land asked
    *             once more, a few metres further from the road): steeper ground has narrower benches, never
    *             steeper risers, and ground too steep to bench at all is left as it lies.
-   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes. The far
-   *             ring's coarse land is raised by their mean height instead: its grid is wider than a dune.
+   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes; beyond
+   *             1.5 to 3 km, and in the far ring's coarse land, their mean height instead of the dunes.
    *
    * @param dzl  the point's z less the road's at the same x
    * @param cs0  the cosine of the road's heading at the road point of the same x
@@ -647,7 +653,14 @@ export class World implements Ground {
     }
     if (lp.dune > 0) {
       const w = smoothstep(16, 60, ad);
-      if (w > 0) rel += (coarse ? DUNE_MEAN * lp.dune : dunes(x, z, this.seed, lp.dune, lp.duneLen)) * w;
+      if (w > 0) {
+        // (kilometres out the land is drawn too coarsely for a dune a hundred metres long: there, and in
+        // the far ring's coarse land everywhere, the ground is raised by the dunes' mean height instead)
+        const far = coarse ? 1 : smoothstep(1500, 3000, (dzl < 0 ? -dzl : dzl) * cs0);
+        let dune = far < 1 ? dunes(x, z, this.seed, lp.dune, lp.duneLen) : 0;
+        dune += (DUNE_MEAN * lp.dune - dune) * far;
+        rel += dune * w;
+      }
     }
     return rel;
   }
