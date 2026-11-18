@@ -75,6 +75,7 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { setItemClock } from './itemTime';
+import { backInTheWorld } from './save';
 import { Sparks } from './sparks';
 import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
 import { ModPad, type PadHost } from './pad';
@@ -1202,7 +1203,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the things of a save: on the floor where they lay, on board the vehicle they rode on */
   private restoreLoose(list: SavedLoose[]): void {
     for (const l of list) {
-      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(l.item, l.x, l.y + 0.05, l.z, l.yaw) : null;
+      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(backInTheWorld(l.item), l.x, l.y + 0.05, l.z, l.yaw) : null;
       const v = l.on !== undefined ? this.vehicles[l.on] : undefined;
       if (thing && v && l.pos && l.rot) {
         this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
@@ -1546,14 +1547,25 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     // (a backpack on: its slots first)
     if (s.pack) {
-      this.player.pack = s.pack;
+      this.player.pack = backInTheWorld(s.pack);
       const n = 2 + (itemDef(s.pack.item).pack?.slots ?? 0);
       while (this.player.slots.length < n) this.player.slots.push(null);
     }
     (s.hands ?? []).forEach((h, i) => {
-      if (i < this.player.slots.length) this.player.slots[i] = h?.part ? { kind: 'part', inst: h.part } : h?.tool ? { kind: 'tool', tool: h.tool } : h?.item ? { kind: 'item', item: h.item } : null;
+      const held: Held = h?.part ? { kind: 'part', inst: h.part } : h?.tool ? { kind: 'tool', tool: h.tool } : h?.item ? { kind: 'item', item: backInTheWorld(h.item) } : null;
+      if (i < this.player.slots.length) this.player.slots[i] = held;
+      // (a slot the hotbar has no more: the backpack that gave it is of a kind this build does not have and was
+      // left out of the save as it was read, or it gives fewer slots now. What was in it is not lost.)
+      else if (held) this.setDown(held);
     });
     this.player.sel = s.sel !== undefined && s.sel >= 0 && s.sel < this.player.slots.length ? s.sel : 0;
+  }
+
+  /** a thing put down where one stands (what a save held in a slot the hotbar no longer has) */
+  private setDown(h: NonNullable<Held>): void {
+    const w = this.player.walker;
+    const l = h.kind === 'part' ? this.loose.addPart(h.inst, w.x, w.y + 1, w.z, w.heading) : h.kind === 'item' ? this.loose.addItem(h.item, w.x, w.y + 1, w.z, w.heading) : this.loose.addTool(h.tool, w.x, w.y + 1, w.z, w.heading);
+    this.loose.drop(l);
   }
 
   // ------------------------------------------------------------------ saving
@@ -1848,7 +1860,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** what rode in a vehicle, in it again where it was */
   private restoreRiders(v: ModVehicle, list: readonly SavedLoose[]): void {
     for (const l of list) {
-      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(l.item, l.x, l.y + 0.05, l.z, l.yaw) : null;
+      const thing = l.part ? this.loose.addPart(l.part, l.x, l.y + 0.05, l.z, l.yaw) : l.tool ? this.loose.addTool(l.tool, l.x, l.y + 0.05, l.z, l.yaw) : l.item ? this.loose.addItem(backInTheWorld(l.item), l.x, l.y + 0.05, l.z, l.yaw) : null;
       if (!thing || !l.pos || !l.rot) continue;
       this.loose.ride(thing, v, { pos: new THREE.Vector3().fromArray(l.pos), rot: new THREE.Quaternion().fromArray(l.rot) });
       if (l.zone) thing.stow = l.zone;

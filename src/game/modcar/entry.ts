@@ -24,6 +24,7 @@ import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
 import { MODULES } from './kernel/discovery';
 import type { GameModule } from './kernel/modules';
 import { clearSave, loadSave } from './save';
+import { loadLoss, lossWords } from './save';
 import { wreckSpots } from './wrecks';
 import { isRare, rollWreck } from '../../core/modcar/wrecks';
 
@@ -41,6 +42,9 @@ if (q.has('new')) clearSave();
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
 // (?new=1: the save cleared, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();
+// (things of kinds this build does not have — a system that is not in it, a kind renamed since — were left out
+// of the save as it was read, and everything else was read: how many, to be said once the game is up)
+const unread = save ? loadLoss() : null;
 // (a new game of one's own, no world asked for: the new world's seed ModGame.newGame left for it)
 if (!save && !own && !q.has('seed')) {
   try {
@@ -62,6 +66,12 @@ tune.applyAll();
 // harness/shots/modcar_kernel.mjs tries the kernel's seams in the real game, with a probe module of its own)
 const handed = (window as unknown as { __rtModules?: GameModule[] }).__rtModules;
 const game = new ModGame(canvas, params, save, tune, handed?.length ? [...MODULES, ...handed] : MODULES);
+// (the load notice: through the kernel as its own lines go — written out, the test hook's last error, said to
+// the player once in a line, and never into a screenshot)
+if (unread && unread.unknown > 0) {
+  const words = lossWords(unread.unknown, unread.kinds);
+  void game.ready.then(() => game.kernel.report('save', new Error(words.en), words.zh));
+}
 
 const gl = game.core.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
