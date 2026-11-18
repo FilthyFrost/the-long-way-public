@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BIOMES } from '../../src/core/world/biomes';
-import { ECO_N, ECO_ROAD, ECO_TILE, ECO_WET, Ecotope, EcotopeField, ROAD_CLEAR, canopyAt, type EcoParams } from '../../src/core/world/ecotope';
+import { ECO_N, ECO_ROAD, ECO_TILE, ECO_WET, Ecotope, EcotopeField, ROAD_CLEAR, canopyAt, shoreOf, type EcoParams } from '../../src/core/world/ecotope';
 import { Cover, FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, bandFit, floraTableProblems, type FloraLayer } from '../../src/core/world/flora';
 import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
 import { PLANTS, plantDef, plantIndex } from '../../src/core/world/plants';
@@ -19,7 +19,7 @@ function fields(seed: number, startBiome: string): { world: World; eco: EcotopeF
   // (one region for the whole stretch looked at: a long first chapter)
   const world = new World(seed, { startBiome, chapterScale: 6 });
   const table = (r: number) => floraTableOf(BIOMES[r].id, BIOMES[r].kin);
-  const eco = new EcotopeField(world, new TerrainPoint(), (r) => table(r).eco);
+  const eco = new EcotopeField(world, new TerrainPoint(), (r) => table(r).eco, shoreOf(world));
   return { world, eco, flora: new FloraField(world, new TerrainPoint(), eco, table) };
 }
 
@@ -77,7 +77,7 @@ describe('the fields of a world', () => {
     expect(w.eco!.size).toBe(0);
     // the same answers as fields built by hand over the same world with the regions' tables
     const table = (r: number) => floraTableOf(BIOMES[r].id, BIOMES[r].kin);
-    const eco = new EcotopeField(w, new TerrainPoint(), (r) => table(r).eco);
+    const eco = new EcotopeField(w, new TerrainPoint(), (r) => table(r).eco, shoreOf(w));
     const byHand = new FloraField(w, new TerrainPoint(), eco, table);
     const one = census(flora, LAYER_TREE, 20, 22, 0, 2);
     expect(one.length).toBeGreaterThan(40);
@@ -121,7 +121,7 @@ describe('the ecotope field', () => {
   it('is the same tile whatever was asked before it, and after the cache has let it go', () => {
     const a = fields(7, 'forest');
     const b = fields(7, 'forest');
-    const small = new EcotopeField(b.world, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, null, 3);
+    const small = new EcotopeField(b.world, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, shoreOf(b.world), 3);
     const first = a.eco.tile(20, 1);
     for (let i = 0; i < 9; i++) small.tile(40 + i, -2);
     expect(small.size).toBeLessThanOrEqual(3);
@@ -168,7 +168,6 @@ describe('the ecotope field', () => {
     }
     // lake country: a good share of the points beside the road are water or near it
     expect(wet).toBeGreaterThan(25);
-    // (without the water's own account of its edge a tile sees only the water inside it: fewer than there are)
     expect(nearWater).toBeGreaterThan(10);
     // continuity: a metre along the ground changes no quantity by much
     let jump = 0;

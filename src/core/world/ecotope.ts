@@ -109,8 +109,25 @@ export class EcoTile {
   ) {}
 }
 
-/** how far (m) a point is from the nearest water's edge and which water it is (0 none); beyond WATER_FAR it may say WATER_FAR */
-export type ShoreReader = (x: number, z: number, s: number, out: { dist: number; kind: number }) => void;
+/** how far (m) a point is from the nearest water's edge (0 in the water) and which water it is (0 none, 1 lake, 2 river, 3 the sea); WATER_FAR where none is within that */
+export type ShoreReader = (x: number, z: number, out: { dist: number; kind: number }) => void;
+
+/**
+ * The waters' own account of their edges, for a world: its lakes and rivers (water.ts `WaterPlan.shore`) and
+ * its sea (sea.ts `SeaPlan.shore`), whichever is nearer. A function of the plans' geometry and the point
+ * alone, so two tiles that share a node say the same of it, whichever of them the water lies in.
+ */
+export function shoreOf(world: World): ShoreReader {
+  return (x, z, out) => {
+    const s0 = world.spine.sAtX(x);
+    world.water.shore(x, z, s0, WATER_FAR, out);
+    const sea = world.sea.shore(x, z, s0, WATER_FAR);
+    if (sea < out.dist) {
+      out.dist = sea;
+      out.kind = 3;
+    }
+  };
+}
 
 function smooth(t: number): number {
   return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
@@ -225,7 +242,7 @@ export class EcotopeField {
         t.rb[n] = tp.bb;
         t.rt[n] = tp.bt;
         if (this.shore) {
-          this.shore(x, z, tp.s, this.shoreOut);
+          this.shore(x, z, this.shoreOut);
           t.waterDist[n] = wet ? 0 : this.shoreOut.dist < WATER_FAR ? this.shoreOut.dist : WATER_FAR;
           if (!wet) t.waterKind[n] = this.shoreOut.dist < WATER_FAR ? this.shoreOut.kind : 0;
         } else t.waterDist[n] = wet ? 0 : WATER_FAR;

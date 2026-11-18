@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BIOMES } from '../../src/core/world/biomes';
-import { EcotopeField } from '../../src/core/world/ecotope';
+import { EcotopeField, shoreOf } from '../../src/core/world/ecotope';
 import { FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, floraTableProblems, plantsOf, type FloraLayer } from '../../src/core/world/flora';
 import { FORAGE_ROWS } from '../../src/core/world/floraForage';
 import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
@@ -67,7 +67,7 @@ describe('in the world', () => {
   function census(biome: string, seed: number, layers: FloraLayer[]): { cells: FloraCell[]; world: World; ha: number } {
     const world = new World(seed, { startBiome: biome, chapterScale: 6 });
     const table = (r: number) => floraTableOf(BIOMES[r].id, BIOMES[r].kin);
-    const flora = new FloraField(world, new TerrainPoint(), new EcotopeField(world, new TerrainPoint(), (r) => table(r).eco), table);
+    const flora = new FloraField(world, new TerrainPoint(), new EcotopeField(world, new TerrainPoint(), (r) => table(r).eco, shoreOf(world)), table);
     const cells: FloraCell[] = [];
     const tx0 = 30;
     const tx1 = 62;

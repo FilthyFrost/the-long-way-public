@@ -15,7 +15,7 @@ import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
-import { EcotopeField } from './ecotope';
+import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { FloraField } from './flora';
 import { floraTableOf } from './floraTables';
@@ -350,13 +350,14 @@ export class World implements Ground {
 
   /**
    * The ecotope field of a world of version 2 (ecotope.ts): what kind of spot each place is for a plant,
-   * by the parameters each region's flora table gives (floraTables.ts). It is made the first time it is
-   * asked for and computes nothing until a tile of it is asked for. Null in a world of version 1, whose
+   * by the parameters each region's flora table gives (floraTables.ts), with the water's own account of
+   * how far its edge is (the lakes', the rivers' and the sea's: `shoreOf`). It is made the first time it
+   * is asked for and computes nothing until a tile of it is asked for. Null in a world of version 1, whose
    * plants are the renderer's own as they always were.
    */
   get eco(): EcotopeField | null {
     if (this.rules.version < 2) return null;
-    return (this.ecoField ??= new EcotopeField(this, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco));
+    return (this.ecoField ??= new EcotopeField(this, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, shoreOf(this)));
   }
 
   /**
