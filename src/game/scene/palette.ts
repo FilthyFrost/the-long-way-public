@@ -99,8 +99,9 @@ export const PALETTES: Record<string, BiomePalette> = {
   // each a row over its kin, chosen against specs/art/STYLE.md. Their trees and bushes are their kin's until
   // the flora field of the next node places plants by region.
   flower_fields: {
-    // a bright meadow, lighter and yellower than the plains, with drifts of lavender, rape and sunflower yellow
-    ground: [0x9ccf6e, 0xb7d97a, 0x86bd68],
+    // a bright meadow, paler and yellower than the plains (a spring green, not a louder one), with drifts of
+    // lavender, rape and sunflower yellow
+    ground: [0xa2c576, 0xc4d690, 0x88b66e],
     dust: 0xc9bb86,
     rock: 0xa39c8e,
     rock2: 0x8b867d,
@@ -122,15 +123,15 @@ export const PALETTES: Record<string, BiomePalette> = {
     look: { dryness: 0.34, flowerAmount: 0.35, grassSize: 0.9 },
   },
   wetland: {
-    // muted reed greens over peat: greyer and browner than the lake country, the grass tall
-    ground: [0x7fa568, 0x93b46f, 0x6c9560],
-    dust: 0x8f8a66,
+    // muted reed greens over peat: an olive, greyer and browner than the lake country, the grass tall
+    ground: [0x8ea469, 0xaab779, 0x739164],
+    dust: 0x776553,
     rock: 0x8e8c80,
     rock2: 0x76766e,
     forest: 0x587e5c,
     crowns: [0x6a9a60, 0x7aa866, 0x5c8a5a, 0x88b06e],
     trunk: 0x6e5a48,
-    look: { dryness: 0.22, grassSize: 1.3, grassLush: 1.0, flowerAmount: 0.3 },
+    look: { dryness: 0.3, grassSize: 1.3, grassLush: 1.0, flowerAmount: 0.3 },
   },
   bamboo_sea: {
     // fresh yellow-greens in the light, under a deep green wood
@@ -154,11 +155,11 @@ export const PALETTES: Record<string, BiomePalette> = {
     trunk: 0x8a6a4c,
   },
   karst_peaks: {
-    // jade greens under towers of grey-blue limestone
-    ground: [0x7fb86a, 0x95c672, 0x6aa860],
+    // jade greens (cooler than the plains: more blue in them) under towers of grey-blue limestone
+    ground: [0x76b380, 0x92c693, 0x5fa074],
     dust: 0xb3ad86,
-    rock: 0x8a938c,
-    rock2: 0x737c78,
+    rock: 0x8a909c,
+    rock2: 0x747985,
     forest: 0x4c8c62,
     crowns: [0x5fa46c, 0x70b276, 0x4f9464, 0x82bd7e],
     trunk: 0x6a5545,

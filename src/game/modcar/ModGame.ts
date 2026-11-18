@@ -1624,7 +1624,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       s.vehicles = s.vehicles.filter((_, i) => i === vi);
       // (and what rides on it)
       s.loose = s.loose.filter((l) => l.on === vi).map((l) => ({ ...l, on: 0 }));
-      s.road = { ...savedWorldOf(this.world, this.params.seed), s: this.world.spine.sAtX(v.sim.px) };
+      s.road = { s: this.world.spine.sAtX(v.sim.px), ...savedWorldOf(this.world, this.params.seed) };
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };

@@ -18,7 +18,7 @@ import { newTool } from '../../src/core/modcar/tools';
 import { BIOMES } from '../../src/core/world/biomes';
 import { RULES_V1, WORLD_REV } from '../../src/core/world/rules';
 import type { Site } from '../../src/core/world/sites';
-import { pushOut, Push } from '../../src/core/world/solids';
+import { pushOut, Push, type Solid } from '../../src/core/world/solids';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, type World } from '../../src/core/world/terrain';
 import { loadRefusal, loadSave, worldOfSave, writeSave, type SaveV1 } from '../../src/game/modcar/save';
@@ -336,16 +336,23 @@ describe('a version 2 save of another revision, made fit for the world as it is 
   });
 
   it('a thing lying about keeps its place on the plan and takes its height from the land; one riding goes with its vehicle', () => {
-    const lay = inLane(then, 12_350, 3);
+    // a spot of the old road that is dry, open land in the world as it is now (the first of some: the test's own premise)
+    const near: Solid[] = [];
+    const open = (x: number, z: number): boolean => {
+      const at = byRoad(now, x, z);
+      near.length = 0;
+      now.sites.solidsNear(x, z, 3, near);
+      return at.wl <= at.h + 0.02 && near.length === 0;
+    };
+    const lay = [12_350, 13_350, 14_350, 15_350, 16_350, 17_350, 18_350, 19_350].map((at) => inLane(then, at, 3)).find((c) => open(c.x, c.z))!;
+    expect(lay).toBeDefined();
     const s = roadSave({
       loose: [
-        { part: newInstance('bat_std'), x: lay.x, y: 512, z: lay.z, yaw: 0.3, s: 12_350 },
+        { part: newInstance('bat_std'), x: lay.x, y: 512, z: lay.z, yaw: 0.3, s: lay.s },
         { item: newItem('drink_water'), x: 0, y: 0, z: 0, yaw: 0, on: 0, pos: [0, 0.5, 0], rot: [0, 0, 0, 1], zone: 'trunk' },
       ],
     });
-    // (this spot of the plan is dry open land in the world as it is now: the test's own premise)
     const land = byRoad(now, lay.x, lay.z);
-    expect(land.wl).toBeLessThanOrEqual(land.h + 0.02);
     const done = rehome(s, now);
     expect(done.dropped).toBe(1);
     expect(done.roadside).toBe(0);
