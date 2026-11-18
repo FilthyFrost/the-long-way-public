@@ -12,7 +12,6 @@ import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { hash2 } from '../../core/math/rng';
 import { smoothstep } from '../../core/math/util';
-import { BIOMES } from '../../core/world/biomes';
 import { SpineSample } from '../../core/world/spine';
 import { ROAD_EDGE, TerrainPoint, type World } from '../../core/world/terrain';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, type River } from '../../core/world/water';
@@ -21,7 +20,8 @@ import { ModelBuilder } from '../vehicle/builder';
 import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
 import { BIOME_STYLES, STYLE } from '../render/style';
-import { woodland } from './palette';
+import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
+import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
 
 export const STRIP_STATIONS = 32;
@@ -51,9 +51,18 @@ export function sinkShare(world: World, t: TerrainPoint): number {
   return k;
 }
 
+/** an anchored landform counts as one, for the paint, once it has risen this far (m) */
+const LANDFORM_FOOT = 4;
+
 /**
  * Ground paint inputs for a vertex (terrainMaterials.ts): the weight of each palette slot, and
  * (distance from the road centre, relief, woodland — or, negative, how mown a plot's lawn is — and the water's depth).
+ *
+ * Where an anchored landform stands (TerrainPoint.landform: a tower, a butte, in worlds of version 2) its height
+ * is counted into the relief — the layers of a butte's rock go by height, as a mesa's do — and the point says
+ * that it is on one by adding ON_LANDFORM to its road distance, by as much as the landform has risen over its
+ * first metres (so the paint has it come in smoothly at the foot). Elsewhere, and in every world of version 1,
+ * the inputs are what they always were.
  */
 export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number, lawn = 0): void {
   const ad = t.d < 0 ? -t.d : t.d;
@@ -65,8 +74,8 @@ export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number,
   if (t.bt > 0) wood += woodland(t.bb, seed, x, z, ad, t.relief) * t.bt;
   // (no wood is painted on a plot of the caller's, where none stands: buildScatter keeps its trees off it)
   if (t.plot > 0.8) wood *= 1 - smoothstep(0.8, 0.95, t.plot);
-  gd[k * 4] = Math.min(ad, 2000);
-  gd[k * 4 + 1] = t.relief;
+  gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
+  gd[k * 4 + 1] = t.relief + t.landform;
   gd[k * 4 + 2] = lawn > 0.02 ? -lawn : wood;
   // how far under the water this ground lies (negative above it; −40 where there is no water about)
   gd[k * 4 + 3] = t.wl > -1e8 ? Math.max(-40, Math.min(40, t.wl - t.bed)) : -40;
@@ -271,7 +280,8 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
         const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
         // (no wood stands in water: a lifted lake bed or sea bed would come up through it as green shoals)
         wood = tp.wl > tp.bed - 1 ? 0 : woodland(bi, world.seed, wx, wz, ad, tp.relief);
-        h += wood * (BIOMES[bi].id === 'alpine' ? 9 : BIOMES[bi].id === 'forest' ? 11 : 6.5);
+        const flora = floraOf(bi);
+        h += wood * (flora === 'alpine' ? 9 : flora === 'forest' ? 11 : 6.5);
       }
       if (i === 0 && j === 0) oy = h;
       hs[(j + 1) * P + (i + 1)] = h;
@@ -412,7 +422,8 @@ export function buildScatter(world: World, tx: number, tz: number, far: boolean,
       // nothing grows in the water or on the wet shore, nor on the ground of a place by the road
       if (tp.wl > tp.bed - 0.9 || tp.site > 0.2 || tp.plot > 0.9) continue;
       const bi = (tp.bt < 0.5 ? tp.ba : tp.bb) | 0;
-      const id = BIOMES[bi].id;
+      // (whose plants grow here: the region's own where the rules below know it, else its kin's)
+      const id = floraOf(bi);
       // a coast road keeps its view: between the road and the water only the odd low bush
       if (world.sea.open(tp.s, tp.d) > 0.5) {
         if (!far && r2 > 0.988) push('bush', wx, tp.h, wz, 0.6 + 0.5 * r3, 0.55 + 0.2 * r1, r0 * 6.283, 0, bi);

@@ -231,7 +231,8 @@ export class Environment {
     cs.w = 0.55 * sky.daylight * (1 - w.overcast) * THREE.MathUtils.smoothstep(w.cloud, 0.08, 0.3);
     skyUniforms.uFlash.value = this.flash;
     skyUniforms.uRainbow.value = w.rainbow * sky.daylight * (sky.sunElev > 0.03 && sky.sunElev < 0.75 ? 1 : 0);
-    const biomeAurora = BIOMES[bt < 0.5 ? ba : bb].id === 'alpine' ? 1 : BIOMES[bt < 0.5 ? ba : bb].id === 'desert' ? 0.4 : 0.12;
+    // (the cold nights and the dry ones have it: by the region's kin)
+    const biomeAurora = BIOMES[bt < 0.5 ? ba : bb].kin === 'alpine' ? 1 : BIOMES[bt < 0.5 ? ba : bb].kin === 'desert' ? 0.4 : 0.12;
     const auroraDrift = THREE.MathUtils.smoothstep(fbm1(time / 500, this.seed + 7, 2), -0.1, 0.35);
     skyUniforms.uAurora.value = sky.night * (1 - Math.min(1, w.cloud * 1.3)) * auroraDrift * biomeAurora;
 

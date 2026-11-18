@@ -16,6 +16,12 @@
  *
  * Where a save holds things is known in ONE place, `thingLists`: checking, the uids and the tolerant
  * reading all walk that, and so does writing, which never writes a stack used up.
+ *
+ * A save says which world it was made in (`SavedWorld`: the seed, and since there are versions of the
+ * generator its version, how many regions it knows and its revision). A world this build cannot make again — a
+ * version it does not have, more regions than its registry holds — sets the save aside like a vehicle it does
+ * not know, and `loadRefusal` says why. What is done with a save of a revision other than this build's is in
+ * worldSave.ts.
  */
 import { fitAxles, reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
@@ -30,6 +36,8 @@ import { TOOL_INFO, newTool, reserveToolUids, type Tool } from '../../core/modca
 import type { Build, PartInstance, Text } from '../../core/modcar/types';
 import { WorldClock, type ClockSave } from '../../core/kernel/clock';
 import type { SliceRecord } from '../../core/kernel/slices';
+import { BIOMES } from '../../core/world/biomes';
+import { rulesFor, type WorldVersion } from '../../core/world/rules';
 import { itemNow } from './itemTime';
 
 export interface SavedVehicle {
@@ -39,6 +47,28 @@ export interface SavedVehicle {
   yaw: number;
   radioOn?: boolean;
   radioSong?: number;
+  /** in a world of version 2: how far along the road its nearest road point is (m), to be stood on the road again there if the generator's revision changes (worldSave.ts) */
+  s?: number;
+}
+
+/**
+ * Which world a save was made in. A save from before there were versions of the generator holds the seed
+ * alone and is of version 1, as is every save of a version 1 world still: its shape has not changed.
+ */
+export interface SavedWorld {
+  seed: number;
+  /** the generator's version (core/world/rules.ts); absent: 1 */
+  version?: WorldVersion;
+  /** how many regions of the registry the world knows; absent: the version's own count (version 1: its six) */
+  regionCount?: number;
+  /** version 2: the generator's revision the save was written under (rules.ts WORLD_REV); absent in version 1, which has none */
+  rev?: number;
+  /**
+   * Version 2: the kind of every place the save remembers something of (a container searched, a pump's litres,
+   * a wreck kept or taken, a door), by the place's id. A generator of another revision may stand another place
+   * on that stretch under the same id: what was remembered of a place that is no longer of its kind is forgotten.
+   */
+  sites?: Record<string, string>;
 }
 
 export interface SavedLoose {
@@ -55,6 +85,8 @@ export interface SavedLoose {
   rot?: number[];
   zone?: string;
   lie?: 'z' | 'x';
+  /** in a world of version 2, lying about beyond the yard: how far along the road its nearest road point is (m) */
+  s?: number;
 }
 
 export interface SaveV1 {
@@ -68,7 +100,8 @@ export interface SaveV1 {
   done: string[];
   vehicles: SavedVehicle[];
   loose: SavedLoose[];
-  player: { x: number; z: number; heading: number };
+  /** where one stands (`s`, in a world of version 2: how far along the road that is, m) */
+  player: { x: number; z: number; heading: number; s?: number };
   /** the hotbar: what is in each slot, and which is in the hands (absent in older saves: they put it down) */
   hands?: ({ part?: PartInstance; tool?: Tool; item?: ItemInstance } | null)[];
   sel?: number;
@@ -80,13 +113,14 @@ export interface SaveV1 {
   stock?: Stock;
   /** the workshop's machines: the generator's tank and whether it runs, the recipes unlocked */
   workshop?: WorkshopSave;
-  /** on the road: how far along it the vehicle is (m), on which road (the world's seed) */
-  road?: { s: number; seed: number };
+  /** on the road: how far along it the vehicle is (m), on which road (the world: its seed, and what `world` says of it) */
+  road?: SavedWorld & { s: number };
   /**
-   * The workshop a place in the world (docs/MODCAR.md §17): which world (its seed). Everything is where it was in
-   * it, in the yard or down the road; the vehicle one sat in (an index into `vehicles`), to sit in it again.
+   * The workshop a place in the world (docs/MODCAR.md §17): which world (its seed, and the generator that made
+   * it). Everything is where it was in it, in the yard or down the road; the vehicle one sat in (an index into
+   * `vehicles`), to sit in it again.
    */
-  world?: { seed: number };
+  world?: SavedWorld;
   seat?: number;
   /** the wrecks by the road (docs/MODCAR.md §19): the ones kept as they were left, by id; the ones taken (vehicles of one's own now) */
   wrecks?: WrecksSave;
@@ -178,6 +212,46 @@ let lost: LoadLoss & { kinds: string[] } = { unknown: 0, kinds: [] };
 /** what the last loadSave could not read back: things of kinds this build does not have (0 after a load that read everything, and when nothing was loaded) */
 export function loadLoss(): Readonly<LoadLoss & { kinds: readonly string[] }> {
   return lost;
+}
+
+/** why the last loadSave set the save aside, where there are words for it (null: it read, there was none, or it was no save at all) */
+let refused: Text | null = null;
+
+/** why the last loadSave set the save aside and a new game began: the line for the player, and for the log (null: nothing to say) */
+export function loadRefusal(): Text | null {
+  return refused;
+}
+
+/** a save that cannot be gone on with, and the line that says why */
+class Refusal extends Error {
+  constructor(readonly words: Text) {
+    super(words.en);
+  }
+}
+
+/** the world a save names (the one world with the workshop in it, else the road of a save from before it); null: it names none */
+export function worldOfSave(s: SaveV1): SavedWorld | null {
+  const w: unknown = s.world ?? s.road;
+  return w && typeof w === 'object' ? (w as SavedWorld) : null;
+}
+
+/**
+ * Can this build make the save's world again? It cannot when the save is of a version of the generator it
+ * does not have, or of a world that knows more regions than its registry holds (a save from a later build):
+ * then this throws, with the line that says so. (The world itself is asked: rulesFor is what would throw as
+ * the world was made.)
+ */
+function checkWorld(s: SaveV1): void {
+  const w = worldOfSave(s);
+  if (!w) return;
+  const version = w.version ?? 1;
+  try {
+    rulesFor(version, { regionCount: w.regionCount });
+  } catch {
+    const known = BIOMES.length;
+    if (version !== 1 && version !== 2) throw new Refusal({ zh: `这个存档的世界是第 ${String(version)} 版生成的，这个版本的游戏做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of generator version ${String(version)}, which this build does not have: set aside, a new game begun` });
+    throw new Refusal({ zh: `这个存档的世界有 ${String(w.regionCount)} 种区域，这个版本的游戏只有 ${known} 种，做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of ${String(w.regionCount)} regions and this build's registry holds ${known}: set aside, a new game begun` });
+  }
 }
 
 /** the line for a load that left things out: for the player, and for the log */
@@ -300,17 +374,21 @@ function readThings(s: SaveV1, loss: LoadLoss, kinds: Set<string>): void {
 export function loadSave(): SaveV1 | null {
   let raw: string | null = null;
   lost = { unknown: 0, kinds: [] };
+  refused = null;
   try {
     raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as SaveV1;
     if (s?.v !== 1 || !Array.isArray(s.vehicles) || !s.vehicles.length || !Array.isArray(s.loose)) throw new Error('not a save');
+    // (a world this build cannot make again: nothing of the save is read)
+    checkWorld(s);
     const loss = { unknown: 0 };
     const kinds = new Set<string>();
     readThings(s, loss, kinds);
     lost = { unknown: loss.unknown, kinds: [...kinds].sort() };
     return s;
-  } catch {
+  } catch (e) {
+    if (e instanceof Refusal) refused = e.words;
     // (put aside: a later build may read it again)
     try {
       if (raw) localStorage.setItem(`${KEY}.unread`, raw);

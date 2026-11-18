@@ -6,9 +6,10 @@
 import * as THREE from 'three';
 import type { SkyState } from '../../core/env/time';
 import type { WeatherState } from '../../core/env/weather';
+import { regionById, regionRow } from '../../core/world/biomes';
 import { LightState, lightAt } from '../render/style';
 
-/** per-biome adjustments on top of the hour's light */
+/** per-biome adjustments on top of the hour's light (a region without a row of its own has its kin's air) */
 interface BiomeAir {
   horizon: [number, number, number];
   zenith: [number, number, number];
@@ -64,8 +65,8 @@ export function computeLook(sky: SkyState, w: WeatherState, biomeA: string, biom
   out.stars = 1 - THREE.MathUtils.smoothstep(elev, -14, -4);
 
   // ---- the air of the place
-  const a = AIR[biomeA] ?? AIR.plains;
-  const b = AIR[biomeB] ?? a;
+  const a = regionRow(AIR, regionById(biomeA));
+  const b = biomeB === biomeA ? a : regionRow(AIR, regionById(biomeB));
   cA.setRGB(a.horizon[0] + (b.horizon[0] - a.horizon[0]) * bt, a.horizon[1] + (b.horizon[1] - a.horizon[1]) * bt, a.horizon[2] + (b.horizon[2] - a.horizon[2]) * bt);
   out.horizon.multiply(cA);
   out.fog.multiply(cA);

@@ -4,6 +4,7 @@
  * retires old ones only once their replacements are in place — no holes, no pops to black.
  */
 import * as THREE from 'three';
+import { regionById } from '../../core/world/biomes';
 import type { Coast } from '../../core/world/sea';
 import type { Site, SiteObject } from '../../core/world/sites';
 import type { World } from '../../core/world/terrain';
@@ -160,8 +161,8 @@ export class WorldView {
     const sp = this.world.spine;
     sp.project(cx, cz, this.sCam, this.proj);
     this.sCam = this.proj.s;
-    // the palettes of the chapter behind, this one and the two ahead
-    showChapters((c) => sp.plan.biomeOf(c), sp.plan.chapterAt(Math.max(0, this.sCam)));
+    // the palettes of four chapters in a row: the ones nearest to where one is (render/style.ts chapterRun)
+    showChapters((c) => sp.plan.biomeOf(c), sp.plan.chapterAt(Math.max(0, this.sCam)), Math.max(0, this.sCam), sp.plan.starts);
 
     // ---- road strips
     const ds = sp.ds;
@@ -616,7 +617,7 @@ export class WorldView {
     const site = want.site;
     const r = this.slice<THREE.BufferGeometry>(`s|${key}|`, () => siteSlices(site, this.skipObject ?? undefined), () => this.makeSite(key));
     if (!r.done) return;
-    const mesh = this.add(new THREE.Mesh(r.value, site.biome === 'alpine' ? this.siteSnowMat : this.siteMat), site.x, site.y, site.z);
+    const mesh = this.add(new THREE.Mesh(r.value, regionById(site.biome).kin === 'alpine' ? this.siteSnowMat : this.siteMat), site.x, site.y, site.z);
     castShadows(mesh);
     this.sites.set(key, { objects: [mesh] });
   }

@@ -12,7 +12,7 @@
 import { BIOMES } from '../../core/world/biomes';
 import { LAND_ODDS, LAND_SIZE } from '../../core/world/landform';
 import { PRECIP_DEFS } from '../env/precip';
-import { STYLE } from '../render/style';
+import { BIOME_STYLES, STYLE } from '../render/style';
 
 export type DialTab = 'weather' | 'time' | 'look' | 'terrain';
 export type DialUnit = 'x' | 'm' | 'deg' | 'ms' | 'min' | 'kmh' | 'pct' | '';
@@ -317,10 +317,12 @@ function makeDials(): Dial[] {
         add({ id: `terrain.${b.id}.odds${i}`, label: `${names[i]}出现的机会`, help: `这种地形区里，一段路是「${names[i]}」的机会有多大（各种地形的机会会按比例算，不用加起来等于 1）。`, min: 0, max: 1, step: 0.01, def: odds[i], unit: '', code: `core/world/landform.ts LAND_ODDS.${b.id}[${i}]`, regen: true, biome: b.id, apply: (v) => (odds[i] = v) }, tab, '地形种类有多常见');
       }
     }
-    const st = STYLE.biomes[b.id];
+    // (the region's painted look: its own entry of the art spec, or the one made from its row of the palette table)
+    const st = BIOME_STYLES[BIOMES.indexOf(b)];
     if (st) {
+      const where = st === STYLE.biomes[b.id] ? `specs/art/style.json biomes.${b.id}` : `game/scene/palette.ts PALETTES.${b.id}.look`;
       const veg = (field: 'grassGrow' | 'flowerAmount' | 'grassDensity', label: string, help: string): void =>
-        add({ id: `terrain.${b.id}.${field}`, label, help, min: 0, max: 1.5, step: 0.01, def: st[field] ?? 0, unit: '', code: `specs/art/style.json biomes.${b.id}.${field}`, regen: true, biome: b.id, apply: (v) => (st[field] = v) }, tab, '植被');
+        add({ id: `terrain.${b.id}.${field}`, label, help, min: 0, max: 1.5, step: 0.01, def: st[field] ?? 0, unit: '', code: `${where}.${field}`, regen: true, biome: b.id, apply: (v) => (st[field] = v) }, tab, '植被');
       veg('grassGrow', '草丛多少', '地上一簇簇的草有多少。');
       veg('grassDensity', '草地铺得多满', '地面被草覆盖得有多满（地面的颜色）。');
       veg('flowerAmount', '野花多少', '草地里的野花有多少。0 就没有花。');

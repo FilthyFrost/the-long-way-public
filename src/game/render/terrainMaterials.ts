@@ -10,6 +10,12 @@
  *
  * Vertex data (worldBuild.ts): aBiomeW = weight of each palette slot (sums to 1), aGround = (distance
  * from the road centre line, relief above the valley floor, woodland 0…1, unused).
+ *
+ * An anchored landform (a tower, a butte: worlds of version 2) is told to the paint through the first of
+ * those: the paint asks the road distance only whether it is a few metres, no landform stands that near the
+ * road, and the distance is never written beyond GROUND_FAR — so a point on a landform adds ON_LANDFORM to
+ * it, and the paint reads back how fully a point is one (rtPaintedGround: its flanks are rock from a gentler
+ * slope on than the country round them, its gentle top stays what the country is).
  */
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_PARS, globals } from './shaderlib';
@@ -17,6 +23,11 @@ import { GLSL_PAINT } from './paint';
 import { GLSL_SKY_MIRROR, skyMirrorUniforms } from '../env/sky';
 import { waterUniforms } from './water';
 import { STYLE } from './style';
+
+/** the road distance of a ground vertex is written no further than this (m) */
+export const GROUND_FAR = 2000;
+/** … and a vertex that stands on an anchored landform adds this to it (as much of it as the landform has risen: worldBuild.ts groundAttrs) */
+export const ON_LANDFORM = 16384;
 
 export const GROUND_PAINT = /* glsl */ `
   ${GLSL_PAINT}
@@ -101,8 +112,28 @@ export const GROUND_PAINT = /* glsl */ `
     // (a lawn, mown: a fresher green)
     albedo = mix(albedo, albedo * vec3(0.92, 1.08, 0.8), lawn * 0.45);
 
+    // ---- terraced slopes (a region with terraces, in worlds of version 2): the benches stay what the country
+    // is, the risers between them are its bare earth. The benches are cut in the land's own height, a step
+    // apart (core/world/operators.ts terrace: level over the first part of each step, the riser in the last),
+    // so the paint finds a riser where the height nears the next whole step — also where the land's mesh is
+    // too coarse to show one (its finest cells are 8 m, a riser is some 5 m across). Only where the core cuts
+    // benches at all: from the road's verge out to a few hundred metres, on ground that really slopes (by the
+    // mesh's own faces: a bench's vertex is level and a riser's steep, the face between them is the hillside).
+    float tu = rtWorldY(pos) / max(p.terraceStep, 1.0);
+    // (never nothing: on level ground the band's two edges would be one, and a step between them no number)
+    float tfw = max(fwidth(tu), 1e-4);
+    // (how steeply the face climbs, rise over run; nothing here can come out as no number: a zero in every
+    // region without terraces must stay a zero)
+    vec3 face = cross(dFdx(pos), dFdy(pos));
+    float hill = length(face.xz) / max(abs(face.y), 1e-6);
+    float riser = (1.0 - smoothstep(0.13 - tfw, 0.13 + tfw, abs(fract(tu - 0.28) - 0.5)))
+                * p.terrace * smoothstep(14.0, 34.0, ad) * (1.0 - smoothstep(350.0, 600.0, ad))
+                * smoothstep(0.1, 0.2, hill) * (1.0 - smoothstep(0.75, 1.1, hill))
+                * (1.0 - smoothstep(0.3, 0.6, tfw)) * (1.0 - wood) * (1.0 - lawn);
+    albedo = mix(albedo, p.dry * mix(0.6, 1.05, smoothstep(0.2, 0.8, tone)), riser * 0.85);
+
     // ---- where the meadow grass stands (near the eye), the ground between the blades is their roots
-    float underGrass = (1.0 - smoothstep(45.0, 70.0, dist)) * smoothstep(5.0, 8.0, ad) * p.misc.z * (1.0 - wood) * (1.0 - dryAmt);
+    float underGrass = (1.0 - smoothstep(45.0, 70.0, dist)) * smoothstep(5.0, 8.0, ad) * p.misc.z * (1.0 - wood) * (1.0 - dryAmt) * (1.0 - riser);
     albedo = mix(albedo, mix(p.deep, p.mid, 0.45 + 0.3 * (s6 + 0.5)), underGrass * 0.75);
 
     // ---- contour strokes on the slopes, a shade deeper
@@ -125,6 +156,10 @@ export const GROUND_PAINT = /* glsl */ `
     float steep = 1.0 - n.y;
     float rock = smoothstep(p.rockStart, p.rockStart + 0.16, steep + (nz.b - 0.5) * 0.14);
     rock = max(rock, smoothstep(26.0, 60.0, g.y) * p.misc.w * 0.85);
+    // an anchored landform (a tower, a butte) is rock on its flanks, from a gentler slope on than the country
+    // round it; its gentle top and its foot stay what the country is
+    float onForm = clamp((g.x - ${GROUND_FAR.toFixed(1)}) / ${(ON_LANDFORM - GROUND_FAR).toFixed(1)}, 0.0, 1.0);
+    rock = max(rock, onForm * smoothstep(p.rockStart - 0.12, p.rockStart + 0.04, steep + (nz.b - 0.5) * 0.14));
     // high ground is bare where it is at all steep
     rock = max(rock, smoothstep(0.1, 0.28, steep) * smoothstep(380.0, 700.0, g.y + (nz.g - 0.5) * 200.0));
     if (rock > 0.01) {
@@ -157,7 +192,7 @@ export const GROUND_PAINT = /* glsl */ `
 
     // ---- flowers in the meadows
     vec3 flc;
-    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn);
+    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn) * (1.0 - riser);
     albedo = mix(albedo, flc, fl);
 
     // ---- weather: snow settles on flat ground (painted, not grey), rain darkens
