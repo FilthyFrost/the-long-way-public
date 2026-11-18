@@ -15,6 +15,7 @@
 import type { GarageDevice } from '../../../src/game/modcar/garageStub';
 import type { GameContext } from '../../../src/game/modcar/kernel/context';
 import type { DevButton, DevPane } from '../../../src/game/modcar/kernel/devTabs';
+import { setItemClock } from '../../../src/game/modcar/itemTime';
 import { Kernel, type KernelSave } from '../../../src/game/modcar/kernel/kernel';
 import type { GameModule } from '../../../src/game/modcar/kernel/modules';
 
@@ -69,6 +70,8 @@ export class FakeGame {
     this.clock = this.kernel.clock;
     this.interact = this.kernel.interact;
     this.devTabs = this.kernel.devTabs;
+    // (ModGame: things that go off read the world's clock — itemTime.ts itemNow; the last game made sets it)
+    setItemClock(this.kernel.clock);
     this.sky.hour = restore ? restore.hour : (opts.hour ?? 9.2);
     const game = this;
     this.ctx = {

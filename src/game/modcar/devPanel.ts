@@ -14,7 +14,7 @@ import { stockBuild } from '../../core/modcar/build';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { SPRAY_TIERS, sprayColours } from '../../core/modcar/paint';
-import { ITEM_CATS, ITEMS, type ItemCat } from '../../core/modcar/items';
+import { ITEM_CATS, ITEMS, itemCats, type ItemCat, type ItemDef } from '../../core/modcar/items';
 import { PARTS } from '../../core/modcar/parts';
 import { newTool, SCRAPERS, TOOL_INFO, toolName, type ToolKind } from '../../core/modcar/tools';
 import { toolLook } from './loose';
@@ -82,6 +82,7 @@ function itemMeta(d: (typeof ITEMS)[number]): string {
   if (d.revive) return `${star}倒下时用`;
   if (d.wear) return `${star}保暖 +${d.wear.warmth}`;
   if (d.pack) return `${star}+${d.pack.slots} 格`;
+  if (d.holds) return `${star}装 ${d.holds.slots} 叠`;
   const s = Object.entries(d.salvage).map(([k, v]) => `${v}${k === 'scrap' ? '废料' : k === 'organics' ? '有机' : '化学'}`).join(' ');
   return `${star}${s || `${d.mass} kg`}`;
 }
@@ -529,11 +530,22 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         }),
       ),
     );
+    const itemTile = (d: ItemDef, cat: string): { key: string; item: DevItem; name: string; meta: string; text: string; paint?: number; paint2?: number } => ({ key: `item:${d.id}`, item: { kind: 'item', id: d.id }, name: d.name.zh, meta: itemMeta(d), text: `${d.name.zh} ${d.name.en} ${d.id} ${cat} 物品`, paint: d.paint, paint2: d.paint2 });
     for (const cat of ITEM_ORDER) {
       add(
         'items',
         ITEM_CATS[cat].zh,
-        ITEMS.filter((d) => d.cat === cat).map((d) => ({ key: `item:${d.id}`, item: { kind: 'item', id: d.id } as DevItem, name: d.name.zh, meta: itemMeta(d), text: `${d.name.zh} ${d.name.en} ${d.id} ${ITEM_CATS[cat].zh} 物品`, paint: d.paint, paint2: d.paint2 })),
+        ITEMS.filter((d) => d.cat === cat).map((d) => itemTile(d, ITEM_CATS[cat].zh)),
+      );
+    }
+    // the categories the V3 systems registered, after the nine and in the catalogue's order (items.ts itemCats):
+    // the same tiles, so that what a system brings can be handed out from here (one with no kinds has no section)
+    for (const cat of itemCats()) {
+      if (cat.id in ITEM_CATS) continue;
+      add(
+        'items',
+        cat.name.zh,
+        ITEMS.filter((d) => d.cat === cat.id).map((d) => itemTile(d, `${cat.name.zh} ${cat.name.en}`)),
       );
     }
     add(
