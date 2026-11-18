@@ -94,7 +94,7 @@ export function cookwareItemId(id: string): string {
 
 /** what the bench asks for each piece of cookware: [scrap, organics, chemicals] by item id */
 export function cookwareCosts(): Record<string, readonly [number, number, number]> {
-  return Object.fromEntries(COOKWARE.map(([id, , , , , cost]) => [cookwareItemId(id), cost]));
+  return { ...Object.fromEntries(COOKWARE.map(([id, , , , , cost]) => [cookwareItemId(id), cost])), cook_jar: [6, 0, 2], cook_cooler: [14, 0, 6] };
 }
 
 /** the rows: twelve kinds of dish, what a spoiled dish becomes, the cookware, a pickling jar and a cool box that hold things */

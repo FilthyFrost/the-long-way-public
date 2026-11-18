@@ -4,6 +4,7 @@
  * game already has get a row each; fishing and hunting register theirs when they come (registerIngredients),
  * so no recipe has to be touched then. Pure data and lookups.
  */
+import { FISH } from '../fishing/species';
 import { FORAGE_KINDS } from '../forage/kinds';
 import type { ForageCat } from '../forage/types';
 import type { IngClass, Ingredient, Taste } from './types';
@@ -112,7 +113,40 @@ const PACKED: readonly [string, IngClass, number, Taste, readonly string[], (0 |
 ];
 for (const [item, cls, food, taste, tags, sick] of PACKED) add({ item, cls, food, hp: 0, sick: sick ?? 0, taste, tags, raw: true, processed: true });
 
-/** rows from another system (fish, cuts of meat, eggs, dried and smoked things); an item twice throws */
+// the fish of the fishing table (node F1 registers their items; the pot knows them already): never safe raw
+for (const k of FISH) {
+  const sea = k.water === 'sea' || k.water === 'reef';
+  add({
+    item: k.id,
+    cls: k.cls ?? 'fish',
+    food: k.food,
+    hp: 0,
+    sick: 0,
+    taste: T(sea ? 1 : 0, 0, 0, 0, k.cls === 'shellfish' ? 3 : 2),
+    tags: [k.cls === 'shellfish' ? 'seafood' : k.cls === 'poultry' ? 'meat' : 'fish', sea ? 'sea' : 'fresh', ...(k.cls === 'shellfish' ? ['shellfish'] : []), ...(k.kg[1] >= 1.5 ? ['bigfish'] : [])],
+    raw: false,
+    processed: false,
+  });
+}
+
+/**
+ * Cuts of meat and what else an animal gives the kitchen (node H1's hunting brings them; cooking's module
+ * registers their items so that the developer's panel can hand them out before that). Never safe raw.
+ */
+export const MEAT_CUTS: readonly [string, string, string, IngClass, number, readonly string[]][] = [
+  ['meat_venison', '鹿肉', 'Venison', 'meat', 16, ['meat', 'red', 'game']],
+  ['meat_boar', '野猪肉', 'Wild boar', 'meat', 17, ['meat', 'red', 'game', 'fatty']],
+  ['meat_rabbit', '兔肉', 'Rabbit', 'meat', 13, ['meat', 'white', 'game']],
+  ['meat_fowl', '野禽肉', 'Wild fowl', 'poultry', 13, ['meat', 'bird', 'game']],
+  ['meat_duck', '鸭肉', 'Duck', 'poultry', 15, ['meat', 'bird', 'game', 'fatty']],
+  ['meat_bear', '熊肉', 'Bear meat', 'meat', 18, ['meat', 'red', 'game', 'fatty']],
+  ['meat_bone', '骨头', 'Bones', 'meat', 3, ['bone']],
+  ['meat_fat', '油脂', 'Fat', 'meat', 8, ['fat']],
+  ['egg_wild', '野禽蛋', 'Wild eggs', 'egg', 9, ['egg']],
+];
+for (const [item, , , cls, food, tags] of MEAT_CUTS) add({ item, cls, food, hp: 0, sick: 0, taste: T(0, 0, 0, 0, cls === 'egg' ? 1 : 2), tags, raw: false, processed: false });
+
+/** rows from another system (dried and smoked things, whatever else comes); an item twice throws */
 export function registerIngredients(rows: readonly Ingredient[]): void {
   for (const r of rows) add(r);
 }
