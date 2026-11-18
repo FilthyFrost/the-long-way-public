@@ -28,6 +28,9 @@ export class Environment {
   state: WeatherState;
   /** wiper cycle position 0…1 (0 = parked) */
   wipePhase = 0;
+  /** the seconds a wiper cycle takes now (0 = parked), and how much rain the glass is getting (0…1) */
+  wipePeriod = 0;
+  glassWet = 0;
   wipersOn = false;
   /** the wiper switch: 'auto' follows the rain on the glass, 'slow' and 'fast' sweep whatever the weather, 'off' parks them (and the rain stays on the glass) */
   wiperMode: 'auto' | 'off' | 'slow' | 'fast' = 'auto';
@@ -260,6 +263,8 @@ export class Environment {
       if (this.wipePhase >= 1) this.wipePhase = this.wipersOn ? this.wipePhase - 1 : 0;
     }
     windscreenUniforms.uWipe.value.set(this.wipePhase, this.wipersOn || this.wipePhase > 0 ? period : 0);
+    this.wipePeriod = this.wipersOn || this.wipePhase > 0 ? period : 0;
+    this.glassWet = onGlass;
 
     this.dark = sky.daylight < 0.42 || w.overcast > 0.72 || w.fog > 0.5 || w.dust > 0.4 || w.snow > 0.6;
   }

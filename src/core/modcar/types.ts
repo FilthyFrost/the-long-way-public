@@ -532,6 +532,8 @@ export interface Build {
   crust?: number;
   /** the body is being cleaned: a grime mask is kept for it */
   grime?: boolean;
+  /** the dust the wipers took off their arcs of the windscreen, sweeping the rain (the arcs show that much less of it) */
+  wiped?: number;
   cond: number;
   /** mount id → the part on it */
   parts: Record<string, PartInstance>;

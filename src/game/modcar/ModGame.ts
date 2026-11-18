@@ -209,6 +209,8 @@ const GLASS_CRUST = new THREE.Color(0.16, 0.13, 0.1);
 const DUST_BITS = new THREE.Color(0.32, 0.27, 0.21);
 const RUST_BITS = new THREE.Color(0.38, 0.12, 0.035);
 const FOAM = new THREE.Color(0.85, 0.88, 0.9);
+/** how fast the wipers take the dust off their arcs of the windscreen, sweeping the rain (the body's dirt figure a second) */
+const WIPE_RATE = 0.15;
 
 /** a few solids of the game's own (a roadside garage's machines) */
 class SolidList implements SolidSource {
@@ -3671,11 +3673,24 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     const core = this.core;
     const cam = core.camera;
     const o = core.origin;
-    // the weather's wipers on the car one sits in; the filler cap open while fuel goes in
-    this.env.wiperMode = this.seated?.view.wipers.length ? 'auto' : 'off';
+    // the weather's wipers on the car one sits in (not under the workshop's roof: no rain on the glass there); the
+    // filler cap open while fuel goes in
+    const sheltered = this.place === 'garage' && (!this.seamless || this.indoors());
+    this.env.wiperMode = this.seated?.view.wipers.length && !sheltered ? 'auto' : 'off';
     const t = this.player.target;
     for (const v of this.vehicles) {
       v.view.wiperAngle = v === this.seated ? this.env.wiperAngle : 0;
+      // the blades sweep the rain off their arcs of the windscreen, and the dust with it (not caked crust: that is
+      // the scraper's); the dust that settles after shows on them again
+      const wp = v.view.wipe;
+      const wiping = v === this.seated && this.env.wipePeriod > 0 && v.view.wipers.length > 0;
+      const b = v.build;
+      if (wiping) b.wiped = Math.min(b.dirt, (b.wiped ?? 0) + dt * WIPE_RATE);
+      else if ((b.wiped ?? 0) > b.dirt) b.wiped = b.dirt;
+      wp.phase = wiping ? this.env.wipePhase : 0;
+      wp.period = wiping ? this.env.wipePeriod : 0;
+      wp.regrow = THREE.MathUtils.lerp(2.2, 0.55, Math.min(1, this.env.glassWet));
+      wp.wiped = b.wiped ?? 0;
       // (a flap left open shuts itself once the vehicle drives off)
       if (v.view.capOpen && Math.abs(v.sim.kmh) > 3) v.view.capOpen = false;
       v.view.ridden = v === this.seated;
@@ -4408,6 +4423,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       shake: { ...this.shake.parts },
       dust: { live: this.dust.live, thrown: this.dust.thrown },
       tyres: (this.tyreNow?.loops ?? []).map((l) => `${l.name}:${l.gain.toFixed(2)}${l.cutoff ? `@${Math.round(l.cutoff)}` : ''}`),
+      wipers: v ? { ...v.view.wipe, dirt: v.build.dirt, crust: v.build.crust ?? 0, blades: v.view.wipers.length } : null,
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       ...(this.garage?.telemetry() ?? {}),

@@ -255,6 +255,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform vec3 uCabinMin;
   uniform vec3 uCabinMax;
   uniform float uShelter;      // 1 = under a roof: no rain on it, no snow
+  uniform vec4 uWipe;          // the wipers (setWipe): x their cycle (0…1), y seconds a cycle (0: parked), z seconds for the rain to bead again, w the dirt they took off their arcs
+  uniform vec4 uWiperP0;       // each blade (setWipers): its pivot (car frame), w the inner end of its reach (m)
+  uniform vec4 uWiperN0;       //   the axis it turns about, w the outer end of its reach (0: no wiper)
+  uniform vec4 uWiperU0;       //   where it rests (unit), w its sweep about the axis (rad)
+  uniform vec4 uWiperP1;
+  uniform vec4 uWiperN1;
+  uniform vec4 uWiperU1;
   uniform mat4 uWorldToCar;
   uniform vec3 uZenith;
   uniform vec3 uMid;
@@ -552,6 +559,32 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     return cover * near;
   }
 
+  // how much of a point (car frame) lies in a wiper blade's arc (soft at its edges), and where in the sweep it
+  // lies: 0 where the blade rests … 1 at the far end
+  float rtWiperIn(vec3 p, vec4 P, vec4 N, vec4 U, out float at) {
+    at = 0.0;
+    if (N.w <= 0.0 || abs(U.w) < 1e-3) return 0.0;
+    vec3 d = p - P.xyz;
+    float h = dot(d, N.xyz);
+    vec3 q = d - h * N.xyz;
+    float r = length(q);
+    if (r < 1e-4) return 0.0;
+    at = atan(dot(q, cross(N.xyz, U.xyz)), dot(q, U.xyz)) / U.w;
+    float soft = 0.012;
+    float sa = soft / (max(r, 0.05) * abs(U.w));
+    float along = smoothstep(-sa, sa, at) * (1.0 - smoothstep(1.0 - sa, 1.0 + sa, at));
+    float across = smoothstep(P.w - soft, P.w + soft, r) * (1.0 - smoothstep(N.w - soft, N.w + soft, r));
+    // (the glass the blade lies on, not what is behind it: a curved pane leaves its tangent plane a little)
+    return along * across * (1.0 - smoothstep(0.07, 0.11, abs(h)));
+  }
+  // how much of the rain has beaded again where a blade's sweep is at: it goes over it twice a cycle, on its
+  // way out (at half the cycle's share) and back
+  float rtWipeRegrow(float at) {
+    float a = clamp(at, 0.0, 1.0) * 0.5;
+    float age = min(fract(uWipe.x - a), fract(uWipe.x - (1.0 - a))) * uWipe.y;
+    return smoothstep(0.0, uWipe.z, age);
+  }
+
   void main() {
     #include <logdepthbuf_fragment>
     vec3 n = normalize(vNormal);
@@ -597,6 +630,19 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
         wear.y = gm.b;
         wetMask = clamp((gm.a * 255.0 - 1.0) / 254.0, 0.0, 1.0) * uGrimeWet;
       }
+    }
+    #endif
+    // the wipers' arcs of the windscreen: the dust they took off them, and the rain beading there again since a
+    // blade went by (each bead back at its own moment)
+    float wipeKeep = 1.0;
+    #ifdef RT_GLASS
+    if (uWiperN0.w + uWiperN1.w > 0.0) {
+      float at0;
+      float at1;
+      float in0 = rtWiperIn(vCar, uWiperP0, uWiperN0, uWiperU0, at0);
+      float in1 = rtWiperIn(vCar, uWiperP1, uWiperN1, uWiperU1, at1);
+      wear.x = max(0.0, wear.x - uWipe.w * max(in0, in1));
+      if (uWipe.y > 0.0) wipeKeep = min(mix(1.0, rtWipeRegrow(at0), in0), mix(1.0, rtWipeRegrow(at1), in1));
     }
     #endif
     wear = clamp(wear, 0.0, 1.0) * uWearMax;
@@ -694,7 +740,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float bead = 0.0;
     vec2 beadLight = vec2(0.0);
     // (fewer on a side: there the water runs off. Branches on uniforms only: the masks take derivatives)
-    if (uWeather.x > 0.02) bead = rtBeads(vObj, on, wet * mix(0.6, 1.0, smoothstep(0.3, 0.8, abs(n.y))), dist, beadLight);
+    if (uWeather.x > 0.02) bead = rtBeads(vObj, on, wet * wipeKeep * mix(0.6, 1.0, smoothstep(0.3, 0.8, abs(n.y))), dist, beadLight);
     float fleck = beadLight.x;
     // snow settles on what faces up high: the roof and what rides on it (a warm hood melts it, driving blows
     // the lids clean), in one cap with a ragged edge
@@ -915,10 +961,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += pale * mix(bead * 0.3 + beadLight.y * 0.5 + fleck, beadLight.y * 0.35 + fleck * 0.7, inside);
     alpha = clamp(alpha + bead * mix(0.3, 0.22, inside), 0.0, 0.97);
     #ifdef RT_WEAR
-    // dust on the glass: a pale haze from the bottom edge
-    float haze = wear.x * (1.0 - smoothstep(0.55, 1.15, height)) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
-    col = mix(col, vec3(0.32, 0.28, 0.22) * (sky + uSunColor * 0.2) * alpha, haze * 0.5);
-    alpha = mix(alpha, 0.85, haze * 0.4);
+    // dust on the glass: a pale film over the pane, thicker toward its foot (low on the body, where the road throws
+    // it and the rain runs it down), lit by the day — from the cabin a veil the light through it catches
+    float low = 1.0 - smoothstep(0.4, 0.95, height / max(uBodyHeight, 0.3));
+    float haze = wear.x * (0.3 + 0.7 * low) * (0.55 + 0.45 * rtTriNoise(vObj, on, 1.2).r);
+    float hz = min(0.85, haze * mix(1.0, 1.8, inside));
+    col = mix(col, vec3(0.32, 0.28, 0.22) * (sky + uSunColor * mix(0.2, 0.35, inside)), hz);
+    alpha = mix(alpha, 0.92, hz);
     // crust: caked grime over the pane, nothing of the cabin through it (from inside the light through it is
     // a dull brown glow); thinner, a smeary film the cabin shows dimly through (a scraper's first pass leaves it,
     // the second clears it); the band a scraper leaves is clear glass again
@@ -1199,6 +1248,15 @@ export class CarLook {
     uCabinMax: { value: new THREE.Vector3(-1, -1, -1) },
     /** 1 = under a roof (a garage, a shed): the world's rain and snow do not reach it */
     uShelter: { value: 0 },
+    /** the wipers (setWipers, setWipe): their arcs of the windscreen and where they are in their cycle */
+    uWipe: { value: new THREE.Vector4(0, 0, 1.5, 0) },
+    // (w 0: no wiper)
+    uWiperP0: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWiperN0: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWiperU0: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWiperP1: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWiperN1: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uWiperU1: { value: new THREE.Vector4(0, 0, 0, 0) },
   };
   /** names met in apply() that are not conventional (drawn as plastic_int) */
   readonly unknown = new Set<string>();
@@ -1411,6 +1469,35 @@ export class CarLook {
     this.shared.uShelter.value = Math.min(1, Math.max(0, s));
   }
 
+  /** the wipers' arcs of the windscreen (car frame; up to two; none: no wipers) */
+  setWipers(arcs: readonly WiperArc[]): void {
+    const s = this.shared;
+    const slots = [
+      [s.uWiperP0, s.uWiperN0, s.uWiperU0],
+      [s.uWiperP1, s.uWiperN1, s.uWiperU1],
+    ] as const;
+    for (let i = 0; i < 2; i++) {
+      const a = arcs[i];
+      const [p, n, u] = slots[i];
+      if (!a) {
+        n.value.set(0, 0, 0, 0);
+        continue;
+      }
+      p.value.set(a.pivot.x, a.pivot.y, a.pivot.z, a.r0);
+      n.value.set(a.axis.x, a.axis.y, a.axis.z, a.r1);
+      u.value.set(a.rest.x, a.rest.y, a.rest.z, a.sweep);
+    }
+  }
+
+  /**
+   * Where the wipers are in their cycle (0…1, as the weather's), the seconds a cycle takes (0: parked, the rain
+   * beads all over), the seconds the rain takes to bead again where a blade went, and the dirt they took off
+   * their arcs (the arcs show that much less of it)
+   */
+  setWipe(phase: number, period: number, regrow: number, wiped: number): void {
+    this.shared.uWipe.value.set(phase, Math.max(0, period), Math.max(0.05, regrow), Math.max(0, wiped));
+  }
+
   /** the car's frame (its root's world matrix): dirt is measured up from its ground */
   setCarFrame(matrixWorld: THREE.Matrix4): void {
     this.shared.uWorldToCar.value.copy(matrixWorld).invert();
@@ -1494,6 +1581,20 @@ export class CarLook {
     for (const m of this.mats.values()) m.dispose();
     this.mats.clear();
   }
+}
+
+/** a wiper's arc of the windscreen as the glass takes it (car frame: the model's, metres) */
+export interface WiperArc {
+  pivot: THREE.Vector3;
+  /** the axis it turns about (unit; its sweep turns about it right-handed) */
+  axis: THREE.Vector3;
+  /** the blade at rest (unit, square to the axis) */
+  rest: THREE.Vector3;
+  /** the blade's reach from the pivot: its inner and outer ends */
+  r0: number;
+  r1: number;
+  /** how far it sweeps about the axis (rad, signed) */
+  sweep: number;
 }
 
 /** the conventional name of a mesh's (first or i-th) material: the GLB's own, kept in userData.mat, or ours */

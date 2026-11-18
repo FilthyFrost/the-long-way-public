@@ -18,7 +18,7 @@ import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
-import { measureCarShape, type CarLook } from '../render/carMaterials';
+import { measureCarShape, meshCarMaterialName, type CarLook, type WiperArc } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { castMesh } from '../render/triGrid';
 import { glassName } from './grime';
@@ -1406,11 +1406,22 @@ export class CarView {
       this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
     }
     // the wipers sweep with the weather's wipers (0…1 of their sweep)
+    const arcs: WiperArc[] = [];
     for (const w of this.wipers) {
       const r = this.frame.rig?.wipers[w.name];
       if (!r) continue;
       const rest = (w.userData.rest as THREE.Quaternion | undefined) ?? (w.userData.rest = w.quaternion.clone());
+      // (its arc of the windscreen, measured once, at rest)
+      const arc = (w.userData.arc as WiperArc | null | undefined) ?? (w.userData.arc = this.wiperArc(w, r, rest));
+      if (arc) arcs.push(arc);
       w.quaternion.copy(rest).premultiply(this.qTmp.setFromAxisAngle(this.vTmp.set(...r.axis), this.wiperAngle * r.sweepDeg * DEG));
+    }
+    // the glass they go over: clear where they went, the rain beading on it again behind them
+    const wp = this.wipe;
+    for (const look of [this.mats.lookOf(BODY), this.mergedLook]) {
+      if (!look) continue;
+      look.setWipers(arcs);
+      look.setWipe(wp.phase, wp.period, wp.regrow, wp.wiped);
     }
     // the filler flap swings out on its hinge while it is open (opened by hand, or by a can held to it)
     if (this.capPivot) {
@@ -1495,6 +1506,55 @@ export class CarView {
   }
   /** the wipers' place in their sweep, 0…1 (the weather's wipers) */
   wiperAngle = 0;
+  /**
+   * The wipers on the glass: where they are in their cycle (0…1, the weather's), the seconds a cycle (0: parked),
+   * the seconds the rain takes to bead again behind a blade, and the dust they took off their arcs of the windscreen
+   */
+  readonly wipe = { phase: 0, period: 0, regrow: 1.5, wiped: 0 };
+
+  /** a wiper's arc of the windscreen (the model's frame), from where it rests and its blade's reach; null: none */
+  private wiperArc(w: THREE.Object3D, r: { axis: [number, number, number]; sweepDeg: number }, rest: THREE.Quaternion): WiperArc | null {
+    const parent = w.parent;
+    if (!parent) return null;
+    this.model.updateWorldMatrix(true, false);
+    w.updateWorldMatrix(true, true);
+    const toModel = new THREE.Matrix4().copy(this.model.matrixWorld).invert().multiply(parent.matrixWorld);
+    const rot = new THREE.Matrix3().setFromMatrix4(toModel);
+    const pivot = w.position.clone().applyMatrix4(toModel);
+    const axis = new THREE.Vector3(...r.axis).applyMatrix3(rot).normalize();
+    // (the arm lies along the wiper's own +x)
+    const arm = new THREE.Vector3(1, 0, 0).applyQuaternion(rest).applyMatrix3(rot);
+    arm.addScaledVector(axis, -arm.dot(axis));
+    if (arm.lengthSq() < 1e-8) return null;
+    arm.normalize();
+    // the blade's reach along the arm (its own frame): its rubber's, else most of the arm's
+    const inv = new THREE.Matrix4().copy(w.matrixWorld).invert();
+    const m = new THREE.Matrix4();
+    const v = new THREE.Vector3();
+    let r1 = 0;
+    let r0 = Infinity;
+    w.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const pos = mesh.geometry.getAttribute('position');
+      if (!pos) return;
+      m.multiplyMatrices(inv, mesh.matrixWorld);
+      const groups = mesh.geometry.groups.length && Array.isArray(mesh.material) ? mesh.geometry.groups : [{ start: 0, count: Infinity, materialIndex: 0 }];
+      const index = mesh.geometry.getIndex();
+      for (const g of groups) {
+        const rubber = meshCarMaterialName(mesh, g.materialIndex ?? 0) === 'rubber';
+        const n = index ? Math.min(index.count, g.start + g.count) : Math.min(pos.count, g.start + g.count);
+        for (let k = g.start; k < n; k++) {
+          v.fromBufferAttribute(pos, index ? index.getX(k) : k).applyMatrix4(m);
+          r1 = Math.max(r1, v.x);
+          if (rubber) r0 = Math.min(r0, v.x);
+        }
+      }
+    });
+    if (r1 <= 0.05) return null;
+    if (!Number.isFinite(r0) || r0 >= r1) r0 = 0.15 * r1;
+    return { pivot, axis, rest: arm, r0: Math.max(0.02, r0), r1, sweep: r.sweepDeg * DEG };
+  }
   private readonly qTmp = new THREE.Quaternion();
   private readonly vTmp = new THREE.Vector3();
 
