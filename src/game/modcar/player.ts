@@ -38,7 +38,7 @@ import type { Land } from '../../core/onfoot/land';
 import { SolidSet, type SolidSource } from '../../core/world/solids';
 import { GhostLayer, type GhostSpec } from './ghosts';
 import type { Action, SlotView, TransferView } from './hudItems';
-import { deviceCard, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
+import { deviceCard, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, itemLabelPlain, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
 import { itemNow } from './itemTime';
 import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
@@ -1897,9 +1897,9 @@ export class ModPlayer {
     this.settleHands();
     return this.slots.map((h) => {
       if (!h) return { icon: null, name: '空', empty: true };
-      // (a stack: its kind's name, its count drawn in the slot's corner — nothing is built for the count here)
+      // (a stack: its name without the count, which is drawn in the slot's corner — nothing is built for the count here)
       const many = h.kind === 'item' ? countOf(h.item) : 1;
-      const nameOf = many > 1 && h.kind === 'item' ? itemDef(h.item.item).name.zh : heldName(h);
+      const nameOf = h.kind === 'item' ? itemLabelPlain(h.item) : heldName(h);
       const t = h.kind === 'tool' ? h.tool : null;
       const liquid = t ? liquidOf(t) : null;
       const drink = h.kind === 'item' ? itemDef(h.item.item).drink : undefined;

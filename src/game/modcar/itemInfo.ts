@@ -485,8 +485,52 @@ export function salvageText(s: Partial<Record<string, number>>): string {
     .join(' · ');
 }
 
-/** the names built for stacks and drinks, kept with what they were built for */
-const LABELS = new WeakMap<ItemInstance, { item: string; n: number; litres: number; text: string }>();
+/**
+ * Counts every change in what things are called or what their cards say that cannot be seen in the things
+ * themselves: the names and cards kept here are made again after it.
+ */
+let wordsVersion = 0;
+
+/**
+ * What things are called, or what their cards say, has changed for a reason that is not in the things (the
+ * player has learnt what a kind is, a system's lines now read something else at once): the names and the
+ * cards kept between frames are made again the next time they are asked for.
+ */
+export function itemWordsChanged(): void {
+  wordsVersion++;
+}
+
+/** a name built for a stack or a drink, kept with what it was built for */
+interface KeptLabel {
+  item: string;
+  n: number;
+  litres: number;
+  v: number;
+  /** as itemName gives it; and without the count of a stack */
+  text: string;
+  plain: string;
+}
+
+const LABELS = new WeakMap<ItemInstance, KeptLabel>();
+
+/** the name kept for a stack or a drink, made again when its kind, its count or its level changed */
+function keptLabel(inst: ItemInstance, n: number): KeptLabel {
+  const litres = inst.litres ?? 0;
+  let m = LABELS.get(inst);
+  if (!m) {
+    m = { item: '', n: 0, litres: 0, v: -1, text: '', plain: '' };
+    LABELS.set(inst, m);
+  } else if (m.item === inst.item && m.n === n && m.litres === litres && m.v === wordsVersion) return m;
+  m.item = inst.item;
+  m.n = n;
+  m.litres = litres;
+  m.v = wordsVersion;
+  m.text = itemName(inst);
+  // (a stack's name ends in its count, " ×3": the name without it is what its slot is called)
+  const cut = n > 1 ? m.text.lastIndexOf(' ×') : -1;
+  m.plain = cut > 0 ? m.text.slice(0, cut) : m.text;
+  return m;
+}
 
 /**
  * A thing's name as itemName gives it ("试验莓 ×3", "矿泉水（0.50 L）"), for the words on screen that ask for
@@ -494,20 +538,16 @@ const LABELS = new WeakMap<ItemInstance, { item: string; n: number; litres: numb
  * same string until then. A plain thing's name is its kind's, and nothing is kept for it.
  */
 export function itemLabel(inst: ItemInstance): string {
-  const d = itemDef(inst.item);
   const n = inst.n ?? 1;
-  if (!d.drink && n <= 1) return d.name.zh;
-  const litres = inst.litres ?? 0;
-  let m = LABELS.get(inst);
-  if (!m) {
-    m = { item: '', n: 0, litres: 0, text: '' };
-    LABELS.set(inst, m);
-  } else if (m.item === inst.item && m.n === n && m.litres === litres) return m.text;
-  m.item = inst.item;
-  m.n = n;
-  m.litres = litres;
-  m.text = itemName(inst);
-  return m.text;
+  if (n <= 1 && !itemDef(inst.item).drink) return itemName(inst);
+  return keptLabel(inst, n).text;
+}
+
+/** the same without a stack's count ("试验莓"): what a slot of the hotbar is called, the count being drawn in its corner */
+export function itemLabelPlain(inst: ItemInstance): string {
+  const n = inst.n ?? 1;
+  if (n <= 1 && !itemDef(inst.item).drink) return itemName(inst);
+  return keptLabel(inst, n).plain;
 }
 
 /** how fresh a thing that goes off is, in words (by freshStage: 0 fresh, 1 still good, 2 going off, 3 turned) */
@@ -549,8 +589,8 @@ const LINES_BY_CAT = new Map<string, ItemCardLines[]>();
  * system's module is loaded. `add` runs each time such a card is made, after the lines made here, a
  * category's before a kind's, each in the order registered; a card on screen is made again when its thing's
  * kind, count, level, freshness or contents change and otherwise a few times a second (itemCardKept), so
- * `add` may read the thing's own `state` freely and need not be told when it changes — but it is never run
- * per frame, and must not keep the card.
+ * `add` may read the thing's own `state` freely and need not be told when it changes (itemWordsChanged makes
+ * every card again at once) — but it is never run per frame, and must not keep the card.
  */
 export function registerItemCardLines(to: { readonly item: string } | { readonly cat: string }, add: ItemCardLines): void {
   const map = 'item' in to ? LINES_BY_ITEM : LINES_BY_CAT;
@@ -598,7 +638,8 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
     key: `item:${inst.uid}:${inst.item}`,
     icon: (ITEM_ICON as Partial<Record<string, CardIcon>>)[d.cat] ?? 'box',
     cat: itemCat(d.cat).name.zh,
-    name: n > 1 ? `${d.name.zh} ×${n}` : d.name.zh,
+    // (a stack's name says how many, as everywhere; a drink's is its kind's: what is in it is the card's first bar)
+    name: d.drink ? d.name.zh : itemName(inst),
     stars: d.stars,
     badges: [],
     blurb: d.blurb,
@@ -687,6 +728,8 @@ interface KeptCard {
   /** how many stacks are in it, and how many things in all */
   inside: number;
   many: number;
+  /** the words' version it was made at (itemWordsChanged) */
+  v: number;
   /** when it was made, on the asker's clock */
   t: number;
 }
@@ -713,11 +756,11 @@ export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemC
   let many = 0;
   if (ins) for (let i = 0; i < ins.length; i++) many += ins[i].n ?? 1;
   let m = KEPT.get(inst);
-  if (m && m.item === inst.item && m.n === n && m.litres === litres && m.uses === uses && m.q === q && m.fresh === fresh && m.inside === inside && m.many === many && t >= m.t && t - m.t < CARD_KEEP_S) return m.card;
+  if (m && m.item === inst.item && m.n === n && m.litres === litres && m.uses === uses && m.q === q && m.fresh === fresh && m.inside === inside && m.many === many && m.v === wordsVersion && t >= m.t && t - m.t < CARD_KEEP_S) return m.card;
   const card = itemCard(inst, nowS);
   card.kept = true;
   if (!m) {
-    m = { card, item: inst.item, n, litres, uses, q, fresh, inside, many, t };
+    m = { card, item: inst.item, n, litres, uses, q, fresh, inside, many, v: wordsVersion, t };
     KEPT.set(inst, m);
     return card;
   }
@@ -730,6 +773,7 @@ export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemC
   m.fresh = fresh;
   m.inside = inside;
   m.many = many;
+  m.v = wordsVersion;
   m.t = t;
   return card;
 }

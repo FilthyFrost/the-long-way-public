@@ -29,8 +29,10 @@ of one), or the thing itself when it is the last: eating and pills use it, and `
 G, a vehicle's zone and a device are handed the thing whole: a stack with its count, a basket with what is in it.
 
 **Shown.** `SlotView.count` is drawn in the slot's corner (nothing for one), written when it changes; the
-slot's name is the kind's. `heldName` and `itemLabel(inst)` give "试验莓 ×3", built when kind, count or level
-change. `telemetry()` gains `heldN`, `slot1N`, `slot2N` (0: empty) and `counts` ("3,0,12", every slot).
+slot's name is the thing's without its count (`itemLabelPlain`). `heldName` and `itemLabel(inst)` give
+"试验莓 ×3" as the core's `itemName` does, built when kind, count or level change; `itemWordsChanged()` has
+every kept name and card made again (for a change that is not in the things: the player has learnt what a kind
+is). `telemetry()` gains `heldN`, `slot1N`, `slot2N` (0: empty) and `counts` ("3,0,12", every slot).
 
 **The card.** `itemCard(inst, nowS)` adds `×n` to the name and a row `n 个 · 一叠（最多 N 个）` for a kind that
 stacks; a bar `新鲜程度` with the word (`FRESH_WORD`: 新鲜 / 还行 / 快坏了 / 坏了) and how long the thing still
