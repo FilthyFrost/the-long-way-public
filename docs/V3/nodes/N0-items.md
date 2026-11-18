@@ -140,6 +140,8 @@ Reading (`loadSave`):
 - Uids: every part's, tool's and thing's, those inside baskets too, are kept from being given out again; a
   uid held twice (tools' were not reserved before, so older saves have them) is held once.
 - What goes off and has no `t0` starts at the save's own world time; nothing is written as of a later time.
+  (What the game hands back later from a list kept in the session, a wreck's riders, starts then:
+  `save.ts backInTheWorld`.)
 - The player is told once, when the game is up: `有 N 件认不出的东西没能读回来`, through `kernel.report`
   (so it is also the test hook's last error, with the kinds named).
 - What was in a slot the hotbar no longer has (the backpack was left out, or gives fewer slots now) is put
@@ -174,9 +176,13 @@ drop the nulls, `reserveItemUids` with `forEachItem`, `stampFresh(x, itemNow())`
 - **The engine's boxed fractions.** The frame's questions make nothing of their own, but V8 hands back a
   fractional field (`fresh`, `t0`, `fk`, `litres`) as a new 16-byte number wherever the code has seen things
   of more than four shapes, which in this game is everywhere. Measured after things of every shape:
-  `freshNow` 32–48 bytes a call, `canStack` of two things that go off about 64, `roomInside` 16–32 for each
-  stack that goes off; nothing for kinds, counts, weights and states. Removing it means giving every thing
-  the same fields in the same order, or keeping freshness out of fractional fields: a change to the model.
+  `freshNow` 32–48 bytes a call, `canStack` of two things that go off about 64, `roomInside` 30–60 for each
+  stack that goes off which it compares; nothing for kinds, counts, weights and states (the test prints the
+  figures). Removing it means giving every thing the same fields in the same order, or keeping freshness
+  out of fractional fields: a change to the model.
+- **What a tolerant load left out is gone with the next save.** The text it came from is not kept aside (it
+  would be a second copy of the save in the browser's storage); a build that has the kinds again does not
+  get the things back.
 - A thing moved to another rate after it turned and before it was settled (section 3).
 - Parts' uids (`build.ts reserveUids`) have the weakness things' had: a uid with a number past 2^53 stops
   the counter. Not touched here.
