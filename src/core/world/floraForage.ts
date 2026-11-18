@@ -8,8 +8,8 @@
  * strand …): bands of the ecotope's quantities. How common is a number of plants to the hectare where the spot
  * suits; things come in patches (groves), so a hectare that has a kind has several and the next has none.
  *
- * To make a kind grow somewhere else, add the region's id to its row; to add a kind, add its plant to
- * plants.ts and a row here.
+ * To make a kind grow somewhere else, add the region's id to its row (or give it a second row, where it
+ * grows in another kind of spot there); to add a kind, add its plant to plants.ts and a row here.
  */
 import type { Band, FloraRule, FloraTable } from './flora';
 import { plantDef } from './plants';
@@ -35,8 +35,14 @@ const N = {
   meadow: { canopy: b(0, 0.2), moisture: b(0.3, 0.8) },
   /** open wet ground */
   wetMeadow: { canopy: b(0, 0.35), moisture: b(0.7, 1) },
+  /** open ground that is damp rather than wet: the hollows and shaded sides of the high country */
+  dampOpen: { canopy: b(0, 0.35), moisture: b(0.5, 1) },
   /** open dry ground */
   dryOpen: { canopy: b(0, 0.2), moisture: b(0, 0.3) },
+  /** the driest level ground: the pans of dry country, where water stood and left its salt */
+  pan: { slope: b(0, 0.04), moisture: b(0, 0.1), canopy: b(0, 0.1) },
+  /** dry stony slopes: a canyon's sides, the banks of a dry wash */
+  scree: { slope: b(0.15, 0.6), canopy: b(0, 0.3), moisture: b(0, 0.3) },
   /** by the road: verges and waste ground */
   verge: { road: b(8, 40), canopy: b(0, 0.4) },
   /** level open ground within reach of the road: old fields and gardens */
@@ -94,7 +100,7 @@ G('glow_mushroom', 'rare', N.woodFloor, 50, ['forest', 'bamboo_sea', 'giant_mush
 G('fly_agaric', 'uncommon', N.woodDry, 60, ['forest', 'alpine', 'maple', 'plains']);
 G('death_cap', 'uncommon', N.woodFloor, 70, ['forest', 'maple', 'plains', 'lakes']);
 // ---- fruit that grows low
-G('cloudberry', 'rare', N.wetMeadow, 60, ['alpine', 'volcanic_tundra'], 2);
+G('cloudberry', 'rare', N.dampOpen, 60, ['alpine', 'volcanic_tundra'], 2);
 G('wild_tomato', 'common', N.field, 40, ['terraces', 'plains', 'vine_ruins', 'drowned_city']);
 // ---- wild greens
 G('dandelion', 'common', N.meadow, 50, ['plains', 'lakes', 'flower_fields', 'maple', 'terraces'], 1.5);
@@ -137,8 +143,10 @@ G('crab', 'uncommon', N.strand, 50, ['lakes', 'sea_cliffs'], 4);
 G('water_chestnut', 'common', N.shallows, 50, ['lakes', 'wetland'], 6);
 // ---- resources
 G('flint', 'common', N.gravel, 60, ['red_canyon', 'desert', 'alpine', 'maple', 'crystal_waste']);
+G('flint', 'common', N.scree, 60, ['red_canyon']);
 G('clay', 'common', N.bank, 60, ['plains', 'lakes', 'red_canyon', 'karst_peaks', 'terraces', 'crystal_waste', 'wetland']);
 G('salt', 'common', N.saltShore, 50, ['desert', 'salt_lake', 'sea_cliffs', 'lakes', 'dry_seabed'], 2);
+G('salt', 'uncommon', N.pan, 70, ['desert']);
 G('honeycomb', 'rare', N.woodEdge, 80, ['flower_fields', 'plains', 'savanna', 'floating_reefs'], 2);
 G('sulphur', 'uncommon', N.rocky, 70, ['volcanic_tundra', 'desert']);
 G('saltpetre', 'uncommon', N.rocky, 70, ['salt_lake', 'red_canyon', 'crystal_waste', 'karst_peaks']);
@@ -160,7 +168,7 @@ export function withForage(region: string, t: FloraTable): FloraTable {
   return { ...t, ground: [...add, ...t.ground] };
 }
 
-/** the regions a forage plant's row names (empty: no row) */
+/** the regions a forage plant's rows name (empty: no row; a plant may have a row for each kind of spot it grows in) */
 export function forageRegionsOf(plant: string): readonly string[] {
-  return ROWS.find((r) => r.plant === plant)?.regions ?? [];
+  return [...new Set(ROWS.filter((r) => r.plant === plant).flatMap((r) => r.regions))];
 }

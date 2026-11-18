@@ -60,6 +60,17 @@ export interface FloraRule {
   readonly waterKinds?: number;
   /** metres from the road's centre line */
   readonly road?: Band;
+  /**
+   * metres of an anchored landform under it — a tower, a butte (0 where none stands): [8, 500] is "on one",
+   * [0, 1] "on none". (Its edges are LANDFORM_EDGE m wide whatever the band's width: a landform has a foot.)
+   */
+  readonly landform?: Band;
+  /**
+   * It stands on the level benches of terraced country and nowhere else: only where the stretch is cut into
+   * benches (the ecotope's `terrace`), and there only where the plant's own spot is a bench, not a riser
+   * (its ground's own height a whole number of steps: `onBench`).
+   */
+  readonly bench?: boolean;
   /** its size against the plant's full size: a range (default 0.75 … 1.2) */
   readonly size?: Band;
   /** it grows in groves: its numbers swell and fade over patches of about this size (m) */
@@ -170,7 +181,31 @@ export function bandFit(v: number, band: Band | undefined, soft = 0.02): number 
   return smooth(1 - (v - hi) / m);
 }
 
-/** how well a spot suits a rule, 0 … 1 */
+/** how fully a stretch must be cut into benches for a plant of the benches to stand there (the ecotope's `terrace`) */
+const BENCH_LAND: Band = [0.5, 1];
+/** the width over which a landform band falls off outside itself (m of landform height) */
+export const LANDFORM_EDGE = 3;
+
+/** bandFit with an edge of a given width, whatever the band's own */
+function edgeFit(v: number, band: Band, m: number): number {
+  if (v >= band[0] && v <= band[1]) return 1;
+  return smooth(1 - (v < band[0] ? band[0] - v : v - band[1]) / m);
+}
+/** a spot is a bench where its height is within this share of a step of a bench's level (a hand or two) */
+export const BENCH_TOL = 0.02;
+
+/**
+ * Is ground of height y a level bench of terraces `step` m apart? The benches are cut in the land's own height
+ * (operators.ts `terrace`): a bench lies at a whole number of steps, a riser between two.
+ */
+export function onBench(y: number, step: number): boolean {
+  if (!(step > 0)) return false;
+  const u = y / step;
+  const f = u - Math.floor(u);
+  return f <= BENCH_TOL || f >= 1 - BENCH_TOL;
+}
+
+/** how well a spot suits a rule, 0 … 1 (a rule of the benches: how well the country does; whether the spot itself is a bench is `onBench`'s to say) */
 export function ruleFit(r: FloraRule, e: Ecotope): number {
   let f = bandFit(e.canopy, r.canopy) * bandFit(e.moisture, r.moisture) * bandFit(e.slope, r.slope) * bandFit(e.shade, r.shade);
   if (f <= 0) return 0;
@@ -180,6 +215,8 @@ export function ruleFit(r: FloraRule, e: Ecotope): number {
     if (r.waterKinds !== undefined && (e.waterKind === 0 || !(r.waterKinds & (1 << (e.waterKind - 1))))) return 0;
     f *= bandFit(e.waterDist, r.water, 1.5);
   }
+  if (r.landform) f *= edgeFit(e.landform, r.landform, LANDFORM_EDGE);
+  if (r.bench) f *= bandFit(e.terrace, BENCH_LAND);
   return f;
 }
 
@@ -191,6 +228,8 @@ const Q_SHADE = 3;
 const Q_RELIEF = 4;
 const Q_ROAD = 5;
 const Q_WATER = 6;
+const Q_LANDFORM = 7;
+const Q_TERRACE = 8;
 
 /** one layer of a table made ready for the dice: its rules as numbers, looked up once per table */
 interface Compiled {
@@ -198,6 +237,8 @@ interface Compiled {
   readonly plants: Int32Array;
   /** 1: the rule's plant grows in water (it stands in the shallows and nowhere else) */
   readonly aquatic: Uint8Array;
+  /** 1: the rule stands its plant on the benches of terraced country only */
+  readonly bench: Uint8Array;
   /** how many stand in one cell where everything suits */
   readonly per: Float64Array;
   /** the bands of rule r are the entries from[r] … from[r + 1] − 1 of `bands`, four numbers each: the quantity, low, high, and the width over which it falls off outside */
@@ -219,6 +260,7 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
   const n = rules.length;
   const plants = new Int32Array(n);
   const aquatic = new Uint8Array(n);
+  const bench = new Uint8Array(n);
   const per = new Float64Array(n);
   const from = new Int32Array(n + 1);
   const kinds = new Int32Array(n);
@@ -228,8 +270,8 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
   const bands: number[] = [];
   let mostDry = 0;
   let mostWet = 0;
-  const band = (q: number, b: Band | undefined, soft: number): void => {
-    if (b) bands.push(q, b[0], b[1], Math.max(soft, 0.25 * (b[1] - b[0])));
+  const band = (q: number, b: Band | undefined, soft: number, edge = Math.max(soft, b ? 0.25 * (b[1] - b[0]) : 0)): void => {
+    if (b) bands.push(q, b[0], b[1], edge);
   };
   for (let i = 0; i < n; i++) {
     const r = rules[i];
@@ -246,6 +288,9 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
     band(Q_RELIEF, r.relief, 4);
     band(Q_ROAD, r.road, 2);
     band(Q_WATER, r.water, 1.5);
+    band(Q_LANDFORM, r.landform, 0, LANDFORM_EDGE);
+    if (r.bench) band(Q_TERRACE, BENCH_LAND, 0.02);
+    bench[i] = r.bench ? 1 : 0;
     kinds[i] = r.water && r.waterKinds !== undefined ? r.waterKinds : -1;
     grove[i] = r.grove ?? 0;
     size0[i] = r.size ? r.size[0] : 0.75;
@@ -255,7 +300,7 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
     else mostDry += most;
   }
   from[n] = bands.length;
-  return { rules, plants, aquatic, per, from, bands: Float64Array.from(bands), kinds, grove, size0, size1, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
+  return { rules, plants, aquatic, bench, per, from, bands: Float64Array.from(bands), kinds, grove, size0, size1, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
 }
 
 /**
@@ -275,7 +320,7 @@ export class FloraField {
   private layersA: Compiled[] | null = null;
   private layersB: Compiled[] | null = null;
   /** the ecotope's quantities at the plant's place, and how well each rule fits there */
-  private readonly q = new Float64Array(7);
+  private readonly q = new Float64Array(9);
   private fit = new Float64Array(32);
   /** one cell's answer, and a tile's plants while they are being gathered */
   private readonly one = new FloraCell();
@@ -405,7 +450,8 @@ export class FloraField {
    * each fits and what they could come to at most, and only if the dice are below that, their groves'
    * noise and the pick. A plant that stands is given the land's own height: for that the land is asked
    * once, in an open square as anywhere else (the ecotope's height, read between nodes 8 m apart, is a
-   * hand to a metre off, and more on a dune or a canyon's wall).
+   * hand to a metre off, and more on a dune or a canyon's wall). By that height a plant of the benches is
+   * held to the benches.
    */
   private decide(layer: FloraLayer, cx: number, cz: number, t: EcoTile, out: FloraCell): boolean {
     const C = LAYER_CELL[layer];
@@ -464,6 +510,8 @@ export class FloraField {
     q[Q_RELIEF] = t.relief[a] * wa + t.relief[b] * wb + t.relief[c] * wc + t.relief[d] * wd;
     q[Q_ROAD] = ad;
     q[Q_WATER] = t.waterDist[a] * wa + t.waterDist[b] * wb + t.waterDist[c] * wc + t.waterDist[d] * wd;
+    q[Q_LANDFORM] = t.landform[a] * wa + t.landform[b] * wb + t.landform[c] * wc + t.landform[d] * wd;
+    q[Q_TERRACE] = t.terrace[a] * wa + t.terrace[b] * wb + t.terrace[c] * wc + t.terrace[d] * wd;
     const water = t.waterKind[near];
     const fit = this.fit;
     const bands = lay.bands;
@@ -514,6 +562,8 @@ export class FloraField {
     if (tp.zone !== 0 || tp.site > 0.02 || tp.plot > 0.02) return false;
     const depth = tp.wl - tp.bed;
     if (lay.aquatic[pick] ? !(depth > 0.02 && depth <= AQUATIC_DEPTH) : depth > 0.02) return false;
+    // (a plant of the benches: its own spot must be one, by the land's own height there)
+    if (lay.bench[pick] && !onBench(tp.bed, t.step[near])) return false;
     if (!(rt > 0)) h2 = hash2(cz, cx, salt + 0x100);
     out.plant = lay.plants[pick];
     out.rule = pick;
@@ -531,8 +581,12 @@ export class FloraField {
    * The ground cover at (x, z): grass, flowers, bare ground, litter. Under trees the grass thins and the
    * litter comes; on steep or dry ground the bare shows; rows of flowers or crops run along the contour of
    * the land where the region grows them and the ground is level enough.
+   *
+   * `y` is the height of the ground there, for a caller that has it (the land's own, not the ecotope's):
+   * on terraced country the rows then keep to the benches, which the ecotope's slope, measured over 16 m,
+   * cannot tell from the hillside they are cut in. Without it the rows grow by that slope alone.
    */
-  cover(x: number, z: number, out: Cover): Cover {
+  cover(x: number, z: number, out: Cover, y?: number): Cover {
     const e = this.eco.at(x, z, this.e);
     const t = this.tableOf(e.rt >= 0.5 ? e.rb : e.ra);
     const c = t.cover;
@@ -552,7 +606,7 @@ export class FloraField {
     let fl = c.flowers * open * (1 - bare);
     let hueAt = fbm2(x / 46, z / 46, this.seed + 0x6b1, 2);
     if (c.rows && fl > 0) {
-      if (e.slope > c.rows.maxSlope) fl = 0;
+      if (e.slope > c.rows.maxSlope && !(y !== undefined && e.terrace >= BENCH_LAND[0] && onBench(y, e.step))) fl = 0;
       else {
         // rows across the x axis, bent a little by the land: one colour to a row
         const p = (z + 14 * fbm2(x / 180, z / 180, this.seed + 0x6b2, 2)) / c.rows.spacing;
@@ -588,7 +642,7 @@ export function floraTableProblems(id: string, t: FloraTable): string[] {
       if (i < 0) bad.push(`${id}: no plant ${r.plant}`);
       else if (PLANTS[i].layer !== layer) bad.push(`${id}: ${r.plant} is a ${PLANTS[i].layer}, listed among the ${layer}s`);
       if (!(r.perHa > 0)) bad.push(`${id}: ${r.plant} has no numbers`);
-      for (const b of [r.canopy, r.moisture, r.slope, r.shade, r.relief, r.water, r.road, r.size]) if (b && !(b[1] >= b[0])) bad.push(`${id}: ${r.plant} has a band upside down`);
+      for (const b of [r.canopy, r.moisture, r.slope, r.shade, r.relief, r.water, r.road, r.landform, r.size]) if (b && !(b[1] >= b[0])) bad.push(`${id}: ${r.plant} has a band upside down`);
     }
   }
   if (t.eco.wood < 0 || t.eco.wood > 1) bad.push(`${id}: wood is 0 to 1`);

@@ -10,9 +10,11 @@ import { fbm2 } from '../../src/core/math/noise';
 import { hash2 } from '../../src/core/math/rng';
 import { BIOMES } from '../../src/core/world/biomes';
 import { ECO_SQ, ECO_TILE, Ecotope, OPEN_WATER, ROAD_CLEAR, type EcotopeField } from '../../src/core/world/ecotope';
-import { FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, ruleFit, type FloraLayer, type FloraTable } from '../../src/core/world/flora';
+import { FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, onBench, ruleFit, type FloraLayer, type FloraTable } from '../../src/core/world/flora';
 import { floraTableOf } from '../../src/core/world/floraTables';
+import { LandParams } from '../../src/core/world/landform';
 import { AQUATIC_DEPTH, PLANTS, plantDef, plantIndex } from '../../src/core/world/plants';
+import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
 
 const LAYERS: FloraLayer[] = [LAYER_TREE, LAYER_SHRUB, LAYER_GROUND];
@@ -67,6 +69,7 @@ function plainCell(world: World, eco: EcotopeField, layer: FloraLayer, cx: numbe
   }
   if (pick < 0) return false;
   const r = rules[pick];
+  if (r.bench && !onBench(tp.bed, e.step)) return false;
   out.plant = plantIndex(r.plant);
   out.rule = pick;
   out.region = region;
@@ -87,14 +90,25 @@ describe('the cell\'s decision', () => {
     let plants = 0;
     let inWater = 0;
     let mixed = 0;
+    let benches = 0;
+    let towers = 0;
     const spots: [World, number, number, number, number][] = [
       [worldOf(8, 'forest'), 40, 46, -1, 2],
       [worldOf(3, 'lakes'), 20, 40, -3, 3],
       [worldOf(7, 'wetland'), 12, 30, -3, 3],
-      [worldOf(6, 'terraces'), 30, 40, -2, 2],
+      // (towers: a stretch of karst country with a cluster beside the road)
+      [worldOf(21, 'karst_peaks'), 52, 60, -19, -13],
       // (the road itself and whatever stands by it: the tiles the road runs through)
       [worldOf(11, 'plains'), 8, 60, -1, 1],
     ];
+    // terraced hillsides: a stretch of the terraces that is cut into benches, the tiles beside the road there
+    const farms = worldOf(6, 'terraces');
+    const lp = new LandParams();
+    const at = new SpineSample();
+    let k = 3;
+    while (farms.land.at((k + 0.5) * 1250, lp).terrace < 1) k++;
+    farms.spine.at((k + 0.5) * 1250, at);
+    spots.push([farms, Math.floor(at.x / ECO_TILE) - 3, Math.floor(at.x / ECO_TILE) + 3, Math.floor(at.z / ECO_TILE) - 3, Math.floor(at.z / ECO_TILE) + 3]);
     // a journey as it is dealt: the tiles across the first border between two regions
     const journey = new World(5, { worldVersion: 2 });
     const border = Math.floor(journey.spine.plan.starts[1] / ECO_TILE);
@@ -113,6 +127,9 @@ describe('the cell\'s decision', () => {
             plants++;
             if (PLANTS[got.plant].aquatic) inWater++;
             if (got.region !== w.eco!.at(got.x, got.z, eAt).ra) mixed++;
+            const rule = [tableAt(got.region).trees, tableAt(got.region).shrubs, tableAt(got.region).ground][layer][got.rule];
+            if (rule.bench) benches++;
+            if (rule.landform) towers++;
             if (got.plant !== want.plant || got.x !== want.x || got.z !== want.z || got.y !== want.y || got.size !== want.size || got.yaw !== want.yaw || got.vary !== want.vary || got.rule !== want.rule || got.region !== want.region) {
               throw new Error(`cell ${cx}, ${cz} of layer ${layer}: ${JSON.stringify(got)}, plainly ${JSON.stringify(want)}`);
             }
@@ -122,9 +139,12 @@ describe('the cell\'s decision', () => {
     }
     expect(cells).toBeGreaterThan(300000);
     expect(plants).toBeGreaterThan(20000);
-    // (what the quick ways must not lose: the plants of the shallows, and the cells a border gives to the other region)
+    // (what the quick ways must not lose: the plants of the shallows, the cells a border gives to the other
+    // region, the plants of the benches and of the towers)
     expect(inWater).toBeGreaterThan(100);
     expect(mixed).toBeGreaterThan(100);
+    expect(benches).toBeGreaterThan(100);
+    expect(towers).toBeGreaterThan(100);
   });
 
   it('an open square of the ecotope\'s grid is dry land that is nobody\'s, wherever one stands in it', () => {
