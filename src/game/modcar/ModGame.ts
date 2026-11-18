@@ -1395,8 +1395,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (this.seated) return;
     const box = boxOnMark(this) ?? boxInHand(this);
     if (box) {
-      this.openList(boxSource(this, box));
-      this.sound('cloth');
+      if (this.openList(boxSource(this, box))) this.sound('cloth');
       return;
     }
     const w = this.player.walker;
@@ -1417,10 +1416,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.sound('door_open', 0.5, 'trunk');
   }
 
-  /** the list opened on a source (a thing that holds things, a system's own box: listSources.ts) */
-  openList(src: ListSource): void {
+  /** the list opened on a source (a thing that holds things, a system's own box: listSources.ts); false: one is at the wheel, where no list opens */
+  openList(src: ListSource): boolean {
+    if (this.seated) return false;
     this.listV = src;
     this.listSel = 0;
+    return true;
   }
 
   closeCargoList(): void {
@@ -1451,19 +1452,25 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    */
   private rowsOf(src: ListSource): readonly CargoRow[] {
     const again = this.listIconT > 0 && --this.listIconT === 0;
-    if (src === this.listRowsOf && !again && src.version() === this.listVer) return this.listRows;
+    const same = src === this.listRowsOf && src.version() === this.listVer;
+    if (same && !again) return this.listRows;
+    const was = this.listRows;
     const rows = src.rows();
     this.listRowsOf = src;
     this.listRows = rows;
     // (asked after: building them may itself have settled a thing that had gone off)
     this.listVer = src.version();
-    this.listView.rev++;
     let kg = 0;
     let due = false;
-    for (const r of rows) {
+    // (built again only for a picture: the list is drawn again only if one has come)
+    let differs = !same || rows.length !== was.length;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
       kg += r.mass;
       if (r.icon === null) due = true;
+      else if (!differs && r.icon !== was[i].icon) differs = true;
     }
+    if (differs) this.listView.rev++;
     this.listKg = kg;
     this.listIconT = due ? 3 : 0;
     return rows;

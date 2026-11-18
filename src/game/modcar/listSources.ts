@@ -18,8 +18,10 @@
  *    holds things, kept and saved by the system: `boxList(box, { near })` is its source. A source of another
  *    make implements ListSource itself.
  *
- * Nothing here knows the game but through ListHost, so a module that imports this file imports no class of the
- * game as a value.
+ * Nothing here knows the game but through ListHost, and ModGame is never imported: a system's module may import
+ * this file (docs/V3/nodes/N0-foundation.md §7). What it takes as values from player.ts and cargo.ts are three
+ * small functions; those two files come with them, and load without a page as this one does
+ * (harness/sim/v3_lists.test.ts runs the sources in Node).
  */
 import { zoneOf } from '../../core/modcar/cargo';
 import { accepts, countOf, itemDef, itemMass, itemName, putInside, roomInside, setFreshRate, settleItem, takeInside, type ItemInstance } from '../../core/modcar/items';
@@ -90,7 +92,8 @@ export interface ListHost {
 
 /** the game as the lists' desk: what the sources work with, and what shows them */
 export interface ListDesk extends ListHost {
-  openList(src: ListSource): void;
+  /** false: no list opens now (one is at the wheel) */
+  openList(src: ListSource): boolean;
   closeCargoList(): void;
 }
 
@@ -101,11 +104,9 @@ export function setListDesk(d: ListDesk | null): void {
   desk = d;
 }
 
-/** open the list on a source (a system's own: from its device's `use`); false: there is no game to show it */
+/** open the list on a source (a system's own: from its device's `use`); false: it did not open (there is no game to show it, or one is at the wheel) */
 export function openList(src: ListSource): boolean {
-  if (!desk) return false;
-  desk.openList(src);
-  return true;
+  return !!desk && desk.openList(src);
 }
 
 /** shut the list, whatever it shows */
