@@ -4,10 +4,15 @@
  * tyre's grip on each ground), what is in it (fuel by kind, oil, water, charge) as bars, its condition and
  * weight, the vehicles it fits. Plain data; cards.ts draws it. The held thing's card and the card of what
  * the mark is on are both made here.
+ *
+ * A thing's card (itemCard) also says how many there are in a stack, how fresh a thing that goes off is,
+ * its quality, and what a thing that holds things has in it; a system adds lines of its own to the cards of
+ * its kinds through registerItemCardLines, without this file being edited. itemCardKept is the same card
+ * for the words on screen that ask for it every frame: made again only when something on it changed.
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
-import { itemCat, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -19,8 +24,9 @@ import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
 import { SCRAPERS, TOOL_INFO, toolName, type Tool } from '../../core/modcar/tools';
-import type { Category, FuelType, PartDef, PartInstance } from '../../core/modcar/types';
+import type { Category, FuelType, PartDef, PartInstance, Text } from '../../core/modcar/types';
 import type { GarageDevice } from './garageStub';
+import { itemNow } from './itemTime';
 import { seatCushion } from './seatShake';
 import type { ModVehicle } from './vehicle';
 
@@ -48,6 +54,8 @@ export interface CardRow {
   tone?: 'good' | 'bad';
   /** what it was before (a part held up to a mount: before → after) */
   from?: string;
+  /** drawn as so many stars out of five in place of the number (a thing's quality); `value` says the same in words */
+  stars?: number;
 }
 
 /** a curve: x and y of its points, the ticks on each axis */
@@ -87,6 +95,11 @@ export interface ItemCard {
   bars: CardBar[];
   notes: { text: string; tone: 'warn' | 'ok' | 'info' }[];
   foot: { cond?: number; mass?: number; fits?: string };
+  /**
+   * Made once and never changed after (itemCardKept): the same object shown again is the same card, and the
+   * view does not look into it again. Whoever is handed such a card must not write into it.
+   */
+  kept?: true;
 }
 
 const GROUP: Partial<Record<Category, [string, CardIcon]>> = {
@@ -472,13 +485,167 @@ export function salvageText(s: Partial<Record<string, number>>): string {
     .join(' · ');
 }
 
-export function itemCard(inst: ItemInstance): ItemCard {
+/**
+ * Counts every change in what things are called or what their cards say that cannot be seen in the things
+ * themselves: the names and cards kept here are made again after it.
+ */
+let wordsVersion = 0;
+
+/**
+ * What things are called, or what their cards say, has changed for a reason that is not in the things (the
+ * player has learnt what a kind is, a system's lines now read something else at once): the names and the
+ * cards kept between frames are made again the next time they are asked for.
+ */
+export function itemWordsChanged(): void {
+  wordsVersion++;
+}
+
+/** a name built for a stack or a drink, kept with what it was built for */
+interface KeptLabel {
+  item: string;
+  n: number;
+  litres: number;
+  v: number;
+  /** as itemName gives it; and without the count of a stack */
+  text: string;
+  plain: string;
+}
+
+const LABELS = new WeakMap<ItemInstance, KeptLabel>();
+
+/** the name kept for a stack or a drink, made again when its kind, its count or its level changed */
+function keptLabel(inst: ItemInstance, n: number): KeptLabel {
+  const litres = inst.litres ?? 0;
+  let m = LABELS.get(inst);
+  if (!m) {
+    m = { item: '', n: 0, litres: 0, v: -1, text: '', plain: '' };
+    LABELS.set(inst, m);
+  } else if (m.item === inst.item && m.n === n && m.litres === litres && m.v === wordsVersion) return m;
+  m.item = inst.item;
+  m.n = n;
+  m.litres = litres;
+  m.v = wordsVersion;
+  m.text = itemName(inst);
+  // (a stack's name ends in its count, " ×3": the name without it is what its slot is called)
+  const cut = n > 1 ? m.text.lastIndexOf(' ×') : -1;
+  m.plain = cut > 0 ? m.text.slice(0, cut) : m.text;
+  return m;
+}
+
+/**
+ * A thing's name as itemName gives it ("试验莓 ×3", "矿泉水（0.50 L）"), for the words on screen that ask for
+ * it every frame: the string is built when the kind, the count or the level of the thing changes, and is the
+ * same string until then. A plain thing's name is its kind's, and nothing is kept for it.
+ */
+export function itemLabel(inst: ItemInstance): string {
+  const n = inst.n ?? 1;
+  if (n <= 1 && !itemDef(inst.item).drink) return itemName(inst);
+  return keptLabel(inst, n).text;
+}
+
+/** the same without a stack's count ("试验莓"): what a slot of the hotbar is called, the count being drawn in its corner */
+export function itemLabelPlain(inst: ItemInstance): string {
+  const n = inst.n ?? 1;
+  if (n <= 1 && !itemDef(inst.item).drink) return itemName(inst);
+  return keptLabel(inst, n).plain;
+}
+
+/** how fresh a thing that goes off is, in words (by freshStage: 0 fresh, 1 still good, 2 going off, 3 turned) */
+export const FRESH_WORD: readonly Text[] = [
+  { zh: '新鲜', en: 'Fresh' },
+  { zh: '还行', en: 'Still good' },
+  { zh: '快坏了', en: 'Going off' },
+  { zh: '坏了', en: 'Turned' },
+];
+const FRESH_TONE: readonly Tone[] = ['good', 'mid', 'bad', 'bad'];
+
+/** how long a thing still keeps where it is, in words ("约 14 小时"); the hours are the game's */
+function keepsFor(hours: number): string {
+  if (hours >= 48) return `约 ${Math.round(hours / 24)} 天`;
+  if (hours >= 1) return `约 ${Math.round(hours)} 小时`;
+  return '不到 1 小时';
+}
+
+/** a weight inside a thing ("0.15", "1.2", "12"): small things to the gram's hundred */
+const kgOf = (kg: number): string => (kg >= 10 ? kg.toFixed(0) : kg >= 1 ? kg.toFixed(1) : kg.toFixed(2));
+
+/** how full a thing that holds things is, 0 ... 1: by its slots or by the weight it bears, whichever is nearer its limit (the card's bar, and the bar under its slot on the hotbar) */
+export function boxFullness(inst: ItemInstance, holds: NonNullable<ItemDef['holds']>): number {
+  const used = inst.inside ? inst.inside.length : 0;
+  return Math.max(used / holds.slots, holds.maxKg !== undefined ? insideMass(inst) / holds.maxKg : 0);
+}
+
+/** the most things in a basket a card names one by one (the rest are counted) */
+const INSIDE_ROWS = 6;
+
+// ---- lines other systems add to the cards of their own kinds
+
+/**
+ * What a system adds to the card of one of its kinds: it is handed the thing, the card as made so far (it
+ * pushes rows, bars, notes or badges of its own, or changes what is there) and the world's time for freshNow.
+ */
+export type ItemCardLines = (inst: ItemInstance, card: ItemCard, nowS: number) => void;
+
+const LINES_BY_ITEM = new Map<string, ItemCardLines[]>();
+const LINES_BY_CAT = new Map<string, ItemCardLines[]>();
+
+/**
+ * A system's own lines on the cards of its kinds, without this file being edited: for one kind
+ * ({ item: 'forage_basket' }) or for every kind of a category ({ cat: 'forage' }). Called once, as the
+ * system's module is loaded. `add` runs each time such a card is made, after the lines made here, a
+ * category's before a kind's, each in the order registered; a card on screen is made again when its thing's
+ * kind, count, level, freshness or contents change and otherwise a few times a second (itemCardKept), so
+ * `add` may read the thing's own `state` freely and need not be told when it changes (itemWordsChanged makes
+ * every card again at once) — but it is never run per frame, and must not keep the card.
+ */
+export function registerItemCardLines(to: { readonly item: string } | { readonly cat: string }, add: ItemCardLines): void {
+  const map = 'item' in to ? LINES_BY_ITEM : LINES_BY_CAT;
+  const key = 'item' in to ? to.item : to.cat;
+  const list = map.get(key);
+  if (list) list.push(add);
+  else map.set(key, [add]);
+}
+
+/** where a system's lines that threw are reported (null: written to the console, once for each message) */
+let linesFault: ((where: string, error: unknown) => void) | null = null;
+const faultsSaid = new Set<string>();
+
+/** hand the faults of systems' card lines to the game's own report (the kernel's); null: back to the console */
+export function setItemCardFault(report: ((where: string, error: unknown) => void) | null): void {
+  linesFault = report;
+}
+
+/** a system's lines on one card: lines that throw are reported and passed over, the card is shown without them */
+function addLines(list: ItemCardLines[] | undefined, of: string, inst: ItemInstance, card: ItemCard, nowS: number): void {
+  if (!list) return;
+  for (let i = 0; i < list.length; i++) {
+    try {
+      list[i](inst, card, nowS);
+    } catch (e) {
+      const where = `item card lines (${of})`;
+      if (linesFault) linesFault(where, e);
+      else if (!faultsSaid.has(`${where}: ${String(e)}`)) {
+        faultsSaid.add(`${where}: ${String(e)}`);
+        console.error(`${where}: ${String(e)}`);
+      }
+    }
+  }
+}
+
+/**
+ * The card of a thing: what its kind is and does, and how this one stands — how many in the stack, how fresh,
+ * its quality, what is in it. nowS: the world clock's seconds (freshness is read against it).
+ */
+export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard {
   const d = itemDef(inst.item);
+  const n = countOf(inst);
+  const stacks = (d.stack ?? 1) > 1;
   const card: ItemCard = {
     key: `item:${inst.uid}:${inst.item}`,
     icon: (ITEM_ICON as Partial<Record<string, CardIcon>>)[d.cat] ?? 'box',
     cat: itemCat(d.cat).name.zh,
-    name: d.name.zh,
+    // (a stack's name says how many, as everywhere; a drink's is its kind's: what is in it is the card's first bar)
+    name: d.drink ? d.name.zh : itemName(inst),
     stars: d.stars,
     badges: [],
     blurb: d.blurb,
@@ -487,9 +654,13 @@ export function itemCard(inst: ItemInstance): ItemCard {
     notes: [],
     foot: { mass: itemMass(inst) },
   };
+  // a kind that stacks: how many there are of how many a stack holds; what one of them does is said as one's
+  const each = stacks ? '（每个）' : '';
+  if (stacks) card.rows.push({ value: `${n} 个`, label: `一叠（最多 ${d.stack} 个）` });
+  if (inst.q !== undefined) card.rows.push({ value: `${inst.q} 星`, label: '品质', stars: inst.q });
   if (d.eat && (d.eat.food > 0 || d.eat.hp > 0)) {
-    if (d.eat.food > 0) card.rows.push({ value: `+${d.eat.food}`, label: '饱腹', tone: 'good' });
-    if (d.eat.hp > 0) card.rows.push({ value: `+${d.eat.hp}`, label: '生命', tone: 'good' });
+    if (d.eat.food > 0) card.rows.push({ value: `+${d.eat.food}`, label: `饱腹${each}`, tone: 'good' });
+    if (d.eat.hp > 0) card.rows.push({ value: `+${d.eat.hp}`, label: `生命${each}`, tone: 'good' });
   }
   if (d.eat?.effect === 'warm1' || d.eat?.effect === 'warm2') card.notes.push({ text: `吃完身上暖和一阵（${d.eat.effect === 'warm2' ? '5' : '3'} 分钟）`, tone: 'ok' });
   if (d.eat?.effect === 'sick1' || d.eat?.effect === 'sick2') card.notes.push({ text: '吃了会闹肚子：一阵子掉水分', tone: 'warn' });
@@ -512,8 +683,104 @@ export function itemCard(inst: ItemInstance): ItemCard {
   if (d.lamp) card.rows.push({ value: `${d.lamp.range} m`, label: '照多远' });
   if (d.gear?.kind === 'hammer') card.bars.push({ label: '还能砸', value: inst.uses ?? 0, max: d.gear.uses ?? 1, text: `${inst.uses ?? 0} / ${d.gear.uses} 下`, tone: 'mid' });
   if (d.gear?.kind === 'repair') card.bars.push({ label: '修理点数', value: inst.uses ?? 0, max: d.gear.points ?? 1, text: `${inst.uses ?? 0} / ${d.gear.points}`, tone: 'good' });
+  // a thing that goes off: how fresh, in words, and how long it still keeps where it is
+  if (d.perish) {
+    const f = freshNow(inst, nowS);
+    const st = freshStage(f);
+    const rate = inst.fk ?? 1;
+    const keeps = st === 3 ? '' : rate > 0 ? ` · 还能放${keepsFor((f * d.perish.hours) / rate)}` : ' · 放在这里不会坏';
+    card.bars.push({ label: '新鲜程度', value: f, max: 1, text: `${FRESH_WORD[st].zh}${keeps}`, tone: FRESH_TONE[st] });
+  }
+  // a thing that holds things: how full, and what is in it
+  if (d.holds) {
+    const h = d.holds;
+    const ins = inst.inside;
+    const used = ins ? ins.length : 0;
+    const kg = insideMass(inst);
+    const weight = h.maxKg !== undefined ? `${kgOf(kg)} / ${h.maxKg} kg` : `${kgOf(kg)} kg`;
+    card.bars.push({ label: '装着', value: boxFullness(inst, h), max: 1, text: `${used} / ${h.slots} 格 · ${weight}`, tone: 'mid' });
+    if (ins) {
+      for (let i = 0; i < ins.length && i < INSIDE_ROWS; i++) {
+        const x = ins[i];
+        const xd = itemDef(x.item);
+        const st: FreshStage = xd.perish ? freshStage(freshNow(x, nowS)) : 0;
+        card.rows.push({ value: `×${countOf(x)}`, label: st >= 2 ? `${xd.name.zh}（${FRESH_WORD[st].zh}）` : xd.name.zh, ...(st >= 2 ? { tone: 'bad' as const } : {}) });
+      }
+      if (ins.length > INSIDE_ROWS) card.rows.push({ value: `+${ins.length - INSIDE_ROWS}`, label: '还有别的' });
+    } else card.notes.push({ text: '空的', tone: 'info' });
+    if (h.decay !== undefined && h.decay !== 1) card.notes.push({ text: h.decay <= 0 ? '放在里面的东西不会坏' : `放在里面的东西坏得${h.decay < 1 ? '慢' : '快'}：平时的 ${Math.round(h.decay * 100)}%`, tone: h.decay < 1 ? 'ok' : 'warn' });
+  }
   const s = salvageText(salvageOf(inst));
   if (s) card.rows.push({ value: s, label: '回收能得' });
+  // what systems add to the cards of their own kinds
+  addLines(LINES_BY_CAT.get(d.cat), `category ${d.cat}`, inst, card, nowS);
+  addLines(LINES_BY_ITEM.get(d.id), d.id, inst, card, nowS);
+  return card;
+}
+
+/** how long a card made for the words on screen is kept at the most while nothing it was made for has changed (s) */
+const CARD_KEEP_S = 0.25;
+
+/** a card kept, with what of its thing it was made for */
+interface KeptCard {
+  card: ItemCard;
+  item: string;
+  n: number;
+  litres: number;
+  uses: number;
+  q: number;
+  /** freshness in fiftieths (−1: it does not go off) */
+  fresh: number;
+  /** how many stacks are in it, and how many things in all */
+  inside: number;
+  many: number;
+  /** the words' version it was made at (itemWordsChanged) */
+  v: number;
+  /** when it was made, on the asker's clock */
+  t: number;
+}
+
+const KEPT = new WeakMap<ItemInstance, KeptCard>();
+
+/**
+ * A thing's card for the words on screen, which ask for it every frame: the card made last time, the same
+ * object, while nothing it says has changed — its kind, its count, its level, how fresh it is (in fiftieths),
+ * what is in it (how many stacks, how many things) — and for CARD_KEEP_S at the most (what the things inside
+ * are, how fresh they are and what a system's own lines read is not followed here). So a card costs nothing
+ * in the frames between, and a count or a kind that changes shows at once. `t`: the asker's own clock in seconds (the player's).
+ * The card is marked `kept`: do not write into it.
+ */
+export function itemCardKept(inst: ItemInstance, nowS: number, t: number): ItemCard {
+  const d = itemDef(inst.item);
+  const n = inst.n ?? 1;
+  const litres = inst.litres ?? -1;
+  const uses = inst.uses ?? -1;
+  const q = inst.q ?? 0;
+  const fresh = d.perish ? Math.round(freshNow(inst, nowS) * 50) : -1;
+  const ins = inst.inside;
+  const inside = ins ? ins.length : 0;
+  let many = 0;
+  if (ins) for (let i = 0; i < ins.length; i++) many += ins[i].n ?? 1;
+  let m = KEPT.get(inst);
+  if (m && m.item === inst.item && m.n === n && m.litres === litres && m.uses === uses && m.q === q && m.fresh === fresh && m.inside === inside && m.many === many && m.v === wordsVersion && t >= m.t && t - m.t < CARD_KEEP_S) return m.card;
+  const card = itemCard(inst, nowS);
+  card.kept = true;
+  if (!m) {
+    m = { card, item: inst.item, n, litres, uses, q, fresh, inside, many, v: wordsVersion, t };
+    KEPT.set(inst, m);
+    return card;
+  }
+  m.card = card;
+  m.item = inst.item;
+  m.n = n;
+  m.litres = litres;
+  m.uses = uses;
+  m.q = q;
+  m.fresh = fresh;
+  m.inside = inside;
+  m.many = many;
+  m.v = wordsVersion;
+  m.t = t;
   return card;
 }
 
