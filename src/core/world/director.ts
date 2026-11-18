@@ -11,8 +11,13 @@
  *
  * It does not read the road's geometry: the road, the water and the landforms read the programme. So the
  * order in which the world is asked can never matter here.
+ *
+ * The world's rules load this file (rules.ts names `quietRun`), so it knows the chapter plan and the rules
+ * by their types and loads nothing of the road or the land to run.
  */
 import { hash2 } from '../math/rng';
+import type { QuietRule } from './rules';
+import type { ChapterPlan } from './spine';
 
 /** one region as the director sees it: where it lies in stretches, and how many anchored landforms it wants */
 export interface RegionRun {
@@ -74,3 +79,18 @@ export function featureSlots(seed: number, run: RegionRun): number[] {
 export function isFeatureSlot(seed: number, run: RegionRun, k: number): boolean {
   return featureSlots(seed, run).includes(k);
 }
+
+/**
+ * The region stretch k lies in, as the director sees it, read off a chapter plan of version 2: there every
+ * chapter is a whole number of stretches, so its first stretch and the one after its last are its borders
+ * divided by the length of a stretch. `features` is how many of its stretches the region wants a cluster
+ * of anchored landforms in (RegionDef.featureSlots).
+ */
+export function runAt(plan: ChapterPlan, k: number, features = 0): RegionRun {
+  const slot = plan.rules.slot;
+  const c = plan.chapterAt((k + 0.5) * slot);
+  return { chapter: c, k0: Math.round(plan.starts[c] / slot), k1: Math.round(plan.starts[c + 1] / slot), features };
+}
+
+/** the quiet rule of world version 2 (rules.ts QuietRule): the two stretches of the quiet run of the region stretch k lies in; the journey's first region has none */
+export const quietRun: QuietRule = (plan, seed, k) => k >= 0 && isQuiet(seed, runAt(plan, k), k);

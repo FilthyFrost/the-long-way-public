@@ -22,6 +22,8 @@ import { BIOMES, BIOME_INDEX, FIRST_BIOMES, regionById, regionRow, registerRegio
 import { gameOf } from '../../src/core/world/fauna';
 import { LAND_ODDS, LAND_SIZE, LAND_SLOT, LandParams, landOddsOf, landSizeOf } from '../../src/core/world/landform';
 import { Landmark, landmarkAt, landmarkKindsOf } from '../../src/core/world/landmarks';
+import { DEALER_V2, cardsOf, dealProblems } from '../../src/core/world/dealer';
+import { quietRun } from '../../src/core/world/director';
 import { ADDED_REGIONS } from '../../src/core/world/regions/index';
 import { DEALER_V1, RULES_V1, RULES_V2, rulesFor, type ChapterDealer, type DealerView, type WorldRules } from '../../src/core/world/rules';
 import { seaAlong } from '../../src/core/world/sea';
@@ -243,7 +245,7 @@ describe('world · appending regions changes no version 1 world (R3)', () => {
     expect(new World(5, { regionCount: BIOMES.length, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
     expect(new World(5, { worldVersion: 2 }).rules.regionCount).toBe(BIOMES.length);
     expect(new World(5, { worldVersion: 2, regionCount: 6, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(0);
-    // (while version 2 deals as version 1 does: its own dealer may begin a journey where it sees fit)
+    // (the dealer of version 2 begins the journey where it is asked to, as version 1's does)
     expect(new World(5, { worldVersion: 2, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
   });
 });
@@ -302,15 +304,51 @@ describe('world · versions and rules', () => {
     expect(rulesFor(1, { regionCount: 3 }).regionCount).toBe(3);
   });
 
-  // UNTIL THE VERSION 2 DEALER AND QUIET RULE LAND (rules.ts RULES_V2): from then on a version 2 world is
-  // another world, and this test gives way to version 2's own golden worlds.
+  // (what a world of version 2 is, part by part, is held by its own reference worlds in
+  // world_golden.test.ts and by v3_world_gen.test.ts; here: that it is another world than version 1's,
+  // dealt by its own dealer through the same chapter plan)
   for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) {
-    it(`${name}: today a version 2 world is the version 1 world of the same seed and options`, () => {
+    it(`${name}: made as version 2 it is another world, begun in the same region and dealt in whole stretches by the pacing rules`, () => {
+      const old = ref.make().spine.plan;
       const world = ref.make({ worldVersion: 2 });
+      const plan = world.spine.plan;
       expect(world.rules.version).toBe(2);
-      expectRecorded(worldTrace(world, ref.km), name, 'made as version 2');
+      expect(world.rules.dealer).toBe(DEALER_V2);
+      expect(world.rules.quiet).toBe(quietRun);
+      const len = ref.km * 1000;
+      const last = plan.chapterAt(len);
+      old.chapterAt(len);
+      expect(plan.biomes[0]).toBe(old.biomes[0]);
+      expect(plan.starts.slice(0, last + 2)).not.toEqual(old.starts.slice(0, last + 2));
+      // every chapter a whole number of stretches: six to eight by the chapter scale, never fewer than two
+      const lo = Math.max(2, Math.round(6 * plan.scale));
+      const hi = Math.max(2, Math.round(8 * plan.scale));
+      for (let c = 0; c <= last; c++) {
+        const stretches = (plan.starts[c + 1] - plan.starts[c]) / world.rules.slot;
+        expect(Number.isInteger(plan.starts[c] / world.rules.slot), `chapter ${c} begins on a stretch`).toBe(true);
+        expect(stretches).toBeGreaterThanOrEqual(lo);
+        expect(stretches).toBeLessThanOrEqual(hi);
+      }
+      expect(dealProblems(cardsOf(world.rules.regionCount), plan.biomes.slice(0, last + 1))).toEqual([]);
+      // the journey's first region has no quiet stretch
+      for (let k = 0; k < plan.starts[1] / world.rules.slot; k++) expect(world.quiet(k)).toBe(false);
     });
   }
+
+  it('the dealer of version 2 never draws from the chapter plan\'s stream of dice', () => {
+    let stream: Rng | null = null;
+    const watching: ChapterDealer = {
+      first(d) {
+        stream = d.rng;
+        return DEALER_V2.first(d);
+      },
+      next: (d) => DEALER_V2.next(d),
+    };
+    const plan = new ChapterPlan(20261113, 1, 0, { ...rulesFor(2), dealer: watching });
+    expect(plan.chapterAt(400_000)).toBeGreaterThan(30);
+    expect(stream).not.toBeNull();
+    expect(stream!.nextU32()).toBe(new Rng(hash2(20261113, 0xb10e, 77)).nextU32());
+  });
 });
 
 describe('world · the dealer and the region count', () => {

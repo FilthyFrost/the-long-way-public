@@ -8,18 +8,31 @@
  * that the second can change without the first noticing.
  *
  * The road itself reads this file (spine.ts), so it stands below every other module of the world:
- * whatever it needs at run time — a dealer, a quiet rule — may know the road, the landforms, the water
- * and the rest by their types only, never import them to run (the modules would load in a circle).
- * A rule is handed the chapter plan when it is asked, and the plan holds the rules: `plan.rules.slot`
- * is the length of a stretch, `plan.rules.regionCount` how many regions the world knows.
+ * whatever it needs at run time — a dealer (dealer.ts), a quiet rule (quiet.ts, director.ts) — may know
+ * the road, the landforms, the water and the rest by their types only, never import them to run (the
+ * modules would load in a circle). A rule is handed the chapter plan when it is asked, and the plan holds
+ * the rules: `plan.rules.slot` is the length of a stretch, `plan.rules.regionCount` how many regions the
+ * world knows.
  */
 import type { Rng } from '../math/rng';
 import { BIOMES, FIRST_BIOMES, MIN_RADIUS_ANY } from './biomes';
+import { DEALER_V2 } from './dealer';
+import { quietRun } from './director';
 import { quietSlot } from './quiet';
 import type { ChapterPlan } from './spine';
 
 /** the versions of the generator there are */
 export type WorldVersion = 1 | 2;
+
+/**
+ * The revision of the generator of version 2: raised by one whenever a world of version 2 comes out
+ * different for the same seed and options (a rule of the dealer, a number of a region, a landform). A save
+ * keeps it beside the seed, and a save of another revision is opened by putting the car and the traveller
+ * back on the road at the distance they had reached. The reference worlds of version 2 are recorded under
+ * it (harness/sim/world-golden.json): a change to version 2 that was not meant shows there. Version 1 has
+ * no revisions: it never changes.
+ */
+export const WORLD_REV = 1;
 
 /** one chapter as its dealer hands it over */
 export interface DealtChapter {
@@ -152,22 +165,20 @@ export const RULES_V1: WorldRules = Object.freeze({
 });
 
 /**
- * Version 2 (docs/V3/nodes/W1-worldgen.md). It starts as version 1's values and functions; the tables
- * are written out again rather than shared, so that changing one here never reaches a version 1 world.
- * Its region count is the whole registry at the time a world is made (`rulesFor`); the number here is
- * only what it was when this file was loaded.
+ * Version 2 (docs/V3/nodes/W1-worldgen.md): regions dealt for a gentle journey with tension and release,
+ * each a whole number of stretches (dealer.ts), and one quiet run of two stretches to a region
+ * (director.ts). The road's guards and the transition are version 1's values, written out again rather
+ * than shared, so that changing one here never reaches a version 1 world. Its region count is the whole
+ * registry at the time a world is made (`rulesFor`); the number here is only what it was when this file
+ * was loaded. Whatever changes what a world of this version looks like raises WORLD_REV.
  */
 export const RULES_V2: WorldRules = Object.freeze({
   version: 2,
   regionCount: BIOMES.length,
   slot: 1250,
-  // ---- THE VERSION 2 DEALER PLUGS IN HERE (src/core/world/dealer.ts: pacing rules over region data,
-  // dice from hash2(chapter, salt, seed)); until it does, version 2 deals as version 1 does
-  dealer: DEALER_V1,
+  dealer: DEALER_V2,
   transition: (scale: number): number => Math.max(300, 900 * Math.min(1, scale * 2)),
-  // ---- THE VERSION 2 QUIET RULE PLUGS IN HERE (src/core/world/director.ts: one quiet run to a region,
-  // not at its ends); until it does, version 2 keeps version 1's blocks of nine
-  quiet: quietSlot,
+  quiet: quietRun,
   road: Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08 }),
 });
 
