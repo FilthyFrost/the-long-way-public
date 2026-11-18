@@ -15,7 +15,7 @@
 import { fbm1 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { LAND_SLOT } from './landform';
 import { type RoadSpine, SpineSample } from './spine';
 
@@ -63,6 +63,19 @@ export class SeaEffect {
 
 const st = new SpineSample();
 
+/** the regions whose chapters may have the sea along them, by id: of the first six, the lake country alone */
+const BY_THE_SEA: Record<string, boolean> = {
+  plains: false,
+  desert: false,
+  alpine: false,
+  lakes: true,
+};
+
+/** may a chapter of this region have the sea along it? What the region says itself (`sea`), else the row under its id, else its kin's. */
+export function seaAlong(region: RegionDef): boolean {
+  return region.sea ?? regionRow(BY_THE_SEA, region);
+}
+
 export class SeaPlan {
   private readonly seas = new Map<number, Coast | null>();
   private readonly seed: number;
@@ -81,7 +94,7 @@ export class SeaPlan {
     c = null;
     const plan = this.spine.plan;
     const h = hash2(chapter, 0x5ea5, this.seed);
-    if (chapter >= 0 && BIOMES[plan.biomeOf(chapter)].id === 'lakes' && (h & 0xff) / 255 < 0.85) {
+    if (chapter >= 0 && seaAlong(BIOMES[plan.biomeOf(chapter)]) && (h & 0xff) / 255 < 0.85) {
       // well inside the chapter: lake country on both sides of every point of it
       const edge = plan.transition / 2 + 350;
       const a = plan.starts[chapter] + edge;

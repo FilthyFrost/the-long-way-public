@@ -14,7 +14,7 @@
 import { fbm1 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from '../world/biomes';
+import { BIOMES, regionById, regionRow, type RegionDef } from '../world/biomes';
 
 export const WEATHER_KINDS = ['clear', 'cloudy', 'overcast', 'fog', 'rain', 'storm', 'hail', 'snow', 'blizzard', 'sandstorm'] as const;
 export type WeatherKind = (typeof WEATHER_KINDS)[number];
@@ -89,6 +89,57 @@ export const EVENT_WINDOW = 1500;
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
+/**
+ * What the event selector means, by region: the kinds an event may be there, each with the share of the
+ * selector (0…1) it reaches up to; the last takes what is left. The second round: fog belongs to the
+ * woods and most of all to the lakes; the maple hills get the squalls.
+ */
+const EVENT_KINDS: Record<string, readonly (readonly [number, WeatherKind])[]> = {
+  plains: [[0.55, 'storm'], [0.72, 'hail'], [0.9, 'rain'], [1, 'fog']],
+  desert: [[0.78, 'sandstorm'], [1, 'storm']],
+  alpine: [[0.72, 'blizzard'], [0.9, 'snow'], [1, 'fog']],
+  forest: [[0.38, 'storm'], [0.7, 'rain'], [1, 'fog']],
+  lakes: [[0.28, 'storm'], [0.6, 'rain'], [1, 'fog']],
+  maple: [[0.38, 'rain'], [0.66, 'storm'], [0.82, 'hail'], [1, 'fog']],
+};
+
+/** the weather of a region when nothing is happening */
+export interface CalmWeather {
+  /** how much of the drifting cloud its sky takes (the desert's stays mostly clear) */
+  cloud: number;
+  /** what thick cloud lets fall, as a share of how thick it is: rain where it is green, snow in the high country, nothing in the dry */
+  rain: number;
+  snow: number;
+  /** wind over and above the drifting wind (m/s) */
+  wind: number;
+  /**
+   * Morning mist: how thick it lies at its thickest (0: there never is any), and between which shares
+   * of mornings it comes at all and comes in full (a lower pair: more mornings have it).
+   */
+  mist: number;
+  mistFrom: number;
+  mistTo: number;
+}
+
+/**
+ * Calm weather, by region. Autumn hills are seldom still: there is always enough wind to bring the
+ * leaves down. Over the lakes the mist comes most mornings and lies thicker; in the woods it hangs
+ * between the trunks.
+ */
+const CALM: Record<string, CalmWeather> = {
+  plains: { cloud: 1, rain: 0.3, snow: 0, wind: 0, mist: 0.6, mistFrom: 0.45, mistTo: 0.9 },
+  desert: { cloud: 0.55, rain: 0, snow: 0, wind: 0, mist: 0, mistFrom: 0.45, mistTo: 0.9 },
+  alpine: { cloud: 1, rain: 0, snow: 0.35, wind: 0, mist: 0.6, mistFrom: 0.45, mistTo: 0.9 },
+  forest: { cloud: 1, rain: 0.3, snow: 0, wind: 0, mist: 0.72, mistFrom: 0.45, mistTo: 0.9 },
+  lakes: { cloud: 1, rain: 0.3, snow: 0, wind: 0, mist: 0.85, mistFrom: 0.2, mistTo: 0.7 },
+  maple: { cloud: 1, rain: 0.3, snow: 0, wind: 1.6, mist: 0.6, mistFrom: 0.45, mistTo: 0.9 },
+};
+
+/** a region's calm weather: the row under its id, else its kin's */
+export function calmOf(region: RegionDef): Readonly<CalmWeather> {
+  return regionRow(CALM, region);
+}
+
 export class WeatherSystem {
   /** forces a fixed weather (debug, screenshots); null = follow the schedule */
   force: WeatherKind | null = null;
@@ -122,24 +173,21 @@ export class WeatherSystem {
     return true;
   }
 
-  /** what the event selector means in a biome */
+  /** what the event selector means in a biome (the row of EVENT_KINDS under its id, else its kin's; an id the registry does not hold: the first region's) */
   static kindFor(biomeId: string, pick: number): WeatherKind {
-    if (biomeId === 'desert') return pick < 0.78 ? 'sandstorm' : 'storm';
-    if (biomeId === 'alpine') return pick < 0.72 ? 'blizzard' : pick < 0.9 ? 'snow' : 'fog';
-    // the second round: fog belongs to the woods and most of all to the lakes; the maple hills get the squalls
-    if (biomeId === 'forest') return pick < 0.38 ? 'storm' : pick < 0.7 ? 'rain' : 'fog';
-    if (biomeId === 'lakes') return pick < 0.28 ? 'storm' : pick < 0.6 ? 'rain' : 'fog';
-    if (biomeId === 'maple') return pick < 0.38 ? 'rain' : pick < 0.66 ? 'storm' : pick < 0.82 ? 'hail' : 'fog';
-    return pick < 0.55 ? 'storm' : pick < 0.72 ? 'hail' : pick < 0.9 ? 'rain' : 'fog';
+    const kinds = regionRow(EVENT_KINDS, regionById(biomeId));
+    for (let i = 0; i < kinds.length - 1; i++) if (pick < kinds[i][0]) return kinds[i][1];
+    return kinds[kinds.length - 1][1];
   }
 
   /** fills the instantaneous (non-accumulating) fields for one biome */
   private manifest(biome: number, t: number, hour: number, daylight: number, out: WeatherState): void {
     const B = BIOMES[biome];
     const id = B.id;
-    // ---- calm weather
+    const calm = calmOf(B);
+    // ---- calm weather (the drift of each region is its own: its index in the registry seeds it)
     const drift = fbm1(t / 760, this.seed + 17 + biome * 3, 2);
-    let cloud = smoothstep(-0.38, 0.42, drift) * (id === 'desert' ? 0.55 : 1);
+    let cloud = smoothstep(-0.38, 0.42, drift) * calm.cloud;
     let overcast = smoothstep(0.62, 1.0, cloud) * 0.45;
     let rain = 0;
     let snow = 0;
@@ -150,23 +198,21 @@ export class WeatherSystem {
     let lightning = 0;
     // showers out of thick cloud
     const shower = smoothstep(0.86, 0.98, cloud);
-    if (B.kin === 'plains') rain = shower * 0.3;
-    else if (id === 'alpine') snow = shower * 0.35;
-    // autumn hills are seldom still: there is always enough wind to bring the leaves down
-    if (id === 'maple') wind += 1.6;
+    if (calm.rain > 0) rain = shower * calm.rain;
+    else if (calm.snow > 0) snow = shower * calm.snow;
+    if (calm.wind > 0) wind += calm.wind;
     // morning mist where there is moisture
-    if (id !== 'desert') {
+    if (calm.mist > 0) {
       // which morning this is: counted from noon to noon (2400 s to the day), so that whether it is a misty
       // one never changes while any mist is about — counted from the clock's start it changed at half past
       // eight, with the last of the mist still lifting
       const day = Math.round((t - ((hour + 12) % 24) * 100) / 2400);
       const misty = (hash2(day, 0x315, this.seed) & 255) / 255;
-      // Over the lakes it comes most mornings and lies thicker; in the woods it hangs between the trunks.
       // The thicker it gets, the longer it takes to come and to lift: it never thickens faster than plain mist does.
-      const amp = id === 'lakes' ? 0.85 : id === 'forest' ? 0.72 : 0.6;
+      const amp = calm.mist;
       const slow = amp / 0.6;
       const morning = smoothstep(5.8 - slow, 5.8, hour) * (1 - smoothstep(7.2, 7.2 + 1.6 * slow, hour));
-      fog = morning * smoothstep(id === 'lakes' ? 0.2 : 0.45, id === 'lakes' ? 0.7 : 0.9, misty) * amp;
+      fog = morning * smoothstep(calm.mistFrom, calm.mistTo, misty) * amp;
     }
     let act = 0;
     let severity = 0;

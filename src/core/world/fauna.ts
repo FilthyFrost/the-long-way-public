@@ -15,6 +15,7 @@
  * Pure and seeded, stepped at a fixed tenth of a second: the same approach frightens the same deer.
  */
 import { Rng, hash2 } from '../math/rng';
+import { regionById, regionRow, type RegionDef } from './biomes';
 import type { Site } from './sites';
 import type { TerrainPoint, World } from './terrain';
 
@@ -38,6 +39,18 @@ export const SPECIES: Record<Species, SpeciesDef> = {
   reindeer: { herd: [4, 7], walk: 1.0, run: 9, swims: false, height: 1.1 },
   duck: { herd: [2, 5], walk: 0.35, run: 2.2, swims: true, height: 0.2 },
 };
+
+/** the game at a hunter's stand, by region: reindeer in the snow, deer everywhere else */
+const GAME: Record<string, Species> = {
+  plains: 'deer',
+  desert: 'deer',
+  alpine: 'reindeer',
+};
+
+/** the game a hunter's stand looks out on in a region: the row under its id, else its kin's */
+export function gameOf(region: RegionDef): Species {
+  return regionRow(GAME, region);
+}
 
 /** something the animals may notice: a walker, a car */
 export interface Threat {
@@ -117,7 +130,7 @@ export class Fauna {
     let h = this.herds.get(site.id);
     if (h) return h;
     let species: Species;
-    if (site.kind === 'hide') species = site.biome === 'alpine' ? 'reindeer' : 'deer';
+    if (site.kind === 'hide') species = gameOf(regionById(site.biome));
     else if (site.kind === 'jetty' && site.zoneR > 10) species = 'duck';
     else return null;
     const def = SPECIES[species];

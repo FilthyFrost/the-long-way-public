@@ -18,11 +18,13 @@
 import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { BiomeBlend, type RoadSpine } from './spine';
 
 /** metres of road per stretch (the same as a water slot) */
 export const LAND_SLOT = 1250;
+/** how much of a canyon wall's height its side gullies cut away in a world of version 2 (version 1: half) */
+export const GULLY_V2 = 0.2;
 /** half the length over which one stretch turns into the next (m) */
 const BLEND = 210;
 
@@ -39,6 +41,22 @@ export class LandParams {
   canyon = 0;
   /** the big landforms away from the road stand this much taller or lower */
   far = 1;
+  /**
+   * Worlds of version 2 only (operators.ts; a stretch without them, and every stretch of a world of
+   * version 1, has 0): how fully the slopes are cut into benches (0 … 1) and how far apart in height the
+   * benches lie (m); how high the dunes stand on open ground (m) and how far it is from crest to crest (m).
+   */
+  terrace = 0;
+  step = 0;
+  dune = 0;
+  duneLen = 0;
+  /**
+   * How much of a canyon wall's height its side gullies cut away: half, in every world of version 1. A
+   * world of version 2 cuts them shallower (GULLY_V2): at half, the gullies' own flanks on top of the
+   * wall's slope stood steeper than the land may near the road (the land card's step: up to 1.4 m in
+   * half a metre against 1.15).
+   */
+  gully = 0.5;
 
   /**
    * The same, for one side of the road: where the land falls away (the low side of a hillside,
@@ -58,6 +76,11 @@ export class LandParams {
     this.drop = o.drop;
     this.canyon = o.canyon;
     this.far = o.far;
+    this.terrace = o.terrace;
+    this.step = o.step;
+    this.dune = o.dune;
+    this.duneLen = o.duneLen;
+    this.gully = o.gully;
     return this;
   }
 
@@ -67,6 +90,20 @@ export class LandParams {
     this.drop += (o.drop - this.drop) * t;
     this.canyon += (o.canyon - this.canyon) * t;
     this.far += (o.far - this.far) * t;
+    this.gully += (o.gully - this.gully) * t;
+    // Benches and dunes fade out towards country that has none: how fully and how high is mixed like the
+    // rest, but the benches' step and the dunes' length stay the side's that has them (benches whose step
+    // shrank as they faded would not be level, dunes whose length did would bunch up)
+    if (this.terrace > 0 || o.terrace > 0) {
+      if (this.terrace <= 0) this.step = o.step;
+      else if (o.terrace > 0) this.step += (o.step - this.step) * t;
+      this.terrace += (o.terrace - this.terrace) * t;
+    }
+    if (this.dune > 0 || o.dune > 0) {
+      if (this.dune <= 0) this.duneLen = o.duneLen;
+      else if (o.dune > 0) this.duneLen += (o.duneLen - this.duneLen) * t;
+      this.dune += (o.dune - this.dune) * t;
+    }
     return this;
   }
 }
@@ -78,7 +115,11 @@ interface Stretch {
   p: LandParams;
 }
 
-/** odds of each kind of country, by biome: open, hillside, valley, ridge, canyon */
+/**
+ * Odds of each kind of country, by biome: open, hillside, valley, ridge, canyon. (This table and the next
+ * are the developer's dials too: their rows are written into in place, so they stay where they are, and a
+ * region is looked up in them afresh every time a stretch is laid out.)
+ */
 export const LAND_ODDS: Record<string, [number, number, number, number, number]> = {
   plains: [0.26, 0.38, 0.14, 0.22, 0],
   desert: [0.4, 0.14, 0.02, 0.18, 0.26],
@@ -101,12 +142,43 @@ export const LAND_SIZE: Record<string, [number, number, number, number]> = {
   maple: [0.26, 110, 60, 0],
 };
 
+/** the strength of each kind of country at its fullest, by name: a hillside's rise per metre, the height of a valley's sides, the fall from a ridge, the height of canyon walls (m) */
+export interface LandSize {
+  tilt: number;
+  wall: number;
+  drop: number;
+  canyon: number;
+}
+
+/**
+ * The odds of each kind of country in a region, in the order of KINDS: what the region says itself (a
+ * kind it leaves out never comes), else the row of LAND_ODDS under its id, else its kin's.
+ */
+export function landOddsOf(region: RegionDef): readonly number[] {
+  const o = region.land?.odds;
+  if (o === undefined) return regionRow(LAND_ODDS, region);
+  return [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
+}
+
+/**
+ * The strength of each kind in a region, as LAND_SIZE holds it ([tilt, wall, drop, canyon]): the row
+ * under its id, else its kin's, with whatever the region says itself in place of the row's.
+ */
+export function landSizeOf(region: RegionDef): readonly number[] {
+  const row = regionRow(LAND_SIZE, region);
+  const s = region.land?.size;
+  if (s === undefined) return row;
+  return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+}
+
 const bl = new BiomeBlend();
 
 export class LandformPlan {
   private readonly list: Stretch[] = [];
   private readonly seed: number;
   private readonly a = new LandParams();
+  /** a world of version 2: its regions' terraces and dunes are laid on their stretches (version 1 has neither) */
+  private readonly operators: boolean;
 
   /**
    * @param wet what the water plan's dice put in slot k (decided without any geometry): a river
@@ -122,6 +194,7 @@ export class LandformPlan {
     private readonly quiet: (k: number) => boolean = () => false,
   ) {
     this.seed = hash2(seed | 0, 0x1a9d, 33);
+    this.operators = spine.rules.version >= 2;
   }
 
   private grow(k: number): void {
@@ -133,9 +206,9 @@ export class LandformPlan {
       let kind: LandKind = 'open';
       let side = h & 0x10000 ? 1 : -1;
       this.spine.biomeAt((i + 0.5) * LAND_SLOT, bl);
-      const id = BIOMES[bl.t < 0.5 ? bl.a : bl.b].id;
-      const odds = LAND_ODDS[id] ?? LAND_ODDS.plains;
-      const size = LAND_SIZE[id] ?? LAND_SIZE.plains;
+      const region = BIOMES[bl.t < 0.5 ? bl.a : bl.b];
+      const odds = landOddsOf(region);
+      const size = landSizeOf(region);
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
       if (i < 1 || water === 'river') kind = 'open';
@@ -181,6 +254,21 @@ export class LandformPlan {
         p.canyon = size[3] * amt;
         p.far = 0.9;
       } else p.far = 0.85 + 0.3 * r(12);
+      if (this.operators) {
+        // (version 2) canyon walls with shallower side gullies; terraces on the region's hillsides and
+        // valley sides, dunes on its open ground
+        p.gully = GULLY_V2;
+        const terrace = region.land?.terrace;
+        if (terrace && (kind === 'hillside' || kind === 'valley')) {
+          p.terrace = terrace.strength;
+          p.step = terrace.step;
+        }
+        const dune = region.land?.dune;
+        if (dune && kind === 'open') {
+          p.dune = dune.amp;
+          p.duneLen = dune.len;
+        }
+      }
       this.list.push({ kind, side, p });
     }
   }
@@ -242,7 +330,7 @@ export class LandformPlan {
       const foot = 13 + 16 * (0.5 + 0.5 * n);
       const face = Math.max(26, p.canyon * 0.95) * (1 + 0.25 * (0.5 - 0.5 * n));
       const gully = smoothstep(0.25, 0.75, fbm2(x / 260 + 7, z / 260, seed + 0x2c2, 1));
-      h += p.canyon * smoothstep(foot, foot + face, a) * (1 - 0.5 * gully);
+      h += p.canyon * smoothstep(foot, foot + face, a) * (1 - p.gully * gully);
     }
     return h;
   }

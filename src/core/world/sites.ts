@@ -23,7 +23,7 @@
 import type { ContainerKind } from '../items/loot';
 import { Rng, hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { LAND_SLOT } from './landform';
 import { COAST_FADE, type CoastRun } from './sea';
 import { Solid, solidWithin, type SolidSource } from './solids';
@@ -281,6 +281,11 @@ const ODDS: Record<string, readonly number[]> = {
 };
 const PICKS: readonly SiteKind[] = ['station', 'garage', 'shop', 'house', 'camp', 'hide', 'lookout'];
 
+/** the odds of each kind of place in a region, in the order of PICKS: the row under its id, else its kin's */
+export function placeOddsOf(region: RegionDef): readonly number[] {
+  return regionRow(ODDS, region);
+}
+
 /** half length and depth of the levelled ground each kind asks for, and the smaller one it will settle for */
 const PADS: Record<SiteKind, readonly [number, number, number, number]> = {
   station: [24, 30, 18, 24],
@@ -440,9 +445,14 @@ export class SitePlan implements SolidSource {
 
   // ------------------------------------------------------------------------------------------ laying out
 
-  private biomeId(s: number): string {
+  /** the region the road runs through at arc length s (the nearer of two across a border) */
+  private region(s: number): RegionDef {
     this.world.spine.biomeAt(s, bl);
-    return BIOMES[bl.t < 0.5 ? bl.a : bl.b].id;
+    return BIOMES[bl.t < 0.5 ? bl.a : bl.b];
+  }
+
+  private biomeId(s: number): string {
+    return this.region(s).id;
   }
 
   private groundAt(x: number, z: number): number {
@@ -497,8 +507,7 @@ export class SitePlan implements SolidSource {
     const world = this.world;
     const land = world.land.kindOf(k);
     const water = world.water.feature(k);
-    const id = this.biomeId((k + 0.5) * SITE_SLOT);
-    const odds = ODDS[id] ?? ODDS.plains;
+    const odds = placeOddsOf(this.region((k + 0.5) * SITE_SLOT));
     let kind: SiteKind | null = null;
     const lake = water && water.kind === 'lake' ? water : null;
     // a filling station is never more than a tank away: one in the first few stretches, then every 22 km at the latest
@@ -552,7 +561,7 @@ export class SitePlan implements SolidSource {
     if (land === 'canyon' || world.quiet(k)) return null;
     const water = world.water.feature(k);
     if (water && water.kind === 'river') return null;
-    const odds = ODDS[this.biomeId((k + 0.5) * SITE_SLOT)] ?? ODDS.plains;
+    const odds = placeOddsOf(this.region((k + 0.5) * SITE_SLOT));
     let kind: SiteKind = 'camp';
     for (let tries = 0; tries < 6; tries++) {
       const pick = PICKS[r.weighted(odds)];

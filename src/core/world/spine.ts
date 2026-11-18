@@ -15,7 +15,8 @@ import { fbm1 } from '../math/noise';
 import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
-import { BIOMES, MIN_RADIUS_ANY, minRadius, type BiomeDef, FIRST_BIOMES } from './biomes';
+import { BIOMES, minRadius, type BiomeDef } from './biomes';
+import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
 
 const DEG = Math.PI / 180;
 const G = 9.81;
@@ -31,6 +32,18 @@ export interface SpineOptions {
    * road begins at its workshop's gate, level with the yard).
    */
   start?: { x: number; z: number; y?: number };
+  /**
+   * Which version of the generator makes the world (rules.ts). Absent: 1, the generator every world was
+   * made by before there were versions — the same world to the bit, whatever has been added since.
+   */
+  worldVersion?: WorldVersion;
+  /**
+   * How many entries of the region registry (biomes.ts BIOMES) the world knows; its dealer deals none
+   * beyond them. Absent: six for version 1, the whole registry for version 2. A save keeps the count: the
+   * registry only grows at its end, so a world made when it held twelve regions is the same world when
+   * it holds twenty.
+   */
+  regionCount?: number;
 }
 
 export class BiomeBlend {
@@ -54,38 +67,47 @@ export class SpineSample {
   bank = 0;
 }
 
-/** The sequence of biomes along the road. */
+/**
+ * The sequence of biomes along the road. Which region each chapter runs through and how long it lasts is
+ * its dealer's business (rules.ts: the world's rules name the dealer); the plan keeps what was dealt, in
+ * order, and answers for any point of the road.
+ */
 export class ChapterPlan {
   readonly starts: number[] = [0];
   readonly biomes: number[] = [];
   /** length of the zone over which two biomes blend (m) */
   readonly transition: number;
-  private readonly rng: Rng;
+  /** what the dealer is shown: the world's identity and the chapters so far (the two lists above, as they grow) */
+  private readonly deal: DealerView;
 
+  /**
+   * @param seed the world's seed
+   * @param first the region the journey is asked to begin in (an index into BIOMES)
+   * @param rules the world's rules (absent: version 1's)
+   */
   constructor(
-    seed: number,
+    readonly seed: number,
     readonly scale: number,
     first: number,
+    readonly rules: WorldRules = rulesFor(1),
   ) {
-    this.rng = new Rng(hash2(seed, 0xb10e, 77));
-    this.biomes.push(first);
-    this.transition = Math.max(300, 900 * Math.min(1, scale * 2));
-    // the first chapter is a short, gentle introduction
-    this.starts.push(this.rng.range(6000, 9000) * scale);
+    this.transition = rules.transition(scale);
+    this.deal = { seed, scale, startRegion: first, rules, regions: this.biomes, starts: this.starts, rng: new Rng(hash2(seed, 0xb10e, 77)) };
+    this.take(rules.dealer.first(this.deal));
   }
 
   private extend(): void {
-    const c = this.biomes.length;
-    const prev = this.biomes[c - 1];
-    // The first four chapters are drawn from the three kinds of country the journey begins in (and
-    // drawn exactly as they always were: one number, the other two in order); from the fifth on every
-    // kind may come, never the one just left nor the one before it.
-    const before = c >= 2 ? this.biomes[c - 2] : -1;
-    const pool: number[] = [];
-    for (let b = 0; b < (c < 4 ? FIRST_BIOMES : BIOMES.length); b++) if (b !== prev && (c < 4 || b !== before)) pool.push(b);
-    const next = pool[this.rng.int(pool.length)];
-    this.biomes.push(next);
-    this.starts.push(this.starts[this.starts.length - 1] + this.rng.range(10000, 18000) * this.scale);
+    this.take(this.rules.dealer.next(this.deal));
+  }
+
+  /** the next chapter, as dealt: a region the world knows, and a length */
+  private take(d: DealtChapter): void {
+    if (!Number.isInteger(d.region) || d.region < 0 || d.region >= this.rules.regionCount) {
+      throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt region ${String(d.region)}, and this world knows regions 0 to ${this.rules.regionCount - 1}`);
+    }
+    if (!(d.length > 0 && d.length < Infinity)) throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt a length of ${String(d.length)} m`);
+    this.biomes.push(d.region);
+    this.starts.push(this.starts[this.starts.length - 1] + d.length);
   }
 
   blend(s: number, out: BiomeBlend): void {
@@ -137,6 +159,8 @@ function mix(a: number, b: number, t: number): number {
 export class RoadSpine implements DrivePath {
   readonly ds = 2;
   readonly seed: number;
+  /** the rules of the world this road belongs to (rules.ts): whoever holds the road holds them */
+  readonly rules: WorldRules;
   readonly plan: ChapterPlan;
   /** number of stations generated so far */
   count = 0;
@@ -165,17 +189,37 @@ export class RoadSpine implements DrivePath {
   private readonly tmp = new SpineSample();
   /** the start's height less the first biome's base elevation: the profile's pull towards each biome's base is carried by it */
   private readonly lift: number;
+  // the world's road rules (rules.ts RoadRules), read once: the heading guards in radians, the radius floor, the grade cap
+  private readonly headingSoft: number;
+  private readonly headingLimit: number;
+  private readonly headingRoom: number;
+  private readonly headingHard: number;
+  private readonly radiusFloor: number;
+  private readonly gradeCap: number;
 
-  constructor(seed: number, opts: SpineOptions = {}) {
+  /** @param rules the world's rules, when a world makes its road; a road made by itself works them out from the same options */
+  constructor(seed: number, opts: SpineOptions = {}, rules: WorldRules = rulesFor(opts.worldVersion, opts)) {
     this.seed = seed | 0;
-    const first = Math.max(0, BIOMES.findIndex((b) => b.id === (opts.startBiome ?? 'plains')));
-    this.plan = new ChapterPlan(this.seed, opts.chapterScale ?? 1, first);
+    this.rules = rules;
+    const road = rules.road;
+    this.headingSoft = road.headingSoft * DEG;
+    this.headingLimit = road.headingLimit * DEG;
+    this.headingRoom = road.headingRoom * DEG;
+    this.headingHard = road.headingHard * DEG;
+    this.radiusFloor = road.radiusFloor;
+    this.gradeCap = road.gradeCap;
+    // (a first biome the world does not know — no such id, or one registered after the world's count — is the first of all)
+    let first = BIOMES.findIndex((b) => b.id === (opts.startBiome ?? 'plains'));
+    if (first < 0 || first >= rules.regionCount) first = 0;
+    this.plan = new ChapterPlan(this.seed, opts.chapterScale ?? 1, first, rules);
     this.rng = new Rng(hash2(this.seed, 0x50ad, 13));
     this.gradeSeed = hash2(this.seed, 0x6ade, 5);
+    // (the country the journey does begin in: chapter 0 as it was dealt)
+    const home = BIOMES[this.plan.biomes[0]];
     this.gx = opts.start?.x ?? 0;
     this.gz = opts.start?.z ?? 0;
-    this.gy = opts.start?.y ?? BIOMES[first].baseElev;
-    this.lift = this.gy - BIOMES[first].baseElev;
+    this.gy = opts.start?.y ?? home.baseElev;
+    this.lift = this.gy - home.baseElev;
     this.ensure(400);
   }
 
@@ -212,15 +256,15 @@ export class RoadSpine implements DrivePath {
       return;
     }
     // a curve: prefer the direction that brings the heading back towards +x
-    const soft = 40 * DEG;
+    const soft = this.headingSoft;
     const pRight = 0.5 - 0.5 * clamp(this.gphi / soft, -1, 1);
     let dir = rng.chance(pRight) ? 1 : -1;
     const u = rng.next();
     const R = rMin * (1 + (this.style('radiusSpread') - 1) * u * Math.sqrt(u));
     let turn = rng.range(this.style('turnMin'), this.style('turnMax')) * DEG;
-    const limit = 44 * DEG;
+    const limit = this.headingLimit;
     let room = dir > 0 ? limit - this.gphi : limit + this.gphi;
-    if (room < 8 * DEG) {
+    if (room < this.headingRoom) {
       dir = -dir;
       room = dir > 0 ? limit - this.gphi : limit + this.gphi;
     }
@@ -236,8 +280,14 @@ export class RoadSpine implements DrivePath {
     const ds = this.ds;
     const s = i * ds;
     this.plan.blend(s, this.bl);
-    const designV = this.style('designKmh') / 3.6;
-    const rMin = Math.max(MIN_RADIUS_ANY, mix(minRadius(BIOMES[this.bl.a].designKmh), minRadius(BIOMES[this.bl.b].designKmh), this.bl.t));
+    // The road style of the two biomes this station lies between, mixed as `style` mixes it, but with
+    // each field read by its own name: once a station, a field looked up by a name that varies costs
+    // several times as much, and more again on an object of more than thirty-two fields (a region's).
+    const A = BIOMES[this.bl.a];
+    const B = BIOMES[this.bl.b];
+    const t = this.bl.t;
+    const designV = (t <= 0 ? A.designKmh : mix(A.designKmh, B.designKmh, t)) / 3.6;
+    const rMin = Math.max(this.radiusFloor, mix(minRadius(A.designKmh), minRadius(B.designKmh), t));
 
     // store the station
     this.xs[i] = this.gx;
@@ -256,7 +306,7 @@ export class RoadSpine implements DrivePath {
     target = clamp(target, -1 / rMin, 1 / rMin);
     const kRate = 1 / (rMin * 55);
     // heading guard, looking ahead: where would the heading end up if the curve started to unwind now?
-    const hard = 49 * DEG;
+    const hard = this.headingHard;
     const pred = this.gphi + (this.gkap * Math.abs(this.gkap)) / (2 * kRate);
     if (pred > hard && target >= 0) target = -1 / (rMin * 1.3);
     else if (pred < -hard && target <= 0) target = 1 / (rMin * 1.3);
@@ -266,13 +316,16 @@ export class RoadSpine implements DrivePath {
     this.gz += dsin(pm) * ds;
     this.gphi += this.gkap * ds;
 
-    const gMax = this.style('gradeMax');
-    let gT = this.style('gradeAmp') * 1.6 * fbm1(s / this.style('gradeLen'), this.gradeSeed, 2);
-    gT -= clamp((this.gy - this.lift - this.style('baseElev')) / 2500, -0.035, 0.035);
+    const gMax = t <= 0 ? A.gradeMax : mix(A.gradeMax, B.gradeMax, t);
+    const gAmp = t <= 0 ? A.gradeAmp : mix(A.gradeAmp, B.gradeAmp, t);
+    const gLen = t <= 0 ? A.gradeLen : mix(A.gradeLen, B.gradeLen, t);
+    const baseElev = t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
+    let gT = gAmp * 1.6 * fbm1(s / gLen, this.gradeSeed, 2);
+    gT -= clamp((this.gy - this.lift - baseElev) / 2500, -0.035, 0.035);
     gT = clamp(gT, -gMax, gMax);
     const gRate = 0.00065;
     this.ggrade += clamp(gT - this.ggrade, -gRate * ds, gRate * ds);
-    this.ggrade = clamp(this.ggrade, -0.08, 0.08);
+    this.ggrade = clamp(this.ggrade, -this.gradeCap, this.gradeCap);
     this.gy += this.ggrade * ds;
     this.segLeft -= ds;
   }
