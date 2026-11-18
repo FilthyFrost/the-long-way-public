@@ -74,6 +74,7 @@ import { HeldThing } from './held';
 import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
+import { setItemClock } from './itemTime';
 import { Sparks } from './sparks';
 import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
 import { ModPad, type PadHost } from './pad';
@@ -432,6 +433,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly slices = this.kernel.slices;
   /** the world's time: saved, never backwards; it follows the hour the environment shows */
   readonly clock: WorldTime = this.kernel.clock;
+  /** (things that go off read the same clock: itemTime.ts) */
+  private readonly itemClockSet = setItemClock(this.kernel.clock);
   /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
   readonly interact = this.kernel.interact;
   /** the systems' tabs of the developer's panel */

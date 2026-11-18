@@ -24,7 +24,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
-import { itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
+import { countOf, itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
 import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance, FuelType } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
@@ -309,6 +309,27 @@ export class ModPlayer {
   freeSlot(): number {
     if (!this.slots[this.sel]) return this.sel;
     return this.slots.findIndex((h) => !h);
+  }
+
+  /**
+   * How many of this thing the hands would take now (0: none; a stack counts its count). Changes nothing and
+   * allocates nothing: the prompt asks it every frame. (V3 item model, docs/V3/nodes/N0-items.md.)
+   */
+  roomFor(h: NonNullable<Held>): number {
+    return this.freeSlot() >= 0 ? (h.kind === 'item' ? countOf(h.item) : 1) : 0;
+  }
+
+  /**
+   * The hands take a thing: THE one way a thing enters the hands from anywhere but the player's own pick-up
+   * (a list, a bench, a device, a script). Returns how many of it did not go in: 0 when all of it did (an item
+   * that went onto a stack or into a container in a slot is used up: its count reads 0 and the caller lets go
+   * of it); otherwise the thing stays the caller's, with that count.
+   */
+  receive(h: NonNullable<Held>): number {
+    const slot = this.freeSlot();
+    if (slot < 0) return h.kind === 'item' ? countOf(h.item) : 1;
+    this.slots[slot] = h;
+    return 0;
   }
 
   /**
