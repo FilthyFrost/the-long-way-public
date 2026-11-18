@@ -164,7 +164,9 @@ try {
   const savedAt = await page.evaluate(() => JSON.parse(localStorage.getItem('modcar.save.v1')).at);
   await set({ hp: 1, food: 0, ticks: { starve: 9.95, thirst: 0, cold: 0, sick: 0, warm: 0 } });
   await steps(2.2);
-  await page.waitForTimeout(1400);
+  // (the card comes up with the live loop's frames: on a software renderer under load that takes longer than
+  // any fixed pause, so wait for the card itself; a card that never comes still fails below)
+  await page.waitForFunction(() => !!document.querySelector('.mc-death.on'), null, { timeout: 90_000, polling: 100 }).catch(() => {});
   const card = await page.evaluate(() => ({ on: !!document.querySelector('.mc-death.on'), points: document.querySelectorAll('.mc-death button[data-i]').length }));
   await page.screenshot({ path: 'loop/shots/modcar_vitals_death.png' });
   await page.evaluate(() => window.__rt.game.save());

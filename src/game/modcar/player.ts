@@ -16,6 +16,12 @@
  * With a spray can (Arctic Drive's, §16): the button held on the body, a door, a lid, a bumper or a mirror
  * paints it, its colour going over to the can's while the can empties (paint.ts); aimed at one, the buttons
  * do nothing else (no door opens under the nozzle).
+ *
+ * Things that stack, hold things or go off (the V3 item model, docs/V3/nodes/N0-items-hands.md): a thing
+ * taken up goes onto the stacks of its sort in the slots, then into a thing in a slot that holds its sort, then
+ * into a free slot (receive, roomFor; the player's own pick-up is the same, and what does not go in stays
+ * lying there); eating takes one off a stack; what is in the hands is looked at every frame, so a thing that
+ * has turned is what it turned into before its card is drawn or it is eaten.
  */
 import { frameVariant } from './assets';
 import * as THREE from 'three';
@@ -24,7 +30,7 @@ import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
 import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
-import { countOf, itemDef, itemMass, itemName, type ItemInstance } from '../../core/modcar/items';
+import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, type ItemDef, type ItemInstance } from '../../core/modcar/items';
 import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance, FuelType } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
@@ -32,7 +38,8 @@ import type { Land } from '../../core/onfoot/land';
 import { SolidSet, type SolidSource } from '../../core/world/solids';
 import { GhostLayer, type GhostSpec } from './ghosts';
 import type { Action, SlotView, TransferView } from './hudItems';
-import { deviceCard, fitCard, FUEL_ZH, hexCss, itemCard, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
+import { boxFullness, deviceCard, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, itemLabelPlain, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
+import { itemNow } from './itemTime';
 import type { Loose, LooseThings } from './loose';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
@@ -43,9 +50,46 @@ import type { CargoZone } from '../../core/modcar/cargo';
 
 export type Held = { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance } | null;
 
-/** the name of a held thing (or of one lying about) */
+/** the name of a held thing (or of one lying about); a stack's says how many (built when the count changes, not every time it is asked) */
 export function heldName(h: NonNullable<Held>): string {
-  return h.kind === 'part' ? partDef(h.inst.part).name.zh : h.kind === 'tool' ? toolName(h.tool) : itemName(h.item);
+  return h.kind === 'part' ? partDef(h.inst.part).name.zh : h.kind === 'tool' ? toolName(h.tool) : itemLabel(h.item);
+}
+
+/**
+ * A thing looked at, as it is by now: it and what is in it. One that has turned becomes what its kind says,
+ * in place (settleItem); true when the thing itself changed kind. `start`: it is in the hands, so one that
+ * goes off and was never started is started (stampFresh) — a thing only looked at where it lies is not.
+ * Nothing is made: this is asked every frame.
+ */
+function settleThing(it: ItemInstance, now: number, start: boolean): boolean {
+  let changed = false;
+  if (it.fresh !== undefined) {
+    if (start && it.t0 === undefined) stampFresh(it, now);
+    changed = settleItem(it, now);
+  }
+  const ins = it.inside;
+  if (ins) {
+    for (let i = 0; i < ins.length; i++) {
+      const x = ins[i];
+      if (x.fresh === undefined) continue;
+      if (start && x.t0 === undefined) stampFresh(x, now);
+      settleItem(x, now);
+    }
+  }
+  return changed;
+}
+
+/** the bar under the slot of each thing that holds things: one object a thing, filled in again when asked (nothing is made per frame) */
+const BOX_FILL = new WeakMap<ItemInstance, { value: number; max: number; tone: Tone }>();
+
+function boxFill(it: ItemInstance, holds: NonNullable<ItemDef['holds']>): { value: number; max: number; tone: Tone } {
+  let f = BOX_FILL.get(it);
+  if (!f) {
+    f = { value: 0, max: 1, tone: 'mid' };
+    BOX_FILL.set(it, f);
+  }
+  f.value = boxFullness(it, holds);
+  return f;
 }
 
 /** a loose thing as it would be in the hands */
@@ -187,6 +231,8 @@ export interface PlayerHost {
   panelOpened?(v: ModVehicle, mount: string, open: boolean): void;
   /** the can sprayed at it for dt seconds: the coat goes on, the can empties (paint.ts) */
   spray(aim: PaintAim, can: Tool, dt: number): SprayResult;
+  /** a list is open (Tab): G there puts the thing in the hands into the list, so the hands do not offer G for putting it down */
+  readonly listOpen?: boolean;
 }
 
 /** a zone is in reach: one of the panels it is reached through open, or not there at all */
@@ -307,29 +353,189 @@ export class ModPlayer {
 
   /** a slot something picked up can go into: the selected one when it is empty, else the first empty one; −1 = all full */
   freeSlot(): number {
-    if (!this.slots[this.sel]) return this.sel;
-    return this.slots.findIndex((h) => !h);
+    const s = this.slots;
+    if (!s[this.sel]) return this.sel;
+    for (let i = 0; i < s.length; i++) if (!s[i]) return i;
+    return -1;
   }
 
   /**
-   * How many of this thing the hands would take now (0: none; a stack counts its count). Changes nothing and
-   * allocates nothing: the prompt asks it every frame. (V3 item model, docs/V3/nodes/N0-items.md.)
+   * Where the first of the thing last asked about (roomFor) would go: 1 onto the stack in slot `goesSlot`,
+   * 2 into the thing in that slot that holds its sort, 3 into that slot, free (0: nowhere). The prompt reads
+   * them straight after asking.
    */
-  roomFor(h: NonNullable<Held>): number {
-    return this.freeSlot() >= 0 ? (h.kind === 'item' ? countOf(h.item) : 1) : 0;
+  private goes = 0;
+  private goesSlot = -1;
+
+  /** could anything in the slots take more than a free slot does: a stack, or a thing that holds things? (With neither, room is a free slot and nothing else, as it always was.) */
+  private handsTakeIn(): boolean {
+    const s = this.slots;
+    for (let i = 0; i < s.length; i++) {
+      const h = s[i];
+      if (h?.kind !== 'item') continue;
+      const d = itemDef(h.item.item);
+      if ((d.stack ?? 1) > 1 || d.holds) return true;
+    }
+    return false;
   }
 
   /**
-   * The hands take a thing: THE one way a thing enters the hands from anywhere but the player's own pick-up
-   * (a list, a bench, a device, a script). Returns how many of it did not go in: 0 when all of it did (an item
-   * that went onto a stack or into a container in a slot is used up: its count reads 0 and the caller lets go
-   * of it); otherwise the thing stays the caller's, with that count.
+   * How many of this thing the hands would take now (0: none; a stack counts its count): onto the stacks of
+   * its sort in the slots, then into the things in the slots that hold its sort, then (all that is left) into
+   * a free slot — what receive would do, in its order. Changes nothing and allocates nothing: the prompt asks
+   * it every frame. `not`: a thing in the hands it must not go into (the basket it is being taken out of).
+   * (V3 item model, docs/V3/nodes/N0-items-hands.md.)
    */
-  receive(h: NonNullable<Held>): number {
+  roomFor(h: NonNullable<Held>, not: ItemInstance | null = null): number {
+    if (h.kind === 'item') return this.roomForItem(h.item, not);
     const slot = this.freeSlot();
-    if (slot < 0) return h.kind === 'item' ? countOf(h.item) : 1;
+    this.goes = slot >= 0 ? 3 : 0;
+    this.goesSlot = slot;
+    return slot >= 0 ? 1 : 0;
+  }
+
+  private roomForItem(it: ItemInstance, not: ItemInstance | null): number {
+    this.goes = 0;
+    this.goesSlot = -1;
+    const total = countOf(it);
+    if (total <= 0) return 0;
+    let left = total;
+    if (this.handsTakeIn()) {
+      const s = this.slots;
+      const now = itemNow();
+      const max = stackMax(it.item);
+      // onto the stacks of its sort
+      if (max > 1) {
+        for (let i = 0; i < s.length && left > 0; i++) {
+          const h = s[i];
+          if (h?.kind !== 'item' || h.item === it || h.item === not || !canStack(h.item, it, now)) continue;
+          const k = Math.min(left, max - countOf(h.item));
+          if (k <= 0) continue;
+          if (!this.goes) {
+            this.goes = 1;
+            this.goesSlot = i;
+          }
+          left -= k;
+        }
+      }
+      // into the things that hold its sort (each asked about all of it: what one would take does not depend on how many are offered)
+      for (let i = 0; i < s.length && left > 0; i++) {
+        const h = s[i];
+        if (h?.kind !== 'item' || h.item === it || h.item === not || !itemDef(h.item.item).holds) continue;
+        const k = Math.min(left, roomInside(h.item, it, now));
+        if (k <= 0) continue;
+        if (!this.goes) {
+          this.goes = 2;
+          this.goesSlot = i;
+        }
+        left -= k;
+      }
+    }
+    // a free slot takes all that is left
+    if (left > 0) {
+      const slot = this.freeSlot();
+      if (slot >= 0) {
+        if (!this.goes) {
+          this.goes = 3;
+          this.goesSlot = slot;
+        }
+        left = 0;
+      }
+    }
+    return total - left;
+  }
+
+  /** the filter of the things lying about when no slot is free: only those the stacks and the baskets in the hands have room for */
+  private readonly takesLoose = (l: Loose): boolean => !!l.item && this.roomForItem(l.item, null) > 0;
+
+  /**
+   * The hands take a thing: THE one way a thing enters the hands (a list, a bench, a device, a script, and
+   * the player's own pick-up). It goes onto the stacks of its sort in the slots, then into the things in the
+   * slots that hold its sort, then into a free slot (the selected one when empty, else the first empty).
+   * Returns how many of it did not go in: 0 when all of it did — the caller lets go of it then, whatever its
+   * count reads (it sits in a slot or in a basket itself, or it went onto stacks and its count reads 0);
+   * otherwise the thing stays the caller's, with that count. `not`: a thing in the hands it must not go into
+   * (the basket it is being taken out of).
+   *
+   * Which slot is selected is left alone: a caller that wants the thing in the hands selects the slot it is
+   * in afterwards (the player's own pick-up does, and the lists). Nothing about the slots is remembered from
+   * one call to the next: a caller may empty a slot for the call and fill it again after (a list taking a
+   * thing out of a basket that is itself in the hands lets the basket step out of its slot meanwhile).
+   *
+   * A thing that has turned is what it turned into by now (settled as it is handed over, whether it then goes
+   * in or not). One that goes into a slot goes off in the open air from now on, and is started if it never
+   * was; into a basket: at the basket's rate. What does not go in is left as it was.
+   */
+  receive(h: NonNullable<Held>, not: ItemInstance | null = null): number {
+    if (h.kind === 'item') {
+      const it = h.item;
+      const now = itemNow();
+      const s = this.slots;
+      // (handed a thing that is in the hands already: there it is)
+      for (let i = 0; i < s.length; i++) {
+        const x = s[i];
+        if (x?.kind === 'item' && x.item === it) return 0;
+      }
+      settleThing(it, now, false);
+      let left = countOf(it);
+      if (left <= 0) return 0;
+      if (stackMax(it.item) > 1) {
+        for (let i = 0; i < s.length && left > 0; i++) {
+          const x = s[i];
+          if (x?.kind === 'item' && x.item !== not) left = mergeStacks(x.item, it, now);
+        }
+      }
+      for (let i = 0; i < s.length && left > 0; i++) {
+        const x = s[i];
+        if (x?.kind === 'item' && x.item !== not && itemDef(x.item.item).holds) left = putInside(x.item, it, now);
+      }
+      if (left <= 0) return 0;
+      const slot = this.freeSlot();
+      if (slot < 0) return left;
+      // (into a slot: in the open air from here, and started if it never was, with what is in it)
+      stampFresh(it, now);
+      setFreshRate(it, now, 1);
+      s[slot] = h;
+      return 0;
+    }
+    const slot = this.freeSlot();
+    if (slot < 0) return 1;
     this.slots[slot] = h;
     return 0;
+  }
+
+  /**
+   * One of what is in a slot, out of the hands for good (eaten, taken, used up): the thing itself when it is
+   * the last one (the slot is then empty), else one taken off the stack, which stays in its slot. null: no
+   * such thing there.
+   */
+  takeOne(slot: number): ItemInstance | null {
+    const h = this.slots[slot];
+    if (h?.kind !== 'item') return null;
+    const one = splitStack(h.item, 1);
+    if (one) return one;
+    this.slots[slot] = null;
+    return h.item;
+  }
+
+  /**
+   * What is in the hands looked at (every frame on foot, and as the hotbar is drawn): a thing that has turned
+   * becomes what its kind says, in place. Its picture, its model in the hand, its name and its card all go by
+   * its kind, so they are made again by themselves; a bite of it under way stops.
+   */
+  private settleHands(): void {
+    const s = this.slots;
+    for (let i = 0; i < s.length; i++) {
+      const h = s[i];
+      if (h?.kind !== 'item') continue;
+      const it = h.item;
+      // (a thing that neither goes off nor has anything in it: nothing to look at, the clock is not even read)
+      if (it.fresh === undefined && !it.inside) continue;
+      if (settleThing(it, itemNow(), true) && this.use?.item === it) {
+        this.use = null;
+        this.progress = 0;
+      }
+    }
   }
 
   /**
@@ -495,6 +701,8 @@ export class ModPlayer {
   update(dt: number, lookYaw: number, lookPitch: number, keys: { run: boolean; jump: boolean; drop: boolean; take: boolean; forward: number; right: number }): void {
     const w = this.walker;
     this.clock += dt;
+    // (what is in the hands, as it is by now: before it is carried, eaten or shown)
+    this.settleHands();
     // (while liquid flows one stands still: from the frame the button goes down at an open filler)
     const t0 = this.target;
     const atOpen = (t0?.kind === 'filler' && t0.open) || (t0?.kind === 'tank' && t0.port.open && this.held?.kind === 'tool');
@@ -680,11 +888,18 @@ export class ModPlayer {
         }
       }
     }
-    // things lying about: picked up into a free slot (with something in the hands too)
-    if (this.freeSlot() >= 0) {
-      const r = this.host.loose.pick(this.eye, this.dir, REACH);
-      // (a thing in a boot or a bed wins over the vehicle's coarse body box round it)
-      if (r) better({ kind: 'loose', loose: r.loose, dist: r.loose.riding ? Math.max(0, r.dist - 1.2) : r.dist, at: r.dist });
+    // things lying about: picked up into a free slot (with something in the hands too); with no slot free,
+    // those that the stacks and the baskets in the hands have room for
+    const free = this.freeSlot() >= 0;
+    if (free || this.handsTakeIn()) {
+      const r = this.host.loose.pick(this.eye, this.dir, REACH, free ? undefined : this.takesLoose);
+      if (r) {
+        // (the mark is on it, its card is about to be drawn: a thing that turned while it lay there is what it turned into)
+        const it = r.loose.item;
+        if (it && (it.fresh !== undefined || it.inside)) settleThing(it, itemNow(), false);
+        // (a thing in a boot or a bed wins over the vehicle's coarse body box round it)
+        better({ kind: 'loose', loose: r.loose, dist: r.loose.riding ? Math.max(0, r.dist - 1.2) : r.dist, at: r.dist });
+      }
     }
     // with a can the doors and lids still open (the bonnet over the radiator and the engine); a spray can
     // off what takes paint too
@@ -985,14 +1200,24 @@ export class ModPlayer {
     // presses
     if (this.primaryEdge && t) {
       if (t.kind === 'loose') {
-        const slot = this.freeSlot();
-        if (slot < 0) return;
-        this.sel = slot;
-        const rode = t.loose.riding?.on as ModVehicle | undefined;
-        host.loose.remove(t.loose);
-        this.held = heldOf(t.loose);
+        const l = t.loose;
+        const h = heldOf(l);
+        const all = h.kind === 'item' ? countOf(h.item) : 1;
+        const kg = partMass(h);
+        const left = this.receive(h);
+        // (no room for any of it: it lies where it was)
+        if (left >= all) return;
+        // into a slot of its own: that one is in the hands now, as a thing picked up always was (onto a stack or
+        // into a basket: the hands stay as they are)
+        const at = this.slots.indexOf(h);
+        if (at >= 0) this.sel = at;
+        const rode = l.riding?.on as ModVehicle | undefined;
+        // only part of a stack went in: the rest lies where it was, the same thing with what is left of its count
+        if (left <= 0) host.loose.remove(l);
+        else host.loose.touch(l);
+        // (taken out of a vehicle, all of it or some: what rides in the vehicle is weighed again)
         if (rode && host.vehicles.includes(rode)) host.cargoChanged(rode);
-        host.sound('pickup', partMass(this.held));
+        host.sound('pickup', left > 0 ? (kg * (all - left)) / all : kg);
         // (what the mark was on is in the hands now)
         this.target = null;
         return;
@@ -1303,11 +1528,11 @@ export class ModPlayer {
     }
     this.progress = Math.min(1, u.t / u.dur);
     if (u.t >= u.dur) {
-      // gone: out of the hands, into one
-      this.slots[u.slot] = null;
+      // gone: out of the hands, into one — one of them: the rest of a stack stays in its slot
+      const one = this.takeOne(u.slot) ?? u.item;
       this.use = null;
       this.progress = 0;
-      host.consume(u.item);
+      host.consume(one);
       host.sound('gulp');
     }
   }
@@ -1380,9 +1605,9 @@ export class ModPlayer {
     };
   }
 
-  /** the card of a held thing (or of one lying about) */
+  /** the card of a held thing (or of one lying about); a thing's (items.ts) is the one made last time until something on it changes: do not write into it */
   cardOf(h: NonNullable<Held>): ItemCard {
-    return h.kind === 'part' ? partCard(h.inst) : h.kind === 'item' ? itemCard(h.item) : toolCard(h.tool);
+    return h.kind === 'part' ? partCard(h.inst) : h.kind === 'item' ? itemCardKept(h.item, itemNow(), this.clock) : toolCard(h.tool);
   }
 
   /** a vehicle's card, made again a few times a second (it reads the whole build) */
@@ -1408,6 +1633,31 @@ export class ModPlayer {
     return liquid === 'water' ? '散热器顶上的蓝色盖子' : '发动机顶上的黄色盖子';
   }
 
+  /** the pick-up line as it was last made, and what it was made for: it is made again when one of these changes, not every frame */
+  private readonly pickLine = { name: '', box: '', code: -1, text: '' };
+
+  /**
+   * "拿起 X（叠到快捷栏 1）": what E would pick up, and where it would go when that is not simply the empty
+   * hands — onto the stack in a slot, into the basket, into the other slot (roomFor has just been asked:
+   * goes, goesSlot). part: how many of a stack would go in when not all of it (0: all).
+   */
+  private pickWords(name: string, held: boolean, part: number): string {
+    const goes = this.goes;
+    const slot = this.goesSlot;
+    const into = goes === 2 ? this.slots[slot] : null;
+    const box = into?.kind === 'item' ? into.item.item : '';
+    const code = goes + (slot + 1) * 4 + (held ? 256 : 0) + part * 512;
+    const m = this.pickLine;
+    if (m.code === code && m.name === name && m.box === box) return m.text;
+    m.code = code;
+    m.name = name;
+    m.box = box;
+    const where = goes === 1 ? `叠到快捷栏 ${slot + 1}` : goes === 2 ? `装进${itemDef(box).name.zh}` : goes === 3 && held ? `放进快捷栏 ${slot + 1}` : '';
+    const some = part > 0 ? `只拿得下 ${part} 个` : '';
+    m.text = `拿起 <b>${name}</b>${where || some ? `（${where}${where && some ? '，' : ''}${some}）` : ''}`;
+    return m.text;
+  }
+
   private ui(): void {
     const ui = this.host.ui;
     const t = this.target;
@@ -1417,6 +1667,8 @@ export class ModPlayer {
     let aim: ItemCard | null = null;
     let xfer: TransferView | null = null;
     const both = this.freeSlot() < 0;
+    // (the thing lying about that the mark is on: whether the hands have room for any of it)
+    let noRoom = false;
     // a cleaning tool: the left button scrubs what the mark is on (E keeps opening doors and lids)
     if (held?.kind === 'tool' && cleanerOf(held.tool)) {
       const c = cleanerOf(held.tool)!;
@@ -1427,9 +1679,12 @@ export class ModPlayer {
     if (t) {
       switch (t.kind) {
         case 'loose': {
-          const nm = heldName(heldOf(t.loose));
-          aim = this.cardOf(heldOf(t.loose));
-          acts.push({ keys: E, text: `拿起 <b>${nm}</b>${held ? `（放进快捷栏 ${this.freeSlot() + 1}）` : ''}` });
+          const h = heldOf(t.loose);
+          aim = this.cardOf(h);
+          // where it would go, and how many of a stack: said when that is not simply the empty hands
+          const room = this.roomFor(h);
+          noRoom = room <= 0;
+          acts.push({ keys: E, text: this.pickWords(heldName(h), !!held, h.kind === 'item' && room < countOf(h.item) ? room : 0) });
           const off = held ? null : subOff(t.loose);
           if (off) acts.push({ keys: F, hold: true, text: off === 'tire' ? '拆下轮胎' : '拆下涡轮' });
           break;
@@ -1572,10 +1827,12 @@ export class ModPlayer {
     }
     // a spray can off what takes paint: what the mark is on does not
     if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: `<b>${this.paintAim.label}</b> 不能喷漆`, off: true });
-    if (held && this.lookVehicle && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
+    // (while a list is open G puts the thing into the list, and the list says so itself: the hands do not offer it)
+    const listOpen = !!this.host.listOpen;
+    if (held && this.lookVehicle && !listOpen && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
     // (the card only for what is close by: from further off it would stand in the way of the view)
     if (aim && t && (t.at ?? t.dist) > CARD_NEAR) aim = null;
-    if (t?.kind === 'loose' && both) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
+    if (t?.kind === 'loose' && noRoom) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
     if (this.dropT > 0 && held) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: this.lookVehicle ? `收进${this.lookVehicle.view.frame.name.zh}里 <b>${heldName(held)}</b>` : `放下 <b>${heldName(held)}</b>` });
     // (while liquid flows the strip saying from what into what stands where these words are)
     if (xfer) acts.length = 0;
@@ -1650,10 +1907,11 @@ export class ModPlayer {
     } else if (h.kind === 'item') {
       const d = itemDef(h.item.item);
       if (d.drink) out.push((h.item.litres ?? 0) > 0.001 ? { keys: F, hold: true, text: '喝' } : { keys: F, hold: true, text: '空了', off: true });
-      else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : '吃掉' });
+      else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : countOf(h.item) > 1 ? '吃一个' : '吃掉' });
       else if (d.revive) out.push({ keys: F, text: '倒下时自己用上', off: true });
     }
-    if (h) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
+    // (while a list is open G puts the thing into the list, and the list says so itself)
+    if (h && !this.host.listOpen) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
     // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)
     if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : other.kind === 'item' ? itemDef(other.item.item).name.zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
     out.push({ keys: ['I'], text: this.cardsOn ? '隐藏物品信息' : '显示物品信息' });
@@ -1662,16 +1920,22 @@ export class ModPlayer {
 
   /** the hotbar's two slots as shown */
   slotViews(): SlotView[] {
+    // (shown is looked at: in a seat, where nothing else looks at the hands, too)
+    this.settleHands();
     return this.slots.map((h) => {
       if (!h) return { icon: null, name: '空', empty: true };
-      const nameOf = heldName(h);
+      // (a stack: its name without the count, which is drawn in the slot's corner — nothing is built for the count here)
+      const many = h.kind === 'item' ? countOf(h.item) : 1;
+      const nameOf = h.kind === 'item' ? itemLabelPlain(h.item) : heldName(h);
       const t = h.kind === 'tool' ? h.tool : null;
       const liquid = t ? liquidOf(t) : null;
       const drink = h.kind === 'item' ? itemDef(h.item.item).drink : undefined;
       // (a spray can: the paint left, Arctic Drive's usage bar, in the can's colour)
       const spray = t?.kind === 'spray' ? { value: sprayLeft(t), max: SPRAY_TIERS[sprayTier(t)].capacity, tone: 'good' as Tone, colour: hexCss(paintHex(t.colour ?? 0)) } : undefined;
-      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : undefined);
-      return { icon: this.host.iconOf(h), name: nameOf, empty: false, fill };
+      // (a thing that holds things: how full it is, as on its card)
+      const holds = h.kind === 'item' ? itemDef(h.item.item).holds : undefined;
+      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: (drink.liquid === 'water' ? 'water' : drink.liquid === 'alcohol' ? 'mix2t' : 'charge') as Tone } : holds && h.kind === 'item' ? boxFill(h.item, holds) : undefined);
+      return { icon: this.host.iconOf(h), name: nameOf, empty: false, fill, count: many };
     });
   }
 
@@ -1690,10 +1954,17 @@ export class ModPlayer {
   telemetry(): Record<string, string | number | boolean> {
     const t = this.target;
     const id = (h: Held): string => (h ? (h.kind === 'part' ? h.inst.part : h.kind === 'item' ? `item:${h.item.item}` : `tool:${h.tool.kind}`) : '');
+    /** how many it is: a stack's count, 1 for anything else, 0 for nothing */
+    const n = (h: Held | undefined): number => (h ? (h.kind === 'item' ? countOf(h.item) : 1) : 0);
     return {
       held: id(this.held),
       slot1: id(this.slots[0]),
       slot2: id(this.slots[1]),
+      heldN: n(this.held),
+      slot1N: n(this.slots[0]),
+      slot2N: n(this.slots[1]),
+      // every slot's count, the backpack's too ("3,0,12")
+      counts: this.slots.map(n).join(','),
       sel: this.sel,
       target: this.keyOf(t),
       progress: this.progress,
