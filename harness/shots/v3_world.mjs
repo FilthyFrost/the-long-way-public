@@ -5,18 +5,26 @@
 // between two regions: no error, and the land under the wheels never jumps. The panel's own function takes the
 // vehicle to each region of the registry in turn: it stands on the road, upright, in the region asked for (a
 // picture of each from above the road, by day, into loop/shots/v3_world/, and two from further in: from higher
-// up and from the driver's seat). The game is saved and opened again:
+// up and from the driver's seat; and where a region's mark is not at its start — a cluster of towers or
+// buttes, a terraced hillside, a lake of the wetland — the first stretch that holds one is found and pictured
+// too, from across the road, at eye level and, for the landforms, from far back). The game is saved and opened again:
 // the same world, the same place. A save written under another revision of the generator is opened: its
 // vehicle stands on the road at the distance it had reached, and the line is said. A save of a world with more
-// regions than this build has is set aside, with a line saying why, and a new game begins. A world of version
-// 1 does not deal the regions added since, and the panel says so.
+// regions than this build has is set aside, with a line saying why, and a new game begins. A save from before
+// there were versions goes on in a world of version 1 whatever the address asks for, and is written as it
+// always was. A world of version 1 does not deal the regions added since, and the panel says so.
 //
 // Nothing here waits on the wall clock for a result: the game is stepped, or its own state is waited for.
 //   SHOTS_GL=llvmpipe node harness/shots/v3_world.mjs
+// With region ids after it, only those regions are gone to and pictured (to look at one while its palette row
+// or its numbers are tuned):
+//   SHOTS_GL=llvmpipe node harness/shots/v3_world.mjs terraces karst_peaks
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, openGame, startServer, waitFrames } from './lib.mjs';
 
+/** region ids named on the command line: only their pictures are taken (and what is checked on the way to them) */
+const only = process.argv.slice(2);
 const out = path.join(ROOT, 'loop/shots/v3_world');
 fs.mkdirSync(out, { recursive: true });
 const { server, url } = await startServer();
@@ -68,6 +76,124 @@ async function built(page) {
   return false;
 }
 
+/** the regions whose mark is not at their start, and what it is */
+const SIGHT_OF = { karst_peaks: 'cluster of towers', red_canyon: 'cluster of buttes', terraces: 'terraced side', wetland: 'lake' };
+const SIGHTS = Object.keys(SIGHT_OF);
+
+/**
+ * Where a region shows what makes it, in one of its chapters (a stop of the journey): the first stretch with a
+ * cluster of anchored landforms (karst, red canyon), with a hillside or a valley cut into benches (terraces),
+ * with a lake (wetland). The road point to stand at, the side it is on, the point to look at (tx, tz), the
+ * road's right-hand normal there (nx, nz); null: the chapter has none.
+ */
+const sightOf = (page, id, chapter) =>
+  page.evaluate(
+    async ({ id, start, length }) => {
+      const g = window.__rt.game;
+      const w = g.world;
+      const SLOT = w.rules.slot;
+      const k0 = Math.round(start / SLOT);
+      const k1 = Math.round((start + length) / SLOT);
+      const pr = { s: 0, d: 0 };
+      const { SpineSample } = await import('/src/core/world/spine.ts');
+      const st = new SpineSample();
+      /** the place on the road at arc length s, looking at (tx, tz) or (no point given) out to one side and a little ahead */
+      const at = (kind, k, s, side, what, tx, tz) => {
+        w.spine.at(s, st);
+        const nx = -Math.sin(st.phi);
+        const nz = Math.cos(st.phi);
+        if (tx === undefined) {
+          tx = st.x + nx * side * 220 + Math.cos(st.phi) * 110;
+          tz = st.z + nz * side * 220 + Math.sin(st.phi) * 110;
+        }
+        return { kind, k, s, side, what, tx, tz, nx, nz };
+      };
+      for (let k = Math.max(1, k0); k < k1; k++) {
+        if (id === 'karst_peaks' || id === 'red_canyon') {
+          const fs = w.features ? w.features.of(k) : [];
+          if (!fs.length) continue;
+          // the landform of the cluster whose foot is nearest the road, and the road point abreast of it
+          let best = null;
+          for (const f of fs) {
+            w.spine.project(f.x, f.z, NaN, pr);
+            const off = Math.abs(pr.d) - f.r;
+            if (!best || off < best.off) best = { off, s: pr.s, d: pr.d, f };
+          }
+          return at('landform', k, best.s, Math.sign(best.d) || 1, { landforms: fs.length, kind: best.f.kind, height: Math.round(best.f.h), radius: Math.round(best.f.r), foot: Math.round(best.off) }, best.f.x, best.f.z);
+        }
+        if (id === 'terraces') {
+          const kind = w.land.kindOf(k);
+          if (kind !== 'hillside' && kind !== 'valley') continue;
+          const { LandParams } = await import('/src/core/world/landform.ts');
+          const lp = new LandParams();
+          const s = (k + 0.5) * SLOT;
+          w.land.at(s, lp);
+          if (!(lp.terrace > 0.5)) continue;
+          // (a hillside rises on one side; a valley on both: its right)
+          return at('terrace', k, s, kind === 'hillside' ? w.land.sideOf(k) : 1, { country: kind, strength: lp.terrace, step: lp.step, tilt: +lp.tilt.toFixed(3), wall: Math.round(lp.wall) });
+        }
+        if (id === 'wetland') {
+          const f = w.water.feature(k);
+          if (!f || f.kind !== 'lake') continue;
+          w.spine.project(f.cx, f.cz, NaN, pr);
+          return at('lake', k, Math.max(40, f.s - 60), Math.sign(pr.d) || 1, { level: +f.level.toFixed(1), across: Math.round(Math.abs(pr.d)) }, f.cx, f.cz);
+        }
+      }
+      return null;
+    },
+    { id, start: chapter.start, length: chapter.length },
+  );
+
+/**
+ * What stands where a picture of a region's mark is taken, asked of the land itself: how far the nearest
+ * anchored landform is from the vehicle; how fully the side looked at is cut into benches and how many of
+ * them the first 150 m of it climb (steps of level ground between risers); whether water lies where the look goes.
+ */
+const sightSeen = (page, id, sight) =>
+  page.evaluate(
+    async ({ sight }) => {
+      const g = window.__rt.game;
+      const w = g.world;
+      const v = g.seated ?? g.focus;
+      const { TerrainPoint } = await import('/src/core/world/terrain.ts');
+      const tp = new TerrainPoint();
+      const out = {};
+      if (sight.kind === 'landform') {
+        let nearest = Infinity;
+        for (let k = sight.k - 1; k <= sight.k + 1; k++) for (const f of w.features.of(k)) nearest = Math.min(nearest, Math.hypot(f.x - v.sim.px, f.z - v.sim.pz) - f.r);
+        out.nearest = nearest;
+        w.shape(sight.tx, sight.tz, tp);
+        out.landform = +tp.landform.toFixed(1);
+      }
+      if (sight.kind === 'terrace') {
+        const { LandParams } = await import('/src/core/world/landform.ts');
+        const lp = new LandParams();
+        w.land.at(sight.s, lp);
+        out.terrace = lp.terrace;
+        // out from the road on that side, metre by metre: level ground (a bench) and steep ground (a riser) in turn
+        let benches = 0;
+        let level = false;
+        let last = NaN;
+        for (let d = 20; d <= 170; d += 1) {
+          w.shape(v.sim.px + sight.nx * sight.side * d, v.sim.pz + sight.nz * sight.side * d, tp);
+          if (last === last) {
+            const flat = Math.abs(tp.h - last) < 0.12;
+            if (flat && !level) benches++;
+            level = flat;
+          }
+          last = tp.h;
+        }
+        out.benches = benches;
+      }
+      if (sight.kind === 'lake') {
+        w.shape(sight.tx, sight.tz, tp);
+        out.water = Math.max(0, tp.wl - tp.bed);
+      }
+      return out;
+    },
+    { sight },
+  );
+
 /** the world a page's game runs in */
 const worldNow = (page) =>
   page.evaluate(async () => {
@@ -78,7 +204,7 @@ const worldNow = (page) =>
 
 try {
   // ------------------------------------------------------------------ a new game, kept: its world, the panel, a save and what becomes of it
-  {
+  if (!only.length) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await ctx.newPage();
     const errors = [];
@@ -211,6 +337,35 @@ try {
     if (await rt('kernel').then((k) => k.lastError)) fail(`the kernel set something apart: ${(await rt('kernel')).lastError}`);
     if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
 
+    // a save from before there were versions (its world named by the seed alone, everything in the yard), under
+    // an address that asks for version 2: the game goes on in the save's world, which is of version 1
+    const old = JSON.parse(JSON.stringify(after));
+    old.world = { seed: w.seed };
+    old.place = 'garage';
+    delete old.seat;
+    for (const [i, v] of old.vehicles.entries()) {
+      if (v.s === undefined) continue;
+      Object.assign(v, { x: 18, z: 13 + 4 * i, yaw: 0 });
+      delete v.s;
+    }
+    Object.assign(old.player, { x: -4.6, z: -0.4, heading: 0.15 });
+    delete old.player.s;
+    await page.evaluate(({ k, text }) => ((window.__rt.game.saveOff = true), localStorage.setItem(k, text)), { k: SAVE, text: JSON.stringify(old) });
+    await reopen();
+    const w1 = await worldNow(page);
+    const oldLine = await toast();
+    const oldState = await page.evaluate(() => ({ place: window.__rt.game.place, vehicles: window.__rt.game.vehicles.length, search: location.search }));
+    console.log('a save of version 1', JSON.stringify(w1), JSON.stringify(oldState), oldLine);
+    if (!oldState.search.includes('world=2')) fail(`the address no longer asks for version 2 (${oldState.search})`);
+    if (w1.version !== 1 || w1.count !== 6 || w1.seed !== w.seed || !w1.keep) fail(`a save from before there were versions is gone on with in another world: ${JSON.stringify(w1)}`);
+    if (oldState.place !== 'garage' || oldState.vehicles !== old.vehicles.length) fail(`that save did not come back as it was: ${JSON.stringify(oldState)}`);
+    if (oldLine.includes('世界有了变化')) fail('a save of version 1 was taken for one whose world has changed');
+    await page.evaluate(() => window.__rt.game.save());
+    const oldAgain = JSON.parse(await page.evaluate((k) => localStorage.getItem(k), SAVE));
+    if (JSON.stringify(oldAgain.world) !== JSON.stringify({ seed: w.seed })) fail(`a version 1 save is written with more than its seed: ${JSON.stringify(oldAgain.world)}`);
+    if (oldAgain.vehicles.some((v) => 's' in v) || 's' in oldAgain.player) fail('a version 1 save is written with distances along the road');
+    if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
+
     // a save of a world with more regions than this build has: set aside, a line saying why, a new game
     errors.length = 0;
     after.world.regionCount = w.registry + 5;
@@ -245,64 +400,66 @@ try {
 
     // the robot from a kilometre and a half short of the border to a kilometre past it: across the whole of
     // where the two regions blend, the game stepped as it runs (no drawing)
-    await rt('devGoKm', (border - 1500) / 1000, true);
-    if (!(await built(page))) fail('the world before the border was never built');
-    let drive = null;
-    for (let round = 0; round < 60; round++) {
-      drive = await page.evaluate(
-        async ({ to, lane, first }) => {
-          const { RobotDriver } = await import('/src/core/driver/robot.ts');
-          const { GroundSample } = await import('/src/core/world/ground.ts');
-          const g = window.__rt.game;
-          const v = g.seated;
-          if (first) {
-            window.__robot = new RobotDriver({ lane, cruise: 19 });
-            window.__drive = { steps: 0, jump: 0, jumpAt: 0, dMin: Infinity, dMax: -Infinity, air: 0, airMax: 0, kmhMax: 0, from: NaN, ground: NaN };
-            v.sim.setParkBrake(false);
-          }
-          const robot = window.__robot;
-          const st = window.__drive;
-          const gs = new GroundSample();
-          const dt = 1 / 60;
-          for (let i = 0; i < 400 && !(robot.s >= to); i++) {
-            const input = robot.update(dt, v.sim, g.world.spine);
-            g.scripted = { steer: input.steer, throttle: input.throttle, brake: input.brake, handbrake: 0 };
-            g.step(dt, 1);
-            st.steps++;
-            // the land under the middle of the vehicle, step to step: a break in it would show as a jump
-            g.ground.sample(v.sim.px, v.sim.pz, gs);
-            if (st.ground === st.ground && Math.abs(gs.h - st.ground) > st.jump) {
-              st.jump = Math.abs(gs.h - st.ground);
-              st.jumpAt = robot.s;
+    if (!only.length) {
+      await rt('devGoKm', (border - 1500) / 1000, true);
+      if (!(await built(page))) fail('the world before the border was never built');
+      let drive = null;
+      for (let round = 0; round < 60; round++) {
+        drive = await page.evaluate(
+          async ({ to, lane, first }) => {
+            const { RobotDriver } = await import('/src/core/driver/robot.ts');
+            const { GroundSample } = await import('/src/core/world/ground.ts');
+            const g = window.__rt.game;
+            const v = g.seated;
+            if (first) {
+              window.__robot = new RobotDriver({ lane, cruise: 19 });
+              window.__drive = { steps: 0, jump: 0, jumpAt: 0, dMin: Infinity, dMax: -Infinity, air: 0, airMax: 0, kmhMax: 0, from: NaN, ground: NaN };
+              v.sim.setParkBrake(false);
             }
-            st.ground = gs.h;
-            if (!(st.from === st.from)) st.from = robot.s;
-            st.dMin = Math.min(st.dMin, robot.d);
-            st.dMax = Math.max(st.dMax, robot.d);
-            st.kmhMax = Math.max(st.kmhMax, v.sim.kmh);
-            // (all four wheels off the ground: how long at most)
-            st.air = v.sim.wheels.some((wh) => wh.contact) ? 0 : st.air + dt;
-            st.airMax = Math.max(st.airMax, st.air);
-          }
-          g.scripted = null;
-          return { ...st, s: robot.s, done: robot.s >= to, exploded: v.sim.exploded, last: window.__rt.lastError };
-        },
-        { to: border + 1000, lane: LANE, first: round === 0 },
-      );
-      if (drive.done || drive.exploded || drive.steps > 24000) break;
+            const robot = window.__robot;
+            const st = window.__drive;
+            const gs = new GroundSample();
+            const dt = 1 / 60;
+            for (let i = 0; i < 400 && !(robot.s >= to); i++) {
+              const input = robot.update(dt, v.sim, g.world.spine);
+              g.scripted = { steer: input.steer, throttle: input.throttle, brake: input.brake, handbrake: 0 };
+              g.step(dt, 1);
+              st.steps++;
+              // the land under the middle of the vehicle, step to step: a break in it would show as a jump
+              g.ground.sample(v.sim.px, v.sim.pz, gs);
+              if (st.ground === st.ground && Math.abs(gs.h - st.ground) > st.jump) {
+                st.jump = Math.abs(gs.h - st.ground);
+                st.jumpAt = robot.s;
+              }
+              st.ground = gs.h;
+              if (!(st.from === st.from)) st.from = robot.s;
+              st.dMin = Math.min(st.dMin, robot.d);
+              st.dMax = Math.max(st.dMax, robot.d);
+              st.kmhMax = Math.max(st.kmhMax, v.sim.kmh);
+              // (all four wheels off the ground: how long at most)
+              st.air = v.sim.wheels.some((wh) => wh.contact) ? 0 : st.air + dt;
+              st.airMax = Math.max(st.airMax, st.air);
+            }
+            g.scripted = null;
+            return { ...st, s: robot.s, done: robot.s >= to, exploded: v.sim.exploded, last: window.__rt.lastError };
+          },
+          { to: border + 1000, lane: LANE, first: round === 0 },
+        );
+        if (drive.done || drive.exploded || drive.steps > 24000) break;
+      }
+      console.log('robot', JSON.stringify(drive));
+      if (!drive.done) fail(`the robot did not get through the border at ${Math.round(border)} m (it is at ${Math.round(drive.s)} after ${drive.steps} steps)`);
+      if (!(drive.from < border - 1000)) fail(`the drive did not begin before the border (${drive.from})`);
+      if (drive.exploded) fail('the vehicle came apart on the way');
+      if (drive.jump > 0.2) fail(`the land under the wheels jumps by ${drive.jump.toFixed(2)} m at ${Math.round(drive.jumpAt)} m`);
+      // (on the paved road all the way: its surface ends 4.5 m either side of the centre line)
+      if (drive.dMin < -4.3 || drive.dMax > 4.3) fail(`the robot left the road: between ${drive.dMin.toFixed(1)} and ${drive.dMax.toFixed(1)} m off its centre line`);
+      if (drive.airMax > 0.6) fail(`the vehicle was off the ground for ${drive.airMax.toFixed(2)} s`);
+      if (drive.kmhMax < 40) fail(`the vehicle never got going (${drive.kmhMax.toFixed(0)} km/h at most)`);
+      if (drive.last) fail(`an error on the way: ${drive.last}`);
+      const past = await vehicleNow(page);
+      if (past.region !== journey[1].id) fail(`past the border the region is ${past.region}, not ${journey[1].id}`);
     }
-    console.log('robot', JSON.stringify(drive));
-    if (!drive.done) fail(`the robot did not get through the border at ${Math.round(border)} m (it is at ${Math.round(drive.s)} after ${drive.steps} steps)`);
-    if (!(drive.from < border - 1000)) fail(`the drive did not begin before the border (${drive.from})`);
-    if (drive.exploded) fail('the vehicle came apart on the way');
-    if (drive.jump > 0.2) fail(`the land under the wheels jumps by ${drive.jump.toFixed(2)} m at ${Math.round(drive.jumpAt)} m`);
-    // (on the paved road all the way: its surface ends 4.5 m either side of the centre line)
-    if (drive.dMin < -4.3 || drive.dMax > 4.3) fail(`the robot left the road: between ${drive.dMin.toFixed(1)} and ${drive.dMax.toFixed(1)} m off its centre line`);
-    if (drive.airMax > 0.6) fail(`the vehicle was off the ground for ${drive.airMax.toFixed(2)} s`);
-    if (drive.kmhMax < 40) fail(`the vehicle never got going (${drive.kmhMax.toFixed(0)} km/h at most)`);
-    if (drive.last) fail(`an error on the way: ${drive.last}`);
-    const past = await vehicleNow(page);
-    if (past.region !== journey[1].id) fail(`past the border the region is ${past.region}, not ${journey[1].id}`);
 
     // to every region of the registry in turn, through the panel's function
     const regions = await rt('devRegions');
@@ -310,6 +467,7 @@ try {
     // (the pictures without the game's cards and gauges over them)
     await page.evaluate(() => (window.__rt.game.ui.root.style.visibility = 'hidden'));
     for (const [i, r] of regions.entries()) {
+      if (only.length && !only.includes(r.id)) continue;
       const went = await rt('devGoRegion', r.id, true);
       const ok = await built(page);
       const at = await vehicleNow(page);
@@ -329,8 +487,8 @@ try {
       await rt('setOrbit', 205, 20, 44, 4.5, 0);
       await page.evaluate(() => window.__rt.render());
       await page.screenshot({ path: path.join(out, `${name}.png`) });
-      // and well inside the region, past where it blends with the one before and into the stretches that may
-      // hold its landforms: from higher up, and from the driver's seat
+      // and well inside the region, past where it blends with the one before: from higher up, and from the
+      // driver's seat
       await rt('devGoKm', (stop.start + 2600) / 1000, true);
       if (!(await built(page))) fail(`${r.id}: the world further in was never built`);
       const inside = await vehicleNow(page);
@@ -343,13 +501,60 @@ try {
       await page.screenshot({ path: path.join(out, `${name}_seat.png`) });
       const lastIn = await page.evaluate(() => window.__rt.lastError);
       if (lastIn) fail(`${r.id}, further in: ${lastIn}`);
+
+      // what makes the region: a cluster of towers or buttes, a terraced hillside, a lake of the wetland. None
+      // of them is in a region's first stretch (the director gives it no landforms, and a terraced side or a
+      // lake is where the stretch's country has one): so the first stretch of the region that holds one is
+      // found, in this chapter or the next ones of the region, and the pictures are taken there, looking at it
+      if (!SIGHTS.includes(r.id)) continue;
+      let sight = null;
+      let chapter = stop;
+      for (let tries = 0; tries < 6 && !sight; tries++) {
+        sight = await sightOf(page, r.id, chapter);
+        if (sight) break;
+        // (none in this chapter of the region: on to its next one)
+        const on = await rt('devGoRegion', r.id, true);
+        if (!on.startsWith(`${r.zh}：`)) break;
+        await page.evaluate(() => window.__rt.game.simulate(0));
+        chapter = (await rt('devJourney', 1))[0];
+      }
+      if (!sight) {
+        fail(`${r.id}: no stretch with ${SIGHT_OF[r.id]} in six chapters of the region`);
+        continue;
+      }
+      await rt('devGoKm', sight.s / 1000, true);
+      if (!(await built(page))) fail(`${r.id}: the world at its ${SIGHT_OF[r.id]} was never built`);
+      const by = await vehicleNow(page);
+      const seen = await sightSeen(page, r.id, sight);
+      console.log(`   ${SIGHT_OF[r.id]}: stretch ${sight.k}, ${(sight.s / 1000).toFixed(2)} km, on the ${sight.side > 0 ? 'right' : 'left'}  ${JSON.stringify(sight.what)}  ${JSON.stringify(seen)}`);
+      if (by.region !== r.id || Math.abs(by.d) > 4.5 || by.up < 0.9 || Math.abs(by.s - sight.s) > 25) fail(`${r.id}, at its ${SIGHT_OF[r.id]}: ${JSON.stringify(by)}`);
+      if (sight.kind === 'landform' && !(seen.nearest < 500)) fail(`${r.id}: no landform within 500 m of where the picture is taken (the nearest is ${Math.round(seen.nearest)} m off)`);
+      if (sight.kind === 'terrace' && !(seen.terrace > 0.5 && seen.benches >= 2)) fail(`${r.id}: no terraced side where the picture is taken: ${JSON.stringify(seen)}`);
+      if (sight.kind === 'lake' && !(seen.water > 0)) fail(`${r.id}: no water where the picture looks: ${JSON.stringify(seen)}`);
+      // three-quarter, from behind the vehicle on the side away from it, looking across the road at it
+      await rt('setOrbit', sight.side > 0 ? 250 : 110, 9, 64, 9, 0);
+      await page.evaluate(() => window.__rt.render());
+      await page.screenshot({ path: path.join(out, `${name}_at.png`) });
+      // from further back and higher: the far field behind it (the towers to the skyline, the mesas)
+      if (sight.kind === 'landform') {
+        await rt('setOrbit', sight.side > 0 ? 222 : 138, 8, 330, 55, 0);
+        await page.evaluate(() => window.__rt.render());
+        await page.screenshot({ path: path.join(out, `${name}_far.png`) });
+      }
+      // and at eye level, standing at the road's edge on its side, looking at it
+      await rt('stand', by.x + sight.nx * (sight.side * 4.2 - by.d), by.z + sight.nz * (sight.side * 4.2 - by.d), Math.atan2(sight.tz - by.z, sight.tx - by.x), sight.kind === 'lake' ? -0.04 : 0.1);
+      await page.evaluate(() => window.__rt.render());
+      await page.screenshot({ path: path.join(out, `${name}_eye.png`) });
+      await rt('enter', 0);
+      const lastAt = await page.evaluate(() => window.__rt.lastError);
+      if (lastAt) fail(`${r.id}, at its ${SIGHT_OF[r.id]}: ${lastAt}`);
     }
     if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
     await page.close();
   }
 
   // ------------------------------------------------------------------ a world of version 1 does not deal the regions added since
-  {
+  if (!only.length) {
     const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=1&start=road&build=stock:pickup&s=300`, { width: 960, height: 540 });
     const rt = hook(page);
     const w = await worldNow(page);

@@ -230,7 +230,11 @@ export const paletteUniforms = {
   uFlowerPal: { value: fill(SLOTS * 3, () => new THREE.Vector3()) },
   /** x: snow, y: dryness, z: grass density, w: layered rock (mesas, canyon walls) */
   uBiomeMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
-  /** x: steepness at which bare rock begins, y: autumn (crown variety) */
+  /**
+   * x: steepness at which bare rock begins, y: autumn (crown variety), z: how fully the region's slopes are
+   * terraced (0: it has no terraces), w: that times the height between two benches (m) — so that the step
+   * comes out whole where a terraced region blends into one without
+   */
   uBiomeMisc2: { value: fill(SLOTS, () => new THREE.Vector4()) },
 };
 
@@ -257,7 +261,10 @@ export function setSlotBiome(slot: number, biome: number): void {
   put(u.uRockShadePal.value, slot, b.rock.shade);
   for (let i = 0; i < 3; i++) put(u.uFlowerPal.value, slot * 3 + i, b.flowers[i]);
   u.uBiomeMisc.value[slot].set(b.snow, b.dryness, b.grassDensity, b.strata ?? 0);
-  u.uBiomeMisc2.value[slot].set(b.rockStart ?? 0.3, b.crownVariety ?? 0, 0, 0);
+  // (the benches a region's hillsides are cut into are the core's: core/world/biomes.ts RegionDef.land.terrace)
+  const benches = BIOMES[biome]?.land?.terrace;
+  const cut = benches && benches.step > 0 ? Math.min(1, Math.max(0, benches.strength)) : 0;
+  u.uBiomeMisc2.value[slot].set(b.rockStart ?? 0.3, b.crownVariety ?? 0, cut, cut * (benches?.step ?? 0));
 }
 
 /** the slot a chapter's palette lives in */

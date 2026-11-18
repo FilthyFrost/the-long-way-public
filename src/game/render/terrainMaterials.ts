@@ -112,8 +112,28 @@ export const GROUND_PAINT = /* glsl */ `
     // (a lawn, mown: a fresher green)
     albedo = mix(albedo, albedo * vec3(0.92, 1.08, 0.8), lawn * 0.45);
 
+    // ---- terraced slopes (a region with terraces, in worlds of version 2): the benches stay what the country
+    // is, the risers between them are its bare earth. The benches are cut in the land's own height, a step
+    // apart (core/world/operators.ts terrace: level over the first part of each step, the riser in the last),
+    // so the paint finds a riser where the height nears the next whole step — also where the land's mesh is
+    // too coarse to show one (its finest cells are 8 m, a riser is some 5 m across). Only where the core cuts
+    // benches at all: from the road's verge out to a few hundred metres, on ground that really slopes (by the
+    // mesh's own faces: a bench's vertex is level and a riser's steep, the face between them is the hillside).
+    float tu = rtWorldY(pos) / max(p.terraceStep, 1.0);
+    // (never nothing: on level ground the band's two edges would be one, and a step between them no number)
+    float tfw = max(fwidth(tu), 1e-4);
+    // (how steeply the face climbs, rise over run; nothing here can come out as no number: a zero in every
+    // region without terraces must stay a zero)
+    vec3 face = cross(dFdx(pos), dFdy(pos));
+    float hill = length(face.xz) / max(abs(face.y), 1e-6);
+    float riser = (1.0 - smoothstep(0.13 - tfw, 0.13 + tfw, abs(fract(tu - 0.28) - 0.5)))
+                * p.terrace * smoothstep(14.0, 34.0, ad) * (1.0 - smoothstep(350.0, 600.0, ad))
+                * smoothstep(0.1, 0.2, hill) * (1.0 - smoothstep(0.75, 1.1, hill))
+                * (1.0 - smoothstep(0.3, 0.6, tfw)) * (1.0 - wood) * (1.0 - lawn);
+    albedo = mix(albedo, p.dry * mix(0.6, 1.05, smoothstep(0.2, 0.8, tone)), riser * 0.85);
+
     // ---- where the meadow grass stands (near the eye), the ground between the blades is their roots
-    float underGrass = (1.0 - smoothstep(45.0, 70.0, dist)) * smoothstep(5.0, 8.0, ad) * p.misc.z * (1.0 - wood) * (1.0 - dryAmt);
+    float underGrass = (1.0 - smoothstep(45.0, 70.0, dist)) * smoothstep(5.0, 8.0, ad) * p.misc.z * (1.0 - wood) * (1.0 - dryAmt) * (1.0 - riser);
     albedo = mix(albedo, mix(p.deep, p.mid, 0.45 + 0.3 * (s6 + 0.5)), underGrass * 0.75);
 
     // ---- contour strokes on the slopes, a shade deeper
@@ -172,7 +192,7 @@ export const GROUND_PAINT = /* glsl */ `
 
     // ---- flowers in the meadows
     vec3 flc;
-    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn);
+    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn) * (1.0 - riser);
     albedo = mix(albedo, flc, fl);
 
     // ---- weather: snow settles on flat ground (painted, not grey), rain darkens

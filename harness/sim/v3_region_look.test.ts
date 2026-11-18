@@ -12,7 +12,9 @@ import { SkyState, DayClock } from '../../src/core/env/time';
 import { WeatherState } from '../../src/core/env/weather';
 import { BIOMES, BIOME_INDEX, registerRegion, type RegionDef } from '../../src/core/world/biomes';
 import { Look, computeLook } from '../../src/game/env/colorScript';
-import { BIOME_STYLES, STYLE, chapterRun, paletteUniforms, regionStyle, showChapters, styleFromPalette, type BiomeStyle } from '../../src/game/render/style';
+import { BIOME_STYLES, STYLE, chapterRun, paletteUniforms, regionStyle, setSlotBiome, showChapters, styleFromPalette, type BiomeStyle } from '../../src/game/render/style';
+import { GLSL_PAINT } from '../../src/game/render/paint';
+import { riserFor, terrace } from '../../src/core/world/operators';
 import { modcarWorld } from '../../src/game/modcar/seamless';
 import { nextChapterOf } from '../../src/game/modcar/devJourney';
 import { GROUND_FAR, GROUND_PAINT, ON_LANDFORM } from '../../src/game/render/terrainMaterials';
@@ -362,5 +364,57 @@ describe('an anchored landform in the ground\'s paint', () => {
     // half way up the foot of a landform 300 m from the road: about half
     expect(onForm(300 + ON_LANDFORM / 2)).toBeGreaterThan(0.4);
     expect(onForm(300 + ON_LANDFORM / 2)).toBeLessThan(0.6);
+  });
+});
+
+describe('the risers of a terraced region in the ground\'s paint', () => {
+  it('a slot is told how fully its region\'s slopes are cut into benches and how far apart they lie, from the core\'s own numbers', () => {
+    const misc = (slot: number): number[] => paletteUniforms.uBiomeMisc2.value[slot].toArray();
+    for (let i = 0; i < BIOMES.length; i++) {
+      setSlotBiome(3, i);
+      const cut = BIOMES[i].land?.terrace;
+      expect(misc(3)[2]).toBe(cut ? cut.strength : 0);
+      expect(misc(3)[3]).toBe(cut ? cut.strength * cut.step : 0);
+    }
+    // none of the first six has terraces: every world of version 1 is painted without them
+    for (const id of SIX) {
+      setSlotBiome(3, BIOME_INDEX[id]);
+      expect(misc(3).slice(2)).toEqual([0, 0]);
+    }
+    const benched = put({ ...dummy('plains', 'test_benched'), land: { odds: { hillside: 1 }, size: {}, terrace: { step: 6, strength: 0.5 } } });
+    setSlotBiome(3, benched);
+    expect(misc(3).slice(2)).toEqual([0.5, 3]);
+    setSlotBiome(3, 0);
+    // the paint reads them back, the step whole where a terraced region blends into one without
+    expect(GLSL_PAINT).toContain('p.terrace = uBiomeMisc2[0].z * bw[0]');
+    expect(GLSL_PAINT).toContain('/ max(p.terrace, 1e-4)');
+  });
+
+  it('the band the paint lays lies on the riser the core cuts, and never on the bench', () => {
+    // (the paint's own line: the middle of the band 0.78 of a step up, 0.13 of a step to either side)
+    expect(GROUND_PAINT).toContain('abs(fract(tu - 0.28) - 0.5)');
+    expect(GROUND_PAINT).toContain('smoothstep(0.13 - tfw, 0.13 + tfw');
+    const inBand = (f: number): boolean => Math.abs((((f - 0.28) % 1) + 1) % 1 - 0.5) < 0.13;
+    const step = 4;
+    // the riser's share of a step on the slopes that are benched at all (operators.ts riserFor, with the margin the land adds)
+    for (const slope of [0.34, 0.42, 0.5, 0.62]) {
+      const r = riserFor(slope);
+      for (const band of [3, -2, 40]) {
+        const at = (f: number): number => terrace((band + f) * step, step, 1, r);
+        // on the bench — level ground — the paint lays nothing
+        for (let f = 0; f < 1 - r - 0.02; f += 0.01) {
+          expect(at(f)).toBeCloseTo(band * step, 9);
+          expect(inBand(f), `slope ${slope}: paint on the bench at ${f.toFixed(2)} of a step`).toBe(false);
+        }
+        // where it lays its band the land is climbing
+        for (let f = 0.66; f <= 0.9; f += 0.02) {
+          expect(inBand(f)).toBe(true);
+          if (f > 1 - r + 0.02) expect(at(f + 0.01)).toBeGreaterThan(at(f));
+        }
+        // and the bench above is clear of it again
+        expect(inBand(0)).toBe(false);
+        expect(inBand(0.999)).toBe(false);
+      }
+    }
   });
 });

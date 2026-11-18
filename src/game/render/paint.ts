@@ -41,6 +41,8 @@ export const GLSL_PAINT = /* glsl */ `
     vec4 misc;            // x snow, y dryness, z grass density, w layered rock
     float rockStart;
     float variety;        // autumn: how far the woods are turned
+    float terrace;        // how fully the slopes here are cut into benches (0: no terraces)
+    float terraceStep;    // the height between two benches (m)
   };
   RtPal rtPal(vec4 bwIn) {
     float bw[${B}];
@@ -65,6 +67,8 @@ export const GLSL_PAINT = /* glsl */ `
     p.misc = ${Array.from({ length: B }, (_, b) => `uBiomeMisc[${b}] * bw[${b}]`).join(' + ')};
     p.rockStart = ${Array.from({ length: B }, (_, b) => `uBiomeMisc2[${b}].x * bw[${b}]`).join(' + ')};
     p.variety = ${Array.from({ length: B }, (_, b) => `uBiomeMisc2[${b}].y * bw[${b}]`).join(' + ')};
+    p.terrace = ${Array.from({ length: B }, (_, b) => `uBiomeMisc2[${b}].z * bw[${b}]`).join(' + ')};
+    p.terraceStep = (${Array.from({ length: B }, (_, b) => `uBiomeMisc2[${b}].w * bw[${b}]`).join(' + ')}) / max(p.terrace, 1e-4);
     return p;
   }
   vec3 rtPaintTone(RtPal p, float tone) {

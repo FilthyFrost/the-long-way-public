@@ -112,7 +112,8 @@ export const PALETTES: Record<string, BiomePalette> = {
     look: { flowerAmount: 1.45, grassGrow: 0.95, dryness: 0.08 },
   },
   terraces: {
-    // paddy greens, and the dark wet earth of the banks between them
+    // paddy greens, and the dark wet earth of the banks between them (its dust: the paint lays it on the risers
+    // of its terraced slopes — render/terrainMaterials.ts)
     ground: [0x86b85e, 0x9cc768, 0x6fa457],
     dust: 0x7a6248,
     rock: 0x8f897c,
