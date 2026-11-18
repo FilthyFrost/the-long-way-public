@@ -54,6 +54,7 @@ export const FACTORY_PAINT: Record<string, [number, number]> = {
   pickup: [9, 1],
   moto: [13, 22],
   rv: [0, 10],
+  rhino: [24, 20],
   buffalo: [20, 18],
   snail: [4, 1],
   van: [8, 0],

@@ -60,6 +60,11 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('rear', '后搁板', 'Luggage shelf', [-1.4, -0.84], [-0.34, 0.34], 0.56, 0.93, 'medium', 1, ['door_FL', 'door_FR', 'trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [-0.48, -0.06], [0.24, 0.52], 0.39, 1.05, 'medium', 2, ['door_FR']),
   ],
+  rhino: [
+    // (the box under its canvas, the tailgate the way in; and the seat beside the driver)
+    Z('bed', '货厢', 'Cargo box', [-3.08, -0.37], [-1.04, 1.04], 1.24, 2.65, 'large', 0, ['trunk']),
+    Z('pass', '副驾驶座', 'Passenger seat', [0.52, 0.9], [0.37, 0.83], 1.27, 1.87, 'medium', 1, ['door_FR']),
+  ],
   buffalo: [
     // (an open bed behind the cab, its tailgate the way in; and a bench across the back of the cab)
     Z('bed', '车斗', 'Bed', [-2.39, -1.13], [-0.41, 0.41], 0.8, 1.85, 'large', 0),

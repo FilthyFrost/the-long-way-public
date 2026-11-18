@@ -16,6 +16,7 @@ import wagonMounts from './data/mounts/wagon.json';
 import foxMounts from './data/mounts/fox.json';
 import snailMounts from './data/mounts/snail.json';
 import buffaloMounts from './data/mounts/buffalo.json';
+import rhinoMounts from './data/mounts/rhino.json';
 
 interface MountJson {
   pos: number[];
@@ -433,7 +434,30 @@ export const BUFFALO: FrameDef = {
   rig: readRig(buffaloMounts as MountTable),
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL, BUFFALO];
+export const RHINO: FrameDef = {
+  id: 'rhino',
+  kind: 'truck',
+  name: { zh: '犀牛', en: 'Rhino' },
+  mass: 3000,
+  cg: { x: -0.35, y: 1.0, z: 0 },
+  inertia: { roll: 2500, yaw: 11500, pitch: 11200 },
+  hubRadius: 0.41,
+  // (an expedition truck on leaf springs and two live axles: long travel, slow to settle, it rolls and pitches)
+  suspension: { front: susp(1.25, 0.27, 0.6, 11, 0.36), rear: susp(1.35, 0.28, 0.4, 10, 0.36) },
+  steering: { maxDeg: 34, ackermann: 0.8, rateLow: 1.4, rateHigh: 0.5, smoothTime: 0.13, returnScale: 1.4, gripLimitG: 0.58, slipMarginDeg: 6 },
+  brakeN: 23500,
+  brakeFront: 0.6,
+  cdA: 3.6,
+  finalDrive: 4.1,
+  body: { front: 2.84, rear: -3.35, halfWidth: 1.12, bottom: 0.27, top: 2.89 },
+  enclosed: 1,
+  chase: { dist: 9.5, height: 3.3, look: 1.6 },
+  mounts: withAxles(readMounts(rhinoMounts as MountTable), (rhinoMounts as MountTable).axles),
+  rig: readRig(rhinoMounts as MountTable),
+  bare: ['seat_rear'],
+};
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL, BUFFALO, RHINO];
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
 

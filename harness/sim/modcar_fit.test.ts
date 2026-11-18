@@ -5,6 +5,7 @@ import fox from '../../src/core/modcar/data/mounts/fox.json';
 import goat from '../../src/core/modcar/data/mounts/goat.json';
 import moto from '../../src/core/modcar/data/mounts/moto.json';
 import pickup from '../../src/core/modcar/data/mounts/pickup.json';
+import rhino from '../../src/core/modcar/data/mounts/rhino.json';
 import rv from '../../src/core/modcar/data/mounts/rv.json';
 import sedan from '../../src/core/modcar/data/mounts/sedan.json';
 import snail from '../../src/core/modcar/data/mounts/snail.json';
@@ -29,6 +30,7 @@ const FRAMES: Record<string, Record<string, Mount>> = {
   fox: (fox as unknown as { mounts: Record<string, Mount> }).mounts,
   snail: (snail as unknown as { mounts: Record<string, Mount> }).mounts,
   buffalo: (buffalo as unknown as { mounts: Record<string, Mount> }).mounts,
+  rhino: (rhino as unknown as { mounts: Record<string, Mount> }).mounts,
 };
 
 /** the room a mount leaves its part, in the part's frame (game axes), with the 1.5 cm the checks allow */

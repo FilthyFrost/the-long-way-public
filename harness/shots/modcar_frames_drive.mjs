@@ -2,12 +2,12 @@
 // bend, brake; a car's engine under its lid (a rear engine's too, behind its upright lid). A chase-view
 // screenshot per stage into loop/shots/modcar_frames_drive/ and a line of numbers each (speed, lean, steer);
 // exits non-zero when a frame does not get going, flies apart or leaves its engine uncovered.
-//   SHOTS_GPU=1 node harness/shots/modcar_frames_drive.mjs [sedan,pickup,moto,rv,van,goat,wagon,fox,snail,buffalo]
+//   SHOTS_GPU=1 node harness/shots/modcar_frames_drive.mjs [sedan,pickup,moto,rv,van,goat,wagon,fox,snail,buffalo,rhino]
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
 
-const frames = (process.argv[2] ?? 'sedan,pickup,moto,rv,van,goat,wagon,fox,snail,buffalo').split(',');
+const frames = (process.argv[2] ?? 'sedan,pickup,moto,rv,van,goat,wagon,fox,snail,buffalo,rhino').split(',');
 const out = path.join(ROOT, 'loop/shots/modcar_frames_drive');
 fs.mkdirSync(out, { recursive: true });
 const { server, url } = await startServer();
