@@ -8,6 +8,10 @@
  * it: a save made in an old world opens onto the same road, the same lake, the same crate behind the same
  * shed. harness/sim/world_golden.test.ts holds the worlds below to harness/sim/world-golden.json.
  *
+ * Beside the worlds stands the weather of the six regions version 1 knows (`weatherTrace`: not part of
+ * Appendix A; taken on the generator as it stood at 473d257, before the weather's branches on a region's
+ * id became tables): a region's weather is part of what an old save comes back to.
+ *
  * The hashes are over exact doubles, and the height function, the water and the places go through the
  * engine's Math functions: they hold for one Node (the file says which). Write the file again only to add
  * a reference world, or on a Node whose Math rounds differently — never to make a changed version 1 pass:
@@ -16,6 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WEATHER_KINDS, WeatherState, WeatherSystem } from '../../src/core/env/weather';
 import { provingLevel, provingPlot } from '../../src/core/modcar/proving/layout';
 import { Rng } from '../../src/core/math/rng';
 import { BIOMES } from '../../src/core/world/biomes';
@@ -174,6 +179,58 @@ export function worldTrace(world: World, km = 60): WorldFingerprint {
   };
 }
 
+/** the fields of the weather that are numbers, in the order the trace takes them */
+const WEATHER_FIELDS = ['cloud', 'overcast', 'overcastCalm', 'rain', 'snow', 'hail', 'dust', 'fog', 'wind', 'windDir', 'lightning', 'temp', 'wetness', 'snowCover', 'rainbow', 'act', 'severity', 'front', 'frontSide', 'fall', 'murkRain', 'murkSnow', 'murkDust'] as const;
+
+/**
+ * The fingerprint of the weather of the first six regions, for three seeds: every field of the sky over
+ * each region and across its borders through sixty hours of schedule, the slow state stepped through
+ * three hours, what the event selector means in each region (and in one that does not exist), and every
+ * forced weather at four moments of its three acts.
+ */
+export function weatherTrace(): string {
+  const hs = new Hasher();
+  const out = new WeatherState();
+  const take = (): void => {
+    for (const key of WEATHER_FIELDS) hs.num(out[key]);
+    hs.str(out.kind);
+  };
+  for (const seed of [1, 20261113, 777]) {
+    const ws = new WeatherSystem(seed);
+    for (let bi = 0; bi < 6; bi++) {
+      for (let i = 0; i < 6000; i++) {
+        const t = i * 37.3;
+        const hour = (6 + t / 100) % 24;
+        const daylight = Math.max(0, Math.sin(((hour - 6) / 13) * Math.PI));
+        ws.targets(t, hour, daylight, bi, (bi + 1 + (i % 5)) % 6, i % 3 === 0 ? 0 : ((i * 7) % 100) / 100, out);
+        take();
+      }
+      for (let i = 0; i < 3000; i++) {
+        const t = i * 4;
+        const st = ws.step(4, t, (5 + t / 100) % 24, 0.5, bi, bi, 0);
+        hs.num(st.wetness).num(st.snowCover).num(st.temp).str(st.kind);
+      }
+    }
+    for (let k = 0; k < 400; k++) {
+      for (let bi = 0; bi < 6; bi++) {
+        for (const p of [0, 0.1, 0.27999, 0.28, 0.38, 0.5, 0.55, 0.6, 0.66, 0.7, 0.72, 0.78, 0.82, 0.9, 0.95, 0.999]) hs.str(WeatherSystem.kindFor(BIOMES[bi].id, (p + k * 0.0025) % 1));
+      }
+    }
+    hs.str(WeatherSystem.kindFor('nowhere', 0.6));
+    for (const kind of WEATHER_KINDS) {
+      for (let bi = 0; bi < 6; bi++) {
+        for (const stage of [null, 0.4, 1.5, 2.6]) {
+          ws.force = kind;
+          ws.stage = stage;
+          ws.targets(1234, 6.5, 0.3, bi, bi, 0, out);
+          take();
+        }
+      }
+    }
+  }
+  return hs.hex;
+}
+
 /**
  * Ask a fresh world about a place far down its road before anything else, the way a teleport or a far
  * view does: a height near the end of what the trace reads, then the places of its second half. A world
@@ -250,12 +307,13 @@ export const REFERENCE_WORLDS: Record<string, ReferenceWorld> = {
 
 export const GOLDEN_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'world-golden.json');
 
-/** the golden file's contents: one fingerprint per reference world, and where they were taken */
-export type WorldGolden = Record<string, WorldFingerprint> & { _recorded: string };
+/** the golden file's contents: one fingerprint per reference world, the weather's, and where they were taken */
+export type WorldGolden = Record<string, WorldFingerprint> & { _recorded: string; _weather: string };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const all: Record<string, string | WorldFingerprint> = {
     _recorded: `node ${process.version} (${process.platform} ${process.arch}); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c`,
+    _weather: weatherTrace(),
   };
   for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) all[name] = worldTrace(ref.make(), ref.km);
   const text = JSON.stringify(all, null, 2) + '\n';

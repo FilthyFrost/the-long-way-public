@@ -4,11 +4,12 @@
  * water, sea, places, colossal remains, road furniture, twenty thousand heights — and each part must hash
  * to the value recorded in harness/sim/world-golden.json (the first four worlds: the values of
  * docs/V3/maps/world-core.md, Appendix A). Each world is traced a second time after being asked about a
- * place far down its road first: whoever asks first must not matter.
+ * place far down its road first: whoever asks first must not matter. The weather of the six regions of
+ * version 1 is held to its record the same way.
  */
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { GOLDEN_FILE, REFERENCE_WORLDS, TRACE_PARTS, askOutOfOrder, worldTrace, type WorldFingerprint, type WorldGolden } from './worldTrace';
+import { GOLDEN_FILE, REFERENCE_WORLDS, TRACE_PARTS, askOutOfOrder, weatherTrace, worldTrace, type WorldFingerprint, type WorldGolden } from './worldTrace';
 
 const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as WorldGolden;
 
@@ -25,7 +26,11 @@ function expectRecorded(got: WorldFingerprint, name: string, how: string): void 
 
 describe('world · version 1 worlds are bit-identical', () => {
   it('every reference world has its fingerprint on file, and the file holds no other', () => {
-    expect(Object.keys(golden).filter((k) => k !== '_recorded').sort()).toEqual(Object.keys(REFERENCE_WORLDS).sort());
+    expect(Object.keys(golden).filter((k) => !k.startsWith('_')).sort()).toEqual(Object.keys(REFERENCE_WORLDS).sort());
+  });
+
+  it('the weather of the six regions hashes as recorded', () => {
+    expect(weatherTrace(), `golden hashes recorded with ${golden._recorded}; this is node ${process.version}`).toBe(golden._weather);
   });
 
   for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) {
