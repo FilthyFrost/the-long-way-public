@@ -11,8 +11,13 @@
  *
  * A region takes whole stretches (slots of 1,250 m): its borders fall on stretch borders, so every stretch
  * belongs to one region and the director (director.ts) can plan a region stretch by stretch.
+ *
+ * The world's rules load this file (rules.ts names DEALER_V2), so it knows the registry's entries and the
+ * rules by their types and loads nothing of the road or the land to run.
  */
 import { hash2 } from '../math/rng';
+import { BIOMES, type RegionDef } from './biomes';
+import type { ChapterDealer, DealerView } from './rules';
 
 export type Intensity = 'calm' | 'scenic' | 'highlight';
 export type Climate = 'temperate' | 'dry' | 'cold' | 'warm';
@@ -34,6 +39,26 @@ export interface RegionCard {
   readonly surreal: boolean;
   /** how often it comes against the others of its class (1 = as often) */
   readonly weight: number;
+}
+
+/**
+ * The card of a region of the registry. What a region does not say for itself: calm, families of its own
+ * (its id, so that it looks different from every other), temperate, no sea, not surreal, as likely as its
+ * fellows.
+ */
+export function cardOf(def: RegionDef, index: number): RegionCard {
+  return {
+    index,
+    id: def.id,
+    intensity: def.intensity ?? 'calm',
+    palette: def.family?.palette ?? def.id,
+    land: def.family?.land ?? def.id,
+    flora: def.family?.flora ?? def.id,
+    climate: def.climate ?? 'temperate',
+    sea: def.sea ?? false,
+    surreal: def.surreal ?? false,
+    weight: def.weight ?? 1,
+  };
 }
 
 export interface Deal {
@@ -259,3 +284,36 @@ export function dealProblems(cards: readonly RegionCard[], dealt: readonly numbe
   }
   return bad;
 }
+
+/** the cards of the regions a world knows: the first `count` of the registry */
+export function cardsOf(count: number): RegionCard[] {
+  const cards: RegionCard[] = [];
+  for (let i = 0; i < count && i < BIOMES.length; i++) cards.push(cardOf(BIOMES[i], i));
+  return cards;
+}
+
+/**
+ * A chapter's length along the road (m): its stretches, as many as its intensity and its dice give, times
+ * the chapter scale (which is there for tests and screenshots: a scale below one packs the regions closer),
+ * a whole number of stretches always and never fewer than two.
+ */
+function lengthOf(slots: number, deal: DealerView): number {
+  return Math.max(2, Math.round(slots * deal.scale)) * deal.rules.slot;
+}
+
+/**
+ * The dealer of world version 2, as the chapter plan asks it (rules.ts ChapterDealer). Chapter 0 is the
+ * region the journey was asked to begin in; every chapter after it is dealt by `dealRegion` among the
+ * regions the world knows. The plan's own stream of dice is never touched: every chapter's dice are hashes
+ * of its index.
+ */
+export const DEALER_V2: ChapterDealer = {
+  first(deal) {
+    const card = cardOf(BIOMES[deal.startRegion], deal.startRegion);
+    return { region: deal.startRegion, length: lengthOf(slotsOf(deal.seed, 0, card.intensity), deal) };
+  },
+  next(deal) {
+    const d = dealRegion(deal.seed, deal.regions.length, cardsOf(deal.rules.regionCount), deal.regions);
+    return { region: d.region, length: lengthOf(d.slots, deal) };
+  },
+};

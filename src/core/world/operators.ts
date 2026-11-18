@@ -39,6 +39,13 @@ export function terrace(h: number, step: number, k: number): number {
 }
 
 /**
+ * The height of a dune field taken over all of it, as a share of `amp` (measured: 0.357 to 0.367 over
+ * fields of several sizes and seeds): what the far ring's coarse land, whose grid is wider than a dune, is
+ * raised by instead of the dunes themselves.
+ */
+export const DUNE_MEAN = 0.36;
+
+/**
  * The height (m) of a dune field at (x, z): 0 in the hollows, up to about `amp` on the crests. The rows lie
  * across the x axis turned by the field's own slow noise; `len` is the distance from crest to crest (m).
  */

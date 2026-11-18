@@ -9,13 +9,17 @@
  * Wheels, meshes and object placement all call this, so the road always fits the land and what
  * you see is what you drive on.
  */
+import { dcos, dsin } from '../math/detmath';
 import { fbm2, ridged2, simplex2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, type BiomeDef } from './biomes';
+import { featureSlots, runAt } from './director';
+import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
+import { DUNE_MEAN, dunes, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
 import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
@@ -139,7 +143,8 @@ function smax(a: number, b: number, k: number): number {
 /**
  * Mountains with a designed shape on a grid of cells of size C: 0…1.
  * shape 0 = rounded (broad shoulders, a soft top), 1 = a pyramid with three or four buttresses,
- * 2 = a table with steep sides. Neighbours merge softly, so a row of them reads as one range.
+ * 2 = a table with steep sides, 3 = a sugarloaf (the towers of karst country, seen whole on the skyline).
+ * Neighbours merge softly, so a row of them reads as one range.
  */
 function peakField(x: number, z: number, seed: number, C: number, shape: number): number {
   const ci = Math.floor(x / C);
@@ -164,10 +169,45 @@ function peakField(x: number, z: number, seed: number, C: number, shape: number)
         v = Math.pow(k, 1.12) * (1 + 0.2 * Math.cos(nb * Math.atan2(dz, dx) + (hh & 7)) * (1 - k));
       } else if (shape === 2) {
         v = smoothstep(0, 0.22, k) * (0.85 + 0.15 * k);
+      } else if (shape === 3) {
+        v = featureProfile('tower', 1 - k);
       } else {
         v = k * k * (3 - 2 * k) * 0.8 + 0.2 * k;
       }
       h = smax(h, v * tall, 0.1);
+    }
+  }
+  return h;
+}
+
+/**
+ * A field of sugarloaf towers on a grid of cells of size C: 0…1 (far shape 3: karst country beyond its
+ * near towers). A little over half the cells hold one, between half the full height and all of it; where
+ * two lean on each other the taller shows. `cap` is the most a tower may stand per metre of its radius, as a
+ * share of the full height: the caller's amplitude turned into the slope's limit (features.ts MAX_ASPECT),
+ * so that at that amplitude no flank is steeper than two in one. A tower reaches at most a third of a cell
+ * beyond its own, so the nine cells round a point hold every tower that covers it: no edge anywhere.
+ */
+function towerField(x: number, z: number, seed: number, C: number, cap: number): number {
+  const ci = Math.floor(x / C);
+  const cj = Math.floor(z / C);
+  let h = 0;
+  for (let dj = -1; dj <= 1; dj++) {
+    for (let di = -1; di <= 1; di++) {
+      const hh = hash2(ci + di, cj + dj, seed);
+      if ((hh & 0xff) > 150) continue;
+      const px = (ci + di + 0.15 + 0.7 * (((hh >>> 8) & 0xff) / 255)) * C;
+      const pz = (cj + dj + 0.15 + 0.7 * (((hh >>> 16) & 0xff) / 255)) * C;
+      const rad = C * (0.32 + 0.18 * (((hh >>> 24) & 0xff) / 255));
+      const dx = x - px;
+      const dz = z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= rad * rad) continue;
+      // (its height from bits of its own: the lowest eight decided whether the cell holds a tower at all)
+      let tall = 0.5 + 0.5 * ((((hh >>> 12) ^ (hh >>> 20) ^ (hh >>> 28)) & 0xff) / 255);
+      if (tall > cap * rad) tall = cap * rad;
+      const v = tall * featureProfile('tower', Math.sqrt(d2) / rad);
+      if (v > h) h = v;
     }
   }
   return h;
@@ -202,6 +242,11 @@ export class World implements Ground {
   readonly sites: SitePlan;
   /** what the road carries along its edges: delineators, guard rails, chevrons, kilometre stones */
   readonly furniture: Furniture;
+  /**
+   * The anchored landforms beside the road — tower clusters, buttes — in a world of version 2 (features.ts);
+   * null in a world of version 1, which has none.
+   */
+  readonly features: FeaturePlan | null;
   private readonly lp = new LandParams();
   private readonly we = new WaterEffect();
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
@@ -238,6 +283,43 @@ export class World implements Ground {
     );
     this.sites = new SitePlan(this, new TerrainPoint(), this.seed);
     this.furniture = new Furniture(this, new TerrainPoint(), this.seed);
+    this.features = this.rules.version >= 2 ? this.featurePlan() : null;
+  }
+
+  /**
+   * The plan of the anchored landforms. It is laid out stretch by stretch from the road, the water plan's
+   * boxes and the director's programme, none of which asks the land for a height: the land asks this plan
+   * at every point (`shape`), so nothing it reads may ask the land in its turn.
+   */
+  private featurePlan(): FeaturePlan {
+    const sp = this.spine;
+    const st = new SpineSample();
+    const road = {
+      at(s: number, out: { x: number; z: number; cos: number; sin: number }): void {
+        sp.at(s, st);
+        out.x = st.x;
+        out.z = st.z;
+        out.cos = dcos(st.phi);
+        out.sin = dsin(st.phi);
+      },
+    };
+    return new FeaturePlan(road, this.seed, (k) => this.featureRecipes(k), (x, z, s) => this.water.mayReach(x, z, s), this.rules.slot);
+  }
+
+  /**
+   * What a cluster of anchored landforms in stretch k is made of: its region's recipes, if the director
+   * gives the stretch to landforms (as many stretches of a chapter as the region asks for) and it is
+   * neither one of the quiet ones nor by the sea; null otherwise.
+   */
+  private featureRecipes(k: number): readonly FeatureRecipe[] | null {
+    const plan = this.spine.plan;
+    const run = runAt(plan, k);
+    const region = BIOMES[plan.biomes[run.chapter]];
+    const want = region.featureSlots ?? 0;
+    if (want <= 0 || !region.features || region.features.length === 0) return null;
+    if (!featureSlots(this.seed, { chapter: run.chapter, k0: run.k0, k1: run.k1, features: want }).includes(k)) return null;
+    if (this.quiet(k) || this.sea.near(k) || this.sea.along(k)) return null;
+    return region.features;
   }
 
   /** is stretch k one of the journey's quiet ones? (the rules' quiet rule; version 1's is quiet.ts: no place, no lake, no bridge, no landmark there) */
@@ -266,6 +348,14 @@ export class World implements Ground {
         const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 3);
         const top = smoothstep(0.1, 0.19, n);
         f = top * (0.8 + 0.2 * fbm2(x / 160, z / 160, seed + 4, 2)) + 0.05 * smoothstep(-0.1, 0.1, n);
+      } else if (b.farShape === 3) {
+        // towers: sugarloaves in cells of farLen, half to all of farAmp tall, and smaller ones half their
+        // size between them — the same towers for the far ring's coarse land, so that none changes as
+        // it comes nearer
+        const cap = MAX_ASPECT.tower / b.farAmp;
+        const big = towerField(x, z, seed + 5, b.farLen, cap);
+        const small = 0.5 * towerField(x + 0.37 * b.farLen, z + 0.61 * b.farLen, seed + 6, b.farLen * 0.5, 2 * cap);
+        f = big > small ? big : small;
       } else {
         const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 4);
         const k = smoothstep(-0.3, 0.75, n);
@@ -396,6 +486,10 @@ export class World implements Ground {
       ditchDepth += (B.ditch - ditchDepth) * bl.t;
     }
     rel += LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
+    // land: the base follows the nearest road point close in, and the same-x road point far out
+    const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
+    // (a world of version 2: the stretch's terraces and dunes; no stretch of a world of version 1 has either)
+    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse);
     o.s = s;
     o.d = d;
     o.roadY = q.y;
@@ -411,8 +505,6 @@ export class World implements Ground {
     o.zone = 0;
     o.site = 0;
 
-    // land: the base follows the nearest road point close in, and the same-x road point far out
-    const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
     let T = base + rel;
     o.wl = -Infinity;
     o.frozen = 0;
@@ -439,6 +531,11 @@ export class World implements Ground {
         o.frozen = 0;
       }
     }
+    // The anchored landforms of a world of version 2 stand on the land as it lies by now — near the
+    // road, far from it and in the far ring's coarse land alike, so that a tower is the same tower
+    // whoever draws it. They keep clear of the road's corridor (features.ts CLEAR), so the road, its
+    // shoulders, its verge and the ground of the places are what they were.
+    if (this.features !== null) T += this.features.heightAt(x, z, s0);
     if (!near) {
       o.h = o.bed = T;
       if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;
@@ -496,6 +593,30 @@ export class World implements Ground {
     if (o.frozen > 0.5 && o.wl > o.h && o.zone === 0) o.h = o.wl;
     o.plot = 0;
     if (this.plots.length) this.onPlots(x, z, o, ad);
+  }
+
+  /**
+   * The cross-section operators of a world of version 2 (operators.ts) on the relief of a point `ad` m from
+   * the road, the land's height there being base + rel. Both leave the road's corridor as it is: they
+   * change the land the verge blends into and the places' ground is levelled from, not the blend, the
+   * shoulder or the levelled ground themselves.
+   *
+   *   terraces  from 14 m out, in full from 34 m; in full to 350 m and gone by 600 m, where the far ring's
+   *             grid could not draw a step of four metres. The benches are cut in the land's own height,
+   *             not in its height above the road: a bench stays level where the road beside it climbs.
+   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes. The far
+   *             ring's coarse land is raised by their mean height instead: its grid is wider than a dune.
+   */
+  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean): number {
+    if (lp.terrace > 0 && !coarse) {
+      const w = smoothstep(14, 34, ad) * (1 - smoothstep(350, 600, ad));
+      if (w > 0) rel = terrace(base + rel, lp.step, lp.terrace * w) - base;
+    }
+    if (lp.dune > 0) {
+      const w = smoothstep(16, 60, ad);
+      if (w > 0) rel += (coarse ? DUNE_MEAN * lp.dune : dunes(x, z, this.seed, lp.dune, lp.duneLen)) * w;
+    }
+    return rel;
   }
 
   /** is (x, z) wholly on a plot that lets no grass of the world's grow there (Plot.bare) */
