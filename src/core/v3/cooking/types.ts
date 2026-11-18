@@ -28,7 +28,7 @@ export interface Ingredient {
 }
 
 /** the ways of cooking, each from its cookware */
-export type Method = 'mix' | 'roast' | 'fry' | 'stirfry' | 'steam' | 'soup' | 'stew' | 'rice' | 'bake' | 'brew';
+export type Method = 'mix' | 'roast' | 'fry' | 'stirfry' | 'steam' | 'soup' | 'stew' | 'rice' | 'bake' | 'brew' | 'dry' | 'smoke' | 'pickle';
 
 /** what a method does: how much more nourishing it makes fresh produce, the water a serving gains, whether it heats (raw things become safe), the cookware that does it */
 export const METHODS: Readonly<Record<Method, { name: Text; gain: number; water: number; heats: boolean; cookware: readonly string[] }>> = {
@@ -42,6 +42,10 @@ export const METHODS: Readonly<Record<Method, { name: Text; gain: number; water:
   rice: { name: { zh: '饭面', en: 'Rice and noodles' }, gain: 2.0, water: 5, heats: true, cookware: ['pot'] },
   bake: { name: { zh: '烘焙', en: 'Bake' }, gain: 1.9, water: 0, heats: true, cookware: ['oven', 'dutch_oven'] },
   brew: { name: { zh: '饮品', en: 'Brew' }, gain: 1.0, water: 28, heats: true, cookware: ['kettle'] },
+  // the three ways of keeping: not a meal so much as food that lasts (their dishes are preserves, which do not go off)
+  dry: { name: { zh: '晾干', en: 'Dry' }, gain: 1.3, water: 0, heats: true, cookware: ['rack'] },
+  smoke: { name: { zh: '烟熏', en: 'Smoke' }, gain: 1.3, water: 0, heats: true, cookware: ['smoker'] },
+  pickle: { name: { zh: '腌', en: 'Pickle' }, gain: 1.3, water: 0, heats: true, cookware: ['jar'] },
 };
 
 /** the twelve sorts of dish (docs/V3/CATALOG.md) */

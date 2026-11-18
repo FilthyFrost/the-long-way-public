@@ -16,7 +16,9 @@ const METHOD_IDS = Object.keys(METHODS) as Method[];
 
 /** the portions that could fill a need */
 function fillers(s: Slot): string[] {
-  const out = ALL.filter((x) => (s.item !== undefined ? x.item === s.item : s.tag !== undefined ? x.tags.includes(s.tag) : s.cls!.includes(x.cls))).map((x) => x.item);
+  // (fresh things before packed ones: a recipe is meant for what one picks and catches)
+  const fit = ALL.filter((x) => (s.item !== undefined ? x.item === s.item : s.tag !== undefined ? x.tags.includes(s.tag) : s.cls!.includes(x.cls)));
+  const out = [...fit.filter((x) => !x.processed), ...fit.filter((x) => x.processed)].map((x) => x.item);
   if (!out.length) throw new Error(`nothing fills ${JSON.stringify(s)}`);
   return out;
 }
@@ -75,7 +77,11 @@ describe('ingredients', () => {
 describe('recipes', () => {
   it('have ids of their own, needs that things exist for, and pots of five portions at most', () => {
     expect(new Set(RECIPES.map((r) => r.id)).size).toBe(RECIPES.length);
-    expect(RECIPES.length).toBeGreaterThanOrEqual(55);
+    // the catalogue's 150, as many of each class as it says
+    expect(RECIPES.length).toBe(150);
+    const per: Record<string, number> = {};
+    for (const r of RECIPES) per[r.cls] = (per[r.cls] ?? 0) + 1;
+    expect(per).toEqual({ soup: 14, stew: 16, stirfry: 16, roast: 16, fry: 12, steam: 10, rice: 14, salad: 10, preserve: 12, sweet: 10, drink: 12, camp: 8 });
     for (const r of RECIPES) {
       const n = r.need.reduce((a, s) => a + s.n, 0);
       expect(n, r.id).toBeGreaterThanOrEqual(1);
@@ -218,7 +224,9 @@ describe('what comes out of a pot', () => {
   it('plain dishes are named for what is mostly in them, and a hot pot warms', () => {
     expect(cook('soup', [{ item: 'dandelion' }, { item: 'nettle' }], GOOD).recipe).toBeNull();
     expect(cook('soup', [{ item: 'dandelion' }, { item: 'watercress' }], GOOD).name.zh).toBe('野菜汤');
-    expect(cook('roast', [{ item: 'food_fish_can' }], GOOD).name.zh).toBe('烤鱼');
+    expect(cook('roast', [{ item: 'dandelion' }, { item: 'nettle' }], GOOD).name.zh).toBe('烤蔬菜');
+    // (a fish alone on the fire is a recipe of its own now)
+    expect(cook('roast', [{ item: 'food_fish_can' }], GOOD).recipe).toBe('fish_on_stick');
     expect(cook('brew', [{ item: 'thyme' }], GOOD).name.zh).toBe('香草茶');
     const hot = cook('stirfry', [{ item: 'dandelion' }, { item: 'chili' }], GOOD);
     expect(hot.buff).toBe('warm');
