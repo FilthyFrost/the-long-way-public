@@ -22,8 +22,12 @@ import { newTool, type Tool, type ToolKind } from './tools';
 import type { PartDef, PartInstance } from './types';
 import { findOdds } from './wrecks';
 
-/** a thing found: an item (its id), a tool, or a part */
-export type Found = { item: string } | { tool: Tool } | { part: PartInstance };
+/**
+ * A thing found: an item (its id), a tool, or a part. An item may be found as a stack of `n`, of a quality `q`
+ * (1-5 stars) and with its system's own `state`; without them it is one plain thing, as every table here gives.
+ * Its freshness starts counting when it is found (where a Found becomes an instance: places.ts heldOfFound).
+ */
+export type Found = { item: string; n?: number; q?: number; state?: import('./items').ItemState } | { tool: Tool } | { part: PartInstance };
 
 type Pick =
   /** one of the items of a category (graded: better further on) */

@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { hash2 } from '../../core/math/rng';
 import { partStars } from '../../core/modcar/crafting';
+import { itemSig } from '../../core/modcar/items';
 import type { Build } from '../../core/modcar/types';
 import { isRare, rollWreck, type WreckRoll } from '../../core/modcar/wrecks';
 import type { Site } from '../../core/world/sites';
@@ -120,10 +121,15 @@ export interface LiveWreck {
   greeted: boolean;
 }
 
-/** a build as it stands, to the hundredth (its ids aside): a part off or on, cleaned, painted, siphoned all show */
+/**
+ * A build as it stands, to the hundredth (its ids aside): a part off or on, cleaned, painted, siphoned all show.
+ * A thing riding in it shows as what it is in the state it is in (items.ts itemSig: its kind, how many of it,
+ * what is left in it, what it holds), so some taken off a stack, a bottle drunk from or a thing put into a
+ * box in the boot is a touch too.
+ */
 function sigOf(b: Build, riders: readonly SavedLoose[]): string {
   const round = (k: string, v: unknown): unknown => (k === 'uid' || k === 'cargo' ? undefined : typeof v === 'number' ? Math.round(v * 100) / 100 : v);
-  return JSON.stringify(b, round) + '|' + riders.map((l) => l.item?.item ?? l.tool?.kind ?? l.part?.part ?? '').sort().join(',');
+  return JSON.stringify(b, round) + '|' + riders.map((l) => (l.item ? itemSig(l.item) : (l.tool?.kind ?? l.part?.part ?? ''))).sort().join(',');
 }
 
 export class Wrecks {

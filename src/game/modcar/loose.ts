@@ -4,9 +4,13 @@
  * whatever surface is under them (the floor, a shelf, a bench) and stay there. Put down over a vehicle
  * (into a pickup's bed, onto a seat, a roof, a bonnet) they land on it and ride with it, tied down,
  * wherever it goes: the spare jerrycan on the road.
+ *
+ * A stack of things (items.ts: one instance with a count) lies about as ONE thing, drawn as one of its kind;
+ * nothing joins up by itself on the ground. A thing that goes off starts doing so, at the latest, as it comes
+ * to lie here, and when it has turned into another kind it is drawn again as that (settle).
  */
 import * as THREE from 'three';
-import { itemDef, itemPaint, type ItemInstance } from '../../core/modcar/items';
+import { itemDef, itemPaint, settleItem, stampFresh, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import { paintNow, sprayTier } from '../../core/modcar/paint';
@@ -17,6 +21,7 @@ import type { RenderCore } from '../render/core';
 import type { CarLook } from '../render/carMaterials';
 import { MergedCar } from '../render/carMerge';
 import { cloneModel, itemGlb, panelPaint, partModel, seatTyres, toolGlb } from './assets';
+import { itemNow } from './itemTime';
 import { applyMaterials, matNames, type CarMaterials, type LookOf } from './materials';
 import { castMesh } from '../render/triGrid';
 import { glassName } from './grime';
@@ -59,6 +64,8 @@ export interface Loose {
   lie?: 'z' | 'x';
   /** where it will land as it falls: found once when it starts, the floor or a vehicle's surface */
   landing?: { y: number; on: Carrier | null };
+  /** an item: the kind its model was made for (one that has gone off is another kind now: its model is made again) */
+  madeAs?: string;
 }
 
 /** where a dropped thing comes to rest: the highest surface at (x, z) not above `fromY` */
@@ -208,6 +215,13 @@ export class LooseThings {
 
   /** the vehicles things can be put on (the game fills this in) */
   carriers: () => readonly Carrier[] = () => [];
+  /**
+   * Goes up whenever the things lying about change: one comes or goes, lands or is lifted, becomes another
+   * kind, or is said to have changed in itself (touch). A list of them is built again only when it has moved.
+   */
+  rev = 0;
+  /** which thing is looked at next for having gone off (one a frame) */
+  private settleAt = 0;
   private readonly qa = new THREE.Quaternion();
   private readonly va = new THREE.Vector3();
 
@@ -272,7 +286,16 @@ export class LooseThings {
   }
 
   addItem(item: ItemInstance, x: number, y: number, z: number, yaw = 0): Loose {
+    // (a thing that goes off and has not started yet starts now: it is in the world)
+    stampFresh(item, itemNow());
     const l = this.make(null, null, x, y, z, yaw, item);
+    this.dressItem(l, item);
+    return l;
+  }
+
+  /** an item's model in its colours: a stand-in at once, its own model when that is in. A stack is one thing: one model of its kind. */
+  private dressItem(l: Loose, item: ItemInstance): void {
+    l.madeAs = item.item;
     const look = this.mats.look(ownerOf(l), itemPaint(item));
     const obj = itemStandIn(item);
     applyMaterials(obj, look);
@@ -280,7 +303,8 @@ export class LooseThings {
     this.mergeDirty = true;
     this.measure(l);
     void this.track(itemGlb(itemDef(item.item).model)).then((m) => {
-      if (!m || !this.list.includes(l)) return;
+      // (gone, or dressed again as another kind since: this model is not wanted any more)
+      if (!m || !this.list.includes(l) || obj.parent !== l.obj) return;
       const real = cloneModel(m);
       applyMaterials(real, look);
       obj.removeFromParent();
@@ -288,7 +312,34 @@ export class LooseThings {
       this.unmerge();
       this.measure(l);
     });
-    return l;
+  }
+
+  /**
+   * A thing lying about that has turned becomes what its kind goes off into (items.ts settleItem), where it
+   * lies, and is drawn again as that. True when it changed. update looks at one thing a frame; whoever lists
+   * a thing or hands it over asks at once.
+   */
+  settle(l: Loose, nowS: number): boolean {
+    if (!l.item || !settleItem(l.item, nowS)) return false;
+    this.redress(l);
+    return true;
+  }
+
+  /** an item's model made again (it is another kind now) */
+  private redress(l: Loose): void {
+    const item = l.item!;
+    l.obj.clear();
+    l.obj.name = `loose:${item.item}`;
+    // (its box for packing is its model's)
+    l.box = undefined;
+    this.unmerge();
+    this.dressItem(l, item);
+    this.rev++;
+  }
+
+  /** a thing lying about changed in itself (some taken off a stack, a thing put into a box): lists of them are built again */
+  touch(): void {
+    this.rev++;
   }
 
   addTool(tool: Tool, x: number, y: number, z: number, yaw = 0): Loose {
@@ -412,6 +463,7 @@ export class LooseThings {
     this.root.add(obj);
     const l: Loose = { uid: `l${n.toString(36)}`, part, tool, item, x, y, z, yaw, vy: 0, resting: false, obj, radius: 0.3, mid: 0.2 };
     this.list.push(l);
+    this.rev++;
     return l;
   }
 
@@ -429,6 +481,7 @@ export class LooseThings {
 
   remove(l: Loose): void {
     this.unmerge();
+    this.rev++;
     const i = this.list.indexOf(l);
     if (i >= 0) this.list.splice(i, 1);
     l.obj.removeFromParent();
@@ -442,6 +495,7 @@ export class LooseThings {
     l.vy = 0;
     l.riding = null;
     l.landing = undefined;
+    this.rev++;
     this.unmerge();
   }
 
@@ -474,6 +528,7 @@ export class LooseThings {
     }
     l.resting = true;
     this.mergeDirty = true;
+    this.rev++;
   }
 
   /** what rides on a carrier */
@@ -546,6 +601,14 @@ export class LooseThings {
         l.obj.updateMatrixWorld();
         this.mats.setFrameOf(ownerOf(l), l.obj.matrixWorld);
       }
+    }
+    // one thing a frame: an item that goes off, has it turned into what its kind becomes? (and one that whoever
+    // looked at it last has settled already is drawn as what it is now)
+    if (this.list.length) {
+      this.settleAt = (this.settleAt + 1) % this.list.length;
+      const l = this.list[this.settleAt];
+      const it = l.item;
+      if (it && ((it.fresh !== undefined && settleItem(it, itemNow())) || (l.madeAs !== undefined && l.madeAs !== it.item))) this.redress(l);
     }
     this.tryMerge();
     if (this.mergedLook) {
