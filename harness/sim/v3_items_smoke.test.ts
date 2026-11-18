@@ -3,7 +3,7 @@
  * catalogue, tolerant loading): the contract in brief. The full tests and properties are harness/sim/v3_items.test.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { BASE_ITEMS, ITEMS, accepts, canStack, cleanItem, countOf, freshNow, itemCatalogueProblems, itemCats, itemMass, itemName, itemSig, mergeStacks, newItem, putInside, registerItemCat, registerItems, roomInside, salvageOf, settleItem, splitStack, stampFresh, takeInside } from '../../src/core/modcar/items';
+import { BASE_ITEMS, ITEMS, accepts, canStack, cleanItem, countOf, freshNow, itemCatalogueProblems, itemCats, itemMass, itemName, itemSig, itemVeil, mergeStacks, newItem, putInside, registerItemCat, registerItems, roomInside, salvageOf, setItemVeil, settleItem, splitStack, stampFresh, takeInside } from '../../src/core/modcar/items';
 
 registerItemCat({ id: 't_smoke', name: { zh: '试验', en: 'Test' } });
 registerItems([
@@ -13,6 +13,19 @@ registerItems([
 ]);
 
 describe('item model, V3 additions (smoke)', () => {
+  it('a veiled kind goes by the veil\'s name everywhere a name is asked, and by its own once the veil lifts', () => {
+    const a = newItem('t_berry', { n: 3, t0: 0 });
+    setItemVeil((id) => (id === 't_berry' ? { zh: '不认识的果子', en: 'Unknown fruit' } : null));
+    expect(itemName(a)).toBe('不认识的果子 ×3');
+    expect(itemName(a, 'en')).toBe('Unknown fruit ×3');
+    expect(itemVeil('t_berry')).toEqual({ zh: '不认识的果子', en: 'Unknown fruit' });
+    expect(itemVeil('t_basket')).toBeNull();
+    expect(itemName(newItem('t_basket'))).toBe('试验篮');
+    setItemVeil(null);
+    expect(itemName(a)).toBe('试验莓 ×3');
+    expect(itemVeil('t_berry')).toBeNull();
+  });
+
   it('registers without touching what was there', () => {
     expect(BASE_ITEMS.length).toBe(ITEMS.length - 3);
     expect(itemCats().map((c) => c.id).slice(0, 9)).toEqual(['food', 'drink', 'med', 'wear', 'pack', 'lamp', 'gear', 'junk', 'crate']);
