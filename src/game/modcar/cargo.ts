@@ -106,6 +106,9 @@ export class CargoBay {
   ) {
     this.mat.toneMapped = false;
     this.cam.matrixAutoUpdate = false;
+    // a thing riding in a vehicle that came to weigh something else by itself (it, or a thing in it, turned into
+    // another kind: loose.ts settle): the vehicle is weighed again (what things ride on are the vehicles)
+    loose.weightChanged = (on) => this.weigh(on as ModVehicle);
   }
 
   // ------------------------------------------------------------------ floors

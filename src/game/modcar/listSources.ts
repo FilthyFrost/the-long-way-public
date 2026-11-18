@@ -16,17 +16,22 @@
  *    hands (boxOnMark, boxInHand; the game asks them before a vehicle or what one has on);
  *  - a system's own: `openList(source)`, from its device's `use`. Its box is an ItemInstance of a kind that
  *    holds things, kept and saved by the system: `boxList(box, { near })` is its source. A source of another
- *    make implements ListSource itself.
+ *    make implements ListSource itself, and hands a row over with `intoHands` (which says HANDS_FULL when
+ *    nothing went and selects the slot when all did), as the sources here do.
+ *
+ * Also here, so that it runs without the game or a page: the guard every source is asked through (Guarded: a
+ * source that throws is reported and its list shuts), and what the list keeps from frame to frame while it is
+ * open and what its keys do (Listing). ModGame holds the one Listing and what the list is open on.
  *
  * Nothing here knows the game but through ListHost, and ModGame is never imported: a system's module may import
  * this file (docs/V3/nodes/N0-foundation.md §7). What it takes as values from player.ts and cargo.ts are three
  * small functions; those two files come with them, and load without a page as this one does
- * (harness/sim/v3_lists.test.ts runs the sources in Node).
+ * (harness/sim/v3_lists.test.ts and v3_world.test.ts run all of it in Node).
  */
 import { zoneOf } from '../../core/modcar/cargo';
-import { accepts, countOf, itemDef, itemMass, itemName, putInside, roomInside, setFreshRate, settleItem, takeInside, type ItemInstance } from '../../core/modcar/items';
+import { accepts, countOf, hasItem, itemDef, itemMass, itemName, putInside, roomInside, setFreshRate, settleItem, takeInside, type ItemInstance } from '../../core/modcar/items';
 import { massOf, type CargoBay } from './cargo';
-import type { CargoRow } from './cargoList';
+import type { CargoRow, CargoView } from './cargoList';
 import { itemNow } from './itemTime';
 import type { Loose, LooseThings } from './loose';
 import type { PlaceContainer, Places } from './places';
@@ -51,7 +56,8 @@ export interface ListSource {
   near(): boolean;
   /**
    * A value that changes whenever rows() would give something else (a change counter, a number made of what is
-   * in it). Asked every frame the list is open, so it is cheap and allocates nothing: the rows are built again
+   * in it; with rows that go off: also once one of them has turned into another kind since the rows were
+   * built). Asked every frame the list is open, so it is cheap and allocates nothing: the rows are built again
    * only when it has changed.
    */
   version(): number | string;
@@ -60,8 +66,9 @@ export interface ListSource {
   /** what it all weighs (kg); absent: the rows' weights added up */
   load?(): number;
   /**
-   * The i-th row into the hands, through ModPlayer.receive. Only some of a stack going is normal: the rest
-   * stays where it was. True when anything went; when nothing did, the source has said why.
+   * The i-th row into the hands, through ModPlayer.receive (intoHands does it as the sources here do). Only
+   * some of a stack going is normal: the rest stays where it was. True when anything went; when nothing did,
+   * the source has said why and nothing has changed, the slot selected included.
    */
   takeAt(i: number): boolean;
   /** how many of the thing in the hands would go in now (0: none); changes nothing and allocates nothing. Absent with `put`: all of it. */
@@ -320,7 +327,8 @@ export function boxList(box: ItemInstance, opts: BoxOpts & { near(): boolean }):
 const MARK_REACH = 2.6;
 const BOX_REACH = 2.8;
 
-const FULL = '两只手都占着：先放下一件（长按 G）。';
+/** what is said when the hands take none of a thing handed to them */
+export const HANDS_FULL = '两只手都占着：先放下一件（长按 G）。';
 
 /** how many a thing in the hands is (a stack counts its count; a part or a tool is one) */
 export function countOfHeld(h: NonNullable<Held>): number {
@@ -353,21 +361,55 @@ function slotOfItem(p: ModPlayer, item: ItemInstance): number {
  * A thing taken out of a list is in the hands: the slot it went into is the one selected, as it always was.
  * (One that went onto a stack or into a box in a slot is in no slot of its own: the hands stay as they are.)
  */
-function bringUp(p: ModPlayer, h: NonNullable<Held>): void {
+export function bringUp(p: ModPlayer, h: NonNullable<Held>): void {
   const at = slotOf(p, h);
   if (at >= 0) p.sel = at;
 }
 
 /**
- * A thing into the hands (ModPlayer.receive): how many of its `n` did NOT go. None going is said. Some of a
- * stack going is normal: the same instance stays where it was, fewer.
+ * A thing out of a source into the hands (ModPlayer.receive): how many of it did NOT go. None going is said
+ * (HANDS_FULL), and nothing has changed then. Some of a stack going is normal: the same instance stays the
+ * source's, fewer. All of it going (0): the source lets go of it, and the slot it sits in, if it has one of
+ * its own, is the one selected. For any source's takeAt, a system's own too (`host`: the game, or a system's
+ * context: whatever has the player and the words on screen).
  */
-function intoHands(host: ListHost, h: NonNullable<Held>, n: number): number {
+export function intoHands(host: Pick<ListHost, 'player' | 'ui'>, h: NonNullable<Held>): number {
   const p = host.player;
-  const left = p.roomFor(h) > 0 ? p.receive(h) : n;
-  if (left >= n) host.ui.say(FULL, 2.2);
+  const n = countOfHeld(h);
+  const left = p.receive(h);
+  if (left >= n) host.ui.say(HANDS_FULL, 2.2);
+  else if (left <= 0) bringUp(p, h);
   return left;
 }
+
+// ------------------------------------------------------------------ rows that go off
+
+/** a thing that should have turned by this file's sum, and that the core does not turn yet, is looked at again this much later (s of the world's time) */
+const TURN_AGAIN = 0.05;
+
+/**
+ * The world time at which a thing that goes off will have turned into another kind, its name with it
+ * (Infinity: it does not turn into anything, has not started, or keeps for ever where it is). By the instance's
+ * own fields as items.ts gives them: `fresh` as of `t0`, running out over its kind's `perish.hours` at the
+ * rate `fk`. Asked as rows are built (after they were settled), never per frame: a source keeps the soonest of
+ * its rows, and its version() only compares the clock with that.
+ */
+function turnsAt(x: ItemInstance, now: number): number {
+  const f0 = x.fresh;
+  const t0 = x.t0;
+  if (f0 === undefined || t0 === undefined) return Infinity;
+  const p = itemDef(x.item).perish;
+  if (!p || p.into === undefined || !hasItem(p.into)) return Infinity;
+  const k = x.fk ?? 1;
+  if (!(k > 0)) return Infinity;
+  const f = f0 < 1 ? f0 : 1;
+  const t = f > 0 ? t0 + (f * p.hours * 3600) / k : t0;
+  // (due by this sum already, and the core has not turned it: asked again a moment on)
+  return t > now ? t : now + TURN_AGAIN;
+}
+
+/** the bit of a source's version that says "a row has turned since the rows were built" (the rest is the source's own count or key, kept under it) */
+const TURNED = 0x20000000;
 
 // ------------------------------------------------------------------ what rides in a vehicle
 
@@ -378,6 +420,8 @@ class VehicleList implements ListSource {
   readonly shutEmpty = true;
   /** the things behind the rows, in the rows' order */
   private things: Loose[] = [];
+  /** when the first of the rows that go off will have turned (the world's time; Infinity: none does) */
+  private turnAt = Infinity;
 
   constructor(
     private readonly host: ListHost,
@@ -388,16 +432,24 @@ class VehicleList implements ListSource {
     return this.v.view.frame.name.zh;
   }
 
-  /** standing by it, and it is not driving off */
+  /**
+   * Standing by it, and it is not driving off. (The distance by a square root written out here, as in the
+   * other sources: Math.hypot is a call the engine does not fold in, and the fractions handed to it and back
+   * are put on the heap, three of them every frame the list is open.)
+   */
   near(): boolean {
     const host = this.host;
     const v = this.v;
     const w = host.player.walker;
-    return !host.seated && host.vehicles.includes(v) && Math.hypot(v.sim.px - w.x, v.sim.pz - w.z) - v.sim.spec.body.halfLength <= 4 && Math.abs(v.sim.kmh) <= 3;
+    const dx = v.sim.px - w.x;
+    const dz = v.sim.pz - w.z;
+    return !host.seated && host.vehicles.includes(v) && Math.sqrt(dx * dx + dz * dz) - v.sim.spec.body.halfLength <= 4 && Math.abs(v.sim.kmh) <= 3;
   }
 
+  /** the things lying about as last counted, and whether a row has turned since the rows were built (the clock is not even read while no row goes off) */
   version(): number {
-    return this.host.loose.rev;
+    const rev = this.host.loose.rev & (TURNED - 1);
+    return this.turnAt !== Infinity && itemNow() >= this.turnAt ? rev | TURNED : rev;
   }
 
   /** the things in it, by zone (in the zones' order), then by name */
@@ -405,16 +457,19 @@ class VehicleList implements ListSource {
     const host = this.host;
     const frame = this.v.view.frame.id;
     const now = itemNow();
+    let turn = Infinity;
     const list = host.cargo
       .ridersOf(this.v)
       .map((l) => {
         // (a thing that has gone off is what it has become before it is named)
         host.loose.settle(l, now);
+        if (l.item) turn = Math.min(turn, turnsAt(l.item, now));
         const h = heldOf(l);
         const zone = l.stow ? zoneOf(frame, l.stow) : null;
         return { order: zone?.order ?? 99, row: { zone: zone?.label.zh ?? '车上', name: heldName(h), mass: massOf(h), icon: host.iconOf(h) }, loose: l };
       })
       .sort((a, b) => a.order - b.order || a.row.name.localeCompare(b.row.name));
+    this.turnAt = turn;
     this.things = list.map((x) => x.loose);
     return list.map((x) => x.row);
   }
@@ -432,12 +487,11 @@ class VehicleList implements ListSource {
     const h = heldOf(l);
     const n = countOfHeld(h);
     const kg = massOf(h);
-    const left = intoHands(host, h, n);
+    const left = intoHands(host, h);
     if (left >= n) return false;
     // (all of it: nothing of it lies in the vehicle any more; some: the rest rides on, fewer)
     if (left <= 0) host.loose.remove(l);
-    else host.loose.touch();
-    bringUp(host.player, h);
+    else host.loose.touch(l);
     host.cargo.weigh(this.v);
     host.sound('pickup', (kg * (n - left)) / n);
     return true;
@@ -457,6 +511,8 @@ class PlaceList implements ListSource {
   readonly empty: string;
   readonly takeWord = '拿出来';
   readonly shutEmpty = true;
+  /** when the first of the rows that go off will have turned (the world's time; Infinity: none does) */
+  private turnAt = Infinity;
 
   constructor(
     private readonly host: ListHost,
@@ -471,21 +527,32 @@ class PlaceList implements ListSource {
   near(): boolean {
     const c = this.pc.c;
     const w = this.host.player.walker;
-    return !this.host.seated && Math.hypot(c.x - w.x, c.z - w.z) - Math.max(c.hx, c.hz) <= 2.6;
+    const dx = c.x - w.x;
+    const dz = c.z - w.z;
+    return !this.host.seated && Math.sqrt(dx * dx + dz * dz) - Math.max(c.hx, c.hz) <= 2.6;
   }
 
+  /** how often what is in it has changed, and whether a row has turned since the rows were built */
   version(): number {
-    return this.pc.rev;
+    const rev = this.pc.rev & (TURNED - 1);
+    return this.turnAt !== Infinity && itemNow() >= this.turnAt ? rev | TURNED : rev;
   }
 
   rows(): CargoRow[] {
     const host = this.host;
     const pc = this.pc;
     const now = itemNow();
-    return (pc.contents ?? []).map((h) => {
-      if (h.kind === 'item') settleItem(h.item, now);
+    let turn = Infinity;
+    const rows = (pc.contents ?? []).map((h) => {
+      if (h.kind === 'item') {
+        // (a thing that has gone off is what it has become before it is named)
+        settleItem(h.item, now);
+        turn = Math.min(turn, turnsAt(h.item, now));
+      }
       return { zone: pc.name, name: heldName(h), mass: massOf(h), icon: host.iconOf(h) };
     });
+    this.turnAt = turn;
+    return rows;
   }
 
   takeAt(i: number): boolean {
@@ -497,13 +564,12 @@ class PlaceList implements ListSource {
     if (h.kind === 'item') settleItem(h.item, itemNow());
     const n = countOfHeld(h);
     const kg = massOf(h);
-    const left = intoHands(host, h, n);
+    const left = intoHands(host, h);
     if (left >= n) return false;
     if (left <= 0) list.splice(i, 1);
     // (what is left in it is kept as it stands from now on: places.ts, the save)
     if (host.places) host.places.kept(pc);
     else pc.rev++;
-    bringUp(host.player, h);
     host.sound('pickup', (kg * (n - left)) / n);
     return true;
   }
@@ -576,8 +642,8 @@ function insideKey(box: ItemInstance): number {
     h = Math.imul(h, 31) + strKey(x.item);
     h = Math.imul(h, 31) + (x.n ?? 1);
   }
-  // (kept small: a number the engine holds without putting it on the heap)
-  return h & 0x3fffffff;
+  // (kept small: a number the engine holds without putting it on the heap, with a bit over it to spare: TURNED)
+  return h & (TURNED - 1);
 }
 
 function strKey(s: string): number {
@@ -601,6 +667,8 @@ class BoxList implements ListSource {
   private roomN = -1;
   private roomKey = -1;
   private roomWas = 0;
+  /** when the first of the rows that go off will have turned (the world's time; Infinity: none does) */
+  private turnAt = Infinity;
 
   constructor(
     private readonly host: ListHost,
@@ -640,85 +708,91 @@ class BoxList implements ListSource {
     const l = this.loose();
     if (!l) return false;
     const w = host.player.walker;
-    return Math.hypot(l.x - w.x, l.z - w.z) - l.radius <= BOX_REACH;
+    const dx = l.x - w.x;
+    const dz = l.z - w.z;
+    return Math.sqrt(dx * dx + dz * dz) - l.radius <= BOX_REACH;
   }
 
+  /** what is in it (which things, of what kind, how many of each), and whether a row has turned since the rows were built (the clock is not even read while no row goes off) */
   version(): number {
-    return insideKey(this.box);
+    const key = insideKey(this.box);
+    return this.turnAt !== Infinity && itemNow() >= this.turnAt ? key | TURNED : key;
   }
 
   rows(): CargoRow[] {
-    const list = this.box.inside;
-    if (!list) return [];
     const now = itemNow();
+    // a thing that has gone off is what it has become before it is named (a box lying about: through the things
+    // lying about, which draw it again and have what it rides in weighed again)
+    const l = this.loose();
+    if (l) this.host.loose.settle(l, now);
+    const list = this.box.inside;
     const out: CargoRow[] = [];
-    for (const x of list) {
-      // (a thing that has gone off is what it has become before it is named)
-      settleItem(x, now);
-      out.push({ zone: this.title, name: itemName(x), mass: itemMass(x), icon: this.host.iconOf({ kind: 'item', item: x }) });
+    let turn = Infinity;
+    if (list) {
+      for (const x of list) {
+        if (!l) settleItem(x, now);
+        turn = Math.min(turn, turnsAt(x, now));
+        out.push({ zone: this.title, name: itemName(x), mass: itemMass(x), icon: this.host.iconOf({ kind: 'item', item: x }) });
+      }
     }
+    this.turnAt = turn;
     return out;
   }
 
-  /** what is in it changed: a vehicle it rides in is weighed again, and lists of the things lying about are built again */
+  /**
+   * What is in it changed. Lying about: the things lying about are told which thing it was (lists of them are
+   * built again, and a place it belonged to lets it go, so that it is saved with what is in it: places.ts), and
+   * a vehicle it rides in is weighed again.
+   */
   private changed(): void {
     const l = this.loose();
     if (!l) return;
-    this.host.loose.touch();
+    this.host.loose.touch(l);
     const on = l.riding?.on;
     if (on) for (const v of this.host.vehicles) if (v === on) this.host.cargo.weigh(v);
   }
 
+  /** what came out of row i and did not go into the hands after all is back in the box, in the row it came out of, going off as the box has it */
+  private backIn(i: number, out: ItemInstance, now: number): void {
+    const box = this.box;
+    const list = (box.inside ??= []);
+    list.splice(Math.min(i, list.length), 0, out);
+    setFreshRate(out, now, itemDef(box.item).holds?.decay ?? 1);
+  }
+
   /**
-   * A row out into the hands. The hands put a thing into a box they hold when it takes it (ModPlayer.receive),
-   * and this box may be in them: it steps out of its slot while its own thing is handed over, so that what
-   * comes out of it does not go straight back in, and is in its slot again after. What the hands found no room
-   * for is back in the box, where it was.
+   * A row out into the hands. The stack leaves the box (so that it is asked about as it is in the open air,
+   * which is how it stacks with what the hands hold), the hands take what they have room for, and what they
+   * did not take is back in its row, the box as it was. The hands put a thing into a box they hold when it
+   * takes such things (ModPlayer.receive), and this box may be in them: they are told to leave it out (`not`),
+   * so that what comes out of it does not go straight back in. If the hands throw with the thing out of the
+   * box, it is put back before the fault goes on up: a thing is never left nowhere. The slot selected changes
+   * only when all of the row went and sits in a slot of its own.
    */
   takeAt(i: number): boolean {
     const host = this.host;
-    const box = this.box;
     const p = host.player;
-    const s = box.inside?.[i];
-    if (!s) return false;
     const now = itemNow();
-    settleItem(s, now);
-    const all = countOf(s);
-    const each = itemMass(s) / all;
-    const at = slotOfItem(p, box);
-    const mine = at >= 0 ? p.slots[at] : null;
-    if (at >= 0) p.slots[at] = null;
-    // as many as the hands say they have room for: the rest never leaves the box
-    const k = Math.min(all, p.roomFor({ kind: 'item', item: s }));
-    const out = k > 0 ? takeInside(box, i, now, k) : null;
-    const held: Held = out ? { kind: 'item', item: out } : null;
-    // how many of the k are not in the hands after all
-    let back = held ? p.receive(held) : k;
-    if (at >= 0) {
-      const here = p.slots[at];
-      p.slots[at] = mine;
-      if (here) {
-        // (with the box out of it its slot read as free: what was put there moves to a slot that is, or did not go)
-        const free = p.slots.findIndex((x) => !x);
-        if (free >= 0) p.slots[free] = here;
-        else if (out) back = countOf(out);
-      }
+    const out = takeInside(this.box, i, now);
+    if (!out) return false;
+    // (a thing that has gone off is what it has become before it is handed over)
+    settleItem(out, now);
+    const all = countOf(out);
+    const each = itemMass(out) / all;
+    const held: NonNullable<Held> = { kind: 'item', item: out };
+    // how many of it are not in the hands after all
+    let back: number;
+    try {
+      back = p.receive(held, this.box);
+    } catch (e) {
+      if (countOf(out) > 0 && !inHands(p, out)) this.backIn(i, out, now);
+      throw e;
     }
-    if (out && held) {
-      if (back <= 0) bringUp(p, held);
-      else if (out === s) {
-        // the whole stack had come out: what is left of it is back where it was, going off as the box has it
-        const list = (box.inside ??= []);
-        list.splice(Math.min(i, list.length), 0, out);
-        setFreshRate(out, now, itemDef(box.item).holds?.decay ?? 1);
-      } else if (putInside(box, out, now) > 0) {
-        // (it came off a stack that is still there, so it goes back onto it; if ever it did not, it is put down at one's feet: nothing is lost)
-        host.loose.addItem(out, p.eye.x + p.dir.x * 0.5, p.eye.y - 0.3, p.eye.z + p.dir.z * 0.5);
-      }
-    }
-    const took = k - back;
+    if (back > 0) this.backIn(i, out, now);
+    else bringUp(p, held);
+    const took = all - back;
     if (took <= 0) {
-      host.ui.say(FULL, 2.2);
+      host.ui.say(HANDS_FULL, 2.2);
       return false;
     }
     this.changed();
@@ -772,6 +846,17 @@ class BoxList implements ListSource {
   }
 }
 
+/** is this thing in the hands: in a slot, or in a thing in a slot that holds things? */
+function inHands(p: ModPlayer, item: ItemInstance): boolean {
+  const s = p.slots;
+  for (let i = 0; i < s.length; i++) {
+    const x = s[i];
+    if (!x || x.kind !== 'item') continue;
+    if (x.item === item || x.item.inside?.includes(item)) return true;
+  }
+  return false;
+}
+
 /** what is in a thing that holds things (ItemDef.holds): taken out into the hands, the thing in the hands put in */
 export function boxSource(host: ListHost, box: ItemInstance, opts?: BoxOpts): ListSource {
   return new BoxList(host, box, opts);
@@ -792,4 +877,144 @@ export function boxOnMark(host: ListHost): ItemInstance | null {
 export function boxInHand(host: ListHost): ItemInstance | null {
   const h = host.player.held;
   return h && h.kind === 'item' && itemDef(h.item.item).holds ? h.item : null;
+}
+
+// ------------------------------------------------------------------ the list while it is open
+
+/** the hands as the open list needs them (ModPlayer is one) */
+export interface ListHands {
+  /** what is in the hands: the selected slot (set to null: the hand is empty) */
+  held: Held;
+  /** something being eaten or drunk from (set to null: that stops) */
+  use: object | null;
+}
+
+/**
+ * What the list keeps from frame to frame while it is open, and what its keys do, apart from the game and the
+ * page (ModGame has one; harness/sim/v3_lists.test.ts plays one without either): the rows of the source as last
+ * built, built again only when the source says that what is in it has changed; which row is picked after a
+ * move or a take; putting the held thing in; and what the list draws (`view`: one object, filled in every
+ * frame, drawn again by CargoList only when it differs).
+ */
+export class Listing {
+  /** what the list draws: filled in by frame() */
+  readonly view: CargoView = { title: '', head: '', empty: '', take: '', rows: [], rev: 0, sel: 0, load: 0, cap: null, put: '' };
+  /** the rows as last built, for which source and at which of its versions */
+  private rowsNow: readonly CargoRow[] = [];
+  private rowsOf: ListSource | null = null;
+  private ver: number | string = '';
+  /** frames until a picture still being drawn is asked for again (0: none is) */
+  private iconT = 0;
+  /** what G would put in: worked out again only when the thing in the hands, its kind, how many of it or the rows have changed */
+  private putOf: Held = null;
+  private putKind = '';
+  private putN = -1;
+  private putRev = -1;
+
+  /** the list was shut: nothing is kept of the source it showed */
+  reset(): void {
+    this.rowsNow = [];
+    this.rowsOf = null;
+    this.iconT = 0;
+    this.putOf = null;
+    this.putN = -1;
+  }
+
+  /**
+   * The rows of a source: built when the source says that what is in it has changed (version), not every
+   * frame, and now and then while a picture of one of them is still being drawn. `view.rev` goes up when the
+   * rows to draw differ from the last (built again only for a picture: only if one has come). What it all
+   * weighs is asked with them, not every frame: a weight changes only when what is in the source does, and a
+   * fraction asked for or written down every frame is put on the heap every frame.
+   */
+  rows(src: ListSource): readonly CargoRow[] {
+    const again = this.iconT > 0 && --this.iconT === 0;
+    const same = src === this.rowsOf && src.version() === this.ver;
+    if (same && !again) return this.rowsNow;
+    const was = this.rowsNow;
+    const rows = src.rows();
+    this.rowsOf = src;
+    this.rowsNow = rows;
+    // (asked after: building them may itself have settled a thing that had gone off)
+    this.ver = src.version();
+    let kg = 0;
+    let due = false;
+    let differs = !same || rows.length !== was.length;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      kg += r.mass;
+      if (r.icon === null) due = true;
+      else if (!differs && r.icon !== was[i].icon) differs = true;
+    }
+    if (differs) this.view.rev++;
+    this.view.load = src.load ? src.load() : kg;
+    this.iconT = due ? 3 : 0;
+    return rows;
+  }
+
+  /** the row picked, moved by d round the ends (−1: there are no rows, nothing moves) */
+  move(src: ListSource, sel: number, d: number): number {
+    const n = this.rows(src).length;
+    return n ? (sel + d + n) % n : -1;
+  }
+
+  /**
+   * The row picked out of the source, into the hands (as much of it as they take). Returns the row picked
+   * afterwards: the same one when nothing went or rows are left under it, the last one when it was the last;
+   * −1 when the take emptied a source that shuts when it is empty (the list shuts).
+   */
+  take(src: ListSource, sel: number): number {
+    const n = this.rows(src).length;
+    if (!n || !src.takeAt(Math.min(sel, n - 1))) return sel;
+    const left = this.rows(src).length;
+    if (!left && src.shutEmpty) return -1;
+    return Math.max(0, Math.min(sel, left - 1));
+  }
+
+  /**
+   * G: the thing in the hands into the source, as much of it as goes (a source that takes things in; any
+   * other: nothing happens). True when all of it went: the hand is empty now (the thing is in there, or was
+   * used up onto a stack there).
+   */
+  put(src: ListSource, hands: ListHands): boolean {
+    const h = hands.held;
+    if (!src.put || !h) return false;
+    // (being eaten or drunk from: that stops)
+    hands.use = null;
+    if (src.put(h) > 0) return false;
+    hands.held = null;
+    return true;
+  }
+
+  /**
+   * Every frame the list is open: is the source still within reach (−1: it is not, the list shuts); its rows;
+   * the row picked, kept within them (returned); what G would put in, said only while it would go in; and all
+   * of it into `view`. Nothing is allocated while nothing changes.
+   */
+  frame(src: ListSource, sel: number, held: Held): number {
+    if (!src.near()) return -1;
+    const rows = this.rows(src);
+    sel = Math.max(0, Math.min(sel, rows.length - 1));
+    const view = this.view;
+    const h = src.put ? held : null;
+    const n = h ? countOfHeld(h) : 0;
+    // (a thing that turns in the hands is another kind under the same instance: its name is another)
+    const kind = h && h.kind === 'item' ? h.item.item : '';
+    if (h !== this.putOf || kind !== this.putKind || n !== this.putN || view.rev !== this.putRev) {
+      this.putOf = h;
+      this.putKind = kind;
+      this.putN = n;
+      this.putRev = view.rev;
+      const room = h ? Math.min(n, src.room ? src.room(h) : n) : 0;
+      view.put = h && room > 0 ? (room < n ? `${heldName(h)}（放得下 ${room} 个）` : heldName(h)) : '';
+    }
+    view.title = src.title;
+    view.head = src.head;
+    view.empty = src.empty;
+    view.take = src.takeWord;
+    view.rows = rows;
+    view.sel = sel;
+    view.cap = src.cap ?? null;
+    return sel;
+  }
 }
