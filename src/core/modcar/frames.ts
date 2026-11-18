@@ -14,6 +14,7 @@ import vanMounts from './data/mounts/van.json';
 import goatMounts from './data/mounts/goat.json';
 import wagonMounts from './data/mounts/wagon.json';
 import foxMounts from './data/mounts/fox.json';
+import snailMounts from './data/mounts/snail.json';
 
 interface MountJson {
   pos: number[];
@@ -387,7 +388,29 @@ export const FOX: FrameDef = {
   rig: readRig(foxMounts as MountTable),
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX];
+export const SNAIL: FrameDef = {
+  id: 'snail',
+  kind: 'truck',
+  name: { zh: '蜗牛', en: 'Snail' },
+  mass: 1650,
+  cg: { x: 0.25, y: 1.0, z: 0 },
+  inertia: { roll: 1300, yaw: 5500, pitch: 5300 },
+  hubRadius: 0.343,
+  // (a light truck on stiff springs: it rides hard empty and sits down under a load)
+  suspension: { front: susp(1.45, 0.18, 0.6, 10, 0.35), rear: susp(1.65, 0.18, 0.35, 9.5, 0.35) },
+  steering: { maxDeg: 38, ackermann: 0.85, rateLow: 1.5, rateHigh: 0.55, smoothTime: 0.12, returnScale: 1.5, gripLimitG: 0.6, slipMarginDeg: 6 },
+  brakeN: 16500,
+  brakeFront: 0.6,
+  cdA: 3.2,
+  finalDrive: 5.1,
+  body: { front: 2.55, rear: -2.52, halfWidth: 0.95, bottom: 0.3, top: 2.75 },
+  enclosed: 1,
+  chase: { dist: 8.5, height: 3.0, look: 1.5 },
+  mounts: withAxles(readMounts(snailMounts as MountTable), (snailMounts as MountTable).axles),
+  rig: readRig(snailMounts as MountTable),
+};
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL];
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
 

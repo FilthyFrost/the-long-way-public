@@ -140,6 +140,8 @@ describe('ModCar factory builds', () => {
     wagon: { mass: [1250, 1650], cg: [0.42, 0.7], t100: [6, 12], vmax: [160, 200] },
     // (a light two-seater with a revving four: quick off the mark, quicker round a bend)
     fox: { mass: [900, 1250], cg: [0.33, 0.55], t100: [5, 10], vmax: [165, 205] },
+    // (a diesel four in a box truck: it gets there in the end)
+    snail: { mass: [2000, 2600], cg: [0.8, 1.15], t100: [30, 70], vmax: [90, 115] },
   };
   for (const f of FRAMES) {
     it(`${f.id}: derives a sane spec and drives off`, () => {

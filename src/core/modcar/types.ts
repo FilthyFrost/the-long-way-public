@@ -79,7 +79,7 @@ export const SUB_CATEGORIES: Readonly<Partial<Record<Category, Category>>> = { t
 export const PANEL_CATEGORIES: ReadonlySet<Category> = new Set(['door', 'hood', 'trunk']);
 
 export type FuelType = 'petrol' | 'diesel' | 'mix2t';
-export type FrameKind = 'sedan' | 'pickup' | 'moto' | 'rv' | 'van' | 'offroad' | 'wagon' | 'sports';
+export type FrameKind = 'sedan' | 'pickup' | 'moto' | 'rv' | 'van' | 'offroad' | 'wagon' | 'sports' | 'truck';
 
 export interface V3 {
   x: number;

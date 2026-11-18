@@ -43,7 +43,7 @@ const WHEEL_KEEP_STRIPPED = 0.22;
 /** what only a motorcycle's own fits a motorcycle (its wheels, bars, saddle, box, lever, tank), and a car's nothing of these of a motorcycle's */
 const MOTO_OWN: ReadonlySet<string> = new Set(['rim', 'tire', 'steering', 'seat', 'gearbox', 'gearLever', 'fuelTank', 'brakes']);
 
-const FOUR_WHEELS = ['sedan', 'pickup', 'rv', 'fox', 'wagon', 'goat', 'van'];
+const FOUR_WHEELS = ['sedan', 'pickup', 'rv', 'snail', 'fox', 'wagon', 'goat', 'van'];
 
 /** the grade of a plain part's roll (★1 … ★3): the works' part, a worse one, another car's */
 const PLAIN = [0.28, 0.57, 0.15];
@@ -197,7 +197,7 @@ const WRECK_FRAMES: Record<number, readonly (readonly [string, number])[]> = {
   0: [['moto', 0.1], ['sedan', 0.9], ['wagon', 0.18], ['fox', 0.12]],
   1: [['pickup', 1], ['goat', 0.4]],
   2: [['sedan', 0.55], ['pickup', 0.45], ['van', 0.5]],
-  3: [['rv', 1]],
+  3: [['rv', 1], ['snail', 0.5]],
 };
 
 /** which frame a wreck of the world's kind is (0 a saloon's size, 1 a pick-up's, 2 a tall van's, 3 a bus's) */

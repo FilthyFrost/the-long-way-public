@@ -519,7 +519,7 @@ export function itemCard(inst: ItemInstance): ItemCard {
 
 // ------------------------------------------------------------------ vehicles
 
-const KIND_ZH: Record<string, string> = { sedan: '轿车', pickup: '皮卡', moto: '摩托', rv: '房车', van: '面包车', offroad: '越野车', wagon: '旅行车', sports: '跑车' };
+const KIND_ZH: Record<string, string> = { sedan: '轿车', pickup: '皮卡', moto: '摩托', rv: '房车', van: '面包车', offroad: '越野车', wagon: '旅行车', sports: '跑车', truck: '货车' };
 
 export function vehicleCard(v: ModVehicle): ItemCard {
   const b = v.build;

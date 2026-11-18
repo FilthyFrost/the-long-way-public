@@ -6,6 +6,7 @@ import moto from '../../src/core/modcar/data/mounts/moto.json';
 import pickup from '../../src/core/modcar/data/mounts/pickup.json';
 import rv from '../../src/core/modcar/data/mounts/rv.json';
 import sedan from '../../src/core/modcar/data/mounts/sedan.json';
+import snail from '../../src/core/modcar/data/mounts/snail.json';
 import van from '../../src/core/modcar/data/mounts/van.json';
 import wagon from '../../src/core/modcar/data/mounts/wagon.json';
 import { partGeo } from '../../src/core/modcar/geo';
@@ -25,6 +26,7 @@ const FRAMES: Record<string, Record<string, Mount>> = {
   van: (van as unknown as { mounts: Record<string, Mount> }).mounts,
   wagon: (wagon as unknown as { mounts: Record<string, Mount> }).mounts,
   fox: (fox as unknown as { mounts: Record<string, Mount> }).mounts,
+  snail: (snail as unknown as { mounts: Record<string, Mount> }).mounts,
 };
 
 /** the room a mount leaves its part, in the part's frame (game axes), with the 1.5 cm the checks allow */

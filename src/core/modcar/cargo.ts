@@ -50,6 +50,10 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
   ],
   moto: [Z('pillion', '后座', 'Pillion', [-0.85, -0.5], [-0.13, 0.13], 0.8, 1.15, 'small', 0)],
+  snail: [
+    Z('cabin', '货厢', 'Box', [-2.29, 0.62], [-0.86, 0.86], 0.95, 2.62, 'large', 0, ['trunk']),
+    Z('pass', '副驾驶座', 'Passenger seat', [1.3, 1.62], [0.34, 0.79], 1.26, 1.9, 'medium', 1, ['door_FR']),
+  ],
   fox: [
     Z('trunk', '后备箱', 'Boot', [-1.86, -1.44], [-0.63, 0.63], 0.4, 0.77, 'medium', 0, ['trunk']),
     // (the shelf behind the seats over the rear axle, under the fastback glass: no wall between it and the boot)
