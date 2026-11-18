@@ -466,11 +466,11 @@ try {
     // F9 twice: a new game — the slice and the clock from the start
     await page.evaluate(() => window.__rt.game.systems.harness('probe', 'bump', 3));
     await page.evaluate(() => window.__rt.game.save());
+    // (the new page's game waited for, not the old one's: first its document, then its game)
     const loaded = page.waitForEvent('domcontentloaded', { timeout: 120_000 });
     await page.keyboard.press('F9');
     await page.keyboard.press('F9');
     await loaded;
-    await page.waitForTimeout(500);
     await ready();
     p = await P();
     k = await rt('kernel');
