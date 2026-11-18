@@ -14,12 +14,16 @@
  * what the grass is drawn from.
  *
  * Pure, no three, no DOM; deterministic for a seed whatever is asked first.
+ *
+ * The world makes its own field when it is first asked for it (terrain.ts `World.flora`), so this file knows
+ * the land by its types only and loads nothing of it to run: the world hands the field a terrain point to
+ * work with.
  */
 import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_WET, ROAD_CLEAR, Ecotope, type EcoParams, type EcotopeField } from './ecotope';
 import { AQUATIC_DEPTH, plantIndex, PLANTS } from './plants';
-import { TerrainPoint, type World } from './terrain';
+import type { TerrainPoint, World } from './terrain';
 
 /** the layers, the side of a cell of each (m) */
 export const LAYER_TREE = 0;
@@ -145,17 +149,18 @@ interface Compiled {
 }
 
 /**
- * The flora of a world. `tableOf(region)` gives a region's FloraTable by its registry index (the same table
- * object each time: its rules are compiled once).
+ * The flora of a world. `tp` is a terrain point for the field's own use (the caller makes it: `new
+ * TerrainPoint()`, and not the ecotope field's); `tableOf(region)` gives a region's FloraTable by its
+ * registry index (the same table object each time: its rules are compiled once).
  */
 export class FloraField {
   private readonly e = new Ecotope();
-  private readonly tp = new TerrainPoint();
   private readonly compiled = new Map<FloraTable, Compiled[]>();
   private readonly seed: number;
 
   constructor(
     private readonly world: World,
+    private readonly tp: TerrainPoint,
     readonly eco: EcotopeField,
     private readonly tableOf: (region: number) => FloraTable,
   ) {

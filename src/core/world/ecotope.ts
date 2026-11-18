@@ -10,9 +10,13 @@
  *
  * Pure, no three, no DOM. (Like the land function itself it is deterministic for one JavaScript engine; the
  * last bits of a height may differ between engines.)
+ *
+ * The world makes its own field when it is first asked for it (terrain.ts `World.eco`), so this file knows
+ * the land by its types only and loads nothing of it to run: the world hands the field a terrain point to
+ * work with, as it does for the places and the road's furniture.
  */
 import { fbm2 } from '../math/noise';
-import { TerrainPoint, type World } from './terrain';
+import type { TerrainPoint, World } from './terrain';
 
 /** the side of a tile (m), the grid's step (m), and the nodes along a side (both ends counted) */
 export const ECO_TILE = 128;
@@ -143,19 +147,20 @@ export function moistureAt(p: EcoParams, seed: number, x: number, z: number, slo
 }
 
 /**
- * The field over a world. `paramsOf(region)` gives a region's EcoParams by its registry index; `shore`, when
+ * The field over a world. `tp` is a terrain point for the field's own use (the caller makes it: `new
+ * TerrainPoint()`); `paramsOf(region)` gives a region's EcoParams by its registry index; `shore`, when
  * given, is the water's own account of how far its edge is (exact across tiles); without it the tile measures
  * to the wet nodes it can see, which is good within a tile and blind beyond its rim.
  */
 export class EcotopeField {
   private readonly tiles = new Map<number, EcoTile>();
   private clock = 0;
-  private readonly tp = new TerrainPoint();
   private readonly H = new Float64Array(WIDE * WIDE);
   private readonly shoreOut = { dist: WATER_FAR, kind: 0 };
 
   constructor(
     private readonly world: World,
+    private readonly tp: TerrainPoint,
     private readonly paramsOf: (region: number) => EcoParams,
     private readonly shore: ShoreReader | null = null,
     /** how many tiles are kept */

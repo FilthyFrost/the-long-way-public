@@ -3,6 +3,9 @@
  * same whatever is asked first, nothing growing where nothing may, and each region's country coming out as
  * its table says: how wooded, how many plants to the hectare, which kinds, reeds by the water and nowhere else.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BIOMES } from '../../src/core/world/biomes';
 import { ECO_N, ECO_ROAD, ECO_TILE, ECO_WET, Ecotope, EcotopeField, ROAD_CLEAR, canopyAt, type EcoParams } from '../../src/core/world/ecotope';
@@ -16,8 +19,8 @@ function fields(seed: number, startBiome: string): { world: World; eco: EcotopeF
   // (one region for the whole stretch looked at: a long first chapter)
   const world = new World(seed, { startBiome, chapterScale: 6 });
   const table = (r: number) => floraTableOf(BIOMES[r].id, BIOMES[r].kin);
-  const eco = new EcotopeField(world, (r) => table(r).eco);
-  return { world, eco, flora: new FloraField(world, eco, table) };
+  const eco = new EcotopeField(world, new TerrainPoint(), (r) => table(r).eco);
+  return { world, eco, flora: new FloraField(world, new TerrainPoint(), eco, table) };
 }
 
 /** every plant of a layer in the square of tiles [tx0, tx1) × [tz0, tz1) */
@@ -56,11 +59,69 @@ describe('the plant catalogue and the tables', () => {
   });
 });
 
+describe('the fields of a world', () => {
+  it('a world of version 2 has its ecotope and its flora, made when first asked for; a world of version 1 has neither', () => {
+    const old = new World(5, { startBiome: 'forest' });
+    expect(old.eco).toBeNull();
+    expect(old.flora).toBeNull();
+    const w = new World(5, { worldVersion: 2, startBiome: 'forest' });
+    // (nothing is there until it is asked for: the fields are not made with the world)
+    expect((w as unknown as { ecoField: unknown }).ecoField).toBeNull();
+    expect((w as unknown as { floraField: unknown }).floraField).toBeNull();
+    const flora = w.flora!;
+    expect(flora).toBeInstanceOf(FloraField);
+    expect(w.flora).toBe(flora);
+    expect(w.eco).toBeInstanceOf(EcotopeField);
+    expect(flora.eco).toBe(w.eco);
+    // made, and nothing computed yet
+    expect(w.eco!.size).toBe(0);
+    // the same answers as fields built by hand over the same world with the regions' tables
+    const table = (r: number) => floraTableOf(BIOMES[r].id, BIOMES[r].kin);
+    const eco = new EcotopeField(w, new TerrainPoint(), (r) => table(r).eco);
+    const byHand = new FloraField(w, new TerrainPoint(), eco, table);
+    const one = census(flora, LAYER_TREE, 20, 22, 0, 2);
+    expect(one.length).toBeGreaterThan(40);
+    expect(census(byHand, LAYER_TREE, 20, 22, 0, 2)).toEqual(one);
+    expect(w.eco!.size).toBeGreaterThan(0);
+  });
+
+  it('the files of the flora load nothing of the land to run: the world loads them, and they know it by its types only', () => {
+    // (terrain.ts loads ecotope.ts, flora.ts and floraTables.ts to make a world's fields; were one of them,
+    // or anything they load, to load terrain.ts in its turn, the modules would load in a circle and fail by
+    // the order they happen to be asked in. The same walk as harness/sim/world_registry.test.ts.)
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const loads = (file: string): string[] => {
+      const src = fs.readFileSync(file, 'utf8');
+      const out: string[] = [];
+      for (const m of src.matchAll(/^import\s+(type\s+)?([^;]*?)\s+from\s+'(\.[^']*)';/gm)) {
+        if (m[1]) continue;
+        const names = /^\{([^}]*)\}$/.exec(m[2].trim());
+        if (names && names[1].split(',').every((n) => n.trim() === '' || n.trim().startsWith('type '))) continue;
+        const target = path.resolve(path.dirname(file), m[3]);
+        out.push(fs.existsSync(`${target}.ts`) ? `${target}.ts` : path.join(target, 'index.ts'));
+      }
+      return out;
+    };
+    const dir = path.join(root, 'src/core/world');
+    const own = fs.readdirSync(dir).filter((f) => /^(ecotope|flora|plants)[A-Za-z]*\.ts$/.test(f));
+    expect(own).toEqual(expect.arrayContaining(['ecotope.ts', 'flora.ts', 'floraTables.ts', 'floraForage.ts', 'plants.ts']));
+    const seen = new Set<string>(own.map((f) => path.join(dir, f)));
+    const queue = [...seen];
+    while (queue.length) for (const f of loads(queue.pop()!)) if (!seen.has(f)) (seen.add(f), queue.push(f));
+    for (const f of seen) expect(path.basename(f), `${path.relative(root, f)} is loaded by the flora's files`).not.toBe('terrain.ts');
+    // (and the check sees what it should: the land does load the fields)
+    const land = loads(path.join(dir, 'terrain.ts')).map((f) => path.basename(f));
+    expect(land).toContain('ecotope.ts');
+    expect(land).toContain('flora.ts');
+    expect(land).toContain('floraTables.ts');
+  });
+});
+
 describe('the ecotope field', () => {
   it('is the same tile whatever was asked before it, and after the cache has let it go', () => {
     const a = fields(7, 'forest');
     const b = fields(7, 'forest');
-    const small = new EcotopeField(b.world, (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, null, 3);
+    const small = new EcotopeField(b.world, new TerrainPoint(), (r) => floraTableOf(BIOMES[r].id, BIOMES[r].kin).eco, null, 3);
     const first = a.eco.tile(20, 1);
     for (let i = 0; i < 9; i++) small.tile(40 + i, -2);
     expect(small.size).toBeLessThanOrEqual(3);
