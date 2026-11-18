@@ -19,6 +19,7 @@ import { FeaturePlan, type FeatureRecipe } from './features';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
+import { DUNE_MEAN, dunes, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
 import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
@@ -441,6 +442,10 @@ export class World implements Ground {
       ditchDepth += (B.ditch - ditchDepth) * bl.t;
     }
     rel += LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
+    // land: the base follows the nearest road point close in, and the same-x road point far out
+    const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
+    // (a world of version 2: the stretch's terraces and dunes; no stretch of a world of version 1 has either)
+    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse);
     o.s = s;
     o.d = d;
     o.roadY = q.y;
@@ -456,8 +461,6 @@ export class World implements Ground {
     o.zone = 0;
     o.site = 0;
 
-    // land: the base follows the nearest road point close in, and the same-x road point far out
-    const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
     let T = base + rel;
     o.wl = -Infinity;
     o.frozen = 0;
@@ -546,6 +549,30 @@ export class World implements Ground {
     if (o.frozen > 0.5 && o.wl > o.h && o.zone === 0) o.h = o.wl;
     o.plot = 0;
     if (this.plots.length) this.onPlots(x, z, o, ad);
+  }
+
+  /**
+   * The cross-section operators of a world of version 2 (operators.ts) on the relief of a point `ad` m from
+   * the road, the land's height there being base + rel. Both leave the road's corridor as it is: they
+   * change the land the verge blends into and the places' ground is levelled from, not the blend, the
+   * shoulder or the levelled ground themselves.
+   *
+   *   terraces  from 14 m out, in full from 34 m; in full to 350 m and gone by 600 m, where the far ring's
+   *             grid could not draw a step of four metres. The benches are cut in the land's own height,
+   *             not in its height above the road: a bench stays level where the road beside it climbs.
+   *   dunes     from 16 m out, in full from 60 m, and as far as the stretch's open ground goes. The far
+   *             ring's coarse land is raised by their mean height instead: its grid is wider than a dune.
+   */
+  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean): number {
+    if (lp.terrace > 0 && !coarse) {
+      const w = smoothstep(14, 34, ad) * (1 - smoothstep(350, 600, ad));
+      if (w > 0) rel = terrace(base + rel, lp.step, lp.terrace * w) - base;
+    }
+    if (lp.dune > 0) {
+      const w = smoothstep(16, 60, ad);
+      if (w > 0) rel += (coarse ? DUNE_MEAN * lp.dune : dunes(x, z, this.seed, lp.dune, lp.duneLen)) * w;
+    }
+    return rel;
   }
 
   /** is (x, z) wholly on a plot that lets no grass of the world's grow there (Plot.bare) */

@@ -39,6 +39,15 @@ export class LandParams {
   canyon = 0;
   /** the big landforms away from the road stand this much taller or lower */
   far = 1;
+  /**
+   * Worlds of version 2 only (operators.ts; a stretch without them, and every stretch of a world of
+   * version 1, has 0): how fully the slopes are cut into benches (0 … 1) and how far apart in height the
+   * benches lie (m); how high the dunes stand on open ground (m) and how far it is from crest to crest (m).
+   */
+  terrace = 0;
+  step = 0;
+  dune = 0;
+  duneLen = 0;
 
   /**
    * The same, for one side of the road: where the land falls away (the low side of a hillside,
@@ -58,6 +67,10 @@ export class LandParams {
     this.drop = o.drop;
     this.canyon = o.canyon;
     this.far = o.far;
+    this.terrace = o.terrace;
+    this.step = o.step;
+    this.dune = o.dune;
+    this.duneLen = o.duneLen;
     return this;
   }
 
@@ -67,6 +80,19 @@ export class LandParams {
     this.drop += (o.drop - this.drop) * t;
     this.canyon += (o.canyon - this.canyon) * t;
     this.far += (o.far - this.far) * t;
+    // Benches and dunes fade out towards country that has none: how fully and how high is mixed like the
+    // rest, but the benches' step and the dunes' length stay the side's that has them (benches whose step
+    // shrank as they faded would not be level, dunes whose length did would bunch up)
+    if (this.terrace > 0 || o.terrace > 0) {
+      if (this.terrace <= 0) this.step = o.step;
+      else if (o.terrace > 0) this.step += (o.step - this.step) * t;
+      this.terrace += (o.terrace - this.terrace) * t;
+    }
+    if (this.dune > 0 || o.dune > 0) {
+      if (this.dune <= 0) this.duneLen = o.duneLen;
+      else if (o.dune > 0) this.duneLen += (o.duneLen - this.duneLen) * t;
+      this.dune += (o.dune - this.dune) * t;
+    }
     return this;
   }
 }
@@ -140,6 +166,8 @@ export class LandformPlan {
   private readonly list: Stretch[] = [];
   private readonly seed: number;
   private readonly a = new LandParams();
+  /** a world of version 2: its regions' terraces and dunes are laid on their stretches (version 1 has neither) */
+  private readonly operators: boolean;
 
   /**
    * @param wet what the water plan's dice put in slot k (decided without any geometry): a river
@@ -155,6 +183,7 @@ export class LandformPlan {
     private readonly quiet: (k: number) => boolean = () => false,
   ) {
     this.seed = hash2(seed | 0, 0x1a9d, 33);
+    this.operators = spine.rules.version >= 2;
   }
 
   private grow(k: number): void {
@@ -214,6 +243,19 @@ export class LandformPlan {
         p.canyon = size[3] * amt;
         p.far = 0.9;
       } else p.far = 0.85 + 0.3 * r(12);
+      if (this.operators) {
+        // (version 2) terraces on the region's hillsides and valley sides, dunes on its open ground
+        const terrace = region.land?.terrace;
+        if (terrace && (kind === 'hillside' || kind === 'valley')) {
+          p.terrace = terrace.strength;
+          p.step = terrace.step;
+        }
+        const dune = region.land?.dune;
+        if (dune && kind === 'open') {
+          p.dune = dune.amp;
+          p.duneLen = dune.len;
+        }
+      }
       this.list.push({ kind, side, p });
     }
   }
