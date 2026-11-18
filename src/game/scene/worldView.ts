@@ -12,7 +12,7 @@ import type { QualitySettings, RenderCore } from '../render/core';
 import { floraMaterial, floraUniforms } from '../render/floraMaterial';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
 import { castShadows } from '../render/shadow';
-import { showChapters } from '../render/style';
+import { coverUniforms, showChapters } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
@@ -58,7 +58,7 @@ export class WorldView {
   private readonly grass = new Map<string, Piece & { near: boolean }>();
   private wantGrass = new Map<string, { gx: number; gz: number; dist: number; near: boolean }>();
   private readonly grassMat = grassMaterial(GRASS_FADE, GRASS_KEEP_FAR);
-  private readonly flowerMat = flowerMaterial(GRASS_FADE, GRASS_KEEP_FAR);
+  private readonly flowerMat: THREE.ShaderMaterial;
   private readonly grassGeo = buildGrassTuft();
   private readonly woods = new Map<string, Piece>();
   private wantWoods = new Map<string, { tx: number; tz: number; dist: number }>();
@@ -94,8 +94,8 @@ export class WorldView {
   private readonly slicing = new Map<string, Slices<unknown>>();
   private planX = NaN;
   private planZ = NaN;
-  private readonly terrainMat = terrainMaterial();
-  private readonly stripMat = roadStripMaterial();
+  private readonly terrainMat: THREE.ShaderMaterial;
+  private readonly stripMat: THREE.ShaderMaterial;
   private readonly treeMat = foliageMaterial({ sway: 1, snowCap: 0 });
   private readonly coniferMat = foliageMaterial({ sway: 0.6, snowCap: 0.72, evergreen: true });
   private readonly rockMat = rockMaterial();
@@ -133,6 +133,12 @@ export class WorldView {
     if (this.plants) floraUniforms.tPlants.value = this.plants.atlas.texture;
     this.floraMat = this.plants ? floraMaterial() : null;
     this.kinds = this.plants ? null : buildScatterKinds();
+    // (… and paints its ground and its flowers by the flora field's ground cover)
+    const cover = this.plants !== null;
+    if (cover) coverUniforms.uCoverSeed.value = world.seed | 0;
+    this.terrainMat = terrainMaterial(cover);
+    this.stripMat = roadStripMaterial(cover);
+    this.flowerMat = flowerMaterial(GRASS_FADE, GRASS_KEEP_FAR, cover);
     core.onRebase(() => {
       const visit = (p: Piece): void => {
         for (const o of p.objects) {

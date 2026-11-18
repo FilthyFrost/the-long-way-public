@@ -26,6 +26,9 @@ export const PART_ACCENT = 2;
 export const PART_FRUIT = 3;
 export const PART_ROCK = 4;
 
+/** the rows a plant of tea is drawn as stand this far apart (m): the spacing of the terraces' crop rows (core/world/floraTables.ts) */
+export const TEA_ROWS = 2.6;
+
 const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 const ONE = V(1, 1, 1);
@@ -198,7 +201,7 @@ export function buildPlantModels(): PlantModels {
   for (const [x, y, z, r] of [[0, 4.9, 0, 1.35], [1.7, 4.2, 0.4, 1.15], [-1.6, 4.3, -0.5, 1.2], [0.3, 4.1, -1.7, 1.05], [-0.4, 4.0, 1.7, 1.1], [1.2, 4.6, -1.1, 0.85]] as const) {
     clump(b, rnd, V(x, y, z), r, Math.round(8 * r * r + 3), crown);
   }
-  curtain(b, rnd, 18, 2.3, 3.2, 3.9, 0.8, 2.6, 0.93);
+  curtain(b, rnd, 22, 2.2, 3.2, 3.9, 1.0, 2.7, 0.93);
   out.willow = b.build();
   rnd = mulberry(66);
   willowTrunk(4, false);
@@ -223,38 +226,37 @@ export function buildPlantModels(): PlantModels {
   out.juniperFar = b.build();
 
   // ---- bamboo: a clump of canes leaning out a little, bare for half their height, each arching over at the top
-  // under sprays of leaves; the canes are the plant's second colour
+  // under full sprays of leaves that hang towards its tip; the canes are the plant's second colour
   const bamboo = (seed: number, canes: number, far: boolean): THREE.BufferGeometry => {
     const r = mulberry(seed);
     for (let k = 0; k < canes; k++) {
       const ang = k * 2.39996 + r() * 0.5;
-      const rr = far ? 0.3 : 0.18 + 0.5 * r();
+      const rr = far ? 0.35 : 0.2 + 0.55 * r();
       const out3 = V(Math.cos(ang), 0, Math.sin(ang));
       const h = far ? 8.4 + 1.1 * r() : 7.0 + 2.5 * r();
-      const lean = 0.05 + 0.09 * r();
+      const lean = 0.06 + 0.1 * r();
       const base = V(out3.x * rr, -0.4, out3.z * rr);
       const top = V(base.x + out3.x * lean * h * 0.72, h * 0.72, base.z + out3.z * lean * h * 0.72);
-      // (darker at the foot, where the grove's own shade lies, and ringed at the knots)
+      // (a shade darker at the foot, where the grove's own shadow lies, and ringed at a knot)
       const knot = (base.y + top.y) / 2;
-      tube(b, base, top, far ? 0.085 : 0.062, far ? 0.06 : 0.04, far ? 3 : 4, WHITE, PART_ACCENT, (p) => 0.62 + 0.42 * Math.min(1, Math.max(0, p.y / (h * 0.72))) - (Math.abs(p.y - knot) < 0.2 ? 0.16 : 0), far ? 1 : 2);
-      const n = far ? 3 : 4;
+      tube(b, base, top, far ? 0.11 : 0.078, far ? 0.07 : 0.05, far ? 3 : 4, WHITE, PART_ACCENT, (p) => 0.8 + 0.28 * Math.min(1, Math.max(0, p.y / (h * 0.72))) - (Math.abs(p.y - knot) < 0.2 ? 0.14 : 0), far ? 1 : 2);
+      const n = far ? 4 : 5;
       for (let j = 0; j < n; j++) {
-        const t = (j + 0.6) / n;
-        // the top of the cane arches outwards and hangs: its sprays follow it
-        const c = top.clone().addScaledVector(out3, 1.9 * t * t + 0.15).add(V((r() - 0.5) * 0.5, h * 0.28 * (t - 0.42 * t * t) + 0.1, (r() - 0.5) * 0.5));
-        const face = out3.clone().multiplyScalar(0.5).add(V(r() - 0.5, 0.75, r() - 0.5));
+        const t = (j + 0.5) / n;
+        // the top of the cane arches outwards and hangs: its sprays follow it, the outer ones tipped down
+        const c = top.clone().addScaledVector(out3, 2.1 * t * t + 0.1).add(V((r() - 0.5) * 0.6, h * 0.28 * (t - 0.45 * t * t) + 0.15, (r() - 0.5) * 0.6));
+        const face = out3.clone().multiplyScalar(0.3 + 0.8 * t).add(V(r() - 0.5, 0.9 - 0.5 * t, r() - 0.5));
         const sn = out3.clone().multiplyScalar(0.45).add(V(0, 0.9, 0)).normalize();
-        b.spray(c, face, sn, (far ? 2.3 : 1.55) * (1 - 0.3 * t), far ? 1.5 : 1.05, r() * Math.PI, 0.93 + 0.2 * t + 0.06 * (r() - 0.5));
+        b.spray(c, face, sn, (far ? 5.2 : 2.6) * (1 - 0.25 * t), far ? 3.6 : 1.8, r() * Math.PI, (far ? 0.98 : 0.9) + 0.24 * t + 0.06 * (r() - 0.5));
       }
       if (far) continue;
-      // side sprays lower down the cane, small
-      for (const f of [0.52, 0.64]) {
-        const c = base.clone().lerp(top, f / 0.72).addScaledVector(out3, 0.45).add(V((r() - 0.5) * 0.4, 0, (r() - 0.5) * 0.4));
-        b.spray(c, out3.clone().add(V(r() - 0.5, 0.4, r() - 0.5)), out3.clone().multiplyScalar(0.7).add(V(0, 0.6, 0)).normalize(), 1.05, 0.8, r() * Math.PI, 0.84 + 0.1 * r());
+      // side sprays down the cane's upper half
+      for (const f of [0.42, 0.53, 0.64]) {
+        const c = base.clone().lerp(top, f / 0.72).addScaledVector(out3, 0.55).add(V((r() - 0.5) * 0.5, 0, (r() - 0.5) * 0.5));
+        b.spray(c, out3.clone().add(V(r() - 0.5, 0.5, r() - 0.5)), out3.clone().multiplyScalar(0.7).add(V(0, 0.6, 0)).normalize(), 1.7, 1.15, r() * Math.PI, 0.8 + 0.12 * r());
       }
     }
-    // the shade inside the clump's top: a dark core the sprays stand round
-    blob(b, V(0, far ? 7.0 : 6.6, 0), far ? 1.2 : 1.0, far ? 1.5 : 1.3, far ? 1.2 : 1.0, PART_LEAF, WHITE, (p) => 0.6 + 0.16 * Math.min(1, Math.max(0, (p.y - 5.4) / 2.6)), 8);
+    // (no dark core as a broadleaf's clump has: a bamboo's top is all light and air)
     return b.build();
   };
   out.bamboo = bamboo(71, 7, false);
@@ -314,24 +316,27 @@ export function buildPlantModels(): PlantModels {
   }
   out.berry_bush = b.build();
 
-  // ---- tea: a low clipped mound, long the way its row runs (along x), new growth lighter on its top
-  const teaMound = (around: number, rings: number): void => {
-    const g = new THREE.SphereGeometry(1, around, rings, 0, Math.PI * 2, 0, Math.PI / 2);
-    b.solid(g, new THREE.Matrix4().compose(V(0, -0.12, 0), NO_TURN, V(2.4, 1.0, 0.82)), WHITE, PART_LEAF, (p) => 0.7 + 0.34 * Math.min(1, Math.max(0, p.y / 0.85)), V(0, -0.5, 0));
-  };
+  // ---- tea: a clipped hedge, one row of the plantation as long as a cell of the flora's grid (along x), new growth
+  // lighter on its top. One plant of the catalogue is the tea of its whole 8 m cell: the scatter stands up to
+  // three such rows for it, TEA_ROWS m apart (floraScatter.ts).
+  const g = new THREE.SphereGeometry(1, 8, 2, 0, Math.PI * 2, 0, Math.PI / 2);
+  b.solid(g, new THREE.Matrix4().compose(V(0, -0.12, 0), NO_TURN, V(4.1, 1.0, 0.72)), WHITE, PART_LEAF, (p) => 0.82 + 0.3 * Math.min(1, Math.max(0, p.y / 0.85)), V(0, -0.5, 0));
   rnd = mulberry(79);
-  teaMound(8, 3);
-  for (let k = 0; k < 7; k++) {
-    const x = -1.8 + 0.6 * k + 0.2 * (rnd() - 0.5);
-    b.leafCard(V(x, 0.84 - 0.1 * Math.abs(x) * Math.abs(x) * 0.3, (rnd() - 0.5) * 0.5), V((rnd() - 0.5) * 0.4, 1, (rnd() - 0.5) * 0.4), V(0, 1, 0), 0.95, rnd() * Math.PI, 1.1 + 0.06 * rnd());
-  }
   for (let k = 0; k < 6; k++) {
-    const x = -1.5 + 0.6 * k;
-    const s = k % 2 ? 1 : -1;
-    b.leafCard(V(x, 0.42, s * 0.62), V(0, 0.5, s), V(0, 0.5, s).normalize(), 0.8, rnd() * Math.PI, 0.94);
+    const x = -3.0 + 1.2 * k + 0.3 * (rnd() - 0.5);
+    b.leafCard(V(x, 0.86 - 0.012 * x * x, (rnd() - 0.5) * 0.4), V((rnd() - 0.5) * 0.4, 1, (rnd() - 0.5) * 0.4), V(0, 1, 0), 1.0, rnd() * Math.PI, 1.16 + 0.06 * rnd());
   }
   out.tea_bush = b.build();
-  teaMound(6, 2);
+  // (far off: a low ridge)
+  for (const side of [-1, 1]) {
+    const a = V(-4.0, -0.1, side * 0.7);
+    const d = V(4.0, -0.1, side * 0.7);
+    const t0 = V(-3.6, 0.85, 0);
+    const t1 = V(3.6, 0.85, 0);
+    const n = V(0, 0.6, side * 0.8);
+    b.tri(a, t0, t1, n, PART_LEAF, WHITE, 0.84, 1.12, 1.12);
+    b.tri(a, t1, d, n, PART_LEAF, WHITE, 0.84, 1.12, 0.84);
+  }
   out.teaFar = b.build();
 
   // ---- sage: a low grey scrub of small leaves; the ones in flower carry spikes of the second colour
@@ -372,15 +377,17 @@ export function buildPlantModels(): PlantModels {
   out.prickly_pear = b.build();
 
   // ---- reeds: a patch of tall tufts, some with a plume: a bed of them along a shore
-  const reedAt: [number, number][] = [[0, 0], [1.5, 0.6], [-1.2, 1.1], [-0.7, -1.5], [1.3, -1.2]];
+  // (a plant of reeds is the reeds of its whole 8 m cell of bank: tufts spread over most of it, so that cell
+  // after cell they close into a bed)
+  const reedAt: [number, number][] = [[0, 0], [2.3, 0.8], [-1.9, 1.6], [-1.1, -2.3], [2.0, -1.9], [0.4, 2.9], [-3.0, -0.4]];
   rnd = mulberry(87);
-  for (const [x, z] of reedAt) tuft(b, rnd, x, z, 9, 2.0, 0.42, 0.045, 2, 0.42, 0.1);
+  for (const [x, z] of reedAt) tuft(b, rnd, x, z, 9, 2.0, 0.5, 0.05, 2, 0.42, 0.1);
   out.reed = b.build();
   rnd = mulberry(88);
   for (const [x, z] of reedAt) {
     const a = rnd() * Math.PI * 2;
-    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.34, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.74, 1.08);
-    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.3, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.72, 1.0);
+    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.5, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.74, 1.08);
+    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.45, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.72, 1.0);
   }
   out.reedFar = b.build();
 
@@ -441,7 +448,8 @@ export function buildPlantModels(): PlantModels {
 
   // ---- tall grass (sorghum, wild rice, fibre grass): tufts of long blades, seed heads of the second colour nodding over them
   rnd = mulberry(93);
-  for (const [x, z] of [[0, 0], [0.6, 0.35], [-0.5, -0.4]] as const) tuft(b, rnd, x, z, 10, 1.45, 0.4, 0.04, 3, 0.3, 0.32);
+  // (a stand of it is its cell's: tufts over a few metres)
+  for (const [x, z] of [[0, 0], [1.4, 0.5], [-1.1, 1.0], [-0.6, -1.4], [1.2, -1.1]] as const) tuft(b, rnd, x, z, 8, 1.45, 0.45, 0.045, 2, 0.3, 0.32);
   out.tall_grass = b.build();
 
   // ---- boulder: a big stone and a smaller one against it

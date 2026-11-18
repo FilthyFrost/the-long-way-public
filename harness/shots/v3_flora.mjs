@@ -343,14 +343,19 @@ try {
         });
       };
       const drawn = PLANTS.filter((p, i) => reg.draws[i].drawn);
-      row(drawn.filter((p) => p.layer === 'tree').map((p) => p.id), 16, 10, 11, 15, out.trees);
-      row(drawn.filter((p) => p.layer !== 'tree').map((p) => p.id), 16, 3.6, -8.5, -6, out.small);
+      const trees = drawn.filter((p) => p.layer === 'tree').map((p) => p.id);
+      row(trees, 16, 10, 11, 15, out.trees);
+      // (the small plants further down the road, clear of the trees: twice, the second time each as it is when it does not bear)
+      const small = drawn.filter((p) => p.layer !== 'tree').map((p) => p.id);
+      row(small, 46 + trees.length * 10, 4.2, -8.5, -7, out.small);
+      // (the render origin moves with whoever walks far: the sheet is set down again before every picture)
+      window.__sheet = [];
       for (const b of floraSheet(reg, list)) {
         const m = floraMesh(b, g.worldView.floraMat, 1);
         m.frustumCulled = false;
         m.layers.enable(1);
-        g.core.place(m, o.x, o.y, o.z);
         g.core.scene.add(m);
+        window.__sheet.push(() => g.core.place(m, o.x, o.y, o.z));
       }
       // where to stand for each picture: across the road from the middle of each handful of plants
       const stands = [];
@@ -363,13 +368,16 @@ try {
           stands.push({ name: `sheet_${name}_${k}`, x: from.x, z: from.z, heading: Math.atan2(to.z - from.z, to.x - from.x), plants: part.map((p) => p.plant) });
         }
       };
-      stand('trees', out.trees, 5, -17, 11);
-      stand('small', out.small, 6, 1.5, -8.5);
+      stand('trees', out.trees, 4, -11, 11);
+      stand('small', out.small, 4, -0.5, -8.5);
       return stands;
     });
     for (const st of rows) {
-      await rt('stand', st.x, st.z, st.heading, st.name.includes('trees') ? 0.2 : -0.12);
-      await page.evaluate(() => window.__rt.render());
+      await rt('stand', st.x, st.z, st.heading, st.name.includes('trees') ? 0.3 : -0.1);
+      await page.evaluate(() => {
+        for (const put of window.__sheet) put();
+        window.__rt.render();
+      });
       await page.screenshot({ path: path.join(out, `${st.name}.png`) });
       console.log(`${st.name}: ${st.plants.join(', ')}`);
     }

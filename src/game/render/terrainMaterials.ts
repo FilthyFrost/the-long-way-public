@@ -16,13 +16,20 @@
  * road, and the distance is never written beyond GROUND_FAR — so a point on a landform adds ON_LANDFORM to
  * it, and the paint reads back how fully a point is one (rtPaintedGround: its flanks are rock from a gentler
  * slope on than the country round them, its gentle top stays what the country is).
+ *
+ * In a world of version 2 (the materials made with `cover`: RT_COVER) the ground also carries what the flora
+ * field's ground cover says of it, to any distance: the rows of the flower fields and of the crops on the
+ * terraces' benches, each row in its own colour (aCover = the row coordinate of the vertex and how much stands
+ * in a row; the rows' spacing and colours per palette slot: render/style.ts coverUniforms), standing water in
+ * the hollows of a marsh, and reed-green instead of sand on a reedy shore. Without it the shaders are, to the
+ * letter, what they were.
  */
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_PARS, globals } from './shaderlib';
 import { GLSL_PAINT } from './paint';
 import { GLSL_SKY_MIRROR, skyMirrorUniforms } from '../env/sky';
 import { waterUniforms } from './water';
-import { STYLE } from './style';
+import { STYLE, coverUniforms } from './style';
 
 /** the road distance of a ground vertex is written no further than this (m) */
 export const GROUND_FAR = 2000;
@@ -31,6 +38,18 @@ export const ON_LANDFORM = 16384;
 
 export const GROUND_PAINT = /* glsl */ `
   ${GLSL_PAINT}
+  #ifdef RT_COVER
+  uniform sampler2D tCover;
+  uniform vec4 uCoverMisc[4];
+  uniform int uCoverSeed;
+  // the core's hash of two whole numbers and a seed (core/math/rng.ts hash2), to the bit
+  uint rtHash2(int x, int y, int seed) {
+    uint a = (uint(x) * 0x27d4eb2du) ^ (uint(y) * 0x165667b1u) ^ (uint(seed) * 0x9e3779b1u);
+    a = (a ^ (a >> 16u)) * 0x7feb352du;
+    a = (a ^ (a >> 15u)) * 0x846ca68bu;
+    return a ^ (a >> 16u);
+  }
+  #endif
   // thin strokes following the contours of the land, a pixel or two wide at any distance
   float rtContour(vec3 pos, vec3 n, vec2 w, float dist) {
     float x = rtWorldY(pos) / 2.6 + (rtNoiseAt(w, 96.0).g - 0.5) * 1.6;
@@ -190,9 +209,57 @@ export const GROUND_PAINT = /* glsl */ `
     alt *= 1.0 - smoothstep(mix(0.42, 0.55, p.misc.x), mix(0.7, 0.82, p.misc.x), steep);
     albedo = mix(albedo, rtSnowTone(tone + (rel - 0.5) * 0.6), alt);
 
+    #ifdef RT_COVER
+    // ---- a marsh: water stands in the hollows of its open ground, the ground round it dark with wet
+    float pool = 0.0;
+    float wetAmt = dot(vec4(uCoverMisc[0].x, uCoverMisc[1].x, uCoverMisc[2].x, uCoverMisc[3].x), bwIn);
+    if (wetAmt > 0.01) {
+      float pn = rtNoiseAt(w + 91.0, 46.0).g * 0.65 + rtNoiseAt(w * vec2(1.0, 0.6) + 17.0, 13.0).r * 0.35;
+      float level = (1.0 - smoothstep(0.004, 0.02, steep)) * smoothstep(9.0, 16.0, ad) * (1.0 - rock) * (1.0 - wood) * (1.0 - lawn) * (1.0 - alt) * wetAmt;
+      pool = smoothstep(0.56, 0.6, pn) * level;
+      albedo *= mix(vec3(1.0), vec3(0.7, 0.8, 0.78), smoothstep(0.44, 0.57, pn) * level);
+      // (the sky lies on it where the eye skims it; looked down into, it is dark)
+      vec3 toEye = normalize(cameraPosition - pos);
+      albedo = mix(albedo, mix(vec3(0.03, 0.13, 0.17), vec3(0.4, 0.58, 0.72), pow(1.0 - abs(toEye.y), 3.0)), pool * 0.92);
+    }
+    // ---- the rows of a region's flowers or crops (the flower fields; the benches of the terraces): each row
+    // a band of its own colour, to any distance — what stands in a row near the eye is what is painted far off
+    float rowAmt = abs(vCover.y);
+    // (how far the row coordinate runs across a pixel: asked for outside the branch)
+    float rowW = fwidth(vCover.x);
+    if (rowAmt > 0.004) {
+      // (the cover is one region's: the one most of the ground here is)
+      int si = bwIn.x >= max(bwIn.y, max(bwIn.z, bwIn.w)) ? 0 : (bwIn.y >= max(bwIn.z, bwIn.w) ? 1 : (bwIn.z >= bwIn.w ? 2 : 3));
+      vec4 rw = texelFetch(tCover, ivec2(6, si), 0);
+      if (rw.x > 0.0) {
+        float rfw = max(rowW / rw.x, 1e-4);
+        // (a row's edge is ragged where the eye is near enough to see it)
+        float pr = vCover.x / rw.x + (rtNoiseAt(w, 7.0).r - 0.5) * 0.14 * (1.0 - smoothstep(0.02, 0.2, rfw));
+        float rk = floor(pr);
+        float rf = pr - rk;
+        float band = clamp(rf / rfw + 0.5, 0.0, 1.0) * clamp((rw.y - rf) / rfw + 0.5, 0.0, 1.0) + clamp(0.5 - (1.0 - rf) / rfw, 0.0, 1.0);
+        float h01 = 0.5 + 0.8 * (float((rtHash2(int(rk), 0x6b3, uCoverSeed) >> 8u) & 0xffffu) / 32768.0 - 1.0);
+        vec3 hue = texelFetch(tCover, ivec2(int(clamp(floor(h01 * rw.z), 0.0, rw.z - 1.0)), si), 0).rgb;
+        // rows thinner than a pixel run together into the field's own colour
+        float merge = smoothstep(0.45, 1.2, rfw);
+        vec3 rowCol = mix(hue, texelFetch(tCover, ivec2(5, si), 0).rgb, merge);
+        // on terraced country the rows keep to the benches: everywhere but the risers' band of the height
+        float benches = vCover.y < 0.0 ? p.terrace * smoothstep(0.13 - tfw, 0.13 + tfw, abs(fract(tu - 0.28) - 0.5)) : 1.0;
+        // (laid on with the brush: thick here, thin there along a row, as the ground's own paint is)
+        float laid = clamp(0.86 + 0.9 * (s27 * 0.55 + s95 * 0.65), 0.5, 1.0);
+        float rows = rowAmt * mix(band, rw.y, merge) * laid * benches * (1.0 - rock) * (1.0 - lawn) * (1.0 - wood) * (1.0 - alt) * (1.0 - pool);
+        albedo = mix(albedo, rowCol * mix(0.7, 1.12, smoothstep(0.2, 0.8, tone + s27 * 0.4)), min(1.0, rows * 1.15) * mix(1.0, 0.82, smoothstep(250.0, 1500.0, dist)));
+      }
+    }
+    #endif
+
     // ---- flowers in the meadows
     vec3 flc;
     float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn) * (1.0 - riser);
+    #ifdef RT_COVER
+    // (none of these small drifts where the flowers stand in rows, nor in the water)
+    fl *= (1.0 - clamp(rowAmt * 3.0, 0.0, 1.0)) * (1.0 - pool);
+    #endif
     albedo = mix(albedo, flc, fl);
 
     // ---- weather: snow settles on flat ground (painted, not grey), rain darkens
@@ -207,6 +274,11 @@ export const GROUND_PAINT = /* glsl */ `
       float ragged = (nz.b - 0.5) * 0.5 + s6 * 0.3 * (1.0 - smoothstep(22.0, 55.0, dist));
       float beach = smoothstep(-1.5, -0.3, wd + ragged) * (1.0 - rock);
       vec3 sand = mix(p.dry, vec3(0.56, 0.5, 0.36), 0.55) * mix(0.82, 1.2, smoothstep(0.25, 0.75, tone));
+      #ifdef RT_COVER
+      // (a reedy shore is no beach: the colour of its reed beds, which stand on it near the eye)
+      float reedy = dot(vec4(uCoverMisc[0].y, uCoverMisc[1].y, uCoverMisc[2].y, uCoverMisc[3].y), bwIn);
+      sand = mix(sand, vec3(0.3, 0.38, 0.1) * mix(0.62, 1.15, smoothstep(0.2, 0.8, tone + s27 * 0.6)), reedy * 0.9);
+      #endif
       // old snow lies on a beach too, but never on the wet strip
       sand = mix(sand, rtSnowTone(tone), clamp(max(snow, alt), 0.0, 1.0) * (1.0 - smoothstep(-0.6, -0.15, wd)));
       albedo = mix(albedo, sand, beach);
@@ -234,6 +306,9 @@ export const GROUND_PAINT = /* glsl */ `
 export const GROUND_VARYINGS = /* glsl */ `
   varying vec4 vBiomeW;
   varying vec4 vGround;
+  #ifdef RT_COVER
+  varying vec2 vCover;
+  #endif
 `;
 
 /**
@@ -249,20 +324,28 @@ export const terrainClamp = {
   tClamp: { value: null as THREE.Texture | null },
 };
 
-export function terrainMaterial(): THREE.ShaderMaterial {
+/** @param cover a world of version 2: the ground carries its flora field's cover (the geometry has aCover) */
+export function terrainMaterial(cover = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { ...globals, ...terrainClamp },
+    defines: cover ? { RT_COVER: '' } : {},
+    uniforms: { ...globals, ...terrainClamp, ...coverUniforms },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
       ${GROUND_VARYINGS}
       attribute vec4 aBiomeW;
       attribute vec4 aGround;
+      #ifdef RT_COVER
+      attribute vec2 aCover;
+      #endif
       uniform vec4 uClampBox;
       uniform float uClampBase;
       uniform sampler2D tClamp;
       void main() {
         vBiomeW = aBiomeW;
         vGround = aGround;
+        #ifdef RT_COVER
+        vCover = aCover;
+        #endif
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
         if (uClampBox.z > uClampBox.x && rtWorld.x > uClampBox.x && rtWorld.x < uClampBox.z && rtWorld.z > uClampBox.y && rtWorld.z < uClampBox.w) {
           rtWorld.y = min(rtWorld.y, uClampBase + texture2D(tClamp, (rtWorld.xz - uClampBox.xy) / (uClampBox.zw - uClampBox.xy)).r);
@@ -292,13 +375,16 @@ export function terrainMaterial(): THREE.ShaderMaterial {
 
 const v3 = (c: [number, number, number]): THREE.Vector3 => new THREE.Vector3(c[0], c[1], c[2]);
 
-export function roadStripMaterial(): THREE.ShaderMaterial {
+/** @param cover a world of version 2: the ground beside the road carries its flora field's cover (the geometry has aCover) */
+export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
   const R = STYLE.road;
   return new THREE.ShaderMaterial({
+    defines: cover ? { RT_COVER: '' } : {},
     uniforms: {
       ...globals,
       ...skyMirrorUniforms(),
       ...waterUniforms,
+      ...coverUniforms,
       uAsphaltLit: { value: v3(R.asphalt.lit) },
       uAsphaltMid: { value: v3(R.asphalt.mid) },
       uAsphaltDeep: { value: v3(R.asphalt.deep) },
@@ -313,11 +399,17 @@ export function roadStripMaterial(): THREE.ShaderMaterial {
       attribute vec4 aGround;
       attribute vec4 aRoad;   // x: lateral offset d (m, + right), y: distance along the road (m, wrapped), z: on a bridge 0…1,
                               // w: on the levelled ground of a place 0…1 (negative: an old concrete forecourt)
+      #ifdef RT_COVER
+      attribute vec2 aCover;
+      #endif
       varying vec4 vRoad;
       void main() {
         vBiomeW = aBiomeW;
         vGround = aGround;
         vRoad = aRoad;
+        #ifdef RT_COVER
+        vCover = aCover;
+        #endif
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
         vPos = rtWorld.xyz;
         vNormal = normal;

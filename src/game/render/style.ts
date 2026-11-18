@@ -9,6 +9,8 @@
 import * as THREE from 'three';
 import styleJson from '../../../specs/art/style.json';
 import { BIOMES, type BiomeDef } from '../../core/world/biomes';
+import { floraTableOf } from '../../core/world/floraTables';
+import { hueShares } from '../scene/floraCover';
 import { PALETTES, paletteOf, type BiomePalette } from '../scene/palette';
 
 type RGB = [number, number, number];
@@ -238,6 +240,69 @@ export const paletteUniforms = {
   uBiomeMisc2: { value: fill(SLOTS, () => new THREE.Vector4()) },
 };
 
+/** how many flower colours a slot's row of the cover texture holds, and the texels of a row */
+export const COVER_HUES = 5;
+const COVER_ROW = 8;
+const coverData = new Float32Array(COVER_ROW * SLOTS * 4);
+
+/**
+ * The ground cover of the regions in the slots, for the ground's paint in a world of version 2 (the flora
+ * tables' cover: core/world/floraTables.ts; render/terrainMaterials.ts reads it under RT_COVER).
+ */
+export const coverUniforms = {
+  /**
+   * One row to a palette slot: texels 0 … 4 the colours of its region's flowers (linear; the last repeated),
+   * 5 the colour its rows run together into far off (their colours by how often each falls to a row), 6 its
+   * rows (metres from row to row — 0: it grows none —, the row's share of that, how many colours, flowers 0 … 1)
+   */
+  tCover: { value: null as THREE.DataTexture | null },
+  /** per slot: x how wet the region's open ground is (0 … 1: a marsh), y how reedy its shores (0 … 1) */
+  uCoverMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
+  /** the world's seed: the rows' colours are dealt by it (scene/floraCover.ts rowHue01) */
+  uCoverSeed: { value: 0 },
+};
+
+function coverTexture(): THREE.DataTexture {
+  let t = coverUniforms.tCover.value;
+  if (!t) {
+    t = new THREE.DataTexture(coverData, COVER_ROW, SLOTS, THREE.RGBAFormat, THREE.FloatType);
+    t.minFilter = t.magFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.NoColorSpace;
+    coverUniforms.tCover.value = t;
+  }
+  return t;
+}
+
+/** a slot's row of the cover texture and its numbers, from its region's flora table */
+function setSlotCover(slot: number, biome: number): void {
+  const region = BIOMES[biome] ?? BIOMES[0];
+  const table = floraTableOf(region.id, region.kin);
+  const c = table.cover;
+  const n = Math.min(COVER_HUES, c.hues.length);
+  const shares = hueShares(n);
+  const o = slot * COVER_ROW * 4;
+  coverData.fill(0, o, o + COVER_ROW * 4);
+  for (let i = 0; i < COVER_HUES && n > 0; i++) {
+    const hue = linear(c.hues[Math.min(i, n - 1)]);
+    for (let k = 0; k < 3; k++) {
+      coverData[o + i * 4 + k] = hue[k];
+      if (i < n) coverData[o + 5 * 4 + k] += hue[k] * shares[i];
+    }
+  }
+  coverData[o + 6 * 4] = c.rows ? c.rows.spacing : 0;
+  coverData[o + 6 * 4 + 1] = c.rows ? c.rows.share : 0;
+  coverData[o + 6 * 4 + 2] = n;
+  coverData[o + 6 * 4 + 3] = c.flowers;
+  coverTexture().needsUpdate = true;
+  // a marsh: a region whose ground is wet where nothing else speaks; reedy shores: where its table stands a
+  // reed in every cell of the bank
+  const wet = Math.min(1, Math.max(0, (table.eco.moist - 0.62) / 0.1));
+  let reeds = 0;
+  for (const r of table.shrubs) if (r.plant === 'reed') reeds = Math.max(reeds, r.perHa);
+  coverUniforms.uCoverMisc.value[slot].set(wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), 0, 0);
+}
+
 const shown = [-1, -1, -1, -1];
 
 /** show biome `biome` (index into BIOMES) in palette slot `slot` */
@@ -265,6 +330,7 @@ export function setSlotBiome(slot: number, biome: number): void {
   const benches = BIOMES[biome]?.land?.terrace;
   const cut = benches && benches.step > 0 ? Math.min(1, Math.max(0, benches.strength)) : 0;
   u.uBiomeMisc2.value[slot].set(b.rockStart ?? 0.3, b.crownVariety ?? 0, cut, cut * (benches?.step ?? 0));
+  setSlotCover(slot, biome);
 }
 
 /** the slot a chapter's palette lives in */

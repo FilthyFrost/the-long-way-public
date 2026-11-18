@@ -49,7 +49,11 @@ export interface PlantFamily {
   lies?: boolean;
   /** sunk this far into the ground (m) */
   sink?: number;
-  /** how it is turned: 'row' along the rows of its field (the x axis), 'sun' towards noon (+z); absent: its own turn */
+  /**
+   * How it is turned: 'row' along the rows of its field (the x axis: such a plant is its cell's rows, drawn at
+   * the model's own measure across whatever its size, and moved onto the field's rows where its region has
+   * them), 'sun' towards noon (+z); absent: its own turn
+   */
   turn?: 'row' | 'sun';
   /** its lean out of plumb (rad) */
   lean?: number;
@@ -71,12 +75,12 @@ export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
   poplar: { near: 'poplar', far: 'poplarFar', cls: 'tree', h: 9.0, r: 1.65, farH: 7.8, farR: 1.85, shadow: 1.1, sink: 0.12, lean: 0.03 },
   willow: { near: 'willow', far: 'willowFar', cls: 'tree', h: 6.5, r: 3.2, farH: 7.0, farR: 3.4, shadow: 2.6, accent: 0x6e5a40, sink: 0.05, lean: 0.04 },
   juniper: { near: 'juniper', far: 'juniperFar', cls: 'tree', h: 3.5, r: 1.75, farH: 3.8, farR: 1.95, shadow: 1.2, accent: 0x7a6248, sink: 0.05, lean: 0.04 },
-  bamboo: { near: 'bamboo', far: 'bambooFar', cls: 'tree', h: 8.5, r: 2.6, shadow: 1.6, accent: 0x9fcf6a, sink: 0.05, lean: 0.02 },
+  bamboo: { near: 'bamboo', far: 'bambooFar', cls: 'tree', h: 9.3, r: 3.0, farH: 9.6, shadow: 1.6, accent: 0x9fcf6a, sink: 0.05, lean: 0.02 },
   fruit_tree: { near: 'fruit_tree', far: 'broadleafFar', cls: 'tree', h: 5.0, r: 2.5, farH: 5.8, farR: 3.0, shadow: 1.6, accent: 0xd8483a, sink: 0.1, lean: 0.05 },
   baobab: { near: 'baobab', far: 'baobabFar', cls: 'tree', h: 8.2, r: 3.6, farH: 8.6, farR: 3.2, shadow: 2.4, accent: 0x8a7a66, sink: 0.05 },
   // ---- the new shrubs
   berry_bush: { near: 'berry_bush', far: 'bushFar', cls: 'small', h: 1.3, r: 1.1, farH: 1.6, farR: 1.25, shadow: 0.8, accent: 0xc2334a, lies: true, sink: 0.05 },
-  tea_bush: { near: 'tea_bush', far: 'teaFar', cls: 'small', h: 0.9, r: 0.82, shadow: 0, lies: true, sink: 0.03, turn: 'row' },
+  tea_bush: { near: 'tea_bush', far: 'teaFar', cls: 'small', h: 0.9, r: 0.8, shadow: 0, lies: true, sink: 0.03, turn: 'row' },
   sage: { near: 'sage', far: 'bushFar', cls: 'small', h: 0.9, r: 0.85, farH: 1.6, farR: 1.25, shadow: 0.5, accent: 0x8a84b0, lies: true, sink: 0.04 },
   agave: { near: 'agave', cls: 'small', h: 1.06, r: 1.0, shadow: 0.5, lies: true, sink: 0.03 },
   prickly_pear: { near: 'prickly_pear', cls: 'small', h: 1.0, r: 0.75, shadow: 0.5, accent: 0xd0406a, lies: true, sink: 0.03 },
@@ -85,7 +89,7 @@ export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
   fern: { near: 'fern', cls: 'small', h: 0.8, r: 0.95, shadow: 0, lies: true, sink: 0.02 },
   vine: { near: 'vine', far: 'bushFar', cls: 'small', h: 1.6, r: 1.4, farH: 1.6, farR: 1.25, shadow: 0.8, accent: 0x5a2a6a, lies: true, sink: 0.04 },
   sunflower: { near: 'sunflower', far: 'sunflowerFar', cls: 'small', h: 2.1, r: 0.5, shadow: 0, accent: 0xf2c23c, lies: true, sink: 0.02, turn: 'sun' },
-  tall_grass: { near: 'tall_grass', far: 'reedFar', cls: 'small', h: 1.6, r: 0.7, farH: 2.1, farR: 1.55, shadow: 0, accent: 0xc8b46a, lies: true, sink: 0.02 },
+  tall_grass: { near: 'tall_grass', far: 'reedFar', cls: 'small', h: 1.6, r: 0.7, farH: 2.1, farR: 1.2, shadow: 0, accent: 0xc8b46a, lies: true, sink: 0.02 },
   // ---- what lies on the ground
   boulder: { near: 'boulder', cls: 'small', h: 1.3, r: 1.6, shadow: 1.2, lies: true, sink: 0.1 },
   log: { near: 'log', cls: 'small', h: 0.46, r: 1.6, shadow: 0, lies: true, sink: 0.03 },

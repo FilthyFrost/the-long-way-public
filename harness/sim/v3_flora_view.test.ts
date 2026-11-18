@@ -11,8 +11,9 @@ import { ECO_TILE } from '../../src/core/world/ecotope';
 import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, plantsOf } from '../../src/core/world/flora';
 import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
 import { PLANTS, bearsAt, plantDef, plantIndex } from '../../src/core/world/plants';
+import { LandParams } from '../../src/core/world/landform';
 import { SpineSample } from '../../src/core/world/spine';
-import { World } from '../../src/core/world/terrain';
+import { TerrainPoint, World } from '../../src/core/world/terrain';
 import { LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraBatch } from '../../src/game/scene/floraScatter';
 import { PART_ACCENT, PART_FRUIT, PART_LEAF, PART_ROCK, PART_WOOD } from '../../src/game/scene/plantModels';
 import { ATLAS_ROW, ATLAS_WIDTH, FAMILIES, plantRegistry } from '../../src/game/scene/plantRegistry';
@@ -168,42 +169,64 @@ describe('a scatter tile of a world of version 2', () => {
     }));
 
   it('is what the flora field stands there: every drawn plant once, where the core put it, as tall as the core says', () => {
+    const tea = plantIndex('tea_bush');
     for (const id of ['forest', 'terraces', 'wetland', 'red_canyon', 'karst_peaks']) {
       const w = world2(id);
       const flora = w.flora!;
+      const tp = new TerrainPoint();
       for (const off of [60, 260]) {
         const [tx, tz] = tileAt(w, 2400, off);
         const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
         let wantTrees = 0;
         let wantSmall = 0;
-        const core = new Map<string, { plant: number; y: number; size: number }>();
+        let teas = 0;
+        const core = new Map<string, { plant: number; x: number; z: number; y: number; size: number; seen: number }>();
         for (const layer of [LAYER_TREE, LAYER_SHRUB, LAYER_GROUND] as const) {
           const t = flora.tile(layer, tx, tz);
           for (let i = 0; i < t.n; i++) {
             if (!reg.draws[t.plant[i]].drawn) continue;
             if (layer === LAYER_TREE) wantTrees++;
             else wantSmall++;
-            core.set(`${(t.x[i] - s.wx).toFixed(2)},${(t.z[i] - s.wz).toFixed(2)}`, { plant: t.plant[i], y: t.y[i], size: t.size[i] });
+            if (t.plant[i] === tea) teas++;
+            core.set(`${(t.x[i] - s.wx).toFixed(2)},${(t.z[i] - s.wz).toFixed(2)}`, { plant: t.plant[i], x: t.x[i] - s.wx, z: t.z[i] - s.wz, y: t.y[i], size: t.size[i], seen: 0 });
           }
         }
         const trees = s.batches.find((b) => b.cls === 'tree');
         const small = s.batches.find((b) => b.cls === 'small');
         expect(trees?.count ?? 0, `${id} trees`).toBe(wantTrees);
-        expect(small?.count ?? 0, `${id} small`).toBe(wantSmall);
+        // (a plant of tea is drawn as up to three rows: its own and one on either side)
+        expect(small?.count ?? 0, `${id} small`).toBeGreaterThanOrEqual(wantSmall);
+        expect(small?.count ?? 0, `${id} small`).toBeLessThanOrEqual(wantSmall + 2 * teas);
         for (const b of s.batches) {
           for (const r of rows(b)) {
-            const c = core.get(`${r.x.toFixed(2)},${r.z.toFixed(2)}`);
-            expect(c, `${id}: an instance at ${r.x.toFixed(2)}, ${r.z.toFixed(2)} that the core did not put there`).toBeDefined();
-            const p = PLANTS[c!.plant];
-            const d = reg.draws[c!.plant];
+            let c = core.get(`${r.x.toFixed(2)},${r.z.toFixed(2)}`);
+            if (!c) {
+              // not at a plant's own place: then a row of a tea plant, beside it
+              for (const k of core.values()) if (k.plant === tea && Math.abs(Math.hypot(k.x - r.x, k.z - r.z) - 2.6) < 0.01) c = k;
+              expect(c, `${id}: an instance at ${r.x.toFixed(2)}, ${r.z.toFixed(2)} that the core did not put there`).toBeDefined();
+              expect(r.first).toBe(reg.atlas.models.tea_bush.first);
+              continue;
+            }
+            c.seen++;
+            const p = PLANTS[c.plant];
+            const d = reg.draws[c.plant];
             expect(r.first).toBe(d.near.first);
             expect(r.count).toBe(d.near.count);
             // its height is the core's: the plant's full height times the size the core gave it
-            expect(r.sy * d.family.h).toBeCloseTo(p.height * c!.size, 3);
-            // never above the ground the core stood it on, and never more than a metre and a bit under it
+            expect(r.sy * d.family.h).toBeCloseTo(p.height * c.size, 3);
             const foot = r.y + s.wy;
-            expect(foot).toBeLessThanOrEqual(c!.y + 1e-3);
-            expect(foot).toBeGreaterThan(c!.y - 1.6);
+            if (p.aquatic) {
+              // a plant of the water rises from the water's surface, not from the bed it is rooted in
+              w.shape(c.x + s.wx, c.z + s.wz, tp);
+              expect(tp.wl).toBeGreaterThan(c.y);
+              expect(foot).toBeGreaterThan(c.y);
+              expect(foot).toBeLessThanOrEqual(tp.wl);
+              expect(foot).toBeGreaterThan(tp.wl - 0.3);
+            } else {
+              // never above the ground the core stood it on, and never more than a metre and a bit under it
+              expect(foot).toBeLessThanOrEqual(c.y + 1e-3);
+              expect(foot).toBeGreaterThan(c.y - 1.6);
+            }
             expect(r.count).toBeLessThanOrEqual(b.verts);
             expect(r.x).toBeGreaterThanOrEqual(0);
             expect(r.x).toBeLessThan(ECO_TILE);
@@ -211,8 +234,58 @@ describe('a scatter tile of a world of version 2', () => {
             expect(r.z).toBeLessThan(ECO_TILE);
           }
         }
+        for (const c of core.values()) expect(c.seen, `${id}: ${PLANTS[c.plant].id} drawn once`).toBe(1);
       }
     }
+  });
+
+  it('stands a plant of tea as rows on its bench: level, and only where the bench reaches', () => {
+    const w = world2('terraces');
+    const flora = w.flora!;
+    const tea = plantIndex('tea_bush');
+    const first = reg.atlas.models.tea_bush.first;
+    const tp = new TerrainPoint();
+    let plants = 0;
+    let rowsSeen = 0;
+    let benched = 0;
+    // the stretches of the region's road whose sides are cut into benches
+    const lp = new LandParams();
+    const SLOT = w.rules.slot;
+    const where: number[] = [];
+    for (let k = 1; k < 400 && where.length < 12; k++) {
+      const kind = w.land.kindOf(k);
+      if ((kind === 'hillside' || kind === 'valley') && w.land.at((k + 0.5) * SLOT, lp).terrace > 0.5) where.push((k + 0.5) * SLOT);
+    }
+    expect(where.length).toBeGreaterThan(3);
+    for (const s0 of where) {
+      for (const off of [-200, -90, 90, 200]) {
+        const [tx, tz] = tileAt(w, s0, off);
+        const shrubs = flora.tile(LAYER_SHRUB, tx, tz);
+        let here = 0;
+        for (let i = 0; i < shrubs.n; i++) if (shrubs.plant[i] === tea) here++;
+        if (!here) continue;
+        plants += here;
+        const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);
+        const et = w.eco!.tile(tx, tz);
+        const b = s.batches.find((x) => x.cls === 'small')!;
+        for (const r of rows(b)) {
+          if (r.first !== first) continue;
+          rowsSeen++;
+          // (a row is drawn at the model's own measure across, whatever the plant's size)
+          expect(r.sxz).toBeCloseTo(1, 6);
+          const node = Math.min(15, Math.max(0, Math.floor(r.z / 8))) * 17 + Math.min(15, Math.max(0, Math.floor(r.x / 8)));
+          if (et.terrace[node] < 0.5 || r.gx !== 0 || r.gz !== 0) continue;
+          // on terraced country: level, and on the land as it is at its own middle
+          benched++;
+          w.shape(r.x + s.wx, r.z + s.wz, tp);
+          expect(Math.abs(r.y + s.wy + 0.03 - tp.bed)).toBeLessThan(0.3);
+        }
+      }
+    }
+    expect(plants).toBeGreaterThan(20);
+    expect(rowsSeen).toBeGreaterThan(plants);
+    expect(rowsSeen).toBeLessThanOrEqual(plants * 3);
+    expect(benched).toBeGreaterThan(10);
   });
 
   it('draws a tree plumb and sunk by its slope, and lays a low plant with its ground', () => {

@@ -812,9 +812,14 @@ export function grassMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMat
   });
 }
 
-/** Meadow flowers: a stalk in the grass paint and a small round head in one of the biome's flower colours. */
-export function flowerMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMaterial {
+/**
+ * Meadow flowers: a stalk in the grass paint and a small round head in one of the biome's flower colours.
+ * @param hues a world of version 2: each flower carries its own colour (aInfo.x = 0xRRGGBB, the flora field's
+ * cover: scene/worldBuild.ts grassSlices) instead of the number of one of its palette's three
+ */
+export function flowerMaterial(fade: GrassFade, keepFar: number, hues = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    defines: hues ? { RT_HUE: '' } : {},
     side: THREE.DoubleSide,
     uniforms: { ...globals },
     vertexShader: /* glsl */ `
@@ -862,7 +867,13 @@ export function flowerMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMa
           float r = length(vUv);
           float petals = 0.62 + 0.38 * abs(cos(atan(vUv.y, vUv.x) * 4.0));
           if (r > petals) discard;
+          #ifdef RT_HUE
+          // (a colour written as one number, 0xRRGGBB, as the linear colour it stands for)
+          vec3 hs = vec3(floor(vPick / 65536.0), mod(floor(vPick / 256.0), 256.0), mod(vPick, 256.0)) / 255.0;
+          albedo = mix(hs / 12.92, pow((hs + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), hs));
+          #else
           albedo = vPick < 0.5 ? uFlowerPal[si * 3] : vPick < 1.5 ? uFlowerPal[si * 3 + 1] : uFlowerPal[si * 3 + 2];
+          #endif
           albedo *= mix(0.82, 1.08, smoothstep(0.2, 0.9, r));
           albedo = mix(vec3(0.85, 0.62, 0.08), albedo, smoothstep(0.16, 0.24, r));
         }

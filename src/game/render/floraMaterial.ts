@@ -150,15 +150,17 @@ export function floraMaterial(): THREE.ShaderMaterial {
       varying float vEver;
       // Four tones of one colour, as a wood's four greens are four tones: the colour itself where the light
       // falls full on a crown, deeper and more of itself in the half light, and towards a cool dark inside
-      // (the shade of a leaf mass is sky, not black: STYLE.md 2.2).
+      // (the shade of a leaf mass is sky, not black: STYLE.md 2.2). The tones keep their distance from one
+      // another whatever the colour's own lightness: a dark plant is not painted black. A warm colour's shade
+      // goes to crimson, not to blue.
       vec3 rtTintTone(vec3 t, float tone) {
-        float lum = dot(t, vec3(0.2126, 0.7152, 0.0722));
-        float mx = max(max(t.r, t.g), t.b);
-        float sat = (mx - min(min(t.r, t.g), t.b)) / max(mx, 1e-3);
-        vec3 cool = vec3(0.0, 0.0, 1.0) * lum * (0.35 + 0.85 * sat);
-        vec3 f0 = pow(t, vec3(2.5)) * 0.35 + cool * 0.165;
-        vec3 f1 = pow(t, vec3(2.2)) * 0.6 + cool * 0.19;
-        vec3 f2 = pow(t, vec3(1.5)) * 0.78 + cool * 0.12;
+        float m = max(max(t.r, t.g), max(t.b, 1e-3));
+        vec3 tn = t / m;
+        float sat = 1.0 - min(min(tn.r, tn.g), tn.b);
+        vec3 cool = vec3(0.0, 0.0, (0.35 + 0.85 * sat) * (1.0 - 0.7 * max(tn.r - tn.g, 0.0)));
+        vec3 f0 = m * (0.16 * pow(tn, vec3(2.5)) + 0.14 * cool);
+        vec3 f1 = m * (0.34 * pow(tn, vec3(2.2)) + 0.16 * cool);
+        vec3 f2 = m * (0.61 * pow(tn, vec3(1.5)) + 0.1 * cool);
         vec3 c = mix(f0, f1, smoothstep(0.26, 0.4, tone));
         c = mix(c, f2, smoothstep(0.52, 0.66, tone));
         return mix(c, t, smoothstep(0.8, 0.92, tone));

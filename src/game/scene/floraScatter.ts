@@ -26,6 +26,7 @@ import { floraTableOf } from '../../core/world/floraTables';
 import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/plants';
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
+import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
 
 export const LOD_NEAR = 0;
@@ -60,8 +61,8 @@ export interface FloraScatter {
   wz: number;
 }
 
-/** the most plants a tile's draw can hold: the trees' cells, and the shrubs' and the ground's together */
-const MOST: Record<PlantClass, number> = { tree: 256, small: 256 + 1024 };
+/** the most plants a tile's draw can hold: the trees' cells, and the shrubs' (a plant of rows is up to three rows) and the ground's together */
+const MOST: Record<PlantClass, number> = { tree: 256, small: 256 * 3 + 1024 };
 
 class Gather {
   n = 0;
@@ -97,8 +98,10 @@ class Gather {
 }
 
 const gather: Record<PlantClass, Gather> = { tree: new Gather('tree'), small: new Gather('small') };
-const discScratch = new Float32Array((256 + 256 + 1024) * 16);
+const discScratch = new Float32Array((256 + 256 * 3 + 1024) * 16);
 const tp = new TerrainPoint();
+/** the same level of a bench, for a row of a plant of rows to stand on it (m) */
+const BENCH_LEVEL = 0.25;
 
 /** the palette slots across a tile: asked of the land on a grid this coarse (m), the nearest answer serves a plant */
 const SLOT_STEP = 32;
@@ -120,14 +123,14 @@ function huesOf(region: number): readonly number[] {
 }
 
 /**
- * One plant into a draw: set on its ground at (x, y, z) of the tile (y: the land under it), at its size and turn.
- * Returns its scale across.
+ * One plant into a draw: set on its ground at (x, y, z) of the tile (y: the land under it), at its size and turn
+ * (a plant of rows: the turn of its rows). Returns its scale across.
  */
 function put(g: Gather, d: PlantDraw, plant: PlantDef, model: AtlasModel, near: boolean, x: number, y: number, z: number, size: number, vary: number, yaw: number, gx: number, gz: number, pair: number, share: number, region: number, bearing: boolean | null = null): number {
   const fam = d.family;
   const o = g.n * 4;
   // a little of its own in its girth; its height is the core's to the centimetre
-  const sxz = (near ? d.kx : d.fkx) * size * (0.92 + 0.16 * ((vary * 7.31) % 1));
+  const sxz = fam.turn === 'row' ? (near ? d.kx : d.fkx) : (near ? d.kx : d.fkx) * size * (0.92 + 0.16 * ((vary * 7.31) % 1));
   const sy = (near ? d.ky : d.fky) * size;
   let foot = y - (fam.sink ?? 0);
   if (fam.lies) {
@@ -144,7 +147,7 @@ function put(g: Gather, d: PlantDraw, plant: PlantDef, model: AtlasModel, near: 
   g.place[o] = x;
   g.place[o + 1] = foot;
   g.place[o + 2] = z;
-  g.place[o + 3] = fam.turn === 'row' ? (vary - 0.5) * 0.14 : fam.turn === 'sun' ? (vary - 0.5) * 0.5 : yaw;
+  g.place[o + 3] = fam.turn === 'sun' ? (vary - 0.5) * 0.5 : yaw;
   g.shape[o] = sxz;
   g.shape[o + 1] = sy;
   g.shape[o + 2] = model.first;
@@ -269,7 +272,34 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       // its palette: of the region whose table stood it, where two regions meet
       const region = t.region[i];
       const share = slotA[sk] === slotB[sk] ? slotShare[sk] : region === slotB[sk] ? 1 : region === slotA[sk] ? 0 : slotShare[sk];
-      const sxz = put(g, d, plant, model, near, x - x0, t.y[i] - oy, z - z0, size, vary, t.yaw[i], gx, gz, slotPair[sk], share, region);
+      let ground = t.y[i];
+      if (plant.aquatic) {
+        // a plant of the water stands on the bed, in up to a few hands of water: it is drawn rising from the surface
+        world.shape(x, z, tp);
+        if (tp.wl > ground) ground = tp.wl - 0.12;
+      }
+      if (d.family.turn === 'row') {
+        // a plant of rows (tea) is the rows of its whole cell: up to three hedges side by side, along the
+        // contour of its ground (on level ground along x, as the field's own rows run). On the benches of
+        // terraced country each stands level on the bench, and only where the bench reaches.
+        const sl = Math.sqrt(gx * gx + gz * gz);
+        const ax = sl > 0.04 ? gx / sl : 0;
+        const az = sl > 0.04 ? gz / sl : 1;
+        const turn = Math.atan2(-ax, -az) + (vary - 0.5) * 0.1;
+        const benches = et.terrace[a] >= 0.5;
+        for (let r = -1; r <= 1; r++) {
+          if (g.n >= MOST[d.cls]) break;
+          let h = ground + r * TEA_ROWS * sl;
+          if (benches && r !== 0) {
+            world.shape(x + r * TEA_ROWS * ax, z + r * TEA_ROWS * az, tp);
+            if (Math.abs(tp.bed - ground) > BENCH_LEVEL) continue;
+            h = tp.bed;
+          }
+          put(g, d, plant, model, near, x - x0 + r * TEA_ROWS * ax, h - oy, z - z0 + r * TEA_ROWS * az, size, vary, turn, benches ? 0 : gx, benches ? 0 : gz, slotPair[sk], share, region);
+        }
+        continue;
+      }
+      const sxz = put(g, d, plant, model, near, x - x0, ground - oy, z - z0, size, vary, t.yaw[i], gx, gz, slotPair[sk], share, region);
       // a soft shadow disc on the ground, pushed away from the sun (as the first renderer's)
       if (discs && near && d.family.shadow > 0) {
         const r = d.family.shadow * sxz;
