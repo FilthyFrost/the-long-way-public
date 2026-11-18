@@ -1,8 +1,14 @@
 /**
  * Biome definitions: how the road behaves and how the land rises around it.
  * Plain data — the renderer adds palettes on top of these ids.
+ *
+ * A biome is a region of the world, and the regions are a registry: BIOMES, the six there always were
+ * and then the list of regions/index.ts, appended to and never reordered. What a region does not say for
+ * itself, the tables of the other modules say for it, by its id or else by its kin (`regionRow`).
  */
 import { Surface } from './ground';
+import type { LandKind, LandSize } from './landform';
+import { ADDED_REGIONS } from './regions/index';
 
 export interface BiomeDef {
   id: string;
@@ -42,8 +48,11 @@ export interface BiomeDef {
   /** lateral distance where the big landforms start / reach full height (m) */
   farStart: number;
   farEnd: number;
-  /** 0 = rounded hills, 1 = sharp ridges, 2 = flat-topped mesas */
-  farShape: 0 | 1 | 2;
+  /**
+   * The shape of the big landforms: 0 = rounded hills, 1 = sharp ridges, 2 = flat-topped mesas. Other
+   * numbers are for shapes still to come; one the height function does not know is drawn as rounded hills.
+   */
+  farShape: number;
   /** height (m) of the mountain massifs that stand kilometres back from the road, on the skyline */
   massifAmp: number;
   /** width over which the verge blends from road level into the land (m) */
@@ -55,7 +64,46 @@ export interface BiomeDef {
   tempNight: number;
 }
 
-export const BIOMES: readonly BiomeDef[] = [
+/** how often a stretch of a region holds a lake or a river (0…1), whether its water freezes (0…1), and how far below the road its rivers run (m) */
+export interface RegionWater {
+  lake: number;
+  river: number;
+  frozen: number;
+  clear: number;
+}
+
+/**
+ * A region: a biome, and what it may say for itself beyond the road and the land. Every field here is
+ * optional; a region that leaves one out is treated as its kin wherever a table is asked (`regionRow`),
+ * and as the plainest case wherever a dealer is.
+ */
+export interface RegionDef extends BiomeDef {
+  /** how much a stretch of it asks of the traveller (absent: calm); a dealer paces the journey by it */
+  intensity?: 'calm' | 'scenic' | 'highlight';
+  /** what its colours, its landforms and its plants are akin to: a dealer keeps neighbours different in at least two of the three */
+  family?: { palette: string; land: string; flora: string };
+  /** its climate belt: a dealer keeps the dry heat and the hard cold apart */
+  climate?: 'temperate' | 'dry' | 'cold' | 'warm';
+  /** it lies by the sea: its chapters may have the sea along one side (sea.ts), and a dealer never deals two such in a row */
+  sea?: boolean;
+  /** it is one of the surreal ones: a dealer deals one among six regions at most */
+  surreal?: boolean;
+  /** how readily a dealer deals it (absent: 1) */
+  weight?: number;
+  /**
+   * Its landforms (landform.ts): the odds of each kind of country — a kind left out never comes — and
+   * the strength of each at its fullest, where one left out is the strength of its kin's. Absent: the
+   * rows LAND_ODDS and LAND_SIZE hold for its id, else for its kin.
+   */
+  land?: { odds: Partial<Record<LandKind, number>>; size: Partial<LandSize> };
+  /** its water (water.ts). Absent: the row for its id, else for its kin. */
+  water?: RegionWater;
+  /** the recipes of its anchored landforms: how many to a region, which, how large (their shape is defined with the landforms themselves) */
+  features?: readonly unknown[];
+}
+
+/** the six regions there were before there was a registry: the worlds of version 1 are made of these and no others, in this order */
+const FIRST_SIX: readonly RegionDef[] = [
   {
     id: 'plains',
     label: '草原丘陵',
@@ -251,7 +299,110 @@ export const BIOMES: readonly BiomeDef[] = [
 /** the three kinds of country the journey begins in; the others join from the fifth chapter on */
 export const FIRST_BIOMES = 3;
 
-export const BIOME_INDEX: Record<string, number> = Object.fromEntries(BIOMES.map((b, i) => [b.id, i]));
+const REGISTRY: RegionDef[] = [];
+
+/**
+ * THE registry of regions: the six above first, in their order, then the list of regions/index.ts.
+ *
+ * A region's index in this array is its identity. The chapter plan deals indices, a world's region count
+ * (rules.ts) counts them, and the index seeds the land's noise (terrain.ts: seed + index · 7919) and the
+ * weather's (weather.ts: seed + 17 + index · 3). So the array only ever grows at its end: an entry is
+ * never taken out, moved or put in between two others, or every world made before becomes another world.
+ */
+export const BIOMES: readonly RegionDef[] = REGISTRY;
+
+/** the index of each region in BIOMES, by id (an object without a prototype: only the ids are in it) */
+export const BIOME_INDEX: Record<string, number> = Object.create(null) as Record<string, number>;
+
+/**
+ * One entry of the registry: every field of a region set, in one order, those the region leaves out as
+ * undefined. The height function reads these objects at every point of the land, and the engine reads
+ * objects that are all laid out alike several times faster than objects of many layouts (measured with
+ * six layouts: +0.1 to 0.2 µs to every far-field call). A field added to RegionDef must be listed here:
+ * the type sees to it.
+ */
+function entry(d: RegionDef): RegionDef {
+  const e: { [K in keyof Required<RegionDef>]: RegionDef[K] } = {
+    id: d.id,
+    label: d.label,
+    kin: d.kin,
+    designKmh: d.designKmh,
+    straightMin: d.straightMin,
+    straightMax: d.straightMax,
+    straightChance: d.straightChance,
+    turnMin: d.turnMin,
+    turnMax: d.turnMax,
+    radiusSpread: d.radiusSpread,
+    gradeAmp: d.gradeAmp,
+    gradeMax: d.gradeMax,
+    gradeLen: d.gradeLen,
+    baseElev: d.baseElev,
+    nearAmp: d.nearAmp,
+    nearLen: d.nearLen,
+    detailAmp: d.detailAmp,
+    detailLen: d.detailLen,
+    farAmp: d.farAmp,
+    farLen: d.farLen,
+    farStart: d.farStart,
+    farEnd: d.farEnd,
+    farShape: d.farShape,
+    massifAmp: d.massifAmp,
+    vergeBlend: d.vergeBlend,
+    ditch: d.ditch,
+    ground: d.ground,
+    tempDay: d.tempDay,
+    tempNight: d.tempNight,
+    intensity: d.intensity,
+    family: d.family,
+    climate: d.climate,
+    sea: d.sea,
+    surreal: d.surreal,
+    weight: d.weight,
+    land: d.land,
+    water: d.water,
+    features: d.features,
+  };
+  return e;
+}
+
+function append(d: RegionDef): number {
+  if (!d.id) throw new Error('a region needs an id');
+  if (d.id in BIOME_INDEX) throw new Error(`region '${d.id}' is in the registry already (at ${BIOME_INDEX[d.id]})`);
+  BIOME_INDEX[d.id] = REGISTRY.length;
+  REGISTRY.push(entry(d));
+  return REGISTRY.length - 1;
+}
+
+for (const d of FIRST_SIX) append(d);
+for (const d of ADDED_REGIONS) append(d);
+
+/**
+ * Put one more region at the end of the registry; returns what takes it out again. For tests and tools:
+ * the game's regions are the list of regions/index.ts and are there as soon as this file is loaded. A
+ * region is taken out only while it is the registry's last (they leave in the reverse of the order they
+ * came), and a world made while it was there is not to be used after.
+ */
+export function registerRegion(def: RegionDef): () => void {
+  const index = append(def);
+  return () => {
+    if (REGISTRY.length !== index + 1 || BIOME_INDEX[def.id] !== index) throw new Error(`region '${def.id}' is not the registry's last: regions are taken out in the reverse of the order they were put in`);
+    REGISTRY.pop();
+    delete BIOME_INDEX[def.id];
+  };
+}
+
+/** the region of an id (the first of all for an id the registry does not hold) */
+export function regionById(id: string): RegionDef {
+  return REGISTRY[BIOME_INDEX[id] ?? 0];
+}
+
+/**
+ * A region's row of a table kept by region id: the row under its own id, else the row of its kin. (The
+ * three kins — plains, desert, alpine — have a row in every such table, so there always is one.)
+ */
+export function regionRow<T>(table: Readonly<Record<string, T>>, region: BiomeDef): T {
+  return table[region.id] ?? table[region.kin];
+}
 
 /** tightest curve radius (m) for a design speed, from the usual highway formula R = V² / (127 (e + f)) */
 export function minRadius(designKmh: number): number {

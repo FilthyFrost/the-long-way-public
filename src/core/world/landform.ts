@@ -18,7 +18,7 @@
 import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { BiomeBlend, type RoadSpine } from './spine';
 
 /** metres of road per stretch (the same as a water slot) */
@@ -78,7 +78,11 @@ interface Stretch {
   p: LandParams;
 }
 
-/** odds of each kind of country, by biome: open, hillside, valley, ridge, canyon */
+/**
+ * Odds of each kind of country, by biome: open, hillside, valley, ridge, canyon. (This table and the next
+ * are the developer's dials too: their rows are written into in place, so they stay where they are, and a
+ * region is looked up in them afresh every time a stretch is laid out.)
+ */
 export const LAND_ODDS: Record<string, [number, number, number, number, number]> = {
   plains: [0.26, 0.38, 0.14, 0.22, 0],
   desert: [0.4, 0.14, 0.02, 0.18, 0.26],
@@ -100,6 +104,37 @@ export const LAND_SIZE: Record<string, [number, number, number, number]> = {
   lakes: [0.14, 60, 30, 0],
   maple: [0.26, 110, 60, 0],
 };
+
+/** the strength of each kind of country at its fullest, by name: a hillside's rise per metre, the height of a valley's sides, the fall from a ridge, the height of canyon walls (m) */
+export interface LandSize {
+  tilt: number;
+  wall: number;
+  drop: number;
+  canyon: number;
+}
+
+/**
+ * The odds of each kind of country in a region, in the order of KINDS: what the region says itself (a
+ * kind it leaves out never comes), else the row of LAND_ODDS under its id, else its kin's.
+ */
+export function landOddsOf(region: RegionDef): readonly number[] {
+  const own = region.land;
+  if (own === undefined) return regionRow(LAND_ODDS, region);
+  const o = own.odds;
+  return [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
+}
+
+/**
+ * The strength of each kind in a region, as LAND_SIZE holds it ([tilt, wall, drop, canyon]): the row
+ * under its id, else its kin's, with whatever the region says itself in place of the row's.
+ */
+export function landSizeOf(region: RegionDef): readonly number[] {
+  const row = regionRow(LAND_SIZE, region);
+  const own = region.land;
+  if (own === undefined) return row;
+  const s = own.size;
+  return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+}
 
 const bl = new BiomeBlend();
 
@@ -133,9 +168,9 @@ export class LandformPlan {
       let kind: LandKind = 'open';
       let side = h & 0x10000 ? 1 : -1;
       this.spine.biomeAt((i + 0.5) * LAND_SLOT, bl);
-      const id = BIOMES[bl.t < 0.5 ? bl.a : bl.b].id;
-      const odds = LAND_ODDS[id] ?? LAND_ODDS.plains;
-      const size = LAND_SIZE[id] ?? LAND_SIZE.plains;
+      const region = BIOMES[bl.t < 0.5 ? bl.a : bl.b];
+      const odds = landOddsOf(region);
+      const size = landSizeOf(region);
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
       if (i < 1 || water === 'river') kind = 'open';

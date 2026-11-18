@@ -20,7 +20,7 @@ import { dcos, dsin } from '../math/detmath';
 import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef, type RegionWater } from './biomes';
 import { BiomeBlend, SpineSample, type RoadSpine } from './spine';
 
 /** metres of road per water slot (a slot holds one feature at most) */
@@ -124,7 +124,7 @@ const bl = new BiomeBlend();
  * below the land's base a river runs (deeper where the land rolls more, so the banks hold it).
  * See docs/DESIGN_V2.md §4.5.
  */
-const WATER: Record<string, { lake: number; river: number; frozen: number; clear: number }> = {
+const WATER: Record<string, RegionWater> = {
   plains: { lake: 0.52, river: 0.24, frozen: 0, clear: 6.5 },
   desert: { lake: 0.1, river: 0, frozen: 0, clear: 5 },
   alpine: { lake: 0.28, river: 0.2, frozen: 1, clear: 8 },
@@ -133,7 +133,11 @@ const WATER: Record<string, { lake: number; river: number; frozen: number; clear
   lakes: { lake: 0.66, river: 0.12, frozen: 0, clear: 5 },
   maple: { lake: 0.3, river: 0.3, frozen: 0, clear: 7 },
 };
-const DRY = { lake: 0, river: 0, frozen: 0, clear: 6 };
+
+/** a region's water: what it says itself, else the row under its id, else its kin's */
+export function waterOf(region: RegionDef): RegionWater {
+  return region.water ?? regionRow(WATER, region);
+}
 
 /** where a river's centre line is at z − z0 = zr: x and dx/dz */
 const rc = { x: 0, dx: 0 };
@@ -167,9 +171,9 @@ export class WaterPlan {
     this.seed = hash2(seed | 0, 0x7a7e, 91);
   }
 
-  private biomeWater(s: number): { lake: number; river: number; frozen: number; clear: number } {
+  private biomeWater(s: number): RegionWater {
     this.spine.biomeAt(s, bl);
-    return WATER[BIOMES[bl.t < 0.5 ? bl.a : bl.b].id] ?? DRY;
+    return waterOf(BIOMES[bl.t < 0.5 ? bl.a : bl.b]);
   }
 
   /** what the dice put in slot k, before any geometry (it may still fail to fit) */
@@ -201,15 +205,15 @@ export class WaterPlan {
   /** how far below the road a river's surface lies at arc length s (blended across biome borders) */
   private clearAt(s: number): number {
     this.spine.biomeAt(s, bl);
-    const a = (WATER[BIOMES[bl.a].id] ?? DRY).clear;
+    const a = waterOf(BIOMES[bl.a]).clear;
     if (bl.t <= 0) return a;
-    return a + ((WATER[BIOMES[bl.b].id] ?? DRY).clear - a) * bl.t;
+    return a + (waterOf(BIOMES[bl.b]).clear - a) * bl.t;
   }
 
   private frozenAt(s: number): number {
     this.spine.biomeAt(s, bl);
-    const fa = (WATER[BIOMES[bl.a].id] ?? DRY).frozen;
-    const fb = (WATER[BIOMES[bl.b].id] ?? DRY).frozen;
+    const fa = waterOf(BIOMES[bl.a]).frozen;
+    const fb = waterOf(BIOMES[bl.b]).frozen;
     return fa + (fb - fa) * bl.t;
   }
 

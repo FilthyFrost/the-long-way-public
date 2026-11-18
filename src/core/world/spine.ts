@@ -96,8 +96,11 @@ export class ChapterPlan {
     // drawn exactly as they always were: one number, the other two in order); from the fifth on every
     // kind may come, never the one just left nor the one before it.
     const before = c >= 2 ? this.biomes[c - 2] : -1;
+    // (the pools are numbers, three kinds and then six, never the registry's length: a region appended
+    // to the registry changes no world that was dealt before it; and never more than the world knows)
+    const kinds = Math.min(c < 4 ? FIRST_BIOMES : 6, this.rules.regionCount);
     const pool: number[] = [];
-    for (let b = 0; b < (c < 4 ? FIRST_BIOMES : BIOMES.length); b++) if (b !== prev && (c < 4 || b !== before)) pool.push(b);
+    for (let b = 0; b < kinds; b++) if (b !== prev && (c < 4 || b !== before)) pool.push(b);
     const next = pool[this.rng.int(pool.length)];
     this.biomes.push(next);
     this.starts.push(this.starts[this.starts.length - 1] + this.rng.range(10000, 18000) * this.scale);

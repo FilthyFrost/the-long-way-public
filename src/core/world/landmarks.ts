@@ -4,7 +4,7 @@
  * the mirror. Placement is a pure function of the seed, so every player sees the same ones.
  */
 import { hash2 } from '../math/rng';
-import { BIOMES } from './biomes';
+import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { LAND_SLOT } from './landform';
 import { BiomeBlend, SpineSample } from './spine';
 import { TerrainPoint, type World } from './terrain';
@@ -21,6 +21,11 @@ const BY_BIOME: Record<string, LandmarkKind[]> = {
   lakes: ['hull', 'turbines', 'ring', 'viaduct', 'hull'],
   maple: ['viaduct', 'ring', 'towers', 'dish', 'turbines'],
 };
+
+/** the remains a region tends to hold: the row under its id, else its kin's */
+export function landmarkKindsOf(region: RegionDef): readonly LandmarkKind[] {
+  return regionRow(BY_BIOME, region);
+}
 
 /** average spacing along the road (m) */
 export const LANDMARK_SPACING = 2700;
@@ -58,7 +63,7 @@ export function landmarkAt(world: World, k: number, out: Landmark): void {
   world.shape(out.x, out.z, tp);
   out.y = tp.h;
   sp.biomeAt(out.s, bl);
-  const kinds = BY_BIOME[BIOMES[bl.t < 0.5 ? bl.a : bl.b].id] ?? BY_BIOME.plains;
+  const kinds = landmarkKindsOf(BIOMES[bl.t < 0.5 ? bl.a : bl.b]);
   out.kind = kinds[(h >>> 17) % kinds.length];
   // out at sea it is a ship aground in the shallows or turbines standing in the water: they sit at the
   // surface, not on the bed fourteen metres down
