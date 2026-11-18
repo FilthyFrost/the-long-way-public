@@ -1,5 +1,7 @@
 # Design brief: V3 shared architecture and data contracts
 
+> Status (2026-11-18): the one large up-front design this brief asked for is cancelled. The owner changed the way of working to one system at a time (docs/V3/LOOP_V2.md, docs/V3/STATUS.md): each node designs only the interfaces and tables it needs, in docs/V3/nodes/. This brief stays as the statement of intent those small designs follow: the goals in section 1, the layout in section 2, the kernel ideas in section 3 and the contract lists in section 4 are still what the nodes aim at, opened step by step instead of all at once. Sections 7 and 8 (one architecture document, one work-package document) no longer apply.
+
 Written by the integrator (main session). This is the binding intent for `docs/V3/ARCHITECTURE.md`, for the type files under `src/core/v3/contracts/`, and for `docs/V3/WORKPACKAGES.md`. Where a code map (`docs/V3/maps/*.md`) shows that something here cannot work as written, the map wins: say so explicitly in the architecture document and choose the nearest design that does work.
 
 Read first: `docs/V3/PLAN.md` (the plan, Chinese), `docs/V3/CATALOG.md` (content lists), `docs/V3/LOOP_V2.md` (how parallel work is run), every file in `docs/V3/maps/`.
