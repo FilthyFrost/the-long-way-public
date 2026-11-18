@@ -5,6 +5,7 @@
  * Both follow the camera in whole-texel steps so shadows do not shimmer while driving.
  */
 import * as THREE from 'three';
+import { FLORA_MARK, FLORA_VERTEX, floraUniforms } from './floraMaterial';
 import { GLSL_LEAF_COVER } from './materials';
 import { globals } from './shaderlib';
 import { sharedTextures } from './textures';
@@ -50,13 +51,33 @@ export class ShadowPass {
     this.depthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { tLeaf: { value: sharedTextures().leaf } },
+      uniforms: { tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
       vertexShader: /* glsl */ `
         // leaf cards cut their shadows out of the leaf texture (absent attribute = 0 = solid)
         attribute float aCard;
         varying float vCard;
         varying vec2 vUv;
+        ${FLORA_VERTEX}
         void main() {
+          // a mesh of the flora of a world of version 2 (render/floraMaterial.ts): its vertices are in the
+          // plants' atlas, and it says so in what it carries for positions; its shadow stands still in the wind
+          if (position.x < ${(FLORA_MARK / 2).toExponential(1)}) {
+            vec3 world;
+            vec3 n;
+            vec4 leaf;
+            vec3 colour;
+            float part;
+            if (!rtPlantVertex(modelMatrix, -0.12, 0.0, world, n, leaf, colour, part)) {
+              vCard = 0.0;
+              vUv = vec2(0.0);
+              gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+              return;
+            }
+            vCard = leaf.z;
+            vUv = leaf.xy;
+            gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
+            return;
+          }
           vCard = aCard;
           vUv = uv;
           mat4 m = modelMatrix;
