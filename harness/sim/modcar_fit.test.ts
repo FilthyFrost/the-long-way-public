@@ -1,9 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import goat from '../../src/core/modcar/data/mounts/goat.json';
 import moto from '../../src/core/modcar/data/mounts/moto.json';
 import pickup from '../../src/core/modcar/data/mounts/pickup.json';
 import rv from '../../src/core/modcar/data/mounts/rv.json';
 import sedan from '../../src/core/modcar/data/mounts/sedan.json';
+import van from '../../src/core/modcar/data/mounts/van.json';
+import wagon from '../../src/core/modcar/data/mounts/wagon.json';
 import { partGeo } from '../../src/core/modcar/geo';
 import { PARTS } from '../../src/core/modcar/parts';
 import { stretchFit, type Model } from '../../src/game/modcar/assets';
@@ -17,7 +20,26 @@ const FRAMES: Record<string, Record<string, Mount>> = {
   pickup: (pickup as unknown as { mounts: Record<string, Mount> }).mounts,
   moto: (moto as unknown as { mounts: Record<string, Mount> }).mounts,
   rv: (rv as unknown as { mounts: Record<string, Mount> }).mounts,
+  goat: (goat as unknown as { mounts: Record<string, Mount> }).mounts,
+  van: (van as unknown as { mounts: Record<string, Mount> }).mounts,
+  wagon: (wagon as unknown as { mounts: Record<string, Mount> }).mounts,
 };
+
+/** the room a mount leaves its part, in the part's frame (game axes), with the 1.5 cm the checks allow */
+function roomOf(mt: Mount): THREE.Box3 | null {
+  if (!mt.space_min || !mt.space_max) return null;
+  const lo = mt.space_min;
+  const hi = mt.space_max;
+  // Blender (x, y left, z up) to the game's (x, y up, z right)
+  return new THREE.Box3(new THREE.Vector3(lo[0], lo[2], -hi[1]), new THREE.Vector3(hi[0], hi[2], -lo[1])).expandByScalar(0.015);
+}
+
+/**
+ * The factory parts meant for a frame whose parts aren't tagged stock:<frame> in the catalogue yet (a frame being
+ * modelled before its definition): checked in the rooms its mounts leave them meanwhile. Drop a frame's entry
+ * once its parts carry the tag (the stock check below covers it then).
+ */
+const MEANT: Record<string, Record<string, string>> = {};
 
 /** a part's model as the game sees it, from its measured bounds */
 function modelOf(id: string): Model | null {
@@ -76,11 +98,8 @@ describe('modcar · parts sit where their mounts say', () => {
     const bad: string[] = [];
     for (const [fr, mounts] of Object.entries(FRAMES)) {
       for (const [id, mt] of Object.entries(mounts)) {
-        if (!mt.space_min || !mt.space_max) continue;
-        const lo = mt.space_min;
-        const hi = mt.space_max;
-        // Blender (x, y left, z up) to the game's (x, y up, z right)
-        const room = new THREE.Box3(new THREE.Vector3(lo[0], lo[2], -hi[1]), new THREE.Vector3(hi[0], hi[2], -lo[1])).expandByScalar(0.015);
+        const room = roomOf(mt);
+        if (!room) continue;
         for (const p of PARTS) {
           if (p.cat !== mt.cat || !p.tags?.includes(`stock:${fr}`)) continue;
           const b = partGeo(p.id)?.bbox;
@@ -91,6 +110,24 @@ describe('modcar · parts sit where their mounts say', () => {
           // (a known one that now fits: take it off the list)
           if (room.containsBox(box) && KNOWN_OVER.has(key)) bad.push(`${key} fits now: remove it from KNOWN_OVER`);
         }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('the factory parts meant for a frame not yet in the catalogue fit the room its mounts leave them', () => {
+    const bad: string[] = [];
+    for (const [fr, meant] of Object.entries(MEANT)) {
+      for (const [id, pid] of Object.entries(meant)) {
+        const mt = FRAMES[fr]?.[id];
+        const room = mt && roomOf(mt);
+        const p = PARTS.find((q) => q.id === pid);
+        const b = partGeo(pid)?.bbox;
+        if (!mt || !room || !p || p.cat !== mt.cat || !b) {
+          bad.push(`${fr}:${id}:${pid} (no such mount, room, part or model)`);
+          continue;
+        }
+        if (!room.containsBox(new THREE.Box3(new THREE.Vector3(...b[0]), new THREE.Vector3(...b[1])))) bad.push(`${fr}:${id}:${pid}`);
       }
     }
     expect(bad).toEqual([]);

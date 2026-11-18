@@ -43,7 +43,7 @@ const WHEEL_KEEP_STRIPPED = 0.22;
 /** what only a motorcycle's own fits a motorcycle (its wheels, bars, saddle, box, lever, tank), and a car's nothing of these of a motorcycle's */
 const MOTO_OWN: ReadonlySet<string> = new Set(['rim', 'tire', 'steering', 'seat', 'gearbox', 'gearLever', 'fuelTank', 'brakes']);
 
-const FOUR_WHEELS = ['sedan', 'pickup', 'rv'];
+const FOUR_WHEELS = ['sedan', 'pickup', 'rv', 'wagon', 'goat', 'van'];
 
 /** the grade of a plain part's roll (★1 … ★3): the works' part, a worse one, another car's */
 const PLAIN = [0.28, 0.57, 0.15];
@@ -192,13 +192,25 @@ export interface WreckRoll {
   finds: { mount: string; part: string; sub?: string }[];
 }
 
+/** the frames a wreck of each of the world's kinds may be, and how often (0 a saloon's size, 1 a pick-up's, 2 a tall van's, 3 a bus's) */
+const WRECK_FRAMES: Record<number, readonly (readonly [string, number])[]> = {
+  0: [['moto', 0.1], ['sedan', 0.9], ['wagon', 0.18]],
+  1: [['pickup', 1], ['goat', 0.4]],
+  2: [['sedan', 0.55], ['pickup', 0.45], ['van', 0.5]],
+  3: [['rv', 1]],
+};
+
 /** which frame a wreck of the world's kind is (0 a saloon's size, 1 a pick-up's, 2 a tall van's, 3 a bus's) */
 export function wreckFrame(type: number, seed: number): string {
   const u = (hash2(seed | 0, 0xf4a3e, 0x3c) & 0xffff) / 65536;
-  if (type === 3) return 'rv';
-  if (type === 1) return 'pickup';
-  if (type === 2) return u < 0.55 ? 'sedan' : 'pickup';
-  return u < 0.1 ? 'moto' : 'sedan';
+  const list = WRECK_FRAMES[type] ?? WRECK_FRAMES[0];
+  const sum = list.reduce((a, [, w]) => a + w, 0);
+  let acc = 0;
+  for (const [id, w] of list) {
+    acc += w / sum;
+    if (u < acc) return id;
+  }
+  return list[list.length - 1][0];
 }
 
 /** the fuel a found vehicle's tank has the dregs of: its engine's, or its frame's factory engine's */

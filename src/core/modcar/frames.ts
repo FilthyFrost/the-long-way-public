@@ -10,6 +10,9 @@ import sedanMounts from './data/mounts/sedan.json';
 import pickupMounts from './data/mounts/pickup.json';
 import motoMounts from './data/mounts/moto.json';
 import rvMounts from './data/mounts/rv.json';
+import vanMounts from './data/mounts/van.json';
+import goatMounts from './data/mounts/goat.json';
+import wagonMounts from './data/mounts/wagon.json';
 
 interface MountJson {
   pos: number[];
@@ -41,6 +44,8 @@ interface MountTable {
   panels?: Record<string, { hinge_axis: number[]; open_deg: number; glass?: string | null; mount?: string | null }>;
   needles?: Record<string, { axis: number[]; deg_full: number }>;
   wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
+  /** the axles' parts where the frame wants them other than at the axle's middle: a four-by-four's front differential beside the sump, on its propshaft's side (game z) */
+  axles?: { front?: { diff_z?: number }; rear?: { diff_z?: number } };
   rig?: {
     fork?: { pivot: number[]; axis: number[]; lower?: { object: string; axis: number[]; travel: number } };
     shocks?: Record<string, { upper: string; lower: string; upper_eye: number[]; lower_eye: number[] }>;
@@ -167,9 +172,10 @@ const MOTO_DISC = 0.065;
  * each hub's face, riding with the wheel — and the driven axle's differential at its middle. The frame models own
  * their hubs; these mounts are placed on them. A motorcycle's fork and shocks are its frame's: it has its brakes only.
  */
-function withAxles(mounts: MountDef[]): MountDef[] {
+function withAxles(mounts: MountDef[], axles?: MountTable['axles']): MountDef[] {
   const out = [...mounts];
   const hubs = mounts.filter((m) => m.cat === 'rim');
+  const gearbox = mounts.find((m) => m.cat === 'gearbox');
   for (const axle of ['front', 'rear'] as const) {
     const ends = hubs.filter((h) => h.axle === axle);
     if (!ends.length) continue;
@@ -182,7 +188,8 @@ function withAxles(mounts: MountDef[]): MountDef[] {
     if (ends.length >= 2) {
       out.push(mk('suspension', `susp_${k}`, { x, y: y + STRUT_UP, z: 0 }, { pair: half - STRUT_IN }));
       out.push(mk('brakes', `brakes_${k}`, { x, y, z: 0 }, { pair: half - DISC_IN }));
-      if (ends.some((h) => h.driven)) out.push(mk('diff', `diff_${k}`, { x, y, z: 0 }));
+      // (its pinion towards the gearbox: a four-by-four's front one faces back, to the transfer box)
+      if (ends.some((h) => h.driven)) out.push(mk('diff', `diff_${k}`, { x, y, z: axles?.[axle]?.diff_z ?? 0 }, gearbox && gearbox.pos.x < x ? { quat: [0, 1, 0, 0] } : {}));
     } else {
       const side = axle === 'front' ? -1 : 1;
       out.push(mk('brakes', `brakes_${k}`, { x, y, z: side * MOTO_DISC }, { side }));
@@ -219,7 +226,7 @@ export const SEDAN: FrameDef = {
   body: { front: 2.02, rear: -2.02, halfWidth: 0.8, bottom: 0.16, top: 1.4 },
   enclosed: 1,
   chase: { dist: 5.6, height: 1.9, look: 0.9 },
-  mounts: withAxles(readMounts(sedanMounts as MountTable)),
+  mounts: withAxles(readMounts(sedanMounts as MountTable), (sedanMounts as MountTable).axles),
   rig: readRig(sedanMounts as MountTable),
 };
 
@@ -240,7 +247,7 @@ export const PICKUP: FrameDef = {
   body: { front: 2.3, rear: -2.3, halfWidth: 0.84, bottom: 0.2, top: 1.6 },
   enclosed: 1,
   chase: { dist: 6.2, height: 2.1, look: 1.0 },
-  mounts: withAxles(readMounts(pickupMounts as MountTable)),
+  mounts: withAxles(readMounts(pickupMounts as MountTable), (pickupMounts as MountTable).axles),
   rig: readRig(pickupMounts as MountTable),
   bare: ['seat_rear'],
 };
@@ -263,7 +270,7 @@ export const MOTO: FrameDef = {
   enclosed: 0,
   balance: true,
   chase: { dist: 4.2, height: 1.6, look: 0.9 },
-  mounts: withAxles(readMounts(motoMounts as MountTable)),
+  mounts: withAxles(readMounts(motoMounts as MountTable), (motoMounts as MountTable).axles),
   rig: readRig(motoMounts as MountTable),
 };
 
@@ -284,11 +291,77 @@ export const RV: FrameDef = {
   body: { front: 3.4, rear: -3.4, halfWidth: 1.12, bottom: 0.3, top: 3.05 },
   enclosed: 1,
   chase: { dist: 10, height: 3.2, look: 1.6 },
-  mounts: withAxles(readMounts(rvMounts as MountTable)),
+  mounts: withAxles(readMounts(rvMounts as MountTable), (rvMounts as MountTable).axles),
   rig: readRig(rvMounts as MountTable),
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV];
+export const VAN: FrameDef = {
+  id: 'van',
+  kind: 'van',
+  name: { zh: '面包', en: 'Loaf' },
+  mass: 700,
+  cg: { x: -0.05, y: 0.85, z: 0 },
+  inertia: { roll: 400, yaw: 1500, pitch: 1550 },
+  hubRadius: 0.32,
+  // (a bus with its engine over the rear axle: soft, rolling, the front held up by its bar)
+  suspension: { front: susp(1.2, 0.2, 0.85, 10.5, 0.3), rear: susp(1.3, 0.2, 0.45, 9, 0.3) },
+  steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.6, rateHigh: 0.6, smoothTime: 0.11, returnScale: 1.6, gripLimitG: 0.62, slipMarginDeg: 6 },
+  brakeN: 10500,
+  brakeFront: 0.6,
+  cdA: 1.6,
+  finalDrive: 4.86,
+  body: { front: 2.0, rear: -2.22, halfWidth: 0.85, bottom: 0.32, top: 1.96 },
+  enclosed: 1,
+  chase: { dist: 6.8, height: 2.5, look: 1.2 },
+  mounts: withAxles(readMounts(vanMounts as MountTable), (vanMounts as MountTable).axles),
+  rig: readRig(vanMounts as MountTable),
+};
+
+export const GOAT: FrameDef = {
+  id: 'goat',
+  kind: 'offroad',
+  name: { zh: '山羊', en: 'Goat' },
+  mass: 1250,
+  cg: { x: -0.15, y: 0.78, z: 0 },
+  inertia: { roll: 620, yaw: 2450, pitch: 2400 },
+  hubRadius: 0.37,
+  // (four driven wheels on long springs: it climbs, it leans)
+  suspension: { front: susp(1.3, 0.26, 0.7, 10.5, 0.36), rear: susp(1.4, 0.27, 0.35, 9.5, 0.36) },
+  steering: { maxDeg: 35, ackermann: 0.8, rateLow: 1.8, rateHigh: 0.65, smoothTime: 0.1, returnScale: 1.6, gripLimitG: 0.68, slipMarginDeg: 6 },
+  brakeN: 13700,
+  brakeFront: 0.66,
+  cdA: 1.62,
+  finalDrive: 4.1,
+  body: { front: 2.21, rear: -2.22, halfWidth: 0.92, bottom: 0.2, top: 1.84 },
+  enclosed: 1,
+  chase: { dist: 6.4, height: 2.3, look: 1.1 },
+  mounts: withAxles(readMounts(goatMounts as MountTable), (goatMounts as MountTable).axles),
+  rig: readRig(goatMounts as MountTable),
+};
+
+export const WAGON: FrameDef = {
+  id: 'wagon',
+  kind: 'wagon',
+  name: { zh: '旅人', en: 'Wanderer' },
+  mass: 770,
+  cg: { x: -0.2, y: 0.55, z: 0 },
+  inertia: { roll: 300, yaw: 1500, pitch: 1450 },
+  hubRadius: 0.285,
+  // (a long, soft family car: it floats over the long waves and sits down at the back when it is loaded)
+  suspension: { front: susp(1.3, 0.21, 0.55, 9.5), rear: susp(1.35, 0.21, 0.3, 8.5) },
+  steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.8, rateHigh: 0.7, smoothTime: 0.1, returnScale: 1.6, gripLimitG: 0.72, slipMarginDeg: 6 },
+  brakeN: 11600,
+  brakeFront: 0.66,
+  cdA: 0.9,
+  finalDrive: 3.9,
+  body: { front: 2.24, rear: -2.6, halfWidth: 0.86, bottom: 0.16, top: 1.44 },
+  enclosed: 1,
+  chase: { dist: 6.2, height: 2.0, look: 0.9 },
+  mounts: withAxles(readMounts(wagonMounts as MountTable), (wagonMounts as MountTable).axles),
+  rig: readRig(wagonMounts as MountTable),
+};
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON];
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
 

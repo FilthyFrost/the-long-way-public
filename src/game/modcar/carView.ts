@@ -474,6 +474,7 @@ export class CarView {
     const p = this.panels.get(lid);
     if (!p || p.openRad === 0) return { t: 0, part: null };
     this.shutOver('');
+    if (this.uprightLids.has(lid)) return { t: 0, part: null };
     let poke = 0;
     let part: string | null = null;
     for (const [mount, l] of this.covers ?? []) {
@@ -730,6 +731,19 @@ export class CarView {
 
   /** mount → the lid (hood, trunk) over it, measured from the lids at rest */
   private covers: Map<string, string> | null = null;
+  /** the engine lids that stand up across the body at rest (a rear-engined van's): what they close over is behind them, and nothing comes down onto it */
+  private readonly uprightLids = new Set<string>();
+
+  /** the middle of what a mount holds (its room's, else the mount itself), in the model's frame */
+  private roomMid(m: MountDef, out: THREE.Vector3): THREE.Vector3 {
+    out.set(m.pos.x, m.pos.y, m.pos.z);
+    if (!m.room) return out;
+    const c = this.roomV.set((m.room.min.x + m.room.max.x) / 2, (m.room.min.y + m.room.max.y) / 2, (m.room.min.z + m.room.max.z) / 2);
+    return out.add(c.applyQuaternion(this.roomQ.set(m.quat[0], m.quat[1], m.quat[2], m.quat[3])));
+  }
+  private readonly coverV = new THREE.Vector3();
+  private readonly roomV = new THREE.Vector3();
+  private readonly roomQ = new THREE.Quaternion();
 
   /**
    * The lid (hood or trunk) that is shut over a mount, or null: the parts under a closed bonnet can be
@@ -754,11 +768,21 @@ export class CarView {
         p.pivot.quaternion.copy(q);
         if (box.isEmpty()) continue;
         box.applyMatrix4(inv);
+        // (an engine lid standing up across the body — a rear engine's — closes over what lies behind it, as far
+        // as a hand reaches in; a lid lying down, over what is under its outline)
+        const upright = cat === 'hood' && box.max.y - box.min.y > 1.5 * (box.max.x - box.min.x);
+        if (upright) this.uprightLids.add(id);
+        const inward = (box.min.x + box.max.x) / 2 < 0 ? 1 : -1;
+        const edge = inward > 0 ? box.min.x : box.max.x;
         for (const m of this.frame.mounts) {
           // (an axle's parts are got at from under the car and through the wheel arches)
           if (m.panel || m.cat === 'rim' || m.cat === 'bumperFront' || m.cat === 'bumperRear' || m.cat === 'headlight' || m.cat === 'taillight' || m.cat === 'suspension' || m.cat === 'brakes' || m.cat === 'diff') continue;
           const q = m.pos;
-          if (q.x > box.min.x - 0.05 && q.x < box.max.x + 0.05 && q.z > box.min.z - 0.05 && q.z < box.max.z + 0.05 && q.y < box.max.y) this.covers.set(m.id, id);
+          if (upright) {
+            const c = this.roomMid(m, this.coverV);
+            const d = (c.x - edge) * inward;
+            if (d > 0 && d < 1.2 && c.z > box.min.z - 0.05 && c.z < box.max.z + 0.05 && c.y > box.min.y - 0.15 && c.y < box.max.y + 0.05) this.covers.set(m.id, id);
+          } else if (q.x > box.min.x - 0.05 && q.x < box.max.x + 0.05 && q.z > box.min.z - 0.05 && q.z < box.max.z + 0.05 && q.y < box.max.y) this.covers.set(m.id, id);
         }
       }
     }

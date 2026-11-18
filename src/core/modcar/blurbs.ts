@@ -177,6 +177,9 @@ export const FRAME_BLURB: Record<string, string> = {
   pickup: '老皮卡，皮实能拉，后斗里什么都装得下。',
   moto: '轻巧的老摩托，钻小路最快。',
   rv: '一整座带轮子的房子，又大又慢，烧柴油。',
+  wagon: '长长的老旅行车，后排放倒能躺两个人，车顶还有行李架，六缸又顺又安静，跑长途最舒服。',
+  goat: '老越野车，四个轮子都有劲，泥坑、碎石坡都爬得上去；V6 在车头闷闷地吼，油也喝得凶。',
+  van: '方头方脑的老面包车，风冷发动机在屁股后面，突突地慢慢跑，一家人连铺盖卷都装得下。',
 };
 
 /** the workshop's machines: what each is called and what it is for */

@@ -1,12 +1,13 @@
-// Every frame on the road (docs/MODCAR.md §10): start seated in a stock build, drive away, lean into a
-// bend, brake. A chase-view screenshot per stage into loop/shots/modcar_frames_drive/ and a line of
-// numbers each (speed, lean, steer); exits non-zero when a frame does not get going or flies apart.
-//   SHOTS_GPU=1 node harness/shots/modcar_frames_drive.mjs [sedan,pickup,moto,rv]
+// Every frame on the road (docs/MODCAR.md §10, §27): start seated in a stock build, drive away, lean into a
+// bend, brake; a car's engine under its lid (a rear engine's too, behind its upright lid). A chase-view
+// screenshot per stage into loop/shots/modcar_frames_drive/ and a line of numbers each (speed, lean, steer);
+// exits non-zero when a frame does not get going, flies apart or leaves its engine uncovered.
+//   SHOTS_GPU=1 node harness/shots/modcar_frames_drive.mjs [sedan,pickup,moto,rv,van,goat,wagon]
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
 
-const frames = (process.argv[2] ?? 'sedan,pickup,moto,rv').split(',');
+const frames = (process.argv[2] ?? 'sedan,pickup,moto,rv,van,goat,wagon').split(',');
 const out = path.join(ROOT, 'loop/shots/modcar_frames_drive');
 fs.mkdirSync(out, { recursive: true });
 const { server, url } = await startServer();
@@ -27,6 +28,11 @@ try {
       await page.screenshot({ path: path.join(out, `${f}_${name}.png`) });
     };
     const row = { frame: f };
+    // (a car's engine is reached only with its lid open: a bonnet over it, a rear engine's lid upright behind it)
+    row.engineLid = await page.evaluate(() => {
+      const v = window.__rt.game.seated;
+      return v ? v.view.shutOver('engine') : null;
+    });
     await shot('0_start');
     row.straight = await rt('drive', 8, 1, 0);
     await shot('1_straight');
@@ -39,10 +45,11 @@ try {
     const tele = await rt('telemetry');
     row.exploded = tele.exploded;
     row.errors = errors.slice(0, 3);
-    const ok = !tele.exploded && row.straight && row.straight.kmh > 30 && !errors.length;
+    // (a motorcycle's is in the open, a motorhome's in its doghouse between the seats)
+    const ok = !tele.exploded && row.straight && row.straight.kmh > 30 && !errors.length && (f === 'moto' || f === 'rv' || row.engineLid === 'hood');
     if (!ok) failed++;
     log.push(row);
-    console.log(`${ok ? ' ok ' : 'FAIL'} ${f}  straight ${row.straight?.kmh.toFixed(0)} km/h  bend lean ${row.bendLean?.lean.toFixed(1)}° steer ${row.bendLean?.steer.toFixed(1)}° at ${row.bendLean?.kmh.toFixed(0)} km/h  stopped ${row.brake?.kmh.toFixed(1)} km/h lean ${row.stopLean?.lean.toFixed(1)}°`);
+    console.log(`${ok ? ' ok ' : 'FAIL'} ${f}  straight ${row.straight?.kmh.toFixed(0)} km/h  bend lean ${row.bendLean?.lean.toFixed(1)}° steer ${row.bendLean?.steer.toFixed(1)}° at ${row.bendLean?.kmh.toFixed(0)} km/h  stopped ${row.brake?.kmh.toFixed(1)} km/h lean ${row.stopLean?.lean.toFixed(1)}°  engine under ${row.engineLid ?? 'nothing'}`);
     await page.close();
   }
 } finally {

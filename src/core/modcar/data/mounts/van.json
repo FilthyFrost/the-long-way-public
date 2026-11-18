@@ -1,0 +1,891 @@
+{
+ "bbox": {
+  "max": [
+   2.04361,
+   1.958,
+   0.86281
+  ],
+  "min": [
+   -2.242,
+   0.195,
+   -0.86228
+  ]
+ },
+ "eye_default": [
+  1.0,
+  1.55,
+  -0.38
+ ],
+ "frame": "van",
+ "mounts": {
+  "armor_L": {
+   "cat": "armor",
+   "fit": [
+    1.4,
+    0.05,
+    0.6
+   ],
+   "fit_anchor": "center",
+   "pos": [
+    -0.04,
+    0.72,
+    -0.853
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1
+  },
+  "armor_R": {
+   "cat": "armor",
+   "fit": [
+    1.4,
+    0.05,
+    0.6
+   ],
+   "fit_anchor": "center",
+   "pos": [
+    -0.04,
+    0.72,
+    0.853
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1
+  },
+  "battery": {
+   "cat": "battery",
+   "note": "on a tray at the front of the cab, between the footwells",
+   "pos": [
+    1.8,
+    0.42,
+    0.02
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "space_max": [
+    0.15,
+    0.1,
+    0.25
+   ],
+   "space_min": [
+    -0.15,
+    -0.1,
+    0.0
+   ]
+  },
+  "bumperFront": {
+   "cat": "bumperFront",
+   "fit": [
+    0.1,
+    1.62,
+    0.12
+   ],
+   "pos": [
+    2.00851,
+    0.46,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "bumperRear": {
+   "cat": "bumperRear",
+   "fit": [
+    0.1,
+    1.62,
+    0.12
+   ],
+   "pos": [
+    -2.22014,
+    0.42,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "door_FL": {
+   "cat": "door",
+   "hinge": "z",
+   "open_deg": -68.0,
+   "panel": "P_door_FL",
+   "pos": [
+    1.48,
+    1.26,
+    -0.84356
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1
+  },
+  "door_FR": {
+   "cat": "door",
+   "hinge": "z",
+   "open_deg": 68.0,
+   "panel": "P_door_FR",
+   "pos": [
+    1.48,
+    1.26,
+    0.84356
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1
+  },
+  "door_side": {
+   "cat": "door",
+   "hinge": "z",
+   "open_deg": 95.0,
+   "panel": "P_door_side",
+   "pos": [
+    0.37,
+    1.08,
+    0.84578
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1
+  },
+  "engine": {
+   "cat": "engine",
+   "note": "at the back under the engine lid, yawed 180 deg: its fan and pulley (+x) towards the lid, its flywheel and exhaust ports towards the transaxle",
+   "pos": [
+    -1.76,
+    0.33,
+    -0.0
+   ],
+   "quat": [
+    -0.0,
+    -1.0,
+    -0.0,
+    0.0
+   ],
+   "space_max": [
+    0.225,
+    0.4,
+    0.575
+   ],
+   "space_min": [
+    -0.345,
+    -0.4,
+    0.0
+   ]
+  },
+  "exhaust": {
+   "cat": "exhaust",
+   "pos": [
+    -2.12,
+    0.29,
+    0.82
+   ],
+   "quat": [
+    0.0,
+    -0.707107,
+    0.0,
+    0.707107
+   ],
+   "route": "across the back under the engine, right to left, the tail pipe out at the left rear corner (yawed -90 deg: the parts run along their -x; the tail in the mount's own axes)",
+   "tail": [
+    -1.61,
+    0.05,
+    -0.07
+   ]
+  },
+  "fuelTank": {
+   "cat": "fuelTank",
+   "note": "under the floor between the rails, yawed 180 deg: the filler neck of the tank part (+z) points to the flap on the left",
+   "pos": [
+    0.1,
+    0.21,
+    -0.0
+   ],
+   "quat": [
+    -0.0,
+    -1.0,
+    -0.0,
+    0.0
+   ],
+   "space_max": [
+    0.25,
+    0.41,
+    0.165
+   ],
+   "space_min": [
+    -0.25,
+    -0.41,
+    0.0
+   ]
+  },
+  "gearLever": {
+   "cat": "gearLever",
+   "note": "on the console ahead of the seats",
+   "pos": [
+    1.5,
+    0.654,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "gearbox": {
+   "cat": "gearbox",
+   "note": "rear transaxle: ahead of the rear axle, yawed 180 deg (its bell towards the differential and the engine behind it)",
+   "pos": [
+    -0.7,
+    0.2,
+    -0.0
+   ],
+   "quat": [
+    -0.0,
+    -1.0,
+    -0.0,
+    0.0
+   ],
+   "space_max": [
+    0.215,
+    0.14,
+    0.235
+   ],
+   "space_min": [
+    -0.31,
+    -0.14,
+    0.0
+   ]
+  },
+  "handbrake": {
+   "cat": "handbrake",
+   "note": "on the console between the seats",
+   "pos": [
+    1.1,
+    0.64,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "headlight_L": {
+   "cat": "headlight",
+   "pos": [
+    1.99922,
+    0.82,
+    -0.48
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "recess": "round",
+   "recess_d": 0.21,
+   "recess_depth": 0.07,
+   "side": -1
+  },
+  "headlight_R": {
+   "cat": "headlight",
+   "pos": [
+    1.99922,
+    0.82,
+    0.48
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "recess": "round",
+   "recess_d": 0.21,
+   "recess_depth": 0.07,
+   "side": 1
+  },
+  "hood": {
+   "cat": "hood",
+   "hinge": "y",
+   "open_deg": 75.0,
+   "panel": "P_hood",
+   "pos": [
+    -2.21,
+    0.904,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0
+  },
+  "horn": {
+   "cat": "horn",
+   "on": "inside the nose behind the louvres",
+   "pos": [
+    1.904,
+    0.56,
+    0.2
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "hub_FL": {
+   "axle": "front",
+   "cat": "rim",
+   "driven": false,
+   "handbrake": false,
+   "hub_face": 0.7,
+   "pos": [
+    1.2,
+    0.32,
+    -0.69
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1,
+   "steer": true,
+   "wheel_r": 0.32
+  },
+  "hub_FR": {
+   "axle": "front",
+   "cat": "rim",
+   "driven": false,
+   "handbrake": false,
+   "hub_face": 0.7,
+   "pos": [
+    1.2,
+    0.32,
+    0.69
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1,
+   "steer": true,
+   "wheel_r": 0.32
+  },
+  "hub_RL": {
+   "axle": "rear",
+   "cat": "rim",
+   "driven": true,
+   "handbrake": true,
+   "hub_face": 0.69,
+   "pos": [
+    -1.2,
+    0.32,
+    -0.68
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1,
+   "steer": false,
+   "wheel_r": 0.32
+  },
+  "hub_RR": {
+   "axle": "rear",
+   "cat": "rim",
+   "driven": true,
+   "handbrake": true,
+   "hub_face": 0.69,
+   "pos": [
+    -1.2,
+    0.32,
+    0.68
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1,
+   "steer": false,
+   "wheel_r": 0.32
+  },
+  "ignition": {
+   "cat": "ignition",
+   "on": "steering column shroud, right side",
+   "pos": [
+    1.38634,
+    1.09405,
+    -0.335
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "mirror_L": {
+   "cat": "mirror",
+   "on": "body, at the front corner under the quarter window",
+   "pos": [
+    1.76,
+    1.06,
+    -0.84761
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1
+  },
+  "mirror_R": {
+   "cat": "mirror",
+   "on": "body, at the front corner under the quarter window",
+   "pos": [
+    1.76,
+    1.06,
+    0.84761
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1
+  },
+  "radio": {
+   "cat": "radio",
+   "pos": [
+    1.688,
+    0.992,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "slot": [
+    0.18,
+    0.046
+   ],
+   "slot_depth": 0.06
+  },
+  "roof": {
+   "cat": "roof",
+   "fit": [
+    2.2,
+    1.12,
+    0.15
+   ],
+   "fit_anchor": "center",
+   "pos": [
+    -0.4,
+    1.95,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  "seat_driver": {
+   "cat": "seat",
+   "driver": true,
+   "floor_z": 0.65,
+   "note": "on the box over the front wheel",
+   "pos": [
+    1.16,
+    0.65,
+    -0.38
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1
+  },
+  "seat_pass": {
+   "cat": "seat",
+   "driver": false,
+   "floor_z": 0.65,
+   "note": "on the box over the front wheel",
+   "pos": [
+    1.16,
+    0.65,
+    0.38
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1
+  },
+  "seat_rear": {
+   "cat": "seat",
+   "driver": false,
+   "floor_z": 0.76,
+   "note": "the bench on its base over the rear axle, facing forward",
+   "pos": [
+    -0.95,
+    0.76,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0
+  },
+  "steering": {
+   "cat": "steering",
+   "column_deg": 62.0,
+   "pos": [
+    1.33,
+    1.2,
+    -0.38
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    -0.515038,
+    0.857167
+   ]
+  },
+  "taillight_L": {
+   "cat": "taillight",
+   "on": "tail, beside the engine lid, upright (the mount turned 90 deg about x: a lamp made lying stands up)",
+   "pos": [
+    -2.21191,
+    0.8,
+    -0.605
+   ],
+   "quat": [
+    0.707107,
+    0.0,
+    0.0,
+    0.707107
+   ],
+   "recess": "rect",
+   "recess_depth": 0.045,
+   "recess_h": 0.29,
+   "recess_w": 0.13,
+   "side": -1
+  },
+  "taillight_R": {
+   "cat": "taillight",
+   "on": "tail, beside the engine lid, upright (the mount turned 90 deg about x: a lamp made lying stands up)",
+   "pos": [
+    -2.21191,
+    0.8,
+    0.605
+   ],
+   "quat": [
+    -0.707107,
+    0.0,
+    0.0,
+    0.707107
+   ],
+   "recess": "rect",
+   "recess_depth": 0.045,
+   "recess_h": 0.29,
+   "recess_w": 0.13,
+   "side": 1
+  },
+  "trunk": {
+   "cat": "trunk",
+   "hinge": "y",
+   "open_deg": 95.0,
+   "panel": "P_trunk",
+   "pos": [
+    -2.21017,
+    1.785,
+    -0.0
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0
+  }
+ },
+ "needles": {
+  "N_fuel": {
+   "axis": [
+    -0.92949,
+    0.36885,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    1.6141,
+    1.27619,
+    -0.38
+   ],
+   "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
+  },
+  "N_rpm": {
+   "axis": [
+    -0.92949,
+    0.36885,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    1.62442,
+    1.30221,
+    -0.288
+   ],
+   "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
+  },
+  "N_speed": {
+   "axis": [
+    -0.92949,
+    0.36885,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    1.62442,
+    1.30221,
+    -0.472
+   ],
+   "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
+  },
+  "N_temp": {
+   "axis": [
+    -0.92949,
+    0.36885,
+    -0.0
+   ],
+   "axis_local": "y",
+   "deg_full": -240.0,
+   "pivot": [
+    1.63475,
+    1.32824,
+    -0.38
+   ],
+   "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
+  }
+ },
+ "notes": "hinge: Blender-local axis name (z = vertical door hinge, y = transverse lid hinge); hinge_axis: the same axis in the game frame; a rotation of open_deg about hinge_axis (right hand) opens the panel. Needles and wipers turn about their local +y (game) = Blender local +Z.",
+ "panels": {
+  "FUEL_CAP": {
+   "glass": null,
+   "hinge": "z",
+   "hinge_axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "hinge_pos": [
+    0.15,
+    0.8,
+    -0.85152
+   ],
+   "mount": null,
+   "open_deg": -85.0
+  },
+  "P_door_FL": {
+   "glass": "PG_door_FL",
+   "hinge": "z",
+   "hinge_axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "hinge_pos": [
+    1.48,
+    1.26,
+    -0.84356
+   ],
+   "mount": "door_FL",
+   "open_deg": -68.0
+  },
+  "P_door_FR": {
+   "glass": "PG_door_FR",
+   "hinge": "z",
+   "hinge_axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "hinge_pos": [
+    1.48,
+    1.26,
+    0.84356
+   ],
+   "mount": "door_FR",
+   "open_deg": 68.0
+  },
+  "P_door_side": {
+   "glass": "PG_door_side",
+   "hinge": "z",
+   "hinge_axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "hinge_pos": [
+    0.37,
+    1.08,
+    0.84578
+   ],
+   "mount": "door_side",
+   "open_deg": 95.0
+  },
+  "P_hood": {
+   "glass": null,
+   "hinge": "y",
+   "hinge_axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "hinge_pos": [
+    -2.21,
+    0.904,
+    -0.0
+   ],
+   "mount": "hood",
+   "open_deg": 75.0
+  },
+  "P_trunk": {
+   "glass": "PG_trunk",
+   "hinge": "y",
+   "hinge_axis": [
+    0.0,
+    0.0,
+    -1.0
+   ],
+   "hinge_pos": [
+    -2.21017,
+    1.785,
+    -0.0
+   ],
+   "mount": "trunk",
+   "open_deg": 95.0
+  }
+ },
+ "triangles": {
+  "BODY": 25222,
+  "FUEL_CAP": 480,
+  "GLASS": 1190,
+  "INTERIOR": 8871,
+  "KNUCKLE_hub_FL": 372,
+  "KNUCKLE_hub_FR": 372,
+  "KNUCKLE_hub_RL": 372,
+  "KNUCKLE_hub_RR": 372,
+  "N_fuel": 50,
+  "N_rpm": 50,
+  "N_speed": 50,
+  "N_temp": 50,
+  "PG_door_FL": 124,
+  "PG_door_FR": 124,
+  "PG_door_side": 140,
+  "PG_trunk": 180,
+  "P_door_FL": 2336,
+  "P_door_FR": 2336,
+  "P_door_side": 2809,
+  "P_hood": 2246,
+  "P_trunk": 3302,
+  "UNDER": 4072,
+  "WIPER_L": 194,
+  "WIPER_R": 194,
+  "total": 55508
+ },
+ "units": "metres, game frame (+x forward, +y up, +z right)",
+ "wipers": {
+  "WIPER_L": {
+   "axis": [
+    0.98261,
+    0.18567,
+    -0.0
+   ],
+   "axis_local": "y",
+   "pivot": [
+    2.0013,
+    1.08512,
+    -0.54009
+   ],
+   "sweep_deg": -95.0
+  },
+  "WIPER_R": {
+   "axis": [
+    0.98261,
+    0.18567,
+    -0.0
+   ],
+   "axis_local": "y",
+   "pivot": [
+    2.00722,
+    1.08512,
+    0.08001
+   ],
+   "sweep_deg": -95.0
+  }
+ }
+}

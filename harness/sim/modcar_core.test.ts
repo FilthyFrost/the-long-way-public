@@ -132,6 +132,12 @@ describe('ModCar factory builds', () => {
     pickup: { mass: [1150, 1550], cg: [0.5, 0.85], t100: [13, 26], vmax: [115, 150] },
     moto: { mass: [170, 300], cg: [0.45, 0.8], t100: [5, 14], vmax: [100, 145] },
     rv: { mass: [3100, 4400], cg: [0.85, 1.5], t100: [16, 45], vmax: [95, 135] },
+    // (an air-cooled flat four in a bus: slow, and it gets there)
+    van: { mass: [1050, 1450], cg: [0.65, 1.0], t100: [18, 34], vmax: [100, 125] },
+    // (a V6 on four driven wheels: heavy and tall, it gets going all the same)
+    goat: { mass: [1650, 2100], cg: [0.6, 0.95], t100: [7, 15], vmax: [140, 185] },
+    // (a straight six in a long estate: it cruises)
+    wagon: { mass: [1250, 1650], cg: [0.42, 0.7], t100: [6, 12], vmax: [160, 200] },
   };
   for (const f of FRAMES) {
     it(`${f.id}: derives a sane spec and drives off`, () => {
