@@ -163,7 +163,6 @@ export const PALETTES: Record<string, BiomePalette> = {
     forest: 0x4c8c62,
     crowns: [0x5fa46c, 0x70b276, 0x4f9464, 0x82bd7e],
     trunk: 0x6a5545,
-    look: { rockStart: 0.24 },
   },
 };
 

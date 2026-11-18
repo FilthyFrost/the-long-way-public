@@ -14,6 +14,11 @@ import { BIOMES, BIOME_INDEX, registerRegion, type RegionDef } from '../../src/c
 import { Look, computeLook } from '../../src/game/env/colorScript';
 import { BIOME_STYLES, STYLE, chapterRun, paletteUniforms, regionStyle, showChapters, styleFromPalette, type BiomeStyle } from '../../src/game/render/style';
 import { modcarWorld } from '../../src/game/modcar/seamless';
+import { nextChapterOf } from '../../src/game/modcar/devJourney';
+import { GROUND_FAR, GROUND_PAINT, ON_LANDFORM } from '../../src/game/render/terrainMaterials';
+import { groundAttrs } from '../../src/game/scene/worldBuild';
+import { SpineSample } from '../../src/core/world/spine';
+import { TerrainPoint } from '../../src/core/world/terrain';
 import { PAL, PALETTES, floraOf, paletteOf, woodland, type BiomePalette } from '../../src/game/scene/palette';
 
 const SIX = ['plains', 'desert', 'alpine', 'forest', 'lakes', 'maple'];
@@ -281,5 +286,81 @@ describe('the four palette slots', () => {
     showChapters(biomeOf, 9);
     for (const c of [8, 9, 10, 11]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
     for (let sl = 0; sl < 4; sl++) showChapters(() => 0, sl);
+  });
+});
+
+describe('an anchored landform in the ground\'s paint', () => {
+  const tp = new TerrainPoint();
+  const st = new SpineSample();
+  const bw = new Float32Array(4);
+  const gd = new Float32Array(4);
+
+  it('a point where none stands is handed to the paint as it always was, and a world of version 1 has none', () => {
+    const w = modcarWorld(7, {}).world;
+    let n = 0;
+    for (let s = 500; s < 60_000; s += 370) {
+      w.spine.at(s, st);
+      for (const d of [-600, -140, -30, 0, 12, 90, 450]) {
+        const x = st.x - Math.sin(st.phi) * d;
+        const z = st.z + Math.cos(st.phi) * d;
+        w.shape(x, z, tp);
+        expect(tp.landform).toBe(0);
+        groundAttrs(w.seed, tp, x, z, bw, gd, 0);
+        expect(gd[0]).toBe(Math.fround(Math.min(Math.abs(tp.d), GROUND_FAR)));
+        expect(gd[1]).toBe(Math.fround(tp.relief));
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(1000);
+  });
+
+  it('a point on one says so by a road distance no land has, the more the higher it has risen, and its height is in the relief', () => {
+    if (BIOME_INDEX.karst_peaks === undefined) return;
+    const w = modcarWorld(7, { worldVersion: 2 }).world;
+    const stop = nextChapterOf(w, BIOME_INDEX.karst_peaks, 0)!;
+    expect(stop).not.toBeNull();
+    let high = 0;
+    let foot = 0;
+    let off = 0;
+    for (let s = stop.start + 600; s < stop.start + stop.length - 600; s += 45) {
+      w.spine.at(s, st);
+      for (let d = -700; d <= 700; d += 35) {
+        if (Math.abs(d) < 40) continue;
+        const x = st.x - Math.sin(st.phi) * d;
+        const z = st.z + Math.cos(st.phi) * d;
+        w.shape(x, z, tp);
+        groundAttrs(w.seed, tp, x, z, bw, gd, 0);
+        const ad = Math.min(Math.abs(tp.d), GROUND_FAR);
+        expect(gd[1]).toBe(Math.fround(tp.relief + tp.landform));
+        if (tp.landform >= 4) {
+          high++;
+          expect(gd[0]).toBe(Math.fround(ad + ON_LANDFORM));
+        } else if (tp.landform > 0) {
+          foot++;
+          expect(gd[0]).toBeGreaterThan(ad);
+          expect(gd[0]).toBeLessThan(ad + ON_LANDFORM);
+        } else {
+          off++;
+          expect(gd[0]).toBe(Math.fround(ad));
+        }
+      }
+    }
+    // (karst country: towers beside the road in most stretches, and open floor between them)
+    expect(high).toBeGreaterThan(50);
+    expect(off).toBeGreaterThan(high);
+    expect(foot).toBeGreaterThan(0);
+  });
+
+  it('is read back by the paint from that distance: nothing of it below the furthest road distance, all of it at the mark', () => {
+    // (the two numbers the paint's own line is written with)
+    expect(GROUND_PAINT).toContain(`(g.x - ${GROUND_FAR.toFixed(1)}) / ${(ON_LANDFORM - GROUND_FAR).toFixed(1)}`);
+    const onForm = (gx: number): number => Math.min(1, Math.max(0, (gx - GROUND_FAR) / (ON_LANDFORM - GROUND_FAR)));
+    expect(onForm(0)).toBe(0);
+    expect(onForm(GROUND_FAR)).toBe(0);
+    expect(onForm(GROUND_FAR + ON_LANDFORM)).toBe(1);
+    expect(onForm(40 + ON_LANDFORM)).toBeGreaterThan(0.99);
+    // half way up the foot of a landform 300 m from the road: about half
+    expect(onForm(300 + ON_LANDFORM / 2)).toBeGreaterThan(0.4);
+    expect(onForm(300 + ON_LANDFORM / 2)).toBeLessThan(0.6);
   });
 });

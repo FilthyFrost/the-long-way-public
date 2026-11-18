@@ -20,6 +20,7 @@ import { ModelBuilder } from '../vehicle/builder';
 import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
 import { BIOME_STYLES, STYLE } from '../render/style';
+import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
 import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
 
@@ -50,9 +51,18 @@ export function sinkShare(world: World, t: TerrainPoint): number {
   return k;
 }
 
+/** an anchored landform counts as one, for the paint, once it has risen this far (m) */
+const LANDFORM_FOOT = 4;
+
 /**
  * Ground paint inputs for a vertex (terrainMaterials.ts): the weight of each palette slot, and
  * (distance from the road centre, relief, woodland — or, negative, how mown a plot's lawn is — and the water's depth).
+ *
+ * Where an anchored landform stands (TerrainPoint.landform: a tower, a butte, in worlds of version 2) its height
+ * is counted into the relief — the layers of a butte's rock go by height, as a mesa's do — and the point says
+ * that it is on one by adding ON_LANDFORM to its road distance, by as much as the landform has risen over its
+ * first metres (so the paint has it come in smoothly at the foot). Elsewhere, and in every world of version 1,
+ * the inputs are what they always were.
  */
 export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number, lawn = 0): void {
   const ad = t.d < 0 ? -t.d : t.d;
@@ -64,8 +74,8 @@ export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number,
   if (t.bt > 0) wood += woodland(t.bb, seed, x, z, ad, t.relief) * t.bt;
   // (no wood is painted on a plot of the caller's, where none stands: buildScatter keeps its trees off it)
   if (t.plot > 0.8) wood *= 1 - smoothstep(0.8, 0.95, t.plot);
-  gd[k * 4] = Math.min(ad, 2000);
-  gd[k * 4 + 1] = t.relief;
+  gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
+  gd[k * 4 + 1] = t.relief + t.landform;
   gd[k * 4 + 2] = lawn > 0.02 ? -lawn : wood;
   // how far under the water this ground lies (negative above it; −40 where there is no water about)
   gd[k * 4 + 3] = t.wl > -1e8 ? Math.max(-40, Math.min(40, t.wl - t.bed)) : -40;

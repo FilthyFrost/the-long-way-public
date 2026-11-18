@@ -10,6 +10,12 @@
  *
  * Vertex data (worldBuild.ts): aBiomeW = weight of each palette slot (sums to 1), aGround = (distance
  * from the road centre line, relief above the valley floor, woodland 0…1, unused).
+ *
+ * An anchored landform (a tower, a butte: worlds of version 2) is told to the paint through the first of
+ * those: the paint asks the road distance only whether it is a few metres, no landform stands that near the
+ * road, and the distance is never written beyond GROUND_FAR — so a point on a landform adds ON_LANDFORM to
+ * it, and the paint reads back how fully a point is one (rtPaintedGround: its flanks are rock from a gentler
+ * slope on than the country round them, its gentle top stays what the country is).
  */
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_PARS, globals } from './shaderlib';
@@ -17,6 +23,11 @@ import { GLSL_PAINT } from './paint';
 import { GLSL_SKY_MIRROR, skyMirrorUniforms } from '../env/sky';
 import { waterUniforms } from './water';
 import { STYLE } from './style';
+
+/** the road distance of a ground vertex is written no further than this (m) */
+export const GROUND_FAR = 2000;
+/** … and a vertex that stands on an anchored landform adds this to it (as much of it as the landform has risen: worldBuild.ts groundAttrs) */
+export const ON_LANDFORM = 16384;
 
 export const GROUND_PAINT = /* glsl */ `
   ${GLSL_PAINT}
@@ -125,6 +136,10 @@ export const GROUND_PAINT = /* glsl */ `
     float steep = 1.0 - n.y;
     float rock = smoothstep(p.rockStart, p.rockStart + 0.16, steep + (nz.b - 0.5) * 0.14);
     rock = max(rock, smoothstep(26.0, 60.0, g.y) * p.misc.w * 0.85);
+    // an anchored landform (a tower, a butte) is rock on its flanks, from a gentler slope on than the country
+    // round it; its gentle top and its foot stay what the country is
+    float onForm = clamp((g.x - ${GROUND_FAR.toFixed(1)}) / ${(ON_LANDFORM - GROUND_FAR).toFixed(1)}, 0.0, 1.0);
+    rock = max(rock, onForm * smoothstep(p.rockStart - 0.12, p.rockStart + 0.04, steep + (nz.b - 0.5) * 0.14));
     // high ground is bare where it is at all steep
     rock = max(rock, smoothstep(0.1, 0.28, steep) * smoothstep(380.0, 700.0, g.y + (nz.g - 0.5) * 200.0));
     if (rock > 0.01) {

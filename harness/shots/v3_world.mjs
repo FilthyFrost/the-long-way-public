@@ -4,7 +4,8 @@
 // developer's panel lists every region and shows the journey ahead. A robot drives through the first border
 // between two regions: no error, and the land under the wheels never jumps. The panel's own function takes the
 // vehicle to each region of the registry in turn: it stands on the road, upright, in the region asked for (a
-// picture of each from above the road, by day, into loop/shots/v3_world/). The game is saved and opened again:
+// picture of each from above the road, by day, into loop/shots/v3_world/, and two from further in: from higher
+// up and from the driver's seat). The game is saved and opened again:
 // the same world, the same place. A save written under another revision of the generator is opened: its
 // vehicle stands on the road at the distance it had reached, and the line is said. A save of a world with more
 // regions than this build has is set aside, with a line saying why, and a new game begins. A world of version
@@ -324,13 +325,24 @@ try {
       const last = await page.evaluate(() => window.__rt.lastError);
       if (last) fail(`${r.id}: ${last}`);
       // from above the road, behind the vehicle and to its left, looking on down the road
+      const name = `${String(i).padStart(2, '0')}_${r.id}`;
       await rt('setOrbit', 205, 20, 44, 4.5, 0);
       await page.evaluate(() => window.__rt.render());
-      await page.screenshot({ path: path.join(out, `${String(i).padStart(2, '0')}_${r.id}.png`) });
-      // and from the driver's seat
+      await page.screenshot({ path: path.join(out, `${name}.png`) });
+      // and well inside the region, past where it blends with the one before and into the stretches that may
+      // hold its landforms: from higher up, and from the driver's seat
+      await rt('devGoKm', (stop.start + 2600) / 1000, true);
+      if (!(await built(page))) fail(`${r.id}: the world further in was never built`);
+      const inside = await vehicleNow(page);
+      if (inside.region !== r.id || Math.abs(inside.d) > 4.5 || inside.up < 0.9) fail(`${r.id}, further in: ${JSON.stringify(inside)}`);
+      await rt('setOrbit', 200, 22, 80, 6, 0);
+      await page.evaluate(() => window.__rt.render());
+      await page.screenshot({ path: path.join(out, `${name}_in.png`) });
       await rt('setView', 'cockpit');
       await page.evaluate(() => window.__rt.render());
-      await page.screenshot({ path: path.join(out, `${String(i).padStart(2, '0')}_${r.id}_seat.png`) });
+      await page.screenshot({ path: path.join(out, `${name}_seat.png`) });
+      const lastIn = await page.evaluate(() => window.__rt.lastError);
+      if (lastIn) fail(`${r.id}, further in: ${lastIn}`);
     }
     if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
     await page.close();
