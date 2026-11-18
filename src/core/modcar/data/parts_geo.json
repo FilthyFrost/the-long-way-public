@@ -404,13 +404,14 @@
     ],
     [
      0.264,
-     0.143,
+     0.134,
      0.3125
     ]
    ],
-   "triangles": 3424,
+   "triangles": 4080,
    "materials": [
     "alu",
+    "chrome",
     "paint",
     "rubber",
     "steel",

@@ -1000,32 +1000,69 @@ def build_diff_lsd(P):
     diff_views(P)
 
 
+def hull_xz(circles, n=24):
+    """The outline round circles [((x, z), r), ...] in the XZ plane (their convex hull), counter-clockwise."""
+    pts = sorted({(round(cx + r * math.cos(TAU * k / n), 7), round(cz + r * math.sin(TAU * k / n), 7))
+                  for (cx, cz), r in circles for k in range(n)})
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for q in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    for q in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    return lower[:-1] + upper[:-1]
+
+
+def band(P, name, y, outline, w, t, material='steel'):
+    """A thin flat band (t thick, w wide along Y) round a closed outline [(x, z), ...] in the plane y."""
+    bm = bmesh.new()
+    path = [V((x, y, z)) for (x, z) in outline]
+    prof = [(-t / 2, -w / 2), (t / 2, -w / 2), (t / 2, w / 2), (-t / 2, w / 2)]
+    K.bm_sweep(bm, path, 1.0, profile=prof, closed=True, caps=False)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return P.mesh(name, bm, material, sharp=50.0)
+
+
 def build_diff_locked(P):
-    """A locking differential: the open one's carrier and cover, plus the locker's actuator - a small air cylinder
-    strapped on the left tube by the housing, a thin black air hose coiling off it towards the front - and a tag
-    (the part's own colour, no text) wired to the fill plug."""
+    """A locking differential: the open one's carrier and cover, plus the locker's actuator - a slim air cylinder
+    lying along the top-front of the left tube, its rod (in a rubber boot) into the tube's boss, the black air hose
+    from its outer end doubling back along the tube's front to a fitting by the housing, two straps round the tube,
+    the cylinder and the hose - and a tag (the part's own colour, no text) wired to the fill plug. Nothing stands more
+    than about 1.5 cm above the tubes: turned about y on a front axle it keeps clear of the sump above."""
     carrier(P)
     ribbed_cover(P)
-    # the actuator: a cylinder standing on a saddle strapped round the tube, its fitting on top
-    ay = 0.205
-    P.cyl('strap', 0.0395, 0.008, (0.0, ay, 0.0), 'steel', axis='Y', segs=16, bev=None)
-    P.box('saddle', (0.036, 0.03, 0.01), (0.0, ay, 0.041), 'steel', bev=0.002, segs=1)
-    P.lathe('actuator', [(0.0, 0.046), (0.0185, 0.046), (0.0185, 0.082), (0.016, 0.0865), (0.008, 0.088),
-                         (0.0, 0.088)], loc=(0.0, ay, 0.0), material='alu', segs=12, sharp=40.0)
-    P.cyl('act_band', 0.0192, 0.004, (0.0, ay, 0.06), 'steel', segs=12, bev=None)
-    P.bolts([(0.0, ay, 0.088)], normal=(0, 0, 1), r=0.0068, h=0.007, washer=False)
-    # the air hose: up from the fitting into loose coils lying along X, then on towards the front
-    R, zc, pitch, turns = 0.016, 0.124, 0.016, 2.0
-    pts = [(0.0, ay, 0.095), (0.0, ay, zc - R - 0.008)]
-    n = int(turns * 8)
-    for i in range(n + 1):
-        u = turns * i / n
-        q = math.pi + TAU * u
-        pts.append((0.006 + pitch * u, ay + R * math.sin(q), zc + R * math.cos(q)))
-    x1 = 0.006 + pitch * turns
-    pts += [(x1 + 0.025, ay + 0.004, zc - 0.006), (x1 + 0.055, ay + 0.006, zc - 0.012)]
-    P.tube('air_hose', pts, 0.0032, 'trim', segs=5, bend=0.0)
-    P.cyl('hose_fitting', 0.0045, 0.012, (x1 + 0.061, ay + 0.006, zc - 0.012), 'alu', axis='X', segs=6, bev=None)
+    # the cylinder: its axis along Y at the top-front (45 deg) of the tube, two end caps and a band
+    rc, da = 0.011, 0.052
+    ax, az = da * math.cos(math.radians(45)), da * math.sin(math.radians(45))
+    y0, y1 = 0.163, 0.247
+    L = y1 - y0
+    P.lathe('actuator', [(0.0, 0.0), (0.0125, 0.0), (0.0125, 0.006), (rc, 0.0072), (rc, L - 0.0072), (0.0125, L - 0.006),
+                         (0.0125, L), (0.0, L)], loc=(ax, y0, az), material='alu', axis='Y', segs=12, sharp=40.0)
+    P.cyl('act_band', rc + 0.0008, 0.004, (ax, (y0 + y1) / 2, az), 'steel', axis='Y', segs=12, bev=None)
+    # its rod into the tube's boss, a rubber boot over it at the cylinder
+    P.cyl('act_rod', 0.0034, y0 - 0.122, (ax, (y0 + 0.122) / 2, az), 'chrome', axis='Y', segs=8, bev=None)
+    P.lathe('act_boot', [(0.0085, 0.0), (0.0075, 0.005), (0.005, 0.011), (0.0042, 0.016), (0.0, 0.016)],
+            loc=(ax, y0, az), material='rubber', axis='-Y', segs=10, close='start', sharp=50.0)
+    # the air port on the outer cap, the hose back along the tube's front, its fitting by the housing
+    P.bolts([(ax, y1, az)], normal=(0, 1, 0), r=0.0062, h=0.006, washer=False, x_hint=(1, 0, 0))
+    rh = 0.0032
+    hr, ha = 0.038 + rh + 0.0004, math.radians(14)
+    hx, hz = hr * math.cos(ha), hr * math.sin(ha)
+    hose = [(ax, y1 + 0.006, az), (ax, y1 + 0.016, az), (hx + 0.004, y1 + 0.016, hz + 0.008), (hx, y1 + 0.004, hz),
+            (hx, 0.17, hz), (hx + 0.012, 0.152, hz - 0.004), (hx + 0.032, 0.148, hz - 0.006)]
+    P.tube('air_hose', hose, rh, 'trim', segs=6, bend=0.008)
+    P.cyl('hose_fitting', 0.0048, 0.012, (hx + 0.037, 0.148, hz - 0.006), 'alu', axis='X', segs=6, bev=None)
+    # two straps round the tube, the cylinder and the hose
+    outline = hull_xz([((0.0, 0.0), 0.0395), ((ax, az), rc + 0.0012), ((hx, hz), rh + 0.0008)])
+    for ys in (0.188, 0.226):
+        band(P, 'strap', ys, outline, 0.007, 0.0016)
     # the tag on a wire from the fill plug
     p, nrm = dome_point(0.083, 132.0)
     w0 = p + nrm * 0.008

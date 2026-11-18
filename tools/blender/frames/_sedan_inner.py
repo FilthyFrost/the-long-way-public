@@ -32,8 +32,10 @@ def rear_arch_front(z):
 
 
 def tunnel_h(x):
-    """Height of the top of the transmission tunnel (pan side) along x: gearbox at the front, propshaft behind."""
-    return 0.31 + 0.15 * float(K.sstep(-0.35, 0.45, x))
+    """Height of the top of the transmission tunnel (pan side) along x: gearbox at the front, propshaft behind.
+    Behind the front seats it stays 3.5 cm higher, two centimetres over the propshaft and its rear joint (at 0.31
+    they ran through its roof); from x = -0.10, just behind the handbrake, forward it is as it was."""
+    return 0.31 + 0.15 * float(K.sstep(-0.35, 0.45, x)) + 0.035 * (1.0 - float(K.sstep(-0.30, -0.10, x)))
 
 
 def side_pt(x, z, level=0.0):
@@ -744,9 +746,11 @@ def interior(ex):
     T = K.grid_tris(len(xs), len(sec))
     carpet = recompute_normals(K.Buf().add(V, np.zeros_like(V), T, 'fabric'))
     L.extend(face_up(carpet))
-    # front footwell slope up to the firewall (toe board)
-    L.extend(K.box_buf((FIREWALL_X - 0.20, 0.17, FLOOR_Z), (FIREWALL_X - 0.02, 0.68, FLOOR_Z + 0.02), 'fabric', 0.006, 2,
-                       xf=K.mat4_rot((0, 1, 0), -38, (FIREWALL_X - 0.02, 0, FLOOR_Z))))
+    # front footwell slope up to the firewall (the toe board): turned up about its foot, its front end against the
+    # firewall's face, its inner end clear of the tunnel (turned about its front end it swung down through the floor
+    # and out under the floor pan)
+    L.extend(K.box_buf((FIREWALL_X - 0.20, 0.22, FLOOR_Z), (FIREWALL_X + 0.0475, 0.68, FLOOR_Z + 0.02), 'fabric', 0.006, 2,
+                       xf=K.mat4_rot((0, 1, 0), -38, (FIREWALL_X - 0.20, 0, FLOOR_Z))))
     # rear seat area raised floor and bulkhead behind the rear seat
     L.extend(K.box_buf((-1.42, 0.0, FLOOR_Z), (-1.30, 0.47, 0.30), 'fabric', 0.01, 2))
     L.extend(K.box_buf((-1.48, 0.0, 0.52), (-1.42, 0.47, 0.95), 'plastic_int', 0.01, 2))

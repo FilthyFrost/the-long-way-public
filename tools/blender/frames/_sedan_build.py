@@ -203,10 +203,10 @@ def build(args):
     total = sum(tris.values())
     print('[sedan] triangles', total, {k: v for k, v in sorted(tris.items(), key=lambda kv: -kv[1])[:8]})
     if not quick:
-        # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open)
+        # the bay is baked with the bonnet up (the tutorial looks into it with the bonnet open), and the bonnet with it
         hood = next(o for o in meshes if o.name == 'P_hood')
-        K.bake_ao_open(meshes, [(hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'])],
-                       ((IN.FIREWALL_X - 0.01, -0.76, -0.05), (IN.RAD_X + 0.10, 0.76, 0.85 - D.get('body_drop', 0.0))), samples=32, distance=0.35)
+        bake_ao_bay(meshes, hood, panels['P_hood']['axis'], panels['P_hood']['open_deg'],
+                    ((IN.FIREWALL_X - 0.01, -0.76, -0.05), (IN.RAD_X + 0.10, 0.76, 0.85 - D.get('body_drop', 0.0))), samples=32, distance=0.35)
         print('[sedan] AO', round(time.time() - t0, 1), 's')
     if not quick:
         # the dial faces once more without the needles over them
@@ -222,6 +222,69 @@ def build(args):
     if not no_preview:
         previews(quick)
     print('[sedan] done', round(time.time() - t0, 1), 's')
+
+
+def bake_ao_bay(meshes, hood, axis, open_deg, region, samples=32, distance=0.35):
+    """K.bake_ao_open (the bay baked with the bonnet up), and the bonnet baked up as well. What of it is seen only
+    with it up (whatever faces down or in towards its middle: the underside, the inner frame, the insides of the hems)
+    keeps the lighter of its two passes; what is seen shut (the skin, the outer faces of its shut gaps) keeps the shut
+    pass. Baked shut only, the underside took the shapes of the bay under it, in near-black blotches."""
+    K.bake_ao_open(meshes, [(hood, axis, open_deg)], region, samples=samples, distance=distance)
+    a = hood.data.color_attributes.get('Col')
+    shut = np.zeros(len(a.data) * 4)
+    a.data.foreach_get('color', shut)
+    keep = hood.matrix_world.copy()
+    hood.matrix_world = keep @ Matrix.Rotation(math.radians(open_deg), 4, Vector(axis))
+    bpy.context.view_layer.update()
+    mc.bake_ao([hood], samples=samples, distance=distance)
+    hood.matrix_world = keep
+    bpy.context.view_layer.update()
+    me = hood.data          # (the bake may give the object a new mesh)
+    a = me.color_attributes.get('Col')
+    up = np.zeros(len(a.data) * 4)
+    a.data.foreach_get('color', up)
+    # which way each corner faces with the bonnet shut: up or outwards (seen shut), down or inwards (seen up)
+    W = np.array(hood.matrix_world)
+    n = np.zeros(len(me.loops) * 3)
+    me.corner_normals.foreach_get('vector', n)
+    n = n.reshape(-1, 3) @ W[:3, :3].T
+    vi = np.zeros(len(me.loops), np.int64)
+    me.loops.foreach_get('vertex_index', vi)
+    co = np.zeros(len(me.vertices) * 3)
+    me.vertices.foreach_get('co', co)
+    P = co.reshape(-1, 3) @ W[:3, :3].T + W[:3, 3]
+    d = P[vi, :2] - P[:, :2].mean(0)
+    d = d / np.maximum(np.linalg.norm(d, axis=1), 0.05)[:, None]
+    seen_shut = K.sstep(-0.25, 0.25, n[:, 2] + (n[:, :2] * d).sum(1))[:, None]
+    shut = shut.reshape(-1, 4)
+    up = up.reshape(-1, 4)
+    out = shut * seen_shut + np.maximum(shut, up) * (1.0 - seen_shut)
+    # the sheet under the skin is one piece: where the frame ring and the pressed X cover it, its hidden vertices
+    # bake near-black and spread dark stars into the sheet round them. They take the shading of their seen
+    # neighbours (spreading in from them)
+    down = n[:, 2] < -0.5
+    nv = len(me.vertices)
+    cnt = np.bincount(vi[down], minlength=nv)
+    val = np.bincount(vi[down], weights=out[down, 0], minlength=nv) / np.maximum(cnt, 1)
+    hidden = (cnt > 0) & (val < 0.15)
+    ed = np.zeros(len(me.edges) * 2, np.int64)
+    me.edges.foreach_get('vertices', ed)
+    ed = ed.reshape(-1, 2)
+    ea = np.concatenate([ed[:, 0], ed[:, 1]])
+    eb = np.concatenate([ed[:, 1], ed[:, 0]])
+    known = (cnt > 0) & ~hidden
+    for _ in range(60):
+        m = known[eb]
+        s = np.bincount(ea[m], weights=val[eb[m]], minlength=nv)
+        k = np.bincount(ea[m], minlength=nv)
+        new = hidden & ~known & (k > 0)
+        if not new.any():
+            break
+        val[new] = s[new] / k[new]
+        known |= new
+    fill = down & hidden[vi] & known[vi]
+    out[fill, :3] = val[vi[fill], None]
+    a.data.foreach_set('color', out.ravel())
 
 
 # ============================================================================================ trims
