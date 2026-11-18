@@ -5,6 +5,13 @@
  * ground between them. A region without a table of its own grows what its kin grows.
  *
  * To change what a region grows, change its rows here; to add a plant, add it to plants.ts first.
+ *
+ * (A number to the hectare above 156 for a tree or a shrub, 625 for a ground plant, means "every cell where
+ * it suits": a layer's grid holds one plant to a cell. Reeds are written so: a reed to every 8 m cell of the
+ * bank, which whoever draws them makes a bed of by drawing each several metres wide.)
+ *
+ * What each region comes to — the share of its land under wood, its trees to the hectare, its kinds, what
+ * there is to pick — is held in bands by harness/sim/v3_flora_regions.test.ts: change a row, run it.
  */
 import type { FloraTable } from './flora';
 import { withForage } from './floraForage';
@@ -48,8 +55,9 @@ export const FLORA: Record<string, FloraTable> = {
     cover: { grass: 0.95, height: 0.45, flowers: 0.12, hues: [WHITE, YELLOW, VIOLET], bare: 0 },
   },
   // dry country: almost bare, scrub in drifts, cactus on the flats, a green line along any water
+  // (no woods of its own: `wood` 0; its only canopy is the bank's)
   desert: {
-    eco: { wood: 0.04, woodScale: 300, clear: 14, edge: 30, treeline: null, thirsty: 0.75, moist: 0.08 },
+    eco: { wood: 0, woodScale: 300, clear: 14, edge: 30, treeline: null, thirsty: 0.75, moist: 0.08 },
     trees: [
       { plant: 'poplar', perHa: 50, water: [0, 25], waterKinds: FRESH },
       { plant: 'saguaro', perHa: 8, moisture: [0, 0.3], slope: [0, 0.25], grove: 200 },
@@ -114,18 +122,19 @@ export const FLORA: Record<string, FloraTable> = {
     cover: { grass: 0.7, height: 0.35, flowers: 0.05, hues: [WHITE, BLUE], bare: 0 },
   },
   // lake country: open meadow down to the water, willows and reed beds on the shores, copses behind
+  // (the shores of its lakes and rivers: its sea's beach is sand, with what floraForage.ts puts on a strand)
   lakes: {
     eco: { wood: 0.26, woodScale: 380, clear: 12, edge: 26, treeline: null, thirsty: 0.6, moist: 0.5 },
     trees: [
-      { plant: 'willow', perHa: 70, water: [0, 18] },
+      { plant: 'willow', perHa: 70, water: [0, 18], waterKinds: FRESH },
       { plant: 'oak', perHa: 70, canopy: [0.45, 1] },
       { plant: 'birch', perHa: 60, canopy: [0.35, 1] },
       { plant: 'linden', perHa: 30, canopy: [0.45, 1] },
       { plant: 'poplar', perHa: 20, canopy: [0.2, 0.8] },
     ],
     shrubs: [
-      { plant: 'reed', perHa: 700, water: [0, 6] },
-      { plant: 'cranberry_bush', perHa: 30, moisture: [0.75, 1], water: [0, 30], grove: 50 },
+      { plant: 'reed', perHa: 700, water: [0, 6], waterKinds: FRESH },
+      { plant: 'cranberry_bush', perHa: 30, moisture: [0.75, 1], water: [0, 30], waterKinds: FRESH, grove: 50 },
       { plant: 'bush', perHa: 50, canopy: [0.15, 0.6] },
       { plant: 'berry_bush', perHa: 10, canopy: [0.1, 0.5] },
     ],
@@ -182,17 +191,20 @@ export const FLORA: Record<string, FloraTable> = {
     cover: { grass: 0.9, height: 0.4, flowers: 0.85, hues: [VIOLET, YELLOW, PINK, WHITE, RED], rows: { spacing: 7, share: 0.62, maxSlope: 0.16 }, bare: 0 },
   },
   // terraced hill farms: tea in rows on the benches, crops gone wild, persimmons and camphor by the lanes, bamboo in the gullies
+  // (tea twice: on the benches of the terraced hillsides (`bench`), and on ground the ecotope's slope calls
+  // level; bamboo before camphor, so that where its grove is thick the wood is bamboo and nothing else)
   terraces: {
     eco: { wood: 0.22, woodScale: 300, clear: 10, edge: 22, treeline: [160, 260], thirsty: 0.4, moist: 0.55 },
     trees: [
       { plant: 'willow', perHa: 30, water: [0, 12], waterKinds: FRESH },
-      { plant: 'camphor', perHa: 70, canopy: [0.4, 1] },
       { plant: 'bamboo', perHa: 120, canopy: [0.45, 1], moisture: [0.5, 1], grove: 90 },
+      { plant: 'camphor', perHa: 70, canopy: [0.4, 1] },
       { plant: 'persimmon_tree', perHa: 8, canopy: [0.05, 0.45], road: [10, 160] },
       { plant: 'pepper_tree', perHa: 5, canopy: [0.1, 0.5], shade: [0, 0.5] },
     ],
     shrubs: [
       { plant: 'reed', perHa: 260, water: [0, 5], waterKinds: FRESH },
+      { plant: 'tea_bush', perHa: 420, canopy: [0, 0.2], bench: true, relief: [8, 200], grove: 110 },
       { plant: 'tea_bush', perHa: 420, canopy: [0, 0.2], slope: [0, 0.07], relief: [8, 200], grove: 110 },
       { plant: 'rice_stand', perHa: 300, water: [0, 2], waterKinds: FRESH },
       { plant: 'bush', perHa: 30, canopy: [0.2, 0.6] },
@@ -247,12 +259,13 @@ export const FLORA: Record<string, FloraTable> = {
     cover: { grass: 0.6, height: 0.3, flowers: 0.03, hues: [WHITE], bare: 0.03 },
   },
   // red rock canyon country: bare stone and sand, juniper on the benches, sage flats, a green thread along the river
+  // (no woods of its own either: the junipers and the odd pine stand apart, by relief and slope)
   red_canyon: {
-    eco: { wood: 0.06, woodScale: 260, clear: 14, edge: 30, treeline: null, thirsty: 0.8, moist: 0.1 },
+    eco: { wood: 0, woodScale: 260, clear: 14, edge: 30, treeline: null, thirsty: 0.8, moist: 0.1 },
     trees: [
       { plant: 'poplar', perHa: 60, water: [0, 22], waterKinds: FRESH },
       { plant: 'juniper', perHa: 16, relief: [6, 260], slope: [0, 0.5], grove: 160 },
-      { plant: 'pine', perHa: 8, relief: [30, 300], canopy: [0.2, 1] },
+      { plant: 'pine', perHa: 1.5, relief: [30, 300], slope: [0, 0.5] },
     ],
     shrubs: [
       { plant: 'reed', perHa: 200, water: [0, 4], waterKinds: FRESH },
@@ -269,6 +282,8 @@ export const FLORA: Record<string, FloraTable> = {
     cover: { grass: 0.1, height: 0.22, flowers: 0.01, hues: [YELLOW], bare: 0.8 },
   },
   // karst: a flat green valley floor of fields and river bends between the towers, the towers themselves hung with scrub
+  // (scrub on a tower's gentler ground by `landform`; nothing of the slopes' own on ground steeper than 1 in 1:
+  // a tower's sides are rock)
   karst_peaks: {
     eco: { wood: 0.34, woodScale: 240, clear: 11, edge: 22, treeline: null, thirsty: 0.55, moist: 0.6 },
     trees: [
@@ -276,15 +291,16 @@ export const FLORA: Record<string, FloraTable> = {
       { plant: 'bamboo', perHa: 90, water: [4, 60], canopy: [0.2, 1], grove: 120 },
       { plant: 'camphor', perHa: 80, canopy: [0.4, 1] },
       { plant: 'pepper_tree', perHa: 8, canopy: [0.1, 0.55], slope: [0.05, 0.8] },
-      { plant: 'linden', perHa: 30, canopy: [0.4, 1], slope: [0.2, 2] },
+      { plant: 'linden', perHa: 30, canopy: [0.4, 1], slope: [0.2, 1] },
     ],
     shrubs: [
       { plant: 'reed', perHa: 320, water: [0, 5], waterKinds: FRESH },
       { plant: 'rice_stand', perHa: 200, water: [0, 2], waterKinds: FRESH, grove: 70 },
       { plant: 'tea_bush', perHa: 50, canopy: [0, 0.35], slope: [0.04, 0.3], grove: 80 },
       { plant: 'fern', perHa: 60, canopy: [0.5, 1] },
-      { plant: 'bush', perHa: 60, slope: [0.3, 2] },
-      { plant: 'grape_vine', perHa: 10, slope: [0.15, 1.2], shade: [0, 0.45] },
+      { plant: 'bush', perHa: 110, landform: [8, 500], slope: [0, 0.9] },
+      { plant: 'bush', perHa: 50, slope: [0.3, 1] },
+      { plant: 'grape_vine', perHa: 10, slope: [0.15, 1], shade: [0, 0.45] },
     ],
     ground: [
       { plant: 'rock', perHa: 14, slope: [0.2, 2] },

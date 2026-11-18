@@ -749,8 +749,8 @@ export class WaterPlan {
    * It is 0 on the very line where the channel's water ends, has no step anywhere, and is the true distance
    * to within a few hundredths over the first tens of metres; by 150 m, inside a tight bend, it may be a
    * seventh off. Towards the river's end the channel fades out of the land and whether water still stands
-   * in it is the land's to say: from where that fade begins the distance grows by more and more (150 m an
-   * eighth of the way through it), and half way through it, as beyond the river's ends, there is no river
+   * in it is the land's to say: from where that fade begins the distance grows by more and more (150 m a
+   * quarter of the way through it), and half way through it, as beyond the river's ends, there is no river
    * to be near (Infinity).
    */
   static riverShore(f: River, x: number, z: number): number {

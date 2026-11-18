@@ -17,7 +17,7 @@ import { floraTableOf } from '../../src/core/world/floraTables';
 import { SeaPlan } from '../../src/core/world/sea';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
-import { WaterPlan, type Lake, type River, type WaterFeature } from '../../src/core/world/water';
+import { WaterPlan, type WaterFeature } from '../../src/core/world/water';
 
 const tp = new TerrainPoint();
 const out = { dist: 0, kind: 0 };
