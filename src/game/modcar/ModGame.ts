@@ -75,6 +75,7 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { setItemClock } from './itemTime';
+import { setItemCardFault } from './itemInfo';
 import { backInTheWorld } from './save';
 import { Sparks } from './sparks';
 import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
@@ -84,7 +85,7 @@ import { tyreLoops } from './tyreSound';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
-import { boxInHand, boxOnMark, boxSource, countOfHeld, guardedSource, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
+import { boxInHand, boxOnMark, boxSource, guardedSource, Listing, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
@@ -437,6 +438,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly clock: WorldTime = this.kernel.clock;
   /** (things that go off read the same clock: itemTime.ts) */
   private readonly itemClockSet = setItemClock(this.kernel.clock);
+  /** (a system's lines on an item's card that throw are reported like its other faults: itemInfo.ts) */
+  private readonly cardFaultSet = setItemCardFault((where, e) => this.kernel.report(where, e));
   /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
   readonly interact = this.kernel.interact;
   /** the systems' tabs of the developer's panel */
@@ -1220,6 +1223,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.cargo.weigh(v);
   }
 
+  /** a list is open (Tab): G there puts the thing in the hands into the list, so the hands do not offer G for putting it down (player.ts) */
+  get listOpen(): boolean {
+    return !!this.listV;
+  }
+
   // ------------------------------------------------------------------ the body (vitals.ts)
 
   /** is one under the workshop's roof (in a vehicle: is it) */
@@ -1375,19 +1383,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private listSrc: ListSource | null = null;
   private listSrcOf: unknown = null;
   private readonly listFault = (title: string, asked: string, e: unknown): void => this.kernel.report(`list source ${title} (${asked})`, e);
-  /** its rows as last built, for which source and at which of its versions; they are built again only when that moves */
-  private listRows: readonly CargoRow[] = [];
-  private listRowsOf: ListSource | null = null;
-  private listVer: number | string = '';
-  /** the rows' weights added up; frames until a picture still being drawn is asked for again (0: none is) */
-  private listKg = 0;
-  private listIconT = 0;
-  /** what the list draws: one object, filled in every frame the list is open */
-  private readonly listView: import('./cargoList').CargoView = { title: '', head: '', empty: '', take: '', rows: [], rev: 0, sel: 0, load: 0, cap: null, put: '' };
-  /** what G would put in: worked out again only when the thing in the hands, how many of it or the rows have changed */
-  private listPutOf: Held = null;
-  private listPutN = -1;
-  private listPutRev = -1;
+  /**
+   * What the list keeps while it is open and what its keys do (listSources.ts Listing: the rows as last built,
+   * the row picked after a move or a take, the put, what the list draws): here it is only handed the source,
+   * the row picked (`listSel`) and the hands.
+   */
+  private readonly listing = new Listing();
 
   /**
    * Tab: the list of what is in the thing that holds things the mark is on (lying within reach), else of the
@@ -1434,10 +1435,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.listV = null;
     this.listSrc = null;
     this.listSrcOf = null;
-    this.listRowsOf = null;
-    this.listRows = [];
-    this.listPutOf = null;
-    this.listPutN = -1;
+    this.listing.reset();
     this.cargoList?.show(null);
   }
 
@@ -1452,42 +1450,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     return this.listSrc;
   }
 
-  /**
-   * The rows of the list's source: built when the source says that what is in it has changed, not every frame
-   * (and now and then while a picture of one of them is still being drawn).
-   */
-  private rowsOf(src: ListSource): readonly CargoRow[] {
-    const again = this.listIconT > 0 && --this.listIconT === 0;
-    const same = src === this.listRowsOf && src.version() === this.listVer;
-    if (same && !again) return this.listRows;
-    const was = this.listRows;
-    const rows = src.rows();
-    this.listRowsOf = src;
-    this.listRows = rows;
-    // (asked after: building them may itself have settled a thing that had gone off)
-    this.listVer = src.version();
-    let kg = 0;
-    let due = false;
-    // (built again only for a picture: the list is drawn again only if one has come)
-    let differs = !same || rows.length !== was.length;
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      kg += r.mass;
-      if (r.icon === null) due = true;
-      else if (!differs && r.icon !== was[i].icon) differs = true;
-    }
-    if (differs) this.listView.rev++;
-    this.listKg = kg;
-    this.listIconT = due ? 3 : 0;
-    return rows;
-  }
-
   private moveListSel(d: number): void {
     const src = this.listSource();
     if (!src) return;
-    const n = this.rowsOf(src).length;
-    if (!n) return;
-    this.listSel = (this.listSel + d + n) % n;
+    const sel = this.listing.move(src, this.listSel, d);
+    if (sel < 0) return;
+    this.listSel = sel;
     this.sound('switch', 0.25);
   }
 
@@ -1497,26 +1465,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.listSel = 0;
   }
 
-  /** the picked thing out of what the list shows, into the hands (as much of it as they take) */
+  /** the picked thing out of what the list shows, into the hands (as much of it as they take); a take that empties a vehicle's or a container's list shuts it */
   takeFromList(): void {
     const src = this.listSource();
     if (!src) return;
-    const n = this.rowsOf(src).length;
-    if (!n || !src.takeAt(Math.min(this.listSel, n - 1))) return;
-    const left = this.rowsOf(src).length;
-    this.listSel = Math.max(0, Math.min(this.listSel, left - 1));
-    if (!left && src.shutEmpty) this.closeCargoList();
+    const sel = this.listing.take(src, this.listSel);
+    if (sel < 0) this.closeCargoList();
+    else this.listSel = sel;
   }
 
   /** G in a list: the thing in the hands into what the list shows, as much of it as goes (a source that takes things in) */
   putIntoList(): void {
     const src = this.listSource();
-    const h = this.player.held;
-    if (!src?.put || !h) return;
-    // (being eaten or drunk from: that stops)
-    this.player.use = null;
-    // all of it in: it is in there now, or was used up onto a stack there
-    if (src.put(h) <= 0) this.player.held = null;
+    if (src) this.listing.put(src, this.player);
   }
 
   /** the list as it stands (shut when one walked off, the vehicle drove away or the thing it shows is gone) */
@@ -1524,32 +1485,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const src = this.listSource();
     if (!src) return;
     this.cargoList ??= new CargoList(this.ui.root);
-    if (!src.near()) {
+    const sel = this.listing.frame(src, this.listSel, this.player.held);
+    if (sel < 0) {
       this.closeCargoList();
       return;
     }
-    const rows = this.rowsOf(src);
-    this.listSel = Math.max(0, Math.min(this.listSel, rows.length - 1));
-    const view = this.listView;
-    // what G would put in, said only while it would go in
-    const h = src.put ? this.player.held : null;
-    const n = h ? countOfHeld(h) : 0;
-    if (h !== this.listPutOf || n !== this.listPutN || view.rev !== this.listPutRev) {
-      this.listPutOf = h;
-      this.listPutN = n;
-      this.listPutRev = view.rev;
-      const room = h ? Math.min(n, src.room ? src.room(h) : n) : 0;
-      view.put = h && room > 0 ? (room < n ? `${heldName(h)}（放得下 ${room} 个）` : heldName(h)) : '';
-    }
-    view.title = src.title;
-    view.head = src.head;
-    view.empty = src.empty;
-    view.take = src.takeWord;
-    view.rows = rows;
-    view.sel = this.listSel;
-    view.load = src.load ? src.load() : this.listKg;
-    view.cap = src.cap ?? null;
-    this.cargoList.show(view);
+    this.listSel = sel;
+    this.cargoList.show(this.listing.view);
   }
 
   /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */

@@ -236,9 +236,32 @@ export class Places {
     return out;
   }
 
-  /** is it one of the places' own things lying about (not yet taken or moved)? */
+  /**
+   * Is it one of the places' own things lying about: not yet taken, moved or changed where it lies? Asked as
+   * the game is saved (a place's own things are not saved with the things lying about: the place makes them
+   * again), so it is settled here and now, not at the next frame: a thing let go is saved from this very save on.
+   */
   owns(l: Loose): boolean {
-    return this.owned.has(l);
+    const o = this.owned.get(l);
+    return !!o && !this.letGo(l, o);
+  }
+
+  /**
+   * A thing of a place's that was picked up, moved, or has changed where it lies (some taken off its stack, a
+   * thing put into it or taken out of it: LooseThings.touch) is one's own from then on: its id is kept as
+   * taken, so that the place never makes it again, and it is saved with the things lying about. True when it
+   * is let go (now); false: it is the place's still.
+   */
+  private letGo(l: Loose, o: { site: string; id: string }): boolean {
+    const lp = this.live.get(o.site);
+    const at = lp?.loose.get(o.id);
+    // (moved: more than a quarter of a metre from where the place put it; squared, so that nothing is handed to a function and put on the heap every frame)
+    const moved = !!at && (l.x - at.x) * (l.x - at.x) + (l.z - at.z) * (l.z - at.z) > 0.25 * 0.25;
+    if (this.host.loose.list.includes(l) && !l.touched && !moved) return false;
+    this.taken.add(o.id);
+    this.owned.delete(l);
+    lp?.loose.delete(o.id);
+    return true;
   }
 
   /** every frame: the places within reach of (x, z) there, the ones left behind gone */
@@ -247,16 +270,8 @@ export class Places {
     if (this.nozzleOut && this.clock > this.nozzleOut.until) this.nozzleOut = null;
     const world = this.host.world;
     if (!world) return;
-    // (a thing of a place's picked up or moved: one's own from then on)
-    for (const [l, o] of this.owned) {
-      const lp = this.live.get(o.site);
-      const at = lp?.loose.get(o.id);
-      if (!this.host.loose.list.includes(l) || (at && Math.hypot(l.x - at.x, l.z - at.z) > 0.25)) {
-        this.taken.add(o.id);
-        this.owned.delete(l);
-        lp?.loose.delete(o.id);
-      }
-    }
+    // (a thing of a place's picked up, moved or changed where it lies: one's own from then on)
+    for (const [l, o] of this.owned) this.letGo(l, o);
     if ((this.checkT -= dt) > 0) return;
     this.checkT = CHECK_EVERY;
     const s = world.spine.sAtX(x);
@@ -341,6 +356,7 @@ export class Places {
       this.host.dropWorkshop?.(lp.workshop);
       lp.workshop = null;
     }
+    // (what is the place's still goes with it; what was taken, moved or changed was let go as this frame began: update)
     for (const [, t] of lp.loose) {
       if (!this.owned.has(t.l)) continue;
       this.owned.delete(t.l);
@@ -599,6 +615,9 @@ export class Places {
   // ------------------------------------------------------------------ the save
 
   snapshot(): PlacesSave {
+    // (what was taken, moved or changed since the last frame is let go first: `taken` and the things the game
+    // saves as lying about then say the same, whichever is asked first)
+    for (const [l, o] of this.owned) this.letGo(l, o);
     for (const lp of this.live.values()) if (lp.workshop) this.shops.set(lp.site.id, lp.workshop.snapshot());
     return { searched: [...this.searched], left: Object.fromEntries(this.left), pumps: Object.fromEntries(this.pumps), taken: [...this.taken], shops: Object.fromEntries(this.shops) };
   }

@@ -12,6 +12,8 @@
 //  - a stack that has gone off is another kind where it lies, drawn again;
 //  - the recycler gives five berries' organics for the stack (counted up as it is ground), and for the basket
 //    with five berries in it the basket's and theirs, its list shutting as it goes in;
+//  - an open list notices the time: with the list of a basket lying there open, two days and more go by, and the
+//    row is what the berries have turned into before E hands it over;
 //  - a system's own source that throws is reported by the kernel, its list shuts and the game goes on.
 // The page is not drawn (shot=1): the game is stepped from here, so nothing waits on the clock on the wall.
 //   SHOTS_GL=llvmpipe node harness/shots/v3_items_world.mjs
@@ -281,6 +283,51 @@ try {
     if (s2 - s1 !== want) fail(`the basket with five berries gave ${s2 - s1} organics, not ${want}`);
     if (await list()) fail('the list did not shut when its basket went into the recycler');
   }
+  // 6b. an open list and the time: a basket with four berries lying there, its list open; two days and a half go by
+  await rt('stand', home.footX, home.footZ, home.heading);
+  await page.evaluate(() => {
+    const p = window.__rt.game.player;
+    p.slots[0] = null;
+    p.slots[1] = null;
+    p.sel = 0;
+  });
+  await rt('hold', 'item:v3t_basket');
+  await page.evaluate(() => (window.__rt.game.player.sel = 1));
+  await rt('hold', 'item:v3t_berry', { n: 4 });
+  await page.evaluate(() => (window.__rt.game.player.sel = 0));
+  await key('Tab');
+  await key('Digit2');
+  await key('KeyG');
+  await key('Tab');
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    g.player.sel = 0;
+    g.player.putDown();
+  });
+  await rt('simulate', 1.5);
+  if (!(await rt('aimLoose', 'item:v3t_basket', 1.1))) fail('the mark could not be put on the basket with the berries in it');
+  await key('Tab');
+  const fresh = await list();
+  const t0 = await page.evaluate(() => window.__w.T.itemNow());
+  // (the hour hand moved on ten hours at a time: the world's clock goes with it)
+  for (let i = 0; i < 6; i++) {
+    const h = await page.evaluate(() => window.__rt.game.clock.hour);
+    await rt('setHour', (h + 10) % 24);
+  }
+  const went = (await page.evaluate(() => window.__w.T.itemNow())) - t0;
+  // (the very next frames: the list has noticed before the game has got round to looking at the basket itself)
+  await rt('simulate', 0.03);
+  const stale = await list();
+  const mush = await page.evaluate(() => window.__w.I.itemDef('v3t_mush').name.zh);
+  console.log('time went by under the open list', JSON.stringify({ hours: Math.round(went / 3600), before: fresh?.rows, after: stale?.rows }));
+  if (!fresh || fresh.rows.length !== 1 || !fresh.rows[0].includes(`${kinds.berry.name} ×4`)) fail(`the basket lying there does not list its four berries (${JSON.stringify(fresh?.rows)})`);
+  if (!(went > 49 * 3600)) fail(`the world's clock did not go on two days (${went} s)`);
+  else if (!stale || stale.rows.length !== 1 || !stale.rows[0].includes(`${mush} ×4`)) fail(`the open list did not notice that its row had turned (${JSON.stringify(stale?.rows)})`);
+  await key('KeyE');
+  const h6 = await hands();
+  if (h6.slots[h6.sel]?.item !== 'v3t_mush' || h6.slots[h6.sel].n !== 4) fail(`what E handed over is not what the berries turned into (${JSON.stringify(h6.slots[h6.sel])})`);
+  await page.evaluate(() => window.__rt.game.closeCargoList());
+
   const last = await page.evaluate(() => window.__rt.lastError);
   if (last) fail(`the game reported an error: ${last}`);
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);

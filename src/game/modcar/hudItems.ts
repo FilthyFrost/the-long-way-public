@@ -3,7 +3,8 @@
  * frame of our own (ui.ts .mc-frame): the two item cards (cards.ts), the two-slot hotbar along the bottom,
  * what the buttons do right now just above it in white words with the keys drawn, every action of the
  * thing in the hands down the right, and while liquid goes from one thing into another, in the place of
- * those words, a strip saying from what into what and how much is in each.
+ * those words, a strip saying from what into what and how much is in each. A stack in a slot has its count in
+ * the slot's corner (nothing for one), written when the count changes and not otherwise.
  */
 import { CARD_CSS, CardView, TONE_COLOUR } from './cards';
 import type { ItemCard, Tone } from './itemInfo';
@@ -26,6 +27,8 @@ export interface SlotView {
   empty: boolean;
   /** a liquid container's fill under the slot (a spray can's paint, in its colour) */
   fill?: { value: number; max: number; tone: Tone; colour?: string };
+  /** how many are in the slot: a stack's count, drawn in its corner when more than one (absent: one) */
+  count?: number;
 }
 
 export interface TransferView {
@@ -45,6 +48,7 @@ ${CARD_CSS}
 .mc-hot .s .n { position: absolute; left: -7px; bottom: -7px; width: 20px; height: 20px; box-sizing: border-box; border-radius: 6px; background: #2b2a28; border: 2px solid var(--rim); box-shadow: 0 0 0 1.5px var(--ink); color: #fff; font: 700 12px/16px var(--key-font); text-align: center; }
 .mc-hot .s .f { position: absolute; left: 18px; right: 6px; bottom: -11px; height: 7px; box-sizing: border-box; border-radius: 999px; background: #2b2a28; border: 1.5px solid var(--ink); overflow: hidden; }
 .mc-hot .s .f i { display: block; height: 100%; border-radius: 999px; }
+.mc-hot .s .c { position: absolute; right: 5px; bottom: 3px; color: #fff; font: 700 14px/1 var(--key-font); text-shadow: 0 1px 0 var(--ink), 0 -1px 0 var(--ink), 1px 0 0 var(--ink), -1px 0 0 var(--ink), 0 2px 3px rgba(0,0,0,0.6); }
 .mc-hot .s .w { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4px; font-size: 11px; line-height: 1.25; color: #fff; text-align: center; }
 .mc-bot { position: absolute; left: 50%; bottom: 106px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .mc-acts { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -102,6 +106,8 @@ export class ItemHud {
   private readonly xfer: HTMLDivElement;
   private readonly done: HTMLDivElement;
   private lastHot = '';
+  /** the count written in each slot's corner (−1: to be written: the slots were drawn again) */
+  private readonly hotCounts: number[] = [];
   private lastActs = '';
   private lastKeys = '';
   private lastXfer = '';
@@ -158,15 +164,27 @@ export class ItemHud {
     }
     this.hot.style.display = '';
     const key = JSON.stringify([slots.map((s) => [s.icon?.length ?? 0, s.name, s.empty, s.fill ? Math.round((s.fill.value / s.fill.max) * 50) : -1, s.fill?.tone, s.fill?.colour]), sel]);
-    if (key === this.lastHot) return;
-    this.lastHot = key;
-    this.hot.innerHTML = slots
-      .map((s, i) => {
-        const fill = s.fill ? `<div class="f"><i style="width:${Math.min(100, (s.fill.value / Math.max(1e-6, s.fill.max)) * 100).toFixed(0)}%;background:${s.fill.colour ?? TONE_COLOUR[s.fill.tone]}"></i></div>` : '';
-        const body = s.empty ? '' : s.icon ? `<img src="${s.icon}" alt="">` : `<div class="w">${s.name}</div>`;
-        return `<div class="s${i === sel ? ' on' : ''}" title="${s.name}">${body}${fill}<div class="n">${i + 1}</div></div>`;
-      })
-      .join('');
+    const counts = this.hotCounts;
+    if (key !== this.lastHot) {
+      this.lastHot = key;
+      this.hot.innerHTML = slots
+        .map((s, i) => {
+          const fill = s.fill ? `<div class="f"><i style="width:${Math.min(100, (s.fill.value / Math.max(1e-6, s.fill.max)) * 100).toFixed(0)}%;background:${s.fill.colour ?? TONE_COLOUR[s.fill.tone]}"></i></div>` : '';
+          const body = s.empty ? '' : s.icon ? `<img src="${s.icon}" alt="">` : `<div class="w">${s.name}</div>`;
+          return `<div class="s${i === sel ? ' on' : ''}" title="${s.name}">${body}${fill}<div class="c"></div><div class="n">${i + 1}</div></div>`;
+        })
+        .join('');
+      for (let i = 0; i < counts.length; i++) counts[i] = -1;
+    }
+    // a stack's count in its slot's corner: a count is not part of what the slots are drawn again for, and its
+    // words are written when it changes, not every frame
+    for (let i = 0; i < slots.length; i++) {
+      const n = slots[i].count ?? 1;
+      if (counts[i] === n) continue;
+      counts[i] = n;
+      const c = this.hot.children[i]?.querySelector('.c');
+      if (c) c.textContent = n > 1 ? String(n) : '';
+    }
   }
 
   /** what the buttons do right now, one line each, above the hotbar */
