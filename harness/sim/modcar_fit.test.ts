@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import buffalo from '../../src/core/modcar/data/mounts/buffalo.json';
 import fox from '../../src/core/modcar/data/mounts/fox.json';
 import goat from '../../src/core/modcar/data/mounts/goat.json';
 import moto from '../../src/core/modcar/data/mounts/moto.json';
@@ -9,7 +10,7 @@ import sedan from '../../src/core/modcar/data/mounts/sedan.json';
 import snail from '../../src/core/modcar/data/mounts/snail.json';
 import van from '../../src/core/modcar/data/mounts/van.json';
 import wagon from '../../src/core/modcar/data/mounts/wagon.json';
-import { partGeo } from '../../src/core/modcar/geo';
+import { partGeo, partTop } from '../../src/core/modcar/geo';
 import { PARTS } from '../../src/core/modcar/parts';
 import { stretchFit, type Model } from '../../src/game/modcar/assets';
 
@@ -27,6 +28,7 @@ const FRAMES: Record<string, Record<string, Mount>> = {
   wagon: (wagon as unknown as { mounts: Record<string, Mount> }).mounts,
   fox: (fox as unknown as { mounts: Record<string, Mount> }).mounts,
   snail: (snail as unknown as { mounts: Record<string, Mount> }).mounts,
+  buffalo: (buffalo as unknown as { mounts: Record<string, Mount> }).mounts,
 };
 
 /** the room a mount leaves its part, in the part's frame (game axes), with the 1.5 cm the checks allow */
@@ -135,5 +137,20 @@ describe('modcar · parts sit where their mounts say', () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+
+  it('an engine stands as tall as the turbo on it: a big one over the bay, a small one under its lid', () => {
+    const eng = partGeo('eng_i6d')!;
+    const top = eng.bbox![1][1];
+    const on = (turbo?: string) => partTop({ part: 'eng_i6d', sub: turbo ? { turbo: { part: turbo } } : {} })!;
+    expect(on()).toBeCloseTo(top, 6);
+    const at = eng.mount_tf!.M_turbo;
+    // (the turbo's own top over its mount, the mount unturned)
+    expect(on('turbo_big')).toBeCloseTo(Math.max(top, at.pos[1] + partGeo('turbo_big')!.bbox![1][1]), 6);
+    expect(on('turbo_big')).toBeGreaterThan(top);
+    // (the Buffalo's bay: a small turbo goes under the bonnet, the big ones stand up out of it)
+    const room = FRAMES.buffalo.engine.space_max![2];
+    expect(on('turbo_small')).toBeLessThan(room + 0.04);
+    expect(on('turbo_big')).toBeGreaterThan(room + 0.04);
   });
 });

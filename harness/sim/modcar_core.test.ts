@@ -142,6 +142,8 @@ describe('ModCar factory builds', () => {
     fox: { mass: [900, 1250], cg: [0.33, 0.55], t100: [5, 10], vmax: [165, 205] },
     // (a diesel four in a box truck: it gets there in the end)
     snail: { mass: [2000, 2600], cg: [0.8, 1.15], t100: [30, 70], vmax: [90, 115] },
+    // (a diesel six in a four-door pick-up, all four wheels driven: it pulls more than it hurries)
+    buffalo: { mass: [1800, 2400], cg: [0.6, 0.85], t100: [12, 30], vmax: [105, 135] },
   };
   for (const f of FRAMES) {
     it(`${f.id}: derives a sane spec and drives off`, () => {

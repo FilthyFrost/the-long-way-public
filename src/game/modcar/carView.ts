@@ -22,7 +22,7 @@ import { measureCarShape, meshCarMaterialName, type CarLook, type WiperArc } fro
 import { MergedCar, type PartLook } from '../render/carMerge';
 import { castMesh } from '../render/triGrid';
 import { glassName } from './grime';
-import { partGeo } from '../../core/modcar/geo';
+import { partGeo, partTop } from '../../core/modcar/geo';
 import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
 
@@ -507,7 +507,8 @@ export class CarView {
       if (l !== lid) continue;
       const inst = this.build.parts[mount];
       const m = this.frame.mounts.find((x) => x.id === mount);
-      const top = inst ? partGeo(inst.part)?.bbox?.[1][1] : undefined;
+      // (an engine's turbo with it: a big one stands up out of the bay)
+      const top = inst ? partTop(inst) : undefined;
       if (!inst || !m?.room || top === undefined) continue;
       // (a few centimetres under the skin are the lid's own room)
       const over = top - m.room.max.y - 0.04;

@@ -1,0 +1,563 @@
+"""
+ModCar frame 'buffalo' (水牛): a fictional 1980s Japanese four-door crew-cab pickup with a short bed, four-wheel
+drive on live axles front and rear, a diesel straight six under a tall flat bonnet, a wide grille between two
+square lamps a side, a sports bar behind the cab. Two tones: the body above a crease along the sides, a lower
+band (paint_b) under it. docs/MODCAR.md section 2.2 / 27.
+
+    blender -b --factory-startup --python tools/blender/build.py -- frames/buffalo [--no-preview] [--quick]
+
+Writes public/models/modcar/frames/buffalo.glb and src/core/modcar/data/mounts/buffalo.json; previews go to
+D:/modcar-scratch/frames/buffalo/. Built as frames/pickup.py is: exact SDF shells + proxy charts, three shells:
+L = the cab and the front clip, G = the cab's greenhouse, B = the bed (outer skin, top rails, the cavity with a
+ribbed floor). The cab has two doors a side as frames/sedan.py has. Blender axes: X forward, Y left, Z up; origin
+on the ground under the middle of the wheelbase.
+"""
+import math
+import sys
+
+sys.dont_write_bytecode = True
+
+import numpy as np  # noqa: E402
+
+from frames import _kit as K  # noqa: E402
+from frames.sedan import RRect  # noqa: E402
+
+PI = math.pi
+
+# ============================================================================================ dimensions
+D = dict(
+    # hubs at the wheel radius (no body drop: the body is modelled where it sits). The factory wheels are the 16"
+    # off-road rim with the all-terrain tyre: 0.203 + 0.13 = 0.333
+    wb=3.05, ax_f=1.525, ax_r=-1.525, hub_z=0.333, track_f=1.50, track_r=1.50, wheel_r=0.333, body_drop=0.0,
+    # cab and front clip: plan rounded rectangle at the crease line
+    xf=2.43, xr=-1.00, hw=0.89, rho_f=0.07, rho_r=0.05,
+    # wheel arches: centre height and radius (a 4x4's clearance over the tyre)
+    arch_z=0.35, arch_f=0.41, arch_r=0.41,
+    # the crease along the cab and the bed sides: the two-tone break (paint_b under it); above it the sides lean
+    # in by shoulder_deg
+    shoulder_z=0.80, shoulder_deg=4.0, shoulder_r=0.003,
+    # greenhouse
+    belt_z=1.32, gw=0.835, tumble_deg=6.0,
+    ws_x=1.205, ws_bow=0.018, ws_rake=60.0,
+    rw_x=-0.985, rw_bow=0.0, rw_rake=90.0,
+    roof_z=1.81, roof_crown_y=0.012, roof_crown_x=0.003, roof_xc=0.0,
+    rho_a=0.035, rho_c=0.045,
+    r_rail=0.030, r_header=0.034, r_rheader=0.038,
+    # cuts: the doors (front, rear), the B pillar on the greenhouse, the C pillar's front edge (vertical)
+    gap=0.005, edge_r=0.0022,
+    door_bot=0.555, fd_front=1.095, fd_rear=0.105, rd_front=0.095, rd_rear=-0.80,
+    bp_front=0.108, bp_rear=0.036, rail_z=1.735, cp_top=-0.80,
+    hood_rear=1.28, hood_w=0.795,
+    # two square lamps a side: the inner one is the headlight mount's recess, the outer a fixed lamp of the body;
+    # the grille between them; amber indicators under the outer lamps
+    lamp_y=0.480, lamp_y2=0.695, lamp_z=1.05, lamp_w=0.205, lamp_h=0.15,
+    grille_w=0.355, grille_z0=0.86, grille_z1=1.22,
+    ind_y=0.695, ind_z=0.835, ind_w=0.15, ind_h=0.05,
+    # bed
+    bed_xf=-1.06, bed_xr=-2.47, bed_hw=0.885, bed_z0=0.56, bed_z1=1.30, bed_floor=0.80, bed_in=0.74,
+    tg_th=0.055,
+    # the tail lamps' recesses on the bed's rear posts (the stock cluster stands in them on end, amber on top)
+    tail_y0=0.748, tail_y1=0.862, tail_z0=0.86, tail_z1=1.14,
+    # fuel flap (right bed side, behind the rear wheel)
+    fuel_x=-2.20, fuel_z=1.06, fuel_r=0.054,
+)
+GAP = D['gap']
+ER = D['edge_r']
+DELTA = GAP / 2 + ER
+
+# ============================================================================================ cab lower body (L)
+_tumble = K.Spline([0.50, 0.55, 0.62, 0.70, 0.80, 1.40], [0.016, 0.006, 0.001, 0.0, 0.0, 0.0], monotone=True)
+_front_lean = K.Spline([0.58, 0.66, 0.76, 0.86, 1.22, 1.34], [-0.035, -0.012, -0.002, 0.0, 0.0, -0.004])
+_rear_lean = K.Spline([0.48, 0.56, 0.66, 1.40], [0.012, 0.003, 0.0, 0.0], monotone=True)
+_top_base = K.Spline([-1.15, -0.50, 0.50, 1.05, 1.25, 2.00, 2.50], [1.320, 1.320, 1.320, 1.321, 1.325, 1.325, 1.322], monotone=True)
+_crown = K.Spline([-1.15, 1.10, 1.30, 1.80, 2.50], [0.0, 0.0, 0.004, 0.006, 0.005], monotone=True)
+_bot = K.Spline([-1.10, -0.95, 1.95, 2.05, 2.20, 2.50], [0.505, 0.50, 0.50, 0.54, 0.59, 0.625], monotone=True)
+
+
+def side_w(x, z):
+    return D['hw'] - 0.003 * ((x - 0.70) / 1.75) ** 2 - _tumble(z)
+
+
+_SH_TAN = math.tan(math.radians(D['shoulder_deg']))
+
+
+def side_w_up(x, z):
+    """Half width of the side above the crease: leaning in from the crease line."""
+    return side_w(x, D['shoulder_z']) - (z - D['shoulder_z']) * _SH_TAN
+
+
+def front_x(ay, z):
+    return D['xf'] + 0.006 * (1 - (ay / D['hw']) ** 2) + _front_lean(z)
+
+
+def rear_x(ay, z):
+    return D['xr'] + _rear_lean(z)
+
+
+def top_z(x, ay):
+    return _top_base(x) + _crown(x) * (1 - (np.minimum(ay, 0.86) / 0.86) ** 2)
+
+
+def r_top(x):
+    """The top edge's fillet: small along the waist and the wings, rounder over the nose."""
+    return 0.016 + 0.016 * K.sstep(2.25, 2.40, x)
+
+
+def r_bot(x):
+    return 0.03 + 0.03 * K.sstep(2.0, 2.2, x)
+
+
+def L_sdf(P):
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ay = np.abs(y)
+    a_side = K.r_int(ay - side_w(x, z), ay - side_w_up(x, z), D['shoulder_r'])
+    a_front = x - front_x(ay, z)
+    a_rear = rear_x(ay, z) - x
+    a_top = z - top_z(x, ay)
+    a_bot = _bot(x) - z
+    d = K.r_int(a_side, a_front, D['rho_f'])
+    d = K.r_int(d, a_rear, D['rho_r'])
+    d = K.r_int(d, a_top, r_top(x))
+    d = K.r_int(d, a_bot, r_bot(x))
+    return d
+
+
+# ============================================================================================ greenhouse (G)
+_TH = math.radians(D['tumble_deg'])
+_WR = math.radians(D['ws_rake'])
+_RR = math.radians(D['rw_rake'])
+PHI_F = math.atan(1.0 / math.tan(_WR))
+PHI_S = _TH
+PHI_R = 0.0
+
+
+def g_side_w(z):
+    return D['gw'] - (z - D['belt_z']) * math.tan(_TH)
+
+
+def ws_x(ay, z):
+    return D['ws_x'] - D['ws_bow'] * (ay / 0.76) ** 2 - (z - D['belt_z']) / math.tan(_WR)
+
+
+def rw_x(ay, z):
+    return D['rw_x'] + 0.0 * ay
+
+
+def roof_z(x, ay):
+    return D['roof_z'] - D['roof_crown_y'] * (ay / 0.74) ** 2 - D['roof_crown_x'] * ((x - D['roof_xc']) / 0.9) ** 2
+
+
+def r_roof(x):
+    return D['r_rail'] + (D['r_header'] - D['r_rail']) * K.sstep(0.70, 0.85, x) + (D['r_rheader'] - D['r_rail']) * K.sstep(-0.80, -0.92, x)
+
+
+def G_sdf(P):
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ay = np.abs(y)
+    a_side = (ay - g_side_w(z)) * math.cos(_TH)
+    a_front = (x - ws_x(ay, z)) * math.sin(_WR)
+    a_rear = rw_x(ay, z) - x
+    a_roof = z - roof_z(x, ay)
+    a_bot = 1.20 - z
+    d = K.r_int(a_side, a_front, D['rho_a'])
+    d = K.r_int(d, a_rear, D['rho_c'])
+    d = K.r_int(d, a_roof, r_roof(x))
+    d = np.maximum(d, a_bot)
+    return d
+
+
+# ============================================================================================ bed (B)
+def bed_side_w(z):
+    return D['bed_hw'] - 0.010 * K.sstep(0.68, 0.58, z)
+
+
+def bed_outer(P):
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ay = np.abs(y)
+    zs = D['shoulder_z']
+    a_side = K.r_int(ay - bed_side_w(z), ay - (bed_side_w(zs) - (z - zs) * _SH_TAN), D['shoulder_r'])
+    a_front = x - D['bed_xf']
+    a_rear = D['bed_xr'] - x
+    a_top = z - D['bed_z1']
+    a_bot = D['bed_z0'] - z
+    d = K.r_int(a_side, a_front, 0.04)
+    d = K.r_int(d, a_rear, 0.015)
+    d = K.r_int(d, a_top, 0.010)
+    d = K.r_int(d, a_bot, 0.02)
+    return d
+
+
+def bed_cavity(P):
+    """The load space: open at the top and through the tailgate opening."""
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ay = np.abs(y)
+    a_side = ay - D['bed_in']
+    a_front = x - (D['bed_xf'] - 0.05)
+    a_rear = (D['bed_xr'] - 0.30) - x
+    a_floor = D['bed_floor'] - z
+    d = K.r_int(a_side, a_front, 0.012)
+    d = np.maximum(d, a_rear)
+    d = K.r_int(d, a_floor, 0.012)
+    return d
+
+
+def B_sdf(P):
+    return K.r_sub(bed_outer(P), bed_cavity(P), 0.006)
+
+
+# ============================================================================================ proxies
+# lower body loft: t pieces (reference metres): underside, rocker fillet, wall, top fillet, top strip; the wall's
+# lower part (rocker fillet to the crease, 0.27 m) and its upper part are each about isometric
+L_T = np.cumsum([0.0, 0.05, 0.047, 0.78, 0.026, 0.04])
+L_GUIDE = RRect(D['xf'], D['xr'], D['hw'], D['rho_f'], D['rho_r'])
+LEAN = 0.012
+UNDER = 0.05
+T_S = L_T[2] + 0.27     # the crease's t (constant height shoulder_z along the whole loft)
+
+
+def _zs(z0, z1):
+    return np.clip(D['shoulder_z'], z0 + 0.01, z1 - 0.01)
+
+
+def w_top(x):
+    """Width of the loft's top strip past the top fillet: it reaches in under the greenhouse's foot along the cab
+    (4 cm), narrow along the wings ahead of the windscreen."""
+    return 0.010 + 0.030 * K.sstep(1.20, 1.10, x)
+
+
+def l_z0z1(x):
+    return _bot(x) + r_bot(x), top_z(x, 0.86) - r_top(x)
+
+
+def _l_section(u, t):
+    x0, y0, nx, ny = L_GUIDE.point(u)
+    zb = _bot(x0)
+    zt = top_z(x0, 0.86)
+    rb = r_bot(x0)
+    rs = r_top(x0)
+    wt = w_top(x0)
+    n = np.empty_like(u)
+    z = np.empty_like(u)
+    m = t < L_T[1]
+    f = (t[m] - L_T[0]) / (L_T[1] - L_T[0])
+    n[m] = -rb[m] - UNDER * (1 - f)
+    z[m] = zb[m]
+    m = (t >= L_T[1]) & (t < L_T[2])
+    f = (t[m] - L_T[1]) / (L_T[2] - L_T[1])
+    a = -PI / 2 + f * PI / 2
+    n[m] = -rb[m] + rb[m] * np.cos(a)
+    z[m] = zb[m] + rb[m] + rb[m] * np.sin(a)
+    # the wall in two pieces meeting at the crease (t = T_S); above it the section leans in on the sides (sw: 1
+    # along the sides, 0 across the front and the rear)
+    sw = ny ** 2
+    m = (t >= L_T[2]) & (t < L_T[3])
+    tt = t[m]
+    z0 = zb[m] + rb[m]
+    z1 = zt[m] - rs[m]
+    zs = _zs(z0, z1)
+    zz = np.where(tt < T_S, z0 + (zs - z0) * (tt - L_T[2]) / (T_S - L_T[2]), zs + (z1 - zs) * (tt - T_S) / (L_T[3] - T_S))
+    f = (zz - z0) / (z1 - z0)
+    n[m] = -LEAN * f - np.maximum(0.0, zz - zs) * _SH_TAN * sw[m]
+    z[m] = zz
+    up = (zt - rs - _zs(zb + rb, zt - rs)) * _SH_TAN * sw
+    m = (t >= L_T[3]) & (t < L_T[4])
+    f = (t[m] - L_T[3]) / (L_T[4] - L_T[3])
+    a = f * PI / 2
+    n[m] = -LEAN - up[m] - rs[m] + rs[m] * np.cos(a)
+    z[m] = zt[m] - rs[m] + rs[m] * np.sin(a)
+    m = t >= L_T[4]
+    f = (t[m] - L_T[4]) / (L_T[5] - L_T[4])
+    n[m] = -LEAN - up[m] - rs[m] - wt[m] * f
+    z[m] = zt[m]
+    return n, z
+
+
+def L_proxy(u, t):
+    u, t = np.broadcast_arrays(np.asarray(u, float), np.asarray(t, float))
+    u = u.ravel()
+    t = np.clip(t.ravel(), L_T[0] - 0.2, L_T[-1] + 0.2)
+    uc = np.clip(u, 0.0, L_GUIDE.length - 1e-9)
+    n, z = _l_section(uc, t)
+    x, y, nx, ny = L_GUIDE.point(uc, n)
+    lo = u < 0
+    y[lo] = u[lo]
+    hi = u > L_GUIDE.length
+    y[hi] = -(u[hi] - L_GUIDE.length)
+    return np.stack([x, y, z], 1)
+
+
+# greenhouse proxy (stacked rounded rectangles; the rear wall is vertical): the wall up to G_ZW, the upper wall to
+# the roof fillet, the fillet, a strip in under the roof
+G_T = np.cumsum([0.0, 0.50, 0.10, 0.05, 0.05])
+G_Z0 = 1.22
+G_ZW = 1.72
+G_GUIDE = RRect(ws_x(0.0, D['belt_z']), rw_x(0.0, D['belt_z']), g_side_w(D['belt_z']), D['rho_a'], D['rho_c'])
+_GS0 = G_GUIDE.seg / G_GUIDE.length
+
+
+def g_contour(uf, z):
+    uf = np.asarray(uf, float)
+    z = np.broadcast_to(np.asarray(z, float), uf.shape)
+    w = g_side_w(z)
+    rf = D['rho_a']
+    rr = D['rho_c']
+    x = np.empty_like(uf)
+    y = np.empty_like(uf)
+    nx = np.empty_like(uf)
+    ny = np.empty_like(uf)
+    s0 = _GS0
+    for k in range(5):
+        m = (uf >= s0[k]) & ((uf < s0[k + 1]) if k < 4 else np.ones_like(uf, bool))
+        if k == 0:
+            m = uf < s0[1]
+        if not m.any():
+            continue
+        f = (uf[m] - s0[k]) / (s0[k + 1] - s0[k])
+        zz = z[m]
+        if k == 0:
+            yy = f * (w[m] - rf)
+            x[m] = ws_x(yy, zz)
+            y[m] = yy
+            nx[m], ny[m] = 1.0, 0.0
+        elif k == 1:
+            a = f * PI / 2
+            yc = w[m] - rf
+            cx = ws_x(yc, zz) - rf
+            x[m] = cx + rf * np.cos(a)
+            y[m] = yc + rf * np.sin(a)
+            nx[m], ny[m] = np.cos(a), np.sin(a)
+        elif k == 2:
+            x0 = ws_x(w[m] - rf, zz) - rf
+            x1 = rw_x(w[m] - rr, zz) + rr
+            x[m] = x0 + (x1 - x0) * f
+            y[m] = w[m]
+            nx[m], ny[m] = 0.0, 1.0
+        elif k == 3:
+            a = PI / 2 + f * PI / 2
+            yc = w[m] - rr
+            cx = rw_x(yc, zz) + rr
+            x[m] = cx + rr * np.cos(a)
+            y[m] = yc + rr * np.sin(a)
+            nx[m], ny[m] = np.cos(a), np.sin(a)
+        else:
+            yy = (1 - f) * (w[m] - rr)
+            x[m] = rw_x(yy, zz)
+            y[m] = yy
+            nx[m], ny[m] = -1.0, 0.0
+    return x, y, nx, ny
+
+
+def g_phi(nx, ny):
+    return np.where(nx > 0, PHI_F * nx ** 2 + PHI_S * ny ** 2, PHI_R * nx ** 2 + PHI_S * ny ** 2)
+
+
+def G_proxy(u, t):
+    u, t = np.broadcast_arrays(np.asarray(u, float), np.asarray(t, float))
+    u = u.ravel()
+    t = np.clip(t.ravel(), G_T[0] - 0.2, G_T[-1] + 0.2)
+    uf = np.clip(u / G_GUIDE.length, 0.0, 1.0)
+    t1, t2, t3, t4 = G_T[1], G_T[2], G_T[3], G_T[4]
+    xa, ya, nxa, nya = g_contour(uf, 1.76)
+    phi = g_phi(nxa, nya)
+    r = r_roof(xa)
+    zs = roof_z(xa, np.abs(ya)) - r * (1 - np.sin(phi))
+    zw = G_Z0 + (G_ZW - G_Z0) * (t / t1)
+    zu = G_ZW + (zs - G_ZW) * np.clip((t - t1) / (t2 - t1), 0, 1)
+    z = np.where(t <= t1, zw, zu)
+    x, y, nx, ny = g_contour(uf, np.minimum(z, zs))
+    up = t > t2
+    if up.any():
+        xs_, ys_, nxs, nys = g_contour(uf[up], zs[up])
+        ph = phi[up]
+        rr_ = r[up]
+        fa = np.clip((t[up] - t2) / (t3 - t2), 0, 1)
+        a = ph + (PI / 2 - ph) * fa
+        noff = -rr_ * np.cos(ph) + rr_ * np.cos(a) - 0.05 * np.clip((t[up] - t3) / (t4 - t3), 0, 1)
+        x[up] = xs_ + nxs * noff
+        y[up] = ys_ + nys * noff
+        z[up] = zs[up] - rr_ * np.sin(ph) + rr_ * np.sin(a)
+    lo = u < 0
+    y[lo] = u[lo]
+    hi = u > G_GUIDE.length
+    y[hi] = -(u[hi] - G_GUIDE.length)
+    return np.stack([x, y, z], 1)
+
+
+# bed outer skin proxy: a loft round the bed's plan (front centre -> side -> rear centre) from the bottom edge
+# over the top edge onto the top rail (t pieces: underside, bottom fillet, wall, top fillet, rail top)
+BED_T = np.cumsum([0.0, 0.03, 0.03, 0.71, 0.016, 0.14])
+T_SB = BED_T[2] + (D['shoulder_z'] - (D['bed_z0'] + 0.02))     # the bed's crease t: the wall's lower part is isometric
+BED_GUIDE = RRect(D['bed_xf'], D['bed_xr'], D['bed_hw'], 0.04, 0.015)
+
+
+def _bed_section(u, t):
+    zb, zt = D['bed_z0'], D['bed_z1']
+    rb, rs = 0.02, 0.010
+    _, _, nx, ny = BED_GUIDE.point(u)
+    sw = ny ** 2
+    # the rail top's width in from the top fillet: the side walls' 14 cm, the headboard's 4 cm (it is 5 cm thick: a
+    # wider strip ran on over the load space and down into it)
+    wt = 0.14 - 0.10 * np.maximum(nx, 0.0) ** 2
+    zs = D['shoulder_z']
+    up = (zt - rs - zs) * _SH_TAN * sw
+    n = np.empty_like(u)
+    z = np.empty_like(u)
+    m = t < BED_T[1]
+    f = (t[m] - BED_T[0]) / (BED_T[1] - BED_T[0])
+    n[m] = -rb - 0.03 * (1 - f)
+    z[m] = zb
+    m = (t >= BED_T[1]) & (t < BED_T[2])
+    f = (t[m] - BED_T[1]) / (BED_T[2] - BED_T[1])
+    a = -PI / 2 + f * PI / 2
+    n[m] = -rb + rb * np.cos(a)
+    z[m] = zb + rb + rb * np.sin(a)
+    m = (t >= BED_T[2]) & (t < BED_T[3])
+    tt = t[m]
+    z0, z1 = zb + rb, zt - rs
+    zz = np.where(tt < T_SB, z0 + (zs - z0) * (tt - BED_T[2]) / (T_SB - BED_T[2]), zs + (z1 - zs) * (tt - T_SB) / (BED_T[3] - T_SB))
+    n[m] = -np.maximum(0.0, zz - zs) * _SH_TAN * sw[m]
+    z[m] = zz
+    m = (t >= BED_T[3]) & (t < BED_T[4])
+    f = (t[m] - BED_T[3]) / (BED_T[4] - BED_T[3])
+    a = f * PI / 2
+    n[m] = -up[m] - rs + rs * np.cos(a)
+    z[m] = zt - rs + rs * np.sin(a)
+    m = t >= BED_T[4]
+    f = (t[m] - BED_T[4]) / (BED_T[5] - BED_T[4])
+    n[m] = -up[m] - rs - wt[m] * f
+    z[m] = zt
+    return n, z
+
+
+def BED_proxy(u, t):
+    u, t = np.broadcast_arrays(np.asarray(u, float), np.asarray(t, float))
+    u = u.ravel()
+    t = np.clip(t.ravel(), BED_T[0] - 0.1, BED_T[-1] + 0.1)
+    uc = np.clip(u, 0.0, BED_GUIDE.length - 1e-9)
+    n, z = _bed_section(uc, t)
+    x, y, nx, ny = BED_GUIDE.point(uc, n)
+    lo = u < 0
+    y[lo] = u[lo]
+    hi = u > BED_GUIDE.length
+    y[hi] = -(u[hi] - BED_GUIDE.length)
+    return np.stack([x, y, z], 1)
+
+
+CL = K.Chart(L_proxy, L_sdf, (0.0, L_GUIDE.length), (L_T[0], L_T[-1]))
+CG = K.Chart(G_proxy, G_sdf, (0.0, G_GUIDE.length), (G_T[0], G_T[-1]))
+CB = K.Chart(BED_proxy, B_sdf, (0.0, BED_GUIDE.length), (BED_T[0], BED_T[-1]))
+CT = K.TopChart(L_sdf)
+CR = K.TopChart(G_sdf)
+CBT = K.TopChart(B_sdf, z_from=1.6)
+SIDE_L = K.PlaneChart(L_sdf, axis=1, sign=1.0)
+SIDE_G = K.PlaneChart(G_sdf, axis=1, sign=1.0)
+SIDE_B = K.PlaneChart(B_sdf, axis=1, sign=1.0)
+FRONT_L = K.PlaneChart(L_sdf, axis=0, sign=1.0)
+REAR_L = K.PlaneChart(L_sdf, axis=0, sign=-1.0)
+REAR_G = K.PlaneChart(G_sdf, axis=0, sign=-1.0)
+REAR_B = K.PlaneChart(B_sdf, axis=0, sign=-1.0)
+SL = L_GUIDE.seg
+SG = G_GUIDE.seg
+SB = BED_GUIDE.seg
+
+
+def u_of_x(x):
+    """L loft u on the straight side for a given x."""
+    return SL[2] + (D['xf'] - D['rho_f']) - np.asarray(x, float)
+
+
+def ub_of_x(x):
+    return SB[2] + (D['bed_xf'] - 0.04) - np.asarray(x, float)
+
+
+def t_of_z(x, z):
+    """L loft t for height z at x (wall, rocker fillet; below the rocker it continues downwards)."""
+    x = np.asarray(x, float)
+    z = np.asarray(z, float)
+    z0, z1 = l_z0z1(x)
+    zs = _zs(z0, z1)
+    t = np.where(z < zs, L_T[2] + (z - z0) / (zs - z0) * (T_S - L_T[2]), T_S + (z - zs) / (z1 - zs) * (L_T[3] - T_S))
+    zb = _bot(x)
+    rb = r_bot(x)
+    a = np.arcsin(np.clip((z - zb - rb) / rb, -1, 0))
+    tf = L_T[1] + (a + PI / 2) / (PI / 2) * (L_T[2] - L_T[1])
+    t = np.where(z < z0, tf, t)
+    t = np.where(z < zb, L_T[1] - (zb - z), t)
+    return t
+
+
+def tb_of_z(z):
+    """Bed loft t for height z on the wall (the bottom fillet and below continue downwards)."""
+    z = np.asarray(z, float)
+    zb, zt, rb, rs = D['bed_z0'], D['bed_z1'], 0.02, 0.010
+    zs = D['shoulder_z']
+    z0, z1 = zb + rb, zt - rs
+    t = np.where(z < zs, BED_T[2] + (z - z0) / (zs - z0) * (T_SB - BED_T[2]), T_SB + (z - zs) / (z1 - zs) * (BED_T[3] - T_SB))
+    a = np.arcsin(np.clip((z - zb - rb) / rb, -1, 0))
+    tf = BED_T[1] + (a + PI / 2) / (PI / 2) * (BED_T[2] - BED_T[1])
+    t = np.where(z < zb + rb, tf, t)
+    t = np.where(z < zb, BED_T[1] - (zb - z), t)
+    return t
+
+
+# ============================================================================================ sampling
+def l_u_samples():
+    s = SL
+    parts = [np.linspace(s[0], s[1], int((s[1] - s[0]) / 0.065) + 1),
+             np.linspace(s[1], s[2], int((s[2] - s[1]) / 0.012) + 1),
+             np.linspace(s[2], s[3], int((s[3] - s[2]) / 0.085) + 1),
+             np.linspace(s[3], s[4], int((s[4] - s[3]) / 0.012) + 1),
+             np.linspace(s[4], s[5], int((s[5] - s[4]) / 0.07) + 1),
+             # (columns between the front door's edge and the A pillar's foot: the wing's top fillet there was spanned
+             # by long triangles from the door's edge to the junction, a pale fold in its highlight)
+             u_of_x(np.linspace(1.32, 1.10, 12))]
+    return np.unique(np.concatenate(parts))
+
+
+def l_t_samples():
+    T = L_T
+    parts = [np.linspace(T[0], T[1], 3), np.linspace(T[1], T[2], 5), np.linspace(T[2], T_S, 4), np.linspace(T_S, T[3], 7),
+             np.linspace(T[3], T[4], 6), np.linspace(T[4], T[5], 3), [T_S - 0.008, T_S + 0.008]]
+    return np.unique(np.concatenate(parts))
+
+
+def g_u_samples():
+    s = SG
+    parts = [np.linspace(s[0], s[1], int((s[1] - s[0]) / 0.09) + 1), np.linspace(s[1], s[2], 6),
+             np.linspace(s[2], s[3], int((s[3] - s[2]) / 0.09) + 1), np.linspace(s[3], s[4], 7),
+             np.linspace(s[4], s[5], int((s[5] - s[4]) / 0.09) + 1)]
+    return np.unique(np.concatenate(parts))
+
+
+def g_t_samples():
+    T = G_T
+    parts = [np.linspace(T[0], T[1], 6), np.linspace(T[1], T[2], 3), np.linspace(T[2], T[3], 6), np.linspace(T[3], T[4], 3)]
+    return np.unique(np.concatenate(parts))
+
+
+def b_u_samples():
+    s = SB
+    parts = [np.linspace(s[0], s[1], int((s[1] - s[0]) / 0.08) + 1), np.linspace(s[1], s[2], 6),
+             np.linspace(s[2], s[3], int((s[3] - s[2]) / 0.085) + 1), np.linspace(s[3] - 0.20, s[3], 6), np.linspace(s[3], s[4], 5),
+             np.linspace(s[4], s[5], int((s[5] - s[4]) / 0.05) + 1)]
+    return np.unique(np.concatenate(parts))
+
+
+def b_t_samples():
+    T = BED_T
+    parts = [np.linspace(T[0], T[1], 2), np.linspace(T[1], T[2], 4), np.linspace(T[2], T_SB, 3), np.linspace(T_SB, T[3], 6),
+             np.linspace(T[3], T[4], 4), np.linspace(T[4], T[5], 3), [T_SB - 0.008, T_SB + 0.008]]
+    return np.unique(np.concatenate(parts))
+
+
+def grid_from(us, ts):
+    uu, tt = np.meshgrid(us, ts, indexing='ij')
+    du = np.gradient(us)
+    dt = np.gradient(ts)
+    sp = np.minimum(du[:, None], dt[None, :]) * np.ones_like(uu)
+    return np.stack([uu.ravel(), tt.ravel()], 1), sp.ravel()
+
+
+def main(args):
+    from frames import _buffalo_build as BB
+    BB.build(args)

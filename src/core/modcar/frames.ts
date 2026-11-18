@@ -15,6 +15,7 @@ import goatMounts from './data/mounts/goat.json';
 import wagonMounts from './data/mounts/wagon.json';
 import foxMounts from './data/mounts/fox.json';
 import snailMounts from './data/mounts/snail.json';
+import buffaloMounts from './data/mounts/buffalo.json';
 
 interface MountJson {
   pos: number[];
@@ -410,7 +411,29 @@ export const SNAIL: FrameDef = {
   rig: readRig(snailMounts as MountTable),
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL];
+export const BUFFALO: FrameDef = {
+  id: 'buffalo',
+  kind: 'pickup',
+  name: { zh: '水牛', en: 'Buffalo' },
+  mass: 1150,
+  cg: { x: -0.2, y: 0.62, z: 0 },
+  inertia: { roll: 560, yaw: 2700, pitch: 2650 },
+  hubRadius: 0.333,
+  // (a four-door pick-up on a ladder frame, all four wheels driven: it pulls, it climbs, it takes its time to turn)
+  suspension: { front: susp(1.3, 0.24, 0.65, 10.5, 0.35), rear: susp(1.45, 0.25, 0.3, 9.5, 0.35) },
+  steering: { maxDeg: 35, ackermann: 0.8, rateLow: 1.7, rateHigh: 0.62, smoothTime: 0.1, returnScale: 1.5, gripLimitG: 0.68, slipMarginDeg: 6 },
+  brakeN: 15000,
+  brakeFront: 0.66,
+  cdA: 1.45,
+  finalDrive: 3.73,
+  body: { front: 2.45, rear: -2.48, halfWidth: 0.9, bottom: 0.18, top: 1.96 },
+  enclosed: 1,
+  chase: { dist: 7.0, height: 2.4, look: 1.1 },
+  mounts: withAxles(readMounts(buffaloMounts as MountTable), (buffaloMounts as MountTable).axles),
+  rig: readRig(buffaloMounts as MountTable),
+};
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL, BUFFALO];
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
 
