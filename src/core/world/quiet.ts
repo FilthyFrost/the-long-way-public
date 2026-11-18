@@ -7,10 +7,13 @@
  * there: quiet, not empty.
  *
  * Pure: the dice and the chapter plan decide, so the water, the places and the landmarks all agree.
+ *
+ * This is the quiet rule of world version 1 (rules.ts RULES_V1.quiet; a world asks its rules, never this
+ * file). The rules load this file, so it knows the chapter plan by its type only and takes the length of
+ * a stretch from the plan's rules.
  */
 import { hash2 } from '../math/rng';
-import { LAND_SLOT } from './landform';
-import type { RoadSpine } from './spine';
+import type { ChapterPlan } from './spine';
 
 /** stretches to a block */
 export const QUIET_BLOCK = 9;
@@ -18,12 +21,12 @@ export const QUIET_BLOCK = 9;
 export const QUIET_FROM_CHAPTER = 3;
 
 /** is stretch k one of the quiet ones? */
-export function quietSlot(spine: RoadSpine, seed: number, k: number): boolean {
+export function quietSlot(plan: ChapterPlan, seed: number, k: number): boolean {
   if (k < 0) return false;
   const b = Math.floor(k / QUIET_BLOCK);
   // two neighbours somewhere inside the block, never across its edge
   const k0 = b * QUIET_BLOCK + 1 + (hash2(b, 0x9017e, seed | 0) % (QUIET_BLOCK - 3));
   if (k !== k0 && k !== k0 + 1) return false;
   // (both of the pair, or neither: the chapter is asked where the pair begins)
-  return spine.plan.chapterAt((k0 + 0.5) * LAND_SLOT) >= QUIET_FROM_CHAPTER;
+  return plan.chapterAt((k0 + 0.5) * plan.rules.slot) >= QUIET_FROM_CHAPTER;
 }
