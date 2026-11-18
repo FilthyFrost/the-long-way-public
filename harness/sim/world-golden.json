@@ -1,6 +1,7 @@
 {
   "_recorded": "node v24.22.1 (linux x64); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c",
   "_weather": "95ffc28d",
+  "_rev": 1,
   "default-20261113": {
     "spine": "61ec991b",
     "spineHash": "d28a7dfa",
@@ -146,6 +147,98 @@
       "landmarks": 23,
       "posts": 2683,
       "rails": 128
+    }
+  },
+  "v2-default-144": {
+    "spine": "d301c81c",
+    "spineHash": "3913a9a3",
+    "chapters": "909ea491",
+    "land": "8afb21be",
+    "water": "9306a375",
+    "sea": "968b7f09",
+    "sites": "0d94ed69",
+    "landmarks": "a8b05b1e",
+    "furniture": "a8f7b6b0",
+    "heights": "ee64344d",
+    "features": "108618fd",
+    "counts": {
+      "chapters": 8,
+      "water": 14,
+      "seas": 1,
+      "sites": 91,
+      "landmarks": 23,
+      "posts": 2618,
+      "rails": 59,
+      "features": 22
+    }
+  },
+  "v2-modcar-77": {
+    "spine": "d4900a9e",
+    "spineHash": "f4182798",
+    "chapters": "b3a92946",
+    "land": "f26f4435",
+    "water": "d7eb627b",
+    "sea": "feae5924",
+    "sites": "f48f1bae",
+    "landmarks": "50ecfba8",
+    "furniture": "4f436061",
+    "heights": "35b30b09",
+    "features": "bdd7ca0d",
+    "counts": {
+      "chapters": 8,
+      "water": 14,
+      "seas": 1,
+      "sites": 101,
+      "landmarks": 23,
+      "posts": 2397,
+      "rails": 14,
+      "features": 37
+    }
+  },
+  "v2-karst-small-7": {
+    "spine": "05bc61a0",
+    "spineHash": "ad3229cd",
+    "chapters": "0bad2d16",
+    "land": "6264a334",
+    "water": "ad31ce18",
+    "sea": "811c9dc5",
+    "sites": "1157787c",
+    "landmarks": "3b264299",
+    "furniture": "a44f0821",
+    "heights": "d516bae8",
+    "features": "30dbd5c5",
+    "counts": {
+      "chapters": 19,
+      "water": 24,
+      "seas": 0,
+      "sites": 96,
+      "landmarks": 23,
+      "posts": 2605,
+      "rails": 194,
+      "features": 19
+    }
+  },
+  "v2-terraces-small-13": {
+    "spine": "a66cef68",
+    "spineHash": "ffaa5a67",
+    "chapters": "375e1155",
+    "land": "8835fdbc",
+    "water": "4f395cc6",
+    "sea": "811c9dc5",
+    "sites": "5c36250b",
+    "landmarks": "f3f06e29",
+    "furniture": "d84cb32c",
+    "heights": "48acccc2",
+    "features": "3508f626",
+    "counts": {
+      "chapters": 20,
+      "water": 16,
+      "seas": 0,
+      "sites": 73,
+      "landmarks": 23,
+      "posts": 2699,
+      "rails": 94,
+      "features": 22
     }
   }
 }
