@@ -249,7 +249,11 @@ export class CargoBay {
     return this.loose.list.filter((l) => l.riding?.on === v);
   }
 
-  /** the load into the build (the derived mass and centre of gravity take it), derived again */
+  /**
+   * The load into the build (the derived mass and centre of gravity take it), derived again. Each thing at
+   * its whole weight (massOf: all of a stack, a box with what is in it): weigh again when a thing comes or
+   * goes, and also when one that rides here changes in itself (some taken off a stack, a thing put into a box).
+   */
   weigh(v: ModVehicle): void {
     const cargo: CargoMass[] = [];
     v.view.model.updateMatrix();
@@ -266,9 +270,12 @@ export class CargoBay {
     v.awake = Math.max(v.awake, 1);
   }
 
-  /** what the load weighs (kg) */
+  /** what the load weighs (kg), as last weighed (asked every frame its list is open: nothing is allocated) */
   loadOf(v: ModVehicle): number {
-    return (v.build.cargo ?? []).reduce((a, c) => a + c.m, 0);
+    const cargo = v.build.cargo;
+    let kg = 0;
+    if (cargo) for (let i = 0; i < cargo.length; i++) kg += cargo[i].m;
+    return kg;
   }
 
   // ------------------------------------------------------------------ the box of a thing

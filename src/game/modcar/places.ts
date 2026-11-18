@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import type { ContainerKind } from '../../core/items/loot';
-import { newItem, type ItemInstance } from '../../core/modcar/items';
+import { newItem, stackMax, stampFresh, type ItemInstance, type ItemState } from '../../core/modcar/items';
 import { CONTAINER_MATERIAL, CONTAINER_NAMES, looseFound, rollContainer, stationFuel, type Found } from '../../core/modcar/loot';
 import { pumpInto, tankRoomOf, type FuelTank, type Tool } from '../../core/modcar/tools';
 import type { FuelType, PartInstance, Text } from '../../core/modcar/types';
@@ -22,6 +22,7 @@ import type { Site, SiteContainer, SiteObject } from '../../core/world/sites';
 import type { World } from '../../core/world/terrain';
 import type { GarageDevice } from './garageStub';
 import { FUEL_ZH, type ItemCard } from './itemInfo';
+import { itemNow } from './itemTime';
 import type { Loose, LooseThings } from './loose';
 import type { Held, TankPort } from './player';
 import type { ModVehicle } from './vehicle';
@@ -75,8 +76,25 @@ export interface PlacesSave {
   shops?: Record<string, WorkshopSave>;
 }
 
+/**
+ * A found thing as it comes into the world: an item is made here, as the stack, of the quality and with the
+ * state its Found says (none of them: one plain thing), and its freshness starts counting now.
+ */
 export function heldOfFound(f: Found): NonNullable<Held> {
-  if ('item' in f) return { kind: 'item', item: newItem(f.item) };
+  if ('item' in f) {
+    const o: Partial<ItemInstance> = {};
+    // (never more than its kind stacks to: one instance is one stack)
+    if (f.n !== undefined && f.n > 1) {
+      const n = Math.min(Math.floor(f.n), stackMax(f.item));
+      if (n > 1) o.n = n;
+    }
+    if (f.q !== undefined) o.q = f.q;
+    // (its own copy: no two things share one state)
+    if (f.state !== undefined) o.state = JSON.parse(JSON.stringify(f.state)) as ItemState;
+    const item = newItem(f.item, o);
+    stampFresh(item, itemNow());
+    return { kind: 'item', item };
+  }
   if ('tool' in f) return { kind: 'tool', tool: f.tool };
   return { kind: 'part', inst: f.part };
 }
@@ -94,6 +112,8 @@ export class PlaceContainer {
   readonly kind = 'container' as const;
   /** what is in it (null until it is searched) */
   contents: NonNullable<Held>[] | null = null;
+  /** goes up whenever what is in it changes (the list of it builds its rows again only then) */
+  rev = 0;
   constructor(
     readonly c: SiteContainer,
     readonly site: Site,
@@ -405,7 +425,10 @@ export class Places {
     this.searching = { id: '', p: 0 };
     if (!pc.searched) {
       pc.contents = this.roll(pc);
+      pc.rev++;
       this.searched.add(pc.id);
+      // (things that go off are kept from the moment they are found: rolled again at the next visit they would be fresh again)
+      if (pc.contents.some((h) => h.kind === 'item' && h.item.fresh !== undefined)) this.left.set(pc.id, pc.contents.map(savedOf));
       if (!pc.contents.length) {
         this.host.play('container_empty', { material: CONTAINER_MATERIAL[pc.c.kind] });
         this.host.say(`${pc.name}是空的：有人先来过了。`, 2.2);
@@ -424,14 +447,24 @@ export class Places {
     const list = pc.contents;
     if (!list || i < 0 || i >= list.length) return null;
     const [h] = list.splice(i, 1);
-    this.left.set(pc.id, list.map(savedOf));
+    this.kept(pc);
     return h;
   }
 
   /** a thing put back into a container */
   putBack(pc: PlaceContainer, h: NonNullable<Held>): void {
     (pc.contents ??= []).push(h);
-    this.left.set(pc.id, pc.contents.map(savedOf));
+    this.kept(pc);
+  }
+
+  /**
+   * What is in a container changed (a thing out or in, or only some of a stack taken): from now on it is kept
+   * as it stands, never rolled again. The save holds each thing whole (an item with its count, what is in it,
+   * its freshness, quality and state).
+   */
+  kept(pc: PlaceContainer): void {
+    pc.rev++;
+    if (pc.contents) this.left.set(pc.id, pc.contents.map(savedOf));
   }
 
   // ------------------------------------------------------------------ pumps

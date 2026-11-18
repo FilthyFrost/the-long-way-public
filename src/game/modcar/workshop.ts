@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { fitSub, newInstance } from '../../core/modcar/build';
 import { canAfford, costTotal, hits, itemSalvage, partSalvage, recipeDef, RECIPES, recipeOpen, shortOf, spend, toolSalvage, type Cost, type Makes, type Recipe, type Stock } from '../../core/modcar/crafting';
-import { itemDef, MATERIAL_IDS, MATERIALS, newItem } from '../../core/modcar/items';
+import { itemDef, itemPaint, MATERIAL_IDS, MATERIALS, newItem } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { newTool, SCRAPERS, tankLitres, toolName } from '../../core/modcar/tools';
 import type { Text } from '../../core/modcar/types';
@@ -586,7 +586,9 @@ export class Workshop {
         const s = salvageText(y);
         if (!s) return { ok: false, word: text(`${heldName(h)}回收不了`, 'That cannot be recycled') };
         if (!this.power) return { ok: false, word: text('回收台没电：先去开门外的发电机', 'No power: start the generator outside') };
-        return { ok: true, word: text(`回收 <b>${heldName(h)}</b> · ${s}`, `Recycle · ${s}`) };
+        // (a thing with things in it goes in with them: what they give is counted in, and said)
+        const inside = h.kind === 'item' ? (h.item.inside?.length ?? 0) : 0;
+        return { ok: true, word: text(`回收 <b>${heldName(h)}</b>${inside ? `（连里面的 ${inside} 样）` : ''} · ${s}`, `Recycle${inside ? ` with the ${inside} in it` : ''} · ${s}`) };
       },
       useWith: (h) => this.recycle(h),
       use: () => {
@@ -752,7 +754,11 @@ export class Workshop {
 
   // ------------------------------------------------------------------ the recycler
 
-  /** a thing into the hopper (from the hands, or put down into it) */
+  /**
+   * A thing into the hopper (from the hands, or put down into it). What it gives is settled here, as it goes
+   * in: a stack gives its kind's for every one of it, a thing that holds things what is in it as well
+   * (items.ts salvageOf), counted up over the one grinding however many there are.
+   */
   recycle(h: NonNullable<Held>, from?: THREE.Vector3): void {
     const y = salvageOfHeld(h);
     const n = ++this.nIn;
@@ -765,7 +771,8 @@ export class Workshop {
     // its model, as it would lie
     void this.host.loose.objectFor(h).then((obj) => {
       if (!this.going.includes(g)) return;
-      const look = this.mats.look(owner, h.kind === 'part' ? partLook(h.inst) : h.kind === 'tool' ? toolLook(h.tool) : { paint: itemDef(h.item.item).paint, paint2: itemDef(h.item.item).paint2 });
+      // (an item in its own colours: a jacket's tint, not only its kind's)
+      const look = this.mats.look(owner, h.kind === 'part' ? partLook(h.inst) : h.kind === 'tool' ? toolLook(h.tool) : itemPaint(h.item));
       applyMaterials(obj, look);
       // (anything big is made to fit the hopper's mouth)
       const box = new THREE.Box3().setFromObject(obj);
