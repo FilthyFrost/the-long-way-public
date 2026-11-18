@@ -139,8 +139,8 @@ function probe() {
     },
   };
   const source = {
-    near(x, z, r, out) {
-      for (const d of P.devices) if (Math.hypot(d.x - x, d.z - z) <= r) out.push(d);
+    near(at, r, out) {
+      for (const d of P.devices) if (Math.hypot(d.x - at.x, d.z - at.z) <= r) out.push(d);
     },
   };
   const tab = {

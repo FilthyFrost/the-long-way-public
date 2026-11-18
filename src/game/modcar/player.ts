@@ -963,7 +963,8 @@ export class ModPlayer {
       const near = this.nearDevices;
       // (emptied by popping: a list cut to nothing with `length = 0` lets go of its store, and the next push allocates a new one)
       while (near.length > 0) near.pop();
-      sources.near(this.eye.x, this.eye.z, REACH + 0.5, near);
+      // (the eye itself is handed over, not its two coordinates: kernel/interact.ts says why)
+      sources.near(this.eye, REACH + 0.5, near);
       for (let i = 0; i < near.length; i++) {
         // (a system's device is its own code: one whose shape throws is reported and passed over, and the frame goes on)
         try {

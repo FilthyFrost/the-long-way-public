@@ -152,17 +152,19 @@ describe('kernel: modules', () => {
 
 describe('kernel: interactable sources', () => {
   const device = (id: string, x: number, z: number): GarageDevice => ({ id, x, y: 1, z, radius: 0.3, word: { zh: id, en: id }, use: () => {} });
+  /** where the sources are asked about: one object, the caller's, as the player hands over its eye */
+  const HERE = { x: 0, z: 0 };
 
   it('asks every source for what is near and appends it all; with none there is nothing to ask', () => {
     const set = new InteractSources();
     expect(set.empty).toBe(true);
     const out: GarageDevice[] = [];
-    set.near(0, 0, 3, out);
+    set.near(HERE, 3, out);
     expect(out).toEqual([]);
     const a = device('a', 1, 0);
     const b = device('b', 0, 2);
     const far = device('far', 50, 0);
-    const within = (list: GarageDevice[]): InteractSource => ({ near: (x, z, r, o) => void o.push(...list.filter((d) => Math.hypot(d.x - x, d.z - z) <= r)) });
+    const within = (list: GarageDevice[]): InteractSource => ({ near: (at, r, o) => void o.push(...list.filter((d) => Math.hypot(d.x - at.x, d.z - at.z) <= r)) });
     const offA = set.add(within([a, far]));
     const second = within([b]);
     set.add(second);
@@ -171,11 +173,11 @@ describe('kernel: interactable sources', () => {
     expect(set.empty).toBe(false);
     const kept = device('already there', 0, 0);
     out.push(kept);
-    set.near(0, 0, 3, out);
+    set.near(HERE, 3, out);
     expect(out).toEqual([kept, a, b]);
     offA();
     out.length = 0;
-    set.near(0, 0, 3, out);
+    set.near(HERE, 3, out);
     expect(out).toEqual([b]);
     set.remove(second);
     expect(set.empty).toBe(true);
@@ -186,16 +188,16 @@ describe('kernel: interactable sources', () => {
     const errors: string[] = [];
     set.onError = (e) => errors.push((e as Error).message);
     const good = device('good', 0, 1);
-    set.add({ near: (_x, _z, _r, o) => void o.push(good) });
+    set.add({ near: (_at, _r, o) => void o.push(good) });
     set.add({
-      near: (_x, _z, _r, o) => {
+      near: (_at, _r, o) => {
         o.push(device('half', 0, 0));
         throw new Error('index gone');
       },
     });
-    set.add({ near: (_x, _z, _r, o) => void o.push(good) });
+    set.add({ near: (_at, _r, o) => void o.push(good) });
     const out: GarageDevice[] = [];
-    set.near(0, 0, 3, out);
+    set.near(HERE, 3, out);
     expect(out).toEqual([good, good]);
     expect(errors).toEqual(['index gone']);
   });
@@ -204,13 +206,14 @@ describe('kernel: interactable sources', () => {
     const set = new InteractSources();
     const out: GarageDevice[] = [];
     // (the list emptied the way the player's pick empties its own: by popping)
+    const at = { x: 1.25, z: 2.125 };
     const ask = (): void => {
       while (out.length > 0) out.pop();
-      set.near(1, 2, 3.1, out);
+      set.near(at, 3.1, out);
     };
     expect(heapGrowth(ask)).toBeLessThan(ALLOCATES / 4);
     const here = device('here', 1, 2);
-    set.add({ near: (_x, _z, _r, o) => void o.push(here) });
+    set.add({ near: (_at, _r, o) => void o.push(here) });
     expect(heapGrowth(ask)).toBeLessThan(ALLOCATES / 4);
     expect(out).toEqual([here]);
   });
@@ -218,12 +221,13 @@ describe('kernel: interactable sources', () => {
   it('a list cut to nothing with length = 0 does allocate when it is filled again (why the pick pops)', () => {
     const set = new InteractSources();
     const here = device('here', 1, 2);
-    set.add({ near: (_x, _z, _r, o) => void o.push(here) });
+    set.add({ near: (_at, _r, o) => void o.push(here) });
     const out: GarageDevice[] = [];
+    const at = { x: 1, z: 2 };
     expect(
       heapGrowth(() => {
         out.length = 0;
-        set.near(1, 2, 3.1, out);
+        set.near(at, 3.1, out);
       }),
     ).toBeGreaterThan(ALLOCATES);
   });
@@ -711,36 +715,31 @@ describe('kernel: an example module against the interfaces alone', () => {
     expect(heapGrowth(frame)).toBeLessThan(ALLOCATES / 4);
   });
 
-  it('the pick’s question to the sources: the set and the source allocate nothing; a fraction for a coordinate costs what the engine makes of it', async () => {
+  it('the pick’s question to the sources allocates nothing, with fractions for coordinates and with more than one kind of source', async () => {
     const { game, berries } = await play();
     const bush = berries.bushes[3];
     // (the list the player keeps for the answer, emptied the way the pick empties it)
     const near: GarageDevice[] = [];
-    // Whole numbers for the coordinates first. The engine never puts those on the heap, however the call is
-    // made, so this measures the set's and the source's own code and nothing else — whatever other sources
-    // there are in the process (what the engine folds into what depends on that, see below).
-    const x = Math.round(bush.x - 1) | 0;
-    const z = Math.round(bush.z) | 0;
-    const whole = (): void => {
-      while (near.length > 0) near.pop();
-      game.interact.near(x, z, 3, near);
-    };
-    expect(heapGrowth(whole)).toBeLessThan(ALLOCATES / 4);
-    expect(near).toHaveLength(1);
-    expect(near[0]).toBe(bush);
-    // Fractions, as the player's eye has them. A fraction handed to a function the engine has not folded into
-    // its caller is put on the heap first, 16 bytes of it; and whether the engine folds a source's `near` in
-    // depends on how many kinds of source it has seen, not on this source. So: nothing when it is folded in,
-    // 16 bytes for each of the two coordinates when it is not, and never more — the source adds none of its own.
-    const eye = { x: bush.x - 1.25, z: bush.z + 0.125 };
+    // The place is handed over as an object, the caller's own (the player's eye), with fractions in it as the
+    // eye has them. Two bare coordinates were put on the heap by the engine, 16 bytes each, wherever it did not
+    // fold a source's `near` into its caller, and with a second kind of source in the process it does not: so a
+    // second kind is added here, an object literal beside the example's class, and the question still costs
+    // nothing.
+    const eye = { x: bush.x - 1.25, y: 1.6, z: bush.z + 0.125 };
     const fractions = (): void => {
       while (near.length > 0) near.pop();
-      game.interact.near(eye.x, eye.z, 3.1, near);
+      game.interact.near(eye, 3.1, near);
     };
-    const bytes = Math.max(0, heapGrowth(fractions) / HEAP_RUNS);
-    console.log(`[v3 kernel] the pick's question to one source, fractions for coordinates: ${bytes.toFixed(1)} bytes a call (0 when the engine folds the call in, 16 for each coordinate it puts on the heap)`);
-    expect(bytes).toBeLessThan(40);
+    expect(heapGrowth(fractions)).toBeLessThan(ALLOCATES / 4);
+    expect(near).toHaveLength(1);
     expect(near[0]).toBe(bush);
+    const stone: GarageDevice = { id: 'stone:1', x: bush.x, y: 0.2, z: bush.z + 0.5, radius: 0.3, word: { zh: '石头', en: 'Stone' }, use: () => {} };
+    const off = game.interact.add({ near: (at, r, o) => void ((stone.x - at.x) * (stone.x - at.x) + (stone.z - at.z) * (stone.z - at.z) <= r * r ? o.push(stone) : 0) });
+    const bytes = Math.max(0, heapGrowth(fractions) / HEAP_RUNS);
+    console.log(`[v3 kernel] the pick's question to two kinds of source, fractions in the place handed over: ${bytes.toFixed(1)} bytes a call`);
+    expect(bytes).toBeLessThan(2);
+    expect(near).toEqual([bush, stone]);
+    off();
   });
 
   it('with no module the kernel’s part of a frame costs a few nanoseconds and allocates nothing', async () => {

@@ -17,7 +17,7 @@ import type { Text } from '../../../../src/core/modcar/types';
 import type { GarageDevice } from '../../../../src/game/modcar/garageStub';
 import type { GameContext } from '../../../../src/game/modcar/kernel/context';
 import type { DevTab } from '../../../../src/game/modcar/kernel/devTabs';
-import type { InteractSource } from '../../../../src/game/modcar/kernel/interact';
+import type { InteractSource, PlanPoint } from '../../../../src/game/modcar/kernel/interact';
 import type { GameModule } from '../../../../src/game/modcar/kernel/modules';
 
 // (the module's own event, added to the open list next to the code that emits it)
@@ -199,8 +199,10 @@ export class Berries implements System<GameContext>, InteractSource {
 
   // ---------------------------------------------------------------- the interactable source
 
-  /** the bushes that bear within r of (x, z): the ones the mark may find (the bushes themselves: nothing is made) */
-  near(x: number, z: number, r: number, out: GarageDevice[]): void {
+  /** the bushes that bear within r of `at`: the ones the mark may find (the bushes themselves: nothing is made) */
+  near(at: PlanPoint, r: number, out: GarageDevice[]): void {
+    const x = at.x;
+    const z = at.z;
     for (let i = 0; i < this.bushes.length; i++) {
       const b = this.bushes[i];
       if (b.bareSince < 0 && Math.abs(b.x - x) <= r && Math.abs(b.z - z) <= r && (b.x - x) * (b.x - x) + (b.z - z) * (b.z - z) <= r * r) out.push(b);

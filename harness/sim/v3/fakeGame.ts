@@ -156,7 +156,7 @@ export class FakeGame {
     if (this.interact.empty) return null;
     const near = this.nearDevices;
     while (near.length > 0) near.pop();
-    this.interact.near(eye.x, eye.z, PICK_RANGE, near);
+    this.interact.near(eye, PICK_RANGE, near);
     let best: GarageDevice | null = null;
     let bd = Infinity;
     for (const dv of near) {
