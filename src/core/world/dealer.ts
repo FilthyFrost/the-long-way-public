@@ -11,8 +11,12 @@
  *
  * A region takes whole stretches (slots of 1,250 m): its borders fall on stretch borders, so every stretch
  * belongs to one region and the director (director.ts) can plan a region stretch by stretch.
+ *
+ * The world's rules load this file (rules.ts names DEALER_V2), so it knows the registry's entries and the
+ * rules by their types and loads nothing of the road or the land to run.
  */
 import { hash2 } from '../math/rng';
+import type { RegionDef } from './biomes';
 
 export type Intensity = 'calm' | 'scenic' | 'highlight';
 export type Climate = 'temperate' | 'dry' | 'cold' | 'warm';
@@ -34,6 +38,26 @@ export interface RegionCard {
   readonly surreal: boolean;
   /** how often it comes against the others of its class (1 = as often) */
   readonly weight: number;
+}
+
+/**
+ * The card of a region of the registry. What a region does not say for itself: calm, families of its own
+ * (its id, so that it looks different from every other), temperate, no sea, not surreal, as likely as its
+ * fellows.
+ */
+export function cardOf(def: RegionDef, index: number): RegionCard {
+  return {
+    index,
+    id: def.id,
+    intensity: def.intensity ?? 'calm',
+    palette: def.family?.palette ?? def.id,
+    land: def.family?.land ?? def.id,
+    flora: def.family?.flora ?? def.id,
+    climate: def.climate ?? 'temperate',
+    sea: def.sea ?? false,
+    surreal: def.surreal ?? false,
+    weight: def.weight ?? 1,
+  };
 }
 
 export interface Deal {

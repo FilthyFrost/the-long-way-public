@@ -118,9 +118,8 @@ export interface LandSize {
  * kind it leaves out never comes), else the row of LAND_ODDS under its id, else its kin's.
  */
 export function landOddsOf(region: RegionDef): readonly number[] {
-  const own = region.land;
-  if (own === undefined) return regionRow(LAND_ODDS, region);
-  const o = own.odds;
+  const o = region.land?.odds;
+  if (o === undefined) return regionRow(LAND_ODDS, region);
   return [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
 }
 
@@ -130,9 +129,8 @@ export function landOddsOf(region: RegionDef): readonly number[] {
  */
 export function landSizeOf(region: RegionDef): readonly number[] {
   const row = regionRow(LAND_SIZE, region);
-  const own = region.land;
-  if (own === undefined) return row;
-  const s = own.size;
+  const s = region.land?.size;
+  if (s === undefined) return row;
   return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
 }
 

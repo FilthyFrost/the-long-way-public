@@ -6,6 +6,7 @@
  * and then the list of regions/index.ts, appended to and never reordered. What a region does not say for
  * itself, the tables of the other modules say for it, by its id or else by its kin (`regionRow`).
  */
+import type { FeatureRecipe } from './features';
 import { Surface } from './ground';
 import type { LandKind, LandSize } from './landform';
 import { ADDED_REGIONS } from './regions/index';
@@ -91,18 +92,35 @@ export interface RegionDef extends BiomeDef {
   /** how readily a dealer deals it (absent: 1) */
   weight?: number;
   /**
-   * Its landforms (landform.ts): the odds of each kind of country — a kind left out never comes — and
-   * the strength of each at its fullest — one left out is what LAND_SIZE holds for its id, else for its
-   * kin. Absent altogether: the rows LAND_ODDS and LAND_SIZE hold for its id, else for its kin.
+   * Its landforms (landform.ts).
+   *   odds     of each kind of country; a kind left out never comes. Absent: the row LAND_ODDS holds for
+   *            its id, else for its kin.
+   *   size     the strength of each kind at its fullest; one left out is what LAND_SIZE holds for its id,
+   *            else for its kin (and so is the whole of it when absent).
+   *   terrace  worlds of version 2 only: its hillsides and valley sides are cut into benches `step` m
+   *            apart, as fully as `strength` says (0 … 1; operators.ts).
+   *   dune     worlds of version 2 only: its open stretches carry dunes up to `amp` m high, `len` m from
+   *            crest to crest.
    */
-  land?: { odds: Partial<Record<LandKind, number>>; size: Partial<LandSize> };
+  land?: {
+    odds?: Partial<Record<LandKind, number>>;
+    size?: Partial<LandSize>;
+    terrace?: { step: number; strength: number };
+    dune?: { amp: number; len: number };
+  };
   /** its water (water.ts). Absent: the row for its id, else for its kin. */
   water?: RegionWater;
-  /** the recipes of its anchored landforms: how many to a region, which, how large (their shape is defined with the landforms themselves) */
-  features?: readonly unknown[];
+  /** worlds of version 2 only: what a cluster of its anchored landforms is made of (features.ts) */
+  features?: readonly FeatureRecipe[];
+  /** worlds of version 2 only: how many stretches of a chapter of it hold such a cluster (the director says which; absent: none) */
+  featureSlots?: number;
 }
 
-/** the six regions there were before there was a registry: the worlds of version 1 are made of these and no others, in this order */
+/**
+ * The six regions there were before there was a registry: the worlds of version 1 are made of these and no
+ * others, in this order. What each says of itself beyond its road and its land (how much it asks of the
+ * traveller, its families, its climate, the sea, the desert's dunes) is read by worlds of version 2 only.
+ */
 const FIRST_SIX: readonly RegionDef[] = [
   {
     id: 'plains',
@@ -134,6 +152,9 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Grass,
     tempDay: 22,
     tempNight: 11,
+    intensity: 'calm',
+    family: { palette: 'green', land: 'rolling', flora: 'meadow' },
+    climate: 'temperate',
   },
   {
     id: 'desert',
@@ -165,6 +186,11 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Sand,
     tempDay: 38,
     tempNight: 9,
+    intensity: 'calm',
+    family: { palette: 'sand', land: 'mesa', flora: 'scrub' },
+    climate: 'dry',
+    // (version 2: dunes on its open stretches; its odds and strengths stay the rows of landform.ts)
+    land: { dune: { amp: 7, len: 95 } },
   },
   {
     id: 'alpine',
@@ -196,6 +222,9 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Snow,
     tempDay: -4,
     tempNight: -16,
+    intensity: 'scenic',
+    family: { palette: 'snow', land: 'mountain', flora: 'conifer' },
+    climate: 'cold',
   },
   // ---- the second round (docs/DESIGN_V2.md 4.1): they come from the fifth chapter on (spine.ts)
   {
@@ -229,6 +258,9 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Grass,
     tempDay: 17,
     tempNight: 8,
+    intensity: 'calm',
+    family: { palette: 'deepgreen', land: 'valley', flora: 'broadleaf' },
+    climate: 'temperate',
   },
   {
     // low, open country full of water: a lake in most stretches, reeds, morning fog
@@ -261,6 +293,10 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Grass,
     tempDay: 19,
     tempNight: 10,
+    intensity: 'calm',
+    family: { palette: 'green', land: 'lakeland', flora: 'meadow' },
+    climate: 'temperate',
+    sea: true,
   },
   {
     // hill country in its autumn: the road along the slopes, every wood red and gold, leaves in the air
@@ -293,6 +329,9 @@ const FIRST_SIX: readonly RegionDef[] = [
     ground: Surface.Grass,
     tempDay: 14,
     tempNight: 5,
+    intensity: 'calm',
+    family: { palette: 'autumn', land: 'hills', flora: 'maple' },
+    climate: 'temperate',
   },
 ];
 
@@ -361,6 +400,7 @@ function entry(d: RegionDef): RegionDef {
     land: d.land,
     water: d.water,
     features: d.features,
+    featureSlots: d.featureSlots,
   };
   return e;
 }

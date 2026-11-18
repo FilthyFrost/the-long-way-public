@@ -86,7 +86,8 @@ describe('world · the registry of regions', () => {
       const own = regionById('test_own');
       expect(own.water).toEqual({ lake: 1, river: 0, frozen: 1, clear: 9 });
       expect(own.sea).toBe(true);
-      expect(regionById('test_dry').land).toBeUndefined();
+      expect(regionById('test_dry').land?.odds).toBeUndefined();
+      expect(regionById('test_dry').water).toBeUndefined();
       expect(regionById('test_other').weight).toBe(2);
     } finally {
       while (undo.length) undo.pop()!();
