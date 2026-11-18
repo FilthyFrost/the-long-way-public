@@ -195,11 +195,13 @@ function canLie(world: World, x: number, z: number): boolean {
  */
 function besideRoad(world: World, s: number, d: number, out: { x: number; y: number; z: number; s: number; phi: number }): void {
   let at = Math.max(MIN_S, s);
-  for (let i = 0; i < DRY_TRIES; i++, at += DRY_STEP) {
+  for (let i = 0; ; i++) {
     world.spine.at(at, st);
     out.x = st.x - Math.sin(st.phi) * d;
     out.z = st.z + Math.cos(st.phi) * d;
-    if (canLie(world, out.x, out.z) && tp.bridge < 0.01) break;
+    // (the last place tried is taken as it is: the generator lays no road with a kilometre of water and bridges on end beside it)
+    if ((canLie(world, out.x, out.z) && tp.bridge < 0.01) || i === DRY_TRIES - 1) break;
+    at += DRY_STEP;
   }
   out.y = tp.h;
   out.s = at;
