@@ -284,7 +284,32 @@ try {
       const w = await page.evaluate(() => ({ version: window.__rt.game.world.rules.version, flora: window.__rt.game.world.flora !== null }));
       if (w.version !== 1 || w.flora) fail(`${name}: the world is of version ${w.version}${w.flora ? ' and has a flora field' : ''}`);
       await page.evaluate(() => (window.__rt.game.ui.root.style.visibility = 'hidden'));
-      await rt('simulate', 0.5);
+      // (the same picture every time: everything the world view wants is built now, whatever the machine's
+      // pace — a page under load opens with its far land unfinished — and the game is stepped by a fixed time)
+      const left = await page.evaluate(() => {
+        const g = window.__rt.game;
+        const v = g.seated ?? g.focus ?? g.vehicles[0];
+        g.worldView.update(v.sim.px, v.sim.pz, 1e9);
+        return g.worldView.pending;
+      });
+      if (left !== 0) fail(`${name}: ${left} pieces of the world still to build`);
+      // (… and what the game fetches as it goes — a wreck by the road is a vehicle, loaded when it is come to,
+      // and settles on its springs once it is there — has always arrived before the next step is taken: the
+      // game is stepped in fixed lengths, and between two of them the script waits until nothing is on its way)
+      const idle = () =>
+        page.waitForFunction(
+          async () => {
+            const { loadStats } = await import('/src/game/modcar/assets.ts');
+            return loadStats.done >= loadStats.requested;
+          },
+          null,
+          { timeout: 120_000, polling: 50 },
+        );
+      await idle();
+      for (let round = 0; round < 6; round++) {
+        await rt('simulate', 0.5);
+        await idle();
+      }
       await rt('setView', 'cockpit');
       await page.evaluate(() => window.__rt.render());
       await page.screenshot({ path: path.join(out, `${name}_seat.png`) });
@@ -310,7 +335,7 @@ try {
       const w = g.world;
       const { plantRegistry } = await import('/src/game/scene/plantRegistry.ts');
       const { floraSheet } = await import('/src/game/scene/floraScatter.ts');
-      const { floraMesh } = await import('/src/game/scene/floraMesh.ts');
+      const { floraMesh, floraShadows } = await import('/src/game/scene/floraMesh.ts');
       const { PLANTS } = await import('/src/core/world/plants.ts');
       const { SpineSample } = await import('/src/core/world/spine.ts');
       const { TerrainPoint } = await import('/src/core/world/terrain.ts');
@@ -356,7 +381,7 @@ try {
       for (const b of floraSheet(reg, list)) {
         const m = floraMesh(b, g.worldView.floraMat, 1);
         m.frustumCulled = false;
-        m.layers.enable(1);
+        floraShadows(m);
         g.core.scene.add(m);
         window.__sheet.push(() => g.core.place(m, o.x, o.y, o.z));
       }

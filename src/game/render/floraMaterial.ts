@@ -11,7 +11,7 @@
  *   what it bears (fruit, berries) shows on the instances that bear;
  *   stone is painted as rockMaterial paints it.
  *
- * The shadow pass draws these plants through the same vertex code (shadow.ts): FLORA_VERTEX.
+ * The shadow pass draws these plants in a pass of their own through the same vertex code (shadow.ts): FLORA_VERTEX.
  */
 import * as THREE from 'three';
 import { GLSL_LEAF_COVER } from './materials';
@@ -23,13 +23,6 @@ import { sharedTextures } from './textures';
 export const floraUniforms = {
   tPlants: { value: null as THREE.Texture | null },
 };
-
-/**
- * A mesh of flora carries no vertices of its own; what stands in their place says so: every `position.x` of
- * such a mesh is this (no real vertex lies there), which is how a shader shared with ordinary meshes — the
- * shadow pass's — tells the two apart.
- */
-export const FLORA_MARK = -7e30;
 
 /**
  * GLSL (vertex stage): the instance attributes, the atlas, and rtPlantVertex — the vertex of this number of

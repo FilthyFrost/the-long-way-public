@@ -11,12 +11,12 @@ import type { World } from '../../core/world/terrain';
 import type { QualitySettings, RenderCore } from '../render/core';
 import { floraMaterial, floraUniforms } from '../render/floraMaterial';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
-import { LAYER_SHADOW_FAR, castShadows } from '../render/shadow';
+import { castShadows } from '../render/shadow';
 import { coverUniforms, showChapters } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
-import { floraMesh } from './floraMesh';
+import { floraMesh, floraShadows } from './floraMesh';
 import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
 import { siteSlices } from './siteBuild';
@@ -64,7 +64,7 @@ export class WorldView {
   private readonly grass = new Map<string, Piece & { near: boolean }>();
   private wantGrass = new Map<string, { gx: number; gz: number; dist: number; near: boolean }>();
   private readonly grassMat = grassMaterial(GRASS_FADE, GRASS_KEEP_FAR);
-  private readonly flowerMat: THREE.ShaderMaterial;
+  private readonly flowerMat = flowerMaterial(GRASS_FADE, GRASS_KEEP_FAR);
   private readonly grassGeo = buildGrassTuft();
   private readonly woods = new Map<string, Piece>();
   private wantWoods = new Map<string, { tx: number; tz: number; dist: number }>();
@@ -100,8 +100,8 @@ export class WorldView {
   private readonly slicing = new Map<string, Slices<unknown>>();
   private planX = NaN;
   private planZ = NaN;
-  private readonly terrainMat: THREE.ShaderMaterial;
-  private readonly stripMat: THREE.ShaderMaterial;
+  private readonly terrainMat = terrainMaterial();
+  private readonly stripMat = roadStripMaterial();
   private readonly treeMat = foliageMaterial({ sway: 1, snowCap: 0 });
   private readonly coniferMat = foliageMaterial({ sway: 0.6, snowCap: 0.72, evergreen: true });
   private readonly rockMat = rockMaterial();
@@ -139,12 +139,16 @@ export class WorldView {
     if (this.plants) floraUniforms.tPlants.value = this.plants.atlas.texture;
     this.floraMat = this.plants ? floraMaterial() : null;
     this.kinds = this.plants ? null : buildScatterKinds();
-    // (… and paints its ground and its flowers by the flora field's ground cover)
-    const cover = this.plants !== null;
-    if (cover) coverUniforms.uCoverSeed.value = world.seed | 0;
-    this.terrainMat = terrainMaterial(cover);
-    this.stripMat = roadStripMaterial(cover);
-    this.flowerMat = flowerMaterial(GRASS_FADE, GRASS_KEEP_FAR, cover);
+    if (this.plants) {
+      // … and paints its ground and its flowers by the flora field's ground cover. (The materials are made
+      // where they always were, in the order they always were — the renderer draws in the order materials
+      // were made, and a world of version 1 is to be drawn exactly as before — and told of the cover here,
+      // before they are first used.)
+      coverUniforms.uCoverSeed.value = world.seed | 0;
+      this.terrainMat.defines.RT_COVER = '';
+      this.stripMat.defines.RT_COVER = '';
+      this.flowerMat.defines.RT_HUE = '';
+    }
     core.onRebase(() => {
       const visit = (p: Piece): void => {
         for (const o of p.objects) {
@@ -530,13 +534,13 @@ export class WorldView {
       const mesh = floraMesh(b, this.floraMat!, TILE);
       // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
       // nearest a plant throws its own shadow; at the close level the trees' far models throw the tile's, below)
-      if (lod === LOD_NEAR) castShadows(mesh);
+      if (lod === LOD_NEAR) floraShadows(mesh);
       objects.push(this.add(mesh, s.wx, s.wy, s.wz));
     }
     if (s.shadows) {
       // drawn into the shadow map and nowhere else
       const mesh = floraMesh(s.shadows, this.floraMat!, TILE);
-      mesh.layers.set(LAYER_SHADOW_FAR);
+      floraShadows(mesh, true);
       objects.push(this.add(mesh, s.wx, s.wy, s.wz));
     }
     if (s.discs) {
