@@ -163,8 +163,10 @@ describe('world · a region without rows of its own is its kin, not the plains (
     const lm = new Landmark();
     const ln = new Landmark();
     for (const seed of [3, 20261113]) {
-      const a = new World(seed, { worldVersion: 2, startBiome: 'test_dry', chapterScale: 4 });
-      const b = new World(seed, { worldVersion: 2, startBiome: 'desert', chapterScale: 4 });
+      // (worlds of version 1 that know the whole registry: version 1's dealer, which begins where it is
+      // asked to and will not change, and a first region registered after the six)
+      const a = new World(seed, { regionCount: BIOMES.length, startBiome: 'test_dry', chapterScale: 4 });
+      const b = new World(seed, { regionCount: BIOMES.length, startBiome: 'desert', chapterScale: 4 });
       expect(a.spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
       expect(b.spine.plan.biomes[0]).toBe(BIOME_INDEX.desert);
       // (well inside chapter 0: the chapters after it are dealt differently, their first region being another)
@@ -195,7 +197,7 @@ describe('world · a region without rows of its own is its kin, not the plains (
     let lakes = 0;
     let seas = 0;
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      const w = new World(seed, { worldVersion: 2, startBiome: 'test_own', chapterScale: 4 });
+      const w = new World(seed, { regionCount: BIOMES.length, startBiome: 'test_own', chapterScale: 4 });
       expect(w.spine.plan.biomes[0]).toBe(BIOME_INDEX.test_own);
       const sea = w.sea.seaOf(0);
       if (sea) seas++;
@@ -235,11 +237,13 @@ describe('world · appending regions changes no version 1 world (R3)', () => {
     });
   }
 
-  it('a version 1 world never begins in a region registered after its six, and a version 2 world may', () => {
+  it('a world begins in a region registered after the six only if its count reaches it', () => {
     expect(new World(5, { startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(0);
-    expect(new World(5, { worldVersion: 2, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
-    expect(new World(5, { worldVersion: 2, regionCount: 6, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(0);
+    expect(new World(5, { regionCount: BIOMES.length, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
     expect(new World(5, { worldVersion: 2 }).rules.regionCount).toBe(BIOMES.length);
+    expect(new World(5, { worldVersion: 2, regionCount: 6, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(0);
+    // (while version 2 deals as version 1 does: its own dealer may begin a journey where it sees fit)
+    expect(new World(5, { worldVersion: 2, startBiome: 'test_dry' }).spine.plan.biomes[0]).toBe(BIOME_INDEX.test_dry);
   });
 });
 

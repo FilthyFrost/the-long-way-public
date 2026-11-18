@@ -81,11 +81,12 @@ export class ChapterPlan {
   private readonly deal: DealerView;
 
   /**
+   * @param seed the world's seed
    * @param first the region the journey is asked to begin in (an index into BIOMES)
    * @param rules the world's rules (absent: version 1's)
    */
   constructor(
-    seed: number,
+    readonly seed: number,
     readonly scale: number,
     first: number,
     readonly rules: WorldRules = rulesFor(1),
@@ -279,8 +280,14 @@ export class RoadSpine implements DrivePath {
     const ds = this.ds;
     const s = i * ds;
     this.plan.blend(s, this.bl);
-    const designV = this.style('designKmh') / 3.6;
-    const rMin = Math.max(this.radiusFloor, mix(minRadius(BIOMES[this.bl.a].designKmh), minRadius(BIOMES[this.bl.b].designKmh), this.bl.t));
+    // The road style of the two biomes this station lies between, mixed as `style` mixes it, but with
+    // each field read by its own name: once a station, a field looked up by a name that varies costs
+    // several times as much, and more again on an object of more than thirty-two fields (a region's).
+    const A = BIOMES[this.bl.a];
+    const B = BIOMES[this.bl.b];
+    const t = this.bl.t;
+    const designV = (t <= 0 ? A.designKmh : mix(A.designKmh, B.designKmh, t)) / 3.6;
+    const rMin = Math.max(this.radiusFloor, mix(minRadius(A.designKmh), minRadius(B.designKmh), t));
 
     // store the station
     this.xs[i] = this.gx;
@@ -309,9 +316,12 @@ export class RoadSpine implements DrivePath {
     this.gz += dsin(pm) * ds;
     this.gphi += this.gkap * ds;
 
-    const gMax = this.style('gradeMax');
-    let gT = this.style('gradeAmp') * 1.6 * fbm1(s / this.style('gradeLen'), this.gradeSeed, 2);
-    gT -= clamp((this.gy - this.lift - this.style('baseElev')) / 2500, -0.035, 0.035);
+    const gMax = t <= 0 ? A.gradeMax : mix(A.gradeMax, B.gradeMax, t);
+    const gAmp = t <= 0 ? A.gradeAmp : mix(A.gradeAmp, B.gradeAmp, t);
+    const gLen = t <= 0 ? A.gradeLen : mix(A.gradeLen, B.gradeLen, t);
+    const baseElev = t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
+    let gT = gAmp * 1.6 * fbm1(s / gLen, this.gradeSeed, 2);
+    gT -= clamp((this.gy - this.lift - baseElev) / 2500, -0.035, 0.035);
     gT = clamp(gT, -gMax, gMax);
     const gRate = 0.00065;
     this.ggrade += clamp(gT - this.ggrade, -gRate * ds, gRate * ds);

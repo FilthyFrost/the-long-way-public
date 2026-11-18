@@ -92,8 +92,8 @@ export interface RegionDef extends BiomeDef {
   weight?: number;
   /**
    * Its landforms (landform.ts): the odds of each kind of country — a kind left out never comes — and
-   * the strength of each at its fullest, where one left out is the strength of its kin's. Absent: the
-   * rows LAND_ODDS and LAND_SIZE hold for its id, else for its kin.
+   * the strength of each at its fullest — one left out is what LAND_SIZE holds for its id, else for its
+   * kin. Absent altogether: the rows LAND_ODDS and LAND_SIZE hold for its id, else for its kin.
    */
   land?: { odds: Partial<Record<LandKind, number>>; size: Partial<LandSize> };
   /** its water (water.ts). Absent: the row for its id, else for its kin. */
@@ -317,9 +317,9 @@ export const BIOME_INDEX: Record<string, number> = Object.create(null) as Record
 /**
  * One entry of the registry: every field of a region set, in one order, those the region leaves out as
  * undefined. The height function reads these objects at every point of the land, and the engine reads
- * objects that are all laid out alike several times faster than objects of many layouts (measured with
- * six layouts: +0.1 to 0.2 µs to every far-field call). A field added to RegionDef must be listed here:
- * the type sees to it.
+ * objects that are all laid out alike faster than objects of several layouts (measured with six regions
+ * of six layouts: 0.1 to 0.2 µs more for every far-field call, some 15 %). A field added to RegionDef
+ * must be listed here: the type sees to it.
  */
 function entry(d: RegionDef): RegionDef {
   const e: { [K in keyof Required<RegionDef>]: RegionDef[K] } = {

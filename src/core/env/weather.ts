@@ -104,7 +104,7 @@ const EVENT_KINDS: Record<string, readonly (readonly [number, WeatherKind])[]> =
 };
 
 /** the weather of a region when nothing is happening */
-interface CalmWeather {
+export interface CalmWeather {
   /** how much of the drifting cloud its sky takes (the desert's stays mostly clear) */
   cloud: number;
   /** what thick cloud lets fall, as a share of how thick it is: rain where it is green, snow in the high country, nothing in the dry */
