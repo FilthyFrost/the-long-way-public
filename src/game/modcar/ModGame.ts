@@ -53,7 +53,13 @@ import { MaterialsHud } from './vitalsHud';
 import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
 import type { PaintAim, ScrubHit, Scrub, TankPort } from './player';
 import { SprayMist } from './sprayMist';
-import { modcarWorldOptions, SeamlessGround, SeamlessLand } from './seamless';
+import { modcarWorld, SeamlessGround, SeamlessLand } from './seamless';
+import { ProvingGround } from '../../core/modcar/proving/layout';
+import { ConeField, type ConeBody } from '../../core/modcar/proving/cones';
+import { provingSolids } from '../../core/modcar/proving/props';
+import { ProvingView } from './provingView';
+import { ProvingSession, type SessionHost } from './provingSession';
+import { ProvingHud } from './provingHud';
 import { onPlot } from './garageOutdoors';
 import { SolidSet } from '../../core/world/solids';
 import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
@@ -227,7 +233,7 @@ class SolidList implements SolidSource {
   }
 }
 
-export class ModGame implements PlayerHost, CockpitHost, DevHost {
+export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost {
   readonly core: RenderCore;
   readonly env: Environment;
   readonly input: InputManager;
@@ -435,12 +441,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.ground = this.garage.ground;
     } else {
       this.makeWorld();
-      this.ground = this.floored(this.world!);
+      this.ground = this.floored(this.proving!);
     }
     // the workshop in the world: the world made with it, the garage's ground on its plot, the world's beyond
     if (this.seamless && this.garage) {
       this.makeWorld();
-      this.ground = this.floored(new SeamlessGround(this.garage.ground, this.world!));
+      this.ground = this.floored(new SeamlessGround(this.garage.ground, this.proving!));
     }
     this.loose = new LooseThings(this.core, this.mats, (x, z, fromY) => (this.garage && (!this.seamless || onPlot(x, z)) ? this.garage.surfaceAt(x, z, fromY) : this.groundAt(x, z)));
     // (things put on a vehicle ride with it)
@@ -456,7 +462,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.flakes = new Flakes(this.core.scene);
     this.mist = new SprayMist(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
-    this.player = new ModPlayer(this.seamless && this.garage ? new SeamlessLand(this.garage.land, this.world!) : (this.world ?? land), this);
+    this.player = new ModPlayer(this.seamless && this.garage ? new SeamlessLand(this.garage.land, this.proving!) : (this.proving ?? land), this);
     // (Arctic Drive's walking and sprinting, 2.5 and 5 m/s; the vitals take a share off)
     this.player.walker.speeds = { walk: 2.5, run: 5.0 };
     try {
@@ -481,10 +487,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   }
 
   private probeWorld: World | null = null;
+  /** the proving ground in the world (core/modcar/proving): its ground, over the world's land; its cones, what stands there, its look */
+  proving: ProvingGround | null = null;
+  provingCones: ConeField | null = null;
+  private provingProps: SolidSource | null = null;
+  private provingView: ProvingView | null = null;
+  private readonly coneBodies: ConeBody[] = [];
+  /** driving there: the runs, the live curves, the robot, the comparisons (provingSession.ts); its panel */
+  provingRun: ProvingSession | null = null;
+  private provingPanel: ProvingHud | null = null;
   /** the road's world, or (in the stand-in garage) the same world to look for places in */
   devWorld(): World {
     const p = this.params;
-    return this.world ?? (this.probeWorld ??= new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome })));
+    return this.world ?? (this.probeWorld ??= modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome }).world);
   }
 
   /** seconds left of building the world fast after a teleport (under a fade) */
@@ -543,6 +558,68 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     if (!this.params.shot) this.ui.setFade(1);
   }
 
+  /**
+   * The developer's teleport to a place off the road (the proving ground's sections: proving/layout.ts): the vehicle
+   * one sits in (on foot, with `bring`, the one last driven or the nearest) set down there at rest, heading `yaw`
+   * (the sim's: 0 along +x); on foot one stands a few metres to its left, facing its way. The world round it is
+   * built behind the fade.
+   */
+  teleportTo(x: number, z: number, yaw: number, bring: boolean): void {
+    let v = this.seated ?? (bring ? this.focus : null);
+    if (!v && bring) {
+      const w = this.player.walker;
+      let best = 15;
+      for (const o of this.vehicles) {
+        const d = Math.hypot(o.sim.px - w.x, o.sim.pz - w.z);
+        if (d < best) {
+          best = d;
+          v = o;
+        }
+      }
+    }
+    if (this.place === 'garage' && !this.seamless) this.exitGarage(v);
+    // (the sim's heading: forward (cos yaw, −sin yaw); the walker's: its angle on the plan)
+    const fx = Math.cos(yaw);
+    const fz = -Math.sin(yaw);
+    if (v) {
+      this.ground.sample(x, z, this.gs);
+      v.sim.reset(x, this.gs.h + 0.05, z, yaw, this.ground);
+      v.sys.bind(v.sim);
+      v.awake = 3;
+      this.focus = v;
+    }
+    if (!this.seated) {
+      // (to its left: −right, right being (−fz, fx))
+      const off = v ? v.view.frame.body.halfWidth + 1.6 : 0;
+      this.player.walker.place(x + fz * off, z - fx * off, Math.atan2(fz, fx));
+      this.input.lookYaw = Math.atan2(fz, fx);
+      this.input.lookPitch = 0;
+    }
+    this.chaseInit = false;
+    this.rig.reset();
+    this.shake.reset();
+    this.env.cloudsNow = true;
+    this.devLoad = 4;
+    if (!this.params.shot) this.ui.setFade(1);
+  }
+
+  /** a build put on a vehicle in place of its own (the proving ground's comparisons): its parts swapped, its look and systems made again */
+  swapBuild(v: ModVehicle, b: Build): void {
+    if (b.frame !== v.build.frame) return;
+    for (const k of Object.keys(v.build.parts)) delete v.build.parts[k];
+    Object.assign(v.build.parts, b.parts);
+    this.changed(v, 'build');
+  }
+
+  /** the proving ground's session and panel (the developer's tab) */
+  provingSession(): ProvingSession | null {
+    return this.provingRun;
+  }
+
+  provingHud(): ProvingHud | null {
+    return this.provingPanel;
+  }
+
   /** out of the garage onto the road's world: the garage, what lies in it and the other vehicles stay behind */
   private exitGarage(keep: ModVehicle | null): void {
     if (!this.garage) return;
@@ -558,8 +635,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
     this.vehicles.splice(0, this.vehicles.length, ...(keep ? [keep] : []));
     if (this.focus && this.focus !== keep) this.focus = null;
     this.makeWorld();
-    this.ground = this.floored(this.world!);
-    this.player.walker.land = this.world!;
+    this.ground = this.floored(this.proving!);
+    this.player.walker.land = this.proving!;
     this.place = 'road';
     this.fadeT = -1;
   }
@@ -792,8 +869,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
 
   private makeWorld(): void {
     const p = this.params;
-    // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or not)
-    this.world = new World(p.seed, modcarWorldOptions({ chapterScale: p.chapter, startBiome: p.biome }));
+    // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or
+    // not; the proving ground behind it another, its ground what the wheels and the feet have there)
+    const made = modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome });
+    this.world = made.world;
+    this.proving = new ProvingGround(made.level, this.world);
+    this.provingCones = new ConeField(this.proving);
+    this.provingProps = provingSolids(this.proving);
+    this.provingView?.dispose();
+    this.provingView = new ProvingView(this.core, this.proving, this.provingCones);
+    this.provingRun = new ProvingSession(this);
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
     // (the wrecks by the road are vehicles of their own: wrecks.ts; the places' things our models where we have them)
     this.siteArt ??= new SiteArt(this.core, (id) => this.places?.isSearched(id) ?? false);
@@ -832,7 +917,44 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       this.player.addSolids(this.doors.solids);
       this.vehicleSolids.add(this.doors.solids);
     }
+    // (the proving ground's tower, gantry, boards)
+    if (this.provingProps) {
+      this.player.addSolids(this.provingProps);
+      this.vehicleSolids.add(this.provingProps);
+    }
     for (const v of this.vehicles) this.roadSolids(v);
+  }
+
+  /** the proving ground's cones: the bodies of the vehicles on it knock them flying (cones.ts) */
+  private stepCones(dt: number): void {
+    const f = this.provingCones;
+    const pg = this.proving;
+    if (!f || !pg) return;
+    const bodies = this.coneBodies;
+    let n = 0;
+    const b = this.basis;
+    for (const v of this.vehicles) {
+      const s = v.sim;
+      if (!pg.near(s.px, s.pz)) continue;
+      s.basis(b);
+      const fl = Math.hypot(b[0], b[2]) || 1;
+      const box = v.view.frame.body;
+      const over = Math.max(0, s.py - s.spec.cgHeight - pg.heightAt(s.px, s.pz));
+      const o = (bodies[n++] ??= { x: 0, z: 0, vx: 0, vz: 0, yawRate: 0, fx: 1, fz: 0, front: 0, rear: 0, halfWidth: 0, bottom: 0 });
+      o.x = s.px;
+      o.z = s.pz;
+      o.vx = s.vx;
+      o.vz = s.vz;
+      o.yawRate = s.yawRate;
+      o.fx = b[0] / fl;
+      o.fz = b[2] / fl;
+      o.front = box.front;
+      o.rear = box.rear;
+      o.halfWidth = box.halfWidth;
+      o.bottom = box.bottom + over;
+    }
+    bodies.length = n;
+    f.step(dt, bodies);
   }
 
   /** a vehicle on the road keeps out of what stands by it, and of the other vehicles (not of itself) */
@@ -2311,10 +2433,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
   /** the assists into the vehicles and the player, every step */
   private applyAssists(): void {
     const a = this.assists;
+    // (the proving ground's robot never wants the brake to become reverse: it holds the brake at walking pace)
+    const robot = this.provingRun?.pilot ? this.seated : null;
     for (const v of this.vehicles) {
       v.sim.autoRelease = a.autoRelease;
       v.assistHold = a.autoHold;
-      v.sys.assistReverse = a.autoReverse;
+      v.sys.assistReverse = a.autoReverse && v !== robot;
     }
     this.player.showGhostsOn = a.ghosts;
     this.player.showCardOn = a.card;
@@ -3461,7 +3585,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       let input = null;
       if (v === this.seated) {
         const d = this.input.drive;
-        input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
+        // (the proving ground's robot at the wheel, until the player takes it back with the pedals or the wheel)
+        const pr = this.provingRun;
+        if (pr?.pilot && !this.scripted && (Math.abs(d.steer) > 0.35 || d.throttle > 0.35 || d.brake > 0.35)) {
+          pr.stopAll();
+          this.ui.say('你接过了方向盘', 1.6);
+        }
+        const robot = this.deadT >= 0 || this.scripted ? null : (pr?.input(dt, v) ?? null);
+        input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? robot ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
       // a knock against something hard, heard from the seat
@@ -3476,6 +3607,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
         if (gain > 0.02) this.sounds()?.play('tyre_burst', { gain });
       }
     }
+    this.stepCones(dt);
+    this.provingRun?.update(dt);
     this.loose.update(dt);
     this.throwSparks(dt);
     this.kickDust(dt);
@@ -3921,11 +4054,27 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       if (this.devLoad > 0) {
         this.devLoad -= dt;
         this.worldView.update(fx, fz, 45);
-        if (this.worldView.pending === 0 || this.devLoad <= 0) {
+        this.provingView?.update(dt, fx, fz, 30);
+        if ((this.worldView.pending === 0 && !this.provingView?.pending) || this.devLoad <= 0) {
           this.devLoad = 0;
           this.ui.setFade(0);
         }
-      } else this.worldView.update(fx, fz, 3.5);
+      } else {
+        this.worldView.update(fx, fz, 3.5);
+        this.provingView?.update(dt, fx, fz, 2);
+      }
+    }
+    // the proving ground's panel: the run, the live curves (provingHud.ts); the start gantry's lights by the
+    // acceleration run: amber while a vehicle stands at the line, green from the moment it moves off, then off
+    if (this.provingRun) {
+      this.provingPanel ??= new ProvingHud(this.ui.root);
+      this.provingPanel.update(this.provingRun, this.time, !!this.dev?.open);
+      if (this.provingView) {
+        const r = this.provingRun.runs.current;
+        const accel = r?.section === 'accel' ? r : null;
+        const shown = this.provingRun.shown;
+        this.provingView.startLights = accel?.phase === 'running' ? 'go' : accel?.phase === 'ready' ? 'set' : shown?.section === 'accel' && this.time - shown.at < 6 ? 'ready' : 'off';
+      }
     }
     // biome and light
     const bl = this.bl;

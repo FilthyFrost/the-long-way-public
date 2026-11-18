@@ -53,9 +53,9 @@ export function sinkShare(world: World, t: TerrainPoint): number {
 
 /**
  * Ground paint inputs for a vertex (terrainMaterials.ts): the weight of each palette slot, and
- * (distance from the road centre, relief, woodland, 0).
+ * (distance from the road centre, relief, woodland — or, negative, how mown a plot's lawn is — and the water's depth).
  */
-function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number): void {
+export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number, lawn = 0): void {
   const ad = t.d < 0 ? -t.d : t.d;
   // a chapter's palette lives in slot (chapter mod 4): two neighbours never share one
   bw[k * 4] = bw[k * 4 + 1] = bw[k * 4 + 2] = bw[k * 4 + 3] = 0;
@@ -63,11 +63,20 @@ function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Fl
   bw[k * 4 + (t.cb & 3)] += t.bt;
   let wood = woodland(t.ba, seed, x, z, ad, t.relief) * (1 - t.bt);
   if (t.bt > 0) wood += woodland(t.bb, seed, x, z, ad, t.relief) * t.bt;
+  // (no wood is painted on a plot of the caller's, where none stands: buildScatter keeps its trees off it)
+  if (t.plot > 0.8) wood *= 1 - smoothstep(0.8, 0.95, t.plot);
   gd[k * 4] = Math.min(ad, 2000);
   gd[k * 4 + 1] = t.relief;
-  gd[k * 4 + 2] = wood;
+  gd[k * 4 + 2] = lawn > 0.02 ? -lawn : wood;
   // how far under the water this ground lies (negative above it; −40 where there is no water about)
   gd[k * 4 + 3] = t.wl > -1e8 ? Math.max(-40, Math.min(40, t.wl - t.bed)) : -40;
+}
+
+/** how mown the grass is at a shaped point (a plot's: Plot.grass), 0 … 1: the ground under a lawn is painted lusher and evener */
+export function lawnOf(world: World, t: TerrainPoint, x: number, z: number): number {
+  if (t.plot <= 0) return 0;
+  const g = world.plotGrass(x, z);
+  return g < 1 ? Math.min(1, (1 - g) / 0.6) : 0;
 }
 
 const bridgeProbe: { river: River | null; mask: number } = { river: null, mask: 0 };
@@ -165,7 +174,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
       } else {
         normalAt(world, wx, wz, tp.bed, nrm, k * 3);
       }
-      groundAttrs(world.seed, tp, wx, wz, bw, gd, k);
+      groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz));
       // the strip knows its lateral offset exactly; the nearest-point search can overshoot on a curve
       // (and paint a wedge of meadow into the verge)
       gd[k * 4] = Math.abs(d);
@@ -266,7 +275,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
       }
       if (i === 0 && j === 0) oy = h;
       hs[(j + 1) * P + (i + 1)] = h;
-      if (i >= 0 && i <= N && j >= 0 && j <= N) groundAttrs(world.seed, tp, wx, wz, bw, gd, j * V + i);
+      if (i >= 0 && i <= N && j >= 0 && j <= N) groundAttrs(world.seed, tp, wx, wz, bw, gd, j * V + i, lawnOf(world, tp, wx, wz));
     }
   }
   const n = V * V + 4 * V;
@@ -881,6 +890,8 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
   const gPair = new Float32Array(G * G);
   const gShare = new Float32Array(G * G);
   const gSlot = new Float32Array(G * G);
+  // how tall it grows there (a plot of the caller's may keep it mown: Plot.grass)
+  const gMow = new Float32Array(G * G);
   // > 0 where grass must not stand: in or beside water, on a bridge
   const bare = new Float32Array(G * G);
   const shore = new Float32Array(G * G);
@@ -891,7 +902,7 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       const k = j * G + i;
       hs[k] = tp.bed;
       // (… nor on the sand of a sea beach)
-      bare[k] = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || tp.plot > 0.999 || world.sites.bareAt(x0 + i * GRID, z0 + j * GRID) ? 1 : 0;
+      bare[k] = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || (tp.plot > 0.999 && world.plotBare(x0 + i * GRID, z0 + j * GRID)) || world.sites.bareAt(x0 + i * GRID, z0 + j * GRID) ? 1 : 0;
       // towards a shore the meadow is grazed short (and the water shows over it)
       shore[k] = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
       ds[k] = tp.d < 0 ? -tp.d : tp.d;
@@ -905,6 +916,7 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       gPair[k] = (tp.ca & 3) + 4 * (tp.cb & 3);
       gShare[k] = tp.bt;
       gSlot[k] = (tp.bt < 0.5 ? tp.ca : tp.cb) & 3;
+      gMow[k] = tp.plot > 0 ? world.plotGrass(x0 + i * GRID, z0 + j * GRID) : 1;
       if (i === 0 && j === 0) oy = tp.bed;
     }
     // (this grid is the dearer half: pause every few rows)
@@ -955,13 +967,18 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       const r3 = ((h2 >>> 16) & 0xffff) / 65536;
       const y = lerpGrid(hs, fx, fz) - oy - 0.04;
       // short by the road, growing taller into the meadow: the verge is an edge, not a wall
-      const size = (0.7 + 0.75 * r3 * r3 + 0.3 * r2) * (onRoad ? 0.7 : 0.6 + 0.4 * smoothstep(4.9, 10, ad)) * lerpGrid(gSize, fx, fz) * (1 - 0.55 * lerpGrid(shore, fx, fz));
+      // (mown, a plot's: as tall as its share, and the tufts much the same height; the more mown, the more even)
+      const mow = lerpGrid(gMow, fx, fz);
+      const lawn = mow < 1 ? Math.min(1, (1 - mow) / 0.6) : 0;
+      const f = 0.7 + 0.75 * r3 * r3 + 0.3 * r2;
+      const size = (lawn > 0 ? Math.pow(f, 1 - 0.65 * lawn) * mow : f) * (onRoad ? 0.7 : 0.6 + 0.4 * smoothstep(4.9, 10, ad)) * lerpGrid(gSize, fx, fz) * (1 - 0.55 * lerpGrid(shore, fx, fz));
       roots.push(lx, y, lz, size);
       // a meadow is combed one way: tufts turn only a little from the direction of the field
       const comb = fbm2((x0 + lx) / 60, (z0 + lz) / 60, world.seed + 0x3c0, 1) * 2.4;
-      info.push(gPair[kn], gShare[kn], keep, comb + (r3 - 0.5) * 1.4);
-      // flowers grow in drifts across the meadows
-      const flowers = lerpGrid(gFlower, fx, fz);
+      // (how mown it is rides in the slot number's spare fraction: the grass paints a lawn lusher and more even)
+      info.push(gPair[kn] + 0.45 * lawn, gShare[kn], keep, comb + (r3 - 0.5) * 1.4);
+      // flowers grow in drifts across the meadows (not on a lawn)
+      const flowers = lerpGrid(gFlower, fx, fz) * (1 - lawn);
       if (near && flowers > 0.05 && !onRoad) {
         const drift = fbm2((x0 + lx) / 46, (z0 + lz) / 46, world.seed + 0x5ee, 2);
         const fp = (drift > 0.18 ? 0.16 : 0.012) * flowers;

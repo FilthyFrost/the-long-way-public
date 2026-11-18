@@ -2,6 +2,8 @@
  * Entry of the ModCar game (index.html and modcar.html; the game before it is classic.html). Builds ModGame and the
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
+import { tried } from './devLab';
+import { sectionOf, type SectionId } from '../../core/modcar/proving/layout';
 import * as THREE from 'three';
 import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
@@ -477,6 +479,52 @@ const rt = {
     const things = game.cargo.ridersOf(v).map((l) => ({ what: l.part?.part ?? (l.tool ? `tool:${l.tool.kind}` : `item:${l.item?.item}`), zone: l.stow ?? '' }));
     return { things, load: game.cargo.loadOf(v), mass: v.sys.derived.mass };
   },
+  /** to a section of the proving ground (proving/layout.ts SECTIONS: accel, brake, skidpad, slalom, offroad, hill), with the vehicle */
+  provingGo: (id: SectionId) => {
+    const s = sectionOf(id);
+    game.teleportTo(s.x, s.z, s.yaw, true);
+    game.simulate(0);
+    const v = game.seated ?? game.focus;
+    return v ? { x: v.sim.px, z: v.sim.pz } : null;
+  },
+  /** to a section with the robot at the wheel (its options: slalomKmh, brakeKmh, ramp) */
+  provingRobot: (id: SectionId, opts: { slalomKmh?: number; brakeKmh?: number; ramp?: number } = {}) => {
+    const s = game.provingRun;
+    if (!s) return false;
+    Object.assign(s.robotOpts, opts);
+    s.go(id, true);
+    game.simulate(0);
+    return !!s.pilot;
+  },
+  /** A (the vehicle as it is) against B (it with a part tried) on a section, the robot driving or not */
+  provingAB: (id: SectionId, partId: string, robot = true) => {
+    const s = game.provingRun;
+    const v = game.seated ?? game.focus;
+    if (!s || !v) return 'no session or vehicle';
+    const b = tried(v.build, partId);
+    if (!b) return 'no place for it';
+    return s.compare(id, { build: structuredClone(v.build), what: '车现在的样子' }, { build: b, what: `换上${partDef(partId).name.zh}` }, robot) || 'ok';
+  },
+  /** where the proving ground's session stands: the run (section, phase, its line), the robot, the comparison, the results */
+  provingState: () => {
+    const s = game.provingRun;
+    if (!s) return null;
+    const r = s.runs.current;
+    return {
+      on: !!s.vehicle,
+      run: r ? { section: r.section, phase: r.phase, line: s.runs.line(s.car) } : null,
+      robot: s.pilot ? { section: s.pilot.section, doing: s.pilot.doing } : null,
+      car: { kmh: s.car.kmh, rpm: s.car.rpm, latG: s.car.latG, slipDeg: s.car.slipDeg },
+      results: s.runs.results.map((x) => ({ section: x.section, ok: x.ok, line: x.line, figures: Object.fromEntries(x.figures.map((f) => [f.key, f.value])) })),
+      ab: s.ab ? { section: s.ab.section, i: s.ab.i, why: s.ab.why, legs: s.ab.legs.map((l) => ({ label: l.label, what: l.what, line: l.result?.line ?? null })), rows: s.rows() } : null,
+      build: game.seated ? encodeBuild(game.seated.build) : null,
+    };
+  },
+  /** the proving ground's level and its cones (where each is, knocked or not) */
+  proving: () => ({
+    level: game.proving?.level ?? NaN,
+    cones: game.provingCones?.cones.map((c) => ({ x: c.x, y: c.y, z: c.z, group: c.group, down: c.down })) ?? [],
+  }),
   /** fit a part straight onto a mount (screenshots of builds) */
   fit: (vi: number, mount: string, partId: string) => {
     const v = vehicle(vi);

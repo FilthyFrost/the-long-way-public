@@ -35,6 +35,11 @@ export interface RobotOptions {
   laneKi: number;
   /** limit of that trim (rad) */
   laneTrimMax: number;
+  /** how far ahead it aims (m): `look` plus `lookPerMs` for every m/s, between `lookMin` and `lookMax` */
+  look: number;
+  lookPerMs: number;
+  lookMin: number;
+  lookMax: number;
 }
 
 export class RobotDriver {
@@ -55,7 +60,7 @@ export class RobotDriver {
   private readonly out: VehicleInput = { steer: 0, throttle: 0, brake: 0, handbrake: 0 };
 
   constructor(opts: Partial<RobotOptions> = {}) {
-    this.opts = { lane: 0, cruise: 16.7, latG: 0.3, decel: 2.2, laneKi: 0.012, laneTrimMax: 0.12, ...opts };
+    this.opts = { lane: 0, cruise: 16.7, latG: 0.3, decel: 2.2, laneKi: 0.012, laneTrimMax: 0.12, look: 4, lookPerMs: 0.75, lookMin: 5, lookMax: 26, ...opts };
   }
 
   update(dt: number, veh: VehicleSim, path: DrivePath): VehicleInput {
@@ -68,7 +73,7 @@ export class RobotDriver {
     const v = veh.speed;
 
     // --- steering: aim at a point ahead on the lane
-    const Ld = clamp(4 + 0.75 * v, 5, 26);
+    const Ld = clamp(o.look + o.lookPerMs * v, o.lookMin, o.lookMax);
     path.probe(this.s + Ld, pr);
     const txp = pr.x - pr.tz * o.lane; // right normal = (−tz, tx)
     const tzp = pr.z + pr.tx * o.lane;

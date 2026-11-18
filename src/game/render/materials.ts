@@ -743,6 +743,7 @@ export function grassMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMat
       varying float vTone;
       varying float vWarm;
       varying float vBlade;
+      varying float vLawn;
       void main() {
         vec3 root = rtRootWorld();
         float dist = length(root - cameraPosition);
@@ -758,6 +759,8 @@ export function grassMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMat
         vTone = 0.5 + brush + (rtNoiseAt(w, 640.0).r - 0.5) * 0.28;
         vWarm = rtNoiseAt(w + 13.0, 300.0).g;
         vBw = rtSlotPair(aInfo.x, aInfo.y);
+        // (a lawn, mown: how much, in the slot number's spare fraction — worldBuild.ts grassSlices)
+        vLawn = clamp(fract(aInfo.x + 1e-4) / 0.45, 0.0, 1.0);
         vec4 wp = vec4(root + p, 1.0);
         vPos = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -775,18 +778,21 @@ export function grassMaterial(fade: GrassFade, keepFar: number): THREE.ShaderMat
       varying float vTone;
       varying float vWarm;
       varying float vBlade;
+      varying float vLawn;
       void main() {
         #include <logdepthbuf_fragment>
         RtPal p = rtPal(vBw);
         vec3 n = vec3(0.0, 1.0, 0.0);
         float sh = rtShadow(vPos, n);
-        // each blade one of a few paints (its own tone), only a little lighter towards the tip
-        float pick = floor(vBlade * 5.0) / 4.0 - 0.5;
-        float tone = vTone - 0.04 + (vTip - 0.5) * 0.28 + pick * 0.55 - (1.0 - sh) * 0.22;
+        // each blade one of a few paints (its own tone), only a little lighter towards the tip; a mown lawn evener
+        float pick = (floor(vBlade * 5.0) / 4.0 - 0.5) * (1.0 - 0.65 * vLawn);
+        float tone = mix(vTone, 0.52 + (vTone - 0.5) * 0.4, vLawn * 0.7) - 0.04 + (vTip - 0.5) * 0.28 + pick * 0.55 - (1.0 - sh) * 0.22;
         vec3 albedo = rtPaintTone(p, tone);
-        albedo *= mix(vec3(1.0), p.warm, smoothstep(0.56, 0.66, vWarm) * 0.85);
+        albedo *= mix(vec3(1.0), p.warm, smoothstep(0.56, 0.66, vWarm) * 0.85 * (1.0 - 0.6 * vLawn));
+        // (and lusher: fresh green, none of it gone to straw)
+        albedo = mix(albedo, albedo * vec3(0.9, 1.1, 0.78), vLawn * 0.55);
         // dry grass in dry country, towards the tips, and one blade in eight gone to straw anywhere
-        float straw = max(clamp(p.misc.y * 0.8, 0.0, 1.0), step(0.875, vBlade) * 0.85);
+        float straw = max(clamp(p.misc.y * 0.8, 0.0, 1.0), step(0.875, vBlade) * 0.85) * (1.0 - 0.85 * vLawn);
         albedo = mix(albedo, p.dry * mix(0.8, 1.35, vTip), straw);
         albedo *= mix(vec3(1.0), vec3(1.1, 1.05, 0.8), vTip * 0.45);
         vec2 w = rtWorldXZ(vPos);

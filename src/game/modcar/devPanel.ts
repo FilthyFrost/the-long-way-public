@@ -18,6 +18,7 @@ import { toolLook } from './loose';
 import type { Category, PartDef } from '../../core/modcar/types';
 import { panelPaint } from './assets';
 import { LAB_CSS, LabPane, type LabHost } from './devLab';
+import { PROVING_CSS, ProvingPane, type ProvingPaneHost } from './devProving';
 import { PANE_CSS, WorldPanes, type PaneHost, type PaneId } from './devPanes';
 import { PartThumbs } from './thumbs';
 
@@ -33,7 +34,7 @@ export interface DevPoint {
   z: number;
 }
 
-export interface DevHost extends PaneHost, LabHost {
+export interface DevHost extends PaneHost, LabHost, ProvingPaneHost {
   /** the world point under a point of the window (CSS px), or null where the view meets nothing near */
   devPick(clientX: number, clientY: number): DevPoint | null;
   /** put a thing at a world point, or (null) at the walker's feet */
@@ -79,11 +80,12 @@ function itemMeta(d: (typeof ITEMS)[number]): string {
   return `${star}${s || `${d.mass} kg`}`;
 }
 
-type TabId = PaneId | 'parts' | 'lab';
+type TabId = PaneId | 'parts' | 'lab' | 'proving';
 
 const TABS: [TabId, string][] = [
   ['parts', '零件'],
   ['lab', '手感'],
+  ['proving', '试车场'],
   ['place', '传送'],
   ['weather', '天气'],
   ['time', '时间'],
@@ -188,8 +190,9 @@ export class DevPanel {
   private raf = 0;
   private drag: { tile: Tile; x0: number; y0: number; x: number; y: number; moved: boolean; chip: HTMLDivElement | null; id: number } | null = null;
   private readonly panes: WorldPanes;
-  /** the handling lab's tab (devLab.ts) */
+  /** the handling lab's tab (devLab.ts) and the proving ground's (devProving.ts) */
   private readonly lab: LabPane;
+  private readonly proving: ProvingPane;
   private current: TabId = 'parts';
   private readonly built = new Set<string>();
   private lastTick = 0;
@@ -204,7 +207,7 @@ export class DevPanel {
     if (!document.getElementById('mc-dev-panes-css')) {
       const st = document.createElement('style');
       st.id = 'mc-dev-panes-css';
-      st.textContent = PANE_CSS + LAB_CSS;
+      st.textContent = PANE_CSS + LAB_CSS + PROVING_CSS;
       document.head.appendChild(st);
     }
     const root = document.createElement('div');
@@ -224,6 +227,7 @@ export class DevPanel {
     this.q = root.querySelector('input.q') as HTMLInputElement;
     this.panes = new WorldPanes(host, root);
     this.lab = new LabPane(host);
+    this.proving = new ProvingPane(host);
     // typing in a box of the panel is not walking (the key that shuts the panel still shuts it)
     for (const type of ['keydown', 'keyup'] as const) {
       root.addEventListener(type, (e) => {
@@ -264,6 +268,7 @@ export class DevPanel {
       if (on && id !== 'parts' && !this.built.has(id)) {
         this.built.add(id);
         if (id === 'lab') this.lab.build(p);
+        else if (id === 'proving') this.proving.build(p);
         else this.panes.build(id, p);
       }
     }
@@ -275,7 +280,10 @@ export class DevPanel {
     const sub = this.root.querySelector('.hd .sub') as HTMLElement;
     const hint = this.root.querySelector('.hd .hint') as HTMLElement;
     const moved = this.host.tune.changed().length;
-    if (this.current === 'lab') {
+    if (this.current === 'proving') {
+      sub.textContent = '直线加速、刹车、定圆、绕桩、越野、坡道';
+      hint.innerHTML = '点一段路就过去 · 开过起点线自动计时 · 可以让机器人开<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
+    } else if (this.current === 'lab') {
       sub.textContent = '换一个零件，看哪些数变了';
       hint.innerHTML = '先坐进一辆车，或者走到车旁边 · 测量时画面会停一下<br>WASD 照常走动 · 在画面上按住拖动转视角 · <b>`</b> 关闭';
     } else if (this.current === 'parts') {
@@ -289,7 +297,7 @@ export class DevPanel {
     for (const s of this.root.querySelectorAll<HTMLElement>('.tabs span')) {
       const t = s.dataset.t as TabId;
       const label = TABS.find(([id]) => id === t)?.[1] ?? '';
-      const n = t === 'parts' || t === 'place' || t === 'lab' ? 0 : this.host.tune.changed(t).length;
+      const n = t === 'parts' || t === 'place' || t === 'lab' || t === 'proving' ? 0 : this.host.tune.changed(t).length;
       s.innerHTML = n ? `${label}<i>${n}</i>` : label;
     }
   }
@@ -356,6 +364,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
         this.lastTick = now;
         this.panes.tick();
         if (this.current === 'lab') this.lab.tick();
+        if (this.current === 'proving') this.proving.tick();
       }
       // walking or turning while a tile is held: where it would land moves with the view
       if (this.drag?.moved) this.aimAt(this.drag.x, this.drag.y);

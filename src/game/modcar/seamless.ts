@@ -7,7 +7,8 @@
  */
 import { GroundSample, type Ground } from '../../core/world/ground';
 import type { Land } from '../../core/onfoot/land';
-import type { TerrainPoint, World, WorldOptions } from '../../core/world/terrain';
+import { provingLevel, provingPlot } from '../../core/modcar/proving/layout';
+import { World, type TerrainPoint, type WorldOptions } from '../../core/world/terrain';
 import { onPlot, ROAD_START_X, YARD_PLOT } from './garageOutdoors';
 
 /**
@@ -25,11 +26,21 @@ export function modcarWorldOptions(o: { chapterScale?: number; startBiome?: stri
   return { ...o, start: { x: ROAD_START_X, z: 0, y: 0 }, deadEnd: true, plots: [YARD_PLOT], placeOdds: MODCAR_PLACE_ODDS, secondPlace: MODCAR_SECOND_PLACE };
 }
 
-/** the wheels' ground: the garage's on its plot, the world's beyond */
+/**
+ * ModCar's world with its proving ground behind the workshop (core/modcar/proving/layout.ts), a plot of its land
+ * too: levelled at the height of the land it is cut out of (found on the same world made without it first)
+ */
+export function modcarWorld(seed: number, o: { chapterScale?: number; startBiome?: string }): { world: World; level: number } {
+  const level = provingLevel(new World(seed, modcarWorldOptions(o)));
+  const opts = modcarWorldOptions(o);
+  return { world: new World(seed, { ...opts, plots: [...(opts.plots ?? []), provingPlot(level)] }), level };
+}
+
+/** the wheels' ground: the garage's on its plot, the world's beyond (with the proving ground in it) */
 export class SeamlessGround implements Ground {
   constructor(
     private readonly garage: Ground,
-    private readonly world: World,
+    private readonly world: Ground,
   ) {}
 
   sample(x: number, z: number, out: GroundSample): void {
@@ -38,11 +49,11 @@ export class SeamlessGround implements Ground {
   }
 }
 
-/** the feet's land: the garage's on its plot, the world's beyond (its water, its bridge decks) */
+/** the feet's land: the garage's on its plot, the world's beyond (its water, its bridge decks, the proving ground) */
 export class SeamlessLand implements Land {
   constructor(
     private readonly garage: Land,
-    private readonly world: World,
+    private readonly world: Land,
   ) {}
 
   shape(x: number, z: number, o: TerrainPoint): void {

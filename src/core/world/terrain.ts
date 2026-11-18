@@ -88,6 +88,16 @@ export interface Plot {
   z1: number;
   skirt: number;
   height(x: number, z: number): number;
+  /**
+   * Where no grass of the world's grows within the box (default: nowhere does — the caller draws its own ground
+   * there; ModCar's proving ground: only under what it draws, the grass growing between)
+   */
+  bare?(x: number, z: number): boolean;
+  /**
+   * How tall the world's grass grows within the box, as a share of its height (default 1; ModCar's proving ground:
+   * mown short), back to its full height over the skirt
+   */
+  grass?(x: number, z: number): number;
 }
 
 export interface WorldOptions extends SpineOptions {
@@ -472,6 +482,27 @@ export class World implements Ground {
     if (o.frozen > 0.5 && o.wl > o.h && o.zone === 0) o.h = o.wl;
     o.plot = 0;
     if (this.plots.length) this.onPlots(x, z, o, ad);
+  }
+
+  /** is (x, z) wholly on a plot that lets no grass of the world's grow there (Plot.bare) */
+  plotBare(x: number, z: number): boolean {
+    for (const p of this.plots) {
+      if (x < p.x0 || x > p.x1 || z < p.z0 || z > p.z1) continue;
+      return p.bare ? p.bare(x, z) : true;
+    }
+    return false;
+  }
+
+  /** how tall the world's grass grows at (x, z), as a share of its height: a plot's (Plot.grass), back to 1 over its skirt */
+  plotGrass(x: number, z: number): number {
+    let k = 1;
+    for (const p of this.plots) {
+      if (!p.grass) continue;
+      const w = plotWeight(p, x, z);
+      if (w <= 0) continue;
+      k = Math.min(k, 1 + (p.grass(x, z) - 1) * w);
+    }
+    return k;
   }
 
   /** the caller's plots: the land within takes their height (never the road's bed and shoulders: they fade out by the road) */

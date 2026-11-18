@@ -18,7 +18,7 @@ import { GLSL_SKY_MIRROR, skyMirrorUniforms } from '../env/sky';
 import { waterUniforms } from './water';
 import { STYLE } from './style';
 
-const GROUND_PAINT = /* glsl */ `
+export const GROUND_PAINT = /* glsl */ `
   ${GLSL_PAINT}
   // thin strokes following the contours of the land, a pixel or two wide at any distance
   float rtContour(vec3 pos, vec3 n, vec2 w, float dist) {
@@ -53,8 +53,9 @@ const GROUND_PAINT = /* glsl */ `
     RtPal p = rtPal(bwIn);
     vec2 w = rtWorldXZ(pos);
     float ad = g.x;
-    // woods stop at a treeline on the high massifs
-    float wood = g.z * (1.0 - smoothstep(450.0, 850.0, g.y));
+    // woods stop at a treeline on the high massifs; (negative: a mown lawn on a plot of the caller's, how mown)
+    float wood = max(g.z, 0.0) * (1.0 - smoothstep(450.0, 850.0, g.y));
+    float lawn = max(-g.z, 0.0);
     // the verge and ditch beside the road are shaped by the road, not the land: paint them with
     // only a little of the slope, or the ditch reads as a hard cold band along the road
     float rel = mix(0.5, rtSlopeRel(n), mix(0.15, 1.0, smoothstep(6.0, 18.0, ad)));
@@ -74,9 +75,9 @@ const GROUND_PAINT = /* glsl */ `
     float s6 = rtStrokeAt(w, 6.0) - 0.5;
     float s27 = rtStrokeAt(w + vec2(17.0, 5.0), 27.0) - 0.5;
     float s95 = rtStrokeAt(w + vec2(-41.0, 73.0), 95.0) - 0.5;
-    float brush = s6 * 0.6 * (1.0 - smoothstep(22.0, 55.0, dist))
+    float brush = (s6 * 0.6 * (1.0 - smoothstep(22.0, 55.0, dist))
                 + s27 * 0.5 * (1.0 - smoothstep(70.0, 220.0, dist))
-                + s95 * 0.42 * (1.0 - smoothstep(260.0, 900.0, dist));
+                + s95 * 0.42 * (1.0 - smoothstep(260.0, 900.0, dist))) * (1.0 - 0.3 * lawn);
     vec4 nz = rtNoiseAt(w, 640.0);
     float slow = nz.r - 0.5;
     float tone = rel + brush + slow * 0.28 - (1.0 - shade) * 0.22;
@@ -95,8 +96,10 @@ const GROUND_PAINT = /* glsl */ `
     // ---- dry ground: the biome's dryness in patches, and a dusty verge along the road
     float dryField = smoothstep(0.45, 0.7, rtNoiseAt(w + 500.0, 120.0).a + (p.misc.y - 0.5) * 0.9);
     float verge = (1.0 - smoothstep(4.0, 6.0, ad + (nz.g - 0.5) * 3.0)) * 0.4;
-    float dryAmt = clamp(max(dryField * (0.35 + 0.5 * p.misc.y), verge) * (1.0 - wood), 0.0, 1.0);
+    float dryAmt = clamp(max(dryField * (0.35 + 0.5 * p.misc.y), verge) * (1.0 - wood) * (1.0 - 0.75 * lawn), 0.0, 1.0);
     albedo = mix(albedo, p.dry * mix(0.62, 1.12, smoothstep(0.2, 0.8, tone)), dryAmt);
+    // (a lawn, mown: a fresher green)
+    albedo = mix(albedo, albedo * vec3(0.92, 1.08, 0.8), lawn * 0.45);
 
     // ---- where the meadow grass stands (near the eye), the ground between the blades is their roots
     float underGrass = (1.0 - smoothstep(45.0, 70.0, dist)) * smoothstep(5.0, 8.0, ad) * p.misc.z * (1.0 - wood) * (1.0 - dryAmt);
@@ -154,7 +157,7 @@ const GROUND_PAINT = /* glsl */ `
 
     // ---- flowers in the meadows
     vec3 flc;
-    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt);
+    float fl = rtFlowers(p, w, dist, flc) * p.misc.z * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn);
     albedo = mix(albedo, flc, fl);
 
     // ---- weather: snow settles on flat ground (painted, not grey), rain darkens
@@ -193,23 +196,42 @@ const GROUND_PAINT = /* glsl */ `
   }
 `;
 
-const GROUND_VARYINGS = /* glsl */ `
+export const GROUND_VARYINGS = /* glsl */ `
   varying vec4 vBiomeW;
   varying vec4 vGround;
 `;
 
+/**
+ * Where a caller draws its own ground over the land in shapes the land's coarse mesh cannot hold (ModCar's proving
+ * ground: its hill, its side slope), the land's vertices within this map are held down to the heights it gives, so
+ * the mesh, interpolating over metres, never stands through what is drawn there. The map's texels are heights above
+ * uClampBase (render space; large: no limit); uClampBox is its rectangle in render space (x0, z0, x1, z1). Off while
+ * the box is empty (the default).
+ */
+export const terrainClamp = {
+  uClampBox: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uClampBase: { value: 0 },
+  tClamp: { value: null as THREE.Texture | null },
+};
+
 export function terrainMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { ...globals },
+    uniforms: { ...globals, ...terrainClamp },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
       ${GROUND_VARYINGS}
       attribute vec4 aBiomeW;
       attribute vec4 aGround;
+      uniform vec4 uClampBox;
+      uniform float uClampBase;
+      uniform sampler2D tClamp;
       void main() {
         vBiomeW = aBiomeW;
         vGround = aGround;
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
+        if (uClampBox.z > uClampBox.x && rtWorld.x > uClampBox.x && rtWorld.x < uClampBox.z && rtWorld.z > uClampBox.y && rtWorld.z < uClampBox.w) {
+          rtWorld.y = min(rtWorld.y, uClampBase + texture2D(tClamp, (rtWorld.xz - uClampBox.xy) / (uClampBox.zw - uClampBox.xy)).r);
+        }
         vPos = rtWorld.xyz;
         vNormal = normal;
         gl_Position = projectionMatrix * viewMatrix * rtWorld;
