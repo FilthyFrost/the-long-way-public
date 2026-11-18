@@ -7,7 +7,7 @@
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
-import { ITEM_CATS, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { itemCat, itemDef, itemMass, MATERIALS, MATERIAL_IDS, salvageOf, type ItemCat, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -476,8 +476,8 @@ export function itemCard(inst: ItemInstance): ItemCard {
   const d = itemDef(inst.item);
   const card: ItemCard = {
     key: `item:${inst.uid}:${inst.item}`,
-    icon: ITEM_ICON[d.cat],
-    cat: ITEM_CATS[d.cat].zh,
+    icon: (ITEM_ICON as Partial<Record<string, CardIcon>>)[d.cat] ?? 'box',
+    cat: itemCat(d.cat).name.zh,
     name: d.name.zh,
     stars: d.stars,
     badges: [],

@@ -14,7 +14,7 @@ import type { ContainerKind } from '../items/loot';
 import { Rng, hash2 } from '../math/rng';
 import { fitSub, newInstance } from './build';
 import { partStars } from './crafting';
-import { ITEMS, type ItemCat, type ItemDef } from './items';
+import { BASE_ITEMS, ITEMS, type ItemCat, type ItemDef } from './items';
 import { BASIC_PAINTS, PALETTE } from './palette';
 import { sprayFound } from './paint';
 import { PARTS, partDef } from './parts';
@@ -133,14 +133,14 @@ function gradeRoll(r: Rng, s: number): number {
 
 /** an item of a category, of a grade at most `top` (the better ones as likely as the plain ones under it) */
 function itemOf(r: Rng, cat: ItemCat, top: number): string | null {
-  const list: ItemDef[] = ITEMS.filter((it) => it.cat === cat && it.stars <= Math.max(top, minStars(cat)) && it.carry !== 'large');
+  const list: ItemDef[] = BASE_ITEMS.filter((it) => it.cat === cat && it.stars <= Math.max(top, minStars(cat)) && it.carry !== 'large');
   return list.length ? r.pick(list).id : null;
 }
 
 /** the lowest grade a category has (so a category with nothing under ★1 still gives something) */
 function minStars(cat: ItemCat): number {
   let m = 9;
-  for (const it of ITEMS) if (it.cat === cat && it.stars < m) m = it.stars;
+  for (const it of BASE_ITEMS) if (it.cat === cat && it.stars < m) m = it.stars;
   return m;
 }
 

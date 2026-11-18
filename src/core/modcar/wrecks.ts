@@ -20,7 +20,7 @@ import { Rng, hash2 } from '../math/rng';
 import { fitSub, newInstance, newUid, removePart, stockBuild, stockPartFor, stockTireFor } from './build';
 import { partStars } from './crafting';
 import { frameDef } from './frames';
-import { ITEMS, type ItemCat } from './items';
+import { BASE_ITEMS, type ItemCat } from './items';
 import { BASIC_PAINTS, PALETTE } from './palette';
 import { sprayFound } from './paint';
 import { partDef, PARTS } from './parts';
@@ -397,7 +397,7 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
       const cat = cats[r.weighted(w)];
       // (the better things further on, like the parts)
       const top = r.chance(fo.mean / 3) ? 3 + r.weighted(fo.grades) : plain();
-      const list = ITEMS.filter((it) => it.cat === cat && it.stars <= top && it.carry !== 'large');
+      const list = BASE_ITEMS.filter((it) => it.cat === cat && it.stars <= top && it.carry !== 'large');
       if (list.length) items.push(r.pick(list).id);
     }
     // a spray can rolled under a seat, a jerrycan with a drop in it

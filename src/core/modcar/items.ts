@@ -8,6 +8,13 @@
  * recycler gives for it; what it does when used is in its own field (eat, drink, heal, revive, wear, pack,
  * lamp, gear). Its model is public/models/modcar/items/<model>.glb (tools/blender/items/), painted with its
  * paint / paint2 (one model serves every colour of a jacket).
+ *
+ * The catalogue is open (V3, docs/V3/nodes/N0-items.md): a gameplay system registers its own categories and
+ * kinds (registerItemCat, registerItems) and adds its own typed fields to ItemDef and ItemState by declaration
+ * merging, so this file is not edited for every system. Things may stack (ONE instance with a count `n`), hold
+ * other things (`inside`, flat) and go off (`fresh`, read lazily against the world clock, never stepped).
+ * What was here before any system registered (the nine categories, the kinds below) is BASE_ITEMS: the old
+ * loot tables draw from that alone, so what a seed's containers and wrecks hold never changes.
  */
 import type { Text } from './types';
 
@@ -45,9 +52,15 @@ export type EffectId = 'warm1' | 'warm2' | 'sick1' | 'sick2';
 /** where a piece of clothing is worn */
 export type WearSlot = 'hat' | 'jacket' | 'pants' | 'shoes' | 'gloves';
 
+/** any category's id: one of the nine built in, or one a system registered (registerItemCat) */
+export type ItemCatId = ItemCat | (string & {});
+
+/** a system's own state on one thing (JSON only: rounds in a magazine, a blueprint's page): systems add their fields by declaration merging */
+export interface ItemState {}
+
 export interface ItemDef {
   readonly id: string;
-  readonly cat: ItemCat;
+  readonly cat: ItemCatId;
   readonly name: Text;
   /** grade, 0-5 stars */
   readonly stars: number;
@@ -78,6 +91,20 @@ export interface ItemDef {
   readonly lamp?: { range: number };
   /** heavy tools: a sledgehammer's blows, a repair kit's points and how fast it gives them */
   readonly gear?: { kind: 'hammer' | 'repair' | 'flare'; uses?: number; points?: number; rate?: number };
+  /** words other systems ask for (lower case, no spaces): a recipe wants any "meat", a basket accepts "#forage" */
+  readonly tags?: readonly string[];
+  /** how many make one stack (absent: 1, it does not stack). A stack is ONE instance with a count. */
+  readonly stack?: number;
+  /**
+   * It holds other things: how many stacks, of which categories ("food"), tags ("#forage") or anything ("*"),
+   * up to what weight; `decay` is how fast things in it go off against the open air (absent 1; a cool box
+   * 0.25; 0 never). Containers do not nest.
+   */
+  readonly holds?: { readonly slots: number; readonly accepts: readonly string[]; readonly maxKg?: number; readonly decay?: number };
+  /** it goes off: game hours in the open air from fresh to turned, and the kind it has become then (absent: it stays what it is, turned) */
+  readonly perish?: { readonly hours: number; readonly into?: string };
+  /** a drawn picture (its id) instead of a thumbnail of its model */
+  readonly icon?: string;
 }
 
 /** one thing of a kind, as carried, lying about or riding in a vehicle */
@@ -92,6 +119,22 @@ export interface ItemInstance {
   tint?: number;
   /** a can or a bottle opened already (its hiss or its cap only the first time) */
   opened?: boolean;
+  /** how many in this stack (absent: 1) */
+  n?: number;
+  /** what is in it (a container item: ItemDef.holds); flat, containers do not nest; absent when empty */
+  inside?: ItemInstance[];
+  /**
+   * Freshness, 1 (fresh) ... 0 (turned), as it was at world time `t0` (the world clock's seconds); `fk` is how
+   * fast it is going off where it is now (absent: 1, the open air). Read with freshNow; nothing steps it.
+   * A thing that goes off and has no `t0` yet has not started (stampFresh starts it).
+   */
+  fresh?: number;
+  t0?: number;
+  fk?: number;
+  /** quality, 1-5 stars (absent: it has none) */
+  q?: number;
+  /** its system's own state (JSON only) */
+  state?: ItemState;
 }
 
 interface Opt {
@@ -253,8 +296,15 @@ I('crate_chem', 'crate', '化工箱', 'Box of chemicals', 0, 2.4, { chemicals: 1
 I('crate_lye', 'crate', '碱液箱', 'Box of lye', 0, 10, { chemicals: 10, organics: 4 }, '一箱碱液，搬的时候别洒了。', { paint: 0xf4efe2, paint2: 0x7a7f45 });
 I('crate_supps', 'crate', '营养品箱', 'Box of food supplements', 0, 5, { organics: 10 }, '一箱过期的营养品，回收出有机物。', { paint: 0xa9d3b5, paint2: 0xf4efe2 });
 
-/** every kind of thing, in the catalogue's order */
+/** every kind of thing, in the catalogue's order: the kinds above, then what systems registered, in the order they did */
 export const ITEMS: readonly ItemDef[] = ALL;
+
+/**
+ * The kinds above alone, as they were before any system registered anything. The loot tables that existed
+ * before V3 pick by category out of THIS list (src/core/modcar/loot.ts, wrecks.ts), so a kind registered later,
+ * even into one of the nine old categories, never enters what a seed's containers and wrecks hold.
+ */
+export const BASE_ITEMS: readonly ItemDef[] = Object.freeze(ALL.slice());
 
 const BY_ID = new Map(ALL.map((d) => [d.id, d]));
 
@@ -268,52 +318,228 @@ export function hasItem(id: string): boolean {
   return BY_ID.has(id);
 }
 
-export function itemsOf(cat: ItemCat): ItemDef[] {
+export function itemsOf(cat: ItemCatId): ItemDef[] {
   return ALL.filter((d) => d.cat === cat);
 }
 
-let n = 0;
+// ------------------------------------------------------------------ the open catalogue
 
-/** things read back from a save keep their ids: new ones are numbered past them */
-export function reserveItemUids(uids: readonly string[]): void {
-  for (const u of uids) {
-    const k = /^i([0-9a-z]+)$/.exec(u);
-    if (k) n = Math.max(n, parseInt(k[1], 36));
+export interface ItemCatDef {
+  readonly id: string;
+  readonly name: Text;
+  /** its place in lists of categories: the nine built in are 0, 10 ... 80; one registered without an order comes after them, in the order registered */
+  readonly order: number;
+}
+
+const CATS: ItemCatDef[] = (Object.keys(ITEM_CATS) as ItemCat[]).map((id, i) => ({ id, name: ITEM_CATS[id], order: i * 10 }));
+const CAT_BY_ID = new Map(CATS.map((c) => [c.id, c]));
+let catSeq = 0;
+
+/** a new category of things (a system does this once, as its module is loaded); an id taken already throws */
+export function registerItemCat(def: { readonly id: string; readonly name: Text; readonly order?: number }): void {
+  if (!ID_RE.test(def.id)) throw new Error(`item category "${def.id}": an id is lower-case letters, digits and _`);
+  if (CAT_BY_ID.has(def.id)) throw new Error(`item category ${def.id} is registered already`);
+  const c: ItemCatDef = { id: def.id, name: def.name, order: def.order ?? 1000 + catSeq++ };
+  CATS.push(c);
+  CAT_BY_ID.set(c.id, c);
+  // sort is stable: equal orders keep the order they were registered in
+  CATS.sort((a, b) => a.order - b.order);
+}
+
+export function hasItemCat(id: string): boolean {
+  return CAT_BY_ID.has(id);
+}
+
+export function itemCat(id: string): ItemCatDef {
+  const c = CAT_BY_ID.get(id);
+  if (!c) throw new Error(`no item category ${id}`);
+  return c;
+}
+
+/** every category, in list order */
+export function itemCats(): readonly ItemCatDef[] {
+  return CATS;
+}
+
+/** a kind as a system writes it: what the catalogue can work out may be left out (carried by its weight, modelled by its id, kraft and cream, nothing for the recycler, no line on its card) */
+export type ItemRow = Omit<ItemDef, 'carry' | 'model' | 'paint' | 'paint2' | 'salvage' | 'blurb'> & Partial<Pick<ItemDef, 'carry' | 'model' | 'paint' | 'paint2' | 'salvage' | 'blurb'>>;
+
+const ID_RE = /^[a-z][a-z0-9_]*$/;
+const TAG_RE = /^[a-z][a-z0-9_]*$/;
+
+/** what is wrong with one row (nothing: an empty list) */
+function rowProblems(r: ItemRow, taken: (id: string) => boolean): string[] {
+  const bad: string[] = [];
+  const say = (m: string): void => void bad.push(`item ${r.id}: ${m}`);
+  if (typeof r.id !== 'string' || !ID_RE.test(r.id)) say('an id is lower-case letters, digits and _');
+  else if (taken(r.id)) say('is registered already');
+  if (!CAT_BY_ID.has(r.cat)) say(`no category ${r.cat} (register it first)`);
+  if (!r.name || typeof r.name.zh !== 'string' || typeof r.name.en !== 'string' || !r.name.zh || !r.name.en) say('needs a name in both languages');
+  if (!Number.isInteger(r.stars) || r.stars < 0 || r.stars > 5) say('stars are 0 to 5');
+  if (!(r.mass >= 0) || !Number.isFinite(r.mass)) say('mass is a weight in kg');
+  for (const t of r.tags ?? []) if (!TAG_RE.test(t)) say(`tag "${t}": lower-case letters, digits and _`);
+  if (r.stack !== undefined) {
+    if (!Number.isInteger(r.stack) || r.stack < 1 || r.stack > MAX_COUNT) say(`stack is a whole number from 1 to ${MAX_COUNT}`);
+    // a thing with a level of its own (litres, blows left) or with things in it is one of a kind
+    if (r.stack > 1 && (r.drink || r.gear?.uses !== undefined || r.gear?.points !== undefined || r.holds || r.pack)) say('a thing that is drunk from, wears out, holds things or is a backpack does not stack');
+  }
+  if (r.holds) {
+    if (!Number.isInteger(r.holds.slots) || r.holds.slots < 1) say('holds.slots is a whole number from 1');
+    if (!r.holds.accepts.length) say('holds.accepts is empty');
+    for (const a of r.holds.accepts) if (a !== '*' && !(a.startsWith('#') ? TAG_RE.test(a.slice(1)) : ID_RE.test(a))) say(`holds.accepts "${a}": a category id, "#tag" or "*"`);
+    if (r.holds.maxKg !== undefined && !(r.holds.maxKg > 0)) say('holds.maxKg is a weight in kg');
+    if (r.holds.decay !== undefined && !(r.holds.decay >= 0 && Number.isFinite(r.holds.decay))) say('holds.decay is a rate from 0');
+  }
+  if (r.perish && !(r.perish.hours > 0 && Number.isFinite(r.perish.hours))) say('perish.hours is a time in game hours');
+  return bad;
+}
+
+/**
+ * Add kinds to the catalogue (a system does this once, as its module is loaded, before a save is read).
+ * All of them or none: one bad row (an id taken, a category not registered, a stack of things that cannot
+ * stack) throws with every problem found and nothing is added.
+ */
+export function registerItems(rows: readonly ItemRow[]): void {
+  const bad: string[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    bad.push(...rowProblems(r, (id) => BY_ID.has(id) || seen.has(id)));
+    seen.add(r.id);
+  }
+  if (bad.length) throw new Error(bad.join('; '));
+  for (const r of rows) {
+    const d: ItemDef = {
+      ...r,
+      carry: r.carry ?? (r.mass >= 12 ? 'large' : r.mass >= 3 ? 'medium' : 'small'),
+      model: r.model ?? r.id,
+      paint: r.paint ?? 0xd8c29a,
+      paint2: r.paint2 ?? 0xf4efe2,
+      salvage: r.salvage ?? {},
+      blurb: r.blurb ?? '',
+    };
+    ALL.push(d);
+    BY_ID.set(d.id, d);
   }
 }
 
-/** one thing of a kind; a drink comes full unless it says, a hammer and a repair kit new */
+/**
+ * What is wrong with the catalogue as a whole, for the tests of whoever registers into it (nothing: an empty
+ * list): a kind that turns into one that does not exist, or into one that itself goes off into a third
+ * (one step only), a container no registered kind fits into.
+ */
+export function itemCatalogueProblems(): string[] {
+  const bad: string[] = [];
+  const tags = new Set<string>();
+  for (const d of ALL) for (const t of d.tags ?? []) tags.add(t);
+  for (const d of ALL) {
+    if (!CAT_BY_ID.has(d.cat)) bad.push(`item ${d.id}: no category ${d.cat}`);
+    const into = d.perish?.into;
+    if (into !== undefined) {
+      const t = BY_ID.get(into);
+      if (!t) bad.push(`item ${d.id}: turns into ${into}, which does not exist`);
+      else if (t.perish?.into !== undefined) bad.push(`item ${d.id}: turns into ${into}, which turns into something again`);
+      else if ((t.stack ?? 1) < (d.stack ?? 1)) bad.push(`item ${d.id}: stacks to ${d.stack}, but what it turns into (${into}) stacks to ${t.stack ?? 1}`);
+    }
+    for (const a of d.holds?.accepts ?? []) {
+      if (a === '*') continue;
+      if (a.startsWith('#') ? !tags.has(a.slice(1)) : !CAT_BY_ID.has(a)) bad.push(`item ${d.id}: accepts ${a}, which nothing is`);
+    }
+  }
+  return bad;
+}
+
+// ------------------------------------------------------------------ instances
+
+let uidN = 0;
+
+function nextUid(): string {
+  uidN++;
+  return `i${uidN.toString(36)}`;
+}
+
+/** things read back from a save keep their ids: new ones are numbered past them (pass the uids of things inside things too: forEachItem) */
+export function reserveItemUids(uids: readonly string[]): void {
+  for (const u of uids) {
+    const k = /^i([0-9a-z]+)$/.exec(u);
+    if (k) uidN = Math.max(uidN, parseInt(k[1], 36));
+  }
+}
+
+/**
+ * One thing of a kind (or a stack: `n`); a drink comes full unless it says, a hammer and a repair kit new,
+ * a thing that goes off fresh. Its freshness starts counting at `t0` if given (the world clock's seconds),
+ * otherwise when stampFresh is first called on it.
+ */
 export function newItem(id: string, o: Partial<ItemInstance> = {}): ItemInstance {
   const d = itemDef(id);
-  n++;
   return {
-    uid: `i${n.toString(36)}`,
+    uid: nextUid(),
     item: id,
     ...(d.drink ? { litres: d.drink.litres } : {}),
     ...(d.gear?.uses !== undefined ? { uses: d.gear.uses } : d.gear?.points !== undefined ? { uses: d.gear.points } : {}),
+    ...(d.perish ? { fresh: 1 } : {}),
     ...o,
   };
 }
 
-/** what the recycler gives for one: its own salvage, and one organics more for every half litre of liquid in it */
+/** the most one stack may ever hold, whatever a kind says */
+export const MAX_COUNT = 9999;
+
+/** how many a stack of this kind holds (1: it does not stack) */
+export function stackMax(id: string): number {
+  return itemDef(id).stack ?? 1;
+}
+
+/** how many this one is (a stack counts its count) */
+export function countOf(inst: ItemInstance): number {
+  return inst.n ?? 1;
+}
+
+/** the count is written only when it is more than one (one canonical form in saves and comparisons); 0 marks a stack used up, to be dropped by whoever holds it */
+function setCount(inst: ItemInstance, n: number): void {
+  if (n === 1) delete inst.n;
+  else inst.n = n;
+}
+
+/** the thing and what is in it: for walking a save, reserving uids, stamping freshness */
+export function forEachItem(inst: ItemInstance, fn: (x: ItemInstance, box: ItemInstance | null) => void): void {
+  fn(inst, null);
+  if (inst.inside) for (const x of inst.inside) fn(x, inst);
+}
+
+/** what the recycler gives for it: its kind's salvage, and one organics more for every half litre of liquid in it; a stack gives that for each, a container also what is in it */
 export function salvageOf(inst: ItemInstance): Partial<Record<Material, number>> {
   const d = itemDef(inst.item);
-  const out: Partial<Record<Material, number>> = { ...d.salvage };
+  const n = inst.n ?? 1;
+  const out: Partial<Record<Material, number>> = {};
+  for (const m of MATERIAL_IDS) {
+    const v = d.salvage[m];
+    if (v) out[m] = v * n;
+  }
   const liquid = Math.floor((inst.litres ?? 0) / 0.5);
-  if (liquid > 0) out.organics = (out.organics ?? 0) + liquid;
+  if (liquid > 0) out.organics = (out.organics ?? 0) + liquid * n;
+  if (inst.inside) {
+    for (const x of inst.inside) {
+      const s = salvageOf(x);
+      for (const m of MATERIAL_IDS) if (s[m]) out[m] = (out[m] ?? 0) + s[m]!;
+    }
+  }
   return out;
 }
 
-/** how heavy one is now (kg): with what is in it */
+/** how heavy it is now (kg): all of a stack, with what is in it */
 export function itemMass(inst: ItemInstance): number {
-  return itemDef(inst.item).mass + (inst.litres ?? 0);
+  let m = (itemDef(inst.item).mass + (inst.litres ?? 0)) * (inst.n ?? 1);
+  if (inst.inside) for (let i = 0; i < inst.inside.length; i++) m += itemMass(inst.inside[i]);
+  return m;
 }
 
-/** its name, with what is in it */
+/** its name, with what is in it and how many there are */
 export function itemName(inst: ItemInstance, lang: 'zh' | 'en' = 'zh'): string {
   const d = itemDef(inst.item);
   if (d.drink) return `${d.name[lang]}（${(inst.litres ?? 0).toFixed(2)} L）`;
-  return d.name[lang];
+  const n = inst.n ?? 1;
+  return n > 1 ? `${d.name[lang]} ×${n}` : d.name[lang];
 }
 
 /** the colours its model is painted */
@@ -325,4 +551,389 @@ export function itemPaint(inst: ItemInstance): { paint: number; paint2: number }
 /** the models the catalogue asks for (one file serves every kind that names it) */
 export function itemModels(): string[] {
   return [...new Set(ALL.map((d) => d.model))];
+}
+
+/** does this kind carry this tag? (no allocation: this is asked while the player looks at things) */
+export function hasTag(d: ItemDef, tag: string): boolean {
+  const t = d.tags;
+  if (!t) return false;
+  for (let i = 0; i < t.length; i++) if (t[i] === tag) return true;
+  return false;
+}
+
+// ------------------------------------------------------------------ freshness (lazy: a value at a time, read when asked)
+
+const HOUR_S = 3600;
+
+/** how fresh it is now, 1 ... 0 (1 for a thing that does not go off) */
+export function freshNow(inst: ItemInstance, nowS: number): number {
+  const f0 = inst.fresh;
+  if (f0 === undefined) return 1;
+  const t0 = inst.t0;
+  if (t0 === undefined) return f0;
+  const p = itemDef(inst.item).perish;
+  if (!p) return f0;
+  const dt = nowS - t0;
+  if (!(dt > 0)) return f0;
+  const f = f0 - (dt / (p.hours * HOUR_S)) * (inst.fk ?? 1);
+  return f > 0 ? f : 0;
+}
+
+/** fresh (0), still good (1), going off (2), turned (3): the card's word, and what a recipe may ask */
+export type FreshStage = 0 | 1 | 2 | 3;
+
+export function freshStage(f: number): FreshStage {
+  return f > 0.6 ? 0 : f > 0.3 ? 1 : f > 0 ? 2 : 3;
+}
+
+/** start a thing's freshness counting if it has not started (a thing that goes off, made without a time); with what is in it */
+export function stampFresh(inst: ItemInstance, nowS: number): void {
+  if (itemDef(inst.item).perish) {
+    if (inst.fresh === undefined) inst.fresh = 1;
+    if (inst.t0 === undefined) inst.t0 = nowS;
+  }
+  if (inst.inside) for (let i = 0; i < inst.inside.length; i++) stampFresh(inst.inside[i], nowS);
+}
+
+/** bring its freshness up to now (it goes off from here): before its rate changes, before two stacks become one */
+export function rebaseFresh(inst: ItemInstance, nowS: number): void {
+  if (inst.fresh === undefined) return;
+  inst.fresh = freshNow(inst, nowS);
+  inst.t0 = nowS;
+}
+
+/** how fast it goes off from now on: 1 in the open air, what holds it says otherwise (ItemDef.holds.decay) */
+export function setFreshRate(inst: ItemInstance, nowS: number, k: number): void {
+  if (inst.fresh === undefined) return;
+  if ((inst.fk ?? 1) === k && inst.t0 !== undefined) return;
+  rebaseFresh(inst, nowS);
+  if (k === 1) delete inst.fk;
+  else inst.fk = k;
+}
+
+/** has it gone off altogether? */
+export function turned(inst: ItemInstance, nowS: number): boolean {
+  return inst.fresh !== undefined && freshNow(inst, nowS) <= 0;
+}
+
+/**
+ * A thing that has turned becomes what its kind says (perish.into), in place: the same uid, the same count
+ * and the same place, nothing else of what it was. True when it changed kind (its picture, its name and its
+ * card must be made again). Call it where the world looks at a thing: as it is picked up, listed, shown on a
+ * card, eaten, saved. A kind without perish.into stays what it is, turned.
+ */
+export function settleItem(inst: ItemInstance, nowS: number): boolean {
+  if (inst.fresh === undefined || freshNow(inst, nowS) > 0) return false;
+  const into = itemDef(inst.item).perish?.into;
+  if (into === undefined) return false;
+  const d = BY_ID.get(into);
+  if (!d) return false;
+  inst.item = into;
+  delete inst.fresh;
+  delete inst.t0;
+  delete inst.fk;
+  delete inst.q;
+  delete inst.state;
+  delete inst.tint;
+  delete inst.opened;
+  if (d.perish) {
+    inst.fresh = 1;
+    inst.t0 = nowS;
+  }
+  return true;
+}
+
+// ------------------------------------------------------------------ stacks
+
+/** two stacks whose freshness differs by no more than this may become one (it takes the mean, by count) */
+export const STACK_FRESH_TOL = 0.25;
+
+/** JSON with its keys in order, so two states written in different orders compare equal */
+function stableJson(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableJson(o[k])}`)
+    .join(',')}}`;
+}
+
+function sameState(a: ItemState | undefined, b: ItemState | undefined): boolean {
+  if (a === undefined && b === undefined) return true;
+  return stableJson(a ?? {}) === stableJson(b ?? {});
+}
+
+/** the same sort of thing, apart from how fresh: the same kind, a kind that stacks, nothing inside, no level of their own (litres, blows left), the same colour, quality and state */
+function sameSort(a: ItemInstance, b: ItemInstance): boolean {
+  if (a === b || a.item !== b.item) return false;
+  if ((itemDef(a.item).stack ?? 1) <= 1) return false;
+  if (a.inside !== undefined || b.inside !== undefined) return false;
+  if (a.litres !== undefined || b.litres !== undefined || a.uses !== undefined || b.uses !== undefined) return false;
+  if (a.tint !== b.tint || a.q !== b.q || !!a.opened !== !!b.opened) return false;
+  return a.state === b.state || sameState(a.state, b.state);
+}
+
+/** about as fresh as each other (STACK_FRESH_TOL), each read at its own rate; a turned one only with turned ones */
+function freshClose(a: ItemInstance, b: ItemInstance, nowS: number): boolean {
+  if ((a.fresh === undefined) !== (b.fresh === undefined)) return false;
+  if (a.fresh === undefined) return true;
+  const fa = freshNow(a, nowS);
+  const fb = freshNow(b, nowS);
+  if ((fa <= 0) !== (fb <= 0)) return false;
+  return Math.abs(fa - fb) <= STACK_FRESH_TOL;
+}
+
+/**
+ * May these two be one stack? (Not whether there is room: mergeStacks says how many fit.) The same kind, a
+ * kind that stacks, nothing inside, no level of their own (litres, blows left), the same colour, quality and
+ * state, going off at the same rate and about as fresh (STACK_FRESH_TOL; a turned one only with turned ones).
+ */
+export function canStack(a: ItemInstance, b: ItemInstance, nowS: number): boolean {
+  return sameSort(a, b) && (a.fk ?? 1) === (b.fk ?? 1) && freshClose(a, b, nowS);
+}
+
+/** move k of `from` onto `into` (the caller has checked that they stack and that k fit) */
+function mergeSome(into: ItemInstance, from: ItemInstance, k: number, nowS: number): void {
+  const na = countOf(into);
+  if (into.fresh !== undefined) {
+    // the mean by count: no freshness is made or lost by putting things together
+    into.fresh = (freshNow(into, nowS) * na + freshNow(from, nowS) * k) / (na + k);
+    into.t0 = nowS;
+  }
+  setCount(into, na + k);
+  setCount(from, countOf(from) - k);
+}
+
+/**
+ * Move as many of `from` as fit onto the stack `into`. Returns how many are left in `from`: when 0, `from`
+ * is used up (its count reads 0) and whoever holds it drops it. Nothing moves when they do not stack.
+ */
+export function mergeStacks(into: ItemInstance, from: ItemInstance, nowS: number): number {
+  const left = countOf(from);
+  if (left <= 0 || !canStack(into, from, nowS)) return left;
+  const room = stackMax(into.item) - countOf(into);
+  if (room <= 0) return left;
+  const k = Math.min(room, left);
+  mergeSome(into, from, k, nowS);
+  return left - k;
+}
+
+/** take k off a stack as a new stack (a new uid). null when k is not a whole number from 1 to one less than what there is (to take all of it, take the thing itself). */
+export function splitStack(inst: ItemInstance, k: number): ItemInstance | null {
+  const n = countOf(inst);
+  if (!Number.isInteger(k) || k < 1 || k >= n) return null;
+  const out: ItemInstance = { ...inst, uid: nextUid() };
+  if (inst.state !== undefined) out.state = JSON.parse(JSON.stringify(inst.state)) as ItemState;
+  setCount(out, k);
+  setCount(inst, n - k);
+  return out;
+}
+
+// ------------------------------------------------------------------ things that hold things
+
+/** would this box take a thing of this kind at all? (its kind, not whether there is room: roomInside) */
+export function accepts(box: ItemInstance, inst: ItemInstance): boolean {
+  if (box === inst) return false;
+  const h = itemDef(box.item).holds;
+  if (!h) return false;
+  const d = itemDef(inst.item);
+  // containers do not nest
+  if (d.holds || inst.inside !== undefined) return false;
+  const acc = h.accepts;
+  for (let i = 0; i < acc.length; i++) {
+    const a = acc[i];
+    if (a === '*' || a === d.cat) return true;
+    if (a.charCodeAt(0) === 35 && d.tags) {
+      // "#tag": compared without cutting a string (this is asked while the player looks at things)
+      for (let j = 0; j < d.tags.length; j++) if (a.length === d.tags[j].length + 1 && a.endsWith(d.tags[j])) return true;
+    }
+  }
+  return false;
+}
+
+/** the weight of what is in it (kg) */
+export function insideMass(box: ItemInstance): number {
+  let m = 0;
+  if (box.inside) for (let i = 0; i < box.inside.length; i++) m += itemMass(box.inside[i]);
+  return m;
+}
+
+/**
+ * How many of `inst` the box would take now (0 ... its count): by its kind, by the weight the box bears, by
+ * room on the stacks inside that it would join and by free slots. Changes nothing and allocates nothing.
+ */
+export function roomInside(box: ItemInstance, inst: ItemInstance, nowS: number): number {
+  const total = countOf(inst);
+  if (total <= 0 || !accepts(box, inst)) return 0;
+  const h = itemDef(box.item).holds!;
+  let can = total;
+  if (h.maxKg !== undefined) {
+    const unit = itemMass(inst) / total;
+    if (unit > 0) can = Math.min(can, Math.floor((h.maxKg - insideMass(box)) / unit + 1e-9));
+    if (can <= 0) return 0;
+  }
+  const list = box.inside;
+  const used = list ? list.length : 0;
+  if (used < h.slots) return can;
+  // no free slot: only what fits onto stacks it would join (as if it were at the box's rate already)
+  let room = 0;
+  for (let i = 0; i < used && room < can; i++) {
+    const s = list![i];
+    if (stacksInside(s, inst, nowS)) room += Math.max(0, stackMax(s.item) - countOf(s));
+  }
+  return Math.min(can, room);
+}
+
+/** canStack for a thing about to join a stack inside a box: its own rate is not compared, since it takes the box's as it goes in */
+function stacksInside(s: ItemInstance, inst: ItemInstance, nowS: number): boolean {
+  return sameSort(s, inst) && freshClose(s, inst, nowS);
+}
+
+/**
+ * Put a thing into a box: onto the stacks inside that it joins first, then into a free slot. Returns how many
+ * are left outside: 0 when it is all in (then either `inst` itself is in box.inside, or it was used up onto
+ * stacks and its count reads 0: drop it either way); otherwise `inst` stays with that count. What goes in
+ * goes off at the box's rate from now.
+ */
+export function putInside(box: ItemInstance, inst: ItemInstance, nowS: number): number {
+  const total = countOf(inst);
+  let can = roomInside(box, inst, nowS);
+  if (can <= 0) return total;
+  const h = itemDef(box.item).holds!;
+  const k = h.decay ?? 1;
+  const list = (box.inside ??= []);
+  const out = inst.fk ?? 1;
+  setFreshRate(inst, nowS, k);
+  let left = total;
+  for (let i = 0; i < list.length && can > 0 && left > 0; i++) {
+    const s = list[i];
+    if (!stacksInside(s, inst, nowS)) continue;
+    const m = Math.min(stackMax(s.item) - countOf(s), can, left);
+    if (m <= 0) continue;
+    mergeSome(s, inst, m, nowS);
+    left -= m;
+    can -= m;
+  }
+  if (left > 0 && can > 0 && list.length < h.slots) {
+    if (can >= left) {
+      list.push(inst);
+      return 0;
+    }
+    const part = splitStack(inst, can);
+    if (part) {
+      list.push(part);
+      left -= can;
+    }
+  }
+  if (!list.length) delete box.inside;
+  // what stays outside goes off as it did
+  if (left > 0) setFreshRate(inst, nowS, out);
+  return left;
+}
+
+/** take the i-th thing out of a box (or k off it, as a new stack); it goes off in the open air from now. null when there is no such thing. */
+export function takeInside(box: ItemInstance, i: number, nowS: number, k?: number): ItemInstance | null {
+  const list = box.inside;
+  const s = list?.[i];
+  if (!list || !s) return null;
+  let out: ItemInstance;
+  if (k !== undefined && k < countOf(s)) {
+    const part = splitStack(s, k);
+    if (!part) return null;
+    out = part;
+  } else {
+    list.splice(i, 1);
+    if (!list.length) delete box.inside;
+    out = s;
+  }
+  setFreshRate(out, nowS, 1);
+  return out;
+}
+
+// ------------------------------------------------------------------ identity and loading
+
+/**
+ * A string that is the same for two things that are the same thing in the same state, whatever their uids:
+ * kind, count, level, colour, quality, state and what is inside (not freshness, which moves with time).
+ */
+export function itemSig(inst: ItemInstance): string {
+  let s = inst.item;
+  if (inst.n !== undefined) s += `*${inst.n}`;
+  if (inst.litres !== undefined) s += `|l${inst.litres.toFixed(2)}`;
+  if (inst.uses !== undefined) s += `|u${inst.uses.toFixed(2)}`;
+  if (inst.tint !== undefined) s += `|t${inst.tint}`;
+  if (inst.q !== undefined) s += `|q${inst.q}`;
+  if (inst.state !== undefined) s += `|s${stableJson(inst.state)}`;
+  if (inst.inside) s += `[${inst.inside.map(itemSig).join(',')}]`;
+  return s;
+}
+
+/** what a tolerant load set aside: how many things (a stack counts its count) were of a kind the catalogue does not have */
+export interface LoadLoss {
+  unknown: number;
+}
+
+function lostCount(raw: Record<string, unknown>): number {
+  const n = raw.n;
+  let c = typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= MAX_COUNT ? n : 1;
+  if (Array.isArray(raw.inside)) for (const x of raw.inside) if (x && typeof x === 'object') c += lostCount(x as Record<string, unknown>);
+  return c;
+}
+
+/**
+ * A thing read back from a save, made sound, in place. null when it is not a thing at all, or when its kind
+ * is not in the catalogue (a kind from a system this build does not have): then it and what was in it are
+ * counted in `loss` and whoever was holding it drops it. A count, a freshness or a quality out of range is
+ * brought back into range; fields its kind has no use for are removed; what is inside is cleaned the same way.
+ */
+export function cleanItem(raw: unknown, loss: LoadLoss): ItemInstance | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.uid !== 'string' || typeof r.item !== 'string') return null;
+  const d = BY_ID.get(r.item);
+  if (!d) {
+    loss.unknown += lostCount(r);
+    return null;
+  }
+  const inst = raw as ItemInstance;
+  if (r.n !== undefined) {
+    const n = r.n;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n <= 1) delete inst.n;
+    else if (n > MAX_COUNT) inst.n = MAX_COUNT;
+  }
+  for (const k of ['litres', 'uses', 'tint'] as const) if (r[k] !== undefined && (typeof r[k] !== 'number' || !Number.isFinite(r[k] as number))) delete inst[k];
+  if (r.opened !== undefined && typeof r.opened !== 'boolean') delete inst.opened;
+  if (!d.perish) {
+    delete inst.fresh;
+    delete inst.t0;
+    delete inst.fk;
+  } else {
+    if (typeof r.fresh !== 'number' || !Number.isFinite(r.fresh)) inst.fresh = 1;
+    else inst.fresh = Math.min(1, Math.max(0, r.fresh));
+    if (r.t0 !== undefined && (typeof r.t0 !== 'number' || !Number.isFinite(r.t0))) delete inst.t0;
+    if (r.fk !== undefined && (typeof r.fk !== 'number' || !Number.isFinite(r.fk) || r.fk < 0 || r.fk === 1)) delete inst.fk;
+  }
+  if (r.q !== undefined && (typeof r.q !== 'number' || !Number.isInteger(r.q) || r.q < 1 || r.q > 5)) delete inst.q;
+  if (r.state !== undefined && (r.state === null || typeof r.state !== 'object' || Array.isArray(r.state))) delete inst.state;
+  if (r.inside !== undefined) {
+    if (!d.holds || !Array.isArray(r.inside)) delete inst.inside;
+    else {
+      const kept: ItemInstance[] = [];
+      for (const x of r.inside) {
+        const c = cleanItem(x, loss);
+        if (!c) continue;
+        // containers do not nest: a box found inside a box stays, without what was in it
+        if (c.inside) {
+          for (const y of c.inside) loss.unknown += countOf(y);
+          delete c.inside;
+        }
+        kept.push(c);
+      }
+      if (kept.length) inst.inside = kept;
+      else delete inst.inside;
+    }
+  }
+  return inst;
 }
