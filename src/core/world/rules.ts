@@ -8,17 +8,59 @@
  * that the second can change without the first noticing.
  *
  * The road itself reads this file (spine.ts), so it stands below every other module of the world:
- * whatever it needs at run time — a quiet rule — may know the road, the landforms, the water and the
- * rest by their types only, never import them to run (the modules would load in a circle). A rule is
- * handed the chapter plan when it is asked, and the plan holds the rules: `plan.rules.slot` is the
- * length of a stretch, `plan.rules.regionCount` how many regions the world knows.
+ * whatever it needs at run time — a dealer, a quiet rule — may know the road, the landforms, the water
+ * and the rest by their types only, never import them to run (the modules would load in a circle).
+ * A rule is handed the chapter plan when it is asked, and the plan holds the rules: `plan.rules.slot`
+ * is the length of a stretch, `plan.rules.regionCount` how many regions the world knows.
  */
+import type { Rng } from '../math/rng';
 import { BIOMES, FIRST_BIOMES, MIN_RADIUS_ANY } from './biomes';
 import { quietSlot } from './quiet';
 import type { ChapterPlan } from './spine';
 
 /** the versions of the generator there are */
 export type WorldVersion = 1 | 2;
+
+/** one chapter as its dealer hands it over */
+export interface DealtChapter {
+  /** the region the chapter runs through: an index into BIOMES, below the world's `regionCount` */
+  region: number;
+  /** the chapter's length along the road (m) */
+  length: number;
+}
+
+/**
+ * What a dealer is told when it deals: the world's identity and the chapters dealt so far — nothing of
+ * the road's geometry, which is laid only after it (the road reads the chapters, never the other way).
+ */
+export interface DealerView {
+  /** the world's seed */
+  readonly seed: number;
+  /** what chapter lengths are multiplied by (SpineOptions.chapterScale) */
+  readonly scale: number;
+  /** the region the journey was asked to begin in (SpineOptions.startBiome as an index into BIOMES; 0 when it named none the world knows) */
+  readonly startRegion: number;
+  /** the world's rules: `regionCount` (never deal an index at or above it), `slot`, `version` */
+  readonly rules: WorldRules;
+  /** the regions dealt so far, chapter by chapter (empty while chapter 0 is being dealt) */
+  readonly regions: readonly number[];
+  /** where each chapter begins (m of road): one entry more than `regions`, the last being where the chapter now dealt begins */
+  readonly starts: readonly number[];
+  /**
+   * The chapter plan's own stream of dice, Rng(hash2(seed, 0xb10e, 77)). Version 1 draws from it in
+   * order, one number for chapter 0 and two for every chapter after; a dealer that takes its dice from
+   * hashes of the chapter's index instead never touches it.
+   */
+  readonly rng: Rng;
+}
+
+/** Who decides which region comes next and how long it lasts. Without state of its own: one dealer serves every world of its version. */
+export interface ChapterDealer {
+  /** chapter 0 */
+  first(deal: DealerView): DealtChapter;
+  /** the chapter after those dealt so far (its index is `deal.regions.length`) */
+  next(deal: DealerView): DealtChapter;
+}
 
 /**
  * Is stretch k of the road one of the journey's quiet ones (no place to stop, no lake, no bridge, no
@@ -58,6 +100,8 @@ export interface WorldRules {
    * checks when a world is made).
    */
   readonly slot: number;
+  /** who deals the chapters */
+  readonly dealer: ChapterDealer;
   /** the length over which two regions blend into each other at a chapter border (m), by chapter scale */
   readonly transition: (scale: number) => number;
   /** which stretches are left quiet */
@@ -68,6 +112,31 @@ export interface WorldRules {
 /** the kinds of country version 1 deals from once a journey is under way: the six there were when it was written */
 const V1_REGIONS = 6;
 
+/**
+ * Version 1's dealer, draw for draw what the chapter plan always did. The pools are written as numbers
+ * — three kinds, then six — and never as the registry's length: that is what lets a region be appended
+ * to the registry without a single old world changing.
+ */
+export const DEALER_V1: ChapterDealer = {
+  first(deal) {
+    // the first chapter is a short, gentle introduction
+    return { region: deal.startRegion, length: deal.rng.range(6000, 9000) * deal.scale };
+  },
+  next(deal) {
+    const c = deal.regions.length;
+    const prev = deal.regions[c - 1];
+    // The first four chapters are drawn from the three kinds of country the journey begins in (and
+    // drawn exactly as they always were: one number, the other two in order); from the fifth on every
+    // kind may come, never the one just left nor the one before it.
+    const before = c >= 2 ? deal.regions[c - 2] : -1;
+    const kinds = Math.min(c < 4 ? FIRST_BIOMES : V1_REGIONS, deal.rules.regionCount);
+    const pool: number[] = [];
+    for (let b = 0; b < kinds; b++) if (b !== prev && (c < 4 || b !== before)) pool.push(b);
+    const region = pool[deal.rng.int(pool.length)];
+    return { region, length: deal.rng.range(10000, 18000) * deal.scale };
+  },
+};
+
 const ROAD_V1: RoadRules = Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08 });
 
 /** Version 1: every world made before there were versions. Nothing here may change. */
@@ -75,6 +144,7 @@ export const RULES_V1: WorldRules = Object.freeze({
   version: 1,
   regionCount: V1_REGIONS,
   slot: 1250,
+  dealer: DEALER_V1,
   transition: (scale: number): number => Math.max(300, 900 * Math.min(1, scale * 2)),
   // two neighbouring stretches in every block of nine, from the fourth chapter on (quiet.ts)
   quiet: quietSlot,
@@ -91,6 +161,9 @@ export const RULES_V2: WorldRules = Object.freeze({
   version: 2,
   regionCount: BIOMES.length,
   slot: 1250,
+  // ---- THE VERSION 2 DEALER PLUGS IN HERE (src/core/world/dealer.ts: pacing rules over region data,
+  // dice from hash2(chapter, salt, seed)); until it does, version 2 deals as version 1 does
+  dealer: DEALER_V1,
   transition: (scale: number): number => Math.max(300, 900 * Math.min(1, scale * 2)),
   // ---- THE VERSION 2 QUIET RULE PLUGS IN HERE (src/core/world/director.ts: one quiet run to a region,
   // not at its ends); until it does, version 2 keeps version 1's blocks of nine

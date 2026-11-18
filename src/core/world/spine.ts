@@ -15,8 +15,8 @@ import { fbm1 } from '../math/noise';
 import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
-import { BIOMES, minRadius, type BiomeDef, FIRST_BIOMES } from './biomes';
-import { rulesFor, type WorldRules, type WorldVersion } from './rules';
+import { BIOMES, minRadius, type BiomeDef } from './biomes';
+import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
 
 const DEG = Math.PI / 180;
 const G = 9.81;
@@ -67,43 +67,46 @@ export class SpineSample {
   bank = 0;
 }
 
-/** The sequence of biomes along the road. */
+/**
+ * The sequence of biomes along the road. Which region each chapter runs through and how long it lasts is
+ * its dealer's business (rules.ts: the world's rules name the dealer); the plan keeps what was dealt, in
+ * order, and answers for any point of the road.
+ */
 export class ChapterPlan {
   readonly starts: number[] = [0];
   readonly biomes: number[] = [];
   /** length of the zone over which two biomes blend (m) */
   readonly transition: number;
-  private readonly rng: Rng;
+  /** what the dealer is shown: the world's identity and the chapters so far (the two lists above, as they grow) */
+  private readonly deal: DealerView;
 
-  /** @param rules the world's rules (absent: version 1's) */
+  /**
+   * @param first the region the journey is asked to begin in (an index into BIOMES)
+   * @param rules the world's rules (absent: version 1's)
+   */
   constructor(
     seed: number,
     readonly scale: number,
     first: number,
     readonly rules: WorldRules = rulesFor(1),
   ) {
-    this.rng = new Rng(hash2(seed, 0xb10e, 77));
-    this.biomes.push(first);
     this.transition = rules.transition(scale);
-    // the first chapter is a short, gentle introduction
-    this.starts.push(this.rng.range(6000, 9000) * scale);
+    this.deal = { seed, scale, startRegion: first, rules, regions: this.biomes, starts: this.starts, rng: new Rng(hash2(seed, 0xb10e, 77)) };
+    this.take(rules.dealer.first(this.deal));
   }
 
   private extend(): void {
-    const c = this.biomes.length;
-    const prev = this.biomes[c - 1];
-    // The first four chapters are drawn from the three kinds of country the journey begins in (and
-    // drawn exactly as they always were: one number, the other two in order); from the fifth on every
-    // kind may come, never the one just left nor the one before it.
-    const before = c >= 2 ? this.biomes[c - 2] : -1;
-    // (the pools are numbers, three kinds and then six, never the registry's length: a region appended
-    // to the registry changes no world that was dealt before it; and never more than the world knows)
-    const kinds = Math.min(c < 4 ? FIRST_BIOMES : 6, this.rules.regionCount);
-    const pool: number[] = [];
-    for (let b = 0; b < kinds; b++) if (b !== prev && (c < 4 || b !== before)) pool.push(b);
-    const next = pool[this.rng.int(pool.length)];
-    this.biomes.push(next);
-    this.starts.push(this.starts[this.starts.length - 1] + this.rng.range(10000, 18000) * this.scale);
+    this.take(this.rules.dealer.next(this.deal));
+  }
+
+  /** the next chapter, as dealt: a region the world knows, and a length */
+  private take(d: DealtChapter): void {
+    if (!Number.isInteger(d.region) || d.region < 0 || d.region >= this.rules.regionCount) {
+      throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt region ${String(d.region)}, and this world knows regions 0 to ${this.rules.regionCount - 1}`);
+    }
+    if (!(d.length > 0 && d.length < Infinity)) throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt a length of ${String(d.length)} m`);
+    this.biomes.push(d.region);
+    this.starts.push(this.starts[this.starts.length - 1] + d.length);
   }
 
   blend(s: number, out: BiomeBlend): void {
