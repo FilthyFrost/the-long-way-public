@@ -61,6 +61,7 @@ function hands() {
       pick: (_e: unknown, _d: unknown, _r: number, filter?: (l: Loose) => boolean) => (mark.on && lying.includes(mark.on) && (!filter || filter(mark.on)) ? { loose: mark.on, dist: 1 } : null),
       highlight: () => {},
       remove: (l: Loose) => void lying.splice(lying.indexOf(l), 1),
+      touch: () => {},
       addItem: (item: ItemInstance) => add(item),
       drop: () => {},
     },

@@ -75,6 +75,7 @@ import { Radio } from './radio';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { setItemClock } from './itemTime';
+import { setItemCardFault } from './itemInfo';
 import { backInTheWorld } from './save';
 import { Sparks } from './sparks';
 import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
@@ -437,6 +438,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly clock: WorldTime = this.kernel.clock;
   /** (things that go off read the same clock: itemTime.ts) */
   private readonly itemClockSet = setItemClock(this.kernel.clock);
+  /** (a system's lines on an item's card that throw are reported like its other faults: itemInfo.ts) */
+  private readonly cardFaultSet = setItemCardFault((where, e) => this.kernel.report(where, e));
   /** things in the world the mark finds and E works, from the systems (the player's pick asks it) */
   readonly interact = this.kernel.interact;
   /** the systems' tabs of the developer's panel */

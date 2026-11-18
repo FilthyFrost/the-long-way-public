@@ -1214,6 +1214,7 @@ export class ModPlayer {
         const rode = l.riding?.on as ModVehicle | undefined;
         // only part of a stack went in: the rest lies where it was, the same thing with what is left of its count
         if (left <= 0) host.loose.remove(l);
+        else host.loose.touch();
         // (taken out of a vehicle, all of it or some: what rides in the vehicle is weighed again)
         if (rode && host.vehicles.includes(rode)) host.cargoChanged(rode);
         host.sound('pickup', left > 0 ? (kg * (all - left)) / all : kg);
