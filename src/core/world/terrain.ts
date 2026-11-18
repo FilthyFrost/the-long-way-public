@@ -81,6 +81,13 @@ export class TerrainPoint {
   siteGround = 0;
   /** how fully it lies on a plot of the caller's (WorldOptions.plots: ModCar's farmyard), 0…1 */
   plot = 0;
+  /**
+   * How much of the land's height here is an anchored landform's (m; features.ts: a tower, a butte): 0
+   * where none stands, and everywhere in a world of version 1. For whoever paints the land: the flank of
+   * a tower is rock. `relief` does not include it. (Whatever fills a TerrainPoint sets it: the Lands of
+   * onfoot/land.ts set it to 0.)
+   */
+  landform = 0;
   /** a road that ends at its start (WorldOptions.deadEnd): how far behind its start the point lies (m), 0 beside it */
   behind = 0;
 }
@@ -316,8 +323,8 @@ export class World implements Ground {
 
   /**
    * What a cluster of anchored landforms in stretch k is made of: its region's recipes, if the director
-   * gives the stretch to landforms (as many stretches of a chapter as the region asks for) and it is
-   * neither one of the quiet ones nor by the sea; null otherwise.
+   * gives the stretch to landforms (as many stretches of a chapter as the region asks for, the quiet ones
+   * among them: scenery is not a place to stop) and it is not beside or along a sea; null otherwise.
    */
   private featureRecipes(k: number): readonly FeatureRecipe[] | null {
     const plan = this.spine.plan;
@@ -326,7 +333,7 @@ export class World implements Ground {
     const want = region.featureSlots ?? 0;
     if (want <= 0 || !region.features || region.features.length === 0) return null;
     if (!featureSlots(this.seed, { chapter: run.chapter, k0: run.k0, k1: run.k1, features: want }).includes(k)) return null;
-    if (this.quiet(k) || this.sea.near(k) || this.sea.along(k)) return null;
+    if (this.sea.near(k) || this.sea.along(k)) return null;
     return region.features;
   }
 
@@ -543,7 +550,11 @@ export class World implements Ground {
     // road, far from it and in the far ring's coarse land alike, so that a tower is the same tower
     // whoever draws it. They keep clear of the road's corridor (features.ts CLEAR), so the road, its
     // shoulders, its verge and the ground of the places are what they were.
-    if (this.features !== null) T += this.features.heightAt(x, z, s0);
+    if (this.features !== null) {
+      const add = this.features.heightAt(x, z, s0);
+      T += add;
+      o.landform = add;
+    } else o.landform = 0;
     if (!near) {
       o.h = o.bed = T;
       if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;

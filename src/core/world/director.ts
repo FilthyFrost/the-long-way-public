@@ -6,7 +6,8 @@
  *   - one quiet run of two stretches in every region after the first (no place, no lake, no bridge, no
  *     landmark: a few minutes of just driving), never at the region's first or last stretch;
  *   - the stretches that hold the region's anchored landforms (tower clusters, buttes, cones: features.ts),
- *     as many as the region's recipe asks, never in the quiet run nor in the region's first stretch;
+ *     as many as the region's recipe asks, never in the region's first stretch. They may stand in the quiet
+ *     run: landforms are scenery, not a place to stop;
  *   - (later nodes) the stretch of a wonder, the gate at a border, grade and curve classes.
  *
  * It does not read the road's geometry: the road, the water and the landforms read the programme. So the
@@ -51,16 +52,16 @@ export function isQuiet(seed: number, run: RegionRun, k: number): boolean {
 
 /**
  * The stretches of a region that hold an anchored landform, in road order: `run.features` of them (fewer
- * when the region has no room), none in the quiet run, none in the first stretch (the country changes
- * there), spread over the region and not bunched: the candidates are taken in an order the hash shuffles,
- * and one next to a stretch already taken is passed over while others remain.
+ * when the region has no room), none in the first stretch (the country changes there), spread over the
+ * region and not bunched: the candidates are taken in an order the hash shuffles, and one next to a stretch
+ * already taken is passed over while others remain. The quiet run is a candidate like any other stretch:
+ * what makes it quiet is that there is nowhere to stop, not that there is nothing to see.
  */
 export function featureSlots(seed: number, run: RegionRun): number[] {
   const want = run.features;
   if (want <= 0) return [];
-  const q = quietStart(seed, run);
   const cand: number[] = [];
-  for (let k = run.k0 + 1; k < run.k1; k++) if (q < 0 || (k !== q && k !== q + 1)) cand.push(k);
+  for (let k = run.k0 + 1; k < run.k1; k++) cand.push(k);
   // a shuffle by hash (Fisher-Yates with a hash per step: the same for the same region and seed)
   for (let i = cand.length - 1; i > 0; i--) {
     const j = (hash2(run.chapter * 64 + i, SALT_FEATURE, seed | 0) >>> 8) % (i + 1);

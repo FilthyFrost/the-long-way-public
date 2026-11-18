@@ -24,6 +24,7 @@ export class FunctionLand implements Land {
     o.bridge = 0;
     o.zone = 0;
     o.frozen = 0;
+    o.landform = 0;
   }
 }
 
@@ -39,6 +40,7 @@ export class GroundLand implements Land {
     o.bridge = 0;
     o.zone = 0;
     o.frozen = 0;
+    o.landform = 0;
   }
 }
 
