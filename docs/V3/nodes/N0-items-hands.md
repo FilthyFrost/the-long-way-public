@@ -19,7 +19,8 @@ call and fill it again after: so a list takes a thing out of a basket that is it
 going straight back in (`listSources.ts`); `not` names such a basket instead. With no slot free, things lying
 about get the mark only when a stack or a basket in the hands has room for them. The prompt says where a thing
 would go when not simply into the empty hand: `（叠到快捷栏 1）`, `（装进试验篮）`, `（放进快捷栏 2）`, and
-`，只拿得下 3 个` when only part of a stack would.
+`，只拿得下 3 个` when only part of a stack would. (The scripts' `hold` puts its thing into the selected hand
+through `receive`, the other slots stepping aside: after it the thing held is the one asked for.)
 
 **In the hands.** A thing that goes into a slot is started (`stampFresh`) and goes off in the open air from
 then on. Every frame on foot (and as the hotbar is drawn in a seat) each slot's thing and what is inside it is

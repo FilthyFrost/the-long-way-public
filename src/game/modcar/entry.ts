@@ -260,14 +260,21 @@ const rt = {
   },
   /** put a new part (or a tool kind prefixed with "tool:", an item with "item:") into the hands */
   hold: (id: string, opts: Record<string, unknown> = {}) => {
-    // (what was in the hands gives way, as it always did here; the new thing then enters them the one way things do:
-    // onto a stack of its sort or into a basket in the other slots when there is one, else into the hand just emptied)
-    game.player.held = null;
-    if (id.startsWith('tool:')) game.player.receive({ kind: 'tool', tool: newTool(id.slice(5) as ToolKind, opts) });
-    else if (id.startsWith('item:')) game.player.receive({ kind: 'item', item: newItem(id.slice(5), opts) });
-    else game.player.receive({ kind: 'part', inst: newInstance(id) });
+    const p = game.player;
+    const h = id.startsWith('tool:') ? { kind: 'tool' as const, tool: newTool(id.slice(5) as ToolKind, opts) } : id.startsWith('item:') ? { kind: 'item' as const, item: newItem(id.slice(5), opts) } : { kind: 'part' as const, inst: newInstance(id) };
+    // What was in the hand gives way, as it always did here, and the new thing enters that hand the one way
+    // things enter the hands (ModPlayer.receive: started, going off in the open air). The other slots step aside
+    // meanwhile, so that it is in the hand whatever they hold (a stack of its sort, a basket that would take it):
+    // a script that holds a thing has it in the hand. A thing the hands will not take (a stack used up, made so
+    // on purpose) is put there as it is.
+    const sel = p.sel;
+    const others = p.slots.map((x, i) => (i === sel ? null : x));
+    for (let i = 0; i < p.slots.length; i++) p.slots[i] = null;
+    p.receive(h);
+    for (let i = 0; i < p.slots.length; i++) if (i !== sel) p.slots[i] = others[i];
+    if (!p.slots[sel]) p.slots[sel] = h;
     game.simulate(0);
-    return game.player.telemetry();
+    return p.telemetry();
   },
   /** pick up the first loose thing of a part id (into the hands, or the hotbar's free slot as the game does) */
   pickUp: (id: string) => {
