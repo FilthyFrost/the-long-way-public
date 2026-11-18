@@ -401,6 +401,23 @@ describe('kernel: an example module against the interfaces alone', () => {
     expect(game.reports).toEqual([]);
   });
 
+  it('a save written while the page is still loading keeps the parts it was loaded with', async () => {
+    const hunting = { v: 3, d: { herds: [[1, 2, 3]] } };
+    const save = { hour: 10, slices: { hunting, example: { v: 2, d: { bare: { 5: 0 }, picked: 4 } } }, clock: { day: 2, hour: 10, start: 9 } };
+    const m = exampleModule();
+    const game = new FakeGame([m], save);
+    // (the systems are not set up yet, the slices not read: what the page would write now if it were hidden)
+    expect(m.berries.bare()).toEqual([]);
+    const early = game.saved();
+    expect(early.slices).toEqual(save.slices);
+    expect(early.clock).toEqual(save.clock);
+    await game.start();
+    expect(m.berries.bare()).toEqual([5]);
+    expect(game.saved().slices).toEqual(save.slices);
+    // a new game not yet set up has nothing to write
+    expect(new FakeGame([exampleModule()]).snapshot().slices).toBeUndefined();
+  });
+
   it('has a developer tab built from the panel’s pieces, whose buttons work the system', async () => {
     const { game, berries } = await play();
     berries.harness.pick(0);

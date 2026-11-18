@@ -393,6 +393,8 @@ try {
     const { page, errors, ready, rt, P } = await openPage(ctx, `${url}/modcar.html`);
     const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('modcar.save.v1') ?? 'null'));
     // (the page as it goes writes its save: stopped, so that what this script puts into the storage stays)
+    // Returns what the page would have saved while it was still loading — its vehicles back, its systems not yet
+    // set up — or null when the page was ready before it could be asked.
     const reloadWith = async (edit) => {
       await page.evaluate(
         ({ edit }) => {
@@ -405,7 +407,10 @@ try {
         { edit },
       );
       await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => (window.__rt?.game?.vehicles?.length ?? 0) > 0, null, { timeout: 180_000 });
+      const early = await page.evaluate(() => (window.__rt.ready || window.__probe.init ? null : window.__rt.game.snapshot()));
       await ready();
+      return early;
     };
     // (what the game said of itself: an hour of the clock may pass meanwhile, the page being live)
     const said = (q) => q.events.filter((e) => e[0].startsWith('game:')).map((e) => e[0]).join();
@@ -432,7 +437,10 @@ try {
 
     // the page again, with a slice of a system that is not there in the save: the slice restored, the clock gone on, the stranger kept
     const ghost = { v: 3, d: { herds: [[1, 2, 3]], note: 'kept' } };
-    await reloadWith(`s.slices.ghost = ${JSON.stringify(ghost)};`);
+    const early = await reloadWith(`s.slices.ghost = ${JSON.stringify(ghost)};`);
+    console.log('while loading', early ? JSON.stringify({ slices: early.slices, clock: early.clock }) : 'the page was ready before it could be asked');
+    // (a page hidden while it loads writes its save: the slices not yet read must be in it as they were loaded)
+    if (early) check(JSON.stringify(early.slices) === JSON.stringify({ probe: { v: 1, d: { value: 7 } }, ghost }) && early.clock.day === 0, `a save written while loading lost the slices: ${JSON.stringify(early.slices)}`);
     p = await P();
     let k = await rt('kernel');
     console.log('reloaded', JSON.stringify({ value: p.value, restored: p.restored, events: p.events, clock: k.clock, slices: k.slices, firstSteps: p.dts.slice(0, 3) }));

@@ -51,6 +51,8 @@ export class FakeGame {
   seated: GameContext['seated'] = null;
   readonly ctx: GameContext;
   private readonly nearDevices: GarageDevice[] = [];
+  /** the systems are set up and the slices have taken their parts back (ModGame.slicesRead) */
+  private slicesRead = false;
 
   constructor(
     modules: readonly GameModule[],
@@ -107,10 +109,9 @@ export class FakeGame {
     } catch (e) {
       this.report('systems', e);
     }
-    if (this.restore) {
-      this.slices.restore(this.restore.slices);
-      this.events.emit('game:restored', NOTHING);
-    } else this.events.emit('game:new', NOTHING);
+    if (this.restore) this.slices.restore(this.restore.slices);
+    this.slicesRead = true;
+    this.events.emit(this.restore ? 'game:restored' : 'game:new', NOTHING);
     return this;
   }
 
@@ -136,7 +137,7 @@ export class FakeGame {
   /** what the kernel puts into the save (ModGame.snapshot) */
   snapshot(): KernelSave {
     const s: KernelSave = { hour: this.sky.hour };
-    const slices = this.slices.snapshot();
+    const slices = this.slicesRead ? this.slices.snapshot() : this.restore?.slices;
     if (slices) s.slices = slices;
     s.clock = this.clock.snapshot();
     return s;

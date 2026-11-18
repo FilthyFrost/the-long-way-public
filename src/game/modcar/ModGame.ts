@@ -433,6 +433,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly devTabs = new DevTabs();
   /** the modules installed, by id in order */
   private readonly moduleIds: string[] = [];
+  /** the systems are set up and the slices have taken their parts of the save back (startSystems is through) */
+  private slicesRead = false;
   /** what the kernel last reported going wrong and set apart (a system, a listener, a slice, a module), and how many times anything was */
   readonly kernelLog = { last: '', count: 0 };
   /** told of each such report (entry.ts: the test hook's lastError) */
@@ -543,10 +545,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (an order that cannot be: no system runs, the game does)
       this.kernelReport('systems', e);
     }
-    if (this.restore) {
-      this.slices.restore(this.restore.slices);
-      this.events.emit('game:restored', NOTHING);
-    } else this.events.emit('game:new', NOTHING);
+    if (this.restore) this.slices.restore(this.restore.slices);
+    this.slicesRead = true;
+    this.events.emit(this.restore ? 'game:restored' : 'game:new', NOTHING);
   }
 
   /** something in the kernel went wrong and was set apart: kept for the test hook, said once */
@@ -1674,8 +1675,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     if (this.wrecks) s.wrecks = this.wrecks.snapshot();
     if (this.places) s.places = { ...this.places.snapshot(), ...(this.doors ? { doors: this.doors.snapshot() } : {}) };
-    // (the V3 systems' parts, where any has something to keep, and the world's clock)
-    const slices = this.slices.snapshot();
+    // (the V3 systems' parts, where any has something to keep, and the world's clock; a save written while the
+    // page is still loading, before the slices have taken their parts back, keeps the parts it was loaded with)
+    const slices = this.slicesRead ? this.slices.snapshot() : this.restore?.slices;
     if (slices) s.slices = slices;
     s.clock = this.clock.snapshot();
     return s;
