@@ -99,7 +99,7 @@ function maskUvs(root: THREE.Object3D): void {
  * wipers, the filler cap, mount empties, a hub's carrier (it rides with its wheel). Each is a rigid piece of
  * its own; everything else in a model stands still relative to the model's root.
  */
-const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_)/;
+const RIGID = /^(P_|PG_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|POPUP_)/;
 const KEEP = new Set(['position', 'normal', 'uv', 'color', 'aMaskUv']);
 
 /**
@@ -232,7 +232,7 @@ export function partModel(partId: string, variant = ''): Promise<Model> {
  * (M_tire; a dually also M_tire2), its ring stretched to this rim when the model was made for another
  * (the sidewall kept), squashed when it is flat. Add the group next to the rim's clone.
  */
-export function seatTyres(rim: Model, tyre: Model, rimRadius: number, sidewall: number, flat: boolean): THREE.Group {
+export function seatTyres(rim: Model, tyre: Model, rimSpec: { radius: number; profile?: number }, sidewall: number, flat: boolean): THREE.Group {
   const g = new THREE.Group();
   g.name = 'tyres';
   rim.scene.updateMatrixWorld(true);
@@ -244,7 +244,8 @@ export function seatTyres(rim: Model, tyre: Model, rimRadius: number, sidewall: 
   }
   if (!seats.length) seats.push(new THREE.Matrix4());
   const made = (tyre.box.max.y - tyre.box.min.y) / 2;
-  const want = rimRadius + sidewall;
+  // (a bigger rim runs its tyre on a lower profile: the radius the simulation rolls on, derive.ts)
+  const want = rimSpec.radius + sidewall * (rimSpec.profile ?? 1);
   const k = made > 0 && Math.abs(made - want) > 0.005 ? want / made : 1;
   for (const m of seats) {
     const t = cloneModel(tyre);

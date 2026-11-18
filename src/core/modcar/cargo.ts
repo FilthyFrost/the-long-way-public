@@ -50,6 +50,12 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
   ],
   moto: [Z('pillion', '后座', 'Pillion', [-0.85, -0.5], [-0.13, 0.13], 0.8, 1.15, 'small', 0)],
+  fox: [
+    Z('trunk', '后备箱', 'Boot', [-1.86, -1.44], [-0.63, 0.63], 0.4, 0.77, 'medium', 0, ['trunk']),
+    // (the shelf behind the seats over the rear axle, under the fastback glass: no wall between it and the boot)
+    Z('rear', '后搁板', 'Luggage shelf', [-1.4, -0.84], [-0.34, 0.34], 0.56, 0.93, 'medium', 1, ['door_FL', 'door_FR', 'trunk']),
+    Z('pass', '副驾驶座', 'Passenger seat', [-0.48, -0.06], [0.24, 0.52], 0.39, 1.05, 'medium', 2, ['door_FR']),
+  ],
   goat: [
     Z('trunk', '后备箱', 'Load space', [-1.84, -1.04], [-0.36, 0.36], 0.62, 1.66, 'large', 0, ['trunk']),
     Z('rear', '后座', 'Back seat', [-0.7, -0.27], [-0.55, 0.55], 0.76, 1.38, 'large', 1, ['door_FL', 'door_FR']),
@@ -61,9 +67,9 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('pass', '副驾驶座', 'Passenger seat', [0.98, 1.36], [0.14, 0.62], 0.88, 1.5, 'medium', 2, ['door_FR']),
   ],
   wagon: [
-    Z('trunk', '后备箱', 'Load space', [-2.47, -1.38], [-0.73, 0.73], 0.48, 1.3, 'large', 0, ['trunk']),
-    Z('rear', '后座', 'Back seat', [-1.12, -0.62], [-0.6, 0.6], 0.5, 1.12, 'large', 1, ['door_RL', 'door_RR']),
-    Z('pass', '副驾驶座', 'Passenger seat', [-0.3, 0.14], [0.12, 0.62], 0.52, 1.05, 'medium', 2, ['door_FR']),
+    Z('trunk', '后备箱', 'Load space', [-2.42, -1.76], [-0.69, 0.69], 0.48, 1.25, 'large', 0, ['trunk']),
+    Z('rear', '后座', 'Back seat', [-0.97, -0.63], [-0.57, 0.57], 0.47, 1.12, 'large', 1, ['door_RL', 'door_RR']),
+    Z('pass', '副驾驶座', 'Passenger seat', [-0.23, 0.19], [0.23, 0.51], 0.5, 1.05, 'medium', 2, ['door_FR']),
   ],
 };
 

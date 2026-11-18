@@ -200,7 +200,7 @@ export class HeldThing {
       if (t && def.rim?.tire) {
         void partModel(t.part, inst.part).then((tm) => {
           if (this.key !== want) return;
-          const to = seatTyres(m, tm, def.rim!.radius, partDef(t.part).tire!.sidewall, !!t.flat);
+          const to = seatTyres(m, tm, def.rim!, partDef(t.part).tire!.sidewall, !!t.flat);
           applyMaterials(to, this.mats.look(`${OWNER}+tire`, { paint: 0x222222, paint2: 0xeeeeee, dirt: t.dirt, wear: 1 - (t.tread ?? 1) }));
           group.add(to);
           this.fit(group);

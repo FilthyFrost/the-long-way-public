@@ -54,9 +54,10 @@ export const FACTORY_PAINT: Record<string, [number, number]> = {
   pickup: [9, 1],
   moto: [13, 22],
   rv: [0, 10],
-  wagon: [24, 19],
-  goat: [11, 23],
   van: [8, 0],
+  goat: [11, 23],
+  wagon: [24, 19],
+  fox: [10, 22],
 };
 
 export function paintHex(index: number, fallback = 0xd8d4c8): number {

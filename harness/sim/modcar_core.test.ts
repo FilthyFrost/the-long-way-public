@@ -138,6 +138,8 @@ describe('ModCar factory builds', () => {
     goat: { mass: [1650, 2100], cg: [0.6, 0.95], t100: [7, 15], vmax: [140, 185] },
     // (a straight six in a long estate: it cruises)
     wagon: { mass: [1250, 1650], cg: [0.42, 0.7], t100: [6, 12], vmax: [160, 200] },
+    // (a light two-seater with a revving four: quick off the mark, quicker round a bend)
+    fox: { mass: [900, 1250], cg: [0.33, 0.55], t100: [5, 10], vmax: [165, 205] },
   };
   for (const f of FRAMES) {
     it(`${f.id}: derives a sane spec and drives off`, () => {

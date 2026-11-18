@@ -1773,7 +1773,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost {
       return partModel(item.id).then(async (m) => {
         const g = new THREE.Group();
         g.add(cloneModel(m));
-        if (tyre && def.rim) g.add(seatTyres(m, await partModel(tyre, item.id), def.rim.radius, partDef(tyre).tire!.sidewall, false));
+        if (tyre && def.rim) g.add(seatTyres(m, await partModel(tyre, item.id), def.rim, partDef(tyre).tire!.sidewall, false));
         return g;
       });
     }

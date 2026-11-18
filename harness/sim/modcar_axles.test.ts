@@ -16,7 +16,7 @@ import { usesExtensions } from '../../src/core/vehicle/spec';
 import { derivedMods } from './modcar/derived_feel';
 import { splitLaunch, stepSteer } from './modcar/part_matrix';
 
-const FRAMES = ['sedan', 'pickup', 'rv', 'moto', 'van', 'goat', 'wagon'];
+const FRAMES = ['sedan', 'pickup', 'rv', 'moto', 'van', 'goat', 'wagon', 'fox'];
 
 /** the mass, centre and inertia a build had when the frame's own figures held its axles (before §22) */
 function asBefore(b: Build): { mass: number; cg: { x: number; y: number; z: number }; inertia: { roll: number; yaw: number; pitch: number } } {

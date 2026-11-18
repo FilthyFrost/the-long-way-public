@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import fox from '../../src/core/modcar/data/mounts/fox.json';
 import goat from '../../src/core/modcar/data/mounts/goat.json';
 import moto from '../../src/core/modcar/data/mounts/moto.json';
 import pickup from '../../src/core/modcar/data/mounts/pickup.json';
@@ -23,6 +24,7 @@ const FRAMES: Record<string, Record<string, Mount>> = {
   goat: (goat as unknown as { mounts: Record<string, Mount> }).mounts,
   van: (van as unknown as { mounts: Record<string, Mount> }).mounts,
   wagon: (wagon as unknown as { mounts: Record<string, Mount> }).mounts,
+  fox: (fox as unknown as { mounts: Record<string, Mount> }).mounts,
 };
 
 /** the room a mount leaves its part, in the part's frame (game axes), with the 1.5 cm the checks allow */

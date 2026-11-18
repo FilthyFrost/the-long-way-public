@@ -13,6 +13,7 @@ import rvMounts from './data/mounts/rv.json';
 import vanMounts from './data/mounts/van.json';
 import goatMounts from './data/mounts/goat.json';
 import wagonMounts from './data/mounts/wagon.json';
+import foxMounts from './data/mounts/fox.json';
 
 interface MountJson {
   pos: number[];
@@ -44,6 +45,8 @@ interface MountTable {
   panels?: Record<string, { hinge_axis: number[]; open_deg: number; glass?: string | null; mount?: string | null }>;
   needles?: Record<string, { axis: number[]; deg_full: number }>;
   wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
+  /** pop-up headlamps: each pod's hinge (game frame) and how far it turns up */
+  popups?: Record<string, { hinge_pos: number[]; hinge_axis: number[]; open_deg: number; mount?: string }>;
   /** the axles' parts where the frame wants them other than at the axle's middle: a four-by-four's front differential beside the sump, on its propshaft's side (game z) */
   axles?: { front?: { diff_z?: number }; rear?: { diff_z?: number } };
   rig?: {
@@ -58,7 +61,7 @@ const v3 = (a: number[]): [number, number, number] => [a[0] ?? 0, a[1] ?? 0, a[2
 
 /** the moving pieces of a modelled frame (a placeholder table has none) */
 function readRig(t: MountTable): FrameRig | undefined {
-  if (!t.panels && !t.needles && !t.wipers && !t.rig) return undefined;
+  if (!t.panels && !t.needles && !t.wipers && !t.rig && !t.popups) return undefined;
   const rig: FrameRig = { panels: {}, needles: {}, wipers: {} };
   const r = t.rig;
   if (r?.fork) rig.fork = { pivot: v3(r.fork.pivot), axis: v3(r.fork.axis), lower: r.fork.lower ? { object: r.fork.lower.object, axis: v3(r.fork.lower.axis), travel: r.fork.lower.travel } : undefined };
@@ -68,6 +71,7 @@ function readRig(t: MountTable): FrameRig | undefined {
   for (const [k, p] of Object.entries(t.panels ?? {})) rig.panels[k] = { axis: v3(p.hinge_axis), openDeg: p.open_deg, glass: p.glass ?? null, mount: p.mount ?? null };
   for (const [k, n] of Object.entries(t.needles ?? {})) rig.needles[k] = { axis: v3(n.axis), fullDeg: n.deg_full };
   for (const [k, w] of Object.entries(t.wipers ?? {})) rig.wipers[k] = { axis: v3(w.axis), sweepDeg: w.sweep_deg };
+  if (t.popups) rig.popups = Object.fromEntries(Object.entries(t.popups).map(([k, p]) => [k, { pivot: v3(p.hinge_pos), axis: v3(p.hinge_axis), openDeg: p.open_deg }]));
   return rig;
 }
 
@@ -361,7 +365,29 @@ export const WAGON: FrameDef = {
   rig: readRig(wagonMounts as MountTable),
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON];
+export const FOX: FrameDef = {
+  id: 'fox',
+  kind: 'sports',
+  name: { zh: '狐狸', en: 'Fox' },
+  mass: 560,
+  cg: { x: -0.05, y: 0.42, z: 0 },
+  inertia: { roll: 170, yaw: 820, pitch: 780 },
+  hubRadius: 0.265,
+  // (low, light and stiff: it turns in at once and tells you what the tyres are doing)
+  suspension: { front: susp(1.75, 0.15, 0.6, 8), rear: susp(1.85, 0.15, 0.4, 7.5) },
+  steering: { maxDeg: 33, ackermann: 0.8, rateLow: 2.3, rateHigh: 0.95, smoothTime: 0.07, returnScale: 1.8, gripLimitG: 0.9, slipMarginDeg: 5 },
+  brakeN: 8800,
+  brakeFront: 0.64,
+  cdA: 0.62,
+  finalDrive: 4.1,
+  body: { front: 2.06, rear: -2.06, halfWidth: 0.82, bottom: 0.11, top: 1.235 },
+  enclosed: 1,
+  chase: { dist: 5.2, height: 1.7, look: 0.8 },
+  mounts: withAxles(readMounts(foxMounts as MountTable), (foxMounts as MountTable).axles),
+  rig: readRig(foxMounts as MountTable),
+};
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX];
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
 

@@ -34,7 +34,7 @@ const DEG = Math.PI / 180;
  */
 const UNMERGED = new Set(['steering']);
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
-const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|ghost:)/;
+const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|POPUP_|ghost:)/;
 /** how far the filler flap swings open (deg) */
 const CAP_OPEN_DEG = 105;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
@@ -222,6 +222,7 @@ export class CarView {
     if (this.fuelCap) this.hangCap(this.fuelCap);
     this.covers = null;
     this.rigBike(obj);
+    this.rigPopups(obj);
     this.hangKnuckles(obj);
   }
 
@@ -240,6 +241,31 @@ export class CarView {
       k.quaternion.identity();
       this.wheels[i].pivot.add(k);
     });
+  }
+
+  // ------------------------------------------------------------------ pop-up headlamps
+
+  /** each pod on its hinge, how far it turns up, and how far up it is (0 shut … 1 up) */
+  private readonly popups: { pivot: THREE.Group; axis: THREE.Vector3; openRad: number; t: number }[] = [];
+
+  /** the pods hung on their hinges, with what rides on them (the lamps) */
+  private rigPopups(obj: THREE.Object3D): void {
+    for (const [name, p] of Object.entries(this.frame.rig?.popups ?? {})) {
+      const pod = obj.getObjectByName(name);
+      if (!pod) continue;
+      const pivot = this.pivotFor(pod, p.pivot, `pivot_${name}`);
+      for (const m of this.frame.mounts) {
+        if (m.on !== name) continue;
+        const node = this.mountNodes.get(m.id);
+        if (node) pivot.attach(node);
+      }
+      this.popups.push({ pivot, axis: new THREE.Vector3(...p.axis).normalize(), openRad: p.openDeg * DEG, t: 0 });
+    }
+  }
+
+  /** how far up the pop-up lamps are (0 … 1; none: 0) */
+  get popupsUp(): number {
+    return this.popups.length ? this.popups[0].t : 0;
   }
 
   // ------------------------------------------------------------------ a motorcycle's moving frame
@@ -1321,7 +1347,7 @@ export class CarView {
         void this.track(Promise.all([rimLoad, partModel(tire.part, inst.part)])).then(([rm, tm]) => {
           if (w.key !== key) return;
           // on the rim's tyre seats (two on a dually), stretched to this rim when made for another
-          const t = seatTyres(rm, tm, rimDef.rim!.radius, partDef(tire.part).tire!.sidewall, !!tire.flat);
+          const t = seatTyres(rm, tm, rimDef.rim!, partDef(tire.part).tire!.sidewall, !!tire.flat);
           applyMaterials(t, tireLook);
           holder.add(t);
         });
@@ -1474,6 +1500,12 @@ export class CarView {
     }
     // lamps: dipped / main beam, tail lamps and brake lights (the brake lights need a battery)
     const lit = dash?.lightsOn ?? false;
+    // (pop-up lamps come up while the lamps are on, in about half a second, eased)
+    for (const pp of this.popups) {
+      pp.t = lit ? Math.min(1, pp.t + dt / 0.45) : Math.max(0, pp.t - dt / 0.45);
+      const e = pp.t * pp.t * (3 - 2 * pp.t);
+      pp.pivot.quaternion.setFromAxisAngle(pp.axis, e * pp.openRad);
+    }
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
     // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)
     const reverse = sim.dir < 0 && sim.selector === 'R' && !!dash && (dash.running || dash.battery > 0.02);

@@ -470,6 +470,8 @@ export interface FrameRig {
   swingarm?: { pivot: [number, number, number]; axis: [number, number, number]; length: number };
   /** the side STAND: folded by foldDeg about its axis while ridden */
   stand?: { pivot: [number, number, number]; axis: [number, number, number]; foldDeg: number };
+  /** pop-up headlamps, by object name (POPUP_L, POPUP_R): each pod turns up openDeg about its hinge while the lamps are on, with what rides on it */
+  popups?: Record<string, { pivot: [number, number, number]; axis: [number, number, number]; openDeg: number }>;
 }
 
 // ------------------------------------------------------------------ the things in the world
