@@ -153,14 +153,14 @@
     "spine": "d301c81c",
     "spineHash": "3913a9a3",
     "chapters": "909ea491",
-    "land": "8afb21be",
+    "land": "194b0751",
     "water": "9306a375",
     "sea": "968b7f09",
     "sites": "0d94ed69",
-    "landmarks": "a8b05b1e",
+    "landmarks": "5111e44d",
     "furniture": "a8f7b6b0",
-    "heights": "68032a76",
-    "features": "0cfc3f4e",
+    "heights": "4c21fb0d",
+    "features": "dee68c68",
     "counts": {
       "chapters": 8,
       "water": 14,
@@ -169,7 +169,7 @@
       "landmarks": 23,
       "posts": 2618,
       "rails": 59,
-      "features": 29
+      "features": 48
     }
   },
   "v2-modcar-77": {
@@ -180,10 +180,10 @@
     "water": "d7eb627b",
     "sea": "feae5924",
     "sites": "f48f1bae",
-    "landmarks": "50ecfba8",
+    "landmarks": "3f457381",
     "furniture": "4f436061",
-    "heights": "92cdc3e3",
-    "features": "bdd7ca0d",
+    "heights": "b7bd2198",
+    "features": "e28b994d",
     "counts": {
       "chapters": 8,
       "water": 14,
@@ -192,20 +192,20 @@
       "landmarks": 23,
       "posts": 2397,
       "rails": 14,
-      "features": 37
+      "features": 49
     }
   },
   "v2-karst-small-7": {
     "spine": "05bc61a0",
     "spineHash": "ad3229cd",
     "chapters": "0bad2d16",
-    "land": "6264a334",
+    "land": "0c1e75f9",
     "water": "ad31ce18",
     "sea": "811c9dc5",
-    "sites": "1157787c",
-    "landmarks": "3b264299",
+    "sites": "19750959",
+    "landmarks": "6fd63d97",
     "furniture": "a44f0821",
-    "heights": "31bb7633",
+    "heights": "0ada675b",
     "features": "829d6825",
     "counts": {
       "chapters": 19,
@@ -226,9 +226,9 @@
     "water": "4f395cc6",
     "sea": "811c9dc5",
     "sites": "5c36250b",
-    "landmarks": "f3f06e29",
+    "landmarks": "2beac0a8",
     "furniture": "d84cb32c",
-    "heights": "a4a52ce9",
+    "heights": "4badf4d7",
     "features": "511fd796",
     "counts": {
       "chapters": 20,

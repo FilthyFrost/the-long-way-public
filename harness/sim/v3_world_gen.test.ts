@@ -16,7 +16,9 @@ import { BIOMES } from '../../src/core/world/biomes';
 import { cardsOf, dealProblems } from '../../src/core/world/dealer';
 import { featureSlots, runAt } from '../../src/core/world/director';
 import { CLEAR, MAX_SLOPE } from '../../src/core/world/features';
-import { LandParams } from '../../src/core/world/landform';
+import { FunctionLand, GroundLand } from '../../src/core/onfoot/land';
+import { FlatGround } from '../../src/core/world/ground';
+import { GULLY_V2, LandParams } from '../../src/core/world/landform';
 import { RoadSpine, SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
 import { journey, journeySums } from './journey';
@@ -130,10 +132,11 @@ describe('world v2 · anchored landforms in the real world', () => {
     expect(new World(1, { regionCount: BIOMES.length, startBiome: 'karst_peaks' }).features).toBeNull();
   });
 
-  it('the stretches the director gives to landforms hold a cluster; quiet stretches, the coast and regions without recipes hold none', () => {
+  it('the stretches the director gives to landforms hold a cluster, the quiet ones among them; the coast and regions without recipes hold none', () => {
     let given = 0;
     let held = 0;
     let landforms = 0;
+    let quiet = 0;
     for (const world of worlds) {
       const plan = world.spine.plan;
       for (let k = 0; k < (KM * 1000) / SLOT; k++) {
@@ -141,22 +144,25 @@ describe('world v2 · anchored landforms in the real world', () => {
         const region = BIOMES[plan.biomes[run.chapter]];
         const n = world.features!.of(k).length;
         const wanted = (region.featureSlots ?? 0) > 0 && featureSlots(world.seed, { ...run, features: region.featureSlots ?? 0 }).includes(k);
-        if (!wanted || world.quiet(k) || world.sea.near(k) || world.sea.along(k)) {
+        if (!wanted || world.sea.near(k) || world.sea.along(k)) {
           expect(n, `stretch ${k} of ${region.id}`).toBe(0);
           continue;
         }
         given++;
         landforms += n;
         if (n > 0) held++;
+        // (a quiet stretch has no place to stop, no lake and no bridge; it may well have towers to drive past)
+        if (n > 0 && world.quiet(k)) quiet++;
         // (a region asks for more stretches than it has room for: the director gives what there is, never its first stretch)
         expect(k).toBeGreaterThan(run.k0);
         expect(n).toBeLessThanOrEqual(12);
       }
     }
-    expect(given).toBeGreaterThan(150);
+    expect(given).toBeGreaterThan(250);
     // (measured: every one of them; with the water plan's boxes for a test of water, seven in ten)
     expect(held / given).toBeGreaterThan(0.97);
     expect(landforms / given).toBeGreaterThan(4);
+    expect(quiet).toBeGreaterThan(40);
   });
 
   it('every foot is clear of the road by CLEAR, along all of the road, and of the water', () => {
@@ -210,6 +216,17 @@ describe('world v2 · anchored landforms in the real world', () => {
         world.shape(f.x, f.z, tq, true);
         expect(Math.abs(tp.bed - tq.bed)).toBeLessThan(20);
         expect(tp.bed - tp.roadY).toBeGreaterThan(f.h * 0.5);
+        // and both say how much of the height is the landform's (for whoever paints its flank as rock); the relief does not count it
+        expect(tp.landform).toBe(add);
+        expect(tq.landform).toBe(add);
+        expect(tp.bed - tp.roadY - tp.relief).toBeGreaterThan(add - 60);
+        // half way down its flank, in the near field or the far: the same number as the plan's
+        const hx = f.x + f.ca * f.r * f.stretch * 0.5;
+        const hz = f.z + f.sa * f.r * f.stretch * 0.5;
+        world.shape(hx, hz, tp);
+        expect(tp.landform).toBe(world.features!.heightAt(hx, hz, world.spine.sAtX(hx)));
+        expect(tp.landform).toBeGreaterThan(0);
+        expect(tp.landform).toBeLessThan(add + 1e-9);
       }
     }
     expect(seen).toBeGreaterThanOrEqual(40);
@@ -220,7 +237,24 @@ describe('world v2 · anchored landforms in the real world', () => {
         const x = st.x - Math.sin(st.phi) * d;
         const z = st.z + Math.cos(st.phi) * d;
         expect(world.features!.heightAt(x, z, world.spine.sAtX(x))).toBe(0);
+        world.shape(x, z, tp);
+        expect(tp.landform).toBe(0);
       }
+    }
+  });
+
+  it('a terrain point says 0 for the landform in a world of version 1, and under the lands that are not the world', () => {
+    const tp = new TerrainPoint();
+    const old = new World(3, { regionCount: BIOMES.length, startBiome: 'karst_peaks' });
+    for (const [x, z, coarse] of [[900, 40, false], [5000, -300, false], [9000, 2500, false], [9000, 2500, true]] as const) {
+      tp.landform = 7;
+      old.shape(x, z, tp, coarse);
+      expect(tp.landform).toBe(0);
+    }
+    for (const land of [new FunctionLand(() => 2), new GroundLand(new FlatGround())]) {
+      tp.landform = 7;
+      land.shape(10, 10, tp);
+      expect(tp.landform).toBe(0);
     }
   });
 });
@@ -228,26 +262,17 @@ describe('world v2 · anchored landforms in the real world', () => {
 describe('world v2 · the road and land cards hold in worlds begun in each of the twelve regions', () => {
   const ROAD = ['spine_curvature_violations', 'spine_max_grade_pct', 'spine_max_heading_deg', 'spine_min_forward_cos', 'spine_min_radius_m', 'spine_determinism_mismatches'];
   const LAND = ['terrain_road_surface_errors', 'terrain_projection_errors', 'terrain_road_seam_gap_cm', 'terrain_max_kink_m', 'terrain_max_step_near_m'];
-  /**
-   * Where the land card is NOT met, and why: reported, not waived — the card's limits stand. Measured with
-   * eight worlds a region (the test takes three, which do not always find the steepest spot, so nothing is
-   * asserted of these either way):
-   *   desert      step near the road 1.23 to 1.41 m per half metre (the card allows 1.15). The side gullies of
-   *               a canyon's walls (landform.ts, as in version 1: a world of version 1 begun in the desert
-   *               measures the same; the card's own worlds begin in the plains and had not met one so steep).
-   *   red_canyon  step 1.56 to 1.60, kink 1.62 (the card allows 0.5). Its canyon walls are 110 m (the desert's
-   *               85), and its mesas begin 120 m from the road (the desert's 260 m), which brings their
-   *               edges within the 250 m the card walks.
-   */
-  const NOT_MET: Record<string, readonly string[]> = { desert: ['terrain_max_step_near_m'], red_canyon: ['terrain_max_step_near_m', 'terrain_max_kink_m'] };
-
+  // (All twelve meet the card. Two did not at first, and what was changed for them is version 2's alone:
+  // a canyon's side gullies cut a fifth of its wall's height, where version 1 cuts half — the desert's
+  // step near the road was 1.23 to 1.41 m per half metre against the card's 1.15, now 0.92 — and the red
+  // canyon's walls are 85 m and its mesas begin 340 m from the road: 1.60 and a kink of 1.62, now 1.00
+  // and 0.42. Measured over 40 worlds a region, 250 walks each.)
   for (const region of BIOMES) {
     it(`${region.id}: the road's rules, and the land beside it within the region`, () => {
       const road = spineChecks({ seeds: 12, road: { worldVersion: 2, startBiome: region.id } });
       const land = terrainChecks({ seeds: 3, world: { worldVersion: 2, startBiome: region.id }, reach: (w) => w.spine.plan.starts[1] - 300, cost: false });
       const m = { ...road, ...land };
       for (const key of [...ROAD, ...LAND]) {
-        if (NOT_MET[region.id]?.includes(key)) continue;
         const t = card.metrics[key];
         expect(Number.isFinite(m[key]), `${key} was measured`).toBe(true);
         if (t.min !== undefined) expect(m[key], `${key} in a world begun in ${region.id}`).toBeGreaterThanOrEqual(t.min);
@@ -305,16 +330,20 @@ describe('world v2 · terraces and dunes in the real land', () => {
     expect(steepest).toBeLessThan(2.6);
   });
 
-  it('a world of version 1 that knows the same regions has neither terraces nor dunes', () => {
+  it('a world of version 1 that knows the same regions has neither terraces nor dunes, and its canyons keep their deep side gullies', () => {
     const lp = new LandParams();
     for (const start of ['terraces', 'desert']) {
       const world = new World(3, { regionCount: BIOMES.length, startBiome: start, chapterScale: 3 });
+      const v2 = new World(3, { worldVersion: 2, startBiome: start, chapterScale: 3 });
       for (let k = 0; k < 16; k++) {
         world.land.at((k + 0.5) * SLOT, lp);
         expect(lp.terrace).toBe(0);
         expect(lp.dune).toBe(0);
+        expect(lp.gully).toBe(0.5);
+        expect(v2.land.at((k + 0.5) * SLOT, lp).gully).toBe(GULLY_V2);
       }
     }
+    expect(GULLY_V2).toBeLessThan(0.5);
   });
 
   it('the desert\'s open stretches carry dunes in version 2: the land beside the road stands higher there, by no more than their height', () => {
@@ -431,10 +460,14 @@ describe('world v2 · a journey', () => {
     expect((sums.places / sums.stretches) * 8).toBeGreaterThan(2.8);
     expect((sums.lakes / sums.stretches) * 8).toBeGreaterThan(1.0);
     expect((sums.rivers / sums.stretches) * 8).toBeGreaterThan(0.6);
-    // clusters: three stretches in a region of landforms, give or take
-    const withLandforms = js.flatMap((j) => j.legs).filter((l) => l.id === 'karst_peaks' || l.id === 'red_canyon');
-    expect(withLandforms.length).toBeGreaterThan(20);
-    expect(withLandforms.reduce((a, l) => a + l.clusters, 0) / withLandforms.length).toBeGreaterThan(2.5);
-    expect(withLandforms.filter((l) => l.clusters === 0).length).toBe(0);
+    // clusters: as many stretches of a region as it asks for (karst country five, the red canyon three)
+    const legs = js.flatMap((j) => j.legs);
+    const karst = legs.filter((l) => l.id === 'karst_peaks');
+    const canyon = legs.filter((l) => l.id === 'red_canyon');
+    expect(karst.length).toBeGreaterThan(10);
+    expect(canyon.length).toBeGreaterThan(10);
+    for (const l of karst) expect(l.clusters, `karst region of ${l.stretches} stretches: ${l.programme}`).toBe(5);
+    for (const l of canyon) expect(l.clusters, `red canyon of ${l.stretches} stretches: ${l.programme}`).toBe(3);
+    expect(karst.reduce((a, l) => a + l.landforms, 0) / karst.length).toBeGreaterThan(30);
   });
 });

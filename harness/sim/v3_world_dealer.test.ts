@@ -195,7 +195,8 @@ describe('the director (world version 2)', () => {
     expect([...at].sort()).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('puts the landform stretches clear of the quiet run and of the first stretch, as many as asked, apart when there is room', () => {
+  it('puts the landform stretches clear of the first stretch (the quiet run may hold one: scenery is not a place to stop), as many as asked, apart when there is room', () => {
+    let inQuiet = 0;
     for (let seed = 1; seed <= 50; seed++) {
       for (const r of runs) {
         const f = featureSlots(seed, r);
@@ -203,12 +204,17 @@ describe('the director (world version 2)', () => {
         for (const k of f) {
           expect(k).toBeGreaterThan(r.k0);
           expect(k).toBeLessThan(r.k1);
-          expect(isQuiet(seed, r, k)).toBe(false);
+          if (isQuiet(seed, r, k)) inQuiet++;
         }
         expect(new Set(f).size).toBe(f.length);
         if (r.features === 2 && r.k1 - r.k0 >= 7) expect(f[1] - f[0]).toBeGreaterThan(1);
         expect(featureSlots(seed, r)).toEqual(f);
+        // a region that asks for a landform in every stretch it may gets every stretch but its first
+        const all = featureSlots(seed, { ...r, features: 9 });
+        expect(all.length).toBe(r.k1 - r.k0 - 1);
+        expect(all[0]).toBe(r.k0 + 1);
       }
     }
+    expect(inQuiet).toBeGreaterThan(100);
   });
 });

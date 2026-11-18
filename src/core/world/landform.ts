@@ -23,6 +23,8 @@ import { BiomeBlend, type RoadSpine } from './spine';
 
 /** metres of road per stretch (the same as a water slot) */
 export const LAND_SLOT = 1250;
+/** how much of a canyon wall's height its side gullies cut away in a world of version 2 (version 1: half) */
+export const GULLY_V2 = 0.2;
 /** half the length over which one stretch turns into the next (m) */
 const BLEND = 210;
 
@@ -48,6 +50,13 @@ export class LandParams {
   step = 0;
   dune = 0;
   duneLen = 0;
+  /**
+   * How much of a canyon wall's height its side gullies cut away: half, in every world of version 1. A
+   * world of version 2 cuts them shallower (GULLY_V2): at half, the gullies' own flanks on top of the
+   * wall's slope stood steeper than the land may near the road (the land card's step: up to 1.4 m in
+   * half a metre against 1.15).
+   */
+  gully = 0.5;
 
   /**
    * The same, for one side of the road: where the land falls away (the low side of a hillside,
@@ -71,6 +80,7 @@ export class LandParams {
     this.step = o.step;
     this.dune = o.dune;
     this.duneLen = o.duneLen;
+    this.gully = o.gully;
     return this;
   }
 
@@ -80,6 +90,7 @@ export class LandParams {
     this.drop += (o.drop - this.drop) * t;
     this.canyon += (o.canyon - this.canyon) * t;
     this.far += (o.far - this.far) * t;
+    this.gully += (o.gully - this.gully) * t;
     // Benches and dunes fade out towards country that has none: how fully and how high is mixed like the
     // rest, but the benches' step and the dunes' length stay the side's that has them (benches whose step
     // shrank as they faded would not be level, dunes whose length did would bunch up)
@@ -244,7 +255,9 @@ export class LandformPlan {
         p.far = 0.9;
       } else p.far = 0.85 + 0.3 * r(12);
       if (this.operators) {
-        // (version 2) terraces on the region's hillsides and valley sides, dunes on its open ground
+        // (version 2) canyon walls with shallower side gullies; terraces on the region's hillsides and
+        // valley sides, dunes on its open ground
+        p.gully = GULLY_V2;
         const terrace = region.land?.terrace;
         if (terrace && (kind === 'hillside' || kind === 'valley')) {
           p.terrace = terrace.strength;
@@ -317,7 +330,7 @@ export class LandformPlan {
       const foot = 13 + 16 * (0.5 + 0.5 * n);
       const face = Math.max(26, p.canyon * 0.95) * (1 + 0.25 * (0.5 - 0.5 * n));
       const gully = smoothstep(0.25, 0.75, fbm2(x / 260 + 7, z / 260, seed + 0x2c2, 1));
-      h += p.canyon * smoothstep(foot, foot + face, a) * (1 - 0.5 * gully);
+      h += p.canyon * smoothstep(foot, foot + face, a) * (1 - p.gully * gully);
     }
     return h;
   }
