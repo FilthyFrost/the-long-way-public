@@ -266,11 +266,45 @@ export function slotOfChapter(c: number): number {
 }
 
 /**
- * Lay the palettes out for a traveller in chapter `chapter`: the chapter behind, this one and the
- * two ahead each get their own slot.
+ * Which chapters have a slot of their own for a traveller at arc length s in chapter `chapter`: the first and
+ * the last of a run of consecutive chapters, written into `out`.
+ *
+ * Four slots hold four chapters in a row, and more than four can lie within the far view (measured on worlds
+ * of version 2, whose regions are 7.5 to 10 km long: six within the 20 km of land that is built at three
+ * positions in four, seven at some). Land of a chapter outside the run is painted with the palette of the
+ * chapter four on or four back that holds its slot. The run is therefore the one that leaves the nearest such
+ * land furthest off: the chapter behind, this one and the two ahead — or, in the first part of a chapter, when
+ * the chapter two behind is still nearer than the chapter two ahead, the two behind, this one and the one
+ * ahead. The slot they share changes hands when both are as far away as they get (about one and a half
+ * chapters), where the air has taken most of the colour.
+ *
+ * @param starts where each chapter begins (m of road), dealt as far as chapter + 3; absent: the run of the
+ * chapter behind, this one and the two ahead, whatever the distances
  */
-export function showChapters(biomeOf: (c: number) => number, chapter: number): void {
-  for (let c = Math.max(0, chapter - 1); c <= chapter + 2; c++) setSlotBiome(c & 3, biomeOf(c));
+export function chapterRun(chapter: number, s: number, starts: readonly number[] | null, out: { from: number; to: number }): void {
+  out.from = Math.max(0, chapter - 1);
+  out.to = chapter + 2;
+  if (!starts || chapter < 2 || !(s === s) || starts.length <= chapter + 3) return;
+  // the nearest land each run leaves out: behind, where the chapter before the run ends; ahead, where the one after it begins
+  const oneBehind = Math.min(s - starts[chapter - 1], starts[chapter + 3] - s);
+  const twoBehind = Math.min(chapter >= 3 ? s - starts[chapter - 2] : Infinity, starts[chapter + 2] - s);
+  if (twoBehind > oneBehind) {
+    out.from = chapter - 2;
+    out.to = chapter + 1;
+  }
+}
+
+const run = { from: 0, to: 0 };
+
+/**
+ * Lay the palettes out for a traveller in chapter `chapter`: four chapters in a row each get their own slot
+ * (`chapterRun` says which four; without `starts`, the chapter behind, this one and the two ahead).
+ */
+export function showChapters(biomeOf: (c: number) => number, chapter: number, s = NaN, starts: readonly number[] | null = null): void {
+  // (the plan deals as far as the run may reach)
+  if (starts) biomeOf(chapter + 3);
+  chapterRun(chapter, s, starts, run);
+  for (let c = run.from; c <= run.to; c++) setSlotBiome(c & 3, biomeOf(c));
 }
 
 // until a world says otherwise (the proving ground, tests): the first biome in every slot

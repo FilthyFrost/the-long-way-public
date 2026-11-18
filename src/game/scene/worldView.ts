@@ -161,8 +161,8 @@ export class WorldView {
     const sp = this.world.spine;
     sp.project(cx, cz, this.sCam, this.proj);
     this.sCam = this.proj.s;
-    // the palettes of the chapter behind, this one and the two ahead
-    showChapters((c) => sp.plan.biomeOf(c), sp.plan.chapterAt(Math.max(0, this.sCam)));
+    // the palettes of four chapters in a row: the ones nearest to where one is (render/style.ts chapterRun)
+    showChapters((c) => sp.plan.biomeOf(c), sp.plan.chapterAt(Math.max(0, this.sCam)), Math.max(0, this.sCam), sp.plan.starts);
 
     // ---- road strips
     const ds = sp.ds;

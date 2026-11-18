@@ -12,7 +12,8 @@ import { SkyState, DayClock } from '../../src/core/env/time';
 import { WeatherState } from '../../src/core/env/weather';
 import { BIOMES, BIOME_INDEX, registerRegion, type RegionDef } from '../../src/core/world/biomes';
 import { Look, computeLook } from '../../src/game/env/colorScript';
-import { BIOME_STYLES, STYLE, regionStyle, styleFromPalette, type BiomeStyle } from '../../src/game/render/style';
+import { BIOME_STYLES, STYLE, chapterRun, paletteUniforms, regionStyle, showChapters, styleFromPalette, type BiomeStyle } from '../../src/game/render/style';
+import { modcarWorld } from '../../src/game/modcar/seamless';
 import { PAL, PALETTES, floraOf, paletteOf, woodland, type BiomePalette } from '../../src/game/scene/palette';
 
 const SIX = ['plains', 'desert', 'alpine', 'forest', 'lakes', 'maple'];
@@ -195,5 +196,90 @@ describe('what is looked up by a region\'s id falls back to its kin', () => {
     // every region of the registry has an air (an id nothing knows is the first region's)
     for (const b of BIOMES) expect(Number.isFinite(at(b.id).haze)).toBe(true);
     expect(at('no such region')).toEqual(at(BIOMES[0].id));
+  });
+});
+
+describe('the four palette slots', () => {
+  const run = { from: 0, to: 0 };
+  /** the nearest land (m of road) a run of four chapters leaves without a slot of its own */
+  const leftOut = (from: number, to: number, s: number, starts: readonly number[]): number => Math.min(from > 0 ? s - starts[from] : Infinity, starts[to + 1] - s);
+
+  it('hold the chapter behind, this one and the two ahead where nothing says how far the chapters are, and in the first two chapters', () => {
+    const starts = [0, 8000, 16000, 24000, 32000, 40000, 48000, 56000];
+    for (const c of [0, 1, 2, 5, 40]) {
+      chapterRun(c, 123, null, run);
+      expect(run).toEqual({ from: Math.max(0, c - 1), to: c + 2 });
+    }
+    for (const s of [0, 100, 7999]) {
+      chapterRun(0, s, starts, run);
+      expect(run).toEqual({ from: 0, to: 2 });
+    }
+    chapterRun(1, 8001, starts, run);
+    expect(run).toEqual({ from: 0, to: 3 });
+    // (a plan not dealt far enough, a place that is no number: the plain run)
+    chapterRun(5, 40100, starts.slice(0, 7), run);
+    expect(run).toEqual({ from: 4, to: 7 });
+    chapterRun(3, NaN, starts, run);
+    expect(run).toEqual({ from: 2, to: 5 });
+  });
+
+  it('in the first part of a chapter hold the two behind instead, and change over once, where both are as far off as they get', () => {
+    const L = 8000;
+    const starts = Array.from({ length: 12 }, (_, i) => i * L);
+    chapterRun(5, 5 * L + 10, starts, run);
+    expect(run).toEqual({ from: 3, to: 6 });
+    chapterRun(5, 5 * L + 0.7 * L, starts, run);
+    expect(run).toEqual({ from: 4, to: 7 });
+    let changes = 0;
+    let was = 3;
+    for (let s = 5 * L; s < 6 * L; s += 50) {
+      chapterRun(5, s, starts, run);
+      expect(run.to - run.from).toBe(3);
+      if (run.from !== was) {
+        changes++;
+        was = run.from;
+        // half way through: the chapter two behind and the chapter two ahead are each a chapter and a half off
+        expect(s).toBeGreaterThanOrEqual(5 * L + L / 2);
+        expect(s).toBeLessThan(5 * L + L / 2 + 100);
+      }
+    }
+    expect(changes).toBe(1);
+  });
+
+  it('on worlds of version 2 leave no land within eleven kilometres of road without its own palette, where the plain run leaves it at seven and a half', () => {
+    let nearest = Infinity;
+    let plain = Infinity;
+    for (const seed of [1, 7, 4242]) {
+      const plan = modcarWorld(seed, { worldVersion: 2 }).world.spine.plan;
+      for (let s = 0; s < 400_000; s += 125) {
+        const c = plan.chapterAt(s);
+        plan.biomeOf(c + 3);
+        chapterRun(c, s, plan.starts, run);
+        // four chapters in a row, the one the traveller is in among them
+        expect(run.to - run.from).toBe(c < 1 ? 2 : 3);
+        expect(run.from <= c && c <= run.to).toBe(true);
+        const d = leftOut(run.from, run.to, s, plan.starts);
+        const other = leftOut(Math.max(0, c - 1), c + 2, s, plan.starts);
+        expect(d).toBeGreaterThanOrEqual(other);
+        nearest = Math.min(nearest, d);
+        plain = Math.min(plain, other);
+      }
+    }
+    expect(nearest).toBeGreaterThanOrEqual(11_000);
+    expect(plain).toBeLessThan(7_600);
+  });
+
+  it('are loaded with the palettes of that run, each chapter in the slot of its number', () => {
+    const starts = Array.from({ length: 12 }, (_, i) => i * 8000);
+    const biomeOf = (c: number): number => c % BIOMES.length;
+    const deepOf = (slot: number): number[] => paletteUniforms.uGroundPal.value[slot * 3].toArray();
+    showChapters(biomeOf, 5, 5 * 8000 + 10, starts);
+    for (const c of [3, 4, 5, 6]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    showChapters(biomeOf, 5, 5 * 8000 + 6000, starts);
+    for (const c of [4, 5, 6, 7]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    // (as it was called before there were distances: the chapter behind, this one, the two ahead)
+    showChapters(biomeOf, 9);
+    for (const c of [8, 9, 10, 11]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    for (let sl = 0; sl < 4; sl++) showChapters(() => 0, sl);
   });
 });
