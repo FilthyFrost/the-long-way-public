@@ -4,6 +4,10 @@
  * weight. The wheel or W / S goes down the list, E or the left button takes the one picked into the hands
  * (from wherever it is: no lid to open, no reaching in), Tab or Esc shuts it. One stands still while it is
  * open. Drawn in the HUD's cartoon frame (ui.ts .mc-frame).
+ *
+ * The same list shows whatever holds things (listSources.ts: a place's cupboard, what one has on, a basket
+ * with things in it, a system's own box): this file only draws what it is handed. A source that things can
+ * be put into has one more key in the foot, G, shown only while the thing in the hands would go in.
  */
 const CSS = `
 .mc-cargo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -54%); width: 430px; max-height: 470px; display: flex; flex-direction: column; z-index: 4; color: #fff; padding: 14px 16px 12px; box-sizing: border-box; }
@@ -31,9 +35,35 @@ export interface CargoRow {
   icon: string | null;
 }
 
+/** what the list shows at one moment: the game keeps one of these, fills it in and hands it over every frame the list is open */
+export interface CargoView {
+  /** the name over the rows, the small line over the name, what it says with no rows, what E does to the row picked */
+  title: string;
+  head: string;
+  empty: string;
+  take: string;
+  rows: readonly CargoRow[];
+  /** goes up whenever `rows` is another list or its rows changed: with the row picked, the weight and the put line, all that is compared from frame to frame */
+  rev: number;
+  /** the row picked */
+  sel: number;
+  /** what it all weighs (kg) */
+  load: number;
+  /** what it holds at most (a box of so many stacks, bearing so much): shown with the count and the weight; null: nothing to show */
+  cap: { slots: number; maxKg?: number } | null;
+  /** what G would put in ("试验莓 ×5"), shown with its key; '': nothing in the hands would go in */
+  put: string;
+}
+
 export class CargoList {
   readonly el: HTMLDivElement;
-  private shown = '';
+  private shown = false;
+  // what was drawn last (drawn again only when one of these differs: nothing is put together to find that out)
+  private title = '';
+  private rev = -1;
+  private sel = -1;
+  private load = NaN;
+  private put = '';
   open = false;
 
   constructor(root: HTMLElement) {
@@ -49,23 +79,31 @@ export class CargoList {
     root.appendChild(this.el);
   }
 
-  /** show the list (null: shut it); sel = the row picked */
-  show(title: string | null, rows: readonly CargoRow[], sel: number, load: number, head = '车里的东西', empty = '车里什么也没有。拿着东西看着车按 E 放进去，或者长按 G 收进车里。', take = '拿出来'): void {
-    this.open = title !== null;
-    if (title === null) {
+  /** show the list as the view has it (null: shut it) */
+  show(v: CargoView | null): void {
+    this.open = v !== null;
+    if (v === null) {
       if (this.shown) {
         this.el.style.display = 'none';
-        this.shown = '';
+        this.shown = false;
       }
       return;
     }
-    const key = `${title}|${sel}|${load.toFixed(0)}|${rows.map((r) => `${r.zone}:${r.name}:${r.icon ? 1 : 0}`).join(',')}`;
-    if (key === this.shown) return;
-    this.shown = key;
+    if (this.shown && v.rev === this.rev && v.sel === this.sel && v.load === this.load && v.put === this.put && v.title === this.title) return;
+    this.shown = true;
+    this.title = v.title;
+    this.rev = v.rev;
+    this.sel = v.sel;
+    this.load = v.load;
+    this.put = v.put;
     this.el.style.display = '';
+    const { rows, sel, load, cap } = v;
     const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    let html = `<div class="t">${esc(head)}</div><div class="n">${esc(title)}</div><div class="ld">一共 <b>${rows.length}</b> 件 · <b>${load.toFixed(0)} kg</b></div><div class="ls">`;
-    if (!rows.length) html += `<div class="none">${esc(empty)}</div>`;
+    const kg = (m: number): string => m.toFixed(m < 10 ? 1 : 0);
+    // (a box: how many of its stacks are taken, how much of what it bears)
+    const sum = cap ? `<b>${rows.length} / ${cap.slots}</b> 格 · <b>${kg(load)}${cap.maxKg !== undefined ? ` / ${cap.maxKg}` : ''} kg</b>` : `一共 <b>${rows.length}</b> 件 · <b>${load.toFixed(0)} kg</b>`;
+    let html = `<div class="t">${esc(v.head)}</div><div class="n">${esc(v.title)}</div><div class="ld">${sum}</div><div class="ls">`;
+    if (!rows.length) html += `<div class="none">${esc(v.empty)}</div>`;
     let zone = '';
     // (the rows round the picked one, as many as fit)
     const from = Math.max(0, Math.min(sel - 4, rows.length - 9));
@@ -75,9 +113,9 @@ export class CargoList {
         zone = r.zone;
         html += `<div class="z">${esc(zone)}</div>`;
       }
-      html += `<div class="r${i === sel ? ' on' : ''}">${r.icon ? `<img src="${r.icon}" alt="">` : '<div class="ph"></div>'}<div>${esc(r.name)}</div><div class="m">${r.mass.toFixed(r.mass < 10 ? 1 : 0)} kg</div></div>`;
+      html += `<div class="r${i === sel ? ' on' : ''}">${r.icon ? `<img src="${r.icon}" alt="">` : '<div class="ph"></div>'}<div>${esc(r.name)}</div><div class="m">${kg(r.mass)} kg</div></div>`;
     });
-    html += `</div><div class="ks"><span><kbd>滚轮</kbd>/ <kbd>W</kbd><kbd>S</kbd> 选</span><span><kbd>E</kbd>/ 左键 ${esc(take)}</span><span><kbd>Tab</kbd> 关上</span></div>`;
+    html += `</div><div class="ks"><span><kbd>滚轮</kbd>/ <kbd>W</kbd><kbd>S</kbd> 选</span><span><kbd>E</kbd>/ 左键 ${esc(v.take)}</span>${v.put ? `<span><kbd>G</kbd> 放进去 ${esc(v.put)}</span>` : ''}<span><kbd>Tab</kbd> 关上</span></div>`;
     this.el.innerHTML = html;
   }
 }
