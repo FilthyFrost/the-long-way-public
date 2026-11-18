@@ -6,6 +6,7 @@
  */
 import { BIOMES } from '../../core/world/biomes';
 import type { WeatherKind } from '../../core/env/weather';
+import { INTENSITIES, INTENSITY_ZH, journeyTotals, type JourneyStop } from './devJourney';
 import { fmt, type Dial, type DialTab, type Tune } from './devTune';
 import { DevWorld, PLACES } from './devWorld';
 
@@ -51,6 +52,20 @@ export const PANE_CSS = `
 .mc-dev .ft2 button { padding: 6px 4px; border: 2px solid #17120f; border-radius: 9px; background: #f6f2ea; color: #17120f; box-shadow: 0 2px 0 #17120f; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .mc-dev .ft2 button:hover { background: #e9c14a; }
 .mc-dev .ft2 .msg { grid-column: 1 / -1; margin: 0; }
+.mc-dev .btns button.out { color: #8d8a84; box-shadow: inset 0 0 0 1.5px rgba(239,230,211,0.14); }
+.mc-dev .jleg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: #c9c6c0; margin: 2px 0 6px; }
+.mc-dev .jleg span { display: inline-flex; align-items: center; gap: 5px; }
+.mc-dev .jleg i, .mc-dev .jcell i { font-style: normal; }
+.mc-dev .jleg b { display: inline-block; width: 11px; height: 11px; border-radius: 3px; }
+.mc-dev .journey { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; }
+.mc-dev .jcell { min-width: 0; padding: 3px 4px 4px; border-radius: 4px; font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.mc-dev .jcell small { display: block; font-size: 9.5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.mc-dev .jcell.here { box-shadow: inset 0 0 0 2px #fff; }
+.mc-dev .jleg b.calm, .mc-dev .jcell.calm { background: #6f6a5c; }
+.mc-dev .jleg b.scenic, .mc-dev .jcell.scenic { background: #b39647; }
+.mc-dev .jleg b.highlight, .mc-dev .jcell.highlight { background: #f0cf66; }
+.mc-dev .jcell.calm { color: #fff; }
+.mc-dev .jcell.scenic, .mc-dev .jcell.highlight { color: #17120f; }
 .mc-dev-tip { position: fixed; z-index: 40; max-width: 280px; padding: 9px 12px 10px; box-sizing: border-box; border-radius: 10px; border: 2.5px solid #efe6d3; box-shadow: 0 0 0 2px #17120f, 0 5px 0 rgba(10,8,6,0.5); background: rgba(22,21,20,0.96); color: #fff; font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; font-size: 13px; line-height: 1.6; pointer-events: none; }
 .mc-dev-tip b { color: #e9c14a; font-weight: 700; }
 .mc-dev-tip small { display: block; margin-top: 5px; color: #c9c6c0; font-size: 11.5px; line-height: 1.45; }
@@ -104,6 +119,11 @@ const HOURS: [string, number][] = [
   ['深夜', 2.5],
 ];
 
+/** how many regions of the journey the 传送 tab shows */
+const JOURNEY_SHOWN = 60;
+/** a mark beside the name for the two that are not calm: the strip reads without its colours too */
+const JOURNEY_MARK: Readonly<Record<JourneyStop['intensity'], string>> = { calm: '', scenic: '◆', highlight: '★' };
+
 export interface PaneHost {
   readonly tune: Tune;
   readonly devTools: DevWorld;
@@ -119,6 +139,11 @@ export class WorldPanes {
   private hourBig: HTMLElement | null = null;
   private dragHour = false;
   private whereEl: HTMLElement | null = null;
+  private regionsEl: HTMLElement | null = null;
+  private journeyEl: HTMLElement | null = null;
+  private journeyLegend: HTMLElement | null = null;
+  /** the chapter the journey shown begins with (drawn again when one has driven into the next) */
+  private journeyFrom = -1;
   private wxButtons: HTMLElement | null = null;
   private stageSlider: HTMLInputElement | null = null;
   private stageText: HTMLElement | null = null;
@@ -287,12 +312,22 @@ export class WorldPanes {
 <div class="btns three places">${PLACES.map((p) => `<button data-place="${p.id}" data-tip="<b>${p.zh}</b><br>${p.help}">${p.zh}</button>`).join('')}</div>
 <label class="check" data-tip="勾上：坐在车里就连车带人一起传送；走路时把最后开的那辆车停在你前面的路边。不勾：只传送你自己。"><input type="checkbox" class="bring" checked>带上我的车</label>
 <div class="msg placeMsg"></div>
+<h5>去某种区域</h5><div class="note">去前面路上下一段这种区域：停在它开头往里 300 米的路上。灰色的是这个世界里没有的区域。</div>
+<div class="btns three regions"></div>
+<div class="msg regionMsg"></div>
+<h5>旅程预览</h5><div class="note">从你现在所在的区域起，接下来 ${JOURNEY_SHOWN} 个区域，按「强度」上色：舒缓为主，隔几个来一个有看点的，高潮很少。鼠标放上去看里程。</div>
+<div class="jleg"></div><div class="journey"></div>
 <h5>按里程去</h5>
 <div class="row"><span>第</span><input type="number" class="km" min="0" step="0.5" value="10"><span>km</span><div class="btns"><button class="go" data-km="go">去</button></div></div>
 <div class="btns three"><button data-km="-5">往回 5 km</button><button data-km="5">往前 5 km</button><button data-km="50">往前 50 km</button></div>
 <h5>换一个世界</h5><div class="note seed"></div>
 <div class="btns"><button data-act="seed" data-tip="用一个新的随机种子把整个世界重新生成一遍（地形、路、湖、村子全都变）。页面会刷新。">随机换一个世界（刷新页面）</button></div>`;
     this.whereEl = body.querySelector('.where');
+    this.regionsEl = body.querySelector('.regions');
+    this.journeyEl = body.querySelector('.journey');
+    this.journeyLegend = body.querySelector('.jleg');
+    this.regionsEl!.innerHTML = tools.regions.map((r) => `<button data-region="${r.id}"${r.known ? '' : ' class="out"'} data-tip="<b>${r.zh}</b><br>${r.known ? '去前面路上下一段「' + r.zh + '」。' : '这个世界里没有这种区域：它是在这个世界开局之后才加进游戏的（或者这是第 1 版的世界）。'}">${r.zh}</button>`).join('');
+    const regionMsg = body.querySelector('.regionMsg') as HTMLElement;
     const msg = body.querySelector('.placeMsg') as HTMLElement;
     const seed = body.querySelector('.seed') as HTMLElement;
     seed.textContent = `现在的世界种子：${tools.seed}。同一个种子永远生成一模一样的世界。`;
@@ -302,6 +337,13 @@ export class WorldPanes {
       if (!b) return;
       if (b.dataset.place) {
         msg.textContent = tools.go(b.dataset.place, this.bring);
+        this.tick();
+      }
+      if (b.dataset.region) {
+        const went = tools.goRegion(b.dataset.region, this.bring);
+        regionMsg.textContent = went;
+        // (nothing happened: said in the warning colour)
+        regionMsg.classList.toggle('bad', went.startsWith('这个世界') || went.startsWith('前面') || went.startsWith('没有'));
         this.tick();
       }
       const km = b.dataset.km;
@@ -316,6 +358,26 @@ export class WorldPanes {
       }
       if (b.dataset.act === 'seed') tools.regenerate(true, 'place');
     });
+  }
+
+  /**
+   * The journey ahead as a strip of cells, one to a region, in the tone of how much it asks of the traveller
+   * (one hue from quiet to full: an order, not three unrelated colours), each with its name, a mark for its
+   * intensity and its distance under the mouse; and how many of each there are.
+   */
+  private drawJourney(stops: readonly JourneyStop[]): void {
+    const strip = this.journeyEl;
+    const legend = this.journeyLegend;
+    if (!strip || !legend) return;
+    const totals = journeyTotals(stops);
+    legend.innerHTML = INTENSITIES.map((k) => `<span><b class="${k}"></b>${JOURNEY_MARK[k] ? `<i>${JOURNEY_MARK[k]}</i>` : ''}${INTENSITY_ZH[k]} ${totals[k]}</span>`).join('');
+    strip.innerHTML = stops
+      .map((x, i) => {
+        const km = `${(x.start / 1000).toFixed(1)} km 起 · 长 ${(x.length / 1000).toFixed(2)} km`;
+        const tip = `<b>${x.label}</b><br>旅程的第 ${x.chapter + 1} 个区域 · ${INTENSITY_ZH[x.intensity]}<br>${km}${i === 0 ? '<br>你现在在这里。' : ''}`;
+        return `<div class="jcell ${x.intensity}${i === 0 ? ' here' : ''}" data-tip="${tip}">${JOURNEY_MARK[x.intensity] ? `<i>${JOURNEY_MARK[x.intensity]}</i> ` : ''}${x.label}<small>${x.chapter + 1} · ${Math.round(x.start / 1000)} km</small></div>`;
+      })
+      .join('');
   }
 
   // ------------------------------------------------------------------ the weather at a click
@@ -417,6 +479,11 @@ export class WorldPanes {
   tick(): void {
     const tools = this.host.devTools;
     if (this.whereEl) this.whereEl.textContent = tools.where();
+    // (the journey is drawn once for where one is, and again when one has come into the next region)
+    if (this.journeyEl && tools.chapterHere !== this.journeyFrom) {
+      this.journeyFrom = tools.chapterHere;
+      this.drawJourney(tools.journey(JOURNEY_SHOWN));
+    }
     if (this.hourBig) this.hourBig.innerHTML = `${DevWorld.hourText(tools.hour)}<small>${tools.timeSpeed === 0 ? '时间暂停' : tools.timeSpeed === 1 ? '正常流速' : `${tools.timeSpeed}× 流速`}</small>`;
     if (this.hourSlider && !this.dragHour) this.hourSlider.value = String(tools.hour);
     if (this.speedSlider) this.speedSlider.value = String(posOf(tools.timeSpeed));

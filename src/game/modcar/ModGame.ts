@@ -1197,6 +1197,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private movedWords(): string | null {
     if (!this.movedWorld) return null;
     console.info(`[world] ${WORLD_CHANGED.en}`);
+    // (this line stands: the one for being out on the road, which the first step would say over it, is not said)
+    this.saidOnRoad = true;
     return WORLD_CHANGED.zh;
   }
 

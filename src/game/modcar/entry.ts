@@ -698,6 +698,10 @@ const rt = {
   /** off to a random place of a kind (devWorld.ts PLACES), or to a distance down the road */
   devGo: (kind: string, bring = true) => game.devTools.go(kind, bring),
   devGoKm: (km: number, bring = true) => game.devTools.goKm(km, bring),
+  /** off to the next chapter of a region ahead (its id), as the 传送 tab's buttons do; the journey ahead as that tab shows it */
+  devGoRegion: (id: string, bring = true) => game.devTools.goRegion(id, bring),
+  devJourney: (n = 60) => game.devTools.journey(n),
+  devRegions: () => game.devTools.regions,
   devWhere: () => game.devTools.where(),
   /** the weather forced (null: the schedule's), the hour, a dial (no value: back to the game's own) */
   devWeather: (kind: string | null, stage?: number | null) => {

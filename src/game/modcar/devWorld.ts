@@ -1,7 +1,9 @@
 /**
  * The developer's world tools, the game's side of the bin's world tabs: off to another kind of country (a
- * snowfield, the dunes, a canyon, the coast) at a random place of the road, the weather and the hour at a click,
- * and every frame the dials (devTune.ts) on what the weather, the light, the clock and the sound come out as.
+ * snowfield, the dunes, a canyon, the coast) at a random place of the road, or to the next chapter of any
+ * region of the registry; the journey as the world has dealt it (devJourney.ts); the weather and the hour at a
+ * click, and every frame the dials (devTune.ts) on what the weather, the light, the clock and the sound come
+ * out as.
  */
 import { WEATHER_KINDS, type WeatherKind, type WeatherState } from '../../core/env/weather';
 import { BIOMES, BIOME_INDEX } from '../../core/world/biomes';
@@ -10,6 +12,7 @@ import { BiomeBlend } from '../../core/world/spine';
 import type { World } from '../../core/world/terrain';
 import { encodeBuild } from '../../core/modcar/build';
 import { globals } from '../render/shaderlib';
+import { journeyFrom, nextChapterOf, REGION_ENTRY, REGION_SEARCH, worldKnows, type JourneyStop } from './devJourney';
 import type { Tune } from './devTune';
 import type { ModGame } from './ModGame';
 
@@ -260,6 +263,43 @@ export class DevWorld {
     if (s === null) return `前面 ${SEARCH_TO / 1000} km 的路上没找到「${kind.zh}」。`;
     g.teleport(s, bring);
     return `${kind.zh}：${describePlace(w, s)}`;
+  }
+
+  /** every region of the registry, by its label; `known`: this world deals it (a world knows the regions there were when it was begun) */
+  get regions(): { id: string; zh: string; known: boolean }[] {
+    const w = this.game.devWorld();
+    return BIOMES.map((b, i) => ({ id: b.id, zh: b.label, known: worldKnows(w, i) }));
+  }
+
+  /**
+   * Off to a region: the next chapter of it ahead on the road, a little way into it (devJourney.ts
+   * REGION_ENTRY), on the road, with the vehicle one sits in or stands by. What happened, in words — also
+   * when nothing did: the world does not deal that region, or none of it comes for a long way.
+   */
+  goRegion(id: string, bring: boolean): string {
+    const g = this.game;
+    const i = BIOME_INDEX[id];
+    if (i === undefined) return `没有「${id}」这种区域。`;
+    const zh = BIOMES[i].label;
+    const w = g.devWorld();
+    if (!worldKnows(w, i)) return `这个世界（第 ${w.rules.version} 版生成器）只有注册表里前 ${w.rules.regionCount} 种区域，没有「${zh}」。新开一局的世界才有。`;
+    const stop = nextChapterOf(w, i, g.place === 'road' ? g.roadS : 0);
+    if (!stop) return `前面 ${REGION_SEARCH} 个区域里没有「${zh}」。`;
+    const s = stop.start + REGION_ENTRY;
+    g.teleport(s, bring);
+    return `${zh}：旅程的第 ${stop.chapter + 1} 个区域 · ${describePlace(w, s)}`;
+  }
+
+  /** which chapter of the journey one is in (the first, in the garage) */
+  get chapterHere(): number {
+    const g = this.game;
+    return g.devWorld().spine.plan.chapterAt(g.place === 'road' ? Math.max(0, g.roadS) : 0);
+  }
+
+  /** the journey from where one is: the next n regions as the world has dealt them, the one one is in first */
+  journey(n = 60): JourneyStop[] {
+    const g = this.game;
+    return journeyFrom(g.devWorld(), g.place === 'road' ? g.roadS : 0, n);
   }
 
   /** to a distance down the road (km) */
