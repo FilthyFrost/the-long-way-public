@@ -4,7 +4,7 @@
 
 | 参考 | 获取方式 | 许可 | 本地位置 | 用途 |
 | --- | --- | --- | --- | --- |
-| Painted Valley（patch.gg/blendi/painted-valley，v1.1.1，提交 e523a37） | 官方接口 `api/v1/projects/blendi/painted-valley/releases/1.1.1/source` 的源码包，SHA-256 校验通过 | 代码 MIT，画面 CC0-1.0（见其 `LICENCE-NOTES.md`） | `refs/painted-valley/`（不入库） | 读源码学技术；我们自己重写实现，不原样拷贝文件 |
+| Painted Valley（patch.gg/blendi/painted-valley，v1.1.1，提交 e523a37） | 官方接口 `api/v1/projects/blendi/painted-valley/releases/1.1.1/source` 的源码包，SHA-256 校验通过 | 代码 MIT，画面 CC0-1.0（见其 `LICENCE-NOTES.md`） | `refs/painted-valley/`（不入库）；本机另有用户放的完整克隆 `D:/美术参考/painted-valley` | 读源码学技术；我们自己重写实现，不原样拷贝文件。手绘树冠（`src/game/scene/crowns/grow.ts`、`src/game/render/crownMaterial.ts`）的阔叶树生长与上色紧跟它的 `src/valley/trees.js`，按 MIT 在根目录 `THIRD-PARTY-NOTICES.md` 保留它的许可声明 |
 | Painted Valley 封面图 | patch.gg CDN | CC0-1.0 | `refs/targets/painted-valley/cover.jpg` | 风格对标图 |
 | Painted Valley 在线演示截图 | 用我们自己的无头 Chrome（同一套软件渲染）打开公开演示页拍摄，`?quality=low&paint=3` | CC0-1.0 | `refs/targets/painted-valley/pv_*.jpg` | 风格对标图（与我们的截图同一渲染管线，可直接并排比） |
 | ArtStation 1NKWJK | 页面与接口对自动访问返回 403（Cloudflare 校验），搜索也找不到；没有绕过 | 版权归作者 | `refs/artstation-1NKWJK/`（待用户放入） | 目标画面风格；放入后裁判自动纳入 |

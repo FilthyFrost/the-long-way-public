@@ -55,6 +55,7 @@ export class RenderCore {
   private readonly shadowFar = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3();
   private readonly rebaseListeners: ((dx: number, dy: number, dz: number) => void)[] = [];
+  private readonly frameListeners: (() => void)[] = [];
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = QUALITY[quality];
@@ -87,6 +88,18 @@ export class RenderCore {
     this.rebaseListeners.push(fn);
   }
 
+  /**
+   * Called at the start of every frame drawn, before the shadow maps: whatever sets itself out by the camera
+   * (scene/crowns/crownView.ts). Returns the way to stop.
+   */
+  onFrame(fn: () => void): () => void {
+    this.frameListeners.push(fn);
+    return () => {
+      const i = this.frameListeners.indexOf(fn);
+      if (i >= 0) this.frameListeners.splice(i, 1);
+    };
+  }
+
   /** Move the render origin close to (wx, wy, wz) when it has drifted too far. Returns true if it moved. */
   maybeRebase(wx: number, wy: number, wz: number, limit = 1024): boolean {
     const dx = wx - this.origin.x;
@@ -114,6 +127,7 @@ export class RenderCore {
     globals.uOriginOffset.value.set(wrap(o.x), wrap(o.y), wrap(o.z));
     globals.uTime.value = time;
     this.renderer.info.reset();
+    for (const fn of this.frameListeners) fn();
     if (this.shadows) {
       // the wide map sits a little ahead of the camera, where shadows are actually seen
       this.camera.getWorldDirection(this.fwd);

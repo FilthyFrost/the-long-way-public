@@ -33,6 +33,7 @@ import { floraTableOf } from '../../core/world/floraTables';
 import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/plants';
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
+import { CROWN_STRIDE, type CrownLookup } from './crowns/crownData';
 import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
 
@@ -75,6 +76,13 @@ export interface FloraScatter {
   /** soft discs on the ground under the near plants, where no shadow map is drawn: a matrix each (null: none asked for) */
   discs: Float32Array | null;
   discCount: number;
+  /**
+   * The trees (and, at the two nearest levels, the shrubs) whose family is drawn as a painted crown
+   * (scene/crowns/crownView.ts), handed over instead of drawn here: CROWN_STRIDE numbers each, world
+   * coordinates (null: none, or no crowns were asked for)
+   */
+  crowns: Float32Array | null;
+  crownCount: number;
   /** the tile's origin in the world */
   wx: number;
   wy: number;
@@ -217,6 +225,20 @@ function slopeAt(H: Float32Array, fx: number, fz: number): void {
 }
 const discScratch = new Float32Array((256 + 256 * 3 + 1024) * 16);
 const tp = new TerrainPoint();
+/** a tile's painted crowns as they are gathered: its trees' cells and its shrubs' */
+const crownScratch = new Float32Array(512 * CROWN_STRIDE);
+/** a crown may spread this much wider than the catalogue's crown, keeping its own shape (a painted tree is broad) */
+const CROWN_BROADEN = 1.2;
+/** by plant index: the species it is drawn as (−1 none), asked of the crowns once per lookup */
+let crownSpeciesOf: Int16Array | null = null;
+let crownLookupFor: CrownLookup | null = null;
+function crownOf(crowns: CrownLookup, pi: number): number {
+  if (crownLookupFor !== crowns || !crownSpeciesOf) {
+    crownLookupFor = crowns;
+    crownSpeciesOf = Int16Array.from(PLANTS, (p) => crowns.speciesOf(p.model));
+  }
+  return crownSpeciesOf[pi];
+}
 /** the same level of a bench, for a row of a plant of rows to stand on it (m) */
 const BENCH_LEVEL = 0.25;
 
@@ -332,9 +354,12 @@ export function floraSheet(reg: PlantRegistry, list: readonly SheetPlant[]): Flo
 
 /**
  * The plants of tile (tx, tz) at a level of detail, ready to draw. `discs`: also the soft ground discs of the
- * near plants (for a renderer without shadow maps). The world must be of version 2 (it has a flora field).
+ * near plants (for a renderer without shadow maps). `crowns`: the painted crowns (scene/crowns/crownView.ts):
+ * at the three nearer levels the trees whose family has one, and at the two nearest the shrubs, are handed
+ * over to them instead of being drawn here (null: everything is drawn here). The world must be of version 2
+ * (it has a flora field).
  */
-export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, tz: number, lod: FloraLod, discs = false): FloraScatter {
+export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, tz: number, lod: FloraLod, discs = false, crowns: CrownLookup | null = null): FloraScatter {
   const flora = world.flora;
   const eco = world.eco;
   if (!flora || !eco) throw new Error('a world of version 1 has no flora field: its scatter is buildScatter');
@@ -366,12 +391,71 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
   const smallLevel = near ? 0 : 1;
   const dense = lod !== LOD_NEAR && flora.tile(LAYER_TREE, tx, tz).n > DENSE_TREES;
   const C = et.canopy;
+  // (how thick the wood is, for the crowns: whatever the level, a tree under closed canopy is drawn a level lower far off)
+  const thick = flora.tile(LAYER_TREE, tx, tz).n > DENSE_TREES;
+  let nc = 0;
   for (const layer of layers) {
     const t = flora.tile(layer, tx, tz);
     for (let i = 0; i < t.n; i++) {
       const pi = t.plant[i];
       const d = reg.draws[pi];
       if (!d.drawn) continue;
+      // a painted crown: handed over, with where it stands and how it looks
+      if (crowns && lod <= LOD_MID && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
+        const sp = crownOf(crowns, pi);
+        if (sp >= 0) {
+          const plant = PLANTS[pi];
+          const x = t.x[i];
+          const z = t.z[i];
+          const size = t.size[i];
+          const vary = t.vary[i];
+          slopeAt(H, (x - x0) / ECO_STEP, (z - z0) / ECO_STEP);
+          const si = Math.min(SLOT_N - 1, Math.max(0, Math.round((x - x0) / SLOT_STEP)));
+          const sj = Math.min(SLOT_N - 1, Math.max(0, Math.round((z - z0) / SLOT_STEP)));
+          const sk = sj * SLOT_N + si;
+          const region = t.region[i];
+          const share = slotA[sk] === slotB[sk] ? slotShare[sk] : region === slotB[sk] ? 1 : region === slotA[sk] ? 0 : slotShare[sk];
+          const m = crowns.measure(sp);
+          const sy = (plant.height * size) / m.height;
+          const sx = Math.min(sy, (plant.crown * size * CROWN_BROADEN) / m.radius) * (0.92 + 0.16 * ((vary * 7.31) % 1));
+          // it stands plumb: sunk until the low side of its foot is in the ground
+          const foot = t.y[i] - (d.family.sink ?? 0) - Math.min(1.2, Math.sqrt(slopeX * slopeX + slopeZ * slopeZ)) * Math.max(0.15, plant.trunk * size);
+          let inside = 0;
+          if (thick && layer === LAYER_TREE) {
+            const qa = slopeNode;
+            const qx = (x - x0) / ECO_STEP;
+            const qz = (z - z0) / ECO_STEP;
+            const qu = qx - (qa % ECO_N);
+            const qv = qz - Math.floor(qa / ECO_N);
+            if ((C[qa] * (1 - qu) + C[qa + 1] * qu) * (1 - qv) + (C[qa + ECO_N] * (1 - qu) + C[qa + ECO_N + 1] * qu) * qv > INSIDE_CANOPY) inside = 1;
+          }
+          const bears = d.showsFruit && bearsAt(plant, vary) !== null ? 2 : 0;
+          let second = d.tintB;
+          if (d.regionAccent) {
+            const hs = huesOf(region);
+            if (hs.length) second = hs[Math.min(hs.length - 1, Math.floor(vary * hs.length))];
+          }
+          const o = nc * CROWN_STRIDE;
+          crownScratch[o] = x;
+          crownScratch[o + 1] = foot;
+          crownScratch[o + 2] = z;
+          crownScratch[o + 3] = t.yaw[i];
+          crownScratch[o + 4] = sx;
+          crownScratch[o + 5] = sy;
+          crownScratch[o + 6] = sp;
+          crownScratch[o + 7] = Math.min(crowns.variants(sp) - 1, Math.floor(((vary * 13.7) % 1) * crowns.variants(sp)));
+          crownScratch[o + 8] = slotPair[sk];
+          crownScratch[o + 9] = share * 0.999 + bears + d.evergreen;
+          crownScratch[o + 10] = d.tintA;
+          crownScratch[o + 11] = second;
+          crownScratch[o + 12] = vary;
+          crownScratch[o + 13] = inside;
+          crownScratch[o + 14] = m.radius * sx;
+          crownScratch[o + 15] = m.height * sy;
+          nc++;
+          continue;
+        }
+      }
       let level = layer === LAYER_TREE ? treeLevel : smallLevel;
       if (dense && layer === LAYER_TREE) {
         // a tree inside a thick wood: a level lower than the wood's edge; furthest off, every other one
@@ -463,6 +547,8 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
     for (let i = 0; i < t.n; i++) {
       const d = reg.draws[t.plant[i]];
       if (!d.drawn || !d.far) continue;
+      // (a painted crown throws its own shadow: scene/crowns/crownView.ts)
+      if (crowns && crownOf(crowns, t.plant[i]) >= 0) continue;
       slopeAt(H, (t.x[i] - x0) / ECO_STEP, (t.z[i] - z0) / ECO_STEP);
       put(shadowTrees, d, PLANTS[t.plant[i]], d.far, 1, t.x[i] - x0, t.y[i] - oy, t.z[i] - z0, t.size[i], t.vary[i], t.yaw[i], slopeX, slopeZ, 0, 0, t.region[i], false);
     }
@@ -472,5 +558,5 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       shadows = one[0];
     }
   }
-  return { batches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, wx: x0, wy: oy, wz: z0 };
+  return { batches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, crowns: nc > 0 ? crownScratch.slice(0, nc * CROWN_STRIDE) : null, crownCount: nc, wx: x0, wy: oy, wz: z0 };
 }

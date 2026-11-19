@@ -16,6 +16,7 @@ import { coverUniforms, ownPalettes, showChapters, type OwnPalettes } from '../r
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
+import { CrownView } from './crowns/crownView';
 import { floraMesh, floraShadows } from './floraMesh';
 import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
@@ -120,6 +121,8 @@ export class WorldView {
   /** a world of version 2: the plants' registry and the one material they are all drawn with (null in a world of version 1) */
   private readonly plants: PlantRegistry | null;
   private readonly floraMat: THREE.ShaderMaterial | null;
+  /** a world of version 2: the trees of the nearer tiles drawn as painted crowns (scene/crowns/crownView.ts); null in a world of version 1 */
+  readonly crowns: CrownView | null;
   private readonly proj = { s: 0, d: 0 };
   private readonly group = new THREE.Group();
   private sCam = 0;
@@ -140,6 +143,12 @@ export class WorldView {
     this.plants = world.flora ? plantRegistry() : null;
     if (this.plants) floraUniforms.tPlants.value = this.plants.atlas.texture;
     this.floraMat = this.plants ? floraMaterial() : null;
+    this.crowns = this.plants ? new CrownView(core) : null;
+    if (this.crowns) {
+      this.group.add(this.crowns.group);
+      const crowns = this.crowns;
+      core.onFrame(() => crowns.update());
+    }
     this.kinds = this.plants ? null : buildScatterKinds();
     if (this.plants) {
       // … and paints its ground and its flowers by the flora field's ground cover. (The materials are made
@@ -571,8 +580,16 @@ export class WorldView {
    * one for its shrubs and ground plants (scene/floraScatter.ts, scene/floraMesh.ts).
    */
   private makeFloraTile(key: string, tx: number, tz: number, lod: FloraLod): void {
-    const s = buildFloraScatter(this.world, this.plants!, tx, tz, lod, this.q.shadowSize === 0);
+    const s = buildFloraScatter(this.world, this.plants!, tx, tz, lod, this.q.shadowSize === 0, this.crowns);
     const objects: THREE.Object3D[] = [];
+    if (this.crowns && s.crowns) {
+      // the tile's painted crowns: drawn by the crowns' view, taken back from it when the tile goes (drop)
+      const crowns = this.crowns;
+      const token = crowns.setTile(key, s.crowns, s.crownCount);
+      const holder = new THREE.Object3D();
+      holder.userData.own = [{ dispose: () => crowns.dropTile(key, token) }];
+      objects.push(this.add(holder, s.wx, s.wy, s.wz));
+    }
     for (const b of s.batches) {
       const mesh = floraMesh(b, this.floraMat!, TILE);
       // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
