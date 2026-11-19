@@ -121,7 +121,7 @@ try {
     await step();
     const lists = await page.evaluate(() => [...document.querySelectorAll('.mc-cargo')].filter((e) => e.style.display !== 'none').map((e) => e.querySelector('.n')?.textContent ?? ''));
     if (lists.length !== 2) fail(`beside the pickup the lists shown are ${JSON.stringify(lists)}`);
-    await page.evaluate(() => { const g = window.__rt.game; g.switchListSide(0); });
+    await page.evaluate(() => { const g = window.__rt.game; g.ui.showHelp(false); g.switchListSide(0); });
     await step();
     await page.evaluate(() => window.__rt.render());
     await page.screenshot({ path: path.join(out, 'lists.png') });

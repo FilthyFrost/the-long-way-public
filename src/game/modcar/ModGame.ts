@@ -3801,6 +3801,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (a pad's right stick moves the scrubbing tool as the mouse does)
       if (this.player.scrub && (this.pad.rx !== 0 || this.pad.ry !== 0)) this.player.scrubMove(this.pad.rx * dt * 700, this.pad.ry * dt * 700);
       this.showCargoList();
+      // (a list open: its rows say what things are; the cards of what one holds and looks at would stand over them)
+      if (this.listV) this.ui.items.showCards(null, null, false);
     } else {
       // seated: the workbench words go away (the cab's controls have the mark now); the hotbar stays
       this.input.lookHold = false;
