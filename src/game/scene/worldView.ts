@@ -17,6 +17,7 @@ import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terr
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
 import { CrownView } from './crowns/crownView';
+import { groundField, groundMonth } from '../../core/world/groundField';
 import { Meadow } from './meadow';
 import { floraMesh, floraShadows } from './floraMesh';
 import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
@@ -606,7 +607,7 @@ export class WorldView {
       holder.userData.own = [{ dispose: () => crowns.dropTile(key, token) }];
       objects.push(this.add(holder, s.wx, s.wy, s.wz));
     }
-    for (const b of s.batches) {
+    for (const b of [...s.batches,...s.groundBatches]) {
       const mesh = floraMesh(b, this.floraMat!, TILE);
       // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
       // nearest a plant throws its own shadow; at the close level the trees' far models throw the tile's, below)
@@ -813,6 +814,17 @@ export class WorldView {
       if (performance.now() - t0 > budgetMs) break;
     }
     if (ran > 0) this.pruneTerrain();
+  }
+
+  private groundDay = -1;
+
+  setGroundDay(day:number): void {
+    if (this.groundDay === day || !this.plants) return;
+    this.groundDay = day;
+    if (!groundField(this.world).setMonth(groundMonth(day))) return;
+    // Keep the existing pieces visible until the streaming budget replaces each one.
+    for (const tile of this.tiles.values()) tile.lod = -1 as FloraLod;
+    this.planX = NaN;
   }
 
   get pending(): number {

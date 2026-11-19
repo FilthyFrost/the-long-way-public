@@ -69,7 +69,7 @@ export const FLORA_VERTEX = /* glsl */ `
     p.y += dot(aLie.xy, p.xz);
     // the wind: a slow lean with it and a quicker flutter, each plant on its own phase (as the first foliage)
     float ph = time * (0.9 + 1.6 * wind) + root.x * 0.37 + root.z * 0.29;
-    float bend = (0.12 + wind) * leaf.w * leaf.w * 0.011 * aShape.x;
+    float bend = (part > 3.5 ? 0.0 : 1.0) * (0.12 + wind) * leaf.w * leaf.w * 0.011 * aShape.x;
     p.x += (sin(ph) * 0.6 + 0.4 * wind * 2.0) * bend;
     p.z += cos(ph * 0.8 + 1.3) * 0.5 * bend;
     world = root + p;
@@ -185,6 +185,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
           float sh = rtShadow(vPos, n);
           float tone = 0.5 + 0.5 * dot(n, L) - (1.0 - sh) * 0.4;
           albedo = mix(p.rockShade, p.rockLit, smoothstep(0.42, 0.58, tone));
+          if (vPart > 4.5) albedo = mix(vTint.rgb * vec3(0.66,0.72,0.8), vTint.rgb * 1.10, smoothstep(0.38,0.58,tone)) * vColor;
           float snow = smoothstep(0.3, 0.7, n.y) * load;
           albedo = mix(albedo, rtSnowTone(tone), snow);
           col = albedo * rtGroundLight(smoothstep(0.35, 0.6, tone) * sh);

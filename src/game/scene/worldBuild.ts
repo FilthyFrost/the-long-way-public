@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { hash2 } from '../../core/math/rng';
 import { smoothstep } from '../../core/math/util';
+import { groundProfile, elevationBand, siteElevation } from '../../core/world/groundTables';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_WET, Ecotope, ROAD_CLEAR } from '../../core/world/ecotope';
 import type { CoverParams } from '../../core/world/flora';
@@ -1137,7 +1138,14 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
     // (a grass twice as tall is not drawn twice as tall: the tufts were always taller than the grass they stand for)
     out.size = Math.pow(cb.height / COVER_HEIGHT, 0.6);
     out.tall = cb.height;
-    out.flowers = cb.flowers;
+    const biomeId = BIOMES[region].id;
+    const profile = groundProfile(biomeId);
+    if (profile) {
+      // The separate profile clumps carry their own petals, month and seed.
+      out.flowers = 0;
+      const band = elevationBand(profile,siteElevation(biomeId,eco));
+      if (!band || !band.ground.some(name => /草甸|禾草|莎草|丛草|雪草|旱草|高秆草|牧草|田埂草|刈草/.test(name))) out.grow *= 0.13;
+    } else out.flowers = cb.flowers;
     out.slope = eco.slope;
     out.bend = c.rows ? rowCoord(world.seed, x, z) - z : 0;
     out.terrace = eco.terrace;

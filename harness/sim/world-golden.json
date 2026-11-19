@@ -1,7 +1,7 @@
 {
   "_recorded": "node v24.22.1 (linux x64); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c",
   "_weather": "95ffc28d",
-  "_rev": 8,
+  "_rev": 9,
   "default-20261113": {
     "spine": "61ec991b",
     "spineHash": "d28a7dfa",
