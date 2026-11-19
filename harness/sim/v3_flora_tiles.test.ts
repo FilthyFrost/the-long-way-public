@@ -10,7 +10,7 @@ import { fbm2 } from '../../src/core/math/noise';
 import { hash2 } from '../../src/core/math/rng';
 import { BIOMES } from '../../src/core/world/biomes';
 import { ECO_SQ, ECO_TILE, Ecotope, OPEN_WATER, ROAD_CLEAR, type EcotopeField } from '../../src/core/world/ecotope';
-import { FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, onBench, ruleFit, type FloraLayer, type FloraTable } from '../../src/core/world/flora';
+import { FloraCell, FloraField, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, hedgeAt, onBench, ruleFit, type FloraLayer, type FloraTable } from '../../src/core/world/flora';
 import { floraTableOf } from '../../src/core/world/floraTables';
 import { LandParams } from '../../src/core/world/landform';
 import { AQUATIC_DEPTH, PLANTS, plantDef, plantIndex } from '../../src/core/world/plants';
@@ -61,6 +61,7 @@ function plainCell(world: World, eco: EcotopeField, layer: FloraLayer, cx: numbe
       const s = 0.5 + 1.6 * g;
       p *= 2 * (s <= 0 ? 0 : s >= 1 ? 1 : s * s * (3 - 2 * s));
     }
+    if (r.hedge) p *= hedgeAt(x, z, r.hedge, world.seed);
     acc += p;
     if (dice < acc) {
       pick = i;

@@ -29,20 +29,29 @@ const BLUE = 0x6f8fd8;
 
 export const FLORA: Record<string, FloraTable> = {
   // rolling grassland: copses and hedges, meadow between, willows and reeds by the water
+  // (laid out as a painter lays out a valley: woods in copses with open meadow between and kept back from the
+  // road, smaller trees where a copse thins, now and then a great oak alone in the grass, hedges wandering
+  // across the meadow with gaps in them, poplars along the water)
   plains: {
-    eco: { wood: 0.3, woodScale: 380, clear: 11, edge: 26, treeline: null, thirsty: 0.5, moist: 0.42 },
+    eco: { wood: 0.3, woodScale: 210, clear: 16, edge: 60, treeline: null, thirsty: 0.45, moist: 0.42 },
     trees: [
       { plant: 'willow', perHa: 40, water: [0, 14], waterKinds: FRESH },
       { plant: 'oak', perHa: 110, canopy: [0.45, 1], grove: 120 },
       { plant: 'linden', perHa: 60, canopy: [0.45, 1] },
       { plant: 'birch', perHa: 50, canopy: [0.3, 1], moisture: [0.35, 0.8] },
+      { plant: 'oak', perHa: 22, canopy: [0.15, 0.45], size: [0.6, 0.9] },
+      { plant: 'oak', perHa: 0.35, canopy: [0, 0.06], road: [30, 4000], size: [1.2, 1.45] },
+      { plant: 'linden', perHa: 0.15, canopy: [0, 0.06], road: [30, 4000], size: [1.15, 1.4] },
+      { plant: 'oak', perHa: 14, canopy: [0, 0.3], road: [20, 4000], hedge: 150, size: [0.85, 1.25] },
       { plant: 'apple_tree', perHa: 5, canopy: [0.1, 0.5], road: [12, 120] },
-      { plant: 'poplar', perHa: 6, canopy: [0, 0.3], size: [0.9, 1.3] },
+      { plant: 'poplar', perHa: 10, water: [0, 30], waterKinds: FRESH, canopy: [0, 0.5], size: [0.9, 1.3] },
     ],
     shrubs: [
       { plant: 'reed', perHa: 420, water: [0, 5], waterKinds: FRESH },
       { plant: 'hazel', perHa: 30, canopy: [0.3, 0.7] },
       { plant: 'bush', perHa: 60, canopy: [0.15, 0.6] },
+      { plant: 'bush', perHa: 200, canopy: [0, 0.3], road: [14, 4000], hedge: 150, size: [1, 1.45] },
+      { plant: 'hazel', perHa: 70, canopy: [0, 0.3], road: [14, 4000], hedge: 150, size: [0.9, 1.3] },
       { plant: 'berry_bush', perHa: 14, canopy: [0.1, 0.5], moisture: [0.3, 0.7], grove: 70 },
       { plant: 'rose_bush', perHa: 8, canopy: [0, 0.35] },
       { plant: 'fibre_tuft', perHa: 14, canopy: [0, 0.2], moisture: [0.1, 0.45], grove: 60 },

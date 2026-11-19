@@ -75,6 +75,32 @@ export interface FloraRule {
   readonly size?: Band;
   /** it grows in groves: its numbers swell and fade over patches of about this size (m) */
   readonly grove?: number;
+  /**
+   * It grows in hedges: along wandering lines some this far apart (m) — old field edges across the open
+   * country — a few metres wide, broken by gaps, and nowhere off them (hedgeAt). Its numbers are those of
+   * the line itself: write them high (a bush in nearly every cell the line crosses).
+   */
+  readonly hedge?: number;
+}
+
+/** a hedge's half width (m) */
+const HEDGE_HALF = 5;
+
+/**
+ * How much of a hedge's line runs through (x, z), 0 … 1: the lines are where a slow noise of the given scale
+ * (m) crosses its middle, so they wander and never end; a second, quicker noise breaks them into lengths with
+ * gaps between (a gate, a gap where a tree fell). Every rule of the same scale follows the same lines: a hedge
+ * of hazel and blackthorn is one hedge.
+ */
+export function hedgeAt(x: number, z: number, scale: number, seed: number): number {
+  const g = fbm2(x / scale, z / scale, seed + 0x6b0, 2);
+  // (the noise climbs about 2.4 across its scale near its middle: so many metres to a unit of it)
+  const on = 1 - Math.abs(g) / ((HEDGE_HALF * 2.4) / scale);
+  if (on <= 0) return 0;
+  const gap = fbm2(x / (scale * 0.32), z / (scale * 0.32), seed + 0x6c0, 1);
+  const s = on * 2.2;
+  const t = (gap + 0.26) * 6;
+  return (s >= 1 ? 1 : s * s * (3 - 2 * s)) * (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 }
 
 /** how a region's ground is covered where no single plant stands */
@@ -249,6 +275,8 @@ interface Compiled {
   readonly kinds: Int32Array;
   /** the size of its groves (m; 0: it does not grow in groves) */
   readonly grove: Float64Array;
+  /** how far apart its hedges' lines are (m; 0: it does not grow in hedges) */
+  readonly hedge: Float64Array;
   readonly size0: Float64Array;
   readonly size1: Float64Array;
   /** the most the rules can come to in one cell, groves at their thickest: on dry ground, in the shallows, and the greater of the two */
@@ -266,6 +294,7 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
   const from = new Int32Array(n + 1);
   const kinds = new Int32Array(n);
   const grove = new Float64Array(n);
+  const hedge = new Float64Array(n);
   const size0 = new Float64Array(n);
   const size1 = new Float64Array(n);
   const bands: number[] = [];
@@ -294,6 +323,7 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
     bench[i] = r.bench ? 1 : 0;
     kinds[i] = r.water && r.waterKinds !== undefined ? r.waterKinds : -1;
     grove[i] = r.grove ?? 0;
+    hedge[i] = r.hedge ?? 0;
     size0[i] = r.size ? r.size[0] : 0.75;
     size1[i] = r.size ? r.size[1] : 1.2;
     const most = per[i] * (grove[i] > 0 ? 2 : 1);
@@ -301,7 +331,7 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
     else mostDry += most;
   }
   from[n] = bands.length;
-  return { rules, plants, aquatic, bench, per, from, bands: Float64Array.from(bands), kinds, grove, size0, size1, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
+  return { rules, plants, aquatic, bench, per, from, bands: Float64Array.from(bands), kinds, grove, hedge, size0, size1, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
 }
 
 /**
@@ -551,6 +581,8 @@ export class FloraField {
         const g = fbm2(x / lay.grove[r], z / lay.grove[r], this.seed + 0x6a0 + lay.plants[r] * 17, 2);
         p *= 2 * smooth(0.5 + 1.6 * g);
       }
+      // hedges: only along their lines
+      if (lay.hedge[r] > 0) p *= hedgeAt(x, z, lay.hedge[r], this.seed);
       acc += p;
       if (dice < acc) {
         pick = r;

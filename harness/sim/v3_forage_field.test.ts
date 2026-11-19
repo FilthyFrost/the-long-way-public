@@ -100,9 +100,12 @@ describe('the forage points of a world', () => {
     const w = world(3, 'plains');
     const f = new ForageField(w.flora!);
     const out: ForagePoint[] = [];
-    f.near(5000, 80, 70, out);
-    const before = out.length;
-    for (let i = 0; i < 50; i++) f.near(5000 + (i % 5), 80, 70, out);
-    expect(out.length).toBe(before);
+    // (five places a few metres apart: once round them all, the tiles are there and the pool of points is as
+    // big as the most any of them finds; asked again and again, each finds what it found, in the same pool)
+    for (let i = 0; i < 5; i++) f.near(5000 + i, 80, 70, out);
+    const pool = out.length;
+    const found = [0, 1, 2, 3, 4].map((i) => f.near(5000 + i, 80, 70, out));
+    for (let i = 0; i < 50; i++) expect(f.near(5000 + (i % 5), 80, 70, out)).toBe(found[i % 5]);
+    expect(out.length).toBe(pool);
   });
 });
