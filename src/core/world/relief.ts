@@ -93,14 +93,18 @@ export const GREAT_FULL = 32000;
  * stands over the walls, not on top of them.
  */
 export function greatRange(x: number, z: number, lat: number, under: number, seed: number): number {
+  // Subsidiary ridges climb in front of the main watershed. Their oblique fold axis
+  // keeps the spurs overlapping as the valley turns; their saddles reveal the ridge behind.
+  const foothill = smoothstep(7800, 16500, lat);
+  if (foothill <= 0) return 0;
   const g = smoothstep(GREAT_FROM, GREAT_FULL, lat);
-  if (g <= 0) return 0;
   const belt = 1400 + 2600 * smoothstep(-0.4, 0.5, fbm2(x / 60000, z / 60000, seed, 2));
   const r = ridged2(x / 16000, z / 16000, seed + 1, 3, 2.05, 0.5);
   let h = smoothstep(0.15, 0.9, r);
-  if (h <= 0) return 0;
   h += 0.22 * h * (ridged2(x / 3800, z / 3800, seed + 2, 2) - 0.45);
-  return belt * g * (h > 0 ? h : 0) * (1 - 0.5 * smoothstep(1000, 3000, under));
+  const fold = ridged2((x * 0.88 + z * 0.47) / 9500, (z * 0.88 - x * 0.47) / 3800, seed + 3, 2);
+  const spur = (360 + belt * 0.24) * smoothstep(0.32, 0.89, fold) * foothill;
+  return (belt * g * h + spur) * (1 - 0.5 * smoothstep(1000, 3000, under));
 }
 
 /** what the long blend gives at a point of the road: the ranges and the walls of the country there */
