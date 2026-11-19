@@ -29,8 +29,10 @@ import { FADE_FAR, forageMaterial, SHRINK_S } from './material';
 const PLANT_M = FADE_FAR + 15;
 /** a glint is in the batch this far beyond the hint distance (m) */
 const GLINT_MARGIN_M = 10;
-/** the plants are drawn a little larger than they stand (things to find are drawn to be found) */
+/** the small plants are drawn a little larger than they stand (things to find are drawn to be found); a patch a metre across is not */
 const SIZE = 1.35;
+const SIZE_FROM = 0.4;
+const SIZE_TO = 0.75;
 /** the least a plant measures as drawn (m): across, and up */
 const LEAST_ACROSS = 0.1;
 const LEAST_UP = 0.06;
@@ -218,8 +220,9 @@ export class ForageView implements ForageShow {
         y = aimY[i];
         lift = GLINT_LIFT + (plant.layer === 'tree' && !p.on ? 0.2 : 0);
       } else {
-        across = Math.max(LEAST_ACROSS, plant.crown * p.size * SIZE);
-        up = Math.max(LEAST_UP, plant.height * p.size * SIZE);
+        const k = plant.crown <= SIZE_FROM ? SIZE : plant.crown >= SIZE_TO ? 1 : SIZE - ((SIZE - 1) * (plant.crown - SIZE_FROM)) / (SIZE_TO - SIZE_FROM);
+        across = Math.max(LEAST_ACROSS, plant.crown * p.size * k);
+        up = Math.max(LEAST_UP, plant.height * p.size * k);
         // (a plant of the water is modelled from the surface up, and the mark aims a little over the surface)
         if (FLOATS.has(plant.model)) y = aimY[i] - AIM_OVER_WATER + 0.01;
         lift = up + GLINT_LIFT;

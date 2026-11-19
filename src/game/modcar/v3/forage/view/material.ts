@@ -85,7 +85,7 @@ export function forageMaterial(): THREE.ShaderMaterial {
           float vis = near * (1.0 - step(0.0, pickedFor));
           float twinkle = 0.72 + 0.28 * sin(uTime * 2.6 + iMore.y * 41.0);
           // (marked by the developer it keeps its size on the screen, so that it is seen from 150 m)
-          float size = (0.1 + 0.05 * iMore.y) * twinkle * vis * mix(1.0, max(1.0, dEye * 0.09), uMark);
+          float size = (0.085 + 0.035 * iMore.y) * twinkle * vis * mix(1.0, max(1.0, dEye * 0.1), uMark);
           vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
           vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
           world = vec4(at + vec3(0.0, iMore.x, 0.0) + (right * position.x + up * position.y) * size, 1.0);
@@ -135,7 +135,7 @@ export function forageMaterial(): THREE.ShaderMaterial {
           float s = max(max(armX, armY), core);
           if (s < 0.3) discard;
           // (the night's exposure is raised: the star is held back there, or it would be a lamp)
-          vec3 star = vec3(1.0, 0.92, 0.6) * (1.25 + 1.5 * core) * mix(1.0, 0.4, uWeather.w);
+          vec3 star = vec3(1.0, 0.92, 0.6) * (1.05 + 1.3 * core) * mix(1.0, 0.4, uWeather.w);
           gl_FragColor = vec4(star, 0.5);
           return;
         }
@@ -148,13 +148,15 @@ export function forageMaterial(): THREE.ShaderMaterial {
         float tone = 0.5 + 0.36 * facing + (vTone - 1.0) * 1.1 + dab * 0.2 - (1.0 - sh) * 0.3;
         // three steps of the plant's own colour: a shade that leans to the sky, the colour, a light that leans to the sun
         vec3 shade = vAlbedo * vec3(0.5, 0.6, 0.78);
-        vec3 light = min(vAlbedo * vec3(1.26, 1.18, 0.96) + 0.025, vec3(1.0));
+        vec3 light = min(vAlbedo * vec3(1.22, 1.15, 0.96) + 0.02, vec3(0.94));
         vec3 albedo = mix(shade, vAlbedo, smoothstep(0.3, 0.42, tone));
         albedo = mix(albedo, light, smoothstep(0.62, 0.74, tone));
         // snow lies on what looks up, where it lies on the country
         albedo = mix(albedo, vec3(0.88, 0.92, 0.97), smoothstep(0.35, 0.75, n.y) * uWeather.y * 0.8);
         float lit = smoothstep(-0.1, 0.45, facing) * sh;
-        vec3 col = albedo * (uSkyColor * 0.9 + uBounceColor * 0.5 + uSunColor * mix(0.05, 0.36, lit));
+        // (the light of the leaves of trees, a quarter less of it: these are the plants' own colours, not the
+        // dark greens of a wood, and pale ones — a shell, a white cap — would stand whiter than the sand they lie on)
+        vec3 col = albedo * (uSkyColor * 0.9 + uBounceColor * 0.5 + uSunColor * mix(0.05, 0.36, lit)) * 0.76;
         col += rtHeadlight(albedo, n, vPos);
         // kinds that glow: lit from within by night, a slow breath
         col += vAlbedo * vGlow * uWeather.w * (1.1 + 0.25 * sin(uTime * 1.3 + vPos.x * 3.0 + vPos.z * 2.0));

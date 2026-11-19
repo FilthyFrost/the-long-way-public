@@ -182,8 +182,15 @@ const rise = (lo: number, hi: number, y0 = 0, y1 = 1): Tone => (p) => lo + (hi -
 /** how much a part sways: none at the foot, all of `k` at height 1 */
 const sways = (k: number): Vary => (p) => k * THREE.MathUtils.clamp(p.y, 0, 1.2);
 
-/** a leaf from `from` to `to`, `wide` across at its middle, its middle lifted by `arch`; four triangles with a fold along the rib */
-function leaf(a: Atlas, from: THREE.Vector3, to: THREE.Vector3, wide: number, arch: number, paint: Paint): void {
+/**
+ * A leaf from `from` to `to`, `wide` across at its middle, its middle lifted by `arch`; four triangles with a
+ * fold along the rib. Painted deeper at its foot and lighter at its tip (the tone it is given is its middle's):
+ * a flat leaf would otherwise be one colour from end to end.
+ */
+function leaf(a: Atlas, from: THREE.Vector3, to: THREE.Vector3, wide: number, arch: number, given: Paint): void {
+  const len = Math.max(1e-6, to.distanceTo(from));
+  const tone = given.tone;
+  const paint: Paint = { ...given, tone: (p, n) => (typeof tone === 'function' ? tone(p, n) : (tone ?? 1)) * (0.76 + 0.42 * Math.min(1, p.distanceTo(from) / len)) };
   const d = to.clone().sub(from);
   const side = new THREE.Vector3().crossVectors(UP, d).normalize().multiplyScalar(wide / 2);
   const mid = from.clone().addScaledVector(d, 0.5);
@@ -309,7 +316,9 @@ function buildRosette(a: Atlas): void {
   const heads: [number, number, number][] = [[0.04, 1, 0.02], [0.3, 0.76, -0.18], [-0.22, 0.84, 0.26]];
   heads.forEach(([x, y, z], i) => {
     stalk(a, V(0, 0.05, 0), V(x, y - 0.08, z), 0.04, { tint: 0, tone: 0.74, sway: sways(0.8) });
-    a.add(new THREE.OctahedronGeometry(0.15, 0), at(x, y - 0.06, z, 1, 0.6, 1, 0, i), { tint: 1, tone: rise(0.92, 1.2, y - 0.16, y), sway: sways(0.8) });
+    // a small flat head of petals, turned a little from the sky, over a bud
+    a.add(new THREE.CircleGeometry(0.17, 7), at(x, y - 0.03, z, 1, 1, 1, -Math.PI / 2 + 0.3 + 0.2 * i, i * 2.1, 0), { tint: 1, tone: (p) => 0.94 + 0.28 * rnd(Math.round(p.x * 61 + p.z * 47 + i)), sway: sways(0.8) });
+    a.add(new THREE.OctahedronGeometry(0.07, 0), at(x, y - 0.07, z, 1, 0.8, 1, 0, i), { tint: 1, tone: 0.8, sway: sways(0.8) });
   });
 }
 
@@ -431,16 +440,16 @@ const SHELL_UP = 3.2;
 
 /** shells lying half in the sand */
 function buildShellBed(a: Atlas): void {
-  const shells: [number, number, number, number][] = [[0, 0, 0.3, 0.2], [0.5, 0.16, 0.24, 1.3], [-0.46, 0.3, 0.26, 2.6], [0.2, -0.5, 0.22, 3.9], [-0.3, -0.42, 0.25, 5.0], [0.66, -0.34, 0.2, 0.8], [-0.7, -0.08, 0.2, 1.9], [0.1, 0.62, 0.22, 4.4]];
+  const shells: [number, number, number, number][] = [[0, 0, 0.3, 0.2], [0.5, 0.16, 0.24, 1.3], [-0.46, 0.3, 0.26, 2.6], [0.2, -0.5, 0.22, 3.9], [-0.3, -0.42, 0.25, 5.0], [0.66, -0.34, 0.2, 0.8]];
   shells.forEach(([x, z, r, turn], i) => {
-    const m = at(x, 0, z, r, r, r, 0.25 * (rnd(i) - 0.5), turn, 0.3 * (rnd(i + 4) - 0.5));
+    const m = at(x, 0, z, r, r, r, 0.5 * (rnd(i) - 0.5), turn, 0.6 * (rnd(i + 4) - 0.5));
     // a ribbed half shell: every other rib a shade lighter, the odd shell in the second colour. (A bed of shells
     // is a few centimetres high in all — PlantDef.height — so in the family's box of one unit the shells stand tall.)
-    a.add(new THREE.SphereGeometry(1, 6, 2, 0, Math.PI * 2, 0, Math.PI / 2), at(0, 0, 0, 1, SHELL_UP, 0.78).premultiply(m), {
-      tint: i % 3 === 2 ? 0.8 : 0,
+    a.add(new THREE.SphereGeometry(1, 8, 2, 0, Math.PI * 2, 0, Math.PI / 2), at(0, 0, 0, 1, SHELL_UP, 0.74).premultiply(m), {
+      tint: i % 3 === 2 ? 0.8 : 0.12 * (i % 2),
       tone: (p) => {
         const local = Math.atan2(p.z - z, p.x - x);
-        return 0.86 + 0.16 * (Math.round((local / Math.PI) * 6) % 2 ? 1 : 0) + 0.3 * (p.y / (r * SHELL_UP));
+        return 0.7 + 0.14 * (Math.abs(Math.round((local / Math.PI) * 8)) % 2 ? 1 : 0) + 0.42 * (p.y / (r * SHELL_UP));
       },
     });
   });

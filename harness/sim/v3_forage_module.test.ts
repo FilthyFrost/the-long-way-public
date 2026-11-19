@@ -9,6 +9,9 @@
  *
  * What the system costs in a step is v3_forage_module_cost.test.ts; what is drawn is v3_forage_module_view.test.ts.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { countOf, hasItem, hasItemCat, itemCatalogueProblems, itemDef, itemName, itemVeil, newItem, type ItemInstance } from '../../src/core/modcar/items';
 import { eat, has, newVitals, stepVitals } from '../../src/core/modcar/vitals';
@@ -53,6 +56,15 @@ describe('forage module: what it brings', () => {
     expect(skill.perks.map((p) => [p.id, p.level])).toEqual([['forage_glow', 5], ['forage_double', 10], ['forage_twins', 15], ['forage_star', 20]]);
     const field = domains().find((d) => d.id === 'forage');
     expect(field?.ids()).toHaveLength(80);
+  });
+
+  it('every model the module’s items name has its file (tools/blender/items/forage.py makes them)', () => {
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../public/models/modcar/items');
+    const ids = [...FORAGE_KINDS.map((k) => k.id), 'forage_spoiled', KNIFE, TROWEL, SICKLE, BASKET, ...Object.keys(FORAGE_CATS).map((c) => pageId(c as keyof typeof FORAGE_CATS))];
+    const models = new Set(ids.map((id) => itemDef(id).model));
+    // one a family of thing in the hand, the four tools, the page
+    expect(models.size).toBe(19 + 4 + 1);
+    for (const m of models) expect(fs.existsSync(path.join(dir, `${m}.glb`)), m).toBe(true);
   });
 
   it('installed: the system with its budget, the slice, the source, the tab 采集', async () => {

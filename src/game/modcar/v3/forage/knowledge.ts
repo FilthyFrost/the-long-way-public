@@ -13,7 +13,6 @@
  * the Progress says it changed (api.ts progressRev): the veil is asked every frame for the thing in the
  * hands and the thing under the mark, and answers from an array.
  */
-import { itemVeil } from '../../../../core/modcar/items';
 import type { ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
 import { FORAGE_KINDS } from '../../../../core/v3/forage/kinds';
@@ -201,9 +200,4 @@ export function pointWord(index: number): Text {
     pointWords.set(index, w);
   }
   return w;
-}
-
-/** (for the tests) the veil as the catalogue has it: forageVeil once the module has set it */
-export function veiledName(id: string): Text | null {
-  return itemVeil(id);
 }

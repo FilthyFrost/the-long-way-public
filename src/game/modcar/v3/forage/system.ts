@@ -880,6 +880,28 @@ export class Forage implements System<GameContext>, InteractSource {
     },
     picked: () => this.picked.size,
     slice: () => this.slice.snapshot() ?? null,
+    /**
+     * The bearing plants of a kind within `radius` (150 m) of where one stands, nearest first, asked of the
+     * field itself: whether they show now or not, picked or not (a script looks for a clam bed at high tide).
+     * `kind`: a forage kind's id, or '' for every kind. Not for a frame's path: it works out the tiles it needs.
+     */
+    find: (kind: unknown, radius?: unknown, most?: unknown) => {
+      const ctx = this.ctx;
+      const flora = ctx?.world?.flora;
+      if (!ctx || !flora) return [];
+      const at = this.whereNow(ctx);
+      const r = typeof radius === 'number' ? radius : 150;
+      const all: ForagePoint[] = [];
+      const n = new ForageField(flora).near(at.x, at.z, r, all);
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const p = all[i];
+        const id = FORAGE_KINDS[p.kind].id;
+        if (kind && id !== kind) continue;
+        out.push({ key: p.key, kind: id, plant: PLANTS[p.plant].id, layer: PLANTS[p.plant].layer, model: PLANTS[p.plant].model, x: p.x, y: p.y, z: p.z, size: p.size, dist: Math.hypot(p.x - at.x, p.z - at.z) });
+      }
+      return out.sort((a, b) => a.dist - b.dist).slice(0, typeof most === 'number' ? most : 40);
+    },
   };
 }
 

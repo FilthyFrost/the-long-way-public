@@ -148,9 +148,10 @@ describe('forage view: the batch', () => {
         plants++;
         expect(fam).toBe(FAMILY_INDEX[plant.model]);
         expect(d).toBeLessThanOrEqual(FADE_FAR + 15 + 1e-3);
-        // stretched to the plant's own crown and height, a little larger than life
-        expect(sc.x).toBeCloseTo(Math.max(0.1, plant.crown * pt.size * 1.35), 4);
-        expect(sc.y).toBeCloseTo(Math.max(0.06, plant.height * pt.size * 1.35), 4);
+        // stretched to the plant's own crown and height, the small ones a little larger than life
+        const k = plant.crown <= 0.4 ? 1.35 : plant.crown >= 0.75 ? 1 : 1.35 - (0.35 * (plant.crown - 0.4)) / 0.35;
+        expect(sc.x).toBeCloseTo(Math.max(0.1, plant.crown * pt.size * k), 4);
+        expect(sc.y).toBeCloseTo(Math.max(0.06, plant.height * pt.size * k), 4);
         expect(sc.z).toBeCloseTo(sc.x, 4);
         c.setHex(plant.tint![0]);
         expect(tintA.getX(i)).toBeCloseTo(c.r, 5);
