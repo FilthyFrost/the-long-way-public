@@ -71,6 +71,8 @@ function plainCell(world: World, eco: EcotopeField, layer: FloraLayer, cx: numbe
   if (pick < 0) return false;
   const r = rules[pick];
   if (r.bench && !onBench(tp.bed, e.step)) return false;
+  const heightScale = layer === LAYER_TREE ? world.vistas.treeScale(tp, h2) : 1;
+  if (heightScale === 0) return false;
   out.plant = plantIndex(r.plant);
   out.rule = pick;
   out.region = region;
@@ -78,6 +80,7 @@ function plainCell(world: World, eco: EcotopeField, layer: FloraLayer, cx: numbe
   out.z = z;
   out.y = tp.bed;
   out.size = (r.size ? r.size[0] : 0.75) + ((r.size ? r.size[1] : 1.2) - (r.size ? r.size[0] : 0.75)) * ((h2 & 0xff) / 255);
+  out.size *= heightScale;
   out.yaw = (((h2 >>> 8) & 0xfff) / 4096) * 6.283185307179586;
   out.vary = ((h >>> 4) & 0xfff) / 4096;
   return true;
