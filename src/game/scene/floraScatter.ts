@@ -30,11 +30,12 @@ import { smoothstep } from '../../core/math/util';
 import { Surface } from '../../core/world/ground';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_N, ECO_SQ, ECO_STEP, ECO_TILE } from '../../core/world/ecotope';
-import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer } from '../../core/world/flora';
+import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
 import { floraTableOf } from '../../core/world/floraTables';
 import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/plants';
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
+import { paintedFamily, CROWN_PAINT } from './crowns/palette';
 import { CROWN_STRIDE, type CrownLookup } from './crowns/crownData';
 import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
@@ -237,7 +238,7 @@ let crownLookupFor: CrownLookup | null = null;
 function crownOf(crowns: CrownLookup, pi: number): number {
   if (crownLookupFor !== crowns || !crownSpeciesOf) {
     crownLookupFor = crowns;
-    crownSpeciesOf = Int16Array.from(PLANTS, (p) => crowns.speciesOf(p.model));
+    crownSpeciesOf = Int16Array.from(PLANTS, (p) => crowns.speciesOf(paintedFamily(p.id, p.model)));
   }
   return crownSpeciesOf[pi];
 }
@@ -412,7 +413,7 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
   const thick = flora.tile(LAYER_TREE, tx, tz).n > DENSE_TREES;
   let nc = 0;
   for (const layer of layers) {
-    const t = flora.tile(layer, tx, tz);
+    const t: FloraTile = flora.tile(layer, tx, tz);
     for (let i = 0; i < t.n; i++) {
       const pi = t.plant[i];
       const d = reg.draws[pi];
@@ -463,8 +464,10 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           crownScratch[o + 7] = Math.min(crowns.variants(sp) - 1, Math.floor(((vary * 13.7) % 1) * crowns.variants(sp)));
           crownScratch[o + 8] = snowyPair(world, sk, t.y[i]);
           crownScratch[o + 9] = share * 0.999 + bears + d.evergreen;
-          crownScratch[o + 10] = d.tintA;
-          crownScratch[o + 11] = second;
+          const paint = CROWN_PAINT[paintedFamily(plant.id, plant.model)];
+          const autumn = BIOMES[region]?.id === 'maple';
+          crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (plant.id === 'maple' ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
+          crownScratch[o + 11] = plant.bears?.where === 'on' && plant.model === 'fruit_tree' ? second : paint?.bark ?? second;
           crownScratch[o + 12] = vary;
           crownScratch[o + 13] = inside;
           crownScratch[o + 14] = m.radius * sx;
