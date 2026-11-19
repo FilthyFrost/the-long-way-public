@@ -78,7 +78,6 @@ export const FLORA: Record<string, FloraTable> = {
       { plant: 'prickly_pear', perHa: 26, moisture: [0, 0.3] },
       { plant: 'agave', perHa: 12, slope: [0.05, 0.5] },
       { plant: 'fibre_tuft', perHa: 14, moisture: [0, 0.35], grove: 70 },
-      { plant: 'sorghum_stand', perHa: 10, slope: [0, 0.06], road: [9, 150], grove: 50 },
     ],
     ground: [
       { plant: 'rock', perHa: 30 },
@@ -136,16 +135,15 @@ export const FLORA: Record<string, FloraTable> = {
     eco: { wood: 0.26, woodScale: 380, clear: 12, edge: 26, treeline: null, thirsty: 0.6, moist: 0.5 },
     trees: [
       { plant: 'willow', perHa: 70, water: [0, 18], waterKinds: FRESH },
-      { plant: 'oak', perHa: 70, canopy: [0.45, 1] },
+      { plant: 'southern_beech', perHa: 70, canopy: [0.45, 1] },
       { plant: 'birch', perHa: 60, canopy: [0.35, 1] },
       { plant: 'linden', perHa: 30, canopy: [0.45, 1] },
       { plant: 'poplar', perHa: 20, canopy: [0.2, 0.8] },
     ],
     shrubs: [
       { plant: 'reed', perHa: 700, water: [0, 6], waterKinds: FRESH },
-      { plant: 'cranberry_bush', perHa: 30, moisture: [0.75, 1], water: [0, 30], waterKinds: FRESH, grove: 50 },
       { plant: 'bush', perHa: 50, canopy: [0.15, 0.6] },
-      { plant: 'berry_bush', perHa: 10, canopy: [0.1, 0.5] },
+      { plant: 'berry_bush', perHa: 10, road: [12, 45], canopy: [0.1, 0.5] },
     ],
     ground: [
       { plant: 'flower_clump', perHa: 30, canopy: [0, 0.3] },
@@ -159,7 +157,6 @@ export const FLORA: Record<string, FloraTable> = {
     eco: { wood: 0.6, woodScale: 340, clear: 10, edge: 22, treeline: null, thirsty: 0.3, moist: 0.45 },
     trees: [
       { plant: 'maple', perHa: 140, canopy: [0.4, 1], grove: 130 },
-      { plant: 'chestnut_tree', perHa: 16, canopy: [0.3, 0.9], grove: 80 },
       { plant: 'walnut_tree', perHa: 10, canopy: [0.2, 0.7] },
       { plant: 'persimmon_tree', perHa: 6, canopy: [0.05, 0.45], road: [12, 150] },
       { plant: 'oak', perHa: 40, canopy: [0.4, 1] },
@@ -192,7 +189,6 @@ export const FLORA: Record<string, FloraTable> = {
     shrubs: [
       { plant: 'reed', perHa: 300, water: [0, 5], waterKinds: FRESH },
       { plant: 'sunflower', perHa: 90, canopy: [0, 0.1], slope: [0, 0.1], grove: 70 },
-      { plant: 'jasmine_bush', perHa: 10, canopy: [0, 0.3], road: [9, 90] },
       { plant: 'rose_bush', perHa: 16, canopy: [0, 0.35] },
       { plant: 'bush', perHa: 24, canopy: [0.2, 0.6] },
     ],
@@ -215,7 +211,6 @@ export const FLORA: Record<string, FloraTable> = {
       { plant: 'reed', perHa: 260, water: [0, 5], waterKinds: FRESH },
       { plant: 'tea_bush', perHa: 420, canopy: [0, 0.2], bench: true, relief: [8, 200], grove: 110 },
       { plant: 'tea_bush', perHa: 420, canopy: [0, 0.2], slope: [0, 0.07], relief: [8, 200], grove: 110 },
-      { plant: 'rice_stand', perHa: 300, water: [0, 2], waterKinds: FRESH },
       { plant: 'bush', perHa: 30, canopy: [0.2, 0.6] },
       { plant: 'fern', perHa: 40, canopy: [0.5, 1], moisture: [0.5, 1] },
     ],
@@ -235,8 +230,6 @@ export const FLORA: Record<string, FloraTable> = {
     ],
     shrubs: [
       { plant: 'reed', perHa: 1100, water: [0, 9] },
-      { plant: 'rice_stand', perHa: 260, water: [0, 2], waterKinds: FRESH, grove: 60 },
-      { plant: 'cranberry_bush', perHa: 70, moisture: [0.72, 1], canopy: [0, 0.4], grove: 50 },
       { plant: 'bush', perHa: 30, canopy: [0.2, 0.7] },
     ],
     ground: [
@@ -257,7 +250,7 @@ export const FLORA: Record<string, FloraTable> = {
     shrubs: [
       { plant: 'reed', perHa: 260, water: [0, 5], waterKinds: FRESH },
       { plant: 'fern', perHa: 110, canopy: [0.55, 1], moisture: [0.45, 1] },
-      { plant: 'tea_bush', perHa: 60, canopy: [0.05, 0.4], slope: [0, 0.2], grove: 80 },
+      { plant: 'bush', perHa: 60, canopy: [0.05, 0.4], slope: [0, 0.2], grove: 80 },
       { plant: 'bush', perHa: 30, canopy: [0.15, 0.6] },
     ],
     ground: [
@@ -281,7 +274,6 @@ export const FLORA: Record<string, FloraTable> = {
       { plant: 'sage_bush', perHa: 90, moisture: [0, 0.4], slope: [0, 0.3], grove: 90 },
       { plant: 'prickly_pear', perHa: 30, moisture: [0, 0.3] },
       { plant: 'agave', perHa: 10, slope: [0.08, 0.6] },
-      { plant: 'buckthorn_bush', perHa: 30, water: [3, 40], waterKinds: FRESH },
       { plant: 'fibre_tuft', perHa: 30, moisture: [0, 0.4], grove: 70 },
     ],
     ground: [
@@ -304,8 +296,7 @@ export const FLORA: Record<string, FloraTable> = {
     ],
     shrubs: [
       { plant: 'reed', perHa: 320, water: [0, 5], waterKinds: FRESH },
-      { plant: 'rice_stand', perHa: 200, water: [0, 2], waterKinds: FRESH, grove: 70 },
-      { plant: 'tea_bush', perHa: 50, canopy: [0, 0.35], slope: [0.04, 0.3], grove: 80 },
+      { plant: 'bush', perHa: 50, canopy: [0, 0.35], slope: [0.04, 0.3], grove: 80 },
       { plant: 'fern', perHa: 60, canopy: [0.5, 1] },
       { plant: 'bush', perHa: 110, landform: [8, 500], slope: [0, 0.9] },
       { plant: 'bush', perHa: 50, slope: [0.3, 1] },
@@ -323,10 +314,11 @@ export const FLORA: Record<string, FloraTable> = {
 /** the table of a region: its own, else its kin's; with what is foraged from the ground grown into it (floraForage.ts) */
 export function floraTableOf(id: string, kin: string): FloraTable {
   const own = FLORA[id] ? id : FLORA[kin] ? kin : 'plains';
-  let t = GROWN.get(own);
+  const key = own + '/' + id;
+  let t = GROWN.get(key);
   if (!t) {
-    t = withForage(own, FLORA[own]);
-    GROWN.set(own, t);
+    t = withForage(id, FLORA[own]);
+    GROWN.set(key, t);
   }
   return t;
 }

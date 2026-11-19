@@ -7,8 +7,8 @@
  * Pure; allocates nothing once the tiles it reads are in the flora field's cache.
  */
 import { ECO_TILE } from '../../world/ecotope';
-import { LAYER_CELL, type FloraField, type FloraLayer } from '../../world/flora';
-import { bearsAt, PLANTS } from '../../world/plants';
+import { LAYER_CELL, LAYER_TREE, type FloraField, type FloraLayer } from '../../world/flora';
+import { bearsAt, plantIndex, PLANTS } from '../../world/plants';
 import { FORAGE_INDEX, FORAGE_KINDS } from './kinds';
 
 /** a point one can pick (ForageField.near fills these) */
@@ -56,6 +56,42 @@ export function keyCell(key: number, out: { layer: number; cx: number; cz: numbe
   out.cz = cz - SPAN / 2;
 }
 
+// Root-associated fungi need a compatible tree; litter and shoots need their own parent stand.
+// Distances are game-scale neighbourhoods, in metres, not species dispersal limits.
+interface HostSite {
+  readonly radius: number;
+  readonly hosts: readonly number[];
+}
+
+function hostSite(radius: number, ...plants: string[]): HostSite {
+  return { radius, hosts: plants.map(plantIndex) };
+}
+
+const HOSTS: Readonly<Partial<Record<string, HostSite>>> = {
+  porcini: hostSite(18, 'pine', 'spruce', 'oak', 'birch'),
+  chanterelle: hostSite(18, 'oak', 'birch', 'pine', 'spruce'),
+  fly_agaric: hostSite(18, 'pine', 'birch', 'spruce'),
+  pine_needle: hostSite(12, 'pine', 'pinyon'),
+  bamboo_shoot: hostSite(12, 'bamboo'),
+};
+
+const HOST_OF_KIND = FORAGE_KINDS.map(kind => HOSTS[kind.id]);
+
+function nearHost(flora: FloraField, site: HostSite, x: number, z: number): boolean {
+  const radius = site.radius;
+  for (let tz = Math.floor((z - radius) / ECO_TILE); tz <= Math.floor((z + radius) / ECO_TILE); tz++) {
+    for (let tx = Math.floor((x - radius) / ECO_TILE); tx <= Math.floor((x + radius) / ECO_TILE); tx++) {
+      const trees = flora.tile(LAYER_TREE, tx, tz);
+      for (let i = 0; i < trees.n; i++) {
+        const dx = trees.x[i] - x;
+        const dz = trees.z[i] - z;
+        if (dx * dx + dz * dz <= radius * radius && site.hosts.includes(trees.plant[i])) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export class ForageField {
   constructor(private readonly flora: FloraField) {}
 
@@ -84,6 +120,8 @@ export class ForageField {
             if (dx * dx + dz * dz > r2) continue;
             const plant = PLANTS[t.plant[i]];
             if (bearsAt(plant, t.vary[i]) === null) continue;
+            const host = HOST_OF_KIND[kind];
+            if (host && !nearHost(this.flora, host, t.x[i], t.z[i])) continue;
             let p = out[n];
             if (!p) {
               p = new ForagePoint();

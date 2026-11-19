@@ -9,10 +9,10 @@ import { forageItemCat, forageItemCats, forageItemRows, SPOILED_FORAGE } from '.
 import { FORAGE_INDEX, FORAGE_KINDS, forageKind } from '../../src/core/v3/forage/kinds';
 import { FORAGE_CATS, type ForageCat } from '../../src/core/v3/forage/types';
 
-describe('the eighty kinds of forage', () => {
-  it('are eighty, as many of each category as the catalogue says, each with an id of its own and a name in both languages', () => {
-    expect(FORAGE_KINDS.length).toBe(80);
-    expect(new Set(FORAGE_KINDS.map((k) => k.id)).size).toBe(80);
+describe('the 89 kinds of forage', () => {
+  it('are 89, as many of each category as the catalogue says, each with an id of its own and a name in both languages', () => {
+    expect(FORAGE_KINDS.length).toBe(89);
+    expect(new Set(FORAGE_KINDS.map((k) => k.id)).size).toBe(89);
     for (const cat of Object.keys(FORAGE_CATS) as ForageCat[]) expect(FORAGE_KINDS.filter((k) => k.cat === cat).length, cat).toBe(FORAGE_CATS[cat].count);
     for (const k of FORAGE_KINDS) {
       expect(k.id).toMatch(/^[a-z][a-z0-9_]*$/);
@@ -53,19 +53,21 @@ describe('the eighty kinds of forage', () => {
     expect(mean * 15).toBeLessThan(110);
   });
 
-  it('the two toxic mushrooms hurt, and each is taken for an edible kind that exists', () => {
+  it('poisonous mushrooms hurt and a documented double has an edible counterpart', () => {
     const toxic = FORAGE_KINDS.filter((k) => k.item.eat && k.item.eat.hp < 0);
-    expect(toxic.map((k) => k.id).sort()).toEqual(['death_cap', 'fly_agaric']);
+    expect(toxic.map((k) => k.id).sort()).toEqual(['death_cap', 'fly_agaric', 'glow_mushroom']);
     for (const k of toxic) {
       expect(k.item.eat!.effect).toMatch(/^sick/);
-      const twin = forageKind(k.twin!);
+      expect(k.item.eat!.food).toBe(1);
+      if (!k.twin) continue;
+      const twin = forageKind(k.twin);
       expect(twin.cat).toBe('mushroom');
       expect(twin.item.eat!.hp).toBeGreaterThanOrEqual(0);
     }
     expect(forageKind('death_cap').item.eat!.hp).toBeLessThan(forageKind('fly_agaric').item.eat!.hp);
   });
 
-  it('register as items: ten categories, eighty kinds and what the spoiled become, with nothing wrong in the catalogue', () => {
+  it('register as items: ten categories, 89 kinds and what the spoiled become, with nothing wrong in the catalogue', () => {
     for (const c of forageItemCats()) registerItemCat(c);
     registerItems(forageItemRows());
     expect(itemCatalogueProblems()).toEqual([]);

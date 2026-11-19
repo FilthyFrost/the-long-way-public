@@ -63,7 +63,7 @@ R('steamed_clams', 'steam', '蒸蛤蜊', 'Steamed clams', 'steam', [one('clam', 
 R('steamed_mussels', 'steam', '蒸贻贝', 'Steamed mussels', 'steam', [one('mussel', 3)], 'lucky', 480, '一锅黑壳，肉是橙色的。', { taste: T(1, 0, 0, 0, 3) });
 R('steamed_yam', 'steam', '蒸山药', 'Steamed yam', 'steam', [one('wild_yam', 2)], 'vigor', 420, '蘸点蜜吃。', { also: ['sweet'], taste: T(0, 2, 0, 0, 0) });
 // ------------------------------------------------------------------ rice and noodles
-R('wild_rice', 'rice', '野稻饭', 'Wild rice', 'rice', [one('wild_rice', 2)], 'hearty', 600, '粒粒分明，有股坚果香。', { taste: T(1, 0, 0, 0, 1), region: 'wetland' });
+R('wild_rice', 'rice', '米饭', 'Steamed rice', 'rice', [one('wild_rice', 2)], 'hearty', 600, '煮熟的稻米粒粒分明。', { taste: T(1, 0, 0, 0, 1), region: 'terraces' });
 R('mushroom_rice', 'rice', '菌菇焖饭', 'Mushroom rice', 'rice', [any('grain', 2), any('mushroom', 2)], 'hearty', 720, '掀开锅盖的那一下最香。', { also: ['veg'], taste: T(2, 0, 0, 0, 3), region: 'forest' });
 R('chestnut_rice', 'rice', '栗子饭', 'Chestnut rice', 'rice', [any('grain', 2), one('chestnut')], 'warm', 660, '秋天的味道。', { taste: T(1, 2, 0, 0, 1), region: 'maple' });
 R('bamboo_rice', 'rice', '竹笋饭', 'Bamboo shoot rice', 'rice', [any('grain', 2), one('bamboo_shoot')], 'vigor', 660, '笋丁切小，和米一起焖。', { also: ['mushroom'], taste: T(2, 0, 0, 0, 2), region: 'bamboo_sea' });
@@ -100,7 +100,7 @@ R('duck_soup', 'soup', '老鸭汤', 'Old duck soup', 'soup', [one('meat_duck'), 
 R('tomato_egg_soup', 'soup', '番茄蛋汤', 'Tomato and egg soup', 'soup', [one('wild_tomato'), one('egg_wild')], 'hydrated', 480, '蛋花要最后淋。', { also: ['veg'], taste: T(2, 1, 2, 0, 2) });
 R('crab_soup', 'soup', '蟹汤', 'Crab soup', 'soup', [one('crab'), any('veg')], 'lucky', 600, '壳也一起煮，鲜味都在壳里。', { also: VEG, taste: T(2, 0, 0, 0, 3), region: 'sea_cliffs' });
 R('lotus_bone_soup', 'soup', '莲藕骨头汤', 'Lotus root and bone soup', 'soup', [one('lotus_root'), tag('bone')], 'sturdy', 720, '藕要炖到拉丝。', { also: VEG, taste: T(2, 1, 0, 0, 3), region: 'wetland' });
-R('watercress_soup', 'soup', '水芹汤', 'Watercress soup', 'soup', [one('watercress', 2)], 'cool', 420, '清清爽爽，去火。', { also: ['veg', 'egg'], taste: T(2, 0, 0, 0, 1), region: 'wetland' });
+R('watercress_soup', 'soup', '豆瓣菜汤', 'Watercress soup', 'soup', [one('watercress', 2)], 'cool', 420, '清清爽爽，去火。', { also: ['veg', 'egg'], taste: T(2, 0, 0, 0, 1), region: 'wetland' });
 R('bamboo_fungus_soup', 'soup', '竹荪汤', 'Bamboo fungus soup', 'soup', [one('bamboo_fungus'), any(['poultry', 'meat', 'mushroom'])], 'keen', 660, '竹荪吸饱了汤，一咬一包水。', { also: VEG, taste: T(2, 0, 0, 0, 3), region: 'bamboo_sea' });
 // ------------------------------------------------------------------ stews (to 16)
 R('venison_stew', 'stew', '鹿肉炖蘑菇', 'Venison and mushroom stew', 'stew', [one('meat_venison'), any('mushroom')], 'sturdy', 780, '鹿肉瘦，要和蘑菇一起慢慢炖。', { also: VEG, taste: T(2, 0, 0, 0, 3), region: 'forest' });
@@ -170,7 +170,7 @@ R('yam_congee', 'rice', '山药粥', 'Yam congee', 'rice', [any('grain'), one('w
 R('tea_rice', 'rice', '茶泡饭', 'Rice in tea', 'rice', [any('grain'), one('tea_leaf')], 'cool', 480, '热茶往冷饭上一浇。', { also: ['veg', 'fish'], taste: T(1, 0, 0, 0, 1), region: 'terraces' });
 // ------------------------------------------------------------------ salads (to 10)
 R('dandelion_salad', 'salad', '凉拌蒲公英', 'Dandelion salad', 'mix', [one('dandelion', 2)], 'hydrated', 360, '微苦，败火。', { also: ['veg', 'nut'], taste: T(2, 0, 2, 0, 0), region: 'plains' });
-R('watercress_salad', 'salad', '凉拌水芹', 'Watercress salad', 'mix', [one('watercress', 2)], 'cool', 360, '脆生生的。', { also: ['veg'], taste: T(2, 0, 1, 1, 0) });
+R('watercress_salad', 'salad', '凉拌豆瓣菜', 'Watercress salad', 'mix', [one('watercress', 2)], 'cool', 360, '脆生生的。', { also: ['veg'], taste: T(2, 0, 1, 1, 0) });
 R('sweet_tomato', 'salad', '糖拌番茄', 'Sugared tomatoes', 'mix', [one('wild_tomato', 2), any('sweet')], 'cool', 360, '盘底那口汤要留到最后。', { taste: T(0, 3, 1, 0, 1) });
 R('mint_fruit', 'salad', '薄荷果盘', 'Fruit with mint', 'mix', [any('fruit', 2), one('mint')], 'cool', 420, '夏天午后来一盘。', { also: ['sweet'], taste: T(0, 3, 1, 0, 0) });
 R('lotus_salad', 'salad', '凉拌藕片', 'Lotus root salad', 'mix', [one('lotus_root'), any('spice')], 'cool', 420, '藕片薄得透光。', { also: ['veg'], taste: T(2, 1, 2, 1, 0), region: 'lakes' });

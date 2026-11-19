@@ -1,6 +1,6 @@
 /**
  * Foraging's contract (node W3, docs/V3/nodes/W3-forage.md): what one row of the table of forage kinds says,
- * what a forage point is, and under which conditions it shows. Types and a few constants only: the 80 rows are
+ * what a forage point is, and under which conditions it shows. Types and a few constants only: the catalogue rows are
  * kinds.ts; where things grow is the flora field's (src/core/world/flora.ts); how much a pick gives is rules.ts.
  * Pure, no three, no DOM.
  *
@@ -14,11 +14,11 @@ export type ForageCat = 'mushroom' | 'fruit' | 'greens' | 'root' | 'herb' | 'nut
 
 export const FORAGE_CATS: Readonly<Record<ForageCat, { name: Text; unknown: Text; count: number }>> = {
   mushroom: { name: { zh: '蘑菇与菌类', en: 'Mushrooms' }, unknown: { zh: '不认识的蘑菇', en: 'Unknown mushroom' }, count: 12 },
-  fruit: { name: { zh: '浆果与水果', en: 'Berries and fruit' }, unknown: { zh: '不认识的果子', en: 'Unknown fruit' }, count: 12 },
+  fruit: { name: { zh: '浆果与水果', en: 'Berries and fruit' }, unknown: { zh: '不认识的果子', en: 'Unknown fruit' }, count: 19 },
   greens: { name: { zh: '野菜与叶菜', en: 'Wild greens' }, unknown: { zh: '不认识的野菜', en: 'Unknown greens' }, count: 10 },
   root: { name: { zh: '根茎与块茎', en: 'Roots and tubers' }, unknown: { zh: '不认识的根茎', en: 'Unknown root' }, count: 6 },
   herb: { name: { zh: '香草与香料', en: 'Herbs and spices' }, unknown: { zh: '不认识的香草', en: 'Unknown herb' }, count: 9 },
-  nut: { name: { zh: '坚果、种子、谷物', en: 'Nuts, seeds and grain' }, unknown: { zh: '不认识的果实', en: 'Unknown nut' }, count: 6 },
+  nut: { name: { zh: '坚果、种子、谷物', en: 'Nuts, seeds and grain' }, unknown: { zh: '不认识的果实', en: 'Unknown nut' }, count: 8 },
   flower: { name: { zh: '花与茶', en: 'Flowers and tea' }, unknown: { zh: '不认识的花', en: 'Unknown flower' }, count: 5 },
   medicinal: { name: { zh: '药草', en: 'Medicinal plants' }, unknown: { zh: '不认识的草药', en: 'Unknown medicinal plant' }, count: 5 },
   shore: { name: { zh: '水边与海滨', en: 'Waterside and shore' }, unknown: { zh: '不认识的水产', en: 'Unknown shore find' }, count: 5 },

@@ -37,16 +37,19 @@ const KIND: Readonly<Record<string, { cls?: IngClass; taste?: Taste; food?: numb
   wild_tomato: { cls: 'veg', taste: T(0, 1, 1, 0, 2) },
   cactus_fruit: { taste: T(0, 2, 0, 0, 0) },
   persimmon: { taste: T(0, 3, 0, 0, 0) },
+  // Cooking value is independent of whether an uncooked portion can be eaten.
+  morel: { food: 4, raw: false },
+  fiddlehead: { food: 3, raw: false },
   // greens
   wild_scallion: { cls: 'herb', taste: T(0, 0, 0, 1, 1) },
   samphire: { taste: T(2, 0, 0, 0, 1) },
-  bamboo_shoot: { taste: T(0, 1, 0, 0, 2) },
+  bamboo_shoot: { raw: false, food: 5, taste: T(0, 1, 0, 0, 2) },
   nettle: { taste: T(0, 0, 0, 0, 2) },
   purslane: { taste: T(0, 0, 1, 0, 0) },
   // roots
-  potato: { taste: T(0, 0, 0, 0, 1), raw: false },
+  potato: { food: 5, taste: T(0, 0, 0, 0, 1), raw: false },
   ginseng: { cls: 'herb', taste: T(0, 1, 0, 0, 0) },
-  agave_heart: { taste: T(0, 3, 0, 0, 0) },
+  agave_heart: { raw: false, food: 7, taste: T(0, 3, 0, 0, 0) },
   // herbs and spices
   sichuan_pepper: { cls: 'spice', taste: T(0, 0, 0, 2, 0) },
   chili: { cls: 'spice', taste: T(0, 0, 0, 3, 0) },
@@ -61,7 +64,7 @@ const KIND: Readonly<Record<string, { cls?: IngClass; taste?: Taste; food?: numb
   tea_leaf: { taste: T(0, 0, 0, 0, 1) },
   // shore
   kelp: { cls: 'veg', taste: T(1, 0, 0, 0, 2) },
-  water_chestnut: { cls: 'root', taste: T(0, 1, 0, 0, 0) },
+  water_chestnut: { cls: 'nut', taste: T(0, 1, 0, 0, 0) },
   crab: { taste: T(1, 1, 0, 0, 3) },
   // resources that are food
   salt: { cls: 'spice', taste: T(3, 0, 0, 0, 0), food: 0 },
