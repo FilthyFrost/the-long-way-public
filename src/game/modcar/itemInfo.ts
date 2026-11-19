@@ -12,7 +12,7 @@
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
-import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, itemVeil, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -704,7 +704,9 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
         const x = ins[i];
         const xd = itemDef(x.item);
         const st: FreshStage = xd.perish ? freshStage(freshNow(x, nowS)) : 0;
-        card.rows.push({ value: `×${countOf(x)}`, label: st >= 2 ? `${xd.name.zh}（${FRESH_WORD[st].zh}）` : xd.name.zh, ...(st >= 2 ? { tone: 'bad' as const } : {}) });
+        // (a kind the player does not know yet goes by the name it goes by everywhere: the veil of items.ts)
+        const xn = (itemVeil(x.item) ?? xd.name).zh;
+        card.rows.push({ value: `×${countOf(x)}`, label: st >= 2 ? `${xn}（${FRESH_WORD[st].zh}）` : xn, ...(st >= 2 ? { tone: 'bad' as const } : {}) });
       }
       if (ins.length > INSIDE_ROWS) card.rows.push({ value: `+${ins.length - INSIDE_ROWS}`, label: '还有别的' });
     } else card.notes.push({ text: '空的', tone: 'info' });

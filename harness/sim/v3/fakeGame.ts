@@ -41,6 +41,8 @@ export class FakeGame {
   readonly written: string[] = [];
   /** what the UI was told to say: the systems' own lines, and the kernel's when it sets a fault apart */
   readonly said: string[] = [];
+  /** the sounds the systems asked for, by name */
+  readonly sounds: string[] = [];
   /** the timing's clock (ms), moved by hand: `passes(ms)` inside a hook is what that hook cost */
   private nowMs = 0;
   /** the session's seconds (ModGame.time) */
@@ -92,6 +94,7 @@ export class FakeGame {
       },
       loose: {} as GameContext['loose'],
       ui: { say: (text: string) => void this.said.push(text) } as GameContext['ui'],
+      sound: (name: string) => void this.sounds.push(name),
     };
     // (ModGame's constructor: the journey begins at the hour the page starts at, or goes on from the save's clock)
     this.kernel.install(modules, this.ctx, this.sky.hour, restore);
@@ -156,7 +159,7 @@ export class FakeGame {
     if (this.interact.empty) return null;
     const near = this.nearDevices;
     while (near.length > 0) near.pop();
-    this.interact.near(eye.x, eye.z, PICK_RANGE, near);
+    this.interact.near(eye, PICK_RANGE, near);
     let best: GarageDevice | null = null;
     let bd = Infinity;
     for (const dv of near) {

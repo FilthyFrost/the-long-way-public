@@ -71,6 +71,8 @@ export interface GameContext {
   readonly loose: LooseThings;
   /** the words on screen: the toast, the cards */
   readonly ui: ModUI;
+  /** a sound of the game's own by its name ('pickup', 'putdown', 'bite' …: ModGame.sound); `gain`: how loud, or for the two that carry a weight, the kilograms */
+  sound(name: string, gain?: number): void;
 }
 
 declare module '../../../core/kernel/events' {

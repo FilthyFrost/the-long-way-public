@@ -18,19 +18,29 @@
  */
 import type { GarageDevice } from '../garageStub';
 
+/**
+ * A place on the plan (world metres): where a source is asked about. It is the caller's own object, handed over
+ * as it is and used again for the next call (the player's eye): read it during the call, do not keep it.
+ */
+export interface PlanPoint {
+  readonly x: number;
+  readonly z: number;
+}
+
 export interface InteractSource {
   /**
-   * Append to `out` every device of this source that is within r metres of (x, z) on the plan (world metres);
+   * Append to `out` every device of this source that is within r metres of `at` on the plan (world metres);
    * one with a shape of its own (`hit`) counts as within when any of it is. Called every frame on foot: it
    * should not allocate (hand out devices that exist already, or reuse a few), and each device's `id` must be
    * unique among everything near (begin it with the system's id: 'forage:1234').
    *
-   * (The two coordinates are fractions handed from one function to another. Where the engine does not fold the
-   * call into its caller it puts each on the heap first — 16 bytes apiece, measured in
-   * harness/sim/v3_module.test.ts — and whether it folds the call in depends on how many kinds of source there
-   * are, not on this source's own code. That much may be allocated on the way in; the source itself adds none.)
+   * (The place comes as an object and not as two numbers: a fraction handed from one function to another is
+   * put on the heap by the engine wherever it does not fold the call into its caller — 16 bytes apiece, and
+   * with more than one kind of source in the game it does not fold it in. The object is the caller's, made
+   * once: nothing is allocated on the way in, however many sources there are. Measured in
+   * harness/sim/v3_module.test.ts.)
    */
-  near(x: number, z: number, r: number, out: GarageDevice[]): void;
+  near(at: PlanPoint, r: number, out: GarageDevice[]): void;
 }
 
 export class InteractSources implements InteractSource {
@@ -61,13 +71,13 @@ export class InteractSources implements InteractSource {
     if (i >= 0) this.list.splice(i, 1);
   }
 
-  /** every source's devices within r of (x, z), appended to `out`; a source that throws is reported and left out */
-  near(x: number, z: number, r: number, out: GarageDevice[]): void {
+  /** every source's devices within r of `at`, appended to `out`; a source that throws is reported and left out */
+  near(at: PlanPoint, r: number, out: GarageDevice[]): void {
     const list = this.list;
     for (let i = 0; i < list.length; i++) {
       const n = out.length;
       try {
-        list[i].near(x, z, r, out);
+        list[i].near(at, r, out);
       } catch (error) {
         // (what it had appended before it threw is not offered either)
         out.length = n;

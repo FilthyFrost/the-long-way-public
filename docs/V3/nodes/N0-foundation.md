@@ -82,7 +82,8 @@ messages further kinds are only counted (a message with a changing number in it 
 
 `GameContext` is the game itself (`ModGame implements GameContext`), narrowed: `events`, `systems`, `slices`,
 `clock`, `interact`, `devTabs`, and of the game `params`, `core`, `env`, `world`, `player`, `vehicles`,
-`seated`, `loose`, `ui`. It is small on purpose. **A later node that needs more of the game adds a member to
+`seated`, `loose`, `ui`, and (since node W3, which plays a sound when a plant is picked) `sound(name, gain?)`.
+It is small on purpose. **A later node that needs more of the game adds a member to
 the interface; when `ModGame` already has a public member of that name and type (`ground`, `input`, `cargo`,
 `body`, `stock`, `sound()`, `place`, …) nothing else changes.** The file also declares the events the game
 emits (section 5).
@@ -168,12 +169,17 @@ the calendar day the journey began on; `hour` is the hour of the day. Section 6 
 ### Interactables — `kernel/interact.ts`
 
 ```ts
-interface InteractSource { near(x: number, z: number, r: number, out: GarageDevice[]): void }
+interface PlanPoint { readonly x: number; readonly z: number }
+interface InteractSource { near(at: PlanPoint, r: number, out: GarageDevice[]): void }
 ```
+
+`at` is the caller's own object, used again for the next call (the player hands over its eye): a source reads
+it during the call and does not keep it. (Until node W3 the place came as two numbers, `near(x, z, r, out)`;
+section 8 says what that cost and why it was changed before the first real source was written.)
 
 The contract for one thing is the existing `GarageDevice` (`garageStub.ts`): a point and radius or its own
 `hit`, a `word` for the prompt, `use` on a press or `holdS` + `holding(p)` for E held, `take` / `useWith` for
-the thing in the hands, a `card`. A source appends the devices within `r` of where the player stands;
+the thing in the hands, a `card`. A source appends the devices within `r` of `at`, where the player stands;
 `InteractSources` is the set (`add` returns the remove function). A device's `id` must be unique among
 everything near: begin it with the system's id (`forage:1234`).
 
@@ -379,7 +385,7 @@ export default {
   id: 'forage',
   systems: [forage],
   slices: [{ id: 'forage', version: 1, snapshot: () => (picked ? { picked } : undefined), restore: (d: { picked: number }) => void (picked = d.picked), clear: () => void (picked = 0) }],
-  interact: [{ near: (_x, _z, _r, _out) => {} }],                    // push the plants within r: each a GarageDevice
+  interact: [{ near: (_at, _r, _out) => {} }],                       // push the plants within r of at: each a GarageDevice
   devTabs: [{ id: 'forage', title: '采集', build: (pane) => void pane.note(`摘了 ${picked} 次`) }],
 } satisfies GameModule;
 ```
@@ -454,10 +460,13 @@ do not run in Node): every node that touches one of them, or the kernel, runs it
   written (every half minute, every five), never in a frame's hooks. Half of it is the copy; were it ever too
   much, the check alone would do, at the price that a `toJSON` which answers differently the second time could
   again keep a save from being written.
-- The pick's question to a source, in Node: no allocation of the set's or the source's own. A coordinate handed
-  in as a fraction costs 16 bytes when the engine does not fold the source's `near` into its caller, which it
-  does with one kind of source in the process and does not with two (measured: 0 bytes a call with the example
-  alone, 32 with a second module whose source is an object literal). The test bounds it and prints it.
+- The pick's question to a source, in Node: no allocation of the set's or the source's own, and none on the
+  way in. While the place was two numbers (`near(x, z, r, out)`), a coordinate handed in as a fraction cost 16
+  bytes wherever the engine did not fold the source's `near` into its caller, which it did with one kind of
+  source in the process and did not with two (measured then: 0 bytes a call with the example alone, 32 with a
+  second module whose source is an object literal). Node W3 changed the signature to `near(at, r, out)` before
+  its own source, the first real one, was written: the place is one object, the caller's, and the test now asks
+  two kinds of source with fractions in it and finds nothing allocated.
 - Browser, software renderer (functional only): `modcar_journey`, `modcar_save`, `modcar_restart`, `modcar_dev`
   before the first edit to the game's files and after the last — the same steps pass, and the journey, the
   restart and the panel print the same lines to the letter (of the save's lines one differs from run to run of
@@ -469,7 +478,7 @@ do not run in Node): every node that touches one of them, or the kernel, runs it
 
 ## 9. Left for later nodes, on purpose
 
-Three decisions that are not this package's to take, each small now and dearer after N1:
+Three decisions that are not this package's to take, each small now and dearer after N1 (the second was taken in node W3):
 
 - **Clamp the loop's first step at nothing.** `Math.max(0, …)` at `entry.ts` 785 (or `if (dt < 0) dt = 0` at the
   top of `ModGame.step`) would end the one frame in which the whole game is stepped backwards, and with it the
@@ -477,8 +486,7 @@ Three decisions that are not this package's to take, each small now and dearer a
   change in behaviour, so it was not done. The clock's wait and the hooks' clamp stay right either way.
 - **`near(x, z, r, out)` or `near(eye, r, out)`.** Handing a source the eye as an object would end the two
   heap numbers of section 8 for good. It alters the signature the brief gave, and after N1 every system's
-  source with it. As it stands the cost is at most 32 bytes a frame on foot, in a function (the player's pick)
-  that allocates more than that of its own.
+  source with it. *Decided and done in node W3, before its source was written: `near(at, r, out)`, section 2.*
 - **Timing every frame.** The registry reads the timer once per system and phase, every frame, and the readings
   are not free (section 8). Accepted here: the rule "nothing on a per-frame path may allocate" is kept by the
   kernel's own code, not by the engine's handling of the browser's clock. If that is not acceptable, timing one
@@ -509,7 +517,9 @@ And what belongs to later nodes:
   save by letting old points go.
 - **A queue for `ui.say`**, a seeded `rng(stream)` on the context, `sound()` on the context: added by the node
   that first needs them (the last two are one line each in `context.ts`). The toast is last-writer-wins, so a
-  fault's line can still hide another message for three seconds, once per kind of fault.
+  fault's line can still hide another message for three seconds, once per kind of fault. *Node W3 added
+  `sound()` to the context, and a queue of its own for the lines said about the player's progress
+  (`v3/progress/api.ts` `announce`: one line at a time, none while driving); `ui.say` itself is as it was.*
 - **A save written while the page is still loading.** A kept page that is hidden or closed after its vehicles
   are back but before its first step writes its save then (`visibilitychange`, `pagehide`). The slices are safe
   through that window (the record the save was loaded with is written again), and the clock is restored at
