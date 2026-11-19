@@ -16,6 +16,7 @@ import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
 import { BIOMES, minRadius, type BiomeDef } from './biomes';
+import { baseAt, baseOf } from './relief';
 import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
 
 const DEG = Math.PI / 180;
@@ -187,8 +188,12 @@ export class RoadSpine implements DrivePath {
   private readonly bl = new BiomeBlend();
   private cursor = 0;
   private readonly tmp = new SpineSample();
-  /** the start's height less the first biome's base elevation: the profile's pull towards each biome's base is carried by it */
-  private readonly lift: number;
+  /**
+   * The start's height less the first region's base elevation: the profile's pull towards each region's base is
+   * carried by it. So it is the height of the sea's level in the world's own heights: a height above the sea is
+   * y − lift (`altitude`).
+   */
+  readonly lift: number;
   // the world's road rules (rules.ts RoadRules), read once: the heading guards in radians, the radius floor, the grade cap
   private readonly headingSoft: number;
   private readonly headingLimit: number;
@@ -196,6 +201,10 @@ export class RoadSpine implements DrivePath {
   private readonly headingHard: number;
   private readonly radiusFloor: number;
   private readonly gradeCap: number;
+  private readonly pull: number;
+  private readonly pullLen: number;
+  /** a world of version 2: the base elevation is each region's RegionRelief.base over the long blend (relief.ts baseAt) */
+  private readonly longBase: boolean;
 
   /** @param rules the world's rules, when a world makes its road; a road made by itself works them out from the same options */
   constructor(seed: number, opts: SpineOptions = {}, rules: WorldRules = rulesFor(opts.worldVersion, opts)) {
@@ -208,6 +217,9 @@ export class RoadSpine implements DrivePath {
     this.headingHard = road.headingHard * DEG;
     this.radiusFloor = road.radiusFloor;
     this.gradeCap = road.gradeCap;
+    this.pull = road.pull;
+    this.pullLen = road.pullLen;
+    this.longBase = road.longBase;
     // (a first biome the world does not know — no such id, or one registered after the world's count — is the first of all)
     let first = BIOMES.findIndex((b) => b.id === (opts.startBiome ?? 'plains'));
     if (first < 0 || first >= rules.regionCount) first = 0;
@@ -215,11 +227,11 @@ export class RoadSpine implements DrivePath {
     this.rng = new Rng(hash2(this.seed, 0x50ad, 13));
     this.gradeSeed = hash2(this.seed, 0x6ade, 5);
     // (the country the journey does begin in: chapter 0 as it was dealt)
-    const home = BIOMES[this.plan.biomes[0]];
+    const home = this.longBase ? baseOf(this.plan.biomes[0]) : BIOMES[this.plan.biomes[0]].baseElev;
     this.gx = opts.start?.x ?? 0;
     this.gz = opts.start?.z ?? 0;
-    this.gy = opts.start?.y ?? home.baseElev;
-    this.lift = this.gy - home.baseElev;
+    this.gy = opts.start?.y ?? home;
+    this.lift = this.gy - home;
     this.ensure(400);
   }
 
@@ -319,9 +331,9 @@ export class RoadSpine implements DrivePath {
     const gMax = t <= 0 ? A.gradeMax : mix(A.gradeMax, B.gradeMax, t);
     const gAmp = t <= 0 ? A.gradeAmp : mix(A.gradeAmp, B.gradeAmp, t);
     const gLen = t <= 0 ? A.gradeLen : mix(A.gradeLen, B.gradeLen, t);
-    const baseElev = t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
+    const baseElev = this.longBase ? baseAt(this.plan, s) : t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
     let gT = gAmp * 1.6 * fbm1(s / gLen, this.gradeSeed, 2);
-    gT -= clamp((this.gy - this.lift - baseElev) / 2500, -0.035, 0.035);
+    gT -= clamp((this.gy - this.lift - baseElev) / this.pullLen, -this.pull, this.pull);
     gT = clamp(gT, -gMax, gMax);
     const gRate = 0.00065;
     this.ggrade += clamp(gT - this.ggrade, -gRate * ds, gRate * ds);
@@ -346,6 +358,11 @@ export class RoadSpine implements DrivePath {
 
   get length(): number {
     return (this.count - 1) * this.ds;
+  }
+
+  /** how high above the sea a height of the world's is (m): the world's heights are the road's, which begins at its start's height (`lift`) */
+  altitude(y: number): number {
+    return y - this.lift;
   }
 
   /** Interpolated road state at arc length s. Behind the start the road continues straight. */

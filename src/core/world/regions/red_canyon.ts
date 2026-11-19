@@ -51,4 +51,5 @@ export const RED_CANYON: RegionDef = {
   water: { lake: 0.04, river: 0.2, frozen: 0, clear: 8 },
   features: [{ kind: 'butte', count: [2, 4], radius: [70, 150], aspect: [0.32, 0.5], near: 110, far: 900, stretch: [1, 2.4], oneSide: true }],
   featureSlots: 3,
+  relief: { base: 240, snow: 5000, trees: 3600, hills: { amp: 0, len: 800 }, far: 1, ranges: { amp: 650, from: 3000, full: 12000 } },
 };

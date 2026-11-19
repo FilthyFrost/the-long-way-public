@@ -157,6 +157,16 @@ export interface LandSize {
 export function landOddsOf(region: RegionDef): readonly number[] {
   const o = region.land?.odds;
   if (o === undefined) return regionRow(LAND_ODDS, region);
+  return oddsOf(o);
+}
+
+/** strengths as LAND_SIZE holds them ([tilt, wall, drop, canyon]), those given in place of a row's */
+function sizeOf(s: Partial<LandSize>, row: readonly number[]): readonly number[] {
+  return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+}
+
+/** odds by kind, in the order of KINDS (a kind left out never comes) */
+function oddsOf(o: Partial<Record<LandKind, number>>): readonly number[] {
   return [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
 }
 
@@ -168,7 +178,7 @@ export function landSizeOf(region: RegionDef): readonly number[] {
   const row = regionRow(LAND_SIZE, region);
   const s = region.land?.size;
   if (s === undefined) return row;
-  return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+  return sizeOf(s, row);
 }
 
 const bl = new BiomeBlend();
@@ -207,8 +217,9 @@ export class LandformPlan {
       let side = h & 0x10000 ? 1 : -1;
       this.spine.biomeAt((i + 0.5) * LAND_SLOT, bl);
       const region = BIOMES[bl.t < 0.5 ? bl.a : bl.b];
-      const odds = landOddsOf(region);
-      const size = landSizeOf(region);
+      // (version 2: a region with a relief of its own may deal its kinds of country otherwise)
+      const odds = this.operators && region.relief?.odds ? oddsOf(region.relief.odds) : landOddsOf(region);
+      const size = this.operators && region.relief?.size ? sizeOf(region.relief.size, landSizeOf(region)) : landSizeOf(region);
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
       if (i < 1 || water === 'river') kind = 'open';
@@ -285,6 +296,17 @@ export class LandformPlan {
     if (k < 0) return 1;
     this.grow(k);
     return this.list[k].side;
+  }
+
+  /**
+   * Is the country of stretch k open on one side (+1 the right, −1 the left): 1 on the low side of a hillside
+   * and on both sides of a ridge, where the land falls away from the road; 0 elsewhere (relief.ts openness).
+   */
+  openOf(k: number, side: number): number {
+    if (k < 0) return 0;
+    this.grow(k);
+    const st = this.list[k];
+    return st.kind === 'ridge' || (st.kind === 'hillside' && st.side !== side) ? 1 : 0;
   }
 
   /** the cross-section in force at arc length s (stretches blended across their borders) */

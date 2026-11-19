@@ -25,6 +25,7 @@ import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, regionRow, type RegionDef, type RegionWater } from './biomes';
+import { ReliefMix, reliefMix } from './relief';
 import { BiomeBlend, SpineSample, type RoadSpine } from './spine';
 
 /** metres of road per water slot (a slot holds one feature at most) */
@@ -42,6 +43,58 @@ const REACH_SLOTS = 3;
 const BANK = 0.62;
 /** a lake reshapes the land out to this many times its own size: the basin it lies in */
 const BASIN = 1.72;
+/**
+ * A world of version 2 (stage L1): its land stands up to kilometres above its water, in hills and mountain
+ * walls. A river cuts its valley, and a lake its bowl, with banks that steepen only to a little over one in
+ * one (version 1's steepened without end, which a hill of version 1 never met), and out to wherever its bank
+ * meets the land (`reach`, worked out for each from how high the country about it stands): no edge where
+ * the cutting stops. A river's valley rises to the land over its last stretch: its source. A point is
+ * reached by water of this many slots either side of its own.
+ */
+const REACH_SLOTS_V2 = 4;
+/** the steepest a version 2 bank becomes (rise per metre); a lake's shore is gentle (7.5 in a hundred) for this many metres first */
+const BANK_V2 = 1.12;
+const LAKE_FLAT = 40;
+/** how high the land about a stretch of a world of version 2 may stand above the road, besides its walls and ranges (m): hills, a valley's sides, a mesa */
+const LAND_V2 = 450;
+
+/** a river's bank in a world of version 2: how far above the water it stands e m out from the water's edge (version 1's to 150 m, then steepening to BANK_V2) */
+export function riverBank(e: number): number {
+  if (e < 3) return e * 0.18;
+  let h = 0.54 + (e - 3) * BANK;
+  const far = e - 150;
+  if (far > 0) {
+    // (version 1 adds 0.02 · far²: its slope grows by 0.04 a metre; here only until the bank's is BANK_V2)
+    const knee = (BANK_V2 - BANK) / 0.04;
+    h += far < knee ? 0.02 * far * far : 0.02 * knee * knee + (BANK_V2 - BANK) * (far - knee);
+  }
+  return h;
+}
+
+/** how far from its water a river's bank of version 2 must reach to meet land `rise` m above the water (m) */
+function riverReach(rise: number): number {
+  let e = 150;
+  while (riverBank(e) < rise) e += 25;
+  return e;
+}
+
+/** a lake's rim in a world of version 2: how far above the level it stands e m out (in the shore measure's metres) */
+export function lakeRim(e: number): number {
+  let h = 0.35 + 0.075 * e;
+  const far = e - LAKE_FLAT;
+  if (far > 0) {
+    const knee = (BANK_V2 - 0.075) / 0.004;
+    h += far < knee ? 0.002 * far * far : 0.002 * knee * knee + (BANK_V2 - 0.075) * (far - knee);
+  }
+  return h;
+}
+
+/** how far out a lake's rim of version 2 must reach to meet land `rise` m above the level (m) */
+function lakeReach(rise: number): number {
+  let e = LAKE_FLAT;
+  while (lakeRim(e) < rise) e += 25;
+  return e;
+}
 /** a lake's water stands where its shore measure (`lakeRho`) is below this: where the bowl `carve` sinks crosses the lake's level */
 const LAKE_EDGE = Math.sqrt(0.8);
 /** a lake's shore is traced along this many rays from its centre (`shoreOf`), each searched in this many steps from outside in */
@@ -83,6 +136,12 @@ export interface Lake {
   xMax: number;
   zMin: number;
   zMax: number;
+  /**
+   * A world of version 2: how far out its bowl reaches, in the shore measure (`lakeRho`; version 1's: BASIN),
+   * and how much further than its box that is at the most (m).
+   */
+  reach?: number;
+  wide?: number;
 }
 
 export interface River {
@@ -105,6 +164,8 @@ export interface River {
   phase: number;
   /** the river runs this far in z to either side of the road (m) */
   zEnd: number;
+  /** a world of version 2: how far from its water its valley reaches (m; version 1's: 420) */
+  reach?: number;
   /** water level under the bridge, and how far that is below the road */
   level0: number;
   clear: number;
@@ -166,7 +227,7 @@ interface RiverHit {
   w: number;
   level: number;
 }
-const hits: RiverHit[] = [0, 1, 2, 3].map(() => ({ f: null as unknown as River, zr: 0, dist: 0, w: 0, level: 0 }));
+const hits: RiverHit[] = [0, 1, 2, 3, 4, 5].map(() => ({ f: null as unknown as River, zr: 0, dist: 0, w: 0, level: 0 }));
 const lakeHits: { f: Lake; rho: number }[] = [0, 1, 2].map(() => ({ f: null as unknown as Lake, rho: 0 }));
 
 /** the square of the distance from (x, z) to the stretch between points i and j of a traced shore */
@@ -245,6 +306,17 @@ export class WaterPlan {
     private readonly dry: (k: number) => number = () => 0,
   ) {
     this.seed = hash2(seed | 0, 0x7a7e, 91);
+    this.v2 = spine.rules.version >= 2;
+  }
+
+  /** a world of version 2: rivers and lakes cut their banks out to where they meet the land (BANK_V2, `reach`) */
+  private readonly v2: boolean;
+  private readonly mix = new ReliefMix();
+
+  /** how high the land about arc length s may stand above the road in a world of version 2 (m): its country there, its walls, and its ranges a river's length out */
+  private landAbove(s: number): number {
+    const m = reliefMix(this.spine.plan, s, this.mix);
+    return LAND_V2 + m.walls * m.hi * 1.25 + m.ranges * smoothstep(m.from, m.full, 4200);
   }
 
   private biomeWater(s: number): RegionWater {
@@ -402,6 +474,12 @@ export class WaterPlan {
       const ext = Math.hypot(a * ax, b * az) * BASIN + 8;
       const extZ = Math.hypot(a * az, b * ax) * BASIN + 8;
       const lake: Lake = { kind: 'lake', slot: k, s, cx, cz, ax, az, a, b, level: low - drop, depth, frozen: this.frozenAt(s), side, seed: hash2(k, 0x1a5e, this.seed), xMin: cx - ext, xMax: cx + ext, zMin: cz - extZ, zMax: cz + extZ };
+      if (this.v2) {
+        // (its bowl reaches out to where its rim meets the land; the shore measure counts in the short half axis's metres)
+        const e = lakeReach(this.landAbove(s) + drop);
+        lake.reach = Math.max(BASIN, 0.95 + e / Math.min(a, b));
+        lake.wide = (lake.reach - BASIN) * Math.max(a, b);
+      }
       // it must not run into the water already there
       let clash = false;
       for (let j = Math.max(1, k - REACH_SLOTS); j < k && !clash; j++) {
@@ -473,6 +551,9 @@ export class WaterPlan {
         xMin: st.x - reachX,
         xMax: st.x + reachX,
       };
+      // (version 2: its valley reaches out to where its banks meet the land; its box stays what the water needs,
+      // `carve` looks further)
+      if (this.v2) river.reach = Math.max(420, riverReach(this.landAbove(s) + clear));
       let clash = false;
       for (let j = Math.max(1, k - REACH_SLOTS); j < k && !clash; j++) {
         const o = this.list[j];
@@ -556,30 +637,49 @@ export class WaterPlan {
     let h = T;
     let nr = 0;
     let nl = 0;
-    for (let k = k0 - REACH_SLOTS; k <= k0 + REACH_SLOTS; k++) {
+    const slots = this.v2 ? REACH_SLOTS_V2 : REACH_SLOTS;
+    for (let k = k0 - slots; k <= k0 + slots; k++) {
       const f = this.feature(k);
-      if (!f || x < f.xMin || x > f.xMax) continue;
+      if (!f) continue;
+      // (version 2: a valley or a bowl reaches beyond the box its water needs, as far as the land stands high)
+      const more = f.kind === 'lake' ? (f.wide ?? 0) : (f.reach ?? 420) - 420;
+      if (x < f.xMin - more || x > f.xMax + more) continue;
       if (f.kind === 'lake') {
-        if (z < f.zMin || z > f.zMax || nl >= lakeHits.length) continue;
+        if (z < f.zMin - more || z > f.zMax + more || nl >= lakeHits.length) continue;
         const rho = WaterPlan.lakeRho(f, x, z);
-        if (rho >= BASIN) continue;
+        if (rho >= (f.reach ?? BASIN)) continue;
         lakeHits[nl].f = f;
         lakeHits[nl++].rho = rho;
         // a lake lies in a basin: the land around falls gently to the shore, so the water shows from the road
         if (rho > 0.9) {
-          const rise = f.level + 0.35 + (rho - 0.95) * Math.min(f.a, f.b) * 0.075;
-          if (h > rise) h += (rise - h) * (1 - smoothstep(1.38, BASIN, rho));
+          if (f.reach === undefined) {
+            const rise = f.level + 0.35 + (rho - 0.95) * Math.min(f.a, f.b) * 0.075;
+            if (h > rise) h += (rise - h) * (1 - smoothstep(1.38, BASIN, rho));
+          } else {
+            // (version 2: the same gentle shore, then a rim steepening to BANK_V2 as far as the land is high)
+            const rise = f.level + lakeRim((rho - 0.95) * Math.min(f.a, f.b));
+            if (h > rise) h = rise;
+          }
         }
       } else if (nr < hits.length) {
         const zr = z - f.z0;
         const at = zr < 0 ? -zr : zr;
         if (at >= f.zEnd) continue;
+        if (f.reach !== undefined) {
+          // (version 2: land lower than the river's bank could stand however near its water is left alone,
+          // without asking where the water is: its centre swings no further than its box allows, and its
+          // course runs at a slant of less than 1.5 to the z axis)
+          const swing = f.xMax - f.x0 - 430;
+          const off = (x < f.x0 ? f.x0 - x : x - f.x0) - swing;
+          const e = off / 1.8 - 1.25 * f.w0;
+          if (e > 20 && T - (f.level0 + 0.08 * swing + 1) < riverBank(e)) continue;
+        }
         WaterPlan.riverCentre(f, zr, rc);
         const lat = x - rc.x;
         const dist = (lat < 0 ? -lat : lat) / Math.sqrt(1 + rc.dx * rc.dx);
         const w = WaterPlan.riverHalfWidth(f, zr);
         // the valley a river cuts is never wider than this: beyond it the land is untouched
-        if (dist > w + 420) continue;
+        if (dist > w + (f.reach ?? 420)) continue;
         const hit = hits[nr++];
         hit.f = f;
         hit.zr = zr;
@@ -593,8 +693,12 @@ export class WaterPlan {
       const hit = hits[i];
       const f = hit.f;
       const at = hit.zr < 0 ? -hit.zr : hit.zr;
-      const fade = 1 - smoothstep(f.zEnd - 500, f.zEnd - 60, at);
       const { dist, w, level } = hit;
+      // (version 2: where the land stands high the valley's floor rises to it over a longer stretch, never
+      // steeper than three in five: the river comes down out of its side valley)
+      let rise = 500;
+      if (f.reach !== undefined && T - level > 275) rise = Math.min(2400, (T - level) * 1.6 + 60);
+      const fade = 1 - smoothstep(f.zEnd - rise, f.zEnd - 60, at);
       let hc: number;
       if (dist < w) {
         const q = dist / w;
@@ -605,7 +709,7 @@ export class WaterPlan {
         // a gravel bar at the water's edge, then the bank, steepening so that no hill is too high to be cut through
         const e = dist - w;
         const far = e > 150 ? e - 150 : 0;
-        const line = level + (e < 3 ? e * 0.18 : 0.54 + (e - 3) * BANK) + far * far * 0.02;
+        const line = f.reach === undefined ? level + (e < 3 ? e * 0.18 : 0.54 + (e - 3) * BANK) + far * far * 0.02 : level + riverBank(e);
         hc = h < line ? h : line;
         if (e < 9) {
           // a low levee where the land would have let the river out — but never a dam across another river

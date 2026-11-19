@@ -77,7 +77,11 @@ describe('what each kind of country must get right', () => {
       const trees = [0, 0, 0, 0];
       let highest = -Infinity;
       const zone = (relief: number): number => (relief < from ? 0 : relief <= (from + to) / 2 ? 1 : relief <= to ? 2 : 3);
-      firstChapter(w, 20, 12, (tx, tz) => {
+      // (the terraces' line, 160 to 260 m of relief, stood within the far field's 300 m hills of the first
+      // version 2 within a kilometre and a half of the road; since stage L1 terraced country's hills rise slowly
+      // to 200 m over a kilometre and more and pass the line's end only at their tops: two kilometres either
+      // side, and some hectares of tops — 9 measured — above it)
+      firstChapter(w, 20, region === 'terraces' ? 16 : 12, (tx, tz) => {
         const et = w.eco!.tile(tx, tz);
         for (let j = 0; j < ECO_SQ; j++) for (let i = 0; i < ECO_SQ; i++) if (!(et.flags[j * ECO_N + i] & ECO_WET)) land[zone(et.relief[j * ECO_N + i])] += NODE_HA;
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
@@ -91,7 +95,7 @@ describe('what each kind of country must get right', () => {
         }
       });
       // there is land above the line to be bare: the test looks high enough
-      expect(land[3], region).toBeGreaterThan(20);
+      expect(land[3], region).toBeGreaterThan(region === 'terraces' ? 5 : 20);
       expect(land[1], region).toBeGreaterThan(10);
       expect(land[2], region).toBeGreaterThan(10);
       // (a tree may stand between a node below the line's end and one above it: a square's rise, no more)

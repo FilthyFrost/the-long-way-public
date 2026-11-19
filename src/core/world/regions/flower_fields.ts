@@ -44,4 +44,5 @@ export const FLOWER_FIELDS: RegionDef = {
   climate: 'temperate',
   land: { odds: { open: 0.5, hillside: 0.3, valley: 0.05, ridge: 0.15 }, size: { tilt: 0.12, wall: 50, drop: 30, canyon: 0 } },
   water: { lake: 0.3, river: 0.18, frozen: 0, clear: 6 },
+  relief: { base: 70, snow: 3000, trees: 2200, hills: { amp: 24, len: 640 }, far: 0, ranges: { amp: 480, from: 2500, full: 9000 }, size: { tilt: 0.06, wall: 26, drop: 16 } },
 };

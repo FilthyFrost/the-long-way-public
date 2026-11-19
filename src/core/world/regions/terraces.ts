@@ -48,4 +48,5 @@ export const TERRACES: RegionDef = {
     terrace: { step: 4, strength: 1 },
   },
   water: { lake: 0.22, river: 0.3, frozen: 0, clear: 6 },
+  relief: { base: 180, snow: 4600, trees: 3400, hills: { amp: 200, len: 1800 }, far: 0, ranges: { amp: 800, from: 2500, full: 11000 }, size: { tilt: 0.17, wall: 60, drop: 32 } },
 };

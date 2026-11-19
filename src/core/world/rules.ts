@@ -32,7 +32,7 @@ export type WorldVersion = 1 | 2;
  * it (harness/sim/world-golden.json): a change to version 2 that was not meant shows there. Version 1 has
  * no revisions: it never changes.
  */
-export const WORLD_REV = 1;
+export const WORLD_REV = 2;
 
 /** one chapter as its dealer hands it over */
 export interface DealtChapter {
@@ -98,6 +98,17 @@ export interface RoadRules {
   readonly radiusFloor: number;
   /** no grade is steeper than this, whatever a region's own limit says (rise per metre) */
   readonly gradeCap: number;
+  /**
+   * How the road drifts back to its country's base elevation: a grade of the difference over `pullLen` m, but
+   * never more than `pull` (rise per metre), added to the grade it would take anyway (the region's own climbs).
+   */
+  readonly pull: number;
+  readonly pullLen: number;
+  /**
+   * Where the base elevation comes from: version 1 mixes the two regions' baseElev over the border between
+   * them; version 2 takes each region's RegionRelief.base, blended over kilometres (relief.ts baseAt).
+   */
+  readonly longBase: boolean;
 }
 
 export interface WorldRules {
@@ -150,7 +161,7 @@ export const DEALER_V1: ChapterDealer = {
   },
 };
 
-const ROAD_V1: RoadRules = Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08 });
+const ROAD_V1: RoadRules = Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08, pull: 0.035, pullLen: 2500, longBase: false });
 
 /** Version 1: every world made before there were versions. Nothing here may change. */
 export const RULES_V1: WorldRules = Object.freeze({
@@ -179,7 +190,9 @@ export const RULES_V2: WorldRules = Object.freeze({
   dealer: DEALER_V2,
   transition: (scale: number): number => Math.max(300, 900 * Math.min(1, scale * 2)),
   quiet: quietRun,
-  road: Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08 }),
+  // (the road climbs into high country at up to five in a hundred above its own climbs, and begins kilometres
+  // before the country does: stage L1's mountain valleys stand a kilometre above the sea)
+  road: Object.freeze({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: MIN_RADIUS_ANY, gradeCap: 0.08, pull: 0.05, pullLen: 2000, longBase: true }),
 });
 
 /**

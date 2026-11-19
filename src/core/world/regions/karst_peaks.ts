@@ -46,4 +46,5 @@ export const KARST_PEAKS: RegionDef = {
   water: { lake: 0.22, river: 0.5, frozen: 0, clear: 5 },
   features: [{ kind: 'tower', count: [6, 12], radius: [45, 105], aspect: [0.8, 1.05], near: 70, far: 760, stretch: [1, 1.5] }],
   featureSlots: 5,
+  relief: { base: 90, snow: 4600, trees: 3400, hills: { amp: 0, len: 700 }, far: 1, ranges: { amp: 450, from: 3000, full: 12000 } },
 };

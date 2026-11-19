@@ -25,6 +25,7 @@ import { LAND_SLOT, LandParams, LandformPlan } from './landform';
 import { DUNE_MEAN, dunes, riserFor, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
+import { HILLS_FROM, ReliefMix, hillsFade, hillField, openness, rangeField, reliefMix, wallAt } from './relief';
 import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
 import { BiomeBlend, RoadSpine, SpineSample, type SpineOptions } from './spine';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, WATER_SLOT, WaterEffect, WaterPlan, type River } from './water';
@@ -227,6 +228,41 @@ function towerField(x: number, z: number, seed: number, C: number, cap: number):
   return h;
 }
 
+/**
+ * The shape of a region's far field (version 1's big landforms away from the road, and what a region of
+ * version 2 keeps of them: RegionRelief.far), 0 … 1 by its farShape: rounded hills, pyramids in rows, mesas,
+ * sugarloaf towers.
+ */
+function farShape(b: BiomeDef, seed: number, x: number, z: number, coarse: boolean): number {
+  let f: number;
+  if (b.farShape === 1) {
+    // the near ranges of the high country: pyramids at two sizes, standing in rows a slow noise lays out
+    // (clean flanks and ridges: noise ridges only alias into needles on the far ring's grid)
+    const row = smoothstep(-0.35, 0.3, fbm2(x / (b.farLen * 1.6), z / (b.farLen * 1.6), seed + 3, 2));
+    f = (0.7 * peakField(x, z, seed + 5, 2300, 1) + 0.32 * peakField(x + 600, z + 900, seed + 6, 1100, 1)) * (0.35 + 0.65 * row);
+    if (!coarse) f += 0.05 * fbm2(x / 400, z / 400, seed + 4, 2);
+    if (f < 0) f = 0;
+  } else if (b.farShape === 2) {
+    // mesas: flat tops, steep sides, scattered over a level floor
+    const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 3);
+    const top = smoothstep(0.1, 0.19, n);
+    f = top * (0.8 + 0.2 * fbm2(x / 160, z / 160, seed + 4, 2)) + 0.05 * smoothstep(-0.1, 0.1, n);
+  } else if (b.farShape === 3) {
+    // towers: sugarloaves in cells of farLen, half to all of farAmp tall, and smaller ones half their
+    // size between them — the same towers for the far ring's coarse land, so that none changes as
+    // it comes nearer
+    const cap = MAX_ASPECT.tower / b.farAmp;
+    const big = towerField(x, z, seed + 5, b.farLen, cap);
+    const small = 0.5 * towerField(x + 0.37 * b.farLen, z + 0.61 * b.farLen, seed + 6, b.farLen * 0.5, 2 * cap);
+    f = big > small ? big : small;
+  } else {
+    const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 4);
+    const k = smoothstep(-0.3, 0.75, n);
+    f = k * k;
+  }
+  return f;
+}
+
 export class World implements Ground {
   readonly spine: RoadSpine;
   readonly seed: number;
@@ -271,6 +307,11 @@ export class World implements Ground {
   readonly placeOdds: readonly [number, number, number] | null;
   /** WorldOptions.secondPlace (0: none) */
   readonly secondPlace: number;
+  /** a world of version 2: its land is the relief of relief.ts (the regions' RegionRelief), version 1's is `relief` */
+  private readonly relief2: boolean;
+  /** … and how far out the nearest of its regions' ranges or walls may begin (m): nearer, `mountains` adds nothing */
+  private readonly mountainsFrom: number;
+  private readonly rm = new ReliefMix();
   /** the ecotope field and the flora field of a world of version 2, once they have been asked for (`eco`, `flora`) */
   private ecoField: EcotopeField | null = null;
   private floraField: FloraField | null = null;
@@ -282,6 +323,15 @@ export class World implements Ground {
     this.placeOdds = opts.placeOdds ?? null;
     this.secondPlace = opts.secondPlace ?? 0;
     this.rules = rulesFor(opts.worldVersion, opts);
+    this.relief2 = this.rules.version >= 2;
+    let from = Infinity;
+    for (let r = 0; r < this.rules.regionCount; r++) {
+      const R = BIOMES[r].relief;
+      if (!R) continue;
+      if (R.ranges.from < from) from = R.ranges.from;
+      if (R.walls && R.walls.floor < from) from = R.walls.floor;
+    }
+    this.mountainsFrom = from;
     // One grid of stretches for everything laid out along the road: the landform of stretch k asks the
     // water's dice of stretch k, the places ask both, a quiet stretch silences all three. The rules name
     // its length and each plan keeps the number as a constant of its own; this is where they are held equal.
@@ -379,32 +429,7 @@ export class World implements Ground {
     }
     const g2 = smoothstep(b.farStart, b.farEnd, lat);
     if (g2 > 0) {
-      let f: number;
-      if (b.farShape === 1) {
-        // the near ranges of the high country: pyramids at two sizes, standing in rows a slow noise lays out
-        // (clean flanks and ridges: noise ridges only alias into needles on the far ring's grid)
-        const row = smoothstep(-0.35, 0.3, fbm2(x / (b.farLen * 1.6), z / (b.farLen * 1.6), seed + 3, 2));
-        f = (0.7 * peakField(x, z, seed + 5, 2300, 1) + 0.32 * peakField(x + 600, z + 900, seed + 6, 1100, 1)) * (0.35 + 0.65 * row);
-        if (!coarse) f += 0.05 * fbm2(x / 400, z / 400, seed + 4, 2);
-        if (f < 0) f = 0;
-      } else if (b.farShape === 2) {
-        // mesas: flat tops, steep sides, scattered over a level floor
-        const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 3);
-        const top = smoothstep(0.1, 0.19, n);
-        f = top * (0.8 + 0.2 * fbm2(x / 160, z / 160, seed + 4, 2)) + 0.05 * smoothstep(-0.1, 0.1, n);
-      } else if (b.farShape === 3) {
-        // towers: sugarloaves in cells of farLen, half to all of farAmp tall, and smaller ones half their
-        // size between them — the same towers for the far ring's coarse land, so that none changes as
-        // it comes nearer
-        const cap = MAX_ASPECT.tower / b.farAmp;
-        const big = towerField(x, z, seed + 5, b.farLen, cap);
-        const small = 0.5 * towerField(x + 0.37 * b.farLen, z + 0.61 * b.farLen, seed + 6, b.farLen * 0.5, 2 * cap);
-        f = big > small ? big : small;
-      } else {
-        const n = fbm2(x / b.farLen, z / b.farLen, seed + 3, 4);
-        const k = smoothstep(-0.3, 0.75, n);
-        f = k * k;
-      }
+      const f = farShape(b, seed, x, z, coarse);
       // ranges grow taller the further they stand from the road: layer behind layer to the horizon
       r += b.farAmp * f * g2 * farK * (1 + 0.5 * smoothstep(1500, 5500, lat));
     }
@@ -421,6 +446,56 @@ export class World implements Ground {
         r += b.massifAmp * broad * (0.85 * big + 0.35 * small + 0.06) * g3;
       }
       r += this.giantPeaks(x, z) * g3;
+    }
+    return r;
+  }
+
+  /**
+   * A region's own relief in a world of version 2 (biomes.ts RegionRelief): version 1's near relief, the hills
+   * of the middle distance from HILLS_FROM m out (`across`: the distance across the road from the road point of
+   * the same x, smooth everywhere; `near`: within the near field, also the distance to the nearest road point,
+   * which keeps the hills off the road's corridor inside a bend), and as much of version 1's far field as it
+   * keeps. Its walls and ranges are the long blend's (mountains). A region without a relief of its own has
+   * version 1's.
+   */
+  private reliefV2(b: BiomeDef, bi: number, x: number, z: number, g1: number, lat: number, farK: number, across: number, ad: number, coarse: boolean): number {
+    const R = BIOMES[bi].relief;
+    if (!R) return this.relief(b, bi, x, z, g1, lat, farK, coarse);
+    const seed = this.seed + bi * 7919;
+    let r = 0;
+    if (g1 > 0) {
+      r += (b.nearAmp * fbm2(x / b.nearLen, z / b.nearLen, seed + 1, 3) + b.detailAmp * fbm2(x / b.detailLen, z / b.detailLen, seed + 2, 2)) * g1;
+    }
+    if (R.hills.amp > 0) {
+      let g = smoothstep(HILLS_FROM, HILLS_FROM + hillsFade(R.hills.amp), across);
+      if (ad < HILLS_FROM + 10) g *= smoothstep(HILLS_FROM - 22, HILLS_FROM + 10, ad);
+      if (g > 0) r += R.hills.amp * hillField(x, z, this.seed + 0x41f1, R.hills.len) * g * farK;
+    }
+    if (R.far > 0) {
+      const g2 = smoothstep(b.farStart, b.farEnd, lat);
+      if (g2 > 0) r += R.far * b.farAmp * farShape(b, seed, x, z, coarse) * g2 * farK * (1 + 0.5 * smoothstep(1500, 5500, lat));
+    }
+    return r;
+  }
+
+  /**
+   * The walls of mountain valleys and the ranges beyond in a world of version 2 (relief.ts), as high as the
+   * long blend of the country at s0 says: one shape for the whole world, not a region's, so that nothing
+   * changes shape from one region to the next — only how high it stands.
+   */
+  private mountains(x: number, z: number, s0: number, dzl: number, lat: number): number {
+    // (nearer the road than any region's ranges begin and any valley's walls: nothing to add)
+    if (lat <= this.mountainsFrom) return 0;
+    const m = reliefMix(this.spine.plan, s0, this.rm);
+    let r = 0;
+    if (m.ranges > 0) {
+      const g = smoothstep(m.from, m.full, lat);
+      if (g > 0) r += m.ranges * g * rangeField(x, z, this.seed + 0x7a1);
+    }
+    // (no wall stands on its floor, open country or not)
+    if (m.walls > 0 && (dzl < 0 ? -dzl : dzl) > m.floor) {
+      const open = openness(this.land, this.rules.slot, s0, dzl < 0 ? -1 : 1);
+      r += m.walls * wallAt(x, z, dzl, m, open, this.seed + 0x3e5);
     }
     return r;
   }
@@ -520,20 +595,34 @@ export class World implements Ground {
     // the country this stretch runs through: its cross-section, measured from the road at the same x
     const lp = this.land.at(s0, this.lp);
     const farK = lp.farAt(dzl * cs0);
-    let rel = this.relief(A, bl.a, x, z, g1, lat, farK, coarse);
+    let rel: number;
     let verge = A.vergeBlend;
     let ditchDepth = A.ditch;
-    if (bl.t > 0) {
-      const B = BIOMES[bl.b];
-      rel += (this.relief(B, bl.b, x, z, g1, lat, farK, coarse) - rel) * bl.t;
-      verge += (B.vergeBlend - verge) * bl.t;
-      ditchDepth += (B.ditch - ditchDepth) * bl.t;
+    if (!this.relief2) {
+      rel = this.relief(A, bl.a, x, z, g1, lat, farK, coarse);
+      if (bl.t > 0) {
+        const B = BIOMES[bl.b];
+        rel += (this.relief(B, bl.b, x, z, g1, lat, farK, coarse) - rel) * bl.t;
+        verge += (B.vergeBlend - verge) * bl.t;
+        ditchDepth += (B.ditch - ditchDepth) * bl.t;
+      }
+    } else {
+      // (version 2: the regions' own relief, then the walls and the ranges of the country)
+      const across = dzl * cs0 < 0 ? -dzl * cs0 : dzl * cs0;
+      rel = this.reliefV2(A, bl.a, x, z, g1, lat, farK, across, near ? ad : NEAR_FIELD, coarse);
+      if (bl.t > 0) {
+        const B = BIOMES[bl.b];
+        rel += (this.reliefV2(B, bl.b, x, z, g1, lat, farK, across, near ? ad : NEAR_FIELD, coarse) - rel) * bl.t;
+        verge += (B.vergeBlend - verge) * bl.t;
+        ditchDepth += (B.ditch - ditchDepth) * bl.t;
+      }
+      rel += this.mountains(x, z, s0, dzl, lat);
     }
     rel += LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
     // land: the base follows the nearest road point close in, and the same-x road point far out
     const base = q.y + (y0 - q.y) * smoothstep(18, 55, ad);
     // (a world of version 2: the stretch's terraces and dunes; no stretch of a world of version 1 has either)
-    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse, dzl, cs0, (sn0 / cs0) * (1 + (dzl * p.kappa) / cs0), y0 - q.y);
+    if (lp.terrace > 0 || lp.dune > 0) rel = this.operate(lp, rel, base, x, z, ad, coarse, dzl, cs0, (sn0 / cs0) * (1 + (dzl * p.kappa) / cs0), y0 - q.y, s0);
     o.s = s;
     o.d = d;
     o.roadY = q.y;
@@ -563,6 +652,12 @@ export class World implements Ground {
       o.wkind = we.kind;
       o.wt = we.t;
       o.wlat = we.l;
+    } else if (this.relief2) {
+      // (version 2: the valleys rivers cut through hills and mountain walls are kilometres wide and show from
+      // far off, so the far ring's land has them too — still dry, its water standing as level ground)
+      const we = this.we;
+      T = this.water.carve(x, z, s0, T, we);
+      if (we.level > T) T = we.level;
     }
     // the sea, where the road runs along a coast: beach and sea bed on its side — in the far ring too,
     // for it runs to the horizon
@@ -665,8 +760,9 @@ export class World implements Ground {
    *             point of the same x turns as x goes on
    * @param rise how much higher the road is at the same x than at the nearest road point (close to the
    *             road the land's base goes from the one to the other)
+   * @param s0   the arc length of the road point of the same x
    */
-  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean, dzl: number, cs0: number, skew: number, rise: number): number {
+  private operate(lp: LandParams, rel: number, base: number, x: number, z: number, ad: number, coarse: boolean, dzl: number, cs0: number, skew: number, rise: number, s0: number): number {
     if (lp.terrace > 0 && !coarse) {
       // (the fade far from the road goes by the distance across the road from the road point of the same
       // x, which changes smoothly everywhere; `ad`, the distance to the nearest road point, is only good
@@ -684,7 +780,7 @@ export class World implements Ground {
         // (that point lies this far from the road: close to the road the near relief is still coming in
         // and the base still turning from the nearest road point's height to the same-x one's)
         const out = ad + TERRACE_PROBE * cs0;
-        const dh = this.reliefAt(lp, x, z + e, dzl + e, cs0, smoothstep(7, 58, out)) - rel + rise * (smoothstep(18, 55, out) - smoothstep(18, 55, ad));
+        const dh = this.reliefAt(lp, x, z + e, dzl + e, cs0, smoothstep(7, 58, out), s0) - rel + rise * (smoothstep(18, 55, out) - smoothstep(18, 55, ad));
         const across = dh / TERRACE_PROBE;
         const slope = Math.sqrt(across * across * (1 + skew * skew) + 0.04) + 0.12;
         const k = lp.terrace * w * (1 - smoothstep(0.6, 0.9, slope));
@@ -710,12 +806,22 @@ export class World implements Ground {
    * same mix of biomes in `this.bl`, the same cross-section) and another z: what `shape` itself adds up,
    * before the operators.
    */
-  private reliefAt(lp: LandParams, x: number, z: number, dzl: number, cs0: number, g1: number): number {
+  private reliefAt(lp: LandParams, x: number, z: number, dzl: number, cs0: number, g1: number, s0: number): number {
     const bl = this.bl;
     const lat = dzl < 0 ? -dzl : dzl;
     const farK = lp.farAt(dzl * cs0);
-    let rel = this.relief(BIOMES[bl.a], bl.a, x, z, g1, lat, farK);
-    if (bl.t > 0) rel += (this.relief(BIOMES[bl.b], bl.b, x, z, g1, lat, farK) - rel) * bl.t;
+    let rel: number;
+    if (!this.relief2) {
+      rel = this.relief(BIOMES[bl.a], bl.a, x, z, g1, lat, farK);
+      if (bl.t > 0) rel += (this.relief(BIOMES[bl.b], bl.b, x, z, g1, lat, farK) - rel) * bl.t;
+    } else {
+      // (the hills go by the distance across the road; the nearest road point's distance only keeps them off a
+      // bend's corridor, and a probe two metres out is never there)
+      const across = dzl * cs0 < 0 ? -dzl * cs0 : dzl * cs0;
+      rel = this.reliefV2(BIOMES[bl.a], bl.a, x, z, g1, lat, farK, across, NEAR_FIELD, false);
+      if (bl.t > 0) rel += (this.reliefV2(BIOMES[bl.b], bl.b, x, z, g1, lat, farK, across, NEAR_FIELD, false) - rel) * bl.t;
+      rel += this.mountains(x, z, s0, dzl, lat);
+    }
     return rel + LandformPlan.offset(lp, dzl * cs0, x, z, this.seed);
   }
 

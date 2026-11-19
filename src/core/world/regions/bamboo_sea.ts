@@ -43,4 +43,5 @@ export const BAMBOO_SEA: RegionDef = {
   climate: 'warm',
   land: { odds: { valley: 0.42, hillside: 0.4, ridge: 0.12, open: 0.06 }, size: { tilt: 0.28, wall: 140, drop: 60, canyon: 0 } },
   water: { lake: 0.16, river: 0.42, frozen: 0, clear: 7 },
+  relief: { base: 260, snow: 4600, trees: 3400, hills: { amp: 105, len: 820 }, far: 0, ranges: { amp: 650, from: 2500, full: 11000 }, size: { tilt: 0.14, wall: 60, drop: 36 } },
 };

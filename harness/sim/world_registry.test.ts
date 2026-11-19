@@ -289,7 +289,9 @@ describe('world · versions and rules', () => {
     expect(RULES_V1.version).toBe(1);
     expect(RULES_V2.version).toBe(2);
     expect(RULES_V1.regionCount).toBe(6);
-    expect(RULES_V1.road).toEqual({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: 60, gradeCap: 0.08 });
+    // (the drift back to the base elevation was written in the road's code until version 2 changed it: 3.5 in a
+    // hundred at most, the difference over 2.5 km, towards the two regions' baseElev mixed over their border)
+    expect(RULES_V1.road).toEqual({ headingSoft: 40, headingLimit: 44, headingRoom: 8, headingHard: 49, radiusFloor: 60, gradeCap: 0.08, pull: 0.035, pullLen: 2500, longBase: false });
     for (const scale of [0.1, 0.2, 0.5, 1, 2.5]) expect(RULES_V1.transition(scale)).toBe(Math.max(300, 900 * Math.min(1, scale * 2)));
   });
 
@@ -443,7 +445,9 @@ describe('world · the dealer and the region count', () => {
     const rules: WorldRules = { ...RULES_V2, dealer: { first: () => ({ region: BIOME_INDEX.alpine, length: 8000 }), next: DEALER_V1.next } };
     const road = new RoadSpine(9, { startBiome: 'plains' }, rules);
     expect(road.plan.biomes[0]).toBe(BIOME_INDEX.alpine);
-    expect(road.ys[0]).toBe(BIOMES[BIOME_INDEX.alpine].baseElev);
+    // (version 2's base elevation: the region's relief's, a valley floor high in the mountains)
+    expect(road.ys[0]).toBe(BIOMES[BIOME_INDEX.alpine].relief?.base);
+    expect(new RoadSpine(9, { startBiome: 'alpine' }).ys[0]).toBe(BIOMES[BIOME_INDEX.alpine].baseElev);
   });
 });
 

@@ -65,6 +65,47 @@ export interface BiomeDef {
   tempNight: number;
 }
 
+/**
+ * The relief of a region in a world of version 2 (stage L1 of docs/V3/nodes/L-landscape.md; relief.ts and
+ * terrain.ts read it). In its place a world of version 1 has the far field, the massifs and the giant peaks of
+ * the BiomeDef's numbers, which version 2 keeps only as much as `far` says.
+ */
+export interface RegionRelief {
+  /** the elevation its road drifts back to (m above the sea): in place of `baseElev` */
+  base: number;
+  /** where snow lies on all but the steepest faces, and where the woods end (m above the sea): by its climate */
+  snow: number;
+  trees: number;
+  /**
+   * The hills of the middle distance: how high they stand (m) and how far it is from one to the next (m). They
+   * begin beyond the reach of the verge and of the places by the road (relief.ts HILLS_FROM) and are whole a
+   * few hundred metres further out, the higher the further (relief.ts hillsFade): big, clean forms, with valleys
+   * and saddles the road passes through.
+   */
+  hills: { amp: number; len: number };
+  /** how much of version 1's far field it keeps: 0 none (hill country has its hills instead) … 1 all (the mesas of the dry country, the towers of the karst) */
+  far: number;
+  /**
+   * The ranges beyond, layer behind layer to the horizon: how high they stand at their fullest (m), from how
+   * far out they begin to rise and where they are whole (m). The shape of the ranges is the world's own; how
+   * high they stand goes with the country, and changes from one region to the next over kilometres
+   * (relief.ts LONG_BLEND).
+   */
+  ranges: { amp: number; from: number; full: number };
+  /**
+   * Mountain country: walls on either side of a valley floor (relief.ts wallsAt). `height` the lowest and the
+   * highest a wall stands above the floor (m); `floor` how far out from the road the floor runs before the
+   * walls begin to rise (m); `steep` how steeply a wall climbs on average, height over run, the gentlest and
+   * the steepest; `crest` how far out its crest stands at the most (m). Where the country opens on one side (a
+   * hillside's low side, a ridge) the wall on that side stands lower and further back: a view over a valley.
+   */
+  walls?: { height: readonly [number, number]; floor: number; steep: readonly [number, number]; crest: number };
+  /** the odds of each kind of country in a world of version 2, in place of `land.odds` or the row of LAND_ODDS (a kind left out never comes) */
+  odds?: Partial<Record<LandKind, number>>;
+  /** the strength of each kind in a world of version 2, in place of what `land.size` or LAND_SIZE says (those left out stay) */
+  size?: Partial<LandSize>;
+}
+
 /** how often a stretch of a region holds a lake or a river (0…1), whether its water freezes (0…1), and how far below the road its rivers run (m) */
 export interface RegionWater {
   lake: number;
@@ -114,6 +155,8 @@ export interface RegionDef extends BiomeDef {
   features?: readonly FeatureRecipe[];
   /** worlds of version 2 only: how many stretches of a chapter of it hold such a cluster (the director says which; absent: none) */
   featureSlots?: number;
+  /** worlds of version 2 only: its relief (absent: version 1's, from the numbers above) */
+  relief?: RegionRelief;
 }
 
 /**
@@ -155,6 +198,7 @@ const FIRST_SIX: readonly RegionDef[] = [
     intensity: 'calm',
     family: { palette: 'green', land: 'rolling', flora: 'meadow' },
     climate: 'temperate',
+    relief: { base: 60, snow: 3000, trees: 2200, hills: { amp: 32, len: 720 }, far: 0, ranges: { amp: 520, from: 2500, full: 9000 }, size: { tilt: 0.07, wall: 30, drop: 20 } },
   },
   {
     id: 'desert',
@@ -191,6 +235,7 @@ const FIRST_SIX: readonly RegionDef[] = [
     climate: 'dry',
     // (version 2: dunes on its open stretches; its odds and strengths stay the rows of landform.ts)
     land: { dune: { amp: 7, len: 95 } },
+    relief: { base: 120, snow: 5000, trees: 3600, hills: { amp: 0, len: 900 }, far: 1, ranges: { amp: 750, from: 3000, full: 13000 } },
   },
   {
     id: 'alpine',
@@ -225,6 +270,17 @@ const FIRST_SIX: readonly RegionDef[] = [
     intensity: 'scenic',
     family: { palette: 'snow', land: 'mountain', flora: 'conifer' },
     climate: 'cold',
+    // (version 2: a valley floor high in the mountains, walls of a thousand metres and more on either side)
+    relief: {
+      base: 1000,
+      snow: 2000,
+      trees: 1700,
+      hills: { amp: 24, len: 520 },
+      far: 0,
+      ranges: { amp: 3000, from: 3500, full: 16000 },
+      walls: { height: [1000, 1750], floor: 200, steep: [0.42, 0.62], crest: 3000 },
+      odds: { valley: 0.4, hillside: 0.42, open: 0.08, ridge: 0.1 },
+    },
   },
   // ---- the second round (docs/DESIGN_V2.md 4.1): they come from the fifth chapter on (spine.ts)
   {
@@ -261,6 +317,7 @@ const FIRST_SIX: readonly RegionDef[] = [
     intensity: 'calm',
     family: { palette: 'deepgreen', land: 'valley', flora: 'broadleaf' },
     climate: 'temperate',
+    relief: { base: 140, snow: 3000, trees: 2200, hills: { amp: 100, len: 980 }, far: 0, ranges: { amp: 700, from: 2500, full: 11000 }, size: { tilt: 0.12, wall: 50, drop: 34 } },
   },
   {
     // low, open country full of water: a lake in most stretches, reeds, morning fog
@@ -297,6 +354,7 @@ const FIRST_SIX: readonly RegionDef[] = [
     family: { palette: 'green', land: 'lakeland', flora: 'meadow' },
     climate: 'temperate',
     sea: true,
+    relief: { base: 40, snow: 3000, trees: 2200, hills: { amp: 42, len: 820 }, far: 0, ranges: { amp: 600, from: 2500, full: 9500 }, size: { tilt: 0.08, wall: 35, drop: 22 } },
   },
   {
     // hill country in its autumn: the road along the slopes, every wood red and gold, leaves in the air
@@ -332,6 +390,7 @@ const FIRST_SIX: readonly RegionDef[] = [
     intensity: 'calm',
     family: { palette: 'autumn', land: 'hills', flora: 'maple' },
     climate: 'temperate',
+    relief: { base: 180, snow: 3000, trees: 2200, hills: { amp: 115, len: 900 }, far: 0, ranges: { amp: 750, from: 2500, full: 11000 }, size: { tilt: 0.13, wall: 55, drop: 38 } },
   },
 ];
 
@@ -401,6 +460,7 @@ function entry(d: RegionDef): RegionDef {
     water: d.water,
     features: d.features,
     featureSlots: d.featureSlots,
+    relief: d.relief,
   };
   return e;
 }

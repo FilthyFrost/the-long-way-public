@@ -43,4 +43,5 @@ export const WETLAND: RegionDef = {
   climate: 'temperate',
   land: { odds: { open: 0.85, hillside: 0.1, ridge: 0.05 }, size: { tilt: 0.06, wall: 30, drop: 12, canyon: 0 } },
   water: { lake: 0.78, river: 0.12, frozen: 0, clear: 3.5 },
+  relief: { base: 25, snow: 3000, trees: 2200, hills: { amp: 7, len: 600 }, far: 0, ranges: { amp: 420, from: 2500, full: 9000 } },
 };
