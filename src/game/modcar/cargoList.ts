@@ -24,6 +24,10 @@ const CSS = `
 .mc-cargo .r.on .m { color: #fff; }
 .mc-cargo .none { padding: 18px 4px; color: var(--tx-2); font-size: 14px; text-align: center; }
 .mc-cargo .ks { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--tx-2); }
+.mc-cargo.side-l { left: calc(50% - 222px); }
+.mc-cargo.side-r { left: calc(50% + 222px); }
+.mc-cargo.off { opacity: 0.6; }
+.mc-cargo.off .r.on { background: none; box-shadow: inset 0 0 0 2px rgba(239,230,211,0.25); }
 .mc-cargo .ks kbd { display: inline-block; min-width: 18px; padding: 0 5px; margin-right: 4px; border: 2px solid var(--ink); border-radius: 6px; background: #f6f2ea; color: var(--ink); font: 700 12px var(--key-font); text-align: center; }
 `;
 
@@ -53,6 +57,8 @@ export interface CargoView {
   cap: { slots: number; maxKg?: number } | null;
   /** what G would put in ("试验莓 ×5"), shown with its key; '': nothing in the hands would go in */
   put: string;
+  /** two lists side by side (the hands beside a vehicle's): the keys that go from one to the other are shown */
+  pair?: boolean;
 }
 
 export class CargoList {
@@ -64,6 +70,8 @@ export class CargoList {
   private sel = -1;
   private load = NaN;
   private put = '';
+  private place = '';
+  private pair = false;
   open = false;
 
   constructor(root: HTMLElement) {
@@ -79,6 +87,19 @@ export class CargoList {
     root.appendChild(this.el);
   }
 
+  /**
+   * Where it stands: alone in the middle, or one of two side by side (left: the hands, right: a vehicle's), the
+   * one not being worked dimmed (docs/V3/nodes/M1-interact.md)
+   */
+  side(at: 'mid' | 'l' | 'r', active = true): void {
+    const place = `${at}${active ? '' : '-off'}`;
+    if (place === this.place) return;
+    this.place = place;
+    this.el.classList.toggle('side-l', at === 'l');
+    this.el.classList.toggle('side-r', at === 'r');
+    this.el.classList.toggle('off', !active);
+  }
+
   /** show the list as the view has it (null: shut it) */
   show(v: CargoView | null): void {
     this.open = v !== null;
@@ -89,7 +110,8 @@ export class CargoList {
       }
       return;
     }
-    if (this.shown && v.rev === this.rev && v.sel === this.sel && v.load === this.load && v.put === this.put && v.title === this.title) return;
+    if (this.shown && v.rev === this.rev && v.sel === this.sel && v.load === this.load && v.put === this.put && v.title === this.title && (v.pair ?? false) === this.pair) return;
+    this.pair = v.pair ?? false;
     this.shown = true;
     this.title = v.title;
     this.rev = v.rev;
@@ -115,7 +137,7 @@ export class CargoList {
       }
       html += `<div class="r${i === sel ? ' on' : ''}">${r.icon ? `<img src="${r.icon}" alt="">` : '<div class="ph"></div>'}<div>${esc(r.name)}</div><div class="m">${kg(r.mass)} kg</div></div>`;
     });
-    html += `</div><div class="ks"><span><kbd>滚轮</kbd>/ <kbd>W</kbd><kbd>S</kbd> 选</span><span><kbd>E</kbd>/ 左键 ${esc(v.take)}</span>${v.put ? `<span><kbd>G</kbd> 放进去 ${esc(v.put)}</span>` : ''}<span><kbd>Tab</kbd> 关上</span></div>`;
+    html += `</div><div class="ks"><span><kbd>滚轮</kbd>/ <kbd>W</kbd><kbd>S</kbd> 选</span><span><kbd>E</kbd>/ 左键 ${esc(v.take)}</span>${v.put ? `<span><kbd>G</kbd> 放进去 ${esc(v.put)}</span>` : ''}${v.pair ? '<span><kbd>A</kbd><kbd>D</kbd> 换一边</span>' : ''}<span><kbd>Tab</kbd> 关上</span></div>`;
     this.el.innerHTML = html;
   }
 }

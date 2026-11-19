@@ -2,6 +2,10 @@
  * The controls in the cab (docs/MODCAR.md §5.1): in the driver's seat the mark finds the handbrake, the
  * gear lever, the key, the radio, the horn and the doors; a click works them (the key: hold to crank),
  * exactly like their keys. The parts move: the lever goes up, the gear lever leans, the key turns.
+ *
+ * From the other front seat (docs/V3/nodes/M1-interact.md) one reaches what lies between the seats and beside
+ * one — the handbrake, the radio, the door on one's own side — and from either front seat the mark finds the
+ * other one: E moves one over. Getting out is offered on the door beside one's seat, not all the time.
  */
 import type { Action } from './hudItems';
 import * as THREE from 'three';
@@ -12,16 +16,59 @@ import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 
 const CONTROL_CATS = new Set(['handbrake', 'gearLever', 'ignition', 'radio', 'horn', 'door', 'steering']);
+/** what one reaches from the passenger's seat: the handbrake and the radio between the seats, the door beside one */
+const PASSENGER_CATS = new Set(['handbrake', 'radio', 'door']);
+
+/** which front seat one sits in */
+export type FrontSeat = 'driver' | 'pass';
+
+/**
+ * The other front seat of a frame: the seat across the cab from the driver's, about level with it (none on a
+ * motorcycle, or where nothing stands across from the driver).
+ */
+export function passengerSeat(v: ModVehicle): MountDef | null {
+  if (v.view.frame.balance) return null;
+  const mounts = v.view.frame.mounts;
+  const d = mounts.find((m) => m.driver);
+  if (!d) return null;
+  let best: MountDef | null = null;
+  let bd = 0.45;
+  for (const m of mounts) {
+    if (m.cat !== 'seat' || m === d || m.driver) continue;
+    // (across the cab: the other side of the middle, about as far out, about as far forward)
+    if (Math.sign(m.pos.z) === Math.sign(d.pos.z) || Math.abs(m.pos.z) < 0.15) continue;
+    const off = Math.abs(m.pos.x - d.pos.x) + Math.abs(Math.abs(m.pos.z) - Math.abs(d.pos.z));
+    if (off < bd) {
+      bd = off;
+      best = m;
+    }
+  }
+  return best;
+}
+
+/** the seat one sits in, as a mount */
+export function seatMount(v: ModVehicle, seat: FrontSeat): MountDef | null {
+  return seat === 'pass' ? passengerSeat(v) : (v.view.frame.mounts.find((m) => m.driver) ?? null);
+}
+
+/** a door one gets out by from a seat: the one beside it (and a motorhome's side door, the cab open to it) */
+export function ownDoor(id: string, seat: FrontSeat): boolean {
+  return id === 'door_side' || id.endsWith(seat === 'pass' ? 'FR' : 'FL');
+}
 
 export interface CockpitHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
   sound(name: string, gain?: number, mount?: string): void;
   getOut(): void;
+  /** which front seat one sits in */
+  readonly seatAt: FrontSeat;
 }
 
 export class Cockpit {
   aimed: MountDef | null = null;
+  /** the mark is on the other front seat (aimed is that seat): E moves one over */
+  aimedSeat = false;
   /** the key held down through a click on it */
   private cranking = false;
   private readonly box = new THREE.Box3();
@@ -39,10 +86,14 @@ export class Cockpit {
     cam.getWorldDirection(this.ray.direction);
     let best: MountDef | null = null;
     let bd = 1.3;
+    const seat = this.host.seatAt;
+    const other = seatMount(v, seat === 'pass' ? 'driver' : 'pass');
+    this.aimedSeat = false;
     for (const m of v.view.frame.mounts) {
-      if (!CONTROL_CATS.has(m.cat) || !v.build.parts[m.id]) continue;
-      // only the driver's own doors from the seat
-      if (m.cat === 'door' && !(m.id.endsWith('FL') || m.id === 'door_side')) continue;
+      const across = m === other;
+      if (!v.build.parts[m.id] || (!across && (!CONTROL_CATS.has(m.cat) || (seat === 'pass' && !PASSENGER_CATS.has(m.cat))))) continue;
+      // only one's own doors from the seat
+      if (m.cat === 'door' && !ownDoor(m.id, seat)) continue;
       const b = v.view.boundsOf(m.id, this.box);
       if (!b) continue;
       b.expandByScalar(0.02);
@@ -54,6 +105,7 @@ export class Cockpit {
         best = m;
       }
     }
+    this.aimedSeat = best !== null && best === other;
     return best;
   }
 
@@ -65,7 +117,8 @@ export class Cockpit {
     if (m) {
       const name = partDef(v.build.parts[m.id].part).name[ui.lang];
       const s = v.sim;
-      if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
+      if (this.aimedSeat) acts.push({ keys: ['E'], text: this.host.seatAt === 'pass' ? '坐到驾驶座' : '坐到副驾驶' });
+      else if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
       else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: `加挡 · 现在 <b>${v.sys.dash.gearLabel}</b>` }, { keys: ['RMB'], text: '减挡' });
       else if (m.cat === 'ignition') acts.push(v.sys.running ? { keys: ['LMB'], text: `熄火 <b>${name}</b>` } : { keys: ['LMB'], hold: true, text: `打火 <b>${name}</b>` });
       else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: `换台 · 「${SONGS[v.radioSong % SONGS.length].name}」` }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));

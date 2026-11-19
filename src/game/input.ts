@@ -103,7 +103,8 @@ export class InputManager {
   turn(dx: number, dy: number, k = 0.0022): void {
     if (this.lookHold) return;
     this.lookYaw = this.freeLook ? this.lookYaw + dx * k : Math.max(-2.4, Math.min(2.4, this.lookYaw + dx * k));
-    this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - dy * k));
+    // (in a seat one may look further down: to the handbrake and the gear lever on the tunnel between the seats)
+    this.lookPitch = Math.max(this.freeLook ? -1.0 : -1.3, Math.min(1.0, this.lookPitch - dy * k));
     this.lastLook = performance.now();
   }
 
@@ -166,7 +167,7 @@ export class InputManager {
       this.walk.right = dz(pad.axes[0] ?? 0);
       if ((lx !== 0 || ly !== 0) && !this.lookHold) {
         this.lookYaw = this.freeLook ? this.lookYaw + lx * dt * 2.2 : Math.max(-2.4, Math.min(2.4, this.lookYaw + lx * dt * 2.2));
-        this.lookPitch = Math.max(-1.0, Math.min(1.0, this.lookPitch - ly * dt * 1.6));
+        this.lookPitch = Math.max(this.freeLook ? -1.0 : -1.3, Math.min(1.0, this.lookPitch - ly * dt * 1.6));
         this.lastLook = performance.now();
       }
       break;

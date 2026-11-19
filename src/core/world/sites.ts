@@ -428,6 +428,38 @@ export class SitePlan implements SolidSource {
     return false;
   }
 
+  /**
+   * What stands over a point (world m; `y` about the height of one's head), as shelter from the weather
+   * (docs/V3/nodes/M1-interact.md): a building one is inside of, between its walls and under its eaves, or a
+   * canopy one stands under; null: the open sky.
+   */
+  coverAt(x: number, y: number, z: number): SiteObject | null {
+    const s = this.world.spine.sAtX(x);
+    const k0 = Math.max(0, Math.floor((s - 400) / SITE_SLOT));
+    const k1 = Math.floor((s + 400) / SITE_SLOT);
+    for (let k = k0; k <= k1; k++) {
+      for (const site of this.sitesOf(k)) {
+        const dx = x - site.x;
+        const dz = z - site.z;
+        if (dx * dx + dz * dz > site.reach * site.reach) continue;
+        for (const o of site.objects) {
+          if (o.kind !== 'building' && o.kind !== 'canopy') continue;
+          const c = Math.cos(o.yaw);
+          const sn = Math.sin(o.yaw);
+          const ox = x - o.x;
+          const oz = z - o.z;
+          // (in its own frame: u along its long side, v across; inside the walls, not in them)
+          const u = ox * c + oz * sn;
+          const v = -ox * sn + oz * c;
+          if (Math.abs(u) > o.w / 2 - 0.08 || Math.abs(v) > o.d / 2 - 0.08) continue;
+          if (y < o.y - 0.4 || y > o.y + o.h) continue;
+          return o;
+        }
+      }
+    }
+    return null;
+  }
+
   solidsNear(x: number, z: number, r: number, out: Solid[]): void {
     const s = this.world.spine.sAtX(x);
     const k0 = Math.max(0, Math.floor((s - 400) / SITE_SLOT));

@@ -622,6 +622,60 @@ export function selfSource(host: ListHost): ListSource {
   return new SelfList(host);
 }
 
+// ------------------------------------------------------------------ what is in one's hands, beside a vehicle's list
+
+/**
+ * The hotbar's things as a list beside a vehicle's (docs/V3/nodes/M1-interact.md): what is in the hands and the
+ * slots, so that a thing goes into the vehicle from the lists as well as by putting it in where one looks. Its
+ * take is the game's own: the row picked is put into the vehicle (ModGame), the hands being where it already is;
+ * `slotOf` says which slot each of the rows last given stands for.
+ */
+export class HandsList implements ListSource {
+  readonly title = '我身上';
+  readonly head = '手上和快捷栏';
+  readonly empty = '手上和快捷栏里都是空的。';
+  readonly takeWord = '放进车里';
+  readonly slotOf: number[] = [];
+
+  constructor(private readonly host: ListHost) {}
+
+  near(): boolean {
+    return !this.host.seated;
+  }
+
+  /** a number that is another whenever what is in the slots is (which things, how many of each); nothing allocated */
+  version(): number {
+    const s = this.host.player.slots;
+    let h = s.length;
+    for (let i = 0; i < s.length; i++) {
+      const x = s[i];
+      if (!x) h = Math.imul(h, 31) + 1;
+      else if (x.kind === 'item') h = Math.imul(Math.imul(h, 31) + strKey(x.item.uid), 31) + (x.item.n ?? 1);
+      else if (x.kind === 'tool') h = Math.imul(h, 31) + strKey(x.tool.kind) + 3;
+      else h = Math.imul(h, 31) + strKey(x.inst.part) + 7;
+    }
+    return h & (TURNED - 1);
+  }
+
+  rows(): CargoRow[] {
+    const out: CargoRow[] = [];
+    this.slotOf.length = 0;
+    const s = this.host.player.slots;
+    for (let i = 0; i < s.length; i++) {
+      const h = s[i];
+      if (!h) continue;
+      out.push({ zone: i < 2 ? '快捷栏' : '背包格', name: heldName(h), mass: massOf(h), icon: this.host.iconOf(h) });
+      this.slotOf.push(i);
+    }
+    return out;
+  }
+
+  /** (the game puts the picked thing into the vehicle: see the class's note) */
+  takeAt(): boolean {
+    return false;
+  }
+}
+
 // ------------------------------------------------------------------ a thing that holds things
 
 export interface BoxOpts {

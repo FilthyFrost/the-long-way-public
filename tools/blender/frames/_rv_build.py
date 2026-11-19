@@ -629,7 +629,7 @@ def mounts(ex, panels):
     E.append(mount('roof', (-1.30, 0.0, D['bz1']), dict(cat='roof', fit=[2.2, 1.8, 0.2])))
     E.append(mount('horn', (2.62, 0.40, 0.78), dict(cat='horn')))
     E.append(mount('radio', (IN.DASH_FACE_X, 0.0, 1.278), dict(cat='radio', slot=[0.186, 0.046], slot_depth=0.06)))
-    E.append(mount('handbrake', (IN.DASH_FACE_X - 0.01, 0.80, 1.08), dict(cat='handbrake', note='under the dash, pull handle')))
+    E.append(mount('handbrake', (IN.HB_X, IN.HB_Y, IN.TUNNEL['top'] + 0.006), dict(cat='handbrake', note='on the tunnel beside the gear lever, towards the driver: seen when the driver looks down to the right')))
     E.append(mount('gearLever', (IN.GEAR_X, 0.0, IN.TUNNEL['top'] + 0.014), dict(cat='gearLever')))
     p_, d_ = IN.steering_mount()
     pi_ = p_ + d_ * 0.13 + np.array([0.0, -0.05, 0.0])

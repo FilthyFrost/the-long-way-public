@@ -87,7 +87,7 @@ import { tyreLoops } from './tyreSound';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
-import { boxInHand, boxOnMark, boxSource, guardedSource, Listing, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
+import { boxInHand, boxOnMark, boxSource, guardedSource, HandsList, Listing, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
@@ -101,8 +101,8 @@ import { isContainer, Places, type PlaceContainer, type PlacesHost } from './pla
 import { SiteArt } from './siteArt';
 import { Doors } from './doors';
 import { solidWithin, type SolidSource } from '../../core/world/solids';
-import type { Site } from '../../core/world/sites';
-import { Cockpit, type CockpitHost } from './cockpit';
+import type { Site, SiteObject } from '../../core/world/sites';
+import { Cockpit, passengerSeat, seatMount, type CockpitHost, type FrontSeat } from './cockpit';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
@@ -343,6 +343,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private jumpsSeen = 0;
   /** what is in a vehicle, as a list (Tab): the vehicle it is open on, the row picked */
   private cargoList: CargoList | null = null;
+  /**
+   * Beside a vehicle's list, what one has in the hands and the slots (docs/V3/nodes/M1-interact.md): its own
+   * panel, its own row picked; `listSide` 0 when it is the one being worked (E puts the picked thing in), 1 the
+   * vehicle's (E takes out)
+   */
+  private cargoListL: CargoList | null = null;
+  private handsList: HandsList | null = null;
+  private readonly listingL = new Listing();
+  private listSelL = 0;
+  private listSide: 0 | 1 = 1;
   private listV: ModVehicle | 'self' | PlaceContainer | ListSource | null = null;
   private listSel = 0;
   /** the liquid going in from a can at a filler */
@@ -397,6 +407,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   ground: Ground;
   /** the vehicle the player sits in (null on foot) */
   seated: ModVehicle | null = null;
+  /** which front seat of it (docs/V3/nodes/M1-interact.md): from the passenger's one drives nothing */
+  seatAt: FrontSeat = 'driver';
+  /** the eye on its way between the seats: 0 the driver's, 1 the passenger's */
+  private seatSlide = 0;
+  private readonly seatEye = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
   /** the vehicle the camera and the sound follow (the one last sat in) */
   focus: ModVehicle | null = null;
   viewMode: ViewMode;
@@ -1261,6 +1276,28 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   // ------------------------------------------------------------------ the body (vitals.ts)
 
   /** is one under the workshop's roof (in a vehicle: is it) */
+  /** what the one on foot stands under this frame (a building by the road, a canopy), worked out once a frame: shelterOf */
+  private coverNow: SiteObject | null = null;
+  private shelterNow = 0;
+
+  /**
+   * How shut in from the weather the one on foot is (docs/V3/nodes/M1-interact.md), 0 the open sky … 1 a closed
+   * cab: inside the workshop (less with its doors open), inside a building by the road through its doorway, under
+   * a canopy only a little. The rain is heard through it as from a cab, and does not fall on one.
+   */
+  private shelterOf(): number {
+    this.coverNow = null;
+    if (this.seated) return 0;
+    if (this.place === 'garage' && (!this.seamless || this.indoors())) return this.garage?.doorsOpen?.() ? 0.75 : 0.95;
+    if (!this.world) return 0;
+    const w = this.player.walker;
+    const o = this.world.sites.coverAt(w.x, w.y + 1.5, w.z);
+    this.coverNow = o;
+    if (!o) return 0;
+    // (a doorway lets a little of the outside in; a wide gate more; a canopy keeps only the rain off one)
+    return o.kind === 'canopy' ? 0.3 : o.b?.gate ? 0.8 : 0.94;
+  }
+
   private indoors(): boolean {
     const sv = this.seated;
     const w = this.player.walker;
@@ -1288,7 +1325,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (b.bladder < 0.5) this.autoPee = false;
     if (this.deadT < 0) {
       if (this.assists.needs) {
-        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.env.state.rain > 0.15, peeing });
+        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.shelterNow < 0.5 && this.env.state.rain > 0.15, peeing });
         if (ev.hurt > 0) {
           this.vitHud.hurt();
           this.sound('hurt', Math.min(1, ev.hurt / 4));
@@ -1467,6 +1504,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.listSrcOf = null;
     this.listing.reset();
     this.cargoList?.show(null);
+    this.listingL.reset();
+    this.cargoListL?.show(null);
+    this.listSide = 1;
+    this.listSelL = 0;
+  }
+
+  /** a vehicle's list is open: the hands' beside it */
+  private get pairedList(): boolean {
+    return this.listV instanceof ModVehicle;
+  }
+
+  /** A or D in the two lists: the other one is worked */
+  private switchListSide(to: 0 | 1): void {
+    if (!this.pairedList || this.listSide === to) return;
+    this.listSide = to;
+    this.sound('switch', 0.25);
   }
 
   /** the source of what the list is open on (null: it is shut) */
@@ -1481,6 +1534,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   }
 
   private moveListSel(d: number): void {
+    if (this.pairedList && this.listSide === 0 && this.handsList) {
+      const sel = this.listingL.move(this.handsList, this.listSelL, d);
+      if (sel < 0) return;
+      this.listSelL = sel;
+      this.sound('switch', 0.25);
+      return;
+    }
     const src = this.listSource();
     if (!src) return;
     const sel = this.listing.move(src, this.listSel, d);
@@ -1499,6 +1559,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   takeFromList(): void {
     const src = this.listSource();
     if (!src) return;
+    // (from the hands' list: the picked thing into the vehicle, where G held looking at it would pack it: player.ts packIn)
+    if (this.pairedList && this.listSide === 0 && this.handsList) {
+      const slot = this.handsList.slotOf[this.listSelL];
+      if (slot === undefined || !(this.listV instanceof ModVehicle)) return;
+      this.player.sel = slot;
+      this.player.packIn(this.listV);
+      return;
+    }
     const sel = this.listing.take(src, this.listSel);
     if (sel < 0) this.closeCargoList();
     else this.listSel = sel;
@@ -1521,7 +1589,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       return;
     }
     this.listSel = sel;
+    const paired = this.pairedList;
+    this.listing.view.pair = paired;
+    this.cargoList.side(paired ? 'r' : 'mid', !paired || this.listSide === 1);
     this.cargoList.show(this.listing.view);
+    // beside a vehicle's list: the hands'
+    if (paired) {
+      this.handsList ??= new HandsList(this);
+      this.cargoListL ??= new CargoList(this.ui.root);
+      const selL = this.listingL.frame(this.handsList, this.listSelL, null);
+      this.listSelL = Math.max(0, selL);
+      this.listingL.view.pair = true;
+      this.cargoListL.side('l', this.listSide === 0);
+      this.cargoListL.show(this.listingL.view);
+    } else this.cargoListL?.show(null);
   }
 
   /** the workshop as it was left: its vehicles, what lay about, the checklist, where one stood */
@@ -1542,6 +1623,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (sv && this.seamless) {
       this.seated = sv;
       this.focus = sv;
+      this.seatAt = s.seatAt === 'pass' && passengerSeat(sv) ? 'pass' : 'driver';
+      this.seatSlide = this.seatAt === 'pass' ? 1 : 0;
       if (s.place === 'road') sv.sys.startNow();
     }
   }
@@ -1616,7 +1699,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (this.seamless && this.world) {
       // (one world: everything where it is, the world's seed and the generator it is of, the vehicle one sits in)
       s.world = savedWorldOf(this.world, this.params.seed);
-      if (this.seated && own.includes(this.seated)) s.seat = own.indexOf(this.seated);
+      if (this.seated && own.includes(this.seated)) {
+        s.seat = own.indexOf(this.seated);
+        if (this.seatAt === 'pass') s.seatAt = 'pass';
+      }
     } else if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
       const v = this.seated ?? this.focus ?? own[0];
@@ -1935,6 +2021,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   /** what the keys do in the seat (down the right) */
   private driveKeys(v: ModVehicle): Action[] {
+    if (this.seatAt === 'pass') return [{ keys: ['C'], text: '换视角' }];
     const running = v.sys.running;
     return [
       { keys: ['W'], text: '油门' },
@@ -1943,7 +2030,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       running ? { keys: ['K'], text: '熄火' } : { keys: ['K'], hold: true, text: '打火' },
       { keys: ['L'], text: '车灯' },
       { keys: ['C'], text: '换视角' },
-      { keys: ['E'], text: '下车' },
     ];
   }
 
@@ -2329,6 +2415,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.moveListSel(e.code === 'KeyW' || e.code === 'ArrowUp' ? -1 : 1);
         return;
       }
+      // (the two lists beside a vehicle: A the hands', D the vehicle's)
+      if (this.listV && (e.code === 'KeyA' || e.code === 'ArrowLeft' || e.code === 'KeyD' || e.code === 'ArrowRight')) {
+        this.switchListSide(e.code === 'KeyA' || e.code === 'ArrowLeft' ? 0 : 1);
+        return;
+      }
       // (a list that takes things in: G puts the thing in the hands into it)
       if (this.listV && e.code === 'KeyG' && !e.repeat) {
         this.putIntoList();
@@ -2403,8 +2494,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       }
       if (a === 'use') {
         if (this.listV) this.takeFromList();
-        else if (this.seated) this.getOut();
-        else this.player.press();
+        else if (this.seated) {
+          if (this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
+          else this.getOut();
+        } else this.player.press();
         return;
       }
       if (a === 'camera') {
@@ -2413,7 +2506,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       }
       if (a === 'hud') this.hud.toggle();
       const v = this.seated;
-      if (!v) return;
+      if (!v || this.seatAt === 'pass') return;
       if (a === 'key') {
         if (v.sys.running) v.sys.stop('');
         else v.sys.crank(true);
@@ -2482,7 +2575,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         }
         if (!wake()) return;
         if (g.listV) g.takeFromList();
-        else if (g.seated) g.getOut();
+        // (the mark on the other front seat: over to it; else out)
+        else if (g.seated) {
+          if (g.cockpit.aimedSeat && g.viewMode === 'cockpit') g.moveOver();
+          else g.getOut();
+        }
         else g.player.press();
       },
       pack: () => {
@@ -2539,12 +2636,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   // ------------------------------------------------------------------ getting in and out
 
-  enter(v: ModVehicle): void {
-    const seat = v.view.frame.mounts.find((m) => m.driver);
+  enter(v: ModVehicle, at: FrontSeat = 'driver'): void {
+    const seat = seatMount(v, at);
     if (!seat || !v.build.parts[seat.id]) {
-      this.ui.say('驾驶位没有座椅，坐不进去。');
+      this.ui.say(at === 'pass' ? '副驾驶没有座椅，坐不进去。' : '驾驶位没有座椅，坐不进去。');
       return;
     }
+    this.seatAt = at;
+    this.seatSlide = at === 'pass' ? 1 : 0;
     // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
     if (this.wrecks?.claim(v)) this.ui.say(`坐进了这辆${v.view.frame.name.zh}——现在它归你了。`, 2.6);
     // (what is in the two slots goes along)
@@ -2569,16 +2668,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (!v || Math.abs(v.sim.kmh) > 6) return;
     const b = this.basis;
     v.sim.basis(b);
-    const e = v.sim.spec.eye;
+    const e = this.eyeOf(v, this.seatAt);
     const side = e.z < 0 ? -1 : 1;
     const out = v.sim.spec.body.halfWidth + 0.55;
-    // beside the driver's door, facing the way the car faces
+    // beside the door of one's seat, facing the way the car faces
     const lx = e.x - 0.2;
     const lz = side * out;
     const x = v.sim.px + b[0] * lx + b[6] * lz;
     const z = v.sim.pz + b[2] * lx + b[8] * lz;
     const heading = Math.atan2(b[2], b[0]);
     this.seated = null;
+    this.seatAt = 'driver';
+    this.seatSlide = 0;
     v.view.highlight(null);
     // nothing holds it now but the handbrake (or P): say so when it is off
     if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.ui.say(v.sys.hasPart('handbrake') ? '没拉手刹——车会溜。' : '这车没有手刹，停在坡上会溜。', 3);
@@ -2587,6 +2688,40 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.input.lookYaw = heading;
     this.input.lookPitch = 0;
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
+  }
+
+  /**
+   * Over to the other front seat (docs/V3/nodes/M1-interact.md): the vehicle stopped, a seat there; the eye goes
+   * across (frame()'s seat eye), and from the passenger's seat one drives nothing until one moves back.
+   */
+  moveOver(): void {
+    const v = this.seated;
+    if (!v) return;
+    const to: FrontSeat = this.seatAt === 'pass' ? 'driver' : 'pass';
+    const seat = seatMount(v, to);
+    if (!seat || !v.build.parts[seat.id]) {
+      this.ui.say(to === 'pass' ? '副驾驶没有座椅。' : '驾驶位没有座椅。', 2);
+      return;
+    }
+    if (Math.abs(v.sim.kmh) > 3) {
+      this.ui.say('先把车停下。', 2);
+      return;
+    }
+    this.seatAt = to;
+    this.sound('cloth', 0.5);
+  }
+
+  /**
+   * The eye of a front seat (body frame): the driver's is the vehicle's own (spec.eye); the passenger's is as far
+   * across from it as the seats stand apart.
+   */
+  eyeOf(v: ModVehicle, at: FrontSeat): { x: number; y: number; z: number } {
+    const e = v.sim.spec.eye;
+    if (at === 'driver') return e;
+    const d = seatMount(v, 'driver');
+    const p = passengerSeat(v);
+    if (!d || !p) return { x: e.x, y: e.y, z: -e.z };
+    return { x: e.x + (p.pos.x - d.pos.x), y: e.y + (p.pos.y - d.pos.y), z: e.z + (p.pos.z - d.pos.z) };
   }
 
   private resetUpright(v: ModVehicle): void {
@@ -3678,7 +3813,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // vehicles
     for (const v of this.vehicles) {
       let input = null;
-      if (v === this.seated) {
+      if (v === this.seated && (this.seatAt === 'driver' || this.scripted)) {
         const d = this.input.drive;
         // (the proving ground's robot at the wheel, until the player takes it back with the pedals or the wheel)
         const pr = this.provingRun;
@@ -4032,7 +4167,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const sim = this.seated.sim;
       this.rig.lookYaw = this.input.lookYaw;
       this.rig.lookPitch = this.input.lookPitch;
-      this.rig.seat = null;
+      // (moving over: the eye slides across the cab in about half a second)
+      const want = this.seatAt === 'pass' ? 1 : 0;
+      this.seatSlide += Math.sign(want - this.seatSlide) * Math.min(Math.abs(want - this.seatSlide), dt * 2.2);
+      if (this.seatSlide > 1e-3) {
+        const a = this.seatSlide * this.seatSlide * (3 - 2 * this.seatSlide);
+        const d = sim.spec.eye;
+        const p = this.eyeOf(this.seated, 'pass');
+        const se = this.seatEye;
+        se.x = d.x + (p.x - d.x) * a;
+        // (a little lower half way: one ducks across)
+        se.y = d.y + (p.y - d.y) * a - 0.12 * Math.sin(Math.PI * a);
+        se.z = d.z + (p.z - d.z) * a;
+        this.rig.seat = se;
+      } else this.rig.seat = null;
       this.rig.update(dt, sim, this.seated.view.pose);
       cam.position.set(this.rig.x - o.x, this.rig.y - o.y, this.rig.z - o.z);
       cam.quaternion.set(this.rig.qx, this.rig.qy, this.rig.qz, this.rig.qw).multiply(QFIX);
@@ -4244,8 +4392,23 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    * The rain, snow and dust stay out of the cabin of the vehicle one sits in (or stands by): a closed body
    * keeps the weather out. A motorcycle has none.
    */
+  private readonly coverM = new THREE.Matrix4();
+  private readonly coverLo = new THREE.Vector3();
+  private readonly coverHi = new THREE.Vector3();
   private keepRainOut(): void {
     let v = this.seated;
+    this.shelterNow = this.shelterOf();
+    const cover = this.coverNow;
+    if (!v && cover && cover.kind === 'building') {
+      const o = this.core.origin;
+      // (its frame: u along its long side is local x, v across it local z; from its floor up)
+      this.coverM.makeRotationY(-cover.yaw).setPosition(cover.x - o.x, cover.y - o.y, cover.z - o.z);
+      this.cabInv.copy(this.coverM).invert();
+      this.coverLo.set(-cover.w / 2, -0.2, -cover.d / 2);
+      this.coverHi.set(cover.w / 2, cover.h + 0.5, cover.d / 2);
+      this.env.precip.setCabin(this.cabInv, this.coverLo, this.coverHi);
+      return;
+    }
     if (!v) {
       const w = this.player.walker;
       let best = 9;
@@ -4598,8 +4761,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         snow: w.snow,
         dust: w.dust,
         wind: w.wind,
-        // (the wind and the rain come in at a door standing open as at one that is not there)
-        enclosed: this.seated ? 1 - this.cabinOpen(v) : 0,
+        // (the wind and the rain come in at a door standing open as at one that is not there; on foot, through
+        // the walls and the roof one stands under)
+        enclosed: this.seated ? 1 - this.cabinOpen(v) : this.shelterNow,
         // (the engine and its starter are the EngineVoice's)
         engineOn: false,
         cranking: false,

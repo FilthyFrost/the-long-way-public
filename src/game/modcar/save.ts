@@ -122,6 +122,8 @@ export interface SaveV1 {
    */
   world?: SavedWorld;
   seat?: number;
+  /** … and which of its front seats, when not the driver's (docs/V3/nodes/M1-interact.md) */
+  seatAt?: 'pass';
   /** the wrecks by the road (docs/MODCAR.md §19): the ones kept as they were left, by id; the ones taken (vehicles of one's own now) */
   wrecks?: WrecksSave;
   /** the places by the road (§20): the containers searched and what is left in them, the pumps' litres, the things taken */

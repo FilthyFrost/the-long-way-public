@@ -47,6 +47,7 @@ import type { GarageDevice } from './garageStub';
 import type { InteractSources } from './kernel/interact';
 import type { CargoBay, StowAim } from './cargo';
 import type { CargoZone } from '../../core/modcar/cargo';
+import { passengerSeat } from './cockpit';
 
 export type Held = { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance } | null;
 
@@ -205,7 +206,8 @@ export interface PlayerHost {
   readonly tanks: readonly TankPort[];
   /** a vehicle's build changed: tell the systems, the view and any listeners (the checklist) */
   changed(v: ModVehicle, what: string): void;
-  enter(v: ModVehicle): void;
+  /** into a front seat: the driver's, or the passenger's (docs/V3/nodes/M1-interact.md) */
+  enter(v: ModVehicle, at?: 'driver' | 'pass'): void;
   sound(name: string, gain?: number, mount?: string): void;
   /** the picture of a held thing for the hotbar (a data URL), null while it is being drawn */
   iconOf(h: NonNullable<Held>): string | null;
@@ -1240,7 +1242,8 @@ export class ModPlayer {
           return;
         }
         if (!this.held && (t.mount.cat === 'seat' || t.mount.cat === 'steering')) {
-          host.enter(t.v);
+          // (the passenger's seat, through its door: one sits in that one)
+          host.enter(t.v, t.mount === passengerSeat(t.v) ? 'pass' : 'driver');
           return;
         }
       }
@@ -1714,7 +1717,7 @@ export class ModPlayer {
           const panel = t.v.view.hasPanel(t.mount.id);
           const seat = t.mount.cat === 'seat' || t.mount.cat === 'steering';
           if (panel) acts.push({ keys: E, text: `${t.v.view.panelOpen(t.mount.id) > 0.5 ? '关上' : '打开'} <b>${name(inst)}</b>` });
-          else if (seat && !held) acts.push({ keys: E, text: `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
+          else if (seat && !held) acts.push({ keys: E, text: t.mount === passengerSeat(t.v) ? '坐进副驾驶' : `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
           if (!held) {
             const lid = t.v.view.shutOver(t.mount.id);
             if (moving(t.v)) acts.push({ keys: F, hold: true, text: '拆下 · 车在动', off: true });

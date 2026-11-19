@@ -36,6 +36,9 @@ FW_DEG = math.degrees(math.acos((FIREWALL_X - D['ax_f']) / 0.47))   # where the 
 FRAME_Y = 0.46
 ENGINE = (1.94, 0.0, 0.32)
 GEAR_X = 1.30
+# the handbrake on the tunnel beside the gear lever, on the driver's half (the tunnel is too short for one behind it)
+HB_X = 1.17
+HB_Y = 0.12
 WALL = -0.03             # inner skin of the living module
 
 
@@ -365,6 +368,10 @@ def interior(ex):
     C.extend(K.cyl_buf(st[0] + st[1] * 0.06, st[0] + st[1] * 0.36, 0.048, 'plastic_int', 18, r1=0.04))
     V, N, T = K.lathe(np.array([(0.068, 0.0), (0.055, 0.004), (0.03, 0.012), (0.0, 0.012)]), (GEAR_X, 0.0, TUNNEL['top'] + 0.002), (0, 0, 1), 20)
     C.add(V, N, T, 'rubber')
+    # the handbrake's slot on the tunnel (the lever is the handbrake part)
+    hz = TUNNEL['top']
+    C.extend(K.box_buf((HB_X - 0.13, HB_Y - 0.03, hz - 0.004), (HB_X + 0.15, HB_Y + 0.03, hz + 0.008), 'plastic_int', 0.006, 2))
+    C.extend(K.box_buf((HB_X - 0.10, HB_Y - 0.012, hz + 0.004), (HB_X + 0.12, HB_Y + 0.012, hz + 0.0095), 'trim', 0.002, 1))
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.17, 0.17):
             C.extend(K.box_buf((sx - 0.24, sy + dy - 0.015, FLOOR_Z), (sx + 0.22, sy + dy + 0.015, FLOOR_Z + 0.03), 'steel', 0.004, 2))

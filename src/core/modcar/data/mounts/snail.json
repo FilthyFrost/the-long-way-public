@@ -275,17 +275,17 @@
   },
   "handbrake": {
    "cat": "handbrake",
-   "note": "a floor lever ahead of the doghouse, right of the driver",
+   "note": "a floor lever ahead of the doghouse, its grip towards the dash, right of the driver",
    "pos": [
-    1.9,
+    1.8,
     0.9,
-    -0.32
+    -0.0
    ],
    "quat": [
-    0.0,
-    0.0,
-    0.0,
-    1.0
+    -0.0,
+    -1.0,
+    -0.0,
+    0.0
    ]
   },
   "headlight_L": {

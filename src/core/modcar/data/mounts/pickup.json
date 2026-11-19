@@ -267,11 +267,11 @@
   },
   "handbrake": {
    "cat": "handbrake",
-   "note": "under the dash, pull handle",
+   "note": "on the gearbox hump between the seats, behind the gear lever: seen when the driver looks down to the right",
    "pos": [
-    0.69,
-    0.815,
-    -0.17
+    0.36,
+    0.54652,
+    -0.0
    ],
    "quat": [
     0.0,
@@ -819,7 +819,7 @@
   "BODY": 34394,
   "FUEL_CAP": 440,
   "GLASS": 546,
-  "INTERIOR": 4620,
+  "INTERIOR": 4708,
   "KNUCKLE_hub_FL": 396,
   "KNUCKLE_hub_FR": 396,
   "KNUCKLE_hub_RL": 396,
@@ -837,7 +837,7 @@
   "UNDER": 2328,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 60392
+  "total": 60480
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

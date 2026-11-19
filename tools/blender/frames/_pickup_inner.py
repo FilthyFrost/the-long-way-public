@@ -24,6 +24,8 @@ SEAT_X = 0.30            # seat floor attachment x: a 1.01 m bucket seat's back 
 DRIVER_Y = 0.36
 EYE = (SEAT_X - 0.16, DRIVER_Y, FLOOR_Z + 0.03 + 0.90)   # the stock bucket seat's eye (parts_geo: eye -0.16, 0.90)
 GEAR_X = 0.62
+# the handbrake on the hump between the seats, behind the gear lever (seen when the driver looks down to the right)
+HB_X = 0.36
 DASH_FACE_X = 0.70
 FRAME_Y = 0.46           # ladder frame rails (centre)
 FRAME_Z0, FRAME_Z1 = 0.30, 0.42   # rail bottom / top under the cab (kicks up 0.18 over the rear axle)
@@ -407,6 +409,10 @@ def interior(ex):
     gx = GEAR_X
     V, N, T = K.lathe(np.array([(0.0, 0.012), (0.03, 0.012), (0.055, 0.004), (0.068, 0.0)])[::-1], (gx, 0.0, tunnel_h(gx) + 0.002), (0, 0, 1), 20)
     C.add(V, N, T, 'rubber')
+    # the handbrake's slot on the hump (the lever is the handbrake part)
+    hz = tunnel_h(HB_X)
+    C.extend(K.box_buf((HB_X - 0.14, -0.03, hz - 0.004), (HB_X + 0.16, 0.03, hz + 0.008), 'plastic_int', 0.006, 2))
+    C.extend(K.box_buf((HB_X - 0.11, -0.012, hz + 0.004), (HB_X + 0.13, 0.012, hz + 0.0095), 'trim', 0.002, 1))
     # bench seat rails
     for (sx, sy) in ((SEAT_X, DRIVER_Y), (SEAT_X, -DRIVER_Y)):
         for dy in (-0.16, 0.16):

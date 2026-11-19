@@ -318,7 +318,10 @@ def mounts(ex, panels):
                                                                               on="the cab's roof, ahead of the box")))
     E.append(mount('horn', (2.42, -0.30, 0.56), dict(cat='horn', on='behind the grille')))
     E.append(mount('radio', (IN.DASH_FACE_X - 0.012, 0.0, 1.152), dict(cat='radio', slot=[0.18, 0.046], slot_depth=0.06)))
-    E.append(mount('handbrake', (1.90, 0.32, IN.FLOOR_Z), dict(cat='handbrake', note='a floor lever ahead of the doghouse, right of the driver')))
+    # (on the floor ahead of the doghouse's middle, its grip towards the dash: the driver sees it looking down to the right,
+    # past the gear lever; under the steering column it stood out of sight)
+    E.append(mount('handbrake', (1.80, 0.0, IN.FLOOR_Z), dict(cat='handbrake', note='a floor lever ahead of the doghouse, its grip towards the dash, right of the driver'),
+                   rot=[[-1, 0, 0], [0, -1, 0], [0, 0, 1]]))
     E.append(mount('gearLever', (IN.GEAR_X, IN.GEAR_Y, IN.FLOOR_Z + 0.014), dict(cat='gearLever', note='a long lever from the floor ahead of the doghouse')))
     p_, d_ = IN.steering_mount()
     pi_ = p_ + d_ * 0.12 + np.array([0.0, -0.045, 0.0])
