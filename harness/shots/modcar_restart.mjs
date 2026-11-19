@@ -6,7 +6,7 @@
 //   SHOTS_GPU=1 node harness/shots/modcar_restart.mjs
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, launchBrowser, startServer } from './lib.mjs';
+import { ROOT, launchBrowser, startServer, waitFrames } from './lib.mjs';
 
 const out = path.join(ROOT, 'loop/shots/modcar_restart');
 fs.mkdirSync(out, { recursive: true });
@@ -84,8 +84,12 @@ try {
     if (!s.help) fail(`${what}: no key card at the start`);
   };
 
-  // ---- a new game, as on a first visit
-  await open();
+  // ---- a new game, as on a first visit. A first visit is of the newest world (version 2): the harness names
+  // world=1 for an address that names none, so this one names its world; a new game the page begins of itself
+  // (below) opens the plain address and is of version 2 too, so the two are alike (the forage module's starter
+  // kit lies in the yard in both). A few frames first: the kit is put down in the game's first steps.
+  await open('?world=2');
+  await waitFrames(page, 4);
   const s0 = await state();
   console.log('new game', JSON.stringify(s0));
   if (!s0.keep || s0.battery || s0.place !== 'garage') fail('the first visit is not a new game in the workshop');
@@ -129,6 +133,7 @@ try {
   // yes: a new game in the workshop, the moved dial kept
   await page.click('.mc-dev .hd .restart');
   await reloaded(() => page.click('.mc-dev .ask [data-act="restart-yes"]'));
+  await waitFrames(page, 4);
   const s3 = await state();
   console.log('from the start', JSON.stringify(s3));
   fresh(s3, s0, 'from the start');
@@ -142,6 +147,7 @@ try {
   await page.click('.mc-dev .hd .restart');
   await page.check('.mc-dev .ask input[data-act="dials"]');
   await reloaded(() => page.click('.mc-dev .ask [data-act="restart-yes"]'));
+  await waitFrames(page, 4);
   const s4 = await state();
   console.log('dials too', JSON.stringify(s4));
   fresh(s4, s0, 'dials too');
@@ -154,6 +160,7 @@ try {
   await open('?start=road&s=3000&devpanel=place');
   await page.keyboard.press('F9');
   await reloaded(() => page.keyboard.press('F9'));
+  await waitFrames(page, 4);
   const s5 = await state();
   console.log('F9 F9', JSON.stringify(s5));
   fresh(s5, s0, 'F9 twice');

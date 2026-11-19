@@ -7,11 +7,22 @@
  *   terrain      world-aligned quadtree leaves; the ground is sunk a little under the strip
  *   scatter      trees, bushes and rocks on 128 m tiles, placed by hashing world cells
  *   poles        utility poles and sagging wires along the road
+ *
+ * In a world of version 2 the woods and the ground cover are the core's (docs/V3/nodes/W2-flora.md): the
+ * ground's painted woods, the lift of the far land and the far-woods cards follow the ecotope's canopy
+ * (floraCanopy.ts) instead of `woodland`, the land carries the rows its flowers and crops grow in (`aCover`),
+ * the grass is what FloraField.cover says (floraCover.ts), and the scatter is floraScatter.ts. A world of
+ * version 1 is built exactly as it always was.
  */
 import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { hash2 } from '../../core/math/rng';
 import { smoothstep } from '../../core/math/util';
+import { BIOMES } from '../../core/world/biomes';
+import { ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_WET, Ecotope, ROAD_CLEAR } from '../../core/world/ecotope';
+import type { CoverParams } from '../../core/world/flora';
+import { floraTableOf } from '../../core/world/floraTables';
+import { LandParams } from '../../core/world/landform';
 import { SpineSample } from '../../core/world/spine';
 import { ROAD_EDGE, TerrainPoint, type World } from '../../core/world/terrain';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, type River } from '../../core/world/water';
@@ -21,6 +32,8 @@ import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
 import { BIOME_STYLES, STYLE } from '../render/style';
 import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
+import { canopyOf, woodHeight, woodOnSlope } from './floraCanopy';
+import { CoverBase, coverBase, driftHue01, hueOf, rowCoord, rowHue01, rowsRun } from './floraCover';
 import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
 
@@ -63,15 +76,22 @@ const LANDFORM_FOOT = 4;
  * that it is on one by adding ON_LANDFORM to its road distance, by as much as the landform has risen over its
  * first metres (so the paint has it come in smoothly at the foot). Elsewhere, and in every world of version 1,
  * the inputs are what they always were.
+ *
+ * `canopy`: how wooded the point is, for a caller that knows (a world of version 2: the ecotope's canopy,
+ * floraCanopy.ts); left out, it is the first renderer's `woodland`.
  */
-export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number, lawn = 0): void {
+export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number, bw: Float32Array, gd: Float32Array, k: number, lawn = 0, canopy = NaN): void {
   const ad = t.d < 0 ? -t.d : t.d;
   // a chapter's palette lives in slot (chapter mod 4): two neighbours never share one
   bw[k * 4] = bw[k * 4 + 1] = bw[k * 4 + 2] = bw[k * 4 + 3] = 0;
   bw[k * 4 + (t.ca & 3)] += 1 - t.bt;
   bw[k * 4 + (t.cb & 3)] += t.bt;
-  let wood = woodland(t.ba, seed, x, z, ad, t.relief) * (1 - t.bt);
-  if (t.bt > 0) wood += woodland(t.bb, seed, x, z, ad, t.relief) * t.bt;
+  let wood: number;
+  if (canopy === canopy) wood = canopy;
+  else {
+    wood = woodland(t.ba, seed, x, z, ad, t.relief) * (1 - t.bt);
+    if (t.bt > 0) wood += woodland(t.bb, seed, x, z, ad, t.relief) * t.bt;
+  }
   // (no wood is painted on a plot of the caller's, where none stands: buildScatter keeps its trees off it)
   if (t.plot > 0.8) wood *= 1 - smoothstep(0.8, 0.95, t.plot);
   gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
@@ -93,6 +113,63 @@ const bridgeProbe: { river: River | null; mask: number } = { river: null, mask: 
 const tp = new TerrainPoint();
 const tq = new TerrainPoint();
 const st = new SpineSample();
+const eco = new Ecotope();
+const lp = new LandParams();
+
+/** the ground cover of each region's flora table, by registry index (looked up again when another region stands at that index) */
+const covers: CoverParams[] = [];
+const coversFor: string[] = [];
+function coverOf(region: number): CoverParams {
+  const b = BIOMES[region] ?? BIOMES[0];
+  if (coversFor[region] !== b.id) {
+    coversFor[region] = b.id;
+    covers[region] = floraTableOf(b.id, b.kin).cover;
+  }
+  return covers[region];
+}
+
+function smooth01(t: number): number {
+  return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+}
+
+/**
+ * The rows a region's flowers or crops grow in, for the ground's paint (a world of version 2), in two steps: a
+ * builder knows the land at a vertex before it knows the slope there.
+ *
+ * rowBase: what of its region's rows a shaped point can carry at all, into out[o …]: how much stands in a row
+ * (0: the region grows no rows, or nothing stands here: road, water, a place, a plot), the steepest ground the
+ * rows run on, 1 where the country is cut into benches, and the region's own share of bare ground.
+ */
+function rowBase(world: World, t: TerrainPoint, x: number, out: Float32Array, o: number): void {
+  out[o] = 0;
+  const region = t.bt >= 0.5 ? t.bb : t.ba;
+  const c = coverOf(region);
+  const ad = t.d < 0 ? -t.d : t.d;
+  if (!c.rows || c.flowers <= 0 || ad < ROAD_CLEAR || t.zone !== 0 || t.wl > t.bed + 0.02 || t.site > 0.02 || t.plot > 0.02) return;
+  out[o] = c.flowers;
+  out[o + 1] = c.rows.maxSlope;
+  out[o + 2] = BIOMES[region].land?.terrace && world.land.at(world.spine.sAtX(x), lp).terrace >= 0.5 ? 1 : 0;
+  out[o + 3] = c.bare;
+}
+
+/**
+ * rowFinish: into cov[k·2 …] the row coordinate of the point (floraCover.ts rowCoord) and how much stands in a
+ * row there — positive where rows run by the lie of the land, negative where they keep to the benches of
+ * terraced country (the paint finds the benches itself, by height), 0 where there are none. `open` is the
+ * share of the sky the trees leave (1 − canopy); `slope` the land's, rise over run.
+ */
+function rowFinish(seed: number, x: number, z: number, base: Float32Array, o: number, open: number, slope: number, cov: Float32Array, k: number): void {
+  cov[k * 2] = cov[k * 2 + 1] = 0;
+  if (!(base[o] > 0)) return;
+  // (the cover's bare ground, as far as a region that grows rows has any: its own share and the steep)
+  const amount = base[o] * open * (1 - Math.min(1, base[o + 3] + 0.8 * smooth01((slope - 0.45) / 0.35)));
+  if (amount <= 0) return;
+  if (slope > base[o + 1] && base[o + 2] < 0.5) return;
+  cov[k * 2] = rowCoord(seed, x, z);
+  cov[k * 2 + 1] = slope > base[o + 1] ? -amount : amount;
+}
+
+const rowOne = new Float32Array(4);
 
 /** terrain normal by finite differences (world space) */
 function normalAt(world: World, x: number, z: number, h: number, out: Float32Array, o: number): number {
@@ -114,6 +191,8 @@ export interface Built {
   wx: number;
   wy: number;
   wz: number;
+  /** a terrain leaf: the first and the last chapter of the journey its vertices lie in (whose palettes it is painted with) */
+  chapters?: [number, number];
 }
 
 /**
@@ -139,6 +218,9 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   const bw = new Float32Array(n * 4);
   const gd = new Float32Array(n * 4);
   const road = new Float32Array(n * 4);
+  // a world of version 2: the woods beside the road are the ecotope's, and the land carries its region's rows
+  const field = world.eco;
+  const cov = field ? new Float32Array(n * 2) : null;
   let k = 0;
   for (let r = 0; r < rows; r++) {
     const s = (i0 + r * stride) * ds;
@@ -183,7 +265,26 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
       } else {
         normalAt(world, wx, wz, tp.bed, nrm, k * 3);
       }
-      groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz));
+      if (field && cov) {
+        // near, the ecotope's own tile (what the trees and the grass beside the road are read from); far down
+        // the road, the same canopy asked at the point itself, with the slope the strip has
+        let wood = 0;
+        let slope = 0;
+        if (tp.zone === 0) {
+          if (lod <= 1) {
+            field.at(wx, wz, eco);
+            wood = eco.flags & (ECO_ROAD | ECO_WET | ECO_SITE | ECO_PLOT) ? 0 : eco.canopy;
+            slope = eco.slope;
+          } else {
+            const ny = nrm[k * 3 + 1];
+            slope = Math.sqrt(Math.max(0, 1 - ny * ny)) / Math.max(ny, 1e-3);
+            wood = canopyOf(world, tp, wx, wz) * woodOnSlope(slope);
+          }
+        }
+        groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz), wood);
+        rowBase(world, tp, wx, rowOne, 0);
+        rowFinish(world.seed, wx, wz, rowOne, 0, 1 - wood, slope, cov, k);
+      } else groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz));
       // the strip knows its lateral offset exactly; the nearest-point search can overshoot on a curve
       // (and paint a wedge of meadow into the verge)
       gd[k * 4] = Math.abs(d);
@@ -212,6 +313,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   g.setAttribute('aBiomeW', new THREE.BufferAttribute(bw, 4));
   g.setAttribute('aGround', new THREE.BufferAttribute(gd, 4));
   g.setAttribute('aRoad', new THREE.BufferAttribute(road, 4));
+  if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
   g.computeBoundingSphere();
   return { geometry: g, wx: ox, wy: oy, wz: oz };
@@ -252,6 +354,16 @@ function terrainIndex(): THREE.BufferAttribute {
   return sharedIndex;
 }
 
+/** a far vertex that stands on an anchored landform asks the land for its own slope over this far (m): its coarse grid cannot tell a tower's side from its top */
+const LANDFORM_PROBE = 8;
+const TP = TERRAIN_N + 3;
+/** a leaf's padded grid, for a world of version 2: the land's own height, the canopy on level ground, the slope where it was asked of the land (else none), the lift of its woods */
+const tBed = new Float32Array(TP * TP);
+const tWood = new Float32Array(TP * TP);
+const tSlope = new Float32Array(TP * TP);
+const tLift = new Float32Array(TP * TP);
+const tRow = new Float32Array((TERRAIN_N + 1) * (TERRAIN_N + 1) * 4);
+
 /** Quadtree leaf at (level, ix, iz): a 33×33 grid with skirts. */
 export function buildTerrain(world: World, level: number, ix: number, iz: number): Built {
   const N = TERRAIN_N;
@@ -267,26 +379,87 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   const gd = new Float32Array((V * V + 4 * V) * 4);
   // far, coarse leaves lift the surface in woodland so distant forests have a silhouette
   const canopy = step >= 16;
+  // a world of version 2: its woods are the ecotope's canopy, and the land carries the rows of its fields
+  const flora = world.flora !== null;
+  const cov = flora ? new Float32Array((V * V + 4 * V) * 2) : null;
   let oy = 0;
+  let cFirst = Infinity;
+  let cLast = -Infinity;
   for (let j = -1; j <= N + 1; j++) {
     for (let i = -1; i <= N + 1; i++) {
       const wx = x0 + i * step;
       const wz = z0 + j * step;
       world.shape(wx, wz, tp, level < 0);
+      if (tp.ca < cFirst) cFirst = tp.ca;
+      if (tp.cb > cLast) cLast = tp.cb;
       const ad = tp.d < 0 ? -tp.d : tp.d;
       let h = tp.bed - stripSink(ad) * (1 - tp.bridge) * sinkShare(world, tp);
+      const inner = i >= 0 && i <= N && j >= 0 && j <= N;
+      if (flora) {
+        // (the slope is known only once the whole grid is: the canopy on level ground now, the rest below)
+        const p = (j + 1) * P + (i + 1);
+        const wood = canopyOf(world, tp, wx, wz);
+        tBed[p] = tp.bed;
+        tWood[p] = wood;
+        const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
+        // (no wood is lifted in water or on its shore: a lifted bed would come up through the water as green shoals)
+        tLift[p] = canopy && tp.wl <= tp.bed - 1 ? woodHeight(bi) * 0.8 : 0;
+        tSlope[p] = NaN;
+        if (inner) {
+          const k = j * V + i;
+          groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz), wood);
+          rowBase(world, tp, wx, tRow, k * 4);
+        }
+        if (wood > 0 && tp.landform > 2 && step > LANDFORM_PROBE) {
+          const bed = tp.bed;
+          world.shape(wx + LANDFORM_PROBE, wz, tq, level < 0);
+          const dhx = (tq.bed - bed) / LANDFORM_PROBE;
+          world.shape(wx, wz + LANDFORM_PROBE, tq, level < 0);
+          const dhz = (tq.bed - bed) / LANDFORM_PROBE;
+          tSlope[p] = Math.sqrt(dhx * dhx + dhz * dhz);
+        }
+        hs[p] = h;
+        continue;
+      }
       let wood = 0;
       if (canopy) {
         const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
         // (no wood stands in water: a lifted lake bed or sea bed would come up through it as green shoals)
         wood = tp.wl > tp.bed - 1 ? 0 : woodland(bi, world.seed, wx, wz, ad, tp.relief);
-        const flora = floraOf(bi);
-        h += wood * (flora === 'alpine' ? 9 : flora === 'forest' ? 11 : 6.5);
+        const kin = floraOf(bi);
+        h += wood * (kin === 'alpine' ? 9 : kin === 'forest' ? 11 : 6.5);
       }
       if (i === 0 && j === 0) oy = h;
       hs[(j + 1) * P + (i + 1)] = h;
-      if (i >= 0 && i <= N && j >= 0 && j <= N) groundAttrs(world.seed, tp, wx, wz, bw, gd, j * V + i, lawnOf(world, tp, wx, wz));
+      if (inner) groundAttrs(world.seed, tp, wx, wz, bw, gd, j * V + i, lawnOf(world, tp, wx, wz));
     }
+  }
+  if (flora && cov) {
+    // the slope of every point from the grid (as an ecotope node has it: the difference of its two neighbours),
+    // then what the slope does to the woods: thinned on the steep, none on a cliff; the far land lifted under them
+    for (let j = -1; j <= N + 1; j++) {
+      for (let i = -1; i <= N + 1; i++) {
+        const p = (j + 1) * P + (i + 1);
+        let slope = tSlope[p];
+        if (!(slope === slope)) {
+          const a = i > -1 ? p - 1 : p;
+          const b = i < N + 1 ? p + 1 : p;
+          const c = j > -1 ? p - P : p;
+          const d = j < N + 1 ? p + P : p;
+          const gx = (tBed[b] - tBed[a]) / ((b - a) * step);
+          const gz = (tBed[d] - tBed[c]) / (((d - c) / P) * step);
+          slope = Math.sqrt(gx * gx + gz * gz);
+        }
+        const wood = tWood[p] * woodOnSlope(slope);
+        hs[p] += wood * tLift[p];
+        if (i < 0 || i > N || j < 0 || j > N) continue;
+        const k = j * V + i;
+        // (a lawn's vertex says how mown it is, negative: not how wooded)
+        if (gd[k * 4 + 2] > 0) gd[k * 4 + 2] *= woodOnSlope(slope);
+        rowFinish(world.seed, x0 + i * step, z0 + j * step, tRow, k * 4, 1 - wood, slope, cov, k);
+      }
+    }
+    oy = hs[P + 1];
   }
   const n = V * V + 4 * V;
   const pos = new Float32Array(n * 3);
@@ -318,6 +491,10 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
       gd[dst * 4 + c] = gd[src * 4 + c];
       bw[dst * 4 + c] = bw[src * 4 + c];
     }
+    if (cov) {
+      cov[dst * 2] = cov[src * 2];
+      cov[dst * 2 + 1] = cov[src * 2 + 1];
+    }
   };
   for (let i = 0; i <= N; i++) {
     copy(base + i, i);
@@ -330,9 +507,10 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   g.setAttribute('aBiomeW', new THREE.BufferAttribute(bw, 4));
   g.setAttribute('aGround', new THREE.BufferAttribute(gd, 4));
+  if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
   g.setIndex(terrainIndex());
   g.computeBoundingSphere();
-  return { geometry: g, wx: x0, wy: oy, wz: z0 };
+  return { geometry: g, wx: x0, wy: oy, wz: z0, chapters: [cFirst, cLast] };
 }
 
 // ---------------------------------------------------------------------------------------------- scatter
@@ -856,7 +1034,7 @@ export interface GrassTile {
   info: Float32Array;
   count: number;
   flowerRoots: Float32Array;
-  /** per flower: colour index, random, turn, palette slot */
+  /** per flower: colour index (in a world of version 2: its colour itself, 0xRRGGBB), random, turn, palette slot */
   flowerInfo: Float32Array;
   flowers: number;
   wx: number;
@@ -865,6 +1043,13 @@ export interface GrassTile {
 }
 
 const GRID = 2;
+/** a world of version 2: the cover's grass at its thickest is this share of the cells with a tuft, a grass of this height (m) is a tuft of size 1 */
+const COVER_GROW = 1.15;
+const COVER_HEIGHT = 0.43;
+/** … and where its flowers are a carpet, this share of the tufts carry one: in a meadow, and in a row of a field */
+const COVER_FLOWERS = 0.55;
+const ROW_FLOWERS = 0.8;
+const cb = new CoverBase();
 
 /** A build spread over several frames: it pauses at each `yield` (the end of a row) and returns its result. */
 export type Slices<T> = Generator<void, T, void>;
@@ -885,6 +1070,11 @@ export function buildGrass(world: World, gx: number, gz: number, density: number
 /**
  * Grass on tile (gx, gz). Heights, road distance and biome come from a 2 m grid of world samples,
  * interpolated per tuft: the ground mesh is coarser than that. Pauses after every row.
+ *
+ * In a world of version 2 how much grass grows, how tall, and how many flowers of which colour are the flora
+ * field's ground cover (core/world/flora.ts `FloraField.cover`), read the way floraCover.ts says: its smooth
+ * part on the same 2 m grid, its rows — of the flower fields, of the crops on the terraces' benches — tuft by
+ * tuft. The old road's weeds, a plot's lawn, the comb of a meadow and the fades are as they were.
  */
 export function* grassSlices(world: World, gx: number, gz: number, density: number, near: boolean): Slices<GrassTile | null> {
   const x0 = gx * GRASS_TILE;
@@ -906,6 +1096,14 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
   // > 0 where grass must not stand: in or beside water, on a bridge
   const bare = new Float32Array(G * G);
   const shore = new Float32Array(G * G);
+  // a world of version 2, per sample: the land's slope, how far its rows are bent off the z axis, how fully the
+  // country is cut into benches and their step, and the region whose cover it is
+  const field = world.eco;
+  const gSlope = field ? new Float32Array(G * G) : null;
+  const gBend = field ? new Float32Array(G * G) : null;
+  const gTerr = field ? new Float32Array(G * G) : null;
+  const gStep = field ? new Float32Array(G * G) : null;
+  const gReg = field ? new Uint8Array(G * G) : null;
   let oy = 0;
   for (let j = 0; j < G; j++) {
     for (let i = 0; i < G; i++) {
@@ -928,6 +1126,27 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       gShare[k] = tp.bt;
       gSlot[k] = (tp.bt < 0.5 ? tp.ca : tp.cb) & 3;
       gMow[k] = tp.plot > 0 ? world.plotGrass(x0 + i * GRID, z0 + j * GRID) : 1;
+      if (field && gSlope && gBend && gTerr && gStep && gReg) {
+        // the cover's smooth part here; towards a shore the grass stands tall (reeds, wet meadow), except
+        // where a coast road keeps its view over a beach
+        field.at(x0 + i * GRID, z0 + j * GRID, eco);
+        const region = eco.rt >= 0.5 ? eco.rb : eco.ra;
+        const c = coverOf(region);
+        // (what the ecotope's nearest node says of roads, places and plots is too coarse for grass, and is
+        // decided here as it always was: by the road's own distance, the places' ground, a plot's lawn)
+        eco.flags = 0;
+        coverBase(eco, c, cb);
+        gGrow[k] = cb.grass * COVER_GROW;
+        // (a grass twice as tall is not drawn twice as tall: the tufts were always taller than the grass they stand for)
+        gSize[k] = Math.pow(cb.height / COVER_HEIGHT, 0.6);
+        gFlower[k] = cb.flowers;
+        gSlope[k] = eco.slope;
+        gBend[k] = c.rows ? rowCoord(world.seed, x0 + i * GRID, z0 + j * GRID) - (z0 + j * GRID) : 0;
+        gTerr[k] = eco.terrace;
+        gStep[k] = eco.step;
+        gReg[k] = region;
+        shore[k] = 1.2 * world.sea.open(tp.s, tp.d);
+      }
       if (i === 0 && j === 0) oy = tp.bed;
     }
     // (this grid is the dearer half: pause every few rows)
@@ -990,7 +1209,32 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       info.push(gPair[kn] + 0.45 * lawn, gShare[kn], keep, comb + (r3 - 0.5) * 1.4);
       // flowers grow in drifts across the meadows (not on a lawn)
       const flowers = lerpGrid(gFlower, fx, fz) * (1 - lawn);
-      if (near && flowers > 0.05 && !onRoad) {
+      if (gSlope && gBend && gTerr && gStep && gReg) {
+        // a world of version 2: the cover's flowers, in its colours — in rows where the region grows them
+        // (one colour to a row), else in drifts of a colour
+        const dice = r3 * 7.13 - Math.floor(r3 * 7.13);
+        const c = coverOf(gReg[kn]);
+        if (c.rows) {
+          if (flowers > 0.01 && !onRoad && rowsRun(c.rows, lerpGrid(gSlope, fx, fz), gTerr[kn], gStep[kn], y + oy + 0.04)) {
+            const pr = (z0 + lz + lerpGrid(gBend, fx, fz)) / c.rows.spacing;
+            const rk = Math.floor(pr);
+            if (pr - rk < c.rows.share) {
+              // in a row the grass is short under the flowers, and the flowers many and large: a band of colour
+              roots[roots.length - 1] *= 1 - 0.45 * flowers;
+              if (near && dice < flowers * ROW_FLOWERS) {
+                fr.push(lx + 0.05, y, lz - 0.04, (1.25 + 0.7 * r2) * (0.75 + 0.5 * flowers));
+                fi.push(hueOf(c.hues, rowHue01(world.seed, rk)), keep, r1 * 6.283, gSlot[kn]);
+              }
+            }
+          }
+        } else if (near && flowers > 0.01 && !onRoad && dice < flowers * COVER_FLOWERS * 2.2) {
+          const h01 = driftHue01(world.seed, x0 + lx, z0 + lz);
+          if (dice < flowers * COVER_FLOWERS * (Math.abs(h01 - 0.5) > 0.14 ? 2.2 : 0.3)) {
+            fr.push(lx + 0.05, y, lz - 0.04, 0.8 + 0.5 * r2);
+            fi.push(hueOf(c.hues, h01), keep, r1 * 6.283, gSlot[kn]);
+          }
+        }
+      } else if (near && flowers > 0.05 && !onRoad) {
         const drift = fbm2((x0 + lx) / 46, (z0 + lz) / 46, world.seed + 0x5ee, 2);
         const fp = (drift > 0.18 ? 0.16 : 0.012) * flowers;
         if (r3 * 7.13 - Math.floor(r3 * 7.13) < fp) {
@@ -1021,6 +1265,8 @@ export const WOODS_TILE = 2048;
 const WOODS_CELL = 44;
 /** where the far woods stand: beyond the modelled trees, out to where the painted ground takes over (m) */
 export const WOODS_FADE = { in: [380, 520], out: [3500, 4000] } as const;
+/** in a world of version 2 no card stands nearer the road's centre line than this (m): a card is 38 m wide */
+const WOODS_ROAD = 60;
 
 export interface WoodsTile {
   /** per card: root (tile-local x, y, z) and size */
@@ -1047,6 +1293,7 @@ export function* woodsSlices(world: World, tx: number, tz: number): Slices<Woods
   const per = Math.round(WOODS_TILE / WOODS_CELL);
   world.shape(x0, z0, tp, true);
   const oy = tp.h;
+  const flora = world.flora !== null;
   const roots: number[] = [];
   const info: number[] = [];
   let minY = Infinity;
@@ -1063,11 +1310,17 @@ export function* woodsSlices(world: World, tx: number, tz: number): Slices<Woods
       const wz = z0 + (j + 0.1 + 0.8 * r1) * WOODS_CELL;
       world.shape(wx, wz, tp, true);
       const ad = tp.d < 0 ? -tp.d : tp.d;
-      if (ad < 430) continue;
+      // (a world of version 2 has no belt of woods of the far country's own: its woods are where the ecotope
+      // has them, and the cards stand on them from the first rows beside the road)
+      if (ad < (flora ? WOODS_ROAD : 430)) continue;
       // (the sea is in the coarse land too: no wood in it or on its beach)
       if (tp.wkind === 3 && tp.wl > tp.h - 2) continue;
-      let wood = woodland(tp.ba, world.seed, wx, wz, ad, tp.relief) * (1 - tp.bt);
-      if (tp.bt > 0) wood += woodland(tp.bb, world.seed, wx, wz, ad, tp.relief) * tp.bt;
+      let wood: number;
+      if (flora) wood = canopyOf(world, tp, wx, wz);
+      else {
+        wood = woodland(tp.ba, world.seed, wx, wz, ad, tp.relief) * (1 - tp.bt);
+        if (tp.bt > 0) wood += woodland(tp.bb, world.seed, wx, wz, ad, tp.relief) * tp.bt;
+      }
       // woods stop at the treeline of the massifs
       wood *= 1 - smoothstep(450, 850, tp.relief);
       if (wood < 0.3 + 0.35 * r2) continue;
@@ -1090,6 +1343,8 @@ export function* woodsSlices(world: World, tx: number, tz: number): Slices<Woods
       const sx = ((wet ? tp.bed : tp.h) - hHere) / 24;
       world.shape(wx, wz + 24, tp, !wet);
       const sz = ((wet ? tp.bed : tp.h) - hHere) / 24;
+      // (a world of version 2: no wood on a cliff, as the ecotope has it — a tower's side stays rock)
+      if (flora && wood * woodOnSlope(Math.sqrt(sx * sx + sz * sz)) < 0.3 + 0.35 * r2) continue;
       const y = hHere - oy - Math.max(8, Math.sqrt(sx * sx + sz * sz) * 21 * size + 3);
       roots.push(wx - x0, y, wz - z0, size);
       info.push(pair, share, r1, Math.floor(r2 * 4) % 4);

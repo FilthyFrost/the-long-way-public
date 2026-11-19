@@ -101,7 +101,11 @@ try {
     return { titles: items.map((s) => s.title), last: items[items.length - 1], tile: document.querySelector('.mc-dev .tile[data-key="item:v3t_basket"]')?.textContent ?? '' };
   });
   console.log('the panel', JSON.stringify(panel));
-  check(panel.titles.join() === '食物,饮料,药品,衣服,背包,头灯,器具,材料箱,杂物,试验品', `the panel's item sections: ${panel.titles.join()}`);
+  // the nine built-in sections first and in their order; the categories systems registered after them (foraging's
+  // ten, and whatever later nodes add), each once; the test category, registered without an order, last
+  const nine = '食物,饮料,药品,衣服,背包,头灯,器具,材料箱,杂物';
+  const titles = panel.titles;
+  check(titles.slice(0, 9).join() === nine && titles[titles.length - 1] === '试验品' && new Set(titles).size === titles.length, `the panel's item sections: ${titles.join()}`);
   check(panel.last?.keys.join() === 'item:v3t_berry,item:v3t_mush,item:v3t_jerky,item:v3t_basket', `the registered category's tiles: ${panel.last?.keys.join()}`);
   check(panel.tile.includes('试验篮') && panel.tile.includes('装 4 叠'), `the basket's tile: ${panel.tile}`);
   await page.click('.mc-dev .tile[data-key="item:v3t_basket"]');
