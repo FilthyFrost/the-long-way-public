@@ -14,6 +14,8 @@ loop/shots/**
 refs/painted-valley/
 refs/painted-valley-zip/
 refs/_raw/
+# freely licensed landscape photos for node L (each one's author, licence and source page are in its manifest.md)
+refs/landscape-photos/
 refs/artstation-1NKWJK/*
 !refs/artstation-1NKWJK/README.md
 refs/rv-reference/*
