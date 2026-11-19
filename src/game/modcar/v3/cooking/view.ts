@@ -129,6 +129,7 @@ function puffMaterial(): THREE.ShaderMaterial {
       varying vec2 vUv;
       varying float vAlpha;
       varying vec3 vCol;
+      varying float vSmoke;
       void main() {
         vec3 at = (modelMatrix * vec4(iPuff.xyz, 1.0)).xyz;
         vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
@@ -141,7 +142,8 @@ function puffMaterial(): THREE.ShaderMaterial {
         vAlpha = iColor.z;
         vCol = vec3(iColor.x);
         // (y: how warm it is: smoke is grey, steam white)
-        vCol = mix(vec3(0.24, 0.22, 0.21), vec3(1.0, 1.0, 0.98), iColor.x) * (0.9 + 0.1 * iColor.y);
+        vCol = mix(vec3(0.11, 0.1, 0.095), vec3(1.0, 1.0, 0.98), iColor.x) * (0.9 + 0.1 * iColor.y);
+        vSmoke = 1.0 - iColor.x;
         gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
         #include <logdepthbuf_vertex>
         if (size < 0.001) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -152,6 +154,7 @@ function puffMaterial(): THREE.ShaderMaterial {
       varying vec2 vUv;
       varying float vAlpha;
       varying vec3 vCol;
+      varying float vSmoke;
       void main() {
         #include <logdepthbuf_fragment>
         float r = length(vUv);
@@ -160,7 +163,7 @@ function puffMaterial(): THREE.ShaderMaterial {
         float a = (1.0 - smoothstep(0.25 + lump, 1.0 + lump, r)) * vAlpha;
         if (a < 0.01) discard;
         float top = 0.88 + 0.12 * vUv.y;
-        vec3 lit = vCol * top * (uSkyColor * 0.6 + uSunColor * 0.32 + 0.32);
+        vec3 lit = vCol * top * (uSkyColor * 0.6 + uSunColor * 0.32 + 0.32) * mix(1.0, 0.55, vSmoke);
         lit = rtFog(lit, vPos, cameraPosition);
         gl_FragColor = vec4(lit, a);
       }`,
@@ -488,12 +491,12 @@ export class CookView implements CookShow {
       this.puffData[j] = x - o.x;
       this.puffData[j + 1] = this.py[k] + rise - o.y;
       this.puffData[j + 2] = z - o.z;
-      this.puffData[j + 3] = smoke ? 0.07 + 0.3 * t : 0.05 + 0.24 * t;
+      this.puffData[j + 3] = smoke ? 0.09 + 0.34 * t : 0.05 + 0.24 * t;
       this.puffColor[np * 3] = smoke ? 0 : 1;
       this.puffColor[np * 3 + 1] = 1 - t;
       // (it thickens over its first moments, then thins away: steam quickly, smoke slowly)
       const fade = smoke ? 1 - t : (1 - t) * (1 - t);
-      this.puffColor[np * 3 + 2] = (smoke ? 0.62 : 0.3) * Math.min(1, t * (smoke ? 6 : 8)) * fade;
+      this.puffColor[np * 3 + 2] = (smoke ? 0.82 : 0.3) * Math.min(1, t * (smoke ? 6 : 8)) * fade;
       np++;
     }
     this.lumps.count = nl;
