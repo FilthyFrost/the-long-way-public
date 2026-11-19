@@ -13,7 +13,7 @@ import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
 import { LandParams } from '../../src/core/world/landform';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
-import { coverUniforms, setSlotBiome } from '../../src/game/render/style';
+import { BIOME_STYLES, coverUniforms, ownPalettes, paletteUniforms, setSlotBiome } from '../../src/game/render/style';
 import { canopyOf, woodHeight, woodOnSlope } from '../../src/game/scene/floraCanopy';
 import { CoverBase, coverBase, driftHue01, hueOf, hueShares, rowCoord, rowHue01, rowsRun } from '../../src/game/scene/floraCover';
 import { GRASS_TILE, TERRAIN_N, TERRAIN_ROOT, WOODS_TILE, buildFarWoods, buildGrass, buildStrip, buildTerrain } from '../../src/game/scene/worldBuild';
@@ -133,6 +133,51 @@ describe('the ground cover as the renderer reads it', () => {
     expect(misc[2].y).toBe(1);
     expect(misc[0].y).toBeLessThan(0.5);
     for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, 0);
+  });
+});
+
+describe('the palettes of the far land', () => {
+  it('are a far leaf\'s own: the regions of its own four chapters, whatever the rolling slots hold', () => {
+    // the rolling slots as a traveller deep in other country has them
+    for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, BIOME_INDEX.desert);
+    const biomes = [BIOME_INDEX.flower_fields, BIOME_INDEX.wetland, BIOME_INDEX.alpine, BIOME_INDEX.red_canyon];
+    const own = ownPalettes(biomes);
+    const ground = own.uniforms.uGroundPal.value as { x: number; y: number; z: number }[];
+    const forest = own.uniforms.uForestPal.value as { x: number; y: number; z: number }[];
+    for (const [slot, b] of biomes.entries()) {
+      const st = BIOME_STYLES[b];
+      expect([ground[slot * 3].x, ground[slot * 3].y, ground[slot * 3].z]).toEqual(st.ground.deep);
+      expect(ground[slot * 3 + 2].x).toBeCloseTo(st.ground.lit[0], 9);
+      expect(forest[slot * 4 + 3].y).toBeCloseTo(st.forest[3][1], 9);
+      expect((own.uniforms.uBiomeMisc.value as { x: number }[])[slot].x).toBe(st.snow);
+    }
+    // its cover is its own too: the flower fields' rows in the slot they were given, a marsh's wet in its slot
+    const cover = (own.uniforms.tCover.value as { image: { data: Float32Array } }).image.data;
+    expect(cover[0 * 32 + 24]).toBe(FLORA.flower_fields.cover.rows!.spacing);
+    expect(cover[1 * 32 + 24]).toBe(0);
+    expect((own.uniforms.uCoverMisc.value as { x: number }[])[1].x).toBe(1);
+    // and the rolling slots are as they were
+    expect(paletteUniforms.uGroundPal.value[0].x).toBeCloseTo(BIOME_STYLES[BIOME_INDEX.desert].ground.deep[0], 9);
+    expect(own.uniforms.uGroundPal.value).not.toBe(paletteUniforms.uGroundPal.value);
+    own.dispose();
+    for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, 0);
+  });
+
+  it('are told which chapters a leaf lies in by the leaf itself', () => {
+    const w = world2('plains');
+    const plan = w.spine.plan;
+    // a far leaf across the first border of the journey
+    const border = plan.starts[1];
+    const [x, z] = beside(w, border, 0);
+    const size = TERRAIN_ROOT * 4;
+    const leaf = buildTerrain(w, -2, Math.floor(x / size), Math.floor(z / size));
+    expect(leaf.chapters).toBeDefined();
+    const [first, last] = leaf.chapters!;
+    expect(first).toBeLessThanOrEqual(plan.chapterAt(border - 50));
+    expect(last).toBeGreaterThanOrEqual(plan.chapterAt(border + 50));
+    // an 8 km leaf never touches more chapters than there are slots
+    expect(last - first).toBeLessThan(4);
+    leaf.geometry.dispose();
   });
 });
 

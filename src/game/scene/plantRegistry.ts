@@ -24,7 +24,7 @@
  */
 import * as THREE from 'three';
 import { PLANTS, type PlantDef } from '../../core/world/plants';
-import { PART_ROCK, buildPlantModels } from './plantModels';
+import { PART_LEAF, PART_ROCK, buildPlantModels } from './plantModels';
 import { buildPlants } from './vegetation';
 
 /** which draw of a tile a plant goes in: the trees, or the shrubs and what lies on the ground */
@@ -110,6 +110,14 @@ const SWAY: Readonly<Record<string, number>> = {
   coniferTiny: 0.6, cactusTiny: 0.5, baobabTiny: 0.5, bambooTiny: 1.5,
 };
 
+/**
+ * The foliage of every small plant is painted this much of a tone lighter than a tree's would be. A crown's four
+ * tones go down to the deep dark of its inside, and under a tree's shadow all of it does; a shrub or a tuft
+ * that did the same would stand as a dark lump in grass that stays light in the same shade (grass and ground
+ * are painted by other rules: render/materials.ts). So low plants keep to the lighter three.
+ */
+const SMALL_LIFT = 0.12;
+
 /** texels to a row of the atlas, and to a vertex */
 export const ATLAS_WIDTH = 1024;
 const PER_VERTEX = 4;
@@ -129,7 +137,11 @@ export class PlantAtlas {
   readonly rows: number;
   private tex: THREE.DataTexture | null = null;
 
-  constructor(geometries: Readonly<Record<string, THREE.BufferGeometry>>, forcedPart: Readonly<Record<string, number>> = {}) {
+  /**
+   * @param forcedPart models all of whose vertices are one part, whatever they say (the stones)
+   * @param lift models whose foliage is painted lighter by this much of a tone (see SMALL_LIFT)
+   */
+  constructor(geometries: Readonly<Record<string, THREE.BufferGeometry>>, forcedPart: Readonly<Record<string, number>> = {}, lift: Readonly<Record<string, number>> = {}) {
     let total = 0;
     for (const g of Object.values(geometries)) total += g.getAttribute('position').count;
     this.rows = Math.ceil(total / ATLAS_ROW);
@@ -147,14 +159,16 @@ export class PlantAtlas {
       if (pos.count % 3 !== 0) throw new Error(`the model ${name} does not hold whole triangles`);
       this.models[name] = { first: v, count: pos.count };
       const sway = Math.sqrt(SWAY[name] ?? 1);
+      const lighter = lift[name] ?? 0;
       for (let i = 0; i < pos.count; i++, v++) {
         const o = v * PER_VERTEX * 4;
         const y = pos.getY(i);
         const isCard = card ? card.getX(i) : 0;
+        const part = forcedPart[name] ?? (leaf ? leaf.getX(i) : 0);
         d[o] = pos.getX(i);
         d[o + 1] = y;
         d[o + 2] = pos.getZ(i);
-        d[o + 3] = forcedPart[name] ?? (leaf ? leaf.getX(i) : 0);
+        d[o + 3] = part;
         d[o + 4] = uv ? uv.getX(i) : 0;
         d[o + 5] = uv ? uv.getY(i) : 0;
         d[o + 6] = isCard;
@@ -164,9 +178,11 @@ export class PlantAtlas {
         d[o + 8] = nrm.getX(i);
         d[o + 9] = nrm.getY(i);
         d[o + 10] = nrm.getZ(i);
-        d[o + 12] = col ? col.getX(i) : 1;
-        d[o + 13] = col ? col.getY(i) : 1;
-        d[o + 14] = col ? col.getZ(i) : 1;
+        // (foliage carries its tone as its colour's lightness: the lift is added there)
+        const up = part === PART_LEAF ? lighter : 0;
+        d[o + 12] = (col ? col.getX(i) : 1) + up;
+        d[o + 13] = (col ? col.getY(i) : 1) + up;
+        d[o + 14] = (col ? col.getZ(i) : 1) + up;
       }
     }
   }
@@ -222,7 +238,13 @@ export class PlantRegistry {
   constructor() {
     const old = buildPlants();
     const { broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus } = old;
-    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels() }, { rock: PART_ROCK, boulder: PART_ROCK });
+    const lift: Record<string, number> = {};
+    for (const f of Object.values(FAMILIES)) {
+      if (f.cls !== 'small') continue;
+      lift[f.near] = SMALL_LIFT;
+      if (f.far) lift[f.far] = SMALL_LIFT;
+    }
+    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels() }, { rock: PART_ROCK, boulder: PART_ROCK }, lift);
     for (const g of Object.values(old)) g.dispose();
     this.draws = PLANTS.map((p) => this.drawOf(p));
   }

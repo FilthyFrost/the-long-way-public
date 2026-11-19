@@ -191,6 +191,8 @@ export interface Built {
   wx: number;
   wy: number;
   wz: number;
+  /** a terrain leaf: the first and the last chapter of the journey its vertices lie in (whose palettes it is painted with) */
+  chapters?: [number, number];
 }
 
 /**
@@ -381,11 +383,15 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   const flora = world.flora !== null;
   const cov = flora ? new Float32Array((V * V + 4 * V) * 2) : null;
   let oy = 0;
+  let cFirst = Infinity;
+  let cLast = -Infinity;
   for (let j = -1; j <= N + 1; j++) {
     for (let i = -1; i <= N + 1; i++) {
       const wx = x0 + i * step;
       const wz = z0 + j * step;
       world.shape(wx, wz, tp, level < 0);
+      if (tp.ca < cFirst) cFirst = tp.ca;
+      if (tp.cb > cLast) cLast = tp.cb;
       const ad = tp.d < 0 ? -tp.d : tp.d;
       let h = tp.bed - stripSink(ad) * (1 - tp.bridge) * sinkShare(world, tp);
       const inner = i >= 0 && i <= N && j >= 0 && j <= N;
@@ -504,7 +510,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
   g.setIndex(terrainIndex());
   g.computeBoundingSphere();
-  return { geometry: g, wx: x0, wy: oy, wz: z0 };
+  return { geometry: g, wx: x0, wy: oy, wz: z0, chapters: [cFirst, cLast] };
 }
 
 // ---------------------------------------------------------------------------------------------- scatter

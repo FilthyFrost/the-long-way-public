@@ -12,7 +12,7 @@ import type { QualitySettings, RenderCore } from '../render/core';
 import { floraMaterial, floraUniforms } from '../render/floraMaterial';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
 import { castShadows } from '../render/shadow';
-import { coverUniforms, showChapters } from '../render/style';
+import { coverUniforms, ownPalettes, showChapters, type OwnPalettes } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
@@ -101,6 +101,8 @@ export class WorldView {
   private planX = NaN;
   private planZ = NaN;
   private readonly terrainMat = terrainMaterial();
+  /** a world of version 2: the far ring's materials, by the first of the four chapters whose palettes they hold (farMaterial) */
+  private readonly farMats = new Map<number, { mat: THREE.ShaderMaterial; pal: OwnPalettes; users: number }>();
   private readonly stripMat = roadStripMaterial();
   private readonly treeMat = foliageMaterial({ sway: 1, snowCap: 0 });
   private readonly coniferMat = foliageMaterial({ sway: 0.6, snowCap: 0.72, evergreen: true });
@@ -182,6 +184,9 @@ export class WorldView {
       // geometries are per piece, except shared scatter models and the shared terrain index
       if (m.geometry && !(m as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) m.geometry.dispose();
       if ((m as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) (m as unknown as THREE.InstancedMesh).dispose();
+      // (… and what a piece holds for itself: a far leaf its share of a material with palettes of its own)
+      const own = o.userData.own as { dispose(): void }[] | undefined;
+      if (own) for (const x of own) x.dispose();
     }
   }
 
@@ -489,8 +494,46 @@ export class WorldView {
   private makeTerrain(key: string, level: number, ix: number, iz: number): void {
     if (!this.wantTerrain.has(key) || this.terrain.has(key)) return;
     const b = buildTerrain(this.world, level, ix, iz);
-    const mesh = new THREE.Mesh(b.geometry, this.terrainMat);
+    let mat = this.terrainMat;
+    let own: { dispose(): void }[] | null = null;
+    if (this.plants && level < 0 && b.chapters) {
+      // a leaf of the far ring in a world of version 2 keeps the palettes of its own chapters (render/style.ts
+      // ownPalettes): far land may lie in a chapter the four rolling slots do not hold
+      const first = b.chapters[0];
+      mat = this.farMaterial(first);
+      own = [{ dispose: () => this.letFarMaterialGo(first) }];
+    }
+    const mesh = new THREE.Mesh(b.geometry, mat);
+    if (own) mesh.userData.own = own;
     this.terrain.set(key, { objects: [this.add(mesh, b.wx, b.wy, b.wz)], level, ix, iz });
+  }
+
+  /**
+   * The far land's material with the palettes of chapters `first` … `first` + 3, each in its own slot: the
+   * rolling material's code and every other uniform of it, shared by every far leaf whose chapters begin there
+   * (a few in all: the far ring's leaves begin in one of five or six chapters), and freed with the last of them.
+   */
+  private farMaterial(first: number): THREE.ShaderMaterial {
+    let m = this.farMats.get(first);
+    if (!m) {
+      const plan = this.world.spine.plan;
+      const biomes = [0, 0, 0, 0];
+      for (let c = first; c < first + 4; c++) biomes[c & 3] = plan.biomeOf(c);
+      const pal = ownPalettes(biomes);
+      const t = this.terrainMat;
+      const mat = new THREE.ShaderMaterial({ defines: { ...t.defines }, uniforms: { ...t.uniforms, ...pal.uniforms } as THREE.ShaderMaterial['uniforms'], vertexShader: t.vertexShader, fragmentShader: t.fragmentShader });
+      this.farMats.set(first, (m = { mat, pal, users: 0 }));
+    }
+    m.users++;
+    return m.mat;
+  }
+
+  private letFarMaterialGo(first: number): void {
+    const m = this.farMats.get(first);
+    if (!m || --m.users > 0) return;
+    this.farMats.delete(first);
+    m.mat.dispose();
+    m.pal.dispose();
   }
 
   private makeTile(key: string, tx: number, tz: number, far: boolean, lod: FloraLod): void {

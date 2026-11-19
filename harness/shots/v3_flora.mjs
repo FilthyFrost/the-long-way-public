@@ -293,6 +293,16 @@ try {
         return g.worldView.pending;
       });
       if (left !== 0) fail(`${name}: ${left} pieces of the world still to build`);
+      // (a world of version 1 is drawn with nothing of the new: no plant of the atlas, no leaf with palettes of its own)
+      const added = await page.evaluate(() => {
+        const wv = window.__rt.game.worldView;
+        let own = 0;
+        for (const p of wv.terrain.values()) for (const o of p.objects) if (o.userData.own) own++;
+        let flora = 0;
+        for (const p of wv.tiles.values()) for (const o of p.objects) if (!o.isInstancedMesh) flora++;
+        return { own, flora, plants: wv.plants !== null };
+      });
+      if (added.own || added.flora || added.plants) fail(`${name}: a world of version 1 drawn with the new vegetation (${JSON.stringify(added)})`);
       // (… and what the game fetches as it goes — a wreck by the road is a vehicle, loaded when it is come to,
       // and settles on its springs once it is there — has always arrived before the next step is taken: the
       // game is stepped in fixed lengths, and between two of them the script waits until nothing is on its way)
@@ -456,6 +466,35 @@ try {
       console.log(`${String(i).padStart(2)} ${r.id.padEnd(14)} ${(at.s / 1000).toFixed(2)} km${mark ? `  ${MARK_OF[r.id]} on the ${side > 0 ? 'right' : 'left'} ${JSON.stringify(mark.what)}` : ''}`);
       if (at.region !== r.id) fail(`${r.id}: the region under the vehicle is ${at.region}`);
       if (Math.abs(at.s - s) > 25 || Math.abs(at.d) > 4.5) fail(`${r.id}: the vehicle is not where it was sent (${JSON.stringify(at)})`);
+      // what is drawn: plants of the flora field in every scatter tile that holds any, and every leaf of the far
+      // ring with the palettes of its own chapters
+      const drawn = await page.evaluate(() => {
+        const wv = window.__rt.game.worldView;
+        let far = 0;
+        let own = 0;
+        const materials = new Set();
+        for (const p of wv.terrain.values()) {
+          if (p.level >= 0) continue;
+          far++;
+          if (!p.objects.some((o) => o.userData.own)) continue;
+          own++;
+          for (const o of p.objects) materials.add(o.material);
+        }
+        let old = 0;
+        let plants = 0;
+        for (const p of wv.tiles.values()) {
+          for (const o of p.objects) {
+            if (o.isInstancedMesh && o.material !== wv.shadowMat) old++;
+            else plants += o.geometry?.instanceCount ?? 0;
+          }
+        }
+        return { far, own, old, plants, materials: materials.size };
+      });
+      console.log(`   ${drawn.plants} plants in the scatter; ${drawn.far} far leaves, painted with ${drawn.materials} sets of palettes of their own`);
+      if (drawn.old) fail(`${r.id}: ${drawn.old} scatter draws of the first renderer's in a world of version 2`);
+      if (!(drawn.plants > 0)) fail(`${r.id}: no plant of the flora field is drawn`);
+      if (drawn.far === 0 || drawn.own !== drawn.far) fail(`${r.id}: ${drawn.own} of ${drawn.far} far leaves keep palettes of their own`);
+      if (drawn.materials > 8) fail(`${r.id}: the far leaves are painted with ${drawn.materials} materials (one for each run of chapters is enough)`);
       // three-quarter: from behind the vehicle on the side away from the mark, looking across the road at it
       await rt('setOrbit', side > 0 ? 250 : 110, 13, 60, 8, 0);
       await shot(name);
