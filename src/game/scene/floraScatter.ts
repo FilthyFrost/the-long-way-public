@@ -26,6 +26,8 @@
  *
  * DOM-free, and deterministic: a tile comes out the same whenever it is built.
  */
+import { groundField } from '../../core/world/groundField';
+import { groundProfile } from '../../core/world/groundTables';
 import { smoothstep } from '../../core/math/util';
 import { snowLinesFor } from '../../core/world/routeProfiles';
 import { BIOMES } from '../../core/world/biomes';
@@ -70,6 +72,7 @@ export interface FloraBatch {
 
 export interface FloraScatter {
   batches: FloraBatch[];
+  groundBatches: FloraBatch[];
   /**
    * At the close level: the tile's trees once more, each in its far model, to throw the tile's shadows instead
    * of the draws above (a shadow some 150 m off does not need a tree's four hundred triangles); else null,
@@ -209,6 +212,7 @@ const sizes = new Float64Array(64);
 const counts = new Float64Array(64);
 
 const gather: Record<PlantClass, Gather> = { tree: new Gather('tree'), small: new Gather('small') };
+const groundPaint = new Gather('small');
 const shadowTrees = new Gather('tree');
 const one: FloraBatch[] = [];
 
@@ -418,9 +422,28 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
     for (let i = 0; i < t.n; i++) {
       const pi = t.plant[i];
       const d = reg.draws[pi];
+      // The profile supplies ornamental understory. Harvestable plants still come from the forage field.
+      if (layer !== LAYER_TREE && !PLANTS[pi].bears && groundProfile(BIOMES[t.region[i]].id)) continue;
       if (!d.drawn) continue;
+      let level = layer === LAYER_TREE ? treeLevel : smallLevel;
+      if (dense && layer === LAYER_TREE) {
+        // a tree inside a thick wood: a level lower than the wood's edge; furthest off, every other one
+        const qx = (t.x[i] - x0) / ECO_STEP;
+        const qz = (t.z[i] - z0) / ECO_STEP;
+        const qi = qx < 0 ? 0 : qx >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qx);
+        const qj = qz < 0 ? 0 : qz >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qz);
+        const qu = qx - qi;
+        const qv = qz - qj;
+        const qa = qj * ECO_N + qi;
+        if ((C[qa] * (1 - qu) + C[qa + 1] * qu) * (1 - qv) + (C[qa + ECO_N] * (1 - qu) + C[qa + ECO_N + 1] * qu) * qv > INSIDE_CANOPY) {
+          if (level === 2 && t.vary[i] >= 0.5) continue;
+          if (level < 2) level++;
+        }
+      }
+      const model = level === 0 ? d.near : level === 1 ? d.far : d.tiny;
+      if (!model) continue;
       // a painted crown: handed over, with where it stands and how it looks
-      if (crowns && lod <= LOD_MID && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
+      if (crowns && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
         const climate = BIOMES[t.region[i]]?.kin;
         const bush = PLANTS[pi].model === 'sage' || (PLANTS[pi].model === 'bush' && climate === 'desert') ? 'bush_dry'
           : PLANTS[pi].model === 'bush' && climate === 'alpine' ? 'bush_alpine' : undefined;
@@ -480,23 +503,6 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           continue;
         }
       }
-      let level = layer === LAYER_TREE ? treeLevel : smallLevel;
-      if (dense && layer === LAYER_TREE) {
-        // a tree inside a thick wood: a level lower than the wood's edge; furthest off, every other one
-        const qx = (t.x[i] - x0) / ECO_STEP;
-        const qz = (t.z[i] - z0) / ECO_STEP;
-        const qi = qx < 0 ? 0 : qx >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qx);
-        const qj = qz < 0 ? 0 : qz >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qz);
-        const qu = qx - qi;
-        const qv = qz - qj;
-        const qa = qj * ECO_N + qi;
-        if ((C[qa] * (1 - qu) + C[qa + 1] * qu) * (1 - qv) + (C[qa + ECO_N] * (1 - qu) + C[qa + ECO_N + 1] * qu) * qv > INSIDE_CANOPY) {
-          if (level === 2 && t.vary[i] >= 0.5) continue;
-          if (level < 2) level++;
-        }
-      }
-      const model = level === 0 ? d.near : level === 1 ? d.far : d.tiny;
-      if (!model) continue;
       const g = gather[d.cls];
       if (g.n >= MOST[d.cls]) continue;
       const plant = PLANTS[pi];
@@ -560,6 +566,30 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
     }
   }
   const batches: FloraBatch[] = [];
+  const groundBatches: FloraBatch[] = [];
+  if (lod <= LOD_MID) {
+    const field = groundField(world);
+    groundPaint.reset();
+    for (const rocks of [false,true]) for (const it of field.tile(tx,tz,rocks)) {
+      if (lod === LOD_MID && it.height < 0.7) continue;
+      const model = reg.atlas.models['ground_'+it.form+lod];
+      const g = groundPaint, o = 4*g.n++;
+      const x=it.x-x0, z=it.z-z0, y=it.y-oy;
+      const si=Math.min(SLOT_N-1,Math.max(0,Math.round(x/SLOT_STEP)));
+      const sj=Math.min(SLOT_N-1,Math.max(0,Math.round(z/SLOT_STEP)));
+      const sk=sj*SLOT_N+si;
+      slopeAt(H,x/ECO_STEP,z/ECO_STEP);
+      g.place.set([x,y,z,it.yaw],o);
+      g.shape.set([it.radius,it.height,model.first,model.count],o);
+      g.look.set([snowyPair(world,sk,it.y),slotShare[sk]*0.999,it.paint,it.accent],o);
+      g.lie.set([Math.max(-1,Math.min(1,slopeX)),Math.max(-1,Math.min(1,slopeZ)),it.seed,0],o);
+      g.verts=Math.max(g.verts,model.count);
+      g.triangles+=model.count/3;
+      g.minY=Math.min(g.minY,y-it.radius);
+      g.maxY=Math.max(g.maxY,y+it.radius+it.height);
+    }
+    groundPaint.batches(groundBatches);
+  }
   gather.tree.batches(batches);
   gather.small.batches(batches);
   // the close level's shadows: every tree of the tile in its far model, one draw
@@ -584,5 +614,5 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       shadows = one[0];
     }
   }
-  return { batches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, crowns: nc > 0 ? crownScratch.slice(0, nc * CROWN_STRIDE) : null, crownCount: nc, wx: x0, wy: oy, wz: z0 };
+  return { batches, groundBatches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, crowns: nc > 0 ? crownScratch.slice(0, nc * CROWN_STRIDE) : null, crownCount: nc, wx: x0, wy: oy, wz: z0 };
 }

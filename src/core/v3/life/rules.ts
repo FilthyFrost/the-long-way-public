@@ -1,9 +1,10 @@
+import { routeProfileId } from '../../world/routeProfiles';
 import { hash2 } from '../../math/rng';
 import { ECO_PROFILES, type EcoProfile } from '../../world/data/ecoProfiles';
 import type { WeatherState } from '../../env/weather';
 
 export type Motion = 'perch' | 'flock' | 'soar' | 'wade' | 'swim' | 'nectar' | 'dart' | 'glow' | 'lamp';
-export type Form = 'song' | 'crow' | 'swift' | 'gull' | 'raptor' | 'egret' | 'swan' | 'pelican' | 'bee' | 'butterfly' | 'dragonfly' | 'firefly' | 'moth';
+export type Form = 'song' | 'crow' | 'swift' | 'gull' | 'raptor' | 'egret' | 'swan' | 'duck' | 'pelican' | 'bee' | 'butterfly' | 'dragonfly' | 'firefly' | 'moth';
 type Site = 'wood' | 'field' | 'stream' | 'pond' | 'shore' | 'ridge' | 'flowers' | 'wetEdge' | 'lamp';
 export interface Animal {
   name: string; form: Form; motion: Motion; site: Site;
@@ -55,23 +56,26 @@ row('灰蝶类','butterfly','nectar','flowers',.043,0x7eabcb,0xb6ccd3,0x676273);
 row('斑蝶类','butterfly','nectar','flowers',.102,0xe5914a,0xf3b065,0x473d3f);
 row('凤蝶类','butterfly','nectar','flowers',.135,0x428e78,0x84b889,0x343a45);
 row('蜻蜓','dragonfly','dart','pond',.11,0x539d96,0x376f76,0xc0d2bf);
+row('绿头鸭','duck','swim','pond',.91,0x776951,0x955c45,0x416b51);
+row('绿翅鸭','duck','swim','pond',.60,0x968d7d,0xb09777,0x945535);
+row('澳洲黑鸭近缘灰鸭','duck','swim','pond',.86,0x786450,0x977b5f,0x9d8768);
+row('美洲鸦','crow','perch','field',.92,0x353c47,0x48545c,0x29303a);
+row('红尾鵟','raptor','soar','ridge',1.34,0x79553d,0xe6cba0,0x433c3b);
+row('仓燕','swift','flock','field',.36,0x304452,0xe6cfad,0x323441);
+row('东部蓝鸲','song','perch','field',.32,0x467eab,0xcc966c,0x334c61);
 row('萤火虫','firefly','glow','wetEdge',.026,0x645638,0x54493a,0xd3e884);
 row('蛾类','moth','lamp','lamp',.057,0xb3a18a,0xc7bbab,0x907e71);
 
 const byId = new Map(ECO_PROFILES.map(p => [p.id, p]));
 // Legacy landscapes predate geographical IDs. Never fall through by kin across continents.
-const legacy: Record<string,string> = {
-  plains:'prairie-badlands', desert:'sonoran', alpine:'sierra-high', forest:'sierra-valley',
-  maple:'appalachian', lakes:'norway-fjord', bamboo_sea:'karst-river', terraces:'hani-paddy', karst_peaks:'karst-river',
-  red_canyon:'redrock', flower_fields:'sierra-high',
-};
+
 export function profileFor(region: string): EcoProfile | undefined {
-  return byId.get(region) ?? byId.get(legacy[region]);
+  return byId.get(region) ?? byId.get(routeProfileId(region));
 }
 
 export const CELL_COUNT = 25;
-export const GROUP_LIMIT = 7;
-export const CELL_BIRD = 32, CELL_INSECT = 7;
+export const GROUP_LIMIT = 28;
+export const CELL_BIRD = 62, CELL_INSECT = 7;
 export const journeyMonth = (day: number): number => (Math.floor(day / 30) + 5) % 12 + 1;
 export const isDay = (hour: number): boolean => hour >= 6 && hour < 19;
 export function sheltered(w: WeatherState): boolean {

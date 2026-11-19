@@ -124,6 +124,19 @@ export function strokesTexture(size = 512): THREE.Texture {
   return t;
 }
 
+/** The same round dabs feed the close spray texture and its reduced atlas footprint. */
+export function leafDabs(dab: (x: number, y: number, rx: number, ry: number, turn: number, red: number) => void): void {
+  const rnd = mulberry(77);
+  for (let i = 0; i < 70; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = Math.sqrt(rnd()) * 104;
+    const r = (10 + 12 * rnd()) * (1.15 - 0.45 * d / 104);
+    const turn = rnd() * Math.PI;
+    const red = 130 + Math.floor(rnd() * 125);
+    dab(128 + Math.cos(a) * d, 128 + Math.sin(a) * d, r, r * (0.72 + 0.26 * rnd()), turn, red);
+  }
+}
+
 /**
  * A spray of leaves as round brush dabs, white on black: red = how light each dab is painted,
  * green = coverage. Round, not pointed: after the paint finish a pointed leaf turns into a square.
@@ -134,21 +147,13 @@ export function leafTexture(size = 256): THREE.Texture {
   const g = canvas.getContext('2d')!;
   g.fillStyle = '#000';
   g.fillRect(0, 0, size, size);
-  const rnd = mulberry(77);
   const s = size / 256;
-  const dab = (x: number, y: number, r: number, turn: number): void => {
-    g.fillStyle = `rgb(${130 + Math.floor(rnd() * 125)},255,0)`;
+  leafDabs((x, y, rx, ry, turn, red) => {
+    g.fillStyle = `rgb(${red},255,0)`;
     g.beginPath();
-    g.ellipse(x, y, r, r * (0.72 + 0.26 * rnd()), turn, 0, Math.PI * 2);
+    g.ellipse(x * s, y * s, rx * s, ry * s, turn, 0, Math.PI * 2);
     g.fill();
-  };
-  // a rough disc of dabs, denser and larger towards the middle, ragged at the rim
-  for (let i = 0; i < 70; i++) {
-    const a = rnd() * Math.PI * 2;
-    const d = Math.sqrt(rnd()) * 104 * s;
-    const r = (10 + 12 * rnd()) * s * (1.15 - 0.45 * (d / (104 * s)));
-    dab(size / 2 + Math.cos(a) * d, size / 2 + Math.sin(a) * d, r, rnd() * Math.PI);
-  }
+  });
   const t = new THREE.CanvasTexture(canvas);
   t.generateMipmaps = true;
   t.minFilter = THREE.LinearMipmapLinearFilter;

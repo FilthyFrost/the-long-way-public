@@ -13,6 +13,7 @@ import { dcos, dsin } from '../math/detmath';
 import { fbm2, ridged2, simplex2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
+import { roadStyleAt, roadSurface } from './roadStyles';
 import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
 import { EcotopeField, shoreOf } from './ecotope';
@@ -724,6 +725,15 @@ export class World implements Ground {
       const u = (ad - (ROAD_EDGE + 2.4)) / 1.5;
       const ditch = ditchDepth * Math.exp(-u * u) * smoothstep(ROAD_EDGE, ROAD_EDGE + 1.2, ad) * (1 - pw);
       let h = ext + (T - ext) * m - ditch;
+      // Ploughed snow piles up just beyond the wheelable shoulder. Keep the
+      // bridge approaches and property entrances clear and taper at the snowline.
+      if (this.rules.version === 2 && ad < 8.5 && bm === 0 && !coarse) {
+        const snow = (BIOMES[o.ba].id === 'alpine' ? 1-o.bt : 0) + (BIOMES[o.bb].id === 'alpine' ? o.bt : 0);
+        if (snow > 0) {
+          const ridge = (ad-5.45)/1.05;
+          h += snow*(1-pw)*smoothstep(ROAD_EDGE,ROAD_EDGE+1.1,ad)*Math.exp(-ridge*ridge)*(0.42+0.13*Math.sin(s/9+d));
+        }
+      }
       if (bm > 0) {
         // no embankment across the river: the land falls away from the abutments
         const land = h + (T - h) * bm;
@@ -879,6 +889,8 @@ export class World implements Ground {
 
   /** surface type at a shaped point */
   surfaceOf(t: TerrainPoint): number {
+    if (this.rules.version === 2 && (t.zone === 1 || t.zone === 2) && t.bridge < 0.5)
+      return roadSurface(roadStyleAt(this,t.s), Math.abs(t.d));
     if (t.zone === 1 || t.zone === 3) return Surface.Asphalt;
     if (t.zone === 2) return Surface.Gravel;
     if (t.site > 0.5) return t.siteGround === 1 ? Surface.Asphalt : Surface.Gravel;

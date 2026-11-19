@@ -26,6 +26,7 @@ import { CROWN_PAINT } from './crowns/palette';
 import * as THREE from 'three';
 import { PLANTS, type PlantDef } from '../../core/world/plants';
 import { PART_ROCK, buildPlantModels } from './plantModels';
+import { groundModels } from './groundModels';
 import { buildPlants } from './vegetation';
 
 /** which draw of a tile a plant goes in: the trees, or the shrubs and what lies on the ground */
@@ -153,7 +154,8 @@ export class PlantAtlas {
       // (a triangle's three vertices must lie in one draw: models hold whole triangles)
       if (pos.count % 3 !== 0) throw new Error(`the model ${name} does not hold whole triangles`);
       this.models[name] = { first: v, count: pos.count };
-      const sway = Math.sqrt(SWAY[name] ?? 1);
+      const rigidGround = /^ground_(needles|litter|crust|moss|lichen|cushion)/.test(name);
+      const sway = rigidGround ? 0 : Math.sqrt(SWAY[name] ?? 1);
       for (let i = 0; i < pos.count; i++, v++) {
         const o = v * PER_VERTEX * 4;
         const y = pos.getY(i);
@@ -229,7 +231,7 @@ export class PlantRegistry {
   constructor() {
     const old = buildPlants();
     const { broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus } = old;
-    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels() }, { rock: PART_ROCK, boulder: PART_ROCK });
+    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels(), ...groundModels() }, { rock: PART_ROCK, boulder: PART_ROCK });
     for (const g of Object.values(old)) g.dispose();
     this.draws = PLANTS.map((p) => this.drawOf(p));
   }

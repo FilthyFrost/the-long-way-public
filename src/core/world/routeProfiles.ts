@@ -36,6 +36,7 @@ const analogues: Readonly<Record<string, string>> = {
   lakes: 'fiordland', terraces: 'south-china-paddy', bamboo_sea: 'karst-river',
   karst_peaks: 'karst-river', flower_fields: 'blue-meadow', wetland: 'eglinton-grass',
 };
+export function routeProfileId(id: string): string { return analogues[id] ?? id; }
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
 export function snowLinesFor(id: string): readonly number[] {
   const profile = profiles.get(analogues[id] ?? id);

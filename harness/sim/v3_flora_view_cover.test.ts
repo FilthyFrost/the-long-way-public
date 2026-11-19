@@ -5,6 +5,8 @@
  * one by one); these tests hold the pieces to the core's own answers, point by point, so that a change of the
  * core's rule shows here. And the builders that use them: the land's vertices, the grass, the far-woods cards.
  */
+import { groundField } from '../../src/core/world/groundField';
+import { groundProfile, pigments } from '../../src/core/world/groundTables';
 import { describe, expect, it } from 'vitest';
 import { BIOMES, BIOME_INDEX } from '../../src/core/world/biomes';
 import { ECO_N, ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_STEP, ECO_TILE, ECO_WET, Ecotope, WOOD_SHEER, WOOD_STEEP, canopyAt } from '../../src/core/world/ecotope';
@@ -362,40 +364,23 @@ describe('the land of a world of version 2', () => {
 });
 
 describe('the grass of a world of version 2', () => {
-  it('stands its flowers in the rows of the flower fields, each row its colour', () => {
+  it('draws the surveyed flower in the field rows during its flowering months', () => {
     const w = world2('flower_fields');
-    const c = FLORA.flower_fields.cover;
-    const out = new Cover();
-    let flowers = 0;
-    let coreSays = 0;
-    const seen = new Set<number>();
-    for (const [s, off] of [[2600, 40], [3400, -60], [5200, 90]] as const) {
-      const [x, z] = beside(w, s, off);
-      const g = buildGrass(w, Math.floor(x / GRASS_TILE), Math.floor(z / GRASS_TILE), 1, true);
-      if (!g) continue;
-      for (let i = 0; i < g.flowers; i++) {
-        // (a flower is set a hand off its tuft's root)
-        const fx = g.wx + g.flowerRoots[i * 4] - 0.05;
-        const fz = g.wz + g.flowerRoots[i * 4 + 2] + 0.04;
-        const hue = g.flowerInfo[i * 4];
-        expect(c.hues).toContain(hue);
-        seen.add(hue);
-        // in a row (the grass reads the rows' bend off a 2 m grid: within a few hundredths of a row)
-        const p = rowCoord(w.seed, fx, fz) / c.rows!.spacing;
-        const f = p - Math.floor(p);
-        expect(f < c.rows!.share + 0.02 || f > 0.98).toBe(true);
-        if (f > 0.03 && f < c.rows!.share - 0.03) expect(hue).toBe(hueOf(c.hues, rowHue01(w.seed, Math.floor(p))));
-        flowers++;
-        if (w.flora!.cover(fx, fz, out).flowers > 0) coreSays++;
+    const field = groundField(w);
+    const flower = groundProfile('flower_fields')!.bands[0].flowers[0];
+    const cover = new Cover();
+    let count = 0;
+    field.setMonth(flower.bloomMonths[0]);
+    for (let s = 1000; s < 6300; s += 250) {
+      const [x,z] = beside(w,s,75);
+      for (const c of field.tile(Math.floor(x/128),Math.floor(z/128),false)) {
+        if (c.name !== flower.name) continue;
+        expect(w.flora!.cover(c.x,c.z,cover,c.y).flowers).toBeGreaterThan(0);
+        expect(flower.colors.map(color=>pigments[color])).toContain(c.accent);
+        count++;
       }
-      // grass too, thick: the cover's
-      expect(g.count).toBeGreaterThan(3000);
     }
-    expect(flowers).toBeGreaterThan(2000);
-    expect(seen.size).toBeGreaterThanOrEqual(3);
-    // (nearly every flower stands where the core itself has flowers; the rest within a hand of a row's edge or
-    // of the ecotope's coarse word on roads and places)
-    expect(coreSays / flowers).toBeGreaterThan(0.9);
+    expect(count).toBeGreaterThan(10);
   });
 
   it('grows thin under closed wood and thick in the open, tall in the marsh, hardly at all on red rock', () => {

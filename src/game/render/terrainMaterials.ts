@@ -544,6 +544,10 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
       ${GROUND_VARYINGS}
       attribute vec4 aBiomeW;
       attribute vec4 aGround;
+      #ifdef RT_COVER
+      attribute vec4 aRoadStyle;
+      flat varying vec4 vRoadStyle;
+      #endif
       attribute vec4 aRoad;   // x: lateral offset d (m, + right), y: distance along the road (m, wrapped), z: on a bridge 0…1,
                               // w: on the levelled ground of a place 0…1 (negative: an old concrete forecourt)
       #ifdef RT_COVER
@@ -557,6 +561,9 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         vBiomeW = aBiomeW;
         vGround = aGround;
         vRoad = aRoad;
+        #ifdef RT_COVER
+        vRoadStyle = aRoadStyle;
+        #endif
         #ifdef RT_COVER
         vCover = aCover;
         #endif
@@ -587,6 +594,9 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
       uniform float uWaterRain;
       ${GLSL_SKY_MIRROR}
       varying vec4 vRoad;
+      #ifdef RT_COVER
+      flat varying vec4 vRoadStyle;
+      #endif
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vNormal);
@@ -682,12 +692,45 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         float creep = smoothstep(2.75, 3.3, ad + (rtFbm(w, 4.0) - 0.5) * 0.9);
         asphalt = mix(asphalt, mix(uGravel, groundAlb, 0.35), creep * 0.55);
 
+        #ifdef RT_COVER
+        vec4 treatment = deck > 0.5 ? vec4(3.0,0.45,0.0,3.25) : vRoadStyle;
+        float kind = treatment.x;
+        float halfRoad = treatment.w;
+        float grain = rtNoiseAt(w,1.4).g;
+        float lightTone = mix(0.72,1.11,smoothstep(0.23,0.78,tone));
+        if (kind < 0.5) asphalt = vec3(0.079,0.093,0.106)*lightTone*(1.0+brush*0.55);
+        else if (kind < 1.5) asphalt = mix(asphalt,uPatch*0.95,smoothstep(0.55,0.62,rep)*0.57);
+        else if (kind < 2.5) asphalt = mix(vec3(0.175,0.159,0.132),vec3(0.292,0.276,0.223),grain)*lightTone;
+        else if (kind < 3.5) {
+          float seam = min(abs(fract(vRoad.y/8.0+0.5)-0.5)*8.0,ad);
+          asphalt = vec3(0.48,0.465,0.414)*lightTone*(0.91+0.13*grain);
+          asphalt *= 1.0-0.48*(1.0-smoothstep(0.025,0.060+aa,seam))*near;
+        } else if (kind < 5.5) {
+          vec3 earth = kind < 4.5 ? vec3(0.35,0.305,0.242) : vec3(0.386,0.239,0.129);
+          asphalt = earth*lightTone*(0.76+0.35*grain+brush*0.45);
+          asphalt *= 1.0-0.15*track;
+          asphalt = mix(asphalt,rp.mid,0.16*(1.0-smoothstep(0.30,0.85,ad))*spread);
+        } else {
+          vec2 row = vec2(vRoad.x/0.38,vRoad.y/0.25);
+          row.x += 0.5*mod(floor(row.y),2.0);
+          vec2 inset = 0.5-abs(fract(row)-0.5);
+          float stone = smoothstep(0.018,0.13,min(inset.x,inset.y));
+          float value = 0.84+0.26*rtHash(floor(row)+7.0);
+          asphalt = vec3(0.332,0.297,0.254)*lightTone*mix(0.89,mix(0.55,value,stone),near);
+        }
+        #endif
         // ---- markings, mostly worn away
         float wear = rtFbm(w + 91.0, 32.0);
         float dash = step(fract(vRoad.y / 12.0), 0.34);
         float centre = (1.0 - smoothstep(0.055 - aa, 0.075 + aa, ad)) * dash * smoothstep(0.3, 0.5, wear);
         float edge = (1.0 - smoothstep(0.05 - aa, 0.07 + aa, abs(ad - 2.95))) * smoothstep(0.48, 0.62, wear);
         float lineVis = 1.0 - smoothstep(200.0, 700.0, dist) * 0.6;
+        #ifdef RT_COVER
+        float sharp = step(0.9,treatment.y);
+        centre = (1.0-smoothstep(0.055-aa,0.075+aa,ad))*dash*mix(smoothstep(0.34,0.58,wear),1.0,sharp);
+        edge = (1.0-smoothstep(0.05-aa,0.07+aa,abs(ad-halfRoad+0.24)))*mix(smoothstep(0.43,0.64,wear),1.0,sharp);
+        lineVis *= treatment.y;
+        #endif
         asphalt = mix(asphalt, uPaint, max(centre, edge) * 0.85 * lineVis);
 
         // ---- compose: pavement → gravel shoulder → ground, with ragged painted edges
@@ -696,6 +739,21 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         float shoulder = 1.0 - smoothstep(3.8 + ragged * 2.0, 4.7 + ragged * 2.0, ad);
         vec3 gravel = uGravel * mix(0.7, 1.12, smoothstep(0.25, 0.75, tone));
         gravel = mix(gravel, groundAlb, 0.3);
+        #ifdef RT_COVER
+        paved = 1.0-smoothstep(halfRoad+ragged-aa-0.045,halfRoad+ragged+aa+0.045,ad);
+        float vergeKind = treatment.z;
+        if (vergeKind == 1.0) shoulder = 1.0-smoothstep(halfRoad,halfRoad+0.18,ad+ragged);
+        if (vergeKind == 2.0) gravel *= 1.0-0.26*smoothstep(3.6,4.7,ad);
+        if (vergeKind == 3.0) {
+          gravel = vec3(0.43,0.40,0.35)*lightTone*(0.85+0.15*grain);
+          shoulder = 1.0-smoothstep(halfRoad+0.36,halfRoad+0.45,ad);
+        }
+        if (vergeKind == 4.0) gravel = mix(gravel,rtSnowTone(tone),smoothstep(3.25,4.23,ad+ragged));
+        if (vergeKind == 5.0) {
+          gravel = mix(gravel,rp.dry,0.78);
+          asphalt = mix(asphalt,rp.dry,0.88*smoothstep(2.15,3.66,ad+(drift-0.35)*1.02));
+        }
+        #endif
         // a bridge deck is concrete from the lane's edge to the kerb, with a dark joint every few metres
         vec3 concrete = vec3(0.47, 0.46, 0.42) * mix(0.8, 1.12, smoothstep(0.25, 0.75, tone));
         concrete *= 1.0 - 0.3 * (1.0 - smoothstep(0.02, 0.05, abs(fract(vRoad.y / 6.0) - 0.5) * 6.0));
