@@ -1,4 +1,4 @@
-> **换电脑继续开发：** 请先读 [`docs/MIGRATION.zh.md`](docs/MIGRATION.zh.md) 和 [`docs/handoff/HANDOFF.md`](docs/handoff/HANDOFF.md)。本快照对应原私有仓 `dev/m1` 提交 `d8fd175`。第三方参考图不在本仓库，来源见 [`refs/REFERENCE_MANIFEST.md`](refs/REFERENCE_MANIFEST.md)。未合入的工作在 [`wip/`](wip/README.md)。
+> **换电脑继续开发（2026-11-18）：** 请先读根目录 [`CONTINUE.md`](CONTINUE.md)。当前集成主线是分支 `feat/v3`（`fcd972b`），不要从默认分支 `main`（2026-11-15 旧快照）接着写。未合并的 L1 / C1 工作在 `v3/l1-relief` 与 `v3/c1-game`。用户美术参考图在 [`refs/owner-art-direction/`](refs/owner-art-direction/)。第三方风景原图不在本仓库，来源见 [`docs/V3/research/landscape-photos-manifest.md`](docs/V3/research/landscape-photos-manifest.md)。更早的 2026-11-15 说明仍在 [`docs/MIGRATION.zh.md`](docs/MIGRATION.zh.md) 和 [`docs/handoff/HANDOFF.md`](docs/handoff/HANDOFF.md)，其中的起点与分工已经过时。
 
 # 公路旅行（暂名）
 

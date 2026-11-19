@@ -1,0 +1,132 @@
+{
+ "seed": 7,
+ "spots": [
+  {
+   "name": "00_plains",
+   "region": "plains",
+   "km": 44.75,
+   "sky": [
+    5.8,
+    8.1
+   ]
+  },
+  {
+   "name": "01_desert",
+   "region": "desert",
+   "km": 86.05,
+   "sky": [
+    18.3,
+    20.1
+   ]
+  },
+  {
+   "name": "02_alpine",
+   "region": "alpine",
+   "km": 140.05,
+   "sky": [
+    25.7,
+    27.7
+   ]
+  },
+  {
+   "name": "02_alpine_valley",
+   "region": "alpine",
+   "km": 138.85,
+   "sky": [
+    32.2,
+    29.6
+   ]
+  },
+  {
+   "name": "02_alpine_vista",
+   "region": "alpine",
+   "km": 324.35,
+   "sky": [
+    10.1,
+    22.5
+   ],
+   "openSide": -1
+  },
+  {
+   "name": "03_forest",
+   "region": "forest",
+   "km": 350.55,
+   "sky": [
+    12.3,
+    10.7
+   ]
+  },
+  {
+   "name": "04_lakes",
+   "region": "lakes",
+   "km": 374.3,
+   "sky": [
+    6.8,
+    4.5
+   ]
+  },
+  {
+   "name": "05_maple",
+   "region": "maple",
+   "km": 393.05,
+   "sky": [
+    9.2,
+    9.3
+   ]
+  },
+  {
+   "name": "06_flower_fields",
+   "region": "flower_fields",
+   "km": 439.8,
+   "sky": [
+    3,
+    5.5
+   ]
+  },
+  {
+   "name": "07_terraces",
+   "region": "terraces",
+   "km": 538.35,
+   "sky": [
+    10.9,
+    12
+   ]
+  },
+  {
+   "name": "08_wetland",
+   "region": "wetland",
+   "km": 623,
+   "sky": [
+    2.5,
+    1.7
+   ]
+  },
+  {
+   "name": "09_bamboo_sea",
+   "region": "bamboo_sea",
+   "km": 668.5,
+   "sky": [
+    8.4,
+    8.4
+   ]
+  },
+  {
+   "name": "10_red_canyon",
+   "region": "red_canyon",
+   "km": 677.6,
+   "sky": [
+    14,
+    8.5
+   ]
+  },
+  {
+   "name": "11_karst_peaks",
+   "region": "karst_peaks",
+   "km": 751.45,
+   "sky": [
+    17.2,
+    7.7
+   ]
+  }
+ ]
+}
