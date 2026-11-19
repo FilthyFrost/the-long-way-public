@@ -290,7 +290,7 @@ const tmpS = new V3();
  * A clump's core (a dark ball, lumpy and a little squashed, the sprays stand on so that a crown is a mass and
  * not lace) and its sprays (spread evenly over the ball, then shaken, each lying roughly on its skin).
  */
-function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownLevel, random: () => number, light: (at: THREE.Vector3, dir: THREE.Vector3) => number, leaf?: BroadleafShape['leaf']): void {
+function writeClump(out: Out, k: Clump, canopy: readonly Clump[], cards: number, spray: number, lv: CrownLevel, random: () => number, light: (at: THREE.Vector3, dir: THREE.Vector3) => number, leaf?: BroadleafShape['leaf']): void {
   const phase = random();
   const sphere = lv.core < 0 ? OCTA : SPHERES[lv.core === 1 && k.r >= BIG_CLUMP ? 1 : 0];
   const first = out.pos.length / 3;
@@ -306,6 +306,10 @@ function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownL
     out.vertex(k.c.x + tmpD.x, k.c.y + tmpD.y, k.c.z + tmpD.z, nx, ny, nz, 0.5, 0.5, tone, phase, k.open, k.c.y + tmpD.y, leaf === 'pinnate' ? 1.24 : PART_CORE);
   }
   for (const f of sphere.idx) out.idx.push(first + f);
+  // Suppress buried sprays only where larger surrounding clumps already cover
+  // them. Consume the same random samples so the visible crown keeps its shape.
+  const neighbours = canopy.filter(other => other !== k &&
+    other.c.distanceToSquared(k.c) < (k.r * 1.5 + other.r) ** 2);
   for (let c = 0; c < cards; c++) {
     const up = 1 - (2 * (c + 0.5)) / cards;
     const ring = Math.sqrt(Math.max(0, 1 - up * up));
@@ -323,6 +327,10 @@ function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownL
     if (tmpA.y - size * 0.5 < 0.05) tmpA.y = 0.05 + size * 0.5;
     const open = light(tmpA, tmpD);
     const t = random();
+    if (neighbours.some(other => {
+      const x = tmpA.x - other.c.x, y = (tmpA.y - other.c.y) / other.sy, z = tmpA.z - other.c.z;
+      return x * x + y * y + z * z < (other.r * 0.72) ** 2;
+    })) continue;
     const v0 = out.pos.length / 3;
     for (const [sx, sy] of [
       [-1, -1],
@@ -482,7 +490,7 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   writeWood(out, tubes, bare ? { ...lv, boughSides: Math.max(3, lv.boughSides), rows: level === 2 ? 2 : lv.rows } : lv, finish);
   const cards = Math.max(lv.least, Math.round(o.cards * lv.cards));
   const spray = o.spray * lv.spray;
-  for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at), o.leaf);
+  for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, clumps, cards, spray, lv, finish, (at) => openAt(at), o.leaf);
   if (o.roots === 'buttress') {
     // Thin triangular flanges join the bole over a long vertical seam.
     for (let i = 0; i < 7; i++) {
@@ -626,7 +634,7 @@ export function growConifer(seed: number, o: ConiferShape, level = 0, bare = fal
   for (const k of clumps) {
     if (bare || k.depth < lv.inner) continue;
     const t = Math.min(1, Math.max(0, (k.c.y - y0) / span));
-    writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at, Math.hypot(at.x, at.z), t));
+    writeClump(out, k, clumps, cards, spray, lv, finish, (at) => openAt(at, Math.hypot(at.x, at.z), t));
   }
   const g = out.geometry();
   return { geometry: g, height: out.top, radius: out.reach, crownY: y0 + span * 0.4, triangles: out.idx.length / 3, vertices: out.pos.length / 3 };

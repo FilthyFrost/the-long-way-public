@@ -24,6 +24,7 @@
  * so many dabs): a crown reads as a few lit and shaded masses.
  */
 import * as THREE from 'three';
+import { IMPOSTOR_VERTEX, IMPOSTOR_FRAGMENT } from './crownImpostor';
 import { GLSL_LEAF_COVER } from './materials';
 import { GLSL_PAINT, GLSL_SLOTS } from './paint';
 import { GLSL_COMMON, globals } from './shaderlib';
@@ -52,19 +53,23 @@ export function crownMaterial(): THREE.ShaderMaterial {
     vertexShader: /* glsl */ `
       #include <common>
       #include <logdepthbuf_pars_vertex>
+      uniform float logDepthBufFC;
       uniform vec4 uWind;
       uniform float uTime;
       uniform float uCrownDay;
       attribute vec4 aCrown;   // tone, its clump's phase, how open it lies, its height in the tree (model m)
       attribute float aPart;   // 0 wood, 1 a clump's core, 2 a spray
+      attribute vec3 aFade;
+      varying vec2 vFade;
+      ${IMPOSTOR_VERTEX}
       attribute vec4 aLook;
       attribute vec4 aTree;
       ${GLSL_SLOTS}
-      varying vec3 vPos;
+      varying vec3 vGeomPos;
       varying vec3 vNormal;
       varying vec2 vUv;
-      varying vec4 vCrown;
-      varying float vPart;
+      varying vec4 vGeomCrown;
+      varying float vGeomPart;
       varying vec4 vBw;
       varying vec4 vTint;
       varying vec3 vTint2;
@@ -81,6 +86,11 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vec4 w = m * vec4(position, 1.0);
         vec3 n = normalize(mat3(m) * normal);
         vec3 root = (m * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        float range = distance(cameraPosition, root + vec3(0.0, aFade.y, 0.0));
+        vFade = vec2(sign(aFade.x), smoothstep(abs(aFade.x) - aFade.z, abs(aFade.x) + aFade.z, range));
+        #ifdef CROWN_ATLAS
+          projectCard(m, w);
+        #else
         // the wind: the crown rides the gusts with a slow lean, each clump a little in its own time, each spray trembling
         float U = uWind.z;
         float h = aCrown.w * aTree.w;
@@ -91,11 +101,12 @@ export function crownMaterial(): THREE.ShaderMaterial {
         float own = sin(ph + aCrown.y * 6.2831) * 0.25;
         w.xz += wd * bend * (0.55 + 0.45 * sin(ph) + own) + vec2(-wd.y, wd.x) * bend * 0.35 * cos(ph * 0.8 + 1.3 + aCrown.y * 3.0);
         if (aPart > 1.5 && aPart < 2.5) w.xyz += n * sin(uTime * (2.6 + 2.0 * aCrown.x) + aCrown.x * 61.0) * 0.025 * (0.25 + U) * high * aTree.y;
-        vPos = w.xyz;
+        #endif
+        vGeomPos = w.xyz;
         vNormal = n;
         vUv = uv;
-        vCrown = aCrown;
-        vPart = aPart;
+        vGeomCrown = aCrown;
+        vGeomPart = aPart;
         vVar = aTree.x;
         vBark = aTree.z;
         float flags = floor(aLook.y * 0.5);
@@ -115,6 +126,12 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vTint2 = rtHexColour(max(aLook.w, 0.0));
         gl_Position = projectionMatrix * viewMatrix * w;
         #include <logdepthbuf_vertex>
+        #if defined(USE_LOGARITHMIC_DEPTH_BUFFER) && !defined(CROWN_ATLAS)
+          gl_Position.z = (log2(max(1e-6, gl_Position.w + 1.0)) * logDepthBufFC - 1.0) * gl_Position.w;
+        #endif
+        if ((vFade.x < 0.0 && vFade.y >= 1.0) || (vFade.x > 0.0 && vFade.y <= 0.0)) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        }
       }`,
     fragmentShader: /* glsl */ `
       #include <common>
@@ -123,12 +140,14 @@ export function crownMaterial(): THREE.ShaderMaterial {
       ${GLSL_PAINT}
       ${GLSL_LEAF_COVER}
       ${GLSL_TINT_TONE}
+      ${IMPOSTOR_FRAGMENT}
+      varying vec2 vFade;
       uniform sampler2D tLeaf;
-      varying vec3 vPos;
+      varying vec3 vGeomPos;
       varying vec3 vNormal;
       varying vec2 vUv;
-      varying vec4 vCrown;
-      varying float vPart;
+      varying vec4 vGeomCrown;
+      varying float vGeomPart;
       varying vec4 vBw;
       varying vec4 vTint;
       varying vec3 vTint2;
@@ -153,8 +172,22 @@ export function crownMaterial(): THREE.ShaderMaterial {
         return c;
       }
       void main() {
-        #include <logdepthbuf_fragment>
-        vec3 n = normalize(vNormal);
+        #ifdef CROWN_ATLAS
+          #include <logdepthbuf_fragment>
+        #endif
+        if (vFade.x != 0.0) {
+          float rank = fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715))));
+          if ((rank < vFade.y) != (vFade.x > 0.0)) discard;
+        }
+        vec3 vPos = vGeomPos, n = normalize(vNormal);
+        vec4 vCrown = vGeomCrown;
+        float vPart = vGeomPart;
+        #ifdef CROWN_ATLAS
+          readCard(vUv, vEver < 0.5 && max(vSettled, uWeather.y) > 0.5 + 0.18 * vVar, vPos, n, vCrown, vPart);
+          #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
+            gl_FragDepth = log2(1.0 - (viewMatrix * vec4(vPos, 1.0)).z) * logDepthBufFC * 0.5;
+          #endif
+        #endif
         if (vPart < 0.5 && !gl_FrontFacing) n = -n;
         vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.25), uSunDir.z));
         vec3 V = normalize(cameraPosition - vPos);
@@ -178,6 +211,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
         } else if (vPart > 1.5) {
           // a spray: its picture, kept whole far off as it blurs (the cut falls with distance)
           float leafTone = 0.75;
+          #ifndef CROWN_ATLAS
           float cover = rtLeafCover(tLeaf, vUv, leafTone);
           if (vPart > 2.05) {
             vec2 uv = vUv*2.0-1.0;
@@ -192,6 +226,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
             }
           }
           if (cover < mix(0.5, 0.26, smoothstep(20.0, 120.0, dist))) discard;
+          #endif
           RtPal p = rtPal(vBw);
           float sh = rtShadow(vPos, n);
           // lit as the ball it is part of; a shade of its own; the brush broader far off
@@ -209,10 +244,12 @@ export function crownMaterial(): THREE.ShaderMaterial {
           col += vec3(0.3, 0.5, 0.05) * uSunColor * through * (0.04 + 0.2 * vCrown.x * vCrown.x) * sh;
         } else if (vPart > 0.5) {
           // a clump's core: a shell of leaves cut from the same sprays, that one sees into; a tone deeper
+          #ifndef CROWN_ATLAS
           vec3 a = abs(n);
           vec2 uv = a.y > max(a.x, a.z) ? n.xz : a.x > a.z ? n.zy : n.xy;
           if (texture2D(tLeaf, uv * 2.3 + vCrown.y * 7.0).g < 0.4) discard;
           if (!gl_FrontFacing) n = -n;
+          #endif
           RtPal p = rtPal(vBw);
           float sh = rtShadow(vPos, n);
           float grain = texture2D(tNoise, rtWorldXZ(vPos) * 0.9 / 64.0 + vPos.y * 0.0058).r;
