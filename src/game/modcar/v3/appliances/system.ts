@@ -23,7 +23,7 @@ import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
 import { heldOf, type Held } from '../../player';
 import type { ThingBox } from '../../../../core/modcar/cargo';
-import { SONGS } from '../../radio';
+import { stationLabel } from '../../radio';
 import type { ModVehicle } from '../../vehicle';
 import { CABIN_GLOW, glowOf, makeLook, type ApplianceLook, type LookNow } from './looks';
 import { globals } from '../../../render/shaderlib';
@@ -39,7 +39,7 @@ const T = (zh: string, en: string): Text => ({ zh, en });
 
 /** a song's name on the radio's dial */
 function songName(ch: number): string {
-  return SONGS[((ch % SONGS.length) + SONGS.length) % SONGS.length].name;
+  return stationLabel(ch);
 }
 
 /** what a coffee maker takes from the hands: water from a bottle, a portion of ground coffee, its pot */

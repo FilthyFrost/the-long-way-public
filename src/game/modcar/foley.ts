@@ -21,6 +21,8 @@
  * AudioContext.
  */
 import { Rng, biquad, burst, edges, mixInto, noise, normalize, ring, saturate, strike, type BiquadKind } from './synth';
+import { dbToGain, momentaryMax, rmsOf as rmsWhole } from '../../core/audio/loudness';
+import type { Recording, SoundArchive } from './soundArchive';
 
 export type FoleyShot =
   | 'door_open'
@@ -123,6 +125,8 @@ export type FoleyShot =
   | 'container_open'
   /** nothing in it: a hollow knock on the bare inside, the drawer pushed back, a bag patted flat (~0.3-0.45 s, by `material`) */
   | 'container_empty'
+  /** a container's doors, drawer or lid shut again (by `material`; synthesized, the latch's click) */
+  | 'container_close'
   /** a house's wooden door opened: the lever handle and the latch, the door off its stop, the hinges (unoiled, dry or quiet by turns) (~1 s) */
   | 'door_house_open'
   /** a house's wooden door pulled shut: the air before it, the heavy thud into the frame, the latch snapping home (~0.8 s) */
@@ -4047,7 +4051,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   tyre_burst: 0.89, wreck_creak: 0.35, loot_reveal: 0.36,
   // roadside places (a container opened about as loud as a car door opened, its search under it like the sponge; a
   // house door a little under a car door, the shop's bell gentle; the pump's click like a latch, its run under an idle)
-  container_open: 0.5, container_empty: 0.5, door_house_open: 0.29, door_house_close: 0.8, door_shop_open: 0.5, door_shop_close: 0.69,
+  container_open: 0.5, container_empty: 0.5, container_close: 0.5, door_house_open: 0.29, door_house_close: 0.8, door_shop_open: 0.5, door_shop_close: 0.69,
   pump_lift: 0.42, pump_hang: 0.45, pump_click: 0.4, pump_dry: 0.114,
 };
 
@@ -4080,7 +4084,7 @@ const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred
 const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done', 'loot_reveal', 'door_shop_open']);
 
 /** the sounds of a container searched: their material is a container's, always in their key (none is a wooden cupboard's) */
-const CONTAINER_KINDS: ReadonlySet<string> = new Set<FoleyShot | FoleyLoop>(['rummage', 'container_open', 'container_empty']);
+const CONTAINER_KINDS: ReadonlySet<string> = new Set<FoleyShot | FoleyLoop>(['rummage', 'container_open', 'container_empty', 'container_close']);
 
 const PANELS: readonly string[] = ['metal', 'rusty', 'armor', 'cage', 'fridge'];
 
@@ -4161,6 +4165,7 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'loot_reveal': return lootReveal(tierOf(o.tier));
     case 'container_open': return containerOpen(containerOf(o.material));
     case 'container_empty': return containerEmpty(containerOf(o.material));
+    case 'container_close': return latchOnly();
     case 'door_house_open': return doorHouseOpen();
     case 'door_house_close': return doorHouseClose();
     case 'door_shop_open': return doorShopOpen();
@@ -4266,6 +4271,72 @@ interface LiveLoop {
   filter?: BiquadFilterNode;
 }
 
+// ------------------------------------------------------------------ the archive (docs/V3/nodes/M4-audio.md)
+
+/** a crash's size from how hard it was (its gain: ModGame plays 0.3 + speed / 14) */
+function crashSize(g: number): string {
+  return g < 0.45 ? 'small' : g < 0.65 ? 'medium' : g < 0.85 ? 'big' : 'massive';
+}
+
+/** a thing's weight as the archive's pickups and set-downs have it */
+export function weightClass(kg: number): 'light' | 'medium' | 'heavy' {
+  return kg < 2 ? 'light' : kg < 12 ? 'medium' : 'heavy';
+}
+
+/**
+ * The archive's cues a foley sound may be (core/audio/cueSpec.ts), the most particular first: a fridge's door,
+ * a crash by how hard it was, a thing by its weight, a container by what it is made of. None of them in the
+ * archive: the sound's own, synthesized (the chimes, tuned to one another; the generator and the recycler, with
+ * their engine; the tyres, by surface; the shop's bell).
+ */
+export function cueKeys(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): string[] {
+  switch (kind) {
+    case 'crash':
+      return [`crash:${crashSize(o.gain ?? 1)}`];
+    case 'part_pickup':
+    case 'part_setdown':
+      return [`${kind}:${weightClass(o.mass ?? 5)}`];
+    case 'door_open':
+    case 'door_close': {
+      const m = panelOf(o.material);
+      return m === 'fridge' || m === 'cage' ? [`${kind}:${m}`] : [kind];
+    }
+    case 'container_open':
+    case 'container_close':
+      return [`${kind}:${containerOf(o.material)}`];
+    case 'hammer_hit':
+      return [`hammer_hit:${o.grind ?? 'metal'}`];
+    case 'pour':
+      return [`pour:${o.liquid ?? 'fuel'}`];
+    default:
+      return [kind];
+  }
+}
+
+/** the archive's sounds that are new with it (no synthesized one to match): the level of their loudest 400 ms (dB, before the master) */
+const CUE_DB: Readonly<Record<string, number>> = {
+  step: -31,
+  'step:carpet': -34,
+  'step:snow': -30,
+  'step:gravel': -30,
+  jump: -34,
+  land: -27,
+  'land:hard': -21,
+  car_getin: -31,
+  car_getout: -31,
+  eat: -28,
+  pickup: -33,
+  radio_tune: -30,
+  radio_static: -32,
+  thunder: -17,
+  'thunder:near': -13,
+};
+
+/** the level a new cue is brought to (dB): its own, its kind's (before the colon), else -30 */
+export function cueLevelDb(cue: string): number {
+  return CUE_DB[cue] ?? CUE_DB[cue.split(':')[0]] ?? -30;
+}
+
 /** plays the mechanical sounds on an AudioContext (the game's, or an offline one) */
 export class Foley {
   readonly ctx: BaseAudioContext;
@@ -4275,6 +4346,12 @@ export class Foley {
   private readonly rng = new Rng(0xf01e7);
   /** the rendering each one-shot played last (the next one is never the same) */
   private readonly lastPick = new Map<string, number>();
+  /** the archive's recordings, played in place of the synthesized sounds they are (null: none, the game's own) */
+  archive: SoundArchive | null = null;
+  /** how loud each synthesized sound is at gain 1 (a one-shot's loudest 400 ms, a loop's whole), by key: what a recording is brought to */
+  private readonly synthLoud = new Map<string, number>();
+  /** the recording a loop plays, chosen once for its key */
+  private readonly loopRecs = new Map<string, { r: Recording; scale: number }>();
 
   constructor(ctx: BaseAudioContext, output: AudioNode) {
     this.ctx = ctx;
@@ -4364,6 +4441,13 @@ export class Foley {
 
   /** a one-shot */
   play(kind: FoleyShot, o: FoleyOpts = {}, when = 0): void {
+    // the archive's recording of it, if it has one and it is in, as loud as the synthesized one
+    const rec = this.recorded(kind, o, false);
+    if (rec) {
+      const vary = 0.92 + 0.16 * this.rng.next();
+      this.playBuffer(rec.r.buf, SHOT_LEVEL[kind] * (o.gain ?? 1) * vary * rec.scale, 1 + 0.03 * (this.rng.next() - 0.5), o.pan, when);
+      return;
+    }
     const list = this.buffers(kind, o, this.variants(kind));
     const src = this.ctx.createBufferSource();
     // never the same rendering twice running (the hammer struck again, the next thing shredded)
@@ -4398,8 +4482,11 @@ export class Foley {
     const t = this.ctx.currentTime;
     const rate = loopPlaybackRate(kind, o.rate);
     const cutoff = loopCutoff(this.ctx.sampleRate, o.cutoff);
-    if (live && live.src.buffer && this.cache.get(k)?.includes(live.src.buffer)) {
-      live.gain.gain.setTargetAtTime(LOOP_LEVEL[kind] * (o.gain ?? 1), t, 0.02);
+    // (the archive's recording of it once it is in, kept for its key; until then the synthesized one)
+    const rec = this.loopRecording(kind, o, k);
+    const level = LOOP_LEVEL[kind] * (o.gain ?? 1) * (rec ? rec.scale : 1);
+    if (live && live.src.buffer && (rec ? live.src.buffer === rec.r.buf : this.cache.get(k)?.includes(live.src.buffer))) {
+      live.gain.gain.setTargetAtTime(level, t, 0.02);
       // (the pitch slides, it does not step: a step in playback rate is heard as a jump)
       live.src.playbackRate.setTargetAtTime(rate, t, 0.03);
       // (and the muffling with them; a loop never given a cutoff is left as it is)
@@ -4408,7 +4495,7 @@ export class Foley {
     }
     if (live) this.stop(kind);
     const src = this.ctx.createBufferSource();
-    src.buffer = this.buffers(kind, o, 1)[0];
+    src.buffer = rec ? rec.r.buf : this.buffers(kind, o, 1)[0];
     src.loop = true;
     src.playbackRate.setValueAtTime(rate, t);
     const filter = cutoff !== undefined ? this.lowpass(cutoff, t) : undefined;
@@ -4416,7 +4503,7 @@ export class Foley {
     // horns snap on; the rest ease in
     const attack = kind === 'horn_beep' || kind === 'horn_air' ? 0.006 : 0.03;
     g.gain.setValueAtTime(0, t);
-    g.gain.setTargetAtTime(LOOP_LEVEL[kind] * (o.gain ?? 1), t, attack);
+    g.gain.setTargetAtTime(level, t, attack);
     src.start(t, this.rng.next() * src.buffer.duration);
     this.loops.set(kind, { src, gain: g, filter });
   }
@@ -4451,5 +4538,80 @@ export class Foley {
   /** is a loop playing */
   playing(kind: FoleyLoop): boolean {
     return this.loops.has(kind);
+  }
+
+  // ---------------------------------------------------------------- the archive's recordings
+
+  /** how loud the synthesized sound is at gain 1, before its level (rendered once to be measured) */
+  private loudOf(kind: FoleyShot | FoleyLoop, o: FoleyOpts, loop: boolean): number {
+    const k = this.key(kind, o);
+    let v = this.synthLoud.get(k);
+    if (v === undefined) {
+      const x = recipe(kind, o)(this.ctx.sampleRate, new Rng(7));
+      v = loop ? rmsWhole(x) : momentaryMax(x, this.ctx.sampleRate);
+      this.synthLoud.set(k, v);
+    }
+    return v;
+  }
+
+  /** a recording of the archive's for a sound (null: none, or none in yet), and the gain that brings it to the synthesized one's loudness */
+  private recorded(kind: FoleyShot | FoleyLoop, o: FoleyOpts, loop: boolean): { r: Recording; scale: number } | null {
+    const a = this.archive;
+    if (!a?.live) return null;
+    for (const cue of cueKeys(kind, o)) {
+      if (!a.has(cue)) continue;
+      const r = a.pick(cue, this.rng.next());
+      if (!r) return null;
+      const there = loop ? r.loud.rms : r.loud.max;
+      return { r, scale: Math.min(20, Math.max(0.05, this.loudOf(kind, o, loop) / Math.max(1e-5, there))) };
+    }
+    return null;
+  }
+
+  /** the recording a loop plays (the same one for as long as the game runs: a pour is the same pour) */
+  private loopRecording(kind: FoleyLoop, o: FoleyOpts, k: string): { r: Recording; scale: number } | null {
+    const kept = this.loopRecs.get(k);
+    if (kept) return kept;
+    const rec = this.recorded(kind, o, true);
+    if (rec) this.loopRecs.set(k, rec);
+    return rec;
+  }
+
+  private playBuffer(buf: AudioBuffer, gain: number, rate: number, pan: number | undefined, when: number): void {
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.route(src, gain, pan);
+    src.start(Math.max(this.ctx.currentTime, when));
+    src.onended = () => {
+      src.disconnect();
+      g.disconnect();
+    };
+  }
+
+  /** does the archive have a cue (and is it there) */
+  has(cue: string): boolean {
+    return !!this.archive?.live && this.archive.has(cue);
+  }
+
+  /** start fetching the archive's recordings of these cues (ahead of their first play) */
+  warmCues(cues: readonly string[]): void {
+    for (const c of cues) this.archive?.warm(c);
+  }
+
+  /**
+   * A recording of the archive's that is new with it, with no synthesized sound of its own (a footfall, a jump, a
+   * landing, getting into a seat, a meal eaten): brought to its level (cueLevelDb) times `gain`, a little varied,
+   * and played now (or at `when`). False when there is none to play: no archive, or the cue's recordings not in yet.
+   */
+  cue(name: string, gain = 1, o: { pan?: number; when?: number; rate?: number; vary?: number } = {}): boolean {
+    const a = this.archive;
+    if (!a?.live) return false;
+    const r = a.pick(name, this.rng.next());
+    if (!r) return false;
+    const vary = o.vary ?? 0.08;
+    const level = (dbToGain(cueLevelDb(name)) / Math.max(1e-5, r.loud.max)) * gain * (1 - vary + 2 * vary * this.rng.next());
+    this.playBuffer(r.buf, Math.min(8, level), (o.rate ?? 1) * (1 + 0.04 * (this.rng.next() - 0.5)), o.pan, o.when ?? 0);
+    return true;
   }
 }

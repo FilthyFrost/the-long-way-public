@@ -183,6 +183,17 @@ export class AudioEngine {
     return this.nodes ? this.nodes.master : null;
   }
 
+  /** where the sounds from outside join it: through the outside low-pass (a shut cab muffles them) */
+  get outsideBus(): AudioNode | null {
+    return this.nodes ? this.nodes.outside : null;
+  }
+
+  /**
+   * The voices the sound archive's recordings have taken over (ModCar's ambience.ts: its rain and its thunder),
+   * silent here while it plays them; the wind's weather part is taken off the inputs instead (its speed is the car's)
+   */
+  readonly replaced = { rain: false, thunder: false };
+
   /** seconds of sound made so far (the audio clock: it starts late and runs slow on a machine busy drawing) */
   get clock(): number {
     return this.ctx ? this.ctx.currentTime : 0;
@@ -213,7 +224,7 @@ export class AudioEngine {
     set(n.roadFilter.frequency, m.roadCutoff, 0.15);
     set(n.roadGain.gain, m.roadGain * on, 0.1);
     set(n.skidGain.gain, m.skidGain * on, 0.04);
-    set(n.rainGain.gain, m.rainGain * on * wg.rain, 0.4);
+    set(n.rainGain.gain, m.rainGain * on * wg.rain * (this.replaced.rain ? 0 : 1), 0.4);
     set(n.roofGain.gain, m.roofGain * on * wg.roof, 0.4);
     set(n.hailGain.gain, m.hailGain * on * wg.hail, 0.2);
     set(n.outside.frequency, m.outsideCutoff, 0.3);
@@ -228,7 +239,7 @@ export class AudioEngine {
     set(n.horn1.frequency, m.hornHz, 0.01);
     set(n.horn2.frequency, m.hornHz * 1.26, 0.01);
     // thunder: a low rumble that arrives a moment after the flash, then rolls away
-    if (flash > 0.9 && this.thunderAt < t) {
+    if (flash > 0.9 && this.thunderAt < t && !this.replaced.thunder) {
       const delay = 0.6 + 2.6 * Math.abs(Math.sin(t * 12.9898));
       this.thunderAt = t + delay + 4;
       n.thunderGain.gain.cancelScheduledValues(t);

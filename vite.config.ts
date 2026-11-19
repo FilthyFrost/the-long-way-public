@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
+import { resolveCues, type CatalogEntry } from './src/core/audio/cueTable';
+import { wavLoudness, type Loudness } from './src/core/audio/loudness';
 
 const page = (name: string): string => fileURLToPath(new URL(name, import.meta.url));
 
@@ -50,8 +52,94 @@ function devTuneSave(): Plugin {
   };
 }
 
+/**
+ * The sound archive (docs/V3/nodes/M4-audio.md), read from where it lies on this machine, never copied into the
+ * repository or a build: on the dev server only, /audio-archive/__cues.json is the game's table of cues made from
+ * its catalogue (src/core/audio/cueTable.ts), and /audio-archive/<A_lib|L_lib>/… a recording in it (ranges for
+ * the long ones streamed: the radio's songs, the country's beds). No archive (TLW_AUDIO_ARCHIVE names another
+ * folder, or none is there): every address is not found, and the game plays its own synthesized sounds.
+ */
+function audioArchive(): Plugin {
+  const root = path.resolve(process.env.TLW_AUDIO_ARCHIVE ?? 'D:/公路游戏音频整理-20261118/最终可用音频');
+  let table: string | null = null;
+  const louds = new Map<string, Promise<Loudness | null>>();
+  const TYPES: Record<string, string> = { '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.flac': 'audio/flac' };
+  return {
+    name: 'audio-archive',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/audio-archive', (req, res) => {
+        const notFound = (): void => {
+          res.statusCode = 404;
+          res.end();
+        };
+        try {
+          const rel = decodeURIComponent((req.url ?? '/').split('?')[0]).replace(/^\/+/, '');
+          if (rel === '__cues.json') {
+            if (table === null) {
+              const cat = path.join(root, '全部可用音频.json');
+              if (!fs.existsSync(cat)) return notFound();
+              table = JSON.stringify(resolveCues(JSON.parse(fs.readFileSync(cat, 'utf8')) as CatalogEntry[]));
+            }
+            res.setHeader('content-type', 'application/json');
+            res.setHeader('cache-control', 'no-store');
+            res.end(table);
+            return;
+          }
+          // (how loud a recording is, measured from its bytes once: a long bed the game streams, a song)
+          const loud = /^__loud\/(.+)$/.exec(rel);
+          // (a recording of the two games' folders, nothing outside them)
+          const abs = path.resolve(root, loud ? loud[1] : rel);
+          const type = TYPES[path.extname(abs).toLowerCase()];
+          if (!type || !/^(A_lib|L_lib)[\\/]/.test(path.relative(root, abs)) || !abs.startsWith(root + path.sep) || !fs.existsSync(abs)) return notFound();
+          if (loud) {
+            let p = louds.get(abs);
+            if (!p) {
+              p = fs.promises.readFile(abs).then((b) => wavLoudness(b, b.length > 30e6 ? 4 : 1));
+              louds.set(abs, p);
+            }
+            void p.then(
+              (l) => {
+                if (!l) return notFound();
+                res.setHeader('content-type', 'application/json');
+                res.end(JSON.stringify(l));
+              },
+              () => notFound(),
+            );
+            return;
+          }
+          const size = fs.statSync(abs).size;
+          res.setHeader('content-type', type);
+          res.setHeader('accept-ranges', 'bytes');
+          res.setHeader('cache-control', 'max-age=86400');
+          const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+          if (m && (m[1] || m[2])) {
+            const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+            const end = m[1] && m[2] ? Math.min(size - 1, Number(m[2])) : size - 1;
+            if (!(start <= end) || start >= size) {
+              res.statusCode = 416;
+              res.setHeader('content-range', `bytes */${size}`);
+              res.end();
+              return;
+            }
+            res.statusCode = 206;
+            res.setHeader('content-range', `bytes ${start}-${end}/${size}`);
+            res.setHeader('content-length', String(end - start + 1));
+            fs.createReadStream(abs, { start, end }).pipe(res);
+            return;
+          }
+          res.setHeader('content-length', String(size));
+          fs.createReadStream(abs).pipe(res);
+        } catch {
+          notFound();
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [devTuneSave()],
+  plugins: [devTuneSave(), audioArchive()],
   build: {
     target: 'es2022',
     sourcemap: true,

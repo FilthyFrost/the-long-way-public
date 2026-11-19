@@ -355,6 +355,10 @@ export class ModPlayer {
    */
   use: { kind: 'eat' | 'pill' | 'drink'; t: number; slot: number; item: ItemInstance; dur: number } | null = null;
   private bites = 0;
+  /** the bites of the meal going on so far (the sound of eating: ModGame.sound) */
+  get biteCount(): number {
+    return this.bites;
+  }
   private primaryEdge = false;
   readonly eye = { x: 0, y: 0, z: 0 };
   readonly dir = { x: 1, y: 0, z: 0 };

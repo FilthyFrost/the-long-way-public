@@ -45,13 +45,14 @@ try {
         };
         g.seated.radioOn = true;
         await wait(1500);
-        res.radio = { song: g.radio?.songNow, gain: +(g.radio?.out.gain.value ?? 0).toFixed(3), rms: +(await level()).toFixed(4) };
+        // (the station tuned, whether its songs are the archive's or the synthesized ones: radio.ts debug)
+        res.radio = { song: g.radio?.debug().station, mode: g.radio?.debug().mode, gain: +(g.radio?.out.gain.value ?? 0).toFixed(3), rms: +(await level()).toFixed(4) };
         g.seated.radioSong = 2;
         await wait(1200);
-        res.radio2 = { song: g.radio?.songNow, rms: +(await level()).toFixed(4) };
+        res.radio2 = { song: g.radio?.debug().station, mode: g.radio?.debug().mode, rms: +(await level()).toFixed(4) };
         g.seated.radioOn = false;
         await wait(600);
-        res.radioOff = { song: g.radio?.songNow, rms: +(await level()).toFixed(4) };
+        res.radioOff = { song: g.radio?.debug().station, rms: +(await level()).toFixed(4) };
       }
       res.ctx = g.audio.context?.state;
       return res;

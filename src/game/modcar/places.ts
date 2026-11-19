@@ -564,7 +564,7 @@ export class Places {
     else this.openNow.delete(id);
     this.host.setOpen?.(id, open);
     const material = CONTAINER_MATERIAL[pc.c.kind];
-    this.host.play(open ? 'container_open' : 'latch', open ? { material } : {});
+    this.host.play(open ? 'container_open' : 'container_close', { material });
     if (open && !this.searched.has(id)) {
       this.searched.add(id);
       // (things that go off are kept from the moment they are found: rolled again at the next visit they would be fresh again)
@@ -906,6 +906,11 @@ export class Places {
   containerOf(id: string): PlaceContainer | null {
     for (const lp of this.live.values()) for (const pc of lp.containers) if (pc.id === id) return pc;
     return null;
+  }
+
+  /** the kind of a place there now (a house, a filling station …), by its id: what its floors are (the footsteps) */
+  siteKind(id: string): string | null {
+    return this.live.get(id)?.site.kind ?? null;
   }
 }
 

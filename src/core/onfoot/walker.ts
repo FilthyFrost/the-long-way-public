@@ -155,15 +155,19 @@ export class FootWalker {
   private supportAt(x: number, z: number, feet: number): number {
     let s = this.landAt(x, z, feet);
     this.onFloor = false;
+    this.floorTag = '';
     for (const so of this.near) {
       if (!so.floor || so.y1 > feet + FOOT.step + 1e-6 || so.y1 <= s) continue;
       if (pushOut(so, x, z, FOOT_HOLD, this.push)) {
         s = so.y1;
         this.onFloor = true;
+        this.floorTag = so.tag;
       }
     }
     return s;
   }
+  /** the tag of the floor the feet were last found on ('' on the land): what they fall on (the footsteps) */
+  floorTag = '';
 
   get height(): number {
     return this.crouched ? FOOT.heightCrouch : FOOT.height;
@@ -175,6 +179,11 @@ export class FootWalker {
   speedScale = 1;
   /** jumps made so far (whoever counts stamina takes them off) */
   jumps = 0;
+  /** footfalls so far: one each time the walking bob passes a step (on the ground, moving; the footsteps' sounds count them) */
+  steps = 0;
+  /** landings so far from a fall or a jump, and how fast the last came down (m/s) */
+  lands = 0;
+  landSpeed = 0;
 
   /** the speed asked for right now (m/s) */
   topSpeed(run: boolean): number {
@@ -358,6 +367,11 @@ export class FootWalker {
       this.vy -= FOOT.gravity * h;
       this.y += this.vy * h;
       if (this.y <= sup) {
+        // (come down from a jump or off an edge: a landing, if it was more than a step's drop)
+        if (this.vy < -1.2) {
+          this.lands++;
+          this.landSpeed = -this.vy;
+        }
         this.y = sup;
         this.vy = 0;
         this.grounded = true;
@@ -384,7 +398,10 @@ export class FootWalker {
     this.bobAmp += (want - this.bobAmp) * (1 - Math.exp(-h / 0.3));
     // one bob per step; the phase runs over two steps so the sway of the hands (left, right) has its own half rate
     const cadence = (FOOT.cadence + FOOT.cadencePerMs * v) * (v / (v + 0.3));
+    const phase0 = this.bobPhase;
     this.bobPhase = (this.bobPhase + cadence * h * Math.PI * 2) % (Math.PI * 4);
+    // (a footfall each time the phase passes a step, two to its turn: on the ground and moving)
+    if (this.grounded && !this.swimming && v > 0.25 && Math.floor(this.bobPhase / (Math.PI * 2)) !== Math.floor(phase0 / (Math.PI * 2))) this.steps++;
   }
 
   /** move the feet to y; a sudden change (a step, a snap down) is taken out of the eye and eased back in */

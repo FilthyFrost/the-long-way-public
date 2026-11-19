@@ -11,7 +11,7 @@ import type { Action } from './hudItems';
 import * as THREE from 'three';
 import { partDef } from '../../core/modcar/parts';
 import type { MountDef } from '../../core/modcar/types';
-import { SONGS } from './radio';
+import { SONGS, stationLabel } from './radio';
 import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 
@@ -125,7 +125,7 @@ export class Cockpit {
       else if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
       else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: `加挡 · 现在 <b>${v.sys.dash.gearLabel}</b>` }, { keys: ['RMB'], text: '减挡' });
       else if (m.cat === 'ignition') acts.push(v.sys.running ? { keys: ['LMB'], text: `熄火 <b>${name}</b>` } : { keys: ['LMB'], hold: true, text: `打火 <b>${name}</b>` });
-      else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: `换台 · 「${SONGS[v.radioSong % SONGS.length].name}」` }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
+      else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: `换台 · 「${stationLabel(v.radioSong)}」` }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
       else if (m.cat === 'horn' || m.cat === 'steering') acts.push({ keys: ['LMB'], hold: true, text: '按喇叭' });
       else if (m.cat === 'door') acts.push({ keys: ['LMB'], text: v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门' }, { keys: ['E'], text: '下车' });
       ui.prompt(true, '', -1);
@@ -159,7 +159,7 @@ export class Cockpit {
       if (right && v.radioOn) v.radioSong = (v.radioSong + 1) % SONGS.length;
       else v.radioOn = !v.radioOn;
       this.host.sound('switch');
-      if (v.radioOn) this.host.ui.say(v.sys.dash.battery > 0.02 ? `收音机：「${SONGS[v.radioSong % SONGS.length].name}」` : '收音机没反应：电瓶没电。', 2.5);
+      if (v.radioOn) this.host.ui.say(v.sys.dash.battery > 0.02 ? `收音机：「${stationLabel(v.radioSong)}」` : '收音机没反应：电瓶没电。', 2.5);
     }
     else if (m.cat === 'horn' || m.cat === 'steering') v.sys.setHorn(true);
     else if (m.cat === 'door') {

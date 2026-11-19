@@ -20,7 +20,7 @@ import type { Text } from '../../core/modcar/types';
 import type { GarageContext, GarageDevice } from './garageStub';
 import type { GarageLook } from './garageLook';
 import type { Loose } from './loose';
-import { SONGS as RADIO_SONGS } from './radio';
+import { SONGS as RADIO_SONGS, stationLabel } from './radio';
 import type { ModVehicle } from './vehicle';
 
 const text = (zh: string, en: string): Text => ({ zh, en });
@@ -41,7 +41,9 @@ const LIFT_TRAVEL = 1.7;
 const LIFT_ENGAGE = 0.06;
 
 /** the stations' songs (radio.ts: made up, synthesized) by their names */
-const SONGS = RADIO_SONGS.map((s) => `「${s.name}」`);
+/** the set's stations (as many as the radio has), and what one is called, with what is on it now */
+const SONGS = RADIO_SONGS;
+const songLabel = (i: number): string => `「${stationLabel(i)}」`;
 
 export class Machines {
   readonly devices: GarageDevice[] = [];
@@ -101,12 +103,12 @@ export class Machines {
     add('tyrechanger', () => this.tyreWord(), () => this.tyreUse());
     add(
       'radio',
-      () => (self.radioOn ? text(`收音机 · ${SONGS[self.song]} · 关掉`, 'Radio · turn it off') : text('打开收音机', 'Turn the radio on')),
+      () => (self.radioOn ? text(`收音机 · ${songLabel(self.song)} · 关掉`, 'Radio · turn it off') : text('打开收音机', 'Turn the radio on')),
       () => {
         this.radioOn = !this.radioOn;
         if (this.radioOn) this.song = (this.song + 1) % SONGS.length;
         this.ctx?.sound('switch');
-        if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${SONGS[this.song]}。`, 3);
+        if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${songLabel(this.song)}。`, 3);
       },
     );
     add('sink', () => this.sinkWord(), () => this.sinkUse());

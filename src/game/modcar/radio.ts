@@ -1,9 +1,13 @@
 /**
- * The old radio (the car's radio part, the garage's set): five made-up songs from the stations out
- * here, synthesized once each — a picked guitar, a bass, brushes, a whistled or harmonica tune — and
- * heard the way an old AM set hears them: a narrow band, a little crackle, a hiss when it is turned on
- * and the dial finds the station. Nothing recorded. Loops of 8 bars.
+ * The old radio (the car's radio part, the garage's set, a clock radio, a TV, a record player): five stations.
+ * With the sound archive (docs/V3/nodes/M4-audio.md) they are its songs (core/audio/cueSpec.ts STATIONS), on air
+ * round the clock — every set tuned to a station hears the same song at the same place in it — streamed from the
+ * dev server and heard through a set's band, a hiss as the dial finds the station. Without it, five made-up
+ * songs synthesized once each — a picked guitar, a bass, brushes, a whistled or harmonica tune — heard the way an
+ * old AM set hears them: a narrow band, a little crackle. Loops of 8 bars.
  */
+import { onAir, type CueFile, type StationTable } from '../../core/audio/cueTable';
+import { archiveUrl, soundArchive } from './soundArchive';
 import { Rng, biquad, normalize, saturate } from './synth';
 
 export interface Song {
@@ -155,6 +159,50 @@ export function renderSong(song: Song, sr: number): Float32Array {
   return out;
 }
 
+const wrap = (i: number): number => ((Math.round(i) % SONGS.length) + SONGS.length) % SONGS.length;
+
+/** the archive's station a dial's place is (null: no archive, or none with songs there) */
+function archiveStation(i: number): StationTable | null {
+  const a = soundArchive();
+  const st = a?.live ? a.table?.stations[wrap(i)] : undefined;
+  return st && st.songs.length ? st : null;
+}
+
+/** the clock all the sets share (s): the stations are on air in real time */
+export function airClock(): number {
+  return Date.now() / 1000;
+}
+
+/** a song's title from its file's name: "ES_Sick Man's Blues - Peter Crosby", "country-rock-349183" → "Country Rock" */
+export function songTitle(raw: string): string {
+  let s = raw.replace(/^ES_/, '').replace(/^\d+_/, '').replace(/-\d{5,}$/, '');
+  if (!/\s/.test(s)) s = s.replace(/[-_]+/g, ' ');
+  if (s === s.toLowerCase()) s = s.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return s.trim();
+}
+
+/** what the dial says for a station: the archive's station's name, else the synthesized song's */
+export function stationName(i: number): string {
+  return archiveStation(i)?.name ?? SONGS[wrap(i)].name;
+}
+
+/** what is on a station now: the archive's song on air, else the synthesized song's name */
+export function nowOn(i: number): string {
+  const st = archiveStation(i);
+  if (!st) return SONGS[wrap(i)].name;
+  const at = onAir(st.songs, airClock());
+  return at.song >= 0 ? songTitle(st.songs[at.song].title) : st.name;
+}
+
+/** a station as a set shows it: 「乡村之声 · American Heartland」, or the synthesized song 「晚风吹过加油站」 */
+export function stationLabel(i: number): string {
+  const st = archiveStation(i);
+  return st ? `${st.name} · ${nowOn(i)}` : SONGS[wrap(i)].name;
+}
+
+/** each of the archive's songs is brought to this loudness (RMS) before a set's level: about the synthesized songs' */
+const SONG_RMS = 0.2;
+
 export interface RadioState {
   on: boolean;
   /** which station (SONGS) */
@@ -172,6 +220,12 @@ export class Radio {
   private songNow = -1;
   private wasOn = false;
   private static readonly cache = new Map<string, AudioBuffer>();
+  /** the archive's songs: streamed through one element, its level, a set's band */
+  private el: HTMLAudioElement | null = null;
+  private songGain: GainNode | null = null;
+  /** the song the element plays (its file), the station it is of */
+  private songFile = '';
+  private stationNow = -1;
 
   constructor(
     private readonly ctx: BaseAudioContext,
@@ -212,10 +266,107 @@ export class Radio {
     return b;
   }
 
+  /** the element the archive's songs are streamed through, and its way into the set (a car radio's band) */
+  private songPath(): HTMLAudioElement | null {
+    if (this.el) return this.el;
+    const ctx = this.ctx as AudioContext;
+    if (typeof Audio === 'undefined' || typeof ctx.createMediaElementSource !== 'function') return null;
+    const el = new Audio();
+    el.preload = 'auto';
+    const src = ctx.createMediaElementSource(el);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 110;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 7500;
+    const mid = ctx.createBiquadFilter();
+    mid.type = 'peaking';
+    mid.frequency.value = 1400;
+    mid.gain.value = 2;
+    this.songGain = ctx.createGain();
+    this.songGain.gain.value = 1;
+    src.connect(hp).connect(lp).connect(mid).connect(this.songGain).connect(this.music);
+    this.el = el;
+    return el;
+  }
+
+  /** a song of the archive's, from a place in it (the element seeks there once it knows the file) */
+  private playSong(s: CueFile & { title: string }, offset: number): void {
+    const el = this.songPath();
+    if (!el) return;
+    this.songFile = s.file;
+    const asked = performance.now();
+    el.src = archiveUrl(s.file);
+    el.addEventListener(
+      'loadedmetadata',
+      () => {
+        if (this.songFile !== s.file) return;
+        try {
+          el.currentTime = Math.min(Math.max(0, el.duration - 0.2), offset + (performance.now() - asked) / 1000);
+        } catch {
+          /* (not seekable: from its start) */
+        }
+        void el.play().catch(() => undefined);
+      },
+      { once: true },
+    );
+    el.load();
+    // (each song as loud as the others, once the dev server has measured it)
+    const g = this.songGain!;
+    g.gain.cancelScheduledValues(this.ctx.currentTime);
+    g.gain.setValueAtTime(1, this.ctx.currentTime);
+    void soundArchive()
+      ?.loudness(s.file)
+      .then((l) => {
+        if (l && l.rms > 0 && this.songFile === s.file) g.gain.setTargetAtTime(Math.min(8, SONG_RMS / Math.max(0.01, l.rms)), this.ctx.currentTime, 0.2);
+      });
+  }
+
+  /** the archive's song stopped (the set off, or the archive gone) */
+  private stopSong(): void {
+    if (!this.el) return;
+    this.el.pause();
+    this.songFile = '';
+    this.stationNow = -1;
+  }
+
+  /** the dial finds a station: a burst of hiss, settling to `under` */
+  private tuneHiss(t: number, under: number): void {
+    this.hiss.gain.cancelScheduledValues(t);
+    this.hiss.gain.setValueAtTime(0.22, t);
+    this.hiss.gain.linearRampToValueAtTime(under, t + 0.7);
+  }
+
+  /** what is playing now, for the harness and the developer: the archive's song (its file, how far in) or the synthesized one */
+  debug(): { mode: 'archive' | 'synth' | 'off'; station: number; song: string; at: number; paused: boolean } {
+    if (this.songFile && this.el) return { mode: 'archive', station: this.stationNow, song: this.songFile.split('/').pop() ?? '', at: this.el.currentTime, paused: this.el.paused };
+    if (this.src) return { mode: 'synth', station: this.songNow, song: SONGS[this.songNow]?.name ?? '', at: 0, paused: false };
+    return { mode: 'off', station: -1, song: '', at: 0, paused: true };
+  }
+
   update(st: RadioState): void {
     const t = this.ctx.currentTime;
-    const song = ((st.song % SONGS.length) + SONGS.length) % SONGS.length;
-    if (st.on && (song !== this.songNow || !this.src)) {
+    const song = wrap(st.song);
+    const station = archiveStation(song);
+    if (station && this.songPath()) {
+      // the archive's songs: the synthesized one let go if it was playing (the archive came in since)
+      if (this.src) {
+        this.src.stop(t + 0.05);
+        this.src = null;
+        this.songNow = -1;
+      }
+      if (st.on) {
+        const at = onAir(station.songs, airClock());
+        const s = station.songs[at.song];
+        if (s && (song !== this.stationNow || s.file !== this.songFile)) {
+          if (song !== this.stationNow) this.tuneHiss(t, 0.006);
+          this.stationNow = song;
+          this.playSong(s, at.at);
+        }
+      } else this.stopSong();
+    } else if (this.songFile) this.stopSong();
+    if (!station && st.on && (song !== this.songNow || !this.src)) {
       this.src?.stop();
       const src = this.ctx.createBufferSource();
       src.buffer = this.buffer(song);
@@ -243,6 +394,7 @@ export class Radio {
 
   dispose(): void {
     this.src?.stop();
+    this.el?.pause();
     this.out.disconnect();
   }
 }

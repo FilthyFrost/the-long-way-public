@@ -17,7 +17,7 @@ import { APPLIANCE_ITEMS, APPLIANCE_JUNK, KITCHEN_CAT } from '../../../../core/v
 import { registerItemCardLines } from '../../itemInfo';
 import type { GameContext } from '../../kernel/context';
 import type { GameModule } from '../../kernel/modules';
-import { SONGS } from '../../radio';
+import { stationLabel } from '../../radio';
 import { appliancesTab } from './devTab';
 import { Appliances, TV_CHANNELS } from './system';
 
@@ -27,7 +27,7 @@ registerItemCat(KITCHEN_CAT);
 registerItems(APPLIANCE_ITEMS);
 for (const [kind, ids] of Object.entries(APPLIANCE_JUNK)) addJunk(kind, ids);
 
-const songName = (ch: number): string => SONGS[((ch % SONGS.length) + SONGS.length) % SONGS.length].name;
+const songName = (ch: number): string => stationLabel(ch);
 
 for (const id of Object.keys(APPLIANCE_OF)) {
   registerItemCardLines({ item: id }, (inst, card) => {

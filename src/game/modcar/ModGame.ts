@@ -47,7 +47,13 @@ import { DevWorld } from './devWorld';
 import { buildGarage } from './garage';
 import { buildGarageStub, type GarageContext, type GarageDevice, type GarageScene } from './garageStub';
 import { EngineVoice, loadBank } from './engineAudio';
-import { Foley, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import { cueKeys, Foley, FOLEY_LOOPS, FOLEY_SHOTS, type FoleyLoop, type FoleyOpts, type FoleyShot, type PanelMaterial } from './foley';
+import type { SurfaceId } from '../../core/world/ground';
+import { openArchive } from './soundArchive';
+import { Ambience, type AmbienceInputs } from './ambience';
+import { footfallGain, footingOf, type Footing } from '../../core/audio/footing';
+import { pickupOf } from '../../core/audio/cueSpec';
+import { BIOMES } from '../../core/world/biomes';
 import { salvageOfHeld, Workshop, WORKSHOP_PLAN, type WorkshopSave } from './workshop';
 import { MaterialsHud } from './vitalsHud';
 import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
@@ -73,7 +79,8 @@ import { ScrubHud } from './scrubHud';
 import type { Cleaner, Tool } from '../../core/modcar/tools';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
 import { HeldThing } from './held';
-import { Radio } from './radio';
+import { Radio, stationLabel } from './radio';
+import { soundTab, type SoundStatus } from './soundTab';
 import { clearSave, writeSave, type SaveV1, type SavedLoose } from './save';
 import { itemDef, itemMass, itemPaint, newItem } from '../../core/modcar/items';
 import { setItemClock } from './itemTime';
@@ -116,6 +123,15 @@ import type { GameModule } from './kernel/modules';
 
 /** converts the rig frame (+x forward, +z right) to a Three.js camera (−z forward, +x right) */
 const QFIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+
+/** the sound archive's cues fetched as soon as it answers (the rest as they are first played): the car's body, things in the hands, the feet */
+const ARCHIVE_WARM: readonly string[] = [
+  'door_open', 'door_close', 'hood_open', 'hood_close', 'trunk_open', 'trunk_close', 'handbrake_pull', 'handbrake_release', 'switch',
+  'part_pickup:light', 'part_pickup:medium', 'part_pickup:heavy', 'part_setdown:light', 'part_setdown:medium', 'part_setdown:heavy', 'part_install', 'part_remove',
+  'step:dirt', 'step:gravel', 'step:concrete', 'step:wood', 'step:carpet', 'step:snow', 'jump', 'jump:dirt', 'land', 'land:dirt',
+  'car_getin', 'car_getout', 'crash:small', 'crash:medium', 'gulp', 'eat', 'cap_open', 'pickup:can', 'pickup:bag', 'pickup:bottle', 'pickup:plastic',
+  'container_open:wood', 'container_close:wood', 'container_open:crate', 'door_house_open', 'door_house_close',
+];
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
 
@@ -139,6 +155,8 @@ export interface ModParams extends Params {
   world: WorldVersion;
   /** how many regions of the registry the world knows: a save's own count, or the address's (?regions=); absent: the version's own — all there are now, for a new world of version 2 */
   regions?: number;
+  /** play the sound archive's recordings where it is there (docs/V3/nodes/M4-audio.md); ?archive=0: the game's own synthesized sounds only */
+  archive: boolean;
 }
 
 export function readModParams(base: Params, search: string = window.location.search): ModParams {
@@ -154,6 +172,7 @@ export function readModParams(base: Params, search: string = window.location.sea
     keep: false,
     world: q.get('world') === '1' ? 1 : 2,
     ...(Number.isInteger(regions) ? { regions } : {}),
+    archive: q.get('archive') !== '0',
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
     weather: base.weather === 'auto' && start === 'garage' ? 'clear' : base.weather,
   };
@@ -546,6 +565,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // from its own) and the modules installed before anything is stepped; their systems are set up once the
     // garage, the vehicles and the things lying about are there, and then the save's slices are read
     this.kernel.install(modules, this, this.env.clock.hourAt(0), this.restore);
+    this.devTabs.add(soundTab({ status: () => this.soundStatus(), test: (what) => this.soundTest(what), setArchive: (on) => this.setArchive(on) }));
     this.ready = this.populate().then(() => this.kernel.start(this));
     this.bindInput(canvas);
     window.addEventListener('resize', () => this.core.resize(window.innerWidth, window.innerHeight));
@@ -2682,6 +2702,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.shake.reset();
     // (no door on a motorcycle: the stand folds up)
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
+    if (!v.view.frame.balance) this.foley?.cue('car_getin', 0.9);
     this.checkTutorial();
   }
 
@@ -2710,6 +2731,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.input.lookYaw = heading;
     this.input.lookPitch = 0;
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
+    if (!v.view.frame.balance) this.foley?.cue('car_getout', 0.9);
   }
 
   /** into a vehicle's living space by an open door (docs/V3/nodes/M2-rv.md): only a vehicle standing still */
@@ -2954,8 +2976,156 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.voice = new EngineVoice(ctx, out);
       this.foley = new Foley(ctx, out);
       this.foley.warm(['door_open', 'door_close', 'part_pickup', 'part_setdown', 'part_install', 'key_turn', 'handbrake_pull', 'gear_shift', 'ratchet', 'latch']);
+      // the sound archive's recordings in place of the synthesized sounds, once it answers (docs/V3/nodes/M4-audio.md)
+      const archive = openArchive(ctx, this.params.archive !== false);
+      this.foley.archive = archive;
+      void archive.probe().then((ok) => {
+        if (ok) this.foley?.warmCues(ARCHIVE_WARM);
+      });
     }
     return this.foley;
+  }
+
+  /** what the sound archive is doing (the developer's tab 声音, the harness) */
+  soundStatus(): SoundStatus {
+    const a = this.foley?.archive;
+    const d = a?.debug();
+    const v = this.seated;
+    return {
+      live: !!a?.table,
+      on: !!a?.inUse,
+      cues: d?.cues ?? 0,
+      decoded: d?.decoded ?? 0,
+      failed: d?.failed ?? 0,
+      played: d?.played ?? {},
+      beds: this.ambience?.debug() ?? {},
+      radio: this.radio?.debug() ?? null,
+      station: this.radioStation(),
+      seated: !!v,
+      footing: this.footing(),
+      thunders: this.ambience?.thunders ?? 0,
+    };
+  }
+
+  /** the station of the radio heard now (the car's, the garage's set, a system's), as its dial says it */
+  private radioStation(): string {
+    const d = this.radio?.debug();
+    return d && d.mode !== 'off' && d.station >= 0 ? stationLabel(d.station) : '';
+  }
+
+  /** a test sound of the developer's tab: a footfall where one stands, a car door, a thing picked up, thunder */
+  soundTest(what: 'step' | 'door' | 'pickup' | 'thunder'): void {
+    const f = this.sounds();
+    if (!f) return;
+    if (what === 'step') f.cue(`step:${this.footing()}`, 1);
+    else if (what === 'door') f.play('door_close', {});
+    else if (what === 'pickup') f.play('part_pickup', { mass: 5 });
+    else if (!this.ambience?.thunder(1.5)) this.foley?.archive?.warm('thunder');
+  }
+
+  /** the archive's recordings in use, or the game's own synthesized sounds alone (to compare) */
+  setArchive(on: boolean): void {
+    const a = this.foley?.archive;
+    if (a) a.inUse = on;
+  }
+
+  /** the footsteps' counts last heard (FootWalker.steps, lands, jumps), and the walk inside a living space */
+  private readonly feet = { steps: 0, lands: 0, jumps: 0, walked: 0, x: NaN, z: NaN };
+  private readonly footGs = new GroundSample();
+
+  /** what the feet fall on now (core/audio/footing.ts) */
+  footing(): Footing {
+    const w = this.player.walker;
+    const tag = w.floorTag;
+    const colon = tag.indexOf(':');
+    const siteKind = colon > 0 ? (this.places?.siteKind(tag.slice(0, colon)) ?? null) : null;
+    let surface: number = Surface.Grass;
+    if (!tag) {
+      this.ground.sample(w.x, w.z, this.footGs);
+      surface = this.footGs.surface;
+    }
+    return footingOf({ aboard: !!this.player.aboard, workshop: this.place === 'garage' && (!this.seamless || this.indoors()), floorTag: tag, siteKind, surface: surface as SurfaceId });
+  }
+
+  /** footfalls, jumps and landings on what is under the feet (the archive's recordings: none without it) */
+  private updateFootsteps(): void {
+    const f = this.foley;
+    const w = this.player.walker;
+    const k = this.feet;
+    const fresh = w.steps !== k.steps;
+    const jumped = w.jumps !== k.jumps;
+    const landed = w.lands !== k.lands;
+    k.steps = w.steps;
+    k.jumps = w.jumps;
+    k.lands = w.lands;
+    if (!f || this.seated || !f.has('step:dirt')) {
+      k.x = NaN;
+      return;
+    }
+    let step = fresh && !w.swimming && w.depth < 0.3;
+    const ab = this.player.aboard;
+    if (ab) {
+      // (inside a living space the walk is the vehicle's own: a footfall every 70 cm of it)
+      if (Number.isFinite(k.x)) k.walked += Math.hypot(w.x - k.x, w.z - k.z);
+      k.x = w.x;
+      k.z = w.z;
+      if (k.walked > 0.7) {
+        k.walked = 0;
+        step = true;
+      }
+    } else k.x = NaN;
+    if (!step && !jumped && !landed) return;
+    const on = this.footing();
+    if (landed) {
+      const g = Math.min(1.4, 0.5 + w.landSpeed / 8);
+      if (w.landSpeed > 7) f.cue('land:hard', g);
+      if (!f.cue(`land:${on}`, g)) f.cue('land', g);
+    } else if (jumped) {
+      if (!f.cue(`jump:${on}`, 1)) f.cue('jump', 1);
+    } else {
+      const speed = ab ? 1.2 : Math.hypot(w.vx, w.vz);
+      f.cue(`step:${on}`, footfallGain(on, speed, speed > 3), { vary: 0.12 });
+    }
+  }
+
+  /** the country round one and its weather, recorded (ambience.ts); the synthesized rain, thunder and weather wind silent while it plays */
+  private ambience: Ambience | null = null;
+  private readonly ambIn: AmbienceInputs = { daylight: 1, green: 1, dry: 0, cold: 0, rain: 0, hail: 0, snow: 0, wind: 0, dust: 0, enclosed: 0, flash: 0 };
+  private updateAmbience(dt: number): void {
+    const a = this.foley?.archive;
+    const ctx = this.audio.context;
+    const bus = this.audio.outsideBus;
+    const live = !!a && a.live && !!ctx && !!bus && a.has('bed:wind_light');
+    this.audio.replaced.rain = live;
+    this.audio.replaced.thunder = live;
+    if (!live || !a || !ctx || !bus) {
+      // (switched off: the beds fade out, the synthesized weather is back)
+      this.ambience?.silence(dt);
+      return;
+    }
+    this.ambience ??= new Ambience(ctx, a, bus);
+    const i = this.ambIn;
+    const w = this.env.state;
+    i.daylight = this.env.sky.daylight;
+    // the kind of country: its regions' kin, as one blends into the next along the road
+    const bl = this.bl;
+    i.green = i.dry = i.cold = 0;
+    const kin = (id: number, share: number): void => {
+      const k = BIOMES[id]?.kin ?? 'plains';
+      if (k === 'desert') i.dry += share;
+      else if (k === 'alpine') i.cold += share;
+      else i.green += share;
+    };
+    kin(bl.a, 1 - bl.t);
+    kin(bl.b, bl.t);
+    i.rain = w.rain;
+    i.hail = w.hail;
+    i.snow = w.snow;
+    i.wind = w.wind;
+    i.dust = w.dust;
+    i.enclosed = this.seated ? 1 - this.cabinOpen(this.seated) : this.shelterNow;
+    i.flash = this.env.flash;
+    this.ambience.update(i, dt);
   }
 
   /** the material a door makes its sound in, by the style of the part on it */
@@ -2976,6 +3146,18 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const held = this.player.held;
     const v = this.seated ?? this.focus;
     switch (name) {
+      case 'bite':
+        // (the archive's chewing is a whole meal's: played once, at the first bite)
+        if (f.has('eat')) {
+          if (this.player.biteCount <= 1) f.cue('eat');
+          return;
+        }
+        break;
+      case 'pickup': {
+        const what = held?.kind === 'item' ? pickupOf(held.item.item) : held?.kind === 'tool' && held.tool.kind === 'jerrycan' ? 'gascan' : null;
+        if (what && f.cue(`pickup:${what}`, 1)) return;
+        break;
+      }
       case 'spray':
         this.loopsNow.set('spray_hiss', {});
         return;
@@ -3596,7 +3778,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const f = this.foley;
     if (!f) return;
     const w = this.warmQueue.shift();
-    if (w) f.warm([w[0]], w[1]);
+    if (w) {
+      f.warm([w[0]], w[1]);
+      f.warmCues(cueKeys(w[0], w[1]));
+    }
     // the wrench turns while a part goes on or comes off
     const t = this.player.target;
     if (!this.seated && this.player.progress > 0 && t && (t.kind === 'ghost' || t.kind === 'looseSub' || ((t.kind === 'part' || t.kind === 'loose') && this.player.secondary))) this.loopsNow.set('ratchet', {});
@@ -4448,7 +4633,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.systems.lateUpdate(dt, this);
     this.ui.update(dt);
     this.updateHudBits();
-    this.updateAudio();
+    this.updateAudio(dt);
   }
 
   private readonly splashGs = new GroundSample();
@@ -4822,12 +5007,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     return false;
   }
 
-  private updateAudio(): void {
+  private updateAudio(dt: number): void {
     this.sounds();
     this.worldLoops();
     this.updateFoley();
     this.updateEngineVoice();
     this.updateRadio();
+    this.updateFootsteps();
+    this.updateAmbience(dt);
+    // (the weather's wind is the archive's beds while they play: the synthesized wind keeps only the car's own speed)
+    const recorded = this.audio.replaced.rain;
     const v = this.focus;
     if (!v) return;
     const sim = v.sim;
@@ -4861,8 +5050,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         rain: w.rain,
         hail: w.hail,
         snow: w.snow,
-        dust: w.dust,
-        wind: w.wind,
+        dust: recorded ? 0 : w.dust,
+        wind: recorded ? 0 : w.wind,
         // (the wind and the rain come in at a door standing open as at one that is not there; on foot, through
         // the walls and the roof one stands under)
         enclosed: this.seated ? 1 - this.cabinOpen(v) : this.shelterNow,
