@@ -572,13 +572,22 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
     groundPaint.reset();
     for (const rocks of [false,true]) for (const it of field.tile(tx,tz,rocks)) {
       if (lod === LOD_MID && it.height < 0.7) continue;
-      const model = reg.atlas.models['ground_'+it.form+lod];
+      const variant = rocks ? Math.min(2,Math.floor(it.seed*3)) : 0;
+      const model = reg.atlas.models['ground_'+it.form+lod+(variant?'v'+variant:'')];
       const g = groundPaint, o = 4*g.n++;
-      const x=it.x-x0, z=it.z-z0, y=it.y-oy;
+      const x=it.x-x0, z=it.z-z0;
+      let y=it.y-oy;
       const si=Math.min(SLOT_N-1,Math.max(0,Math.round(x/SLOT_STEP)));
       const sj=Math.min(SLOT_N-1,Math.max(0,Math.round(z/SLOT_STEP)));
       const sk=sj*SLOT_N+si;
       slopeAt(H,x/ECO_STEP,z/ECO_STEP);
+      // The visible near leaf is two triangles per eight-metre square. Small clasts
+      // and spring leaves otherwise disappear inside the straight face of a curved bank.
+      if (!it.solid && et.ad[slopeNode] > 44) {
+        const a=slopeNode, u=x/ECO_STEP-a%ECO_N, v=z/ECO_STEP-Math.floor(a/ECO_N);
+        const b=H[a+1], c=H[a+ECO_N], d=H[a+ECO_N+1];
+        y=(u+v<=1 ? H[a]*(1-u-v)+b*u+c*v : d*(u+v-1)+b*(1-v)+c*(1-u))-oy;
+      }
       g.place.set([x,y,z,it.yaw],o);
       g.shape.set([it.radius,it.height,model.first,model.count],o);
       g.look.set([snowyPair(world,sk,it.y),slotShare[sk]*0.999,it.paint,it.accent],o);

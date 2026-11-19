@@ -73,6 +73,7 @@ export class GroundField implements SolidSource {
       const r = sampleRock(profile,e,pick,die);
       if (!r) return;
       g = r; name = r.name;
+      accent = e.moisture > 0.56 && e.slope < 0.9 && g.form !== 'cobbles' ? 0x858856 : g.paint;
     } else {
       const altitude = siteElevation(biome.id,e);
       const band = elevationBand(profile,altitude);
@@ -104,7 +105,7 @@ export class GroundField implements SolidSource {
     if (tp.zone || tp.site>0.1 || tp.plot>0.1 || tp.wl>tp.bed || Math.abs(tp.d)<(rocks ? 12 : 7.6)) return;
     if (g.habitat === 'bench' && !onBench(tp.bed,e.step)) return;
     const vary = rand2(i,j,seed+5), scale=0.62+0.66*vary;
-    const h = g.height*scale*(winter ? 0.73 : 1), r = g.radius*scale;
+    const h = g.height*scale*(winter ? 0.73 : 1), r = g.radius*scale*(g.form==='fern' ? 1.43 : 1);
     const yaw = g.form==='rice' ? 0 : rand2(i,j,seed+6)*2*Math.PI;
     const out:GroundClump = {x,y:tp.bed,z,yaw,radius:r,height:h,form:g.form,name,paint:winter ? 0x8a806c : autumn ? 0xb98552 : dry ? 0xb9a16b : g.paint,accent:accent || (rocks ? g.paint : 0xb19a6c),seed:vary};
     if (rocks && h>0.68) {
