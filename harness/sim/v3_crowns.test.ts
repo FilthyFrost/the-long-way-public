@@ -8,7 +8,7 @@
  *   crown with no gap (a tall crown is not a ball floating over a bare stem);
  *   a scatter tile asked to hand its crowns over draws none of those trees itself and loses none: what it hands
  *   over and what it still draws are, together, what it draws when no crowns are asked for; the far tiles keep
- *   every tree in the atlas;
+ *   their existing density mask;
  *   a tile set again under the same key is not taken back by the one it replaced.
  */
 import { describe, expect, it } from 'vitest';
@@ -18,6 +18,7 @@ import { SpineSample } from '../../src/core/world/spine';
 import { World } from '../../src/core/world/terrain';
 import { CROWN_LEVELS, growBroadleaf, growConifer } from '../../src/game/scene/crowns/grow';
 import { CROWN_STRIDE, type CrownLookup } from '../../src/game/scene/crowns/crownData';
+import { bakeCrown } from '../../src/game/scene/crowns/crownAtlas';
 import { crownBudget, crownSpecies, SPECIES } from '../../src/game/scene/crowns/species';
 import { LOD_CLOSE, LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraLod } from '../../src/game/scene/floraScatter';
 import { plantRegistry } from '../../src/game/scene/plantRegistry';
@@ -46,6 +47,25 @@ describe('painted crowns · the growers', () => {
     const c = SPECIES.conifer.variants[0].grow;
     if (c.kind !== 'conifer') throw new Error('conifer');
     expect(Array.from(growConifer(211, c.shape, 1).geometry.getAttribute('position').array)).toEqual(Array.from(growConifer(211, c.shape, 1).geometry.getAttribute('position').array));
+  });
+
+  it('bakes the same silhouette, surface normals, depth and paint from the same grown variant', () => {
+    const variants = crownSpecies().get('broadleaf')!.models;
+    const bake = (variant: number) => bakeCrown(variants[variant][2].geometry);
+    const a = bake(0), b = bake(0);
+    expect(Buffer.compare(a.normals, b.normals)).toBe(0);
+    expect(Buffer.compare(a.paint, b.paint)).toBe(0);
+    expect(Buffer.compare(a.normals, bake(1).normals)).not.toBe(0);
+    for (let view = 0; view < 16; view++) {
+      const side = a.width / 4;
+      let area = 0;
+      for (let y = 0; y < side; y++) for (let x = 0; x < side; x++) {
+        const i = (Math.floor(view / 4) * side + y) * a.width + (view % 4) * side + x;
+        if (a.normals[i * 4 + 3]) area++;
+      }
+      expect(area).toBeGreaterThan(side);
+      expect(area).toBeLessThan(side * side);
+    }
   });
 
   it('keep every species within its budget at each level, the levels ever lighter', () => {
@@ -118,7 +138,12 @@ describe('painted crowns · the scatter hands them over', () => {
         const n1 = count(withCrowns.batches);
         expect(n1 + withCrowns.crownCount, `tile ${tx},${tz}`).toBe(n0);
         handed += withCrowns.crownCount;
-        if (lod === LOD_FAR) expect(withCrowns.crownCount).toBe(0);
+        // The flora tile's per-plant variation is passed unchanged to both renderers.
+        const identities = (s: typeof plain) => s.batches.flatMap(batch =>
+          Array.from({ length: batch.count }, (_, i) => batch.lie[i * 4 + 2]));
+        const actual = identities(withCrowns);
+        for (let i = 0; i < withCrowns.crownCount; i++) actual.push(withCrowns.crowns![i * CROWN_STRIDE + 12]);
+        expect(actual.sort((a, b) => a - b)).toEqual(identities(plain).sort((a, b) => a - b));
         // every crown handed over is of a species, in the tile, standing on the land
         const c = withCrowns.crowns;
         for (let i = 0; i < withCrowns.crownCount; i++) {
@@ -130,7 +155,7 @@ describe('painted crowns · the scatter hands them over', () => {
           expect(Number.isFinite(c![o + 1])).toBe(true);
         }
       }
-      if (lod !== LOD_FAR) expect(handed).toBeGreaterThan(0);
+      expect(handed).toBeGreaterThan(0);
     });
   }
 
@@ -146,6 +171,28 @@ describe('painted crowns · the scatter hands them over', () => {
 });
 
 describe('painted crowns · the view', () => {
+  it('keeps one logical tree and complementary draws across both fade bands', () => {
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+    const origin = { x: 0, y: 0, z: 0 };
+    const view = new CrownView({ camera, origin } as unknown as RenderCore);
+    const data = Float32Array.of(0, 0, 0, 0, 1, 1, 0, 0, 0, 0, -1, 0, 0.5, 0, 4, 10);
+    view.setTile('a', data, 1);
+    for (const [range, expected] of [[25, [0]], [70, [-70, 70]], [100, [0]], [200, [-200, 200]], [260, [0]]] as const) {
+      camera.position.set(0, 4, range);
+      view.update();
+      const draws = view.group.children.filter(m => m.visible && m.layers.mask === 1) as THREE.InstancedMesh[];
+      expect(draws.map(m => m.geometry.getAttribute('aFade').getX(0) || 0).sort((a, b) => a - b)).toEqual([...expected]);
+      expect(view.drawn.levels.reduce((a, b) => a + b, 0)).toBe(1);
+      if (range === 260) expect(view.drawn.triangles).toBe(2);
+    }
+    origin.x = 25;
+    camera.position.x -= 25;
+    view.update();
+    const far = view.group.children.find(m => m.visible && m.layers.mask === 1) as THREE.InstancedMesh;
+    expect(far.instanceMatrix.array[12]).toBe(-25);
+    view.dispose();
+  });
+
   it('takes a tile back only with the token that set it: a tile set again under its key stays', () => {
     const core = { camera: new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 5000), origin: { x: 0, y: 0, z: 0 } } as unknown as RenderCore;
     const view = new CrownView(core);

@@ -400,8 +400,25 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       const pi = t.plant[i];
       const d = reg.draws[pi];
       if (!d.drawn) continue;
+      let level = layer === LAYER_TREE ? treeLevel : smallLevel;
+      if (dense && layer === LAYER_TREE) {
+        // a tree inside a thick wood: a level lower than the wood's edge; furthest off, every other one
+        const qx = (t.x[i] - x0) / ECO_STEP;
+        const qz = (t.z[i] - z0) / ECO_STEP;
+        const qi = qx < 0 ? 0 : qx >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qx);
+        const qj = qz < 0 ? 0 : qz >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qz);
+        const qu = qx - qi;
+        const qv = qz - qj;
+        const qa = qj * ECO_N + qi;
+        if ((C[qa] * (1 - qu) + C[qa + 1] * qu) * (1 - qv) + (C[qa + ECO_N] * (1 - qu) + C[qa + ECO_N + 1] * qu) * qv > INSIDE_CANOPY) {
+          if (level === 2 && t.vary[i] >= 0.5) continue;
+          if (level < 2) level++;
+        }
+      }
+      const model = level === 0 ? d.near : level === 1 ? d.far : d.tiny;
+      if (!model) continue;
       // a painted crown: handed over, with where it stands and how it looks
-      if (crowns && lod <= LOD_MID && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
+      if (crowns && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
         const sp = crownOf(crowns, pi);
         if (sp >= 0) {
           const plant = PLANTS[pi];
@@ -456,23 +473,6 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           continue;
         }
       }
-      let level = layer === LAYER_TREE ? treeLevel : smallLevel;
-      if (dense && layer === LAYER_TREE) {
-        // a tree inside a thick wood: a level lower than the wood's edge; furthest off, every other one
-        const qx = (t.x[i] - x0) / ECO_STEP;
-        const qz = (t.z[i] - z0) / ECO_STEP;
-        const qi = qx < 0 ? 0 : qx >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qx);
-        const qj = qz < 0 ? 0 : qz >= ECO_SQ ? ECO_SQ - 1 : Math.floor(qz);
-        const qu = qx - qi;
-        const qv = qz - qj;
-        const qa = qj * ECO_N + qi;
-        if ((C[qa] * (1 - qu) + C[qa + 1] * qu) * (1 - qv) + (C[qa + ECO_N] * (1 - qu) + C[qa + ECO_N + 1] * qu) * qv > INSIDE_CANOPY) {
-          if (level === 2 && t.vary[i] >= 0.5) continue;
-          if (level < 2) level++;
-        }
-      }
-      const model = level === 0 ? d.near : level === 1 ? d.far : d.tiny;
-      if (!model) continue;
       const g = gather[d.cls];
       if (g.n >= MOST[d.cls]) continue;
       const plant = PLANTS[pi];
