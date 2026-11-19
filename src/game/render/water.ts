@@ -123,7 +123,13 @@ export function waterMaterial(): THREE.ShaderMaterial {
         float sparkle = rtNoiseAt(w * 1.0 + drift * 1.7, 2.6).b * 0.6 + r1.a * 0.4;
         float path = dot(R, uSunDisc) + (sparkle - 0.5) * (0.035 + 0.05 * uWind.z);
         float glit = smoothstep(0.9965, 0.9985, path) * uSunVis * sh * (1.0 - frozen * 0.7);
-        col += uSunColor * (2.2 + 2.0 * uSunVis) * glit;
+        // A close reflection breaks into narrow wave crests. Filter them to their
+        // mean coverage in the distance, where individual facets are subpixel.
+        float wave = dot(w, vec2(.81, .59)) * 165.0 + 2.8 * sin(dot(w, vec2(-.59, .81)) * 42.0) - uTime * 2.2;
+        float facets = mix(smoothstep(.68, .96, cos(wave)), .16, smoothstep(.5, 2.8, fwidth(wave)));
+        float broken = smoothstep(.35, .78, rtNoiseAt(w * 14. + drift, 2.6).g);
+        vec3 gilt = min(uSunColor, vec3(1.25, 1.13, .91));
+        col += gilt * mix(.63 * facets * broken, .14, smoothstep(3.0, 45.0, dist)) * glit;
         float mpath = dot(R, uMoonDir) + (sparkle - 0.5) * 0.04;
         col += vec3(0.35, 0.42, 0.6) * smoothstep(0.9975, 0.999, mpath) * uWeather.w * smoothstep(0.0, 0.1, uMoonDir.y) * (1.0 - uDeck.x);
 
