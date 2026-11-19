@@ -25,7 +25,7 @@ import { itemCard } from '../../src/game/modcar/itemInfo';
 import { BASKET, KNIFE, pageId, SICKLE, TROWEL, UNKNOWN_BLURB } from '../../src/game/modcar/v3/forage/content';
 import forageModule, { forage } from '../../src/game/modcar/v3/forage/index';
 import { domains, gainXp, learn, progress, setSkillLevel } from '../../src/game/modcar/v3/progress/api';
-import { forageRig, FOREST, passDays, V1_WORLD, WORLD } from './v3/forageRig';
+import { forageRig, forestSpot, FOREST, passDays, V1_WORLD, WORLD } from './v3/forageRig';
 
 const card = (it: ItemInstance): ReturnType<typeof itemCard> => itemCard(it, 0);
 
@@ -213,7 +213,7 @@ describe('forage module: the pick', () => {
 
   it('the tools in the hotbar help: the knife a star, the trowel one more, the sickle twice as many', async () => {
     const out: PickResult = { n: 0, q: 0, xp: 0 };
-    const r = await forageRig({ pack: 4 });
+    const r = await forageRig({ pack: 4, at: forestSpot(WORLD, 4350) });
     r.settle();
     const day = r.ctx.clock.day;
     const garlic = r.shown().find((p) => p.kind === 'wild_garlic')!;

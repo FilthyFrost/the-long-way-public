@@ -19,7 +19,10 @@ import { World } from '../../src/core/world/terrain';
 import { CROWN_LEVELS, growBroadleaf, growConifer } from '../../src/game/scene/crowns/grow';
 import { CROWN_STRIDE, type CrownLookup } from '../../src/game/scene/crowns/crownData';
 import { bakeCrown } from '../../src/game/scene/crowns/crownAtlas';
-import { crownBudget, crownSpecies, SPECIES } from '../../src/game/scene/crowns/species';
+import { paintedFamily, CROWN_PAINT } from '../../src/game/scene/crowns/palette';
+import { ECO_TREE_FAMILIES } from '../../src/core/world/data/ecoProfiles';
+import { FLORA } from '../../src/core/world/floraTables';
+import { growSpeciesModel, crownBudget, crownSpecies, SPECIES } from '../../src/game/scene/crowns/species';
 import { LOD_CLOSE, LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraLod } from '../../src/game/scene/floraScatter';
 import { plantRegistry } from '../../src/game/scene/plantRegistry';
 import * as THREE from 'three';
@@ -68,6 +71,48 @@ describe('painted crowns · the growers', () => {
     }
   });
 
+  it('keeps exposed branches behind snowy deciduous leaves and preserves solid part IDs', () => {
+    const tree = bakeCrown(crownSpecies().get('broadleaf')!.models[0][2].geometry);
+    expect(tree.height).toBe(tree.width * 2);
+    const winter = tree.width * tree.width * 4;
+    let branches = 0;
+    for (let i = winter; i < tree.paint.length; i += 4) {
+      if (!tree.normals[i + 3]) continue;
+      branches++;
+      expect(tree.paint[i + 2]).toBe(0);
+    }
+    expect(branches).toBeGreaterThan(0);
+    const palm = bakeCrown(crownSpecies().get('coconut_palm')!.models[0][2].geometry);
+    expect(palm.paint.some((v, i) => (i % 4 === 2) && v >= 3 * 32)).toBe(true);
+  });
+
+  it('grows two deterministic, budgeted variants for every tree named in a region', () => {
+    for (const family of ECO_TREE_FAMILIES) expect(SPECIES[family], family).toBeDefined();
+    for (const table of Object.values(FLORA)) for (const row of table.trees) {
+      const plant = PLANTS.find(p => p.id === row.plant)!;
+      expect(SPECIES[paintedFamily(plant.id, plant.model)], row.plant).toBeDefined();
+    }
+    for (const s of crownSpecies().values()) {
+      expect(s.models.length).toBeGreaterThanOrEqual(2);
+      const limits = [6500,1800,1100].map(n => n * (s.def.small ? 0.4 : 1));
+      for (const [v, levels] of s.models.entries()) for (const [l, m] of levels.entries()) {
+        const shape = s.def.variants[v];
+        const again = growSpeciesModel(shape.grow,shape.seed,l);
+        const positions = m.geometry.getAttribute('position').array;
+        expect(Buffer.from(again.geometry.getAttribute('position').array.buffer).equals(Buffer.from(positions.buffer))).toBe(true);
+        expect(m.triangles, s.family).toBeLessThanOrEqual(limits[l]);
+        again.geometry.dispose();
+        if (CROWN_PAINT[s.family]?.autumn !== undefined) {
+          const bare = growSpeciesModel(shape.grow,shape.seed,l,true);
+          expect(bare.geometry.getAttribute('aPart').array.every(part => part === 0),s.family).toBe(true);
+          expect(bare.radius).toBeGreaterThan(0);
+          expect(bare.triangles,s.family).toBeLessThanOrEqual(limits[l]);
+          bare.geometry.dispose();
+        }
+      }
+    }
+  });
+
   it('keep every species within its budget at each level, the levels ever lighter', () => {
     const budget = crownBudget();
     // (triangles: the nearest level within some 70 m, the second to 200 m, the third beyond)
@@ -76,6 +121,28 @@ describe('painted crowns · the growers', () => {
       for (let l = 0; l < CROWN_LEVELS.length; l++) expect(levels[l], `${family} level ${l}`).toBeLessThanOrEqual(most[l] * (SPECIES[family].small ? 0.4 : 1));
       expect(levels[1], family).toBeLessThan(levels[0] * 0.4);
       expect(levels[2], family).toBeLessThan(levels[1]);
+    }
+  });
+
+  it('anchors each broadleaf mass to visible wood at the close level', () => {
+    for (const s of crownSpecies().values()) {
+      for (const [variant, models] of s.models.entries()) {
+        const shape = s.def.variants[variant].grow;
+        if (shape.kind !== 'broadleaf' || shape.shape.boughWood === false) continue;
+        const geo = models[0].geometry;
+        const p = geo.getAttribute('position');
+        const part = geo.getAttribute('aPart');
+        const wood: THREE.Vector3[] = [];
+        for (let i=0; i<p.count; i++) {
+          if (part.getX(i) === 0) wood.push(new THREE.Vector3().fromBufferAttribute(p,i));
+          if (part.getX(i) !== 1) continue;
+          const points: THREE.Vector3[] = [];
+          while (i<p.count && part.getX(i) === 1) points.push(new THREE.Vector3().fromBufferAttribute(p,i++));
+          const ball = new THREE.Sphere().setFromPoints(points);
+          const distance = Math.min(...wood.map(v=>v.distanceTo(ball.center)));
+          expect(distance, s.family).toBeLessThan(ball.radius*1.65+0.3);
+        }
+      }
     }
   });
 

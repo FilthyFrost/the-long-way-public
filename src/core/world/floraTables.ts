@@ -92,7 +92,7 @@ export const FLORA: Record<string, FloraTable> = {
     trees: [
       { plant: 'spruce', perHa: 150, canopy: [0.4, 1], grove: 150 },
       { plant: 'pine', perHa: 60, canopy: [0.3, 1] },
-      { plant: 'birch', perHa: 20, canopy: [0.2, 0.6], relief: [-50, 80] },
+      { plant: 'juniper', perHa: 20, canopy: [0.2, 0.6], size: [0.35, 0.7] },
     ],
     shrubs: [
       { plant: 'blueberry_bush', perHa: 30, canopy: [0.3, 0.8] },

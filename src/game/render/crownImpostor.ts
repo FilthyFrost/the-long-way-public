@@ -28,9 +28,13 @@ export const IMPOSTOR_FRAGMENT = /* glsl */ `
     k = mod(k, 16.0);
     return vec2(mod(k, 4.0), floor(k * 0.25));
   }
-  void readCard(vec2 uv, inout vec3 pos, out vec3 normal, out vec4 crown, out float part) {
+  uniform float uAtlasRows;
+  void readCard(vec2 uv, bool bare, inout vec3 pos, out vec3 normal, out vec4 crown, out float part) {
     float k = floor(vAtlasFrame.w), t = fract(vAtlasFrame.w);
     vec2 a = (cell(k) + uv) * 0.25, b = (cell(k + 1.0) + uv) * 0.25;
+    float offset = bare ? uAtlasRows - 1.0 : 0.0;
+    a.y = (a.y + offset) / uAtlasRows;
+    b.y = (b.y + offset) / uAtlasRows;
     vec4 hit = mix(texture2D(tNormalAtlas, a), texture2D(tNormalAtlas, b), t);
     if (hit.a < 0.42) discard;
     vec4 paint = mix(texture2D(tPaintAtlas, a), texture2D(tPaintAtlas, b), t) / hit.a;
@@ -38,7 +42,11 @@ export const IMPOSTOR_FRAGMENT = /* glsl */ `
     vec2 axis = vAtlasFrame.xy;
     normal = normalize(vec3(axis.x * n.x - axis.y * n.z, n.y * vAtlasFrame.z, axis.y * n.x + axis.x * n.z));
     crown = vec4(paint.a, 0.0, paint.g, 0.0);
-    part = floor(paint.b * 2.0 + 0.5);
+    // Categorical channels must not interpolate between bark, berries and flowers.
+    vec2 pick = t < 0.5 ? a : b;
+    ivec2 pixel = ivec2(pick * vec2(textureSize(tPaintAtlas, 0)));
+    part = floor(texelFetch(tPaintAtlas, pixel, 0).b * (255.0 / 32.0) + 0.5);
+    if (texelFetch(tNormalAtlas, pixel, 0).a < 0.5) part = floor(paint.b * (255.0 / 32.0) + 0.5);
     pos += vDepthAxis * (2.0 * paint.r - 1.0);
   }
 #endif

@@ -6,6 +6,7 @@
  * regions); otherwise it is made from the region's row of the palette table (scene/palette.ts) over the look
  * of its kin, and without a row it is its kin's look (`regionStyle`). Never the plains' for want of an entry.
  */
+import { ECO_PROFILES } from '../../core/world/data/ecoProfiles';
 import * as THREE from 'three';
 import styleJson from '../../../specs/art/style.json';
 import { BIOMES, type BiomeDef } from '../../core/world/biomes';
@@ -278,6 +279,12 @@ function coverTexture(): THREE.DataTexture {
   return t;
 }
 
+// Existing region palettes have analogue profiles; new profile-named regions use their own rocks.
+const mountainProfiles: Record<string, string> = {
+  alpine: 'rocky-pass', plains: 'sierra-valley', forest: 'appalachian', lakes: 'sierra-high',
+  desert: 'sonoran', red_canyon: 'redrock', karst_peaks: 'karst-river', terraces: 'hani-paddy',
+};
+
 /** a slot's row of a cover texture's data and its numbers, from its region's flora table */
 function fillCover(coverData: Float32Array, misc: THREE.Vector4[], slot: number, biome: number): void {
   const region = BIOMES[biome] ?? BIOMES[0];
@@ -300,6 +307,13 @@ function fillCover(coverData: Float32Array, misc: THREE.Vector4[], slot: number,
   coverData[o + 6 * 4 + 3] = c.flowers;
   // a marsh: a region whose ground is wet where nothing else speaks; reedy shores: where its table stands a
   // reed in every cell of the bank
+  // Last texel: weights for massive crystalline rock, karst, stratified rock and lava.
+  const profile = ECO_PROFILES.find(p => p.id === (mountainProfiles[region.id] ?? region.id));
+  for (const rock of profile?.rocks ?? []) {
+    const channel = /花岗岩|片麻岩|深成岩/.test(rock.type) ? 0 : /石灰岩/.test(rock.type) ? 1 :
+      /砂岩|泥岩/.test(rock.type) ? 2 : /玄武岩|火山岩/.test(rock.type) ? 3 : -1;
+    if (channel >= 0) coverData[o + 28 + channel] += rock.share;
+  }
   const wet = Math.min(1, Math.max(0, (table.eco.moist - 0.62) / 0.1));
   let reeds = 0;
   for (const r of table.shrubs) if (r.plant === 'reed') reeds = Math.max(reeds, r.perHa);

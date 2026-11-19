@@ -37,10 +37,12 @@ export function bakeCrown(g: THREE.BufferGeometry) {
   const pad = (top - bottom) * 2 / (SIDE - 4);
   top += pad;
   bottom -= pad;
-  const normals = new Uint8Array(WIDTH * WIDTH * 4), paint = new Uint8Array(normals.length);
+  const winter = Array.from(part.array).some(value => value > 0.5 && value < 2.5);
+  const height = WIDTH * (winter ? 2 : 1);
+  const normals = new Uint8Array(WIDTH * height * 4), paint = new Uint8Array(normals.length);
   const depths = new Float32Array(SIDE * SIDE);
   const x = new Float32Array(p.count), y = new Float32Array(p.count), z = new Float32Array(p.count);
-  for (let view = 0; view < ATLAS_COLS ** 2; view++) {
+  for (let view = 0; view < (winter ? 2 : 1) * ATLAS_COLS ** 2; view++) {
     const angle = view * Math.PI * 2 / ATLAS_COLS ** 2, c = Math.cos(angle), s = Math.sin(angle);
     depths.fill(-Infinity);
     for (let i = 0; i < p.count; i++) {
@@ -55,7 +57,9 @@ export function bakeCrown(g: THREE.BufferGeometry) {
       if (Math.abs(area) < 1e-5) continue;
       const x0 = Math.floor(Math.min(x[a], x[b], x[d])), x1 = Math.ceil(Math.max(x[a], x[b], x[d]));
       const y0 = Math.floor(Math.min(y[a], y[b], y[d])), y1 = Math.ceil(Math.max(y[a], y[b], y[d]));
-      const leaf = part.getX(a) > 1.5;
+      const material = part.getX(a);
+      if (view >= ATLAS_COLS ** 2 && material > 0.5 && material < 2.5) continue;
+      const leaf = material > 1.5 && material < 2.5;
       for (let row = y0; row < y1; row++) for (let col = x0; col < x1; col++) {
         const rx = col + 0.5 - x[a], ry = row + 0.5 - y[a];
         const v = (rx * dy - ry * dx) / area, w = (bx * ry - by * rx) / area, u = 1 - v - w;
@@ -66,6 +70,14 @@ export function bakeCrown(g: THREE.BufferGeometry) {
           const tx = u * uv.getX(a) + v * uv.getX(b) + w * uv.getX(d);
           const ty = u * uv.getY(a) + v * uv.getY(b) + w * uv.getY(d);
           if (!covered(tx, ty)) continue;
+          if (material > 2.05 && material < 2.18) {
+            const qx = (tx * 2 % 1) * 2 - 1, qy = (ty * 2 % 1) * 2 - 1;
+            const width = (0.18 + 0.86 * (qy * 0.5 + 0.5)) * Math.sqrt(Math.max(0, 1 - qy * qy));
+            if (Math.abs(qx) > width || qy > 0.99 - 0.22 * Math.exp(-qx * qx * 38)) continue;
+          } else if (material >= 2.18) {
+            const x = tx * 2 - 1, y = ty * 2 - 1, fold = (y - Math.abs(x) * 0.52) * 3;
+            if (fold - Math.floor(fold) > 0.50 && Math.abs(x) > 0.05) continue;
+          }
         }
 
         const dst = ((Math.floor(view / ATLAS_COLS) * SIDE + row) * WIDTH + view % ATLAS_COLS * SIDE + col) * 4;
@@ -87,26 +99,16 @@ export function bakeCrown(g: THREE.BufferGeometry) {
         normals[dst + 3] = 255;
         paint[dst] = (depth / radius + 1) * 127.5;
         paint[dst + 1] = (u * crown.getZ(a) + v * crown.getZ(b) + w * crown.getZ(d)) * 255;
-        paint[dst + 2] = part.getX(a) * 127.5;
+        paint[dst + 2] = Math.round(material) * 32;
         paint[dst + 3] = crown.getX(a) * 255;
       }
     }
   }
-  return { normals, paint, width: WIDTH, radius, bottom, top };
-}
-
-const cache = new WeakMap<THREE.BufferGeometry, ReturnType<typeof bakeCrown>>();
-export function crownAtlas(geometry: THREE.BufferGeometry) {
-  let atlas = cache.get(geometry);
-  if (!atlas) {
-    atlas = bakeCrown(geometry);
-    cache.set(geometry, atlas);
-  }
-  return atlas;
+  return { normals, paint, width: WIDTH, height, radius, bottom, top };
 }
 
 export function atlasTexture(data: Uint8Array<ArrayBuffer>, width: number) {
-  const t = new THREE.DataTexture(data, width, width);
+  const t = new THREE.DataTexture(data, width, data.length / (width * 4));
   t.generateMipmaps = true;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.magFilter = THREE.LinearFilter;

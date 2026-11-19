@@ -11,7 +11,7 @@ import { crownMaterial } from '../../render/crownMaterial';
 import { globals } from '../../render/shaderlib';
 import { LAYER_SHADOW_FAR } from '../../render/shadow';
 import { CROWN_STRIDE, type CrownLookup } from './crownData';
-import { crownAtlas, atlasTexture } from './crownAtlas';
+import { bakeCrown, atlasTexture } from './crownAtlas';
 import { crownSpecies, type SpeciesModels } from './species';
 
 
@@ -33,6 +33,7 @@ function fadeWidth(edge: number): number {
 }
 
 interface Draw {
+  atlasModel?: THREE.BufferGeometry;
   mesh: THREE.InstancedMesh;
   look: THREE.InstancedBufferAttribute;
   tree: THREE.InstancedBufferAttribute;
@@ -92,6 +93,7 @@ export class CrownView implements CrownLookup {
   private readonly tiles = new Map<string, Tile>();
   private readonly billboard = new THREE.PlaneGeometry();
   private readonly atlasMaterials: THREE.ShaderMaterial[] = [];
+  readonly atlasStats = { residentBytes: 0, bakedMs: 0, bakes: 0 };
   private tokens = 0;
   private changed = true;
   private originMoved = true;
@@ -108,14 +110,14 @@ export class CrownView implements CrownLookup {
       this.byFamily.set(s.family, k);
       this.draws.push(s.models.map((levels) => levels.map((m, level) => {
         if (level < 2) return this.makeDraw(m.geometry, this.material, false, level + 1);
-        const atlas = crownAtlas(m.geometry);
         const material = crownMaterial();
         material.defines.CROWN_ATLAS = 1;
-        material.uniforms.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
-        material.uniforms.tNormalAtlas = { value: atlasTexture(atlas.normals, atlas.width) };
-        material.uniforms.tPaintAtlas = { value: atlasTexture(atlas.paint, atlas.width) };
+        material.uniforms.tNormalAtlas = { value: null };
+        material.uniforms.tPaintAtlas = { value: null };
         this.atlasMaterials.push(material);
-        return this.makeDraw(this.billboard, material, false, 3);
+        const draw = this.makeDraw(this.billboard, material, false, 3);
+        draw.atlasModel = m.geometry;
+        return draw;
       })));
       this.shadowDraws.push(s.models.map((levels) => this.makeDraw(levels[SHADOW_LEVEL].geometry, this.material, true)));
     }
@@ -436,6 +438,26 @@ export class CrownView implements CrownLookup {
     let triangles = 0, shadows = 0;
     const finish = (dr: Draw): void => {
       const count = dr.slots.length;
+      if (dr.atlasModel) {
+        const u = (dr.material as THREE.ShaderMaterial).uniforms;
+        if (count && !u.tNormalAtlas.value) {
+          const start = performance.now();
+          const atlas = bakeCrown(dr.atlasModel);
+          u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
+          u.uAtlasRows = { value: atlas.height / atlas.width };
+          u.tNormalAtlas.value = atlasTexture(atlas.normals, atlas.width);
+          u.tPaintAtlas.value = atlasTexture(atlas.paint, atlas.width);
+          this.atlasStats.bakedMs += performance.now() - start;
+          this.atlasStats.bakes++;
+          this.atlasStats.residentBytes += atlas.normals.byteLength + atlas.paint.byteLength;
+        } else if (!count && u.tNormalAtlas.value) {
+          this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
+          for (const channel of [u.tNormalAtlas, u.tPaintAtlas]) {
+            channel.value.dispose();
+            channel.value = null;
+          }
+        }
+      }
       dr.mesh.count = count;
       dr.mesh.visible = count > 0;
       const end = Math.min(dr.dirtyTo + 1, count);
@@ -474,8 +496,8 @@ export class CrownView implements CrownLookup {
       d.mesh.dispose();
     }
     for (const material of this.atlasMaterials) {
-      material.uniforms.tNormalAtlas.value.dispose();
-      material.uniforms.tPaintAtlas.value.dispose();
+      material.uniforms.tNormalAtlas.value?.dispose();
+      material.uniforms.tPaintAtlas.value?.dispose();
       material.dispose();
     }
     this.billboard.dispose();

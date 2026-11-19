@@ -598,6 +598,8 @@ export class FloraField {
     // (a plant of the benches: its own spot must be one, by the land's own height there)
     if (lay.bench[pick] && !onBench(tp.bed, t.step[near])) return false;
     if (!(rt > 0)) h2 = hash2(cz, cx, salt + 0x100);
+    const heightScale = layer === LAYER_TREE ? this.world.vistas.treeScale(tp, h2) : 1;
+    if (heightScale === 0) return false;
     out.plant = lay.plants[pick];
     out.rule = pick;
     out.region = region;
@@ -605,6 +607,7 @@ export class FloraField {
     out.z = z;
     out.y = tp.bed;
     out.size = lay.size0[pick] + (lay.size1[pick] - lay.size0[pick]) * ((h2 & 0xff) / 255);
+    out.size *= heightScale;
     out.yaw = (((h2 >>> 8) & 0xfff) / 4096) * 6.283185307179586;
     out.vary = ((h >>> 4) & 0xfff) / 4096;
     return true;

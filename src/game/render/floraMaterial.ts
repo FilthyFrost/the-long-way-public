@@ -31,10 +31,11 @@ export const floraUniforms = {
  * the plant does not bear) and the caller throws it away.
  */
 export const FLORA_VERTEX = /* glsl */ `
+  uniform vec4 uWeather;
   uniform sampler2D tPlants;
   attribute vec4 aPlace;   // tile-local x, y, z; turn
   attribute vec4 aShape;   // scale across, scale up, first vertex in the atlas, vertices
-  attribute vec4 aLook;    // palette slots (a + 4 b); share of b + 2 bears + 4 evergreen; first colour; second colour
+  attribute vec4 aLook;    // palette slots + settled snow / 4; share of b + 2 bears + 4 evergreen + 8 deciduous wood; first colour; second colour
   attribute vec4 aLie;     // ground slope along x and z; the plant's own number; lean
   bool rtPlantVertex(mat4 model, float wind, float time, out vec3 world, out vec3 normal, out vec4 leaf, out vec3 colour, out float part) {
     world = vec3(0.0);
@@ -48,6 +49,9 @@ export const FLORA_VERTEX = /* glsl */ `
     vec4 t0 = texelFetch(tPlants, at, 0);
     part = t0.w;
     float flags = floor(aLook.y * 0.5);
+    // Deciduous wood keeps its twigs, including in the shadow pass. Herbaceous plants keep their own geometry.
+    if (aLook.y >= 8.0 && max(fract(aLook.x) * 4.0, uWeather.y) > 0.5 + 0.18 * aLie.z &&
+        ((part > 0.5 && part < 1.5) || (part > 2.5 && part < 3.5))) return false;
     // fruit shows on the plants that bear, and on no other
     if (part > 2.5 && part < 3.5 && mod(flags, 2.0) < 0.5) return false;
     leaf = texelFetch(tPlants, at + ivec2(1, 0), 0);
@@ -96,6 +100,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
       varying vec4 vTint;    // the plant's first colour (linear); w < 0: its region's palette
       varying vec3 vTint2;
       varying float vEver;
+      varying float vSettled;
       // a colour written as one number, 0xRRGGBB, as the linear colour it stands for
       vec3 rtHexColour(float h) {
         vec3 s = vec3(floor(h / 65536.0), mod(floor(h / 256.0), 256.0), mod(h, 256.0)) / 255.0;
@@ -116,7 +121,8 @@ export function floraMaterial(): THREE.ShaderMaterial {
         vCard = leaf.z;
         vVar = aLie.z;
         float flags = floor(aLook.y * 0.5);
-        vEver = floor(flags * 0.5);
+        vEver = mod(floor(flags * 0.5), 2.0);
+        vSettled = fract(aLook.x) * 4.0;
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);
         vTint2 = rtHexColour(max(aLook.w, 0.0));
@@ -141,6 +147,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
       varying vec4 vTint;
       varying vec3 vTint2;
       varying float vEver;
+      varying float vSettled;
       // Four tones of one colour, as a wood's four greens are four tones: the colour itself where the light
       // falls full on a crown, deeper and more of itself in the half light, and towards a cool dark inside
       // (the shade of a leaf mass is sky, not black: STYLE.md 2.2). The tones keep their distance from one
@@ -169,6 +176,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
         vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.25), uSunDir.z));
         vec3 col;
         vec3 albedo;
+        float load = max(vSettled, uWeather.y);
         float alpha = 1.0;
         if (vPart > 3.5) {
           // stone: flat facets, each turned its own way, in the region's two rock paints (rockMaterial)
@@ -177,13 +185,13 @@ export function floraMaterial(): THREE.ShaderMaterial {
           float sh = rtShadow(vPos, n);
           float tone = 0.5 + 0.5 * dot(n, L) - (1.0 - sh) * 0.4;
           albedo = mix(p.rockShade, p.rockLit, smoothstep(0.42, 0.58, tone));
-          float snow = smoothstep(0.3, 0.7, n.y) * max(p.misc.x * 0.8, uWeather.y * 0.85);
+          float snow = smoothstep(0.3, 0.7, n.y) * load;
           albedo = mix(albedo, rtSnowTone(tone), snow);
           col = albedo * rtGroundLight(smoothstep(0.35, 0.6, tone) * sh);
         } else if (vPart > 1.5) {
           // what the second colour paints: bark, a cane, a plume, a flower head, fruit
           float sh = rtShadow(vPos, n);
-          albedo = vTint2 * vColor;
+          albedo = mix(vTint2 * vColor, rtSnowTone(0.65), load * smoothstep(0.18, 0.72, n.y));
           col = rtCel(albedo, n, sh);
         } else if (vPart > 0.5) {
           RtPal p = rtPal(vBw);
@@ -215,7 +223,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
               }
             }
           }
-          float snow = smoothstep(0.25, 0.7, n.y + dab * 0.4) * max(0.72 * vEver * p.misc.x, uWeather.y * 0.85);
+          float snow = smoothstep(0.25, 0.7, n.y + dab * 0.4) * load;
           albedo = mix(albedo, rtSnowTone(tone), snow);
           float lit = smoothstep(-0.1, 0.45, facing) * sh;
           col = albedo * (uSkyColor * 0.9 + uBounceColor * 0.5 + uSunColor * mix(0.05, 0.36, lit));
@@ -227,7 +235,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
           alpha = 0.7;
         } else {
           float sh = rtShadow(vPos, n);
-          albedo = vColor;
+          albedo = mix(vColor, rtSnowTone(0.65), load * smoothstep(0.18, 0.72, n.y));
           col = rtCel(albedo, n, sh);
         }
         col += rtHeadlight(albedo, n, vPos);

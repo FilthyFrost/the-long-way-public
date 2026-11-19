@@ -246,6 +246,45 @@ export const GROUND_PAINT = /* glsl */ `
     #endif
     albedo = mix(albedo, rtSnowTone(tone + (rel - 0.5) * 0.6), alt);
 
+    #ifdef RT_ALT
+    // Broad planes and forked cuts remain legible after the fine rock brush has faded.
+    // All marks are anchored in the land. Depth changes their contrast, never their scale.
+    if (dist > 900.0 && steep > 0.006) {
+      vec4 lith = texelFetch(tCover, ivec2(7, 0), 0) * bwIn.x + texelFetch(tCover, ivec2(7, 1), 0) * bwIn.y
+                + texelFetch(tCover, ivec2(7, 2), 0) * bwIn.z + texelFetch(tCover, ivec2(7, 3), 0) * bwIn.w;
+      float reach = smoothstep(900.0, 2300.0, dist);
+      vec2 cutUV = vec2(w.x * 0.86 + w.y * 0.51, vAlt);
+      cutUV.x += w.y * 0.14 - vAlt * (0.42 - 0.26 * lith.y);
+      vec4 warp = rtNoiseAt(w, 940.0);
+      vec4 cut = rtNoiseAt(cutUV * vec2(1.0 + 1.4 * lith.y, 0.35 + 1.6 * lith.z) + warp.rg * 145.0, 440.0);
+      float cleavage = cut.r + (cut.g - 0.5) * 0.48;
+      float edge = max(fwidth(cleavage), 0.024);
+      float groove = 1.0 - smoothstep(0.016, 0.016 + edge, abs(cleavage - 0.48));
+      float plane = smoothstep(0.42 - edge, 0.42 + edge, cleavage) * 0.6
+                  + smoothstep(0.59 - edge, 0.59 + edge, cleavage) * 0.4;
+      float exposed = smoothstep(0.025, 0.14, steep + (warp.b - 0.5) * 0.06);
+      float face = exposed * reach * (1.0 - 0.7 * wood);
+      vec3 shadeRock = p.rockShade * mix(vec3(0.78, 0.86, 1.0), vec3(0.41, 0.39, 0.43), lith.w);
+      vec3 lightRock = mix(p.rockLit, p.rockLit * vec3(1.13, 1.10, 1.04), lith.x + lith.y);
+      float key = clamp(0.58 * plane + 0.42 * rel - groove * 0.62, 0.0, 1.0);
+      vec3 paint = mix(shadeRock, lightRock, smoothstep(0.2, 0.73, key));
+      float ice = max(alt, p.misc.x * smoothstep(lines.y - 750.0, lines.y, vAlt));
+      // Snow collects along one lip of a cut; the opposite lip exposes the dark rock.
+      float shelf = smoothstep(0.47, 0.55, cleavage + (rel - 0.5) * 0.28);
+      paint = mix(paint, rtSnowTone(0.28 + 0.60 * rel + 0.14 * plane), ice * (0.25 + 0.75 * shelf));
+      albedo = mix(albedo, paint, face * 0.83);
+
+      // In the middle distance a brush mark stands for a group of crowns: a dark base and a lit shoulder.
+      float stand = reach * wood * (1.0 - rock) * (1.0 - alt) * (1.0 - smoothstep(8000.0, 22000.0, dist));
+      vec4 tuft = rtNoiseAt(w + warp.rg * 35.0, 105.0);
+      float clump = tuft.g + 0.26 * (tuft.r - 0.5);
+      float tip = smoothstep(0.52, 0.65, clump);
+      vec3 forest = rtWoodTone(p, 0.26 + 0.31 * rel + 0.32 * tip);
+      forest = mix(forest, rtSnowTone(rel) * 0.83, p.misc.x * tip * 0.62);
+      albedo = mix(albedo, forest, stand * 0.9);
+    }
+    #endif
+
     #ifdef RT_COVER
     // ---- a marsh: water stands in the hollows of its open ground, the ground round it dark with wet
     float pool = 0.0;
@@ -364,7 +403,11 @@ export const GROUND_AIR = /* glsl */ `
     float rise = pos.y - uFogBase + (rtNoiseAt(rtWorldXZ(pos), 5200.0).b - 0.5) * 260.0;
     float feet = smoothstep(2600.0, 8000.0, dist) * (1.0 - smoothstep(40.0, 520.0, rise)) * (1.0 - smoothstep(60000.0, 85000.0, dist));
     vec3 mist = mix(uFogColor, vec3(dot(uFogColor, vec3(0.333))) * 1.12, 0.35);
-    return mix(o, mist, feet * 0.5);
+    // Let front spurs keep their pigment; distant shoulders lose warm light before the horizon disappears.
+    float middle = smoothstep(1800.0, 4200.0, dist) * (1.0 - smoothstep(12500.0, 32000.0, dist));
+    o = mix(o, c * vec3(0.88, 0.94, 1.02), middle * 0.24);
+    o = mix(o, o * vec3(0.89, 0.96, 1.06), smoothstep(7000.0, 26000.0, dist) * (1.0 - smoothstep(65000.0, 87000.0, dist)));
+    return mix(o, mist, feet * 0.54);
   }
 `;
 
