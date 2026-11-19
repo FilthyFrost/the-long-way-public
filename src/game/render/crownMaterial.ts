@@ -121,6 +121,12 @@ export function crownMaterial(): THREE.ShaderMaterial {
           w = m * vec4(0.0,0.0,0.0,1.0);
         if (aPart>6.5 && (year<124.0 || year>172.0 || aTree.x>0.64))
           w = m * vec4(0.0,0.0,0.0,1.0);
+        if (aPart >= 4.0 && aPart < 6.5) {
+          bool inSeason = aPart < 4.15 ? year >= 216.0 && year <= 305.0 :
+            aPart < 4.5 ? year < 89.0 || year > 318.0 :
+            aPart < 5.5 ? year > 269.0 && year < 357.0 : year > 173.0 && year < 250.0;
+          if (!inSeason) w = m * vec4(0.0,0.0,0.0,1.0);
+        }
         vSettled = rtRootSnow(aLook.x);
         if (aPart > 3.5 && aPart < 4.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
@@ -206,6 +212,11 @@ export function crownMaterial(): THREE.ShaderMaterial {
           float tone = clamp(0.54 + dot(n, L)*0.29 + (vCrown.x - 0.5)*0.38, 0.0, 1.0);
           albedo = vPart > 3.5 ? rtTintTone(vTint2, tone) : crownTone(p, tone);
           if (vPart > 4.5) albedo = rtTintTone(vPart < 5.5 ? vec3(0.86,0.055,0.025) : vec3(0.35,0.19,0.067), tone);
+          if (vPart > 3.5) {
+            float visibility = 1.0-smoothstep(25.0,66.0,dist);
+            if (vCrown.y >= visibility || visibility <= 0.0) discard;
+            albedo = mix(albedo,vec3(dot(albedo,vec3(0.25,0.55,0.2))),0.14);
+          }
           if (vPart > 6.5) albedo = mix(vec3(0.61,0.55,0.31),vec3(0.98,0.96,0.82),tone);
           albedo = mix(albedo, rtSnowTone(tone), smoothstep(0.25, 0.8, n.y)*load*0.8);
           col = albedo * (uSkyColor*0.86 + uBounceColor*0.38 + uSunColor*(0.17+0.25*tone)*rtShadow(vPos,n));

@@ -509,21 +509,32 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
       }
     }
   }
-  if ((o.fruit || o.fruitShape) && !bare && level < 2) {
-    // Fruit hangs just outside the dark mass. The instance bearing flag controls visibility.
-    for (const k of clumps.slice(0, level === 0 ? 14 : 5)) {
-      const first = out.part.length;
-      const r = 0.115 + finish() * 0.055;
+  if ((o.fruit || o.fruitShape) && !bare && level === 0) {
+    // Small bunches lie on the lower outside of the mass, where the twig ends.
+    // Smooth sphere normals carry a single painted highlight around each fruit.
+    const pods = o.fruitShape === 'pods', petals = o.fruitShape === 'flowers';
+    const lemon = o.fruitShape === 'lemon';
+    const part = petals ? 5 : pods ? 6 : lemon ? 4.25 : 4;
+    const sphere = SPHERES[0];
+    for (const k of clumps.slice(0,12)) {
+      const angle = Math.atan2(k.c.z,k.c.x);
+      const hub = k.c.clone().add(new V3(Math.cos(angle)*k.r*0.54,-k.r*0.78,Math.sin(angle)*k.r*0.54));
       const phase = finish();
-      for (let i = 0; i < OCTA.pos.length; i += 3) {
-        const [x, y, z] = OCTA.pos.slice(i, i + 3);
-        const slender = o.fruitShape === 'pods' || o.fruitShape === 'flowers';
-        const w = slender ? 0.48*r : r;
-        const length = slender ? r*2.4 : o.fruitShape === 'lemon' ? r*1.35 : r;
-        const part = o.fruitShape === 'pods' ? 6 : o.fruitShape === 'flowers' ? 5 : 4;
-        out.vertex(k.c.x+x*w, k.c.y-k.r*0.93+y*length, k.c.z+z*w, x,y,z,0,0,0.5,phase,0.7,k.c.y,part);
+      const count = petals ? 5 : pods ? 3 : 2;
+      for (let j=0; j<count; j++) {
+        const a = angle+j*2.4, r = (petals ? 0.026 : pods ? 0.021 : 0.05)*(0.82+0.33*finish());
+        const x = hub.x + Math.cos(a)*0.065, z = hub.z + Math.sin(a)*0.065;
+        const y = hub.y - j*0.025;
+        const first = out.part.length;
+        for (let i=0; i<sphere.pos.length; i+=3) {
+          const nx=sphere.pos[i], ny=sphere.pos[i+1], nz=sphere.pos[i+2];
+          const long = petals ? 0.068 : pods ? 0.12 : lemon ? r*1.35 : r;
+          const arc = (petals || pods) ? long*(1-ny)*(1-ny)*0.26 : 0;
+          out.vertex(x+nx*r+Math.cos(a)*arc, y+ny*long,z+nz*r+Math.sin(a)*arc,
+            nx,ny,nz,0.5,0.5,0.38+0.23*ny,phase,0.67,y,part);
+        }
+        for (const index of sphere.idx) out.idx.push(first+index);
       }
-      for (const i of OCTA.idx) out.idx.push(first + i);
     }
   }
   if (o.curtains) {

@@ -65,7 +65,7 @@ export function growSpecial(form: Special, seed: number, level: number): CrownMo
     const taper = (t: number) => Math.sqrt(Math.max(0.0001, 1-Math.pow(t,16)));
     tube(stem,t=>0.42*taper(t),[24,12,7][level],3,true);
     // White tepals form shallow cups on the shoulders of selected adults.
-    if ((seed & 1) && level < 2) {
+    if ((seed & 1) && level === 0) {
       const flowers = level === 0 ? 5 : 3;
       for (let j=0; j<flowers; j++) {
         const hub = radial(offset+j*tau/flowers,0.30,h*0.955);
