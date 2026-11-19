@@ -19,6 +19,7 @@ import { World } from '../../src/core/world/terrain';
 import { CROWN_LEVELS, growBroadleaf, growConifer } from '../../src/game/scene/crowns/grow';
 import { CROWN_STRIDE, type CrownLookup } from '../../src/game/scene/crowns/crownData';
 import { paintedFamily, CROWN_PAINT } from '../../src/game/scene/crowns/palette';
+import { ECO_TREE_FAMILIES } from '../../src/core/world/data/ecoProfiles';
 import { FLORA } from '../../src/core/world/floraTables';
 import { growSpeciesModel, crownBudget, crownSpecies, SPECIES } from '../../src/game/scene/crowns/species';
 import { LOD_CLOSE, LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, type FloraLod } from '../../src/game/scene/floraScatter';
@@ -51,6 +52,7 @@ describe('painted crowns · the growers', () => {
   });
 
   it('grows two deterministic, budgeted variants for every tree named in a region', () => {
+    for (const family of ECO_TREE_FAMILIES) expect(SPECIES[family], family).toBeDefined();
     for (const table of Object.values(FLORA)) for (const row of table.trees) {
       const plant = PLANTS.find(p => p.id === row.plant)!;
       expect(SPECIES[paintedFamily(plant.id, plant.model)], row.plant).toBeDefined();

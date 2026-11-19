@@ -98,7 +98,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vBark = aTree.z;
         float flags = floor(aLook.y * 0.5);
         vEver = floor(flags * 0.5);
-        if (aPart > 3.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
+        if (aPart > 3.5 && aPart < 4.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);
         vTint2 = rtHexColour(max(aLook.w, 0.0));
@@ -155,6 +155,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           RtPal p = rtPal(vBw);
           float tone = clamp(0.54 + dot(n, L)*0.29 + (vCrown.x - 0.5)*0.38, 0.0, 1.0);
           albedo = vPart > 3.5 ? rtTintTone(vTint2, tone) : crownTone(p, tone);
+          if (vPart > 4.5) albedo = rtTintTone(vPart < 5.5 ? vec3(0.86,0.055,0.025) : vec3(0.35,0.19,0.067), tone);
           albedo = mix(albedo, rtSnowTone(tone), smoothstep(0.25, 0.8, n.y)*uWeather.y*0.8);
           col = albedo * (uSkyColor*0.86 + uBounceColor*0.38 + uSunColor*(0.17+0.25*tone)*rtShadow(vPos,n));
           alpha = 1.0;

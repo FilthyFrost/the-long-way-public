@@ -57,6 +57,8 @@ export interface BroadleafShape {
   /** vertical thickness of a leaf mass (an umbrella crown lies flat) */
   clumpHeight?: number;
   fruit?: boolean;
+  fruitShape?: 'lemon' | 'pods' | 'flowers';
+  roots?: 'buttress' | 'stilts';
 }
 
 /** a conifer's shape (m) */
@@ -364,6 +366,17 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   const top = new V3(Math.cos(lean) * o.trunk * 0.1, stem, Math.sin(lean) * o.trunk * 0.1);
   const bole = new THREE.CatmullRomCurve3([new V3(0, -0.8, 0), new V3(Math.cos(lean + 1) * o.girth * 0.25, stem * 0.45, Math.sin(lean + 1) * o.girth * 0.25), top]);
   tubes.push({ curve: bole, r0: o.girth, r1: o.girth * (upright > 0.3 ? 0.3 : 0.74), kind: 0 });
+  if (o.roots === 'stilts') {
+    // Mangroves send brace roots out from above the tide line and back to the mud.
+    for (let i = 0; i < 8; i++) {
+      const a = lean + i * 2.39996;
+      const height = o.trunk * (0.43 + (i % 3) * 0.17);
+      const r = o.crown * (0.34 + (i % 4) * 0.045);
+      const knee = new V3(Math.cos(a) * r * 0.7, height * 0.8, Math.sin(a) * r * 0.7);
+      const end = new V3(Math.cos(a) * r, -0.12, Math.sin(a) * r);
+      tubes.push({ curve: new THREE.CatmullRomCurve3([new V3(0, height, 0), knee, end]), r0: o.girth * 0.45, r1: o.girth * 0.12, kind: 1 });
+    }
+  }
   const crownY = o.trunk + o.rise * 0.42;
   const full = lean + 2 + random() * 2;
   const reach = (a: number): number => o.crown * (0.82 + 0.26 * lop * Math.cos(a - full) + 0.1 * Math.sin(a * 3 + seed));
@@ -454,7 +467,25 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   const cards = Math.max(lv.least, Math.round(o.cards * lv.cards));
   const spray = o.spray * lv.spray;
   for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at));
-  if (o.fruit && !bare && level < 2) {
+  if (o.roots === 'buttress') {
+    // Thin triangular flanges join the bole over a long vertical seam.
+    for (let i = 0; i < 7; i++) {
+      const a = lean + i * TAU / 7;
+      const dx = Math.cos(a), dz = Math.sin(a);
+      const foot = o.girth * (2.8 + (i % 3)*0.52);
+      const ridge = new V3(dx*o.girth*0.7, o.trunk*(0.45+0.11*(i%3)), dz*o.girth*0.7);
+      const tip = new V3(dx*foot, -0.16, dz*foot);
+      for (const side of [-1,1]) {
+        const heel = new V3(dx*o.girth-dz*side*o.girth*0.43, -0.14, dz*o.girth+dx*side*o.girth*0.43);
+        const n = heel.clone().sub(ridge).cross(tip.clone().sub(ridge)).normalize().multiplyScalar(side);
+        const first = out.part.length;
+        for (const pt of [ridge,heel,tip]) out.vertex(pt.x,pt.y,pt.z,n.x,n.y,n.z,0.3,pt.y,0.5,0,0,Math.max(0,pt.y),PART_WOOD);
+        if (side>0) out.idx.push(first,first+1,first+2);
+        else out.idx.push(first,first+2,first+1);
+      }
+    }
+  }
+  if ((o.fruit || o.fruitShape) && !bare && level < 2) {
     // Fruit hangs just outside the dark mass. The instance bearing flag controls visibility.
     for (const k of clumps.slice(0, level === 0 ? 14 : 5)) {
       const first = out.part.length;
@@ -462,7 +493,11 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
       const phase = finish();
       for (let i = 0; i < OCTA.pos.length; i += 3) {
         const [x, y, z] = OCTA.pos.slice(i, i + 3);
-        out.vertex(k.c.x + x*r, k.c.y - k.r*0.93 + y*r, k.c.z + z*r, x,y,z,0,0,0.5,phase,0.7,k.c.y,4);
+        const slender = o.fruitShape === 'pods' || o.fruitShape === 'flowers';
+        const w = slender ? 0.48*r : r;
+        const length = slender ? r*2.4 : o.fruitShape === 'lemon' ? r*1.35 : r;
+        const part = o.fruitShape === 'pods' ? 6 : o.fruitShape === 'flowers' ? 5 : 4;
+        out.vertex(k.c.x+x*w, k.c.y-k.r*0.93+y*length, k.c.z+z*w, x,y,z,0,0,0.5,phase,0.7,k.c.y,part);
       }
       for (const i of OCTA.idx) out.idx.push(first + i);
     }

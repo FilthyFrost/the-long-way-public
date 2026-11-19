@@ -32,7 +32,7 @@ export function photograph(names, distance, season) {
       const model = bare ? growSpeciesModel(v.grow,v.seed,level,true) : shapes[level];
       const geometry = model.geometry.clone();
       const leaf = season === 'autumn' ? paint?.autumn ?? paint?.leaf : paint?.leaf;
-      geometry.setAttribute('aLook',new T.InstancedBufferAttribute(new Float32Array([0, name==='fruit_tree'?2:0,leaf ?? -1,name==='fruit_tree'?0xb85031:paint?.bark ?? 0x755f4c]),4));
+      geometry.setAttribute('aLook',new T.InstancedBufferAttribute(new Float32Array([0, name==='fruit_tree'||name==='lemon'?2:0,leaf ?? -1,name==='fruit_tree'?0xb85031:paint?.bark ?? 0x755f4c]),4));
       geometry.setAttribute('aTree',new T.InstancedBufferAttribute(new Float32Array([0.56,s.def.sway,s.def.bark==='accent'?1:0,1]),4));
       const mesh = new T.InstancedMesh(geometry,material,1);
       const radius = Math.max(...shapes.map(m=>m.radius));
