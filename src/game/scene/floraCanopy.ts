@@ -13,7 +13,7 @@
  * Also the height a region's woods stand to, from its flora table: how far the far land is lifted under them.
  */
 import { BIOMES } from '../../core/world/biomes';
-import { ROAD_CLEAR, WATER_FAR, WOOD_SHEER, WOOD_STEEP, canopyAt, shoreOf, type EcoParams, type ShoreReader } from '../../core/world/ecotope';
+import { ROAD_CLEAR, WATER_FAR, WOOD_SHEER, WOOD_STEEP, canopyAt, shoreOf, treeLine, type EcoParams, type ShoreReader } from '../../core/world/ecotope';
 import { floraTableOf } from '../../core/world/floraTables';
 import { plantDef } from '../../core/world/plants';
 import type { TerrainPoint, World } from '../../core/world/terrain';
@@ -79,8 +79,10 @@ export function canopyOf(world: World, t: TerrainPoint, x: number, z: number): n
     shore(x, z, shoreOut);
     if (shoreOut.dist < WATER_FAR) wd = shoreOut.dist;
   }
-  let c = canopyAt(pa, world.seed + t.ba * 131, x, z, ad, t.relief, wd, 0);
-  if (pb !== null) c += (canopyAt(pb, world.seed + t.bb * 131, x, z, ad, t.relief, wd, 0) - c) * t.bt;
+  // (the tree line of a world of version 2 by the height above the sea: ecotope.ts treeLine)
+  const alt = world.spine.altitude(t.bed);
+  let c = canopyAt(pa, world.seed + t.ba * 131, x, z, ad, t.relief, wd, 0, treeLine(world, t.ba, t.relief, alt));
+  if (pb !== null) c += (canopyAt(pb, world.seed + t.bb * 131, x, z, ad, t.relief, wd, 0, treeLine(world, t.bb, t.relief, alt)) - c) * t.bt;
   // a coast road keeps its view: between the road and the sea nothing tall grows
   return c > 0 ? c * (1 - world.sea.open(t.s, t.d)) : 0;
 }

@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BIOMES, BIOME_INDEX } from '../../src/core/world/biomes';
-import { ECO_N, ECO_PLOT, ECO_SQ, ECO_TILE, ECO_WET, Ecotope, ROAD_CLEAR, WOOD_SHEER, shoreOf } from '../../src/core/world/ecotope';
+import { ECO_N, ECO_PLOT, ECO_SQ, ECO_TILE, ECO_WET, Ecotope, ROAD_CLEAR, WOOD_SHEER, shoreOf, treeLine } from '../../src/core/world/ecotope';
 import { Cover, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, onBench, type FloraLayer, type FloraRule, type FloraTable } from '../../src/core/world/flora';
 import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
 import { LandParams } from '../../src/core/world/landform';
@@ -72,26 +72,38 @@ describe('what each kind of country must get right', () => {
     for (const [region, seed] of [['alpine', 9], ['terraces', 9]] as const) {
       const w = startIn(region, seed);
       const [from, to] = FLORA[region].eco.treeline!;
+      // (since stage L1 a region of version 2 with a tree line of its own in metres above the sea has the table's
+      // band end there — ecotope.ts treeLine —, its width as the table has it: what is measured is the height
+      // over the band's end at each point, in relief or above the sea alike)
+      const ri = BIOME_INDEX[region];
+      const over = (relief: number, h: number): number => {
+        const top = treeLine(w, ri, relief, w.spine.altitude(h));
+        return relief - (top === top ? top : to);
+      };
       // land (ha) and trees below the line's beginning, in its lower and its upper half, and above its end; the country well back from the road
       const land = [0, 0, 0, 0];
       const trees = [0, 0, 0, 0];
       let highest = -Infinity;
-      const zone = (relief: number): number => (relief < from ? 0 : relief <= (from + to) / 2 ? 1 : relief <= to ? 2 : 3);
+      const width = to - from;
+      const zone = (o: number): number => (o < -width ? 0 : o <= -width / 2 ? 1 : o <= 0 ? 2 : 3);
       // (the terraces' line, 160 to 260 m of relief, stood within the far field's 300 m hills of the first
       // version 2 within a kilometre and a half of the road; since stage L1 terraced country's hills rise slowly
       // to 200 m over a kilometre and more and pass the line's end only at their tops: two kilometres either
       // side, and some hectares of tops — 9 measured — above it)
-      firstChapter(w, 20, region === 'terraces' ? 16 : 12, (tx, tz) => {
+      // (and the high country's line, since stage L1 at 1,700 m above the sea, stands on its walls a kilometre and
+      // more out: three kilometres either side)
+      firstChapter(w, 20, region === 'terraces' ? 16 : 24, (tx, tz) => {
         const et = w.eco!.tile(tx, tz);
-        for (let j = 0; j < ECO_SQ; j++) for (let i = 0; i < ECO_SQ; i++) if (!(et.flags[j * ECO_N + i] & ECO_WET)) land[zone(et.relief[j * ECO_N + i])] += NODE_HA;
+        for (let j = 0; j < ECO_SQ; j++) for (let i = 0; i < ECO_SQ; i++) if (!(et.flags[j * ECO_N + i] & ECO_WET)) land[zone(over(et.relief[j * ECO_N + i], et.h[j * ECO_N + i]))] += NODE_HA;
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
         for (let k = 0; k < ft.n; k++) {
           // (the trees of the land: a willow by a river stands at the water, and where a river has cut
           // through high ground the relief there is still the height it cut away)
           if (ruleOf(ft.region[k], LAYER_TREE, ft.rule[k]).water) continue;
-          const relief = w.eco!.at(ft.x[k], ft.z[k], e).relief;
-          trees[zone(relief)]++;
-          if (relief > highest) highest = relief;
+          const at = w.eco!.at(ft.x[k], ft.z[k], e);
+          const o = over(at.relief, at.h);
+          trees[zone(o)]++;
+          if (o > highest) highest = o;
         }
       });
       // there is land above the line to be bare: the test looks high enough
@@ -99,7 +111,7 @@ describe('what each kind of country must get right', () => {
       expect(land[1], region).toBeGreaterThan(10);
       expect(land[2], region).toBeGreaterThan(10);
       // (a tree may stand between a node below the line's end and one above it: a square's rise, no more)
-      expect(highest, region).toBeLessThan(to + 20);
+      expect(highest, region).toBeLessThan(20);
       expect(trees[3] / land[3], `${region}: trees to the hectare above the line`).toBeLessThan(0.3);
       // within the line they thin: in its upper half far fewer than in its lower half and than below it
       // (the land below the line holds the road's own clearing and the valley floors: its lower half is
@@ -108,7 +120,7 @@ describe('what each kind of country must get right', () => {
       expect(trees[2] / land[2], `${region}: the line's upper half`).toBeLessThan(0.55 * below);
       expect(trees[2] / land[2], `${region}: the line's upper half`).toBeLessThan(0.6 * (trees[1] / land[1]));
       expect(trees[1] + trees[2], region).toBeGreaterThan(20);
-      console.log(`${region}: trees to the hectare below the tree line ${below.toFixed(1)}, in its lower half ${(trees[1] / land[1]).toFixed(1)}, in its upper half ${(trees[2] / land[2]).toFixed(1)}, above it ${(trees[3] / land[3]).toFixed(2)}; the highest tree at ${highest.toFixed(0)} m of relief (the line ends at ${to})`);
+      console.log(`${region}: trees to the hectare below the tree line ${below.toFixed(1)}, in its lower half ${(trees[1] / land[1]).toFixed(1)}, in its upper half ${(trees[2] / land[2]).toFixed(1)}, above it ${(trees[3] / land[3]).toFixed(2)}; the highest tree ${highest.toFixed(0)} m from the line's end`);
     }
   });
 

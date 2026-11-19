@@ -84,7 +84,14 @@ export const GROUND_PAINT = /* glsl */ `
     vec2 w = rtWorldXZ(pos);
     float ad = g.x;
     // woods stop at a treeline on the high massifs; (negative: a mown lawn on a plot of the caller's, how mown)
+    #ifdef RT_ALT
+    // (a world of version 2: the region's own snow line and tree line, in metres above the sea; the woods end
+    // raggedly at their line)
+    vec2 lines = uCoverMisc[0].zw * bwIn.x + uCoverMisc[1].zw * bwIn.y + uCoverMisc[2].zw * bwIn.z + uCoverMisc[3].zw * bwIn.w;
+    float wood = max(g.z, 0.0) * (1.0 - smoothstep(lines.y - 160.0, lines.y + 40.0, vAlt + (rtNoiseAt(w, 300.0).b - 0.5) * 160.0));
+    #else
     float wood = max(g.z, 0.0) * (1.0 - smoothstep(450.0, 850.0, g.y));
+    #endif
     float lawn = max(-g.z, 0.0);
     // the verge and ditch beside the road are shaped by the road, not the land: paint them with
     // only a little of the slope, or the ditch reads as a hard cold band along the road
@@ -179,8 +186,17 @@ export const GROUND_PAINT = /* glsl */ `
     // round it; its gentle top and its foot stay what the country is
     float onForm = clamp((g.x - ${GROUND_FAR.toFixed(1)}) / ${(ON_LANDFORM - GROUND_FAR).toFixed(1)}, 0.0, 1.0);
     rock = max(rock, onForm * smoothstep(p.rockStart - 0.12, p.rockStart + 0.04, steep + (nz.b - 0.5) * 0.14));
+    #ifdef RT_ALT
+    // (version 2) in high country — from some way below the tree line up — any face steeper than about four in
+    // five is bare rock, and above the tree line any slope at all; lower down the region's own rule stands (the
+    // ranges on a hill country's horizon are its green, not crags)
+    float high = smoothstep(lines.y - 1000.0, lines.y - 500.0, vAlt);
+    rock = max(rock, smoothstep(0.19, 0.29, steep + (nz.b - 0.5) * 0.1) * high);
+    rock = max(rock, smoothstep(0.08, 0.24, steep) * smoothstep(lines.y, lines.y + 260.0, vAlt + (nz.g - 0.5) * 200.0));
+    #else
     // high ground is bare where it is at all steep
     rock = max(rock, smoothstep(0.1, 0.28, steep) * smoothstep(380.0, 700.0, g.y + (nz.g - 0.5) * 200.0));
+    #endif
     if (rock > 0.01) {
       // facets at three sizes, each turned its own way to the light, with dark seams between them;
       // the size follows the distance, so a far face still breaks into a few painted planes
@@ -204,9 +220,17 @@ export const GROUND_PAINT = /* glsl */ `
     }
 
     // ---- snow above the snowline (lower in the mountains), sliding off the steepest faces
+    #ifdef RT_ALT
+    // (version 2: above the region's snow line in metres above the sea, on the gentler faces first — the
+    // steeper a face, the higher it must stand to hold snow — and never on the steepest)
+    float snowLine = lines.x + 900.0 * smoothstep(0.06, 0.4, steep);
+    float alt = smoothstep(snowLine - 150.0, snowLine + 150.0, vAlt + (nz.g - 0.5) * 300.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
+    alt *= 1.0 - smoothstep(0.5, 0.78, steep);
+    #else
     float snowLine = mix(1900.0, 380.0, p.misc.x);
     float alt = smoothstep(snowLine - 160.0, snowLine + 160.0, g.y + (nz.g - 0.5) * 320.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
     alt *= 1.0 - smoothstep(mix(0.42, 0.55, p.misc.x), mix(0.7, 0.82, p.misc.x), steep);
+    #endif
     albedo = mix(albedo, rtSnowTone(tone + (rel - 0.5) * 0.6), alt);
 
     #ifdef RT_COVER
@@ -303,11 +327,36 @@ export const GROUND_PAINT = /* glsl */ `
   }
 `;
 
+/**
+ * The air over the land of a world of version 2 (stage L1): ranges stand layer behind layer, each further one
+ * lighter and bluer. The haze is the colour script's (shaderlib.ts rtFog: the air's colour by the hour and the
+ * weather); here, from a kilometre and a half out, it no longer thins with the height of what it veils — a far
+ * range sits in the air as one shape, its crest as hazed as its foot, so ranges at different distances part by
+ * their values — and the nearest range, one to six kilometres off, is laid a shade deeper and richer, standing
+ * in front of the paler ones behind it.
+ */
+export const GROUND_AIR = /* glsl */ `
+  vec3 rtLayeredAir(vec3 c, vec3 pos, vec3 cam) {
+    float dist = length(pos - cam);
+    float nearRange = smoothstep(900.0, 2200.0, dist) * (1.0 - smoothstep(5000.0, 9000.0, dist));
+    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = mix(c, (vec3(l) + (c - vec3(l)) * 1.2) * 0.86, nearRange);
+    // (rtFog thins the haze over ground standing high above the eye: here the ground is let down towards the eye's
+    // height for that, ever more with distance, so the haze goes by the distance)
+    vec3 p = pos;
+    p.y = mix(pos.y, min(pos.y, uFogBase + 250.0), smoothstep(1500.0, 7000.0, dist) * 0.7);
+    return rtFog(c, p, cam);
+  }
+`;
+
 export const GROUND_VARYINGS = /* glsl */ `
   varying vec4 vBiomeW;
   varying vec4 vGround;
   #ifdef RT_COVER
   varying vec2 vCover;
+  #endif
+  #ifdef RT_ALT
+  varying float vAlt;
   #endif
 `;
 
@@ -324,10 +373,10 @@ export const terrainClamp = {
   tClamp: { value: null as THREE.Texture | null },
 };
 
-/** @param cover a world of version 2: the ground carries its flora field's cover (the geometry has aCover) */
+/** @param cover a world of version 2: the ground carries its flora field's cover and its height above the sea (the geometry has aCover and aAlt) */
 export function terrainMaterial(cover = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    defines: cover ? { RT_COVER: '' } : {},
+    defines: cover ? { RT_COVER: '', RT_ALT: '' } : {},
     uniforms: { ...globals, ...terrainClamp, ...coverUniforms },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
@@ -337,6 +386,9 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
       #ifdef RT_COVER
       attribute vec2 aCover;
       #endif
+      #ifdef RT_ALT
+      attribute float aAlt;
+      #endif
       uniform vec4 uClampBox;
       uniform float uClampBase;
       uniform sampler2D tClamp;
@@ -345,6 +397,9 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
         vGround = aGround;
         #ifdef RT_COVER
         vCover = aCover;
+        #endif
+        #ifdef RT_ALT
+        vAlt = aAlt;
         #endif
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
         if (uClampBox.z > uClampBox.x && rtWorld.x > uClampBox.x && rtWorld.x < uClampBox.z && rtWorld.z > uClampBox.y && rtWorld.z < uClampBox.w) {
@@ -360,13 +415,18 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
       ${GLSL_COMMON}
       ${GROUND_VARYINGS}
       ${GROUND_PAINT}
+      ${GROUND_AIR}
       void main() {
         #include <logdepthbuf_fragment>
         vec3 n = normalize(vNormal);
         float dist = length(vPos - cameraPosition);
         vec3 albedo;
         vec3 col = rtPaintedGround(vPos, n, vBiomeW, vGround, dist, rtShadow(vPos, n), albedo);
+        #ifdef RT_ALT
+        col = rtLayeredAir(col, vPos, cameraPosition);
+        #else
         col = rtFog(col, vPos, cameraPosition);
+        #endif
         // far land is already flat-painted: the paint finish leaves it alone
         gl_FragColor = vec4(col, mix(1.0, 0.5, smoothstep(900.0, 1400.0, dist)));
       }`,
@@ -375,11 +435,11 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
 
 const v3 = (c: [number, number, number]): THREE.Vector3 => new THREE.Vector3(c[0], c[1], c[2]);
 
-/** @param cover a world of version 2: the ground beside the road carries its flora field's cover (the geometry has aCover) */
+/** @param cover a world of version 2: the ground beside the road carries its flora field's cover and its height above the sea (the geometry has aCover and aAlt) */
 export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
   const R = STYLE.road;
   return new THREE.ShaderMaterial({
-    defines: cover ? { RT_COVER: '' } : {},
+    defines: cover ? { RT_COVER: '', RT_ALT: '' } : {},
     uniforms: {
       ...globals,
       ...skyMirrorUniforms(),
@@ -402,6 +462,9 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
       #ifdef RT_COVER
       attribute vec2 aCover;
       #endif
+      #ifdef RT_ALT
+      attribute float aAlt;
+      #endif
       varying vec4 vRoad;
       void main() {
         vBiomeW = aBiomeW;
@@ -409,6 +472,9 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         vRoad = aRoad;
         #ifdef RT_COVER
         vCover = aCover;
+        #endif
+        #ifdef RT_ALT
+        vAlt = aAlt;
         #endif
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
         vPos = rtWorld.xyz;

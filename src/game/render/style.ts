@@ -256,7 +256,11 @@ export const coverUniforms = {
    * rows (metres from row to row — 0: it grows none —, the row's share of that, how many colours, flowers 0 … 1)
    */
   tCover: { value: null as THREE.DataTexture | null },
-  /** per slot: x how wet the region's open ground is (0 … 1: a marsh), y how reedy its shores (0 … 1) */
+  /**
+   * per slot: x how wet the region's open ground is (0 … 1: a marsh), y how reedy its shores (0 … 1), z its snow
+   * line and w its tree line, in metres above the sea (core/world/biomes.ts RegionRelief; a region without: far
+   * above any land)
+   */
   uCoverMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
   /** the world's seed: the rows' colours are dealt by it (scene/floraCover.ts rowHue01) */
   uCoverSeed: { value: 0 },
@@ -299,7 +303,7 @@ function fillCover(coverData: Float32Array, misc: THREE.Vector4[], slot: number,
   const wet = Math.min(1, Math.max(0, (table.eco.moist - 0.62) / 0.1));
   let reeds = 0;
   for (const r of table.shrubs) if (r.plant === 'reed') reeds = Math.max(reeds, r.perHa);
-  misc[slot].set(wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), 0, 0);
+  misc[slot].set(wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), region.relief?.snow ?? 1e5, region.relief?.trees ?? 1e5);
 }
 
 const shown = [-1, -1, -1, -1];

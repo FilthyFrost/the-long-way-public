@@ -32,7 +32,7 @@ export type WorldVersion = 1 | 2;
  * it (harness/sim/world-golden.json): a change to version 2 that was not meant shows there. Version 1 has
  * no revisions: it never changes.
  */
-export const WORLD_REV = 2;
+export const WORLD_REV = 3;
 
 /** one chapter as its dealer hands it over */
 export interface DealtChapter {

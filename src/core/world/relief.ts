@@ -50,9 +50,9 @@ export function hillsFade(amp: number): number {
 /** how far either side of a border between two regions the height of their walls and ranges changes (m; less in short chapters) */
 export const LONG_BLEND = 3000;
 /** where the country opens on one side, its wall stands this much lower (share) … */
-const OPEN_LOWER = 0.6;
+const OPEN_LOWER = 0.75;
 /** … and its foot this much further back (m) */
-const OPEN_BACK = 2400;
+const OPEN_BACK = 3000;
 /** the side valleys notching a wall: one in every stretch of this many metres along the valley */
 const SIDE_VALLEY = 5200;
 /** behind its crest a wall falls this much (share of its height) over BACK_RUN m */

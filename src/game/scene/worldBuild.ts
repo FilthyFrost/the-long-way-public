@@ -221,6 +221,8 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   // a world of version 2: the woods beside the road are the ecotope's, and the land carries its region's rows
   const field = world.eco;
   const cov = field ? new Float32Array(n * 2) : null;
+  // (… and the height above the sea, for its snow line and its tree line)
+  const alt = field ? new Float32Array(n) : null;
   let k = 0;
   for (let r = 0; r < rows; r++) {
     const s = (i0 + r * stride) * ds;
@@ -246,6 +248,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
       if (world.deadEnd && tp.zone === 0 && s < 12) hd += 0.03 * (1 - smoothstep(4, 12, s));
       pos[k * 3 + 1] = hd - oy - (skirt && !onBridge ? 1.6 : 0);
       pos[k * 3 + 2] = wz - oz;
+      if (alt) alt[k] = sp.altitude(hd);
       road[k * 4] = d;
       road[k * 4 + 1] = s - sBase;
       road[k * 4 + 2] = bridgeProbe.mask;
@@ -314,6 +317,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   g.setAttribute('aGround', new THREE.BufferAttribute(gd, 4));
   g.setAttribute('aRoad', new THREE.BufferAttribute(road, 4));
   if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
+  if (alt) g.setAttribute('aAlt', new THREE.BufferAttribute(alt, 1));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
   g.computeBoundingSphere();
   return { geometry: g, wx: ox, wy: oy, wz: oz };
@@ -382,6 +386,8 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   // a world of version 2: its woods are the ecotope's canopy, and the land carries the rows of its fields
   const flora = world.flora !== null;
   const cov = flora ? new Float32Array((V * V + 4 * V) * 2) : null;
+  // (… and its height above the sea: the paint's snow line and tree line are the region's, in metres above the sea)
+  const alt = flora ? new Float32Array(V * V + 4 * V) : null;
   let oy = 0;
   let cFirst = Infinity;
   let cLast = -Infinity;
@@ -409,6 +415,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
           const k = j * V + i;
           groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz), wood);
           rowBase(world, tp, wx, tRow, k * 4);
+          if (alt) alt[k] = world.spine.altitude(tp.bed);
         }
         if (wood > 0 && tp.landform > 2 && step > LANDFORM_PROBE) {
           const bed = tp.bed;
@@ -495,6 +502,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
       cov[dst * 2] = cov[src * 2];
       cov[dst * 2 + 1] = cov[src * 2 + 1];
     }
+    if (alt) alt[dst] = alt[src];
   };
   for (let i = 0; i <= N; i++) {
     copy(base + i, i);
@@ -508,6 +516,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
   g.setAttribute('aBiomeW', new THREE.BufferAttribute(bw, 4));
   g.setAttribute('aGround', new THREE.BufferAttribute(gd, 4));
   if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
+  if (alt) g.setAttribute('aAlt', new THREE.BufferAttribute(alt, 1));
   g.setIndex(terrainIndex());
   g.computeBoundingSphere();
   return { geometry: g, wx: x0, wy: oy, wz: z0, chapters: [cFirst, cLast] };

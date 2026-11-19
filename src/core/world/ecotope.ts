@@ -167,12 +167,26 @@ function smooth(t: number): number {
 }
 
 /**
+ * Where a region's woods end, as relief at a point (m above the road's base there): in a world of version 2 the
+ * mountain country (a region with walls: biomes.ts RegionRelief — stage L1, its walls stand a kilometre and
+ * more above the road, and the woods climb them as far as the climate lets them) has it at its tree line in
+ * metres above the sea (RegionRelief.trees), the point's height above the sea being `altitude`; NaN elsewhere,
+ * where the region's flora table alone says (canopyAt then reads its band as it is: a hill country's band is
+ * where its land is put to use, the terraces' bare tops, not its climate's line, which no hill reaches).
+ */
+export function treeLine(world: World, region: number, relief: number, altitude: number): number {
+  const R = world.rules.version >= 2 ? BIOMES[region].relief : undefined;
+  return R && R.walls ? R.trees - altitude + relief : NaN;
+}
+
+/**
  * How much of the sky the trees close at a point, 0 … 1, for a region's parameters: patches of wood where a
  * slow noise is high (how high, `wood` says; none at all where it says 0), kept back from the road, thinning
  * to the tree line and on steep ground (from WOOD_STEEP, none by WOOD_SHEER), and crowding to the water
- * where the country is `thirsty`.
+ * where the country is `thirsty`. `line`: where the region's tree line is as relief at this point (treeLine),
+ * the end of the table's band laid there, the band as wide as the table has it; NaN: the table's band as it is.
  */
-export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: number, relief: number, waterDist: number, slope = 0): number {
+export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: number, relief: number, waterDist: number, slope = 0, line = NaN): number {
   if (ad < p.clear || p.woodScale <= 0 || slope >= WOOD_SHEER) return 0;
   let c = 0;
   if (p.wood > 0) {
@@ -189,7 +203,12 @@ export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: n
   // the wood's edge wanders: a ragged line, not one parallel to the road
   const e = smooth((ad + 9 * fbm2(x / 55, z / 55, seed + 0x5c2, 2) - p.clear) / p.edge);
   let k = c * e;
-  if (p.treeline) k *= 1 - smooth((relief - p.treeline[0]) / (p.treeline[1] - p.treeline[0]));
+  if (p.treeline) {
+    if (line === line) {
+      const width = p.treeline[1] - p.treeline[0];
+      k *= 1 - smooth((relief - line + width) / width);
+    } else k *= 1 - smooth((relief - p.treeline[0]) / (p.treeline[1] - p.treeline[0]));
+  }
   if (slope > WOOD_STEEP) k *= 1 - smooth((slope - WOOD_STEEP) / (WOOD_SHEER - WOOD_STEEP));
   return k;
 }
@@ -321,12 +340,13 @@ export class EcotopeField {
         const x = x0 + i * ECO_STEP;
         const z = z0 + j * ECO_STEP;
         const pa = this.paramsOf(t.ra[n]);
-        let canopy = canopyAt(pa, seed + t.ra[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope);
+        const alt = w.spine.altitude(t.h[n]);
+        let canopy = canopyAt(pa, seed + t.ra[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope, treeLine(w, t.ra[n], t.relief[n], alt));
         let moist = moistureAt(pa, seed, x, z, slope, t.shade[n], t.hollow[n], t.waterDist[n]);
         const mix = t.rt[n];
         if (mix > 0 && t.rb[n] !== t.ra[n]) {
           const pb = this.paramsOf(t.rb[n]);
-          canopy += (canopyAt(pb, seed + t.rb[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope) - canopy) * mix;
+          canopy += (canopyAt(pb, seed + t.rb[n] * 131, x, z, t.ad[n], t.relief[n], t.waterDist[n], slope, treeLine(w, t.rb[n], t.relief[n], alt)) - canopy) * mix;
           moist += (moistureAt(pb, seed, x, z, slope, t.shade[n], t.hollow[n], t.waterDist[n]) - moist) * mix;
         }
         if (t.flags[n] & (ECO_WET | ECO_ROAD)) canopy = 0;
