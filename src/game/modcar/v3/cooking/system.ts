@@ -67,8 +67,18 @@ export const JAR_HOURS = 12;
 export const JAR_KM = 15;
 const JAR_S = 2;
 /** how high over its base the pot sits on each station (m), and how big a station is to the mark */
-const POT_Y: Readonly<Record<StationKind, number>> = { fire: 0.32, stove: 0.2, kitchen: KITCHEN.hobY, rack: 0.55, smoker: 0.6 };
-const MARK_R: Readonly<Record<StationKind, number>> = { fire: 0.55, stove: 0.26, kitchen: 0.5, rack: 0.4, smoker: 0.35 };
+const POT_Y: Readonly<Record<StationKind, number>> = { fire: 0.32, stove: 0.24, kitchen: KITCHEN.hobY, rack: 0.55, smoker: 0.6 };
+const MARK_R: Readonly<Record<StationKind, number>> = { fire: 0.55, stove: 0.3, kitchen: 0.5, rack: 0.4, smoker: 0.35 };
+/** the phases in order (a station's card is made again when its pot moves on) */
+const PHASES: readonly string[] = ['pick', 'knife', 'heat', 'season', 'wait', 'keep', 'plate'];
+/** the line on each station's card */
+const STATION_BLURB: Readonly<Record<StationKind, string>> = {
+  fire: '营地里的篝火。按 E 生火做饭：能烤，能烧水；手上带着锅，还能煎、煮汤、炖菜、焖饭。',
+  stove: '一个灶头的便携灶。用的是快捷栏里的锅，或者放在它旁边两米内的锅。',
+  kitchen: '车库门口的厨房角：锅碗瓢盆都挂在这里，什么菜都做得了。',
+  rack: '晾干架：东西挂上去，过六个游戏小时就干了，放多久都不坏。',
+  smoker: '烟熏箱：东西放进去熏四个游戏小时，放多久都不坏。',
+};
 /** what a station set down is, by its item */
 const LYING: Readonly<Record<string, StationKind>> = { cook_stove: 'stove', cook_rack: 'rack', cook_smoker: 'smoker' };
 
@@ -131,8 +141,8 @@ class StationDevice implements GarageDevice {
     return this.owner.stateWords(this.st);
   }
 
-  get card(): ItemCard | undefined {
-    return undefined;
+  get card(): ItemCard {
+    return this.owner.cardOf(this.st);
   }
 
   use(): void {
@@ -360,6 +370,7 @@ export class Cooking implements System<GameContext>, InteractSource {
   }
 
   private forget(st: Station): void {
+    this.cards.delete(st);
     const i = this.stations.indexOf(st);
     if (i >= 0) this.stations.splice(i, 1);
     this.byKey.delete(st.key);
@@ -483,6 +494,46 @@ export class Cooking implements System<GameContext>, InteractSource {
       d.radius = MARK_R[st.kind];
       out.push(d);
     }
+  }
+
+  /** each station's card as the mark shows it, made again only when what it says has changed (its signature) */
+  private readonly cards = new Map<Station, { sig: number; card: ItemCard }>();
+
+  /**
+   * A station's card: what it is, what it cooks with the cookware at hand, what is on it. The same object while
+   * nothing it says has changed — the pot's step and portions, whether it burns, the cookware in the hotbar
+   * (the view does not look into a kept card again). Asked every frame the mark is on the station: the
+   * signature is a sum of small numbers, nothing is built to compare.
+   */
+  cardOf(st: Station): ItemCard {
+    const p = st.pot;
+    let sig = (p ? PHASES.indexOf(p.phase) * 8 + p.items.length + 1 : 0) * 2 + (st.fire > 0 ? 1 : 0);
+    const slots = this.ctx ? this.ctx.player.slots : null;
+    if (slots) {
+      for (let i = 0; i < slots.length; i++) {
+        const h = slots[i];
+        if (h?.kind === 'item' && h.item.item.charCodeAt(0) === 99 && h.item.item.startsWith('cook_')) sig += 1000 * (h.item.item.length + i * 37);
+      }
+    }
+    const kept = this.cards.get(st);
+    if (kept && kept.sig === sig) return kept.card;
+    const ways = this.methodsAt(st).map((m) => METHODS[m].name.zh);
+    const card: ItemCard = {
+      key: `cooking:${st.key}:${sig}`,
+      icon: 'food',
+      cat: '烹饪',
+      name: STATION_NAME[st.kind].zh,
+      stars: 0,
+      badges: [],
+      blurb: STATION_BLURB[st.kind],
+      rows: [{ value: ways.length ? ways.join('、') : '手边没有能用的锅', label: '能做' }],
+      bars: [],
+      notes: p && p.items.length ? [{ text: this.stateWords(st).zh, tone: 'info' }] : [],
+      foot: {},
+      kept: true,
+    };
+    this.cards.set(st, { sig, card });
+    return card;
   }
 
   /** what the prompt says of a station as it stands ("汤在锅里：正好", "篝火") */

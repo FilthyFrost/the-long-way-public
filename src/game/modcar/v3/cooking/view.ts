@@ -40,7 +40,10 @@ const FILL: Readonly<Record<string, [number, number, boolean]>> = {
   cook_kettle: [0.1, 0.05, true],
 };
 /** where the base of the cookware stands against a station's point (the point the mark aims at), by station: on the stones of a fire ring, on a stove's pot rests, on the hob's ring */
-const BASE: Readonly<Record<string, number>> = { fire: -0.14, stove: -0.07, kitchen: 0.03, rack: 0, smoker: 0 };
+const BASE: Readonly<Record<string, number>> = { fire: -0.14, stove: -0.11, kitchen: 0.03, rack: 0, smoker: 0 };
+
+/** how far out the burner's flames stand under each piece of cookware (m): just at its foot, so that their tips show past it */
+const RING: Readonly<Record<string, number>> = { cook_pot: 0.118, cook_pan: 0.11, cook_wok: 0.07, cook_kettle: 0.08, cook_steamer: 0.12, cook_dutch_oven: 0.13, cook_grill: 0.12 };
 
 /** how far what is in the pot has gone towards a toasted brown, by the band of its doneness: over dry heat, and in water or steam */
 const DRY_BROWN = [0, 0.12, 0.38, 0.62, 0.88];
@@ -96,9 +99,26 @@ function paintedMaterial(): THREE.ShaderMaterial {
   });
 }
 
+/**
+ * The blending of what is drawn over the frame without being a thing of it (steam, smoke, flames): the colour
+ * as `add` says (adding light, or laid over), the frame's alpha left as it was — the paint finish reads that
+ * alpha as which material a pixel is (render/frame.ts: the cel-painted things' small ids are inked where two
+ * meet), and a puff over the kitchen corner would otherwise draw an ink line round itself.
+ */
+function overlay(m: THREE.ShaderMaterial, add: boolean): THREE.ShaderMaterial {
+  m.blending = THREE.CustomBlending;
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = add ? THREE.OneFactor : THREE.SrcAlphaFactor;
+  m.blendDst = add ? THREE.OneFactor : THREE.OneMinusSrcAlphaFactor;
+  m.blendEquationAlpha = THREE.AddEquation;
+  m.blendSrcAlpha = THREE.ZeroFactor;
+  m.blendDstAlpha = THREE.OneFactor;
+  return m;
+}
+
 /** soft rounds turned to the camera: steam (white) and smoke (grey), as their alpha and colour say */
 function puffMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+  return overlay(new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     uniforms: { ...globals },
@@ -121,7 +141,7 @@ function puffMaterial(): THREE.ShaderMaterial {
         vAlpha = iColor.z;
         vCol = vec3(iColor.x);
         // (y: how warm it is: smoke is grey, steam white)
-        vCol = mix(vec3(0.36, 0.33, 0.31), vec3(1.0, 1.0, 0.98), iColor.x) * (0.9 + 0.1 * iColor.y);
+        vCol = mix(vec3(0.24, 0.22, 0.21), vec3(1.0, 1.0, 0.98), iColor.x) * (0.9 + 0.1 * iColor.y);
         gl_Position = projectionMatrix * viewMatrix * vec4(w, 1.0);
         #include <logdepthbuf_vertex>
         if (size < 0.001) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -139,20 +159,19 @@ function puffMaterial(): THREE.ShaderMaterial {
         float lump = 0.06 * sin(atan(vUv.y, vUv.x) * 5.0 + vPos.y * 7.0);
         float a = (1.0 - smoothstep(0.25 + lump, 1.0 + lump, r)) * vAlpha;
         if (a < 0.01) discard;
-        float top = 0.85 + 0.15 * vUv.y;
-        vec3 lit = vCol * top * (uSkyColor * 0.55 + uSunColor * 0.3 + 0.2);
+        float top = 0.88 + 0.12 * vUv.y;
+        vec3 lit = vCol * top * (uSkyColor * 0.6 + uSunColor * 0.32 + 0.32);
         lit = rtFog(lit, vPos, cameraPosition);
         gl_FragColor = vec4(lit, a);
       }`,
-  });
+  }), false);
 }
 
 /** tongues of flame and the glow of a fire, adding light (iFlame.w < 0: a glow; its size the magnitude) */
 function flameMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+  return overlay(new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
     uniforms: { ...globals },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
@@ -199,7 +218,7 @@ function flameMaterial(): THREE.ShaderMaterial {
           float r = length(vUv);
           float g = pow(max(0.0, 1.0 - r), 2.2);
           // (by day a fire is a warm smudge; by night it lights the ground round it)
-          gl_FragColor = vec4(vec3(1.0, 0.5, 0.18) * g * mix(0.18, 0.55, uWeather.w), 1.0);
+          gl_FragColor = vec4(vec3(1.0, 0.46, 0.15) * g * mix(0.14, 0.2, uWeather.w), 1.0);
           return;
         }
         // a teardrop: wide at the foot, drawn to a point
@@ -210,11 +229,11 @@ function flameMaterial(): THREE.ShaderMaterial {
         if (body < 0.01) discard;
         float core = (1.0 - smoothstep(0.0, 0.55, edge)) * (1.0 - smoothstep(0.1, 0.6, h));
         // a gas burner's blue at the foot (vHot 1), a wood fire's orange (0); a white-gold heart
-        vec3 outer = mix(vec3(1.0, 0.36, 0.06), vec3(0.25, 0.45, 1.0), vHot * (1.0 - smoothstep(0.1, 0.5, h)));
-        vec3 col = mix(outer, vec3(1.0, 0.86, 0.45), core);
-        gl_FragColor = vec4(col * body * mix(1.1, 1.6, uWeather.w), 1.0);
+        vec3 outer = mix(vec3(1.0, 0.36, 0.06), vec3(0.22, 0.42, 1.0), vHot * (1.0 - 0.55 * smoothstep(0.45, 0.95, h)));
+        vec3 col = mix(outer, mix(vec3(1.0, 0.86, 0.45), vec3(0.6, 0.8, 1.0), vHot), core);
+        gl_FragColor = vec4(col * body * mix(mix(1.0, 0.7, vHot), 0.95, uWeather.w), 1.0);
       }`,
-  });
+  }), true);
 }
 
 /** a quad of two triangles, −1 … 1 */
@@ -404,7 +423,7 @@ export class CookView implements CookShow {
           const lx = st.x + Math.cos(a) * rr + along * cs;
           const lz = st.z + Math.sin(a) * rr - along * sn;
           const ly = (id === 'cook_spit' ? baseY + 0.42 : baseY + fill[0]) + 0.012;
-          const size = id === 'cook_spit' ? 0.034 : 0.024 + 0.006 * ((k * 0.37) % 1);
+          const size = id === 'cook_spit' ? 0.042 : 0.024 + 0.006 * ((k * 0.37) % 1);
           this.v.set(lx - o.x, ly - o.y, lz - o.z);
           this.s.set(size * 1.15, size * (id === 'cook_spit' ? 1 : 0.75), size);
           this.q.identity();
@@ -427,12 +446,12 @@ export class CookView implements CookShow {
           const r = k === 0 ? 0 : 0.13 + 0.04 * (k % 2);
           nf = this.flame(nf, st.x + Math.cos(a) * r - o.x, fy - o.y, st.z + Math.sin(a) * r - o.z, (k === 0 ? 0.3 : 0.2 + 0.04 * (k % 3)) * k0, i * 7 + k, 0);
         }
-        nf = this.flame(nf, st.x - o.x, fy + 0.3 - o.y, st.z - o.z, -1.8 * k0, i, 0);
+        nf = this.flame(nf, st.x - o.x, fy + 0.3 - o.y, st.z - o.z, -1.3 * k0, i, 0);
       } else if (burner && p) {
         // (round the foot of the pot, so that the tips show past it: a low flame a blue rim, a high one licking up its sides)
         const fy = baseY - 0.012;
         const size = 0.018 + 0.014 * p.heat;
-        const r = id === 'cook_pan' || id === 'cook_wok' ? 0.075 : 0.088;
+        const r = RING[id] ?? 0.1;
         for (let k = 0; k < 12 && nf < FLAMES; k++) {
           const a = k * 0.5236 + i;
           nf = this.flame(nf, st.x + Math.cos(a) * r - o.x, fy - o.y, st.z + Math.sin(a) * r - o.z, size, i * 13 + k, 1);
@@ -442,8 +461,8 @@ export class CookView implements CookShow {
       if (p && p.lit && p.heat > 0 && i < this.owe.length) {
         const d = p.pot.d;
         const b = band(d);
-        const steam = d > 0.2 ? (1.5 + 5 * Math.min(1, d)) * (0.5 + 0.25 * p.heat) : 0;
-        const smoke = b >= 4 ? 7 : b === 3 ? 3 : p.most >= 4 ? 2 : 0;
+        const steam = d > 0.2 ? (1.5 + 5 * Math.min(1, d)) * (0.5 + 0.25 * p.heat) * (b >= 4 ? 0.15 : 1) : 0;
+        const smoke = b >= 4 ? 9 : b === 3 ? 3 : p.most >= 4 ? 2 : 0;
         this.owe[i] += (steam + smoke) * dt;
         const topY = baseY + (fill ? fill[0] + 0.08 : 0.2);
         while (this.owe[i] >= 1) {
@@ -472,7 +491,7 @@ export class CookView implements CookShow {
       this.puffData[j + 3] = smoke ? 0.07 + 0.3 * t : 0.05 + 0.24 * t;
       this.puffColor[np * 3] = smoke ? 0 : 1;
       this.puffColor[np * 3 + 1] = 1 - t;
-      this.puffColor[np * 3 + 2] = (smoke ? 0.5 : 0.24) * Math.sin(Math.PI * Math.min(1, t * 2.2)) * (1 - t) * (1 - t);
+      this.puffColor[np * 3 + 2] = (smoke ? 0.62 : 0.24) * Math.sin(Math.PI * Math.min(1, t * 2.2)) * (1 - t) * (smoke ? 1 : 1 - t);
       np++;
     }
     this.lumps.count = nl;

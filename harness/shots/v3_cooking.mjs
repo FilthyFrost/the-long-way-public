@@ -13,7 +13,10 @@
 // Pictures into loop/shots/v3_cooking/: the panel at each step, the pot on the flame by day and by night, the
 // dishes in the hand, the stations — for looking at, drawn by the software renderer.
 //
-// Nothing here waits on the wall clock for a result: the game is stepped, or its own state is waited for.
+// Nothing here waits on the wall clock for a result: the game is stepped, or its own state is waited for. The live
+// loop is held between the pictures (the software renderer takes half a second a frame) and the script steps
+// the game itself, a tenth of a second a step (the most a frame of the live loop ever is); for each picture the
+// loop runs and draws a few frames.
 //   SHOTS_GL=llvmpipe node harness/shots/v3_cooking.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -53,6 +56,49 @@ async function built(page) {
   return false;
 }
 
+/** the live loop held (its frames neither step nor draw the game), until a picture lets it go for a few frames */
+async function holdDrawing(page) {
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    window.__held = true;
+    if (g.__loopHeld) return;
+    g.__loopHeld = true;
+    const frame = g.frame.bind(g);
+    g.frame = (dt) => {
+      if (!window.__held) frame(dt);
+    };
+  });
+}
+
+/** a picture of the game as it is: the loop runs and draws a few frames, then is held again */
+async function shot(page, name) {
+  await page.evaluate(() => (window.__held = false));
+  await waitFrames(page, 3);
+  await page.screenshot({ path: path.join(out, `${name}.png`) });
+  await page.evaluate(() => (window.__held = true));
+}
+
+/** the game stepped by the script: so many seconds, a tenth of a second a step */
+const steps = (page, seconds) =>
+  page.evaluate((seconds) => {
+    const g = window.__rt.game;
+    for (let t = 0; t < seconds - 1e-6; t += 0.1) g.step(0.1, 1);
+  }, seconds);
+
+/** what the cooking view adds to a frame drawn now: draw calls and triangles with it and without it */
+const drawCost = (page) =>
+  page.evaluate(() => {
+    const g = window.__rt.game;
+    const root = g.core.scene.getObjectByName('cooking');
+    g.render();
+    const withIt = { ...g.core.stats };
+    root.visible = false;
+    g.render();
+    const without = { ...g.core.stats };
+    root.visible = true;
+    return { calls: withIt.calls - without.calls, triangles: withIt.triangles - without.triangles };
+  });
+
 /** what is in each slot of the hotbar */
 const hands = (page) =>
   page.evaluate(() =>
@@ -81,8 +127,8 @@ async function devClick(page, labels) {
   return said;
 }
 
-/** the robot cook through the panel open now; the game stepped until it is done; pictures at each new step */
-async function robotCook(page, plan, hands, shots = '') {
+/** the robot cook through the panel open now; the game stepped until it is done; pictures at each new step (`inWait`: called once in the wait) */
+async function robotCook(page, plan, hands, shots = '', inWait = null) {
   const hx = harness(page);
   if (!(await hx('cooking', 'robot', plan, hands))) return { why: 'the robot did not start', ...((await hx('cooking', 'robotReport')) ?? {}) };
   let report = null;
@@ -90,24 +136,24 @@ async function robotCook(page, plan, hands, shots = '') {
   for (let i = 0; i < 400; i++) {
     const r = await page.evaluate(() => {
       const g = window.__rt.game;
-      g.simulate(0.5);
+      for (let k = 0; k < 20; k++) g.step(0.1, 1);
       return { rep: g.systems.harness('cooking', 'robotReport'), panel: g.systems.harness('cooking', 'panel') };
     });
     report = r.rep;
     if (shots && r.panel.phase && r.panel.phase !== phase) {
       phase = r.panel.phase;
-      await waitFrames(page, 2);
-      await page.screenshot({ path: path.join(out, `${shots}_${String(i).padStart(3, '0')}_${phase}.png`) });
+      await shot(page, `${shots}_${String(i).padStart(3, '0')}_${phase}`);
+      if (phase === 'wait' && inWait) await inWait();
     }
     if (!report || report.done) break;
   }
   return report;
 }
 
-/** stand off a station (from +x of it by default) looking at its point, and press E; what the mark was on */
-async function useStation(page, st, from = 0, dist = 1.05) {
+/** stand off a station (from +x of it by default) looking at its point (a little over it: `lift`), and press E; what the mark was on */
+async function useStation(page, st, from = 0, dist = 1.05, lift = 0) {
   const rt = hook(page);
-  const on = await rt('aimPoint', st.x, st.y, st.z, from, dist);
+  const on = await rt('aimPoint', st.x, st.y + lift, st.z, from, dist);
   await rt('press');
   return on;
 }
@@ -129,6 +175,7 @@ try {
   await ready();
   await page.evaluate((k) => localStorage.removeItem(k), SAVE);
   await page.evaluate(() => window.__rt.game.ui.showHelp(false));
+  await holdDrawing(page);
   const game = await page.evaluate(() => ({ version: window.__rt.game.world?.rules.version ?? window.__rt.params.world, keep: window.__rt.params.keep, modules: window.__rt.kernel().modules, tabs: window.__rt.kernel().devTabs }));
   console.log('new game', JSON.stringify(game));
   if (game.version !== 2 || !game.keep) fail(`not a kept game of version 2: ${JSON.stringify(game)}`);
@@ -141,14 +188,14 @@ try {
   await rt('simulate', 2);
 
   // ------------------------------------------------------------------ the kitchen corner at the workshop
+  let kitchenCost = null;
   const kitchen = await station(page, 'kitchen');
   console.log('the kitchen corner', JSON.stringify(kitchen));
   if (!kitchen) fail('no kitchen corner at the workshop');
   if (kitchen && kitchen.methods.length < 10) fail(`the kitchen corner offers only ${kitchen.methods.join(', ')}`);
-  // (the corner from the yard, and close)
-  await rt('aimPoint', kitchen.x, kitchen.y - 0.1, kitchen.z, 0.25, 3.2);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'kitchen_corner.png') });
+  // (the corner from the yard, from its south side: the pump stands before it on the other)
+  await rt('aimPoint', kitchen.x, kitchen.y - 0.1, kitchen.z, -0.75, 2.7);
+  await shot(page, 'kitchen_corner');
   const given = await devClick(page, ['牛肝菌', '鸡油菌']);
   console.log('the 烹饪 tab', JSON.stringify(given));
   if (given.buttons < 200) fail(`the 烹饪 tab has only ${given.buttons} buttons`);
@@ -171,17 +218,19 @@ try {
   if (m1 === m0 || m2 !== m0) fail(`the keyboard's D and A did not go round the ways: ${m0} ${m1} ${m2}`);
   const walkerBefore = await page.evaluate(() => ({ x: window.__rt.game.player.walker.x, z: window.__rt.game.player.walker.z }));
   await page.keyboard.down('KeyW');
-  await waitFrames(page, 8);
+  await steps(page, 0.5);
   await page.keyboard.up('KeyW');
   const walkerAfter = await page.evaluate(() => ({ x: window.__rt.game.player.walker.x, z: window.__rt.game.player.walker.z }));
   if (Math.hypot(walkerAfter.x - walkerBefore.x, walkerAfter.z - walkerBefore.z) > 0.02) fail('the walker moved while the panel was open');
   // the robot cook: a mushroom soup
-  const soup = await robotCook(page, { recipe: 'mushroom_soup', seed: 5 }, { reaction: 0.4, error: 0.15 }, 'soup');
+  const soup = await robotCook(page, { recipe: 'mushroom_soup', seed: 5 }, { reaction: 0.4, error: 0.15 }, 'soup', async () => {
+    kitchenCost = await drawCost(page);
+  });
   console.log('the robot cook: mushroom soup', JSON.stringify(soup));
+  console.log('the cooking view at the kitchen corner, a soup on the flame', JSON.stringify(kitchenCost));
   if (!soup?.done || soup.why || soup.dish?.recipe !== 'mushroom_soup') fail(`the robot did not cook a mushroom soup: ${JSON.stringify(soup)}`);
   if (soup && !(soup.seconds >= 60 && soup.seconds <= 180)) fail(`the soup took ${soup?.seconds} s`);
-  await waitFrames(page, 2);
-  await page.screenshot({ path: path.join(out, 'soup_done.png') });
+  await shot(page, 'soup_done');
   const withSoup = await hands(page);
   const bowl = withSoup.find((h) => h?.item === 'dish_soup');
   console.log('in the hands', JSON.stringify(withSoup), 'known', await hx('cooking', 'known', 'mushroom_soup'));
@@ -193,9 +242,9 @@ try {
   // the dish in the hand, and eaten: it feeds and leaves its buff
   const slot = withSoup.findIndex((h) => h?.item === 'dish_soup');
   await rt('select', slot);
-  await rt('look', 0, -0.55);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'soup_in_hand.png') });
+  // (looking away from the yard's pump and generator: the card of the thing in the hand shows whole)
+  await rt('look', -1.35, -0.55);
+  await shot(page, 'soup_in_hand');
   const fed0 = await page.evaluate(() => {
     const g = window.__rt.game;
     g.body.food = 40;
@@ -203,7 +252,7 @@ try {
     return { food: g.body.food, water: g.body.water };
   });
   await rt('takeFor', 5.2);
-  await rt('simulate', 6);
+  await steps(page, 6);
   const fed = await page.evaluate(() => {
     const g = window.__rt.game;
     return { food: g.body.food, water: g.body.water, buffs: g.systems.harness('cooking', 'buffs'), tiles: [...document.querySelectorAll('.mc-buffs .bf')].filter((t) => t.style.display !== 'none').map((t) => `${t.title} ${t.querySelector('b')?.textContent}`) };
@@ -214,8 +263,7 @@ try {
   if (!fed.buffs.some((b) => b.id === 'keen')) fail(`the soup left no buff: ${JSON.stringify(fed.buffs)}`);
   if (!fed.tiles.some((t) => t.startsWith('眼尖'))) fail(`no tile of the buff by the vitals: ${JSON.stringify(fed.tiles)}`);
   await rt('look', 0.4, 0.1);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'buff_tile.png') });
+  await shot(page, 'buff_tile');
 
   // ------------------------------------------------------------------ a camp's fire ring down the road
   const camp = await page.evaluate(() => {
@@ -258,17 +306,17 @@ try {
   if (!potatoes?.done || potatoes.dish?.recipe !== 'roast_potato') fail(`no roast potatoes: ${JSON.stringify(potatoes)}`);
   // the pot on the flame by night: another roast, pictured on its spit
   await devClick(page, ['土豆']);
+  // (E: the dish of the last pot is cleared; E, E: two potatoes)
+  await hx('cooking', 'key', 'KeyE');
   await hx('cooking', 'key', 'KeyE');
   await hx('cooking', 'key', 'KeyE');
   await hx('cooking', 'key', 'Space');
-  await rt('simulate', 20);
+  await steps(page, 20);
   await rt('aimPoint', fire.x, fire.y - 0.1, fire.z, 0.5, 1.6);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'fire_day.png') });
+  await shot(page, 'fire_day');
   await rt('setHour', 21.5);
   await rt('simulate', 0.5);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'fire_night.png') });
+  await shot(page, 'fire_night');
   await rt('setHour', 11);
   // eat the first potatoes: 耐饿, the body's hunger slows
   await page.keyboard.press('Escape');
@@ -276,22 +324,21 @@ try {
   const roastSlot = (await hands(page)).findIndex((h) => h?.dish?.r === 'roast_potato');
   await rt('select', roastSlot);
   await rt('look', 0, -0.55);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'roast_in_hand.png') });
+  await shot(page, 'roast_in_hand');
   const drain = await page.evaluate(() => {
     const g = window.__rt.game;
     g.body.food = 50;
     const before = g.body.food;
-    g.simulate(20);
+    for (let k = 0; k < 200; k++) g.step(0.1, 1);
     return before - g.body.food;
   });
   await rt('takeFor', 5.2);
-  await rt('simulate', 6);
+  await steps(page, 6);
   const slowed = await page.evaluate(() => {
     const g = window.__rt.game;
     g.body.gains.length = 0;
     const before = g.body.food;
-    g.simulate(20);
+    for (let k = 0; k < 200; k++) g.step(0.1, 1);
     return { drain: before - g.body.food, foodK: g.bodyMods.foodK, buffs: g.systems.harness('cooking', 'buffs') };
   });
   console.log('hunger over 20 s before and after the roast potatoes', drain.toFixed(3), '->', JSON.stringify(slowed));
@@ -319,8 +366,7 @@ try {
   const odd = await robotCook(page, { items: ['wild_berry', 'porcini'], method: 'roast', seed: 4 }, { reaction: 0.4, error: 0.15 }, '');
   console.log('a pot of nonsense', JSON.stringify(odd));
   if (!odd?.done || odd.dish?.name !== '说不清的一锅') fail(`berries and a mushroom are not 说不清的一锅: ${JSON.stringify(odd)}`);
-  await waitFrames(page, 2);
-  await page.screenshot({ path: path.join(out, 'odd_done.png') });
+  await shot(page, 'odd_done');
   await page.keyboard.press('Escape');
 
   // ------------------------------------------------------------------ saved, opened again
@@ -336,6 +382,7 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await ready();
   await page.evaluate(() => window.__rt.game.ui.showHelp(false));
+  await holdDrawing(page);
   await rt('simulate', 2);
   const back = await page.evaluate(() => {
     const g = window.__rt.game;
@@ -356,6 +403,8 @@ try {
     for (let i = 0; i < g.player.slots.length; i++) if (!g.player.slots[i]?.item?.item?.startsWith('dish_')) g.player.slots[i] = null;
   });
   await rt('simulate', 1);
+  // (on the road, between the vehicle and the camp: clear ground, facing along the road)
+  await rt('stand', camp.sx - Math.cos(camp.phi) * 7, camp.sz - Math.sin(camp.phi) * 7, camp.phi, -0.4);
   await devClick(page, ['在这里生火', '牛肝菌', '土豆']);
   await rt('simulate', 2);
   await hx('cooking', 'look');
@@ -363,10 +412,10 @@ try {
   console.log('a camp stove set down', JSON.stringify(stove));
   if (!stove) fail('the camp stove set down is no station');
   if (stove && !['fry', 'soup', 'stew', 'rice'].every((m) => stove.methods.includes(m))) fail(`the stove with a pot and a pan by it offers ${stove.methods.join(', ')}`);
-  await rt('aimPoint', stove.x, stove.y + 0.3, stove.z, Math.PI * 0.75, 1.6);
-  await waitFrames(page, 3);
-  await page.screenshot({ path: path.join(out, 'stove_set_down.png') });
-  const onStove = await useStation(page, stove, Math.PI * 0.75, 0.9);
+  await rt('aimPoint', stove.x, stove.y + 0.1, stove.z, Math.atan2(-Math.sin(camp.phi), -Math.cos(camp.phi)) + 0.5, 1.5);
+  await shot(page, 'stove_set_down');
+  const fromStove = Math.atan2(-Math.sin(camp.phi), -Math.cos(camp.phi));
+  const onStove = await useStation(page, stove, fromStove, 1.1, 0.08);
   if (onStove !== `device:cooking:${stove.key}`) fail(`the mark at the stove is on ${onStove}`);
   const stew = await page.evaluate(() => {
     const g = window.__rt.game;
@@ -378,37 +427,27 @@ try {
   await hx('cooking', 'robot', { recipe: 'mushroom_potato_stew', heat: 3, forget: true, seed: 9 }, { reaction: 0.3, error: 0.1 });
   for (let i = 0; i < 80; i++) {
     const p = await page.evaluate(() => {
-      window.__rt.game.simulate(0.5);
-      return window.__rt.game.systems.harness('cooking', 'panel');
+      const g = window.__rt.game;
+      for (let k = 0; k < 5; k++) g.step(0.1, 1);
+      return g.systems.harness('cooking', 'panel');
     });
     if (p.phase === 'heat' && p.heat === 3) break;
   }
   await page.keyboard.press('Escape');
   await rt('stand', stove.x + 9, stove.z, Math.PI, -0.1);
-  await rt('simulate', 150);
+  await steps(page, 150);
   const over = await station(page, 'stove');
   console.log('the stew left on a high flame', JSON.stringify(over?.pot));
   if (!over?.pot?.lit || !(over.pot.d > 1.45)) fail(`the stew left on a high flame did not go over: ${JSON.stringify(over?.pot)}`);
-  await rt('aimPoint', stove.x, stove.y + 0.25, stove.z, Math.PI * 0.75, 1.4);
-  await waitFrames(page, 4);
-  await page.screenshot({ path: path.join(out, 'stew_burnt.png') });
+  await rt('aimPoint', stove.x, stove.y + 0.15, stove.z, fromStove + 0.4, 1.3);
+  await shot(page, 'stew_burnt');
 
   const k = await rt('kernel');
   console.log('the cooking system in the live game', JSON.stringify({ ms: k.systems.cooking.ms.total, budget: k.systems.cooking.budgetMs, over: k.systems.cooking.over, errors: k.errors }));
   if (k.lastError) fail(`the kernel set something apart: ${k.lastError}`);
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
   // what the cooking view adds to the frame
-  const cost = await page.evaluate(() => {
-    const g = window.__rt.game;
-    const root = g.core.scene.getObjectByName('cooking');
-    g.render();
-    const withIt = { ...g.core.stats };
-    root.visible = false;
-    g.render();
-    const without = { ...g.core.stats };
-    root.visible = true;
-    return { calls: withIt.calls - without.calls, triangles: withIt.triangles - without.triangles };
-  });
+  const cost = await drawCost(page);
   console.log('the cooking view as drawn here (a stove with a burnt stew on it)', JSON.stringify(cost));
   await page.evaluate((key) => ((window.__rt.game.saveOff = true), localStorage.removeItem(key)), SAVE);
   await ctx.close();

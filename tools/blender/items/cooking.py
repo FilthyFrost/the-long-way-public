@@ -112,7 +112,7 @@ def cook_pot(P):
     P.ao_distance = 0.05
     P.lathe('pot', [(0.0, 0.0), (0.108, 0.0), (0.118, 0.008), (0.12, 0.16), (0.116, 0.162), (0.112, 0.012),
                     (0.0, 0.01)], material='paint', segs=28, sharp=45.0)
-    P.torus('rim', 0.12, 0.004, loc=(0.0, 0.0, 0.16), material='alu', segs=28, rsegs=5)
+    P.torus('rim', 0.12, 0.004, loc=(0.0, 0.0, 0.16), material='paint', segs=28, rsegs=5)
     P.lathe('lid', [(0.0, 0.185), (0.02, 0.184), (0.08, 0.176), (0.121, 0.163), (0.121, 0.16), (0.0, 0.16)],
             material='paint', segs=28, sharp=40.0)
     P.cyl('knob', 0.016, 0.014, (0.0, 0.0, 0.19), 'paint_b', segs=12, bev=0.003)
@@ -147,7 +147,7 @@ def cook_kettle(P):
     P.sphere('knob', 0.011, (0.0, 0.0, 0.142), 'paint_b', u=8, v=5)
     P.tube('spout', [(0.075, 0.0, 0.03), (0.11, 0.0, 0.07), (0.135, 0.0, 0.105)], 0.011, 'paint', segs=10,
            bend=0.02, radius_fn=lambda u: 1.0 - 0.45 * u)
-    P.torus('bail', 0.07, 0.003, loc=(0.0, 0.0, 0.12), axis='X', material='steel', segs=16, rsegs=4, arc=math.pi)
+    P.torus('bail', 0.07, 0.003, loc=(0.0, 0.0, 0.12), axis='X', material='paint_b', segs=16, rsegs=4, arc=math.pi)
     P.cyl('grip', 0.009, 0.05, (0.0, 0.0, 0.19), 'paint_b', axis='Y', segs=8, bev=0.003)
     P.views = [('a', 35, 25), ('b', 215, 25)]
 
@@ -462,7 +462,8 @@ def kitchen_corner(P):
     """
     The workshop's kitchen corner: a counter of old planks on a steel frame (depth along x, its front to +x, its
     width along y), a two-ring hob and a chopping board on its top, a backboard with a rail of pans and a pot
-    hanging from it, a shelf of jars.
+    hanging from it, a shelf of jars. Four materials (each a draw call, and one more in each shadow map it falls
+    in): wood, steel, the paint of the pans and the apron, the second paint of handles, rings and jars.
     """
     P.ao_distance = 0.2
     D, W, H = 0.62, 1.8, 0.9
@@ -475,8 +476,8 @@ def kitchen_corner(P):
     # the hob: a steel plate with two rings and knobs at its front
     P.box('hob', (0.42, 0.62, 0.04), (0.04, 0.0, H + 0.02), 'steel', bev=0.006)
     for y in (-0.15, 0.15):
-        P.torus('ring', 0.07, 0.008, loc=(0.04, y, H + 0.045), material='trim', segs=16, rsegs=4)
-        P.cyl('burner', 0.035, 0.012, (0.04, y, H + 0.046), 'trim', segs=12, bev=0.002)
+        P.torus('ring', 0.07, 0.008, loc=(0.04, y, H + 0.045), material='paint_b', segs=16, rsegs=4)
+        P.cyl('burner', 0.035, 0.012, (0.04, y, H + 0.046), 'paint_b', segs=12, bev=0.002)
         P.cyl('knob', 0.014, 0.016, (0.255, y, H + 0.02), 'paint_b', axis='X', segs=10, bev=0.003)
     P.box('board', (0.28, 0.36, 0.02), (0.06, 0.6, H + 0.01), 'wood', bev=0.005)
     # the backboard, its rail and what hangs from it
@@ -500,7 +501,7 @@ def kitchen_corner(P):
     P.box('upper', (0.16, W - 0.2, 0.025), (-D / 2 + 0.11, 0.0, H + 0.86), 'wood', bev=0.005)
     for k in range(6):
         y = -0.7 + k * 0.28
-        P.cyl('jar', 0.035, 0.08 + 0.02 * (k % 2), (-D / 2 + 0.1, y, H + 0.92 + 0.01 * (k % 2)), 'ceramic' if k % 2 else 'paint_b',
+        P.cyl('jar', 0.035, 0.08 + 0.02 * (k % 2), (-D / 2 + 0.1, y, H + 0.92 + 0.01 * (k % 2)), 'paint' if k % 2 else 'paint_b',
               segs=10, bev=0.003)
     P.views = [('a', 35, 15), ('b', 215, 15)]
 
