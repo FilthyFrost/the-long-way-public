@@ -420,7 +420,10 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       if (!d.drawn) continue;
       // a painted crown: handed over, with where it stands and how it looks
       if (crowns && lod <= LOD_MID && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
-        const sp = crownOf(crowns, pi);
+        const climate = BIOMES[t.region[i]]?.kin;
+        const bush = PLANTS[pi].model === 'sage' || (PLANTS[pi].model === 'bush' && climate === 'desert') ? 'bush_dry'
+          : PLANTS[pi].model === 'bush' && climate === 'alpine' ? 'bush_alpine' : undefined;
+        const sp = bush ? crowns.speciesOf(bush) : crownOf(crowns, pi);
         if (sp >= 0) {
           const plant = PLANTS[pi];
           const x = t.x[i];
@@ -464,9 +467,9 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           crownScratch[o + 7] = Math.min(crowns.variants(sp) - 1, Math.floor(((vary * 13.7) % 1) * crowns.variants(sp)));
           crownScratch[o + 8] = snowyPair(world, sk, t.y[i]);
           crownScratch[o + 9] = share * 0.999 + bears + d.evergreen;
-          const paint = CROWN_PAINT[paintedFamily(plant.id, plant.model)];
+          const paint = CROWN_PAINT[bush ?? paintedFamily(plant.id, plant.model)];
           const autumn = BIOMES[region]?.id === 'maple';
-          crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (plant.id === 'maple' ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
+          crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (bush || ['maple','chestnut_tree','willow'].includes(plant.id) ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
           crownScratch[o + 11] = plant.bears?.where === 'on' && plant.model === 'fruit_tree' ? second : paint?.bark ?? second;
           crownScratch[o + 12] = vary;
           crownScratch[o + 13] = inside;

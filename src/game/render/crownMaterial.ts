@@ -54,6 +54,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
       #include <logdepthbuf_pars_vertex>
       uniform vec4 uWind;
       uniform float uTime;
+      uniform float uCrownDay;
       attribute vec4 aCrown;   // tone, its clump's phase, how open it lies, its height in the tree (model m)
       attribute float aPart;   // 0 wood, 1 a clump's core, 2 a spray
       attribute vec4 aLook;
@@ -99,6 +100,14 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vBark = aTree.z;
         float flags = floor(aLook.y * 0.5);
         vEver = floor(flags * 0.5);
+        // Day zero is early June in the northern road references. Ash leafs out late;
+        // from early spring until May its sparse sprays open progressively.
+        float year = mod(uCrownDay + 151.0, 365.0);
+        bool ash = abs(aPart-1.24)<0.01 || abs(aPart-2.24)<0.01;
+        if (ash && year>60.0 && year<140.0 && aCrown.x>smoothstep(105.0,140.0,year))
+          w = m * vec4(0.0,0.0,0.0,1.0);
+        if (aPart>6.5 && (year<124.0 || year>172.0 || aTree.x>0.64))
+          w = m * vec4(0.0,0.0,0.0,1.0);
         vSettled = fract(aLook.x) * 4.0;
         if (aPart > 3.5 && aPart < 4.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
@@ -162,6 +171,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           float tone = clamp(0.54 + dot(n, L)*0.29 + (vCrown.x - 0.5)*0.38, 0.0, 1.0);
           albedo = vPart > 3.5 ? rtTintTone(vTint2, tone) : crownTone(p, tone);
           if (vPart > 4.5) albedo = rtTintTone(vPart < 5.5 ? vec3(0.86,0.055,0.025) : vec3(0.35,0.19,0.067), tone);
+          if (vPart > 6.5) albedo = mix(vec3(0.61,0.55,0.31),vec3(0.98,0.96,0.82),tone);
           albedo = mix(albedo, rtSnowTone(tone), smoothstep(0.25, 0.8, n.y)*load*0.8);
           col = albedo * (uSkyColor*0.86 + uBounceColor*0.38 + uSunColor*(0.17+0.25*tone)*rtShadow(vPos,n));
           alpha = 1.0;
@@ -169,6 +179,18 @@ export function crownMaterial(): THREE.ShaderMaterial {
           // a spray: its picture, kept whole far off as it blurs (the cut falls with distance)
           float leafTone = 0.75;
           float cover = rtLeafCover(tLeaf, vUv, leafTone);
+          if (vPart > 2.05) {
+            vec2 uv = vUv*2.0-1.0;
+            if (vPart < 2.18) {
+              // Each brush stamp has three cordate leaves above a tapering point.
+              vec2 q = fract(vUv*2.0)*2.0-1.0;
+              float halfWidth = (0.18+0.86*(q.y*0.5+0.5))*sqrt(max(0.0,1.0-q.y*q.y));
+              cover *= step(abs(q.x),halfWidth) * step(q.y,0.99-0.22*exp(-q.x*q.x*38.0));
+            } else {
+              float leaflets = fract((uv.y-abs(uv.x)*0.52)*3.0);
+              cover *= max(1.0-smoothstep(0.42,0.52,leaflets),1.0-smoothstep(0.025,0.055,abs(uv.x)));
+            }
+          }
           if (cover < mix(0.5, 0.26, smoothstep(20.0, 120.0, dist))) discard;
           RtPal p = rtPal(vBw);
           float sh = rtShadow(vPos, n);
