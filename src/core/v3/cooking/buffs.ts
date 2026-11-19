@@ -10,6 +10,7 @@
  *
  * Pure: no three, no DOM, no clock of its own (the game steps it with the frame's seconds).
  */
+import type { BodyMods } from '../../modcar/vitals';
 import type { Text } from '../contracts/base';
 import type { BuffId } from './types';
 
@@ -26,7 +27,7 @@ export interface BuffDef {
 /** the ten buffs of cooking, and what each is worth at strength 1 (the numbers its readers use) */
 export const BUFFS: Readonly<Record<BuffId, BuffDef>> = {
   warm: { id: 'warm', name: { zh: '暖身', en: 'Warm' }, blurb: { zh: '身子暖，冷得慢。', en: 'Warm inside: the cold bites slower.' } },
-  cool: { id: 'cool', name: { zh: '清凉', en: 'Cool' }, blurb: { zh: '不怕晒，热得慢。', en: 'Cool-headed: the heat builds slower.' } },
+  cool: { id: 'cool', name: { zh: '清凉', en: 'Cool' }, blurb: { zh: '大热天里渴得慢。', en: 'Thirst comes slower in the heat.' } },
   vigor: { id: 'vigor', name: { zh: '有劲', en: 'Vigour' }, blurb: { zh: '体力回得快。', en: 'Stamina comes back faster.' } },
   hearty: { id: 'hearty', name: { zh: '耐饿', en: 'Well fed' }, blurb: { zh: '饿得慢。', en: 'Hunger comes slower.' } },
   hydrated: { id: 'hydrated', name: { zh: '解渴', en: 'Quenched' }, blurb: { zh: '渴得慢。', en: 'Thirst comes slower.' } },
@@ -44,9 +45,10 @@ export const BUFF_WORTH = {
   hydrated: 0.75,
   /** stamina comes back this much faster */
   vigor: 1.3,
-  /** the comfort of the air moves by this many degrees: warm makes cold air feel milder, cool hot air */
+  /** a warming meal: the cold bites as if one wore this much more (degrees of comfortable air) */
   warm: 6,
-  cool: 6,
+  /** a cooling drink: in hot air thirst comes this many times as fast */
+  cool: 0.7,
   /** a load slows the walker this much less (a factor on the slowing) */
   sturdy: 0.6,
   /** the forager's glint shows this many metres further */
@@ -161,4 +163,22 @@ export class Buffs {
       this.list.push({ id: a.id, left: a.left, strength: a.k > 0 && Number.isFinite(a.k) ? a.k : 1, slot });
     }
   }
+}
+
+/**
+ * Write what the active buffs do to the body into `m` (multiplying and adding into what is there: the caller
+ * brings it back to neutral first, and other things, later clothes, may write into it too). Allocates nothing.
+ */
+export function buffBodyMods(b: Buffs, m: BodyMods): BodyMods {
+  const hearty = b.strength('hearty');
+  if (hearty > 0) m.foodK *= Math.max(0.2, 1 - (1 - BUFF_WORTH.hearty) * hearty);
+  const hydrated = b.strength('hydrated');
+  if (hydrated > 0) m.waterK *= Math.max(0.2, 1 - (1 - BUFF_WORTH.hydrated) * hydrated);
+  const vigor = b.strength('vigor');
+  if (vigor > 0) m.staminaK *= 1 + (BUFF_WORTH.vigor - 1) * vigor;
+  const warm = b.strength('warm');
+  if (warm > 0) m.warmth += BUFF_WORTH.warm * warm;
+  const cool = b.strength('cool');
+  if (cool > 0) m.heatWaterK *= Math.max(0.2, 1 - (1 - BUFF_WORTH.cool) * cool);
+  return m;
 }

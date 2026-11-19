@@ -126,6 +126,43 @@ export interface VitalsInput {
   rain: boolean;
   /** P held */
   peeing: boolean;
+  /** what lasting things do to the body now (a meal's buff; later clothes): absent, the body is as it always was */
+  mods?: BodyMods;
+}
+
+/** air hotter than this (°C) is hot: a cooling drink makes one thirst slower in it */
+export const HOT_AIR = 26;
+
+/**
+ * What lasting things do to the body: a meal's buffs (node C1), later clothes. Neutral by default. The game
+ * keeps one, brings it back to neutral each frame, lets the systems that have a say write into it, and hands
+ * it to stepVitals; the body itself never keeps it.
+ */
+export interface BodyMods {
+  /** hunger and thirst come this many times as fast (1: as always) */
+  foodK: number;
+  waterK: number;
+  /** stamina comes back this many times as fast */
+  staminaK: number;
+  /** the cold bites as if one wore this much more (each point lowers the comfortable air by a degree) */
+  warmth: number;
+  /** in hot air (above HOT_AIR), thirst comes this many times as fast */
+  heatWaterK: number;
+}
+
+/** a new BodyMods, neutral */
+export function newBodyMods(): BodyMods {
+  return { foodK: 1, waterK: 1, staminaK: 1, warmth: 0, heatWaterK: 1 };
+}
+
+/** bring a BodyMods back to neutral (allocates nothing) */
+export function resetBodyMods(m: BodyMods): BodyMods {
+  m.foodK = 1;
+  m.waterK = 1;
+  m.staminaK = 1;
+  m.warmth = 0;
+  m.heatWaterK = 1;
+  return m;
 }
 
 /** what happened this step, for the screen and the sounds */
@@ -161,10 +198,11 @@ export function stepVitals(v: Vitals, inp: VitalsInput, R: VitalsRules = VITALS)
     v.rest = 0;
   }
   if (!inp.sprinting && !inp.jumped) v.rest += dt;
-  if (v.rest >= R.staminaDelay) v.stamina = Math.min(R.staminaMax, v.stamina + R.staminaBack * dt);
+  const m = inp.mods;
+  if (v.rest >= R.staminaDelay) v.stamina = Math.min(R.staminaMax, v.stamina + R.staminaBack * (m ? m.staminaK : 1) * dt);
   // food and water go down
-  v.food = Math.max(0, v.food - R.foodDrain * dt);
-  v.water = Math.max(0, v.water - R.waterDrain * dt);
+  v.food = Math.max(0, v.food - R.foodDrain * (m ? m.foodK : 1) * dt);
+  v.water = Math.max(0, v.water - R.waterDrain * (m ? m.waterK * (inp.ambientC > HOT_AIR ? m.heatWaterK : 1) : 1) * dt);
   // what a meal or a drink is still giving
   for (const g of v.gains) {
     const k = Math.min(1, dt / Math.max(1e-6, g.left));
@@ -185,7 +223,7 @@ export function stepVitals(v: Vitals, inp: VitalsInput, R: VitalsRules = VITALS)
   if (v.bladder >= 100) ev.wet = true;
   // body temperature: the cold gets in below what one wears keeps out (not while drunk: one does not feel it)
   if (inp.rain) add(v, 'wet');
-  const warmth = inp.warmth - (has(v, 'wet') ? 25 : 0);
+  const warmth = inp.warmth + (m ? m.warmth : 0) - (has(v, 'wet') ? 25 : 0);
   const comfort = R.tempComfort - warmth;
   if (inp.ambientC < comfort && !has(v, 'drunk')) v.temp = Math.max(R.tempFloor, v.temp - (comfort - inp.ambientC) * R.tempLoss * dt);
   else v.temp = Math.min(R.tempNormal, v.temp + R.tempGain * dt);

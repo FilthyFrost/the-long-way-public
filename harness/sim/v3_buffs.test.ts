@@ -114,3 +114,58 @@ describe('cooking\'s things as items', () => {
     expect(other.state.dish.r).toBeUndefined();
   });
 });
+
+import { newBodyMods, newVitals, resetBodyMods, stepVitals, type VitalsInput } from '../../src/core/modcar/vitals';
+import { buffBodyMods } from '../../src/core/v3/cooking/buffs';
+
+describe('what buffs do to the body', () => {
+  const minute = (mods: ReturnType<typeof newBodyMods> | undefined, ambientC = 15, sprint = false) => {
+    const v = newVitals();
+    const inp: VitalsInput = { dt: 1 / 10, sprinting: sprint, jumped: false, ambientC, warmth: 9, rain: false, peeing: false, ...(mods ? { mods } : {}) };
+    for (let i = 0; i < 600; i++) stepVitals(v, inp);
+    return v;
+  };
+
+  it('a body with neutral mods is the body without any, to the bit', () => {
+    const a = minute(undefined);
+    const b = minute(newBodyMods());
+    expect(b).toEqual(a);
+    const c = minute(undefined, -5);
+    const d = minute(newBodyMods(), -5);
+    expect(d).toEqual(c);
+  });
+
+  it('a hearty meal slows hunger, a quenching one thirst, a cooling drink thirst in the heat only, a warming meal keeps the cold out', () => {
+    const plain = minute(undefined);
+    const b = new Buffs();
+    b.add('hearty', 600, 'meal');
+    b.add('hydrated', 600, 'meal');
+    const m = buffBodyMods(b, resetBodyMods(newBodyMods()));
+    const fed = minute(m);
+    expect(100 - fed.food).toBeCloseTo((100 - plain.food) * 0.75, 6);
+    expect(100 - fed.water).toBeCloseTo((100 - plain.water) * 0.75, 6);
+    const c = new Buffs();
+    c.add('cool', 600, 'drink');
+    const cm = buffBodyMods(c, newBodyMods());
+    expect(100 - minute(cm, 35).water).toBeCloseTo((100 - minute(undefined, 35).water) * 0.7, 6);
+    expect(minute(cm, 15).water).toBeCloseTo(plain.water, 9);
+    const w = new Buffs();
+    w.add('warm', 600, 'meal');
+    const cold = minute(undefined, 5);
+    const warmed = minute(buffBodyMods(w, newBodyMods()), 5);
+    expect(warmed.temp).toBeGreaterThan(cold.temp);
+  });
+
+  it('vigour brings stamina back faster', () => {
+    const run = (mods?: ReturnType<typeof newBodyMods>) => {
+      const v = newVitals();
+      v.stamina = 20;
+      v.rest = 5;
+      stepVitals(v, { dt: 1, sprinting: false, jumped: false, ambientC: 15, warmth: 9, rain: false, peeing: false, ...(mods ? { mods } : {}) });
+      return v.stamina;
+    };
+    const b = new Buffs();
+    b.add('vigor', 300, 'meal');
+    expect(run(buffBodyMods(b, newBodyMods())) - 20).toBeCloseTo((run() - 20) * 1.3, 6);
+  });
+});
