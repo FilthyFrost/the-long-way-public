@@ -103,8 +103,8 @@ function tuft(b: PlantBuilder, rnd: () => number, x: number, z: number, blades: 
     const lean = head ? 0.35 : 1;
     const tip = V(x + Math.cos(a) * spread * out * lean, hh, z + Math.sin(a) * spread * out * lean);
     const side = V(-Math.sin(a), 0, Math.cos(a));
-    // (light even at the foot, and in the shade of a tree: a stand of reeds is thin, the sky comes through it)
-    blade(b, foot, tip, half * (0.7 + 0.6 * rnd()), side, PART_LEAF, 1.0, 1.2 + 0.12 * rnd());
+    // (light even at the foot: a stand of reeds is thin, the sky comes through it)
+    blade(b, foot, tip, half * (0.7 + 0.6 * rnd()), side, PART_LEAF, 0.92, 1.12 + 0.12 * rnd());
     if (!head) continue;
     // the head: a narrow spindle on from the blade's tip, hanging a little where the plant's do
     const end = tip.clone().add(V(Math.cos(a) * headLen * (0.25 + droop), headLen * (1 - 1.5 * droop), Math.sin(a) * headLen * (0.25 + droop)));
@@ -385,8 +385,8 @@ export function buildPlantModels(): PlantModels {
   rnd = mulberry(88);
   for (const [x, z] of reedAt) {
     const a = rnd() * Math.PI * 2;
-    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.5, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 1.0, 1.26);
-    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.45, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.98, 1.2);
+    blade(b, V(x, -0.1, z), V(x + 0.3 * Math.cos(a), 1.9 + 0.3 * rnd(), z + 0.3 * Math.sin(a)), 0.5, V(-Math.sin(a), 0, Math.cos(a)), PART_LEAF, 0.92, 1.2);
+    blade(b, V(x + 0.2, -0.1, z - 0.2), V(x + 0.2 - 0.3 * Math.sin(a), 1.6 + 0.3 * rnd(), z - 0.2 + 0.3 * Math.cos(a)), 0.45, V(Math.cos(a), 0, Math.sin(a)), PART_LEAF, 0.9, 1.14);
   }
   out.reedFar = b.build();
 

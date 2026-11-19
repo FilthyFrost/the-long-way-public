@@ -193,8 +193,11 @@ export function floraMaterial(): THREE.ShaderMaterial {
           float depth = (dot(vColor, vec3(0.333)) - 0.9) * 1.4;
           float dab = rtNoiseAt(rtWorldXZ(vPos) * 1.0 + vPos.y * vec2(0.71, -0.53), 2.2).r - 0.5;
           float tone = 0.34 + 0.34 * facing + depth * 1.3 + (vVar - 0.5) * 0.16 + dab * 0.3 - (1.0 - sh) * 0.34;
-          // each painted leaf on a card has its own lightness
-          tone += vCard * (leafTone - 0.76) * 0.9;
+          // each painted leaf on a card has its own lightness. (Chosen, not multiplied by vCard: a blade or a
+          // crown's inner ball is no card, its uv is the same at every corner, and the leaf texture read with no
+          // change of uv across the triangle can come back as no number at all — which times nought is still
+          // none, and paints the whole blade black.)
+          tone += vCard > 0.5 ? (leafTone - 0.76) * 0.9 : 0.0;
           if (vTint.w > 0.0) {
             albedo = rtTintTone(vTint.rgb, tone);
           } else {
