@@ -91,7 +91,7 @@ export class GroundField implements SolidSource {
       }
       if (!g) return;
       const snow = profile.snowlineM[Math.floor(this.month%12/3)];
-      if ((snow !== null && altitude > snow && g.height < 0.3) || (profile.climate.snowCover[this.month-1]>0.6 && g.height<0.2)) return;
+      if (snow !== null && altitude > snow && g.height < 0.3) return;
       const bench = e.terrace >= 0.5;
       if (rand2(i,j,seed+4) > siteFit(g,e,bench)) return;
       const localMonth = (this.month - 1 + (profile.climate.latitude < 0 ? 6 : 0)) % 12 + 1;

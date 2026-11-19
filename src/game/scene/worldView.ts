@@ -18,6 +18,7 @@ import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terr
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
 import { CrownView } from './crowns/crownView';
+import { globals } from '../render/shaderlib';
 import { groundField, groundMonth } from '../../core/world/groundField';
 import { Meadow } from './meadow';
 import { floraMesh, floraShadows } from './floraMesh';
@@ -831,7 +832,9 @@ export class WorldView {
   setGroundDay(day:number): void {
     if (this.groundDay === day || !this.plants) return;
     this.groundDay = day;
-    if (!groundField(this.world).setMonth(groundMonth(day))) return;
+    const month = groundMonth(day);
+    globals.uSeason.value.set(0, 0, 0, 0).setComponent(Math.floor(month % 12 / 3), 1);
+    if (!groundField(this.world).setMonth(month)) return;
     // Keep the existing pieces visible until the streaming budget replaces each one.
     for (const tile of this.tiles.values()) tile.lod = -1 as FloraLod;
     this.planX = NaN;

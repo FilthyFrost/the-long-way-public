@@ -24,6 +24,7 @@
  * the hollows of a marsh, and reed-green instead of sand on a reedy shore. Without it the shaders are, to the
  * letter, what they were.
  */
+import { SNOW_FIELD } from './seasonalSnow';
 import * as THREE from 'three';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_PARS, globals } from './shaderlib';
 import { GLSL_PAINT } from './paint';
@@ -39,6 +40,7 @@ export const ON_LANDFORM = 16384;
 export const GROUND_PAINT = /* glsl */ `
   ${GLSL_PAINT}
   #ifdef RT_COVER
+  ${SNOW_FIELD}
   uniform sampler2D tCover;
   uniform vec4 uCoverMisc[4];
   uniform int uCoverSeed;
@@ -88,7 +90,12 @@ export const GROUND_PAINT = /* glsl */ `
     // (a world of version 2: the region's own snow line and tree line, in metres above the sea; the woods end
     // raggedly at their line)
     vec2 lines = uCoverMisc[0].zw * bwIn.x + uCoverMisc[1].zw * bwIn.y + uCoverMisc[2].zw * bwIn.z + uCoverMisc[3].zw * bwIn.w;
-    float wood = max(g.z, 0.0) * (1.0 - smoothstep(lines.y - 160.0, lines.y + 40.0, vAlt + (rtNoiseAt(w, 300.0).b - 0.5) * 160.0));
+    float climateSnow = rtSeasonSnow(vAlt, bwIn);
+    // The old snowy region palette was itself white, even on a valley floor below the winter snowline.
+    p.deep = mix(p.deep, vec3(0.105, 0.13, 0.084), p.misc.x);
+    p.mid = mix(p.mid, vec3(0.26, 0.29, 0.17), p.misc.x);
+    p.lit = mix(p.lit, vec3(0.49, 0.48, 0.29), p.misc.x);
+    float wood = max(g.z, 0.0) * (1.0 - smoothstep(lines.y - 160.0, lines.y, vAlt + rtNoiseAt(w, 300.0).b * 90.0));
     #else
     float wood = max(g.z, 0.0) * (1.0 - smoothstep(450.0, 850.0, g.y));
     #endif
@@ -227,29 +234,24 @@ export const GROUND_PAINT = /* glsl */ `
     #ifdef RT_ALT
     // (version 2: above the region's snow line in metres above the sea, on the gentler faces first — the
     // steeper a face, the higher it must stand to hold snow — and never on the steepest)
-    float snowLine = lines.x + 900.0 * smoothstep(0.06, 0.4, steep);
-    float alt = smoothstep(snowLine - 150.0, snowLine + 150.0, vAlt + (nz.g - 0.5) * 300.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
-    alt *= 1.0 - smoothstep(0.5, 0.78, steep);
-    {
-      // on a steep face the snow lies in the gullies, in streaks down the fall line, not in blotches: read
-      // across the slope whichever way it faces, from marks that stay where they are on the ground
-      vec2 fall = n.xz / max(length(n.xz), 1e-4);
-      vec2 q = vec2(dot(w, vec2(-fall.y, fall.x)), dot(w, fall) * 0.14);
-      float gully = rtNoiseAt(q, mix(60.0, 160.0, smoothstep(1500.0, 8000.0, dist))).r * 0.7 + rtNoiseAt(q * 2.3 + 31.0, 70.0).g * 0.3;
-      float onFace = smoothstep(0.14, 0.38, steep) * smoothstep(600.0, 2500.0, dist);
-      alt *= mix(1.0, smoothstep(0.46, 0.6, gully), onFace);
-    }
+    float alt = climateSnow * (1.0 - smoothstep(0.36, 0.75, steep));
     #else
     float snowLine = mix(1900.0, 380.0, p.misc.x);
     float alt = smoothstep(snowLine - 160.0, snowLine + 160.0, g.y + (nz.g - 0.5) * 320.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
     alt *= 1.0 - smoothstep(mix(0.42, 0.55, p.misc.x), mix(0.7, 0.82, p.misc.x), steep);
+    #endif
+    #ifdef RT_ALT
+    // Even a level, wind-scoured summit exposes mineral soil between the woods and the snowline.
+    albedo = mix(albedo, mix(p.rockShade, p.rockLit, rel), smoothstep(lines.y - 90.0, lines.y, vAlt));
     #endif
     albedo = mix(albedo, rtSnowTone(tone + (rel - 0.5) * 0.6), alt);
 
     #ifdef RT_ALT
     // Broad planes and forked cuts remain legible after the fine rock brush has faded.
     // All marks are anchored in the land. Depth changes their contrast, never their scale.
-    if (dist > 900.0 && steep > 0.006) {
+    float aboveWood = smoothstep(lines.y - 110.0, lines.y, vAlt);
+    float snowCountry = max(climateSnow, uWeather.y);
+    if (dist > 900.0 && (steep > 0.006 || aboveWood > 0.0)) {
       vec4 lith = texelFetch(tCover, ivec2(7, 0), 0) * bwIn.x + texelFetch(tCover, ivec2(7, 1), 0) * bwIn.y
                 + texelFetch(tCover, ivec2(7, 2), 0) * bwIn.z + texelFetch(tCover, ivec2(7, 3), 0) * bwIn.w;
       float reach = smoothstep(900.0, 2300.0, dist);
@@ -268,11 +270,35 @@ export const GROUND_PAINT = /* glsl */ `
       vec3 lightRock = mix(p.rockLit, p.rockLit * vec3(1.13, 1.10, 1.04), lith.x + lith.y);
       float key = clamp(0.58 * plane + 0.42 * rel - groove * 0.62, 0.0, 1.0);
       vec3 paint = mix(shadeRock, lightRock, smoothstep(0.2, 0.73, key));
-      float ice = max(alt, p.misc.x * smoothstep(lines.y - 750.0, lines.y, vAlt));
+      float ice = alt;
       // Snow collects along one lip of a cut; the opposite lip exposes the dark rock.
       float shelf = smoothstep(0.47, 0.55, cleavage + (rel - 0.5) * 0.28);
       paint = mix(paint, rtSnowTone(0.28 + 0.60 * rel + 0.14 * plane), ice * (0.25 + 0.75 * shelf));
-      albedo = mix(albedo, paint, face * 0.83);
+      // Snowy ridges: interpolate one value over anchored triangular planes. A cut has a
+      // straight run and a kink at the neighbouring plane, with just a chip on its edge.
+      float alpineFace = max(snowCountry, p.misc.x);
+      if (alpineFace > 0.01) {
+        vec2 q = vec2(dot(w, vec2(0.83, 0.55)) + 0.33 * vAlt, vAlt - 0.21 * w.y) / vec2(260.0, 180.0);
+        vec2 cell = floor(q), uv = fract(q);
+        float diagonal = step(1.0, uv.x + uv.y);
+        vec2 corner = vec2(diagonal);
+        vec2 weight = abs(uv - corner);
+        float facet = (1.0 - weight.x - weight.y) * rtHash(cell + corner)
+                    + weight.x * rtHash(cell + vec2(1.0 - diagonal, diagonal))
+                    + weight.y * rtHash(cell + vec2(diagonal, 1.0 - diagonal));
+        float keyFace = 0.60 * facet + 0.40 * rel + (warp.g - 0.5) * 0.025;
+        float aa = max(0.014, fwidth(keyFace));
+        float sunward = smoothstep(0.50 - aa, 0.50 + aa, keyFace);
+        float hollow = 1.0 - smoothstep(0.32 - aa, 0.32 + aa, keyFace);
+        vec3 stone = mix(p.rockShade * 0.68, p.rockLit * 0.84, sunward) * (1.0 - hollow * 0.26);
+        float ledge = 0.44 - steep + (facet - 0.5) * 0.72 + hollow * 0.09;
+        float lip = max(0.012, fwidth(ledge));
+        float settled = smoothstep(-lip, lip, ledge);
+        vec3 snowPlane = rtSnowTone(mix(0.40, 0.84, sunward));
+        paint = mix(paint, mix(stone, snowPlane, settled * snowCountry), alpineFace);
+        face = max(face, reach * alpineFace * max(aboveWood, smoothstep(180.0, 520.0, g.y) * (1.0 - wood)));
+      }
+      albedo = mix(albedo, paint, face * mix(0.83, 1.0, alpineFace));
 
       // In the middle distance a brush mark stands for a group of crowns: a dark base and a lit shoulder.
       float stand = reach * wood * (1.0 - rock) * (1.0 - alt) * (1.0 - smoothstep(8000.0, 22000.0, dist));
@@ -280,7 +306,7 @@ export const GROUND_PAINT = /* glsl */ `
       float clump = tuft.g + 0.26 * (tuft.r - 0.5);
       float tip = smoothstep(0.52, 0.65, clump);
       vec3 forest = rtWoodTone(p, 0.26 + 0.31 * rel + 0.32 * tip);
-      forest = mix(forest, rtSnowTone(rel) * 0.83, p.misc.x * tip * 0.62);
+      forest = mix(forest, rtSnowTone(rel) * 0.83, snowCountry * tip * 0.80);
       albedo = mix(albedo, forest, stand * 0.9);
     }
     #endif
@@ -655,7 +681,11 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         // blown sand (dry country) and old snow (the mountains) lie on the road in drifts
         float drift = smoothstep(0.55, 0.75, rtNoiseAt(w + 71.0, 14.0).g + smoothstep(1.4, 3.2, ad) * 0.25);
         asphalt = mix(asphalt, rp.dry * 1.05, drift * 0.55 * smoothstep(0.4, 0.8, rp.misc.y));
+        #ifdef RT_ALT
+        asphalt = mix(asphalt, rtSnowTone(tone), drift * 0.75 * rtSeasonSnow(vAlt, vBiomeW));
+        #else
         asphalt = mix(asphalt, rtSnowTone(tone), drift * 0.75 * rp.misc.x);
+        #endif
         // wheel tracks: slightly darker, smoother bands in each lane
         float track = exp(-pow((abs(ad - 1.65) - 0.75) / 0.28, 2.0));
         asphalt *= 1.0 - 0.08 * track;

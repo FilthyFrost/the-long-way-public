@@ -12,6 +12,7 @@
  * shade), so that the blades and the ground between them are one paint and the farthest tufts go into the ground's
  * own; near the eye a blade adds its clump's tone, one in twenty a darker stroke and one in thirty a lighter.
  */
+import { SNOW_FIELD } from './seasonalSnow';
 import * as THREE from 'three';
 import { GLSL_PAINT, GLSL_SLOTS } from './paint';
 import { GLSL_COMMON, globals } from './shaderlib';
@@ -81,6 +82,7 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
       uniform float uOriginY;
       uniform float uDensity;
       uniform float uLift;
+      ${SNOW_FIELD}
       uniform vec4 uCoverMisc[4];
       uniform ivec2 uOriginCell;
       varying vec3 vPos;
@@ -196,15 +198,12 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
         // gentler faces first): only a stalk here and there stands through it
         vec2 lines = uCoverMisc[0].zw * bw.x + uCoverMisc[1].zw * bw.y + uCoverMisc[2].zw * bw.z + uCoverMisc[3].zw * bw.w;
         float steep = 1.0 - nGround.y;
-        float snowLine = lines.x + 900.0 * smoothstep(0.06, 0.4, steep);
-        float snowy = smoothstep(snowLine - 150.0, snowLine + 150.0, gy + uOriginY - uLift + (nz.g - 0.5) * 300.0 + (s6 * 0.6 + s27 * 0.5 + s95 * 0.42) * 120.0)
-                    * (1.0 - smoothstep(0.5, 0.78, steep));
+        float snowy = rtSeasonSnow(gy + uOriginY - uLift, bw);
+        grow *= 1.0 - smoothstep(lines.y - 80.0, lines.y, gy + uOriginY - uLift);
         // (where the ground is half snow already, as good as none: the blades would stand pale on white)
         grow *= 1.0 - 0.95 * smoothstep(0.1, 0.55, snowy);
         // (and in snowy country — its ground painted snow, whatever the height — and where snow has fallen, it lies
         // over the meadow as over the ground: a stalk pokes through here and there)
-        float snowLand = (uBiomeMisc[0] * bw.x + uBiomeMisc[1] * bw.y + uBiomeMisc[2] * bw.z + uBiomeMisc[3] * bw.w).x;
-        grow *= 1.0 - 0.88 * smoothstep(0.3, 0.9, snowLand);
         grow *= 1.0 - 0.9 * smoothstep(0.15, 0.7, uWeather.y * smoothstep(0.55, 0.85, nGround.y));
         live *= smoothstep(0.0, 0.1, grow * uDensity - q.y);
         if (live <= 0.0) { dead(); return; }
@@ -287,7 +286,7 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
         vPatch = vec4(warm * 0.9 * mid, cool * (0.8 - 0.45 * warm) * mid, dryN, (1.0 - smoothstep(4.0, 6.0, ad + (nz.g - 0.5) * 3.0)) * 0.4);
         // a low sun lights the tall clumps and leaves the short ones among them in shade; a hollow is lit by the sky
         float among = mix(mix(0.45, 1.0, smoothstep(0.15, 0.75, cl.r)), 1.0, clamp(uSunDir.y * 2.5, 0.0, 1.0));
-        float straw = max(stalk ? smoothstep(0.75, 0.82, s) * 0.9 : (q.w > 0.94 ? 0.7 : 0.0), max(snowy, snowLand) * 0.85);
+        float straw = max(stalk ? smoothstep(0.75, 0.82, s) * 0.9 : (q.w > 0.94 ? 0.7 : 0.0), max(snowy, uWeather.y) * 0.85);
         vMisc = vec4(lawn, wood, among * rtSlopeSun(rel), straw);
         vBw = bw;
         vec4 wp = vec4(p, 1.0);
@@ -310,6 +309,9 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
       void main() {
         #include <logdepthbuf_fragment>
         RtPal p = rtPal(vBw);
+        p.deep = mix(p.deep, vec3(0.105, 0.13, 0.084), p.misc.x);
+        p.mid = mix(p.mid, vec3(0.26, 0.29, 0.17), p.misc.x);
+        p.lit = mix(p.lit, vec3(0.49, 0.48, 0.29), p.misc.x);
         float lawn = vMisc.x;
         float sh = rtShadow(vPos, vec3(0.0, 1.0, 0.0));
         float tone = vTone + (vTip - 0.5) * 0.28 - (1.0 - sh) * 0.22;

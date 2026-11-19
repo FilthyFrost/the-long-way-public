@@ -23,6 +23,7 @@
  * Valley paints its trees (render/frame.ts: below 0.8 it would keep to the finest, and the sprays would stay
  * so many dabs): a crown reads as a few lit and shaded masses.
  */
+import { PACKED_SNOW } from './seasonalSnow';
 import * as THREE from 'three';
 import { IMPOSTOR_VERTEX, IMPOSTOR_FRAGMENT } from './crownImpostor';
 import { GLSL_LEAF_COVER } from './materials';
@@ -55,6 +56,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
       #include <logdepthbuf_pars_vertex>
       uniform float logDepthBufFC;
       uniform vec4 uWind;
+      ${PACKED_SNOW}
       uniform float uTime;
       uniform float uCrownDay;
       attribute vec4 aCrown;   // tone, its clump's phase, how open it lies, its height in the tree (model m)
@@ -119,7 +121,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           w = m * vec4(0.0,0.0,0.0,1.0);
         if (aPart>6.5 && (year<124.0 || year>172.0 || aTree.x>0.64))
           w = m * vec4(0.0,0.0,0.0,1.0);
-        vSettled = fract(aLook.x) * 4.0;
+        vSettled = rtRootSnow(aLook.x);
         if (aPart > 3.5 && aPart < 4.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);

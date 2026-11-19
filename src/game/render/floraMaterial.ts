@@ -13,6 +13,7 @@
  *
  * The shadow pass draws these plants in a pass of their own through the same vertex code (shadow.ts): FLORA_VERTEX.
  */
+import { PACKED_SNOW } from './seasonalSnow';
 import * as THREE from 'three';
 import { GLSL_LEAF_COVER } from './materials';
 import { GLSL_PAINT, GLSL_SLOTS } from './paint';
@@ -32,6 +33,7 @@ export const floraUniforms = {
  */
 export const FLORA_VERTEX = /* glsl */ `
   uniform vec4 uWeather;
+  ${PACKED_SNOW}
   uniform sampler2D tPlants;
   attribute vec4 aPlace;   // tile-local x, y, z; turn
   attribute vec4 aShape;   // scale across, scale up, first vertex in the atlas, vertices
@@ -50,7 +52,7 @@ export const FLORA_VERTEX = /* glsl */ `
     part = t0.w;
     float flags = floor(aLook.y * 0.5);
     // Deciduous wood keeps its twigs, including in the shadow pass. Herbaceous plants keep their own geometry.
-    if (aLook.y >= 8.0 && max(fract(aLook.x) * 4.0, uWeather.y) > 0.5 + 0.18 * aLie.z &&
+    if (aLook.y >= 8.0 && max(rtRootSnow(aLook.x), uWeather.y) > 0.5 + 0.18 * aLie.z &&
         ((part > 0.5 && part < 1.5) || (part > 2.5 && part < 3.5))) return false;
     // fruit shows on the plants that bear, and on no other
     if (part > 2.5 && part < 3.5 && mod(flags, 2.0) < 0.5) return false;
@@ -122,7 +124,7 @@ export function floraMaterial(): THREE.ShaderMaterial {
         vVar = aLie.z;
         float flags = floor(aLook.y * 0.5);
         vEver = mod(floor(flags * 0.5), 2.0);
-        vSettled = fract(aLook.x) * 4.0;
+        vSettled = rtRootSnow(aLook.x);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);
         vTint2 = rtHexColour(max(aLook.w, 0.0));

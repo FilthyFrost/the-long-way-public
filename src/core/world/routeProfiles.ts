@@ -38,6 +38,10 @@ const analogues: Readonly<Record<string, string>> = {
 };
 export function routeProfileId(id: string): string { return analogues[id] ?? id; }
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
+export function snowLinesFor(id: string): readonly number[] {
+  const profile = profiles.get(analogues[id] ?? id);
+  return [0, 1, 2, 3].map(i => profile?.snowlineM[i] ?? 100000);
+}
 // An authored transition takes precedence over a generic ecotone. A self-edge varies habitat within
 // its local landscape; it cannot by itself connect unrelated biomes using the same broad analogue.
 for (const [from, profileId] of Object.entries(analogues)) {
