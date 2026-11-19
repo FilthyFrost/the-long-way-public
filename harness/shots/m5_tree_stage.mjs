@@ -9,7 +9,7 @@ import { CROWN_NEAR, CROWN_MID, SHRUB_NEAR, SHRUB_MID } from '../../src/game/sce
 
 export const families = [...crownSpecies().keys()];
 const material = crownMaterial();
-export function photograph(names, distance, season) {
+export function photograph(names, distance, season, comparison = false) {
   const g = window.__rt.game;
   const scene = new T.Scene();
   scene.background = new T.Color(0xc8dfde);
@@ -48,8 +48,10 @@ export function photograph(names, distance, season) {
   const camera = g.core.camera.clone();
   // One family per near portrait, grouped families downrange at the driving field of view.
   camera.fov = distance<40 ? 2*Math.atan(Math.max(height*0.65,width*0.54/camera.aspect)/distance)*180/Math.PI : 55;
-  camera.position.set(0,height*0.44,distance);
-  camera.lookAt(0,height*0.44,0);
+  if (comparison) camera.fov = distance < 40 ? 55 : 35;
+  const eye = comparison ? 4.2 : height*0.44;
+  camera.position.set(0,eye,distance);
+  camera.lookAt(0,eye,0);
   camera.updateProjectionMatrix();
   g.core.frame.render(scene,camera,0);
   const img = g.core.renderer.domElement.toDataURL('image/png');

@@ -4,7 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
-const out = path.join(ROOT, 'loop/shots/m5-trees/lineup');
+const comparison = process.env.M5_TREE_REVIEW;
+const out = path.join(ROOT, 'loop/shots/m5-trees', comparison || 'lineup');
 fs.mkdirSync(out,{recursive:true});
 const { server,url } = await startServer();
 try {
@@ -18,11 +19,18 @@ try {
     });
     const rows = [];
     async function shot(names,distance,season) {
-      const data = await page.evaluate(([names,distance,season])=>window.treeStage.photograph(names,distance,season),[names,distance,season]);
+      const data = await page.evaluate(([names,distance,season,comparison])=>window.treeStage.photograph(names,distance,season,comparison),[names,distance,season,Boolean(comparison)]);
       const file = [season,distance,...names].join('_')+'.png';
       fs.writeFileSync(path.join(out,file),Buffer.from(data,'base64'));
       rows.push({file,names,distance,season});
     }
+    if (comparison) {
+      const reviewing = ['willow','oak','maple','linden','chestnut','beech','ash','broadleaf','broadleaf2','broadleaf3','olive','cactus','saguaro','bush','bush_dry','bush_alpine'];
+      for (const name of reviewing.filter(f => families.includes(f))) {
+        for (const distance of [18,60]) await shot([name],distance,'summer');
+        if (['maple','beech','linden','ash'].includes(name)) await shot([name],18,'autumn');
+      }
+    } else {
     for (const name of families) await shot([name],18,'summer');
     for (const distance of [60,200]) {
       const n = distance===60 ? 2 : 6;
@@ -30,6 +38,7 @@ try {
     }
     for (const season of ['autumn','winter']) {
       for (let i=0;i<families.length;i+=2) await shot(families.slice(i,i+2),60,season);
+    }
     }
     if (errors.length) throw Error(errors.join('\n'));
     fs.writeFileSync(path.join(out,'rows.json'),JSON.stringify(rows,null,2)+'\n');

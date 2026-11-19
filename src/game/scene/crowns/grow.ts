@@ -56,6 +56,13 @@ export interface BroadleafShape {
   boughWood?: boolean;
   /** vertical thickness of a leaf mass (an umbrella crown lies flat) */
   clumpHeight?: number;
+  /** Spread and bend of the scaffold, and deposition of foliage at its tips. */
+  horizontal?: number;
+  bend?: number;
+  dome?: boolean;
+  twist?: boolean;
+  curtains?: boolean;
+  leaf?: 'heart' | 'pinnate';
   fruit?: boolean;
   fruitShape?: 'lemon' | 'pods' | 'flowers';
   roots?: 'buttress' | 'stilts';
@@ -217,7 +224,7 @@ export class Out {
     this.uv.push(u, v);
     this.crown.push(tone, phase, open, h);
     this.part.push(part);
-    this.card.push(part === PART_SPRAY ? 1 : 0);
+    this.card.push(part >= PART_SPRAY && part < 2.5 ? 1 : 0);
     if (y > this.top) this.top = y;
     this.reach = Math.max(this.reach, Math.hypot(x, z));
     return this.pos.length / 3 - 1;
@@ -283,7 +290,7 @@ const tmpS = new V3();
  * A clump's core (a dark ball, lumpy and a little squashed, the sprays stand on so that a crown is a mass and
  * not lace) and its sprays (spread evenly over the ball, then shaken, each lying roughly on its skin).
  */
-function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownLevel, random: () => number, light: (at: THREE.Vector3, dir: THREE.Vector3) => number): void {
+function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownLevel, random: () => number, light: (at: THREE.Vector3, dir: THREE.Vector3) => number, leaf?: BroadleafShape['leaf']): void {
   const phase = random();
   const sphere = lv.core < 0 ? OCTA : SPHERES[lv.core === 1 && k.r >= BIG_CLUMP ? 1 : 0];
   const first = out.pos.length / 3;
@@ -296,7 +303,7 @@ function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownL
     const lump = rc * (0.9 + 0.2 * Math.sin(nx * 5 + phase * 9) * Math.sin(nz * 4 + ny * 3));
     tmpD.set(nx * lump, ny * lump * k.sy, nz * lump);
     if (k.along) tmpD.addScaledVector(k.along, tmpD.dot(k.along) * (k.stretch - 1));
-    out.vertex(k.c.x + tmpD.x, k.c.y + tmpD.y, k.c.z + tmpD.z, nx, ny, nz, 0.5, 0.5, tone, phase, k.open, k.c.y + tmpD.y, PART_CORE);
+    out.vertex(k.c.x + tmpD.x, k.c.y + tmpD.y, k.c.z + tmpD.z, nx, ny, nz, 0.5, 0.5, tone, phase, k.open, k.c.y + tmpD.y, leaf === 'pinnate' ? 1.24 : PART_CORE);
   }
   for (const f of sphere.idx) out.idx.push(first + f);
   for (let c = 0; c < cards; c++) {
@@ -336,7 +343,7 @@ function writeClump(out: Out, k: Clump, cards: number, spray: number, lv: CrownL
         phase,
         open,
         tmpA.y,
-        PART_SPRAY,
+        leaf === 'heart' ? 2.12 : leaf === 'pinnate' ? 2.24 : PART_SPRAY,
       );
     }
     out.idx.push(v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3);
@@ -365,7 +372,16 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   const stem = upright > 0.3 ? o.trunk + o.rise * 0.72 * upright : o.trunk;
   const top = new V3(Math.cos(lean) * o.trunk * 0.1, stem, Math.sin(lean) * o.trunk * 0.1);
   const bole = new THREE.CatmullRomCurve3([new V3(0, -0.8, 0), new V3(Math.cos(lean + 1) * o.girth * 0.25, stem * 0.45, Math.sin(lean + 1) * o.girth * 0.25), top]);
-  tubes.push({ curve: bole, r0: o.girth, r1: o.girth * (upright > 0.3 ? 0.3 : 0.74), kind: 0 });
+  if (o.twist) {
+    // The old olive's living columns twist around a hollow and reunite at the crotch.
+    for (let i = 0; i < 3; i++) {
+      const points = Array.from({length: 5}, (_, j) => {
+        const t = j / 4, a = lean + i*TAU/3 + t*(1.6+i*0.18);
+        return bole.getPoint(t).add(new V3(Math.cos(a),0,Math.sin(a)).multiplyScalar(o.girth*(0.24+0.53*Math.sin(Math.PI*t))));
+      });
+      tubes.push({curve:new THREE.CatmullRomCurve3(points),r0:o.girth*0.55,r1:o.girth*0.38,kind:0});
+    }
+  } else tubes.push({ curve: bole, r0: o.girth, r1: o.girth * (upright > 0.3 ? 0.3 : 0.74), kind: 0 });
   if (o.roots === 'stilts') {
     // Mangroves send brace roots out from above the tide line and back to the mud.
     for (let i = 0; i < 8; i++) {
@@ -395,11 +411,11 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   for (let i = 0; i < o.limbs; i++) {
     const a = ((i + 0.15 + random() * 0.7) / o.limbs) * TAU;
     // (a tree that reaches up: its limbs leave the trunk steeply, and higher up it)
-    const elev = 0.38 + upright * 0.62 + random() * (0.62 - upright * 0.3);
-    const len = reach(a) * (0.62 + 0.26 * random()) * (1 + upright * 0.25);
+    const elev = 0.38 - (o.horizontal ?? 0)*0.47 + upright * 0.62 + random() * (0.62 - upright * 0.3);
+    const len = reach(a) * (0.62 + 0.26 * random()) * (o.dome ? (0.55 + 0.55 * Math.sin(Math.PI*(i+0.75)/(o.limbs+1))) : 1) * (1 + upright * 0.25);
     const dir = new V3(Math.cos(a) * Math.cos(elev), Math.sin(elev), Math.sin(a) * Math.cos(elev));
     const side = new V3(-Math.sin(a), 0, Math.cos(a));
-    const bend = (random() - 0.5) * len * 0.3;
+    const bend = (random() - 0.5) * len * (o.bend ?? 0.3);
     // (from the top of the bole; up a stem, from along it, the lowest limbs where the bole ends)
     const along = upright > 0.3 ? (i + random()) / o.limbs : 1;
     const from = upright > 0.3 ? bole.getPoint((o.trunk + (stem - o.trunk) * along * 0.92 + 0.8) / (stem + 0.8)) : top.clone().add(new V3(0, -o.girth * 0.5, 0));
@@ -440,10 +456,10 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   }
   // clumps on the skin of the crown, so its outline is a full, uneven dome and not a ring of branch ends
   for (let i = 0; i < o.fill; i++) {
-    const a = random() * TAU;
+    const a = o.dome ? lean + i*2.39996 : random()*TAU;
     // (on a broad crown mostly its upper half; on a tall one the whole of it)
     const u = random();
-    const up = Math.min(0.96, (-0.3 + 1.3 * u) * (1 - upright) + (-0.85 + 1.8 * u) * upright);
+    const up = o.dome ? -0.72 + 1.69*(i+0.5)/o.fill : Math.min(0.96, (-0.3 + 1.3 * u) * (1 - upright) + (-0.85 + 1.8 * u) * upright);
     const ring = Math.sqrt(1 - up * up);
     const r = reach(a) * 0.8;
     const tip = new V3(Math.cos(a) * ring * r, crownY + up * o.rise * 0.5, Math.sin(a) * ring * r);
@@ -466,7 +482,7 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
   writeWood(out, tubes, bare ? { ...lv, boughSides: Math.max(3, lv.boughSides), rows: level === 2 ? 2 : lv.rows } : lv, finish);
   const cards = Math.max(lv.least, Math.round(o.cards * lv.cards));
   const spray = o.spray * lv.spray;
-  for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at));
+  for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at), o.leaf);
   if (o.roots === 'buttress') {
     // Thin triangular flanges join the bole over a long vertical seam.
     for (let i = 0; i < 7; i++) {
@@ -500,6 +516,37 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare =
         out.vertex(k.c.x+x*w, k.c.y-k.r*0.93+y*length, k.c.z+z*w, x,y,z,0,0,0.5,phase,0.7,k.c.y,part);
       }
       for (const i of OCTA.idx) out.idx.push(first + i);
+    }
+  }
+  if (o.curtains) {
+    // Pendulous shoots begin in the canopy. Each length carries several separate
+    // hanging sprays; different lengths preserve windows between the curtains.
+    const shoots = mulberry(seed ^ 0x446aa1);
+    for (const k of clumps) {
+      const a = Math.atan2(k.c.z,k.c.x);
+      if (Math.hypot(k.c.x,k.c.z) < o.crown*0.36) continue;
+      const count = [9,4,3][level], steps = [7,4,3][level];
+      const nx = Math.cos(a), nz = Math.sin(a);
+      for (let i=0; i<count; i++) {
+        const side = (shoots()-0.5)*k.r*1.7;
+        const start = k.c.clone().add(new V3(nx*k.r*0.55-nz*side, 0, nz*k.r*0.55+nx*side));
+        const length = start.y*(0.50+shoots()*0.43);
+        const phase = shoots(), tone = shoots(), reach = k.r*(0.25+0.48*shoots());
+        for (let j=0; j<steps; j++) {
+          const t = j/steps;
+          const first = out.part.length;
+          for (const [u,vv] of [[0,0],[1,0],[1,1],[0,1]]) {
+            const f = (j+vv)/steps;
+            const w = (bare ? 0.08 : 1)*(u-0.5)*([0.35,0.48,0.63][level])*(1.05-f*0.52);
+            const arc = reach*Math.sin(f*1.8);
+            const x = start.x + nx*arc - nz*w;
+            const z = start.z + nz*arc + nx*w;
+            const y = start.y-length*f;
+            out.vertex(x,y,z,nx,0.26,nz,u,1-vv,tone,phase,0.60+t*0.25,start.y+length*f,bare ? PART_WOOD : PART_SPRAY);
+          }
+          out.idx.push(first,first+1,first+2,first,first+2,first+3);
+        }
+      }
     }
   }
   const g = out.geometry();

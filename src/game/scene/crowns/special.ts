@@ -25,10 +25,19 @@ export function growSpecial(form: Special, seed: number, level: number): CrownMo
     const first = out.part.length;
     for (let j=0; j<=rows; j++) {
       const t = j/rows, p = axis(t);
+      const tangent = axis(Math.min(1,t+0.001)).sub(axis(Math.max(0,t-0.001))).normalize();
+      const forward = radial(offset,1,0);
+      const side = ribs ? v(0,0,0).crossVectors(tangent, Math.abs(tangent.dot(forward)) < 0.85 ? forward : v(0,0,1)).normalize() : null;
       for (let i=0; i<count; i++) {
         const n = radial(tau*i/count,1,0);
-        const r = radius(t) * (ribs && i%2 ? 0.88 : 1);
-        vertex(p.clone().addScaledVector(n,r),n,part,i%2 ? 0.35 : 0.7,i/count);
+        if (side) {
+          const other = tangent.clone().cross(side);
+          n.copy(side).multiplyScalar(Math.cos(tau*i/count)).addScaledVector(other,Math.sin(tau*i/count));
+        }
+        const r = radius(t) * (ribs && i%2 ? 0.76 : 1);
+        const point = p.clone().addScaledVector(n,r);
+        if (ribs) n.addScaledVector(tangent,Math.max(0,(t-0.89)*9)).normalize();
+        vertex(point,n,part,i%2 ? 0.12 : 0.92,i/count);
         if (!j) continue;
         const a = first+(j-1)*count+i, b = first+(j-1)*count+(i+1)%count;
         out.idx.push(a,a+count,b,b,a+count,b+count);
@@ -55,6 +64,22 @@ export function growSpecial(form: Special, seed: number, level: number): CrownMo
     const stem = (t: number) => v(0,h*t,0);
     const taper = (t: number) => Math.sqrt(Math.max(0.0001, 1-Math.pow(t,16)));
     tube(stem,t=>0.42*taper(t),[24,12,7][level],3,true);
+    // White tepals form shallow cups on the shoulders of selected adults.
+    if ((seed & 1) && level < 2) {
+      const flowers = level === 0 ? 5 : 3;
+      for (let j=0; j<flowers; j++) {
+        const hub = radial(offset+j*tau/flowers,0.30,h*0.955);
+        const petals = level === 0 ? 8 : 5;
+        for (let k=0; k<petals; k++) {
+          const a = k*tau/petals;
+          const first = vertex(hub,v(0,1,0),7,0.62);
+          vertex(hub.clone().add(radial(a-0.32,0.14,0.10)),v(0,1,0),7,0.80);
+          vertex(hub.clone().add(radial(a,0.19,0.16)),v(0,1,0),7,0.91);
+          vertex(hub.clone().add(radial(a+0.32,0.14,0.10)),v(0,1,0),7,0.80);
+          out.idx.push(first,first+1,first+2,first,first+2,first+3);
+        }
+      }
+    }
     const arms = 2 + Math.floor(rand()*3);
     for (let i=0; i<arms; i++) {
       const a = offset + tau*i/arms;
