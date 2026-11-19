@@ -158,8 +158,12 @@ export function forageMaterial(): THREE.ShaderMaterial {
         // dark greens of a wood, and pale ones — a shell, a white cap — would stand whiter than the sand they lie on)
         vec3 col = albedo * (uSkyColor * 0.9 + uBounceColor * 0.5 + uSunColor * mix(0.05, 0.36, lit)) * 0.76;
         col += rtHeadlight(albedo, n, vPos);
-        // kinds that glow: lit from within by night, a slow breath
-        col += vAlbedo * vGlow * uWeather.w * (1.1 + 0.25 * sin(uTime * 1.3 + vPos.x * 3.0 + vPos.z * 2.0));
+        // kinds that glow: lit from within by night, a slow breath. Most where the model is painted lightest (the
+        // caps' rims), a little down the stems and into the hollows: a glow laid evenly over the whole turns it one
+        // pale colour, a cut stone. And in a deeper version of the kind's own colour, which the night's raised
+        // exposure would otherwise wash to white.
+        float inner = 0.25 + 0.75 * smoothstep(0.8, 1.12, vTone);
+        col += vAlbedo * vAlbedo * 1.5 * vGlow * uWeather.w * inner * (1.1 + 0.25 * sin(uTime * 1.3 + vPos.x * 3.0 + vPos.z * 2.0));
         col = rtFog(col, vPos, cameraPosition);
         gl_FragColor = vec4(col, 0.7);
       }`,

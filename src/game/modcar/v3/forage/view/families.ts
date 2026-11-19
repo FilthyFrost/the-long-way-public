@@ -238,8 +238,10 @@ function buildClusterMushroom(a: Atlas): void {
     const m = at(x, 0, z, s, s, s, (rnd(i) - 0.5) * 0.4, i * 1.7, (rnd(i + 9) - 0.5) * 0.4);
     // the stem opens into the funnel: the plant's second colour below, its main colour at the rim
     a.add(new THREE.CylinderGeometry(0.24, 0.05, 0.78, 6, 1, true), at(0, 0.39, 0).premultiply(m), { tint: (p) => 1 - THREE.MathUtils.clamp(p.y / (0.6 * s), 0, 1), tone: rise(0.8, 1.1, 0, 0.78 * s) });
-    // the cap's hollow top
-    a.add(new THREE.ConeGeometry(0.24, 0.12, 6, 1, true), at(0, 0.72, 0, 1, 1, 1, Math.PI).premultiply(m), { tint: 0, tone: 1.14 });
+    // the cap's hollow top, deeper towards its middle (one tone all over, a funnel seen from above is a flat
+    // hexagon; and the glow of a glowing kind follows the tone, so its rims shine and its hollows less)
+    const hollow = V(0, 0.72, 0).applyMatrix4(m);
+    a.add(new THREE.ConeGeometry(0.24, 0.12, 6, 1, true), at(0, 0.72, 0, 1, 1, 1, Math.PI).premultiply(m), { tint: 0, tone: (p) => 0.84 + 0.3 * THREE.MathUtils.clamp(p.distanceTo(hollow) / (0.24 * s), 0, 1) });
   });
 }
 
@@ -290,7 +292,8 @@ function buildTallHerb(a: Atlas): void {
     const top = V(x + lean * 0.5, h, z + lean * 0.3);
     const foot = V(x * 0.5, 0, z * 0.5);
     stalk(a, foot, top, 0.05, { tint: 0, tone: 0.7, sway: sways(1) });
-    const pairs = k === 0 ? 4 : 3;
+    // (four pairs of leaves on the middle stem, two on the others: the round heads below are worth more triangles)
+    const pairs = k === 0 ? 4 : 2;
     for (let i = 0; i < pairs; i++) {
       const t = 0.2 + (0.62 * i) / pairs;
       const c = foot.clone().lerp(top, t);
@@ -300,9 +303,12 @@ function buildTallHerb(a: Atlas): void {
         leaf(a, c, V(c.x + Math.cos(ang) * reach * s, c.y + 0.1, c.z + Math.sin(ang) * reach * s), 0.22, 0.05, { tint: 0, tone: 0.82 + 0.3 * t + 0.08 * rnd(k * 7 + i), sway: sways(1) });
       }
     }
-    // what it bears, or flowers with: the plant's second colour
-    a.add(new THREE.OctahedronGeometry(0.1, 0), at(top.x, top.y - 0.02, top.z, 1, 1.25, 1), { tint: 1, tone: rise(0.9, 1.2, h - 0.15, h + 0.1), sway: sways(1) });
-    a.add(new THREE.OctahedronGeometry(0.075, 0), at(top.x - 0.12, top.y - 0.16, top.z + 0.08, 1, 1.2, 1), { tint: 1, tone: 0.98, sway: sways(1) });
+    // what it bears, or flowers with, in the plant's second colour: a round head and a smaller one hung below it,
+    // each shaded as one soft mass (with the faces' own normals they read as cut stones: a tomato, an umbel)
+    const head = V(top.x, top.y - 0.02, top.z);
+    a.add(new THREE.IcosahedronGeometry(0.1, 0), at(head.x, head.y, head.z, 1, 1.2, 1, 0, k), { tint: 1, tone: rise(0.9, 1.2, h - 0.15, h + 0.1), sway: sways(1), round: head });
+    const bud = V(top.x - 0.12, top.y - 0.16, top.z + 0.08);
+    a.add(new THREE.OctahedronGeometry(0.075, 0), at(bud.x, bud.y, bud.z, 1, 1.2, 1), { tint: 1, tone: 0.98, sway: sways(1), round: bud });
   });
 }
 
