@@ -202,11 +202,12 @@ export class PaintedAnimals {
   readonly batches=new Map<Animal,T.InstancedMesh>();
   private readonly time={value:0};
   private readonly light={value:1};
+  private readonly emission={value:1000};
   private readonly materials:T.ShaderMaterial[]=[];
   prepare(a:Animal):void {
     if(this.batches.has(a)) return;
     const glow=a.form==='firefly';
-    const mat=new T.ShaderMaterial({transparent:glow,depthWrite:!glow,vertexColors:true,side:T.DoubleSide,uniforms:{t:this.time,light:this.light},
+    const mat=new T.ShaderMaterial({transparent:glow,depthWrite:!glow,vertexColors:true,side:T.DoubleSide,uniforms:{t:this.time,light:this.light,gain:this.emission},
       vertexShader:`
         #include <common>
         #include <logdepthbuf_pars_vertex>
@@ -232,10 +233,10 @@ export class PaintedAnimals {
           gl_Position=projectionMatrix*(anchorEye+modelViewMatrix*vec4(mat3(instanceMatrix)*v*readScale,0.));
           ${glow?`if(hinge>1.5){
             vec4 eye=modelViewMatrix*vec4(instanceMatrix[3].xyz,1.);
-            eye.xy+=position.xy*clamp(.11-eye.z*.007,.11,.42);
+            eye.xy+=position.xy*clamp(.20-eye.z*.013,.20,.78);
             gl_Position=projectionMatrix*eye;
             halo=position.xy;
-            power=.12+.88*pow(.5+.5*sin(t*.0014+phase+sin(t*.00034+phase)),1.6);
+            power=smoothstep(-.75,.55,sin(t*(.00098+.00019*sin(phase))+phase+sin(t*.00028+phase)*.5));
           }`:''}
           #include <logdepthbuf_vertex>
         }`,
@@ -243,15 +244,17 @@ export class PaintedAnimals {
         #include <common>
         #include <logdepthbuf_pars_fragment>
         varying vec3 ink; varying vec2 halo; varying float power;
+        uniform float gain;
         void main(){
           #include <logdepthbuf_fragment>
           gl_FragColor=vec4(ink,1.);
           ${glow?`if(power>=0.){
             float radius=length(halo);
             if(radius>=1.)discard;
-            float core=exp(-radius*radius*40.);
+            float core=exp(-radius*radius*29.);
             float aura=exp(-radius*radius*4.5);
-            gl_FragColor=vec4(vec3(1.6,2.1,.38)+core*vec3(1.9,1.5,.45),min(1.,power*(core*1.25+aura*.37)));
+            vec3 emission=(vec3(.9,1.38,.21)*aura+vec3(8.9,9.4,2.1)*core)*gain*.001;
+            gl_FragColor=vec4(emission,power*(.88*core+.52*aura)*(1.-smoothstep(.80,1.,radius)));
           }`:''}
         }`,
     });
@@ -260,7 +263,8 @@ export class PaintedAnimals {
     mesh.count=0; mesh.frustumCulled=false; mesh.name=a.name;
     this.root.add(mesh); this.batches.set(a,mesh); this.materials.push(mat);
   }
-  begin(time:number,daylight:number):void {
+  begin(time:number,daylight:number,exposure:number):void {
+    this.emission.value=Math.round(1000/Math.max(.5,exposure));
     this.time.value=time; this.light.value=220+Math.round(daylight*930);
     for(let i=0;i<this.root.children.length;i++) (this.root.children[i] as T.InstancedMesh).count=0;
   }

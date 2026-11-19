@@ -74,7 +74,7 @@ export function profileFor(region: string): EcoProfile | undefined {
 }
 
 export const CELL_COUNT = 25;
-export const GROUP_LIMIT = 28;
+export const GROUP_LIMIT = 64;
 export const CELL_BIRD = 62, CELL_INSECT = 7;
 export const journeyMonth = (day: number): number => (Math.floor(day / 30) + 5) % 12 + 1;
 export const isDay = (hour: number): boolean => hour >= 6 && hour < 19;

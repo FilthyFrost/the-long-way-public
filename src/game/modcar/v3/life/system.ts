@@ -132,7 +132,7 @@ export class Life {
       if(a.motion==='glow') g.y+=.7;
       if(a.motion==='dart') g.y+=.22;
       g.profile=p;g.animal=a;g.phase=(hash>>>10)*.00000148;g.flee=0;
-      g.count=a.motion==='flock'?14+hash%13:a.motion==='glow'?24:a.name==='美洲鸦'?3:layer && a.motion!=='lamp'?2:1;
+      g.count=a.motion==='flock'?14+hash%13:a.motion==='glow'?60:a.name==='美洲鸦'?3:layer && a.motion!=='lamp'?2:1;
       for(let i=0;i<g.count;i++) {
         const v=i*4;
         g.flock[v]=Math.sin(i*2.39996+g.phase)*Math.sqrt(i)*1.85;
@@ -157,7 +157,7 @@ export class Life {
     const weather=ctx.env.state;
     const insects=weather.temp>=9 && weather.wind<=9 && weather.snowCover<=.35 && weather.rain<=.18;
     const stamp=this.serial*128+this.month*8+Number(isDay(ctx.clock.hour))*4+Number(insects)*2+Number(weather.temp>=14);
-    this.paint.begin(Math.floor(this.elapsedUs/1000),ctx.env.sky.daylight);
+    this.paint.begin(Math.floor(this.elapsedUs/1000),ctx.env.sky.daylight,ctx.core.exposure??1);
     if(Math.abs(vx-this.viewX)+Math.abs(vz-this.viewZ)>6) {
       this.viewX=vx;this.viewZ=vz;
       w.shape(vx,vz,this.t);
@@ -226,10 +226,11 @@ export class Life {
         yaw+=.14*Math.sin(u*.53);y+=.012*Math.sin(u*1.2);fly=0;
         if(m==='swim'){x+=.65*Math.sin(u*.22);z+=.28*Math.cos(u*.22);}
       } else if(m==='glow') {
-        const phi=i*2.39996+g.phase, radius=.88*Math.sqrt(i);
+        const phi=i*2.39996+g.phase, radius=1.02*Math.sqrt(i);
         x+=Math.cos(phi)*radius+.64*Math.sin(u*.66);
         z+=Math.sin(phi)*radius+.53*Math.cos(u*.54);
-        y+=.27*Math.sin(u*.91)+.44*Math.sin(phi);
+        y+=.28*Math.sin(u*.69)+.36*Math.sin(phi);
+        if(i%7===0)y+=1.3*(.5+.5*Math.sin(u*.48));
       } else if(m==='nectar' && a.form==='butterfly'){
         const trail=.5-.5*Math.cos(u*.95);
         x+=2.1*trail*Math.sin(phase)+.15*Math.sin(u*4.8);
