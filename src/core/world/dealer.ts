@@ -15,6 +15,7 @@
  * The world's rules load this file (rules.ts names DEALER_V2), so it knows the registry's entries and the
  * rules by their types and loads nothing of the road or the land to run.
  */
+import { borderWidth, hasRouteProfile } from './routeProfiles';
 import { hash2 } from '../math/rng';
 import { BIOMES, type RegionDef } from './biomes';
 import type { ChapterDealer, DealerView } from './rules';
@@ -39,6 +40,10 @@ export interface RegionCard {
   readonly surreal: boolean;
   /** how often it comes against the others of its class (1 = as often) */
   readonly weight: number;
+  /** Geographic analogue, including the kin of a newly registered region. */
+  readonly routeId?: string;
+  /** Saved registry size, used to route through foothills if the forest is unavailable. */
+  readonly regionCount?: number;
 }
 
 /**
@@ -58,6 +63,7 @@ export function cardOf(def: RegionDef, index: number): RegionCard {
     sea: def.sea ?? false,
     surreal: def.surreal ?? false,
     weight: def.weight ?? 1,
+    routeId: hasRouteProfile(def.id) ? def.id : def.kin,
   };
 }
 
@@ -160,6 +166,7 @@ function fits(k: RegionCard, past: readonly RegionCard[], strict: number): boole
   if (n === 0) return true;
   const prev = past[n - 1];
   if (k.index === prev.index) return false;
+  if (prev.routeId && k.routeId && !borderWidth(prev.routeId, k.routeId, k.regionCount) && prev.routeId !== k.routeId) return false;
   if (strict >= 2) return true;
   if (prev.sea && k.sea) return false;
   if (k.surreal) for (let i = 1; i < SURREAL_SPAN && i <= n; i++) if (past[n - i].surreal) return false;
@@ -185,7 +192,7 @@ function want(k: RegionCard, past: readonly RegionCard[], dealt: readonly number
   }
   // long unseen: wanted more, and never seen most of all, so that a long journey meets every kind of country
   const a = age(k.index, dealt);
-  w *= a === Infinity ? 4 : 0.2 + Math.min(1.4, a / 7);
+  w *= k.routeId ? (a === Infinity ? 28 : 0.12 + Math.min(5, a / 6)) : (a === Infinity ? 4 : 0.2 + Math.min(1.4, a / 7));
   return w;
 }
 
@@ -207,9 +214,9 @@ export function dealRegion(seed: number, c: number, cards: readonly RegionCard[]
   for (let strict = 0; strict <= 2 && cand.length === 0; strict++) {
     cand = cards.filter((k) => ok[k.intensity] && fits(k, past, strict));
     // (the rules on intensity give way last: a world of only calm regions still gets a region)
-    if (cand.length === 0) cand = cards.filter((k) => fits(k, past, strict) && (k.intensity !== 'highlight' || ok.highlight));
+    if (cand.length === 0 && strict === 2) cand = cards.filter((k) => fits(k, past, strict) && (k.intensity !== 'highlight' || ok.highlight));
   }
-  if (cand.length === 0) cand = cards.slice();
+  if (cand.length === 0) cand = [past[past.length - 1] ?? cards[0]];
   // the class first: by the shares aimed at, each leaning towards what the journey so far owes it (a class
   // that has had less than its share of the last regions is likelier, one that has had more is less likely),
   // among the classes that have a candidate
@@ -233,7 +240,9 @@ export function dealRegion(seed: number, c: number, cards: readonly RegionCard[]
   let sum = 0;
   const w: number[] = [];
   for (const k of of) {
-    const x = want(k, past, dealt);
+    let x = want(k, past, dealt);
+    // An unseen side valley also makes its approach more attractive.
+    if (k.routeId && cards.some(n => n.routeId && !dealt.includes(n.index) && borderWidth(k.routeId!, n.routeId))) x *= 6;
     w.push(x);
     sum += x;
   }
@@ -288,7 +297,7 @@ export function dealProblems(cards: readonly RegionCard[], dealt: readonly numbe
 /** the cards of the regions a world knows: the first `count` of the registry */
 export function cardsOf(count: number): RegionCard[] {
   const cards: RegionCard[] = [];
-  for (let i = 0; i < count && i < BIOMES.length; i++) cards.push(cardOf(BIOMES[i], i));
+  for (let i = 0; i < count && i < BIOMES.length; i++) cards.push({ ...cardOf(BIOMES[i], i), regionCount: count });
   return cards;
 }
 

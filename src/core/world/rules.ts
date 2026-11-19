@@ -16,6 +16,7 @@
  */
 import type { Rng } from '../math/rng';
 import { BIOMES, FIRST_BIOMES, MIN_RADIUS_ANY } from './biomes';
+import { MAX_BORDER_WIDTH } from './routeProfiles';
 import { DEALER_V2 } from './dealer';
 import { quietRun } from './director';
 import { quietSlot } from './quiet';
@@ -32,7 +33,7 @@ export type WorldVersion = 1 | 2;
  * it (harness/sim/world-golden.json): a change to version 2 that was not meant shows there. Version 1 has
  * no revisions: it never changes.
  */
-export const WORLD_REV = 5;
+export const WORLD_REV = 6;
 
 /** one chapter as its dealer hands it over */
 export interface DealtChapter {
@@ -188,7 +189,7 @@ export const RULES_V2: WorldRules = Object.freeze({
   regionCount: BIOMES.length,
   slot: 1250,
   dealer: DEALER_V2,
-  transition: (scale: number): number => Math.max(300, 900 * Math.min(1, scale * 2)),
+  transition: (scale: number): number => MAX_BORDER_WIDTH * Math.max(0.1, Math.min(1, scale)),
   quiet: quietRun,
   // (the road climbs into high country at up to five in a hundred above its own climbs, and begins kilometres
   // before the country does: stage L1's mountain valleys stand a kilometre above the sea)

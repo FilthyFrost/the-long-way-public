@@ -543,7 +543,7 @@ export class SitePlan implements SolidSource {
     let kind: SiteKind | null = null;
     const lake = water && water.kind === 'lake' ? water : null;
     // a filling station is never more than a tank away: one in the first few stretches, then every 22 km at the latest
-    const needStation = this.sinceStation >= 18 || (this.stations === 0 && k >= 5);
+    const needStation = this.sinceStation >= (world.rules.version >= 2 ? 16 : 18) || (this.stations === 0 && k >= 5);
     // every stretch of coast road has its lighthouse, about the middle of it
     const light = this.lightRun(k);
     // a quiet stretch is left alone (quiet.ts) — unless the tank needs it: a filling station comes first

@@ -405,9 +405,9 @@ describe('a version 2 save of another revision, made fit for the world as it is 
   it('what was remembered of a place is kept where the place is still of its kind, and forgotten otherwise', () => {
     const sites = sitesOf(now).filter((x) => x.kind !== 'roadside');
     const house = sites.find((x) => x.containers.length >= 2)!;
-    const other = sites.find((x) => x !== house && x.containers.length >= 1)!;
     const station = sites.find((x) => x.fuel.length > 0)!;
     const lying = sites.find((x) => x.loose.length > 0)!;
+    const other = sites.find((x) => x !== house && x !== station && x !== lying && x.containers.length >= 1)!;
     expect(house && other && station && lying).toBeTruthy();
     const [c0, c1] = house.containers;
     const s = roadSave({

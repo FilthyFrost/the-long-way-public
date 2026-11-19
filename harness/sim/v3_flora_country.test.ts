@@ -311,7 +311,7 @@ describe('what each kind of country must get right', () => {
     let turns = 0;
     let hues = new Set<number>();
     let last = -1;
-    const x0 = 9000;
+    const x0 = 8500;
     w.spine.at(w.spine.sAtX(x0), sp);
     for (let z = sp.z + 60; z < sp.z + 200; z += 0.25) {
       w.eco!.at(x0, z, e);
@@ -369,7 +369,7 @@ describe('what each kind of country must get right', () => {
       let alone = 0;
       let tiles = 0;
       let without = 0;
-      firstChapter(w, 8, 2, (tx, tz) => {
+      firstChapter(w, 4, 3, (tx, tz) => {
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
         const at: number[] = [];
         for (let k = 0; k < ft.n; k++) if (PLANTS[ft.plant[k]].id === 'bamboo') at.push(ft.x[k], ft.z[k]);

@@ -97,11 +97,15 @@ describe('the cell\'s decision', () => {
       [worldOf(8, 'forest'), 40, 44, -1, 2],
       [worldOf(3, 'lakes'), 20, 34, -3, 3],
       [worldOf(7, 'wetland'), 12, 24, -3, 3],
-      // (towers: a stretch of karst country with a cluster beside the road)
-      [worldOf(21, 'karst_peaks'), 52, 60, -19, -13],
       // (the road itself and whatever stands by it: the tiles the road runs through)
       [worldOf(11, 'plains'), 8, 44, -1, 1],
     ];
+    // Locate the cluster in this revision's road coordinates.
+    const karst = worldOf(21, 'karst_peaks');
+    const towersHere = Array.from({ length: 36 }, (_, i) => karst.features!.of(i)).find(row => row.length)!;
+    const tx = Math.floor(towersHere[0].x / ECO_TILE);
+    const tz = Math.floor(towersHere[0].z / ECO_TILE);
+    spots.push([karst, tx - 4, tx + 4, tz - 3, tz + 3]);
     // terraced hillsides: a stretch of the terraces that is cut into benches, the tiles beside the road there
     const farms = worldOf(6, 'terraces');
     const lp = new LandParams();
