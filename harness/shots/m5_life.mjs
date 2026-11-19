@@ -6,12 +6,17 @@ if (!ON_GPU) throw Error('Run with SHOTS_GPU=1 and the shared GPU lock.');
 const out=path.join(ROOT,'loop/shots/m5-life');
 fs.mkdirSync(out,{recursive:true});
 const scenes=[
-  ['birds','terraces','燕类',14],
-  ['raptor','plains','南方凤头卡拉鹰',14,'patagonian-steppe'],
+  ['birds','plains','仓燕',14],
+  ['raptor','plains','红尾鵟',14],
+  ['raptor-below','plains','红尾鵟',14],
   ['waterbird','lakes','苔原天鹅',14,'arctic-tundra'],
-  ['butterflies','flower_fields','斑蝶类',14],
+  ['butterflies','flower_fields','斑蝶类',14,'sierra-high'],
   ['dragonflies','forest','蜻蜓',14],
   ['fireflies','forest','萤火虫',21,'appalachian'],
+  ['flock-seat','plains','仓燕',14],
+  ['firefly-seat','plains','萤火虫',21,'shenandoah-farm'],
+  ['mallard','plains','绿头鸭',14],
+  ['teal','plains','绿翅鸭',14],
   ['snow-pass','alpine','',23],
 ];
 const {server,url}=await startServer();
@@ -46,12 +51,13 @@ try {
       const {BIOMES}=await import('/src/core/world/biomes.ts');
       const tp=new TerrainPoint(), sp=new SpineSample(), cam=core.camera,o=core.origin;
       g.ui.root.style.visibility='hidden';
-      sys.show(species);
+      const seat=id.endsWith('-seat');
+      sys.show(seat?'':species);
       if(biome==='flower_fields') {
         // The journey begins in June. Monarch-like butterflies occur here in July and August.
         const saved=g.clock.snapshot(); g.clock.restore({...saved,day:30});
       }
-      const water=id==='waterbird'||id==='dragonflies';
+      const water=['waterbird','dragonflies','mallard','teal'].includes(id);
       let ready=false,waterSpot;
       if(water) for(let k=0;k<650;k++){
         const f=w.water.feature(k);
@@ -72,8 +78,10 @@ try {
         }
         w.shape(x,z,tp);
         if(BIOMES[tp.bt>=.5?tp.bb:tp.ba].id!==(preview??biome)) continue;
-        if(!ready || attempt%5===0) {rt.devGoKm(s/1000,true);rt.simulate(.15);ready=true;}
-        cam.position.set(x-o.x,Math.max(tp.wl,tp.h)+2-o.y,z-o.z);
+        if(seat || !ready || attempt%5===0) {rt.devGoKm(s/1000,true);rt.simulate(.15);ready=true;}
+        g.worldView.update(x,z,1e9);
+        if(seat) rt.setView('cockpit');
+        else cam.position.set(x-o.x,Math.max(tp.wl,tp.h)+2-o.y,z-o.z);
         for(let i=0;i<105;i++) sys.lateUpdate(1/60,g);
         const mesh=sys.paint.root.children.find(m=>m.name===species);
         n=mesh?.visible?mesh.count:0;
@@ -82,11 +90,23 @@ try {
           rt.setView('cockpit'); g.render();found=true;break;
         }
         if(!n) continue;
+        if(seat) {
+          cam.updateMatrixWorld(); const test=cam.position.clone(); let inFrame=0;
+          const m=mesh.instanceMatrix.array;
+          for(let j=0;j<n;j++) {
+            test.set(m[16*j+12],m[16*j+13],m[16*j+14]);
+            const dist=test.distanceTo(cam.position); test.project(cam);
+            if(dist>(id==='flock-seat'?30:0) && dist<(id==='flock-seat'?105:42) && Math.abs(test.x)<.8 && test.y>(id==='flock-seat'?.05:-.35) && test.y<.60 && test.z>0 && test.z<1) inFrame++;
+          }
+          if(inFrame<(id==='flock-seat'?16:18)) continue;
+          g.worldView.update(x,z,1e9); g.render();
+          found=true;meta={species,inFrame,km:s/1000,registered:!!preview,temp:g.env.state.temp};break;
+        }
         // Photograph a live instance at its current pose. Its size and placement are untouched.
         const m=mesh.instanceMatrix.array;
         const tx=m[12],ty=m[13],tz=m[14];
-        const distance=id==='dragonflies'?.49:id==='butterflies'?.45:id==='fireflies'?3:id==='birds'?3.6:id==='waterbird'?3.8:4;
-        const rise=id==='birds'?-distance*.22:id==='raptor'?distance*.45:id==='dragonflies'?distance*.82:distance*.32;
+        const distance=id==='dragonflies'?.49:id==='butterflies'?.45:id==='fireflies'?7:id==='birds'?3.6:id==='waterbird'?3.8:id==='mallard'?1.6:id==='teal'?1.1:3.4;
+        const rise=id==='birds'?-distance*.22:id==='raptor-below'?-distance*1.05:id==='raptor'?distance*1.1:id==='dragonflies'?distance*.82:distance*.32;
         const lateral=Math.atan2(m[8],m[10])+(id==='raptor'||water?1.12:1.35);
         cam.position.set(tx+distance*Math.sin(lateral),ty+rise,tz+distance*Math.cos(lateral));
         cam.lookAt(tx,ty,tz);cam.updateMatrixWorld();
@@ -102,7 +122,7 @@ try {
     fs.writeFileSync(path.join(out,id+'.json'),JSON.stringify(result,null,2));
     console.log(JSON.stringify(result));
     if(errors.length) throw Error(errors.slice(0,4).join('\n'));
-    if(id==='birds') {
+    if(['flock-seat','firefly-seat'].includes(id)) {
       const timing=await page.evaluate(async()=>{
         const rt=window.__rt,g=rt.game,sys=g.systems.get('life');
         rt.setView('cockpit');sys.show();rt.simulate(.25);
@@ -150,7 +170,7 @@ try {
           return {renderer,frame,cpuMean:cpu.reduce((a,b)=>a+b,0)/cpu.length,cpuP95:cpu[Math.floor(cpu.length*.95)],cpuMax:cpu.at(-1),gpu,draw,n,instances:sys.count,viewport:[innerWidth,innerHeight],buffer:[gl.drawingBufferWidth,gl.drawingBufferHeight]};
         } finally { r.autoClear=clear;drawParent.add(root); }
       });
-      fs.writeFileSync(path.join(out,'timing.json'),JSON.stringify(timing,null,2));console.log(timing);
+      fs.writeFileSync(path.join(out,id==='flock-seat'?'timing.json':'timing-night.json'),JSON.stringify(timing,null,2));console.log(timing);
       if(timing.cpuP95>.5 || timing.gpu===null || timing.gpu>.5) throw Error('Life exceeded its frame budget or GPU query unavailable');
     }
     await page.close();

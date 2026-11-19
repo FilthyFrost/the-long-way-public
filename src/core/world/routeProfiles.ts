@@ -36,6 +36,7 @@ const analogues: Readonly<Record<string, string>> = {
   lakes: 'fiordland', terraces: 'south-china-paddy', bamboo_sea: 'karst-river',
   karst_peaks: 'karst-river', flower_fields: 'blue-meadow', wetland: 'eglinton-grass',
 };
+export function routeProfileId(id: string): string { return analogues[id] ?? id; }
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
 // An authored transition takes precedence over a generic ecotone. A self-edge varies habitat within
 // its local landscape; it cannot by itself connect unrelated biomes using the same broad analogue.

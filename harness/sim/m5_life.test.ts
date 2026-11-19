@@ -67,10 +67,11 @@ describe('wayside life',()=>{
   });
   it('keeps a bounded live pool with no steady-state allocation in the driving update',()=>{
     const sys=new Life(),camera=new T.PerspectiveCamera();
-    const w=new World(7,{worldVersion:2,startBiome:'terraces'}), scene=new T.Scene();
+    const w=new World(7,{worldVersion:2,startBiome:'plains'}), scene=new T.Scene();
     const ctx={world:w,core:{scene,camera,origin:{x:0,y:0,z:0}},env:{sky:{daylight:1},state:new WeatherState()},
       clock:{hour:14,day:0},player:{walker:{x:0,z:0}},loose:{list:[]}} as unknown as GameContext;
     camera.position.set(600,4,20);sys.init(ctx);
+    for(let x=3;x<=6;x++)for(let z=-2;z<=2;z++)w.eco!.tile(x,z);
     const frame=()=>sys.lateUpdate(1/60,ctx);
     for(let i=0;i<120;i++) frame();
     expect(sys.count).toBeGreaterThan(0);
