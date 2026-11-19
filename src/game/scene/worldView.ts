@@ -9,12 +9,16 @@ import type { Coast } from '../../core/world/sea';
 import type { Site, SiteObject } from '../../core/world/sites';
 import type { World } from '../../core/world/terrain';
 import type { QualitySettings, RenderCore } from '../render/core';
+import { floraMaterial, floraUniforms } from '../render/floraMaterial';
 import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groundShadowMaterial, rockMaterial, surfaceMaterial } from '../render/materials';
 import { castShadows } from '../render/shadow';
-import { showChapters } from '../render/style';
+import { coverUniforms, ownPalettes, showChapters, type OwnPalettes } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
+import { floraMesh, floraShadows } from './floraMesh';
+import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
+import { plantRegistry, type PlantRegistry } from './plantRegistry';
 import { siteSlices } from './siteBuild';
 import { LakeBuild, RIVER_CHUNK, SEA_CHUNK, buildBridge, buildRiverChunk, riverChunks, riverPoint, seaChunks, seaSlices, type WaterSheet } from './waterBuild';
 import { grassSlices, woodsSlices, type GrassTile, type Slices, type WoodsTile } from './worldBuild';
@@ -27,6 +31,16 @@ const SLICE_MS = 2;
 const FAR_SPAN = 4;
 /** poles, wires and roadside leftovers are built this many chunks to a mesh, hung on the first chunk of the group */
 const POLE_SPAN = 4;
+/** scatter tiles nearer than this (m, to their middle) hold every plant in its full model */
+const SCATTER_NEAR = 230;
+/**
+ * … and in a world of version 2 (scene/floraScatter.ts): within the first of these a tile is at its nearest
+ * level — every plant in its full model, throwing its own shadow; beyond it, the trees inside a thick wood are
+ * in their far models already and the tile's shadows are thrown by far models; within the second a tile still
+ * shows its larger shrubs, in low models; beyond it, its trees alone, in their smallest
+ */
+const SCATTER_FULL = 120;
+const SCATTER_MID = 420;
 
 interface Piece {
   objects: THREE.Object3D[];
@@ -46,7 +60,7 @@ interface Job {
 export class WorldView {
   private readonly strips = new Map<number, Piece & { lod: number }>();
   private readonly terrain = new Map<string, TerrainLeaf>();
-  private readonly tiles = new Map<string, Piece & { far: boolean }>();
+  private readonly tiles = new Map<string, Piece & { far: boolean; lod: FloraLod }>();
   private readonly grass = new Map<string, Piece & { near: boolean }>();
   private wantGrass = new Map<string, { gx: number; gz: number; dist: number; near: boolean }>();
   private readonly grassMat = grassMaterial(GRASS_FADE, GRASS_KEEP_FAR);
@@ -59,7 +73,7 @@ export class WorldView {
   private readonly flowerGeo = buildFlower();
   private wantStrips = new Map<number, number>();
   private wantTerrain = new Map<string, { level: number; ix: number; iz: number; dist: number }>();
-  private wantTiles = new Map<string, { tx: number; tz: number; far: boolean; dist: number }>();
+  private wantTiles = new Map<string, { tx: number; tz: number; far: boolean; lod: FloraLod; dist: number }>();
   /** water sheets (lakes whole, rivers in lengths) and bridges, keyed L<slot>, R<slot>/<chunk>, B<slot> */
   private readonly water = new Map<string, Piece>();
   private wantWater = new Map<string, { f: WaterFeature; chunk: number; dist: number }>();
@@ -87,6 +101,8 @@ export class WorldView {
   private planX = NaN;
   private planZ = NaN;
   private readonly terrainMat = terrainMaterial();
+  /** a world of version 2: the far ring's materials, by the first of the four chapters whose palettes they hold (farMaterial) */
+  private readonly farMats = new Map<number, { mat: THREE.ShaderMaterial; pal: OwnPalettes; users: number }>();
   private readonly stripMat = roadStripMaterial();
   private readonly treeMat = foliageMaterial({ sway: 1, snowCap: 0 });
   private readonly coniferMat = foliageMaterial({ sway: 0.6, snowCap: 0.72, evergreen: true });
@@ -99,7 +115,11 @@ export class WorldView {
     g.rotateX(-Math.PI / 2);
     return g;
   })();
-  private readonly kinds: ScatterKinds = buildScatterKinds();
+  /** the first renderer's plant templates: what a world of version 1 scatters (null in a world of version 2) */
+  private readonly kinds: ScatterKinds | null;
+  /** a world of version 2: the plants' registry and the one material they are all drawn with (null in a world of version 1) */
+  private readonly plants: PlantRegistry | null;
+  private readonly floraMat: THREE.ShaderMaterial | null;
   private readonly proj = { s: 0, d: 0 };
   private readonly group = new THREE.Group();
   private sCam = 0;
@@ -116,6 +136,21 @@ export class WorldView {
   ) {
     this.group.name = 'world';
     core.scene.add(this.group);
+    // (a world of version 2 draws what its flora field stands: the models of every plant in one atlas)
+    this.plants = world.flora ? plantRegistry() : null;
+    if (this.plants) floraUniforms.tPlants.value = this.plants.atlas.texture;
+    this.floraMat = this.plants ? floraMaterial() : null;
+    this.kinds = this.plants ? null : buildScatterKinds();
+    if (this.plants) {
+      // … and paints its ground and its flowers by the flora field's ground cover. (The materials are made
+      // where they always were, in the order they always were — the renderer draws in the order materials
+      // were made, and a world of version 1 is to be drawn exactly as before — and told of the cover here,
+      // before they are first used.)
+      coverUniforms.uCoverSeed.value = world.seed | 0;
+      this.terrainMat.defines.RT_COVER = '';
+      this.stripMat.defines.RT_COVER = '';
+      this.flowerMat.defines.RT_HUE = '';
+    }
     core.onRebase(() => {
       const visit = (p: Piece): void => {
         for (const o of p.objects) {
@@ -149,6 +184,9 @@ export class WorldView {
       // geometries are per piece, except shared scatter models and the shared terrain index
       if (m.geometry && !(m as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) m.geometry.dispose();
       if ((m as unknown as { isInstancedMesh?: boolean }).isInstancedMesh) (m as unknown as THREE.InstancedMesh).dispose();
+      // (… and what a piece holds for itself: a far leaf its share of a material with palettes of its own)
+      const own = o.userData.own as { dispose(): void }[] | undefined;
+      if (own) for (const x of own) x.dispose();
     }
   }
 
@@ -226,7 +264,7 @@ export class WorldView {
     this.wantTerrain = wantT;
 
     // ---- scatter tiles
-    const wantK = new Map<string, { tx: number; tz: number; far: boolean; dist: number }>();
+    const wantK = new Map<string, { tx: number; tz: number; far: boolean; lod: FloraLod; dist: number }>();
     const Rt = 780 * vs;
     const t0x = Math.floor((cx - Rt) / TILE);
     const t1x = Math.floor((cx + Rt) / TILE);
@@ -236,7 +274,10 @@ export class WorldView {
       for (let tx = t0x; tx <= t1x; tx++) {
         const dist = Math.hypot((tx + 0.5) * TILE - cx, (tz + 0.5) * TILE - cz);
         if (dist > Rt) continue;
-        wantK.set(`${tx},${tz}`, { tx, tz, far: dist > 230, dist });
+        const far = dist > SCATTER_NEAR;
+        // (a world of version 1 knows two levels: near and far)
+        const lod = !this.plants ? (far ? LOD_FAR : LOD_NEAR) : dist <= SCATTER_FULL ? LOD_NEAR : !far ? LOD_CLOSE : dist <= SCATTER_MID ? LOD_MID : LOD_FAR;
+        wantK.set(`${tx},${tz}`, { tx, tz, far, lod, dist });
       }
     }
     this.wantTiles = wantK;
@@ -374,8 +415,8 @@ export class WorldView {
     }
     for (const [key, t] of wantK) {
       const have = this.tiles.get(key);
-      if (have && have.far === t.far) continue;
-      jobs.push({ priority: t.dist + 150, run: () => this.makeTile(key, t.tx, t.tz, t.far) });
+      if (have && have.far === t.far && have.lod === t.lod) continue;
+      jobs.push({ priority: t.dist + 150, run: () => this.makeTile(key, t.tx, t.tz, t.far, t.lod) });
     }
     for (const [key, t] of wantG) {
       const have = this.grass.get(key);
@@ -453,20 +494,62 @@ export class WorldView {
   private makeTerrain(key: string, level: number, ix: number, iz: number): void {
     if (!this.wantTerrain.has(key) || this.terrain.has(key)) return;
     const b = buildTerrain(this.world, level, ix, iz);
-    const mesh = new THREE.Mesh(b.geometry, this.terrainMat);
+    let mat = this.terrainMat;
+    let own: { dispose(): void }[] | null = null;
+    if (this.plants && level < 0 && b.chapters) {
+      // a leaf of the far ring in a world of version 2 keeps the palettes of its own chapters (render/style.ts
+      // ownPalettes): far land may lie in a chapter the four rolling slots do not hold
+      const first = b.chapters[0];
+      mat = this.farMaterial(first);
+      own = [{ dispose: () => this.letFarMaterialGo(first) }];
+    }
+    const mesh = new THREE.Mesh(b.geometry, mat);
+    if (own) mesh.userData.own = own;
     this.terrain.set(key, { objects: [this.add(mesh, b.wx, b.wy, b.wz)], level, ix, iz });
   }
 
-  private makeTile(key: string, tx: number, tz: number, far: boolean): void {
+  /**
+   * The far land's material with the palettes of chapters `first` … `first` + 3, each in its own slot: the
+   * rolling material's code and every other uniform of it, shared by every far leaf whose chapters begin there
+   * (a few in all: the far ring's leaves begin in one of five or six chapters), and freed with the last of them.
+   */
+  private farMaterial(first: number): THREE.ShaderMaterial {
+    let m = this.farMats.get(first);
+    if (!m) {
+      const plan = this.world.spine.plan;
+      const biomes = [0, 0, 0, 0];
+      for (let c = first; c < first + 4; c++) biomes[c & 3] = plan.biomeOf(c);
+      const pal = ownPalettes(biomes);
+      const t = this.terrainMat;
+      const mat = new THREE.ShaderMaterial({ defines: { ...t.defines }, uniforms: { ...t.uniforms, ...pal.uniforms } as THREE.ShaderMaterial['uniforms'], vertexShader: t.vertexShader, fragmentShader: t.fragmentShader });
+      this.farMats.set(first, (m = { mat, pal, users: 0 }));
+    }
+    m.users++;
+    return m.mat;
+  }
+
+  private letFarMaterialGo(first: number): void {
+    const m = this.farMats.get(first);
+    if (!m || --m.users > 0) return;
+    this.farMats.delete(first);
+    m.mat.dispose();
+    m.pal.dispose();
+  }
+
+  private makeTile(key: string, tx: number, tz: number, far: boolean, lod: FloraLod): void {
     const want = this.wantTiles.get(key);
-    if (!want || want.far !== far) return;
+    if (!want || want.far !== far || want.lod !== lod) return;
+    if (this.plants) {
+      this.makeFloraTile(key, tx, tz, lod);
+      return;
+    }
     // soft ground discs are only needed when there are no real cast shadows
     const s = buildScatter(this.world, tx, tz, far, this.q.shadowSize === 0);
     const objects: THREE.Object3D[] = [];
     for (const batch of s.batches) {
       const isShadow = batch.kind === 'shadow';
       const mat = isShadow ? this.shadowMat : batch.kind === 'rock' ? this.rockMat : batch.kind.startsWith('conifer') ? this.coniferMat : this.treeMat;
-      const geo = batch.kind === 'shadow' ? this.shadowGeo : this.kinds[batch.kind];
+      const geo = batch.kind === 'shadow' ? this.shadowGeo : this.kinds![batch.kind];
       const mesh = new THREE.InstancedMesh(geo, mat, batch.count);
       (mesh.instanceMatrix.array as Float32Array).set(batch.matrices);
       mesh.instanceMatrix.needsUpdate = true;
@@ -480,7 +563,40 @@ export class WorldView {
     }
     const old = this.tiles.get(key);
     if (old) this.drop(old);
-    this.tiles.set(key, { objects, far });
+    this.tiles.set(key, { objects, far, lod });
+  }
+
+  /**
+   * A scatter tile of a world of version 2: the plants the flora field stands there, one draw for its trees and
+   * one for its shrubs and ground plants (scene/floraScatter.ts, scene/floraMesh.ts).
+   */
+  private makeFloraTile(key: string, tx: number, tz: number, lod: FloraLod): void {
+    const s = buildFloraScatter(this.world, this.plants!, tx, tz, lod, this.q.shadowSize === 0);
+    const objects: THREE.Object3D[] = [];
+    for (const b of s.batches) {
+      const mesh = floraMesh(b, this.floraMat!, TILE);
+      // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
+      // nearest a plant throws its own shadow; at the close level the trees' far models throw the tile's, below)
+      if (lod === LOD_NEAR) floraShadows(mesh);
+      objects.push(this.add(mesh, s.wx, s.wy, s.wz));
+    }
+    if (s.shadows) {
+      // drawn into the shadow map and nowhere else
+      const mesh = floraMesh(s.shadows, this.floraMat!, TILE);
+      floraShadows(mesh, true);
+      objects.push(this.add(mesh, s.wx, s.wy, s.wz));
+    }
+    if (s.discs) {
+      const mesh = new THREE.InstancedMesh(this.shadowGeo, this.shadowMat, s.discCount);
+      (mesh.instanceMatrix.array as Float32Array).set(s.discs);
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.renderOrder = 1;
+      mesh.computeBoundingSphere();
+      objects.push(this.add(mesh, s.wx, s.wy, s.wz));
+    }
+    const old = this.tiles.get(key);
+    if (old) this.drop(old);
+    this.tiles.set(key, { objects, far: lod >= LOD_MID, lod });
   }
 
   /** an instanced mesh of `template` with per-instance root and info attributes */

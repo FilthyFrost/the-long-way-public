@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 
-function mulberry(seed: number): () => number {
+export function mulberry(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -20,7 +20,7 @@ function mulberry(seed: number): () => number {
   };
 }
 
-class PlantBuilder {
+export class PlantBuilder {
   private pos: number[] = [];
   private nrm: number[] = [];
   private col: number[] = [];
@@ -52,14 +52,19 @@ class PlantBuilder {
 
   /** one card of leaves: centre, the way it faces, the normal it shades with, size, turn, depth tone */
   leafCard(c: THREE.Vector3, facing: THREE.Vector3, shadeN: THREE.Vector3, size: number, turn: number, depth: number): void {
+    this.spray(c, facing, shadeN, size, size, turn, depth);
+  }
+
+  /** a card of leaves wider or taller than it is square (a hanging spray, a plume): `wide` across, `high` along its own up, after the turn */
+  spray(c: THREE.Vector3, facing: THREE.Vector3, shadeN: THREE.Vector3, wide: number, high: number, turn: number, depth: number): void {
     const f = facing.clone().normalize();
     const a = Math.abs(f.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
     const u = new THREE.Vector3().crossVectors(a, f).normalize();
     const w = new THREE.Vector3().crossVectors(f, u).normalize();
     const cu = Math.cos(turn);
     const su = Math.sin(turn);
-    const U = u.clone().multiplyScalar(cu).addScaledVector(w, su).multiplyScalar(size / 2);
-    const V = w.clone().multiplyScalar(cu).addScaledVector(u, -su).multiplyScalar(size / 2);
+    const U = u.clone().multiplyScalar(cu).addScaledVector(w, su).multiplyScalar(wide / 2);
+    const V = w.clone().multiplyScalar(cu).addScaledVector(u, -su).multiplyScalar(high / 2);
     const corners = [
       [-1, -1, 0, 0],
       [1, -1, 1, 0],
@@ -76,6 +81,27 @@ class PlantBuilder {
       this.leaf.push(1);
       this.card.push(1);
     }
+  }
+
+  /**
+   * One flat triangle of a solid part (a blade, a petal, a facet): three corners, the normal it shades with,
+   * the part it is of (as `solid`'s leaf: 0 wood, 1 foliage, …) and the colour or depth tone of each corner.
+   */
+  tri(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, n: THREE.Vector3, part: number, color: THREE.Color, ka = 1, kb = ka, kc = kb): void {
+    const ks = [ka, kb, kc];
+    [a, b, c].forEach((p, i) => {
+      this.pos.push(p.x, p.y, p.z);
+      this.nrm.push(n.x, n.y, n.z);
+      this.col.push(color.r * ks[i], color.g * ks[i], color.b * ks[i]);
+      this.uv.push(0, 0);
+      this.leaf.push(part);
+      this.card.push(0);
+    });
+  }
+
+  /** how many triangles have been added since the last build */
+  get triangles(): number {
+    return this.pos.length / 9;
   }
 
   build(): THREE.BufferGeometry {
@@ -97,19 +123,19 @@ class PlantBuilder {
   }
 }
 
-const WHITE = new THREE.Color(1, 1, 1);
+export const WHITE = new THREE.Color(1, 1, 1);
 const m4 = new THREE.Matrix4();
 const q = new THREE.Quaternion();
 const e = new THREE.Euler();
 
-function place(x: number, y: number, z: number, rx = 0, rz = 0, s = 1): THREE.Matrix4 {
+export function place(x: number, y: number, z: number, rx = 0, rz = 0, s = 1): THREE.Matrix4 {
   e.set(rx, 0, rz);
   q.setFromEuler(e);
   return m4.clone().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(s, s, s));
 }
 
 /** trunk and a couple of limbs reaching into the crown */
-function trunk(b: PlantBuilder, h: number, r: number, color: THREE.Color, limbs: [number, number, number][], seg = 6): void {
+export function trunk(b: PlantBuilder, h: number, r: number, color: THREE.Color, limbs: [number, number, number][], seg = 6): void {
   b.solid(new THREE.CylinderGeometry(r * 0.62, r, h, seg, 1, true), place(0, h / 2, 0), color, 0);
   for (const [ang, tilt, len] of limbs) {
     const g = new THREE.CylinderGeometry(r * 0.25, r * 0.5, len, 5, 1, true);
@@ -123,8 +149,9 @@ function trunk(b: PlantBuilder, h: number, r: number, color: THREE.Color, limbs:
  * A clump: a dark ball with cards of leaves around it, more on top. `crown` is the centre of the
  * whole crown: the clumps lean their shading normals away from it, so the crown reads as one mass.
  */
-function clump(b: PlantBuilder, rnd: () => number, c: THREE.Vector3, r: number, cards: number, crown: THREE.Vector3, cardScale = 1): void {
-  const ball = new THREE.IcosahedronGeometry(r * 0.8, 0);
+export function clump(b: PlantBuilder, rnd: () => number, c: THREE.Vector3, r: number, cards: number, crown: THREE.Vector3, cardScale = 1, core = 0.8): void {
+  // (`core`: the dark ball's share of the clump's radius — smaller for a light crown the sky shows through)
+  const ball = new THREE.IcosahedronGeometry(r * core, 0);
   b.solid(ball, place(c.x, c.y, c.z), WHITE, 1, (p) => 0.62 + 0.22 * THREE.MathUtils.clamp((p.y - crown.y) / (r * 2.5) + 0.5, 0, 1), c);
   const out = new THREE.Vector3();
   const n = new THREE.Vector3();
@@ -146,7 +173,7 @@ function clump(b: PlantBuilder, rnd: () => number, c: THREE.Vector3, r: number, 
 }
 
 /** a cone tier of a conifer with a ragged rim (needles hang in points) */
-function coneTier(b: PlantBuilder, rnd: () => number, x: number, y: number, z: number, r: number, h: number, yTop: number, yBottom: number): void {
+export function coneTier(b: PlantBuilder, rnd: () => number, x: number, y: number, z: number, r: number, h: number, yTop: number, yBottom: number): void {
   const seg = 11;
   const g = new THREE.CylinderGeometry(0.04, r, h, seg, 2, false);
   const p = g.getAttribute('position');
@@ -178,7 +205,7 @@ export interface PlantKinds {
   cactus: THREE.BufferGeometry;
 }
 
-const TRUNK = new THREE.Color(0x5a4a3c);
+export const TRUNK = new THREE.Color(0x5a4a3c);
 const PINE_TRUNK = new THREE.Color(0x5a4638);
 
 export function buildPlants(): PlantKinds {
