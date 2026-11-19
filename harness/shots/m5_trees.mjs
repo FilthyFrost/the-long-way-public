@@ -24,7 +24,12 @@ try {
       fs.writeFileSync(path.join(out,file),Buffer.from(data,'base64'));
       rows.push({file,names,distance,season});
     }
-    if (comparison) {
+    if (comparison?.startsWith('fruit-')) {
+      for (const name of ['fruit_tree','lemon','mesquite','chilean_firebush','cactus','saguaro']) {
+        for (const season of ['bearing','dormant']) await shot([name],8,season);
+        await shot([name],80,'bearing');
+      }
+    } else if (comparison) {
       const reviewing = ['willow','oak','maple','linden','chestnut','beech','ash','broadleaf','broadleaf2','broadleaf3','olive','cactus','saguaro','bush','bush_dry','bush_alpine'];
       for (const name of reviewing.filter(f => families.includes(f))) {
         for (const distance of [18,60]) await shot([name],distance,'summer');

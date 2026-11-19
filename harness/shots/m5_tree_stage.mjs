@@ -13,6 +13,11 @@ export function photograph(names, distance, season, comparison = false) {
   const g = window.__rt.game;
   const scene = new T.Scene();
   scene.background = new T.Color(0xc8dfde);
+  const portrait = season==='bearing' || season==='dormant';
+  if (portrait) {
+    const day = {fruit_tree:255,lemon:40,mesquite:207,chilean_firebush:320,cactus:151,saguaro:151}[names[0]];
+    globals.uCrownDay.value = (365+(season==='bearing'?day:(day+182)%365)-151)%365;
+  }
   const snowy = season === 'winter';
   globals.uWeather.value.y = snowy ? 0.9 : 0;
   globals.uShadowParams.value.x = 0;
@@ -28,10 +33,12 @@ export function photograph(names, distance, season, comparison = false) {
     const near = s.def.small ? SHRUB_NEAR : CROWN_NEAR, mid = s.def.small ? SHRUB_MID : CROWN_MID;
     const level = distance < near ? 0 : distance < mid ? 1 : 2;
     for (const [variant, shapes] of s.models.entries()) {
+      if (portrait && variant>0) continue;
       const v = s.def.variants[variant];
       const model = bare ? growSpeciesModel(v.grow,v.seed,level,true) : shapes[level];
       const geometry = model.geometry.clone();
       const leaf = season === 'autumn' ? paint?.autumn ?? paint?.leaf : paint?.leaf;
+      geometry.setAttribute('aFade',new T.InstancedBufferAttribute(new Float32Array([1,0,0,0]),4));
       geometry.setAttribute('aLook',new T.InstancedBufferAttribute(new Float32Array([0, name==='fruit_tree'||name==='lemon'?2:0,leaf ?? -1,name==='fruit_tree'?0xb85031:paint?.bark ?? 0x755f4c]),4));
       geometry.setAttribute('aTree',new T.InstancedBufferAttribute(new Float32Array([0.56,s.def.sway,s.def.bark==='accent'?1:0,1]),4));
       const mesh = new T.InstancedMesh(geometry,material,1);
@@ -52,6 +59,11 @@ export function photograph(names, distance, season, comparison = false) {
   const eye = comparison ? 4.2 : height*0.44;
   camera.position.set(0,eye,distance);
   camera.lookAt(0,eye,0);
+  if (portrait && distance < 10) {
+    camera.fov=36;
+    camera.position.set(0,height*0.66,distance);
+    camera.lookAt(0,height*0.66,0);
+  }
   camera.updateProjectionMatrix();
   g.core.frame.render(scene,camera,0);
   const img = g.core.renderer.domElement.toDataURL('image/png');

@@ -6,7 +6,7 @@ import { ROOT, ON_GPU, launchBrowser, openGame, startServer } from './lib.mjs';
 
 const stage = process.argv[2];
 if (!['before','after'].includes(stage) || !ON_GPU) throw Error('Run with SHOTS_GPU=1 and before or after');
-const out = path.join(ROOT, 'loop/shots/m5-ground', 'rev9', stage);
+const out = path.join(ROOT, 'loop/shots', process.env.M5_GROUND_OUT || 'm5-ground/rev9', stage);
 fs.mkdirSync(out, { recursive: true });
 // Load precisely the pre-change render path for paired pictures, without changing the worktree.
 async function baselineServer() {
@@ -25,6 +25,7 @@ const browser = await launchBrowser();
 const records = [];
 try {
   for (const region of ['lakes','forest','alpine','red_canyon','desert','river','terraces','maple']) {
+    if (process.env.M5_GROUND_REGION && process.env.M5_GROUND_REGION !== region) continue;
     const biome = region==='river' ? 'plains' : region;
     const {page,errors} = await openGame(browser, url+'/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=1200&time=15.5&weather=clear&biome='+biome,{width:1920,height:1080});
     const site = await page.evaluate(async (region) => {
