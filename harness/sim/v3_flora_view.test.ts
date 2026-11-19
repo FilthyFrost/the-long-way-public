@@ -6,6 +6,8 @@
  * put it, at its size, and none that the core did not put there.
  */
 import { describe, expect, it } from 'vitest';
+import { groundProfile } from '../../src/core/world/groundTables';
+import { PART_MINERAL } from '../../src/game/scene/groundModels';
 import { BIOMES, BIOME_INDEX } from '../../src/core/world/biomes';
 import { ECO_TILE } from '../../src/core/world/ecotope';
 import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, plantsOf } from '../../src/core/world/flora';
@@ -120,7 +122,7 @@ describe('the plants\' atlas', () => {
   });
 
   it('says of every vertex what part of the plant it is, and unit normals', () => {
-    const known = [PART_WOOD, PART_LEAF, PART_ACCENT, PART_FRUIT, PART_ROCK];
+    const known = [PART_WOOD, PART_LEAF, PART_ACCENT, PART_FRUIT, PART_ROCK, PART_MINERAL];
     for (const name of Object.keys(reg.atlas.models)) for (const p of partsOf(name)) expect(known, `${name}: part ${p}`).toContain(p);
     expect([...partsOf('rock')]).toEqual([PART_ROCK]);
     expect([...partsOf('boulder')]).toEqual([PART_ROCK]);
@@ -191,6 +193,7 @@ describe('a scatter tile of a world of version 2', () => {
           const t = flora.tile(layer, tx, tz);
           for (let i = 0; i < t.n; i++) {
             if (!reg.draws[t.plant[i]].drawn) continue;
+            if (layer !== LAYER_TREE && !PLANTS[t.plant[i]].bears && groundProfile(BIOMES[t.region[i]].id)) continue;
             if (layer === LAYER_TREE) wantTrees++;
             else wantSmall++;
             if (t.plant[i] === tea) teas++;
@@ -332,6 +335,7 @@ describe('a scatter tile of a world of version 2', () => {
         const t = flora.tile(layer, tx, tz);
         for (let i = 0; i < t.n; i++) {
           const p = PLANTS[t.plant[i]];
+          if (layer === LAYER_SHRUB && !p.bears && groundProfile(BIOMES[t.region[i]].id)) continue;
           const look = byPlace.get(`${(t.x[i] - s.wx).toFixed(2)},${(t.z[i] - s.wz).toFixed(2)}`)!;
           const flags = Math.floor(look / 2);
           const shows = flags % 2 === 1;
@@ -369,7 +373,7 @@ describe('a scatter tile of a world of version 2', () => {
       const shrubs = flora.tile(LAYER_SHRUB, tx, tz);
       let withFar = 0;
       for (let i = 0; i < shrubs.n; i++) {
-        if (reg.draws[shrubs.plant[i]].far) withFar++;
+        if (reg.draws[shrubs.plant[i]].far && (PLANTS[shrubs.plant[i]].bears || !groundProfile(BIOMES[shrubs.region[i]].id))) withFar++;
         if (PLANTS[shrubs.plant[i]].id === 'reed') reeds++;
       }
       expect(countOf(mid, 'small')).toBe(withFar);

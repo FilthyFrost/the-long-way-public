@@ -20,6 +20,7 @@ import type { Build, PartDef } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
+import { groundField } from '../../core/world/groundField';
 import { World } from '../../core/world/terrain';
 import { GroundSample, Surface, SURFACES, type Ground } from '../../core/world/ground';
 import { Push, pushOut, Solid } from '../../core/world/solids';
@@ -1021,6 +1022,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const sites = new WithoutWrecks(this.world.sites);
     this.player.addSolids(sites);
     this.player.addSolids(this.world.furniture);
+    if (this.world.rules.version >= 2) {
+      const rocks = groundField(this.world);
+      this.player.addSolids(rocks);
+      this.vehicleSolids.add(rocks);
+    }
     this.vehicleSolids.add(sites);
     this.vehicleSolids.add(this.world.furniture);
     // (the buildings' doors, while they are shut)
@@ -4583,6 +4589,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     if (this.worldView) {
       // after a teleport: the world round the new place built fast, behind the fade, until it is there
+      this.worldView.setGroundDay(this.clock.day);
       if (this.devLoad > 0) {
         this.devLoad -= dt;
         this.worldView.update(fx, fz, 45);
