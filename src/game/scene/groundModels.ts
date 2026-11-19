@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { plants, blossoms } from '../../core/world/groundTables';
+import { paintedStone } from './paintedStones';
 import { rockForms } from '../../core/world/rockTables';
 import { PlantBuilder, WHITE } from './vegetation';
 
@@ -7,7 +8,7 @@ const V = (x=0,y=0,z=0) => new THREE.Vector3(x,y,z);
 const up = V(0,1,0);
 const golden = 2.399963;
 export const PART_MINERAL = 5;
-const partLeaf=1, partPetal=2, partMineral=PART_MINERAL;
+const partLeaf=1, partPetal=2;
 const brown=new THREE.Color(0x785b48);
 const polar=(a:number,r:number,y:number)=>V(Math.cos(a)*r,y,Math.sin(a)*r);
 
@@ -35,49 +36,27 @@ function lump(b:PlantBuilder,c:THREE.Vector3,r:number,h:number,z:number,part:num
   g.dispose();
 }
 
-function stone(b:PlantBuilder, form:string,lod:number) {
-  const bank=form==='cobbles', loose=bank || form==='scree', columns=form==='columns', fins=form==='fin', karst=form==='karst';
-  const count=loose ? [9,5,3][lod] : columns || karst ? [5,3,2][lod] : form==='moraine' ? [4,3,2][lod] : 1;
-  for(let i=0;i<count;i++){
-    const a=i*golden, offset=i===0 ? 0 : 0.25+0.42*i/count;
-    const c=polar(a,offset,0);
-    const r=(loose ? 0.29 : count===1 ? 1 : 0.59)*(1-0.4*i/count);
-    const h=(1-0.52*i/count)*(loose ? 0.9 : 1);
-    if (bank || form==='granite' || form==='moraine' || form==='boulder' || form==='scree'){
-      c.y=h*0.24;
-      lump(b,c,r,h*0.75,r*(bank ? 0.7 : 0.86),partMineral,lod,a+0.32);
-      continue;
-    }
-    const strata=form==='strata';
-    const sides=columns ? 6 : karst ? 7 : 5;
-    const levels=lod===0 ? [0,0.34,0.41,0.7,0.76,1] : [0,0.68,1];
-    const ring=(t:number,j:number)=>{
-      const angle=j*2*Math.PI/sides+(columns ? 0 : 0.17);
-      const ledge=columns ? 1-0.06*t : (1-0.32*t)*(t===0.34 || t===0.7 ? 0.87 : 1);
-      return V(c.x+Math.cos(angle)*r*ledge+t*0.07, -0.18+t*(h+0.18)+0.04*Math.sin(j*3.2)*t,
-        c.z+Math.sin(angle)*r*ledge*(fins || strata ? 0.38 : 0.9));
-    };
-    for(let j=0;j<sides;j++){
-      for(let k=1;k<levels.length;k++){
-        const p=ring(levels[k-1],j), q=ring(levels[k-1],j+1), t=ring(levels[k],j), u=ring(levels[k],j+1);
-        const n=t.clone().sub(p).cross(q.clone().sub(p)).normalize();
-        const value=columns ? 0.95 : 0.77+0.2*(k%2);
-        b.tri(p,t,q,n,partMineral,WHITE,value); b.tri(t,u,q,n,partMineral,WHITE,value);
-      }
-      b.tri(ring(1,j),c.clone().add(V(0,h+0.05,0)),ring(1,j+1),up,partMineral,WHITE,1.07);
-    }
-  }
-}
+
 
 function fronds(b:PlantBuilder,lod:number) {
-  const stems=[7,5,3][lod],pairs=[6,3,1][lod];
+  // Old leaves and moss sit between the crowns of fronds on a damp forest floor.
+  for(let j=0;j<[12,6,2][lod];j++){
+    const a=j*golden;
+    const root=polar(a,0.55+0.56*Math.sin(j*1.4)**2,0.055);
+    stroke(b,root,root.clone().add(polar(a+1,0.35,0.07)),0.083,0.04,0,new THREE.Color(j%3===0?0xac7850:0x927543));
+    if(j%3===0) {
+      const c=root.clone().multiplyScalar(0.82);
+      for(let k=0;k<3;k++) stroke(b,c,c.clone().add(polar(a+k*2,0.34,0.12)),0.15,0.08,0,new THREE.Color(0x879451));
+    }
+  }
+  const stems=[8,6,3][lod],pairs=[6,4,2][lod];
   for(let j=0;j<stems;j++){
     const a=j*golden,r=0.75+0.25*Math.cos(j*2);
     const at=(t:number)=>polar(a,r*t,Math.sin(t*2.05)*(0.8+0.13*Math.sin(j)));
     stroke(b,V(),at(1),0.016,0.16);
     for(let k=1;k<=pairs;k++){
-      const t=k/(pairs+1),origin=at(t),len=0.25*Math.sin(Math.PI*t)**0.65;
-      for(const side of [-1,1]) stroke(b,origin,at(Math.min(1,t+0.16)).add(polar(a+side*1.26,len,-0.035)),0.031+0.014*lod,0.02);
+      const t=k/(pairs+1),origin=at(t),len=0.34*Math.sin(Math.PI*t)**0.65;
+      for(const side of [-1,1]) stroke(b,origin,at(Math.min(1,t+0.16)).add(polar(a+side*1.26,len,-0.035)),0.055+0.014*lod,0.02);
     }
   }
 }
@@ -151,7 +130,13 @@ export function groundModels(): Record<string,THREE.BufferGeometry> {
   const b=new PlantBuilder();
   const flora=new Set([...plants.values(),...blossoms.values()].map(g=>g.form));
   for (const form of [...flora,...rockForms]) for(let lod=0;lod<3;lod++){
-    if(!flora.has(form)) stone(b,form,lod);
+    if(!flora.has(form)) {
+      for(let v=0;v<3;v++) {
+        paintedStone(b,form as typeof rockForms[number],lod,v);
+        result['ground_'+form+lod+(v?'v'+v:'')]=b.build();
+      }
+      continue;
+    }
     else if(form==='knees') {
       for(let j=0;j<[7,4,2][lod];j++){
         const root=polar(j*golden,0.8*j/7,-0.12);
