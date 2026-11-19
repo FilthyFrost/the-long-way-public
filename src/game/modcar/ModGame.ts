@@ -972,7 +972,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.provingRun = new ProvingSession(this);
     this.worldView = new WorldView(this.core, this.world, this.core.quality);
     // (the wrecks by the road are vehicles of their own: wrecks.ts; the places' things our models where we have them)
-    this.siteArt ??= new SiteArt(this.core, (id) => this.places?.isSearched(id) ?? false);
+    this.siteArt ??= new SiteArt(this.core, (id) => this.places?.isOpen(id) ?? false);
     const art = this.siteArt;
     this.doors ??= new Doors(
       {
@@ -1918,6 +1918,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       makeWorkshop: (site, save) => this.makeRoadWorkshop(site, save),
       dropWorkshop: (ws) => this.dropRoadWorkshop(ws),
       opened: (id) => this.siteArt?.open(id),
+      setOpen: (id, open) => this.siteArt?.setOpen(id, open),
+      movesOf: (id, site) => this.siteArt?.movesOf(id, site) ?? null,
+      slots: (id, site) => (this.siteArt ? this.siteArt.slotsOf(id, site) : []),
+      measure: (h) => this.cargo.measured(h),
     };
   }
 

@@ -297,6 +297,50 @@ interface Mover {
   target: number;
 }
 
+/**
+ * A place in a container where the things found in it lie (docs/V3/nodes/M3-loot.md): one of its model's markers,
+ * kept in the place's drawing — a board of a set of shelves, the bottom of a cupboard behind its doors, a drawer
+ * (the marker in it moves with it), the top of a counter — with the room there as it stands in the world.
+ */
+export interface ContainerSlot {
+  /** the marker: its origin where the things stand (their bases), its +x out of the container's front, +z along the place */
+  readonly frame: THREE.Object3D;
+  /** in one of the container's moving pieces (a drawer): what lies there rides it */
+  readonly moves: boolean;
+  /** behind a door, under a lid, in a drawer: seen and reached only with the container open */
+  readonly shut: boolean;
+  /** open to the back (−x: a counter's keeper's side): what lies there is reached only from behind */
+  readonly back: boolean;
+  /** room there (m): along it (+z), into it (x), clear above */
+  readonly width: number;
+  readonly depth: number;
+  readonly clear: number;
+}
+
+/**
+ * The room at each fixed marker of the place models (model metres, as the Blender scripts build them:
+ * tools/blender/places/furniture.py, outside.py): along it, into it, clear above, and whether it is behind a door or
+ * under a lid. A marker in a drawer has the drawer's own room (its box). A marker not here is no place for things.
+ */
+const ROOM: Readonly<Record<string, Readonly<Record<string, { w: number; d: number; h: number; shut?: boolean; back?: boolean }>>>> = {
+  cupboard: { M_inside: { w: 1.7, d: 0.4, h: 0.28, shut: true }, M_top: { w: 1.7, d: 0.2, h: 0.3 } },
+  cupboard_s: { M_inside: { w: 1.5, d: 0.4, h: 0.28, shut: true }, M_top: { w: 1.5, d: 0.2, h: 0.3 } },
+  wardrobe: { M_inside: { w: 0.58, d: 0.5, h: 0.42, shut: true } },
+  counter: { M_top: { w: 2.3, d: 0.5, h: 0.45 }, M_inside: { w: 1.0, d: 0.35, h: 0.35, back: true } },
+  shelf: { M_inside: { w: 2.1, d: 0.42, h: 0.52 } },
+  shelf_shop: { M_inside: { w: 2.3, d: 0.42, h: 0.5 } },
+  shelf_mid: { M_inside: { w: 2.5, d: 0.22, h: 0.6 } },
+  shelf_garage: { M_inside: { w: 2.3, d: 0.42, h: 0.5 } },
+  shelf_garage_s: { M_inside: { w: 2.1, d: 0.42, h: 0.5 } },
+  toolbox: { M_inside: { w: 0.7, d: 0.36, h: 0.1, shut: true } },
+  toolbox_top: { M_inside: { w: 0.7, d: 0.36, h: 0.1, shut: true } },
+  crate: { M_inside: { w: 0.8, d: 0.6, h: 0.5, shut: true } },
+  barrel: { M_inside: { w: 0.5, d: 0.5, h: 0.8, shut: true } },
+  desk: { M_top: { w: 0.9, d: 0.45, h: 0.45 } },
+  icebox: { M_inside: { w: 0.8, d: 0.5, h: 0.5, shut: true } },
+  tacklebox: { M_inside: { w: 0.45, d: 0.25, h: 0.12, shut: true } },
+};
+
 /** the gloss of a place's painted things against a car's (plaster, painted wood, old enamel) */
 export const PLACE_GLOSS = 0.22;
 
@@ -336,6 +380,8 @@ interface Drawn {
   merged: THREE.Group | null;
   look: import('../render/carMaterials').CarLook | null;
   movers: Map<string, Mover[]>;
+  /** where each container's things lie (its model's markers, as places with their room) */
+  slots: Map<string, ContainerSlot[]>;
   /** the moving pieces' own looks (their dirt laid out in the place's frame like the merged ones') */
   moverLooks: import('../render/carMaterials').CarLook[];
   /** its pumps' nozzles and hoses, by object */
@@ -364,7 +410,7 @@ export class SiteArt {
 
   constructor(
     private readonly core: RenderCore,
-    /** has this container been searched? (places.ts: it is drawn open) */
+    /** is this container open? (places.ts: it is drawn so) */
     private readonly searched: (id: string) => boolean = () => false,
   ) {
     this.ready = Promise.all([
@@ -482,7 +528,28 @@ export class SiteArt {
 
   /** a container's doors, drawers or lid opening (it is being searched) */
   open(id: string): void {
-    for (const d of this.drawn.values()) for (const m of d.movers.get(id) ?? []) m.target = 1;
+    this.setOpen(id, true);
+  }
+
+  /** a container's doors, drawers and lid swung or slid open, or shut (docs/V3/nodes/M3-loot.md) */
+  setOpen(id: string, open: boolean): void {
+    for (const d of this.drawn.values()) for (const m of d.movers.get(id) ?? []) m.target = open ? 1 : 0;
+  }
+
+  /** has the container doors, drawers or a lid drawn here? (null: its place is not drawn) */
+  movesOf(id: string, site: string): boolean | null {
+    const d = this.drawn.get(site);
+    return d ? (d.movers.get(id)?.length ?? 0) > 0 : null;
+  }
+
+  /**
+   * Where a container's things lie: its model's markers as places, drawn with its place (null: its place is not
+   * drawn yet; empty: drawn, with no place for things — a bag, or no model of ours)
+   */
+  slotsOf(id: string, site: string): readonly ContainerSlot[] | null {
+    const d = this.drawn.get(site);
+    if (!d) return null;
+    return d.slots.get(id) ?? [];
   }
 
   /** every frame: the places within reach drawn, the ones far behind dropped */
@@ -535,6 +602,7 @@ export class SiteArt {
     // (a pump's nozzle and hose stay out of it too: the nozzle goes into the filler)
     const free: { obj: number; piece: THREE.Object3D; look: { paint: number; paint2: number; dirt: number; rust: number; wear: number; crust: number } }[] = [];
     const hoseAt = new Map<number, THREE.Object3D>();
+    const markers: { id: string; obj: THREE.Object3D; model: string; mover: THREE.Object3D | null }[] = [];
     for (let i = 0; i < site.objects.length; i++) {
       const o = site.objects[i];
       if (o.kind === 'building' && o.b && this.kitAll) {
@@ -580,9 +648,16 @@ export class SiteArt {
         if (cid) {
           holder.traverse((x) => {
             const mv = x.userData?.move;
-            if (mv !== 'hinge' && mv !== 'slide') return;
+            if (mv !== 'hinge' && mv !== 'slide' && mv !== 'lift') return;
             moving.add(x);
             pending.push({ id: cid, obj: x, look: { paint: pick[0], paint2: pick[1], ...wear } });
+          });
+          // (where its things lie: the markers, each with its room; one in a drawer goes with the drawer)
+          holder.traverse((x) => {
+            if (!/^M_(inside|top)/.test(x.name)) return;
+            let mover: THREE.Object3D | null = null;
+            for (let p = x.parent; p && p !== holder; p = p.parent) if (p.userData?.move === 'slide') mover = p;
+            markers.push({ id: cid, obj: x, model: m === model ? pm.name : '', mover });
           });
         }
       };
@@ -598,6 +673,7 @@ export class SiteArt {
     let merged: THREE.Group | null = null;
     let look: Drawn['look'] = null;
     const movers = new Map<string, Mover[]>();
+    const slots = new Map<string, ContainerSlot[]>();
     const moverLooks: Drawn['moverLooks'] = [];
     const pumps = new Map<number, PumpRig>();
     if (parts.length) {
@@ -610,9 +686,11 @@ export class SiteArt {
       for (const p of pending) {
         root.attach(p.obj);
         const ud = p.obj.userData as { move: string; axis?: string; open?: number };
-        const slide = ud.move === 'slide';
-        const axis = new THREE.Vector3(ud.axis === 'x' ? 1 : 0, ud.axis === 'y' || !ud.axis ? 1 : 0, ud.axis === 'z' ? 1 : 0);
-        const m: Mover = { obj: p.obj, slide, axis, open: slide ? (ud.open ?? 0.3) : ((ud.open ?? 90) * Math.PI) / 180, q0: p.obj.quaternion.clone(), p0: p.obj.position.clone(), t: 0, target: 0 };
+        // (a barrel's lid that lifts off: pushed aside over its front instead, not left hanging over it)
+        const lift = ud.move === 'lift';
+        const slide = ud.move === 'slide' || lift;
+        const axis = lift ? new THREE.Vector3(1, 0.04, 0).normalize() : new THREE.Vector3(ud.axis === 'x' ? 1 : 0, ud.axis === 'y' || !ud.axis ? 1 : 0, ud.axis === 'z' ? 1 : 0);
+        const m: Mover = { obj: p.obj, slide, axis, open: lift ? 0.34 : slide ? (ud.open ?? 0.3) : ((ud.open ?? 90) * Math.PI) / 180, q0: p.obj.quaternion.clone(), p0: p.obj.position.clone(), t: 0, target: 0 };
         if (this.searched(p.id)) m.t = m.target = 1;
         pose(m);
         const owner = `site:${site.id}:${p.id}`;
@@ -647,6 +725,8 @@ export class SiteArt {
           rig.qOut.copy(rig.q0);
         } else if (f.piece.name === 'HOSE') rig.hose = f.piece;
       }
+      // (the containers' places for things, kept as the holders go: a fixed one in the place's root, one in a drawer in it)
+      this.keepSlots(markers, root, slots);
       for (const h of holders) h.removeFromParent();
       // (plaster, painted wood and old enamel: not a car's clear coat)
       look = this.mats.look(`site:${site.id}`, { paint: 0xffffff, paint2: 0xffffff, matte: PLACE_GLOSS });
@@ -657,9 +737,60 @@ export class SiteArt {
     }
     root.updateMatrixWorld(true);
     for (const l of moverLooks) l.setCarFrame(root.matrixWorld);
-    this.drawn.set(site.id, { site, root, merged, look, movers, moverLooks, pumps });
+    this.drawn.set(site.id, { site, root, merged, look, movers, slots, moverLooks, pumps });
     // (its doors hung in the doorways the walls leave)
     this.doors?.come(site);
+  }
+
+  /**
+   * The containers' markers as places for their things (ContainerSlot): the room at a fixed one from ROOM (its
+   * model's), at one in a drawer the drawer's own box; both scaled as the model is to its object. A fixed marker is
+   * moved into the place's root (its holder goes once merged); one in a drawer stays in it.
+   */
+  private keepSlots(markers: readonly { id: string; obj: THREE.Object3D; model: string; mover: THREE.Object3D | null }[], root: THREE.Group, out: Map<string, ContainerSlot[]>): void {
+    if (!markers.length) return;
+    root.updateMatrixWorld(true);
+    const pos = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
+    const bb = new THREE.Box3();
+    const one = new THREE.Box3();
+    const inv = new THREE.Matrix4();
+    const rel = new THREE.Matrix4();
+    for (const mk of markers) {
+      mk.obj.matrixWorld.decompose(pos, q, s);
+      let room: { w: number; d: number; h: number; shut: boolean; back: boolean } | null = null;
+      if (mk.mover) {
+        // (the drawer's box in its own frame, a hand's breadth in from its sides; clear up to its top from its floor)
+        bb.makeEmpty();
+        inv.copy(mk.mover.matrixWorld).invert();
+        mk.mover.traverse((o) => {
+          const g = (o as THREE.Mesh).geometry;
+          if (!g) return;
+          if (!g.boundingBox) g.computeBoundingBox();
+          rel.multiplyMatrices(inv, o.matrixWorld);
+          bb.union(one.copy(g.boundingBox!).applyMatrix4(rel));
+        });
+        if (!bb.isEmpty()) {
+          // (the marker's height in the drawer's frame: its floor)
+          const floorY = one.min.copy(mk.obj.getWorldPosition(one.max)).applyMatrix4(inv).y;
+          room = { w: bb.max.z - bb.min.z - 0.06, d: bb.max.x - bb.min.x - 0.06, h: bb.max.y - floorY - 0.02, shut: true, back: false };
+        }
+      } else {
+        const r = ROOM[mk.model]?.[mk.obj.name];
+        if (r) room = { w: r.w, d: r.d, h: r.h, shut: !!r.shut, back: !!r.back };
+      }
+      if (!room || room.w <= 0 || room.d <= 0 || room.h <= 0) continue;
+      // (a fixed marker into the root, where it stands now)
+      if (!mk.mover) root.attach(mk.obj);
+      // (model axes: x into it, y up, z along it; the scale the model was put at)
+      const slot: ContainerSlot = { frame: mk.obj, moves: !!mk.mover, shut: room.shut, back: room.back, width: room.w * s.z, depth: room.d * s.x, clear: room.h * s.y };
+      let list = out.get(mk.id);
+      if (!list) out.set(mk.id, (list = []));
+      list.push(slot);
+    }
+    // (in each container the drawers last: a thing is laid on a shelf or a top before it goes into a drawer)
+    for (const list of out.values()) list.sort((a, b) => Number(a.moves) - Number(b.moves));
   }
 
   /** a building as the kit's pieces (buildingKit.ts), in the place's frame: its walls its colours, its sign the place's */

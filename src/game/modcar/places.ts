@@ -2,9 +2,12 @@
  * The places by the road in ModCar (docs/MODCAR.md §20, Arctic Drive's buildings): what one can do at them.
  *
  *  - Every container the world lays out (core/world/sites.ts: a kitchen's cupboard, a filling station's till, a
- *    garage's drawers and its shelves, a crate by the verge) is searched by holding E on it (the rummage heard);
- *    then a list of what is in it opens (the cargo list's), ModCar's own things by what it is and where it stands
- *    (core/modcar/loot.ts), and one takes them out into the hands. Searched once; what is left in it stays.
+ *    garage's drawers and its shelves, a crate by the verge) has its things in it where one sees them (docs/V3/
+ *    nodes/M3-loot.md): ModCar's own things by what it is and where it stands (core/modcar/loot.ts), laid out on its
+ *    model's places for them (siteArt.ts ContainerSlot: a board of shelves, behind a cupboard's doors, in a drawer,
+ *    under a lid, on a counter's top; core/modcar/containerLayout.ts), what fits nowhere on the floor before it.
+ *    E opens and shuts what has doors, drawers or a lid; a thing in it is picked up as any thing lying about is
+ *    (the mark on it, its card, E). What is left in it stays so, and it stays open or shut as one left it.
  *  - A filling station's pumps hold petrol and diesel: a jerrycan held to one fills from it (E), and with empty
  *    hands by a vehicle parked at it, E held fills the vehicle's tank (the pump's hum, its click when it is full).
  *  - The things lying in plain sight at a place are ModCar's: junk to recycle, a tyre, a jerrycan, food.
@@ -23,8 +26,11 @@ import type { World } from '../../core/world/terrain';
 import type { GarageDevice } from './garageStub';
 import { FUEL_ZH, type ItemCard } from './itemInfo';
 import { itemNow } from './itemTime';
-import type { Loose, LooseThings } from './loose';
+import { layOut, type LayoutRoom, type LayoutThing, type LayoutWay } from '../../core/modcar/containerLayout';
+import { lieBox, type Lie, type ThingBox } from '../../core/modcar/cargo';
+import type { Carrier, Loose, LooseThings } from './loose';
 import type { Held, TankPort } from './player';
+import type { ContainerSlot } from './siteArt';
 import type { ModVehicle } from './vehicle';
 import type { Workshop, WorkshopSave } from './workshop';
 
@@ -62,8 +68,10 @@ const BLURB: Partial<Record<ContainerKind, string>> = {
 export type SavedThing = { item?: ItemInstance; tool?: Tool; part?: PartInstance };
 
 export interface PlacesSave {
-  /** the containers searched */
+  /** the containers opened at some time */
   searched: string[];
+  /** the containers open now (left so: absent in an older save, the ones searched, which were left open) */
+  open?: string[];
   /** the buildings' doors one opened or shut (doors.ts) */
   doors?: Record<string, 0 | 1>;
   /** what is left in those something was taken out of */
@@ -110,8 +118,15 @@ export function heldOfSaved(s: SavedThing): Held {
 /** a container at a place, as the hands know it */
 export class PlaceContainer {
   readonly kind = 'container' as const;
-  /** what is in it (null until it is searched) */
+  /** what is in it (known as it comes: its things lie in it) */
   contents: NonNullable<Held>[] | null = null;
+  /** its things lying in it now, the places' own (none until they are laid out) */
+  readonly things: Loose[] = [];
+  /** they are laid out (or being: their models coming in) */
+  laid = false;
+  laying = false;
+  /** where they lie (its model's places for them, as drawn), for the shut ones' sake */
+  slots: readonly ContainerSlot[] = [];
   /** goes up whenever what is in it changes (the list of it builds its rows again only then) */
   rev = 0;
   constructor(
@@ -128,6 +143,32 @@ export class PlaceContainer {
     return this.contents !== null;
   }
 }
+
+/** a thing of a container's lying in it: which container, and which of what is in it */
+interface InContainer {
+  pc: PlaceContainer;
+  h: NonNullable<Held>;
+}
+
+/** the box of a thing whose model is not in (about the size of most things) */
+const ROUGH: ThingBox = { minX: -0.15, maxX: 0.15, minY: 0, maxY: 0.3, minZ: -0.15, maxZ: 0.15 };
+
+/** the ways a thing may lie in a container, the wanted first: standing, turned a quarter, on its side (two ways), each turned */
+const WAYS: readonly { turn: boolean; lie?: Lie }[] = [{ turn: false }, { turn: true }, { turn: false, lie: 'z' }, { turn: true, lie: 'z' }, { turn: false, lie: 'x' }, { turn: true, lie: 'x' }];
+
+/** a thing's size each of those ways */
+function waysOf(b: ThingBox): LayoutWay[] {
+  return WAYS.map((w) => {
+    const lb = lieBox(b, w.lie);
+    const across = lb.maxZ - lb.minZ;
+    const deep = lb.maxX - lb.minX;
+    return w.turn ? { w: deep, d: across, h: lb.maxY - lb.minY } : { w: across, d: deep, h: lb.maxY - lb.minY };
+  });
+}
+
+const Y_UP = new THREE.Vector3(0, 1, 0);
+const LIE_Z = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+const LIE_X = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 export function isContainer(x: unknown): x is PlaceContainer {
   return x instanceof PlaceContainer;
@@ -152,6 +193,14 @@ export interface PlacesHost {
   fuelled(v: ModVehicle): void;
   /** a container's doors, drawers or lid opening as it is searched (drawn: siteArt.ts) */
   opened?(id: string): void;
+  /** … opening or shutting (docs/V3/nodes/M3-loot.md) */
+  setOpen?(id: string, open: boolean): void;
+  /** has the container doors, drawers or a lid (null: its place is not drawn yet) */
+  movesOf?(id: string, site: string): boolean | null;
+  /** where a container's things lie (null: its place is not drawn yet; absent: nothing draws them — on its top) */
+  slots?(id: string, site: string): readonly ContainerSlot[] | null;
+  /** a thing's box once its model is in (cargo.ts measured) */
+  measure?(h: NonNullable<Held>): Promise<ThingBox | null>;
   /** a roadside garage's machines, made as one comes (null: it has no room for them) and taken away as one goes */
   makeWorkshop?(site: Site, save?: WorkshopSave): Workshop | null;
   dropWorkshop?(ws: Workshop): void;
@@ -206,6 +255,19 @@ export class Places {
   ports: TankPort[] = [];
   /** the loose things that are the places' own (not yet taken or moved): not saved with the game's own */
   private readonly owned = new Map<Loose, { site: string; id: string }>();
+  /** the things lying in the containers, the places' own while they lie there */
+  private readonly inside = new Map<Loose, InContainer>();
+  /** the containers open now (drawn so, and their things reached) */
+  private readonly openNow = new Set<string>();
+  /** the things lying about were last looked over at this revision of them (LooseThings.rev) */
+  private insideRev = -1;
+  /** the things lying in a container's shut part (behind its doors, in a drawer, under its lid) */
+  private readonly inShut = new WeakSet<Loose>();
+  /** the things lying on a counter's keeper's side, by the place they lie in (reached only from behind it) */
+  private readonly behind = new Map<Loose, ContainerSlot>();
+  private readonly bp = new THREE.Vector3();
+  /** the carriers a drawer's things ride (by the marker in it) */
+  private readonly drawers = new Map<THREE.Object3D, Carrier>();
   /** a pump filling a vehicle: how much it was to take when the hold began, how much has gone in */
   private fill: { dev: string; need: number; given: number; p: number } | null = null;
   /** the pump whose nozzle is out (in a vehicle's filler), until when (the places' clock): drawn by siteArt.ts */
@@ -222,6 +284,8 @@ export class Places {
   ) {
     if (save) {
       for (const id of save.searched ?? []) this.searched.add(id);
+      // (an older save: what was searched was left open)
+      for (const id of save.open ?? save.searched ?? []) this.openNow.add(id);
       for (const [id, l] of Object.entries(save.left ?? {})) this.left.set(id, l);
       for (const [id, p] of Object.entries(save.pumps ?? {})) this.pumps.set(id, p);
       for (const id of save.taken ?? []) this.taken.add(id);
@@ -242,8 +306,45 @@ export class Places {
    * again), so it is settled here and now, not at the next frame: a thing let go is saved from this very save on.
    */
   owns(l: Loose): boolean {
+    // (a thing lying in a container is the container's: what is left in it is kept with the container)
+    if (this.inside.has(l)) {
+      this.lookInside();
+      if (this.inside.has(l)) return true;
+    }
     const o = this.owned.get(l);
     return !!o && !this.letGo(l, o);
+  }
+
+  /** is this container open now? (siteArt.ts draws it so) */
+  isOpen(id: string): boolean {
+    return this.openNow.has(id);
+  }
+
+  /**
+   * The containers' things looked over (when the things lying about have changed): one picked up is out of its
+   * container, which keeps what is left in it from then on; one changed where it lies (some taken off its stack)
+   * is kept as it is now.
+   */
+  private lookInside(): void {
+    const L = this.host.loose;
+    if (L.rev === this.insideRev) return;
+    this.insideRev = L.rev;
+    for (const [l, o] of this.inside) {
+      const pc = o.pc;
+      if (!L.list.includes(l)) {
+        this.inside.delete(l);
+        const i = pc.things.indexOf(l);
+        if (i >= 0) pc.things.splice(i, 1);
+        const k = pc.contents?.indexOf(o.h) ?? -1;
+        if (k >= 0) pc.contents!.splice(k, 1);
+        this.kept(pc);
+        continue;
+      }
+      if (l.touched) {
+        l.touched = false;
+        this.kept(pc);
+      }
+    }
   }
 
   /**
@@ -272,8 +373,22 @@ export class Places {
     if (!world) return;
     // (a thing of a place's picked up, moved or changed where it lies: one's own from then on)
     for (const [l, o] of this.owned) this.letGo(l, o);
+    this.lookInside();
+    // (what lies on a counter's keeper's side is reached from behind it: from in front one sees only the counter)
+    for (const [l, s] of this.behind) {
+      if (!this.inside.has(l)) {
+        this.behind.delete(l);
+        continue;
+      }
+      const e = s.frame.matrixWorld.elements;
+      const o = this.host.origin;
+      this.bp.set(x - (e[12] + o.x), 0, z - (e[14] + o.z));
+      l.shut = this.bp.x * e[0] + this.bp.z * e[2] > 0;
+    }
     if ((this.checkT -= dt) > 0) return;
     this.checkT = CHECK_EVERY;
+    // the containers whose things are not laid out yet: once their places are drawn
+    for (const lp of this.live.values()) for (const pc of lp.containers) if (!pc.laid && !pc.laying) this.layOutIn(lp, pc);
     const s = world.spine.sAtX(x);
     this.sites.length = 0;
     world.sites.between(s - FAR - 300, s + FAR + 300, this.sites);
@@ -316,10 +431,11 @@ export class Places {
       }
       const pc = new PlaceContainer(c, site, CONTAINER_NAMES[c.kind] ?? '箱子');
       const kept = this.left.get(c.id);
-      if (kept) pc.contents = kept.map(heldOfSaved).filter((h): h is NonNullable<Held> => !!h);
-      else if (this.searched.has(c.id)) pc.contents = this.roll(pc);
+      // (what is in it, there before anyone looks: the same every visit, or as one left it)
+      pc.contents = kept ? kept.map(heldOfSaved).filter((h): h is NonNullable<Held> => !!h) : this.roll(pc);
       lp.containers.push(pc);
       lp.devices.push(this.containerDevice(pc));
+      this.layOutIn(lp, pc);
     }
     // a filling station's pumps: one petrol, the next diesel …
     const tank = site.fuel.find((f) => f.from === 'tank');
@@ -362,6 +478,18 @@ export class Places {
       this.owned.delete(t.l);
       this.host.loose.remove(t.l);
     }
+    // (and what lies in its containers: kept as it is, laid out again at the next visit)
+    this.lookInside();
+    for (const pc of lp.containers) {
+      for (const l of pc.things) {
+        if (!this.inside.has(l)) continue;
+        this.inside.delete(l);
+        this.host.loose.remove(l);
+      }
+      pc.things.length = 0;
+      pc.laid = false;
+    }
+    for (const [mk] of this.drawers) if (!mk.parent) this.drawers.delete(mk);
     this.live.delete(id);
   }
 
@@ -372,12 +500,14 @@ export class Places {
 
   // ------------------------------------------------------------------ containers
 
+  /**
+   * A container's device: E opens and shuts what has doors, drawers or a lid (what has none — shelves, a counter —
+   * is no device: its things are simply there). Open, the things in it are nearer to the mark than its box.
+   */
   private containerDevice(pc: PlaceContainer): GarageDevice {
     const c = pc.c;
     const host = this.host;
     const places = this;
-    const material = CONTAINER_MATERIAL[c.kind];
-    // (by a bigger thing — a caravan's cupboard — the box is a place to search at, a metre high)
     const h = c.solid ? c.h : 1.0;
     return {
       id: `box:${c.id}`,
@@ -386,44 +516,182 @@ export class Places {
       z: c.z,
       radius: Math.max(0.3, Math.min(c.hx, c.hz) + 0.15),
       get word(): Text {
-        if (!pc.searched) return { zh: `翻找<b>${pc.name}</b>`, en: `Search the ${pc.name}` };
-        const n = pc.contents!.length;
-        return n ? { zh: `看看<b>${pc.name}</b>里（还有 ${n} 样）`, en: `Look in the ${pc.name} (${n} left)` } : { zh: `<b>${pc.name}</b> · 空了`, en: `The ${pc.name} is empty` };
+        return places.openNow.has(c.id) ? { zh: `关上<b>${pc.name}</b>`, en: `Shut the ${pc.name}` } : { zh: `打开<b>${pc.name}</b>`, en: `Open the ${pc.name}` };
       },
       get state(): Text {
-        return pc.searched ? { zh: pc.contents!.length ? `翻过了，还剩 ${pc.contents!.length} 样` : '翻过了，空的', en: '' } : { zh: '还没翻过', en: 'Not searched yet' };
-      },
-      get holdS(): number | undefined {
-        return pc.searched ? undefined : 0.8;
+        const open = places.openNow.has(c.id);
+        const n = pc.contents?.length ?? 0;
+        return { zh: open ? (n ? `开着，里面有 ${n} 样` : '开着，空的') : '关着', en: open ? 'Open' : 'Shut' };
       },
       get card(): ItemCard {
+        const open = places.openNow.has(c.id);
         const n = pc.contents?.length ?? 0;
         return {
-          key: `box:${c.id}:${pc.searched ? n : -1}`,
+          key: `box:${c.id}:${open ? n : -1}`,
           icon: 'box',
-          cat: `${PLACE_ZH[pc.site.kind] ?? '路边'} · 能翻找`,
+          cat: `${PLACE_ZH[pc.site.kind] ?? '路边'} · 能打开`,
           name: pc.name,
           stars: 0,
           badges: [],
           blurb: BLURB[c.kind] ?? '',
           rows: [],
           bars: [],
-          notes: [{ text: pc.searched ? (n ? `翻过了，还剩 ${n} 样` : '翻过了，空的') : '还没翻过：按住 E 翻找', tone: pc.searched && !n ? 'warn' : 'info' }],
+          notes: [{ text: open ? (n ? `开着，里面有 ${n} 样：看着它按 E 拿` : '开着，空的') : '关着：按 E 打开', tone: open && !n ? 'warn' : 'info' }],
           foot: {},
         };
       },
-      holding: (p: number): void => {
-        // (the lid, the door, the drawer: once a hold — opened, and left open)
-        if (places.searching.id !== c.id || p < places.searching.p) {
-          host.play('container_open', { material });
-          host.opened?.(c.id);
-        }
-        places.searching = { id: c.id, p };
-        host.loop('rummage', { material, gain: 0.9 });
+      use: (): void => places.toggle(pc),
+      hit: (ray: THREE.Ray, reach: number): number | null => {
+        // (only what opens: shelves and counters are no device)
+        if (!places.opens(pc)) return null;
+        const d = boxHit(ray, host.origin, c.x, c.y, c.z, c.yaw, c.hx, h, c.hz, reach);
+        return d === null ? null : places.openNow.has(c.id) ? d + 1.2 : d;
       },
-      use: (): void => places.open(pc),
-      hit: (ray: THREE.Ray, reach: number): number | null => boxHit(ray, host.origin, c.x, c.y, c.z, c.yaw, c.hx, h, c.hz, reach),
     };
+  }
+
+  /** does the container open (doors, drawers, a lid drawn; not drawn: what has a box to search by does not) */
+  private opens(pc: PlaceContainer): boolean {
+    const m = this.host.movesOf?.(pc.id, pc.site.id);
+    return m === true;
+  }
+
+  /** E on a container: opened (its things in reach) or shut (out of reach again) */
+  toggle(pc: PlaceContainer): void {
+    const id = pc.id;
+    const open = !this.openNow.has(id);
+    if (open) this.openNow.add(id);
+    else this.openNow.delete(id);
+    this.host.setOpen?.(id, open);
+    const material = CONTAINER_MATERIAL[pc.c.kind];
+    this.host.play(open ? 'container_open' : 'latch', open ? { material } : {});
+    if (open && !this.searched.has(id)) {
+      this.searched.add(id);
+      // (things that go off are kept from the moment they are found: rolled again at the next visit they would be fresh again)
+      if (pc.contents?.some((h) => h.kind === 'item' && h.item.fresh !== undefined)) this.left.set(id, pc.contents.map(savedOf));
+      if (!pc.contents?.length) this.host.say(`${pc.name}是空的：有人先来过了。`, 2.2);
+    }
+    for (const l of pc.things) l.shut = !open && this.shutIn(pc, l);
+  }
+
+  /** is the thing in a shut container's shut part (behind its doors, in a drawer, under its lid)? */
+  private shutIn(pc: PlaceContainer, l: Loose): boolean {
+    return this.inShut.has(l);
+  }
+
+  /**
+   * A container's things laid out in it, once its place is drawn (its model's places for them known) and their
+   * models are in (so that each takes its own room): the biggest first, each where it stands (containerLayout.ts),
+   * facing out of the container; what fits nowhere on the floor before it. A thing in a drawer rides the drawer.
+   */
+  private layOutIn(lp: LivePlace, pc: PlaceContainer): void {
+    if (pc.laid || pc.laying || !pc.contents) return;
+    const host = this.host;
+    const slots = host.slots ? host.slots(pc.id, lp.site.id) : [];
+    // (its place not drawn yet: at a later look)
+    if (slots === null) return;
+    pc.laying = true;
+    const list = [...pc.contents];
+    const sizes = Promise.all(list.map((h) => (host.measure ? host.measure(h).catch(() => null) : Promise.resolve(null))));
+    void sizes.then((boxes) => {
+      pc.laying = false;
+      // (gone meanwhile, or laid out by another call)
+      if (this.live.get(lp.site.id) !== lp || pc.laid) return;
+      this.place(pc, slots, list, boxes);
+    });
+  }
+
+  private place(pc: PlaceContainer, slots: readonly ContainerSlot[], list: NonNullable<Held>[], boxes: (ThingBox | null)[]): void {
+    const host = this.host;
+    const L = host.loose;
+    const c = pc.c;
+    const o = host.origin;
+    const things: LayoutThing[] = boxes.map((b) => ({ ways: waysOf(b ?? ROUGH) }));
+    // its places: the drawn ones, else its own top (or the ground by a bigger thing) as the world has it
+    const rooms: LayoutRoom[] = slots.length ? slots.map((s) => ({ width: s.width, depth: s.depth, clear: s.clear })) : [{ width: Math.max(0.3, 2 * c.hx * 0.85), depth: Math.max(0.3, 2 * c.hz * 0.85), clear: c.solid ? Math.max(0.3, c.h - c.shelf + 0.6) : 1.2 }];
+    const where = layOut(things, rooms);
+    const open = this.openNow.has(pc.id);
+    // the frame of each place: its origin and axes in the world (along it, into it, up)
+    const at = new THREE.Vector3();
+    const ax = new THREE.Vector3();
+    const az = new THREE.Vector3();
+    const frameOf = (r: number): void => {
+      const s = slots[r];
+      if (s) {
+        s.frame.updateWorldMatrix(true, false);
+        const e = s.frame.matrixWorld.elements;
+        at.set(e[12] + o.x, e[13] + o.y, e[14] + o.z);
+        ax.set(e[0], e[1], e[2]).normalize();
+        az.set(e[8], e[9], e[10]).normalize();
+        return;
+      }
+      // (the world's own box: along it (cos yaw, sin yaw), its front across it)
+      at.set(c.x, c.y + c.shelf, c.z);
+      az.set(Math.cos(c.yaw), 0, Math.sin(c.yaw));
+      ax.set(-Math.sin(c.yaw), 0, Math.cos(c.yaw));
+    };
+    const q = new THREE.Quaternion();
+    const qf = new THREE.Quaternion();
+    const p = new THREE.Vector3();
+    for (let i = 0; i < list.length; i++) {
+      const h = list[i];
+      const w = where[i];
+      const b = boxes[i] ?? ROUGH;
+      const way = WAYS[w.way] ?? WAYS[0];
+      const size = things[i].ways[w.way] ?? things[i].ways[0];
+      let slot: ContainerSlot | null = null;
+      if (w.room >= 0) {
+        frameOf(w.room);
+        slot = slots[w.room] ?? null;
+        // (deeper than the place: its back against the place's back, standing out of the front)
+        const room = rooms[w.room];
+        const out = size.d > room.depth ? (size.d - room.depth) / 2 : 0;
+        at.addScaledVector(az, w.along).addScaledVector(ax, out);
+      } else {
+        // on the floor before it: out of its front by half its depth and the thing's
+        frameOf(0);
+        const depth = slots.length ? slots[0].depth : 2 * c.hz;
+        at.addScaledVector(ax, depth / 2 + size.d / 2 + 0.12).addScaledVector(az, w.along);
+        at.y = c.y;
+      }
+      // facing out of the container (its own +x along the place's), a quarter round if it was turned to fit
+      const yaw = Math.atan2(ax.z, ax.x) + (way.turn ? Math.PI / 2 : 0);
+      // (its box as it lies: its middle over the spot, its bottom on the place's floor)
+      const lb = lieBox(b, way.lie);
+      const cx = (lb.minX + lb.maxX) / 2;
+      const cz = (lb.minZ + lb.maxZ) / 2;
+      const x = at.x - Math.cos(yaw) * cx + Math.sin(yaw) * cz;
+      const z = at.z - Math.sin(yaw) * cx - Math.cos(yaw) * cz;
+      const y = at.y - lb.minY;
+      const l = h.kind === 'part' ? L.addPart(h.inst, x, y, z, yaw) : h.kind === 'tool' ? L.addTool(h.tool, x, y, z, yaw) : L.addItem(h.item, x, y, z, yaw);
+      l.resting = true;
+      // (in a drawer it rides the drawer; laid on its side it rides its place, which holds it turned so)
+      if (slot && (slot.moves || way.lie)) {
+        const frame = slot.frame;
+        frame.updateWorldMatrix(true, false);
+        q.setFromAxisAngle(Y_UP, -yaw);
+        if (way.lie) q.multiply(way.lie === 'z' ? LIE_Z : LIE_X);
+        frame.getWorldQuaternion(qf).invert();
+        const pos = frame.worldToLocal(p.set(x - o.x, y - o.y, z - o.z)).clone();
+        L.ride(l, this.drawerOf(frame), { pos, rot: qf.multiply(q).clone() });
+        if (way.lie) l.lie = way.lie;
+      }
+      const shut = !!slot?.shut;
+      if (shut) this.inShut.add(l);
+      if (slot?.back) this.behind.set(l, slot);
+      l.shut = shut && !open;
+      this.inside.set(l, { pc, h });
+      pc.things.push(l);
+    }
+    pc.slots = slots;
+    pc.laid = true;
+  }
+
+  /** the carrier a drawer's things ride: the marker in it */
+  private drawerOf(frame: THREE.Object3D): Carrier {
+    let c = this.drawers.get(frame);
+    if (!c) this.drawers.set(frame, (c = { frame, surfaceAt: () => null }));
+    return c;
   }
 
   /** the pump whose nozzle is out, in the vehicle being filled (siteArt.ts draws it there): its place and object */
@@ -619,13 +887,15 @@ export class Places {
     // saves as lying about then say the same, whichever is asked first)
     for (const [l, o] of this.owned) this.letGo(l, o);
     for (const lp of this.live.values()) if (lp.workshop) this.shops.set(lp.site.id, lp.workshop.snapshot());
-    return { searched: [...this.searched], left: Object.fromEntries(this.left), pumps: Object.fromEntries(this.pumps), taken: [...this.taken], shops: Object.fromEntries(this.shops) };
+    this.lookInside();
+    return { searched: [...this.searched], open: [...this.openNow], left: Object.fromEntries(this.left), pumps: Object.fromEntries(this.pumps), taken: [...this.taken], shops: Object.fromEntries(this.shops) };
   }
 
   /** the places there now (the probes') */
   telemetry(): Record<string, unknown> {
     return {
-      live: [...this.live.values()].map((lp) => ({ id: lp.site.id, kind: lp.site.kind, containers: lp.containers.length, pumps: lp.ports.length, loose: lp.loose.size, workshop: lp.workshop ? lp.workshop.telemetry() : null })),
+      live: [...this.live.values()].map((lp) => ({ id: lp.site.id, kind: lp.site.kind, containers: lp.containers.length, laid: lp.containers.filter((pc) => pc.laid).length, inside: lp.containers.reduce((n, pc) => n + pc.things.length, 0), pumps: lp.ports.length, loose: lp.loose.size, workshop: lp.workshop ? lp.workshop.telemetry() : null })),
+      open: this.openNow.size,
       searched: this.searched.size,
       taken: this.taken.size,
       owned: this.owned.size,

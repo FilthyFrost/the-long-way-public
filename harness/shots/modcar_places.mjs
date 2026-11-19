@@ -1,12 +1,13 @@
 // The places by the road in ModCar (docs/MODCAR.md §20):
 //  1. the world's places down the first 80 km: filling stations, houses, garages, shops … with their containers;
-//  2. at a filling station: its containers and pumps there as one comes; the till searched by holding E on it (the
-//     list of what is in it opens), a thing taken out into the hands;
+//  2. at a filling station: its containers and pumps there as one comes; what the till holds lies on its counter
+//     where one sees it (docs/V3/nodes/M3-loot.md), and a thing of it is picked up into the hands as any thing is;
 //  3. a jerrycan held to a pump fills from it; a vehicle parked at a pump fills from it with empty hands (its flap
 //     open, the pump's nozzle out of its hook and in the filler, back on the hook a moment after);
 //  4. the things lying in plain sight are ModCar's; one picked up is taken for good;
 //  5. left behind and come back: what was searched and taken stays so; the pump's litres stay; saved and read back too;
-//  6. a house's cupboard and wardrobe, a garage's shelves: what each holds.
+//  6. a house's cupboard and wardrobe, a garage's shelves: what each holds, lying in it; what has doors, drawers or
+//     a lid opened with a press of E, and open still when one comes back.
 //   SHOTS_GPU=1 node harness/shots/modcar_places.mjs
 import { launchBrowser, startServer } from './lib.mjs';
 
@@ -37,13 +38,15 @@ try {
     });
     await page.screenshot({ path: `loop/shots/modcar_places_${name}.png` });
   };
-  /** on foot to a place, and wait until it is there */
+  /** on foot to a place, and wait until it is there, the things in its containers laid out (their models come in) */
   const goTo = async (site) => {
     await rt('devGoKm', site.s / 1000, false);
-    for (let k = 0; k < 40; k++) {
+    for (let k = 0; k < 80; k++) {
       await rt('simulate', 0.25);
       const p = await rt('places');
-      if (p?.live?.some((x) => x.id === site.id)) return p;
+      const lp = p?.live?.find((x) => x.id === site.id);
+      if (lp && lp.laid === lp.containers) return p;
+      await page.waitForTimeout(60);
     }
     return rt('places');
   };
@@ -79,20 +82,29 @@ try {
       if (lp.containers < 2) fail(`its containers are not there (${lp.containers})`);
     }
     const till = station.containers.find((c) => c.kind === 'counter') ?? station.containers[0];
-    const mark = await before(till);
-    console.log('before the till', mark);
-    if (!/device:box:/.test(mark)) fail(`the mark is not on the till (${mark})`);
-    await rt('holdFor', 1.0);
-    const list = await rt('listOpen');
-    console.log('searched', JSON.stringify(list));
-    if (!list?.container) fail('searching the till opened no list');
-    await shot('till');
-    const took = list?.n ? await rt('take') : null;
-    console.log('took', took, JSON.stringify(await held()));
-    if (list?.n && !took) fail('nothing came out of the till into the hands');
+    // what the till holds lies on its counter and on the keeper's side behind it: a thing on it picked up
+    const tillThings = await page.evaluate((id) => {
+      const pc = window.__rt.game.places.containerOf(id);
+      return (pc?.things ?? []).filter((l) => !l.shut).map((l) => ({ x: l.x, y: l.y + l.mid, z: l.z, what: l.item?.item ?? l.tool?.kind ?? l.part?.part }));
+    }, till.id);
+    console.log('on the till', JSON.stringify(tillThings.map((t) => t.what)));
+    const n0 = await page.evaluate((id) => window.__rt.game.places.containerOf(id)?.contents?.length ?? -1, till.id);
+    if (tillThings.length) {
+      const t = tillThings[0];
+      const mark = await rt('aimPoint', t.x, t.y, t.z, till.from, till.hz + 0.7);
+      console.log('before the till', mark);
+      if (!/loose:/.test(mark)) fail(`the mark is not on the thing on the till (${mark})`);
+      await shot('till');
+      await rt('press');
+      const took = await held();
+      console.log('took', JSON.stringify(took));
+      if (!took) fail('nothing came off the till into the hands');
+      await rt('simulate', 0.1);
+      const n1 = await page.evaluate((id) => window.__rt.game.places.containerOf(id)?.contents?.length ?? -1, till.id);
+      if (n1 !== n0 - 1) fail(`the till still holds what was taken (${n0} → ${n1})`);
+    } else if (n0 > 0) fail('the till holds things, none of them on its counter to reach');
     await page.evaluate(() => {
       const g = window.__rt.game;
-      g.closeCargoList();
       g.player.held = null;
       g.simulate(0);
     });
@@ -196,49 +208,55 @@ try {
     await page.evaluate(() => window.__rt.game.save());
     await page.waitForTimeout(500);
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('modcar.save.v1') ?? '{}').places ?? null);
-    console.log('saved', JSON.stringify({ searched: saved?.searched?.length, pumps: Object.keys(saved?.pumps ?? {}).length, taken: saved?.taken?.length }));
-    if (!saved?.searched?.includes(till.id)) fail('the till searched is not in the save');
+    console.log('saved', JSON.stringify({ searched: saved?.searched?.length, left: Object.keys(saved?.left ?? {}).length, pumps: Object.keys(saved?.pumps ?? {}).length, taken: saved?.taken?.length }));
+    if (tillThings.length && !saved?.left?.[till.id]) fail('what is left on the till is not in the save');
     if (!Object.keys(saved?.pumps ?? {}).length) fail('the pumps are not in the save');
   }
 
-  // 6. a house's cupboard and wardrobe; a garage's shelves (what opens, opened when searched)
+  // 6. a house's cupboard and wardrobe; a garage's shelves (what each holds, lying in it; what opens, opened with E)
   const movers = [];
   for (const site of [house, garage].filter(Boolean)) {
     await goTo(site);
     const got = [];
     // (a wreck's glovebox is the wreck's own: wrecks.ts)
     for (const c of site.containers.filter((x) => x.kind !== 'glovebox' && x.kind !== 'boot').slice(0, 4)) {
-      const m = await before(c);
-      if (!/device:box:/.test(m)) {
-        got.push(`${c.kind}: mark on ${m}`);
+      const inside = () =>
+        page.evaluate((id) => {
+          const pc = window.__rt.game.places.containerOf(id);
+          return pc ? { laid: pc.laid, n: pc.contents?.length ?? 0, things: pc.things.map((l) => (l.shut ? '(' : '') + (l.item?.item ?? l.tool?.kind ?? l.part?.part) + (l.shut ? ')' : '')) } : null;
+        }, c.id);
+      const in0 = await inside();
+      if (!in0?.laid || in0.things.length !== in0.n) {
+        got.push(`${c.kind}: not laid out (${JSON.stringify(in0)})`);
         continue;
       }
-      // (its doors, drawers or lid: shut before, open once searched)
-      const shut = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
-      await rt('holdFor', 1.0);
-      await rt('simulate', 0.6);
-      const opened = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
-      if (shut >= 0) {
+      const opens = await page.evaluate(({ id, sid }) => window.__rt.game.siteArt?.movesOf(id, sid) ?? null, { id: c.id, sid: site.id });
+      if (opens) {
+        const m = await before(c);
+        if (!/device:box:/.test(m)) {
+          got.push(`${c.kind}: mark on ${m}`);
+          continue;
+        }
+        // (its doors, drawers or lid: shut before, open after a press of E, its things in reach)
+        const shut = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
+        await rt('press');
+        await rt('simulate', 0.6);
+        const opened = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
         movers.push(`${c.kind} ${shut.toFixed(2)}→${opened.toFixed(2)}`);
-        if (shut > 0.01 || opened < 0.99) fail(`the ${c.kind}'s doors do not open when it is searched (${shut} → ${opened})`);
+        if (shut > 0.01 || opened < 0.99) fail(`the ${c.kind}'s doors do not open with E (${shut} → ${opened})`);
       }
-      const l = await rt('listOpen');
-      const rows = await page.evaluate(() => {
-        const g = window.__rt.game;
-        return (g.listV?.contents ?? []).map((h) => (h.kind === 'item' ? h.item.item : h.kind === 'tool' ? h.tool.kind : h.inst.part));
-      });
-      const toast = await page.evaluate(() => window.__rt.game.ui.toast?.textContent ?? '');
-      got.push(`${c.kind}: ${l ? rows.join(',') || '(empty)' : /空/.test(toast) ? '(empty: ' + toast + ')' : 'no list'}`);
+      const in1 = await inside();
+      if (in1.things.some((t) => t.startsWith('('))) fail(`opened, the ${c.kind} still has things shut in it (${in1.things.join(',')})`);
+      got.push(`${c.kind}: ${in1.things.join(',') || '(empty)'}`);
       if (c.kind === 'cupboard' && site === house) await shot('cupboard');
-      await page.evaluate(() => window.__rt.game.closeCargoList());
     }
     console.log(site.kind, JSON.stringify(got));
-    if (got.some((x) => /no list/.test(x))) fail(`a container at the ${site.kind} searched gave neither a list nor its emptiness (${got.join(' | ')})`);
+    if (got.some((x) => /not laid out/.test(x))) fail(`some containers at the ${site.kind} have not laid their things out (${got.filter((x) => /not laid/.test(x)).join(' | ')})`);
     if (got.some((x) => /mark on/.test(x))) fail(`some containers at the ${site.kind} could not be aimed at (${got.filter((x) => /mark on/.test(x)).join(' | ')})`);
   }
   console.log('opened', JSON.stringify(movers));
-  if (!movers.length) fail('no container searched had doors, drawers or a lid to open');
-  // (left far behind and come back to: the searched ones still open)
+  if (!movers.length) fail('no container had doors, drawers or a lid to open');
+  // (left far behind and come back to: the opened ones still open)
   if (house) {
     const opened = house.containers.filter((c) => c.kind === 'cupboard' || c.kind === 'wardrobe');
     await rt('devGoKm', (house.s + 3000) / 1000, false);
@@ -246,7 +264,7 @@ try {
     await goTo(house);
     for (const c of opened) {
       const t = await page.evaluate((id) => window.__rt.game.siteArt?.openOf(id) ?? -1, c.id);
-      if (t >= 0 && t < 0.99) fail(`come back to, the searched ${c.kind} is shut again (${t})`);
+      if (t >= 0 && t < 0.99) fail(`come back to, the opened ${c.kind} is shut again (${t})`);
     }
   }
   // (a house's door: shut, it keeps one out; opened with E it swings in and lets one through; the save has it)

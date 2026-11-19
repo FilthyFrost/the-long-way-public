@@ -917,6 +917,10 @@ export class SitePlan implements SolidSource {
     const W = site.depth;
     // one in two is laid out the other way round
     const f = r.next() < 0.5 ? 1 : -1;
+    // a thing turned a quarter round to face along the building, into its room (one laid out the other way round
+    // faces the other way: in a world of version 1 it did not, and faced the wall half the time — kept so there)
+    const v2 = this.world.rules.version >= 2;
+    const quarter = (towards: number): number => (v2 ? towards : 1) * (Math.PI / 2);
     const paint = r.int(4);
     const pick = (list: readonly string[]): string => list[r.int(list.length)];
     switch (site.kind) {
@@ -971,9 +975,9 @@ export class SitePlan implements SolidSource {
         }
         const bench = this.putIn(site, shop, 'workbench', 3.9 * f, 3.4, 0, 2.6, 0.7, 0.9);
         this.container(site, 'toolbox', this.putIn(site, shop, 'toolbox', 3.5 * f, 3.4, 0, 0.8, 0.45, 0.42, 0, 0.9));
-        this.container(site, 'toolbox', this.putIn(site, shop, 'toolbox', 5.0 * f, -2.6, Math.PI / 2, 0.8, 0.45, 0.5));
+        this.container(site, 'toolbox', this.putIn(site, shop, 'toolbox', 5.0 * f, -2.6, quarter(-f), 0.8, 0.45, 0.5));
         // the big parts are on the workshop's own shelves (loot kind 'garage': engines, radiators, tyres by tier)
-        this.container(site, 'garage', this.putIn(site, shop, 'shelf', -5.2 * f, 1.2, Math.PI / 2, 2.4, 0.5, 2.0));
+        this.container(site, 'garage', this.putIn(site, shop, 'shelf', -5.2 * f, 1.2, quarter(f), 2.4, 0.5, 2.0));
         if (r.next() < 0.7) {
           const [t, w, d, h] = this.wreckSize(r);
           if (t !== 3) this.wreck(site, this.put(site, 'wreck', 7.6 * f, Math.min(13.2, gb - 2), 0.5 * f + (r.next() - 0.5) * 0.3, w, d, h, t), r);
@@ -1003,7 +1007,7 @@ export class SitePlan implements SolidSource {
         this.container(site, 'shelf', this.putIn(site, b, 'shelf', -1.2 * f, 2.9, 0, 2.4, 0.5, 1.8));
         const mid = this.putIn(site, b, 'shelf', -2.8 * f, 0.3, 0, 2.6, 0.55, 1.5);
         this.container(site, 'shelf', mid);
-        const counter = this.putIn(site, b, 'counter', 3.9 * f, 0.6, Math.PI / 2, 2.6, 0.7, 1.05);
+        const counter = this.putIn(site, b, 'counter', 3.9 * f, 0.6, quarter(-f), 2.6, 0.7, 1.05);
         this.container(site, 'counter', counter);
         this.container(site, 'crate', this.put(site, 'crate', -7.2 * f, sb - 2.2, 0.2, 0.9, 0.7, 0.7));
         if (r.next() < 0.6) this.container(site, 'crate', this.put(site, 'crate', 7.3 * f, sb + 1.4, -0.4, 0.9, 0.7, 0.7));
@@ -1027,7 +1031,7 @@ export class SitePlan implements SolidSource {
         const b = this.building(site, -3 * f, hb, 0, 8.6, 6.6, 2.9, { roof: 'gable', doorAt: -1.7 * f, doorW: 1.0, windows: [1.9 * f], windowW: 1.3, sideWindows: true, porch: 1.7, porchPosts: true, chimney: r.next() < 0.8, sign: 0 }, paint);
         const floor: SiteObject = { ...b, h: 0 };
         this.container(site, 'cupboard', this.putIn(site, b, 'cupboard', 3.2 * f, 2.75, 0, 1.8, 0.5, 1.9));
-        this.container(site, 'wardrobe', this.putIn(site, b, 'wardrobe', -3.7 * f, 1.4, Math.PI / 2, 1.4, 0.6, 2.0));
+        this.container(site, 'wardrobe', this.putIn(site, b, 'wardrobe', -3.7 * f, 1.4, quarter(f), 1.4, 0.6, 2.0));
         const table = this.putIn(site, b, 'ktable', 1.0 * f, 0.2, 0, 1.4, 0.9, 0.76);
         const bed = this.putIn(site, b, 'bed', -2.3 * f, -1.9, 0, 2.0, 1.0, 0.5);
         const shed = this.building(site, 8.2 * f, hb + 3.6, 0, 3.4, 2.8, 2.2, { roof: 'mono', doorAt: 0, doorW: 1.8, gate: true }, paint + 1);
@@ -1119,7 +1123,7 @@ export class SitePlan implements SolidSource {
         const floor: SiteObject = { ...house, h: 0 };
         const bench = this.putIn(site, house, 'workbench', -1.6 * f, 2.05, 0, 2.2, 0.7, 0.9);
         this.container(site, 'toolbox', this.putIn(site, house, 'toolbox', -1.9 * f, 2.05, 0, 0.8, 0.45, 0.42, 0, 0.9));
-        this.container(site, 'garage', this.putIn(site, house, 'shelf', 2.6 * f, 0.4, Math.PI / 2, 2.2, 0.5, 2.0));
+        this.container(site, 'garage', this.putIn(site, house, 'shelf', 2.6 * f, 0.4, quarter(-f), 2.2, 0.5, 2.0));
         this.lie(site, pick(['tool.wrench', 'mat.wire', 'mat.tape', 'fluid.coolant']), 1, 0.6, -0.05, r, bench);
         this.lie(site, pick(['mat.scrap', 'mat.rubber', 'fuel.oil']), 1, 0.4 * f, -1.2, r, floor);
         const silo = this.put(site, 'silo', (small ? 7.5 : 9.5) * f, wb - (small ? 6.4 : 7.6), 0, 5.6, 5.6, 5.2 + 1.2 * r.next(), paint);

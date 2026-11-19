@@ -72,6 +72,11 @@ export interface Loose {
    */
   device?: boolean;
   /**
+   * Inside a container that is shut (docs/V3/nodes/M3-loot.md: behind a cupboard's doors, in a drawer, under a
+   * crate's lid): there, but not seen and not reached until it is opened.
+   */
+  shut?: boolean;
+  /**
    * It has changed in itself where it lies (some taken off its stack, a thing put into it or taken out of it:
    * LooseThings.touch). A place that had it lying in plain sight lets it go then, as it does a thing that was
    * moved: it is one's own from there on, and saved (places.ts).
@@ -745,8 +750,8 @@ export class LooseThings {
     this.ray.origin.set(eye.x, eye.y, eye.z);
     this.ray.direction.set(dir.x, dir.y, dir.z).normalize();
     for (const l of this.list) {
-      // (one a system works as a device: its device is what the mark finds)
-      if (l.device || (filter && !filter(l))) continue;
+      // (one a system works as a device: its device is what the mark finds; one shut in a container: not reached)
+      if (l.device || l.shut || (filter && !filter(l))) continue;
       this.sphere.center.set(l.x, l.y + l.mid, l.z);
       this.sphere.radius = l.radius * 0.85;
       const p = this.ray.intersectSphere(this.sphere, this.hit);
