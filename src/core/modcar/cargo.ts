@@ -10,7 +10,7 @@
  */
 import type { Text } from './types';
 
-export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion';
+export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall';
 export type Carry = 'small' | 'medium' | 'large';
 
 export interface CargoZone {
@@ -28,6 +28,13 @@ export interface CargoZone {
   readonly max: Carry;
   /** packed first when things go in without aiming (lower first) */
   readonly order: number;
+  /**
+   * the walls of a living space (docs/V3/nodes/M2-rv.md): things hung there, not stood on a floor — the zone's
+   * rectangle says where its walls are, its floor and top how high on them
+   */
+  readonly wall?: boolean;
+  /** how putting a thing there is said ("放到餐桌上", "挂到墙上"); absent: "放进" and its name, as into a boot */
+  readonly put?: string;
 }
 
 function Z(id: ZoneId, zh: string, en: string, x: [number, number], z: [number, number], floor: number, top: number, max: Carry, order: number, via?: string[]): CargoZone {
@@ -48,6 +55,14 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   rv: [
     Z('cabin', '车厢', 'Cabin', [-2.95, -0.45], [-0.45, 0.55], 0.86, 2.6, 'large', 0, ['door_side', 'trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
+    // (the living space as one walks about in it, docs/V3/nodes/M2-rv.md: the floor by the door, the dinette's
+    // table, the galley's worktop under its lockers, the rear bench, and the walls)
+    { ...Z('lounge', '车厢前部', 'By the door', [-1.3, 0.85], [-0.1, 1.0], 0.86, 2.6, 'large', 2, ['door_side']), put: '放到车厢地上' },
+    { ...Z('table', '餐桌', 'Dinette table', [0.17, 0.59], [-1.04, -0.37], 1.59, 2.3, 'medium', 3, ['door_side']), put: '放到餐桌上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.94, -0.79], [-1.06, -0.51], 1.75, 2.18, 'medium', 4, ['door_side']), put: '放到厨房台面上' },
+    { ...Z('bench', '后排长椅', 'Rear bench', [-3.6, -2.95], [-0.95, 0.95], 1.2, 2.4, 'large', 5, ['door_side', 'trunk']), put: '放到后排长椅上' },
+    // (the walls' inner faces stand at about ±1.09: the rectangle reaches a little past them)
+    { ...Z('wall', '墙上', 'On the wall', [-3.95, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
   ],
   moto: [Z('pillion', '后座', 'Pillion', [-0.85, -0.5], [-0.13, 0.13], 0.8, 1.15, 'small', 0)],
   snail: [
@@ -251,27 +266,35 @@ export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z
  * turned as asked or a quarter turn more), or (near null: packed in) the lowest spot from the zone's back
  * corner on. Null: there is no room.
  */
-export function findSpot(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[]): Spot | null {
+/**
+ * Where a thing goes in a zone: near the point aimed at (`near`), else packed in. `grid` (m, 0: none): where it is
+ * aimed it keeps to a grid of that step (docs/V3/nodes/M2-rv.md: 10 cm), the point aimed at taken to the grid
+ * and looked round in steps of it.
+ */
+export function findSpot(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[], grid = 0): Spot | null {
   // standing as it is; if it does not fit anywhere so, laid on its side (the flatter way first)
   const flat: Lie = b.maxX - b.minX <= b.maxZ - b.minZ ? 'z' : 'x';
   for (const lie of [undefined, flat, flat === 'z' ? 'x' : 'z'] as (Lie | undefined)[]) {
-    const s = findPose(zone, g, lieBox(b, lie), yaw, near, placed);
+    const s = findPose(zone, g, lieBox(b, lie), yaw, near, placed, grid);
     if (s) return lie ? { ...s, lie } : s;
   }
   return null;
 }
 
-function findPose(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[]): Spot | null {
+function findPose(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[], grid = 0): Spot | null {
   const yaws = [yaw, yaw + Math.PI / 2];
   if (near) {
-    const step = 0.04;
+    const step = grid > 0 ? grid : 0.04;
+    const snap = (v: number): number => (grid > 0 ? Math.round(v / grid) * grid : v);
+    const cx = snap(near.x);
+    const cz = snap(near.z);
     for (let r = 0; r <= 0.6 + 1e-9; r += step) {
       const n = r === 0 ? 1 : Math.max(6, Math.round((2 * Math.PI * r) / step));
       for (const w of yaws) {
         for (let k = 0; k < n; k++) {
           const a = (k / n) * Math.PI * 2;
-          const x = near.x + Math.cos(a) * r;
-          const z = near.z + Math.sin(a) * r;
+          const x = snap(cx + Math.cos(a) * r);
+          const z = snap(cz + Math.sin(a) * r);
           const y = restAt(zone, g, b, x, z, w, placed);
           if (y !== null) return { x, y, z, yaw: w };
         }

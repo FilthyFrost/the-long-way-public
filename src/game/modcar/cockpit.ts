@@ -63,12 +63,16 @@ export interface CockpitHost {
   getOut(): void;
   /** which front seat one sits in */
   readonly seatAt: FrontSeat;
+  /** looking back from the seat into a living space one may step back into (docs/V3/nodes/M2-rv.md) */
+  aftReady(v: ModVehicle): boolean;
 }
 
 export class Cockpit {
   aimed: MountDef | null = null;
   /** the mark is on the other front seat (aimed is that seat): E moves one over */
   aimedSeat = false;
+  /** looking back into the living space behind the seats, nothing else under the mark: E steps back into it */
+  aimedAft = false;
   /** the key held down through a click on it */
   private cranking = false;
   private readonly box = new THREE.Box3();
@@ -126,6 +130,8 @@ export class Cockpit {
       else if (m.cat === 'door') acts.push({ keys: ['LMB'], text: v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门' }, { keys: ['E'], text: '下车' });
       ui.prompt(true, '', -1);
     } else ui.prompt(cockpit, '', -1);
+    this.aimedAft = cockpit && !m && this.host.aftReady(v);
+    if (this.aimedAft) acts.push({ keys: ['E'], text: '到车厢里' });
     ui.items.showActions(acts);
     // the parts that move
     this.pose(v, dt);

@@ -13,7 +13,7 @@
  * in a step the kernel is called (`frame`), and how the player's pick asks the sources (`mark`, `pressE`).
  */
 import type { GarageDevice } from '../../../src/game/modcar/garageStub';
-import type { GameContext } from '../../../src/game/modcar/kernel/context';
+import type { GameContext, RadioSet } from '../../../src/game/modcar/kernel/context';
 import type { DevButton, DevPane } from '../../../src/game/modcar/kernel/devTabs';
 import { setItemClock } from '../../../src/game/modcar/itemTime';
 import { Kernel, type KernelSave } from '../../../src/game/modcar/kernel/kernel';
@@ -54,6 +54,8 @@ export class FakeGame {
   seated: GameContext['seated'] = null;
   readonly ctx: GameContext;
   private readonly nearDevices: GarageDevice[] = [];
+  /** what the systems play (GameContext.addRadios) */
+  readonly radioSets: (readonly RadioSet[])[] = [];
 
   constructor(
     modules: readonly GameModule[],
@@ -92,9 +94,14 @@ export class FakeGame {
       get seated() {
         return game.seated;
       },
-      loose: {} as GameContext['loose'],
+      loose: { list: [] } as unknown as GameContext['loose'],
+      cargo: {} as GameContext['cargo'],
       ui: { say: (text: string) => void this.said.push(text) } as GameContext['ui'],
       sound: (name: string) => void this.sounds.push(name),
+      addRadios: (sets) => {
+        this.radioSets.push(sets);
+        return () => void this.radioSets.splice(this.radioSets.indexOf(sets), 1);
+      },
     };
     // (ModGame's constructor: the journey begins at the hour the page starts at, or goes on from the save's clock)
     this.kernel.install(modules, this.ctx, this.sky.hour, restore);

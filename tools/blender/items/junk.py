@@ -32,6 +32,7 @@ COLORS = {
     'junk_chair_office': (0x2f3236, 0x6f7a82), 'junk_stool': (0x6f7a82, 0x2f3236),
     'junk_stool_tall': (0xc8323a, 0x6f7a82), 'junk_sunchair': (0xf0c23c, 0xb9915f),
     'junk_clockradio': (0xede3c8, 0x2f3236), 'junk_hanger': (0x5a3a2b, 0x6f7a82), 'junk_coffee': (0x2f3236, 0xc8323a),
+    'coffee_maker': (0x2f3236, 0xc8323a), 'coffee_pot': (0x2f3236, 0xc8323a), 'coffee_grounds': (0x6b4a33, 0xe9d8b4),
     'junk_fax': (0xede3c8, 0x6f7a82), 'junk_box_food': (0xb9915f, 0x5a3a2b), 'junk_lamp': (0x3e8e87, 0x6f7a82),
     'junk_barrel': (0x2e4a6b, 0x6f7a82), 'junk_mop': (0x7fb3d5, 0xede3c8), 'junk_crate_plastic': (0xc8323a, 0x2f3236),
     'junk_transceiver': (0x7a7f45, 0x2f3236), 'junk_record': (0xb85c3e, 0x2f3236), 'junk_cage': (0xd8c29a, 0x6f7a82),
@@ -933,6 +934,54 @@ def junk_coffee(P):
     """A drip coffee maker (front +X): the base with its hotplate and a red rocker switch, the water tower at the
     back with its window, the head with the swing-out filter basket and the hinged lid, the glass carafe with
     its collar, lid and handle (old coffee dried in the bottom), the mains cord."""
+    _coffee(P, True)
+
+
+def coffee_maker(P):
+    """The same drip coffee maker with its carafe taken off: the hotplate bare (docs/V3/nodes/M2-rv.md)."""
+    _coffee(P, False)
+
+
+def _carafe(P, cx, z0, dregs):
+    """The coffee maker's glass carafe standing at (cx, 0, z0): the glass, its collar, lid, handle and spout."""
+    P.lathe('carafe', [(0.0, z0), (0.056, z0), (0.064, z0 + 0.012), (0.067, z0 + 0.035), (0.064, z0 + 0.065),
+                       (0.052, z0 + 0.095), (0.045, z0 + 0.11)], loc=(cx, 0, 0), material='glass', segs=24,
+            close='end', sharp=50.0)
+    if dregs:
+        P.cyl('dregs', 0.054, 0.01, (cx, 0.0, z0 + 0.007), 'leather', segs=20, bev=None)
+    P.lathe('collar', [(0.044, z0 + 0.103), (0.05, z0 + 0.104), (0.051, z0 + 0.13), (0.046, z0 + 0.134),
+                       (0.04, z0 + 0.134)], loc=(cx, 0, 0), material='paint', segs=20, sharp=45.0)
+    P.lathe('carafe_lid', [(0.046, z0 + 0.132), (0.04, z0 + 0.138), (0.02, z0 + 0.145), (0.0, z0 + 0.146)],
+            loc=(cx, 0, 0), material='paint', segs=20, close='start', sharp=45.0)
+    P.tube('carafe_handle', [(cx + 0.045, -0.02, z0 + 0.12), (cx + 0.085, -0.03, z0 + 0.11),
+                             (cx + 0.09, -0.03, z0 + 0.04), (cx + 0.062, -0.02, z0 + 0.025)], 1.0, 'paint', bend=0.02,
+           profile=[(-0.006, -0.009), (0.006, -0.009), (0.006, 0.009), (-0.006, 0.009)], sharp=60.0)
+    P.box('spout', (0.02, 0.022, 0.008), (cx - 0.048, 0.0, z0 + 0.128), 'paint', bev=0.003, segs=1)
+
+
+def coffee_pot(P):
+    """The coffee maker's glass carafe on its own (docs/V3/nodes/M2-rv.md): clean glass, the black collar, lid
+    and handle, its spout to the back."""
+    P.ao_distance = 0.03
+    _carafe(P, 0.0, 0.0, False)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
+def coffee_grounds(P):
+    """A bag of ground coffee (docs/V3/nodes/M2-rv.md): a stand-up foil pouch, its top rolled down twice and held
+    by a tin tie, a broad label round its middle, a valve dot on its front."""
+    P.ao_distance = 0.02
+    w, d, h = 0.1, 0.062, 0.15
+    P.pillow('bag', (d, w, h), (0.0, 0.0, h / 2), 'paint', r=0.016, sub=1, puff=0.004, taper=(0.55, 1.0))
+    P.pillow('roll', (0.026, w * 0.98, 0.026), (0.0, 0.0, h + 0.006), 'paint', r=0.01, sub=1)
+    P.box('tie', (0.03, 0.006, 0.012), (0.0, w / 2 + 0.002, h + 0.006), 'steel', bev=0.002, segs=1)
+    P.box('tie', (0.03, 0.006, 0.012), (0.0, -w / 2 - 0.002, h + 0.006), 'steel', bev=0.002, segs=1)
+    P.box('label', (d * 0.98 + 0.004, w * 0.94, 0.06), (0.0, 0.0, h * 0.42), 'paint_b', bev=0.002, segs=1)
+    P.cyl('valve', 0.009, 0.003, (d / 2 + 0.002, 0.0, h * 0.72), 'trim', axis='X', segs=12, bev=None)
+    P.views = [('a', 35, 18), ('b', 215, 18)]
+
+
+def _coffee(P, pot):
     P.ao_distance = 0.04
     D, W = 0.25, 0.2
     P.box('base', (D, W, 0.05), (0.0, 0.0, 0.025), 'paint', bev=0.012, segs=2)
@@ -952,21 +1001,9 @@ def junk_coffee(P):
     P.lathe('basket', [(0.0, 0.203), (0.03, 0.205), (0.05, 0.215), (0.066, 0.238), (0.068, 0.25)], loc=(0.055, 0, 0),
             material='paint', segs=20, close='end', sharp=45.0)
     P.box('basket_handle', (0.024, 0.07, 0.014), (0.07, -0.1, 0.24), 'paint', bev=0.005, segs=1)
-    # the carafe on the hotplate
-    cx = 0.055
-    z0 = 0.056
-    P.lathe('carafe', [(0.0, z0), (0.056, z0), (0.064, z0 + 0.012), (0.067, z0 + 0.035), (0.064, z0 + 0.065),
-                       (0.052, z0 + 0.095), (0.045, z0 + 0.11)], loc=(cx, 0, 0), material='glass', segs=24,
-            close='end', sharp=50.0)
-    P.cyl('dregs', 0.054, 0.01, (cx, 0.0, z0 + 0.007), 'leather', segs=20, bev=None)
-    P.lathe('collar', [(0.044, z0 + 0.103), (0.05, z0 + 0.104), (0.051, z0 + 0.13), (0.046, z0 + 0.134),
-                       (0.04, z0 + 0.134)], loc=(cx, 0, 0), material='paint', segs=20, sharp=45.0)
-    P.lathe('carafe_lid', [(0.046, z0 + 0.132), (0.04, z0 + 0.138), (0.02, z0 + 0.145), (0.0, z0 + 0.146)],
-            loc=(cx, 0, 0), material='paint', segs=20, close='start', sharp=45.0)
-    P.tube('carafe_handle', [(cx + 0.045, -0.02, z0 + 0.12), (cx + 0.085, -0.03, z0 + 0.11),
-                             (cx + 0.09, -0.03, z0 + 0.04), (cx + 0.062, -0.02, z0 + 0.025)], 1.0, 'paint', bend=0.02,
-           profile=[(-0.006, -0.009), (0.006, -0.009), (0.006, 0.009), (-0.006, 0.009)], sharp=60.0)
-    P.box('spout', (0.02, 0.022, 0.008), (cx - 0.048, 0.0, z0 + 0.128), 'paint', bev=0.003, segs=1)
+    # the carafe on the hotplate (none: the hotplate bare)
+    if pot:
+        _carafe(P, 0.055, 0.056, True)
     P.tube('cord', [(-D / 2, 0.06, 0.02), (-D / 2 - 0.04, 0.07, 0.006), (-D / 2 - 0.08, 0.02, 0.0035)], 0.0035,
            'trim', segs=6, bend=0.03)
     P.views = [('a', 35, 16), ('b', 215, 18)]
@@ -1117,7 +1154,8 @@ def junk_lamp(P):
     P.mesh('shade', bm, 'paint', sharp=45.0)
     P.lathe('socket', [(0.0, 0.0), (0.016, 0.0), (0.016, 0.045), (0.0, 0.045)], loc=tuple(top), material='steel',
             axis=d, segs=12, sharp=50.0)
-    P.sphere('bulb', 0.024, tuple(top + d * 0.072), 'emit', u=12, v=6, scale=(1, 1, 1))
+    # (a glass bulb, not lit: it glows when the lamp is switched on, docs/V3/nodes/M2-rv.md)
+    P.sphere('bulb', 0.024, tuple(top + d * 0.072), 'lens_head', u=12, v=6, scale=(1, 1, 1))
     P.cyl('switch', 0.0075, 0.016, tuple(top - d * 0.006 + V((-0.012, 0, 0.012))), 'trim', segs=10, bev=None)
     P.tube('cord', [top - d * 0.004 + V((-0.01, 0, 0.0)), k2 + V((-0.04, 0.0, 0.012)), k1 + V((0.03, 0.0, 0.02)),
                     k1 + V((-0.015, 0.0, -0.03)), k0 + V((-0.03, 0.0, 0.03)), V((-0.085, 0.0, 0.025)),
@@ -1895,6 +1933,9 @@ MODELS = {
     'junk_clockradio': junk_clockradio,
     'junk_hanger': junk_hanger,
     'junk_coffee': junk_coffee,
+    'coffee_maker': coffee_maker,
+    'coffee_pot': coffee_pot,
+    'coffee_grounds': coffee_grounds,
     'junk_fax': junk_fax,
     'junk_box_food': junk_box_food,
     'junk_lamp': junk_lamp,

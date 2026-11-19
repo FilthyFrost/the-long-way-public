@@ -91,7 +91,7 @@ import { boxInHand, boxOnMark, boxSource, guardedSource, HandsList, Listing, pla
 import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
-import type { ItemInstance } from '../../core/modcar/items';
+import type { DrinkLiquid, ItemInstance } from '../../core/modcar/items';
 import { zoneOf } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
@@ -103,12 +103,14 @@ import { Doors } from './doors';
 import { solidWithin, type SolidSource } from '../../core/world/solids';
 import type { Site, SiteObject } from '../../core/world/sites';
 import { Cockpit, passengerSeat, seatMount, type CockpitHost, type FrontSeat } from './cockpit';
+import { Aboard } from './aboard';
+import { aboardOf, type BoardDoor } from '../../core/modcar/aboard';
 import { ModUI } from './ui';
 import { ModVehicle, visibleUp } from './vehicle';
 import type { ModEnv } from '../../core/modcar/systems';
 import { applyWheelMods } from '../../core/modcar/simlink';
 import type { WorldTime } from '../../core/kernel/clock';
-import type { GameContext } from './kernel/context';
+import type { GameContext, RadioSet } from './kernel/context';
 import { Kernel } from './kernel/kernel';
 import type { GameModule } from './kernel/modules';
 
@@ -472,7 +474,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the systems' tabs of the developer's panel */
   readonly devTabs = this.kernel.devTabs;
   /** the payload of body:drank, used again every frame a drink flows */
-  private readonly drankEvent: { liquid: 'water' | 'alcohol' | 'energy'; litres: number } = { liquid: 'water', litres: 0 };
+  private readonly drankEvent: { liquid: DrinkLiquid; litres: number } = { liquid: 'water', litres: 0 };
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -1288,6 +1290,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private shelterOf(): number {
     this.coverNow = null;
     if (this.seated) return 0;
+    // (inside a vehicle's living space: shut in as its cab, by its doors)
+    const ab = this.player.aboard;
+    if (ab) return 1 - this.cabinOpen(ab.v);
     if (this.place === 'garage' && (!this.seamless || this.indoors())) return this.garage?.doorsOpen?.() ? 0.75 : 0.95;
     if (!this.world) return 0;
     const w = this.player.walker;
@@ -1370,7 +1375,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.events.emit('body:ate', { item });
   }
 
-  drank(liquid: 'water' | 'alcohol' | 'energy', litres: number): void {
+  drank(liquid: DrinkLiquid, litres: number): void {
     drinkVital(this.body, liquid, litres);
     // (said every frame the drink flows: only when someone listens, and with the one payload)
     if (this.events.has('body:drank')) {
@@ -1627,6 +1632,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.seatSlide = this.seatAt === 'pass' ? 1 : 0;
       if (s.place === 'road') sv.sys.startNow();
     }
+    // (inside a vehicle's living space: back where one stood in it)
+    const av = s.aboard ? this.vehicles[s.aboard.v] : undefined;
+    if (av && s.aboard && this.seamless && !this.seated && aboardOf(av.view.frame.id)) {
+      const ab = new Aboard(av, [s.aboard.x, s.aboard.z], s.aboard.yaw);
+      this.player.goAboard(ab);
+      this.input.lookYaw = ab.heading() + s.aboard.yaw;
+    }
   }
 
   /** the hotbar as it was */
@@ -1703,6 +1715,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         s.seat = own.indexOf(this.seated);
         if (this.seatAt === 'pass') s.seatAt = 'pass';
       }
+      const ab = this.player.aboard;
+      if (ab && own.includes(ab.v)) s.aboard = { v: own.indexOf(ab.v), x: ab.w.x, z: ab.w.z, yaw: ab.w.yaw };
     } else if (this.place === 'road' && this.world) {
       // (on the road only the vehicle one drives goes on)
       const v = this.seated ?? this.focus ?? own[0];
@@ -2496,6 +2510,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         if (this.listV) this.takeFromList();
         else if (this.seated) {
           if (this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
+          else if (this.cockpit.aimedAft) this.goAft();
           else this.getOut();
         } else this.player.press();
         return;
@@ -2578,6 +2593,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         // (the mark on the other front seat: over to it; else out)
         else if (g.seated) {
           if (g.cockpit.aimedSeat && g.viewMode === 'cockpit') g.moveOver();
+          else if (g.cockpit.aimedAft) g.goAft();
           else g.getOut();
         }
         else g.player.press();
@@ -2644,6 +2660,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     this.seatAt = at;
     this.seatSlide = at === 'pass' ? 1 : 0;
+    // (from the living space behind: one sits down where one stood)
+    if (this.player.aboard) this.player.leaveAboard();
     // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
     if (this.wrecks?.claim(v)) this.ui.say(`坐进了这辆${v.view.frame.name.zh}——现在它归你了。`, 2.6);
     // (what is in the two slots goes along)
@@ -2688,6 +2706,58 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.input.lookYaw = heading;
     this.input.lookPitch = 0;
     this.sound(v.view.frame.balance ? 'lever' : 'door_close', v.view.frame.balance ? 0.7 : 1);
+  }
+
+  /** into a vehicle's living space by an open door (docs/V3/nodes/M2-rv.md): only a vehicle standing still */
+  board(v: ModVehicle, door: BoardDoor): void {
+    if (Math.abs(v.sim.kmh) > 3) {
+      this.ui.say('车还在动。', 2);
+      return;
+    }
+    const ab = new Aboard(v, door.inside, door.inYaw);
+    this.player.goAboard(ab);
+    this.input.freeLook = true;
+    this.input.lookYaw = ab.heading() + door.inYaw;
+    this.sound('cloth', 0.35);
+  }
+
+  /** out of it by the door one looks at: outside the door, facing away from the vehicle */
+  alight(v: ModVehicle, door: BoardDoor): void {
+    const ab = this.player.aboard;
+    if (!ab || ab.v !== v) return;
+    const out = ab.toWorld(door.outside[0], 0, door.outside[1], this.core.origin, this.alightP);
+    const heading = ab.heading() + door.inYaw + Math.PI;
+    this.player.leaveAboard();
+    this.player.walker.place(out.x, out.z, heading);
+    this.input.lookYaw = heading;
+    this.sound('cloth', 0.35);
+  }
+  private readonly alightP = { x: 0, y: 0, z: 0 };
+
+  /** from the driver's seat back into the living space behind it (looking back, E): standing behind the seats, facing aft */
+  goAft(): void {
+    const v = this.seated;
+    const def = v ? aboardOf(v.view.frame.id) : null;
+    if (!v || !def) return;
+    if (Math.abs(v.sim.kmh) > 3) {
+      this.ui.say('先把车停下。', 2);
+      return;
+    }
+    this.seated = null;
+    this.seatAt = 'driver';
+    this.seatSlide = 0;
+    v.view.highlight(null);
+    const ab = new Aboard(v, def.aft, Math.PI);
+    this.player.goAboard(ab);
+    this.input.freeLook = true;
+    this.input.lookYaw = ab.heading() + Math.PI;
+    this.input.lookPitch = 0;
+    this.sound('cloth', 0.4);
+  }
+
+  /** looking back from the seat into a living space behind it, the vehicle standing (the cockpit's E 到车厢里) */
+  aftReady(v: ModVehicle): boolean {
+    return !!aboardOf(v.view.frame.id) && Math.abs(this.input.lookYaw) > 1.9 && Math.abs(v.sim.kmh) < 3;
   }
 
   /**
@@ -3553,6 +3623,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
   }
 
+  /** the systems' sets that play the radio's songs (GameContext.addRadios) */
+  private readonly radioSets: (readonly RadioSet[])[] = [];
+
+  addRadios(sets: readonly RadioSet[]): () => void {
+    if (!this.radioSets.includes(sets)) this.radioSets.push(sets);
+    return () => {
+      const i = this.radioSets.indexOf(sets);
+      if (i >= 0) this.radioSets.splice(i, 1);
+    };
+  }
+
   /** the car radio: the one in the vehicle one sits in, or the nearest one playing within earshot */
   private updateRadio(): void {
     const ctx = this.audio.context;
@@ -3587,6 +3668,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (l > level) {
         level = l;
         song = set.song;
+      }
+    }
+    // the systems' sets (a clock radio on the motorhome's table, a record player by the road): heard as loud as a
+    // car radio's from a seat close by, through the walls of the vehicle they are in from outside it
+    const here = this.seated ?? this.player.aboard?.v ?? null;
+    const w = this.player.walker;
+    for (const sets of this.radioSets) {
+      for (const s of sets) {
+        const d = this.seated ? Math.hypot(this.seated.sim.px - s.x, this.seated.sim.pz - s.z) * 0.5 : Math.hypot(w.x - s.x, w.y + 1.5 - s.y, w.z - s.z);
+        const walls = s.inside && s.inside !== here ? 0.3 + 0.7 * this.cabinOpen(s.inside) : 1;
+        const l = (0.12 * s.loud * walls) / (1 + (d * d) / 8);
+        if (l > level) {
+          level = l;
+          song = s.song;
+        }
       }
     }
     this.radio.update({ on: level > 0.01, song, level });

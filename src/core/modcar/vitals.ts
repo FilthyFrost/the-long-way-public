@@ -13,6 +13,7 @@
  *                28); else it climbs back at 0.3 °C/s; under 32 °C hypothermia: slower, −1 health every 5 s
  *   bladder 0-100 fills as one drinks (and slowly with the water in one); P held empties it; at 100 it goes
  */
+import type { DrinkLiquid } from './items';
 
 export interface VitalsRules {
   hpMax: number;
@@ -309,16 +310,29 @@ export function medicate(v: Vitals, hp: number, warm: number, side: number, roll
   return null;
 }
 
-/** a drink: every tenth of a litre of water quenches 10 (and fills the bladder as much); alcohol makes one drunk, an energy drink quick */
-export function drink(v: Vitals, liquid: 'water' | 'alcohol' | 'energy', litres: number, R: VitalsRules = VITALS): void {
+/**
+ * A drink: every tenth of a litre of water quenches 10 (and fills the bladder as much); alcohol makes one drunk,
+ * an energy drink quick; coffee (docs/V3/nodes/M2-rv.md) quenches 6 a tenth of a litre, warms the body (4 °C a
+ * litre, over a few seconds), keeps one warm a while and wakes one up as the energy drink does.
+ */
+export function drink(v: Vitals, liquid: DrinkLiquid, litres: number, R: VitalsRules = VITALS): void {
   if (litres <= 0) return;
-  if (liquid === 'water') {
-    const pts = (litres / 0.1) * 10;
-    v.gains.push({ food: 0, hp: 0, water: pts, temp: 0, left: R.gainOver });
+  if (liquid === 'water' || liquid === 'coffee') {
+    const coffee = liquid === 'coffee';
+    const pts = (litres / 0.1) * (coffee ? COFFEE_QUENCH : 10);
+    v.gains.push({ food: 0, hp: 0, water: pts, temp: coffee ? litres * COFFEE_WARM_C : 0, left: R.gainOver });
     v.bladder = Math.min(100, v.bladder + pts);
+    if (coffee) {
+      add(v, 'warm1');
+      add(v, 'energy');
+    }
   } else if (liquid === 'alcohol') add(v, 'drunk');
   else add(v, 'energy');
 }
+
+/** what coffee quenches a tenth of a litre (water: 10), and how much warmer a litre of it makes one (°C) */
+export const COFFEE_QUENCH = 6;
+export const COFFEE_WARM_C = 4;
 
 /** a first-aid kit: up again with this much health, half fed and half watered at least */
 export function revive(v: Vitals, hp: number): void {

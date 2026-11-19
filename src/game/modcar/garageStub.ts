@@ -12,7 +12,7 @@ import { Solid, type SolidSource } from '../../core/world/solids';
 import type { Text } from '../../core/modcar/types';
 import { surfaceMaterial } from '../render/materials';
 import type { RenderCore } from '../render/core';
-import type { LooseThings } from './loose';
+import type { Loose, LooseThings } from './loose';
 import type { ItemCard } from './itemInfo';
 import type { Held, ModPlayer } from './player';
 import type { ModUI } from './ui';
@@ -35,10 +35,21 @@ export interface GarageDevice {
   /** E held this long does it (the generator's rope), use() at the end; the progress meanwhile */
   readonly holdS?: number;
   holding?(p: number): void;
-  /** what E would do with this in the hands (the recycler: take it in), null: nothing — the thing then stays put */
-  take?(held: NonNullable<Held>): { ok: boolean; word: Text } | null;
-  /** E with it in the hands, take() saying ok: the device has it now */
+  /**
+   * what E would do with this in the hands (the recycler: take it in), null: nothing — the thing then stays put.
+   * keep: it stays in the hands all the same (water poured from a bottle into the coffee maker): useWith works
+   * on it where it is
+   */
+  take?(held: NonNullable<Held>): { ok: boolean; word: Text; keep?: boolean } | null;
+  /** E with it in the hands, take() saying ok: the device has it now (or, kept, has had what it took of it) */
   useWith?(held: NonNullable<Held>): void;
+  /**
+   * The thing lying there that this device is (an appliance: docs/V3/nodes/M2-rv.md): the mark lights it up, and
+   * F held picks it up as E picks up a plain thing. Absent: a device of its own.
+   */
+  readonly loose?: Loose;
+  /** F (or the right button) pressed and let go at once on it: its second use (a radio's next station), as the cockpit's right click; null: none now */
+  readonly alt?: { readonly word: Text; use(): void } | null;
   /** where along the line of sight (render space) it is met, null: missed (a box of its own: a cupboard, a pump); absent: the point and radius */
   hit?(ray: THREE.Ray, reach: number): number | null;
 }

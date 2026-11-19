@@ -37,6 +37,8 @@ export class CarMaterials {
   private readonly owned = new Map<string, Owned>();
   private readonly lights: CarLights = {};
   private lightsKey = '';
+  /** the light inside the vehicle's cabin (setCabinLamp) */
+  private readonly cabinLamp = new THREE.Color(0, 0, 0);
   private readonly frame = new THREE.Matrix4();
   private framed = false;
   private lit = '';
@@ -49,6 +51,7 @@ export class CarMaterials {
     if (!o) {
       const look = new CarLook({ paint: of.paint, paint2: of.paint2, dirt: of.dirt ?? 0, rust: of.rust ?? 0, wear: of.wear ?? 0, crust: of.crust ?? 0, ...(of.matte !== undefined ? { matte: of.matte } : {}) });
       look.setLights(this.lights);
+      look.setCabinLamp(this.cabinLamp);
       if (this.framed) look.setCarFrame(this.frame);
       if (this.shape) {
         look.setBodyHeight(this.shape.bodyHeight);
@@ -98,6 +101,16 @@ export class CarMaterials {
   /** every owner whose name starts with `prefix` (all of them for '') */
   owners(prefix = ''): string[] {
     return [...this.owned.keys()].filter((k) => k.startsWith(prefix));
+  }
+
+  /**
+   * The light inside the vehicle's cabin (linear RGB; black: none): a lamp switched on in a motorhome lights its
+   * inside, and no other vehicle's (docs/V3/nodes/M2-rv.md). Every owner's look, and those made later.
+   */
+  setCabinLamp(c: THREE.Color): void {
+    if (c.equals(this.cabinLamp)) return;
+    this.cabinLamp.copy(c);
+    for (const o of this.owned.values()) o.look.setCabinLamp(c);
   }
 
   /** the lamps of the vehicle (every owner's lenses: the lamps are parts like any other) */

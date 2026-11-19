@@ -25,10 +25,11 @@ import type { EventBus, GameEvents, NoPayload } from '../../../core/kernel/event
 import type { SaveSliceRegistry } from '../../../core/kernel/slices';
 import type { SystemRegistry } from '../../../core/kernel/systems';
 import type { WorldTime } from '../../../core/kernel/clock';
-import type { ItemInstance } from '../../../core/modcar/items';
+import type { DrinkLiquid, ItemInstance } from '../../../core/modcar/items';
 import type { World } from '../../../core/world/terrain';
 import type { Environment } from '../../env/environment';
 import type { RenderCore } from '../../render/core';
+import type { CargoBay } from '../cargo';
 import type { LooseThings } from '../loose';
 import type { ModParams } from '../ModGame';
 import type { ModPlayer } from '../player';
@@ -69,10 +70,33 @@ export interface GameContext {
   readonly seated: ModVehicle | null;
   /** the things lying about */
   readonly loose: LooseThings;
+  /** what rides in the vehicles, and where a thing would go in one (cargo.ts) */
+  readonly cargo: CargoBay;
   /** the words on screen: the toast, the cards */
   readonly ui: ModUI;
   /** a sound of the game's own by its name ('pickup', 'putdown', 'bite' …: ModGame.sound); `gain`: how loud, or for the two that carry a weight, the kilograms */
   sound(name: string, gain?: number): void;
+  /**
+   * A system's sets that play the radio's songs where they stand (docs/V3/nodes/M2-rv.md: a clock radio on a
+   * table, a record player): the list is the system's own, kept up to date by it every frame (those in it play);
+   * the game hears the loudest of everything playing, the car radios among it. Returns the function that takes
+   * the list out again.
+   */
+  addRadios(sets: readonly RadioSet[]): () => void;
+}
+
+/** a set playing one of the radio's songs where it stands (GameContext.addRadios) */
+export interface RadioSet {
+  /** where it stands (world metres) */
+  x: number;
+  y: number;
+  z: number;
+  /** which song (radio.ts SONGS) */
+  song: number;
+  /** how loud, against a car radio's 1 */
+  loud: number;
+  /** in a vehicle (its living space, its cab): heard through its walls from outside, as a car radio is */
+  inside: ModVehicle | null;
 }
 
 declare module '../../../core/kernel/events' {
@@ -91,6 +115,6 @@ declare module '../../../core/kernel/events' {
      * Some of a drink went down: emitted every frame while it flows, with that frame's litres. The payload
      * object is reused from one to the next: read it during the call, do not keep it.
      */
-    'body:drank': { readonly liquid: 'water' | 'alcohol' | 'energy'; readonly litres: number };
+    'body:drank': { readonly liquid: DrinkLiquid; readonly litres: number };
   }
 }

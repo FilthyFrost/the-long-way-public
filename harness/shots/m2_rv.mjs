@@ -1,0 +1,261 @@
+// Milestone M2, the motorhome lived in (docs/V3/nodes/M2-rv.md), walked through in the game:
+//   1. from the driver's seat, looking back: "E 到车厢里" — standing behind the seats; along the aisle to the rear
+//   2. out by the side door (open: "下车") and in again from outside ("进…的车厢")
+//   3. things put where one aims: a television hung on the wall, a lamp on the dinette's table (to the 10 cm grid),
+//      a coffee maker on the galley's worktop
+//   4. the appliances: the motorhome furnished; the lamp, the clock radio, the television and the record player
+//      switched on with E (something plays, the cabin is lit); the coffee brewed, the pot taken with F, coffee drunk
+//      (warm and quick), the pot put back with E; F held picks the clock radio up
+//   SHOTS_GPU=1 node harness/shots/m2_rv.mjs [hour]
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
+
+const out = path.join(ROOT, 'loop/shots/m2_rv');
+fs.mkdirSync(out, { recursive: true });
+const hour = process.argv[2] || '22.3';
+const { server, url } = await startServer();
+const browser = await launchBrowser();
+let bad = 0;
+const fail = (why) => {
+  bad++;
+  console.log('FAIL', why);
+};
+const ok = (cond, why) => (cond ? console.log('ok  ', why) : fail(why));
+try {
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:rv&s=300&time=${hour}&weather=clear`, { width: 1280, height: 720 });
+  const step = (n = 6) => page.evaluate((n) => { const g = window.__rt.game; for (let i = 0; i < n; i++) g.simulate(1 / 30); }, n);
+  // a picture (lit: with the mark's highlight on what it is on)
+  const shot = async (f, lit = false) => {
+    await page.evaluate((lit) => {
+      if (!lit) window.__rt.game.player.clearHighlight();
+      window.__rt.render();
+    }, lit);
+    await page.screenshot({ path: path.join(out, f) });
+  };
+  const state = () =>
+    page.evaluate(() => {
+      const g = window.__rt.game;
+      const ab = g.player.aboard;
+      return { seated: !!g.seated, aboard: ab ? { x: +ab.w.x.toFixed(2), z: +ab.w.z.toFixed(2) } : null, target: g.player.target?.kind ?? null, aft: g.cockpit.aimedAft };
+    });
+  // standing in the living space at (x, z), looking at a point of the motorhome (frame model space)
+  const standLook = (x, z, tx, ty, tz) =>
+    page.evaluate(({ x, z, tx, ty, tz }) => {
+      const g = window.__rt.game;
+      const ab = g.player.aboard;
+      ab.w.place(x, z, 0);
+      const e = { x: 0, y: 0, z: 0 };
+      const t = { x: 0, y: 0, z: 0 };
+      ab.toWorld(ab.w.x, ab.w.floorAt(ab.w.x, ab.w.z) + 1.62, ab.w.z, { x: 0, y: 0, z: 0 }, e);
+      ab.toWorld(tx, ty, tz, { x: 0, y: 0, z: 0 }, t);
+      g.input.lookYaw = Math.atan2(t.z - e.z, t.x - e.x);
+      g.input.lookPitch = Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z));
+      for (let i = 0; i < 6; i++) g.simulate(1 / 30);
+      const tg = g.player.target;
+      return { target: tg?.kind ?? null, zone: tg?.kind === 'stow' ? tg.aim.zone.id : null, spot: tg?.kind === 'stow' ? !!tg.aim.spot : null, device: tg?.kind === 'device' ? (tg.device.loose?.item?.item ?? tg.device.id) : null };
+    }, { x, z, tx, ty, tz });
+  const stowed = (what) => page.evaluate((what) => window.__rt.stowed(0).things.filter((t) => t.what === what).map((t) => t.zone), what);
+  // F (or the right button) down for so many frames, then let go
+  const holdF = (frames) =>
+    page.evaluate((frames) => {
+      const g = window.__rt.game;
+      g.rightButton = true;
+      for (let i = 0; i < frames; i++) g.step(1 / 60, 1);
+      g.rightButton = false;
+      for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
+    }, frames);
+  await step(40);
+
+  // ---- 1. back from the seat, along the aisle
+  await page.evaluate(() => { window.__rt.setView('cockpit'); window.__rt.look(2.7, -0.15); });
+  await step(4);
+  let s = await state();
+  ok(s.seated && s.aft, `looking back from the seat offers the living space (${JSON.stringify(s)})`);
+  await shot('1_seat_looking_back.png');
+  // (E in the seat is the game's own key: the cockpit's word for it)
+  await page.keyboard.press('KeyE');
+  await step(4);
+  s = await state();
+  ok(!s.seated && s.aboard && Math.abs(s.aboard.x - 0.72) < 0.05, `E: standing behind the seats (${JSON.stringify(s)})`);
+  await shot('2_behind_the_seats.png');
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    const ab = g.player.aboard;
+    for (let t = 0; t < 2.6; t += 1 / 30) {
+      ab.step(1 / 30, 1, 0, g.input.lookYaw);
+      g.simulate(1 / 30);
+    }
+  });
+  s = await state();
+  ok(s.aboard && s.aboard.x < -2.4, `walked aft along the aisle to the rear (${JSON.stringify(s)})`);
+  await shot('3_at_the_rear.png');
+
+  // ---- 2. out by the side door and in again
+  await page.evaluate(() => window.__rt.openPanel(0, 'door_side', true));
+  await step(20);
+  let a = await standLook(-0.08, 0.6, -0.08, 1.7, 1.3);
+  ok(a.target === 'alight', `the open side door from inside: 下车 (${JSON.stringify(a)})`);
+  await shot('4_side_door_from_inside.png', true);
+  await page.evaluate(() => window.__rt.press());
+  await step(10);
+  s = await state();
+  ok(!s.aboard && !s.seated, `E: out by the side door (${JSON.stringify(s)})`);
+  await page.evaluate(() => { const g = window.__rt.game; g.input.lookYaw += Math.PI; g.input.lookPitch = -0.1; });
+  await step(6);
+  s = await state();
+  ok(s.target === 'board', `the doorway from outside: in again (${JSON.stringify(s)})`);
+  await shot('5_side_door_from_outside.png', true);
+  await page.evaluate(() => window.__rt.press());
+  await step(10);
+  s = await state();
+  ok(!!s.aboard, `E: in the living space again (${JSON.stringify(s)})`);
+
+  // ---- 3. things put where one aims (the television's model in first: a thing's box is measured from it)
+  await page.evaluate(async () => {
+    const items = await import('/src/core/modcar/items.ts');
+    await window.__rt.game.cargo.measured({ kind: 'item', item: items.newItem('junk_tv') });
+  });
+  // (the left wall between the dinette's window and the galley's lockers)
+  for (const [tx, ty, tz] of [[-0.6, 1.5, -1.08], [-0.55, 1.7, -1.08], [-0.65, 1.35, -1.08]]) {
+    await page.evaluate(() => window.__rt.hold('item:junk_tv'));
+    await step(3);
+    a = await standLook(0.1, 0.3, tx, ty, tz);
+    if (a.zone === 'wall' && a.spot) break;
+  }
+  ok(a.zone === 'wall' && a.spot, `a television aimed at the wall over the table (${JSON.stringify(a)})`);
+  await shot('6_tv_aimed_at_wall.png', true);
+  await page.evaluate(() => window.__rt.press());
+  await step(6);
+  ok((await stowed('item:junk_tv')).includes('wall'), 'E: the television hangs on the wall');
+  await page.evaluate(() => window.__rt.hold('item:junk_lamp'));
+  await step(3);
+  a = await standLook(0.1, 0.0, 0.33, 1.59, -0.62);
+  ok(a.zone === 'table' && a.spot, `a lamp aimed at the dinette's table (${JSON.stringify(a)})`);
+  await page.evaluate(() => window.__rt.press());
+  await step(6);
+  const lampAt = await page.evaluate(() => {
+    const g = window.__rt.game;
+    const v = g.vehicles[0];
+    const l = g.loose.list.find((x) => x.item?.item === 'junk_lamp' && x.stow === 'table');
+    if (!l) return null;
+    v.view.model.updateMatrixWorld(true);
+    const inv = v.view.model.matrixWorld.clone().invert();
+    const o = g.core.origin;
+    const q = new v.view.model.position.constructor(l.x - o.x, l.y - o.y, l.z - o.z).applyMatrix4(inv);
+    return [q.x, q.z];
+  });
+  ok(!!lampAt && lampAt.every((u) => Math.abs(u * 10 - Math.round(u * 10)) < 0.02), `E: the lamp stands on the table, to the 10 cm grid (${JSON.stringify(lampAt)})`);
+  await shot('7_lamp_on_table.png');
+
+  // ---- 4. the appliances (what was put in by hand taken out again first: the motorhome furnished as the tab furnishes it)
+  await page.evaluate(() => {
+    const g = window.__rt.game;
+    for (const l of g.loose.list.filter((x) => x.riding?.on === g.vehicles[0] && x.item)) g.loose.remove(l);
+    g.cargoChanged(g.vehicles[0]);
+  });
+  const n = await page.evaluate(async () => {
+    const m = await import('/src/game/modcar/v3/appliances/devTab.ts');
+    const g = window.__rt.game;
+    return m.furnish(g, g.vehicles[0]);
+  });
+  ok(n >= 7, `the developer tab furnishes the motorhome (${n} things)`);
+  for (let i = 0; i < 10; i++) {
+    await step(10);
+    await page.waitForTimeout(100);
+  }
+  const pos = await page.evaluate(() => {
+    const g = window.__rt.game;
+    const v = g.vehicles[0];
+    const sys = g.systems.get('appliances');
+    v.view.model.updateMatrixWorld(true);
+    const inv = v.view.model.matrixWorld.clone().invert();
+    const o = g.core.origin;
+    // (the furnished ones: the last of each kind)
+    const out = {};
+    for (const u of sys.all) {
+      const q = new v.view.model.position.constructor(u.loose.x - o.x, u.loose.y - o.y, u.loose.z - o.z).applyMatrix4(inv);
+      out[u.item.item] = { x: q.x, y: q.y, z: q.z, uid: u.loose.uid };
+    }
+    return out;
+  });
+  const appOn = (id) => page.evaluate((uid) => window.__rt.game.loose.list.find((l) => l.uid === uid)?.item?.state?.app?.on === true, pos[id]?.uid);
+  const pressOn = async (id, from, dy) => {
+    const p = pos[id];
+    if (!p) return fail(`no ${id} in the motorhome`);
+    const r = await standLook(from[0], from[1], p.x, p.y + dy, p.z);
+    await page.evaluate(() => window.__rt.press());
+    await step(4);
+    ok(r.device === id && (await appOn(id)), `E on the ${id}: switched on (${JSON.stringify(r)})`);
+  };
+  await pressOn('junk_lamp', [0.3, 0.3], 0.3);
+  await pressOn('junk_clockradio', [-1.2, -0.15], 0.05);
+  await pressOn('junk_tv', [0.2, 0.45], 0.25);
+  await pressOn('junk_record', [0.5, 0.3], 0.12);
+  await step(30);
+  const tel = await page.evaluate(() => window.__rt.game.systems.get('appliances').telemetry());
+  ok(tel.playing.length >= 3, `the radio, the television and the record play (${JSON.stringify(tel.playing)})`);
+  const lit = await page.evaluate(() => {
+    const v = window.__rt.game.vehicles[0];
+    const c = v.view.mats.lookOf('merged') ?? v.view.mats.lookOf('body');
+    const u = c?.material?.('paint')?.uniforms?.uCabinLamp?.value;
+    return u ? u.r + u.g + u.b : -1;
+  });
+  ok(lit > 0.1, `the motorhome's inside is lit by its lamps (${lit.toFixed(2)})`);
+  await standLook(0.6, 0.3, -3.0, 1.45, -0.15);
+  await shot('8_furnished_at_night.png');
+  if (pos.junk_tv) {
+    await standLook(0.5, pos.junk_tv.z + 0.05, pos.junk_tv.x + 0.2, pos.junk_tv.y + 0.28, pos.junk_tv.z + 0.05);
+    await shot('9_tv.png');
+  }
+  if (pos.junk_lamp) {
+    await standLook(0.2, 0.35, pos.junk_lamp.x - 0.1, pos.junk_lamp.y + 0.15, pos.junk_lamp.z + 0.2);
+    await shot('10_table_lamps.png');
+  }
+  if (pos.junk_clockradio) {
+    await standLook(pos.junk_clockradio.x, -0.2, pos.junk_clockradio.x, pos.junk_clockradio.y + 0.05, pos.junk_clockradio.z + 0.05);
+    await shot('11_clock_radio.png');
+  }
+  // the coffee: E brews, F takes the pot, F held drinks, E puts it back
+  const cm = pos.junk_coffee;
+  const coffee = () => page.evaluate((uid) => window.__rt.game.loose.list.find((l) => l.uid === uid)?.item ?? null, cm.uid);
+  a = await standLook(cm.x + 0.05, -0.15, cm.x, cm.y + 0.15, cm.z);
+  ok(a.device === 'junk_coffee', `the coffee maker under the mark (${JSON.stringify(a)})`);
+  await page.evaluate(() => window.__rt.press());
+  await step(45);
+  let c = await coffee();
+  ok(c?.state?.app?.on === true && (c.state.app.coffee ?? 0) > 0, `E: it brews (${JSON.stringify(c?.state?.app)})`);
+  await standLook(cm.x + 0.05, -0.15, cm.x, cm.y + 0.15, cm.z);
+  await shot('12_coffee_brewing.png');
+  await page.evaluate(() => { const g = window.__rt.game; for (let i = 0; i < 50 * 30; i++) g.simulate(1 / 30); });
+  c = await coffee();
+  ok(!c?.state?.app?.on && (c?.state?.app?.coffee ?? 0) > 0.95, `forty-odd seconds on: a pot of coffee, switched off (${JSON.stringify(c?.state?.app)})`);
+  await standLook(cm.x + 0.05, -0.15, cm.x, cm.y + 0.15, cm.z);
+  await shot('13_coffee_done.png', true);
+  await holdF(5);
+  let hand = await page.evaluate(() => { const h = window.__rt.game.player.held; return h?.kind === 'item' ? { item: h.item.item, litres: h.item.litres } : null; });
+  c = await coffee();
+  ok(hand?.item === 'coffee_pot' && hand.litres > 0.95 && c?.item === 'coffee_maker', `F: the pot in the hands, the machine without it (${JSON.stringify(hand)}, ${c?.item})`);
+  await holdF(150);
+  const body = await page.evaluate(() => { const g = window.__rt.game; return { warm: (g.body.effects.warm1 ?? 0) > 0, quick: (g.body.effects.energy ?? 0) > 0, litres: g.player.held?.item?.litres }; });
+  ok(body.warm && body.quick && body.litres < hand.litres, `F held: coffee drunk, warm and quick (${JSON.stringify(body)})`);
+  await shot('14_drinking.png');
+  await standLook(cm.x + 0.05, -0.15, cm.x, cm.y + 0.15, cm.z);
+  await page.evaluate(() => window.__rt.press());
+  await step(6);
+  c = await coffee();
+  hand = await page.evaluate(() => window.__rt.game.player.held?.kind ?? null);
+  ok(c?.item === 'junk_coffee' && hand === null, `E with the pot: back on its hotplate (${c?.item}, hands ${hand})`);
+  // F held on the clock radio: picked up
+  const cr = pos.junk_clockradio;
+  await standLook(-1.2, -0.15, cr.x, cr.y + 0.05, cr.z);
+  await holdF(45);
+  hand = await page.evaluate(() => { const h = window.__rt.game.player.held; return h?.kind === 'item' ? h.item.item : null; });
+  ok(hand === 'junk_clockradio', `F held: the clock radio picked up (${hand})`);
+  if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);
+} finally {
+  await browser.close();
+  await server.close();
+}
+console.log(bad ? `${bad} FAILED` : 'all passed');
+process.exit(bad ? 1 : 0);

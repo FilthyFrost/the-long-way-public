@@ -43,8 +43,8 @@ export const ITEM_CATS: Record<ItemCat, Text> = {
   crate: { zh: '材料箱', en: 'Boxes of components' },
 };
 
-/** what one drinks: water quenches, alcohol makes one drunk, the energy drink makes one quick */
-export type DrinkLiquid = 'water' | 'alcohol' | 'energy';
+/** what one drinks: water quenches, alcohol makes one drunk, the energy drink makes one quick, coffee warms and wakes one up (and quenches a little) */
+export type DrinkLiquid = 'water' | 'alcohol' | 'energy' | 'coffee';
 
 /** effects that last a while (the vitals: docs/MODCAR.md §13) */
 export type EffectId = 'warm1' | 'warm2' | 'sick1' | 'sick2';
@@ -78,8 +78,11 @@ export interface ItemDef {
   readonly paint2: number;
   /** eaten whole (food, pills): food points, health points, over `sec`; an effect after */
   readonly eat?: { food: number; hp: number; sec: number; effect?: EffectId };
-  /** drunk from while the button is held: what it holds when full, at what rate (L/s) */
-  readonly drink?: { litres: number; liquid: DrinkLiquid; rate: number };
+  /**
+   * drunk from while the button is held: what it holds when full, at what rate (L/s); `empty`: it is made and
+   * found empty, filled by the player (a coffee pot: docs/V3/nodes/M2-rv.md)
+   */
+  readonly drink?: { litres: number; liquid: DrinkLiquid; rate: number; empty?: boolean };
   /** medicine: health at once, or a warming; a side effect with its chance */
   readonly heal?: { hp: number; warm?: number; side?: number };
   /** a first-aid kit: used up when one would die, one gets up again with this much health */
@@ -91,6 +94,11 @@ export interface ItemDef {
   readonly lamp?: { range: number };
   /** heavy tools: a sledgehammer's blows, a repair kit's points and how fast it gives them */
   readonly gear?: { kind: 'hammer' | 'repair' | 'flare'; uses?: number; points?: number; rate?: number };
+  /**
+   * used up a portion at a time (a bag of ground coffee: a pot's worth each, docs/V3/nodes/M2-rv.md): how many
+   * when new; the thing's `uses` counts them down, and the one who takes the last throws the bag away
+   */
+  readonly portions?: number;
   /** words other systems ask for (lower case, no spaces): a recipe wants any "meat", a basket accepts "#forage" */
   readonly tags?: readonly string[];
   /** how many make one stack (absent: 1, it does not stack). A stack is ONE instance with a count. */
@@ -426,8 +434,9 @@ function rowProblems(r: ItemRow, seen: ReadonlySet<string>): string[] {
   if (r.stack !== undefined) {
     if (!Number.isInteger(r.stack) || r.stack < 1 || r.stack > MAX_COUNT) say(`stack is a whole number from 1 to ${MAX_COUNT}`);
     // a thing with a level of its own (litres, blows left) or with things in it is one of a kind
-    else if (r.stack > 1 && (r.drink || r.gear?.uses !== undefined || r.gear?.points !== undefined || r.holds || r.pack)) say('a thing that is drunk from, wears out, holds things or is a backpack does not stack');
+    else if (r.stack > 1 && (r.drink || r.gear?.uses !== undefined || r.gear?.points !== undefined || r.portions !== undefined || r.holds || r.pack)) say('a thing that is drunk from, wears out, is used a portion at a time, holds things or is a backpack does not stack');
   }
+  if (r.portions !== undefined && !(Number.isInteger(r.portions) && r.portions >= 1)) say('portions is a whole number from 1');
   const h = r.holds as ItemDef['holds'] | null;
   if (h !== undefined) {
     if (!h || typeof h !== 'object') say('holds says how many slots and what it accepts');
@@ -542,8 +551,8 @@ export function newItem(id: string, o: Partial<ItemInstance> = {}): ItemInstance
   return {
     uid: nextUid(),
     item: id,
-    ...(d.drink ? { litres: d.drink.litres } : {}),
-    ...(d.gear?.uses !== undefined ? { uses: d.gear.uses } : d.gear?.points !== undefined ? { uses: d.gear.points } : {}),
+    ...(d.drink ? { litres: d.drink.empty ? 0 : d.drink.litres } : {}),
+    ...(d.gear?.uses !== undefined ? { uses: d.gear.uses } : d.gear?.points !== undefined ? { uses: d.gear.points } : d.portions !== undefined ? { uses: d.portions } : {}),
     ...(d.perish ? { fresh: 1 } : {}),
     ...o,
   };

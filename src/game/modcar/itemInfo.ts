@@ -12,7 +12,7 @@
  */
 import { DEVICE_BLURB, FRAME_BLURB, PART_BLURB, SCRAPER_BLURB, SPRAY_BLURB, TOOL_BLURB } from '../../core/modcar/blurbs';
 import { partSalvage, toolSalvage } from '../../core/modcar/crafting';
-import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, itemVeil, MATERIALS, MATERIAL_IDS, salvageOf, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
+import { countOf, freshNow, freshStage, insideMass, itemCat, itemDef, itemMass, itemName, itemVeil, MATERIALS, MATERIAL_IDS, salvageOf, type DrinkLiquid, type FreshStage, type ItemCat, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { BRAKE_HEAT, heatKindOf } from '../../core/modcar/brakeHeat';
 import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
@@ -20,6 +20,7 @@ import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
 import { SPRAY_TIERS, sprayLeft, sprayTier } from '../../core/modcar/paint';
 import { kmLeft, TYRE_STAGES, tyreStage } from '../../core/modcar/tyres';
+import { COFFEE_QUENCH } from '../../core/modcar/vitals';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
@@ -476,7 +477,12 @@ export function toolCard(t: Tool): ItemCard {
 
 const ITEM_ICON: Record<ItemCat, CardIcon> = { food: 'food', drink: 'drink', med: 'med', wear: 'wear', pack: 'pack', lamp: 'electric', gear: 'tool', junk: 'box', crate: 'box' };
 const SLOT_ZH: Record<WearSlot, string> = { hat: '戴在头上', jacket: '穿在身上', pants: '穿在腿上', shoes: '穿在脚上', gloves: '戴在手上' };
-const DRINK_ZH = { water: '水', alcohol: '酒', energy: '能量饮料' } as const;
+const DRINK_ZH = { water: '水', alcohol: '酒', energy: '能量饮料', coffee: '咖啡' } as const;
+
+/** the colour of a drink's bar: water blue, spirits the two-stroke's, coffee the oil's brown, the energy drink the charge's */
+export function drinkTone(liquid: DrinkLiquid): Tone {
+  return liquid === 'water' ? 'water' : liquid === 'alcohol' ? 'mix2t' : liquid === 'coffee' ? 'oil' : 'charge';
+}
 
 /** what the recycler gives for it, in words ("20 废料 · 8 有机物"), or '' for nothing */
 export function salvageText(s: Partial<Record<string, number>>): string {
@@ -666,11 +672,14 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
   if (d.eat?.effect === 'sick1' || d.eat?.effect === 'sick2') card.notes.push({ text: '吃了会闹肚子：一阵子掉水分', tone: 'warn' });
   if (d.drink) {
     const l = inst.litres ?? 0;
-    const tone: Tone = d.drink.liquid === 'water' ? 'water' : d.drink.liquid === 'alcohol' ? 'mix2t' : 'charge';
+    const tone = drinkTone(d.drink.liquid);
     card.bars.push({ label: '还剩', value: l, max: d.drink.litres, text: `${l.toFixed(2)} / ${d.drink.litres} L`, tone, parts: [{ tone, value: l, text: `${l.toFixed(2)} L ${DRINK_ZH[d.drink.liquid]}` }] });
     if (d.drink.liquid === 'water') card.rows.push({ value: '+10', label: '解渴（每 0.1 L）', tone: 'good' });
     else if (d.drink.liquid === 'alcohol') card.notes.push({ text: '喝了会醉：看东西晃，手脚慢半拍，但不怕冷', tone: 'warn' });
-    else card.notes.push({ text: '喝完半分钟里跑得快一半，但不解渴', tone: 'ok' });
+    else if (d.drink.liquid === 'coffee') {
+      card.rows.push({ value: `+${COFFEE_QUENCH}`, label: '解渴（每 0.1 L）', tone: 'good' });
+      card.notes.push({ text: '提神暖身：喝了身上暖和 3 分钟，半分钟里跑得快一半', tone: 'ok' });
+    } else card.notes.push({ text: '喝完半分钟里跑得快一半，但不解渴', tone: 'ok' });
   }
   if (d.heal) {
     if (d.heal.hp > 0) card.rows.push({ value: `+${d.heal.hp}`, label: '生命（马上）', tone: 'good' });
@@ -683,6 +692,7 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
   if (d.lamp) card.rows.push({ value: `${d.lamp.range} m`, label: '照多远' });
   if (d.gear?.kind === 'hammer') card.bars.push({ label: '还能砸', value: inst.uses ?? 0, max: d.gear.uses ?? 1, text: `${inst.uses ?? 0} / ${d.gear.uses} 下`, tone: 'mid' });
   if (d.gear?.kind === 'repair') card.bars.push({ label: '修理点数', value: inst.uses ?? 0, max: d.gear.points ?? 1, text: `${inst.uses ?? 0} / ${d.gear.points}`, tone: 'good' });
+  if (d.portions !== undefined) card.bars.push({ label: '还剩', value: inst.uses ?? 0, max: d.portions, text: `${inst.uses ?? 0} / ${d.portions} 份`, tone: 'mid' });
   // a thing that goes off: how fresh, in words, and how long it still keeps where it is
   if (d.perish) {
     const f = freshNow(inst, nowS);

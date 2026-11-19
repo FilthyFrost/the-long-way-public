@@ -257,6 +257,7 @@ export class ModelViewer {
   readonly carRoot = new THREE.Group();
   model: THREE.Object3D | null = null;
   look: CarLook | null = null;
+  private readonly cabinLamp = new THREE.Color();
   ghost: GhostKind | null;
   /** seconds of simulated time */
   time = 0;
@@ -479,8 +480,10 @@ export class ModelViewer {
     if (this.lights > 0 && !this.ghost) globals.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(this.lights > 1 ? 3.0 : 2.4);
     else globals.uHeadColor.value.setRGB(0, 0, 0);
     // the cabin lamp: the game's warm bulb at its strength (vehicle/view.ts)
-    if (this.params.cabin) globals.uCabinLamp.value.setRGB(1.0, 0.7, 0.42).multiplyScalar(0.62);
-    else globals.uCabinLamp.value.setRGB(0, 0, 0);
+    // (the look's own: every vehicle's cabin has its own lamp)
+    if (this.params.cabin) this.cabinLamp.setRGB(1.0, 0.7, 0.42).multiplyScalar(0.62);
+    else this.cabinLamp.setRGB(0, 0, 0);
+    this.look?.setCabinLamp(this.cabinLamp);
   }
 
   render(): void {

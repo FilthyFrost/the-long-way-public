@@ -26,6 +26,8 @@ const CELL = 0.02;
 const FLOOR_LAYER = 7;
 /** how far a zone may be from the eye to aim into (m) */
 const AIM_REACH = 3.2;
+/** where a thing is aimed into a vehicle it keeps to a grid of this step (m: docs/V3/nodes/M2-rv.md) */
+const AIM_GRID = 0.1;
 
 const VS = /* glsl */ `
 uniform mat4 uInv;
@@ -284,6 +286,19 @@ export class CargoBay {
   // ------------------------------------------------------------------ the box of a thing
 
   /** a thing's box as it lies (its model's bounds, wheels on their side); null while the model loads */
+  /** a thing's box once its model is in (boxOf: null until then) */
+  async measured(h: NonNullable<Held>): Promise<ThingBox | null> {
+    const now = this.boxOf(h);
+    if (now) return now;
+    const obj = await this.loose.objectFor(h);
+    obj.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(obj);
+    if (b.isEmpty()) return null;
+    const box = { minX: b.min.x, maxX: b.max.x, minY: b.min.y, maxY: b.max.y, minZ: b.min.z, maxZ: b.max.z };
+    this.boxes.set(boxKey(h), box);
+    return box;
+  }
+
   boxOf(h: NonNullable<Held>): ThingBox | null {
     const key = boxKey(h);
     if (this.boxes.has(key)) return this.boxes.get(key) ?? null;
@@ -304,7 +319,7 @@ export class CargoBay {
    * in it: under the point one looks at on its floor, or the nearest spot round it it fits. yaw: the turn
    * asked for (the wheel), relative to the vehicle.
    */
-  aim(vehicles: readonly ModVehicle[], ray: THREE.Ray, held: NonNullable<Held>, yaw: number, reach = AIM_REACH): StowAim | null {
+  aim(vehicles: readonly ModVehicle[], ray: THREE.Ray, held: NonNullable<Held>, yaw: number, reach = AIM_REACH, inside: ModVehicle | null = null): StowAim | null {
     let best: StowAim | null = null;
     const box = this.boxOf(held);
     const carry = carryOf(held);
@@ -317,6 +332,8 @@ export class CargoBay {
       const o = new THREE.Vector3().copy(ray.origin).applyMatrix4(inv);
       const d = new THREE.Vector3().copy(ray.direction).transformDirection(inv);
       for (const zone of zones) {
+        // (a living space's walls: hung on, not stood on — wallAim)
+        if (zone.wall) continue;
         // the ray into the zone's box
         const t = slab(o, d, zone);
         if (!t || t[0] > reach) continue;
@@ -324,6 +341,9 @@ export class CargoBay {
         const g = this.grid(v, zone);
         // the first point along it that is at or below the floor there: what one looks at
         let near: { x: number; z: number } | null = null;
+        // (how far along the ray it lands: the zone it lands in first is the one aimed at, not the first one it
+        // enters — one may stand inside a living space's zone)
+        let land = Infinity;
         const t1 = Math.min(t[1], reach + 1);
         for (let s = Math.max(0, t[0]); s <= t1; s += 0.02) {
           const x = o.x + d.x * s;
@@ -332,25 +352,91 @@ export class CargoBay {
           const f = gridAt(g, x, z);
           if (!Number.isNaN(f) && y <= f + 0.02) {
             near = { x, z };
+            land = s;
             break;
           }
         }
         if (!near) {
           const s = Math.min(t[1], reach);
           near = { x: clamp(o.x + d.x * s, zone.x[0], zone.x[1]), z: clamp(o.z + d.z * s, zone.z[0], zone.z[1]) };
+          land = 100 + Math.max(t[0], s);
         }
+        if (best && land >= best.dist) continue;
         let spot: Spot | null = null;
         let why = '';
         if (!zoneTakes(zone, carry)) why = `${zone.label.zh}放不下这么大的东西`;
         else if (!box) why = '……';
         else {
-          spot = findSpot(zone, g, box, yaw, near, this.placedIn(v, zone.id));
+          spot = findSpot(zone, g, box, yaw, near, this.placedIn(v, zone.id), AIM_GRID);
           if (!spot) why = `${zone.label.zh}里这里放不下了`;
         }
-        best = { v, zone, spot, why, dist: Math.max(0, t[0]) };
+        best = { v, zone, spot, why, dist: land };
       }
+      // the walls of a living space one stands in, when the mark is on one nearer than any floor
+      const wall = v === inside ? this.wallAim(v, ray, held, reach) : null;
+      if (wall && (!best || wall.dist < best.dist)) best = wall;
     }
     return best;
+  }
+
+  private readonly wallRay = new THREE.Raycaster();
+  private readonly wallInv = new THREE.Matrix4();
+  private readonly wallN = new THREE.Vector3();
+  private readonly wallP = new THREE.Vector3();
+  /**
+   * Where a thing would hang on the wall of a vehicle's living space the ray meets (docs/V3/nodes/M2-rv.md): the
+   * first face of its inside the ray hits within reach, if it stands upright and within the walls' zone; the thing
+   * with its back to it (things face +x), at the height aimed at, to the 10 cm grid; not over another hung there.
+   */
+  private wallAim(v: ModVehicle, ray: THREE.Ray, held: NonNullable<Held>, reach: number): StowAim | null {
+    const zone = zonesOf(v.view.frame.id).find((z) => z.wall);
+    // (the frame's own meshes as drawn — its body and its inside, merged by material: carMerge.ts)
+    const frame = zone ? v.view.root.getObjectByName('FRAME') : null;
+    if (!zone || !frame) return null;
+    const box = this.boxOf(held);
+    if (!box || carryOf(held) === 'large' || box.maxY - box.minY > 1.0) return null;
+    const rc = this.wallRay;
+    rc.ray.copy(ray);
+    rc.far = reach;
+    // (the first face of the frame the mark is on, glass passed over: nothing is hung on a window)
+    let hit: THREE.Intersection | undefined;
+    for (const h of rc.intersectObject(frame, true)) {
+      const mat = (h.object as THREE.Mesh).material as THREE.Material | undefined;
+      if (h.object.name.includes('glass') || mat?.name?.includes('glass')) continue;
+      hit = h;
+      break;
+    }
+    if (!hit?.face) return null;
+    const model = v.view.model;
+    model.updateMatrixWorld(true);
+    this.wallInv.copy(model.matrixWorld).invert();
+    const n = this.wallN.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).transformDirection(this.wallInv);
+    // (facing the one who aims: the face's own normal may point either way)
+    if (n.dot(this.wallP.copy(ray.direction).transformDirection(this.wallInv)) > 0) n.negate();
+    if (Math.abs(n.y) > 0.35) return null;
+    n.y = 0;
+    n.normalize();
+    const p = this.wallP.copy(hit.point).applyMatrix4(this.wallInv);
+    if (p.x < zone.x[0] || p.x > zone.x[1] || p.z < zone.z[0] || p.z > zone.z[1]) return null;
+    const snap = (u: number): number => Math.round(u / AIM_GRID) * AIM_GRID;
+    // the height to the grid, kept within the zone's band; along the wall to the grid
+    const hy = Math.min(zone.top - (box.maxY - box.minY) / 2, Math.max(zone.floor + (box.maxY - box.minY) / 2, snap(p.y)));
+    const yaw = Math.atan2(-n.z, n.x);
+    const out = -box.minX + 0.01;
+    const sx = Math.abs(n.x) > 0.7 ? p.x : snap(p.x);
+    const sz = Math.abs(n.z) > 0.7 ? p.z : snap(p.z);
+    const spot: Spot = { x: sx + n.x * out, y: hy - (box.minY + box.maxY) / 2, z: sz + n.z * out, yaw };
+    // (not over another thing hung there)
+    let why = '';
+    const r = Math.max(box.maxX - box.minX, box.maxZ - box.minZ, box.maxY - box.minY) / 2;
+    for (const q of this.placedIn(v, zone.id)) {
+      const qr = Math.max(q.box.maxX - q.box.minX, q.box.maxZ - q.box.minZ, q.box.maxY - q.box.minY) / 2;
+      if (Math.hypot(q.x - spot.x, q.y - spot.y, q.z - spot.z) < (r + qr) * 0.85) {
+        why = '墙上这里挂不下了';
+        break;
+      }
+    }
+    return { v, zone, spot: why ? null : spot, why, dist: hit.distance };
   }
 
   /** packed in without aiming: the first zone in order with room (null: none) */
@@ -360,11 +446,23 @@ export class CargoBay {
     const carry = carryOf(held);
     const zones = [...zonesOf(v.view.frame.id)].sort((a, b) => a.order - b.order);
     for (const zone of zones) {
-      if (!zoneTakes(zone, carry)) continue;
+      if (zone.wall || !zoneTakes(zone, carry)) continue;
       const spot = findSpot(zone, this.grid(v, zone), box, 0, null, this.placedIn(v, zone.id));
       if (spot) return { zone, spot };
     }
     return null;
+  }
+
+  /**
+   * Where a thing would go in one zone of a vehicle (null: no room there, or no such zone): near a point of it (frame
+   * model space) turned by yaw, as aiming puts it (to its grid; 0: just there), or packed in as packSpot packs. The developer's tabs.
+   */
+  spotIn(v: ModVehicle, zoneId: string, held: NonNullable<Held>, near: { x: number; z: number } | null = null, yaw = 0, grid = AIM_GRID): { zone: CargoZone; spot: Spot } | null {
+    const zone = zonesOf(v.view.frame.id).find((z) => z.id === zoneId);
+    if (!zone || zone.wall || !zoneTakes(zone, carryOf(held))) return null;
+    const box = this.boxOf(held) ?? roughBox(carryOf(held));
+    const spot = findSpot(zone, this.grid(v, zone), box, yaw, near, this.placedIn(v, zone.id), near ? grid : 0);
+    return spot ? { zone, spot } : null;
   }
 
   /** put the held thing at a spot of a zone: a loose thing riding the vehicle from now on */

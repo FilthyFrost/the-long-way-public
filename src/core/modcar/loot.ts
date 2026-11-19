@@ -124,8 +124,26 @@ const JUNK: Record<string, readonly string[]> = {
   other: ['junk_bag_s', 'junk_bucket_old', 'junk_crate_plastic', 'junk_mug', 'junk_cone', 'junk_ball'],
 };
 
+/** what systems added to the places' junk (addJunk), by the sort of place: read after the place's own */
+const ADDED: Record<string, string[]> = {};
+
 function junkOf(siteKind: string): readonly string[] {
-  return JUNK[siteKind] ?? JUNK.other;
+  const own = JUNK[siteKind] ?? JUNK.other;
+  const more = ADDED[JUNK[siteKind] ? siteKind : 'other'];
+  return more ? MERGED[siteKind] ??= [...own, ...more] : own;
+}
+/** each sort of place's junk with what was added to it, made when first asked */
+const MERGED: Record<string, readonly string[]> = {};
+
+/**
+ * A system's kinds among the junk a sort of place has lying about (docs/V3/nodes/M2-rv.md: the coffee maker
+ * without its pot, a coffee pot and ground coffee in a house's kitchen), as the system's module is loaded: from
+ * then on a place of that sort finds them as often as each of its own. The places' own lists stay as they are,
+ * and with nothing added a place finds what it always did.
+ */
+export function addJunk(siteKind: string, ids: readonly string[]): void {
+  (ADDED[siteKind] ??= []).push(...ids);
+  for (const k of Object.keys(MERGED)) delete MERGED[k];
 }
 
 /** the grade a pick may go up to at s metres down the road: mostly plain things (★0-2), now and then a find (★3-5) */

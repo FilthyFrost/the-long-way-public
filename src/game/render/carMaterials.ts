@@ -1248,6 +1248,11 @@ export class CarLook {
     uCabinMax: { value: new THREE.Vector3(-1, -1, -1) },
     /** 1 = under a roof (a garage, a shed): the world's rain and snow do not reach it */
     uShelter: { value: 0 },
+    /**
+     * the light inside its cabin (linear RGB: the room's lamp, a lamp switched on in a motorhome, a television's
+     * flicker), the look's own and not the world's (setCabinLamp: docs/V3/nodes/M2-rv.md)
+     */
+    uCabinLamp: { value: new THREE.Color(0, 0, 0) },
     /** the wipers (setWipers, setWipe): their arcs of the windscreen and where they are in their cycle */
     uWipe: { value: new THREE.Vector4(0, 0, 1.5, 0) },
     // (w 0: no wiper)
@@ -1467,6 +1472,11 @@ export class CarLook {
    */
   setShelter(s: number): void {
     this.shared.uShelter.value = Math.min(1, Math.max(0, s));
+  }
+
+  /** the light inside the cabin box (linear RGB; black: none) */
+  setCabinLamp(c: THREE.Color): void {
+    this.shared.uCabinLamp.value.copy(c);
   }
 
   /** the wipers' arcs of the windscreen (car frame; up to two; none: no wipers) */
