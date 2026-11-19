@@ -1060,6 +1060,94 @@ const COVER_FLOWERS = 0.55;
 const ROW_FLOWERS = 0.8;
 const cb = new CoverBase();
 
+/**
+ * What the grass is at one point of the land: the 2 m samples a grass tile reads its tufts from (grassSlices) and
+ * the meadow's map holds for its blades (scene/meadow.ts), one function for both.
+ */
+export class MeadowSample {
+  /** the ground's height (m) and the distance from the road's centre line (m) */
+  y = 0;
+  ad = 0;
+  /** 1 where no grass may stand (in or beside water, on a bridge, a place's ground, a bare plot), else 0 */
+  bare = 0;
+  /** towards a shore the meadow is grazed short (and the water shows over it): 0 … about 1.2 */
+  shore = 0;
+  /** how much grows (the share of cells with a tuft), how lush the weeds on the old road are, the tufts' size */
+  grow = 0;
+  lush = 0;
+  size = 0;
+  /** flowers: 0 none … 1 a carpet */
+  flowers = 0;
+  /** the palette slots it is painted from (a + 4 b), the share of b, and the nearer slot */
+  pair = 0;
+  share = 0;
+  slot = 0;
+  /** how mown it is (a plot of the caller's: Plot.grass), 1 not at all */
+  mow = 1;
+  /** how tall the grass itself is (m): a world of version 2's cover; else the tufts' size in the same measure */
+  tall = 0;
+  /**
+   * a world of version 2: the land's slope, how far its rows are bent off the z axis, how fully the country is
+   * cut into benches and their step, the region whose cover it is, and how wooded it is (the ecotope's canopy)
+   */
+  slope = 0;
+  bend = 0;
+  terrace = 0;
+  step = 0;
+  region = 0;
+  canopy = 0;
+}
+const ms = new MeadowSample();
+
+/** what the grass is at (x, z) (MeadowSample), as the grass of a tile has always read it */
+export function meadowSample(world: World, x: number, z: number, out: MeadowSample): MeadowSample {
+  world.shape(x, z, tp);
+  out.y = tp.bed;
+  // (… nor on the sand of a sea beach)
+  out.bare = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || (tp.plot > 0.999 && world.plotBare(x, z)) || world.sites.bareAt(x, z) ? 1 : 0;
+  // towards a shore the meadow is grazed short (and the water shows over it)
+  out.shore = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
+  out.ad = tp.d < 0 ? -tp.d : tp.d;
+  const sa = BIOME_STYLES[tp.ba];
+  const sb = BIOME_STYLES[tp.bb];
+  const mixOf = (x: number | undefined, y: number | undefined, dflt: number): number => (x ?? dflt) + ((y ?? dflt) - (x ?? dflt)) * tp.bt;
+  out.grow = mixOf(sa.grassGrow, sb.grassGrow, 0.5);
+  out.lush = mixOf(sa.grassLush, sb.grassLush, 0.6);
+  out.size = mixOf(sa.grassSize, sb.grassSize, 0.85);
+  out.flowers = mixOf(sa.flowerAmount, sb.flowerAmount, 0);
+  out.pair = (tp.ca & 3) + 4 * (tp.cb & 3);
+  out.share = tp.bt;
+  out.slot = (tp.bt < 0.5 ? tp.ca : tp.cb) & 3;
+  out.mow = tp.plot > 0 ? world.plotGrass(x, z) : 1;
+  out.tall = out.size * COVER_HEIGHT;
+  out.slope = out.bend = out.terrace = out.step = out.region = out.canopy = 0;
+  const field = world.eco;
+  if (field) {
+    // the cover's smooth part here; towards a shore the grass stands tall (reeds, wet meadow), except
+    // where a coast road keeps its view over a beach
+    field.at(x, z, eco);
+    const region = eco.rt >= 0.5 ? eco.rb : eco.ra;
+    const c = coverOf(region);
+    out.canopy = eco.canopy;
+    // (what the ecotope's nearest node says of roads, places and plots is too coarse for grass, and is
+    // decided here as it always was: by the road's own distance, the places' ground, a plot's lawn)
+    eco.flags = 0;
+    coverBase(eco, c, cb);
+    out.grow = cb.grass * COVER_GROW;
+    // (a grass twice as tall is not drawn twice as tall: the tufts were always taller than the grass they stand for)
+    out.size = Math.pow(cb.height / COVER_HEIGHT, 0.6);
+    out.tall = cb.height;
+    out.flowers = cb.flowers;
+    out.slope = eco.slope;
+    out.bend = c.rows ? rowCoord(world.seed, x, z) - z : 0;
+    out.terrace = eco.terrace;
+    out.step = eco.step;
+    out.region = region;
+    out.shore = 1.2 * world.sea.open(tp.s, tp.d);
+  }
+  return out;
+}
+
 /** A build spread over several frames: it pauses at each `yield` (the end of a row) and returns its result. */
 export type Slices<T> = Generator<void, T, void>;
 
@@ -1072,8 +1160,8 @@ export function finish<T>(g: Slices<T>): T {
 }
 
 /** Grass on tile (gx, gz), all at once (tests, tools). The world view builds it in slices. */
-export function buildGrass(world: World, gx: number, gz: number, density: number, near: boolean): GrassTile | null {
-  return finish(grassSlices(world, gx, gz, density, near));
+export function buildGrass(world: World, gx: number, gz: number, density: number, near: boolean, flowersOnly = false): GrassTile | null {
+  return finish(grassSlices(world, gx, gz, density, near, flowersOnly));
 }
 
 /**
@@ -1084,8 +1172,11 @@ export function buildGrass(world: World, gx: number, gz: number, density: number
  * field's ground cover (core/world/flora.ts `FloraField.cover`), read the way floraCover.ts says: its smooth
  * part on the same 2 m grid, its rows — of the flower fields, of the crops on the terraces' benches — tuft by
  * tuft. The old road's weeds, a plot's lawn, the comb of a meadow and the fades are as they were.
+ *
+ * `flowersOnly`: the flowers alone, the same ones, and no tufts (a world of version 2 draws its grass as the
+ * meadow's blades: scene/meadow.ts).
  */
-export function* grassSlices(world: World, gx: number, gz: number, density: number, near: boolean): Slices<GrassTile | null> {
+export function* grassSlices(world: World, gx: number, gz: number, density: number, near: boolean, flowersOnly = false): Slices<GrassTile | null> {
   const x0 = gx * GRASS_TILE;
   const z0 = gz * GRASS_TILE;
   const G = GRASS_TILE / GRID + 1;
@@ -1116,47 +1207,28 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
   let oy = 0;
   for (let j = 0; j < G; j++) {
     for (let i = 0; i < G; i++) {
-      world.shape(x0 + i * GRID, z0 + j * GRID, tp);
       const k = j * G + i;
-      hs[k] = tp.bed;
-      // (… nor on the sand of a sea beach)
-      bare[k] = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || (tp.plot > 0.999 && world.plotBare(x0 + i * GRID, z0 + j * GRID)) || world.sites.bareAt(x0 + i * GRID, z0 + j * GRID) ? 1 : 0;
-      // towards a shore the meadow is grazed short (and the water shows over it)
-      shore[k] = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
-      ds[k] = tp.d < 0 ? -tp.d : tp.d;
-      const sa = BIOME_STYLES[tp.ba];
-      const sb = BIOME_STYLES[tp.bb];
-      const mixOf = (x: number | undefined, y: number | undefined, dflt: number): number => (x ?? dflt) + ((y ?? dflt) - (x ?? dflt)) * tp.bt;
-      gGrow[k] = mixOf(sa.grassGrow, sb.grassGrow, 0.5);
-      gLush[k] = mixOf(sa.grassLush, sb.grassLush, 0.6);
-      gSize[k] = mixOf(sa.grassSize, sb.grassSize, 0.85);
-      gFlower[k] = mixOf(sa.flowerAmount, sb.flowerAmount, 0);
-      gPair[k] = (tp.ca & 3) + 4 * (tp.cb & 3);
-      gShare[k] = tp.bt;
-      gSlot[k] = (tp.bt < 0.5 ? tp.ca : tp.cb) & 3;
-      gMow[k] = tp.plot > 0 ? world.plotGrass(x0 + i * GRID, z0 + j * GRID) : 1;
-      if (field && gSlope && gBend && gTerr && gStep && gReg) {
-        // the cover's smooth part here; towards a shore the grass stands tall (reeds, wet meadow), except
-        // where a coast road keeps its view over a beach
-        field.at(x0 + i * GRID, z0 + j * GRID, eco);
-        const region = eco.rt >= 0.5 ? eco.rb : eco.ra;
-        const c = coverOf(region);
-        // (what the ecotope's nearest node says of roads, places and plots is too coarse for grass, and is
-        // decided here as it always was: by the road's own distance, the places' ground, a plot's lawn)
-        eco.flags = 0;
-        coverBase(eco, c, cb);
-        gGrow[k] = cb.grass * COVER_GROW;
-        // (a grass twice as tall is not drawn twice as tall: the tufts were always taller than the grass they stand for)
-        gSize[k] = Math.pow(cb.height / COVER_HEIGHT, 0.6);
-        gFlower[k] = cb.flowers;
-        gSlope[k] = eco.slope;
-        gBend[k] = c.rows ? rowCoord(world.seed, x0 + i * GRID, z0 + j * GRID) - (z0 + j * GRID) : 0;
-        gTerr[k] = eco.terrace;
-        gStep[k] = eco.step;
-        gReg[k] = region;
-        shore[k] = 1.2 * world.sea.open(tp.s, tp.d);
+      const m = meadowSample(world, x0 + i * GRID, z0 + j * GRID, ms);
+      hs[k] = m.y;
+      bare[k] = m.bare;
+      shore[k] = m.shore;
+      ds[k] = m.ad;
+      gGrow[k] = m.grow;
+      gLush[k] = m.lush;
+      gSize[k] = m.size;
+      gFlower[k] = m.flowers;
+      gPair[k] = m.pair;
+      gShare[k] = m.share;
+      gSlot[k] = m.slot;
+      gMow[k] = m.mow;
+      if (gSlope && gBend && gTerr && gStep && gReg) {
+        gSlope[k] = m.slope;
+        gBend[k] = m.bend;
+        gTerr[k] = m.terrace;
+        gStep[k] = m.step;
+        gReg[k] = m.region;
       }
-      if (i === 0 && j === 0) oy = tp.bed;
+      if (i === 0 && j === 0) oy = m.y;
     }
     // (this grid is the dearer half: pause every few rows)
     if ((j & 3) === 3) yield;
@@ -1211,11 +1283,13 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
       const lawn = mow < 1 ? Math.min(1, (1 - mow) / 0.6) : 0;
       const f = 0.7 + 0.75 * r3 * r3 + 0.3 * r2;
       const size = (lawn > 0 ? Math.pow(f, 1 - 0.65 * lawn) * mow : f) * (onRoad ? 0.7 : 0.6 + 0.4 * smoothstep(4.9, 10, ad)) * lerpGrid(gSize, fx, fz) * (1 - 0.55 * lerpGrid(shore, fx, fz));
-      roots.push(lx, y, lz, size);
-      // a meadow is combed one way: tufts turn only a little from the direction of the field
-      const comb = fbm2((x0 + lx) / 60, (z0 + lz) / 60, world.seed + 0x3c0, 1) * 2.4;
-      // (how mown it is rides in the slot number's spare fraction: the grass paints a lawn lusher and more even)
-      info.push(gPair[kn] + 0.45 * lawn, gShare[kn], keep, comb + (r3 - 0.5) * 1.4);
+      if (!flowersOnly) {
+        roots.push(lx, y, lz, size);
+        // a meadow is combed one way: tufts turn only a little from the direction of the field
+        const comb = fbm2((x0 + lx) / 60, (z0 + lz) / 60, world.seed + 0x3c0, 1) * 2.4;
+        // (how mown it is rides in the slot number's spare fraction: the grass paints a lawn lusher and more even)
+        info.push(gPair[kn] + 0.45 * lawn, gShare[kn], keep, comb + (r3 - 0.5) * 1.4);
+      }
       // flowers grow in drifts across the meadows (not on a lawn)
       const flowers = lerpGrid(gFlower, fx, fz) * (1 - lawn);
       if (gSlope && gBend && gTerr && gStep && gReg) {
@@ -1254,7 +1328,7 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
     }
     if ((j & 7) === 7) yield;
   }
-  if (roots.length === 0) return null;
+  if (roots.length === 0 && fr.length === 0) return null;
   return {
     roots: new Float32Array(roots),
     info: new Float32Array(info),

@@ -14,6 +14,11 @@ closely, it is listed here:
   and with numbers of our own; the conifer grower there is ours.
 - `src/game/render/crownMaterial.ts` — how a crown's sprays, cores and bark are painted (`src/valley/trees.js`
   `leafFragment`, `coreFragment`, `woodFragment`), in the game's own light and palettes.
+- `src/game/render/meadowMaterial.ts` and `src/game/scene/meadow.ts` — the meadow's blades: rings of instanced
+  blades following the eye, each placed and shaped by its world cell's numbers, bent in an arc, turned partly to
+  the eye, fading from ring to ring on distances of their own (`src/lib/blades.js`, its rings' figures, its tall
+  and short patches, clumps, seed stalks and the low sun among them), read from a map of our land's samples and
+  painted in the game's own ground paint.
 
 ```
 MIT License

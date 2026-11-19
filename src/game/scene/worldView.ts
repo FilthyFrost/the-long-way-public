@@ -17,6 +17,7 @@ import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terr
 import type { Lake, River, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
 import { CrownView } from './crowns/crownView';
+import { Meadow } from './meadow';
 import { floraMesh, floraShadows } from './floraMesh';
 import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
@@ -125,6 +126,12 @@ export class WorldView {
   private readonly floraMat: THREE.ShaderMaterial | null;
   /** a world of version 2: the trees of the nearer tiles drawn as painted crowns (scene/crowns/crownView.ts); null in a world of version 1 */
   readonly crowns: CrownView | null;
+  /**
+   * a world of version 2: its grass, drawn as Painted Valley grows it (scene/meadow.ts) — rings of blades round the
+   * eye out to some 120 m, read from a map of the land's samples round the vehicle; its grass tiles hold only its
+   * flowers. Null in a world of version 1 (its tufts as they were), and where the quality draws no grass.
+   */
+  readonly meadow: Meadow | null;
   private readonly proj = { s: 0, d: 0 };
   private readonly group = new THREE.Group();
   private sCam = 0;
@@ -151,6 +158,7 @@ export class WorldView {
       const crowns = this.crowns;
       core.onFrame(() => crowns.update());
     }
+    this.meadow = this.plants && q.density >= 0.6 ? new Meadow(core, world, q.density) : null;
     this.kinds = this.plants ? null : buildScatterKinds();
     if (this.plants) {
       // … and paints its ground and its flowers by the flora field's ground cover. (The materials are made
@@ -309,7 +317,8 @@ export class WorldView {
           const dx = cx < gx * GRASS_TILE ? gx * GRASS_TILE - cx : cx > (gx + 1) * GRASS_TILE ? cx - (gx + 1) * GRASS_TILE : 0;
           const dz = cz < gz * GRASS_TILE ? gz * GRASS_TILE - cz : cz > (gz + 1) * GRASS_TILE ? cz - (gz + 1) * GRASS_TILE : 0;
           const dist = Math.hypot(dx, dz);
-          if (dist < Rg) wantG.set(`${gx},${gz}`, { gx, gz, dist, near: dist < GRASS_NEAR });
+          // (with the meadow's blades the tiles hold only the flowers, and those only the near tiles have)
+          if (dist < Rg && (!this.meadow || dist < GRASS_NEAR)) wantG.set(`${gx},${gz}`, { gx, gz, dist, near: dist < GRASS_NEAR });
         }
       }
     }
@@ -763,12 +772,13 @@ export class WorldView {
   private makeGrass(key: string, gx: number, gz: number, near: boolean): void {
     const want = this.wantGrass.get(key);
     if (!want || want.near !== near) return;
-    const r = this.slice<GrassTile | null>(`g|${key}|${near ? 1 : 0}`, () => grassSlices(this.world, gx, gz, this.q.density, near), () => this.makeGrass(key, gx, gz, near));
+    const flowersOnly = this.meadow !== null;
+    const r = this.slice<GrassTile | null>(`g|${key}|${near ? 1 : 0}`, () => grassSlices(this.world, gx, gz, this.q.density, near, flowersOnly), () => this.makeGrass(key, gx, gz, near));
     if (!r.done) return;
     const g = r.value;
     const objects: THREE.Object3D[] = [];
     if (g) {
-      objects.push(this.add(this.instanced(this.grassGeo, this.grassMat, g.roots, g.info, g.count), g.wx, g.wy, g.wz));
+      if (g.count > 0) objects.push(this.add(this.instanced(this.grassGeo, this.grassMat, g.roots, g.info, g.count), g.wx, g.wy, g.wz));
       if (g.flowers > 0) objects.push(this.add(this.instanced(this.flowerGeo, this.flowerMat, g.flowerRoots, g.flowerInfo, g.flowers), g.wx, g.wy, g.wz));
     }
     const old = this.grass.get(key);
@@ -783,10 +793,12 @@ export class WorldView {
    * @param budgetMs time allowed for building this frame; Infinity builds everything now
    */
   update(cx: number, cz: number, budgetMs: number): void {
+    const t0 = performance.now();
+    // the meadow's map first, the samples nearest the vehicle first: a share of the time, all of it after a jump
+    if (this.meadow) this.meadow.update(cx, cz, budgetMs >= 30 ? budgetMs : Math.min(budgetMs * 0.35, 1.2));
     const moved = Math.hypot(cx - this.planX, cz - this.planZ);
     if (!(moved < 14)) this.plan(cx, cz);
     if (this.jobs.length === 0) return;
-    const t0 = performance.now();
     let ran = 0;
     while (this.jobs.length > 0) {
       const job = this.jobs.shift()!;
@@ -802,7 +814,7 @@ export class WorldView {
   }
 
   get pending(): number {
-    return this.jobs.length;
+    return this.jobs.length + (this.meadow ? this.meadow.pending : 0);
   }
 
   get counts(): { strips: number; terrain: number; tiles: number; sites: number; pending: number } {
