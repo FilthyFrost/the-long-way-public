@@ -58,10 +58,16 @@ export class ShadowPass {
     this.depthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { tLeaf: { value: sharedTextures().leaf } },
+      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf } },
       vertexShader: /* glsl */ `
         // leaf cards cut their shadows out of the leaf texture (absent attribute = 0 = solid)
         attribute float aCard;
+        #ifdef USE_INSTANCING
+        attribute float aPart;
+        attribute vec4 aLook;
+        attribute vec4 aTree;
+        uniform vec4 uWeather;
+        #endif
         varying float vCard;
         varying vec2 vUv;
         void main() {
@@ -69,6 +75,12 @@ export class ShadowPass {
           vUv = uv;
           mat4 m = modelMatrix;
           #ifdef USE_INSTANCING
+          // Crown instances carry aTree (absent on other meshes). Bare boughs cast a bare shadow.
+          if (aTree.w > 0.0 && aPart > 0.5 && aLook.y < 4.0 &&
+              max(fract(aLook.x) * 4.0, uWeather.y) > 0.5 + 0.18 * aTree.x) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+          }
           m = modelMatrix * instanceMatrix;
           #endif
           gl_Position = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
@@ -87,7 +99,7 @@ export class ShadowPass {
     this.floraDepthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
+      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
       vertexShader: /* glsl */ `
         ${FLORA_VERTEX}
         varying float vCard;

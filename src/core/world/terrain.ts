@@ -17,6 +17,7 @@ import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
 import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
+import { FloraVistas } from './floraVista';
 import { FloraField } from './flora';
 import { floraTableOf } from './floraTables';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
@@ -314,6 +315,11 @@ export class World implements Ground {
   private readonly rm = new ReliefMix();
   /** the ecotope field and the flora field of a world of version 2, once they have been asked for (`eco`, `flora`) */
   private ecoField: EcotopeField | null = null;
+  private floraVistas: FloraVistas | null = null;
+  get vistas(): FloraVistas {
+    return (this.floraVistas ??= new FloraVistas(this, new TerrainPoint()));
+  }
+
   private floraField: FloraField | null = null;
 
   constructor(seed: number, opts: WorldOptions = {}) {

@@ -11,10 +11,10 @@
  *
  * The four tones come from the region's woods (render/paint.ts rtWoodTone) or from the plant's own colour, as
  * every other plant of the game is painted (render/floraMaterial.ts): autumn country turns them, snow lies on
- * the evergreens of snow country, cast shadows and cloud shadows darken them, the fog takes them.
+ * the boughs of snow country, cast shadows and cloud shadows darken them, the fog takes them.
  *
  * Per instance (InstancedMesh): instanceMatrix, and
- *   aLook  the palette slots (a + 4 b); the share of the second + 2 if it bears + 4 if evergreen; its first
+ *   aLook  the palette slots (a + 4 b) + 1/4 of the settled snow; the share of the second + 2 if it bears + 4 if evergreen; its first
  *          colour (0xRRGGBB, −1: the region's); its second (its bark's, where it paints the bark)
  *   aTree  its own number 0 … 1; how much it sways; 1 if its bark is its second colour; the height the model
  *          is scaled by (m to a metre of the model, for the wind)
@@ -68,6 +68,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
       varying vec4 vTint;
       varying vec3 vTint2;
       varying float vEver;
+      varying float vSettled;
       varying float vVar;
       varying float vBark;
       vec3 rtHexColour(float h) {
@@ -98,6 +99,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vBark = aTree.z;
         float flags = floor(aLook.y * 0.5);
         vEver = floor(flags * 0.5);
+        vSettled = fract(aLook.x) * 4.0;
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);
         vTint2 = rtHexColour(max(aLook.w, 0.0));
@@ -121,6 +123,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
       varying vec4 vTint;
       varying vec3 vTint2;
       varying float vEver;
+      varying float vSettled;
       varying float vVar;
       varying float vBark;
       // the four tones of a crown: its own colour's, or its region's woods (turned in autumn country)
@@ -148,7 +151,9 @@ export function crownMaterial(): THREE.ShaderMaterial {
         float dist = length(cameraPosition - vPos);
         vec3 col;
         vec3 albedo;
+        float load = max(vSettled, uWeather.y);
         float alpha = 0.85;
+        if (vPart > 0.5 && vEver < 0.5 && load > 0.5 + 0.18 * vVar) discard;
         if (vPart > 1.5) {
           // a spray: its picture, kept whole far off as it blurs (the cut falls with distance)
           float leafTone = 0.75;
@@ -162,7 +167,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           tone += ((vCrown.x - 0.5) * 0.36 + (leafTone - 0.76) * 0.5) * fine;
           tone -= (1.0 - sh) * 0.3;
           albedo = crownTone(p, tone);
-          float snow = smoothstep(0.25, 0.7, n.y + (vCrown.x - 0.5) * 0.5) * max(0.72 * vEver * p.misc.x, uWeather.y * 0.85);
+          float snow = smoothstep(0.25, 0.7, n.y + (vCrown.x - 0.5) * 0.5) * load;
           albedo = mix(albedo, rtSnowTone(tone), snow);
           vec3 light = uSkyColor * 0.9 + uBounceColor * 0.4 + uSunColor * (0.16 + 0.2 * smoothstep(0.5, 0.9, tone)) * sh;
           col = albedo * light;
@@ -180,7 +185,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           float grain = texture2D(tNoise, rtWorldXZ(vPos) * 0.9 / 64.0 + vPos.y * 0.0058).r;
           float tone = (dot(n, L) * 0.5 + 0.5) * mix(0.5, 1.0, vCrown.z) + (grain - 0.5) * 0.36 - 0.06 - (1.0 - sh) * 0.25;
           albedo = crownTone(p, min(tone, 0.7));
-          float snow = smoothstep(0.3, 0.8, n.y) * max(0.6 * vEver * p.misc.x, uWeather.y * 0.7);
+          float snow = smoothstep(0.3, 0.8, n.y) * (load * 0.88);
           albedo = mix(albedo, rtSnowTone(tone), snow);
           col = albedo * (uSkyColor * 0.9 + uBounceColor * 0.4 + uSunColor * (0.16 + 0.12 * smoothstep(0.5, 0.9, tone)) * sh);
         } else {
@@ -195,7 +200,8 @@ export function crownMaterial(): THREE.ShaderMaterial {
             bark = mix(vTint2 * mix(0.75, 1.0, stroke), vec3(0.05, 0.045, 0.045), mark * 0.85);
           }
           float moss = smoothstep(0.45, 0.7, patchy * 0.6 + n.y * 0.5 - dot(n, uSunDir) * 0.2 + 0.25) * 0.75 * (1.0 - vBark * 0.7);
-          albedo = mix(bark, vec3(0.06, 0.13, 0.035), moss);
+          albedo = mix(bark, vec3(0.06, 0.13, 0.035), moss * (1.0 - load));
+          albedo = mix(albedo, rtSnowTone(0.65), load * smoothstep(0.18, 0.72, n.y));
           float sh = rtShadow(vPos, n);
           float sun = smoothstep(-0.15, 0.6, dot(n, uSunDir)) * sh;
           col = albedo * (uSunColor * sun * 0.62 + mix(uBounceColor * 2.0, uSkyColor, n.y * 0.5 + 0.5) * 0.85);
