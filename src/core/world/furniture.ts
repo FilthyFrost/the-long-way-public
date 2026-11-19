@@ -13,6 +13,7 @@
  * is not a function of the seed, and the plan remembers it for as long as the journey lasts.
  */
 import { hash2 } from '../math/rng';
+import { roadStyleAt } from './roadStyles';
 import { Solid, type SolidSource } from './solids';
 import { SpineSample } from './spine';
 import type { TerrainPoint, World } from './terrain';
@@ -100,6 +101,11 @@ export class Furniture implements SolidSource {
     world.shape(x + nx * 5.2, z + nz * 5.2, tp);
     if (tp.site > 0.05 || tp.plot > 0.05) return false;
     const h5 = tp.h;
+    if (world.rules.version === 2 && tp.wl < tp.bed) {
+      const rail = roadStyleAt(world,s).rail;
+      const field = Math.floor(s/128);
+      if ((rail === 'fence' || rail === 'stone') && (hash2(field,side,world.seed)&7) < 3) return true;
+    }
     // up to a bridge, on both sides
     if (this.br.mask > 0) return true;
     world.water.bridgeAt(s + 34, this.br);

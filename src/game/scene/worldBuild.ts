@@ -27,6 +27,7 @@ import { LandParams } from '../../core/world/landform';
 import { SpineSample } from '../../core/world/spine';
 import { ROAD_EDGE, TerrainPoint, type World } from '../../core/world/terrain';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, type River } from '../../core/world/water';
+import { roadStyleAt } from '../../core/world/roadStyles';
 import { RAIL_AT, RAIL_STEP, type RailRun, type RoadPost } from '../../core/world/furniture';
 import { ModelBuilder } from '../vehicle/builder';
 import { PaintBuilder } from './paintBuilder';
@@ -219,6 +220,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   const bw = new Float32Array(n * 4);
   const gd = new Float32Array(n * 4);
   const road = new Float32Array(n * 4);
+  const styles = world.rules.version === 2 ? new Float32Array(n*4) : null;
   // a world of version 2: the woods beside the road are the ecotope's, and the land carries its region's rows
   const field = world.eco;
   const cov = field ? new Float32Array(n * 2) : null;
@@ -230,6 +232,9 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
     sp.at(s, st);
     const nx = -Math.sin(st.phi);
     const nz = Math.cos(st.phi);
+    // The last vertex of both triangles comes from this row: the flat attribute
+    // keeps the construction joint at the same station at all three mesh levels.
+    const style = styles ? roadStyleAt(world, s - 0.01) : null;
     // over a river the strip is the deck alone: everything beyond its edge is folded onto the edge
     // (the land below belongs to the terrain leaves, the sides and railings to the bridge mesh)
     world.water.bridgeAt(s, bridgeProbe);
@@ -250,6 +255,12 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
       pos[k * 3 + 1] = hd - oy - (skirt && !onBridge ? 1.6 : 0);
       pos[k * 3 + 2] = wz - oz;
       if (alt) alt[k] = sp.altitude(hd);
+      if (styles && style) {
+        styles[k*4] = style.pavement;
+        styles[k*4+1] = style.lines;
+        styles[k*4+2] = style.verge;
+        styles[k*4+3] = style.half;
+      }
       road[k * 4] = d;
       road[k * 4 + 1] = s - sBase;
       road[k * 4 + 2] = bridgeProbe.mask;
@@ -316,6 +327,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   g.setAttribute('aBiomeW', new THREE.BufferAttribute(bw, 4));
   g.setAttribute('aGround', new THREE.BufferAttribute(gd, 4));
+  if (styles) g.setAttribute('aRoadStyle', new THREE.BufferAttribute(styles,4));
   g.setAttribute('aRoad', new THREE.BufferAttribute(road, 4));
   if (cov) g.setAttribute('aCover', new THREE.BufferAttribute(cov, 2));
   if (alt) g.setAttribute('aAlt', new THREE.BufferAttribute(alt, 1));
@@ -786,6 +798,7 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
     const y = p.y - oy;
     const z = p.z - oz;
     // most stand straight; the leaning ones lean any way
+    const postColor = world.rules.version === 2 && roadStyleAt(world,p.s).rail === 'wood' ? 0x806649 : 0xe9e6dc;
     const lean = p.state === 1 ? 0.22 + 0.3 * (((p.h >>> 16) & 255) / 255) : 0.02;
     const dir = (((p.h >>> 20) & 1023) / 1023) * 6.283;
     const tx = Math.cos(dir) * Math.sin(lean);
@@ -796,7 +809,7 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
       const fx = Math.cos(p.fall);
       const fz = Math.sin(p.fall);
       if (p.kind === 'delineator') {
-        b.bar(x, y + 0.06, z, x + fx * 1.18, y + 0.08, z + fz * 1.18, 0.12, 0xe9e6dc);
+        b.bar(x, y + 0.06, z, x + fx * 1.18, y + 0.08, z + fz * 1.18, 0.12, postColor);
         b.bar(x + fx * 0.82, y + 0.065, z + fz * 0.82, x + fx * 1.08, y + 0.075, z + fz * 1.08, 0.132, 0x30353a);
       } else if (p.kind === 'chevron') {
         b.bar(x, y + 0.045, z, x + fx * 1.95, y + 0.055, z + fz * 1.95, 0.09, 0x7b7f84);
@@ -807,7 +820,7 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
     }
     if (p.kind === 'delineator') {
       // (tall enough to stand clear of the weeds that have come up round it)
-      b.bar(x, y - 0.15, z, x + tx * 1.18, y + ty * 1.18, z + tz * 1.18, 0.12, 0xe9e6dc);
+      b.bar(x, y - 0.15, z, x + tx * 1.18, y + ty * 1.18, z + tz * 1.18, 0.12, postColor);
       // a dark band near the top with the reflector in it: red on the right, pale on the left
       b.bar(x + tx * 0.82, y + ty * 0.82, z + tz * 0.82, x + tx * 1.08, y + ty * 1.08, z + tz * 1.08, 0.132, 0x30353a);
       b.bar(x + tx * 0.89, y + ty * 0.89, z + tz * 0.89, x + tx * 1.01, y + ty * 1.01, z + tz * 1.01, 0.14, p.side > 0 ? 0xc9503c : 0xe6dcc0);
@@ -844,6 +857,10 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
       const y = tp.h - oy;
       const z = wz - oz;
       const hh = hash2(Math.round(s / RAIL_STEP), r.side + 11, world.seed);
+      if (world.rules.version === 2 && roadStyleAt(world,s-RAIL_STEP/2).rail !== 'steel') {
+        px = x; py = y; pz = z;
+        continue;
+      }
       const steel = (hh & 0xff) < 70 ? RAIL_RUST : RAIL_STEEL;
       b.bar(x, y - 0.25, z, x, y + 0.74, z, 0.1, 0x6f6a62);
       if (i > 0) {
