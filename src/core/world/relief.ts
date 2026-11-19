@@ -77,6 +77,32 @@ export function rangeField(x: number, z: number, seed: number): number {
   return m * smoothstep(0.12, 0.85, r);
 }
 
+/** the great ranges of the far country begin to rise this far from the road (m) … */
+export const GREAT_FROM = 14000;
+/** … and stand whole this far out (m) */
+export const GREAT_FULL = 32000;
+
+/**
+ * The great ranges of the far country (the sample stretch of node L): beyond some fifteen kilometres from the
+ * road the land rises into ranges of the continent's own — 1.4 to 4 km high, the belt higher and lower in
+ * sweeps of some sixty kilometres, whatever the country by the road — so that a plain too has mountains on its
+ * horizon and a mountain valley has more mountains behind its walls, the layers rising with the distance as
+ * real horizons do (docs/V3/research/landscape-params.md P2e: a main range 15–35 km out, high mountains
+ * 40–80 km). Crisp ridges some nine kilometres apart, spurs and gullies on their upper parts. Over country
+ * already high (`under`: what the land rises to there without them) they add half as much at most: a far range
+ * stands over the walls, not on top of them.
+ */
+export function greatRange(x: number, z: number, lat: number, under: number, seed: number): number {
+  const g = smoothstep(GREAT_FROM, GREAT_FULL, lat);
+  if (g <= 0) return 0;
+  const belt = 1400 + 2600 * smoothstep(-0.4, 0.5, fbm2(x / 60000, z / 60000, seed, 2));
+  const r = ridged2(x / 16000, z / 16000, seed + 1, 3, 2.05, 0.5);
+  let h = smoothstep(0.15, 0.9, r);
+  if (h <= 0) return 0;
+  h += 0.22 * h * (ridged2(x / 3800, z / 3800, seed + 2, 2) - 0.45);
+  return belt * g * (h > 0 ? h : 0) * (1 - 0.5 * smoothstep(1000, 3000, under));
+}
+
 /** what the long blend gives at a point of the road: the ranges and the walls of the country there */
 export class ReliefMix {
   /** the ranges: how high at their fullest (m), from how far out (m), whole how far out (m) */
@@ -233,7 +259,9 @@ export function wallAt(x: number, z: number, dzl: number, m: ReliefMix, open: nu
     if (n > notch) notch = n;
   }
   top *= 1 - notch;
-  if (u < 1) return top * Math.pow(u, 1.7);
+  // (the wall's face is not one smooth sweep: spurs stand out of it and gullies are cut into it, over its upper
+  // two thirds, a few hundred metres apart — what a matte painter paints the light along)
+  if (u < 1) return top * Math.pow(u, 1.7) * (1 + 0.16 * (ridged2(x / 760, z / 760, sd + 7, 3, 2.1, 0.5) - 0.42) * smoothstep(0.25, 0.85, u));
   // behind the crest the land falls to the next valley, where the ranges beyond take over
   return top * (1 - BACK_FALL * smoothstep(0, BACK_RUN, (u - 1) * run));
 }

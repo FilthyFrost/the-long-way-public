@@ -106,6 +106,10 @@ export const GROUND_PAINT = /* glsl */ `
       vec3 nx = normalize(vec3(n.x * 3.2, n.y, n.z * 3.2));
       float relSide = clamp(0.5 + (dot(nx, Ls) - Ls.y) * 1.5, 0.0, 1.0);
       rel = mix(rel, relSide, smoothstep(1200.0, 4500.0, dist) * 0.75);
+      // (far off, a painter lays a range in three tones with firm edges between them — shade, half light,
+      // light — not in a smooth turning: the form reads, and the broad faces stay broad)
+      float relQ = 0.3 + 0.38 * smoothstep(0.44, 0.5, rel) + 0.24 * smoothstep(0.64, 0.7, rel);
+      rel = mix(rel, relQ, smoothstep(2200.0, 7000.0, dist) * 0.85);
     }
 
     // ---- tone: slope to the sun, then brushwork that fades out with distance
@@ -226,6 +230,15 @@ export const GROUND_PAINT = /* glsl */ `
     float snowLine = lines.x + 900.0 * smoothstep(0.06, 0.4, steep);
     float alt = smoothstep(snowLine - 150.0, snowLine + 150.0, vAlt + (nz.g - 0.5) * 300.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
     alt *= 1.0 - smoothstep(0.5, 0.78, steep);
+    {
+      // on a steep face the snow lies in the gullies, in streaks down the fall line, not in blotches: read
+      // across the slope whichever way it faces, from marks that stay where they are on the ground
+      vec2 fall = n.xz / max(length(n.xz), 1e-4);
+      vec2 q = vec2(dot(w, vec2(-fall.y, fall.x)), dot(w, fall) * 0.14);
+      float gully = rtNoiseAt(q, mix(60.0, 160.0, smoothstep(1500.0, 8000.0, dist))).r * 0.7 + rtNoiseAt(q * 2.3 + 31.0, 70.0).g * 0.3;
+      float onFace = smoothstep(0.14, 0.38, steep) * smoothstep(600.0, 2500.0, dist);
+      alt *= mix(1.0, smoothstep(0.46, 0.6, gully), onFace);
+    }
     #else
     float snowLine = mix(1900.0, 380.0, p.misc.x);
     float alt = smoothstep(snowLine - 160.0, snowLine + 160.0, g.y + (nz.g - 0.5) * 320.0 + brush * 120.0 * (1.0 - smoothstep(300.0, 1500.0, dist)));
@@ -345,7 +358,13 @@ export const GROUND_AIR = /* glsl */ `
     // height for that, ever more with distance, so the haze goes by the distance)
     vec3 p = pos;
     p.y = mix(pos.y, min(pos.y, uFogBase + 250.0), smoothstep(1500.0, 7000.0, dist) * 0.7);
-    return rtFog(c, p, cam);
+    vec3 o = rtFog(c, p, cam);
+    // mist lies at the feet of the ranges, so that one stands clear of the next (as a matte painter lays it in):
+    // over the low ground some kilometres out a band of pale air, thinning a few hundred metres up their slopes
+    float rise = pos.y - uFogBase + (rtNoiseAt(rtWorldXZ(pos), 5200.0).b - 0.5) * 260.0;
+    float feet = smoothstep(2600.0, 8000.0, dist) * (1.0 - smoothstep(40.0, 520.0, rise)) * (1.0 - smoothstep(60000.0, 85000.0, dist));
+    vec3 mist = mix(uFogColor, vec3(dot(uFogColor, vec3(0.333))) * 1.12, 0.35);
+    return mix(o, mist, feet * 0.5);
   }
 `;
 

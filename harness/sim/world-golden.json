@@ -1,7 +1,7 @@
 {
   "_recorded": "node v24.22.1 (linux x64); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c",
   "_weather": "95ffc28d",
-  "_rev": 3,
+  "_rev": 4,
   "default-20261113": {
     "spine": "61ec991b",
     "spineHash": "d28a7dfa",
@@ -182,7 +182,7 @@
     "sites": "2cb56960",
     "landmarks": "2d6a106f",
     "furniture": "489cb0ec",
-    "heights": "e9d1749f",
+    "heights": "f2612ef3",
     "features": "e28b994d",
     "counts": {
       "chapters": 8,
@@ -205,7 +205,7 @@
     "sites": "0ecb0bf4",
     "landmarks": "bdf310de",
     "furniture": "7e485087",
-    "heights": "f8ccc7bc",
+    "heights": "add74f67",
     "features": "5ed4e6ea",
     "counts": {
       "chapters": 19,
@@ -228,7 +228,7 @@
     "sites": "de6443fc",
     "landmarks": "1bb31102",
     "furniture": "fed4d464",
-    "heights": "fb888246",
+    "heights": "2852b40f",
     "features": "511fd796",
     "counts": {
       "chapters": 20,

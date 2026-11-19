@@ -36,7 +36,8 @@ export const QUALITY: Record<Quality, QualitySettings> = {
 export class RenderCore {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(STYLE.pipeline.fov, 16 / 9, 0.06, 48000);
+  // (the far plane beyond the land's last leaves: scene/worldView.ts draws it out to HORIZON_LAND, 90 km)
+  readonly camera = new THREE.PerspectiveCamera(STYLE.pipeline.fov, 16 / 9, 0.06, 130000);
   readonly quality: QualitySettings;
   /** world position of render-space (0,0,0) */
   readonly origin = { x: 0, y: 0, z: 0 };

@@ -25,7 +25,7 @@ import { LAND_SLOT, LandParams, LandformPlan } from './landform';
 import { DUNE_MEAN, dunes, riserFor, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
-import { HILLS_FROM, ReliefMix, hillsFade, hillField, openness, rangeField, reliefMix, wallAt } from './relief';
+import { GREAT_FROM, HILLS_FROM, ReliefMix, greatRange, hillsFade, hillField, openness, rangeField, reliefMix, wallAt } from './relief';
 import { PAD_FALL, SITE_SLOT, SitePlan } from './sites';
 import { BiomeBlend, RoadSpine, SpineSample, type SpineOptions } from './spine';
 import { DECK_HALF, KERB_AT, KERB_HEIGHT, WATER_SLOT, WaterEffect, WaterPlan, type River } from './water';
@@ -331,7 +331,8 @@ export class World implements Ground {
       if (R.ranges.from < from) from = R.ranges.from;
       if (R.walls && R.walls.floor < from) from = R.walls.floor;
     }
-    this.mountainsFrom = from;
+    // (the great ranges of the far country rise in every world of version 2)
+    this.mountainsFrom = this.relief2 ? Math.min(from, GREAT_FROM) : from;
     // One grid of stretches for everything laid out along the road: the landform of stretch k asks the
     // water's dice of stretch k, the places ask both, a quiet stretch silences all three. The rules name
     // its length and each plan keeps the number as a constant of its own; this is where they are held equal.
@@ -497,6 +498,8 @@ export class World implements Ground {
       const open = openness(this.land, this.rules.slot, s0, dzl < 0 ? -1 : 1);
       r += m.walls * wallAt(x, z, dzl, m, open, this.seed + 0x3e5);
     }
+    // the great ranges of the far country, beyond what any region by the road says
+    r += greatRange(x, z, lat, r, this.seed + 0x9b1);
     return r;
   }
 

@@ -34,6 +34,8 @@ const FAR_SPAN = 4;
 const POLE_SPAN = 4;
 /** scatter tiles nearer than this (m, to their middle) hold every plant in its full model */
 const SCATTER_NEAR = 230;
+/** the land is drawn out to this far (m): the horizon's great ranges (relief.ts greatRange) stand within it */
+export const HORIZON_LAND = 90000;
 /**
  * … and in a world of version 2 (scene/floraScatter.ts): within the first of these a tile is at its nearest
  * level — every plant in its full model, throwing its own shadow; beyond it, the trees inside a thick wood are
@@ -236,21 +238,24 @@ export class WorldView {
     }
     this.wantStrips = wantS;
 
-    // ---- terrain quadtree, then a coarse ring of 8 km leaves out to the skyline
+    // ---- terrain quadtree, then a coarse ring of 8 km leaves out to 20 km, then coarser ones (16 and 32 km a
+    // side) out to the horizon, where the great ranges of the far country stand layer behind layer (relief.ts)
     const wantT = new Map<string, { level: number; ix: number; iz: number; dist: number }>();
     const R = 6000 * vs;
     const RF = 20000 * vs;
+    const RH = HORIZON_LAND * vs;
     const splitK = 1.2;
     const boxDist = (x0: number, z0: number, size: number): number => {
       const dx = cx < x0 ? x0 - cx : cx > x0 + size ? cx - x0 - size : 0;
       const dz = cz < z0 ? z0 - cz : cz > z0 + size ? cz - z0 - size : 0;
       return Math.hypot(dx, dz);
     };
-    // levels below 0 are the far ring (4 and 8 km leaves): they only split where they reach the detailed disc
+    // levels below 0 are the far ring (4 and 8 km leaves): they only split where they reach the detailed disc;
+    // below −2 the horizon's (16 and 32 km): they split where they reach the far ring
     const visit = (level: number, ix: number, iz: number): void => {
       const size = TERRAIN_ROOT / Math.pow(2, level);
       const dist = boxDist(ix * size, iz * size, size);
-      const split = level < 0 ? dist <= R : dist <= R && level < TERRAIN_MAX_LEVEL && dist < size * splitK;
+      const split = level < -2 ? dist <= RF : level < 0 ? dist <= R : dist <= R && level < TERRAIN_MAX_LEVEL && dist < size * splitK;
       if (!split) {
         wantT.set(`${level}/${ix}/${iz}`, { level, ix, iz, dist });
         return;
@@ -260,14 +265,14 @@ export class WorldView {
       visit(level + 1, ix * 2, iz * 2 + 1);
       visit(level + 1, ix * 2 + 1, iz * 2 + 1);
     };
-    const BIG = TERRAIN_ROOT * 4;
-    const b0x = Math.floor((cx - RF) / BIG);
-    const b1x = Math.floor((cx + RF) / BIG);
-    const b0z = Math.floor((cz - RF) / BIG);
-    const b1z = Math.floor((cz + RF) / BIG);
+    const BIG = TERRAIN_ROOT * 16;
+    const b0x = Math.floor((cx - RH) / BIG);
+    const b1x = Math.floor((cx + RH) / BIG);
+    const b0z = Math.floor((cz - RH) / BIG);
+    const b1z = Math.floor((cz + RH) / BIG);
     for (let bz = b0z; bz <= b1z; bz++) {
       for (let bx = b0x; bx <= b1x; bx++) {
-        if (boxDist(bx * BIG, bz * BIG, BIG) <= RF) visit(-2, bx, bz);
+        if (boxDist(bx * BIG, bz * BIG, BIG) <= RH) visit(-4, bx, bz);
       }
     }
     this.wantTerrain = wantT;

@@ -438,11 +438,11 @@ vec3 rtFog(vec3 c, vec3 pos, vec3 cam) {
   thin = mix(thin, 0.55, smoothstep(6000.0, 16000.0, dist));
   float dEff = dist < 2500.0 ? dist : 2500.0 + (dist - 2500.0) * 0.5;
   float f = 1.0 - exp(-dEff * uFogDensity * thin);
-  // the land ends 20 km out (worldView.ts): the air closes over it before it does
-  f = max(f, smoothstep(15000.0, 19500.0, dist));
+  // the land ends 90 km out (worldView.ts HORIZON_LAND): the air closes over it before it does
+  f = max(f, smoothstep(72000.0, 88000.0, dist));
   float toSun = pow(max(dot(d / max(dist, 1e-3), uSunDir), 0.0), 6.0);
   // far ranges stand a shade deeper and bluer than the sky behind them, so they read as shapes
-  vec3 air = mix(uFogColor, uFogSunColor, toSun) * mix(vec3(1.0), vec3(0.84, 0.9, 1.0), smoothstep(3000.0, 12000.0, dist) * (1.0 - smoothstep(15000.0, 19500.0, dist)));
+  vec3 air = mix(uFogColor, uFogSunColor, toSun) * mix(vec3(1.0), vec3(0.84, 0.9, 1.0), smoothstep(3000.0, 12000.0, dist) * (1.0 - smoothstep(72000.0, 88000.0, dist)));
   return mix(c, air, clamp(f, 0.0, 1.0));
 }
 

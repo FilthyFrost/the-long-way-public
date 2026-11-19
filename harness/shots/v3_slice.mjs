@@ -23,6 +23,7 @@ export const SPOTS = [
   { name: 'forest', region: 'forest', km: 350.55 },
   { name: 'alpine', region: 'alpine', km: 140.05 },
   { name: 'alpine_valley', region: 'alpine', km: 138.85 },
+  { name: 'alpine_vista', region: 'alpine', km: 324.35, look: -0.8 },
   { name: 'desert', region: 'desert', km: 86.05 },
   { name: 'lakes', region: 'lakes', km: 374.3 },
   { name: 'maple', region: 'maple', km: 393.05 },
@@ -151,7 +152,7 @@ try {
       await rt('simulate', 0.1);
       const h = String(hour).replace('.', 'h');
       await rt('setView', 'cockpit');
-      await rt('look', 0, 0);
+      await rt('look', spot.look ?? 0, spot.look ? 0.05 : 0);
       const seat = await frameFigures(page, hour === hours[0] ? undefined : 0);
       await shot(`${spot.name}_seat_${h}.png`);
       await rt('setOrbit', 180, 3, 16, 4.5);
