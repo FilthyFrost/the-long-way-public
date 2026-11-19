@@ -1,0 +1,151 @@
+{
+  "_recorded": "node v24.16.0 (win32 x64), on the generator the main file was recorded on",
+  "_weather": "95ffc28d",
+  "default-20261113": {
+    "spine": "61ec991b",
+    "spineHash": "d28a7dfa",
+    "chapters": "31a31eeb",
+    "land": "3ad8fff2",
+    "water": "9f242cc5",
+    "sea": "811c9dc5",
+    "sites": "63af9839",
+    "landmarks": "520555af",
+    "furniture": "5bfbdbf5",
+    "heights": "bab65e81",
+    "counts": {
+      "chapters": 5,
+      "water": 16,
+      "seas": 0,
+      "sites": 86,
+      "landmarks": 23,
+      "posts": 2591,
+      "rails": 124
+    }
+  },
+  "short-chapters-7": {
+    "spine": "0b57bfe0",
+    "spineHash": "ce0efec8",
+    "chapters": "ea927521",
+    "land": "35ef095a",
+    "water": "62a0ebaf",
+    "sea": "811c9dc5",
+    "sites": "0b657185",
+    "landmarks": "2296e4f7",
+    "furniture": "c75206e6",
+    "heights": "71402f12",
+    "counts": {
+      "chapters": 21,
+      "water": 16,
+      "seas": 0,
+      "sites": 90,
+      "landmarks": 23,
+      "posts": 2395,
+      "rails": 121
+    }
+  },
+  "lakes-long-1": {
+    "spine": "88ad92e1",
+    "spineHash": "0d6184e1",
+    "chapters": "017f87d4",
+    "land": "d72a4c33",
+    "water": "cc66ae59",
+    "sea": "6443b284",
+    "sites": "b2b6cacc",
+    "landmarks": "f27bd7f6",
+    "furniture": "9e6be825",
+    "heights": "220ed793",
+    "counts": {
+      "chapters": 3,
+      "water": 12,
+      "seas": 1,
+      "sites": 80,
+      "landmarks": 23,
+      "posts": 2325,
+      "rails": 5
+    }
+  },
+  "modcar-20261113": {
+    "spine": "b219d757",
+    "spineHash": "742cd9b2",
+    "chapters": "31a31eeb",
+    "land": "3ad8fff2",
+    "water": "df5c259c",
+    "sea": "811c9dc5",
+    "sites": "ab82d65c",
+    "landmarks": "eb679dca",
+    "furniture": "c0e7565c",
+    "heights": "12732714",
+    "counts": {
+      "chapters": 5,
+      "water": 16,
+      "seas": 0,
+      "sites": 111,
+      "landmarks": 23,
+      "posts": 2593,
+      "rails": 123
+    }
+  },
+  "half-chapters-37": {
+    "spine": "d4b40925",
+    "spineHash": "920e9d82",
+    "chapters": "c45d7eb8",
+    "land": "b1bc15af",
+    "water": "b5084f68",
+    "sea": "26421d1f",
+    "sites": "5289b0b8",
+    "landmarks": "cb7ce4df",
+    "furniture": "63270421",
+    "heights": "ddc31775",
+    "counts": {
+      "chapters": 10,
+      "water": 17,
+      "seas": 1,
+      "sites": 82,
+      "landmarks": 23,
+      "posts": 2553,
+      "rails": 123
+    }
+  },
+  "modcar-15-far": {
+    "spine": "5e68561f",
+    "spineHash": "a95996c1",
+    "chapters": "96c259fa",
+    "land": "64d3c92b",
+    "water": "4bf37155",
+    "sea": "4d1beca4",
+    "sites": "bc383532",
+    "landmarks": "ac284ada",
+    "furniture": "bd40066d",
+    "heights": "b98f48ea",
+    "counts": {
+      "chapters": 10,
+      "water": 24,
+      "seas": 1,
+      "sites": 197,
+      "landmarks": 45,
+      "posts": 5240,
+      "rails": 261
+    }
+  },
+  "alpine-third-24": {
+    "spine": "a2d0a9c1",
+    "spineHash": "eed7fac9",
+    "chapters": "55c44301",
+    "land": "96022e3e",
+    "water": "345fa8fd",
+    "sea": "8f7d7b47",
+    "sites": "dacf57ca",
+    "landmarks": "83858cdc",
+    "furniture": "eae97d5f",
+    "heights": "92e09fba",
+    "counts": {
+      "chapters": 14,
+      "water": 15,
+      "seas": 1,
+      "sites": 85,
+      "landmarks": 23,
+      "posts": 2683,
+      "rails": 128
+    }
+  }
+}

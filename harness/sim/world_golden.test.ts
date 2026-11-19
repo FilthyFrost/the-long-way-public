@@ -16,9 +16,9 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { WORLD_REV } from '../../src/core/world/rules';
-import { GOLDEN_FILE, REFERENCE_WORLDS, REFERENCE_WORLDS_V2, TRACE_PARTS, askInBites, askOutOfOrder, weatherTrace, worldTrace, type WorldFingerprint, type WorldGolden } from './worldTrace';
+import { REFERENCE_WORLDS, REFERENCE_WORLDS_V2, TRACE_PARTS, askInBites, askOutOfOrder, readGolden, weatherTrace, worldTrace, type WorldFingerprint } from './worldTrace';
 
-const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as WorldGolden;
+const golden = readGolden();
 
 /** hold a fingerprint to the recorded one, part by part (every part that differs is reported, not only the first) */
 function expectRecorded(got: WorldFingerprint, name: string, how: string): void {

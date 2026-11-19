@@ -18,13 +18,22 @@
  * like raises WORLD_REV and records them again.
  *
  * The hashes are over exact doubles, and the height function, the water and the places go through the
- * engine's Math functions: they hold for one Node (the file says which).
+ * engine's Math functions: they hold for one Node (the file says which). Node on Windows rounds a few of
+ * them (Math.pow to a fractional power, Math.exp) differently in the last bit from Node on Linux, where the
+ * file was recorded: version 1's heights then hash otherwise on the unchanged generator. Such a platform
+ * keeps version 1 as it rounds it in a file of its own beside the main one (world-golden.<platform>.json,
+ * laid over the main file by `readGolden`); version 2's worlds hash the same on both and stay in the main
+ * file only.
  *   npx tsx harness/sim/worldTrace.ts            prints the fingerprints as they are now
  *   npx tsx harness/sim/worldTrace.ts --write    records the worlds of version 2 under the present
  *       WORLD_REV, and any world of version 1 that is not on file yet; it stops, and writes nothing, if a
  *       world of version 1 that is on file no longer hashes as recorded — version 1 never changes
  *   npx tsx harness/sim/worldTrace.ts --write --v1   records version 1 again as well: only ever on a
  *       Node whose Math rounds differently, with the generator unchanged
+ *   npx tsx harness/sim/worldTrace.ts --write --platform   records version 1 (and the weather) as this
+ *       platform rounds it, into world-golden.<platform>.json; only when every world of version 2 and
+ *       version 1's road and chapters hash as the main file has them (the generator is the one the main
+ *       file was recorded on: what differs is the platform's rounding, not the code)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -393,29 +402,82 @@ export const GOLDEN_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)
  */
 export type WorldGolden = Record<string, WorldFingerprint> & { _recorded: string; _weather: string; _rev: number };
 
+/** where a platform keeps version 1 as its engine rounds it, when that is not as the main file has it */
+export const platformGoldenFile = (platform: string = process.platform): string => path.join(path.dirname(GOLDEN_FILE), `world-golden.${platform}.json`);
+
+/** the parts of a fingerprint of version 1 that no platform's rounding moves (they go through no Math function) */
+const ROUNDING_FREE: readonly (typeof TRACE_PARTS)[number][] = ['spine', 'spineHash', 'chapters'];
+
+/** the golden file, with this platform's own record of version 1 and of the weather laid over it when it has one */
+export function readGolden(): WorldGolden {
+  const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as WorldGolden;
+  const own = platformGoldenFile();
+  if (!fs.existsSync(own)) return golden;
+  const p = JSON.parse(fs.readFileSync(own, 'utf8')) as Partial<WorldGolden>;
+  for (const name of Object.keys(REFERENCE_WORLDS)) if (p[name]) golden[name] = p[name] as WorldFingerprint;
+  if (typeof p._weather === 'string') golden._weather = p._weather;
+  golden._recorded = `${golden._recorded}; version 1 on ${process.platform} as recorded with ${p._recorded}`;
+  return golden;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const write = process.argv.includes('--write');
+  if (write && process.argv.includes('--platform')) {
+    // version 1 as this platform rounds it, beside the main file: only on the generator the main file was recorded on
+    const main = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as WorldGolden;
+    if (main._recorded.includes(`(${process.platform} `)) {
+      console.error(`NOT WRITTEN: the main file was recorded on ${process.platform}; a platform file is for another platform's rounding`);
+      process.exit(1);
+    }
+    const wrong: string[] = [];
+    for (const [name, ref] of Object.entries(REFERENCE_WORLDS_V2)) if (JSON.stringify(worldTrace(ref.make(), ref.km)) !== JSON.stringify(main[name])) wrong.push(name);
+    const own: Record<string, string | WorldFingerprint> = {
+      _recorded: `node ${process.version} (${process.platform} ${process.arch}), on the generator the main file was recorded on`,
+      _weather: weatherTrace(),
+    };
+    for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) {
+      const now = worldTrace(ref.make(), ref.km);
+      for (const part of ROUNDING_FREE) if (now[part] !== main[name][part]) wrong.push(`${part} of ${name}`);
+      own[name] = now;
+    }
+    if (wrong.length > 0) {
+      console.error(`NOT WRITTEN: this is not the generator the main file was recorded on (${wrong.join(', ')} hash otherwise): what moved is the code, not the rounding`);
+      process.exit(1);
+    }
+    fs.writeFileSync(platformGoldenFile(), JSON.stringify(own, null, 2) + '\n');
+    console.log(`wrote ${platformGoldenFile()} (version 1 as ${process.platform} rounds it)`);
+    process.exit(0);
+  }
   const old = fs.existsSync(GOLDEN_FILE) ? (JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as Partial<WorldGolden>) : {};
+  // on a platform with a record of its own, version 1 is held to that record, and the main file's version 1
+  // (as its own platform rounds it) is carried over as it is: only version 2 is written
+  const own = fs.existsSync(GOLDEN_FILE) && fs.existsSync(platformGoldenFile());
+  const held: Partial<WorldGolden> = own ? readGolden() : old;
+  const weather = weatherTrace();
   const all: Record<string, string | number | WorldFingerprint> = {
-    _recorded: `node ${process.version} (${process.platform} ${process.arch}); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c`,
-    _weather: weatherTrace(),
+    _recorded: own && old._recorded ? old._recorded : `node ${process.version} (${process.platform} ${process.arch}); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c`,
+    _weather: own && old._weather ? old._weather : weather,
     _rev: WORLD_REV,
   };
   // version 1 never changes: what is on file stays on file, and a world that no longer hashes as recorded stops the writing
   const changed: string[] = [];
-  if (old._weather !== undefined && old._weather !== all._weather) changed.push('the weather of the six regions');
+  if (held._weather !== undefined && held._weather !== weather) changed.push('the weather of the six regions');
   for (const [name, ref] of Object.entries(REFERENCE_WORLDS)) {
     const now = worldTrace(ref.make(), ref.km);
-    const was = old[name];
+    const was = held[name];
     if (was !== undefined && JSON.stringify(was) !== JSON.stringify(now)) changed.push(name);
-    all[name] = now;
+    all[name] = own && old[name] ? old[name] : now;
   }
   for (const [name, ref] of Object.entries(REFERENCE_WORLDS_V2)) all[name] = worldTrace(ref.make(), ref.km);
   const text = JSON.stringify(all, null, 2) + '\n';
   console.log(text);
   if (write) {
+    if (own && process.argv.includes('--v1')) {
+      console.error(`NOT WRITTEN: version 1 of ${process.platform} is in ${platformGoldenFile()}; record it again there (--write --platform), not over the main file's`);
+      process.exit(1);
+    }
     if (changed.length > 0 && !process.argv.includes('--v1')) {
-      console.error(`NOT WRITTEN: version 1 no longer hashes as recorded (${changed.join(', ')}). Version 1 never changes: find what moved it. (Only on a Node whose Math rounds differently, with the generator unchanged: --write --v1.)`);
+      console.error(`NOT WRITTEN: version 1 no longer hashes as recorded (${changed.join(', ')}). Version 1 never changes: find what moved it. (Only on a Node whose Math rounds differently, with the generator unchanged: --write --v1 on the main file's platform, --write --platform on another.)`);
       process.exit(1);
     }
     fs.writeFileSync(GOLDEN_FILE, text);
