@@ -19,6 +19,7 @@ import { fbm2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, regionRow, type RegionDef } from './biomes';
+import { routeSetting } from './routeProfiles';
 import { BiomeBlend, type RoadSpine } from './spine';
 
 /** metres of road per stretch (the same as a water slot) */
@@ -222,11 +223,15 @@ export class LandformPlan {
       const size = this.operators && region.relief?.size ? sizeOf(region.relief.size, landSizeOf(region)) : landSizeOf(region);
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
+      const setting = this.operators ? routeSetting(this.spine.seed, i, region.id) : null;
       if (i < 1 || water === 'river') kind = 'open';
       else if (prev && this.quiet(i)) {
         // a quiet stretch: the lie of the land does not change
         kind = prev.kind;
         side = prev.side;
+      } else if (setting && odds[KINDS.indexOf(setting)] > 0) {
+        kind = setting;
+        if (prev?.kind === kind) side = prev.side;
       } else if (prev && prev.kind !== 'open' && r(20) < 0.45 && odds[KINDS.indexOf(prev.kind)] > 0) {
         // country runs on: the same hillside for another stretch, on the same side
         kind = prev.kind;

@@ -67,7 +67,7 @@ describe('the waters', () => {
   });
 
   it('good spots are few: most water is ordinary, a tenth or less very good', () => {
-    const all = [...survey(new World(21, { worldVersion: 2, startBiome: 'lakes', chapterScale: 3 }), 50), ...survey(new World(22, { worldVersion: 2, startBiome: 'maple', chapterScale: 3 }), 50)];
+    const all = [...survey(new World(21, { worldVersion: 2, startBiome: 'lakes', chapterScale: 3 }), 50), ...survey(new World(22, { worldVersion: 2, startBiome: 'maple', chapterScale: 3 }), 150)];
     const spots = all.map((w) => w.spot).sort((a, b) => a - b);
     const q = (f: number) => spots[Math.floor(f * (spots.length - 1))];
     console.log(`spots: ${spots.length} points, median ${q(0.5).toFixed(2)}, 90th ${q(0.9).toFixed(2)}, best ${q(1).toFixed(2)}; with weed ${all.filter((w) => w.weed > 0).length}, drop-off ${all.filter((w) => w.dropOff > 0.5).length}, bridge ${all.filter((w) => w.structure > 0).length}`);

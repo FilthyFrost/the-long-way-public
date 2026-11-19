@@ -115,9 +115,10 @@ export class SeaPlan {
     const h = hash2(chapter, 0x5ea5, this.seed);
     if (chapter >= 0 && seaAlong(BIOMES[plan.biomeOf(chapter)]) && (h & 0xff) / 255 < 0.85) {
       // well inside the chapter: lake country on both sides of every point of it
-      const edge = plan.transition / 2 + 350;
-      const a = plan.starts[chapter] + edge;
-      const b = plan.starts[chapter + 1] - edge;
+      const left = plan.rules.version === 1 ? plan.transition : plan.transitionAt(chapter);
+      const right = plan.rules.version === 1 ? plan.transition : plan.transitionAt(chapter + 1);
+      const a = plan.starts[chapter] + (left / 2 + 350);
+      const b = plan.starts[chapter + 1] - (right / 2 + 350);
       // (and not at the very start of the journey: the first stretches are the same for everybody)
       const kA = Math.max(3, Math.ceil((a + 250) / LAND_SLOT));
       const kB = Math.floor((b - 250) / LAND_SLOT) - 1;
