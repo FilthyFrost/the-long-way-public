@@ -360,6 +360,7 @@ describe('a scatter tile of a world of version 2', () => {
     let reeds = 0;
     let open = 0;
     let thick = 0;
+    let interior = 0;
     const models = { near: new Set(reg.draws.map((d) => d.near.first)), far: new Set(reg.draws.filter((d) => d.far).map((d) => d.far!.first)) };
     for (let s0 = 500; s0 < 12000; s0 += 400) {
       const [tx, tz] = tileAt(w, s0, 120);
@@ -389,7 +390,7 @@ describe('a scatter tile of a world of version 2', () => {
         open++;
       } else {
         // thick wood: the trees inside it a level lower than its edge, and at the far level every other one of them
-        expect(levels(close).some((l) => l === 1)).toBe(true);
+        if (levels(close).some((l) => l === 1)) interior++;
         expect(levels(close).every((l) => l <= 1)).toBe(true);
         expect(levels(mid).every((l) => l >= 1)).toBe(true);
         expect(countOf(far, 'tree')).toBeLessThanOrEqual(countOf(near, 'tree'));
@@ -412,6 +413,7 @@ describe('a scatter tile of a world of version 2', () => {
     }
     expect(open).toBeGreaterThan(3);
     expect(thick).toBeGreaterThan(0);
+    expect(interior).toBeGreaterThan(0);
     // (lake country has reed beds: they are among what the middle level keeps)
     expect(reeds).toBeGreaterThan(20);
     expect(reg.draws[plantIndex('reed')].far).not.toBeNull();

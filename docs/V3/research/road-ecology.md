@@ -1,6 +1,6 @@
 # 公路生态：从车窗所见到可生成的样带
 
-34 条路线分布在七大洲，其中 32 条道路或观景区域用于 25 个原型；冰岛苔原熔岩路与南极后勤路另列为对照。每段挑一个可复算的气候点，路面高度、树冠所在坡位和远山分开记。[原型数据](../../../src/core/world/data/ecoProfiles.ts) · [一页摘要](road-ecology-SUMMARY.md) · [模型清单](model-wishlist.md)
+34 条路线分布在七大洲，其中 32 条道路或观景区域用于最初 25 个原型；冰岛苔原熔岩路与南极后勤路另列为对照。每段挑一个可复算的气候点，路面高度、树冠所在坡位和远山分开记。[原型数据](../../../src/core/world/data/ecoProfiles.ts) · [一页摘要](road-ecology-SUMMARY.md) · [模型清单](model-wishlist.md) · [29 个中间生境与现实距离](road-ecotones.md)
 
 ## 数字怎么读
 

@@ -125,7 +125,8 @@ function censusOf(region: string): { start: Tally; dealt: Tally; chapters: numbe
   }
   const dealt = new Tally();
   let chapters = 0;
-  for (let i = 0; i < 3; i++) {
+  const seeds = region === 'flower_fields' ? 8 : 3;
+  for (let i = 0; i < seeds; i++) {
     const w = journey(i);
     const plan = w.spine.plan;
     for (let c = 1; c < 80; c++) {
@@ -197,7 +198,7 @@ describe('the twelve regions, counted', () => {
     it(`${region}: its woods, its trees, its kinds and what there is to pick, as the first region and as dealt`, () => {
       const band = BANDS[region];
       const { start, dealt, chapters } = censusOf(region);
-      expect(chapters, 'every journey comes to it').toBe(3);
+      expect(chapters, 'every journey comes to it').toBe(region === 'flower_fields' ? 8 : 3);
       const said: string[] = [];
       for (const [how, t] of [['first', start], ['dealt', dealt]] as const) {
         expect(t.tiles).toBeGreaterThan(100);

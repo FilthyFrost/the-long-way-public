@@ -22,6 +22,7 @@
  *
  * DOM-free: the atlas is plain numbers until `texture` is asked for.
  */
+import { CROWN_PAINT } from './crowns/palette';
 import * as THREE from 'three';
 import { PLANTS, type PlantDef } from '../../core/world/plants';
 import { PART_ROCK, buildPlantModels } from './plantModels';
@@ -67,7 +68,7 @@ export interface PlantFamily {
 }
 
 /** the families the regions' flora tables name (core/world/floraTables.ts through plants.ts) */
-export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
+const ATLAS_FAMILIES: Readonly<Record<string, PlantFamily>> = {
   // ---- the first renderer's templates (vegetation.ts)
   broadleaf: { near: 'broadleaf', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 5.6, r: 2.9, farH: 5.8, farR: 3.0, shadow: 1.9, sink: 0.12, lean: 0.05 },
   broadleaf2: { near: 'broadleaf2', far: 'broadleafFar', tiny: 'broadleafTiny', tinyH: 5.8, tinyR: 2.9, cls: 'tree', h: 6.5, r: 2.8, farH: 5.8, farR: 3.0, shadow: 1.8, sink: 0.12, lean: 0.05 },
@@ -102,6 +103,11 @@ export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
   log: { near: 'log', cls: 'small', h: 0.46, r: 1.6, shadow: 0, lies: true, sink: 0.03 },
   stump: { near: 'stump', cls: 'small', h: 0.5, r: 0.42, shadow: 0, lies: true, sink: 0.03 },
   flower_clump: { near: 'flower_clump', cls: 'small', h: 0.45, r: 0.5, shadow: 0, accent: 0xf2c84b, lies: true, sink: 0.01 },
+};
+
+export const FAMILIES: Readonly<Record<string, PlantFamily>> = {
+  ...Object.fromEntries(Object.entries(CROWN_PAINT).map(([name, paint]) => [name, ATLAS_FAMILIES[paint.atlas]])),
+  ...ATLAS_FAMILIES,
 };
 
 /** how much a model gives to the wind against a tree (absent: 1); nothing of stone or dead wood moves */

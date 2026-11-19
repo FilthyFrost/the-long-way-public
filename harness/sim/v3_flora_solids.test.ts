@@ -33,7 +33,7 @@ describe('the trunks of the trees', () => {
       out.length = 0;
       trunks.solidsNear(x, z, r, out);
       // the same by going through every tree of the tiles round the point
-      const want: string[] = [];
+      const want = new Map<string, number>();
       const tx0 = Math.floor(x / ECO_TILE);
       const tz0 = Math.floor(z / ECO_TILE);
       for (let tz = tz0 - 1; tz <= tz0 + 1; tz++) {
@@ -41,24 +41,23 @@ describe('the trunks of the trees', () => {
           const t = flora.tile(LAYER_TREE, tx, tz);
           for (let i = 0; i < t.n; i++) {
             const rad = PLANTS[t.plant[i]].trunk * t.size[i];
-            if (Math.hypot(t.x[i] - x, t.z[i] - z) < r + rad) want.push(`${t.x[i]},${t.z[i]}`);
+            if (Math.hypot(t.x[i] - x, t.z[i] - z) < r + rad) want.set(`${t.x[i]},${t.z[i]}`, t.size[i]);
           }
         }
       }
-      expect(out.map((s) => `${s.x},${s.z}`).sort()).toEqual(want.sort());
+      expect(out.map((s) => `${s.x},${s.z}`).sort()).toEqual([...want.keys()].sort());
       found += out.length;
       for (const s of out) {
         const p = PLANTS[s.ref];
         expect(p.layer).toBe('tree');
         expect(s.tag).toBe(TREE_TAG);
         expect(s.round).toBe(true);
-        expect(s.hx).toBeGreaterThan(p.trunk * 0.7);
-        expect(s.hx).toBeLessThan(p.trunk * 1.35);
+        const size = want.get(`${s.x},${s.z}`)!;
+        expect(s.hx).toBeCloseTo(p.trunk * size, 6);
         // from below the ground at its foot to its top
         const y = w.heightAt(s.x, s.z);
         expect(s.y0).toBeLessThan(y - 0.3);
-        expect(s.y1).toBeGreaterThan(y + p.height * 0.7);
-        expect(s.y1).toBeLessThan(y + p.height * 1.35);
+        expect(s.y1).toBeCloseTo(y + p.height * size, 3);
         expect(s.floor).toBe(false);
       }
     }

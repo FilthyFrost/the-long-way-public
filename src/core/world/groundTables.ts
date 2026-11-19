@@ -4,8 +4,9 @@ import type { Ecotope } from './ecotope';
 // Profiles whose road already has an equivalent in the original twelve regions.
 // A region carrying a profile id directly takes precedence over these historical names.
 const original: Record<string,string> = {
-  plains:'sierra-valley', forest:'fog-redwood', alpine:'central-alps', desert:'sonoran', lakes:'norway-fjord',
-  maple:'appalachian', red_canyon:'redrock', terraces:'hani-paddy', karst_peaks:'karst-river',
+  plains:'shenandoah-farm', forest:'sierra-valley', alpine:'sierra-high', desert:'sonoran', lakes:'fiordland',
+  maple:'appalachian', red_canyon:'redrock', terraces:'south-china-paddy', karst_peaks:'karst-river',
+  wetland:'eglinton-grass', flower_fields:'blue-meadow', bamboo_sea:'karst-river',
 };
 const profiles = new Map(ECO_PROFILES.map(p => [p.id,p]));
 export function groundProfile(id: string): EcoProfile | undefined {
@@ -14,8 +15,8 @@ export function groundProfile(id: string): EcoProfile | undefined {
 
 // The old biome relief is measured from a road datum. A climate grid cell may be
 // hundreds of metres above the road in a narrow valley; use the route's band instead.
-const roadDatum:Record<string,number> = {plains:1200,forest:100,alpine:2000,desert:850,lakes:250,maple:680,
-  red_canyon:1320,terraces:1200,karst_peaks:175};
+const roadDatum:Record<string,number> = {plains:280,forest:1300,alpine:2680,desert:850,lakes:250,maple:680,
+  red_canyon:1320,terraces:370,karst_peaks:175,wetland:340,flower_fields:1020,bamboo_sea:260};
 export function siteElevation(id:string, e:Ecotope) {
   return roadDatum[id] === undefined ? e.h : roadDatum[id]+e.relief+e.landform;
 }
@@ -71,10 +72,31 @@ add('科罗拉多蓝耧斗菜 地被芦荟类','tube',0.63,0.35,0x789763,'open',
 add('草原锥花 滨海雏菊类','daisy',0.47,0.38,0x859558,'open',true);
 add('稻花','rice',0.95,1.53,0x8faa51,'bench',true);
 // Blossoms growing directly on a tree or cactus crown belong to that crown.
-export const crownFlowers = new Set(['智利火树','巨柱仙人掌']);
+export const crownFlowers = new Set(['智利火树','巨柱仙人掌','苹果','果树花','栗花']);
+// The neighbouring surveyed ecotones share the same geometry vocabulary, including
+// the research names that carry a scientific binomial.
+function aliases(reference:string, names:string[], table = plants) {
+  for (const name of names) table.set(name,table.get(reference)!);
+}
+aliases('草甸禾草',['丛生禾草','牧草','田埂草','山草甸','行间刈草','行间牧草','河岸草','割草地','牧场禾草','阳坡草','沙洲草','田界高草','蓝格兰马草 Bouteloua gracilis','水牛草 Bouteloua dactyloides']);
+aliases('丛生旱草',['干季金黄禾草','旱季枯草','海滨丛草','滨海匍匐草','红雪丛草 Chionochloa rubra']);
+aliases('莎草',['先锋莎草','灌溉沟莎草','湿岸莎草','湿地莎草']);
+aliases('矮柳',['伏地矮灌','林缘柳','湿地矮灌']);
+aliases('林下落叶',['落叶']); aliases('林下针叶毡',['针叶碎毡','松针毡']);
+aliases('水稻',['水稻 Oryza sativa']);
+aliases('林缘灌丛',['灌木栎','山桃花心木灌丛','桤木类','田界灌丛','林缘蔷薇','田界黑莓','次生林缘灌丛','林下灌丛','篱边灌丛','山地缎带木幼株']);
+aliases('刺小檗类',['刺小檗']); aliases('海岸鼠尾草',['苦灌木']);
+aliases('滨海茶树灌木',['滨海盐生矮灌','蜡质硬叶灌丛','耐盐灌木','滨海露兜类']);
+aliases('裸土',['裸沙','潮泥']);
+add('气生根群','knees',0.38,0.76,0x807663,'wet');
+aliases('草原锥花',['野生天人菊','紫菀类','滨海菊类'],blossoms);
+aliases('柳兰',['加拿大一枝黄花类','当地鼠尾草类'],blossoms);
+aliases('高山福禄考',['红三叶','白三叶','马鞍藤'],blossoms);
 export const pigments: Record<string,number> = {
   橙:0xf59950,深红:0xba4650,白:0xfff6e2,淡粉:0xeac0c4,蓝:0x789acb,蓝白:0xb5c6e7,天蓝:0x91bde5,
   紫粉:0xd69dbf,玫红:0xe18ea4,黄:0xeaca64,深蓝:0x596eba,粉:0xe9acc4,乳白:0xeee4bc,橙红:0xe57a4e,绿紫:0xb588ae,猩红:0xcd534b,
+  淡赭:0xb39779,红褐:0xa06e5c,米白:0xd1cbb9,赭灰:0x9c8c7a,深灰:0x747678,淡金:0xcdb67d,
+  黄红:0xe79b56,金黄:0xe3bb55,粉红:0xe5a1b1,紫蓝:0x8c89be,淡紫:0xb4a5cc,粉白:0xefd4d3,白粉:0xeed8d5,乳黄:0xe8dca8,白或黄:0xeadcae,粉紫:0xca9dc1,
   灰白:0xb4b2a8,灰褐:0x978a7a,赤红:0xb96950,赭红:0xa86b52,灰色:0x929596,棕灰:0x95897e,粉灰:0xbf9b92,
   灰黄:0xbaaa80,乳灰:0xb9b4a9,赭色:0xac825b,青灰:0x859a96,浅灰:0xb0b1aa,暗灰:0x666b70,蜜黄:0xc9a676,
 };

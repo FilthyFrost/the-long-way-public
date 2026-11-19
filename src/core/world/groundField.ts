@@ -1,7 +1,7 @@
 import { rand2 } from '../math/rng';
 import { BIOMES } from './biomes';
 import { Ecotope, ECO_SITE, ECO_PLOT, ECO_TILE } from './ecotope';
-import { onBench } from './flora';
+import { Cover, onBench } from './flora';
 import { blossoms, elevationBand, groundProfile, pigments, plants, siteElevation, siteFit, type Growth } from './groundTables';
 import { sampleRock } from './rockTables';
 import { Solid, solidWithin, type SolidSource } from './solids';
@@ -29,6 +29,7 @@ export class GroundField implements SolidSource {
   private readonly tiles = new Map<string,GroundClump[]>();
   private readonly mineral = new Map<string,GroundClump[]>();
   private readonly e = new Ecotope();
+  private readonly cover = new Cover();
   private readonly tp = new TerrainPoint();
   month = 6;
   constructor(private readonly world: World) {}
@@ -84,6 +85,7 @@ export class GroundField implements SolidSource {
         name = choice; g = plants.get(name);
       } else {
         if (!choice.bloomMonths.includes(this.month)) return;
+        if (biome.id === 'flower_fields' && !this.world.flora!.cover(x,z,this.cover,e.h).flowers) return;
         name = choice.name; g = blossoms.get(name);
         accent = pigments[choice.colors[Math.floor(rand2(i,j,seed+8)*choice.colors.length)]];
       }

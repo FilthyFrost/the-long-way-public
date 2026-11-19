@@ -169,6 +169,8 @@ export class WorldView {
       coverUniforms.uCoverSeed.value = world.seed | 0;
       this.terrainMat.defines.RT_COVER = '';
       this.stripMat.defines.RT_COVER = '';
+      this.terrainMat.defines.RT_ALT = '';
+      this.stripMat.defines.RT_ALT = '';
       this.flowerMat.defines.RT_HUE = '';
     }
     core.onRebase(() => {

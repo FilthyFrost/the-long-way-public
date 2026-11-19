@@ -6,7 +6,7 @@ import { ROOT, ON_GPU, launchBrowser, openGame, startServer } from './lib.mjs';
 
 const stage = process.argv[2];
 if (!['before','after'].includes(stage) || !ON_GPU) throw Error('Run with SHOTS_GPU=1 and before or after');
-const out = path.join(ROOT, 'loop/shots/m5-ground', stage);
+const out = path.join(ROOT, 'loop/shots/m5-ground', 'rev9', stage);
 fs.mkdirSync(out, { recursive: true });
 // Load precisely the pre-change render path for paired pictures, without changing the worktree.
 async function baselineServer() {
@@ -15,7 +15,7 @@ async function baselineServer() {
   const server=await createServer({root:ROOT,logLevel:'error',server:{host:'127.0.0.1',port:5199,hmr:false},
     plugins:[{name:'m5-ground-baseline',enforce:'pre',load(id){
       const rel=path.relative(ROOT,id).split(path.sep).join('/');
-      if(files.has(rel))return execFileSync('git',['show','2afe38b:'+rel],{cwd:ROOT,encoding:'utf8',maxBuffer:4e6});
+      if(files.has(rel))return execFileSync('git',['show','63e7fe8:'+rel],{cwd:ROOT,encoding:'utf8',maxBuffer:4e6});
     }}]});
   await server.listen();
   return {server,url:'http://127.0.0.1:'+server.httpServer.address().port};
@@ -24,12 +24,13 @@ const {server,url} = stage==='before' ? await baselineServer() : await startServ
 const browser = await launchBrowser();
 const records = [];
 try {
-  const {page,errors} = await openGame(browser, url+'/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear',{width:1920,height:1080});
-  for (const region of ['forest','plains','alpine','red_canyon','desert','river','terraces','maple']) {
+  for (const region of ['lakes','forest','alpine','red_canyon','desert','river','terraces','maple']) {
+    const biome = region==='river' ? 'plains' : region;
+    const {page,errors} = await openGame(browser, url+'/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=1200&time=15.5&weather=clear&biome='+biome,{width:1920,height:1080});
     const site = await page.evaluate(async (region) => {
       const rt=window.__rt, g=rt.game;
       if (!g.seated) g.enter(g.focus,'driver');
-      rt.devGoRegion(region==='river'?'plains':region,true);
+      rt.devGoKm(1.2,true);
       g.ui.root.style.visibility='hidden';
       rt.setHour(15.5);
       rt.setView('cockpit');
@@ -40,7 +41,7 @@ try {
       const {SpineSample}=await import('/src/core/world/spine.ts');
       const field=groundField(g.world),st=new SpineSample(),projection={s:0,d:0};
       g.world.spine.project(v.sim.px,v.sim.pz,NaN,projection);
-      const target=({forest:'fern',plains:'sedge',alpine:'cushion',red_canyon:'fin',desert:'creosote',river:'cobbles',terraces:'rice',maple:'litter'})[region];
+      const target=({lakes:'fern',forest:'sedge',alpine:'cushion',red_canyon:'fin',desert:'creosote',river:'cobbles',terraces:'rice',maple:'litter'})[region];
       let chapter=rt.devJourney(1)[0];
       let found;
       const rocks=['fin','cobbles'].includes(target);
@@ -56,9 +57,10 @@ try {
               found ??=tile.find(c=>c.form==='cobbles' && g.world.eco.at(c.x,c.z,{}).waterKind===2);
             }
           }
-          if(!found){rt.devGoRegion('plains',true);chapter=rt.devJourney(1)[0];}
+          if(!found){rt.devGoRegion('plains',true);g.simulate(0.15);chapter=rt.devJourney(1)[0];}
         }
       }
+      for(let chapterTry=0;chapterTry<5 && !found;chapterTry++) {
       outer: for(let ds=0;!found && ds<chapter.length-2000;ds+=400) {
         g.world.spine.at(chapter.start+1000+ds,st);
         for(const d of [24,-24,96,-96,230,-230,450,-450,850,-850,1400,-1400]){
@@ -70,6 +72,8 @@ try {
           found=clumps.find(c=>c.form===target);
           if(found)break outer;
         }
+      }
+      if(!found){rt.devGoRegion(region,true);g.simulate(0.15);chapter=rt.devJourney(1)[0];}
       }
       if(!found)throw Error('No '+target+' found in '+region);
       {
@@ -112,6 +116,7 @@ try {
     records.push({region,site,times});
     fs.writeFileSync(path.join(out,'shots.json'),JSON.stringify(records,null,2));
     console.log(region,JSON.stringify(times));
+    if(errors.length)throw Error(errors.join('\n'));
+    await page.close();
   }
-  if(errors.length)throw Error(errors.join('\n'));
 } finally { await browser.close(); await server.close(); }

@@ -152,6 +152,14 @@ export function groundModels(): Record<string,THREE.BufferGeometry> {
   const flora=new Set([...plants.values(),...blossoms.values()].map(g=>g.form));
   for (const form of [...flora,...rockForms]) for(let lod=0;lod<3;lod++){
     if(!flora.has(form)) stone(b,form,lod);
+    else if(form==='knees') {
+      for(let j=0;j<[7,4,2][lod];j++){
+        const root=polar(j*golden,0.8*j/7,-0.12);
+        const g=new THREE.ConeGeometry(0.13,0.85-0.06*j,5);
+        g.translate(root.x,root.y+0.3,root.z);
+        b.solid(g,new THREE.Matrix4(),brown,0);g.dispose();
+      }
+    }
     else if(form==='fern') fronds(b,lod);
     else if(['rice','sedge','grass','tussock','broom'].includes(form)) tuft(b,form,lod);
     else if(['cup','star','cluster','woodflower','spike','tube','daisy'].includes(form)) flowers(b,form,lod);

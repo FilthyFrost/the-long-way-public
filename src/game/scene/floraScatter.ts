@@ -19,8 +19,8 @@
  * Per instance, four attributes of four numbers (render/floraMaterial.ts reads them):
  *   aPlace  where it stands in the tile (x, y, z) and its turn (rad)
  *   aShape  its scale across and up, the first vertex of its model in the atlas, and how many vertices it has
- *   aLook   the two palette slots of its spot (a + 4 b), the share of the second plus 2 if it bears plus 4 if
- *           it is evergreen, its first colour (0xRRGGBB, −1: the region's palette) and its second
+ *   aLook   the two palette slots of its spot (a + 4 b) + settled snow / 4, the share of the second plus 2 if it bears plus 4 if
+ *           it is evergreen or 8 for deciduous wood (atlas), its first colour (0xRRGGBB, −1: the region's palette) and its second
  *   aLie    the slope of the ground under it along x and along z (a low plant lies with it; 0 for a tree, which
  *           stands plumb), its own number 0 … 1, and its lean out of plumb
  *
@@ -28,13 +28,16 @@
  */
 import { groundField } from '../../core/world/groundField';
 import { groundProfile } from '../../core/world/groundTables';
+import { smoothstep } from '../../core/math/util';
+import { Surface } from '../../core/world/ground';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_N, ECO_SQ, ECO_STEP, ECO_TILE } from '../../core/world/ecotope';
-import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer } from '../../core/world/flora';
+import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
 import { floraTableOf } from '../../core/world/floraTables';
 import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/plants';
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
+import { paintedFamily, CROWN_PAINT } from './crowns/palette';
 import { CROWN_STRIDE, type CrownLookup } from './crowns/crownData';
 import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
@@ -239,7 +242,7 @@ let crownLookupFor: CrownLookup | null = null;
 function crownOf(crowns: CrownLookup, pi: number): number {
   if (crownLookupFor !== crowns || !crownSpeciesOf) {
     crownLookupFor = crowns;
-    crownSpeciesOf = Int16Array.from(PLANTS, (p) => crowns.speciesOf(p.model));
+    crownSpeciesOf = Int16Array.from(PLANTS, (p) => crowns.speciesOf(paintedFamily(p.id, p.model)));
   }
   return crownSpeciesOf[pi];
 }
@@ -263,6 +266,20 @@ function huesOf(region: number): readonly number[] {
     h = hues[region] = floraTableOf(b.id, b.kin).cover.hues;
   }
   return h;
+}
+
+/** The integer is the palette pair; its fraction (0 ? 1/4) carries settled snow at the root.
+ * rtSlotPair rounds to the nearest integer, including on renderers which only need the palette. */
+function snowyPair(world: World, sk: number, height: number): number {
+  const a = BIOMES[slotA[sk]];
+  const b = BIOMES[slotB[sk]];
+  const mix = slotShare[sk];
+  const altitude = world.spine.altitude(height);
+  const lineA = a.relief?.snow ?? 1e5;
+  const line = lineA + ((b.relief?.snow ?? 1e5) - lineA) * mix;
+  const valley = (a.ground === Surface.Snow ? 1 - mix : 0) + (b.ground === Surface.Snow ? mix : 0);
+  const cover = Math.max(valley * (0.78 + 0.22 * smoothstep(line - 1600, line - 350, altitude)), smoothstep(line - 150, line + 150, altitude));
+  return slotPair[sk] + cover * 0.25;
 }
 
 /**
@@ -299,7 +316,8 @@ function put(g: Gather, d: PlantDraw, plant: PlantDef, model: AtlasModel, level:
   g.shape[o + 3] = model.count;
   const bears = (bearing ?? (d.showsFruit && bearsAt(plant, vary) !== null)) ? 2 : 0;
   g.look[o] = pair;
-  g.look[o + 1] = share * 0.999 + bears + d.evergreen;
+  const deciduousWood = !plant.evergreen && (plant.layer === 'tree' || plant.layer === 'shrub');
+  g.look[o + 1] = share * 0.999 + bears + d.evergreen + (deciduousWood ? 8 : 0);
   g.look[o + 2] = d.tintA;
   let second = d.tintB;
   if (d.regionAccent) {
@@ -399,7 +417,7 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
   const thick = flora.tile(LAYER_TREE, tx, tz).n > DENSE_TREES;
   let nc = 0;
   for (const layer of layers) {
-    const t = flora.tile(layer, tx, tz);
+    const t: FloraTile = flora.tile(layer, tx, tz);
     for (let i = 0; i < t.n; i++) {
       const pi = t.plant[i];
       const d = reg.draws[pi];
@@ -408,7 +426,10 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       if (!d.drawn) continue;
       // a painted crown: handed over, with where it stands and how it looks
       if (crowns && lod <= LOD_MID && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
-        const sp = crownOf(crowns, pi);
+        const climate = BIOMES[t.region[i]]?.kin;
+        const bush = PLANTS[pi].model === 'sage' || (PLANTS[pi].model === 'bush' && climate === 'desert') ? 'bush_dry'
+          : PLANTS[pi].model === 'bush' && climate === 'alpine' ? 'bush_alpine' : undefined;
+        const sp = bush ? crowns.speciesOf(bush) : crownOf(crowns, pi);
         if (sp >= 0) {
           const plant = PLANTS[pi];
           const x = t.x[i];
@@ -450,10 +471,12 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           crownScratch[o + 5] = sy;
           crownScratch[o + 6] = sp;
           crownScratch[o + 7] = Math.min(crowns.variants(sp) - 1, Math.floor(((vary * 13.7) % 1) * crowns.variants(sp)));
-          crownScratch[o + 8] = slotPair[sk];
+          crownScratch[o + 8] = snowyPair(world, sk, t.y[i]);
           crownScratch[o + 9] = share * 0.999 + bears + d.evergreen;
-          crownScratch[o + 10] = d.tintA;
-          crownScratch[o + 11] = second;
+          const paint = CROWN_PAINT[bush ?? paintedFamily(plant.id, plant.model)];
+          const autumn = BIOMES[region]?.id === 'maple';
+          crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (bush || ['maple','chestnut_tree','willow'].includes(plant.id) ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
+          crownScratch[o + 11] = plant.bears?.where === 'on' && plant.model === 'fruit_tree' ? second : paint?.bark ?? second;
           crownScratch[o + 12] = vary;
           crownScratch[o + 13] = inside;
           crownScratch[o + 14] = m.radius * sx;
@@ -520,11 +543,11 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
             if (Math.abs(tp.bed - ground) > BENCH_LEVEL) continue;
             h = tp.bed;
           }
-          put(g, d, plant, model, level, x - x0 + r * TEA_ROWS * ax, h - oy, z - z0 + r * TEA_ROWS * az, size, vary, turn, benches ? 0 : gx, benches ? 0 : gz, slotPair[sk], share, region);
+          put(g, d, plant, model, level, x - x0 + r * TEA_ROWS * ax, h - oy, z - z0 + r * TEA_ROWS * az, size, vary, turn, benches ? 0 : gx, benches ? 0 : gz, snowyPair(world, sk, t.y[i]), share, region);
         }
         continue;
       }
-      const sxz = put(g, d, plant, model, level, x - x0, ground - oy, z - z0, size, vary, t.yaw[i], gx, gz, slotPair[sk], share, region);
+      const sxz = put(g, d, plant, model, level, x - x0, ground - oy, z - z0, size, vary, t.yaw[i], gx, gz, snowyPair(world, sk, t.y[i]), share, region);
       // a soft shadow disc on the ground, pushed away from the sun (as the first renderer's)
       if (discs && near && d.family.shadow > 0) {
         const r = d.family.shadow * sxz;
@@ -557,7 +580,7 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       slopeAt(H,x/ECO_STEP,z/ECO_STEP);
       g.place.set([x,y,z,it.yaw],o);
       g.shape.set([it.radius,it.height,model.first,model.count],o);
-      g.look.set([slotPair[sk],slotShare[sk]*0.999,it.paint,it.accent],o);
+      g.look.set([snowyPair(world,sk,it.y),slotShare[sk]*0.999,it.paint,it.accent],o);
       g.lie.set([Math.max(-1,Math.min(1,slopeX)),Math.max(-1,Math.min(1,slopeZ)),it.seed,0],o);
       g.verts=Math.max(g.verts,model.count);
       g.triangles+=model.count/3;
@@ -580,7 +603,9 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       // (a painted crown throws its own shadow: scene/crowns/crownView.ts)
       if (crowns && crownOf(crowns, t.plant[i]) >= 0) continue;
       slopeAt(H, (t.x[i] - x0) / ECO_STEP, (t.z[i] - z0) / ECO_STEP);
-      put(shadowTrees, d, PLANTS[t.plant[i]], d.far, 1, t.x[i] - x0, t.y[i] - oy, t.z[i] - z0, t.size[i], t.vary[i], t.yaw[i], slopeX, slopeZ, 0, 0, t.region[i], false);
+      const si = Math.min(SLOT_N - 1, Math.max(0, Math.round((t.x[i] - x0) / SLOT_STEP)));
+      const sj = Math.min(SLOT_N - 1, Math.max(0, Math.round((t.z[i] - z0) / SLOT_STEP)));
+      put(shadowTrees, d, PLANTS[t.plant[i]], d.far, 1, t.x[i] - x0, t.y[i] - oy, t.z[i] - z0, t.size[i], t.vary[i], t.yaw[i], slopeX, slopeZ, snowyPair(world, sj * SLOT_N + si, t.y[i]), 0, t.region[i], false);
     }
     if (shadowTrees.n > 0) {
       one.length = 0;

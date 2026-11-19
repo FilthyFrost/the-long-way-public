@@ -1144,7 +1144,7 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
       // The separate profile clumps carry their own petals, month and seed.
       out.flowers = 0;
       const band = elevationBand(profile,siteElevation(biomeId,eco));
-      if (!band || !band.ground.some(name => /禾草|莎草|丛草|雪草|旱草|高秆草/.test(name))) out.grow *= 0.13;
+      if (!band || !band.ground.some(name => /草甸|禾草|莎草|丛草|雪草|旱草|高秆草|牧草|田埂草|刈草/.test(name))) out.grow *= 0.13;
     } else out.flowers = cb.flowers;
     out.slope = eco.slope;
     out.bend = c.rows ? rowCoord(world.seed, x, z) - z : 0;

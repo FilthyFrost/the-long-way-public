@@ -16,6 +16,7 @@ import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
 import { BIOMES, minRadius, type BiomeDef } from './biomes';
+import { borderWidth, routeSetting } from './routeProfiles';
 import { baseAt, baseOf } from './relief';
 import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
 
@@ -78,6 +79,14 @@ export class ChapterPlan {
   readonly biomes: number[] = [];
   /** length of the zone over which two biomes blend (m) */
   readonly transition: number;
+  private readonly borderWidths: number[] = [0];
+
+  /** Actual width at the start of chapter i, known once the chapter has been dealt. */
+  transitionAt(i: number): number {
+    if (i <= 0) return 0;
+    this.biomeOf(i);
+    return this.borderWidths[i];
+  }
   /** what the dealer is shown: the world's identity and the chapters so far (the two lists above, as they grow) */
   private readonly deal: DealerView;
 
@@ -107,6 +116,16 @@ export class ChapterPlan {
       throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt region ${String(d.region)}, and this world knows regions 0 to ${this.rules.regionCount - 1}`);
     }
     if (!(d.length > 0 && d.length < Infinity)) throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt a length of ${String(d.length)} m`);
+    const c = this.biomes.length;
+    if (c > 0) {
+      let width = this.transition;
+      if (this.rules.version >= 2) {
+        const prev = BIOMES[this.biomes[c - 1]];
+        const next = BIOMES[d.region];
+        width = (borderWidth(prev.id, next.id, this.rules.regionCount) ?? 900) * Math.max(0.1, Math.min(1, this.scale));
+      }
+      this.borderWidths.push(width);
+    }
     this.biomes.push(d.region);
     this.starts.push(this.starts[this.starts.length - 1] + d.length);
   }
@@ -116,21 +135,22 @@ export class ChapterPlan {
     // chapter i covers [starts[i], starts[i+1])
     let i = this.biomes.length - 1;
     while (i > 0 && this.starts[i] > s) i--;
-    const half = this.transition / 2;
+    const left = this.borderWidths[i] / 2;
+    const right = this.borderWidths[i + 1] / 2;
     const toNext = this.starts[i + 1] - s;
     const fromPrev = s - this.starts[i];
-    if (toNext < half && i + 1 < this.biomes.length) {
+    if (toNext < right && i + 1 < this.biomes.length) {
       out.a = this.biomes[i];
       out.b = this.biomes[i + 1];
       out.ia = i;
       out.ib = i + 1;
-      out.t = 0.5 * smoothstep(0, 1, 1 - toNext / half);
-    } else if (fromPrev < half && i > 0) {
+      out.t = 0.5 * smoothstep(0, 1, 1 - toNext / right);
+    } else if (fromPrev < left && i > 0) {
       out.a = this.biomes[i - 1];
       out.b = this.biomes[i];
       out.ia = i - 1;
       out.ib = i;
-      out.t = 0.5 + 0.5 * smoothstep(0, 1, fromPrev / half);
+      out.t = 0.5 + 0.5 * smoothstep(0, 1, fromPrev / left);
     } else {
       out.a = out.b = this.biomes[i];
       out.ia = out.ib = i;
@@ -259,11 +279,17 @@ export class RoadSpine implements DrivePath {
     return mix(a, BIOMES[bl.b][key] as number, bl.t);
   }
 
-  private pickSegment(rMin: number): void {
+  private pickSegment(rMin: number, s: number): void {
     const rng = this.rng;
-    if (this.wasCurve && rng.chance(this.style('straightChance'))) {
+    const region = BIOMES[this.bl.t < 0.5 ? this.bl.a : this.bl.b];
+    const setting = this.rules.version >= 2 ? routeSetting(this.seed, Math.floor(s / this.rules.slot), region.id) : undefined;
+    const winding = setting === 'hillside' || setting === 'canyon';
+    const open = setting === 'open' || setting === 'valley';
+    const straight = this.style('straightChance') * (winding ? 0.55 : open ? 1.25 : 1);
+    if (this.wasCurve && rng.chance(straight)) {
       this.kTarget = 0;
       this.segLeft = rng.range(this.style('straightMin'), this.style('straightMax'));
+      this.segLeft *= winding ? 0.62 : open ? 1.12 : 1;
       this.wasCurve = false;
       return;
     }
@@ -272,7 +298,7 @@ export class RoadSpine implements DrivePath {
     const pRight = 0.5 - 0.5 * clamp(this.gphi / soft, -1, 1);
     let dir = rng.chance(pRight) ? 1 : -1;
     const u = rng.next();
-    const R = rMin * (1 + (this.style('radiusSpread') - 1) * u * Math.sqrt(u));
+    const R = rMin * (1 + (this.style('radiusSpread') - 1) * (winding ? 0.55 : open ? 1.1 : 1) * u * Math.sqrt(u));
     let turn = rng.range(this.style('turnMin'), this.style('turnMax')) * DEG;
     const limit = this.headingLimit;
     let room = dir > 0 ? limit - this.gphi : limit + this.gphi;
@@ -312,7 +338,7 @@ export class RoadSpine implements DrivePath {
     this.count = i + 1;
 
     // ---- advance to the next station
-    if (this.segLeft <= 0) this.pickSegment(rMin);
+    if (this.segLeft <= 0) this.pickSegment(rMin, s);
     let target = this.kTarget;
     // never ask for a tighter curve than the local minimum (matters when entering a faster biome mid-curve)
     target = clamp(target, -1 / rMin, 1 / rMin);

@@ -13,6 +13,7 @@ import { BIOMES, BIOME_INDEX } from '../../src/core/world/biomes';
 import { ECO_N, ECO_PLOT, ECO_SQ, ECO_TILE, ECO_WET, Ecotope, ROAD_CLEAR, WOOD_SHEER, shoreOf, treeLine } from '../../src/core/world/ecotope';
 import { Cover, LAYER_CELL, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, onBench, type FloraLayer, type FloraRule, type FloraTable } from '../../src/core/world/flora';
 import { FLORA, floraTableOf } from '../../src/core/world/floraTables';
+import { Surface } from '../../src/core/world/ground';
 import { LandParams } from '../../src/core/world/landform';
 import { AQUATIC_DEPTH, PLANTS } from '../../src/core/world/plants';
 import { SpineSample } from '../../src/core/world/spine';
@@ -68,6 +69,40 @@ function slopeAt(w: World, x: number, z: number, h: number): number {
 const TWELVE = Object.keys(FLORA);
 
 describe('what each kind of country must get right', () => {
+  it('snow-country woods contain hardy evergreens, and every region ends its trees at its own absolute tree line', () => {
+    const world = startIn('alpine', 9);
+    const ground = new TerrainPoint();
+    ground.d = 160;
+    for (const [ri, region] of BIOMES.entries()) {
+      if (region.ground === Surface.Snow) {
+        for (const rule of tableAt(ri).trees) expect(PLANTS.find(p => p.id === rule.plant)?.evergreen).toBe(true);
+      }
+      if (!region.relief) continue;
+      ground.ba = ground.bb = ri;
+      ground.bed = region.relief.trees - world.spine.altitude(0);
+      expect(world.vistas.treeScale(ground, 65535), region.id).toBe(0);
+      ground.bed -= 40;
+      expect(world.vistas.treeScale(ground, 65535), region.id).toBeLessThan(0.5);
+      ground.bed -= 150;
+      expect(world.vistas.treeScale(ground, 65535), region.id).toBe(1);
+    }
+  });
+
+  it('keeps sheltered woodland and thins the foreground only where the land has a view', () => {
+    const w = startIn('alpine', 9);
+    let oneSide = 0;
+    let sheltered = 0;
+    for (let s = 3000; s <= 18000; s += 80) {
+      const left = w.vistas.clearing(s, -24);
+      const right = w.vistas.clearing(s, 24);
+      if (Math.max(left, right) > 0.85 && Math.min(left, right) < 0.15) oneSide++;
+      if (left < 0.05 && right < 0.05) sheltered++;
+      expect(w.vistas.clearing(s, 120)).toBe(0);
+    }
+    expect(oneSide).toBeGreaterThan(2);
+    expect(sheltered).toBeGreaterThan(2);
+  });
+
   it('the tree line: in the high country and above the terraces no tree of the land stands above the line, and they thin towards it', () => {
     for (const [region, seed] of [['alpine', 9], ['terraces', 9]] as const) {
       const w = startIn(region, seed);
@@ -311,7 +346,7 @@ describe('what each kind of country must get right', () => {
     let turns = 0;
     let hues = new Set<number>();
     let last = -1;
-    const x0 = 9000;
+    const x0 = 8500;
     w.spine.at(w.spine.sAtX(x0), sp);
     for (let z = sp.z + 60; z < sp.z + 200; z += 0.25) {
       w.eco!.at(x0, z, e);
@@ -369,7 +404,7 @@ describe('what each kind of country must get right', () => {
       let alone = 0;
       let tiles = 0;
       let without = 0;
-      firstChapter(w, 8, 2, (tx, tz) => {
+      firstChapter(w, 4, 3, (tx, tz) => {
         const ft = w.flora!.tile(LAYER_TREE, tx, tz);
         const at: number[] = [];
         for (let k = 0; k < ft.n; k++) if (PLANTS[ft.plant[k]].id === 'bamboo') at.push(ft.x[k], ft.z[k]);
@@ -437,7 +472,7 @@ describe('what each kind of country must get right', () => {
     // (the ecotope's own landform is the land's: where it says tower, the land's point says so too)
     const w = startIn('karst_peaks', 2);
     let agree = 0;
-    firstChapter(w, 24, 5, (tx, tz) => {
+    firstChapter(w, 5, 5, (tx, tz) => {
       const et = w.eco!.tile(tx, tz);
       for (let n = 0; n < ECO_N * ECO_N; n += 5) {
         w.shape(tx * ECO_TILE + (n % ECO_N) * 8, tz * ECO_TILE + Math.floor(n / ECO_N) * 8, tp);

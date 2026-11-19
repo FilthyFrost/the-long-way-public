@@ -5081,6 +5081,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   render(): void {
     if (this.env.shotMode) this.env.prepareShot();
+    globals.uCrownDay.value = this.clock.day;
     this.core.render(this.time);
   }
 
