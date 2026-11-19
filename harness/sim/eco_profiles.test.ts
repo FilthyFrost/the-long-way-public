@@ -22,6 +22,26 @@ describe('road ecology reference catalogue', () => {
     for (const profile of ECO_PROFILES) expect(profile.roads.length).toBeGreaterThan(0);
   });
 
+  it('can leave each landscape and reach two distinct others in at most three transitions', () => {
+    const byId = new Map(ECO_PROFILES.map(profile => [profile.id, profile]));
+    for (const origin of ECO_PROFILES) {
+      const visited = new Set([origin.id]);
+      let frontier = [origin.id];
+      for (let depth = 0; depth < 3; depth++) {
+        const next: string[] = [];
+        for (const id of frontier) {
+          for (const { to } of byId.get(id)!.transitions) {
+            if (visited.has(to)) continue;
+            visited.add(to);
+            next.push(to);
+          }
+        }
+        frontier = next;
+      }
+      expect(visited.size - 1, origin.id).toBeGreaterThanOrEqual(2);
+    }
+  });
+
   for (const profile of ECO_PROFILES) {
     it(profile.id, () => {
       const { climate, bands } = profile;
@@ -53,11 +73,18 @@ describe('road ecology reference catalogue', () => {
       }
       for (const insect of profile.insects) checkMonths(insect.months);
       checkShares(profile.rocks);
-      expect(profile.transitions.length).toBeGreaterThan(0);
+      const [shortKm, longKm] = profile.typicalStretchKm;
+      expect(profile.typicalStretchKm.every(Number.isFinite)).toBe(true);
+      expect(shortKm).toBeGreaterThan(0);
+      expect(longKm).toBeGreaterThan(shortKm);
+      const targets = profile.transitions.map(edge => edge.to);
+      expect(new Set(targets).size).toBe(targets.length);
+      expect(targets.some(to => to !== profile.id)).toBe(true);
       for (const edge of profile.transitions) {
         expect(ids.has(edge.to)).toBe(true);
+        expect(Number.isFinite(edge.widthM)).toBe(true);
         expect(edge.widthM).toBeGreaterThan(0);
-        expect(edge.reason.length).toBeGreaterThan(0);
+        expect(edge.reason.trim().length).toBeGreaterThan(0);
       }
     });
   }
