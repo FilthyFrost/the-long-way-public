@@ -54,6 +54,9 @@ export interface BroadleafShape {
   lopsided?: number;
   /** false: the boughs are not drawn as wood (a shrub's are hidden in its leaves) */
   boughWood?: boolean;
+  /** vertical thickness of a leaf mass (an umbrella crown lies flat) */
+  clumpHeight?: number;
+  fruit?: boolean;
 }
 
 /** a conifer's shape (m) */
@@ -79,6 +82,8 @@ export interface ConiferShape {
   ragged: number;
   /** 0 … 1: the crown is gathered in a few clouds high up (a pine), not whorl over whorl (a spruce) */
   clouds?: number;
+  /** thickness of a whorl: cypress sprays rise tightly around the trunk */
+  tierHeight?: number;
 }
 
 /** how a level of detail grows a tree: its sprays (a share of the nearest level's, each so much bigger), its wood and cores */
@@ -128,7 +133,7 @@ interface Tube {
   r0: number;
   r1: number;
   /** 0 the bole, 1 a limb, 2 a bough, 3 a conifer's twig */
-  kind: 0 | 1 | 2 | 3;
+  kind: 0 | 1 | 2 | 3 | 4;
 }
 
 interface Clump {
@@ -191,7 +196,7 @@ const SPHERES = [icosphere(0), icosphere(1)];
 const OCTA = { pos: [1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1], idx: [0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5] };
 
 /** the arrays a tree is written into */
-class Out {
+export class Out {
   readonly pos: number[] = [];
   readonly nrm: number[] = [];
   readonly uv: number[] = [];
@@ -212,10 +217,7 @@ class Out {
     this.part.push(part);
     this.card.push(part === PART_SPRAY ? 1 : 0);
     if (y > this.top) this.top = y;
-    if (part !== PART_WOOD) {
-      const r = Math.hypot(x, z);
-      if (r > this.reach) this.reach = r;
-    }
+    this.reach = Math.max(this.reach, Math.hypot(x, z));
     return this.pos.length / 3 - 1;
   }
 
@@ -238,9 +240,9 @@ class Out {
 /** the wood: tubes round curves, a bole that spreads into its roots and is never round */
 function writeWood(out: Out, tubes: readonly Tube[], lv: CrownLevel, random: () => number): void {
   for (const tube of tubes) {
-    const sides = tube.kind === 0 ? lv.boleSides : tube.kind === 1 ? lv.limbSides : tube.kind === 2 ? lv.boughSides : lv.twigSides;
+    const sides = tube.kind === 0 ? lv.boleSides : tube.kind === 1 ? lv.limbSides : tube.kind === 2 ? lv.boughSides : tube.kind === 4 ? 3 : lv.twigSides;
     if (sides < 3) continue;
-    const rows = tube.kind === 0 ? lv.boleRows : tube.kind === 3 ? lv.twigRows : lv.rows;
+    const rows = tube.kind === 0 ? lv.boleRows : tube.kind === 3 ? lv.twigRows : tube.kind === 4 ? 2 : lv.rows;
     const frames = tube.curve.computeFrenetFrames(rows, false);
     const first = out.pos.length / 3;
     const phase = random() * TAU;
@@ -345,7 +347,7 @@ const smooth = (x: number, a: number, b: number): number => {
 };
 
 /** a broad-leaved tree standing at the origin, at a level of detail (CROWN_LEVELS) */
-export function growBroadleaf(seed: number, o: BroadleafShape, level = 0): CrownModel {
+export function growBroadleaf(seed: number, o: BroadleafShape, level = 0, bare = false): CrownModel {
   const lv = CROWN_LEVELS[level];
   // the tree's frame (its limbs and where its clumps are) from one stream, its finish from another:
   // every level of the same seed has the same boughs and the same clumps
@@ -375,7 +377,7 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0): Crown
   const clump = (c: THREE.Vector3, r: number): void => {
     // (a clump that would hang into the ground is held up above it)
     if (c.y - r * 0.95 < 0.35) c.y = 0.35 + r * 0.95;
-    clumps.push({ c, r, sy: 0.82, stretch: 1, along: null, open: openAt(c), depth: depthAt(c) });
+    clumps.push({ c, r, sy: o.clumpHeight ?? 0.82, stretch: 1, along: null, open: openAt(c), depth: depthAt(c) });
   };
   for (let i = 0; i < o.limbs; i++) {
     const a = ((i + 0.15 + random() * 0.7) / o.limbs) * TAU;
@@ -409,6 +411,20 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0): Crown
       clump(end2, o.clump * (0.75 + 0.45 * random()));
     }
   }
+  // The outer sunlit tufts still have a scaffold after leaf fall. Trace each back
+  // to the nearest limb end, then split the terminal twig at its outer third.
+  function support(c: THREE.Vector3): void {
+    if (!bare && o.boughWood === false) return;
+    let start = top;
+    for (const tube of tubes) {
+      const p = tube.curve.getPoint(1);
+      if (p.distanceToSquared(c) < start.distanceToSquared(c)) start = p;
+    }
+    if (!bare && start.distanceTo(c) < o.clump * 0.65) return;
+    const fork = start.clone().lerp(c, 0.62);
+    fork.y -= start.distanceTo(c)*0.10;
+    tubes.push({curve: new THREE.CatmullRomCurve3([start, fork, c]), r0:o.girth*0.19, r1:o.girth*0.035, kind:4});
+  }
   // clumps on the skin of the crown, so its outline is a full, uneven dome and not a ring of branch ends
   for (let i = 0; i < o.fill; i++) {
     const a = random() * TAU;
@@ -417,7 +433,9 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0): Crown
     const up = Math.min(0.96, (-0.3 + 1.3 * u) * (1 - upright) + (-0.85 + 1.8 * u) * upright);
     const ring = Math.sqrt(1 - up * up);
     const r = reach(a) * 0.8;
-    clump(new V3(Math.cos(a) * ring * r, crownY + up * o.rise * 0.5, Math.sin(a) * ring * r), o.clump * (0.8 + 0.5 * random()));
+    const tip = new V3(Math.cos(a) * ring * r, crownY + up * o.rise * 0.5, Math.sin(a) * ring * r);
+    support(tip);
+    clump(tip, o.clump * (0.8 + 0.5 * random()));
   }
   // a hanging tree's twigs: small clumps dropped below the outer ones
   if (weep > 0) {
@@ -425,21 +443,36 @@ export function growBroadleaf(seed: number, o: BroadleafShape, level = 0): Crown
     for (const k of outer) {
       if (random() > weep) continue;
       const d = k.r * (0.9 + 0.8 * random());
-      clump(k.c.clone().add(new V3((random() - 0.5) * k.r * 0.6, -d, (random() - 0.5) * k.r * 0.6)), k.r * (0.55 + 0.25 * random()));
+      const hanging = k.c.clone().add(new V3((random() - 0.5) * k.r * 0.6, -d, (random() - 0.5) * k.r * 0.6));
+      tubes.push({curve:new THREE.LineCurve3(k.c,hanging), r0:o.girth*0.075, r1:o.girth*0.018, kind:4});
+      clump(hanging, k.r * (0.55 + 0.25 * random()));
     }
   }
 
   const out = new Out();
-  writeWood(out, tubes, lv, finish);
+  writeWood(out, tubes, bare ? { ...lv, boughSides: Math.max(3, lv.boughSides), rows: level === 2 ? 2 : lv.rows } : lv, finish);
   const cards = Math.max(lv.least, Math.round(o.cards * lv.cards));
   const spray = o.spray * lv.spray;
-  for (const k of clumps) if (k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at));
+  for (const k of clumps) if (!bare && k.depth >= lv.inner) writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at));
+  if (o.fruit && !bare && level < 2) {
+    // Fruit hangs just outside the dark mass. The instance bearing flag controls visibility.
+    for (const k of clumps.slice(0, level === 0 ? 14 : 5)) {
+      const first = out.part.length;
+      const r = 0.115 + finish() * 0.055;
+      const phase = finish();
+      for (let i = 0; i < OCTA.pos.length; i += 3) {
+        const [x, y, z] = OCTA.pos.slice(i, i + 3);
+        out.vertex(k.c.x + x*r, k.c.y - k.r*0.93 + y*r, k.c.z + z*r, x,y,z,0,0,0.5,phase,0.7,k.c.y,4);
+      }
+      for (const i of OCTA.idx) out.idx.push(first + i);
+    }
+  }
   const g = out.geometry();
   return { geometry: g, height: out.top, radius: out.reach, crownY, triangles: out.idx.length / 3, vertices: out.pos.length / 3 };
 }
 
 /** a conifer standing at the origin, at a level of detail (CROWN_LEVELS) */
-export function growConifer(seed: number, o: ConiferShape, level = 0): CrownModel {
+export function growConifer(seed: number, o: ConiferShape, level = 0, bare = false): CrownModel {
   const lv = CROWN_LEVELS[level];
   const random = mulberry(seed);
   const finish = mulberry(seed ^ 0x5bd1e995);
@@ -480,7 +513,7 @@ export function growConifer(seed: number, o: ConiferShape, level = 0): CrownMode
       const mid = from.clone().lerp(end, 0.5).add(new V3(0, -len * hang * 0.18, 0));
       end.y += len * hang * 0.12;
       const branch = new THREE.CatmullRomCurve3([from, mid, end]);
-      if (t < 0.6) tubes.push({ curve: branch, r0: o.girth * 0.16 * (1 - t * 0.7), r1: o.girth * 0.03, kind: 3 });
+      if (bare || t < 0.6) tubes.push({ curve: branch, r0: o.girth * 0.16 * (1 - t * 0.7), r1: o.girth * 0.03, kind: bare ? 1 : 3 });
       // its clumps lie along it, pointing out and hanging down, the outer bigger than the inner
       const r = o.clump * (0.45 + 0.55 * (R / o.radius)) * (0.85 + 0.3 * random());
       const along = dir.clone();
@@ -491,7 +524,7 @@ export function growConifer(seed: number, o: ConiferShape, level = 0): CrownMode
         // (the lowest whorl's clumps rest on the ground at most, not in it)
         if (c.y - r * 0.7 < 0.3) c.y = 0.3 + r * 0.7;
         const reachOut = Math.hypot(c.x, c.z);
-        clumps.push({ c, r: r * (s === 0 && steps === 2 ? 0.85 : 1), sy: 0.55 + clouds * 0.25, stretch: 1.35 - clouds * 0.25, along, open: openAt(c, reachOut, t), depth: reachOut / Math.max(0.3, envelope(t)) });
+        clumps.push({ c, r: r * (s === 0 && steps === 2 ? 0.85 : 1), sy: o.tierHeight ?? (0.55 + clouds * 0.25), stretch: 1.35 - clouds * 0.25, along, open: openAt(c, reachOut, t), depth: reachOut / Math.max(0.3, envelope(t)) });
       }
     }
   }
@@ -505,11 +538,11 @@ export function growConifer(seed: number, o: ConiferShape, level = 0): CrownMode
   }
 
   const out = new Out();
-  writeWood(out, tubes, lv, finish);
+  writeWood(out, tubes, bare ? { ...lv, rows: [5,3,2][level], limbSides: [5,4,3][level] } : lv, finish);
   const cards = Math.max(lv.least, Math.round(o.cards * lv.cards));
   const spray = o.spray * lv.spray;
   for (const k of clumps) {
-    if (k.depth < lv.inner) continue;
+    if (bare || k.depth < lv.inner) continue;
     const t = Math.min(1, Math.max(0, (k.c.y - y0) / span));
     writeClump(out, k, cards, spray, lv, finish, (at) => openAt(at, Math.hypot(at.x, at.z), t));
   }

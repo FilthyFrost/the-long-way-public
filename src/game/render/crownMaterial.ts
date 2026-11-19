@@ -88,7 +88,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
         float bend = (0.12 + U) * h * h * 0.0045 * aTree.y;
         float own = sin(ph + aCrown.y * 6.2831) * 0.25;
         w.xz += wd * bend * (0.55 + 0.45 * sin(ph) + own) + vec2(-wd.y, wd.x) * bend * 0.35 * cos(ph * 0.8 + 1.3 + aCrown.y * 3.0);
-        if (aPart > 1.5) w.xyz += n * sin(uTime * (2.6 + 2.0 * aCrown.x) + aCrown.x * 61.0) * 0.025 * (0.25 + U) * high * aTree.y;
+        if (aPart > 1.5 && aPart < 2.5) w.xyz += n * sin(uTime * (2.6 + 2.0 * aCrown.x) + aCrown.x * 61.0) * 0.025 * (0.25 + U) * high * aTree.y;
         vPos = w.xyz;
         vNormal = n;
         vUv = uv;
@@ -98,6 +98,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vBark = aTree.z;
         float flags = floor(aLook.y * 0.5);
         vEver = floor(flags * 0.5);
+        if (aPart > 3.5 && mod(flags, 2.0) < 0.5) w = m * vec4(0.0, 0.0, 0.0, 1.0);
         vBw = rtSlotPair(aLook.x, aLook.y - 2.0 * flags);
         vTint = aLook.z < 0.0 ? vec4(0.0, 0.0, 0.0, -1.0) : vec4(rtHexColour(aLook.z), 1.0);
         vTint2 = rtHexColour(max(aLook.w, 0.0));
@@ -149,7 +150,15 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vec3 col;
         vec3 albedo;
         float alpha = 0.85;
-        if (vPart > 1.5) {
+        if (vPart > 2.5) {
+          // Folded blades and fleshy cactus ribs already have a silhouette in the geometry.
+          RtPal p = rtPal(vBw);
+          float tone = clamp(0.54 + dot(n, L)*0.29 + (vCrown.x - 0.5)*0.38, 0.0, 1.0);
+          albedo = vPart > 3.5 ? rtTintTone(vTint2, tone) : crownTone(p, tone);
+          albedo = mix(albedo, rtSnowTone(tone), smoothstep(0.25, 0.8, n.y)*uWeather.y*0.8);
+          col = albedo * (uSkyColor*0.86 + uBounceColor*0.38 + uSunColor*(0.17+0.25*tone)*rtShadow(vPos,n));
+          alpha = 1.0;
+        } else if (vPart > 1.5) {
           // a spray: its picture, kept whole far off as it blurs (the cut falls with distance)
           float leafTone = 0.75;
           float cover = rtLeafCover(tLeaf, vUv, leafTone);
@@ -192,7 +201,7 @@ export function crownMaterial(): THREE.ShaderMaterial {
           if (vBark > 0.5) {
             // a pale bark (a birch's): the plant's second colour, with dark marks across it
             float mark = smoothstep(0.62, 0.72, texture2D(tNoise, vec2(vUv.x * 1.3, vUv.y * 1.7)).b);
-            bark = mix(vTint2 * mix(0.75, 1.0, stroke), vec3(0.05, 0.045, 0.045), mark * 0.85);
+            bark = mix(vTint2 * mix(0.75, 1.0, stroke), vec3(0.05, 0.045, 0.045), mark * mix(0.20, 0.85, smoothstep(0.58, 0.76, vTint2.r)));
           }
           float moss = smoothstep(0.45, 0.7, patchy * 0.6 + n.y * 0.5 - dot(n, uSunDir) * 0.2 + 0.25) * 0.75 * (1.0 - vBark * 0.7);
           albedo = mix(bark, vec3(0.06, 0.13, 0.035), moss);
