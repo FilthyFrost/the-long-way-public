@@ -12,6 +12,7 @@
  * the test (where the player stands, what hour it is). What is the game's own and only mirrored here is where
  * in a step the kernel is called (`frame`), and how the player's pick asks the sources (`mark`, `pressE`).
  */
+import { newBodyMods, newVitals, resetBodyMods } from '../../../src/core/modcar/vitals';
 import type { GarageDevice } from '../../../src/game/modcar/garageStub';
 import type { GameContext } from '../../../src/game/modcar/kernel/context';
 import type { DevButton, DevPane } from '../../../src/game/modcar/kernel/devTabs';
@@ -35,6 +36,7 @@ export class FakeGame {
   readonly clock: Kernel['clock'];
   readonly interact: Kernel['interact'];
   readonly devTabs: Kernel['devTabs'];
+  readonly modal: Kernel['modal'];
   /** every report of the kernel, as the test hook's last error would be told of it (ModGame: kernel.onError) */
   readonly reports: string[] = [];
   /** what the kernel wrote out: a fault the first time it is seen ('error: …'), a line worth a note ('warn: …') */
@@ -72,6 +74,7 @@ export class FakeGame {
     this.clock = this.kernel.clock;
     this.interact = this.kernel.interact;
     this.devTabs = this.kernel.devTabs;
+    this.modal = this.kernel.modal;
     // (ModGame: things that go off read the world's clock — itemTime.ts itemNow; the last game made sets it)
     setItemClock(this.kernel.clock);
     this.sky.hour = restore ? restore.hour : (opts.hour ?? 9.2);
@@ -83,6 +86,7 @@ export class FakeGame {
       clock: this.clock,
       interact: this.interact,
       devTabs: this.devTabs,
+      modal: this.modal,
       params: { seed: opts.seed ?? 1, shot: false, keep: true } as GameContext['params'],
       core: { origin: this.origin } as GameContext['core'],
       env: { sky: this.sky } as GameContext['env'],
@@ -95,6 +99,9 @@ export class FakeGame {
       loose: {} as GameContext['loose'],
       ui: { say: (text: string) => void this.said.push(text) } as GameContext['ui'],
       sound: (name: string) => void this.sounds.push(name),
+      // (the body is the game's: nothing here steps it; a test steps it with the mods as the game does)
+      body: newVitals(),
+      bodyMods: newBodyMods(),
     };
     // (ModGame's constructor: the journey begins at the hour the page starts at, or goes on from the save's clock)
     this.kernel.install(modules, this.ctx, this.sky.hour, restore);
@@ -113,10 +120,13 @@ export class FakeGame {
 
   /**
    * One step of the game as far as the kernel is in it (ModGame.step and updateViews): the session's seconds go
-   * on, then preStep, then step, then the world's clock is brought up to the hour, then lateUpdate.
+   * on, the modal open is shut if one sits or has walked away, what lasts on the body is made neutral, then
+   * preStep, then step, then the world's clock is brought up to the hour, then lateUpdate.
    */
   frame(dt = 1 / 60): void {
     this.time += dt;
+    this.modal.step(!!this.seated);
+    resetBodyMods(this.ctx.bodyMods);
     this.systems.preStep(dt, this.ctx);
     this.systems.step(dt, this.ctx);
     this.kernel.tick(this.sky, this);

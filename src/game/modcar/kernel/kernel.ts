@@ -1,7 +1,7 @@
 /**
- * The V3 kernel as a game owns it (docs/V3/nodes/N0-foundation.md): the six things a system plugs into — the
- * event bus, the system registry, the save slices, the world clock, the interactable sources and the developer
- * tabs — and what is done with them at the game's fixed moments: the modules installed when the game is
+ * The V3 kernel as a game owns it (docs/V3/nodes/N0-foundation.md): the things a system plugs into — the
+ * event bus, the system registry, the save slices, the world clock, the interactable sources, the developer
+ * tabs and the one modal panel (modal.ts) — and what is done with them at the game's fixed moments: the modules installed when the game is
  * constructed, the systems set up and the save's slices read back once the game has populated itself, the
  * world's clock brought up to the hour every frame, the slices and the clock put into every save, everything
  * begun again for a new game, and whatever goes wrong in any of it reported and set apart.
@@ -20,6 +20,7 @@ import { SystemRegistry } from '../../../core/kernel/systems';
 import type { GameContext } from './context';
 import { DevTabs } from './devTabs';
 import { InteractSources } from './interact';
+import { Modals } from './modal';
 import { installModules, type GameModule, type ModuleParts } from './modules';
 
 /** the two parts of a save that are the kernel's (save.ts SaveV1 has them, both optional) */
@@ -60,6 +61,8 @@ export class Kernel {
   readonly interact = new InteractSources();
   /** the systems' tabs of the developer's panel */
   readonly devTabs = new DevTabs();
+  /** the one panel that has the keys for a while (modal.ts); the game routes its keys and its wheel, and steps it */
+  readonly modal = new Modals();
   /** the last thing reported going wrong and set apart (a system, a listener, a slice, a module, a device), and how many reports there were in all */
   readonly log = { last: '', count: 0 };
   /** told of every report (entry.ts: the test hook's lastError) */
@@ -83,6 +86,7 @@ export class Kernel {
     this.events.onError = (type, e) => this.report(`event ${type}`, e);
     this.systems.onError = (id, phase, e) => this.report(`system ${id} (${phase})`, e);
     this.interact.onError = (e, where) => this.report(where ?? 'interactable source', e);
+    this.modal.onError = (e, where) => this.report(where, e);
     this.slices.onReport = (r) => {
       // (a record kept as it came — nobody here reads it, a newer build wrote it, or its system is not running —
       // is worth a line, not an error)
@@ -158,6 +162,7 @@ export class Kernel {
 
   /** a new game was asked for: every slice as a new game starts, the world's clock at nothing from `hour`, and said */
   newGame(hour: number): void {
+    this.modal.closeAll();
     this.saved = null;
     this.slices.clear();
     this.clock.begin(hour);
@@ -202,6 +207,7 @@ export class Kernel {
       clock: { worldSeconds: c.worldSeconds, day: c.day, hour: c.hour, startHour: c.startHour, waiting: c.waiting },
       interact: this.interact.size,
       devTabs: this.devTabs.list().map((t) => t.id),
+      modal: this.modal.telemetry(),
       lastError: this.log.last,
       errors: this.log.count,
     };

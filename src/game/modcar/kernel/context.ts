@@ -26,6 +26,7 @@ import type { SaveSliceRegistry } from '../../../core/kernel/slices';
 import type { SystemRegistry } from '../../../core/kernel/systems';
 import type { WorldTime } from '../../../core/kernel/clock';
 import type { ItemInstance } from '../../../core/modcar/items';
+import type { BodyMods, Vitals } from '../../../core/modcar/vitals';
 import type { World } from '../../../core/world/terrain';
 import type { Environment } from '../../env/environment';
 import type { RenderCore } from '../../render/core';
@@ -36,6 +37,7 @@ import type { ModUI } from '../ui';
 import type { ModVehicle } from '../vehicle';
 import type { DevTabs } from './devTabs';
 import type { InteractSources } from './interact';
+import type { Modals } from './modal';
 
 export interface GameContext {
   // ---------------------------------------------------------------- the kernel
@@ -51,6 +53,8 @@ export interface GameContext {
   readonly interact: InteractSources;
   /** tabs of the developer's panel (devTabs.ts) */
   readonly devTabs: DevTabs;
+  /** a panel that has the keys for a while, one at a time (modal.ts: the cooking panel) */
+  readonly modal: Modals;
 
   // ---------------------------------------------------------------- the game
   /** what the address asked for: the world's seed, screenshots (`shot`), whether this is the player's kept game (`keep`) */
@@ -71,6 +75,18 @@ export interface GameContext {
   readonly loose: LooseThings;
   /** the words on screen: the toast, the cards */
   readonly ui: ModUI;
+  /**
+   * The player's body (core/modcar/vitals.ts: food, water, health …), the game's own. Read it each time it is
+   * needed, never keep it: a game taken up from a save has another object. Give it things through vitals.ts
+   * (eat, drink), as the game does.
+   */
+  readonly body: Vitals;
+  /**
+   * What lasting things do to the body this frame (vitals.ts BodyMods: a meal's buffs; later clothes). The game
+   * brings it back to neutral just before the systems' preStep each frame and hands it to the body's step after
+   * it: a system writes into it (multiplying, adding) in its preStep. Nobody writing: the body as it always was.
+   */
+  readonly bodyMods: BodyMods;
   /** a sound of the game's own by its name ('pickup', 'putdown', 'bite' …: ModGame.sound); `gain`: how loud, or for the two that carry a weight, the kilograms */
   sound(name: string, gain?: number): void;
 }

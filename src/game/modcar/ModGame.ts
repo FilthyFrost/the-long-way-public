@@ -88,7 +88,7 @@ import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose 
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
 import { boxInHand, boxOnMark, boxSource, guardedSource, Listing, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
-import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
+import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newBodyMods, newVitals, resetBodyMods, revive as reviveVital, speedFactor, stepVitals, type BodyMods, type Vitals } from '../../core/modcar/vitals';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
 import type { ItemInstance } from '../../core/modcar/items';
@@ -283,6 +283,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   dropButton = false;
   /** the body (vitals.ts): health, stamina, food, water, temperature, the bladder */
   body: Vitals = newVitals();
+  /** what lasting things do to the body this frame (a meal's buffs): neutral before the systems' preStep, handed to the body's step (kernel/context.ts) */
+  readonly bodyMods: BodyMods = newBodyMods();
   /** the materials (crafting.ts): shared counts the recycler gives and the bench takes */
   readonly stock: Stock = newStock();
   /** the workshop's generator, recycler and bench (workshop.ts; in the garage) */
@@ -456,6 +458,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly interact = this.kernel.interact;
   /** the systems' tabs of the developer's panel */
   readonly devTabs = this.kernel.devTabs;
+  /** the one panel of a system's that has the keys for a while (kernel/modal.ts): its keys and wheel are routed in bindInput */
+  readonly modal = this.kernel.modal;
   /** the payload of body:drank, used again every frame a drink flows */
   private readonly drankEvent: { liquid: 'water' | 'alcohol' | 'energy'; litres: number } = { liquid: 'water', litres: 0 };
 
@@ -1288,7 +1292,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (b.bladder < 0.5) this.autoPee = false;
     if (this.deadT < 0) {
       if (this.assists.needs) {
-        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.env.state.rain > 0.15, peeing });
+        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.env.state.rain > 0.15, peeing, mods: this.bodyMods });
         if (ev.hurt > 0) {
           this.vitHud.hurt();
           this.sound('hurt', Math.min(1, ev.hurt / 4));
@@ -1301,7 +1305,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       } else {
         // (the needs off: only stamina, as one sprints)
         const keep = { food: b.food, water: b.water, temp: b.temp, bladder: b.bladder };
-        stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: 20, warmth: 37, rain: false, peeing: false });
+        stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: 20, warmth: 37, rain: false, peeing: false, mods: this.bodyMods });
         Object.assign(b, keep);
       }
     } else this.stepDeath(dt);
@@ -1350,6 +1354,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.deathWhy = why === 'starve' ? '饿得撑不住了。' : why === 'thirst' ? '渴得撑不住了。' : why === 'cold' ? '冻得撑不住了。' : '伤得太重了。';
     this.player.use = null;
     this.closeCargoList();
+    this.modal.closeAll();
   }
 
   private deathWhy = '';
@@ -1970,7 +1975,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   devOpened(open: boolean): void {
     const canvas = this.core.renderer.domElement;
-    this.input.lockable = !open;
+    // (a system's panel that wants the mouse keeps it when the parts bin shuts)
+    this.input.lockable = !open && !this.modal.wantsMouse;
     if (open) {
       // the mouse let go, for the tiles
       if (document.pointerLockElement === canvas) document.exitPointerLock();
@@ -1979,7 +1985,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     this.devPreview(null, null);
     // back to the game: the mouse taken again (a key press lets a page do it; else a click will)
-    if (!this.params.shot) {
+    if (!this.params.shot && !this.modal.wantsMouse) {
       try {
         void (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {});
       } catch {
@@ -2307,8 +2313,29 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     canvas.addEventListener('pointerup', stopTurning);
     canvas.addEventListener('pointercancel', stopTurning);
     canvas.addEventListener('wheel', (e) => {
+      // (a system's panel open: the wheel is its, wherever the mouse is: the window's listener below)
+      if (this.modal.isOpen) return;
       if (this.listV) this.moveListSel(e.deltaY > 0 ? 1 : -1);
       else this.player.wheel(e.deltaY);
+    });
+    window.addEventListener('wheel', (e) => {
+      if (this.modal.isOpen) this.modal.wheel(e.deltaY);
+    });
+    // a system's panel (kernel/modal.ts): while one is open the walker stands, the view holds, the mark finds
+    // nothing; one that wants the mouse has the pointer lock let go, and a click does not take it again
+    this.modal.onChange = (m) => {
+      this.player.aside = !!m || !!this.benchWs?.open;
+      if (m) {
+        this.player.use = null;
+        this.ui.showHelp(false);
+        if (m.mouse) {
+          if (document.pointerLockElement === canvas) document.exitPointerLock();
+          this.input.lockable = false;
+        }
+      } else this.input.lockable = !this.dev?.open && !this.benchWs?.open;
+    };
+    window.addEventListener('keyup', (e) => {
+      if (this.modal.isOpen) this.modal.keyUp(e.code);
     });
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
     // the key card: at the start until the first click, and on F1 any time
@@ -2316,6 +2343,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     window.addEventListener('keydown', (e) => {
       // at the bench: its list and its blows have the keys
       if (this.benchWs?.open && !e.repeat && this.benchWs.key(e.code)) {
+        e.preventDefault();
+        return;
+      }
+      // a system's panel open (kernel/modal.ts): the keys are its first (Escape shuts it; the number keys are the hotbar's)
+      if (this.modal.key(e.code, e.repeat)) {
         e.preventDefault();
         return;
       }
@@ -2397,6 +2429,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.input.onAction((a) => {
       this.hud.dismissHint();
       if (this.deadT >= 0) return;
+      // (a system's panel has the keys: E, Tab, C … are its while it is open)
+      if (this.modal.isOpen) return;
       if (a === 'pack') {
         this.toggleCargoList();
         return;
@@ -3601,7 +3635,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.saveT = 0;
       this.save();
     }
-    // the V3 systems, before the body, the player and the vehicles are stepped
+    // a system's panel open (kernel/modal.ts): shut when one sits in a vehicle or has walked away from it
+    this.modal.step(!!this.seated);
+    // the V3 systems, before the body, the player and the vehicles are stepped (what lasts on the body begins
+    // the frame neutral: the systems that have a say write into it in their preStep)
+    resetBodyMods(this.bodyMods);
     this.systems.preStep(dt, this);
     const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight') || this.pad.run;
     this.stepBody(dt, shift);
@@ -3650,7 +3688,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (!this.seated) {
       const i = this.input;
       const down = this.deadT >= 0;
-      const listing = !!this.listV || down || !!this.benchWs?.open;
+      const listing = !!this.listV || down || !!this.benchWs?.open || this.modal.isOpen;
       this.player.update(dt, i.lookYaw, i.lookPitch, {
         forward: listing ? 0 : i.walk.forward,
         right: listing ? 0 : i.walk.right,
@@ -4358,7 +4396,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const now = steps.findIndex((s) => !s.done);
       this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
     } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.pad.name && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.pad.name && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && !this.modal.wantsMouse && this.deadT < 0);
     this.updateMarker();
   }
 
