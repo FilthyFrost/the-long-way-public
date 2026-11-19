@@ -31,10 +31,10 @@ import { SITE_SLOT, placeOddsOf } from '../../src/core/world/sites';
 import { ChapterPlan, RoadSpine } from '../../src/core/world/spine';
 import { World } from '../../src/core/world/terrain';
 import { WATER_SLOT, waterOf } from '../../src/core/world/water';
-import { GOLDEN_FILE, REFERENCE_WORLDS, TRACE_PARTS, worldTrace, type WorldFingerprint, type WorldGolden } from './worldTrace';
+import { REFERENCE_WORLDS, TRACE_PARTS, readGolden, worldTrace, type WorldFingerprint } from './worldTrace';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const golden = JSON.parse(fs.readFileSync(GOLDEN_FILE, 'utf8')) as WorldGolden;
+const golden = readGolden();
 
 function expectRecorded(got: WorldFingerprint, name: string, how: string): void {
   for (const part of TRACE_PARTS) expect.soft(got[part], `${part} of ${name} ${how}`).toBe(golden[name][part]);
