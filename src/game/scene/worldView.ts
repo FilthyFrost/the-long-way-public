@@ -3,6 +3,7 @@
  * terrain leaves, scatter tiles), builds missing pieces within a per-frame time budget, and
  * retires old ones only once their replacements are in place — no holes, no pops to black.
  */
+import { roadFixtures } from './roadFurniture';
 import * as THREE from 'three';
 import { regionById } from '../../core/world/biomes';
 import type { Coast } from '../../core/world/sea';
@@ -509,6 +510,15 @@ export class WorldView {
         castShadows(poles);
         objects.push(poles);
       }
+      if (this.world.rules.version === 2) {
+        const length = STRIP_STATIONS*this.world.spine.ds;
+        const fixtures = roadFixtures(this.world,c*length,(c+POLE_SPAN)*length,new THREE.Vector3(p.wx,p.wy,p.wz),this.poleMat);
+        if (fixtures) {
+          this.add(fixtures,p.wx,p.wy,p.wz);
+          castShadows(fixtures);
+          objects.push(fixtures);
+        }
+      }
       if (p.wires) objects.push(this.add(new THREE.LineSegments(p.wires, this.wireMat), p.wx, p.wy, p.wz));
     }
     const old = this.strips.get(c);
@@ -737,7 +747,7 @@ export class WorldView {
     if (!piece || piece.lod > 1) return;
     const p = buildPoles(this.world, g, POLE_SPAN);
     for (const o of piece.objects) {
-      if (!(o instanceof THREE.Mesh) || o.material !== this.poleMat || !p.poles) continue;
+      if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || o.material !== this.poleMat || !p.poles) continue;
       o.geometry.dispose();
       o.geometry = p.poles;
       p.poles = null;

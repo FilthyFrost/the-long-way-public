@@ -1,7 +1,7 @@
 {
   "_recorded": "node v24.22.1 (linux x64); the first four worlds are those of docs/V3/maps/world-core.md, Appendix A, and hash as recorded there at e50503c",
   "_weather": "95ffc28d",
-  "_rev": 8,
+  "_rev": 9,
   "default-20261113": {
     "spine": "61ec991b",
     "spineHash": "d28a7dfa",
@@ -156,10 +156,10 @@
     "land": "cc972bf8",
     "water": "161b4d36",
     "sea": "24d3fada",
-    "sites": "ab1d30ca",
+    "sites": "78a96b1c",
     "landmarks": "4838ac28",
-    "furniture": "45e56412",
-    "heights": "991f1d0c",
+    "furniture": "f569f6f5",
+    "heights": "fa399048",
     "features": "811c9dc5",
     "counts": {
       "chapters": 7,
@@ -167,8 +167,8 @@
       "seas": 1,
       "sites": 87,
       "landmarks": 23,
-      "posts": 2893,
-      "rails": 153,
+      "posts": 2521,
+      "rails": 474,
       "features": 0
     }
   },
@@ -181,7 +181,7 @@
     "sea": "811c9dc5",
     "sites": "d62fc21f",
     "landmarks": "f1eacf67",
-    "furniture": "f0a3c8a2",
+    "furniture": "251758db",
     "heights": "dac7a2d7",
     "features": "135de767",
     "counts": {
@@ -190,8 +190,8 @@
       "seas": 0,
       "sites": 97,
       "landmarks": 23,
-      "posts": 2690,
-      "rails": 85,
+      "posts": 2132,
+      "rails": 593,
       "features": 7
     }
   },
@@ -202,10 +202,10 @@
     "land": "d3851354",
     "water": "d06a691f",
     "sea": "811c9dc5",
-    "sites": "a6b454b8",
+    "sites": "be1a0524",
     "landmarks": "d7e56053",
-    "furniture": "5c5d1bbf",
-    "heights": "a10fbfee",
+    "furniture": "7f8f1d13",
+    "heights": "d0d17a8e",
     "features": "ad1daa21",
     "counts": {
       "chapters": 17,
@@ -213,8 +213,8 @@
       "seas": 0,
       "sites": 97,
       "landmarks": 23,
-      "posts": 2636,
-      "rails": 149,
+      "posts": 2110,
+      "rails": 675,
       "features": 44
     }
   },
@@ -225,10 +225,10 @@
     "land": "42a1b005",
     "water": "d3d2c1b3",
     "sea": "811c9dc5",
-    "sites": "6dffa5ca",
+    "sites": "759c709b",
     "landmarks": "5da39862",
-    "furniture": "ec6cbbce",
-    "heights": "8c32496e",
+    "furniture": "518f3f8e",
+    "heights": "f642795a",
     "features": "c690cb95",
     "counts": {
       "chapters": 18,
@@ -236,8 +236,8 @@
       "seas": 0,
       "sites": 75,
       "landmarks": 23,
-      "posts": 2699,
-      "rails": 78,
+      "posts": 2113,
+      "rails": 638,
       "features": 46
     }
   }
