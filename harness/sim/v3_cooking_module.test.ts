@@ -14,6 +14,7 @@ import { cook } from '../../src/core/v3/cooking/rules';
 import { RECIPES } from '../../src/core/v3/cooking/recipes';
 import { skillDef } from '../../src/core/v3/progress/progress';
 import { World } from '../../src/core/world/terrain';
+import { itemCard } from '../../src/game/modcar/itemInfo';
 import { domains, progress } from '../../src/game/modcar/v3/progress/api';
 import { KITCHEN } from '../../src/game/modcar/v3/cooking/content';
 import { cookRig } from './v3/cookRig';
@@ -55,6 +56,21 @@ describe('eating a dish, and the buffs', () => {
     expect(body.water).toBeGreaterThan(40 + d.water - 1);
     expect(r.game.said.some((s) => s.includes('眼尖'))).toBe(true);
     expect(r.heard).toContain(`buff keen ${d.buffS}s`);
+  });
+
+  it('a dish\'s card says which dish it is, what a serving gives and its buff', async () => {
+    await cookRig();
+    const d = cook('soup', [{ item: 'porcini', q: 3 }, { item: 'porcini', q: 3 }], { heat: 1, knife: 1, season: 1 });
+    const one = dishItem(d);
+    const card = itemCard(newItem(one.item, { n: 2, q: one.q, state: one.state }), 0);
+    expect(card.name).toBe('野菌汤 ×2');
+    expect(card.stars).toBe(d.stars);
+    expect(card.blurb).toContain('菌子');
+    expect(card.rows.some((r) => r.label.startsWith('饱腹') && r.value === `+${d.food}`)).toBe(true);
+    expect(card.rows.some((r) => r.label.startsWith('解渴') && r.value === `+${d.water}`)).toBe(true);
+    expect(card.notes.some((n) => n.text.startsWith('吃完：眼尖'))).toBe(true);
+    const pot = itemCard(newItem('cook_pot'), 0);
+    expect(pot.rows.find((r) => r.label === '能做')?.value).toBe('煮汤、炖、饭面');
   });
 
   it('a drink takes the drink place; a third meal pushes out the one with least time; a sick dish makes one sick', async () => {

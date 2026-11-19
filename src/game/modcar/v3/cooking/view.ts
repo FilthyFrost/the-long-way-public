@@ -491,7 +491,9 @@ export class CookView implements CookShow {
       this.puffData[j + 3] = smoke ? 0.07 + 0.3 * t : 0.05 + 0.24 * t;
       this.puffColor[np * 3] = smoke ? 0 : 1;
       this.puffColor[np * 3 + 1] = 1 - t;
-      this.puffColor[np * 3 + 2] = (smoke ? 0.62 : 0.24) * Math.sin(Math.PI * Math.min(1, t * 2.2)) * (1 - t) * (smoke ? 1 : 1 - t);
+      // (it thickens over its first moments, then thins away: steam quickly, smoke slowly)
+      const fade = smoke ? 1 - t : (1 - t) * (1 - t);
+      this.puffColor[np * 3 + 2] = (smoke ? 0.62 : 0.3) * Math.min(1, t * (smoke ? 6 : 8)) * fade;
       np++;
     }
     this.lumps.count = nl;

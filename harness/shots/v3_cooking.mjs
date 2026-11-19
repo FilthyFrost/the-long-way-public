@@ -242,8 +242,9 @@ try {
   // the dish in the hand, and eaten: it feeds and leaves its buff
   const slot = withSoup.findIndex((h) => h?.item === 'dish_soup');
   await rt('select', slot);
-  // (looking away from the yard's pump and generator: the card of the thing in the hand shows whole)
+  // (looking away from the yard's pump and generator, a moment: the card of the thing in the hand shows whole)
   await rt('look', -1.35, -0.55);
+  await steps(page, 0.6);
   await shot(page, 'soup_in_hand');
   const fed0 = await page.evaluate(() => {
     const g = window.__rt.game;
@@ -324,6 +325,7 @@ try {
   const roastSlot = (await hands(page)).findIndex((h) => h?.dish?.r === 'roast_potato');
   await rt('select', roastSlot);
   await rt('look', 0, -0.55);
+  await steps(page, 0.6);
   await shot(page, 'roast_in_hand');
   const drain = await page.evaluate(() => {
     const g = window.__rt.game;
