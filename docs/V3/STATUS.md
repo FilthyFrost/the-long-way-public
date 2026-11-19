@@ -20,12 +20,17 @@
 
 - 分支：`feat/v3`（从 `feat/modcar` 的 `e50503c` 分出）。
 - 最近的可运行版本：标签 `v3-w3-forage`（第 2 版世界里按植被场长出的树、灌木、花草，以及能采的 80 种野生植物与资源）。之前：`v3-w2-flora`、`v3-w1-worldgen`、`v3-n0`。
-- 正在做：**C1 烹饪游戏模块** `v3/c1-game`（`.claude/worktrees/c1-game`，Opus 5.5）。任务书在会话草稿 `c1_brief_game.md`：身体接缝与菜的吃法、模态面板接缝、增益图标、灶位（营地火圈、便携灶、车库厨房）、做饭面板（下锅、刀工、火候、调味、等待、装盘）、腌晾熏、机器人厨子、模型、测试面板“烹饪”、实机脚本 `v3_cooking.mjs`。
+- 正在做（都是 Opus 5.5 子代理，各在自己的工作树和分支上）：
+  - **L1 山与谷** `v3/l1-relief`（`.claude/worktrees/l1-relief`）：景观探针、按景观类型的起伏、层叠远山、按绝对海拔的雪线林线、远景空气透视；在出改前改后的截图。
+  - **L2 树** `v3/l2-trees`（`.claude/worktrees/l2-trees`）：渲染层的程序化树（枝干骨架、成团叶簇、手绘叶片）、动漫三色调树叶材质（秋色、积雪）、约 35 个模型族。族名是和核心物种表约定好的接口：giant_broadleaf、birch、spruce、redwood、fir、pine、larch、beech、maple、oak、camphor、cedar、dwarf_pine、cypress、stone_pine、aspen、chestnut、linden、ash、olive、eucalyptus、rhododendron、acacia、coconut_palm、fan_palm、saguaro、joshua_tree、tree_fern、desert_poplar，以及升级后的原有族（broadleaf…、conifer…、willow、poplar、juniper、bamboo、baobab、cactus）。
+  - **C1 烹饪游戏模块** `v3/c1-game`（`.claude/worktrees/c1-game`）：在做最后的实机验收。
+- 调研已完成（提交 `5874c0d`）：`docs/V3/research/landscape-research.md`（报告）与 `landscape-params.md`（参数表），照片在本机 `refs/landscape-photos/`（不进版本库）。
+- 接下来：L1 合并后开 **L2 生态**（按海拔分带的物种表、古树林中路与开阔段交替、地被与花）和 **L3 上山的路**；之后夜里的月光与萤火虫、L4。
 - 已写好、等着接进游戏的纯核心（都在 `feat/v3` 里）：
   - 烹饪：食材特性、十三种做法、目录的 150 道菜谱、出菜引擎、限时增益表与身体接缝（`BodyMods`）、工序数值（`steps.ts`）、菜肴与厨具的物品行（`src/core/v3/cooking/`）。
   - 钓鱼：90 种鱼、咬钩与搏鱼模型、水域分类与钓点（`src/core/v3/fishing/`）。下一个节点 F1 的游戏模块在 C1 之后。
   - 设计：`docs/V3/nodes/` 下的 C1、F1。
-- 中断后恢复：看上面分支的提交（`git log feat/v3..v3/c1-game`）和工作树状态，在原分支上继续，不要重做。
+- 中断后恢复：看上面分支的提交（例如 `git log feat/v3..v3/c1-game`）和工作树状态，在原分支上继续，不要重做。
 
 ## 节点清单（2026-11-19 重排）
 
@@ -130,6 +135,12 @@
 ### L 景观 2.0（2026-11-19 起最高优先级）
 
 设计、现状、探针、分期、截图规范：`docs/V3/nodes/L-landscape.md`。调研资料：`docs/V3/research/`。每期结束：探针数字写进测试区间、驾驶视角实景截图交用户审核、打标签（`v3-l1-relief`、`v3-l2-flora`、`v3-l3-roads`、`v3-l4-journey`）。
+
+- [x] 调研（`5874c0d`）：约 50 类地形、46 条名路、14 个生物群系、9 组山地带谱、林线雪线规则、84 个树种、花与地被、夜间生灵，20 个场景配方、10 组旅程序列（建议部分单独标注）；约 500 个来源。
+- [ ] L1 山与谷（`v3/l1-relief`）。
+- [ ] L2 分两半：树（`v3/l2-trees`，渲染层）与生态（物种表、海拔分带、林中路，核心；L1 合并后开工）。两边用约定的模型族名字对接。
+- [ ] L3 上山的路（L1 合并后开工）。
+- [ ] 夜（月光、萤火虫）与 L4。
 
 ### C1 烹饪（原 N6）
 
