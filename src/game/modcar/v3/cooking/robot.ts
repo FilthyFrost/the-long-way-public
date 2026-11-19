@@ -84,10 +84,15 @@ export class RobotCook {
   private tasted = false;
   private plating = false;
 
+  /**
+   * `press`: how a key reaches the panel — the game's own way, through the modal (system.ts gives it), so that
+   * the robot's keys go where the keyboard's go; absent: straight into the session.
+   */
   constructor(
     private readonly session: CookSession,
     private readonly plan: RobotPlan,
     private readonly hands: RobotHands,
+    private readonly keyIn: (code: string) => boolean = (code) => session.key(code),
   ) {
     this.rnd = (plan.seed ?? 1) * 2654435761;
   }
@@ -100,7 +105,7 @@ export class RobotCook {
 
   private press(code: string): boolean {
     this.report.keys++;
-    return this.session.key(code);
+    return this.keyIn(code);
   }
 
   /** what to put in: the items of the plan, or what fills the recipe's needs from the rows at hand */

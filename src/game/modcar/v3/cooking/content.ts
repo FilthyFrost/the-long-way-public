@@ -158,10 +158,10 @@ export const STATION_NAME: Readonly<Record<StationKind, Text>> = {
 
 /**
  * The workshop's kitchen corner (world metres, the garage's frame: x towards the gate): a counter against the
- * front wall to the left of the doors as one comes up the yard, its front to the yard (+x), the hob at its
- * middle. The generator stands on the other side of the doors.
+ * front wall to the right of the doors as one comes up the yard, past the generator, its front to the yard
+ * (+x), the hob at its middle. (On the left of the doors the second pickup and the motorcycle stand.)
  */
-export const KITCHEN = { x: 7.78, z: 4.65, heading: 0, w: 1.8, d: 0.62, h: 0.9, hobY: 0.92 } as const;
+export const KITCHEN = { x: 7.78, z: -5.45, heading: 0, w: 1.8, d: 0.62, h: 0.9, hobY: 0.92 } as const;
 
 /** how near a station must be to cook at it (m, from the eye; the player's pick reaches 2.6) */
 export const STATION_REACH = 3.2;

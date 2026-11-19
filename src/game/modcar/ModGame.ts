@@ -283,6 +283,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   dropButton = false;
   /** the body (vitals.ts): health, stamina, food, water, temperature, the bladder */
   body: Vitals = newVitals();
+  /** no keys to show (the hands' keys while a system's panel is open) */
+  private readonly noKeys: Action[] = [];
   /** what lasting things do to the body this frame (a meal's buffs): neutral before the systems' preStep, handed to the body's step (kernel/context.ts) */
   readonly bodyMods: BodyMods = newBodyMods();
   /** the materials (crafting.ts): shared counts the recycler gives and the bench takes */
@@ -3701,6 +3703,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         // (the right button's release is seen through the window's mouseup below)
       } as never);
       this.input.lookHold = this.player.transferring || listing || !!this.player.scrub;
+      // (a system's panel open says what the keys do: the hands' card and keys would stand behind it)
+      if (this.modal.isOpen) {
+        this.ui.items.showCards(null, null, false);
+        this.ui.items.showKeys(this.noKeys);
+      }
       // (a pad's right stick moves the scrubbing tool as the mouse does)
       if (this.player.scrub && (this.pad.rx !== 0 || this.pad.ry !== 0)) this.player.scrubMove(this.pad.rx * dt * 700, this.pad.ry * dt * 700);
       this.showCargoList();

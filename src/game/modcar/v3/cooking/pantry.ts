@@ -8,7 +8,7 @@
  * of five mushrooms gives five portions; a portion given back goes into the hands (ModPlayer.receive), and
  * what they do not take is set down by the feet.
  */
-import { countOf, itemDef, itemName, takeInside, type ItemInstance } from '../../../../core/modcar/items';
+import { countOf, itemDef, itemVeil, takeInside, type ItemInstance } from '../../../../core/modcar/items';
 import { ingredient } from '../../../../core/v3/cooking/ingredients';
 import type { GameContext } from '../../kernel/context';
 import type { Loose } from '../../loose';
@@ -32,12 +32,12 @@ export function pantryRows(ctx: GameContext, x: number, z: number, near: number)
   for (let i = 0; i < slots.length; i++) {
     const h = slots[i];
     if (h?.kind !== 'item') continue;
-    if (ingredient(h.item.item)) out.push({ item: h.item, name: itemName(h.item, lang), where: 'hand', slot: i, box: null, lying: null });
+    if (ingredient(h.item.item)) out.push({ item: h.item, name: nameOf(h.item.item, lang), where: 'hand', slot: i, box: null, lying: null });
   }
   for (let i = 0; i < slots.length; i++) {
     const h = slots[i];
     if (h?.kind !== 'item' || !itemDef(h.item.item).holds || !h.item.inside) continue;
-    for (const x of h.item.inside) if (ingredient(x.item)) out.push({ item: x, name: itemName(x, lang), where: 'box', slot: i, box: h.item, lying: null });
+    for (const x of h.item.inside) if (ingredient(x.item)) out.push({ item: x, name: nameOf(x.item, lang), where: 'box', slot: i, box: h.item, lying: null });
   }
   const list = ctx.loose.list;
   const r2 = near * near;
@@ -46,9 +46,14 @@ export function pantryRows(ctx: GameContext, x: number, z: number, near: number)
     const box = l.item;
     if (!box || !box.inside || !itemDef(box.item).holds || l.riding) continue;
     if ((l.x - x) * (l.x - x) + (l.z - z) * (l.z - z) > r2) continue;
-    for (const x2 of box.inside) if (ingredient(x2.item)) out.push({ item: x2, name: itemName(x2, lang), where: 'near', slot: -1, box, lying: l });
+    for (const x2 of box.inside) if (ingredient(x2.item)) out.push({ item: x2, name: nameOf(x2.item, lang), where: 'near', slot: -1, box, lying: l });
   }
   return out;
+}
+
+/** a kind's name as the lists give it, without a count (a kind the player does not know by the veil's) */
+function nameOf(id: string, lang: 'zh' | 'en'): string {
+  return (itemVeil(id) ?? itemDef(id).name)[lang];
 }
 
 /** one portion of a row out of where it is: one thing off its stack, or the last one itself (null: it is gone) */

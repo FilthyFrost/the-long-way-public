@@ -240,10 +240,11 @@ export class Cooking implements System<GameContext>, InteractSource {
     this.hud = this.makeHud ? this.makeHud(ctx, this) : null;
     // the workshop's kitchen corner, where a journey begins at the workshop
     if (ctx.params.start === 'garage') {
+      // (the station's point is over the hob's front ring: the model's ring at its y +0.15 is the world's z −0.15)
       const k = this.station('kitchen', 'kitchen');
-      k.x = KITCHEN.x;
+      k.x = KITCHEN.x + 0.04;
       k.y = KITCHEN.hobY;
-      k.z = KITCHEN.z;
+      k.z = KITCHEN.z - 0.15;
       k.heading = KITCHEN.heading;
       const solid = new Solid().set(KITCHEN.x, KITCHEN.z, KITCHEN.d / 2, KITCHEN.w / 2, KITCHEN.heading, -0.2, KITCHEN.h + 0.6, false, 'cooking:kitchen');
       this.kitchenSolid = {
@@ -812,7 +813,9 @@ export class Cooking implements System<GameContext>, InteractSource {
       const st = this.nearest();
       if (!st || !this.openAt(st)) return false;
     }
-    const r = new RobotCook(this.session, plan, hands);
+    // (its keys go the keyboard's way: through the modal)
+    const ctx = this.ctx;
+    const r = new RobotCook(this.session, plan, hands, ctx ? (code) => ctx.modal.key(code) : undefined);
     this.robot = r;
     return r.start();
   }
@@ -850,6 +853,8 @@ export class Cooking implements System<GameContext>, InteractSource {
       return d ? { name: d.name.zh, recipe: d.recipe, stars: d.stars, servings: d.servings } : null;
     },
     cooked: () => Object.fromEntries(this.cooked),
+    /** is a recipe known by name now */
+    known: (id: unknown) => progress.knowledge(COOK_DOMAIN, String(id)) === 2,
     slice: () => this.slice.snapshot() ?? null,
     /** a jar ripened now (the scripts' and the tests' shortcut past 12 game hours) */
     ripen: () => {

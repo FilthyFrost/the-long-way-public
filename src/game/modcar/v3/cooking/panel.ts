@@ -267,7 +267,7 @@ export class CookPanel implements CookPanelView {
       const doneness = heated ? `<div class="done">${bandsBar}<div class="nd"></div></div><div class="bands">${bandsTxt}</div><div class="big">${BAND_NAME[b].zh}</div>` : '';
       if (s.phase === 'heat') {
         const m = METHOD_STEPS[s.method];
-        const stir = m.stir === 'stir' ? `一直要翻炒（${kbd('Space')}），不然会糊` : m.stir === 'turn' ? (s.pot.turned ? '已经翻过面了' : `熟到一半记得翻面（${kbd('Space')}）`) : m.waitS > 0 ? '火候到了就自己转小火慢慢煮' : '';
+        const stir = m.stir === 'stir' ? `一直要翻炒（${kbd('Space')}），不然会糊` : m.stir === 'turn' ? (s.pot.turned ? '已经翻过面了' : `熟到一半记得翻面（${kbd('Space')}）`) : m.waitS > 0 ? '熟了就进入慢煮：火调小，等着就行' : '';
         body = `${doneness}${flame}<div class="note">${stir}</div>`;
         keys = `<span>${kbd('W')}${kbd('S')} / 滚轮 火力</span>${m.stir !== 'none' ? `<span>${kbd('Space')} ${m.stir === 'stir' ? '翻炒' : '翻面'}</span>` : ''}<span>${kbd('E')} 起锅</span>`;
       } else if (s.phase === 'wait' || (s.phase === 'plate' && s.lit)) {
@@ -302,7 +302,7 @@ export class CookPanel implements CookPanelView {
       ${steps.length && !showDish ? `<div class="steps">${stepRow}</div>` : ''}
       ${showDish ? '' : `<div class="pot">${pot.join('')}</div>`}
       <div class="body">${body}</div>
-      <div class="ft">${keys}<span>${kbd('Esc')} 关上</span></div>`;
+      <div class="ft">${keys}${keys.includes('Esc') ? '' : `<span>${kbd('Esc')} 关上</span>`}</div>`;
     this.mk = this.el.querySelector('.track .mk');
     this.nd = this.el.querySelector('.done .nd');
     this.wt = this.el.querySelector('.wait i');

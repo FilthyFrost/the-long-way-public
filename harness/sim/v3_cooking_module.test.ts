@@ -279,6 +279,72 @@ describe('the save', () => {
   });
 });
 
+describe('the ways of keeping, the pages, raw meat', () => {
+  it('a drying rack set down takes mushrooms and gives them back dried after six game hours', async () => {
+    const r = await cookRig({ start: 'road' });
+    r.ctx.loose.addItem(newItem('cook_rack'), 1.6, 0, 0, 0);
+    r.frames(40);
+    const st = r.cooking.harness.stations().find((s) => s.kind === 'rack');
+    expect(st?.methods).toEqual(['dry']);
+    r.give('porcini', 3);
+    expect(r.pressAt(st!.x, st!.y, st!.z)).toBe(true);
+    r.key('KeyE');
+    r.key('KeyE');
+    r.key('KeyE');
+    r.key('Space');
+    // (no recipe of three porcini on a rack: a pot of no recipe has no knife step)
+    expect(['keep', 'knife']).toContain(r.panel().phase);
+    for (let i = 0; i < 12 && r.panel().phase === 'knife'; i++) {
+      r.key('Space');
+      r.frames(60);
+    }
+    expect(r.panel().phase).toBe('keep');
+    r.key('KeyE');
+    expect(r.panel().phase).toBe('keep');
+    r.key('Escape');
+    r.game.setHour(r.game.sky.hour + 6.5);
+    r.pressAt(st!.x, st!.y, st!.z);
+    r.key('KeyE');
+    const dried = r.held('dish_preserve');
+    expect(dried?.state?.dish?.zh).toBe('蘑菇干');
+    expect(itemDef('dish_preserve').perish).toBeUndefined();
+  });
+
+  it('a jar riding in a vehicle ripens with the road: fifteen kilometres', async () => {
+    const r = await cookRig({ start: 'road' });
+    const jar = newItem('cook_jar');
+    jar.inside = [newItem('bamboo_shoot', { n: 2, q: 2, t0: 0 })];
+    const l = r.ctx.loose.addItem(jar, 0, 0, 0, 0) as unknown as { riding: unknown };
+    l.riding = { on: { sim: { kmh: 60 } } };
+    // (a quarter of an hour at 60 km/h)
+    r.frames(800, 1);
+    expect(jar.inside?.[0]?.item).toBe('bamboo_shoot');
+    r.frames(200, 1);
+    expect(jar.inside?.[0]?.state?.dish?.r).toBe('sour_shoots');
+  });
+
+  it('a recipe page in the hands teaches every recipe of its class', async () => {
+    const r = await cookRig({ start: 'road' });
+    const soups = RECIPES.filter((x) => x.cls === 'soup').map((x) => x.id);
+    expect(soups.some((id) => progress.knowledge('dish', id) === 2)).toBe(false);
+    r.give('recipe_page_soup');
+    r.frames(40);
+    expect(soups.every((id) => progress.knowledge('dish', id) === 2)).toBe(true);
+    expect(r.game.said.some((s) => s.includes(`学会了 ${soups.length} 道菜`))).toBe(true);
+  });
+
+  it('raw meat eaten makes one sick; cooked it is a dish', async () => {
+    const r = await cookRig({ start: 'road' });
+    r.game.events.emit('body:ate', { item: newItem('meat_venison') });
+    expect(r.ctx.body.effects.sick1 ?? 0).toBe(0);
+    // (the game's own eating path gives an item's `eat`: sick1 for a raw cut; the dish path is ours)
+    expect(itemDef('meat_venison').eat).toEqual({ food: 0, hp: 0, sec: 3.9, effect: 'sick1' });
+    const d = cook('roast', [{ item: 'meat_venison' }], { heat: 1 });
+    expect(d.sick).toBe(0);
+    expect(d.recipe).toBe('game_skewers');
+  });
+});
+
 describe('the pickling jar', () => {
   it('what is in a jar becomes the pickle dish after twelve game hours', async () => {
     const r = await cookRig({ start: 'road' });
