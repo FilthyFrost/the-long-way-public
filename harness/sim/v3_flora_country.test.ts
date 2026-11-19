@@ -437,7 +437,7 @@ describe('what each kind of country must get right', () => {
     // (the ecotope's own landform is the land's: where it says tower, the land's point says so too)
     const w = startIn('karst_peaks', 2);
     let agree = 0;
-    firstChapter(w, 24, 5, (tx, tz) => {
+    firstChapter(w, 5, 5, (tx, tz) => {
       const et = w.eco!.tile(tx, tz);
       for (let n = 0; n < ECO_N * ECO_N; n += 5) {
         w.shape(tx * ECO_TILE + (n % ECO_N) * 8, tz * ECO_TILE + Math.floor(n / ECO_N) * 8, tp);

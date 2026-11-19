@@ -15,7 +15,7 @@
  * The world's rules load this file (rules.ts names DEALER_V2), so it knows the registry's entries and the
  * rules by their types and loads nothing of the road or the land to run.
  */
-import { borderWidth, hasRouteProfile } from './routeProfiles';
+import { borderWidth, hasRouteProfile, referenceSlots } from './routeProfiles';
 import { hash2 } from '../math/rng';
 import { BIOMES, type RegionDef } from './biomes';
 import type { ChapterDealer, DealerView } from './rules';
@@ -255,13 +255,18 @@ export function dealRegion(seed: number, c: number, cards: readonly RegionCard[]
     }
     v -= w[i];
   }
-  return { region: pick.index, slots: slotsOf(seed, c, pick.intensity) };
+  return { region: pick.index, slots: slotsOf(seed, c, pick.intensity, pick.routeId) };
 }
 
 /** how many stretches chapter c runs for, by its region's intensity */
-export function slotsOf(seed: number, c: number, intensity: Intensity): number {
+export function slotsOf(seed: number, c: number, intensity: Intensity, routeId?: string): number {
+  const roll = dice(seed, c, SALT_SLOTS);
+  if (routeId && intensity !== 'highlight') {
+    const length = referenceSlots(routeId, roll);
+    if (length !== undefined) return length;
+  }
   const list = SLOTS[intensity];
-  return list[Math.min(list.length - 1, Math.floor(dice(seed, c, SALT_SLOTS) * list.length))];
+  return list[Math.min(list.length - 1, Math.floor(roll * list.length))];
 }
 
 /**
@@ -319,7 +324,7 @@ function lengthOf(slots: number, deal: DealerView): number {
 export const DEALER_V2: ChapterDealer = {
   first(deal) {
     const card = cardOf(BIOMES[deal.startRegion], deal.startRegion);
-    return { region: deal.startRegion, length: lengthOf(slotsOf(deal.seed, 0, card.intensity), deal) };
+    return { region: deal.startRegion, length: lengthOf(slotsOf(deal.seed, 0, card.intensity, card.routeId), deal) };
   },
   next(deal) {
     const d = dealRegion(deal.seed, deal.regions.length, cardsOf(deal.rules.regionCount), deal.regions);

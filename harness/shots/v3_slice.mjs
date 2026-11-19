@@ -21,14 +21,14 @@ import { ROOT, ON_GPU, launchBrowser, openGame, startServer } from './lib.mjs';
 /** the spots: the sample stretch first (a valley of the plains, the forest), then one of each other kind of country */
 export const SPOTS = [
   { name: 'plains', region: 'plains', km: 3.125 },
-  { name: 'forest', region: 'forest', km: 255.625 },
-  { name: 'alpine', region: 'alpine', km: 60.625 },
-  { name: 'alpine_valley', region: 'alpine', km: 64.375 },
-  { name: 'alpine_vista', region: 'alpine', km: 358.125, look: -0.8 },
-  { name: 'desert', region: 'desert', km: 103.125 },
-  { name: 'lakes', region: 'lakes', km: 293.125 },
-  { name: 'maple', region: 'maple', km: 73.125 },
-  { name: 'karst', region: 'karst_peaks', km: 823.125 },
+  { name: 'forest', region: 'forest', km: 388.125 },
+  { name: 'alpine', region: 'alpine', km: 394.375 },
+  { name: 'alpine_valley', region: 'alpine', km: 221.875 },
+  { name: 'alpine_vista', region: 'alpine', km: 278.125, look: -0.8 },
+  { name: 'desert', region: 'desert', km: 118.125 },
+  { name: 'lakes', region: 'lakes', km: 326.875 },
+  { name: 'maple', region: 'maple', km: 234.375 },
+  { name: 'karst', region: 'karst_peaks', km: 739.375 },
 ];
 const SEED = 7;
 

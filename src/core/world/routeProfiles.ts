@@ -31,10 +31,10 @@ for (const [a, m, neighbours] of corridors) for (const b of neighbours) {
 }
 // An existing game's region is a landscape analogue, not a simulation of its reference country's climate.
 const analogues: Readonly<Record<string, string>> = {
-  plains: 'prairie-badlands', desert: 'sonoran', red_canyon: 'redrock',
+  plains: 'shenandoah-farm', desert: 'sonoran', red_canyon: 'redrock',
   forest: 'sierra-valley', alpine: 'sierra-high', maple: 'appalachian',
-  lakes: 'norway-fjord', terraces: 'hani-paddy', bamboo_sea: 'karst-river',
-  karst_peaks: 'karst-river',
+  lakes: 'fiordland', terraces: 'south-china-paddy', bamboo_sea: 'karst-river',
+  karst_peaks: 'karst-river', flower_fields: 'blue-meadow', wetland: 'eglinton-grass',
 };
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
 // An authored transition takes precedence over a generic ecotone. A self-edge varies habitat within
@@ -46,6 +46,14 @@ for (const [from, profileId] of Object.entries(analogues)) {
       if (nextId === edge.to) connect(from, to, edge.widthM);
     }
   }
+}
+/** Compress each reference road's real extent into the chapter budget on a logarithmic scale. */
+export function referenceSlots(id: string, roll: number): number | undefined {
+  const profile = profiles.get(analogues[id]);
+  if (!profile) return undefined;
+  const [lo, hi] = profile.typicalStretchKm;
+  const distance = lo + (hi - lo) * roll;
+  return 6 + Math.min(2, Math.floor(Math.log1p(distance) / Math.log(60) * 3));
 }
 export const MAX_BORDER_WIDTH = Math.max(...Array.from(borders.values()).flatMap(row => [...row.values()]));
 export function hasRouteProfile(id: string): boolean { return borders.has(id); }
