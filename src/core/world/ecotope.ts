@@ -251,6 +251,11 @@ export class EcotopeField {
     return this.tiles.size;
   }
 
+  /** A scenery reader can defer work until the terrain has paid for this tile. */
+  hasTileAt(x: number, z: number): boolean {
+    return this.tiles.has((Math.floor(x / ECO_TILE) + 32768) * 65536 + Math.floor(z / ECO_TILE) + 32768);
+  }
+
   /** the tile whose corner is at (tx, tz) × ECO_TILE */
   tile(tx: number, tz: number): EcoTile {
     // (tiles within ±2^15 of the origin each way: 4,000 km of road and more)

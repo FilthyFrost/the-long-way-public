@@ -1924,6 +1924,10 @@ export const ECO_PROFILES: readonly EcoProfile[] = [
     snowlineM: [null, null, null, null],
     birds: [
       { name: '仓燕', habitat: '农舍与草场' },
+      { name: '美洲鸦', habitat: '开阔田畦' },
+      { name: '红尾鵟', habitat: '农场围栏与上升气流' },
+      { name: '绿翅鸭', habitat: '淡水池塘' },
+      { name: '绿头鸭', habitat: '淡水池塘' },
     ],
     insects: [
       { name: '萤火虫', months: [6, 7], activity: 'night', habitat: '湿暖未割田界' },
