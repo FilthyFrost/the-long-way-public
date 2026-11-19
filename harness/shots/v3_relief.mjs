@@ -18,7 +18,7 @@
 // (and not within 150 m of a bridge), the skyline either side of the road (the highest elevation angle of the land out to 8 km over four bearings from
 // 60 to 105 degrees off the heading); the representative spot is the one whose higher side is nearest the
 // chapter's median, the valley spot the one whose lower side is highest, the vista spot the one whose two sides
-// differ most with the lower under twelve degrees (or the one that differs most, if none is that open).
+// differ most with the lower under twelve degrees (in one of the next chapters of the mountains if not in this one).
 //
 // Nothing here waits on the wall clock for a result: the game is stepped, or its own state is waited for.
 import fs from 'node:fs';
@@ -163,12 +163,25 @@ try {
       spots.push({ name: `${tag}_${r.id}`, region: r.id, km: +(rep.s / 1000).toFixed(3), sky: [+rep.left.toFixed(1), +rep.right.toFixed(1)] });
       if (r.id === 'alpine') {
         const valley = rows.reduce((a, q) => (lo(q) > lo(a) ? q : a));
-        // (the most open of those whose lower side is under twelve degrees; failing those, the most open of all)
-        const open = rows.filter((q) => lo(q) < 12);
-        const vista = (open.length ? open : rows).reduce((a, q) => (hi(q) - lo(q) > hi(a) - lo(a) ? q : a));
         spots.push({ name: `${tag}_${r.id}_valley`, region: r.id, km: +(valley.s / 1000).toFixed(3), sky: [+valley.left.toFixed(1), +valley.right.toFixed(1)] });
-        if (vista) spots.push({ name: `${tag}_${r.id}_vista`, region: r.id, km: +(vista.s / 1000).toFixed(3), sky: [+vista.left.toFixed(1), +vista.right.toFixed(1)], openSide: vista.left < vista.right ? -1 : 1 });
-        else fail('alpine: no spot of its chapter opens on one side');
+        // the vista: the most open of the spots whose lower side is under twelve degrees, in this chapter or, failing
+        // that, one of the next four of the mountains (failing those too, the most open spot of this one)
+        let vista = null;
+        let more = rows;
+        for (let tries = 0; tries < 5 && !vista; tries++) {
+          const open = more.filter((q) => lo(q) < 12);
+          if (open.length) vista = open.reduce((a, q) => (hi(q) - lo(q) > hi(a) - lo(a) ? q : a));
+          else if (tries < 4) {
+            await rt('devGoRegion', r.id, true);
+            await page.evaluate(() => window.__rt.game.simulate(0));
+            more = await survey(page, (await rt('devJourney', 1))[0]);
+          }
+        }
+        if (!vista) {
+          fail('alpine: no spot of five chapters opens on one side under twelve degrees');
+          vista = rows.reduce((a, q) => (hi(q) - lo(q) > hi(a) - lo(a) ? q : a));
+        }
+        spots.push({ name: `${tag}_${r.id}_vista`, region: r.id, km: +(vista.s / 1000).toFixed(3), sky: [+vista.left.toFixed(1), +vista.right.toFixed(1)], openSide: vista.left < vista.right ? -1 : 1 });
       }
     }
     fs.writeFileSync(path.join(out, 'spots.json'), JSON.stringify({ seed: SEED, spots }, null, 1) + '\n');
