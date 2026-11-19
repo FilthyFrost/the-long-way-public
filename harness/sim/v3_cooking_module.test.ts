@@ -326,6 +326,23 @@ describe('the ways of keeping, the pages, raw meat', () => {
     expect(itemDef('dish_preserve').perish).toBeUndefined();
   });
 
+  it('a camp stove set down is cooked at with what lies by it, and packed up again with G', async () => {
+    const r = await cookRig({ start: 'road' });
+    r.ctx.loose.addItem(newItem('cook_stove'), 1.6, 0, 0, 0);
+    r.ctx.loose.addItem(newItem('cook_pan'), 1.6, 0, 1.2, 0);
+    r.frames(40);
+    const st = r.cooking.harness.stations().find((s) => s.kind === 'stove');
+    expect(st?.methods).toEqual(['fry']);
+    r.give('cook_pot');
+    expect(r.pressAt(st!.x, st!.y, st!.z)).toBe(true);
+    expect(r.cooking.methodsAt(r.cooking.open!)).toEqual(['fry', 'soup', 'stew', 'rice']);
+    expect(r.key('KeyG')).toBe(true);
+    expect(r.game.modal.isOpen).toBe(false);
+    expect(r.held('cook_stove')).not.toBeNull();
+    expect(r.lying.some((l) => l.item?.item === 'cook_stove')).toBe(false);
+    expect(r.cooking.harness.stations().some((s) => s.kind === 'stove')).toBe(false);
+  });
+
   it('a jar riding in a vehicle ripens with the road: fifteen kilometres', async () => {
     const r = await cookRig({ start: 'road' });
     const jar = newItem('cook_jar');

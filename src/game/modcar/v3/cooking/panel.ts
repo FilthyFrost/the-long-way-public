@@ -247,7 +247,7 @@ export class CookPanel implements CookPanelView {
             .slice(Math.max(0, se.sel - 6), Math.max(0, se.sel - 6) + 9)
             .join('')}</div>`
         : '<div class="none">手边没有能下锅的东西。<br>快捷栏里、篮子里、旁边放着的冷藏箱和坛子里的都算。</div>';
-      keys = `<span>${kbd('A')}${kbd('D')} 做法</span><span>${kbd('W')}${kbd('S')} 选</span><span>${kbd('E')} 放一份</span><span>${kbd('Q')} 拿出来</span><span>${kbd('Space')} 开始</span>`;
+      keys = `<span>${kbd('A')}${kbd('D')} 做法</span><span>${kbd('W')}${kbd('S')} 选</span><span>${kbd('E')} 放一份</span><span>${kbd('Q')} 拿出来</span><span>${kbd('Space')} 开始</span>${st.loose && !s.items.length ? `<span>${kbd('G')} 收起${STATION_NAME[st.kind].zh}</span>` : ''}`;
     } else if (s.phase === 'knife') {
       const last = se.lastCut < 0 ? '' : se.lastCut < 0.15 ? '正中！' : se.lastCut < 0.45 ? '还行' : '切歪了';
       body = `<div class="lbl"><span>在线中间按下去：切得匀，菜才好看</span><b>${se.cutsDone()} / ${se.cutsWanted()}</b></div><div class="track"><div class="tg"></div><div class="tg2"></div><div class="mk"></div></div><div class="big">${last}</div>`;

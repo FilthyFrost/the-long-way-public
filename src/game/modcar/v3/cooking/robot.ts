@@ -76,7 +76,8 @@ export class RobotCook {
   private method: Method = 'soup';
   private wait = 0;
   private rnd: number;
-  private aim = 0.5;
+  /** where its next cut aims, off the beat (0: on it) */
+  private aim = 0;
   private stirT = 0;
   private turned = false;
   private takeAt = 1;

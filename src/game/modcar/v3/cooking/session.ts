@@ -5,7 +5,8 @@
  *
  * The keys, step by step:
  *   choosing   A / D the way of cooking (of those the cookware at hand gives), W / S an ingredient, E one
- *              portion of it into the pot (up to five), Q the last one back out, Space: begin
+ *              portion of it into the pot (up to five), Q the last one back out, Space: begin; G packs up a
+ *              stove, a rack or a smoker set down that has nothing on it
  *   the knife  Space (or E) on the beat: the marker sweeps across, the middle is the beat; a portion takes
  *              CUTS_PER_PORTION cuts
  *   the flame  W / S or the wheel: off, low, medium, high; Space stirs a stir-fry, turns a roast or a fry;
@@ -60,6 +61,10 @@ export interface SessionHost {
   perks(): PlatePerks;
   /** the dish is cooked: hand it out (into the hands, the compendium, the skill, a line) */
   plated(dish: Dish, s: PotState): void;
+  /** a thing set down (a stove, a rack) with nothing on it, into the hands again; true when it went (the panel shuts) */
+  packUp(): boolean;
+  /** may it be packed up now */
+  canPack(): boolean;
   /** a sound of the game's own */
   sound(name: string, gain?: number): void;
 }
@@ -302,6 +307,11 @@ export class CookSession {
       return true;
     }
     if (code === 'KeyE' || code === 'Enter') return this.putIn(s);
+    if (code === 'KeyG') {
+      // (a stove or a rack with nothing on it, packed up: the panel shuts)
+      if (!s.items.length && this.host.canPack()) this.host.packUp();
+      return true;
+    }
     if (code === 'KeyQ' || code === 'Backspace') {
       const it = s.items.pop();
       if (it) {

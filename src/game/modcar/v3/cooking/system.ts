@@ -43,6 +43,7 @@ import { AUTO_SEASON, METHOD_STEPS, newPot } from '../../../../core/v3/cooking/s
 import { METHODS, POT_MAX, type BuffId, type Dish, type DishClass, type Method } from '../../../../core/v3/cooking/types';
 import type { Site } from '../../../../core/world/sites';
 import { Solid, type SolidSource } from '../../../../core/world/solids';
+import type * as THREE from 'three';
 import type { GarageDevice } from '../../garageStub';
 import type { ItemCard } from '../../itemInfo';
 import type { GameContext } from '../../kernel/context';
@@ -69,6 +70,8 @@ const JAR_S = 2;
 /** how high over its base the pot sits on each station (m), and how big a station is to the mark */
 const POT_Y: Readonly<Record<StationKind, number>> = { fire: 0.32, stove: 0.24, kitchen: KITCHEN.hobY, rack: 0.55, smoker: 0.6 };
 const MARK_R: Readonly<Record<StationKind, number>> = { fire: 0.55, stove: 0.3, kitchen: 0.5, rack: 0.4, smoker: 0.35 };
+/** how much nearer the round over a thing set down counts than it is (m): enough to win over the thing itself */
+const SET_DOWN_BIAS = 0.35;
 /** the phases in order (a station's card is made again when its pot moves on) */
 const PHASES: readonly string[] = ['pick', 'knife', 'heat', 'season', 'wait', 'keep', 'plate'];
 /** the line on each station's card */
@@ -125,12 +128,19 @@ class StationDevice implements GarageDevice {
   y = 0;
   z = 0;
   radius = 0.5;
+  /**
+   * A thing set down (a stove, a rack, a smoker) is met by a round of its own over it, a little nearer than it
+   * is: E on it is cooking, which wins over taking the thing up (the panel packs it up: G). A fire ring and the
+   * kitchen corner are a point and a radius, as devices are.
+   */
+  readonly hit?: (ray: THREE.Ray, reach: number) => number | null;
 
   constructor(
     private readonly st: Station,
     private readonly owner: Cooking,
   ) {
     this.id = `cooking:${st.key}`;
+    if (st.kind === 'stove' || st.kind === 'rack' || st.kind === 'smoker') this.hit = (ray, reach) => owner.markHit(st, ray, reach);
   }
 
   get word(): Text {
@@ -225,6 +235,8 @@ export class Cooking implements System<GameContext>, InteractSource {
       known: (r) => progress.knowledge(COOK_DOMAIN, r) === 2,
       perks: () => ({ taste: progress.hasPerk(PERK_TASTE), master: progress.hasPerk(PERK_MASTER), extra: progress.hasPerk(PERK_EXTRA) && self.extraRoll() }),
       plated: (dish, s) => self.plated(dish, s),
+      packUp: () => self.packUp(),
+      canPack: () => !!self.open?.loose && !(self.open.pot && self.open.pot.items.length > 0),
       sound: (name, gain) => self.ctx?.sound(name, gain),
     });
     this.modal = {
@@ -494,6 +506,43 @@ export class Cooking implements System<GameContext>, InteractSource {
       d.radius = MARK_R[st.kind];
       out.push(d);
     }
+  }
+
+  /**
+   * Where the line of sight meets the round over a thing set down (render space, as the player's pick asks it),
+   * brought this much nearer so that E there is cooking and not taking the thing up; null: it misses. Numbers
+   * only: nothing is allocated.
+   */
+  markHit(st: Station, ray: THREE.Ray, reach: number): number | null {
+    const o = this.ctx ? this.ctx.core.origin : null;
+    if (!o) return null;
+    const r = MARK_R[st.kind];
+    const cx = st.x - o.x - ray.origin.x;
+    const cy = st.y - o.y - ray.origin.y;
+    const cz = st.z - o.z - ray.origin.z;
+    const d = ray.direction;
+    const t = cx * d.x + cy * d.y + cz * d.z;
+    if (t < 0) return null;
+    const off = cx * cx + cy * cy + cz * cz - t * t;
+    if (off > r * r) return null;
+    const at = t - Math.sqrt(r * r - off);
+    if (at > reach) return null;
+    return at > SET_DOWN_BIAS ? at - SET_DOWN_BIAS : 0;
+  }
+
+  /** the thing set down that the panel is open at, into the hands again (G): false when there is none, or a pot on it */
+  packUp(): boolean {
+    const ctx = this.ctx;
+    const st = this.open;
+    const l = st?.loose;
+    if (!ctx || !st || !l?.item || (st.pot && st.pot.items.length > 0)) return false;
+    const item = l.item;
+    ctx.loose.remove(l);
+    this.closePanel();
+    this.forget(st);
+    intoHandsOrFeet(ctx, item);
+    ctx.sound('pickup', 0.5);
+    return true;
   }
 
   /** each station's card as the mark shows it, made again only when what it says has changed (its signature) */
