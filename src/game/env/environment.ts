@@ -101,6 +101,10 @@ export class Environment {
   update(dt: number, time: number, ba: number, bb: number, bt: number, world: World | null, vx: number, vy: number, vz: number): void {
     const sky = this.sky;
     this.clock.state(time, sky);
+    // World time starts in January. Blend adjacent seasonal climate normals over a 365-day year.
+    const season = ((time / this.clock.dayLength / 365 * 4) % 4 + 4) % 4;
+    const i = Math.floor(season);
+    globals.uSeason.value.set(0, 0, 0, 0).setComponent(i, 1 - (season - i)).setComponent((i + 1) % 4, season - i);
 
     // weather advances in fixed steps so its slow state is reproducible (from the system's own state: the
     // dials' copy of it is made again each frame)

@@ -27,7 +27,7 @@
  * DOM-free, and deterministic: a tile comes out the same whenever it is built.
  */
 import { smoothstep } from '../../core/math/util';
-import { Surface } from '../../core/world/ground';
+import { snowLinesFor } from '../../core/world/routeProfiles';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_N, ECO_SQ, ECO_STEP, ECO_TILE } from '../../core/world/ecotope';
 import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
@@ -266,16 +266,17 @@ function huesOf(region: number): readonly number[] {
 
 /** The integer is the palette pair; its fraction (0 ? 1/4) carries settled snow at the root.
  * rtSlotPair rounds to the nearest integer, including on renderers which only need the palette. */
+const seasonalLines = BIOMES.map(r => snowLinesFor(r.id));
 function snowyPair(world: World, sk: number, height: number): number {
-  const a = BIOMES[slotA[sk]];
-  const b = BIOMES[slotB[sk]];
-  const mix = slotShare[sk];
+  const a = seasonalLines[slotA[sk]], b = seasonalLines[slotB[sk]];
   const altitude = world.spine.altitude(height);
-  const lineA = a.relief?.snow ?? 1e5;
-  const line = lineA + ((b.relief?.snow ?? 1e5) - lineA) * mix;
-  const valley = (a.ground === Surface.Snow ? 1 - mix : 0) + (b.ground === Surface.Snow ? mix : 0);
-  const cover = Math.max(valley * (0.78 + 0.22 * smoothstep(line - 1600, line - 350, altitude)), smoothstep(line - 150, line + 150, altitude));
-  return slotPair[sk] + cover * 0.25;
+  let packed = 0;
+  for (let i = 0; i < 4; i++) {
+    const ca = smoothstep(a[i] - 100, a[i] + 100, altitude);
+    const cb = smoothstep(b[i] - 100, b[i] + 100, altitude);
+    packed += Math.round((ca + (cb - ca) * slotShare[sk]) * 15) << (i * 4);
+  }
+  return slotPair[sk] + packed / 262144;
 }
 
 /**

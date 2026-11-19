@@ -22,6 +22,7 @@ export const ROOM_OPENINGS = 10;
 export const ROOM_LAMPS = 10;
 
 export const globals = {
+  uSeason: { value: new THREE.Vector4(1, 0, 0, 0) },
   uCrownDay: { value: 0 },
   uSunDir: { value: new THREE.Vector3(0.4, 0.75, 0.3).normalize() },
   /** key light (sun or moon), linear, ~2.7 at noon */

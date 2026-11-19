@@ -8,6 +8,7 @@
  * into the wide map in a pass of their own, with a depth material that reads the plants' atlas as theirs does
  * (they stand on a layer of their own, LAYER_SHADOW_FLORA). Everything else is drawn as it always was.
  */
+import { PACKED_SNOW } from './seasonalSnow';
 import * as THREE from 'three';
 import { FLORA_VERTEX, floraUniforms } from './floraMaterial';
 import { GLSL_LEAF_COVER } from './materials';
@@ -58,7 +59,7 @@ export class ShadowPass {
     this.depthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf } },
+      uniforms: { uSeason: globals.uSeason, uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf } },
       vertexShader: /* glsl */ `
         // leaf cards cut their shadows out of the leaf texture (absent attribute = 0 = solid)
         attribute float aCard;
@@ -66,6 +67,7 @@ export class ShadowPass {
         attribute float aPart;
         attribute vec4 aLook;
         attribute vec4 aTree;
+        ${PACKED_SNOW}
         uniform vec4 uWeather;
         #endif
         varying float vCard;
@@ -77,7 +79,7 @@ export class ShadowPass {
           #ifdef USE_INSTANCING
           // Crown instances carry aTree (absent on other meshes). Bare boughs cast a bare shadow.
           if (aTree.w > 0.0 && aPart > 0.5 && aLook.y < 4.0 &&
-              max(fract(aLook.x) * 4.0, uWeather.y) > 0.5 + 0.18 * aTree.x) {
+              max(rtRootSnow(aLook.x), uWeather.y) > 0.5 + 0.18 * aTree.x) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
             return;
           }
@@ -99,7 +101,7 @@ export class ShadowPass {
     this.floraDepthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
+      uniforms: { uSeason: globals.uSeason, uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
       vertexShader: /* glsl */ `
         ${FLORA_VERTEX}
         varying float vCard;
