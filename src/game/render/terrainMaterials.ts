@@ -276,7 +276,8 @@ export const GROUND_PAINT = /* glsl */ `
       paint = mix(paint, rtSnowTone(0.28 + 0.60 * rel + 0.14 * plane), ice * (0.25 + 0.75 * shelf));
       // Snowy ridges: interpolate one value over anchored triangular planes. A cut has a
       // straight run and a kink at the neighbouring plane, with just a chip on its edge.
-      if (snowCountry > 0.01) {
+      float alpineFace = max(snowCountry, p.misc.x);
+      if (alpineFace > 0.01) {
         vec2 q = vec2(dot(w, vec2(0.83, 0.55)) + 0.33 * vAlt, vAlt - 0.21 * w.y) / vec2(260.0, 180.0);
         vec2 cell = floor(q), uv = fract(q);
         float diagonal = step(1.0, uv.x + uv.y);
@@ -294,10 +295,10 @@ export const GROUND_PAINT = /* glsl */ `
         float lip = max(0.012, fwidth(ledge));
         float settled = smoothstep(-lip, lip, ledge);
         vec3 snowPlane = rtSnowTone(mix(0.40, 0.84, sunward));
-        paint = mix(paint, mix(stone, snowPlane, settled), snowCountry);
-        face = max(face, reach * snowCountry * max(aboveWood, smoothstep(180.0, 520.0, g.y) * (1.0 - wood)));
+        paint = mix(paint, mix(stone, snowPlane, settled * snowCountry), alpineFace);
+        face = max(face, reach * alpineFace * max(aboveWood, smoothstep(180.0, 520.0, g.y) * (1.0 - wood)));
       }
-      albedo = mix(albedo, paint, face * mix(0.83, 1.0, snowCountry));
+      albedo = mix(albedo, paint, face * mix(0.83, 1.0, alpineFace));
 
       // In the middle distance a brush mark stands for a group of crowns: a dark base and a lit shoulder.
       float stand = reach * wood * (1.0 - rock) * (1.0 - alt) * (1.0 - smoothstep(8000.0, 22000.0, dist));

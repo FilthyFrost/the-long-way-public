@@ -4,16 +4,9 @@ export const SNOW_FIELD = /* glsl */ `
   uniform vec4 uSeason;
   uniform vec4 uSnowLines[4];
   float rtSeasonSnow(float altitude, vec4 bw) {
-    vec4 h = vec4(altitude);
-    if (bw.x > 0.9999) return dot(uSeason, smoothstep(uSnowLines[0] - 100.0, uSnowLines[0] + 100.0, h));
-    if (bw.y > 0.9999) return dot(uSeason, smoothstep(uSnowLines[1] - 100.0, uSnowLines[1] + 100.0, h));
-    if (bw.z > 0.9999) return dot(uSeason, smoothstep(uSnowLines[2] - 100.0, uSnowLines[2] + 100.0, h));
-    if (bw.w > 0.9999) return dot(uSeason, smoothstep(uSnowLines[3] - 100.0, uSnowLines[3] + 100.0, h));
-    return dot(uSeason,
-      smoothstep(uSnowLines[0] - 100.0, uSnowLines[0] + 100.0, h) * bw.x +
-      smoothstep(uSnowLines[1] - 100.0, uSnowLines[1] + 100.0, h) * bw.y +
-      smoothstep(uSnowLines[2] - 100.0, uSnowLines[2] + 100.0, h) * bw.z +
-      smoothstep(uSnowLines[3] - 100.0, uSnowLines[3] + 100.0, h) * bw.w);
+    vec4 line = vec4(dot(uSeason, uSnowLines[0]), dot(uSeason, uSnowLines[1]),
+                     dot(uSeason, uSnowLines[2]), dot(uSeason, uSnowLines[3]));
+    return dot(bw, smoothstep(line - 100.0, line + 100.0, vec4(altitude)));
   }
 `;
 export const PACKED_SNOW = /* glsl */ `
