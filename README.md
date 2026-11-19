@@ -1,4 +1,4 @@
-> **换电脑继续开发：** 请先读 [`docs/MIGRATION.zh.md`](docs/MIGRATION.zh.md) 和 [`docs/handoff/HANDOFF.md`](docs/handoff/HANDOFF.md)。本快照对应原私有仓 `dev/m1` 提交 `d8fd175`。第三方参考图不在本仓库，来源见 [`refs/REFERENCE_MANIFEST.md`](refs/REFERENCE_MANIFEST.md)。未合入的工作在 [`wip/`](wip/README.md)。
+> **换电脑继续开发（2026-11-18）：** 本默认分支是 2026-11-15 的旧快照，不要从这里接着写。请先读 [`CONTINUE.md`](CONTINUE.md)，再检出 [`snapshot/2026-11-18-handoff`](https://github.com/FilthyFrost/the-long-way-public/blob/snapshot/2026-11-18-handoff/CONTINUE.md) 或 `feat/v3`（`fcd972b`）。当前最高优先级是世界景观，而不是这份旧说明里的 `wip/` 顺序。
 
 # 公路旅行（暂名）
 
