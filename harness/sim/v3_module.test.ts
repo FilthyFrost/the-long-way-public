@@ -677,7 +677,7 @@ describe('kernel: an example module against the interfaces alone', () => {
     const { game } = await play({ hour: 10, slices: { hunting: { v: 1, d: 1 } }, clock: { day: 3, hour: 10, start: 9 } });
     game.frame();
     const t = game.kernel.telemetry();
-    expect(Object.keys(t)).toEqual(['modules', 'systems', 'slices', 'clock', 'interact', 'devTabs', 'lastError', 'errors']);
+    expect(Object.keys(t)).toEqual(['modules', 'systems', 'slices', 'clock', 'interact', 'devTabs', 'modal', 'lastError', 'errors']);
     expect(t).toMatchObject({
       modules: ['example'],
       slices: { ids: ['example'], carried: ['hunting'], held: [], reports: [{ id: 'hunting', what: 'unknown', v: 1 }] },
