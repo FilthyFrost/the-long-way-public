@@ -483,9 +483,9 @@
 | 桤叶唐棣果（Amelanchier alnifolia） | 缺专项 | 7–9月，北美山地林缘 | 林果需锁定物种，不能只按紫色外观 |
 | 欧洲榛子（Corylus avellana） | 缺专项 | 8–10月，欧洲低山次生林与田篱 | 仅成熟坚果，榛灌与其他灌丛不等价 |
 
-## 现有 80 种逐项校对
+## 初次审计时的 80 种采集物
 
-从 [FORAGE_KINDS](../../../src/core/v3/forage/kinds.ts) 枚举 80 行，再按核心已注册地区和 [FLORA 表](../../../src/core/world/floraTables.ts) 展开 `floraTableOf` 的树、灌、地被，读取 [植物](../../../src/core/world/plants.ts) 的 `bears.forage`。下表是当前核心规则能够引用的地区；概率、冠层、水体等条件仍会进一步筛掉候选，未注册的预留地区名不在此表内。它与新建的 54 个生态档案是两套键。已核到的明确风险包括盐岸规则没有盐度门槛、`wild_rice` 混用栽培稻、`cordyceps` 与 `snow_lotus` 被泛高山条件放大。海带虽挂在 `lakes` 表，实际 strand 有 SEA 掩码，不能据表名断言淡水湖里已生成海带。[水体与采集生境规则](../../../src/core/world/floraForage.ts)
+从 [FORAGE_KINDS](../../../src/core/v3/forage/kinds.ts) 枚举 80 行，再按核心已注册地区和 [FLORA 表](../../../src/core/world/floraTables.ts) 展开 `floraTableOf` 的树、灌、地被，读取 [植物](../../../src/core/world/plants.ts) 的 `bears.forage`。下表记录修订前核心规则能够引用的地区；概率、冠层、水体等条件仍会进一步筛掉候选，未注册的预留地区名不在此表内。它与新建的 54 个生态档案是两套键。已核到的明确风险包括盐岸规则没有盐度门槛、`wild_rice` 混用栽培稻、`cordyceps` 与 `snow_lotus` 被泛高山条件放大。海带虽挂在 `lakes` 表，实际 strand 有 SEA 掩码，不能据表名断言淡水湖里已生成海带。[水体与采集生境规则](../../../src/core/world/floraForage.ts)
 
 | 已有物品 | 当前承载地区 | 复核结论／使用边界 |
 |---|---|---|
@@ -558,7 +558,7 @@
 | 蛤蜊（`clam`） | lakes | 当前 strand 限海水；蛤与淡水蚌不能用同一物种 |
 | 贻贝（`mussel`） | lakes | 当前 seaRock 限海水；若加淡水蚌应另列 |
 | 螃蟹（`crab`） | lakes | 当前 strand 限海水；稻田蟹需独立淡水种与养殖记录 |
-| 菱角（`water_chestnut`） | lakes、wetland | 荸荠为栽培浅泥田作物，普通山湖和冷沼过宽 |
+| 菱角（`water_chestnut`） | lakes、wetland | 旧图鉴描述有角的菱属水生果实（Trapa）。英文应为 water caltrop。荸荠（Eleocharis dulcis）是莎草科球茎，另属另一种作物 |
 | 燧石（`flint`） | desert、alpine、maple、red_canyon | 矿材；基岩成分与沉积搬运控制燧石 |
 | 黏土（`clay`） | plains、lakes、terraces、wetland、red_canyon、karst_peaks | 矿材；河岸有细粒沉积才生成 |
 | 盐（`salt`） | desert、lakes | 盐度与闭流蒸发条件需要显式筛选，普通淡水岸不生成 |
@@ -569,3 +569,13 @@
 | 纤维草（`fibre_grass`） | plains、desert、red_canyon | 资源标签；按区域指定纤维植物 |
 | 硫磺（`sulphur`） | desert | 荒漠岩坡并不自动有自然硫，应限特定地质作用 |
 | 硝石（`saltpetre`） | red_canyon、karst_peaks | 需硝盐形成条件，普通石灰峰和红崖不足 |
+
+## 采集表修订后
+
+54 个档案按地点记录向植物表提供宿主与物品，已实装的 12 个地区沿用路线对照。原有 80 个物品 ID 和索引保留，新增的 9 个物品排在其后。稻谷沿用存档键 `wild_rice`，物品和对应菜名均指亚洲栽培稻（Oryza sativa）。菱角保留旧物品的带角果实造型，豆瓣菜采用 Nasturtium officinale。荸荠资料见[香港湿地公园](https://www.wetlandpark.gov.hk/en/biodiversity/beauty-of-wetlands/wildlife/eleocharis-dulcis)。
+
+天山雪莲与冬虫夏草只保留旧物品，54 个档案均不生成。裸露高山不继承云莓、地衣食物或泛松子。沙漠蒿丛和普通蕨丛各自保留植被身份。木腐菌、特殊地质资源、未核实药草和果园物品须有相应产地或基质记录才可恢复。加州南瓜灯菇与鸡油菌有真实的混淆记录，其旧物品保留中毒效果；当前路线没有已核实的木生采集点。[加州大学橡树病虫图鉴](https://ucanr.edu/sites/default/files/2022-03/365212.pdf)
+
+已有模型可承载橡实、常绿越橘、欧洲越橘、越橘红果、巨柱仙人掌果、卡拉法特小檗果、澳洲原生悬钩子、桤叶唐棣和欧洲榛子。仍需模型的三项为牧豆树及长豆荚、马鲁拉果树及圆果、贴地多肉的开普食用番杏及果实。蒂阿瑙湖滨有引入黑莓和豆瓣菜的实地清单，局部有水的道路边缘与开阔原生草甸各自取样。[蒂阿瑙湖岸植物名录](https://www.nzpcn.org.nz/publications/plant-lists/lists/te-anau-ed-lake-shores-and-islans-b9/)
+
+表中的月份继续记录实地产期。游戏采集时钟提供时刻、雨后时长和潮位，暂不能逐月判定成熟。农田位置采用缓坡、近路、淡水浅滩等已有生境信号估算，缺少地块边界与土壤类型的精度。

@@ -1032,7 +1032,7 @@ export const ROAD_FOODS = {
   acorn: {
     name: '栎实',
     taxon: 'Quercus spp.',
-    forageId: null,
+    forageId: 'acorn',
     months: [9, 10, 11],
     habitat: '温带栎林成熟果实',
     caution: '传统利用通常需要处理；只标种属明确的栎树',
@@ -1040,7 +1040,7 @@ export const ROAD_FOODS = {
   huck: {
     name: '常绿越橘',
     taxon: 'Vaccinium ovatum',
-    forageId: null,
+    forageId: 'evergreen_huckleberry',
     months: [8, 9, 10, 11],
     habitat: '加州海岸林缘湿灌丛',
     caution: '保留叶、果、灌木物种身份，不能把任意紫果当越橘',
@@ -1048,10 +1048,10 @@ export const ROAD_FOODS = {
   bilberry: {
     name: '欧洲越橘',
     taxon: 'Vaccinium myrtillus',
-    forageId: null,
+    forageId: 'bilberry',
     months: [7, 8, 9],
     habitat: '欧洲山地酸性林下',
-    caution: '游戏 blueberry 只可作形态近似',
+    caution: '欧洲越橘与北方笃斯越橘分列',
   },
   lowblue: {
     name: '阿拉斯加笃斯越橘',
@@ -1072,7 +1072,7 @@ export const ROAD_FOODS = {
   lingon: {
     name: '越橘红果',
     taxon: 'Vaccinium vitis-idaea',
-    forageId: null,
+    forageId: 'lingonberry',
     months: [8, 9, 10],
     habitat: '北方疏林与苔原土丘',
     caution: '不同于蔓越莓；不可把同色毒果并入',
@@ -1096,7 +1096,7 @@ export const ROAD_FOODS = {
   saguaro: {
     name: '巨柱仙人掌果',
     taxon: 'Carnegiea gigantea',
-    forageId: null,
+    forageId: 'saguaro_fruit',
     months: [6, 7],
     habitat: '索诺兰巨柱冠端',
     caution: '与仙人掌梨分物种、结实部位与文化采收情境',
@@ -1208,7 +1208,7 @@ export const ROAD_FOODS = {
   calafate: {
     name: '卡拉法特小檗果',
     taxon: 'Berberis microphylla',
-    forageId: null,
+    forageId: 'calafate',
     months: [1, 2, 3, 12],
     habitat: '巴塔哥尼亚林缘避风灌丛',
     caution: '只绑定已确认小檗；不以紫黑色替代物种鉴定',
@@ -1224,7 +1224,7 @@ export const ROAD_FOODS = {
   rubusAus: {
     name: '澳洲原生悬钩子',
     taxon: 'Rubus parvifolius',
-    forageId: null,
+    forageId: 'native_raspberry',
     months: [1, 2, 3, 12],
     habitat: '澳洲东南部湿林缘',
     caution: '不能给丹翠所有红色林果套用同一资产',
@@ -1232,7 +1232,7 @@ export const ROAD_FOODS = {
   service: {
     name: '桤叶唐棣果',
     taxon: 'Amelanchier alnifolia',
-    forageId: null,
+    forageId: 'serviceberry',
     months: [7, 8, 9],
     habitat: '北美山地林缘',
     caution: '林果需锁定物种，不能只按紫色外观',
@@ -1240,12 +1240,15 @@ export const ROAD_FOODS = {
   hazel: {
     name: '欧洲榛子',
     taxon: 'Corylus avellana',
-    forageId: null,
+    forageId: 'hazelnut',
     months: [8, 9, 10],
     habitat: '欧洲低山次生林与田篱',
     caution: '仅成熟坚果，榛灌与其他灌丛不等价',
   },
 } as const satisfies Readonly<Record<string, RoadFood>>;
+
+// Model gaps: the mesquite pod, marula fruiting tree and creeping sour fig each need a distinct silhouette.
+export const FORAGE_NEEDS_MODEL = ['mesquite', 'marula', 'sourfig'] as const satisfies readonly (keyof typeof ROAD_FOODS)[];
 
 export interface RoadLife {
   animals: readonly { kind: keyof typeof ROAD_ANIMALS; bands: readonly number[]; months?: readonly number[] }[];

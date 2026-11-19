@@ -298,7 +298,7 @@ describe('a scatter tile of a world of version 2', () => {
     const w = world2('karst_peaks');
     let lying = 0;
     let steep = 0;
-    for (let s0 = 600; s0 < 9000; s0 += 700) {
+    for (let s0 = 600; s0 < 18000; s0 += 350) {
       for (const off of [80, 300]) {
         const [tx, tz] = tileAt(w, s0, off);
         const s = buildFloraScatter(w, reg, tx, tz, LOD_NEAR);

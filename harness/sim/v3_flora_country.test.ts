@@ -220,7 +220,7 @@ describe('what each kind of country must get right', () => {
     expect(inland).toBeGreaterThan(200);
   });
 
-  it('plants of the water stand in the shallows and nowhere else: wild rice, lotus, watercress, water chestnut', () => {
+  it('plants of the water stand in the shallows and nowhere else: cultivated rice, lotus and watercress', () => {
     const seen = new Map<string, number>();
     let dry = 0;
     for (const [region, seed] of [['wetland', 7], ['lakes', 3], ['terraces', 2], ['karst_peaks', 21]] as const) {
@@ -250,7 +250,7 @@ describe('what each kind of country must get right', () => {
       });
     }
     expect(dry).toBeGreaterThan(1000);
-    for (const id of ['rice_stand', 'lotus_root_plant', 'watercress_plant', 'water_chestnut_plant']) expect(seen.get(id) ?? 0, id).toBeGreaterThan(20);
+    for (const id of ['rice_stand', 'lotus_root_plant', 'watercress_plant']) expect(seen.get(id) ?? 0, id).toBeGreaterThan(20);
   });
 
   it('tea stands on level ground, and on the benches of the terraced hillsides', () => {

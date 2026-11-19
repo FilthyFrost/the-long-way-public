@@ -30,9 +30,9 @@ import { forageRig, forestSpot, FOREST, passDays, V1_WORLD, WORLD } from './v3/f
 const card = (it: ItemInstance): ReturnType<typeof itemCard> => itemCard(it, 0);
 
 describe('forage module: what it brings', () => {
-  it('ten categories, an item for each of the eighty kinds, the tools, the pages, the skill, the field of the compendium', () => {
+  it('ten categories, an item for each of the registered kinds, the tools, the pages, the skill, the field of the compendium', () => {
     expect(forageModule.id).toBe('forage');
-    expect(FORAGE_KINDS).toHaveLength(80);
+    expect(FORAGE_KINDS).toHaveLength(89);
     for (const c of Object.keys(FORAGE_CATS)) expect(hasItemCat(`forage_${c}`)).toBe(true);
     for (const k of FORAGE_KINDS) {
       const d = itemDef(k.id);
@@ -55,7 +55,7 @@ describe('forage module: what it brings', () => {
     expect(skill.name.zh).toBe('采集');
     expect(skill.perks.map((p) => [p.id, p.level])).toEqual([['forage_glow', 5], ['forage_double', 10], ['forage_twins', 15], ['forage_star', 20]]);
     const field = domains().find((d) => d.id === 'forage');
-    expect(field?.ids()).toHaveLength(80);
+    expect(field?.ids()).toHaveLength(89);
   });
 
   it('every model the module’s items name has its file (tools/blender/items/forage.py makes them)', () => {
@@ -130,10 +130,10 @@ describe('forage module: looking about', () => {
     expect(noon.some((p) => p.kind === 'glow_mushroom')).toBe(false);
     expect(noon.some((p) => p.hidden)).toBe(false);
     const porcini = noon.filter((p) => p.kind === 'porcini' || p.kind === 'chanterelle').length;
-    // night: the glowing kind is there
+    // Night visibility is tested on the kind in v3_forage_rules; this field has no verified host.
     r.game.setHour(22);
     r.settle();
-    expect(r.shown().some((p) => p.kind === 'glow_mushroom')).toBe(true);
+    expect(r.shown().some((p) => p.kind === 'glow_mushroom')).toBe(false);
     // rain: the hidden half of the after-rain kinds comes up
     r.weather.rain = 1;
     r.frames(2);
@@ -158,26 +158,26 @@ describe('forage module: the pick', () => {
   it('E on the point under the mark: at once what pickResult says, into the hands; the point is gone; said, heard, counted', async () => {
     const r = await forageRig();
     r.settle();
-    const pt = r.shown().find((p) => p.layer === 'ground' && p.kind === 'wild_garlic')!;
+    const pt = r.shown().find((p) => p.layer === 'ground' && p.kind === 'nettle')!;
     expect(pt).toBeTruthy();
     const kind = forageKind(pt.kind);
     const want = pickResult(kind, WORLD.seed, pt.key, r.ctx.clock.day, pt.vary, NO_BONUS, { n: 0, q: 0, xp: 0 });
     // the mark finds it, and the prompt names it as the player knows it: not at all yet
     expect(r.aim(pt)).toBe(`device:forage:${pt.key}`);
-    expect(r.seen.acts.map((a) => a.text)).toContain('采 <b>不认识的香草</b>');
-    expect(r.seen.aim).toMatchObject({ name: '不认识的香草', blurb: UNKNOWN_BLURB, stars: 0, rows: [] });
+    expect(r.seen.acts.map((a) => a.text)).toContain('采 <b>不认识的野菜</b>');
+    expect(r.seen.aim).toMatchObject({ name: '不认识的野菜', blurb: UNKNOWN_BLURB, stars: 0, rows: [] });
     const before = r.shown().length;
     r.pressE();
     const got = r.item(0)!;
-    expect(got).toMatchObject({ item: 'wild_garlic', q: want.q, t0: r.ctx.clock.worldSeconds, fresh: 1 });
+    expect(got).toMatchObject({ item: 'nettle', q: want.q, t0: r.ctx.clock.worldSeconds, fresh: 1 });
     expect(countOf(got)).toBe(want.n);
     expect(want.n).toBeGreaterThanOrEqual(kind.yield[0]);
     expect(want.n).toBeLessThanOrEqual(kind.yield[1]);
     expect(want.q).toBe(2);
-    expect(r.heard).toEqual([`picked wild_garlic x${want.n} q${want.q} key ${pt.key}`, 'met forage/wild_garlic', `xp forage +${PICK_XP.common * FIRST_PICK_XP}`]);
-    expect(r.game.said).toEqual([`+${want.n} 不认识的香草 · 第一次采到`]);
+    expect(r.heard).toEqual([`picked nettle x${want.n} q${want.q} key ${pt.key}`, 'met forage/nettle', `xp forage +${PICK_XP.common * FIRST_PICK_XP}`]);
+    expect(r.game.said).toEqual([`+${want.n} 不认识的野菜 · 第一次采到`]);
     expect(r.game.sounds).toEqual(['pickup']);
-    expect(progress.entry('forage', 'wild_garlic')).toMatchObject({ state: 1, count: want.n });
+    expect(progress.entry('forage', 'nettle')).toMatchObject({ state: 1, count: want.n });
     // gone from what shows, from under the mark, and remembered
     expect(r.shown().length).toBe(before - 1);
     expect(r.shown().some((p) => p.key === pt.key)).toBe(false);
@@ -216,18 +216,18 @@ describe('forage module: the pick', () => {
     const r = await forageRig({ pack: 4, at: forestSpot(WORLD, 4350) });
     r.settle();
     const day = r.ctx.clock.day;
-    const garlic = r.shown().find((p) => p.kind === 'wild_garlic')!;
+    const garlic = r.shown().find((p) => p.kind === 'nettle')!;
     const burdock = r.shown().find((p) => p.kind === 'burdock')!;
-    expect(forageKind('wild_garlic').tool).toBe('knife');
+    expect(forageKind('nettle').tool).toBe('knife');
     expect(forageKind('burdock').tool).toBe('trowel');
     r.player.receive({ kind: 'item', item: newItem(KNIFE) });
     r.player.receive({ kind: 'item', item: newItem(TROWEL) });
     r.pick(garlic);
     r.pick(burdock);
-    const g = r.held('wild_garlic')!;
+    const g = r.held('nettle')!;
     const b = r.held('burdock')!;
     expect(g.q).toBe(3);
-    expect(countOf(g)).toBe(pickResult(forageKind('wild_garlic'), WORLD.seed, garlic.key, day, garlic.vary, { ...NO_BONUS, knife: true, trowel: true }, out).n);
+    expect(countOf(g)).toBe(pickResult(forageKind('nettle'), WORLD.seed, garlic.key, day, garlic.vary, { ...NO_BONUS, knife: true, trowel: true }, out).n);
     expect(b.q).toBe(2);
     expect(countOf(b)).toBe(pickResult(forageKind('burdock'), WORLD.seed, burdock.key, day, burdock.vary, NO_BONUS, out).n + 1);
     // the skill's perks are bonuses too: at level 20 the pick is the core's with both perks
@@ -243,7 +243,8 @@ describe('forage module: the pick', () => {
     const r = await forageRig();
     r.settle();
     r.player.receive({ kind: 'item', item: newItem(BASKET) });
-    const pts = r.shown().filter((p) => p.layer === 'ground' && !forageKind(p.kind).when).slice(0, 3);
+    const picks = r.shown().filter(p => forageKind(p.kind).item.perishHours);
+    const pts = [picks[0], picks.find(p => p.kind !== picks[0].kind)!];
     r.pick(pts[0]);
     r.pick(pts[1]);
     const basket = r.item(0)!;
@@ -293,8 +294,8 @@ describe('forage module: the pick', () => {
   it('a picked point bears again after its kind’s days, and the table lets go of it at that midnight', async () => {
     const r = await forageRig();
     r.settle();
-    const pt = r.shown().find((p) => p.kind === 'wild_garlic')!;
-    const days = forageKind('wild_garlic').regrowDays;
+    const pt = r.shown().find((p) => p.kind === 'nettle')!;
+    const days = forageKind('nettle').regrowDays;
     expect(days).toBe(2);
     r.pick(pt);
     r.settle();
@@ -310,17 +311,17 @@ describe('forage module: the pick', () => {
     // and the next bearing is another throw of the dice, picked like the first
     r.heard.length = 0;
     r.pick(r.shown().find((p) => p.key === pt.key)!);
-    expect(r.heard[0]).toMatch(/^picked wild_garlic x\d q2/);
+    expect(r.heard[0]).toMatch(/^picked nettle x\d q2/);
   });
 });
 
 describe('forage module: what the player knows', () => {
   it('the veil’s three cases: unknown, a look-alike taken for its twin, known', async () => {
     const r = await forageRig();
-    const agaric = newItem('fly_agaric', { n: 3 });
+    const agaric = newItem('glow_mushroom', { n: 3 });
     const chanterelle = newItem('chanterelle');
     // unknown: the category's unknown name, wherever a name is asked
-    expect(itemVeil('fly_agaric')).toEqual(FORAGE_CATS.mushroom.unknown);
+    expect(itemVeil('glow_mushroom')).toEqual(FORAGE_CATS.mushroom.unknown);
     expect(itemName(agaric)).toBe('不认识的蘑菇 ×3');
     expect(itemName(agaric, 'en')).toBe('Unknown mushroom ×3');
     expect(itemName(chanterelle)).toBe('不认识的蘑菇');
@@ -330,19 +331,19 @@ describe('forage module: what the player knows', () => {
     learn(r.ctx, 'forage', 'chanterelle', 'taste', { quiet: true });
     expect(itemName(chanterelle)).toBe('鸡油菌');
     expect(itemName(agaric)).toBe('鸡油菌 ×3');
-    expect(forage.harness.veil('fly_agaric')).toEqual({ state: 2, name: '鸡油菌' });
+    expect(forage.harness.veil('glow_mushroom')).toEqual({ state: 2, name: '鸡油菌' });
     // (the other look-alike is none of it: its own twin is not known)
     expect(itemName(newItem('death_cap'))).toBe('不认识的蘑菇');
     // known: its own name
-    learn(r.ctx, 'forage', 'fly_agaric', 'page', { quiet: true });
-    expect(itemVeil('fly_agaric')).toBeNull();
-    expect(itemName(agaric)).toBe('毒蝇伞 ×3');
-    expect(forage.harness.veil('fly_agaric')).toEqual({ state: 0, name: '毒蝇伞' });
+    learn(r.ctx, 'forage', 'glow_mushroom', 'page', { quiet: true });
+    expect(itemVeil('glow_mushroom')).toBeNull();
+    expect(itemName(agaric)).toBe('西美南瓜灯菇 ×3');
+    expect(forage.harness.veil('glow_mushroom')).toEqual({ state: 0, name: '西美南瓜灯菇' });
   });
 
   it('the cards: an unknown kind shows its veiled name and one line; a mistaken one its twin’s card; a known one where it grows and how many were picked', async () => {
     const r = await forageRig();
-    const agaric = newItem('fly_agaric', { n: 2, q: 2 });
+    const agaric = newItem('glow_mushroom', { n: 2, q: 2 });
     const unknown = card(agaric);
     expect(unknown).toMatchObject({ name: '不认识的蘑菇 ×2', blurb: UNKNOWN_BLURB, stars: 0, rows: [], bars: [], notes: [], badges: [] });
     learn(r.ctx, 'forage', 'chanterelle', 'taste', { quiet: true });
@@ -352,16 +353,16 @@ describe('forage module: what the player knows', () => {
     expect(mistaken.stars).toBe(forageKind('chanterelle').item.stars);
     expect(mistaken.notes.some((n) => n.text.includes('闹肚子'))).toBe(false);
     expect(mistaken.rows.some((x) => x.label === '哪里找' && x.value === forageKind('chanterelle').where.zh)).toBe(true);
-    learn(r.ctx, 'forage', 'fly_agaric', 'taste', { quiet: true });
+    learn(r.ctx, 'forage', 'glow_mushroom', 'taste', { quiet: true });
     const known = card(agaric);
-    expect(known.name).toBe('毒蝇伞 ×2');
-    expect(known.blurb).toBe(forageKind('fly_agaric').blurb);
+    expect(known.name).toBe('西美南瓜灯菇 ×2');
+    expect(known.blurb).toBe(forageKind('glow_mushroom').blurb);
     expect(known.notes.some((n) => n.text.includes('闹肚子'))).toBe(true);
-    expect(known.rows).toContainEqual({ value: forageKind('fly_agaric').where.zh, label: '哪里找' });
+    expect(known.rows).toContainEqual({ value: forageKind('glow_mushroom').where.zh, label: '哪里找' });
     expect(known.rows).toContainEqual({ value: '0 个', label: '一共采过' });
     // a basket's card names what is in it as the player knows it
-    const basket = newItem(BASKET, { inside: [newItem('death_cap', { n: 2 }), newItem('fly_agaric')] });
-    expect(card(basket).rows.slice(0, 2).map((x) => x.label)).toEqual(['不认识的蘑菇', '毒蝇伞']);
+    const basket = newItem(BASKET, { inside: [newItem('death_cap', { n: 2 }), newItem('glow_mushroom')] });
+    expect(card(basket).rows.slice(0, 2).map((x) => x.label)).toEqual(['不认识的蘑菇', '西美南瓜灯菇']);
     // things that are no forage keep their cards
     expect(card(newItem(KNIFE)).blurb).toBe(itemDef(KNIFE).blurb);
   });
@@ -379,20 +380,20 @@ describe('forage module: what the player knows', () => {
     expect(known('morel')).toBe(false);
     expect(progress.entry('forage', 'dandelion')).toMatchObject({ state: 2, by: 'skill', count: 0 });
     // the trap is set now: the twin of a kind one knows goes by its name
-    expect(itemName(newItem('fly_agaric'))).toBe('鸡油菌');
-    expect(itemName(newItem('death_cap'))).toBe('平菇');
+    expect(itemName(newItem('glow_mushroom'))).toBe('鸡油菌');
+    expect(itemName(newItem('death_cap'))).toBe('不认识的蘑菇');
     setSkillLevel(r.ctx, 'forage', 6);
     expect(known('morel')).toBe(true);
     expect(known('matsutake')).toBe(false);
-    expect(known('fly_agaric')).toBe(false);
+    expect(known('glow_mushroom')).toBe(false);
     setSkillLevel(r.ctx, 'forage', 9);
     expect(known('matsutake')).toBe(true);
     expect(known('truffle')).toBe(false);
     setSkillLevel(r.ctx, 'forage', 14);
-    expect(known('fly_agaric')).toBe(false);
-    expect(known('death_cap')).toBe(false);
+    expect(known('glow_mushroom')).toBe(false);
+    expect(known('death_cap')).toBe(true);
     setSkillLevel(r.ctx, 'forage', 15);
-    expect(known('fly_agaric')).toBe(true);
+    expect(known('glow_mushroom')).toBe(true);
     expect(known('death_cap')).toBe(true);
     setSkillLevel(r.ctx, 'forage', 20);
     for (const id of ['truffle', 'ginseng', 'snow_lotus', 'cordyceps']) expect(known(id)).toBe(false);
@@ -425,14 +426,14 @@ describe('forage module: what the player knows', () => {
     r.game.events.emit('body:ate', { item: newItem('wild_berry') });
     expect(itemVeil('wild_berry')).toBeNull();
     expect(progress.entry('forage', 'wild_berry')).toMatchObject({ state: 2, by: 'taste' });
-    expect(r.game.said).toEqual(['尝出来了：是野莓。']);
+    expect(r.game.said).toEqual(['尝出来了：是野生黑莓。']);
     // a look-alike eaten for its twin
-    learn(r.ctx, 'forage', 'oyster_mushroom', 'page', { quiet: true });
-    expect(itemName(newItem('death_cap'))).toBe('平菇');
+    learn(r.ctx, 'forage', 'chanterelle', 'page', { quiet: true });
+    expect(itemName(newItem('glow_mushroom'))).toBe('鸡油菌');
     r.frames(300);
-    r.game.events.emit('body:ate', { item: newItem('death_cap') });
-    expect(r.game.said[1]).toBe('尝出来了：这不是平菇，是鹅膏！肚子开始不对劲了……');
-    expect(itemName(newItem('death_cap'))).toBe('鹅膏');
+    r.game.events.emit('body:ate', { item: newItem('glow_mushroom') });
+    expect(r.game.said[1]).toBe('尝出来了：这不是鸡油菌，是西美南瓜灯菇！肚子开始不对劲了……');
+    expect(itemName(newItem('glow_mushroom'))).toBe('西美南瓜灯菇');
     // a known one: nothing more is said; a thing that is no forage: nothing at all
     r.frames(300);
     r.game.events.emit('body:ate', { item: newItem('wild_berry') });
@@ -562,7 +563,7 @@ describe('forage module: the save', () => {
 });
 
 describe('forage module: the developer and the scripts', () => {
-  it('the tab: the eighty kinds by category, the tools and pages, a stack into the hands known or not, regrow, rain, the mark, the region’s kinds', async () => {
+  it('the tab: the registered kinds by category, the tools and pages, a stack into the hands known or not, regrow, rain, the mark, the region’s kinds', async () => {
     const r = await forageRig({ pack: 4 });
     r.settle();
     const tab = r.game.openTab('forage')!;
@@ -615,7 +616,7 @@ describe('forage module: the developer and the scripts', () => {
     // what grows in the region one stands in, from its flora table
     const region = tab.made.filter((m) => m.startsWith('box')).pop()!;
     expect(region).toContain(`${FOREST.label}（`);
-    for (const name of ['牛肝菌', '蓝莓', '松子', '松脂']) expect(region).toContain(name);
+    for (const name of ['牛肝菌', '野生黑莓', '橡实', '针叶树脂']) expect(region).toContain(name);
     expect(region).not.toContain('蛤蜊');
     // the status line
     const tick = r.game.devTabs.get('forage')!.tick!;

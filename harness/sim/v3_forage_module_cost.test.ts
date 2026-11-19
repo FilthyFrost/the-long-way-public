@@ -14,13 +14,13 @@ import type { GarageDevice } from '../../src/game/modcar/garageStub';
 import { forage } from '../../src/game/modcar/v3/forage/index';
 import { PickedTable } from '../../src/game/modcar/v3/forage/picked';
 import { setSkillLevel } from '../../src/game/modcar/v3/progress/api';
-import { forageRig, WORLD } from './v3/forageRig';
+import { forageRig, forestSpot, WORLD } from './v3/forageRig';
 import { ALLOCATES, HEAP_RUNS, heapGrowth } from './v3/heap';
 import { SpineSample } from '../../src/core/world/spine';
 
 describe('forage module: what a step costs', () => {
-  it('standing among a hundred points: far inside 0.2 ms, and nothing on the heap', async () => {
-    const r = await forageRig();
+  it('standing among sixty or more points: far inside 0.2 ms, and nothing on the heap', async () => {
+    const r = await forageRig({ at: forestSpot(WORLD, 41228, 220) });
     r.settle();
     const found = (forage.telemetry() as { found: number }).found;
     expect(found).toBeGreaterThan(60);
