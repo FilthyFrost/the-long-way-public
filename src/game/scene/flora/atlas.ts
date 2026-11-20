@@ -96,7 +96,33 @@ function trail(g: G, pts: readonly [number, number][], w0: number, w1: number, r
 
 // ---- the first round's five (docs/V3/nodes/M5-samples.md) ----
 
+/**
+ * The spruce's spray (docs/V3/art/plants-standard.md §4): three branchlets side by side hanging from the card's top,
+ * each a twig with short needles both sides swept forward and down, longest in its middle, lighter at its tip — near
+ * to, a tier's skirt reads as branchlets and not as a fan of combs.
+ */
 function spruce(g: G, s: number, rnd: () => number): void {
+  for (let b = 0; b < 3; b++) {
+    const x0 = s * (0.2 + 0.3 * b) + (rnd() - 0.5) * s * 0.05;
+    const len = s * (0.78 + 0.16 * rnd());
+    const bend = (rnd() - 0.5) * s * 0.08;
+    const rows = 24;
+    for (let i = 0; i <= rows; i++) {
+      const t = i / rows;
+      const x = x0 + bend * t * t;
+      const y = s * 0.06 + t * len;
+      const nl = s * (0.07 + 0.07 * Math.sin(Math.PI * Math.min(1, t * 1.2))) * (0.8 + 0.4 * rnd());
+      for (const side of [-1, 1]) {
+        const a = side * (0.95 + 0.35 * rnd());
+        stroke(g, x, y, x + Math.sin(a) * nl, y + Math.abs(Math.cos(a)) * nl * 0.75 + nl * 0.25, s * 0.016 * (1.15 - 0.4 * t), 135 + 70 * t + 50 * (rnd() - 0.5));
+      }
+    }
+    stroke(g, x0, s * 0.06, x0 + bend, s * 0.06 + len, s * 0.012, 120);
+  }
+}
+
+/** (the first round's spruce spray, a comb of strands: kept for the record) */
+export function spruceComb(g: G, s: number, rnd: () => number): void {
   const y0 = s * 0.3;
   for (let k = 0; k < 15; k++) {
     const u = 0.08 + (k / 14) * 0.84;
@@ -145,7 +171,41 @@ function oakLeaf(g: G, x: number, y: number, a: number, len: number, red: number
   g.restore();
 }
 
+/**
+ * A leaf as Painted Valley paints one (its src/valley/trees.js leafTexture): two curves meeting at a point at either
+ * end, as wide as a third to a half of its length, at its own tone of red.
+ */
+function pvLeaf(g: G, x: number, y: number, a: number, len: number, red: number, rnd: () => number): void {
+  const wid = len * (0.34 + rnd() * 0.16);
+  g.fillStyle = `rgb(${clampRed(red)},255,0)`;
+  g.save();
+  g.translate(x, y);
+  g.rotate(a);
+  g.beginPath();
+  g.moveTo(-len / 2, 0);
+  g.quadraticCurveTo(-len * 0.05, -wid, len / 2, 0);
+  g.quadraticCurveTo(-len * 0.05, wid, -len / 2, 0);
+  g.fill();
+  g.restore();
+}
+
+/**
+ * The round broadleaf's spray (docs/V3/art/plants-standard.md §4): Painted Valley's — thirty leaves spread round a
+ * twig's end and eight more in the middle, each a tenth to a fifth of the card long, every one of its own tone — so
+ * that near to a crown its sprays read as leaves, with sky between them, and never as one flat patch.
+ */
 function oak(g: G, s: number, rnd: () => number): void {
+  const k = s / 256;
+  for (let i = 0; i < 30; i++) {
+    const a = (i / 30) * TAU * 2 + rnd() * 0.6;
+    const d = (22 + rnd() * 78) * k;
+    pvLeaf(g, s / 2 + Math.cos(a) * d, s / 2 + Math.sin(a) * d, a + (rnd() - 0.5) * 1.5, (26 + rnd() * 22) * k, 130 + Math.floor(rnd() * 125), rnd);
+  }
+  for (let i = 0; i < 8; i++) pvLeaf(g, s / 2 + (rnd() - 0.5) * 60 * k, s / 2 + (rnd() - 0.5) * 60 * k, rnd() * TAU, (28 + rnd() * 18) * k, 130 + Math.floor(rnd() * 125), rnd);
+}
+
+/** (the first round's oak spray, lobed leaves in one heap: kept for the record, docs/V3/nodes/M5-samples.md) */
+export function oakLobed(g: G, s: number, rnd: () => number): void {
   const cx = s * 0.5;
   const cy = s * 0.5;
   for (let i = 0; i < 16; i++) {
@@ -158,7 +218,22 @@ function oak(g: G, s: number, rnd: () => number): void {
   for (let i = 0; i < 5; i++) oakLeaf(g, cx + (rnd() - 0.5) * s * 0.12, cy + (rnd() - 0.5) * s * 0.12, rnd() * TAU, s * 0.2, 230, rnd);
 }
 
+/**
+ * The birch's spray (docs/V3/art/plants-standard.md §4): Painted Valley's spray of small rounder leaves — forty
+ * round a twig's end, ten in the middle, each a twelfth to an eighth of the card — a lighter, finer leaf than the oak's.
+ */
 function birch(g: G, s: number, rnd: () => number): void {
+  const k = s / 256;
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * TAU * 2 + rnd() * 0.6;
+    const d = (18 + rnd() * 86) * k;
+    pvLeaf(g, s / 2 + Math.cos(a) * d, s / 2 + Math.sin(a) * d, a + (rnd() - 0.5) * 1.5, (20 + rnd() * 14) * k, 140 + Math.floor(rnd() * 115), rnd);
+  }
+  for (let i = 0; i < 10; i++) pvLeaf(g, s / 2 + (rnd() - 0.5) * 56 * k, s / 2 + (rnd() - 0.5) * 56 * k, rnd() * TAU, (20 + rnd() * 12) * k, 150 + Math.floor(rnd() * 105), rnd);
+}
+
+/** (the first round's birch spray, leaves on hanging threads: kept for the record) */
+export function birchThreads(g: G, s: number, rnd: () => number): void {
   for (let k = 0; k < 9; k++) {
     const x0 = s * (0.12 + 0.76 * (k / 8)) + (rnd() - 0.5) * s * 0.05;
     const y0 = s * (0.08 + 0.1 * rnd());

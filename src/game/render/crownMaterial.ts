@@ -37,13 +37,16 @@ const GLSL_TINT_TONE = /* glsl */ `
     float m = max(max(t.r, t.g), max(t.b, 1e-3));
     vec3 tn = t / m;
     float sat = 1.0 - min(min(tn.r, tn.g), tn.b);
-    vec3 cool = vec3(0.0, 0.0, (0.35 + 0.85 * sat) * (1.0 - 0.7 * max(tn.r - tn.g, 0.0)));
-    vec3 f0 = m * (0.16 * pow(tn, vec3(2.5)) + 0.14 * cool);
-    vec3 f1 = m * (0.34 * pow(tn, vec3(2.2)) + 0.16 * cool);
-    vec3 f2 = m * (0.61 * pow(tn, vec3(1.5)) + 0.1 * cool);
-    vec3 c = mix(f0, f1, smoothstep(0.26, 0.4, tone));
-    c = mix(c, f2, smoothstep(0.52, 0.66, tone));
-    return mix(c, t, smoothstep(0.8, 0.92, tone));
+    // (Painted Valley's ladder, docs/V3/art/plants-standard.md §1: its shade a deep blue-green of its own, not its
+    // light made dark — for its leaf, (0.30, 0.56, 0.15) lit: 0.10 0.36 0.12, 0.035 0.20 0.12, 0.014 0.10 0.10; a warm
+    // leaf's, an autumn maple's, a deep red of its own with hardly any blue in it, not a purple)
+    vec3 cool = vec3(0.0, 0.0, (0.35 + 0.85 * sat) * clamp(1.0 - 1.6 * max(tn.r - tn.g, 0.0), 0.0, 1.0));
+    vec3 f0 = m * (0.18 * pow(tn, vec3(3.5)) + 0.17 * cool);
+    vec3 f1 = m * (0.36 * pow(tn, vec3(2.6)) + 0.22 * cool);
+    vec3 f2 = m * (0.64 * pow(tn, vec3(1.6)) + 0.14 * cool);
+    vec3 c = mix(f0, f1, smoothstep(0.3, 0.42, tone));
+    c = mix(c, f2, smoothstep(0.56, 0.68, tone));
+    return mix(c, t, smoothstep(0.84, 0.92, tone));
   }
 `;
 

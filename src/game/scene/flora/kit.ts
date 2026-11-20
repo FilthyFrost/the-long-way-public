@@ -47,13 +47,15 @@ export const BOUGH = 2;
 export const TWIG = 3;
 
 /** sides round a tube and rows along it, by class (bole, limb, bough, twig), at each level; 0 sides: not drawn */
+// (near: as Painted Valley's trees are drawn, a bole of fourteen sides, limbs of nine, boughs of six, each bent
+// smoothly along ten rows; a twig is hidden in the crown and drawn plain)
 const SIDES: readonly (readonly number[])[] = [
-  [9, 6, 4, 3],
-  [5, 4, 0, 0],
+  [12, 8, 6, 4],
+  [6, 5, 0, 0],
 ];
 const ROWS: readonly (readonly number[])[] = [
-  [7, 5, 3, 2],
-  [3, 2, 0, 0],
+  [12, 10, 7, 3],
+  [5, 4, 0, 0],
 ];
 
 export const smooth = (x: number, a: number, b: number): number => {
@@ -141,16 +143,71 @@ function rowsOf(t: Tube, level: Level): number {
 
 function tubeTris(t: Tube, level: Level): number {
   const sides = sidesOf(t, level);
-  return sides < 3 ? 0 : sides * rowsOf(t, level) * 2;
+  // (its rows, and the row it is sunk by into what it grows from)
+  return sides < 3 ? 0 : sides * (rowsOf(t, level) + (t.cls > BOLE ? 1 : 0)) * 2;
 }
 
-/** tubes round curves: the wood */
+/** where a branch grows from: the nearest point of the axis of a thicker tube of a lower class, its radius and its way there */
+interface Join {
+  at: V3;
+  axis: V3;
+  r: number;
+}
+
+/** the axis of a tube sampled: its points and radii (the radius as writeTubes draws it, with its profile) */
+function samplesOf(t: Tube, n: number): { p: V3; r: number; a: V3 }[] {
+  const out: { p: V3; r: number; a: V3 }[] = [];
+  for (let j = 0; j <= n; j++) {
+    const u = j / n;
+    const r = (t.r0 + (t.r1 - t.r0) * Math.pow(u, 0.8)) * (t.profile ? t.profile(u) : 1);
+    out.push({ p: t.curve.getPoint(u), r, a: t.curve.getTangent(u) });
+  }
+  return out;
+}
+
+/**
+ * Every tube's join: a branch (not the bole) whose foot lies within its parent — a thicker tube of a lower class —
+ * or close by it. null for the bole, and for a tube that grows from nothing (a stub on the ground, a cactus's arm
+ * drawn whole).
+ */
+function joinsOf(tubes: readonly Tube[]): (Join | null)[] {
+  const axes = tubes.map((t) => samplesOf(t, 24));
+  return tubes.map((t, i) => {
+    if (t.cls === BOLE) return null;
+    const foot = axes[i][0].p;
+    let best: Join | null = null;
+    let bestD = Infinity;
+    tubes.forEach((o, k) => {
+      if (k === i || o.cls >= t.cls || o.r0 < t.r0 * 0.9) return;
+      for (const s of axes[k]) {
+        const d = s.p.distanceTo(foot) - s.r;
+        if (d < bestD) {
+          bestD = d;
+          best = { at: s.p, axis: s.a, r: s.r };
+        }
+      }
+    });
+    // (within half its parent's radius of the parent's skin: it grows from it)
+    return best && bestD < Math.max(0.05, (best as Join).r * 0.5) ? best : null;
+  });
+}
+
+/**
+ * Tubes round curves: the wood, as one piece (docs/V3/art/plants-standard.md §2). A branch is sunk into what it
+ * grows from (a row inside its parent, along its own way back), swells into it over a parent's radius or so (its
+ * collar), and there its light is bent to the parent's, so that no seam or step shows where the two meet; its
+ * last row closes to a point, so that no cut end shows where it goes into the leaves.
+ */
 function writeTubes(out: Out, tubes: readonly Tube[], level: Level, random: () => number): void {
   const p = new V3();
   const n = new V3();
-  for (const tube of tubes) {
+  const w = new V3();
+  const q = new V3();
+  const sink = new V3();
+  const joins = joinsOf(tubes);
+  tubes.forEach((tube, ti) => {
     const sides = sidesOf(tube, level);
-    if (sides < 3) continue;
+    if (sides < 3) return;
     const rows = rowsOf(tube, level);
     const frames = tube.curve.computeFrenetFrames(rows, false);
     const first = out.pos.length / 3;
@@ -158,28 +215,54 @@ function writeTubes(out: Out, tubes: readonly Tube[], level: Level, random: () =
     const along = tube.curve.getLength();
     const furrow = tube.furrow ?? 0;
     const flare = tube.flare ?? 0;
-    for (let j = 0; j <= rows; j++) {
-      // (a flared foot gets its rows close together, where its roots spread)
-      const t = flare > 0 ? Math.pow(j / rows, 1.5) : j / rows;
+    const join = joins[ti];
+    // (a branch's collar: how much it swells where it meets its parent, and over how long, as a share of its length)
+    const collar = join ? Math.min(0.5, 0.12 + 0.3 * (tube.r0 / join.r)) : 0;
+    const reach = join ? Math.min(0.45, (join.r * 1.6) / Math.max(along, 1e-3)) : 0;
+    // (the row inside the parent: its foot's ring set back along its own way, a radius and a half of the parent's)
+    const lead = join ? 1 : 0;
+    for (let j = -lead; j <= rows; j++) {
+      // (a flared foot gets its rows close together, where its roots spread; a collar too, where it swells)
+      const u = Math.max(0, j) / rows;
+      const t = flare > 0 ? Math.pow(u, 1.5) : join ? Math.pow(u, 1.25) : u;
       tube.curve.getPoint(t, p);
       const frame = Math.min(rows, Math.round(t * rows));
+      if (j < 0) {
+        sink.copy(frames.tangents[0]).multiplyScalar(-join!.r * 1.5);
+        p.add(sink);
+      }
+      // (the tip: the last row a point, inside the leaves)
+      const tip = j === rows && tube.cls > BOLE;
       for (let i = 0; i <= sides; i++) {
         const a = (i / sides) * TAU;
         let r = (tube.r0 + (tube.r1 - tube.r0) * Math.pow(t, 0.8)) * (tube.profile ? tube.profile(t) : 1);
         if (flare > 0) r *= 1 + flare * Math.exp(-t * 9) * (0.6 + 0.4 * Math.sin(a * 5 + phase) * Math.sin(a * 2 + 1)) + 0.05 * Math.sin(a * 3 + t * 6 + phase);
+        if (collar > 0) r *= 1 + collar * (j < 0 ? 1 : Math.exp(-((t / reach) ** 2) * 2.2));
         r *= 1 - furrow * 0.06 * (0.5 + 0.5 * Math.sin(a * 11 + Math.sin(t * 7 + phase) * 1.4));
+        if (tip) r *= 0.12;
         n.copy(frames.normals[frame]).multiplyScalar(Math.cos(a)).addScaledVector(frames.binormals[frame], Math.sin(a));
-        out.vertex(p.x + n.x * r, p.y + n.y * r, p.z + n.z * r, n.x, n.y, n.z, i / sides, t * along, 0.5, 0, 0, Math.max(0, p.y), PART_WOOD);
+        w.set(p.x + n.x * r, p.y + n.y * r, p.z + n.z * r);
+        if (join && t < reach * 1.6) {
+          // (where it meets its parent its light turns to the parent's: out from the parent's axis)
+          q.copy(w).sub(join.at);
+          q.addScaledVector(join.axis, -q.dot(join.axis));
+          if (q.lengthSq() > 1e-8) {
+            q.normalize();
+            const k = 0.65 * Math.exp(-((t / reach) ** 2) * 1.6);
+            n.multiplyScalar(1 - k).addScaledVector(q, k).normalize();
+          }
+        }
+        out.vertex(w.x, w.y, w.z, n.x, n.y, n.z, i / sides, t * along, 0.5, 0, 0, Math.max(0, p.y), PART_WOOD);
       }
     }
-    for (let j = 0; j < rows; j++) {
+    for (let j = 0; j < rows + lead; j++) {
       for (let i = 0; i < sides; i++) {
         const a = first + j * (sides + 1) + i;
         const b = a + sides + 1;
         out.idx.push(a, b, a + 1, a + 1, b, b + 1);
       }
     }
-  }
+  });
 }
 
 // ---- cores ----

@@ -12,11 +12,23 @@ import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress,
 import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
 import { planJoshua, planRedwood, planRimu } from './trees3';
 import { planFern } from './fern';
+import { planBroadleaf, type BroadleafShape } from './broadleaf';
+import { T_BIRCH, T_OAK } from './atlas';
+
+/**
+ * The round broadleaf's shapes (broadleaf.ts; docs/V3/art/plants-standard.md §3), in Painted Valley's numbers: an
+ * oak between its grove trees and its great tree, a maple lower and wider, a birch slim with a leader up its middle.
+ */
+export const OAK_SHAPE: BroadleafShape = { trunk: 3.0, girth: 0.55, crown: 6.4, rise: 9.6, limbs: 5, clump: 2.1, fill: 12, cards: 44, spray: 1.15, tile: T_OAK };
+export const MAPLE_SHAPE: BroadleafShape = { trunk: 2.6, girth: 0.5, crown: 6.8, rise: 8.4, limbs: 5, clump: 2.0, fill: 13, cards: 44, spray: 1.1, tile: T_OAK };
+export const BIRCH_SHAPE: BroadleafShape = { trunk: 3.4, girth: 0.24, crown: 3.4, rise: 11, limbs: 6, clump: 1.35, fill: 10, cards: 34, spray: 0.8, leader: 0.8, elevation: 1.15, boughs: [1, 2], squash: 0.9, furrow: 0, tile: T_BIRCH };
 
 /** triangles of one plant at its levels (near, middle); far off it is a two-triangle picture */
 export const FLORA_BUDGET = {
-  broadleaf: [2500, 600],
-  conifer: [1800, 500],
+  // (raised for the plant pipeline, docs/V3/art/plants-standard.md §6: Painted Valley's trees near are some 5,600)
+  broadleaf: [6000, 1200],
+  conifer: [4000, 900],
+  // (the shrubs as they were until theirs are done: the ground's plants' 1.2 M of grass and flowers counts them)
   shrub: [800, 200],
   grass_tuft: [12, 12],
   flower: [40, 40],
@@ -63,11 +75,11 @@ const flower = (kind: FlowerKind, name: string, petals: number): FloraKind => ({
 const shrub = (kind: ShrubKind, name: string, leaf: number, second = 0x4e4436, bears = false): FloraKind => ({ id: `shrub_${kind}`, name, family: 'shrub', budget: 'shrub', plan: (seed) => planShrub(seed, kind), look: { leaf, second, evergreen: kind !== 'round', pale: false, bears, bright: kind === 'lavender', sway: 0.5 } });
 
 export const FLORA: readonly FloraKind[] = [
-  tree('spruce', '云杉（尖塔针叶）', 'conifer', (s) => planSpruce(s), { leaf: 0x2d5c46, second: 0x6d4b3b, evergreen: true, sway: 0.6 }),
-  tree('oak', '橡树（圆冠阔叶）', 'broadleaf', (s) => planOak(s), { leaf: 0x46742c }),
+  tree('spruce', '云杉（尖塔针叶）', 'conifer', (s) => planSpruce(s), { leaf: 0x5c9474, second: 0x6d4b3b, evergreen: true, sway: 0.6 }),
+  tree('oak', '橡树（圆冠阔叶）', 'broadleaf', (s) => planBroadleaf(s, 14, OAK_SHAPE), { leaf: 0x8cbf62 }),
   tree('pine', '黄松（高干松）', 'conifer', (s) => planPine(s), { leaf: 0x4b6a2f, second: 0xa4643a, evergreen: true, pale: true, sway: 0.5 }),
   tree('stone_pine', '伞松（高干松的伞形）', 'conifer', (s) => planStonePine(s), { leaf: 0x3f5f2c, second: 0x8a5a3c, evergreen: true, pale: true, sway: 0.5 }),
-  tree('birch', '白桦（白干细叶）', 'broadleaf', (s) => planBirch(s), { leaf: 0x7fa03a, second: 0xe9e4d8, pale: true, sway: 1.1 }),
+  tree('birch', '白桦（白干细叶）', 'broadleaf', (s) => planBroadleaf(s, 16, BIRCH_SHAPE), { leaf: 0xa8cc5e, second: 0xe9e4d8, pale: true, sway: 1.1 }),
   tree('poplar', '钻天杨（白干细叶的柱形）', 'broadleaf', (s) => planBirch(s, 20, true), { leaf: 0x5f8a33, second: 0xb8b0a0, pale: true, sway: 1 }),
   tree('cherry', '樱花（圆冠阔叶的花冠）', 'broadleaf', (s) => planCherry(s), { leaf: 0xf7d6df, second: 0x4a3a36, bright: true, sway: 0.8 }),
   tree('cypress', '意大利柏（柱形）', 'conifer', (s) => planCypress(s), { leaf: 0x2c4a2a, second: 0x5a4a3c, evergreen: true, sway: 0.4 }),
@@ -105,6 +117,8 @@ export const FLORA: readonly FloraKind[] = [
   shrub('protea', '帝王花', 0x5d7a4a, 0xe08aa0, true),
   // (the forest floor's: docs/V3/nodes/P2-B-kit-ground.md)
   { id: 'fern', name: '蕨（林下）', family: 'shrub', budget: 'shrub', plan: (seed) => planFern(seed), look: { leaf: 0x4f7a3a, second: 0x4e4436, evergreen: true, pale: false, bears: false, sway: 0.6 } },
+  // (the plant pipeline's first samples: docs/V3/art/plants-standard.md)
+  tree('maple', '枫树（圆冠阔叶的秋色）', 'broadleaf', (s) => planBroadleaf(s, 13, MAPLE_SHAPE), { leaf: 0xec8a3c }),
 ];
 
 export function floraKind(id: string): FloraKind {

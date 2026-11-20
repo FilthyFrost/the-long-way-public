@@ -9,6 +9,7 @@ import { CrownView } from '../../src/game/scene/crowns/crownView';
 import { SPECIES, VARIANTS, variantsOf } from '../../src/game/scene/crowns/species';
 import { growSpecies, grownFromArrays, grownToArrays, measureOf } from '../../src/game/scene/crowns/speciesGrow';
 import { packVariants } from '../../src/game/scene/crowns/variantPack';
+import { FLORA_BUDGET } from '../../src/game/scene/flora/catalog';
 
 describe('variant packs', () => {
   it('grows eight variants from a species\' own shapes: its own first, the rest its shapes drawn a little otherwise', () => {
@@ -63,8 +64,9 @@ describe('variant packs', () => {
     expect(kit.kit).toBe(true);
     expect(kit.far).toHaveLength(VARIANTS);
     // (the toolkit's trees within the budget whichever variant: docs/V3/perf-budget.json, conifers 1,800 near and 500 middle)
-    expect(kit.near.trianglesEach).toBeLessThanOrEqual(1800);
-    expect(kit.mid.trianglesEach).toBeLessThanOrEqual(500);
+    // (the conifer's budget, docs/V3/perf-budget.json, raised with the plant pipeline: docs/V3/art/plants-standard.md §6)
+    expect(kit.near.trianglesEach).toBeLessThanOrEqual(FLORA_BUDGET.conifer[0]);
+    expect(kit.mid.trianglesEach).toBeLessThanOrEqual(FLORA_BUDGET.conifer[1]);
     // (the measure is the first variant's, as it always was)
     const m = measureOf('broadleaf', false);
     expect(m.height).toBeGreaterThan(3);

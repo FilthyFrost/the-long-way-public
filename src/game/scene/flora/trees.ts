@@ -54,13 +54,15 @@ export function planSpruce(seed: number, height = 18): Plan {
   const tip = new V3(Math.cos(lean) * H * 0.01, H, Math.sin(lean) * H * 0.01);
   const tubes: Tube[] = [{ curve: curve([new V3(0, -0.5, 0), new V3(Math.cos(lean + 2) * girth * 0.3, H * 0.5, Math.sin(lean + 2) * girth * 0.3), tip]), r0: girth, r1: girth * 0.08, cls: BOLE, flare: 0.6, furrow: 0.25 }];
   const clumps: Clump[] = [];
-  const y0 = H * 0.05;
+  // (the lowest skirt a little off the ground: a foot of the stem shows under it)
+  const y0 = H * 0.085;
   const span = H * 0.95 - y0;
   const envelope = (t: number): number => R * Math.pow(1 - t, 1.05) * (0.86 + 0.14 * Math.sin(Math.PI * Math.min(1, t * 1.6)));
   const openAt = (at: V3, n: V3): number => {
     const t = Math.min(1, Math.max(0, (at.y - y0) / span));
     const e = Math.hypot(at.x, at.z) / Math.max(0.3, envelope(t));
-    return Math.min(1, openness(e, n.y) * (0.55 + 0.45 * smooth(t, 0, 0.6)) + (t > 0.9 ? 0.15 : 0));
+    // (every tier's top in the light, the lower ones a little less: docs/V3/art/plants-standard.md §1)
+    return Math.min(1, openness(e, n.y) * (0.78 + 0.22 * smooth(t, 0, 0.6)) + (t > 0.9 ? 0.15 : 0));
   };
   const tiers = 12 + Math.floor(random() * 3);
   let turn = random() * TAU;
@@ -85,14 +87,16 @@ export function planSpruce(seed: number, height = 18): Plan {
       // (only the lowest branches show their wood, under the skirts)
       if (i < 2) tubes.push({ curve: branch, r0: girth * 0.22, r1: girth * 0.04, cls: TWIG });
       // its foliage: one long shelf along it, a curtain of branchlets hanging from its edge
-      clumps.push(clump(branch.getPoint(0.62), Math.max(0.4, len * 0.42), { sy: 0.4, stretch: 1.55, along: outward.clone(), shelf: 0.82, curtain: 0.4 + 0.25 * (1 - t), out: outward.clone(), bare: true }));
+      // (a dark core under it, as every crown has one: a tier is a mass, not lace — docs/V3/art/plants-standard.md §3)
+      clumps.push(clump(branch.getPoint(0.62), Math.max(0.4, len * 0.42), { sy: 0.4, stretch: 1.55, along: outward.clone(), shelf: 0.82, curtain: 0.4 + 0.25 * (1 - t), out: outward.clone() }));
     }
   }
   for (let k = 0; k < 3; k++) {
     const u = (k + 1) / 4;
     clumps.push(clump(new V3(tip.x, H * (0.93 + 0.065 * u), tip.z), H * 0.016 * (1.3 - u), { sy: 1.4, shelf: 0.2, open: 0.9 }));
   }
-  return { tubes, clumps, tile: T_SPRUCE, spray: H * 0.075, cards: 16, rRef: R * 0.32, openAt, crownY: y0 + span * 0.4, least: [5, 2] };
+  // (sprays smaller and more of them, a tier a skirt of branchlets and not a fan of cards: docs/V3/art/plants-standard.md §3)
+  return { tubes, clumps, tile: T_SPRUCE, spray: H * 0.046, cards: 40, rRef: R * 0.32, openAt, crownY: y0 + span * 0.4, least: [8, 3] };
 }
 
 // ---- oak ----

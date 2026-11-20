@@ -13,8 +13,8 @@
   },
   "each": {
     "_": "triangles of one thing at its levels (near, middle, far); far is a two-triangle impostor where 2",
-    "broadleaf": [2500, 600, 2],
-    "conifer": [1800, 500, 2],
+    "broadleaf": [6000, 1200, 2],
+    "conifer": [4000, 900, 2],
     "shrub": [800, 200, 2],
     "grass_tuft": [12],
     "flower": [40],
