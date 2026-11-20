@@ -46,6 +46,7 @@ try {
   }, km);
   await page.waitForFunction(() => window.__live.done, null, { timeout: 900000, polling: 1000 });
   const r = await page.evaluate(() => window.__live);
+  const bakes = await page.evaluate(() => window.__rt.game.worldView?.crowns?.atlasStats ?? null);
   const iv = r.intervals.slice(60);
   const sorted = [...iv].sort((a, b) => a - b);
   const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))].toFixed(1);
@@ -55,6 +56,7 @@ try {
   console.log(`  late frames (> 20 ms: at least one dropped) ${late} = ${((100 * late) / iv.length).toFixed(2)}%; hitches over 50 ms ${long}`);
   const worst = iv.map((x, i) => [x, r.kms[i + 60]]).sort((a, b) => b[0] - a[0]).slice(0, 8);
   console.log('  the longest:', worst.map(([x, k]) => `${x.toFixed(0)} ms at ${k.toFixed(2)} km`).join(', '));
+  if (bakes) console.log(`  far pictures baked: ${bakes.bakes}, ${bakes.bakedMs.toFixed(0)} ms in all (${(bakes.bakedMs / Math.max(1, bakes.bakes)).toFixed(1)} ms each)`);
   if (errors.length) console.log('errors', errors.slice(0, 3).join(' | '));
 } finally {
   await browser.close();

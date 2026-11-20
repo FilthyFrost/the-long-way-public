@@ -29,6 +29,9 @@ const INSIDE_FROM = 40;
 const SHADOW_REACH = 96;
 /** the level a tree's shadow is drawn in */
 const SHADOW_LEVEL = 2;
+/** far pictures baked in a frame at most, and how long one unused is kept (ms) */
+const BAKES_A_FRAME = 1;
+const ATLAS_KEEP_MS = 30000;
 
 function fadeWidth(edge: number): number {
   return Math.max(2, Math.abs(edge) * 0.06);
@@ -36,6 +39,8 @@ function fadeWidth(edge: number): number {
 
 interface Draw {
   atlasModel?: THREE.BufferGeometry;
+  /** since when its far picture has had no tree to draw (ms) */
+  idleSince?: number;
   /** its far picture baked from the plant toolkit's atlas */
   kit?: boolean;
   mesh: THREE.InstancedMesh;
@@ -442,11 +447,19 @@ export class CrownView implements CrownLookup {
       for (let l = 0; l < 3; l++) lv[l] += t.levels[l];
     }
     let triangles = 0, shadows = 0;
+    // (a far picture is some ten milliseconds to bake: one a frame, the others drawn a frame or a few later — several in
+    // one frame were a frame of sixty)
+    let bakes = 0;
+    const now = performance.now();
     const finish = (dr: Draw): void => {
       const count = dr.slots.length;
+      let ready = true;
       if (dr.atlasModel) {
         const u = (dr.material as THREE.ShaderMaterial).uniforms;
-        if (count && !u.tNormalAtlas.value) {
+        if (count) dr.idleSince = undefined;
+        if (count && !u.tNormalAtlas.value && bakes >= BAKES_A_FRAME) ready = false;
+        else if (count && !u.tNormalAtlas.value) {
+          bakes++;
           const start = performance.now();
           const atlas = bakeCrown(dr.atlasModel, dr.kit ? floraCover() : undefined);
           u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
@@ -456,7 +469,8 @@ export class CrownView implements CrownLookup {
           this.atlasStats.bakedMs += performance.now() - start;
           this.atlasStats.bakes++;
           this.atlasStats.residentBytes += atlas.normals.byteLength + atlas.paint.byteLength;
-        } else if (!count && u.tNormalAtlas.value) {
+        } else if (!count && u.tNormalAtlas.value && (dr.idleSince ??= now) < now - ATLAS_KEEP_MS) {
+          // (kept a while unused: trees going in and out of the far band are not baked again and again)
           this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
           for (const channel of [u.tNormalAtlas, u.tPaintAtlas]) {
             channel.value.dispose();
@@ -465,7 +479,7 @@ export class CrownView implements CrownLookup {
         }
       }
       dr.mesh.count = count;
-      dr.mesh.visible = count > 0;
+      dr.mesh.visible = count > 0 && ready;
       const end = Math.min(dr.dirtyTo + 1, count);
       if (end > dr.dirtyFrom) {
         for (const attr of [dr.mesh.instanceMatrix, dr.look, dr.tree, dr.fade]) {
