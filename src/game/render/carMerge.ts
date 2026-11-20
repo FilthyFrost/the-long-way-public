@@ -22,6 +22,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { carMaterialName, meshCarMaterialName } from './carMaterials';
+import { reduceLater } from './carFar';
+import { FAR_ERROR, FAR_HIDDEN, FAR_SHARE, MID_ERROR, MID_SHARE } from './farSimplify';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from './shadow';
 
 export interface MergePart {
@@ -409,13 +411,112 @@ export class MergedCar {
 
   /** put the originals back, free the merged geometry (merge again after a fit or a removal) */
   dispose(): void {
+    this.gone = true;
     for (const m of this.hidden) m.visible = true;
     this.hidden.length = 0;
+    // (the twins share the near meshes' attributes: the near ones back in place first, every twin freed after)
+    for (const [mesh, near] of this.nearOf) mesh.geometry = near;
     for (const c of this.group.children) (c as THREE.Mesh).geometry.dispose();
+    for (const level of this.twins) if (level) for (const g of level.values()) g?.dispose();
+    this.twins = [null, null];
+    this.nearOf.clear();
     this.group.removeFromParent();
     this.group.clear();
     this.ranges.clear();
     this.boxes.clear();
+  }
+
+  // ---- the middle distance and far off (docs/V3/nodes/P3-carfar.md) ----
+
+  /**
+   * Each merged mesh's reduced twins: [the middle distance's, far off's] (null: not drawn at that level; absent: not
+   * ready yet).
+   */
+  private twins: [Map<THREE.Mesh, THREE.BufferGeometry | null> | null, Map<THREE.Mesh, THREE.BufferGeometry | null> | null] = [null, null];
+  private readonly nearOf = new Map<THREE.Mesh, THREE.BufferGeometry>();
+  private level: 0 | 1 | 2 = 0;
+  private gone = false;
+  private pending = 0;
+
+  /** twins still being made in the worker */
+  get reducing(): boolean {
+    return this.pending > 0;
+  }
+
+  /**
+   * Make the reduced twins: each merged mesh cut to its share of its triangles (render/farSimplify.ts FAR_SHARE far
+   * off, MID_SHARE in the middle distance) in a worker (render/carFar.ts), so that no frame waits; far off the
+   * inside of the cab is dropped. A twin shares its mesh's attributes (paint and wear written to one are written to
+   * all) and is swapped in once it is ready.
+   */
+  prepareFar(): void {
+    if (this.twins[0] || this.gone) return;
+    const made: [Map<THREE.Mesh, THREE.BufferGeometry | null>, Map<THREE.Mesh, THREE.BufferGeometry | null>] = [new Map(), new Map()];
+    this.twins = made;
+    for (const c of this.group.children) {
+      const mesh = c as THREE.Mesh;
+      const name = mesh.name.replace(/^merged:/, '');
+      this.nearOf.set(mesh, mesh.geometry);
+      for (const lv of [0, 1] as const) {
+        if (lv === 1 && FAR_HIDDEN.has(name)) {
+          made[1].set(mesh, null);
+          continue;
+        }
+        const share = lv === 0 ? MID_SHARE(name) : (FAR_SHARE[name] ?? 0.12);
+        // (a mesh kept whole at a level has no twin there: the near one is drawn)
+        this.pending++;
+        void reduceLater(mesh.geometry, share, lv === 0 ? MID_ERROR : FAR_ERROR, lv === 1).then((ix) => {
+          this.pending--;
+          if (this.gone || this.twins[lv] !== made[lv] || !ix) return;
+          const near = this.nearOf.get(mesh)!;
+          const g = new THREE.BufferGeometry();
+          for (const [k, a] of Object.entries(near.attributes)) g.setAttribute(k, a);
+          g.setIndex(new THREE.BufferAttribute(ix, 1));
+          g.boundingSphere = near.boundingSphere ? near.boundingSphere.clone() : null;
+          g.boundingBox = near.boundingBox ? near.boundingBox.clone() : null;
+          made[lv].set(mesh, g);
+          this.applyLevel();
+        });
+      }
+    }
+    this.applyLevel();
+  }
+
+  /** drawn in full (0), as its middle-distance twins (1) or its far ones (2), each where it is ready */
+  setLevel(level: 0 | 1 | 2): void {
+    if (level === this.level || this.gone) return;
+    this.level = level;
+    if (level > 0) this.prepareFar();
+    this.applyLevel();
+  }
+
+  get detail(): 0 | 1 | 2 {
+    return this.level;
+  }
+
+  /** the triangles the merged car draws now */
+  get triangles(): number {
+    let n = 0;
+    for (const c of this.group.children) {
+      const m = c as THREE.Mesh;
+      if (!m.visible) continue;
+      n += (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
+    }
+    return n;
+  }
+
+  private applyLevel(): void {
+    for (const [mesh, near] of this.nearOf) {
+      const mid = this.twins[0]?.get(mesh);
+      const far = this.twins[1]?.get(mesh);
+      if (this.level === 2 && far === null) {
+        mesh.visible = false;
+        continue;
+      }
+      mesh.visible = true;
+      // (far off and its far twin not ready yet: the middle one meanwhile)
+      mesh.geometry = this.level === 2 ? (far ?? mid ?? near) : this.level === 1 ? (mid ?? near) : near;
+    }
   }
 }
 

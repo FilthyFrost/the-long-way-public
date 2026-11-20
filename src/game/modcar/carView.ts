@@ -1047,6 +1047,21 @@ export class CarView {
     this.mergeDirty = true;
   }
 
+  /**
+   * How far off it is drawn (ModGame sets it each frame, with some slack; parked vehicles only): 0 in full, 1 the
+   * middle distance (the merged meshes' twins with a third of their triangles), 2 far off (a tenth, the inside of
+   * the cab left out): render/carMerge.ts prepareFar, docs/V3/nodes/P3-carfar.md.
+   */
+  private farLevel: 0 | 1 | 2 = 0;
+  get detail(): 0 | 1 | 2 {
+    return this.farLevel;
+  }
+  setDetail(level: 0 | 1 | 2): void {
+    if (level === this.farLevel) return;
+    this.farLevel = level;
+    this.merged?.setLevel(level);
+  }
+
   /** merge the static parts when the build has settled */
   private tryMerge(): void {
     if (!this.mergeDirty || this.loads.size || this.settling.length || !this.frameObj) return;
@@ -1088,6 +1103,9 @@ export class CarView {
     applyMaterials(merged.group, look, true);
     this.merged = merged;
     this.mergedLook = look;
+    // (a parked vehicle's far model made at once, in a worker: it is ready by the time the vehicle is far off)
+    if (parked) merged.prepareFar();
+    if (this.farLevel) merged.setLevel(this.farLevel);
   }
 
   /** a merged part's paint or wear moved on (the spray can, the sponge, the road's dust): write its vertices again */

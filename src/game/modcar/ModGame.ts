@@ -4476,6 +4476,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         const pz = this.seated ? this.seated.sim.pz : this.player.walker.z;
         const far = Math.hypot(v.sim.px - px, v.sim.pz - pz);
         v.view.setParked(v !== this.seated && Math.abs(v.sim.kmh) < 0.5 && (v.view.isParked ? far > 12 : far > 16));
+        // (and further off its reduced models: a third of its triangles from some twenty metres, a tenth from forty-five
+        // with the cab's inside left out)
+        const lv = v.view.detail;
+        v.view.setDetail(!v.view.isParked ? 0 : far > (lv === 2 ? 36 : 45) ? 2 : far > (lv >= 1 ? 20 : 24) ? 1 : 0);
       }
       v.view.update(dt, v.sim, v.sys.dash, core, v === this.seated ? alpha : 1);
     }
