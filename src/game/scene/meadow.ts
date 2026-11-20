@@ -42,6 +42,9 @@ const SP = MEADOW_MAP.spacing;
 const NONE = -0x7fffffff;
 
 const byte = (v: number): number => (v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255));
+const viewFrustum = new THREE.Frustum();
+const viewProj = new THREE.Matrix4();
+const tileSphere = new THREE.Sphere();
 const mod = (a: number, n: number): number => ((a % n) + n) % n;
 
 /**
@@ -204,7 +207,14 @@ interface Ring {
   readonly geometry: THREE.InstancedBufferGeometry;
   readonly material: THREE.ShaderMaterial;
   readonly count: number;
-  readonly tiles: { mesh: THREE.Mesh; i: number; j: number }[];
+  /** the blades drawn in a tile (its cells, or a share of them: the density) */
+  readonly per: number;
+  /** the ring's one mesh, drawn in one call */
+  readonly mesh: THREE.Mesh;
+  /** its tiles round the eye, and each one's ground height (world, m) where the ring was placed */
+  readonly tiles: { i: number; j: number; y: number }[];
+  /** tiles in view this frame */
+  shown: number;
   /** the tile the eye is in (world), and the origin the tiles were placed for */
   at: [number, number];
   ox: number;
@@ -235,21 +245,18 @@ export class Meadow {
     const random = mulberry32(world.seed * 977 + 3);
     this.rings = RINGS.map((def, index) => {
       const { geometry, count } = meadowRingGeometry(def, random);
-      geometry.instanceCount = Math.max(1, Math.round(count * Math.min(1, Math.max(0.05, density))));
-      // (a tile's ground may rise and fall within it: the sphere it is culled by is roomy)
-      geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(def.tile / 2, 0.3, def.tile / 2), def.tile * 0.9 + 3);
-      const material = meadowMaterial({ cell: def.cell, rows: def.rows, fade: def.fade, width: def.width, tops: def.tops, salt: index * 101 + (world.seed & 0xffff) });
+      const per = Math.max(1, Math.round(count * Math.min(1, Math.max(0.05, density))));
+      const material = meadowMaterial({ cell: def.cell, rows: def.rows, fade: def.fade, width: def.width, tops: def.tops, salt: index * 101 + (world.seed & 0xffff), tile: def.tile, tiles: def.tiles });
+      material.uniforms.uPer.value = per;
+      // (one mesh a ring, drawn in one call: its tiles in view in the material's list — meadowMaterial.ts uTiles)
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.matrixAutoUpdate = false;
+      mesh.frustumCulled = false;
+      mesh.name = `meadow.${def.name}`;
+      this.group.add(mesh);
       const tiles: Ring['tiles'] = [];
-      for (let j = 0; j < def.tiles; j++) {
-        for (let i = 0; i < def.tiles; i++) {
-          const mesh = new THREE.Mesh(geometry, material);
-          mesh.matrixAutoUpdate = false;
-          mesh.name = `meadow.${def.name}`;
-          tiles.push({ mesh, i: i - def.tiles / 2, j: j - def.tiles / 2 });
-          this.group.add(mesh);
-        }
-      }
-      return { def, geometry, material, count, tiles, at: [NaN, NaN], ox: NaN, oz: NaN };
+      for (let j = 0; j < def.tiles; j++) for (let i = 0; i < def.tiles; i++) tiles.push({ i: i - def.tiles / 2, j: j - def.tiles / 2, y: 0 });
+      return { def, geometry, material, count, per, mesh, tiles, shown: 0, at: [NaN, NaN], ox: NaN, oz: NaN };
     });
     core.scene.add(this.group);
     this.off = core.onFrame(() => this.frame());
@@ -273,11 +280,13 @@ export class Meadow {
     cam.getWorldPosition(this.eye);
     const ex = this.eye.x + o.x;
     const ez = this.eye.z + o.z;
+    cam.updateMatrixWorld();
+    viewFrustum.setFromProjectionMatrix(viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
     for (const r of this.rings) {
       const T = r.def.tile;
       const sx = Math.floor(ex / T);
       const sz = Math.floor(ez / T);
-      this.cull(r, ex, ez);
+      this.cull(r, ex, ez, o);
       if (sx === r.at[0] && sz === r.at[1] && r.ox === o.x && r.oz === o.z) continue;
       r.at = [sx, sz];
       r.ox = o.x;
@@ -294,10 +303,10 @@ export class Meadow {
           this.world.shape(wx + T / 2, wz + T / 2, this.tp);
           y = this.tp.bed;
         }
-        tile.mesh.position.set(wx - o.x, y - o.y, wz - o.z);
-        tile.mesh.updateMatrix();
-        tile.mesh.updateMatrixWorld(true);
+        tile.y = y;
       }
+      // (placed anew: listed anew)
+      this.cull(r, ex, ez, o);
     }
     const m = this.map;
     if (m.i0 !== NONE) {
@@ -309,15 +318,18 @@ export class Meadow {
   }
 
   /**
-   * Only the tiles of a ring that reach into its band of the meadow are drawn: a tile wholly beyond where the ring's
-   * blades have all gone, or wholly within where none of them has come yet, would run every one of its blades through
-   * the GPU to draw none (the eye's world position ex, ez).
+   * The tiles of a ring drawn this frame, listed in its material (meadowMaterial.ts uTiles): only those in view that
+   * reach into its band of the meadow — a tile wholly beyond where the ring's blades have all gone, or wholly within
+   * where none of them has come yet, would run every one of its blades through the GPU to draw none (the eye's world
+   * position ex, ez). The ring is drawn in one call, as many blades as the listed tiles hold.
    */
-  private cull(r: Ring, ex: number, ez: number): void {
+  private cull(r: Ring, ex: number, ez: number, o: { x: number; y: number; z: number }): void {
     const T = r.def.tile;
     const [inFrom, , , outTo] = r.def.fade;
     const sx = Math.floor(ex / T);
     const sz = Math.floor(ez / T);
+    const list = r.material.uniforms.uTiles.value as THREE.Vector2[];
+    let k = 0;
     for (const tile of r.tiles) {
       const x0 = (sx + tile.i) * T;
       const z0 = (sz + tile.j) * T;
@@ -325,14 +337,22 @@ export class Meadow {
       const dz = ez < z0 ? z0 - ez : ez > z0 + T ? ez - z0 - T : 0;
       const near = Math.hypot(dx, dz);
       const far = Math.hypot(Math.max(ex - x0, x0 + T - ex), Math.max(ez - z0, z0 + T - ez));
-      tile.mesh.visible = near < outTo && far > inFrom;
+      if (!(near < outTo && far > inFrom)) continue;
+      // (a tile's ground may rise and fall within it: the sphere it is tested against the view by is roomy)
+      tileSphere.center.set(x0 + T / 2 - o.x, (tile.y === tile.y ? tile.y : o.y) - o.y + 0.3, z0 + T / 2 - o.z);
+      tileSphere.radius = T * 0.9 + 3;
+      if (!viewFrustum.intersectsSphere(tileSphere)) continue;
+      list[k++].set(x0 - o.x, z0 - o.z);
     }
+    r.shown = k;
+    r.geometry.instanceCount = k * r.per;
+    r.mesh.visible = k > 0;
   }
 
   /** blades drawn this frame by ring (tiles in view × blades a tile): for the developer's figures */
   get blades(): number {
     let n = 0;
-    for (const r of this.rings) n += r.tiles.length * r.geometry.instanceCount * r.def.sub;
+    for (const r of this.rings) n += r.shown * r.per * r.def.sub;
     return n;
   }
 

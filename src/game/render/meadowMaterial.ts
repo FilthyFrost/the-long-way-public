@@ -31,6 +31,17 @@ export interface MeadowRingLook {
   /** 0 for single blades; more where a blade stands for many and one mostly sees their tops */
   tops: number;
   salt: number;
+  /** the ring's tile (m a side) and its tiles a side: a ring is drawn in one call, its tiles in view in uTiles */
+  tile: number;
+  tiles: number;
+}
+
+/** a whole number below n² and prime to it, near n²'s golden share: the order a ring's cells are drawn in */
+export function cellScramble(nn: number): number {
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  let a = Math.max(1, Math.round(nn * 0.618));
+  while (gcd(a, nn) !== 1) a++;
+  return a;
 }
 
 /** the meadow's map: texels a side (scene/meadow.ts MEADOW_N), metres between samples */
@@ -60,6 +71,8 @@ const f1 = (v: number): string => v.toFixed(4);
 export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
   const N = MEADOW_MAP.n;
   const S = MEADOW_SCALE;
+  const per = Math.round(ring.tile / ring.cell);
+  const tiles = ring.tiles * ring.tiles;
   return new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     uniforms: {
@@ -67,13 +80,17 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
       ...meadowUniforms,
       uCoverMisc: coverUniforms.uCoverMisc,
       uOriginCell: { value: new THREE.Vector2() },
+      // the ring's tiles in view, their corners in render space (scene/meadow.ts), and the blades drawn in each
+      uTiles: { value: Array.from({ length: tiles }, () => new THREE.Vector2()) },
+      uPer: { value: per * per },
     },
     vertexShader: /* glsl */ `
       #include <common>
       #include <logdepthbuf_pars_vertex>
       ${GLSL_COMMON}
       ${GLSL_SLOTS}
-      attribute vec2 aCell;
+      uniform vec2 uTiles[${tiles}];
+      uniform int uPer;
       uniform sampler2D tMeadowA;
       uniform sampler2D tMeadowB;
       uniform sampler2D tMeadowC;
@@ -99,6 +116,9 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
       #define SALT ${ring.salt}
       #define MAP_N ${N}
       #define MAP_NF ${N.toFixed(1)}
+      #define NPER ${per}
+      #define NN ${per * per}
+      #define SCRAMBLE ${cellScramble(per * per)}
 
       uvec3 rtPcg3(uvec3 v) {
         v = v * 1664525u + 1013904223u;
@@ -136,7 +156,13 @@ export function meadowMaterial(ring: MeadowRingLook): THREE.ShaderMaterial {
         float sub = position.z;
         // the cell it grows in: the tile's, counted from the render origin (which moves in whole steps of 256 m, a
         // whole number of every ring's cells), and so the world's
-        ivec2 lc = ivec2(floor(modelMatrix[3].xz / CELL + 0.5)) + ivec2(aCell);
+        // (the ring is drawn in one call: its tiles in view are listed in uTiles, uPer blades each, and a blade's number
+        // says its tile and its cell there — the c-th of the tile's cells in a scrambled order, so that a ring drawn
+        // thinner still draws cells spread over all of it)
+        int slot = gl_InstanceID / uPer;
+        int c = gl_InstanceID - slot * uPer;
+        int cell = (c * SCRAMBLE) % NN;
+        ivec2 lc = ivec2(floor(uTiles[slot] / CELL + 0.5)) + ivec2(cell % NPER, cell / NPER);
         ivec2 wc = lc + uOriginCell;
         int salt = SALT + int(sub) * 7;
         vec4 r = rtCellRand(wc, salt);
@@ -363,26 +389,13 @@ export function meadowRingGeometry(ring: { rows: number; sub: number; tile: numb
       }
     }
   }
+  // (a blade's cell is found from its instance's number in the shader: the geometry is one blade, drawn as many times
+  // as there are cells in the tiles in view)
+  void random;
   const n = Math.round(tile / cell);
-  const cells = new Float32Array(n * n * 2);
-  for (let j = 0; j < n; j++) {
-    for (let i = 0; i < n; i++) {
-      cells[(i + j * n) * 2] = i;
-      cells[(i + j * n) * 2 + 1] = j;
-    }
-  }
-  for (let i = n * n - 1; i > 0; i--) {
-    const k = Math.floor(random() * (i + 1));
-    for (let c = 0; c < 2; c++) {
-      const tmp = cells[i * 2 + c];
-      cells[i * 2 + c] = cells[k * 2 + c];
-      cells[k * 2 + c] = tmp;
-    }
-  }
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
-  geometry.setAttribute('aCell', new THREE.InstancedBufferAttribute(cells, 2));
-  geometry.instanceCount = n * n;
+  geometry.instanceCount = 0;
   return { geometry, count: n * n };
 }
