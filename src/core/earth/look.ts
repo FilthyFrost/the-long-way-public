@@ -5,7 +5,7 @@
  * snow), and the distance between two signatures: how different two places look to someone driving through.
  * Also a place's name, made from what it is. Pure, DOM-free.
  */
-import { beltsOf, ecosystemAt, seasonOf, warmthAt, waterEcosystemAt, type Macro } from './climate';
+import { beltsOf, ecosystemAt, seasonOf, snowAt, waterEcosystemAt, type Macro } from './climate';
 import type { Efg, Struct, VegHue } from './efg';
 import type { SeasonType, WaterKind } from './kinds';
 import { landform, type Landform, type Silhouette } from './landforms';
@@ -38,12 +38,6 @@ export interface Look {
 /** the plain shapes of a lie of the land, where the director set no landform */
 const PLAIN_OF: Readonly<Record<string, string>> = { plain: 'plain', basin: 'plain', coast: 'beach_spit', hills: 'rolling_hills', valley: 'rolling_hills', plateau: 'plateau', mountain: 'mountain_slopes' };
 
-/** the seasons that show as snow on the ground at a warmth (°C) */
-function snowy(t: number, month: number): boolean {
-  const winter = month <= 3 || month === 12;
-  return t < -7 || (winter && t < 3) || ((month === 4 || month === 11) && t < -2);
-}
-
 /** what a stretch looks like, from its knobs */
 export function lookOf(m: Macro): Look {
   const pick = ecosystemAt(m, m.base);
@@ -51,13 +45,13 @@ export function lookOf(m: Macro): Look {
   const water = waterEcosystemAt(m, m.base);
   const lf = landform(m.landform ?? PLAIN_OF[m.context] ?? 'plain');
   const season = seasonOf(m.tSea, m.wet, m.cont);
-  const t = warmthAt(m, m.base);
   const e = pick.efg;
   // (autumn and blossom are seasons of the deciduous and the orchards: a temperate wood in October is its gold)
   let veg = e.veg;
   if ((e.code === 'T2.2' || e.code === 'T4.4' || e.code === 'T7.3') && m.month >= 9 && m.month <= 11) veg = 'autumn';
   if ((e.code === 'T2.2' || e.code === 'T7.3') && (m.month === 4 || m.month === 5)) veg = 'blossom';
-  const snow = snowy(t, m.month) || e.struct === 'ice';
+  // (snow at the road in its month: the same rule as the world's snow line, world/earth/region.ts snowLineOf)
+  const snow = snowAt(m, m.base, m.month) || e.struct === 'ice';
   return {
     efg: e,
     belts,

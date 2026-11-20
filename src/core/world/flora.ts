@@ -119,6 +119,8 @@ export interface CoverParams {
 
 /** what a region's country grows: its ecotope parameters, its rules by layer, its ground cover */
 export interface FloraTable {
+  /** a region of the emergent Earth's (earth/flora.ts): its plants are its ecosystems' own, none taken out or put in for the forager */
+  readonly earth?: boolean;
   readonly eco: EcoParams;
   readonly trees: readonly FloraRule[];
   readonly shrubs: readonly FloraRule[];

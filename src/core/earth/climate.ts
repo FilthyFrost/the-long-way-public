@@ -86,6 +86,19 @@ export function growingAt(m: Macro, h: number): number {
   return warmthAt(m, h) + 0.6 * swingOf(m);
 }
 
+/** the warmth of a month at height h (°C): the year's mean and its swing, warmest in July (the northern year) */
+export function monthWarmthAt(m: Macro, h: number, month: number): number {
+  return warmthAt(m, h) + swingOf(m) * Math.cos((2 * Math.PI * (month - 7)) / 12);
+}
+
+/**
+ * Does snow lie at height h in a month: where the month's mean is below a degree of frost, or where the growing
+ * season never thaws (the snow that stays all year)
+ */
+export function snowAt(m: Macro, h: number, month: number): boolean {
+  return monthWarmthAt(m, h, month) < -1 || growingAt(m, h) < -1.5;
+}
+
 /** the warmth of the warmest month at height h (°C): below freezing, the snow of every winter stays — an ice cap */
 export function summerAt(m: Macro, h: number): number {
   return warmthAt(m, h) + swingOf(m);
@@ -130,10 +143,12 @@ export function rawFit(e: Efg, m: Macro, h: number, season = seasonOf(m.tSea, m.
   let f = fit(t, e.t) * fit(w, e.m);
   if (f > 0 && e.g) f *= fit(t + 0.6 * swingOf(m), e.g);
   if (f > 0 && e.summer) f *= fit(t + swingOf(m), e.summer);
-  // (the ground's own say: fields and pastures want soil, a forest will not stand on salt or gypsum)
+  // (the ground's own say: fields and pastures want soil, a forest will not stand on salt or gypsum, and on
+  // the salt itself — a pan, a crust — hardly anything grows at all)
   if (f > 0) {
     const fertile = rock(m.rock).fertile;
     if (e.struct === 'farmland' || e.code === 'T7.2') f *= Math.min(1, fertile / 0.3);
+    else if (fertile < 0.03 && e.cover >= 0.05) f *= 0.08;
     else if (e.cover > 0.3 && fertile < 0.1) f *= 0.2;
   }
   if (f <= 0) return 0;

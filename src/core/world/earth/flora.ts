@@ -12,6 +12,7 @@ import type { Band, FloraRule, FloraTable } from '../flora';
 import type { Scene } from '../../earth/director';
 import type { Efg, Form, Struct } from '../../earth/efg';
 import { growingAt, wetnessAt, LAPSE } from '../../earth/climate';
+import { rock } from '../../earth/rocks';
 
 const LAKE = 1;
 const RIVER = 2;
@@ -175,10 +176,13 @@ export function floraOfPlace(sc: Scene): FloraTable {
   const fl = (e.flowers ?? []).map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
   const crops = e.herbs.map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
   const rows = e.herbs.some((f) => f === 'crop_wheat' || f === 'crop_lavender' || f === 'crop_tulip' || f === 'crop_rape') ? { spacing: e.herbs.includes('crop_lavender') ? 1.6 : 2.2, share: 0.55, maxSlope: 0.18 } : undefined;
-  const grass = e.struct === 'ice' ? 0 : e.struct === 'bare' ? 0.06 : e.struct === 'desert' ? 0.12 : e.struct === 'tundra' ? 0.5 : e.struct === 'shrubland' ? 0.55 : e.struct === 'closed_forest' ? 0.6 : 0.95;
+  // (on the salt itself — a pan, a crust — hardly a blade: the white shows)
+  const salt = rock(m.rock).fertile < 0.03;
+  const grass = salt ? 0.04 : e.struct === 'ice' ? 0 : e.struct === 'bare' ? 0.06 : e.struct === 'desert' ? 0.12 : e.struct === 'tundra' ? 0.5 : e.struct === 'shrubland' ? 0.55 : e.struct === 'closed_forest' ? 0.6 : 0.95;
   return {
+    earth: true,
     eco: {
-      wood: Math.min(0.95, st.wood * (0.6 + 0.5 * e.cover)),
+      wood: salt ? 0 : Math.min(0.95, st.wood * (0.6 + 0.5 * e.cover)),
       woodScale: e.struct === 'closed_forest' ? 400 : e.struct === 'open_forest' ? 320 : 240,
       clear: 12,
       edge: e.struct === 'closed_forest' ? 18 : 40,
@@ -200,7 +204,7 @@ export function floraOfPlace(sc: Scene): FloraTable {
       flowers: Math.min(0.5, 0.04 * fl.length + (e.code === 'T7.1f' ? 0.4 : e.code === 'T7.1l' ? 0.35 : 0)),
       hues: [...crops, ...fl].slice(0, 4).length ? [...crops, ...fl].slice(0, 4) : [0xf4f0e6],
       ...(rows ? { rows } : {}),
-      bare: e.struct === 'ice' ? 1 : e.struct === 'bare' ? 0.9 : e.struct === 'desert' ? 0.75 : e.struct === 'tundra' ? 0.25 : e.struct === 'shrubland' ? 0.2 : 0,
+      bare: salt ? 0.96 : e.struct === 'ice' ? 1 : e.struct === 'bare' ? 0.9 : e.struct === 'desert' ? 0.75 : e.struct === 'tundra' ? 0.25 : e.struct === 'shrubland' ? 0.2 : 0,
     },
   };
 }

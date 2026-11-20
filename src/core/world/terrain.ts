@@ -26,7 +26,7 @@ import { floraTableOf } from './floraTables';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
-import { DUNE_MEAN, dunes, riserFor, terrace } from './operators';
+import { duneMean, dunes, riserFor, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
 import { SeaEffect, SeaPlan } from './sea';
 import { GREAT_FROM, HILLS_FROM, ReliefMix, greatRange, hillsFade, hillField, openness, rangeField, reliefMix, wallAt } from './relief';
@@ -823,8 +823,8 @@ export class World implements Ground {
         // (kilometres out the land is drawn too coarsely for a dune a hundred metres long: there, and in
         // the far ring's coarse land everywhere, the ground is raised by the dunes' mean height instead)
         const far = coarse ? 1 : smoothstep(1500, 3000, (dzl < 0 ? -dzl : dzl) * cs0);
-        let dune = far < 1 ? dunes(x, z, this.seed, lp.dune, lp.duneLen) : 0;
-        dune += (DUNE_MEAN * lp.dune - dune) * far;
+        let dune = far < 1 ? dunes(x, z, this.seed, lp.dune, lp.duneLen, lp.duneShape) : 0;
+        dune += (duneMean(lp.duneShape) * lp.dune - dune) * far;
         rel += dune * w;
       }
     }

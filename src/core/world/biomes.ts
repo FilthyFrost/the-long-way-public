@@ -9,6 +9,7 @@
 import type { FeatureRecipe } from './features';
 import { Surface } from './ground';
 import type { LandKind, LandSize } from './landform';
+import type { DuneShape } from './operators';
 import { ADDED_REGIONS } from './regions/index';
 
 export interface BiomeDef {
@@ -147,7 +148,7 @@ export interface RegionDef extends BiomeDef {
     odds?: Partial<Record<LandKind, number>>;
     size?: Partial<LandSize>;
     terrace?: { step: number; strength: number };
-    dune?: { amp: number; len: number };
+    dune?: { amp: number; len: number; shape?: DuneShape };
   };
   /** its water (water.ts). Absent: the row for its id, else for its kin. */
   water?: RegionWater;

@@ -21,6 +21,7 @@ import { smoothstep } from '../math/util';
 import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { routeSetting } from './routeProfiles';
 import { BiomeBlend, type RoadSpine } from './spine';
+import type { DuneShape } from './operators';
 
 /** metres of road per stretch (the same as a water slot) */
 export const LAND_SLOT = 1250;
@@ -51,6 +52,8 @@ export class LandParams {
   step = 0;
   dune = 0;
   duneLen = 0;
+  /** the dunes' shape (operators.ts DuneShape): the shape of whichever side of a blend has dunes, the larger at its middle */
+  duneShape: DuneShape = 0;
   /**
    * How much of a canyon wall's height its side gullies cut away: half, in every world of version 1. A
    * world of version 2 cuts them shallower (GULLY_V2): at half, the gullies' own flanks on top of the
@@ -81,6 +84,7 @@ export class LandParams {
     this.step = o.step;
     this.dune = o.dune;
     this.duneLen = o.duneLen;
+    this.duneShape = o.duneShape;
     this.gully = o.gully;
     return this;
   }
@@ -101,8 +105,13 @@ export class LandParams {
       this.terrace += (o.terrace - this.terrace) * t;
     }
     if (this.dune > 0 || o.dune > 0) {
-      if (this.dune <= 0) this.duneLen = o.duneLen;
-      else if (o.dune > 0) this.duneLen += (o.duneLen - this.duneLen) * t;
+      if (this.dune <= 0) {
+        this.duneLen = o.duneLen;
+        this.duneShape = o.duneShape;
+      } else if (o.dune > 0) {
+        this.duneLen += (o.duneLen - this.duneLen) * t;
+        if (t >= 0.5) this.duneShape = o.duneShape;
+      }
       this.dune += (o.dune - this.dune) * t;
     }
     return this;
@@ -283,6 +292,7 @@ export class LandformPlan {
         if (dune && kind === 'open') {
           p.dune = dune.amp;
           p.duneLen = dune.len;
+          p.duneShape = dune.shape ?? 0;
         }
       }
       this.list.push({ kind, side, p });

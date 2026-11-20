@@ -21,7 +21,7 @@
 import { dcos, dsin } from '../math/detmath';
 import { hash2 } from '../math/rng';
 
-export type FeatureKind = 'tower' | 'butte' | 'cone';
+export type FeatureKind = 'tower' | 'butte' | 'cone' | 'dome';
 
 /** a range [low, high] */
 type Span = readonly [number, number];
@@ -33,7 +33,7 @@ export interface FeatureRecipe {
   readonly count: Span;
   /** the radius of one at its foot (m) */
   readonly radius: Span;
-  /** its height as a share of its radius (tower up to 1.05, butte up to 0.5, cone up to 0.95: the slope's limit) */
+  /** its height as a share of its radius (tower up to 1.05, butte up to 0.5, cone up to 0.95, dome up to 1.3: the slope's limit) */
   readonly aspect: Span;
   /** how far from the road's centre line the nearest foot may come, and how far out the cluster reaches (m) */
   readonly near: number;
@@ -69,7 +69,7 @@ export const CLEAR = 34;
 /** the steepest slope a landform may have (rise over run) */
 export const MAX_SLOPE = 2;
 /** the largest height-to-radius share each kind may have under MAX_SLOPE (see the profiles' slopes below) */
-export const MAX_ASPECT: Readonly<Record<FeatureKind, number>> = { tower: 1.05, butte: 0.5, cone: 0.95 };
+export const MAX_ASPECT: Readonly<Record<FeatureKind, number>> = { tower: 1.05, butte: 0.5, cone: 0.95, dome: 1.3 };
 
 function smooth(t: number): number {
   return t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
@@ -83,12 +83,15 @@ function smooth(t: number): number {
  *   butte  a table: flat over more than half its radius, then a steep side. Steepest slope 3.95 × aspect.
  *   cone   a cinder cone with its crater: a rim at a quarter of the radius, a bowl inside it a third of the
  *          height deep. Steepest slope 2 × aspect.
+ *   dome   a rounded hill, all curve (an inselberg, a tor, a pingo, a drumlin drawn out long): steepest
+ *          slope 1.5 × aspect, half way down.
  */
 export function featureProfile(kind: FeatureKind, t: number): number {
   if (t >= 1) return 0;
   if (t < 0) t = 0;
   if (kind === 'tower') return 1 - smooth((t - 0.2) / 0.8);
   if (kind === 'butte') return 1 - smooth((t - 0.62) / 0.38);
+  if (kind === 'dome') return 1 - smooth(t);
   // cone
   const rim = 0.25;
   if (t >= rim) return 1 - smooth((t - rim) / (1 - rim));

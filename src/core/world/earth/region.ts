@@ -15,10 +15,11 @@
 import { BIOME_INDEX, BIOMES, type EarthLook, type RegionDef, type RegionRelief, type RegionWater } from '../biomes';
 import { Surface } from '../ground';
 import type { LandKind } from '../landform';
-import { LAPSE, growingAt, swingOf, warmthAt, wetnessAt, type Macro } from '../../earth/climate';
+import { LAPSE, growingAt, monthWarmthAt, warmthAt, wetnessAt, type Macro } from '../../earth/climate';
 import type { Scene } from '../../earth/director';
 import type { Efg, Struct, VegHue } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
+import { landOfPlace } from './landform';
 
 /** the id of the region of a world's place k */
 export function earthRegionId(seed: number, k: number): string {
@@ -79,11 +80,13 @@ function roadTemplateOf(m: Macro): string {
 export function settingsOf(sc: Scene): readonly LandKind[] {
   const m = sc.macro;
   if (sc.look.landform.silhouette === 'canyon') return ['canyon', 'ridge', 'open', 'canyon'];
+  // (the ice's valleys: walls on both sides all the way)
+  if (sc.look.landform.process === 'glacial' && sc.look.landform.id !== 'drumlins') return ['valley'];
   switch (m.context) {
     case 'mountain':
-      return ['valley', 'hillside', 'ridge', 'hillside'];
+      return ['valley', 'valley', 'hillside', 'valley'];
     case 'valley':
-      return ['valley', 'valley', 'hillside', 'open'];
+      return ['valley', 'valley', 'open', 'valley'];
     case 'hills':
       return ['hillside', 'ridge', 'open', 'valley'];
     case 'coast':
@@ -99,7 +102,7 @@ const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? 
 
 /** the warmth of a month at a height (°C): the year's mean and the swing, warmest in July */
 export function monthWarmth(m: Macro, h: number, month: number): number {
-  return warmthAt(m, h) + swingOf(m) * Math.cos((2 * Math.PI * (month - 7)) / 12);
+  return monthWarmthAt(m, h, month);
 }
 
 /**
@@ -216,9 +219,12 @@ export function lookOfPlace(sc: Scene): EarthLook {
   const rk = rock(m.rock);
   const snow = sc.look.sig.snow;
   const veg = VEG[snow ? 'white' : vegOf(sc)];
-  const grassy = snow ? 0.15 : GRASSY[e.struct];
+  // (on the salt itself — a pan, a crust — the white shows through everything)
+  const grassy = snow ? 0.15 : rk.fertile < 0.03 ? 0.04 : GRASSY[e.struct];
   const g = rk.ground;
-  const ground: [number, number, number] = [mix(g, veg[0], grassy), mix(g, veg[1], grassy), mix(g, veg[2], grassy)];
+  // (snow lying: its ground white, the rock showing a little through it)
+  const g0 = snow ? mix(g, 0xf2f5f7, 0.8) : g;
+  const ground: [number, number, number] = [mix(g0, veg[0], grassy), mix(g0, veg[1], grassy), mix(g0, veg[2], grassy)];
   const crownsHue = VEG[e.struct === 'ice' ? 'grey' : vegOf(sc) === 'white' ? 'teal' : vegOf(sc)];
   const crowns = [crownsHue[0], crownsHue[1], crownsHue[2], mix(crownsHue[1], 0xffffff, 0.12), mix(crownsHue[0], 0x203020, 0.15)];
   const pale = e.trees.some((t) => t === 'broadleaf_leader' || t === 'eucalypt');
@@ -270,10 +276,30 @@ export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
   const w = wetnessAt(m, m.base);
   const range = 6 + 8 * clamp(1 - w, 0, 1);
   const g = growingAt(m, m.base);
-  const kin: RegionDef['kin'] = sc.look.sig.snow || g < 6.4 ? 'alpine' : w < DRY_BELOW ? 'desert' : 'plains';
-  const relief = reliefOf(sc, template);
+  // (its kin, what the tables it has no row of its own in take it for: the cold, the dry — the deserts and semi-deserts, whatever the year's rain — or the green)
+  const dryCard = sc.look.efg.group === 'T5' || sc.look.efg.struct === 'desert' || sc.look.efg.code === 'T4.3';
+  const kin: RegionDef['kin'] = sc.look.sig.snow || g < 6.4 ? 'alpine' : w < DRY_BELOW || dryCard ? 'desert' : 'plains';
+  const own = reliefOf(sc, template);
+  // (its landform's own land: its anchored forms, its dunes and benches, its kinds of country, its hills and walls)
+  const land = landOfPlace(sc);
+  const relief: RegionRelief = {
+    ...own,
+    ...(land.hills ? { hills: land.hills } : {}),
+    ...(land.walls ? { walls: land.walls } : {}),
+    ...(land.far !== undefined ? { far: land.far } : {}),
+    ranges: land.ranges ? { ...own.ranges, amp: Math.round(own.ranges.amp * land.ranges) } : own.ranges,
+    ...(land.odds ? { odds: land.odds } : {}),
+    ...(land.size ? { size: land.size } : {}),
+  };
+  const mesas = land.farShape === 2;
   return {
     ...template,
+    // (version 1's far field where its landform keeps it: mesas on the skyline, as high as its country rises)
+    farShape: land.farShape ?? template.farShape,
+    ...(mesas ? { farAmp: Math.round(clamp(0.5 * m.relief, 80, 260)), farLen: 850, farStart: 300, farEnd: 800 } : {}),
+    features: land.features,
+    featureSlots: land.features ? land.featureSlots ?? 2 : 0,
+    land: { ...(land.odds ? { odds: land.odds } : {}), ...(land.size ? { size: land.size } : {}), ...(land.dune ? { dune: land.dune } : {}), ...(land.terrace ? { terrace: land.terrace } : {}) },
     // (its road, as the lie of its land asks)
     designKmh: road.designKmh,
     straightMin: road.straightMin,

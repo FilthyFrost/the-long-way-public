@@ -317,7 +317,7 @@ export function floraTableOf(id: string, kin: string): FloraTable {
   const key = own + '/' + id;
   let t = GROWN.get(key);
   if (!t) {
-    t = withForage(id, FLORA[own]);
+    t = FLORA[own].earth ? FLORA[own] : withForage(id, FLORA[own]);
     GROWN.set(key, t);
   }
   return t;
