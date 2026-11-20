@@ -92,6 +92,22 @@ const GRADE: readonly [number, number] = [0.045, 0.06];
 const PASS_COLDEST = 0.5;
 /** how much more often a patch not yet met on the journey is the one chosen */
 const FRESH_PATCH = 2.5;
+/**
+ * The places that are the journey's highlights (docs/V3/nodes/E5-earth-director.md): the landforms one remembers
+ * — the ice's valleys and horns, the volcanoes, the karst's towers and stone forests, the great dunes, the
+ * tables, canyons and gorges, the granite domes, the danxia and the hoodoos, the sea's cliffs and stacks and
+ * cays, the salt mirrors — and the ecosystems one remembers (the cloud forest, the páramo, the rice terraces,
+ * the lavender).
+ */
+const HIGHLIGHT_LANDS: ReadonlySet<string> = new Set(['u_valley', 'horn_arete', 'glacier', 'moraine_lake', 'fjord', 'cinder_cones', 'stratovolcano', 'crater_lake', 'geothermal', 'tower_karst', 'cone_karst', 'pillar_mountain', 'stone_forest', 'travertine', 'dune_star', 'gypsum_dunes', 'dune_linear', 'mesas_buttes', 'tepui', 'rift_valley', 'canyon', 'waterfall_gorge', 'inselberg', 'danxia', 'hoodoos', 'sea_cliffs', 'sea_stacks', 'coral_cays', 'island_chain', 'barrier_lagoon', 'lava_field', 'salt_flat', 'badlands', 'yardang']);
+const HIGHLIGHT_EFGS: ReadonlySet<string> = new Set(['T1.3', 'T6.5', 'T7.1r', 'T7.1l', 'T7.1f', 'T7.1t', 'MFT1.2']);
+/** after this many places without a highlight the director goes looking for one, the more eagerly the longer it has been */
+const HIGHLIGHT_AFTER = 7;
+
+/** is a place one of the journey's highlights? */
+export function isHighlight(look: Look): boolean {
+  return HIGHLIGHT_LANDS.has(look.landform.id) || HIGHLIGHT_EFGS.has(look.efg.code) || (look.water !== null && look.water.code === 'F2.9');
+}
 /** the landforms a move goes to see (a volcanic field's cones and flows, a karst's towers …), the more often chosen there */
 const THEME: Partial<Record<MoveId, readonly Process[]>> = { glacial: ['glacial', 'periglacial'], volcanic: ['volcanic'], karst: ['karst'], dunes: ['aeolian', 'evaporite'], coast: ['coastal'], river: ['fluvial'], basin: ['evaporite', 'aeolian', 'weathering'], plateau: ['tectonic', 'weathering'] };
 
@@ -338,6 +354,8 @@ export class EarthJourney {
   private readonly seenWater = new Set<string>();
   private readonly seenLand = new Set<string>();
   private readonly lastMoves: MoveId[] = [];
+  /** the index of the last place that was a highlight (isHighlight) */
+  private lastHighlight = 0;
   /** the month the journey is in (the director turns it toward each place's best, two months a place at most) */
   private month = 5;
 
@@ -471,6 +489,7 @@ export class EarthJourney {
       let samples = 0;
       let prev = m;
       let runs = 1;
+      let highlight = false;
       const lastScenes = this.scenes.slice(-3);
       for (const leg of legs) {
         for (const u of [0.5, 1]) {
@@ -484,6 +503,7 @@ export class EarthJourney {
           if (lastScenes.length === 3 && lastScenes.every((x) => x.macro.context === at.context)) runs *= 0.7;
           if (lastScenes.length === 3 && lastScenes.every((x) => x.look.sig.struct === look.sig.struct)) runs *= 0.7;
           if (look.efg.code === 'T6.1' && lastScenes.some((x) => x.look.efg.code === 'T6.1')) runs *= 0.4;
+          if (isHighlight(look) || (leg.crest && u === 1)) highlight = true;
           samples++;
         }
         prev = leg.to;
@@ -501,7 +521,10 @@ export class EarthJourney {
       // the tour: a move that brings the warmth the tour asks for
       const end = legs[legs.length - 1].to;
       const tour = (1 + 0.15 * Math.max(0, 1 - Math.abs(target - end.tSea) / 12)) * (id === 'latitude' ? 1 + Math.min(1.5, Math.abs(target - m.tSea) / 8) : 1) * (target > 20 && end.base < 400 ? 1.35 : 1);
-      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs;
+      // (a while without a highlight: the moves that bring one, the more eagerly the longer it has been)
+      const gap = this.scenes.length - this.lastHighlight;
+      const want = highlight && gap >= HIGHLIGHT_AFTER ? Math.min(4, 1 + 0.45 * (gap - HIGHLIGHT_AFTER + 1)) : 1;
+      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want;
       options.push({ legs, score });
     });
     options.sort((a, b) => b.score - a.score);
@@ -539,6 +562,9 @@ export class EarthJourney {
         let x = o.fit * o.fit;
         if (o.landform.id === knobs.landform) x *= 2.2;
         if (theme?.includes(o.landform.process)) x *= 2;
+        // (a while without a highlight: one of the landforms one remembers, where one can stand here, the more often the longer it has been)
+        const gap = i - this.lastHighlight;
+        if (gap >= HIGHLIGHT_AFTER && HIGHLIGHT_LANDS.has(o.landform.id)) x *= 1 + 0.8 * (gap - HIGHLIGHT_AFTER + 1);
         if (o.landform.id === prevLand) x *= 0.45;
         else if (recentLands.includes(o.landform.id)) x *= 0.3;
         if (o.landform.process === 'plain') x *= 0.5;
@@ -594,6 +620,7 @@ export class EarthJourney {
     if (look.water) this.seenWater.add(look.water.code);
     this.seenLand.add(look.landform.id);
     for (const b of look.belts) this.seenEfg.add(b.code);
+    if (isHighlight(look) || crestHere) this.lastHighlight = i;
     this.scenes.push({ index: i, s0, s1, macro, look, name, tag, moment, move: seg.move });
   }
 }

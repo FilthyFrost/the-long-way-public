@@ -16,6 +16,8 @@ import { registerEarthProfile } from '../groundTables';
 import { aliasRouteProfile, setRouteSettings, setSceneSnowLine } from '../routeProfiles';
 import type { ChapterDealer, DealtChapter } from '../rules';
 import { setSceneMonth } from '../sceneSeason';
+import { setRegionWeather } from '../../env/weather';
+import { weatherOfPlace } from './weather';
 import { EarthJourney, type Scene } from '../../earth/director';
 import { floraOfPlace } from './flora';
 import { profileOfPlace } from './profile';
@@ -75,6 +77,9 @@ export function regionOfPlaceIn(seed: number, k: number, sc: Scene): number {
     setSceneMonth(id, sc.macro.month);
     setRouteSettings(id, settingsOf(sc));
     setSceneSnowLine(id, def.relief?.snow ?? 1e5);
+    // (its weather its place's: its sky, its showers, its mist and fog, its dust, its storms)
+    const weather = weatherOfPlace(sc);
+    setRegionWeather(id, weather.calm, weather.kinds);
     return def;
   });
 }

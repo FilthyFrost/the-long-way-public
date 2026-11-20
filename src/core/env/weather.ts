@@ -119,6 +119,12 @@ export interface CalmWeather {
   mist: number;
   mistFrom: number;
   mistTo: number;
+  /**
+   * The emergent Earth's (core/world/earth/weather.ts): fog that lies all day (a cloud forest in its mountain's
+   * cloud, a fog desert by its cold sea), and dust that hangs in the air of the hot dry country, 0 … 1
+   */
+  haze?: number;
+  dust?: number;
 }
 
 /**
@@ -134,6 +140,15 @@ const CALM: Record<string, CalmWeather> = {
   lakes: { cloud: 1, rain: 0.3, snow: 0, wind: 0, mist: 0.85, mistFrom: 0.2, mistTo: 0.7 },
   maple: { cloud: 1, rain: 0.3, snow: 0, wind: 1.6, mist: 0.6, mistFrom: 0.45, mistTo: 0.9 },
 };
+
+/**
+ * A region of the emergent Earth's weather, its place's own (core/world/earth/weather.ts): its calm weather and
+ * the kinds its events may be, under its id.
+ */
+export function setRegionWeather(id: string, calm: CalmWeather, kinds: readonly (readonly [number, WeatherKind])[]): void {
+  CALM[id] = calm;
+  EVENT_KINDS[id] = kinds;
+}
 
 /** a region's calm weather: the row under its id, else its kin's */
 export function calmOf(region: RegionDef): Readonly<CalmWeather> {
@@ -214,6 +229,9 @@ export class WeatherSystem {
       const morning = smoothstep(5.8 - slow, 5.8, hour) * (1 - smoothstep(7.2, 7.2 + 1.6 * slow, hour));
       fog = morning * smoothstep(calm.mistFrom, calm.mistTo, misty) * amp;
     }
+    // (the emergent Earth's fog that lies all day, and its dust in the air)
+    if (calm.haze) fog = Math.max(fog, calm.haze);
+    if (calm.dust) dust = Math.max(dust, calm.dust);
     let act = 0;
     let severity = 0;
     const overcastCalm = overcast;
