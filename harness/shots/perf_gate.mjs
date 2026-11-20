@@ -112,7 +112,8 @@ try {
             const range = Math.min(idx, geo.drawRange?.count ?? Infinity);
             const count = group ? group.count : range;
             const inst = o.isInstancedMesh ? o.count : geo.isInstancedBufferGeometry ? geo.instanceCount : 1;
-            tri = o.isPoints ? 0 : (count / 3) * inst;
+            // (a pack of variants draws one of them: crowns/variantPack.ts, the triangles of one tree in userData)
+            tri = o.isPoints ? 0 : (o.userData?.trisEach !== undefined ? o.userData.trisEach : count / 3) * inst;
           }
           // (the shadow maps draw the casters again, depth only: counted apart from what is on the screen)
           if (c !== mainCam) {

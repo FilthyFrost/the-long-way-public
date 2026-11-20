@@ -2,10 +2,12 @@
  * material before lighting, so palette, snow, shadows, fog and brush size stay shared. */
 export const IMPOSTOR_VERTEX = /* glsl */ `
 #ifdef CROWN_ATLAS
-  uniform vec3 uCard; // radius, bottom, height
+  // each variant's picture: radius, bottom, height (a layer of the species' array, scene/crowns/crownView.ts)
+  uniform vec3 uCards[ATLAS_LAYERS];
   varying vec4 vAtlasFrame; // scaled model X axis (xz), scale of Y, view index
   varying vec3 vDepthAxis;
-  void projectCard(mat4 m, inout vec4 w) {
+  flat varying float vLayer;
+  void projectCard(mat4 m, vec3 uCard, inout vec4 w) {
     vec2 towards = normalize(cameraPosition.xz - m[3].xz + vec2(1e-7, 0.0));
     vec2 right = vec2(towards.y, -towards.x);
     float across = length(m[0].xz);
@@ -21,9 +23,11 @@ export const IMPOSTOR_VERTEX = /* glsl */ `
 
 export const IMPOSTOR_FRAGMENT = /* glsl */ `
 #ifdef CROWN_ATLAS
-  uniform sampler2D tNormalAtlas, tPaintAtlas;
+  // (the variants' pictures, a layer each: the tree's own is vLayer)
+  uniform highp sampler2DArray tNormalAtlas, tPaintAtlas;
   varying vec4 vAtlasFrame;
   varying vec3 vDepthAxis;
+  flat varying float vLayer;
   vec2 cell(float k) {
     k = mod(k, 16.0);
     return vec2(mod(k, 4.0), floor(k * 0.25));
@@ -35,16 +39,16 @@ export const IMPOSTOR_FRAGMENT = /* glsl */ `
     float offset = bare ? uAtlasRows - 1.0 : 0.0;
     a.y = (a.y + offset) / uAtlasRows;
     b.y = (b.y + offset) / uAtlasRows;
-    vec4 hit = mix(texture2D(tNormalAtlas, a), texture2D(tNormalAtlas, b), t);
+    vec4 hit = mix(texture(tNormalAtlas, vec3(a, vLayer)), texture(tNormalAtlas, vec3(b, vLayer)), t);
     if (hit.a < 0.42) discard;
-    vec4 paint = mix(texture2D(tPaintAtlas, a), texture2D(tPaintAtlas, b), t) / hit.a;
+    vec4 paint = mix(texture(tPaintAtlas, vec3(a, vLayer)), texture(tPaintAtlas, vec3(b, vLayer)), t) / hit.a;
     vec3 n = hit.xyz / hit.a * 2.0 - 1.0;
     vec2 axis = vAtlasFrame.xy;
     normal = normalize(vec3(axis.x * n.x - axis.y * n.z, n.y * vAtlasFrame.z, axis.y * n.x + axis.x * n.z));
     crown = vec4(paint.a, 0.0, paint.g, 0.0);
     // Categorical channels must not interpolate between bark, berries and flowers.
     vec2 pick = t < 0.5 ? a : b;
-    ivec2 pixel = ivec2(pick * vec2(textureSize(tPaintAtlas, 0)));
+    ivec3 pixel = ivec3(ivec2(pick * vec2(textureSize(tPaintAtlas, 0).xy)), int(vLayer + 0.5));
     part = floor(texelFetch(tPaintAtlas, pixel, 0).b * (255.0 / 32.0) + 0.5);
     if (texelFetch(tNormalAtlas, pixel, 0).a < 0.5) part = floor(paint.b * (255.0 / 32.0) + 0.5);
     pos += vDepthAxis * (2.0 * paint.r - 1.0);

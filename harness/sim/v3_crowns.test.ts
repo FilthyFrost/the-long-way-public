@@ -276,13 +276,15 @@ describe('painted crowns · the view', () => {
     camera.position.set(0, 4, 260);
     view.update();
     const far = (): THREE.InstancedMesh[] => view.group.children.filter((m) => m.visible && m.layers.mask === 1) as THREE.InstancedMesh[];
-    // (asked for, not yet in: nothing drawn rather than a tree without its picture)
+    // (asked for, not yet in: nothing drawn rather than a tree without its picture — a picture for each of the
+    // species' variants, the layers of one array)
+    const variants = view.variants(0);
     expect(far()).toHaveLength(0);
-    expect(view.pendingBakes).toBe(1);
+    expect(view.pendingBakes).toBe(variants);
     expect(view.atlasStats.bakes).toBe(0);
     // (no worker here: baked between frames, and the next frame draws it)
-    await new Promise((go) => setTimeout(go, 20));
-    expect(view.atlasStats.bakes).toBe(1);
+    for (let i = 0; i < 100 && view.atlasStats.bakes < variants; i++) await new Promise((go) => setTimeout(go, 10));
+    expect(view.atlasStats.bakes).toBe(variants);
     view.update();
     expect(far()).toHaveLength(1);
     expect(view.pendingBakes).toBe(0);

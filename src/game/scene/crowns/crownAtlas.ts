@@ -23,6 +23,16 @@ function covered(u: number, v: number): boolean {
   return spray[(Math.floor(v * MASK) & (MASK - 1)) * MASK + (Math.floor(u * MASK) & (MASK - 1))] !== 0;
 }
 
+/** the rows of a model's far picture: two where it has leaves to lose (the bare tree's views below the leafy ones) */
+export function atlasRowsOf(g: THREE.BufferGeometry): 1 | 2 {
+  const part = g.getAttribute('aPart');
+  for (let i = 0; i < part.count; i++) {
+    const v = part.getX(i);
+    if (v > 0.5 && v < 2.5) return 2;
+  }
+  return 1;
+}
+
 /** a far picture: its two images (normals and paint, RGBA, `width` wide) and the box it was drawn in */
 export type CrownAtlas = ReturnType<typeof bakeCrown>;
 
@@ -114,6 +124,33 @@ export function bakeCrown(g: THREE.BufferGeometry, cover: (u: number, v: number)
     }
   }
   return { normals, paint, width: WIDTH, height, radius, bottom, top };
+}
+
+/** an array of far pictures, a layer each (the variants of a species), `rows` × `width` square views a layer, blank */
+export function atlasLayers(width: number, rows: number, layers: number): THREE.DataArrayTexture {
+  const t = new THREE.DataArrayTexture(new Uint8Array(width * width * rows * 4 * layers), width, width * rows, layers);
+  t.format = THREE.RGBAFormat;
+  t.type = THREE.UnsignedByteType;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+/**
+ * A picture into layer `layer` of an array (atlasLayers). A picture of one row in an array of two (a variant with no
+ * leaves to lose among ones that have) is its own bare tree as well.
+ */
+export function putLayer(t: THREE.DataArrayTexture, layer: number, data: Uint8Array, width: number, height: number): void {
+  const img = t.image as { data: Uint8Array; width: number; height: number };
+  const size = img.width * img.height * 4;
+  const at = layer * size;
+  const own = Math.min(size, width * height * 4);
+  img.data.set(data.subarray(0, own), at);
+  for (let o = own; o < size; o += own) img.data.set(data.subarray(0, Math.min(own, size - o)), at + o);
+  t.addLayerUpdate(layer);
+  t.needsUpdate = true;
 }
 
 export function atlasTexture(data: Uint8Array<ArrayBuffer>, width: number) {

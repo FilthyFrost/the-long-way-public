@@ -65,6 +65,10 @@ export function crownMaterial(): THREE.ShaderMaterial {
       ${IMPOSTOR_VERTEX}
       attribute vec4 aLook;
       attribute vec4 aTree;
+      // a pack of a species' variants (scene/crowns/variantPack.ts): the variant a corner belongs to, and the one the
+      // tree is (both 0 where a draw holds one model)
+      attribute float aVar;
+      attribute float aPick;
       ${GLSL_SLOTS}
       varying vec3 vGeomPos;
       varying vec3 vNormal;
@@ -83,6 +87,13 @@ export function crownMaterial(): THREE.ShaderMaterial {
         return mix(s / 12.92, pow((s + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), s));
       }
       void main() {
+        #ifndef CROWN_ATLAS
+        // (another variant of the pack than this tree's: its corners go off the screen, its triangles never drawn)
+        if (abs(aVar - aPick) > 0.5) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
+        #endif
         mat4 m = modelMatrix * instanceMatrix;
         vec4 w = m * vec4(position, 1.0);
         vec3 n = normalize(mat3(m) * normal);
@@ -90,7 +101,9 @@ export function crownMaterial(): THREE.ShaderMaterial {
         float range = distance(cameraPosition, root + vec3(0.0, aFade.y, 0.0));
         vFade = vec2(sign(aFade.x), smoothstep(abs(aFade.x) - aFade.z, abs(aFade.x) + aFade.z, range));
         #ifdef CROWN_ATLAS
-          projectCard(m, w);
+          // (the tree's own variant: its picture's layer and box)
+          vLayer = aPick;
+          projectCard(m, uCards[int(aPick + 0.5)], w);
         #else
         // the wind: the crown rides the gusts with a slow lean, each clump a little in its own time, each spray trembling
         float U = uWind.z;

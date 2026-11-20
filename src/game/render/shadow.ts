@@ -67,6 +67,9 @@ export class ShadowPass {
         attribute float aPart;
         attribute vec4 aLook;
         attribute vec4 aTree;
+        // (a pack of a species' variants, scene/crowns/variantPack.ts: the tree's own variant only; 0 and 0 elsewhere)
+        attribute float aVar;
+        attribute float aPick;
         ${PACKED_SNOW}
         uniform vec4 uWeather;
         #endif
@@ -77,6 +80,10 @@ export class ShadowPass {
           vUv = uv;
           mat4 m = modelMatrix;
           #ifdef USE_INSTANCING
+          if (abs(aVar - aPick) > 0.5) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+          }
           // Crown instances carry aTree (absent on other meshes). Bare boughs cast a bare shadow.
           if (aTree.w > 0.0 && aPart > 0.5 && aLook.y < 4.0 &&
               max(rtRootSnow(aLook.x), uWeather.y) > 0.5 + 0.18 * aTree.x) {

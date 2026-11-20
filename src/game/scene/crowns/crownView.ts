@@ -11,8 +11,10 @@ import { crownMaterial } from '../../render/crownMaterial';
 import { globals } from '../../render/shaderlib';
 import { LAYER_SHADOW_FAR } from '../../render/shadow';
 import { CROWN_STRIDE, type CrownLookup } from './crownData';
-import { atlasTexture } from './crownAtlas';
+import { atlasLayers, atlasRowsOf, putLayer } from './crownAtlas';
+import { put3, vec3s } from '../../render/uniformArrays';
 import { bakeLater, bakeNow, type Baked } from './crownBake';
+import { packVariants } from './variantPack';
 import { crownSpecies, type SpeciesModels } from './species';
 import { floraMaterial, shadowCaster } from '../flora/material';
 
@@ -38,17 +40,27 @@ function fadeWidth(edge: number): number {
 }
 
 interface Draw {
-  atlasModel?: THREE.BufferGeometry;
-  /** since when its far picture has had no tree to draw (ms) */
+  /** a species' far trees: the model of each variant its far picture is baked from (a layer each) */
+  atlasModels?: THREE.BufferGeometry[];
+  /** which layers are in, and which are being baked in the worker */
+  baked?: boolean[];
+  baking?: boolean[];
+  /** the rows of its pictures (two where its trees have leaves to lose: crownAtlas.ts atlasRowsOf) */
+  rows?: 1 | 2;
+  /** since when its far pictures have had no tree to draw (ms) */
   idleSince?: number;
-  /** its far picture baked from the plant toolkit's atlas */
+  /** its far pictures baked from the plant toolkit's atlas */
   kit?: boolean;
-  /** its far picture being baked in the worker */
-  baking?: boolean;
   mesh: THREE.InstancedMesh;
   look: THREE.InstancedBufferAttribute;
   tree: THREE.InstancedBufferAttribute;
   fade: THREE.InstancedBufferAttribute;
+  /** a pack's instances: which of its variants each tree is (crowns/variantPack.ts; 0 in a draw of one model) */
+  pick: THREE.InstancedBufferAttribute;
+  /** the species' variants packed in one (the near and middle levels, the shadow map's) */
+  packed: boolean;
+  /** the triangles of one tree drawn from it (a pack: its variants' mean) */
+  perTris: number;
   slots: Slot[];
   dirtyFrom: number;
   dirtyTo: number;
@@ -97,10 +109,15 @@ export class CrownView implements CrownLookup {
   readonly material: THREE.ShaderMaterial;
   private readonly species: SpeciesModels[] = [];
   private readonly byFamily = new Map<string, number>();
-  /** by species, variant, level */
-  private readonly draws: Draw[][][] = [];
-  /** by species, variant: the shadow map's */
-  private readonly shadowDraws: Draw[][] = [];
+  /**
+   * By species, level (near, middle): its variants in one draw, each tree drawing its own (crowns/variantPack.ts,
+   * docs/V3/nodes/P3-variant-packs.md) — a wood of one species is one draw a level, where it was one a variant
+   */
+  private readonly packs: Draw[][] = [];
+  /** by species: its far trees, one draw, the pictures of its variants the layers of one array (the tree's own picked) */
+  private readonly fars: Draw[] = [];
+  /** by species: the shadow map's, its variants packed as well */
+  private readonly shadowDraws: Draw[] = [];
   private readonly tiles = new Map<string, Tile>();
   private readonly billboard = new THREE.PlaneGeometry();
   private readonly atlasMaterials: THREE.ShaderMaterial[] = [];
@@ -128,20 +145,29 @@ export class CrownView implements CrownLookup {
       const k = this.species.length;
       this.species.push(s);
       this.byFamily.set(s.family, k);
-      this.draws.push(s.models.map((levels) => levels.map((m, level) => {
-        if (level < 2) return this.makeDraw(m.geometry, s.kit ? floraMaterial() : this.material, false, level + 1);
-        const material = crownMaterial();
-        material.defines.CROWN_ATLAS = 1;
-        material.uniforms.tNormalAtlas = { value: null };
-        material.uniforms.tPaintAtlas = { value: null };
-        this.atlasMaterials.push(material);
-        const draw = this.makeDraw(this.billboard, material, false, 3);
-        draw.atlasModel = m.geometry;
-        if (s.kit) draw.kit = true;
-        return draw;
-      })));
+      // the near and middle levels: the species' variants in one draw each
+      const look = s.kit ? floraMaterial() : this.material;
+      this.packs.push([0, 1].map((level) => this.makePack(s.models.map((v) => v[level].geometry), look, false, level + 1)));
+      // the far level: a picture baked of each variant, the layers of one array, one draw
+      const variants = s.models.length;
+      const material = crownMaterial();
+      material.defines.CROWN_ATLAS = 1;
+      material.defines.ATLAS_LAYERS = variants;
+      material.uniforms.tNormalAtlas = { value: null };
+      material.uniforms.tPaintAtlas = { value: null };
+      material.uniforms.uCards = { value: vec3s(variants) };
+      material.uniforms.uAtlasRows = { value: 1 };
+      this.atlasMaterials.push(material);
+      const far = this.makeDraw(this.billboard, material, false, 3);
+      far.packed = true;
+      far.atlasModels = s.models.map((levels) => levels[2].geometry);
+      far.baked = new Array<boolean>(variants).fill(false);
+      far.baking = new Array<boolean>(variants).fill(false);
+      far.rows = far.atlasModels.some((g) => atlasRowsOf(g) === 2) ? 2 : 1;
+      if (s.kit) far.kit = true;
+      this.fars.push(far);
       // (a kit species' shadow: its sprays' uv made their own cards', so the shadow pass cuts them as every tree's)
-      this.shadowDraws.push(s.models.map((levels) => this.makeDraw(s.kit ? shadowCaster(levels[SHADOW_LEVEL].geometry) : levels[SHADOW_LEVEL].geometry, this.material, true)));
+      this.shadowDraws.push(this.makePack(s.models.map((levels) => (s.kit ? shadowCaster(levels[SHADOW_LEVEL].geometry) : levels[SHADOW_LEVEL].geometry)), this.material, true));
     }
   }
 
@@ -211,8 +237,18 @@ export class CrownView implements CrownLookup {
     return n;
   }
 
+  /** a draw of a species' variants, packed (crowns/variantPack.ts) */
+  private makePack(models: THREE.BufferGeometry[], material: THREE.Material, shadow: boolean, order = 0): Draw {
+    const pack = packVariants(models);
+    const d = this.makeDraw(pack.geometry, material, shadow, order);
+    d.packed = true;
+    d.perTris = pack.trianglesEach;
+    return d;
+  }
+
   private makeDraw(model: THREE.BufferGeometry, material: THREE.Material, shadow: boolean, order = 0): Draw {
-    const d: Draw = { mesh: null as unknown as THREE.InstancedMesh, look: null as unknown as THREE.InstancedBufferAttribute, tree: null as unknown as THREE.InstancedBufferAttribute, fade: null as unknown as THREE.InstancedBufferAttribute, slots: [], dirtyFrom: Infinity, dirtyTo: 0, cap: 0, geometry: model, material, shadow, order };
+    const none = null as unknown as THREE.InstancedBufferAttribute;
+    const d: Draw = { mesh: null as unknown as THREE.InstancedMesh, look: none, tree: none, fade: none, pick: none, packed: false, perTris: (model.index?.count ?? 0) / 3, slots: [], dirtyFrom: Infinity, dirtyTo: 0, cap: 0, geometry: model, material, shadow, order };
     this.grow(d, 64);
     return d;
   }
@@ -233,10 +269,15 @@ export class CrownView implements CrownLookup {
     tree.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('aLook', look);
     g.setAttribute('aTree', tree);
+    const pick = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
+    pick.setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('aPick', pick);
     const mesh = new THREE.InstancedMesh(g, d.material, cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
     mesh.renderOrder = d.order;
+    // (a pack draws one variant of the tree's: what the budget counts, harness/shots/perf_gate.mjs)
+    if (d.packed) mesh.userData.trisEach = d.perTris;
     mesh.count = 0;
     mesh.visible = false;
     if (d.shadow) mesh.layers.set(LAYER_SHADOW_FAR);
@@ -245,6 +286,7 @@ export class CrownView implements CrownLookup {
       look.array.set(d.look.array);
       tree.array.set(d.tree.array);
       fade.array.set(d.fade.array);
+      pick.array.set(d.pick.array);
       this.group.remove(d.mesh);
       d.mesh.geometry.dispose();
       d.mesh.dispose();
@@ -254,6 +296,7 @@ export class CrownView implements CrownLookup {
     d.look = look;
     d.tree = tree;
     d.fade = fade;
+    d.pick = pick;
     d.cap = cap;
   }
 
@@ -262,7 +305,7 @@ export class CrownView implements CrownLookup {
     const d = slot.draw, i = slot.index;
     const tail = d.slots.pop()!;
     if (tail === slot) return;
-    for (const a of [d.mesh.instanceMatrix, d.look, d.tree, d.fade]) {
+    for (const a of [d.mesh.instanceMatrix, d.look, d.tree, d.fade, d.pick]) {
       const width = a.itemSize;
       a.array.copyWithin(i * width, tail.index * width, (tail.index + 1) * width);
     }
@@ -273,7 +316,7 @@ export class CrownView implements CrownLookup {
   }
 
   private assign(tile: Tile, id: number, d: Draw | undefined, data: Float32Array, o: number,
-    px: number, py: number, pz: number, sway: number, bark: number, fade = 0): void {
+    px: number, py: number, pz: number, sway: number, bark: number, variant: number, fade = 0): void {
     const old = tile.slots[id];
     if (old?.draw !== d && old) {
       this.removeSlot(old);
@@ -298,6 +341,8 @@ export class CrownView implements CrownLookup {
     const sx = data[o + 4];
     const sy = data[o + 5];
     d.fade.setXYZ(i, fade, data[o + 15] * 0.4, fadeWidth(fade));
+    // (a pack draws the tree's own variant; a draw of one model has nothing to pick)
+    (d.pick.array as Float32Array)[i] = d.packed ? variant : 0;
     const k = i * 16;
     m[k] = c * sx;
     m[k + 1] = 0;
@@ -420,7 +465,7 @@ export class CrownView implements CrownLookup {
         let main: Draw | undefined, next: Draw | undefined, shadow: Draw | undefined;
         let cut = 0;
         if (state === 'far') {
-          main = this.draws[sp][va][2];
+          main = this.fars[sp];
           t.levels[2]++;
         } else if (inView) {
           sphere.center.set(px, py + H * 0.5, pz);
@@ -437,11 +482,11 @@ export class CrownView implements CrownLookup {
             const edge = Math.abs(dist - near) < Math.abs(dist - far) ? near : far;
             if (Math.abs(dist - edge) < fadeWidth(edge) + 4) {
               const lower = edge === near ? 0 : 1;
-              main = this.draws[sp][va][lower];
-              next = this.draws[sp][va][lower + 1];
+              main = this.packs[sp][lower];
+              next = lower === 0 ? this.packs[sp][1] : this.fars[sp];
               cut = edge;
             } else {
-              main = this.draws[sp][va][level];
+              main = level < 2 ? this.packs[sp][level] : this.fars[sp];
             }
             t.levels[level]++;
           }
@@ -449,11 +494,11 @@ export class CrownView implements CrownLookup {
         if (inShadow && Math.hypot(px - sx, pz - sz) < SHADOW_REACH + R + 3) {
           sphere.center.set(px, py + H * 0.5, pz);
           const radius = Math.hypot(R, H * 0.55) + 9;
-          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = this.shadowDraws[sp][va];
+          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = this.shadowDraws[sp];
         }
-        this.assign(t, i * 3, main, d, o, px, py, pz, sway, bark, -cut);
-        this.assign(t, i * 3 + 1, next, d, o, px, py, pz, sway, bark, cut);
-        this.assign(t, i * 3 + 2, shadow, d, o, px, py, pz, sway, bark);
+        this.assign(t, i * 3, main, d, o, px, py, pz, sway, bark, va, -cut);
+        this.assign(t, i * 3 + 1, next, d, o, px, py, pz, sway, bark, va, cut);
+        this.assign(t, i * 3 + 2, shadow, d, o, px, py, pz, sway, bark, va);
       }
       for (let l = 0; l < 3; l++) lv[l] += t.levels[l];
     }
@@ -464,29 +509,33 @@ export class CrownView implements CrownLookup {
     const finish = (dr: Draw): void => {
       const count = dr.slots.length;
       let ready = true;
-      if (dr.atlasModel) {
+      if (dr.atlasModels) {
         const u = (dr.material as THREE.ShaderMaterial).uniforms;
+        const baked = dr.baked!;
         if (count) dr.idleSince = undefined;
-        if (count && !u.tNormalAtlas.value) {
-          if (CrownView.bakeAtOnce) this.give(dr, bakeNow(dr.atlasModel, dr.kit === true));
-          else {
-            ready = false;
-            if (!dr.baking && this.inFlight < BAKES_IN_FLIGHT) this.bakeFor(dr, dr.atlasModel);
+        if (count) {
+          // every variant's picture asked for (a tree whose layer is not in yet is not drawn: its layer is blank)
+          for (let v = 0; v < baked.length; v++) {
+            if (baked[v] || dr.baking![v]) continue;
+            if (CrownView.bakeAtOnce) this.giveLayer(dr, v, bakeNow(dr.atlasModels[v], dr.kit === true));
+            else if (this.inFlight < BAKES_IN_FLIGHT) this.bakeLayer(dr, v);
           }
-        } else if (!count && u.tNormalAtlas.value && (dr.idleSince ??= now) < now - ATLAS_KEEP_MS) {
+        } else if (u.tNormalAtlas.value && (dr.idleSince ??= now) < now - ATLAS_KEEP_MS) {
           // (kept a while unused: trees going in and out of the far band are not baked again and again)
           this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
           for (const channel of [u.tNormalAtlas, u.tPaintAtlas]) {
             channel.value.dispose();
             channel.value = null;
           }
+          baked.fill(false);
         }
+        ready = baked.some(Boolean);
       }
       dr.mesh.count = count;
       dr.mesh.visible = count > 0 && ready;
       const end = Math.min(dr.dirtyTo + 1, count);
       if (end > dr.dirtyFrom) {
-        for (const attr of [dr.mesh.instanceMatrix, dr.look, dr.tree, dr.fade]) {
+        for (const attr of [dr.mesh.instanceMatrix, dr.look, dr.tree, dr.fade, dr.pick]) {
           attr.clearUpdateRanges();
           attr.addUpdateRange(dr.dirtyFrom * attr.itemSize, (end - dr.dirtyFrom) * attr.itemSize);
           attr.needsUpdate = true;
@@ -495,66 +544,76 @@ export class CrownView implements CrownLookup {
       dr.dirtyFrom = Infinity;
       dr.dirtyTo = 0;
       if (dr.shadow) shadows += count;
-      else triangles += count * ((dr.geometry.index?.count ?? 0) / 3);
+      else triangles += count * dr.perTris;
     };
-    this.draws.forEach(s => s.forEach(v => v.forEach(finish)));
-    this.shadowDraws.forEach(s => s.forEach(finish));
+    for (const s of this.packs) s.forEach(finish);
+    this.fars.forEach(finish);
+    this.shadowDraws.forEach(finish);
     this.drawn.shadows = shadows;
     this.drawn.triangles = triangles;
   }
 
-  /** a draw's far picture baked in the worker (or here, should the worker fail), shown from the next frame on */
-  private bakeFor(dr: Draw, model: THREE.BufferGeometry): void {
-    dr.baking = true;
+  /** a variant's far picture baked in the worker (or here, should the worker fail), its trees drawn from the next frame on */
+  private bakeLayer(dr: Draw, v: number): void {
+    dr.baking![v] = true;
     this.inFlight++;
+    const model = dr.atlasModels![v];
     void bakeLater(model, dr.kit === true).then((b) => {
       this.inFlight--;
-      dr.baking = false;
+      dr.baking![v] = false;
       if (this.disposed) return;
-      this.give(dr, b ?? bakeNow(model, dr.kit === true));
+      this.giveLayer(dr, v, b ?? bakeNow(model, dr.kit === true));
       // (the next frame sets the trees out again: theirs drawn now it is here)
       this.changed = true;
     });
   }
 
-  /** a far picture into its draw's material */
-  private give(dr: Draw, b: Baked): void {
+  /** a variant's far picture into its layer of the species' arrays (made, blank, with the first) */
+  private giveLayer(dr: Draw, v: number, b: Baked): void {
     const u = (dr.material as THREE.ShaderMaterial).uniforms;
-    if (u.tNormalAtlas.value) return;
     const atlas = b.atlas;
-    u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
-    u.uAtlasRows = { value: atlas.height / atlas.width };
-    u.tNormalAtlas.value = atlasTexture(atlas.normals, atlas.width);
-    u.tPaintAtlas.value = atlasTexture(atlas.paint, atlas.width);
+    let normals = u.tNormalAtlas.value as THREE.DataArrayTexture | null;
+    let paint = u.tPaintAtlas.value as THREE.DataArrayTexture | null;
+    if (!normals || !paint) {
+      const layers = dr.baked!.length;
+      normals = atlasLayers(atlas.width, dr.rows!, layers);
+      paint = atlasLayers(atlas.width, dr.rows!, layers);
+      u.tNormalAtlas.value = normals;
+      u.tPaintAtlas.value = paint;
+      u.uAtlasRows.value = dr.rows!;
+      this.atlasStats.residentBytes += 2 * (normals.image as { data: Uint8Array }).data.byteLength;
+    }
+    putLayer(normals, v, atlas.normals, atlas.width, atlas.height);
+    putLayer(paint, v, atlas.paint, atlas.width, atlas.height);
+    put3(u.uCards.value as Float32Array, v, atlas.radius, atlas.bottom, atlas.top - atlas.bottom);
+    dr.baked![v] = true;
     this.atlasStats.bakedMs += b.ms;
     this.atlasStats.bakes++;
     if (b.inWorker) this.atlasStats.inWorker++;
-    this.atlasStats.residentBytes += atlas.normals.byteLength + atlas.paint.byteLength;
   }
 
   /** far pictures wanted and not yet baked (or being baked) — the performance gate waits for none before it times a frame */
   get pendingBakes(): number {
     let n = 0;
-    for (const s of this.draws) for (const v of s) for (const d of v) {
-      if (d.atlasModel && d.slots.length > 0 && !(d.material as THREE.ShaderMaterial).uniforms.tNormalAtlas.value) n++;
+    for (const d of this.fars) {
+      if (d.slots.length > 0) for (const b of d.baked!) if (!b) n++;
     }
     return n;
   }
 
-  /** the draws this view holds (for the budget: the species × variants × levels it may draw) */
+  /** the draws this view holds (for the budget: two packs and a far picture a variant for each species, and its shadow's pack) */
   get drawCount(): number {
     let n = 0;
-    for (const s of this.draws) for (const v of s) n += v.length;
-    return n + this.shadowDraws.reduce((a, s) => a + s.length, 0);
+    for (const s of this.packs) n += s.length;
+    n += this.fars.length;
+    return n + this.shadowDraws.length;
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const s of this.draws) for (const v of s) for (const d of v) {
-      d.mesh.geometry.dispose();
-      d.mesh.dispose();
-    }
-    for (const s of this.shadowDraws) for (const d of s) {
+    for (const d of [...this.packs.flat(), ...this.fars, ...this.shadowDraws]) {
+      // (a pack's geometry is its own: let go of with it; a far picture's billboard is shared, let go of below)
+      if (d.packed) d.geometry.dispose();
       d.mesh.geometry.dispose();
       d.mesh.dispose();
     }
