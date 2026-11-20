@@ -12,7 +12,7 @@ try {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${url}/modcar.html?new=1&world=2&seed=7&start=road&build=stock:pickup&time=15.5&weather=clear${process.env.QUERY ? '&' + process.env.QUERY : ''}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${url}/modcar.html?new=1&world=${process.env.WORLD ?? 2}&seed=7&start=road&build=stock:pickup&time=15.5&weather=clear${process.env.QUERY ? '&' + process.env.QUERY : ''}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__rt?.ready === true, null, { timeout: 240000 });
   await page.waitForTimeout(6000);
   await page.evaluate(async (km) => {

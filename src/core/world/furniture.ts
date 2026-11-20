@@ -101,7 +101,7 @@ export class Furniture implements SolidSource {
     world.shape(x + nx * 5.2, z + nz * 5.2, tp);
     if (tp.site > 0.05 || tp.plot > 0.05) return false;
     const h5 = tp.h;
-    if (world.rules.version === 2 && tp.wl < tp.bed) {
+    if (world.rules.version >= 2 && tp.wl < tp.bed) {
       const rail = roadStyleAt(world,s).rail;
       const field = Math.floor(s/128);
       if ((rail === 'fence' || rail === 'stone') && (hash2(field,side,world.seed)&7) < 3) return true;

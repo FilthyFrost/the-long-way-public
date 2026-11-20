@@ -69,6 +69,7 @@ import { provingSolids } from '../../core/modcar/proving/props';
 import { ProvingView } from './provingView';
 import { ProvingSession, type SessionHost } from './provingSession';
 import { ProvingHud } from './provingHud';
+import { PlaceNames } from './placeNames';
 import { onPlot } from './garageOutdoors';
 import { SolidSet } from '../../core/world/solids';
 import { Grime, unitAt, unitName, type GrimeMask, type GrimeOwner, type UnitLeft } from './grime';
@@ -153,8 +154,9 @@ export interface ModParams extends Params {
   /** this is the player's game, kept in the browser (save.ts); not a test drive or the harness's run */
   keep: boolean;
   /**
-   * Which version of the world's generator (core/world/rules.ts): 2 for a new game — the address may ask for 1,
-   * the worlds from before there were versions (?world=1) — and a save's own for a game gone on with
+   * Which version of the world's generator (core/world/rules.ts): 3 for a new game, the journey of the fifty
+   * scenic roads (docs/V3/nodes/P3-1-journey-world.md) — the address may ask for 2 (?world=2) or for 1, the
+   * worlds from before there were versions (?world=1) — and a save's own for a game gone on with
    */
   world: WorldVersion;
   /** how many regions of the registry the world knows: a save's own count, or the address's (?regions=); absent: the version's own — all there are now, for a new world of version 2 */
@@ -174,7 +176,7 @@ export function readModParams(base: Params, search: string = window.location.sea
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
     garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
     keep: false,
-    world: q.get('world') === '1' ? 1 : 2,
+    world: q.get('world') === '1' ? 1 : q.get('world') === '2' ? 2 : 3,
     ...(Number.isInteger(regions) ? { regions } : {}),
     archive: q.get('archive') !== '0',
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
@@ -453,6 +455,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private garageCtx: GarageContext | null = null;
   private readonly gs = new GroundSample();
   private readonly bl = new BiomeBlend();
+  /** the scenic stretches' names on the screen as one drives into them (a world of version 3) */
+  private readonly placeNames = new PlaceNames();
   private readonly pr = { s: 0, d: 0 };
   private readonly chasePos = new THREE.Vector3();
   private chaseInit = false;
@@ -4704,6 +4708,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.world.spine.project(fx, fz, NaN, this.pr);
       this.world.spine.biomeAt(this.pr.s, bl);
       this.landmarks?.update(this.pr.s, fx, fz);
+      const place = this.placeNames.update(this.world.journey, this.pr.s, this.time, dt);
+      if (place) this.ui.showPlace(place.name, place.tag);
     } else {
       bl.a = bl.b = 0;
       bl.t = 0;

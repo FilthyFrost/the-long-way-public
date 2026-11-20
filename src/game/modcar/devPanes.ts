@@ -6,7 +6,7 @@
  */
 import { BIOMES } from '../../core/world/biomes';
 import type { WeatherKind } from '../../core/env/weather';
-import { INTENSITIES, INTENSITY_ZH, journeyTotals, type JourneyStop } from './devJourney';
+import { INTENSITIES, INTENSITY_ZH, REGION_ENTRY, journeyTotals, type JourneyStop } from './devJourney';
 import { fmt, type Dial, type DialTab, type Tune } from './devTune';
 import { DevWorld, PLACES } from './devWorld';
 
@@ -61,6 +61,7 @@ export const PANE_CSS = `
 .mc-dev .jcell { min-width: 0; padding: 3px 4px 4px; border-radius: 4px; font-size: 11px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
 .mc-dev .jcell small { display: block; font-size: 9.5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
 .mc-dev .jcell.here { box-shadow: inset 0 0 0 2px #fff; }
+.mc-dev .jcell[data-s] { cursor: pointer; }
 .mc-dev .jleg b.calm, .mc-dev .jcell.calm { background: #6f6a5c; }
 .mc-dev .jleg b.scenic, .mc-dev .jcell.scenic { background: #b39647; }
 .mc-dev .jleg b.highlight, .mc-dev .jcell.highlight { background: #f0cf66; }
@@ -121,6 +122,9 @@ const HOURS: [string, number][] = [
 
 /** how many regions of the journey the 传送 tab shows */
 const JOURNEY_SHOWN = 60;
+
+/** what hides the change between two scenic stretches worlds apart (core/world/journey/scenes.ts Threshold) */
+const THRESHOLD_ZH: Readonly<Record<string, string>> = { tunnel: '长隧道', pass: '垭口', fog: '雾墙', dust: '沙尘暴', blizzard: '暴风雪', rain: '雨幕', bridge: '长桥' };
 /** a mark beside the name for the two that are not calm: the strip reads without its colours too */
 const JOURNEY_MARK: Readonly<Record<JourneyStop['intensity'], string>> = { calm: '', scenic: '◆', highlight: '★' };
 
@@ -315,7 +319,7 @@ export class WorldPanes {
 <h5>去某种区域</h5><div class="note">去前面路上下一段这种区域：停在它开头往里 300 米的路上。灰色的是这个世界里没有的区域。</div>
 <div class="btns three regions"></div>
 <div class="msg regionMsg"></div>
-<h5>旅程预览</h5><div class="note">从你现在所在的区域起，接下来 ${JOURNEY_SHOWN} 个区域，按「强度」上色：舒缓为主，隔几个来一个有看点的，高潮很少。鼠标放上去看里程。</div>
+<h5>旅程预览</h5><div class="note jnote">从你现在所在的区域起，接下来 ${JOURNEY_SHOWN} 个区域，按「强度」上色：舒缓为主，隔几个来一个有看点的，高潮很少。鼠标放上去看里程。</div>
 <div class="jleg"></div><div class="journey"></div>
 <h5>按里程去</h5>
 <div class="row"><span>第</span><input type="number" class="km" min="0" step="0.5" value="10"><span>km</span><div class="btns"><button class="go" data-km="go">去</button></div></div>
@@ -326,6 +330,14 @@ export class WorldPanes {
     this.regionsEl = body.querySelector('.regions');
     this.journeyEl = body.querySelector('.journey');
     this.journeyLegend = body.querySelector('.jleg');
+    // (a world of version 3: a piece of the journey is a click away)
+    this.journeyEl!.addEventListener('click', (e) => {
+      const cell = (e.target as HTMLElement).closest('.jcell') as HTMLElement | null;
+      const s = Number(cell?.dataset.s);
+      if (!cell || !Number.isFinite(s)) return;
+      msg.textContent = tools.goKm(s / 1000, this.bring);
+      this.tick();
+    });
     this.regionsEl!.innerHTML = tools.regions.map((r) => `<button data-region="${r.id}"${r.known ? '' : ' class="out"'} data-tip="<b>${r.zh}</b><br>${r.known ? '去前面路上下一段「' + r.zh + '」。' : '这个世界里没有这种区域：它是在这个世界开局之后才加进游戏的（或者这是第 1 版的世界）。'}">${r.zh}</button>`).join('');
     const regionMsg = body.querySelector('.regionMsg') as HTMLElement;
     const msg = body.querySelector('.placeMsg') as HTMLElement;
@@ -369,11 +381,25 @@ export class WorldPanes {
     const strip = this.journeyEl;
     const legend = this.journeyLegend;
     if (!strip || !legend) return;
+    if (stops[0]?.scene !== undefined) {
+      // (a world of version 3: the journey's pieces — the scenic stretches by name, the quiet ones between)
+      const note = strip.parentElement?.querySelector('.jnote');
+      if (note) note.textContent = `从你现在所在的一段起，接下来 ${stops.length} 段：金色是风景段（地名，暂用最接近的现有区域的画法），灰色是两段之间的缓冲和出发的那一段。鼠标放上去看里程，点一下传送过去。`;
+      const scenes = stops.filter((x) => x.scene).length;
+      legend.innerHTML = `<span><b class="scenic"></b>风景段 ${scenes}</span><span><b class="calm"></b>缓冲 ${stops.length - scenes}</span>`;
+    } else {
     const totals = journeyTotals(stops);
     legend.innerHTML = INTENSITIES.map((k) => `<span><b class="${k}"></b>${JOURNEY_MARK[k] ? `<i>${JOURNEY_MARK[k]}</i>` : ''}${INTENSITY_ZH[k]} ${totals[k]}</span>`).join('');
+    }
     strip.innerHTML = stops
       .map((x, i) => {
         const km = `${(x.start / 1000).toFixed(1)} km 起 · 长 ${(x.length / 1000).toFixed(2)} km`;
+        if (x.scene !== undefined) {
+          // (a world of version 3: the journey's pieces, a click away)
+          const gate = x.threshold ? `<br>开头有门槛：${THRESHOLD_ZH[x.threshold] ?? x.threshold}（3-2 再做出来）` : '';
+          const tip = x.scene ? `<b>${x.label}</b> · ${x.tag}<br>旅程的第 ${x.chapter + 1} 段 · 暂用「${BIOMES[x.region].label}」的画法${gate}<br>${km}<br>${i === 0 ? '你现在在这里。' : '点一下传送过去。'}` : `<b>${x.label}</b><br>${km}${gate}<br>${i === 0 ? '你现在在这里。' : '点一下传送过去。'}`;
+          return `<div class="jcell ${x.intensity}${i === 0 ? ' here' : ''}" data-s="${x.start + REGION_ENTRY}" data-tip="${tip}">${x.label}<small>${x.chapter + 1} · ${Math.round(x.start / 1000)} km</small></div>`;
+        }
         const tip = `<b>${x.label}</b><br>旅程的第 ${x.chapter + 1} 个区域 · ${INTENSITY_ZH[x.intensity]}<br>${km}${i === 0 ? '<br>你现在在这里。' : ''}`;
         return `<div class="jcell ${x.intensity}${i === 0 ? ' here' : ''}" data-tip="${tip}">${JOURNEY_MARK[x.intensity] ? `<i>${JOURNEY_MARK[x.intensity]}</i> ` : ''}${x.label}<small>${x.chapter + 1} · ${Math.round(x.start / 1000)} km</small></div>`;
       })

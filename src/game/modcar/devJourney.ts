@@ -3,6 +3,9 @@
  * the regions that come next along the road with how much each asks of the traveller, and where the next
  * chapter of a given region begins. Read off the world's chapter plan, which deals as far as it is asked:
  * nothing here lays out road or land. Plain functions of the world (harness/sim/v3_dev_journey.test.ts).
+ *
+ * A world of version 3 has a journey (core/world/journey/road.ts): there the stops are its pieces — the scenic
+ * stretches by their names, the quiet stretches between, home — rather than its regions.
  */
 import { BIOMES } from '../../core/world/biomes';
 import type { World } from '../../core/world/terrain';
@@ -27,6 +30,11 @@ export interface JourneyStop {
   /** where along the road it begins, and how long it is (m) */
   start: number;
   length: number;
+  /** a world of version 3: the scenic stretch's line under its name, and what hides the change at its start */
+  tag?: string;
+  threshold?: string;
+  /** a world of version 3: a scenic stretch (else a quiet stretch, or home) */
+  scene?: boolean;
 }
 
 /** how far into a region's chapter the developer is set down (m): past the border itself, still where the two regions blend */
@@ -50,6 +58,20 @@ function stopAt(world: World, c: number): JourneyStop {
 
 /** the next n chapters of the journey from arc length s on: the one s lies in, and those after it */
 export function journeyFrom(world: World, s: number, n: number): JourneyStop[] {
+  const j = world.journey;
+  if (j) {
+    // (version 3: the journey's pieces, from the one s lies in)
+    const k0 = j.pieces.indexOf(j.pieceAt(Math.max(0, s)));
+    const stops: JourneyStop[] = [];
+    for (let k = k0; stops.length < n; k++) {
+      while (j.pieces.length <= k) j.chapter(j.chapters.length);
+      const p = j.pieces[k];
+      const def = BIOMES[p.region];
+      const label = p.scene ? p.scene.name : p.kind === 'home' ? '出发' : `缓冲·${p.buffer?.name ?? def.label}`;
+      stops.push({ chapter: k, region: p.region, id: def.id, label, intensity: p.scene ? 'scenic' : 'calm', start: p.start, length: p.end - p.start, scene: !!p.scene, ...(p.scene ? { tag: p.scene.tag } : {}), ...(p.threshold ? { threshold: p.threshold } : {}) });
+    }
+    return stops;
+  }
   const c0 = world.spine.plan.chapterAt(Math.max(0, s));
   const out: JourneyStop[] = [];
   for (let c = c0; c < c0 + n; c++) out.push(stopAt(world, c));

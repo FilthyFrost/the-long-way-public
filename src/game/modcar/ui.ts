@@ -29,6 +29,11 @@ const CSS = `
 .mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
 .mc-word b { color: var(--gold); }
 .mc-word small { color: var(--tx-2); margin-left: 6px; font-size: 13px; font-weight: 400; }
+/* the name of a scenic stretch as one drives into it (docs/V3/nodes/P3-1-journey-world.md): the name, a gold rule, the line under it */
+.mc-place { position: absolute; left: 50%; top: 13%; transform: translateX(-50%); padding: 18px 90px 20px; text-align: center; white-space: nowrap; opacity: 0; transition: opacity 1.4s ease; text-shadow: 0 2px 3px rgba(0,0,0,0.8), 0 0 16px rgba(0,0,0,0.5); background: radial-gradient(closest-side, rgba(12,10,8,0.42), rgba(12,10,8,0.18) 62%, transparent); }
+.mc-place b { display: block; font-size: 50px; line-height: 1.1; font-weight: 800; letter-spacing: 0.16em; padding-left: 0.16em; }
+.mc-place i { display: block; width: 240px; height: 2px; margin: 9px auto 8px; background: linear-gradient(90deg, transparent, var(--gold) 30%, var(--gold) 70%, transparent); box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.mc-place small { display: block; font-size: 18px; font-weight: 700; letter-spacing: 0.3em; padding-left: 0.3em; color: #f4ecdb; text-shadow: 0 1px 2px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.7); }
 .mc-toast { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); padding: 8px 20px; white-space: nowrap; font-size: 16px; font-weight: 700; transition: opacity 0.4s; }
 .mc-list { position: absolute; right: 30px; top: 22px; width: 320px; text-align: right; text-shadow: var(--say-shadow); }
 .mc-list h4 { margin: 0; padding-bottom: 7px; font-size: 19px; font-weight: 700; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75)) left bottom / 100% 1.5px no-repeat; }
@@ -168,6 +173,8 @@ export class ModUI {
   private readonly arc: SVGCircleElement;
   private readonly word: HTMLDivElement;
   private readonly toast: HTMLDivElement;
+  private readonly place: HTMLDivElement;
+  private placeT = 0;
   private readonly list: HTMLDivElement;
   private readonly dash: HTMLDivElement;
   private readonly fade: HTMLDivElement;
@@ -208,6 +215,7 @@ export class ModUI {
     this.word = el('div', 'mc-word', this.root);
     this.items = new ItemHud(this.root);
     this.toast = el('div', 'mc-toast mc-frame', this.root);
+    this.place = el('div', 'mc-place', this.root);
     this.list = el('div', 'mc-list', this.root);
     this.dash = el('div', 'mc-dash mc-frame', this.root);
     this.marker = el('div', 'mc-marker', this.root);
@@ -262,6 +270,18 @@ export class ModUI {
     this.toast.style.display = '';
     this.toast.style.opacity = '1';
     this.toastT = seconds;
+  }
+
+  /** the name of the scenic stretch one drives into, and the line under it (北烛原 · 极光冻原), for some seconds before it fades */
+  showPlace(name: string, tag: string, seconds = 5.5): void {
+    this.place.innerHTML = `<b>${name}</b><i></i><small>${tag}</small>`;
+    this.place.style.opacity = '1';
+    this.placeT = seconds;
+  }
+
+  /** is a place's name on the screen (or fading) */
+  get placeShown(): boolean {
+    return this.placeT > 0;
   }
 
   showList(title: string | null, items: { text: string; done: boolean; now: boolean }[]): void {
@@ -411,6 +431,10 @@ export class ModUI {
     if (this.toastT > 0) {
       this.toastT -= dt;
       if (this.toastT <= 0) this.toast.style.opacity = '0';
+    }
+    if (this.placeT > 0) {
+      this.placeT -= dt;
+      if (this.placeT <= 0) this.place.style.opacity = '0';
     }
   }
 }

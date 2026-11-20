@@ -113,6 +113,9 @@ export function describePlace(w: World, s: number): string {
   const country = bl.a === bl.b || bl.t < 0.05 ? a : bl.t > 0.95 ? b : `${a} → ${b}`;
   const k = Math.floor(s / LAND_SLOT);
   const bits = [country, LAND_NAMES[w.land.kindOf(k)]];
+  // (a world of version 3: the scenic stretch one is in, by its name, ahead of the region it is drawn as for now)
+  const piece = w.journey?.pieceAt(s);
+  if (piece) bits.unshift(piece.scene ? `「${piece.scene.name}」${piece.scene.tag}` : piece.kind === 'home' ? '出发的那一段' : '两段之间的缓冲');
   const f = w.water.feature(k);
   if (f) bits.push(f.kind === 'lake' ? '湖边' : '有河');
   if (w.sea.coastOf(k)) bits.push('海边');

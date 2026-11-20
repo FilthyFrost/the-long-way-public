@@ -220,7 +220,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
   const bw = new Float32Array(n * 4);
   const gd = new Float32Array(n * 4);
   const road = new Float32Array(n * 4);
-  const styles = world.rules.version === 2 ? new Float32Array(n*4) : null;
+  const styles = world.rules.version >= 2 ? new Float32Array(n*4) : null;
   // a world of version 2: the woods beside the road are the ecotope's, and the land carries its region's rows
   const field = world.eco;
   const cov = field ? new Float32Array(n * 2) : null;
@@ -798,7 +798,7 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
     const y = p.y - oy;
     const z = p.z - oz;
     // most stand straight; the leaning ones lean any way
-    const postColor = world.rules.version === 2 && roadStyleAt(world,p.s).rail === 'wood' ? 0x806649 : 0xe9e6dc;
+    const postColor = world.rules.version >= 2 && roadStyleAt(world,p.s).rail === 'wood' ? 0x806649 : 0xe9e6dc;
     const lean = p.state === 1 ? 0.22 + 0.3 * (((p.h >>> 16) & 255) / 255) : 0.02;
     const dir = (((p.h >>> 20) & 1023) / 1023) * 6.283;
     const tx = Math.cos(dir) * Math.sin(lean);
@@ -857,7 +857,7 @@ function addFurniture(b: PaintBuilder, world: World, s0: number, s1: number, ox:
       const y = tp.h - oy;
       const z = wz - oz;
       const hh = hash2(Math.round(s / RAIL_STEP), r.side + 11, world.seed);
-      if (world.rules.version === 2 && roadStyleAt(world,s-RAIL_STEP/2).rail !== 'steel') {
+      if (world.rules.version >= 2 && roadStyleAt(world,s-RAIL_STEP/2).rail !== 'steel') {
         px = x; py = y; pz = z;
         continue;
       }

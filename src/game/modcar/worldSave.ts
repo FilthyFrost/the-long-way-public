@@ -86,7 +86,7 @@ export function savedWorldOf(world: World, seed: number): SavedWorld {
 /** is the save of a world this build generates otherwise now: of version 2 and written under another revision */
 export function worldMoved(s: SaveV1): boolean {
   const w = worldOfSave(s);
-  return !!w && w.version === 2 && w.rev !== WORLD_REV;
+  return !!w && (w.version ?? 1) >= 2 && w.rev !== WORLD_REV;
 }
 
 const tp = new TerrainPoint();
@@ -147,7 +147,7 @@ const cm = (v: number): number => Math.round(v * 100) / 100;
  */
 export function stampWorld(s: SaveV1, world: World, known?: Readonly<Record<string, string>>): void {
   const w = s.world;
-  if (!w || world.rules.version !== 2) return;
+  if (!w || world.rules.version < 2) return;
   for (const sv of s.vehicles) {
     if (onPlot(world, sv.x, sv.z)) continue;
     world.shape(sv.x, sv.z, tp);

@@ -18,12 +18,13 @@ import type { Rng } from '../math/rng';
 import { BIOMES, FIRST_BIOMES, MIN_RADIUS_ANY } from './biomes';
 import { MAX_BORDER_WIDTH } from './routeProfiles';
 import { DEALER_V2 } from './dealer';
+import { DEALER_V3 } from './journey/road';
 import { quietRun } from './director';
 import { quietSlot } from './quiet';
 import type { ChapterPlan } from './spine';
 
 /** the versions of the generator there are */
-export type WorldVersion = 1 | 2;
+export type WorldVersion = 1 | 2 | 3;
 
 /**
  * The revision of the generator of version 2: raised by one whenever a world of version 2 comes out
@@ -41,6 +42,11 @@ export interface DealtChapter {
   region: number;
   /** the chapter's length along the road (m) */
   length: number;
+  /**
+   * The width of the blend at its start (m, the chapters' scale reckoned in): version 3's, its journey's join
+   * (journey/road.ts); absent, the corridors' between the two regions (version 2), or the world's one width (version 1).
+   */
+  border?: number;
 }
 
 /**
@@ -197,14 +203,26 @@ export const RULES_V2: WorldRules = Object.freeze({
 });
 
 /**
+ * Version 3 (docs/V3/nodes/P3-1-journey-world.md): version 2's generator with the journey for its dealer — the
+ * fifty scenic roads shuffled, the joins between them, a scene drawn as its nearest region until its own is
+ * made (journey/road.ts). Everything else is version 2's, its road's guards too: a change to version 2 changes
+ * version 3 with it (WORLD_REV is the two's), and nothing here changes version 2.
+ */
+export const RULES_V3: WorldRules = Object.freeze({
+  ...RULES_V2,
+  version: 3,
+  dealer: DEALER_V3,
+});
+
+/**
  * The rules of a world: its version's, with its own region count. Without a count a world of version 1
  * knows the six regions there were when version 1 was closed, and a world of version 2 every region
  * registered when it is made — which is why a save must keep the count (WorldOptions.regionCount).
  */
 export function rulesFor(version: WorldVersion = 1, opts: { regionCount?: number } = {}): WorldRules {
-  if (version !== 1 && version !== 2) throw new RangeError(`world version ${String(version)}: there are versions 1 and 2`);
-  const base = version === 2 ? RULES_V2 : RULES_V1;
-  const count = opts.regionCount ?? (version === 2 ? BIOMES.length : V1_REGIONS);
+  if (version !== 1 && version !== 2 && version !== 3) throw new RangeError(`world version ${String(version)}: there are versions 1, 2 and 3`);
+  const base = version === 3 ? RULES_V3 : version === 2 ? RULES_V2 : RULES_V1;
+  const count = opts.regionCount ?? (version >= 2 ? BIOMES.length : V1_REGIONS);
   // (at least the three kinds every journey begins in; at most what the registry holds)
   if (!Number.isInteger(count) || count < FIRST_BIOMES || count > BIOMES.length) {
     throw new RangeError(`regionCount ${String(count)}: a world knows between ${FIRST_BIOMES} regions and all ${BIOMES.length} of the registry`);

@@ -16,6 +16,7 @@ import { smoothstep } from '../math/util';
 import { roadStyleAt, roadSurface } from './roadStyles';
 import { BIOMES, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
+import { journeyRoad, type JourneyRoad } from './journey/road';
 import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { FloraVistas } from './floraVista';
@@ -274,6 +275,8 @@ export class World implements Ground {
    * the world — has them at hand.
    */
   readonly rules: WorldRules;
+  /** a world of version 3: its journey on the road — the scene, the quiet stretch, the join at every point of it (journey/road.ts) */
+  readonly journey: JourneyRoad | null;
   /** weather state that changes grip: 0…1 */
   wetness = 0;
   snowCover = 0;
@@ -347,6 +350,7 @@ export class World implements Ground {
       throw new Error(`the stretches do not agree: landform ${LAND_SLOT} m, water ${WATER_SLOT} m, places ${SITE_SLOT} m, the world's rules ${this.rules.slot} m`);
     }
     this.spine = new RoadSpine(seed, opts, this.rules);
+    this.journey = this.rules.version === 3 ? journeyRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.regionCount, this.rules.slot, this.spine.plan.startRegion) : null;
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
     this.land = new LandformPlan(
@@ -727,7 +731,7 @@ export class World implements Ground {
       let h = ext + (T - ext) * m - ditch;
       // Ploughed snow piles up just beyond the wheelable shoulder. Keep the
       // bridge approaches and property entrances clear and taper at the snowline.
-      if (this.rules.version === 2 && ad < 8.5 && bm === 0 && !coarse) {
+      if (this.rules.version >= 2 && ad < 8.5 && bm === 0 && !coarse) {
         const snow = (BIOMES[o.ba].id === 'alpine' ? 1-o.bt : 0) + (BIOMES[o.bb].id === 'alpine' ? o.bt : 0);
         if (snow > 0) {
           const ridge = (ad-5.45)/1.05;
@@ -889,7 +893,7 @@ export class World implements Ground {
 
   /** surface type at a shaped point */
   surfaceOf(t: TerrainPoint): number {
-    if (this.rules.version === 2 && (t.zone === 1 || t.zone === 2) && t.bridge < 0.5)
+    if (this.rules.version >= 2 && (t.zone === 1 || t.zone === 2) && t.bridge < 0.5)
       return roadSurface(roadStyleAt(this,t.s), Math.abs(t.d));
     if (t.zone === 1 || t.zone === 3) return Surface.Asphalt;
     if (t.zone === 2) return Surface.Gravel;

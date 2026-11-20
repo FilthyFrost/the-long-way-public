@@ -13,7 +13,7 @@ const browser = await launchBrowser();
 let failed = 0;
 const log = [];
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1`, { width: 1280, height: 720 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1${process.env.WORLD ? `&world=${process.env.WORLD}` : ''}`, { width: 1280, height: 720 });
   const rt = (fn, ...args) => page.evaluate(([f, a]) => window.__rt[f](...a), [fn, args]);
   const shot = async (name) => {
     await page.evaluate(() => window.__rt.render());

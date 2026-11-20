@@ -296,7 +296,10 @@ describe('world · versions and rules', () => {
   });
 
   it('rulesFor refuses a version there is not and a region count no world can have', () => {
-    expect(() => rulesFor(3 as 1)).toThrow(RangeError);
+    expect(() => rulesFor(4 as 1)).toThrow(RangeError);
+    // (version 3 is the journey's: docs/V3/nodes/P3-1-journey-world.md)
+    expect(rulesFor(3).version).toBe(3);
+    expect(rulesFor(3).regionCount).toBe(BIOMES.length);
     expect(() => rulesFor(1, { regionCount: 2 })).toThrow(RangeError);
     expect(() => rulesFor(1, { regionCount: 4.5 })).toThrow(RangeError);
     expect(() => rulesFor(2, { regionCount: BIOMES.length + 1 })).toThrow(RangeError);

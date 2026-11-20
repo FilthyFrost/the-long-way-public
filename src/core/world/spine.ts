@@ -90,6 +90,11 @@ export class ChapterPlan {
   /** what the dealer is shown: the world's identity and the chapters so far (the two lists above, as they grow) */
   private readonly deal: DealerView;
 
+  /** the region the journey was asked to begin in (an index into BIOMES) */
+  get startRegion(): number {
+    return this.deal.startRegion;
+  }
+
   /**
    * @param seed the world's seed
    * @param first the region the journey is asked to begin in (an index into BIOMES)
@@ -119,7 +124,11 @@ export class ChapterPlan {
     const c = this.biomes.length;
     if (c > 0) {
       let width = this.transition;
-      if (this.rules.version >= 2) {
+      if (d.border !== undefined) {
+        // (version 3: the journey's join says, journey/road.ts)
+        if (!(d.border >= 0 && d.border <= this.transition)) throw new RangeError(`chapter ${c}: the dealer dealt a border of ${String(d.border)} m, and the plan looks ${this.transition} m ahead`);
+        width = d.border;
+      } else if (this.rules.version >= 2) {
         const prev = BIOMES[this.biomes[c - 1]];
         const next = BIOMES[d.region];
         width = (borderWidth(prev.id, next.id, this.rules.regionCount) ?? 900) * Math.max(0.1, Math.min(1, this.scale));

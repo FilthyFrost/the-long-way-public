@@ -539,7 +539,7 @@ export class WorldView {
         castShadows(poles);
         objects.push(poles);
       }
-      if (this.world.rules.version === 2) {
+      if (this.world.rules.version >= 2) {
         const length = STRIP_STATIONS*this.world.spine.ds;
         const fixtures = roadFixtures(this.world,c*length,(c+POLE_SPAN)*length,new THREE.Vector3(p.wx,p.wy,p.wz),this.poleMat);
         if (fixtures) {
