@@ -15,7 +15,8 @@ import { atlasLayers, atlasRowsOf, putLayer } from './crownAtlas';
 import { put3, vec3s } from '../../render/uniformArrays';
 import { bakeLater, bakeNow, type Baked } from './crownBake';
 import type { VariantPack } from './variantPack';
-import { KIT_OF, SPECIES, VARIANTS, floraKitOn, type SpeciesDef } from './species';
+import { GROUND_KIT, GROUND_VARIANTS, KIT_OF, SPECIES, VARIANTS, floraKitOn, groundFamily, type SpeciesDef } from './species';
+import { floraKind } from '../flora/catalog';
 import { measureOf } from './speciesGrow';
 import { growLater, growNow, type Grown } from './crownGrow';
 import { floraMaterial } from '../flora/material';
@@ -74,6 +75,8 @@ interface Draw {
   material: THREE.Material;
   shadow: boolean;
   order: number;
+  /** what its mesh is called (the performance gate sorts what it draws by name) */
+  name?: string;
 }
 
 interface Slot {
@@ -85,7 +88,9 @@ interface Slot {
 interface Tile {
   slots: (Slot | undefined)[];
   // Fully outside, fully far, or straddling the distance bands.
-  state: 'outside' | 'far' | 'near' | null;
+  state: 'outside' | 'far' | 'near' | 'ground' | null;
+  /** a still tile of plants of the ground: the level all of it is drawn at (set out once: setGroundTile) */
+  ground?: 0 | 1;
   levels: number[];
   eye: THREE.Vector3;
   rotation: THREE.Quaternion;
@@ -114,6 +119,10 @@ interface Species {
   def: SpeciesDef;
   /** grown by the plant toolkit (scene/flora): drawn with its atlas */
   kit: boolean;
+  /** a plant of the ground (a toolkit kind of the ground field's forms): near and middle packs only */
+  ground?: boolean;
+  /** its tones kept light (the toolkit's blossoms, grass and flowers: flora/material.ts reads aTree.z + 2) */
+  bright?: boolean;
   height: number;
   radius: number;
   /** none: not grown; growing: in the worker; ready: its draws are here */
@@ -159,7 +168,7 @@ export class CrownView implements CrownLookup {
   private originMoved = true;
   private readonly last = new Float64Array(20);
   /** what the last frame drew: trees, by level, and into the shadow map */
-  readonly drawn = { levels: [0, 0, 0], shadows: 0, triangles: 0 };
+  readonly drawn = { levels: [0, 0, 0], shadows: 0, triangles: 0, ground: 0 };
 
   constructor(private readonly core: RenderCore) {
     this.group.name = 'crowns';
@@ -170,7 +179,18 @@ export class CrownView implements CrownLookup {
       const own = kit && KIT_OF[family] !== undefined;
       const m = measureOf(family, own);
       this.byFamily.set(family, this.species.length);
-      this.species.push({ family, def, kit: own, height: m.height, radius: m.radius, state: 'none', packs: null, far: null, shadow: null });
+      this.species.push({ family, def, kit: own, bright: own && floraKind(KIT_OF[family]).look.bright === true, height: m.height, radius: m.radius, state: 'none', packs: null, far: null, shadow: null });
+    }
+    // the ground's plants the toolkit grows (scene/crowns/species.ts GROUND_KIT): only with the toolkit, else the plant atlas draws them
+    // (all of them in light tones: a small plant in the sun is not a crown's deep inside)
+    if (kit) {
+      for (const kind of new Set(Object.values(GROUND_KIT))) {
+        const family = groundFamily(kind);
+        const m = measureOf(family, true);
+        const def: SpeciesDef = { variants: [{ seed: 7, grow: { kind: 'special', form: 'saguaro' } }], bark: 'wood', sway: floraKind(kind).look.sway, small: true };
+        this.byFamily.set(family, this.species.length);
+        this.species.push({ family, def, kit: true, ground: true, bright: true, height: m.height, radius: m.radius, state: 'none', packs: null, far: null, shadow: null });
+      }
     }
   }
 
@@ -202,6 +222,19 @@ export class CrownView implements CrownLookup {
     const grown = g.species;
     const look = s.kit ? floraMaterial() : this.material;
     s.packs = [this.makePack(grown.near, look, false, 1), this.makePack(grown.mid, look, false, 2)];
+    if (!grown.shadow || grown.far.length === 0) {
+      // (a plant of the ground: near and middle only, nothing to the shadow map; counted as the ground's)
+      for (const d of s.packs) {
+        d.name = 'flora:ground-kit';
+        d.mesh.name = d.name;
+      }
+      s.state = 'ready';
+      s.idleSince = undefined;
+      this.growStats.grown++;
+      this.growStats.ms += g.ms;
+      if (g.inWorker) this.growStats.inWorker++;
+      return;
+    }
     // the far level: a picture baked of each variant, the layers of one array, one draw
     const variants = grown.far.length;
     const material = crownMaterial();
@@ -229,19 +262,21 @@ export class CrownView implements CrownLookup {
 
   /** a species no tree of has been drawn for a while let go of: its draws, its models, its far pictures */
   private letGo(s: Species): void {
-    for (const d of [...s.packs!, s.far!, s.shadow!]) {
+    for (const d of [...s.packs!, ...(s.far ? [s.far] : []), ...(s.shadow ? [s.shadow] : [])]) {
       d.gone = true;
       this.group.remove(d.mesh);
       if (d.packed && d.geometry !== this.billboard) d.geometry.dispose();
       d.mesh.geometry.dispose();
       d.mesh.dispose();
     }
-    const u = (s.far!.material as THREE.ShaderMaterial).uniforms;
-    if (u.tNormalAtlas.value) this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
-    u.tNormalAtlas.value?.dispose();
-    u.tPaintAtlas.value?.dispose();
-    s.far!.material.dispose();
-    for (const m of s.far!.atlasModels!) m.dispose();
+    if (s.far) {
+      const u = (s.far.material as THREE.ShaderMaterial).uniforms;
+      if (u.tNormalAtlas.value) this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
+      u.tNormalAtlas.value?.dispose();
+      u.tPaintAtlas.value?.dispose();
+      s.far.material.dispose();
+      for (const m of s.far.atlasModels!) m.dispose();
+    }
     s.packs = null;
     s.far = null;
     s.shadow = null;
@@ -253,8 +288,8 @@ export class CrownView implements CrownLookup {
     return this.byFamily.get(family) ?? -1;
   }
 
-  variants(_species: number): number {
-    return VARIANTS;
+  variants(species: number): number {
+    return this.species[species]?.ground ? GROUND_VARIANTS : VARIANTS;
   }
 
   /** a species' measure: its first variant's height and crown radius at the size it is grown (m) */
@@ -296,6 +331,18 @@ export class CrownView implements CrownLookup {
     this.dropTile(key);
     this.tiles.set(key, { eye: new THREE.Vector3(), sun: new THREE.Vector3(), rotation: new THREE.Quaternion(), fov: 0, aspect: 0, slots: [], state: null, levels: [0, 0, 0], token, data, n, cx, cy, cz, r: Math.hypot((x1 - x0) / 2 + reach, (y1 - y0) / 2, (z1 - z0) / 2 + reach) });
     this.changed = true;
+    return token;
+  }
+
+  /**
+   * A tile of plants of the ground (their species the ground's: GROUND_KIT), all of it drawn at `level` (0 near, 1
+   * middle): set out once, never culled nor sorted again — a tile holds hundreds, and nothing of them is worth a
+   * frame's work — and nothing of it in the shadow map. Taken back as any tile is (dropTile).
+   */
+  setGroundTile(key: string, data: Float32Array, n: number, level: 0 | 1): number {
+    const token = this.setTile(key, data, n);
+    const t = this.tiles.get(key);
+    if (t) t.ground = level;
     return token;
   }
 
@@ -353,6 +400,7 @@ export class CrownView implements CrownLookup {
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.frustumCulled = false;
     mesh.renderOrder = d.order;
+    if (d.name) mesh.name = d.name;
     // (a pack draws one variant of the tree's: what the budget counts, harness/shots/perf_gate.mjs)
     if (d.packed) mesh.userData.trisEach = d.perTris;
     mesh.count = 0;
@@ -496,7 +544,32 @@ export class CrownView implements CrownLookup {
     const sz = ez + fwd.z * 55;
     const lv = this.drawn.levels;
     lv.fill(0);
+    let ground = 0;
     for (const t of this.tiles.values()) {
+      if (t.ground !== undefined) {
+        // (a still tile of the ground's plants: set out once, again only when the origin moves)
+        if (t.state === 'ground' && !this.originMoved) {
+          ground += t.levels[t.ground];
+          continue;
+        }
+        t.levels.fill(0);
+        let waiting = false;
+        const d = t.data;
+        for (let i = 0; i < t.n; i++) {
+          const o = i * CROWN_STRIDE;
+          const s = this.ensure(d[o + 6]);
+          if (!s) {
+            for (let k = 0; k < 3; k++) this.assign(t, i * 3 + k, undefined, d, o, 0, 0, 0, 0, 0, 0);
+            waiting = true;
+            continue;
+          }
+          this.assign(t, i * 3, s.packs![t.ground], d, o, d[o] - ox, d[o + 1] - oy, d[o + 2] - oz, s.def.sway, s.bright ? 2 : 0, d[o + 7]);
+          t.levels[t.ground]++;
+        }
+        t.state = waiting ? null : 'ground';
+        ground += t.levels[t.ground];
+        continue;
+      }
       sphere.center.set(t.cx - ox, t.cy - oy, t.cz - oz);
       // Include what can enter the frustum before the next position/orientation refresh.
       const distance = sphere.center.distanceTo(cam.position);
@@ -544,7 +617,7 @@ export class CrownView implements CrownLookup {
         }
         const def = s.def;
         const sway = def.sway;
-        const bark = def.bark === 'accent' ? 1 : 0;
+        const bark = (def.bark === 'accent' ? 1 : 0) + (s.bright ? 2 : 0);
         let main: Draw | undefined, next: Draw | undefined, shadow: Draw | undefined;
         let cut = 0;
         if (state === 'far') {
@@ -632,13 +705,14 @@ export class CrownView implements CrownLookup {
     for (const s of this.species) {
       if (s.state !== 'ready') continue;
       s.packs!.forEach(finish);
-      finish(s.far!);
-      finish(s.shadow!);
+      if (s.far) finish(s.far);
+      if (s.shadow) finish(s.shadow);
       // (no tree of it drawn for a while: let go of, grown again should one come)
-      if (s.packs!.some((dr) => dr.slots.length > 0) || s.far!.slots.length > 0 || s.shadow!.slots.length > 0) s.idleSince = undefined;
+      if (s.packs!.some((dr) => dr.slots.length > 0) || (s.far?.slots.length ?? 0) > 0 || (s.shadow?.slots.length ?? 0) > 0) s.idleSince = undefined;
       else if ((s.idleSince ??= now) < now - SPECIES_KEEP_MS) this.letGo(s);
     }
     this.drawn.shadows = shadows;
+    this.drawn.ground = ground;
     this.drawn.triangles = triangles;
   }
 
@@ -685,7 +759,7 @@ export class CrownView implements CrownLookup {
   get pendingBakes(): number {
     let n = 0;
     for (const s of this.species) {
-      if (s.state === 'ready' && s.far!.slots.length > 0) for (const b of s.far!.baked!) if (!b) n++;
+      if (s.state === 'ready' && s.far && s.far.slots.length > 0) for (const b of s.far.baked!) if (!b) n++;
     }
     // (and the species being grown: their pictures come after them)
     return n + this.growing;
@@ -694,7 +768,7 @@ export class CrownView implements CrownLookup {
   /** the draws this view holds (for the budget: two packs, its far trees and its shadow's pack for each species grown) */
   get drawCount(): number {
     let n = 0;
-    for (const s of this.species) if (s.state === 'ready') n += 4;
+    for (const s of this.species) if (s.state === 'ready') n += s.ground ? 2 : 4;
     return n;
   }
 

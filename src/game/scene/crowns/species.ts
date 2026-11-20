@@ -130,6 +130,9 @@ export const SPECIES: Readonly<Record<string, SpeciesDef>> = {
 /** the variants a species is grown in, each a tree of its own (docs/V3/nodes/P3-variant-packs.md) */
 export const VARIANTS = 8;
 
+// (the ground field's forms the toolkit grows: crownData.ts, where the scatter reads them)
+export { GROUND_KIT, GROUND_VARIANTS, groundFamily, groundKind } from './crownData';
+
 /**
  * A species' variants: its own two or three shapes first, then more grown from them, each with a seed of its own and
  * its shape drawn a little otherwise — its sizes within a tenth either way, a limb or a tier more or fewer, a crown

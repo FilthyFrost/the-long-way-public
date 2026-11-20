@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { CROWN_LEVELS, type CrownModel } from './grow';
-import { KIT_OF, SPECIES, VARIANTS, growSpeciesModel, variantsOf } from './species';
+import { GROUND_VARIANTS, KIT_OF, SPECIES, VARIANTS, groundKind, growSpeciesModel, variantsOf } from './species';
 import { packVariants, type VariantPack } from './variantPack';
 import { floraKind, growFlora } from '../flora/catalog';
 import { shadowCaster } from '../flora/shadowCards';
@@ -20,7 +20,8 @@ export interface GrownSpecies {
   kit: boolean;
   near: VariantPack;
   mid: VariantPack;
-  shadow: VariantPack;
+  /** the shadow map's (null: a plant of the ground throws none) */
+  shadow: VariantPack | null;
   /** each variant's far-level model: its far picture is baked from it */
   far: THREE.BufferGeometry[];
 }
@@ -38,6 +39,19 @@ function levelsOf(family: string, kit: boolean, v: { seed: number; grow: Paramet
 
 /** a species' variants grown and packed (`kit`: the plant toolkit grows the families it has a kind for) */
 export function growSpecies(family: string, kit: boolean, n = VARIANTS): GrownSpecies {
+  // (a plant of the ground: its toolkit kind, a few variants by seed; no far picture, no shadow of its own)
+  const ground = groundKind(family);
+  if (ground) {
+    const k = floraKind(ground);
+    const models = Array.from({ length: Math.min(n, GROUND_VARIANTS) }, (_, v) => {
+      const seed = 7 + 1009 * v;
+      return [growFlora(k, seed, 0), growFlora(k, seed, 1)];
+    });
+    const near = packVariants(models.map((m) => m[0].geometry));
+    const mid = packVariants(models.map((m) => m[1].geometry));
+    for (const m of models) for (const x of m) x.geometry.dispose();
+    return { family, kit: true, near, mid, shadow: null, far: [] };
+  }
   const def = SPECIES[family];
   if (!def) throw new RangeError(`no species ${family}`);
   const toolkit = kit && KIT_OF[family] !== undefined;
@@ -56,6 +70,12 @@ export function growSpecies(family: string, kit: boolean, n = VARIANTS): GrownSp
 
 /** a species' measure: its first variant's height and crown radius at the size it is grown (m) — what the catalogue's sizes are measured against */
 export function measureOf(family: string, kit: boolean): { height: number; radius: number } {
+  const ground = groundKind(family);
+  if (ground) {
+    const m = growFlora(floraKind(ground), 7, 0);
+    m.geometry.dispose();
+    return { height: m.height, radius: m.radius };
+  }
   const def = SPECIES[family];
   const toolkit = kit && KIT_OF[family] !== undefined;
   const first = def.variants[0];
@@ -82,7 +102,7 @@ export interface GrownArrays {
   kit: boolean;
   near: PackArrays;
   mid: PackArrays;
-  shadow: PackArrays;
+  shadow: PackArrays | null;
   far: GeometryArrays[];
 }
 
@@ -111,17 +131,17 @@ const packOut = (p: VariantPack): PackArrays => ({ geometry: toArrays(p.geometry
 const packIn = (p: PackArrays): VariantPack => ({ geometry: fromArrays(p.geometry), variants: p.variants, trianglesEach: p.trianglesEach });
 
 export function grownToArrays(g: GrownSpecies): { arrays: GrownArrays; transfer: ArrayBuffer[] } {
-  const arrays: GrownArrays = { family: g.family, kit: g.kit, near: packOut(g.near), mid: packOut(g.mid), shadow: packOut(g.shadow), far: g.far.map(toArrays) };
+  const arrays: GrownArrays = { family: g.family, kit: g.kit, near: packOut(g.near), mid: packOut(g.mid), shadow: g.shadow ? packOut(g.shadow) : null, far: g.far.map(toArrays) };
   const transfer = new Set<ArrayBuffer>();
   const take = (a: GeometryArrays): void => {
     for (const x of a.attributes) transfer.add(x.array.buffer as ArrayBuffer);
     transfer.add(a.index.buffer as ArrayBuffer);
   };
-  for (const p of [arrays.near, arrays.mid, arrays.shadow]) take(p.geometry);
+  for (const p of [arrays.near, arrays.mid, arrays.shadow]) if (p) take(p.geometry);
   for (const f of arrays.far) take(f);
   return { arrays, transfer: [...transfer] };
 }
 
 export function grownFromArrays(a: GrownArrays): GrownSpecies {
-  return { family: a.family, kit: a.kit, near: packIn(a.near), mid: packIn(a.mid), shadow: packIn(a.shadow), far: a.far.map(fromArrays) };
+  return { family: a.family, kit: a.kit, near: packIn(a.near), mid: packIn(a.mid), shadow: a.shadow ? packIn(a.shadow) : null, far: a.far.map(fromArrays) };
 }

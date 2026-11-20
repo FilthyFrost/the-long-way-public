@@ -48,7 +48,7 @@ describe('variant packs', () => {
     const g = growSpecies('broadleaf', false);
     expect(g.near.variants).toBe(VARIANTS);
     expect(g.mid.variants).toBe(VARIANTS);
-    expect(g.shadow.variants).toBe(VARIANTS);
+    expect(g.shadow!.variants).toBe(VARIANTS);
     expect(g.far).toHaveLength(VARIANTS);
     const vars = new Set(Array.from(g.near.geometry.getAttribute('aVar').array as Float32Array));
     expect([...vars].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);

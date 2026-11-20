@@ -11,6 +11,7 @@ import { draw, type Drawn, type Level, type Plan } from './kit';
 import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress, planDragon, planOak, planPalm, planPine, planSaguaro, planSpruce, planStonePine } from './trees';
 import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
 import { planJoshua, planRedwood, planRimu } from './trees3';
+import { planFern } from './fern';
 
 /** triangles of one plant at its levels (near, middle); far off it is a two-triangle picture */
 export const FLORA_BUDGET = {
@@ -102,6 +103,8 @@ export const FLORA: readonly FloraKind[] = [
   shrub('sage', '鼠尾草灌丛', 0x8e9a7d),
   shrub('lavender', '薰衣草', 0x7d8f74, 0x7b5bc4, true),
   shrub('protea', '帝王花', 0x5d7a4a, 0xe08aa0, true),
+  // (the forest floor's: docs/V3/nodes/P2-B-kit-ground.md)
+  { id: 'fern', name: '蕨（林下）', family: 'shrub', budget: 'shrub', plan: (seed) => planFern(seed), look: { leaf: 0x4f7a3a, second: 0x4e4436, evergreen: true, pale: false, bears: false, sway: 0.6 } },
 ];
 
 export function floraKind(id: string): FloraKind {

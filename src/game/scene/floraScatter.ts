@@ -39,7 +39,7 @@ import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/pla
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
 import { paintedFamily, CROWN_PAINT } from './crowns/palette';
-import { CROWN_STRIDE, type CrownLookup } from './crowns/crownData';
+import { CROWN_STRIDE, GROUND_KIT, GROUND_VARIANTS, groundFamily, type CrownLookup } from './crowns/crownData';
 import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
 
@@ -90,6 +90,13 @@ export interface FloraScatter {
    */
   crowns: Float32Array | null;
   crownCount: number;
+  /**
+   * The plants of the ground field the plant toolkit grows (crowns/crownData.ts GROUND_KIT), handed to the crowns as a
+   * still tile (crownView.ts setGroundTile) instead of drawn here: CROWN_STRIDE numbers each, world coordinates (null:
+   * none, or the crowns do not grow them — the M5 crowns, ?flora=m5)
+   */
+  groundCrowns: Float32Array | null;
+  groundCount: number;
   /** the tile's origin in the world */
   wx: number;
   wy: number;
@@ -235,6 +242,25 @@ const discScratch = new Float32Array((256 + 256 * 3 + 1024) * 16);
 const tp = new TerrainPoint();
 /** a tile's painted crowns as they are gathered: its trees' cells and its shrubs' */
 const crownScratch = new Float32Array(512 * CROWN_STRIDE);
+/** … and the plants of its ground the toolkit grows (a tile's ground field holds a few thousand at most) */
+const GROUND_MOST = 4096;
+const groundCrownScratch = new Float32Array(GROUND_MOST * CROWN_STRIDE);
+/** by form: the crowns' species of the ground (−1: the plant atlas draws it), asked once per lookup */
+const groundSpecies = new Map<string, number>();
+let groundLookupFor: CrownLookup | null = null;
+function groundSpeciesOf(crowns: CrownLookup, form: string): number {
+  if (groundLookupFor !== crowns) {
+    groundLookupFor = crowns;
+    groundSpecies.clear();
+  }
+  let sp = groundSpecies.get(form);
+  if (sp === undefined) {
+    const kind = GROUND_KIT[form];
+    sp = kind ? crowns.speciesOf(groundFamily(kind)) : -1;
+    groundSpecies.set(form, sp);
+  }
+  return sp;
+}
 /** a crown may spread this much wider than the catalogue's crown, keeping its own shape (a painted tree is broad) */
 const CROWN_BROADEN = 1.2;
 /** by plant index: the species it is drawn as (−1 none), asked of the crowns once per lookup */
@@ -567,11 +593,46 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
   }
   const batches: FloraBatch[] = [];
   const groundBatches: FloraBatch[] = [];
+  let ng = 0;
   if (lod <= LOD_MID) {
     const field = groundField(world);
     groundPaint.reset();
     for (const rocks of [false,true]) for (const it of field.tile(tx,tz,rocks)) {
-      if (lod === LOD_MID && it.height < 0.7) continue;
+      // (in the middle distance only what stands up from the grass: the knee-high is lost in it there)
+      if (lod === LOD_MID && it.height < 1.0) continue;
+      // a form the toolkit grows (crowns/crownData.ts GROUND_KIT): the crowns draw it, a still tile of them
+      const gsp = crowns && !rocks && ng < GROUND_MOST ? groundSpeciesOf(crowns, it.form) : -1;
+      if (gsp >= 0) {
+        const m = crowns!.measure(gsp);
+        const gx = it.x - x0, gz = it.z - z0;
+        const si = Math.min(SLOT_N - 1, Math.max(0, Math.round(gx / SLOT_STEP)));
+        const sj = Math.min(SLOT_N - 1, Math.max(0, Math.round(gz / SLOT_STEP)));
+        const sk = sj * SLOT_N + si;
+        const o = ng * CROWN_STRIDE;
+        const sy = it.height / m.height;
+        // (its own proportions, a little wider or narrower as the field has it)
+        const sx = Math.min(sy * 1.15, Math.max(sy * 0.85, it.radius / m.radius));
+        const flower = GROUND_KIT[it.form].startsWith('flower_') || it.form === 'cluster';
+        groundCrownScratch[o] = it.x;
+        groundCrownScratch[o + 1] = it.y - 0.02;
+        groundCrownScratch[o + 2] = it.z;
+        groundCrownScratch[o + 3] = it.yaw;
+        groundCrownScratch[o + 4] = sx;
+        groundCrownScratch[o + 5] = sy;
+        groundCrownScratch[o + 6] = gsp;
+        groundCrownScratch[o + 7] = Math.min(GROUND_VARIANTS - 1, Math.floor(((it.seed * 7.13) % 1) * GROUND_VARIANTS));
+        groundCrownScratch[o + 8] = snowyPair(world, sk, it.y);
+        // (its palette share; its flowers shown (2); it keeps its leaves in the snow (4))
+        groundCrownScratch[o + 9] = slotShare[sk] * 0.999 + (flower ? 2 : 0) + 4;
+        groundCrownScratch[o + 10] = it.paint;
+        groundCrownScratch[o + 11] = it.accent;
+        groundCrownScratch[o + 12] = it.seed;
+        groundCrownScratch[o + 13] = 0;
+        groundCrownScratch[o + 14] = m.radius * sx;
+        groundCrownScratch[o + 15] = m.height * sy;
+        ng++;
+        continue;
+      }
       const variant = rocks ? Math.min(2,Math.floor(it.seed*3)) : 0;
       const model = reg.atlas.models['ground_'+it.form+lod+(variant?'v'+variant:'')];
       const g = groundPaint, o = 4*g.n++;
@@ -623,5 +684,5 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       shadows = one[0];
     }
   }
-  return { batches, groundBatches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, crowns: nc > 0 ? crownScratch.slice(0, nc * CROWN_STRIDE) : null, crownCount: nc, wx: x0, wy: oy, wz: z0 };
+  return { batches, groundBatches, shadows, discs: discs && nd > 0 ? discScratch.slice(0, nd * 16) : null, discCount: nd, crowns: nc > 0 ? crownScratch.slice(0, nc * CROWN_STRIDE) : null, crownCount: nc, groundCrowns: ng > 0 ? groundCrownScratch.slice(0, ng * CROWN_STRIDE) : null, groundCount: ng, wx: x0, wy: oy, wz: z0 };
 }

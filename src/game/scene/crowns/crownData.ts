@@ -21,3 +21,21 @@ export interface CrownLookup {
   /** how many variants a species has */
   variants(species: number): number;
 }
+
+/**
+ * The ground field's forms (core/world/groundTables.ts) the plant toolkit grows, by form: drawn by the crowns as
+ * the trees are, a tile of them set out once (docs/V3/nodes/P2-B-kit-ground.md). The forms not here (the mats of
+ * moss, needles and litter, the stones, the rice) stay the plant atlas's.
+ */
+export const GROUND_KIT: Readonly<Record<string, string>> = {
+  grass: 'tuft_meadow', tussock: 'tuft_tussock', sedge: 'tuft_needle', broom: 'shrub_heather', fern: 'fern',
+  shrub: 'shrub_round', broad: 'shrub_round', dwarf: 'shrub_heather', berry: 'shrub_round', maritime: 'shrub_round',
+  sage: 'shrub_sage', creosote: 'shrub_sage', thorn: 'shrub_sage',
+  cup: 'flower_poppy', daisy: 'flower_daisy', star: 'flower_daisy', woodflower: 'flower_daisy', spike: 'flower_lupin', tube: 'flower_tulip', cluster: 'shrub_protea',
+};
+/** a ground plant's species: its kind's, apart from the trees' families */
+export const groundFamily = (kind: string): string => `g:${kind}`;
+/** variants of a ground plant (few: it is small, and a tile holds hundreds) */
+export const GROUND_VARIANTS = 3;
+/** the toolkit kind a species of the ground is, or undefined */
+export const groundKind = (family: string): string | undefined => (family.startsWith('g:') ? family.slice(2) : undefined);

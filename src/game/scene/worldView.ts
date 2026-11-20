@@ -645,6 +645,15 @@ export class WorldView {
       holder.userData.own = [{ dispose: () => crowns.dropTile(key, token) }];
       objects.push(this.add(holder, s.wx, s.wy, s.wz));
     }
+    if (this.crowns && s.groundCrowns) {
+      // … and its ground's plants the toolkit grows: a still tile of them, at the tile's own level
+      const crowns = this.crowns;
+      const gkey = `${key}|ground`;
+      const token = crowns.setGroundTile(gkey, s.groundCrowns, s.groundCount, lod === LOD_MID ? 1 : 0);
+      const holder = new THREE.Object3D();
+      holder.userData.own = [{ dispose: () => crowns.dropTile(gkey, token) }];
+      objects.push(this.add(holder, s.wx, s.wy, s.wz));
+    }
     for (const b of [...s.batches,...s.groundBatches]) {
       const mesh = floraMesh(b, this.floraMat!, TILE);
       mesh.name = s.groundBatches.includes(b) ? 'world:flora-ground' : 'world:flora-trees';
