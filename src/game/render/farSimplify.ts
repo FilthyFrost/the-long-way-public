@@ -29,13 +29,21 @@ export const FAR_SHARE: Record<string, number> = {
   wood: 0.1,
   cap_oil: 0.2,
   cap_water: 0.2,
+  // (the cab's inside, cut hard: a wreck without its door skins shows its door linings, and left out it stood with a hole)
+  fabric: 0.06,
+  leather: 0.06,
+  plastic_int: 0.06,
+  gauge: 0.1,
 };
 
 /** the share each keeps in the middle distance (from some twenty metres): three times its far share, at most 60 % */
 export const MID_SHARE = (name: string): number => Math.min(FAR_SHARE[name] === 1 ? 1 : 0.6, 3 * (FAR_SHARE[name] ?? 0.12));
 
-/** what is not drawn at all far off: the inside of the cab, not to be seen from forty metres */
-export const FAR_HIDDEN = new Set(['fabric', 'leather', 'plastic_int', 'gauge']);
+/**
+ * What is not drawn at all far off: nothing now. (The cab's inside was left out, not to be seen from forty metres; but
+ * a wreck without its door skins shows the door linings, and left out it stood with a hole in its middle.)
+ */
+export const FAR_HIDDEN = new Set<string>();
 
 /** the error allowed, as a share of the mesh's size (a car of 5 m: some 6 cm far off, 3 cm in the middle distance) */
 export const FAR_ERROR = 0.012;
@@ -52,11 +60,8 @@ export function simplifierReady(): Promise<void> {
 export function reduceIndex(positions: Float32Array, indices: Uint32Array, share: number, error = FAR_ERROR, prune = true): Uint32Array {
   const target = Math.max(3, Math.floor((indices.length * share) / 3) * 3);
   if (indices.length <= target) return indices;
-  let [out] = MeshoptSimplifier.simplify(indices, positions, 3, target, error, prune ? ['Permissive', 'Prune'] : ['Permissive']);
-  if (prune && out.length > target * 1.6) {
-    // (an open shell of many small pieces will not collapse that far within the bound: clustered instead)
-    const [sloppy] = MeshoptSimplifier.simplifySloppy(indices, positions, 3, null, target, error * 2);
-    if (sloppy.length >= 3 && sloppy.length < out.length) out = sloppy;
-  }
+  const [out] = MeshoptSimplifier.simplify(indices, positions, 3, target, error, prune ? ['Permissive', 'Prune'] : ['Permissive']);
+  // (where edge collapse cannot reach the share within the bound, the mesh keeps more: clustering it instead ate thin
+  // panels — a door's skin — and a far wreck stood with a hole in its middle)
   return out;
 }

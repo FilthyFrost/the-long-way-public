@@ -72,7 +72,7 @@ try {
         ['ground_road', /terrain|ground|road|strip|tile|chunk|land|shoulder|verge|water|lake|river|sea|wire|pole|kerb|curb|line/i],
         ['rocks', /rock|stone|boulder|cobble|pebble|scree/i],
         ['life', /life|bird|fish|insect|butterfly|bee|deer|animal|firefl/i],
-        ['vehicles_player', /modcar|vehicle|car|wheel|tyre|cab|seat|player|hand|held|cockpit|dash/i],
+        ['vehicles_player', /modcar|vehicle|car|wheel|tyre|cab|seat|player|hand|held|cockpit|dash|merged/i],
       ];
       const kindOf = (o) => {
         for (let p = o; p; p = p.parent) {

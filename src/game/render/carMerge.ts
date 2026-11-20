@@ -21,7 +21,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { carMaterialName, meshCarMaterialName } from './carMaterials';
+import { carMaterialBase, carMaterialName, meshCarMaterialName } from './carMaterials';
 import { reduceLater } from './carFar';
 import { FAR_ERROR, FAR_HIDDEN, FAR_SHARE, MID_ERROR, MID_SHARE } from './farSimplify';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from './shadow';
@@ -322,9 +322,9 @@ export class MergedCar {
     }
   }
 
-  /** draw calls the merged car costs on the screen (one per material) */
+  /** draw calls the merged car costs on the screen now (one per material; one far off) */
   get calls(): number {
-    return this.group.children.length - (this.hull ? 1 : 0);
+    return this.group.children.filter((c) => c.visible && c !== this.hull).length;
   }
 
   /** the ids merged */
@@ -340,6 +340,13 @@ export class MergedCar {
     const cur = this.looks.get(id);
     const ranges = this.ranges.get(id);
     if (!cur || !ranges) return;
+    // (the far one holds its own copy of the colours: it is made again after the change, below)
+    const remake = this.farOne !== null;
+    if (this.farOne) {
+      this.farOne.removeFromParent();
+      this.farOne.geometry.dispose();
+      this.farOne = null;
+    }
     if (look.paint !== undefined) cur.paint.set(look.paint);
     if (look.paint2 !== undefined) cur.paint2.set(look.paint2);
     if (look.dirt !== undefined) cur.wear.x = look.dirt;
@@ -377,6 +384,10 @@ export class MergedCar {
         a.needsUpdate = true;
       }
     }
+    if (remake) {
+      this.makeFarOne();
+      this.applyLevel();
+    }
   }
 
   /** a part's box in the frame's space (for picking it, for a highlight's card) */
@@ -412,6 +423,11 @@ export class MergedCar {
   /** put the originals back, free the merged geometry (merge again after a fit or a removal) */
   dispose(): void {
     this.gone = true;
+    if (this.farOne) {
+      this.farOne.removeFromParent();
+      this.farOne.geometry.dispose();
+      this.farOne = null;
+    }
     if (this.hull) {
       this.hull.removeFromParent();
       this.hull.geometry.dispose();
@@ -481,9 +497,12 @@ export class MergedCar {
           g.boundingSphere = near.boundingSphere ? near.boundingSphere.clone() : null;
           g.boundingBox = near.boundingBox ? near.boundingBox.clone() : null;
           made[lv].set(mesh, g);
+          // (once every twin is in: far off the car as one mesh in one material, and a lean hull of the far twins)
+          if (this.pending === 0) {
+            this.makeFarOne();
+            if (this.hullLean) this.castThroughHull(true);
+          }
           this.applyLevel();
-          // (a lean hull made again from the far twins once they are all in: a parked car's shadow needs no more)
-          if (this.pending === 0 && this.hullLean) this.castThroughHull(true);
         });
       }
     }
@@ -586,9 +605,117 @@ export class MergedCar {
     if (!lean) this.hull.layers.enable(LAYER_SHADOW_NEAR);
   }
 
-  private applyLevel(): void {
+  // ---- far off in one draw ----
+
+  private farOne: THREE.Mesh | null = null;
+  /** a far car's one mesh made (CarView gives it its material) */
+  onFarOne: ((mesh: THREE.Mesh) => void) | null = null;
+
+  /**
+   * Far off, the car as one mesh: every far twin's faces in one geometry, each corner coloured as its material is
+   * (a paint's corners their part's paint, the rest their material's own colour: render/carMaterials.ts
+   * carMaterialBase), drawn in the paint's material: one draw where there were a dozen and more. From forty-five
+   * metres chrome and steel are their colours; glass is dark.
+   */
+  private makeFarOne(): void {
+    if (this.farOne || this.gone || !this.twins[1]) return;
+    const parts: { geo: THREE.BufferGeometry; name: string }[] = [];
     for (const [mesh, near] of this.nearOf) {
       if (mesh === this.hull) continue;
+      const g = this.twins[1].get(mesh);
+      // (left out far off: the cab's inside; kept whole, with no twin: glass and lamps, a few faces, drawn as they are)
+      if (g === null) continue;
+      parts.push({ geo: g ?? near, name: mesh.name.replace(/^merged:/, '') });
+    }
+    if (!parts.length) return;
+    let corners = 0;
+    let faces = 0;
+    const maps: Int32Array[] = [];
+    const counts: number[] = [];
+    for (const p of parts) {
+      const ix = p.geo.getIndex()!.array as ArrayLike<number>;
+      const map = new Int32Array(p.geo.getAttribute('position').count).fill(-1);
+      let n = 0;
+      for (let i = 0; i < ix.length; i++) if (map[ix[i]] < 0) map[ix[i]] = n++;
+      maps.push(map);
+      counts.push(n);
+      corners += n;
+      faces += ix.length;
+    }
+    const pos = new Float32Array(corners * 3);
+    const nrm = new Float32Array(corners * 3);
+    const uv = new Float32Array(corners * 2);
+    const ao = new Float32Array(corners * 4);
+    const paint = new Float32Array(corners * 3);
+    const wear = new Float32Array(corners * 4);
+    const id = new Float32Array(corners);
+    const index = corners > 65535 ? new Uint32Array(faces) : new Uint16Array(faces);
+    let base = 0;
+    let at = 0;
+    parts.forEach((p, k) => {
+      const map = maps[k];
+      const g = p.geo;
+      const P = g.getAttribute('position').array as ArrayLike<number>;
+      const N = g.getAttribute('normal')?.array as ArrayLike<number> | undefined;
+      const U = g.getAttribute('uv')?.array as ArrayLike<number> | undefined;
+      const C = g.getAttribute('color')?.array as ArrayLike<number> | undefined;
+      const A = g.getAttribute('aPaint')?.array as ArrayLike<number> | undefined;
+      const W = g.getAttribute('aWear')?.array as ArrayLike<number> | undefined;
+      const I = g.getAttribute('aPartId')?.array as ArrayLike<number> | undefined;
+      const own = carMaterialBase(p.name);
+      for (let v = 0; v < map.length; v++) {
+        if (map[v] < 0) continue;
+        const o = base + map[v];
+        for (let c = 0; c < 3; c++) {
+          pos[o * 3 + c] = P[v * 3 + c];
+          nrm[o * 3 + c] = N ? N[v * 3 + c] : c === 1 ? 1 : 0;
+          paint[o * 3 + c] = A ? A[v * 3 + c] : own[c];
+        }
+        uv[o * 2] = U ? U[v * 2] : 0;
+        uv[o * 2 + 1] = U ? U[v * 2 + 1] : 0;
+        for (let c = 0; c < 4; c++) {
+          ao[o * 4 + c] = C ? C[v * 4 + c] : 1;
+          wear[o * 4 + c] = W ? W[v * 4 + c] : 0;
+        }
+        id[o] = I ? I[v] : 0;
+      }
+      const ix = g.getIndex()!.array as ArrayLike<number>;
+      for (let i = 0; i < ix.length; i++) index[at++] = base + map[ix[i]];
+      base += counts[k];
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.BufferAttribute(ao, 4));
+    geo.setAttribute('aPaint', new THREE.BufferAttribute(paint, 3));
+    geo.setAttribute('aWear', new THREE.BufferAttribute(wear, 4));
+    geo.setAttribute('aPartId', new THREE.BufferAttribute(id, 1));
+    geo.setIndex(new THREE.BufferAttribute(index, 1));
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
+    const placeholder = new THREE.MeshBasicMaterial();
+    placeholder.name = 'paint';
+    const mesh = new THREE.Mesh(geo, placeholder);
+    mesh.name = 'merged:far-one';
+    mesh.visible = false;
+    this.farOne = mesh;
+    this.group.add(mesh);
+    this.onFarOne?.(mesh);
+    // (its shadow is the hull's)
+    mesh.layers.disable(LAYER_SHADOW_FAR);
+    mesh.layers.disable(LAYER_SHADOW_NEAR);
+  }
+
+  private applyLevel(): void {
+    const one = this.level === 2 && this.farOne !== null;
+    if (this.farOne) this.farOne.visible = one;
+    for (const [mesh, near] of this.nearOf) {
+      if (mesh === this.hull) continue;
+      if (one) {
+        mesh.visible = false;
+        continue;
+      }
       const mid = this.twins[0]?.get(mesh);
       const far = this.twins[1]?.get(mesh);
       if (this.level === 2 && far === null) {

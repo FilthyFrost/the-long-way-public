@@ -67,6 +67,12 @@ export const CAR_MATERIAL_NAMES = [
 
 export type CarMaterialName = (typeof CAR_MATERIAL_NAMES)[number];
 
+/** a material's own colour (linear), for a far car drawn in one material (render/carMerge.ts, the far level) */
+export function carMaterialBase(name: string): [number, number, number] {
+  const n = carMaterialName(name);
+  return n ? RECIPES[n].base : RECIPES.plastic_int.base;
+}
+
 const NAMES = new Set<string>(CAR_MATERIAL_NAMES);
 
 /** 'paint.001' (Blender's duplicate) → 'paint'; anything that is not a conventional name → null */

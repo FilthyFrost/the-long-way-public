@@ -1104,6 +1104,8 @@ export class CarView {
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
     const look = this.mats.look('merged', { paint: paintNow(this.build, 0xd8d4c8), paint2: paintHex(this.build.paint2) });
     applyMaterials(merged.group, look, true);
+    // (far off the car is one mesh in the paint's material, made once its far twins are in: render/carMerge.ts)
+    merged.onFarOne = (mesh) => applyMaterials(mesh, look, true);
     this.merged = merged;
     this.mergedLook = look;
     // (a parked vehicle's far model made at once, in a worker: it is ready by the time the vehicle is far off)

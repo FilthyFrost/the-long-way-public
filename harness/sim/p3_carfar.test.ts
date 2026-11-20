@@ -60,7 +60,7 @@ describe('far models', () => {
     for (let i = 0; i < out.length; i++) expect(out[i]).toBeLessThan(pos.length / 3);
   });
 
-  it('reduces a shell of many small loose pieces too (clustered when edge collapse cannot reach)', async () => {
+  it('reduces a shell of many small loose pieces too (the smallest pruned)', async () => {
     await simplifierReady();
     const parts: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 300; i++) {
@@ -81,7 +81,7 @@ describe('far models', () => {
     expect(out.length / 3).toBeLessThan(tris(merged) * 0.5);
   });
 
-  it('swaps a merged car to its middle and far models and back, the cab left out far off only', async () => {
+  it('swaps a merged car to its middle and far models and back, far off one mesh in one draw', async () => {
     const frame = new THREE.Group();
     const body = new THREE.Group();
     frame.add(body);
@@ -105,11 +105,19 @@ describe('far models', () => {
     const paint = car.group.children.find((c) => c.name === 'merged:paint') as THREE.Mesh;
     const leather = car.group.children.find((c) => c.name === 'merged:leather') as THREE.Mesh;
     expect(leather.visible).toBe(false);
-    expect(tris(paint.geometry)).toBeLessThanOrEqual(Math.ceil(tris(skin.geometry) * FAR_SHARE.paint * 1.6));
-    // the twin shares the near mesh's attributes: a part's new paint is written to both
+    // far off: one mesh in one material, the far twins' faces
+    const one = () => car.group.children.find((c) => c.name === 'merged:far-one') as THREE.Mesh;
+    expect(one()).toBeDefined();
+    expect(one().visible).toBe(true);
+    expect(paint.visible).toBe(false);
+    expect(car.triangles).toBeLessThanOrEqual(Math.ceil(tris(skin.geometry) * FAR_SHARE.paint * 1.6));
+    expect(car.calls).toBe(1);
+    // a part's new paint reaches the far one (made again) and the near meshes (their attributes shared with the twins)
     car.updatePart(1, { paint: 0x2244aa });
-    const a = paint.geometry.getAttribute('aPaint') as THREE.BufferAttribute;
+    const a = one().geometry.getAttribute('aPaint') as THREE.BufferAttribute;
     expect(a.getZ(0)).toBeGreaterThan(a.getX(0));
+    const b = paint.geometry.getAttribute('aPaint') as THREE.BufferAttribute;
+    expect(b.getZ(0)).toBeGreaterThan(b.getX(0));
     car.setLevel(0);
     expect(leather.visible).toBe(true);
     expect(car.triangles).toBe(full);

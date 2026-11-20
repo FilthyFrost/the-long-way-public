@@ -4469,13 +4469,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (a flap left open shuts itself once the vehicle drives off)
       if (v.view.capOpen && Math.abs(v.sim.kmh) > 3) v.view.capOpen = false;
       v.view.ridden = v === this.seated;
-      // (standing well away from the player, nobody in it: every part merged, a handful of draws — carView.ts setParked;
-      // within 12 m again it is taken apart before anything of it can be reached)
+      // (standing away from the player, nobody in it: every part merged, a handful of draws — carView.ts setParked;
+      // within 7 m again it is taken apart before anything of it can be reached)
       if (this.vehicles.length > 0) {
         const px = this.seated ? this.seated.sim.px : this.player.walker.x;
         const pz = this.seated ? this.seated.sim.pz : this.player.walker.z;
         const far = Math.hypot(v.sim.px - px, v.sim.pz - pz);
-        v.view.setParked(v !== this.seated && Math.abs(v.sim.kmh) < 0.5 && (v.view.isParked ? far > 12 : far > 16));
+        // (merged from 9 m, taken apart within 7: a door or a part is reached from a metre or two, and a car merged at
+        // 9 m costs its dozen draws, not its sixty)
+        v.view.setParked(v !== this.seated && Math.abs(v.sim.kmh) < 0.5 && (v.view.isParked ? far > 7 : far > 9));
         // (and further off its reduced models: a third of its triangles from some twenty metres, a tenth from forty-five
         // with the cab's inside left out)
         const lv = v.view.detail;
