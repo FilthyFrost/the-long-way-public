@@ -20,6 +20,7 @@ import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
 import type { RenderCore } from '../render/core';
 import { measureCarShape, meshCarMaterialName, type CarLook, type WiperArc } from '../render/carMaterials';
 import { MergedCar, type PartLook } from '../render/carMerge';
+import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { castMesh } from '../render/triGrid';
 import { glassName } from './grime';
 import { partGeo, partTop } from '../../core/modcar/geo';
@@ -38,6 +39,8 @@ const MERGE_GAP_MS = 60;
 let lastMergeAt = -Infinity;
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|POPUP_|ghost:)/;
+/** what of a vehicle throws no shadow into the near map (carView.ts tryMerge): the knuckles under it, the wipers, levers, keys, knobs and needles */
+const UNDER_OR_SMALL = /^(KNUCKLE_|WIPER_|LEVER|KEY|KNOB_|BUTTON|N_)/;
 /** how far the filler flap swings open (deg) */
 const CAP_OPEN_DEG = 105;
 /** how far a merged part's dirt or rust may drift before its vertices are written again */
@@ -1106,6 +1109,19 @@ export class CarView {
     // (a parked vehicle's far model made at once, in a worker: it is ready by the time the vehicle is far off)
     if (parked) merged.prepareFar();
     if (this.farLevel) merged.setLevel(this.farLevel);
+    // (its shadow through one hull, one draw a shadow map — render/carMerge.ts castThroughHull; what rides on the wheels
+    // under the body, the knuckles, wipers, levers, keys and needles throw none into the near map: under the body or too
+    // small to be seen there)
+    merged.castThroughHull(parked);
+    if (!parked) {
+      for (const sh of this.shown.values()) if (sh.units) for (const u of sh.units) u.traverse((o) => (o as THREE.Mesh).isMesh && o.layers.disable(LAYER_SHADOW_NEAR));
+      this.model.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh && UNDER_OR_SMALL.test(o.name)) {
+          o.layers.disable(LAYER_SHADOW_NEAR);
+          o.layers.disable(LAYER_SHADOW_FAR);
+        }
+      });
+    }
   }
 
   /** a merged part's paint or wear moved on (the spray can, the sponge, the road's dust): write its vertices again */

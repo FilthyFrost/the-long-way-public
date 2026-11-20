@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { MergedCar } from '../../src/game/render/carMerge';
 import { FAR_SHARE, reduceIndex, simplifierReady } from '../../src/game/render/farSimplify';
+import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../../src/game/render/shadow';
 
 const tris = (g: THREE.BufferGeometry): number => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
 
@@ -17,6 +18,36 @@ function indexed(g: THREE.BufferGeometry): THREE.BufferGeometry {
 }
 
 describe('far models', () => {
+  it('throws a merged car shadow through one hull, drawn in the shadow maps only', () => {
+    const frame = new THREE.Group();
+    const body = new THREE.Group();
+    frame.add(body);
+    const skin = new THREE.Mesh(indexed(new THREE.SphereGeometry(1.5, 32, 24)), new THREE.MeshBasicMaterial({ name: 'paint' }));
+    const steel = new THREE.Mesh(indexed(new THREE.BoxGeometry(2, 0.2, 4, 4, 1, 8)), new THREE.MeshBasicMaterial({ name: 'steel' }));
+    const glass = new THREE.Mesh(indexed(new THREE.PlaneGeometry(1, 0.6)), new THREE.MeshBasicMaterial({ name: 'glass' }));
+    body.add(skin, steel, glass);
+    const car = new MergedCar(frame, [{ id: 1, object: body, look: { paint: 0x884422 } }], () => false);
+    // (the glass, as applyMaterials leaves it: out of the shadow maps)
+    const merged = car.group.children as THREE.Mesh[];
+    const g = merged.find((m) => m.name === 'merged:glass')!;
+    g.layers.disable(LAYER_SHADOW_FAR);
+    g.layers.disable(LAYER_SHADOW_NEAR);
+    const calls = car.calls;
+    car.castThroughHull(false);
+    const hull = car.group.children.find((c) => c.name === 'merged:shadow-hull') as THREE.Mesh;
+    expect(hull).toBeDefined();
+    expect(car.calls).toBe(calls);
+    expect(tris(hull.geometry)).toBe(tris(skin.geometry) + tris(steel.geometry));
+    expect(hull.layers.isEnabled(0)).toBe(false);
+    expect(hull.layers.isEnabled(LAYER_SHADOW_FAR) && hull.layers.isEnabled(LAYER_SHADOW_NEAR)).toBe(true);
+    for (const m of merged) if (m !== hull) expect(m.layers.isEnabled(LAYER_SHADOW_FAR) || m.layers.isEnabled(LAYER_SHADOW_NEAR)).toBe(false);
+    // a parked car's: the wide map only
+    car.castThroughHull(true);
+    expect(hull.layers.isEnabled(LAYER_SHADOW_NEAR)).toBe(false);
+    car.dispose();
+    expect(hull.parent).toBeNull();
+  });
+
   it('reduces a smooth closed mesh to about its share', async () => {
     await simplifierReady();
     const g = new THREE.SphereGeometry(1, 128, 96);

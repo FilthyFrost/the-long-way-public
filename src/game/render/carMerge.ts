@@ -322,9 +322,9 @@ export class MergedCar {
     }
   }
 
-  /** draw calls the merged car costs (one per material) */
+  /** draw calls the merged car costs on the screen (one per material) */
   get calls(): number {
-    return this.group.children.length;
+    return this.group.children.length - (this.hull ? 1 : 0);
   }
 
   /** the ids merged */
@@ -412,6 +412,11 @@ export class MergedCar {
   /** put the originals back, free the merged geometry (merge again after a fit or a removal) */
   dispose(): void {
     this.gone = true;
+    if (this.hull) {
+      this.hull.removeFromParent();
+      this.hull.geometry.dispose();
+      this.hull = null;
+    }
     for (const m of this.hidden) m.visible = true;
     this.hidden.length = 0;
     // (the twins share the near meshes' attributes: the near ones back in place first, every twin freed after)
@@ -462,6 +467,7 @@ export class MergedCar {
           made[1].set(mesh, null);
           continue;
         }
+        if (mesh === this.hull) continue;
         const share = lv === 0 ? MID_SHARE(name) : (FAR_SHARE[name] ?? 0.12);
         // (a mesh kept whole at a level has no twin there: the near one is drawn)
         this.pending++;
@@ -476,6 +482,8 @@ export class MergedCar {
           g.boundingBox = near.boundingBox ? near.boundingBox.clone() : null;
           made[lv].set(mesh, g);
           this.applyLevel();
+          // (a lean hull made again from the far twins once they are all in: a parked car's shadow needs no more)
+          if (this.pending === 0 && this.hullLean) this.castThroughHull(true);
         });
       }
     }
@@ -494,19 +502,93 @@ export class MergedCar {
     return this.level;
   }
 
-  /** the triangles the merged car draws now */
+  /** the triangles the merged car draws now (on the screen) */
   get triangles(): number {
     let n = 0;
     for (const c of this.group.children) {
       const m = c as THREE.Mesh;
-      if (!m.visible) continue;
+      if (!m.visible || m === this.hull) continue;
       n += (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
     }
     return n;
   }
 
+  // ---- the shadow hull ----
+
+  private hull: THREE.Mesh | null = null;
+  private hullLean = false;
+
+  /**
+   * Throw the merged car's shadow through one hull: the faces of every merged mesh that throws a shadow, gathered into
+   * one geometry (positions only) drawn into the shadow maps and nowhere else, and the meshes taken out of the shadow
+   * maps — one draw a map instead of one a material. `lean` (a parked car): the far twins' faces where they are made
+   * (the wide map's texel is some ten centimetres), and into the wide map only (the near one is round the player).
+   * Called after the meshes have their materials (carView.ts tryMerge: applyMaterials sets who throws a shadow).
+   */
+  castThroughHull(lean = false): void {
+    if (this.gone) return;
+    this.hullLean = lean;
+    const members: { mesh: THREE.Mesh; geo: THREE.BufferGeometry }[] = [];
+    for (const c of this.group.children) {
+      const mesh = c as THREE.Mesh;
+      if (mesh === this.hull) continue;
+      const near = this.nearOf.get(mesh) ?? mesh.geometry;
+      if (!mesh.layers.isEnabled(LAYER_SHADOW_FAR) && !mesh.layers.isEnabled(LAYER_SHADOW_NEAR) && !this.hull) continue;
+      if (this.hull && mesh.userData.hulled !== true) continue;
+      const far = lean ? this.twins[1]?.get(mesh) : undefined;
+      if (far === null) continue;
+      members.push({ mesh, geo: far ?? near });
+    }
+    if (!members.length) return;
+    // only the corners the faces use, laid end to end
+    let corners = 0;
+    let faces = 0;
+    const maps: Int32Array[] = [];
+    for (const m of members) {
+      const ix = m.geo.getIndex()!.array as ArrayLike<number>;
+      const map = new Int32Array(m.geo.getAttribute('position').count).fill(-1);
+      for (let i = 0; i < ix.length; i++) if (map[ix[i]] < 0) map[ix[i]] = corners++;
+      maps.push(map);
+      faces += ix.length;
+    }
+    const pos = new Float32Array(corners * 3);
+    const index = corners > 65535 ? new Uint32Array(faces) : new Uint16Array(faces);
+    let at = 0;
+    members.forEach((m, k) => {
+      const src = m.geo.getAttribute('position').array as ArrayLike<number>;
+      const map = maps[k];
+      for (let v = 0; v < map.length; v++) {
+        const to = map[v];
+        if (to < 0) continue;
+        pos[to * 3] = src[v * 3];
+        pos[to * 3 + 1] = src[v * 3 + 1];
+        pos[to * 3 + 2] = src[v * 3 + 2];
+      }
+      const ix = m.geo.getIndex()!.array as ArrayLike<number>;
+      for (let i = 0; i < ix.length; i++) index[at++] = map[ix[i]];
+      m.mesh.layers.disable(LAYER_SHADOW_FAR);
+      m.mesh.layers.disable(LAYER_SHADOW_NEAR);
+      m.mesh.userData.hulled = true;
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(new THREE.BufferAttribute(index, 1));
+    g.computeBoundingSphere();
+    if (this.hull) {
+      this.hull.geometry.dispose();
+      this.hull.geometry = g;
+    } else {
+      this.hull = new THREE.Mesh(g, HULL_MATERIAL);
+      this.hull.name = 'merged:shadow-hull';
+      this.group.add(this.hull);
+    }
+    this.hull.layers.set(LAYER_SHADOW_FAR);
+    if (!lean) this.hull.layers.enable(LAYER_SHADOW_NEAR);
+  }
+
   private applyLevel(): void {
     for (const [mesh, near] of this.nearOf) {
+      if (mesh === this.hull) continue;
       const mid = this.twins[0]?.get(mesh);
       const far = this.twins[1]?.get(mesh);
       if (this.level === 2 && far === null) {
@@ -519,6 +601,10 @@ export class MergedCar {
     }
   }
 }
+
+/** the shadow hull's material: never seen (the shadow maps draw it with their own) */
+const HULL_MATERIAL = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+HULL_MATERIAL.name = 'shadow-hull';
 
 /** a mesh's conventional material name (for code that only has the merged mesh) */
 export function mergedMaterialName(mesh: THREE.Mesh): string {
