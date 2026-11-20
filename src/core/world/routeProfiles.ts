@@ -1,5 +1,6 @@
 /** Neighbouring landscapes of the same watershed or mountain flank. Distances are game-scale ecotones in metres.
  * Each corridor can be travelled in either direction. Keep seasonal/climate profiles independent of the dealer. */
+import { sceneMonth } from './sceneSeason';
 import { ECO_PROFILES } from './data/ecoProfiles';
 import { hash2 } from '../math/rng';
 import type { LandKind } from './landform';
@@ -38,9 +39,10 @@ const analogues: Readonly<Record<string, string>> = {
 };
 export function routeProfileId(id: string): string { return analogues[id] ?? id; }
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
-export function snowLinesFor(id: string): readonly number[] {
+export function sceneSnowLine(id: string): number {
   const profile = profiles.get(analogues[id] ?? id);
-  return [0, 1, 2, 3].map(i => profile?.snowlineM[i] ?? 100000);
+  // The game's compressed Alpine valley stands hundreds of metres below the Sierra reference.
+  return id === 'alpine' ? 150 : profile?.snowlineM[Math.floor(sceneMonth(id) % 12 / 3)] ?? 100000;
 }
 // An authored transition takes precedence over a generic ecotone. A self-edge varies habitat within
 // its local landscape; it cannot by itself connect unrelated biomes using the same broad analogue.

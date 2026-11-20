@@ -1,8 +1,9 @@
+import { localMonth } from '../../src/core/world/sceneSeason';
 import { expect, it } from 'vitest';
 import { ECO_PROFILES } from '../../src/core/world/data/ecoProfiles';
 import { BIOMES } from '../../src/core/world/biomes';
 import { Ecotope } from '../../src/core/world/ecotope';
-import { groundField, groundMonth } from '../../src/core/world/groundField';
+import { groundField } from '../../src/core/world/groundField';
 import { blossoms, crownFlowers, elevationBand, groundProfile, pigments, plants, siteElevation, siteFit } from '../../src/core/world/groundTables';
 import { sampleRock } from '../../src/core/world/rockTables';
 import { Solid } from '../../src/core/world/solids';
@@ -37,7 +38,6 @@ it('keeps forest-floor plants out of the open, wet sedges out of dry scrub, and 
 });
 
 it('draws and collides with the same seeded rocks and admits only the local species in flower that month',()=>{
-  expect(groundMonth(0)).toBe(6);expect(groundMonth(30)).toBe(7);expect(groundMonth(214)).toBe(1);
   const opts={worldVersion:2 as const,startBiome:'plains'};
   const w=new World(7,opts), other=new World(7,opts);
   const field=groundField(w), site=new SpineSample(), e=new Ecotope(), tp=new TerrainPoint();
@@ -53,11 +53,11 @@ it('draws and collides with the same seeded rocks and admits only the local spec
       if (r.solid){expect(nearby).toContain(r.solid);rocks++;}
       else expect(nearby.every(s=>s.x!==r.x || s.z!==r.z)).toBe(true);
     }
-    for(const m of [1,6,10]){
-      field.setMonth(m);
+    {
       for(const c of field.tile(tx,tz,false)){
         w.eco!.at(c.x,c.z,e);w.shape(c.x,c.z,tp);
         const id=BIOMES[e.rt>=0.5?e.rb:e.ra].id,p=groundProfile(id)!;
+        const m=localMonth(BIOMES[e.ra].id,BIOMES[e.rb].id,e.rt);
         const band=elevationBand(p,siteElevation(id,e))!;
         expect(tp.zone).toBe(0);expect(tp.bed).toBeGreaterThanOrEqual(tp.wl);
         const f=band.flowers.find(f=>f.name===c.name && blossoms.get(f.name)?.form===c.form);

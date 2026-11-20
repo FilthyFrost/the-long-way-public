@@ -58,7 +58,6 @@ export function crownMaterial(): THREE.ShaderMaterial {
       uniform vec4 uWind;
       ${PACKED_SNOW}
       uniform float uTime;
-      uniform float uCrownDay;
       attribute vec4 aCrown;   // tone, its clump's phase, how open it lies, its height in the tree (model m)
       attribute float aPart;   // 0 wood, 1 a clump's core, 2 a spray
       attribute vec3 aFade;
@@ -115,7 +114,8 @@ export function crownMaterial(): THREE.ShaderMaterial {
         vEver = floor(flags * 0.5);
         // Day zero is early June in the northern road references. Ash leafs out late;
         // from early spring until May its sparse sprays open progressively.
-        float year = mod(uCrownDay + 151.0, 365.0);
+        float month = floor(fract(aLook.x) * 256.0) * 0.5;
+        float year = mod((month - 0.5) * (365.0 / 12.0) + 365.0, 365.0);
         bool ash = abs(aPart-1.24)<0.01 || abs(aPart-2.24)<0.01;
         if (ash && year>60.0 && year<140.0 && aCrown.x>smoothstep(105.0,140.0,year))
           w = m * vec4(0.0,0.0,0.0,1.0);

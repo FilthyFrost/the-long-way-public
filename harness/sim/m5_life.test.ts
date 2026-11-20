@@ -1,9 +1,10 @@
+import { localMonth, sceneMonth, sceneMonthAt } from '../../src/core/world/sceneSeason';
 import { describe, expect, it } from 'vitest';
 import * as T from 'three';
 import { WeatherState } from '../../src/core/env/weather';
 import { ECO_PROFILES } from '../../src/core/world/data/ecoProfiles';
 import { World } from '../../src/core/world/terrain';
-import { profileFor, animals, inSeason, suits, cellHash, anchor, ringCell, journeyMonth, CELL_COUNT, GROUP_LIMIT, type Habitat } from '../../src/core/v3/life/rules';
+import { profileFor, animals, inSeason, suits, cellHash, anchor, ringCell, CELL_COUNT, GROUP_LIMIT, type Habitat } from '../../src/core/v3/life/rules';
 import { Life } from '../../src/game/modcar/v3/life/system';
 import type { GameContext } from '../../src/game/modcar/kernel/context';
 import { ALLOCATES, heapGrowth } from './v3/heap';
@@ -21,7 +22,12 @@ describe('wayside life',()=>{
     expect(inSeason(profileFor('cape-fynbos')!,'粉蝶类',3,14,weather)).toBe(false);
     expect(inSeason(profileFor('cape-fynbos')!,'粉蝶类',11,14,weather)).toBe(true);
     expect(profileFor('unknown')).toBeUndefined();
-    expect([0,30,180,210,360].map(journeyMonth)).toEqual([6,7,12,1,6]);
+    expect(sceneMonth('maple')).toBe(10);
+    expect(sceneMonth('alpine')).toBe(1);
+    expect(localMonth('maple','alpine',2/3)).toBe(12);
+    expect(sceneMonthAt('alpine','maple',1/3)).toBe(12);
+    expect(sceneMonthAt('wetland','lakes',0.83)).toBe(1);
+    expect(sceneMonth('unknown')).toBe(6);
   });
   it('requires a warm summer night and a damp site for Appalachian fireflies',()=>{
     const w=new WeatherState(),p=profileFor('appalachian')!;

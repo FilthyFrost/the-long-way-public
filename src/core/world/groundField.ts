@@ -1,3 +1,4 @@
+import { localMonth } from './sceneSeason';
 import { rand2 } from '../math/rng';
 import { BIOMES } from './biomes';
 import { Ecotope, ECO_SITE, ECO_PLOT, ECO_TILE } from './ecotope';
@@ -20,10 +21,6 @@ export function groundField(world: World) {
   return field;
 }
 
-/** Month one of the journey is June; the kernel's saved day advances the calendar. */
-export function groundMonth(day: number) {
-  return new Date(Date.UTC(2001,5,1+Math.floor(day))).getUTCMonth()+1;
-}
 
 export class GroundField implements SolidSource {
   private readonly tiles = new Map<string,GroundClump[]>();
@@ -31,15 +28,8 @@ export class GroundField implements SolidSource {
   private readonly e = new Ecotope();
   private readonly cover = new Cover();
   private readonly tp = new TerrainPoint();
-  month = 6;
   constructor(private readonly world: World) {}
 
-  setMonth(month: number) {
-    if (this.month === month) return false;
-    this.month = month;
-    this.tiles.clear();
-    return true;
-  }
 
   tile(tx: number, tz: number, rocks: boolean): GroundClump[] {
     const cache = rocks ? this.mineral : this.tiles;
@@ -63,6 +53,7 @@ export class GroundField implements SolidSource {
     if (rocks && die > 0.83) return;
     const e = this.world.eco!.at(x,z,this.e);
     if (e.ad < (rocks ? 12 : 7.6) || e.flags & (ECO_SITE|ECO_PLOT)) return;
+    const month = localMonth(BIOMES[e.ra].id, BIOMES[e.rb].id, e.rt);
     const biome = BIOMES[e.rt >= 0.5 ? e.rb : e.ra];
     const profile = groundProfile(biome.id);
     if (!profile) return;
@@ -85,21 +76,21 @@ export class GroundField implements SolidSource {
       if (typeof choice === 'string') {
         name = choice; g = plants.get(name);
       } else {
-        if (!choice.bloomMonths.includes(this.month)) return;
+        if (!choice.bloomMonths.includes(month)) return;
         if (biome.id === 'flower_fields' && !this.world.flora!.cover(x,z,this.cover,e.h).flowers) return;
         name = choice.name; g = blossoms.get(name);
         accent = pigments[choice.colors[Math.floor(rand2(i,j,seed+8)*choice.colors.length)]];
       }
       if (!g) return;
-      const snow = profile.snowlineM[Math.floor(this.month%12/3)];
+      const snow = profile.snowlineM[Math.floor(month%12/3)];
       if (snow !== null && altitude > snow && g.height < 0.3) return;
       const bench = e.terrace >= 0.5;
       if (rand2(i,j,seed+4) > siteFit(g,e,bench)) return;
-      const localMonth = (this.month - 1 + (profile.climate.latitude < 0 ? 6 : 0)) % 12 + 1;
+      const localMonth = (month - 1 + (profile.climate.latitude < 0 ? 6 : 0)) % 12 + 1;
       const deciduous = /矮柳|矮桦|越橘/.test(name);
       autumn = deciduous && localMonth >= 9 && localMonth <= 11;
-      winter = deciduous && profile.climate.lowC[this.month-1] < -2 && (localMonth >= 11 || localMonth <= 3);
-      dry = /grass|tussock|sedge|rice/.test(g.form) && (profile.climate.precipMm[this.month-1]<30 || profile.climate.lowC[this.month-1]<4);
+      winter = deciduous && profile.climate.lowC[month-1] < -2 && (localMonth >= 11 || localMonth <= 3);
+      dry = /grass|tussock|sedge|rice/.test(g.form) && (profile.climate.precipMm[month-1]<30 || profile.climate.lowC[month-1]<4);
     }
     this.world.shape(x,z,tp);
     if (tp.zone || tp.site>0.1 || tp.plot>0.1 || tp.wl>tp.bed || Math.abs(tp.d)<(rocks ? 12 : 7.6)) return;

@@ -53,10 +53,6 @@ try {
       g.ui.root.style.visibility='hidden';
       const seat=id.endsWith('-seat');
       sys.show(seat?'':species);
-      if(biome==='flower_fields') {
-        // The journey begins in June. Monarch-like butterflies occur here in July and August.
-        const saved=g.clock.snapshot(); g.clock.restore({...saved,day:30});
-      }
       const water=['waterbird','dragonflies','mallard','teal'].includes(id);
       let ready=false,waterSpot;
       if(water) for(let k=0;k<650;k++){

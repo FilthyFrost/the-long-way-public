@@ -370,7 +370,7 @@ describe('the grass of a world of version 2', () => {
     const flower = groundProfile('flower_fields')!.bands[0].flowers[0];
     const cover = new Cover();
     let count = 0;
-    field.setMonth(flower.bloomMonths[0]);
+    expect(flower.bloomMonths).toContain(9);
     for (let s = 1000; s < 6300; s += 250) {
       const [x,z] = beside(w,s,75);
       for (const c of field.tile(Math.floor(x/128),Math.floor(z/128),false)) {
