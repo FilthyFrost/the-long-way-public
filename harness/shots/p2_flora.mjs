@@ -45,6 +45,14 @@ try {
       ['bamboo', 262, 16],
       ['saguaro', 278, 12],
       ['baobab', 302, 28],
+      // (the second round: docs/V3/nodes/P3-kit-more.md)
+      ['eucalyptus', 334, 22],
+      ['willow', 360, 22],
+      ['olive', 382, 14],
+      ['mangrove', 402, 16],
+      ['tree_fern', 418, 10],
+      ['juniper', 432, 11],
+      ['cedar', 458, 26],
     ];
     const trees = row.map(([id, ahead, side], i) => {
       const [x, z] = at(ahead, side);

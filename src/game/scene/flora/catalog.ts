@@ -9,6 +9,7 @@
 import { planFlower, planShrub, planTuft, type FlowerKind, type ShrubKind, type TuftKind } from './ground';
 import { draw, type Drawn, type Level, type Plan } from './kit';
 import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress, planDragon, planOak, planPalm, planPine, planSaguaro, planSpruce, planStonePine } from './trees';
+import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
 
 /** triangles of one plant at its levels (near, middle); far off it is a two-triangle picture */
 export const FLORA_BUDGET = {
@@ -74,6 +75,14 @@ export const FLORA: readonly FloraKind[] = [
   tree('bamboo', '毛竹（竹）', 'broadleaf', (s) => planBamboo(s), { leaf: 0x6e9a3c, second: 0x7d9a52, evergreen: true, pale: true, sway: 1.3 }),
   tree('saguaro', '巨柱仙人掌', 'conifer', (s) => planSaguaro(s), { leaf: 0x5d7d4f, second: 0x5d7d4f, evergreen: true, sway: 0 }),
   tree('baobab', '猴面包树（瓶干）', 'broadleaf', (s) => planBaobab(s), { leaf: 0x6c8a3a, second: 0xb59a86, pale: true, sway: 0.3 }),
+  // (the second round: docs/V3/nodes/P3-kit-more.md)
+  tree('eucalyptus', '桉树', 'broadleaf', (s) => planEucalyptus(s), { leaf: 0x7a9658, second: 0xe2dccb, evergreen: true, pale: true, sway: 1.1 }),
+  tree('willow', '垂柳', 'broadleaf', (s) => planWillow(s), { leaf: 0x8fae4a, second: 0x5e554b, sway: 1.3 }),
+  tree('olive', '橄榄', 'broadleaf', (s) => planOlive(s), { leaf: 0x8a9a6a, second: 0x6b5d4e, evergreen: true, sway: 0.6 }),
+  tree('mangrove', '红树', 'broadleaf', (s) => planMangrove(s), { leaf: 0x4e7a34, second: 0x6b5a48, evergreen: true, sway: 0.6 }),
+  tree('tree_fern', '树蕨', 'broadleaf', (s) => planTreeFern(s), { leaf: 0x5d8f3a, second: 0x5a4636, evergreen: true, sway: 0.9 }),
+  tree('juniper', '刺柏', 'conifer', (s) => planJuniper(s), { leaf: 0x3e5a3a, second: 0x7a5a44, evergreen: true, sway: 0.4 }),
+  tree('cedar', '雪松', 'conifer', (s) => planCedar(s), { leaf: 0x355a48, second: 0x6a5040, evergreen: true, sway: 0.5 }),
   tuft('meadow', '草甸草丛', 0x6f9a3c),
   tuft('tussock', '金色丛草', 0xd2bb7a),
   tuft('needle', '针茅', 0xd2bd78),

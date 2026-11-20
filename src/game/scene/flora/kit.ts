@@ -102,6 +102,8 @@ export interface Clump {
   droop?: number;
   /** no core (a thin clump: a birch's, a heather's) */
   bare?: boolean;
+  /** its hanging sprays this many times as long as they are wide (a willow's curtains: 3 or 4) */
+  hangLong?: number;
 }
 
 /** a plant's plan: the same at every level */
@@ -304,14 +306,17 @@ function writeSprays(out: Out, k: Clump, tile: number, cards: number, size0: num
       tX.set(random() - 0.5, random() - 0.5, random() - 0.5).cross(tN).normalize();
       tY.crossVectors(tN, tX);
     }
-    if (tA.y - size * 0.5 < 0.04) tA.y = 0.04 + size * 0.5;
+    // (a long hanging spray: as long as it is wide times hangLong, its top where a short one's is)
+    const long = hangs ? (k.hangLong ?? 1) : 1;
+    if (long > 1) tA.y -= size * 0.5 * (long - 1);
+    if (tA.y - size * 0.5 * long < 0.04) tA.y = 0.04 + size * 0.5 * long;
     tL.copy(tD).lerp(UP, k.shelf * 0.3).normalize();
     const open = openAt(tA, tL);
     const t = random();
     const first = out.pos.length / 3;
     for (const [sx, sy] of CORNERS) {
       // (a hanging spray's picture: its twig at the top edge, so the card hangs from it)
-      const oy = hangs ? sy * 0.5 - 0.35 : sy * 0.5;
+      const oy = (hangs ? sy * 0.5 - 0.35 : sy * 0.5) * long;
       out.vertex(tA.x + (tX.x * sx * 0.5 + tY.x * oy) * size, tA.y + (tX.y * sx * 0.5 + tY.y * oy) * size, tA.z + (tX.z * sx * 0.5 + tY.z * oy) * size, tL.x, tL.y, tL.z, sx < 0 ? u0 : u1, sy < 0 ? v0 : v1, t, phase, open, tA.y, PART_SPRAY);
     }
     out.idx.push(first, first + 1, first + 2, first, first + 2, first + 3);

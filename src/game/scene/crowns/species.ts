@@ -161,6 +161,8 @@ export const KIT_OF: Readonly<Record<string, string>> = {
   acacia: 'acacia', blackwood_acacia: 'acacia', palo_verde: 'acacia', mesquite: 'acacia',
   bamboo: 'bamboo', saguaro: 'saguaro', cactus: 'saguaro', baobab: 'baobab',
   bush: 'shrub_round', bush_dry: 'shrub_round', bush_alpine: 'shrub_round', rhododendron: 'shrub_round',
+  // (the second round: docs/V3/nodes/P3-kit-more.md)
+  eucalyptus: 'eucalyptus', willow: 'willow', olive: 'olive', mangrove: 'mangrove', tree_fern: 'tree_fern', juniper: 'juniper', dwarf_pine: 'juniper', cedar: 'cedar',
 };
 
 let floraKit = false;
