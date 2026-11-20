@@ -19,6 +19,13 @@ closely, it is listed here:
   the eye, fading from ring to ring on distances of their own (`src/lib/blades.js`, its rings' figures, its tall
   and short patches, clumps, seed stalks and the low sun among them), read from a map of our land's samples and
   painted in the game's own ground paint.
+- `src/game/scene/flora/broadleaf.ts` — the plant toolkit's round broadleaf: Painted Valley's rules for growing a
+  tree (`src/valley/trees.js` `growTree`: a short leaning bole, limbs bending out and up from its top with boughs
+  from them, clumps at their ends and on the dome of the crown, how deep in the crown a point lies), with its
+  numbers scaled to our heights, a leader for a birch, and our own level-of-detail fitter.
+- `src/game/scene/flora/atlas.ts` — the oak's and the birch's sprays: a spray of leaves as Painted Valley paints
+  one (`src/valley/trees.js` `leafTexture`: pointed leaves spread round a twig's end and more in the middle, each at
+  its own tone in red), drawn into our atlas's tiles.
 
 ```
 MIT License
