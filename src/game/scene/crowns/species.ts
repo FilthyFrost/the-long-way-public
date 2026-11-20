@@ -176,7 +176,7 @@ let built: Map<string, SpeciesModels> | null = null;
 
 /**
  * The world's families the plant toolkit has a kind for (docs/V3/nodes/P3-kit-world.md): drawn as that kind when the
- * toolkit is on (`?flora=kit`, setFloraKit). The rest stay as they were until the toolkit grows them too.
+ * toolkit is on (the default; `?flora=m5` turns it off: setFloraKit). Every family has a kind now.
  */
 export const KIT_OF: Readonly<Record<string, string>> = {
   conifer: 'spruce', spruce: 'spruce', fir: 'spruce', douglas_fir: 'spruce', larch: 'spruce',
@@ -191,10 +191,12 @@ export const KIT_OF: Readonly<Record<string, string>> = {
   bush: 'shrub_round', bush_dry: 'shrub_round', bush_alpine: 'shrub_round', rhododendron: 'shrub_round',
   // (the second round: docs/V3/nodes/P3-kit-more.md)
   eucalyptus: 'eucalyptus', willow: 'willow', olive: 'olive', mangrove: 'mangrove', tree_fern: 'tree_fern', juniper: 'juniper', dwarf_pine: 'juniper', cedar: 'cedar',
+  // (the third round, every family now: docs/V3/nodes/P2-A-kit-default.md; the firebush grown as the cherry is, in its own colours)
+  redwood: 'redwood', rimu: 'rimu', joshua_tree: 'joshua', chilean_firebush: 'cherry',
 };
 
 let floraKit = false;
-/** whether the plant toolkit grows the families it has a kind for (?flora=kit) */
+/** whether the plant toolkit grows the families it has a kind for (the default; off with ?flora=m5) */
 export const floraKitOn = (): boolean => floraKit;
 /** the plant toolkit grows the families it has a kind for (before the first world is made: the species are grown once) */
 export function setFloraKit(on: boolean): void {

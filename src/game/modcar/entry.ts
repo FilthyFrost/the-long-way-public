@@ -42,9 +42,9 @@ const fresh = readModParams(base);
 // a game in progress goes on, unless the address asks for something of its own (the harness, a test drive)
 const q = new URLSearchParams(location.search);
 if (q.has('new')) clearSave();
-// (?flora=kit: the world's trees and bushes grown by the plant toolkit where it has a kind for them — the samples of
-// docs/V3/nodes/P2-flora.md in the world, for the player to judge; docs/V3/nodes/P3-kit-world.md)
-setFloraKit(q.get('flora') === 'kit');
+// (the world's trees and bushes grown by the plant toolkit, its samples approved: docs/V3/nodes/P2-A-kit-default.md;
+// ?flora=m5: as the M5 crowns grew them, to set beside them)
+setFloraKit(q.get('flora') !== 'm5');
 // (the harness's stepped frames, ?shot: the trees' far pictures baked in the frame that wants them, not in the
 // worker — its pictures are whole and it never waits; scene/crowns/crownView.ts bakeAtOnce)
 CrownView.bakeAtOnce = !!fresh.shot;

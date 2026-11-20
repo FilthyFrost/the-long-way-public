@@ -10,6 +10,7 @@ import { planFlower, planShrub, planTuft, type FlowerKind, type ShrubKind, type 
 import { draw, type Drawn, type Level, type Plan } from './kit';
 import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress, planDragon, planOak, planPalm, planPine, planSaguaro, planSpruce, planStonePine } from './trees';
 import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
+import { planJoshua, planRedwood, planRimu } from './trees3';
 
 /** triangles of one plant at its levels (near, middle); far off it is a two-triangle picture */
 export const FLORA_BUDGET = {
@@ -83,6 +84,10 @@ export const FLORA: readonly FloraKind[] = [
   tree('tree_fern', '树蕨', 'broadleaf', (s) => planTreeFern(s), { leaf: 0x5d8f3a, second: 0x5a4636, evergreen: true, sway: 0.9 }),
   tree('juniper', '刺柏', 'conifer', (s) => planJuniper(s), { leaf: 0x3e5a3a, second: 0x7a5a44, evergreen: true, sway: 0.4 }),
   tree('cedar', '雪松', 'conifer', (s) => planCedar(s), { leaf: 0x355a48, second: 0x6a5040, evergreen: true, sway: 0.5 }),
+  // (the third round: docs/V3/nodes/P2-A-kit-default.md)
+  tree('redwood', '红杉', 'conifer', (s) => planRedwood(s), { leaf: 0x2f5a3c, second: 0x8a4a32, evergreen: true, sway: 0.3 }),
+  tree('rimu', '陆均松（垂枝针叶）', 'conifer', (s) => planRimu(s), { leaf: 0x55704a, second: 0x6a5040, evergreen: true, sway: 0.9 }),
+  tree('joshua', '约书亚树', 'broadleaf', (s) => planJoshua(s), { leaf: 0x5f7a3a, second: 0x6e604c, evergreen: true, pale: true, sway: 0.1 }),
   tuft('meadow', '草甸草丛', 0x6f9a3c),
   tuft('tussock', '金色丛草', 0xd2bb7a),
   tuft('needle', '针茅', 0xd2bd78),

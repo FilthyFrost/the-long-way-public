@@ -1,5 +1,5 @@
 // The plant toolkit's trees in the world (docs/V3/nodes/P3-kit-world.md): the same spots from the driver's seat with
-// the world's own trees and with ?flora=kit, and what the crowns cost in each.
+// the M5 crowns (?flora=m5) and the plant toolkit's, the world's own now, and what the crowns cost in each.
 //   SHOTS_GPU=1 node harness/shots/p3_kit_world.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,7 +21,7 @@ const browser = await launchBrowser();
 const report = {};
 try {
   for (const mode of ['world', 'kit']) {
-    const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${mode === 'kit' ? '&flora=kit' : ''}`, { width: 1920, height: 1080 });
+    const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${mode === 'kit' ? '' : '&flora=m5'}`, { width: 1920, height: 1080 });
     await idle(page);
     for (const spot of SPOTS.filter((s) => !only.length || only.includes(s.name))) {
       await page.evaluate((km) => window.__rt.devGoKm(km, true), spot.km);

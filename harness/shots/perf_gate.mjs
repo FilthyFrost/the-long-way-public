@@ -12,9 +12,9 @@ import { built, idle } from './landscapeCapture.mjs';
 import { ROOT, ON_GPU, launchBrowser, openGame, startServer } from './lib.mjs';
 
 const args = process.argv.slice(2);
-// (--kit: the world's trees and bushes grown by the plant toolkit, ?flora=kit: docs/V3/nodes/P3-kit-world.md)
-const kit = args.includes('--kit');
-if (kit) args.splice(args.indexOf('--kit'), 1);
+// (the world's trees and bushes are the plant toolkit's; --m5: as the M5 crowns grew them, ?flora=m5: docs/V3/nodes/P2-A-kit-default.md)
+const m5 = args.includes('--m5');
+if (m5) args.splice(args.indexOf('--m5'), 1);
 const label = args[0] && !args[0].startsWith('-') ? args.shift() : 'now';
 /** the gate's spots: forest, grassland, snow mountain (near and its long view), water (the coast's stand-in until the coast roads are made) */
 const SPOTS = [
@@ -34,7 +34,7 @@ const browser = await launchBrowser();
 const report = { label, at: new Date().toISOString(), budget, spots: [] };
 let over = 0;
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${kit ? '&flora=kit' : ''}`, { width: 1920, height: 1080 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
   await idle(page);
   for (const spot of SPOTS) {
     await page.evaluate((km) => window.__rt.devGoKm(km, true), spot.km);

@@ -53,6 +53,10 @@ try {
       ['tree_fern', 418, 10],
       ['juniper', 432, 11],
       ['cedar', 458, 26],
+      // (the third round: docs/V3/nodes/P2-A-kit-default.md)
+      ['redwood', 490, 20],
+      ['rimu', 520, 18],
+      ['joshua', 546, 13],
     ];
     const trees = row.map(([id, ahead, side], i) => {
       const [x, z] = at(ahead, side);
