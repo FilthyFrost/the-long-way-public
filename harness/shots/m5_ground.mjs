@@ -6,16 +6,16 @@ import { ROOT, ON_GPU, launchBrowser, openGame, startServer } from './lib.mjs';
 
 const stage = process.argv[2];
 if (!['before','after'].includes(stage) || !ON_GPU) throw Error('Run with SHOTS_GPU=1 and before or after');
-const out = path.join(ROOT, 'loop/shots', process.env.M5_GROUND_OUT || 'm5-ground/rev9', stage);
+const out = path.join(ROOT, 'loop/shots', process.env.M5_GROUND_OUT || 'm5-ground/rev11', stage);
 fs.mkdirSync(out, { recursive: true });
 // Load precisely the pre-change render path for paired pictures, without changing the worktree.
 async function baselineServer() {
-  const files=new Set(['src/core/world/rules.ts','src/game/modcar/ModGame.ts','src/game/render/floraMaterial.ts',
+  const files=new Set(['src/core/world/groundField.ts','src/core/world/rockTables.ts','src/game/scene/groundModels.ts','src/core/world/rules.ts','src/game/modcar/ModGame.ts','src/game/render/floraMaterial.ts',
     'src/game/scene/floraScatter.ts','src/game/scene/plantRegistry.ts','src/game/scene/worldBuild.ts','src/game/scene/worldView.ts']);
   const server=await createServer({root:ROOT,logLevel:'error',server:{host:'127.0.0.1',port:5199,hmr:false},
     plugins:[{name:'m5-ground-baseline',enforce:'pre',load(id){
       const rel=path.relative(ROOT,id).split(path.sep).join('/');
-      if(files.has(rel))return execFileSync('git',['show','63e7fe8:'+rel],{cwd:ROOT,encoding:'utf8',maxBuffer:4e6});
+      if(files.has(rel))return execFileSync('git',['show','5afc79e:'+rel],{cwd:ROOT,encoding:'utf8',maxBuffer:4e6});
     }}]});
   await server.listen();
   return {server,url:'http://127.0.0.1:'+server.httpServer.address().port};
@@ -24,9 +24,9 @@ const {server,url} = stage==='before' ? await baselineServer() : await startServ
 const browser = await launchBrowser();
 const records = [];
 try {
-  for (const region of ['lakes','forest','alpine','red_canyon','desert','river','terraces','maple']) {
+  for (const region of ['lakes','forest','alpine','red_canyon','desert','river','terraces','maple','forest_floor','gravel_bar']) {
     if (process.env.M5_GROUND_REGION && process.env.M5_GROUND_REGION !== region) continue;
-    const biome = region==='river' ? 'plains' : region;
+    const biome = region==='forest_floor' ? 'maple' : ['river','gravel_bar'].includes(region) ? 'plains' : region;
     const {page,errors} = await openGame(browser, url+'/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=1200&time=15.5&weather=clear&biome='+biome,{width:1920,height:1080});
     const site = await page.evaluate(async (region) => {
       const rt=window.__rt, g=rt.game;
@@ -42,12 +42,12 @@ try {
       const {SpineSample}=await import('/src/core/world/spine.ts');
       const field=groundField(g.world),st=new SpineSample(),projection={s:0,d:0};
       g.world.spine.project(v.sim.px,v.sim.pz,NaN,projection);
-      const target=({lakes:'fern',forest:'sedge',alpine:'cushion',red_canyon:'fin',desert:'creosote',river:'cobbles',terraces:'rice',maple:'litter'})[region];
+      const target=({lakes:'fern',forest:'sedge',alpine:'cushion',red_canyon:'fin',desert:'creosote',river:'cobbles',terraces:'rice',maple:'litter',forest_floor:'fern',gravel_bar:'cobbles'})[region];
       let chapter=rt.devJourney(1)[0];
       let found;
       const rocks=['fin','cobbles'].includes(target);
       const seen=new Set();
-      if (region==='river') {
+      if (region==='river' || region==='gravel_bar') {
         for(let a=0;a<8 && !found;a++){
           const slot=g.world.rules.slot;
           for(let k=Math.ceil(chapter.start/slot);k*slot<chapter.start+chapter.length-500 && !found;k++){
@@ -55,7 +55,10 @@ try {
             if(f?.kind!=='river')continue;
             for(const dx of [-64,0,64]) for(const dz of [-90,-45,45,90]){
               const tile=field.tile(Math.floor((f.x0+dx)/128),Math.floor((f.z0+dz)/128),true);
-              found ??=tile.find(c=>c.form==='cobbles' && g.world.eco.at(c.x,c.z,{}).waterKind===2);
+              found ??=tile.find(c=>{
+                const e=g.world.eco.at(c.x,c.z,{});
+                return c.form==='cobbles' && e.waterKind===2 && (region==='river' || (e.canopy<0.45 && e.ad>18 && e.slope<0.25));
+              });
             }
           }
           if(!found){rt.devGoRegion('plains',true);g.simulate(0.15);chapter=rt.devJourney(1)[0];}
@@ -70,7 +73,7 @@ try {
           if(seen.has(key))continue;
           seen.add(key);
           const clumps=field.tile(tx,tz,rocks);
-          found=clumps.find(c=>c.form===target);
+          found=clumps.find(c=>{const e=g.world.eco.at(c.x,c.z,{});return c.form===target && (region!=='forest_floor' || (e.canopy>0.80 && e.ad>15 && e.ad<60 && e.slope<0.4));});
           if(found)break outer;
         }
       }
@@ -79,19 +82,26 @@ try {
       if(!found)throw Error('No '+target+' found in '+region);
       {
         g.world.spine.project(found.x,found.z,NaN,projection);
-        rt.devGoKm(projection.s/1000,true);
+        rt.devGoKm((projection.s-(['forest_floor','gravel_bar'].includes(region)?24:0))/1000,true);
         g.simulate(0.15);
       }
       const x0=v.sim.px,z0=v.sim.pz;
       g.worldView.update(x0,z0,1e9);
       rt.render();
+      if(['forest_floor','gravel_bar'].includes(region)){
+        g.world.spine.at(projection.s,st);
+        rt.look(Math.atan2(found.z-z0,found.x-x0)-st.phi,-0.09);
+        rt.render();
+      }
       const reach=found.form==='fin'?8:found.form==='creosote'?4.5:3.4;
       // Face the subject along the contour so the slope does not hide it from walking height.
       let view=0, delta=Infinity;
       for(let i=0;i<12;i++){
         const a=i*Math.PI/6,e=g.world.eco.at(found.x-reach*Math.cos(a),found.z-reach*Math.sin(a),{});
         if(e.flags)continue;
-        const cost=Math.abs(e.h-found.y)+0.04*Math.abs(a-Math.atan2(found.z-z0,found.x-x0));
+        const beyond=g.world.eco.at(found.x+18*Math.cos(a),found.z+18*Math.sin(a),{});
+        const habitat=region==='forest_floor' ? 3*(1-beyond.canopy) : region==='gravel_bar' ? Math.min(beyond.waterDist,8)*0.16 : 0;
+        const cost=Math.abs(e.h-found.y)+habitat+0.04*Math.abs(a-Math.atan2(found.z-z0,found.x-x0));
         if(cost<delta){delta=cost;view=a;}
       }
       return {x:found.x,z:found.z,heading:view,reach,name:found.name,form:found.form};

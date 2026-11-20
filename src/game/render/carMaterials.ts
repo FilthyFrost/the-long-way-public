@@ -799,8 +799,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // sides that face the sky: the anime edge highlight that draws a body's lines
     float crease = smoothstep(0.35, 1.2, length(fwidth(n)) * 9.0) * smoothstep(-0.2, 0.6, n.y);
     col += (e.bright * 0.4 + uSunColor * 0.12 * lit) * crease * coat * 0.8;
-    // the sun in the clear coat: small and white-hot (the bloom catches it)
-    col += uSunColor * 1.6 * rtSunSpot(R, uLook.y) * sh * gloss * (1.0 - fade);
+    // Paint scatters the key light through the coat; its falloff stays soft on a flat bonnet.
+    float sheen = pow(max(dot(R, uSunDir), 0.0), mix(5.0, 18.0, clamp(gloss, 0.0, 1.0)));
+    vec3 sheenTint = mix(vec3(1.0), hue, 0.62);
+    col += min(uSunColor, vec3(1.25)) * sheenTint * sheen * (0.035 + 0.17 * gloss) * sh * ao * openSky * (1.0 - fade);
     // rim: the edge turned away catches the sky (less of it under a roof); on the side the sun is, a warm
     // edge of light (the line round a car seen against the light)
     col += (uSkyColor * 0.5 + uHorizon * 0.25) * uLook.z * pow(1.0 - ndv, 5.0) * ao * openSky * (1.0 - 0.8 * underRoof);
