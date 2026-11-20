@@ -82,18 +82,27 @@ const STAND: Readonly<Record<Struct, { trees: number; wood: number; shrubs: numb
   water: { trees: 0, wood: 0, shrubs: 0 },
 };
 
+/** (a card whose ground has room for a lone tree: grassland with trees of its own) */
+const st0 = (e: Efg): boolean => e.trees.length > 0;
+/** (salt underfoot: nothing stands on it) */
+const salt0 = (m: Scene['macro']): boolean => rock(m.rock).fertile < 0.03;
+
 /** the flowers' colours, by their forms */
 const FLOWER_HUE: Readonly<Record<string, number>> = { flower_daisy: 0xf4f0e6, flower_cup: 0xd8483a, flower_spike: 0x9a7fd0, flower_umbel: 0xf4efe0, flower_bell: 0x6f8fd8, flower_tube: 0xe89ab0, flower_cluster: 0xe89ab0, crop_sunflower: 0xf2c84b, crop_tulip: 0xd8483a, crop_rape: 0xf2d84b, crop_lavender: 0x8a6ec8, aquatic: 0xf4f0e6 };
 
 const b = (lo: number, hi: number): Band => [lo, hi];
 
-/** the plants of one card's forms, its first the most */
-function plantsOf(forms: readonly Form[], warm: boolean): string[] {
+/**
+ * The plants of one card's forms, its first the most. In autumn a deciduous wood's broadleaves are its autumn's:
+ * maples red where the winters are hard and the country continental, aspens gold by a milder sea (the trait rules, §6)
+ */
+function plantsOf(forms: readonly Form[], warm: boolean, autumn: 'red' | 'gold' | null = null): string[] {
   const out: string[] = [];
   for (const f of forms) {
     const p = FORM_PLANTS[f];
     if (!p) continue;
-    for (const id of (warm && p.warm) || p.cool) if (!out.includes(id)) out.push(id);
+    const ids = autumn && (f === 'broadleaf' || f === 'broadleaf_leader') ? (autumn === 'red' ? ['maple', 'maple', 'oak'] : ['golden_aspen', 'birch', 'oak']) : (warm && p.warm) || p.cool;
+    for (const id of ids) if (!out.includes(id)) out.push(id);
   }
   return out;
 }
@@ -111,11 +120,11 @@ function shares(n: number): number[] {
 }
 
 /** the rules of one card's trees and shrubs, within a band of relief (m above the road's base) */
-function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number): { trees: FloraRule[]; shrubs: FloraRule[] } {
+function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number, autumn: 'red' | 'gold' | null = null): { trees: FloraRule[]; shrubs: FloraRule[] } {
   const st = STAND[e.struct];
   const trees: FloraRule[] = [];
   const shrubs: FloraRule[] = [];
-  const tp = plantsOf(e.trees, warm);
+  const tp = plantsOf(e.trees, warm, autumn);
   const ts = shares(tp.length);
   const r = relief ? { relief } : {};
   const open = e.struct === 'savanna' || e.struct === 'grassland' || e.struct === 'farmland' || e.struct === 'shrubland' || e.struct === 'desert' || e.struct === 'wetland';
@@ -161,9 +170,21 @@ export function floraOfPlace(sc: Scene): FloraTable {
   // (the tree line: m above the road's base where the growing season falls below 6.4 °C)
   const line = (growingAt(m, m.base) - 6.4) / LAPSE;
   const treeline: readonly [number, number] | null = line < R + 200 ? [Math.max(-40, line - 90), Math.max(-20, line + 10)] : null;
-  const low = rulesOf(e, warm, upper ? b(-1e4, R * 0.42) : undefined, 1);
+  const autumn = sc.look.sig.veg === 'autumn' && (e.struct === 'closed_forest' || e.struct === 'open_forest' || e.struct === 'woodland') ? (m.cont > 0.55 ? 'red' : 'gold') : null;
+  const low = rulesOf(e, warm, upper ? b(-1e4, R * 0.42) : undefined, 1, autumn);
   const high = upper && upper.code !== e.code ? rulesOf(upper, warm, b(R * 0.3, 1e5), 1) : { trees: [], shrubs: [] };
   const trees = [...low.trees, ...high.trees];
+  // (the traits of stress, §6: the last trees below the tree line low and bent — the krummholz; in dry country every
+  // tree smaller; on a windy card's ridges the same)
+  const first = trees[0];
+  if (treeline && first) trees.push({ plant: warm ? first.plant : 'dwarf_pine', perHa: 40, relief: b(treeline[0] - 120, treeline[1]), size: b(0.4, 0.7) });
+  const stressed = w < 0.35 || (e.weather?.wind ?? 0) > 0.5;
+  if (stressed) for (let i = 0; i < trees.length; i++) if (!trees[i].size) trees[i] = { ...trees[i], size: b(0.6, 0.95) };
+  // the roadside, as the country has it: in farmland rows of poplars along the road (cypresses in the Mediterranean's), in
+  // open grassland now and then a great tree alone by it, in the savanna its flat-topped acacias
+  if (e.struct === 'farmland' && !salt0(m)) trees.push({ plant: m.tSea > 13 && w < 0.6 ? 'cypress' : 'poplar', perHa: 160, road: b(12, 26), hedge: 140, size: b(0.9, 1.2) });
+  if (e.struct === 'grassland' && st0(e) && !salt0(m)) trees.push({ plant: warm ? 'acacia' : 'oak', perHa: 0.4, road: b(28, 4000), size: b(1.2, 1.45) });
+  if (e.struct === 'savanna') trees.push({ plant: 'acacia', perHa: 1.2, road: b(30, 4000), size: b(1, 1.3) });
   const shrubs = [...low.shrubs, ...high.shrubs];
   // the waters' own: willows and poplars by fresh water where the card stands no trees of the bank, reeds, mangroves by a tropical sea
   if (m.water !== 'none' && m.water !== 'salt' && e.struct !== 'ice') {

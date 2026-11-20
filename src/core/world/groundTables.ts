@@ -9,6 +9,15 @@ const original: Record<string,string> = {
   wetland:'eglinton-grass', flower_fields:'blue-meadow', bamboo_sea:'karst-river',
 };
 const profiles = new Map(ECO_PROFILES.map(p => [p.id,p]));
+/**
+ * A region of the emergent Earth's ground profile, its place's own (earth/profile.ts): what grows on its ground
+ * belt by belt, its months, its rocks. Kept beside the reference profiles (and in their list, which the render
+ * side reads its rocks from).
+ */
+export function registerEarthProfile(p: EcoProfile): void {
+  profiles.set(p.id, p);
+  if (!ECO_PROFILES.some((q) => q.id === p.id)) (ECO_PROFILES as EcoProfile[]).push(p);
+}
 /** a region of the emergent Earth (earth/road.ts) grows its template's ground plants, at its template's heights, until it has its own */
 export function aliasGroundProfile(id: string, as: string): void {
   original[id] = original[as] ?? as;

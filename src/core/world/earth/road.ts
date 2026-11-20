@@ -12,12 +12,13 @@
  */
 import { earthRegion, type RegionDef } from '../biomes';
 import { FLORA } from '../floraTables';
-import { aliasGroundProfile } from '../groundTables';
+import { registerEarthProfile } from '../groundTables';
 import { aliasRouteProfile, setRouteSettings, setSceneSnowLine } from '../routeProfiles';
 import type { ChapterDealer, DealtChapter } from '../rules';
 import { setSceneMonth } from '../sceneSeason';
 import { EarthJourney, type Scene } from '../../earth/director';
 import { floraOfPlace } from './flora';
+import { profileOfPlace } from './profile';
 import { earthRegionId, regionOfPlace, settingsOf, templateOf } from './region';
 
 /** a place's stretches (the chapters' scale reckoned in) */
@@ -67,9 +68,9 @@ export function regionOfPlaceIn(seed: number, k: number, sc: Scene): number {
   return earthRegion(id, (): RegionDef => {
     const def = regionOfPlace(sc, seed, k);
     const template = templateOf(sc);
-    // (its plants its ecosystems' (earth/flora.ts); its ground plants its template's until E4 grows the Earth's own)
+    // (its plants its ecosystems' (earth/flora.ts), its ground plants too, belt by belt (earth/profile.ts))
     if (!FLORA[id]) FLORA[id] = floraOfPlace(sc);
-    aliasGroundProfile(id, template);
+    registerEarthProfile(profileOfPlace(sc, id));
     aliasRouteProfile(id, template);
     setSceneMonth(id, sc.macro.month);
     setRouteSettings(id, settingsOf(sc));

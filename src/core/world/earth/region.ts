@@ -212,6 +212,26 @@ function vegOf(sc: Scene): VegHue {
   return sc.look.sig.veg === 'none' ? (sc.look.efg.veg === 'none' ? 'none' : sc.look.efg.veg) : sc.look.sig.veg;
 }
 
+/**
+ * The colours of a place's tree crowns, by the traits its climate gives its leaves (the plan's trait rules, §6):
+ * an autumn wood red where the winters are hard and the country continental, gold by a milder sea; the dry
+ * country's hard leaves grey and glaucous; the wet tropics' deep and glossy; the cold's dark and blue
+ */
+export function crownsOf(sc: Scene): number[] {
+  const e = sc.look.efg;
+  const m = sc.macro;
+  const w = wetnessAt(m, m.base);
+  let hue: readonly [number, number, number] = VEG[e.struct === 'ice' ? 'grey' : vegOf(sc) === 'white' ? 'teal' : vegOf(sc)];
+  if (vegOf(sc) === 'autumn') hue = m.cont > 0.55 ? [0xb8402a, 0xd2602e, 0xe08a3a] : [0xc89a2e, 0xdcb440, 0xe8cc5a];
+  let tilt = 0;
+  let toward = 0;
+  if (w < 0.35 && warmthAt(m, m.base) > 8) [tilt, toward] = [0.32, 0x93a08a];
+  else if (m.tSea > 22 && w > 0.75) [tilt, toward] = [0.25, 0x23683a];
+  else if (growingAt(m, m.base) < 9) [tilt, toward] = [0.22, 0x2e5a52];
+  const t = (c: number): number => (tilt > 0 && vegOf(sc) !== 'autumn' && vegOf(sc) !== 'blossom' ? mix(c, toward, tilt) : c);
+  return [t(hue[0]), t(hue[1]), t(hue[2]), t(mix(hue[1], 0xffffff, 0.12)), t(mix(hue[0], 0x203020, 0.15))];
+}
+
 /** how a place is painted (biomes.ts EarthLook) */
 export function lookOfPlace(sc: Scene): EarthLook {
   const m = sc.macro;
@@ -225,8 +245,7 @@ export function lookOfPlace(sc: Scene): EarthLook {
   // (snow lying: its ground white, the rock showing a little through it)
   const g0 = snow ? mix(g, 0xf2f5f7, 0.8) : g;
   const ground: [number, number, number] = [mix(g0, veg[0], grassy), mix(g0, veg[1], grassy), mix(g0, veg[2], grassy)];
-  const crownsHue = VEG[e.struct === 'ice' ? 'grey' : vegOf(sc) === 'white' ? 'teal' : vegOf(sc)];
-  const crowns = [crownsHue[0], crownsHue[1], crownsHue[2], mix(crownsHue[1], 0xffffff, 0.12), mix(crownsHue[0], 0x203020, 0.15)];
+  const crowns = crownsOf(sc);
   const pale = e.trees.some((t) => t === 'broadleaf_leader' || t === 'eucalypt');
   const fl = (e.flowers ?? []).map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
   const herbs = e.herbs.map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
@@ -237,7 +256,7 @@ export function lookOfPlace(sc: Scene): EarthLook {
     dust: mix(g, 0xffffff, 0.12),
     rock: rk.lit,
     rock2: rk.shade,
-    forest: mix(crownsHue[0], 0x1c2a1c, 0.25),
+    forest: mix(crowns[0], 0x1c2a1c, 0.25),
     crowns,
     trunk: pale ? 0xd8d0c0 : 0x6e5a44,
     flowers: [hues[0], hues[1], hues[2]],

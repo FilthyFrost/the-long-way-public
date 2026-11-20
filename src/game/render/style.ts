@@ -152,7 +152,34 @@ export function regionStyle(region: BiomeDef): BiomeStyle {
   if (Object.prototype.hasOwnProperty.call(STYLE.biomes, region.id)) return STYLE.biomes[region.id];
   const kin = STYLE.biomes[region.kin];
   const row = paletteOf(region);
+  if (row && (region as { earth?: unknown }).earth) return earthStyle(row, PALETTES[region.kin], kin);
   return row ? styleFromPalette(row, PALETTES[region.kin], kin) : { ...kin };
+}
+
+/**
+ * The painted look of a region of the emergent Earth (core/world/earth/region.ts): its own colours as they are —
+ * a black lava field's ground is black, a red desert's red, whatever its kin's — where a hand-made region's are its
+ * kin's carried over (styleFromPalette, which holds a paint within a factor of four of its kin's and so cannot
+ * turn green ground red). What a row does not hold (the warm and cool patches, the far land's lift) stays its
+ * kin's, carried over.
+ */
+export function earthStyle(row: BiomePalette, kinRow: BiomePalette, kin: BiomeStyle): BiomeStyle {
+  const tones = row.ground.map(linear).sort((a, b) => luma(a) - luma(b));
+  const kt = kinRow.ground.map(linear).sort((a, b) => luma(a) - luma(b));
+  const crowns = row.crowns.map(linear);
+  const forest = linear(row.forest);
+  const lightest = crowns.reduce((a, b) => (luma(b) > luma(a) ? b : a));
+  return {
+    ...kin,
+    ground: { deep: tones[0], mid: tones[1], lit: tones[2] },
+    dry: linear(row.dust),
+    patchWarm: carried(kin.patchWarm, tones[1], kt[1]),
+    patchCool: carried(kin.patchCool, tones[1], kt[1]),
+    forest: [forest, forest, mean(crowns), lightest],
+    rock: { lit: linear(row.rock), shade: linear(row.rock2) },
+    flowers: row.flowers ? [linear(row.flowers[0]), linear(row.flowers[1]), linear(row.flowers[2])] : kin.flowers,
+    ...row.look,
+  };
 }
 
 /** biome styles in the order of BIOMES (index = biome id used everywhere else): read them through `styleOf` */

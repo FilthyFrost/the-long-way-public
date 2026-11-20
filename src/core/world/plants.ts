@@ -204,6 +204,7 @@ P('rimu', 'tree', '陆均松', 'Rimu', 25, 4, 0.5, 'rimu', { evergreen: true });
 P('rhododendron', 'shrub', '杜鹃丛', 'Rhododendron', 2.6, 1.8, 0, 'rhododendron', { evergreen: true });
 P('thorn_bush', 'shrub', '刺灌丛', 'Thorn scrub', 1.6, 1.6, 0, 'bush_dry');
 P('heath_bush', 'shrub', '高山矮灌', 'Alpine shrub', 0.9, 1.4, 0, 'bush_alpine', { evergreen: true });
+P('golden_aspen', 'tree', '金叶山杨', 'Golden aspen', 14, 2.4, 0.2, 'aspen', { tint: [0xe2b443, 0xe9e6dc] });
 
 /** every plant, in the catalogue's order (an index into this list is what a flora cell holds) */
 export const PLANTS: readonly PlantDef[] = ALL;

@@ -297,9 +297,19 @@ function huesOf(region: number): readonly number[] {
 
 /** The integer is the palette pair; its fraction (0 ? 1/4) carries settled snow at the root.
  * rtSlotPair rounds to the nearest integer, including on renderers which only need the palette. */
-const seasonalLines = BIOMES.map(r => sceneSnowLine(r.id));
+const seasonalLines: number[] = BIOMES.map(r => sceneSnowLine(r.id));
+const seasonalIds: string[] = BIOMES.map(r => r.id);
+/** a region's snow line, made the first time it is asked for (the emergent Earth's regions come into the registry as a world of version 4 reaches them) */
+function seasonalLine(i: number): number {
+  const r = BIOMES[i] ?? BIOMES[0];
+  if (seasonalIds[i] !== r.id) {
+    seasonalLines[i] = sceneSnowLine(r.id);
+    seasonalIds[i] = r.id;
+  }
+  return seasonalLines[i];
+}
 function snowyPair(world: World, sk: number, height: number): number {
-  const a = seasonalLines[slotA[sk]], b = seasonalLines[slotB[sk]];
+  const a = seasonalLine(slotA[sk]), b = seasonalLine(slotB[sk]);
   const altitude = world.spine.altitude(height);
   const ca = smoothstep(a - 100, a + 100, altitude);
   const cb = smoothstep(b - 100, b + 100, altitude);
