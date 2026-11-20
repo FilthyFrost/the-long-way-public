@@ -23,6 +23,14 @@ function covered(u: number, v: number): boolean {
   return spray[(Math.floor(v * MASK) & (MASK - 1)) * MASK + (Math.floor(u * MASK) & (MASK - 1))] !== 0;
 }
 
+/** a far picture: its two images (normals and paint, RGBA, `width` wide) and the box it was drawn in */
+export type CrownAtlas = ReturnType<typeof bakeCrown>;
+
+/** whether there is foliage at a uv of a square mask `px` texels a side (the plant toolkit's, flora/atlas.ts floraCoverMask) */
+export function maskCover(mask: Uint8Array, px: number): (u: number, v: number) => boolean {
+  return (u, v) => mask[Math.min(px - 1, Math.max(0, Math.floor(v * px))) * px + Math.min(px - 1, Math.max(0, Math.floor(u * px)))] !== 0;
+}
+
 /** `cover`: whether a spray's picture has foliage at a uv (default: the world's one round spray; the plant toolkit's atlas has its own) */
 export function bakeCrown(g: THREE.BufferGeometry, cover: (u: number, v: number) => boolean = covered) {
   const p = g.getAttribute('position'), n = g.getAttribute('normal'), uv = g.getAttribute('uv');

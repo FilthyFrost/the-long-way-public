@@ -3,6 +3,7 @@
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
 import { setFloraKit } from '../scene/crowns/species';
+import { CrownView } from '../scene/crowns/crownView';
 import { tried } from './devLab';
 import { sectionOf, type SectionId } from '../../core/modcar/proving/layout';
 import * as THREE from 'three';
@@ -44,6 +45,9 @@ if (q.has('new')) clearSave();
 // (?flora=kit: the world's trees and bushes grown by the plant toolkit where it has a kind for them — the samples of
 // docs/V3/nodes/P2-flora.md in the world, for the player to judge; docs/V3/nodes/P3-kit-world.md)
 setFloraKit(q.get('flora') === 'kit');
+// (the harness's stepped frames, ?shot: the trees' far pictures baked in the frame that wants them, not in the
+// worker — its pictures are whole and it never waits; scene/crowns/crownView.ts bakeAtOnce)
+CrownView.bakeAtOnce = !!fresh.shot;
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
 // (?new=1: the save cleared, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();

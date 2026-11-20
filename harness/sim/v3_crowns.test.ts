@@ -11,7 +11,7 @@
  *   their existing density mask;
  *   a tile set again under the same key is not taken back by the one it replaced.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { LAYER_TREE } from '../../src/core/world/flora';
 import { PLANTS } from '../../src/core/world/plants';
 import { SpineSample } from '../../src/core/world/spine';
@@ -238,6 +238,14 @@ describe('painted crowns · the scatter hands them over', () => {
 });
 
 describe('painted crowns · the view', () => {
+  // (far pictures baked in the frame that wants them, as in the harness's stepped frames: these are about what is
+  // drawn where; the bake in play, later and then shown, has a test of its own below)
+  beforeEach(() => {
+    CrownView.bakeAtOnce = true;
+  });
+  afterEach(() => {
+    CrownView.bakeAtOnce = false;
+  });
   it('keeps one logical tree and complementary draws across both fade bands', () => {
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
     const origin = { x: 0, y: 0, z: 0 };
@@ -257,6 +265,27 @@ describe('painted crowns · the view', () => {
     view.update();
     const far = view.group.children.find(m => m.visible && m.layers.mask === 1) as THREE.InstancedMesh;
     expect(far.instanceMatrix.array[12]).toBe(-25);
+    view.dispose();
+  });
+
+  it('in play bakes a far picture later and draws its tree once it is in, never a tree without its picture', async () => {
+    CrownView.bakeAtOnce = false;
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
+    const view = new CrownView({ camera, origin: { x: 0, y: 0, z: 0 } } as unknown as RenderCore);
+    view.setTile('a', Float32Array.of(0, 0, 0, 0, 1, 1, 0, 0, 0, 0, -1, 0, 0.5, 0, 4, 10), 1);
+    camera.position.set(0, 4, 260);
+    view.update();
+    const far = (): THREE.InstancedMesh[] => view.group.children.filter((m) => m.visible && m.layers.mask === 1) as THREE.InstancedMesh[];
+    // (asked for, not yet in: nothing drawn rather than a tree without its picture)
+    expect(far()).toHaveLength(0);
+    expect(view.pendingBakes).toBe(1);
+    expect(view.atlasStats.bakes).toBe(0);
+    // (no worker here: baked between frames, and the next frame draws it)
+    await new Promise((go) => setTimeout(go, 20));
+    expect(view.atlasStats.bakes).toBe(1);
+    view.update();
+    expect(far()).toHaveLength(1);
+    expect(view.pendingBakes).toBe(0);
     view.dispose();
   });
 

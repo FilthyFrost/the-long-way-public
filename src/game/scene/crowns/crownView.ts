@@ -11,9 +11,9 @@ import { crownMaterial } from '../../render/crownMaterial';
 import { globals } from '../../render/shaderlib';
 import { LAYER_SHADOW_FAR } from '../../render/shadow';
 import { CROWN_STRIDE, type CrownLookup } from './crownData';
-import { bakeCrown, atlasTexture } from './crownAtlas';
+import { atlasTexture } from './crownAtlas';
+import { bakeLater, bakeNow, type Baked } from './crownBake';
 import { crownSpecies, type SpeciesModels } from './species';
-import { floraCover } from '../flora/atlas';
 import { floraMaterial, shadowCaster } from '../flora/material';
 
 
@@ -29,8 +29,8 @@ const INSIDE_FROM = 40;
 const SHADOW_REACH = 96;
 /** the level a tree's shadow is drawn in */
 const SHADOW_LEVEL = 2;
-/** far pictures baked in a frame at most, and how long one unused is kept (ms) */
-const BAKES_A_FRAME = 1;
+/** far pictures being baked in the worker at once at most, and how long one unused is kept (ms) */
+const BAKES_IN_FLIGHT = 6;
 const ATLAS_KEEP_MS = 30000;
 
 function fadeWidth(edge: number): number {
@@ -43,6 +43,8 @@ interface Draw {
   idleSince?: number;
   /** its far picture baked from the plant toolkit's atlas */
   kit?: boolean;
+  /** its far picture being baked in the worker */
+  baking?: boolean;
   mesh: THREE.InstancedMesh;
   look: THREE.InstancedBufferAttribute;
   tree: THREE.InstancedBufferAttribute;
@@ -102,7 +104,16 @@ export class CrownView implements CrownLookup {
   private readonly tiles = new Map<string, Tile>();
   private readonly billboard = new THREE.PlaneGeometry();
   private readonly atlasMaterials: THREE.ShaderMaterial[] = [];
-  readonly atlasStats = { residentBytes: 0, bakedMs: 0, bakes: 0 };
+  /** far pictures baked: how many, the time the bakes took (in the worker, or here), and what the pictures hold */
+  readonly atlasStats = { residentBytes: 0, bakedMs: 0, bakes: 0, inWorker: 0 };
+  /**
+   * Bake the far pictures here, as soon as they are wanted, every one in the frame that wants it: the harness's
+   * stepped frames (?shot), whose pictures must be whole and which never wait for a worker. In play they are baked
+   * in the worker, the trees drawn once theirs comes back (docs/V3/nodes/P3-bake-worker.md).
+   */
+  static bakeAtOnce = false;
+  private inFlight = 0;
+  private disposed = false;
   private tokens = 0;
   private changed = true;
   private originMoved = true;
@@ -447,9 +458,8 @@ export class CrownView implements CrownLookup {
       for (let l = 0; l < 3; l++) lv[l] += t.levels[l];
     }
     let triangles = 0, shadows = 0;
-    // (a far picture is some ten milliseconds to bake: one a frame, the others drawn a frame or a few later — several in
-    // one frame were a frame of sixty)
-    let bakes = 0;
+    // (a far picture is some ten milliseconds to bake: in the worker, the trees drawn once theirs comes back — on the
+    // main thread, one in a frame lengthened that frame each time a new kind of tree came into the far band)
     const now = performance.now();
     const finish = (dr: Draw): void => {
       const count = dr.slots.length;
@@ -457,18 +467,12 @@ export class CrownView implements CrownLookup {
       if (dr.atlasModel) {
         const u = (dr.material as THREE.ShaderMaterial).uniforms;
         if (count) dr.idleSince = undefined;
-        if (count && !u.tNormalAtlas.value && bakes >= BAKES_A_FRAME) ready = false;
-        else if (count && !u.tNormalAtlas.value) {
-          bakes++;
-          const start = performance.now();
-          const atlas = bakeCrown(dr.atlasModel, dr.kit ? floraCover() : undefined);
-          u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
-          u.uAtlasRows = { value: atlas.height / atlas.width };
-          u.tNormalAtlas.value = atlasTexture(atlas.normals, atlas.width);
-          u.tPaintAtlas.value = atlasTexture(atlas.paint, atlas.width);
-          this.atlasStats.bakedMs += performance.now() - start;
-          this.atlasStats.bakes++;
-          this.atlasStats.residentBytes += atlas.normals.byteLength + atlas.paint.byteLength;
+        if (count && !u.tNormalAtlas.value) {
+          if (CrownView.bakeAtOnce) this.give(dr, bakeNow(dr.atlasModel, dr.kit === true));
+          else {
+            ready = false;
+            if (!dr.baking && this.inFlight < BAKES_IN_FLIGHT) this.bakeFor(dr, dr.atlasModel);
+          }
         } else if (!count && u.tNormalAtlas.value && (dr.idleSince ??= now) < now - ATLAS_KEEP_MS) {
           // (kept a while unused: trees going in and out of the far band are not baked again and again)
           this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
@@ -499,7 +503,36 @@ export class CrownView implements CrownLookup {
     this.drawn.triangles = triangles;
   }
 
-  /** far pictures wanted and not yet baked (one is baked a frame: finish) — the performance gate waits for none before it times a frame */
+  /** a draw's far picture baked in the worker (or here, should the worker fail), shown from the next frame on */
+  private bakeFor(dr: Draw, model: THREE.BufferGeometry): void {
+    dr.baking = true;
+    this.inFlight++;
+    void bakeLater(model, dr.kit === true).then((b) => {
+      this.inFlight--;
+      dr.baking = false;
+      if (this.disposed) return;
+      this.give(dr, b ?? bakeNow(model, dr.kit === true));
+      // (the next frame sets the trees out again: theirs drawn now it is here)
+      this.changed = true;
+    });
+  }
+
+  /** a far picture into its draw's material */
+  private give(dr: Draw, b: Baked): void {
+    const u = (dr.material as THREE.ShaderMaterial).uniforms;
+    if (u.tNormalAtlas.value) return;
+    const atlas = b.atlas;
+    u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
+    u.uAtlasRows = { value: atlas.height / atlas.width };
+    u.tNormalAtlas.value = atlasTexture(atlas.normals, atlas.width);
+    u.tPaintAtlas.value = atlasTexture(atlas.paint, atlas.width);
+    this.atlasStats.bakedMs += b.ms;
+    this.atlasStats.bakes++;
+    if (b.inWorker) this.atlasStats.inWorker++;
+    this.atlasStats.residentBytes += atlas.normals.byteLength + atlas.paint.byteLength;
+  }
+
+  /** far pictures wanted and not yet baked (or being baked) — the performance gate waits for none before it times a frame */
   get pendingBakes(): number {
     let n = 0;
     for (const s of this.draws) for (const v of s) for (const d of v) {
@@ -516,6 +549,7 @@ export class CrownView implements CrownLookup {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const s of this.draws) for (const v of s) for (const d of v) {
       d.mesh.geometry.dispose();
       d.mesh.dispose();

@@ -26,6 +26,7 @@
  * is DOM-free.
  */
 import * as THREE from 'three';
+import { maskCover } from '../crowns/crownAtlas';
 import { mulberry } from '../vegetation';
 
 /** the atlas is TILES × TILES */
@@ -500,6 +501,12 @@ const COVER_PX = 512;
  * foliage (the mip filter keeps a mark far off as the bake must).
  */
 export function floraCover(): (u: number, v: number) => boolean {
+  const m = floraCoverMask();
+  return maskCover(m.mask, m.px);
+}
+
+/** the mask floraCover reads, itself: what the far pictures' worker is given (scene/crowns/crownBake.ts) */
+export function floraCoverMask(): { mask: Uint8Array; px: number } {
   if (!cover) {
     const t = floraAtlas();
     const canvas = t.image as HTMLCanvasElement;
@@ -517,8 +524,7 @@ export function floraCover(): (u: number, v: number) => boolean {
     }
     cover = mask;
   }
-  const m = cover;
-  return (u, v) => m[Math.min(COVER_PX - 1, Math.max(0, Math.floor(v * COVER_PX))) * COVER_PX + Math.min(COVER_PX - 1, Math.max(0, Math.floor(u * COVER_PX)))] !== 0;
+  return { mask: cover, px: COVER_PX };
 }
 
 /** the atlas as a picture (for the sample report): a data URL */

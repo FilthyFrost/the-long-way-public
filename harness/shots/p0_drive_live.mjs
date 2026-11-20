@@ -29,16 +29,19 @@ try {
     g.world.spine.project(v.sim.px, v.sim.pz, NaN, p);
     robot.s = p.s;
     const end = robot.s + km * 1000;
-    window.__live = { intervals: [], kms: [], done: false };
+    window.__live = { intervals: [], kms: [], js: [], done: false };
     const f = g.frame.bind(g);
     let last = 0;
     g.frame = (dt) => {
       g.scripted = robot.update(dt, v.sim, g.world.spine);
+      const t0 = performance.now();
       f(dt);
       const now = performance.now();
       if (last) {
         window.__live.intervals.push(now - last);
         window.__live.kms.push(robot.s / 1000);
+        // (the game's own work in the frame: the rest of an interval is the browser and the GPU)
+        window.__live.js.push(now - t0);
       }
       last = now;
       if (robot.s >= end) window.__live.done = true;
@@ -54,9 +57,13 @@ try {
   const long = iv.filter((x) => x > 50).length;
   console.log(`${iv.length} frames over ${km} km: mean interval ${(iv.reduce((a, b) => a + b, 0) / iv.length).toFixed(2)} ms (${(1000 / (iv.reduce((a, b) => a + b, 0) / iv.length)).toFixed(1)} fps), P50 ${q(0.5)}, P95 ${q(0.95)}, P99 ${q(0.99)}, max ${sorted[sorted.length - 1].toFixed(1)}`);
   console.log(`  late frames (> 20 ms: at least one dropped) ${late} = ${((100 * late) / iv.length).toFixed(2)}%; hitches over 50 ms ${long}`);
-  const worst = iv.map((x, i) => [x, r.kms[i + 60]]).sort((a, b) => b[0] - a[0]).slice(0, 8);
-  console.log('  the longest:', worst.map(([x, k]) => `${x.toFixed(0)} ms at ${k.toFixed(2)} km`).join(', '));
-  if (bakes) console.log(`  far pictures baked: ${bakes.bakes}, ${bakes.bakedMs.toFixed(0)} ms in all (${(bakes.bakedMs / Math.max(1, bakes.bakes)).toFixed(1)} ms each)`);
+  const worst = iv.map((x, i) => [x, r.kms[i + 60], r.js[i + 60]]).sort((a, b) => b[0] - a[0]).slice(0, 8);
+  console.log('  the longest:', worst.map(([x, k, j]) => `${x.toFixed(0)} ms at ${k.toFixed(2)} km (the game ${j.toFixed(0)} ms)`).join(', '));
+  const js = r.js.slice(60);
+  const jsSorted = [...js].sort((a, b) => a - b);
+  const lateJs = iv.map((x, i) => [x, js[i]]).filter(([x]) => x > 20);
+  console.log(`  the game's own work a frame: mean ${(js.reduce((a, b) => a + b, 0) / js.length).toFixed(2)} ms, P95 ${jsSorted[Math.floor(0.95 * jsSorted.length)].toFixed(1)}, P99 ${jsSorted[Math.floor(0.99 * jsSorted.length)].toFixed(1)}; of the late frames ${lateJs.filter(([, j]) => j > 12).length} had more than 12 ms of it`);
+  if (bakes) console.log(`  far pictures baked: ${bakes.bakes}, ${bakes.bakedMs.toFixed(0)} ms in all (${(bakes.bakedMs / Math.max(1, bakes.bakes)).toFixed(1)} ms each; ${bakes.inWorker ?? 0} of them in the worker)`);
   if (errors.length) console.log('errors', errors.slice(0, 3).join(' | '));
 } finally {
   await browser.close();
