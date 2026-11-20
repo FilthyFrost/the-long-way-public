@@ -23,7 +23,8 @@ function covered(u: number, v: number): boolean {
   return spray[(Math.floor(v * MASK) & (MASK - 1)) * MASK + (Math.floor(u * MASK) & (MASK - 1))] !== 0;
 }
 
-export function bakeCrown(g: THREE.BufferGeometry) {
+/** `cover`: whether a spray's picture has foliage at a uv (default: the world's one round spray; the plant toolkit's atlas has its own) */
+export function bakeCrown(g: THREE.BufferGeometry, cover: (u: number, v: number) => boolean = covered) {
   const p = g.getAttribute('position'), n = g.getAttribute('normal'), uv = g.getAttribute('uv');
   const crown = g.getAttribute('aCrown'), part = g.getAttribute('aPart'), index = g.getIndex()!;
   let radius = 0, bottom = Infinity, top = -Infinity;
@@ -69,7 +70,7 @@ export function bakeCrown(g: THREE.BufferGeometry) {
         if (leaf) {
           const tx = u * uv.getX(a) + v * uv.getX(b) + w * uv.getX(d);
           const ty = u * uv.getY(a) + v * uv.getY(b) + w * uv.getY(d);
-          if (!covered(tx, ty)) continue;
+          if (!cover(tx, ty)) continue;
           if (material > 2.05 && material < 2.18) {
             const qx = (tx * 2 % 1) * 2 - 1, qy = (ty * 2 % 1) * 2 - 1;
             const width = (0.18 + 0.86 * (qy * 0.5 + 0.5)) * Math.sqrt(Math.max(0, 1 - qy * qy));

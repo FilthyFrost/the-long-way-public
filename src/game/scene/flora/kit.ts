@@ -230,7 +230,8 @@ function writeCore(out: Out, k: Clump, ball: 0 | 1, random: () => number): void 
     const lump = rc * (0.86 + 0.24 * Math.sin(nx * 5 + phase * 9) * Math.sin(nz * 4 + ny * 3));
     tD.set(nx * lump, ny * lump * k.sy, nz * lump);
     if (k.along) tD.addScaledVector(k.along, tD.dot(k.along) * (k.stretch - 1));
-    tL.set(nx, ny, nz).lerp(UP, k.shelf * 0.5).normalize();
+    // (a shelf's light bent up a little: its top lit and snowed on, its sides and underside not)
+    tL.set(nx, ny, nz).lerp(UP, k.shelf * 0.3).normalize();
     out.vertex(k.c.x + tD.x, k.c.y + tD.y, k.c.z + tD.z, tL.x, tL.y, tL.z, 0.5, 0.5, tone, phase, k.open * 0.8, k.c.y + tD.y, PART_CORE);
   }
   for (const f of b.idx) out.idx.push(first + f);
@@ -304,7 +305,7 @@ function writeSprays(out: Out, k: Clump, tile: number, cards: number, size0: num
       tY.crossVectors(tN, tX);
     }
     if (tA.y - size * 0.5 < 0.04) tA.y = 0.04 + size * 0.5;
-    tL.copy(tD).lerp(UP, k.shelf * 0.55).normalize();
+    tL.copy(tD).lerp(UP, k.shelf * 0.3).normalize();
     const open = openAt(tA, tL);
     const t = random();
     const first = out.pos.length / 3;

@@ -13,6 +13,8 @@ import { LAYER_SHADOW_FAR } from '../../render/shadow';
 import { CROWN_STRIDE, type CrownLookup } from './crownData';
 import { bakeCrown, atlasTexture } from './crownAtlas';
 import { crownSpecies, type SpeciesModels } from './species';
+import { floraCover } from '../flora/atlas';
+import { floraMaterial, shadowCaster } from '../flora/material';
 
 
 /** within these (m) a tree is drawn at its nearest level, and at its second; a shrub within its own */
@@ -34,6 +36,8 @@ function fadeWidth(edge: number): number {
 
 interface Draw {
   atlasModel?: THREE.BufferGeometry;
+  /** its far picture baked from the plant toolkit's atlas */
+  kit?: boolean;
   mesh: THREE.InstancedMesh;
   look: THREE.InstancedBufferAttribute;
   tree: THREE.InstancedBufferAttribute;
@@ -109,7 +113,7 @@ export class CrownView implements CrownLookup {
       this.species.push(s);
       this.byFamily.set(s.family, k);
       this.draws.push(s.models.map((levels) => levels.map((m, level) => {
-        if (level < 2) return this.makeDraw(m.geometry, this.material, false, level + 1);
+        if (level < 2) return this.makeDraw(m.geometry, s.kit ? floraMaterial() : this.material, false, level + 1);
         const material = crownMaterial();
         material.defines.CROWN_ATLAS = 1;
         material.uniforms.tNormalAtlas = { value: null };
@@ -117,9 +121,11 @@ export class CrownView implements CrownLookup {
         this.atlasMaterials.push(material);
         const draw = this.makeDraw(this.billboard, material, false, 3);
         draw.atlasModel = m.geometry;
+        if (s.kit) draw.kit = true;
         return draw;
       })));
-      this.shadowDraws.push(s.models.map((levels) => this.makeDraw(levels[SHADOW_LEVEL].geometry, this.material, true)));
+      // (a kit species' shadow: its sprays' uv made their own cards', so the shadow pass cuts them as every tree's)
+      this.shadowDraws.push(s.models.map((levels) => this.makeDraw(s.kit ? shadowCaster(levels[SHADOW_LEVEL].geometry) : levels[SHADOW_LEVEL].geometry, this.material, true)));
     }
   }
 
@@ -442,7 +448,7 @@ export class CrownView implements CrownLookup {
         const u = (dr.material as THREE.ShaderMaterial).uniforms;
         if (count && !u.tNormalAtlas.value) {
           const start = performance.now();
-          const atlas = bakeCrown(dr.atlasModel);
+          const atlas = bakeCrown(dr.atlasModel, dr.kit ? floraCover() : undefined);
           u.uCard = { value: new THREE.Vector3(atlas.radius, atlas.bottom, atlas.top - atlas.bottom) };
           u.uAtlasRows = { value: atlas.height / atlas.width };
           u.tNormalAtlas.value = atlasTexture(atlas.normals, atlas.width);

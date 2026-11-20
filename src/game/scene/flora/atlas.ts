@@ -490,6 +490,37 @@ export function floraAtlas(): THREE.Texture {
   return t;
 }
 
+let cover: Uint8Array | null = null;
+/** the coverage mask's side (texels over the whole atlas) */
+const COVER_PX = 512;
+
+/**
+ * Whether there is foliage at a point of the atlas (uv), as the far pictures' bake asks it of every spray
+ * (scene/crowns/crownAtlas.ts): a coarse mask of the atlas, a texel kept where any of the finer ones under it has
+ * foliage (the mip filter keeps a mark far off as the bake must).
+ */
+export function floraCover(): (u: number, v: number) => boolean {
+  if (!cover) {
+    const t = floraAtlas();
+    const canvas = t.image as HTMLCanvasElement;
+    const g = canvas.getContext('2d')!;
+    const px = g.getImageData(0, 0, canvas.width, canvas.height).data;
+    const step = canvas.width / COVER_PX;
+    const mask = new Uint8Array(COVER_PX * COVER_PX);
+    for (let y = 0; y < COVER_PX; y++) {
+      for (let x = 0; x < COVER_PX; x++) {
+        let on = 0;
+        for (let j = 0; j < step && !on; j++) for (let i = 0; i < step && !on; i++) if (px[((y * step + j) * canvas.width + (x * step + i)) * 4 + 1] > 127) on = 1;
+        // (the canvas's rows run down, a texture's v up)
+        mask[(COVER_PX - 1 - y) * COVER_PX + x] = on;
+      }
+    }
+    cover = mask;
+  }
+  const m = cover;
+  return (u, v) => m[Math.min(COVER_PX - 1, Math.max(0, Math.floor(v * COVER_PX))) * COVER_PX + Math.min(COVER_PX - 1, Math.max(0, Math.floor(u * COVER_PX)))] !== 0;
+}
+
 /** the atlas as a picture (for the sample report): a data URL */
 export function floraAtlasPicture(): string {
   const t = floraAtlas();

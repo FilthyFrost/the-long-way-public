@@ -2,6 +2,7 @@
  * Entry of the ModCar game (index.html and modcar.html; the game before it is classic.html). Builds ModGame and the
  * test hook `window.__rt` the screenshot harness and the journey scripts drive it through.
  */
+import { setFloraKit } from '../scene/crowns/species';
 import { tried } from './devLab';
 import { sectionOf, type SectionId } from '../../core/modcar/proving/layout';
 import * as THREE from 'three';
@@ -40,6 +41,9 @@ const fresh = readModParams(base);
 // a game in progress goes on, unless the address asks for something of its own (the harness, a test drive)
 const q = new URLSearchParams(location.search);
 if (q.has('new')) clearSave();
+// (?flora=kit: the world's trees and bushes grown by the plant toolkit where it has a kind for them — the samples of
+// docs/V3/nodes/P2-flora.md in the world, for the player to judge; docs/V3/nodes/P3-kit-world.md)
+setFloraKit(q.get('flora') === 'kit');
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
 // (?new=1: the save cleared, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();

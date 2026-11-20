@@ -12,6 +12,7 @@
 import { CROWN_LEVELS, growBroadleaf, growConifer, type BroadleafShape, type ConiferShape, type CrownModel } from './grow';
 
 import { growSpecial, type Special } from './special';
+import { floraKind, growFlora } from '../flora/catalog';
 
 export type SpeciesShape = { kind: 'broadleaf'; shape: BroadleafShape } | { kind: 'conifer'; shape: ConiferShape } | { kind: 'special'; form: Special };
 
@@ -129,6 +130,8 @@ export const SPECIES: Readonly<Record<string, SpeciesDef>> = {
 export interface SpeciesModels {
   family: string;
   def: SpeciesDef;
+  /** grown by the plant toolkit (scene/flora): drawn with its atlas */
+  kit?: boolean;
   /** by variant, by level */
   models: CrownModel[][];
   /** the variants' measure (m): the first variant's, which the catalogue's sizes are measured against */
@@ -143,11 +146,47 @@ export function growSpeciesModel(g: SpeciesShape, seed: number, level: number, b
 
 let built: Map<string, SpeciesModels> | null = null;
 
+/**
+ * The world's families the plant toolkit has a kind for (docs/V3/nodes/P3-kit-world.md): drawn as that kind when the
+ * toolkit is on (`?flora=kit`, setFloraKit). The rest stay as they were until the toolkit grows them too.
+ */
+export const KIT_OF: Readonly<Record<string, string>> = {
+  conifer: 'spruce', spruce: 'spruce', fir: 'spruce', douglas_fir: 'spruce', larch: 'spruce',
+  conifer2: 'pine', pine: 'pine', stone_pine: 'stone_pine', cypress: 'cypress',
+  broadleaf: 'oak', broadleaf3: 'oak', oak: 'oak', linden: 'oak', beech: 'oak', maple: 'oak', chestnut: 'oak', camphor: 'oak',
+  giant_broadleaf: 'oak', ash: 'oak', marula: 'oak', river_fig: 'oak', southern_beech: 'oak', desert_poplar: 'oak',
+  birch: 'birch', aspen: 'birch', poplar: 'poplar', broadleaf2: 'poplar',
+  fruit_tree: 'cherry', lemon: 'cherry',
+  coconut_palm: 'palm', fan_palm: 'palm',
+  acacia: 'acacia', blackwood_acacia: 'acacia', palo_verde: 'acacia', mesquite: 'acacia',
+  bamboo: 'bamboo', saguaro: 'saguaro', cactus: 'saguaro', baobab: 'baobab',
+  bush: 'shrub_round', bush_dry: 'shrub_round', bush_alpine: 'shrub_round', rhododendron: 'shrub_round',
+};
+
+let floraKit = false;
+/** the plant toolkit grows the families it has a kind for (before the first world is made: the species are grown once) */
+export function setFloraKit(on: boolean): void {
+  if (built && on !== floraKit) disposeCrownSpecies();
+  floraKit = on;
+}
+
 /** every species, grown (once) */
 export function crownSpecies(): Map<string, SpeciesModels> {
   if (built) return built;
   built = new Map();
   for (const [family, def] of Object.entries(SPECIES)) {
+    const kind = floraKit ? KIT_OF[family] : undefined;
+    if (kind) {
+      // the toolkit's kind at its near and middle levels; its far picture and its shadow from its middle one
+      const k = floraKind(kind);
+      const models = def.variants.map((v) => {
+        const near = growFlora(k, v.seed, 0);
+        const mid = growFlora(k, v.seed, 1);
+        return [near, mid, growFlora(k, v.seed, 1)];
+      });
+      built.set(family, { family, def, models, height: models[0][0].height, radius: models[0][0].radius, kit: true });
+      continue;
+    }
     const models = def.variants.map((v) => CROWN_LEVELS.map((_, level) => growSpeciesModel(v.grow, v.seed, level)));
     built.set(family, { family, def, models, height: models[0][0].height, radius: models[0][0].radius });
   }
