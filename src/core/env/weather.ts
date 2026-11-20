@@ -14,7 +14,7 @@
 import { fbm1 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
-import { BIOMES, regionById, regionRow, type RegionDef } from '../world/biomes';
+import { BIOMES, regionById, regionRow, regionSalt, type RegionDef } from '../world/biomes';
 
 export const WEATHER_KINDS = ['clear', 'cloudy', 'overcast', 'fog', 'rain', 'storm', 'hail', 'snow', 'blizzard', 'sandstorm'] as const;
 export type WeatherKind = (typeof WEATHER_KINDS)[number];
@@ -186,7 +186,7 @@ export class WeatherSystem {
     const id = B.id;
     const calm = calmOf(B);
     // ---- calm weather (the drift of each region is its own: its index in the registry seeds it)
-    const drift = fbm1(t / 760, this.seed + 17 + biome * 3, 2);
+    const drift = fbm1(t / 760, this.seed + 17 + regionSalt(biome) * 3, 2);
     let cloud = smoothstep(-0.38, 0.42, drift) * calm.cloud;
     let overcast = smoothstep(0.62, 1.0, cloud) * 0.45;
     let rain = 0;

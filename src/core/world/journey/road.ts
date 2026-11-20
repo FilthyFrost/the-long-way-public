@@ -126,6 +126,28 @@ export interface JourneyPiece {
   thresholdLength: number;
 }
 
+/**
+ * What whoever reads a world's journey reads of it — the place names on the screen, the developer's journey strip,
+ * the description of a place: version 3's journey (JourneyRoad) and version 4's (earth/road.ts EarthRoad) alike.
+ */
+export interface JourneyPieceView {
+  kind: 'scene' | 'buffer' | 'home';
+  scene: { readonly name: string; readonly tag: string } | null;
+  buffer: { readonly name: string } | null;
+  index: number;
+  region: number;
+  start: number;
+  end: number;
+  threshold: Threshold | null;
+}
+
+export interface RoadJourney {
+  readonly pieces: readonly JourneyPieceView[];
+  readonly chapters: readonly { readonly region: number; readonly length: number; readonly border: number }[];
+  chapter(c: number): { readonly region: number; readonly length: number; readonly border: number };
+  pieceAt(s: number): JourneyPieceView;
+}
+
 /** one chapter of the road: pieces of one region running on */
 export interface JourneyChapter {
   region: number;

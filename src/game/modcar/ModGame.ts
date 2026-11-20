@@ -176,7 +176,7 @@ export function readModParams(base: Params, search: string = window.location.sea
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
     garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
     keep: false,
-    world: q.get('world') === '1' ? 1 : q.get('world') === '2' ? 2 : 3,
+    world: q.get('world') === '1' ? 1 : q.get('world') === '2' ? 2 : q.get('world') === '3' ? 3 : 4,
     ...(Number.isInteger(regions) ? { regions } : {}),
     archive: q.get('archive') !== '0',
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,

@@ -157,6 +157,43 @@ export interface RegionDef extends BiomeDef {
   featureSlots?: number;
   /** worlds of version 2 only: its relief (absent: version 1's, from the numbers above) */
   relief?: RegionRelief;
+  /**
+   * What seeds its land's noise and its weather's in place of its index in the registry (absent: the index, as
+   * for every region written by hand). A region of the emergent Earth (world version 4, earth/region.ts) is made
+   * as the journey reaches it, and its index is wherever the registry stood then: its noise must be the same
+   * whichever world of a session made it first.
+   */
+  noise?: number;
+  /**
+   * A region of the emergent Earth (world version 4): the director's place it is, for whoever draws it — its
+   * colours (painted, 0xRRGGBB: the ground's three tones, the dust, the rock's lit and shaded faces, the woods,
+   * the crowns, the trunks, the flowers) and how its ground looks (render/style.ts BiomeStyle's dials).
+   */
+  earth?: EarthLook;
+}
+
+/** how a region of the emergent Earth is painted (biomes.ts RegionDef.earth; scene/palette.ts reads it) */
+export interface EarthLook {
+  ground: readonly [number, number, number];
+  dust: number;
+  rock: number;
+  rock2: number;
+  forest: number;
+  crowns: readonly number[];
+  trunk: number;
+  flowers: readonly [number, number, number];
+  /** 0 … 1: how dry its ground looks, how much grass and how tall, how many flowers; the slope where bare rock begins */
+  dryness: number;
+  grass: number;
+  grassSize: number;
+  flowerAmount: number;
+  rockStart: number;
+  /** 0 … 1: snow on its ground (its month's snow line below the road), its rock in layers (sandstones, shales), its woods in autumn's colours */
+  snow: number;
+  strata: number;
+  crownVariety: number;
+  /** its month (1 … 12), as the northern year runs: what season its plants are in */
+  month: number;
 }
 
 /**
@@ -461,6 +498,8 @@ function entry(d: RegionDef): RegionDef {
     features: d.features,
     featureSlots: d.featureSlots,
     relief: d.relief,
+    noise: d.noise,
+    earth: d.earth,
   };
   return e;
 }
@@ -475,6 +514,51 @@ function append(d: RegionDef): number {
 
 for (const d of FIRST_SIX) append(d);
 for (const d of ADDED_REGIONS) append(d);
+
+/**
+ * The regions written by hand: the six and the list of regions/index.ts, all there as soon as this file is
+ * loaded. Worlds of versions 2 and 3 know these and no more (rules.ts); what comes after them in the registry
+ * is the emergent Earth's, made as a world of version 4 reaches it (`earthRegion`).
+ */
+export const AUTHORED_REGIONS = REGISTRY.length;
+
+/** the index of each region of the emergent Earth made so far, by its id */
+const EARTH_INDEX = new Map<string, number>();
+
+/**
+ * A region of the emergent Earth (world version 4: earth/region.ts makes it from the director's place): put at
+ * the end of the registry the first time its id is asked for, the same index every time after (a world made
+ * again from the same seed, the probe world and the game's, finds its regions there). Never taken out.
+ */
+export function earthRegion(id: string, make: () => RegionDef): number {
+  const known = EARTH_INDEX.get(id);
+  if (known !== undefined) return known;
+  const def = make();
+  if (def.id !== id) throw new Error(`earth region '${id}' made as '${def.id}'`);
+  const index = append(def);
+  EARTH_INDEX.set(id, index);
+  return index;
+}
+
+/** is the region at this index one of the emergent Earth's (made by `earthRegion`)? */
+export function isEarthRegion(index: number): boolean {
+  return index >= AUTHORED_REGIONS && index < REGISTRY.length && REGISTRY[index].earth !== undefined;
+}
+
+/**
+ * How many regions at the head of the registry are written by hand — the game's, and any a test or a tool has
+ * put in (`registerRegion`) — up to the first of the emergent Earth's: what a world of versions 2 and 3 may know.
+ */
+export function handRegions(): number {
+  let first = REGISTRY.length;
+  for (const i of EARTH_INDEX.values()) if (i < first) first = i;
+  return first;
+}
+
+/** what seeds a region's noise: its own `noise`, else its index (the regions written by hand) */
+export function regionSalt(index: number): number {
+  return REGISTRY[index]?.noise ?? index;
+}
 
 /**
  * Put one more region at the end of the registry; returns what takes it out again. For tests and tools:

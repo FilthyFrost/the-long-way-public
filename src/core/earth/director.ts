@@ -86,8 +86,8 @@ export const SCENE_LENGTH = 5000;
 const VARY_BELOW = 0.25;
 /** a rock's sibling across a contact: the same country, another colour */
 const SIBLING: Partial<Record<RockId, RockId>> = { sandstone_red: 'sandstone_pale', sandstone_pale: 'sandstone_red', limestone: 'dolomite', dolomite: 'limestone', granite: 'schist', schist: 'granite', basalt: 'cinder', cinder: 'basalt', quartz_sand: 'sandstone_red', shale: 'rhyolite', rhyolite: 'shale', loess: 'sandstone_pale', till: 'granite', salt: 'shale', gypsum: 'quartz_sand', peat: 'till', coral_sand: 'limestone', laterite: 'sandstone_red' };
-/** the steepest the road climbs on average over a climb (rise over run) */
-const GRADE: readonly [number, number] = [0.055, 0.075];
+/** how steeply the road climbs on average over a climb (rise over run): a mountain road's long climbs, which the world's road follows (world/rules.ts RULES_V4) */
+const GRADE: readonly [number, number] = [0.045, 0.06];
 /** the coldest a road's pass is (its growing season's warmth, °C, climate.ts growingAt): roads cross among the alpine meadows and the rock below the ice, the ice in view above them */
 const PASS_COLDEST = 0.5;
 /** how much more often a patch not yet met on the journey is the one chosen */

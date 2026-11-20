@@ -17,7 +17,9 @@ const m5 = args.includes('--m5');
 if (m5) args.splice(args.indexOf('--m5'), 1);
 const label = args[0] && !args[0].startsWith('-') ? args.shift() : 'now';
 /** the gate's spots: forest, grassland, snow mountain (near and its long view), water (the coast's stand-in until the coast roads are made) */
-const SPOTS = [
+// (WORLD=4: the emergent Earth's world of seed 7, docs/V3/nodes/E1-earth-world.md — its spots its first places of each kind)
+const EARTH = process.env.WORLD === '4';
+let SPOTS = [
   { name: 'forest', km: 388.125 },
   { name: 'plains', km: 3.125 },
   { name: 'alpine', km: 394.375 },
@@ -34,8 +36,23 @@ const browser = await launchBrowser();
 const report = { label, at: new Date().toISOString(), budget, spots: [] };
 let over = 0;
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=2&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? 4 : 2}&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
   await idle(page);
+  if (EARTH) {
+    const wanted = args.length ? args : null;
+    SPOTS = (await page.evaluate(() => {
+      const j = window.__rt.game.world.earth;
+      while (j.pieces.length < 81) j.chapter(j.chapters.length);
+      const kinds = { forest: (p) => p.look.efg.struct === 'closed_forest', open: (p) => ['grassland', 'savanna', 'farmland'].includes(p.look.efg.struct), mountain: (p) => p.macro.context === 'mountain' && p.macro.relief > 600, coast: (p) => p.macro.water === 'coast', desert: (p) => ['desert', 'bare'].includes(p.look.efg.struct) };
+      const spots = [];
+      for (const [name, is] of Object.entries(kinds)) {
+        const piece = j.pieces.find((q) => q.scene && is(q.scene.place));
+        if (piece) spots.push({ name, km: (piece.start + 0.55 * (piece.end - piece.start)) / 1000, place: piece.scene.name });
+      }
+      return spots;
+    })).filter((s) => !wanted || wanted.includes(s.name));
+    console.log('the Earth spots:', SPOTS.map((s) => `${s.name} ${s.place} ${s.km.toFixed(2)} km`).join(' · '));
+  }
   for (const spot of SPOTS) {
     await page.evaluate((km) => window.__rt.devGoKm(km, true), spot.km);
     await built(page);

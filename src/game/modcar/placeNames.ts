@@ -9,8 +9,7 @@
  *
  * Pure: the journey, where along the road the traveller is, and the clock. DOM-free.
  */
-import type { JourneyRoad } from '../../core/world/journey/road';
-import type { SceneCard } from '../../core/world/journey/scenes';
+import type { RoadJourney } from '../../core/world/journey/road';
 
 /** a session's first naming waits this long (s) */
 const FIRST_WAIT = 2.5;
@@ -24,7 +23,7 @@ export class PlaceNames {
   private wait = FIRST_WAIT;
 
   /** the scene to name now, if one is to be (`s`: how far along the road the traveller is, m; `now`: the clock, s) */
-  update(journey: JourneyRoad | null, s: number, now: number, dt: number): SceneCard | null {
+  update(journey: RoadJourney | null, s: number, now: number, dt: number): { readonly name: string; readonly tag: string } | null {
     if (!journey || !Number.isFinite(s)) return null;
     if (this.wait > 0) {
       this.wait -= dt;

@@ -32,7 +32,7 @@ import { RAIL_AT, RAIL_STEP, type RailRun, type RoadPost } from '../../core/worl
 import { ModelBuilder } from '../vehicle/builder';
 import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
-import { BIOME_STYLES, STYLE } from '../render/style';
+import { STYLE, styleOf } from '../render/style';
 import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
 import { canopyOf, woodHeight, woodOnSlope } from './floraCanopy';
 import { CoverBase, coverBase, driftHue01, hueOf, rowCoord, rowHue01, rowsRun } from './floraCover';
@@ -1126,8 +1126,8 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
   // towards a shore the meadow is grazed short (and the water shows over it)
   out.shore = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
   out.ad = tp.d < 0 ? -tp.d : tp.d;
-  const sa = BIOME_STYLES[tp.ba];
-  const sb = BIOME_STYLES[tp.bb];
+  const sa = styleOf(tp.ba);
+  const sb = styleOf(tp.bb);
   const mixOf = (x: number | undefined, y: number | undefined, dflt: number): number => (x ?? dflt) + ((y ?? dflt) - (x ?? dflt)) * tp.bt;
   out.grow = mixOf(sa.grassGrow, sb.grassGrow, 0.5);
   out.lush = mixOf(sa.grassLush, sb.grassLush, 0.6);

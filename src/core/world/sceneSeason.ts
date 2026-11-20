@@ -1,5 +1,5 @@
 // Months are characteristics of a landscape. A date is never read from the journey clock.
-const months: Readonly<Record<string, number>> = {
+const months: Record<string, number> = {
   plains: 6, forest: 7, alpine: 1, maple: 10, lakes: 1, wetland: 1,
   desert: 3, red_canyon: 4, terraces: 5, flower_fields: 9, bamboo_sea: 6, karst_peaks: 6,
   'central-alps': 1, 'sierra-high': 1, 'rocky-pass': 1, 'shenandoah-farm': 6,
@@ -18,6 +18,8 @@ const months: Readonly<Record<string, number>> = {
   'karst-river': 6, 'redrock': 4, 'sonoran': 3, 'appalachian': 10,
 };
 export function sceneMonth(id: string): number { return months[id] ?? 6; }
+/** a region of the emergent Earth's month: its place's (earth/road.ts) */
+export function setSceneMonth(id: string, month: number): void { months[id] = month; }
 
 /** Shortest arc between two seasonal signatures; December to January crosses New Year. */
 export function sceneMonthAt(a: string, b: string, t: number): number {

@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import { fbm2 } from '../../core/math/noise';
 import { smoothstep } from '../../core/math/util';
-import { BIOMES, regionRow, type BiomeDef } from '../../core/world/biomes';
+import { BIOMES, regionRow, type BiomeDef, type EarthLook } from '../../core/world/biomes';
 import type { TerrainPoint } from '../../core/world/terrain';
 import type { BiomeStyle } from '../render/style';
 
@@ -37,7 +37,7 @@ export interface BiomePalette {
    * What else of the painted look sets it apart from its kin (render/style.ts BiomeStyle): how dry it is, how
    * much grass grows and how tall, how many flowers, how steep the ground is where bare rock begins
    */
-  look?: Partial<Pick<BiomeStyle, 'grassDensity' | 'dryness' | 'rockStart' | 'strata' | 'grassGrow' | 'grassLush' | 'grassSize' | 'flowerAmount' | 'crownVariety'>>;
+  look?: Partial<Pick<BiomeStyle, 'grassDensity' | 'dryness' | 'rockStart' | 'strata' | 'grassGrow' | 'grassLush' | 'grassSize' | 'flowerAmount' | 'crownVariety' | 'snow'>>;
 }
 
 export const PALETTES: Record<string, BiomePalette> = {
@@ -187,9 +187,26 @@ export function floraOf(biome: number): string {
   return floraIds[biome];
 }
 
-/** a region's row of the table: its own, else none (render/style.ts then draws it as its kin) */
+/** a region's row of the table: its own, a region of the emergent Earth's made from its look, else none (render/style.ts then draws it as its kin) */
 export function paletteOf(region: BiomeDef): BiomePalette | undefined {
-  return Object.prototype.hasOwnProperty.call(PALETTES, region.id) ? PALETTES[region.id] : undefined;
+  if (Object.prototype.hasOwnProperty.call(PALETTES, region.id)) return PALETTES[region.id];
+  const earth = (region as { earth?: EarthLook }).earth;
+  return earth ? (PALETTES[region.id] = earthPalette(earth)) : undefined;
+}
+
+/** the row of a region of the emergent Earth (core/world/earth/region.ts lookOfPlace): its own colours and dials */
+export function earthPalette(e: EarthLook): BiomePalette {
+  return {
+    ground: [e.ground[0], e.ground[1], e.ground[2]],
+    dust: e.dust,
+    rock: e.rock,
+    rock2: e.rock2,
+    forest: e.forest,
+    crowns: [...e.crowns],
+    trunk: e.trunk,
+    flowers: [e.flowers[0], e.flowers[1], e.flowers[2]],
+    look: { dryness: e.dryness, grassDensity: e.grass, grassGrow: 0.2 + 0.6 * e.grass, grassSize: e.grassSize, flowerAmount: e.flowerAmount, rockStart: e.rockStart, snow: e.snow, strata: e.strata, crownVariety: e.crownVariety },
+  };
 }
 
 interface LinearPalette {
@@ -255,7 +272,7 @@ const tmpA = new THREE.Color();
 const tmpB = new THREE.Color();
 
 function biomeGround(bi: number, seed: number, t: TerrainPoint, x: number, z: number, ny: number, ad: number, out: THREE.Color): void {
-  const p = PAL[bi];
+  const p = PAL[bi] ?? PAL[0];
   // (snow country and dry country by kin: a region is steep and rocky, or layered, as its kin is)
   const id = BIOMES[bi].kin;
   const n1 = fbm2(x / 97, z / 97, seed + 601, 2);

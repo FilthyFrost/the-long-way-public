@@ -31,15 +31,22 @@ for (const [a, m, neighbours] of corridors) for (const b of neighbours) {
   connect(b, a, m);
 }
 // An existing game's region is a landscape analogue, not a simulation of its reference country's climate.
-const analogues: Readonly<Record<string, string>> = {
+const analogues: Record<string, string> = {
   plains: 'shenandoah-farm', desert: 'sonoran', red_canyon: 'redrock',
   forest: 'sierra-valley', alpine: 'sierra-high', maple: 'appalachian',
   lakes: 'fiordland', terraces: 'south-china-paddy', bamboo_sea: 'karst-river',
   karst_peaks: 'karst-river', flower_fields: 'blue-meadow', wetland: 'eglinton-grass',
 };
 export function routeProfileId(id: string): string { return analogues[id] ?? id; }
+/** a region of the emergent Earth (earth/road.ts) is the analogue its template is, until it has a profile of its own */
+export function aliasRouteProfile(id: string, as: string): void { analogues[id] = analogues[as] ?? as; }
+/** the snow lines of the emergent Earth's regions (m above the sea, their months'), by id: their own physics' (earth/region.ts) */
+const snowLines = new Map<string, number>();
+export function setSceneSnowLine(id: string, h: number): void { snowLines.set(id, h); }
 const profiles = new Map(ECO_PROFILES.map(p => [p.id, p]));
 export function sceneSnowLine(id: string): number {
+  const own = snowLines.get(id);
+  if (own !== undefined) return own;
   const profile = profiles.get(analogues[id] ?? id);
   // The game's compressed Alpine valley stands hundreds of metres below the Sierra reference.
   return id === 'alpine' ? 150 : profile?.snowlineM[Math.floor(sceneMonth(id) % 12 / 3)] ?? 100000;
@@ -72,7 +79,7 @@ export function borderWidth(a: string, b: string, regionCount = Infinity): numbe
 
 /** One choice per stretch, shared by the road and the surrounding land. Water and quiet runs have precedence.
  * A repeated entry makes a characteristic setting more frequent. */
-const settings: Readonly<Record<string, readonly LandKind[]>> = {
+const settings: Record<string, readonly LandKind[]> = {
   alpine: ['valley', 'hillside', 'ridge', 'hillside'],
   plains: ['open', 'ridge', 'hillside', 'open'],
   desert: ['open', 'ridge', 'open', 'hillside', 'canyon', 'valley'],
@@ -86,6 +93,8 @@ const settings: Readonly<Record<string, readonly LandKind[]>> = {
   red_canyon: ['canyon', 'ridge', 'open', 'canyon'],
   karst_peaks: ['open', 'valley', 'open', 'hillside'],
 };
+/** the kinds of country a region of the emergent Earth's road runs through, stretch by stretch (earth/region.ts settingsOf) */
+export function setRouteSettings(id: string, row: readonly LandKind[]): void { settings[id] = row; }
 export function routeSetting(seed: number, k: number, region: string): LandKind {
   const row = settings[region];
   if (!row || k < 1) return 'open';

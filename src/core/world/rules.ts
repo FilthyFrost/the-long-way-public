@@ -15,16 +15,17 @@
  * world knows.
  */
 import type { Rng } from '../math/rng';
-import { BIOMES, FIRST_BIOMES, MIN_RADIUS_ANY } from './biomes';
+import { AUTHORED_REGIONS, FIRST_BIOMES, MIN_RADIUS_ANY, handRegions } from './biomes';
 import { MAX_BORDER_WIDTH } from './routeProfiles';
 import { DEALER_V2 } from './dealer';
 import { DEALER_V3 } from './journey/road';
+import { DEALER_V4 } from './earth/road';
 import { quietRun } from './director';
 import { quietSlot } from './quiet';
 import type { ChapterPlan } from './spine';
 
 /** the versions of the generator there are */
-export type WorldVersion = 1 | 2 | 3;
+export type WorldVersion = 1 | 2 | 3 | 4;
 
 /**
  * The revision of the generator of version 2: raised by one whenever a world of version 2 comes out
@@ -38,7 +39,7 @@ export const WORLD_REV = 14;
 
 /** one chapter as its dealer hands it over */
 export interface DealtChapter {
-  /** the region the chapter runs through: an index into BIOMES, below the world's `regionCount` */
+  /** the region the chapter runs through: an index into BIOMES, below the world's `regionCount` (version 4: or one of the emergent Earth's, biomes.ts earthRegion) */
   region: number;
   /** the chapter's length along the road (m) */
   length: number;
@@ -192,7 +193,7 @@ export const RULES_V1: WorldRules = Object.freeze({
  */
 export const RULES_V2: WorldRules = Object.freeze({
   version: 2,
-  regionCount: BIOMES.length,
+  regionCount: AUTHORED_REGIONS,
   slot: 1250,
   dealer: DEALER_V2,
   transition: (scale: number): number => MAX_BORDER_WIDTH * Math.max(0.1, Math.min(1, scale)),
@@ -215,17 +216,35 @@ export const RULES_V3: WorldRules = Object.freeze({
 });
 
 /**
+ * Version 4 (docs/V3/nodes/E1-earth-world.md): the emergent Earth — version 2's generator with the director of
+ * core/earth for its dealer: home first (the region the world was asked to begin in), then one chapter to each of
+ * the director's places, five kilometres of road, each a region of its own made from the place (earth/region.ts,
+ * put in the registry as the journey reaches it: biomes.ts earthRegion). It knows the regions written by hand as
+ * versions 2 and 3 do, and deals the Earth's besides.
+ */
+export const RULES_V4: WorldRules = Object.freeze({
+  ...RULES_V2,
+  version: 4,
+  dealer: DEALER_V4,
+  // (its road climbs as the director's do — over a range at five to seven and a half in a hundred (core/earth/director.ts
+  // GRADE) — and so is drawn to its country's height harder than version 2's, within the same cap)
+  road: Object.freeze({ ...RULES_V2.road, pull: 0.07, pullLen: 1500 }),
+});
+
+/**
  * The rules of a world: its version's, with its own region count. Without a count a world of version 1
  * knows the six regions there were when version 1 was closed, and a world of version 2 every region
  * registered when it is made — which is why a save must keep the count (WorldOptions.regionCount).
  */
 export function rulesFor(version: WorldVersion = 1, opts: { regionCount?: number } = {}): WorldRules {
-  if (version !== 1 && version !== 2 && version !== 3) throw new RangeError(`world version ${String(version)}: there are versions 1, 2 and 3`);
-  const base = version === 3 ? RULES_V3 : version === 2 ? RULES_V2 : RULES_V1;
-  const count = opts.regionCount ?? (version >= 2 ? BIOMES.length : V1_REGIONS);
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) throw new RangeError(`world version ${String(version)}: there are versions 1, 2, 3 and 4`);
+  const base = version === 4 ? RULES_V4 : version === 3 ? RULES_V3 : version === 2 ? RULES_V2 : RULES_V1;
+  // (the regions written by hand: the emergent Earth's, after them in the registry, are no world's to count)
+  const hand = handRegions();
+  const count = opts.regionCount ?? (version >= 2 ? hand : V1_REGIONS);
   // (at least the three kinds every journey begins in; at most what the registry holds)
-  if (!Number.isInteger(count) || count < FIRST_BIOMES || count > BIOMES.length) {
-    throw new RangeError(`regionCount ${String(count)}: a world knows between ${FIRST_BIOMES} regions and all ${BIOMES.length} of the registry`);
+  if (!Number.isInteger(count) || count < FIRST_BIOMES || count > hand) {
+    throw new RangeError(`regionCount ${String(count)}: a world knows between ${FIRST_BIOMES} regions and all ${hand} of the registry written by hand`);
   }
   return count === base.regionCount ? base : Object.freeze({ ...base, regionCount: count });
 }

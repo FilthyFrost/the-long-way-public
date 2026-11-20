@@ -12,7 +12,7 @@
 import { BIOMES } from '../../core/world/biomes';
 import { LAND_ODDS, LAND_SIZE } from '../../core/world/landform';
 import { PRECIP_DEFS } from '../env/precip';
-import { BIOME_STYLES, STYLE } from '../render/style';
+import { STYLE, styleOf } from '../render/style';
 
 export type DialTab = 'weather' | 'time' | 'look' | 'terrain';
 export type DialUnit = 'x' | 'm' | 'deg' | 'ms' | 'min' | 'kmh' | 'pct' | '';
@@ -318,7 +318,7 @@ function makeDials(): Dial[] {
       }
     }
     // (the region's painted look: its own entry of the art spec, or the one made from its row of the palette table)
-    const st = BIOME_STYLES[BIOMES.indexOf(b)];
+    const st = styleOf(BIOMES.indexOf(b));
     if (st) {
       const where = st === STYLE.biomes[b.id] ? `specs/art/style.json biomes.${b.id}` : `game/scene/palette.ts PALETTES.${b.id}.look`;
       const veg = (field: 'grassGrow' | 'flowerAmount' | 'grassDensity', label: string, help: string): void =>

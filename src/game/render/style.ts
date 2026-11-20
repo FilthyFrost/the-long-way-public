@@ -155,8 +155,23 @@ export function regionStyle(region: BiomeDef): BiomeStyle {
   return row ? styleFromPalette(row, PALETTES[region.kin], kin) : { ...kin };
 }
 
-/** biome styles in the order of BIOMES (index = biome id used everywhere else) */
+/** biome styles in the order of BIOMES (index = biome id used everywhere else): read them through `styleOf` */
 export const BIOME_STYLES: BiomeStyle[] = BIOMES.map(regionStyle);
+const styleIds: string[] = BIOMES.map((b) => b.id);
+
+/**
+ * The painted look of the region at a registry index: made the first time it is asked for — the regions of the
+ * emergent Earth are put in the registry as a world of version 4 reaches them — and again when another region
+ * stands at that index (tests put regions in and take them out)
+ */
+export function styleOf(biome: number): BiomeStyle {
+  const b = BIOMES[biome] ?? BIOMES[0];
+  if (styleIds[biome] !== b.id || BIOME_STYLES[biome] === undefined) {
+    BIOME_STYLES[biome] = regionStyle(b);
+    styleIds[biome] = b.id;
+  }
+  return BIOME_STYLES[biome];
+}
 
 const COLOR_KEYS = ['sun', 'amb', 'bounce', 'zenith', 'mid', 'horizon', 'glow', 'fog', 'fogSun', 'cloudLit', 'cloudMid', 'cloudShade', 'cloudUnder'] as const;
 type ColorKey = (typeof COLOR_KEYS)[number];
@@ -328,7 +343,7 @@ const shown = [-1, -1, -1, -1];
 
 /** the paints of biome `biome` (index into BIOMES) into slot `slot` of a set of palette uniforms */
 function fillSlot(u: typeof paletteUniforms, slot: number, biome: number): void {
-  const b = BIOME_STYLES[biome] ?? BIOME_STYLES[0];
+  const b = styleOf(biome);
   const line = sceneSnowLine(BIOMES[biome]?.id ?? "plains");
   put4(u.uSnowLines.value, slot, line, line, line, line);
   const put = (arr: Float32Array, i: number, c: RGB): void => put3(arr, i, c[0], c[1], c[2]);

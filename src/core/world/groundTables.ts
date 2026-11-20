@@ -9,6 +9,11 @@ const original: Record<string,string> = {
   wetland:'eglinton-grass', flower_fields:'blue-meadow', bamboo_sea:'karst-river',
 };
 const profiles = new Map(ECO_PROFILES.map(p => [p.id,p]));
+/** a region of the emergent Earth (earth/road.ts) grows its template's ground plants, at its template's heights, until it has its own */
+export function aliasGroundProfile(id: string, as: string): void {
+  original[id] = original[as] ?? as;
+  if (roadDatum[as] !== undefined) roadDatum[id] = roadDatum[as];
+}
 export function groundProfile(id: string): EcoProfile | undefined {
   return profiles.get(id) ?? profiles.get(original[id]);
 }

@@ -17,7 +17,7 @@ import { Look, computeLook } from './colorScript';
 import { Precipitation, type PrecipKind } from './precip';
 import { skyUniforms } from './sky';
 import { Clouds } from './clouds';
-import { BIOME_STYLES, STYLE } from '../render/style';
+import { STYLE, styleOf } from '../render/style';
 
 export class Environment {
   readonly clock = new DayClock();
@@ -159,8 +159,8 @@ export class Environment {
     globals.uFogDensity.value = look.haze;
     {
       // the paints of the country here, for what has no ground of its own (the dark of the far bank in water)
-      const ga = BIOME_STYLES[ba];
-      const gb = BIOME_STYLES[bb];
+      const ga = styleOf(ba);
+      const gb = styleOf(bb);
       globals.uHereGround.value.setRGB(ga.ground.deep[0] + (gb.ground.deep[0] - ga.ground.deep[0]) * bt, ga.ground.deep[1] + (gb.ground.deep[1] - ga.ground.deep[1]) * bt, ga.ground.deep[2] + (gb.ground.deep[2] - ga.ground.deep[2]) * bt);
       globals.uHereForest.value.setRGB(ga.forest[1][0] + (gb.forest[1][0] - ga.forest[1][0]) * bt, ga.forest[1][1] + (gb.forest[1][1] - ga.forest[1][1]) * bt, ga.forest[1][2] + (gb.forest[1][2] - ga.forest[1][2]) * bt);
     }

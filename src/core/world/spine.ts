@@ -15,7 +15,7 @@ import { fbm1 } from '../math/noise';
 import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
-import { BIOMES, minRadius, type BiomeDef } from './biomes';
+import { BIOMES, isEarthRegion, minRadius, type BiomeDef } from './biomes';
 import { borderWidth, routeSetting } from './routeProfiles';
 import { baseAt, baseOf } from './relief';
 import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
@@ -117,7 +117,8 @@ export class ChapterPlan {
 
   /** the next chapter, as dealt: a region the world knows, and a length */
   private take(d: DealtChapter): void {
-    if (!Number.isInteger(d.region) || d.region < 0 || d.region >= this.rules.regionCount) {
+    // (version 4 deals the emergent Earth's regions besides those written by hand: biomes.ts earthRegion)
+    if (!Number.isInteger(d.region) || d.region < 0 || (d.region >= this.rules.regionCount && !(this.rules.version >= 4 && isEarthRegion(d.region)))) {
       throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt region ${String(d.region)}, and this world knows regions 0 to ${this.rules.regionCount - 1}`);
     }
     if (!(d.length > 0 && d.length < Infinity)) throw new RangeError(`chapter ${this.biomes.length}: the dealer dealt a length of ${String(d.length)} m`);

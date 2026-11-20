@@ -14,9 +14,10 @@ import { fbm2, ridged2, simplex2 } from '../math/noise';
 import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { roadStyleAt, roadSurface } from './roadStyles';
-import { BIOMES, type BiomeDef } from './biomes';
+import { BIOMES, regionSalt, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
-import { journeyRoad, type JourneyRoad } from './journey/road';
+import { journeyRoad, type RoadJourney } from './journey/road';
+import { earthRoad, type EarthRoad } from './earth/road';
 import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { FloraVistas } from './floraVista';
@@ -275,8 +276,13 @@ export class World implements Ground {
    * the world — has them at hand.
    */
   readonly rules: WorldRules;
-  /** a world of version 3: its journey on the road — the scene, the quiet stretch, the join at every point of it (journey/road.ts) */
-  readonly journey: JourneyRoad | null;
+  /**
+   * A world of version 3: its journey on the road — the scene, the quiet stretch, the join at every point of it
+   * (journey/road.ts); of version 4, the emergent Earth's places (earth/road.ts, also `earth`)
+   */
+  readonly journey: RoadJourney | null;
+  /** a world of version 4: the emergent Earth's places on its road, the director's own (earth/road.ts) */
+  readonly earth: EarthRoad | null;
   /** weather state that changes grip: 0…1 */
   wetness = 0;
   snowCover = 0;
@@ -350,7 +356,8 @@ export class World implements Ground {
       throw new Error(`the stretches do not agree: landform ${LAND_SLOT} m, water ${WATER_SLOT} m, places ${SITE_SLOT} m, the world's rules ${this.rules.slot} m`);
     }
     this.spine = new RoadSpine(seed, opts, this.rules);
-    this.journey = this.rules.version === 3 ? journeyRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.regionCount, this.rules.slot, this.spine.plan.startRegion) : null;
+    this.earth = this.rules.version === 4 ? earthRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.slot, this.spine.plan.startRegion, this.rules.transition(this.spine.plan.scale)) : null;
+    this.journey = this.rules.version === 3 ? journeyRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.regionCount, this.rules.slot, this.spine.plan.startRegion) : this.earth;
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
     this.land = new LandformPlan(
@@ -434,7 +441,7 @@ export class World implements Ground {
   }
 
   private relief(b: BiomeDef, bi: number, x: number, z: number, g1: number, lat: number, farK: number, coarse = false): number {
-    const seed = this.seed + bi * 7919;
+    const seed = this.seed + regionSalt(bi) * 7919;
     let r = 0;
     if (g1 > 0) {
       r += (b.nearAmp * fbm2(x / b.nearLen, z / b.nearLen, seed + 1, 3) + b.detailAmp * fbm2(x / b.detailLen, z / b.detailLen, seed + 2, 2)) * g1;
@@ -473,7 +480,7 @@ export class World implements Ground {
   private reliefV2(b: BiomeDef, bi: number, x: number, z: number, g1: number, lat: number, farK: number, across: number, ad: number, coarse: boolean): number {
     const R = BIOMES[bi].relief;
     if (!R) return this.relief(b, bi, x, z, g1, lat, farK, coarse);
-    const seed = this.seed + bi * 7919;
+    const seed = this.seed + regionSalt(bi) * 7919;
     let r = 0;
     if (g1 > 0) {
       r += (b.nearAmp * fbm2(x / b.nearLen, z / b.nearLen, seed + 1, 3) + b.detailAmp * fbm2(x / b.detailLen, z / b.detailLen, seed + 2, 2)) * g1;

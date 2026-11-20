@@ -177,6 +177,34 @@ P('southern_beech', 'tree', '南方山毛榉', 'Southern beech', 12, 4.2, 0.35, 
 P('pinyon', 'tree', '科罗拉多矮松', 'Colorado pinyon', 5, 2.8, 0.22, 'conifer2', { evergreen: true, bears: { forage: 'pine_nut', where: 'under', share: 0.25 } });
 P('european_hazel', 'shrub', '欧洲榛', 'European hazel', 2.8, 1.8, 0, 'bush', { bears: { forage: 'hazelnut', where: 'under', share: 0.4 } });
 
+// ------------------------------------------------------------------ the emergent Earth's (docs/V3/nodes/E1-earth-world.md)
+// (the forms the ecosystem cards of core/earth/efg.ts name, drawn by the families the crowns already have)
+P('coconut_palm', 'tree', '椰子', 'Coconut palm', 14, 3.2, 0.25, 'coconut_palm', { evergreen: true });
+P('fan_palm', 'tree', '扇叶棕', 'Fan palm', 9, 2.6, 0.3, 'fan_palm', { evergreen: true });
+P('acacia', 'tree', '金合欢', 'Acacia', 8, 4.8, 0.25, 'acacia');
+P('eucalyptus', 'tree', '桉树', 'Eucalyptus', 22, 4.5, 0.4, 'eucalyptus', { evergreen: true });
+P('mangrove', 'tree', '红树', 'Mangrove', 8, 4, 0.3, 'mangrove', { evergreen: true });
+P('tree_fern', 'tree', '树蕨', 'Tree fern', 5, 2.2, 0.15, 'tree_fern', { evergreen: true });
+P('olive', 'tree', '橄榄', 'Olive', 6, 3, 0.3, 'olive', { evergreen: true });
+P('cypress', 'tree', '意大利柏', 'Italian cypress', 14, 1.2, 0.25, 'cypress', { evergreen: true });
+P('cedar', 'tree', '雪松', 'Cedar', 18, 5, 0.5, 'cedar', { evergreen: true });
+P('redwood', 'tree', '红杉', 'Redwood', 45, 4.5, 1, 'redwood', { evergreen: true });
+P('stone_pine', 'tree', '伞松', 'Stone pine', 13, 5, 0.35, 'stone_pine', { evergreen: true });
+P('joshua_tree', 'tree', '约书亚树', 'Joshua tree', 6, 2.5, 0.3, 'joshua_tree', { evergreen: true });
+P('larch', 'tree', '落叶松', 'Larch', 18, 2.6, 0.3, 'larch');
+P('fir', 'tree', '冷杉', 'Fir', 20, 2.6, 0.3, 'fir', { evergreen: true });
+P('giant_broadleaf', 'tree', '雨林巨树', 'Emergent tree', 32, 8, 0.8, 'giant_broadleaf', { evergreen: true });
+P('dwarf_pine', 'tree', '偃松', 'Dwarf pine', 2.5, 2, 0.15, 'dwarf_pine', { evergreen: true });
+P('beech', 'tree', '山毛榉', 'Beech', 18, 5, 0.4, 'beech');
+P('aspen', 'tree', '山杨', 'Aspen', 14, 2.4, 0.2, 'aspen');
+P('palo_verde', 'tree', '绿干树', 'Palo verde', 6, 3.5, 0.2, 'palo_verde');
+P('river_fig', 'tree', '榕树', 'Fig', 15, 7, 0.7, 'river_fig', { evergreen: true });
+P('marula', 'tree', '马鲁拉树', 'Marula', 12, 6, 0.5, 'marula');
+P('rimu', 'tree', '陆均松', 'Rimu', 25, 4, 0.5, 'rimu', { evergreen: true });
+P('rhododendron', 'shrub', '杜鹃丛', 'Rhododendron', 2.6, 1.8, 0, 'rhododendron', { evergreen: true });
+P('thorn_bush', 'shrub', '刺灌丛', 'Thorn scrub', 1.6, 1.6, 0, 'bush_dry');
+P('heath_bush', 'shrub', '高山矮灌', 'Alpine shrub', 0.9, 1.4, 0, 'bush_alpine', { evergreen: true });
+
 /** every plant, in the catalogue's order (an index into this list is what a flora cell holds) */
 export const PLANTS: readonly PlantDef[] = ALL;
 
