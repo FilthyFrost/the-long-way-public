@@ -37,6 +37,9 @@ const UNMERGED = new Set(['steering']);
 /** the vehicles' merges come at least this far apart (ms), the one ridden in excepted; when the last one was */
 const MERGE_GAP_MS = 60;
 let lastMergeAt = -Infinity;
+/** a parked vehicle's merge is made over frames, this much of a frame each (ms), one vehicle at a time */
+const MERGE_SLICE_MS = 3;
+let mergingNow: CarView | null = null;
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|POPUP_|ghost:)/;
 /** what of a vehicle throws no shadow into the near map (carView.ts tryMerge): the knuckles under it, the wipers, levers, keys, knobs and needles */
@@ -1025,7 +1028,29 @@ export class CarView {
     return best;
   }
 
+  /** a parked vehicle's merge being made, a step a frame (MergedCar sliced), and whether it was begun parked */
+  private merging: { car: MergedCar; parked: boolean } | null = null;
+
+  /** a merge being made given up (the vehicle comes near, a part changes, it goes) */
+  private dropMerging(): void {
+    if (!this.merging) return;
+    this.merging.car.dispose();
+    this.merging = null;
+    if (mergingNow === this) mergingNow = null;
+  }
+
+  /** the merge being made, made on a step; drawn merged once it is whole */
+  private stepMerge(): void {
+    const m = this.merging;
+    if (!m) return;
+    if (!m.car.step(MERGE_SLICE_MS)) return;
+    this.merging = null;
+    if (mergingNow === this) mergingNow = null;
+    this.finishMerge(m.car, m.parked);
+  }
+
   private unmerge(): void {
+    this.dropMerging();
     if (!this.merged) return;
     this.merged.dispose();
     this.merged = null;
@@ -1068,6 +1093,9 @@ export class CarView {
   /** merge the static parts when the build has settled */
   private tryMerge(): void {
     if (!this.mergeDirty || this.loads.size || this.settling.length || !this.frameObj) return;
+    // (a parked vehicle's merge is made a step a frame, one vehicle at a time: the others wait their turn)
+    if (mergingNow && mergingNow !== this && this.parked && !this.ridden) return;
+    this.dropMerging();
     // (one vehicle merged at a time, the next a few frames later: three wrecks come in at once by the road)
     const now = performance.now();
     if (now - lastMergeAt < MERGE_GAP_MS && !this.ridden) return;
@@ -1098,7 +1126,19 @@ export class CarView {
     }
     this.model.updateMatrixWorld(true);
     // (parked, the doors, the bonnet, the wipers and the levers merge too, as they stand; only a held part's ghost stays out)
-    const merged = new MergedCar(this.model, entries, parked ? (o) => o.name.startsWith('ghost:') : (o) => MOVES.test(o.name) || !!o.userData.mover);
+    const skip = parked ? (o: THREE.Object3D) => o.name.startsWith('ghost:') : (o: THREE.Object3D) => MOVES.test(o.name) || !!o.userData.mover;
+    // (a parked vehicle's merge over frames: the road's wrecks are merged as they come into view, a few at a time)
+    if (parked && !this.ridden) {
+      this.merging = { car: new MergedCar(this.model, entries, skip, true), parked };
+      mergingNow = this;
+      this.stepMerge();
+      return;
+    }
+    this.finishMerge(new MergedCar(this.model, entries, skip), parked);
+  }
+
+  /** a merge made whole: drawn merged, its look given, its far models asked for, its shadow through its hull */
+  private finishMerge(merged: MergedCar, parked: boolean): void {
     this.model.add(merged.group);
     this.grimeCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
@@ -1114,7 +1154,9 @@ export class CarView {
     // (its shadow through one hull, one draw a shadow map — render/carMerge.ts castThroughHull; what rides on the wheels
     // under the body, the knuckles, wipers, levers, keys and needles throw none into the near map: under the body or too
     // small to be seen there)
-    merged.castThroughHull(parked);
+    // (parked: the hull made from the far twins once they are in — its merged meshes throw their shadows till then)
+    if (parked) merged.hullFromTwins();
+    else merged.castThroughHull(false);
     if (!parked) {
       for (const sh of this.shown.values()) if (sh.units) for (const u of sh.units) u.traverse((o) => (o as THREE.Mesh).isMesh && o.layers.disable(LAYER_SHADOW_NEAR));
       this.model.traverse((o) => {
@@ -1583,6 +1625,8 @@ export class CarView {
     this.mats.setCarFrame(this.model.matrixWorld);
     this.updateLooks();
     this.measure();
+    // (a merge being made goes on a step; a new one is begun only once nothing is being merged)
+    this.stepMerge();
     this.tryMerge();
     this.poseBike(dt, sim);
     // parts just fitted settle (a little past their place and back)

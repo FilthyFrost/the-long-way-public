@@ -57,7 +57,7 @@ try {
         const g = window.__rt.game;
         for (let k = 0; k < 6; k++) g.simulate(1 / 30);
         // (and their reduced twins made: render/carMerge.ts prepareFar, a second or so in a worker)
-        return g.vehicles.some((v) => (v.view.loads?.size ?? 0) > 0 || v.view.mergeDirty || (v.view.merged?.reducing ?? false));
+        return g.vehicles.some((v) => (v.view.loads?.size ?? 0) > 0 || v.view.mergeDirty || v.view.merging || (v.view.merged?.reducing ?? false));
       });
       if (!busy) break;
       await page.waitForTimeout(400);

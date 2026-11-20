@@ -91,6 +91,8 @@ interface Tile {
   state: 'outside' | 'far' | 'near' | 'ground' | null;
   /** a still tile of plants of the ground: the level all of it is drawn at (set out once: setGroundTile) */
   ground?: 0 | 1;
+  /** some of its trees wait for their species to grow: set out again when one has */
+  waiting?: boolean;
   levels: number[];
   eye: THREE.Vector3;
   rotation: THREE.Quaternion;
@@ -210,8 +212,9 @@ export class CrownView implements CrownLookup {
       this.growing--;
       if (this.disposed) return;
       this.install(s, g ?? growNow(s.family, s.kit));
-      // (every tile set out again: the trees that waited for this species drawn now)
-      for (const t of this.tiles.values()) t.state = null;
+      // (the tiles that waited for a species set out again: its trees drawn now — only those: every tile at once was
+      // a frame of forty to sixty milliseconds each time a kind of tree had grown)
+      for (const t of this.tiles.values()) if (t.waiting) t.state = null;
       this.changed = true;
     });
     return null;
@@ -566,6 +569,7 @@ export class CrownView implements CrownLookup {
           this.assign(t, i * 3, s.packs![t.ground], d, o, d[o] - ox, d[o + 1] - oy, d[o + 2] - oz, s.def.sway, s.bright ? 2 : 0, d[o + 7]);
           t.levels[t.ground]++;
         }
+        t.waiting = waiting;
         t.state = waiting ? null : 'ground';
         ground += t.levels[t.ground];
         continue;
@@ -593,6 +597,7 @@ export class CrownView implements CrownLookup {
       t.fov = cam.fov;
       t.aspect = cam.aspect;
       t.state = state;
+      t.waiting = false;
       t.levels.fill(0);
       if (state === 'outside') {
         for (const slot of t.slots) if (slot) this.removeSlot(slot);
@@ -612,6 +617,7 @@ export class CrownView implements CrownLookup {
         const s = this.ensure(sp);
         if (!s) {
           // (its species not grown yet: nothing drawn for it now; its tile is set out again once it is)
+          t.waiting = true;
           for (let k = 0; k < 3; k++) this.assign(t, i * 3 + k, undefined, d, o, 0, 0, 0, 0, 0, 0);
           continue;
         }

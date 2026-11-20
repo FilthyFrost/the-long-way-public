@@ -1643,7 +1643,8 @@ export function measureCarShape(root: THREE.Object3D): { bodyHeight: number; cab
   root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || !m.visible) return;
-    m.geometry.computeBoundingBox();
+    // (a part's geometry never changes: its box once, not every time the car is measured)
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
     const b = m.geometry.boundingBox!.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld));
     const count = Array.isArray(m.material) ? m.material.length : 1;
     const names = Array.from({ length: count }, (_, i) => meshCarMaterialName(m, i));

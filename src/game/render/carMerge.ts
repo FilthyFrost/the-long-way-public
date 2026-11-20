@@ -180,6 +180,20 @@ function collect(
   sources?: THREE.Mesh[],
 ): Map<string, Collected[]> {
   const buckets = new Map<string, Collected[]>();
+  const steps = collectSteps(parts, toFrame, skip, buckets, boxes, sources);
+  while (!steps.next().done);
+  return buckets;
+}
+
+/** collect, a source mesh at a time (a yield after each: MergedCar's merge made over several frames) */
+function* collectSteps(
+  parts: { object: THREE.Object3D; id: number; paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector4 }[],
+  toFrame: THREE.Matrix4,
+  skip: (o: THREE.Object3D) => boolean,
+  buckets: Map<string, Collected[]>,
+  boxes?: Map<number, THREE.Box3>,
+  sources?: THREE.Mesh[],
+): Generator<void> {
   for (const p of parts) {
     p.object.updateMatrixWorld(true);
     for (const mesh of meshesOf(p.object, skip)) {
@@ -199,9 +213,9 @@ function collect(
         }
       }
       sources?.push(mesh);
+      yield;
     }
   }
-  return buckets;
 }
 
 function meshOf(name: string, list: Collected[]): THREE.Mesh {
@@ -279,8 +293,36 @@ export class MergedCar {
     readonly frame: THREE.Object3D,
     entries: MergeEntry[],
     skip: (o: THREE.Object3D) => boolean = defaultSkip,
+    sliced = false,
   ) {
     this.group.name = 'merged';
+    const steps = this.assemble(entries, skip);
+    if (sliced) this.steps = steps;
+    else while (!steps.next().done);
+  }
+
+  /** the merge still to be made (`sliced`: made a step at a time, step) */
+  private steps: Generator<void> | null = null;
+
+  /**
+   * A merge begun `sliced` made on for about `budgetMs` (a source mesh, then a material, at a time): true once it is
+   * whole — only then is the car drawn merged (its group filled, its sources hidden). A whole car's merge is some
+   * tens of milliseconds: in one frame it was a frame of forty to sixty each time a wreck by the road was merged.
+   */
+  step(budgetMs: number): boolean {
+    if (!this.steps) return true;
+    const t = performance.now();
+    do {
+      if (this.steps.next().done) {
+        this.steps = null;
+        return true;
+      }
+    } while (performance.now() - t < budgetMs);
+    return false;
+  }
+
+  private *assemble(entries: MergeEntry[], skip: (o: THREE.Object3D) => boolean): Generator<void> {
+    const frame = this.frame;
     frame.updateMatrixWorld(true);
     const toFrame = frame.matrixWorld.clone().invert();
     const list = entries.map((e) => {
@@ -293,7 +335,8 @@ export class MergedCar {
       return { object: e.object, id: e.id, ...look };
     });
     const sources: THREE.Mesh[] = [];
-    const buckets = collect(list, toFrame, skip, this.boxes, sources);
+    const buckets = new Map<string, Collected[]>();
+    yield* collectSteps(list, toFrame, skip, buckets, this.boxes, sources);
     for (const [name, l] of buckets) {
       // where each part's vertices land: the pieces are laid end to end in the order given
       const counts = l.map((c) => c.geo.getAttribute('position').count);
@@ -314,6 +357,7 @@ export class MergedCar {
         mesh.layers.enable(LAYER_SHADOW_NEAR);
       }
       this.group.add(mesh);
+      yield;
     }
     for (const m of sources) {
       if (!m.visible) continue;
@@ -544,6 +588,15 @@ export class MergedCar {
    * (the wide map's texel is some ten centimetres), and into the wide map only (the near one is round the player).
    * Called after the meshes have their materials (carView.ts tryMerge: applyMaterials sets who throws a shadow).
    */
+  /**
+   * A parked car's shadow hull left to its far twins (prepareFar: made when the last of them is in, from a tenth of
+   * the triangles): until then its merged meshes throw their own shadows. Made now from the near meshes it was a
+   * frame's ten milliseconds, to be made again a moment later.
+   */
+  hullFromTwins(): void {
+    this.hullLean = true;
+  }
+
   castThroughHull(lean = false): void {
     if (this.gone) return;
     this.hullLean = lean;
