@@ -279,14 +279,15 @@ describe('the four palette slots', () => {
   it('are loaded with the palettes of that run, each chapter in the slot of its number', () => {
     const starts = Array.from({ length: 12 }, (_, i) => i * 8000);
     const biomeOf = (c: number): number => c % BIOMES.length;
-    const deepOf = (slot: number): number[] => paletteUniforms.uGroundPal.value[slot * 3].toArray();
+    // (a flat vec3 array, in the GPU's single precision)
+    const deepOf = (slot: number): number[] => Array.from(paletteUniforms.uGroundPal.value.subarray(slot * 9, slot * 9 + 3));
     showChapters(biomeOf, 5, 5 * 8000 + 10, starts);
-    for (const c of [3, 4, 5, 6]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    for (const c of [3, 4, 5, 6]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep.map(Math.fround));
     showChapters(biomeOf, 5, 5 * 8000 + 6000, starts);
-    for (const c of [4, 5, 6, 7]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    for (const c of [4, 5, 6, 7]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep.map(Math.fround));
     // (as it was called before there were distances: the chapter behind, this one, the two ahead)
     showChapters(biomeOf, 9);
-    for (const c of [8, 9, 10, 11]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep);
+    for (const c of [8, 9, 10, 11]) expect(deepOf(c & 3)).toEqual(BIOME_STYLES[biomeOf(c)].ground.deep.map(Math.fround));
     for (let sl = 0; sl < 4; sl++) showChapters(() => 0, sl);
   });
 });
@@ -369,12 +370,13 @@ describe('an anchored landform in the ground\'s paint', () => {
 
 describe('the risers of a terraced region in the ground\'s paint', () => {
   it('a slot is told how fully its region\'s slopes are cut into benches and how far apart they lie, from the core\'s own numbers', () => {
-    const misc = (slot: number): number[] => paletteUniforms.uBiomeMisc2.value[slot].toArray();
+    // (a flat vec4 array, in the GPU's single precision)
+    const misc = (slot: number): number[] => Array.from(paletteUniforms.uBiomeMisc2.value.subarray(slot * 4, slot * 4 + 4));
     for (let i = 0; i < BIOMES.length; i++) {
       setSlotBiome(3, i);
       const cut = BIOMES[i].land?.terrace;
-      expect(misc(3)[2]).toBe(cut ? cut.strength : 0);
-      expect(misc(3)[3]).toBe(cut ? cut.strength * cut.step : 0);
+      expect(misc(3)[2]).toBe(Math.fround(cut ? cut.strength : 0));
+      expect(misc(3)[3]).toBe(Math.fround(cut ? cut.strength * cut.step : 0));
     }
     // none of the first six has terraces: every world of version 1 is painted without them
     for (const id of SIX) {

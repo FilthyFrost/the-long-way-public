@@ -480,6 +480,7 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
       uniform vec4 uClampBox;
       uniform float uClampBase;
       uniform sampler2D tClamp;
+      #include <batching_pars_vertex>
       void main() {
         vBiomeW = aBiomeW;
         vGround = aGround;
@@ -489,7 +490,12 @@ export function terrainMaterial(cover = false): THREE.ShaderMaterial {
         #ifdef RT_ALT
         vAlt = aAlt;
         #endif
+        // (a leaf in the land's batches, scene/terrainBatch.ts, is set where it lies by its own translation)
+        #ifdef USE_BATCHING
+        vec4 rtWorld = modelMatrix * getBatchingMatrix(getIndirectIndex(gl_DrawID)) * vec4(position, 1.0);
+        #else
         vec4 rtWorld = modelMatrix * vec4(position, 1.0);
+        #endif
         if (uClampBox.z > uClampBox.x && rtWorld.x > uClampBox.x && rtWorld.x < uClampBox.z && rtWorld.z > uClampBox.y && rtWorld.z < uClampBox.w) {
           rtWorld.y = min(rtWorld.y, uClampBase + texture2D(tClamp, (rtWorld.xz - uClampBox.xy) / (uClampBox.zw - uClampBox.xy)).r);
         }

@@ -127,13 +127,14 @@ describe('the ground cover as the renderer reads it', () => {
     }
     // a region without rows says so
     expect(d[2 * 8 * 4 + 6 * 4]).toBe(0);
+    // (a flat vec4 array: slot k's x at 4k, its y at 4k + 1)
     const misc = coverUniforms.uCoverMisc.value;
-    expect(misc[2].x).toBe(1);
-    expect(misc[1].x).toBe(0);
-    expect(misc[0].x).toBe(0);
-    expect(misc[3].y).toBe(1);
-    expect(misc[2].y).toBe(1);
-    expect(misc[0].y).toBeLessThan(0.5);
+    expect(misc[2 * 4]).toBe(1);
+    expect(misc[1 * 4]).toBe(0);
+    expect(misc[0]).toBe(0);
+    expect(misc[3 * 4 + 1]).toBe(1);
+    expect(misc[2 * 4 + 1]).toBe(1);
+    expect(misc[1]).toBeLessThan(0.5);
     for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, 0);
   });
 });
@@ -144,22 +145,23 @@ describe('the palettes of the far land', () => {
     for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, BIOME_INDEX.desert);
     const biomes = [BIOME_INDEX.flower_fields, BIOME_INDEX.wetland, BIOME_INDEX.alpine, BIOME_INDEX.red_canyon];
     const own = ownPalettes(biomes);
-    const ground = own.uniforms.uGroundPal.value as { x: number; y: number; z: number }[];
-    const forest = own.uniforms.uForestPal.value as { x: number; y: number; z: number }[];
+    // (flat vec3 arrays: element i at 3i; the GPU's single precision)
+    const ground = own.uniforms.uGroundPal.value as Float32Array;
+    const forest = own.uniforms.uForestPal.value as Float32Array;
     for (const [slot, b] of biomes.entries()) {
       const st = BIOME_STYLES[b];
-      expect([ground[slot * 3].x, ground[slot * 3].y, ground[slot * 3].z]).toEqual(st.ground.deep);
-      expect(ground[slot * 3 + 2].x).toBeCloseTo(st.ground.lit[0], 9);
-      expect(forest[slot * 4 + 3].y).toBeCloseTo(st.forest[3][1], 9);
-      expect((own.uniforms.uBiomeMisc.value as { x: number }[])[slot].x).toBe(st.snow);
+      expect(Array.from(ground.subarray(slot * 9, slot * 9 + 3))).toEqual(st.ground.deep.map(Math.fround));
+      expect(ground[(slot * 3 + 2) * 3]).toBe(Math.fround(st.ground.lit[0]));
+      expect(forest[(slot * 4 + 3) * 3 + 1]).toBe(Math.fround(st.forest[3][1]));
+      expect((own.uniforms.uBiomeMisc.value as Float32Array)[slot * 4]).toBe(Math.fround(st.snow));
     }
     // its cover is its own too: the flower fields' rows in the slot they were given, a marsh's wet in its slot
     const cover = (own.uniforms.tCover.value as { image: { data: Float32Array } }).image.data;
     expect(cover[0 * 32 + 24]).toBe(FLORA.flower_fields.cover.rows!.spacing);
     expect(cover[1 * 32 + 24]).toBe(0);
-    expect((own.uniforms.uCoverMisc.value as { x: number }[])[1].x).toBe(1);
+    expect((own.uniforms.uCoverMisc.value as Float32Array)[1 * 4]).toBe(1);
     // and the rolling slots are as they were
-    expect(paletteUniforms.uGroundPal.value[0].x).toBeCloseTo(BIOME_STYLES[BIOME_INDEX.desert].ground.deep[0], 9);
+    expect(paletteUniforms.uGroundPal.value[0]).toBe(Math.fround(BIOME_STYLES[BIOME_INDEX.desert].ground.deep[0]));
     expect(own.uniforms.uGroundPal.value).not.toBe(paletteUniforms.uGroundPal.value);
     own.dispose();
     for (let sl = 0; sl < 4; sl++) setSlotBiome(sl, 0);

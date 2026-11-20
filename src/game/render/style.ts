@@ -9,6 +9,7 @@
 import { sceneSnowLine } from '../../core/world/routeProfiles';
 import { ECO_PROFILES } from '../../core/world/data/ecoProfiles';
 import * as THREE from 'three';
+import { put3, put4, vec3s, vec4s } from './uniformArrays';
 import styleJson from '../../../specs/art/style.json';
 import { BIOMES, type BiomeDef } from '../../core/world/biomes';
 import { floraTableOf } from '../../core/world/floraTables';
@@ -223,24 +224,25 @@ const fill = <T>(n: number, f: () => T): T[] => Array.from({ length: n }, f);
 
 /** Per-slot palettes as uniform arrays, indexed [slot * n + i] in GLSL. */
 export const paletteUniforms = {
-  uSnowLines: { value: fill(SLOTS, () => new THREE.Vector4()) },
-  uGroundPal: { value: fill(SLOTS * 3, () => new THREE.Vector3()) },
-  uDryPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uWarmPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uCoolPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uFarLiftPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uForestPal: { value: fill(SLOTS * 4, () => new THREE.Vector3()) },
-  uRockLitPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uRockShadePal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-  uFlowerPal: { value: fill(SLOTS * 3, () => new THREE.Vector3()) },
+  // (held flat: render/uniformArrays.ts)
+  uSnowLines: { value: vec4s(SLOTS) },
+  uGroundPal: { value: vec3s(SLOTS * 3) },
+  uDryPal: { value: vec3s(SLOTS) },
+  uWarmPal: { value: vec3s(SLOTS) },
+  uCoolPal: { value: vec3s(SLOTS) },
+  uFarLiftPal: { value: vec3s(SLOTS) },
+  uForestPal: { value: vec3s(SLOTS * 4) },
+  uRockLitPal: { value: vec3s(SLOTS) },
+  uRockShadePal: { value: vec3s(SLOTS) },
+  uFlowerPal: { value: vec3s(SLOTS * 3) },
   /** x: snow, y: dryness, z: grass density, w: layered rock (mesas, canyon walls) */
-  uBiomeMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
+  uBiomeMisc: { value: vec4s(SLOTS) },
   /**
    * x: steepness at which bare rock begins, y: autumn (crown variety), z: how fully the region's slopes are
    * terraced (0: it has no terraces), w: that times the height between two benches (m) — so that the step
    * comes out whole where a terraced region blends into one without
    */
-  uBiomeMisc2: { value: fill(SLOTS, () => new THREE.Vector4()) },
+  uBiomeMisc2: { value: vec4s(SLOTS) },
 };
 
 /** how many flower colours a slot's row of the cover texture holds, and the texels of a row */
@@ -264,7 +266,7 @@ export const coverUniforms = {
    * line and w its tree line, in metres above the sea (core/world/biomes.ts RegionRelief; a region without: far
    * above any land)
    */
-  uCoverMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
+  uCoverMisc: { value: vec4s(SLOTS) },
   /** the world's seed: the rows' colours are dealt by it (scene/floraCover.ts rowHue01) */
   uCoverSeed: { value: 0 },
 };
@@ -288,7 +290,7 @@ const mountainProfiles: Record<string, string> = {
 };
 
 /** a slot's row of a cover texture's data and its numbers, from its region's flora table */
-function fillCover(coverData: Float32Array, misc: THREE.Vector4[], slot: number, biome: number): void {
+function fillCover(coverData: Float32Array, misc: Float32Array, slot: number, biome: number): void {
   const region = BIOMES[biome] ?? BIOMES[0];
   const table = floraTableOf(region.id, region.kin);
   const c = table.cover;
@@ -319,7 +321,7 @@ function fillCover(coverData: Float32Array, misc: THREE.Vector4[], slot: number,
   const wet = Math.min(1, Math.max(0, (table.eco.moist - 0.62) / 0.1));
   let reeds = 0;
   for (const r of table.shrubs) if (r.plant === 'reed') reeds = Math.max(reeds, r.perHa);
-  misc[slot].set(wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), region.relief?.snow ?? 1e5, region.relief?.trees ?? 1e5);
+  put4(misc, slot, wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), region.relief?.snow ?? 1e5, region.relief?.trees ?? 1e5);
 }
 
 const shown = [-1, -1, -1, -1];
@@ -327,10 +329,9 @@ const shown = [-1, -1, -1, -1];
 /** the paints of biome `biome` (index into BIOMES) into slot `slot` of a set of palette uniforms */
 function fillSlot(u: typeof paletteUniforms, slot: number, biome: number): void {
   const b = BIOME_STYLES[biome] ?? BIOME_STYLES[0];
-  u.uSnowLines.value[slot].setScalar(sceneSnowLine(BIOMES[biome]?.id ?? "plains"));
-  const put = (arr: THREE.Vector3[], i: number, c: RGB): void => {
-    arr[i].set(c[0], c[1], c[2]);
-  };
+  const line = sceneSnowLine(BIOMES[biome]?.id ?? "plains");
+  put4(u.uSnowLines.value, slot, line, line, line, line);
+  const put = (arr: Float32Array, i: number, c: RGB): void => put3(arr, i, c[0], c[1], c[2]);
   put(u.uGroundPal.value, slot * 3, b.ground.deep);
   put(u.uGroundPal.value, slot * 3 + 1, b.ground.mid);
   put(u.uGroundPal.value, slot * 3 + 2, b.ground.lit);
@@ -342,11 +343,11 @@ function fillSlot(u: typeof paletteUniforms, slot: number, biome: number): void 
   put(u.uRockLitPal.value, slot, b.rock.lit);
   put(u.uRockShadePal.value, slot, b.rock.shade);
   for (let i = 0; i < 3; i++) put(u.uFlowerPal.value, slot * 3 + i, b.flowers[i]);
-  u.uBiomeMisc.value[slot].set(b.snow, b.dryness, b.grassDensity, b.strata ?? 0);
+  put4(u.uBiomeMisc.value, slot, b.snow, b.dryness, b.grassDensity, b.strata ?? 0);
   // (the benches a region's hillsides are cut into are the core's: core/world/biomes.ts RegionDef.land.terrace)
   const benches = BIOMES[biome]?.land?.terrace;
   const cut = benches && benches.step > 0 ? Math.min(1, Math.max(0, benches.strength)) : 0;
-  u.uBiomeMisc2.value[slot].set(b.rockStart ?? 0.3, b.crownVariety ?? 0, cut, cut * (benches?.step ?? 0));
+  put4(u.uBiomeMisc2.value, slot, b.rockStart ?? 0.3, b.crownVariety ?? 0, cut, cut * (benches?.step ?? 0));
 }
 
 /** show biome `biome` (index into BIOMES) in palette slot `slot` */
@@ -376,21 +377,21 @@ export interface OwnPalettes {
  */
 export function ownPalettes(biomes: readonly number[]): OwnPalettes {
   const u: typeof paletteUniforms = {
-    uGroundPal: { value: fill(SLOTS * 3, () => new THREE.Vector3()) },
-    uDryPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uWarmPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uCoolPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uFarLiftPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uForestPal: { value: fill(SLOTS * 4, () => new THREE.Vector3()) },
-    uRockLitPal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uRockShadePal: { value: fill(SLOTS, () => new THREE.Vector3()) },
-    uFlowerPal: { value: fill(SLOTS * 3, () => new THREE.Vector3()) },
-    uSnowLines: { value: fill(SLOTS, () => new THREE.Vector4()) },
-    uBiomeMisc: { value: fill(SLOTS, () => new THREE.Vector4()) },
-    uBiomeMisc2: { value: fill(SLOTS, () => new THREE.Vector4()) },
+    uGroundPal: { value: vec3s(SLOTS * 3) },
+    uDryPal: { value: vec3s(SLOTS) },
+    uWarmPal: { value: vec3s(SLOTS) },
+    uCoolPal: { value: vec3s(SLOTS) },
+    uFarLiftPal: { value: vec3s(SLOTS) },
+    uForestPal: { value: vec3s(SLOTS * 4) },
+    uRockLitPal: { value: vec3s(SLOTS) },
+    uRockShadePal: { value: vec3s(SLOTS) },
+    uFlowerPal: { value: vec3s(SLOTS * 3) },
+    uSnowLines: { value: vec4s(SLOTS) },
+    uBiomeMisc: { value: vec4s(SLOTS) },
+    uBiomeMisc2: { value: vec4s(SLOTS) },
   };
   const data = new Float32Array(COVER_ROW * SLOTS * 4);
-  const misc = fill(SLOTS, () => new THREE.Vector4());
+  const misc = vec4s(SLOTS);
   for (let slot = 0; slot < SLOTS; slot++) {
     fillSlot(u, slot, biomes[slot] ?? 0);
     fillCover(data, misc, slot, biomes[slot] ?? 0);

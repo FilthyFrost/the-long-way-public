@@ -23,9 +23,10 @@ import { floraMesh, floraShadows } from './floraMesh';
 import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod } from './floraScatter';
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
 import { siteSlices } from './siteBuild';
+import { TerrainBatch, type TerrainSlot } from './terrainBatch';
 import { LakeBuild, RIVER_CHUNK, SEA_CHUNK, buildBridge, buildRiverChunk, riverChunks, riverPoint, seaChunks, seaSlices, type WaterSheet } from './waterBuild';
 import { grassSlices, woodsSlices, type GrassTile, type Slices, type WoodsTile } from './worldBuild';
-import { GRASS_FADE, GRASS_KEEP_FAR, GRASS_NEAR, GRASS_RADIUS, GRASS_TILE, STRIP_STATIONS, TERRAIN_MAX_LEVEL, TERRAIN_ROOT, TILE, WOODS_FADE, WOODS_TILE, buildFarWoods, buildFlower, buildGrass, buildGrassTuft, buildPoles, buildWoodsCard, buildScatter, buildScatterKinds, buildStrip, buildTerrain, type ScatterKinds } from './worldBuild';
+import { GRASS_FADE, GRASS_KEEP_FAR, GRASS_NEAR, GRASS_RADIUS, GRASS_TILE, STRIP_STATIONS, TERRAIN_MAX_LEVEL, TERRAIN_N, TERRAIN_ROOT, TILE, WOODS_FADE, WOODS_TILE, buildFarWoods, buildFlower, buildGrass, buildGrassTuft, buildPoles, buildWoodsCard, buildScatter, buildScatterKinds, buildStrip, buildTerrain, type ScatterKinds } from './worldBuild';
 
 /** a sliced build runs at most about this long per turn (ms): no single step may hold up a frame */
 const SLICE_MS = 2;
@@ -55,6 +56,10 @@ interface TerrainLeaf extends Piece {
   level: number;
   ix: number;
   iz: number;
+  /** where the leaf is drawn: a slot of the land's batches (scene/terrainBatch.ts) */
+  slot: TerrainSlot;
+  /** what the leaf holds for itself: a far leaf its share of a material with palettes of its own */
+  own: { dispose(): void }[] | null;
 }
 
 interface Job {
@@ -106,6 +111,8 @@ export class WorldView {
   private planX = NaN;
   private planZ = NaN;
   private readonly terrainMat = terrainMaterial();
+  /** the land's leaves, drawn a batch at a time (every leaf is the same grid: 33 × 33 points and the skirts' 4 × 33) */
+  private readonly terrainBatch: TerrainBatch;
   /** a world of version 2: the far ring's materials, by the first of the four chapters whose palettes they hold (farMaterial) */
   private readonly farMats = new Map<number, { mat: THREE.ShaderMaterial; pal: OwnPalettes; users: number }>();
   private readonly stripMat = roadStripMaterial();
@@ -149,6 +156,8 @@ export class WorldView {
   ) {
     this.group.name = 'world';
     core.scene.add(this.group);
+    const tv = TERRAIN_N + 1;
+    this.terrainBatch = new TerrainBatch(core, this.group, 'world:terrain', tv * tv + 4 * tv, (TERRAIN_N * TERRAIN_N + 4 * TERRAIN_N) * 6);
     // (a world of version 2 draws what its flora field stands: the models of every plant in one atlas)
     this.plants = world.flora ? plantRegistry() : null;
     if (this.plants) floraUniforms.tPlants.value = this.plants.atlas.texture;
@@ -181,7 +190,7 @@ export class WorldView {
         }
       };
       this.strips.forEach(visit);
-      this.terrain.forEach(visit);
+      this.terrainBatch.rebase();
       this.tiles.forEach(visit);
       this.grass.forEach(visit);
       this.woods.forEach(visit);
@@ -509,7 +518,8 @@ export class WorldView {
         }
       }
       if (covered) {
-        this.drop(leaf);
+        this.terrainBatch.remove(leaf.slot);
+        if (leaf.own) for (const x of leaf.own) x.dispose();
         this.terrain.delete(key);
       }
     }
@@ -557,10 +567,9 @@ export class WorldView {
       mat = this.farMaterial(first);
       own = [{ dispose: () => this.letFarMaterialGo(first) }];
     }
-    const mesh = new THREE.Mesh(b.geometry, mat);
-    mesh.name = 'world:terrain';
-    if (own) mesh.userData.own = own;
-    this.terrain.set(key, { objects: [this.add(mesh, b.wx, b.wy, b.wz)], level, ix, iz });
+    // (its points are copied into a slot of the batch drawn with its material; the geometry itself is never drawn)
+    const slot = this.terrainBatch.add(b.geometry, mat, b.wx, b.wy, b.wz, mat === this.terrainMat);
+    this.terrain.set(key, { objects: [], level, ix, iz, slot, own });
   }
 
   /**

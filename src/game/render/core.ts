@@ -129,19 +129,30 @@ export class RenderCore {
     globals.uTime.value = time;
     this.renderer.info.reset();
     for (const fn of this.frameListeners) fn();
-    if (this.shadows) {
-      // the wide map sits a little ahead of the camera, where shadows are actually seen
-      this.camera.getWorldDirection(this.fwd);
-      this.fwd.y = 0;
-      if (this.fwd.lengthSq() > 1e-6) this.fwd.normalize();
-      this.shadowFar.copy(this.camera.position).addScaledVector(this.fwd, 55);
-      this.shadows.render(this.renderer, this.scene, this.shadowFocus, this.shadowFar);
+    // The shadow maps and the screen draw the scene four times (two maps, the plants into the wide one again, the
+    // screen), and the renderer would bring every matrix in it up to date each time: once is enough, nothing moving
+    // between the passes (a third of the CPU's part of a frame went on it).
+    const scene = this.scene;
+    scene.updateMatrixWorld();
+    const auto = scene.matrixWorldAutoUpdate;
+    scene.matrixWorldAutoUpdate = false;
+    try {
+      if (this.shadows) {
+        // the wide map sits a little ahead of the camera, where shadows are actually seen
+        this.camera.getWorldDirection(this.fwd);
+        this.fwd.y = 0;
+        if (this.fwd.lengthSq() > 1e-6) this.fwd.normalize();
+        this.shadowFar.copy(this.camera.position).addScaledVector(this.fwd, 55);
+        this.shadows.render(this.renderer, scene, this.shadowFocus, this.shadowFar);
+      }
+      this.frame.exposure = this.exposure;
+      this.frame.shafts = this.shafts;
+      this.frame.shaftColor.copy(this.shaftColor);
+      this.frame.paint = this.usePost ? this.quality.paintRadius : 0;
+      this.frame.render(scene, this.camera, time);
+    } finally {
+      scene.matrixWorldAutoUpdate = auto;
     }
-    this.frame.exposure = this.exposure;
-    this.frame.shafts = this.shafts;
-    this.frame.shaftColor.copy(this.shaftColor);
-    this.frame.paint = this.usePost ? this.quality.paintRadius : 0;
-    this.frame.render(this.scene, this.camera, time);
   }
 
   get stats(): { calls: number; triangles: number; geometries: number; textures: number; programs: number } {

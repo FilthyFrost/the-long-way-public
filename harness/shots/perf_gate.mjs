@@ -62,7 +62,7 @@ try {
       if (!busy) break;
       await page.waitForTimeout(400);
     }
-    const fig = await page.evaluate(({ frames, deep }) => {
+    const fig = await page.evaluate(async ({ frames, deep }) => {
       const g = window.__rt.game;
       const scene = g.core.scene;
       // the kind of each thing drawn, by its name or its parents' (the first that says)
@@ -94,29 +94,44 @@ try {
         const kind = kindOf(o);
         const was = o.onBeforeRender;
         o.onBeforeRender = function (r, s, c, geo, mat, group) {
-          const idx = geo.index ? geo.index.count : geo.attributes.position?.count ?? 0;
-          const range = Math.min(idx, geo.drawRange?.count ?? Infinity);
-          const count = group ? group.count : range;
-          const inst = o.isInstancedMesh ? o.count : geo.isInstancedBufferGeometry ? geo.instanceCount : 1;
-          const tri = o.isPoints ? 0 : (count / 3) * inst;
+          let tri;
+          let n = 1;
+          let done = false;
+          let ret;
+          if (o.isBatchedMesh) {
+            // (a batch, scene/terrainBatch.ts: what it draws is known once it has culled its own pieces — one call
+            // for all of them where WEBGL_multi_draw is, else one each)
+            ret = was.call(this, r, s, c, geo, mat, group);
+            done = true;
+            let e = 0;
+            for (let i = 0; i < o._multiDrawCount; i++) e += o._multiDrawCounts[i];
+            tri = e / 3;
+            n = o._multiDrawCount === 0 ? 0 : r.extensions.has('WEBGL_multi_draw') ? 1 : o._multiDrawCount;
+          } else {
+            const idx = geo.index ? geo.index.count : geo.attributes.position?.count ?? 0;
+            const range = Math.min(idx, geo.drawRange?.count ?? Infinity);
+            const count = group ? group.count : range;
+            const inst = o.isInstancedMesh ? o.count : geo.isInstancedBufferGeometry ? geo.instanceCount : 1;
+            tri = o.isPoints ? 0 : (count / 3) * inst;
+          }
           // (the shadow maps draw the casters again, depth only: counted apart from what is on the screen)
           if (c !== mainCam) {
             shadow.tri += tri;
-            shadow.calls++;
-            shadow.kinds[kind] = (shadow.kinds[kind] ?? 0) + 1;
-            return was.call(this, r, s, c, geo, mat, group);
+            shadow.calls += n;
+            shadow.kinds[kind] = (shadow.kinds[kind] ?? 0) + n;
+            return done ? ret : was.call(this, r, s, c, geo, mat, group);
           }
           tally[kind] = (tally[kind] ?? 0) + tri;
-          calls[kind] = (calls[kind] ?? 0) + 1;
+          calls[kind] = (calls[kind] ?? 0) + n;
           const pathName = (deep ? [o, o.parent, o.parent?.parent, o.parent?.parent?.parent, o.parent?.parent?.parent?.parent, o.parent?.parent?.parent?.parent?.parent] : [o, o.parent, o.parent?.parent]).map((p) => p?.name).filter(Boolean).join('<') || o.type;
           const h = (heavy[pathName] ??= { kind, tri: 0, calls: 0 });
           h.tri += tri;
-          h.calls++;
+          h.calls += n;
           if (kind === 'other') {
-            const n = o.name || o.parent?.name || o.type;
-            others[n] = (others[n] ?? 0) + tri;
+            const nm = o.name || o.parent?.name || o.type;
+            others[nm] = (others[nm] ?? 0) + tri;
           }
-          return was.call(this, r, s, c, geo, mat, group);
+          return done ? ret : was.call(this, r, s, c, geo, mat, group);
         };
         hooked.push([o, was]);
       });
@@ -134,6 +149,15 @@ try {
           window.__rt.render();
           gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
         };
+        // (the far pictures of the trees in view baked first, one a frame as the game bakes them: a frame that bakes one
+        // is a frame of the bake, not of the spot — res.bakeFrames says how many it took)
+        // (a frame is drawn first: what the trees in view want is known once one has been)
+        let bakeFrames = 0;
+        do {
+          one();
+          bakeFrames++;
+        } while ((g.worldView?.crowns?.pendingBakes ?? 0) > 0 && bakeFrames < 600);
+        res.bakeFrames = bakeFrames - 1;
         for (let i = 0; i < 8; i++) one();
         const ms = [];
         for (let i = 0; i < frames; i++) {
@@ -144,6 +168,20 @@ try {
         ms.sort((a, b) => a - b);
         res.ms = +(ms.reduce((a, b) => a + b, 0) / ms.length).toFixed(2);
         res.p95 = +ms[Math.ceil(ms.length * 0.95) - 1].toFixed(2);
+        // … and the CPU's part alone: render() a frame apart, nothing read back (what fewer draw calls save; the
+        // GPU's own time is in the figure above, and another program on the GPU makes that one noisy)
+        const cpu = [];
+        for (let i = 0; i < frames; i++) {
+          await new Promise((go) => requestAnimationFrame(go));
+          const crowns = g.worldView?.crowns;
+          if (crowns) crowns.changed = true;
+          const t = performance.now();
+          window.__rt.render();
+          cpu.push(performance.now() - t);
+        }
+        cpu.sort((a, b) => a - b);
+        res.cpu = +(cpu.reduce((a, b) => a + b, 0) / cpu.length).toFixed(2);
+        res.cpu95 = +cpu[Math.ceil(cpu.length * 0.95) - 1].toFixed(2);
       }
       return res;
     }, { frames: ON_GPU ? 60 : 0, deep: !!process.env.GATE_DEEP });
@@ -157,8 +195,9 @@ try {
     if (fails.length) over++;
     const k = fig.kinds;
     const M = (x) => ((x ?? 0) / 1e6).toFixed(2);
-    console.log(`${fails.length ? 'OVER' : 'ok  '} ${spot.name.padEnd(13)} ${fig.ms ?? '-'} ms (P95 ${fig.p95 ?? '-'})  ${fig.calls} calls (${fig.shadow.calls} in shadows)  ${M(fig.triangles)} M tris on screen (+${M(fig.shadow.tri)} in shadows) — trees ${M(k.trees)} grass ${M(k.grass_flowers)} ground ${M(k.ground_road)} rocks ${M(k.rocks)} life ${M(k.life)} vehicles ${M(k.vehicles_player)} other ${M(k.other)}${fails.length ? '  ← ' + fails.join('; ') : ''}`);
+    console.log(`${fails.length ? 'OVER' : 'ok  '} ${spot.name.padEnd(13)} ${fig.ms ?? '-'} ms (P95 ${fig.p95 ?? '-'}; CPU ${fig.cpu ?? '-'}, P95 ${fig.cpu95 ?? '-'})  ${fig.calls} calls (${fig.shadow.calls} in shadows)  ${M(fig.triangles)} M tris on screen (+${M(fig.shadow.tri)} in shadows) — trees ${M(k.trees)} grass ${M(k.grass_flowers)} ground ${M(k.ground_road)} rocks ${M(k.rocks)} life ${M(k.life)} vehicles ${M(k.vehicles_player)} other ${M(k.other)}${fails.length ? '  ← ' + fails.join('; ') : ''}`);
     console.log(`     calls by kind: ${Object.entries(fig.kindCalls).map(([n, c]) => `${n} ${c}`).join(', ')}  — in the shadows: ${Object.entries(fig.shadow.kinds).map(([n, c]) => `${n} ${c}`).join(', ')}`);
+    if (fig.bakeFrames) console.log(`     (first ${fig.bakeFrames} frames baking far pictures of trees, one a frame; not timed)`);
     if (process.env.GATE_DETAIL) {
       console.log(`     heaviest: ${fig.heavy.map(([n, h]) => `${n} [${h.kind}] ${M(h.tri)}M/${h.calls}`).join(' | ')}`);
       console.log(`     busiest: ${fig.busy.map(([n, h]) => `${n} [${h.kind}] ${h.calls}`).join(' | ')}`);

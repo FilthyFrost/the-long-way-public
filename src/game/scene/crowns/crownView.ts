@@ -499,6 +499,15 @@ export class CrownView implements CrownLookup {
     this.drawn.triangles = triangles;
   }
 
+  /** far pictures wanted and not yet baked (one is baked a frame: finish) — the performance gate waits for none before it times a frame */
+  get pendingBakes(): number {
+    let n = 0;
+    for (const s of this.draws) for (const v of s) for (const d of v) {
+      if (d.atlasModel && d.slots.length > 0 && !(d.material as THREE.ShaderMaterial).uniforms.tNormalAtlas.value) n++;
+    }
+    return n;
+  }
+
   /** the draws this view holds (for the budget: the species × variants × levels it may draw) */
   get drawCount(): number {
     let n = 0;

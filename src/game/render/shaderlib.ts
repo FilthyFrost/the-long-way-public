@@ -12,6 +12,7 @@
  *   cel     — vehicles, props, buildings: a lit tone and a sky-lit shade tone with a clean edge.
  */
 import * as THREE from 'three';
+import { vec3s, vec4s } from './uniformArrays';
 import { BIOME_COUNT, paletteUniforms } from './style';
 import { sharedTextures } from './textures';
 
@@ -73,12 +74,13 @@ export const globals = {
   uRoomMin: { value: new THREE.Vector4(0, 0, 0, 0) },
   uRoomMax: { value: new THREE.Vector4(0, 0, 0, 0.08) },
   uRoomAmb: { value: new THREE.Color(0, 0, 0) },
-  uRoomOpenA: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
-  uRoomOpenU: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
-  uRoomOpenV: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Vector3()) },
-  uRoomOpenL: { value: Array.from({ length: ROOM_OPENINGS }, () => new THREE.Color(0, 0, 0)) },
-  uRoomLampP: { value: Array.from({ length: ROOM_LAMPS }, () => new THREE.Vector4(0, 0, 0, 0)) },
-  uRoomLampC: { value: Array.from({ length: ROOM_LAMPS }, () => new THREE.Vector4(0, 0, 0, 0)) },
+  // (held flat, as every array here: render/uniformArrays.ts)
+  uRoomOpenA: { value: vec3s(ROOM_OPENINGS) },
+  uRoomOpenU: { value: vec3s(ROOM_OPENINGS) },
+  uRoomOpenV: { value: vec3s(ROOM_OPENINGS) },
+  uRoomOpenL: { value: vec3s(ROOM_OPENINGS) },
+  uRoomLampP: { value: vec4s(ROOM_LAMPS) },
+  uRoomLampC: { value: vec4s(ROOM_LAMPS) },
   tNoise: { value: tex.noise },
   tStrokes: { value: tex.strokes },
   ...paletteUniforms,
