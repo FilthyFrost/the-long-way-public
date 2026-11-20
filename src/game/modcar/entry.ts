@@ -5,6 +5,7 @@
 import { tried } from './devLab';
 import { sectionOf, type SectionId } from '../../core/modcar/proving/layout';
 import * as THREE from 'three';
+import { materialsOf, warmShaders } from '../render/warmup';
 import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
 import { BIOMES } from '../../core/world/biomes';
@@ -794,8 +795,13 @@ if (!params.shot) {
   requestAnimationFrame(tick);
 }
 
-void game.ready.then(() => {
+void game.ready.then(async () => {
   game.ui.showLoading(null);
+  // the shaders of whatever may come into view compiled ahead, in the background (render/warmup.ts): a wreck by the
+  // road, a place, a bridge would otherwise each stop the game for a moment the first time one is drawn. (Awaited in
+  // the harness's stepped mode, so that what it measures is the game as it plays once warmed.)
+  const warm = warmShaders(game.core.renderer, game.core.scene, game.core.camera, materialsOf(game.worldView)).catch(() => 0);
+  if (params.shot) await warm;
   // back from making the world again (the panel's terrain tab, a new world): the panel open where it was
   const dp = q.get('devpanel');
   if (dp) {

@@ -215,13 +215,16 @@ export function applyMaterials(root: THREE.Object3D, look: CarLook, merged = fal
       mesh.layers.disable(LAYER_SHADOW_FAR);
       mesh.layers.disable(LAYER_SHADOW_NEAR);
     } else {
-      // the near map (a few metres round the player) takes everything; the far one (~90 m, a texel is
-      // ~10 cm) only what is big enough to show there — a bolt-on mirror or a horn would cost a draw
-      // call each for less than a texel
+      // The two shadow maps (docs/V3/perf-budget.json: every caster is a draw call in each). The near map (a few
+      // metres round the player: the pillars across the dash) takes all but the small bits — a knob, a key, a
+      // switch, a lever would cost a draw each for nothing one sees (the steering wheel still throws its own); the far one (~90 m, a texel ~10 cm) the merged body and
+      // what is big enough to show there — a door, the bonnet, a wheel. (A seat or the dash inside throws its
+      // shadow inside the body, which already throws one.)
       if (!g.boundingSphere) g.computeBoundingSphere();
-      const big = (g.boundingSphere?.radius ?? 1) > 0.22;
-      mesh.layers.enable(LAYER_SHADOW_NEAR);
-      if (big) mesh.layers.enable(LAYER_SHADOW_FAR);
+      const r = g.boundingSphere?.radius ?? 1;
+      if (r > 0.15 || merged) mesh.layers.enable(LAYER_SHADOW_NEAR);
+      else mesh.layers.disable(LAYER_SHADOW_NEAR);
+      if (merged || r > 0.35) mesh.layers.enable(LAYER_SHADOW_FAR);
       else mesh.layers.disable(LAYER_SHADOW_FAR);
     }
   });

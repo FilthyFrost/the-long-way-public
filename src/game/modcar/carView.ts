@@ -33,6 +33,9 @@ const DEG = Math.PI / 180;
  * by name and are what the cockpit turns.
  */
 const UNMERGED = new Set(['steering']);
+/** the vehicles' merges come at least this far apart (ms), the one ridden in excepted; when the last one was */
+const MERGE_GAP_MS = 60;
+let lastMergeAt = -Infinity;
 /** what stays out of a merge inside the parts: hinged panels, needles, wipers, the parts' movers, ghosts */
 const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_|LEVER|KEY|BUTTON|COVER|TAPE_DOOR|KNOB_|LID|FLAP_|FORK|SWINGARM|STAND|SHOCK_|KNUCKLE_|POPUP_|ghost:)/;
 /** how far the filler flap swings open (deg) */
@@ -1028,9 +1031,29 @@ export class CarView {
     this.litMerged = -1;
   }
 
+  /**
+   * Parked: standing well away from the player with nobody at it (ModGame sets it each frame, with some slack): every
+   * part merged, the moving ones too in the pose they stand in, so that the whole vehicle costs a handful of draws in
+   * each pass (docs/V3/perf-budget.json). Coming near it again, it is taken apart as it was before anything is touched.
+   */
+  private parked = false;
+  get isParked(): boolean {
+    return this.parked;
+  }
+  setParked(on: boolean): void {
+    if (on === this.parked) return;
+    this.parked = on;
+    this.unmerge();
+    this.mergeDirty = true;
+  }
+
   /** merge the static parts when the build has settled */
   private tryMerge(): void {
     if (!this.mergeDirty || this.loads.size || this.settling.length || !this.frameObj) return;
+    // (one vehicle merged at a time, the next a few frames later: three wrecks come in at once by the road)
+    const now = performance.now();
+    if (now - lastMergeAt < MERGE_GAP_MS && !this.ridden) return;
+    lastMergeAt = now;
     this.mergeDirty = false;
     const entries: { id: number; object: THREE.Object3D; look: PartLook }[] = [];
     this.mergeIds.clear();
@@ -1043,16 +1066,21 @@ export class CarView {
     };
     // (a look being cleaned has its grime mask: drawn on its own)
     if (!this.grimeHeld.has(BODY) && !this.paintHeld.has(BODY)) add(BODY, this.frameObj, this.bodyLook());
+    const parked = this.parked;
     for (const [mount, sh] of this.shown) {
       const inst = this.build.parts[mount];
       const cat = this.catOf.get(mount) ?? '';
-      // (what rides on a fork moves with it)
-      if (!inst || UNMERGED.has(cat) || sh.units || this.frame.mounts.find((m) => m.id === mount)?.on) continue;
+      if (!inst) continue;
+      // (what rides on a fork moves with it; parked, nothing moves: every part merged where it stands)
+      if (!parked && (UNMERGED.has(cat) || sh.units || this.frame.mounts.find((m) => m.id === mount)?.on)) continue;
       if (this.grimeHeld.has(partOwner(mount)) || this.grimeHeld.has(`${partOwner(mount)}+turbo`) || this.paintHeld.has(partOwner(mount))) continue;
-      add(mount, sh.holder, this.partLook(inst, cat));
+      const look = this.partLook(inst, cat);
+      if (parked && sh.units) for (const u of sh.units) add(mount, u, look);
+      else add(mount, sh.holder, look);
     }
     this.model.updateMatrixWorld(true);
-    const merged = new MergedCar(this.model, entries, (o) => MOVES.test(o.name) || !!o.userData.mover);
+    // (parked, the doors, the bonnet, the wipers and the levers merge too, as they stand; only a held part's ghost stays out)
+    const merged = new MergedCar(this.model, entries, parked ? (o) => o.name.startsWith('ghost:') : (o) => MOVES.test(o.name) || !!o.userData.mover);
     this.model.add(merged.group);
     this.grimeCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared

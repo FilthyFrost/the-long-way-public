@@ -65,12 +65,19 @@ export const MOVES = /^(P_|PG_|pivot_|N_|WIPER_|FUEL_CAP|M_)/;
 /** attributes every merged geometry carries (missing ones are filled with neutral values) */
 const KEEP = ['position', 'normal', 'uv', 'color', 'aPaint', 'aWear', 'aPartId'] as const;
 
+/** an index 0, 1, 2 … n − 1 (a typed array: an unindexed piece of a car can have tens of thousands of corners) */
+function ordinal(n: number): THREE.BufferAttribute {
+  const ix = n > 65535 ? new Uint32Array(n) : new Uint16Array(n);
+  for (let i = 0; i < n; i++) ix[i] = i;
+  return new THREE.BufferAttribute(ix, 1);
+}
+
 function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Color | null, wear: THREE.Vector4, id: number): THREE.BufferGeometry {
   const g = src.clone();
   g.applyMatrix4(m);
   // a mirrored part (the right-hand twin of a left part) comes out inside out: turn its faces back
   if (m.determinant() < 0) {
-    if (!g.index) g.setIndex([...Array(g.getAttribute('position').count).keys()]);
+    if (!g.index) g.setIndex(ordinal(g.getAttribute('position').count));
     const ix = g.index!.array as ArrayLike<number> & { [i: number]: number };
     for (let i = 0; i < ix.length; i += 3) {
       const t = ix[i + 1];
@@ -80,7 +87,7 @@ function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Colo
     g.index!.needsUpdate = true;
   }
   const n = g.getAttribute('position').count;
-  if (!g.index) g.setIndex([...Array(n).keys()]);
+  if (!g.index) g.setIndex(ordinal(n));
   if (!g.hasAttribute('normal')) g.computeVertexNormals();
   if (!g.hasAttribute('uv')) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n * 2), 2));
   // baked AO as plain floats (glTF brings normalized shorts, 3 or 4 wide); none = unoccluded
@@ -89,13 +96,23 @@ function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Colo
   if (c) for (let i = 0; i < n; i++) ao[i * 4] = ao[i * 4 + 1] = ao[i * 4 + 2] = c.getX(i);
   g.setAttribute('color', new THREE.Float32BufferAttribute(ao, 4));
   // (only paint meshes carry a colour: chrome, glass, cloth … are what their name says)
+  // (written straight in, corner by corner: a car is some hundred thousand of them, merged in a frame)
   if (paint) {
     const pa = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) pa.set([paint.r, paint.g, paint.b], i * 3);
+    for (let i = 0, k = 0; i < n; i++, k += 3) {
+      pa[k] = paint.r;
+      pa[k + 1] = paint.g;
+      pa[k + 2] = paint.b;
+    }
     g.setAttribute('aPaint', new THREE.Float32BufferAttribute(pa, 3));
   }
   const wa = new Float32Array(n * 4);
-  for (let i = 0; i < n; i++) wa.set([wear.x, wear.y, wear.z, wear.w], i * 4);
+  for (let i = 0, k = 0; i < n; i++, k += 4) {
+    wa[k] = wear.x;
+    wa[k + 1] = wear.y;
+    wa[k + 2] = wear.z;
+    wa[k + 3] = wear.w;
+  }
   g.setAttribute('aWear', new THREE.Float32BufferAttribute(wa, 4));
   g.setAttribute('aPartId', new THREE.Float32BufferAttribute(new Float32Array(n).fill(id), 1));
   for (const name of Object.keys(g.attributes)) if (!(KEEP as readonly string[]).includes(name)) g.deleteAttribute(name);

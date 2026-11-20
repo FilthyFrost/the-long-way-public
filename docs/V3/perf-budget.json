@@ -1,0 +1,28 @@
+{
+  "_": "The performance budget (docs/V3/PLAN.md, 2026-11-20): on the player's RTX 5060 Ti at 1920x1080, from the driver's seat. harness/shots/perf_gate.mjs holds every spot to it.",
+  "frameMs": 11,
+  "triangles": 3000000,
+  "calls": 400,
+  "kinds": {
+    "ground_road": 400000,
+    "trees": 1000000,
+    "grass_flowers": 1200000,
+    "rocks": 200000,
+    "life": 100000,
+    "vehicles_player": 300000
+  },
+  "each": {
+    "_": "triangles of one thing at its levels (near, middle, far); far is a two-triangle impostor where 2",
+    "broadleaf": [2500, 600, 2],
+    "conifer": [1800, 500, 2],
+    "shrub": [800, 200, 2],
+    "grass_tuft": [12],
+    "flower": [40],
+    "rock": [600, 150],
+    "bird": [300],
+    "fish": [200],
+    "butterfly": [24],
+    "large_animal": [2000],
+    "gatherable": [200]
+  }
+}

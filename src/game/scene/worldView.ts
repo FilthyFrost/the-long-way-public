@@ -191,7 +191,26 @@ export class WorldView {
     });
   }
 
+  /** a world piece's name by what it is drawn with (world:terrain, world:road, …): for the developer's figures and the performance gate (harness/shots/perf_gate.mjs) */
+  private kinds_: Map<unknown, string> | null = null;
+  private kindName(obj: THREE.Object3D): string {
+    if (!this.kinds_) {
+      const k = new Map<unknown, string>([
+        [this.terrainMat, 'terrain'], [this.stripMat, 'road'], [this.poleMat, 'road-furniture'], [this.wireMat, 'road-wires'],
+        [this.waterMat, 'water'], [this.bridgeMat, 'bridge'], [this.siteMat, 'site'], [this.siteSnowMat, 'site'],
+        [this.grassMat, 'grass'], [this.flowerMat, 'flowers'], [this.woodsMat, 'far-woods'], [this.shadowMat, 'ground-shadow'],
+        [this.treeMat, 'trees-v1'], [this.coniferMat, 'trees-v1'], [this.rockMat, 'rocks-v1'],
+      ]);
+      this.kinds_ = k;
+    }
+    return this.kinds_.get((obj as THREE.Mesh).material) ?? '';
+  }
+
   private add(obj: THREE.Object3D, wx: number, wy: number, wz: number): THREE.Object3D {
+    if (!obj.name) {
+      const n = this.kindName(obj);
+      if (n) obj.name = `world:${n}`;
+    }
     obj.userData.w = [wx, wy, wz];
     this.core.place(obj, wx, wy, wz);
     obj.matrixAutoUpdate = true;
@@ -539,6 +558,7 @@ export class WorldView {
       own = [{ dispose: () => this.letFarMaterialGo(first) }];
     }
     const mesh = new THREE.Mesh(b.geometry, mat);
+    mesh.name = 'world:terrain';
     if (own) mesh.userData.own = own;
     this.terrain.set(key, { objects: [this.add(mesh, b.wx, b.wy, b.wz)], level, ix, iz });
   }
@@ -618,6 +638,7 @@ export class WorldView {
     }
     for (const b of [...s.batches,...s.groundBatches]) {
       const mesh = floraMesh(b, this.floraMat!, TILE);
+      mesh.name = s.groundBatches.includes(b) ? 'world:flora-ground' : 'world:flora-trees';
       // (the shadow map reaches some 190 m from the camera: only the two nearest levels can stand in it. At the
       // nearest a plant throws its own shadow; at the close level the trees' far models throw the tile's, below)
       if (lod === LOD_NEAR) floraShadows(mesh);
@@ -626,6 +647,7 @@ export class WorldView {
     if (s.shadows) {
       // drawn into the shadow map and nowhere else
       const mesh = floraMesh(s.shadows, this.floraMat!, TILE);
+      mesh.name = 'world:flora-shadow';
       floraShadows(mesh, true);
       objects.push(this.add(mesh, s.wx, s.wy, s.wz));
     }

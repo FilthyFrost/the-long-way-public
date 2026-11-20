@@ -24,14 +24,17 @@ import { MeadowSample, meadowSample } from './worldBuild';
  * the origin, and stays the same cell when the origin moves.
  */
 export const RINGS = [
-  { name: 'near', cell: 0.05, tile: 3, tiles: 6, rows: 8, sub: 1, fade: [-2, -1, 2.8, 6], width: 1, tops: 0 },
-  { name: 'mid', cell: 0.08, tile: 6.4, tiles: 8, rows: 4, sub: 1, fade: [2.8, 6, 13, 21.6], width: 1.8, tops: 0.05 },
-  { name: 'wide', cell: 0.2, tile: 16, tiles: 8, rows: 3, sub: 1, fade: [13, 21.6, 34, 48], width: 4.6, tops: 0.22 },
-  { name: 'far', cell: 0.64, tile: 40.96, tiles: 8, rows: 3, sub: 3, fade: [34, 48, 96, 120], width: 10.2, tops: 0.4 },
+  // (the performance budget, docs/V3/perf-budget.json: grass and flowers 1.2 M triangles. A blade's rows are its bends:
+  // eight near the eye, where a blade is a hand tall on the screen; beyond 13 m a blade is a few pixels and one bend is
+  // all it shows. The cells a little wider than Painted Valley's, each still a whole part of 256 m and of its tile.)
+  { name: 'near', cell: 256 / 4096, tile: 3, tiles: 6, rows: 6, sub: 1, fade: [-2, -1, 2.8, 6], width: 1.12, tops: 0 },
+  { name: 'mid', cell: 256 / 2560, tile: 6.4, tiles: 8, rows: 3, sub: 1, fade: [2.8, 6, 13, 21.6], width: 2.05, tops: 0.05 },
+  { name: 'wide', cell: 256 / 1152, tile: 16, tiles: 8, rows: 2, sub: 1, fade: [13, 21.6, 34, 48], width: 4.9, tops: 0.22 },
+  { name: 'far', cell: 256 / 300, tile: 40.96, tiles: 8, rows: 2, sub: 3, fade: [34, 48, 80, 96], width: 12.4, tops: 0.4 },
 ] as const;
 
 /** the meadow reaches this far from the eye (m): the far ring's last blades */
-export const MEADOW_REACH = 120;
+export const MEADOW_REACH = 96;
 
 const N = MEADOW_MAP.n;
 const SP = MEADOW_MAP.spacing;
