@@ -17,8 +17,8 @@ import { bakeLater, bakeNow, type Baked } from './crownBake';
 import type { VariantPack } from './variantPack';
 import { GROUND_KIT, GROUND_VARIANTS, KIT_OF, SPECIES, VARIANTS, floraKitOn, groundFamily, type SpeciesDef } from './species';
 import { floraKind } from '../flora/catalog';
-import { measureOf } from './speciesGrow';
-import { growLater, growNow, type Grown } from './crownGrow';
+import { growOne, measureOf, sizeOf, type OneTree } from './speciesGrow';
+import { growLater, growNow, growOneLater, type Grown } from './crownGrow';
 import { floraMaterial } from '../flora/material';
 
 
@@ -35,6 +35,17 @@ const SHADOW_REACH = 96;
 /** far pictures being baked in the worker at once at most, and how long one unused is kept (ms) */
 const BAKES_IN_FLIGHT = 6;
 const ATLAS_KEEP_MS = 30000;
+/**
+ * The nearest trees each drawn as itself (docs/V3/nodes/P2-C-unique-trees.md): within this far (m), at most this
+ * many at once, grown from this far on (m), faded in from their variant over the edge; one no longer near kept
+ * this long (ms), this many at most; this many grown in the worker at once.
+ */
+const UNIQUE_RANGE = 45;
+const UNIQUE_MOST = 16;
+const UNIQUE_AHEAD = 58;
+const UNIQUE_KEEP_MS = 20000;
+const UNIQUE_KEPT = 48;
+const UNIQUE_GROWS_IN_FLIGHT = 2;
 /** species being grown in the worker at once at most, and how long one no tree of is kept (ms) */
 const GROWS_IN_FLIGHT = 2;
 const SPECIES_KEEP_MS = 60000;
@@ -77,12 +88,30 @@ interface Draw {
   order: number;
   /** what its mesh is called (the performance gate sorts what it draws by name) */
   name?: string;
+  /** a tree's own draw (grown as itself: P2-C), drawn at this much of the size the tree's data says across and up */
+  own?: boolean;
+  sx?: number;
+  sy?: number;
 }
 
 interface Slot {
   draw: Draw;
   index: number;
   fade: number;
+}
+
+/** a tree drawn as itself (P2-C): its own draw and its own shadow's, once grown */
+interface Unique {
+  draw: Draw | null;
+  shadow: Draw | null;
+  growing: boolean;
+  usedAt: number;
+  tile: string;
+  species: Species;
+  /** the tree it was grown for: its place (m) and its species' number */
+  x: number;
+  z: number;
+  sp: number;
 }
 
 interface Tile {
@@ -93,6 +122,8 @@ interface Tile {
   ground?: 0 | 1;
   /** some of its trees wait for their species to grow: set out again when one has */
   waiting?: boolean;
+  /** its trees drawn as themselves when it was last set out (the cap counts them while it is kept as it is) */
+  uniques?: number;
   levels: number[];
   eye: THREE.Vector3;
   rotation: THREE.Quaternion;
@@ -137,6 +168,8 @@ interface Species {
   shadow: Draw | null;
   /** since when none of its draws has had a tree (ms) */
   idleSince?: number;
+  /** its near variants' heights and reaches (sizeOf), for a tree grown as itself to stand at the size of its variant */
+  sizes?: Float32Array;
 }
 
 const frustum = new THREE.Frustum();
@@ -152,6 +185,10 @@ export class CrownView implements CrownLookup {
   /** species grown: how many, the time it took (in the worker, or here) */
   readonly growStats = { grown: 0, ms: 0, inWorker: 0, letGo: 0 };
   private growing = 0;
+  /** the nearest trees grown as themselves, by their tile and number: its own draw once grown */
+  private readonly uniques = new Map<string, Unique>();
+  /** trees being grown as themselves now (in the worker) */
+  private growingOne = 0;
   private readonly tiles = new Map<string, Tile>();
   private readonly billboard = new THREE.PlaneGeometry();
   /** far pictures baked: how many, the time the bakes took (in the worker, or here), and what the pictures hold */
@@ -163,6 +200,8 @@ export class CrownView implements CrownLookup {
    * P3-variant-packs.md).
    */
   static bakeAtOnce = false;
+  /** the nearest trees each drawn as itself (P2-C; ?unique=0: every tree its species' variant, as before) */
+  static uniqueTrees = true;
   private inFlight = 0;
   private disposed = false;
   private tokens = 0;
@@ -170,7 +209,9 @@ export class CrownView implements CrownLookup {
   private originMoved = true;
   private readonly last = new Float64Array(20);
   /** what the last frame drew: trees, by level, and into the shadow map */
-  readonly drawn = { levels: [0, 0, 0], shadows: 0, triangles: 0, ground: 0 };
+  readonly drawn = { levels: [0, 0, 0], shadows: 0, triangles: 0, ground: 0, unique: 0, uniqueKept: 0 };
+  /** the trees grown as themselves (P2-C), and of them in the worker */
+  readonly uniqueStats = { grown: 0, inWorker: 0 };
 
   constructor(private readonly core: RenderCore) {
     this.group.name = 'crowns';
@@ -218,6 +259,82 @@ export class CrownView implements CrownLookup {
       this.changed = true;
     });
     return null;
+  }
+
+  /**
+   * A tree's own draw, grown as itself from a seed of its own (its place): null while it grows (in the worker; there
+   * and then in the harness's stepped frames), or when no more can be grown now.
+   */
+  private uniqueFor(tile: string, i: number, s: Species, d: Float32Array, o: number, va: number, now: number): Draw | null {
+    const key = `${tile}#${i}`;
+    let u = this.uniques.get(key);
+    // (a tile set anew under its name holds other trees: one grown for another tree there is let go of)
+    if (u && (u.x !== d[o] || u.z !== d[o + 2] || u.sp !== d[o + 6])) {
+      this.dropUnique(key);
+      u = undefined;
+    }
+    if (u) {
+      u.usedAt = now;
+      return u.draw;
+    }
+    if (!CrownView.bakeAtOnce && this.growingOne >= UNIQUE_GROWS_IN_FLIGHT) return null;
+    const seed = (Math.floor(d[o] * 7.31 + 0.5) * 73856093) ^ (Math.floor(d[o + 2] * 7.31 + 0.5) * 19349663);
+    u = { draw: null, shadow: null, growing: true, usedAt: now, tile, species: s, x: d[o], z: d[o + 2], sp: d[o + 6] };
+    this.uniques.set(key, u);
+    const made = (tree: OneTree | null): void => {
+      u!.growing = false;
+      if (this.disposed || this.uniques.get(key) !== u || !tree) {
+        tree?.near.dispose();
+        tree?.shadow.dispose();
+        return;
+      }
+      const g = tree.near;
+      const draw = this.makeDraw(g, s.kit ? floraMaterial() : this.material, false, 1);
+      const cast = this.makeDraw(tree.shadow, this.material, true);
+      draw.own = true;
+      cast.own = true;
+      // (at its variant's height, its reach near its variant's: where it fades in from it, it does not grow or shrink)
+      if (s.packs) s.sizes ??= sizeOf(s.packs[0].geometry, VARIANTS);
+      const mine = sizeOf(g);
+      const sizes = s.sizes ?? mine;
+      const k = Math.min(Math.round(va), sizes.length / 2 - 1) * 2;
+      const sy = mine[0] > 0.1 && sizes[k] > 0.1 ? sizes[k] / mine[0] : 1;
+      const sx = mine[1] > 0.1 && sizes[k + 1] > 0.1 ? Math.min(Math.max(sizes[k + 1] / mine[1], sy * 0.85), sy * 1.15) : sy;
+      this.uniqueStats.grown++;
+      draw.sx = cast.sx = sx;
+      draw.sy = cast.sy = sy;
+      u!.draw = draw;
+      u!.shadow = cast;
+    };
+    if (CrownView.bakeAtOnce) {
+      made(growOne(s.family, s.kit, seed));
+      return u.draw;
+    }
+    this.growingOne++;
+    void growOneLater(s.family, s.kit, seed).then((tree) => {
+      this.growingOne--;
+      if (tree) this.uniqueStats.inWorker++;
+      made(tree);
+      // (its tile set out again: the tree drawn as itself from the next frame)
+      const tt = this.tiles.get(tile);
+      if (tt) tt.state = null;
+      this.changed = true;
+    });
+    return null;
+  }
+
+  /** a tree's own draw let go of */
+  private dropUnique(key: string): void {
+    const u = this.uniques.get(key);
+    if (!u) return;
+    this.uniques.delete(key);
+    for (const dr of [u.draw, u.shadow]) {
+      if (!dr) continue;
+      this.group.remove(dr.mesh);
+      dr.geometry.dispose();
+      dr.mesh.geometry.dispose();
+      dr.mesh.dispose();
+    }
   }
 
   /** a grown species' draws made */
@@ -466,8 +583,8 @@ export class CrownView implements CrownLookup {
     const m = d.mesh.instanceMatrix.array as Float32Array;
     const c = Math.cos(data[o + 3]);
     const s = Math.sin(data[o + 3]);
-    const sx = data[o + 4];
-    const sy = data[o + 5];
+    const sx = data[o + 4] * (d.sx ?? 1);
+    const sy = data[o + 5] * (d.sy ?? 1);
     d.fade.setXYZ(i, fade, data[o + 15] * 0.4, fadeWidth(fade));
     // (a pack draws the tree's own variant; a draw of one model has nothing to pick)
     (d.pick.array as Float32Array)[i] = d.packed ? variant : 0;
@@ -547,8 +664,10 @@ export class CrownView implements CrownLookup {
     const sz = ez + fwd.z * 55;
     const lv = this.drawn.levels;
     lv.fill(0);
+    const now0 = performance.now();
     let ground = 0;
-    for (const t of this.tiles.values()) {
+    let unique = 0;
+    for (const [key, t] of this.tiles) {
       if (t.ground !== undefined) {
         // (a still tile of the ground's plants: set out once, again only when the origin moves)
         if (t.state === 'ground' && !this.originMoved) {
@@ -589,6 +708,7 @@ export class CrownView implements CrownLookup {
         && Math.abs(t.rotation.dot(cam.quaternion)) > 0.99998 && t.sun.distanceToSquared(sun) < 0.0025 && t.fov === cam.fov && t.aspect === cam.aspect);
       if (state === t.state && reuse && !this.originMoved) {
         for (let l = 0; l < 3; l++) lv[l] += t.levels[l];
+        unique += t.uniques ?? 0;
         continue;
       }
       t.sun.copy(sun);
@@ -599,6 +719,7 @@ export class CrownView implements CrownLookup {
       t.state = state;
       t.waiting = false;
       t.levels.fill(0);
+      t.uniques = 0;
       if (state === 'outside') {
         for (const slot of t.slots) if (slot) this.removeSlot(slot);
         t.slots.length = 0;
@@ -625,6 +746,8 @@ export class CrownView implements CrownLookup {
         const sway = def.sway;
         const bark = (def.bark === 'accent' ? 1 : 0) + (s.bright ? 2 : 0);
         let main: Draw | undefined, next: Draw | undefined, shadow: Draw | undefined;
+        // (a tree drawn as itself throws its own shadow)
+        let ownShadow: Draw | undefined;
         let cut = 0;
         if (state === 'far') {
           main = s.far!;
@@ -642,7 +765,20 @@ export class CrownView implements CrownLookup {
             const far = small ? SHRUB_MID : inside ? CROWN_NEAR : CROWN_MID;
             const level = dist < near ? 0 : dist < far ? 1 : 2;
             const edge = Math.abs(dist - near) < Math.abs(dist - far) ? near : far;
-            if (Math.abs(dist - edge) < fadeWidth(edge) + 4) {
+            // (a tree near enough is grown as itself: drawn so within UNIQUE_RANGE, faded in from its variant over the edge)
+            const own = CrownView.uniqueTrees && !small && dist < UNIQUE_AHEAD && unique < UNIQUE_MOST ? this.uniqueFor(key, i, s, d, o, va, now0) : null;
+            if (own && dist < UNIQUE_RANGE + fadeWidth(UNIQUE_RANGE) + 4) {
+              unique++;
+              t.uniques!++;
+              ownShadow = this.uniques.get(`${key}#${i}`)!.shadow ?? undefined;
+            }
+            if (own && Math.abs(dist - UNIQUE_RANGE) < fadeWidth(UNIQUE_RANGE) + 4) {
+              main = own;
+              next = s.packs![0];
+              cut = UNIQUE_RANGE;
+            } else if (own && dist < UNIQUE_RANGE) {
+              main = own;
+            } else if (Math.abs(dist - edge) < fadeWidth(edge) + 4) {
               const lower = edge === near ? 0 : 1;
               main = s.packs![lower];
               next = lower === 0 ? s.packs![1] : s.far!;
@@ -656,7 +792,7 @@ export class CrownView implements CrownLookup {
         if (inShadow && Math.hypot(px - sx, pz - sz) < SHADOW_REACH + R + 3) {
           sphere.center.set(px, py + H * 0.5, pz);
           const radius = Math.hypot(R, H * 0.55) + 9;
-          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = s.shadow!;
+          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = ownShadow ?? s.shadow!;
         }
         this.assign(t, i * 3, main, d, o, px, py, pz, sway, bark, va, -cut);
         this.assign(t, i * 3 + 1, next, d, o, px, py, pz, sway, bark, va, cut);
@@ -708,6 +844,20 @@ export class CrownView implements CrownLookup {
       if (dr.shadow) shadows += count;
       else triangles += count * dr.perTris;
     };
+    for (const [k, u] of this.uniques) {
+      if (!u.draw) {
+        if (!u.growing && u.usedAt < now - UNIQUE_KEEP_MS) this.uniques.delete(k);
+        continue;
+      }
+      finish(u.draw);
+      if (u.shadow) finish(u.shadow);
+      // (its species kept while it is drawn: let go of, its tree would wait for it to be grown again)
+      if (u.draw.slots.length > 0 || (u.shadow?.slots.length ?? 0) > 0) {
+        u.usedAt = now;
+        u.species.idleSince = undefined;
+      }
+      else if (u.usedAt < now - UNIQUE_KEEP_MS || this.uniques.size > UNIQUE_KEPT) this.dropUnique(k);
+    }
     for (const s of this.species) {
       if (s.state !== 'ready') continue;
       s.packs!.forEach(finish);
@@ -719,6 +869,10 @@ export class CrownView implements CrownLookup {
     }
     this.drawn.shadows = shadows;
     this.drawn.ground = ground;
+    let shown = 0;
+    for (const u of this.uniques.values()) if (u.draw && u.draw.slots.length > 0) shown++;
+    this.drawn.unique = shown;
+    this.drawn.uniqueKept = this.uniques.size;
     this.drawn.triangles = triangles;
   }
 
@@ -781,6 +935,7 @@ export class CrownView implements CrownLookup {
   dispose(): void {
     this.disposed = true;
     for (const sp of this.species) if (sp.state === 'ready') this.letGo(sp);
+    for (const k of [...this.uniques.keys()]) this.dropUnique(k);
     this.billboard.dispose();
     this.material.dispose();
     this.tiles.clear();

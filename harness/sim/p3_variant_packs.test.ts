@@ -80,7 +80,8 @@ describe('variant packs', () => {
       expect(view.growStats.grown).toBe(0);
       expect(view.drawCount).toBe(0);
       view.setTile('a', Float32Array.of(0, 0, 0, 0, 1, 1, 0, 3, 0, 0, -1, 0, 0.5, 0, 4, 10), 1);
-      camera.position.set(0, 4, 40);
+      // (60 m off: past the reach of the trees drawn as themselves, P2-C, its variant drawn)
+      camera.position.set(0, 4, 60);
       view.update();
       expect(view.growStats.grown).toBe(1);
       expect(view.drawCount).toBe(4);

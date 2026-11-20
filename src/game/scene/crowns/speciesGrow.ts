@@ -68,6 +68,52 @@ export function growSpecies(family: string, kit: boolean, n = VARIANTS): GrownSp
   return { family, kit: toolkit, near, mid, shadow, far: models.map((m) => m[2].geometry) };
 }
 
+/**
+ * One tree of a species grown as itself, at the near level, from a seed of its own (docs/V3/nodes/P2-C-unique-trees.md):
+ * the toolkit's kind grown from that seed; a crown of the M5 grower in the shape of one of its variants, from that
+ * seed. What the nearest trees are drawn with, every one of them its own.
+ */
+export interface OneTree {
+  /** its near level */
+  near: THREE.BufferGeometry;
+  /** what it throws in the shadow map: its own (as its species' is made), not its variant's, or it is shaded by a crown not its own */
+  shadow: THREE.BufferGeometry;
+}
+
+export function growOne(family: string, kit: boolean, seed: number): OneTree {
+  const toolkit = kit && KIT_OF[family] !== undefined;
+  let near: THREE.BufferGeometry, shadow: THREE.BufferGeometry;
+  if (toolkit) {
+    const k = floraKind(KIT_OF[family]);
+    near = growFlora(k, seed, 0).geometry;
+    shadow = shadowCaster(growFlora(k, seed, 1).geometry);
+  } else {
+    const vs = variantsOf(SPECIES[family]);
+    const grow = vs[Math.abs(seed) % vs.length].grow;
+    near = growSpeciesModel(grow, seed, 0).geometry;
+    shadow = growSpeciesModel(grow, seed, SHADOW_LEVEL).geometry;
+  }
+  // (its own variant number, 0, as the draw's pick: the crowns' shader sends a corner of another variant off screen,
+  // and an attribute a geometry lacks reads whatever another program left in its place)
+  for (const g of [near, shadow]) g.setAttribute('aVar', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count), 1));
+  return { near, shadow };
+}
+
+/** a model's height and its crown's reach from its axis (m): the largest of its corners' */
+export function sizeOf(g: THREE.BufferGeometry, variants?: number): Float32Array {
+  const p = g.attributes.position.array as ArrayLike<number>;
+  const v = variants ? (g.attributes.aVar.array as ArrayLike<number>) : null;
+  const out = new Float32Array((variants ?? 1) * 2);
+  for (let i = 0, n = p.length / 3; i < n; i++) {
+    const k = v ? Math.round(v[i]) * 2 : 0;
+    const y = p[i * 3 + 1];
+    const r = Math.hypot(p[i * 3], p[i * 3 + 2]);
+    if (y > out[k]) out[k] = y;
+    if (r > out[k + 1]) out[k + 1] = r;
+  }
+  return out;
+}
+
 /** a species' measure: its first variant's height and crown radius at the size it is grown (m) — what the catalogue's sizes are measured against */
 export function measureOf(family: string, kit: boolean): { height: number; radius: number } {
   const ground = groundKind(family);

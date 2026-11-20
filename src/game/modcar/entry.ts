@@ -48,6 +48,7 @@ setFloraKit(q.get('flora') !== 'm5');
 // (the harness's stepped frames, ?shot: the trees' far pictures baked in the frame that wants them, not in the
 // worker — its pictures are whole and it never waits; scene/crowns/crownView.ts bakeAtOnce)
 CrownView.bakeAtOnce = !!fresh.shot;
+CrownView.uniqueTrees = q.get('unique') !== '0';
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
 // (?new=1: the save cleared, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();

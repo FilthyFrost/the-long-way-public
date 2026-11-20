@@ -12,7 +12,7 @@ try {
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${url}/modcar.html?new=1&world=2&seed=7&start=road&build=stock:pickup&time=15.5&weather=clear`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${url}/modcar.html?new=1&world=2&seed=7&start=road&build=stock:pickup&time=15.5&weather=clear${process.env.QUERY ? '&' + process.env.QUERY : ''}`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__rt?.ready === true, null, { timeout: 240000 });
   await page.waitForTimeout(6000);
   await page.evaluate(async (km) => {
@@ -51,6 +51,7 @@ try {
   const r = await page.evaluate(() => window.__live);
   const bakes = await page.evaluate(() => window.__rt.game.worldView?.crowns?.atlasStats ?? null);
   const grown = await page.evaluate(() => window.__rt.game.worldView?.crowns?.growStats ?? null);
+  const own = await page.evaluate(() => window.__rt.game.worldView?.crowns?.uniqueStats ?? null);
   const iv = r.intervals.slice(60);
   const sorted = [...iv].sort((a, b) => a - b);
   const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))].toFixed(1);
@@ -66,6 +67,7 @@ try {
   console.log(`  the game's own work a frame: mean ${(js.reduce((a, b) => a + b, 0) / js.length).toFixed(2)} ms, P95 ${jsSorted[Math.floor(0.95 * jsSorted.length)].toFixed(1)}, P99 ${jsSorted[Math.floor(0.99 * jsSorted.length)].toFixed(1)}; of the late frames ${lateJs.filter(([, j]) => j > 12).length} had more than 12 ms of it`);
   if (bakes) console.log(`  far pictures baked: ${bakes.bakes}, ${bakes.bakedMs.toFixed(0)} ms in all (${(bakes.bakedMs / Math.max(1, bakes.bakes)).toFixed(1)} ms each; ${bakes.inWorker ?? 0} of them in the worker)`);
   if (grown) console.log(`  species grown: ${grown.grown}, ${grown.ms.toFixed(0)} ms in all (${(grown.ms / Math.max(1, grown.grown)).toFixed(1)} ms each; ${grown.inWorker} of them in the worker), let go of: ${grown.letGo}`);
+  if (own) console.log(`  trees grown as themselves (docs/V3/nodes/P2-C-unique-trees.md): ${own.grown} (${own.inWorker} in the worker)`);
   if (errors.length) console.log('errors', errors.slice(0, 3).join(' | '));
 } finally {
   await browser.close();
