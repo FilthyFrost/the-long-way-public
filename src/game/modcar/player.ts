@@ -49,7 +49,7 @@ import type { CargoBay, StowAim } from './cargo';
 import type { CargoZone } from '../../core/modcar/cargo';
 import { passengerSeat } from './cockpit';
 import { Aboard, doorwayHit } from './aboard';
-import type { BoardDoor } from '../../core/modcar/aboard';
+import { aboardOf, type BoardDoor } from '../../core/modcar/aboard';
 
 export type Held = { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance } | null;
 
@@ -214,7 +214,8 @@ export interface PlayerHost {
   /** into a front seat: the driver's, or the passenger's (docs/V3/nodes/M1-interact.md) */
   enter(v: ModVehicle, at?: 'driver' | 'pass'): void;
   /** into a vehicle's living space by a door, and out of it (docs/V3/nodes/M2-rv.md) */
-  board(v: ModVehicle, door: BoardDoor): void;
+  /** in by a doorway: standing just inside it, facing the way one came in (`lookYaw`, the view's; none: straight in) */
+  board(v: ModVehicle, door: BoardDoor, lookYaw?: number): void;
   alight(v: ModVehicle, door: BoardDoor): void;
   sound(name: string, gain?: number, mount?: string): void;
   /** the picture of a held thing for the hotbar (a data URL), null while it is being drawn */
@@ -738,7 +739,7 @@ export class ModPlayer {
 
   // ------------------------------------------------------------------ every frame on foot
 
-  update(dt: number, lookYaw: number, lookPitch: number, keys: { run: boolean; jump: boolean; drop: boolean; take: boolean; forward: number; right: number }): void {
+  update(dt: number, lookYaw: number, lookPitch: number, keys: { run: boolean; jump: boolean; drop: boolean; take: boolean; forward: number; right: number; crouch?: boolean }): void {
     const w = this.walker;
     this.clock += dt;
     // (what is in the hands, as it is by now: before it is carried, eaten or shown)
@@ -751,6 +752,8 @@ export class ModPlayer {
     this.input.right = still ? 0 : keys.right;
     this.input.run = keys.run;
     this.input.jump = keys.jump && !still;
+    // (crouched: lower, slower, quieter; the walk stands up again only where there is the headroom to)
+    this.input.crouch = !!keys.crouch;
     w.heading = lookYaw;
     w.pitch = lookPitch;
     const h = this.held;
@@ -759,15 +762,20 @@ export class ModPlayer {
     const ab = this.aboard;
     // (put somewhere else since the last frame — a jump, a script: no longer inside)
     if (ab && Math.hypot(w.x - this.feetW.x, w.z - this.feetW.z) > 3) this.aboard = null;
+    // (an open doorway walked into from outside: in, no key needed, as one walks in at a door; walked out of: out)
+    if (!this.aboard && !this.flow) this.walkIn(lookYaw);
     if (this.aboard) {
-      // inside a vehicle's living space: the walk in its own frame, the feet carried with it
+      // inside a vehicle's living space: the walk in its own frame, the feet carried with it (walked out of its
+      // doorway: out, the walker put outside it)
       this.aboard.step(dt, this.input.forward, this.input.right, lookYaw);
-      this.aboard.feet(this.host.origin, this.feetW);
-      w.x = this.feetW.x;
-      w.y = this.feetW.y;
-      w.z = this.feetW.z;
-      w.vx = w.vy = w.vz = 0;
-      w.grounded = true;
+      if (!this.walkOut(lookYaw) && this.aboard) {
+        this.aboard.feet(this.host.origin, this.feetW);
+        w.x = this.feetW.x;
+        w.y = this.feetW.y;
+        w.z = this.feetW.z;
+        w.vx = w.vy = w.vz = 0;
+        w.grounded = true;
+      }
     } else w.advance(dt, this.input);
     this.input.jump = false;
     w.eye(this.eye);
@@ -784,6 +792,95 @@ export class ModPlayer {
     this.ghosts.update(dt);
     this.primaryEdge = false;
     this.ui();
+  }
+
+  // ------------------------------------------------------------------ in and out of a living space by its doorway
+
+  private readonly doorP = new THREE.Vector3();
+  private readonly doorInv = new THREE.Matrix4();
+
+  /**
+   * Where one is against a doorway of a vehicle's living space, in its frame: how far out from the spot just inside
+   * it (m, along the way out), how far off its middle across it, and how much the stick goes out (+1) or in (−1).
+   */
+  private atDoor(v: ModVehicle, door: BoardDoor, x: number, y: number, z: number, lookYaw: number): { out: number; across: number; push: number } {
+    const m = v.view.model;
+    m.updateMatrixWorld();
+    const o = this.host.origin;
+    const p = this.doorP.set(x - o.x, y - o.y, z - o.z).applyMatrix4(this.doorInv.copy(m.matrixWorld).invert());
+    const ox = door.outside[0] - door.inside[0];
+    const oz = door.outside[1] - door.inside[1];
+    const ol = Math.hypot(ox, oz) || 1;
+    const ux = ox / ol;
+    const uz = oz / ol;
+    const out = (p.x - door.inside[0]) * ux + (p.z - door.inside[1]) * uz;
+    // (the doorway's middle across, from its box)
+    const mx = (door.box.lo[0] + door.box.hi[0]) / 2;
+    const mz = (door.box.lo[2] + door.box.hi[2]) / 2;
+    const across = Math.abs((p.x - mx) * -uz + (p.z - mz) * ux);
+    // the stick, on the plan, in the vehicle's frame (+x forward, +z right; the walker's heading as Aboard.step turns it)
+    const f = this.input.forward;
+    const r = this.input.right;
+    const len = Math.hypot(f, r);
+    let push = 0;
+    if (len > 0.3) {
+      const b = new Float64Array(9);
+      v.sim.basis(b);
+      const yaw = lookYaw - Math.atan2(b[2], b[0]);
+      const c = Math.cos(yaw);
+      const s = Math.sin(yaw);
+      push = (((f * c - r * s) * ux + (f * s + r * c) * uz) / len) * Math.min(1, len);
+    }
+    return { out, across, push };
+  }
+
+  /** half the width of a doorway across (m), from its box: the walk goes through it within this of its middle */
+  private static doorHalf(door: BoardDoor): number {
+    // (its width is the box's side across the way out: a doorway in the side of a body, along it)
+    const ox = Math.abs(door.outside[0] - door.inside[0]);
+    const oz = Math.abs(door.outside[1] - door.inside[1]);
+    return (oz >= ox ? door.box.hi[0] - door.box.lo[0] : door.box.hi[2] - door.box.lo[2]) / 2;
+  }
+
+  /** walking at an open doorway from outside, into it: in (true) */
+  private walkIn(lookYaw: number): boolean {
+    if (Math.hypot(this.input.forward, this.input.right) < 0.3) return false;
+    const w = this.walker;
+    for (const v of this.near(3)) {
+      if (moving(v)) continue;
+      const def = aboardOf(v.view.frame.id);
+      if (!def) continue;
+      for (const door of def.doors) {
+        if (v.view.panelOpen(door.mount) < 0.5) continue;
+        const d = this.atDoor(v, door, w.x, w.y, w.z, lookYaw);
+        const reach = Math.hypot(door.outside[0] - door.inside[0], door.outside[1] - door.inside[1]);
+        // (at the doorway: before it, within its width and a little — the walk's body is wider than the opening —
+        // up against the step, going in)
+        if (d.out > 0.1 && d.out < reach + 0.25 && d.across < ModPlayer.doorHalf(door) + 0.25 && d.push < -0.5) {
+          this.host.board(v, door, lookYaw);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** walking inside a living space up to an open doorway and on, out of it: out (true) */
+  private walkOut(lookYaw: number): boolean {
+    const ab = this.aboard;
+    if (!ab) return false;
+    const v = ab.v;
+    for (const door of ab.def.doors) {
+      if (v.view.panelOpen(door.mount) < 0.5) continue;
+      ab.toWorld(ab.w.x, 0, ab.w.z, this.host.origin, this.feetW);
+      const d = this.atDoor(v, door, this.feetW.x, this.feetW.y, this.feetW.z, lookYaw);
+      // (at the inside of the doorway, as far as the floor goes, going on out)
+      if (d.out > 0.12 && d.across < ModPlayer.doorHalf(door) + 0.05 && d.push > 0.5) {
+        this.host.alight(v, door);
+        return true;
+      }
+    }
+    return false;
   }
 
   // ------------------------------------------------------------------ what is under the mark

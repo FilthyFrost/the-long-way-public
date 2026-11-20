@@ -255,6 +255,8 @@ export interface FoleyOpts {
   cutoff?: number;
   /** -1..1 stereo position (only with a stereo output) */
   pan?: number;
+  /** pee: what the stream falls on (core/audio/footing.ts Footing) */
+  footing?: string;
 }
 
 type Recipe = (sr: number, rng: Rng) => Float32Array;
@@ -4248,11 +4250,18 @@ const RATE_RANGE: Partial<Record<FoleyLoop, readonly [number, number]>> = {
   roll_asphalt: [0.1, 3], roll_wet: [0.1, 3], roll_gravel: [0.1, 3], roll_dirt: [0.1, 3], roll_grass: [0.1, 3], roll_sand: [0.1, 3], roll_snow: [0.1, 3], roll_ice: [0.1, 3],
 };
 
-/** the playback rate a loop plays at for the rate asked (FoleyOpts.rate): kept to its range, then followed as far as the loop's span (exported for tests and the harness) */
-export function loopPlaybackRate(kind: FoleyLoop, rate: number | undefined): number {
+/**
+ * How far a loop played from the archive's recording follows its rate, where not as its synthesized one does: a
+ * recording pitched far from where it was made sounds made, so the gravel's crunch moves less; the asphalt's squeal
+ * moves more, so that a driven wheel spinning (tyreSound.ts: the lowest rate) plays it fuller and lower than a slide.
+ */
+const REC_SPAN: Partial<Record<FoleyLoop, number>> = { roll_gravel: 0.35, skid_gravel: 0.4, skid_asphalt: 0.5 };
+
+/** the playback rate a loop plays at for the rate asked (FoleyOpts.rate): kept to its range, then followed as far as the loop's span (its recording's, `recorded`) (exported for tests and the harness) */
+export function loopPlaybackRate(kind: FoleyLoop, rate: number | undefined, recorded = false): number {
   const [lo, hi] = RATE_RANGE[kind] ?? [0.5, 2];
   const r = rate !== undefined && Number.isFinite(rate) ? Math.min(hi, Math.max(lo, rate)) : 1;
-  return 1 + (RATE_SPAN[kind] ?? 1) * (r - 1);
+  return 1 + ((recorded ? REC_SPAN[kind] : undefined) ?? RATE_SPAN[kind] ?? 1) * (r - 1);
 }
 
 /** a loop's own low-pass (FoleyOpts.cutoff): its Q, in dB as a Web Audio low-pass reads it (−3.01 dB is 1/√2: Butterworth, flat up to its corner, no bump), and how fast it glides to a new cutoff (s: a door shut muffles it in about a tenth of a second) */
@@ -4308,9 +4317,23 @@ export function cueKeys(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): string[
       return [`hammer_hit:${o.grind ?? 'metal'}`];
     case 'pour':
       return [`pour:${o.liquid ?? 'fuel'}`];
+    case 'pee':
+      return [`pee:${peeOn(o.footing)}`];
     default:
       return [kind];
   }
+}
+
+/**
+ * What a stream falls on, as the archive's recordings of it have it (Arctic Drive's: concrete, metal, wood, snow): a
+ * road's or a slab's, a gravel's stones as hard; boards and a carpet as boards; earth, grass, sand and snow take it
+ * softly, as snow does.
+ */
+export function peeOn(footing: string | undefined): 'concrete' | 'metal' | 'wood' | 'snow' {
+  if (footing === 'metal') return 'metal';
+  if (footing === 'wood' || footing === 'carpet') return 'wood';
+  if (footing === 'concrete' || footing === 'gravel') return 'concrete';
+  return 'snow';
 }
 
 /** the archive's sounds that are new with it (no synthesized one to match): the level of their loudest 400 ms (dB, before the master) */
@@ -4330,6 +4353,13 @@ const CUE_DB: Readonly<Record<string, number>> = {
   radio_static: -32,
   thunder: -17,
   'thunder:near': -13,
+  pee_start: -33,
+  pee_end: -33,
+  pee_relief: -31,
+  breath_fast: -29,
+  breath_slow: -31,
+  breath_end: -31,
+  heartbeat: -27,
 };
 
 /** the level a new cue is brought to (dB): its own, its kind's (before the colon), else -30 */
@@ -4364,7 +4394,7 @@ export class Foley {
     // likewise, and only for the blade's catch (the tier only for the find's sting, always: no tier is the middle one): each scrub loop is a kind of its own whatever it is given;
     // the gain and the rate are how it is played, never another rendering; a container's material always, resolved:
     // none is a wooden cupboard's)
-    return `${kind}|${CONTAINER_KINDS.has(kind) ? containerOf(o.material) : (o.material ?? '')}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}`;
+    return `${kind}|${CONTAINER_KINDS.has(kind) ? containerOf(o.material) : (o.material ?? '')}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}${kind === 'pee' ? `|${peeOn(o.footing)}` : ''}`;
   }
 
   /** how many renderings of a one-shot to keep (a tune is the same every time: one is enough) */
@@ -4443,6 +4473,7 @@ export class Foley {
   play(kind: FoleyShot, o: FoleyOpts = {}, when = 0): void {
     // the archive's recording of it, if it has one and it is in, as loud as the synthesized one
     const rec = this.recorded(kind, o, false);
+    if (!rec && this.awaited(kind, o)) return;
     if (rec) {
       const vary = 0.92 + 0.16 * this.rng.next();
       this.playBuffer(rec.r.buf, SHOT_LEVEL[kind] * (o.gain ?? 1) * vary * rec.scale, 1 + 0.03 * (this.rng.next() - 0.5), o.pan, when);
@@ -4480,10 +4511,15 @@ export class Foley {
     const k = this.key(kind, o);
     const live = this.loops.get(kind);
     const t = this.ctx.currentTime;
-    const rate = loopPlaybackRate(kind, o.rate);
     const cutoff = loopCutoff(this.ctx.sampleRate, o.cutoff);
-    // (the archive's recording of it once it is in, kept for its key; until then the synthesized one)
+    // (the archive's recording of it once it is in, kept for its key; until then nothing: the synthesized one only
+    // without the archive, or for a sound it has no recording of)
     const rec = this.loopRecording(kind, o, k);
+    if (!rec && this.awaited(kind, o)) {
+      if (live) this.stop(kind);
+      return;
+    }
+    const rate = loopPlaybackRate(kind, o.rate, !!rec);
     const level = LOOP_LEVEL[kind] * (o.gain ?? 1) * (rec ? rec.scale : 1);
     if (live && live.src.buffer && (rec ? live.src.buffer === rec.r.buf : this.cache.get(k)?.includes(live.src.buffer))) {
       live.gain.gain.setTargetAtTime(level, t, 0.02);
@@ -4566,6 +4602,16 @@ export class Foley {
       return { r, scale: Math.min(20, Math.max(0.05, this.loudOf(kind, o, loop) / Math.max(1e-5, there))) };
     }
     return null;
+  }
+
+  /** the archive has a recording of this sound but it is not in yet (asked for now): play nothing meanwhile, not the synthesized one */
+  private awaited(kind: FoleyShot | FoleyLoop, o: FoleyOpts): boolean {
+    const a = this.archive;
+    if (!a?.live) return false;
+    const cue = cueKeys(kind, o).find((c) => a.has(c));
+    if (!cue) return false;
+    a.warm(cue);
+    return true;
   }
 
   /** the recording a loop plays (the same one for as long as the game runs: a pour is the same pour) */

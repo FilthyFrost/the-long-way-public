@@ -14,9 +14,11 @@ export interface CuePick {
   lib: 'A' | 'L';
   /** a pattern (RegExp source) the recording's name matches whole, without its extension */
   name: string;
+  /** and, when two recordings share a name, a pattern its file's name (without its extension) matches whole */
+  file?: string;
 }
 
-const A = (name: string): CuePick => ({ lib: 'A', name });
+const A = (name: string, file?: string): CuePick => ({ lib: 'A', name, ...(file ? { file } : {}) });
 const L = (name: string): CuePick => ({ lib: 'L', name });
 /** a numbered run: `stem_01`, `stem_2`, `stem-3`, `stem 4` (or the stem alone) */
 const n = (stem: string): string => `${stem}([-_ ]?\\d+)?`;
@@ -48,6 +50,27 @@ export const CUE_SPEC: Readonly<Record<string, readonly CuePick[]>> = {
   /** sitting down in a seat, getting up out of it (new: over the door) */
   car_getin: [A(n('action_car_getin'))],
   car_getout: [A(n('action_car_getout'))],
+
+  // ---- the tyres (tyreSound.ts), as recorded: the asphalt's squeal (a slide; a driven wheel spinning plays it
+  // lower), the gravel's crunch and its slide. The rest of the surfaces have no recordings: synthesized.
+  skid_asphalt: [L('AsphaltSkidNoise')],
+  roll_gravel: [A('vehicle_tires_loop_gravel')],
+  skid_gravel: [A('vehicle_tire_braking_gravel')],
+
+  // ---- the body (Arctic Drive's own): relieving oneself — the start, the stream on what it falls on, the end,
+  // and a sigh of relief; out of breath — a pant at a time, fast and then slower, and the breath got back; the heart
+  'pee_start': [A('Action-Pee', '.*__w403325015')],
+  'pee_end': [A('Action-Pee', '.*__w875654566')],
+  'pee:concrete': [A('player_action_pee_concrete')],
+  'pee:metal': [A('player_action_pee_metal')],
+  'pee:wood': [A('player_action_pee_wood')],
+  'pee:snow': [A('player_action_pee_snow')],
+  'pee:toilet': [A(n('ActionPeeingToiletLoop'))],
+  pee_relief: [A(n('player_pee'))],
+  breath_fast: [A(n('player_exhausted_fast'))],
+  breath_slow: [A(n('player_exhausted_slow'))],
+  breath_end: [A(n('player_action_exhausted_end'))],
+  heartbeat: [L('heartbeat')],
 
   // ---- things picked up, set down, fitted (by their weight: foley.ts massClass, see cueVariant)
   'part_pickup:light': [L(n('LDN_Item_Small_Pickup'))],

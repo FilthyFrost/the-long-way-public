@@ -6,6 +6,10 @@
  * a tyre is past its grip; the loose surfaces scatter, spray and rip as soon as a tread slides on them. Heard from
  * inside a closed cab, they come through the floor muffled (stones striking the floor and the arches sharper),
  * clearer with the doors open. The shared road-noise bed (core/audio/mix.ts) is turned down under them.
+ *
+ * On dry or wet asphalt a tyre rolling is not heard at all (the player heard its synthesized roar as a noise under
+ * everything, and the archive has no recording of it to play instead): only its squeal, the archive's, when it
+ * slides — and lower, fuller, when it is a driven wheel spinning as the car pulls away hard, not a slide.
  */
 import { SURFACES } from '../../core/world/ground';
 import type { FoleyLoop } from './foley';
@@ -45,6 +49,9 @@ const SURF: Record<string, { p: number; cap: number; cabin: number; road: number
   snow: { p: 0.6, cap: 1.8, cabin: 2000, road: 0.5 },
   ice: { p: 1.0, cap: 2, cabin: 1200, road: 0.3 },
 };
+/** the surfaces whose roll is heard (the asphalt's and the ice's not: see above) */
+const ROLLS: Readonly<Record<string, boolean>> = { gravel: true, dirt: true, grass: true, sand: true, snow: true };
+
 /** the cab's low-pass with every door open (Hz) */
 const OPEN_CUTOFF = 8000;
 
@@ -60,7 +67,7 @@ const smooth = (a: number, b: number, x: number): number => {
  * @param o.cabin heard from inside: how open the cab is (0 shut … 1 open); null, from outside
  */
 export function tyreLoops(wheels: readonly TyreWheel[], o: { wet: number; near: number; cabin: number | null }): { loops: TyreLoop[]; road: number } {
-  const groups = new Map<string, { n: number; rate: number; slide: number; skid2: number }>();
+  const groups = new Map<string, { n: number; rate: number; slide: number; skid2: number; spin2: number }>();
   let n = 0;
   for (const w of wheels) {
     if (!w.contact || w.fit !== 0) continue;
@@ -68,7 +75,7 @@ export function tyreLoops(wheels: readonly TyreWheel[], o: { wet: number; near: 
     if (!SURF[name]) continue;
     n++;
     let g = groups.get(name);
-    if (!g) groups.set(name, (g = { n: 0, rate: 0, slide: 0, skid2: 0 }));
+    if (!g) groups.set(name, (g = { n: 0, rate: 0, slide: 0, skid2: 0, spin2: 0 }));
     const tread = w.omega * w.radius;
     g.n++;
     g.rate += (Math.abs(tread) * 3.6) / 50;
@@ -78,6 +85,9 @@ export function tyreLoops(wheels: readonly TyreWheel[], o: { wet: number; near: 
     const sk = name === 'asphalt' ? smooth(0.1, 0.3, s) * Math.min(1, vs / 2) : name === 'ice' ? 0.9 * Math.min(1, vs / 4) : Math.pow(Math.min(1, Math.max(0, vs - 0.4) / 3), 0.8);
     g.slide = Math.max(g.slide, vs);
     g.skid2 += sk * sk;
+    // (how much of it is a driven wheel spinning: its tread running ahead of the road, not sideways or held back)
+    const ahead = Math.max(0, Math.sign(w.vLong || 1) * (tread - w.vLong));
+    g.spin2 += sk * sk * (vs > 1e-6 ? Math.min(1, ahead / vs) : 0);
   }
   const loops: TyreLoop[] = [];
   if (!n || o.near <= 0) return { loops, road: 1 };
@@ -88,14 +98,16 @@ export function tyreLoops(wheels: readonly TyreWheel[], o: { wet: number; near: 
     road += share * k.road;
     const cutoff = o.cabin === null ? undefined : k.cabin * Math.pow(OPEN_CUTOFF / k.cabin, Math.min(1, Math.max(0, o.cabin)));
     const rate = g.rate / g.n;
-    if (rate > 0.02) {
+    if (rate > 0.02 && ROLLS[name]) {
       const f = Math.sqrt(share) * o.near;
       loops.push({ name: `roll_${name}` as FoleyLoop, gain: Math.min(k.cap, Math.pow(rate, k.p)) * f, rate, cutoff });
-      if (name === 'asphalt' && o.wet > 0.02) loops.push({ name: 'roll_wet', gain: Math.min(2, Math.pow(rate, 1.2)) * Math.min(1, o.wet) * f, rate, cutoff });
     }
     // (the slides as a sum of each tyre's: one wheel spinning is half as loud as four locked)
     const skid = Math.sqrt(g.skid2 / n) * o.near;
-    if (skid > 0.01) loops.push({ name: `skid_${name}` as FoleyLoop, gain: skid, rate: Math.min(2, Math.max(0.5, 0.5 + g.slide / 8)), cutoff });
+    // (a spin plays the squeal at its lowest, a slide by how fast it goes)
+    const spin = g.skid2 > 0 ? g.spin2 / g.skid2 : 0;
+    const slideRate = Math.min(2, Math.max(0.5, 0.5 + g.slide / 8));
+    if (skid > 0.01) loops.push({ name: `skid_${name}` as FoleyLoop, gain: skid * (name === 'asphalt' ? 1 - 0.3 * spin : 1), rate: name === 'asphalt' ? slideRate + (0.5 - slideRate) * spin : slideRate, cutoff });
   }
   return { loops, road };
 }

@@ -58,8 +58,9 @@ function find(entries: readonly CatalogEntry[], picks: readonly CuePick[], one =
   const out: Array<CueFile & { title: string }> = [];
   for (const p of picks) {
     const re = new RegExp(`^(?:${p.name})$`);
+    const fe = p.file ? new RegExp(`^(?:${p.file})$`) : null;
     const hits = entries
-      .filter((e) => e.kind === 'source' && LIB[e.game] === p.lib && re.test(baseName(e.name)))
+      .filter((e) => e.kind === 'source' && LIB[e.game] === p.lib && re.test(baseName(e.name)) && (!fe || fe.test(baseName(e.file))))
       .sort((a, b) => (baseName(a.name) < baseName(b.name) ? -1 : baseName(a.name) > baseName(b.name) ? 1 : 0));
     for (const e of hits) {
       // (the same recording listed twice, under two of the catalogue's headings: once)

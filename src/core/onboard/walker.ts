@@ -38,6 +38,11 @@ export class Walker {
   z = 0;
   /** heading: 0 = forward (+x), + = to the right */
   yaw = 0;
+  /**
+   * Walked straight at a wall with a way on a little to one side of it (the aisle beside a cupboard): eased
+   * sideways into the way, as one steps round a corner, instead of standing pressed to the wall. Off: as before.
+   */
+  funnel = false;
 
   constructor(readonly area: WalkArea) {
     const r = area.areas[0];
@@ -119,6 +124,33 @@ export class Walker {
           best = d;
           bx = cx;
           bz = cz;
+        }
+      }
+    }
+    const want = Math.hypot(dx, dz);
+    if (this.funnel && Math.hypot(bx - this.x, bz - this.z) < want * 0.35) {
+      // the way one walks and across it; the nearest offset across (up to 0.7 m) with floor beside one and on ahead of it
+      const ux = dx / want;
+      const uz = dz / want;
+      const px = -uz;
+      const pz = ux;
+      let best = 0;
+      for (let k = 1; k <= 7 && !best; k++) {
+        for (const side of [1, -1]) {
+          const o = side * k * 0.1;
+          if (this.inside(this.x + px * o, this.z + pz * o) && this.inside(this.x + px * o + ux * 0.25, this.z + pz * o + uz * 0.25)) {
+            best = o;
+            break;
+          }
+        }
+      }
+      if (best) {
+        const m = Math.sign(best) * Math.min(Math.abs(best), want * 0.9);
+        const sx = this.x + px * m;
+        const sz = this.z + pz * m;
+        if (this.inside(sx, sz)) {
+          bx = sx;
+          bz = sz;
         }
       }
     }
