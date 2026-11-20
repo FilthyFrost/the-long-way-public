@@ -1,1 +1,0 @@
-import {modcarWorld} from './src/game/modcar/seamless';import {BIOMES} from './src/core/world/biomes';const {world}=modcarWorld(1,{worldVersion:2});const p=world.spine.plan;let seen=new Set<string>();for(let k=0;k<130;k++){const id=BIOMES[p.biomeOf(k)].id;p.biomeOf(k+1);if(!seen.has(id)){console.log(id,(p.starts[k]+p.starts[k+1])/2000);seen.add(id);}}
