@@ -6,7 +6,7 @@
  * regions); otherwise it is made from the region's row of the palette table (scene/palette.ts) over the look
  * of its kin, and without a row it is its kin's look (`regionStyle`). Never the plains' for want of an entry.
  */
-import { snowLinesFor } from '../../core/world/routeProfiles';
+import { sceneSnowLine } from '../../core/world/routeProfiles';
 import { ECO_PROFILES } from '../../core/world/data/ecoProfiles';
 import * as THREE from 'three';
 import styleJson from '../../../specs/art/style.json';
@@ -327,7 +327,7 @@ const shown = [-1, -1, -1, -1];
 /** the paints of biome `biome` (index into BIOMES) into slot `slot` of a set of palette uniforms */
 function fillSlot(u: typeof paletteUniforms, slot: number, biome: number): void {
   const b = BIOME_STYLES[biome] ?? BIOME_STYLES[0];
-  u.uSnowLines.value[slot].fromArray(snowLinesFor(BIOMES[biome]?.id ?? "plains"));
+  u.uSnowLines.value[slot].setScalar(sceneSnowLine(BIOMES[biome]?.id ?? "plains"));
   const put = (arr: THREE.Vector3[], i: number, c: RGB): void => {
     arr[i].set(c[0], c[1], c[2]);
   };

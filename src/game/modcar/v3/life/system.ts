@@ -1,3 +1,4 @@
+import { localMonth } from '../../../../core/world/sceneSeason';
 import { hash32, hash2 } from '../../../../core/math/rng';
 import { TerrainPoint, type World } from '../../../../core/world/terrain';
 import { BIOMES } from '../../../../core/world/biomes';
@@ -6,7 +7,7 @@ import { Cover, FloraCell } from '../../../../core/world/flora';
 import { PLANTS } from '../../../../core/world/plants';
 import { appOf } from '../../../../core/v3/appliances/appliances';
 import { anchor, animals, cellHash, CELL_BIRD, CELL_COUNT, CELL_INSECT, GROUP_LIMIT, inSeason, isDay,
-  journeyMonth, localHabitat, profileFor, ringCell, sheltered, suits, type Animal, type Habitat } from '../../../../core/v3/life/rules';
+  localHabitat, profileFor, ringCell, sheltered, suits, type Animal, type Habitat } from '../../../../core/v3/life/rules';
 import type { EcoProfile } from '../../../../core/world/data/ecoProfiles';
 import { makePole, polePosition } from '../../../scene/worldBuild';
 import type { GameContext } from '../../kernel/context';
@@ -60,6 +61,7 @@ export class Life {
     if(!w.eco?.hasTileAt(x,z)) {g.stamp=-1;return;}
     w.shape(x,z,this.t);
     const t=this.t, eco=w.eco!, flora=w.flora!, h=this.h;
+    const month=localMonth(BIOMES[t.ba].id,BIOMES[t.bb].id,t.bt);
     const p=profileFor(BIOMES[t.bt>=.5?t.bb:t.ba].id);
     if(!p || t.zone || t.plot>.4 || t.bridge>.05 || t.frozen>.2) return;
     const e=eco.at(x,z,this.e);
@@ -80,7 +82,7 @@ export class Life {
       const entry=list[(j+(hash>>>8))%list.length];
       const n=entry.name;
       const a=animals[n];
-      if(!a || (this.focus && n!==this.focus) || !inSeason(p,n,this.month,ctx.clock.hour,ctx.env.state)) continue;
+      if(!a || (this.focus && n!==this.focus) || !inSeason(p,n,month,ctx.clock.hour,ctx.env.state)) continue;
       if(a.motion==='lamp') {
         for(const light of ctx.loose.list) {
           if(!light.item || light.shut || light.riding || (light.item.item!=='junk_lamp' && light.item.item!=='junk_solar_lamp') || !appOf(light.item).on) continue;
@@ -153,7 +155,6 @@ export class Life {
     const o=ctx.core.origin, pos=ctx.core.camera.position;
     const vx=pos.x+o.x, vz=pos.z+o.z;
     this.paint.root.visible=true;
-    this.month=journeyMonth(ctx.clock.day);
     const weather=ctx.env.state;
     const insects=weather.temp>=9 && weather.wind<=9 && weather.snowCover<=.35 && weather.rain<=.18;
     const stamp=this.serial*128+this.month*8+Number(isDay(ctx.clock.hour))*4+Number(insects)*2+Number(weather.temp>=14);
@@ -161,6 +162,7 @@ export class Life {
     if(Math.abs(vx-this.viewX)+Math.abs(vz-this.viewZ)>6) {
       this.viewX=vx;this.viewZ=vz;
       w.shape(vx,vz,this.t);
+      this.month=localMonth(BIOMES[this.t.ba].id,BIOMES[this.t.bb].id,this.t.bt);
       this.region=profileFor(BIOMES[this.t.bt>=.5?this.t.bb:this.t.ba].id);
     }
     // Service one vacant cell per frame; culled slots never linger after a teleport.

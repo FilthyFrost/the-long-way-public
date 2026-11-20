@@ -14,9 +14,10 @@ export function photograph(names, distance, season, comparison = false) {
   const scene = new T.Scene();
   scene.background = new T.Color(0xc8dfde);
   const portrait = season==='bearing' || season==='dormant';
+  let month = 7;
   if (portrait) {
     const day = {fruit_tree:255,lemon:40,mesquite:207,chilean_firebush:320,cactus:151,saguaro:151}[names[0]];
-    globals.uCrownDay.value = (365+(season==='bearing'?day:(day+182)%365)-151)%365;
+    month = Math.floor(((season==='bearing'?day:(day+182)%365)/365)*12)+1;
   }
   const snowy = season === 'winter';
   globals.uWeather.value.y = snowy ? 0.9 : 0;
@@ -39,7 +40,7 @@ export function photograph(names, distance, season, comparison = false) {
       const geometry = model.geometry.clone();
       const leaf = season === 'autumn' ? paint?.autumn ?? paint?.leaf : paint?.leaf;
       geometry.setAttribute('aFade',new T.InstancedBufferAttribute(new Float32Array([1,0,0,0]),4));
-      geometry.setAttribute('aLook',new T.InstancedBufferAttribute(new Float32Array([0, name==='fruit_tree'||name==='lemon'?2:0,leaf ?? -1,name==='fruit_tree'?0xb85031:paint?.bark ?? 0x755f4c]),4));
+      geometry.setAttribute('aLook',new T.InstancedBufferAttribute(new Float32Array([month/128, name==='fruit_tree'||name==='lemon'?2:0,leaf ?? -1,name==='fruit_tree'?0xb85031:paint?.bark ?? 0x755f4c]),4));
       geometry.setAttribute('aTree',new T.InstancedBufferAttribute(new Float32Array([0.56,s.def.sway,s.def.bark==='accent'?1:0,1]),4));
       const mesh = new T.InstancedMesh(geometry,material,1);
       const radius = Math.max(...shapes.map(m=>m.radius));

@@ -59,7 +59,7 @@ export class ShadowPass {
     this.depthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { uSeason: globals.uSeason, uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf } },
+      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf } },
       vertexShader: /* glsl */ `
         // leaf cards cut their shadows out of the leaf texture (absent attribute = 0 = solid)
         attribute float aCard;
@@ -101,7 +101,7 @@ export class ShadowPass {
     this.floraDepthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
-      uniforms: { uSeason: globals.uSeason, uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
+      uniforms: { uWeather: globals.uWeather, tLeaf: { value: sharedTextures().leaf }, ...floraUniforms },
       vertexShader: /* glsl */ `
         ${FLORA_VERTEX}
         varying float vCard;

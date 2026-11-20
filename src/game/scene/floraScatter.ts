@@ -29,7 +29,8 @@
 import { groundField } from '../../core/world/groundField';
 import { groundProfile } from '../../core/world/groundTables';
 import { smoothstep } from '../../core/math/util';
-import { snowLinesFor } from '../../core/world/routeProfiles';
+import { sceneMonthAt } from '../../core/world/sceneSeason';
+import { sceneSnowLine } from '../../core/world/routeProfiles';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_N, ECO_SQ, ECO_STEP, ECO_TILE } from '../../core/world/ecotope';
 import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
@@ -270,17 +271,16 @@ function huesOf(region: number): readonly number[] {
 
 /** The integer is the palette pair; its fraction (0 ? 1/4) carries settled snow at the root.
  * rtSlotPair rounds to the nearest integer, including on renderers which only need the palette. */
-const seasonalLines = BIOMES.map(r => snowLinesFor(r.id));
+const seasonalLines = BIOMES.map(r => sceneSnowLine(r.id));
 function snowyPair(world: World, sk: number, height: number): number {
   const a = seasonalLines[slotA[sk]], b = seasonalLines[slotB[sk]];
   const altitude = world.spine.altitude(height);
-  let packed = 0;
-  for (let i = 0; i < 4; i++) {
-    const ca = smoothstep(a[i] - 100, a[i] + 100, altitude);
-    const cb = smoothstep(b[i] - 100, b[i] + 100, altitude);
-    packed += Math.round((ca + (cb - ca) * slotShare[sk]) * 15) << (i * 4);
-  }
-  return slotPair[sk] + packed / 262144;
+  const ca = smoothstep(a - 100, a + 100, altitude);
+  const cb = smoothstep(b - 100, b + 100, altitude);
+  const snow = ca + (cb - ca) * slotShare[sk];
+  const month = sceneMonthAt(BIOMES[slotA[sk]].id, BIOMES[slotB[sk]].id, slotShare[sk]);
+  // Five bits of month (half-month steps), eight of snow; palette slot still rounds to its integer.
+  return slotPair[sk] + (Math.round(month * 2) * 256 + Math.round(snow * 255)) / 65536;
 }
 
 /**

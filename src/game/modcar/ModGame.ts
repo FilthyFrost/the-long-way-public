@@ -4589,7 +4589,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     if (this.worldView) {
       // after a teleport: the world round the new place built fast, behind the fade, until it is there
-      this.worldView.setGroundDay(this.clock.day);
       if (this.devLoad > 0) {
         this.devLoad -= dt;
         this.worldView.update(fx, fz, 45);
@@ -5081,7 +5080,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   render(): void {
     if (this.env.shotMode) this.env.prepareShot();
-    globals.uCrownDay.value = this.clock.day;
     this.core.render(this.time);
   }
 
