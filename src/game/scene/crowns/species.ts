@@ -13,6 +13,7 @@ import { CROWN_LEVELS, growBroadleaf, growConifer, type BroadleafShape, type Con
 
 import { growSpecial, type Special } from './special';
 import { floraKind, growFlora } from '../flora/catalog';
+import { mulberry } from '../vegetation';
 
 export type SpeciesShape = { kind: 'broadleaf'; shape: BroadleafShape } | { kind: 'conifer'; shape: ConiferShape } | { kind: 'special'; form: Special };
 
@@ -126,6 +127,33 @@ export const SPECIES: Readonly<Record<string, SpeciesDef>> = {
   saguaro: special(1199,'saguaro',0.04),
 };
 
+/** the variants a species is grown in, each a tree of its own (docs/V3/nodes/P3-variant-packs.md) */
+export const VARIANTS = 8;
+
+/**
+ * A species' variants: its own two or three shapes first, then more grown from them, each with a seed of its own and
+ * its shape drawn a little otherwise — its sizes within a tenth either way, a limb or a tier more or fewer, a crown
+ * fuller to one side — as two trees of one kind differ. The first stays the species' measure.
+ */
+export function variantsOf(def: SpeciesDef, n = VARIANTS): { seed: number; grow: SpeciesShape }[] {
+  const out = def.variants.slice(0, n);
+  for (let k = out.length; k < n; k++) {
+    const base = def.variants[k % def.variants.length];
+    const rnd = mulberry(base.seed * 31 + k * 977);
+    const j = (x: number, f = 0.1): number => x * (1 + (rnd() * 2 - 1) * f);
+    const seed = base.seed + 1009 * k;
+    const g = base.grow;
+    if (g.kind === 'broadleaf') {
+      const s = g.shape;
+      out.push({ seed, grow: { kind: 'broadleaf', shape: { ...s, crown: j(s.crown), rise: j(s.rise), trunk: j(s.trunk), girth: j(s.girth, 0.08), clump: j(s.clump, 0.08), lopsided: (s.lopsided ?? 0) + rnd() * 0.45, limbs: Math.max(2, s.limbs + Math.round(rnd() * 2 - 1)) } } });
+    } else if (g.kind === 'conifer') {
+      const s = g.shape;
+      out.push({ seed, grow: { kind: 'conifer', shape: { ...s, height: j(s.height), radius: j(s.radius), base: j(s.base, 0.15), ragged: Math.min(1, j(s.ragged, 0.3)), tiers: Math.max(3, s.tiers + Math.round(rnd() * 2 - 1)) } } });
+    } else out.push({ seed, grow: g });
+  }
+  return out;
+}
+
 /** one variant of a species grown at every level */
 export interface SpeciesModels {
   family: string;
@@ -166,6 +194,8 @@ export const KIT_OF: Readonly<Record<string, string>> = {
 };
 
 let floraKit = false;
+/** whether the plant toolkit grows the families it has a kind for (?flora=kit) */
+export const floraKitOn = (): boolean => floraKit;
 /** the plant toolkit grows the families it has a kind for (before the first world is made: the species are grown once) */
 export function setFloraKit(on: boolean): void {
   if (built && on !== floraKit) disposeCrownSpecies();

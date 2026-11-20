@@ -50,6 +50,7 @@ try {
   await page.waitForFunction(() => window.__live.done, null, { timeout: 900000, polling: 1000 });
   const r = await page.evaluate(() => window.__live);
   const bakes = await page.evaluate(() => window.__rt.game.worldView?.crowns?.atlasStats ?? null);
+  const grown = await page.evaluate(() => window.__rt.game.worldView?.crowns?.growStats ?? null);
   const iv = r.intervals.slice(60);
   const sorted = [...iv].sort((a, b) => a - b);
   const q = (f) => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))].toFixed(1);
@@ -64,6 +65,7 @@ try {
   const lateJs = iv.map((x, i) => [x, js[i]]).filter(([x]) => x > 20);
   console.log(`  the game's own work a frame: mean ${(js.reduce((a, b) => a + b, 0) / js.length).toFixed(2)} ms, P95 ${jsSorted[Math.floor(0.95 * jsSorted.length)].toFixed(1)}, P99 ${jsSorted[Math.floor(0.99 * jsSorted.length)].toFixed(1)}; of the late frames ${lateJs.filter(([, j]) => j > 12).length} had more than 12 ms of it`);
   if (bakes) console.log(`  far pictures baked: ${bakes.bakes}, ${bakes.bakedMs.toFixed(0)} ms in all (${(bakes.bakedMs / Math.max(1, bakes.bakes)).toFixed(1)} ms each; ${bakes.inWorker ?? 0} of them in the worker)`);
+  if (grown) console.log(`  species grown: ${grown.grown}, ${grown.ms.toFixed(0)} ms in all (${(grown.ms / Math.max(1, grown.grown)).toFixed(1)} ms each; ${grown.inWorker} of them in the worker), let go of: ${grown.letGo}`);
   if (errors.length) console.log('errors', errors.slice(0, 3).join(' | '));
 } finally {
   await browser.close();

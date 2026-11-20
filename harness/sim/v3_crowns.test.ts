@@ -268,7 +268,7 @@ describe('painted crowns · the view', () => {
     view.dispose();
   });
 
-  it('in play bakes a far picture later and draws its tree once it is in, never a tree without its picture', async () => {
+  it('in play grows a species and bakes its far pictures later, and draws its trees once they are in, never a tree without its picture', async () => {
     CrownView.bakeAtOnce = false;
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 5000);
     const view = new CrownView({ camera, origin: { x: 0, y: 0, z: 0 } } as unknown as RenderCore);
@@ -276,14 +276,20 @@ describe('painted crowns · the view', () => {
     camera.position.set(0, 4, 260);
     view.update();
     const far = (): THREE.InstancedMesh[] => view.group.children.filter((m) => m.visible && m.layers.mask === 1) as THREE.InstancedMesh[];
-    // (asked for, not yet in: nothing drawn rather than a tree without its picture — a picture for each of the
-    // species' variants, the layers of one array)
-    const variants = view.variants(0);
+    // (its species not grown yet: nothing drawn, nothing baked — only its growing asked for)
     expect(far()).toHaveLength(0);
-    expect(view.pendingBakes).toBe(variants);
-    expect(view.atlasStats.bakes).toBe(0);
-    // (no worker here: baked between frames, and the next frame draws it)
-    for (let i = 0; i < 100 && view.atlasStats.bakes < variants; i++) await new Promise((go) => setTimeout(go, 10));
+    expect(view.growStats.grown).toBe(0);
+    expect(view.pendingBakes).toBe(1);
+    // (no worker here: grown and baked between frames, a picture for each variant, the layers of one array; the
+    // frames after draw the tree)
+    const variants = view.variants(0);
+    for (let i = 0; i < 300 && far().length === 0; i++) {
+      await new Promise((go) => setTimeout(go, 10));
+      view.update();
+    }
+    expect(view.growStats.grown).toBe(1);
+    expect(view.atlasStats.bakes).toBeGreaterThanOrEqual(1);
+    for (let i = 0; i < 300 && view.atlasStats.bakes < variants; i++) await new Promise((go) => setTimeout(go, 10));
     expect(view.atlasStats.bakes).toBe(variants);
     view.update();
     expect(far()).toHaveLength(1);

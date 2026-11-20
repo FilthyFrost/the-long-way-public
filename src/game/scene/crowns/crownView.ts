@@ -14,9 +14,11 @@ import { CROWN_STRIDE, type CrownLookup } from './crownData';
 import { atlasLayers, atlasRowsOf, putLayer } from './crownAtlas';
 import { put3, vec3s } from '../../render/uniformArrays';
 import { bakeLater, bakeNow, type Baked } from './crownBake';
-import { packVariants } from './variantPack';
-import { crownSpecies, type SpeciesModels } from './species';
-import { floraMaterial, shadowCaster } from '../flora/material';
+import type { VariantPack } from './variantPack';
+import { KIT_OF, SPECIES, VARIANTS, floraKitOn, type SpeciesDef } from './species';
+import { measureOf } from './speciesGrow';
+import { growLater, growNow, type Grown } from './crownGrow';
+import { floraMaterial } from '../flora/material';
 
 
 /** within these (m) a tree is drawn at its nearest level, and at its second; a shrub within its own */
@@ -29,11 +31,12 @@ export const SHRUB_MID = 110;
 const INSIDE_FROM = 40;
 /** the trees this near the wide shadow map's middle are drawn into it (m, beyond their crown) */
 const SHADOW_REACH = 96;
-/** the level a tree's shadow is drawn in */
-const SHADOW_LEVEL = 2;
 /** far pictures being baked in the worker at once at most, and how long one unused is kept (ms) */
 const BAKES_IN_FLIGHT = 6;
 const ATLAS_KEEP_MS = 30000;
+/** species being grown in the worker at once at most, and how long one no tree of is kept (ms) */
+const GROWS_IN_FLIGHT = 2;
+const SPECIES_KEEP_MS = 60000;
 
 function fadeWidth(edge: number): number {
   return Math.max(2, Math.abs(edge) * 0.06);
@@ -47,6 +50,8 @@ interface Draw {
   baking?: boolean[];
   /** the rows of its pictures (two where its trees have leaves to lose: crownAtlas.ts atlasRowsOf) */
   rows?: 1 | 2;
+  /** its species let go of (a bake that comes back after is dropped) */
+  gone?: boolean;
   /** since when its far pictures have had no tree to draw (ms) */
   idleSince?: number;
   /** its far pictures baked from the plant toolkit's atlas */
@@ -99,6 +104,30 @@ interface Tile {
   r: number;
 }
 
+/**
+ * A species the crowns draw: known from the start, its measure with it (the scatter sizes its trees by it), its
+ * variants grown when its first tree is to be drawn (docs/V3/nodes/P3-variant-packs.md) and let go of a while after
+ * its last.
+ */
+interface Species {
+  family: string;
+  def: SpeciesDef;
+  /** grown by the plant toolkit (scene/flora): drawn with its atlas */
+  kit: boolean;
+  height: number;
+  radius: number;
+  /** none: not grown; growing: in the worker; ready: its draws are here */
+  state: 'none' | 'growing' | 'ready';
+  /** near and middle: its variants packed (crowns/variantPack.ts) */
+  packs: Draw[] | null;
+  /** its far trees: one draw, the pictures of its variants the layers of one array (the tree's own picked) */
+  far: Draw | null;
+  /** the shadow map's, its variants packed as well */
+  shadow: Draw | null;
+  /** since when none of its draws has had a tree (ms) */
+  idleSince?: number;
+}
+
 const frustum = new THREE.Frustum();
 const proj = new THREE.Matrix4();
 const sphere = new THREE.Sphere();
@@ -107,26 +136,20 @@ const fwd = new THREE.Vector3();
 export class CrownView implements CrownLookup {
   readonly group = new THREE.Group();
   readonly material: THREE.ShaderMaterial;
-  private readonly species: SpeciesModels[] = [];
+  private readonly species: Species[] = [];
   private readonly byFamily = new Map<string, number>();
-  /**
-   * By species, level (near, middle): its variants in one draw, each tree drawing its own (crowns/variantPack.ts,
-   * docs/V3/nodes/P3-variant-packs.md) — a wood of one species is one draw a level, where it was one a variant
-   */
-  private readonly packs: Draw[][] = [];
-  /** by species: its far trees, one draw, the pictures of its variants the layers of one array (the tree's own picked) */
-  private readonly fars: Draw[] = [];
-  /** by species: the shadow map's, its variants packed as well */
-  private readonly shadowDraws: Draw[] = [];
+  /** species grown: how many, the time it took (in the worker, or here) */
+  readonly growStats = { grown: 0, ms: 0, inWorker: 0, letGo: 0 };
+  private growing = 0;
   private readonly tiles = new Map<string, Tile>();
   private readonly billboard = new THREE.PlaneGeometry();
-  private readonly atlasMaterials: THREE.ShaderMaterial[] = [];
   /** far pictures baked: how many, the time the bakes took (in the worker, or here), and what the pictures hold */
   readonly atlasStats = { residentBytes: 0, bakedMs: 0, bakes: 0, inWorker: 0 };
   /**
-   * Bake the far pictures here, as soon as they are wanted, every one in the frame that wants it: the harness's
-   * stepped frames (?shot), whose pictures must be whole and which never wait for a worker. In play they are baked
-   * in the worker, the trees drawn once theirs comes back (docs/V3/nodes/P3-bake-worker.md).
+   * Grow the species and bake the far pictures here, as soon as they are wanted, every one in the frame that wants
+   * it: the harness's stepped frames (?shot), whose pictures must be whole and which never wait for a worker. In
+   * play they are grown and baked in workers, the trees drawn once theirs come back (docs/V3/nodes/P3-bake-worker.md,
+   * P3-variant-packs.md).
    */
   static bakeAtOnce = false;
   private inFlight = 0;
@@ -141,43 +164,97 @@ export class CrownView implements CrownLookup {
   constructor(private readonly core: RenderCore) {
     this.group.name = 'crowns';
     this.material = crownMaterial();
-    for (const s of crownSpecies().values()) {
-      const k = this.species.length;
-      this.species.push(s);
-      this.byFamily.set(s.family, k);
-      // the near and middle levels: the species' variants in one draw each
-      const look = s.kit ? floraMaterial() : this.material;
-      this.packs.push([0, 1].map((level) => this.makePack(s.models.map((v) => v[level].geometry), look, false, level + 1)));
-      // the far level: a picture baked of each variant, the layers of one array, one draw
-      const variants = s.models.length;
-      const material = crownMaterial();
-      material.defines.CROWN_ATLAS = 1;
-      material.defines.ATLAS_LAYERS = variants;
-      material.uniforms.tNormalAtlas = { value: null };
-      material.uniforms.tPaintAtlas = { value: null };
-      material.uniforms.uCards = { value: vec3s(variants) };
-      material.uniforms.uAtlasRows = { value: 1 };
-      this.atlasMaterials.push(material);
-      const far = this.makeDraw(this.billboard, material, false, 3);
-      far.packed = true;
-      far.atlasModels = s.models.map((levels) => levels[2].geometry);
-      far.baked = new Array<boolean>(variants).fill(false);
-      far.baking = new Array<boolean>(variants).fill(false);
-      far.rows = far.atlasModels.some((g) => atlasRowsOf(g) === 2) ? 2 : 1;
-      if (s.kit) far.kit = true;
-      this.fars.push(far);
-      // (a kit species' shadow: its sprays' uv made their own cards', so the shadow pass cuts them as every tree's)
-      this.shadowDraws.push(this.makePack(s.models.map((levels) => (s.kit ? shadowCaster(levels[SHADOW_LEVEL].geometry) : levels[SHADOW_LEVEL].geometry)), this.material, true));
+    // every species known, none grown: its measure only (the scatter sizes its trees by it)
+    const kit = floraKitOn();
+    for (const [family, def] of Object.entries(SPECIES)) {
+      const own = kit && KIT_OF[family] !== undefined;
+      const m = measureOf(family, own);
+      this.byFamily.set(family, this.species.length);
+      this.species.push({ family, def, kit: own, height: m.height, radius: m.radius, state: 'none', packs: null, far: null, shadow: null });
     }
   }
 
+  /** a species' draws: grown if they are not (there and then in the harness's stepped frames; else asked of the worker, null until they come) */
+  private ensure(sp: number): Species | null {
+    const s = this.species[sp];
+    if (s.state === 'ready') return s;
+    if (s.state === 'growing') return null;
+    if (CrownView.bakeAtOnce) {
+      this.install(s, growNow(s.family, s.kit));
+      return s;
+    }
+    if (this.growing >= GROWS_IN_FLIGHT) return null;
+    s.state = 'growing';
+    this.growing++;
+    void growLater(s.family, s.kit).then((g) => {
+      this.growing--;
+      if (this.disposed) return;
+      this.install(s, g ?? growNow(s.family, s.kit));
+      // (every tile set out again: the trees that waited for this species drawn now)
+      for (const t of this.tiles.values()) t.state = null;
+      this.changed = true;
+    });
+    return null;
+  }
+
+  /** a grown species' draws made */
+  private install(s: Species, g: Grown): void {
+    const grown = g.species;
+    const look = s.kit ? floraMaterial() : this.material;
+    s.packs = [this.makePack(grown.near, look, false, 1), this.makePack(grown.mid, look, false, 2)];
+    // the far level: a picture baked of each variant, the layers of one array, one draw
+    const variants = grown.far.length;
+    const material = crownMaterial();
+    material.defines.CROWN_ATLAS = 1;
+    material.defines.ATLAS_LAYERS = variants;
+    material.uniforms.tNormalAtlas = { value: null };
+    material.uniforms.tPaintAtlas = { value: null };
+    material.uniforms.uCards = { value: vec3s(variants) };
+    material.uniforms.uAtlasRows = { value: 1 };
+    const far = this.makeDraw(this.billboard, material, false, 3);
+    far.packed = true;
+    far.atlasModels = grown.far;
+    far.baked = new Array<boolean>(variants).fill(false);
+    far.baking = new Array<boolean>(variants).fill(false);
+    far.rows = grown.far.some((m) => atlasRowsOf(m) === 2) ? 2 : 1;
+    if (s.kit) far.kit = true;
+    s.far = far;
+    s.shadow = this.makePack(grown.shadow, this.material, true);
+    s.state = 'ready';
+    s.idleSince = undefined;
+    this.growStats.grown++;
+    this.growStats.ms += g.ms;
+    if (g.inWorker) this.growStats.inWorker++;
+  }
+
+  /** a species no tree of has been drawn for a while let go of: its draws, its models, its far pictures */
+  private letGo(s: Species): void {
+    for (const d of [...s.packs!, s.far!, s.shadow!]) {
+      d.gone = true;
+      this.group.remove(d.mesh);
+      if (d.packed && d.geometry !== this.billboard) d.geometry.dispose();
+      d.mesh.geometry.dispose();
+      d.mesh.dispose();
+    }
+    const u = (s.far!.material as THREE.ShaderMaterial).uniforms;
+    if (u.tNormalAtlas.value) this.atlasStats.residentBytes -= 2 * u.tNormalAtlas.value.image.data.byteLength;
+    u.tNormalAtlas.value?.dispose();
+    u.tPaintAtlas.value?.dispose();
+    s.far!.material.dispose();
+    for (const m of s.far!.atlasModels!) m.dispose();
+    s.packs = null;
+    s.far = null;
+    s.shadow = null;
+    s.state = 'none';
+    this.growStats.letGo++;
+  }
   /** the species a family of model is drawn as (−1: none; it stays the atlas's) */
   speciesOf(family: string): number {
     return this.byFamily.get(family) ?? -1;
   }
 
-  variants(species: number): number {
-    return this.species[species].models.length;
+  variants(_species: number): number {
+    return VARIANTS;
   }
 
   /** a species' measure: its first variant's height and crown radius at the size it is grown (m) */
@@ -238,11 +315,11 @@ export class CrownView implements CrownLookup {
   }
 
   /** a draw of a species' variants, packed (crowns/variantPack.ts) */
-  private makePack(models: THREE.BufferGeometry[], material: THREE.Material, shadow: boolean, order = 0): Draw {
-    const pack = packVariants(models);
+  private makePack(pack: VariantPack, material: THREE.Material, shadow: boolean, order = 0): Draw {
     const d = this.makeDraw(pack.geometry, material, shadow, order);
     d.packed = true;
     d.perTris = pack.trianglesEach;
+    d.mesh.userData.trisEach = d.perTris;
     return d;
   }
 
@@ -459,13 +536,19 @@ export class CrownView implements CrownLookup {
         const H = d[o + 15];
         const sp = d[o + 6];
         const va = d[o + 7];
-        const def = this.species[sp].def;
+        const s = this.ensure(sp);
+        if (!s) {
+          // (its species not grown yet: nothing drawn for it now; its tile is set out again once it is)
+          for (let k = 0; k < 3; k++) this.assign(t, i * 3 + k, undefined, d, o, 0, 0, 0, 0, 0, 0);
+          continue;
+        }
+        const def = s.def;
         const sway = def.sway;
         const bark = def.bark === 'accent' ? 1 : 0;
         let main: Draw | undefined, next: Draw | undefined, shadow: Draw | undefined;
         let cut = 0;
         if (state === 'far') {
-          main = this.fars[sp];
+          main = s.far!;
           t.levels[2]++;
         } else if (inView) {
           sphere.center.set(px, py + H * 0.5, pz);
@@ -482,11 +565,11 @@ export class CrownView implements CrownLookup {
             const edge = Math.abs(dist - near) < Math.abs(dist - far) ? near : far;
             if (Math.abs(dist - edge) < fadeWidth(edge) + 4) {
               const lower = edge === near ? 0 : 1;
-              main = this.packs[sp][lower];
-              next = lower === 0 ? this.packs[sp][1] : this.fars[sp];
+              main = s.packs![lower];
+              next = lower === 0 ? s.packs![1] : s.far!;
               cut = edge;
             } else {
-              main = level < 2 ? this.packs[sp][level] : this.fars[sp];
+              main = level < 2 ? s.packs![level] : s.far!;
             }
             t.levels[level]++;
           }
@@ -494,7 +577,7 @@ export class CrownView implements CrownLookup {
         if (inShadow && Math.hypot(px - sx, pz - sz) < SHADOW_REACH + R + 3) {
           sphere.center.set(px, py + H * 0.5, pz);
           const radius = Math.hypot(R, H * 0.55) + 9;
-          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = this.shadowDraws[sp];
+          if (castingPlanes.every(plane => plane.distanceToPoint(sphere.center) >= -radius)) shadow = s.shadow!;
         }
         this.assign(t, i * 3, main, d, o, px, py, pz, sway, bark, va, -cut);
         this.assign(t, i * 3 + 1, next, d, o, px, py, pz, sway, bark, va, cut);
@@ -546,9 +629,15 @@ export class CrownView implements CrownLookup {
       if (dr.shadow) shadows += count;
       else triangles += count * dr.perTris;
     };
-    for (const s of this.packs) s.forEach(finish);
-    this.fars.forEach(finish);
-    this.shadowDraws.forEach(finish);
+    for (const s of this.species) {
+      if (s.state !== 'ready') continue;
+      s.packs!.forEach(finish);
+      finish(s.far!);
+      finish(s.shadow!);
+      // (no tree of it drawn for a while: let go of, grown again should one come)
+      if (s.packs!.some((dr) => dr.slots.length > 0) || s.far!.slots.length > 0 || s.shadow!.slots.length > 0) s.idleSince = undefined;
+      else if ((s.idleSince ??= now) < now - SPECIES_KEEP_MS) this.letGo(s);
+    }
     this.drawn.shadows = shadows;
     this.drawn.triangles = triangles;
   }
@@ -561,7 +650,7 @@ export class CrownView implements CrownLookup {
     void bakeLater(model, dr.kit === true).then((b) => {
       this.inFlight--;
       dr.baking![v] = false;
-      if (this.disposed) return;
+      if (this.disposed || dr.gone) return;
       this.giveLayer(dr, v, b ?? bakeNow(model, dr.kit === true));
       // (the next frame sets the trees out again: theirs drawn now it is here)
       this.changed = true;
@@ -595,33 +684,23 @@ export class CrownView implements CrownLookup {
   /** far pictures wanted and not yet baked (or being baked) — the performance gate waits for none before it times a frame */
   get pendingBakes(): number {
     let n = 0;
-    for (const d of this.fars) {
-      if (d.slots.length > 0) for (const b of d.baked!) if (!b) n++;
+    for (const s of this.species) {
+      if (s.state === 'ready' && s.far!.slots.length > 0) for (const b of s.far!.baked!) if (!b) n++;
     }
-    return n;
+    // (and the species being grown: their pictures come after them)
+    return n + this.growing;
   }
 
-  /** the draws this view holds (for the budget: two packs and a far picture a variant for each species, and its shadow's pack) */
+  /** the draws this view holds (for the budget: two packs, its far trees and its shadow's pack for each species grown) */
   get drawCount(): number {
     let n = 0;
-    for (const s of this.packs) n += s.length;
-    n += this.fars.length;
-    return n + this.shadowDraws.length;
+    for (const s of this.species) if (s.state === 'ready') n += 4;
+    return n;
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const d of [...this.packs.flat(), ...this.fars, ...this.shadowDraws]) {
-      // (a pack's geometry is its own: let go of with it; a far picture's billboard is shared, let go of below)
-      if (d.packed) d.geometry.dispose();
-      d.mesh.geometry.dispose();
-      d.mesh.dispose();
-    }
-    for (const material of this.atlasMaterials) {
-      material.uniforms.tNormalAtlas.value?.dispose();
-      material.uniforms.tPaintAtlas.value?.dispose();
-      material.dispose();
-    }
+    for (const sp of this.species) if (sp.state === 'ready') this.letGo(sp);
     this.billboard.dispose();
     this.material.dispose();
     this.tiles.clear();
