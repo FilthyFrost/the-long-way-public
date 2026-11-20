@@ -1169,6 +1169,11 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
     out.step = eco.step;
     out.region = region;
     out.shore = 1.2 * world.sea.open(tp.s, tp.d);
+    if (eco.waterKind === 2 && eco.waterDist < 9 && eco.slope < 0.48) {
+      const grass = Math.max(0.02,eco.waterDist / 9);
+      out.grow *= grass * grass;
+      out.shore = Math.max(out.shore, 1 - grass);
+    }
   }
   return out;
 }

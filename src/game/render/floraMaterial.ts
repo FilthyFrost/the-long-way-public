@@ -187,8 +187,20 @@ export function floraMaterial(): THREE.ShaderMaterial {
           float sh = rtShadow(vPos, n);
           float tone = 0.5 + 0.5 * dot(n, L) - (1.0 - sh) * 0.4;
           albedo = mix(p.rockShade, p.rockLit, smoothstep(0.42, 0.58, tone));
-          if (vPart > 4.5) albedo = mix(vTint.rgb * vec3(0.66,0.72,0.8), vTint.rgb * 1.10, smoothstep(0.38,0.58,tone)) * vColor;
-          float snow = smoothstep(0.3, 0.7, n.y) * load;
+          if (vPart > 4.5) {
+            vec2 uv = rtWorldXZ(vPos) + vec2(0.37, -0.62) * vPos.y;
+            float wash = rtNoiseAt(uv * vec2(1.1, 0.66), 1.8).r;
+            bool fines = vColor.b < vColor.g * 0.18;
+            if (fines && wash * 0.82 + vColor.r < 0.76) discard;
+            float edge = tone + (wash - 0.5) * 0.23;
+            vec3 dark = vTint.rgb * vec3(0.47, 0.54, 0.67);
+            vec3 middle = vTint.rgb * vec3(0.88, 0.87, 0.86);
+            vec3 sunward = vTint.rgb * vec3(1.22, 1.16, 1.07);
+            albedo = mix(mix(dark, middle, smoothstep(0.37, 0.43, edge)), sunward, smoothstep(0.70, 0.76, edge)) * (fines ? vec3(0.67 + wash*0.18) : vColor);
+            float moss = smoothstep(0.38,0.85,n.y) * smoothstep(0.45,0.63,wash+0.16*(vVar-0.5));
+            albedo = mix(albedo, vTint2 * (0.70 + 0.7*wash), moss * 0.78);
+          }
+          float snow = smoothstep(0.35, 0.85, n.y) * load * (vPart > 4.5 ? 0.80 : 1.0);
           albedo = mix(albedo, rtSnowTone(tone), snow);
           col = albedo * rtGroundLight(smoothstep(0.35, 0.6, tone) * sh);
         } else if (vPart > 1.5) {

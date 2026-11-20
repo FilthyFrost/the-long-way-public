@@ -28,7 +28,9 @@ export function sampleRock(p: EcoProfile, e: Ecotope, draw: number, chance: numb
   else if (/层|片|崖/.test(form)) model = 'strata';
   else model = 'boulder';
   const loose = model === 'cobbles' || model === 'scree';
-  const radius = loose ? 0.95 : model === 'fin' ? 2.6 : 1.55;
-  const height = loose ? (bank ? 0.18 : 0.31) : model === 'fin' || model === 'karst' ? 3.6 : model === 'columns' ? 2.25 : 1.35;
-  return {form:model, radius, height, paint:pigments[rock.color], habitat:'any' as const, name:type};
+  const radius = bank ? 2.8 : loose ? 1.2 : model === 'fin' ? 2.6 : 1.55;
+  const height = loose ? (bank ? 0.39 : 0.34) : model === 'fin' || model === 'karst' ? 3.6 : model === 'columns' ? 2.25 : 1.35;
+  const base = pigments[rock.color];
+  const paint = type === '花岗岩' ? 0xaa9b94 : type === '玄武岩' ? 0x525661 : type === '片麻岩' ? 0x908982 : base;
+  return {form:model, radius, height, paint, habitat:'any' as const, name:type};
 }
