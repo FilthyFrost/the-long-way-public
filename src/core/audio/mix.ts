@@ -48,6 +48,8 @@ export interface AudioInputs {
   buzz?: number;
   /** how much of the road-noise bed to keep (absent: all; ModCar turns it down under its tyres' own sounds by surface) */
   roadScale?: number;
+  /** how much of the rush of air the car's own speed makes to keep (absent: all; ModCar none: the player heard it as a hiss under everything) */
+  airScale?: number;
 }
 
 export class AudioMix {
@@ -103,7 +105,7 @@ export function computeMix(i: AudioInputs, o: AudioMix): AudioMix {
   o.starterHz = (4 + 6 * sr) * (i.cylinders / 2);
   const v = i.speed;
   // wind rises with the square of speed; an open cab hears much more of it
-  const air = (v / 28) * (v / 28) * 0.42 + (i.wind / 22) * 0.22 + i.dust * 0.25;
+  const air = (v / 28) * (v / 28) * 0.42 * (i.airScale ?? 1) + (i.wind / 22) * 0.22 + i.dust * 0.25;
   o.windGain = clamp(air * (0.3 + 0.7 * open), 0, 0.7);
   o.windCutoff = 350 + 60 * v + 30 * i.wind;
   o.roadGain = clamp((v / 26) * (0.12 + i.rough * 9) * (0.55 + 0.45 * open), 0, 0.6) * (i.roadScale ?? 1);

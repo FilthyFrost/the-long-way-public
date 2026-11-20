@@ -90,6 +90,7 @@ import { Sparks } from './sparks';
 import { SeatShake, seatCushion, type ShakeEngine } from './seatShake';
 import { ModPad, type PadHost } from './pad';
 import { WheelDust } from './wheelDust';
+import { PeeStream } from './peeStream';
 import { tyreLoops } from './tyreSound';
 import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
@@ -131,6 +132,8 @@ const ARCHIVE_WARM: readonly string[] = [
   'step:dirt', 'step:gravel', 'step:concrete', 'step:wood', 'step:carpet', 'step:snow', 'jump', 'jump:dirt', 'land', 'land:dirt',
   'car_getin', 'car_getout', 'crash:small', 'crash:medium', 'gulp', 'eat', 'cap_open', 'pickup:can', 'pickup:bag', 'pickup:bottle', 'pickup:plastic',
   'container_open:wood', 'container_close:wood', 'container_open:crate', 'door_house_open', 'door_house_close',
+  'pee_start', 'pee_end', 'pee:concrete', 'pee:snow', 'pee:wood', 'pee:metal', 'pee_relief', 'breath_fast', 'breath_slow', 'breath_end', 'heartbeat',
+  'skid_asphalt', 'roll_gravel', 'skid_gravel',
 ];
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
@@ -384,6 +387,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   readonly sparks: Sparks;
   /** the dust the wheels throw up (wheelDust.ts) */
   readonly dust: WheelDust;
+  /** relieving oneself, seen: the stream and the wet patch it leaves (peeStream.ts) */
+  readonly pee: PeeStream;
+  private readonly peeFrom = { x: 0, y: 0, z: 0 };
   /** the assists (F2) */
   readonly assists: Assists = loadAssists();
   private readonly sparkDue = new Map<ModVehicle, number>();
@@ -436,6 +442,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the vehicle the camera and the sound follow (the one last sat in) */
   focus: ModVehicle | null = null;
   viewMode: ViewMode;
+  /** crouching on foot (C; seated, C changes the view): kept until C again, or a seat taken */
+  crouch = false;
   readonly orbit = { yaw: 0.6, pitch: 0.25, dist: 7, target: 0.8 };
   time = 0;
   /** checklist progress for the garage's first build */
@@ -547,6 +555,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.sparks = new Sparks(this.core);
     this.dust = new WheelDust(this.core.origin);
     this.core.scene.add(this.dust.mesh);
+    this.pee = new PeeStream(this.core.origin);
+    this.core.scene.add(this.pee.mesh, this.pee.spot);
     this.grime = new Grime(this.core.renderer);
     this.flakes = new Flakes(this.core.scene);
     this.mist = new SprayMist(this.core.scene);
@@ -1372,15 +1382,60 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.sprintB += ((sprinting ? 1 : 0) - this.sprintB) * (1 - Math.exp(-dt * 6));
     this.vitHud.update(b, this.bodyAirC(), dt);
     // breathing hard, the heart, relieving oneself
-    if (!this.seated && b.stamina < 20 + (this.loopsOn.has('breath') ? 15 : 0)) this.loopsNow.set('breath', {});
-    if (b.hp < 25 && this.deadT < 0) this.loopsNow.set('heart', {});
-    if (peeing) this.loopsNow.set('pee', {});
+    this.bodySounds(dt, b, peeing);
     // the restore points: every five minutes of play
     if (this.params.keep && this.deadT < 0 && (this.restoreT += dt) > 300) {
       this.restoreT = 0;
       const s = this.snapshot();
       if (s) pushRestore(s);
     }
+  }
+
+  /** the body's sounds as they were last heard: relieving oneself, out of breath (and the next breath due in), the next heartbeat due in */
+  private readonly bodyS = { peeing: false, winded: false, breathT: 0, beatT: 0 };
+
+  /**
+   * The body's sounds, the archive's recordings of them (Arctic Drive's; the heart Long Drive North's): relieving
+   * oneself — the start, the stream on what it falls on, a sigh of relief when it was needed, the end; out of breath
+   * from when stamina runs low, a pant at a time, fast and then slower as it comes back, and the breath got back at
+   * last; the heart when badly hurt, a beat at a time, quicker the worse it is. Without the archive, the synthesized
+   * loops as before.
+   */
+  private bodySounds(dt: number, b: Vitals, peeing: boolean): void {
+    const f = this.foley;
+    const s = this.bodyS;
+    const rec = !!f && f.has('breath_fast');
+    if (peeing !== s.peeing) {
+      s.peeing = peeing;
+      if (f && rec) {
+        f.cue(peeing ? 'pee_start' : 'pee_end', 1);
+        if (peeing && b.bladder > 40) f.cue('pee_relief', 1, { when: (this.audio.context?.currentTime ?? 0) + 1.4 });
+      }
+    }
+    if (peeing) this.loopsNow.set('pee', { footing: this.footing() });
+    if (!f || !rec) {
+      if (!this.seated && b.stamina < 20 + (this.loopsOn.has('breath') ? 15 : 0)) this.loopsNow.set('breath', {});
+      if (b.hp < 25 && this.deadT < 0) this.loopsNow.set('heart', {});
+      return;
+    }
+    if (!this.seated && b.stamina < 20) s.winded = true;
+    if (s.winded && (s.breathT -= dt) <= 0) {
+      if (this.seated || b.stamina >= 45) {
+        if (!this.seated) f.cue('breath_end', 1);
+        s.winded = false;
+        s.breathT = 0;
+      } else {
+        const fast = b.stamina < 25;
+        f.cue(fast ? 'breath_fast' : 'breath_slow', 1);
+        s.breathT = fast ? 0.8 : 1.15;
+      }
+    }
+    if (b.hp < 25 && this.deadT < 0) {
+      if ((s.beatT -= dt) <= 0) {
+        f.cue('heartbeat', 0.8 + 0.4 * (1 - b.hp / 25));
+        s.beatT = 0.62 + 0.5 * (b.hp / 25);
+      }
+    } else s.beatT = 0;
   }
 
   /** eaten or taken: what it does (food and health over five seconds, a pill at once, its effect) */
@@ -2540,7 +2595,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         return;
       }
       if (a === 'camera') {
-        this.viewMode = this.viewMode === 'cockpit' ? 'chase' : 'cockpit';
+        // (on foot C crouches and stands again; in the seat it changes the view)
+        if (!this.seated) this.crouch = !this.crouch;
+        else this.viewMode = this.viewMode === 'cockpit' ? 'chase' : 'cockpit';
         return;
       }
       if (a === 'hud') this.hud.toggle();
@@ -2635,7 +2692,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         g.sound('highlight_ping', 0.7);
       },
       camera: () => {
-        g.viewMode = g.viewMode === 'cockpit' ? 'chase' : 'cockpit';
+        if (!g.seated) g.crouch = !g.crouch;
+        else g.viewMode = g.viewMode === 'cockpit' ? 'chase' : 'cockpit';
       },
       horn: (down) => {
         if (!down || wake()) g.seated?.sys.setHorn(down);
@@ -2684,6 +2742,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     this.seatAt = at;
     this.seatSlide = at === 'pass' ? 1 : 0;
+    // (one sits down standing up: C means the view in the seat)
+    this.crouch = false;
     // (from the living space behind: one sits down where one stood)
     if (this.player.aboard) this.player.leaveAboard();
     // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
@@ -2735,7 +2795,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   }
 
   /** into a vehicle's living space by an open door (docs/V3/nodes/M2-rv.md): only a vehicle standing still */
-  board(v: ModVehicle, door: BoardDoor): void {
+  board(v: ModVehicle, door: BoardDoor, lookYaw?: number): void {
     if (Math.abs(v.sim.kmh) > 3) {
       this.ui.say('车还在动。', 2);
       return;
@@ -2743,7 +2803,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const ab = new Aboard(v, door.inside, door.inYaw);
     this.player.goAboard(ab);
     this.input.freeLook = true;
-    this.input.lookYaw = ab.heading() + door.inYaw;
+    // (walked in: still looking where one looked; by the key: straight in)
+    this.input.lookYaw = lookYaw ?? ab.heading() + door.inYaw;
     this.sound('cloth', 0.35);
   }
 
@@ -4077,6 +4138,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         // (sprinting while there is stamina)
         run: shift && canSprint(this.body),
         jump: !listing && (i.isDown('Space') || this.pad.jump),
+        crouch: this.crouch,
         drop: !listing && (this.dropButton || i.isDown('KeyG') || this.pad.drop),
         // (the right button or F, as they are now: what the player made of them last frame is not fed back)
         take: !listing && (this.rightButton || i.isDown('KeyF') || this.pad.take),
@@ -4195,6 +4257,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.dustWind.x = Math.cos(w.windDir) * w.wind;
     this.dustWind.z = Math.sin(w.windDir) * w.wind;
     this.dust.update(dt, this.dustWind);
+    // the stream, from the hips a step ahead of one (lower crouched), while it flows; the patch it leaves drying
+    const fw = this.player.walker;
+    const yaw = this.input.lookYaw;
+    const from = this.peeFrom;
+    from.x = fw.x + Math.cos(yaw) * 0.16;
+    from.y = fw.y + (fw.crouched ? 0.55 : 0.92);
+    from.z = fw.z + Math.sin(yaw) * 0.16;
+    this.pee.update(dt, this.bodyS.peeing && !this.seated ? from : null, yaw, fw.y);
   }
 
   private readonly dustWind = { x: 0, z: 0 };
@@ -5063,7 +5133,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         thump: sim.feel.thump,
         suspension: sim.feel.suspRms,
         buzz: sim.feel.buzz,
-        roadScale: this.roadLeft,
+        // (the old mixer's road-noise bed and the rush of air the car's own speed makes: none, as the player asked —
+        // heard as a hiss under everything; the weather's wind is the archive's beds)
+        roadScale: 0,
+        airScale: 0,
         flat,
         horn: false,
         hornDetune: false,

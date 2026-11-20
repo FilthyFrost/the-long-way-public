@@ -26,6 +26,8 @@ export class Aboard {
     if (!def) throw new Error(`no living space in a ${v.view.frame.id}`);
     this.def = def;
     this.w = new Walker(def);
+    // (walked straight back from the door, one is eased round the corner into the aisle)
+    this.w.funnel = true;
     this.w.place(at[0], at[1], yaw);
   }
 
