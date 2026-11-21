@@ -30,7 +30,7 @@ const FORM_PLANTS: Partial<Record<Form, { cool: readonly string[]; warm?: readon
   eucalypt: { cool: ['eucalyptus'] },
   sclerophyll: { cool: ['olive', 'eucalyptus'] },
   conifer_spire: { cool: ['spruce', 'fir'] },
-  conifer_tiered: { cool: ['cedar'] },
+  conifer_tiered: { cool: ['cedar', 'araucaria'] },
   pine: { cool: ['pine'] },
   pine_umbrella: { cool: ['stone_pine'] },
   cypress: { cool: ['cypress'] },
@@ -43,19 +43,20 @@ const FORM_PLANTS: Partial<Record<Form, { cool: readonly string[]; warm?: readon
   tree_fern: { cool: ['tree_fern'] },
   umbrella: { cool: ['acacia'] },
   bottle: { cool: ['baobab'] },
-  succulent_tree: { cool: ['joshua_tree'] },
+  succulent_tree: { cool: ['joshua_tree'], warm: ['dragon_tree', 'joshua_tree'] },
   cactus: { cool: ['saguaro'] },
   mangrove: { cool: ['mangrove'] },
   willow: { cool: ['willow'] },
   krummholz: { cool: ['dwarf_pine'] },
-  blossom: { cool: ['cherry_tree'] },
+  blossom: { cool: ['cherry_tree'], warm: ['flame_tree', 'jacaranda'] },
   orchard: { cool: ['apple_tree', 'persimmon_tree', 'cherry_tree'] },
   olive: { cool: ['olive'] },
   shrub_round: { cool: ['bush', 'hazel'] },
   shrub_heath: { cool: ['heath_bush', 'blueberry_bush'] },
   shrub_sage: { cool: ['sage_bush'] },
-  shrub_thorn: { cool: ['thorn_bush'] },
+  shrub_thorn: { cool: ['thorn_bush'], warm: ['thorn_bush', 'ocotillo'] },
   shrub_sclero: { cool: ['bush', 'rhododendron'] },
+  // (the tropical alpine's giant rosettes are frailejones; the dry country's, agaves: plantsOf)
   rosette_giant: { cool: ['agave'] },
   rosette: { cool: ['agave'] },
   fern: { cool: ['fern'] },
@@ -97,12 +98,12 @@ const b = (lo: number, hi: number): Band => [lo, hi];
  * The plants of one card's forms, its first the most. In autumn a deciduous wood's broadleaves are its autumn's:
  * maples red where the winters are hard and the country continental, aspens gold by a milder sea (the trait rules, §6)
  */
-function plantsOf(forms: readonly Form[], warm: boolean, autumn: 'red' | 'gold' | null = null): string[] {
+function plantsOf(forms: readonly Form[], warm: boolean, autumn: 'red' | 'gold' | null = null, alpine = false): string[] {
   const out: string[] = [];
   for (const f of forms) {
     const p = FORM_PLANTS[f];
     if (!p) continue;
-    const ids = autumn && (f === 'broadleaf' || f === 'broadleaf_leader') ? (autumn === 'red' ? ['maple', 'maple', 'oak'] : ['golden_aspen', 'birch', 'oak']) : (warm && p.warm) || p.cool;
+    const ids = alpine && f === 'rosette_giant' ? ['frailejon'] : autumn && (f === 'broadleaf' || f === 'broadleaf_leader') ? (autumn === 'red' ? ['maple', 'maple', 'oak'] : ['golden_aspen', 'birch', 'oak']) : (warm && p.warm) || p.cool;
     for (const id of ids) if (!out.includes(id)) out.push(id);
   }
   return out;
@@ -138,7 +139,7 @@ function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number,
   });
   // (a wood's edge and its clearings: some of its trees out in the open, smaller)
   if (!open && tp.length && st.trees > 0) trees.push({ plant: tp[0], perHa: st.trees * 0.12 * scale, canopy: b(0.08, 0.4), size: b(0.55, 0.9), ...r });
-  const sp = plantsOf(e.shrubs, warm);
+  const sp = plantsOf(e.shrubs, warm, null, e.group === 'T6');
   const ss = shares(sp.length);
   sp.forEach((plant, i) => {
     if (plant === 'reed') return;

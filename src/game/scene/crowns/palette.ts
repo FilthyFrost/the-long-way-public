@@ -63,6 +63,13 @@ export const CROWN_PAINT: Readonly<Record<string,Paint>> = {
   joshua_tree: paint('juniper',0x98a982,0x87735f),
   bamboo: paint('bamboo',0x8bb067,0x88955e),
   fruit_tree: paint('fruit_tree',-1,0x78624b,0xc3a357),
+  // (the fourth round, docs/V3/nodes/R4-trees.md)
+  frailejon: paint('juniper',0xa8b29a,0x6f6250),
+  ocotillo: paint('juniper',0x7f9a52,0x7a6a58),
+  araucaria: paint('conifer2',0x3e5c3c,0x6e5c4c),
+  dragon_tree: paint('broadleaf3',0x4a6a3a,0xa59c88),
+  flame_tree: paint('fruit_tree',0xe2552e,0x6a5848),
+  jacaranda: paint('fruit_tree',0x9a7ad2,0x6a5848),
 };
 
 export function paintedFamily(id: string, model: string): string {

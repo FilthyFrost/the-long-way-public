@@ -11,9 +11,10 @@ import { draw, type Drawn, type Level, type Plan } from './kit';
 import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress, planDragon, planOak, planPalm, planPine, planSaguaro, planSpruce, planStonePine } from './trees';
 import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
 import { planJoshua, planRedwood, planRimu } from './trees3';
+import { planAraucaria, planEmergent, planFig, planFrailejon, planOcotillo } from './trees4';
 import { planFern } from './fern';
 import { planBroadleaf, type BroadleafShape } from './broadleaf';
-import { T_BIRCH, T_OAK } from './atlas';
+import { T_ACACIA, T_BIRCH, T_OAK, T_ROUND } from './atlas';
 
 /**
  * The round broadleaf's shapes (broadleaf.ts; docs/V3/art/plants-standard.md §3), in Painted Valley's numbers: an
@@ -22,6 +23,20 @@ import { T_BIRCH, T_OAK } from './atlas';
 export const OAK_SHAPE: BroadleafShape = { trunk: 3.0, girth: 0.55, crown: 6.4, rise: 9.6, limbs: 5, clump: 2.1, fill: 12, cards: 44, spray: 1.15, tile: T_OAK };
 export const MAPLE_SHAPE: BroadleafShape = { trunk: 2.6, girth: 0.5, crown: 6.8, rise: 8.4, limbs: 5, clump: 2.0, fill: 13, cards: 44, spray: 1.1, tile: T_OAK };
 export const BIRCH_SHAPE: BroadleafShape = { trunk: 3.4, girth: 0.24, crown: 3.4, rise: 11, limbs: 6, clump: 1.35, fill: 10, cards: 34, spray: 0.8, leader: 0.8, elevation: 1.15, boughs: [1, 2], squash: 0.9, furrow: 0, tile: T_BIRCH };
+/**
+ * (docs/V3/nodes/R4-trees.md) Each broadleaf of the world its own shape where all were grown as the oak: a linden's
+ * tall dense dome, a beech's smooth grey bole under a broad low dome, an ash's open airy crown high on a tall bole, a
+ * chestnut's massive spreading dome on a furrowed bole, a camphor's wide evergreen dome, the savanna marula's broad
+ * crown on a short trunk, a southern beech's level tiers, the desert poplar's ragged crown.
+ */
+export const LINDEN_SHAPE: BroadleafShape = { trunk: 3.4, girth: 0.46, crown: 5.0, rise: 11.5, limbs: 6, clump: 1.9, fill: 15, cards: 46, spray: 1.05, elevation: 1.15, squash: 0.98, furrow: 0.5, tile: T_OAK };
+export const BEECH_SHAPE: BroadleafShape = { trunk: 4.4, girth: 0.5, crown: 7.0, rise: 9.0, limbs: 6, clump: 2.2, fill: 14, cards: 44, spray: 1.1, elevation: 0.82, squash: 0.74, furrow: 0, tile: T_OAK };
+export const ASH_SHAPE: BroadleafShape = { trunk: 5.2, girth: 0.42, crown: 5.8, rise: 9.5, limbs: 6, clump: 1.95, fill: 13, cards: 44, spray: 1.2, elevation: 1.15, squash: 0.9, furrow: 0.7, tile: T_BIRCH };
+export const CHESTNUT_SHAPE: BroadleafShape = { trunk: 2.6, girth: 0.8, crown: 8.2, rise: 8.0, limbs: 6, clump: 2.4, fill: 14, cards: 46, spray: 1.15, elevation: 0.85, squash: 0.76, furrow: 1, tile: T_OAK };
+export const CAMPHOR_SHAPE: BroadleafShape = { trunk: 2.4, girth: 0.66, crown: 8.8, rise: 8.4, limbs: 7, clump: 2.5, fill: 18, cards: 46, spray: 1.0, elevation: 0.8, squash: 0.7, furrow: 0.6, tile: T_ROUND };
+export const MARULA_SHAPE: BroadleafShape = { trunk: 2.6, girth: 0.5, crown: 7.4, rise: 5.6, limbs: 5, clump: 2.0, fill: 9, cards: 40, spray: 1.1, elevation: 0.7, squash: 0.6, furrow: 0.4, tile: T_ACACIA };
+export const NOTHO_SHAPE: BroadleafShape = { trunk: 4.0, girth: 0.5, crown: 6.4, rise: 8.4, limbs: 6, clump: 2.05, fill: 15, cards: 44, spray: 0.95, elevation: 0.66, squash: 0.7, furrow: 0.3, tile: T_ROUND };
+export const TUGAI_SHAPE: BroadleafShape = { trunk: 3.0, girth: 0.62, crown: 5.6, rise: 6.2, limbs: 5, clump: 1.75, fill: 10, cards: 38, spray: 1.15, elevation: 1.2, squash: 0.9, furrow: 1, tile: T_BIRCH };
 
 /** triangles of one plant at its levels (near, middle); far off it is a two-triangle picture */
 export const FLORA_BUDGET = {
@@ -119,6 +134,20 @@ export const FLORA: readonly FloraKind[] = [
   { id: 'fern', name: '蕨（林下）', family: 'shrub', budget: 'shrub', plan: (seed) => planFern(seed), look: { leaf: 0x4f7a3a, second: 0x4e4436, evergreen: true, pale: false, bears: false, sway: 0.6 } },
   // (the plant pipeline's first samples: docs/V3/art/plants-standard.md)
   tree('maple', '枫树（圆冠阔叶的秋色）', 'broadleaf', (s) => planBroadleaf(s, 13, MAPLE_SHAPE), { leaf: 0xec8a3c }),
+  // (the fourth round: every broadleaf its own shape, and the emergent Earth's forms, docs/V3/nodes/R4-trees.md)
+  tree('linden', '椴树（高圆冠）', 'broadleaf', (s) => planBroadleaf(s, 18, LINDEN_SHAPE), { leaf: 0x7fae58 }),
+  tree('beech', '山毛榉（灰白光干、宽低圆冠）', 'broadleaf', (s) => planBroadleaf(s, 22, BEECH_SHAPE), { leaf: 0x77a45a, second: 0x9a978c, pale: true }),
+  tree('ash', '白蜡树（高干疏冠）', 'broadleaf', (s) => planBroadleaf(s, 22, ASH_SHAPE), { leaf: 0x8cb060, sway: 1.1 }),
+  tree('chestnut', '欧洲栗（粗干宽冠）', 'broadleaf', (s) => planBroadleaf(s, 18, CHESTNUT_SHAPE), { leaf: 0x9faf63 }),
+  tree('camphor', '香樟（常绿宽圆冠）', 'broadleaf', (s) => planBroadleaf(s, 16, CAMPHOR_SHAPE), { leaf: 0x63975f, evergreen: true }),
+  tree('marula', '马鲁拉（稀树草原的宽冠）', 'broadleaf', (s) => planBroadleaf(s, 11, MARULA_SHAPE), { leaf: 0x8da261, second: 0x938b7c, pale: true, sway: 0.7 }),
+  tree('nothofagus', '南青冈（层层平展）', 'broadleaf', (s) => planBroadleaf(s, 18, NOTHO_SHAPE), { leaf: 0x668c68, evergreen: true, sway: 0.8 }),
+  tree('tugai', '胡杨（虬曲乱冠）', 'broadleaf', (s) => planBroadleaf(s, 11, TUGAI_SHAPE), { leaf: 0x94ab72, sway: 0.8 }),
+  tree('emergent', '热带雨林的露生巨树（板根、平顶冠）', 'broadleaf', (s) => planEmergent(s), { leaf: 0x3f7a42, second: 0xb4a894, evergreen: true, pale: true, sway: 0.4 }),
+  tree('fig', '榕树（气生根、低而极宽的冠）', 'broadleaf', (s) => planFig(s), { leaf: 0x4f8a48, second: 0x9a8f7c, evergreen: true, pale: true, sway: 0.5 }),
+  tree('araucaria', '南洋杉（烛台状的层枝）', 'conifer', (s) => planAraucaria(s), { leaf: 0x3e5c3c, second: 0x6e5c4c, evergreen: true, sway: 0.3 }),
+  tree('ocotillo', '蜡烛木（一丛长鞭）', 'conifer', (s) => planOcotillo(s), { leaf: 0x7f9a52, second: 0x7a6a58, evergreen: true, sway: 0.5 }),
+  { id: 'frailejon', name: '毛叶菊（帕拉莫的巨型莲座）', family: 'shrub', budget: 'shrub', plan: (seed) => planFrailejon(seed), look: { leaf: 0xa8b29a, second: 0x6f6250, evergreen: true, pale: true, bears: false, sway: 0.2 } },
 ];
 
 export function floraKind(id: string): FloraKind {

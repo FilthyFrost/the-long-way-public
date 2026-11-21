@@ -205,6 +205,13 @@ P('rhododendron', 'shrub', '杜鹃丛', 'Rhododendron', 2.6, 1.8, 0, 'rhododendr
 P('thorn_bush', 'shrub', '刺灌丛', 'Thorn scrub', 1.6, 1.6, 0, 'bush_dry');
 P('heath_bush', 'shrub', '高山矮灌', 'Alpine shrub', 0.9, 1.4, 0, 'bush_alpine', { evergreen: true });
 P('golden_aspen', 'tree', '金叶山杨', 'Golden aspen', 14, 2.4, 0.2, 'aspen', { tint: [0xe2b443, 0xe9e6dc] });
+// (the fourth round, docs/V3/nodes/R4-trees.md: the forms of the emergent Earth's ecosystems the families before had none for)
+P('frailejon', 'tree', '毛叶菊', 'Frailejón', 2.4, 0.7, 0.2, 'frailejon', { evergreen: true });
+P('ocotillo', 'tree', '蜡烛木', 'Ocotillo', 4.5, 1.4, 0.1, 'ocotillo', { evergreen: true });
+P('araucaria', 'tree', '南洋杉', 'Monkey puzzle', 24, 4.5, 0.6, 'araucaria', { evergreen: true });
+P('dragon_tree', 'tree', '龙血树', 'Dragon tree', 8, 4, 0.5, 'dragon_tree', { evergreen: true });
+P('flame_tree', 'tree', '凤凰木', 'Flame tree', 12, 6.5, 0.45, 'flame_tree');
+P('jacaranda', 'tree', '蓝花楹', 'Jacaranda', 12, 5.5, 0.4, 'jacaranda');
 
 /** every plant, in the catalogue's order (an index into this list is what a flora cell holds) */
 export const PLANTS: readonly PlantDef[] = ALL;

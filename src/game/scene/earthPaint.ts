@@ -31,12 +31,15 @@ export interface EarthPaints {
 const BLADES = new Set(['tall_grass', 'reed', 'grass_tuft', 'water_plant', 'shoot']);
 /** the families whose own colour is no leaf at all: a cap, a crust, a shell, kelp (the place's light only) */
 const NOT_LEAVES = new Set(['cap_mushroom', 'cluster_mushroom', 'shelf_mushroom', 'truffle_mound', 'crust', 'crab', 'shell_bed', 'kelp', 'hive', 'rock_nodule']);
+/** the trees whose crown is their flowers (a flame tree's red, a jacaranda's purple): an accent of the place, not a leaf */
+const BLOSSOMS = new Set(['flame_tree', 'jacaranda']);
 /** a leaf of no colour of its own: the plains' crown, the colour the plants' own colours were chosen against */
 const PLAIN_LEAF = 0x6aa860;
 
 const byIndex: (EarthPaints | null)[] = [];
 
 function leafOf(pal: PlacePalette, p: PlantDef, own: number): number {
+  if (BLOSSOMS.has(p.id)) return accentColour(pal, own);
   if (NOT_LEAVES.has(p.model)) return barkColour(pal, own);
   if (BLADES.has(p.model)) return grassColour(pal, own);
   return leafColour(pal, own);
