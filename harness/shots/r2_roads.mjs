@@ -33,7 +33,9 @@ try {
         const sc = piece.scene.place;
         return { start: piece.start, end: piece.end, name: sc.name, tag: piece.scene.tag, road: piece.scene.road?.id ?? '', efg: sc.look.efg.code, landform: sc.look.landform.id, base: Math.round(sc.macro.base), relief: Math.round(sc.macro.relief) };
       }, p.place);
-      const s = (info.start + info.end) / 2 + Number(process.env.ALONG ?? 0);
+      // (LOOKOUT=1: at the place's lookout, if it has one, looking out from beside it)
+      const look = process.env.LOOKOUT === '1' ? await page.evaluate(({ a, b }) => window.__rt.placeSites(a, b, 'lookout')[0] ?? null, { a: info.start, b: info.end }) : null;
+      const s = look ? look.s - 18 : (info.start + info.end) / 2 + Number(process.env.ALONG ?? 0);
       await page.evaluate((km) => window.__rt.devGoKm(km, true), s / 1000);
       await built(page);
       await idle(page);
@@ -43,6 +45,8 @@ try {
         const lp = window.__rt.game.world.land.at(s, new lf.LandParams());
         return lp.shelf > 30 ? -lp.shelfSide : lp.rim > 30 ? lp.rimSide : 0;
       }, s);
+      // (the side the lookout stands on: where its view is)
+      const lowSide = look ? await page.evaluate((l) => { const q = {}; window.__rt.game.world.spine.at(l.s, q); return Math.sign(-(l.x - q.x) * Math.sin(q.phi) + (l.z - q.z) * Math.cos(q.phi)) || 1; }, look) : low;
       for (const view of ['cockpit', 'drone']) {
         await page.evaluate(
           ({ view, low, drone }) => {
@@ -56,7 +60,7 @@ try {
             g.simulate(0.4);
             for (let i = 0; i < 4; i++) rt.render();
           },
-          { view, low, drone: DRONE.map(Number) },
+          { view, low: lowSide, drone: DRONE.map(Number) },
         );
         // (the land about the camera where it now is: the drone stands a hundred metres off)
         await built(page);
@@ -64,7 +68,7 @@ try {
         await page.evaluate(() => window.__rt.render());
         const file = path.join(out, `${seed}_${String(p.place).padStart(2, '0')}_${view}.png`);
         await page.screenshot({ path: file });
-        report.push({ ...p, ...info, low, view, file });
+        report.push({ ...p, ...info, low: lowSide, view, file });
       }
       console.log(`${p.label || ''} ${seed}:${p.place} ${info.name} · ${info.tag} (${info.road}, ${info.efg}, ${info.landform}, ${info.base} m, relief ${info.relief}) low ${low}`);
     }

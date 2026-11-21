@@ -21,7 +21,7 @@ import type { Efg, Struct } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
 import { landOfPlace } from './landform';
 import { accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
-import type { RoadType } from '../../earth/roads';
+import { ROAD_BUILD, type RoadType } from '../../earth/roads';
 
 /** the id of the region of a world's place k (a world of version 5's its own: its places are driven by roads of their own) */
 export function earthRegionId(seed: number, k: number, version: 4 | 5 = 4): string {
@@ -328,6 +328,9 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<R
     ...(road.id === 'cliff_coast' ? { cliff: size.shelf } : {}),
     // (a switchback climb: its stacks where its kind has them, spine.ts)
     ...(road.hairpins ? { hairpins: road.hairpins } : {}),
+    // (its surface and edges, and the lookout its view is given: docs/V3/nodes/R3-structures.md)
+    roadStyle: ROAD_BUILD[road.id].style,
+    ...(ROAD_BUILD[road.id].lookout !== undefined ? { lookouts: [ROAD_BUILD[road.id].lookout!] } : {}),
     // (a lakeshore road: a lake by it all the way through its heart, now on one side, now on the other)
     ...(road.id === 'lakeshore' ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
   };

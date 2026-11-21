@@ -28,7 +28,16 @@ const slabs = road('slab',0.22,'ditch',3.10,'stone');
 const upland = road('chip',0.36,'grass',2.95,'stone');
 const village = road('cobble',0,'kerb',2.96,'stone');
 const orchard = road('patched',0,'grass',2.88,'stone');
+// (world version 5: the scenic roads' own, docs/V3/nodes/R3-structures.md — a mountain road's stone parapets, a coast
+// road's, a parkway's timber rails and grass verges, a lane's fences, a track's gravel)
+const mountain = road('renewed',1,'bank',3.1,'stone');
+const corniche = road('renewed',1,'bank',3.25,'stone');
+const parkway = road('renewed',1,'grass',3.2,'wood');
+const lane = road('patched',0,'grass',2.85,'fence');
+const gravel = road('gravel',0,'grass',2.9,'wood');
 export const ROAD_STYLES: Readonly<Record<string, readonly [RoadStyle,RoadStyle]>> = {
+  'road:mountain':[mountain,pass], 'road:corniche':[corniche,mountain], 'road:parkway':[parkway,highway], 'road:lane':[lane,orchard],
+  'road:track':[gravel,north], 'road:upland':[upland,mountain], 'road:desert':[desert,earth], 'road:open':[highway,pasture], 'road:slabs':[slabs,upland],
   plains:[pasture,highway], forest:[north,track], maple:[north,pasture], lakes:[track,north],
   alpine:[pass,upland], desert:[desert,earth], red_canyon:[earth,desert], karst_peaks:[slabs,upland],
   terraces:[slabs,orchard], bamboo_sea:[slabs,track], flower_fields:[pasture,orchard],
@@ -46,7 +55,7 @@ export function roadStyleAt(world: World, s: number): RoadStyle {
   const bl = {a:0,b:0,t:0,ia:0,ib:0};
   world.spine.biomeAt(mid,bl);
   const region = BIOMES[bl.t >= 0.5 ? bl.b : bl.a];
-  const pair = ROAD_STYLES[region.id] ?? ROAD_STYLES[region.kin] ?? ROAD_STYLES.plains;
+  const pair = (region.roadStyle ? ROAD_STYLES[region.roadStyle] : undefined) ?? ROAD_STYLES[region.id] ?? ROAD_STYLES[region.kin] ?? ROAD_STYLES.plains;
   const sector = Math.floor(mid/768);
   let style = pair[(hash2(sector, 731, world.seed) & 255) < 72 ? 1 : 0];
   const place = world.sites.placeOf(Math.floor(mid/SITE_SLOT));

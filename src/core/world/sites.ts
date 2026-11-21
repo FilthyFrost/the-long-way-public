@@ -28,6 +28,7 @@ import { LAND_SLOT } from './landform';
 import { COAST_FADE, type CoastRun } from './sea';
 import { Solid, solidWithin, type SolidSource } from './solids';
 import { BiomeBlend, SpineSample } from './spine';
+import { routeOffset } from './routeProfiles';
 import type { TerrainPoint, World } from './terrain';
 import type { Lake, River } from './water';
 
@@ -554,7 +555,13 @@ export class SitePlan implements SolidSource {
       if (r.next() >= (this.sincePlace === 0 ? 0.2 : this.sincePlace === 1 ? 0.45 : 0.8)) return null;
       return this.tryPlace(k, 'camp', null, r);
     }
-    if (needStation) kind = 'station';
+    // (world version 5: a road with a view has its lookout where the view is: docs/V3/nodes/R3-structures.md)
+    const region = this.region((k + 0.5) * SITE_SLOT);
+    const off = region.lookouts ? routeOffset(region.id, k) : undefined;
+    const view = off !== undefined && region.lookouts!.includes(off) && (land === 'shelf' || land === 'rim' || land === 'ridge' || land === 'hillside' || land === 'open');
+    // (the view first: the tank's filling station can wait a stretch, it would not fit on such a road anyway)
+    if (view) kind = 'lookout';
+    else if (needStation) kind = 'station';
     else if (light) kind = 'lighthouse';
     else if (k === 1) kind = 'camp';
     // (not every lake has its jetty: two in five; the others keep their shores to themselves)
@@ -568,7 +575,7 @@ export class SitePlan implements SolidSource {
         const pick = PICKS[r.weighted(odds)];
         // two filling stations are never neighbours, and a lookout wants something to look out over
         if (pick === 'station' && this.sinceStation < 8) continue;
-        if (pick === 'lookout' && land !== 'ridge' && land !== 'hillside') continue;
+        if (pick === 'lookout' && land !== 'ridge' && land !== 'hillside' && land !== 'shelf' && land !== 'rim') continue;
         // (and the same kind of place twice running is dull)
         if (pick === this.lastKind && tries < 3) continue;
         kind = pick;
@@ -638,7 +645,10 @@ export class SitePlan implements SolidSource {
     if (kind === 'jetty' && lake) only = lake.side;
     else if (coast) only = world.sea.coastOf(k)?.side ?? 0;
     // a lookout looks out: on the side where the land falls away
-    else if (kind === 'lookout' && land === 'hillside') only = -world.land.sideOf(k);
+    else if (kind === 'lookout' && (land === 'hillside' || land === 'shelf')) only = -world.land.sideOf(k);
+    // (a rim's lookout on the canyon's side; a cliff road's on the sea's)
+    else if (kind === 'lookout' && land === 'rim') only = world.land.sideOf(k);
+    else if (kind === 'lookout' && world.sea.coastOf(k)) only = world.sea.coastOf(k)!.side;
     const canyon = land === 'canyon';
     for (let size = canyon ? 1 : 0; size < 2; size++) {
       const L = canyon ? 11 : pad[size * 2];
@@ -649,7 +659,9 @@ export class SitePlan implements SolidSource {
         W = Math.max(9, Math.min(W, this.shoreGap(lake) - 10));
         skirt = 8;
       }
-      const fit = this.fit(k, L, W, skirt, kind === 'jetty' ? lake : null, only, wantSide, kind === 'jetty' || coast ? 7.5 : 5, r, coast, avoid);
+      // (world version 5: a lookout over a void stands out over it, on a road as winding as such roads are)
+      const brink = kind === 'lookout' && world.rules.version >= 5;
+      const fit = this.fit(k, L, W, skirt, kind === 'jetty' ? lake : null, only, wantSide, kind === 'jetty' || coast ? 7.5 : 5, r, coast, avoid, brink);
       if (!fit) continue;
       const site = this.open(k, kind, fit, L, W, skirt, r, avoid ? 'q' : null);
       // (from here on the land of this slot is levelled: heights asked now are the heights things stand on)
@@ -667,7 +679,7 @@ export class SitePlan implements SolidSource {
    * straight, nearly level road, no bridge, no water, and land that need not be cut or filled
    * much to meet it. The best of twelve places (with a little chance, so it is not always the flattest).
    */
-  private fit(k: number, L: number, W: number, skirt: number, lake: Lake | null, only: number, wantSide: number, maxCut: number, r: Rng, coast: CoastRun | null = null, avoid: Site | null = null): Fit | null {
+  private fit(k: number, L: number, W: number, skirt: number, lake: Lake | null, only: number, wantSide: number, maxCut: number, r: Rng, coast: CoastRun | null = null, avoid: Site | null = null, brink = false): Fit | null {
     const world = this.world;
     const sp = world.spine;
     const tp = this.tp;
@@ -700,7 +712,7 @@ export class SitePlan implements SolidSource {
         if (g > slope) slope = g;
       }
       // (a short lay-by can follow a bend; a forecourt with buildings on it wants the road nearly straight)
-      if (bend > (L > 16 ? 0.004 : 0.006) || slope > 0.055) continue;
+      if (bend > (brink ? 0.022 : L > 16 ? 0.004 : 0.006) || slope > (brink ? 0.085 : 0.055)) continue;
       let onBridge = false;
       for (let q = sc - L - 45; q <= sc + L + 45 && !onBridge; q += 15) {
         world.water.bridgeAt(q, this.br);
@@ -723,7 +735,8 @@ export class SitePlan implements SolidSource {
             if (b > W) {
               // (towards a lake or the sea the land is meant to fall: only rising ground has to be cut)
               const dh = tp.bed - padH;
-              const c2 = water ? (dh > 0 ? dh : -dh * 0.45) : dh < 0 ? -dh : dh;
+              // (and a lookout over a void: the ground falls away below it, that is the point)
+              const c2 = water ? (dh > 0 ? dh : -dh * 0.45) : brink ? (dh > 0 ? dh : 0) : dh < 0 ? -dh : dh;
               if (c2 > cut) cut = c2;
             }
           }

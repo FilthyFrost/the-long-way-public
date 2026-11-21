@@ -92,6 +92,34 @@ export interface RoadType {
   hairpins?: readonly number[];
 }
 
+/** (docs/V3/nodes/R3-structures.md) the surface and edges of each kind of road (world/roadStyles.ts ROAD_STYLES 'road:…'), and the stretch its view is given a lookout at */
+export const ROAD_BUILD: Readonly<Record<RoadId, { style: string; lookout?: number }>> = {
+  shelf: { style: 'road:mountain', lookout: 2 },
+  switchback: { style: 'road:mountain', lookout: 3 },
+  pass: { style: 'road:mountain', lookout: 2 },
+  skyline: { style: 'road:upland', lookout: 1 },
+  gorge: { style: 'road:mountain' },
+  valley: { style: 'road:parkway' },
+  cliff_coast: { style: 'road:corniche', lookout: 1 },
+  shore: { style: 'road:parkway' },
+  lakeshore: { style: 'road:parkway' },
+  forest_tunnel: { style: 'road:track' },
+  swell: { style: 'road:open' },
+  sweepers: { style: 'road:open' },
+  straight: { style: 'road:desert' },
+  dune_road: { style: 'road:desert' },
+  rim: { style: 'road:upland', lookout: 2 },
+  terrace_road: { style: 'road:slabs', lookout: 2 },
+  tower_road: { style: 'road:slabs' },
+  lava_road: { style: 'road:open' },
+  ice_valley: { style: 'road:mountain' },
+  plateau_road: { style: 'road:upland' },
+  hill_twister: { style: 'road:lane' },
+  river_road: { style: 'road:parkway' },
+  heath_road: { style: 'road:upland' },
+  orchard_lane: { style: 'road:lane' },
+};
+
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
 const ramp = (x: number, a: number, b: number): number => clamp((x - a) / (b - a), 0, 1);
 const align = (kmh: number, straight: number, straightLen: readonly [number, number], turn: readonly [number, number], spread: number): RoadAlign => ({ kmh, straight, straightLen, turn, spread });
