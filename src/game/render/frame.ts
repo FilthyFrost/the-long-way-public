@@ -36,10 +36,13 @@ export class Frame {
     knee: STYLE.pipeline.curve.knee,
     shoulder: STYLE.pipeline.curve.shoulder,
     saturation: STYLE.pipeline.saturation,
+    contrast: STYLE.pipeline.contrast ?? 1,
     ink: STYLE.pipeline.ink.strength,
     threshold: STYLE.pipeline.bloom.threshold,
   };
   exposure = 1;
+  /** the night's eye (V1): how far the land is seen as by night — darker hues gone to blue and grey, the sky left as painted (0 day … 1 deep night) */
+  night = 0;
   /** shafts of light from a low sun through haze and between whatever stands before it: strength 0…1 and colour */
   shafts = 0;
   readonly shaftColor = new THREE.Color(1, 0.9, 0.7);
@@ -140,6 +143,7 @@ export class Frame {
       uniform float uKnee;
       uniform float uShoulder;
       uniform float uSat;
+      uniform float uContrast;
       uniform float uTime;
       uniform vec3 uInkColor;
       uniform float uInk;
@@ -147,6 +151,7 @@ export class Frame {
       uniform vec3 uShaft;       // xy: where the sun is on the screen (uv), z: strength
       uniform vec3 uShaftColor;
       uniform float uAspect;
+      uniform float uNight;
       varying vec2 vUv;
 
       // The inked line of a cel-painted thing (the vehicle): its parts write small alphas of their own
@@ -252,9 +257,18 @@ export class Frame {
         vec2 d = vUv - 0.5;
         c *= 1.0 - uVignette * dot(d, d) * 1.6;
         c *= uExposure;
+        // the night's eye: what is dim goes to a blue grey (the eye's rods), the lights and the painted sky keep their colours
+        if (uNight > 0.01) {
+          float a0 = texture2D(tHdr, vUv).a;
+          float ln = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          float kn = uNight * (1.0 - smoothstep(0.06, 0.45, ln)) * (1.0 - step(abs(a0 - 0.25), 0.05)) * 0.7;
+          c = mix(c, vec3(ln) * vec3(0.6, 0.82, 1.3), kn);
+        }
         // a painter's curve: below the knee the colour stays as mixed, only the brightest lights are eased in
         vec3 hi = max(c - uKnee, 0.0);
         c = min(c, uKnee) + uShoulder * (1.0 - exp(-hi / uShoulder));
+        // (contrast about mid grey: the darks a little deeper, the lights a little brighter — V1)
+        c = pow(max(c, 0.0) / 0.18, vec3(uContrast)) * 0.18;
         float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
         c = toSrgb(max(mix(vec3(l), c, uSat), 0.0));
         float nz = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)) + fract(uTime * 7.1) * 0.618));
@@ -275,6 +289,7 @@ export class Frame {
         uKnee: { value: p.curve.knee },
         uShoulder: { value: p.curve.shoulder },
         uSat: { value: p.saturation },
+        uContrast: { value: p.contrast ?? 1 },
         uTime: { value: 0 },
         uInkColor: { value: new THREE.Color(...p.ink.color) },
         uInk: { value: p.ink.strength },
@@ -283,6 +298,7 @@ export class Frame {
         uShaft: { value: new THREE.Vector3(0.5, 0.5, 0) },
         uShaftColor: { value: this.shaftColor },
         uAspect: { value: 16 / 9 },
+        uNight: { value: 0 },
       },
     );
   }
@@ -349,11 +365,13 @@ export class Frame {
     const u = this.finalMat.uniforms;
     u.uBloom.value = this.bloom;
     u.uExposure.value = this.exposure;
+    u.uNight.value = this.night;
     const gr = this.grade;
     u.uVignette.value = gr.vignette;
     u.uKnee.value = gr.knee;
     u.uShoulder.value = Math.max(0.01, gr.shoulder);
     u.uSat.value = gr.saturation;
+    u.uContrast.value = gr.contrast;
     u.uInk.value = gr.ink;
     this.bloomFirst.uniforms.uThreshold.value = gr.threshold;
     u.uPaint.value = this.paint;

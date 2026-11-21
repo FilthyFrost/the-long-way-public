@@ -4,7 +4,7 @@
 // along a journey each their own.
 import { describe, expect, it } from 'vitest';
 import { EarthJourney, SCENE_LENGTH, type Scene } from '../../src/core/earth/director';
-import { wetnessAt } from '../../src/core/earth/climate';
+import { warmthAt, wetnessAt } from '../../src/core/earth/climate';
 import { grassColour, hueTurn, labOf, lchOf, leafColour, paletteOfPlace, swatches } from '../../src/core/world/earth/palette';
 import { lookOfPlace } from '../../src/core/world/earth/region';
 import { BIOMES } from '../../src/core/world/biomes';
@@ -31,7 +31,8 @@ describe('the places\' palettes', () => {
   it('paints no crown green under snow, and no grass green in a hot desert', () => {
     let snowy = 0;
     let deserts = 0;
-    for (const { seed, sc } of ALL) {
+    // (sixty places a journey: the snow is a place now and then, and a hot desert as rare as it is on the Earth)
+    for (const { seed, sc } of SEEDS.flatMap((seed) => places(seed, 60).map((sc) => ({ seed, sc })))) {
       const p = paletteOfPlace(sc, seed, sc.index);
       const w = wetnessAt(sc.macro, sc.macro.base);
       if (sc.look.sig.snow) {
@@ -43,7 +44,8 @@ describe('the places\' palettes', () => {
         }
         for (const own of BLADES) expect(lchOf(grassColour(p, own)).C, sc.name).toBeLessThanOrEqual(0.05);
       }
-      if (w < 0.2 && !sc.look.sig.snow) {
+      // (a hot desert: dry and warm — a polar desert's tundra in its short summer is as green as its sedges are)
+      if (w < 0.2 && warmthAt(sc.macro, sc.macro.base) > 8 && !sc.look.sig.snow) {
         deserts++;
         for (const own of BLADES) expect(isGreen(grassColour(p, own)), `${sc.name}: green grass in the desert`).toBe(false);
         for (const own of LEAVES) expect(lchOf(leafColour(p, own)).C, `${sc.name}: a lush crown in the desert`).toBeLessThanOrEqual(0.095);

@@ -72,6 +72,8 @@ export interface StyleSpec {
     vignette: number;
     curve: { knee: number; shoulder: number };
     saturation: number;
+    /** contrast about mid grey (1: none; V1) */
+    contrast?: number;
     dither: boolean;
     fov: number;
   };

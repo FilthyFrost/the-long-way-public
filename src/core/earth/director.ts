@@ -14,7 +14,7 @@
  * Deterministic: a journey is its seed. Pure, DOM-free (the world reads it in E1).
  */
 import { Rng, hash2 } from '../math/rng';
-import { LAPSE, ecosystemAt, growingAt, landformsFor, patchesAt, swingOf, warmthAt, type Macro } from './climate';
+import { LAPSE, ecosystemAt, growingAt, landformsFor, patchesAt, snowAt, swingOf, warmthAt, type Macro } from './climate';
 import type { Efg } from './efg';
 import type { Context } from './kinds';
 import type { Process } from './landforms';
@@ -103,6 +103,12 @@ const HIGHLIGHT_LANDS: ReadonlySet<string> = new Set(['u_valley', 'horn_arete', 
 const HIGHLIGHT_EFGS: ReadonlySet<string> = new Set(['T1.3', 'T6.5', 'T7.1r', 'T7.1l', 'T7.1f', 'T7.1t', 'MFT1.2']);
 /** after this many places without a highlight the director goes looking for one, the more eagerly the longer it has been */
 const HIGHLIGHT_AFTER = 7;
+/**
+ * The most places with snow lying at the road among the last six before the journey turns toward summer (V1, docs/V3/nodes/V1-light.md):
+ * a boreal wood is at its best in January, and a cold continental winter froze fifteen places running under one white —
+ * an hour of the same snow, the grassland's, the lava field's and the forest's alike.
+ */
+const SNOW_RUN = 2;
 
 /** after this many places without drama (a range, a coast, a highlight) a journey with a sense of drama goes looking for some */
 const DRAMA_AFTER = 2;
@@ -570,8 +576,14 @@ export class EarthJourney {
     const knobs = this.knobsAt(mid);
     const r = new Rng(hash2(this.seed | 0, i, 0xe5));
     // the month: turned toward the season this place is at its best in, two months a place at most
+    // (after SNOW_RUN places in the snow among the last six, toward the warmest month instead, as fast as the season may turn,
+    // wherever the place would still lie under snow in the month it wants: the snow is a place now and then, not the winter)
     const here = ecosystemAt(knobs, knobs.base).efg.code;
-    this.month = i === 0 ? 5 : monthToward(this.month, bestMonth(here, this.month), 2);
+    let want = bestMonth(here, this.month);
+    const snowy = this.scenes.slice(-6).filter((sc) => snowAt(sc.macro, sc.macro.base, sc.macro.month)).length;
+    const escape = snowy >= SNOW_RUN && snowAt(knobs, knobs.base, want);
+    if (escape) want = 7;
+    this.month = i === 0 ? 5 : monthToward(this.month, want, 2);
     // the landform: among those that can stand here, the move's own more often, the last place's now and then, not one of the few before
     const prevLand = this.scenes[i - 1]?.macro.landform ?? null;
     const recentLands = this.scenes.slice(-5).map((x) => x.macro.landform);

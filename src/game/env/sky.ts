@@ -23,7 +23,18 @@ export const skyUniforms = {
   uDeckLit: { value: new THREE.Color(0.7, 0.74, 0.8) },
   uDeckShade: { value: new THREE.Color(0.4, 0.44, 0.52) },
   uStars: { value: 0 },
+  /**
+   * the night sky (V1, docs/V3/nodes/V1-light.md): x how clear the air is (the stars' brightness: 1 a clear lowland
+   * night, more in dry and high country), y meteors (0 none … 1 a shower), z the moon's phase (0 new … 0.5 full … 1),
+   * w the stars' turn about the pole (rad)
+   */
+  uNight: { value: new THREE.Vector4(1, 0.15, 0.5, 0) },
+  /** the night's dice: where its meteors come from (x, y: the radiant's azimuth and height), z its seed */
+  uMeteor: { value: new THREE.Vector3(0.8, 0.7, 0) },
   uAurora: { value: 0 },
+  /** twilight (V1): the belt of Venus opposite a low sun — rgb its pink, w how strong; uRise: how high the earth's shadow under it has risen (sin of the angle) */
+  uBelt: { value: new THREE.Vector4(0, 0, 0, 0) },
+  uRise: { value: 0.02 },
   uRainbow: { value: 0 },
   uFlash: { value: 0 },
   /** the front: xy = unit vector (xz) towards where the weather stands, z = how far it has come over 0..1, w = rain hanging under it 0..1 */
@@ -110,7 +121,11 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
       uniform vec3 uDeckLit;
       uniform vec3 uDeckShade;
       uniform float uStars;
+      uniform vec4 uNight;
+      uniform vec3 uMeteor;
       uniform float uAurora;
+      uniform vec4 uBelt;
+      uniform float uRise;
       uniform float uRainbow;
       uniform float uFlash;
       uniform float uBank;
@@ -155,39 +170,161 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
         float h = max(d.y, 0.0);
         vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.3, pow(h, 0.8)));
         col = mix(col, uZenith, smoothstep(0.18, 0.85, h));
-
-        // ---- night: stars and a soft band of milky way, aurora low in the sky
-        if (uStars > 0.01 && d.y > -0.02) {
-          vec3 q = d * 190.0;
-          vec3 cell = floor(q);
-          float hs = h31(cell);
-          vec3 f = fract(q) - 0.5;
-          float star = step(0.9962, hs) * smoothstep(0.38, 0.0, length(f)) * (0.5 + 1.5 * fract(hs * 91.7));
-          star *= 0.75 + 0.25 * sin(uTime * (1.5 + 3.0 * fract(hs * 17.3)) + hs * 40.0);
-          float band = exp(-pow(dot(d, normalize(vec3(0.35, 0.5, -0.8))) * 3.2, 2.0));
-          float dustn = fbm(d.xz * 5.0 + d.y * 3.0);
-          vec3 mw = vec3(0.1, 0.12, 0.2) * band * (0.35 + 0.9 * dustn);
-          col += (vec3(0.5, 0.55, 0.7) * star + mw) * uStars * smoothstep(-0.02, 0.2, d.y);
+        // ---- twilight (V1): opposite a setting (or rising) sun the earth's own shadow, a band of blue grey along the
+        // horizon rising as the sun goes down, and over it the pink belt of Venus
+        if (uBelt.w > 0.01 && d.y > -0.02) {
+          vec2 hz = normalize(d.xz + 1e-5);
+          vec2 as = -normalize(uSunDisc.xz + 1e-5);
+          float anti = smoothstep(-0.35, 0.85, dot(hz, as));
+          float inShade = 1.0 - smoothstep(uRise - 0.012, uRise + 0.012, d.y);
+          float belt = smoothstep(uRise - 0.004, uRise + 0.035, d.y) * (1.0 - smoothstep(uRise + 0.06, uRise + 0.24, d.y));
+          vec3 shade = vec3(dot(col, vec3(0.333))) * vec3(0.7, 0.78, 1.05);
+          col = mix(col, shade, inShade * anti * uBelt.w * 0.75);
+          col = mix(col, uBelt.rgb, belt * anti * uBelt.w * 0.6);
         }
-        if (uAurora > 0.01) {
-          float az = atan(d.z, d.x);
-          float wave = fbm(vec2(az * 2.2 + uTime * 0.02, uTime * 0.015));
-          float curtain = smoothstep(0.38, 0.75, fbm(vec2(az * 9.0 + wave * 4.0, uTime * 0.03)));
-          float bandA = smoothstep(0.08, 0.2, d.y) * (1.0 - smoothstep(0.32, 0.7, d.y + (wave - 0.5) * 0.25));
-          float rays = 0.6 + 0.4 * vnoise(vec2(az * 60.0, uTime * 0.2));
-          vec3 ac = mix(vec3(0.05, 0.42, 0.22), vec3(0.2, 0.1, 0.4), smoothstep(0.2, 0.6, d.y));
-          col += ac * curtain * bandA * rays * uAurora * smoothstep(-0.2, 0.5, -d.z);
+
+        // ---- night (V1): the sky of a country with no lights in it — three layers of stars of their own colours, the
+        // Milky Way with its bright core, its arms and its dark rifts, meteors, the moon in its phase. The sky turns about
+        // the pole (north, -z, forty degrees up) through the night.
+        float pix = max(length(fwidth(d)), 4e-4);
+        if (uStars > 0.01 && d.y > -0.03) {
+          vec3 P = normalize(vec3(0.0, 0.643, -0.766));
+          float ct = cos(uNight.w);
+          float st = sin(uNight.w);
+          vec3 c = d * ct + cross(P, d) * st + P * dot(P, d) * (1.0 - ct);
+          float up = smoothstep(-0.03, 0.22, d.y);
+          // (the Milky Way: a band about the galactic equator, its core one way along it)
+          // (at half past nine its core low in the east-north-east, ahead of a road that runs east and in the band of sky
+          // the windscreen shows, the band rising from the north-north-east horizon through it and over the south)
+          vec3 e1 = normalize(vec3(0.93, 0.21, -0.29));
+          vec3 G = normalize(cross(vec3(0.6, 0.0, -0.8), e1));
+          vec3 e2 = cross(G, e1);
+          float gb = dot(c, G);
+          float gl = atan(dot(c, e2), dot(c, e1));
+          float core = exp(-gl * gl * 1.6);
+          float wid = 0.13 + 0.12 * core;
+          float band = exp(-gb * gb / (wid * wid));
+          vec2 gq = vec2(gl * 2.6, gb * 11.0);
+          float n1 = fbm(gq + 3.1);
+          float n2 = fbm(gq * 2.9 + 7.3);
+          float n3 = fbm(gq * 7.0 + 1.7);
+          float glow = band * (0.45 + 0.9 * n1) * (0.75 + 0.5 * n2);
+          // the dark rifts down its middle, wandering, deepest toward the core
+          float riftY = gb - 0.035 * sin(gl * 2.3 + 0.7) - (n2 - 0.5) * 0.07;
+          float rift = exp(-riftY * riftY / pow(0.018 + 0.026 * core, 2.0)) * smoothstep(0.35, 0.65, n1 + 0.15 * core);
+          glow *= 1.0 - 0.8 * rift;
+          glow *= 0.8 + 0.4 * n3;
+          float moonWash = 1.0 - 0.75 * smoothstep(0.2, 0.9, 1.0 - abs(uNight.z * 2.0 - 1.0)) * smoothstep(-0.05, 0.25, uMoonDir.y);
+          vec3 mw = mix(vec3(0.42, 0.52, 1.0), vec3(1.0, 0.8, 0.55), core * 0.85);
+          mw = mix(mw, vec3(0.9, 0.5, 0.85), smoothstep(0.6, 0.8, n2) * 0.45 * (1.0 - core));
+          mw = mix(mw, vec3(0.4, 0.85, 0.9), smoothstep(0.66, 0.85, n3) * 0.25);
+          col += mw * glow * (0.1 + 0.26 * core) * uStars * uNight.x * up * moonWash;
+          // (three layers of stars on the faces of a cube, by equal angles: the bright few, the many, the dust of them —
+          // more of the faint ones in the band)
+          vec3 a = abs(c);
+          vec2 fu;
+          float face;
+          if (a.x >= a.y && a.x >= a.z) { fu = c.yz / a.x; face = c.x > 0.0 ? 0.0 : 1.0; }
+          else if (a.y >= a.z) { fu = c.xz / a.y; face = c.y > 0.0 ? 2.0 : 3.0; }
+          else { fu = c.xy / a.z; face = c.z > 0.0 ? 4.0 : 5.0; }
+          fu = atan(fu) * 1.2732395;
+          vec3 stars = vec3(0.0);
+          for (int L = 0; L < 3; L++) {
+            float n = L == 0 ? 26.0 : L == 1 ? 70.0 : 170.0;
+            float pr = L == 0 ? 0.09 : L == 1 ? 0.26 : 0.16 + 0.7 * band;
+            vec2 g = (fu * 0.5 + 0.5) * n;
+            vec2 cell = floor(g);
+            float hs = h21(cell + face * 517.0 + float(L) * 91.3);
+            if (hs > pr) continue;
+            vec2 off = vec2(h21(cell + face * 13.7 + 3.1 + float(L)), h21(cell + face * 29.3 + 7.9 + float(L))) * 0.5 + 0.25;
+            // (the angle from the star: a cell is about 1.57 / n radians wide)
+            float r = length(g - cell - off) * 1.5708 / n;
+            float m = fract(hs * 93.17 / max(pr, 1e-3));
+            float bright = (L == 0 ? 3.2 : L == 1 ? 0.75 : 0.36) * (0.25 + 1.75 * pow(m, 3.0));
+            float rs = (L == 0 ? 1.0 : L == 1 ? 0.6 : 0.5) * pix * (0.6 + 0.6 * m);
+            float sig = max(rs, 0.75 * pix);
+            float sh = bright * (rs * rs) / (sig * sig) * exp(-r * r / (2.0 * sig * sig));
+            // (the brightest: a soft halo, and a twinkle, stronger low in the sky)
+            if (L == 0) sh += bright * 0.06 * exp(-r / (5.0 * pix)) * smoothstep(0.75, 1.0, m);
+            float tw = 1.0 + (0.18 + 0.4 * (1.0 - smoothstep(0.05, 0.5, d.y))) * sin(uTime * (2.0 + 5.0 * fract(hs * 41.3)) + hs * 60.0);
+            float temp = fract(hs * 57.31);
+            vec3 tint = temp < 0.18 ? vec3(0.72, 0.84, 1.25) : temp < 0.55 ? vec3(1.0) : temp < 0.8 ? vec3(1.12, 1.0, 0.8) : temp < 0.93 ? vec3(1.2, 0.86, 0.62) : vec3(1.25, 0.7, 0.55);
+            stars += tint * sh * tw;
+          }
+          col += stars * uStars * uNight.x * up * (0.55 + 0.45 * moonWash);
+          // a faint airglow band low over the horizon, green-teal
+          col += vec3(0.012, 0.03, 0.026) * exp(-pow((d.y - 0.07) / 0.07, 2.0)) * uStars * uNight.x;
+          // ---- meteors: three slots, each now and then a streak away from the night's radiant
+          if (uNight.y > 0.01) {
+            vec3 R = normalize(vec3(cos(uMeteor.x) * cos(uMeteor.y), sin(uMeteor.y), sin(uMeteor.x) * cos(uMeteor.y)));
+            for (int i = 0; i < 3; i++) {
+              float period = mix(16.0, 3.2, uNight.y);
+              float tt = uTime / period + float(i) * 0.371;
+              float slot = floor(tt);
+              float hm = h21(vec2(slot + uMeteor.z, float(i) * 7.13));
+              if (hm > 0.35 + 0.6 * uNight.y) continue;
+              float life = mix(0.45, 1.1, h21(vec2(slot * 1.71, float(i) + uMeteor.z)));
+              float t0 = (slot + 0.1 + 0.6 * h21(vec2(slot, float(i) + 3.3 + uMeteor.z)) - float(i) * 0.371) * period;
+              float t = (uTime - t0) / life;
+              if (t < 0.0 || t > 1.0) continue;
+              // where it starts: somewhere up the sky, moving away from the radiant
+              float az = h21(vec2(slot * 3.1, float(i) + 11.0 + uMeteor.z)) * 6.2832;
+              float el = mix(0.3, 1.05, h21(vec2(slot * 5.7, float(i) + 17.0 + uMeteor.z)));
+              vec3 p0 = normalize(vec3(cos(az) * cos(el), sin(el), sin(az) * cos(el)));
+              vec3 nrm = normalize(cross(R, p0));
+              vec3 along = cross(nrm, p0);
+              float len = mix(0.12, 0.38, h21(vec2(slot * 2.3, float(i) + 23.0 + uMeteor.z)));
+              float ang = atan(dot(d, along), dot(d, p0));
+              float off = abs(dot(d, nrm));
+              float head = t * len;
+              float tail = len * 0.4 * min(1.0, t * 2.5);
+              float k = clamp((ang - head + tail) / max(tail, 1e-3), 0.0, 1.0) * step(ang, head) * step(0.0, dot(d, p0) + 0.5);
+              float w = exp(-off * off / pow(0.9 * pix, 2.0)) + 0.12 * exp(-off / (3.0 * pix));
+              float fade = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.65, 1.0, t));
+              float b = mix(1.2, 3.5, h21(vec2(slot * 7.7, float(i) + 31.0 + uMeteor.z)));
+              col += mix(vec3(0.5, 0.95, 0.85), vec3(1.4, 1.45, 1.5), k * k) * k * k * w * fade * b * uStars;
+            }
+          }
+        }
+        if (uAurora > 0.01 && d.y > 0.0) {
+          // (curtains hung over the north: on a sheet high up, folded by a slow wave, their feet a sharp green edge,
+          // their tops fading through to violet, rayed along their height)
+          vec2 pl = d.xz / (d.y + 0.08);
+          float fold = fbm(vec2(pl.x * 0.35 + uTime * 0.012, 1.3)) * 3.0 + fbm(vec2(pl.x * 1.1 - uTime * 0.02, 4.1)) * 0.8;
+          float zc = -2.2 + fold + 0.6 * sin(pl.x * 0.6 + uTime * 0.05);
+          float y = zc - pl.y;
+          float foot = smoothstep(-0.05, 0.08, y);
+          float height = exp(-max(y, 0.0) * 1.15);
+          float rays = 0.55 + 0.45 * vnoise(vec2(pl.x * 9.0 + fold * 3.0, uTime * 0.25));
+          float sheet = foot * height * rays * smoothstep(0.2, 0.9, fbm(vec2(pl.x * 0.5 + 9.0, uTime * 0.01)) + 0.35);
+          vec3 ac = mix(vec3(0.1, 0.95, 0.42), vec3(0.55, 0.2, 0.9), smoothstep(0.15, 1.2, y));
+          ac = mix(ac, vec3(0.9, 0.25, 0.45), smoothstep(1.6, 2.4, y) * 0.5);
+          col += ac * sheet * uAurora * 0.32 * smoothstep(0.0, 0.25, d.y);
         }
 
         // ---- the sun: three glows and a disc bright enough to bloom
         float sd = max(dot(d, uSunDisc), 0.0);
         col += uGlow * (pow(sd, 6.0) * 0.05 + pow(sd, 90.0) * 0.3 + pow(sd, 1400.0) * 1.4) * uSunVis;
         col += uDisc * smoothstep(0.99988, 0.99996, sd) * 8.0 * uSunVis;
-        // ---- the moon
+        // ---- the moon, in its phase: lit on the side toward the sun, earthshine on the rest, a halo as bright as it is full
         float md = max(dot(d, uMoonDir), 0.0);
-        float moon = smoothstep(0.99975, 0.99988, md) * smoothstep(0.0, 0.05, uMoonDir.y);
-        col += vec3(0.12, 0.15, 0.24) * pow(md, 90.0) * uStars;
-        col = mix(col, vec3(0.9, 0.92, 1.0) * (0.6 + 0.4 * vnoise(d.xy * 260.0)), moon);
+        float lit = 1.0 - abs(uNight.z * 2.0 - 1.0);
+        // (a new moon is not seen at all: it stands by the sun)
+        float moon = smoothstep(0.99972, 0.99986, md) * smoothstep(-0.02, 0.04, uMoonDir.y) * smoothstep(0.03, 0.14, lit);
+        if (moon > 0.0) {
+          vec3 mx = normalize(cross(vec3(0.0, 1.0, 0.0), uMoonDir));
+          vec3 my = cross(uMoonDir, mx);
+          vec2 q = vec2(dot(d, mx), dot(d, my)) / 0.0167;
+          float rim = sqrt(max(1.0 - dot(q, q), 0.0));
+          float ph = uNight.z * 6.2832;
+          float term = cos(ph) * sqrt(max(1.0 - q.y * q.y, 0.0));
+          float sideSun = uNight.z < 0.5 ? q.x - term : -q.x - term;
+          float on = smoothstep(-0.04, 0.04, sideSun);
+          float maria = 0.72 + 0.28 * smoothstep(0.35, 0.65, vnoise(q * 3.1 + 4.0) * 0.7 + vnoise(q * 7.3) * 0.3);
+          vec3 face = vec3(1.0, 0.97, 0.9) * maria * (0.75 + 0.25 * rim) * 1.6;
+          col = mix(col, face * on + (col * 0.55 + vec3(0.006, 0.008, 0.014)) * (1.0 - on), moon);
+        }
+        col += vec3(0.1, 0.13, 0.22) * (pow(md, 900.0) * 0.6 + pow(md, 90.0) * 0.5 + pow(md, 12.0) * 0.06) * lit * smoothstep(-0.05, 0.1, uMoonDir.y) * (1.0 - uSunVis * 0.8);
 
         // ---- rainbow, opposite the sun
         if (uRainbow > 0.01) {

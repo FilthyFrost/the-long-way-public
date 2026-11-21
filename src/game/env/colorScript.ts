@@ -68,7 +68,12 @@ export function computeLook(sky: SkyState, w: WeatherState, biomeA: string, biom
     out.moon = 0;
   } else {
     out.dir.set(sky.moonX, Math.max(sky.moonY, 0.08), sky.moonZ).normalize();
-    out.sun.multiplyScalar(moonUp);
+    // (as full as it is: a new moon leaves the land to the stars)
+    const lit = 1 - Math.abs(sky.moonPhase * 2 - 1);
+    out.sun.multiplyScalar(moonUp * (0.08 + 0.92 * Math.pow(lit, 1.4)));
+    // (and the clouds: silver under a full moon, dark shapes against the stars under a new one)
+    const cl = 0.3 + 0.7 * Math.max(lit * moonUp, 1 - out.stars);
+    for (const c of [out.cloudLit, out.cloudMid, out.cloudShade, out.cloudUnder]) c.multiplyScalar(cl);
     out.moon = 1;
   }
   out.stars = 1 - THREE.MathUtils.smoothstep(elev, -14, -4);

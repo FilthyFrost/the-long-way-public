@@ -47,6 +47,8 @@ export class RenderCore {
   exposure = 1;
   /** shafts of light from a low sun (0…1), set by the environment */
   shafts = 0;
+  /** the night's eye (frame.ts night) */
+  night = 0;
   readonly shaftColor = new THREE.Color(1, 0.9, 0.7);
   /** false = no paint finish (the rest of the frame stays) */
   usePost = true;
@@ -147,6 +149,7 @@ export class RenderCore {
       }
       this.frame.exposure = this.exposure;
       this.frame.shafts = this.shafts;
+      this.frame.night = this.night;
       this.frame.shaftColor.copy(this.shaftColor);
       this.frame.paint = this.usePost ? this.quality.paintRadius : 0;
       this.frame.render(scene, this.camera, time);

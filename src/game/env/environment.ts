@@ -165,6 +165,7 @@ export class Environment {
       globals.uHereForest.value.setRGB(ga.forest[1][0] + (gb.forest[1][0] - ga.forest[1][0]) * bt, ga.forest[1][1] + (gb.forest[1][1] - ga.forest[1][1]) * bt, ga.forest[1][2] + (gb.forest[1][2] - ga.forest[1][2]) * bt);
     }
     this.core.exposure = look.exposure;
+    this.core.night = sky.night;
     // shafts of light: a low sun, and air with something in it to catch them (mist, the damp after rain, dust)
     {
       const elev = sky.sunElev * (180 / Math.PI);
@@ -180,6 +181,14 @@ export class Environment {
     }
     // the haze lies on the ground under the camera
     globals.uFogBase.value = this.core.camera.position.y - 2;
+    {
+      // the earth's shadow (V1): from the moment the sun touches the horizon its light leaves the low ground and climbs —
+      // four hundred metres over the eye one degree down, twelve hundred at two — till only the peaks glow, then none
+      const down = Math.max(0, 0.4 - sky.sunElev * (180 / Math.PI));
+      const es = globals.uEarthShadow.value;
+      if (down > 0 && look.moon < 0.5) es.set(this.core.camera.position.y - 30 + 400 * Math.pow(down, 1.6), 40 + 60 * down);
+      else es.set(0, 0);
+    }
     globals.uWeather.value.set(w.wetness, w.snowCover, Math.min(1, Math.max(w.rain, w.snow, w.dust)), sky.night);
 
     skyUniforms.uZenith.value.copy(look.zenith);
@@ -190,7 +199,29 @@ export class Environment {
     skyUniforms.uSunDisc.value.set(sky.sunX, sky.sunY, sky.sunZ);
     skyUniforms.uMoonDir.value.set(sky.moonX, sky.moonY, sky.moonZ);
     skyUniforms.uSunVis.value = look.sunVis * (look.moon > 0.5 ? 0 : 1);
+    {
+      // twilight (V1): the belt of Venus from a little before sunset to the end of the blue hour (and the same at dawn),
+      // as pink as the hour's glow is warm, the earth's shadow under it rising as the sun goes down
+      const e = sky.sunElev * (180 / Math.PI);
+      const k = THREE.MathUtils.smoothstep(e, -8, -1.5) * (1 - THREE.MathUtils.smoothstep(e, 1.5, 7)) * look.sunVis * (1 - w.overcast);
+      const l = (look.horizon.r + look.horizon.g + look.horizon.b) / 3;
+      skyUniforms.uBelt.value.set(l * 1.05, l * 0.62, l * 0.74, k);
+      skyUniforms.uRise.value = THREE.MathUtils.clamp(0.015 - sky.sunY * 0.9, 0.012, 0.11);
+    }
     skyUniforms.uStars.value = look.stars * (1 - Math.min(1, w.cloud * 0.9 + w.fog + w.dust));
+    {
+      // the night sky (V1): how clear the place's air is, the night's meteors (a shower one night in three, a few
+      // strays on the rest), the moon's phase, the stars' turn about the pole through the night
+      const na = BIOMES[ba].earth?.palette?.air.night;
+      const nb = BIOMES[bb].earth?.palette?.air.night;
+      const clarity = (na?.clarity ?? 1) + ((nb?.clarity ?? 1) - (na?.clarity ?? 1)) * bt;
+      const night = this.clock.dayAt(time);
+      const hm = (hash2(night, 0x5e7e, this.seed) & 0xffff) / 65536;
+      const meteors = (hm < 0.34 ? 0.55 + hm * 1.3 : 0.12) * Math.min(1.25, clarity);
+      skyUniforms.uNight.value.set(clarity, meteors, sky.moonPhase, ((sky.hour - 21.5) / 24) * Math.PI * 2);
+      const hr = hash2(night, 0x7ad1, this.seed);
+      skyUniforms.uMeteor.value.set(((hr & 0xffff) / 65536) * Math.PI * 2, 0.5 + (((hr >>> 16) & 0xff) / 255) * 0.6, night % 997);
+    }
     this.wind.set(Math.cos(w.windDir) * w.wind, 0, Math.sin(w.windDir) * w.wind);
     globals.uWind.value.set(Math.cos(w.windDir), Math.sin(w.windDir), Math.min(1, w.wind / 18), globals.uWind.value.w + w.wind * dt * 0.6);
     this.cloudOff.x += this.wind.x * dt * 0.0016;
@@ -213,8 +244,12 @@ export class Environment {
       skyUniforms.uCloudsOn.value = 1;
       this.cloudDrift.x += this.wind.x * dt * 0.9;
       this.cloudDrift.y += this.wind.z * dt * 0.9;
-      // fair-weather heaps even on a clear day: the painted sky needs its clouds
-      const cover = Math.min(1, 0.3 + w.cloud * 0.75);
+      // fair-weather heaps even on a clear day: the painted sky needs its clouds — but they are the day's heat's, as
+      // real cumulus are: few in the cool of the morning, most of an afternoon, melting away after sunset (V1: the
+      // night clear for its stars)
+      const hr = sky.hour;
+      const diurnal = hr < 5 || hr > 21.5 ? 0.18 : hr < 9 ? 0.18 + 0.47 * ((hr - 5) / 4) : hr < 13 ? 0.65 + 0.35 * ((hr - 9) / 4) : hr < 18 ? 1 : 1 - 0.82 * ((hr - 18) / 3.5);
+      const cover = Math.min(1, 0.3 * diurnal + w.cloud * 0.75);
       this.lastCover = cover;
       if (this.shotMode) {
         // drawn in prepareShot()
@@ -227,12 +262,14 @@ export class Environment {
     const cs = globals.uCloudShadow.value;
     cs.x = (cs.x + this.wind.x * dt * 0.9) % 4096;
     cs.y = (cs.y + this.wind.z * dt * 0.9) % 4096;
-    cs.z = Math.min(1, w.cloud);
-    cs.w = 0.55 * sky.daylight * (1 - w.overcast) * THREE.MathUtils.smoothstep(w.cloud, 0.08, 0.3);
+    // (fair-weather heaps throw their shadows too, as many as there are: V1)
+    cs.z = Math.min(1, this.lastCover);
+    cs.w = 0.6 * sky.daylight * (1 - w.overcast) * THREE.MathUtils.smoothstep(this.lastCover, 0.05, 0.25);
     skyUniforms.uFlash.value = this.flash;
     skyUniforms.uRainbow.value = w.rainbow * sky.daylight * (sky.sunElev > 0.03 && sky.sunElev < 0.75 ? 1 : 0);
     // (the cold nights and the dry ones have it: by the region's kin)
-    const biomeAurora = BIOMES[bt < 0.5 ? ba : bb].kin === 'alpine' ? 1 : BIOMES[bt < 0.5 ? ba : bb].kin === 'desert' ? 0.4 : 0.12;
+    const ar = BIOMES[bt < 0.5 ? ba : bb];
+    const biomeAurora = ar.earth?.palette?.air.night?.aurora ?? (ar.kin === 'alpine' ? 1 : ar.kin === 'desert' ? 0.4 : 0.12);
     const auroraDrift = THREE.MathUtils.smoothstep(fbm1(time / 500, this.seed + 7, 2), -0.1, 0.35);
     skyUniforms.uAurora.value = sky.night * (1 - Math.min(1, w.cloud * 1.3)) * auroraDrift * biomeAurora;
 

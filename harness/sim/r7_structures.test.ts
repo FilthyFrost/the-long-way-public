@@ -91,8 +91,11 @@ describe('the scenic roads\' structures (world version 5)', () => {
         const def = BIOMES[p.region];
         if (!def.streams) continue;
         for (const off of def.streams) {
+          const slot = Math.round(p.start / 1250) + off;
+          // (no river beside the road where the sea runs beside it: a delta's or a coast's river road has the sea)
+          if (w.sea.near(slot) || w.sea.along(slot)) continue;
           want++;
-          const f = w.water.feature(Math.round(p.start / 1250) + off);
+          const f = w.water.feature(slot);
           if (!f || f.kind !== 'stream') continue;
           built++;
           const st = f as Stream;

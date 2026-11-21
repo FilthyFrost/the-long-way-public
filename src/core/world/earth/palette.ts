@@ -32,6 +32,12 @@ export interface PlaceAir {
   zenith: readonly [number, number, number];
   haze: number;
   sun: readonly [number, number, number];
+  /**
+   * its night sky (V1, docs/V3/nodes/V1-light.md): how clear its air is (the stars' and the Milky Way's brightness: 1 a
+   * clear lowland night, up to 1.5 in the dry and the high country, less in the wet tropics' haze), and how near the
+   * aurora's oval is (0 … 1: the cold north's)
+   */
+  night?: { clarity: number; aurora: number };
 }
 
 export interface PlacePalette {
@@ -330,7 +336,11 @@ function airOf(sc: Scene, w: number, t: number, dry: number, snow: number, mood:
   // (its mood: a breath warmer or cooler, as its colours are)
   const k = side * (0.012 + 0.02 * mood);
   horizon = mul(horizon, [1 + k, 1, 1 - k], 1);
-  return { horizon, zenith, haze, sun };
+  // (its night: the stars as bright as the air is clear — dry, high, away from the wet tropics and the sea's damp — and
+  // the aurora where the north is near)
+  const clear = 1 + 0.35 * dry + 0.3 * clamp((m.base - 800) / 2400, 0, 1) - (m.tSea > 22 && w > 0.7 ? 0.25 : 0) - (m.water === 'coast' ? 0.08 : 0);
+  const night = { clarity: clamp(clear, 0.7, 1.5), aurora: clamp((10 - m.tSea) / 7, 0, 1) };
+  return { horizon, zenith, haze, sun, night };
 }
 
 // ---- a plant's colours in a place

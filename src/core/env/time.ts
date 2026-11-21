@@ -37,13 +37,20 @@ export class SkyState {
   night = 0;
   /** true while the sun is past its highest point */
   afternoon = false;
+  /** the moon's phase: 0 new … 0.5 full … 1 (a month of MOON_DAYS days; V1, docs/V3/nodes/V1-light.md) */
+  moonPhase = 0.5;
 }
+
+/** the days of the moon's month: some nights of a session moonlit, some dark enough for the Milky Way */
+export const MOON_DAYS = 6;
 
 export class DayClock {
   /** real seconds for one full day */
   dayLength = 2400;
   /** highest sun elevation (deg) */
   maxElevation = 58;
+  /** the developer's moon (its phase 0 … 1), in place of the month's (null: the month's) */
+  moonOverride: number | null = null;
   private offset: number;
 
   constructor(startHour = 8.5) {
@@ -105,6 +112,9 @@ export class DayClock {
 
   state(t: number, out: SkyState): void {
     DayClock.skyAtHour(this.hourAt(t), this.maxElevation, out);
+    // (the night belongs to the day it began on: after midnight the moon is the evening's)
+    const day = this.dayAt(t);
+    out.moonPhase = this.moonOverride ?? (((day + 2.6) / MOON_DAYS) % 1 + 1) % 1;
   }
 
   static skyAtHour(hour: number, maxElevation: number, out: SkyState): void {

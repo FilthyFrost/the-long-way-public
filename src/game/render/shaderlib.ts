@@ -49,6 +49,11 @@ export const globals = {
   uWind: { value: new THREE.Vector4(1, 0, 0.15, 0) },
   /** cloud shadows drifting over the land: xy = drift (m), z = cloud cover, w = strength */
   uCloudShadow: { value: new THREE.Vector4(0, 0, 0.3, 0) },
+  /**
+   * the earth's shadow (V1): after sunset the sun's last light is on the heights only — x the height (render space) its
+   * edge has climbed to, y how soft it is (0: no edge, all in the light)
+   */
+  uEarthShadow: { value: new THREE.Vector2(0, 0) },
   /** cast shadows: fine map around the vehicle, wide map around the camera */
   uShadowMap0: { value: null as THREE.Texture | null },
   uShadowMap1: { value: null as THREE.Texture | null },
@@ -110,6 +115,7 @@ uniform vec3 uHeadDir;
 uniform vec3 uHeadColor;
 uniform vec4 uWind;
 uniform vec4 uCloudShadow;
+uniform vec2 uEarthShadow;
 uniform sampler2D uShadowMap0;
 uniform sampler2D uShadowMap1;
 uniform mat4 uShadowMat0;
@@ -200,11 +206,14 @@ float rtShadowTap(sampler2D map, vec3 uvz, float bias) {
 }
 // Broad cloud shadows sliding over the land: field-sized, crossing at the wind's pace.
 float rtCloudShade(vec3 pos) {
-  if (uCloudShadow.w < 0.01) return 1.0;
+  // (after sunset the valleys are in the earth's shadow, the peaks glow)
+  float es = uEarthShadow.y > 0.0 ? smoothstep(uEarthShadow.x - uEarthShadow.y, uEarthShadow.x + uEarthShadow.y, pos.y) : 1.0;
+  if (uCloudShadow.w < 0.01) return es;
   vec2 w = rtWorldXZ(pos) - uSunDir.xz / max(uSunDir.y, 0.2) * 400.0 + uCloudShadow.xy;
-  float c = rtNoiseAt(w, 2048.0).b * 0.7 + rtNoiseAt(w + 300.0, 512.0).a * 0.3;
+  // (one fetch: the field-sized blobs of a cumulus sky; the grass draws this per fragment, many times over)
+  float c = rtNoiseAt(w, 2048.0).b;
   float edge = mix(0.66, 0.4, uCloudShadow.z);
-  return 1.0 - uCloudShadow.w * smoothstep(edge, edge + 0.08, c);
+  return (1.0 - uCloudShadow.w * smoothstep(edge, edge + 0.08, c)) * es;
 }
 // 1 = lit by the key light, 0 = in cast shadow
 float rtShadowMap(vec3 pos, vec3 n) {
@@ -237,10 +246,17 @@ float rtSlopeSun(float rel) {
   return mix(0.3, 1.0, smoothstep(0.04, 0.5, rel));
 }
 // The light on painted ground: coloured sky where it is shaded, the sun where it is open.
+// A low sun (V1) is a painter's gold: its colour kept whole and stronger against the shade, the shade gone to a
+// violet blue — the warm and the cool of the golden hours. (Not the moon: uWeather.w is the night.)
+float rtLowSun() {
+  return (1.0 - smoothstep(0.08, 0.45, uSunDir.y)) * (1.0 - uWeather.w);
+}
 vec3 rtGroundLight(float open) {
-  vec3 sun = mix(uSunColor, vec3(dot(uSunColor, vec3(0.333))), 0.3) * 0.42 + uSkyColor * 0.35;
+  float low = rtLowSun();
+  vec3 sun = mix(uSunColor, vec3(dot(uSunColor, vec3(0.333))), mix(0.3, 0.04, low)) * (0.42 + 0.12 * low) + uSkyColor * 0.35;
   float lum = dot(uSkyColor, vec3(0.333));
   vec3 sky = mix(vec3(0.4, 0.74, 0.95), uSkyColor / max(lum, 0.01) * 0.62, 0.35) * (lum * 1.9 + 0.06);
+  sky = mix(sky, vec3(dot(sky, vec3(0.333))) * vec3(0.8, 0.8, 1.3), 0.45 * low);
   return mix(sky * 0.85, sun, smoothstep(0.25, 0.95, open));
 }
 // Cel light for things: a lit tone and a sky-lit shade tone meeting along a clean edge.
