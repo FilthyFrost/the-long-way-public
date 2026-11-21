@@ -463,7 +463,9 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       const pi = t.plant[i];
       const d = reg.draws[pi];
       // The profile supplies ornamental understory. Harvestable plants still come from the forage field.
-      if (layer !== LAYER_TREE && !PLANTS[pi].bears && groundProfile(BIOMES[t.region[i]].id)) continue;
+      // (V4: but a place of the emergent Earth keeps its woods' shrubs that are painted crowns, near — the profile's
+      // understory is ferns and moss and an edge shrub now and then, and a wood seen from the road was trunks in a lawn)
+      if (layer !== LAYER_TREE && !PLANTS[pi].bears && groundProfile(BIOMES[t.region[i]].id) && !(layer === LAYER_SHRUB && near && crowns && BIOMES[t.region[i]].earth && crownOf(crowns, pi) >= 0)) continue;
       if (!d.drawn) continue;
       let level = layer === LAYER_TREE ? treeLevel : smallLevel;
       if (dense && layer === LAYER_TREE) {

@@ -208,9 +208,12 @@ export function crownMaterial(): THREE.ShaderMaterial {
         float vPart = vGeomPart;
         #ifdef CROWN_ATLAS
           readCard(vUv, vEver < 0.5 && max(vSettled, uWeather.y) > 0.5 + 0.18 * vVar, vPos, n, vCrown, vPart);
+          // (V4: a far crown's card keeps its own plane's depth where the depth buffer is the reversed one — a depth
+          // written by the shader turns the GPU's early depth test off, and every card behind a hill or another tree
+          // was painted and thrown away; two hundred metres off and more, the card's plane is near enough the crown's)
           #if defined(USE_LOGARITHMIC_DEPTH_BUFFER)
             gl_FragDepth = log2(1.0 - (viewMatrix * vec4(vPos, 1.0)).z) * logDepthBufFC * 0.5;
-          #elif defined(USE_REVERSED_DEPTH_BUFFER)
+          #elif defined(USE_REVERSED_DEPTH_BUFFER) && defined(CROWN_CARD_DEPTH)
             // (the card's point's own depth, as the projection gives it: clip control zero to one)
             float cz = -(viewMatrix * vec4(vPos, 1.0)).z;
             gl_FragDepth = uCamRange.x * (uCamRange.y - cz) / (max(cz, 1e-3) * (uCamRange.y - uCamRange.x));

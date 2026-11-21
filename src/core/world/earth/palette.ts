@@ -204,10 +204,12 @@ const REF_GRASS = lchOf(0x8ebe69);
 
 /** the key of the woods and of the meadow for each hue of a card's plants (efg.ts VegHue) */
 const KEYS: Readonly<Record<VegHue, readonly [Lch, Lch]>> = {
-  deepgreen: [lch(0.53, 0.092, 146), lch(0.63, 0.11, 138)],
+  // (V4: the evergreen and the needle woods lit as Painted Valley lights its trees — a deep green still, but its sunny
+  // side a green and not a shadow; they were the darkest and greyest of the keys, a laurel wood a gloom from the road)
+  deepgreen: [lch(0.625, 0.12, 131), lch(0.655, 0.118, 133)],
   green: [lch(0.6, 0.12, 138), lch(0.69, 0.13, 132)],
   fresh: [lch(0.67, 0.122, 130), lch(0.73, 0.125, 124)],
-  teal: [lch(0.52, 0.072, 168), lch(0.63, 0.085, 150)],
+  teal: [lch(0.585, 0.09, 160), lch(0.645, 0.092, 149)],
   olive: [lch(0.6, 0.085, 118), lch(0.7, 0.09, 108)],
   grey: [lch(0.65, 0.045, 138), lch(0.73, 0.06, 102)],
   gold: [lch(0.6, 0.085, 120), lch(0.77, 0.105, 86)],

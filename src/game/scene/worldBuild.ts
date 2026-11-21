@@ -1171,7 +1171,9 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
       // flowers to the clumps, which are few)
       out.flowers = cb.flowers * (c.rows ? 1 : 0.7);
       const band = elevationBand(profile,siteElevation(biomeId,eco));
-      if (!band || !band.ground.some(name => /草甸|禾草|莎草|丛草|雪草|旱草|高秆草|牧草|田埂草|刈草/.test(name))) out.grow *= 0.13;
+      // (a ground of ferns and moss, a wood's, has hardly a blade under its canopy — but its clearings and the road's
+      // verges are grass, V4: they were a bare lawn of paint)
+      if (!band || !band.ground.some(name => /草甸|禾草|莎草|丛草|雪草|旱草|高秆草|牧草|田埂草|刈草/.test(name))) out.grow *= cb.grass > 0.3 ? 0.13 + 0.87 * (1 - smoothstep(0.2, 0.55, eco.canopy)) : 0.13;
     } else out.flowers = cb.flowers;
     out.slope = eco.slope;
     out.bend = c.rows ? rowCoord(world.seed, x, z) - z : 0;

@@ -69,9 +69,10 @@ const FORM_PLANTS: Partial<Record<Form, { cool: readonly string[]; warm?: readon
 
 /** the trees standing to a hectare where the land suits them, and how much of the land is wood, by structure */
 const STAND: Readonly<Record<Struct, { trees: number; wood: number; shrubs: number }>> = {
-  closed_forest: { trees: 110, wood: 0.82, shrubs: 50 },
-  open_forest: { trees: 70, wood: 0.6, shrubs: 60 },
-  woodland: { trees: 45, wood: 0.32, shrubs: 50 },
+  // (V4: the woods' shrubs doubled — drawn now in the places of the emergent Earth, scene/floraScatter.ts)
+  closed_forest: { trees: 110, wood: 0.82, shrubs: 110 },
+  open_forest: { trees: 70, wood: 0.6, shrubs: 100 },
+  woodland: { trees: 45, wood: 0.32, shrubs: 80 },
   savanna: { trees: 7, wood: 0.1, shrubs: 25 },
   shrubland: { trees: 3, wood: 0.05, shrubs: 140 },
   grassland: { trees: 0.8, wood: 0.03, shrubs: 10 },
@@ -139,12 +140,15 @@ function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number,
   });
   // (a wood's edge and its clearings: some of its trees out in the open, smaller)
   if (!open && tp.length && st.trees > 0) trees.push({ plant: tp[0], perHa: st.trees * 0.12 * scale, canopy: b(0.08, 0.4), size: b(0.55, 0.9), ...r });
+  // (V4: its understory — young trees of its second kind, or its first, under the canopy, a third to two thirds grown —
+  // so that a wood seen from the road is a wood and not a park of trunks)
+  if (!open && tp.length && st.trees > 0) trees.push({ plant: tp[1] ?? tp[0], perHa: st.trees * 0.32 * scale, canopy: b(0.45, 1), size: b(0.38, 0.62), ...r });
   const sp = plantsOf(e.shrubs, warm, null, e.group === 'T6');
   const ss = shares(sp.length);
   sp.forEach((plant, i) => {
     if (plant === 'reed') return;
     const perHa = st.shrubs * ss[i] * scale;
-    if (perHa > 0) shrubs.push({ plant, perHa, ...(open ? {} : { canopy: b(0.1, 0.8) }), grove: 70, ...r });
+    if (perHa > 0) shrubs.push({ plant, perHa, ...(open ? {} : { canopy: b(0.04, 0.85) }), grove: 70, ...r });
   });
   // (the crops of fields and terraces: their own rows or benches)
   for (const f of e.herbs) {
@@ -228,8 +232,10 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
     ],
     cover: {
       grass,
-      height: e.struct === 'savanna' ? 0.9 : e.struct === 'tundra' ? 0.15 : e.struct === 'farmland' ? 0.55 : e.struct === 'desert' ? 0.2 : 0.42,
-      flowers: Math.min(0.5, 0.04 * fl.length + (e.code === 'T7.1f' ? 0.4 : e.code === 'T7.1l' ? 0.35 : 0)),
+      // (V4: the meadows a little taller, as Painted Valley's: knee high)
+      height: e.struct === 'savanna' ? 0.9 : e.struct === 'tundra' ? 0.15 : e.struct === 'farmland' ? 0.55 : e.struct === 'desert' ? 0.2 : 0.52,
+      // (V4: the open country's wild flowers half as many again — a meadow in bloom a sprinkle all over, as Painted Valley's)
+      flowers: Math.min(0.5, (e.struct === 'grassland' || e.struct === 'savanna' || e.struct === 'woodland' || e.struct === 'open_forest' || e.struct === 'shrubland' || e.struct === 'tundra' ? 0.065 : 0.04) * fl.length + (e.code === 'T7.1f' ? 0.4 : e.code === 'T7.1l' ? 0.35 : 0)),
       hues: [...crops, ...fl].slice(0, 4).length ? [...crops, ...fl].slice(0, 4) : [0xf4f0e6],
       ...(rows ? { rows } : {}),
       bare: salt ? 0.96 : e.struct === 'ice' ? 1 : e.struct === 'bare' ? 0.9 : e.struct === 'desert' ? 0.75 : e.struct === 'tundra' ? 0.25 : e.struct === 'shrubland' ? 0.2 : 0,
