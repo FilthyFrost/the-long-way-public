@@ -32,7 +32,9 @@ try {
         const sc = piece.scene.place;
         return { start: piece.start, end: piece.end, border: piece.border, name: sc.name, tag: sc.tag, efg: sc.look.efg.code, landform: sc.look.landform.id, rock: sc.macro.rock, base: Math.round(sc.macro.base), relief: Math.round(sc.macro.relief) };
       }, p.place);
-      const km = (info.start + Math.max(500, info.border / 2 + 400)) / 1000;
+      // (in the place itself, the middle of its chapter: the blends with the places either side lie across its two
+      // ends, spine.ts ChapterPlan.blend; PURE=0 for the old spot, in the blend with the one before)
+      const km = (process.env.PURE === '0' ? info.start + Math.max(500, info.border / 2 + 400) : (info.start + info.end) / 2) / 1000;
       await page.evaluate((km) => window.__rt.devGoKm(km, true), km);
       await built(page);
       await idle(page);

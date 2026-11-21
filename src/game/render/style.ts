@@ -173,8 +173,9 @@ export function earthStyle(row: BiomePalette, kinRow: BiomePalette, kin: BiomeSt
     ...kin,
     ground: { deep: tones[0], mid: tones[1], lit: tones[2] },
     dry: linear(row.dust),
-    patchWarm: carried(kin.patchWarm, tones[1], kt[1]),
-    patchCool: carried(kin.patchCool, tones[1], kt[1]),
+    // (its own patches where its row has them: a multiplier carried by a ground's colour would tint them its colour)
+    patchWarm: row.patches ? [...row.patches[0]] as RGB : carried(kin.patchWarm, tones[1], kt[1]),
+    patchCool: row.patches ? [...row.patches[1]] as RGB : carried(kin.patchCool, tones[1], kt[1]),
     forest: [forest, forest, mean(crowns), lightest],
     rock: { lit: linear(row.rock), shade: linear(row.rock2) },
     flowers: row.flowers ? [linear(row.flowers[0]), linear(row.flowers[1]), linear(row.flowers[2])] : kin.flowers,
@@ -363,7 +364,9 @@ function fillCover(coverData: Float32Array, misc: Float32Array, slot: number, bi
   const wet = Math.min(1, Math.max(0, (table.eco.moist - 0.62) / 0.1));
   let reeds = 0;
   for (const r of table.shrubs) if (r.plant === 'reed') reeds = Math.max(reeds, r.perHa);
-  put4(misc, slot, wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), region.relief?.snow ?? 1e5, region.relief?.trees ?? 1e5);
+  // (the line the ground goes bare above: the emergent Earth's places keep their alpine meadows and tundra above
+  // their last trees, up to where the ground's plants end; a region written by hand goes bare at its tree line)
+  put4(misc, slot, wet * wet * (3 - 2 * wet), Math.min(1, reeds / 700), region.relief?.snow ?? 1e5, region.relief?.bare ?? region.relief?.trees ?? 1e5);
 }
 
 const shown = [-1, -1, -1, -1];

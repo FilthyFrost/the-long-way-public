@@ -33,6 +33,8 @@ export interface BiomePalette {
   trunk: number;
   /** the three colours of its meadow flowers (absent: its kin's) */
   flowers?: [number, number, number];
+  /** its ground's warm and cool patches, as multipliers (linear; absent: its kin's, carried over) */
+  patches?: readonly [readonly [number, number, number], readonly [number, number, number]];
   /**
    * What else of the painted look sets it apart from its kin (render/style.ts BiomeStyle): how dry it is, how
    * much grass grows and how tall, how many flowers, how steep the ground is where bare rock begins
@@ -206,6 +208,7 @@ export function earthPalette(e: EarthLook): BiomePalette {
     trunk: e.trunk,
     flowers: [e.flowers[0], e.flowers[1], e.flowers[2]],
     look: { dryness: e.dryness, grassDensity: e.grass, grassGrow: 0.2 + 0.6 * e.grass, grassSize: e.grassSize, flowerAmount: e.flowerAmount, rockStart: e.rockStart, snow: e.snow, strata: e.strata, crownVariety: e.crownVariety },
+    ...(e.patches ? { patches: e.patches } : {}),
   };
 }
 

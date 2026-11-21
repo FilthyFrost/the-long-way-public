@@ -10,6 +10,7 @@ import type { FeatureRecipe } from './features';
 import { Surface } from './ground';
 import type { LandKind, LandSize } from './landform';
 import type { DuneShape } from './operators';
+import type { PlacePalette } from './earth/palette';
 import { ADDED_REGIONS } from './regions/index';
 
 export interface BiomeDef {
@@ -77,6 +78,11 @@ export interface RegionRelief {
   /** where snow lies on all but the steepest faces, and where the woods end (m above the sea): by its climate */
   snow: number;
   trees: number;
+  /**
+   * Where the ground's plants end and the bare rock and scree begin (m above the sea): above the woods the alpine
+   * meadow and the tundra go on up to it (the emergent Earth's: absent, the woods' line is the ground's too)
+   */
+  bare?: number;
   /**
    * The hills of the middle distance: how high they stand (m) and how far it is from one to the next (m). They
    * begin beyond the reach of the verge and of the places by the road (relief.ts HILLS_FROM) and are whole a
@@ -195,6 +201,12 @@ export interface EarthLook {
   crownVariety: number;
   /** its month (1 … 12), as the northern year runs: what season its plants are in */
   month: number;
+  /** the palette every plant of it is painted in (world/earth/palette.ts), and its air */
+  palette?: PlacePalette;
+  /** how wide the beach at its water's edge is (1 a sandy shore's; less: a strip at the edge, its floodplain green) */
+  beach?: number;
+  /** what its ground is multiplied by in its warm and its cool patches (linear, channel by channel) */
+  patches?: readonly [readonly [number, number, number], readonly [number, number, number]];
 }
 
 /**

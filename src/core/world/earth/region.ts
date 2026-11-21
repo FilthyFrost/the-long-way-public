@@ -17,9 +17,10 @@ import { Surface } from '../ground';
 import type { LandKind } from '../landform';
 import { LAPSE, growingAt, monthWarmthAt, warmthAt, wetnessAt, type Macro } from '../../earth/climate';
 import type { Scene } from '../../earth/director';
-import type { Efg, Struct, VegHue } from '../../earth/efg';
+import type { Efg, Struct } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
 import { landOfPlace } from './landform';
+import { accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
 
 /** the id of the region of a world's place k */
 export function earthRegionId(seed: number, k: number): string {
@@ -120,6 +121,14 @@ export function treeLineOf(m: Macro): number {
   return Math.max(0, (growingAt(m, 0) - 6.4) / LAPSE);
 }
 
+/**
+ * The height where the ground's plants end (m above the sea): where the growing season's warmth falls to 3 °C, the
+ * alpine meadow's and the tundra's last cushions some five hundred metres above the last trees
+ */
+export function bareLineOf(m: Macro): number {
+  return Math.max(0, (growingAt(m, 0) - 3) / LAPSE);
+}
+
 /** the country's relief about the road (biomes.ts RegionRelief), from how high it rises and the lie of its land */
 export function reliefOf(sc: Scene, template: RegionDef): RegionRelief {
   const m = sc.macro;
@@ -127,27 +136,30 @@ export function reliefOf(sc: Scene, template: RegionDef): RegionRelief {
   const base = Math.round(m.base);
   const snow = Math.round(snowLineOf(m, m.month));
   const trees = Math.round(treeLineOf(m));
+  // (never below a vegetated place's own slopes: its card is what grows at its road)
+  const vegetated = !['bare', 'ice', 'desert'].includes(sc.look.efg.struct);
+  const bare = Math.round(Math.max(bareLineOf(m), vegetated ? m.base + 320 : 0));
   const far = template.relief?.far ?? 0;
   switch (m.context) {
     case 'mountain':
     case 'valley': {
       const mountain = R >= 450;
       const walls = mountain ? { height: [Math.round(0.55 * R), Math.round(R)] as const, floor: m.context === 'valley' ? 260 : 170, steep: [0.36, 0.6] as const, crest: Math.round(clamp(1.8 * R, 1400, 3200)) } : undefined;
-      return { base, snow, trees, hills: { amp: mountain ? 24 : Math.round(clamp(0.3 * R, 15, 110)), len: 620 }, far, ranges: { amp: Math.round(Math.max(900, 1.6 * R)), from: 3500, full: 16000 }, ...(walls ? { walls, odds: { valley: 0.45, hillside: 0.4, ridge: 0.1, open: 0.05 } } : {}) };
+      return { base, snow, trees, bare, hills: { amp: mountain ? 24 : Math.round(clamp(0.3 * R, 15, 110)), len: 620 }, far, ranges: { amp: Math.round(Math.max(900, 1.6 * R)), from: 3500, full: 16000 }, ...(walls ? { walls, odds: { valley: 0.45, hillside: 0.4, ridge: 0.1, open: 0.05 } } : {}) };
     }
     case 'hills': {
       // (hills as high as the country rises, their crests further apart the higher they stand)
       const amp = Math.round(clamp(0.55 * R, 12, 320));
-      return { base, snow, trees, hills: { amp, len: Math.round(clamp(5 * amp, 600, 2200)) }, far, ranges: { amp: Math.round(Math.max(300, 2.5 * R)), from: 2500, full: 10000 } };
+      return { base, snow, trees, bare, hills: { amp, len: Math.round(clamp(5 * amp, 600, 2200)) }, far, ranges: { amp: Math.round(Math.max(300, 2.5 * R)), from: 2500, full: 10000 } };
     }
     case 'plateau':
-      return { base, snow, trees, hills: { amp: Math.round(clamp(0.35 * R, 5, 150)), len: 1100 }, far, ranges: { amp: Math.round(Math.max(400, 2.2 * R)), from: 3000, full: 12000 } };
+      return { base, snow, trees, bare, hills: { amp: Math.round(clamp(0.35 * R, 5, 150)), len: 1100 }, far, ranges: { amp: Math.round(Math.max(400, 2.2 * R)), from: 3000, full: 12000 } };
     case 'basin':
-      return { base, snow, trees, hills: { amp: Math.round(clamp(0.2 * R, 3, 60)), len: 900 }, far, ranges: { amp: Math.round(Math.max(450, 2.6 * R)), from: 3000, full: 12000 } };
+      return { base, snow, trees, bare, hills: { amp: Math.round(clamp(0.2 * R, 3, 60)), len: 900 }, far, ranges: { amp: Math.round(Math.max(450, 2.6 * R)), from: 3000, full: 12000 } };
     case 'coast':
-      return { base, snow, trees, hills: { amp: Math.round(clamp(0.4 * R, 5, 160)), len: 900 }, far, ranges: { amp: Math.round(Math.max(300, 2 * R)), from: 2500, full: 9500 } };
+      return { base, snow, trees, bare, hills: { amp: Math.round(clamp(0.4 * R, 5, 160)), len: 900 }, far, ranges: { amp: Math.round(Math.max(300, 2 * R)), from: 2500, full: 9500 } };
     default:
-      return { base, snow, trees, hills: { amp: Math.round(clamp(0.25 * R, 3, 60)), len: 850 }, far, ranges: { amp: Math.round(Math.max(300, 3 * R)), from: 2500, full: 10000 } };
+      return { base, snow, trees, bare, hills: { amp: Math.round(clamp(0.25 * R, 3, 60)), len: 850 }, far, ranges: { amp: Math.round(Math.max(300, 3 * R)), from: 2500, full: 10000 } };
   }
 }
 
@@ -176,23 +188,6 @@ export function waterOfPlace(sc: Scene): RegionWater {
 
 // ---- its colours
 
-/** the hue of its plants, painted (the crowns' and the grass's): a few tones a hue */
-const VEG: Readonly<Record<VegHue, readonly [number, number, number]>> = {
-  deepgreen: [0x2f6a3e, 0x3f7f48, 0x56935a],
-  green: [0x5c9a50, 0x74ae5c, 0x8cc070],
-  fresh: [0x86bd5a, 0x9fcd68, 0xb4d878],
-  teal: [0x3f7a6a, 0x4f8c74, 0x63a080],
-  olive: [0x7f8f4c, 0x93a05a, 0xa8b06a],
-  grey: [0x8d9a80, 0xa2ac92, 0xb6bea6],
-  gold: [0xc4a456, 0xd6b866, 0xe4c97a],
-  autumn: [0xc6602e, 0xdc8a3a, 0xe8b04e],
-  blossom: [0xe8a8bc, 0xf2c2d0, 0xf8dbe2],
-  brown: [0x8a6a4a, 0x9c7c58, 0xae8e68],
-  white: [0xdfe6ea, 0xeef2f4, 0xf8fafb],
-  purple: [0x8a6aa8, 0x9e80bc, 0xb498cc],
-  none: [0xbcb090, 0xccc0a0, 0xdcd0b0],
-};
-
 /** how much of its ground is under grass or the like, by its structure (the rest is its rock's ground) */
 const GRASSY: Readonly<Record<Struct, number>> = { closed_forest: 0.85, open_forest: 0.8, woodland: 0.75, savanna: 0.75, shrubland: 0.5, grassland: 1, farmland: 1, wetland: 1, tundra: 0.7, desert: 0.08, bare: 0.08, ice: 0, water: 0.5 };
 
@@ -207,68 +202,65 @@ function mix(a: number, b: number, t: number): number {
   return (r << 16) | (g << 8) | bl;
 }
 
-/** the veg hue of a place's plants in its month (a deciduous wood's gold in autumn, the orchards' blossom in spring) */
-function vegOf(sc: Scene): VegHue {
-  return sc.look.sig.veg === 'none' ? (sc.look.efg.veg === 'none' ? 'none' : sc.look.efg.veg) : sc.look.sig.veg;
-}
-
 /**
- * The colours of a place's tree crowns, by the traits its climate gives its leaves (the plan's trait rules, §6):
- * an autumn wood red where the winters are hard and the country continental, gold by a milder sea; the dry
- * country's hard leaves grey and glaucous; the wet tropics' deep and glossy; the cold's dark and blue
+ * The colours of a place's tree crowns: five tones of the key of its woods (world/earth/palette.ts), by the traits
+ * its climate gives its leaves — an autumn wood red where the winters are hard and the country continental, gold
+ * by a milder sea; the dry country's hard leaves grey and glaucous; the wet tropics' deep and glossy; the cold's
+ * dark and blue; under snow an ink green.
  */
-export function crownsOf(sc: Scene): number[] {
-  const e = sc.look.efg;
-  const m = sc.macro;
-  const w = wetnessAt(m, m.base);
-  let hue: readonly [number, number, number] = VEG[e.struct === 'ice' ? 'grey' : vegOf(sc) === 'white' ? 'teal' : vegOf(sc)];
-  if (vegOf(sc) === 'autumn') hue = m.cont > 0.55 ? [0xb8402a, 0xd2602e, 0xe08a3a] : [0xc89a2e, 0xdcb440, 0xe8cc5a];
-  let tilt = 0;
-  let toward = 0;
-  if (w < 0.35 && warmthAt(m, m.base) > 8) [tilt, toward] = [0.32, 0x93a08a];
-  else if (m.tSea > 22 && w > 0.75) [tilt, toward] = [0.25, 0x23683a];
-  else if (growingAt(m, m.base) < 9) [tilt, toward] = [0.22, 0x2e5a52];
-  const t = (c: number): number => (tilt > 0 && vegOf(sc) !== 'autumn' && vegOf(sc) !== 'blossom' ? mix(c, toward, tilt) : c);
-  return [t(hue[0]), t(hue[1]), t(hue[2]), t(mix(hue[1], 0xffffff, 0.12)), t(mix(hue[0], 0x203020, 0.15))];
+export function crownsOf(sc: Scene, seed = 0, k = sc.index): number[] {
+  return swatches(paletteOfPlace(sc, seed, k)).leaf;
 }
 
-/** how a place is painted (biomes.ts EarthLook) */
-export function lookOfPlace(sc: Scene): EarthLook {
+/** how a place is painted (biomes.ts EarthLook): every colour of it out of its palette */
+export function lookOfPlace(sc: Scene, seed = 0, k = sc.index): EarthLook {
   const m = sc.macro;
   const e: Efg = sc.look.efg;
   const rk = rock(m.rock);
   const snow = sc.look.sig.snow;
-  const veg = VEG[snow ? 'white' : vegOf(sc)];
+  const pal = paletteOfPlace(sc, seed, k);
+  const sw = swatches(pal);
   // (on the salt itself — a pan, a crust — the white shows through everything)
   const grassy = snow ? 0.15 : rk.fertile < 0.03 ? 0.04 : GRASSY[e.struct];
-  const g = rk.ground;
   // (snow lying: its ground white, the rock showing a little through it)
-  const g0 = snow ? mix(g, 0xf2f5f7, 0.8) : g;
-  const ground: [number, number, number] = [mix(g0, veg[0], grassy), mix(g0, veg[1], grassy), mix(g0, veg[2], grassy)];
-  const crowns = crownsOf(sc);
+  const g0 = snow ? mix(sw.soil, 0xf2f5f7, 0.8) : sw.soil;
+  const ground: [number, number, number] = [mix(g0, sw.grass[0], grassy), mix(g0, sw.grass[1], grassy), mix(g0, sw.grass[2], grassy)];
+  const crowns = sw.leaf;
   const pale = e.trees.some((t) => t === 'broadleaf_leader' || t === 'eucalypt');
   const fl = (e.flowers ?? []).map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
   const herbs = e.herbs.map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
-  const hues = [...herbs, ...fl, 0xf6f2e6, 0xf2c84b, 0x9a7fd0];
+  const hues = [...herbs, ...fl, 0xf6f2e6, 0xf2c84b, 0x9a7fd0].map((c) => accentColour(pal, c));
   const w = wetnessAt(m, m.base);
+  const layered = m.rock === 'sandstone_red' || m.rock === 'sandstone_pale' || m.rock === 'shale';
+  const limey = m.rock === 'limestone' || m.rock === 'dolomite';
+  const sil = sc.look.landform.silhouette;
+  const shows = e.struct === 'desert' || e.struct === 'bare' || (e.struct === 'shrubland' && w < 0.35) || sil === 'tables' || sil === 'canyon' || sil === 'cliffs' || sil === 'towers';
   return {
     ground,
-    dust: mix(g, 0xffffff, 0.12),
-    rock: rk.lit,
-    rock2: rk.shade,
+    // (the dusty verge and the dry patches, the blades gone to straw: between its ground and its straw)
+    dust: mix(mix(sw.soil, sw.straw, snow ? 0.2 : 0.55), 0xffffff, 0.06),
+    rock: stoneColour(pal, rk.lit),
+    rock2: stoneColour(pal, rk.shade),
     forest: mix(crowns[0], 0x1c2a1c, 0.25),
     crowns,
-    trunk: pale ? 0xd8d0c0 : 0x6e5a44,
+    trunk: barkColour(pal, pale ? 0xd8d0c0 : 0x6e5a44),
     flowers: [hues[0], hues[1], hues[2]],
-    dryness: clamp((0.5 - w) / 0.4, 0, 1),
+    // (its grass as far gone to straw as its palette's: the meadow by the road and the far hills alike)
+    dryness: clamp(Math.max(pal.parched, (0.42 - w) / 0.4), 0, 1),
     grass: grassy,
     grassSize: e.struct === 'savanna' ? 1.3 : e.struct === 'tundra' ? 0.5 : e.struct === 'farmland' ? 1.1 : 1,
     flowerAmount: clamp((e.flowers?.length ?? 0) * 0.08 + (e.code.startsWith('T7.1') ? 0.2 : 0), 0, 0.6),
     rockStart: e.struct === 'bare' || e.struct === 'desert' ? 0.45 : e.struct === 'tundra' ? 0.6 : 0.85,
     snow: snow ? 1 : 0,
-    strata: m.rock === 'sandstone_red' || m.rock === 'sandstone_pale' || m.rock === 'shale' ? 1 : m.rock === 'limestone' || m.rock === 'dolomite' ? 0.5 : 0,
+    // (its rock in layers where its rock shows — the dry and bare country, the tables, canyons, cliffs and towers:
+    // the paint lays that rock on all its higher ground, render/terrainMaterials.ts; a green place on sandstone is green)
+    strata: shows ? (layered ? 1 : limey ? 0.5 : 0) : 0,
     crownVariety: sc.look.sig.veg === 'autumn' ? 1 : 0,
     month: m.month,
+    palette: pal,
+    // (a sandy shore, a desert's: the sand all the way up; else a strip of it at the water's edge)
+    beach: rk.loose && (m.water === 'coast' || e.struct === 'desert' || e.struct === 'bare') ? 1 : 0.4,
+    patches: patchesOf(pal),
   };
 }
 
@@ -346,6 +338,6 @@ export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
     water: waterOfPlace(sc),
     relief,
     noise: earthNoise(k),
-    earth: lookOfPlace(sc),
+    earth: lookOfPlace(sc, seed, k),
   };
 }

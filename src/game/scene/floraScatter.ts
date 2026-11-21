@@ -39,6 +39,7 @@ import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/pla
 import { TerrainPoint, type World } from '../../core/world/terrain';
 import { globals } from '../render/shaderlib';
 import { paintedFamily, CROWN_PAINT } from './crowns/palette';
+import { earthPaints } from './earthPaint';
 import { CROWN_STRIDE, GROUND_KIT, GROUND_VARIANTS, groundFamily, type CrownLookup } from './crowns/crownData';
 import { TEA_ROWS } from './plantModels';
 import type { AtlasModel, PlantClass, PlantDraw, PlantRegistry } from './plantRegistry';
@@ -355,8 +356,11 @@ function put(g: Gather, d: PlantDraw, plant: PlantDef, model: AtlasModel, level:
   g.look[o] = pair;
   const deciduousWood = !plant.evergreen && (plant.layer === 'tree' || plant.layer === 'shrub');
   g.look[o + 1] = share * 0.999 + bears + d.evergreen + (deciduousWood ? 8 : 0);
-  g.look[o + 2] = d.tintA;
-  let second = d.tintB;
+  // (a place of the emergent Earth: the plant in its place's palette, scene/earthPaint.ts)
+  const ep = earthPaints(region);
+  const pi = ep ? plantIndex(plant.id) : -1;
+  g.look[o + 2] = ep ? ep.leaf[pi] : d.tintA;
+  let second = ep ? ep.second[pi] : d.tintB;
   if (d.regionAccent) {
     const hs = huesOf(region);
     if (hs.length) second = hs[Math.min(hs.length - 1, Math.floor(vary * hs.length))];
@@ -529,8 +533,15 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
           crownScratch[o + 9] = share * 0.999 + bears + d.evergreen;
           const paint = CROWN_PAINT[bush ?? paintedFamily(plant.id, plant.model)];
           const autumn = BIOMES[region]?.id === 'maple';
-          crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (bush || ['maple','chestnut_tree','willow'].includes(plant.id) ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
-          crownScratch[o + 11] = plant.bears?.where === 'on' && plant.model === 'fruit_tree' ? second : paint?.bark ?? second;
+          // (a place of the emergent Earth: its crowns in its palette, scene/earthPaint.ts)
+          const ep = earthPaints(region);
+          if (ep) {
+            crownScratch[o + 10] = bush ? ep.bush(bush) : ep.crownLeafAt(pi, vary);
+            crownScratch[o + 11] = ep.crownSecond[pi];
+          } else {
+            crownScratch[o + 10] = (autumn && !plant.evergreen ? paint?.autumn : undefined) ?? (bush || ['maple','chestnut_tree','willow'].includes(plant.id) ? paint.leaf : plant.tint?.[0]) ?? paint?.leaf ?? d.tintA;
+            crownScratch[o + 11] = plant.bears?.where === 'on' && plant.model === 'fruit_tree' ? second : paint?.bark ?? second;
+          }
           crownScratch[o + 12] = vary;
           crownScratch[o + 13] = inside;
           crownScratch[o + 14] = m.radius * sx;

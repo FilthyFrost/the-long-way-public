@@ -99,8 +99,15 @@ export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number,
   gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
   gd[k * 4 + 1] = t.relief + t.landform;
   gd[k * 4 + 2] = lawn > 0.02 ? -lawn : wood;
-  // how far under the water this ground lies (negative above it; −40 where there is no water about)
-  gd[k * 4 + 3] = t.wl > -1e8 ? Math.max(-40, Math.min(40, t.wl - t.bed)) : -40;
+  // how far under the water this ground lies (negative above it; −40 where there is no water about). A place of
+  // the emergent Earth that is no sandy shore has only a strip of beach at its water's edge: its height above the
+  // water counted as more than it is, so a valley floor a metre above its river stays the valley's (EarthLook.beach)
+  let wd = t.wl > -1e8 ? t.wl - t.bed : -40;
+  if (wd < 0 && wd > -40) {
+    const beach = BIOMES[t.bt >= 0.5 ? t.bb : t.ba]?.earth?.beach ?? 1;
+    if (beach < 1) wd /= beach;
+  }
+  gd[k * 4 + 3] = Math.max(-40, Math.min(40, wd));
 }
 
 /** how mown the grass is at a shaped point (a plot's: Plot.grass), 0 … 1: the ground under a lawn is painted lusher and evener */

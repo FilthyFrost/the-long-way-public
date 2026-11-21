@@ -11,10 +11,19 @@ import { LightState, lightAt } from '../render/style';
 
 /** per-biome adjustments on top of the hour's light (a region without a row of its own has its kin's air) */
 interface BiomeAir {
-  horizon: [number, number, number];
-  zenith: [number, number, number];
+  horizon: readonly [number, number, number];
+  zenith: readonly [number, number, number];
   haze: number;
+  /** the tint of its sun (absent: none) */
+  sun?: readonly [number, number, number];
 }
+
+/** a region's air: a place of the emergent Earth its palette's (core/world/earth/palette.ts), else its row's, else its kin's */
+function airOf(id: string): BiomeAir {
+  const r = regionById(id);
+  return r.earth?.palette?.air ?? regionRow(AIR, r);
+}
+const ONE = [1, 1, 1] as const;
 
 const AIR: Record<string, BiomeAir> = {
   plains: { horizon: [1, 1, 1], zenith: [1, 1, 1], haze: 1 },
@@ -65,8 +74,8 @@ export function computeLook(sky: SkyState, w: WeatherState, biomeA: string, biom
   out.stars = 1 - THREE.MathUtils.smoothstep(elev, -14, -4);
 
   // ---- the air of the place
-  const a = regionRow(AIR, regionById(biomeA));
-  const b = biomeB === biomeA ? a : regionRow(AIR, regionById(biomeB));
+  const a = airOf(biomeA);
+  const b = biomeB === biomeA ? a : airOf(biomeB);
   cA.setRGB(a.horizon[0] + (b.horizon[0] - a.horizon[0]) * bt, a.horizon[1] + (b.horizon[1] - a.horizon[1]) * bt, a.horizon[2] + (b.horizon[2] - a.horizon[2]) * bt);
   out.horizon.multiply(cA);
   out.fog.multiply(cA);
@@ -74,6 +83,12 @@ export function computeLook(sky: SkyState, w: WeatherState, biomeA: string, biom
   out.zenith.multiply(cB);
   out.mid.multiply(cB);
   out.haze *= a.haze + (b.haze - a.haze) * bt;
+  const sa = a.sun ?? ONE;
+  const sb = b.sun ?? ONE;
+  if (sa !== ONE || sb !== ONE) {
+    cA.setRGB(sa[0] + (sb[0] - sa[0]) * bt, sa[1] + (sb[1] - sa[1]) * bt, sa[2] + (sb[2] - sa[2]) * bt);
+    out.sun.multiply(cA);
+  }
 
   // ---- weather
   // the air thickens with what is falling — and, ahead of a front, with what is about to

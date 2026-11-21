@@ -5,6 +5,7 @@ import { Ecotope, ECO_SITE, ECO_PLOT, ECO_TILE } from './ecotope';
 import { Cover, onBench } from './flora';
 import { blossoms, elevationBand, groundProfile, pigments, plants, siteElevation, siteFit, type Growth } from './groundTables';
 import { sampleRock } from './rockTables';
+import { accentColour, autumnColour, barkColour, grassColour, groundColour, leafColour, stoneColour, type PlacePalette } from './earth/palette';
 import { Solid, solidWithin, type SolidSource } from './solids';
 import { TerrainPoint, type World } from './terrain';
 
@@ -21,6 +22,22 @@ export function groundField(world: World) {
   return field;
 }
 
+
+/** the forms that are blades (their key the meadow's), and the low mats of the ground (drawn to its soil) */
+const BLADES = new Set(['grass','tussock','sedge','rice']);
+const MATS = new Set(['crust','moss','lichen','needles','litter','clover','cushion','knees']);
+
+/** a clump of a place of the emergent Earth in its place's palette: its leaf, its blades, its flowers, its stone */
+function earthClump(c: GroundClump, pal: PlacePalette, rocks: boolean, flower: boolean, dry: boolean, autumn: boolean, winter: boolean): void {
+  if (rocks) {
+    c.paint = stoneColour(pal, c.paint);
+    c.accent = groundColour(pal, c.accent);
+    return;
+  }
+  const f = c.form;
+  c.paint = winter ? barkColour(pal, c.paint) : autumn ? autumnColour(pal, c.paint) : BLADES.has(f) ? grassColour(pal, c.paint, dry) : MATS.has(f) ? groundColour(pal, c.paint) : leafColour(pal, c.paint);
+  c.accent = flower ? accentColour(pal, c.accent) : grassColour(pal, c.accent, true);
+}
 
 export class GroundField implements SolidSource {
   private readonly tiles = new Map<string,GroundClump[]>();
@@ -99,6 +116,9 @@ export class GroundField implements SolidSource {
     const h = g.height*scale*(winter ? 0.73 : 1), r = g.radius*scale*(g.form==='fern' ? 1.43 : 1);
     const yaw = g.form==='rice' ? 0 : rand2(i,j,seed+6)*2*Math.PI;
     const out:GroundClump = {x,y:tp.bed,z,yaw,radius:r,height:h,form:g.form,name,paint:winter ? 0x8a806c : autumn ? 0xb98552 : dry ? 0xb9a16b : g.paint,accent:accent || (rocks ? g.paint : 0xb19a6c),seed:vary};
+    // (a place of the emergent Earth: every clump in its palette, docs/V3/nodes/R1-palettes.md)
+    const pal = biome.earth?.palette;
+    if (pal) earthClump(out, pal, rocks, accent !== 0 && !rocks, dry, autumn, winter);
     if (rocks && h>0.68) {
       const fin = g.form==='fin' || g.form==='strata';
       out.solid = new Solid().set(x,z,r*0.8,fin ? r*0.35 : 0,-yaw,tp.bed-0.5,tp.bed+h*0.9,false,'geology:'+g.form);
