@@ -509,7 +509,12 @@ export function groundShadowMaterial(): THREE.ShaderMaterial {
         vPos = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
         #include <logdepthbuf_vertex>
+        #if defined(USE_LOGARITHMIC_DEPTH_BUFFER)
         vFragDepth *= 0.9985;
+        #elif defined(USE_REVERSED_DEPTH_BUFFER)
+        // (a reversed depth is near / distance: depth / k is the depth of a point k times as far)
+        gl_Position.z /= 0.9985;
+        #endif
       }`,
     fragmentShader: /* glsl */ `
       #include <common>

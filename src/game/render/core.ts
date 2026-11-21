@@ -47,6 +47,8 @@ export class RenderCore {
   exposure = 1;
   /** shafts of light from a low sun (0…1), set by the environment */
   shafts = 0;
+  /** the depth buffer is reversed and floating (else logarithmic): see the constructor */
+  readonly reversedDepth: boolean;
   /** the night's eye (frame.ts night) */
   night = 0;
   readonly shaftColor = new THREE.Color(1, 0.9, 0.7);
@@ -62,13 +64,18 @@ export class RenderCore {
 
   constructor(canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = QUALITY[quality];
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance', alpha: false });
+    // The depth buffer (V2): reversed and floating where the GPU can (EXT_clip_control) — then no shader writes its own
+    // depth and the GPU leaves unshaded what is hidden (early depth: the forest spot 10.6 → 7.6 ms); else logarithmic,
+    // as it was. ?depth=log keeps the logarithmic one.
+    const want = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('depth') : null;
+    this.reversedDepth = want !== 'log' && canReverseDepth();
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: !this.reversedDepth, reversedDepthBuffer: this.reversedDepth, powerPreference: 'high-performance', alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.quality.pixelRatioCap));
     this.renderer.info.autoReset = false;
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-    this.frame = new Frame(this.renderer, { samples: this.quality.msaa, paint: this.quality.paintRadius, smaa: this.quality.smaa });
-    this.shadows = this.quality.shadowSize > 0 ? new ShadowPass(this.quality.shadowSize) : null;
+    this.frame = new Frame(this.renderer, { samples: this.quality.msaa, paint: this.quality.paintRadius, smaa: this.quality.smaa, reversed: this.reversedDepth });
+    this.shadows = this.quality.shadowSize > 0 ? new ShadowPass(this.quality.shadowSize, this.reversedDepth) : null;
     this.sky = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 4), skyDomeMaterial());
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -1000;
@@ -129,6 +136,7 @@ export class RenderCore {
     const wrap = (v: number): number => ((v % NOISE_PERIOD) + NOISE_PERIOD) % NOISE_PERIOD;
     globals.uOriginOffset.value.set(wrap(o.x), wrap(o.y), wrap(o.z));
     globals.uTime.value = time;
+    globals.uCamRange.value.set(this.camera.near, this.camera.far);
     this.renderer.info.reset();
     for (const fn of this.frameListeners) fn();
     // The shadow maps and the screen draw the scene four times (two maps, the plants into the wide one again, the
@@ -161,5 +169,18 @@ export class RenderCore {
   get stats(): { calls: number; triangles: number; geometries: number; textures: number; programs: number } {
     const i = this.renderer.info;
     return { calls: i.render.calls, triangles: i.render.triangles, geometries: i.memory.geometries, textures: i.memory.textures, programs: i.programs?.length ?? 0 };
+  }
+}
+
+/** whether this GPU can draw a reversed depth buffer (EXT_clip_control on a WebGL 2 context): asked once, of a throwaway canvas */
+function canReverseDepth(): boolean {
+  try {
+    if (typeof document === 'undefined') return false;
+    const gl = document.createElement('canvas').getContext('webgl2');
+    const ok = !!gl && !!gl.getExtension('EXT_clip_control');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return ok;
+  } catch {
+    return false;
   }
 }

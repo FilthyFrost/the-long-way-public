@@ -361,7 +361,8 @@ export class Clouds {
   private readonly target: THREE.WebGLCubeRenderTarget;
   private readonly uniforms: Record<string, THREE.IUniform>;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.Camera();
+  // (a plain camera: marked as drawn for a reversed depth buffer already, it has no projection to update)
+  private readonly camera = Object.assign(new THREE.Camera(), { _reversedDepth: true });
   private readonly mesh: THREE.Mesh;
   private unit = 0;
   private cover = -1;

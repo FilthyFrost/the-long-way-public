@@ -25,6 +25,8 @@ export interface FrameOptions {
   paint: number;
   /** SMAA over the finished frame (the ink lines and what MSAA leaves) */
   smaa?: boolean;
+  /** the depth buffer is reversed and floating (render/core.ts), not logarithmic: how the paint reads distance from it */
+  reversed?: boolean;
 }
 
 export class Frame {
@@ -56,7 +58,8 @@ export class Frame {
   private readonly rtDown: THREE.WebGLRenderTarget[] = [];
   private readonly rtUp: THREE.WebGLRenderTarget[] = [];
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.Camera();
+  // (a plain camera: marked as drawn for a reversed depth buffer already, it has no projection to update)
+  private readonly camera = Object.assign(new THREE.Camera(), { _reversedDepth: true });
   private readonly quad: THREE.Mesh;
   private readonly bloomFirst: THREE.ShaderMaterial;
   private readonly bloomDown: THREE.ShaderMaterial;
@@ -74,7 +77,7 @@ export class Frame {
     // (made now: its two lookup images decode asynchronously, and the first shot must have them)
     if (this.smaa) this.makeSmaa();
     const hdr = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, colorSpace: THREE.NoColorSpace } as const;
-    this.depth = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
+    this.depth = new THREE.DepthTexture(1, 1, opts.reversed ? THREE.FloatType : THREE.UnsignedIntType);
     this.depth.minFilter = this.depth.magFilter = THREE.NearestFilter;
     this.rtScene = new THREE.WebGLRenderTarget(1, 1, { ...hdr, samples: opts.samples, depthBuffer: true, stencilBuffer: false, depthTexture: this.depth });
     for (let i = 0; i < STYLE.pipeline.bloom.levels; i++) {
@@ -138,6 +141,7 @@ export class Frame {
       uniform float uPaint;
       uniform vec2 uPaintTexel;
       uniform float uLogFar;
+      uniform vec2 uCamRange;
       uniform float uNearM;
       uniform float uFarM;
       uniform float uKnee;
@@ -201,7 +205,12 @@ export class Frame {
         vec4 c0 = texture2D(tHdr, uv);
         if (c0.a < ${p.paint.skipAlphaBelow.toFixed(2)}) return c0.rgb;
         float d = texture2D(tDepth, uv).r;
+        #ifdef USE_REVERSED_DEPTH_BUFFER
+        // (reversed: the near plane at 1, the far at 0 — d = n (f − z) / (z (f − n)))
+        float away = uCamRange.x * uCamRange.y / (d * (uCamRange.y - uCamRange.x) + uCamRange.x);
+        #else
         float away = exp2(d * uLogFar) - 1.0;
+        #endif
         int r = int(uPaint + 0.5);
         r = min(r, 2);
         if (away < uNearM || away > uFarM) r = min(r, 1);
@@ -284,6 +293,7 @@ export class Frame {
         uPaint: { value: this.paint },
         uPaintTexel: { value: new THREE.Vector2(1, 1) },
         uLogFar: { value: Math.log2(30001) },
+        uCamRange: { value: new THREE.Vector2(0.06, 130000) },
         uNearM: { value: p.paint.nearDepthM },
         uFarM: { value: p.paint.farDepthM },
         uKnee: { value: p.curve.knee },
@@ -377,6 +387,7 @@ export class Frame {
     u.uPaint.value = this.paint;
     u.uPaintTexel.value.set(1 / size.x, 1 / size.y);
     u.uLogFar.value = Math.log2(camera.far + 1);
+    (u.uCamRange.value as THREE.Vector2).set(camera.near, camera.far);
     u.uTime.value = time;
     // where the key light stands on the screen; no shafts when it is behind the eye or far off to the side
     const sv = this.sunScreen.copy(globals.uSunDir.value).multiplyScalar(1000).add(camera.position);

@@ -237,7 +237,10 @@ export function lookOfPlace(sc: Scene, seed = 0, k = sc.index): EarthLook {
   const layered = m.rock === 'sandstone_red' || m.rock === 'sandstone_pale' || m.rock === 'shale';
   const limey = m.rock === 'limestone' || m.rock === 'dolomite';
   const sil = sc.look.landform.silhouette;
-  const shows = e.struct === 'desert' || e.struct === 'bare' || (e.struct === 'shrubland' && w < 0.35) || sil === 'tables' || sil === 'canyon' || sil === 'cliffs' || sil === 'towers';
+  // (a green country's towers, tables and cliffs are green but for their steepest faces — a wet karst's cones are wooded,
+  // not banded rock from the foot up: V2)
+  const green = e.struct === 'closed_forest' || e.struct === 'open_forest' || e.struct === 'woodland' || e.struct === 'wetland' || e.struct === 'farmland' || (e.struct === 'grassland' && w > 0.5);
+  const shows = e.struct === 'desert' || e.struct === 'bare' || (e.struct === 'shrubland' && w < 0.35) || (!green && (sil === 'tables' || sil === 'canyon' || sil === 'cliffs' || sil === 'towers'));
   return {
     ground,
     // (the dusty verge and the dry patches, the blades gone to straw: between its ground and its straw)

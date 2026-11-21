@@ -1082,7 +1082,8 @@ const COVER_GROW = 1.15;
 const COVER_HEIGHT = 0.43;
 /** … and where its flowers are a carpet, this share of the tufts carry one: in a meadow, and in a row of a field */
 const COVER_FLOWERS = 0.55;
-const ROW_FLOWERS = 0.8;
+// (a flower field's rows a carpet of colour: V2)
+const ROW_FLOWERS = 1.5;
 const cb = new CoverBase();
 
 /**
@@ -1165,8 +1166,10 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
     const biomeId = BIOMES[region].id;
     const profile = groundProfile(biomeId);
     if (profile) {
-      // The separate profile clumps carry their own petals, month and seed.
-      out.flowers = 0;
+      // The separate profile clumps carry their own petals, month and seed — and the meadow its drifts and a flower
+      // field its rows over them (V2: a flower field had none, every place of the emergent Earth lost its meadow's
+      // flowers to the clumps, which are few)
+      out.flowers = cb.flowers * (c.rows ? 1 : 0.7);
       const band = elevationBand(profile,siteElevation(biomeId,eco));
       if (!band || !band.ground.some(name => /草甸|禾草|莎草|丛草|雪草|旱草|高秆草|牧草|田埂草|刈草/.test(name))) out.grow *= 0.13;
     } else out.flowers = cb.flowers;

@@ -73,7 +73,9 @@ export function landmarkAt(world: World, k: number, out: Landmark): void {
   }
   out.yaw = r(20) * Math.PI * 2;
   out.scale = 0.85 + 0.45 * r(4);
-  out.absent = world.quiet(Math.floor(out.s / LAND_SLOT));
+  // (not in the scenic world of version 5: the old placeholder remains — a concrete ring, a colonnade — stood flat and
+  // grey in its painted country, a wet karst's forest among them; its wonders are to be its own: V2)
+  out.absent = world.quiet(Math.floor(out.s / LAND_SLOT)) || world.rules.version >= 5;
 }
 
 /** index range of landmarks whose closest approach lies within [sMin, sMax] */

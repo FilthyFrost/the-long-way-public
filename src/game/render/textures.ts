@@ -215,14 +215,75 @@ export function woodsTexture(width = 1024, height = 256): THREE.Texture {
   return t;
 }
 
-let shared: { noise: THREE.DataTexture; strokes: THREE.Texture; leaf: THREE.Texture; woods: THREE.Texture } | null = null;
+/**
+ * Cells (V2): a tiling Voronoi of n by n cells, each point's distance to its cell's edge (R: the gap between the nearest
+ * and the next seed, in cells, times two) and two numbers that are its cell's own (G, B) — what the ground's clumps and
+ * the rock's facets are drawn from (render/terrainMaterials.ts rtCells) with one fetch. Seeds stay within the middle
+ * of their cells, so the nearest is always among the eight about a point's own.
+ */
+export function cellsTexture(size = 1024, cells = 64, seed = 11): THREE.DataTexture {
+  const rnd = mulberry(seed);
+  const sx = new Float32Array(cells * cells);
+  const sy = new Float32Array(cells * cells);
+  const ra = new Uint8Array(cells * cells);
+  const rb = new Uint8Array(cells * cells);
+  for (let i = 0; i < cells * cells; i++) {
+    sx[i] = 0.15 + 0.7 * rnd();
+    sy[i] = 0.15 + 0.7 * rnd();
+    ra[i] = Math.floor(rnd() * 256);
+    rb[i] = Math.floor(rnd() * 256);
+  }
+  const data = new Uint8Array(size * size * 4);
+  const per = size / cells;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const px = (x + 0.5) / per;
+      const py = (y + 0.5) / per;
+      const ix = Math.floor(px);
+      const iy = Math.floor(py);
+      let d1 = 9;
+      let d2 = 9;
+      let id = 0;
+      for (let j = -1; j <= 1; j++) {
+        for (let i = -1; i <= 1; i++) {
+          const cx = (((ix + i) % cells) + cells) % cells;
+          const cy = (((iy + j) % cells) + cells) % cells;
+          const k = cy * cells + cx;
+          const dx = ix + i + sx[k] - px;
+          const dy = iy + j + sy[k] - py;
+          const d = dx * dx + dy * dy;
+          if (d < d1) {
+            d2 = d1;
+            d1 = d;
+            id = k;
+          } else if (d < d2) d2 = d;
+        }
+      }
+      const o = (y * size + x) * 4;
+      data[o] = Math.min(255, Math.round((Math.sqrt(d2) - Math.sqrt(d1)) * 2 * 255));
+      data[o + 1] = ra[id];
+      data[o + 2] = rb[id];
+      data[o + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.NoColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
+let shared: { noise: THREE.DataTexture; strokes: THREE.Texture; leaf: THREE.Texture; woods: THREE.Texture; cells: THREE.DataTexture } | null = null;
 
 /** the shared textures, made on first use (outside a browser — headless tools — the canvas ones are blank) */
-export function sharedTextures(): { noise: THREE.DataTexture; strokes: THREE.Texture; leaf: THREE.Texture; woods: THREE.Texture } {
+export function sharedTextures(): { noise: THREE.DataTexture; strokes: THREE.Texture; leaf: THREE.Texture; woods: THREE.Texture; cells: THREE.DataTexture } {
   if (!shared) {
     const canvas = typeof document !== 'undefined';
     const blank = (): THREE.Texture => new THREE.DataTexture(new Uint8Array([128, 255, 0, 255]), 1, 1);
-    shared = { noise: noiseTexture(canvas ? 256 : 4), strokes: canvas ? strokesTexture() : blank(), leaf: canvas ? leafTexture() : blank(), woods: canvas ? woodsTexture() : blank() };
+    shared = { noise: noiseTexture(canvas ? 256 : 4), strokes: canvas ? strokesTexture() : blank(), leaf: canvas ? leafTexture() : blank(), woods: canvas ? woodsTexture() : blank(), cells: cellsTexture(canvas ? 1024 : 4, canvas ? 64 : 1) };
   }
   return shared;
 }

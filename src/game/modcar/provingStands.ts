@@ -675,7 +675,9 @@ function poolMaterial(): THREE.ShaderMaterial {
         vUv = uv;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         #include <logdepthbuf_vertex>
+        #ifdef USE_LOGARITHMIC_DEPTH_BUFFER
         vFragDepth *= 0.9975;
+        #endif
       }`,
     fragmentShader: /* glsl */ `
       #include <common>

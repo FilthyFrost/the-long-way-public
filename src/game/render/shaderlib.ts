@@ -37,6 +37,8 @@ export const globals = {
   /** render-space height the haze lies on (the ground under the camera) */
   uFogBase: { value: 0 },
   uTime: { value: 0 },
+  /** the camera's near and far planes (m): a depth of one's own, by a reversed depth buffer's rule (crowns' cards) */
+  uCamRange: { value: new THREE.Vector2(0.06, 130000) },
   /** world position of the render origin wrapped to the noise period: keeps ground patterns still when the origin moves */
   uOriginOffset: { value: new THREE.Vector3() },
   /** x: wetness 0..1, y: snow cover 0..1, z: precipitation 0..1, w: night 0..1 */
@@ -88,6 +90,8 @@ export const globals = {
   uRoomLampC: { value: vec4s(ROOM_LAMPS) },
   tNoise: { value: tex.noise },
   tStrokes: { value: tex.strokes },
+  /** the ground's and the rock's cells (textures.ts cellsTexture: 64 to the texture) */
+  tCells: { value: tex.cells },
   ...paletteUniforms,
 };
 
@@ -108,6 +112,7 @@ uniform vec3 uFogSunColor;
 uniform float uFogDensity;
 uniform float uFogBase;
 uniform float uTime;
+uniform vec2 uCamRange;
 uniform vec3 uOriginOffset;
 uniform vec4 uWeather;
 uniform vec3 uHeadPos;
@@ -134,6 +139,7 @@ uniform vec4 uRoomLampP[${ROOM_LAMPS}];
 uniform vec4 uRoomLampC[${ROOM_LAMPS}];
 uniform sampler2D tNoise;
 uniform sampler2D tStrokes;
+uniform sampler2D tCells;
 uniform vec3 uGroundPal[${B * 3}];
 uniform vec3 uDryPal[${B}];
 uniform vec3 uWarmPal[${B}];
@@ -199,7 +205,12 @@ float rtShadowTap(sampler2D map, vec3 uvz, float bias) {
   for (int i = -1; i <= 1; i++) {
     for (int j = -1; j <= 1; j++) {
       float d = texture2D(map, uvz.xy + vec2(float(i), float(j)) * uShadowParams.w).r;
+      #ifdef USE_REVERSED_DEPTH_BUFFER
+      // (reversed: nearer the light is greater)
+      s += step(d, uvz.z + bias);
+      #else
       s += step(uvz.z - bias, d);
+      #endif
     }
   }
   return s / 9.0;

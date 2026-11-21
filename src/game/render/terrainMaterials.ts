@@ -62,6 +62,65 @@ export const GROUND_PAINT = /* glsl */ `
     float broken = smoothstep(0.42, 0.58, rtNoiseAt(w * vec2(0.45, 1.0) + 9.0, 64.0).r);
     return line * slope * broken * smoothstep(25.0, 80.0, dist) * (1.0 - smoothstep(0.12, 0.3, fw));
   }
+  // Cells (V2, as Painted Valley's paintCells): how far a point is from the edge of the cell it is in, and two numbers
+  // that are the cell's own
+  // (from the cells texture, one fetch: render/textures.ts cellsTexture, 64 cells to it)
+  vec3 rtCells(vec2 x) {
+    vec4 t = texture2D(tCells, x / 64.0);
+    return vec3(t.r * 0.5, t.g, t.b);
+  }
+  // The meadow seen from off (V2): clumps of rough grass gathered into masses, and finer dabs — a darker tuft, a fleck
+  // of sun — each fading out before its cells shrink below a few pixels (px1, px2: how far a pixel runs in cells)
+  vec3 rtMeadowDabs(vec2 w, float dist, float px1, float px2, float massN) {
+    vec3 m = vec3(1.0);
+    float k1 = smoothstep(9.0, 22.0, dist) * (1.0 - smoothstep(0.22, 0.5, px1));
+    if (k1 > 0.0) {
+      vec3 t = rtCells(w / 3.2);
+      // (gathered into masses where the 27 m brush is: no fetch of its own)
+      float mass = smoothstep(-0.08, 0.1, massN);
+      m *= mix(vec3(1.0), vec3(0.64, 0.82, 0.9), smoothstep(0.08, 0.2, t.x) * step(t.y, 0.32 * mass + 0.05) * k1);
+    }
+    float k2 = smoothstep(5.0, 12.0, dist) * (1.0 - smoothstep(0.22, 0.5, px2));
+    if (k2 > 0.0) {
+      vec3 c = rtCells(w / 0.9);
+      float dab = smoothstep(0.1, 0.22, c.x) * k2;
+      m *= mix(vec3(1.0), vec3(0.74, 0.86, 0.92), dab * step(0.8, c.y));
+      m *= mix(vec3(1.0), vec3(1.22, 1.12, 0.86), dab * step(c.y, 0.14));
+    }
+    return m;
+  }
+  // Rock as Painted Valley paints its ranges (V2): facets at four sizes at once — large ones and smaller ones on them,
+  // each turned its own way to the light, the joints between them dark; each size fades out before its cells shrink
+  // below a few pixels (px: metres a pixel), so a far face keeps its big planes broken by the next size, and a near one
+  // has them all. Returns the facets' turn toward or away from the light; val their own tone, joints how much of a joint.
+  float rtRockFacets(vec2 fp, float px, out float val, out float joints) {
+    float turn = 0.0;
+    float wsum = 0.0;
+    val = 0.0;
+    joints = 0.0;
+    for (int i = 0; i < 4; i++) {
+      float sz = i == 0 ? 220.0 : i == 1 ? 64.0 : i == 2 ? 19.0 : 5.5;
+      float wt = i == 0 ? 1.0 : i == 1 ? 0.7 : i == 2 ? 0.5 : 0.32;
+      float k = 1.0 - smoothstep(0.06, 0.16, px / sz);
+      if (k <= 0.0) continue;
+      vec3 c = rtCells(fp / sz + float(i) * 7.31);
+      turn += (c.y - 0.5) * wt * k;
+      val += (c.z - 0.5) * wt * k;
+      wsum += wt * k;
+      // (a joint is a line a pixel or two wide whatever the size of its cells, and broken: rock cracks, it is not tiled)
+      float jpx = c.x * sz / max(px, 1e-3);
+      float broken = smoothstep(0.35, 0.6, rtNoiseAt(fp * (3.0 / sz) + float(i) * 3.7, 1.0).g);
+      joints = max(joints, (1.0 - smoothstep(0.5, 1.6, jpx)) * k * broken * (1.0 - 0.18 * float(i)));
+    }
+    val /= max(wsum, 0.3);
+    return turn * 0.6;
+  }
+  // the plane a rock face's facets lie on: a wall's stand up it (along its contour and up), a slab's lie on it
+  vec2 rtRockPlane(vec2 w, vec3 n, float y, float steep) {
+    vec2 fall = n.xz / max(length(n.xz), 1e-3);
+    float wallK = smoothstep(0.3, 0.65, steep);
+    return mix(w, vec2(dot(w, vec2(-fall.y, fall.x)), y * 1.3), wallK) + rtNoiseAt(w, 300.0).rg * 9.0;
+  }
   // flower dabs in drifts: returns coverage, colour in 'c'
   float rtFlowers(RtPal p, vec2 w, float dist, out vec3 c) {
     c = p.fl0;
@@ -208,19 +267,20 @@ export const GROUND_PAINT = /* glsl */ `
     // high ground is bare where it is at all steep
     rock = max(rock, smoothstep(0.1, 0.28, steep) * smoothstep(380.0, 700.0, g.y + (nz.g - 0.5) * 200.0));
     #endif
+    // (metres a pixel, along the ground and up a wall: for the facets' sizes)
+    float pxw = max(fwidth(w.x), fwidth(w.y));
+    float pxy = fwidth(rtWorldY(pos)) * 1.3;
     if (rock > 0.01) {
-      // facets at three sizes, each turned its own way to the light, with dark seams between them;
-      // the size follows the distance, so a far face still breaks into a few painted planes
-      float fs = dist < 120.0 ? 7.0 : dist < 900.0 ? 40.0 : 160.0;
-      vec2 fq = w / fs + rtNoiseAt(w, fs * 4.6).rg * 1.4;
-      vec4 fh = rtHash4(floor(fq));
-      vec2 fe = abs(fract(fq) - 0.5);
+      // facets at four sizes at once (rtRockFacets), on the face's own plane, the joints between them dark
+      float fVal;
+      float fJoint;
+      float pxr = mix(pxw, max(pxw, pxy), smoothstep(0.3, 0.65, steep));
+      float fTurn = rtRockFacets(rtRockPlane(w, n, rtWorldY(pos), steep), pxr, fVal, fJoint);
       float farF = smoothstep(1500.0, 6000.0, dist);
-      float seam = smoothstep(0.42, 0.5, max(fe.x, fe.y)) * (1.0 - smoothstep(0.6, 1.0, max(fwidth(fq.x), fwidth(fq.y)) * 6.0)) * (1.0 - farF);
-      float rt = rel + (fh.x - 0.5) * mix(0.55, 0.18, farF) + brush * 0.5 - seam * 0.3;
+      float rt = rel + fTurn * mix(0.85, 0.55, farF) + brush * 0.5 - fJoint * 0.32;
       vec3 rockCol = mix(p.rockShade, p.rockLit, smoothstep(0.38, 0.6, rt));
       // every facet has its own value, in the light or out of it: a wall in shade is still a wall of planes
-      rockCol *= 0.84 + 0.34 * fh.y - seam * 0.1;
+      rockCol *= 0.9 + 0.36 * fVal - fJoint * 0.16;
       // strata: layers of uneven thickness and tone, bent by a slow noise (mesas and desert ranges)
       float strata = g.y / 23.0 + (rtNoiseAt(w, 400.0).r - 0.5) * 2.5;
       float layer = floor(strata);
@@ -264,7 +324,10 @@ export const GROUND_PAINT = /* glsl */ `
       float groove = 1.0 - smoothstep(0.016, 0.016 + edge, abs(cleavage - 0.48));
       float plane = smoothstep(0.42 - edge, 0.42 + edge, cleavage) * 0.6
                   + smoothstep(0.59 - edge, 0.59 + edge, cleavage) * 0.4;
-      float exposed = smoothstep(0.025, 0.14, steep + (warp.b - 0.5) * 0.06);
+      // (as steep as the country lets rock show: a desert's range is rock wherever it slopes, a wooded country's only
+      // its cliffs — a wet karst's cones and a forested range stay green far off: V2)
+      float e0 = mix(0.025, 0.5, smoothstep(0.45, 0.85, p.rockStart)) * (1.0 - aboveWood);
+      float exposed = smoothstep(e0, e0 + 0.12, steep + (warp.b - 0.5) * 0.06);
       float face = exposed * reach * (1.0 - 0.7 * wood);
       vec3 shadeRock = p.rockShade * mix(vec3(0.78, 0.86, 1.0), vec3(0.41, 0.39, 0.43), lith.w);
       vec3 lightRock = mix(p.rockLit, p.rockLit * vec3(1.13, 1.10, 1.04), lith.x + lith.y);
@@ -278,15 +341,12 @@ export const GROUND_PAINT = /* glsl */ `
       // straight run and a kink at the neighbouring plane, with just a chip on its edge.
       float alpineFace = max(snowCountry, p.misc.x);
       if (alpineFace > 0.01) {
-        vec2 q = vec2(dot(w, vec2(0.83, 0.55)) + 0.33 * vAlt, vAlt - 0.21 * w.y) / vec2(260.0, 180.0);
-        vec2 cell = floor(q), uv = fract(q);
-        float diagonal = step(1.0, uv.x + uv.y);
-        vec2 corner = vec2(diagonal);
-        vec2 weight = abs(uv - corner);
-        float facet = (1.0 - weight.x - weight.y) * rtHash(cell + corner)
-                    + weight.x * rtHash(cell + vec2(1.0 - diagonal, diagonal))
-                    + weight.y * rtHash(cell + vec2(diagonal, 1.0 - diagonal));
-        float keyFace = 0.60 * facet + 0.40 * rel + (warp.g - 0.5) * 0.025;
+        // (V2: the facets of rtRockFacets, four sizes at once, where the anchored triangles of 260 by 180 m read as a
+        // mesh of big flat triangles)
+        float aVal;
+        float aJoint;
+        float facet = clamp(0.5 + rtRockFacets(rtRockPlane(w, n, vAlt, steep), mix(pxw, max(pxw, pxy), smoothstep(0.3, 0.65, steep)), aVal, aJoint), 0.0, 1.0);
+        float keyFace = 0.52 * facet + 0.48 * rel - aJoint * 0.12 + (warp.g - 0.5) * 0.025;
         float aa = max(0.014, fwidth(keyFace));
         float sunward = smoothstep(0.50 - aa, 0.50 + aa, keyFace);
         float hollow = 1.0 - smoothstep(0.32 - aa, 0.32 + aa, keyFace);
@@ -351,6 +411,31 @@ export const GROUND_PAINT = /* glsl */ `
         float laid = clamp(0.86 + 0.9 * (s27 * 0.55 + s95 * 0.65), 0.5, 1.0);
         float rows = rowAmt * mix(band, rw.y, merge) * laid * benches * (1.0 - rock) * (1.0 - lawn) * (1.0 - wood) * (1.0 - alt) * (1.0 - pool);
         albedo = mix(albedo, rowCol * mix(0.7, 1.12, smoothstep(0.2, 0.8, tone + s27 * 0.4)), min(1.0, rows * 1.15) * mix(1.0, 0.82, smoothstep(250.0, 1500.0, dist)));
+      }
+    }
+    #endif
+
+    // ---- the open meadow seen from off (V2): clumps, tufts and flecks of sun
+    {
+      float px1 = max(fwidth(w.x), fwidth(w.y)) / 3.2;
+      float px2 = px1 * 3.2 / 0.9;
+      float open = (1.0 - wood) * (1.0 - rock) * (1.0 - 0.6 * dryAmt) * (1.0 - lawn) * (1.0 - riser) * smoothstep(5.0, 9.0, ad);
+      open *= 1.0 - alt;
+      if (open > 0.01) albedo *= mix(vec3(1.0), rtMeadowDabs(w, dist, px1, px2, s27), open);
+    }
+    #ifdef RT_COVER
+    {
+      // far off, where no flower is drawn, the drifts of them are a dusting of their colour over the green
+      int sf = bwIn.x >= max(bwIn.y, max(bwIn.z, bwIn.w)) ? 0 : (bwIn.y >= max(bwIn.z, bwIn.w) ? 1 : (bwIn.z >= bwIn.w ? 2 : 3));
+      float famt = texelFetch(tCover, ivec2(6, sf), 0).w * step(45.0, dist) * (1.0 - step(900.0, dist));
+      if (famt > 0.01) {
+        float drift = smoothstep(0.5, 0.68, rtNoiseAt(w + 300.0, 48.0).a);
+        vec4 sp = rtNoiseAt(w * 1.7 + 11.0, 7.0);
+        float speck = smoothstep(0.45, 0.62, sp.g + 0.25 * drift);
+        float fdust = famt * drift * speck * smoothstep(45.0, 80.0, dist) * (1.0 - smoothstep(300.0, 900.0, dist))
+                    * (1.0 - wood) * (1.0 - rock) * (1.0 - dryAmt) * (1.0 - lawn) * (1.0 - clamp(rowAmt * 3.0, 0.0, 1.0)) * (1.0 - pool);
+        vec3 dustCol = mix(mix(p.fl0, p.fl1, step(0.5, sp.r)), vec3(0.9, 0.86, 0.78), smoothstep(150.0, 500.0, dist) * 0.35);
+        albedo = mix(albedo, dustCol, min(0.7, fdust * 1.1));
       }
     }
     #endif
@@ -585,7 +670,12 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         // The strip lies on top of the coarser terrain: pull its depth slightly towards the eye,
         // more with distance, so far-away terrain can never poke through the road.
         float rtDist = length(rtWorld.xyz - cameraPosition);
+        #if defined(USE_LOGARITHMIC_DEPTH_BUFFER)
         vFragDepth *= 1.0 - (0.0012 + 0.02 * smoothstep(120.0, 1500.0, rtDist));
+        #elif defined(USE_REVERSED_DEPTH_BUFFER)
+        // (a reversed depth is near / distance: depth / k is the depth of a point k times as far)
+        gl_Position.z /= 1.0 - (0.0012 + 0.02 * smoothstep(120.0, 1500.0, rtDist));
+        #endif
       }`,
     fragmentShader: /* glsl */ `
       ${GLSL_FRAGMENT_PARS}

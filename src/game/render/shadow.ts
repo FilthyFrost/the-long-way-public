@@ -41,6 +41,8 @@ class Cascade {
 }
 
 const BIAS = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+/** with a reversed depth buffer (render/core.ts) the depth is already 0 … 1 (clip control zero to one): only x and y are moved */
+const BIAS_REV = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 1, 0, 0, 0, 0, 1);
 const tmp = new THREE.Vector3();
 const up = new THREE.Vector3();
 const lightPos = new THREE.Vector3();
@@ -53,9 +55,19 @@ export class ShadowPass {
   private readonly floraDepthMat: THREE.ShaderMaterial;
   enabled = true;
 
-  constructor(size: number) {
+  /** the depth buffer is reversed (render/core.ts): the cascades' cameras are made for it from the start */
+  private readonly bias: THREE.Matrix4;
+
+  constructor(size: number, reversed = false) {
     this.near = new Cascade(size, 5.5, 60, LAYER_SHADOW_NEAR);
     this.far = new Cascade(size, 92, 320, LAYER_SHADOW_FAR);
+    this.bias = reversed ? BIAS_REV : BIAS;
+    if (reversed) {
+      for (const c of [this.near, this.far]) {
+        (c.camera as unknown as { _reversedDepth: boolean })._reversedDepth = true;
+        c.camera.updateProjectionMatrix();
+      }
+    }
     this.depthMat = new THREE.ShaderMaterial({
       side: THREE.DoubleSide,
       colorWrite: false,
@@ -165,7 +177,7 @@ export class ShadowPass {
     cam.position.sub(tmp);
     cam.updateMatrixWorld(true);
     cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
-    c.matrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).premultiply(BIAS);
+    c.matrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).premultiply(this.bias);
   }
 
   /** the wide map held over one place (render space) at a reach of its own, instead of ahead of the camera; null = follow again */

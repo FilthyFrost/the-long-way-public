@@ -258,6 +258,11 @@ const GLSL_DEPTH = /* glsl */ `
     float d = length(vPos - cameraPosition);
     float k = 1.0 - (0.0012 * edge + 0.02 * smoothstep(120.0, 1500.0, d));
     gl_FragDepth = vIsPerspective == 0.0 ? gl_FragCoord.z : log2(vFragDepth * k) * logDepthBufFC * 0.5;
+    #elif defined( USE_REVERSED_DEPTH_BUFFER )
+    // (the same pull toward the eye: a reversed depth is near / distance, so a distance k times as far is depth / k)
+    float d = length(vPos - cameraPosition);
+    float k = 1.0 - (0.0012 * edge + 0.02 * smoothstep(120.0, 1500.0, d));
+    gl_FragDepth = gl_FragCoord.z / k;
     #endif
   }
 `;
