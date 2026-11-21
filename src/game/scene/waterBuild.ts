@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { SeaPlan, type Coast } from '../../core/world/sea';
 import { SpineSample } from '../../core/world/spine';
 import { ROAD_HALF, TerrainPoint, type World } from '../../core/world/terrain';
-import { DECK_HALF, KERB_AT, KERB_HEIGHT, WaterPlan, type Lake, type River } from '../../core/world/water';
+import { DECK_HALF, KERB_AT, KERB_HEIGHT, WaterPlan, type Lake, type River, type Stream } from '../../core/world/water';
 import { ModelBuilder } from '../vehicle/builder';
 import type { Slices } from './worldBuild';
 
@@ -127,7 +127,7 @@ export function buildRiverChunk(world: World, f: River, c: number): WaterSheet |
   riverPoint(f, t0, rp);
   const ox = rp.x;
   const oz = rp.z;
-  const oy = world.water.riverLevel(rp.x);
+  const oy = world.water.riverLevel(rp.x, f);
   let any = false;
   const wide = new Float32Array(rows);
   for (let r = 0; r < rows; r++) {
@@ -136,7 +136,13 @@ export function buildRiverChunk(world: World, f: River, c: number): WaterSheet |
     wide[r] = w;
     if (w > 0.6) any = true;
     riverPoint(f, t, rp);
-    const level = world.water.riverLevel(rp.x);
+    let level = world.water.riverLevel(rp.x, f);
+    if (f.wall !== undefined) {
+      // (a ravine's stream follows the land down where the land falls away below its level: water.ts carve — there
+      // its channel's bed lies its depth under the water)
+      world.shape(rp.x, rp.z, tp);
+      if (tp.bed + f.depth < level) level = tp.bed + f.depth;
+    }
     for (let j = 0; j < nc; j++) {
       const k = r * nc + j;
       const x = rp.x + rp.nx * ACROSS[j] * w;
@@ -164,6 +170,75 @@ export function buildRiverChunk(world: World, f: River, c: number): WaterSheet |
       idx.push(a, cc, b, b, cc, d);
     }
   }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aWater', new THREE.BufferAttribute(wat, 4));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return { geometry: g, wx: ox, wy: oy, wz: oz };
+}
+
+/** how often a stream's sheet has a row along the road (m), and its columns across its water as shares of its width */
+const STREAM_STEP = 6;
+const STREAM_ACROSS = [-0.12, 0, 0.22, 0.5, 0.78, 1, 1.12];
+const sgs = { g: 0, dg: 0 };
+
+/**
+ * (world version 5) The water of a river beside the road (core/world/water.ts Stream), whole: a sheet along the road
+ * from where it comes alongside to where it bends away, its surface a few metres below the road's at each row.
+ */
+export function buildStream(world: World, f: Stream): WaterSheet | null {
+  const sp = world.spine;
+  const a0 = Math.max(0, f.s0 - f.veer);
+  const a1 = f.s1 + f.veer;
+  sp.at(a0, st);
+  const ox = st.x;
+  const oy = st.y - f.clear;
+  const oz = st.z;
+  const rows = Math.floor((a1 - a0) / STREAM_STEP) + 1;
+  const nc = STREAM_ACROSS.length;
+  const pos = new Float32Array(rows * nc * 3);
+  const wat = new Float32Array(rows * nc * 4);
+  const live = new Uint8Array(rows);
+  for (let r = 0; r < rows; r++) {
+    const s = a0 + r * STREAM_STEP;
+    if (!WaterPlan.streamGap(f, s, sgs)) continue;
+    live[r] = WaterPlan.streamFade(f, s) > 0.35 ? 1 : 0;
+    sp.at(s, st);
+    const level = st.y - f.clear;
+    const k = Math.sqrt(1 + sgs.dg * sgs.dg);
+    const nx = -Math.sin(st.phi) * f.side;
+    const nz = Math.cos(st.phi) * f.side;
+    const cx = st.x;
+    const cz = st.z;
+    for (let j = 0; j < nc; j++) {
+      const q = r * nc + j;
+      // (its columns square to its course: in a veer, further along the road's normal than across the water)
+      const u = sgs.g + STREAM_ACROSS[j] * WaterPlan.streamWidth(f, s) * k;
+      const x = cx + nx * u;
+      const z = cz + nz * u;
+      world.shape(x, z, tp);
+      pos[q * 3] = x - ox;
+      pos[q * 3 + 1] = level - oy;
+      pos[q * 3 + 2] = z - oz;
+      wat[q * 4] = level - tp.bed;
+      wat[q * 4 + 1] = s;
+      wat[q * 4 + 2] = STREAM_ACROSS[j] * 2 - 1 + 1e-3;
+      wat[q * 4 + 3] = f.frozen;
+    }
+  }
+  const idx: number[] = [];
+  for (let r = 0; r < rows - 1; r++) {
+    if (!live[r] || !live[r + 1]) continue;
+    for (let j = 0; j < nc - 1; j++) {
+      const a = r * nc + j;
+      const b = a + 1;
+      const cc = a + nc;
+      const d = cc + 1;
+      idx.push(a, cc, b, b, cc, d);
+    }
+  }
+  if (!idx.length) return null;
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('aWater', new THREE.BufferAttribute(wat, 4));
@@ -270,7 +345,7 @@ const STEEL_DARK = 0x4f6f6c;
 const RUST = 0x9a5d3e;
 
 /** triangles gathered by colour, turned into one flat-shaded geometry per colour for the model builder */
-class Tris {
+export class Tris {
   private readonly lists = new Map<number, number[]>();
   quad(color: number, a: number[], b: number[], c: number[], d: number[]): void {
     let l = this.lists.get(color);
@@ -366,10 +441,12 @@ export function buildBridge(world: World, f: River): BridgeMesh {
   }
 
   if (arch) {
-    // ---- stone arches: bays of about 13 m, piers between them, the spandrel walls filled in
-    const bays = Math.max(1, Math.round((f.span1 - f.span0) / 13));
+    // ---- stone arches: bays of about 13 m, piers between them, the spandrel walls filled in (a ravine's viaduct: bays
+    // of some 16 m on piers as thick as their height asks, battered out at their feet)
+    const tall = f.wall !== undefined;
+    const bays = Math.max(1, Math.round((f.span1 - f.span0) / (tall ? 16 : 13)));
     const bayLen = (f.span1 - f.span0) / bays;
-    const pier = Math.min(1.5, bayLen * 0.16);
+    const pier = tall ? Math.min(bayLen * 0.3, 1.5 + 0.045 * f.clear) : Math.min(1.5, bayLen * 0.16);
     for (let k = 0; k < bays; k++) {
       const a0 = f.span0 + k * bayLen + pier / 2;
       const a1 = f.span0 + (k + 1) * bayLen - pier / 2;
@@ -403,7 +480,7 @@ export function buildBridge(world: World, f: River): BridgeMesh {
         if (k > 0 && ps === f.span0 + k * bayLen) continue; // shared with the bay before
         const foot = Math.min(bedAt(ps, 0), bedAt(ps, out), bedAt(ps, -out)) - 1.2;
         const top = yTop(ps) + 0.3;
-        const widen = 0.35;
+        const widen = tall ? 0.7 : 0.35;
         const A = ps - half;
         const B = ps + half;
         for (const sd of [-1, 1]) {
@@ -425,29 +502,33 @@ export function buildBridge(world: World, f: River): BridgeMesh {
       }
     }
   } else {
-    // ---- girders under the slab, piers every 18 m or so
+    // ---- girders under the slab, piers every 18 m or so (a ravine's viaduct: deeper girders, piers some 32 m apart and
+    // as thick as their height asks)
+    const tall = f.wall !== undefined;
+    const girder = tall ? 2.2 : 1.25;
     for (const gd of [-2.7, 2.7]) {
       for (let i = 0; i < n; i++) {
         const a = s0 + (len * i) / n;
         const c = s0 + (len * (i + 1)) / n;
         const d0 = gd - 0.3;
         const d1 = gd + 0.3;
-        T.quad(CONCRETE_DARK, pt(a, d0, -slab), pt(a, d0, -slab - 1.25), pt(c, d0, -slab - 1.25), pt(c, d0, -slab));
-        T.quad(CONCRETE_DARK, pt(a, d1, -slab - 1.25), pt(a, d1, -slab), pt(c, d1, -slab), pt(c, d1, -slab - 1.25));
-        T.quad(under, pt(a, d0, -slab - 1.25), pt(a, d1, -slab - 1.25), pt(c, d1, -slab - 1.25), pt(c, d0, -slab - 1.25));
+        T.quad(CONCRETE_DARK, pt(a, d0, -slab), pt(a, d0, -slab - girder), pt(c, d0, -slab - girder), pt(c, d0, -slab));
+        T.quad(CONCRETE_DARK, pt(a, d1, -slab - girder), pt(a, d1, -slab), pt(c, d1, -slab), pt(c, d1, -slab - girder));
+        T.quad(under, pt(a, d0, -slab - girder), pt(a, d1, -slab - girder), pt(c, d1, -slab - girder), pt(c, d0, -slab - girder));
       }
     }
-    const piers = Math.max(1, Math.round((f.span1 - f.span0) / 18) - 1);
+    const piers = Math.max(1, Math.round((f.span1 - f.span0) / (tall ? 32 : 18)) - 1);
     for (let k = 1; k <= piers; k++) {
       const ps = f.span0 + ((f.span1 - f.span0) * k) / (piers + 1);
       sp.at(ps, st);
-      const top = st.y - slab - 1.25;
+      const top = st.y - slab - girder;
       const foot = Math.min(bedAt(ps, 0), bedAt(ps, 2.6), bedAt(ps, -2.6)) - 1.5;
       const pc = ptAbs(ps, 0, 0);
       const yaw = -st.phi;
+      const h = top - 1.0 - foot;
       // a hammerhead: one column and a cap under the girders
-      b.box(pc[0], (top - 1.0 + foot) / 2 - oy, pc[2], 1.5, top - 1.0 - foot, 2.6, CONCRETE, { ry: yaw });
-      b.box(pc[0], top - 0.5 - oy, pc[2], 1.7, 1.0, 8.2, CONCRETE, { ry: yaw });
+      b.box(pc[0], (top - 1.0 + foot) / 2 - oy, pc[2], tall ? 1.6 + 0.03 * h : 1.5, h, tall ? 3.0 + 0.05 * h : 2.6, CONCRETE, { ry: yaw });
+      b.box(pc[0], top - 0.5 - oy, pc[2], tall ? 2.2 : 1.7, 1.0, 8.2, CONCRETE, { ry: yaw });
     }
     // ---- railings: posts every 2.5 m and two rails
     const posts = Math.max(2, Math.round(len / 2.5));

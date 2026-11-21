@@ -22,6 +22,7 @@ import { rock } from '../../earth/rocks';
 import { landOfPlace } from './landform';
 import { accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
 import { ROAD_BUILD, type RoadType } from '../../earth/roads';
+import { hash2 } from '../../math/rng';
 
 /** the id of the region of a world's place k (a world of version 5's its own: its places are driven by roads of their own) */
 export function earthRegionId(seed: number, k: number, version: 4 | 5 = 4): string {
@@ -285,7 +286,7 @@ function groundOf(sc: Scene): number {
  * (world version 5) A place's road made of its region: how its road winds and climbs, its kinds of country and how
  * strong each is, as its kind of road asks (core/earth/roads.ts), sized by how high its country rises.
  */
-function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<RegionDef> & { relief: RegionRelief } {
+function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief, seed: number, k: number): Partial<RegionDef> & { relief: RegionRelief } {
   const R = Math.max(20, sc.macro.relief);
   const a = road.align;
   const g = road.grade;
@@ -311,6 +312,13 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<R
   const open = road.land.includes('shelf') || road.land.includes('rim') || !!road.hairpins;
   const out: RegionRelief = { ...relief, odds, size, ...(open ? { walls: undefined } : {}) };
   if (open) delete out.walls;
+  // (docs/V3/nodes/R7-wrapup.md: its viaduct over a ravine and its gallery under the rock, where its kind has them and
+  // its dice say so; under snow the gallery an avalanche shed, else a gallery with windows or a tunnel through a spur)
+  const build = ROAD_BUILD[road.id];
+  const dice = (salt: number): number => (hash2(k, salt, seed) & 0xffff) / 65536;
+  const viaduct = build.viaduct && dice(0x7a1d) < build.viaduct[1] ? build.viaduct[0] : undefined;
+  const gallery = build.gallery && dice(0x6a11) < build.gallery[1] ? build.gallery[0] : undefined;
+  const galleryKind = sc.look.sig.snow ? 'shed' : dice(0x6a12) < 0.42 ? 'tunnel' : 'rock';
   return {
     designKmh: a.kmh,
     straightMin: a.straightLen[0],
@@ -331,6 +339,9 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<R
     // (its surface and edges, and the lookout its view is given: docs/V3/nodes/R3-structures.md)
     roadStyle: ROAD_BUILD[road.id].style,
     ...(ROAD_BUILD[road.id].lookout !== undefined ? { lookouts: [ROAD_BUILD[road.id].lookout!] } : {}),
+    ...(viaduct !== undefined ? { viaducts: [viaduct] } : {}),
+    ...(build.stream ? { streams: build.stream } : {}),
+    ...(gallery !== undefined ? { galleries: [gallery], gallery: galleryKind } : {}),
     // (a lakeshore road: a lake by it all the way through its heart, now on one side, now on the other)
     ...(road.id === 'lakeshore' ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
   };
@@ -399,6 +410,6 @@ export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadTyp
   };
   if (!kind) return def;
   // (world version 5: its road its kind's)
-  const made = roadOfPlace(sc, kind, def.relief!);
+  const made = roadOfPlace(sc, kind, def.relief!, seed, k);
   return { ...def, ...made, land: { ...def.land, ...made.land } };
 }

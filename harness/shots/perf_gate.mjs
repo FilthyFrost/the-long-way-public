@@ -41,6 +41,8 @@ try {
   await idle(page);
   if (EARTH) {
     const wanted = args.length ? args : null;
+    // (RIVER_ALONG: the river spot that many metres along from the middle of its river)
+    await page.evaluate((a) => { window.__riverAlong = a; }, Number(process.env.RIVER_ALONG ?? 0));
     SPOTS = (await page.evaluate(() => {
       const j = window.__rt.game.world.earth;
       while (j.pieces.length < 81) j.chapter(j.chapters.length);
@@ -49,6 +51,17 @@ try {
       for (const [name, is] of Object.entries(kinds)) {
         const piece = j.pieces.find((q) => q.scene && is(q.scene.place));
         if (piece) spots.push({ name, km: (piece.start + 0.55 * (piece.end - piece.start)) / 1000, place: piece.scene.name });
+      }
+      // (world version 5: on the first viaduct over a ravine, and in the first gallery — docs/V3/nodes/R7-wrapup.md)
+      const w = window.__rt.game.world;
+      if (w.galleries && w.rules.version >= 5) {
+        const end = j.pieces[80].end;
+        const via = w.water.between(0, end, []).find((f) => f.kind === 'river' && f.wall !== undefined);
+        if (via) spots.push({ name: 'viaduct', km: (via.span0 + 0.5 * (via.span1 - via.span0)) / 1000, place: j.pieces.find((q) => q.start <= via.s && q.end > via.s)?.scene?.name ?? '' });
+        const str = w.water.between(0, end, []).find((f) => f.kind === 'stream');
+        if (str) spots.push({ name: 'river', km: (str.s + Number(window.__riverAlong ?? 0)) / 1000, place: j.pieces.find((q) => q.start <= str.s && q.end > str.s)?.scene?.name ?? '' });
+        const gal = w.galleries.between(0, end, [])[0];
+        if (gal) spots.push({ name: 'gallery', km: (gal.s0 + 0.5 * (gal.s1 - gal.s0)) / 1000, place: j.pieces.find((q) => q.start <= gal.s0 && q.end > gal.s0)?.scene?.name ?? '' });
       }
       return spots;
     })).filter((s) => !wanted || wanted.includes(s.name));

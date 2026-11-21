@@ -25,6 +25,7 @@ import { FloraField } from './flora';
 import { floraTableOf } from './floraTables';
 import { GroundSample, SURFACES, Surface, type Ground } from './ground';
 import { Furniture } from './furniture';
+import { GalleryPlan } from './galleries';
 import { LAND_SLOT, LandParams, LandformPlan } from './landform';
 import { duneMean, dunes, riserFor, terrace } from './operators';
 import { rulesFor, type WorldRules } from './rules';
@@ -303,6 +304,8 @@ export class World implements Ground {
   readonly sites: SitePlan;
   /** what the road carries along its edges: delineators, guard rails, chevrons, kilometre stones */
   readonly furniture: Furniture;
+  /** (world version 5) where the road runs under the rock: a gallery, a tunnel through a spur, an avalanche shed (galleries.ts) */
+  readonly galleries: GalleryPlan;
   /**
    * The anchored landforms beside the road — tower clusters, buttes — in a world of version 2 (features.ts);
    * null in a world of version 1, which has none.
@@ -366,7 +369,9 @@ export class World implements Ground {
       (k) => this.water.diceOf(k),
       (k) => this.sea.coastOf(k)?.side ?? 0,
       (k) => this.quiet(k),
+      (k) => this.water.viaductAt(k),
     );
+    this.galleries = new GalleryPlan(this);
     this.sites = new SitePlan(this, new TerrainPoint(), this.seed);
     this.furniture = new Furniture(this, new TerrainPoint(), this.seed);
     this.features = this.rules.version >= 2 ? this.featurePlan() : null;
@@ -701,10 +706,11 @@ export class World implements Ground {
     o.frozen = 0;
     o.wkind = 0;
     o.bridge = 0;
+    this.we.verge = Infinity;
     // water reshapes the land (the far ring's grid is too coarse to hold a shore: it is left dry)
     if (!coarse) {
       const we = this.we;
-      T = this.water.carve(x, z, s0, T, we);
+      T = this.water.carve(x, z, s0, T, we, s, d);
       o.wl = we.level;
       o.frozen = we.frozen;
       o.wkind = we.kind;
@@ -714,7 +720,7 @@ export class World implements Ground {
       // (version 2: the valleys rivers cut through hills and mountain walls are kilometres wide and show from
       // far off, so the far ring's land has them too — still dry, its water standing as level ground)
       const we = this.we;
-      T = this.water.carve(x, z, s0, T, we);
+      T = this.water.carve(x, z, s0, T, we, s, d);
       if (we.level > T) T = we.level;
     }
     // the sea, where the road runs along a coast: beach and sea bed on its side — in the far ring too,
@@ -769,6 +775,8 @@ export class World implements Ground {
         o.siteGround = this.sites.padGround;
       }
       const ext = q.y + q.bank * sgn * ROAD_EDGE - (ROAD_EDGE - ROAD_HALF) * 0.06 - (ad - ROAD_EDGE) * (0.03 - (0.03 - PAD_FALL) * pw);
+      // (world version 5: beside a river along the road, the verge short of its bank — water.ts WaterEffect.verge)
+      if (this.we.verge < verge) verge = this.we.verge;
       const m = smoothstep(ROAD_EDGE, ROAD_EDGE + verge, ad) * (1 - pw);
       const u = (ad - (ROAD_EDGE + 2.4)) / 1.5;
       const ditch = ditchDepth * Math.exp(-u * u) * smoothstep(ROAD_EDGE, ROAD_EDGE + 1.2, ad) * (1 - pw);

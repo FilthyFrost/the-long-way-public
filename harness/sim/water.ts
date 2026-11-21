@@ -16,6 +16,7 @@ export function listFeatures(world: World, sMax: number): WaterFeature[] {
 }
 
 function key(f: WaterFeature): string {
+  if (f.kind === 'stream') return `S${f.slot}:${f.s0.toFixed(3)},${f.gap.toFixed(4)},${f.width.toFixed(4)}`;
   return f.kind === 'lake' ? `L${f.slot}:${f.cx.toFixed(3)},${f.cz.toFixed(3)},${f.a.toFixed(3)},${f.b.toFixed(3)},${f.level.toFixed(4)}` : `R${f.slot}:${f.s.toFixed(3)},${f.slope0.toFixed(6)},${f.w0.toFixed(4)},${f.level0.toFixed(4)},${f.span0.toFixed(3)}`;
 }
 
@@ -51,7 +52,7 @@ export function collectWaterMetrics(): Metrics {
     const sp = world.spine;
     for (const f of fa) {
       if (f.kind === 'lake') lakes++;
-      else {
+      else if (f.kind === 'river') {
         rivers++;
         bridges[f.bridge]++;
       }
@@ -79,7 +80,7 @@ export function collectWaterMetrics(): Metrics {
     }
     for (const f of fa) {
       if (f.kind === 'lake') leaks += lakeLeaks(world, f, tp);
-      else {
+      else if (f.kind === 'river') {
         // ---- a river: water all the way (until it tapers out), banks that hold it
         let wet = 0;
         let n = 0;
@@ -203,7 +204,7 @@ if (process.argv[2] === 'list') {
   const world = new World(seed, { chapterScale: Number(process.argv[4] ?? 1), startBiome: process.argv[5] ?? 'plains' });
   for (const f of listFeatures(world, 30000)) {
     if (f.kind === 'lake') console.log(`lake  slot ${f.slot}  s=${f.s.toFixed(0)}  side=${f.side > 0 ? 'right' : 'left'}  a=${f.a.toFixed(0)} b=${f.b.toFixed(0)}  level=${f.level.toFixed(1)}  frozen=${f.frozen.toFixed(1)}`);
-    else console.log(`river slot ${f.slot}  s=${f.s.toFixed(0)}  w0=${f.w0.toFixed(0)}  span=${(f.span1 - f.span0).toFixed(0)} m  ${f.bridge}  clear=${f.clear.toFixed(1)}  slope0=${f.slope0.toFixed(2)}  frozen=${f.frozen.toFixed(1)}`);
+    else if (f.kind === 'river') console.log(`river slot ${f.slot}  s=${f.s.toFixed(0)}  w0=${f.w0.toFixed(0)}  span=${(f.span1 - f.span0).toFixed(0)} m  ${f.bridge}  clear=${f.clear.toFixed(1)}  slope0=${f.slope0.toFixed(2)}  frozen=${f.frozen.toFixed(1)}`);
   }
   console.log(`slot length ${WATER_SLOT} m`);
 }

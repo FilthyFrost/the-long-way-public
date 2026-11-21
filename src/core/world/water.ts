@@ -26,6 +26,7 @@ import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, regionRow, type RegionDef, type RegionWater } from './biomes';
 import { ReliefMix, reliefMix } from './relief';
+import { routeOffset } from './routeProfiles';
 import { BiomeBlend, SpineSample, type RoadSpine } from './spine';
 
 /** metres of road per water slot (a slot holds one feature at most) */
@@ -69,6 +70,11 @@ export function riverBank(e: number): number {
     h += far < knee ? 0.02 * far * far : 0.02 * knee * knee + (BANK_V2 - BANK) * (far - knee);
   }
   return h;
+}
+
+/** (world version 5) a ravine's wall: how far above its stream it stands e m out from the water's edge */
+export function ravineBank(wall: number, e: number): number {
+  return e < 3 ? e * 0.18 : 0.54 + (e - 3) * wall;
 }
 
 /** how far from its water a river's bank of version 2 must reach to meet land `rise` m above the water (m) */
@@ -166,6 +172,13 @@ export interface River {
   zEnd: number;
   /** a world of version 2: how far from its water its valley reaches (m; version 1's: 420) */
   reach?: number;
+  /**
+   * (world version 5) a ravine's: the slope of its walls (rise per metre beyond its gravel), steep and straight where
+   * a valley's banks ease off; its stream lies its own `clear` below the road, tens of metres, under a viaduct; where
+   * the land falls away below that, down a hillside or over a shelf's lip, the stream follows the land down
+   * (docs/V3/nodes/R7-wrapup.md)
+   */
+  wall?: number;
   /** water level under the bridge, and how far that is below the road */
   level0: number;
   clear: number;
@@ -179,7 +192,45 @@ export interface River {
   xMax: number;
 }
 
-export type WaterFeature = Lake | River;
+/**
+ * (world version 5) A river beside the road (docs/V3/nodes/R7-wrapup.md): for most of a stretch it runs alongside, its
+ * near bank some tens of metres off and wandering nearer and further, its water a few metres below the road; at each
+ * end it bends away into the country and its channel fades out there (its source, its mouth). Measured from the road:
+ * a point's arc length and offset, as the land has them.
+ */
+export interface Stream {
+  kind: 'stream';
+  slot: number;
+  /** where it is nearest the road (the middle of its run), and the run it is alongside: s0 … s1, bending away for `veer` m beyond either end */
+  s: number;
+  s0: number;
+  s1: number;
+  veer: number;
+  /** which side of the road: +1 right, −1 left */
+  side: number;
+  /** its near bank's distance from the road's centre line (m), and how that wanders: amplitude (m), wavelength (m of road), phase */
+  gap: number;
+  amp: number;
+  lambda: number;
+  phase: number;
+  /** its width (m), the depth of its channel (m), how far below the road its surface lies (m) */
+  width: number;
+  depth: number;
+  clear: number;
+  frozen: number;
+  seed: number;
+  xMin: number;
+  xMax: number;
+  zMin: number;
+  zMax: number;
+}
+
+export type WaterFeature = Lake | River | Stream;
+
+/** how far a stream bends away from the road at the very ends of its veers (m) */
+const STREAM_VEER = 240;
+const sg = { g: 0, dg: 0 };
+const streamHits: Stream[] = [];
 
 /** what the water does to one point of the land */
 export class WaterEffect {
@@ -192,6 +243,12 @@ export class WaterEffect {
   /** rivers: distance along the river from the bridge (m, in z) and how far outside the water's edge (m, negative inside) */
   t = 0;
   l = 0;
+  /**
+   * (world version 5) how far from the road's edge its verge may blend into the land here at the most (m; Infinity: as
+   * far as the region's verge goes): on the side of a river beside the road, short enough that the bank comes down to
+   * its water
+   */
+  verge = Infinity;
 }
 
 const st = new SpineSample();
@@ -324,12 +381,35 @@ export class WaterPlan {
     return waterOf(BIOMES[bl.t < 0.5 ? bl.a : bl.b]);
   }
 
+  /** (world version 5) does the road of stretch k cross a ravine on a viaduct? (RegionDef.viaducts: its region and its place in it alone) */
+  viaductAt(k: number): boolean {
+    if (this.spine.rules.version < 5 || k < 1) return false;
+    this.spine.biomeAt((k + 0.5) * WATER_SLOT, bl);
+    const region = BIOMES[bl.t < 0.5 ? bl.a : bl.b];
+    if (!region.viaducts) return false;
+    const off = routeOffset(region.id, k);
+    return off !== undefined && region.viaducts.includes(off);
+  }
+
+  /** (world version 5) does a river run beside the road of stretch k? (RegionDef.streams) */
+  streamAt(k: number): boolean {
+    if (this.spine.rules.version < 5 || k < 1) return false;
+    this.spine.biomeAt((k + 0.5) * WATER_SLOT, bl);
+    const region = BIOMES[bl.t < 0.5 ? bl.a : bl.b];
+    if (!region.streams) return false;
+    const off = routeOffset(region.id, k);
+    return off !== undefined && region.streams.includes(off);
+  }
+
   /** what the dice put in slot k, before any geometry (it may still fail to fit) */
-  diceOf(k: number): 'lake' | 'river' | null {
+  diceOf(k: number): 'lake' | 'river' | 'stream' | null {
     // (world version 5: no water across a switchback stack)
     if (this.spine.pinned(k)) return null;
     const dry = k < 1 ? 2 : this.dry(k);
     if (dry >= 2) return null;
+    // (world version 5: a ravine where the region's road crosses one on a viaduct; a river beside the road where it has one)
+    if (this.viaductAt(k)) return dry === 1 ? null : 'river';
+    if (this.streamAt(k)) return dry === 1 ? null : 'stream';
     const h = hash2(k, 0x3a7e, this.seed);
     const c = this.biomeWater((k + 0.5) * WATER_SLOT);
     const r = (h & 0xffff) / 65536;
@@ -347,7 +427,7 @@ export class WaterPlan {
       const kind = this.diceOf(i);
       // (pushed before it is built, so a builder asking about slot i itself gets "nothing yet")
       list.push(null);
-      list[i] = kind === 'lake' ? this.makeLake(i) : kind === 'river' ? this.makeRiver(i) : null;
+      list[i] = kind === 'lake' ? this.makeLake(i) : kind === 'river' ? this.makeRiver(i) : kind === 'stream' ? this.makeStream(i) : null;
     }
     return list[k];
   }
@@ -490,37 +570,180 @@ export class WaterPlan {
       for (let j = Math.max(1, k - REACH_SLOTS); j < k && !clash; j++) {
         const o = this.list[j];
         if (!o) continue;
-        clash = o.kind === 'lake' ? WaterPlan.lakesTouch(lake, o) : WaterPlan.riverMeetsLake(o, lake);
+        clash = o.kind === 'lake' ? WaterPlan.lakesTouch(lake, o) : o.kind === 'stream' ? WaterPlan.streamMeetsLake(o, lake) : WaterPlan.riverMeetsLake(o, lake);
       }
       if (!clash) return lake;
     }
     return null;
   }
 
+  /** does a stream's box come within 40 m of a lake's? */
+  private static streamMeetsLake(f: Stream, l: Lake): boolean {
+    return !(f.xMax < l.xMin - 40 || f.xMin > l.xMax + 40 || f.zMax < l.zMin - 40 || f.zMin > l.zMax + 40);
+  }
+
+  /** (world version 5) the river beside the road of stretch k: on the right in an even stretch, the left in an odd one */
+  private makeStream(k: number): Stream | null {
+    const sp = this.spine;
+    const r = (n: number): number => (hash2(k, n, this.seed + 0x5e7a) & 0xffffff) / 0x1000000;
+    const width = 11 + 16 * r(1) * r(1);
+    const s0 = k * WATER_SLOT + 90;
+    const s1 = (k + 1) * WATER_SLOT - 90;
+    const f: Stream = {
+      kind: 'stream',
+      slot: k,
+      s: (s0 + s1) / 2,
+      s0,
+      s1,
+      veer: 180 + 80 * r(8),
+      side: k % 2 === 0 ? 1 : -1,
+      // (its near bank 10 to 36 m from the road's centre line: in view from the driver's seat, never under the verge)
+      gap: 15 + 8 * r(2),
+      amp: 3 + 3 * r(3),
+      lambda: 240 + 220 * r(4),
+      phase: r(5) * 6.2832,
+      width,
+      depth: 1.8 + 1.1 * r(7),
+      // (a metre or two below the road: seen over its bank from the driver's seat)
+      clear: 1.2 + 1.0 * r(6),
+      frozen: this.frozenAt((s0 + s1) / 2),
+      seed: hash2(k, 0x5e7b, this.seed),
+      xMin: Infinity,
+      xMax: -Infinity,
+      zMin: Infinity,
+      zMax: -Infinity,
+    };
+    // its box: the road's points along its run and its veers, out to its far bank and 60 m of its slopes
+    for (let q = s0 - f.veer; q <= s1 + f.veer; q += 15) {
+      if (q < 0 || !WaterPlan.streamGap(f, q, sg)) continue;
+      sp.at(q, st);
+      const out = f.side * (sg.g + width + 60);
+      for (const dd of [f.side * 4, out]) {
+        const x = st.x - Math.sin(st.phi) * dd;
+        const z = st.z + Math.cos(st.phi) * dd;
+        if (x < f.xMin) f.xMin = x;
+        if (x > f.xMax) f.xMax = x;
+        if (z < f.zMin) f.zMin = z;
+        if (z > f.zMax) f.zMax = z;
+      }
+    }
+    return f.xMin < f.xMax ? f : null;
+  }
+
+  /** how far from the road's centre line a stream's near bank lies at arc length s (out.g, m), and how fast that changes along the road (out.dg); false beyond its ends */
+  static streamGap(f: Stream, s: number, out: { g: number; dg: number }): boolean {
+    if (s < f.s0 - f.veer || s > f.s1 + f.veer) return false;
+    const k = 6.2832 / f.lambda;
+    const sc = s < f.s0 ? f.s0 : s > f.s1 ? f.s1 : s;
+    // (its course wanders on two waves; its near bank never nearer than 11 m to the road's centre line, softly)
+    const a = k * sc + f.phase;
+    const raw = f.gap + f.amp * (Math.sin(a) + 0.4 * Math.sin(2.3 * a + 1.7 * f.phase)) - 11;
+    const draw = s === sc ? f.amp * k * (Math.cos(a) + 0.92 * Math.cos(2.3 * a + 1.7 * f.phase)) : 0;
+    out.g = 11 + (raw > 20 ? raw : Math.log(1 + Math.exp(raw)));
+    out.dg = draw / (1 + Math.exp(-raw));
+    if (s < f.s0) {
+      const t = (f.s0 - s) / f.veer;
+      out.g += STREAM_VEER * t * t;
+      out.dg = (-2 * STREAM_VEER * t) / f.veer;
+    } else if (s > f.s1) {
+      const t = (s - f.s1) / f.veer;
+      out.g += STREAM_VEER * t * t;
+      out.dg = (2 * STREAM_VEER * t) / f.veer;
+    }
+    return true;
+  }
+
+  /** a stream's width at arc length s (m): wider here, narrower there */
+  static streamWidth(f: Stream, s: number): number {
+    return f.width * (1 + 0.2 * Math.sin(s / 113 + 2.3 * f.phase));
+  }
+
+  /** how fully a stream's channel is cut at arc length s: whole along the road, fading out over the far half of its veers */
+  static streamFade(f: Stream, s: number): number {
+    const over = s < f.s0 ? f.s0 - s : s > f.s1 ? s - f.s1 : 0;
+    return 1 - smoothstep(0.5, 1, over / f.veer);
+  }
+
+  /** a point's distance into a stream from its near bank, square to its course (m; negative: on the road's side of it), at arc length s and offset d; NaN where it has none */
+  static streamAcross(f: Stream, s: number, d: number): number {
+    if (!WaterPlan.streamGap(f, s, sg)) return NaN;
+    return (f.side * d - sg.g) / Math.sqrt(1 + sg.dg * sg.dg);
+  }
+
+  /** the stream's cut at a point (arc length s, offset d): its channel and its banks, and its water into `out` */
+  private streamCut(f: Stream, s: number, d: number, h: number, out: WaterEffect): number {
+    const e = WaterPlan.streamAcross(f, s, d);
+    const W = WaterPlan.streamWidth(f, s);
+    if (!(e > -70 && e < W + 70)) return h;
+    const fade = WaterPlan.streamFade(f, s);
+    if (fade <= 0) return h;
+    // (on its side of the road the verge blends into the land short of its near bank: the bank comes down to the water;
+    // as it fades, the verge comes back to the region's own)
+    if (f.side * d > 0) {
+      const v = Math.max(4, sg.g - 5.5) + (1 - fade) * 100;
+      if (v < out.verge) out.verge = v;
+    }
+    this.spine.at(s, st);
+    const level = st.y - f.clear;
+    let hc: number;
+    if (e >= 0 && e <= W) {
+      const q = (2 * e) / W - 1;
+      hc = level - f.depth * (1 - q * q);
+    } else {
+      // its banks: on the near side one slope down from the road's verge to the water (no brow to hide it from the
+      // driver's seat); on the far side a strip of gravel and a bank, then whatever stands there — a valley's side,
+      // a gorge's wall — left as it is
+      const o = e < 0 ? -e : e - W;
+      hc = e < 0 ? level + 0.3 + o * Math.max(0.12, (f.clear - 0.3) / Math.max(4, sg.g - 6.5)) : level + 0.3 + Math.min(o, 8) * 0.5 + Math.max(0, o - 8) * 1.8;
+    }
+    if (hc < h) h += (hc - h) * fade;
+    if (fade > 0.35 && e > -0.5 && e < W + 0.5) {
+      const l = e < 0 ? -e : e > W ? e - W : -Math.min(e, W - e);
+      if (out.kind !== 2 || l < out.l) {
+        out.level = level;
+        out.kind = 2;
+        out.frozen = f.frozen;
+        out.t = s;
+        out.l = l;
+      }
+    }
+    return h;
+  }
+
   private makeRiver(k: number): River | null {
     const sp = this.spine;
     const r = (n: number): number => (hash2(k, n, this.seed + 0x21fe) & 0xffffff) / 0x1000000;
+    // (world version 5: a ravine under a viaduct — a mountain stream in a cleft tens of metres deep, crossed wherever the
+    // road is not too tightly bent, at whatever height it is, and best in the middle of its stretch)
+    const deep = this.viaductAt(k);
     // cross where the road is low and nearly straight: every candidate station, best first
     const cand: { s: number; cost: number }[] = [];
     // (in the middle of its stretch, which is level country: the river must not stray onto the next one's slopes)
-    for (let q = (k + 0.38) * WATER_SLOT; q <= (k + 0.62) * WATER_SLOT; q += 8) {
+    for (let q = (k + (deep ? 0.3 : 0.38)) * WATER_SLOT; q <= (k + (deep ? 0.7 : 0.62)) * WATER_SLOT; q += 8) {
       sp.at(q, st);
       const bend = st.kappa < 0 ? -st.kappa : st.kappa;
-      if (bend > 0.0035) continue;
-      cand.push({ s: q, cost: st.y + bend * 2500 + (st.grade < 0 ? -st.grade : st.grade) * 60 });
+      if (bend > (deep ? 0.008 : 0.0035)) continue;
+      const mid = Math.abs(q - (k + 0.5) * WATER_SLOT);
+      cand.push({ s: q, cost: deep ? bend * 2500 + (st.grade < 0 ? -st.grade : st.grade) * 60 + mid * 0.004 : st.y + bend * 2500 + (st.grade < 0 ? -st.grade : st.grade) * 60 });
     }
     cand.sort((p, q) => p.cost - q.cost || p.s - q.s);
-    const skew = (r(1) - 0.5) * 0.42;
-    const w0 = 9 + 23 * r(2) * r(2);
-    const zEnd = 2400 + 1000 * r(4);
-    const amp = 22 + 23 * r(5);
+    const skew = (r(1) - 0.5) * (deep ? 0.25 : 0.42);
+    const w0 = deep ? 3 + 4 * r(2) : 9 + 23 * r(2) * r(2);
+    const zEnd = deep ? 1300 + 900 * r(4) : 2400 + 1000 * r(4);
+    const amp = deep ? 10 + 14 * r(5) : 22 + 23 * r(5);
+    // (a ravine: how deep below the road its stream lies, and how steep its walls)
+    const deepClear = 30 + 32 * r(10);
+    const wall = 0.95 + 0.4 * r(11);
+    this.spine.biomeAt((k + 0.5) * WATER_SLOT, bl);
+    const style = BIOMES[bl.t < 0.5 ? bl.a : bl.b].roadStyle ?? '';
+    const stone = style === 'road:mountain' || style === 'road:upland' || style === 'road:lane' || style === 'road:slabs';
     let tried = 0;
     for (const c of cand) {
       // (a crossing next to one that failed fails too: step along the list)
       if (tried++ % 6 !== 0) continue;
       const s = c.s;
       sp.at(s, st);
-      const clear = this.clearAt(s);
+      const clear = deep ? deepClear : this.clearAt(s);
       // the river leaves the road square to it (give or take the skew): dx/dz of that direction
       const ang = st.phi + skew;
       let slope0 = -dsin(ang) / dcos(ang);
@@ -528,7 +751,8 @@ export class WaterPlan {
       const relax = 180 + 80 * r(9);
       // (where the clamp bites, the river passes under the road at a slant: the span grows with it)
       const cross = Math.atan(slope0) + st.phi;
-      const half = (w0 + clear / 0.75 + 2) / Math.max(0.55, Math.cos(cross));
+      // (a ravine's span reaches from rim to rim: where its walls come up to the road)
+      const half = (deep ? w0 + 3 + (clear - 0.54) / wall + 3 : w0 + clear / 0.75 + 2) / Math.max(0.55, Math.cos(cross));
       const span = 2 * half;
       const reachX = Math.abs(slope0) * relax + 1.45 * amp + w0 * 1.25 + 430;
       const river: River = {
@@ -540,7 +764,7 @@ export class WaterPlan {
         slope0,
         relax,
         w0,
-        depth: 1.2 + 1.8 * r(6),
+        depth: deep ? 0.6 + 0.6 * r(6) : 1.2 + 1.8 * r(6),
         amp,
         lambda: 350 + 350 * r(7),
         phase: r(8) * 6.2832,
@@ -549,8 +773,9 @@ export class WaterPlan {
         clear,
         span0: s - half,
         span1: s + half,
-        // stone arches wherever the river is small enough for them; steel only over the widest
-        bridge: span < 50 ? 'arch' : span < 72 ? 'beam' : 'truss',
+        // stone arches wherever the river is small enough for them; steel only over the widest (a ravine's viaduct: stone
+        // arches on tall piers on an old road's, concrete beams on tall piers on a new one's)
+        bridge: deep ? (stone && span < 190 ? 'arch' : 'beam') : span < 50 ? 'arch' : span < 72 ? 'beam' : 'truss',
         frozen: this.frozenAt(s),
         seed: hash2(k, 0x21ff, this.seed),
         xMin: st.x - reachX,
@@ -559,6 +784,10 @@ export class WaterPlan {
       // (version 2: its valley reaches out to where its banks meet the land; its box stays what the water needs,
       // `carve` looks further)
       if (this.v2) river.reach = Math.max(420, riverReach(this.landAbove(s) + clear));
+      if (deep) {
+        river.wall = wall;
+        river.reach = Math.min(1600, (this.landAbove(s) + clear) / wall + 60);
+      }
       let clash = false;
       for (let j = Math.max(1, k - REACH_SLOTS); j < k && !clash; j++) {
         const o = this.list[j];
@@ -607,12 +836,13 @@ export class WaterPlan {
     return f.w0 * (1 + 0.22 * Math.sin(zr / 97 + f.phase * 2.3)) * (1 - smoothstep(f.zEnd - 700, f.zEnd, at));
   }
 
-  /** water level of any river where its centre line has world x: a fixed depth below the road's elevation at that x */
-  riverLevel(x: number): number {
+  /** water level of any river where its centre line has world x: a fixed depth below the road's elevation at that x (a ravine's, its own) */
+  riverLevel(x: number, f?: River): number {
     const sp = this.spine;
     const s = sp.sAtX(x);
     sp.at(s, st);
     const y = st.y;
+    if (f !== undefined && f.wall !== undefined) return y - f.clear;
     return y - this.clearAt(s < 0 ? 0 : s);
   }
 
@@ -633,19 +863,26 @@ export class WaterPlan {
    * @param s0 arc length of the road point with the same x (the terrain has it at hand)
    * @param T  the land as it would be without water
    */
-  carve(x: number, z: number, s0: number, T: number, out: WaterEffect): number {
+  carve(x: number, z: number, s0: number, T: number, out: WaterEffect, s = NaN, d = NaN): number {
     out.level = -Infinity;
     out.kind = 0;
     out.frozen = 0;
+    out.verge = Infinity;
     if (s0 < WATER_SLOT * 0.4) return T;
     const k0 = Math.floor(s0 / WATER_SLOT);
     let h = T;
     let nr = 0;
     let nl = 0;
+    let ns = 0;
     const slots = this.v2 ? REACH_SLOTS_V2 : REACH_SLOTS;
     for (let k = k0 - slots; k <= k0 + slots; k++) {
       const f = this.feature(k);
       if (!f) continue;
+      // (world version 5: a river beside the road — cut after the rivers across it, before the lakes)
+      if (f.kind === 'stream') {
+        if (x >= f.xMin && x <= f.xMax && z >= f.zMin && z <= f.zMax && ns < 3) streamHits[ns++] = f;
+        continue;
+      }
       // (version 2: a valley or a bowl reaches beyond the box its water needs, as far as the land stands high)
       const more = f.kind === 'lake' ? (f.wide ?? 0) : (f.reach ?? 420) - 420;
       if (x < f.xMin - more || x > f.xMax + more) continue;
@@ -677,7 +914,7 @@ export class WaterPlan {
           const swing = f.xMax - f.x0 - 430;
           const off = (x < f.x0 ? f.x0 - x : x - f.x0) - swing;
           const e = off / 1.8 - 1.25 * f.w0;
-          if (e > 20 && T - (f.level0 + 0.08 * swing + 1) < riverBank(e)) continue;
+          if (e > 20 && T - (f.level0 + 0.08 * swing + 1) < (f.wall !== undefined ? ravineBank(f.wall, e) : riverBank(e))) continue;
         }
         WaterPlan.riverCentre(f, zr, rc);
         const lat = x - rc.x;
@@ -690,7 +927,7 @@ export class WaterPlan {
         hit.zr = zr;
         hit.dist = dist;
         hit.w = w;
-        hit.level = this.riverLevel(rc.x);
+        hit.level = this.riverLevel(rc.x, f);
       }
     }
     // rivers next: their valleys are cut before the lakes set their rims, so no valley drains a lake
@@ -698,11 +935,13 @@ export class WaterPlan {
       const hit = hits[i];
       const f = hit.f;
       const at = hit.zr < 0 ? -hit.zr : hit.zr;
-      const { dist, w, level } = hit;
+      const { dist, w } = hit;
+      // (a ravine's stream: where the land falls away below it, down the hillside or over a shelf's lip, it follows the land down)
+      const level = f.wall !== undefined && T - f.depth * 0.6 < hit.level ? T - f.depth * 0.6 : hit.level;
       // (version 2: where the land stands high the valley's floor rises to it over a longer stretch, never
       // steeper than three in five: the river comes down out of its side valley)
       let rise = 500;
-      if (f.reach !== undefined && T - level > 275) rise = Math.min(2400, (T - level) * 1.6 + 60);
+      if (f.reach !== undefined && T - hit.level > 275) rise = Math.min(2400, (T - hit.level) * 1.6 + 60);
       const fade = 1 - smoothstep(f.zEnd - rise, f.zEnd - 60, at);
       let hc: number;
       if (dist < w) {
@@ -714,7 +953,7 @@ export class WaterPlan {
         // a gravel bar at the water's edge, then the bank, steepening so that no hill is too high to be cut through
         const e = dist - w;
         const far = e > 150 ? e - 150 : 0;
-        const line = f.reach === undefined ? level + (e < 3 ? e * 0.18 : 0.54 + (e - 3) * BANK) + far * far * 0.02 : level + riverBank(e);
+        const line = f.reach === undefined ? level + (e < 3 ? e * 0.18 : 0.54 + (e - 3) * BANK) + far * far * 0.02 : level + (f.wall !== undefined ? ravineBank(f.wall, e) : riverBank(e));
         hc = h < line ? h : line;
         if (e < 9) {
           // a low levee where the land would have let the river out — but never a dam across another river
@@ -733,6 +972,16 @@ export class WaterPlan {
         // (for two rivers at once, the nearer one's water counts)
         out.l = dist - w;
       }
+    }
+    if (ns > 0) {
+      // (the point's arc length and offset from the road, as the land has them; else from the road point at its x)
+      if (!(s === s) || !(d === d)) {
+        this.spine.at(s0, st);
+        const dz = z - st.z;
+        s = s0 + dz * Math.sin(st.phi);
+        d = dz * Math.cos(st.phi);
+      }
+      for (let i = 0; i < ns; i++) h = this.streamCut(streamHits[i], s, d, h, out);
     }
     // the lakes themselves last: the bowl, and a low rim that keeps the water in whatever was done around it
     for (let i = 0; i < nl; i++) {
@@ -896,6 +1145,18 @@ export class WaterPlan {
           out.dist = d;
           out.kind = 1;
         }
+      } else if (f.kind === 'stream') {
+        if (x < f.xMin - far || x > f.xMax + far || z < f.zMin - far || z > f.zMax + far) continue;
+        this.spine.at(s0, st);
+        const dz = z - st.z;
+        const e = WaterPlan.streamAcross(f, s0 + dz * Math.sin(st.phi), dz * Math.cos(st.phi));
+        if (!(e === e)) continue;
+        const W = WaterPlan.streamWidth(f, s0 + dz * Math.sin(st.phi));
+        const d = e < 0 ? -e : e > W ? e - W : 0;
+        if (d < out.dist) {
+          out.dist = d;
+          out.kind = 2;
+        }
       } else {
         // (a river's own reach in x is its water and 430 m more: every point within `far` of it lies inside)
         if (x < f.xMin || x > f.xMax) continue;
@@ -934,7 +1195,7 @@ export class WaterPlan {
     for (let k = k0 - REACH_SLOTS; k <= k0 + REACH_SLOTS; k++) {
       const f = this.feature(k);
       if (!f || x + r < f.xMin || x - r > f.xMax) continue;
-      if (f.kind === 'lake') {
+      if (f.kind === 'lake' || f.kind === 'stream') {
         if (z + r >= f.zMin && z - r <= f.zMax) return true;
         continue;
       }

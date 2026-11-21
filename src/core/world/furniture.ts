@@ -17,7 +17,8 @@ import { roadStyleAt } from './roadStyles';
 import { Solid, type SolidSource } from './solids';
 import { SpineSample } from './spine';
 import type { TerrainPoint, World } from './terrain';
-import type { River } from './water';
+import { KERB_AT, type River, type WaterFeature } from './water';
+import { GALLERY_INNER, GALLERY_MARGIN, GALLERY_OUTER, GALLERY_OUTER_FACE, type Gallery } from './galleries';
 
 /** metres of road per block */
 export const FURNITURE_BLOCK = 256;
@@ -68,6 +69,8 @@ export class Furniture implements SolidSource {
   private readonly blocks = new Map<number, Block>();
   private readonly seed: number;
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
+  private readonly feats: WaterFeature[] = [];
+  private readonly gals: Gallery[] = [];
   /** what cars have laid flat: kind|s|side → the way it fell */
   private readonly flat = new Map<string, number>();
 
@@ -192,6 +195,38 @@ export class Furniture implements SolidSource {
         blk.solids.push(new Solid().set(x, z, RAIL_STEP / 2 + 0.05, 0.09, st.phi, this.tp.h - 0.3, this.tp.h + 0.78, false, 'road:rail'));
       }
     }
+    // (world version 5: a bridge's own parapets and railings keep cars on its deck — a viaduct stands tens of metres over
+    // its ravine: docs/V3/nodes/R7-wrapup.md)
+    if (world.rules.version >= 5) {
+      for (const f of world.water.between(sA - 300, sA + FURNITURE_BLOCK + 300, this.feats)) {
+        if (f.kind !== 'river') continue;
+        const a = Math.max(f.span0 - 3, sA);
+        const c = Math.min(f.span1 + 3, sA + FURNITURE_BLOCK);
+        for (let s = a; s < c - 1e-6; s += RAIL_STEP) {
+          const len = Math.min(RAIL_STEP, c - s);
+          sp.at(s + len / 2, st);
+          for (const side of [-1, 1]) {
+            const d = side * (KERB_AT + 0.3);
+            const y = st.y + st.bank * d;
+            blk.solids.push(new Solid().set(st.x - Math.sin(st.phi) * d, st.z + Math.cos(st.phi) * d, len / 2 + 0.05, 0.22, st.phi, y - 0.3, y + 1.0, false, 'road:rail'));
+          }
+        }
+      }
+    }
+    // (world version 5: a gallery's walls keep cars on the road — its rock wall on the one hand, the sills of its windows
+    // or the parapet between its columns on the other: galleries.ts)
+    for (const g of world.galleries.between(sA, sA + FURNITURE_BLOCK, this.gals)) {
+      const a = Math.max(g.s0, sA);
+      const c = Math.min(g.s1, sA + FURNITURE_BLOCK);
+      for (let s = a; s < c - 1e-6; s += RAIL_STEP) {
+        const len = Math.min(RAIL_STEP, c - s);
+        sp.at(s + len / 2, st);
+        for (const [d, half, up] of [[g.side * (GALLERY_INNER + 0.5), 0.5, 4], [-g.side * ((GALLERY_OUTER + GALLERY_OUTER_FACE) / 2), (GALLERY_OUTER_FACE - GALLERY_OUTER) / 2, 1.0]] as const) {
+          const y = st.y + st.bank * d;
+          blk.solids.push(new Solid().set(st.x - Math.sin(st.phi) * d, st.z + Math.cos(st.phi) * d, len / 2 + 0.05, half, st.phi, y - 0.3, y + up, false, 'road:wall'));
+        }
+      }
+    }
     const railed = (s: number, side: number): boolean => blk.rails.some((r) => r.side === side && s >= r.s0 - 1 && s <= r.s1 + 1);
     // ---- delineators, chevrons, the kilometre stone
     for (let s = Math.ceil(sA / 25) * 25; s < sA + FURNITURE_BLOCK; s += 25) {
@@ -208,7 +243,7 @@ export class Furniture implements SolidSource {
         if ((h & 0xff) < 36 || railed(s, side)) continue;
         this.post(blk, 'delineator', s, side, POST_AT, (h >>> 8) & 0xff, h);
       }
-      if (s % 1000 === 0) this.post(blk, 'kmstone', s, 1, 5.5, 255, hash2(s, 99, this.seed));
+      if (s % 1000 === 0 && !world.galleries.near(s, GALLERY_MARGIN)) this.post(blk, 'kmstone', s, 1, 5.5, 255, hash2(s, 99, this.seed));
     }
     for (let s = Math.ceil(sA / 16) * 16; s < sA + FURNITURE_BLOCK; s += 16) {
       if (s < 80) continue;
@@ -218,6 +253,8 @@ export class Furniture implements SolidSource {
       const side = Furniture.outer(st.kappa);
       const h = hash2(Math.round(s / 16), 0xc4e, this.seed);
       if ((h & 0xff) < 50) continue;
+      // (not in a gallery: it would stand in its rock or among its pillars)
+      if (world.galleries.near(s, GALLERY_MARGIN)) continue;
       this.post(blk, 'chevron', s, side, 6.1, (h >>> 8) & 0xff, h);
     }
     return blk;

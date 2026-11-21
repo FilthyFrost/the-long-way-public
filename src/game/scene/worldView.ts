@@ -15,7 +15,7 @@ import { farWoodsMaterial, flowerMaterial, foliageMaterial, grassMaterial, groun
 import { castShadows } from '../render/shadow';
 import { coverUniforms, ownPalettes, showChapters, type OwnPalettes } from '../render/style';
 import { roadStripMaterial, terrainMaterial, wireMaterial } from '../render/terrainMaterials';
-import type { Lake, River, WaterFeature } from '../../core/world/water';
+import type { Lake, River, Stream, WaterFeature } from '../../core/world/water';
 import { waterMaterial } from '../render/water';
 import { CrownView } from './crowns/crownView';
 import { Meadow } from './meadow';
@@ -24,7 +24,9 @@ import { LOD_FAR, LOD_MID, LOD_NEAR, LOD_CLOSE, buildFloraScatter, type FloraLod
 import { plantRegistry, type PlantRegistry } from './plantRegistry';
 import { siteSlices } from './siteBuild';
 import { TerrainBatch, type TerrainSlot } from './terrainBatch';
-import { LakeBuild, RIVER_CHUNK, SEA_CHUNK, buildBridge, buildRiverChunk, riverChunks, riverPoint, seaChunks, seaSlices, type WaterSheet } from './waterBuild';
+import { buildGallery } from './galleryBuild';
+import type { Gallery } from '../../core/world/galleries';
+import { LakeBuild, RIVER_CHUNK, SEA_CHUNK, buildBridge, buildRiverChunk, buildStream, riverChunks, riverPoint, seaChunks, seaSlices, type WaterSheet } from './waterBuild';
 import { grassSlices, woodsSlices, type GrassTile, type Slices, type WoodsTile } from './worldBuild';
 import { GRASS_FADE, GRASS_KEEP_FAR, GRASS_NEAR, GRASS_RADIUS, GRASS_TILE, STRIP_STATIONS, TERRAIN_MAX_LEVEL, TERRAIN_N, TERRAIN_ROOT, TILE, WOODS_FADE, WOODS_TILE, buildFarWoods, buildFlower, buildGrass, buildGrassTuft, buildPoles, buildWoodsCard, buildScatter, buildScatterKinds, buildStrip, buildTerrain, type ScatterKinds } from './worldBuild';
 
@@ -86,10 +88,15 @@ export class WorldView {
   private wantTiles = new Map<string, { tx: number; tz: number; far: boolean; lod: FloraLod; dist: number }>();
   /** water sheets (lakes whole, rivers in lengths) and bridges, keyed L<slot>, R<slot>/<chunk>, B<slot> */
   private readonly water = new Map<string, Piece>();
-  private wantWater = new Map<string, { f: WaterFeature; chunk: number; dist: number }>();
+  private wantWater = new Map<string, { f: WaterFeature | Gallery; chunk: number; dist: number }>();
   private readonly lakeBuilds = new Map<string, LakeBuild>();
   private readonly waterMat = waterMaterial();
   private readonly bridgeMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, side: THREE.DoubleSide });
+  /** (world version 5) the galleries, tunnels and sheds over the shelf roads (galleryBuild.ts): their rock, under snow its own, and a tunnel's lamps unlit */
+  private readonly galleryMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, side: THREE.DoubleSide });
+  private readonly gallerySnowMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0.9, side: THREE.DoubleSide });
+  private readonly lampMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  private readonly gals: Gallery[] = [];
   private readonly feats: WaterFeature[] = [];
   /** the sea along a chapter, a kilometre of road to a sheet, keyed <chapter>/<length> */
   private readonly seas = new Map<string, Piece>();
@@ -206,7 +213,7 @@ export class WorldView {
     if (!this.kinds_) {
       const k = new Map<unknown, string>([
         [this.terrainMat, 'terrain'], [this.stripMat, 'road'], [this.poleMat, 'road-furniture'], [this.wireMat, 'road-wires'],
-        [this.waterMat, 'water'], [this.bridgeMat, 'bridge'], [this.siteMat, 'site'], [this.siteSnowMat, 'site'],
+        [this.waterMat, 'water'], [this.bridgeMat, 'bridge'], [this.galleryMat, 'gallery'], [this.gallerySnowMat, 'gallery'], [this.lampMat, 'gallery'], [this.siteMat, 'site'], [this.siteSnowMat, 'site'],
         [this.grassMat, 'grass'], [this.flowerMat, 'flowers'], [this.woodsMat, 'far-woods'], [this.shadowMat, 'ground-shadow'],
         [this.treeMat, 'trees-v1'], [this.coniferMat, 'trees-v1'], [this.rockMat, 'rocks-v1'],
       ]);
@@ -416,12 +423,16 @@ export class WorldView {
     }
 
     // ---- water: lakes whole, rivers in lengths, and the bridges
-    const wantV = new Map<string, { f: WaterFeature; chunk: number; dist: number }>();
+    const wantV = new Map<string, { f: WaterFeature | Gallery; chunk: number; dist: number }>();
     const Rv = 5200 * vs;
     for (const f of this.world.water.between(this.sCam - Rv - 1500, this.sCam + Rv + 1500, this.feats)) {
       if (f.kind === 'lake') {
         const dist = Math.max(0, Math.hypot(f.cx - cx, f.cz - cz) - Math.max(f.a, f.b));
         if (dist < Rv) wantV.set(`L${f.slot}`, { f, chunk: 0, dist });
+      } else if (f.kind === 'stream') {
+        // (world version 5: a river beside the road, whole)
+        const dist = Math.max(0, f.s0 - f.veer - this.sCam, this.sCam - f.s1 - f.veer);
+        if (dist < 3800 * vs) wantV.set(`A${f.slot}`, { f, chunk: 0, dist });
       } else {
         const [c0r, c1r] = riverChunks(f);
         for (let c = c0r; c <= c1r; c++) {
@@ -432,6 +443,11 @@ export class WorldView {
         const db = Math.abs(f.s - this.sCam);
         if (db < 1500 * vs) wantV.set(`B${f.slot}`, { f, chunk: 0, dist: db });
       }
+    }
+    // (world version 5: the galleries, tunnels and avalanche sheds of the shelf roads — core/world/galleries.ts)
+    for (const g of this.world.galleries.between(this.sCam - 1700 * vs, this.sCam + 1700 * vs, this.gals)) {
+      const db = Math.max(0, g.s0 - this.sCam, this.sCam - g.s1);
+      if (db < 1500 * vs) wantV.set(`G${g.slot}`, { f: g, chunk: 0, dist: db });
     }
     this.wantWater = wantV;
     for (const [k, p] of this.water) {
@@ -754,6 +770,22 @@ export class WorldView {
         mesh.renderOrder = 3;
         objects.push(this.add(mesh, r.wx, r.wy, r.wz));
       }
+      this.water.set(key, { objects });
+    } else if (key[0] === 'A') {
+      const r = buildStream(this.world, f as Stream);
+      const objects: THREE.Object3D[] = [];
+      if (r) {
+        const mesh = new THREE.Mesh(r.geometry, this.waterMat);
+        mesh.renderOrder = 3;
+        objects.push(this.add(mesh, r.wx, r.wy, r.wz));
+      }
+      this.water.set(key, { objects });
+    } else if (key[0] === 'G') {
+      const gm = buildGallery(this.world, f as Gallery);
+      const mesh = this.add(new THREE.Mesh(gm.geometry, gm.snowy ? this.gallerySnowMat : this.galleryMat), gm.wx, gm.wy, gm.wz);
+      castShadows(mesh);
+      const objects: THREE.Object3D[] = [mesh];
+      if (gm.lamps) objects.push(this.add(new THREE.Mesh(gm.lamps, this.lampMat), gm.wx, gm.wy, gm.wz));
       this.water.set(key, { objects });
     } else {
       const b = buildBridge(this.world, f as River);

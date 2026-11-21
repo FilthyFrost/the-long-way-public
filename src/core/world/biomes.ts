@@ -145,6 +145,17 @@ export interface RegionDef extends BiomeDef {
   roadStyle?: string;
   /** (world version 5) the stretches of it (0 its first) where its road's view is given a lookout: a railing, a bench, a telescope */
   lookouts?: readonly number[];
+  /** (world version 5) the stretches of it (0 its first) where its road crosses a ravine on a viaduct, a stream tens of metres below (water.ts River.wall) */
+  viaducts?: readonly number[];
+  /** (world version 5) the stretches of it (0 its first) where a river runs beside its road, now on the one side, now on the other (water.ts Stream) */
+  streams?: readonly number[];
+  /**
+   * (world version 5) the stretches of it (0 its first) where its road runs under the rock for a few hundred metres
+   * (galleries.ts), and how: a gallery cut into the cliff, its outer wall broken by windows onto the void; a tunnel
+   * through a spur, lit; an avalanche shed, a concrete roof on columns
+   */
+  galleries?: readonly number[];
+  gallery?: 'rock' | 'tunnel' | 'shed';
   /** it is one of the surreal ones: a dealer deals one among six regions at most */
   surreal?: boolean;
   /** how readily a dealer deals it (absent: 1) */
@@ -518,6 +529,10 @@ function entry(d: RegionDef): RegionDef {
     hairpins: d.hairpins,
     roadStyle: d.roadStyle,
     lookouts: d.lookouts,
+    viaducts: d.viaducts,
+    streams: d.streams,
+    galleries: d.galleries,
+    gallery: d.gallery,
     surreal: d.surreal,
     weight: d.weight,
     land: d.land,

@@ -719,6 +719,8 @@ export class SitePlan implements SolidSource {
         if (this.br.mask > 0) onBridge = true;
       }
       if (onBridge) continue;
+      // (world version 5: nothing in a gallery's rock, nor by its mouths — docs/V3/nodes/R7-wrapup.md)
+      if (world.galleries.near(sc, L + 60)) continue;
       // ---- the land on either side
       for (const side of only !== 0 ? [only] : [wantSide, -wantSide]) {
         let cut = 0;
@@ -1374,6 +1376,7 @@ export class SitePlan implements SolidSource {
       if (this.br.mask > 0) return null;
       world.water.bridgeAt(s + 14, this.br);
       if (this.br.mask > 0) return null;
+      if (world.galleries.near(s, 24)) return null;
       const side = r.next() < 0.5 ? 1 : -1;
       sp.at(s, st);
       const x = st.x - Math.sin(st.phi) * off * side;

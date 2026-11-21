@@ -92,15 +92,29 @@ export interface RoadType {
   hairpins?: readonly number[];
 }
 
-/** (docs/V3/nodes/R3-structures.md) the surface and edges of each kind of road (world/roadStyles.ts ROAD_STYLES 'road:…'), and the stretch its view is given a lookout at */
-export const ROAD_BUILD: Readonly<Record<RoadId, { style: string; lookout?: number }>> = {
-  shelf: { style: 'road:mountain', lookout: 2 },
-  switchback: { style: 'road:mountain', lookout: 3 },
-  pass: { style: 'road:mountain', lookout: 2 },
-  skyline: { style: 'road:upland', lookout: 1 },
-  gorge: { style: 'road:mountain' },
-  valley: { style: 'road:parkway' },
-  cliff_coast: { style: 'road:corniche', lookout: 1 },
+/**
+ * (docs/V3/nodes/R3-structures.md, R7-wrapup.md) the surface and edges of each kind of road (world/roadStyles.ts
+ * ROAD_STYLES 'road:…'), the stretch its view is given a lookout at, the stretch where it crosses a ravine on a viaduct
+ * and how often it does (RegionDef.viaducts), and the stretch of its shelf where it runs under the rock — a gallery,
+ * a tunnel through a spur, an avalanche shed — and how often (RegionDef.galleries)
+ */
+export interface RoadBuild {
+  style: string;
+  lookout?: number;
+  viaduct?: readonly [number, number];
+  gallery?: readonly [number, number];
+  /** the stretches (0 … 3) where a river runs beside the road (RegionDef.streams) */
+  stream?: readonly number[];
+}
+
+export const ROAD_BUILD: Readonly<Record<RoadId, RoadBuild>> = {
+  shelf: { style: 'road:mountain', lookout: 2, viaduct: [0, 0.6], gallery: [3, 0.9] },
+  switchback: { style: 'road:mountain', lookout: 3, viaduct: [0, 0.5] },
+  pass: { style: 'road:mountain', lookout: 2, viaduct: [1, 0.75] },
+  skyline: { style: 'road:upland', lookout: 1, viaduct: [3, 0.5] },
+  gorge: { style: 'road:mountain', stream: [1] },
+  valley: { style: 'road:parkway', stream: [1] },
+  cliff_coast: { style: 'road:corniche', lookout: 1, gallery: [2, 0.85] },
   shore: { style: 'road:parkway' },
   lakeshore: { style: 'road:parkway' },
   forest_tunnel: { style: 'road:track' },
@@ -109,14 +123,14 @@ export const ROAD_BUILD: Readonly<Record<RoadId, { style: string; lookout?: numb
   straight: { style: 'road:desert' },
   dune_road: { style: 'road:desert' },
   rim: { style: 'road:upland', lookout: 2 },
-  terrace_road: { style: 'road:slabs', lookout: 2 },
+  terrace_road: { style: 'road:slabs', lookout: 2, viaduct: [0, 0.5] },
   tower_road: { style: 'road:slabs' },
   lava_road: { style: 'road:open' },
-  ice_valley: { style: 'road:mountain' },
+  ice_valley: { style: 'road:mountain', stream: [2] },
   plateau_road: { style: 'road:upland' },
-  hill_twister: { style: 'road:lane' },
-  river_road: { style: 'road:parkway' },
-  heath_road: { style: 'road:upland' },
+  hill_twister: { style: 'road:lane', viaduct: [2, 0.55] },
+  river_road: { style: 'road:parkway', stream: [0, 2] },
+  heath_road: { style: 'road:upland', viaduct: [1, 0.35] },
   orchard_lane: { style: 'road:lane' },
 };
 

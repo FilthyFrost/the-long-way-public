@@ -85,6 +85,8 @@ export function beatsBetween(world: World, sMin: number, sMax: number, out: Beat
   const feats: WaterFeature[] = world.water.between(Math.max(0, sMin - LAND_SLOT), sMax + LAND_SLOT, []);
   for (const f of feats) {
     if (f.kind === 'river') push(f.span0, 'bridge', f.bridge, 2);
+    // (world version 5: a river beside the road, where it comes alongside)
+    else if (f.kind === 'stream') push(f.s0, 'water', 'river', 2);
     else {
       // a lake counts when its shore is near enough to be seen over the verge
       sp.at(f.s, st);

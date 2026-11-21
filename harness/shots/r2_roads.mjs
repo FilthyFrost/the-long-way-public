@@ -35,12 +35,32 @@ try {
       }, p.place);
       // (LOOKOUT=1: at the place's lookout, if it has one, looking out from beside it)
       const look = process.env.LOOKOUT === '1' ? await page.evaluate(({ a, b }) => window.__rt.placeSites(a, b, 'lookout')[0] ?? null, { a: info.start, b: info.end }) : null;
-      const s = look ? look.s - 18 : (info.start + info.end) / 2 + Number(process.env.ALONG ?? 0);
+      // (AT=viaduct: on the road a little before the place's viaduct; AT=gallery: before its gallery — docs/V3/nodes/R7-wrapup.md)
+      const at = process.env.AT
+        ? await page.evaluate(
+            ({ a, b, kind }) => {
+              const w = window.__rt.game.world;
+              if (kind === 'stream') {
+                const f = w.water.between(a, b, []).find((f) => f.kind === 'stream');
+                return f ? f.s : null;
+              }
+              if (kind === 'viaduct') {
+                const f = w.water.between(a, b, []).find((f) => f.kind === 'river' && f.wall !== undefined);
+                return f ? f.span0 : null;
+              }
+              const g = w.galleries ? w.galleries.between(a, b, [])[0] : null;
+              return g ? g.s0 : null;
+            },
+            { a: info.start, b: info.end, kind: process.env.AT },
+          )
+        : null;
+      const s = at !== null ? at + Number(process.env.ALONG ?? -30) : look ? look.s - 18 : (info.start + info.end) / 2 + Number(process.env.ALONG ?? 0);
       await page.evaluate((km) => window.__rt.devGoKm(km, true), s / 1000);
       await built(page);
       await idle(page);
-      // the void's side where the road has one (+1 the right, −1 the left; 0 none)
-      const low = await page.evaluate(async (s) => {
+      // the void's side where the road has one (+1 the right, −1 the left; 0 none) — or the side of the river beside the road (AT=stream)
+      const streamSide = process.env.AT === 'stream' ? await page.evaluate(({ a, b }) => window.__rt.game.world.water.between(a, b, []).find((f) => f.kind === 'stream')?.side ?? 0, { a: info.start, b: info.end }) : 0;
+      const low = streamSide || await page.evaluate(async (s) => {
         const lf = await import('/src/core/world/landform.ts');
         const lp = window.__rt.game.world.land.at(s, new lf.LandParams());
         return lp.shelf > 30 ? -lp.shelfSide : lp.rim > 30 ? lp.rimSide : 0;
@@ -49,24 +69,24 @@ try {
       const lowSide = look ? await page.evaluate((l) => { const q = {}; window.__rt.game.world.spine.at(l.s, q); return Math.sign(-(l.x - q.x) * Math.sin(q.phi) + (l.z - q.z) * Math.cos(q.phi)) || 1; }, look) : low;
       for (const view of ['cockpit', 'drone']) {
         await page.evaluate(
-          ({ view, low, drone }) => {
+          ({ view, low, drone, look }) => {
             const rt = window.__rt;
             const g = rt.game;
             if (!g.seated) g.enter(g.focus, 'driver');
             if (view === 'cockpit') {
               rt.setView('cockpit');
-              rt.look(0.8 * low, low ? -0.07 : 0.02);
-            } else rt.setOrbit(180 + 38 * low, drone[0], drone[1], 2.5);
+              rt.look(look ?? 0.8 * low, low ? -0.07 : 0.02);
+            } else rt.setOrbit(drone[2] === undefined ? 180 + 38 * low : low < 0 ? 360 - drone[2] : drone[2], drone[0], drone[1], 2.5);
             g.simulate(0.4);
             for (let i = 0; i < 4; i++) rt.render();
           },
-          { view, low: lowSide, drone: DRONE.map(Number) },
+          { view, low: lowSide, drone: DRONE.map(Number), look: process.env.LOOK !== undefined ? Number(process.env.LOOK) : null },
         );
         // (the land about the camera where it now is: the drone stands a hundred metres off)
         await built(page);
         await page.waitForTimeout(1600);
         await page.evaluate(() => window.__rt.render());
-        const file = path.join(out, `${seed}_${String(p.place).padStart(2, '0')}_${view}.png`);
+        const file = path.join(out, `${seed}_${String(p.place).padStart(2, '0')}${process.env.AT ? '_' + process.env.AT : ''}_${view}.png`);
         await page.screenshot({ path: file });
         report.push({ ...p, ...info, low: lowSide, view, file });
       }

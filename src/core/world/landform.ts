@@ -53,6 +53,8 @@ export class LandParams {
   shelf = 0;
   opp = 0;
   shelfSide = 1;
+  /** (version 5) how fully a shelf stands here, 0 … 1: its high side's rock and mountainside fade in with it across a blend (its fall and far wall do with `shelf`, `opp`) */
+  shelfW = 0;
   rim = 0;
   rimSide = 1;
   /** (version 5) how much steeper and closer a canyon's walls stand than a canyon's of before (0: as before; a gorge's near two in one) */
@@ -100,6 +102,7 @@ export class LandParams {
     this.shelf = o.shelf;
     this.opp = o.opp;
     this.shelfSide = o.shelfSide;
+    this.shelfW = o.shelfW;
     this.rim = o.rim;
     this.rimSide = o.rimSide;
     this.steep = o.steep;
@@ -123,6 +126,7 @@ export class LandParams {
       if (this.shelf <= 0) this.shelfSide = o.shelfSide;
       this.shelf += (o.shelf - this.shelf) * t;
       this.opp += (o.opp - this.opp) * t;
+      this.shelfW += (o.shelfW - this.shelfW) * t;
     }
     if (this.rim > 0 || o.rim > 0) {
       if (this.rim <= 0) this.rimSide = o.rimSide;
@@ -252,11 +256,13 @@ export class LandformPlan {
   constructor(
     private readonly spine: RoadSpine,
     seed: number,
-    private readonly wet: (k: number) => 'lake' | 'river' | null,
+    private readonly wet: (k: number) => 'lake' | 'river' | 'stream' | null,
     /** which side the sea is on in stretch k (+1 right, −1 left), 0 when the road is not on the coast there */
     private readonly coast: (k: number) => number = () => 0,
     /** is stretch k one of the journey's quiet ones? (quiet.ts: the country runs on as it was) */
     private readonly quiet: (k: number) => boolean = () => false,
+    /** (world version 5) does the road of stretch k cross a ravine on a viaduct? Its river is no level country's: the land keeps its lie */
+    private readonly ravine: (k: number) => boolean = () => false,
   ) {
     this.seed = hash2(seed | 0, 0x1a9d, 33);
     this.operators = spine.rules.version >= 2;
@@ -278,7 +284,7 @@ export class LandformPlan {
       const prev = i > 0 ? this.list[i - 1] : null;
       const water = this.wet(i);
       const setting = this.operators ? routeSetting(this.spine.seed, i, region.id) : null;
-      if (i < 1 || water === 'river') kind = 'open';
+      if (i < 1 || (water === 'river' && !this.ravine(i))) kind = 'open';
       else if (prev && this.quiet(i)) {
         // a quiet stretch: the lie of the land does not change
         kind = prev.kind;
@@ -286,6 +292,9 @@ export class LandformPlan {
       } else if (setting && odds[KINDS.indexOf(setting)] > 0) {
         kind = setting;
         if (prev?.kind === kind) side = prev.side;
+        // (version 5: a hillside and the shelf it turns into, or the other way about, keep their high side — the
+        // mountain stays on the one hand, rising out of the hillside into the shelf's rock)
+        else if (this.spine.rules.version >= 5 && prev && (prev.kind === 'hillside' || prev.kind === 'shelf') && (kind === 'hillside' || kind === 'shelf')) side = prev.side;
       } else if (prev && prev.kind !== 'open' && r(20) < 0.45 && odds[KINDS.indexOf(prev.kind)] > 0) {
         // country runs on: the same hillside for another stretch, on the same side
         kind = prev.kind;
@@ -331,6 +340,7 @@ export class LandformPlan {
         p.shelf = (size[4] || 160) * (0.8 + 0.2 * amt);
         p.opp = (size[5] ?? 0) * (0.75 + 0.25 * amt);
         p.shelfSide = side;
+        p.shelfW = 1;
         p.far = 1.1;
       } else if (kind === 'rim') {
         p.rim = (size[6] || 180) * (0.8 + 0.2 * amt);
@@ -407,7 +417,8 @@ export class LandformPlan {
       // the high side: the cut, some fifteen metres of rock, then the slope going on up, easing as it climbs
       const cut = Math.min(e, 13) * 1.3;
       const q = e > 13 ? (e - 13) / 520 : 0;
-      return cut + 0.68 * 520 * (q / Math.sqrt(1 + q * q));
+      // (as fully as the shelf stands: across a blend into country without one it fades, no cliff where the blend begins)
+      return (cut + 0.68 * 520 * (q / Math.sqrt(1 + q * q))) * p.shelfW;
     }
     // the fall: steepest just past the road's edge (a lip of a few metres, then some fifty-eight degrees), easing all
     // the way down — out of the side window the eye goes straight down into the valley
