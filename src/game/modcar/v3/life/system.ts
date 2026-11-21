@@ -77,7 +77,8 @@ export class Life {
     h.lamp=false;
     g.x=x;g.y=h.wet?t.wl:t.h;g.z=z;
     const list=layer?p.insects:p.birds;
-    if(!layer && !this.focus && (hash%4!==0)) return;
+    // (V7: a bird in every other cell, where it was one in four — the country by the road was nearly empty of them)
+    if(!layer && !this.focus && (hash%2!==0)) return;
     for(let j=0;j<list.length;j++) {
       const entry=list[(j+(hash>>>8))%list.length];
       const n=entry.name;
@@ -134,7 +135,8 @@ export class Life {
       if(a.motion==='glow') g.y+=.7;
       if(a.motion==='dart') g.y+=.22;
       g.profile=p;g.animal=a;g.phase=(hash>>>10)*.00000148;g.flee=0;
-      g.count=a.motion==='flock'?14+hash%13:a.motion==='glow'?60:a.name==='美洲鸦'?3:layer && a.motion!=='lamp'?2:1;
+      // (V7: where it flowers, butterflies in threes to fives and bees in twos to fours)
+      g.count=a.motion==='flock'?14+hash%13:a.motion==='glow'?60:a.name==='美洲鸦'?3:a.form==='butterfly'?3+hash%3:a.form==='bee'?2+hash%3:layer && a.motion!=='lamp'?2:1;
       for(let i=0;i<g.count;i++) {
         const v=i*4;
         g.flock[v]=Math.sin(i*2.39996+g.phase)*Math.sqrt(i)*1.85;
