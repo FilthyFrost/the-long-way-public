@@ -124,6 +124,77 @@ function rainOf(m: Macro, month: number): number {
   return Math.round((year / 12) * share);
 }
 
+/** a number 0 … 1 of a place's own, for its choices among its birds and insects */
+function pick(sc: Scene, salt: number): number {
+  let x = (Math.imul(sc.index + 0x6a5, 0x9e3779b1) ^ Math.imul(salt + 0x51, 0x85ebca77)) >>> 0;
+  x = Math.imul(x ^ (x >>> 15), 0x2c1b3c6d) >>> 0;
+  return ((x ^ (x >>> 13)) >>> 0) / 4294967296;
+}
+
+/** some of a list, by the place's dice (at least `least`), the order kept */
+function some<T>(sc: Scene, list: readonly T[], least: number, salt: number): T[] {
+  const out = list.filter((_, i) => pick(sc, salt + i) < 0.7);
+  for (let i = 0; out.length < Math.min(least, list.length) && i < list.length; i++) if (!out.includes(list[i])) out.push(list[i]);
+  return out;
+}
+
+/**
+ * The birds of a place (docs/V3/nodes/R6-life.md; the life system's catalogue, core/v3/life/rules.ts): its woods' — the
+ * tropics' parrots, fruit doves, tanagers and sunbirds, the temperate woods' jays, tits, vireos and woodpeckers, the
+ * cold woods' nutcrackers and grey jays —, its open country's larks, swallows and buzzards (the tropics' weavers and
+ * caracaras), the desert's ravens and doves, the high country's choughs, its water's: gulls, shearwaters and pelicans
+ * by the sea, egrets, swans and ducks on its lakes and marshes, kingfishers and fish eagles by its rivers.
+ */
+function birdsOf(sc: Scene): { name: string; habitat: string }[] {
+  const m = sc.macro;
+  const e = sc.look.efg;
+  const warm = m.tSea > 20;
+  const cold = growingAt(m, m.base) < 9 || sc.look.sig.snow;
+  const out: { name: string; habitat: string }[] = [];
+  const add = (names: readonly string[], habitat: string, least = 1, salt = 0): void => {
+    for (const name of some(sc, names, least, salt)) if (!out.some((b) => b.name === name)) out.push({ name, habitat });
+  };
+  const wooded = e.struct === 'closed_forest' || e.struct === 'open_forest' || e.struct === 'woodland';
+  if (wooded) add(warm ? ['深红玫瑰鹦鹉', '果鸠', '绯红丽唐纳雀', '太阳鸟'] : cold ? ['克拉克星鸦', '灰噪鸦', '黑顶山雀'] : ['暗冠蓝鸦', '黑顶山雀', '红眼莺雀', '吉拉啄木鸟'], '林冠枝头', 2, 1);
+  if (['grassland', 'savanna', 'farmland', 'shrubland', 'tundra'].includes(e.struct)) add(warm ? ['织布鸟', '燕类', '南方凤头卡拉鹰'] : ['西草地鹨', '草地鹨', '仓燕', '红尾鵟'], '开阔草地', 2, 11);
+  if (e.struct === 'farmland') add(['黑嘴喜鹊', '东部蓝鸲', '美洲鸦'], '田边', 1, 21);
+  if (e.struct === 'desert' || e.struct === 'bare') add(['渡鸦', '红尾鵟', '白翅哀鸽'], '荒原岩顶', 2, 31);
+  if (cold || m.context === 'mountain' || e.group === 'T6') add(['黄嘴山鸦', '渡鸦'], '山脊上空', 1, 41);
+  if (m.context === 'mountain' && !cold) add(['南方凤头卡拉鹰', '红尾鵟'], '山脊上空', 1, 51);
+  if (m.water === 'coast' || m.context === 'coast') add(warm ? ['银鸥', '褐鹈鹕', '短尾鹱'] : ['银鸥', '短尾鹱'], '海浪近岸', 2, 61);
+  if (m.water === 'lake' || m.water === 'wetland' || m.water === 'oasis') add(cold ? ['白鹭', '苔原天鹅', '绿头鸭'] : ['白鹭', '绿头鸭', '绿翅鸭'], '池塘静水', 2, 71);
+  if (m.water === 'river') add(warm ? ['翠鸟', '非洲渔雕'] : ['翠鸟', '美洲鸦'], '沿河', 1, 81);
+  if (!out.length) add(['燕类', '渡鸦'], '开阔草地', 1, 91);
+  return out;
+}
+
+/**
+ * The insects of a place (the same catalogue): bees and bumblebees where it flowers, butterflies — the tropics'
+ * swallowtails and monarchs, the temperate country's whites and blues —, dragonflies by its water, fireflies where
+ * its summer nights are warm and wet, moths at a lamp; each in its months of warmth.
+ */
+function insectsOf(sc: Scene): { name: string; months: readonly number[]; activity: 'day' | 'night'; habitat: string }[] {
+  const m = sc.macro;
+  const e = sc.look.efg;
+  const warm = m.tSea > 20;
+  const w = wetnessAt(m, m.base);
+  // (its months warm enough to fly in: a month's mean of 9 °C or more at its road)
+  const months: number[] = [];
+  for (let k = 1; k <= 12; k++) if (monthWarmth(m, m.base, k) >= 9) months.push(k);
+  if (!months.length || sc.look.sig.snow) return [];
+  const out: { name: string; months: readonly number[]; activity: 'day' | 'night'; habitat: string }[] = [];
+  const flowers = (e.flowers?.length ?? 0) > 0 || e.code.startsWith('T7.1');
+  if (flowers) {
+    out.push({ name: warm ? '野蜂' : '熊蜂', months, activity: 'day', habitat: '花丛' });
+    for (const name of some(sc, warm ? ['凤蝶类', '斑蝶类'] : ['粉蝶类', '灰蝶类'], 1, 101)) out.push({ name, months, activity: 'day', habitat: '花丛' });
+  }
+  if (m.water !== 'none' && m.water !== 'salt') out.push({ name: '蜻蜓', months, activity: 'day', habitat: '池塘静水' });
+  const summer = months.filter((k) => monthWarmth(m, m.base, k) >= 16);
+  if (summer.length && w > 0.45) out.push({ name: '萤火虫', months: summer, activity: 'night', habitat: '林缘湿地' });
+  out.push({ name: '蛾类', months, activity: 'night', habitat: '灯下' });
+  return out;
+}
+
 /** a place's ground profile (its region's id the profile's) */
 export function profileOfPlace(sc: Scene, id: string): EcoProfile {
   const m = sc.macro;
@@ -170,8 +241,9 @@ export function profileOfPlace(sc: Scene, id: string): EcoProfile {
     bands,
     treelineM: [tl, tl, tl, tl],
     snowlineM: [Math.round(snowLineOf(m, 1)), Math.round(snowLineOf(m, 4)), Math.round(snowLineOf(m, 7)), Math.round(snowLineOf(m, 10))],
-    birds: [],
-    insects: [],
+    // (docs/V3/nodes/R6-life.md: its birds and its insects by its ecosystem, its water, its warmth and its months)
+    birds: birdsOf(sc),
+    insects: insectsOf(sc),
     rocks: [{ ...rk, share: 1 }],
     roadStyles: [],
     transitions: [],

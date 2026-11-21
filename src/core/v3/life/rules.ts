@@ -1,6 +1,7 @@
 import { routeProfileId } from '../../world/routeProfiles';
 import { hash2 } from '../../math/rng';
 import { ECO_PROFILES, type EcoProfile } from '../../world/data/ecoProfiles';
+import { groundProfile } from '../../world/groundTables';
 import type { WeatherState } from '../../env/weather';
 
 export type Motion = 'perch' | 'flock' | 'soar' | 'wade' | 'swim' | 'nectar' | 'dart' | 'glow' | 'lamp';
@@ -70,7 +71,8 @@ const byId = new Map(ECO_PROFILES.map(p => [p.id, p]));
 // Legacy landscapes predate geographical IDs. Never fall through by kin across continents.
 
 export function profileFor(region: string): EcoProfile | undefined {
-  return byId.get(region) ?? byId.get(routeProfileId(region));
+  // (a place of the emergent Earth: its own profile, registered as the journey reaches it — its own birds and insects)
+  return byId.get(region) ?? (region.startsWith('earth') ? groundProfile(region) : undefined) ?? byId.get(routeProfileId(region));
 }
 
 export const CELL_COUNT = 25;
