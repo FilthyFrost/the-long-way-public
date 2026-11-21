@@ -18,14 +18,14 @@
  */
 import type { Out } from '../crowns/grow';
 import { mulberry } from '../vegetation';
-import { T_HEATHER, T_HERB, T_NEEDLE, T_ROSETTE, T_ROUND, T_TUSSOCK, tileRect } from './atlas';
-import { PART_BLOOM, TAU, TWIG, V3, smooth, writeBloom, type Clump, type Level, type Plan, type Tube } from './kit';
+import { T_FROND, T_HEATHER, T_HERB, T_NEEDLE, T_ROSETTE, T_ROUND, T_TUSSOCK, tileRect } from './atlas';
+import { PART_BLOOM, TAU, TWIG, V3, smooth, writeBloom, writeFrond, type Clump, type Level, type Plan, type Tube } from './kit';
 import { PART_SPRAY } from '../crowns/grow';
 import * as THREE from 'three';
 
-export type TuftKind = 'meadow' | 'tussock' | 'needle' | 'spinifex';
+export type TuftKind = 'meadow' | 'tussock' | 'needle' | 'spinifex' | 'tall';
 export type FlowerKind = 'poppy' | 'goldpoppy' | 'tulip' | 'daisy' | 'lupin';
-export type ShrubKind = 'round' | 'heather' | 'sage' | 'lavender' | 'protea';
+export type ShrubKind = 'round' | 'heather' | 'sage' | 'lavender' | 'protea' | 'cushion' | 'saltbush';
 
 /**
  * Standing cards round a foot: each a picture from a tile standing up from the ground, leaning out by `lean`
@@ -113,6 +113,8 @@ const TUFTS: Record<TuftKind, { h: number; w: number; cards: number; lean: numbe
   tussock: { h: 1.0, w: 1.2, cards: 4, lean: 0.18, tile: T_TUSSOCK },
   needle: { h: 0.85, w: 0.8, cards: 3, lean: 0.1, tile: T_NEEDLE },
   spinifex: { h: 0.6, w: 1.4, cards: 6, lean: 0.55, tile: T_NEEDLE },
+  // (docs/V3/nodes/R5-ground.md: the savanna's elephant grass, head-high)
+  tall: { h: 1.9, w: 1.0, cards: 6, lean: 0.14, tile: T_TUSSOCK },
 };
 
 export function planTuft(seed: number, kind: TuftKind): Plan {
@@ -164,6 +166,33 @@ export function planFlower(seed: number, kind: FlowerKind): Plan {
   );
 }
 
+// ---- the rainforest's understory (docs/V3/nodes/R5-ground.md) ----
+
+/**
+ * A clump of the understory's great leaves (a heliconia's, a wild banana's, an elephant ear's): five to eight paddles
+ * on their stalks out of one root, arching out and drooping at their tips, each a broad blade of the frond tile.
+ */
+export function planBigleaf(seed: number, height = 1.8): Plan {
+  const random = mulberry(seed);
+  const H = height * (0.8 + 0.4 * random());
+  const n = 5 + Math.floor(random() * 4);
+  const spec: { a: number; el: number; len: number }[] = [];
+  for (let k = 0; k < n; k++) spec.push({ a: random() * TAU, el: 0.7 + 0.6 * random(), len: H * (0.8 + 0.35 * random()) });
+  const head = new V3(0, 0.05, 0);
+  const segsAt = [6, 3];
+  const extra = (out: Out, level: Level, rnd: () => number): void => {
+    for (const f of spec) {
+      const d = new V3(Math.cos(f.a) * Math.cos(f.el), Math.sin(f.el), Math.sin(f.a) * Math.cos(f.el));
+      const p1 = head.clone().addScaledVector(d, f.len * 0.55);
+      const p2 = head.clone().addScaledVector(new V3(d.x, 0, d.z).normalize(), f.len * 0.75).add(new V3(0, f.len * (Math.sin(f.el) * 0.7 - 0.12), 0));
+      const c = new THREE.QuadraticBezierCurve3(head.clone(), p1, p2);
+      // (a bare stalk, then the blade: broad in its middle, round at its tip)
+      writeFrond(out, c, (t) => (t < 0.35 ? 0.03 : f.len * 0.2 * Math.sin(Math.PI * Math.min(1, (t - 0.35) / 0.65))), segsAt[level], 0.15, T_FROND, new V3(0, H * 0.5, 0), 0.8, rnd);
+    }
+  };
+  return extraOnly(extra, n * segsAt[0] * 2 + 8, H * 0.5);
+}
+
 // ---- shrubs ----
 
 export function planShrub(seed: number, kind: ShrubKind): Plan {
@@ -175,6 +204,9 @@ export function planShrub(seed: number, kind: ShrubKind): Plan {
     sage: { h: 1.0, w: 0.65, clumps: 8, tile: T_NEEDLE, stems: 6, sy: 0.8, bare: true },
     lavender: { h: 0.55, w: 0.5, clumps: 3, tile: T_NEEDLE, stems: 0, sy: 0.7, bare: false },
     protea: { h: 1.25, w: 0.6, clumps: 6, tile: T_ROSETTE, stems: 4, sy: 0.9, bare: false },
+    // (docs/V3/nodes/R5-ground.md: the tundra's and the high country's tight cushions; the salt desert's grey saltbush)
+    cushion: { h: 0.3, w: 0.7, clumps: 5, tile: T_HEATHER, stems: 0, sy: 0.42, bare: false },
+    saltbush: { h: 0.8, w: 0.85, clumps: 7, tile: T_NEEDLE, stems: 4, sy: 0.72, bare: false },
   };
   const d = dims[kind];
   const H = d.h * s;

@@ -21,9 +21,9 @@ import { monthWarmth, snowLineOf, treeLineOf } from './region';
 /** the ground plants a form is drawn as (groundTables.ts: the names its ground growths are kept under) */
 const GROUND: Partial<Record<Form, string>> = {
   grass_meadow: '草甸禾草',
-  grass_tall: '高秆草',
+  grass_tall: '象草',
   grass_tussock: '丛生旱草',
-  grass_hummock: '丛生旱草',
+  grass_hummock: '刺鬣草团',
   sedge: '莎草',
   reed: '莎草',
   aquatic: '莎草',
@@ -98,6 +98,9 @@ const wrap = (k: number): number => ((k - 1 + 12) % 12) + 1;
 function bandOf(e: Efg, from: number, to: number, m: Macro, month: number): EcoBand {
   const ground = [...new Set(e.herbs.map((f) => GROUND[f]).filter((x): x is string => !!x))];
   const shrubs = [...new Set(e.shrubs.map((f) => SHRUB[f]).filter((x): x is string => !!x))];
+  // (docs/V3/nodes/R5-ground.md: the tropical forests' understory of great leaves; the salt and the dry country's saltbush)
+  if (e.group === 'T1' && (e.struct === 'closed_forest' || e.struct === 'open_forest')) ground.unshift('林下大叶草');
+  if (e.struct === 'desert' && (m.rock === 'salt' || m.rock === 'gypsum' || m.water === 'salt')) shrubs.unshift('盐生灌丛');
   // (its height nearest the road: where it is seen, and where it is in bloom or under snow)
   const at = Math.max(from, Math.min(Math.min(to, from + 600), m.base));
   const colors = pollinated(m, at);

@@ -32,6 +32,8 @@ export const GROUND_KIT: Readonly<Record<string, string>> = {
   shrub: 'shrub_round', broad: 'shrub_round', dwarf: 'shrub_heather', berry: 'shrub_round', maritime: 'shrub_round',
   sage: 'shrub_sage', creosote: 'shrub_sage', thorn: 'shrub_sage',
   cup: 'flower_poppy', daisy: 'flower_daisy', star: 'flower_daisy', woodflower: 'flower_daisy', spike: 'flower_lupin', tube: 'flower_tulip', cluster: 'shrub_protea',
+  // (docs/V3/nodes/R5-ground.md)
+  spinifex: 'tuft_spinifex', tall: 'tuft_tall', cushion: 'shrub_cushion', saltbush: 'shrub_saltbush', bigleaf: 'herb_bigleaf',
 };
 /** a ground plant's species: its kind's, apart from the trees' families */
 export const groundFamily = (kind: string): string => `g:${kind}`;

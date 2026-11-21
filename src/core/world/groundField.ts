@@ -24,8 +24,8 @@ export function groundField(world: World) {
 
 
 /** the forms that are blades (their key the meadow's), and the low mats of the ground (drawn to its soil) */
-const BLADES = new Set(['grass','tussock','sedge','rice']);
-const MATS = new Set(['crust','moss','lichen','needles','litter','clover','cushion','knees']);
+const BLADES = new Set(['grass','tussock','sedge','rice','spinifex','tall']);
+const MATS = new Set(['crust','moss','lichen','needles','litter','clover','knees']);
 
 /** a clump of a place of the emergent Earth in its place's palette: its leaf, its blades, its flowers, its stone */
 function earthClump(c: GroundClump, pal: PlacePalette, rocks: boolean, flower: boolean, dry: boolean, autumn: boolean, winter: boolean): void {

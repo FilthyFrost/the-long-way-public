@@ -85,6 +85,11 @@ add('柳兰 石南 油菜','spike',0.85,0.32,0x84945a,'open',true);
 add('科罗拉多蓝耧斗菜 地被芦荟类','tube',0.63,0.35,0x789763,'open',true);
 add('草原锥花 滨海雏菊类','daisy',0.47,0.38,0x859558,'open',true);
 add('稻花','rice',0.95,1.53,0x8faa51,'bench',true);
+// (docs/V3/nodes/R5-ground.md: the emergent Earth's ground plants the surveyed profiles had none of)
+add('刺鬣草团','spinifex',0.6,1.2,0x8fa58c,'open');
+add('象草','tall',1.9,0.9,0xb8a85c,'open');
+add('林下大叶草','bigleaf',1.8,1.4,0x4f8a3e,'wood');
+add('盐生灌丛','saltbush',0.8,0.9,0x9aa088,'open');
 // Blossoms growing directly on a tree or cactus crown belong to that crown.
 export const crownFlowers = new Set(['智利火树','巨柱仙人掌','苹果','果树花','栗花']);
 // The neighbouring surveyed ecotones share the same geometry vocabulary, including

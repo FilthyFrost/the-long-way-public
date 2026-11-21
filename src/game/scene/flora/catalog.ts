@@ -6,7 +6,7 @@
  *
  * To add a kind: plan it (trees.ts, ground.ts), then add a row here. Its variants are its seeds.
  */
-import { planFlower, planShrub, planTuft, type FlowerKind, type ShrubKind, type TuftKind } from './ground';
+import { planBigleaf, planFlower, planShrub, planTuft, type FlowerKind, type ShrubKind, type TuftKind } from './ground';
 import { draw, type Drawn, type Level, type Plan } from './kit';
 import { planAcacia, planBamboo, planBaobab, planBirch, planCherry, planCypress, planDragon, planOak, planPalm, planPine, planSaguaro, planSpruce, planStonePine } from './trees';
 import { planCedar, planEucalyptus, planJuniper, planMangrove, planOlive, planTreeFern, planWillow } from './trees2';
@@ -120,6 +120,8 @@ export const FLORA: readonly FloraKind[] = [
   tuft('tussock', '金色丛草', 0xd2bb7a),
   tuft('needle', '针茅', 0xd2bd78),
   tuft('spinifex', '刺鬣草团', 0x8fa58c),
+  // (docs/V3/nodes/R5-ground.md)
+  tuft('tall', '象草（稀树草原一人高的草）', 0xb8a85c),
   flower('poppy', '虞美人', 0xd8392b),
   flower('goldpoppy', '金罂粟', 0xf0a020),
   flower('tulip', '郁金香', 0xe0443c),
@@ -130,6 +132,10 @@ export const FLORA: readonly FloraKind[] = [
   shrub('sage', '鼠尾草灌丛', 0x8e9a7d),
   shrub('lavender', '薰衣草', 0x7d8f74, 0x7b5bc4, true),
   shrub('protea', '帝王花', 0x5d7a4a, 0xe08aa0, true),
+  // (docs/V3/nodes/R5-ground.md)
+  shrub('cushion', '垫状植物（苔原和高山）', 0x7a9050),
+  shrub('saltbush', '盐生灌丛', 0x9aa088),
+  { id: 'herb_bigleaf', name: '林下大叶草（芭蕉、海里康）', family: 'shrub', budget: 'shrub', plan: (seed) => planBigleaf(seed), look: { leaf: 0x4f8a3e, second: 0x4e4436, evergreen: true, pale: false, bears: false, sway: 0.7 } },
   // (the forest floor's: docs/V3/nodes/P2-B-kit-ground.md)
   { id: 'fern', name: '蕨（林下）', family: 'shrub', budget: 'shrub', plan: (seed) => planFern(seed), look: { leaf: 0x4f7a3a, second: 0x4e4436, evergreen: true, pale: false, bears: false, sway: 0.6 } },
   // (the plant pipeline's first samples: docs/V3/art/plants-standard.md)
