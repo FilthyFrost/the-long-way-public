@@ -16,7 +16,13 @@ import { BIOMES, regionSalt } from '../../core/world/biomes';
 import { ROAD_CLEAR, WATER_FAR, WOOD_SHEER, WOOD_STEEP, canopyAt, shoreOf, treeLine, type EcoParams, type ShoreReader } from '../../core/world/ecotope';
 import { floraTableOf } from '../../core/world/floraTables';
 import { plantDef } from '../../core/world/plants';
-import type { TerrainPoint, World } from '../../core/world/terrain';
+import { TerrainPoint, type World } from '../../core/world/terrain';
+import { SpineSample } from '../../core/world/spine';
+import { inVentClearing, ventsNear } from '../../core/world/earth/geothermal';
+
+/** (scratch for a geothermal field's vents: their planning shapes the land, the caller's point must stay) */
+const ventTp = new TerrainPoint();
+const ventSs = new SpineSample();
 
 const params: EcoParams[] = [];
 const paramsFor: string[] = [];
@@ -70,6 +76,11 @@ export function woodOnSlope(slope: number): number {
 export function canopyOf(world: World, t: TerrainPoint, x: number, z: number): number {
   const ad = t.d < 0 ? -t.d : t.d;
   if (ad < ROAD_CLEAR || t.zone !== 0 || t.wl > t.bed + 0.02) return 0;
+  // (V5: a geothermal field's springs and vents stand in the open — no wood painted over them, nor the land lifted)
+  if (world.earth) {
+    const v = ventsNear(world, t.s, x, z, 0, ventTp, ventSs);
+    if (v.length && inVentClearing(v, x, z)) return 0;
+  }
   const pa = ecoOf(t.ba);
   const pb = t.bt > 0 && t.bb !== t.ba ? ecoOf(t.bb) : null;
   let wd = WATER_FAR;

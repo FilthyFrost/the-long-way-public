@@ -34,6 +34,7 @@ import { applyGhost, carEnvUniforms } from '../render/carMaterials';
 import { RenderCore } from '../render/core';
 import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
+import { GeothermalView } from '../scene/geothermal';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { cloneModel, frameModel, itemGlb, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
@@ -433,6 +434,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   world: World | null = null;
   worldView: WorldView | null = null;
   landmarks: LandmarkView | null = null;
+  /** a geothermal place's springs, vents, geyser and steam (V5, scene/geothermal.ts) */
+  geothermal: GeothermalView | null = null;
   beacons: BeaconView | null = null;
   ground: Ground;
   /** the vehicle the player sits in (null on foot) */
@@ -1024,6 +1027,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     art.doors = this.doors;
     this.worldView.skipObject = (o, site) => o.kind === 'wreck' || (o.kind === 'workbench' && site.kind === 'garage') || art.draws(o, site);
     this.landmarks = new LandmarkView(this.core, this.world);
+    this.geothermal = new GeothermalView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
     // (from the start on the road the walker comes after the world)
     if (this.player) this.worldSolids();
@@ -4708,6 +4712,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.world.spine.project(fx, fz, NaN, this.pr);
       this.world.spine.biomeAt(this.pr.s, bl);
       this.landmarks?.update(this.pr.s, fx, fz);
+      this.geothermal?.update(this.pr.s);
       const place = this.placeNames.update(this.world.journey, this.pr.s, this.time, dt);
       if (place) this.ui.showPlace(place.name, place.tag);
     } else {

@@ -38,6 +38,12 @@ import { canopyOf, woodHeight, woodOnSlope } from './floraCanopy';
 import { CoverBase, coverBase, driftHue01, hueOf, rowCoord, rowHue01, rowsRun } from './floraCover';
 import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
+import { inVentClearing, ventsNear } from '../../core/world/earth/geothermal';
+
+/** (scratch for the vents of a geothermal field: their planning shapes the land, meadowSample's own point must stay) */
+const ventSs = new SpineSample();
+let ventTpScratch: TerrainPoint | null = null;
+const ventTpOf = (): TerrainPoint => (ventTpScratch ??= new TerrainPoint());
 
 export const STRIP_STATIONS = 32;
 export const STRIP_HALF = 40;
@@ -1131,6 +1137,11 @@ export function meadowSample(world: World, x: number, z: number, out: MeadowSamp
   out.y = tp.bed;
   // (… nor on the sand of a sea beach)
   out.bare = tp.bridge > 0.02 || tp.wl > tp.bed - (tp.wkind === 3 ? 1.3 : 0.45) || tp.site > 0.5 || (tp.plot > 0.999 && world.plotBare(x, z)) || world.sites.bareAt(x, z) ? 1 : 0;
+  // (V5: no grass on a geothermal field's springs and vents)
+  if (!out.bare && world.earth) {
+    const vents = ventsNear(world, tp.s, x, z, 0, ventTpOf(), ventSs);
+    if (vents.length && inVentClearing(vents, x, z)) out.bare = 1;
+  }
   // towards a shore the meadow is grazed short (and the water shows over it)
   out.shore = Math.max(tp.wl > -1e8 ? Math.max(0, 1 - (tp.bed - tp.wl) / 3) : 0, 1.2 * world.sea.open(tp.s, tp.d));
   out.ad = tp.d < 0 ? -tp.d : tp.d;

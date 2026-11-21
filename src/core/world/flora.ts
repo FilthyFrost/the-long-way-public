@@ -29,6 +29,8 @@ import { hash2 } from '../math/rng';
 import { ECO_N, ECO_PLOT, ECO_ROAD, ECO_SITE, ECO_SQ, ECO_STEP, ECO_TILE, ECO_WET, ROAD_CLEAR, Ecotope, type EcoParams, type EcoTile, type EcotopeField } from './ecotope';
 import { AQUATIC_DEPTH, plantIndex, PLANTS } from './plants';
 import type { TerrainPoint, World } from './terrain';
+import { SpineSample } from './spine';
+import { inVentClearing, ventsNear } from './earth/geothermal';
 
 /** the layers, the side of a cell of each (m) */
 export const LAYER_TREE = 0;
@@ -357,6 +359,7 @@ export class FloraField {
   private fit = new Float64Array(32);
   /** one cell's answer, and a tile's plants while they are being gathered */
   private readonly one = new FloraCell();
+  private readonly ss = new SpineSample();
   private readonly gPlant = new Uint16Array(MOST_CELLS);
   private readonly gX = new Float64Array(MOST_CELLS);
   private readonly gZ = new Float64Array(MOST_CELLS);
@@ -448,6 +451,11 @@ export class FloraField {
 
   private build(layer: FloraLayer, tx: number, tz: number): FloraTile {
     const et = this.eco.tile(tx, tz);
+    // (V5: the woods, the shrubs and the ground's plants keep clear of a geothermal field's vents)
+    const mx = (tx + 0.5) * ECO_TILE;
+    const mz = (tz + 0.5) * ECO_TILE;
+    this.world.shape(mx, mz, this.tp);
+    const vents = ventsNear(this.world, this.tp.s, mx, mz, ECO_TILE * 0.75, this.tp, this.ss);
     const per = ECO_TILE / LAYER_CELL[layer];
     const c = this.one;
     const row = new Uint16Array(per + 1);
@@ -457,6 +465,7 @@ export class FloraField {
       row[j] = n;
       for (let i = 0; i < per; i++) {
         if (!this.decide(layer, tx * per + i, tz * per + j, et, c)) continue;
+        if (vents.length && inVentClearing(vents, c.x, c.z)) continue;
         this.gPlant[n] = c.plant;
         this.gX[n] = c.x;
         this.gZ[n] = c.z;

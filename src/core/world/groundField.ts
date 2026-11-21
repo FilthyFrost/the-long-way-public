@@ -9,6 +9,8 @@ import { sampleRock } from './rockTables';
 import { accentColour, autumnColour, barkColour, grassColour, groundColour, leafColour, stoneColour, type PlacePalette } from './earth/palette';
 import { Solid, solidWithin, type SolidSource } from './solids';
 import { TerrainPoint, type World } from './terrain';
+import { SpineSample } from './spine';
+import { inVentClearing, ventsNear, type Vent } from './earth/geothermal';
 
 export interface GroundClump {
   x:number; y:number; z:number; yaw:number; radius:number; height:number;
@@ -46,6 +48,8 @@ export class GroundField implements SolidSource {
   private readonly e = new Ecotope();
   private readonly cover = new Cover();
   private readonly tp = new TerrainPoint();
+  private readonly ss = new SpineSample();
+  private vents: readonly Vent[] = [];
   constructor(private readonly world: World) {}
 
 
@@ -55,6 +59,9 @@ export class GroundField implements SolidSource {
     const prev = cache.get(key);
     if (prev) return prev;
     const list: GroundClump[] = [];
+    // (V5: nothing grows or lies on a geothermal field's springs and vents)
+    this.world.shape((tx + 0.5) * ECO_TILE, (tz + 0.5) * ECO_TILE, this.tp);
+    this.vents = ventsNear(this.world, this.tp.s, (tx + 0.5) * ECO_TILE, (tz + 0.5) * ECO_TILE, ECO_TILE * 0.75, this.tp, this.ss);
     if (this.world.eco) for (let j=0;j<EDGE;j++) for (let i=0;i<EDGE;i++) {
       const cell = this.cell(tx*EDGE+i,tz*EDGE+j,rocks);
       if (cell) list.push(cell);
@@ -67,6 +74,7 @@ export class GroundField implements SolidSource {
   private cell(i:number,j:number,rocks:boolean): GroundClump | undefined {
     const seed = this.world.seed + (rocks ? 92231 : 96793);
     const x = (i+rand2(i,j,seed))*CELL, z = (j+rand2(i,j,seed+1))*CELL;
+    if (this.vents.length && inVentClearing(this.vents, x, z)) return;
     const die = rand2(i,j,seed+2);
     if (rocks && die > 0.83) return;
     const e = this.world.eco!.at(x,z,this.e);
