@@ -500,7 +500,8 @@ export class SitePlan implements SolidSource {
     this.places.push(null);
     this.seconds.push(null);
     const r = new Rng(hash2(k, 0x51e0, this.seed));
-    const place = k >= 1 ? this.makePlace(k, r) : null;
+    // (world version 5: no place by a switchback stack's legs)
+    const place = k >= 1 && !this.world.spine.pinned(k) ? this.makePlace(k, r) : null;
     if (place) {
       here.push(place);
       this.lastKind = place.kind;
@@ -514,7 +515,7 @@ export class SitePlan implements SolidSource {
     // Now and then, where the dice left a stretch empty, an old waterworks stands by the road. It is
     // outside the count: the rhythm of the other places (and every place there was before it existed)
     // stays what it was.
-    const extra = place ? null : this.makeWorks(k);
+    const extra = place || this.world.spine.pinned(k) ? null : this.makeWorks(k);
     if (extra) here.push(extra);
     // (ModCar: a second place in a stretch that has one, well away from it — dice of their own, so that the
     // first place and the verges are what they would be without it)

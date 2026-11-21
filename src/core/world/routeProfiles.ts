@@ -104,6 +104,11 @@ export function setRouteSettings(id: string, row: readonly LandKind[], first?: n
   settings[id] = row;
   if (first !== undefined) firsts[id] = first;
 }
+/** which of a region's stretches slot k is (0 its first), for a region whose kinds of country come in their order; undefined for any other */
+export function routeOffset(region: string, k: number): number | undefined {
+  const first = firsts[region];
+  return first === undefined ? undefined : k - first;
+}
 export function routeSetting(seed: number, k: number, region: string): LandKind {
   const row = settings[region];
   if (!row || k < 1) return 'open';

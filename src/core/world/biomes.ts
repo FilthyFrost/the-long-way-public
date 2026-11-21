@@ -139,6 +139,8 @@ export interface RegionDef extends BiomeDef {
   sea?: boolean;
   /** (world version 5) a cliff coast: how far below the road its sea lies where the road runs along its shore (m; absent: a few metres, the coast road down at the water) */
   cliff?: number;
+  /** (world version 5) the stretches of it (0 its first) its road climbs in a switchback stack: legs across a steep face joined by hairpin bends (spine.ts) */
+  hairpins?: readonly number[];
   /** it is one of the surreal ones: a dealer deals one among six regions at most */
   surreal?: boolean;
   /** how readily a dealer deals it (absent: 1) */
@@ -509,6 +511,7 @@ function entry(d: RegionDef): RegionDef {
     climate: d.climate,
     sea: d.sea,
     cliff: d.cliff,
+    hairpins: d.hairpins,
     surreal: d.surreal,
     weight: d.weight,
     land: d.land,

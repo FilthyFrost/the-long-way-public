@@ -173,6 +173,45 @@ describe('the scenic roads in the world (version 5)', () => {
     expect(shores).toBeGreaterThan(0);
   });
 
+  it('climbs a switchback place in stacks of hairpin bends: legs across the face one way and the other, the road never turning back, the land holding it', () => {
+    let stacks = 0;
+    for (const seed of [1, 2, 3, 7]) {
+      const w = new World(seed, { worldVersion: 5 });
+      const p = placeOf(w, 'switchback');
+      if (!p) continue;
+      const k0 = Math.round(p.start / 1250);
+      expect([1, 2].map((i) => w.spine.pinned(k0 + i))).toEqual([true, true]);
+      expect(w.spine.pinned(k0)).toBe(false);
+      let bends = 0;
+      let last = 0;
+      let prevX = -Infinity;
+      let held = 0;
+      let n = 0;
+      w.spine.at(p.start + 1250, q);
+      const y0 = q.y;
+      for (let s = p.start + 1250; s < p.start + 3750; s += 2) {
+        w.spine.at(s, q);
+        expect(q.x, `${seed}: x at ${s}`).toBeGreaterThan(prevX);
+        prevX = q.x;
+        expect(Math.abs(q.phi)).toBeLessThan((86 * Math.PI) / 180);
+        const sign = Math.abs(q.phi) > (60 * Math.PI) / 180 ? Math.sign(q.phi) : 0;
+        if (sign && last && sign !== last) bends++;
+        if (sign) last = sign;
+        if (s % 12 === 0) {
+          w.shape(q.x, q.z, tp);
+          n++;
+          if (Math.abs(tp.h - q.y) < 0.35) held++;
+        }
+      }
+      w.spine.at(p.start + 3750, q);
+      expect(bends, `seed ${seed}: hairpins`).toBeGreaterThanOrEqual(6);
+      expect(Math.abs(q.y - y0), `seed ${seed}: the climb`).toBeGreaterThan(80);
+      expect(held / n, `seed ${seed}: the land under the road`).toBeGreaterThan(0.99);
+      stacks++;
+    }
+    expect(stacks).toBeGreaterThan(0);
+  });
+
   it('keeps a world of version 4 as it was: its regions its own, no road of the director\'s', () => {
     const w = new World(7, { worldVersion: 4 });
     for (let c = 1; c < 12; c++) {

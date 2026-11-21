@@ -88,6 +88,8 @@ export interface RoadType {
   wow?: boolean;
   /** trees close along both sides (0 … 1): an avenue, a tunnel of crowns */
   avenue?: number;
+  /** the stretches (0 … 3) it climbs in a switchback stack: legs across a steep face joined by hairpin bends */
+  hairpins?: readonly number[];
 }
 
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
@@ -123,9 +125,10 @@ export const ROADS: readonly RoadType[] = [
     zh: '盘山路',
     moment: '一个接一个的急弯一层层爬上山坡，回头能看见刚走过的路就在脚下',
     fit: (sc) => (sc.macro.context === 'mountain' && (sc.move === 'climb' || sc.move === 'descend' || sc.move === 'plateau') ? ramp(sc.macro.relief, 450, 900) : 0),
-    land: ['hillside', 'hillside', 'shelf', 'hillside'],
-    align: align(30, 0.12, [30, 90], [70, 160], 1.6),
+    land: ['hillside', 'open', 'open', 'hillside'],
+    align: align(30, 0.12, [30, 90], [40, 80], 1.6),
     grade: grade(0.035, 500, 0.085),
+    hairpins: [1, 2],
     enclosed: 0.3,
     twist: 1,
     view: 0.85,

@@ -308,7 +308,7 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<R
     steep: road.id === 'gorge' || road.id === 'tower_road' ? 0.9 : 0,
   };
   // (a shelf's or a rim's own far wall stands across its void: no valley wall of the mountains' is added to it)
-  const open = road.land.includes('shelf') || road.land.includes('rim');
+  const open = road.land.includes('shelf') || road.land.includes('rim') || !!road.hairpins;
   const out: RegionRelief = { ...relief, odds, size, ...(open ? { walls: undefined } : {}) };
   if (open) delete out.walls;
   return {
@@ -326,6 +326,8 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<R
     land: { odds, size },
     // (a cliff road: the sea far below it — the sea's level hung that far under the road's lowest along its shore)
     ...(road.id === 'cliff_coast' ? { cliff: size.shelf } : {}),
+    // (a switchback climb: its stacks where its kind has them, spine.ts)
+    ...(road.hairpins ? { hairpins: road.hairpins } : {}),
     // (a lakeshore road: a lake by it all the way through its heart, now on one side, now on the other)
     ...(road.id === 'lakeshore' ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
   };

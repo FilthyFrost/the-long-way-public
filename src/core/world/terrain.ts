@@ -555,6 +555,40 @@ export class World implements Ground {
   }
 
   /**
+   * (world version 5) The nearest point of the road to (x, z) among a switchback stack's legs: the search's own
+   * foot `s`, and the feet found from a leg or two either way of the point's own x (`s0`); the arc length of the
+   * nearest.
+   */
+  private nearestLeg(x: number, z: number, s: number, s0: number): number {
+    const sp = this.spine;
+    const q = this.pq;
+    const dist = (sa: number): number => {
+      sp.at(sa, q);
+      return Math.hypot(x - q.x, z - q.z);
+    };
+    let best = s;
+    let bestD = dist(s);
+    for (const off of [-260, -170, -90, 90, 170, 260]) {
+      let t = s0 + off;
+      if (t < 0) continue;
+      for (let k = 0; k < 8; k++) {
+        sp.at(t, q);
+        const along = (x - q.x) * Math.cos(q.phi) + (z - q.z) * Math.sin(q.phi);
+        t += along;
+        if (along < 0.02 && along > -0.02) break;
+      }
+      if (t < 0) continue;
+      const d = dist(t);
+      if (d < bestD) {
+        bestD = d;
+        best = t;
+      }
+    }
+    return best;
+  }
+  private readonly pq = new SpineSample();
+
+  /**
    * Full description of the ground at (x, z).
    * @param coarse for the far terrain ring only: leaves out the small near-field relief (metres high,
    *   tens of metres long), which those 128–256 m grids could not show anyway — a quarter of the cost
@@ -597,6 +631,9 @@ export class World implements Ground {
       }
       // (a road that ends at its start: the nearest road is its end, the point measured from there)
       if (s < 0 && this.deadEnd) s = 0;
+      // (world version 5: in a switchback stack the legs lie side by side across the face — the nearest of them,
+      // searched from either side as well as from the leg at the point's own x)
+      if (this.rules.version >= 5 && sp.pinned(Math.floor(s0 / this.rules.slot))) s = this.nearestLeg(x, z, s, s0);
       sp.at(s, q);
       cs = Math.cos(q.phi);
       sn = Math.sin(q.phi);

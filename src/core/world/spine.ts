@@ -16,7 +16,7 @@ import { Rng, hash2 } from '../math/rng';
 import { clamp, smoothstep } from '../math/util';
 import type { DrivePath, PathProbe } from '../driver/robot';
 import { BIOMES, isEarthRegion, minRadius, type BiomeDef } from './biomes';
-import { borderWidth, routeSetting } from './routeProfiles';
+import { borderWidth, routeOffset, routeSetting } from './routeProfiles';
 import { baseAt, baseOf } from './relief';
 import { rulesFor, type DealerView, type DealtChapter, type WorldRules, type WorldVersion } from './rules';
 
@@ -216,6 +216,13 @@ export class RoadSpine implements DrivePath {
   private readonly rng: Rng;
   private readonly gradeSeed: number;
   private readonly bl = new BiomeBlend();
+  private readonly blPin = new BiomeBlend();
+  /**
+   * (world version 5) A switchback stack being laid (RegionDef.hairpins): its legs' heading off the road's way (rad;
+   * the legs go one way and the other across the face), its bends' radius (m), its legs' length (m), where it must be
+   * done by (m), which way the next leg heads, and what is being laid: the way in, a leg, a bend, the way out.
+   */
+  private pin: { head: number; radius: number; leg: number; until: number; dir: number; phase: 0 | 1 | 2 | 3 | 4 } | null = null;
   private cursor = 0;
   private readonly tmp = new SpineSample();
   /**
@@ -289,6 +296,82 @@ export class RoadSpine implements DrivePath {
     return mix(a, BIOMES[bl.b][key] as number, bl.t);
   }
 
+  /** (world version 5) does slot k of the road climb in a switchback stack? From the plan and the region alone: whoever asks, before the road is laid there or after */
+  pinned(k: number): boolean {
+    if (this.rules.version < 5 || k < 1) return false;
+    this.plan.blend((k + 0.5) * this.rules.slot, this.blPin);
+    const region = BIOMES[this.blPin.t < 0.5 ? this.blPin.a : this.blPin.b];
+    if (!region.hairpins) return false;
+    const off = routeOffset(region.id, k);
+    return off !== undefined && region.hairpins.includes(off);
+  }
+
+  /** turn the road to a heading (rad) on a curve of radius R */
+  private turnTo(heading: number, R: number): void {
+    const d = heading - this.gphi;
+    this.kTarget = d >= 0 ? 1 / R : -1 / R;
+    this.segLeft = Math.max(4, R * (d < 0 ? -d : d));
+  }
+
+  /**
+   * (world version 5) The next piece of a switchback stack: into the face toward the first leg's heading, then legs
+   * one way and the other across it joined by hairpin bends (the heading turned by twice the legs' angle, some
+   * hundred and fifty degrees, on a radius of a dozen metres or so), and when the stretch has no room for another
+   * leg and bend, out of it back toward the road's way. Each leg crosses the face, the face rising along the road's
+   * way: the road never turns back on itself (its heading stays within some eighty-five degrees of +x).
+   */
+  private pickPin(s: number): void {
+    const p = this.pin!;
+    switch (p.phase) {
+      case 0:
+        this.turnTo(p.dir * p.head, 30);
+        p.phase = 1;
+        return;
+      case 1:
+        this.kTarget = 0;
+        this.segLeft = p.leg * (0.82 + 0.36 * this.rng.next());
+        p.phase = 2;
+        return;
+      case 2:
+        if (s + p.leg + 2 * p.head * p.radius + 140 > p.until) {
+          this.turnTo(0, 32);
+          p.phase = 3;
+          return;
+        }
+        p.dir = -p.dir;
+        this.turnTo(p.dir * p.head, p.radius * (0.9 + 0.2 * this.rng.next()));
+        p.phase = 1;
+        return;
+      case 3:
+        // (the way out's curve let go of before the road is the open road's again: it eases its curves far more slowly)
+        this.kTarget = 0;
+        this.segLeft = 14;
+        p.phase = 4;
+        return;
+      default:
+        this.pin = null;
+        this.gkap = 0;
+        this.kTarget = 0;
+        this.segLeft = 30;
+        this.wasCurve = true;
+    }
+  }
+
+  /** (world version 5) begin a switchback stack here, if the stretch is one and has room for it */
+  private pinStart(s: number): boolean {
+    const slot = this.rules.slot;
+    const k = Math.floor(s / slot);
+    if (!this.pinned(k)) return false;
+    // (a run of such stretches is one stack)
+    let last = k;
+    while (last < k + 4 && this.pinned(last + 1)) last++;
+    const until = (last + 1) * slot - 40;
+    if (until - s < 480) return false;
+    const r = this.rng;
+    this.pin = { head: (73 + 5 * r.next()) * DEG, radius: 12 + 5 * r.next(), leg: 85 + 70 * r.next(), until, dir: this.gphi >= 0 ? 1 : -1, phase: 0 };
+    return true;
+  }
+
   private pickSegment(rMin: number, s: number): void {
     const rng = this.rng;
     const region = BIOMES[this.bl.t < 0.5 ? this.bl.a : this.bl.b];
@@ -348,16 +431,33 @@ export class RoadSpine implements DrivePath {
     this.count = i + 1;
 
     // ---- advance to the next station
-    if (this.segLeft <= 0) this.pickSegment(rMin, s);
+    if (this.segLeft <= 0) {
+      // (world version 5: a switchback stack, where the place's road climbs in one)
+      if (this.pin || (this.rules.version >= 5 && this.pinStart(s))) this.pickPin(s);
+      else this.pickSegment(rMin, s);
+    }
     let target = this.kTarget;
-    // never ask for a tighter curve than the local minimum (matters when entering a faster biome mid-curve)
-    target = clamp(target, -1 / rMin, 1 / rMin);
-    const kRate = 1 / (rMin * 55);
-    // heading guard, looking ahead: where would the heading end up if the curve started to unwind now?
-    const hard = this.headingHard;
-    const pred = this.gphi + (this.gkap * Math.abs(this.gkap)) / (2 * kRate);
-    if (pred > hard && target >= 0) target = -1 / (rMin * 1.3);
-    else if (pred < -hard && target <= 0) target = 1 / (rMin * 1.3);
+    let kRate: number;
+    if (this.pin) {
+      // (a stack's bends are tight and quickly in and out of; its legs hold whatever heading they were given — the
+      // guards of the open road do not apply, but the road never comes square to its way)
+      const tight = 1 / Math.min(this.pin.radius, 30);
+      target = clamp(target, -tight, tight);
+      kRate = tight / 6;
+      // (looking ahead: where the heading would end up if the bend unwound now)
+      const pred = this.gphi + (this.gkap * Math.abs(this.gkap)) / (2 * kRate);
+      if (pred > 79 * DEG && target > 0) target = 0;
+      else if (pred < -79 * DEG && target < 0) target = 0;
+    } else {
+      // never ask for a tighter curve than the local minimum (matters when entering a faster biome mid-curve)
+      target = clamp(target, -1 / rMin, 1 / rMin);
+      kRate = 1 / (rMin * 55);
+      // heading guard, looking ahead: where would the heading end up if the curve started to unwind now?
+      const hard = this.headingHard;
+      const pred = this.gphi + (this.gkap * Math.abs(this.gkap)) / (2 * kRate);
+      if (pred > hard && target >= 0) target = -1 / (rMin * 1.3);
+      else if (pred < -hard && target <= 0) target = 1 / (rMin * 1.3);
+    }
     this.gkap += clamp(target - this.gkap, -kRate * ds, kRate * ds);
     const pm = this.gphi + this.gkap * ds * 0.5;
     this.gx += dcos(pm) * ds;
@@ -370,7 +470,13 @@ export class RoadSpine implements DrivePath {
     const baseElev = this.longBase ? baseAt(this.plan, s) : t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
     let gT = gAmp * 1.6 * fbm1(s / gLen, this.gradeSeed, 2);
     gT -= clamp((this.gy - this.lift - baseElev) / this.pullLen, -this.pull, this.pull);
-    gT = clamp(gT, -gMax, gMax);
+    // (a switchback stack climbs, or comes down, all the way: that is what it is for)
+    if (this.pin) {
+      const want = baseElev - (this.gy - this.lift);
+      if (want > 12) gT = Math.max(gT, 0.08);
+      else if (want < -12) gT = Math.min(gT, -0.08);
+    }
+    gT = clamp(gT, -Math.max(gMax, this.pin ? 0.085 : 0), Math.max(gMax, this.pin ? 0.085 : 0));
     const gRate = 0.00065;
     this.ggrade += clamp(gT - this.ggrade, -gRate * ds, gRate * ds);
     this.ggrade = clamp(this.ggrade, -this.gradeCap, this.gradeCap);

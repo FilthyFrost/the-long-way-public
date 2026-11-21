@@ -8,6 +8,8 @@ import { built, idle } from './landscapeCapture.mjs';
 import { ROOT, launchBrowser, openGame, startServer } from './lib.mjs';
 
 const [name = 'roads', ...spots] = process.argv.slice(2);
+// (DRONE=pitch,distance: how high and far the drone stands, default 26° and 125 m)
+const DRONE = (process.env.DRONE ?? '26,125').split(',');
 const out = path.join(ROOT, `loop/shots/r2_roads/${name}`);
 fs.mkdirSync(out, { recursive: true });
 const list = spots.map((x) => {
@@ -43,19 +45,21 @@ try {
       }, s);
       for (const view of ['cockpit', 'drone']) {
         await page.evaluate(
-          ({ view, low }) => {
+          ({ view, low, drone }) => {
             const rt = window.__rt;
             const g = rt.game;
             if (!g.seated) g.enter(g.focus, 'driver');
             if (view === 'cockpit') {
               rt.setView('cockpit');
               rt.look(0.8 * low, low ? -0.07 : 0.02);
-            } else rt.setOrbit(180 + 38 * low, 26, 125, 2.5);
+            } else rt.setOrbit(180 + 38 * low, drone[0], drone[1], 2.5);
             g.simulate(0.4);
             for (let i = 0; i < 4; i++) rt.render();
           },
-          { view, low },
+          { view, low, drone: DRONE.map(Number) },
         );
+        // (the land about the camera where it now is: the drone stands a hundred metres off)
+        await built(page);
         await page.waitForTimeout(1600);
         await page.evaluate(() => window.__rt.render());
         const file = path.join(out, `${seed}_${String(p.place).padStart(2, '0')}_${view}.png`);

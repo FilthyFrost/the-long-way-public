@@ -326,6 +326,8 @@ export class WaterPlan {
 
   /** what the dice put in slot k, before any geometry (it may still fail to fit) */
   diceOf(k: number): 'lake' | 'river' | null {
+    // (world version 5: no water across a switchback stack)
+    if (this.spine.pinned(k)) return null;
     const dry = k < 1 ? 2 : this.dry(k);
     if (dry >= 2) return null;
     const h = hash2(k, 0x3a7e, this.seed);
