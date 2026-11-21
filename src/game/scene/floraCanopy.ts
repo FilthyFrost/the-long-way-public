@@ -63,9 +63,16 @@ function smooth(t: number): number {
 }
 
 /** how much of its wood a slope keeps (rise over run): all of it to WOOD_STEEP, none from WOOD_SHEER — the last thing the core's canopy is multiplied by */
-export function woodOnSlope(slope: number): number {
-  if (slope >= WOOD_SHEER) return 0;
-  return slope > WOOD_STEEP ? 1 - smooth((slope - WOOD_STEEP) / (WOOD_SHEER - WOOD_STEEP)) : 1;
+export function woodOnSlope(slope: number, cling = 1): number {
+  if (slope >= WOOD_SHEER * cling) return 0;
+  return slope > WOOD_STEEP * cling ? 1 - smooth((slope - WOOD_STEEP * cling) / ((WOOD_SHEER - WOOD_STEEP) * cling)) : 1;
+}
+
+/** how steep the woods of the land at a shaped point still grow (EcoParams.cling: a wet karst's cling to its towers) */
+export function clingOf(t: TerrainPoint): number {
+  const a = ecoOf(t.ba).cling ?? 1;
+  if (t.bt <= 0 || t.bb === t.ba) return a;
+  return a + ((ecoOf(t.bb).cling ?? 1) - a) * t.bt;
 }
 
 /**

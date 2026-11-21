@@ -356,6 +356,9 @@ function fillCover(coverData: Float32Array, misc: Float32Array, slot: number, bi
   // (the far drifts' dusting of flower colour only where there is a meadow to hold them, V5: a lava field's cinder and
   // a desert's gravel were dusted pink in patches, a pattern of blots over the black)
   coverData[o + 6 * 4 + 3] = c.flowers * (1 - (c.bare ?? 0)) * Math.min(1, c.grass / 0.35);
+  // (V5: how far its woods hang on its steep rock — a wet karst's towers and cones wooded to their cliffs; the mean
+  // hue's spare channel)
+  coverData[o + 5 * 4 + 3] = Math.min(1, Math.max(0, ((table.eco.cling ?? 1) - 1) / 1.3));
   // a marsh: a region whose ground is wet where nothing else speaks; reedy shores: where its table stands a
   // reed in every cell of the bank
   // Last texel: weights for massive crystalline rock, karst, stratified rock and lava.

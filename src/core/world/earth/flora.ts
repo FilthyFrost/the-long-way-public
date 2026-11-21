@@ -110,6 +110,21 @@ function plantsOf(forms: readonly Form[], warm: boolean, autumn: 'red' | 'gold' 
   return out;
 }
 
+/** how steep a place's woods still grow, against the slope limits of the ecotope (EcoParams.cling) */
+function clingOf(sc: Scene, w: number): number {
+  const lf = sc.look.landform.id;
+  if (w < 0.45) return 1;
+  if (lf === 'cone_karst' || lf === 'tower_karst' || lf === 'pillar_mountain') return 2.3;
+  if (lf === 'waterfall_gorge' || lf === 'danxia' || lf === 'stone_forest') return 1.6;
+  return 1;
+}
+
+/** how open a karst's floor is (EcoParams.floor) */
+function karstFloor(sc: Scene): number {
+  const lf = sc.look.landform.id;
+  return lf === 'tower_karst' ? 0.72 : lf === 'pillar_mountain' ? 0.5 : lf === 'cone_karst' ? 0.3 : 0;
+}
+
 /** a card's share of the trees and shrubs, for the plants of its forms in turn: a half, then a third of what is left … */
 function shares(n: number): number[] {
   const out: number[] = [];
@@ -216,11 +231,16 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
       wood: salt ? 0 : Math.min(0.95, st.wood * (0.6 + 0.5 * e.cover)),
       woodScale: e.struct === 'closed_forest' ? 400 : e.struct === 'open_forest' ? 320 : 240,
       // (an avenue's wood comes right up to its rows)
-      clear: avenue > 0 ? 9 : 12,
+      clear: avenue > 0 ? 9 : karstFloor(sc) > 0 ? 22 : 12,
       edge: avenue > 0 ? 10 : e.struct === 'closed_forest' ? 18 : 40,
       treeline,
       thirsty: Math.min(0.8, Math.max(0.15, 0.85 - w)),
       moist: Math.min(0.9, Math.max(0.05, 0.75 * w + (m.water === 'wetland' ? 0.25 : 0))),
+      // (V5: a wet karst's trees and shrubs cling to its towers and cones — they were bare green paint; a wet gorge's walls
+      // are hung with them)
+      cling: clingOf(sc, w),
+      // (a karst's towers stand out of open meadow and fields, wooded themselves: Guilin's and Yangshuo's plain)
+      floor: karstFloor(sc) || undefined,
     },
     trees,
     shrubs,

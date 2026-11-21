@@ -34,7 +34,7 @@ import { PaintBuilder } from './paintBuilder';
 import { globals } from '../render/shaderlib';
 import { STYLE, styleOf } from '../render/style';
 import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
-import { canopyOf, woodHeight, woodOnSlope } from './floraCanopy';
+import { canopyOf, clingOf, woodHeight, woodOnSlope } from './floraCanopy';
 import { CoverBase, coverBase, driftHue01, hueOf, rowCoord, rowHue01, rowsRun } from './floraCover';
 import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
@@ -306,7 +306,7 @@ export function buildStrip(world: World, c: number, lod: number, span = 1): Buil
           } else {
             const ny = nrm[k * 3 + 1];
             slope = Math.sqrt(Math.max(0, 1 - ny * ny)) / Math.max(ny, 1e-3);
-            wood = canopyOf(world, tp, wx, wz) * woodOnSlope(slope);
+            wood = canopyOf(world, tp, wx, wz) * woodOnSlope(slope, clingOf(tp));
           }
         }
         groundAttrs(world.seed, tp, wx, wz, bw, gd, k, lawnOf(world, tp, wx, wz), wood);
@@ -392,6 +392,8 @@ const tBed = new Float32Array(TP * TP);
 const tWood = new Float32Array(TP * TP);
 const tSlope = new Float32Array(TP * TP);
 const tLift = new Float32Array(TP * TP);
+/** (how steep its woods still grow there: floraCanopy.ts clingOf) */
+const tCling = new Float32Array(TP * TP);
 const tRow = new Float32Array((TERRAIN_N + 1) * (TERRAIN_N + 1) * 4);
 
 /** Quadtree leaf at (level, ix, iz): a 33×33 grid with skirts. */
@@ -436,6 +438,7 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
         const bi = tp.bt < 0.5 ? tp.ba : tp.bb;
         // (no wood is lifted in water or on its shore: a lifted bed would come up through the water as green shoals)
         tLift[p] = canopy && tp.wl <= tp.bed - 1 ? woodHeight(bi) * 0.8 : 0;
+        tCling[p] = clingOf(tp);
         tSlope[p] = NaN;
         if (inner) {
           const k = j * V + i;
@@ -483,12 +486,12 @@ export function buildTerrain(world: World, level: number, ix: number, iz: number
           const gz = (tBed[d] - tBed[c]) / (((d - c) / P) * step);
           slope = Math.sqrt(gx * gx + gz * gz);
         }
-        const wood = tWood[p] * woodOnSlope(slope);
+        const wood = tWood[p] * woodOnSlope(slope, tCling[p]);
         hs[p] += wood * tLift[p];
         if (i < 0 || i > N || j < 0 || j > N) continue;
         const k = j * V + i;
         // (a lawn's vertex says how mown it is, negative: not how wooded)
-        if (gd[k * 4 + 2] > 0) gd[k * 4 + 2] *= woodOnSlope(slope);
+        if (gd[k * 4 + 2] > 0) gd[k * 4 + 2] *= woodOnSlope(slope, tCling[p]);
         rowFinish(world.seed, x0 + i * step, z0 + j * step, tRow, k * 4, 1 - wood, slope, cov, k);
       }
     }
@@ -1480,7 +1483,7 @@ export function* woodsSlices(world: World, tx: number, tz: number): Slices<Woods
       world.shape(wx, wz + 24, tp, !wet);
       const sz = ((wet ? tp.bed : tp.h) - hHere) / 24;
       // (a world of version 2: no wood on a cliff, as the ecotope has it — a tower's side stays rock)
-      if (flora && wood * woodOnSlope(Math.sqrt(sx * sx + sz * sz)) < 0.3 + 0.35 * r2) continue;
+      if (flora && wood * woodOnSlope(Math.sqrt(sx * sx + sz * sz), clingOf(tp)) < 0.3 + 0.35 * r2) continue;
       const y = hHere - oy - Math.max(8, Math.sqrt(sx * sx + sz * sz) * 21 * size + 3);
       roots.push(wx - x0, y, wz - z0, size);
       info.push(pair, share, r1, Math.floor(r2 * 4) % 4);

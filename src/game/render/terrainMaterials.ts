@@ -267,6 +267,15 @@ export const GROUND_PAINT = /* glsl */ `
     // high ground is bare where it is at all steep
     rock = max(rock, smoothstep(0.1, 0.28, steep) * smoothstep(380.0, 700.0, g.y + (nz.g - 0.5) * 200.0));
     #endif
+    #ifdef RT_ALT
+    // (V5) a wet karst's woods hang on its towers and cones to their cliffs: where they stand the rock is theirs, and only
+    // the sheer faces are limestone — streaked dark down from where the rain runs off the woods above
+    float clingW = texelFetch(tCover, ivec2(5, 0), 0).w * bwIn.x + texelFetch(tCover, ivec2(5, 1), 0).w * bwIn.y
+                 + texelFetch(tCover, ivec2(5, 2), 0).w * bwIn.z + texelFetch(tCover, ivec2(5, 3), 0).w * bwIn.w;
+    rock *= 1.0 - clingW * smoothstep(0.12, 0.45, wood);
+    #else
+    float clingW = 0.0;
+    #endif
     // (metres a pixel, along the ground and up a wall: for the facets' sizes)
     float pxw = max(fwidth(w.x), fwidth(w.y));
     float pxy = fwidth(rtWorldY(pos)) * 1.3;
@@ -287,6 +296,12 @@ export const GROUND_PAINT = /* glsl */ `
       float thick = 0.25 + 0.5 * rtHash(vec2(layer, 3.1));
       float inLayer = step(1.0 - thick, fract(strata));
       rockCol *= mix(1.0, mix(0.66, 1.2, rtHash(vec2(layer, 7.7))), p.misc.w * inLayer);
+      // (a wooded karst's cliffs: the rain's dark streaks down them, a pale one where it runs clean)
+      if (clingW > 0.01) {
+        vec2 sw = vec2(w.x * 0.83 + w.y * 0.56, rtWorldY(pos));
+        float streak = rtNoiseAt(vec2(sw.x * 1.5, sw.y * 0.15) + 13.0, 9.0).r * 0.7 + rtNoiseAt(vec2(sw.x, sw.y * 0.05), 3.0).g * 0.3;
+        rockCol *= 1.0 - clingW * (0.42 * smoothstep(0.52, 0.78, streak) - 0.12 * smoothstep(0.2, 0.06, streak));
+      }
       albedo = mix(albedo, rockCol, rock * (1.0 - wood * far));
     }
 
@@ -328,7 +343,7 @@ export const GROUND_PAINT = /* glsl */ `
       // its cliffs — a wet karst's cones and a forested range stay green far off: V2)
       float e0 = mix(0.025, 0.5, smoothstep(0.45, 0.85, p.rockStart)) * (1.0 - aboveWood);
       float exposed = smoothstep(e0, e0 + 0.12, steep + (warp.b - 0.5) * 0.06);
-      float face = exposed * reach * (1.0 - 0.7 * wood);
+      float face = exposed * reach * (1.0 - 0.7 * wood) * (1.0 - clingW * smoothstep(0.1, 0.4, wood));
       vec3 shadeRock = p.rockShade * mix(vec3(0.78, 0.86, 1.0), vec3(0.41, 0.39, 0.43), lith.w);
       vec3 lightRock = mix(p.rockLit, p.rockLit * vec3(1.13, 1.10, 1.04), lith.x + lith.y);
       float key = clamp(0.58 * plane + 0.42 * rel - groove * 0.62, 0.0, 1.0);

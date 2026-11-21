@@ -65,6 +65,11 @@ export interface EcoParams {
   readonly thirsty: number;
   /** the land's moisture where nothing else speaks, 0 dry … 1 wet */
   readonly moist: number;
+  /** how steep its woods still grow, against WOOD_STEEP and WOOD_SHEER (V5: a wet karst's trees cling to its towers; absent 1) */
+  readonly cling?: number;
+  /** how open a karst's floor is: its woods within a few tens of metres of the road's level thinned by this share, the
+   * towers and the cones keeping theirs (V5: the plain between the towers in meadow and fields; absent 0) */
+  readonly floor?: number;
 }
 
 /** the ecotope at one point (EcotopeField.at fills one of these) */
@@ -187,7 +192,8 @@ export function treeLine(world: World, region: number, relief: number, altitude:
  * the end of the table's band laid there, the band as wide as the table has it; NaN: the table's band as it is.
  */
 export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: number, relief: number, waterDist: number, slope = 0, line = NaN): number {
-  if (ad < p.clear || p.woodScale <= 0 || slope >= WOOD_SHEER) return 0;
+  const cling = p.cling ?? 1;
+  if (ad < p.clear || p.woodScale <= 0 || slope >= WOOD_SHEER * cling) return 0;
   let c = 0;
   if (p.wood > 0) {
     const n = fbm2(x / p.woodScale, z / p.woodScale, seed + 0x5c1, 3);
@@ -203,13 +209,14 @@ export function canopyAt(p: EcoParams, seed: number, x: number, z: number, ad: n
   // the wood's edge wanders: a ragged line, not one parallel to the road
   const e = smooth((ad + 9 * fbm2(x / 55, z / 55, seed + 0x5c2, 2) - p.clear) / p.edge);
   let k = c * e;
+  if (p.floor) k *= 1 - p.floor * (1 - smooth((relief - 6) / 30));
   if (p.treeline) {
     if (line === line) {
       const width = p.treeline[1] - p.treeline[0];
       k *= 1 - smooth((relief - line + width) / width);
     } else k *= 1 - smooth((relief - p.treeline[0]) / (p.treeline[1] - p.treeline[0]));
   }
-  if (slope > WOOD_STEEP) k *= 1 - smooth((slope - WOOD_STEEP) / (WOOD_SHEER - WOOD_STEEP));
+  if (slope > WOOD_STEEP * cling) k *= 1 - smooth((slope - WOOD_STEEP * cling) / ((WOOD_SHEER - WOOD_STEEP) * cling));
   return k;
 }
 

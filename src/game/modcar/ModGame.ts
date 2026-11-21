@@ -21,7 +21,7 @@ import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
 import { groundField } from '../../core/world/groundField';
-import { World } from '../../core/world/terrain';
+import { TerrainPoint, World } from '../../core/world/terrain';
 import { GroundSample, Surface, SURFACES, type Ground } from '../../core/world/ground';
 import { Push, pushOut, Solid } from '../../core/world/solids';
 import { AudioEngine } from '../audio';
@@ -35,6 +35,9 @@ import { RenderCore } from '../render/core';
 import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { GeothermalView } from '../scene/geothermal';
+import { SpireView } from '../scene/spires';
+import { SpireSolids } from '../../core/world/earth/spires';
+import { WaterfallView } from '../scene/waterfalls';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { cloneModel, frameModel, itemGlb, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
@@ -436,6 +439,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   landmarks: LandmarkView | null = null;
   /** a geothermal place's springs, vents, geyser and steam (V5, scene/geothermal.ts) */
   geothermal: GeothermalView | null = null;
+  /** a place's spires: a pillar mountain's pillars, a karst's towers, a coast's sea stacks (V5, scene/spires.ts) */
+  spires: SpireView | null = null;
+  /** a place's waterfalls down its steep land: a gorge's, a fjord's, a table mountain's (V5, scene/waterfalls.ts) */
+  waterfalls: WaterfallView | null = null;
   beacons: BeaconView | null = null;
   ground: Ground;
   /** the vehicle the player sits in (null on foot) */
@@ -1028,6 +1035,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.worldView.skipObject = (o, site) => o.kind === 'wreck' || (o.kind === 'workbench' && site.kind === 'garage') || art.draws(o, site);
     this.landmarks = new LandmarkView(this.core, this.world);
     this.geothermal = new GeothermalView(this.core, this.world);
+    this.spires = new SpireView(this.core, this.world);
+    this.waterfalls = new WaterfallView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
     // (from the start on the road the walker comes after the world)
     if (this.player) this.worldSolids();
@@ -1044,6 +1053,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const rocks = groundField(this.world);
       this.player.addSolids(rocks);
       this.vehicleSolids.add(rocks);
+    }
+    // (the spires: a pillar mountain's pillars, a karst's towers, the sea stacks, V5)
+    if (this.world.earth) {
+      const spires = new SpireSolids(this.world, new TerrainPoint(), new SpineSample());
+      this.player.addSolids(spires);
+      this.vehicleSolids.add(spires);
     }
     this.vehicleSolids.add(sites);
     this.vehicleSolids.add(this.world.furniture);
@@ -4713,6 +4728,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.world.spine.biomeAt(this.pr.s, bl);
       this.landmarks?.update(this.pr.s, fx, fz);
       this.geothermal?.update(this.pr.s);
+      this.spires?.update(this.pr.s);
+      this.waterfalls?.update(this.pr.s);
       const place = this.placeNames.update(this.world.journey, this.pr.s, this.time, dt);
       if (place) this.ui.showPlace(place.name, place.tag);
     } else {

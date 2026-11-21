@@ -198,7 +198,8 @@ function puffsOf(v: Vent, out: number[][]): void {
   }
 }
 
-function steamMaterial(): THREE.ShaderMaterial {
+/** the steam's puffs, one instanced draw (attributes: aVent x, y, z, kind; aPuff phase, life, size, rise; aMore thickness, burst, seed, radius): the waterfalls' spray too (scene/waterfalls.ts) */
+export function steamMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     // (uOrigin: the render origin itself — the shared uOriginOffset is the origin wrapped to the noise's period, for
     // the textures, not where things are)
