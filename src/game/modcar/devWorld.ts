@@ -29,7 +29,7 @@ export const WEATHER_NAMES: Record<WeatherKind, string> = {
   sandstorm: '沙尘暴',
 };
 
-export const LAND_NAMES: Record<LandKind, string> = { open: '平地', hillside: '山坡路', valley: '山谷', ridge: '山脊', canyon: '峡谷' };
+export const LAND_NAMES: Record<LandKind, string> = { open: '平地', hillside: '山坡路', valley: '山谷', ridge: '山脊', canyon: '峡谷', shelf: '傍山', rim: '崖边' };
 
 /** a kind of place to be sent to: a biome, the lie of the land, water */
 export interface PlaceKind {

@@ -119,6 +119,8 @@ export interface RegionWater {
   river: number;
   frozen: number;
   clear: number;
+  /** (world version 5) a lakeshore road's: its lakes long and close by the road, one stretch on one side and the next on the other */
+  shore?: boolean;
 }
 
 /**
@@ -135,6 +137,8 @@ export interface RegionDef extends BiomeDef {
   climate?: 'temperate' | 'dry' | 'cold' | 'warm';
   /** it lies by the sea: its chapters may have the sea along one side (sea.ts), and a dealer never deals two such in a row */
   sea?: boolean;
+  /** (world version 5) a cliff coast: how far below the road its sea lies where the road runs along its shore (m; absent: a few metres, the coast road down at the water) */
+  cliff?: number;
   /** it is one of the surreal ones: a dealer deals one among six regions at most */
   surreal?: boolean;
   /** how readily a dealer deals it (absent: 1) */
@@ -201,7 +205,7 @@ export interface EarthLook {
   crownVariety: number;
   /** its month (1 … 12), as the northern year runs: what season its plants are in */
   month: number;
-  /** the palette every plant of it is painted in (world/earth/palette.ts), and its air */
+  /** the palette every plant of it is painted in (world/earth/palette.ts), and its air (a region of the emergent Earth's) */
   palette?: PlacePalette;
   /** how wide the beach at its water's edge is (1 a sandy shore's; less: a strip at the edge, its floodplain green) */
   beach?: number;
@@ -504,6 +508,7 @@ function entry(d: RegionDef): RegionDef {
     family: d.family,
     climate: d.climate,
     sea: d.sea,
+    cliff: d.cliff,
     surreal: d.surreal,
     weight: d.weight,
     land: d.land,

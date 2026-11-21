@@ -356,7 +356,7 @@ export class World implements Ground {
       throw new Error(`the stretches do not agree: landform ${LAND_SLOT} m, water ${WATER_SLOT} m, places ${SITE_SLOT} m, the world's rules ${this.rules.slot} m`);
     }
     this.spine = new RoadSpine(seed, opts, this.rules);
-    this.earth = this.rules.version === 4 ? earthRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.slot, this.spine.plan.startRegion, this.rules.transition(this.spine.plan.scale)) : null;
+    this.earth = this.rules.version >= 4 ? earthRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.slot, this.spine.plan.startRegion, this.rules.transition(this.spine.plan.scale), this.rules.version === 5 ? 5 : 4) : null;
     this.journey = this.rules.version === 3 ? journeyRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.regionCount, this.rules.slot, this.spine.plan.startRegion) : this.earth;
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));

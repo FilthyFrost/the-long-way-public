@@ -18,7 +18,8 @@ if (m5) args.splice(args.indexOf('--m5'), 1);
 const label = args[0] && !args[0].startsWith('-') ? args.shift() : 'now';
 /** the gate's spots: forest, grassland, snow mountain (near and its long view), water (the coast's stand-in until the coast roads are made) */
 // (WORLD=4: the emergent Earth's world of seed 7, docs/V3/nodes/E1-earth-world.md — its spots its first places of each kind)
-const EARTH = process.env.WORLD === '4';
+// (WORLD=5: the scenic roads' world of the same seed, docs/V3/nodes/R2-roads.md)
+const EARTH = process.env.WORLD === '4' || process.env.WORLD === '5';
 let SPOTS = [
   { name: 'forest', km: 388.125 },
   { name: 'plains', km: 3.125 },
@@ -36,7 +37,7 @@ const browser = await launchBrowser();
 const report = { label, at: new Date().toISOString(), budget, spots: [] };
 let over = 0;
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? 4 : 2}&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? process.env.WORLD : 2}&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
   await idle(page);
   if (EARTH) {
     const wanted = args.length ? args : null;

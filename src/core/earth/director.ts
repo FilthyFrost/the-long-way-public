@@ -104,6 +104,12 @@ const HIGHLIGHT_EFGS: ReadonlySet<string> = new Set(['T1.3', 'T6.5', 'T7.1r', 'T
 /** after this many places without a highlight the director goes looking for one, the more eagerly the longer it has been */
 const HIGHLIGHT_AFTER = 7;
 
+/** after this many places without drama (a range, a coast, a highlight) a journey with a sense of drama goes looking for some */
+const DRAMA_AFTER = 2;
+/** the relief of a range (m): a place this high above its road, or by the sea, is drama enough */
+const DRAMA_RELIEF = 350;
+const dramatic = (m: Macro): boolean => m.relief >= DRAMA_RELIEF || m.context === 'coast' || m.water === 'coast';
+
 /** is a place one of the journey's highlights? */
 export function isHighlight(look: Look): boolean {
   return HIGHLIGHT_LANDS.has(look.landform.id) || HIGHLIGHT_EFGS.has(look.efg.code) || (look.water !== null && look.water.code === 'F2.9');
@@ -358,8 +364,18 @@ export class EarthJourney {
   private lastHighlight = 0;
   /** the month the journey is in (the director turns it toward each place's best, two months a place at most) */
   private month = 5;
+  /** the index of the last place of high drama (a range, a coast, a highlight: DRAMA_RELIEF) — kept by a journey with a sense of drama */
+  private lastDrama = 0;
 
-  constructor(readonly seed: number) {}
+  /**
+   * @param opts.drama the scenic roads' journey (world version 5, docs/V3/nodes/R2-roads.md): after two places of
+   *   lowland the director goes looking for a range, a coast or a highlight, the harder the longer it has been —
+   *   the plains never run on for long. Absent: the journey of version 4, to the last place.
+   */
+  constructor(
+    readonly seed: number,
+    readonly opts: { readonly drama?: boolean } = {},
+  ) {}
 
   /** the place at a distance along the road (m) */
   sceneAt(s: number): Scene {
@@ -524,7 +540,13 @@ export class EarthJourney {
       // (a while without a highlight: the moves that bring one, the more eagerly the longer it has been)
       const gap = this.scenes.length - this.lastHighlight;
       const want = highlight && gap >= HIGHLIGHT_AFTER ? Math.min(4, 1 + 0.45 * (gap - HIGHLIGHT_AFTER + 1)) : 1;
-      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want;
+      // (a journey with a sense of drama: after the lowlands a range, a coast, a highlight — the harder the longer)
+      let drama = 1;
+      if (this.opts.drama) {
+        const flat = this.scenes.length - this.lastDrama;
+        if (flat >= DRAMA_AFTER && (highlight || legs.some((g) => dramatic(g.to)))) drama = Math.min(4, 1 + 0.6 * (flat - DRAMA_AFTER + 1));
+      }
+      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama;
       options.push({ legs, score });
     });
     options.sort((a, b) => b.score - a.score);
@@ -621,6 +643,7 @@ export class EarthJourney {
     this.seenLand.add(look.landform.id);
     for (const b of look.belts) this.seenEfg.add(b.code);
     if (isHighlight(look) || crestHere) this.lastHighlight = i;
+    if (isHighlight(look) || crestHere || dramatic(macro)) this.lastDrama = i;
     this.scenes.push({ index: i, s0, s1, macro, look, name, tag, moment, move: seg.move });
   }
 }

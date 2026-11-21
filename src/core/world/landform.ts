@@ -10,6 +10,10 @@
  *   valley    the land rises on both sides; the road runs along the floor
  *   ridge     the land falls away on both sides; the road rides the crest
  *   canyon    close, steep walls of layered rock (dry country)
+ *   shelf     (version 5) a road cut into a valley's side: a rock face over it, and on the other side the land
+ *             falls away hundreds of metres to the valley floor, the far wall standing up across the void
+ *   rim       (version 5) a road along the edge of a canyon: level country on one side, on the other the
+ *             ground breaks off into a gorge hundreds of metres deep, its far wall back up to the rim
  *
  * Stretches are the water plan's slots, so a lake or a river always gets country that suits it,
  * and they blend into one another over a few hundred metres. Pure and seeded: every player
@@ -30,7 +34,7 @@ export const GULLY_V2 = 0.2;
 /** half the length over which one stretch turns into the next (m) */
 const BLEND = 210;
 
-export type LandKind = 'open' | 'hillside' | 'valley' | 'ridge' | 'canyon';
+export type LandKind = 'open' | 'hillside' | 'valley' | 'ridge' | 'canyon' | 'shelf' | 'rim';
 
 export class LandParams {
   /** rise of the land per metre towards the right of the road (negative: it climbs on the left) */
@@ -41,6 +45,18 @@ export class LandParams {
   drop = 0;
   /** height of canyon walls (m) */
   canyon = 0;
+  /**
+   * (version 5) A shelf road: how far the land falls on its low side to the valley floor (m), how high the far wall
+   * stands above that floor (m), and which side is high (+1 the right, −1 the left). A rim road: how deep the canyon
+   * beside it is (m), on which side (+1 the right, −1 the left).
+   */
+  shelf = 0;
+  opp = 0;
+  shelfSide = 1;
+  rim = 0;
+  rimSide = 1;
+  /** (version 5) how much steeper and closer a canyon's walls stand than a canyon's of before (0: as before; a gorge's near two in one) */
+  steep = 0;
   /** the big landforms away from the road stand this much taller or lower */
   far = 1;
   /**
@@ -70,7 +86,9 @@ export class LandParams {
   farAt(lat: number): number {
     const a = lat < 0 ? -lat : lat;
     const low = this.tilt * lat < 0 ? smoothstep(0, 0.08, this.tilt < 0 ? -this.tilt : this.tilt) : 0;
-    const open = Math.max(low, smoothstep(0, 30, this.drop));
+    // (version 5: a shelf's low side and a rim's canyon side lie open, the far land standing back for the view)
+    const gap = (this.shelf > 0 && this.shelfSide * lat < 0 ? smoothstep(0, 60, this.shelf) : 0) + (this.rim > 0 && this.rimSide * lat > 0 ? smoothstep(0, 60, this.rim) : 0);
+    const open = Math.max(low, smoothstep(0, 30, this.drop), gap > 1 ? 1 : gap);
     return this.far * (1 - 0.68 * open * (1 - smoothstep(1300, 3200, a)));
   }
 
@@ -79,6 +97,12 @@ export class LandParams {
     this.wall = o.wall;
     this.drop = o.drop;
     this.canyon = o.canyon;
+    this.shelf = o.shelf;
+    this.opp = o.opp;
+    this.shelfSide = o.shelfSide;
+    this.rim = o.rim;
+    this.rimSide = o.rimSide;
+    this.steep = o.steep;
     this.far = o.far;
     this.terrace = o.terrace;
     this.step = o.step;
@@ -94,6 +118,17 @@ export class LandParams {
     this.wall += (o.wall - this.wall) * t;
     this.drop += (o.drop - this.drop) * t;
     this.canyon += (o.canyon - this.canyon) * t;
+    // (a shelf or a rim fades into country that has none; its side stays the side of whichever has one)
+    if (this.shelf > 0 || o.shelf > 0) {
+      if (this.shelf <= 0) this.shelfSide = o.shelfSide;
+      this.shelf += (o.shelf - this.shelf) * t;
+      this.opp += (o.opp - this.opp) * t;
+    }
+    if (this.rim > 0 || o.rim > 0) {
+      if (this.rim <= 0) this.rimSide = o.rimSide;
+      this.rim += (o.rim - this.rim) * t;
+    }
+    this.steep += (o.steep - this.steep) * t;
     this.far += (o.far - this.far) * t;
     this.gully += (o.gully - this.gully) * t;
     // Benches and dunes fade out towards country that has none: how fully and how high is mixed like the
@@ -140,7 +175,7 @@ export const LAND_ODDS: Record<string, [number, number, number, number, number]>
   lakes: [0.22, 0.38, 0.1, 0.3, 0],
   maple: [0.14, 0.44, 0.18, 0.24, 0],
 };
-const KINDS: LandKind[] = ['open', 'hillside', 'valley', 'ridge', 'canyon'];
+const KINDS: LandKind[] = ['open', 'hillside', 'valley', 'ridge', 'canyon', 'shelf', 'rim'];
 
 /** strength of each kind by biome: [tilt, wall (m), drop (m), canyon (m)] at their fullest */
 export const LAND_SIZE: Record<string, [number, number, number, number]> = {
@@ -158,6 +193,12 @@ export interface LandSize {
   wall: number;
   drop: number;
   canyon: number;
+  /** (version 5) a shelf road's fall to its valley floor and the far wall's height above that floor; a rim road's canyon depth (m) */
+  shelf?: number;
+  opp?: number;
+  rim?: number;
+  /** (version 5) how much steeper and closer its canyon walls stand (LandParams.steep) */
+  steep?: number;
 }
 
 /**
@@ -170,14 +211,18 @@ export function landOddsOf(region: RegionDef): readonly number[] {
   return oddsOf(o);
 }
 
-/** strengths as LAND_SIZE holds them ([tilt, wall, drop, canyon]), those given in place of a row's */
+/** strengths as LAND_SIZE holds them ([tilt, wall, drop, canyon]; version 5's shelf, far wall and rim after them), those given in place of a row's */
 function sizeOf(s: Partial<LandSize>, row: readonly number[]): readonly number[] {
-  return [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+  const base = [s.tilt ?? row[0], s.wall ?? row[1], s.drop ?? row[2], s.canyon ?? row[3]];
+  // (version 5's strengths only where a region gives them)
+  if (s.shelf === undefined && s.opp === undefined && s.rim === undefined && s.steep === undefined && row.length <= 4) return base;
+  return [...base, s.shelf ?? row[4] ?? 0, s.opp ?? row[5] ?? 0, s.rim ?? row[6] ?? 0, s.steep ?? row[7] ?? 0];
 }
 
-/** odds by kind, in the order of KINDS (a kind left out never comes) */
+/** odds by kind, in the order of KINDS (a kind left out never comes); version 5's kinds only where a region names them */
 function oddsOf(o: Partial<Record<LandKind, number>>): readonly number[] {
-  return [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
+  const base = [o.open ?? 0, o.hillside ?? 0, o.valley ?? 0, o.ridge ?? 0, o.canyon ?? 0];
+  return o.shelf !== undefined || o.rim !== undefined ? [...base, o.shelf ?? 0, o.rim ?? 0] : base;
 }
 
 /**
@@ -247,9 +292,10 @@ export class LandformPlan {
         side = prev.side;
       } else {
         // (odds that have been moved from their sum of one are taken as shares of it)
-        const total = odds[0] + odds[1] + odds[2] + odds[3] + odds[4];
+        let total = odds[0] + odds[1] + odds[2] + odds[3] + odds[4];
+        for (let q = 5; q < odds.length; q++) total += odds[q];
         let u = Math.abs(total - 1) > 1e-6 ? r(8) * total : r(8);
-        for (let q = 0; q < KINDS.length; q++) {
+        for (let q = 0; q < odds.length; q++) {
           if (u < odds[q]) {
             kind = KINDS[q];
             break;
@@ -259,10 +305,11 @@ export class LandformPlan {
       }
       // a lake by the road lies in level country or at the foot of a gentle valley, never on a slope
       if (water === 'lake' && (kind === 'hillside' || kind === 'canyon' || kind === 'ridge')) kind = r(4) < 0.7 ? 'open' : 'valley';
-      // a coast road: the land climbs on the side away from the sea and falls to the beach on the other
+      // a coast road: the land climbs on the side away from the sea and falls to the beach on the other (version 5:
+      // a cliff road's shelf, its fall to the sea)
       const sea = this.coast(i);
       if (sea !== 0) {
-        kind = 'hillside';
+        kind = kind === 'shelf' && (size[4] ?? 0) > 0 ? 'shelf' : 'hillside';
         side = -sea;
       }
       const amt = sea !== 0 ? 0.45 + 0.3 * r(0) : 0.55 + 0.45 * r(0);
@@ -277,6 +324,17 @@ export class LandformPlan {
         p.far = 0.8;
       } else if (kind === 'canyon') {
         p.canyon = size[3] * amt;
+        p.steep = size[7] ?? 0;
+        p.far = 0.9;
+      } else if (kind === 'shelf') {
+        // (version 5) the fall and the far wall as the region's, a little more or less from stretch to stretch
+        p.shelf = (size[4] || 160) * (0.8 + 0.2 * amt);
+        p.opp = (size[5] ?? 0) * (0.75 + 0.25 * amt);
+        p.shelfSide = side;
+        p.far = 1.1;
+      } else if (kind === 'rim') {
+        p.rim = (size[6] || 180) * (0.8 + 0.2 * amt);
+        p.rimSide = side;
         p.far = 0.9;
       } else p.far = 0.85 + 0.3 * r(12);
       if (this.operators) {
@@ -321,7 +379,7 @@ export class LandformPlan {
     if (k < 0) return 0;
     this.grow(k);
     const st = this.list[k];
-    return st.kind === 'ridge' || (st.kind === 'hillside' && st.side !== side) ? 1 : 0;
+    return st.kind === 'ridge' || ((st.kind === 'hillside' || st.kind === 'shelf') && st.side !== side) || (st.kind === 'rim' && st.side === side) ? 1 : 0;
   }
 
   /** the cross-section in force at arc length s (stretches blended across their borders) */
@@ -334,6 +392,54 @@ export class LandformPlan {
     if (into < BLEND && k > 0) out.lerp(this.a.set(this.list[k - 1].p), 0.5 - 0.5 * smoothstep(0, BLEND, into));
     else if (into > LAND_SLOT - BLEND) out.lerp(this.a.set(this.list[k + 1].p), 0.5 * smoothstep(LAND_SLOT - BLEND, LAND_SLOT, into));
     return out;
+  }
+
+  /**
+   * (version 5) A shelf road's cross-section: over the road on its high side a rock cut, then the mountainside; on
+   * its low side the fall — steepest just past its lip (never steeper than five in three: a height field holds no
+   * overhang), easing to its foot — to the valley floor a few hundred metres across, and the far wall rising across
+   * it, its crest broken into peaks, higher than the road stands: the view.
+   */
+  static shelfAt(p: LandParams, lat: number, a: number, x: number, z: number, seed: number): number {
+    const e = a - 9;
+    if (e <= 0) return 0;
+    if (lat * p.shelfSide > 0) {
+      // the high side: the cut, some fifteen metres of rock, then the slope going on up, easing as it climbs
+      const cut = Math.min(e, 13) * 1.3;
+      const q = e > 13 ? (e - 13) / 520 : 0;
+      return cut + 0.68 * 520 * (q / Math.sqrt(1 + q * q));
+    }
+    // the fall: steepest just past the road's edge (a lip of a few metres, then some fifty-eight degrees), easing all
+    // the way down — out of the side window the eye goes straight down into the valley
+    const H = p.shelf;
+    const run = H * 1.1;
+    const u = e < run ? e / run : 1;
+    const lip = e < 6 ? (e / 6) * (e / 6) * (3 - (2 * e) / 6) : 1;
+    let h = -H * (1 - Math.pow(1 - u, 1.8)) * lip;
+    // the floor, a few hundred metres across, then the far wall
+    const floor = run + 200 + 220 * (0.5 + 0.5 * fbm2(x / 2300, z / 2300, seed + 0x5e1, 2));
+    if (e > floor && p.opp > 0) {
+      const wr = 600 + 0.6 * p.opp;
+      const v = Math.min(1, (e - floor) / wr);
+      const top = p.opp * (0.85 + 0.3 * (0.5 + 0.5 * fbm2(x / 1700, z / 1700, seed + 0x5e2, 3)));
+      h += top * Math.pow(v * v * (3 - 2 * v), 1.25);
+    }
+    return h;
+  }
+
+  /**
+   * (version 5) A rim road's canyon, on its canyon side: a lip of a few metres past the verge, a wall of two in one down to the
+   * floor, the floor a hundred or two across, the far wall back up to the rim; the edge wanders, as a rim does.
+   */
+  static rimAt(D: number, a: number, x: number, z: number, seed: number): number {
+    const lip = 8 + 7 * (0.5 + 0.5 * fbm2(x / 380, z / 380, seed + 0x51a, 2));
+    const e = a - lip;
+    if (e <= 0) return 0;
+    const wall = D / 1.9;
+    const floor = 110 + 120 * (0.5 + 0.5 * fbm2(x / 900, z / 900, seed + 0x51b, 2));
+    const down = smoothstep(0, wall, e);
+    const up = e > wall + floor ? smoothstep(0, wall * 1.2, e - wall - floor) : 0;
+    return D * (down - 0.92 * up);
   }
 
   /**
@@ -364,11 +470,14 @@ export class LandformPlan {
       // the walls stand closer here and further there, and open into side gullies; steep, but never
       // steeper than two in one (a height field cannot hold a cliff, and nor can its mesh)
       const n = fbm2(x / 170, z / 170, seed + 0x2c1, 2);
-      const foot = 13 + 16 * (0.5 + 0.5 * n);
-      const face = Math.max(26, p.canyon * 0.95) * (1 + 0.25 * (0.5 - 0.5 * n));
+      // (version 5: a gorge's walls closer in and steeper, near two in one)
+      const foot = (13 + 16 * (0.5 + 0.5 * n)) * (p.steep > 0 ? 0.75 : 1);
+      const face = (Math.max(26, p.canyon * 0.95) * (1 + 0.25 * (0.5 - 0.5 * n))) / (p.steep > 0 ? 1 + p.steep : 1);
       const gully = smoothstep(0.25, 0.75, fbm2(x / 260 + 7, z / 260, seed + 0x2c2, 1));
       h += p.canyon * smoothstep(foot, foot + face, a) * (1 - p.gully * gully);
     }
+    if (p.shelf > 0) h += LandformPlan.shelfAt(p, lat, a, x, z, seed);
+    if (p.rim > 0 && lat * p.rimSide > 0) h -= LandformPlan.rimAt(p.rim, a, x, z, seed);
     return h;
   }
 }

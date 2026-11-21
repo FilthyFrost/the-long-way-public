@@ -93,10 +93,21 @@ const settings: Record<string, readonly LandKind[]> = {
   red_canyon: ['canyon', 'ridge', 'open', 'canyon'],
   karst_peaks: ['open', 'valley', 'open', 'hillside'],
 };
-/** the kinds of country a region of the emergent Earth's road runs through, stretch by stretch (earth/region.ts settingsOf) */
-export function setRouteSettings(id: string, row: readonly LandKind[]): void { settings[id] = row; }
+/** where a region's stretches begin, for one whose kinds of country come in their order (world version 5: a place's road, earth/region.ts settingsOf) */
+const firsts: Record<string, number> = {};
+/**
+ * The kinds of country a region of the emergent Earth's road runs through, stretch by stretch (earth/region.ts
+ * settingsOf). With `first`, the stretch where the region begins: the kinds come in their order from there (a place's
+ * road of world version 5, its way in, its heart and its way out); without, each stretch's kind is drawn from them.
+ */
+export function setRouteSettings(id: string, row: readonly LandKind[], first?: number): void {
+  settings[id] = row;
+  if (first !== undefined) firsts[id] = first;
+}
 export function routeSetting(seed: number, k: number, region: string): LandKind {
   const row = settings[region];
   if (!row || k < 1) return 'open';
+  const first = firsts[region];
+  if (first !== undefined) return row[Math.max(0, Math.min(row.length - 1, k - first))];
   return row[(hash2(k, 0x5341, seed) >>> 8) % row.length];
 }

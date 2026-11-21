@@ -55,7 +55,14 @@ export interface CoastRun {
   k1: number;
   s0: number;
   s1: number;
+  /** (world version 5) the height of the cliff the road runs along here (m; 0: a low shore) */
+  cliff?: number;
 }
+
+/** (world version 5) over this length the far coast leaves for the horizon at either end of a sea: a sea there is a run of places by it, a few kilometres each */
+const SEA_END_V5 = 900;
+/** (world version 5) how far into a place the shore comes in to the road, past the blend with the place before (m) */
+const RUN_IN_V5 = 700;
 
 /** one sea: the chapter it lies along, and the stretches where the road runs on its shore */
 export interface Coast {
@@ -68,6 +75,10 @@ export interface Coast {
   level: number;
   seed: number;
   runs: CoastRun[];
+  /** (world version 5) a cliff coast's height: the road along its shore that far above the water, the shore at the cliff's foot (0: none) */
+  cliff: number;
+  /** over how long the far coast leaves for the horizon at its ends (m) */
+  fade?: number;
 }
 
 /** what the sea does to one point of the land */
@@ -112,8 +123,16 @@ export class SeaPlan {
     if (c !== undefined) return c;
     c = null;
     const plan = this.spine.plan;
+    // (world version 5: one sea along a run of places by it, the shore at the road through the heart of each)
+    if (plan.rules.version >= 5) {
+      c = this.seaOfRun(chapter);
+      this.seas.set(chapter, c);
+      return c;
+    }
     const h = hash2(chapter, 0x5ea5, this.seed);
-    if (chapter >= 0 && seaAlong(BIOMES[plan.biomeOf(chapter)]) && (h & 0xff) / 255 < 0.85) {
+    const region = BIOMES[plan.biomeOf(chapter)];
+    const cliff = region.cliff ?? 0;
+    if (chapter >= 0 && seaAlong(region) && (h & 0xff) / 255 < 0.85) {
       // well inside the chapter: lake country on both sides of every point of it
       const left = plan.rules.version === 1 ? plan.transition : plan.transitionAt(chapter);
       const right = plan.rules.version === 1 ? plan.transition : plan.transitionAt(chapter + 1);
@@ -152,7 +171,7 @@ export class SeaPlan {
               u = Math.max(u, hi[q - kA]);
             }
             // (a later run must lie at the sea's own level: not below it, not high above it)
-            if (level > -Infinity && (l < level + 5 || l > level + 16)) continue;
+            if (level > -Infinity && (l < level + 5 + cliff || l > level + 16 + cliff)) continue;
             const score = u - l + 0.004 * ((hash2(k, len, seed) & 0xffff) / 65536);
             if (score < bestScore) {
               bestScore = score;
@@ -168,7 +187,7 @@ export class SeaPlan {
         if (k0 >= 0) {
           let low = Infinity;
           for (let q = k0; q < k0 + len0; q++) low = Math.min(low, lo[q - kA]);
-          level = low - 5.5 - 4 * (((h >>> 20) & 0xff) / 255);
+          level = low - 5.5 - 4 * (((h >>> 20) & 0xff) / 255) - cliff;
           runs.push(this.run(k0, k0 + len0 - 1));
           // a second run two stretches or more away, if the road comes down to the water again
           if (((h >>> 12) & 0xf) < 10) {
@@ -180,7 +199,7 @@ export class SeaPlan {
             runs.sort((p, q) => p.k0 - q.k0);
           }
         }
-        if (runs.length > 0) c = { chapter, s0: a, s1: b, side, level, seed, runs };
+        if (runs.length > 0) c = { chapter, s0: a, s1: b, side, level, seed, runs, cliff };
       }
     }
     this.seas.set(chapter, c);
@@ -189,6 +208,63 @@ export class SeaPlan {
 
   private run(k0: number, k1: number): CoastRun {
     return { k0, k1, s0: k0 * LAND_SLOT + 40, s1: (k1 + 1) * LAND_SLOT - 40 };
+  }
+
+  /**
+   * (world version 5) The sea of a run of places by it: from a little into the first to a little before the end of
+   * the last, on one side of the road; the shore at the road through each place's heart, past its blends — at the
+   * foot of its cliff where it is a cliff road (RegionDef.cliff), a few metres below the road where it runs along
+   * the shore; one level for the sea, hung from the lowest of its runs.
+   */
+  private seaOfRun(chapter: number): Coast | null {
+    const plan = this.spine.plan;
+    if (chapter < 1 || !seaAlong(BIOMES[plan.biomeOf(chapter)])) return null;
+    let c0 = chapter;
+    while (c0 > 1 && seaAlong(BIOMES[plan.biomeOf(c0 - 1)])) c0--;
+    // (the run's sea is its first place's, made once for all of them)
+    if (c0 !== chapter) return this.seaOf(c0);
+    let c1 = chapter;
+    while (c1 < chapter + 16 && seaAlong(BIOMES[plan.biomeOf(c1 + 1)])) c1++;
+    plan.biomeOf(c1 + 2);
+    const h = hash2(c0, 0x5ea7, this.seed);
+    const side = h & 0x10000 ? 1 : -1;
+    const seed = hash2(c0, 0x5ea8, this.seed);
+    const runs: CoastRun[] = [];
+    let level = Infinity;
+    let cliffMost = 0;
+    for (let ch = c0; ch <= c1; ch++) {
+      const a = plan.starts[ch] + RUN_IN_V5;
+      const b = plan.starts[ch + 1] - RUN_IN_V5;
+      const k0 = Math.max(3, Math.ceil(a / LAND_SLOT));
+      const k1 = Math.floor(b / LAND_SLOT) - 1;
+      if (k1 < k0) continue;
+      const cliff = BIOMES[plan.biomes[ch]].cliff ?? 0;
+      let low = Infinity;
+      for (let s = k0 * LAND_SLOT; s <= (k1 + 1) * LAND_SLOT; s += 25) {
+        this.spine.at(s, st);
+        if (st.y < low) low = st.y;
+      }
+      level = Math.min(level, low - (cliff > 0 ? cliff : 5.5 + 4 * (((hash2(ch, 0x5ea9, this.seed) >>> 8) & 0xff) / 255)));
+      cliffMost = Math.max(cliffMost, cliff);
+      runs.push({ ...this.run(k0, k1), cliff });
+    }
+    if (!runs.length) return null;
+    return { chapter: c0, s0: plan.starts[c0] + 250, s1: plan.starts[c1 + 1] - 250, side, level, seed, runs, cliff: cliffMost, fade: SEA_END_V5 };
+  }
+
+  /** the cliff the road runs along at arc length s (m; 0: a low shore, or no run there) */
+  static cliffAt(c: Coast, s: number): number {
+    if (!c.cliff) return 0;
+    let best = 0;
+    let near = Infinity;
+    for (const r of c.runs) {
+      const d = s < r.s0 ? r.s0 - s : s > r.s1 ? s - r.s1 : 0;
+      if (d < near) {
+        near = d;
+        best = r.cliff ?? 0;
+      }
+    }
+    return best;
   }
 
   /** the sea along the road at arc length s (null: none there) */
@@ -219,7 +295,8 @@ export class SeaPlan {
 
   /** how fully there is sea on that side at arc length s: 0 at the ends of the chapter … 1 */
   static seaWeight(c: Coast, s: number): number {
-    return smoothstep(c.s0, c.s0 + SEA_END, s) * (1 - smoothstep(c.s1 - SEA_END, c.s1, s));
+    const f = c.fade ?? SEA_END;
+    return smoothstep(c.s0, c.s0 + f, s) * (1 - smoothstep(c.s1 - f, c.s1, s));
   }
 
   /** how fully the coast is at the road at arc length s: 0 away from the runs … 1 along them */
@@ -241,7 +318,9 @@ export class SeaPlan {
   static shoreAt(c: Coast, s: number): number {
     const ws = SeaPlan.seaWeight(c, s);
     if (ws <= 0.002) return Infinity;
-    const near = 112 + 68 * fbm1(s / 620, c.seed, 2) + 22 * fbm1(s / 150, c.seed + 7, 1);
+    // (a cliff coast's shore lies at the cliff's foot, as far out as the cliff takes to fall: world/landform.ts shelfAt)
+    const cliff = SeaPlan.cliffAt(c, s);
+    const near = cliff > 0 ? 9 + 1.1 * cliff + 6 + 10 * (0.5 + 0.5 * fbm1(s / 420, c.seed, 2)) : 112 + 68 * fbm1(s / 620, c.seed, 2) + 22 * fbm1(s / 150, c.seed + 7, 1);
     const far = FAR_COAST * (1 + 0.32 * fbm1(s / 2700, c.seed + 3, 2) + 0.07 * fbm1(s / 520, c.seed + 5, 2)) + (1 / ws - 1) * 1900;
     const w = SeaPlan.weight(c, s);
     // (the shore swings in as a bay does: slowly at first, then along the road)
@@ -251,6 +330,8 @@ export class SeaPlan {
 
   /** width of the beach at arc length s (m) */
   static beachAt(c: Coast, s: number): number {
+    // (under a cliff a strip of shingle and boulders, no more)
+    if (SeaPlan.cliffAt(c, s) > 0) return 5 + 4 * fbm1(s / 310, c.seed + 13, 2);
     return 24 + 16 * fbm1(s / 310, c.seed + 13, 2);
   }
 
@@ -277,8 +358,9 @@ export class SeaPlan {
     // a metre from the water, and the beach must not be squeezed into a bank
     const turn = (SeaPlan.shoreAt(c, s0 + 6) - D) / 6;
     const e = (L - D) / Math.sqrt(1 + (turn < 40 && turn > -40 ? turn * turn : 1600));
-    // (high land comes down to the water over a longer stretch: a steep coast, not a wall)
-    const rise = Math.max(SHORE_RISE, (T - c.level) * 1.3);
+    // (high land comes down to the water over a longer stretch: a steep coast, not a wall — but a cliff is a wall)
+    const cliffHere = SeaPlan.cliffAt(c, s0) > 0 && SeaPlan.weight(c, s0) > 0.5;
+    const rise = cliffHere ? 10 : Math.max(SHORE_RISE, (T - c.level) * 1.3);
     // well inland of a far coast nothing changes, and nothing needs to know of the sea
     if (e < -rise - 160 && D > 600) return T;
     const B = SeaPlan.beachAt(c, s0);
@@ -301,7 +383,8 @@ export class SeaPlan {
         const lies = top + (Tn - top) * (v * v * (3 - 2 * v));
         // along a run it is the road's own slope instead: easy at the bottom, a bank below the road,
         // low dunes on the way
-        const k = 1 - smoothstep(240, 520, D);
+        // (a cliff coast keeps its cliff: the land as its shelf lies, let down to the shingle at its foot)
+        const k = cliffHere ? 0 : 1 - smoothstep(240, 520, D);
         if (k > 0) {
           const run = D - B - 30;
           const u = run > 1 ? Math.min(1, (up - B) / run) : 1;

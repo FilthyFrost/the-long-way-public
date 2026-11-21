@@ -10,6 +10,7 @@
  */
 import type { Band, FloraRule, FloraTable } from '../flora';
 import type { Scene } from '../../earth/director';
+import type { RoadType } from '../../earth/roads';
 import type { Efg, Form, Struct } from '../../earth/efg';
 import { growingAt, wetnessAt, LAPSE } from '../../earth/climate';
 import { rock } from '../../earth/rocks';
@@ -159,7 +160,7 @@ function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number,
  * card above it (a mountain's woods change on the way up), the woods ending at the tree line, the waters' own by
  * their banks, the ground's grass, flowers and bare patches as the card at the road has them.
  */
-export function floraOfPlace(sc: Scene): FloraTable {
+export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
   const m = sc.macro;
   const e = sc.look.efg;
   const warm = m.tSea > 20;
@@ -185,6 +186,10 @@ export function floraOfPlace(sc: Scene): FloraTable {
   if (e.struct === 'farmland' && !salt0(m)) trees.push({ plant: m.tSea > 13 && w < 0.6 ? 'cypress' : 'poplar', perHa: 160, road: b(12, 26), hedge: 140, size: b(0.9, 1.2) });
   if (e.struct === 'grassland' && st0(e) && !salt0(m)) trees.push({ plant: warm ? 'acacia' : 'oak', perHa: 0.4, road: b(28, 4000), size: b(1.2, 1.45) });
   if (e.struct === 'savanna') trees.push({ plant: 'acacia', perHa: 1.2, road: b(30, 4000), size: b(1, 1.3) });
+  // (world version 5) an avenue, a tunnel of trees: the country's own tree in close rows along both sides, its crowns
+  // meeting over the road (core/earth/roads.ts RoadType.avenue)
+  const avenue = road?.avenue ?? 0;
+  if (avenue > 0 && first && !salt0(m)) trees.push({ plant: first.plant, perHa: 640 * avenue, road: b(7.7, 10.6), size: b(1.15, 1.45) });
   const shrubs = [...low.shrubs, ...high.shrubs];
   // the waters' own: willows and poplars by fresh water where the card stands no trees of the bank, reeds, mangroves by a tropical sea
   if (m.water !== 'none' && m.water !== 'salt' && e.struct !== 'ice') {
@@ -205,8 +210,9 @@ export function floraOfPlace(sc: Scene): FloraTable {
     eco: {
       wood: salt ? 0 : Math.min(0.95, st.wood * (0.6 + 0.5 * e.cover)),
       woodScale: e.struct === 'closed_forest' ? 400 : e.struct === 'open_forest' ? 320 : 240,
-      clear: 12,
-      edge: e.struct === 'closed_forest' ? 18 : 40,
+      // (an avenue's wood comes right up to its rows)
+      clear: avenue > 0 ? 9 : 12,
+      edge: avenue > 0 ? 10 : e.struct === 'closed_forest' ? 18 : 40,
       treeline,
       thirsty: Math.min(0.8, Math.max(0.15, 0.85 - w)),
       moist: Math.min(0.9, Math.max(0.05, 0.75 * w + (m.water === 'wetland' ? 0.25 : 0))),

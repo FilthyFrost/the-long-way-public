@@ -253,7 +253,7 @@ function checkWorld(s: SaveV1): void {
     rulesFor(version, { regionCount: w.regionCount });
   } catch {
     const known = handRegions();
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4) throw new Refusal({ zh: `这个存档的世界是第 ${String(version)} 版生成的，这个版本的游戏做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of generator version ${String(version)}, which this build does not have: set aside, a new game begun` });
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) throw new Refusal({ zh: `这个存档的世界是第 ${String(version)} 版生成的，这个版本的游戏做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of generator version ${String(version)}, which this build does not have: set aside, a new game begun` });
     throw new Refusal({ zh: `这个存档的世界有 ${String(w.regionCount)} 种区域，这个版本的游戏只有 ${known} 种，做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of ${String(w.regionCount)} regions and this build's registry holds ${known}: set aside, a new game begun` });
   }
 }

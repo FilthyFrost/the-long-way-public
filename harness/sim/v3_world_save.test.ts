@@ -158,10 +158,10 @@ describe('a save and its world, through save.ts', () => {
 
   it('so is a save of a version of the generator this build does not have, and one with a count that is no count', () => {
     // (version 3 is the journey's, docs/V3/nodes/P3-1-journey-world.md, version 4 the emergent Earth's, docs/V3/nodes/E1-earth-world.md: the first there is not is 5)
-    writeSave(roadSave({ world: { seed: SEED, version: 5 as never, regionCount: 6, rev: 1 } }));
+    writeSave(roadSave({ world: { seed: SEED, version: 6 as never, regionCount: 6, rev: 1 } }));
     expect(loadSave()).toBeNull();
-    expect(loadRefusal()!.en).toContain('version 5');
-    expect(loadRefusal()!.zh).toContain('第 5 版');
+    expect(loadRefusal()!.en).toContain('version 6');
+    expect(loadRefusal()!.zh).toContain('第 6 版');
     writeSave(roadSave({ world: { seed: SEED, version: 2, regionCount: 2.5, rev: 1 } }));
     expect(loadSave()).toBeNull();
     expect(loadRefusal()).not.toBeNull();

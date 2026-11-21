@@ -21,10 +21,11 @@ import type { Efg, Struct } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
 import { landOfPlace } from './landform';
 import { accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
+import type { RoadType } from '../../earth/roads';
 
-/** the id of the region of a world's place k */
-export function earthRegionId(seed: number, k: number): string {
-  return `earth:${seed | 0}:${k}`;
+/** the id of the region of a world's place k (a world of version 5's its own: its places are driven by roads of their own) */
+export function earthRegionId(seed: number, k: number, version: 4 | 5 = 4): string {
+  return version === 5 ? `earth5:${seed | 0}:${k}` : `earth:${seed | 0}:${k}`;
 }
 
 /** the land's own noise of place k (in place of a registry index: biomes.ts RegionDef.noise) */
@@ -77,8 +78,9 @@ function roadTemplateOf(m: Macro): string {
   }
 }
 
-/** the kinds of country its road runs through, stretch by stretch (routeProfiles.ts routeSetting), by the lie of its land */
-export function settingsOf(sc: Scene): readonly LandKind[] {
+/** the kinds of country its road runs through, stretch by stretch (routeProfiles.ts routeSetting), by the lie of its land — or by its road's kind (world version 5) */
+export function settingsOf(sc: Scene, road?: RoadType): readonly LandKind[] {
+  if (road) return road.land;
   const m = sc.macro;
   if (sc.look.landform.silhouette === 'canyon') return ['canyon', 'ridge', 'open', 'canyon'];
   // (the ice's valleys: walls on both sides all the way)
@@ -279,7 +281,57 @@ function groundOf(sc: Scene): number {
  * land is its own, its landforms and plants its look's template's (`templateOf`), its height, relief, water,
  * sea, lines of woods and snow, warmth and colours its own.
  */
-export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
+/**
+ * (world version 5) A place's road made of its region: how its road winds and climbs, its kinds of country and how
+ * strong each is, as its kind of road asks (core/earth/roads.ts), sized by how high its country rises.
+ */
+function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief): Partial<RegionDef> & { relief: RegionRelief } {
+  const R = Math.max(20, sc.macro.relief);
+  const a = road.align;
+  const g = road.grade;
+  // (a place the director climbs or comes down through: steep enough for its climb whatever the road)
+  const climbs = sc.move === 'climb' || sc.move === 'descend' || sc.move === 'plateau' || sc.move === 'basin';
+  const kinds = [...new Set(road.land)];
+  const odds: Partial<Record<LandKind, number>> = { open: 0, hillside: 0, valley: 0, ridge: 0, canyon: 0, shelf: 0, rim: 0 };
+  for (const kd of kinds) odds[kd] = 1 / kinds.length;
+  const size = {
+    ...(relief.size ?? {}),
+    tilt: road.id === 'shelf' || road.id === 'switchback' || road.id === 'cliff_coast' || road.id === 'terrace_road' ? 0.5 : relief.size?.tilt ?? clamp(R / 1400, 0.12, 0.34),
+    wall: road.id === 'ice_valley' || road.id === 'valley' || road.id === 'gorge' ? clamp(0.55 * R, 90, 700) : relief.size?.wall ?? clamp(0.4 * R, 40, 300),
+    drop: road.id === 'skyline' || road.id === 'pass' ? clamp(0.6 * R, 70, 340) : road.id === 'swell' || road.id === 'plateau_road' || road.id === 'lava_road' ? clamp(0.35 * R, 25, 130) : relief.size?.drop ?? clamp(0.3 * R, 25, 160),
+    canyon: road.id === 'gorge' ? clamp(0.7 * R, 90, 420) : relief.size?.canyon ?? clamp(0.5 * R, 40, 200),
+    shelf: road.id === 'cliff_coast' ? clamp(0.6 * R, 70, 180) : clamp(0.55 * R, 140, 480),
+    // (a cliff road's void is the sea: no far wall stands in it)
+    opp: road.id === 'cliff_coast' ? 0 : clamp(1.1 * R, 300, 1600),
+    rim: clamp(0.8 * R, 140, 520),
+    // (a gorge's walls close in and stand near two in one)
+    steep: road.id === 'gorge' || road.id === 'tower_road' ? 0.9 : 0,
+  };
+  // (a shelf's or a rim's own far wall stands across its void: no valley wall of the mountains' is added to it)
+  const open = road.land.includes('shelf') || road.land.includes('rim');
+  const out: RegionRelief = { ...relief, odds, size, ...(open ? { walls: undefined } : {}) };
+  if (open) delete out.walls;
+  return {
+    designKmh: a.kmh,
+    straightMin: a.straightLen[0],
+    straightMax: a.straightLen[1],
+    straightChance: a.straight,
+    turnMin: a.turn[0],
+    turnMax: a.turn[1],
+    radiusSpread: a.spread,
+    gradeAmp: g.amp,
+    gradeLen: g.len,
+    gradeMax: climbs ? Math.max(g.max, 0.075) : Math.max(g.max, 0.05),
+    relief: out,
+    land: { odds, size },
+    // (a cliff road: the sea far below it — the sea's level hung that far under the road's lowest along its shore)
+    ...(road.id === 'cliff_coast' ? { cliff: size.shelf } : {}),
+    // (a lakeshore road: a lake by it all the way through its heart, now on one side, now on the other)
+    ...(road.id === 'lakeshore' ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
+  };
+}
+
+export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadType): RegionDef {
   const template = BIOMES[BIOME_INDEX[templateOf(sc)] ?? 0];
   const road = BIOMES[BIOME_INDEX[roadTemplateOf(sc.macro)] ?? 0];
   const m = sc.macro;
@@ -303,7 +355,7 @@ export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
     ...(land.size ? { size: land.size } : {}),
   };
   const mesas = land.farShape === 2;
-  return {
+  const def: RegionDef = {
     ...template,
     // (version 1's far field where its landform keeps it: mesas on the skyline, as high as its country rises)
     farShape: land.farShape ?? template.farShape,
@@ -323,7 +375,7 @@ export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
     // (steep enough for the director's climbs and descents: the road follows its country's height, rules.ts RULES_V4)
     gradeMax: Math.max(road.gradeMax, 0.075),
     gradeLen: road.gradeLen,
-    id: earthRegionId(seed, k),
+    id: earthRegionId(seed, k, kind ? 5 : 4),
     label: sc.name,
     kin,
     baseElev: relief.base,
@@ -340,4 +392,8 @@ export function regionOfPlace(sc: Scene, seed: number, k: number): RegionDef {
     noise: earthNoise(k),
     earth: lookOfPlace(sc, seed, k),
   };
+  if (!kind) return def;
+  // (world version 5: its road its kind's)
+  const made = roadOfPlace(sc, kind, def.relief!);
+  return { ...def, ...made, land: { ...def.land, ...made.land } };
 }

@@ -402,15 +402,17 @@ export class WaterPlan {
   private makeLake(k: number): Lake | null {
     const sp = this.spine;
     const r = (n: number): number => (hash2(k, n, this.seed + 0x1a4e) & 0xffffff) / 0x1000000;
-    const side = r(1) < 0.5 ? -1 : 1;
+    // (world version 5: a lakeshore road's lakes are long and lie by the road, on either side in turn)
+    const shore = this.biomeWater((k + 0.5) * WATER_SLOT).shore === true;
+    const side = shore ? (k % 2 === 0 ? 1 : -1) : r(1) < 0.5 ? -1 : 1;
     // one lake in four lies well back from the road and is large
-    const far = r(2) < 0.25;
+    const far = !shore && r(2) < 0.25;
     // (no longer than its own stretch of country: the next one may be a hillside, and a lake does not lie on a slope)
-    let a = far ? 260 + 105 * r(3) : 110 + 255 * r(3) * r(3);
-    let b = far ? 190 + 130 * r(4) : Math.min(a * (0.5 + 0.4 * r(4)), 250);
+    let a = shore ? 470 + 110 * r(3) : far ? 260 + 105 * r(3) : 110 + 255 * r(3) * r(3);
+    let b = shore ? 240 + 160 * r(4) : far ? 190 + 130 * r(4) : Math.min(a * (0.5 + 0.4 * r(4)), 250);
     // (close enough, and far enough below the road, to be seen over the meadow from the driver's seat)
-    const gap0 = far ? 190 + 330 * r(5) : 15 + 26 * r(5);
-    const drop = far ? 4 + 9 * r(7) : 2.6 + 4 * r(7);
+    const gap0 = shore ? 12 + 10 * r(5) : far ? 190 + 330 * r(5) : 15 + 26 * r(5);
+    const drop = shore ? 1.4 + 1.4 * r(7) : far ? 4 + 9 * r(7) : 2.6 + 4 * r(7);
     const depth = 2.5 + 5.5 * r(8);
     // if it will not fit among its neighbours as drawn, a smaller lake may
     for (let shrink = 0; shrink < 3; shrink++, a *= 0.68, b *= 0.68) {
@@ -460,7 +462,8 @@ export class WaterPlan {
           const u = (st.x - cx) * ax + (st.z - cz) * az;
           const v = -(st.x - cx) * az + (st.z - cz) * ax;
           const rho = Math.sqrt((u * u) / (a * a) + (v * v) / (b * b));
-          const need = 1 + 16 / b;
+          // (a lakeshore road's lake comes to within a few metres of its verge)
+          const need = 1 + (shore ? 7 : 16) / b;
           if (rho < need) {
             ok = false;
             const short = (need - rho) * b;

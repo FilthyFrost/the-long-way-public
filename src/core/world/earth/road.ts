@@ -19,14 +19,16 @@ import { setSceneMonth } from '../sceneSeason';
 import { setRegionWeather } from '../../env/weather';
 import { weatherOfPlace } from './weather';
 import { EarthJourney, type Scene } from '../../earth/director';
+import { RoadDirector, type RoadType } from '../../earth/roads';
 import { floraOfPlace } from './flora';
 import { profileOfPlace } from './profile';
 import { earthRegionId, regionOfPlace, settingsOf, templateOf } from './region';
 
 /** a place's stretches (the chapters' scale reckoned in) */
 export const PLACE_SLOTS = 4;
-/** how much of the shorter of two chapters their blend may take */
+/** how much of the shorter of two chapters their blend may take: version 4's most of it; version 5's a third, each place's road its own for most of its length */
 const BLEND_SHARE = 0.7;
+const BLEND_SHARE_V5 = 0.35;
 
 /** what the screen and the developer's tools read of a place (journey/road.ts SceneCard's name and tag) */
 export interface EarthCard {
@@ -34,6 +36,8 @@ export interface EarthCard {
   tag: string;
   /** the director's place */
   place: Scene;
+  /** its road (world version 5: core/earth/roads.ts) */
+  road?: RoadType;
 }
 
 /** a piece of the journey on the road: home, or one of the director's places */
@@ -65,17 +69,17 @@ export interface EarthChapter {
  * it needs a row in: its plants, its month, its ground profile, its kinds of country, its snow line), the same
  * index after.
  */
-export function regionOfPlaceIn(seed: number, k: number, sc: Scene): number {
-  const id = earthRegionId(seed, k);
+export function regionOfPlaceIn(seed: number, k: number, sc: Scene, road?: RoadType, firstSlot?: number): number {
+  const id = earthRegionId(seed, k, road ? 5 : 4);
   return earthRegion(id, (): RegionDef => {
-    const def = regionOfPlace(sc, seed, k);
+    const def = regionOfPlace(sc, seed, k, road);
     const template = templateOf(sc);
     // (its plants its ecosystems' (earth/flora.ts), its ground plants too, belt by belt (earth/profile.ts))
-    if (!FLORA[id]) FLORA[id] = floraOfPlace(sc);
+    if (!FLORA[id]) FLORA[id] = floraOfPlace(sc, road);
     registerEarthProfile(profileOfPlace(sc, id));
     aliasRouteProfile(id, template);
     setSceneMonth(id, sc.macro.month);
-    setRouteSettings(id, settingsOf(sc));
+    setRouteSettings(id, settingsOf(sc, road), road ? firstSlot : undefined);
     setSceneSnowLine(id, def.relief?.snow ?? 1e5);
     // (its weather its place's: its sky, its showers, its mist and fog, its dust, its storms)
     const weather = weatherOfPlace(sc);
@@ -84,9 +88,11 @@ export function regionOfPlaceIn(seed: number, k: number, sc: Scene): number {
   });
 }
 
-/** the journey of a world of version 4, on its road */
+/** the journey of a world of version 4 or 5, on its road */
 export class EarthRoad {
   readonly earth: EarthJourney;
+  /** version 5's director of the roads (null: version 4's journey, its roads its regions' written by hand) */
+  readonly roads: RoadDirector | null;
   readonly pieces: EarthPiece[] = [];
   readonly chapters: EarthChapter[] = [];
 
@@ -98,8 +104,11 @@ export class EarthRoad {
     readonly home = 0,
     /** the widest blend the chapter plan allows (rules.ts transition at the world's scale) */
     readonly widest = 2000,
+    /** the world's version: 4, or 5 (the scenic roads) */
+    readonly version: 4 | 5 = 4,
   ) {
-    this.earth = new EarthJourney(seed | 0);
+    this.earth = new EarthJourney(seed | 0, version === 5 ? { drama: true } : {});
+    this.roads = version === 5 ? new RoadDirector(this.earth, seed | 0) : null;
     this.push({ kind: 'home', scene: null, buffer: null, index: 0, region: home, slots: this.slotsOf(PLACE_SLOTS), border: 0, threshold: null, thresholdLength: 0 });
   }
 
@@ -119,11 +128,14 @@ export class EarthRoad {
   private layOne(): void {
     const k = this.pieces.length;
     const sc = this.earth.sceneAt(k * 5000 + 1);
-    const region = regionOfPlaceIn(this.seed, k, sc);
-    const slots = this.slotsOf(PLACE_SLOTS);
+    const road = this.roads?.roadOf(k);
     const last = this.pieces[this.pieces.length - 1];
-    const border = Math.min(this.widest, BLEND_SHARE * Math.min(slots * this.slot, last.end - last.start));
-    this.push({ kind: 'scene', scene: { name: sc.name, tag: sc.tag, place: sc }, buffer: null, index: k, region, slots, border, threshold: null, thresholdLength: 0 });
+    const region = regionOfPlaceIn(this.seed, k, sc, road, Math.round(last.end / this.slot));
+    const slots = this.slotsOf(PLACE_SLOTS);
+    const border = Math.min(this.widest, (road ? BLEND_SHARE_V5 : BLEND_SHARE) * Math.min(slots * this.slot, last.end - last.start));
+    // (version 5: the place's road named on the screen with it)
+    const tag = road ? `${road.zh}·${sc.tag}` : sc.tag;
+    this.push({ kind: 'scene', scene: { name: sc.name, tag, place: sc, ...(road ? { road } : {}) }, buffer: null, index: k, region, slots, border, threshold: null, thresholdLength: 0 });
   }
 
   /** chapter c of the road */
@@ -161,11 +173,11 @@ export class EarthRoad {
 /** the journey of a world, made once and kept (the last few worlds asked) */
 const roads = new Map<string, EarthRoad>();
 
-export function earthRoad(seed: number, scale = 1, slot = 1250, home = 0, widest = 2000): EarthRoad {
-  const key = `${seed | 0}|${scale}|${slot}|${home}|${widest}`;
+export function earthRoad(seed: number, scale = 1, slot = 1250, home = 0, widest = 2000, version: 4 | 5 = 4): EarthRoad {
+  const key = `${seed | 0}|${scale}|${slot}|${home}|${widest}|${version}`;
   let r = roads.get(key);
   if (!r) {
-    r = new EarthRoad(seed | 0, scale, slot, home, widest);
+    r = new EarthRoad(seed | 0, scale, slot, home, widest, version);
     roads.set(key, r);
     if (roads.size > 8) roads.delete(roads.keys().next().value!);
   }
@@ -175,6 +187,19 @@ export function earthRoad(seed: number, scale = 1, slot = 1250, home = 0, widest
 function dealt(c: EarthChapter): DealtChapter {
   return { region: c.region, length: c.length, border: c.border };
 }
+
+/**
+ * The dealer of world version 5 (rules.ts ChapterDealer): the director's places on the road with their roads
+ * (core/earth/roads.ts), from home.
+ */
+export const DEALER_V5: ChapterDealer = {
+  first(deal) {
+    return dealt(earthRoad(deal.seed, deal.scale, deal.rules.slot, deal.startRegion, deal.rules.transition(deal.scale), 5).chapter(0));
+  },
+  next(deal) {
+    return dealt(earthRoad(deal.seed, deal.scale, deal.rules.slot, deal.startRegion, deal.rules.transition(deal.scale), 5).chapter(deal.regions.length));
+  },
+};
 
 /**
  * The dealer of world version 4 (rules.ts ChapterDealer): the director's places on the road, from home — the

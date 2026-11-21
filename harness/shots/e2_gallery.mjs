@@ -22,7 +22,7 @@ const browser = await launchBrowser();
 const report = [];
 try {
   for (const [seed, places] of bySeed) {
-    const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=4&seed=${seed}&start=road&build=stock:pickup&s=300&time=15.5&weather=${process.env.WEATHER ?? "clear"}`, { width: 1920, height: 1080 });
+    const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${process.env.WORLD ?? 4}&seed=${seed}&start=road&build=stock:pickup&s=300&time=${process.env.HOUR ?? 15.5}&weather=${process.env.WEATHER ?? "clear"}`, { width: 1920, height: 1080 });
     await idle(page);
     for (const p of places) {
       const info = await page.evaluate((k) => {

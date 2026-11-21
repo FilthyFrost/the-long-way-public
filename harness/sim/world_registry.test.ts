@@ -296,7 +296,7 @@ describe('world · versions and rules', () => {
   });
 
   it('rulesFor refuses a version there is not and a region count no world can have', () => {
-    expect(() => rulesFor(5 as 1)).toThrow(RangeError);
+    expect(() => rulesFor(6 as 1)).toThrow(RangeError);
     // (version 3 is the journey's: docs/V3/nodes/P3-1-journey-world.md; version 4 the emergent Earth's: docs/V3/nodes/E1-earth-world.md)
     expect(rulesFor(3).version).toBe(3);
     expect(rulesFor(4).version).toBe(4);

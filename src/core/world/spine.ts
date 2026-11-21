@@ -293,8 +293,8 @@ export class RoadSpine implements DrivePath {
     const rng = this.rng;
     const region = BIOMES[this.bl.t < 0.5 ? this.bl.a : this.bl.b];
     const setting = this.rules.version >= 2 ? routeSetting(this.seed, Math.floor(s / this.rules.slot), region.id) : undefined;
-    const winding = setting === 'hillside' || setting === 'canyon';
-    const open = setting === 'open' || setting === 'valley';
+    const winding = setting === 'hillside' || setting === 'canyon' || setting === 'shelf';
+    const open = setting === 'open' || setting === 'valley' || setting === 'rim';
     const straight = this.style('straightChance') * (winding ? 0.55 : open ? 1.25 : 1);
     if (this.wasCurve && rng.chance(straight)) {
       this.kTarget = 0;

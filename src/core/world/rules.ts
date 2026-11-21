@@ -19,13 +19,13 @@ import { AUTHORED_REGIONS, FIRST_BIOMES, MIN_RADIUS_ANY, handRegions } from './b
 import { MAX_BORDER_WIDTH } from './routeProfiles';
 import { DEALER_V2 } from './dealer';
 import { DEALER_V3 } from './journey/road';
-import { DEALER_V4 } from './earth/road';
+import { DEALER_V4, DEALER_V5 } from './earth/road';
 import { quietRun } from './director';
 import { quietSlot } from './quiet';
 import type { ChapterPlan } from './spine';
 
 /** the versions of the generator there are */
-export type WorldVersion = 1 | 2 | 3 | 4;
+export type WorldVersion = 1 | 2 | 3 | 4 | 5;
 
 /**
  * The revision of the generator of version 2: raised by one whenever a world of version 2 comes out
@@ -232,13 +232,26 @@ export const RULES_V4: WorldRules = Object.freeze({
 });
 
 /**
+ * Version 5 (docs/V3/plan/scenic-roads.md, docs/V3/nodes/R2-roads.md): the emergent Earth's scenic roads — version
+ * 4's journey with a sense of drama (the lowlands never run on for long) and the director of the roads (core/earth/
+ * roads.ts), each place driven by a road of its own kind (a shelf over a valley, a skyline drive, a gorge, a cliff
+ * road over the sea, a tunnel of trees, the grassland's swell …), the places blending over a third of a chapter
+ * where version 4's blend over most of it. Version 4's world is untouched: its saves are the same world.
+ */
+export const RULES_V5: WorldRules = Object.freeze({
+  ...RULES_V4,
+  version: 5,
+  dealer: DEALER_V5,
+});
+
+/**
  * The rules of a world: its version's, with its own region count. Without a count a world of version 1
  * knows the six regions there were when version 1 was closed, and a world of version 2 every region
  * registered when it is made — which is why a save must keep the count (WorldOptions.regionCount).
  */
 export function rulesFor(version: WorldVersion = 1, opts: { regionCount?: number } = {}): WorldRules {
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) throw new RangeError(`world version ${String(version)}: there are versions 1, 2, 3 and 4`);
-  const base = version === 4 ? RULES_V4 : version === 3 ? RULES_V3 : version === 2 ? RULES_V2 : RULES_V1;
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) throw new RangeError(`world version ${String(version)}: there are versions 1, 2, 3, 4 and 5`);
+  const base = version === 5 ? RULES_V5 : version === 4 ? RULES_V4 : version === 3 ? RULES_V3 : version === 2 ? RULES_V2 : RULES_V1;
   // (the regions written by hand: the emergent Earth's, after them in the registry, are no world's to count)
   const hand = handRegions();
   const count = opts.regionCount ?? (version >= 2 ? hand : V1_REGIONS);
