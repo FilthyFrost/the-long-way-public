@@ -357,18 +357,22 @@ export class Tris {
     if (!l) this.lists.set(color, (l = []));
     l.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2]);
   }
-  into(b: ModelBuilder): void {
+  /** into a builder, or each colour into the one `route` names for it (V6: the stone, the concrete, the rock apart) */
+  into(b: ModelBuilder, route?: (color: number) => ModelBuilder): void {
     for (const [color, l] of this.lists) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(l), 3));
       g.computeVertexNormals();
-      b.geo(g, color, 0, 0, 0);
+      (route ? route(color) : b).geo(g, color, 0, 0, 0);
     }
   }
 }
 
 export interface BridgeMesh {
   geometry: THREE.BufferGeometry;
+  /** (V6) its dressed stone and its concrete, drawn laid and cast (render/materials.ts surfaceMaterial mason) */
+  stone: THREE.BufferGeometry | null;
+  concrete: THREE.BufferGeometry | null;
   wx: number;
   wy: number;
   wz: number;
@@ -583,6 +587,24 @@ export function buildBridge(world: World, f: River): BridgeMesh {
       }
     }
   }
-  T.into(b);
-  return { geometry: b.build(), wx: ox, wy: oy, wz: oz };
+  const stone = new ModelBuilder();
+  const concrete = new ModelBuilder();
+  let stones = 0;
+  let pours = 0;
+  T.into(b, (c) => {
+    if (STONE_FACES.has(c)) {
+      stones++;
+      return stone;
+    }
+    if (CONCRETE_FACES.has(c)) {
+      pours++;
+      return concrete;
+    }
+    return b;
+  });
+  return { geometry: b.build(), stone: stones ? stone.build() : null, concrete: pours ? concrete.build() : null, wx: ox, wy: oy, wz: oz };
 }
+
+/** the colours of a bridge's dressed stone and of its concrete (V6) */
+const STONE_FACES = new Set([STONE, STONE_2, STONE_MOSS, STONE_DARK, STONE_CAP, STONE_CAP_2]);
+const CONCRETE_FACES = new Set([CONCRETE, CONCRETE_DARK, 0xd4d1c8]);

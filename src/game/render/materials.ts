@@ -66,6 +66,18 @@ export interface SurfaceOptions {
    * (uCabinAmb / uCabinLamp, set by the vehicle view).
    */
   cabin?: boolean;
+  /**
+   * (V6) Laid or cast, in the face's own plane and anchored in the world: 1 dressed stone (courses of their own height,
+   * blocks of their own length and tone, rounded off to their joints, lichen on them), 2 concrete (pours of their own
+   * grey between their joints, the boards' grain across them), 3 rock cut back (its beds and the drill's lines). Each
+   * streaked by the rain down its walls and mossy where it is level; the pattern fades before it is finer than a pixel.
+   */
+  mason?: 1 | 2 | 3;
+  /**
+   * (V6) Each instance a stone of its own (a box: its faces' uvs): rounded off toward its edges, a grain and lichen on
+   * its faces, moss on its top (a dry-stone wall's stones were plain painted boxes).
+   */
+  block?: boolean;
 }
 
 /** keep the mask in alpha untouched when blending transparent surfaces */
@@ -92,6 +104,8 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
   if (o.inkBase) defines.RT_INK_BASE = '';
   if (o.cabin) defines.RT_CABIN = '';
   if (o.brush) defines.RT_BRUSH = '';
+  if (o.mason) defines.RT_MASON = String(o.mason);
+  if (o.block) defines.RT_BLOCK = '';
   const mat = new THREE.ShaderMaterial({
     defines,
     vertexColors: o.vertexColors ?? false,
@@ -118,11 +132,17 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
       #ifdef RT_MAP
       varying vec2 vUv;
       #endif
+      #ifdef RT_BLOCK
+      varying vec2 vBlockUv;
+      #endif
       #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
       varying vec3 vColor;
       #endif
       void main() {
         vec3 transformed = position;
+        #ifdef RT_BLOCK
+        vBlockUv = uv;
+        #endif
         vec3 objNormal = normal;
         #ifdef RT_MAP
         vUv = uv;
@@ -169,6 +189,9 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
       #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
       varying vec3 vColor;
       #endif
+      #ifdef RT_BLOCK
+      varying vec2 vBlockUv;
+      #endif
       void main() {
         #include <logdepthbuf_fragment>
         #ifdef RT_FLAT
@@ -205,6 +228,83 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
           // (and a slow drift of tone across the whole wall, as when the paint was thinned)
           marks += (rtNoiseAt(bq + 3.1, 14.0).g - 0.5) * 0.5;
           albedo *= 1.0 + uBrush * marks * 0.55;
+        }
+        #endif
+        #if defined(RT_MASON) || defined(RT_BLOCK)
+        {
+          // the face's own plane, anchored in the world: along a wall and up it, or the plan of a top
+          vec2 mw = rtWorldXZ(vPos);
+          float my = rtWorldY(vPos);
+          bool wall = abs(n.y) < 0.6;
+          vec2 mq = wall ? vec2(dot(mw, normalize(vec2(-n.z, n.x) + vec2(1e-5, 0.0))), my) : mw;
+          float md = length(vPos - cameraPosition);
+          float near = 1.0 - smoothstep(60.0, 150.0, md);
+          float moss = 0.0;
+          #ifdef RT_MASON
+          #if RT_MASON == 1
+          // dressed stone: courses of their own height, blocks of their own length, each stone its own tone, rounded off
+          // to its joints, its face a little pitted
+          float ch = 0.55 + 0.2 * rtHash(vec2(floor(mq.y / 0.66), 1.7));
+          float cv = mq.y / ch;
+          float course = floor(cv);
+          float bl = 0.95 + 0.6 * rtHash(vec2(course, 3.0));
+          float bu = (mq.x + rtHash(vec2(course, 7.0)) * 4.0) / bl;
+          float block = floor(bu);
+          float fu = fract(bu);
+          float fv = fract(cv);
+          float jw = fwidth(bu) * 1.3 + 0.03 / bl;
+          float jh = fwidth(cv) * 1.3 + 0.035 / ch;
+          float joint = max(1.0 - smoothstep(0.0, jw, min(fu, 1.0 - fu)), 1.0 - smoothstep(0.0, jh, min(fv, 1.0 - fv)));
+          float edge = min(min(fu, 1.0 - fu) * bl, min(fv, 1.0 - fv) * ch);
+          float tone = 0.92 + 0.28 * rtHash(vec2(block, course));
+          float pit = rtNoiseAt(mq + 17.0, 0.4).r;
+          float face = tone * mix(0.84, 1.02, smoothstep(0.0, 0.1, edge)) * (0.94 + 0.14 * pit);
+          // lichen: pale grey-green and rust-orange spots on the stones
+          float li = rtNoiseAt(mq * 1.0 + 31.0, 0.6).g;
+          vec3 stone = albedo * face;
+          stone = mix(stone, vec3(0.62, 0.64, 0.5), smoothstep(0.74, 0.8, li) * 0.45);
+          stone = mix(stone, vec3(0.62, 0.36, 0.12), smoothstep(0.85, 0.9, rtNoiseAt(mq + 7.0, 0.9).b) * 0.4);
+          albedo = mix(albedo, mix(stone, albedo * 0.5, joint * 0.85), near);
+          moss = joint * 0.35;
+          #elif RT_MASON == 2
+          // concrete: pours of their own grey between their joints, the boards' grain across them, a tie's hole now and then
+          vec2 pq = mq / vec2(3.0, 1.5);
+          vec2 pf = fract(pq);
+          float pj = max(1.0 - smoothstep(0.0, fwidth(pq.x) * 1.4 + 0.006, min(pf.x, 1.0 - pf.x)), 1.0 - smoothstep(0.0, fwidth(pq.y) * 1.4 + 0.01, min(pf.y, 1.0 - pf.y)));
+          float pour = 0.9 + 0.16 * rtHash(floor(pq) + 2.3);
+          float board = rtNoiseAt(vec2(mq.x * 0.08, mq.y * 3.3) + 4.0, 1.0).r;
+          float tie = 1.0 - smoothstep(0.025, 0.045, length((pf - vec2(0.25, 0.5)) * vec2(3.0, 1.5)));
+          vec3 conc = albedo * pour * (0.94 + 0.1 * board);
+          conc = mix(conc, albedo * 0.45, max(pj * 0.6, tie * 0.7));
+          albedo = mix(albedo, conc, near * (wall ? 1.0 : 0.6));
+          #else
+          // rock cut back: its beds a metre or so apart, each its own tone, broken into faces, the drill's lines down it
+          float bed = mq.y / 1.3 + (rtNoiseAt(mq * vec2(0.4, 1.0) + 3.0, 6.0).r - 0.5) * 1.4;
+          float layer = floor(bed);
+          float fb = fract(bed);
+          float facet = floor(rtNoiseAt(mq + 11.0, 2.8).g * 4.0) / 4.0;
+          float drill = 1.0 - smoothstep(0.0, fwidth(mq.x / 0.9) * 1.5 + 0.03, abs(fract(mq.x / 0.9) - 0.5) * 2.0 - 0.9);
+          vec3 rk = albedo * (0.82 + 0.26 * rtHash(vec2(layer, 9.1))) * (0.88 + 0.2 * facet);
+          rk *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, fwidth(bed) * 1.5 + 0.04, min(fb, 1.0 - fb)));
+          rk *= 1.0 - 0.12 * drill * step(0.5, rtHash(vec2(layer, 2.0)));
+          albedo = mix(albedo, rk, near);
+          #endif
+          #endif
+          #ifdef RT_BLOCK
+          // a stone of its own: rounded off toward its edges, a grain over it, lichen on it
+          vec2 be = min(vBlockUv, 1.0 - vBlockUv);
+          float bev = smoothstep(0.0, 0.16, min(be.x, be.y));
+          float gr = rtNoiseAt(mq + 23.0, 0.3).r;
+          vec3 stone = albedo * mix(0.72, 1.0, bev) * (0.9 + 0.2 * gr);
+          stone = mix(stone, vec3(0.6, 0.62, 0.48), smoothstep(0.76, 0.82, rtNoiseAt(mq + 31.0, 0.5).g) * 0.4);
+          albedo = mix(albedo, stone, near);
+          #endif
+          // the rain's dark streaks down a wall, and moss where it is level
+          if (wall) {
+            float sk = rtNoiseAt(vec2(mq.x * 1.8, mq.y * 0.07) + 5.0, 1.0).r;
+            albedo *= 1.0 - 0.28 * smoothstep(0.58, 0.85, sk) * near;
+          } else moss = max(moss, smoothstep(0.45, 0.75, rtNoiseAt(mq + 61.0, 1.6).g) * smoothstep(0.6, 0.9, n.y));
+          albedo = mix(albedo, vec3(0.16, 0.22, 0.08), clamp(moss, 0.0, 1.0) * 0.6 * near);
         }
         #endif
         #ifdef RT_SNOW

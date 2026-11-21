@@ -20,6 +20,10 @@ import { Tris } from './waterBuild';
 
 export interface GalleryMesh {
   geometry: THREE.BufferGeometry;
+  /** (V6) a tunnel's portal of dressed stone, a shed's concrete, the rock cut back for a gallery or a tunnel's walls */
+  stone: THREE.BufferGeometry | null;
+  concrete: THREE.BufferGeometry | null;
+  rock: THREE.BufferGeometry | null;
   /** a tunnel's lamps, drawn unlit (null: none) */
   lamps: THREE.BufferGeometry | null;
   /** its top lies under snow: drawn with the snow cap */
@@ -219,6 +223,25 @@ export function buildGallery(world: World, g: Gallery): GalleryMesh {
       lamps.box(c[0], c[1], c[2], 1.3, 0.12, 0.34, LAMP, { ry: -st.phi });
     }
   }
-  T.into(b);
-  return { geometry: b.build(), lamps: lamps ? lamps.build() : null, snowy, wx: ox, wy: oy, wz: oz };
+  // (V6) the portal's stone, the shed's concrete and the rock cut back each to its own material; the slope's top, its
+  // snow, the lamps as they were
+  const stone = new ModelBuilder();
+  const concrete = new ModelBuilder();
+  const cut = new ModelBuilder();
+  const routed = { stone: 0, concrete: 0, rock: 0 };
+  const own = new Set<number>([fill, SNOW, LAMP, ...soil]);
+  T.into(b, (c) => {
+    if (c === PORTAL || c === PORTAL_DARK) {
+      routed.stone++;
+      return stone;
+    }
+    if (c === CONCRETE || c === CONCRETE_DARK || c === CONCRETE_EDGE) {
+      routed.concrete++;
+      return concrete;
+    }
+    if (own.has(c)) return b;
+    routed.rock++;
+    return cut;
+  });
+  return { geometry: b.build(), stone: routed.stone ? stone.build() : null, concrete: routed.concrete ? concrete.build() : null, rock: routed.rock ? cut.build() : null, lamps: lamps ? lamps.build() : null, snowy, wx: ox, wy: oy, wz: oz };
 }

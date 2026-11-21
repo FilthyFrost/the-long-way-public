@@ -9,8 +9,11 @@ import { TerrainPoint, type World } from '../../core/world/terrain';
 const box = new THREE.BoxGeometry();
 const up = new THREE.Vector3(0,1,0);
 const axis = new THREE.Vector3(1,0,0);
-export function roadFixtures(world: World, start: number, end: number, origin: THREE.Vector3, material: THREE.Material): THREE.InstancedMesh | null {
+export function roadFixtures(world: World, start: number, end: number, origin: THREE.Vector3, material: THREE.Material, stoneMaterial?: THREE.Material): THREE.InstancedMesh[] {
   const matrices: THREE.Matrix4[] = [], colors: number[] = [];
+  // (V6: the walls' stones apart, each drawn as a stone of its own: render/materials.ts surfaceMaterial block)
+  const stoneMatrices: THREE.Matrix4[] = [], stoneColors: number[] = [];
+  let into = { m: matrices, c: colors };
   const st = new SpineSample(), tp = new TerrainPoint();
   const point = (s: number, d: number) => {
     world.spine.at(s,st);
@@ -21,8 +24,8 @@ export function roadFixtures(world: World, start: number, end: number, origin: T
   function beam(a: THREE.Vector3,b: THREE.Vector3,y: number,thickness: number,width: number,color: number) {
     const dir = b.clone().sub(a);
     const q = new THREE.Quaternion().setFromUnitVectors(axis,dir.clone().normalize());
-    matrices.push(new THREE.Matrix4().compose(a.clone().lerp(b,0.5).addScaledVector(up,y),q,new THREE.Vector3(dir.length(),thickness,width)));
-    colors.push(color);
+    into.m.push(new THREE.Matrix4().compose(a.clone().lerp(b,0.5).addScaledVector(up,y),q,new THREE.Vector3(dir.length(),thickness,width)));
+    into.c.push(color);
   }
   const runs: RailRun[] = [];
   world.furniture.between(start,end,[],runs);
@@ -33,6 +36,7 @@ export function roadFixtures(world: World, start: number, end: number, origin: T
       const d = run.side*RAIL_AT;
       const a = point(s,d), b = point(s+RAIL_STEP,d);
       if (kind==='stone') {
+        if (stoneMaterial) into = { m: stoneMatrices, c: stoneColors };
         for (let row=0; row<3; row++) {
           const cuts = row%2 ? [0,0.25,0.74,1] : [0,0.52,1];
           for (let i=1; i<cuts.length; i++) {
@@ -40,6 +44,7 @@ export function roadFixtures(world: World, start: number, end: number, origin: T
             beam(a.clone().lerp(b,cuts[i-1]+0.004),a.clone().lerp(b,cuts[i]-0.004),row*0.24+0.08,0.235,0.48-row*0.065,[0x9c927c,0xb1a68d,0x847e70,0x938975][stone]);
           }
         }
+        into = { m: matrices, c: colors };
       } else {
         beam(a,a.clone().addScaledVector(up,0.96),-0.07,0.15,0.15,0x72533c);
         beam(a,b,0.70,kind==='wood'?0.19:0.11,0.13,0x977856);
@@ -66,9 +71,13 @@ export function roadFixtures(world: World, start: number, end: number, origin: T
       }
     }
   }
-  if (!matrices.length) return null;
-  const mesh = new THREE.InstancedMesh(box,material,matrices.length);
+  const out: THREE.InstancedMesh[] = [];
   const color = new THREE.Color();
-  matrices.forEach((m,i)=>{mesh.setMatrixAt(i,m); mesh.setColorAt(i,color.setHex(colors[i]));});
-  return mesh;
+  for (const [ms, cs, mat] of [[matrices, colors, material], [stoneMatrices, stoneColors, stoneMaterial ?? material]] as const) {
+    if (!ms.length) continue;
+    const mesh = new THREE.InstancedMesh(box, mat, ms.length);
+    ms.forEach((m, i) => { mesh.setMatrixAt(i, m); mesh.setColorAt(i, color.setHex(cs[i])); });
+    out.push(mesh);
+  }
+  return out;
 }

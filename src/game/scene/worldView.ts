@@ -127,6 +127,14 @@ export class WorldView {
   private readonly coniferMat = foliageMaterial({ sway: 0.6, snowCap: 0.72, evergreen: true });
   private readonly rockMat = rockMaterial();
   private readonly poleMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0 });
+  /** (V6) laid and cast: the bridges' and the portals' dressed stone, their concrete, the rock cut back for a gallery; a
+   * dry-stone wall's stones each a stone of its own (render/materials.ts surfaceMaterial mason, block) */
+  private readonly stoneMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, side: THREE.DoubleSide, mason: 1 });
+  private readonly concreteMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, side: THREE.DoubleSide, mason: 2 });
+  private readonly cutRockMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, side: THREE.DoubleSide, mason: 3 });
+  private readonly concreteSnowMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0.9, side: THREE.DoubleSide, mason: 2 });
+  private readonly cutRockSnowMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0.9, side: THREE.DoubleSide, mason: 3 });
+  private readonly wallStoneMat = surfaceMaterial({ vertexColors: true, flat: true, snowCap: 0, block: true });
   private readonly wireMat = wireMaterial();
   private readonly shadowMat = groundShadowMaterial();
   private readonly shadowGeo = (() => {
@@ -213,7 +221,7 @@ export class WorldView {
     if (!this.kinds_) {
       const k = new Map<unknown, string>([
         [this.terrainMat, 'terrain'], [this.stripMat, 'road'], [this.poleMat, 'road-furniture'], [this.wireMat, 'road-wires'],
-        [this.waterMat, 'water'], [this.bridgeMat, 'bridge'], [this.galleryMat, 'gallery'], [this.gallerySnowMat, 'gallery'], [this.lampMat, 'gallery'], [this.siteMat, 'site'], [this.siteSnowMat, 'site'],
+        [this.waterMat, 'water'], [this.bridgeMat, 'bridge'], [this.galleryMat, 'gallery'], [this.gallerySnowMat, 'gallery'], [this.stoneMat, 'bridge'], [this.concreteMat, 'bridge'], [this.cutRockMat, 'gallery'], [this.concreteSnowMat, 'gallery'], [this.cutRockSnowMat, 'gallery'], [this.wallStoneMat, 'road-furniture'], [this.lampMat, 'gallery'], [this.siteMat, 'site'], [this.siteSnowMat, 'site'],
         [this.grassMat, 'grass'], [this.flowerMat, 'flowers'], [this.woodsMat, 'far-woods'], [this.shadowMat, 'ground-shadow'],
         [this.treeMat, 'trees-v1'], [this.coniferMat, 'trees-v1'], [this.rockMat, 'rocks-v1'],
       ]);
@@ -557,8 +565,7 @@ export class WorldView {
       }
       if (this.world.rules.version >= 2) {
         const length = STRIP_STATIONS*this.world.spine.ds;
-        const fixtures = roadFixtures(this.world,c*length,(c+POLE_SPAN)*length,new THREE.Vector3(p.wx,p.wy,p.wz),this.poleMat);
-        if (fixtures) {
+        for (const fixtures of roadFixtures(this.world,c*length,(c+POLE_SPAN)*length,new THREE.Vector3(p.wx,p.wy,p.wz),this.poleMat,this.wallStoneMat)) {
           this.add(fixtures,p.wx,p.wy,p.wz);
           castShadows(fixtures);
           objects.push(fixtures);
@@ -785,13 +792,28 @@ export class WorldView {
       const mesh = this.add(new THREE.Mesh(gm.geometry, gm.snowy ? this.gallerySnowMat : this.galleryMat), gm.wx, gm.wy, gm.wz);
       castShadows(mesh);
       const objects: THREE.Object3D[] = [mesh];
+      // (V6: its dressed stone, its concrete, its rock cut back)
+      for (const [geo, mat] of [[gm.stone, this.stoneMat], [gm.concrete, gm.snowy ? this.concreteSnowMat : this.concreteMat], [gm.rock, gm.snowy ? this.cutRockSnowMat : this.cutRockMat]] as const) {
+        if (!geo) continue;
+        const part = this.add(new THREE.Mesh(geo, mat), gm.wx, gm.wy, gm.wz);
+        castShadows(part);
+        objects.push(part);
+      }
       if (gm.lamps) objects.push(this.add(new THREE.Mesh(gm.lamps, this.lampMat), gm.wx, gm.wy, gm.wz));
       this.water.set(key, { objects });
     } else {
       const b = buildBridge(this.world, f as River);
       const mesh = this.add(new THREE.Mesh(b.geometry, this.bridgeMat), b.wx, b.wy, b.wz);
       castShadows(mesh);
-      this.water.set(key, { objects: [mesh] });
+      const objects: THREE.Object3D[] = [mesh];
+      // (V6: its dressed stone and its concrete)
+      for (const [geo, mat] of [[b.stone, this.stoneMat], [b.concrete, this.concreteMat]] as const) {
+        if (!geo) continue;
+        const part = this.add(new THREE.Mesh(geo, mat), b.wx, b.wy, b.wz);
+        castShadows(part);
+        objects.push(part);
+      }
+      this.water.set(key, { objects });
     }
   }
 

@@ -831,8 +831,64 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
           asphalt = vec3(0.332,0.297,0.254)*lightTone*mix(0.89,mix(0.55,value,stone),near);
         }
         #endif
+        // ---- (V6) the road's age written on it, near the car only (it fades before its lines are finer than a pixel):
+        // patches cut square and laid new and dark, the cracks sealed with tar wandering along and across it, a crazing
+        // in the wheel paths, the odd pothole filled
+        {
+          float nearW = 1.0 - smoothstep(16.0, 55.0, dist);
+          #ifdef RT_COVER
+          float asph = (1.0 - step(2.5, treatment.x)) * (1.0 - deck);
+          #else
+          float asph = 1.0 - deck;
+          #endif
+          if (asph * nearW > 0.01) {
+            float rx = vRoad.x;
+            float ry = vRoad.y;
+            float lw = max(aa, 0.012);
+            // a patch: every 26 m or so the odd one, across one lane, a few metres long, its edges cut straight
+            float cell = floor(ry / 26.0);
+            float pk = rtHash(vec2(cell, 17.0));
+            float py0 = (cell + 0.1 + 0.55 * rtHash(vec2(cell, 3.0))) * 26.0;
+            float pl = 2.5 + 8.0 * rtHash(vec2(cell, 5.0));
+            float pside = rtHash(vec2(cell, 7.0)) < 0.5 ? -1.0 : 1.0;
+            float px0 = 0.15 + 0.9 * rtHash(vec2(cell, 9.0));
+            float px1 = min(3.0, px0 + 1.2 + 1.6 * rtHash(vec2(cell, 11.0)));
+            float sxp = rx * pside;
+            float inP = step(0.58, pk) * step(px0, sxp) * step(sxp, px1) * step(py0, ry) * step(ry, py0 + pl);
+            float pEdge = inP * (1.0 - smoothstep(0.0, 0.06 + lw, min(min(sxp - px0, px1 - sxp), min(ry - py0, py0 + pl - ry))));
+            vec3 fresh = asphalt * vec3(0.55, 0.57, 0.6) * mix(0.9, 1.05, rtNoiseAt(w + 3.3, 1.7).r);
+            asphalt = mix(asphalt, fresh, inP * 0.82 * asph);
+            asphalt = mix(asphalt, asphalt * 0.45, pEdge * asph);
+            // sealed cracks: tar wandering along the lanes in runs, and across the road every ten metres or so
+            float run = smoothstep(0.45, 0.6, rtNoise(vec2(ry / 23.0, 4.0), 1024.0));
+            float lane = 1.6 * sign(rx) + 0.9 * (rtNoise(vec2(ry / 9.0, 2.0), 1024.0) - 0.5) + 0.25 * (rtNoise(vec2(ry / 2.1, 8.0), 1024.0) - 0.5);
+            float tarL = run * (1.0 - smoothstep(0.018, 0.035 + lw, abs(rx - lane)));
+            float tk = floor(ry / 10.5 + 0.5);
+            float ty = tk * 10.5 + 2.2 * (rtHash(vec2(tk, 1.0)) - 0.5) + 0.35 * sin(rx * 1.7 + tk * 3.1) + 0.12 * sin(rx * 5.3 + tk);
+            float tarT = step(0.45, rtHash(vec2(tk, 2.0))) * (1.0 - smoothstep(0.02, 0.04 + lw, abs(ry - ty))) * step(abs(rx), 2.6 + 0.4 * rtHash(vec2(tk, 6.0)));
+            float tar = max(tarL, tarT) * (1.0 - inP);
+            asphalt = mix(asphalt, vec3(0.035, 0.037, 0.042), tar * 0.85 * asph);
+            // a crazing of cracks in the wheel paths, where the road is oldest
+            float path = exp(-pow((abs(rx) - 1.65) / 0.55, 2.0));
+            float old = smoothstep(0.55, 0.75, rtNoiseAt(w + 41.0, 18.0).g);
+            float c1 = rtNoiseAt(vec2(rx, ry) * 1.0 + 71.0, 0.9).r;
+            float c2 = rtNoiseAt(vec2(rx, ry) * 1.0 + 13.0, 0.37).g;
+            float cw = max(fwidth(c1), 0.004);
+            float craze = (1.0 - smoothstep(0.0, 0.018 + cw, abs(c1 - 0.5))) + 0.6 * (1.0 - smoothstep(0.0, 0.02 + max(fwidth(c2), 0.004), abs(c2 - 0.5)));
+            asphalt *= 1.0 - 0.42 * clamp(craze, 0.0, 1.0) * path * old * asph * (1.0 - inP) * smoothstep(0.0, 0.6, nearW);
+            // a filled pothole now and then: a dark round patch with a ragged rim
+            float hk = floor(ry / 17.0);
+            vec2 hc = vec2((rtHash(vec2(hk, 21.0)) - 0.5) * 4.6, (hk + 0.5 + 0.3 * (rtHash(vec2(hk, 22.0)) - 0.5)) * 17.0);
+            float hr = 0.25 + 0.4 * rtHash(vec2(hk, 23.0));
+            float hd = length(vec2(rx, ry) - hc) + (rtNoiseAt(w + 5.0, 0.6).r - 0.5) * 0.18;
+            float hole = step(0.7, rtHash(vec2(hk, 24.0))) * (1.0 - smoothstep(hr - 0.03, hr + lw, hd));
+            asphalt = mix(asphalt, fresh * 0.78, hole * asph);
+          }
+        }
         // ---- markings, mostly worn away
         float wear = rtFbm(w + 91.0, 32.0);
+        // (near, the paint chipped: specks of asphalt through it, more where the wheels cross it)
+        float chips = mix(1.0, smoothstep(0.32, 0.55, rtNoiseAt(vec2(vRoad.x, vRoad.y) + 29.0, 0.23).g), 1.0 - smoothstep(10.0, 30.0, dist));
         float dash = step(fract(vRoad.y / 12.0), 0.34);
         float centre = (1.0 - smoothstep(0.055 - aa, 0.075 + aa, ad)) * dash * smoothstep(0.3, 0.5, wear);
         float edge = (1.0 - smoothstep(0.05 - aa, 0.07 + aa, abs(ad - 2.95))) * smoothstep(0.48, 0.62, wear);
@@ -843,7 +899,7 @@ export function roadStripMaterial(cover = false): THREE.ShaderMaterial {
         edge = (1.0-smoothstep(0.05-aa,0.07+aa,abs(ad-halfRoad+0.24)))*mix(smoothstep(0.43,0.64,wear),1.0,sharp);
         lineVis *= treatment.y;
         #endif
-        asphalt = mix(asphalt, uPaint, max(centre, edge) * 0.85 * lineVis);
+        asphalt = mix(asphalt, uPaint, max(centre, edge) * 0.85 * lineVis * chips);
 
         // ---- compose: pavement → gravel shoulder → ground, with ragged painted edges
         float ragged = (rtFbm(w, 4.0) - 0.5) * 0.5 + (rtFbm(w, 1.0) - 0.5) * 0.15;
