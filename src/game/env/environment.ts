@@ -17,7 +17,8 @@ import { Look, computeLook } from './colorScript';
 import { Precipitation, type PrecipKind } from './precip';
 import { skyUniforms } from './sky';
 import { Clouds } from './clouds';
-import { STYLE, styleOf } from '../render/style';
+import { LightState, STYLE, lightAt, styleOf } from '../render/style';
+import type { PlaceSky } from '../../core/world/earth/palette';
 
 export class Environment {
   readonly clock = new DayClock();
@@ -67,6 +68,19 @@ export class Environment {
   private lastCover = 0.3;
   private readonly cloudDrift = new THREE.Vector2();
   private readonly moonUp = new THREE.Vector3();
+  /** the layers above the heaps (V1b): how far their winds have carried them, the light at their heights */
+  private readonly layerDrift = new THREE.Vector4();
+  private readonly hiLight = new LightState();
+  /** the lenticular stack: where the nearest high peak is (looked for every few seconds), and when it was looked for */
+  private readonly lens = { az: 0, el: 0.1, w: 0.08, k: 0, at: -1e9 };
+  private readonly lensPt = { h: 0 } as { h: number };
+  /** the heaps' base (m) for the place */
+  private cloudBase = 1300;
+  /**
+   * the developer's sky (V1b): amounts forced on the clouds, whatever the place (null: the places' own) — cirrus,
+   * cirrocumulus, altocumulus, veil, waves (and ribbon 0/1), lens, nlc, cumulus (a multiplier of the heaps)
+   */
+  skyTune: Partial<Record<'cirrus' | 'cirrocumulus' | 'altocumulus' | 'veil' | 'waves' | 'ribbon' | 'lens' | 'nlc' | 'cumulus', number>> | null = null;
 
   constructor(
     private readonly core: RenderCore,
@@ -90,7 +104,7 @@ export class Environment {
     const key = [Math.round(this.camX / 50), Math.round(this.camZ / 50), d.x.toFixed(3), d.y.toFixed(3), d.z.toFixed(3), this.lastCover.toFixed(2), skyUniforms.uSunVis.value.toFixed(2)].join(',');
     if (key === this.shotKey) return;
     this.shotKey = key;
-    this.clouds.drawAll(this.camX, this.camZ, this.lastCover, this.cloudDrift.x, this.cloudDrift.y);
+    this.clouds.drawAll(this.camX, this.camZ, this.lastCover, this.cloudDrift.x, this.cloudDrift.y, this.cloudBase, this.towerShare, this.lastTime);
   }
 
   /**
@@ -99,6 +113,7 @@ export class Environment {
    * @param camVel  camera velocity in world space
    */
   update(dt: number, time: number, ba: number, bb: number, bt: number, world: World | null, vx: number, vy: number, vz: number): void {
+    this.lastTime = time;
     const sky = this.sky;
     this.clock.state(time, sky);
 
@@ -249,15 +264,20 @@ export class Environment {
       // night clear for its stars)
       const hr = sky.hour;
       const diurnal = hr < 5 || hr > 21.5 ? 0.18 : hr < 9 ? 0.18 + 0.47 * ((hr - 5) / 4) : hr < 13 ? 0.65 + 0.35 * ((hr - 9) / 4) : hr < 18 ? 1 : 1 - 0.82 * ((hr - 18) / 3.5);
-      const cover = Math.min(1, 0.3 * diurnal + w.cloud * 0.75);
+      // (and the place's own: how many heaps its climate makes, thinner when the night's sky is the show: V1b)
+      // (a fair night's own clouds thin too where its sky is the show; not a front's, nor rain's)
+      const fair = 1 - Math.min(1, w.rain + w.snow + w.overcast * 1.4);
+      // (the place's share of heaps rules all a fair sky's cover, the weather's own clouds too)
+      const cover = Math.min(1, 0.3 * diurnal * this.heapShare + w.cloud * 0.75 * (1 - 0.7 * this.nightShow * fair) * (1 + (this.heapShare - 1) * fair));
       this.lastCover = cover;
       if (this.shotMode) {
         // drawn in prepareShot()
       } else if (this.cloudsNow) {
-        this.clouds.drawAll(this.camX, this.camZ, cover, this.cloudDrift.x, this.cloudDrift.y);
+        this.clouds.drawAll(this.camX, this.camZ, cover, this.cloudDrift.x, this.cloudDrift.y, this.cloudBase, this.towerShare, time);
         this.cloudsNow = false;
-      } else this.clouds.update(this.camX, this.camZ, cover, 600, this.cloudDrift.x, this.cloudDrift.y);
+      } else this.clouds.update(this.camX, this.camZ, cover, 600, this.cloudDrift.x, this.cloudDrift.y, this.cloudBase, this.towerShare, time);
     }
+    this.updateLayers(dt, sky, w, ba, bb, bt, world);
     // cloud shadows drift with the same wind; they fade as the sky closes over or the light goes
     const cs = globals.uCloudShadow.value;
     cs.x = (cs.x + this.wind.x * dt * 0.9) % 4096;
@@ -306,6 +326,94 @@ export class Environment {
 
     this.dark = sky.daylight < 0.42 || w.overcast > 0.72 || w.fog > 0.5 || w.dust > 0.4 || w.snow > 0.6;
   }
+
+  /** the heaps' share of the fair-weather cover (the place's, less when the night is the show) and how far they tower */
+  private heapShare = 1;
+  /** how much the night's sky is the show (stars, the Milky Way, an aurora, meteors): the fair weather's own clouds thin for it */
+  private nightShow = 0;
+  private towerShare = 0;
+
+  /**
+   * The clouds above the heaps, and the heaps' own measure (V1b, docs/V3/nodes/V1b-clouds.md). Each place's sky
+   * (core/world/earth/palette.ts PlaceSky) — blended across a border —, then as the hour and the weather have it: a
+   * sunset's or a sunrise's high and middle clouds the more (they are the canvas of its colours), the night's few
+   * where its stars, its Milky Way, its aurora or its meteors are the show, none of them under an overcast or in rain.
+   */
+  private updateLayers(dt: number, sky: SkyState, w: WeatherState, ba: number, bb: number, bt: number, world: World | null): void {
+    const sa = BIOMES[ba].earth?.palette?.air.sky;
+    const sb = BIOMES[bb].earth?.palette?.air.sky;
+    const mix = (f: (s: PlaceSky) => number, dflt: number): number => {
+      const a = sa ? f(sa) : dflt;
+      const b = sb ? f(sb) : dflt;
+      return a + (b - a) * bt;
+    };
+    const near = (bt < 0.5 ? sa : sb) ?? sa ?? sb;
+    const elev = sky.sunElev * (180 / Math.PI);
+    const look = this.look;
+    const show = look.stars * (1 - Math.min(1, w.rain + w.snow + w.fog + w.dust));
+    this.nightShow = show;
+    const golden = THREE.MathUtils.smoothstep(elev, -7, -1) * (1 - THREE.MathUtils.smoothstep(elev, 9, 18));
+    const open = Math.max(0, 1 - Math.min(1, w.overcast * 1.25 + w.rain + w.snow + w.fog * 0.8 + w.dust));
+    const t = this.skyTune;
+    const night = 1 - 0.85 * show;
+    const hi = skyUniforms.uHigh.value;
+    hi.set(
+      (t?.cirrus ?? mix((s) => s.cirrus, 0.3) * (1 + 0.35 * golden) * night) * open,
+      (t?.cirrocumulus ?? mix((s) => s.cirrocumulus, 0.1) * (1 + 0.3 * golden) * night) * open,
+      (t?.altocumulus ?? mix((s) => s.altocumulus, 0.2) * (1 + 0.25 * golden) * night) * open,
+      (t?.veil ?? mix((s) => s.veil, 0.05) * night) * Math.max(open, 0.3),
+    );
+    const wv = skyUniforms.uWaves.value;
+    wv.set((t?.waves ?? mix((s) => s.waves, 0) * night) * open, near?.waveDir ?? 0, near?.waveSpacing ?? 900, t?.ribbon ?? near?.ribbon ?? 0);
+    skyUniforms.uNlc.value = (t?.nlc ?? mix((s) => s.nlc, 0)) * THREE.MathUtils.smoothstep(elev, -16, -9) * (1 - THREE.MathUtils.smoothstep(elev, -6, -3)) * open;
+    // the heaps: the place's number of them, fewer when the night is the show; their base; their towers
+    this.heapShare = (t?.cumulus ?? mix((s) => s.cumulus, 1)) * (1 - 0.6 * show);
+    this.cloudBase = mix((s) => s.base, 1300);
+    this.towerShare = mix((s) => s.towers, 0);
+    // the winds aloft: the high layers' about two and a half times the ground's, the middle ones' one and a half
+    const ld = this.layerDrift;
+    ld.x += this.wind.x * dt * 2.4;
+    ld.y += this.wind.z * dt * 2.4;
+    ld.z += this.wind.x * dt * 1.5;
+    ld.w += this.wind.z * dt * 1.5;
+    skyUniforms.uLayerDrift.value.copy(ld);
+    // the light on them by their height: a high cloud still has the sun some minutes after the ground has lost it
+    lightAt(Math.min(70, elev + 2.6), !sky.afternoon, this.hiLight);
+    skyUniforms.uHighLit.value.copy(look.cloudLit).lerp(this.hiLight.cloudLit.multiplyScalar(look.sunVis * 0.9 + 0.1), golden);
+    skyUniforms.uMidLit.value.copy(look.cloudLit);
+    skyUniforms.uLayerShade.value.copy(look.cloudShade);
+    // a lens over the highest ground in sight, 5 to 16 km off and 600 m or more over the eye (looked for every 4 s)
+    const lensAmt = (t?.lens ?? mix((s) => s.lens, 0)) * open * (1 - 0.7 * show);
+    const L = this.lens;
+    if (lensAmt > 0.01 && world && this.lastTime - L.at > 4) {
+      L.at = this.lastTime;
+      const camY = this.core.camera.position.y + globals.uOriginOffset.value.y;
+      let best = -1e9;
+      for (let i = 0; i < 24; i++) {
+        const a = (i / 24) * Math.PI * 2;
+        for (const r of [5000, 8000, 11500, 16000]) {
+          const x = this.camX + Math.cos(a) * r;
+          const z = this.camZ + Math.sin(a) * r;
+          const h = world.heightAt(x, z);
+          const rise = (h - camY) / r;
+          // (the highest in sight, but low enough over the horizon to be seen through a windscreen: no more than 18°)
+          const el = Math.atan((h + 700 - camY) / r);
+          if (h - camY > 600 && el < 0.31 && rise > best) {
+            best = rise;
+            L.az = a;
+            L.el = el;
+            L.w = Math.atan(2200 / r);
+          }
+        }
+      }
+      L.k = best > -1e8 ? 1 : 0;
+    }
+    if (lensAmt <= 0.01) L.k = 0;
+    skyUniforms.uLens.value.set(L.az, L.el, L.w, lensAmt * L.k);
+    // (lenses stand in a stable air: few heaps where they are)
+    this.heapShare *= 1 - 0.65 * lensAmt * L.k;
+  }
+  private lastTime = 0;
 
   /** let one bolt go now (screenshots, tests) */
   strike(): void {

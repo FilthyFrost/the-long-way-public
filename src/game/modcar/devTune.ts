@@ -216,6 +216,20 @@ function makeDials(): Dial[] {
   mul('overcast.amount', '阴沉', '云层把阳光挡掉多少。越大白天越暗、越压抑，暴雨天的那种昏暗。', 2);
   mul('lightning.rate', '闪电', '雷暴时闪电劈得有多勤。0 就不打雷，5 就是一直在闪。只有雷暴和冰雹天气才打雷。', 8);
 
+  // (V1b, docs/V3/nodes/V1b-clouds.md: each at its far left follows the place's own sky, core/world/earth/palette.ts skyOf)
+  sec = '云的种类';
+  const kind = (id: string, label: string, help: string, code: string): void =>
+    add({ id, label, help: help + ' 滑到最左是「跟随这个地方」：每个地方按自己的气候和运气配云。', min: -0.05, max: 1, step: 0.01, def: -0.05, unit: 'pct', auto: true, code }, tab, sec);
+  kind('clouds.cirrus', '卷云', '最高处（约 9 公里）的丝状云，像干毛笔扫出来的细丝，随高空的风飘得最快。日落后它还会被晚霞照红一阵。', 'env/sky.ts 卷云层 uHigh.x');
+  kind('clouds.cirrocumulus', '卷积云（鱼鳞云）', '高处一层细小的鱼鳞点，横着风向排成一行行，成片出现。傍晚被染成暖色时最好看。', 'env/sky.ts 卷积云层 uHigh.y');
+  kind('clouds.altocumulus', '高积云（羊群云）', '中层（约 4 公里）一团团圆圆的小云，朝太阳的一面亮、底下暗，一片片出现又散开。', 'env/sky.ts 高积云层 uHigh.z');
+  kind('clouds.veil', '高层云薄纱', '一层很薄的灰白色云纱铺满天，太阳透过去变成一团模糊的光。', 'env/sky.ts 薄纱 uHigh.w');
+  kind('clouds.waves', '波状云', '风在高处打卷形成的一道道平行的云卷，断断续续。比较少见。', 'env/sky.ts 波状云 uWaves.x');
+  kind('clouds.ribbon', '长条云（地震云）', '0 是一道道的波状云，1 是一条横贯天空的长条云（俗称地震云）。要配合上面的「波状云」调大才看得见。', 'env/sky.ts uWaves.w');
+  kind('clouds.lens', '荚状云（UFO 云）', '挂在附近最高的山顶上方的透镜状云，几层叠在一起。只在附近有高山时出现。', 'env/environment.ts updateLayers 找最高的山，env/sky.ts uLens');
+  kind('clouds.nlc', '夜光云', '极地夏天日落后不久，低空朝太阳那边的一层发蓝光的细丝云。只在黄昏和黎明那一会儿看得到。', 'env/sky.ts uNlc');
+  add({ id: 'clouds.cumulus', label: '积云多少', help: '白天那种一大团一大团的积云的多少（这个地方自己的多少再乘这个数）。滑到最左是跟随这个地方。夜里看星星时它会自动变少。', min: -0.05, max: 2, step: 0.01, def: -0.05, unit: 'x', auto: true, code: 'env/environment.ts heapShare' }, tab, sec);
+
   sec = '风';
   mul('wind.speed', '风力', '风有多大。雨丝被吹得多斜、草和树摆得多厉害、风声多大、云飘多快，都看它。', 4);
   add({ id: 'wind.turn', label: '风向偏转', help: '把风向整体转过去多少度。风从车头方向来时，雨会正面扑向挡风玻璃；从侧面来时雨丝横着飘。', min: -180, max: 180, step: 5, def: 0, unit: 'deg', code: 'core/env/weather.ts manifest() 末尾 out.windDir + 这个角度' }, tab, sec);

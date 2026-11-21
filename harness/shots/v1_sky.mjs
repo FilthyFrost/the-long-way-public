@@ -11,6 +11,8 @@ const [seed, place] = spot.split(':').map(Number);
 const out = path.join(ROOT, `loop/shots/v1/sky/${name}`);
 fs.mkdirSync(out, { recursive: true });
 const hour = Number(process.env.HOUR ?? 21.5);
+// (SKY=cirrus=0.8,altocumulus=0.6,...: the clouds forced, env/environment.ts skyTune)
+const SKY = process.env.SKY ? Object.fromEntries(process.env.SKY.split(',').map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; })) : null;
 const { server, url } = await startServer();
 const browser = await launchBrowser();
 try {
@@ -27,16 +29,17 @@ try {
   // heading: the direction looked in (rad, 0 = +x east, toward +z = south positive)
   const dirs = { east: 0, south: Math.PI / 2, west: Math.PI, north: -Math.PI / 2, ene: -0.3 };
   for (const [dir, heading] of Object.entries(dirs)) {
-    await page.evaluate(({ heading, hour, moon, pitch }) => {
+    await page.evaluate(({ heading, hour, moon, pitch, sky }) => {
       const rt = window.__rt;
       const g = rt.game;
       if (moon !== null) g.env.clock.moonOverride = moon;
+      if (sky) g.env.skyTune = sky;
       const p = g.focus.sim;
       rt.stand(p.px + 6, p.pz + 6, heading, pitch);
       rt.setHour(hour);
       g.simulate(0.3);
       for (let i = 0; i < 4; i++) rt.render();
-    }, { heading, hour, moon: process.env.MOON !== undefined ? Number(process.env.MOON) : null, pitch: Number(process.env.PITCH ?? 0.3) });
+    }, { heading, hour, moon: process.env.MOON !== undefined ? Number(process.env.MOON) : null, pitch: Number(process.env.PITCH ?? 0.3), sky: SKY });
     await built(page);
     await page.waitForTimeout(900);
     await page.evaluate(() => { window.__rt.render(); window.__rt.render(); });

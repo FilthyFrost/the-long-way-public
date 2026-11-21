@@ -18,6 +18,7 @@ import { growingAt, monthWarmthAt, wetnessAt, type Macro } from '../../earth/cli
 import type { Scene } from '../../earth/director';
 import type { VegHue } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
+import { hash2 } from '../../math/rng';
 
 /** a colour as OKLCH: lightness 0 … 1, chroma 0 … ~0.32, hue in degrees */
 export interface Lch {
@@ -38,6 +39,70 @@ export interface PlaceAir {
    * aurora's oval is (0 … 1: the cold north's)
    */
   night?: { clarity: number; aurora: number };
+  /** its clouds (V1b, docs/V3/nodes/V1b-clouds.md): which kinds its climate and its land give it, by its own dice */
+  sky?: PlaceSky;
+}
+
+/**
+ * A place's clouds, each 0 … 1 (how much of it), as its climate and its land have them: the dry country's clean skies
+ * and high cirrus, the wet tropics' towering heaps, a coast's grey flocks, the cold's veils, the mountains' lenses,
+ * once in a while billows or a single long ribbon across the sky; the heaps' base higher in dry and high country.
+ */
+export interface PlaceSky {
+  cirrus: number;
+  cirrocumulus: number;
+  altocumulus: number;
+  veil: number;
+  /** billows: how much, the direction they run across (rad), their spacing (m), 1 for a single ribbon */
+  waves: number;
+  waveDir: number;
+  waveSpacing: number;
+  ribbon: number;
+  /** lenticular clouds over the peaks (mountain country with wind) */
+  lens: number;
+  /** the fair-weather heaps: a multiplier of how many, how far they tower, their base (m over the sea) */
+  cumulus: number;
+  towers: number;
+  base: number;
+  /** noctilucent clouds on its summer twilights (the cold north) */
+  nlc: number;
+}
+
+/** a place's clouds (PlaceSky), by its own dice: seed and place */
+function skyOf(sc: Scene, seed: number, k: number, w: number, t: number, dry: number): PlaceSky {
+  let n = 0;
+  const r = (): number => ((hash2(k, 0x5c7 + n++ * 131, seed) >>> 8) & 0xffff) / 65536;
+  const m = sc.macro;
+  const maybe = (p: number, lo: number, hi: number): number => (r() < p ? lo + (hi - lo) * r() : 0);
+  let cirrus = maybe(0.55, 0.3, 0.9);
+  let cirrocumulus = maybe(0.22, 0.35, 0.9);
+  let altocumulus = maybe(0.4, 0.3, 0.9);
+  let veil = maybe(0.12, 0.2, 0.55);
+  const waves = maybe(0.09, 0.55, 1);
+  const waveDir = r() * Math.PI;
+  const waveSpacing = 650 + 900 * r();
+  const ribbon = r() < 0.4 ? 1 : 0;
+  // (wind over a range: lenses stand over its peaks)
+  const lens = m.relief > 700 ? maybe(0.5, 0.55, 1) : 0;
+  let cumulus = 0.7 + 0.6 * r();
+  let towers = 0;
+  if (dry > 0.4) {
+    // the dry country: few heaps, high based; a clean sky, its cirrus all the brighter for it
+    cumulus *= 1 - 0.75 * dry;
+    altocumulus *= 1 - 0.7 * dry;
+    cirrus = Math.max(cirrus, maybe(0.5, 0.35, 0.8));
+  }
+  if (t > 19 && w > 0.6) {
+    // the wet tropics: the afternoon's towering heaps and their anvils' cirrus
+    towers = 0.45 + 0.55 * r();
+    cumulus *= 1.25;
+    cirrus = Math.max(cirrus, maybe(0.4, 0.3, 0.6));
+  }
+  if (m.water === 'coast') altocumulus = Math.max(altocumulus, maybe(0.4, 0.45, 0.85));
+  if (t < 4) veil = Math.max(veil, maybe(0.35, 0.25, 0.6));
+  const nlc = m.tSea < 7 && m.month >= 5 && m.month <= 8 ? 0.55 + 0.45 * r() : 0;
+  const base = 900 + 1700 * dry + Math.min(2600, Math.max(0, m.base) * 0.75) + 500 * r();
+  return { cirrus, cirrocumulus, altocumulus, veil, waves, waveDir, waveSpacing, ribbon, lens, cumulus, towers, base, nlc };
 }
 
 export interface PlacePalette {
@@ -290,7 +355,9 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   const soil = lch(clamp(soil0.L - 0.07 * w + 0.03 * dry + side * 0.02, 0.2, 0.9), soil0.C * (1 - 0.2 * snow) * (1 + side * 0.06), (soil0.h - side * 5 + 360) % 360);
 
   const woods = autumn ? lch(0.62 + (ml - 0.5) * 0.04, 0.15, autumnHue) : leaf;
-  return { leaf, woods, grass, straw, soil, spread, cap, bloom, cast, autumn, autumnHue, snow, parched, air: airOf(sc, w, t, dry, snow, mh, side) };
+  const air = airOf(sc, w, t, dry, snow, mh, side);
+  air.sky = skyOf(sc, seed, k, w, t, dry);
+  return { leaf, woods, grass, straw, soil, spread, cap, bloom, cast, autumn, autumnHue, snow, parched, air };
 }
 
 /** the air of a place: a desert's warm horizon, the snow's cold blue, a high plateau's deep zenith, the wet tropics' haze */

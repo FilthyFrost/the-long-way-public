@@ -32,6 +32,23 @@ export const skyUniforms = {
   /** the night's dice: where its meteors come from (x, y: the radiant's azimuth and height), z its seed */
   uMeteor: { value: new THREE.Vector3(0.8, 0.7, 0) },
   uAurora: { value: 0 },
+  /**
+   * the layers above the heaps (V1b, docs/V3/nodes/V1b-clouds.md): x cirrus, y cirrocumulus, z altocumulus, w a veil
+   * (altostratus) — how much of each, 0 … 1
+   */
+  uHigh: { value: new THREE.Vector4(0, 0, 0, 0) },
+  /** how far the winds have carried them (m): xy the high layers', zw the middle ones' */
+  uLayerDrift: { value: new THREE.Vector4(0, 0, 0, 0) },
+  /** billows (V1b): x how much, y the direction they run across (rad), z their spacing (m), w 1 for a single long ribbon instead */
+  uWaves: { value: new THREE.Vector4(0, 0, 900, 0) },
+  /** the light on the high layers and on the middle ones (each lit by the sun as it stands for its height: after sunset the high ones glow), and their shade */
+  uHighLit: { value: new THREE.Color(1.2, 1.2, 1.15) },
+  uMidLit: { value: new THREE.Color(1.2, 1.2, 1.15) },
+  uLayerShade: { value: new THREE.Color(0.5, 0.6, 0.75) },
+  /** a lenticular stack over a peak: x its azimuth (rad, as atan(z, x)), y its elevation (rad), z its half width (rad), w how strong */
+  uLens: { value: new THREE.Vector4(0, 0.1, 0.1, 0) },
+  /** noctilucent clouds (polar summer twilight): how much */
+  uNlc: { value: 0 },
   /** twilight (V1): the belt of Venus opposite a low sun — rgb its pink, w how strong; uRise: how high the earth's shadow under it has risen (sin of the angle) */
   uBelt: { value: new THREE.Vector4(0, 0, 0, 0) },
   uRise: { value: 0.02 },
@@ -126,6 +143,14 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
       uniform float uAurora;
       uniform vec4 uBelt;
       uniform float uRise;
+      uniform vec4 uHigh;
+      uniform vec4 uLayerDrift;
+      uniform vec4 uWaves;
+      uniform vec3 uHighLit;
+      uniform vec3 uMidLit;
+      uniform vec3 uLayerShade;
+      uniform vec4 uLens;
+      uniform float uNlc;
       uniform float uRainbow;
       uniform float uFlash;
       uniform float uBank;
@@ -163,6 +188,18 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
       }
       vec3 spectrum(float t) {
         return clamp(vec3(1.5 - abs(4.0 * t - 1.0), 1.5 - abs(4.0 * t - 2.0), 1.5 - abs(4.0 * t - 3.0)), 0.0, 1.0);
+      }
+
+      // rounded puffs on a sheet (V1b): one to a cell of sz metres where the cover lets it, as big as its cell says,
+      // soft edged — x how much cloud, y how lit (its side toward the sun); from the cells' seeds (render/textures.ts)
+      vec2 rtPuffs(vec2 P, float sz, float cover, vec2 sunH, float r0, float r1) {
+        vec4 c = texture2D(tCells, P / (sz * 64.0));
+        float d1 = c.a * 0.5;
+        float r = mix(r0, r1, c.b);
+        float p = (1.0 - smoothstep(r * 0.5, r, d1)) * step(c.g, cover);
+        vec4 cs = texture2D(tCells, (P + sunH * sz * r * 0.45) / (sz * 64.0));
+        float lit = smoothstep(-0.03, 0.05, cs.a * 0.5 - d1);
+        return vec2(p, lit);
       }
 
       void main() {
@@ -331,6 +368,141 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
           float ang = degrees(acos(clamp(dot(d, -uSunDisc), -1.0, 1.0)));
           float bandR = smoothstep(39.6, 40.4, ang) * (1.0 - smoothstep(42.0, 42.8, ang));
           col += spectrum(1.0 - (ang - 39.8) / 2.8) * bandR * uRainbow * 0.32 * smoothstep(0.0, 0.12, d.y);
+        }
+
+        // ---- the layers above the heaps (V1b): each a plane over the land at its own height, where the eye's ray
+        // meets it, world-anchored (they pass overhead as one drives) and drifting with its wind; what is finer than a
+        // pixel there runs together into the layer's mean, so nothing shimmers toward the horizon
+        if (d.y > 0.0 && uHigh.x + uHigh.y + uHigh.z + uHigh.w + uWaves.x + uLens.w > 0.004) {
+          vec2 camW = rtWorldXZ(cameraPosition);
+          vec2 wdir = normalize(uWind.xy + vec2(1e-4, 0.0));
+          vec2 wper = vec2(-wdir.y, wdir.x);
+          vec2 sunH = normalize(uSunDisc.xz + vec2(1e-4, 0.0));
+          float low = smoothstep(0.012, 0.16, d.y);
+          float toSun = dot(normalize(d.xz + 1e-5), sunH) * 0.5 + 0.5;
+          // the veil: altostratus, a thin even grey-white over all, the sun a smudge through it
+          if (uHigh.w > 0.004) {
+            vec2 Pv = camW + d.xz * (5500.0 / max(d.y, 0.02)) + uLayerDrift.zw;
+            float vt = texture2D(tNoise, Pv / 41000.0).g * 0.7 + texture2D(tNoise, Pv / 9000.0).b * 0.3;
+            float veil = uHigh.w * smoothstep(0.25, 0.7, vt + uHigh.w * 0.35) * low;
+            col = mix(col, mix(uLayerShade, uMidLit, 0.62 + 0.25 * toSun), veil * 0.6);
+          }
+          // cirrus: thin strokes of a dry brush along the high wind, the strokes' way turning slowly across the sky,
+          // in drifts with blue between, finer fibres in them near enough to see
+          if (uHigh.x > 0.004) {
+            vec2 P = camW + d.xz * (9000.0 / max(d.y, 0.02)) + uLayerDrift.xy;
+            float turn = (texture2D(tNoise, P / 160000.0 + 0.7).r - 0.5) * 1.8;
+            vec2 fd = wdir * cos(turn) + wper * sin(turn);
+            vec2 q = vec2(dot(P, fd), dot(P, vec2(-fd.y, fd.x)));
+            float mpp = 9000.0 * pix / max(d.y * d.y, 1e-3);
+            float warp = texture2D(tNoise, q / 46000.0 + 0.3).r;
+            float strand = texture2D(tNoise, vec2(q.x / 42000.0, q.y / 4200.0 + warp * 1.8)).g;
+            float fibre = texture2D(tNoise, vec2(q.x / 13000.0 + warp, q.y / 760.0)).a;
+            float sharp = 1.0 - smoothstep(300.0, 1500.0, mpp);
+            float drift = texture2D(tNoise, P / 85000.0 + vec2(uTime * 0.0005, 0.17)).b;
+            float v = strand * 0.62 + mix(0.5, fibre, sharp) * 0.38 + (drift - 0.5) * 1.0 + (uHigh.x - 0.5) * 0.36;
+            float c = smoothstep(0.6, 0.92, v) * uHigh.x * low;
+            col = mix(col, mix(uHighLit, uLayerShade, 0.15 * (1.0 - toSun)), c * 0.62);
+          }
+          // cirrocumulus: a fine dapple of round grains, in rows across the wind, in patches
+          if (uHigh.y > 0.004) {
+            vec2 P = camW + d.xz * (7200.0 / max(d.y, 0.02)) + uLayerDrift.xy * 0.85;
+            vec2 q = vec2(dot(P, wdir), dot(P, wper));
+            float mpp = 7200.0 * pix / max(d.y * d.y, 1e-3);
+            vec2 wp = P + (texture2D(tNoise, P / 3000.0).rg - 0.5) * 180.0;
+            vec2 g = rtPuffs(wp, 230.0, 0.85, sunH, 0.3, 0.44);
+            float rows = smoothstep(0.25, 0.75, 0.5 + 0.5 * sin(q.y / 160.0 + texture2D(tNoise, q / 30000.0).r * 9.0));
+            float sharp = 1.0 - smoothstep(70.0, 280.0, mpp);
+            float grains = mix(0.36, g.x * (0.4 + 0.6 * rows), sharp);
+            float patchC = smoothstep(0.52, 0.72, texture2D(tNoise, P / 48000.0 + vec2(5.0, uTime * 0.0005)).a + uHigh.y * 0.22);
+            col = mix(col, mix(uLayerShade, uHighLit, 0.7 + 0.3 * g.y), grains * patchC * uHigh.y * low * 0.8);
+          }
+          // altocumulus: the flock — rounded heaps a few hundred metres across in a sheet, each lit on its sun side and
+          // shaded under, lumpy (a second, smaller size of puff on the first), the sheet in patches that come and go
+          if (uHigh.z > 0.004) {
+            vec2 P = camW + d.xz * (4300.0 / max(d.y, 0.02)) + uLayerDrift.zw;
+            float mpp = 4300.0 * pix / max(d.y * d.y, 1e-3);
+            vec2 wp = P + (texture2D(tNoise, P / 6400.0 + 0.2).rg - 0.5) * 520.0;
+            float patchA = texture2D(tNoise, P / 26000.0 + vec2(11.0, uTime * 0.0007)).g * 0.7 + texture2D(tNoise, P / 7000.0 + 3.0).r * 0.3;
+            float cover = smoothstep(0.6 - 0.45 * uHigh.z, 0.85 - 0.4 * uHigh.z, patchA);
+            vec2 p1 = rtPuffs(wp, 760.0, 0.3 + 0.7 * cover, sunH, 0.34, 0.5);
+            vec2 p2 = rtPuffs(wp * 1.0 + vec2(311.0, 97.0), 330.0, 0.5 + 0.5 * cover, sunH, 0.3, 0.46);
+            float sharp = 1.0 - smoothstep(110.0, 460.0, mpp);
+            float puff = max(p1.x, p2.x * 0.75 * smoothstep(0.1, 0.5, p1.x + cover * 0.4));
+            float lit = mix(p1.y, p2.y, step(p1.x, p2.x * 0.75));
+            float amount = mix(0.5 * cover, puff * cover, sharp);
+            vec3 ac = mix(uLayerShade, uMidLit, mix(0.5 + 0.2 * toSun, 0.18 + 0.82 * lit, sharp));
+            col = mix(col, ac, amount * uHigh.z * low * 0.92);
+          }
+          // billows: soft parallel rolls of cloud where the wind shears, broken along their length, each lit on its sun
+          // side — or one long ribbon right across the sky
+          if (uWaves.x > 0.004) {
+            vec2 P = camW + d.xz * (3600.0 / max(d.y, 0.02)) + uLayerDrift.zw * 0.7;
+            vec2 wd = vec2(cos(uWaves.y), sin(uWaves.y));
+            float across = dot(P, wd);
+            float along = dot(P, vec2(-wd.y, wd.x));
+            float mpp = 3600.0 * pix / max(d.y * d.y, 1e-3);
+            float wob = texture2D(tNoise, vec2(along / 30000.0, across / 60000.0) + 0.4).r;
+            float c;
+            float lit;
+            if (uWaves.w > 0.5) {
+              // (a ribbon a kilometre wide, tens of kilometres long, straight but for a slow wander, frayed at its edges)
+              float off = across - 2400.0 + (wob - 0.5) * 1800.0;
+              float fray = texture2D(tNoise, vec2(along / 2600.0, across / 900.0)).g;
+              c = (1.0 - smoothstep(260.0, 640.0, abs(off) + (fray - 0.5) * 420.0)) * smoothstep(0.25, 0.5, texture2D(tNoise, vec2(along / 90000.0, 0.3)).b + 0.2);
+              lit = smoothstep(-300.0, 300.0, off * sign(dot(wd, sunH)));
+            } else {
+              float ph = across / uWaves.z + (wob - 0.5) * 3.0;
+              float roll = 0.5 + 0.5 * sin(ph * 6.2832);
+              float sharp = 1.0 - smoothstep(uWaves.z * 0.12, uWaves.z * 0.4, mpp);
+              float breaks = smoothstep(0.32, 0.6, texture2D(tNoise, vec2(along / 5200.0, ph * 0.13)).b);
+              float env = smoothstep(0.42, 0.66, texture2D(tNoise, P / 70000.0 + vec2(21.0, uTime * 0.0004)).a);
+              c = mix(0.3, smoothstep(0.45, 0.85, roll) * breaks, sharp) * env;
+              lit = 0.5 + 0.5 * cos(ph * 6.2832) * sign(dot(wd, sunH));
+            }
+            col = mix(col, mix(uLayerShade, uMidLit, 0.3 + 0.7 * lit), c * uWaves.x * low * 0.82);
+          }
+          // a lenticular stack over a peak: lenses one on another, smooth, the top of each lit, its rim catching the light
+          if (uLens.w > 0.01) {
+            float az = atan(d.z, d.x);
+            float daz = atan(sin(az - uLens.x), cos(az - uLens.x));
+            float el = asin(clamp(d.y, -1.0, 1.0));
+            float lens = 0.0;
+            float topLit = 0.0;
+            // (three lenses stacked, each a flattened ellipse with a crisp upper rim and a softer belly, a thin gap of sky
+            // between them; the upper side of each lit, the belly in shade; the stack a little shorter each lens up)
+            for (int i = 0; i < 3; i++) {
+              float fi = float(i);
+              float wi = uLens.z * (1.0 - 0.2 * fi);
+              float hi = uLens.z * 0.2 * (1.0 - 0.12 * fi);
+              float yc = uLens.y + fi * hi * 1.7;
+              float u = daz / wi;
+              float v = (el - yc) / hi;
+              // (flatter underneath: a lens rides on a level base)
+              float vv = v < 0.0 ? v * 1.35 : v;
+              float e = u * u + vv * vv;
+              float l = (1.0 - smoothstep(v > 0.0 ? 0.9 : 0.7, 1.0, e)) * (1.0 - 0.1 * fi);
+              if (l > lens) {
+                lens = l;
+                topLit = smoothstep(-0.55, 0.45, v) * (0.8 + 0.2 * (1.0 - abs(u)));
+              }
+            }
+            vec3 lc = mix(uLayerShade, uMidLit, 0.22 + 0.78 * topLit * (0.55 + 0.45 * toSun));
+            col = mix(col, lc, lens * uLens.w * 0.95);
+          }
+        }
+        // ---- noctilucent clouds: in a cold country's summer twilight, an electric blue lacework low over the sun's
+        // side of the sky, lit from below the horizon
+        if (uNlc > 0.01 && d.y > 0.0) {
+          vec2 sunH = normalize(uSunDisc.xz + vec2(1e-4, 0.0));
+          float side = smoothstep(0.1, 0.8, dot(normalize(d.xz + 1e-5), sunH));
+          vec2 pn = d.xz / (d.y + 0.05);
+          // (fine bands, rippled, in patches: brightest low, gone a fifth of the way up)
+          float bands = 0.5 + 0.5 * sin(pn.x * 13.0 + pn.y * 4.0 + texture2D(tNoise, pn * 0.7).r * 9.0 + uTime * 0.04);
+          float lace = texture2D(tNoise, vec2(pn.x * 0.9 + uTime * 0.003, pn.y * 3.4)).g * 0.55 + bands * 0.45;
+          float patchN = smoothstep(0.4, 0.62, texture2D(tNoise, pn * 0.18 + 0.3).b);
+          float n = smoothstep(0.62, 0.86, lace) * patchN * side * smoothstep(0.02, 0.06, d.y) * (1.0 - smoothstep(0.1, 0.3, d.y));
+          col += vec3(0.32, 0.64, 1.0) * n * uNlc * 0.55;
         }
 
         // ---- cumulus

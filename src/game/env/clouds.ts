@@ -126,7 +126,7 @@ interface CloudDef {
  * The clouds standing around (cx, cz), relative to it: from a grid of world cells so the same
  * place always has the same sky. `cover` 0..1 decides how many cells hold a cloud and how big.
  */
-function layout(seed: number, cx: number, cz: number, cover: number): CloudDef[] {
+function layout(seed: number, cx: number, cz: number, cover: number, base0 = 1150, towers = 0, time = 0): CloudDef[] {
   const found: { d: number; def: CloudDef }[] = [];
   const i0 = Math.floor((cx - REACH) / CELL);
   const i1 = Math.floor((cx + REACH) / CELL);
@@ -136,27 +136,40 @@ function layout(seed: number, cx: number, cz: number, cover: number): CloudDef[]
     for (let i = i0; i <= i1; i++) {
       const h = hash2(i, j, seed + 0xc10d);
       const p = (h & 0xffff) / 65536;
-      if (p > 0.1 + 0.85 * cover) continue;
+      // (V1b: a fair sky's few clouds few — a clear day has a handful of small heaps, a full one its towers)
+      if (p > 0.03 + 0.25 * cover + 0.95 * cover * cover) continue;
       const rnd = mulberry(h);
+      // its life (V1b): it grows, stands, and dissolves on a cycle of its own, and another forms in its cell as it goes
+      const period = 480 + 480 * rnd();
+      const phase = rnd();
+      const life = Math.sin(Math.PI * ((time / period + phase) % 1));
+      if (life < 0.18) continue;
+      const grown = 0.45 + 0.55 * smoothstep(0.18, 0.75, life);
       const wx = (i + 0.15 + 0.7 * rnd()) * CELL - cx;
       const wz = (j + 0.15 + 0.7 * rnd()) * CELL - cz;
       const d = Math.hypot(wx, wz);
       // nothing straight overhead: from below a heap is only its flat base; seen off to the side it is a cloud
       if (d > REACH || d < 4000) continue;
       // fair weather is all heaps, rounded and taller than they are flat; towers only build as the sky fills
-      const tower = rnd() < Math.max(0, cover - 0.5) * 0.9;
-      // nearer heaps are smaller: no single cloud should fill a quarter of the sky
-      const width = (tower ? 6500 + 6000 * rnd() : 2800 + 4200 * rnd() * (0.6 + cover)) * (0.62 + 0.38 * smoothstep(4000, 11000, d));
-      const height = tower ? width * (0.55 + 0.25 * rnd()) : width * (0.6 + 0.3 * rnd());
+      // (and the wet tropics' afternoons tower whatever the cover: V1b)
+      const tower = rnd() < Math.max(0, cover - 0.5) * 0.9 + towers * 0.45;
+      // nearer heaps are smaller: no single cloud should fill a quarter of the sky. Their kinds by the cover (V1b): a
+      // thin sky's heaps small and flat (humilis), a fuller one's rounder and taller (mediocris), towers as it fills
+      const kind = rnd();
+      const humble = !tower && kind < 0.8 - 1.3 * cover;
+      const width = (tower ? 6500 + 6000 * rnd() : humble ? 1500 + 2400 * rnd() : 2800 + 4200 * rnd() * (0.6 + cover)) * (0.62 + 0.38 * smoothstep(4000, 11000, d)) * grown;
+      const height = tower ? width * (0.55 + 0.25 * rnd()) : humble ? width * (0.32 + 0.22 * rnd()) : width * (0.6 + 0.3 * rnd());
       const heads = tower ? 2 + Math.floor(rnd() * 2) : rnd() < 0.4 ? 1 : 0;
-      const base = 1150 + 350 * rnd();
+      const base = base0 + 700 * (rnd() - 0.35);
       const puffs: [number, number, number, number][] = [];
       const heap = (x: number, y: number, z: number, w: number, hh: number, n: number): void => {
         for (let k = 0; k < n; k++) {
           const a = rnd() * Math.PI * 2;
           const up = -0.15 + 1.15 * rnd();
           const out = Math.sqrt(Math.max(0, 1 - up * up)) * (0.35 + 0.65 * Math.sqrt(rnd()));
-          const r = Math.min(w * 0.3, hh * 0.62) * (0.72 + 0.5 * rnd());
+          // (each puff bubbling on a beat of its own: a minute or two)
+          const beat = 0.9 + 0.1 * Math.sin(time / (60 + 70 * rnd()) + rnd() * 6.283);
+          const r = Math.min(w * 0.3, hh * 0.62) * (0.72 + 0.5 * rnd()) * beat;
           puffs.push([x + Math.cos(a) * out * (w * 0.5 - r * 0.6), y + up * (hh - r * 0.7), z + Math.sin(a) * out * (w * 0.5 - r * 0.6) * 0.85, r]);
         }
       };
@@ -366,6 +379,8 @@ export class Clouds {
   private readonly mesh: THREE.Mesh;
   private unit = 0;
   private cover = -1;
+  private base = 1150;
+  private towers = 0;
   private readonly size: number;
   private static readonly FACES = [0, 1, 2, 4, 5];
   private static readonly STRIPS = 8;
@@ -416,8 +431,10 @@ export class Clouds {
   }
 
   /** lay the clouds out around world (x, z) for a cover 0..1 (drift = how far the wind has carried them) */
-  private relayout(x: number, z: number, cover: number, driftX: number, driftZ: number): void {
-    const defs = layout(this.seed, x - driftX, z - driftZ, cover);
+  private relayout(x: number, z: number, cover: number, driftX: number, driftZ: number, base = 1150, towers = 0, time = 0): void {
+    const defs = layout(this.seed, x - driftX, z - driftZ, cover, base, towers, time);
+    this.base = base;
+    this.towers = towers;
     const tex = this.uniforms.tPuffs.value as THREE.DataTexture;
     const data = tex.image.data as Float32Array;
     const spheres = this.uniforms.uClouds.value as THREE.Vector4[];
@@ -462,8 +479,8 @@ export class Clouds {
   }
 
   /** every face now (start-up, screenshots) */
-  drawAll(x: number, z: number, cover: number, driftX = 0, driftZ = 0): void {
-    this.relayout(x, z, cover, driftX, driftZ);
+  drawAll(x: number, z: number, cover: number, driftX = 0, driftZ = 0, base = 1150, towers = 0, time = 0): void {
+    this.relayout(x, z, cover, driftX, driftZ, base, towers, time);
     for (const f of Clouds.FACES) this.draw(f, -1);
     this.unit = 0;
     this.cycle = false;
@@ -473,13 +490,14 @@ export class Clouds {
    * One strip a frame. Re-centres (and lays the clouds out again) when the player has moved
    * `recentre` metres or the cover has changed noticeably; the new layout then fills in strip by strip.
    */
-  update(x: number, z: number, cover: number, recentre: number, driftX = 0, driftZ = 0): void {
+  update(x: number, z: number, cover: number, recentre: number, driftX = 0, driftZ = 0, base = 1150, towers = 0, time = 0): void {
     if (Number.isNaN(this.centre.x)) {
-      this.drawAll(x, z, cover, driftX, driftZ);
+      this.drawAll(x, z, cover, driftX, driftZ, base, towers, time);
       return;
     }
-    if (!this.cycle && (Math.hypot(x - this.centre.x, z - this.centre.y) > recentre || Math.abs(cover - this.cover) > 0.06)) {
-      this.relayout(x, z, cover, driftX, driftZ);
+    // (V1b: a new layout every cycle — the clouds' lives and the wind's carrying go on — not only after a re-centre)
+    if (!this.cycle) {
+      this.relayout(x, z, cover, driftX, driftZ, base, towers, time);
       this.cycle = true;
       this.unit = 0;
     }

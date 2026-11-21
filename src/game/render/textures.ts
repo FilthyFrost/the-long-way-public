@@ -218,7 +218,8 @@ export function woodsTexture(width = 1024, height = 256): THREE.Texture {
 /**
  * Cells (V2): a tiling Voronoi of n by n cells, each point's distance to its cell's edge (R: the gap between the nearest
  * and the next seed, in cells, times two) and two numbers that are its cell's own (G, B) — what the ground's clumps and
- * the rock's facets are drawn from (render/terrainMaterials.ts rtCells) with one fetch. Seeds stay within the middle
+ * the rock's facets are drawn from (render/terrainMaterials.ts rtCells) with one fetch, and (A) its distance to its own
+ * seed in cells times two (the clouds' rounded puffs, env/sky.ts). Seeds stay within the middle
  * of their cells, so the nearest is always among the eight about a point's own.
  */
 export function cellsTexture(size = 1024, cells = 64, seed = 11): THREE.DataTexture {
@@ -263,7 +264,7 @@ export function cellsTexture(size = 1024, cells = 64, seed = 11): THREE.DataText
       data[o] = Math.min(255, Math.round((Math.sqrt(d2) - Math.sqrt(d1)) * 2 * 255));
       data[o + 1] = ra[id];
       data[o + 2] = rb[id];
-      data[o + 3] = 255;
+      data[o + 3] = Math.min(255, Math.round(Math.sqrt(d1) * 2 * 255));
     }
   }
   const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);

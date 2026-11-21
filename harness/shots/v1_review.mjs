@@ -14,6 +14,8 @@ const spots = (given.length ? given : ROUTE).map((x) => {
   const [seed, place] = x.split(':');
   return { seed: Number(seed), place: Number(place) };
 });
+// (SKY=cirrus=0.8,altocumulus=0.6,...: the clouds forced, env/environment.ts skyTune)
+const SKY = process.env.SKY ? Object.fromEntries(process.env.SKY.split(',').map((kv) => { const [k, v] = kv.split('='); return [k, Number(v)]; })) : null;
 const HOURS = (process.env.HOURS ?? '7,15.5,19,23').split(',').map(Number);
 const out = path.join(ROOT, `loop/shots/v1/${round}`);
 fs.mkdirSync(out, { recursive: true });
@@ -48,11 +50,12 @@ try {
         for (const view of views) {
           if (view === 'drone' && hi > 0) continue;
           await page.evaluate(
-            ({ view, low, hour, moon }) => {
+            ({ view, low, hour, moon, sky }) => {
               const rt = window.__rt;
               const g = rt.game;
               if (!g.seated) g.enter(g.focus, 'driver');
               if (moon !== null) g.env.clock.moonOverride = moon;
+              if (sky) g.env.skyTune = sky;
               rt.setHour(hour);
               if (view === 'cockpit') {
                 rt.setView('cockpit');
@@ -61,7 +64,7 @@ try {
               g.simulate(0.4);
               for (let i = 0; i < 4; i++) rt.render();
             },
-            { view, low, hour, moon: process.env.MOON !== undefined ? Number(process.env.MOON) : null },
+            { view, low, hour, moon: process.env.MOON !== undefined ? Number(process.env.MOON) : null, sky: SKY },
           );
           await built(page);
           await page.waitForTimeout(1200);

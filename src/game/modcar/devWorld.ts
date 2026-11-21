@@ -156,6 +156,9 @@ export class DevWorld {
   }
 
   /** every frame, before the environment: the clock, the drops, the glass, the finish, the sound */
+  /** the clouds' kinds were forced by the dials (beforeEnv): theirs to clear when they go back to the place's */
+  private skyByDials = false;
+
   beforeEnv(dt: number): void {
     const g = this.game;
     const t = this.tune;
@@ -166,6 +169,22 @@ export class DevWorld {
     if (day !== this.applied.dayLength) {
       env.clock.setDayLength(day, g.time);
       this.applied.dayLength = day;
+    }
+    // the clouds' kinds (V1b): those not at their far left forced, the rest the place's own
+    {
+      const tune: Record<string, number> = {};
+      for (const k of ['cirrus', 'cirrocumulus', 'altocumulus', 'veil', 'waves', 'ribbon', 'lens', 'nlc', 'cumulus']) {
+        const v = t.get('clouds.' + k);
+        if (v >= 0) tune[k] = v;
+      }
+      // (only what the dials set is theirs to clear: a test's own forcing stands)
+      if (Object.keys(tune).length) {
+        env.skyTune = tune;
+        this.skyByDials = true;
+      } else if (this.skyByDials) {
+        env.skyTune = null;
+        this.skyByDials = false;
+      }
     }
     const sun = t.get('time.sunHeight');
     if (sun !== this.applied.sunHeight) {
