@@ -181,8 +181,9 @@ export function floraMaterial(): THREE.ShaderMaterial {
         float load = max(vSettled, uWeather.y);
         float alpha = 1.0;
         if (vPart > 3.5) {
-          // stone: flat facets, each turned its own way, in the region's two rock paints (rockMaterial)
-          n = face;
+          // stone: flat facets, each turned its own way, in the region's two rock paints (rockMaterial) — a chiselled rock's
+          // (part 6, V3) its own normals: its cut faces flat, their edges rounded
+          n = vPart > 5.5 || (vPart > 4.1 && vPart < 4.4) ? n : face;
           RtPal p = rtPal(vBw);
           float sh = rtShadow(vPos, n);
           float tone = 0.5 + 0.5 * dot(n, L) - (1.0 - sh) * 0.4;

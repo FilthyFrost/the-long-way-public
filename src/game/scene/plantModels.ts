@@ -19,12 +19,15 @@
  */
 import * as THREE from 'three';
 import { PlantBuilder, TRUNK, WHITE, clump, mulberry, trunk } from './vegetation';
+import { HABITS, chiselRock } from './chiselRock';
 
 export const PART_WOOD = 0;
 export const PART_LEAF = 1;
 export const PART_ACCENT = 2;
 export const PART_FRUIT = 3;
 export const PART_ROCK = 4;
+/** a rock in the region's rock paints with normals of its own (V3: a chiselled rock's cut faces flat, its edges round) */
+export const PART_ROCK_SMOOTH = 4.25;
 
 /** the rows a plant of tea is drawn as stand this far apart (m): the spacing of the terraces' crop rows (core/world/floraTables.ts) */
 export const TEA_ROWS = 2.6;
@@ -451,12 +454,13 @@ export function buildPlantModels(): PlantModels {
   for (const [x, z] of [[0, 0], [1.4, 0.5], [-1.1, 1.0], [-0.6, -1.4], [1.2, -1.1]] as const) tuft(b, rnd, x, z, 10, 1.45, 0.45, 0.05, 3, 0.3, 0.3);
   out.tall_grass = b.build();
 
-  // ---- boulder: a big stone and a smaller one against it
-  stone(b, 3.1, V(0, 0.45, 0), 1.45, 1.05, 1.2);
-  stone(b, 7.7, V(1.3, 0.15, 0.55), 0.8, 0.6, 0.7);
+  // ---- boulder: a big stone and a smaller one against it — chiselled lumps (V3, scene/chiselRock.ts) where they
+  // were twenty-faced stones with their corners pushed about (they read as dark crystals)
+  chiselRock(b, HABITS.boulder, 3101, 1, 0, 0, 1.45, 1.5, 1.2, 0.4, PART_ROCK_SMOOTH);
+  chiselRock(b, HABITS.boulder, 7707, 1, 1.3, 0.55, 0.8, 0.75, 0.7, 1.9, PART_ROCK_SMOOTH);
   out.boulder = b.build();
   // (and the small rock of every stony place: one stone)
-  stone(b, 5.3, V(0, 0.22, 0), 0.62, 0.5, 0.56);
+  chiselRock(b, HABITS.boulder, 5303, 1, 0, 0, 0.62, 0.72, 0.56, 0.8, PART_ROCK_SMOOTH);
   out.rock = b.build();
 
   // ---- a fallen log (lying along x): bark, pale cut ends, the stub of a limb, moss along its back

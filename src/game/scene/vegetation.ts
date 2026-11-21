@@ -99,6 +99,23 @@ export class PlantBuilder {
     });
   }
 
+  /**
+   * One triangle with a normal at each corner (V3: a chiselled rock, scene/chiselRock.ts — its cut faces flat, their edges
+   * rounded): as `tri`, the corners' own normals.
+   */
+  triN(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, part: number, color: THREE.Color, ka = 1, kb = ka, kc = kb): void {
+    const ks = [ka, kb, kc];
+    const ns = [na, nb, nc];
+    [a, b, c].forEach((p, i) => {
+      this.pos.push(p.x, p.y, p.z);
+      this.nrm.push(ns[i].x, ns[i].y, ns[i].z);
+      this.col.push(color.r * ks[i], color.g * ks[i], color.b * ks[i]);
+      this.uv.push(0, 0);
+      this.leaf.push(part);
+      this.card.push(0);
+    });
+  }
+
   /** how many triangles have been added since the last build */
   get triangles(): number {
     return this.pos.length / 9;

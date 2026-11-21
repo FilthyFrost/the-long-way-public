@@ -56,6 +56,8 @@ export interface EcoProfile {
   readonly birds: readonly { name: string; habitat: string }[];
   readonly insects: readonly { name: string; months: readonly number[]; activity: 'day' | 'night'; habitat: string }[];
   readonly rocks: readonly { type: string; color: string; form: string; share: number }[];
+  /** how stony its ground is, 0 … 1 (V3, docs/V3/nodes/V3-rocks.md; absent: as before, a stone on one cell in forty) */
+  readonly rockiness?: number;
   readonly roadStyles: readonly string[];
   /** A self-edge continues through another local habitat; widths are designed driving distances. */
   readonly transitions: readonly { to: string; widthM: number; reason: string }[];

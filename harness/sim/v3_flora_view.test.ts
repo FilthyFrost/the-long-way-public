@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { groundProfile } from '../../src/core/world/groundTables';
-import { PART_MINERAL } from '../../src/game/scene/groundModels';
+import { PART_MINERAL, PART_MINERAL_CHISELLED } from '../../src/game/scene/groundModels';
 import { BIOMES, BIOME_INDEX } from '../../src/core/world/biomes';
 import { ECO_TILE } from '../../src/core/world/ecotope';
 import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, plantsOf } from '../../src/core/world/flora';
@@ -17,7 +17,7 @@ import { LandParams } from '../../src/core/world/landform';
 import { SpineSample } from '../../src/core/world/spine';
 import { TerrainPoint, World } from '../../src/core/world/terrain';
 import { DENSE_TREES, LOD_CLOSE, LOD_FAR, LOD_MID, LOD_NEAR, buildFloraScatter, floraSheet, type FloraBatch, type FloraScatter } from '../../src/game/scene/floraScatter';
-import { PART_ACCENT, PART_FRUIT, PART_LEAF, PART_ROCK, PART_WOOD } from '../../src/game/scene/plantModels';
+import { PART_ACCENT, PART_FRUIT, PART_LEAF, PART_ROCK, PART_ROCK_SMOOTH, PART_WOOD } from '../../src/game/scene/plantModels';
 import { ATLAS_ROW, ATLAS_WIDTH, FAMILIES, plantRegistry } from '../../src/game/scene/plantRegistry';
 
 const reg = plantRegistry();
@@ -122,10 +122,11 @@ describe('the plants\' atlas', () => {
   });
 
   it('says of every vertex what part of the plant it is, and unit normals', () => {
-    const known = [PART_WOOD, PART_LEAF, PART_ACCENT, PART_FRUIT, PART_ROCK, PART_MINERAL];
+    const known = [PART_WOOD, PART_LEAF, PART_ACCENT, PART_FRUIT, PART_ROCK, PART_ROCK_SMOOTH, PART_MINERAL, PART_MINERAL_CHISELLED];
     for (const name of Object.keys(reg.atlas.models)) for (const p of partsOf(name)) expect(known, `${name}: part ${p}`).toContain(p);
-    expect([...partsOf('rock')]).toEqual([PART_ROCK]);
-    expect([...partsOf('boulder')]).toEqual([PART_ROCK]);
+    // (the stones chiselled, their normals their own: V3, scene/chiselRock.ts)
+    expect([...partsOf('rock')]).toEqual([PART_ROCK_SMOOTH]);
+    expect([...partsOf('boulder')]).toEqual([PART_ROCK_SMOOTH]);
     // fruit hangs in the fruit tree and on the berry bush; a birch's bark and a bamboo's canes are of the second colour
     expect(partsOf('fruit_tree').has(PART_FRUIT)).toBe(true);
     expect(partsOf('berry_bush').has(PART_FRUIT)).toBe(true);

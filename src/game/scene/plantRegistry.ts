@@ -25,7 +25,7 @@
 import { CROWN_PAINT } from './crowns/palette';
 import * as THREE from 'three';
 import { PLANTS, type PlantDef } from '../../core/world/plants';
-import { PART_ROCK, buildPlantModels } from './plantModels';
+import { PART_ROCK_SMOOTH, buildPlantModels } from './plantModels';
 import { groundModels } from './groundModels';
 import { buildPlants } from './vegetation';
 
@@ -231,7 +231,7 @@ export class PlantRegistry {
   constructor() {
     const old = buildPlants();
     const { broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus } = old;
-    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels(), ...groundModels() }, { rock: PART_ROCK, boulder: PART_ROCK });
+    this.atlas = new PlantAtlas({ broadleaf, broadleaf2, broadleaf3, broadleafFar, conifer, conifer2, coniferFar, bush, bushFar, cactus, ...buildPlantModels(), ...groundModels() }, { rock: PART_ROCK_SMOOTH, boulder: PART_ROCK_SMOOTH });
     for (const g of Object.values(old)) g.dispose();
     this.draws = PLANTS.map((p) => this.drawOf(p));
   }

@@ -1,5 +1,6 @@
 import { localMonth } from './sceneSeason';
 import { rand2 } from '../math/rng';
+import { fbm2 } from '../math/noise';
 import { BIOMES } from './biomes';
 import { Ecotope, ECO_SITE, ECO_PLOT, ECO_TILE } from './ecotope';
 import { Cover, onBench } from './flora';
@@ -78,7 +79,9 @@ export class GroundField implements SolidSource {
     let g:Growth|undefined, name:string, accent = 0, dry = false, autumn = false, winter = false;
     const pick = rand2(i,j,seed+3);
     if (rocks) {
-      const r = sampleRock(profile,e,pick,die);
+      // (V3: stones lie in patches some tens of metres across)
+      const patch = Math.min(1, Math.max(0, 0.5 + 0.9 * fbm2(x / 70, z / 70, this.world.seed + 0x5ad, 2)));
+      const r = sampleRock(profile,e,pick,die,patch);
       if (!r) return;
       g = r; name = r.name;
       accent = e.moisture > 0.56 && e.slope < 0.9 && g.form !== 'cobbles' ? 0x858856 : g.paint;
@@ -112,7 +115,10 @@ export class GroundField implements SolidSource {
     this.world.shape(x,z,tp);
     if (tp.zone || tp.site>0.1 || tp.plot>0.1 || tp.wl>tp.bed || Math.abs(tp.d)<(rocks ? 12 : 7.6)) return;
     if (g.habitat === 'bench' && !onBench(tp.bed,e.step)) return;
-    const vary = rand2(i,j,seed+5), scale=0.62+0.66*vary;
+    const vary = rand2(i,j,seed+5);
+    // (V3: one stone in eight of a stony place a big one, twice to three times the size)
+    const big = rocks && (profile.rockiness ?? 0) > 0.2 && rand2(i,j,seed+9) < 0.12 ? 2 + rand2(i,j,seed+10) : rocks && (g as { outcrop?: boolean }).outcrop ? 1.5 + 0.8 * rand2(i,j,seed+10) : 1;
+    const scale=(0.62+0.66*vary)*big;
     const h = g.height*scale*(winter ? 0.73 : 1), r = g.radius*scale*(g.form==='fern' ? 1.43 : 1);
     const yaw = g.form==='rice' ? 0 : rand2(i,j,seed+6)*2*Math.PI;
     const out:GroundClump = {x,y:tp.bed,z,yaw,radius:r,height:h,form:g.form,name,paint:winter ? 0x8a806c : autumn ? 0xb98552 : dry ? 0xb9a16b : g.paint,accent:accent || (rocks ? g.paint : 0xb19a6c),seed:vary};

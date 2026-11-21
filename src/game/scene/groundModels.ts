@@ -8,6 +8,8 @@ const V = (x=0,y=0,z=0) => new THREE.Vector3(x,y,z);
 const up = V(0,1,0);
 const golden = 2.399963;
 export const PART_MINERAL = 5;
+/** a chiselled stone's (V3, scene/chiselRock.ts): the mineral paint on its own normals, its cut faces flat and their edges round */
+export const PART_MINERAL_CHISELLED = 6;
 const partLeaf=1, partPetal=2;
 const brown=new THREE.Color(0x785b48);
 const polar=(a:number,r:number,y:number)=>V(Math.cos(a)*r,y,Math.sin(a)*r);

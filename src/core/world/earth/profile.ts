@@ -59,6 +59,22 @@ const FLOWER: Partial<Record<Form, string>> = {
   crop_tulip: '加州罂粟',
 };
 
+/**
+ * How stony a place's ground is, 0 … 1 (V3, docs/V3/nodes/V3-rocks.md): its ecosystem's bareness — the bare ground's
+ * and the deserts', the tundra's, the scrub's, the grass's and the woods' — and its landform's: a lava field strewn
+ * with blocks, a glacier's valley with its moraine, a granite country's tors, the canyons and the cliffs' falls.
+ */
+export function rockinessOf(sc: Scene): number {
+  const s = sc.look.efg.struct;
+  const lf = sc.look.landform.id;
+  let r = s === 'bare' ? 0.5 : s === 'desert' ? 0.38 : s === 'tundra' ? 0.42 : s === 'shrubland' ? 0.22 : s === 'grassland' || s === 'savanna' ? 0.1 : s === 'ice' ? 0.3 : s === 'closed_forest' || s === 'open_forest' || s === 'woodland' ? 0.07 : 0.03;
+  if (lf === 'lava_field' || lf === 'cinder_cones' || lf === 'columnar_basalt') r = Math.max(r, 0.85);
+  else if (lf === 'stratovolcano' || lf === 'moraine_lake' || lf === 'u_valley' || lf === 'glacier' || lf === 'horn_arete' || lf === 'drumlins') r = Math.max(r, 0.55);
+  else if (lf === 'tors' || lf === 'inselberg' || lf === 'stone_forest' || lf === 'hoodoos' || lf === 'badlands' || lf === 'yardang') r = Math.max(r, 0.5);
+  else if (lf === 'canyon' || lf === 'mesas_buttes' || lf === 'escarpment' || lf === 'cuestas' || lf === 'sea_cliffs' || lf === 'sea_stacks' || lf === 'waterfall_gorge' || lf === 'fold_mountains' || lf === 'mountain_slopes') r = Math.max(r, 0.3);
+  return r;
+}
+
 /** the rocks lying on its ground, by its rock: their kind (rockTables.ts reads it), colour and form */
 const ROCKS: Readonly<Record<RockId, { type: string; color: string; form: string }>> = {
   limestone: { type: '石灰岩', color: '乳灰', form: '竖沟孤峰' },
@@ -219,7 +235,9 @@ export function profileOfPlace(sc: Scene, id: string): EcoProfile {
   const range = 6 + 8 * Math.max(0, Math.min(1, 1 - w));
   const tuple = <T,>(f: (month: number) => T): readonly [T, T, T, T, T, T, T, T, T, T, T, T] => months.map(f) as unknown as readonly [T, T, T, T, T, T, T, T, T, T, T, T];
   const tl = Math.round(treeLineOf(m));
-  const rk = ROCKS[m.rock];
+  // (a lava field's and a cinder field's ground is the flow's own black blocks, rough and jagged: V3)
+  const lava = sc.look.landform.id === 'lava_field' || sc.look.landform.id === 'cinder_cones';
+  const rk = lava ? { type: '玄武岩', color: '暗灰', form: '熔岩块' } : ROCKS[m.rock];
   return {
     id,
     name: sc.name,
@@ -245,6 +263,7 @@ export function profileOfPlace(sc: Scene, id: string): EcoProfile {
     birds: birdsOf(sc),
     insects: insectsOf(sc),
     rocks: [{ ...rk, share: 1 }],
+    rockiness: rockinessOf(sc),
     roadStyles: [],
     transitions: [],
     needsModel: [],
