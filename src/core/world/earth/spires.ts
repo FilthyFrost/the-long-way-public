@@ -137,12 +137,37 @@ function plan(world: World, p: EarthPiece, rc: Recipe, tp: TerrainPoint, st: Spi
       }
       if (shore < 0) continue;
     } else side = q(2) < 0.5 ? -1 : 1;
+    // (the nearer ones the likelier: a pillar far off is a pillar fewer see)
+    let off = shore + lerp(rc.off, q(3) ** 1.6);
+    if (rc.kind !== 'stack') {
+      // (V8) of three places for it, the one the road looks at from a few hundred metres before: met dead ahead as the
+      // road comes round to it, not off to one side behind the trees
+      const here = { x: st.x, z: st.z, phi: st.phi };
+      world.spine.at(Math.max(p.start, s - 260), st);
+      const bx = st.x;
+      const bz = st.z;
+      const bcx = Math.cos(st.phi);
+      const bcz = Math.sin(st.phi);
+      let best = -2;
+      for (let c = 0; c < 3; c++) {
+        const sd = c === 0 ? side : q(40 + c * 3) < 0.5 ? -1 : 1;
+        const of = c === 0 ? off : lerp(rc.off, q(41 + c * 3) ** 1.6);
+        const cx = here.x - Math.sin(here.phi) * sd * of;
+        const cz = here.z + Math.cos(here.phi) * sd * of;
+        const L = Math.hypot(cx - bx, cz - bz) || 1;
+        const score = ((cx - bx) * bcx + (cz - bz) * bcz) / L;
+        if (score > best) {
+          best = score;
+          side = sd;
+          off = of;
+        }
+      }
+      world.spine.at(s, st);
+    }
     const nx = -Math.sin(st.phi) * side;
     const nz = Math.cos(st.phi) * side;
     const tx = Math.cos(st.phi);
     const tz = Math.sin(st.phi);
-    // (the nearer ones the likelier: a pillar far off is a pillar fewer see)
-    const off = shore + lerp(rc.off, q(3) ** 1.6);
     const group = q(4) < 0.55 ? Math.floor(q(5) * (rc.group + 0.999)) : 0;
     let lead: Spire | null = null;
     for (let g = 0; g <= group; g++) {

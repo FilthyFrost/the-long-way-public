@@ -36,6 +36,13 @@ export const globals = {
   uFogDensity: { value: 0.00017 },
   /** render-space height the haze lies on (the ground under the camera) */
   uFogBase: { value: 0 },
+  /**
+   * (V8) the mist on the low ground (env/mist.ts): its top (render-space y), how soft its top is (m), how thick it is
+   * (1/m; 0 none); and its colours, lit at its top and shaded under it
+   */
+  uMist: { value: new THREE.Vector4(0, 30, 0, 0) },
+  uMistLit: { value: new THREE.Color(1, 1, 1) },
+  uMistShade: { value: new THREE.Color(0.7, 0.75, 0.85) },
   uTime: { value: 0 },
   /** the camera's near and far planes (m): a depth of one's own, by a reversed depth buffer's rule (crowns' cards) */
   uCamRange: { value: new THREE.Vector2(0.06, 130000) },
@@ -111,6 +118,9 @@ uniform vec3 uFogColor;
 uniform vec3 uFogSunColor;
 uniform float uFogDensity;
 uniform float uFogBase;
+uniform vec4 uMist;
+uniform vec3 uMistLit;
+uniform vec3 uMistShade;
 uniform float uTime;
 uniform vec2 uCamRange;
 uniform vec3 uOriginOffset;
@@ -472,7 +482,29 @@ vec3 rtFog(vec3 c, vec3 pos, vec3 cam) {
   float toSun = pow(max(dot(d / max(dist, 1e-3), uSunDir), 0.0), 6.0);
   // far ranges stand a shade deeper and bluer than the sky behind them, so they read as shapes
   vec3 air = mix(uFogColor, uFogSunColor, toSun) * mix(vec3(1.0), vec3(0.84, 0.9, 1.0), smoothstep(3000.0, 12000.0, dist) * (1.0 - smoothstep(72000.0, 88000.0, dist)));
-  return mix(c, air, clamp(f, 0.0, 1.0));
+  vec3 outc = mix(c, air, clamp(f, 0.0, 1.0));
+  if (uMist.z > 0.0) {
+    // (V8) the mist on the low ground: full below its soft top, none above; how much of it lies along the way from the
+    // eye to here, in closed form (the integral of a ramp clamped at its ends), its top heaving in banks
+    vec2 mw = rtWorldXZ(pos);
+    float bank = rtNoiseAt(mw, 900.0).r;
+    float top = uMist.x + (bank - 0.5) * uMist.y * 1.4;
+    float soft = uMist.y;
+    float lo = top - soft;
+    float ya = cam.y;
+    float yb = pos.y;
+    float ga = min(ya, lo) + (top * (clamp(ya, lo, top) - lo) - 0.5 * (clamp(ya, lo, top) * clamp(ya, lo, top) - lo * lo)) / soft;
+    float gb = min(yb, lo) + (top * (clamp(yb, lo, top) - lo) - 0.5 * (clamp(yb, lo, top) * clamp(yb, lo, top) - lo * lo)) / soft;
+    float mid = 0.5 * (ya + yb);
+    float avg = abs(yb - ya) > 0.5 ? (gb - ga) / (yb - ya) : clamp((top - mid) / soft, 0.0, 1.0);
+    float depth = uMist.z * min(dist, 9000.0) * clamp(avg, 0.0, 1.0) * (0.55 + 0.9 * bank);
+    float m = 1.0 - exp(-depth);
+    // lit where it is high in itself (its top in the sun), shaded down in it; against the sun it glows
+    vec3 mc = mix(uMistShade, uMistLit, smoothstep(lo - soft, top, yb));
+    mc += uFogSunColor * toSun * 0.25;
+    outc = mix(outc, mc, clamp(m, 0.0, 1.0) * 0.96);
+  }
+  return outc;
 }
 
 // ---------------------------------------------------------------------------------------- paints

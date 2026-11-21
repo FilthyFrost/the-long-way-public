@@ -19,6 +19,7 @@ import { skyUniforms } from './sky';
 import { Clouds } from './clouds';
 import { LightState, STYLE, lightAt, styleOf } from '../render/style';
 import type { PlaceSky } from '../../core/world/earth/palette';
+import { mistAt, type Mist } from './mist';
 
 export class Environment {
   readonly clock = new DayClock();
@@ -62,6 +63,13 @@ export class Environment {
   /** world position of the camera, for the cloud cube */
   camX = 0;
   camZ = 0;
+  /** (V8) the mist of the low ground: what there should be, what there is (eased toward it), when next to ask */
+  private readonly mistWant: Mist = { top: 0, soft: 30, density: 0 };
+  private readonly mistNow: Mist = { top: 0, soft: 30, density: 0 };
+  private mistAsk = 0;
+  /** (V8) how far the eye has opened to the dark of a tunnel: 0 day … 1 (slow to open, quick to close: the glare out of
+   * the portal, the view coming up out of it) */
+  private eyeDark = 0;
   /** screenshot mode: no strip-by-strip cloud updates; prepareShot() draws the whole cube when needed */
   shotMode = false;
   private shotKey = '';
@@ -179,7 +187,19 @@ export class Environment {
       globals.uHereGround.value.setRGB(ga.ground.deep[0] + (gb.ground.deep[0] - ga.ground.deep[0]) * bt, ga.ground.deep[1] + (gb.ground.deep[1] - ga.ground.deep[1]) * bt, ga.ground.deep[2] + (gb.ground.deep[2] - ga.ground.deep[2]) * bt);
       globals.uHereForest.value.setRGB(ga.forest[1][0] + (gb.forest[1][0] - ga.forest[1][0]) * bt, ga.forest[1][1] + (gb.forest[1][1] - ga.forest[1][1]) * bt, ga.forest[1][2] + (gb.forest[1][2] - ga.forest[1][2]) * bt);
     }
-    this.core.exposure = look.exposure;
+    // (V8) the eye's own: in a tunnel it opens to the dark over a couple of seconds; out of it the day is a glare that
+    // settles in one — the view beyond the portal coming up out of white (a gallery with its windows, half of it)
+    {
+      let under = 0;
+      if (world && world.galleries) {
+        const s = world.spine.sAtX(this.camX);
+        const g = world.galleries.near(s);
+        if (g && s > g.s0 + 4 && s < g.s1 - 4) under = g.kind === 'tunnel' ? 1 : g.kind === 'rock' ? 0.45 : 0.25;
+      }
+      const rate = under > this.eyeDark ? 1.8 : 0.9;
+      this.eyeDark += (under - this.eyeDark) * (dt === 0 ? 1 : 1 - Math.exp(-dt / rate));
+    }
+    this.core.exposure = look.exposure * (1 + 1.25 * this.eyeDark);
     this.core.night = sky.night;
     // shafts of light: a low sun, and air with something in it to catch them (mist, the damp after rain, dust)
     {
@@ -196,6 +216,31 @@ export class Environment {
     }
     // the haze lies on the ground under the camera
     globals.uFogBase.value = this.core.camera.position.y - 2;
+    // (V8) the mist on the low ground of a morning (env/mist.ts): asked every half second, eased in and out
+    if (world && world.earth) {
+      this.mistAsk -= dt;
+      if (this.mistAsk <= 0 || dt === 0) {
+        this.mistAsk = 0.5;
+        mistAt(world, this.camX, this.camZ, sky.hour, this.clock.dayAt(time), w, this.mistWant);
+      }
+      const k = dt === 0 ? 1 : 1 - Math.exp(-dt / 2.5);
+      const want = this.mistWant;
+      if (this.mistNow.density <= 1e-5 && want.density > 0) {
+        this.mistNow.top = want.top;
+        this.mistNow.soft = want.soft;
+      }
+      if (want.density > 0) {
+        this.mistNow.top += (want.top - this.mistNow.top) * k;
+        this.mistNow.soft += (want.soft - this.mistNow.soft) * k;
+      }
+      this.mistNow.density += (want.density - this.mistNow.density) * k;
+      const mv = globals.uMist.value;
+      mv.set(this.mistNow.top - this.core.origin.y, this.mistNow.soft, this.mistNow.density > 2e-5 ? this.mistNow.density : 0, 0);
+      // its top lit by the sun (gold when it is low), its body the sky's cool light
+      const ml = globals.uMistLit.value;
+      ml.setRGB(look.amb.r * 1.05 + look.sun.r * 0.45, look.amb.g * 1.05 + look.sun.g * 0.45, look.amb.b * 1.05 + look.sun.b * 0.45);
+      globals.uMistShade.value.setRGB(look.amb.r * 0.95 + look.bounce.r * 0.25, look.amb.g * 0.95 + look.bounce.g * 0.25, look.amb.b * 0.95 + look.bounce.b * 0.25);
+    } else globals.uMist.value.z = 0;
     {
       // the earth's shadow (V1): from the moment the sun touches the horizon its light leaves the low ground and climbs —
       // four hundred metres over the eye one degree down, twelve hundred at two — till only the peaks glow, then none
