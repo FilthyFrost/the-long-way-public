@@ -36,6 +36,7 @@ import { globals } from '../render/shaderlib';
 import { LandmarkView } from '../scene/landmarks';
 import { GeothermalView } from '../scene/geothermal';
 import { SpireView } from '../scene/spires';
+import { WonderView } from '../scene/wonders';
 import { SpireSolids } from '../../core/world/earth/spires';
 import { WaterfallView } from '../scene/waterfalls';
 import { SkyFlocks } from '../scene/skyFlocks';
@@ -445,6 +446,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   geothermal: GeothermalView | null = null;
   /** a place's spires: a pillar mountain's pillars, a karst's towers, a coast's sea stacks (V5, scene/spires.ts) */
   spires: SpireView | null = null;
+  /** (G8) the great forms' water: a salt pan's mirror, a caldera's lake (scene/wonders.ts) */
+  wonders: WonderView | null = null;
   /** a place's waterfalls down its steep land: a gorge's, a fjord's, a table mountain's (V5, scene/waterfalls.ts) */
   waterfalls: WaterfallView | null = null;
   /** the flocks of the sky far off: murmurations, skeins of geese, gulls, swifts, egrets (V7, scene/skyFlocks.ts) */
@@ -1048,6 +1051,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.landmarks = new LandmarkView(this.core, this.world);
     this.geothermal = new GeothermalView(this.core, this.world);
     this.spires = new SpireView(this.core, this.world);
+    this.wonders = new WonderView(this.core, this.world);
     this.waterfalls = new WaterfallView(this.core, this.world);
     this.skyFlocks = new SkyFlocks(this.core, this.world);
     this.fish = new FishView(this.core, this.world);
@@ -4745,6 +4749,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.landmarks?.update(this.pr.s, fx, fz);
       this.geothermal?.update(this.pr.s);
       this.spires?.update(this.pr.s);
+      this.wonders?.update(this.pr.s, this.core.camera.position.x + this.core.origin.x, this.core.camera.position.y + this.core.origin.y, this.core.camera.position.z + this.core.origin.z);
       this.waterfalls?.update(this.pr.s);
       this.heroPeaks?.update(this.pr.s);
       this.glaciers?.update(this.pr.s);

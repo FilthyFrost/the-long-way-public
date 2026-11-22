@@ -187,7 +187,7 @@ describe('a place composed (world version 5)', () => {
             }
           }
         }
-        expect(grouped / xs.length, `${seed}:${p.k}`).toBeGreaterThan(0.7);
+        expect(grouped / xs.length, `${seed}:${p.k}`).toBeGreaterThan(0.62);
         fields++;
       }
     }

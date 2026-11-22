@@ -235,14 +235,16 @@ export function lookOfPlace(sc: Scene, seed = 0, k = sc.index): EarthLook {
   const layered = m.rock === 'sandstone_red' || m.rock === 'sandstone_pale' || m.rock === 'shale';
   const limey = m.rock === 'limestone' || m.rock === 'dolomite';
   const sil = sc.look.landform.silhouette;
+  // (G8: a salt pan — what shows of its land, its causeway's banks and its dry margins, is salt)
+  const pan = sc.look.landform.id === 'salt_flat';
   // (a green country's towers, tables and cliffs are green but for their steepest faces — a wet karst's cones are wooded,
   // not banded rock from the foot up: V2)
   const green = e.struct === 'closed_forest' || e.struct === 'open_forest' || e.struct === 'woodland' || e.struct === 'wetland' || e.struct === 'farmland' || (e.struct === 'grassland' && w > 0.5);
   const shows = e.struct === 'desert' || e.struct === 'bare' || (e.struct === 'shrubland' && w < 0.35) || (!green && (sil === 'tables' || sil === 'canyon' || sil === 'cliffs' || sil === 'towers'));
   return {
-    ground,
+    ground: pan ? [0xc9c8c4, 0xd6d4ce, 0xe2dfd8] : ground,
     // (the dusty verge and the dry patches, the blades gone to straw: between its ground and its straw)
-    dust: mix(mix(sw.soil, sw.straw, snow ? 0.2 : 0.55), 0xffffff, 0.06),
+    dust: pan ? 0xd9d6cf : mix(mix(sw.soil, sw.straw, snow ? 0.2 : 0.55), 0xffffff, 0.06),
     rock: stoneColour(pal, rk.lit),
     rock2: stoneColour(pal, rk.shade),
     forest: mix(crowns[0], 0x1c2a1c, 0.25),
@@ -252,7 +254,7 @@ export function lookOfPlace(sc: Scene, seed = 0, k = sc.index): EarthLook {
     flowers: [hues[0], hues[1], hues[2]],
     // (its grass as far gone to straw as its palette's: the meadow by the road and the far hills alike)
     dryness: clamp(Math.max(pal.parched, (0.42 - w) / 0.4), 0, 1),
-    grass: grassy,
+    grass: pan ? 0 : grassy,
     grassSize: e.struct === 'savanna' ? 1.3 : e.struct === 'tundra' ? 0.5 : e.struct === 'farmland' ? 1.1 : 1,
     flowerAmount: clamp((e.flowers?.length ?? 0) * 0.08 + (e.code.startsWith('T7.1') ? 0.2 : 0), 0, 0.6),
     rockStart: e.struct === 'bare' || e.struct === 'desert' ? 0.45 : e.struct === 'tundra' ? 0.6 : 0.85,
@@ -345,7 +347,7 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief, seed: numb
     ...(build.stream ? { streams: build.stream } : {}),
     ...(gallery !== undefined ? { galleries: [gallery], gallery: galleryKind } : {}),
     // (a lakeshore road: a lake by it all the way through its heart, now on one side, now on the other)
-    ...(road.id === 'lakeshore' ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
+    ...(road.id === 'lakeshore' && !landOfPlace(sc).dry ? { water: { ...waterOfPlace(sc), lake: 1, river: 0, shore: true } } : {}),
   };
 }
 
@@ -372,6 +374,7 @@ export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadTyp
     ...(land.odds ? { odds: land.odds } : {}),
     ...(land.size ? { size: land.size } : {}),
   };
+  if (land.noWalls) delete relief.walls;
   const mesas = land.farShape === 2;
   const def: RegionDef = {
     ...template,
@@ -405,7 +408,8 @@ export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadTyp
     sea: m.water === 'coast' || m.context === 'coast',
     surreal: false,
     weight: 1,
-    water: waterOfPlace(sc),
+    water: land.dry ? { lake: 0, river: 0, frozen: 0, clear: 6 } : waterOfPlace(sc),
+    ...(land.levelRoad ? { levelRoad: true } : {}),
     relief,
     noise: earthNoise(k),
     earth: lookOfPlace(sc, seed, k),

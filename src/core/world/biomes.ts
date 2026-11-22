@@ -141,6 +141,8 @@ export interface RegionDef extends BiomeDef {
   cliff?: number;
   /** (world version 5) the stretches of it (0 its first) its road climbs in a switchback stack: legs across a steep face joined by hairpin bends (spine.ts) */
   hairpins?: readonly number[];
+  /** (G8) its road is level: across it the road holds the height it came with, neither its own swell nor the pull of its country's height (a salt pan's causeway: spine.ts) */
+  levelRoad?: boolean;
   /** (world version 5) its road's surface and edges (a key of roadStyles.ts ROAD_STYLES: a mountain road's stone parapets, a parkway's timber rails …) */
   roadStyle?: string;
   /** (world version 5) the stretches of it (0 its first) where its road's view is given a lookout: a railing, a bench, a telescope */
@@ -529,6 +531,7 @@ function entry(d: RegionDef): RegionDef {
     sea: d.sea,
     cliff: d.cliff,
     hairpins: d.hairpins,
+    levelRoad: d.levelRoad,
     roadStyle: d.roadStyle,
     lookouts: d.lookouts,
     viaducts: d.viaducts,

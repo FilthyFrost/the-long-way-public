@@ -10,6 +10,7 @@
  */
 import * as THREE from 'three';
 import { GLSL_SKY_MIRROR, skyMirrorUniforms } from '../env/sky';
+import { GLSL_MIRROR, mirrorUniforms } from './mirror';
 import { maskPreservingBlend } from './materials';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, GLSL_VERTEX_PARS, globals } from './shaderlib';
 import { STYLE } from './style';
@@ -33,13 +34,16 @@ export const waterUniforms = {
   uWaterRain: { value: 0 },
 };
 
-export function waterMaterial(): THREE.ShaderMaterial {
+/** @param planar (G8) a great lake's: what lies on it is the mirror's picture (render/mirror.ts) where that is drawn — the rim across the water, the clouds as they are */
+export function waterMaterial(planar = false): THREE.ShaderMaterial {
   const p = waterPaints();
   const mat = new THREE.ShaderMaterial({
+    defines: planar ? { RT_PLANAR: '' } : {},
     uniforms: {
       ...globals,
       ...waterUniforms,
       ...skyMirrorUniforms(),
+      ...(planar ? mirrorUniforms : {}),
       uShallow: { value: p.shallow },
       uWaterMid: { value: p.mid },
       uDeep: { value: p.deep },
@@ -63,6 +67,9 @@ export function waterMaterial(): THREE.ShaderMaterial {
       ${GLSL_COMMON}
       uniform float uWaterRain;
       ${GLSL_SKY_MIRROR}
+      #ifdef RT_PLANAR
+      ${GLSL_MIRROR}
+      #endif
       uniform vec3 uShallow;
       uniform vec3 uWaterMid;
       uniform vec3 uDeep;
@@ -116,6 +123,10 @@ export function waterMaterial(): THREE.ShaderMaterial {
         float landBand = (1.0 - smoothstep(0.012, 0.042, R.y + streak * 0.5)) * (1.0 - frozen);
         vec3 landCol = mix(mix(uHereForest, uHereGround, 0.4) * rtGroundLight(0.35), uFogColor, 0.3);
         sky = mix(sky, landCol, landBand * 0.62);
+        #ifdef RT_PLANAR
+        // (the world itself upside down in it, leaning with the ripples and drawn out a little down the view)
+        if (uMirrorOn > 0.5) sky = rtMirrorAt(vPos, tilt * vec2(0.03, 0.05) * (0.35 + 0.65 * near) + vec2(0.0, streak * 0.02));
+        #endif
         // (a painter never lets the sky wash the whole sheet out: some of the water's own tone stays)
         col = mix(col, sky, min(fres, 0.8) * mix(0.92, 0.45, frozen));
 

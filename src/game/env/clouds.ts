@@ -137,7 +137,9 @@ function layout(seed: number, cx: number, cz: number, cover: number, base0 = 115
       const h = hash2(i, j, seed + 0xc10d);
       const p = (h & 0xffff) / 65536;
       // (V1b: a fair sky's few clouds few — a clear day has a handful of small heaps, a full one its towers)
-      if (p > 0.03 + 0.25 * cover + 0.95 * cover * cover) continue;
+      // (C1: no heaps at all in a sky with none — a place's sky may be another kind's, env/environment.ts heapShare)
+      // (… and none under a tenth of cover: a heap or two that thin is a pale square in the sky, not a cloud)
+      if (cover < 0.1 || p > 0.03 + 0.25 * cover + 0.95 * cover * cover) continue;
       const rnd = mulberry(h);
       // its life (V1b): it grows, stands, and dissolves on a cycle of its own, and another forms in its cell as it goes
       const period = 480 + 480 * rnd();

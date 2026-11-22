@@ -37,7 +37,7 @@ const lane = road('patched',0,'grass',2.85,'fence');
 const gravel = road('gravel',0,'grass',2.9,'wood');
 export const ROAD_STYLES: Readonly<Record<string, readonly [RoadStyle,RoadStyle]>> = {
   'road:mountain':[mountain,pass], 'road:corniche':[corniche,mountain], 'road:parkway':[parkway,highway], 'road:lane':[lane,orchard],
-  'road:track':[gravel,north], 'road:upland':[upland,mountain], 'road:desert':[desert,earth], 'road:open':[highway,pasture], 'road:slabs':[slabs,upland],
+  'road:track':[gravel,north], 'road:upland':[upland,mountain], 'road:desert':[desert,earth], 'road:open':[highway,pasture], 'road:slabs':[slabs,upland], 'road:causeway':[highway,highway],
   plains:[pasture,highway], forest:[north,track], maple:[north,pasture], lakes:[track,north],
   alpine:[pass,upland], desert:[desert,earth], red_canyon:[earth,desert], karst_peaks:[slabs,upland],
   terraces:[slabs,orchard], bamboo_sea:[slabs,track], flower_fields:[pasture,orchard],

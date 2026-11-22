@@ -18,6 +18,7 @@ import { BIOMES, regionSalt, type BiomeDef } from './biomes';
 import { featureSlots, runAt } from './director';
 import { journeyRoad, type RoadJourney } from './journey/road';
 import { earthRoad, type EarthRoad } from './earth/road';
+import { WonderEffect, Wonders } from './earth/wonders';
 import { EcotopeField, shoreOf } from './ecotope';
 import { FeaturePlan, MAX_ASPECT, featureProfile, type FeatureRecipe } from './features';
 import { FloraVistas } from './floraVista';
@@ -97,6 +98,13 @@ export class TerrainPoint {
    * onfoot/land.ts set it to 0.)
    */
   landform = 0;
+  /**
+   * (G8) The great forms of a place (earth/wonders.ts): how fully the point lies on a salt pan's plane, 0 … 1, and how
+   * much of the land's height here a caldera's or a pit's rock has made (m: its walls are rock, for whoever paints them).
+   * `relief` includes what they made of the land.
+   */
+  pan = 0;
+  great = 0;
   /** a road that ends at its start (WorldOptions.deadEnd): how far behind its start the point lies (m), 0 beside it */
   behind = 0;
 }
@@ -311,6 +319,9 @@ export class World implements Ground {
    * null in a world of version 1, which has none.
    */
   readonly features: FeaturePlan | null;
+  /** (G8) the great forms of the emergent Earth's places — a salt pan, a caldera, a karst's pits (earth/wonders.ts); null in a world without the Earth's places */
+  readonly wonders: Wonders | null;
+  private readonly wo = new WonderEffect();
   private readonly lp = new LandParams();
   private readonly we = new WaterEffect();
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
@@ -375,6 +386,7 @@ export class World implements Ground {
     this.sites = new SitePlan(this, new TerrainPoint(), this.seed);
     this.furniture = new Furniture(this, new TerrainPoint(), this.seed);
     this.features = this.rules.version >= 2 ? this.featurePlan() : null;
+    this.wonders = this.earth ? new Wonders(this.spine, this.earth, this.seed) : null;
   }
 
   /**
@@ -743,6 +755,27 @@ export class World implements Ground {
       T += add;
       o.landform = add;
     } else o.landform = 0;
+    // (G8) The great forms of the place the road is in abreast of this point: a salt pan's plane and the film of water on
+    // it, a caldera and its lake, a karst's pits. They shape the land to a form of their own, in the far ring's coarse
+    // land as near the road, and leave the road's corridor as it was (earth/wonders.ts).
+    o.pan = 0;
+    o.great = 0;
+    if (this.wonders !== null) {
+      const wo = this.wo;
+      const T1 = this.wonders.apply(x, z, s0, dzl * cs0, ad, base, T, coarse, wo);
+      if (T1 !== T) {
+        o.relief += T1 - T;
+        T = T1;
+      }
+      if (wo.level > -1e8 && !(o.wl > wo.level)) {
+        o.wl = wo.level;
+        o.wkind = wo.kind;
+        o.frozen = 0;
+      }
+      o.pan = wo.pan;
+      o.great = wo.rock;
+      if (wo.verge < this.we.verge) this.we.verge = wo.verge;
+    }
     if (!near) {
       o.h = o.bed = T;
       if (o.frozen > 0.5 && o.wl > T) o.h = o.wl;

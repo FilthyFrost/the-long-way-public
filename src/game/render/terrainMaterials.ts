@@ -259,6 +259,11 @@ export const GROUND_PAINT = /* glsl */ `
     // round it; its gentle top and its foot stay what the country is
     float onForm = clamp((g.x - ${GROUND_FAR.toFixed(1)}) / ${(ON_LANDFORM - GROUND_FAR).toFixed(1)}, 0.0, 1.0);
     rock = max(rock, onForm * smoothstep(p.rockStart - 0.12, p.rockStart + 0.04, steep + (nz.b - 0.5) * 0.14));
+    // (G8) a great form's walls — a caldera's, a karst pit's — are rock wherever they stand at all steeply, in any country
+    float onGreat = clamp((g.x - ${(ON_LANDFORM + GROUND_FAR).toFixed(1)}) / ${(2 * ON_LANDFORM - GROUND_FAR).toFixed(1)}, 0.0, 1.0);
+    rock = max(rock, onGreat * smoothstep(0.15, 0.27, steep + (nz.b - 0.5) * 0.1));
+    // (… and the deeper down them, the less of the sky lights them: a pit's depths are dark)
+    float greatDeep = onGreat * smoothstep(8.0, 190.0, -g.y);
     #ifdef RT_ALT
     // (version 2) in high country — from some way below the tree line up — any face steeper than about four in
     // five is bare rock, and above the tree line any slope at all; lower down the region's own rule stands (the
@@ -307,6 +312,7 @@ export const GROUND_PAINT = /* glsl */ `
       }
       albedo = mix(albedo, rockCol, rock * (1.0 - wood * far));
     }
+    albedo *= 1.0 - 0.45 * greatDeep;
 
     // ---- snow above the snowline (lower in the mountains), sliding off the steepest faces
     #ifdef RT_ALT

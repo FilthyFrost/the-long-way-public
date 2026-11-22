@@ -48,7 +48,10 @@ export type RoadId =
   | 'hill_twister'
   | 'river_road'
   | 'heath_road'
-  | 'orchard_lane';
+  | 'orchard_lane'
+  | 'causeway'
+  | 'crater_road'
+  | 'pit_road';
 
 /** how a road winds (world/biomes.ts RegionDef's road fields) */
 export interface RoadAlign {
@@ -90,6 +93,8 @@ export interface RoadType {
   avenue?: number;
   /** the stretches (0 … 3) it climbs in a switchback stack: legs across a steep face joined by hairpin bends */
   hairpins?: readonly number[];
+  /** (G8) the road a landform is made with: a place it must be given (its great form is laid out from it: world/earth/wonders.ts) */
+  must?(sc: Scene): boolean;
 }
 
 /**
@@ -132,6 +137,9 @@ export const ROAD_BUILD: Readonly<Record<RoadId, RoadBuild>> = {
   river_road: { style: 'road:parkway', stream: [0, 2] },
   heath_road: { style: 'road:upland', viaduct: [1, 0.35] },
   orchard_lane: { style: 'road:lane' },
+  causeway: { style: 'road:causeway' },
+  crater_road: { style: 'road:upland' },
+  pit_road: { style: 'road:slabs' },
 };
 
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
@@ -458,6 +466,52 @@ export const ROADS: readonly RoadType[] = [
   },
 ];
 
+// (G8) the roads the great forms are made with
+(ROADS as RoadType[]).push(
+  {
+    id: 'causeway',
+    zh: '镜面堤道',
+    moment: '一条低低的堤道笔直穿过天空之镜，天和云在脚下，分不清哪边是真的',
+    fit: (sc) => (lf(sc) === 'salt_flat' ? 1 : 0),
+    must: (sc) => lf(sc) === 'salt_flat',
+    land: ['open', 'open', 'open', 'open'],
+    align: align(110, 0.9, [1800, 3200], [3, 9], 6),
+    grade: grade(0, 2000, 0.02),
+    enclosed: 0,
+    twist: 0,
+    view: 1,
+    wow: true,
+  },
+  {
+    id: 'crater_road',
+    zh: '火口缘路',
+    moment: '从缺口切进火口缘，路贴着内壁走，脚下两百米是一池深蓝，对面是整圈山壁',
+    fit: (sc) => (lf(sc) === 'crater_lake' ? 1 : 0),
+    must: (sc) => lf(sc) === 'crater_lake',
+    land: ['open', 'open', 'open', 'open'],
+    align: align(62, 0.3, [160, 420], [10, 32], 3.2),
+    grade: grade(0.012, 1100, 0.05),
+    enclosed: 0.5,
+    twist: 0.4,
+    view: 1,
+    wow: true,
+  },
+  {
+    id: 'pit_road',
+    zh: '天坑路',
+    moment: '路贴着天坑的边沿走，车窗外的地面突然没了，两百米下面是一片树冠',
+    fit: (sc) => (lf(sc) === 'sinkholes' ? 1 : 0),
+    must: (sc) => lf(sc) === 'sinkholes',
+    land: ['open', 'open', 'valley', 'open'],
+    align: align(55, 0.25, [80, 240], [15, 50], 2.8),
+    grade: grade(0.02, 700, 0.05),
+    enclosed: 0.35,
+    twist: 0.5,
+    view: 0.7,
+    wow: true,
+  },
+);
+
 export const ROAD: Readonly<Record<RoadId, RoadType>> = Object.fromEntries(ROADS.map((r) => [r.id, r])) as Record<RoadId, RoadType>;
 
 /** the road a place falls back to when nothing else fits it (by the lie of its land) */
@@ -519,6 +573,8 @@ export class RoadDirector {
     const prev = k > 0 ? ROAD[this.roads[k - 1]] : null;
     let sinceWow = 0;
     for (let i = this.roads.length - 1; i >= 0 && !ROAD[this.roads[i]].wow; i--) sinceWow++;
+    // (G8: the road its landform is made with)
+    for (const r of ROADS) if (r.must?.(sc)) return r.id;
     const scored: { id: RoadId; score: number }[] = [];
     for (const r of ROADS) {
       const f = r.fit(sc);

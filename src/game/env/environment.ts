@@ -88,7 +88,7 @@ export class Environment {
    * the developer's sky (V1b): amounts forced on the clouds, whatever the place (null: the places' own) — cirrus,
    * cirrocumulus, altocumulus, veil, waves (and ribbon 0/1), lens, nlc, cumulus (a multiplier of the heaps)
    */
-  skyTune: Partial<Record<'cirrus' | 'cirrocumulus' | 'altocumulus' | 'veil' | 'waves' | 'ribbon' | 'lens' | 'nlc' | 'cumulus', number>> | null = null;
+  skyTune: Partial<Record<'cirrus' | 'cirrocumulus' | 'altocumulus' | 'veil' | 'waves' | 'ribbon' | 'lens' | 'nlc' | 'cumulus' | 'scale' | 'thick' | 'ragged' | 'feather' | 'spacing', number>> | null = null;
 
   constructor(
     private readonly core: RenderCore,
@@ -411,8 +411,10 @@ export class Environment {
       (t?.altocumulus ?? mix((s) => s.altocumulus, 0.06) * (1 + 0.25 * golden) * night) * open,
       (t?.veil ?? mix((s) => s.veil, 0.05) * night) * Math.max(open, 0.3),
     );
+    // (C1: the place's own measure of its layers)
+    skyUniforms.uSkyVar.value.set(t?.scale ?? mix((s) => s.scale ?? 1, 1), t?.thick ?? mix((s) => s.thick ?? 0.5, 0.5), t?.ragged ?? mix((s) => s.ragged ?? 0.5, 0.5), t?.feather ?? mix((s) => s.feather ?? 0, 0));
     const wv = skyUniforms.uWaves.value;
-    wv.set((t?.waves ?? mix((s) => s.waves, 0) * night) * open, near?.waveDir ?? 0, near?.waveSpacing ?? 900, t?.ribbon ?? near?.ribbon ?? 0);
+    wv.set((t?.waves ?? mix((s) => s.waves, 0) * night) * open, near?.waveDir ?? 0, t?.spacing ?? near?.waveSpacing ?? 900, t?.ribbon ?? near?.ribbon ?? 0);
     skyUniforms.uNlc.value = (t?.nlc ?? mix((s) => s.nlc, 0)) * THREE.MathUtils.smoothstep(elev, -16, -9) * (1 - THREE.MathUtils.smoothstep(elev, -6, -3)) * open;
     // the heaps: the place's number of them, fewer when the night is the show; their base; their towers
     this.heapShare = (t?.cumulus ?? mix((s) => s.cumulus, 1)) * (1 - 0.6 * show);

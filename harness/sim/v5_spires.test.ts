@@ -24,8 +24,14 @@ describe('the spires and the falls (world version 5)', () => {
   const st = new SpineSample();
 
   it('a pillar mountain has its pillars off the road on dry land, the same whoever asks, and solid', () => {
-    const w = new World(7, { worldVersion: 5 });
-    const k = first(w, ['pillar_mountain']);
+    // (the first of some worlds that has one in its first sixty places: which world that is moves with the director)
+    let w = new World(7, { worldVersion: 5 });
+    let k = first(w, ['pillar_mountain']);
+    for (const seed of [3, 1, 2, 5, 9, 11, 13, 17, 21, 4, 6, 8, 10, 12]) {
+      if (k > 0) break;
+      w = new World(seed, { worldVersion: 5 });
+      k = first(w, ['pillar_mountain']);
+    }
     expect(k).toBeGreaterThan(0);
     const p = w.earth!.pieces[k];
     expect(hasSpires(p)).toBe(true);
@@ -43,7 +49,7 @@ describe('the spires and the falls (world version 5)', () => {
     // no two stand in each other
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) expect(Math.hypot(list[i].x - list[j].x, list[i].z - list[j].z)).toBeGreaterThan(list[i].r + list[j].r);
     // the same whoever asks
-    const again = spiresOf(new World(7, { worldVersion: 5 }), p, new TerrainPoint(), new SpineSample());
+    const again = spiresOf(new World(w.seed, { worldVersion: 5 }), p, new TerrainPoint(), new SpineSample());
     expect(again.map((s) => [s.x, s.z, s.h])).toEqual(list.map((s) => [s.x, s.z, s.h]));
     // a solid post where each stands
     const solids = new SpireSolids(w, new TerrainPoint(), new SpineSample());
@@ -68,8 +74,14 @@ describe('the spires and the falls (world version 5)', () => {
   });
 
   it('a waterfall gorge has its falls down its steep land beside the road', () => {
-    const w = new World(3, { worldVersion: 5 });
-    const k = first(w, ['waterfall_gorge']);
+    // (the first of some worlds whose gorge has its half dozen falls: which world that is moves with the director)
+    let w = new World(3, { worldVersion: 5 });
+    let k = first(w, ['waterfall_gorge']);
+    for (const seed of [7, 1, 2, 5, 9, 11, 13, 17, 21]) {
+      if (k > 0 && fallsOf(w, w.earth!.pieces[k], tp, st).length > 5) break;
+      w = new World(seed, { worldVersion: 5 });
+      k = first(w, ['waterfall_gorge']);
+    }
     expect(k).toBeGreaterThan(0);
     const p = w.earth!.pieces[k];
     expect(hasFalls(p)).toBe(true);
@@ -87,7 +99,7 @@ describe('the spires and the falls (world version 5)', () => {
       w.shape(f.path[(n - 1) * 3], f.path[(n - 1) * 3 + 2], tp);
       expect(Math.abs(tp.d)).toBeGreaterThan(9);
     }
-    const again = fallsOf(new World(3, { worldVersion: 5 }), p, new TerrainPoint(), new SpineSample());
+    const again = fallsOf(new World(w.seed, { worldVersion: 5 }), p, new TerrainPoint(), new SpineSample());
     expect(again.map((f) => f.path.slice(0, 3))).toEqual(falls.map((f) => f.path.slice(0, 3)));
   });
 });

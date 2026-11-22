@@ -470,6 +470,8 @@ export class RoadSpine implements DrivePath {
     const baseElev = this.longBase ? baseAt(this.plan, s) : t <= 0 ? A.baseElev : mix(A.baseElev, B.baseElev, t);
     let gT = gAmp * 1.6 * fbm1(s / gLen, this.gradeSeed, 2);
     gT -= clamp((this.gy - this.lift - baseElev) / this.pullLen, -this.pull, this.pull);
+    // (G8: a level road — a salt pan's causeway — holds the height it came with)
+    if (A.levelRoad || (t > 0 && B.levelRoad)) gT *= 1 - ((A.levelRoad ? 1 - t : 0) + (B.levelRoad ? t : 0));
     // (a switchback stack climbs, or comes down, all the way: that is what it is for)
     if (this.pin) {
       const want = baseElev - (this.gy - this.lift);

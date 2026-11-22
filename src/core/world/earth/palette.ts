@@ -138,6 +138,14 @@ export interface PlaceSky {
   base: number;
   /** noctilucent clouds on its summer twilights (the cold north) */
   nlc: number;
+  /**
+   * (C1) its layers' own measure: the flock's scale (1 small heaps … 2.6 a deck of great low ones), how thick and
+   * dark its flock and its rolls are (0 … 1), how ragged (0 … 1), its cirrus in broad feathers (1) or thin tails (0)
+   */
+  scale?: number;
+  thick?: number;
+  ragged?: number;
+  feather?: number;
 }
 
 /** a place's clouds (PlaceSky), by its own dice: seed and place */
@@ -154,19 +162,23 @@ function skyOf(sc: Scene, seed: number, k: number, w: number, t: number, dry: nu
   const coast = m.water === 'coast';
   const tropic = t > 19 && w > 0.6;
   const cold = t < 4;
-  type Theme = 'clear' | 'tails' | 'flock' | 'ripples' | 'veil' | 'billows' | 'heaps' | 'towers';
-  const odds: readonly (readonly [Theme, number])[] =
-    dry > 0.5
-      ? [['clear', 0.4], ['tails', 0.34], ['ripples', 0.1], ['flock', 0.06], ['heaps', 0.1]]
+  // (C1: a deck — stratocumulus, great low heaps over most of the sky with the blue in its breaks; the billows oftener)
+  type Theme = 'clear' | 'tails' | 'flock' | 'deck' | 'ripples' | 'veil' | 'billows' | 'heaps' | 'towers';
+  // (G8: over a salt pan's mirror, a sky worth doubling — a flock to the horizon, billows, heaps, tails; never an empty one)
+  const mirror = sc.look.landform.id === 'salt_flat';
+  const odds: readonly (readonly [Theme, number])[] = mirror
+    ? [['flock', 0.34], ['heaps', 0.2], ['billows', 0.18], ['tails', 0.16], ['deck', 0.12]]
+    : dry > 0.5
+      ? [['clear', 0.38], ['tails', 0.32], ['ripples', 0.1], ['flock', 0.06], ['billows', 0.06], ['heaps', 0.08]]
       : tropic
-        ? [['towers', 0.5], ['heaps', 0.24], ['flock', 0.1], ['tails', 0.16]]
+        ? [['towers', 0.46], ['heaps', 0.22], ['flock', 0.1], ['tails', 0.14], ['billows', 0.08]]
         : cold
-          ? [['veil', 0.32], ['tails', 0.26], ['clear', 0.18], ['flock', 0.1], ['ripples', 0.08], ['heaps', 0.06]]
+          ? [['veil', 0.26], ['tails', 0.22], ['clear', 0.14], ['deck', 0.14], ['flock', 0.08], ['ripples', 0.08], ['billows', 0.08]]
           : coast
-            ? [['flock', 0.28], ['heaps', 0.28], ['tails', 0.16], ['billows', 0.1], ['clear', 0.12], ['ripples', 0.06]]
+            ? [['deck', 0.2], ['flock', 0.16], ['heaps', 0.24], ['tails', 0.14], ['billows', 0.12], ['clear', 0.08], ['ripples', 0.06]]
             : mountain
-              ? [['tails', 0.26], ['clear', 0.22], ['heaps', 0.26], ['flock', 0.14], ['ripples', 0.12]]
-              : [['heaps', 0.4], ['tails', 0.2], ['flock', 0.15], ['clear', 0.1], ['ripples', 0.08], ['billows', 0.07]];
+              ? [['tails', 0.24], ['clear', 0.18], ['heaps', 0.24], ['flock', 0.12], ['ripples', 0.1], ['billows', 0.12]]
+              : [['heaps', 0.36], ['tails', 0.18], ['flock', 0.13], ['deck', 0.08], ['clear', 0.07], ['ripples', 0.07], ['billows', 0.11]];
   let pick = r();
   let theme: Theme = odds[0][0];
   for (const [th, p] of odds) {
@@ -179,29 +191,44 @@ function skyOf(sc: Scene, seed: number, k: number, w: number, t: number, dry: nu
   let altocumulus = 0;
   let veil = 0;
   let waves = 0;
+  // (C1: the heaps are the heaps' sky's and the towers' — a sky of another kind has none of them in it; they were in
+  // every sky, the same white heaps under whatever else it held)
   let cumulus = 0.75 + 0.5 * r();
   let towers = 0;
+  let scale = 0.8 + 0.5 * r();
+  let thick = 0.35 + 0.4 * r();
+  const ragged = r();
+  let feather = 0;
   if (theme === 'clear') {
-    cumulus *= 0.22;
+    cumulus = r() < 0.3 ? 0.22 : 0;
     cirrus = maybe(0.3, 0.2, 0.4);
   } else if (theme === 'tails') {
     cirrus = 0.6 + 0.4 * r();
-    cumulus *= 0.55;
+    feather = r() < 0.45 ? 1 : 0;
+    cumulus = 0;
   } else if (theme === 'flock') {
-    altocumulus = 0.55 + 0.4 * r();
-    cumulus *= 0.45;
+    altocumulus = 0.6 + 0.4 * r();
+    cumulus = 0;
     cirrus = maybe(0.25, 0.3, 0.5);
+  } else if (theme === 'deck') {
+    altocumulus = 0.7 + 0.3 * r();
+    scale = 2.1 + 0.7 * r();
+    thick = 0.7 + 0.3 * r();
+    cumulus = 0;
   } else if (theme === 'ripples') {
     cirrocumulus = 0.6 + 0.35 * r();
     cirrus = maybe(0.5, 0.35, 0.6);
-    cumulus *= 0.6;
+    feather = r() < 0.3 ? 1 : 0;
+    cumulus = 0;
   } else if (theme === 'veil') {
     veil = 0.3 + 0.3 * r();
     cirrus = maybe(0.4, 0.3, 0.55);
-    cumulus *= 0.35;
+    cumulus = 0;
   } else if (theme === 'billows') {
-    waves = 0.6 + 0.4 * r();
-    cumulus *= 0.5;
+    // (rank on rank of thick rolls to the horizon)
+    waves = 0.8 + 0.2 * r();
+    thick = 0.6 + 0.4 * r();
+    cumulus = 0;
   } else if (theme === 'heaps') {
     cumulus *= 1.3;
     cirrus = maybe(0.2, 0.25, 0.45);
@@ -214,13 +241,13 @@ function skyOf(sc: Scene, seed: number, k: number, w: number, t: number, dry: nu
   // (the dry country's heaps few and high based whatever its theme)
   if (dry > 0.4) cumulus *= 1 - 0.7 * dry;
   const waveDir = r() * Math.PI;
-  const waveSpacing = 650 + 900 * r();
-  const ribbon = r() < 0.4 ? 1 : 0;
+  const waveSpacing = 900 + 1300 * r();
+  const ribbon = r() < 0.12 ? 1 : 0;
   // (wind over a range: lenses stand over its peaks, in a sky that is not a sheet already)
   const lens = mountain && theme !== 'flock' && theme !== 'veil' ? maybe(0.5, 0.55, 1) : 0;
   const nlc = m.tSea < 7 && m.month >= 5 && m.month <= 8 ? 0.55 + 0.45 * r() : 0;
   const base = 900 + 1700 * dry + Math.min(2600, Math.max(0, m.base) * 0.75) + 500 * r();
-  return { cirrus, cirrocumulus, altocumulus, veil, waves, waveDir, waveSpacing, ribbon, lens, cumulus, towers, base, nlc };
+  return { cirrus, cirrocumulus, altocumulus, veil, waves, waveDir, waveSpacing, ribbon, lens, cumulus, towers, base, nlc, scale, thick, ragged, feather };
 }
 
 export interface PlacePalette {

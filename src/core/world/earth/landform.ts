@@ -30,6 +30,12 @@ export interface PlaceLand {
   farShape?: number;
   /** the ranges beyond stand this much higher (share) */
   ranges?: number;
+  /** (G8) no valley walls stand along its road, whatever the lie of its land: a great form of its own shapes it (earth/wonders.ts) */
+  noWalls?: boolean;
+  /** (G8) its road is level (RegionDef.levelRoad) */
+  levelRoad?: boolean;
+  /** (G8) none of the water plan's lakes and rivers: its water is its great form's */
+  dry?: boolean;
 }
 
 const clamp = (x: number, a: number, b: number): number => (x < a ? a : x > b ? b : x);
@@ -95,7 +101,9 @@ export function landOfPlace(sc: Scene): PlaceLand {
     case 'pillar_mountain':
       return { features: [F('tower', [25, 55], [0.95, 1.05], [10, 18], 60, 700)], featureSlots: 3, odds: { valley: 0.5, open: 0.3, hillside: 0.2 } };
     case 'sinkholes':
-      return { hills: { amp: clamp(0.12 * R, 8, 25), len: 200 }, odds: { open: 0.7, hillside: 0.3 } };
+      // (its great pits are its own: earth/wonders.ts; between them the dolines' small hollows and humps)
+      // (and no lake or river on it: a karst's water runs under the ground)
+      return { hills: { amp: clamp(0.1 * R, 8, 22), len: 240 }, odds: { open: 0.75, hillside: 0.25 }, noWalls: true, dry: true };
     case 'travertine':
       return { terrace: { step: 1.6, strength: 1 }, odds: { hillside: 0.6, valley: 0.3, open: 0.1 } };
     case 'stone_forest':
@@ -106,7 +114,8 @@ export function landOfPlace(sc: Scene): PlaceLand {
     case 'stratovolcano':
       return { features: [F('cone', [1400, 2400], [0.55, 0.7], [1, 1], 3000, 7000, { oneSide: true })], featureSlots: 1, odds: { open: 0.6, hillside: 0.4 } };
     case 'crater_lake':
-      return { features: [F('cone', [400, 700], [0.3, 0.45], [1, 1], 600, 2500, { oneSide: true })], featureSlots: 1, odds: { open: 0.6, hillside: 0.4 } };
+      // (the caldera is its great form: earth/wonders.ts — the country round it its outer flank, plain to the rim)
+      return { odds: { open: 1 }, hills: { amp: clamp(0.05 * R, 6, 24), len: 760 }, far: 0, noWalls: true, dry: true };
     case 'lava_field':
       return { odds: { open: 0.85, ridge: 0.15 }, hills: { amp: 4, len: 45 } };
     case 'columnar_basalt':
@@ -147,7 +156,8 @@ export function landOfPlace(sc: Scene): PlaceLand {
       return { odds: { open: 0.8, hillside: 0.2 }, hills: { amp: clamp(0.1 * R, 2, 12), len: 700 } };
     // ---- the salt's
     case 'salt_flat':
-      return { odds: { open: 1 }, hills: { amp: 0, len: 900 } };
+      // (the pan is its great form: earth/wonders.ts — nothing stands on it, the basin's ranges round it far off)
+      return { odds: { open: 1 }, hills: { amp: 0, len: 900 }, far: 0, noWalls: true, levelRoad: true, dry: true };
     case 'salt_lake':
       return { odds: { open: 1 }, hills: { amp: 1, len: 900 } };
     default:

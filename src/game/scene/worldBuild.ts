@@ -77,6 +77,8 @@ export function sinkShare(world: World, t: TerrainPoint): number {
 
 /** an anchored landform counts as one, for the paint, once it has risen this far (m) */
 const LANDFORM_FOOT = 4;
+/** … and a great form's wall (earth/wonders.ts) once it stands this far from the land it was cut in (m) */
+const GREAT_FOOT = 9;
 
 /**
  * Ground paint inputs for a vertex (terrainMaterials.ts): the weight of each palette slot, and
@@ -105,7 +107,8 @@ export function groundAttrs(seed: number, t: TerrainPoint, x: number, z: number,
   }
   // (no wood is painted on a plot of the caller's, where none stands: buildScatter keeps its trees off it)
   if (t.plot > 0.8) wood *= 1 - smoothstep(0.8, 0.95, t.plot);
-  gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
+  // (G8: a great form's rock — a caldera's wall, a pit's — says so twice over: render/terrainMaterials.ts)
+  gd[k * 4] = Math.min(ad, GROUND_FAR) + (t.great > 0 ? ON_LANDFORM * (1 + 2 * Math.min(1, t.great / GREAT_FOOT)) : t.landform > 0 ? ON_LANDFORM * Math.min(1, t.landform / LANDFORM_FOOT) : 0);
   gd[k * 4 + 1] = t.relief + t.landform;
   gd[k * 4 + 2] = lawn > 0.02 ? -lawn : wood;
   // how far under the water this ground lies (negative above it; −40 where there is no water about). A place of

@@ -39,6 +39,8 @@ export const skyUniforms = {
   uHigh: { value: new THREE.Vector4(0, 0, 0, 0) },
   /** how far the winds have carried them (m): xy the high layers', zw the middle ones' */
   uLayerDrift: { value: new THREE.Vector4(0, 0, 0, 0) },
+  /** (C1) the place's own measure of its layers: x the flock's scale (1 small heaps … 2.6 a deck), y how thick and dark, z how ragged, w cirrus in feathers (1) or tails (0) */
+  uSkyVar: { value: new THREE.Vector4(1, 0.5, 0.5, 0) },
   /** billows (V1b): x how much, y the direction they run across (rad), z their spacing (m), w 1 for a single long ribbon instead */
   uWaves: { value: new THREE.Vector4(0, 0, 900, 0) },
   /** the light on the high layers and on the middle ones (each lit by the sun as it stands for its height: after sunset the high ones glow), and their shade */
@@ -145,6 +147,7 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
       uniform float uRise;
       uniform vec4 uHigh;
       uniform vec4 uLayerDrift;
+      uniform vec4 uSkyVar;
       uniform vec4 uWaves;
       uniform vec3 uHighLit;
       uniform vec3 uMidLit;
@@ -418,8 +421,10 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
             float flight = smoothstep(0.62 - 0.36 * uHigh.x, 0.8 - 0.3 * uHigh.x, flightN);
             float fine = 1.0 - smoothstep(40.0, 200.0, mpp);
             float dens = 0.0;
+            // (uSkyVar.w: in broad feathers — plumes three times the size, thick with hair — instead of thin tails)
+            float fea = uSkyVar.w;
             for (int k = 0; k < 2; k++) {
-              vec2 cs = k == 0 ? vec2(12500.0, 2900.0) : vec2(7400.0, 1800.0);
+              vec2 cs = (k == 0 ? vec2(12500.0, 2900.0) : vec2(7400.0, 1800.0)) * mix(1.0, 2.8, fea);
               vec2 g = q / cs + float(k) * 13.7;
               g.x += floor(g.y) * 0.37;
               vec2 id = floor(g);
@@ -429,13 +434,13 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
               // (0 at its head … 1 at the end of its hair; the hair sags off to one side as it trails: the hook)
               float x = (f.x - 0.1) / 0.84;
               float cy = 0.5 + (h2 - 0.5) * 0.3 + 0.34 * x * x * (h1 - 0.45);
-              float wd = mix(0.045, 0.17, clamp(x, 0.0, 1.0));
+              float wd = mix(0.045, 0.17, clamp(x, 0.0, 1.0)) * mix(1.0, 1.9, fea);
               float prof = exp(-pow((f.y - cy) / wd, 2.0));
               float env = smoothstep(-0.02, 0.05, x) * pow(max(1.0 - x, 0.0), 1.4);
               float hair = texture2D(tNoise, vec2(q.x / 9000.0, q.y / 210.0) + h1).r * 0.6 + texture2D(tNoise, vec2(q.x / 3100.0, q.y / 75.0) + h2).g * 0.4;
-              dens += prof * env * mix(0.7, 0.3 + 1.1 * hair, fine) * step(h1, 0.35 + 0.5 * uHigh.x);
+              dens += prof * env * mix(0.7, 0.3 + 1.1 * hair, fine) * step(h1, 0.35 + 0.5 * uHigh.x) * mix(1.0, 1.7, fea);
             }
-            float c = clamp(dens * 1.15, 0.0, 1.0) * flight * low;
+            float c = clamp(dens * 1.15, 0.0, 1.0) * mix(flight, max(flight, 0.55), fea) * low;
             col = mix(col, mix(uHighLit, uLayerShade, 0.12 * (1.0 - toSun)), c * 0.74);
           }
           // ---- cirrocumulus: a ripple of small grains high up, in a patch or two — rows across the wind breaking into
@@ -458,35 +463,39 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
             float amount = mix(0.34, g, sharp) * cover * low * (0.55 + 0.45 * uHigh.y);
             col = mix(col, mix(uLayerShade, uHighLit, 0.82), amount * 0.6);
           }
-          // ---- altocumulus: the flock — a sheet of rounded heaps in a band or two across the sky, the heaps thick in the
-          // band's middle and thinning to nothing at its ragged edge, each lit on its sun side and blue-grey under
+          // ---- altocumulus: the flock — a sheet of rounded heaps in a band or two across the sky; or, its heaps great and
+          // low and thick (uSkyVar.x), a deck of stratocumulus with the blue in its breaks. Seen from under: a heap's middle
+          // is its belly in shade, its rim thin and bright, its flank toward the sun lit (uSkyVar.y: how thick, how dark)
           if (uHigh.z > 0.004) {
-            float t = rtLayerT(d, 4300.0);
+            float sc = uSkyVar.x;
+            float deck = smoothstep(1.5, 2.4, sc);
+            float t = rtLayerT(d, mix(4300.0, 2400.0, deck));
             vec2 P = camW + d.xz * t + uLayerDrift.zw;
             float mpp = t * pix / max(d.y + 0.2, 0.2);
             vec2 q = vec2(dot(P, wdir), dot(P, wper));
-            // (the bands lie across the wind, long)
-            float bandN = texture2D(tNoise, vec2(q.x / 30000.0, q.y / 120000.0) + vec2(uTime * 0.0006, 11.0)).g * 0.72 + texture2D(tNoise, P / 9000.0 + 3.0).r * 0.28;
-            // (a band or two, two fifths of the sky at most: how much of it there is thickens the flock, it does not spread it)
-            float cover = smoothstep(0.54, 0.74, bandN + 0.12 * (uHigh.z - 0.5));
-            vec2 wp = P + (texture2D(tNoise, P / 6400.0 + 0.2).rg - 0.5) * 620.0;
-            vec2 p1 = rtPuffs(wp, 560.0, 0.15 + 0.8 * cover, sunH, 0.3, 0.5);
-            vec2 p2 = rtPuffs(wp + vec2(311.0, 97.0), 250.0, 0.3 + 0.6 * cover, sunH, 0.28, 0.44);
-            float sharp = 1.0 - smoothstep(110.0, 460.0, mpp);
+            // (the bands lie across the wind, long; a deck is most of the sky with breaks in it)
+            float bandN = texture2D(tNoise, vec2(q.x / (30000.0 * sc), q.y / (120000.0 * sc)) + vec2(uTime * 0.0006, 11.0)).g * 0.72 + texture2D(tNoise, P / (9000.0 * sc) + 3.0).r * 0.28;
+            float cover = smoothstep(0.54 - 0.26 * deck, 0.74 - 0.3 * deck, bandN + 0.12 * (uHigh.z - 0.5));
+            vec2 wp = P + (texture2D(tNoise, P / (6400.0 * sc) + 0.2).rg - 0.5) * 620.0 * sc;
+            vec2 p1 = rtPuffs(wp, 560.0 * sc, 0.15 + 0.8 * cover, sunH, 0.3, 0.5 + 0.06 * deck);
+            vec2 p2 = rtPuffs(wp + vec2(311.0, 97.0), 250.0 * sc, 0.3 + 0.6 * cover, sunH, 0.28, 0.44);
+            float sharp = 1.0 - smoothstep(110.0 * sc, 460.0 * sc, mpp);
             float body = max(p1.x, p2.x * 0.7);
             float lit = mix(p1.y, p2.y, step(p1.x, p2.x * 0.7));
-            // (a heap is thick in its middle and thin at its rim: its sun side white, the rest of it the sky's blue grey)
-            float soft = (texture2D(tNoise, wp / 420.0).b - 0.5) * 0.4;
-            // (soft: each heap fades out to its rim, no cut edge — they were white paper shapes laid on the blue)
-            float thickK = clamp(body * 1.2 + soft * body * 1.6, 0.0, 1.0);
+            // (ragged: a heap's outline pushed in and out, finer near enough to see)
+            float soft = (texture2D(tNoise, wp / (420.0 * sc)).b - 0.5) * (0.4 + 0.5 * uSkyVar.z) + (texture2D(tNoise, wp / (130.0 * sc) + 0.37).g - 0.5) * 0.25 * uSkyVar.z * sharp;
+            float thickK = clamp(body * (1.2 + 0.5 * deck) + soft * body * 1.6, 0.0, 1.0);
             thickK = thickK * thickK * (3.0 - 2.0 * thickK);
             float amount = mix(0.5 * cover, thickK * smoothstep(0.0, 0.3, cover), sharp) * (0.62 + 0.38 * uHigh.z);
-            // (its sun side white where it is thick; the rest of it, and all its thin rim, the layer's blue grey)
-            vec3 ac = mix(uLayerShade * 0.97, uMidLit, mix(0.5 + 0.2 * toSun, 0.1 + 0.9 * lit * smoothstep(0.25, 0.85, thickK), sharp));
-            col = mix(col, ac, amount * low * 0.86);
+            float belly = smoothstep(0.4, 1.0, thickK) * (0.45 + 0.55 * uSkyVar.y);
+            float sunSide = lit * smoothstep(0.2, 0.8, thickK);
+            vec3 under = mix(uLayerShade, uLayerShade * vec3(0.62, 0.66, 0.76), uSkyVar.y * (0.4 + 0.6 * deck));
+            vec3 ac = mix(uMidLit, under, mix(0.4, belly * (1.0 - 0.7 * sunSide), sharp));
+            col = mix(col, ac, amount * low * mix(0.86, 0.95, deck));
           }
-          // ---- billows: soft parallel rolls of cloud where the wind shears, broken along their length, each lit on its sun
-          // side — or one long ribbon right across the sky
+          // ---- billows: rolls of cloud where the wind shears, rank on rank across the sky to the horizon — thick, each
+          // with its belly in shade and its flank toward the sun lit, cauliflowered along its edges, broken here and
+          // there along its length — or one long ribbon right across the sky
           if (uWaves.x > 0.004) {
             float t = rtLayerT(d, 3600.0);
             vec2 P = camW + d.xz * t + uLayerDrift.zw * 0.7;
@@ -496,25 +505,33 @@ export function skyDomeMaterial(): THREE.ShaderMaterial {
             float mpp = t * pix / max(d.y + 0.2, 0.2);
             float wob = texture2D(tNoise, vec2(along / 30000.0, across / 60000.0) + 0.4).r;
             float c;
-            float lit;
+            vec3 wc;
             if (uWaves.w > 0.5) {
               // (a ribbon a kilometre wide, tens of kilometres long, straight but for a slow wander, frayed at its edges)
               float off = across - 2400.0 + (wob - 0.5) * 1800.0;
               float fray = texture2D(tNoise, vec2(along / 2600.0, across / 900.0)).g;
               c = (1.0 - smoothstep(260.0, 640.0, abs(off) + (fray - 0.5) * 420.0)) * smoothstep(0.25, 0.5, texture2D(tNoise, vec2(along / 90000.0, 0.3)).b + 0.2);
-              lit = smoothstep(-300.0, 300.0, off * sign(dot(wd, sunH)));
+              float lit = smoothstep(-300.0, 300.0, off * sign(dot(wd, sunH)));
+              wc = mix(uLayerShade, uMidLit, 0.3 + 0.7 * lit);
             } else {
               float ph = across / uWaves.z + (wob - 0.5) * 3.0;
-              float roll = 0.5 + 0.5 * sin(ph * 6.2832);
               float sharp = 1.0 - smoothstep(uWaves.z * 0.12, uWaves.z * 0.4, mpp);
-              // (the rolls ragged: thick here, a wisp there along their length, in one field of them)
-              float rag = texture2D(tNoise, vec2(along / 5200.0, ph * 0.13)).b;
-              float fray = texture2D(tNoise, vec2(along / 1300.0, across / 700.0)).g;
-              float env = smoothstep(0.5, 0.72, texture2D(tNoise, P / 70000.0 + vec2(21.0, uTime * 0.0004)).a);
-              c = mix(0.3, smoothstep(0.5, 0.9, roll + (fray - 0.5) * 0.5) * smoothstep(0.3, 0.62, rag), sharp) * env;
-              lit = 0.5 + 0.5 * cos(ph * 6.2832) * sign(dot(wd, sunH));
+              // (1 along a roll's middle; its edges pushed in and out at two sizes)
+              float roll = 0.5 + 0.5 * cos(ph * 6.2832);
+              float e1 = texture2D(tNoise, vec2(along / 1700.0, across / 900.0)).g - 0.5;
+              float e2 = texture2D(tNoise, vec2(along / 430.0, across / 270.0)).b - 0.5;
+              float body = roll + e1 * (0.3 + 0.5 * uSkyVar.z) + e2 * 0.24 * sharp;
+              // (each roll broken along its length in its own places; the field of them thinning out at its edge)
+              float gaps = smoothstep(0.2, 0.5, texture2D(tNoise, vec2(along / 7000.0, floor(ph) * 0.37)).b + 0.3 * uSkyVar.y);
+              float env = smoothstep(0.36, 0.6, texture2D(tNoise, P / 70000.0 + vec2(21.0, uTime * 0.0004)).a + 0.2 * uWaves.x);
+              float thickK = smoothstep(0.5 - 0.22 * uSkyVar.y, 0.86, body) * gaps;
+              c = mix(0.42, thickK, sharp) * env;
+              float flank = 0.5 + 0.5 * sin(ph * 6.2832) * sign(dot(wd, sunH));
+              float belly = smoothstep(0.35, 1.0, thickK) * (0.5 + 0.5 * uSkyVar.y);
+              vec3 under = mix(uLayerShade, uLayerShade * vec3(0.6, 0.64, 0.74), uSkyVar.y * 0.8);
+              wc = mix(uMidLit, under, mix(0.45, belly * (1.0 - 0.75 * flank), sharp));
             }
-            col = mix(col, mix(uLayerShade, uMidLit, 0.3 + 0.7 * lit), c * uWaves.x * low * 0.72);
+            col = mix(col, wc, c * uWaves.x * low * 0.94);
           }
           // a lenticular stack over a peak: lenses one on another, smooth, the top of each lit, its rim catching the light
           if (uLens.w > 0.01) {

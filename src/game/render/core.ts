@@ -10,6 +10,7 @@ import { NOISE_PERIOD, globals } from './shaderlib';
 import { STYLE } from './style';
 import { skyDomeMaterial } from '../env/sky';
 import { ShadowPass } from './shadow';
+import { MirrorPass } from './mirror';
 
 export type Quality = 'low' | 'med' | 'high';
 
@@ -58,6 +59,8 @@ export class RenderCore {
   /** false = no paint finish (the rest of the frame stays) */
   usePost = true;
   readonly shadows: ShadowPass | null;
+  /** (G8) the world upside down in a level water, for whoever asks for it this frame (render/mirror.ts) */
+  readonly mirror: MirrorPass;
   /** centre of the fine shadow map (the vehicle), render space */
   readonly shadowFocus = new THREE.Vector3();
   private readonly shadowFar = new THREE.Vector3();
@@ -79,6 +82,7 @@ export class RenderCore {
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.frame = new Frame(this.renderer, { samples: this.quality.msaa, paint: this.quality.paintRadius, smaa: this.quality.smaa, reversed: this.reversedDepth });
     this.shadows = this.quality.shadowSize > 0 ? new ShadowPass(this.quality.shadowSize, this.reversedDepth) : null;
+    this.mirror = new MirrorPass(this.reversedDepth);
     this.sky = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 4), skyDomeMaterial());
     this.sky.frustumCulled = false;
     this.sky.renderOrder = -1000;
@@ -158,6 +162,7 @@ export class RenderCore {
         this.shadowFar.copy(this.camera.position).addScaledVector(this.fwd, 55);
         this.shadows.render(this.renderer, scene, this.shadowFocus, this.shadowFar);
       }
+      this.mirror.render(this.renderer, scene, this.camera, o.y);
       this.frame.exposure = this.exposure;
       this.frame.shafts = this.shafts;
       this.frame.placeContrast = this.placeContrast;

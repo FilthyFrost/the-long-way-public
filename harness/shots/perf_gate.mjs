@@ -46,7 +46,8 @@ try {
     SPOTS = (await page.evaluate(() => {
       const j = window.__rt.game.world.earth;
       while (j.pieces.length < 81) j.chapter(j.chapters.length);
-      const kinds = { forest: (p) => p.look.efg.struct === 'closed_forest', open: (p) => ['grassland', 'savanna', 'farmland'].includes(p.look.efg.struct), mountain: (p) => p.macro.context === 'mountain' && p.macro.relief > 600, coast: (p) => p.macro.water === 'coast', desert: (p) => ['desert', 'bare'].includes(p.look.efg.struct) };
+      // (G8: the great forms' mirror — a salt pan's, a crater lake's: the scene drawn once more upside down, render/mirror.ts)
+      const kinds = { mirror: (p) => p.look.landform.id === 'salt_flat', crater: (p) => p.look.landform.id === 'crater_lake', forest: (p) => p.look.efg.struct === 'closed_forest', open: (p) => ['grassland', 'savanna', 'farmland'].includes(p.look.efg.struct), mountain: (p) => p.macro.context === 'mountain' && p.macro.relief > 600, coast: (p) => p.macro.water === 'coast', desert: (p) => ['desert', 'bare'].includes(p.look.efg.struct) };
       const spots = [];
       for (const [name, is] of Object.entries(kinds)) {
         const piece = j.pieces.find((q) => q.scene && is(q.scene.place));

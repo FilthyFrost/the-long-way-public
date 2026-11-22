@@ -19,6 +19,7 @@
 import { fbm2 } from '../math/noise';
 import { BIOMES } from './biomes';
 import { LandParams } from './landform';
+import { SpineSample } from './spine';
 import type { TerrainPoint, World } from './terrain';
 
 /** the side of a tile (m), the grid's step (m), and the nodes along a side (both ends counted) */
@@ -155,6 +156,7 @@ export type ShoreReader = (x: number, z: number, out: { dist: number; kind: numb
  * its sea (sea.ts `SeaPlan.shore`), whichever is nearer. A function of the plans' geometry and the point
  * alone, so two tiles that share a node say the same of it, whichever of them the water lies in.
  */
+const shoreSt = new SpineSample();
 export function shoreOf(world: World): ShoreReader {
   return (x, z, out) => {
     const s0 = world.spine.sAtX(x);
@@ -163,6 +165,15 @@ export function shoreOf(world: World): ShoreReader {
     if (sea < out.dist) {
       out.dist = sea;
       out.kind = 3;
+    }
+    // (G8: a caldera's lake)
+    if (world.wonders !== null) {
+      world.spine.at(s0, shoreSt);
+      const great = world.wonders.shore(x, z, s0, (z - shoreSt.z) * Math.cos(shoreSt.phi));
+      if (great < out.dist) {
+        out.dist = great;
+        out.kind = 1;
+      }
     }
   };
 }

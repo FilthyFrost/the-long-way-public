@@ -21,7 +21,7 @@ import type { Process } from './landforms';
 import { bestMonth, distance, lookOf, monthToward, nameOf, type Look, type Signature } from './look';
 import type { RockId } from './rocks';
 
-export type MoveId = 'climb' | 'descend' | 'basin' | 'plateau' | 'coast' | 'inland' | 'river' | 'latitude' | 'wetter' | 'drier' | 'province' | 'volcanic' | 'karst' | 'dunes' | 'lakes' | 'wetland' | 'glacial';
+export type MoveId = 'climb' | 'descend' | 'basin' | 'plateau' | 'coast' | 'inland' | 'river' | 'latitude' | 'wetter' | 'drier' | 'province' | 'volcanic' | 'karst' | 'dunes' | 'lakes' | 'wetland' | 'glacial' | 'saltpan' | 'crater' | 'tiankeng';
 
 export const MOVE_ZH: Readonly<Record<MoveId, string>> = {
   climb: '翻山',
@@ -41,6 +41,9 @@ export const MOVE_ZH: Readonly<Record<MoveId, string>> = {
   lakes: '进湖区',
   wetland: '进湿地',
   glacial: '进冰川区',
+  saltpan: '进盐沼',
+  crater: '上火山口',
+  tiankeng: '进天坑群',
 };
 
 /** one leg of a move: its length along the road (m) and the knobs at its end (numbers ease to them, the rest change at its start) */
@@ -99,10 +102,22 @@ const FRESH_PATCH = 2.5;
  * cays, the salt mirrors — and the ecosystems one remembers (the cloud forest, the páramo, the rice terraces,
  * the lavender).
  */
+/** (G8) … and for a journey with a sense of drama (world version 5) the karst's pits, the salt lakes, the basalt's columns */
+const HIGHLIGHT_MORE: ReadonlySet<string> = new Set(['sinkholes', 'salt_lake', 'columnar_basalt']);
 const HIGHLIGHT_LANDS: ReadonlySet<string> = new Set(['u_valley', 'horn_arete', 'glacier', 'moraine_lake', 'fjord', 'cinder_cones', 'stratovolcano', 'crater_lake', 'geothermal', 'tower_karst', 'cone_karst', 'pillar_mountain', 'stone_forest', 'travertine', 'dune_star', 'gypsum_dunes', 'dune_linear', 'mesas_buttes', 'tepui', 'rift_valley', 'canyon', 'waterfall_gorge', 'inselberg', 'danxia', 'hoodoos', 'sea_cliffs', 'sea_stacks', 'coral_cays', 'island_chain', 'barrier_lagoon', 'lava_field', 'salt_flat', 'badlands', 'yardang']);
 const HIGHLIGHT_EFGS: ReadonlySet<string> = new Set(['T1.3', 'T6.5', 'T7.1r', 'T7.1l', 'T7.1f', 'T7.1t', 'MFT1.2']);
 /** after this many places without a highlight the director goes looking for one, the more eagerly the longer it has been */
 const HIGHLIGHT_AFTER = 7;
+/**
+ * (G8) The great forms (world/earth/wonders.ts): the moves that go to see one, and the landform each goes to. A journey
+ * with a sense of drama makes for one when it has been WONDER_AFTER places since the last, never the same one again
+ * within WONDER_AGAIN places: the sky's mirror, the crater's lake and the karst's pits come round in turn, a couple of
+ * hours of road between two meetings with the same.
+ */
+const WONDER_MOVE: Partial<Record<MoveId, string>> = { saltpan: 'salt_flat', crater: 'crater_lake', tiankeng: 'sinkholes' };
+const WONDER_LANDS: ReadonlySet<string> = new Set(Object.values(WONDER_MOVE));
+const WONDER_AFTER = 5;
+const WONDER_AGAIN = 22;
 /**
  * The most places with snow lying at the road among the last six before the journey turns toward summer (V1, docs/V3/nodes/V1-light.md):
  * a boreal wood is at its best in January, and a cold continental winter froze fifteen places running under one white —
@@ -117,8 +132,8 @@ const DRAMA_RELIEF = 350;
 const dramatic = (m: Macro): boolean => m.relief >= DRAMA_RELIEF || m.context === 'coast' || m.water === 'coast';
 
 /** is a place one of the journey's highlights? */
-export function isHighlight(look: Look): boolean {
-  return HIGHLIGHT_LANDS.has(look.landform.id) || HIGHLIGHT_EFGS.has(look.efg.code) || (look.water !== null && look.water.code === 'F2.9');
+export function isHighlight(look: Look, more = false): boolean {
+  return HIGHLIGHT_LANDS.has(look.landform.id) || (more && HIGHLIGHT_MORE.has(look.landform.id)) || HIGHLIGHT_EFGS.has(look.efg.code) || (look.water !== null && look.water.code === 'F2.9');
 }
 /** the landforms a move goes to see (a volcanic field's cones and flows, a karst's towers …), the more often chosen there */
 const THEME: Partial<Record<MoveId, readonly Process[]>> = { glacial: ['glacial', 'periglacial'], volcanic: ['volcanic'], karst: ['karst'], dunes: ['aeolian', 'evaporite'], coast: ['coastal'], river: ['fluvial'], basin: ['evaporite', 'aeolian', 'weathering'], plateau: ['tectonic', 'weathering'] };
@@ -243,6 +258,23 @@ const MOVES: Readonly<Record<MoveId, (m: Macro, r: Rng, last: MoveId | null) => 
     if (m.base > 700 || m.wet < 0.4 || m.water === 'wetland') return null;
     const to: Macro = { ...m, water: 'wetland', context: 'plain', relief: r.range(5, 40), base: Math.max(2, m.base - r.range(0, 150)), rock: r.chance(0.4) ? 'peat' : m.rock, landform: null };
     return [{ move: 'wetland', length: r.range(6000, 14000), to: withLandform(to, r) }];
+  },
+  // ---- (G8) the great forms: a move straight to the country each stands in
+  saltpan(m, r) {
+    // (a dry basin's floor, its salt and the water that stands on it after the rains; out of dry country or the half dry)
+    if (m.wet > 0.5 || m.context === 'coast' || m.context === 'mountain' || m.tSea < 4) return null;
+    const to: Macro = { ...m, context: 'basin', rock: 'salt', water: 'salt', wet: r.range(0.08, 0.2), relief: r.range(70, 240), disturb: 'none', landform: 'salt_flat' };
+    return [{ move: 'saltpan', length: r.range(9000, 13000), to, turn: 0.4 }];
+  },
+  crater(m, r) {
+    if (m.context === 'coast' || m.rock === 'cinder') return null;
+    const to: Macro = { ...m, context: r.pick(['mountain', 'plateau'] as const), rock: r.pick(['basalt', 'rhyolite', 'cinder'] as const), water: 'lake', wet: Math.max(m.wet, r.range(0.3, 0.5)), relief: r.range(300, 760), disturb: 'none', landform: 'crater_lake' };
+    return [{ move: 'crater', length: r.range(8000, 11000), to, turn: 0.4 }];
+  },
+  tiankeng(m, r) {
+    if (m.context === 'coast' || m.context === 'mountain' || m.wet < 0.32) return null;
+    const to: Macro = { ...m, context: r.pick(['hills', 'plateau'] as const), rock: 'limestone', water: 'none', wet: Math.max(m.wet, 0.45), relief: r.range(160, 420), disturb: 'none', landform: 'sinkholes' };
+    return [{ move: 'tiankeng', length: r.range(8000, 11000), to, turn: 0.4 }];
   },
   glacial(m, r) {
     // (the ice above the road: its peaks rise into the cold where the growing season never thaws)
@@ -372,6 +404,9 @@ export class EarthJourney {
   private month = 5;
   /** the index of the last place of high drama (a range, a coast, a highlight: DRAMA_RELIEF) — kept by a journey with a sense of drama */
   private lastDrama = 0;
+  /** (G8) the index of the last place that was a great form's, and of the last of each */
+  private lastWonder = 0;
+  private readonly wonderAt = new Map<string, number>();
 
   /**
    * @param opts.drama the scenic roads' journey (world version 5, docs/V3/nodes/R2-roads.md): after two places of
@@ -485,6 +520,12 @@ export class EarthJourney {
     const options: { legs: Leg[]; score: number }[] = [];
     MOVE_IDS.forEach((id, k) => {
       const mr = new Rng(hash2(this.seed | 0, step * 31 + k, 0xe4));
+      // (G8: a great form's move only on a journey with a sense of drama, and only when one is due)
+      const great = WONDER_MOVE[id];
+      if (great !== undefined) {
+        const n = this.scenes.length;
+        if (!this.opts.drama || n < 3 || n - this.lastWonder < WONDER_AFTER || n - (this.wonderAt.get(great) ?? -WONDER_AGAIN) < WONDER_AGAIN) return;
+      }
       let legs = MOVES[id](m, mr, last);
       if (!legs) return;
       // (every move drifts toward the long tour's warmth and wetness, as far as its length allows: about a degree
@@ -525,7 +566,7 @@ export class EarthJourney {
           if (lastScenes.length === 3 && lastScenes.every((x) => x.macro.context === at.context)) runs *= 0.7;
           if (lastScenes.length === 3 && lastScenes.every((x) => x.look.sig.struct === look.sig.struct)) runs *= 0.7;
           if (look.efg.code === 'T6.1' && lastScenes.some((x) => x.look.efg.code === 'T6.1')) runs *= 0.4;
-          if (isHighlight(look) || (leg.crest && u === 1)) highlight = true;
+          if (isHighlight(look, !!this.opts.drama) || (leg.crest && u === 1)) highlight = true;
           samples++;
         }
         prev = leg.to;
@@ -552,7 +593,8 @@ export class EarthJourney {
         const flat = this.scenes.length - this.lastDrama;
         if (flat >= DRAMA_AFTER && (highlight || legs.some((g) => dramatic(g.to)))) drama = Math.min(4, 1 + 0.6 * (flat - DRAMA_AFTER + 1));
       }
-      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama;
+      // (G8: a great form due is what the journey goes for)
+      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama * (great !== undefined ? 3.5 : 1);
       options.push({ legs, score });
     });
     options.sort((a, b) => b.score - a.score);
@@ -587,7 +629,13 @@ export class EarthJourney {
     // the landform: among those that can stand here, the move's own more often, the last place's now and then, not one of the few before
     const prevLand = this.scenes[i - 1]?.macro.landform ?? null;
     const recentLands = this.scenes.slice(-5).map((x) => x.macro.landform);
-    const options = landformsFor(knobs).slice(0, 8);
+    const prevSil = this.scenes[i - 1]?.look.landform.silhouette ?? null;
+    let options = landformsFor(knobs).slice(0, 8);
+    if (this.opts.drama) {
+      // (G8) a great form only as its own move's, and only when it is due: never the place after itself, never met by chance
+      const due = options.filter((o) => !WONDER_LANDS.has(o.landform.id) || (o.landform.id === knobs.landform && i - (this.wonderAt.get(o.landform.id) ?? -WONDER_AGAIN) >= WONDER_AGAIN));
+      if (due.length) options = due;
+    }
     let landform: string | null = null;
     const seg0 = this.segments.find((x) => x.s0 <= mid && x.s1 > mid);
     const theme = seg0 ? THEME[seg0.move] : undefined;
@@ -596,6 +644,19 @@ export class EarthJourney {
         let x = o.fit * o.fit;
         if (o.landform.id === knobs.landform) x *= 2.2;
         if (theme?.includes(o.landform.process)) x *= 2;
+        if (this.opts.drama) {
+          // (G8) a journey with a sense of drama: the great form its move came for, once — the place after it is another;
+          // no landform twice running, nor one of the last five but seldom; never two skylines alike in a row where
+          // another can stand; the plain shapes only where nothing grander can
+          const own = o.landform.id === knobs.landform && WONDER_LANDS.has(o.landform.id);
+          if (own) x *= i - (this.wonderAt.get(o.landform.id) ?? -WONDER_AGAIN) >= WONDER_AGAIN ? 40 : 0.02;
+          else if (WONDER_LANDS.has(o.landform.id)) x *= i - (this.wonderAt.get(o.landform.id) ?? -WONDER_AGAIN) >= WONDER_AGAIN ? 0.15 : 0.002;
+          if (HIGHLIGHT_LANDS.has(o.landform.id) || HIGHLIGHT_MORE.has(o.landform.id)) x *= 1.5;
+          if (o.landform.id === prevLand) x *= 0.03;
+          else if (recentLands.includes(o.landform.id)) x *= 0.6;
+          if (prevSil !== null && o.landform.silhouette === prevSil) x *= 0.55;
+          if (o.landform.process === 'plain') x *= 0.55;
+        }
         // (a while without a highlight: one of the landforms one remembers, where one can stand here, the more often the longer it has been)
         const gap = i - this.lastHighlight;
         if (gap >= HIGHLIGHT_AFTER && HIGHLIGHT_LANDS.has(o.landform.id)) x *= 1 + 0.8 * (gap - HIGHLIGHT_AFTER + 1);
@@ -616,7 +677,8 @@ export class EarthJourney {
     if (prev && distance(prev.look.sig, look.sig) < VARY_BELOW) {
       // (each way of varying it as likely as it is: a landform as it fits, a patch as often as it is found)
       const tries: { m: Macro; p: number }[] = [];
-      for (const o of options) if (o.landform.id !== landform && o.landform.id !== prev.macro.landform) tries.push({ m: { ...macro, landform: o.landform.id }, p: o.fit });
+      // (G8: a great form is no way of varying a place — it comes when its move comes for it)
+      for (const o of options) if (o.landform.id !== landform && o.landform.id !== prev.macro.landform && !(this.opts.drama && WONDER_LANDS.has(o.landform.id))) tries.push({ m: { ...macro, landform: o.landform.id }, p: o.fit });
       for (const p of patchesAt(macro, macro.base)) if (p.efg.code !== look.efg.code) tries.push({ m: { ...macro, efg: p.efg.code }, p: p.weight * p.raw * p.raw * (vertical ? onSlopes(p.efg) : 1) });
       if (macro.water === 'none' && macro.wet > 0.12 && macro.context !== 'coast') tries.push({ m: { ...macro, water: 'river', waterEfg: null }, p: 0.7 });
       if (macro.water === 'none' && macro.wet < 0.25 && warmthAt(macro, macro.base) > 12 && macro.context !== 'coast') tries.push({ m: { ...macro, water: 'oasis', waterEfg: null }, p: 0.3 });
@@ -653,9 +715,13 @@ export class EarthJourney {
     this.seenEfg.add(look.efg.code);
     if (look.water) this.seenWater.add(look.water.code);
     this.seenLand.add(look.landform.id);
+    if (WONDER_LANDS.has(look.landform.id)) {
+      this.lastWonder = i;
+      this.wonderAt.set(look.landform.id, i);
+    }
     for (const b of look.belts) this.seenEfg.add(b.code);
-    if (isHighlight(look) || crestHere) this.lastHighlight = i;
-    if (isHighlight(look) || crestHere || dramatic(macro)) this.lastDrama = i;
+    if (isHighlight(look, !!this.opts.drama) || crestHere) this.lastHighlight = i;
+    if (isHighlight(look, !!this.opts.drama) || crestHere || dramatic(macro)) this.lastDrama = i;
     this.scenes.push({ index: i, s0, s1, macro, look, name, tag, moment, move: seg.move });
   }
 }

@@ -96,8 +96,9 @@ describe('the scenic roads in the world (version 5)', () => {
       const w = new World(seed, { worldVersion: 5 });
       const shelf = placeOf(w, 'shelf');
       if (shelf) {
-        const s = (shelf.start + shelf.end) / 2;
-        const k = Math.floor(s / 1250);
+        // (the middle of a stretch of it, clear of the blend into the stretch before)
+        const k = Math.floor((shelf.start + shelf.end) / 2 / 1250);
+        const s = (k + 0.5) * 1250;
         if (w.land.kindOf(k) === 'shelf') {
           shelves++;
           const high = w.land.sideOf(k);
