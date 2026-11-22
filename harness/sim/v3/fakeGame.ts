@@ -15,6 +15,7 @@
 import type { GarageDevice } from '../../../src/game/modcar/garageStub';
 import type { GameContext, RadioSet } from '../../../src/game/modcar/kernel/context';
 import type { DevButton, DevPane } from '../../../src/game/modcar/kernel/devTabs';
+import { newVitals } from '../../../src/core/modcar/vitals';
 import { setItemClock } from '../../../src/game/modcar/itemTime';
 import { Kernel, type KernelSave } from '../../../src/game/modcar/kernel/kernel';
 import type { GameModule } from '../../../src/game/modcar/kernel/modules';
@@ -90,6 +91,7 @@ export class FakeGame {
       env: { sky: this.sky } as GameContext['env'],
       world: null,
       player: { walker: this.walker } as GameContext['player'],
+      body: newVitals(),
       vehicles: [],
       get seated() {
         return game.seated;

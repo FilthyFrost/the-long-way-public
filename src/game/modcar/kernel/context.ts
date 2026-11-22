@@ -26,6 +26,7 @@ import type { SaveSliceRegistry } from '../../../core/kernel/slices';
 import type { SystemRegistry } from '../../../core/kernel/systems';
 import type { WorldTime } from '../../../core/kernel/clock';
 import type { DrinkLiquid, ItemInstance } from '../../../core/modcar/items';
+import type { Vitals } from '../../../core/modcar/vitals';
 import type { World } from '../../../core/world/terrain';
 import type { Environment } from '../../env/environment';
 import type { RenderCore } from '../../render/core';
@@ -64,6 +65,8 @@ export interface GameContext {
   readonly world: World | null;
   /** the player on foot: the walker, the hands, what the mark is on */
   readonly player: ModPlayer;
+  /** the body: health, food, water, warmth (core/modcar/vitals.ts): a meal feeds it through `eat` */
+  readonly body: Vitals;
   /** every vehicle there now, the live wrecks by the road among them */
   readonly vehicles: readonly ModVehicle[];
   /** the vehicle the player sits in; null on foot */

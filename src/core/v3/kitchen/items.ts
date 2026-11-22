@@ -53,8 +53,6 @@ export interface KitState {
   pot?: PotState;
   /** a board: what lies on it, and how many strokes of the knife it has had */
   food?: Portion & { chops?: number };
-  /** the seasonings' caddy: which one is to hand */
-  sp?: number;
 }
 
 /** what a serving carries: what it feeds, whether it came out perfect, what it was dished up on (given back when it is eaten) */

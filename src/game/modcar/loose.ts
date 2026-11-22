@@ -253,7 +253,8 @@ export class LooseThings {
 
   constructor(
     private readonly core: RenderCore,
-    private readonly mats: CarMaterials,
+    /** the looks of the things lying about: a system that draws more on one of them (what is in a pan) paints it as they are painted */
+    readonly mats: CarMaterials,
     public surfaceAt: SurfaceAt,
   ) {
     this.root.name = 'modcar:loose';

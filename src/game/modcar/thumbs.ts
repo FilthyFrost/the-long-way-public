@@ -27,6 +27,8 @@ const COLOURS: Record<string, number> = {
   ceramic: 0xf4f1ea,
   rust: 0x8c4c28,
   emit: 0xfff3c4,
+  cap_oil: 0xe0a024,
+  cap_water: 0x2f6fc0,
 };
 
 const W = 176;

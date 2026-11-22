@@ -1762,6 +1762,9 @@ export class ModPlayer {
       const one = this.takeOne(u.slot) ?? u.item;
       this.use = null;
       this.progress = 0;
+      // (the button is still down as the last bite goes: that press was the meal, and is over — it does not go on to
+      // pick up the stove one happens to be looking at)
+      this.spent = true;
       host.consume(one);
       host.sound('gulp');
     }
