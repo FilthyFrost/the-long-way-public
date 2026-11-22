@@ -116,9 +116,12 @@ const HIGHLIGHT_AFTER = 7;
  */
 const WONDER_MOVE: Partial<Record<MoveId, string>> = { saltpan: 'salt_flat', crater: 'crater_lake', tiankeng: 'sinkholes' };
 const WONDER_LANDS: ReadonlySet<string> = new Set(Object.values(WONDER_MOVE));
-const WONDER_AFTER = 5;
+const WONDER_AFTER = 4;
 const WONDER_FIRST = 3;
-const WONDER_AGAIN = 22;
+/** (G9) how much faster a journey with a sense of drama goes round the Earth's climates, and drifts toward them along a leg */
+const QUICK_TOUR = 2.5;
+const QUICK_DRIFT = 2.6;
+const WONDER_AGAIN = 16;
 /**
  * The most places with snow lying at the road among the last six before the journey turns toward summer (V1, docs/V3/nodes/V1-light.md):
  * a boreal wood is at its best in January, and a cold continental winter froze fifteen places running under one white —
@@ -519,7 +522,13 @@ export class EarthJourney {
     const last = this.lastMoves[this.lastMoves.length - 1] ?? null;
     const r = new Rng(hash2(this.seed | 0, step, 0xe3));
     const recent = this.recent(12);
-    const target = tourWarmth(this.seed, this.end + 20000);
+    // (G9) a journey with a sense of drama is quick: its long tour of the Earth's warmth and wetness turns QUICK_TOUR
+    // times as fast, its legs are a place or two long, and the climate drifts along them QUICK_DRIFT times as fast — the
+    // country is another every few kilometres, the snow's and the desert's a quarter of an hour apart
+    const quick = !!this.opts.drama;
+    const tourPace = quick ? QUICK_TOUR : 1;
+    const drift = quick ? QUICK_DRIFT : 1;
+    const target = tourWarmth(this.seed, (this.end + 20000) * tourPace);
     const options: { legs: Leg[]; score: number }[] = [];
     MOVE_IDS.forEach((id, k) => {
       const mr = new Rng(hash2(this.seed | 0, step * 31 + k, 0xe4));
@@ -536,19 +545,31 @@ export class EarthJourney {
       }
       let legs = MOVES[id](m, mr, last);
       if (!legs) return;
+      if (quick) {
+        let from = m;
+        legs = legs.map((leg) => {
+          // (a climb or a descent half as far and half as high, at the grade it had; any other move 5 to 9 km)
+          const steep = leg.move === 'climb' || leg.move === 'descend' || Math.abs(leg.to.base - from.base) > 0.03 * leg.length;
+          const out: Leg = steep
+            ? { ...leg, length: leg.length * 0.5, to: { ...leg.to, base: from.base + 0.5 * (leg.to.base - from.base) } }
+            : { ...leg, length: clamp(leg.length * 0.45, 5000, 9000) };
+          from = leg.to;
+          return out;
+        });
+      }
       // (every move drifts toward the long tour's warmth and wetness, as far as its length allows: about a degree
       // and a twentieth of the wetness every five kilometres — a latitude move twice that; a rain shadow's or a
       // shore's own change comes on top)
       legs = legs.map((leg) => {
         const reach = leg.length / 5000;
-        const wantT = tourWarmth(this.seed, this.end + leg.length);
-        const wantW = tourWetness(this.seed, this.end + leg.length);
+        const wantT = tourWarmth(this.seed, (this.end + leg.length) * tourPace);
+        const wantW = tourWetness(this.seed, (this.end + leg.length) * tourPace);
         // (over a range the change is the height's: the latitude and the climate barely drift on a climb)
         const vertical = id === 'climb' || id === 'descend' || id === 'glacial';
         const kT = id === 'latitude' ? 2 : vertical ? 0.25 : 1;
         const kW = vertical ? 0.25 : 1;
-        const tSea = clamp(leg.to.tSea + clamp(wantT - leg.to.tSea, -1.1 * kT * reach, 1.1 * kT * reach), -16, 28);
-        const wet = id === 'wetter' || id === 'drier' ? leg.to.wet : clamp(leg.to.wet + clamp(wantW - leg.to.wet, -0.05 * kW * reach, 0.05 * kW * reach), 0.01, 1);
+        const tSea = clamp(leg.to.tSea + clamp(wantT - leg.to.tSea, -1.1 * drift * kT * reach, 1.1 * drift * kT * reach), -16, 28);
+        const wet = id === 'wetter' || id === 'drier' ? leg.to.wet : clamp(leg.to.wet + clamp(wantW - leg.to.wet, -0.05 * drift * kW * reach, 0.05 * drift * kW * reach), 0.01, 1);
         // (and the road comes down as its latitude cools under it: it stays below the snowline — PASS_COLDEST)
         const cooled: Macro = { ...leg.to, tSea, wet };
         const highest = Math.max(0, (tSea + 0.6 * swingOf(cooled) - PASS_COLDEST) / LAPSE);

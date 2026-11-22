@@ -264,7 +264,8 @@ export const ROADS: readonly RoadType[] = [
     id: 'lakeshore',
     zh: '湖岸路',
     moment: '路沿着湖岸弯，湖面上倒映着对岸的山',
-    fit: (sc) => (sc.macro.water === 'lake' || sc.macro.water === 'wetland' ? 1 : 0),
+    // (not by the sea: a road along the shore has no lake beside it — the water plan lays none there, world/terrain.ts)
+    fit: (sc) => ((sc.macro.water === 'lake' || sc.macro.water === 'wetland') && sc.macro.context !== 'coast' ? 1 : 0),
     land: ['open', 'open', 'valley', 'open'],
     align: align(60, 0.25, [80, 260], [18, 60], 3),
     grade: grade(0.015, 900, 0.05),
