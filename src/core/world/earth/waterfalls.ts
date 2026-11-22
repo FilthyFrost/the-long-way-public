@@ -98,7 +98,8 @@ function plan(world: World, p: EarthPiece, share: number, reach: number, tp: Ter
           runStart = -1;
         }
       }
-      if (bestRise < 28 || b0 < 0) continue;
+      // (… nor one whose whole rise is in a step or two of the walk — a sheer wall, a pit's or a crater's: a fall has a course)
+      if (bestRise < 28 || b0 < 0 || b1 - b0 < 3) continue;
       // (the lip a little back from the top of the rise, where the stream comes over it; no fall on a road above)
       const path: number[] = [];
       for (let k = b1; k >= b0; k--) {

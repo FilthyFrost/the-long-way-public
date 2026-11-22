@@ -151,6 +151,8 @@ describe('a place composed (world version 5)', () => {
 
   it('its stones lie together where its rock comes through, and most of its ground has none', () => {
     let fields = 0;
+    let together = 0;
+    let stones = 0;
     for (const seed of [1, 3, 7]) {
       const w = new World(seed, { worldVersion: 5 });
       const gf = groundField(w);
@@ -187,11 +189,15 @@ describe('a place composed (world version 5)', () => {
             }
           }
         }
-        expect(grouped / xs.length, `${seed}:${p.k}`).toBeGreaterThan(0.62);
+        // (a place's dozen or two stones: half of them at the least; all the places' together: seven in ten)
+        expect(grouped / xs.length, `${seed}:${p.k}`).toBeGreaterThan(0.5);
+        together += grouped;
+        stones += xs.length;
         fields++;
       }
     }
     expect(fields).toBeGreaterThan(2);
+    expect(together / stones).toBeGreaterThan(0.7);
   });
 
   it('a meadow\'s flowers stand in drifts: a carpet inside one, hardly one between', () => {

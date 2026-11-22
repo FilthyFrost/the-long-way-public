@@ -117,6 +117,7 @@ const HIGHLIGHT_AFTER = 7;
 const WONDER_MOVE: Partial<Record<MoveId, string>> = { saltpan: 'salt_flat', crater: 'crater_lake', tiankeng: 'sinkholes' };
 const WONDER_LANDS: ReadonlySet<string> = new Set(Object.values(WONDER_MOVE));
 const WONDER_AFTER = 5;
+const WONDER_FIRST = 3;
 const WONDER_AGAIN = 22;
 /**
  * The most places with snow lying at the road among the last six before the journey turns toward summer (V1, docs/V3/nodes/V1-light.md):
@@ -262,7 +263,8 @@ const MOVES: Readonly<Record<MoveId, (m: Macro, r: Rng, last: MoveId | null) => 
   // ---- (G8) the great forms: a move straight to the country each stands in
   saltpan(m, r) {
     // (a dry basin's floor, its salt and the water that stands on it after the rains; out of dry country or the half dry)
-    if (m.wet > 0.5 || m.context === 'coast' || m.context === 'mountain' || m.tSea < 4) return null;
+    // (… or over a range's rain shadow from wetter country: the journey's first comes straight from home's hills)
+    if (m.wet > 0.8 || m.context === 'coast' || m.context === 'mountain' || m.tSea < 4) return null;
     const to: Macro = { ...m, context: 'basin', rock: 'salt', water: 'salt', wet: r.range(0.08, 0.2), relief: r.range(70, 240), disturb: 'none', landform: 'salt_flat' };
     return [{ move: 'saltpan', length: r.range(9000, 13000), to, turn: 0.4 }];
   },
@@ -407,6 +409,7 @@ export class EarthJourney {
   /** (G8) the index of the last place that was a great form's, and of the last of each */
   private lastWonder = 0;
   private readonly wonderAt = new Map<string, number>();
+  private readonly wonderPlanned = new Map<string, number>();
 
   /**
    * @param opts.drama the scenic roads' journey (world version 5, docs/V3/nodes/R2-roads.md): after two places of
@@ -524,7 +527,12 @@ export class EarthJourney {
       const great = WONDER_MOVE[id];
       if (great !== undefined) {
         const n = this.scenes.length;
-        if (!this.opts.drama || n < 3 || n - this.lastWonder < WONDER_AFTER || n - (this.wonderAt.get(great) ?? -WONDER_AGAIN) < WONDER_AGAIN) return;
+        // (the first round sooner: until the journey has met all three, one is due three places after the last —
+        // a new journey comes to its first within a quarter of an hour and has seen them all within the first hour or so)
+        // (and the very first straight from home: ten minutes down the road)
+        const none = this.wonderAt.size === 0 && this.wonderPlanned.size === 0;
+        const after = none ? 0 : this.wonderAt.size < WONDER_LANDS.size ? WONDER_FIRST : WONDER_AFTER;
+        if (!this.opts.drama || n < 1 || n - this.lastWonder < after || n - (this.wonderAt.get(great) ?? -WONDER_AGAIN) < WONDER_AGAIN || (this.wonderPlanned.get(great) ?? -1) >= n) return;
       }
       let legs = MOVES[id](m, mr, last);
       if (!legs) return;
@@ -594,7 +602,7 @@ export class EarthJourney {
         if (flat >= DRAMA_AFTER && (highlight || legs.some((g) => dramatic(g.to)))) drama = Math.min(4, 1 + 0.6 * (flat - DRAMA_AFTER + 1));
       }
       // (G8: a great form due is what the journey goes for)
-      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama * (great !== undefined ? 3.5 : 1);
+      const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama * (great !== undefined ? (this.wonderAt.has(great) ? 3.5 : 40) : 1);
       options.push({ legs, score });
     });
     options.sort((a, b) => b.score - a.score);
@@ -608,6 +616,13 @@ export class EarthJourney {
       from = to;
     }
     this.lastMoves.push(chosen.legs[0].move);
+    // (G8: a great form's move laid and its place not yet come to: no second of it meanwhile, nor another on its heels)
+    const laid = WONDER_MOVE[chosen.legs[0].move];
+    if (laid !== undefined) {
+      // (until the road has passed its leg: if its place came out otherwise, it is due again)
+      this.wonderPlanned.set(laid, Math.floor(this.end / SCENE_LENGTH) + 1);
+      this.lastWonder = Math.max(this.lastWonder, Math.floor(this.end / SCENE_LENGTH) - 1);
+    }
   }
 
   private layScene(): void {
@@ -631,10 +646,17 @@ export class EarthJourney {
     const recentLands = this.scenes.slice(-5).map((x) => x.macro.landform);
     const prevSil = this.scenes[i - 1]?.look.landform.silhouette ?? null;
     let options = landformsFor(knobs).slice(0, 8);
+    let spent = false;
     if (this.opts.drama) {
       // (G8) a great form only as its own move's, and only when it is due: never the place after itself, never met by chance
       const due = options.filter((o) => !WONDER_LANDS.has(o.landform.id) || (o.landform.id === knobs.landform && i - (this.wonderAt.get(o.landform.id) ?? -WONDER_AGAIN) >= WONDER_AGAIN));
+      // (where nothing but a great form not due can stand — a crater's country a few places on, its lake still there —
+      // the place is its country's plain shape, and the lake that made it a crater's is left behind)
       if (due.length) options = due;
+      else if (options.length) {
+        options = [];
+        spent = true;
+      }
     }
     let landform: string | null = null;
     const seg0 = this.segments.find((x) => x.s0 <= mid && x.s1 > mid);
@@ -668,7 +690,7 @@ export class EarthJourney {
       landform = options[r.weighted(w)].landform.id;
     }
     const vertical = seg0?.move === 'climb' || seg0?.move === 'descend';
-    let macro: Macro = this.withPatches({ ...knobs, month: this.month, landform }, r, vertical);
+    let macro: Macro = this.withPatches({ ...knobs, month: this.month, landform, ...(spent && (knobs.water === 'lake' || knobs.water === 'salt') ? { water: 'none' as const, waterEfg: null } : {}) }, r, vertical);
     let look = lookOf(macro);
     // (too like the place before — five more minutes of the same: the director varies it as the country itself
     // varies within a province: another landform that can stand here, a river come down to the road or left
@@ -693,7 +715,8 @@ export class EarthJourney {
       let far: { m: Macro; look: Look; d: number } | null = null;
       for (const t of tries) {
         const fitted = landformsFor(t.m).find((o) => o.landform.id === t.m.landform);
-        const m2: Macro = fitted || t.m.landform === null ? t.m : { ...t.m, landform: landformsFor(t.m)[0]?.landform.id ?? null };
+        // (G8: … nor is a great form what a place falls back to when its landform no longer fits)
+        const m2: Macro = fitted || t.m.landform === null ? t.m : { ...t.m, landform: landformsFor(t.m).find((o) => !this.opts.drama || !WONDER_LANDS.has(o.landform.id))?.landform.id ?? null };
         const l2 = lookOf(m2);
         const d = distance(prev.look.sig, l2.sig);
         if (d >= VARY_BELOW) enough.push({ m: m2, look: l2, p: t.p });
@@ -718,6 +741,7 @@ export class EarthJourney {
     if (WONDER_LANDS.has(look.landform.id)) {
       this.lastWonder = i;
       this.wonderAt.set(look.landform.id, i);
+      this.wonderPlanned.delete(look.landform.id);
     }
     for (const b of look.belts) this.seenEfg.add(b.code);
     if (isHighlight(look, !!this.opts.drama) || crestHere) this.lastHighlight = i;

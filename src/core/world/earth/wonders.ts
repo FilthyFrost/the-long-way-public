@@ -355,7 +355,7 @@ export class Wonders {
       const s = p.start + len * ((i + 0.5 + 0.5 * (q(0) - 0.5)) / n);
       const r = near ? 150 + 110 * q(1) : 100 + 150 * q(1);
       const stretch = 1 + 0.5 * q(2) * q(2);
-      const side = q(3) < 0.5 ? -1 : 1;
+      let side = q(3) < 0.5 ? -1 : 1;
       let gap = near ? 26 + 16 * q(4) : 150 + 520 * q(4) * q(4);
       sp.at(s, st);
       const px = st.x;
@@ -369,7 +369,12 @@ export class Wonders {
       let x = 0;
       let z = 0;
       let ok = false;
-      for (let attempt = 0; attempt < 5 && !ok; attempt++) {
+      for (let attempt = 0; attempt < 10 && !ok; attempt++) {
+        // (no room on its own side: the other side of the road, near it)
+        if (attempt === 5) {
+          side = -side;
+          gap = 40 + 60 * q(4);
+        }
         x = px + rx * side * (gap + r);
         z = pz + rz * side * (gap + r);
         ok = true;
