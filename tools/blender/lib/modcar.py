@@ -45,6 +45,9 @@ MAT_NAMES = {
     'ceramic': ((0.95, 0.95, 0.93), 0.15, 0.0),
     'rust': ((0.45, 0.2, 0.08), 0.9, 0.3),
     'emit': ((1.0, 0.9, 0.7), 0.5, 0.0),
+    # (the two filler caps' colours, which the game's materials know: an amber and a blue that are no item's own)
+    'cap_oil': ((0.82, 0.5, 0.03), 0.5, 0.0),
+    'cap_water': ((0.06, 0.24, 0.62), 0.5, 0.0),
 }
 
 

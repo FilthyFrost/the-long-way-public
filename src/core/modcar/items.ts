@@ -76,6 +76,8 @@ export interface ItemDef {
   readonly model: string;
   readonly paint: number;
   readonly paint2: number;
+  /** its paint's gloss, as a share of a car's clear coat (absent: all of it — a tin, a bottle; a tomato some, a loaf of bread hardly any) */
+  readonly matte?: number;
   /** eaten whole (food, pills): food points, health points, over `sec`; an effect after */
   readonly eat?: { food: number; hp: number; sec: number; effect?: EffectId };
   /**
@@ -423,6 +425,7 @@ function rowProblems(r: ItemRow, seen: ReadonlySet<string>): string[] {
   if (r.model !== undefined && (typeof r.model !== 'string' || !r.model)) say('model is the name of a model');
   if (r.blurb !== undefined && typeof r.blurb !== 'string') say('blurb is a line of text');
   if ((r.paint !== undefined && !isHex(r.paint)) || (r.paint2 !== undefined && !isHex(r.paint2))) say('paint and paint2 are colours (0xrrggbb)');
+  if (r.matte !== undefined && !(isAmount(r.matte) && r.matte <= 1)) say('matte is a share of a full gloss, 0 to 1');
   if (r.salvage !== undefined) {
     if (!r.salvage || typeof r.salvage !== 'object' || Array.isArray(r.salvage)) say('salvage says how much of which material');
     else for (const [m, v] of Object.entries(r.salvage)) if (!isAmount(v)) say(`salvage.${m} is an amount from 0`);
@@ -657,10 +660,10 @@ export function itemName(inst: ItemInstance, lang: 'zh' | 'en' = 'zh'): string {
   return n > 1 ? `${d.name[lang]} ×${n}` : d.name[lang];
 }
 
-/** the colours its model is painted */
-export function itemPaint(inst: ItemInstance): { paint: number; paint2: number } {
+/** the colours its model is painted, and how much of a full gloss its paint has (absent: all) */
+export function itemPaint(inst: ItemInstance): { paint: number; paint2: number; matte?: number } {
   const d = itemDef(inst.item);
-  return { paint: inst.tint ?? d.paint, paint2: d.paint2 };
+  return d.matte === undefined ? { paint: inst.tint ?? d.paint, paint2: d.paint2 } : { paint: inst.tint ?? d.paint, paint2: d.paint2, matte: d.matte };
 }
 
 /** the models the catalogue asks for (one file serves every kind that names it) */

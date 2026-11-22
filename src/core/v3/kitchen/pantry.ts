@@ -123,6 +123,42 @@ export const FOODS: readonly Food[] = [
 
 export const FOOD: Readonly<Record<string, Food>> = Object.fromEntries(FOODS.map((f) => [f.id, f]));
 
+/** what each tag is called where a dish asks for "any of a kind" (a recipe's line, a hint in the book) */
+export const TAG_NAME: Readonly<Record<string, { zh: string; en: string }>> = {
+  veg: { zh: '蔬菜', en: 'vegetable' },
+  aromatic: { zh: '葱姜蒜', en: 'aromatic' },
+  mushroom: { zh: '菌菇', en: 'mushroom' },
+  green: { zh: '野菜香草', en: 'wild green' },
+  fruit: { zh: '水果', en: 'fruit' },
+  grain: { zh: '主食', en: 'staple' },
+  egg: { zh: '蛋', en: 'egg' },
+  dairy: { zh: '奶', en: 'dairy' },
+  meat: { zh: '肉', en: 'meat' },
+  seafood: { zh: '水产', en: 'seafood' },
+  misc: { zh: '杂货', en: 'sundry' },
+  root: { zh: '根茎', en: 'root' },
+  leaf: { zh: '叶菜', en: 'leaf' },
+  herb: { zh: '香草', en: 'herb' },
+  berry: { zh: '莓果', en: 'berry' },
+  citrus: { zh: '柑橘', en: 'citrus' },
+  poultry: { zh: '禽肉', en: 'poultry' },
+  redmeat: { zh: '红肉', en: 'red meat' },
+  cured: { zh: '腌肉', en: 'cured meat' },
+  fish: { zh: '鱼', en: 'fish' },
+  shell: { zh: '虾蟹贝', en: 'shellfish' },
+  nut: { zh: '坚果', en: 'nut' },
+  sweet: { zh: '甜料', en: 'sweetener' },
+};
+
+/** a need or an extra of a dish in words: an ingredient's name, or "any <kind>" */
+export function tokenName(token: string, lang: 'zh' | 'en' = 'zh'): string {
+  if (token.startsWith('@')) {
+    const t = TAG_NAME[token.slice(1)];
+    return t ? (lang === 'zh' ? `任意${t.zh}` : `any ${t.en}`) : token;
+  }
+  return FOOD[token]?.[lang] ?? token;
+}
+
 /** the seasonings: a pinch over the pot, never a portion in it; always enough of them */
 export const SEASONINGS: readonly { id: string; zh: string; en: string }[] = [
   { id: 'salt', zh: '盐', en: 'Salt' },

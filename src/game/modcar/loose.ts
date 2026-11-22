@@ -221,6 +221,11 @@ export class LooseThings {
   private readonly mergeIds = new Map<string, number>();
   private readonly mergedAs = new Map<number, { dirt: number; rust: number; paint: number }>();
   private litId = -1;
+  /**
+   * The things whose paint is no car's (items with a gloss of their own, items.ts `matte`: a tomato, a loaf of bread):
+   * merged apart from the rest, a lot to each gloss, for a merged mesh has one gloss. `ids`: each thing's id in its lot.
+   */
+  private readonly matteMerges = new Map<number, { merged: MergedCar; look: CarLook; ids: Map<string, number>; lit: number }>();
   /** things being cleaned (with grime masks): drawn on their own, never merged */
   private readonly grimeHeld = new Set<string>();
   /** the things a spray can is on (their colour moving every frame, their flash): drawn on their own */
@@ -463,11 +468,25 @@ export class LooseThings {
       this.mergedLook?.setHighlight(id > 0 ? id : null);
       this.litId = id;
     }
-    this.mats.highlight(l && id < 0 ? ownerOf(l) : '');
+    let own = !!l && id < 0;
+    for (const m of this.matteMerges.values()) {
+      const mid = l ? (m.ids.get(l.uid) ?? -1) : -1;
+      if (mid > 0) own = false;
+      if (mid !== m.lit) {
+        m.look.setHighlight(mid > 0 ? mid : null);
+        m.lit = mid;
+      }
+    }
+    this.mats.highlight(l && own ? ownerOf(l) : '');
   }
 
   private unmerge(): void {
     this.mergeDirty = true;
+    for (const m of this.matteMerges.values()) {
+      if (m.lit > 0) m.look.setHighlight(null);
+      m.merged.dispose();
+    }
+    this.matteMerges.clear();
     if (!this.merged) return;
     this.merged.dispose();
     this.merged = null;
@@ -481,27 +500,47 @@ export class LooseThings {
   private tryMerge(): void {
     if (!this.mergeDirty || this.loads.size || this.list.some((l) => !l.resting)) return;
     this.mergeDirty = false;
-    if (this.merged) this.unmerge();
+    if (this.merged || this.matteMerges.size) this.unmerge();
     this.mergeDirty = false;
-    const entries: { id: number; object: THREE.Object3D; look: { paint: number; paint2: number; dirt?: number; rust?: number; wear?: number } }[] = [];
+    type Entry = { id: number; uid: string; object: THREE.Object3D; look: { paint: number; paint2: number; dirt?: number; rust?: number; wear?: number } };
+    const entries: Entry[] = [];
+    const matte = new Map<number, Entry[]>();
     for (const l of this.list) {
       // (what rides on a vehicle moves with it: not merged; what is being cleaned has its mask)
       if (l.riding || this.grimeHeld.has(l.uid) || this.paintHeld.has(l.uid)) continue;
-      const id = entries.length + 1;
       const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
+      // (a gloss of its own: with the others of that gloss)
+      if (look.matte !== undefined) {
+        let lot = matte.get(look.matte);
+        if (!lot) matte.set(look.matte, (lot = []));
+        lot.push({ id: lot.length + 1, uid: l.uid, object: l.obj, look });
+        continue;
+      }
+      const id = entries.length + 1;
       this.mergeIds.set(l.uid, id);
       this.mergedAs.set(id, { dirt: look.dirt ?? 0, rust: look.rust ?? 0, paint: look.paint });
-      entries.push({ id, object: l.obj, look });
+      entries.push({ id, uid: l.uid, object: l.obj, look });
     }
-    if (!entries.length) return;
+    if (!entries.length && !matte.size) return;
     this.root.updateMatrixWorld(true);
-    const merged = new MergedCar(this.root, entries, (o) => MOVES.test(o.name) || !!o.userData.mover);
-    this.root.add(merged.group);
-    const look = this.mats.look('merged', { paint: 0x8f3a2c, paint2: 0xd8d4c8 });
-    applyMaterials(merged.group, look, true);
-    look.setCarFrame(this.root.matrixWorld);
-    this.merged = merged;
-    this.mergedLook = look;
+    const moves = (o: THREE.Object3D): boolean => MOVES.test(o.name) || !!o.userData.mover;
+    if (entries.length) {
+      const merged = new MergedCar(this.root, entries, moves);
+      this.root.add(merged.group);
+      const look = this.mats.look('merged', { paint: 0x8f3a2c, paint2: 0xd8d4c8 });
+      applyMaterials(merged.group, look, true);
+      look.setCarFrame(this.root.matrixWorld);
+      this.merged = merged;
+      this.mergedLook = look;
+    }
+    for (const [gloss, lot] of matte) {
+      const merged = new MergedCar(this.root, lot, moves);
+      this.root.add(merged.group);
+      const look = this.mats.look(`merged:matte:${gloss}`, { paint: 0x8f3a2c, paint2: 0xd8d4c8, matte: gloss });
+      applyMaterials(merged.group, look, true);
+      look.setCarFrame(this.root.matrixWorld);
+      this.matteMerges.set(gloss, { merged, look, ids: new Map(lot.map((e) => [e.uid, e.id])), lit: -1 });
+    }
   }
 
   private make(part: PartInstance | null, tool: Tool | null, x: number, y: number, z: number, yaw: number, item: ItemInstance | null = null): Loose {
@@ -662,9 +701,10 @@ export class LooseThings {
       }
     }
     this.tryMerge();
-    if (this.mergedLook) {
+    if (this.mergedLook || this.matteMerges.size) {
       this.root.updateMatrixWorld();
-      this.mergedLook.setCarFrame(this.root.matrixWorld);
+      this.mergedLook?.setCarFrame(this.root.matrixWorld);
+      for (const m of this.matteMerges.values()) m.look.setCarFrame(this.root.matrixWorld);
     }
   }
 

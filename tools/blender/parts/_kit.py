@@ -1471,6 +1471,7 @@ def render_toon(P, views=None, size=(480, 384), suffix='_toon', lens=50.0, margi
     scene.camera = cam
     fov = 2 * math.atan(18.0 / lens) * min(1.0, size[1] / size[0])
     dist = rad / math.sin(fov / 2) * margin
+    cam_data.clip_start = min(cam_data.clip_start, dist * 0.1)   # (a thing a few centimetres across is nearer than the default near plane)
     views = views or [('a', 35, 20)]
     outs = []
     for tag, yaw, pitch in views:
