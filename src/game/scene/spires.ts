@@ -77,7 +77,100 @@ const HABITS: Record<Spire['kind'], Habit> = {
   pillar: { square: [3.0, 4.4], lobes: [0.16, 0.1, 0.04], splits: [0, 2], splitDepth: [0.2, 0.36], grooves: [5, 9], grooveDepth: [0.08, 0.22], bed: [7, 17], step: [0.03, 0.1], flare: 0.3, flareUp: 0.1, cap: 0.05, capRound: 4.5, taper: 0.1, lean: 0.14, hung: 0.45, cling: 0.32 },
   tower: { square: [2.1, 2.7], lobes: [0.12, 0.08, 0.03], splits: [0, 1], splitDepth: [0.12, 0.2], grooves: [3, 6], grooveDepth: [0.05, 0.12], bed: [12, 26], step: [0.02, 0.06], flare: 0.85, flareUp: 0.3, cap: 0.3, capRound: 2.2, taper: 0.1, lean: 0.06, hung: 0.8, cling: 0.4 },
   stack: { square: [2.6, 4.0], lobes: [0.14, 0.08, 0.035], splits: [0, 1], splitDepth: [0.15, 0.3], grooves: [4, 7], grooveDepth: [0.06, 0.16], bed: [4, 9], step: [0.03, 0.08], flare: 0.22, flareUp: 0.2, cap: 0.06, capRound: 4, taper: 0.16, lean: 0.08, hung: 0.12, cling: 0.05 },
+  // (V9: an arch is swept, not turned — its paint and its shrubs read this)
+  arch: { square: [2.6, 3.4], lobes: [0.14, 0.08, 0.035], splits: [0, 0], splitDepth: [0, 0], grooves: [0, 0], grooveDepth: [0, 0], bed: [5, 9], step: [0.03, 0.06], flare: 0.3, flareUp: 0.2, cap: 0.06, capRound: 4, taper: 0, lean: 0, hung: 0.12, cling: 0.05 },
 };
+
+/**
+ * (V9) A sea arch into the arrays: a tube of rock swept along a half circle from one leg's foot on the sea floor over
+ * its crown to the other's, thick at its legs and thinner over its door, its section a rounded block with lobes of
+ * its own and a hand's roughness, its legs notched by the waves; trees on its crown. Painted by paintSpires.
+ */
+function sweepArch(sp: Spire, paint: Paint, ax: number, ay: number, az: number, pos: number[], idx: number[], perches: Perch[], turned: Turned[]): void {
+  const rnd = mulberry(Math.floor(sp.seed * 4294967295) ^ 0x2a7c);
+  const span = sp.span ?? sp.r * 5;
+  const M = 28;
+  const N = 44;
+  const cx = Math.cos(sp.yaw);
+  const cz = Math.sin(sp.yaw);
+  // (across the arch, level: its thickness; the arc lies in the upright plane along its turn)
+  const nx = -cz;
+  const nz = cx;
+  const ph = [rnd() * 6.283, rnd() * 6.283, rnd() * 6.283];
+  // (a wall of rock with its door, not a tube: a squared section, flat-topped and thick over the door)
+  const square = 3.6 + 1.2 * rnd();
+  const first = pos.length / 3;
+  const ring: number[] = [];
+  const foot = sp.foot - 3;
+  const crown = sp.level + sp.h;
+  const at = (t: number): [number, number, number] => {
+    const th = Math.PI * t;
+    // a half circle a little pinched at its crown, its legs going down into the sea floor
+    const along = -Math.cos(th) * span * 0.5;
+    // (its legs steep, its lintel nearly level: a door, not a hoop)
+    const rise = Math.pow(Math.sin(th), 0.45);
+    return [sp.x + cx * along, foot + (crown - foot) * rise, sp.z + cz * along];
+  };
+  for (let i = 0; i <= N; i++) {
+    const t = -0.04 + (1.08 * i) / N;
+    const [px, py, pz] = at(Math.min(1, Math.max(0, t)));
+    // its tangent, and the up of its section (in the arc's plane, square to the tangent)
+    const [qx, qy, qz] = at(Math.min(1, Math.max(0, t + 0.01)));
+    const [rx, ry, rz] = at(Math.min(1, Math.max(0, t - 0.01)));
+    let tx = qx - rx;
+    let ty = qy - ry;
+    let tz = qz - rz;
+    const tl = Math.hypot(tx, ty, tz) || 1;
+    tx /= tl;
+    ty /= tl;
+    tz /= tl;
+    // b = t × n (n the level cross direction)
+    const bx = ty * nz;
+    const by = tz * nx - tx * nz;
+    const bz = -ty * nx;
+    const edge = Math.abs(t - 0.5) * 2;
+    // thick at its legs, thinner over its door; the waves' notch at the waterline
+    let r = sp.r * (0.85 + 0.45 * Math.pow(edge, 1.8)) * (1 + 0.07 * Math.sin(t * 13 + ph[0]) + 0.05 * Math.sin(t * 29 + ph[1]));
+    if (Math.abs(py - sp.level - 1.4) < 3) r *= 1 - 0.16 * Math.exp(-(((py - sp.level - 1.4) / 2.3) ** 2));
+    for (let k = 0; k < M; k++) {
+      const a = (k / M) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      let rs = Math.pow(Math.pow(Math.abs(ca), square) + Math.pow(Math.abs(sa), square), -1 / square);
+      rs *= 1 + 0.1 * Math.sin(2 * a + ph[1] + t * 3) + 0.05 * Math.sin(3 * a + ph[2]);
+      // (thicker up than across: over the door its lintel is deep; its top a little higher still)
+      const up = sa > 0 ? 1.2 : 1.0;
+      const ox = nx * ca * r * rs * sp.depth + bx * sa * r * rs * up;
+      const oy = by * sa * r * rs * up;
+      const oz = nz * ca * r * rs * sp.depth + bz * sa * r * rs * up;
+      const wx = px + ox;
+      const wy = py + oy;
+      const wz = pz + oz;
+      const rough = 1 + 0.06 * Math.sin(wx * 0.17 + wy * 0.13) * Math.sin(wz * 0.15 - wy * 0.11) + 0.025 * Math.sin(wx * 0.7 + wz * 0.6 + wy * 0.5);
+      pos.push(px + ox * rough - ax, py + oy * rough - ay, pz + oz * rough - az);
+      ring.push(k, i);
+    }
+  }
+  for (let i = 0; i < N; i++)
+    for (let k = 0; k < M; k++) {
+      const a = first + i * M + k;
+      const b = first + i * M + ((k + 1) % M);
+      const c = a + M;
+      const d = b + M;
+      idx.push(a, b, c, b, d, c);
+    }
+  // its crown wooded where it is green
+  if (sp.green > 0.05) {
+    for (let i = 0; i < 3; i++) {
+      const [px, py, pz] = at(0.4 + 0.1 * i);
+      perches.push({ x: px + nx * (rnd() - 0.5) * sp.r * 0.6, y: py + sp.r * 0.75, z: pz + nz * (rnd() - 0.5) * sp.r * 0.6, size: 0.18 + 0.12 * rnd() * sp.green, sink: 1.2 });
+    }
+  }
+  // (its beds: bands of their own tone up it, as a stack's)
+  const ledges: { y: number; s: number }[] = [];
+  for (let y = sp.level + 3 + 4 * rnd(); y < crown + sp.r; y += 4 + 5 * rnd()) ledges.push({ y, s: 0.05 });
+  turned.push({ sp, first, count: pos.length / 3 - first, ring, ledges, M, streakPh: rnd() * 100, paint });
+}
 
 /** what the painter of a place's rock is given */
 interface Paint {
@@ -284,7 +377,7 @@ function paintSpires(turned: readonly Turned[], pos: ArrayLike<number>, nrm: Arr
         patch = 0.5 + 0.5 * Math.sin(k * 0.9 + y * 0.11 + sp.seed * 40) * Math.sin(k * 0.37 - y * 0.07 + sp.seed * 13);
       }
       // a stack: dark and wet low down, a band of salt above that
-      if (sp.kind === 'stack') {
+      if (sp.kind === 'stack' || sp.kind === 'arch') {
         const up = y - sp.level;
         if (up < 2.2) c.multiplyScalar(0.48 + (0.24 * Math.max(0, up)) / 2.2);
         else if (up < 5.5) c.lerp(paint.salt, 0.28 * (1 - Math.abs(up - 3.6) / 1.9));
@@ -323,7 +416,10 @@ function spireGeometry(spires: readonly Spire[], paint: Paint, ax: number, ay: n
   const pos: number[] = [];
   const idx: number[] = [];
   const turned: Turned[] = [];
-  for (const sp of spires) turnSpire(sp, paint, ax, ay, az, pos, idx, perches, turned);
+  for (const sp of spires) {
+    if (sp.kind === 'arch') sweepArch(sp, paint, ax, ay, az, pos, idx, perches, turned);
+    else turnSpire(sp, paint, ax, ay, az, pos, idx, perches, turned);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
@@ -345,8 +441,14 @@ function surfGeometry(world: World, stacks: readonly Spire[], ax: number, ay: nu
   const pos: number[] = [];
   const ring: number[] = [];
   const idx: number[] = [];
+  // (an arch's legs each ringed as a stack is)
+  const legs: Spire[] = [];
   for (const s of stacks) {
-    if (s.kind !== 'stack') continue;
+    if (s.kind === 'stack') legs.push(s);
+    else if (s.kind === 'arch' && s.span)
+      for (const e of [-0.5, 0.5]) legs.push({ ...s, kind: 'stack', x: s.x + Math.cos(s.yaw) * s.span * e, z: s.z + Math.sin(s.yaw) * s.span * e, r: s.r * 0.9 });
+  }
+  for (const s of legs) {
     const base = pos.length / 3;
     const R0 = s.r * (1 + HABITS.stack.flare) * 0.92;
     // (the swell comes in off the open sea: the foam heaped on a stack's seaward side, its lee nearly still)
@@ -517,7 +619,7 @@ export class SpireView {
         const rockMesh = new THREE.Mesh(geo, this.rockMat);
         rockMesh.name = 'spires:rock';
         meshes.push(rockMesh);
-        if (spires.some((x) => x.kind === 'stack')) {
+        if (spires.some((x) => x.kind === 'stack' || x.kind === 'arch')) {
           const surf = new THREE.Mesh(surfGeometry(this.world, spires, anchor[0], anchor[1], anchor[2]), this.surfMat);
           surf.name = 'spires:surf';
           surf.renderOrder = 4;

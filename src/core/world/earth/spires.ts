@@ -22,7 +22,7 @@ import { Solid, type SolidSource } from '../solids';
 import type { TerrainPoint, World } from '../terrain';
 import type { EarthPiece } from './road';
 
-export type SpireKind = 'pillar' | 'tower' | 'stack';
+export type SpireKind = 'pillar' | 'tower' | 'stack' | 'arch';
 
 export interface Spire {
   kind: SpireKind;
@@ -43,6 +43,8 @@ export interface Spire {
   /** how wooded its top and ledges are, 0 bare … 1 */
   green: number;
   seed: number;
+  /** (an arch) from leg to leg along its turn (m): `r` is then the half thickness of its rock, `h` its crown over the sea */
+  span?: number;
 }
 
 const hash = (a: number, b: number): number => {
@@ -215,6 +217,40 @@ function plan(world: World, p: EarthPiece, rc: Recipe, tp: TerrainPoint, st: Spi
       if (g === 0) lead = sp;
     }
   }
+  // (V9) a coast of sea stacks has now and then its arch: a door of rock in the sea near its shore, turned along the
+  // coast so that the road looks through it ("海蚀柱与拱")
+  if (rc.kind === 'stack' && rc.share > 0.5) {
+    const q = (j: number): number => hash(key, 9001 + j);
+    if (q(0) < 0.6) {
+      for (let tries = 0; tries < 6; tries++) {
+        const s = p.start + (0.2 + 0.6 * q(1 + tries)) * (p.end - p.start);
+        const c = world.sea.seaAt(s);
+        if (!c) continue;
+        world.spine.at(s, st);
+        const nx = -Math.sin(st.phi) * c.side;
+        const nz = Math.cos(st.phi) * c.side;
+        let shore = -1;
+        for (let d = 14; d < 1400; d += 10) {
+          world.shape(st.x + nx * d, st.z + nz * d, tp);
+          if (tp.wkind === 3 && tp.wl > tp.bed + 0.5) {
+            shore = d;
+            break;
+          }
+        }
+        if (shore < 0) continue;
+        const d = shore + 60 + 100 * q(10 + tries);
+        const x = st.x + nx * d;
+        const z = st.z + nz * d;
+        world.shape(x, z, tp);
+        if (tp.wkind !== 3 || tp.wl < tp.bed + 2) continue;
+        const span = 36 + 34 * q(20 + tries);
+        const r = 7 + 6 * q(30 + tries);
+        if (out.some((o) => Math.hypot(o.x - x, o.z - z) < o.r + span * 0.5 + r + 10)) continue;
+        out.push({ kind: 'arch', x, z, s, foot: tp.bed, level: tp.wl, r, h: 24 + 26 * q(40 + tries), yaw: st.phi + (q(50 + tries) - 0.5) * 0.6, depth: 0.75 + 0.25 * q(60 + tries), green: rc.green, seed: q(70 + tries), span });
+        break;
+      }
+    }
+  }
   return out;
 }
 
@@ -260,6 +296,16 @@ export class SpireSolids implements SolidSource {
     for (const p of earth.pieces) {
       if (p.end < s - 1500 || p.start > s + 1500 || !hasSpires(p)) continue;
       for (const sp of spiresOf(this.world, p, this.tp, this.st)) {
+        if (sp.kind === 'arch' && sp.span) {
+          // (an arch: a post at each of its legs)
+          for (const e of [-0.5, 0.5]) {
+            const lx = sp.x + Math.cos(sp.yaw) * sp.span * e;
+            const lz = sp.z + Math.sin(sp.yaw) * sp.span * e;
+            if (Math.hypot(lx - x, lz - z) > r + sp.r * 1.4) continue;
+            out.push(new Solid().set(lx, lz, sp.r * 1.3, 0, 0, sp.foot - 2, sp.level + sp.h * 0.7, false, 'spire:arch'));
+          }
+          continue;
+        }
         const reach = sp.r * 1.05;
         const dx = sp.x - x;
         const dz = sp.z - z;

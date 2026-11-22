@@ -59,7 +59,8 @@ describe('the spires and the falls (world version 5)', () => {
     const list = spiresOf(w, w.earth!.pieces[k], tp, st);
     expect(list.length).toBeGreaterThan(5);
     for (const sp of list) {
-      expect(sp.kind).toBe('stack');
+      // (its stacks, and now and then its arch: V9)
+      expect(['stack', 'arch']).toContain(sp.kind);
       w.shape(sp.x, sp.z, tp);
       expect(tp.wkind).toBe(3);
       expect(sp.level).toBeGreaterThan(sp.foot);

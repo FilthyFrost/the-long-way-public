@@ -40,6 +40,8 @@ import { SpireSolids } from '../../core/world/earth/spires';
 import { WaterfallView } from '../scene/waterfalls';
 import { SkyFlocks } from '../scene/skyFlocks';
 import { FishView } from '../scene/fishView';
+import { HeroPeakView } from '../scene/heroPeaks';
+import { GlacierView } from '../scene/glaciers';
 import { WorldView } from '../scene/worldView';
 import { BeaconView } from '../scene/beacons';
 import { cloneModel, frameModel, itemGlb, panelPaint, partModel, preload, seatTyres, standInFrame, toolGlb } from './assets';
@@ -449,6 +451,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   skyFlocks: SkyFlocks | null = null;
   /** the fish in the shallow water near the car, and their leaps (V7, scene/fishView.ts) */
   fish: FishView | null = null;
+  /** a stratovolcano's or a horn's own peak far off ahead (V9, scene/heroPeaks.ts) */
+  heroPeaks: HeroPeakView | null = null;
+  /** a glacier place's tongues of ice down its mountains (V9, scene/glaciers.ts) */
+  glaciers: GlacierView | null = null;
   beacons: BeaconView | null = null;
   ground: Ground;
   /** the vehicle the player sits in (null on foot) */
@@ -1045,6 +1051,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.waterfalls = new WaterfallView(this.core, this.world);
     this.skyFlocks = new SkyFlocks(this.core, this.world);
     this.fish = new FishView(this.core, this.world);
+    this.heroPeaks = new HeroPeakView(this.core, this.world);
+    this.glaciers = new GlacierView(this.core, this.world);
     this.beacons = new BeaconView(this.core, this.world);
     // (from the start on the road the walker comes after the world)
     if (this.player) this.worldSolids();
@@ -4738,6 +4746,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.geothermal?.update(this.pr.s);
       this.spires?.update(this.pr.s);
       this.waterfalls?.update(this.pr.s);
+      this.heroPeaks?.update(this.pr.s);
+      this.glaciers?.update(this.pr.s);
       {
         const ws = this.env.state;
         this.skyFlocks?.update(dt, this.pr.s, this.env.clock.hourAt(this.time), Math.min(1, Math.max(ws.rain * 1.6, ws.snow * 1.6, ws.fog, (ws.wind - 12) / 10)));
