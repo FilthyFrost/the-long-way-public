@@ -16,8 +16,15 @@ import { hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, regionById, regionRow, regionSalt, type RegionDef } from '../world/biomes';
 
-export const WEATHER_KINDS = ['clear', 'cloudy', 'overcast', 'fog', 'rain', 'storm', 'hail', 'snow', 'blizzard', 'sandstorm'] as const;
+// (G10, appended — the first ten keep their places: the countries' own weather. cloudburst: the wet tropics' downpour,
+// the sun still out through its breaks, steam off the ground after; monsoon: hours of heavy rain under a dark deck;
+// drizzle: fine rain in mist, no wind; squall: a coast's — wind first, rain in sheets, soon over; seafog: a bank of fog
+// off the sea with the sun above it; dusthaze: the dry country's air gone yellow, no wall; flurries: snow out of a
+// half-open sky; thundery: a dry storm — the deck, the wind, the lightning, hardly a drop reaching the ground)
+export const WEATHER_KINDS = ['clear', 'cloudy', 'overcast', 'fog', 'rain', 'storm', 'hail', 'snow', 'blizzard', 'sandstorm', 'cloudburst', 'monsoon', 'drizzle', 'squall', 'seafog', 'dusthaze', 'flurries', 'thundery'] as const;
 export type WeatherKind = (typeof WEATHER_KINDS)[number];
+/** the ten kinds the first worlds know: what their recorded weather is a fingerprint of (harness/sim/worldTrace.ts) */
+export const WEATHER_KINDS_V1: readonly WeatherKind[] = WEATHER_KINDS.slice(0, 10);
 
 export class WeatherState {
   /** cloud cover 0…1 */
@@ -303,7 +310,8 @@ export class WeatherSystem {
       // (a long, soft start: the air thickens slowly, so the light and the haze never jump)
       const begun = smoothstep(0.45, 1, buildU);
       const fall = (act === 1 ? begun * Math.sqrt(begun) : severity) * ev.strength;
-      if (evKind !== 'fog' && evKind !== 'overcast' && evKind !== 'clear' && evKind !== 'cloudy') {
+      // (no wall of cloud comes before a fog, a drizzle, a haze of dust or a flurry of snow: the air just thickens)
+      if (evKind !== 'fog' && evKind !== 'overcast' && evKind !== 'clear' && evKind !== 'cloudy' && evKind !== 'drizzle' && evKind !== 'seafog' && evKind !== 'dusthaze' && evKind !== 'flurries') {
         falling = fall;
         front = act === 1 ? smoothstep(0.03, 0.6, buildU) : act === 2 ? 1 : severity;
         frontSide = act === 3 ? 1 : -1;
@@ -373,11 +381,79 @@ export class WeatherSystem {
           cloud = Math.max(cloud, deck);
           overcast = Math.max(overcast, 0.6 * deck);
           break;
+        case 'cloudburst':
+          // (towers, not a deck: the light stays, and the rain comes down in it as hard as rain comes)
+          cloud = Math.max(cloud, 0.85 * deck);
+          overcast = Math.max(overcast, 0.38 * deck);
+          rain = Math.max(rain, fall * (0.9 + 0.1 * gust));
+          murkRain = 0.75 * sv;
+          wind += 3 * sv;
+          lightning = 0.04 * smoothstep(0.7, 1, sv);
+          // (after it the wet ground steams in the sun)
+          fog = Math.max(fog, act === 3 ? 0.42 * Math.sin(Math.PI * (1 - severity)) : 0.12 * sv);
+          break;
+        case 'monsoon':
+          cloud = Math.max(cloud, deck);
+          overcast = Math.max(overcast, 0.92 * deck);
+          rain = Math.max(rain, 0.85 * fall * (0.8 + 0.2 * gust));
+          murkRain = sv;
+          wind += 6 * sv;
+          lightning = 0.05 * smoothstep(0.6, 1, sv);
+          fog = Math.max(fog, 0.4 * sv);
+          break;
+        case 'drizzle':
+          cloud = Math.max(cloud, deck);
+          overcast = Math.max(overcast, 0.82 * deck);
+          rain = Math.max(rain, 0.24 * sv);
+          murkRain = 0.3 * sv;
+          fog = Math.max(fog, 0.42 * sv);
+          wind *= 1 - 0.5 * sv;
+          break;
+        case 'squall': {
+          // (the wind comes first and hardest; the rain in sheets, a minute on and a minute off)
+          const sheet = smoothstep(-0.15, 0.35, fbm1(t / 17, this.seed + 67, 2));
+          cloud = Math.max(cloud, deck);
+          overcast = Math.max(overcast, 0.7 * deck);
+          rain = Math.max(rain, fall * (0.35 + 0.65 * sheet));
+          murkRain = 0.7 * sv;
+          wind += 19 * sv * (0.8 + 0.2 * gust);
+          fog = Math.max(fog, 0.15 * sv);
+          break;
+        }
+        case 'seafog':
+          // (a bank of it on the ground and the sun above: thick, bright, hardly a cloud over it)
+          fog = Math.max(fog, 0.95 * sv);
+          cloud = Math.max(cloud, 0.35 * deck);
+          overcast = Math.max(overcast, 0.12 * deck);
+          wind *= 1 - 0.6 * sv;
+          break;
+        case 'dusthaze':
+          dust = 0.34 * sv * (0.8 + 0.2 * gust);
+          murkDust = 0.4 * sv;
+          wind += 7 * sv;
+          overcast = Math.max(overcast, 0.15 * sv);
+          break;
+        case 'flurries':
+          cloud = Math.max(cloud, 0.7 * deck);
+          overcast = Math.max(overcast, 0.22 * deck);
+          snow = Math.max(snow, 0.3 * sv * smoothstep(-0.3, 0.4, fbm1(t / 29, this.seed + 71, 2)));
+          murkSnow = 0.2 * sv;
+          wind += 3 * sv;
+          break;
+        case 'thundery':
+          cloud = Math.max(cloud, deck);
+          overcast = Math.max(overcast, 0.8 * deck);
+          rain = Math.max(rain, 0.07 * fall);
+          murkRain = 0.2 * sv;
+          wind += 12 * sv * gust;
+          lightning = 0.2 * smoothstep(0.35, 1, sv);
+          dust = Math.max(dust, 0.1 * sv);
+          break;
         default:
           break;
       }
       if (severity > 0.05) kind = evKind;
-      if (act === 3 && (evKind === 'storm' || evKind === 'rain' || evKind === 'hail')) rainbow = Math.sin(Math.PI * (1 - severity)) * 0.9 + 0.1 * (1 - severity);
+      if (act === 3 && (evKind === 'storm' || evKind === 'rain' || evKind === 'hail' || evKind === 'cloudburst' || evKind === 'monsoon' || evKind === 'squall')) rainbow = Math.sin(Math.PI * (1 - severity)) * 0.9 + 0.1 * (1 - severity);
     }
     out.cloud = cloud;
     out.overcast = overcast;

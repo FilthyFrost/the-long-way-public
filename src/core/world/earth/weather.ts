@@ -51,13 +51,20 @@ export function weatherOfPlace(sc: Scene): { calm: CalmWeather; kinds: readonly 
     calm.cloud *= 1 - 0.4 * clear;
     calm.rain *= 1 - 0.5 * clear;
   }
+  // (G10) each country its own weather (core/env/weather.ts WEATHER_KINDS): the snow's blizzards, snowfalls and flurries
+  // out of a half-open sky; the dry country's sand walls, its yellow haze, its dry thunder; a cloud forest's drizzle; the
+  // wet tropics' cloudbursts in sunshine, their thunderstorms and their monsoon; a coast's squalls and its banks of sea
+  // fog; the summer-dry country's dry storms; the savanna's afternoon storms; the cool wet west's drizzle; and the
+  // temperate country's storms, hail, rain, drizzle and fog
   let kinds: readonly (readonly [number, WeatherKind])[];
-  if (snowy) kinds = [[0.6, 'blizzard'], [0.9, 'snow'], [1, 'fog']];
-  else if (w < 0.25) kinds = rock(m.rock).loose ? [[0.75, 'sandstorm'], [1, 'storm']] : [[0.45, 'sandstorm'], [1, 'storm']];
-  else if (cloudBelt > 0.3) kinds = [[0.3, 'rain'], [1, 'fog']];
-  else if (m.tSea > 20 && w > 0.6) kinds = [[0.65, 'storm'], [0.95, 'rain'], [1, 'fog']];
-  else if (coast) kinds = [[0.35, 'storm'], [0.65, 'rain'], [1, 'fog']];
-  else if (seasonOf(m.tSea, m.wet, m.cont) === 'mediterranean' && m.month >= 5 && m.month <= 9) kinds = [[0.3, 'storm'], [1, 'rain']];
-  else kinds = [[0.45, 'storm'], [0.6, 'hail'], [0.9, 'rain'], [1, 'fog']];
+  if (snowy) kinds = [[0.4, 'blizzard'], [0.65, 'snow'], [0.9, 'flurries'], [1, 'fog']];
+  else if (w < 0.25) kinds = rock(m.rock).loose ? [[0.5, 'sandstorm'], [0.75, 'dusthaze'], [0.9, 'thundery'], [1, 'storm']] : [[0.3, 'sandstorm'], [0.6, 'dusthaze'], [0.85, 'thundery'], [1, 'storm']];
+  else if (cloudBelt > 0.3) kinds = [[0.45, 'drizzle'], [0.6, 'rain'], [1, 'fog']];
+  else if (m.tSea > 20 && w > 0.6) kinds = [[0.45, 'cloudburst'], [0.7, 'storm'], [0.9, 'monsoon'], [1, 'fog']];
+  else if (coast) kinds = t < 12 ? [[0.25, 'squall'], [0.4, 'storm'], [0.55, 'rain'], [0.85, 'seafog'], [1, 'drizzle']] : [[0.3, 'squall'], [0.55, 'storm'], [0.75, 'rain'], [0.9, 'seafog'], [1, 'cloudburst']];
+  else if (seasonOf(m.tSea, m.wet, m.cont) === 'mediterranean' && m.month >= 5 && m.month <= 9) kinds = [[0.35, 'thundery'], [0.55, 'storm'], [1, 'rain']];
+  else if (m.tSea > 18 && w < 0.6) kinds = [[0.4, 'storm'], [0.65, 'thundery'], [0.9, 'cloudburst'], [1, 'rain']];
+  else if (m.tSea < 12 && w > 0.6) kinds = [[0.4, 'drizzle'], [0.65, 'rain'], [0.85, 'storm'], [1, 'fog']];
+  else kinds = [[0.35, 'storm'], [0.5, 'hail'], [0.75, 'rain'], [0.9, 'drizzle'], [1, 'fog']];
   return { calm, kinds };
 }

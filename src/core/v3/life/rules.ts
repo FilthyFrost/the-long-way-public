@@ -81,7 +81,7 @@ export const CELL_BIRD = 62, CELL_INSECT = 7;
 export const isDay = (hour: number): boolean => hour >= 6 && hour < 19;
 export function sheltered(w: WeatherState): boolean {
   return w.rain >= .5 || w.snow >= .35 || w.hail > .05 || w.dust >= .4 ||
-    w.kind === 'storm' || w.kind === 'blizzard' || w.kind === 'sandstorm' || w.kind === 'hail';
+    w.kind === 'storm' || w.kind === 'blizzard' || w.kind === 'sandstorm' || w.kind === 'hail' || w.kind === 'cloudburst' || w.kind === 'monsoon' || w.kind === 'squall' || w.kind === 'thundery';
 }
 export function inSeason(profile: EcoProfile, name: string, month: number, hour: number, w: WeatherState): boolean {
   if (sheltered(w) || !animals[name]) return false;

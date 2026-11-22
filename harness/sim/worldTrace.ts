@@ -38,7 +38,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEATHER_KINDS, WeatherState, WeatherSystem } from '../../src/core/env/weather';
+import { WEATHER_KINDS_V1, WeatherState, WeatherSystem } from '../../src/core/env/weather';
 import { provingLevel, provingPlot } from '../../src/core/modcar/proving/layout';
 import { Rng } from '../../src/core/math/rng';
 import { BIOMES } from '../../src/core/world/biomes';
@@ -260,7 +260,8 @@ export function weatherTrace(): string {
       }
     }
     hs.str(WeatherSystem.kindFor('nowhere', 0.6));
-    for (const kind of WEATHER_KINDS) {
+    // (the ten kinds the recorded worlds know: kinds added since are not part of their fingerprint)
+    for (const kind of WEATHER_KINDS_V1) {
       for (let bi = 0; bi < 6; bi++) {
         for (const stage of [null, 0.4, 1.5, 2.6]) {
           ws.force = kind;

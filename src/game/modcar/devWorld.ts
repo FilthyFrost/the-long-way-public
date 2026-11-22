@@ -27,6 +27,14 @@ export const WEATHER_NAMES: Record<WeatherKind, string> = {
   snow: '下雪',
   blizzard: '暴风雪',
   sandstorm: '沙尘暴',
+  cloudburst: '骤雨（太阳雨）',
+  monsoon: '季风大雨',
+  drizzle: '毛毛雨',
+  squall: '海上飑线',
+  seafog: '海雾',
+  dusthaze: '浮尘',
+  flurries: '阵雪',
+  thundery: '干雷暴',
 };
 
 export const LAND_NAMES: Record<LandKind, string> = { open: '平地', hillside: '山坡路', valley: '山谷', ridge: '山脊', canyon: '峡谷', shelf: '傍山', rim: '崖边' };

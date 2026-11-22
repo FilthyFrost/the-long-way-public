@@ -549,6 +549,14 @@ const WX_HELP: Record<WeatherKind, string> = {
   snow: '安静的下雪天。',
   blizzard: '暴风雪：大雪横飞、几乎看不见路。',
   sandstorm: '沙尘暴：黄沙满天、风很大（在沙漠里最像样）。',
+  cloudburst: '骤雨：雨林里的太阳雨，雨极大但天还亮，雨后地面冒水汽、出彩虹。',
+  monsoon: '季风大雨：乌云压顶，大雨下很久，雾气重。',
+  drizzle: '毛毛雨：细雨加薄雾，没有风。',
+  squall: '飑线：海边先来大风，雨一阵一阵横着扫，很快过去。',
+  seafog: '海雾：贴地的一堵浓雾，头顶还有太阳。',
+  dusthaze: '浮尘：干旱地区空气发黄，没有沙墙。',
+  flurries: '阵雪：半晴的天上飘一阵一阵的雪。',
+  thundery: '干雷暴：乌云、大风、闪电，雨几乎落不到地上。',
 };
 
 /** copy to the clipboard; false when the page may not */
