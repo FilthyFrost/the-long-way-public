@@ -31,14 +31,23 @@ import { AQUATIC_DEPTH, plantIndex, PLANTS } from './plants';
 import type { TerrainPoint, World } from './terrain';
 import { SpineSample } from './spine';
 import { inVentClearing, ventsNear } from './earth/geothermal';
+import { Clump, clumpAt, driftFactor, driftHue, spacedAt, standAt } from './layout';
 
 /** the layers, the side of a cell of each (m) */
 export const LAYER_TREE = 0;
 export const LAYER_SHRUB = 1;
 export const LAYER_GROUND = 2;
-export type FloraLayer = 0 | 1 | 2;
-export const LAYER_CELL: readonly number[] = [8, 8, 4];
-const LAYER_SALT: readonly number[] = [0x7ee5, 0x7ee6, 0x7ee7];
+/**
+ * (G3) The brush: shrubs on the ground's grid of 4 m — a wood's mantle, a thicket, a desert's shrubs are shrubs
+ * touching or evenly a few metres apart, which a shrub to 8 m never was. A table's `brush` rules stand here (a
+ * place of the emergent Earth's; the tables written by hand have none), its `shrubs` on their grid as ever.
+ */
+export const LAYER_BRUSH = 3;
+export type FloraLayer = 0 | 1 | 2 | 3;
+export const LAYER_CELL: readonly number[] = [8, 8, 4, 4];
+const LAYER_SALT: readonly number[] = [0x7ee5, 0x7ee6, 0x7ee7, 0x7ee8];
+/** every layer, in the order of their numbers */
+export const FLORA_LAYERS: readonly FloraLayer[] = [0, 1, 2, 3];
 /** the most cells a tile has in one layer (the ground's: 32 a side) */
 const MOST_CELLS = (ECO_TILE / 4) * (ECO_TILE / 4);
 
@@ -83,10 +92,31 @@ export interface FloraRule {
    * the line itself: write them high (a bush in nearly every cell the line crosses).
    */
   readonly hedge?: number;
+  /**
+   * (G3, layout.ts) It is one of the kinds its stands are made of: the rules of a layer with the same number here are
+   * one company — where a stand is theirs, the stand's own kind has nearly all their numbers and a companion the rest
+   * (a wood is an oak wood here and a birch wood there, not every kind in every acre). Their numbers are those of the
+   * stand's middle; without a clump they thin out and grow smaller toward the wood's edge (the ecotope's canopy).
+   */
+  readonly stand?: number;
+  /**
+   * (G3) It grows in clumps and nowhere off them: one in `share` of the squares `every` m a side holds a clump some
+   * r[0] … r[1] m in radius — a copse in a meadow, a thicket, a drift. Its numbers are those inside a clump. Rules with
+   * the same figures and `salt` share their clumps.
+   */
+  readonly clump?: { readonly every: number; readonly share: number; readonly r: Band; readonly salt?: number };
+  /**
+   * (G3) It keeps its distance: one to a square of this many metres, as a savanna's trees and a desert's shrubs stand,
+   * each on its own ground's water (its numbers: how many of the squares hold one). Rules of the same spacing share
+   * their squares.
+   */
+  readonly spaced?: number;
 }
 
 /** a hedge's half width (m) */
 const HEDGE_HALF = 5;
+/** (G3) how far across a stand of one kind is (m) */
+export const STAND_SCALE = 190;
 
 /**
  * How much of a hedge's line runs through (x, z), 0 … 1: the lines are where a slow noise of the given scale
@@ -127,6 +157,8 @@ export interface FloraTable {
   readonly trees: readonly FloraRule[];
   readonly shrubs: readonly FloraRule[];
   readonly ground: readonly FloraRule[];
+  /** (G3) its brush: shrubs on the 4 m grid (LAYER_BRUSH; absent: none) */
+  readonly brush?: readonly FloraRule[];
   readonly cover: CoverParams;
 }
 
@@ -283,6 +315,16 @@ interface Compiled {
   readonly hedge: Float64Array;
   readonly size0: Float64Array;
   readonly size1: Float64Array;
+  /** (G3) its company (0: none), its clumps (every 0: none; their share, radii and salt), its spacing (m; 0: none) */
+  readonly stand: Uint8Array;
+  readonly clumpEvery: Float64Array;
+  readonly clumpShare: Float64Array;
+  readonly clumpR0: Float64Array;
+  readonly clumpR1: Float64Array;
+  readonly clumpSalt: Int32Array;
+  readonly spaced: Float64Array;
+  /** the companies there are among the rules */
+  readonly groups: readonly number[];
   /** the most the rules can come to in one cell, groves at their thickest: on dry ground, in the shallows, and the greater of the two */
   readonly mostDry: number;
   readonly mostWet: number;
@@ -290,6 +332,7 @@ interface Compiled {
 }
 
 function compile(rules: readonly FloraRule[], cell: number): Compiled {
+  // (per hectare: by the cell's own area)
   const n = rules.length;
   const plants = new Int32Array(n);
   const aquatic = new Uint8Array(n);
@@ -301,6 +344,14 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
   const hedge = new Float64Array(n);
   const size0 = new Float64Array(n);
   const size1 = new Float64Array(n);
+  const stand = new Uint8Array(n);
+  const clumpEvery = new Float64Array(n);
+  const clumpShare = new Float64Array(n);
+  const clumpR0 = new Float64Array(n);
+  const clumpR1 = new Float64Array(n);
+  const clumpSalt = new Int32Array(n);
+  const spaced = new Float64Array(n);
+  const groups: number[] = [];
   const bands: number[] = [];
   let mostDry = 0;
   let mostWet = 0;
@@ -330,12 +381,27 @@ function compile(rules: readonly FloraRule[], cell: number): Compiled {
     hedge[i] = r.hedge ?? 0;
     size0[i] = r.size ? r.size[0] : 0.75;
     size1[i] = r.size ? r.size[1] : 1.2;
+    stand[i] = r.stand ?? 0;
+    if (stand[i] > 0 && !groups.includes(stand[i])) groups.push(stand[i]);
+    if (r.clump) {
+      clumpEvery[i] = r.clump.every;
+      clumpShare[i] = r.clump.share;
+      clumpR0[i] = r.clump.r[0];
+      clumpR1[i] = r.clump.r[1];
+      clumpSalt[i] = (r.clump.salt ?? 0) + Math.round(r.clump.every * 7 + r.clump.r[1] * 131);
+    }
+    spaced[i] = r.spaced ?? 0;
+    // (a plant that keeps its distance: its numbers are how many of its squares hold one)
+    if (spaced[i] > 0) {
+      const side = Math.max(1, Math.round(spaced[i] / cell)) * cell;
+      per[i] = Math.min(1, (r.perHa * side * side) / 10000);
+    }
     const most = per[i] * (grove[i] > 0 ? 2 : 1);
     if (aquatic[i]) mostWet += most;
     else mostDry += most;
   }
   from[n] = bands.length;
-  return { rules, plants, aquatic, bench, per, from, bands: Float64Array.from(bands), kinds, grove, hedge, size0, size1, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
+  return { rules, plants, aquatic, bench, per, from, bands: Float64Array.from(bands), kinds, grove, hedge, size0, size1, stand, clumpEvery, clumpShare, clumpR0, clumpR1, clumpSalt, spaced, groups, mostDry, mostWet, most: Math.max(mostDry, mostWet) };
 }
 
 /**
@@ -357,6 +423,11 @@ export class FloraField {
   /** the ecotope's quantities at the plant's place, and how well each rule fits there */
   private readonly q = new Float64Array(9);
   private fit = new Float64Array(32);
+  /** (G3) each rule's numbers in the cell at hand, and how deep in its clump the cell lies and that clump's own number */
+  private p = new Float64Array(32);
+  private deep = new Float64Array(32);
+  private own = new Float64Array(32);
+  private readonly clump = new Clump();
   /** one cell's answer, and a tile's plants while they are being gathered */
   private readonly one = new FloraCell();
   private readonly ss = new SpineSample();
@@ -389,8 +460,14 @@ export class FloraField {
   private layersOf(t: FloraTable): Compiled[] {
     let c = this.compiled.get(t);
     if (!c) {
-      c = [compile(t.trees, LAYER_CELL[LAYER_TREE]), compile(t.shrubs, LAYER_CELL[LAYER_SHRUB]), compile(t.ground, LAYER_CELL[LAYER_GROUND])];
-      for (const lay of c) if (lay.rules.length > this.fit.length) this.fit = new Float64Array(lay.rules.length);
+      c = [compile(t.trees, LAYER_CELL[LAYER_TREE]), compile(t.shrubs, LAYER_CELL[LAYER_SHRUB]), compile(t.ground, LAYER_CELL[LAYER_GROUND]), compile(t.brush ?? [], LAYER_CELL[LAYER_BRUSH])];
+      for (const lay of c)
+        if (lay.rules.length > this.fit.length) {
+          this.fit = new Float64Array(lay.rules.length);
+          this.p = new Float64Array(lay.rules.length);
+          this.deep = new Float64Array(lay.rules.length);
+          this.own = new Float64Array(lay.rules.length);
+        }
       this.compiled.set(t, c);
     }
     return c;
@@ -581,20 +658,45 @@ export class FloraField {
       most += lay.per[r] * f * (lay.grove[r] > 0 ? 2 : 1);
     }
     if (dice >= most) return false;
-    // the pick: each rule's numbers here, its groves counted in
+    // the pick: each rule's numbers here — its groves, its hedges, its clumps and its spacing counted in, the kinds of a
+    // stand gathered to the stand's own (G3, layout.ts)
+    const p = this.p;
+    const deep = this.deep;
+    const own = this.own;
+    let companies = false;
+    for (let r = 0; r < n; r++) {
+      let v = lay.per[r] * fit[r];
+      deep[r] = 0;
+      if (v > 0) {
+        if (lay.grove[r] > 0) {
+          // groves: the same kind stands together and is absent between
+          const g = fbm2(x / lay.grove[r], z / lay.grove[r], this.seed + 0x6a0 + lay.plants[r] * 17, 2);
+          v *= 2 * smooth(0.5 + 1.6 * g);
+        }
+        // hedges: only along their lines
+        if (lay.hedge[r] > 0) v *= hedgeAt(x, z, lay.hedge[r], this.seed);
+        // a plant that keeps its distance: only the one cell of its square
+        if (v > 0 && lay.spaced[r] > 0 && !spacedAt(cx, cz, C, lay.spaced[r], this.seed + 0x6e0 + Math.round(lay.spaced[r]))) v = 0;
+        if (v > 0 && lay.clumpEvery[r] > 0) {
+          // clumps: thick inside, thinning over their rim, nothing off them
+          const k = clumpAt(x, z, lay.clumpEvery[r], lay.clumpShare[r], lay.clumpR0[r], lay.clumpR1[r], this.seed + 0x6d0 + lay.clumpSalt[r], this.clump);
+          v *= k <= 0 ? 0 : k >= 0.28 ? 1 : k / 0.28;
+          deep[r] = k;
+          own[r] = this.clump.id;
+        } else if (v > 0 && lay.stand[r] > 0 && layer === LAYER_TREE) {
+          // a stand's trees: none outside the wood, thin at its edge, thick in its middle
+          v *= smooth((q[Q_CANOPY] - 0.1) / 0.36);
+        }
+        if (v > 0 && lay.stand[r] > 0) companies = true;
+      }
+      p[r] = v;
+    }
+    if (companies) this.gather(lay, p, x, z);
     let acc = 0;
     let pick = -1;
     for (let r = 0; r < n; r++) {
-      let p = lay.per[r] * fit[r];
-      if (p <= 0) continue;
-      if (lay.grove[r] > 0) {
-        // groves: the same kind stands together and is absent between
-        const g = fbm2(x / lay.grove[r], z / lay.grove[r], this.seed + 0x6a0 + lay.plants[r] * 17, 2);
-        p *= 2 * smooth(0.5 + 1.6 * g);
-      }
-      // hedges: only along their lines
-      if (lay.hedge[r] > 0) p *= hedgeAt(x, z, lay.hedge[r], this.seed);
-      acc += p;
+      if (p[r] <= 0) continue;
+      acc += p[r];
       if (dice < acc) {
         pick = r;
         break;
@@ -618,10 +720,66 @@ export class FloraField {
     out.z = z;
     out.y = tp.bed;
     out.size = lay.size0[pick] + (lay.size1[pick] - lay.size0[pick]) * ((h2 & 0xff) / 255);
+    // (G3: a wood's trees smaller toward its edge, a clump's toward its rim: the mass is rounded off, not cut)
+    if (layer === LAYER_TREE) {
+      if (lay.clumpEvery[pick] > 0) out.size *= 0.72 + 0.34 * Math.min(1, deep[pick] * 1.8);
+      else if (lay.stand[pick] > 0) out.size *= 0.66 + 0.34 * smooth((q[Q_CANOPY] - 0.2) / 0.5);
+    }
     out.size *= heightScale;
     out.yaw = (((h2 >>> 8) & 0xfff) / 4096) * 6.283185307179586;
     out.vary = ((h >>> 4) & 0xfff) / 4096;
     return true;
+  }
+
+  /**
+   * (G3) The kinds of a stand gathered: of each company of rules, the stand's own kind takes nearly all the company's
+   * numbers here and a companion the rest (one stand in four is a mixed one, three to two). Which kind: by the stand's
+   * own number (layout.ts standAt; a clump's is the clump's), kinds with more numbers in the table the oftener. The
+   * companies of a layer read the same number in the same order, so a wood's young trees are its old trees' kind.
+   */
+  private gather(lay: Compiled, p: Float64Array, x: number, z: number): void {
+    const n = lay.rules.length;
+    let stand = -1;
+    for (const g of lay.groups) {
+      let total = 0;
+      let weight = 0;
+      let u = -1;
+      for (let r = 0; r < n; r++) {
+        if (lay.stand[r] !== g || p[r] <= 0) continue;
+        total += p[r];
+        weight += lay.per[r];
+        if (u < 0 && lay.clumpEvery[r] > 0) u = this.own[r];
+      }
+      if (total <= 0) continue;
+      if (u < 0) {
+        if (stand < 0) stand = standAt(x, z, STAND_SCALE, this.seed + 0x6f0);
+        u = stand;
+      }
+      // the stand's own kind, then its companion among the rest
+      let first = -1;
+      let acc = 0;
+      for (let r = 0; r < n; r++) {
+        if (lay.stand[r] !== g || p[r] <= 0) continue;
+        acc += lay.per[r];
+        first = r;
+        if (u * weight < acc) break;
+      }
+      let second = -1;
+      const u2 = (u * 61.17 + 0.31) % 1;
+      const rest = weight - lay.per[first];
+      if (rest > 0) {
+        acc = 0;
+        for (let r = 0; r < n; r++) {
+          if (lay.stand[r] !== g || p[r] <= 0 || r === first) continue;
+          acc += lay.per[r];
+          second = r;
+          if (u2 * rest < acc) break;
+        }
+      }
+      const mixed = (u * 7.73) % 1 < 0.25;
+      const share = second < 0 ? 1 : mixed ? 0.62 : 0.88;
+      for (let r = 0; r < n; r++) if (lay.stand[r] === g) p[r] = r === first ? total * share : r === second ? total * (1 - share) : 0;
+    }
   }
 
   /**
@@ -652,6 +810,13 @@ export class FloraField {
     out.height = c.height * (0.7 + 0.6 * e.moisture) * (0.6 + 0.4 * open);
     let fl = c.flowers * open * (1 - bare);
     let hueAt = fbm2(x / 46, z / 46, this.seed + 0x6b1, 2);
+    // (G3, layout.ts: a meadow's flowers in drifts of one colour — the drifts the ground field's flowers stand in,
+    // groundField.ts — and hardly one between)
+    // (a place of the emergent Earth's: a region written by hand keeps its sprinkle)
+    if (fl > 0 && !c.rows && t.earth) {
+      fl = Math.min(1, fl * driftFactor(x, z, this.seed, this.clump));
+      if (this.clump.k > 0) hueAt = (driftHue(this.clump.id) - 0.5) / 0.8;
+    }
     if (c.rows && fl > 0) {
       if (e.slope > c.rows.maxSlope && !(y !== undefined && e.terrace >= BENCH_LAND[0] && onBench(y, e.step))) fl = 0;
       else {
@@ -672,7 +837,7 @@ export class FloraField {
 
 /** every plant a table names, by layer, as ids (for the tests and the developer's preview) */
 export function plantsOf(t: FloraTable): string[] {
-  return [...new Set([...t.trees, ...t.shrubs, ...t.ground].map((r) => r.plant))];
+  return [...new Set([...t.trees, ...t.shrubs, ...t.ground, ...(t.brush ?? [])].map((r) => r.plant))];
 }
 
 /** what is wrong with a table (nothing: an empty list): a plant that does not exist or stands in the wrong layer, numbers out of range */
@@ -682,6 +847,7 @@ export function floraTableProblems(id: string, t: FloraTable): string[] {
     ['tree', t.trees],
     ['shrub', t.shrubs],
     ['ground', t.ground],
+    ['shrub', t.brush ?? []],
   ];
   for (const [layer, rules] of layers) {
     for (const r of rules) {

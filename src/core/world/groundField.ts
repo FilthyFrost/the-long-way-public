@@ -8,6 +8,7 @@ import { blossoms, elevationBand, groundProfile, pigments, plants, siteElevation
 import { sampleRock } from './rockTables';
 import { accentColour, autumnColour, barkColour, grassColour, groundColour, leafColour, stoneColour, type PlacePalette } from './earth/palette';
 import { Solid, solidWithin, type SolidSource } from './solids';
+import { Clump, clumpAt, driftFactor } from './layout';
 import { TerrainPoint, type World } from './terrain';
 import { SpineSample } from './spine';
 import { inVentClearing, ventsNear, type Vent } from './earth/geothermal';
@@ -50,6 +51,7 @@ export class GroundField implements SolidSource {
   private readonly tp = new TerrainPoint();
   private readonly ss = new SpineSample();
   private vents: readonly Vent[] = [];
+  private readonly clump = new Clump();
   constructor(private readonly world: World) {}
 
 
@@ -85,15 +87,20 @@ export class GroundField implements SolidSource {
     if (!profile) return;
     const tp = this.tp;
     let g:Growth|undefined, name:string, accent = 0, dry = false, autumn = false, winter = false;
-    const pick = rand2(i,j,seed+3);
-    if (rocks) {
+    let pick = rand2(i,j,seed+3);
+    const C = this.clump;
+    /** (G3) how deep in its outcrop a stone lies (0: a stone of a slope's scree or of a bank) */
+    let core = 0;
+    // (G3 composes the places of the emergent Earth; a region written by hand keeps its ground as it was, to the stone)
+    const composed = !!biome.earth;
+    if (rocks && !composed) {
       // (V3: stones lie in patches some tens of metres across)
       const patch = Math.min(1, Math.max(0, 0.5 + 0.9 * fbm2(x / 70, z / 70, this.world.seed + 0x5ad, 2)));
       const r = sampleRock(profile,e,pick,die,patch);
       if (!r) return;
       g = r; name = r.name;
       accent = e.moisture > 0.56 && e.slope < 0.9 && g.form !== 'cobbles' ? 0x858856 : g.paint;
-    } else {
+    } else if (!rocks && !composed) {
       const altitude = siteElevation(biome.id,e);
       const band = elevationBand(profile,altitude);
       if (!band) return;
@@ -119,13 +126,78 @@ export class GroundField implements SolidSource {
       autumn = deciduous && localMonth >= 9 && localMonth <= 11;
       winter = deciduous && profile.climate.lowC[month-1] < -2 && (localMonth >= 11 || localMonth <= 3);
       dry = /grass|tussock|sedge|rice/.test(g.form) && (profile.climate.precipMm[month-1]<30 || profile.climate.lowC[month-1]<4);
+    } else if (rocks) {
+      // (G3, layout.ts) Its stones lie where its rock comes through, not anywhere: in outcrops — one to so many squares
+      // of the country, the more and the bigger the stonier the place — the rock in the middle and its fallen blocks
+      // round it; the likelier on a slope, a knoll, a landform's flank; and as scree under what is steep, as cobbles on a
+      // bank. Between them the ground is clear.
+      const rk = profile.rockiness ?? 0;
+      core = clumpAt(x, z, 92 - 40 * rk, Math.min(0.92, 0.07 + 1.05 * rk), 4 + 6 * rk, 9 + 15 * rk, this.world.seed + 0x5ae, C);
+      const bank = (e.waterKind === 1 || e.waterKind === 2) && e.waterDist < 9 && e.slope < 0.48;
+      const site = Math.min(1, 0.22 + 1.5 * e.slope + 0.5 * Math.max(0, -e.hollow) + (e.landform > 1 ? 0.4 : 0) + 1.2 * rk);
+      // (an outcrop on ground that does not suit is no outcrop at all: by its own number, the whole of it)
+      const stands = C.id < site;
+      const steep = Math.min(1, Math.max(0, (e.slope - 0.5) / 0.4));
+      const chance = bank ? 0.8 : Math.max(core > 0 && stands ? 0.34 + 0.6 * Math.min(1, core * 2.2) : 0, 0.5 * steep * steep * (3 - 2 * steep));
+      if (die >= 0.83 * chance) return;
+      if (!(core > 0 && stands)) core = 0;
+      const r = sampleRock(profile,e,pick,die,0.5,core);
+      if (!r) return;
+      g = r; name = r.name;
+      accent = e.moisture > 0.56 && e.slope < 0.9 && g.form !== 'cobbles' ? 0x858856 : g.paint;
+    } else {
+      const altitude = siteElevation(biome.id,e);
+      const band = elevationBand(profile,altitude);
+      if (!band) return;
+      // (G3, layout.ts) What stands here: a flower of the drift the spot lies in — a drift is of one kind and one colour
+      // —, a low shrub of its thicket, else the ground's own rough grass, sedge, fern or moss, in patches with clear
+      // ground between; a stray flower now and then. It was a flower, a shrub or a tuft to every eight metres, anywhere.
+      let names: typeof band.ground | typeof band.flowers;
+      let colour = rand2(i,j,seed+8);
+      const drift = band.flowers.length && driftFactor(x, z, this.world.seed, C) > 1 ? C.k : 0;
+      if (drift > 0 && die < 0.66 * Math.min(1, drift * 3)) {
+        names = band.flowers;
+        pick = C.id;
+        colour = (C.id * 7.31) % 1;
+      } else {
+        const thicket = band.shrubs.length ? clumpAt(x, z, 38, 0.36, 4, 9, this.world.seed + 0x5b2, C) : 0;
+        if (thicket > 0 && die < 0.25 + 0.6 * Math.min(1, thicket * 3)) {
+          names = band.shrubs;
+          pick = C.id;
+        } else if (die > 0.42 && fbm2(x / 44, z / 44, this.world.seed + 0x5b3, 2) > -0.04) names = band.ground;
+        else if (die < 0.015) names = band.flowers;
+        else return;
+      }
+      if (!names.length) return;
+      const choice = names[Math.min(names.length - 1, Math.floor(pick*names.length))];
+      if (typeof choice === 'string') {
+        name = choice; g = plants.get(name);
+      } else {
+        if (!choice.bloomMonths.includes(month)) return;
+        if (biome.id === 'flower_fields' && !this.world.flora!.cover(x,z,this.cover,e.h).flowers) return;
+        name = choice.name; g = blossoms.get(name);
+        accent = pigments[choice.colors[Math.min(choice.colors.length - 1, Math.floor(colour*choice.colors.length))]];
+      }
+      if (!g) return;
+      const snow = profile.snowlineM[Math.floor(month%12/3)];
+      if (snow !== null && altitude > snow && g.height < 0.3) return;
+      const bench = e.terrace >= 0.5;
+      if (rand2(i,j,seed+4) > siteFit(g,e,bench)) return;
+      const localMonth = (month - 1 + (profile.climate.latitude < 0 ? 6 : 0)) % 12 + 1;
+      const deciduous = /矮柳|矮桦|越橘/.test(name);
+      autumn = deciduous && localMonth >= 9 && localMonth <= 11;
+      winter = deciduous && profile.climate.lowC[month-1] < -2 && (localMonth >= 11 || localMonth <= 3);
+      dry = /grass|tussock|sedge|rice/.test(g.form) && (profile.climate.precipMm[month-1]<30 || profile.climate.lowC[month-1]<4);
     }
     this.world.shape(x,z,tp);
     if (tp.zone || tp.site>0.1 || tp.plot>0.1 || tp.wl>tp.bed || Math.abs(tp.d)<(rocks ? 12 : 7.6)) return;
     if (g.habitat === 'bench' && !onBench(tp.bed,e.step)) return;
     const vary = rand2(i,j,seed+5);
     // (V3: one stone in eight of a stony place a big one, twice to three times the size)
-    const big = rocks && (profile.rockiness ?? 0) > 0.2 && rand2(i,j,seed+9) < 0.12 ? 2 + rand2(i,j,seed+10) : rocks && (g as { outcrop?: boolean }).outcrop ? 1.5 + 0.8 * rand2(i,j,seed+10) : 1;
+    // (G3: an outcrop's stones biggest in its middle — the rock itself — and smaller out to its rim; a scree's all small)
+    const big = !composed
+      ? (rocks && (profile.rockiness ?? 0) > 0.2 && rand2(i,j,seed+9) < 0.12 ? 2 + rand2(i,j,seed+10) : rocks && (g as { outcrop?: boolean }).outcrop ? 1.5 + 0.8 * rand2(i,j,seed+10) : 1)
+      : rocks ? (core > 0 ? 0.62 + 2.1 * core * core * (0.75 + 0.5 * rand2(i,j,seed+10)) : 0.7 + 0.4 * rand2(i,j,seed+10)) : 1;
     const scale=(0.62+0.66*vary)*big;
     const h = g.height*scale*(winter ? 0.73 : 1), r = g.radius*scale*(g.form==='fern' ? 1.43 : 1);
     const yaw = g.form==='rice' ? 0 : rand2(i,j,seed+6)*2*Math.PI;

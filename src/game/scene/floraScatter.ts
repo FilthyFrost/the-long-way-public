@@ -33,7 +33,7 @@ import { sceneMonthAt } from '../../core/world/sceneSeason';
 import { sceneSnowLine } from '../../core/world/routeProfiles';
 import { BIOMES } from '../../core/world/biomes';
 import { ECO_N, ECO_SQ, ECO_STEP, ECO_TILE } from '../../core/world/ecotope';
-import { LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
+import { LAYER_BRUSH, LAYER_GROUND, LAYER_SHRUB, LAYER_TREE, type FloraLayer, type FloraTile } from '../../core/world/flora';
 import { floraTableOf } from '../../core/world/floraTables';
 import { PLANTS, bearsAt, plantIndex, type PlantDef } from '../../core/world/plants';
 import { TerrainPoint, type World } from '../../core/world/terrain';
@@ -242,7 +242,7 @@ function slopeAt(H: Float32Array, fx: number, fz: number): void {
 const discScratch = new Float32Array((256 + 256 * 3 + 1024) * 16);
 const tp = new TerrainPoint();
 /** a tile's painted crowns as they are gathered: its trees' cells and its shrubs' */
-const crownScratch = new Float32Array(512 * CROWN_STRIDE);
+const crownScratch = new Float32Array(640 * CROWN_STRIDE);
 /** … and the plants of its ground the toolkit grows (a tile's ground field holds a few thousand at most) */
 const GROUND_MOST = 4096;
 const groundCrownScratch = new Float32Array(GROUND_MOST * CROWN_STRIDE);
@@ -448,7 +448,8 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
   gather.tree.reset();
   gather.small.reset();
   const near = lod <= LOD_CLOSE;
-  const layers: FloraLayer[] = near ? [LAYER_TREE, LAYER_SHRUB, LAYER_GROUND] : lod === LOD_MID ? [LAYER_TREE, LAYER_SHRUB] : [LAYER_TREE];
+  // (G3: the brush — a place of the emergent Earth's mantles and thickets — with the shrubs)
+  const layers: FloraLayer[] = near ? [LAYER_TREE, LAYER_SHRUB, LAYER_BRUSH, LAYER_GROUND] : lod === LOD_MID ? [LAYER_TREE, LAYER_SHRUB, LAYER_BRUSH] : [LAYER_TREE];
   // which of its models a tree is drawn in, and a small plant (0 near, 1 far, 2 furthest)
   const treeLevel = lod === LOD_NEAR || lod === LOD_CLOSE ? 0 : lod === LOD_MID ? 1 : 2;
   const smallLevel = near ? 0 : 1;
@@ -465,7 +466,8 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       // The profile supplies ornamental understory. Harvestable plants still come from the forage field.
       // (V4: but a place of the emergent Earth keeps its woods' shrubs that are painted crowns, near — the profile's
       // understory is ferns and moss and an edge shrub now and then, and a wood seen from the road was trunks in a lawn)
-      if (layer !== LAYER_TREE && !PLANTS[pi].bears && groundProfile(BIOMES[t.region[i]].id) && !(layer === LAYER_SHRUB && near && crowns && BIOMES[t.region[i]].earth && crownOf(crowns, pi) >= 0)) continue;
+      const shrubby = layer === LAYER_SHRUB || layer === LAYER_BRUSH;
+      if (layer !== LAYER_TREE && !PLANTS[pi].bears && groundProfile(BIOMES[t.region[i]].id) && !(shrubby && near && crowns && BIOMES[t.region[i]].earth && crownOf(crowns, pi) >= 0)) continue;
       if (!d.drawn) continue;
       let level = layer === LAYER_TREE ? treeLevel : smallLevel;
       if (dense && layer === LAYER_TREE) {
@@ -485,7 +487,7 @@ export function buildFloraScatter(world: World, reg: PlantRegistry, tx: number, 
       const model = level === 0 ? d.near : level === 1 ? d.far : d.tiny;
       if (!model) continue;
       // a painted crown: handed over, with where it stands and how it looks
-      if (crowns && (layer === LAYER_TREE || (layer === LAYER_SHRUB && lod <= LOD_CLOSE)) && nc < 512) {
+      if (crowns && (layer === LAYER_TREE || (shrubby && lod <= LOD_CLOSE)) && nc < 640) {
         const climate = BIOMES[t.region[i]]?.kin;
         const bush = PLANTS[pi].model === 'sage' || (PLANTS[pi].model === 'bush' && climate === 'desert') ? 'bush_dry'
           : PLANTS[pi].model === 'bush' && climate === 'alpine' ? 'bush_alpine' : undefined;

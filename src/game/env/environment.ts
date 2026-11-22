@@ -200,12 +200,15 @@ export class Environment {
       this.eyeDark += (under - this.eyeDark) * (dt === 0 ? 1 : 1 - Math.exp(-dt / rate));
     }
     this.core.exposure = look.exposure * (1 + 1.25 * this.eyeDark);
+    this.core.placeContrast = look.contrast;
+    this.core.placeSaturation = look.saturation;
     this.core.night = sky.night;
     // shafts of light: a low sun, and air with something in it to catch them (mist, the damp after rain, dust)
     {
       const elev = sky.sunElev * (180 / Math.PI);
-      const low = THREE.MathUtils.smoothstep(elev, 1.5, 7) * (1 - THREE.MathUtils.smoothstep(elev, 26, 42));
-      const air = Math.min(1, 0.35 + w.fog * 1.6 + w.wetness * 0.45 + w.dust * 0.8 + w.murkRain * 0.3);
+      // (G7: the place's own air — a wet wood's shows them half the day, a high dry country's hardly at all)
+      const low = THREE.MathUtils.smoothstep(elev, 1.5, 7) * (1 - THREE.MathUtils.smoothstep(elev, 22 + 26 * look.shafts, 38 + 30 * look.shafts));
+      const air = Math.min(1, look.shafts + w.fog * 1.6 + w.wetness * 0.45 + w.dust * 0.8 + w.murkRain * 0.3);
       this.core.shafts = look.moon > 0.5 ? 0 : 0.5 * low * air * look.sunVis;
       this.core.shaftColor.copy(look.glow).lerp(look.sun, 0.3).multiplyScalar(0.55);
     }
@@ -403,9 +406,9 @@ export class Environment {
     const night = 1 - 0.85 * show;
     const hi = skyUniforms.uHigh.value;
     hi.set(
-      (t?.cirrus ?? mix((s) => s.cirrus, 0.3) * (1 + 0.35 * golden) * night) * open,
-      (t?.cirrocumulus ?? mix((s) => s.cirrocumulus, 0.1) * (1 + 0.3 * golden) * night) * open,
-      (t?.altocumulus ?? mix((s) => s.altocumulus, 0.2) * (1 + 0.25 * golden) * night) * open,
+      (t?.cirrus ?? mix((s) => s.cirrus, 0.12) * (1 + 0.35 * golden) * night) * open,
+      (t?.cirrocumulus ?? mix((s) => s.cirrocumulus, 0.03) * (1 + 0.3 * golden) * night) * open,
+      (t?.altocumulus ?? mix((s) => s.altocumulus, 0.06) * (1 + 0.25 * golden) * night) * open,
       (t?.veil ?? mix((s) => s.veil, 0.05) * night) * Math.max(open, 0.3),
     );
     const wv = skyUniforms.uWaves.value;

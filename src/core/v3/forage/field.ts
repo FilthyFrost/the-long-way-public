@@ -107,7 +107,8 @@ export class ForageField {
     const tz0 = Math.floor((z - r) / ECO_TILE);
     const tz1 = Math.floor((z + r) / ECO_TILE);
     const r2 = r * r;
-    for (let layer = 0 as FloraLayer; layer < 3; layer = (layer + 1) as FloraLayer) {
+    // (the brush too: G3, core/world/flora.ts LAYER_BRUSH — a thicket's bushes bear as any shrub's)
+    for (let layer = 0 as FloraLayer; layer < 4; layer = (layer + 1) as FloraLayer) {
       const C = LAYER_CELL[layer];
       for (let tz = tz0; tz <= tz1; tz++) {
         for (let tx = tx0; tx <= tx1; tx++) {

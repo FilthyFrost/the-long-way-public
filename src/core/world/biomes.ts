@@ -208,6 +208,8 @@ export interface EarthLook {
   rock2: number;
   forest: number;
   crowns: readonly number[];
+  /** (G2) the key of its woods (0xRRGGBB): its crowns' four tones are this one's ladder (earth/palette.ts crownLadder) */
+  woods?: number;
   trunk: number;
   flowers: readonly [number, number, number];
   /** 0 … 1: how dry its ground looks, how much grass and how tall, how many flowers; the slope where bare rock begins */

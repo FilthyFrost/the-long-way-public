@@ -33,20 +33,11 @@ import { sharedTextures } from './textures';
 
 /** GLSL: four tones of one colour (as render/floraMaterial.ts paints a plant with a colour of its own) */
 const GLSL_TINT_TONE = /* glsl */ `
+  // (G2: a plant's own colour is its key — the third of Painted Valley's four tones — and its ladder the one its
+  // region's woods are painted in, render/paint.ts rtLadder: it was taken for the lightest of the four, and a beech among
+  // oaks stood a tone darker than they, near black)
   vec3 rtTintTone(vec3 t, float tone) {
-    float m = max(max(t.r, t.g), max(t.b, 1e-3));
-    vec3 tn = t / m;
-    float sat = 1.0 - min(min(tn.r, tn.g), tn.b);
-    // (Painted Valley's ladder, docs/V3/art/plants-standard.md §1: its shade a deep blue-green of its own, not its
-    // light made dark — for its leaf, (0.30, 0.56, 0.15) lit: 0.10 0.36 0.12, 0.035 0.20 0.12, 0.014 0.10 0.10; a warm
-    // leaf's, an autumn maple's, a deep red of its own with hardly any blue in it, not a purple)
-    vec3 cool = vec3(0.0, 0.0, (0.35 + 0.85 * sat) * clamp(1.0 - 1.6 * max(tn.r - tn.g, 0.0), 0.0, 1.0));
-    vec3 f0 = m * (0.18 * pow(tn, vec3(3.5)) + 0.17 * cool);
-    vec3 f1 = m * (0.36 * pow(tn, vec3(2.6)) + 0.22 * cool);
-    vec3 f2 = m * (0.64 * pow(tn, vec3(1.6)) + 0.14 * cool);
-    vec3 c = mix(f0, f1, smoothstep(0.3, 0.42, tone));
-    c = mix(c, f2, smoothstep(0.56, 0.68, tone));
-    return mix(c, t, smoothstep(0.84, 0.92, tone));
+    return rtLadder(t, tone);
   }
 `;
 

@@ -75,6 +75,20 @@ export const GLSL_PAINT = /* glsl */ `
     vec3 c = mix(p.deep, p.mid, smoothstep(0.18, 0.48, tone));
     return mix(c, p.lit, smoothstep(0.55, 0.88, tone));
   }
+  // (G2) the four tones of a crown from its key: Painted Valley's ladder channel by channel (core/world/earth/palette.ts
+  // crownLadder, the same numbers) — a plant with a colour of its own beside one in its region's woods, one ladder
+  vec3 rtLadder(vec3 key, float tone) {
+    float g = clamp((key.g - key.r) / max(key.g, 1e-3) * 2.0, 0.0, 1.0);
+    vec3 f0 = key * mix(vec3(0.3, 0.24, 0.45), vec3(0.14, 0.28, 0.83), g);
+    vec3 f1 = key * mix(vec3(0.55, 0.5, 0.7), vec3(0.35, 0.556, 1.0), g);
+    // (a shade is a deep teal at its bluest, never a blue: a spruce's key is half blue already)
+    f0.b = min(f0.b, f0.g * 1.02);
+    f1.b = min(f1.b, f1.g * 0.72);
+    vec3 f3 = key * mix(vec3(1.6, 1.5, 1.2), vec3(3.0, 1.56, 1.25), g);
+    vec3 c = mix(f0, f1, smoothstep(0.26, 0.4, tone));
+    c = mix(c, key, smoothstep(0.52, 0.66, tone));
+    return mix(c, f3, smoothstep(0.8, 0.92, tone));
+  }
   vec3 rtWoodTone(RtPal p, float tone) {
     vec3 c = mix(p.f0, p.f1, smoothstep(0.26, 0.4, tone));
     c = mix(c, p.f2, smoothstep(0.52, 0.66, tone));

@@ -30,6 +30,8 @@ export interface BiomePalette {
   forest: number;
   /** tree crown tints (instance colours) */
   crowns: number[];
+  /** (G2) the key of its woods: its crowns' four tones are its ladder (a region of the emergent Earth's) */
+  woods?: number;
   trunk: number;
   /** the three colours of its meadow flowers (absent: its kin's) */
   flowers?: [number, number, number];
@@ -205,6 +207,7 @@ export function earthPalette(e: EarthLook): BiomePalette {
     rock2: e.rock2,
     forest: e.forest,
     crowns: [...e.crowns],
+    ...(e.woods !== undefined ? { woods: e.woods } : {}),
     trunk: e.trunk,
     flowers: [e.flowers[0], e.flowers[1], e.flowers[2]],
     look: { dryness: e.dryness, grassDensity: e.grass, grassGrow: 0.2 + 0.6 * e.grass, grassSize: e.grassSize, flowerAmount: e.flowerAmount, rockStart: e.rockStart, snow: e.snow, strata: e.strata, crownVariety: e.crownVariety },

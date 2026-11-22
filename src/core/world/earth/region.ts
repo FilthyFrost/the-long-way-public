@@ -20,7 +20,7 @@ import type { Scene } from '../../earth/director';
 import type { Efg, Struct } from '../../earth/efg';
 import { rock } from '../../earth/rocks';
 import { landOfPlace } from './landform';
-import { accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
+import { GRASSY, accentColour, barkColour, paletteOfPlace, patchesOf, stoneColour, swatches } from './palette';
 import { ROAD_BUILD, type RoadType } from '../../earth/roads';
 import { hash2 } from '../../math/rng';
 
@@ -191,8 +191,6 @@ export function waterOfPlace(sc: Scene): RegionWater {
 
 // ---- its colours
 
-/** how much of its ground is under grass or the like, by its structure (the rest is its rock's ground) */
-const GRASSY: Readonly<Record<Struct, number>> = { closed_forest: 0.85, open_forest: 0.8, woodland: 0.75, savanna: 0.75, shrubland: 0.5, grassland: 1, farmland: 1, wetland: 1, tundra: 0.7, desert: 0.08, bare: 0.08, ice: 0, water: 0.5 };
 
 /** the colours of its flowers, by their forms */
 const FLOWER_HUE: Readonly<Record<string, number>> = { flower_daisy: 0xf6f2e6, flower_cup: 0xe2503a, flower_spike: 0x8f6cd0, flower_umbel: 0xf4efe0, flower_bell: 0x7f8fd8, flower_tube: 0xd8483a, flower_cluster: 0xe89ab0, crop_sunflower: 0xf2c84b, crop_tulip: 0xe0443c, crop_rape: 0xf2d84b, crop_lavender: 0x8a6ec8 };
@@ -249,6 +247,7 @@ export function lookOfPlace(sc: Scene, seed = 0, k = sc.index): EarthLook {
     rock2: stoneColour(pal, rk.shade),
     forest: mix(crowns[0], 0x1c2a1c, 0.25),
     crowns,
+    woods: sw.woods,
     trunk: barkColour(pal, pale ? 0xd8d0c0 : 0x6e5a44),
     flowers: [hues[0], hues[1], hues[2]],
     // (its grass as far gone to straw as its palette's: the meadow by the road and the far hills alike)

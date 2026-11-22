@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { SkyState } from '../../core/env/time';
 import type { WeatherState } from '../../core/env/weather';
 import { regionById, regionRow } from '../../core/world/biomes';
+import type { PlaceLight } from '../../core/world/earth/palette';
 import { LightState, lightAt } from '../render/style';
 
 /** per-biome adjustments on top of the hour's light (a region without a row of its own has its kin's air) */
@@ -16,7 +17,10 @@ interface BiomeAir {
   haze: number;
   /** the tint of its sun (absent: none) */
   sun?: readonly [number, number, number];
+  /** (G7) its light (core/world/earth/palette.ts PlaceLight; absent: the hour's own) */
+  light?: PlaceLight;
 }
+const PLAIN_LIGHT: PlaceLight = { sun: 1, fill: 1, shade: [1, 1, 1], bounce: [0.15, 0.3, 0.08], bounceK: 0, contrast: 1, saturation: 1, shafts: 0.35 };
 
 /** a region's air: a place of the emergent Earth its palette's (core/world/earth/palette.ts), else its row's, else its kin's */
 function airOf(id: string): BiomeAir {
@@ -44,6 +48,10 @@ export class Look extends LightState {
   sunVis = 1;
   /** 1 while the key light is the moon */
   moon = 0;
+  /** (G7) the place's own finish against the style's, and how readily its air shows shafts of light */
+  contrast = 1;
+  saturation = 1;
+  shafts = 0.35;
 }
 
 const cA = new THREE.Color();
@@ -93,6 +101,33 @@ export function computeLook(sky: SkyState, w: WeatherState, biomeA: string, biom
   if (sa !== ONE || sb !== ONE) {
     cA.setRGB(sa[0] + (sb[0] - sa[0]) * bt, sa[1] + (sb[1] - sa[1]) * bt, sa[2] + (sb[2] - sa[2]) * bt);
     out.sun.multiply(cA);
+  }
+
+  // ---- (G7) the light of the place: its sun and its fill, the tint of its shade, its ground's colour thrown back
+  // into the shade, its finish (two places blended across their border)
+  {
+    const la = a.light ?? PLAIN_LIGHT;
+    const lb = b.light ?? PLAIN_LIGHT;
+    const mixn = (x: number, y: number): number => x + (y - x) * bt;
+    out.sun.multiplyScalar(mixn(la.sun, lb.sun));
+    out.amb.multiplyScalar(mixn(la.fill, lb.fill));
+    out.amb.r *= mixn(la.shade[0], lb.shade[0]);
+    out.amb.g *= mixn(la.shade[1], lb.shade[1]);
+    out.amb.b *= mixn(la.shade[2], lb.shade[2]);
+    const k = mixn(la.bounceK, lb.bounceK);
+    if (k > 0) {
+      // (the ground's own hue at the hour's brightness — a pale ground throws more back than a dark one)
+      const gr = mixn(la.bounce[0], lb.bounce[0]);
+      const gg = mixn(la.bounce[1], lb.bounce[1]);
+      const gb = mixn(la.bounce[2], lb.bounce[2]);
+      const gl = Math.max(0.04, 0.2126 * gr + 0.7152 * gg + 0.0722 * gb);
+      const ref = 0.2126 * out.bounce.r + 0.7152 * out.bounce.g + 0.0722 * out.bounce.b;
+      const gain = (ref / gl) * Math.min(2.4, Math.max(0.5, gl / 0.3));
+      out.bounce.lerp(cA.setRGB(gr * gain, gg * gain, gb * gain), k);
+    }
+    out.contrast = mixn(la.contrast, lb.contrast);
+    out.saturation = mixn(la.saturation, lb.saturation);
+    out.shafts = mixn(la.shafts, lb.shafts);
   }
 
   // ---- weather

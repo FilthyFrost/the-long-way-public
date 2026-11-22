@@ -237,7 +237,11 @@ export function profileOfPlace(sc: Scene, id: string): EcoProfile {
   const tl = Math.round(treeLineOf(m));
   // (a lava field's and a cinder field's ground is the flow's own black blocks, rough and jagged: V3)
   const lava = sc.look.landform.id === 'lava_field' || sc.look.landform.id === 'cinder_cones';
-  const rk = lava ? { type: '玄武岩', color: '暗灰', form: '熔岩块' } : ROCKS[m.rock];
+  // (G3: a limestone's fluted pinnacles are a karst's — the towers', the stone forest's; elsewhere its rock lies in beds)
+  const lfId = sc.look.landform.id;
+  const karstic = lfId === 'tower_karst' || lfId === 'cone_karst' || lfId === 'stone_forest' || lfId === 'pillar_mountain' || lfId === 'tsingy';
+  const own = ROCKS[m.rock];
+  const rk = lava ? { type: '玄武岩', color: '暗灰', form: '熔岩块' } : own.form === '竖沟孤峰' && !karstic ? { ...own, form: '层状块' } : own;
   return {
     id,
     name: sc.name,

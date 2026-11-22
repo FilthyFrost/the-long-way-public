@@ -36,6 +36,9 @@ import { STYLE, styleOf } from '../render/style';
 import { GROUND_FAR, ON_LANDFORM } from '../render/terrainMaterials';
 import { canopyOf, clingOf, woodHeight, woodOnSlope } from './floraCanopy';
 import { CoverBase, coverBase, driftHue01, hueOf, rowCoord, rowHue01, rowsRun } from './floraCover';
+import { Clump, DRIFT_MOST, driftFactor, driftHue } from '../../core/world/layout';
+
+const driftClump = new Clump();
 import { floraOf, woodland } from './palette';
 import { buildPlants } from './vegetation';
 import { inVentClearing, ventsNear } from '../../core/world/earth/geothermal';
@@ -1364,6 +1367,16 @@ export function* grassSlices(world: World, gx: number, gz: number, density: numb
                 fr.push(lx + 0.05, y, lz - 0.04, (1.25 + 0.7 * r2) * (0.75 + 0.5 * flowers));
                 fi.push(hueOf(c.hues, rowHue01(world.seed, rk)), keep, r1 * 6.283, gSlot[kn]);
               }
+            }
+          }
+        } else if (BIOMES[gReg[kn]].earth) {
+          // (G3: a place of the emergent Earth — its flowers in drifts of one colour, the core's own, core/world/layout.ts
+          // driftFactor: a carpet inside a drift, hardly one between)
+          if (near && flowers > 0.01 && !onRoad && dice < flowers * COVER_FLOWERS * 1.1 * DRIFT_MOST) {
+            const f = driftFactor(x0 + lx, z0 + lz, world.seed, driftClump);
+            if (dice < Math.min(1, flowers * f) * COVER_FLOWERS * 1.1) {
+              fr.push(lx + 0.05, y, lz - 0.04, 0.8 + 0.5 * r2);
+              fi.push(hueOf(c.hues, driftClump.k > 0 ? driftHue(driftClump.id) : driftHue01(world.seed, x0 + lx, z0 + lz)), keep, r1 * 6.283, gSlot[kn]);
             }
           }
         } else if (near && flowers > 0.01 && !onRoad && dice < flowers * COVER_FLOWERS * 2.2) {

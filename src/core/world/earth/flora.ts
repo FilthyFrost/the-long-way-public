@@ -14,6 +14,7 @@ import type { RoadType } from '../../earth/roads';
 import type { Efg, Form, Struct } from '../../earth/efg';
 import { growingAt, wetnessAt, LAPSE } from '../../earth/climate';
 import { rock } from '../../earth/rocks';
+import { PLANTS, plantIndex } from '../plants';
 
 const LAKE = 1;
 const RIVER = 2;
@@ -85,6 +86,59 @@ const STAND: Readonly<Record<Struct, { trees: number; wood: number; shrubs: numb
   water: { trees: 0, wood: 0, shrubs: 0 },
 };
 
+/** trees or shrubs in clumps: one in `share` of the squares `every` m a side, r m in radius, so many to the hectare inside */
+interface Clumps {
+  every: number;
+  share: number;
+  r: Band;
+  perHa: number;
+}
+
+/**
+ * (G3, docs/V3/nodes/G-ghibli.md) How a card's country is set out, by its structure — what a photograph of such country
+ * shows, not so many plants to the hectare thrown anywhere:
+ *
+ *   a forest      stands of one kind of tree with closed crowns (`core` trees to the hectare in a stand's middle, `under`
+ *                 young ones beneath), a mantle of shrubs along its edge and round its clearings, a few under it;
+ *   a woodland    the same in groves, with copses and thickets out in its grass;
+ *   a savanna     its trees keeping their distance, each on its own ground's water, thorn in thickets;
+ *   a grassland   open, a copse now and then, a thicket in a hollow;
+ *   a shrubland   a mosaic of thickets and open ground, trees in small groups;
+ *   a desert      shrubs evenly apart, bare ground between, a tall cactus or a yucca every so often;
+ *   a tundra      mats of dwarf shrub in patches;
+ *   a wetland     carrs of willow, beds of reed.
+ */
+interface Pattern {
+  core: number;
+  under: number;
+  /** in the open: copses of trees, and trees that keep their distance (m apart, so many to the hectare) */
+  copse?: Clumps;
+  apart?: { spacing: number; perHa: number };
+  /** shrubs to the hectare along a wood's edge, and under it */
+  mantle: number;
+  understory: number;
+  /** in the open: thickets, and shrubs that keep their distance */
+  thicket?: Clumps;
+  shrubsApart?: { spacing: number; perHa: number };
+}
+
+const PATTERN: Readonly<Record<Struct, Pattern>> = {
+  // (the frame's budget: a closed wood's crowns are the dearest thing in sight — harness/shots/perf_gate.mjs, its river spot)
+  closed_forest: { core: 104, under: 14, mantle: 330, understory: 22, thicket: { every: 96, share: 0.2, r: [4, 8], perHa: 480 } },
+  open_forest: { core: 96, under: 12, mantle: 330, understory: 18, thicket: { every: 90, share: 0.25, r: [4, 9], perHa: 480 } },
+  woodland: { core: 92, under: 10, copse: { every: 230, share: 0.22, r: [9, 18], perHa: 130 }, mantle: 320, understory: 16, thicket: { every: 84, share: 0.28, r: [4, 9], perHa: 480 } },
+  savanna: { core: 70, under: 0, apart: { spacing: 40, perHa: 5.2 }, copse: { every: 260, share: 0.12, r: [8, 14], perHa: 110 }, mantle: 220, understory: 0, thicket: { every: 72, share: 0.3, r: [4, 9], perHa: 440 } },
+  shrubland: { core: 70, under: 0, copse: { every: 210, share: 0.24, r: [7, 14], perHa: 120 }, apart: { spacing: 96, perHa: 0.45 }, mantle: 300, understory: 0, thicket: { every: 44, share: 0.8, r: [7, 18], perHa: 540 } },
+  grassland: { core: 80, under: 0, copse: { every: 320, share: 0.24, r: [9, 19], perHa: 140 }, mantle: 300, understory: 0, thicket: { every: 130, share: 0.22, r: [4, 8], perHa: 480 } },
+  farmland: { core: 80, under: 0, copse: { every: 280, share: 0.2, r: [8, 16], perHa: 140 }, mantle: 300, understory: 0, thicket: { every: 150, share: 0.15, r: [4, 7], perHa: 480 } },
+  wetland: { core: 90, under: 8, copse: { every: 150, share: 0.42, r: [10, 22], perHa: 140 }, mantle: 380, understory: 20, thicket: { every: 64, share: 0.38, r: [5, 11], perHa: 520 } },
+  tundra: { core: 0, under: 0, mantle: 0, understory: 0, thicket: { every: 36, share: 0.55, r: [3, 8], perHa: 520 } },
+  desert: { core: 0, under: 0, apart: { spacing: 48, perHa: 3.6 }, mantle: 0, understory: 0, shrubsApart: { spacing: 12, perHa: 44 } },
+  bare: { core: 0, under: 0, mantle: 0, understory: 0, shrubsApart: { spacing: 28, perHa: 5 } },
+  ice: { core: 0, under: 0, mantle: 0, understory: 0 },
+  water: { core: 0, under: 0, mantle: 0, understory: 0 },
+};
+
 /** (a card whose ground has room for a lone tree: grassland with trees of its own) */
 const st0 = (e: Efg): boolean => e.trees.length > 0;
 /** (salt underfoot: nothing stands on it) */
@@ -138,32 +192,38 @@ function shares(n: number): number[] {
 }
 
 /** the rules of one card's trees and shrubs, within a band of relief (m above the road's base) */
-function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number, autumn: 'red' | 'gold' | null = null): { trees: FloraRule[]; shrubs: FloraRule[] } {
+function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number, autumn: 'red' | 'gold' | null = null): { trees: FloraRule[]; shrubs: FloraRule[]; brush: FloraRule[] } {
   const st = STAND[e.struct];
+  const pt = PATTERN[e.struct];
   const trees: FloraRule[] = [];
   const shrubs: FloraRule[] = [];
-  const tp = plantsOf(e.trees, warm, autumn);
+  const brush: FloraRule[] = [];
+  const tp = st.trees > 0 ? plantsOf(e.trees, warm, autumn) : [];
   const ts = shares(tp.length);
   const r = relief ? { relief } : {};
-  const open = e.struct === 'savanna' || e.struct === 'grassland' || e.struct === 'farmland' || e.struct === 'shrubland' || e.struct === 'desert' || e.struct === 'wetland';
+  // (G3) its trees: the stands of its woods — each stand of one of its kinds, the kinds with the most numbers the
+  // oftener (flora.ts FloraRule.stand) — their young under them; out of the woods its copses, and the trees that keep
+  // their distance
   tp.forEach((plant, i) => {
-    const perHa = st.trees * ts[i] * scale;
-    if (perHa <= 0) return;
-    // (in open country the trees stand alone or in clumps over all of it; in a wood, under its canopy)
-    if (open) trees.push({ plant, perHa: Math.max(0.3, perHa), grove: e.struct === 'savanna' ? 140 : 90, ...r, size: b(0.75, 1.25) });
-    else trees.push({ plant, perHa, canopy: b(0.35, 1), grove: 140, ...r });
+    if (pt.core > 0) trees.push({ plant, perHa: pt.core * ts[i] * scale, stand: 1, ...r });
+    if (pt.under > 0) trees.push({ plant, perHa: pt.under * ts[i] * scale, stand: 2, canopy: b(0.5, 1), size: b(0.38, 0.62), ...r });
+    if (pt.copse) trees.push({ plant, perHa: pt.copse.perHa * ts[i] * scale, stand: 3, clump: { every: pt.copse.every, share: pt.copse.share, r: pt.copse.r }, canopy: b(0, 0.1), size: b(0.8, 1.25), ...r });
+    if (pt.apart) trees.push({ plant, perHa: pt.apart.perHa * ts[i] * scale, spaced: pt.apart.spacing, canopy: b(0, 0.1), size: b(0.85, 1.3), ...r });
   });
-  // (a wood's edge and its clearings: some of its trees out in the open, smaller)
-  if (!open && tp.length && st.trees > 0) trees.push({ plant: tp[0], perHa: st.trees * 0.12 * scale, canopy: b(0.08, 0.4), size: b(0.55, 0.9), ...r });
-  // (V4: its understory — young trees of its second kind, or its first, under the canopy, a third to two thirds grown —
-  // so that a wood seen from the road is a wood and not a park of trunks)
-  if (!open && tp.length && st.trees > 0) trees.push({ plant: tp[1] ?? tp[0], perHa: st.trees * 0.32 * scale, canopy: b(0.45, 1), size: b(0.38, 0.62), ...r });
-  const sp = plantsOf(e.shrubs, warm, null, e.group === 'T6');
+  // its shrubs: the mantle along the wood's edge, a few under the wood, thickets out in the open — each thicket and each
+  // stretch of mantle of one kind —, or evenly apart where the ground is dry
+  const sp = plantsOf(e.shrubs, warm, null, e.group === 'T6').filter((plant) => plant !== 'reed');
   const ss = shares(sp.length);
+  // (on the brush's grid of 4 m, flora.ts LAYER_BRUSH: shrubs touching. What a shrub's form is drawn as may be a tree of
+  // the catalogue — an ocotillo, a frailejón: those stand with the trees, on their grid, in the same thickets)
   sp.forEach((plant, i) => {
-    if (plant === 'reed') return;
-    const perHa = st.shrubs * ss[i] * scale;
-    if (perHa > 0) shrubs.push({ plant, perHa, ...(open ? {} : { canopy: b(0.04, 0.85) }), grove: 70, ...r });
+    const tall = PLANTS[plantIndex(plant)]?.layer === 'tree';
+    const to = tall ? trees : brush;
+    const k = tall ? 0.3 : 1;
+    if (pt.mantle > 0) to.push({ plant, perHa: pt.mantle * ss[i] * scale * k, stand: tall ? 5 : 1, canopy: b(0.03, 0.26), ...r });
+    if (pt.understory > 0 && !tall) to.push({ plant, perHa: pt.understory * ss[i] * scale, stand: 2, canopy: b(0.42, 1), ...r });
+    if (pt.thicket) to.push({ plant, perHa: pt.thicket.perHa * ss[i] * scale * k, stand: tall ? 6 : 3, clump: { every: pt.thicket.every, share: pt.thicket.share, r: pt.thicket.r }, canopy: b(0, 0.08), ...r });
+    if (pt.shrubsApart) to.push({ plant, perHa: pt.shrubsApart.perHa * ss[i] * scale * k, spaced: tall ? Math.max(24, pt.shrubsApart.spacing * 2) : pt.shrubsApart.spacing, ...r });
   });
   // (the crops of fields and terraces: their own rows or benches)
   for (const f of e.herbs) {
@@ -172,7 +232,7 @@ function rulesOf(e: Efg, warm: boolean, relief: Band | undefined, scale: number,
     if (f === 'crop_vine') shrubs.push({ plant: 'grape_vine', perHa: 120, slope: b(0, 0.4), ...r });
   }
   for (const f of e.flowers ?? []) if (f === 'crop_sunflower') shrubs.push({ plant: 'sunflower', perHa: 140, slope: b(0, 0.25), ...r });
-  return { trees, shrubs };
+  return { trees, shrubs, brush };
 }
 
 /**
@@ -193,7 +253,7 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
   const treeline: readonly [number, number] | null = line < R + 200 ? [Math.max(-40, line - 90), Math.max(-20, line + 10)] : null;
   const autumn = sc.look.sig.veg === 'autumn' && (e.struct === 'closed_forest' || e.struct === 'open_forest' || e.struct === 'woodland') ? (m.cont > 0.55 ? 'red' : 'gold') : null;
   const low = rulesOf(e, warm, upper ? b(-1e4, R * 0.42) : undefined, 1, autumn);
-  const high = upper && upper.code !== e.code ? rulesOf(upper, warm, b(R * 0.3, 1e5), 1) : { trees: [], shrubs: [] };
+  const high = upper && upper.code !== e.code ? rulesOf(upper, warm, b(R * 0.3, 1e5), 1) : { trees: [], shrubs: [], brush: [] };
   const trees = [...low.trees, ...high.trees];
   // (the traits of stress, §6: the last trees below the tree line low and bent — the krummholz; in dry country every
   // tree smaller; on a windy card's ridges the same)
@@ -204,8 +264,8 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
   // the roadside, as the country has it: in farmland rows of poplars along the road (cypresses in the Mediterranean's), in
   // open grassland now and then a great tree alone by it, in the savanna its flat-topped acacias
   if (e.struct === 'farmland' && !salt0(m)) trees.push({ plant: m.tSea > 13 && w < 0.6 ? 'cypress' : 'poplar', perHa: 160, road: b(12, 26), hedge: 140, size: b(0.9, 1.2) });
-  if (e.struct === 'grassland' && st0(e) && !salt0(m)) trees.push({ plant: warm ? 'acacia' : 'oak', perHa: 0.4, road: b(28, 4000), size: b(1.2, 1.45) });
-  if (e.struct === 'savanna') trees.push({ plant: 'acacia', perHa: 1.2, road: b(30, 4000), size: b(1, 1.3) });
+  // (G3: a great tree alone, one in a few hectares of open country, where the road passes it)
+  if (e.struct === 'grassland' && st0(e) && !salt0(m)) trees.push({ plant: warm ? 'acacia' : 'oak', perHa: 0.2, spaced: 200, road: b(26, 420), canopy: b(0, 0.1), size: b(1.25, 1.5) });
   // (world version 5) an avenue, a tunnel of trees: the country's own tree in close rows along both sides, its crowns
   // meeting over the road (core/earth/roads.ts RoadType.avenue)
   const avenue = road?.avenue ?? 0;
@@ -213,10 +273,11 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
   const shrubs = [...low.shrubs, ...high.shrubs];
   // the waters' own: willows and poplars by fresh water where the card stands no trees of the bank, reeds, mangroves by a tropical sea
   if (m.water !== 'none' && m.water !== 'salt' && e.struct !== 'ice') {
-    if (warm && (m.water === 'coast' || m.water === 'wetland')) trees.push({ plant: 'mangrove', perHa: 60, water: b(0, 14), waterKinds: SEA | FRESH });
-    if (!warm || m.water !== 'coast') trees.push({ plant: warm ? 'river_fig' : 'willow', perHa: 30, water: b(0, 14), waterKinds: FRESH });
-    if (m.tSea > 15 && (m.water === 'oasis' || (w < 0.3 && m.water === 'river'))) trees.push({ plant: 'fan_palm', perHa: 70, water: b(0, 30), waterKinds: FRESH });
-    shrubs.push({ plant: 'reed', perHa: 380, water: b(0, 5), waterKinds: FRESH });
+    // (G3: the banks' trees in groups along the water with open bank between, the reeds in beds)
+    if (warm && (m.water === 'coast' || m.water === 'wetland')) trees.push({ plant: 'mangrove', perHa: 110, water: b(0, 14), waterKinds: SEA | FRESH, clump: { every: 70, share: 0.7, r: [14, 30] } });
+    if (!warm || m.water !== 'coast') trees.push({ plant: warm ? 'river_fig' : 'willow', perHa: 90, water: b(0, 16), waterKinds: FRESH, clump: { every: 64, share: 0.55, r: [10, 22] } });
+    if (m.tSea > 15 && (m.water === 'oasis' || (w < 0.3 && m.water === 'river'))) trees.push({ plant: 'fan_palm', perHa: 120, water: b(0, 30), waterKinds: FRESH, clump: { every: 56, share: 0.6, r: [9, 20] } });
+    shrubs.push({ plant: 'reed', perHa: 520, water: b(0, 5), waterKinds: FRESH, clump: { every: 30, share: 0.75, r: [8, 16] } });
   }
   const st = STAND[e.struct];
   const fl = (e.flowers ?? []).map((f) => FLOWER_HUE[f]).filter((x): x is number => x !== undefined);
@@ -244,11 +305,11 @@ export function floraOfPlace(sc: Scene, road?: RoadType): FloraTable {
     },
     trees,
     shrubs,
+    brush: [...low.brush, ...high.brush],
     ground: [
       ...(e.struct === 'closed_forest' || e.struct === 'open_forest' ? [{ plant: 'log', perHa: 8, canopy: b(0.5, 1) }] : []),
-      { plant: 'rock', perHa: e.struct === 'bare' || e.struct === 'desert' || e.struct === 'tundra' ? 30 : 6 },
-      ...(e.struct === 'bare' || e.struct === 'desert' || sc.look.landform.process === 'glacial' ? [{ plant: 'boulder', perHa: 6 }] : []),
-      ...(fl.length && grass > 0.3 ? [{ plant: 'flower_clump', perHa: 20 * fl.length, canopy: b(0, 0.3) }] : []),
+      // (G3: its stones are the ground field's, laid where its rock comes through — none thrown about here; its flower clumps in drifts)
+      ...(fl.length && grass > 0.3 ? [{ plant: 'flower_clump', perHa: 260, canopy: b(0, 0.3), clump: { every: 58, share: 0.4, r: [7, 18] as const } }] : []),
     ],
     cover: {
       grass,

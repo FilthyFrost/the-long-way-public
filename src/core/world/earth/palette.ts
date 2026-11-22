@@ -41,6 +41,78 @@ export interface PlaceAir {
   night?: { clarity: number; aurora: number };
   /** its clouds (V1b, docs/V3/nodes/V1b-clouds.md): which kinds its climate and its land give it, by its own dice */
   sky?: PlaceSky;
+  /** (G7) its light: what the hour's light is made in this country (env/colorScript.ts) */
+  light?: PlaceLight;
+}
+
+/**
+ * (G7, docs/V3/nodes/G-ghibli.md) The light of a place, against the hour's own — every country lit as it is, not all
+ * of them as one meadow at noon:
+ *
+ *   a hot desert     a hard white sun and little fill: its shade deep and violet against the warm ground, and the ground's
+ *                    own warmth thrown back up into it; the finish a little harder;
+ *   the wet tropics  the sun softened by the wet air and the sky's fill strong: no hard shade anywhere, the shade green
+ *                    under the canopy; colour rich, contrast gentle; the air shows every shaft of light;
+ *   snow country     the snow throws the sky back into every shade: shade pale and blue, colour clean;
+ *   the high country thin air: a fierce sun, a dark sky's little fill, shade a deep blue;
+ *   a coast          a bright air, the sea's light in the shade;
+ *   an autumn wood   the shade violet under the gold, the litter's warmth thrown back;
+ *   woods, wetlands  a soft fill, a green shade, shafts through their air of a morning.
+ */
+export interface PlaceLight {
+  /** the sun's strength and the sky's fill against the hour's */
+  sun: number;
+  fill: number;
+  /** what the sky's light is multiplied by: the tint of the shade */
+  shade: readonly [number, number, number];
+  /** its ground's colour (linear): what it throws back up into the shade, and how far that replaces the hour's own */
+  bounce: readonly [number, number, number];
+  bounceK: number;
+  /** the finish's contrast and saturation against the style's */
+  contrast: number;
+  saturation: number;
+  /** how readily its air shows shafts of light, 0 … 1 */
+  shafts: number;
+}
+
+/** how much of its ground is under grass or the like, by its structure (the rest is its rock's ground) */
+export const GRASSY: Readonly<Record<string, number>> = { closed_forest: 0.85, open_forest: 0.8, woodland: 0.75, savanna: 0.75, shrubland: 0.5, grassland: 1, farmland: 1, wetland: 1, tundra: 0.7, desert: 0.08, bare: 0.08, ice: 0, water: 0.5 };
+
+/** the light of a place (PlaceLight), from its climate, its country and its ground's colour */
+function lightOf(sc: Scene, w: number, t: number, dry: number, snow: number, autumn: number, ground: number): PlaceLight {
+  const m = sc.macro;
+  const e = sc.look.efg;
+  const hot = clamp((t - 8) / 14, 0, 1);
+  const high = clamp((m.base - 2200) / 1800, 0, 1);
+  // (warm and wet: the air itself is in the picture)
+  const humid = clamp((w - 0.55) / 0.35, 0, 1) * clamp((t - 10) / 12, 0, 1);
+  const wooded = snow ? 0 : e.struct === 'closed_forest' ? 1 : e.struct === 'open_forest' ? 0.7 : e.struct === 'woodland' ? 0.4 : 0;
+  const coast = m.water === 'coast' ? 1 : 0;
+  const watery = m.water === 'wetland' || m.water === 'lake' ? 1 : 0;
+  const sun = 1 + 0.12 * dry * hot + 0.06 * dry * (1 - hot) + 0.1 * high - 0.1 * humid + 0.05 * snow;
+  const fill = 1 - 0.16 * dry - 0.14 * high + 0.18 * humid + 0.12 * snow + 0.06 * coast + 0.05 * wooded + 0.08 * watery;
+  const shade: [number, number, number] = [1, 1, 1];
+  const tint = (c: readonly [number, number, number], k: number): void => {
+    for (let i = 0; i < 3; i++) shade[i] *= 1 + (c[i] - 1) * k;
+  };
+  tint([0.93, 0.97, 1.09], dry);
+  tint([0.88, 0.96, 1.1], high);
+  tint([0.86, 0.96, 1.14], snow);
+  tint([0.94, 1.03, 0.99], humid * (0.5 + 0.5 * wooded));
+  tint([0.96, 1.02, 0.99], wooded * (1 - humid));
+  tint([0.95, 1.0, 1.05], coast);
+  tint([1.02, 0.96, 1.06], autumn);
+  const lin3 = (hex: number): [number, number, number] => [lin(((hex >> 16) & 255) / 255), lin(((hex >> 8) & 255) / 255), lin((hex & 255) / 255)];
+  return {
+    sun,
+    fill,
+    shade,
+    bounce: lin3(ground),
+    bounceK: clamp(0.3 + 0.4 * dry + 0.45 * snow + 0.15 * wooded, 0, 0.85),
+    contrast: 1 + 0.07 * dry + 0.06 * high - 0.05 * humid - 0.02 * snow,
+    saturation: 1 + 0.03 * dry * hot + 0.08 * humid + 0.05 * wooded + 0.06 * autumn - 0.05 * snow + 0.04 * coast,
+    shafts: clamp(0.3 + 0.5 * humid + 0.3 * wooded + 0.25 * watery + 0.2 * dry * hot + 0.15 * coast + 0.2 * autumn - 0.15 * high, 0.15, 1),
+  };
 }
 
 /**
@@ -74,32 +146,78 @@ function skyOf(sc: Scene, seed: number, k: number, w: number, t: number, dry: nu
   const r = (): number => ((hash2(k, 0x5c7 + n++ * 131, seed) >>> 8) & 0xffff) / 65536;
   const m = sc.macro;
   const maybe = (p: number, lo: number, hi: number): number => (r() < p ? lo + (hi - lo) * r() : 0);
-  let cirrus = maybe(0.55, 0.3, 0.9);
-  let cirrocumulus = maybe(0.22, 0.35, 0.9);
-  let altocumulus = maybe(0.4, 0.3, 0.9);
-  let veil = maybe(0.12, 0.2, 0.55);
-  const waves = maybe(0.09, 0.55, 1);
+  // (G1, as the user had it: every kind of cloud, each country its own. A place's sky is ONE theme — a sky of mares'
+  // tails, a flock of altocumulus in bands, a ripple of cirrocumulus, a veil with the sun's halo, billows, a field of
+  // fair-weather heaps, the tropics' towers, or nothing at all — and at most a trace of a second kind beside it: it was
+  // every layer by its own dice, three or four patterns one over another on the same sky.)
+  const mountain = m.relief > 700;
+  const coast = m.water === 'coast';
+  const tropic = t > 19 && w > 0.6;
+  const cold = t < 4;
+  type Theme = 'clear' | 'tails' | 'flock' | 'ripples' | 'veil' | 'billows' | 'heaps' | 'towers';
+  const odds: readonly (readonly [Theme, number])[] =
+    dry > 0.5
+      ? [['clear', 0.4], ['tails', 0.34], ['ripples', 0.1], ['flock', 0.06], ['heaps', 0.1]]
+      : tropic
+        ? [['towers', 0.5], ['heaps', 0.24], ['flock', 0.1], ['tails', 0.16]]
+        : cold
+          ? [['veil', 0.32], ['tails', 0.26], ['clear', 0.18], ['flock', 0.1], ['ripples', 0.08], ['heaps', 0.06]]
+          : coast
+            ? [['flock', 0.28], ['heaps', 0.28], ['tails', 0.16], ['billows', 0.1], ['clear', 0.12], ['ripples', 0.06]]
+            : mountain
+              ? [['tails', 0.26], ['clear', 0.22], ['heaps', 0.26], ['flock', 0.14], ['ripples', 0.12]]
+              : [['heaps', 0.4], ['tails', 0.2], ['flock', 0.15], ['clear', 0.1], ['ripples', 0.08], ['billows', 0.07]];
+  let pick = r();
+  let theme: Theme = odds[0][0];
+  for (const [th, p] of odds) {
+    theme = th;
+    if (pick < p) break;
+    pick -= p;
+  }
+  let cirrus = 0;
+  let cirrocumulus = 0;
+  let altocumulus = 0;
+  let veil = 0;
+  let waves = 0;
+  let cumulus = 0.75 + 0.5 * r();
+  let towers = 0;
+  if (theme === 'clear') {
+    cumulus *= 0.22;
+    cirrus = maybe(0.3, 0.2, 0.4);
+  } else if (theme === 'tails') {
+    cirrus = 0.6 + 0.4 * r();
+    cumulus *= 0.55;
+  } else if (theme === 'flock') {
+    altocumulus = 0.55 + 0.4 * r();
+    cumulus *= 0.45;
+    cirrus = maybe(0.25, 0.3, 0.5);
+  } else if (theme === 'ripples') {
+    cirrocumulus = 0.6 + 0.35 * r();
+    cirrus = maybe(0.5, 0.35, 0.6);
+    cumulus *= 0.6;
+  } else if (theme === 'veil') {
+    veil = 0.3 + 0.3 * r();
+    cirrus = maybe(0.4, 0.3, 0.55);
+    cumulus *= 0.35;
+  } else if (theme === 'billows') {
+    waves = 0.6 + 0.4 * r();
+    cumulus *= 0.5;
+  } else if (theme === 'heaps') {
+    cumulus *= 1.3;
+    cirrus = maybe(0.2, 0.25, 0.45);
+  } else {
+    // the wet tropics' afternoon: towering heaps, their anvils' cirrus blown off them
+    towers = 0.5 + 0.5 * r();
+    cumulus *= 1.25;
+    cirrus = 0.4 + 0.3 * r();
+  }
+  // (the dry country's heaps few and high based whatever its theme)
+  if (dry > 0.4) cumulus *= 1 - 0.7 * dry;
   const waveDir = r() * Math.PI;
   const waveSpacing = 650 + 900 * r();
   const ribbon = r() < 0.4 ? 1 : 0;
-  // (wind over a range: lenses stand over its peaks)
-  const lens = m.relief > 700 ? maybe(0.5, 0.55, 1) : 0;
-  let cumulus = 0.7 + 0.6 * r();
-  let towers = 0;
-  if (dry > 0.4) {
-    // the dry country: few heaps, high based; a clean sky, its cirrus all the brighter for it
-    cumulus *= 1 - 0.75 * dry;
-    altocumulus *= 1 - 0.7 * dry;
-    cirrus = Math.max(cirrus, maybe(0.5, 0.35, 0.8));
-  }
-  if (t > 19 && w > 0.6) {
-    // the wet tropics: the afternoon's towering heaps and their anvils' cirrus
-    towers = 0.45 + 0.55 * r();
-    cumulus *= 1.25;
-    cirrus = Math.max(cirrus, maybe(0.4, 0.3, 0.6));
-  }
-  if (m.water === 'coast') altocumulus = Math.max(altocumulus, maybe(0.4, 0.45, 0.85));
-  if (t < 4) veil = Math.max(veil, maybe(0.35, 0.25, 0.6));
+  // (wind over a range: lenses stand over its peaks, in a sky that is not a sheet already)
+  const lens = mountain && theme !== 'flock' && theme !== 'veil' ? maybe(0.5, 0.55, 1) : 0;
   const nlc = m.tSea < 7 && m.month >= 5 && m.month <= 8 ? 0.55 + 0.45 * r() : 0;
   const base = 900 + 1700 * dry + Math.min(2600, Math.max(0, m.base) * 0.75) + 500 * r();
   return { cirrus, cirrocumulus, altocumulus, veil, waves, waveDir, waveSpacing, ribbon, lens, cumulus, towers, base, nlc };
@@ -187,6 +305,29 @@ export function hueTurn(a: number, b: number): number {
 }
 
 const lch = (L: number, C: number, h: number): Lch => ({ L, C, h });
+/** a share made nearly none or nearly all: a meadow is green or it is gold */
+const sharp = (t: number): number => {
+  const k = clamp((t - 0.22) / 0.5, 0, 1);
+  return k * k * (3 - 2 * k);
+};
+
+/**
+ * (G2) The four tones of a crown from its key, in linear light — Painted Valley's ladder (its key (0.10, 0.36, 0.12):
+ * 0.014 0.10 0.10 in its depths, 0.035 0.20 0.12, the key, 0.30 0.56 0.15 where the sun is full on it) taken channel by
+ * channel: the shade loses its red first and keeps its blue (a leaf mass's shade is sky), the light gains red; a warm
+ * key's — an autumn wood's — shade goes to a deep red-brown and not to a blue. render/paint.ts rtLadder is the same
+ * numbers: a plant with a colour of its own and one painted in its region's woods stand side by side in one ladder.
+ */
+export function crownLadder(key: readonly [number, number, number]): [number, number, number][] {
+  const g = clamp(((key[1] - key[0]) / Math.max(key[1], 1e-3)) * 2, 0, 1);
+  const by = (warm: readonly number[], green: readonly number[]): [number, number, number] => [0, 1, 2].map((i) => key[i] * (warm[i] + (green[i] - warm[i]) * g)) as [number, number, number];
+  const f0 = by([0.3, 0.24, 0.45], [0.14, 0.28, 0.83]);
+  const f1 = by([0.55, 0.5, 0.7], [0.35, 0.556, 1]);
+  // (a shade is a deep teal at its bluest, never a blue: a spruce's key is half blue already)
+  f0[2] = Math.min(f0[2], f0[1] * 1.02);
+  f1[2] = Math.min(f1[2], f1[1] * 0.72);
+  return [f0, f1, [key[0], key[1], key[2]], by([1.6, 1.5, 1.2], [3, 1.56, 1.25])];
+}
 const toward = (h: number, to: number, t: number): number => (h + hueTurn(h, to) * clamp(t, 0, 1) + 360) % 360;
 function mixLch(a: Lch, b: Lch, t: number): Lch {
   const k = clamp(t, 0, 1);
@@ -206,19 +347,22 @@ const REF_GRASS = lchOf(0x8ebe69);
 const KEYS: Readonly<Record<VegHue, readonly [Lch, Lch]>> = {
   // (V4: the evergreen and the needle woods lit as Painted Valley lights its trees — a deep green still, but its sunny
   // side a green and not a shadow; they were the darkest and greyest of the keys, a laurel wood a gloom from the road)
-  deepgreen: [lch(0.625, 0.12, 131), lch(0.655, 0.118, 133)],
-  green: [lch(0.6, 0.12, 138), lch(0.69, 0.13, 132)],
-  fresh: [lch(0.67, 0.122, 130), lch(0.73, 0.125, 124)],
-  teal: [lch(0.585, 0.09, 160), lch(0.645, 0.092, 149)],
-  olive: [lch(0.6, 0.085, 118), lch(0.7, 0.09, 108)],
-  grey: [lch(0.65, 0.045, 138), lch(0.73, 0.06, 102)],
-  gold: [lch(0.6, 0.085, 120), lch(0.77, 0.105, 86)],
-  autumn: [lch(0.55, 0.09, 136), lch(0.68, 0.095, 80)],
-  blossom: [lch(0.66, 0.12, 134), lch(0.72, 0.13, 128)],
-  brown: [lch(0.55, 0.07, 96), lch(0.66, 0.07, 84)],
+  // (G2: measured against Painted Valley's own — its crown's key L0.65 C0.12 h146, its meadow's L0.70 C0.15 h138: the
+  // greens fresh and a little blue of yellow, the dry country's leaves a silver green and its grass a wheat gold, never
+  // the khaki between the two)
+  deepgreen: [lch(0.615, 0.118, 146), lch(0.685, 0.14, 139)],
+  green: [lch(0.635, 0.12, 144), lch(0.705, 0.15, 137)],
+  fresh: [lch(0.665, 0.125, 139), lch(0.725, 0.152, 133)],
+  teal: [lch(0.585, 0.09, 163), lch(0.665, 0.11, 146)],
+  olive: [lch(0.625, 0.075, 132), lch(0.72, 0.105, 118)],
+  grey: [lch(0.65, 0.045, 140), lch(0.74, 0.07, 108)],
+  gold: [lch(0.615, 0.085, 134), lch(0.79, 0.115, 88)],
+  autumn: [lch(0.57, 0.09, 142), lch(0.72, 0.105, 84)],
+  blossom: [lch(0.655, 0.122, 141), lch(0.725, 0.15, 134)],
+  brown: [lch(0.58, 0.07, 118), lch(0.7, 0.085, 84)],
   white: [lch(0.46, 0.04, 182), lch(0.8, 0.025, 95)],
-  purple: [lch(0.55, 0.07, 122), lch(0.6, 0.07, 100)],
-  none: [lch(0.62, 0.06, 112), lch(0.74, 0.055, 86)],
+  purple: [lch(0.58, 0.075, 134), lch(0.64, 0.08, 112)],
+  none: [lch(0.62, 0.06, 128), lch(0.75, 0.07, 88)],
 };
 
 /** the veg hue of a place's plants in its month (a deciduous wood's gold in autumn, the orchards' blossom in spring) */
@@ -263,8 +407,10 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   let [leaf, grass] = KEYS[snow ? 'white' : veg];
   leaf = { ...leaf };
   grass = { ...grass };
-  let straw = lch(0.78, 0.075, 85);
-  let spread: [number, number, number] = [0.85, 0.75, 0.6];
+  let straw = lch(0.8, 0.105, 88);
+  // (G2: a place's plants keep close to its key — a birch a shade paler than the oaks, a spruce a shade deeper, and no
+  // more: a wood is one colour in four tones, as Painted Valley's, not a dozen colours side by side)
+  let spread: [number, number, number] = [0.3, 0.35, 0.3];
   let cap = 0.145;
   let bloom = 1;
   let cast: [number, number] = [0, 0];
@@ -275,11 +421,12 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   // the dry country: its leaves hard and grey-green, its grass straw; the drier, the more
   const dry = clamp((0.36 - w) / 0.3, 0, 1);
   if (dry > 0 && !snow) {
-    leaf.C *= 1 - 0.45 * dry;
-    leaf.h = toward(leaf.h, 115, 0.55 * dry);
-    leaf.L += 0.05 * dry;
-    grass = mixLch(grass, lch(0.77, 0.07, 84), 0.85 * dry);
-    straw = mixLch(straw, lch(0.8, 0.06, 78), dry);
+    leaf.C *= 1 - 0.4 * dry;
+    leaf.h = toward(leaf.h, 128, 0.55 * dry);
+    leaf.L += 0.03 * dry;
+    // (green or gold: the mix between the two is a khaki no meadow is)
+    grass = mixLch(grass, lch(0.8, 0.1, 88), sharp(0.9 * dry));
+    straw = mixLch(straw, lch(0.82, 0.085, 84), dry);
     cap = 0.145 - 0.06 * dry;
     cast = [0.004 * dry, 0.014 * dry];
   }
@@ -289,9 +436,9 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   if (season < 0.55 && !snow) {
     const d = clamp((0.55 - season) / 0.45, 0, 1);
     parched = Math.max(parched, 0.75 * d);
-    grass = mixLch(grass, straw, 0.75 * d);
-    leaf.C *= 1 - 0.18 * d;
-    leaf.h = toward(leaf.h, 112, 0.25 * d);
+    grass = mixLch(grass, straw, sharp(0.8 * d));
+    leaf.C *= 1 - 0.14 * d;
+    leaf.h = toward(leaf.h, 128, 0.25 * d);
   }
   // the wet tropics: deep and glossy
   if (m.tSea > 22 && w > 0.7 && !snow) {
@@ -341,7 +488,7 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   // (its mood: its own turn of hue, chroma and lightness — every other place a little warmer and lighter, the next a
   // little cooler and deeper, so that two neighbours of one country are never painted alike)
   const side = k % 2 === 0 ? 1 : -1;
-  const turn = -side * (5 + 7 * mh) * (snow || autumn ? 0.5 : 1);
+  const turn = -side * (2 + 5 * mh) * (snow || autumn ? 0.5 : 1);
   leaf.h = (leaf.h + turn + 360) % 360;
   grass.h = (grass.h + turn * 0.9 + 360) % 360;
   leaf.C = Math.min(cap, leaf.C * (1 + side * (0.04 + 0.08 * mc)));
@@ -359,6 +506,10 @@ export function paletteOfPlace(sc: Scene, seed: number, k: number): PlacePalette
   const woods = autumn ? lch(0.62 + (ml - 0.5) * 0.04, 0.15, autumnHue) : leaf;
   const air = airOf(sc, w, t, dry, snow, mh, side);
   air.sky = skyOf(sc, seed, k, w, t, dry);
+  // (G7: its light, its ground's colour in it — snow lying, its rock's ground and its grass as its structure has them)
+  const grassy = snow ? 0.15 : rk.fertile < 0.03 ? 0.04 : (GRASSY[e.struct] ?? 0.5);
+  const groundHex = snow ? 0xe6edf5 : hexOf(mixLch(soil, grass, grassy), cast);
+  air.light = lightOf(sc, w, t, dry, snow, autumn, groundHex);
   return { leaf, woods, grass, straw, soil, spread, cap, bloom, cast, autumn, autumnHue, snow, parched, air };
 }
 
@@ -392,7 +543,7 @@ function airOf(sc: Scene, w: number, t: number, dry: number, snow: number, mood:
   }
   if (m.tSea > 22 && w > 0.7) {
     horizon = mul(horizon, [0.98, 1.03, 0.98], 1);
-    haze *= 1.3;
+    haze *= 1.42;
   }
   if (sc.look.sig.veg === 'autumn' && !snow) {
     horizon = mul(horizon, [1.06, 1.0, 0.9], 1);
@@ -489,11 +640,15 @@ export function patchesOf(p: PlacePalette): [[number, number, number], [number, 
 }
 
 /** the palette's own swatches, for the place's painted look (region.ts lookOfPlace) and for the tests */
-export function swatches(p: PlacePalette): { leaf: number[]; grass: number[]; straw: number; soil: number } {
-  const tone = (c: Lch, dL: number, kC = 1): number => hexOf({ L: c.L + dL, C: c.C * kC, h: c.h }, p.cast);
+export function swatches(p: PlacePalette): { leaf: number[]; grass: number[]; straw: number; soil: number; woods: number } {
+  const tone = (c: Lch, dL: number, kC = 1, dh = 0): number => hexOf({ L: c.L + dL, C: c.C * kC, h: c.h + dh }, p.cast);
+  // (G2: a green meadow's shade is deeper and bluer, its light yellower — Painted Valley's 0.57 / 0.70 / 0.77 of lightness
+  // and 147° / 138° / 131°; a gold one's shade is a deeper gold)
+  const green = clamp((p.grass.h - 95) / 25, 0, 1);
   return {
+    woods: tone(p.woods, 0),
     leaf: [tone(p.woods, -0.05), tone(p.woods, 0), tone(p.woods, 0.05, 0.95), tone(p.woods, 0.1, 0.85), tone(p.woods, -0.11, 0.95)],
-    grass: [tone(p.grass, -0.07, 0.95), tone(p.grass, 0), tone(p.grass, 0.05, 0.92)],
+    grass: [tone(p.grass, -0.07 - 0.065 * green, 0.95 - 0.15 * green, 9 * green), tone(p.grass, 0), tone(p.grass, 0.05 + 0.02 * green, 0.92, -7 * green)],
     straw: tone(p.straw, 0),
     soil: tone(p.soil, 0),
   };

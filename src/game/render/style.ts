@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { put3, put4, vec3s, vec4s } from './uniformArrays';
 import styleJson from '../../../specs/art/style.json';
 import { BIOMES, type BiomeDef } from '../../core/world/biomes';
+import { crownLadder } from '../../core/world/earth/palette';
 import { floraTableOf } from '../../core/world/floraTables';
 import { hueShares } from '../scene/floraCover';
 import { PALETTES, paletteOf, type BiomePalette } from '../scene/palette';
@@ -178,7 +179,9 @@ export function earthStyle(row: BiomePalette, kinRow: BiomePalette, kin: BiomeSt
     // (its own patches where its row has them: a multiplier carried by a ground's colour would tint them its colour)
     patchWarm: row.patches ? [...row.patches[0]] as RGB : carried(kin.patchWarm, tones[1], kt[1]),
     patchCool: row.patches ? [...row.patches[1]] as RGB : carried(kin.patchCool, tones[1], kt[1]),
-    forest: [forest, forest, mean(crowns), lightest],
+    // (G2: its woods' four tones the ladder of their key, as Painted Valley's are — deep and blue in the shade, a
+    // yellow green in the sun; they were four tones a hair apart, and a wood was one flat olive)
+    forest: row.woods !== undefined ? (crownLadder(linear(row.woods)).map((c) => c.map((x) => Math.round(Math.min(1, x) * 1000) / 1000)) as [RGB, RGB, RGB, RGB]) : [forest, forest, mean(crowns), lightest],
     rock: { lit: linear(row.rock), shade: linear(row.rock2) },
     flowers: row.flowers ? [linear(row.flowers[0]), linear(row.flowers[1]), linear(row.flowers[2])] : kin.flowers,
     ...row.look,

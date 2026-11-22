@@ -43,6 +43,9 @@ export class Frame {
     threshold: STYLE.pipeline.bloom.threshold,
   };
   exposure = 1;
+  /** (G7) the place's own finish against the style's */
+  placeContrast = 1;
+  placeSaturation = 1;
   /** the night's eye (V1): how far the land is seen as by night — darker hues gone to blue and grey, the sky left as painted (0 day … 1 deep night) */
   night = 0;
   /** shafts of light from a low sun through haze and between whatever stands before it: strength 0…1 and colour */
@@ -380,8 +383,8 @@ export class Frame {
     u.uVignette.value = gr.vignette;
     u.uKnee.value = gr.knee;
     u.uShoulder.value = Math.max(0.01, gr.shoulder);
-    u.uSat.value = gr.saturation;
-    u.uContrast.value = gr.contrast;
+    u.uSat.value = gr.saturation * this.placeSaturation;
+    u.uContrast.value = gr.contrast * this.placeContrast;
     u.uInk.value = gr.ink;
     this.bloomFirst.uniforms.uThreshold.value = gr.threshold;
     u.uPaint.value = this.paint;

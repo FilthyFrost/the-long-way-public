@@ -47,6 +47,9 @@ export class RenderCore {
   exposure = 1;
   /** shafts of light from a low sun (0…1), set by the environment */
   shafts = 0;
+  /** (G7) the place's own finish against the style's (env/colorScript.ts Look), set by the environment */
+  placeContrast = 1;
+  placeSaturation = 1;
   /** the depth buffer is reversed and floating (else logarithmic): see the constructor */
   readonly reversedDepth: boolean;
   /** the night's eye (frame.ts night) */
@@ -157,6 +160,8 @@ export class RenderCore {
       }
       this.frame.exposure = this.exposure;
       this.frame.shafts = this.shafts;
+      this.frame.placeContrast = this.placeContrast;
+      this.frame.placeSaturation = this.placeSaturation;
       this.frame.night = this.night;
       this.frame.shaftColor.copy(this.shaftColor);
       this.frame.paint = this.usePost ? this.quality.paintRadius : 0;

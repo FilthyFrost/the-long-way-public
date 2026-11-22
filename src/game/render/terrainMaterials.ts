@@ -54,12 +54,14 @@ export const GROUND_PAINT = /* glsl */ `
   #endif
   // thin strokes following the contours of the land, a pixel or two wide at any distance
   float rtContour(vec3 pos, vec3 n, vec2 w, float dist) {
-    float x = rtWorldY(pos) / 2.6 + (rtNoiseAt(w, 96.0).g - 0.5) * 1.6;
+    // (G6: further apart and no two the same way apart, most of each stroke left out — in even rows of short dashes they
+    // were courses of brick up every slope)
+    float x = rtWorldY(pos) / 4.4 + (rtNoiseAt(w, 96.0).g - 0.5) * 3.2 + (rtNoiseAt(w + 17.0, 23.0).b - 0.5) * 0.9;
     float fw = max(fwidth(x), 1e-4);
     float d = abs(fract(x + 0.5) - 0.5) / fw;
     float line = 1.0 - smoothstep(0.35, 1.1, d);
     float slope = smoothstep(0.03, 0.16, 1.0 - n.y);
-    float broken = smoothstep(0.42, 0.58, rtNoiseAt(w * vec2(0.45, 1.0) + 9.0, 64.0).r);
+    float broken = smoothstep(0.52, 0.66, rtNoiseAt(w * vec2(0.3, 0.8) + 9.0, 64.0).r);
     return line * slope * broken * smoothstep(25.0, 80.0, dist) * (1.0 - smoothstep(0.12, 0.3, fw));
   }
   // Cells (V2, as Painted Valley's paintCells): how far a point is from the edge of the cell it is in, and two numbers
@@ -75,17 +77,18 @@ export const GROUND_PAINT = /* glsl */ `
     vec3 m = vec3(1.0);
     float k1 = smoothstep(9.0, 22.0, dist) * (1.0 - smoothstep(0.22, 0.5, px1));
     if (k1 > 0.0) {
-      vec3 t = rtCells(w / 3.2);
+      // (G6: off their grid — the cells' rows showed from a height — and half as strong: a meadow is one calm green)
+      vec3 t = rtCells((w + (rtNoiseAt(w, 13.0).rg - 0.5) * 4.0) / 3.2);
       // (gathered into masses where the 27 m brush is: no fetch of its own)
       float mass = smoothstep(-0.08, 0.1, massN);
-      m *= mix(vec3(1.0), vec3(0.64, 0.82, 0.9), smoothstep(0.08, 0.2, t.x) * step(t.y, 0.32 * mass + 0.05) * k1);
+      m *= mix(vec3(1.0), vec3(0.82, 0.91, 0.95), smoothstep(0.08, 0.2, t.x) * step(t.y, 0.32 * mass + 0.05) * k1);
     }
     float k2 = smoothstep(5.0, 12.0, dist) * (1.0 - smoothstep(0.22, 0.5, px2));
     if (k2 > 0.0) {
-      vec3 c = rtCells(w / 0.9);
+      vec3 c = rtCells((w + (rtNoiseAt(w + 5.0, 4.0).rg - 0.5) * 1.2) / 0.9);
       float dab = smoothstep(0.1, 0.22, c.x) * k2;
-      m *= mix(vec3(1.0), vec3(0.74, 0.86, 0.92), dab * step(0.8, c.y));
-      m *= mix(vec3(1.0), vec3(1.22, 1.12, 0.86), dab * step(c.y, 0.14));
+      m *= mix(vec3(1.0), vec3(0.87, 0.93, 0.96), dab * step(0.84, c.y));
+      m *= mix(vec3(1.0), vec3(1.1, 1.06, 0.93), dab * step(c.y, 0.1));
     }
     return m;
   }
@@ -234,7 +237,7 @@ export const GROUND_PAINT = /* glsl */ `
 
     // ---- contour strokes on the slopes, a shade deeper
     float cs = rtContour(pos, n, w, dist);
-    albedo = mix(albedo, p.deep * 0.9, cs * 0.42);
+    albedo = mix(albedo, p.deep * 0.9, cs * 0.24);
 
     // ---- woods: near, only a darker floor (the trees stand on it); far, painted crown masses
     float far = smoothstep(180.0, 420.0, dist);
@@ -244,7 +247,7 @@ export const GROUND_PAINT = /* glsl */ `
       float mass = smoothstep(0.3, 0.55, wood + crowns * 0.35) * (1.0 - 0.85 * p.misc.w);
       float wt = rel * 0.9 + crowns * 0.75 + slow * 0.2 - (1.0 - shade) * 0.25;
       vec3 woods = rtWoodTone(p, wt);
-      albedo = mix(albedo, mix(p.f0, p.f1, 0.5), wood * 0.4 * (1.0 - far));
+      albedo = mix(albedo, mix(p.f0, p.f1, 0.5), wood * 0.62 * (1.0 - far));
       albedo = mix(albedo, woods, mass * far);
     }
 
