@@ -41,6 +41,9 @@ const CONCRETE_DARK = 0x8a8983;
 const CONCRETE_EDGE = 0xcdc9bf;
 const PORTAL = 0xd3c9b3;
 const PORTAL_DARK = 0xb2a892;
+/** (V10) a voussoir a shade apart, and the keystone */
+const PORTAL_2 = 0xc6bba3;
+const PORTAL_KEY = 0xe0d7c1;
 const LAMP = 0xffd68a;
 const SNOW = 0xeef2f6;
 
@@ -203,7 +206,9 @@ export function buildGallery(world: World, g: Gallery): GalleryMesh {
       const band: UV[] = opening.map(([u, up], i) => (i === 0 || i === opening.length - 1 ? [u + (i === 0 ? -1.0 : 1.0), up] : [u * 1.18, up + 1.0]));
       const sp2 = s + out * 0.4;
       for (let k = 0; k + 1 < opening.length; k++) {
-        T.quad(PORTAL, P(sp2, opening[k][0], opening[k][1]), P(sp2, opening[k + 1][0], opening[k + 1][1]), P(sp2, band[k + 1][0], band[k + 1][1]), P(sp2, band[k][0], band[k][1]));
+        // (V10) its voussoirs round the arch, one a shade from the next, the keystone at its crown the palest
+        const keystone = k === Math.floor((opening.length - 1) / 2);
+        T.quad(keystone ? PORTAL_KEY : k % 2 ? PORTAL : PORTAL_2, P(sp2, opening[k][0], opening[k][1]), P(sp2, opening[k + 1][0], opening[k + 1][1]), P(sp2, band[k + 1][0], band[k + 1][1]), P(sp2, band[k][0], band[k][1]));
         // its reveals: outside, back to the rock's face; inside, back to the tunnel's own vault and walls
         T.quad(PORTAL_DARK, P(s, band[k][0], band[k][1]), P(s, band[k + 1][0], band[k + 1][1]), P(sp2, band[k + 1][0], band[k + 1][1]), P(sp2, band[k][0], band[k][1]));
         T.quad(PORTAL_DARK, P(s, opening[k][0], opening[k][1]), P(s, opening[k + 1][0], opening[k + 1][1]), P(sp2, opening[k + 1][0], opening[k + 1][1]), P(sp2, opening[k][0], opening[k][1]));
@@ -231,7 +236,7 @@ export function buildGallery(world: World, g: Gallery): GalleryMesh {
   const routed = { stone: 0, concrete: 0, rock: 0 };
   const own = new Set<number>([fill, SNOW, LAMP, ...soil]);
   T.into(b, (c) => {
-    if (c === PORTAL || c === PORTAL_DARK) {
+    if (c === PORTAL || c === PORTAL_DARK || c === PORTAL_2 || c === PORTAL_KEY) {
       routed.stone++;
       return stone;
     }

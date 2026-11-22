@@ -39,6 +39,8 @@ interface School {
   /** its loop: radius (m), how fast (rad/s), which way */
   r: number;
   w: number;
+  /** how frightened it is: 1 just now … 0 at ease (it swims fast while it is) */
+  flee: number;
   seed: number;
   /** the next leap (s on the clock) */
   leap: number;
@@ -128,6 +130,7 @@ export class FishView {
       len,
       color,
       r: 2 + 4 * hash(i, j, seed + 6),
+      flee: 0,
       w: (0.12 + 0.25 * hash(i, j, seed + 7)) * (hash(i, j, seed + 8) < 0.5 ? 1 : -1),
       seed: hash(i, j, seed + 9),
       leap: this.clock + 3 + 14 * hash(i, j, seed + 10),
@@ -146,6 +149,24 @@ export class FishView {
     this.clock += dt;
     const cam = this.core.camera;
     const o = this.core.origin;
+    // (V10) a school is shy: someone near it on the bank or in the water, and it darts off, back a while after
+    {
+      const px = cam.position.x + o.x;
+      const py = cam.position.y + o.y;
+      const pz = cam.position.z + o.z;
+      for (const sc of this.schools.values()) {
+        if (!sc) continue;
+        const dx = sc.x - px;
+        const dz = sc.z - pz;
+        const d = Math.hypot(dx, dz);
+        if (d < 7.5 && py - sc.level < 3.5) {
+          const k = (1 - d / 7.5) * 9 * dt;
+          sc.x += (dx / (d || 1)) * k;
+          sc.z += (dz / (d || 1)) * k;
+          sc.flee = 1;
+        } else if (sc.flee > 0) sc.flee = Math.max(0, sc.flee - dt * 0.25);
+      }
+    }
     const cx = cam.position.x + o.x;
     const cz = cam.position.z + o.z;
     // the cells round the camera, asked again when it has moved a little
@@ -197,7 +218,7 @@ export class FishView {
         s.jumpAt = t;
       }
       for (let i = 0; i < s.n; i++) {
-        const a = t * s.w + i * 0.53 + s.seed * 6.283;
+        const a = t * s.w * (1 + 3 * s.flee) + i * 0.53 + s.seed * 6.283;
         const ri = s.r * (0.6 + 0.4 * Math.sin(i * 1.7 + s.seed * 9));
         const x = sx + Math.cos(a) * ri;
         const z = sz + Math.sin(a) * ri * 0.8;

@@ -59,12 +59,21 @@ function plan(world: World, p: EarthPiece, share: number, reach: number, tp: Ter
     const q = (j: number): number => hash(key, i * 17 + j);
     if (q(0) > share) continue;
     const s = p.start + (i + 0.6 * (q(1) - 0.5)) * SPACING;
+    // (V10) where the road looks from 200 m before: of the ways out from it, the fall it looks at is the one kept
+    world.spine.at(Math.max(p.start, s - 200), st);
+    const bx = st.x;
+    const bz = st.z;
+    const bcx = Math.cos(st.phi);
+    const bcz = Math.sin(st.phi);
     world.spine.at(s, st);
     const first = q(2) < 0.5 ? -1 : 1;
     let best: Fall | null = null;
-    for (const side of [first, -first]) {
-      const nx = -Math.sin(st.phi) * side;
-      const nz = Math.cos(st.phi) * side;
+    let bestScore = -1e9;
+    for (const [side, turn] of [[first, 0], [-first, 0], [first, 0.45], [-first, 0.45]] as const) {
+      // (turned forward by `turn`: out and a little ahead)
+      const a = st.phi + side * (Math.PI / 2) - side * turn;
+      const nx = Math.cos(a);
+      const nz = Math.sin(a);
       // walk out from the road: the land's height every STEP m, and the steepest long rise in it
       const hs: number[] = [];
       for (let d = 14; d <= reach; d += STEP) {
@@ -101,9 +110,13 @@ function plan(world: World, p: EarthPiece, share: number, reach: number, tp: Ter
       world.shape(st.x + nx * fd, st.z + nz * fd, tp);
       if (tp.d * tp.d < 81) continue;
       const pool = tp.wl > tp.bed - 0.3 ? tp.wl : -Infinity;
-      // (the first side that has a fall keeps it)
+      const mx = (path[0] + path[path.length - 3]) / 2 - bx;
+      const mz = (path[2] + path[path.length - 1]) / 2 - bz;
+      const ahead = (mx * bcx + mz * bcz) / (Math.hypot(mx, mz) || 1);
+      const score = Math.min(bestRise, 200) * (1 + 1.5 * ahead);
+      if (score <= bestScore) continue;
+      bestScore = score;
       best = { s, path, ox: -nx, oz: -nz, w: (3 + 11 * q(3) ** 1.5) * (0.6 + 0.7 * wet) * Math.min(1.3, 0.6 + bestRise / 160), h: bestRise, pool, seed: q(4) };
-      break;
     }
     if (best) out.push(best);
   }
