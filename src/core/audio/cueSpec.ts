@@ -121,6 +121,21 @@ export const CUE_SPEC: Readonly<Record<string, readonly CuePick[]>> = {
   hammer_swing: [A(n('crafting_hammer_swing'))],
   'hammer_hit:metal': [A(n('crafting_hammering_metal_big_solid')), A(n('crafting_hammering_metal_big'))],
 
+  // ---- the kitchen (v3/kitchen): a pan set on the burner and lifted off it, the stove's canister cover and the canister seated
+  // (the motorhome's propane locker), china, the recipe book (a journal) and a pencil writing a new recipe in it, the oil's flare
+  pan_place: [L(n('LDN_Cooking_Pan_Place'))],
+  pan_lift: [L(n('LDN_Cooking_Pan_Remove'))],
+  stove_cover_open: [L(n('LDN_RV_PropaneStorage_Open'))],
+  stove_cover_close: [L(n('LDN_RV_PropaneStorage_Close'))],
+  canister_in: [L(n('LDN_RV_PropaneStorage_TankPlace'))],
+  plate_clink: [A(n('item_phy_impact_ceramic'))],
+  book_open: [L('LDN_UI_Journal_Open')],
+  book_close: [L('LDN_UI_Journal_Close')],
+  book_write: [A(n('pencil_write'))],
+  sizzle_in: [A(n('Cooking_StirPoint_Complete'))],
+  /** a failed dish eaten (new: no synthesized one): a disgusted grunt */
+  yuck: [A(n('player_disgusted_food'))],
+
   // ---- loops
   'pour:water': [A(n('pour_water_to_container_loop'))],
   'pour:fuel': [A(n('Action-FillingUp-Gas-Loop'))],

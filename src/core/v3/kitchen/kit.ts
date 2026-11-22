@@ -14,7 +14,7 @@
 import { newItem, type ItemInstance } from '../../modcar/items';
 import { cook, DONE_BURNT, DONE_RIGHT, DONE_UNDER, POT_MAX, type ClassOf, type Outcome } from './cook';
 import { WAYS, type Way } from './dishes';
-import { BOARD, BOWL, dishItem, GAS, GAS_FULL, PLATE, SPICE, STOVE, WAY_OF, type KitState, type Portion, type PotState } from './items';
+import { BOARD, BOWL, dishItem, GAS, GAS_FULL, PLATE, SPICE, STOVE, VESSEL, WAY_OF, type KitState, type Portion, type PotState } from './items';
 import { FOOD_LOOK } from './looks';
 import { FOOD, SEASONINGS } from './pantry';
 
@@ -160,24 +160,52 @@ export function potOf(inst: ItemInstance): Readonly<PotState> | undefined {
   return kitOf(inst).pot;
 }
 
-/** a vessel set on the stove, with what is in it: false when the stove has one already, or the thing is no vessel for a flame */
+/** why the steamer cannot go on a stove: nothing on its burner, a pot with food in it, another vessel there (null: an empty pot of water is) */
+export type SteamLack = 'nopot' | 'potfull' | 'taken';
+
+export function steamLack(stove: ItemInstance): SteamLack | null {
+  const s = kitOf(stove);
+  if (stove.item !== STOVE || !s.on) return 'nopot';
+  if (s.on !== VESSEL.boil || s.under) return 'taken';
+  if (s.pot && s.pot.items.length) return 'potfull';
+  return null;
+}
+
+/** the pot the steamer on a stove stands on (null: no steamer, or no stove) */
+export function underOf(stove: ItemInstance): string | null {
+  return kitOf(stove).under ?? null;
+}
+
+/**
+ * A vessel set on the stove, with what is in it: false when the stove has one already, or the thing is no vessel for
+ * a flame. The steamer is set on an empty pot of water standing on the burner instead (steamLack), and only there.
+ */
 export function putVessel(stove: ItemInstance, vessel: ItemInstance): boolean {
   const way = WAY_OF[vessel.item];
-  if (stove.item !== STOVE || !way || !WAYS[way].heats || kitOf(stove).on) return false;
+  if (stove.item !== STOVE || !way || !WAYS[way].heats) return false;
+  if (way === 'steam' ? steamLack(stove) : kitOf(stove).on) return false;
   const s = kitState(stove);
+  if (way === 'steam') {
+    s.under = s.on;
+    delete s.pot;
+  }
   s.on = vessel.item;
   const pot = kitOf(vessel).pot;
   if (pot && pot.items.length) s.pot = pot;
   return true;
 }
 
-/** the vessel off the stove, with what is in it (null: none on it) */
+/** the vessel off the stove, with what is in it (null: none on it); the steamer comes off its pot, which stays on the burner */
 export function takeVessel(stove: ItemInstance): ItemInstance | null {
   const s = kitState(stove);
   if (!s.on) return null;
   const v = s.pot && s.pot.items.length ? newItem(s.on, { state: { kit: { pot: s.pot } } }) : newItem(s.on);
   delete s.on;
   delete s.pot;
+  if (s.under) {
+    s.on = s.under;
+    delete s.under;
+  }
   tidy(stove);
   return v;
 }
@@ -350,7 +378,15 @@ export interface Served {
   /** what went into the pot (the recipe book notes a failure by it) */
   readonly items: readonly string[];
   readonly way: Way;
+  /**
+   * A dish that came out but not perfect: what kept it from it — 'cut' (less than half of what could be cut was),
+   * 'season' (no pinch over it), 'under' or 'over' (taken off before or after the band of just right). Empty for a
+   * perfect dish and for a failure.
+   */
+  readonly missed: readonly Missed[];
 }
+
+export type Missed = 'cut' | 'season' | 'under' | 'over';
 
 /**
  * A serving out of the vessel onto a plate or into a bowl (`ware`: its kind, which the serving gives back when it is
@@ -363,6 +399,14 @@ export function dishUp(inst: ItemInstance, ware: string, classOf?: ClassOf): Ser
   const pot = s.pot!;
   const outcome = outcomeOf(inst, classOf);
   if (outcome.fail === 'empty') return null;
+  const missed: Missed[] = [];
+  if (outcome.dish && !outcome.perfect) {
+    if (cutShare(pot) < 0.5) missed.push('cut');
+    if (!pot.season?.length) missed.push('season');
+    const ph = WAYS[way].heats ? phaseOf(inst) : 'right';
+    if (ph === 'raw' || ph === 'cooking') missed.push('under');
+    else if (ph === 'over') missed.push('over');
+  }
   const id = outcome.dish ? dishItem(outcome.dish.id) : dishItem(outcome.fail as 'mess' | 'burnt' | 'raw');
   const item = newItem(id, { state: { meal: { food: outcome.food, ...(outcome.perfect ? { perfect: 1 as const } : {}), ware } } });
   const items = pot.items.map((p) => p.id);
@@ -370,7 +414,7 @@ export function dishUp(inst: ItemInstance, ware: string, classOf?: ClassOf): Ser
   const last = pot.out >= outcome.servings;
   if (last) delete s.pot;
   tidy(inst);
-  return { item, outcome, last, items, way };
+  return { item, outcome, last, items, way, missed };
 }
 
 // ------------------------------------------------------------------ a frame goes by

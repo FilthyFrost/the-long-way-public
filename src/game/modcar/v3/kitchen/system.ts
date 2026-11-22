@@ -15,15 +15,16 @@ import type { ThingBox } from '../../../../core/modcar/cargo';
 import { countOf, itemDef, newItem, splitStack, type ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
 import { eat } from '../../../../core/modcar/vitals';
-import { knownFail, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
+import { firstTip, knownFail, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
 import { POT_MAX } from '../../../../core/v3/kitchen/cook';
 import { WAYS, type Way } from '../../../../core/v3/kitchen/dishes';
-import { BOARD, GAS, GAS_FULL, itemOfPortion, SPICE, STOVE, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
+import { BOARD, dishItem, GAS, GAS_FULL, itemOfPortion, SPICE, STOVE, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
 import {
   addLack, addPortion, asksStir, boardLack, boardPut, boardTake, chop, CHOPS, dishUp, fireOf, gasOf, hasCanister, kitKind, kitOf, loadCanister, nextSeasoning, phaseOf,
-  potOf, putVessel, ready, removePortion, seasonPot, servingsLeft, setFire, stir, stoveStep, takeCanister, takeVessel, toss, TOSSES, vesselOf, wayOf,
-  type KitKind, type Phase, type StoveTick,
+  potOf, putVessel, ready, removePortion, seasonPot, servingsLeft, setFire, steamLack, stir, stoveStep, takeCanister, takeVessel, toss, TOSSES, underOf, vesselOf, wayOf,
+  type KitKind, type Missed, type Phase, type StoveTick,
 } from '../../../../core/v3/kitchen/kit';
+import { FOOD_LOOK } from '../../../../core/v3/kitchen/looks';
 import { FOOD } from '../../../../core/v3/kitchen/pantry';
 import { classOf, portionOfItem } from '../../../../core/v3/kitchen/standins';
 import type { GarageDevice } from '../../garageStub';
@@ -31,7 +32,7 @@ import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
 import type { GameContext } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
-import type { Carrier, Loose } from '../../loose';
+import type { Loose } from '../../loose';
 import { heldOf, type Held } from '../../player';
 
 const T = (zh: string, en: string): Text => ({ zh, en });
@@ -75,6 +76,40 @@ const STIR: Readonly<Record<Way, Text>> = {
   brew: T('', ''),
   mix: T('拌一拌', 'Toss it'),
 };
+
+/** the failed dishes (core/v3/kitchen/looks.ts FAIL_LOOK): eaten, a grunt */
+const FAILED: ReadonlySet<string> = new Set(['mess', 'burnt', 'raw'].map(dishItem));
+
+/** the kitchen's sounds (foley.ts), made ready the first time cookware is near: the first stroke of the knife is then heard */
+const SOUNDS: readonly string[] = [
+  'chop', 'sizzle_in', 'plop', 'toss', 'toss_dry', 'stir', 'shake', 'ignite', 'knob_click', 'flame_out', 'pan_place', 'pan_lift',
+  'stove_cover_open', 'stove_cover_close', 'canister_in', 'canister_out', 'plate_clink', 'dish_fail', 'book_write', 'flame_gas', 'sizzle', 'boil', 'kettle_whistle', 'yuck',
+];
+
+/**
+ * The kitchen's tips, each said once in a book's life (BookData.tips): the first time cookware is near, the first time
+ * something that could be cut goes into a hot vessel whole.
+ */
+export const TIPS = {
+  start: '做饭：手里的东西能放哪，哪里就有它的影子，按 E 放下；F 端走，按住 F 拿起。J 是食谱本。',
+  cut: '小提示：先放到案板上切三刀再下锅，熟得快，也更容易做到完美。',
+} as const;
+
+/** what is said as a pot comes to just right, each way */
+const READY: Readonly<Record<Way, string>> = { fry: '火候正好！', grill: '烤好了！', boil: '炖好了！', steam: '蒸好了！', bake: '出炉了！', brew: '水开了，煮好了！', mix: '拌好了！' };
+
+/** what kept a dish from perfect, said on its card */
+const MISSED: Readonly<Record<Missed, string>> = { cut: '切一切', season: '撒点调料', under: '火候再足一点', over: '早一点出锅' };
+
+/** how much of a sound at the stove reaches one d metres off (full within arm's reach, nothing past 8 m) */
+const hearAt = (d: number): number => (d <= 1.2 ? 1 : Math.pow(Math.max(0, 1 - (d - 1.2) / 6.8), 1.6));
+
+/** the sound of turning what is in a vessel: a spoon round a pot of water, the pan tossed */
+const stirSound = (way: Way | null): string => (way === 'boil' || way === 'steam' || way === 'brew' ? 'stir' : 'toss');
+
+/** a distance in the plane, or in space (Math.hypot puts its arguments on the heap on every call: not every frame) */
+const dist2 = (dx: number, dz: number): number => Math.sqrt(dx * dx + dz * dz);
+const dist3 = (dx: number, dy: number, dz: number): number => Math.sqrt(dx * dx + dy * dy + dz * dz);
 
 const nameOf = (item: string, lang: 'zh' | 'en' = 'zh'): string => itemDef(item).name[lang];
 /** a portion's name: the ingredient's, or the stand-in's own */
@@ -201,6 +236,24 @@ export class Unit {
   }
 }
 
+/** a dish just served, for its card on screen (bookUi.ts reveal) */
+export interface Reveal {
+  /** the dish (core/v3/kitchen/dishes.ts), or '' for a failure */
+  dish: string;
+  fail: 'mess' | 'burnt' | 'raw' | null;
+  zh: string;
+  stars: number;
+  perfect: boolean;
+  /** the first time it was made: a new recipe */
+  first: boolean;
+  /** what a serving feeds */
+  food: number;
+  /** a serving is left in the pot */
+  more: boolean;
+  /** a line under the name: why it failed; the first time it came out perfect */
+  reason: string;
+}
+
 /** where the thing in the hands would be set down: found by the line of sight, read by the view for its ghost */
 export interface PlaceAt {
   x: number;
@@ -221,6 +274,14 @@ class PlaceDevice implements GarageDevice {
   /** the frame the place was found in (a place found longer ago is no place) */
   seen = -1;
   private readonly spot: PlaceAt = { x: 0, y: 0, z: 0, yaw: 0 };
+  /** the last look: its line of sight, the render origin and the things' revision it was taken with, its answer, its frame */
+  private readonly last = { ox: NaN, oy: 0, oz: 0, dx: 0, dy: 0, dz: 0, rx: 0, rz: 0, rev: -1, frame: -99, d: null as number | null };
+  /** the point of the line of sight at t (world), and the surface under it: a scratch */
+  private readonly p = { x: 0, y: 0, z: 0, s: 0 };
+  // (a vehicle's body box, the line of sight in its frame: scratches)
+  private readonly box = new THREE.Box3();
+  private readonly lray = new THREE.Ray();
+  private readonly hitP = new THREE.Vector3();
 
   constructor(private readonly sys: Kitchen) {}
 
@@ -240,41 +301,129 @@ class PlaceDevice implements GarageDevice {
     if (this.at) this.sys.setDown(held, this.at);
   }
 
-  /** the line of sight walked until it goes under a surface (the ground, a table, a vehicle's floor) */
+  /**
+   * The point of the line of sight t metres along it (world), and the highest surface under it: the ground, a table, a
+   * place's floor (LooseThings.surfaceAt). Never a vehicle's: that is looked up by casting into its whole model
+   * (vehicle.ts surfaceAt, ~10 ms in a motorhome — once as a thing starts to fall, never every frame); on and in a
+   * vehicle the game's own stowing puts a thing down where one aims (cargo.ts), and a vehicle in the way stops the look.
+   */
+  private sample(ray: THREE.Ray, t: number, o: { x: number; y: number; z: number }, loose: GameContext['loose']): { x: number; y: number; z: number; s: number } {
+    const p = this.p;
+    p.x = ray.origin.x + ray.direction.x * t + o.x;
+    p.y = ray.origin.y + ray.direction.y * t + o.y;
+    p.z = ray.origin.z + ray.direction.z * t + o.z;
+    p.s = loose.surfaceAt(p.x, p.z, p.y + 0.3);
+    return p;
+  }
+
+  /** how far along the line of sight it enters the body of a vehicle (null: none in the way within `far`) */
+  private vehicleIn(ctx: GameContext, ray: THREE.Ray, far: number): number | null {
+    const o = ctx.core.origin;
+    const ex = ray.origin.x + o.x;
+    const ez = ray.origin.z + o.z;
+    let best: number | null = null;
+    for (const v of ctx.vehicles) {
+      const s = v.sim;
+      if (dist2(s.px - ex, s.pz - ez) > far + s.spec.body.halfLength + 1) continue;
+      const sd = v.solid.update();
+      // (its box turned to its heading: the line of sight in its frame)
+      const cos = Math.cos(-sd.yaw);
+      const sin = Math.sin(-sd.yaw);
+      const cy = (sd.y0 + sd.y1) / 2 - o.y;
+      const ox = ray.origin.x - (sd.x - o.x);
+      const oz = ray.origin.z - (sd.z - o.z);
+      this.lray.origin.set(ox * cos - oz * sin, ray.origin.y - cy, ox * sin + oz * cos);
+      this.lray.direction.set(ray.direction.x * cos - ray.direction.z * sin, ray.direction.y, ray.direction.x * sin + ray.direction.z * cos);
+      this.box.min.set(-sd.hx, -(sd.y1 - sd.y0) / 2, -sd.hz);
+      this.box.max.set(sd.hx, (sd.y1 - sd.y0) / 2, sd.hz);
+      const h = this.lray.intersectBox(this.box, this.hitP);
+      if (!h) continue;
+      const d = h.distanceTo(this.lray.origin);
+      if (best === null || d < best) best = d;
+    }
+    return best;
+  }
+
+  /**
+   * The line of sight walked until it goes under a surface (the ground, a table, a vehicle's floor): in strides of 10 cm,
+   * then halved five times between the last point over a surface and the first under one (to 3 mm). The same line of
+   * sight as a moment ago, nothing moved since: the same answer, without asking the surfaces again (one stands still
+   * at the stove with a plate in the hands for long stretches).
+   */
   hit(ray: THREE.Ray, reach: number): number | null {
-    this.at = null;
     const ctx = this.sys.game;
-    if (!ctx || ray.direction.y > -0.08) return null;
+    if (!ctx || ray.direction.y > -0.08) {
+      this.at = null;
+      return null;
+    }
     const o = ctx.core.origin;
     const loose = ctx.loose;
-    const carriers = loose.carriers();
-    const far = Math.min(reach, PLACE_REACH);
-    for (let t = 0.45; t <= far; t += 0.035) {
-      const x = ray.origin.x + ray.direction.x * t + o.x;
-      const y = ray.origin.y + ray.direction.y * t + o.y;
-      const z = ray.origin.z + ray.direction.z * t + o.z;
-      let s = loose.surfaceAt(x, z, y + 0.3);
-      for (let i = 0; i < carriers.length; i++) {
-        const c = (carriers[i] as Carrier).surfaceAt(x, z, y + 0.3);
-        if (c !== null && c > s) s = c;
-      }
-      if (y > s + 0.004) continue;
-      // (a step up met from the side — a kerb, a table's edge: not a place)
-      if (s - y > 0.2) return null;
-      const at = this.spot;
-      at.x = x;
-      at.y = s;
-      at.z = z;
-      at.yaw = Math.atan2(ray.origin.z + o.z - z, ray.origin.x + o.x - x);
-      this.at = at;
-      this.seen = this.sys.frames;
-      this.x = x;
-      this.y = s;
-      this.z = z;
-      // (whatever real thing the mark could be on instead is nearer by this much)
-      return t + 0.25;
+    const L = this.last;
+    const frame = this.sys.frames;
+    if (
+      frame - L.frame < 15 && L.rev === loose.rev && L.rx === o.x && L.rz === o.z &&
+      Math.abs(L.ox - ray.origin.x) < 1e-4 && Math.abs(L.oy - ray.origin.y) < 1e-4 && Math.abs(L.oz - ray.origin.z) < 1e-4 &&
+      Math.abs(L.dx - ray.direction.x) < 1e-5 && Math.abs(L.dy - ray.direction.y) < 1e-5 && Math.abs(L.dz - ray.direction.z) < 1e-5
+    ) {
+      if (this.at) this.seen = frame;
+      return L.d;
     }
-    return null;
+    L.ox = ray.origin.x;
+    L.oy = ray.origin.y;
+    L.oz = ray.origin.z;
+    L.dx = ray.direction.x;
+    L.dy = ray.direction.y;
+    L.dz = ray.direction.z;
+    L.rx = o.x;
+    L.rz = o.z;
+    L.rev = loose.rev;
+    L.frame = frame;
+    L.d = this.walk(ray, reach, o, loose);
+    return L.d;
+  }
+
+  private walk(ray: THREE.Ray, reach: number, o: { x: number; y: number; z: number }, loose: GameContext['loose']): number | null {
+    this.at = null;
+    const ctx = this.sys.game!;
+    const far = Math.min(reach, PLACE_REACH);
+    // (a vehicle in the way: the look stops at its body)
+    const wall = this.vehicleIn(ctx, ray, far);
+    const under = (t: number): boolean => {
+      const p = this.sample(ray, t, o, loose);
+      return p.y <= p.s + 0.004;
+    };
+    let lo = -1;
+    let hi = -1;
+    for (let t = 0.45; t <= far + 1e-6; t += 0.1) {
+      if (under(t)) {
+        hi = t;
+        break;
+      }
+      lo = t;
+    }
+    if (hi < 0 || (wall !== null && wall < hi)) return null;
+    if (lo >= 0) {
+      for (let k = 0; k < 5; k++) {
+        const m = (lo + hi) / 2;
+        if (under(m)) hi = m;
+        else lo = m;
+      }
+    }
+    const p = this.sample(ray, hi, o, loose);
+    // (a step up met from the side — a kerb, a table's edge: not a place)
+    if (p.s - p.y > 0.2) return null;
+    const at = this.spot;
+    at.x = p.x;
+    at.y = p.s;
+    at.z = p.z;
+    at.yaw = Math.atan2(ray.origin.z + o.z - p.z, ray.origin.x + o.x - p.x);
+    this.at = at;
+    this.seen = this.sys.frames;
+    this.x = p.x;
+    this.y = p.s;
+    this.z = p.z;
+    // (whatever real thing the mark could be on instead is nearer by this much)
+    return hi + 0.25;
   }
 }
 
@@ -313,14 +462,20 @@ export class Kitchen implements System<GameContext>, InteractSource {
   onServed: ((unit: Unit, served: { zh: string; stars: number; perfect: boolean; fail: boolean; first: boolean }) => void) | null = null;
   /** what is drawn of it: only in a game that draws (view.ts, loaded then) */
   private view: { update(dt: number): void; dispose(): void } | null = null;
+  /** sounds that come a moment after what set them off (at: s of the system's clock) */
+  private readonly later: { at: number; name: string; gain: number; say: string }[] = [];
+  /** the kitchen's sounds asked to be made ready (once a session, when cookware is first near) */
+  private warmed = false;
   /** the recipe book on screen (bookUi.ts): only on a page */
-  private bookUi: { update(): void; dispose(): void; toggle(open?: boolean): void; readonly open: boolean } | null = null;
+  private bookUi: { update(): void; dispose(): void; toggle(open?: boolean): void; reveal(r: Reveal): void; readonly open: boolean } | null = null;
 
   init(ctx: GameContext): void {
     this.game = ctx;
     this.units.clear();
     this.list.length = 0;
     this.rev = -1;
+    this.later.length = 0;
+    this.warmed = false;
     if (ctx.core.scene && ctx.loose.root) {
       void import('./view').then(({ KitchenView }) => {
         if (this.game === ctx && !this.view) this.view = new KitchenView(ctx, this);
@@ -387,6 +542,13 @@ export class Kitchen implements System<GameContext>, InteractSource {
     this.time += dt;
     this.frames++;
     this.refresh(ctx);
+    for (let i = this.later.length - 1; i >= 0; i--) {
+      const s = this.later[i];
+      if (s.at > this.time) continue;
+      this.later.splice(i, 1);
+      if (s.name) ctx.sound(s.name, s.gain);
+      if (s.say) ctx.ui.say(s.say, 4.5);
+    }
     // a stove carried off alight goes out: the flame is the thing's, and nothing steps it in the hands
     const held = ctx.player.held;
     if (held?.kind === 'item' && held.item.item === STOVE && fireOf(held.item)) setFire(held.item, 0);
@@ -399,7 +561,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (t.ranOut) {
         ctx.loose.touch(u.loose);
         if (close) {
-          ctx.sound('switch', 0.5);
+          ctx.sound('flame_out', 0.8);
           ctx.ui.say('火灭了：燃气罐空了。换一罐，锅里的进度还在。', 3.2);
         }
       }
@@ -409,10 +571,11 @@ export class Kitchen implements System<GameContext>, InteractSource {
       }
       if (t.after === 'right') {
         ctx.sound('clean_ding', 0.5);
-        ctx.ui.say('火候正好！拿着盘子或碗对着它按 E 装盘，或者先关火。', 2.6);
+        const w = wayOf(u.item);
+        ctx.ui.say(`${w ? READY[w] : READY.fry}拿着盘子或碗对着它按 E 装盘，或者先关火。`, 2.6);
       } else if (t.after === 'over') ctx.ui.say('有点过了，快出锅！', 2);
       else if (t.after === 'burnt') {
-        ctx.sound('power_off', 0.5);
+        ctx.sound('sizzle_in', 0.6);
         ctx.ui.say('焦了……', 2);
       }
       if (t.asked) this.sayAsk(ctx, u);
@@ -429,8 +592,56 @@ export class Kitchen implements System<GameContext>, InteractSource {
   lateUpdate(dt: number, ctx: GameContext): void {
     this.refresh(ctx);
     this.findGhosts(ctx);
+    this.loops(ctx);
     this.view?.update(dt);
     this.bookUi?.update();
+  }
+
+  /** a sound a moment from now (s); or a line to say then */
+  private soon(name: string, gain: number, delay: number, say = ''): void {
+    this.later.push({ at: this.time + delay, name, gain, say });
+  }
+
+  /**
+   * The kitchen's loops this frame: of the stoves alight near one, the loudest flame, pan frying and pot on the boil, each by
+   * how near it is and how hot (a pan spits harder as it goes over, hardly at all once it is burnt; a pot comes to the boil).
+   * The first time cookware is near, its sounds are made ready.
+   */
+  private loops(ctx: GameContext): void {
+    if (ctx.seated) return;
+    const w = ctx.player.walker;
+    let flame = 0;
+    let sizzle = 0;
+    let boil = 0;
+    let whistle = 0;
+    for (let i = 0; i < this.list.length; i++) {
+      const u = this.list[i];
+      const d = dist2(u.loose.x - w.x, u.loose.z - w.z);
+      if (!this.warmed && d < 14) {
+        this.warmed = true;
+        for (const s of SOUNDS) ctx.warmSound(s);
+      }
+      // (the first time cookware is within reach: how the kitchen is worked, once)
+      if (d < 2.6 && !u.loose.shut && firstTip(this.book, 'start')) ctx.ui.say(TIPS.start, 6);
+      if (u.kind !== 'stove') continue;
+      const fire = fireOf(u.item);
+      const near = fire ? hearAt(d) : 0;
+      if (near <= 0) continue;
+      const hot = fire === 2 ? 1 : 0.62;
+      flame = Math.max(flame, near * hot);
+      const pot = potOf(u.item);
+      const way = wayOf(u.item);
+      if (!pot?.items.length || !way || pot.out) continue;
+      const ph = phaseOf(u.item);
+      if (way === 'fry' || way === 'grill') sizzle = Math.max(sizzle, near * hot * (ph === 'raw' ? 0.75 : ph === 'over' ? 1.15 : ph === 'burnt' ? 0.5 : 1));
+      else if (WAYS[way].heats) boil = Math.max(boil, near * hot * (0.35 + 0.65 * Math.min(1, (pot.done ?? 0) / 0.5)));
+      // (a kettle that has come to the boil whistles, the more shrilly the longer it is left)
+      if (way === 'brew' && (ph === 'right' || ph === 'over' || ph === 'burnt')) whistle = Math.max(whistle, near * hot * (ph === 'right' ? 0.75 : 1));
+    }
+    if (flame > 0.01) ctx.loop('flame_gas', flame);
+    if (sizzle > 0.01) ctx.loop('sizzle', sizzle);
+    if (boil > 0.01) ctx.loop('boil', boil);
+    if (whistle > 0.01) ctx.loop('kettle_whistle', whistle);
   }
 
   /** the recipe book opened or shut (J does this on a page; the tests and the developer's tab ask here) */
@@ -445,7 +656,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const w = ctx.player.walker;
     const px = ctx.seated ? ctx.seated.sim.px : w.x;
     const pz = ctx.seated ? ctx.seated.sim.pz : w.z;
-    return Math.hypot(u.loose.x - px, u.loose.z - pz) < d;
+    return dist2(u.loose.x - px, u.loose.z - pz) < d;
   }
 
   near(at: PlanPoint, r: number, out: GarageDevice[]): void {
@@ -460,8 +671,10 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (dx * dx + dz * dz > rr * rr) continue;
       for (let k = 0; k < u.devices.length; k++) out.push(u.devices[k]);
     }
-    const held = this.game?.player.held;
-    if (held?.kind === 'item' && this.places(held.item.item)) out.push(this.placer);
+    // set down where one aims: on foot out of doors (aboard a vehicle the game's own stowing does it, its ghost and its turn with it)
+    const ctx = this.game;
+    const held = ctx?.player.held;
+    if (held?.kind === 'item' && this.places(held.item.item) && !ctx!.player.aboard && !ctx!.seated) out.push(this.placer);
   }
 
   // ------------------------------------------------------------------ the words on the mark
@@ -563,7 +776,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (f.cut) return this.offBoard(u);
       const n = chop(it);
       u.chopped++;
-      ctx.sound('latch', 0.6);
+      ctx.sound('chop', 1);
       ctx.loose.touch(u.loose);
       if (n >= CHOPS) ctx.ui.say(`${portionName(f)}切好了。`, 1.6);
       return;
@@ -583,7 +796,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (ready(it)) return ctx.ui.say('拌好了：拿着盘子或碗对着它按 E 装盘。', 2.4);
       toss(it);
       u.stirred++;
-      ctx.sound('wrapper', 0.5);
+      ctx.sound('toss_dry', 0.9);
       ctx.loose.touch(u.loose);
       if (ready(it)) ctx.ui.say('拌好了。', 1.4);
       return;
@@ -591,7 +804,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (asksStir(it)) {
       stir(it);
       u.stirred++;
-      ctx.sound('wrapper', 0.6);
+      ctx.sound(stirSound(way), 1);
       ctx.loose.touch(u.loose);
       ctx.ui.say('好：这下不容易糊了。', 1.6);
       return;
@@ -605,7 +818,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     }
     // (a turn of the spoon for the pleasure of it)
     u.stirred++;
-    ctx.sound('wrapper', 0.35);
+    ctx.sound(stirSound(way), 0.55);
     if (phaseOf(it) === 'right') ctx.ui.say('火候正好：拿着盘子或碗对着它按 E 装盘。', 2.2);
   }
 
@@ -629,6 +842,14 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (d.part !== 'top') return null;
       if (kind === 'vessel') {
         if (!WAYS[WAY_OF[id]].heats) return no(`${nameOf(id)}不用火：放在一边拌就行`, 'A bowl needs no flame');
+        // (the steamer stands on a pot of water, never on the flame)
+        if (WAY_OF[id] === 'steam') {
+          const lack = steamLack(it);
+          if (lack === 'nopot') return no('蒸笼要架在汤锅上：先在炉头上放一口空汤锅（锅里是水）', 'A steamer stands on a pot of water: set an empty pot on the burner first');
+          if (lack === 'potfull') return no('汤锅里有东西：蒸笼要架在空汤锅上', 'The pot has food in it: the steamer goes on an empty one');
+          if (lack === 'taken') return no(`炉头上已经有${nameOf(vesselOf(it)!)}了`, 'Something is on the burner');
+          return { ok: true, word: T('把<b>蒸笼</b>架到汤锅上', 'Set the <b>steamer</b> on the pot') };
+        }
         const on = vesselOf(it);
         if (on) return no(`炉头上已经有${nameOf(on)}了`, `The ${nameOf(on, 'en').toLowerCase()} is on it`);
         return { ok: true, word: T(`把<b>${nameOf(id)}</b>放到炉头上`, `Set the <b>${nameOf(id, 'en').toLowerCase()}</b> on the burner`) };
@@ -699,8 +920,8 @@ export class Kitchen implements System<GameContext>, InteractSource {
       const had = hasCanister(it);
       const old = loadCanister(it, held.item);
       u.swap = { old: had, put: true };
+      // (its sounds go with the movement: view.ts)
       u.busy = had ? 2.3 : 1.6;
-      ctx.sound('cap_open', 0.7);
       ctx.loose.touch(u.loose);
       if (old) {
         this.hand(ctx, old);
@@ -711,7 +932,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (u.kind === 'stove' && kind === 'vessel') {
       if (!putVessel(it, held.item)) return void this.hand(ctx, held.item);
       u.added++;
-      ctx.sound('putdown', 1.2);
+      ctx.sound('pan_place', 1);
       ctx.loose.touch(u.loose);
       return;
     }
@@ -729,7 +950,15 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (!addPortion(it, p)) return;
       this.spend(ctx, held);
       u.added++;
-      ctx.sound(u.kind === 'stove' && fireOf(it) ? 'pour' : 'putdown', 0.3);
+      // (something that could have been cut, into a hot vessel whole: the board, once)
+      const w = wayOf(it);
+      if (!p.cut && FOOD_LOOK[p.id]?.chop && w && WAYS[w].heats && this.list.some((x) => x.kind === 'board') && firstTip(this.book, 'cut')) this.soon('', 0, 0, TIPS.cut);
+      // (into hot oil it flares; into a pot it plops; into a cold pan or the bowl it is just put down)
+      const way = wayOf(it);
+      const hot = u.kind === 'stove' && fireOf(it) > 0;
+      if (way === 'fry' || way === 'grill') ctx.sound(hot ? 'sizzle_in' : 'putdown', hot ? 1 : 0.3);
+      else if (way && WAYS[way].heats) ctx.sound('plop', hot ? 1 : 0.7);
+      else ctx.sound('putdown', 0.25);
       ctx.loose.touch(u.loose);
       return;
     }
@@ -743,8 +972,10 @@ export class Kitchen implements System<GameContext>, InteractSource {
   flame(u: Unit, level: 0 | 1 | 2): void {
     const ctx = this.game;
     if (!ctx) return;
+    const was = fireOf(u.item);
     const lack = setFire(u.item, level);
-    ctx.sound('switch', 0.7);
+    // (lit: the igniter and the gas catching; out: the burner's pop; up or down a notch, or nothing to light: the knob)
+    ctx.sound(lack ? 'knob_click' : level === 0 ? (was ? 'flame_out' : 'knob_click') : was ? 'knob_click' : 'ignite', 1);
     if (lack) return ctx.ui.say(lack === 'nocan' ? '炉子里没有燃气罐：拿着一罐对着炉子按 E 装上。' : '燃气罐空了：换一罐。', 2.8);
     ctx.loose.touch(u.loose);
     if (level === 2 && !vesselOf(u.item)) ctx.ui.say('火点着了。炉头上还没有锅。', 2);
@@ -759,7 +990,6 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const can = takeCanister(u.item)!;
     u.swap = { old: true, put: false };
     u.busy = 1.3;
-    ctx.sound('cap_open', 0.7);
     ctx.loose.touch(u.loose);
     this.hand(ctx, can);
     ctx.ui.say(gasOf(can) <= 0 ? '取出来了：是空罐。' : `取出来了：还剩 ${pct(gasOf(can))}%。`, 2.2);
@@ -773,7 +1003,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (!v) return;
     if (ctx.player.roomFor({ kind: 'item', item: newItem(v) }) <= 0) return ctx.ui.say('手上没地方了。', 2);
     const vessel = takeVessel(u.item)!;
-    ctx.sound('pickup', 1.2);
+    ctx.sound('pan_lift', 1);
     ctx.loose.touch(u.loose);
     this.hand(ctx, vessel);
   }
@@ -799,7 +1029,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const s = nextSeasoning(u.item);
     if (!s || !seasonPot(u.item, s.id)) return ctx.ui.say('没有什么可加的了。', 1.8);
     u.stirred++;
-    ctx.sound('wrapper', 0.4);
+    ctx.sound('shake', 1);
     ctx.loose.touch(u.loose);
     ctx.ui.say(`撒了${s.zh}。`, 1.4);
   }
@@ -811,7 +1041,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     for (let i = 0; i < this.list.length; i++) {
       const u = this.list[i];
       if (u === caddy || !potOf(u.item)?.items.length) continue;
-      const d = Math.hypot(u.loose.x - caddy.loose.x, u.loose.z - caddy.loose.z, u.loose.y - caddy.loose.y);
+      const d = dist3(u.loose.x - caddy.loose.x, u.loose.y - caddy.loose.y, u.loose.z - caddy.loose.z);
       if (d < bd) {
         bd = d;
         best = u;
@@ -833,13 +1063,45 @@ export class Kitchen implements System<GameContext>, InteractSource {
     ctx.loose.touch(u.loose);
     this.hand(ctx, served.item, true);
     const stars = '★'.repeat(o.stars);
+    // (where there is a page, the dish's card says it: bookUi.ts reveal; else the toast)
+    const card: Reveal = {
+      dish: o.dish?.id ?? '',
+      // (an empty pot is never dished up: as a mess, if it were)
+      fail: o.fail === 'empty' ? 'mess' : (o.fail ?? null),
+      zh: o.zh,
+      stars: o.stars,
+      perfect: o.perfect,
+      first: noted.first,
+      food: served.item.state?.meal?.food ?? 0,
+      more: !served.last,
+      reason: o.fail
+        ? o.fail === 'mess'
+          ? noted.newFail
+            ? '这个搭配做不成菜，记进食谱本了，下次下锅时会提醒。'
+            : '这个搭配做不成菜。'
+          : o.fail === 'burnt'
+            ? '火候过了，下次早点出锅。'
+            : '还没熟：肉、鱼和蛋要多煮一会儿。'
+        : noted.firstPerfect && !noted.first
+          ? '第一次做到完美！'
+          : served.missed.length
+            ? `差一点完美：下次${served.missed.map((m) => MISSED[m]).join('、')}。`
+            : '',
+    };
+    // (no page to draw the card on: its words in the toast)
+    const say = (text: string): void => (this.bookUi ? this.bookUi.reveal(card) : ctx.ui.say(card.reason && !card.fail ? `${text} · ${card.reason}` : text, 3.6));
     if (o.fail) {
-      ctx.sound('power_off', 0.6);
-      ctx.ui.say(o.fail === 'mess' ? `做砸了：${o.zh}。${noted.newFail ? '这个搭配记进食谱本了，下次锅上会提醒。' : ''}` : o.fail === 'burnt' ? `做砸了：${o.zh}。下次早点出锅。` : `做砸了：${o.zh}。肉、鱼和蛋要多煮一会儿。`, 3.6);
+      ctx.sound('plate_clink', 0.8);
+      this.soon('dish_fail', 1, 0.18);
+      say(o.fail === 'mess' ? `做砸了：${o.zh}。${noted.newFail ? '这个搭配记进食谱本了，下次锅上会提醒。' : ''}` : o.fail === 'burnt' ? `做砸了：${o.zh}。下次早点出锅。` : `做砸了：${o.zh}。肉、鱼和蛋要多煮一会儿。`);
     } else {
-      ctx.sound('clean_ding', noted.first ? 0.9 : 0.6);
+      // the clink of the china, the reveal by the dish's stars, a chime for a perfect one, the pencil for a new recipe
+      ctx.sound('plate_clink', 1);
+      this.soon(`loot_reveal_${Math.max(1, Math.min(5, o.stars))}`, 1, 0.22);
+      if (o.perfect) this.soon('clean_ding', 0.7, 0.8);
+      if (noted.first) this.soon('book_write', 1, 1.05);
       const head = o.perfect ? `完美的${o.zh}` : o.zh;
-      ctx.ui.say(`${noted.first ? '新菜谱！' : ''}${head} ${stars}${noted.firstPerfect && !noted.first ? ' · 第一次做到完美' : ''}${served.last ? '' : ' · 锅里还有一份'}`, 3.6);
+      say(`${noted.first ? '新菜谱！' : ''}${head} ${stars}${noted.firstPerfect && !noted.first ? ' · 第一次做到完美' : ''}${served.last ? '' : ' · 锅里还有一份'}`);
     }
     this.onServed?.(u, { zh: o.zh, stars: o.stars, perfect: o.perfect, fail: !!o.fail, first: noted.first });
   }
@@ -889,6 +1151,10 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const meal = item.state?.meal;
     if (!meal) return;
     if (meal.food > 0) eat(ctx.body, meal.food, 0);
+    if (FAILED.has(item.item)) {
+      ctx.sound('yuck', 1);
+      ctx.ui.say(item.item === dishItem('burnt') ? '一股焦味……总算填了点肚子。' : item.item === dishItem('raw') ? '还是生的……下次多煮一会儿。' : '说不上是什么味道……总算填了点肚子。', 2.6);
+    }
     if (meal.ware) this.hand(ctx, newItem(meal.ware));
   }
 
@@ -918,13 +1184,13 @@ export class Kitchen implements System<GameContext>, InteractSource {
       const w = p.walker;
       for (let i = 0; i < this.list.length; i++) {
         const u = this.list[i];
-        if (u.busy > 0 || u.loose.shut || Math.hypot(u.loose.x - w.x, u.loose.z - w.z) > 3.4) continue;
+        if (u.busy > 0 || u.loose.shut || dist2(u.loose.x - w.x, u.loose.z - w.z) > 3.4) continue;
         const it = u.item;
         const dv = on instanceof KitDevice && on.unit === u ? on : null;
         // (on a stove the burner is where things go: the mark on its knob or its bay is not on them — a canister goes in from anywhere)
         const focused = !!dv && (dv.part === 'all' || dv.part === 'top' || kind === 'gas');
         if (u.kind === 'stove' && kind === 'gas') this.ghost(u, 'can', id, focused, null);
-        else if (u.kind === 'stove' && kind === 'vessel' && WAYS[WAY_OF[id]].heats && !vesselOf(it)) this.ghost(u, 'pot', id, focused, null);
+        else if (u.kind === 'stove' && kind === 'vessel' && WAYS[WAY_OF[id]].heats && (WAY_OF[id] === 'steam' ? !steamLack(it) : !vesselOf(it))) this.ghost(u, 'pot', id, focused, null);
         else if (portion && u.kind === 'board' && !boardLack(it, portion)) this.ghost(u, 'food', id, focused, null);
         // (a vessel standing about empty is a thing put away: its ghost only when the mark is on it — a bowl is used where it stands)
         else if (portion && (u.kind === 'vessel' || u.kind === 'stove') && vesselOf(it) && !addLack(it) && !asksStir(it) && (focused || u.kind === 'stove' || !!potOf(it) || !WAYS[WAY_OF[vesselOf(it)!]].heats)) this.ghost(u, 'food', id, focused, null);

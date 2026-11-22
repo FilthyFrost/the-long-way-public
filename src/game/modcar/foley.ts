@@ -13,7 +13,10 @@
  * something rare glinting nearby); the roadside places (a container searched by hand, by what it is
  * and holds: its door, lid or zip, the search, nothing in it; a house's door and a shop's with its
  * bell; a filling station's pump: the nozzle lifted and hung back, the pump running, its shut-off,
- * running dry); the tyres on the road by the surface under them (rolling on dry and wet asphalt,
+ * running dry); the kitchen (a knife's stroke on a board, the oil flaring as something goes into a hot pan, a plop into a pot,
+ * a toss, a stir, a pinch from the caddy, the stove lit and put out, a pan on and off the burner, the canister's cover and the
+ * canister itself, china, a pot that came to nothing, the recipe book; the flame, a pan frying and a pot on the boil as loops);
+ * the tyres on the road by the surface under them (rolling on dry and wet asphalt,
  * gravel, dirt, grass, sand, snow and ice, brighter as they go faster; sliding on each: the asphalt's
  * squeal, the gravel sprayed, the turf torn, the ice's hiss), each loop with its own low-pass when
  * asked (FoleyOpts.cutoff: heard from a closed cabin). Each sound is a recipe that renders a short
@@ -142,7 +145,52 @@ export type FoleyShot =
   /** the nozzle's automatic shut-off as the tank or the can is full: a hard click, a last spit (~0.22 s) */
   | 'pump_click'
   /** the pump running dry: the motor labouring, fuel and air spluttering, a gurgle, the motor cut and winding down (~1.6 s) */
-  | 'pump_dry';
+  | 'pump_dry'
+  // the kitchen (v3/kitchen; the reveal of a dish is loot_reveal's, by its stars)
+  /** a knife's stroke through something on a wooden board: the crunch, the edge's tok on the wood, the board's knock (~0.22 s) */
+  | 'chop'
+  /** something into a hot pan: the oil flaring up in a rush of spitting and hiss, settling (~1.5 s) */
+  | 'sizzle_in'
+  /** something dropped into a pot of water: the plop, a splash, bubbles after it (~0.6 s) */
+  | 'plop'
+  /** the pan tossed: the food sliding over the steel, the pan knocking back on the grate, the oil flaring as it lands (~0.65 s) */
+  | 'toss'
+  /** a salad tossed in its bowl: the leaves rustling, the spoons knocking the rim (~0.55 s) */
+  | 'toss_dry'
+  /** a spoon round a pot: the scrape, the soup slopping, a bubble or two, a tap on the rim (~0.75 s) */
+  | 'stir'
+  /** a pinch from the seasoning caddy: two or three shakes, the grains pattering (~0.45 s) */
+  | 'shake'
+  /** the stove lit: the knob's detent, the igniter's snap, the gas catching with a soft whump (~0.75 s) */
+  | 'ignite'
+  /** the stove's knob turned a notch (~0.1 s) */
+  | 'knob_click'
+  /** the flame turned off or gone out with the gas: the knob, the burner's soft pop (~0.3 s) */
+  | 'flame_out'
+  /** a pan or a pot set on the burner's grate: a short clank, the prongs rattling (~0.4 s) */
+  | 'pan_place'
+  /** a pan lifted off the grate: a scrape, a small clink (~0.3 s) */
+  | 'pan_lift'
+  /** the stove's canister cover opened: the catch letting go, a soft knock as it stops (~0.25 s) */
+  | 'stove_cover_open'
+  /** the cover shut: its knock, the catch snapping (~0.25 s) */
+  | 'stove_cover_close'
+  /** a gas canister slid into the stove's bay and seated with a clack (~0.5 s) */
+  | 'canister_in'
+  /** the canister's catch let go, the canister drawn out (~0.5 s) */
+  | 'canister_out'
+  /** a serving onto a plate or into a bowl: the spoon's scrape, the china's clink (~0.35 s) */
+  | 'plate_clink'
+  /** a pot that came to nothing: a soft falling 'oh' of two muted notes, a dull plop (~0.9 s) */
+  | 'dish_fail'
+  /** the recipe book opened: the cover lifting, the pages fanning (~0.5 s) */
+  | 'book_open'
+  /** the book shut: the pages settling, the cover's soft clap (~0.5 s) */
+  | 'book_close'
+  /** a page of the book turned (~0.25 s) */
+  | 'book_page'
+  /** a new recipe written into the book: a few quick pencil strokes, a tap (~0.9 s) */
+  | 'book_write';
 
 export type FoleyLoop =
   | 'ratchet'
@@ -218,7 +266,16 @@ export type FoleyLoop =
   /** sliding on packed snow: squeaks in quick runs over a crunching slide, the snow sprayed off hissing */
   | 'skid_snow'
   /** sliding on ice: a hissing scrape, frost crackling off, almost no squeal */
-  | 'skid_ice';
+  | 'skid_ice'
+  // the kitchen (v3/kitchen): each kept going every frame at a gain from how near it is and how hot
+  /** a cassette stove's flame: a soft close roar with the gas's hiss in it */
+  | 'flame_gas'
+  /** a pan frying: a bed of hiss, fine spitting thickening and thinning, the odd bigger pop */
+  | 'sizzle'
+  /** a pot on the boil: bubbles rising and breaking, the water's low churn, a breath of steam */
+  | 'boil'
+  /** a kettle on the boil: its whistle, a breathy tone near 2 kHz that wavers, the steam's hiss round it */
+  | 'kettle_whistle';
 
 /** door / panel materials: door_stock, door_rusty, door_armor, door_cage, door_fridge */
 export type PanelMaterial = 'metal' | 'rusty' | 'armor' | 'cage' | 'fridge';
@@ -4029,6 +4086,472 @@ function skidIce(): Recipe {
   };
 }
 
+// ------------------------------------------------------------------ the kitchen (v3/kitchen): the knife, the pan, the pot, the stove, the china, the recipe book
+
+/** a bubble in water: a short sine whose pitch rises as it closes (Minnaert's resonance), from `at` seconds */
+function bubbleInto(x: Float32Array, sr: number, at: number, f0: number, amp: number, rng: Rng): void {
+  const a = Math.max(0, Math.floor(at * sr));
+  const decay = rng.range(0.008, 0.02) * Math.sqrt(500 / f0);
+  const m = Math.min(x.length - a, Math.ceil(decay * 7 * sr));
+  const rise = rng.range(0.8, 2.2);
+  let ph = rng.next();
+  for (let i = 0; i < m; i++) {
+    const t = i / sr;
+    ph += (f0 * (1 + (rise * t) / (decay * 7))) / sr;
+    x[a + i] += amp * Math.sin(2 * Math.PI * ph) * Math.exp(-t / decay) * Math.min(1, t / 0.001);
+  }
+}
+
+/** hot oil spitting from t0 to t1 (s): grains at `rate(t)` a second, their sizes on a power law times `amp(t)` (into x, unfiltered) */
+function spitInto(x: Float32Array, sr: number, t0: number, t1: number, rate: (t: number) => number, amp: (t: number) => number, rng: Rng): void {
+  for (let t = t0; t < t1; t += -Math.log(1 - rng.next()) / Math.max(1, rate(t))) grainInto(x, sr, t, amp(t) * powerLaw(rng, 0.12, 1.5), rng.range(0.00008, 0.0004), rng);
+}
+
+/** a knife's stroke through something on a wooden board: the flesh crunching under the blade, the edge's dry tok on the wood, the board knocking on what it lies on (~0.22 s) */
+function chop(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.24);
+    const crunch = rng.range(0.012, 0.03);
+    for (let k = 0; k < 7; k++) burst(x, sr, Math.floor(rng.range(0, crunch) * sr), rng.range(0.003, 0.008), rng.range(0.25, 0.6), rng, { attack: 0.0004, decay: 0.002, filter: [['bandpass', rng.range(1400, 4200), 1.2]] });
+    const a = Math.floor((crunch + rng.range(0.003, 0.008)) * sr);
+    burst(x, sr, a, 0.006, 0.9, rng, { attack: 0.0002, decay: 0.0012, filter: [['bandpass', 2400, 0.9]] });
+    strike(x, sr, a, [[rng.range(820, 980), 1, 0.022], [rng.range(1550, 1750), 0.6, 0.014], [rng.range(2600, 3000), 0.35, 0.008]], 0.55, rng);
+    burst(x, sr, a, 0.06, 0.5, rng, { attack: 0.001, decay: 0.012, filter: [['lowpass', 260], ['lowpass', 320]] });
+    return normalize(edges(x, sr, 0.5, 25), 0.75);
+  };
+}
+
+/** something into a hot pan: the oil flaring up round it in a bright rush of spitting and hiss, settling into a fizz (~1.5 s) */
+function sizzleIn(): Recipe {
+  return (sr, rng) => {
+    const len = 1.5;
+    const x = S(sr, len);
+    const n = x.length;
+    const h = noise(n, rng);
+    biquad(h, sr, 'highpass', 2400, 0.6);
+    biquad(h, sr, 'peaking', 6500, 0.8, 5);
+    biquad(h, sr, 'lowpass', 9000, 0.7);
+    const c = S(sr, len);
+    spitInto(c, sr, 0.005, len, (t) => 260 + 2600 * Math.exp(-t / 0.4), (t) => 0.4 + 0.6 * Math.exp(-t / 0.5), rng);
+    biquad(c, sr, 'highpass', 2000, 0.7);
+    biquad(c, sr, 'lowpass', 9000, 0.7);
+    tame(c, 14);
+    const [rh, rc] = [rmsOf(h), rmsOf(c)];
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const flare = Math.min(1, t / 0.012) * (0.25 + 0.75 * Math.exp(-t / 0.35));
+      x[i] = (0.5 * h[i] * flare) / rh + (0.8 * c[i]) / rc;
+    }
+    // the thing landing in the pan
+    burst(x, sr, 0, 0.05, 0.5, rng, { attack: 0.001, decay: 0.012, filter: [['lowpass', 380]] });
+    for (let i = Math.floor((len - 0.35) * sr); i < n; i++) x[i] *= Math.max(0, (len - i / sr) / 0.35);
+    return normalize(edges(x, sr, 0.5, 30), 0.7);
+  };
+}
+
+/** something dropped into a pot of water: the plop as it goes in, a splash, a few bubbles coming up after it (~0.6 s) */
+function plop(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.6);
+    bubbleInto(x, sr, 0.004, rng.range(300, 420), 1, rng);
+    burst(x, sr, Math.floor(0.002 * sr), 0.08, 0.35, rng, { attack: 0.002, decay: 0.02, filter: [['bandpass', rng.range(1300, 2200), 0.8]] });
+    burst(x, sr, 0, 0.05, 0.3, rng, { attack: 0.001, decay: 0.012, filter: [['lowpass', 300]] });
+    for (let k = 0; k < 6; k++) bubbleInto(x, sr, rng.range(0.06, 0.45), rng.range(550, 1300), rng.range(0.08, 0.25), rng);
+    return normalize(edges(x, sr, 0.5, 30), 0.6);
+  };
+}
+
+/** the pan tossed: what is in it sliding over the steel, the pan knocking back down on the grate, the oil flaring as the food lands (~0.65 s) */
+function toss(): Recipe {
+  return (sr, rng) => {
+    const len = 0.65;
+    const x = S(sr, len);
+    const n = x.length;
+    const s = noise(n, rng);
+    biquad(s, sr, 'bandpass', 1500, 0.7);
+    biquad(s, sr, 'highpass', 500, 0.7);
+    const rs = rmsOf(s);
+    const slide = rng.range(0.28, 0.34);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const e = t < slide ? Math.sin((Math.PI * t) / slide) : 0;
+      x[i] += ((0.55 * s[i]) / rs) * e * e;
+    }
+    const k = Math.floor((slide + 0.005) * sr);
+    strike(x, sr, k, [[rng.range(1700, 1900), 1, 0.05], [rng.range(2900, 3200), 0.6, 0.035], [rng.range(4300, 4700), 0.35, 0.02]], 0.35, rng);
+    burst(x, sr, k, 0.004, 0.5, rng, { attack: 0.0002, decay: 0.001, filter: [['highpass', 1500]] });
+    const c = S(sr, len);
+    spitInto(c, sr, slide, len, (t) => 120 + 1800 * Math.exp(-(t - slide) / 0.12), () => 0.5, rng);
+    biquad(c, sr, 'highpass', 2200, 0.7);
+    biquad(c, sr, 'lowpass', 9000, 0.7);
+    mixInto(x, c, 0, 0.8);
+    return normalize(edges(x, sr, 1, 25), 0.65);
+  };
+}
+
+/** a salad tossed in its bowl: the leaves rustling over one another, the spoons knocking the rim (~0.55 s) */
+function tossDry(): Recipe {
+  return (sr, rng) => {
+    const len = 0.55;
+    const x = S(sr, len);
+    const n = x.length;
+    const s = noise(n, rng);
+    biquad(s, sr, 'bandpass', 2600, 0.8);
+    biquad(s, sr, 'highpass', 900, 0.7);
+    const rs = rmsOf(s);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const e = t < 0.42 ? Math.sin((Math.PI * t) / 0.42) : 0;
+      x[i] += ((0.35 * s[i]) / rs) * e * (0.6 + 0.4 * Math.sin(2 * Math.PI * 11 * t));
+    }
+    for (let k = 0; k < 22; k++) burst(x, sr, Math.floor(rng.range(0.02, 0.4) * sr), rng.range(0.002, 0.006), rng.range(0.1, 0.35), rng, { attack: 0.0002, decay: 0.0015, filter: [['highpass', 2200]] });
+    for (const at of [rng.range(0.12, 0.16), rng.range(0.34, 0.4)]) strike(x, sr, Math.floor(at * sr), [[rng.range(1100, 1300), 1, 0.018], [rng.range(2300, 2600), 0.5, 0.01]], 0.3, rng);
+    return normalize(edges(x, sr, 1, 25), 0.55);
+  };
+}
+
+/** a spoon round a pot: its edge scraping the bottom, the soup slopping round, a bubble or two, a tap on the rim (~0.75 s) */
+function stir(): Recipe {
+  return (sr, rng) => {
+    const len = 0.75;
+    const x = S(sr, len);
+    const n = x.length;
+    const sc = noise(n, rng);
+    biquad(sc, sr, 'bandpass', 1300, 1.2);
+    const sl = noise(n, rng);
+    biquad(sl, sr, 'lowpass', 420, 0.7);
+    biquad(sl, sr, 'lowpass', 520, 0.7);
+    const [rsc, rsl] = [rmsOf(sc), rmsOf(sl)];
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const e = t < 0.55 ? Math.sin((Math.PI * t) / 0.55) : 0;
+      x[i] += ((0.3 * sc[i]) / rsc) * e * (0.7 + 0.3 * Math.sin(2 * Math.PI * 7 * t)) + ((0.6 * sl[i]) / rsl) * e;
+    }
+    for (let k = 0; k < 4; k++) bubbleInto(x, sr, rng.range(0.1, 0.5), rng.range(300, 700), rng.range(0.4, 0.8), rng);
+    strike(x, sr, Math.floor(rng.range(0.58, 0.62) * sr), [[rng.range(2100, 2400), 1, 0.06], [rng.range(3500, 3900), 0.5, 0.04], [rng.range(5200, 5800), 0.25, 0.02]], 0.35, rng);
+    return normalize(edges(x, sr, 1, 25), 0.6);
+  };
+}
+
+/** a pinch from the caddy: two or three shakes, the lid knocking, the grains pattering out (~0.45 s) */
+function shake(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.45);
+    const shakes = rng.next() < 0.5 ? 2 : 3;
+    for (let s = 0; s < shakes; s++) {
+      const t0 = 0.01 + s * rng.range(0.11, 0.14);
+      strike(x, sr, Math.floor(t0 * sr), [[rng.range(1500, 1800), 1, 0.008], [rng.range(2700, 3100), 0.5, 0.005]], 0.25, rng);
+      for (let k = 0; k < 26; k++) grainInto(x, sr, t0 + Math.pow(rng.next(), 1.5) * 0.09, rng.range(0.05, 0.3), rng.range(0.00005, 0.0002), rng);
+    }
+    biquad(x, sr, 'highpass', 1200, 0.7);
+    return normalize(edges(x, sr, 1, 25), 0.55);
+  };
+}
+
+/** the stove lit: the knob turned past its detent, the igniter's hard snap, the gas catching with a soft whump that settles into the flame's hiss (~0.75 s) */
+function ignite(): Recipe {
+  return (sr, rng) => {
+    const len = 0.75;
+    const x = S(sr, len);
+    const n = x.length;
+    strike(x, sr, Math.floor(0.005 * sr), [[rng.range(2600, 3000), 1, 0.006], [rng.range(4300, 4800), 0.4, 0.004]], 0.25, rng);
+    const snap = Math.floor(rng.range(0.07, 0.09) * sr);
+    burst(x, sr, snap, 0.002, 0.6, rng, { attack: 0.00005, decay: 0.0003, filter: [['highpass', 3000]] });
+    strike(x, sr, snap, [[rng.range(5200, 5800), 1, 0.003], [rng.range(7600, 8400), 0.6, 0.002]], 0.3, rng);
+    const w = noise(n, rng);
+    biquad(w, sr, 'lowpass', 520, 0.7);
+    biquad(w, sr, 'lowpass', 640, 0.7);
+    const hs = noise(n, rng);
+    biquad(hs, sr, 'bandpass', 2600, 0.6);
+    const [rw, rhs] = [rmsOf(w), rmsOf(hs)];
+    const t0 = snap / sr + 0.01;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr - t0;
+      if (t < 0) continue;
+      x[i] += ((0.9 * w[i]) / rw) * Math.min(1, t / 0.025) * Math.exp(-t / 0.12) + ((0.12 * hs[i]) / rhs) * Math.min(1, t / 0.06) * (0.5 + 0.5 * Math.exp(-t / 0.2));
+    }
+    for (let i = Math.floor((len - 0.25) * sr); i < n; i++) x[i] *= Math.max(0, (len - i / sr) / 0.25);
+    return normalize(edges(x, sr, 0.5, 20), 0.65);
+  };
+}
+
+/** the stove's knob turned a notch: its detent, a little plastic tick (~0.1 s) */
+function knobClick(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.1);
+    const a = Math.floor(0.004 * sr);
+    burst(x, sr, a, 0.003, 0.6, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 1800], ['peaking', 3600, 1.4]] });
+    strike(x, sr, a, [[rng.range(2400, 2800), 1, 0.01], [rng.range(3900, 4400), 0.45, 0.006]], 0.4, rng);
+    strike(x, sr, a + Math.floor(rng.range(0.018, 0.03) * sr), [[rng.range(2000, 2300), 0.6, 0.008]], 0.2, rng);
+    return normalize(edges(x, sr, 0.5, 15), 0.5);
+  };
+}
+
+/** the flame turned off, or gone out with the gas: the knob's click, the burner's soft pop as the gas is cut, a breath of the last of it (~0.3 s) */
+function flameOut(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.32);
+    strike(x, sr, Math.floor(0.004 * sr), [[rng.range(2400, 2800), 1, 0.008], [rng.range(3900, 4400), 0.4, 0.005]], 0.3, rng);
+    const p = Math.floor(rng.range(0.03, 0.05) * sr);
+    burst(x, sr, p, 0.08, 0.9, rng, { attack: 0.001, decay: 0.018, filter: [['lowpass', 700], ['highpass', 90]] });
+    burst(x, sr, p, 0.2, 0.15, rng, { attack: 0.005, decay: 0.06, filter: [['bandpass', 2400, 0.7]] });
+    return normalize(edges(x, sr, 0.5, 30), 0.5);
+  };
+}
+
+/** a pan or a pot set on the burner: its steel on the grate's prongs, a short clank, the prongs rattling as it settles (~0.4 s) */
+function panPlace(): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.45);
+    const a = Math.floor(0.004 * sr);
+    burst(x, sr, a, 0.05, 0.6, rng, { attack: 0.0005, decay: 0.01, filter: [['lowpass', 500]] });
+    strike(x, sr, a, [[rng.range(520, 600), 1, 0.12], [rng.range(1300, 1500), 0.6, 0.08], [rng.range(2250, 2500), 0.4, 0.05], [rng.range(3700, 4100), 0.25, 0.03]], 0.45, rng, 0.03);
+    for (let k = 0; k < 3; k++) strike(x, sr, a + Math.floor(rng.range(0.012, 0.07) * sr), [[rng.range(2800, 3600), 1, 0.012], [rng.range(4800, 5600), 0.5, 0.008]], 0.12, rng);
+    return normalize(edges(x, sr, 0.5, 30), 0.65);
+  };
+}
+
+/** a pan lifted off the burner: a scrape of its base on the grate, a small clink as it comes free (~0.3 s) */
+function panLift(): Recipe {
+  return (sr, rng) => {
+    const len = 0.3;
+    const x = S(sr, len);
+    const n = x.length;
+    const s = noise(n, rng);
+    biquad(s, sr, 'bandpass', 2600, 1.4);
+    const rs = rmsOf(s);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      x[i] += ((0.3 * s[i]) / rs) * (t < 0.12 ? Math.sin((Math.PI * t) / 0.12) : 0);
+    }
+    strike(x, sr, Math.floor(rng.range(0.11, 0.14) * sr), [[rng.range(1800, 2100), 1, 0.04], [rng.range(3100, 3500), 0.5, 0.025]], 0.25, rng);
+    return normalize(edges(x, sr, 1, 25), 0.5);
+  };
+}
+
+/** the stove's canister cover swung open (its catch letting go, a soft knock as it stops) or shut (the knock, the catch snapping home) (~0.25 s) */
+function stoveCover(open: boolean): Recipe {
+  return (sr, rng) => {
+    const x = S(sr, 0.28);
+    const knock = (at: number, amp: number): void => {
+      const k = Math.floor(at * sr);
+      burst(x, sr, k, 0.03, 0.5 * amp, rng, { attack: 0.0005, decay: 0.006, filter: [['bandpass', 900, 1.1]] });
+      strike(x, sr, k, [[rng.range(700, 820), 1, 0.02], [rng.range(1500, 1700), 0.5, 0.012]], 0.3 * amp, rng);
+    };
+    if (open) {
+      strike(x, sr, Math.floor(0.004 * sr), [[rng.range(2200, 2600), 1, 0.008], [rng.range(3600, 4100), 0.5, 0.005]], 0.3, rng);
+      knock(rng.range(0.1, 0.13), 1);
+    } else {
+      knock(0.004, 1.2);
+      latchInto(x, sr, rng.range(0.018, 0.03), rng, 0.6);
+    }
+    return normalize(edges(x, sr, 0.5, 25), 0.55);
+  };
+}
+
+/** a gas canister slid into the stove's bay and seated (the steel sliding, its valve meeting the regulator with a clack) or its catch let go and the canister drawn out (~0.5 s) */
+function canister(into: boolean): Recipe {
+  return (sr, rng) => {
+    const len = 0.5;
+    const x = S(sr, len);
+    const n = x.length;
+    const slide = noise(n, rng);
+    biquad(slide, sr, 'bandpass', 2100, 1.6);
+    biquad(slide, sr, 'peaking', 3400, 2, 4);
+    const rs = rmsOf(slide);
+    const s0 = into ? 0.01 : 0.06;
+    const s1 = s0 + 0.24;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      if (t < s0 || t > s1) continue;
+      x[i] += ((0.28 * slide[i]) / rs) * Math.sin((Math.PI * (t - s0)) / (s1 - s0)) * (0.8 + 0.2 * Math.sin(2 * Math.PI * 23 * t));
+    }
+    // the can's thin body ringing faintly as it moves
+    strike(x, sr, Math.floor((s0 + 0.02) * sr), [[rng.range(900, 1050), 1, 0.08], [rng.range(2300, 2600), 0.4, 0.05]], 0.12, rng);
+    if (into) latchInto(x, sr, s1 + 0.005, rng, 0.9, true);
+    else latchInto(x, sr, 0.008, rng, 0.6);
+    return normalize(edges(x, sr, 0.5, 25), 0.6);
+  };
+}
+
+/** a serving onto a plate or into a bowl: the spoon's scrape, the china's clink (~0.35 s) */
+function plateClink(): Recipe {
+  return (sr, rng) => {
+    const len = 0.38;
+    const x = S(sr, len);
+    const n = x.length;
+    const s = noise(n, rng);
+    biquad(s, sr, 'bandpass', 1100, 0.9);
+    const rs = rmsOf(s);
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      x[i] += ((0.25 * s[i]) / rs) * (t < 0.14 ? Math.sin((Math.PI * t) / 0.14) : 0);
+    }
+    const k = Math.floor(rng.range(0.12, 0.15) * sr);
+    strike(x, sr, k, [[rng.range(2300, 2600), 1, 0.07], [rng.range(3800, 4200), 0.6, 0.05], [rng.range(5600, 6200), 0.35, 0.03], [rng.range(7800, 8600), 0.2, 0.015]], 0.4, rng, 0.015);
+    burst(x, sr, k, 0.003, 0.3, rng, { attack: 0.0001, decay: 0.0006, filter: [['highpass', 3000]] });
+    return normalize(edges(x, sr, 1, 25), 0.6);
+  };
+}
+
+/** a pot that came to nothing: a soft, falling 'oh' of two muted notes (E5, then C5 bending down a little), the mess landing on the plate under them (~0.9 s) */
+function dishFail(): Recipe {
+  return (sr, rng) => {
+    const len = 0.95;
+    const x = S(sr, len);
+    const note = (at: number, f: number, amp: number, bend: number): void => {
+      const a = Math.floor(at * sr);
+      const m = Math.min(x.length - a, Math.floor(0.6 * sr));
+      let p1 = 0;
+      let p2 = 0;
+      for (let i = 0; i < m; i++) {
+        const t = i / sr;
+        const ff = f * (1 - bend * Math.min(1, t / 0.35));
+        p1 += ff / sr;
+        p2 += (2 * ff) / sr;
+        x[a + i] += amp * Math.min(1, t / 0.006) * Math.exp(-t / 0.18) * (Math.sin(2 * Math.PI * p1) + 0.18 * Math.sin(2 * Math.PI * p2) * Math.exp(-t / 0.05));
+      }
+    };
+    note(0, 659.25, 0.8, 0);
+    note(0.2, 523.25, 0.9, 0.03);
+    burst(x, sr, Math.floor(0.2 * sr), 0.06, 0.25, rng, { attack: 0.002, decay: 0.015, filter: [['lowpass', 300]] });
+    for (let i = Math.floor((len - 0.2) * sr); i < x.length; i++) x[i] *= Math.max(0, (len - i / sr) / 0.2);
+    return normalize(edges(x, sr, 0.5, 20), 0.55);
+  };
+}
+
+/** the recipe book opened (the cover lifting, the pages fanning over) or shut (the pages settling, the cover's soft clap) (~0.5 s) */
+function book(open: boolean): Recipe {
+  return (sr, rng) => {
+    const len = 0.5;
+    const x = S(sr, len);
+    const n = x.length;
+    const p = noise(n, rng);
+    biquad(p, sr, 'bandpass', 2600, 0.6);
+    biquad(p, sr, 'highpass', 900, 0.7);
+    const rp = rmsOf(p);
+    const r0 = open ? 0.03 : 0;
+    const r1 = open ? 0.38 : 0.28;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      if (t < r0 || t > r1) continue;
+      x[i] += ((0.3 * p[i]) / rp) * Math.sin((Math.PI * (t - r0)) / (r1 - r0)) * (0.6 + 0.4 * Math.sin(2 * Math.PI * 13 * t + 1));
+    }
+    for (let k = 0; k < 10; k++) burst(x, sr, Math.floor(rng.range(r0, r1) * sr), rng.range(0.002, 0.006), rng.range(0.1, 0.3), rng, { attack: 0.0002, decay: 0.0015, filter: [['highpass', 2500]] });
+    burst(x, sr, Math.floor((open ? 0.02 : r1 - 0.02) * sr), 0.05, open ? 0.35 : 0.7, rng, { attack: 0.0008, decay: 0.01, filter: [['lowpass', 900], ['highpass', 80]] });
+    return normalize(edges(x, sr, 1, 30), 0.55);
+  };
+}
+
+/** a page of the book turned: a quick paper flick (~0.25 s) */
+function bookPage(): Recipe {
+  return (sr, rng) => {
+    const len = 0.26;
+    const x = S(sr, len);
+    const n = x.length;
+    const p = noise(n, rng);
+    biquad(p, sr, 'bandpass', rng.range(2200, 3200), 0.7);
+    const rp = rmsOf(p);
+    for (let i = 0; i < n; i++) {
+      const u = i / sr / 0.2;
+      x[i] += u < 1 ? ((0.4 * p[i]) / rp) * Math.pow(Math.sin(Math.PI * u), 2) * (1 - 0.5 * u) : 0;
+    }
+    burst(x, sr, Math.floor(rng.range(0.14, 0.18) * sr), 0.004, 0.25, rng, { attack: 0.0002, decay: 0.001, filter: [['highpass', 2000]] });
+    return normalize(edges(x, sr, 1, 20), 0.5);
+  };
+}
+
+/** a new recipe written into the book: a few quick strokes of a pencil, and a tap for the full stop (~0.9 s) */
+function bookWrite(): Recipe {
+  return (sr, rng) => {
+    const len = 0.9;
+    const x = S(sr, len);
+    let t = 0.02;
+    for (let s = 0; s < 4 && t < len - 0.15; s++) {
+      const d = rng.range(0.09, 0.16);
+      for (let g = 0; g < 160; g++) {
+        const u = rng.next();
+        grainInto(x, sr, t + u * d, 0.25 * Math.sin(Math.PI * u) * rng.range(0.3, 1), rng.range(0.00006, 0.0002), rng);
+      }
+      t += d + rng.range(0.03, 0.07);
+    }
+    strike(x, sr, Math.floor(Math.min(len - 0.1, t + 0.02) * sr), [[rng.range(1800, 2200), 1, 0.006]], 0.25, rng);
+    biquad(x, sr, 'highpass', 1500, 0.7);
+    biquad(x, sr, 'peaking', 4500, 1, 4);
+    biquad(x, sr, 'lowpass', 8000, 0.7);
+    return normalize(edges(x, sr, 1, 25), 0.5);
+  };
+}
+
+/** a cassette stove's flame: a soft, close roar with the gas's hiss in it, fluttering a little (seamless) */
+function flameGas(): Recipe {
+  return (sr, rng) => {
+    const len = 2.6;
+    const n = Math.floor(len * sr);
+    const roar = loopFilter(noise(n, rng), sr, [['lowpass', 520, 0.6], ['lowpass', 700, 0.7], ['highpass', 70, 0.7]]);
+    const hiss = loopFilter(noise(n, rng), sr, [['bandpass', 2600, 0.6], ['highpass', 1500, 0.7]]);
+    const flutter = wander(rng, Math.round(len * 9), 0.8, 1.15);
+    const drift = wander(rng, 5, 0.85, 1);
+    const [rr, rh] = [rmsOf(roar), rmsOf(hiss)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      out[i] = ((roar[i] / rr) * flutter(u) + (0.35 * hiss[i]) / rh) * drift(u);
+    }
+    return normalize(settle(centre(out), sr), 0.4);
+  };
+}
+
+/** a pan frying: a bed of hiss, dense fine spitting that thickens and thins, the odd bigger pop of the oil (seamless) */
+function sizzleLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 3.0;
+    const n = Math.floor(len * sr);
+    const bed = loopFilter(noise(n, rng), sr, [['highpass', 2600, 0.6], ['peaking', 6000, 0.8, 5], ['lowpass', 11000, 0.7]]);
+    const thick = wander(rng, 9, 0.5, 1);
+    const crackle = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 1100, (t) => thick(t / len), (t) => grainInto(x, sr, t, powerLaw(rng, 0.12, 1.6), rng.range(0.00008, 0.0004), rng))), sr, [['highpass', 2200, 0.7], ['lowpass', 10000, 0.7]]);
+    tame(crackle, 14);
+    const pops = loopFilter(cyclic(sr, len, (x) => scatter(rng, len, 6, () => 1, (t) => grainInto(x, sr, t, rng.range(0.5, 1), rng.range(0.001, 0.003), rng))), sr, [['bandpass', 3200, 0.9]]);
+    const drift = wander(rng, 6, 0.75, 1);
+    const [rb, rc, rp] = [rmsOf(bed), rmsOf(crackle), rmsOf(pops)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = ((0.45 * bed[i]) / rb) * drift(i / n) + crackle[i] / rc + (0.3 * pops[i]) / rp;
+    return normalize(settle(centre(out), sr), 0.45);
+  };
+}
+
+/** a kettle on the boil: its whistle — a breathy tone near 2 kHz (noise through a very narrow band) and its octave faintly, wavering in level, the steam's hiss round it (seamless) */
+function kettleWhistle(): Recipe {
+  return (sr, rng) => {
+    const len = 2.4;
+    const n = Math.floor(len * sr);
+    const tone = loopFilter(noise(n, rng), sr, [['bandpass', 2080, 45], ['bandpass', 2080, 45]]);
+    const over = loopFilter(noise(n, rng), sr, [['bandpass', 4160, 40]]);
+    const hiss = loopFilter(noise(n, rng), sr, [['highpass', 3000, 0.7], ['lowpass', 9000, 0.7]]);
+    const flutter = wander(rng, Math.round(len * 5), 0.75, 1);
+    const [rt, ro, rh] = [rmsOf(tone), rmsOf(over), rmsOf(hiss)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = ((tone[i] / rt + (0.18 * over[i]) / ro) * flutter(i / n) + (0.3 * hiss[i]) / rh);
+    return normalize(settle(centre(out), sr), 0.4);
+  };
+}
+
+/** a pot on the boil: bubbles rising and breaking (each one's pitch rising as it closes), the water's low churn, a breath of steam (seamless) */
+function boilLoop(): Recipe {
+  return (sr, rng) => {
+    const len = 3.2;
+    const n = Math.floor(len * sr);
+    const swell = wander(rng, 8, 0.55, 1);
+    const bubbles = cyclic(sr, len, (x) => scatter(rng, len, 18, (t) => swell(t / len), (t) => bubbleInto(x, sr, t, rng.range(240, 820), powerLaw(rng, 0.25, 1.4), rng)));
+    const churn = loopFilter(noise(n, rng), sr, [['lowpass', 220, 0.7], ['lowpass', 260, 0.7]]);
+    const steam = loopFilter(noise(n, rng), sr, [['bandpass', 4200, 0.7]]);
+    const [rb, rc, rs] = [rmsOf(bubbles), rmsOf(churn), rmsOf(steam)];
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = bubbles[i] / rb + (0.45 * churn[i]) / rc + (0.1 * steam[i]) / rs;
+    return normalize(settle(centre(loopFilter(out, sr, [['highpass', 50, 0.7]])), sr), 0.45);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -4055,6 +4578,11 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   // house door a little under a car door, the shop's bell gentle; the pump's click like a latch, its run under an idle)
   container_open: 0.5, container_empty: 0.5, container_close: 0.5, door_house_open: 0.29, door_house_close: 0.8, door_shop_open: 0.5, door_shop_close: 0.69,
   pump_lift: 0.42, pump_hang: 0.45, pump_click: 0.4, pump_dry: 0.114,
+  // the kitchen (a knife's stroke a little under a latch, the oil's flare and a toss about a wrapper, the pan on the grate a little
+  // under a part set down, the china about a latch, the book quiet; a dish's reveal is loot_reveal's by its stars)
+  chop: 0.45, sizzle_in: 0.42, plop: 0.4, toss: 0.4, toss_dry: 0.32, stir: 0.36, shake: 0.3, ignite: 0.42, knob_click: 0.3, flame_out: 0.32,
+  pan_place: 0.55, pan_lift: 0.4, stove_cover_open: 0.36, stove_cover_close: 0.4, canister_in: 0.46, canister_out: 0.4, plate_clink: 0.42,
+  dish_fail: 0.36, book_open: 0.34, book_close: 0.36, book_page: 0.26, book_write: 0.3,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
@@ -4073,6 +4601,8 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
   // bare rim), gravel's -28.5, dirt -30, snow -30.5, sand -31, grass -32, ice -34
   roll_asphalt: 0.165, roll_wet: 0.13, roll_gravel: 0.2, roll_dirt: 0.18, roll_grass: 0.083, roll_sand: 0.185, roll_snow: 0.153, roll_ice: 0.06,
   skid_asphalt: 0.375, skid_gravel: 0.3, skid_dirt: 0.27, skid_grass: 0.195, skid_sand: 0.22, skid_snow: 0.233, skid_ice: 0.145,
+  // the kitchen (gain 1 is close by on a high flame): the flame a soft bed under the rest, a pan frying about as loud as a scrape, a pot's boil under it
+  flame_gas: 0.16, sizzle: 0.3, boil: 0.24, kettle_whistle: 0.17,
 };
 
 /**
@@ -4080,10 +4610,10 @@ const LOOP_LEVEL: Record<FoleyLoop, number> = {
  * after another, the counter, strokes begun, bits falling); one of a tune (the chimes that are the same
  * every time; the ding has a few, only its glint different)
  */
-const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1, loot_reveal: 1, container_open: 4, door_house_open: 4 };
+const SHOT_VARIANTS: Partial<Record<FoleyShot, number>> = { hammer_hit: 5, shred: 4, tally: 4, cord_pull: 4, scrape_start: 4, flake_drop: 8, clean_rust_done: 1, clean_car_done: 1, highlight_ping: 1, loot_reveal: 1, container_open: 4, door_house_open: 4, chop: 6, toss: 4, toss_dry: 3, stir: 3, shake: 4, plate_clink: 4, book_page: 4, sizzle_in: 3, dish_fail: 1 };
 
 /** the chimes are tuned: they play at their own pitch and level every time (detuned by a percent or so they would be out of tune with one another, and with themselves) */
-const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done', 'loot_reveal', 'door_shop_open']);
+const TUNED: ReadonlySet<string> = new Set<FoleyShot>(['clean_ding', 'clean_rust_done', 'clean_car_done', 'highlight_ping', 'paint_done', 'loot_reveal', 'door_shop_open', 'dish_fail']);
 
 /** the sounds of a container searched: their material is a container's, always in their key (none is a wooden cupboard's) */
 const CONTAINER_KINDS: ReadonlySet<string> = new Set<FoleyShot | FoleyLoop>(['rummage', 'container_open', 'container_empty', 'container_close']);
@@ -4176,6 +4706,32 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'pump_hang': return pumpHang();
     case 'pump_click': return pumpClick();
     case 'pump_dry': return pumpDry();
+    case 'chop': return chop();
+    case 'sizzle_in': return sizzleIn();
+    case 'plop': return plop();
+    case 'toss': return toss();
+    case 'toss_dry': return tossDry();
+    case 'stir': return stir();
+    case 'shake': return shake();
+    case 'ignite': return ignite();
+    case 'knob_click': return knobClick();
+    case 'flame_out': return flameOut();
+    case 'pan_place': return panPlace();
+    case 'pan_lift': return panLift();
+    case 'stove_cover_open': return stoveCover(true);
+    case 'stove_cover_close': return stoveCover(false);
+    case 'canister_in': return canister(true);
+    case 'canister_out': return canister(false);
+    case 'plate_clink': return plateClink();
+    case 'dish_fail': return dishFail();
+    case 'book_open': return book(true);
+    case 'book_close': return book(false);
+    case 'book_page': return bookPage();
+    case 'book_write': return bookWrite();
+    case 'flame_gas': return flameGas();
+    case 'sizzle': return sizzleLoop();
+    case 'boil': return boilLoop();
+    case 'kettle_whistle': return kettleWhistle();
     case 'recycler_run': return recyclerRun();
     case 'recycler_grind': return recyclerGrind();
     case 'lamp_buzz': return lampBuzz();
@@ -4360,6 +4916,7 @@ const CUE_DB: Readonly<Record<string, number>> = {
   breath_slow: -31,
   breath_end: -31,
   heartbeat: -27,
+  yuck: -31,
 };
 
 /** the level a new cue is brought to (dB): its own, its kind's (before the colon), else -30 */

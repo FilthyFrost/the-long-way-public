@@ -114,7 +114,7 @@ const book: SaveSlice<BookData> = {
   version: 1,
   snapshot: () => {
     const b = kitchen.book;
-    return Object.keys(b.made).length || b.fails.length || b.pin ? b : undefined;
+    return Object.keys(b.made).length || b.fails.length || b.pin || b.tips?.length ? b : undefined;
   },
   restore: (data) => {
     kitchen.book = cleanBook(data);

@@ -17,6 +17,16 @@ export interface BookData {
   fails: string[];
   /** the dish pinned */
   pin?: string;
+  /** the kitchen's tips shown once already (game/modcar/v3/kitchen: TIPS) */
+  tips?: string[];
+}
+
+/** a tip not yet shown: shown now (true), and never again in this book */
+export function firstTip(book: BookData, id: string): boolean {
+  const t = (book.tips ??= []);
+  if (t.includes(id)) return false;
+  t.push(id);
+  return true;
 }
 
 /** how many failed combinations are kept (the oldest forgotten first) */
@@ -137,7 +147,7 @@ export function fillBook(book: BookData, perfect = false): void {
 export function cleanBook(raw: unknown): BookData {
   const out = newBook();
   if (!raw || typeof raw !== 'object') return out;
-  const r = raw as { made?: unknown; fails?: unknown; pin?: unknown };
+  const r = raw as { made?: unknown; fails?: unknown; pin?: unknown; tips?: unknown };
   if (r.made && typeof r.made === 'object' && !Array.isArray(r.made)) {
     for (const [id, e] of Object.entries(r.made as Record<string, unknown>)) {
       if (!DISH[id] || !e || typeof e !== 'object') continue;
@@ -149,5 +159,9 @@ export function cleanBook(raw: unknown): BookData {
   if (Array.isArray(r.fails)) for (const k of r.fails) if (typeof k === 'string' && k.length < 200 && !out.fails.includes(k)) out.fails.push(k);
   if (out.fails.length > FAILS_KEPT) out.fails.splice(0, out.fails.length - FAILS_KEPT);
   if (typeof r.pin === 'string' && DISH[r.pin]) out.pin = r.pin;
+  if (Array.isArray(r.tips)) {
+    const tips = r.tips.filter((t): t is string => typeof t === 'string' && t.length > 0 && t.length < 40).slice(0, 40);
+    if (tips.length) out.tips = [...new Set(tips)];
+  }
   return out;
 }

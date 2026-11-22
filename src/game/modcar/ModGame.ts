@@ -3320,10 +3320,29 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       f.play(s[0], s[1]);
       return;
     }
+    // a dish's reveal by its stars (the kitchen: 'loot_reveal_3')
+    const reveal = /^loot_reveal_([1-5])$/.exec(name);
+    if (reveal) {
+      f.play('loot_reveal', { gain, tier: Number(reveal[1]) });
+      return;
+    }
     // the workshop's (foley.ts names, a material after the last _ for the grinding and the hammer)
     const m = /^(shred|hammer_hit)_(\w+)$/.exec(name);
     const kind = m ? m[1] : name;
     if ((FOLEY_SHOTS as readonly string[]).includes(kind)) f.play(kind as FoleyShot, { gain, ...(m ? { grind: m[2] } : {}) } as FoleyOpts);
+    // a recording of the archive's with no synthesized sound of its own (the kitchen's 'yuck'): heard when the archive is there
+    else f.cue(name, gain);
+  }
+
+  /** a loop of the game's own kept going this frame (GameContext.loop) */
+  loop(name: string, gain = 1): void {
+    this.loopFor(name, gain);
+  }
+
+  /** a sound made ready ahead of its first play (GameContext.warmSound): rendered, its recording fetched */
+  warmSound(name: string): void {
+    if ((FOLEY_SHOTS as readonly string[]).includes(name) || (FOLEY_LOOPS as readonly string[]).includes(name)) this.warmQueue.push([name as FoleyShot, {}]);
+    else this.sounds()?.warmCues([name]);
   }
 
   /** a loop of the workshop's (the recycler) kept going this frame */

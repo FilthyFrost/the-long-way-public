@@ -12,6 +12,7 @@ The kitchen's cookware (docs/V3/plan/cooking.md §4): things one carries, sets d
     kit_steamer  a bamboo steamer, its lid      kit_oven   a cast-iron camp oven, its lid
     kit_kettle   a kettle, its lid       kit_plate    a plate        kit_dish   a small bowl
     kit_spice    the seasonings in their caddy: salt, pepper, soy sauce, oil, sugar, vinegar
+    kit_cooler   a camping cooler: its lid hinged at the back (LID), a carrying handle at each end, a latch at the front
 
 Writes public/models/modcar/items/<model>.glb: root mesh PART, origin at the bottom centre, resting on z = 0, +X its
 front, conventional material names only, AO in 'Col'. What moves is a child mesh with its origin on its pivot, named
@@ -225,6 +226,40 @@ def kit_kettle(P):
     P.views = [('a', 35, 28)]
 
 
+def kit_cooler(P):
+    """A camping cooler (face +X): a blue body a little wider at the top, a white lid hinged along its back edge with a
+    moulded grip, a swinging bail handle at each end, the lid's latch and the drain plug at the front, two skids under it."""
+    P.ao_distance = 0.08
+    dx, wy, h = 0.3, 0.5, 0.27              # front to back, end to end, the body's height (to the lid)
+    zf = 0.016                               # on its skids
+    top = zf + h
+    # the body: a slightly flared tub, its rim a band of the lid's colour
+    P.box('body', (dx, wy, h - 0.012), (0, 0, zf + (h - 0.012) / 2), 'paint', bev=0.03, segs=3)
+    P.box('rim', (dx + 0.006, wy + 0.006, 0.014), (0, 0, top - 0.007), 'paint_b', bev=0.006, segs=2)
+    # a groove round the body, half way up
+    P.box('groove', (dx + 0.004, wy + 0.004, 0.008), (0, 0, zf + h * 0.42), 'paint_b', bev=0.003, segs=1)
+    # the skids
+    for s in (-1, 1):
+        P.box(f'skid{s}', (dx - 0.06, 0.04, zf), (0, s * (wy / 2 - 0.07), zf / 2), 'trim', bev=0.004, segs=1)
+    # the drain plug, low at the front
+    P.cyl('plug', 0.012, 0.012, (dx / 2 + 0.004, wy / 2 - 0.07, zf + 0.03), 'trim', axis='X', segs=10, bev=None)
+    # the bail handles at the ends: two pivots and a bar across, hanging down
+    for s in (-1, 1):
+        y = s * (wy / 2 + 0.012)
+        P.cyl(f'pivot{s}a', 0.011, 0.012, (-0.09, s * (wy / 2 + 0.004), top - 0.05), 'trim', axis='Y', segs=10, bev=None)
+        P.cyl(f'pivot{s}b', 0.011, 0.012, (0.09, s * (wy / 2 + 0.004), top - 0.05), 'trim', axis='Y', segs=10, bev=None)
+        P.tube(f'bail{s}', [(-0.09, y, top - 0.05), (-0.08, y + s * 0.006, top - 0.12), (0.08, y + s * 0.006, top - 0.12), (0.09, y, top - 0.05)], 0.007, 'trim', segs=6, bend=0.02)
+    # the lid: hinged along the back edge (-X), its top domed a little, a moulded grip at the front, the latch below it
+    hl = 0.055
+    lid = P.box('lid', (dx + 0.012, wy + 0.012, hl), (0.0, 0.0, top + hl / 2), 'paint_b', bev=0.022, segs=2)
+    crown = P.box('lid_top', (dx - 0.05, wy - 0.06, 0.012), (0.0, 0.0, top + hl + 0.004), 'paint_b', bev=0.006, segs=2)
+    grip = P.box('lid_grip', (0.03, 0.18, 0.016), (dx / 2 - 0.01, 0.0, top + hl - 0.012), 'paint', bev=0.006, segs=1)
+    latch = P.box('latch', (0.012, 0.07, 0.05), (dx / 2 + 0.01, 0.0, top + 0.004), 'trim', bev=0.004, segs=1)
+    P.mover('LID', [lid, crown, grip, latch], (-dx / 2 - 0.006, 0.0, top))
+    P.empty('M_food', (0.0, 0.0, zf + 0.02))
+    P.views = [('a', 35, 30)]
+
+
 # ------------------------------------------------------------------------------------------------ at table
 
 def kit_plate(P):
@@ -272,14 +307,14 @@ def kit_spice(P):
     P.views = [('a', 35, 30)]
 
 
-MODELS = {f.__name__: f for f in [kit_stove, kit_gas, kit_board, kit_pan, kit_pot, kit_bowl, kit_grill, kit_steamer, kit_oven, kit_kettle, kit_plate, kit_dish, kit_spice]}
+MODELS = {f.__name__: f for f in [kit_stove, kit_gas, kit_board, kit_pan, kit_pot, kit_bowl, kit_grill, kit_steamer, kit_oven, kit_kettle, kit_plate, kit_dish, kit_spice, kit_cooler]}
 
 # the two colours each is painted in the game (src/core/v3/kitchen/items.ts), for the --look previews only
 COLORS = {
     'kit_stove': (0x3e8e87, 0xede3c8), 'kit_gas': (0xc8323a, 0xf4efe2), 'kit_board': (0xc9a26b, 0x8a6a48), 'kit_pan': (0x2f3236, 0xb85c3e),
     'kit_pot': (0xd8c29a, 0x2f3236), 'kit_bowl': (0x7fb3d5, 0xf4efe2), 'kit_grill': (0x2f3236, 0x6f7a82), 'kit_steamer': (0xd9b877, 0xa8824a),
     'kit_oven': (0x33363a, 0x6f7a82), 'kit_kettle': (0xb85c3e, 0x2f3236), 'kit_plate': (0xf4efe2, 0x3e8e87), 'kit_dish': (0xf4efe2, 0xb85c3e),
-    'kit_spice': (0xb9915f, 0xc8323a),
+    'kit_spice': (0xb9915f, 0xc8323a), 'kit_cooler': (0x3f86b8, 0xf2efe6),
 }
 
 

@@ -16,15 +16,17 @@ import * as THREE from 'three';
 import { itemDef, itemPaint, newItem } from '../../../../core/modcar/items';
 import { WAYS, type Way } from '../../../../core/v3/kitchen/dishes';
 import { GAS, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
-import { asksStir, bandsOf, fireOf, gasOf, GAS_LOW, hasCanister, kitOf, potOf, vesselOf } from '../../../../core/v3/kitchen/kit';
+import { asksStir, bandsOf, fireOf, gasOf, GAS_LOW, hasCanister, kitOf, phaseOf, potOf, underOf, vesselOf } from '../../../../core/v3/kitchen/kit';
 import { FOOD_LOOK } from '../../../../core/v3/kitchen/looks';
 import { FOOD } from '../../../../core/v3/kitchen/pantry';
 import { applyGhost } from '../../../render/carMaterials';
+import { globals } from '../../../render/shaderlib';
 import { MergedCar } from '../../../render/carMerge';
 import { cloneModel, itemGlb } from '../../assets';
 import type { GameContext } from '../../kernel/context';
 import { applyMaterials, type CarMaterials, type LookOf } from '../../materials';
 import { KitDevice, type GhostAt, type Kitchen, type Unit } from './system';
+import { addLight, Glow, spot, Vapour } from './vapour';
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const ease = (x: number): number => {
@@ -38,6 +40,10 @@ const approach = (v: number, to: number, dt: number, k: number): number => to + 
 const FOOD_GLOSS = 0.22;
 /** how a vessel stands on the burner: turned about its upright so that a handle or a spout points to the cook's left */
 const ON_STOVE_YAW: Readonly<Record<string, number>> = { kit_pan: -0.6, kit_kettle: 2.35 };
+/** how high the steamer stands over the burner on the pot of water it is set on: the pot's rim (cookware.py kit_pot) */
+const STEAMER_LIFT = 0.131;
+/** where the kettle's spout ends, in its own frame (cookware.py kit_kettle): its steam comes out there */
+const SPOUT = new THREE.Vector3(-0.147, 0.108, 0);
 /** the room each vessel has for what is in it: how far the portions lie from its middle, how big one may be, how high they lie over its floor, and a soup's surface (0: none) */
 const ROOM: Readonly<Record<Way, { r: number; cell: number; lift: number; liquid: number; liquidR: number }>> = {
   fry: { r: 0.052, cell: 0.082, lift: 0.0, liquid: 0, liquidR: 0 },
@@ -329,9 +335,11 @@ class Flame {
   readonly mesh: THREE.Mesh;
   private readonly mat: THREE.MeshBasicMaterial;
   private level = 0;
+  /** the flicker of the moment (the glow follows it) */
+  flick = 1;
 
   constructor() {
-    const n = 12;
+    const n = 14;
     const pos: number[] = [];
     const col: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -339,33 +347,43 @@ class Flame {
       const ca = Math.cos(a);
       const sa = Math.sin(a);
       const r0 = 0.024;
-      const r1 = 0.046;
-      const w = 0.007;
-      // a petal: two points at the ports, its tip up and out
+      // a tongue: two points at the ports, its tip out and up (under a pan the flame spreads along its bottom)
       const bx = ca * r0;
       const bz = sa * r0;
-      pos.push(bx - sa * w, 0, bz + ca * w, bx + sa * w, 0, bz - ca * w, ca * r1, 0.03, sa * r1);
-      col.push(0.5, 0.85, 1.0, 0.5, 0.85, 1.0, 0.1, 0.25, 0.9);
+      const w = 0.0075;
+      pos.push(bx - sa * w, 0, bz + ca * w, bx + sa * w, 0, bz - ca * w, ca * 0.07, 0.026, sa * 0.07);
+      col.push(0.55, 0.9, 1.0, 0.55, 0.9, 1.0, 0.1, 0.22, 0.95);
+      // and its bright inner cone
+      const w2 = 0.004;
+      pos.push(bx - sa * w2, 0.001, bz + ca * w2, bx + sa * w2, 0.001, bz - ca * w2, ca * 0.036, 0.012, sa * 0.036);
+      col.push(0.85, 0.97, 1.0, 0.85, 0.97, 1.0, 0.35, 0.65, 1.0);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    this.mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+    this.mat = addLight(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false }));
     this.mesh = new THREE.Mesh(g, this.mat);
     this.mesh.name = 'kitchen:flame';
     this.mesh.renderOrder = 11;
     this.mesh.visible = false;
   }
 
-  set(fire: number, low: boolean, gain: number, t: number, dt: number): void {
+  /** how far it burns now (0 out … 1 high), easing to the knob */
+  get lit(): number {
+    return this.level;
+  }
+
+  /** covered: a vessel on the burner (the tongues spread under it; with nothing there they stand up, narrower) */
+  set(fire: number, low: boolean, gain: number, t: number, dt: number, covered: boolean): void {
     this.level = approach(this.level, fire === 2 ? 1 : fire === 1 ? 0.55 : 0, dt, 9);
     this.mesh.visible = this.level > 0.03;
+    this.flick = 0.86 + 0.14 * Math.sin(t * 31) * Math.sin(t * 17.3 + 1.3) + (low ? 0.3 * Math.sin(t * 6.1) * Math.sin(t * 2.7) : 0);
     if (!this.mesh.visible) return;
-    const flick = 0.86 + 0.14 * Math.sin(t * 31) * Math.sin(t * 17.3 + 1.3) + (low ? 0.3 * Math.sin(t * 6.1) * Math.sin(t * 2.7) : 0);
-    this.mesh.scale.set(0.8 + 0.2 * this.level, this.level * Math.max(0.3, flick), 0.8 + 0.2 * this.level);
+    const xz = (covered ? 1 : 0.62) * (0.75 + 0.25 * this.level);
+    this.mesh.scale.set(xz, this.level * Math.max(0.3, this.flick) * (covered ? 1 : 2.1), xz);
     this.mesh.rotation.y = t * 0.7;
     // (a canister nearly empty burns yellow)
-    this.mat.color.setRGB(gain * (low ? 1.6 : 1), gain * (low ? 1.1 : 1), gain * (low ? 0.5 : 1));
+    this.mat.color.setRGB(gain * (low ? 1.6 : 1.15), gain * (low ? 1.1 : 1.15), gain * (low ? 0.5 : 1.15));
   }
 
   dispose(): void {
@@ -383,15 +401,17 @@ class Burst {
   private readonly dirs: number[] = [];
 
   constructor() {
-    const n = 18;
+    const n = 30;
     const pos = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      const a = (Math.PI * 2 * i) / n;
-      this.dirs.push(Math.cos(a), 0.6 + 0.6 * ((i * 7) % 5) * 0.2, Math.sin(a));
+      const a = (Math.PI * 2 * i) / n + 0.4 * (((i * 5) % 7) / 7);
+      const r = 0.7 + 0.3 * (((i * 3) % 4) / 3);
+      this.dirs.push(Math.cos(a) * r, 0.6 + 0.6 * ((i * 7) % 5) * 0.2, Math.sin(a) * r);
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.mat = new THREE.PointsMaterial({ size: 0.02, sizeAttenuation: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    // (round, soft-edged sparks: a point is a square without its spot)
+    this.mat = addLight(new THREE.PointsMaterial({ size: 0.02, sizeAttenuation: true, toneMapped: false, map: spot(), alphaTest: 0.01 }));
     this.points = new THREE.Points(g, this.mat);
     this.points.name = 'kitchen:burst';
     this.points.frustumCulled = false;
@@ -402,13 +422,13 @@ class Burst {
   fire(kind: 'perfect' | 'good' | 'fail'): void {
     this.t = 0;
     this.mat.color.setHex(kind === 'perfect' ? 0xffd04a : kind === 'good' ? 0xfff4d8 : 0x8a8a8a);
-    this.mat.size = kind === 'perfect' ? 0.028 : 0.02;
+    this.mat.size = kind === 'perfect' ? 0.07 : kind === 'good' ? 0.05 : 0.04;
   }
 
   update(dt: number, gain: number): void {
     if (this.t < 0) return;
     this.t += dt;
-    const life = 0.8;
+    const life = 1.1;
     if (this.t > life) {
       this.t = -1;
       this.points.visible = false;
@@ -417,8 +437,8 @@ class Burst {
     this.points.visible = true;
     const k = this.t / life;
     const a = this.points.geometry.getAttribute('position') as THREE.BufferAttribute;
-    const reach = 0.16 * (1 - (1 - k) * (1 - k));
-    for (let i = 0; i < a.count; i++) a.setXYZ(i, this.dirs[i * 3] * reach, 0.05 + this.dirs[i * 3 + 1] * 0.22 * k - 0.12 * k * k, this.dirs[i * 3 + 2] * reach);
+    const reach = 0.24 * (1 - (1 - k) * (1 - k));
+    for (let i = 0; i < a.count; i++) a.setXYZ(i, this.dirs[i * 3] * reach, 0.05 + this.dirs[i * 3 + 1] * 0.3 * k - 0.16 * k * k, this.dirs[i * 3 + 2] * reach);
     a.needsUpdate = true;
     this.mat.opacity = (1 - k) * Math.min(1, gain);
   }
@@ -453,6 +473,9 @@ class UnitView {
   private can: Model | null = null;
   private vessel: Model | null = null;
   private vesselKind = '';
+  /** the pot of water under the steamer, its lid off */
+  private base: Model | null = null;
+  private baseKind = '';
   private vesselLid: THREE.Object3D | null = null;
   private readonly vesselLidRest = new THREE.Vector3();
   /** the vessel's own frame: on a stove, on the burner and turned; a vessel by itself, the thing's */
@@ -460,7 +483,13 @@ class UnitView {
   private readonly contents: Contents;
   private ring: Ring | null = null;
   private flame: Flame | null = null;
+  private glow: Glow | null = null;
   private burst: Burst | null = null;
+  private vapour: Vapour | null = null;
+  /** the vapour now: how much, how sooty, how much of it steam (kept as it dies down off the flame) */
+  private vapAmt = 0;
+  private vapDark = 0;
+  private vapSteam = 1;
   private boardFood: Model | null = null;
   private boardKey = '';
   // movements
@@ -574,7 +603,26 @@ class UnitView {
           this.holder.add(this.vessel.obj);
         }
       }
+      // (the steamer on the pot of water it stands on)
+      const under = underOf(it) ?? '';
+      if (under !== this.baseKind) {
+        this.base?.dispose();
+        this.base = null;
+        this.baseKind = under;
+        if (under) {
+          this.base = new Model(mats, `kitchen:${l.uid}:base`, itemDef(under).model, itemPaint(newItem(under)), (m) => {
+            const lid = m.node('LID');
+            if (lid) lid.visible = false;
+          });
+          this.group.add(this.base.obj);
+        }
+      }
+      if (this.base) {
+        this.base.obj.position.copy(this.mPot);
+        this.base.frame();
+      }
       this.holder.position.copy(this.mPot);
+      if (under) this.holder.position.y += STEAMER_LIFT;
       this.holder.rotation.y = v ? (ON_STOVE_YAW[v] ?? 0) : 0;
       lid = this.vesselLid;
       lidRest = this.vesselLidRest;
@@ -600,7 +648,8 @@ class UnitView {
       const baseY = u.kind === 'stove' ? (this.vessel?.node('M_food')?.position.y ?? 0.008) : this.mFood.y;
       g.position.y = baseY + 0.03 * jump + 0.012 * drop;
       // the lid lifted while one looks in, or puts something in
-      const open = !!lid && !!way && (marked || ghosted || this.touchT < 1.4);
+      // (the camp oven keeps its lid on while it bakes: only putting something in or a touch lifts it)
+      const open = !!lid && !!way && ((way !== 'bake' && marked) || ghosted || this.touchT < 1.4);
       this.lidUp = approach(this.lidUp, open ? 1 : 0, dt, 9);
       if (lid) {
         // (tipped up on the rim's far side, as a hand would hold it: its far edge stays where it was)
@@ -623,6 +672,38 @@ class UnitView {
           this.ring.mesh.position.y = v === 'kit_pan' ? 0.05 : v === 'kit_grill' ? 0.03 : 0.11;
           this.ring.set(done, bands, asksStir(it), gain, t);
         }
+      }
+      // steam off a pot of water; a frying pan's haze, greying as it goes over, black when it burns; dying down off the flame
+      const lit = u.kind === 'stove' && fireOf(it) > 0;
+      let want = 0;
+      if (heats && pot && pot.items.length > 0 && !pot.out) {
+        const ph = phaseOf(it);
+        if (way === 'fry' || way === 'grill') {
+          if (lit) {
+            want = ph === 'raw' ? 0.12 : ph === 'cooking' ? 0.3 : ph === 'right' ? 0.42 : ph === 'over' ? 0.72 : 1;
+            this.vapSteam = 0.3;
+            this.vapDark = ph === 'over' ? 0.4 : ph === 'burnt' ? 1 : 0;
+          }
+        } else if (lit) {
+          want = 0.15 + 0.85 * clamp01((done - 0.12) / 0.5);
+          this.vapSteam = 1;
+          this.vapDark = 0;
+        }
+      }
+      // (the camp oven's steam comes out as its lid lifts)
+      if (way === 'bake') want *= 0.2 + 0.8 * this.lidUp;
+      // (the oil's haze is gone in a moment; hot water steams on a while)
+      const water = way !== 'fry' && way !== 'grill';
+      this.vapAmt = !v ? 0 : want > this.vapAmt ? Math.min(want, this.vapAmt + dt * 1.2) : Math.max(want, this.vapAmt - dt * (water ? 0.06 : 0.5));
+      if (this.vapAmt > 0.02 && !this.vapour) {
+        this.vapour = new Vapour();
+        this.holder.add(this.vapour.mesh);
+      }
+      if (this.vapour) {
+        // (out of the kettle's spout; off the rest where the food is)
+        const c = way === 'brew' ? SPOUT : this.contents.group.position;
+        this.vapour.mesh.position.set(c.x, c.y + (way === 'brew' ? 0.01 : 0.035), c.z);
+        this.vapour.set(this.vapAmt, this.vapDark, this.vapSteam, l.riding ? 0 : 1);
       }
       // a dish came out
       if (u.served) {
@@ -658,11 +739,20 @@ class UnitView {
     if (this.swapT >= 0) {
       const s = this.swapT;
       this.swapT += dt;
+      // (each sound once, as the movement reaches it)
+      const cue = (bit: number, at: number, name: string, gain = 1): void => {
+        if (s < at || this.said & bit) return;
+        this.said |= bit;
+        this.view.ctx.sound(name, gain);
+      };
+      cue(1, 0, 'stove_cover_open');
       let a = 0.5;
       cover = ease(s / 0.3);
       lever = ease((s - 0.3) / 0.2);
+      cue(2, 0.3, 'lever', 0.5);
       show = false;
       if (this.swapOld) {
+        cue(4, a, 'canister_out');
         if (s < a + 0.45) {
           show = true;
           out = ease((s - a) / 0.45);
@@ -670,26 +760,21 @@ class UnitView {
         a += 0.45;
       }
       if (this.swapPut) {
+        // (slid in over the last half of the push: seated as it ends)
+        cue(8, a + 0.25, 'canister_in');
         if (s >= a) {
           show = true;
           out = 1 - ease((s - a) / 0.5);
         }
         a += 0.5;
         lever = Math.min(lever, 1 - ease((s - a) / 0.2));
-        if (s >= a && this.said < 2) {
-          this.said = 2;
-          this.view.ctx.sound('latch', 0.8);
-        }
+        cue(16, a, 'latch', 0.8);
         a += 0.2;
       }
       cover = Math.min(cover, 1 - ease((s - a) / 0.3));
-      if (s >= 0.3 && this.said < 1) {
-        this.said = 1;
-        this.view.ctx.sound('lever', 0.6);
-      }
       if (s >= a + 0.3) {
+        cue(32, a + 0.3, 'stove_cover_close');
         this.swapT = -1;
-        this.view.ctx.sound('putdown', 0.4);
       }
     }
     this.leverUp = approach(this.leverUp, lever, dt, 22);
@@ -717,8 +802,20 @@ class UnitView {
       this.group.add(this.flame.mesh);
     }
     if (this.flame) {
+      const low = gasOf(it) < GAS_LOW;
       this.flame.mesh.position.set(this.mFlame.x, this.mFlame.y - 0.03, this.mFlame.z);
-      this.flame.set(fire, gasOf(it) < GAS_LOW, gain, t, dt);
+      this.flame.set(fire, low, gain, t, dt, !!vesselOf(it));
+      // its light: a halo round the burner, a pool on what the stove stands on (stronger as night falls)
+      if (!this.glow) {
+        this.glow = new Glow();
+        this.group.add(this.glow.halo, this.glow.pool);
+      }
+      this.glow.halo.position.set(this.mFlame.x, this.mFlame.y - 0.005, this.mFlame.z);
+      this.glow.halo.scale.setScalar(0.4);
+      // (the pool on what the stove stands on, round the burner)
+      this.glow.pool.position.set(this.mFlame.x, 0.003, this.mFlame.z);
+      this.glow.pool.scale.setScalar(1.1);
+      this.glow.set(this.flame.lit, globals.uWeather.value.w, this.view.exposure, low, this.flame.flick);
     }
   }
 
@@ -765,6 +862,8 @@ class UnitView {
     } else if (slot === 'pot') {
       obj.position.copy(this.mPot);
       obj.rotation.y = ON_STOVE_YAW[item] ?? 0;
+      // (the steamer onto the pot standing there)
+      if (WAY_OF[item] === 'steam') obj.position.y += STEAMER_LIFT;
     } else if (u.kind === 'board') obj.position.copy(this.mFood);
     else {
       // into the vessel: over its middle, small enough to go in
@@ -792,11 +891,14 @@ class UnitView {
     }
     this.can?.dispose();
     this.vessel?.dispose();
+    this.base?.dispose();
     this.boardFood?.dispose();
     this.contents.dispose();
     this.ring?.dispose();
     this.flame?.dispose();
+    this.glow?.dispose();
     this.burst?.dispose();
+    this.vapour?.dispose();
     this.group.removeFromParent();
   }
 }
@@ -843,11 +945,15 @@ export class KitchenView {
     return 0.1;
   }
 
+  /** how far the eye is opened up now (core.exposure) */
+  exposure = 1;
+
   update(dt: number): void {
     const ctx = this.ctx;
     this.t += dt;
     // (what glows is held at what it looks like on screen whatever the eye's exposure)
-    const gain = 1 / Math.max(0.05, ctx.core.exposure ?? 1);
+    this.exposure = ctx.core.exposure ?? 1;
+    const gain = 1 / Math.max(0.05, this.exposure);
     const target = ctx.player.target;
     const on = target?.kind === 'device' && target.device instanceof KitDevice ? target.device.unit : null;
     const list = this.sys.list;

@@ -77,8 +77,20 @@ export interface GameContext {
   readonly cargo: CargoBay;
   /** the words on screen: the toast, the cards */
   readonly ui: ModUI;
-  /** a sound of the game's own by its name ('pickup', 'putdown', 'bite' …: ModGame.sound); `gain`: how loud, or for the two that carry a weight, the kilograms */
+  /**
+   * A sound of the game's own by its name ('pickup', 'putdown', 'bite' …: ModGame.sound; any of foley.ts FOLEY_SHOTS;
+   * 'loot_reveal_1' … 'loot_reveal_5' the reveal by stars; a name only the sound archive has, its recording when the archive
+   * is there); `gain`: how loud, or for the two that carry a weight, the kilograms
+   */
   sound(name: string, gain?: number): void;
+  /**
+   * A loop of the game's own (foley.ts FOLEY_LOOPS: the kitchen's flame, a pan frying, a pot on the boil …) kept going this
+   * frame at `gain` (its level glides there): asked for every frame it should sound; not asked, it fades out. One of each
+   * kind plays at a time: a system with several of them asks for the loudest.
+   */
+  loop(name: string, gain?: number): void;
+  /** a sound made ready before it is first wanted (rendered, its recording fetched): its first play is then neither late nor silent */
+  warmSound(name: string): void;
   /**
    * A system's sets that play the radio's songs where they stand (docs/V3/nodes/M2-rv.md: a clock radio on a
    * table, a record player): the list is the system's own, kept up to date by it every frame (those in it play);

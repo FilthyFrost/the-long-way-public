@@ -7,16 +7,20 @@
  *
  * The keys while it is open are its own (they do not reach the game: one does not walk off with the book open):
  * W A S D or the arrows choose, 1 to 5 turn to a page, E pins, J or Esc shuts it.
+ *
+ * And the moment a dish comes out of the pot (cooking.md §5 "装盘时的亮相"): a card drops in at the top of the screen —
+ * the dish's picture, its name, its stars popping in one after another, "新菜谱！" the first time, a gold glow and
+ * "完美" for a perfect one, what it feeds and whether a serving is left; a failed dish grey, with why it failed.
  */
 import { hintOf, pinned, tally, togglePin } from '../../../../core/v3/kitchen/book';
 import { DISHES, WAYS, type DishDef } from '../../../../core/v3/kitchen/dishes';
 import { recipeLine, VESSEL } from '../../../../core/v3/kitchen/items';
-import { DISH_LOOK } from '../../../../core/v3/kitchen/looks';
+import { DISH_LOOK, FAIL_LOOK, type DishLook } from '../../../../core/v3/kitchen/looks';
 import { itemDef } from '../../../../core/modcar/items';
 import { cloneModel, itemGlb } from '../../assets';
 import type { GameContext } from '../../kernel/context';
 import { PartThumbs } from '../../thumbs';
-import type { Kitchen } from './system';
+import type { Kitchen, Reveal } from './system';
 
 const COLS = 6;
 /** rows of tiles on a page (the page is 600 tall) */
@@ -54,6 +58,21 @@ const CSS = `
 .kt-book .side .hint { color: var(--tx-2); line-height: 1.6; }
 .kt-book .side .pinned { margin-top: 8px; color: var(--gold); font-weight: 700; }
 .kt-book .foot { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--rule); color: var(--tx-2); font-size: 13px; text-align: center; }
+.kt-reveal { position: absolute; z-index: 5; left: 50%; top: 120px; transform: translate(-50%, -14px) scale(0.94); opacity: 0; display: flex; align-items: center; gap: 14px; padding: 10px 24px 10px 12px; min-width: 340px; pointer-events: none; transition: opacity 0.25s, transform 0.35s cubic-bezier(0.2, 1.5, 0.4, 1); }
+.kt-reveal.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
+.kt-reveal .pic { width: 120px; height: 90px; flex: none; }
+.kt-reveal .pic img, .kt-reveal .pic .ph { width: 120px; height: 90px; object-fit: contain; display: block; }
+.kt-reveal .txt { display: flex; flex-direction: column; gap: 2px; }
+.kt-reveal .tag { align-self: flex-start; font-size: 12px; font-weight: 700; color: var(--ink); background: var(--gold); border-radius: 999px; padding: 1px 9px; margin-bottom: 2px; }
+.kt-reveal .tag.bad { background: #c9796a; color: #fff; }
+.kt-reveal .name { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+.kt-reveal .stars { color: var(--gold); font-size: 20px; letter-spacing: 3px; line-height: 1.15; }
+.kt-reveal .stars i { font-style: normal; display: inline-block; animation: kt-star 0.38s ease-out both; }
+.kt-reveal .why, .kt-reveal .meta { color: var(--tx-2); font-size: 13px; }
+.kt-reveal .meta b { color: var(--gold); }
+.kt-reveal.perfect { box-shadow: 0 0 0 2.5px var(--ink), 0 6px 0 1px rgba(10,8,6,0.55), 0 0 26px 5px rgba(233,193,74,0.55); }
+.kt-reveal.fail .pic { filter: saturate(0.55); }
+@keyframes kt-star { 0% { transform: scale(0) rotate(-40deg); opacity: 0; } 60% { transform: scale(1.45) rotate(8deg); opacity: 1; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
 .kt-book .foot b { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin: 0 3px 0 10px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 12px/1 var(--key-font); vertical-align: middle; }
 `;
 
@@ -68,6 +87,11 @@ export class BookUi {
   private list: DishDef[] = [];
   private dirty = true;
   private waiting = 0;
+  /** the card of the dish just served: on screen until (performance.now(), ms), and the picture it waits for */
+  private readonly card: HTMLDivElement;
+  private revealOn = false;
+  private revealUntil = 0;
+  private revealKey = '';
 
   constructor(
     private readonly ctx: GameContext,
@@ -79,7 +103,12 @@ export class BookUi {
     this.el = document.createElement('div');
     this.el.className = 'mc-frame kt-book';
     ctx.ui.root.appendChild(this.el);
+    this.card = document.createElement('div');
+    this.card.className = 'mc-frame kt-reveal';
+    ctx.ui.root.appendChild(this.card);
     window.addEventListener('keydown', this.key, true);
+    // (J works anywhere: its paper is made ready now, so that the first opening is heard)
+    for (const s of ['book_open', 'book_close', 'book_page']) ctx.warmSound(s);
   }
 
   private readonly key = (e: KeyboardEvent): void => {
@@ -104,12 +133,16 @@ export class BookUi {
     else if (e.code === 'KeyA' || e.code === 'ArrowLeft') this.sel = Math.max(0, this.sel - 1);
     else if (e.code === 'KeyS' || e.code === 'ArrowDown') this.sel = Math.min(n - 1, this.sel + COLS);
     else if (e.code === 'KeyW' || e.code === 'ArrowUp') this.sel = Math.max(0, this.sel - COLS);
-    else if (/^Digit[1-5]$/.test(e.code)) this.turn(Number(e.code.slice(5)));
+    else if (/^Digit[1-5]$/.test(e.code)) {
+      const p = Number(e.code.slice(5));
+      if (p !== this.page) this.ctx.sound('book_page', 0.8);
+      this.turn(p);
+    }
     else if (e.code === 'KeyE' || e.code === 'Enter') {
       const d = this.list[this.sel];
       if (d) {
         const now = togglePin(this.sys.book, d.id);
-        this.ctx.sound('switch', 0.5);
+        this.ctx.sound('book_page', 0.5);
         this.ctx.ui.say(now ? `钉住了「${this.sys.book.made[d.id] ? d.zh : '？？？'}」：拿到它要的食材时会提醒。` : '不再钉住。', 2.2);
       }
     } else return;
@@ -117,6 +150,7 @@ export class BookUi {
   };
 
   toggle(open = !this.open): void {
+    if (open !== this.open) this.ctx.sound(open ? 'book_open' : 'book_close', 1);
     this.open = open;
     this.el.classList.toggle('open', open);
     if (open) {
@@ -126,7 +160,6 @@ export class BookUi {
         this.turn(pin.stars);
         this.sel = Math.max(0, this.list.indexOf(pin));
       } else this.turn(this.page);
-      this.ctx.sound('wrapper', 0.5);
     }
     this.dirty = true;
   }
@@ -139,10 +172,13 @@ export class BookUi {
 
   /** a dish's picture (null until it is drawn) */
   private pic(d: DishDef): string | null {
-    const key = `meal:${d.id}`;
+    return this.picOf(`meal:${d.id}`, DISH_LOOK[d.id]);
+  }
+
+  /** the picture of a look, by its key (null until it is drawn; the card waiting for it gets it as it comes) */
+  private picOf(key: string, look: DishLook): string | null {
     if (this.urls.has(key)) return this.urls.get(key) ?? null;
     this.urls.set(key, null);
-    const look = DISH_LOOK[d.id];
     this.waiting++;
     this.thumbs.request(
       key,
@@ -151,6 +187,10 @@ export class BookUi {
         this.urls.set(key, url);
         this.waiting--;
         this.dirty = true;
+        if (url && this.revealOn && key === this.revealKey) {
+          const p = this.card.querySelector('.pic');
+          if (p) p.innerHTML = `<img src="${url}">`;
+        }
       },
       look.paint,
       look.paint2,
@@ -158,10 +198,32 @@ export class BookUi {
     return null;
   }
 
+  /** a dish just served, shown on its card for a few seconds (longer for a new recipe or a perfect one) */
+  reveal(r: Reveal): void {
+    const key = r.fail ? `fail:${r.fail}` : `meal:${r.dish}`;
+    const look = r.fail ? FAIL_LOOK[r.fail] : DISH_LOOK[r.dish];
+    const url = look ? this.picOf(key, look) : null;
+    this.revealKey = key;
+    const stars = r.fail ? '' : Array.from({ length: r.stars }, (_, i) => `<i style="animation-delay:${(0.3 + i * 0.16).toFixed(2)}s">★</i>`).join('');
+    const tag = r.fail ? '<div class="tag bad">做砸了</div>' : r.first ? '<div class="tag">新菜谱！</div>' : '';
+    const meta = [r.perfect ? '<b>完美</b>' : '', r.food > 0 ? `饱腹 +${r.food}` : '', r.more ? '锅里还有一份' : ''].filter(Boolean).join(' · ');
+    this.card.className = `mc-frame kt-reveal${r.fail ? ' fail' : ''}${r.perfect ? ' perfect' : ''}`;
+    this.card.innerHTML = `<div class="pic">${url ? `<img src="${url}">` : '<i class="ph"></i>'}</div><div class="txt">${tag}<div class="name">${r.zh}</div>${stars ? `<div class="stars">${stars}</div>` : ''}${r.reason ? `<div class="why">${r.reason}</div>` : ''}${meta ? `<div class="meta">${meta}</div>` : ''}</div>`;
+    // (dropped in again from above: the class off and on with a reflow between)
+    void this.card.offsetWidth;
+    this.card.classList.add('show');
+    this.revealOn = true;
+    this.revealUntil = performance.now() + (r.first || r.perfect ? 3600 : 2900);
+  }
+
   /** every frame: the pictures still to draw, and the page when something on it changed */
   update(): void {
+    if (this.revealOn && performance.now() > this.revealUntil) {
+      this.revealOn = false;
+      this.card.classList.remove('show');
+    }
+    if (this.waiting > 0 && (this.open || this.revealOn)) this.thumbs.pump();
     if (!this.open) return;
-    if (this.waiting > 0) this.thumbs.pump();
     if (!this.dirty) return;
     this.dirty = false;
     const book = this.sys.book;
@@ -198,6 +260,7 @@ export class BookUi {
   dispose(): void {
     window.removeEventListener('keydown', this.key, true);
     this.el.remove();
+    this.card.remove();
     this.style.remove();
   }
 }

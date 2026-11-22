@@ -44,6 +44,12 @@ export class FakeGame {
   readonly said: string[] = [];
   /** the sounds the systems asked for, by name */
   readonly sounds: string[] = [];
+  /** the loops the systems kept going in the last frame, by name, at their gain (GameContext.loop) */
+  readonly loops = new Map<string, number>();
+  /** the sounds made ready ahead of their first play (GameContext.warmSound) */
+  readonly warmed = new Set<string>();
+  /** (a loop let go: deleted one by one, as Map.clear would make the map a new table every frame) */
+  private readonly dropLoop = (_gain: number, name: string): void => void this.loops.delete(name);
   /** the timing's clock (ms), moved by hand: `passes(ms)` inside a hook is what that hook cost */
   private nowMs = 0;
   /** the session's seconds (ModGame.time) */
@@ -100,6 +106,8 @@ export class FakeGame {
       cargo: {} as GameContext['cargo'],
       ui: { say: (text: string) => void this.said.push(text) } as GameContext['ui'],
       sound: (name: string) => void this.sounds.push(name),
+      loop: (name: string, gain = 1) => void this.loops.set(name, gain),
+      warmSound: (name: string) => void this.warmed.add(name),
       addRadios: (sets) => {
         this.radioSets.push(sets);
         return () => void this.radioSets.splice(this.radioSets.indexOf(sets), 1);
@@ -126,6 +134,8 @@ export class FakeGame {
    */
   frame(dt = 1 / 60): void {
     this.time += dt;
+    // (a loop is kept going only by being asked for again)
+    if (this.loops.size) this.loops.forEach(this.dropLoop);
     this.systems.preStep(dt, this.ctx);
     this.systems.step(dt, this.ctx);
     this.kernel.tick(this.sky, this);

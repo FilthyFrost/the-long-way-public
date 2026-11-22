@@ -49,6 +49,8 @@ export interface KitState {
   fire?: 0 | 1 | 2;
   /** a stove: the vessel standing on it (its kind) */
   on?: string;
+  /** a stove with the steamer on it: the pot of water the steamer stands on (its kind) — the steamer never stands on the flame itself */
+  under?: string;
   /** a vessel, or a stove with one on it: what is in the vessel */
   pot?: PotState;
   /** a board: what lies on it, and how many strokes of the knife it has had */
@@ -86,6 +88,12 @@ export const BOARD = 'kit_board';
 export const PLATE = 'kit_plate';
 export const BOWL = 'kit_dish';
 export const SPICE = 'kit_spice';
+/** the cooler: a container (ItemDef.holds) in which what is fresh goes off at a quarter of the rate */
+export const COOLER = 'kit_cooler';
+/** what an ingredient that has gone off becomes: good for the recycler's organics and nothing else */
+export const SPOILED = 'ing_spoiled';
+/** how fast what is in the cooler goes off, against out of it */
+export const COOLER_DECAY = 0.25;
 
 /** the vessel of each way of cooking, and the way of each vessel */
 export const VESSEL: Readonly<Record<Way, string>> = { fry: 'kit_pan', boil: 'kit_pot', mix: 'kit_bowl', grill: 'kit_grill', steam: 'kit_steamer', bake: 'kit_oven', brew: 'kit_kettle' };
@@ -186,9 +194,30 @@ const RAW_SEC = 3;
 /** food is no car: a little of a clear coat's gloss, so that a tomato has a shine and no mirror of the sky */
 const FOOD_GLOSS = 0.22;
 
+/**
+ * How long an ingredient keeps out of a cooler (game hours) by its group, and by itself where it keeps longer or less
+ * (null: it keeps — rice, flour, noodles, beans, nuts, honey). A cut one keeps a third as long. A dish does not go
+ * off (a serving's plate is in its state, which a thing that turns loses): it is eaten when it is eaten.
+ */
+const KEEP_GROUP: Readonly<Record<Group, number | null>> = { veg: 96, aromatic: 168, mushroom: 48, green: 48, fruit: 96, grain: null, egg: 168, dairy: 72, meat: 36, seafood: 24, misc: null };
+const KEEP: Readonly<Record<string, number | null>> = {
+  potato: 336, onion: 336, pumpkin: 336, carrot: 168, cabbage: 168, corn: 72, lettuce: 48, cucumber: 72,
+  garlic: 336, ginger: 336, chili: 120, truffle: 72, matsutake: 36, bamboo: 72,
+  apple: 240, lemon: 240, orange: 240, watermelon: 120, banana: 72, berry: 36, strawberry: 36,
+  bread: 96, butter: 168, cheese: 240, milk: 48, tofu: 48, wildegg: 120, bacon: 96,
+};
+
+/** how long a whole one keeps (game hours; null: it keeps) */
+export function keepHours(id: string): number | null {
+  const f = FOOD[id];
+  if (!f) return null;
+  return id in KEEP ? KEEP[id] : KEEP_GROUP[f.group];
+}
+
 function ingRow(f: Food): ItemRow {
   const look = FOOD_LOOK[f.id];
   const kg = KG[f.id] ?? GROUP_KG[f.group];
+  const keep = keepHours(f.id);
   return {
     id: ingItem(f.id),
     cat: INGREDIENT_CAT.id,
@@ -205,6 +234,7 @@ function ingRow(f: Food): ItemRow {
     tags: ['ingredient', ...f.tags],
     stack: 10,
     ...(f.raw ? { eat: { food: f.food, hp: 0, sec: RAW_SEC } } : {}),
+    ...(keep ? { perish: { hours: keep, into: SPOILED } } : {}),
   };
 }
 
@@ -212,6 +242,7 @@ function cutRow(f: Food): ItemRow | null {
   const look = FOOD_LOOK[f.id];
   if (!look.chop || !look.prep) return null;
   const kg = KG[f.id] ?? GROUP_KG[f.group];
+  const keep = keepHours(f.id);
   return {
     id: cutItem(f.id),
     cat: INGREDIENT_CAT.id,
@@ -228,8 +259,25 @@ function cutRow(f: Food): ItemRow | null {
     tags: ['ingredient', 'cut', ...f.tags],
     stack: 10,
     ...(f.raw ? { eat: { food: f.food, hp: 0, sec: RAW_SEC } } : {}),
+    ...(keep ? { perish: { hours: Math.max(8, Math.round(keep / 3)), into: SPOILED } } : {}),
   };
 }
+
+/** an ingredient gone off */
+export const SPOILED_ITEM: ItemRow = {
+  id: SPOILED,
+  cat: 'junk',
+  name: { zh: '坏掉的食材', en: 'Spoiled food' },
+  stars: 0,
+  mass: 0.1,
+  carry: 'small',
+  stack: 20,
+  salvage: { organics: 1 },
+  model: 'forage_lump',
+  paint: 0x5b4a3a,
+  paint2: 0x3a3a28,
+  blurb: '放坏了的食材，下不了锅。丢进回收台还能出点有机物。下次放进保温箱。',
+};
 
 export const INGREDIENT_ITEMS: readonly ItemRow[] = [...FOODS.map(ingRow), ...FOODS.map(cutRow).filter((r): r is ItemRow => r !== null)];
 
@@ -245,11 +293,24 @@ export const COOKWARE_ITEMS: readonly ItemRow[] = [
   { id: VESSEL.boil, cat: COOKWARE_CAT, name: T('汤锅', 'Soup pot'), stars: 1, mass: 1.6, carry: 'small', salvage: { scrap: 6 }, blurb: '带盖的汤锅：煮汤、炖菜、煮饭煮面。慢一点，也不容易煮坏。', paint: 0xd8c29a, paint2: 0x2f3236 },
   { id: VESSEL.mix, cat: COOKWARE_CAT, name: T('搅拌碗', 'Mixing bowl'), stars: 1, mass: 0.4, carry: 'small', salvage: { scrap: 2 }, blurb: '拌沙拉、凉菜和奶昔的大碗，不用火。', paint: 0x7fb3d5, paint2: 0xf4efe2 },
   { id: VESSEL.grill, cat: COOKWARE_CAT, name: T('烤盘', 'Grill plate'), stars: 2, mass: 1.4, carry: 'small', salvage: { scrap: 6 }, blurb: '带棱的铸铁烤盘，架在炉子上烤肉、烤鱼、烤蔬菜。', paint: 0x2f3236, paint2: 0x6f7a82 },
-  { id: VESSEL.steam, cat: COOKWARE_CAT, name: T('蒸笼', 'Steamer'), stars: 2, mass: 0.7, carry: 'small', salvage: { organics: 4 }, blurb: '竹编的蒸笼，架在炉子上蒸鱼、蒸蛋、蒸饺子。', paint: 0xd9b877, paint2: 0xa8824a },
+  { id: VESSEL.steam, cat: COOKWARE_CAT, name: T('蒸笼', 'Steamer'), stars: 2, mass: 0.7, carry: 'small', salvage: { organics: 4 }, blurb: '竹编的蒸笼，架在炉头上的空汤锅上（锅里是水），蒸鱼、蒸蛋、蒸饺子。', paint: 0xd9b877, paint2: 0xa8824a },
   { id: VESSEL.bake, cat: COOKWARE_CAT, name: T('铸铁焖烤锅', 'Camp oven'), stars: 3, mass: 3.5, carry: 'medium', salvage: { scrap: 10 }, blurb: '厚重的铸铁锅，盖上盖子就是一个小烤箱：派、面包、烤鸡。', paint: 0x33363a, paint2: 0x6f7a82 },
-  { id: VESSEL.brew, cat: COOKWARE_CAT, name: T('水壶', 'Kettle'), stars: 1, mass: 0.6, carry: 'small', salvage: { scrap: 3 }, blurb: '烧水、煮茶、热牛奶的小水壶。', paint: 0xb85c3e, paint2: 0x2f3236 },
+  { id: VESSEL.brew, cat: COOKWARE_CAT, name: T('水壶', 'Kettle'), stars: 1, mass: 0.6, carry: 'small', salvage: { scrap: 3 }, blurb: '烧水、煮茶、热牛奶的小水壶。水开了会响。', paint: 0xb85c3e, paint2: 0x2f3236 },
   { id: PLATE, cat: COOKWARE_CAT, name: T('盘子', 'Plate'), stars: 0, mass: 0.3, carry: 'small', salvage: { scrap: 1 }, blurb: '一只盘子。拿着它看着做好的菜按 E 装盘；吃完了盘子还在。', paint: 0xf4efe2, paint2: 0x3e8e87, stack: 6 },
   { id: BOWL, cat: COOKWARE_CAT, name: T('碗', 'Bowl'), stars: 0, mass: 0.2, carry: 'small', salvage: { scrap: 1 }, blurb: '一只碗。汤、粥、面都用它盛；吃完了碗还在。', paint: 0xf4efe2, paint2: 0xb85c3e, stack: 6 },
+  {
+    id: COOLER,
+    cat: COOKWARE_CAT,
+    name: T('保温箱', 'Cooler'),
+    stars: 2,
+    mass: 3.2,
+    carry: 'medium',
+    salvage: { scrap: 2, chemicals: 2 },
+    blurb: '装食材的保温箱：放在里面的东西坏得慢四倍。看着它按 Tab 打开，放进去、拿出来。',
+    paint: 0x3f86b8,
+    paint2: 0xf2efe6,
+    holds: { slots: 12, accepts: ['*'], maxKg: 16, decay: COOLER_DECAY },
+  },
   { id: SPICE, cat: COOKWARE_CAT, name: T('调料盒', 'Seasonings'), stars: 1, mass: 0.8, carry: 'small', salvage: { scrap: 1, organics: 2 }, blurb: '盐、胡椒、酱油、油、醋和糖，都在这个提篮里。对着锅按 E 撒一点；怎么用都用不完。', paint: 0xb9915f, paint2: 0xc8323a },
 ];
 
@@ -312,4 +373,4 @@ export const FAIL_ITEMS: readonly ItemRow[] = (['mess', 'burnt', 'raw'] as const
 export const DISH_ITEMS: readonly ItemRow[] = [...DISHES.map(dishRow), ...FAIL_ITEMS];
 
 /** every kind the kitchen brings */
-export const KITCHEN_ITEMS: readonly ItemRow[] = [...INGREDIENT_ITEMS, ...COOKWARE_ITEMS, ...DISH_ITEMS];
+export const KITCHEN_ITEMS: readonly ItemRow[] = [...INGREDIENT_ITEMS, SPOILED_ITEM, ...COOKWARE_ITEMS, ...DISH_ITEMS];

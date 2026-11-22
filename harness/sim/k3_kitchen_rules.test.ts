@@ -20,6 +20,8 @@ const tick = (): StoveTick => ({ burning: false, ranOut: false, before: null, af
 function stoveWith(vessel: string, ...ids: string[]): ItemInstance {
   const stove = newItem(STOVE);
   loadCanister(stove, newItem(GAS));
+  // (the steamer stands on a pot of water: k5_kitchen_second.test.ts)
+  if (vessel === VESSEL.steam) putVessel(stove, newItem(VESSEL.boil));
   putVessel(stove, newItem(vessel));
   for (const id of ids) addPortion(stove, id.startsWith('*') ? { id: id.slice(1), cut: 1 } : { id });
   return stove;
@@ -135,11 +137,17 @@ describe('a vessel on the stove', () => {
     const stove = newItem(STOVE);
     expect(putVessel(stove, newItem(VESSEL.mix))).toBe(false);
     expect(putVessel(stove, newItem(PLATE))).toBe(false);
-    for (const way of ['fry', 'boil', 'grill', 'steam', 'bake', 'brew'] as const) {
+    for (const way of ['fry', 'boil', 'grill', 'bake', 'brew'] as const) {
       const s = newItem(STOVE);
       expect(putVessel(s, newItem(VESSEL[way])), way).toBe(true);
       expect(wayOf(s)).toBe(way);
     }
+    // (the steamer not on the flame itself: on a pot of water)
+    const s = newItem(STOVE);
+    expect(putVessel(s, newItem(VESSEL.steam))).toBe(false);
+    expect(putVessel(s, newItem(VESSEL.boil))).toBe(true);
+    expect(putVessel(s, newItem(VESSEL.steam))).toBe(true);
+    expect(wayOf(s)).toBe('steam');
   });
 
   it('takes five portions and no more, and gives the last back while it is raw', () => {

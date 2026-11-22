@@ -7,13 +7,14 @@
  * without cooking.
  */
 import { aboardOf } from '../../../../core/modcar/aboard';
-import { itemDef, newItem, type ItemInstance } from '../../../../core/modcar/items';
+import { itemDef, newItem, putInside, type ItemInstance } from '../../../../core/modcar/items';
 import { fillBook, newBook, tally } from '../../../../core/v3/kitchen/book';
 import { cook } from '../../../../core/v3/kitchen/cook';
 import { DISHES, WAYS, type Way } from '../../../../core/v3/kitchen/dishes';
-import { BOARD, BOWL, COOKWARE_ITEMS, dishItem, GAS, ingItem, PLATE, SPICE, STOVE, VESSEL } from '../../../../core/v3/kitchen/items';
+import { BOARD, BOWL, COOKWARE_ITEMS, COOLER, dishItem, GAS, ingItem, PLATE, SPICE, STOVE, VESSEL } from '../../../../core/v3/kitchen/items';
 import { canister, kitState, loadCanister, putVessel } from '../../../../core/v3/kitchen/kit';
 import { FOODS, type Group } from '../../../../core/v3/kitchen/pantry';
+import { itemNow } from '../../itemTime';
 import type { GameContext } from '../../kernel/context';
 import type { DevButton, DevTab } from '../../kernel/devTabs';
 import type { ModVehicle } from '../../vehicle';
@@ -32,6 +33,14 @@ const GROUPS: readonly [Group, string][] = [
   ['seafood', '鱼和水产'],
   ['misc', '其他'],
 ];
+
+/** a cooler with what keeps worst in it: meat, fish, milk, eggs, greens (each at the cooler's rate) */
+export function stockedCooler(): ItemInstance {
+  const c = newItem(COOLER);
+  const now = itemNow();
+  for (const [id, n] of [['beef', 2], ['salmon', 2], ['milk', 1], ['egg', 4], ['lettuce', 2], ['strawberry', 3]] as const) putInside(c, newItem(ingItem(id), n > 1 ? { n } : {}), now);
+  return c;
+}
 
 /** a thing into the hands, or at one's feet when they are full */
 function give(ctx: GameContext, item: ItemInstance): void {
@@ -76,6 +85,7 @@ export function layKitchen(ctx: GameContext): number {
   put(newItem(VESSEL.steam), 2.15, -0.24);
   put(newItem(VESSEL.bake), 2.15, 0.16);
   put(newItem(VESSEL.brew), 2.15, 0.54);
+  put(stockedCooler(), 2.25, 1.15);
   // a few ingredients to hand, nearest one
   const pantry = ['tomato', 'egg', 'potato', 'beef', 'rice', 'lettuce', 'onion'];
   pantry.forEach((id, i) => put(newItem(ingItem(id), { n: 3 }), 0.62, -0.75 + i * 0.2));
@@ -126,6 +136,7 @@ export async function layKitchenInHome(ctx: GameContext, v: ModVehicle): Promise
     [newItem(VESSEL.boil), 'lounge', -1.0, 0.55, aisle],
     [newItem(VESSEL.mix), 'lounge', -0.62, 0.55, aisle],
     [newItem(GAS), 'lounge', -0.3, 0.6, 0],
+    [stockedCooler(), 'lounge', 0.45, 0.62, aisle],
   ];
   let n = 0;
   for (const [item, zone, x, z, yaw] of things) {
@@ -163,7 +174,7 @@ export function kitchenTab(sys: Kitchen, game: () => GameContext | null): DevTab
         return ctx;
       };
       pane.heading('一套厨房');
-      pane.note('在面前的地上摆好：卡式炉（装了满罐燃气，炉头上放着平底锅）、案板、汤锅、搅拌碗、盘子和碗各四个、调料盒、一罐备用燃气，后排是烤盘、蒸笼、铸铁焖烤锅、水壶，脚边是几样常用食材。');
+      pane.note('在面前的地上摆好：卡式炉（装了满罐燃气，炉头上放着平底锅）、案板、汤锅、搅拌碗、盘子和碗各四个、调料盒、一罐备用燃气，后排是烤盘、蒸笼、铸铁焖烤锅、水壶和一个装着肉、鱼、奶、蛋、菜的保温箱（Tab 打开），脚边是几样常用食材。蒸笼要架在炉头上的空汤锅上。');
       pane.buttons(
         [
           {

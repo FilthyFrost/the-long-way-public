@@ -380,6 +380,19 @@ export class CargoBay {
   }
 
   private readonly wallRay = new THREE.Raycaster();
+  /**
+   * The last cast into a living space's frame and what it hit: the cast is the costly part of wallAim (every face of the
+   * frame's merged meshes, ~2.7 ms in a motorhome), and one standing at a worktop with something in the hands looks the
+   * same way frame after frame — the same line of sight (to a tenth of a millimetre), the frame where it was: the same hit.
+   */
+  private readonly wallMemo = { frame: null as THREE.Object3D | null, o: new THREE.Vector3(NaN, 0, 0), d: new THREE.Vector3(), far: 0, m: new THREE.Matrix4(), hit: undefined as THREE.Intersection | undefined };
+  /** the frame where it was a moment ago: a vehicle standing still settles by micrometres every step (within a twentieth of a millimetre) */
+  private static stillAs(a: THREE.Matrix4, b: THREE.Matrix4): boolean {
+    const x = a.elements;
+    const y = b.elements;
+    for (let i = 0; i < 16; i++) if (Math.abs(x[i] - y[i]) > 5e-5) return false;
+    return true;
+  }
   private readonly wallInv = new THREE.Matrix4();
   private readonly wallN = new THREE.Vector3();
   private readonly wallP = new THREE.Vector3();
@@ -400,11 +413,22 @@ export class CargoBay {
     rc.far = reach;
     // (the first face of the frame the mark is on, glass passed over: nothing is hung on a window)
     let hit: THREE.Intersection | undefined;
-    for (const h of rc.intersectObject(frame, true)) {
-      const mat = (h.object as THREE.Mesh).material as THREE.Material | undefined;
-      if (h.object.name.includes('glass') || mat?.name?.includes('glass')) continue;
-      hit = h;
-      break;
+    const M = this.wallMemo;
+    frame.updateMatrixWorld(true);
+    if (M.frame === frame && M.far === reach && M.o.distanceToSquared(ray.origin) < 1e-8 && M.d.distanceToSquared(ray.direction) < 1e-10 && CargoBay.stillAs(M.m, frame.matrixWorld)) hit = M.hit;
+    else {
+      for (const h of rc.intersectObject(frame, true)) {
+        const mat = (h.object as THREE.Mesh).material as THREE.Material | undefined;
+        if (h.object.name.includes('glass') || mat?.name?.includes('glass')) continue;
+        hit = h;
+        break;
+      }
+      M.frame = frame;
+      M.far = reach;
+      M.o.copy(ray.origin);
+      M.d.copy(ray.direction);
+      M.m.copy(frame.matrixWorld);
+      M.hit = hit;
     }
     if (!hit?.face) return null;
     const model = v.view.model;
