@@ -28,6 +28,8 @@ import { MODULES } from './kernel/discovery';
 import type { GameModule } from './kernel/modules';
 import { clearSave, loadSave, worldOfSave } from './save';
 import { loadLoss, loadRefusal, lossWords } from './save';
+import { clearRestores } from './restore';
+import { forgetMasks } from './grimeStore';
 import { wreckSpots } from './wrecks';
 import { isRare, rollWreck } from '../../core/modcar/wrecks';
 
@@ -36,12 +38,33 @@ function looseIs(l: Loose, id: string): boolean {
   return l.part?.part === id || (!!l.tool && `tool:${l.tool.kind}` === id) || (!!l.item && `item:${l.item.item}` === id);
 }
 
+/**
+ * ?new=1: the game in progress gone as the game's own new game takes it (ModGame.newGame, F9 twice) — the save,
+ * its restore points (a death in the new game would offer the old one's) and its grime masks — and `new` taken
+ * out of the address, the rest of it kept: the page opened again goes on with the new game instead of clearing it
+ * again. (The world is the address's seed, else the first world, as on a first visit: the harness's games of
+ * ?new=1 stay the same from run to run.)
+ */
+function beginAgain(q: URLSearchParams): void {
+  clearSave();
+  clearRestores();
+  void forgetMasks();
+  const rest = new URLSearchParams(q);
+  rest.delete('new');
+  const s = rest.toString();
+  try {
+    history.replaceState(history.state, '', `${location.pathname}${s ? `?${s}` : ''}${location.hash}`);
+  } catch {
+    /* the address stays as it was */
+  }
+}
+
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const base = readParams();
 const fresh = readModParams(base);
 // a game in progress goes on, unless the address asks for something of its own (the harness, a test drive)
 const q = new URLSearchParams(location.search);
-if (q.has('new')) clearSave();
+if (q.has('new')) beginAgain(q);
 // (the world's trees and bushes grown by the plant toolkit, its samples approved: docs/V3/nodes/P2-A-kit-default.md;
 // ?flora=m5: as the M5 crowns grew them, to set beside them)
 setFloraKit(q.get('flora') !== 'm5');
@@ -50,7 +73,7 @@ setFloraKit(q.get('flora') !== 'm5');
 CrownView.bakeAtOnce = !!fresh.shot;
 CrownView.uniqueTrees = q.get('unique') !== '0';
 const own = fresh.shot || ['start', 'build', 'project', 'garage'].some((k) => q.has(k));
-// (?new=1: the save cleared, a new game kept from here on)
+// (?new=1: the save cleared above, a new game kept from here on)
 const save = own || q.has('new') ? null : loadSave();
 // (things of kinds this build does not have — a system that is not in it, a kind renamed since — were left out
 // of the save as it was read, and everything else was read: how many, to be said once the game is up)

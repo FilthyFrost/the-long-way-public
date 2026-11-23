@@ -1556,10 +1556,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       (i) => {
         if (useRestore(i)) location.reload();
       },
-      () => {
-        clearRestores();
-        this.newGame();
-      },
+      () => this.newGame(),
     );
   }
 
@@ -1960,11 +1957,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    * The save cleared and a new game from the workshop, as on a first visit: nothing more written as the page
    * goes, and the page opened again at its plain address — what the address asked for of its own (the road, a
    * build, a seed, a version of the world's generator, the developer's panel open again after the world was made
-   * again) dropped, the picture's quality kept.
+   * again) dropped, the picture's quality kept. The restore points go with the save (a death in the new game
+   * would offer the old game's), whichever way the new game was asked for: F9 twice, the developer's panel, the
+   * death screen.
    */
   newGame(): void {
     this.saveOff = true;
     clearSave();
+    clearRestores();
     void forgetMasks();
     // (the V3 systems' parts of the save and the world's clock: as a new game starts, and said)
     this.kernel.newGame(this.env.clock.hourAt(this.time));

@@ -267,9 +267,9 @@ Restore is **spread over eight places**: `entry.ts` 51–53 (start, hour, seed),
 seat), `restoreHands()` 1483–1501 (body, pack, slots, sel), `restoreGrime()` 1591–1613, `makeWorld()` 896
 (`restore.places.doors`), first `step()` 3537/3541 (`restore.wrecks`, `restore.places`).
 
-New game: `newGame()` (1656–1668) sets `saveOff`, `clearSave()`, `void forgetMasks()`, writes a fresh seed, then
+New game: `newGame()` (1656–1668) sets `saveOff`, `clearSave()`, `clearRestores()` (before 2026-11-23 only the death card did), `void forgetMasks()`, writes a fresh seed, then
 `location.replace(pathname[?quality])`. Reached from F9 twice (`askNewGame` 1641), the death card, and
-`devNewGame(resetDials)` (2163).
+`devNewGame(resetDials)` (2163). The address's `?new=1` does the same before the game is made (`entry.ts` `beginAgain`: the save, the restore points, the masks; the world the address's seed or the first one) and takes `new` out of the address (`history.replaceState`), so a reload goes on with that game.
 
 Death: `stepDeath` (1261–1302) — a `revive` item in the hotbar is consumed; a non-kept page revives at 50 hp; otherwise
 the death card lists restore points (`useRestore(i)` then `location.reload()`), with `saveOff = true`.
