@@ -1,5 +1,10 @@
 /**
  * Player input: keyboard, mouse look (pointer lock) and gamepad, merged into one driver intent.
+ *
+ * One set of keys (docs/V3/plan/growth.md, J1: the user's "就用鼠标左键…先做一套键位"): the left button is the
+ * hand's work on what one looks at, the right button the use of what one holds, the wheel adjusts, Q puts down
+ * (held in a seat: stands up). E, F, G and the cab's own letters (K, Q/Z, M, B, R) are gone: the cab's controls are
+ * clicked, the gear lever too (and the wheel in a manual box), a car on its side rights itself.
  */
 import type { VehicleInput } from '../core/vehicle/sim';
 
@@ -20,9 +25,24 @@ export type Action =
   | 'hazard'
   | `seat${number}`
   | 'drop' // player
-  | 'pack'; // player
+  | 'pack' // player
+  | 'place' // player: placing in and out (docs/V3/plan/hands.md §四)
+  | 'turnRight'; // player, placing: a quarter round onto the grid (Q the other way)
 
-const KEY_ACTIONS: Record<string, Action> = {
+const SEAT_KEYS: Record<string, Action> = {
+  Digit1: 'seat1',
+  Digit2: 'seat2',
+  Digit3: 'seat3',
+  Digit4: 'seat4',
+  Digit5: 'seat5',
+  Digit6: 'seat6',
+  Digit7: 'seat7',
+  Digit8: 'seat8',
+  Digit9: 'seat9',
+};
+
+/** the game before ModCar (classic.html): its own letters, as they were */
+export const CLASSIC_KEYS: Record<string, Action> = {
   KeyR: 'reset',
   KeyC: 'camera',
   KeyL: 'lights',
@@ -37,17 +57,26 @@ const KEY_ACTIONS: Record<string, Action> = {
   KeyZ: 'leverDown',
   KeyM: 'manual',
   KeyB: 'hazard',
-  KeyG: 'drop', // player: G put down
-  Tab: 'pack', // player: Tab backpack
-  Digit1: 'seat1',
-  Digit2: 'seat2',
-  Digit3: 'seat3',
-  Digit4: 'seat4',
-  Digit5: 'seat5',
-  Digit6: 'seat6',
-  Digit7: 'seat7',
-  Digit8: 'seat8',
-  Digit9: 'seat9',
+  KeyG: 'drop',
+  Tab: 'pack',
+  ...SEAT_KEYS,
+};
+
+/**
+ * ModCar's one set of keys (docs/V3/plan/growth.md, J1): beside the mouse only these letters — C the view (on foot:
+ * crouch), L the lights, H the horn, Q put down (in a seat, held: stand up), Tab the lists; F3 the debug HUD.
+ */
+export const MODCAR_KEYS: Record<string, Action> = {
+  KeyC: 'camera',
+  KeyL: 'lights',
+  F3: 'hud',
+  KeyH: 'horn',
+  KeyQ: 'drop',
+  Tab: 'pack',
+  // (placing as Nomad Drive does: R in and out; Q and E a quarter round onto the grid — only while placing, docs/V3/plan/prompts.md §四)
+  KeyR: 'place',
+  KeyE: 'turnRight',
+  ...SEAT_KEYS,
 };
 
 export class InputManager {
@@ -57,6 +86,8 @@ export class InputManager {
   lookPitch = 0;
   /** the view does not turn (liquid flowing from a can held to a filler) */
   lookHold = false;
+  /** the mouse's turn times this (the settings' 鼠标灵敏度) */
+  lookScale = 1;
   /** walking about: the mouse turns all the way round and the view does not ease back */
   freeLook = false;
   /** walking stick: forward and right, −1 … 1 */
@@ -71,11 +102,14 @@ export class InputManager {
   private readonly padPrev: boolean[] = [];
   private lastLook = 0;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly keyActions: Record<string, Action> = MODCAR_KEYS,
+  ) {
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
       this.keys.add(e.code);
-      const a = KEY_ACTIONS[e.code];
+      const a = this.keyActions[e.code];
       if (a) {
         e.preventDefault();
         for (const fn of this.listeners) fn(a);
@@ -84,7 +118,7 @@ export class InputManager {
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
-      const a = KEY_ACTIONS[e.code];
+      const a = this.keyActions[e.code];
       if (a) for (const fn of this.releaseListeners) fn(a);
     });
     window.addEventListener('blur', () => this.keys.clear());
@@ -100,8 +134,9 @@ export class InputManager {
   }
 
   /** turn the view by a movement of the mouse (px), as the captured mouse does (also: dragged with the right button) */
-  turn(dx: number, dy: number, k = 0.0022): void {
+  turn(dx: number, dy: number, k0 = 0.0022): void {
     if (this.lookHold) return;
+    const k = k0 * this.lookScale;
     this.lookYaw = this.freeLook ? this.lookYaw + dx * k : Math.max(-2.4, Math.min(2.4, this.lookYaw + dx * k));
     // (in a seat one may look further down: to the handbrake and the gear lever on the tunnel between the seats)
     this.lookPitch = Math.max(this.freeLook ? -1.0 : -1.3, Math.min(1.0, this.lookPitch - dy * k));

@@ -14,13 +14,14 @@ import type { ContainerKind } from '../items/loot';
 import { Rng, hash2 } from '../math/rng';
 import { fitSub, newInstance } from './build';
 import { partStars } from './crafting';
-import { BASE_ITEMS, ITEMS, type ItemCat, type ItemDef } from './items';
+import { BASE_ITEMS, ITEMS, hasItem, itemDef as ITEMS_BY_ID, type ItemCat, type ItemDef } from './items';
 import { BASIC_PAINTS, PALETTE } from './palette';
 import { sprayFound } from './paint';
-import { PARTS, partDef } from './parts';
+import { keepInsideClean, PARTS, partDef } from './parts';
 import { newTool, type Tool, type ToolKind } from './tools';
 import type { PartDef, PartInstance } from './types';
 import { findOdds } from './wrecks';
+import type { ScheduledThing } from './schedule';
 
 /**
  * A thing found: an item (its id), a tool, or a part. An item may be found as a stack of `n`, of a quality `q`
@@ -62,7 +63,7 @@ export const LOOT_TABLES: Record<ContainerKind, Table> = {
   // a crate by the verge or at a lay-by: whatever was packed and never fetched
   crate: { picks: [1, 3], empty: 0.15, entries: [E({ junk: true }, 3), E({ cat: 'crate' }, 2.5), E({ cat: 'food' }, 1.5), E({ cat: 'drink' }, 1.2), E({ cat: 'wear' }, 0.8), E({ tool: 'spray' }, 0.5), E({ cat: 'gear' }, 0.25), E({ tool: 'bottle' }, 0.3)] },
   // a workshop's drawers
-  toolbox: { picks: [1, 3], empty: 0.05, entries: [E({ cat: 'crate' }, 2.5), E({ tool: 'spray' }, 1.2), E({ tool: 'scraper' }, 0.6), E({ one: ['repair_1', 'repair_2', 'repair_3'] }, 1), E({ part: SMALL_PARTS }, 1.4), E({ tool: 'oilcan' }, 0.8), E({ tool: 'sponge' }, 0.3), E({ tool: 'brush' }, 0.4), E({ cat: 'lamp' }, 0.3)] },
+  toolbox: { picks: [1, 3], empty: 0.05, entries: [E({ cat: 'crate' }, 2.5), E({ tool: 'spray' }, 1.2), E({ tool: 'scraper' }, 0.6), E({ one: ['repair_1', 'repair_2', 'repair_3'] }, 1), E({ part: SMALL_PARTS }, 1.4), E({ tool: 'oilcan' }, 0.8), E({ cat: 'lamp' }, 0.3)] },
   // a shop's shelves
   shelf: { picks: [2, 5], empty: 0.05, entries: [E({ cat: 'food' }, 4), E({ cat: 'drink' }, 3), E({ cat: 'med' }, 0.6), E({ one: ['crate_supps', 'crate_chem'] }, 0.5), E({ cat: 'wear' }, 0.4), E({ junk: true }, 0.5), E({ tool: 'spray' }, 0.3)] },
   // a filling station's till
@@ -113,8 +114,8 @@ export const LOOT_TABLES: Record<ContainerKind, Table> = {
 
 /** the junk each sort of place has about it (what its kitchen, its forecourt, its workshop leave) */
 const JUNK: Record<string, readonly string[]> = {
-  house: ['junk_mug', 'junk_plate', 'junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_chair_wood', 'junk_stool', 'junk_record', 'junk_vinyl', 'junk_cage', 'junk_candle', 'junk_coffee', 'junk_box_food', 'junk_ball', 'junk_food_bucket', 'junk_bucket_old', 'junk_tv'],
-  station: ['junk_sign', 'junk_cone', 'junk_bucket', 'junk_bin', 'junk_bag', 'junk_bag_s', 'junk_crate_plastic', 'junk_sign_wet', 'junk_mop', 'junk_stool_tall', 'junk_coffee'],
+  house: ['junk_mug', 'junk_plate', 'junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_chair_wood', 'junk_stool', 'junk_record', 'junk_vinyl', 'junk_cage', 'junk_candle', 'junk_box_food', 'junk_ball', 'junk_food_bucket', 'junk_bucket_old', 'junk_tv'],
+  station: ['junk_sign', 'junk_cone', 'junk_bucket', 'junk_bin', 'junk_bag', 'junk_bag_s', 'junk_crate_plastic', 'junk_sign_wet', 'junk_mop', 'junk_stool_tall'],
   garage: ['junk_bucket_paint', 'junk_crate_plastic', 'junk_bag', 'junk_bucket', 'junk_stool', 'junk_chair_office', 'junk_lamp', 'junk_clockradio', 'junk_cone', 'junk_mop'],
   shop: ['junk_box_food', 'junk_crate_plastic', 'junk_mug', 'junk_plate', 'junk_bag_s', 'junk_sign_wet', 'junk_mop', 'junk_bin', 'junk_stool_tall'],
   camp: ['junk_chair_fold', 'junk_bucket', 'junk_bag', 'junk_bag_s', 'junk_mug', 'junk_solar_lamp', 'junk_ball', 'junk_crate_plastic', 'junk_food_bucket'],
@@ -202,6 +203,8 @@ export function foundPart(r: Rng, cats: readonly string[], s: number): PartInsta
   inst.dirt = 0.15 + 0.45 * r.next();
   inst.rust = 0.05 + 0.35 * r.next();
   inst.crust = r.chance(0.4) ? 0.25 * r.next() : 0;
+  // (what goes inside a car is clean however it was found: docs/V3/plan/hands.md §五)
+  keepInsideClean(inst);
   const t = tyreFor(pick.id);
   if (t) {
     const ti = newInstance(t, { tread: 0.2 + 0.7 * r.next() });
@@ -237,6 +240,28 @@ export function foundTool(r: Rng, kind: ToolKind, s: number): Tool {
 }
 
 /**
+ * A thing of the plan (schedule.ts) as it is found: an item, a can of petrol or coolant or oil as much in it as the
+ * plan says, a spray can as one finds it, a part used but sound
+ */
+export function foundScheduled(t: ScheduledThing, seed: number, s: number): Found {
+  const r = new Rng(hash2(seed | 0, 0x5ced, 0x91));
+  if ('item' in t) return { item: t.item };
+  if ('part' in t) {
+    const inst = newInstance(t.part, { charge: 0.5, oil: 0.8, coolant: 0.5 });
+    inst.cond = 0.55 + 0.35 * r.next();
+    inst.dirt = 0.15 + 0.35 * r.next();
+    // (a panel for a found vehicle: shaped for it)
+    if (t.shapeOf) inst.shapeOf = t.shapeOf;
+    keepInsideClean(inst);
+    return { part: inst };
+  }
+  if (t.tool === 'spray') return { tool: foundTool(r, 'spray', s) };
+  const tool = t.tool === 'jerrycan' ? newTool('jerrycan', { fuel: 'petrol', litres: t.litres ?? 15 }) : newTool(t.tool, { litres: t.litres ?? 3 });
+  if (t.tool === 'bottle' && t.coolant) tool.coolant = true;
+  return { tool };
+}
+
+/**
  * What a container holds: its kind's table, picked so many times, each pick graded by the distance down the road
  * (s, m); the junk the place's own (siteKind). The same for the same seed.
  */
@@ -250,6 +275,106 @@ export function rollContainer(kind: ContainerKind, seed: number, s: number, site
     const e = t.entries[r.weighted(t.entries.map((x) => x.w))];
     const f = foundOf(r, e.pick, s, siteKind);
     if (f) out.push(f);
+  }
+  return out;
+}
+
+/**
+ * What a place's container holds of its own: its kind's roll (rollContainer) — none in a prefab building's box for the
+ * plan's finds (sites.ts SiteContainer.plan: the building's own things lie at its spots)
+ */
+export function ownRoll(c: { readonly kind: ContainerKind; readonly seed: number; readonly plan?: boolean }, s: number, siteKind = 'other'): Found[] {
+  return c.plan ? [] : rollContainer(c.kind, c.seed, s, siteKind);
+}
+
+/**
+ * How much of the places' own food, drink, petrol and oil is still there (docs/V3/plan/growth.md §六 6, J10): an
+ * abandoned road — most of what was on the shelves is gone; what is left and the plan's finds (schedule.ts) are what
+ * one lives on. Over a hundred kilometres at Nomad Drive's pace of play (10 km an hour: it budgets for it) this is food
+ * two and a half times what one eats, water nearly twice what one drinks (no taps on the road yet), on the normal
+ * difficulty; the difficulty's supply scales it (DIFFICULTY).
+ */
+export const PLACES_KEEP = 0.27;
+
+/** is it one of what one lives on: food (what fills one), drink, a can of petrol or of oil — the medicines are not */
+export function isConsumable(f: Found): boolean {
+  if ('item' in f) {
+    if (!hasItem(f.item)) return false;
+    const d = ITEMS_BY_ID(f.item);
+    return (!!d.eat && d.eat.food > 0) || (!!d.drink && !d.drink.empty);
+  }
+  if ('tool' in f) return f.tool.kind === 'jerrycan' || f.tool.kind === 'oilcan';
+  return false;
+}
+
+/** what of a container's roll is still there: its consumables thinned out to `keep` (the rest as rolled), the same every time */
+export function thinOut(found: Found[], seed: number, keep: number): Found[] {
+  if (keep >= 1) return found;
+  const r = new Rng(hash2(seed | 0, 0x7417, 0x2c));
+  return found.filter((f) => !isConsumable(f) || r.next() < keep);
+}
+
+/** is a thing lying about still there: a consumable one only so often (as the boxes' are), the same every time */
+export function looseKept(f: Found, seed: number, keep: number): boolean {
+  return keep >= 1 || !isConsumable(f) || new Rng(hash2(seed | 0, 0x7418, 0x2d)).next() < keep;
+}
+
+/** a place's containers as the plan sees them: where they are on the road and what sort of place it is */
+interface PlanSite {
+  readonly s: number;
+  readonly kind: string;
+  readonly containers: readonly { readonly kind: ContainerKind; readonly seed: number; readonly plan?: boolean }[];
+}
+
+/**
+ * The boxes of a place the plan's finds (schedule.ts) go in: its own containers — a wreck's glovebox and boot are the
+ * wreck's (wrecks.ts: the places never open them)
+ */
+export function planBoxes<C extends PlanSite['containers'][number]>(site: { readonly containers: readonly C[] }): C[] {
+  return site.containers.filter((c) => c.kind !== 'glovebox' && c.kind !== 'boot');
+}
+
+/**
+ * A place with no box of its own for the plan's finds but a wreck by the road: the ground by the wreck's door takes
+ * what may lie by the road (schedule.ts PlanPlace.ground; places.ts lays them there)
+ */
+export function planGround(site: { readonly containers: PlanSite['containers']; readonly objects: readonly { readonly kind: string }[] }): boolean {
+  return !planBoxes(site).length && site.objects.some((o) => o.kind === 'wreck');
+}
+
+/** how many things a box of a kind holds before it is full (the plan's finds go where there is the most room) */
+const BOX_ROOM: Partial<Record<ContainerKind, number>> = { shelf: 6, counter: 5, crate: 4, cupboard: 4, wardrobe: 4, garage: 3, barrel: 2, toolbox: 2, desk: 2, medicine: 1, tacklebox: 1, gamebag: 1 };
+
+/** the small boxes: nothing bigger than a hand goes in them while a bigger box is there */
+const SMALL_BOXES: ReadonlySet<ContainerKind> = new Set<ContainerKind>(['toolbox', 'desk', 'medicine', 'tacklebox', 'gamebag']);
+
+/** is a planned thing bigger than a hand (a coffee machine, a stove, a chair, a part)? */
+function bigThing(t: ScheduledThing): boolean {
+  if ('part' in t) return true;
+  return 'item' in t && hasItem(t.item) && ITEMS_BY_ID(t.item).carry !== 'small';
+}
+
+/**
+ * Which of a place's boxes (planBoxes) each of its planned finds goes in: the one with the most room left for it — what
+ * it holds of its own and the finds put in it already against how much a box of its kind holds; what is bigger than a
+ * hand not in a small box while a bigger one is there; the first on a tie. The same every time.
+ */
+export function boxesOfFinds(site: PlanSite, finds: readonly { readonly thing: ScheduledThing }[]): number[] {
+  const boxes = planBoxes(site);
+  if (!boxes.length) return [];
+  const count = boxes.map((c) => ownRoll(c, site.s, site.kind).length);
+  const room = boxes.map((c) => BOX_ROOM[c.kind] ?? 2);
+  const anyBig = boxes.some((c) => !SMALL_BOXES.has(c.kind));
+  const out: number[] = [];
+  for (const f of finds) {
+    const big = bigThing(f.thing) && anyBig;
+    let best = -1;
+    for (let i = 0; i < boxes.length; i++) {
+      if (big && SMALL_BOXES.has(boxes[i].kind)) continue;
+      if (best < 0 || (count[i] + 1) / room[i] < (count[best] + 1) / room[best]) best = i;
+    }
+    out.push(best);
+    count[best]++;
   }
   return out;
 }
@@ -275,8 +400,11 @@ function foundOf(r: Rng, p: Pick, s: number, siteKind: string): Found | null {
  * A thing lying in plain sight at a place (the world's own list names the old game's things: sites.ts `loose`):
  * what it is in ModCar — a tyre, a jerrycan, an oil can, food, a drink, a battery; the rest junk of the place's
  * sort, to recycle. Null: nothing (bait, ammunition).
+ * A kind of ModCar's own (an id without a dot: the old game's all have one) is itself — a prefab building's
+ * furniture and what lies on it (core/world/prefabs.ts, docs/ND/PLAN.md).
  */
 export function looseFound(old: string, seed: number, s: number, siteKind: string): Found | null {
+  if (!old.includes('.') && hasItem(old)) return { item: old };
   const r = new Rng(hash2(seed | 0, 0x1005e, 0x77));
   const head = old.split('.')[0];
   if (old.startsWith('tyre.')) {

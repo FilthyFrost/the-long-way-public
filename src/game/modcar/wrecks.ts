@@ -10,12 +10,14 @@
  * wreck that is not under a shut lid catches the light now and then (WreckGlints): a find is seen from the road.
  */
 import * as THREE from 'three';
-import { hash2 } from '../../core/math/rng';
+import { hash2, Rng } from '../../core/math/rng';
 import { partStars } from '../../core/modcar/crafting';
 import { itemSig } from '../../core/modcar/items';
-import type { Build } from '../../core/modcar/types';
-import { isRare, rollWreck, type WreckRoll } from '../../core/modcar/wrecks';
-import type { Site } from '../../core/world/sites';
+import type { Build, PartInstance } from '../../core/modcar/types';
+import { isRare, rollFound, rollWreck, type WreckRoll } from '../../core/modcar/wrecks';
+import { PAD_FROM, type Site } from '../../core/world/sites';
+import { SitePlanner, vehiclePlan, type VehiclePlanned } from '../../core/modcar/schedule';
+import { frameSize } from '../../core/modcar/frames';
 import type { Solid, SolidSource } from '../../core/world/solids';
 import type { World } from '../../core/world/terrain';
 import type { RenderCore } from '../render/core';
@@ -56,6 +58,145 @@ export interface WreckSpot {
   type: number;
   stripped: boolean;
   s: number;
+  /** the sort of place it stands at (a verge's lay-by, a garage's yard) */
+  siteKind: string;
+  /** a vehicle to find (the plan's: schedule.ts vehiclePlan): its sort, its roll's seed, the tier of the parts beside it */
+  find?: { frame: string; seed: number; tier: number };
+}
+
+/** a part laid beside a vehicle to find (places.ts lays it, as a place's own): its id, the part, where, which way */
+export interface BesidePart {
+  id: string;
+  inst: PartInstance;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+/**
+ * Could this wreck be one's own (docs/V3/plan/growth.md §六 2, 定案 2)? The ones by the road are for their parts only; a
+ * vehicle standing at a big place (a garage's or a works' yard first, else a station's, a shop's, a house's, a camp's
+ * levelled ground) from the 12th kilometre on may be a find — the places the plan picks (VehicleFinds) hold one.
+ */
+export function takeableWreck(spot: Pick<WreckSpot, 'siteKind' | 's'>): boolean {
+  return BIG_PLACES.has(spot.siteKind) && spot.s >= TAKE_FROM_M;
+}
+
+/** where the vehicles one can take begin (m: the plan's first new vehicle, 12–20 km) */
+export const TAKE_FROM_M = 12_000;
+
+/** the big places: where a vehicle to find may stand (the verges' lay-bys and the hides are not) */
+const BIG_PLACES: ReadonlySet<string> = new Set(['garage', 'works', 'station', 'shop', 'house', 'camp', 'lookout']);
+
+/** the place a wreck of a site stands at (its id less its own part) */
+const placeOf = (id: string): string => id.slice(0, id.lastIndexOf('/w'));
+
+/**
+ * Where a vehicle to find stands at a place: on its levelled ground, along the road, clear of everything the place has
+ * by its own length and a row of its parts beside it (frameSize) — of a prefab building (a Nomad Drive one: its footprint
+ * and what of it stands low) by as much, in its yard (core/world/prefabs.ts PrefabCard.yard). Null: no room there.
+ */
+function freeSpot(site: Site, k: number, taken: readonly WreckSpot[], frame = 'van'): WreckSpot | null {
+  if (site.depth <= 0 || site.halfL <= 5) return null;
+  const size = frameSize(frame);
+  const clear = size.length / 2 + 1.2;
+  const r = new Rng(hash2(site.seed, 0x7e41d, k));
+  const cands: [number, number][] = [];
+  for (let a = -site.halfL + clear; a <= site.halfL - clear; a += 1.5) for (let b = PAD_FROM + 3; b <= site.depth - size.width - 2; b += 1.5) cands.push([a, b]);
+  for (let i = cands.length - 1; i > 0; i--) {
+    const j = r.int(i + 1);
+    [cands[i], cands[j]] = [cands[j], cands[i]];
+  }
+  const near = (x: number, z: number, px: number, pz: number, d: number): boolean => (x - px) ** 2 + (z - pz) ** 2 < d * d;
+  // (a prefab building: its footprint and its solids that stand low, each a box in its own frame, as near as `clear`)
+  const inBox = (x: number, z: number, cx: number, cz: number, yaw: number, hx: number, hz: number): boolean => {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    const u = (x - cx) * c + (z - cz) * s;
+    const v = -(x - cx) * s + (z - cz) * c;
+    const du = Math.max(0, Math.abs(u) - hx);
+    const dv = Math.max(0, Math.abs(v) - hz);
+    return du * du + dv * dv < clear * clear;
+  };
+  const prefab = site.objects.find((o) => o.kind === 'prefab');
+  const low = prefab ? site.solids.filter((sd) => sd.y0 < prefab.y + 2.6) : [];
+  for (const [a, b] of cands) {
+    const x = site.x + site.e1x * a + site.e2x * b;
+    const z = site.z + site.e1z * a + site.e2z * b;
+    if (site.objects.some((o) => o.kind !== 'line' && o.kind !== 'patch' && (o.kind === 'prefab' ? inBox(x, z, o.x, o.z, o.yaw, o.w / 2, o.d / 2) : near(x, z, o.x, o.z, Math.max(o.w, o.d) / 2 + clear)))) continue;
+    if (low.some((sd) => inBox(x, z, sd.x, sd.z, sd.yaw, sd.hx, sd.hz || sd.hx))) continue;
+    if (site.containers.some((c) => near(x, z, c.x, c.z, Math.max(c.hx, c.hz) + clear))) continue;
+    if (site.loose.some((l) => near(x, z, l.x, l.z, clear)) || site.fuel.some((f) => near(x, z, f.x, f.z, clear))) continue;
+    if (taken.some((t) => near(x, z, t.x, t.z, clear * 2 + 1))) continue;
+    // (along the road, nose either way)
+    const turn = (r.next() - 0.5) * 0.3 + (r.next() < 0.5 ? Math.PI : 0);
+    return { id: `${site.id}/wf${k}`, seed: hash2(site.seed, k, 0x3ec5), x, z, yaw: -(site.yaw + turn), type: 1, stripped: false, s: site.s, siteKind: site.kind };
+  }
+  return null;
+}
+
+/**
+ * The vehicles to find, the plan laid over a world's places as one comes down the road (schedule.ts vehiclePlan): at the
+ * place the plan picks for each (a big place within THEME_WAIT_M of where it is due, else the next with room), the
+ * planned frame standing on its levelled ground (freeSpot), its parts to lay beside it (besideOf). The world's own
+ * wrecks are for their parts.
+ */
+export class VehicleFinds {
+  private readonly planner: SitePlanner;
+  /** at each place the plan picked, its finds (ids) */
+  private readonly picked = new Map<string, Set<string>>();
+  /** the finds, in road order */
+  private readonly extra: WreckSpot[] = [];
+
+  constructor(readonly world: World) {
+    this.planner = new SitePlanner(vehiclePlan(world.seed, 4000));
+  }
+
+  /** the places down to s taken in, in road order: what each holds decided */
+  private upTo(s: number): void {
+    if (this.planner.through >= s) return;
+    const sites: Site[] = [];
+    this.world.sites.between(Math.max(0, this.planner.through - 1), s + 1, sites);
+    sites.sort((a, b) => a.s - b.s);
+    // (a big place with levelled ground and room for a vehicle may take the plan's)
+    const room = (x: Site): boolean => BIG_PLACES.has(x.kind) && x.depth > 0 && freeSpot(x, 0, []) !== null;
+    // (and ground for this one's size: a big one waits for a place it fits)
+    this.planner.take(sites.map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: room(x) ? 1 : 0, room: (f) => freeSpot(x, 0, [], (f as VehiclePlanned).frame) !== null })));
+    for (const x of sites) {
+      const finds = this.planner.findsAt(x.id) as readonly VehiclePlanned[];
+      if (!finds.length || this.picked.has(x.id)) continue;
+      const ids = new Set<string>();
+      finds.forEach((f, k) => {
+        const sp = freeSpot(x, k, this.extra, f.frame);
+        if (!sp) return;
+        sp.find = { frame: f.frame, seed: f.seed, tier: f.tier };
+        this.extra.push(sp);
+        ids.add(sp.id);
+      });
+      this.picked.set(x.id, ids);
+    }
+  }
+
+  /** the finds standing at a place (taken in already, or now) */
+  at(site: Site): readonly WreckSpot[] {
+    this.upTo(site.s);
+    const ids = this.picked.get(site.id);
+    return ids ? this.extra.filter((x) => ids.has(x.id)) : [];
+  }
+
+  /** is this one of the finds (its place picked by the plan) */
+  has(spot: Pick<WreckSpot, 'id' | 'siteKind' | 's'>): boolean {
+    if (!takeableWreck(spot)) return false;
+    this.upTo(spot.s);
+    return this.picked.get(placeOf(spot.id))?.has(spot.id) ?? false;
+  }
+
+  /** the finds standing where the world laid no wreck, within [sMin, sMax] of the road */
+  extraSpots(sMin: number, sMax: number, out: WreckSpot[] = []): WreckSpot[] {
+    this.upTo(sMax);
+    for (const sp of this.extra) if (sp.s >= sMin && sp.s <= sMax) out.push(sp);
+    return out;
+  }
 }
 
 /** the world's wrecks anchored within [sMin, sMax] of the road */
@@ -67,7 +208,7 @@ export function wreckSpots(world: World, sMin: number, sMax: number, out: WreckS
       const o = site.objects[i];
       if (o.kind !== 'wreck') continue;
       // (the object's long axis is (cos yaw, sin yaw), its nose that way: a vehicle's yaw is the other way round)
-      out.push({ id: `${site.id}/w${i}`, seed: hash2(site.seed, i, 0x3ec4), x: o.x, z: o.z, yaw: -o.yaw, type: o.v & 7, stripped: (o.v & 8) !== 0, s: site.s });
+      out.push({ id: `${site.id}/w${i}`, seed: hash2(site.seed, i, 0x3ec4), x: o.x, z: o.z, yaw: -o.yaw, type: o.v & 7, stripped: (o.v & 8) !== 0, s: site.s, siteKind: site.kind });
     }
   }
   return out;
@@ -95,6 +236,8 @@ export interface WreckHost {
   removeVehicle(v: ModVehicle): void;
   /** what was left in it put into its boot or its bed (once its model is in) */
   stowLoot(v: ModVehicle, roll: WreckRoll): Promise<void>;
+  /** what a found vehicle's frame comes with put in its places (FrameDef.fittings; once its model is in) */
+  stowFittings?(v: ModVehicle): Promise<void>;
   /** what rides in it, as saved (in its frame) */
   ridersOf(v: ModVehicle): SavedLoose[];
   /** put back what rode in it */
@@ -162,10 +305,61 @@ export class Wrecks {
     return this.byVehicle.get(v);
   }
 
-  /** taken: one's own vehicle from now on (got into, driven or towed off) */
+  /** the yards the plan picks for a vehicle to find */
+  private findsOf: VehicleFinds | null = null;
+
+  /** the plan's vehicles to find in this world (null: no world) */
+  private finds(): VehicleFinds | null {
+    const w = this.host.world;
+    if (!w) return null;
+    if (this.findsOf?.world !== w) this.findsOf = new VehicleFinds(w);
+    return this.findsOf;
+  }
+
+  /** may a wreck lying there be taken (its place the plan's pick for a vehicle to find) */
+  takeableSpot(spot: Pick<WreckSpot, 'id' | 'siteKind' | 's'>): boolean {
+    return this.finds()?.has(spot) ?? false;
+  }
+
+  /** the vehicles to find, within [sMin, sMax] of the road */
+  extraSpots(sMin: number, sMax: number, out: WreckSpot[] = []): WreckSpot[] {
+    return this.finds()?.extraSpots(sMin, sMax, out) ?? out;
+  }
+
+  /**
+   * What lies beside the vehicles to find at a place (places.ts lays them as the place's own): each find's parts
+   * (rollFound's beside) in a row along its side, a metre out from it — the engine first, then the radiator, the battery,
+   * the wheels
+   */
+  besideAt(site: Site): BesidePart[] {
+    const out: BesidePart[] = [];
+    for (const sp of this.finds()?.at(site) ?? []) {
+      if (!sp.find) continue;
+      const fr = rollFound(sp.find.frame, sp.find.seed, sp.find.tier);
+      const size = frameSize(sp.find.frame);
+      // (the sim's yaw: forward is (cos yaw, −sin yaw), its right side (sin yaw, cos yaw))
+      const fx = Math.cos(sp.yaw);
+      const fz = -Math.sin(sp.yaw);
+      const out1 = size.width / 2 + 1.0;
+      const step = Math.min(1.1, (size.length - 0.6) / Math.max(1, fr.beside.length - 1));
+      fr.beside.forEach((p, i) => {
+        const along = -size.length / 2 + 0.3 + step * i;
+        out.push({ id: `${sp.id}/b${i}`, inst: p.inst, x: sp.x + fx * along - fz * out1, z: sp.z + fz * along + fx * out1, yaw: -sp.yaw + Math.PI / 2 });
+      });
+    }
+    return out;
+  }
+
+  /** may it be taken (a find at a big place); false for a wreck by the road, and for what is no wreck */
+  takeable(v: ModVehicle): boolean {
+    const l = this.byVehicle.get(v);
+    return !!l && this.takeableSpot(l.spot);
+  }
+
+  /** taken: one's own vehicle from now on (got into, driven or towed off) — a find only, never a wreck by the road */
   claim(v: ModVehicle): boolean {
     const l = this.byVehicle.get(v);
-    if (!l) return false;
+    if (!l || !this.takeable(v)) return false;
     this.byVehicle.delete(v);
     this.live.delete(l.spot.id);
     this.kept.delete(l.spot.id);
@@ -186,6 +380,8 @@ export class Wrecks {
     const s = world.spine.sAtX(x);
     this.spots.length = 0;
     wreckSpots(world, s - WRECK_FAR - 200, s + WRECK_FAR + 200, this.spots);
+    // (and the vehicles to find where the world laid none)
+    this.extraSpots(s - WRECK_FAR - 200, s + WRECK_FAR + 200, this.spots);
     // the nearest one not there yet, within reach (one a look: a vehicle's model is put together over a frame or two)
     let best: WreckSpot | null = null;
     let bestD = WRECK_NEAR;
@@ -214,7 +410,11 @@ export class Wrecks {
       this.host.restoreRiders(v, k.loose);
       this.host.restoreGrimeOf(v);
     } else {
-      roll = rollWreck(sp.seed, sp.type, sp.stripped, sp.s);
+      // (a vehicle to find: its planned frame, bare, its parts beside it — besideAt; the world's wrecks as they roll)
+      if (sp.find) {
+        const fr = rollFound(sp.find.frame, sp.find.seed, sp.find.tier);
+        roll = { build: fr.build, items: [], tools: [], special: false, finds: [] };
+      } else roll = rollWreck(sp.seed, sp.type, sp.stripped, sp.s, false);
       v = this.host.addVehicle(roll.build, sp.x, sp.z, sp.yaw);
     }
     const l: LiveWreck = { spot: sp, v, roll, x0: k?.x ?? sp.x, z0: k?.z ?? sp.z, sig: '', kept: !!k, opened: new Set(), greeted: false };
@@ -226,6 +426,8 @@ export class Wrecks {
       await v.view.settled();
       if (this.byVehicle.get(v) !== l) return;
       if (roll) await this.host.stowLoot(v, roll);
+      if (this.byVehicle.get(v) !== l) return;
+      if (sp.find) await this.host.stowFittings?.(v);
       if (this.byVehicle.get(v) !== l) return;
       l.sig = sigOf(v.build, this.host.ridersOf(v));
     })();

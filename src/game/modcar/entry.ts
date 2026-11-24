@@ -7,13 +7,14 @@ import { CrownView } from '../scene/crowns/crownView';
 import { tried } from './devLab';
 import { sectionOf, type SectionId } from '../../core/modcar/proving/layout';
 import * as THREE from 'three';
+import { ghostWarmMaterials } from '../render/carMaterials';
 import { materialsOf, warmShaders } from '../render/warmup';
 import { decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart } from '../../core/modcar/build';
 import { partDef } from '../../core/modcar/parts';
 import { BIOMES } from '../../core/world/biomes';
 import { newTool, type ToolKind } from '../../core/modcar/tools';
 import { newItem } from '../../core/modcar/items';
-import { zonesOf } from '../../core/modcar/cargo';
+import { zonesFor } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import type { Loose } from './loose';
 import { GroundSample } from '../../core/world/ground';
@@ -21,7 +22,9 @@ import { readParams } from '../params';
 import { loadStats } from './assets';
 import { devItemOf } from './devPanel';
 import { Tune } from './devTune';
-import { ModGame, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
+import { automated, ModGame, NEW_DIFFICULTY_KEY, NEW_SEED_KEY, readModParams, type ViewMode } from './ModGame';
+import { loadSettings } from './settings';
+import { difficultyOf } from '../../core/modcar/difficulty';
 // (the V3 modules are found, and whatever they add to the catalogues at their top level is in, when this line is
 // reached: before anything below runs, so before the save is read and checked against those catalogues)
 import { MODULES } from './kernel/discovery';
@@ -31,7 +34,7 @@ import { loadLoss, loadRefusal, lossWords } from './save';
 import { clearRestores } from './restore';
 import { forgetMasks } from './grimeStore';
 import { wreckSpots } from './wrecks';
-import { isRare, rollWreck } from '../../core/modcar/wrecks';
+import { isRare, rollFound, rollWreck } from '../../core/modcar/wrecks';
 
 /** is a thing lying about the one asked for: a part id, tool:<kind> or item:<id> */
 function looseIs(l: Loose, id: string): boolean {
@@ -61,6 +64,8 @@ function beginAgain(q: URLSearchParams): void {
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const base = readParams();
+// (the picture's quality: the address's, else the settings')
+if (!new URLSearchParams(location.search).has('quality')) base.quality = loadSettings().quality;
 const fresh = readModParams(base);
 // a game in progress goes on, unless the address asks for something of its own (the harness, a test drive)
 const q = new URLSearchParams(location.search);
@@ -81,6 +86,20 @@ const unread = save ? loadLoss() : null;
 // (a save of a world this build cannot make again — a later build's, with more regions than this one has — was
 // set aside and a new game begins: why, to be said once the game is up)
 const refused = loadRefusal();
+// (the page opened again for a new game: the difficulty the menu chose for it — and no title over it)
+let begun = false;
+if (!save && !own) {
+  try {
+    const d = localStorage.getItem(NEW_DIFFICULTY_KEY);
+    if (d !== null) {
+      fresh.difficulty = difficultyOf(d);
+      begun = true;
+      localStorage.removeItem(NEW_DIFFICULTY_KEY);
+    }
+  } catch {
+    /* storage unavailable */
+  }
+}
 // (a new game of one's own, no world asked for: the new world's seed ModGame.newGame left for it)
 if (!save && !own && !q.has('seed')) {
   try {
@@ -193,7 +212,11 @@ const rt = {
     // (a panel: its middle as it stands, open or shut, not its hinge)
     v.view.model.updateMatrixWorld(true);
     const box = v.view.panelBox(mount);
-    const p = (box ? box.getCenter(new THREE.Vector3()) : n.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(game.core.origin.x, game.core.origin.y, game.core.origin.z));
+    // (a part in the hands for an empty place: its ghost's middle; a part fitted: its own box's — docs/V3/plan/hands.md: the mark goes by real shapes)
+    const held = game.player.held;
+    const ghost = held?.kind === 'part' ? game.player.ghosts.centerOf(`${v.build.uid}:${mount}:`) : null;
+    const fitted = !box && !ghost && v.build.parts[mount] ? v.view.boundsOf(mount, new THREE.Box3()) : null;
+    const p = (box ? box.getCenter(new THREE.Vector3()) : ghost ? ghost : fitted ? fitted.getCenter(new THREE.Vector3()) : n.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(game.core.origin.x, game.core.origin.y, game.core.origin.z));
     const b = new Float64Array(9);
     v.sim.basis(b);
     // from the side the mount is on (or in front / behind for centre mounts)
@@ -220,6 +243,30 @@ const rt = {
     game.input.lookYaw = heading;
     game.input.lookPitch = pitch;
     game.viewMode = 'cockpit';
+    game.simulate(0);
+    // (the ray onto the thing itself — the ghost, the part: tried about its middle, which can be air)
+    const pre = `${v.build.uid}:${mount}:`;
+    const onIt = (): boolean => {
+      const pr = game.player as unknown as { ray: THREE.Ray };
+      if (ghost) return !!game.player.ghosts.cast(pr.ray.origin, pr.ray.direction, 6)?.key.startsWith(pre);
+      const t = String(game.player.telemetry().target);
+      const s = game.player.scrubAim;
+      return t.endsWith(`:${mount}`) || t.includes(`:${mount}:`) || (!!s && s.owner.split('+')[0].slice(2) === mount);
+    };
+    if (!onIt()) {
+      const side = new THREE.Vector3(-Math.sin(heading), 0, Math.cos(heading));
+      found: for (const r of [0.1, 0.2, 0.3, 0.42]) {
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          const q = p.clone().addScaledVector(side, Math.cos(a) * r).add(new THREE.Vector3(0, Math.sin(a) * r, 0));
+          game.input.lookYaw = Math.atan2(q.z - w.z, q.x - w.x);
+          game.input.lookPitch = Math.atan2(q.y - eye.y, Math.hypot(q.x - w.x, q.z - w.z));
+          game.simulate(0);
+          game.simulate(0);
+          if (onIt()) break found;
+        }
+      }
+    }
     game.simulate(0);
     return true;
   },
@@ -432,7 +479,11 @@ const rt = {
    */
   scrub: (seconds = 2, passes = 6, w = 0.3, h = 0.25, cx = 0, cy = 0) => {
     game.player.press('mouse');
-    if (!game.player.scrub) return { started: false, target: game.player.telemetry().target, grime: game.grimeTelemetry() };
+    // (nothing to scrub there: the button let go again, as a hand would — not left down)
+    if (!game.player.scrub) {
+      game.player.release('mouse');
+      return { started: false, target: game.player.telemetry().target, grime: game.grimeTelemetry() };
+    }
     const dt = 1 / 60;
     const n = Math.round(seconds / dt);
     for (let k = 0; k < n; k++) {
@@ -462,14 +513,15 @@ const rt = {
     game.simulate(0);
     return game.player.telemetry();
   },
-  /** hold the take-off button for a while */
+  /** hold the take-off button for a while (the left button now: docs/V3/plan/growth.md J1) */
   takeFor: (seconds: number) => {
+    game.player.press();
     const dt = 1 / 60;
     for (let t = 0; t < seconds; t += dt) {
-      game.rightButton = true;
+      game.player.primary = true;
       game.step(dt, 1);
     }
-    game.rightButton = false;
+    game.player.release();
     game.simulate(0);
     return game.player.telemetry();
   },
@@ -495,7 +547,7 @@ const rt = {
   /** stand by one of a vehicle's zones (cargo.ts: trunk, rear, pass, bed, cabin, pillion), looking at the middle of its floor */
   aimZone: (vi: number, zoneId: string, dist = 1.4) => {
     const v = vehicle(vi);
-    const zone = zonesOf(v.view.frame.id).find((z) => z.id === zoneId);
+    const zone = zonesFor(v.view.frame.id, v.build).find((z) => z.id === zoneId);
     if (!zone) return false;
     game.simulate(0);
     const model = v.view.model;
@@ -522,7 +574,7 @@ const rt = {
   /** a zone's floor as drawn from above: how much of it has a floor, its heights, a row across its middle */
   floorOf: (vi: number, zoneId: string) => {
     const v = vehicle(vi);
-    const zone = zonesOf(v.view.frame.id).find((z) => z.id === zoneId);
+    const zone = zonesFor(v.view.frame.id, v.build).find((z) => z.id === zoneId);
     if (!zone) return null;
     game.cargo.invalidate(v);
     const g = game.cargo.grid(v, zone);
@@ -693,7 +745,7 @@ const rt = {
   /** what is on a mount (part id, paint, dirt, rust…), or null */
   part: (vi: number, mount: string) => {
     const inst = vehicle(vi).build.parts[mount];
-    return inst ? { part: inst.part, paint: inst.paint, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
+    return inst ? { part: inst.part, paint: inst.paint, coat: !!inst.coat, dirt: inst.dirt, rust: inst.rust, cond: inst.cond } : null;
   },
   partName: (id: string) => partDef(id).name,
   /** the developer's parts bin open (true) or shut; what it shows */
@@ -791,13 +843,17 @@ const rt = {
   },
   /** the wrecks about (wrecks.ts): how many there, kept, taken, and each one there */
   wrecks: () => JSON.parse(JSON.stringify(game.wreckTelemetry())) as unknown,
-  /** the world's wrecks anchored within [s0, s1] of the road, each with what it is (its roll) */
+  /** the world's wrecks anchored within [s0, s1] of the road, each with what it is (its roll) and whether one may take it (a find: docs/V3/plan/growth.md §六 2) */
   wreckSpots: (s0: number, s1: number) =>
     game.world
-      ? wreckSpots(game.world, s0, s1).map((w) => {
-          const r = rollWreck(w.seed, w.type, w.stripped, w.s);
-          return { ...w, frame: r.build.frame, parts: Object.keys(r.build.parts).length, finds: r.finds.map((f) => f.part), rare: r.finds.filter((f) => isRare(r.build.frame, f.part)).map((f) => f.part), things: r.items.length + r.tools.length, hood: !!r.build.parts.hood, seat: !!r.build.parts.seat_driver };
-        })
+      ? [...wreckSpots(game.world, s0, s1), ...(game.wrecks?.extraSpots(s0, s1) ?? [])]
+          .sort((a, b) => a.s - b.s)
+          .map((w) => {
+            const takeable = game.wrecks?.takeableSpot(w) ?? false;
+            // (a vehicle to find: its planned frame, bare; a wreck as the world rolls it)
+            const r = w.find ? { ...rollFound(w.find.frame, w.find.seed, w.find.tier), items: [], tools: [], finds: [] } : rollWreck(w.seed, w.type, w.stripped, w.s, takeable);
+            return { ...w, frame: r.build.frame, parts: Object.keys(r.build.parts).length, finds: r.finds.map((f) => f.part), rare: r.finds.filter((f) => isRare(r.build.frame, f.part)).map((f) => f.part), things: r.items.length + r.tools.length, hood: !!r.build.parts.hood, seat: !!r.build.parts.seat_driver, takeable, findFrame: w.find?.frame ?? null };
+          })
       : [],
   /** a biome's numbers as the world was made with them (the terrain dials write into them) */
   biomeDef: (id: string) => ({ ...BIOMES.find((b) => b.id === id) }),
@@ -807,6 +863,14 @@ const rt = {
    * system's own test functions are reached through the game: game.systems.harness(id, name, ...args).
    */
   kernel: () => game.kernel.telemetry(),
+  /** the main menu (menu.ts): opened as the title or the pause, on a page, a difficulty picked; null shuts it; its state */
+  menu: (mode?: 'title' | 'pause' | null, page?: 'main' | 'new' | 'settings' | 'keys', pick?: 'easy' | 'normal' | 'hard') => {
+    if (mode === null) game.play();
+    else if (mode) game.openMenu(mode);
+    if (page) game.menu.show(page);
+    if (pick) game.menu.choose(pick);
+    return { open: game.menu.isOpen, mode: game.menu.modeNow, page: game.menu.pageNow, difficulty: game.difficulty };
+  },
 };
 (window as unknown as { __rt: typeof rt }).__rt = rt;
 // what the kernel sets apart (a V3 system that throws in its hook, a listener, a slice) is the last error too:
@@ -832,7 +896,7 @@ void game.ready.then(async () => {
   // the shaders of whatever may come into view compiled ahead, in the background (render/warmup.ts): a wreck by the
   // road, a place, a bridge would otherwise each stop the game for a moment the first time one is drawn. (Awaited in
   // the harness's stepped mode, so that what it measures is the game as it plays once warmed.)
-  const warm = warmShaders(game.core.renderer, game.core.scene, game.core.camera, materialsOf(game.worldView)).catch(() => 0);
+  const warm = warmShaders(game.core.renderer, game.core.scene, game.core.camera, [...materialsOf(game.worldView), ...ghostWarmMaterials()]).catch(() => 0);
   if (params.shot) await warm;
   // back from making the world again (the panel's terrain tab, a new world): the panel open where it was
   const dp = q.get('devpanel');
@@ -846,6 +910,11 @@ void game.ready.then(async () => {
     rt.ready = true;
     return;
   }
+  // the main menu over the game as the page opens (docs/V3/plan/growth.md 定案 7): not over what the address asked for
+  // of its own (a test drive, the developer's panel back from making the world again, ?menu=0), nor over the new game
+  // the page was opened again for, nor for the harness (navigator.webdriver) unless it asks (?menu=1)
+  if (!own && !q.has('new') && !dp && !begun && q.get('menu') !== '0' && (q.get('menu') === '1' || !automated())) game.openMenu('title');
+  else game.play();
   let last = performance.now();
   let failed = '';
   const loop = (now: number): void => {
@@ -854,7 +923,8 @@ void game.ready.then(async () => {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     try {
-      game.frame(dt);
+      // (the menu up: the game stands still behind it, drawn)
+      game.frame(game.menuOpen ? 0 : dt);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       rt.lastError = msg;

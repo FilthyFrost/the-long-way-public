@@ -174,7 +174,15 @@ export class RenderCore {
     } finally {
       scene.matrixWorldAutoUpdate = auto;
     }
+    // (what wants the frame as it was drawn, once: a camera's shutter, docs/ND/PLAN.md — the canvas still holds it now)
+    if (this.afterFrame.length) {
+      const fns = this.afterFrame.splice(0);
+      for (const fn of fns) fn(this.renderer.domElement);
+    }
   }
+
+  /** called once each, right after the next frame is drawn, with the canvas it is on (read it then: it is cleared after) */
+  readonly afterFrame: ((canvas: HTMLCanvasElement) => void)[] = [];
 
   get stats(): { calls: number; triangles: number; geometries: number; textures: number; programs: number } {
     const i = this.renderer.info;

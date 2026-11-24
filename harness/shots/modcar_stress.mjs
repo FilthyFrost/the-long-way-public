@@ -82,11 +82,11 @@ try {
       ['tool:bottle', {}],
       ['tool:oilcan', {}],
       ['tool:spray', { colour: 4 }],
-      ['tool:sponge', {}],
+      ['tool:scraper', { tier: 1 }],
     ]) {
       await rt('hold', tool, opts);
       if (tool === 'tool:jerrycan') await rt('aimCap', v.i);
-      else await rt('aim', v.i, tool === 'tool:spray' || tool === 'tool:sponge' ? (v.mounts.includes('door_FL') ? 'door_FL' : v.mounts[0]) : v.mounts.includes('engine') ? 'engine' : v.mounts[0], 1.4);
+      else await rt('aim', v.i, tool === 'tool:spray' || tool === 'tool:scraper' ? (v.mounts.includes('door_FL') ? 'door_FL' : v.mounts[0]) : v.mounts.includes('engine') ? 'engine' : v.mounts[0], 1.4);
       await rt('useFor', 1.5);
     }
     await page.evaluate(() => (window.__rt.game.player.held = null));
@@ -101,7 +101,7 @@ try {
   if (errors.length) fail(`page errors: ${errors.slice(0, 5).join(' | ')}`);
   await page.close();
 
-  // ---- the live loop: the engine, the tank and a wheel off with F held, the game going on
+  // ---- the live loop: the engine, the tank and a wheel off with the left button held (docs/V3/plan/growth.md J1), the game going on
   const live = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   const liveErrors = [];
   live.on('pageerror', (e) => liveErrors.push(e.message));
@@ -128,22 +128,15 @@ try {
     if (lid) await lrt('openPanel', vi, lid, true);
     await live.evaluate(() => (window.__rt.game.player.held = null));
     await lrt('aim', vi, mount, 1.3);
-    // F held until the part is in the hands (a software renderer's game time runs slower than the wall clock:
-    // SHOTS_GPU=1 keeps the old 3.4 s); then the loop must still be turning: five more frames, however long
-    // they take to draw, within the bound
-    if (ON_GPU) {
-      await live.keyboard.down('KeyF');
-      await live.waitForTimeout(3400);
-      await live.keyboard.up('KeyF');
-    } else {
-      await holdKeyUntil(live, 'KeyF', () => !!window.__rt.telemetry().held, null, 90_000);
-    }
+    // the left button held 3.4 s of game time, the part in the hands at the end of it; then the loop must still be
+    // turning: five more frames, however long they take to draw, within the bound
+    await lrt('takeFor', 3.4);
     const a = await live.evaluate(() => window.__gameFrames);
     const turning = await waitFrames(live, 5, ON_GPU ? 400 : 60_000);
     const b = await live.evaluate(() => window.__gameFrames);
     const held = await live.evaluate(() => window.__rt.telemetry().held);
     console.log(`live: ${mount} of vehicle ${vi} off → in the hands ${held}, ${b - a} frames after`);
-    if (!held) fail(`live: ${mount} did not come off with F held`);
+    if (!held) fail(`live: ${mount} did not come off with the left button held`);
     if (!turning) fail(`live: the game stopped after taking off ${mount}`);
     await live.evaluate(() => window.__rt.game.player.putDown());
   }

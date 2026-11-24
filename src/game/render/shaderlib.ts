@@ -54,6 +54,12 @@ export const globals = {
   uHeadPos: { value: new THREE.Vector3() },
   uHeadDir: { value: new THREE.Vector3(1, 0, 0) },
   uHeadColor: { value: new THREE.Color(0, 0, 0) },
+  /**
+   * the beam's shape: xy the cosines its cone begins and is whole within, zw its halo's; and how far it carries
+   * (the d² it is halved over, m²). A car's lamps as they always were; a flashlight (docs/ND/PLAN.md) narrows it.
+   */
+  uHeadCone: { value: new THREE.Vector4(0.86, 0.975, 0.4, 0.9) },
+  uHeadReach: { value: 420 },
   /** wind for vegetation: xy = direction in the xz plane, z = strength 0…1, w = gust scroll (m) */
   uWind: { value: new THREE.Vector4(1, 0, 0.15, 0) },
   /** cloud shadows drifting over the land: xy = drift (m), z = cloud cover, w = strength */
@@ -128,6 +134,8 @@ uniform vec4 uWeather;
 uniform vec3 uHeadPos;
 uniform vec3 uHeadDir;
 uniform vec3 uHeadColor;
+uniform vec4 uHeadCone;
+uniform float uHeadReach;
 uniform vec4 uWind;
 uniform vec4 uCloudShadow;
 uniform vec2 uEarthShadow;
@@ -458,8 +466,8 @@ vec3 rtHeadlight(vec3 albedo, vec3 n, vec3 pos) {
   float d = length(L);
   L /= max(d, 1e-3);
   float c = dot(-L, uHeadDir);
-  float cone = smoothstep(0.86, 0.975, c) + 0.16 * smoothstep(0.4, 0.9, c);
-  float att = 1.0 / (1.0 + d * d / 420.0);
+  float cone = smoothstep(uHeadCone.x, uHeadCone.y, c) + 0.16 * smoothstep(uHeadCone.z, uHeadCone.w, c);
+  float att = 1.0 / (1.0 + d * d / uHeadReach);
   float ndl = max(dot(n, L), 0.0) * 0.75 + 0.25;
   return albedo * uHeadColor * cone * att * ndl;
 }

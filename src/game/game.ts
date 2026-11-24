@@ -25,7 +25,7 @@ import { AudioEngine } from './audio';
 import { SURFACES } from '../core/world/ground';
 import type { WeatherKind } from '../core/env/weather';
 import { Hud } from './hud';
-import { InputManager } from './input';
+import { CLASSIC_KEYS, InputManager } from './input';
 import type { Params } from './params';
 import { RenderCore } from './render/core';
 import { ProvingGround } from './scene/provingGround';
@@ -121,7 +121,7 @@ export class Game {
     this.core.usePost = params.post;
     this.viewMode = params.view;
     this.hud = new Hud(params.hud);
-    this.input = new InputManager(canvas);
+    this.input = new InputManager(canvas, CLASSIC_KEYS);
 
     const spec = vehicleSpecFor(params.vehicle);
     this.sim = new VehicleSim(spec);

@@ -44,8 +44,10 @@ describe('the kitchen: its things in the catalogue', () => {
       expect(d.stars).toBe(f.star);
       expect(d.model).toBe(`food_${f.id}`);
       expect(d.blurb.length, f.id).toBeGreaterThan(4);
-      // what is safe raw can be eaten as it is, and nothing else
-      expect(!!d.eat, f.id).toBe(f.raw);
+      // what is safe raw can be eaten as it is; raw meat, seafood and eggs may be, and make one ill (docs/V3/plan/growth.md §四); nothing else
+      const ill = !f.raw && ['meat', 'seafood', 'egg'].includes(f.group);
+      expect(!!d.eat, f.id).toBe(f.raw || ill);
+      if (ill) expect(d.eat?.effect, f.id).toBe('sick1');
       const look = FOOD_LOOK[f.id];
       if (look.chop) {
         expect(look.prep, f.id).not.toBeNull();
@@ -79,8 +81,8 @@ describe('the kitchen: its things in the catalogue', () => {
       expect(WAY_OF[id]).toBe(way);
     }
     for (const id of [STOVE, GAS, BOARD, PLATE, BOWL]) expect(hasItem(id), id).toBe(true);
-    // (thirteen of the first batch, and the cooler of the second)
-    expect(COOKWARE_ITEMS.length).toBe(14);
+    // (thirteen of the first batch, the cooler of the second, the hob of the motorhomes': docs/V3/plan/rv.md R2)
+    expect(COOKWARE_ITEMS.length).toBe(15);
     // plates and bowls stack; what has a state of its own does not
     expect(itemDef(PLATE).stack).toBe(6);
     expect(itemDef(STOVE).stack).toBeUndefined();
@@ -121,23 +123,29 @@ describe('the kitchen: its things in the catalogue', () => {
 });
 
 describe('the kitchen: its models', () => {
-  it('has a model to every look, of a few hundred triangles', () => {
+  // (made again in J4, docs/V3/plan/growth.md §一 4: round, their marks on them, known a step off — an ingredient some
+  // 1,500 to 3,000 faces, a piece of cookware 2,000 to 5,000; a dish as its shape needs)
+  it('has a model to every look, round and fine enough to be known a step off', () => {
     const want = new Set<string>();
     for (const r of KITCHEN_ITEMS) want.add(itemDef(r.id).model);
     for (const p of PREPS) want.add(`prep_${p}`);
     let total = 0;
+    const rows: string[] = [];
     for (const m of want) {
       expect(fs.existsSync(path.join(MODELS, `${m}.glb`)), m).toBe(true);
       const g = glb(m);
+      rows.push(`${m} ${g.tris}`);
+      if (m.startsWith('food_')) expect(g.tris, m).toBeGreaterThanOrEqual(900);
       expect(g.tris, m).toBeGreaterThan(20);
-      expect(g.tris, m).toBeLessThanOrEqual(1400);
+      expect(g.tris, m).toBeLessThanOrEqual(m.startsWith('food_') || m.startsWith('prep_') ? 8000 : 9000);
       total += g.tris;
     }
-    // sixty ingredients, thirteen prepared shapes, fourteen pieces of cookware (the cooler of the second batch with them),
+    void rows;
+    // sixty ingredients, thirteen prepared shapes, fifteen pieces of cookware (the cooler of the second batch, the hob),
     // thirty-four dishes, and the lump spoiled food is (the forage's own: forage_lump)
-    expect(want.size).toBe(60 + PREPS.length + 14 + MEALS.length + 1);
+    expect(want.size).toBe(60 + PREPS.length + 15 + MEALS.length + 1);
     expect(want.has('forage_lump')).toBe(true);
-    expect(total / want.size).toBeLessThan(700);
+    expect(total / want.size).toBeLessThan(4500);
   });
 
   it('keeps apart what moves on the cookware, and marks where things go', () => {

@@ -5,7 +5,7 @@
  *
  * From the other front seat (docs/V3/nodes/M1-interact.md) one reaches what lies between the seats and beside
  * one — the handbrake, the radio, the door on one's own side — and from either front seat the mark finds the
- * other one: E moves one over. Getting out is offered on the door beside one's seat, not all the time.
+ * other one: a click moves one over. Q held gets one out (docs/V3/plan/growth.md J1: E is gone).
  */
 import type { Action } from './hudItems';
 import * as THREE from 'three';
@@ -56,6 +56,22 @@ export function ownDoor(id: string, seat: FrontSeat): boolean {
   return id === 'door_side' || id.endsWith(seat === 'pass' ? 'FR' : 'FL');
 }
 
+/**
+ * A system's own way with a control in the cab (docs/ND/PLAN.md: the tape deck): asked first while the mark is on a
+ * mount it claims — its words in place of the control's own, the buttons and the wheel its own when it takes them.
+ */
+export interface CockpitUse {
+  claims(v: ModVehicle, m: MountDef): boolean;
+  /** its words for the control (in place of the control's own) */
+  actions(v: ModVehicle, m: MountDef): Action[];
+  /** the button went down on it (right: the right button); true: taken */
+  press?(v: ModVehicle, m: MountDef, right: boolean): boolean;
+  /** the buttons went up */
+  release?(v: ModVehicle): void;
+  /** the wheel turned over it; true: taken */
+  wheel?(v: ModVehicle, m: MountDef, delta: number): boolean;
+}
+
 export interface CockpitHost {
   readonly ui: ModUI;
   readonly origin: { x: number; y: number; z: number };
@@ -65,6 +81,8 @@ export interface CockpitHost {
   readonly seatAt: FrontSeat;
   /** looking back from the seat into a living space one may step back into (docs/V3/nodes/M2-rv.md) */
   aftReady(v: ModVehicle): boolean;
+  /** the key turned on a vehicle a system's rule keeps from starting (the Turtle's roof up): its why flashed, true */
+  blockedStart?(v: ModVehicle): boolean;
 }
 
 export class Cockpit {
@@ -113,6 +131,21 @@ export class Cockpit {
     return best;
   }
 
+  /** the systems' own ways with the controls (CockpitUse): the first that claims the one aimed at has it */
+  readonly uses: CockpitUse[] = [];
+
+  private useFor(v: ModVehicle, m: MountDef | null): CockpitUse | null {
+    if (!m || this.aimedSeat) return null;
+    for (const u of this.uses) if (u.claims(v, m)) return u;
+    return null;
+  }
+
+  /** the wheel over what is aimed at: true when a system's control took it */
+  wheel(v: ModVehicle, delta: number): boolean {
+    const m = this.aimed;
+    return !!(m && this.useFor(v, m)?.wheel?.(v, m, delta));
+  }
+
   update(dt: number, v: ModVehicle, cam: THREE.PerspectiveCamera, cockpit: boolean): void {
     this.aimed = cockpit ? this.pick(v, cam) : null;
     const ui = this.host.ui;
@@ -121,17 +154,19 @@ export class Cockpit {
     if (m) {
       const name = partDef(v.build.parts[m.id].part).name[ui.lang];
       const s = v.sim;
-      if (this.aimedSeat) acts.push({ keys: ['E'], text: this.host.seatAt === 'pass' ? '坐到驾驶座' : '坐到副驾驶' });
+      const use = this.useFor(v, m);
+      if (this.aimedSeat) acts.push({ keys: ['LMB'], text: this.host.seatAt === 'pass' ? '坐到驾驶座' : '坐到副驾驶' });
+      else if (use) acts.push(...use.actions(v, m));
       else if (m.cat === 'handbrake') acts.push({ keys: ['LMB'], text: `${s.parkBrake > 0 ? '松开' : '拉起'} <b>${name}</b>` });
-      else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: `加挡 · 现在 <b>${v.sys.dash.gearLabel}</b>` }, { keys: ['RMB'], text: '减挡' });
+      else if (m.cat === 'gearLever') acts.push({ keys: ['LMB'], text: '加挡' }, { keys: ['RMB'], text: '减挡' });
       else if (m.cat === 'ignition') acts.push(v.sys.running ? { keys: ['LMB'], text: `熄火 <b>${name}</b>` } : { keys: ['LMB'], hold: true, text: `打火 <b>${name}</b>` });
-      else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: `换台 · 「${stationLabel(v.radioSong)}」` }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
+      else if (m.cat === 'radio') acts.push(...(v.radioOn ? [{ keys: ['LMB'], text: `关掉 <b>${name}</b>` }, { keys: ['RMB'], text: '换台' }] as Action[] : [{ keys: ['LMB'], text: `打开 <b>${name}</b>` }] as Action[]));
       else if (m.cat === 'horn' || m.cat === 'steering') acts.push({ keys: ['LMB'], hold: true, text: '按喇叭' });
-      else if (m.cat === 'door') acts.push({ keys: ['LMB'], text: v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门' }, { keys: ['E'], text: '下车' });
+      else if (m.cat === 'door') acts.push({ keys: ['LMB'], text: v.view.panelOpen(m.id) > 0.5 ? '关门' : '开门' }, { keys: ['Q'], hold: true, text: '下车' });
       ui.prompt(true, '', -1);
     } else ui.prompt(cockpit, '', -1);
     this.aimedAft = cockpit && !m && this.host.aftReady(v);
-    if (this.aimedAft) acts.push({ keys: ['E'], text: '到车厢里' });
+    if (this.aimedAft) acts.push({ keys: ['LMB'], text: '到车厢里' });
     ui.items.showActions(acts);
     // the parts that move
     this.pose(v, dt);
@@ -142,6 +177,7 @@ export class Cockpit {
   press(v: ModVehicle, right: boolean): boolean {
     const m = this.aimed;
     if (!m) return false;
+    if (this.useFor(v, m)?.press?.(v, m, right)) return true;
     const s = v.sim;
     if (m.cat === 'handbrake') {
       s.setParkBrake(s.parkBrake <= 0);
@@ -149,7 +185,7 @@ export class Cockpit {
     } else if (m.cat === 'gearLever') this.host.sound(v.sys.stepLever(right ? 1 : -1) ? 'lever' : 'grind');
     else if (m.cat === 'ignition') {
       if (v.sys.running) v.sys.stop('');
-      else {
+      else if (!this.host.blockedStart?.(v)) {
         v.sys.crank(true);
         this.cranking = true;
       }
@@ -171,6 +207,7 @@ export class Cockpit {
   }
 
   release(v: ModVehicle): void {
+    for (const u of this.uses) u.release?.(v);
     if (this.cranking) {
       v.sys.crank(false);
       this.cranking = false;

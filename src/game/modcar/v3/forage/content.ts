@@ -38,7 +38,7 @@ export const TOOL_ROWS: readonly ItemRow[] = [
     model: 'forage_basket',
     paint: 0xc8a05c,
     paint2: 0x8a6a3c,
-    blurb: '藤编的篮子。放在快捷栏里，采到的东西自己进篮子：装十二叠野货，通风，里面的东西坏得慢一半。',
+    blurb: '藤编的篮子，通风。装十二叠野货，里面的东西坏得慢一半。',
   },
 ];
 
@@ -99,7 +99,7 @@ export const HINT_M = 8;
 export const HINT_GLOW_M = 16;
 
 /** the line on the card of a kind the player does not know */
-export const UNKNOWN_BLURB = '还不认识。尝一口，或者多采一些就认得了。';
+export const UNKNOWN_BLURB = '还不认识。';
 
 export const WORDS = {
   pick: { zh: '采', en: 'Pick' } as Text,

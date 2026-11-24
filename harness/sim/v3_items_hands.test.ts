@@ -135,7 +135,8 @@ describe('what the hands ask every frame', () => {
     const chips = held(newItem('food_chips'));
     const inner = player as unknown as { settleHands(): void; pickWords(name: string, held: boolean, part: number): string };
     expect(player.roomFor(lying)).toBe(9);
-    expect(inner.pickWords(heldName(lying), true, 0)).toBe('拿起 <b>试验莓 ×9</b>（叠到快捷栏 1）');
+    // (one verb and the name since docs/V3/plan/prompts.md §五: where it goes is the hotbar's to show)
+    expect(inner.pickWords(heldName(lying), true, 0)).toBe('拿起 <b>试验莓 ×9</b>');
     expect(heapGrowth(() => void player.roomFor(lying))).toBeLessThan(ALLOCATES);
     expect(heapGrowth(() => void player.roomFor(chips))).toBeLessThan(ALLOCATES);
     expect(heapGrowth(() => inner.settleHands())).toBeLessThan(ALLOCATES);
@@ -285,13 +286,14 @@ describe('the hands take things that stack and hold things', () => {
     expect([countOf(stack), countOf(out), b2.inside, p2.sel]).toEqual([9, 0, undefined, 0]);
   });
 
-  it('G is not offered for putting down while a list is open; a basket in a slot shows how full it is under it', () => {
+  it('Q is not offered for putting down while a list is open; a basket in a slot shows how full it is under it', () => {
     world.worldSeconds = 0;
     const { player, frames, seen, game } = hands();
     player.receive(held(newItem('h_basket', { inside: [berry(12, { fk: 0.5, t0: 0 }), newItem('h_jerky', { n: 2 })] })));
     frames(1);
-    const g = (): string[] => seen.keys.filter((a) => a.keys.includes('G')).map((a) => a.text);
-    expect(g()).toEqual(['放下（看着车：收进车里）']);
+    const g = (): string[] => seen.keys.filter((a) => a.keys.includes('Q') && !a.hold).map((a) => a.text);
+    // (one word since docs/V3/plan/prompts.md §五; said the first three times a thing is in the hands)
+    expect(g()).toEqual(['放下']);
     game.listOpen = true;
     frames(1);
     expect(g()).toEqual([]);
@@ -357,7 +359,8 @@ describe('the hands take things that stack and hold things', () => {
     pickUp(three[0]);
     mark.on = three[1];
     frames(1);
-    expect(say()).toContain('（叠到快捷栏 1）');
+    expect(say()).toContain('拿起 <b>试验莓</b>');
+    expect(say()).not.toContain('（');
     pickUp(three[1]);
     pickUp(three[2]);
     expect([lying.length, countOf(item(0)!), item(1), player.sel]).toEqual([0, 3, null, 0]);
@@ -369,7 +372,7 @@ describe('the hands take things that stack and hold things', () => {
     const more = add(berry());
     mark.on = more;
     frames(1);
-    expect(say()).toContain('（放进快捷栏 2）');
+    expect(say()).toContain('拿起 <b>试验莓</b>');
     pickUp(more);
     expect([countOf(item(0)!), countOf(item(1)!), player.sel, lying.length]).toEqual([12, 1, 1, 0]);
     // ten lying there with room for eleven on the second stack: all go; then five more with room for one
@@ -378,7 +381,7 @@ describe('the hands take things that stack and hold things', () => {
     const five = add(berry(5));
     mark.on = five;
     frames(1);
-    expect(say()).toContain('只拿得下 1 个');
+    expect(say()).toContain('拿起 <b>试验莓 ×5</b>');
     pickUp(five);
     expect([countOf(item(1)!), lying.length, countOf(five.item!)]).toEqual([12, 1, 4]);
     expect(lying[0]).toBe(five);
@@ -417,7 +420,7 @@ describe('the hands take things that stack and hold things', () => {
     const b = add(berry(2));
     mark.on = b;
     frames(1);
-    expect(say()).toContain('拿起 <b>试验莓 ×2</b>（装进试验篮）');
+    expect(say()).toContain('拿起 <b>试验莓 ×2</b>');
     pickUp(b);
     expect([lying.length, item(1), basket.inside!.map((x) => `${x.item}*${countOf(x)}`)]).toEqual([0, null, ['h_berry*2']]);
     expect(player.sel).toBe(0);
@@ -502,7 +505,8 @@ describe('the hands take things that stack and hold things', () => {
     frames(1);
     expect([fresh.item!.item, fresh.item!.t0, seen.aim?.name]).toEqual(['h_berry', undefined, '试验莓 ×2']);
     mark.on = old;
-    frames(1);
+    // (from one thing to another the mark settles over two frames: docs/V3/plan/hands.md §二.1)
+    frames(2);
     expect([old.item!.item, seen.aim?.name]).toEqual(['h_mush', '烂莓 ×2']);
     // picked up, the one never started starts now
     pickUp(fresh);
@@ -535,7 +539,7 @@ describe('the item card', () => {
     c = itemCard(basket, 0);
     expect(c.bars.map((x) => [x.label, x.text])).toEqual([['装着', '2 / 4 格 · 0.80 / 3 kg']]);
     expect(c.rows.map((r) => `${r.value} ${r.label}`)).toEqual(['×12 试验莓', '×2 试验肉干', '12 有机物 回收能得']);
-    expect(c.notes.map((x) => x.text)).toEqual(['放在里面的东西坏得慢：平时的 50%']);
+    expect(c.notes.map((x) => x.text)).toEqual(['里面坏得慢 · 50%']);
     expect(c.foot.mass).toBeCloseTo(1.4);
     expect(itemCard(basket, 40 * HOUR).rows[0]).toMatchObject({ value: '×12', label: '试验莓（快坏了）', tone: 'bad' });
     expect(itemCard(newItem('h_basket'), 0).notes[0].text).toBe('空的');

@@ -482,6 +482,155 @@ def build_roof_lightbar(P):
     P.views = [('a', 35, 18), ('b', 215, 24)]
 
 
+def build_hitch_ball(P):
+    """A tow hitch (docs/V3/plan/growth.md 6.2): a steel plate bolted to the rear cross member under the bumper, a
+    square drawbar out of it backwards with a cross pin, a drop plate, the neck and the 50 mm ball on it (its centre
+    the game's HITCH_BALL: 0.20 m behind the mount, 0.075 m above it), the safety chains' loops either side."""
+    P.ao_distance = 0.04
+    P.box('plate', (0.012, 0.26, 0.10), (0.0, 0.0, 0.0), 'steel', bev=0.003, segs=1)
+    for y in (-0.09, 0.09):
+        for z in (-0.03, 0.03):
+            P.bolt((-0.006, y, z), normal=(-1, 0, 0), r=0.007, h=0.005)
+    P.box('bar', (0.16, 0.05, 0.05), (-0.085, 0.0, 0.0), 'steel', bev=0.004, segs=1)
+    P.cyl('pin', 0.007, 0.07, (-0.05, 0.0, 0.0), 'chrome', axis='Y', segs=12)
+    P.box('drop', (0.05, 0.06, 0.08), (-0.18, 0.0, 0.025), 'steel', bev=0.004, segs=1)
+    P.cyl('neck', 0.012, 0.03, (-0.20, 0.0, 0.055), 'chrome', axis='Z', segs=16)
+    P.sphere('ball', 0.025, (-0.20, 0.0, 0.075), 'chrome', u=20, v=12)
+    for y in (-0.045, 0.045):
+        P.torus('loop', 0.014, 0.0035, (-0.14, y, -0.02), 'steel', axis='Y', segs=16, rsegs=6)
+    P.fit_nominal(0.24, 0.26, 0.12)
+    P.views = [('a', 215, 20), ('b', 300, 25)]
+
+
+# ----------------------------------------------------------------------------------------------- the ladder (J9e)
+
+LADDERS_JSON = 'src/core/modcar/data/ladders.json'
+
+
+def _ladders():
+    """The table both the game and this script build each frame's ladder from (src/core/modcar/data/ladders.json)."""
+    import json
+    with open(LADDERS_JSON, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def build_ladder_shape(P, height, reach, dx, rails, stand=0.05):
+    """An aluminium ladder hung on the LEFT side of a body (mirrored for the right): the origin is the middle of its
+    foot on the plane of its rails (the frame's ladder mount); its rails go straight up `height` to the roof's edge, then
+    over it in a gooseneck, `reach` in towards the body (-Y) and `dx` forward, onto rubber pads resting on the roof;
+    rungs every 0.28 m (anti-slip ribs on their tops), stand-off brackets with rubber pads against the body at the
+    bottom and two thirds up, a cap under each rail. (docs/V3/plan/growth.md 6.2, J9e)"""
+    P.ao_distance = 0.05
+    hw = rails / 2
+    top = height
+    for sx in (-1, 1):
+        x = sx * hw
+        # the rail and its gooseneck over the edge (filleted bends)
+        pts = [(x, 0.0, -0.05), (x, 0.0, top), (x + dx * 0.4, -min(0.07, reach * 0.35), top + 0.1),
+               (x + dx, -reach, top + 0.1), (x + dx, -reach - 0.03, top + 0.035)]
+        P.tube('rail', pts, 0.016, 'alu', segs=10, bend=0.06)
+        P.cyl('cap', 0.019, 0.03, (x, 0.0, -0.06), 'rubber', axis='Z', segs=12)
+        # the rubber pad the hook rests on, on the roof
+        P.box('pad', (0.07, 0.05, 0.018), (x + dx, -reach - 0.035, top + 0.018), 'rubber', bev=0.005, segs=1)
+        # stand-offs against the body: at the bottom and two thirds up
+        for z in (0.06, max(0.25, top * 0.66)):
+            P.box('standoff', (0.03, stand, 0.03), (x, -stand / 2 - 0.005, z), 'steel', bev=0.004, segs=1)
+            P.box('standpad', (0.05, 0.012, 0.05), (x, -stand - 0.008, z), 'rubber', bev=0.003, segs=1)
+            P.bolt((x, 0.016, z), normal=(0, 1, 0), r=0.006, h=0.004)
+    # rungs: from the foot up to below the bend, about 0.28 apart, a flat top with ribs
+    n = max(2, int((top - 0.08) / 0.28) + 1)
+    step = (top - 0.08) / (n - 1) if n > 1 else 0.28
+    for i in range(n):
+        z = i * step
+        P.tube('rung', [(-hw, 0.0, z), (hw, 0.0, z)], 0.0135, 'alu', segs=10)
+        for k in (-1, 0, 1):
+            P.box('rib', (2 * hw - 0.04, 0.004, 0.004), (0.0, 0.006 * k, z + 0.0135), 'alu', bev=0.0, segs=1)
+
+
+def build_ladder(P):
+    """The ladder lying about (a frame's own is made for its roof: ladder@<frame>)."""
+    build_ladder_shape(P, 1.25, 0.26, 0.0, _ladders()['rails'])
+    P.views = [('a', 35, 18), ('b', 120, 10)]
+
+
+def _ladder_for(frame):
+    def build(P):
+        t = _ladders()
+        s = t['frames'][frame]
+        x, z = s['exit']
+        # the roof's own height at its head (the floor holding the exit; a rack's lift is the game's, not the ladder's)
+        top = max(f['top'] for f in s['floors'] if f['along'][0] <= x <= f['along'][1] and f['across'][0] <= z <= f['across'][1])
+        build_ladder_shape(P, top - s['foot'], s['rail'] - s['hook']['to'], s['hook']['dx'], t['rails'], s.get('stand', 0.05))
+        P.views = [('a', 35, 18), ('b', 120, 10)]
+    build.__doc__ = f'The {frame} ladder: as tall as its roof, its hooks over that roof\'s edge (data/ladders.json).'
+    return build
+
+
+# ----------------------------------------------------------------------------------------------- the motorcycle rack (J9e)
+
+MOTO_RACKS_JSON = 'src/core/modcar/data/moto_racks.json'
+
+
+def _moto_racks():
+    """Where the motorcycle stands on each frame's rack (src/core/modcar/data/moto_racks.json): the tray from the mount."""
+    import json
+    with open(MOTO_RACKS_JSON, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def build_moto_rack_shape(P, tx):
+    """A motorcycle rack in a tow hitch's place (docs/V3/plan/growth.md 6.2, J9e): the origin is the hitch mount under
+    the rear bumper; a square receiver bar back from a plate on the cross member to a riser, a channel across the back
+    (along Y) the motorcycle's tyres stand in, its floor 0.11 m up and -tx back (the game's motoTray), braced from the
+    riser, lips either side and a hoop chock at the front tyre's end (-Y: the bike's front to the car's right), a red
+    reflector at each end, and a mast on the car's side of the channel with a padded arm that clamps the bike's frame."""
+    P.ao_distance = 0.05
+    tz = _moto_racks()['tray'][1]
+    half = 1.04
+    rx = tx + 0.08
+    # the plate on the cross member and the receiver bar out back to the riser
+    P.box('plate', (0.012, 0.22, 0.10), (0.0, 0.0, 0.0), 'steel', bev=0.003, segs=1)
+    for y in (-0.07, 0.07):
+        for z in (-0.03, 0.03):
+            P.bolt((-0.006, y, z), normal=(-1, 0, 0), r=0.007, h=0.005)
+    P.box('bar', (-rx, 0.06, 0.06), (rx / 2, 0.0, 0.0), 'steel', bev=0.005, segs=1)
+    P.cyl('pin', 0.007, 0.08, (-0.08, 0.0, 0.0), 'chrome', axis='Y', segs=12)
+    P.box('riser', (0.06, 0.08, 0.12), (rx, 0.0, 0.03), 'steel', bev=0.005, segs=1)
+    # the channel across the back: its floor, its lips, its end stops
+    P.box('channel', (0.14, 2 * half, 0.012), (tx, 0.0, tz - 0.006), 'steel', bev=0.003, segs=1)
+    for sx in (-1, 1):
+        P.box('lip', (0.012, 2 * half, 0.05), (tx + sx * 0.07, 0.0, tz + 0.015), 'steel', bev=0.003, segs=1)
+    P.box('stop', (0.14, 0.012, 0.07), (tx, half, tz + 0.025), 'steel', bev=0.003, segs=1)
+    # (the front tyre's chock: a hoop at the -Y end)
+    P.tube('chock', [(tx - 0.07, -half + 0.02, tz), (tx - 0.07, -half + 0.12, tz + 0.2), (tx + 0.07, -half + 0.12, tz + 0.2),
+                     (tx + 0.07, -half + 0.02, tz)], 0.011, 'steel', segs=8, bend=0.04)
+    # under it: the cross beam on the riser and its braces out to the channel's ends
+    P.box('beam', (0.05, 1.2, 0.05), (tx, 0.0, tz - 0.04), 'steel', bev=0.005, segs=1)
+    for sy in (-1, 1):
+        P.tube('brace', [(rx, 0.0, 0.0), (tx, sy * 0.85, tz - 0.03)], 0.012, 'steel', segs=8)
+        P.box('reflector', (0.012, 0.05, 0.03), (tx - 0.075, sy * (half - 0.05), tz + 0.02), 'lens_tail', bev=0.002, segs=1)
+    # the mast on the car's side of the channel, its arm back over the bike with a padded clamp
+    mx = tx + 0.21
+    P.box('mast_foot', (0.06, 0.10, 0.03), (mx, 0.0, tz + 0.0), 'steel', bev=0.004, segs=1)
+    P.box('mast', (0.04, 0.04, 0.78), (mx, 0.0, tz + 0.39), 'steel', bev=0.004, segs=1)
+    P.tube('arm', [(mx, 0.0, tz + 0.76), (tx + 0.05, 0.0, tz + 0.79)], 0.014, 'steel', segs=10)
+    P.box('clamp', (0.05, 0.10, 0.04), (tx + 0.05, 0.0, tz + 0.76), 'rubber', bev=0.008, segs=2)
+    P.cyl('knob', 0.02, 0.03, (mx + 0.03, 0.0, tz + 0.76), 'trim', axis='X', segs=14)
+    P.views = [('a', 215, 22), ('b', 300, 30)]
+
+
+def build_moto_rack(P):
+    """The motorcycle rack, its tray where most frames have it (and lying about)."""
+    build_moto_rack_shape(P, _moto_racks()['tray'][0])
+
+
+def _moto_rack_for(frame):
+    def build(P):
+        build_moto_rack_shape(P, _moto_racks()['frames'][frame])
+    build.__doc__ = f'The {frame} motorcycle rack: its bar long enough to clear the body behind its bumper (data/moto_racks.json).'
+    return build
+
+
 def build_roof_solar(P):
     """A solar panel on the roof: an alloy frame round dark cells with their grid, four tilt feet, the
     junction box and its cable."""
@@ -775,6 +924,13 @@ PARTS = {
     'roof_spikes': build_roof_spikes,
     'roof_lightbar': build_roof_lightbar,
     'roof_solar': build_roof_solar,
+    'hitch_ball': build_hitch_ball,
+    'moto_rack': build_moto_rack,
+    # (its bar longer on the frames whose body stands out behind their bumper: J9e)
+    **{f'moto_rack@{f}': _moto_rack_for(f) for f in ('goat', 'rhino', 'fox', 'snail')},
+    'ladder': build_ladder,
+    # (each roofed frame's ladder, made for its roof: J9e — the Whale's is its own model's)
+    **{f'ladder@{f}': _ladder_for(f) for f in ('sedan', 'fox', 'pickup', 'van', 'goat', 'wagon', 'buffalo', 'rhino', 'snail', 'elephant', 'camel')},
     'arm_plates': build_arm_plates,
     'arm_planks': build_arm_planks,
     'door_armor_overlay': build_door_armor_overlay,

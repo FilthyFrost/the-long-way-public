@@ -6,17 +6,22 @@
  */
 import type { AxleSuspension, Category, FrameDef, FrameRig, MountDef, Text, V3 } from './types';
 import { CATEGORIES } from './types';
+import { ladderMountOf } from './ladders';
 import sedanMounts from './data/mounts/sedan.json';
 import pickupMounts from './data/mounts/pickup.json';
 import motoMounts from './data/mounts/moto.json';
 import rvMounts from './data/mounts/rv.json';
 import vanMounts from './data/mounts/van.json';
+import turtleMounts from './data/mounts/turtle.json';
+import elephantMounts from './data/mounts/elephant.json';
+import camelMounts from './data/mounts/camel.json';
 import goatMounts from './data/mounts/goat.json';
 import wagonMounts from './data/mounts/wagon.json';
 import foxMounts from './data/mounts/fox.json';
 import snailMounts from './data/mounts/snail.json';
 import buffaloMounts from './data/mounts/buffalo.json';
 import rhinoMounts from './data/mounts/rhino.json';
+import trailerMounts from './data/mounts/trailer.json';
 
 interface MountJson {
   pos: number[];
@@ -49,7 +54,7 @@ interface MountTable {
   needles?: Record<string, { axis: number[]; deg_full: number }>;
   wipers?: Record<string, { axis: number[]; sweep_deg: number }>;
   /** pop-up headlamps: each pod's hinge (game frame) and how far it turns up */
-  popups?: Record<string, { hinge_pos: number[]; hinge_axis: number[]; open_deg: number; mount?: string }>;
+  popups?: Record<string, { hinge_pos: number[]; hinge_axis: number[]; open_deg: number; mount?: string; lift?: number[]; bellows?: string; bellows_pos?: number[]; driver?: string }>;
   /** the axles' parts where the frame wants them other than at the axle's middle: a four-by-four's front differential beside the sump, on its propshaft's side (game z) */
   axles?: { front?: { diff_z?: number }; rear?: { diff_z?: number } };
   rig?: {
@@ -74,7 +79,13 @@ function readRig(t: MountTable): FrameRig | undefined {
   for (const [k, p] of Object.entries(t.panels ?? {})) rig.panels[k] = { axis: v3(p.hinge_axis), openDeg: p.open_deg, glass: p.glass ?? null, mount: p.mount ?? null };
   for (const [k, n] of Object.entries(t.needles ?? {})) rig.needles[k] = { axis: v3(n.axis), fullDeg: n.deg_full };
   for (const [k, w] of Object.entries(t.wipers ?? {})) rig.wipers[k] = { axis: v3(w.axis), sweepDeg: w.sweep_deg };
-  if (t.popups) rig.popups = Object.fromEntries(Object.entries(t.popups).map(([k, p]) => [k, { pivot: v3(p.hinge_pos), axis: v3(p.hinge_axis), openDeg: p.open_deg }]));
+  if (t.popups)
+    rig.popups = Object.fromEntries(
+      Object.entries(t.popups).map(([k, p]) => [
+        k,
+        { pivot: v3(p.hinge_pos), axis: v3(p.hinge_axis), openDeg: p.open_deg, ...(p.lift ? { lift: v3(p.lift) } : {}), ...(p.bellows ? { bellows: p.bellows, bellowsPos: v3(p.bellows_pos ?? p.hinge_pos) } : {}), driver: p.driver === 'roof' ? 'roof' : 'lamps' },
+      ]),
+    );
   return rig;
 }
 
@@ -117,6 +128,9 @@ export const CAT_LABEL: Record<Category, Text> = {
   handbrake: { zh: '手刹', en: 'handbrake' },
   gearLever: { zh: '挡杆', en: 'gear lever' },
   ignition: { zh: '点火开关', en: 'ignition' },
+  hitch: { zh: '挂钩', en: 'tow hitch' },
+  ladder: { zh: '梯子', en: 'ladder' },
+  houseBattery: { zh: '生活电瓶', en: 'house battery' },
 };
 const SEAT_LABEL: Record<string, Text> = {
   seat_driver: { zh: '驾驶座', en: "driver's seat" },
@@ -125,12 +139,12 @@ const SEAT_LABEL: Record<string, Text> = {
   seat_dinette: { zh: '餐桌卡座', en: 'dinette seat' },
 };
 
-/** "左前车轮" / "front left wheel" from the mount id and its category */
-function labelFor(id: string, cat: Category): Text {
+/** "左前车轮" / "front left wheel" from the mount id and its category (a mount to one side: its R is the right, not the rear) */
+function labelFor(id: string, cat: Category, side = 0): Text {
   if (SEAT_LABEL[id]) return SEAT_LABEL[id];
   const c = CAT_LABEL[cat];
   const tail = id.includes('_') ? id.slice(id.lastIndexOf('_') + 1) : '';
-  const s = tail === 'side' ? { zh: '侧', en: 'side' } : SIDE_LABEL[tail];
+  const s = tail === 'side' ? { zh: '侧', en: 'side' } : tail === 'R' && side !== 0 ? { zh: '右', en: 'right' } : SIDE_LABEL[tail];
   return s ? { zh: s.zh + c.zh, en: `${s.en} ${c.en}` } : c;
 }
 
@@ -147,7 +161,7 @@ function readMounts(t: MountTable): MountDef[] {
       pos: { x: m.pos[0], y: cat === 'seat' && m.floor_z !== undefined ? m.floor_z : m.pos[1], z: m.pos[2] },
       quat: [m.quat[0] ?? 0, m.quat[1] ?? 0, m.quat[2] ?? 0, m.quat[3] ?? 1],
       side,
-      label: labelFor(id, cat),
+      label: labelFor(id, cat, side),
       axle: m.axle === 'front' || m.axle === 'rear' ? m.axle : undefined,
       steer: m.steer,
       driven: m.driven,
@@ -324,6 +338,96 @@ export const VAN: FrameDef = {
   rig: readRig(vanMounts as MountTable),
 };
 
+/**
+ * The Turtle (海龟): a camper van (docs/V3/plan/rv.md, R1) on the Loaf's way of building, longer and wider, its nose
+ * round, its roof an elevating shell (POPUP_roof: up only standing, the engine off; one stands up in the room under it,
+ * and it must be down to drive), a galley along the left wall, the bed across the back over the engine. The Loaf's
+ * engine at the back, its running gear; a little heavier for the furniture.
+ */
+export const TURTLE: FrameDef = {
+  id: 'turtle',
+  kind: 'rv',
+  name: { zh: '海龟', en: 'Turtle' },
+  mass: 900,
+  cg: { x: -0.1, y: 0.9, z: 0 },
+  inertia: { roll: 520, yaw: 2100, pitch: 2150 },
+  hubRadius: 0.32,
+  suspension: { front: susp(1.25, 0.2, 0.85, 10.5, 0.3), rear: susp(1.35, 0.2, 0.45, 9, 0.3) },
+  steering: { maxDeg: 36, ackermann: 0.8, rateLow: 1.6, rateHigh: 0.6, smoothTime: 0.11, returnScale: 1.6, gripLimitG: 0.62, slipMarginDeg: 6 },
+  brakeN: 11500,
+  brakeFront: 0.6,
+  cdA: 1.9,
+  finalDrive: 4.86,
+  body: { front: 2.3, rear: -2.42, halfWidth: 0.92, bottom: 0.32, top: 2.12 },
+  enclosed: 1,
+  chase: { dist: 7.2, height: 2.6, look: 1.25 },
+  mounts: withAxles(readMounts(turtleMounts as MountTable), (turtleMounts as MountTable).axles),
+  rig: readRig(turtleMounts as MountTable),
+};
+
+/**
+ * The Old Elephant (老象): a flat-fronted 1986 motorhome (docs/V3/plan/rv.md, R2) on the Loaf's and the Turtle's way of
+ * building, 8.2 m by 2.4: the driver's seat at the front of the room (turn round from it and one is in the living
+ * room), a dinette and a galley along the left wall, the fridge's niche, the entry door and a sofa on the right, the
+ * bedroom across the back over its petrol V8 (a pusher, under the bed), duals at the back. Heavy, slow and thirsty; its
+ * long wheelbase turns wide. Its house battery (生活电瓶) on the floor in the dinette's footwell.
+ */
+export const ELEPHANT: FrameDef = {
+  id: 'elephant',
+  kind: 'rv',
+  name: { zh: '老象', en: 'Old Elephant' },
+  mass: 4500,
+  cg: { x: -0.35, y: 1.25, z: 0 },
+  inertia: { roll: 4750, yaw: 33000, pitch: 32400 },
+  hubRadius: 0.39,
+  // (a coach on soft springs: it leans in the bends and pitches over the bumps, slow to settle)
+  suspension: { front: susp(1.15, 0.2, 0.62, 11, 0.34), rear: susp(1.25, 0.2, 0.45, 10, 0.34) },
+  steering: { maxDeg: 42, ackermann: 0.85, rateLow: 1.3, rateHigh: 0.45, smoothTime: 0.13, returnScale: 1.3, gripLimitG: 0.56, slipMarginDeg: 6 },
+  brakeN: 34000,
+  brakeFront: 0.62,
+  cdA: 5.9,
+  finalDrive: 4.56,
+  body: { front: 4.1, rear: -4.12, halfWidth: 1.2, bottom: 0.5, top: 3.12 },
+  enclosed: 1,
+  chase: { dist: 12.5, height: 3.9, look: 1.9 },
+  mounts: withAxles(readMounts(elephantMounts as MountTable), (elephantMounts as MountTable).axles),
+  rig: readRig(elephantMounts as MountTable),
+  // (its range: four electric hobs on the galley's worktop, drawing on the house battery)
+  fittings: [{ item: 'kit_hob', zone: 'galley', n: 4, yaw: -Math.PI / 2 }],
+};
+
+/**
+ * The Camel (骆驼): a school bus made a motorhome (docs/V3/plan/rv.md, R3) — the Elephant's way of building for its long
+ * box, its hood a shell of its own in front with the engine and the front wheels under it: 9.5 m by 2.4, yellow with its
+ * roof white, black rub rails, a row of windows down both sides, the entry door behind the cowl on the right, the
+ * emergency door in the tail. Found emptied: the floor, the walls, the windows, the driver's seat — the beds, the
+ * cupboards, the stove are found by the road and put in. A diesel six; heavy and slow; its roof a deck for a long rack,
+ * its ladder up the left side at the back.
+ */
+export const CAMEL: FrameDef = {
+  id: 'camel',
+  kind: 'rv',
+  name: { zh: '骆驼', en: 'Camel' },
+  mass: 5200,
+  cg: { x: -0.4, y: 1.15, z: 0 },
+  inertia: { roll: 5400, yaw: 47000, pitch: 46000 },
+  hubRadius: 0.39,
+  // (a bus on leaf springs: it rolls in the bends and pitches over the bumps, slow to settle)
+  suspension: { front: susp(1.25, 0.2, 0.6, 11, 0.36), rear: susp(1.35, 0.2, 0.45, 10, 0.36) },
+  steering: { maxDeg: 44, ackermann: 0.85, rateLow: 1.25, rateHigh: 0.45, smoothTime: 0.14, returnScale: 1.3, gripLimitG: 0.55, slipMarginDeg: 6 },
+  brakeN: 38000,
+  brakeFront: 0.6,
+  cdA: 6.2,
+  finalDrive: 3.9,
+  body: { front: 4.46, rear: -5.07, halfWidth: 1.22, bottom: 0.48, top: 3.05 },
+  enclosed: 1,
+  chase: { dist: 14, height: 4.2, look: 2.0 },
+  mounts: withAxles(readMounts(camelMounts as MountTable), (camelMounts as MountTable).axles),
+  rig: readRig(camelMounts as MountTable),
+  // (emptied: the seat behind the entry door gone with the rest)
+  bare: ['seat_pass'],
+};
+
 export const GOAT: FrameDef = {
   id: 'goat',
   kind: 'offroad',
@@ -457,9 +561,70 @@ export const RHINO: FrameDef = {
   bare: ['seat_rear'],
 };
 
-export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL, BUFFALO, RHINO];
+/**
+ * The Tadpole (蝌蚪): a small single-axle box trailer (docs/V3/plan/growth.md §六 2, J9d) — towed behind a car by the
+ * coupling on its drawbar, its jockey wheel under it when it stands; the Sugar Cube's wheels, a rear door, a box one
+ * fills with things and furniture. Never driven: posed behind what tows it (game/modcar/tow.ts).
+ */
+export const TRAILER: FrameDef = {
+  id: 'trailer',
+  kind: 'trailer',
+  name: { zh: '蝌蚪', en: 'Tadpole' },
+  mass: 280,
+  cg: { x: -0.1, y: 0.95, z: 0 },
+  inertia: { roll: 120, yaw: 380, pitch: 380 },
+  hubRadius: 0.285,
+  suspension: { front: susp(2.2, 0.12, 0.5, 9, 0.35), rear: susp(2.2, 0.12, 0.5, 9, 0.35) },
+  steering: { maxDeg: 0, ackermann: 0, rateLow: 1, rateHigh: 1, smoothTime: 0.1, returnScale: 1, gripLimitG: 0.6, slipMarginDeg: 6 },
+  brakeN: 0,
+  brakeFront: 0.5,
+  cdA: 1.4,
+  finalDrive: 1,
+  body: { front: 0.96, rear: -1.29, halfWidth: 0.82, bottom: 0.5, top: 1.88 },
+  enclosed: 0,
+  chase: { dist: 6.5, height: 2.6, look: 1.0 },
+  towed: { coupler: { x: (trailerMounts as unknown as { coupler: number[] }).coupler[0], y: (trailerMounts as unknown as { coupler: number[] }).coupler[1], z: 0 }, standY: 0.445 },
+  mounts: withAxles(readMounts(trailerMounts as MountTable), (trailerMounts as MountTable).axles),
+  rig: readRig(trailerMounts as MountTable),
+};
+
+/** where the hitch goes on a vehicle: under its rear bumper, on the middle; its ball this far behind and above that (frame model space) */
+export const HITCH_BALL: V3 = { x: -0.2, y: 0.075, z: 0 };
+
+/** a hitch mount on each frame with a rear bumper but the motorcycle's and the trailer's: under the bumper, on its middle */
+function withHitch(f: FrameDef): FrameDef {
+  if (f.balance || f.towed || f.mounts.some((m) => m.cat === 'hitch')) return f;
+  const br = f.mounts.find((m) => m.cat === 'bumperRear');
+  if (!br) return f;
+  const pos = { x: br.pos.x + 0.02, y: Math.max(0.33, br.pos.y - 0.1), z: 0 };
+  return { ...f, mounts: [...f.mounts, { id: 'hitch', cat: 'hitch', pos, quat: [0, 0, 0, 1], side: 0, label: CAT_LABEL.hitch }] };
+}
+
+/**
+ * A ladder mount on each frame with a roof (core/modcar/ladders.ts, data/ladders.json: J9e): up the side where its body
+ * leaves room — behind the last door, clear of the fuel flap — its foot over the wheel arch where it is above one; none
+ * on the motorcycle or the trailer, and none on the Whale, whose own model has its ladder up its back
+ */
+function withLadder(f: FrameDef): FrameDef {
+  const at = ladderMountOf(f.id);
+  if (!at || f.mounts.some((m) => m.cat === 'ladder')) return f;
+  return { ...f, mounts: [...f.mounts, { id: 'ladder', cat: 'ladder', pos: at.pos, quat: [0, 0, 0, 1], side: at.side, label: CAT_LABEL.ladder }] };
+}
+
+export const FRAMES: readonly FrameDef[] = [SEDAN, PICKUP, MOTO, RV, VAN, GOAT, WAGON, FOX, SNAIL, BUFFALO, RHINO, TRAILER, TURTLE, ELEPHANT, CAMEL].map(withHitch).map(withLadder);
 
 const BY_ID = new Map(FRAMES.map((f) => [f.id, f]));
+
+/** each frame's model box (data/mounts/<frame>.json: x along it, z across) */
+const BOXES: Record<string, { min: number[]; max: number[] } | undefined> = Object.fromEntries(
+  [sedanMounts, pickupMounts, motoMounts, rvMounts, vanMounts, goatMounts, wagonMounts, foxMounts, snailMounts, buffaloMounts, rhinoMounts, trailerMounts, turtleMounts, elephantMounts, camelMounts].map((t) => [(t as MountTable).frame, (t as unknown as { bbox?: { min: number[]; max: number[] } }).bbox]),
+);
+
+/** how long and how wide a frame's body is (m; 4.5 × 1.8 for one without its box) */
+export function frameSize(id: string): { length: number; width: number } {
+  const b = BOXES[id];
+  return b ? { length: b.max[0] - b.min[0], width: b.max[2] - b.min[2] } : { length: 4.5, width: 1.8 };
+}
 
 export function frameDef(id: string): FrameDef {
   const f = BY_ID.get(id);
@@ -474,8 +639,13 @@ export function mountOf(frame: FrameDef, id: string): MountDef | undefined {
 /** the hubs in the order the simulation numbers its wheels: front left, front right, rear left, rear right */
 export function hubsOf(frame: FrameDef): { fl: MountDef; fr: MountDef; rl: MountDef; rr: MountDef } {
   const hubs = frame.mounts.filter((m) => m.cat === 'rim');
-  const front = hubs.filter((m) => m.axle === 'front');
+  let front = hubs.filter((m) => m.axle === 'front');
   const rear = hubs.filter((m) => m.axle === 'rear');
+  // (a trailer: its simulation's front corners where its coupling is, wheels never fitted there — it is posed, not driven)
+  if (!front.length && frame.towed && rear.length) {
+    const c = frame.towed.coupler;
+    front = [-1, 1].map((side) => ({ ...rear[0], id: side < 0 ? 'hub_FL' : 'hub_FR', axle: 'front' as const, pos: { x: c.x, y: rear[0].pos.y, z: side * 0.1 }, side: side as -1 | 1, steer: false, driven: false }));
+  }
   if (!front.length || !rear.length) throw new Error(`frame ${frame.id}: needs front and rear hubs`);
   const left = (list: MountDef[]): MountDef => list.find((m) => m.side < 0) ?? list[0];
   const right = (list: MountDef[]): MountDef => list.find((m) => m.side > 0) ?? list[0];

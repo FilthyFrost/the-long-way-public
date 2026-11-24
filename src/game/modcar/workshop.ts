@@ -112,6 +112,12 @@ export interface WorkshopHost {
   cardOf(h: NonNullable<Held>): ItemCard;
   /** a thing was made at the bench (the tutorial's step) */
   crafted(recipe: string): void;
+  /** a thing went into the recycler (the start's board counts its junk: docs/V3/plan/growth.md §一 1) */
+  recycled?(h: NonNullable<Held>): void;
+  /** why a thing must not go into the recycler (a part the project car still has to have), or null */
+  keep?(h: NonNullable<Held>): Text | null;
+  /** why, or what happened, in a few words over the hotbar for a moment (the player's flashWhy: docs/V3/plan/prompts.md §五) */
+  flash(words: string): void;
 }
 
 /** what is kept of the workshop in the save */
@@ -517,9 +523,11 @@ export class Workshop {
       },
       radius: 0.2,
       get word(): Text {
-        if (self.gen.on) return text('关掉发电机', 'Stop the generator');
-        const f = generatorFuel(self.gen);
-        return f.empty ? text('拉启动绳（油箱空了）', 'Pull the starter rope (no fuel)') : text('拉启动绳', 'Pull the starter rope');
+        return self.gen.on ? text('关掉发电机', 'Stop the generator') : text('拉启动绳', 'Pull the starter rope');
+      },
+      // (its tank empty: pulling would do nothing — said when pressed)
+      get why(): Text | null {
+        return !self.gen.on && generatorFuel(self.gen).empty ? text('没油了', 'No fuel') : null;
       },
       get holdS() {
         return self.gen.on ? undefined : 0.6;
@@ -551,7 +559,10 @@ export class Workshop {
       },
       radius: 0.12,
       get word(): Text {
-        return self.gen.on ? text('关掉发电机', 'Stop the generator') : text('开关 · 发电机没在转：拉启动绳', 'Switch · the generator is not running: pull its rope');
+        return self.gen.on ? text('关掉发电机', 'Stop the generator') : text('开关', 'Switch');
+      },
+      get why(): Text | null {
+        return self.gen.on ? null : text('先拉启动绳', 'Pull the rope first');
       },
       get card() {
         return self.genCard();
@@ -576,7 +587,11 @@ export class Workshop {
       },
       radius: 0.42,
       get word(): Text {
-        return self.power ? text('回收台 · 拿着东西对着进料口按 E', 'Recycler · hold something to the hopper, E') : text('回收台没电：先去开门外的发电机', 'The recycler has no power: start the generator outside');
+        return text('回收', 'Recycle');
+      },
+      // (empty hands: nothing to put in — said when pressed)
+      get why(): Text | null {
+        return self.power ? text('拿着东西来回收', 'Bring something') : text('没电', 'No power');
       },
       get card() {
         return self.recyclerCard();
@@ -584,15 +599,17 @@ export class Workshop {
       take: (h) => {
         const y = salvageOfHeld(h);
         const s = salvageText(y);
-        if (!s) return { ok: false, word: text(`${heldName(h)}回收不了`, 'That cannot be recycled') };
-        if (!this.power) return { ok: false, word: text('回收台没电：先去开门外的发电机', 'No power: start the generator outside') };
+        if (!s) return { ok: false, word: text('回收不了', 'That cannot be recycled') };
+        const keep = this.host.keep?.(h);
+        if (keep) return { ok: false, word: keep };
+        if (!this.power) return { ok: false, word: text('没电', 'No power') };
         // (a thing with things in it goes in with them: what they give is counted in, and said)
         const inside = h.kind === 'item' ? (h.item.inside?.length ?? 0) : 0;
-        return { ok: true, word: text(`回收 <b>${heldName(h)}</b>${inside ? `（连里面的 ${inside} 样）` : ''} · ${s}`, `Recycle${inside ? ` with the ${inside} in it` : ''} · ${s}`) };
+        void inside;
+        return { ok: true, word: text(`回收 <b>${heldName(h)}</b>`, `Recycle the ${heldName(h)}`) };
       },
       useWith: (h) => this.recycle(h),
       use: () => {
-        this.host.ui.say(this.power ? '拿着要回收的东西对着进料口，按 E 丢进去。' : '回收台没电：先去门外，把发电机拉着。', 2.6);
         if (!this.power) this.host.sound('no_power', 0.7);
       },
     });
@@ -611,14 +628,16 @@ export class Workshop {
       },
       radius: 0.5,
       get word(): Text {
-        return self.power ? text('打开制作台', 'Open the crafting bench') : text('制作台没电：先去开门外的发电机', 'The bench has no power: start the generator outside');
+        return text('打开制作台', 'Open the crafting bench');
+      },
+      get why(): Text | null {
+        return self.power ? null : text('没电', 'No power');
       },
       get card() {
         return self.benchCard();
       },
       use: () => {
         if (!this.power) {
-          this.host.ui.say('制作台没电：先去门外，把发电机拉着。', 2.6);
           this.host.sound('no_power', 0.7);
           return;
         }
@@ -668,15 +687,15 @@ export class Workshop {
     this.cordBack = 0.25;
     if (r === 'caught') {
       this.host.sound('power_on');
-      this.host.ui.say('发电机着了，车库来电了。', 2.4);
+      this.host.ui.say('来电了', 2);
     } else if (r === 'cough') {
       this.crankT = 0.5;
       this.host.sound('gen_cough');
       const f = generatorFuel(this.gen);
-      this.host.ui.say(`${f.why?.zh ?? '着不了'}：把油抽出来，换柴油。`, 3);
+      this.host.flash(f.why?.zh ?? '着不了');
     } else {
       this.crankT = 0.5;
-      this.host.ui.say(generatorFuel(this.gen).empty ? '油箱是空的：拿柴油桶来，对着油箱口按住 E 加油。' : '没着，再拉一下。', 2.4);
+      this.host.flash(generatorFuel(this.gen).empty ? '没油了' : '没着');
     }
   }
 
@@ -684,7 +703,7 @@ export class Workshop {
     stopGenerator(this.gen);
     this.host.sound('gen_switch');
     this.host.sound('power_off');
-    this.host.ui.say('发电机关了，车库停电了。', 2);
+    this.host.ui.say('停电了', 2);
   }
 
   private genCard(): ItemCard {
@@ -698,11 +717,11 @@ export class Workshop {
       name: '旧发电机',
       stars: 1,
       badges: [],
-      blurb: '门外的老柴油发电机：拉一下启动绳就着，给车库的灯、充电器、回收台和制作台供电。',
+      blurb: '门外的老柴油发电机，给车库供电。',
       rows: [
         { value: g.on ? '在转' : '停着', label: '现在', tone: g.on ? 'good' : undefined },
         ...(f.runs ? [{ value: left >= 3600 ? `${(left / 3600).toFixed(1)} 小时` : `${Math.round(left / 60)} 分钟`, label: g.on ? '还能转' : '油够转' }] : []),
-        { value: `${(this.spec.burn * 60).toFixed(2)} L/分钟`, label: '耗油（不管带多少东西）' },
+        { value: `${(this.spec.burn * 60).toFixed(2)} L/分钟`, label: '耗油' },
       ],
       bars: [fuelBar('油箱', g.tank.fuel, g.tank.capacity)],
       notes: [],
@@ -710,7 +729,7 @@ export class Workshop {
     };
     if (f.why && !g.on) card.notes.push({ text: f.why.zh, tone: 'warn' });
     if (f.runs && f.burnK > 1) card.notes.push({ text: '油里混了汽油：费油', tone: 'warn' });
-    card.notes.push({ text: this.capOpen ? '油箱盖拧开了：拿柴油桶对着油箱口按住 E' : '加油：空手拧开油箱盖，再拿柴油桶对着它', tone: 'info' });
+    if (this.capOpen) card.notes.push({ text: '油箱盖开着', tone: 'info' });
     return card;
   }
 
@@ -723,14 +742,14 @@ export class Workshop {
       name: '回收台',
       stars: 0,
       badges: [],
-      blurb: '把东西丢进进料口，两根刀辊绞碎了，换成材料：废料、有机物、化学品。装着液体的，每半升多给一份有机物。',
+      blurb: '把东西绞碎，换成材料。',
       rows: [
         { value: this.power ? '有电' : '没电', label: '现在', tone: this.power ? 'good' : 'bad' },
-        ...MATERIAL_IDS.map((m) => ({ value: String(s[m]), label: `${MATERIALS[m].name.zh}（现有）` })),
+        ...MATERIAL_IDS.map((m) => ({ value: String(s[m]), label: MATERIALS[m].name.zh })),
         ...(this.going.length ? [{ value: `${this.going.length} 件`, label: '正在绞' }] : []),
       ],
       bars: [],
-      notes: this.power ? [{ text: '拿着东西对着进料口按 E，或者直接放进去', tone: 'info' }] : [{ text: '没电：先去门外把发电机拉着', tone: 'warn' }],
+      notes: this.power ? [] : [{ text: '没电', tone: 'warn' }],
       foot: {},
     };
   }
@@ -744,10 +763,10 @@ export class Workshop {
       name: '制作台',
       stars: 0,
       badges: [],
-      blurb: '按 E 打开配方：材料够就能做。做的时候在铁砧上敲几下锤子，做好的东西就摆在台面上。',
-      rows: [{ value: this.power ? '有电' : '没电', label: '现在', tone: this.power ? 'good' : 'bad' }, ...MATERIAL_IDS.map((m) => ({ value: String(s[m]), label: `${MATERIALS[m].name.zh}（现有）` }))],
+      blurb: '用材料做东西。',
+      rows: [{ value: this.power ? '有电' : '没电', label: '现在', tone: this.power ? 'good' : 'bad' }, ...MATERIAL_IDS.map((m) => ({ value: String(s[m]), label: MATERIALS[m].name.zh }))],
       bars: [],
-      notes: this.power ? [] : [{ text: '没电：先去门外把发电机拉着', tone: 'warn' }],
+      notes: this.power ? [] : [{ text: '没电', tone: 'warn' }],
       foot: {},
     };
   }
@@ -761,6 +780,7 @@ export class Workshop {
    */
   recycle(h: NonNullable<Held>, from?: THREE.Vector3): void {
     const y = salvageOfHeld(h);
+    this.host.recycled?.(h);
     const n = ++this.nIn;
     const owner = `ws:in:${n}`;
     const cam = this.host.camera;
@@ -968,7 +988,7 @@ export class Workshop {
     const s = this.host.stock;
     const short = shortOf(s, r.cost);
     if (short) {
-      this.host.ui.say(`材料不够：还差 ${short.n} ${MATERIALS[short.mat].name.zh}`, 2.4);
+      this.host.flash(`还差 ${short.n} ${MATERIALS[short.mat].name.zh}`);
       return;
     }
     spend(s, r.cost);
@@ -1190,7 +1210,7 @@ export class Workshop {
       this.host.ui.say('发电机没油了，车库停电了。', 3);
     } else if (ev === 'choked') {
       this.host.sound('gen_cough');
-      this.host.ui.say('发电机熄火了：油不对。', 3);
+      this.host.ui.say('发电机熄火了', 2.4);
     }
     void was;
     this.stepGenerator(dt, eye);

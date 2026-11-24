@@ -43,7 +43,7 @@ export class CarMaterials {
   private framed = false;
   private lit = '';
   /** the vehicle's shape for the reflections: its painted height and its cabin (measured, see setShape) */
-  private shape: { bodyHeight: number; cabin: THREE.Box3 | null } | null = null;
+  private shape: { bodyHeight: number; cabin: THREE.Box3 | null; boot?: THREE.Box3 | null } | null = null;
 
   /** the look of an owner, made on first use and brought in line with `of` */
   look(owner: string, of: LookOf): CarLook {
@@ -56,7 +56,9 @@ export class CarMaterials {
       if (this.shape) {
         look.setBodyHeight(this.shape.bodyHeight);
         look.setCabin(this.shape.cabin);
+        look.setBoot(this.shape.boot ?? null);
       }
+      look.setShowHere(this.showHere);
       o = { look, paint: of.paint, paint2: of.paint2 };
       this.owned.set(owner, o);
       return look;
@@ -132,12 +134,26 @@ export class CarMaterials {
     return this.shape?.cabin ?? null;
   }
 
-  setShape(shape: { bodyHeight: number; cabin: THREE.Box3 | null }): void {
+  /** the boot's box in the vehicle's model frame (null: none, or not yet) */
+  get boot(): THREE.Box3 | null {
+    return this.shape?.boot ?? null;
+  }
+
+  setShape(shape: { bodyHeight: number; cabin: THREE.Box3 | null; boot?: THREE.Box3 | null }): void {
     this.shape = shape;
     for (const o of this.owned.values()) {
       o.look.setBodyHeight(shape.bodyHeight);
       o.look.setCabin(shape.cabin);
+      o.look.setBoot(shape.boot ?? null);
     }
+  }
+
+  /** the dirt left lit on every look of this vehicle (it is the one looked at with a cleaning tool: docs/V3/plan/hands.md §五) */
+  private showHere = false;
+  setShowHere(on: boolean): void {
+    if (on === this.showHere) return;
+    this.showHere = on;
+    for (const o of this.owned.values()) o.look.setShowHere(on);
   }
 
   /** the frame the dirt is measured in (the vehicle's model space: origin on the ground) */

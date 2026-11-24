@@ -38,7 +38,10 @@ export type Category =
   | 'radio'
   | 'handbrake'
   | 'gearLever'
-  | 'ignition';
+  | 'ignition'
+  | 'hitch'
+  | 'ladder'
+  | 'houseBattery';
 
 export const CATEGORIES: readonly Category[] = [
   'engine',
@@ -70,6 +73,9 @@ export const CATEGORIES: readonly Category[] = [
   'handbrake',
   'gearLever',
   'ignition',
+  'hitch',
+  'ladder',
+  'houseBattery',
 ];
 
 /** categories that sit on another part rather than on the frame: the tyre on a rim, the turbo on an engine */
@@ -79,7 +85,7 @@ export const SUB_CATEGORIES: Readonly<Partial<Record<Category, Category>>> = { t
 export const PANEL_CATEGORIES: ReadonlySet<Category> = new Set(['door', 'hood', 'trunk']);
 
 export type FuelType = 'petrol' | 'diesel' | 'mix2t';
-export type FrameKind = 'sedan' | 'pickup' | 'moto' | 'rv' | 'van' | 'offroad' | 'wagon' | 'sports' | 'truck';
+export type FrameKind = 'sedan' | 'pickup' | 'moto' | 'rv' | 'van' | 'offroad' | 'wagon' | 'sports' | 'truck' | 'trailer';
 
 export interface V3 {
   x: number;
@@ -348,6 +354,13 @@ export interface PartDef {
   lamp?: LampStats;
   mirror?: MirrorStats;
   roof?: RoofStats;
+  /**
+   * on the tow hitch's mount: a hitch ball, the heaviest trailer it takes (kg); a motorcycle rack (J9e) tows none and
+   * carries a motorcycle as heavy as motoKg across the back
+   */
+  hitch?: { maxKg: number; motoKg?: number };
+  /** a ladder up to the roof (J9e): the most it bears, one climbing it with what is in the hands (kg) */
+  ladder?: { maxKg: number };
   armor?: ArmorStats;
   horn?: HornStats;
   radio?: RadioStats;
@@ -443,12 +456,23 @@ export interface FrameDef {
   enclosed: number;
   /** single-track vehicle (the motorcycle) */
   balance?: boolean;
+  /**
+   * a trailer (docs/V3/plan/growth.md §六 2): no engine, no driver; towed by its coupler (frame model space: where the
+   * tow vehicle's hitch ball goes), standing on its jockey wheel when it is not (the coupler this high off the ground)
+   */
+  towed?: { coupler: V3; standY: number };
   chase: { dist: number; height: number; look: number };
   mounts: MountDef[];
   /** how the frame model's moving pieces move (from its mounts JSON; absent for a placeholder) */
   rig?: FrameRig;
   /** mounts the works leave empty (a seat in a pickup's bed is the owner's idea) */
   bare?: string[];
+  /**
+   * what it comes with in it, found by the road (docs/V3/plan/rv.md: the Old Elephant's four hobs on its galley's worktop):
+   * so many of a kind of thing, in a place for things of its own (cargo.ts zone id), spread along it, turned by yaw
+   * (rad about up: its front, +x, to +z at -π/2 — towards the aisle from a galley on the left)
+   */
+  fittings?: readonly { readonly item: string; readonly zone: string; readonly n: number; readonly yaw?: number }[];
 }
 
 /**
@@ -470,8 +494,13 @@ export interface FrameRig {
   swingarm?: { pivot: [number, number, number]; axis: [number, number, number]; length: number };
   /** the side STAND: folded by foldDeg about its axis while ridden */
   stand?: { pivot: [number, number, number]; axis: [number, number, number]; foldDeg: number };
-  /** pop-up headlamps, by object name (POPUP_L, POPUP_R): each pod turns up openDeg about its hinge while the lamps are on, with what rides on it */
-  popups?: Record<string, { pivot: [number, number, number]; axis: [number, number, number]; openDeg: number }>;
+  /**
+   * pop-up headlamps, by object name (POPUP_L, POPUP_R): each pod turns up openDeg about its hinge while the lamps are
+   * on, with what rides on it. An elevating roof (the Turtle's POPUP_roof): lifted straight up by `lift` instead (game
+   * frame), its bellows (an object of its own) stretched up from the lip under it, driven by the roof's own state (the
+   * camper system's: CarView.roofUp), not the lamps.
+   */
+  popups?: Record<string, { pivot: [number, number, number]; axis: [number, number, number]; openDeg: number; lift?: [number, number, number]; bellows?: string; bellowsPos?: [number, number, number]; driver?: 'lamps' | 'roof' }>;
 }
 
 // ------------------------------------------------------------------ the things in the world
@@ -483,6 +512,8 @@ export interface Fluids {
   oilL?: number;
   /** radiator coolant (L) */
   coolantL?: number;
+  /** how much of what is in the radiator is coolant rather than water (0 … 1; absent: water) */
+  coolantMix?: number;
   /** battery charge 0…1 */
   charge?: number;
 }
@@ -507,8 +538,14 @@ export interface PartInstance {
   rust: number;
   /** caked grime and scale over the dirt (a barn find, a wreck): the scraper's (docs/MODCAR.md §15) */
   crust?: number;
+  /** how much of its paint's fading a polisher has taken off (0 … 1: docs/ND/PLAN.md; a grinder takes it off again) */
+  polish?: number;
   /** being cleaned: a grime mask is kept for it (grime.ts), what is left texel by texel */
   grime?: boolean;
+  /** sprayed: a coat of paint is kept for it (coat.ts), where the spray went texel by texel */
+  coat?: boolean;
+  /** painted over rust never ground off: how much (0…1) and when (ms since 1970): it comes back through with the days */
+  coatRust?: [number, number];
   fluids: Fluids;
   /** tyres: tread left 0…1, and a puncture */
   tread?: number;
@@ -532,8 +569,13 @@ export interface Build {
   rust: number;
   /** caked grime and scale on the body (its windows too): the scraper's */
   crust?: number;
+  /** how much of the body's paint fading a polisher has taken off (0 … 1: docs/ND/PLAN.md) */
+  polish?: number;
   /** the body is being cleaned: a grime mask is kept for it */
   grime?: boolean;
+  /** the body sprayed: a coat of paint is kept for it (coat.ts) */
+  coat?: boolean;
+  coatRust?: [number, number];
   /** the dust the wipers took off their arcs of the windscreen, sweeping the rain (the arcs show that much less of it) */
   wiped?: number;
   cond: number;

@@ -81,6 +81,14 @@ try {
         sim(0.1);
         return word();
       },
+      /** the left button held so long (s), then let go: a pick-up (docs/V3/plan/growth.md J1) */
+      holdL(seconds = 1.0) {
+        g.player.press();
+        for (let t = 0; t < seconds; t += 1 / 60) g.step(1 / 60, 1);
+        g.player.release();
+        for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
+        return word();
+      },
       tapF() {
         g.rightButton = true;
         for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
@@ -133,11 +141,11 @@ try {
   // ---- 1. the steamer: refused at a bare burner; on a pot of water
   await k('empty');
   await k('aim', 'kit_stove', TOP);
-  ok((await k('tapF')).startsWith('top|') && (await k('held')) === 'item:kit_pan', 'F on the pan: taken off');
+  ok((await k('holdL')).startsWith('top|') && (await k('held')) === 'item:kit_pan', 'the left button held on the pan: taken off');
   await k('empty');
   await k('hold', 'kit_steamer');
   const refused = await k('aim', 'kit_stove', TOP);
-  ok(refused === 'top|蒸笼要架在汤锅上：先在炉头上放一口空汤锅（锅里是水）' && !(await k('ghosts')).includes('kit_steamer'), `a steamer at the bare burner: ${refused}`);
+  ok(refused === 'top|先放汤锅' && !(await k('ghosts')).includes('kit_steamer'), `a steamer at the bare burner: ${refused}`);
   await k('empty');
   await k('hold', 'kit_pot');
   await k('aim', 'kit_stove', TOP);
@@ -146,7 +154,7 @@ try {
   await k('hold', 'kit_steamer');
   const onPot = await k('aim', 'kit_stove', TOP);
   const g1 = await k('ghosts');
-  ok(onPot === 'top|把<b>蒸笼</b>架到汤锅上' && g1.includes('pot:kit_steamer*'), `the steamer at the pot: ${onPot} · ${g1}`);
+  ok(onPot === 'top|架上蒸笼' && g1.includes('pot:kit_steamer*'), `the steamer at the pot: ${onPot} · ${g1}`);
   await shot('k5_1_steamer_ghost.png', 8);
   await k('press');
   const st = await k('kit', 'kit_stove');
@@ -175,12 +183,12 @@ try {
   await k('aim', 'kit_stove', KNOB);
   await k('press');
   await k('aim', 'kit_stove', TOP);
-  await k('tapF');
-  ok((await k('held')) === 'item:kit_steamer', 'F: the steamer off the pot');
+  await k('holdL');
+  ok((await k('held')) === 'item:kit_steamer', 'held: the steamer off the pot');
   await k('empty');
   await k('aim', 'kit_stove', TOP);
-  await k('tapF');
-  ok((await k('held')) === 'item:kit_pot', 'F: the pot off the burner');
+  await k('holdL');
+  ok((await k('held')) === 'item:kit_pot', 'held: the pot off the burner');
   await k('empty');
   await k('hold', 'kit_kettle');
   await k('aim', 'kit_stove', TOP);

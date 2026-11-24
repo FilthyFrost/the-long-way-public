@@ -43,8 +43,8 @@ export const ITEM_CATS: Record<ItemCat, Text> = {
   crate: { zh: '材料箱', en: 'Boxes of components' },
 };
 
-/** what one drinks: water quenches, alcohol makes one drunk, the energy drink makes one quick, coffee warms and wakes one up (and quenches a little) */
-export type DrinkLiquid = 'water' | 'alcohol' | 'energy' | 'coffee';
+/** what one drinks: water quenches, alcohol makes one drunk, the energy drink makes one quick, coffee warms and wakes one up (and quenches a little), milk feeds (and quenches a little: docs/ND/PLAN.md) */
+export type DrinkLiquid = 'water' | 'alcohol' | 'energy' | 'coffee' | 'milk';
 
 /** effects that last a while (the vitals: docs/MODCAR.md §13) */
 export type EffectId = 'warm1' | 'warm2' | 'sick1' | 'sick2';
@@ -56,7 +56,13 @@ export type WearSlot = 'hat' | 'jacket' | 'pants' | 'shoes' | 'gloves';
 export type ItemCatId = ItemCat | (string & {});
 
 /** a system's own state on one thing (JSON only: rounds in a magazine, a blueprint's page): systems add their fields by declaration merging */
-export interface ItemState {}
+export interface ItemState {
+  /**
+   * a box that keeps things by power (a fridge, docs/V3/plan/rv.md R2) riding in a vehicle with no charge to draw on:
+   * what is in it goes off as in the open air until there is again (boxDecay; the power module sets it)
+   */
+  unpowered?: boolean;
+}
 
 export interface ItemDef {
   readonly id: string;
@@ -70,6 +76,12 @@ export interface ItemDef {
   readonly mass: number;
   /** in one hand (small), in both hands (medium), in both arms, slowly (large) */
   readonly carry: 'small' | 'medium' | 'large';
+  /**
+   * How one walks with it in the hands against empty hands, whatever its `carry` (docs/ND/PLAN.md: Nomad Drive's
+   * furniture is carried as fast, its heaviest pieces a tenth slower and not run with); absent: as `carry` says
+   * (a large thing slowly, not run or jumped with)
+   */
+  readonly carryWalk?: { readonly share: number; readonly run: boolean };
   /** what the recycler gives for it (a liquid in it adds organics on top) */
   readonly salvage: Partial<Record<Material, number>>;
   /** its model (default its id) and the colours its paint and paint_b materials take */
@@ -79,14 +91,15 @@ export interface ItemDef {
   /** its paint's gloss, as a share of a car's clear coat (absent: all of it — a tin, a bottle; a tomato some, a loaf of bread hardly any) */
   readonly matte?: number;
   /** eaten whole (food, pills): food points, health points, over `sec`; an effect after */
-  readonly eat?: { food: number; hp: number; sec: number; effect?: EffectId };
+  readonly eat?: { food: number; hp: number; sec: number; effect?: EffectId; water?: number };
   /**
    * drunk from while the button is held: what it holds when full, at what rate (L/s); `empty`: it is made and
    * found empty, filled by the player (a coffee pot: docs/V3/nodes/M2-rv.md)
    */
   readonly drink?: { litres: number; liquid: DrinkLiquid; rate: number; empty?: boolean };
   /** medicine: health at once, or a warming; a side effect with its chance */
-  readonly heal?: { hp: number; warm?: number; side?: number };
+  /** medicine: health at once, a warming, a side effect's chance; cure: being ill is over; treat: being hurt is over */
+  readonly heal?: { hp: number; warm?: number; side?: number; cure?: true; treat?: true };
   /** a first-aid kit: used up when one would die, one gets up again with this much health */
   readonly revive?: { hp: number };
   readonly wear?: { slot: WearSlot; warmth: number };
@@ -179,6 +192,7 @@ const PILL = 2.2;
 // ------------------------------------------------------------------ food (eaten whole, over five seconds)
 
 I('food_chips', 'food', '虾片', 'Prawn crackers', 1, 0.15, { organics: 5 }, '一袋虾片，嘎嘣脆，垫垫肚子。', { paint: 0xe07b39, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT } });
+I('food_biscuits', 'food', '苏打饼干', 'Soda crackers', 1, 0.2, { organics: 5 }, '一包苏打饼干，干巴巴的，管饱。', { model: 'food_chips', paint: 0xe2cf98, paint2: 0x3e6ea8, eat: { food: 25, hp: 2, sec: EAT } });
 I('food_chips_ginger', 'food', '姜汁虾片', 'Ginger prawn crackers', 3, 0.15, { organics: 14 }, '加了老姜的虾片，吃完从胃里暖到手指头。', { model: 'food_chips', paint: 0xb85c3e, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT, effect: 'warm1' } });
 I('food_chips_ginger_xl', 'food', '姜汁虾片（大包）', 'Ginger prawn crackers, family bag', 4, 0.3, { organics: 24 }, '一大包姜汁虾片，够吃一路，暖得更久。', { paint: 0x9e3b2f, paint2: 0xf0c23c, eat: { food: 40, hp: 4, sec: EAT, effect: 'warm2' } });
 I('food_licorice', 'food', '甘草糖', 'Liquorice twists', 2, 0.2, { organics: 7 }, '黑乎乎的甘草糖，嚼起来没完没了，挺顶饿。', { paint: 0x2f3236, paint2: 0xc8323a, eat: { food: 40, hp: 4, sec: EAT } });
@@ -200,15 +214,18 @@ I('drink_energy', 'drink', '能量饮料', 'Energy drink', 3, 0.05, { organics: 
 
 // ------------------------------------------------------------------ medicine
 
-I('med_pain_1', 'med', '过期止痛片', 'Old painkillers', 1, 0.1, { organics: 10 }, '过期了，药效打了折，总比没有强。', { model: 'med_pain', paint: 0xd8c29a, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 20 } });
-I('med_pain_2', 'med', '止痛片', 'Painkillers', 3, 0.1, { organics: 16 }, '一板止痛片，吃两粒，伤口就不那么疼了。', { model: 'med_pain', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 35 } });
-I('med_pain_3', 'med', '特效止痛片', 'Strong painkillers', 5, 0.1, { organics: 28 }, '医院里才有的特效药，一吃见效。', { model: 'med_pain', paint: 0x2e4a6b, paint2: 0xf0c23c, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 50 } });
+I('med_pain_1', 'med', '过期止痛片', 'Old painkillers', 1, 0.1, { organics: 10 }, '过期了，药效打了折，总比没有强。', { model: 'med_pain', paint: 0xd8c29a, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 20, treat: true } });
+I('med_pain_2', 'med', '止痛片', 'Painkillers', 3, 0.1, { organics: 16 }, '一板止痛片，吃两粒，伤口就不那么疼了。', { model: 'med_pain', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 35, treat: true } });
+I('med_pain_3', 'med', '特效止痛片', 'Strong painkillers', 5, 0.1, { organics: 28 }, '医院里才有的特效药，一吃见效。', { model: 'med_pain', paint: 0x2e4a6b, paint2: 0xf0c23c, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 50, treat: true } });
 I('med_warm_1', 'med', '暖身丸', 'Warming pills', 1, 0.1, { organics: 8 }, '吃了身上一下就暖了。小作坊做的，偶尔会上头。', { model: 'med_warm', paint: 0xe07b39, paint2: 0xede3c8, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.5 } });
 I('med_warm_2', 'med', '好暖身丸', 'Good warming pills', 3, 0.15, { organics: 12 }, '药厂出的暖身丸，暖得快，副作用少。', { model: 'med_warm', paint: 0xd4a53b, paint2: 0xede3c8, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.25 } });
 I('med_warm_3', 'med', '特效暖身丸', 'Strong warming pills', 5, 0.15, { organics: 15 }, '登山队用的暖身丸，几乎没有副作用。', { model: 'med_warm', paint: 0x9e3b2f, paint2: 0xf0c23c, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.05 } });
-I('med_kit_1', 'med', '旧急救包', 'Old first-aid kit', 2, 1.5, { organics: 24 }, '带在身上：倒下时会自己用上，让你缓过来。旧的，东西不全。', { model: 'med_kit', paint: 0xb9915f, paint2: 0xf7f7f2, revive: { hp: 10 } });
-I('med_kit_2', 'med', '急救包', 'First-aid kit', 4, 1.5, { organics: 30 }, '带在身上：倒下时会自己用上。东西齐全，缓得更快。', { model: 'med_kit', paint: 0xc8323a, paint2: 0xf7f7f2, revive: { hp: 25 } });
-I('med_kit_3', 'med', '好急救包', 'Good first-aid kit', 5, 1.5, { organics: 36 }, '专业的急救包，倒下了也能马上站起来接着走。', { model: 'med_kit', paint: 0xe07b39, paint2: 0xf7f7f2, revive: { hp: 50 } });
+I('med_kit_1', 'med', '旧急救箱', 'Old first-aid box', 2, 1.5, { organics: 24 }, '带在身上：倒下时会自己用上，让你缓过来。旧的，东西不全。', { model: 'med_kit', paint: 0xb9915f, paint2: 0xf7f7f2, revive: { hp: 10 } });
+I('med_kit_2', 'med', '急救箱', 'First-aid box', 4, 1.5, { organics: 30 }, '带在身上：倒下时会自己用上。东西齐全，缓得更快。', { model: 'med_kit', paint: 0xc8323a, paint2: 0xf7f7f2, revive: { hp: 25 } });
+I('med_kit_3', 'med', '好急救箱', 'Good first-aid box', 5, 1.5, { organics: 36 }, '专业的急救箱，倒下了也能马上站起来接着走。', { model: 'med_kit', paint: 0xe07b39, paint2: 0xf7f7f2, revive: { hp: 50 } });
+// (docs/V3/plan/growth.md §四: the stomach pills, and the first-aid pack used at once)
+I('med_stomach', 'med', '肠胃药', 'Stomach pills', 2, 0.1, { organics: 10 }, '吃坏了肚子就吃两粒，一会儿就好。', { model: 'med_pain', paint: 0x6fae7a, paint2: 0xf7f7f2, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, cure: true } });
+I('med_bandage', 'med', '急救包', 'First-aid pack', 4, 0.4, { organics: 18 }, '纱布、药水和绷带：摔了撞了，包扎好就不瘸了。', { model: 'med_kit', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 50, treat: true } });
 
 // ------------------------------------------------------------------ clothes (each slot's warmth lowers the cold one feels)
 
@@ -244,7 +261,7 @@ I('lamp_std', 'lamp', '头灯', 'Head lamp', 3, 0.4, { scrap: 10 }, '戴在头�
 I('hammer_1', 'gear', '旧大锤', 'Old sledgehammer', 1, 14, { scrap: 6 }, '砸开钉死的木板和锁着的门。木柄有裂，砸三下就散。', { model: 'hammer', paint: 0xb9915f, paint2: 0x6f7a82, carry: 'medium', gear: { kind: 'hammer', uses: 3 } });
 I('hammer_2', 'gear', '大锤', 'Sledgehammer', 3, 15, { scrap: 14 }, '砸开钉死的木板和锁着的门，能砸十下。', { model: 'hammer', paint: 0x9e3b2f, paint2: 0x6f7a82, carry: 'medium', gear: { kind: 'hammer', uses: 10 } });
 I('hammer_3', 'gear', '好大锤', 'Fine sledgehammer', 5, 16, { scrap: 15 }, '玻璃钢柄的大锤，能砸二十五下。', { model: 'hammer', paint: 0xf0c23c, paint2: 0x2f3236, carry: 'medium', gear: { kind: 'hammer', uses: 25 } });
-I('repair_1', 'gear', '旧修理包', 'Old repair kit', 1, 3.2, { scrap: 10 }, '对着坏了的零件按住，慢慢修好它。东西不多，修不了几件。', { model: 'repair', paint: 0x6f7a82, paint2: 0xd4a53b, gear: { kind: 'repair', points: 300, rate: 50 } });
+I('repair_1', 'gear', '旧修理包', 'Old repair kit', 1, 3.2, { scrap: 10 }, '慢慢修好坏了的零件。东西不多，修不了几件。', { model: 'repair', paint: 0x6f7a82, paint2: 0xd4a53b, gear: { kind: 'repair', points: 300, rate: 50 } });
 I('repair_2', 'gear', '修理包', 'Repair kit', 3, 3, { scrap: 20 }, '一箱像样的工具和配件，修得快，修得多。', { model: 'repair', paint: 0xc8323a, paint2: 0x2f3236, gear: { kind: 'repair', points: 1000, rate: 60 } });
 I('repair_3', 'gear', '好修理包', 'Fine repair kit', 5, 2.6, { scrap: 30 }, '赛车队的修理包，什么都修得好。', { model: 'repair', paint: 0x2e4a6b, paint2: 0xf0c23c, gear: { kind: 'repair', points: 2500, rate: 100 } });
 I('flare_gun', 'gear', '信号枪', 'Flare gun', 5, 1, { scrap: 35 }, '只有一发。打上天，会有人看见的。', { paint: 0xe07b39, paint2: 0x2f3236, gear: { kind: 'flare', uses: 1 } });
@@ -267,7 +284,6 @@ I('junk_stool_tall', 'junk', '高脚凳', 'Tall stool', 0, 1.5, { scrap: 3 }, '�
 I('junk_sunchair', 'junk', '躺椅', 'Sun lounger', 0, 3.3, { scrap: 2 }, '晒太阳用的帆布躺椅。', { carry: 'large', paint: 0xf0c23c, paint2: 0xb9915f });
 I('junk_clockradio', 'junk', '收音闹钟', 'Clock radio', 0, 0.6, { scrap: 2 }, '到点就响的收音机，早就不响了。', { paint: 0xede3c8, paint2: 0x2f3236 });
 I('junk_hanger', 'junk', '衣帽架', 'Coat stand', 0, 2.5, { scrap: 4 }, '立式的衣帽架。', { carry: 'large', paint: 0x5a3a2b, paint2: 0x6f7a82 });
-I('junk_coffee', 'junk', '咖啡机', 'Coffee maker', 0, 2, { scrap: 6 }, '滴滤咖啡机，玻璃壶还在。', { paint: 0x2f3236, paint2: 0xc8323a });
 I('junk_fax', 'junk', '传真机', 'Fax machine', 0, 3, { scrap: 7 }, '一台老传真机，里面零件不少。', { paint: 0xede3c8, paint2: 0x6f7a82 });
 I('junk_box_food', 'junk', '纸箱', 'Cardboard box', 0, 1, { scrap: 2 }, '一个空纸箱。', { paint: 0xb9915f, paint2: 0x5a3a2b });
 I('junk_lamp', 'junk', '台灯', 'Desk lamp', 0, 1, { scrap: 3 }, '弯脖子的台灯。', { paint: 0x3e8e87, paint2: 0x6f7a82 });
@@ -288,6 +304,8 @@ I('junk_solar_lamp', 'junk', '太阳能灯', 'Solar lamp', 0, 2, { scrap: 7 }, '
 I('junk_rod', 'junk', '断鱼竿', 'Broken fishing rod', 0, 1, { scrap: 4 }, '断成两截的鱼竿，线轮还能用。', { carry: 'medium', paint: 0x2e4a6b, paint2: 0x6f7a82 });
 I('junk_sign_wet', 'junk', '小心地滑牌', 'Wet floor sign', 0, 1, { scrap: 1 }, '黄色的小心地滑牌。', { paint: 0xf0c23c, paint2: 0x2f3236 });
 I('junk_tv', 'junk', '旧电视', 'Old television', 0, 6, { scrap: 10 }, '大屁股电视机，砸了可惜，回收正好。', { paint: 0x5a3a2b, paint2: 0x2f3236 });
+// (the workshop's at the start, docs/V3/plan/growth.md §一 1: no plug, a cracked screen — scrap, not a set to switch on)
+I('junk_tv_dead', 'junk', '坏电视', 'Dead television', 0, 6, { scrap: 10 }, '屏幕裂了，插头也没了，只能回收。', { model: 'junk_tv', paint: 0x4a3326, paint2: 0x2f3236 });
 I('junk_cone', 'junk', '路锥', 'Traffic cone', 0, 1, { scrap: 1 }, '一个路锥。', { paint: 0xe07b39, paint2: 0xf4efe2 });
 I('junk_bag', 'junk', '垃圾袋', 'Bin bag', 0, 6, { organics: 3 }, '鼓鼓的一袋垃圾，最好别打开。', { paint: 0x2f3236, paint2: 0x6f7a82 });
 I('junk_bag_s', 'junk', '小垃圾袋', 'Small bin bag', 0, 1, { organics: 1 }, '一小袋垃圾。', { model: 'junk_bag', paint: 0x557a46, paint2: 0x6f7a82 });
@@ -298,7 +316,7 @@ I('junk_food_bucket', 'junk', '粮食桶', 'Feed bucket', 0, 8, { organics: 22 }
 
 // ------------------------------------------------------------------ boxes of components (the recycler's best friends)
 
-I('crate_parts', 'crate', '旧零件箱', 'Box of old components', 0, 2, { scrap: 20 }, '一箱拆下来的螺丝、垫片和小零件。丢进回收台，能出二十废料。', { paint: 0xb9915f, paint2: 0x6f7a82 });
+I('crate_parts', 'crate', '旧零件箱', 'Box of old components', 0, 2, { scrap: 20 }, '一箱拆下来的螺丝、垫片和小零件。', { paint: 0xb9915f, paint2: 0x6f7a82 });
 I('crate_parts_s', 'crate', '小零件盒', 'Small box of components', 0, 4, { scrap: 10 }, '一盒小零件，回收出十废料。', { model: 'crate_parts', paint: 0xd8c29a, paint2: 0x6f7a82 });
 I('crate_parts_heavy', 'crate', '重零件箱', 'Heavy box of components', 0, 12, { scrap: 24 }, '一大箱铁疙瘩，搬起来腰都直不起来。', { paint: 0x9e7a4f, paint2: 0x6f7a82, carry: 'medium' });
 I('crate_junk', 'crate', '一箱破烂', 'Box of junk', 0, 3.5, { scrap: 8 }, '什么都有一点的破烂箱子。', { paint: 0xb9915f, paint2: 0x2f3236 });
@@ -333,6 +351,21 @@ export function itemDef(id: string): ItemDef {
 
 export function hasItem(id: string): boolean {
   return BY_ID.has(id);
+}
+
+/**
+ * Kinds that are no more (docs/V3/plan/growth.md §三: the doubles of the two versions sorted), and what a saved one
+ * becomes as it is read: another kind (its state as it was), or what a function makes of the record in place.
+ */
+const RETIRED = new Map<string, (r: Record<string, unknown>) => void>();
+
+export function retireItem(id: string, into: string | ((r: Record<string, unknown>) => void)): void {
+  RETIRED.set(id, typeof into === 'string' ? (r) => void (r.item = into) : into);
+}
+
+/** a kind there is not any more, that a save is read into another (not lost) */
+export function retiredKind(id: string): boolean {
+  return RETIRED.has(id) && !BY_ID.has(id);
 }
 
 export function itemsOf(cat: ItemCatId): ItemDef[] {
@@ -422,6 +455,8 @@ function rowProblems(r: ItemRow, seen: ReadonlySet<string>): string[] {
   if (!isAmount(r.mass)) say('mass is a weight in kg');
   // what the catalogue would otherwise work out: said, it has to be right
   if (r.carry !== undefined && !CARRIES.includes(r.carry)) say('carry is small, medium or large');
+  const cw = r.carryWalk as ItemDef['carryWalk'] | null;
+  if (cw !== undefined && !(cw && typeof cw === 'object' && isAmount(cw.share) && cw.share > 0 && cw.share <= 1 && typeof cw.run === 'boolean')) say('carryWalk is a share of the walking speed (above 0, up to 1) and whether one may run');
   if (r.model !== undefined && (typeof r.model !== 'string' || !r.model)) say('model is the name of a model');
   if (r.blurb !== undefined && typeof r.blurb !== 'string') say('blurb is a line of text');
   if ((r.paint !== undefined && !isHex(r.paint)) || (r.paint2 !== undefined && !isHex(r.paint2))) say('paint and paint2 are colours (0xrrggbb)');
@@ -737,7 +772,7 @@ export function stampFresh(inst: ItemInstance, nowS: number): void {
   }
   const list = inst.inside;
   if (!list) return;
-  const k = d.holds?.decay ?? 1;
+  const k = boxDecay(inst);
   for (let i = 0; i < list.length; i++) {
     const x = list[i];
     if (k !== 1 && x.t0 === undefined && x.fk === undefined && itemDef(x.item).perish) x.fk = k;
@@ -776,6 +811,31 @@ function ranOutAt(inst: ItemInstance, hours: number): number {
   const f0 = (inst.fresh as number) < 1 ? (inst.fresh as number) : 1;
   const k = inst.fk ?? 1;
   return f0 > 0 && k > 0 ? t0 + (f0 * hours * HOUR_S) / k : t0;
+}
+
+/**
+ * How fast what is in a box goes off: what holds it says (ItemDef.holds.decay); the open air's 1 for a box that keeps
+ * things by power and has none now (ItemState.unpowered: a fridge in a vehicle whose batteries are flat)
+ */
+export function boxDecay(box: ItemInstance): number {
+  if (box.state?.unpowered) return 1;
+  return itemDef(box.item).holds?.decay ?? 1;
+}
+
+/**
+ * A box that keeps things by power has it again, or has lost it (off): what is in it goes off at the box's rate from
+ * now. True when it changed.
+ */
+export function setUnpowered(box: ItemInstance, nowS: number, off: boolean): boolean {
+  if (!!box.state?.unpowered === off) return false;
+  if (off) (box.state ??= {}).unpowered = true;
+  else if (box.state) {
+    delete box.state.unpowered;
+    if (Object.keys(box.state).length === 0) delete box.state;
+  }
+  const k = boxDecay(box);
+  for (const x of box.inside ?? []) setFreshRate(x, nowS, k);
+  return true;
 }
 
 /** how fast it goes off from now on: 1 in the open air, what holds it says otherwise (ItemDef.holds.decay) */
@@ -1067,7 +1127,7 @@ export function putInside(box: ItemInstance, inst: ItemInstance, nowS: number): 
   let can = roomInside(box, inst, nowS);
   if (can <= 0) return total;
   const h = itemDef(box.item).holds!;
-  const k = h.decay ?? 1;
+  const k = boxDecay(box);
   const list = (box.inside ??= []);
   const out = inst.fk ?? 1;
   setFreshRate(inst, nowS, k);
@@ -1197,7 +1257,9 @@ function cleaned(raw: unknown, loss: LoadLoss, inner: boolean): ItemInstance | n
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.uid !== 'string' || typeof r.item !== 'string') return null;
-  const d = BY_ID.get(r.item);
+  // (a kind there is not any more: read as what took its place)
+  if (!BY_ID.has(r.item)) RETIRED.get(r.item)?.(r);
+  const d = typeof r.item === 'string' ? BY_ID.get(r.item) : undefined;
   if (!d) {
     loss.unknown += lostCount(r, 0);
     return null;

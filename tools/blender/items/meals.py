@@ -37,7 +37,7 @@ def oval(a, b, n=12, k=0.0):
 
 def plate(P, r=0.105, mat='ceramic'):
     """A plate: its well's floor at z = 0.009."""
-    P.lathe('plate', [(0.0, 0.0), (r * 0.55, 0.0), (r * 0.6, 0.005), (r * 0.86, 0.009), (r, 0.018), (r - 0.004, 0.021), (r * 0.84, 0.013), (r * 0.58, 0.009), (0.0, 0.009)], (0, 0, 0), mat, segs=16, sharp=50.0)
+    P.lathe('plate', [(0.0, 0.0), (r * 0.55, 0.0), (r * 0.6, 0.005), (r * 0.86, 0.009), (r, 0.018), (r - 0.004, 0.021), (r * 0.84, 0.013), (r * 0.58, 0.009), (0.0, 0.009)], (0, 0, 0), mat, segs=48, sharp=50.0)
     return 0.009
 
 
@@ -49,13 +49,13 @@ def platter(P, a=0.14, b=0.095):
 
 
 def bowl(P, r=0.075, h=0.055, mat='ceramic'):
-    P.lathe('bowl', [(0.0, 0.0), (r * 0.42, 0.0), (r * 0.46, 0.008), (r * 0.84, h * 0.5), (r, h), (r - 0.004, h + 0.002), (r * 0.8, h * 0.5), (r * 0.42, 0.013), (0.0, 0.012)], (0, 0, 0), mat, segs=14, sharp=50.0)
+    P.lathe('bowl', [(0.0, 0.0), (r * 0.42, 0.0), (r * 0.46, 0.008), (r * 0.84, h * 0.5), (r, h), (r - 0.004, h + 0.002), (r * 0.8, h * 0.5), (r * 0.42, 0.013), (0.0, 0.012)], (0, 0, 0), mat, segs=42, sharp=50.0)
 
 
 def fill(P, r, h, level, mat, name='liquid'):
     """What stands in a bowl of (r, h) up to `level` of its height: a flat round top."""
     rr = r * (0.46 + (1.0 - 0.46) * (0.5 * level / 0.5 if level < 0.5 else 0.84 / 1.0)) if level < 0.5 else r * (0.8 + 0.16 * (level - 0.5) / 0.5)
-    P.lathe(name, [(0.0, h * level - 0.004), (rr, h * level - 0.004), (rr, h * level), (0.0, h * level)], (0, 0, 0), mat, segs=14, sharp=80.0)
+    P.lathe(name, [(0.0, h * level - 0.004), (rr, h * level - 0.004), (rr, h * level), (0.0, h * level)], (0, 0, 0), mat, segs=42, sharp=80.0)
     return h * level
 
 
@@ -64,13 +64,13 @@ def chunk(P, name, loc, s, mat, yaw=0.0, flat=1.0):
 
 
 def ball(P, name, loc, r, mat, squash=0.8):
-    P.sphere(name, r, (loc[0], loc[1], loc[2] + r * squash), mat, u=7, v=5, scale=(1.0, 1.0, squash))
+    P.sphere(name, r, (loc[0], loc[1], loc[2] + r * squash), mat, u=14, v=10, scale=(1.0, 1.0, squash))
 
 
 def leaf(P, name, loc, size, yaw, tilt, mat, wide=0.55):
     d = (math.cos(yaw) * math.cos(tilt), math.sin(yaw) * math.cos(tilt), math.sin(tilt))
     c = tuple(loc[i] + d[i] * size * 0.5 for i in range(3))
-    P.sphere(name, size * 0.5, c, mat, u=7, v=4, scale=(1.0, wide, 0.14), rot=D(0.0, -tilt, yaw))
+    P.sphere(name, size * 0.5, c, mat, u=14, v=8, scale=(1.0, wide, 0.14), rot=D(0.0, -tilt, yaw))
 
 
 def heap(P, n, r, z, s, mats, kind='chunk', rise=0.02, seed=0):
@@ -102,7 +102,7 @@ def wedge(P, name, loc, r, mat, mat_skin, yaw=0.0):
 
 def spoon(P, loc, yaw=0.5):
     m = mark(P)
-    P.sphere('spoon', 0.014, (0, 0, 0), 'steel', u=7, v=4, scale=(1.3, 1.0, 0.3))
+    P.sphere('spoon', 0.014, (0, 0, 0), 'steel', u=14, v=8, scale=(1.3, 1.0, 0.3))
     P.tube('spoon_h', [(0.014, 0, 0.002), (0.05, 0, 0.022), (0.09, 0, 0.04)], 0.003, 'steel', segs=4)
     xform(P, m, mat4(loc, D(0.0, 0.0, yaw)))
 
@@ -132,14 +132,14 @@ def fish_body(P, z, L=0.19, mat='paint'):
     P.prism('tail', [(0.0, 0.0), (-0.036, 0.026), (-0.026, 0.0), (-0.036, -0.026)], 0.007, (-L * 0.45, 0.0, z + 0.012), mat, bev=None)
     for i in range(3):
         P.box(f'slash{i}', (0.004, 0.034, 0.002), (-0.03 + 0.03 * i, 0.002, z + 0.0282 - 0.0016 * abs(i - 1)), 'rust', rot=D(0, 0, 0.5), bev=None)
-    P.sphere('eye', 0.0045, (L * 0.37, 0.006, z + 0.024), 'trim', u=5, v=3)
+    P.sphere('eye', 0.0045, (L * 0.37, 0.006, z + 0.024), 'trim', u=10, v=6)
 
 
 def meal_fish(P):
     z = platter(P)
     fish_body(P, z)
     for i in range(3):
-        P.cyl(f'slice{i}', 0.014, 0.003, (0.03 - 0.03 * i, -0.052 - 0.004 * (i % 2), z + 0.002), 'paint_b', segs=8, bev=None)
+        P.cyl(f'slice{i}', 0.014, 0.003, (0.03 - 0.03 * i, -0.052 - 0.004 * (i % 2), z + 0.002), 'paint_b', segs=24, bev=None)
     for i in range(4):
         leaf(P, f'g{i}', (-0.05 + 0.03 * i, 0.012 * jit(i), z + 0.028), 0.03, 0.4 + i, 0.15, 'paint_b', wide=0.28)
 
@@ -151,7 +151,7 @@ def meal_egg(P):
         P.prism(f'white{k}', out, 0.005, (x, y, z + 0.0035), 'ceramic', bev=0.002, segs=1)
         # (fried: a lacy golden edge under the white, or it is lost on a white plate)
         P.prism(f'crisp{k}', [(px * 1.12, py * 1.12) for px, py in out], 0.002, (x, y, z + 0.001), 'cap_oil', bev=None)
-        P.sphere(f'yolk{k}', 0.013, (x + 0.003, y, z + 0.006), 'paint', u=8, v=5, scale=(1.0, 1.0, 0.6))
+        P.sphere(f'yolk{k}', 0.013, (x + 0.003, y, z + 0.006), 'paint', u=16, v=10, scale=(1.0, 1.0, 0.6))
     for i in range(3):
         P.box(f'strip{i}', (0.06, 0.013, 0.004), (0.0, -0.058 + 0.004 * i, z + 0.002 + 0.003 * i), 'paint_b', rot=D(0, 0, 0.25 * (i - 1) + 0.1), bev=0.0015, segs=1)
 
@@ -168,7 +168,7 @@ def meal_omelette(P):
 
 def meal_friedrice(P):
     z = plate(P)
-    P.lathe('mound', [(0.0, z), (0.07, z), (0.064, z + 0.012), (0.045, z + 0.03), (0.02, z + 0.04), (0.0, z + 0.042)], (0, 0, 0), 'paint', segs=12, sharp=80.0)
+    P.lathe('mound', [(0.0, z), (0.07, z), (0.064, z + 0.012), (0.045, z + 0.03), (0.02, z + 0.04), (0.0, z + 0.042)], (0, 0, 0), 'paint', segs=40, sharp=80.0)
     for i in range(12):
         a = TAU * i * 0.618
         q = 0.2 + 0.75 * math.sqrt((i + 0.5) / 12)
@@ -202,7 +202,7 @@ def meal_toast(P):
 def meal_pancake(P):
     z = plate(P)
     for k in range(3):
-        P.lathe(f'cake{k}', [(0.0, 0.0), (0.066 - 0.003 * k, 0.0), (0.07 - 0.003 * k, 0.004), (0.07 - 0.003 * k, 0.009), (0.064 - 0.003 * k, 0.013), (0.0, 0.013)], (0.003 * jit(k) * 2, 0.003 * jit(k, 1) * 2, z + 0.0125 * k), 'paint', segs=12, sharp=60.0)
+        P.lathe(f'cake{k}', [(0.0, 0.0), (0.066 - 0.003 * k, 0.0), (0.07 - 0.003 * k, 0.004), (0.07 - 0.003 * k, 0.009), (0.064 - 0.003 * k, 0.013), (0.0, 0.013)], (0.003 * jit(k) * 2, 0.003 * jit(k, 1) * 2, z + 0.0125 * k), 'paint', segs=40, sharp=60.0)
     zt = z + 0.0125 * 3
     out = [((0.04 + 0.012 * math.sin(4 * TAU * i / 12)) * math.cos(TAU * i / 12), (0.036 + 0.012 * math.cos(3 * TAU * i / 12)) * math.sin(TAU * i / 12)) for i in range(12)]
     P.prism('syrup', out, 0.003, (0, 0, zt + 0.0018), 'paint_b', bev=0.001, segs=1)
@@ -242,8 +242,8 @@ def meal_roast(P):
     z = platter(P, 0.15, 0.105)
     P.sphere('body', 0.5, (0.0, 0.0, z + 0.036), 'paint', u=12, v=7, scale=(0.15, 0.11, 0.078))
     for s in (-1, 1):
-        P.lathe(f'leg{s}', [(0.0, 0.0), (0.016, 0.004), (0.022, 0.03), (0.012, 0.056), (0.0, 0.058)], (0.03, s * 0.05, z + 0.03), 'paint', rot=D(0.0, 0.9, s * 0.5), segs=8, sharp=70.0)
-        P.sphere(f'knob{s}', 0.008, (0.075, s * 0.076, z + 0.062), 'ceramic', u=6, v=4)
+        P.lathe(f'leg{s}', [(0.0, 0.0), (0.016, 0.004), (0.022, 0.03), (0.012, 0.056), (0.0, 0.058)], (0.03, s * 0.05, z + 0.03), 'paint', rot=D(0.0, 0.9, s * 0.5), segs=24, sharp=70.0)
+        P.sphere(f'knob{s}', 0.008, (0.075, s * 0.076, z + 0.062), 'ceramic', u=12, v=8)
     for i in range(3):
         P.box(f'sear{i}', (0.05 - 0.012 * abs(i - 1), 0.005, 0.002), (-0.012, -0.022 + 0.022 * i, z + 0.0745 - 0.004 * abs(i - 1)), 'rust', rot=D(0.3 * (i - 1), 0, 0), bev=None)
     for i in range(8):
@@ -274,36 +274,36 @@ def meal_sashimi(P):
     for row, (x, mat) in enumerate([(-0.036, 'paint'), (0.036, 'paint_b')]):
         for i in range(5):
             P.box(f'slice{row}{i}', (0.05, 0.02, 0.01), (x, -0.07 + 0.03 * i, z + 0.009), mat, rot=D(0.5, 0.0, 0.08 * (i - 2)), bev=0.003, segs=1)
-    P.lathe('wasabi', [(0.0, 0.0), (0.012, 0.0), (0.008, 0.01), (0.0, 0.014)], (0.0, 0.1, z), 'paint_b', segs=6, sharp=80.0)
+    P.lathe('wasabi', [(0.0, 0.0), (0.012, 0.0), (0.008, 0.01), (0.0, 0.014)], (0.0, 0.1, z), 'paint_b', segs=18, sharp=80.0)
     for i in range(3):
         leaf(P, f'shiso{i}', (0.0, -0.1, z + 0.001), 0.045, 1.0 + i * 0.5, 0.15, 'ceramic', wide=0.5)
 
 
 def meal_dumpling(P):
     r = 0.105
-    P.lathe('basket', [(r - 0.01, 0.0), (r, 0.0), (r, 0.04), (r - 0.01, 0.04)], (0, 0, 0), 'wood', segs=14, sharp=50.0, loop=True)
-    P.cyl('floor', r - 0.008, 0.006, (0, 0, 0.006), 'wood', segs=14, bev=None)
-    P.cyl('cloth', r - 0.014, 0.002, (0, 0, 0.0095), 'ceramic', segs=14, bev=None)
+    P.lathe('basket', [(r - 0.01, 0.0), (r, 0.0), (r, 0.04), (r - 0.01, 0.04)], (0, 0, 0), 'wood', segs=42, sharp=50.0, loop=True)
+    P.cyl('floor', r - 0.008, 0.006, (0, 0, 0.006), 'wood', segs=42, bev=None)
+    P.cyl('cloth', r - 0.014, 0.002, (0, 0, 0.0095), 'ceramic', segs=42, bev=None)
     z = 0.0105
     for i in range(7):
         a = TAU * i / 6
         rr = 0.0 if i == 6 else 0.058
         m = mark(P)
-        P.sphere(f'd{i}', 0.5, (0.0, 0.0, 0.012), 'ceramic', u=8, v=5, scale=(0.056, 0.03, 0.026))
+        P.sphere(f'd{i}', 0.5, (0.0, 0.0, 0.012), 'ceramic', u=16, v=10, scale=(0.056, 0.03, 0.026))
         for k in range(4):
-            P.sphere(f'pleat{i}{k}', 0.006, (-0.018 + 0.012 * k, 0.0, 0.025), 'paint', u=5, v=3, scale=(1.0, 0.7, 0.7))
+            P.sphere(f'pleat{i}{k}', 0.006, (-0.018 + 0.012 * k, 0.0, 0.025), 'paint', u=10, v=6, scale=(1.0, 0.7, 0.7))
         xform(P, m, mat4((rr * math.cos(a), rr * math.sin(a), z), D(0.0, 0.0, a + 1.57)))
     bowl_r = 0.022
-    P.lathe('dip', [(0.0, 0.0), (bowl_r * 0.6, 0.0), (bowl_r, 0.012), (bowl_r - 0.003, 0.012), (bowl_r * 0.55, 0.004), (0.0, 0.004)], (r + 0.03, 0.0, 0.0), 'ceramic', segs=8, sharp=60.0)
-    P.cyl('sauce', bowl_r * 0.78, 0.002, (r + 0.03, 0.0, 0.0095), 'paint_b', segs=8, bev=None)
+    P.lathe('dip', [(0.0, 0.0), (bowl_r * 0.6, 0.0), (bowl_r, 0.012), (bowl_r - 0.003, 0.012), (bowl_r * 0.55, 0.004), (0.0, 0.004)], (r + 0.03, 0.0, 0.0), 'ceramic', segs=24, sharp=60.0)
+    P.cyl('sauce', bowl_r * 0.78, 0.002, (r + 0.03, 0.0, 0.0095), 'paint_b', segs=24, bev=None)
 
 
 def meal_stuffed(P):
     z = plate(P)
     for k, (x, y, yaw) in enumerate([(-0.03, -0.012, 0.3), (0.034, 0.016, 1.9)]):
         m = mark(P)
-        P.lathe(f'shell{k}', [(0.0, 0.0), (0.02, 0.002), (0.034, 0.014), (0.036, 0.028), (0.03, 0.03), (0.027, 0.02), (0.0, 0.012)], (0, 0, 0), 'paint', segs=9, sharp=60.0)
-        P.sphere(f'fill{k}', 0.029, (0, 0, 0.022), 'paint_b', u=8, v=5, scale=(1.0, 1.0, 0.55))
+        P.lathe(f'shell{k}', [(0.0, 0.0), (0.02, 0.002), (0.034, 0.014), (0.036, 0.028), (0.03, 0.03), (0.027, 0.02), (0.0, 0.012)], (0, 0, 0), 'paint', segs=27, sharp=60.0)
+        P.sphere(f'fill{k}', 0.029, (0, 0, 0.022), 'paint_b', u=16, v=10, scale=(1.0, 1.0, 0.55))
         for i in range(4):
             chunk(P, f'bit{k}{i}', (0.012 * math.cos(i * 1.6), 0.012 * math.sin(i * 1.6), 0.033), 0.008, 'cap_oil' if i % 2 else 'paint', yaw=i)
         xform(P, m, mat4((x, y, z), D(0.0, 0.0, yaw), (1.25, 0.95, 1.0)))
@@ -322,22 +322,22 @@ def meal_curry(P):
 def meal_cookie(P):
     z = plate(P)
     for i, (x, y, zz) in enumerate([(-0.04, -0.02, 0.0), (0.02, -0.04, 0.0), (0.045, 0.02, 0.0), (-0.012, 0.042, 0.0), (0.0, 0.0, 0.011)]):
-        P.lathe(f'c{i}', [(0.0, 0.0), (0.028, 0.0), (0.031, 0.004), (0.028, 0.009), (0.0, 0.011)], (x, y, z + zz), 'paint', segs=9, sharp=70.0)
+        P.lathe(f'c{i}', [(0.0, 0.0), (0.028, 0.0), (0.031, 0.004), (0.028, 0.009), (0.0, 0.011)], (x, y, z + zz), 'paint', segs=27, sharp=70.0)
         for k in range(4):
             a = TAU * k / 4 + i
-            P.sphere(f'chip{i}{k}', 0.0045, (x + 0.015 * math.cos(a), y + 0.015 * math.sin(a), z + zz + 0.0095), 'paint_b', u=5, v=3, scale=(1.0, 1.0, 0.6))
+            P.sphere(f'chip{i}{k}', 0.0045, (x + 0.015 * math.cos(a), y + 0.015 * math.sin(a), z + zz + 0.0095), 'paint_b', u=10, v=6, scale=(1.0, 1.0, 0.6))
 
 
 def meal_loaf(P):
     P.box('board', (0.12, 0.22, 0.012), (0, 0, 0.006), 'wood', bev=0.004, segs=1)
     z = 0.012
-    P.lathe('loaf', [(0.0, 0.0), (0.03, 0.006), (0.04, 0.03), (0.04, 0.1), (0.0, 0.1)], (0.0, -0.085, z + 0.036), 'paint', axis='Y', segs=10, sharp=70.0)
-    P.cyl('face', 0.038, 0.002, (0.0, 0.016, z + 0.036), 'cap_oil', axis='Y', segs=10, bev=None)
+    P.lathe('loaf', [(0.0, 0.0), (0.03, 0.006), (0.04, 0.03), (0.04, 0.1), (0.0, 0.1)], (0.0, -0.085, z + 0.036), 'paint', axis='Y', segs=40, sharp=70.0)
+    P.cyl('face', 0.038, 0.002, (0.0, 0.016, z + 0.036), 'cap_oil', axis='Y', segs=40, bev=None)
     for i in range(2):
-        P.cyl(f'slice{i}', 0.04, 0.012, (0.0, 0.05 + 0.03 * i, z + 0.007 + 0.006 * i), 'paint', segs=10, rot=D(0.25 * i, 0.0, 0.0), bev=0.002)
-        P.cyl(f'crumb{i}', 0.034, 0.0125, (0.0, 0.05 + 0.03 * i, z + 0.0074 + 0.006 * i), 'cap_oil', segs=10, rot=D(0.25 * i, 0.0, 0.0), bev=None)
+        P.cyl(f'slice{i}', 0.04, 0.012, (0.0, 0.05 + 0.03 * i, z + 0.007 + 0.006 * i), 'paint', segs=40, rot=D(0.25 * i, 0.0, 0.0), bev=0.002)
+        P.cyl(f'crumb{i}', 0.034, 0.0125, (0.0, 0.05 + 0.03 * i, z + 0.0074 + 0.006 * i), 'cap_oil', segs=40, rot=D(0.25 * i, 0.0, 0.0), bev=None)
     for i in range(6):
-        P.sphere(f'nut{i}', 0.005, (0.02 * math.cos(i * 1.1), -0.07 + 0.016 * i, z + 0.074), 'paint_b', u=5, v=3)
+        P.sphere(f'nut{i}', 0.005, (0.02 * math.cos(i * 1.1), -0.07 + 0.016 * i, z + 0.074), 'paint_b', u=10, v=6)
 
 
 # ------------------------------------------------------------------------------------------------ in a bowl
@@ -375,8 +375,8 @@ def meal_noodlesoup(P):
         P.tube(f'coil{k}', pts, 0.006, 'ceramic', segs=5, closed=True)
     for i in range(3):
         P.box(f'top{i}', (0.036, 0.022, 0.006), (-0.024 + 0.012 * i, 0.026 - 0.004 * i, z + 0.012 + 0.003 * i), 'paint_b', rot=D(0.2, 0.0, 0.5), bev=0.002, segs=1)
-    P.cyl('egg', 0.016, 0.006, (0.03, -0.022, z + 0.008), 'ceramic', segs=8, bev=0.002)
-    P.sphere('yolk', 0.009, (0.03, -0.022, z + 0.01), 'cap_oil', u=6, v=4, scale=(1, 1, 0.6))
+    P.cyl('egg', 0.016, 0.006, (0.03, -0.022, z + 0.008), 'ceramic', segs=24, bev=0.002)
+    P.sphere('yolk', 0.009, (0.03, -0.022, z + 0.01), 'cap_oil', u=12, v=8, scale=(1, 1, 0.6))
     for s in (-1, 1):
         P.cyl(f'stick{s}', 0.0024, 0.2, (0.02, 0.0 + 0.008 * s, h + 0.006), 'wood', segs=5, rot=D(0.0, 1.5, 0.5), bev=None)
 
@@ -388,7 +388,7 @@ def meal_congee(P):
     heap(P, 5, 0.022, z - 0.004, 0.018, ['paint'], 'chunk', rise=0.01)
     for i in range(6):
         a = TAU * i / 6 + 0.3
-        P.cyl(f'ring{i}', 0.005, 0.003, (0.042 * math.cos(a), 0.042 * math.sin(a), z + 0.001), 'paint_b', segs=6, bev=None)
+        P.cyl(f'ring{i}', 0.005, 0.003, (0.042 * math.cos(a), 0.042 * math.sin(a), z + 0.001), 'paint_b', segs=18, bev=None)
     spoon(P, (0.03, -0.03, z + 0.002), yaw=-0.8)
 
 
@@ -402,10 +402,10 @@ def meal_ricebowl(P):
         a = -1.3 + 0.52 * i
         x, y = 0.026 * math.cos(a) - 0.022, 0.04 * math.sin(a)
         P.box(f'top{i}', (0.04, 0.018, 0.008), (x, y, top(x, y) + 0.003), 'paint', rot=D(0.0, 0.2, a * 0.3), bev=0.003, segs=1)
-    P.sphere('yolk', 0.012, (0.03, 0.0, top(0.03, 0.0) + 0.004), 'cap_oil', u=7, v=4, scale=(1, 1, 0.6))
+    P.sphere('yolk', 0.012, (0.03, 0.0, top(0.03, 0.0) + 0.004), 'cap_oil', u=14, v=8, scale=(1, 1, 0.6))
     for i in range(5):
         x, y = 0.034 + 0.014 * math.cos(i * 1.3), 0.036 * math.sin(i * 1.3 + 1)
-        P.cyl(f'ring{i}', 0.005, 0.003, (x, y, top(x, y) + 0.001), 'paint_b', segs=6, bev=None)
+        P.cyl(f'ring{i}', 0.005, 0.003, (x, y, top(x, y) + 0.001), 'paint_b', segs=18, bev=None)
 
 
 def meal_salad(P):
@@ -420,20 +420,20 @@ def meal_salad(P):
 
 def meal_custard(P):
     r, h = 0.05, 0.045
-    P.lathe('cup', [(0.0, 0.0), (r * 0.8, 0.0), (r, h), (r + 0.004, h), (r + 0.004, h + 0.004), (r - 0.004, h + 0.004), (r - 0.004, h - 0.004), (0.0, h - 0.004)], (0, 0, 0), 'ceramic', segs=12, sharp=50.0)
-    P.lathe('custard', [(0.0, h - 0.004), (r - 0.004, h - 0.004), (r - 0.006, h + 0.002), (0.0, h + 0.005)], (0, 0, 0), 'paint', segs=12, sharp=80.0)
+    P.lathe('cup', [(0.0, 0.0), (r * 0.8, 0.0), (r, h), (r + 0.004, h), (r + 0.004, h + 0.004), (r - 0.004, h + 0.004), (r - 0.004, h - 0.004), (0.0, h - 0.004)], (0, 0, 0), 'ceramic', segs=40, sharp=50.0)
+    P.lathe('custard', [(0.0, h - 0.004), (r - 0.004, h - 0.004), (r - 0.006, h + 0.002), (0.0, h + 0.005)], (0, 0, 0), 'paint', segs=40, sharp=80.0)
     heap(P, 4, 0.016, h + 0.003, 0.014, ['paint_b'], 'ball', rise=0.004)
-    P.cyl('saucer', r + 0.03, 0.005, (0, 0, -0.0025), 'ceramic', segs=12, bev=0.002)
+    P.cyl('saucer', r + 0.03, 0.005, (0, 0, -0.0025), 'ceramic', segs=40, bev=0.002)
     spoon(P, (0.04, -0.062, 0.002), yaw=0.4)
 
 
 def meal_hotpot(P):
     r, h = 0.125, 0.07
-    P.lathe('pot', [(0.0, 0.0), (r - 0.014, 0.0), (r, 0.012), (r + 0.002, h), (r + 0.008, h + 0.002), (r + 0.008, h + 0.006), (r - 0.004, h + 0.006), (r - 0.006, h - 0.012), (0.0, h - 0.012)], (0, 0, 0), 'trim', segs=16, sharp=50.0)
+    P.lathe('pot', [(0.0, 0.0), (r - 0.014, 0.0), (r, 0.012), (r + 0.002, h), (r + 0.008, h + 0.002), (r + 0.008, h + 0.006), (r - 0.004, h + 0.006), (r - 0.006, h - 0.012), (0.0, h - 0.012)], (0, 0, 0), 'trim', segs=48, sharp=50.0)
     for s in (-1, 1):
-        P.torus(f'ear{s}', 0.022, 0.006, (0.0, s * (r + 0.01), h - 0.01), 'trim', segs=8, rsegs=4, arc=math.pi, a0=0.0 if s > 0 else math.pi)
+        P.torus(f'ear{s}', 0.022, 0.006, (0.0, s * (r + 0.01), h - 0.01), 'trim', segs=24, rsegs=8, arc=math.pi, a0=0.0 if s > 0 else math.pi)
     z = h - 0.012
-    P.cyl('broth', r - 0.007, 0.004, (0, 0, z + 0.002), 'paint', segs=16, bev=None)
+    P.cyl('broth', r - 0.007, 0.004, (0, 0, z + 0.002), 'paint', segs=48, bev=None)
     heap(P, 13, r * 0.7, z, 0.03, ['paint_b', 'ceramic', 'paint_b', 'cap_oil'], 'chunk', rise=0.016)
     for i in range(5):
         leaf(P, f'g{i}', (0.03 * math.cos(i * 1.3), 0.03 * math.sin(i * 1.3), z + 0.026), 0.04, i * 1.3 + 0.5, 0.3, 'paint_b', wide=0.4)
@@ -444,30 +444,30 @@ def meal_hotpot(P):
 def meal_glass(P):
     r, h = 0.034, 0.12
     # (the drink is the glass's own shape, the glass a foot under it and a rim over it: what is drawn through glass is dimmed)
-    P.lathe('foot', [(0.0, 0.0), (r * 0.78, 0.0), (r * 0.8, 0.008), (0.0, 0.008)], (0, 0, 0), 'glass', segs=12, sharp=50.0)
-    P.lathe('drink', [(0.0, 0.008), (r * 0.8, 0.008), (r * 0.97, h * 0.86), (0.0, h * 0.86)], (0, 0, 0), 'paint', segs=12, sharp=80.0)
-    P.lathe('rim', [(r * 0.97, h * 0.86), (r, h), (r - 0.003, h), (r * 0.97 - 0.003, h * 0.86)], (0, 0, 0), 'glass', segs=12, sharp=50.0, loop=True)
+    P.lathe('foot', [(0.0, 0.0), (r * 0.78, 0.0), (r * 0.8, 0.008), (0.0, 0.008)], (0, 0, 0), 'glass', segs=40, sharp=50.0)
+    P.lathe('drink', [(0.0, 0.008), (r * 0.8, 0.008), (r * 0.97, h * 0.86), (0.0, h * 0.86)], (0, 0, 0), 'paint', segs=40, sharp=80.0)
+    P.lathe('rim', [(r * 0.97, h * 0.86), (r, h), (r - 0.003, h), (r * 0.97 - 0.003, h * 0.86)], (0, 0, 0), 'glass', segs=40, sharp=50.0, loop=True)
     P.cyl('straw', 0.0035, 0.15, (0.008, 0.0, 0.085), 'paint_b', segs=5, rot=D(0.0, 0.22, 0.0), bev=None)
-    P.cyl('slice', 0.02, 0.004, (0.0, r - 0.002, h + 0.006), 'paint_b', segs=10, rot=D(0.0, math.pi / 2, math.pi / 2), bev=None)
+    P.cyl('slice', 0.02, 0.004, (0.0, r - 0.002, h + 0.006), 'paint_b', segs=40, rot=D(0.0, math.pi / 2, math.pi / 2), bev=None)
 
 
 def meal_mug(P):
     r, h = 0.042, 0.085
-    P.lathe('mug', [(0.0, 0.0), (r - 0.004, 0.0), (r, 0.006), (r, h), (r - 0.004, h), (r - 0.004, h - 0.012), (0.0, h - 0.012)], (0, 0, 0), 'ceramic', segs=12, sharp=50.0)
-    P.torus('ear', 0.024, 0.006, (0.0, r + 0.002, h * 0.5), 'ceramic', segs=10, rsegs=4, arc=math.pi, a0=0.0, rot=D(0.0, math.pi / 2, 0.0))
-    P.cyl('drink', r - 0.0045, 0.003, (0, 0, h - 0.0105), 'paint', segs=12, bev=None)
-    P.cyl('slice', 0.016, 0.003, (0.008, -0.006, h - 0.0085), 'paint_b', segs=8, bev=None)
-    P.torus('band', r + 0.0005, 0.003, (0, 0, h * 0.3), 'paint_b', segs=12, rsegs=3)
+    P.lathe('mug', [(0.0, 0.0), (r - 0.004, 0.0), (r, 0.006), (r, h), (r - 0.004, h), (r - 0.004, h - 0.012), (0.0, h - 0.012)], (0, 0, 0), 'ceramic', segs=40, sharp=50.0)
+    P.torus('ear', 0.024, 0.006, (0.0, r + 0.002, h * 0.5), 'ceramic', segs=40, rsegs=8, arc=math.pi, a0=0.0, rot=D(0.0, math.pi / 2, 0.0))
+    P.cyl('drink', r - 0.0045, 0.003, (0, 0, h - 0.0105), 'paint', segs=40, bev=None)
+    P.cyl('slice', 0.016, 0.003, (0.008, -0.006, h - 0.0085), 'paint_b', segs=24, bev=None)
+    P.torus('band', r + 0.0005, 0.003, (0, 0, h * 0.3), 'paint_b', segs=40, rsegs=7)
 
 
 # ------------------------------------------------------------------------------------------------ baked
 
 def meal_pie(P):
     r = 0.1
-    P.lathe('tin', [(0.0, 0.0), (r * 0.8, 0.0), (r, 0.03), (r + 0.006, 0.03), (r + 0.006, 0.034), (r - 0.004, 0.034), (r * 0.78, 0.006), (0.0, 0.006)], (0, 0, 0), 'steel', segs=14, sharp=50.0)
+    P.lathe('tin', [(0.0, 0.0), (r * 0.8, 0.0), (r, 0.03), (r + 0.006, 0.03), (r + 0.006, 0.034), (r - 0.004, 0.034), (r * 0.78, 0.006), (0.0, 0.006)], (0, 0, 0), 'steel', segs=42, sharp=50.0)
     cut = TAU * 0.16
-    P.lathe('filling', [(0.0, 0.006), (r * 0.8, 0.008), (r - 0.006, 0.03), (0.0, 0.03)], (0, 0, 0), 'paint', segs=12, sharp=80.0, angle=TAU - cut, start=cut / 2)
-    P.lathe('crust', [(r - 0.02, 0.03), (r + 0.004, 0.034), (r + 0.004, 0.04), (r - 0.02, 0.04)], (0, 0, 0), 'wood', segs=12, sharp=60.0, angle=TAU - cut, start=cut / 2, loop=True)
+    P.lathe('filling', [(0.0, 0.006), (r * 0.8, 0.008), (r - 0.006, 0.03), (0.0, 0.03)], (0, 0, 0), 'paint', segs=40, sharp=80.0, angle=TAU - cut, start=cut / 2)
+    P.lathe('crust', [(r - 0.02, 0.03), (r + 0.004, 0.034), (r + 0.004, 0.04), (r - 0.02, 0.04)], (0, 0, 0), 'wood', segs=40, sharp=60.0, angle=TAU - cut, start=cut / 2, loop=True)
     for i in range(4):
         P.box(f'lat{i}', (0.012, 2 * math.sqrt(max(1e-6, (r - 0.016) ** 2 - (0.052 - 0.035 * i) ** 2)) * (0.62 if i < 1 else 1.0), 0.004), (-0.052 + 0.035 * i, 0.0 if i else 0.018, 0.034), 'wood', bev=0.001, segs=1)
     for i in range(3):
@@ -478,25 +478,25 @@ def meal_pie(P):
 
 def meal_pizza(P):
     r = 0.12
-    P.cyl('board', r + 0.012, 0.01, (0, 0, 0.005), 'wood', segs=14, bev=0.003)
+    P.cyl('board', r + 0.012, 0.01, (0, 0, 0.005), 'wood', segs=42, bev=0.003)
     cut = TAU / 8
-    P.lathe('base', [(0.0, 0.01), (r, 0.01), (r, 0.022), (r - 0.012, 0.024), (r - 0.016, 0.017), (0.0, 0.017)], (0, 0, 0), 'cap_oil', segs=14, sharp=60.0, angle=TAU - cut, start=cut)
-    P.lathe('sauce', [(0.0, 0.017), (r - 0.017, 0.017), (r - 0.017, 0.0185), (0.0, 0.0185)], (0, 0, 0), 'paint', segs=14, sharp=80.0, angle=TAU - cut, start=cut)
+    P.lathe('base', [(0.0, 0.01), (r, 0.01), (r, 0.022), (r - 0.012, 0.024), (r - 0.016, 0.017), (0.0, 0.017)], (0, 0, 0), 'cap_oil', segs=42, sharp=60.0, angle=TAU - cut, start=cut)
+    P.lathe('sauce', [(0.0, 0.017), (r - 0.017, 0.017), (r - 0.017, 0.0185), (0.0, 0.0185)], (0, 0, 0), 'paint', segs=42, sharp=80.0, angle=TAU - cut, start=cut)
     k = 0
     for i in range(12):
         a = cut + (TAU - cut) * ((i * 0.618) % 1.0)
         q = 0.25 + 0.6 * math.sqrt((i + 0.5) / 12)
         x, y = (r - 0.02) * q * math.cos(a), (r - 0.02) * q * math.sin(a)
         if i % 3 == 0:
-            P.cyl(f'cheese{i}', 0.014, 0.003, (x, y, 0.02), 'ceramic', segs=7, bev=None)
+            P.cyl(f'cheese{i}', 0.014, 0.003, (x, y, 0.02), 'ceramic', segs=21, bev=None)
         else:
-            P.cyl(f'top{i}', 0.011, 0.004, (x, y, 0.0205), 'paint_b', segs=7, bev=None)
+            P.cyl(f'top{i}', 0.011, 0.004, (x, y, 0.0205), 'paint_b', segs=21, bev=None)
         k += 1
     # the slice drawn out
     m = mark(P)
     P.lathe('base_s', [(0.0, 0.0), (r, 0.0), (r, 0.012), (r - 0.012, 0.014), (r - 0.016, 0.007), (0.0, 0.007)], (0, 0, 0), 'cap_oil', segs=2, sharp=60.0, angle=cut, start=0.0)
     P.lathe('sauce_s', [(0.0, 0.007), (r - 0.017, 0.007), (r - 0.017, 0.0085), (0.0, 0.0085)], (0, 0, 0), 'paint', segs=2, sharp=80.0, angle=cut, start=0.0)
-    P.cyl('top_s', 0.011, 0.004, (0.07 * math.cos(cut / 2), 0.07 * math.sin(cut / 2), 0.0105), 'paint_b', segs=7, bev=None)
+    P.cyl('top_s', 0.011, 0.004, (0.07 * math.cos(cut / 2), 0.07 * math.sin(cut / 2), 0.0105), 'paint_b', segs=21, bev=None)
     xform(P, m, mat4((0.03 * math.cos(cut / 2), 0.03 * math.sin(cut / 2), 0.01)))
 
 
@@ -504,9 +504,9 @@ def meal_cake(P):
     z = plate(P)
     r, h = 0.066, 0.05
     cut = TAU * 0.14
-    P.lathe('sponge', [(0.0, z), (r, z), (r, z + h), (0.0, z + h)], (0, 0, 0), 'paint_b', segs=14, sharp=70.0, angle=TAU - cut, start=cut / 2)
-    P.lathe('icing', [(0.0, z + h), (r + 0.002, z + h), (r + 0.002, z + h + 0.008), (0.0, z + h + 0.008)], (0, 0, 0), 'ceramic', segs=14, sharp=70.0, angle=TAU - cut, start=cut / 2)
-    P.lathe('layer', [(r + 0.001, z + h * 0.45), (r + 0.001, z + h * 0.58)], (0, 0, 0), 'ceramic', segs=14, sharp=80.0, angle=TAU - cut, start=cut / 2)
+    P.lathe('sponge', [(0.0, z), (r, z), (r, z + h), (0.0, z + h)], (0, 0, 0), 'paint_b', segs=42, sharp=70.0, angle=TAU - cut, start=cut / 2)
+    P.lathe('icing', [(0.0, z + h), (r + 0.002, z + h), (r + 0.002, z + h + 0.008), (0.0, z + h + 0.008)], (0, 0, 0), 'ceramic', segs=42, sharp=70.0, angle=TAU - cut, start=cut / 2)
+    P.lathe('layer', [(r + 0.001, z + h * 0.45), (r + 0.001, z + h * 0.58)], (0, 0, 0), 'ceramic', segs=42, sharp=80.0, angle=TAU - cut, start=cut / 2)
     # the two cut faces
     from mathutils import Matrix
     for s, ang in ((0, cut / 2), (1, TAU - cut / 2)):
@@ -526,11 +526,11 @@ def meal_mess(P):
     for i in range(7):
         a = TAU * i * 0.618
         q = math.sqrt((i + 0.5) / 7)
-        P.sphere(f'lump{i}', 0.024 + 0.008 * jit(i), (0.045 * q * math.cos(a), 0.045 * q * math.sin(a), z + 0.014 + 0.016 * (1 - q)), 'paint', u=7, v=5, scale=(1.0, 0.9, 0.7))
+        P.sphere(f'lump{i}', 0.024 + 0.008 * jit(i), (0.045 * q * math.cos(a), 0.045 * q * math.sin(a), z + 0.014 + 0.016 * (1 - q)), 'paint', u=14, v=10, scale=(1.0, 0.9, 0.7))
     for i in range(5):
-        P.sphere(f'bubble{i}', 0.007 + 0.002 * (i % 2), (0.04 * math.cos(i * 1.9 + 0.5), 0.04 * math.sin(i * 1.9 + 0.5), z + 0.034 - 0.004 * (i % 3)), 'paint_b', u=6, v=4)
+        P.sphere(f'bubble{i}', 0.007 + 0.002 * (i % 2), (0.04 * math.cos(i * 1.9 + 0.5), 0.04 * math.sin(i * 1.9 + 0.5), z + 0.034 - 0.004 * (i % 3)), 'paint_b', u=12, v=8)
     P.tube('bone', [(-0.01, 0.0, z + 0.03), (0.02, 0.016, z + 0.06), (0.036, 0.024, z + 0.074)], 0.004, 'ceramic', segs=5)
-    P.sphere('knob', 0.007, (0.038, 0.025, z + 0.076), 'ceramic', u=5, v=3)
+    P.sphere('knob', 0.007, (0.038, 0.025, z + 0.076), 'ceramic', u=10, v=6)
     P.prism('fin', [(0.0, 0.0), (0.03, -0.012), (0.026, 0.0), (0.03, 0.012)], 0.003, (-0.03, -0.02, z + 0.046), 'trim', rot=D(0.0, -1.0, 2.4), bev=None)
 
 
@@ -544,7 +544,7 @@ def meal_burnt(P):
     for i in range(5):
         P.box(f'ember{i}', (0.012, 0.004, 0.003), (0.034 * math.cos(i * 1.4), 0.034 * math.sin(i * 1.4), z + 0.03 - 0.003 * (i % 2)), 'paint', rot=D(0.3, 0.2, i * 0.9), bev=None)
     for i in range(3):
-        P.sphere(f'ash{i}', 0.01, (0.07 * math.cos(i * 2.2 + 1), 0.07 * math.sin(i * 2.2 + 1), z + 0.004), 'paint_b', u=6, v=3, scale=(1.3, 1.0, 0.3))
+        P.sphere(f'ash{i}', 0.01, (0.07 * math.cos(i * 2.2 + 1), 0.07 * math.sin(i * 2.2 + 1), z + 0.004), 'paint_b', u=12, v=6, scale=(1.3, 1.0, 0.3))
 
 
 MODELS = {f.__name__: f for f in [

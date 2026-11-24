@@ -105,6 +105,9 @@ const PART_SCRAP: Record<Category, readonly [number, number, number, number, num
   handbrake: [1, 2, 2, 3, 4],
   gearLever: [1, 2, 2, 3, 4],
   ignition: [1, 2, 3, 4, 5],
+  hitch: [2, 3, 4, 6, 8],
+  ladder: [2, 3, 4, 5, 7],
+  houseBattery: [4, 6, 8, 11, 14],
 };
 
 /** a part's grade (its card's stars), 1 at least */
@@ -179,9 +182,7 @@ const R = (id: string, cat: RecipeCat, tier: number, makes: Makes, cost: Cost, o
 /** every recipe, in the bench's order (Arctic Drive's costs) */
 export const RECIPES: readonly Recipe[] = [
   // tools
-  R('scraper_1', 'tools', 1, { kind: 'tool', tool: 'scraper', tier: 1 }, { scrap: 70 }, true),
-  R('scraper_2', 'tools', 3, { kind: 'tool', tool: 'scraper', tier: 2 }, { scrap: 200 }),
-  R('scraper_3', 'tools', 5, { kind: 'tool', tool: 'scraper', tier: 3 }, { scrap: 450 }),
+  R('scraper_1', 'tools', 1, { kind: 'tool', tool: 'scraper', tier: 1 }, { scrap: 50 }, true),
   R('jerrycan', 'tools', 3, { kind: 'tool', tool: 'jerrycan', fuel: 'petrol' }, { scrap: 75 }),
   R('lamp_old', 'tools', 1, { kind: 'item', item: 'lamp_old' }, { scrap: 40 }),
   R('repair_1', 'tools', 1, { kind: 'item', item: 'repair_1' }, { scrap: 70 }),

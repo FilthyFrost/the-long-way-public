@@ -145,11 +145,11 @@ describe('the kitchen’s sounds', () => {
     // a low flame: the knob, and everything quieter
     const before = rig.game.loops.get('sizzle')!;
     rig.aim(stove, 'knob');
-    rig.tapF();
+    rig.wheel();
     expect(fireOf(stove.item)).toBe(1);
     expect(heard()).toContain('knob_click');
     expect(rig.game.loops.get('sizzle')).toBeLessThan(before);
-    rig.tapF();
+    rig.wheel();
     // the toss when it asks
     for (let t = 0; t < 900 && !asksStir(stove.item); t++) rig.frames(1, 1 / 30);
     rig.aim(stove, 'top');
@@ -181,9 +181,9 @@ describe('the kitchen’s sounds', () => {
     rig.pressE();
     expect(heard()).toContain('flame_out');
     expect(rig.game.loops.size).toBe(0);
-    // the pan off and on again: the grate
+    // the pan off and on again: the grate (off: the left button held on it)
     rig.aim(stove, 'top');
-    rig.tapF();
+    rig.holdL();
     expect(heard()).toContain('pan_lift');
     rig.aim(stove, 'top');
     rig.pressE();

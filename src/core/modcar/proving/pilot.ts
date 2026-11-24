@@ -17,6 +17,9 @@ import type { RunPhase } from './runs';
 const KMH = 1 / 3.6;
 /** the slalom pushed to the grip goes in at this (km/h) */
 const PUSH_IN = 35;
+/** off the slalom's line by more than this (m) the push slows down; under this it may go faster */
+const SLALOM_OFF_SLOW = 0.45;
+const SLALOM_OFF_FAST = 0.25;
 
 /** a straight line from (x0, z0) along the unit (dx, dz) */
 export class LinePath implements DrivePath {
@@ -279,7 +282,11 @@ export class Pilot {
           // as fast as the tyres let it: faster while the busiest has a fifth of its grip to spare, slower past nine tenths
           let used = 0;
           for (const w of sim.wheels) if (w.contact) used = Math.max(used, w.util);
-          this.pushV += dt * (used < 0.8 ? 1.4 : used > 0.92 ? -3.5 : 0);
+          // (and off its line it is going faster than it can follow it: slower — a line held is what gets it round
+          // the cones; since the steering's play no longer leaves the wheels turned, a grippy tyre has grip to spare
+          // well past where its line can still be held: docs/V3/plan/growth.md J2)
+          const off = Math.abs(this.proj.d);
+          this.pushV += dt * (used > 0.92 || off > SLALOM_OFF_SLOW ? -3.5 : used < 0.8 && off < SLALOM_OFF_FAST ? 1.4 : 0);
           this.pushV = Math.max(PUSH_IN * 0.7 * KMH, Math.min(130 * KMH, this.pushV));
           r.opts.cruise = this.pushV;
         }

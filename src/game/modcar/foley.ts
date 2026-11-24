@@ -90,6 +90,8 @@ export type FoleyShot =
   | 'power_on'
   /** the power going off: a click and the hum dying away */
   | 'power_off'
+  /** a coffee machine grinding its beans (~2.2 s): a small motor's whine under the load, the beans crackling, thinning out as they are ground, the motor freed and spinning down */
+  | 'coffee_grind'
   /** a switch thrown with no power: a dull dead click */
   | 'no_power'
   // scrubbing: dirt, rust and the cleaning tools
@@ -1462,6 +1464,46 @@ function powerOn(): Recipe {
       buzzInto(x, sr, tk + 0.01, rng.range(0.04, 0.09), 0.08, rng);
     }
     return normalize(saturate(edges(x, sr, 1, 30), 1.2), 0.8);
+  };
+}
+
+/**
+ * A small burr grinder on a load of beans: the motor's whine rising to speed, dragged down and wobbling while the burrs
+ * bite, the beans crackling (dense little bright snaps, a woody knock under them) and thinning out as they are ground,
+ * the motor freed — up in pitch — and spinning down.
+ */
+function coffeeGrind(): Recipe {
+  return (sr, rng) => {
+    const len = 2.3;
+    const x = S(sr, len);
+    const grind = 1.75;
+    // the motor: two partials a fifth apart, its pitch up to speed, dragged down by the load, freed at the end
+    const n = Math.floor(len * sr);
+    const m = new Float32Array(n);
+    let ph = 0;
+    let ph2 = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      const load = t < grind ? 0.86 + 0.03 * Math.sin(t * 23 + Math.sin(t * 7) * 2) : 0.86 + 0.14 * Math.min(1, (t - grind) / 0.12);
+      const spin = t < grind + 0.15 ? 1 - Math.exp(-t / 0.09) : Math.max(0, 1 - (t - grind - 0.15) / (len - grind - 0.15));
+      const f = 960 * load * (0.35 + 0.65 * spin);
+      ph += (2 * Math.PI * f) / sr;
+      ph2 += (2 * Math.PI * f * 1.5) / sr;
+      m[i] = (Math.sin(ph) * 0.6 + Math.sin(ph2) * 0.25 + Math.sin(ph * 2) * 0.15) * 0.16 * spin;
+    }
+    biquad(m, sr, 'lowpass', 3200);
+    mixInto(x, m, 0, 1);
+    // the beans: snaps that come thick while the burrs bite and thin out as the beans are ground
+    for (let t = 0.06; t < grind; ) {
+      const left = 1 - t / grind;
+      const at = Math.floor(t * sr);
+      strike(x, sr, at, [[rng.range(2600, 5200), 1, 0.0025], [rng.range(5800, 8200), 0.4, 0.0015]], (0.05 + 0.1 * left) * rng.range(0.5, 1), rng);
+      if (rng.next() < 0.35) burst(x, sr, at, 0.012, (0.04 + 0.06 * left) * rng.range(0.6, 1), rng, { attack: 0.0004, decay: 0.003, filter: [['bandpass', rng.range(700, 1400), 1.2]] });
+      t += rng.range(0.004, 0.012) / Math.max(0.15, left);
+    }
+    // a dry hiss of the grounds through the burrs, under it all while they bite
+    burst(x, sr, Math.floor(0.05 * sr), grind - 0.05, 0.05, rng, { attack: 0.08, decay: grind, filter: [['highpass', 1800], ['lowpass', 7000]] });
+    return normalize(saturate(edges(x, sr, 2, 40), 1.1), 0.8);
   };
 }
 
@@ -4564,7 +4606,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   // (set against the doors, the ratchet and the engines: K-weighted loudness at these levels, momentary max, the
   // door slam -19 LUFS, a 25 kg part set down -23, the generator at 4 m -31 running light; see docs/MODCAR_AUDIO.md)
   cord_pull: 0.31, gen_switch: 0.5, gen_cough: 0.39, shred: 0.36, tally: 0.44, craft_start: 0.35, hammer_swing: 0.35, hammer_hit: 0.9, craft_done: 0.33,
-  power_on: 0.28, power_off: 0.55, no_power: 0.6,
+  power_on: 0.28, power_off: 0.55, no_power: 0.6, coffee_grind: 0.4,
   // scrubbing (the catch and the chimes over a scrub loop at full gain: the catch a touch under it, the
   // ding -22.5 like the bench's, the fanfare -20.5, the flakes falling far under it at -44)
   scrape_start: 0.63, flake_drop: 0.35, clean_ding: 0.34, clean_rust_done: 0.29, clean_car_done: 0.37, tool_worn: 0.7, highlight_ping: 0.3,
@@ -4680,6 +4722,7 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'craft_done': return craftDone();
     case 'power_on': return powerOn();
     case 'power_off': return powerOff();
+    case 'coffee_grind': return coffeeGrind();
     case 'no_power': return noPower();
     case 'scrape_start': return scrapeStart(o.surface ?? 'metal');
     case 'flake_drop': return flakeDrop();

@@ -71,7 +71,8 @@ try {
   await step('01_battery', () => fitFrom('bat_std', 'battery', 1.4, 1.5), (t) => done(t, 'hood', 'battery') && t.held === '');
   await step('02_wheel_FL', () => fitFrom('rim_steel13', 'hub_FL', 1.6, 1.6), (t) => t.held === '');
   await step('03_wheel_RR', () => fitFrom('rim_steel13', 'hub_RR', 1.6, 1.6), (t) => done(t, 'wheels') && t.held === '');
-  await step('04_engine', () => fitFrom('eng_i4', 'engine', 1.9, 3.3), (t) => done(t, 'engine') && t.held === '');
+  // (from where its ghost is in sight over the radiator: docs/V3/plan/hands.md — the mark goes by what one sees)
+  await step('04_engine', () => fitFrom('eng_i4', 'engine', 1.4, 3.3), (t) => done(t, 'engine') && t.held === '');
   await step(
     '05_fuel',
     async () => {
@@ -94,48 +95,54 @@ try {
   await step(
     '05c_replace_seat',
     async () => {
-      await fitFrom('seat_toilet', 'seat_driver', 1.7, 2.5);
+      // (through the open door: the shut one is in the way of the mark — docs/V3/plan/hands.md, real shapes)
+      await rt('openPanel', 0, 'door_FL', true);
+      await fitFrom('seat_toilet', 'seat_driver', 1.2, 2.5);
       const t = await rt('telemetry');
       if (t.held !== 'seat_bucket') throw new Error(`the old seat is not in the hands (held ${t.held})`);
       const on = await rt('part', 0, 'seat_driver');
       if (on?.part !== 'seat_toilet') throw new Error(`the toilet is not on the seat mount (${JSON.stringify(on)})`);
-      await rt('aim', 0, 'seat_driver', 1.7);
+      // (the old seat's ghost comes in a moment: its model)
+      await rt('simulate', 0.6);
+      await rt('aim', 0, 'seat_driver', 1.2);
       await rt('useFor', 2.5);
-      await rt('drop');
+      // (the toilet seat out of the way)
+      await page.evaluate(() => (window.__rt.game.player.held = null));
+      await rt('openPanel', 0, 'door_FL', false);
       return (await rt('part', 0, 'seat_driver'))?.part;
     },
     (t, part) => part === 'seat_bucket' && t.held === '',
   );
-  // a spray can on the front-left door; the right one scrubbed (its grime mask, docs/MODCAR.md §15): the sponge
+  // a spray can on the front-left door (a coat where it lands: docs/V3/plan/growth.md §1.5); the right one scrubbed (its grime mask, docs/MODCAR.md §15): the sponge
   // takes its dust but not the barn's crust, the scraper the crust
   await step(
     '05d_paint',
     async () => {
       if (!(await rt('pickUp', 'tool:spray'))) throw new Error('no spray can');
-      const before = (await rt('part', 0, 'door_FL'))?.paint;
+      const before = (await rt('part', 0, 'door_FL'))?.coat;
       await rt('aim', 0, 'door_FL', 1.4);
       await rt('useFor', 1.6);
       await rt('drop');
-      return { before, after: (await rt('part', 0, 'door_FL'))?.paint };
+      return { before, after: (await rt('part', 0, 'door_FL'))?.coat };
     },
-    (t, r) => r.after !== r.before && t.held === '',
+    (t, r) => !r.before && r.after === true && t.held === '',
   );
   await step(
     '05e_wash',
     async () => {
-      if (!(await rt('pickUp', 'tool:sponge'))) throw new Error('no sponge');
+      if (!(await rt('pickUp', 'tool:scraper'))) throw new Error('no scraper');
       // (the bonnet stands open: the right front door)
       await rt('aim', 0, 'door_FR', 1.0);
       const r = await rt('scrub', 2.2, 6, 0.3, 0.25);
       await rt('drop');
       const left = (g) => g?.cleaning?.find((c) => c.owner === 'p:door_FR')?.units?.find((u) => u.unit === 0)?.dirt ?? 1;
-      await rt('hold', 'tool:scraper', { tier: 2 });
+      await rt('hold', 'tool:scraper', { tier: 1 });
       await rt('aim', 0, 'door_FR', 0.95);
       const s = await rt('scrub', 2.6, 8, 0.42, 0.36);
       await page.evaluate(() => (window.__rt.game.player.held = null));
       return { started: r.started && s.started, sponged: left(r.grime), scraped: left(s.grime) };
     },
-    (t, r) => r.started && r.sponged <= 1 && r.scraped < 0.6 && t.held === '',
+    (t, r) => r.started && r.sponged <= 1 && r.scraped <= r.sponged && t.held === '',
   );
   // what went under the bonnet is in: shut it again (it fills the windscreen)
   await step(
@@ -180,6 +187,12 @@ try {
         if (kmh < 0.8) break;
         await rt('drive', 0.2, 0, 0, 1);
       }
+      // (and still: braked hard with the wheel straight it may spin round, slow along its length and still sliding
+      // sideways — 17 km/h here — and one does not get out of that: the brakes held for it settle it in a second or two)
+      await page.evaluate(() => {
+        const g = window.__rt.game;
+        for (let i = 0; i < 300 && g.seated && g.seated.sim.speed * 3.6 > 0.5; i++) g.step(1 / 60, 1);
+      });
       await page.evaluate(() => window.__rt.game.seated.sim.setParkBrake(true));
       await rt('exit');
       await rt('setView', 'cockpit');

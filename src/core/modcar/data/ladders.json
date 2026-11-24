@@ -1,0 +1,90 @@
+{
+  "_doc": "Where each roofed frame's ladder goes and what one stands on up there (docs/V3/plan/growth.md §六 2, J9e). Frame model space as the mounts JSON: +x forward, +y up, +z right, metres, the origin on the ground under the middle of the wheels. side: +1 the right side, -1 the left, 0 the rear. A side ladder: its rails `rails` apart about x, in the plane z = side * rail (out of the body's box), its stand-offs `stand` in to the body's skin (0.05 if not said), from `foot` (its lowest rung) up to the roof's edge, its hooks over the edge `hook.dx` forward and in to |z| = hook.to, resting on the roof. A rear one (built into the frame's own model: the Whale's): its rails about z in the plane x = rail. floors: the boxes one stands on up there (their x and z ranges along and across, their top); `rack`: raised to the walking height of a part on the roof mount (the rack's slats). walls: what keeps one off a part of the body one cannot stand on (the Rhino's canvas tilt: along, across, its height from and to). (No key x, y or z holds anything but a number: the engine would keep every plain {x, y, z} of the game's in boxes on the heap.) exit: where one is let go up there (x, z). The Blender script (tools/blender/parts/body.py build_ladder) reads this file for each frame's ladder.",
+  "rails": 0.3,
+  "frames": {
+    "sedan": {
+      "side": 1, "x": -1.13, "rail": 0.85, "foot": 0.74,
+      "hook": { "dx": 0.26, "to": 0.45 },
+      "exit": [-0.8, 0.3],
+      "floors": [{ "along": [-0.98, 0.28], "across": [-0.56, 0.56], "top": 1.375, "rack": true }]
+    },
+    "fox": {
+      "side": 1, "x": -0.78, "rail": 0.86, "foot": 0.62,
+      "hook": { "dx": 0.1, "to": 0.42 },
+      "exit": [-0.6, 0.25],
+      "floors": [{ "along": [-0.86, -0.1], "across": [-0.5, 0.5], "top": 1.2, "rack": true }]
+    },
+    "pickup": {
+      "side": 1, "x": -0.18, "rail": 0.88, "foot": 0.42,
+      "hook": { "dx": 0.24, "to": 0.5 },
+      "exit": [0.14, 0.3],
+      "floors": [{ "along": [-0.05, 0.55], "across": [-0.64, 0.64], "top": 1.578, "rack": true }]
+    },
+    "van": {
+      "side": 1, "x": -1.85, "rail": 0.89, "foot": 0.45,
+      "hook": { "dx": 0.0, "to": 0.62 },
+      "exit": [-1.7, 0.4],
+      "floors": [{ "along": [-2.05, 0.7], "across": [-0.74, 0.74], "top": 1.925, "rack": true }]
+    },
+    "goat": {
+      "side": -1, "x": -1.62, "rail": 0.96, "foot": 0.72,
+      "hook": { "dx": 0.0, "to": 0.55 },
+      "exit": [-1.45, -0.35],
+      "floors": [{ "along": [-1.75, 0.85], "across": [-0.68, 0.68], "top": 1.818, "rack": true }]
+    },
+    "wagon": {
+      "side": -1, "x": -1.82, "rail": 0.9, "foot": 0.62,
+      "hook": { "dx": 0.0, "to": 0.5 },
+      "exit": [-1.7, -0.3],
+      "floors": [{ "along": [-2.35, 0.3], "across": [-0.6, 0.6], "top": 1.397, "rack": true }]
+    },
+    "buffalo": {
+      "side": 1, "x": -0.86, "rail": 0.93, "foot": 0.45,
+      "hook": { "dx": 0.14, "to": 0.55 },
+      "exit": [-0.55, 0.35],
+      "floors": [{ "along": [-0.85, 0.8], "across": [-0.72, 0.72], "top": 1.788, "rack": true }]
+    },
+    "rhino": {
+      "side": 1, "x": 0.2, "rail": 1.16, "foot": 0.92,
+      "hook": { "dx": 0.1, "to": 0.8 },
+      "exit": [0.5, 0.6],
+      "floors": [{ "along": [0.15, 1.25], "across": [-0.98, 0.98], "top": 2.55, "rack": true }],
+      "walls": [{ "along": [-3.3, 0.06], "across": [-1.13, 1.13], "height": [1.3, 2.95] }]
+    },
+    "snail": {
+      "side": -1, "x": 0.45, "rail": 0.99, "foot": 0.98, "stand": 0.09,
+      "hook": { "dx": 0.0, "to": 0.62 },
+      "exit": [0.45, -0.45],
+      "floors": [
+        { "along": [-2.45, 0.72], "across": [-0.92, 0.92], "top": 2.75 },
+        { "along": [0.95, 2.15], "across": [-0.75, 0.75], "top": 2.262, "rack": true }
+      ]
+    },
+    "rv": {
+      "side": 0, "builtin": true, "z": 0.74, "rail": -3.98, "foot": 0.95,
+      "exit": [-3.45, 0.74],
+      "floors": [
+        { "along": [-3.75, 2.0], "across": [-1.0, 1.0], "top": 3.02 },
+        { "along": [-2.4, -0.2], "across": [-0.9, 0.9], "top": 3.02, "rack": true }
+      ]
+    },
+    "camel": {
+      "side": -1, "x": -4.62, "rail": 1.265, "foot": 0.7,
+      "hook": { "dx": 0.0, "to": 0.88 },
+      "exit": [-4.62, -0.55],
+      "floors": [
+        { "along": [-4.8, 2.7], "across": [-0.92, 0.92], "top": 3.02 },
+        { "along": [-3.8, 1.8], "across": [-1.05, 1.05], "top": 3.04, "rack": true }
+      ]
+    },
+    "elephant": {
+      "side": -1, "x": -1.98, "rail": 1.245, "foot": 0.62,
+      "hook": { "dx": 0.0, "to": 0.88 },
+      "exit": [-1.98, -0.55],
+      "floors": [
+        { "along": [-3.85, 3.7], "across": [-0.92, 0.92], "top": 3.115 },
+        { "along": [-2.2, 1.0], "across": [-1.0, 1.0], "top": 3.115, "rack": true }
+      ]
+    }
+  }
+}

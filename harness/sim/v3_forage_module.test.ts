@@ -444,13 +444,14 @@ describe('forage module: what the player knows', () => {
       const e = itemDef(id).eat!;
       const body = newVitals();
       eat(body, e.food, e.hp, e.effect);
-      for (let i = 0; i < 6 * 60; i++) stepVitals(body, { dt: 1 / 60, sprinting: false, jumped: false, ambientC: 22, warmth: 0, rain: false, peeing: false });
+      // (a minute: being ill takes its toll a little at a time — docs/V3/plan/growth.md §四)
+      for (let i = 0; i < 60 * 60; i++) stepVitals(body, { dt: 1 / 60, sprinting: false, jumped: false, ambientC: 22, warmth: 0, rain: false, peeing: false });
       return body;
     };
     const well = digest('wild_berry');
     expect(well.hp).toBe(100);
     expect(has(well, 'sick1') || has(well, 'sick2')).toBe(false);
-    for (const [id, effect, least] of [['fly_agaric', 'sick1', 5], ['death_cap', 'sick2', 25]] as const) {
+    for (const [id, effect, least] of [['fly_agaric', 'sick1', 2], ['death_cap', 'sick2', 13.5]] as const) {
       expect(itemDef(id).eat).toMatchObject({ effect });
       const body = digest(id);
       expect(100 - body.hp).toBeGreaterThanOrEqual(least);

@@ -77,6 +77,18 @@ class Bush implements GarageDevice {
   }
 }
 
+/**
+ * Where the player is, as a class of its own: an object literal {x, z} shares its hidden class with every such literal
+ * in the program, and one of them anywhere holding a fraction where another held a small integer — or holding
+ * anything but a number — turns that field into one whose every store of a fraction allocates (V8's field
+ * representations). A frame that copies the walker's position into it would then allocate, as the kernel's test
+ * forbids.
+ */
+class PlanAt {
+  x = 0;
+  z = 0;
+}
+
 export class Berries implements System<GameContext>, InteractSource {
   readonly id = 'example';
   readonly budget = { cpuMs: 0.05 };
@@ -86,7 +98,7 @@ export class Berries implements System<GameContext>, InteractSource {
   /** things eaten since the page opened (heard, not kept) */
   eaten = 0;
   /** where the player is (the seat's vehicle, else the walker), and the bush nearest to that within 30 m (−1: none) */
-  readonly at = { x: 0, z: 0 };
+  readonly at = new PlanAt();
   nearest = -1;
   /** the nearest bush in render space (the world less the floating origin): where its model would be drawn */
   readonly shown = { x: 0, y: 0, z: 0 };

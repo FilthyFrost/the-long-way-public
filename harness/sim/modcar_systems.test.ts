@@ -81,18 +81,23 @@ describe('ModCar systems', () => {
     expect(r.sys.running).toBe(false);
   });
 
-  it('a water-cooled V8 without a radiator boils and seizes; an air-cooled six does not care', () => {
+  it('a water-cooled V8 without a radiator boils and wears itself out, then limps (J7: it does not seize); an air-cooled six does not care', () => {
     const r = rig(decodeBuild('stock:sedan;engine=eng_v8;-radiator', { fuel: 1 }));
     start(r);
     r.sim.setParkBrake(false);
     let maxC = 0;
-    for (let t = 0; t < 240 && r.sys.running; t += 5) {
+    for (let t = 0; t < 600 && r.sys.build.parts.engine.cond > 0; t += 5) {
       run(r, 5, { throttle: 0.9 });
       maxC = Math.max(maxC, r.sys.coolantC);
     }
     expect(maxC).toBeGreaterThan(112);
-    expect(r.sys.running).toBe(false);
     expect(r.sys.build.parts.engine.cond).toBe(0);
+    // worn out, it still runs — a limp, no faster than 38 km/h
+    expect(r.sys.running).toBe(true);
+    run(r, 25, { throttle: 0, brake: 1 });
+    run(r, 40, { throttle: 1 });
+    expect(r.sim.kmh).toBeGreaterThan(10);
+    expect(r.sim.kmh).toBeLessThan(42);
 
     const a = rig(decodeBuild('stock:sedan;engine=eng_flat6;-radiator', { fuel: 1 }));
     start(a);

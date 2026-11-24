@@ -157,6 +157,8 @@ class Garage implements GarageScene {
   private readonly leaf: Record<string, { t: number; target: number; solid: Solid }> = {};
   private doorMoving = 0;
   lampsOn = true;
+  /** why the doors will not open yet (the game's: the start's car cannot drive yet), or null */
+  doorLock: (() => Text | null) | null = null;
   /** the generator outside runs (workshop.ts): without it the lamps stay dark and the charger does not charge */
   power = true;
   private lampLevel = 1;
@@ -203,6 +205,7 @@ class Garage implements GarageScene {
       device: (id) => LAYOUT.devices.find((d) => d.id === id) ?? null,
       surface: (name) => LAYOUT.surfaces.find((x) => x.name === name) ?? null,
       liftBay: LAYOUT.liftBay ?? null,
+      power: () => this.power,
     });
     this.devices.push(...this.machines.devices);
     this.chalk = LAYOUT.chalkboard ? new Chalkboard(LAYOUT.chalkboard) : null;
@@ -343,12 +346,19 @@ class Garage implements GarageScene {
       z: door.z,
       radius: door.radius,
       get word(): Text {
-        return self.doorsOpen() ? text('按下 · 关上大门', 'Press · close the big doors') : text('按下 · 打开大门', 'Press · open the big doors');
+        return self.doorsOpen() ? text('关上大门', 'Close the doors') : text('打开大门', 'Open the doors');
       },
       get state(): Text {
-        return self.doorsOpen() ? text('大门开着：车能开出去', 'The doors are open') : text('大门关着', 'The doors are shut');
+        return self.doorsOpen() ? text('大门开着', 'The doors are open') : text('大门关着', 'The doors are shut');
       },
-      use: () => this.toggleDoors(),
+      // (shut, and the game says not yet: why, pressed)
+      get why(): Text | null {
+        return self.doorsOpen() ? null : (self.doorLock?.() ?? null);
+      },
+      use: () => {
+        if (!this.doorsOpen() && this.doorLock?.()) return;
+        this.toggleDoors();
+      },
     });
     const sw = at('lights');
     this.devices.push({
@@ -358,17 +368,16 @@ class Garage implements GarageScene {
       z: sw.z,
       radius: sw.radius,
       get word(): Text {
-        if (!self.power) return self.lampsOn ? text('关灯 · 没电（门外的发电机没开）', 'Lights off · no power') : text('开灯 · 没电（门外的发电机没开）', 'Lights on · no power');
         return self.lampsOn ? text('关灯', 'Lights off') : text('开灯', 'Lights on');
       },
       get state(): Text {
-        if (!self.power) return text('没电：去门外把发电机拉着', 'No power: start the generator outside');
+        if (!self.power) return text('没电', 'No power');
         return self.lampsOn ? text('灯开着', 'The lights are on') : text('灯关着', 'The lights are off');
       },
       use: () => {
         this.lampsOn = !this.lampsOn;
         this.ctx?.sound('switch');
-        if (!this.power) this.ctx?.ui.say('没电：门外的发电机没开。拉一下启动绳就有电了。', 2.6);
+        if (!this.power) this.ctx?.player.flashWhy('没电');
       },
     });
     const ch = at('charger');
@@ -380,10 +389,15 @@ class Garage implements GarageScene {
       radius: ch.radius,
       get word(): Text {
         const b = self.batteryOnCharger();
-        if (!b) return text('充电器 · 把电瓶放到上面的托盘里', 'Charger · put a battery on the tray');
-        const c = Math.round((b.part!.fluids.charge ?? 0) * 100);
-        if (!self.power) return text(`充电器 · 没电（电瓶 ${c}%）：先开门外的发电机`, `Charger · no power (${c}%)`);
-        return c >= 99 ? text(`充电器 · 电瓶已充满`, 'Charger · battery full') : text(`充电器 · 正在充电 ${c}%`, `Charger · charging ${c}%`);
+        const c = b ? Math.round((b.part!.fluids.charge ?? 0) * 100) : 0;
+        return !b ? text('充电', 'Charge') : c >= 99 ? text('充满了', 'Full') : text(`充电 ${c}%`, `Charging ${c}%`);
+      },
+      // (pressing does nothing: what it waits for, said when pressed)
+      get why(): Text | null {
+        const b = self.batteryOnCharger();
+        if (!b) return text('先放电瓶上去', 'Put a battery on it');
+        if (!self.power) return text('没电', 'No power');
+        return text(Math.round((b.part!.fluids.charge ?? 0) * 100) >= 99 ? '充满了' : '正在充', 'Charging');
       },
       use: () => {},
     });

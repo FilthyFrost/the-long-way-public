@@ -487,6 +487,7 @@ class Part:
         self.opts = opts or {}
         self.statics = []      # objects joined into PART
         self.movers = []       # child meshes (pivoted)
+        self.mover_rot = {}    # a mover's own frame turned about Z (radians), by its name
         self.empties = []      # child empties
         self.props = {}
         self.info = {}         # extra fields for parts_geo.json (radius, width, ...)
@@ -709,12 +710,15 @@ class Part:
         self.empties.append(e)
         return e
 
-    def mover(self, name, objs, pivot):
-        """Make a moving child mesh out of registered statics; its origin is the pivot (part space)."""
+    def mover(self, name, objs, pivot, rot_z=None):
+        """Make a moving child mesh out of registered statics; its origin is the pivot (part space); rot_z (radians):
+        its own frame turned about Z, the mesh where it was built (a turned turbine's rotor turning about its own axis)."""
         objs = list(objs)
         for o in objs:
             self.statics.remove(o)
         self.movers.append((name, objs, V(pivot)))
+        if rot_z:
+            self.mover_rot[name] = float(rot_z)
 
     def prop(self, key, value):
         self.props[key] = value
@@ -803,7 +807,12 @@ class Part:
         mov_objs = []
         for (name, objs, pivot) in self.movers:
             o = self._finish_group(objs, name)
-            o.data.transform(Matrix.Translation(-pivot))
+            rz = self.mover_rot.get(name)
+            if rz:
+                o.data.transform(Matrix.Rotation(-rz, 4, 'Z') @ Matrix.Translation(-pivot))
+                o.rotation_euler = (0.0, 0.0, rz)
+            else:
+                o.data.transform(Matrix.Translation(-pivot))
             o.location = pivot
             o.parent = root
             mov_objs.append(o)

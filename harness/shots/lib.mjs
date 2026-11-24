@@ -9,7 +9,10 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export async function startServer() {
   // no hot reload: editing the source while a run is going must not reload pages half way through a shot
   // (new pages still get the new code; a shot already open keeps the code it started with)
-  const server = await createServer({ root: ROOT, logLevel: 'error', server: { host: '127.0.0.1', port: 5199, strictPort: false, hmr: false } });
+  // (SHOTS_VITE_CACHE: a worktree's own cache of optimised dependencies — worktrees share one node_modules through a
+  // junction, and servers of several running at once must not rewrite each other's)
+  const cacheDir = process.env.SHOTS_VITE_CACHE || undefined;
+  const server = await createServer({ root: ROOT, cacheDir, logLevel: 'error', server: { host: '127.0.0.1', port: 5199, strictPort: false, hmr: false } });
   await server.listen();
   const addr = server.httpServer.address();
   return { server, url: `http://127.0.0.1:${addr.port}` };

@@ -107,9 +107,9 @@ K('lions_mane', 'mushroom', '猴头菇', "Lion's mane", 'uncommon', 5, 1, 2, [0x
 K('bamboo_fungus', 'mushroom', '竹荪', 'Bamboo fungus', 'uncommon', 4, 1, 2, [0xf6f2e8, 0x6a5a40, 0xe8e0cc], '穿着网裙的菌子，炖汤最鲜。', '竹林里，清晨。', 'In bamboo groves, in the early morning.', { when: DAWN });
 // Vitals schedules poisoning HP loss only for an ingested portion with positive food.
 // One is its minimum integer intake; the HP loss and sickness outweigh it.
-K('glow_mushroom', 'mushroom', '西美南瓜灯菇', 'Western jack-o’-lantern', 'rare', 1, 2, 4, [0xba792f, 0xe0ac56, 0x9baf72], '橙褐色菌盖下的菌褶能发微光。这种木腐菌有毒。', '加州阔叶树的根木和树桩旁，常成簇。', 'On hardwood roots and stumps in California.', { when: NIGHT, glow: true, hp: -8, effect: 'sick1', twin: 'chanterelle' });
-K('fly_agaric', 'mushroom', '毒蝇伞', 'Fly agaric', 'uncommon', 1, 1, 3, [0xd8362a, 0xf6f0e4, 0xffffff], '毒蝇伞可引起严重中毒。', '桦树和松树下。', 'Under birches and pines.', { hp: -6, effect: 'sick1', when: RAIN });
-K('death_cap', 'mushroom', '毒鹅膏', 'Death cap', 'uncommon', 1, 1, 2, [0xc8d0a8, 0xf2f0e2, 0xa8b088], '毒鹅膏（Amanita phalloides）有致命毒性。', '橡树林下。', 'Under oaks.', { hp: -28, effect: 'sick2' });
+K('glow_mushroom', 'mushroom', '西美南瓜灯菇', 'Western jack-o’-lantern', 'rare', 1, 2, 4, [0xba792f, 0xe0ac56, 0x9baf72], '橙褐色菌盖下的菌褶能发微光。这种木腐菌有毒。', '加州阔叶树的根木和树桩旁，常成簇。', 'On hardwood roots and stumps in California.', { when: NIGHT, glow: true, hp: 0, effect: 'sick1', twin: 'chanterelle' });
+K('fly_agaric', 'mushroom', '毒蝇伞', 'Fly agaric', 'uncommon', 1, 1, 3, [0xd8362a, 0xf6f0e4, 0xffffff], '毒蝇伞可引起严重中毒。', '桦树和松树下。', 'Under birches and pines.', { hp: 0, effect: 'sick1', when: RAIN });
+K('death_cap', 'mushroom', '毒鹅膏', 'Death cap', 'uncommon', 1, 1, 2, [0xc8d0a8, 0xf2f0e2, 0xa8b088], '毒鹅膏（Amanita phalloides）有致命毒性。', '橡树林下。', 'Under oaks.', { hp: -10, effect: 'sick2' });
 
 // ------------------------------------------------------------------ berries and fruit (12)
 

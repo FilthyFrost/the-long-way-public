@@ -99,7 +99,7 @@ export function cookwareCosts(): Record<string, readonly [number, number, number
 
 /** the rows: twelve kinds of dish, what a spoiled dish becomes, the cookware, a pickling jar and a cool box that hold things */
 export function cookingItemRows(): ItemRow[] {
-  const rows: ItemRow[] = [{ id: SPOILED_DISH, cat: 'junk', name: { zh: '馊掉的饭菜', en: 'Spoiled food' }, stars: 0, mass: 0.3, stack: 8, salvage: { organics: 2 }, model: 'dish_spoiled', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '放坏了。丢进回收台还能出点有机物。' }];
+  const rows: ItemRow[] = [{ id: SPOILED_DISH, cat: 'junk', name: { zh: '馊掉的饭菜', en: 'Spoiled food' }, stars: 0, mass: 0.3, stack: 8, salvage: { organics: 2 }, model: 'dish_spoiled', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '放坏了。' }];
   for (const cls of Object.keys(DISHES) as DishClass[]) {
     const d = DISHES[cls];
     rows.push({

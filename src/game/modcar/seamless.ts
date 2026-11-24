@@ -25,9 +25,10 @@ export const MODCAR_SECOND_PLACE = 0.8;
  * Which world is asked for: how its chapters are scaled and where it begins, and which generator makes it
  * (core/world/rules.ts): its version — absent: 1, every world from before there were versions — and how many
  * regions of the registry it knows — absent: the version's own count. A new game names version 2; a save names
- * the version, the count and the seed it was begun with.
+ * the version, the count and the seed it was begun with. `prefabs`: a test lot of prefab buildings along the road
+ * (core/world/prefabs.ts, ?nd=), never saved.
  */
-export type ModcarWorldChoice = Pick<WorldOptions, 'chapterScale' | 'startBiome' | 'worldVersion' | 'regionCount'>;
+export type ModcarWorldChoice = Pick<WorldOptions, 'chapterScale' | 'startBiome' | 'worldVersion' | 'regionCount' | 'prefabs'>;
 
 /** ModCar's world: the road begins at the workshop's gate, level with its yard, and the yard is a plot of its land */
 export function modcarWorldOptions(o: ModcarWorldChoice): WorldOptions {

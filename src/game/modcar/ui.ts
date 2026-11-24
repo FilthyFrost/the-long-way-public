@@ -103,38 +103,26 @@ const CSS = `
 @keyframes mc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
 `;
 
-/** the keys (docs/MODCAR.md §5.1), as the help card shows them */
-const HELP = `<h3>公路旅行 · 车库</h3><div class="lead">把「方糖」装好、加上油，开出车库上路。拿着零件靠近车，能装的地方会亮起来。</div>
-<h5>走路</h5><table>
-<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · 鼠标</td><td class="v">走动、环顾 · <b>Shift</b> 跑（耗体力）· <b>空格</b> 跳 · <b>C</b> 蹲下 / 站起 · 按住 <b>P</b> 方便</td></tr>
-<tr><td class="k"><b>E</b> / 左键</td><td class="v">拿起看着的东西（放进快捷栏）；对着亮起的幽灵<b>按住</b>装上（已有零件就是替换，旧的到手上）</td></tr>
-<tr><td class="k">按住右键 / <b>F</b></td><td class="v">拆下看着的零件；拿着吃的、药：吃，拿着喝的：按住喝</td></tr>
-<tr><td class="k"><b>1</b> <b>2</b> · 滚轮</td><td class="v">快捷栏两格（背上背包多几格，数字键换）：按 1、2 换到手上</td></tr>
-<tr><td class="k">按住 <b>G</b> · <b>I</b></td><td class="v">把手上的东西放下（看着车：自己塞进车里）· 隐藏 / 显示物品信息卡</td></tr>
-<tr><td class="k"><b>E</b> 看着车门、引擎盖</td><td class="v">开 / 关；看着车身 = 上车；拿着东西对着后备箱、车斗：放进去</td></tr>
-<tr><td class="k"><b>Tab</b></td><td class="v">车里装着的东西（<b>W</b> <b>S</b> 选，<b>E</b> 拿出来）；身边没车：身上的背包</td></tr>
-<tr><td class="k">油桶</td><td class="v">先空手按 E 打开车身侧面的<b>加油口盖</b>，再拿着油桶对准它：油桶自己对上去，按住 E 加油，按住右键抽回</td></tr>
-<tr><td class="k">水壶 · 机油壶</td><td class="v">打开引擎盖，对着散热器的<b>蓝色盖子</b> / 发动机的<b>黄色盖子</b>，按住 E 倒进去</td></tr>
-<tr><td class="k">喷罐 · 海绵</td><td class="v">对着零件或车身按住左键喷漆 / 擦洗；滚轮换颜色</td></tr>
+/** the keys (docs/MODCAR.md §5.1), as the help card shows them: a key and a word (docs/V3/plan/prompts.md §五) */
+export const HELP = `<h3>按键</h3>
+<h5>鼠标</h5><table>
+<tr><td class="k">左键</td><td class="v">拿 · 开 · 用</td></tr>
+<tr><td class="k">按住左键</td><td class="v">装 · 拆 · 倒 · 喷 · 刮</td></tr>
+<tr><td class="k">右键</td><td class="v">吃 · 喝 · 手电 · 相机</td></tr>
+<tr><td class="k">滚轮</td><td class="v">调 · 换格</td></tr>
+</table>
+<h5>键盘</h5><table>
+<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>Shift</b> · <b>空格</b> · <b>C</b></td><td class="v">走 · 跑 · 跳 · 蹲</td></tr>
+<tr><td class="k"><b>Q</b> · <b>R</b></td><td class="v">放下 · 摆放</td></tr>
+<tr><td class="k">摆放时 <b>Q</b> <b>E</b></td><td class="v">转 90°</td></tr>
+<tr><td class="k"><b>1</b> <b>2</b> · <b>Tab</b> · <b>J</b></td><td class="v">快捷栏 · 背包 · 食谱</td></tr>
 </table>
 <h5>开车</h5><table>
-<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b></td><td class="v">油门 / 刹车（停稳后 S 倒车）· 转向</td></tr>
-<tr><td class="k">按住 <b>K</b></td><td class="v">拧钥匙打火；着车时按一下熄火</td></tr>
-<tr><td class="k"><b>空格</b></td><td class="v">手刹：按住拉；停稳时长按锁住，再按一下松开</td></tr>
-<tr><td class="k"><b>Q</b> <b>Z</b> · <b>M</b></td><td class="v">挡杆 P R N D（手动挡时加 / 减挡）· 手动挡切换</td></tr>
-<tr><td class="k"><b>L</b> · <b>H</b> · <b>B</b></td><td class="v">车灯（关 → 近光 → 远光）· 喇叭 · 双闪</td></tr>
-<tr><td class="k">鼠标 + 左键</td><td class="v">直接扳手刹杆、拨挡杆、拧钥匙、开收音机（右键换台）、按喇叭、开车门</td></tr>
-<tr><td class="k"><b>E</b> · <b>C</b> · <b>R</b></td><td class="v">下车 · 驾驶座 / 车外视角 · 翻车时扶正</td></tr>
+<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b> · <b>空格</b></td><td class="v">油门 / 刹车 · 转向 · 手刹</td></tr>
+<tr><td class="k">按住左键（钥匙）</td><td class="v">打火</td></tr>
+<tr><td class="k"><b>L</b> · <b>H</b> · <b>C</b> · 按住 <b>Q</b></td><td class="v">车灯 · 喇叭 · 视角 · 下车</td></tr>
 </table>
-<h5>手柄</h5><table>
-<tr><td class="k">左摇杆 · 右摇杆</td><td class="v">走动 / 转向 · 环顾（擦洗时移动工具）· 按下左摇杆跑</td></tr>
-<tr><td class="k"><b>RT</b> · <b>LT</b></td><td class="v">走路：等于左键 · 右键（装、喷、擦 / 拆、吃、抽回）；开车：油门 · 刹车</td></tr>
-<tr><td class="k"><b>X</b> · <b>Y</b> · <b>A</b> · <b>B</b></td><td class="v">E · 按住放下 · 跳 · 拆下；开车：下车 · 手动挡切换 · 手刹 · 双闪</td></tr>
-<tr><td class="k"><b>LB</b> <b>RB</b> · 按下右摇杆</td><td class="v">快捷栏换格 · 物品信息卡；开车：喇叭 · 换视角 · 按看着的车内按钮和拉杆</td></tr>
-<tr><td class="k">十字键</td><td class="v">开车：上下拨挡杆、按住左打火、右车灯；走路：下 = 看哪里还脏；清单和工作台里选</td></tr>
-<tr><td class="k">视图键 · 菜单键</td><td class="v">背包 / 车里的东西（开车：翻车时扶正）· 这张按键卡</td></tr>
-</table>
-<div class="foot">点击画面开始 · <b>F1</b> 随时打开这张卡 · <b>F2</b> 辅助开关 · <b>\`</b>（1 左边那个键）开发者面板 · 连按 <b>F9</b> 新游戏 · <b>Esc</b> 放开鼠标</div>`;
+<div class="foot">点击开始 · <b>F1</b> 按键 · <b>F2</b> 辅助 · <b>\`</b> 开发者 · <b>F9</b>×2 新游戏 · <b>Esc</b> 放开鼠标</div>`;
 
 /** the marker's flag: a gold pennant on a pole, in the cartoon ink */
 const FLAG = '<svg viewBox="0 0 22 26"><path d="M5 24.5V2.5" stroke="#17120f" stroke-width="3.2" stroke-linecap="round" fill="none" /><path d="M5 24.5V2.5" stroke="#efe6d3" stroke-width="1.4" stroke-linecap="round" fill="none" /><path class="f" d="M6 3h13l-3.6 4.6L19 12.2H6z" fill="#e9c14a" stroke="#17120f" stroke-width="2.2" stroke-linejoin="round" /></svg>';

@@ -279,9 +279,16 @@ export class MergedCar {
   private readonly boxes = new Map<number, THREE.Box3>();
   private readonly looks = new Map<number, { paint: THREE.Color; paint2: THREE.Color; wear: THREE.Vector4 }>();
   private readonly hidden: THREE.Mesh[] = [];
+  /** the same, to ask of one (hides) */
+  private readonly hiddenSet = new Set<THREE.Object3D>();
   private readonly tmpBox = new THREE.Box3();
   private readonly tmpRay = new THREE.Ray();
   private readonly tmpHit = new THREE.Vector3();
+
+  /** a source mesh this merge hid (it is drawn in the merge: its shape is still the vehicle's) */
+  hides(o: THREE.Object3D): boolean {
+    return this.hiddenSet.has(o);
+  }
 
   /**
    * @param frame   the car's model space (origin on the ground): the merged geometry is in it, and the
@@ -363,6 +370,7 @@ export class MergedCar {
       if (!m.visible) continue;
       m.visible = false;
       this.hidden.push(m);
+      this.hiddenSet.add(m);
     }
   }
 
@@ -479,6 +487,7 @@ export class MergedCar {
     }
     for (const m of this.hidden) m.visible = true;
     this.hidden.length = 0;
+    this.hiddenSet.clear();
     // (the twins share the near meshes' attributes: the near ones back in place first, every twin freed after)
     for (const [mesh, near] of this.nearOf) mesh.geometry = near;
     for (const c of this.group.children) (c as THREE.Mesh).geometry.dispose();

@@ -46,7 +46,8 @@ describe('ModCar workshop', () => {
       expect(costTotal(r.cost)).toBeGreaterThan(0);
     }
     expect(RECIPES.filter((r) => recipeOpen(r)).map((r) => r.id)).toEqual(['scraper_1']);
-    expect(recipeOpen(recipeDef('scraper_2'), new Set(['scraper_2']))).toBe(true);
+    // (the metal and golden scrapers are retired: docs/V3/plan/hands.md §五)
+    expect(RECIPES.some((r) => r.id === 'scraper_2' || r.id === 'scraper_3')).toBe(false);
     expect(hits({ scrap: 20 })).toBe(1);
     expect(hits({ scrap: 70 })).toBe(3);
     expect(hits({ scrap: 40 })).toBe(2);
@@ -58,10 +59,11 @@ describe('ModCar workshop', () => {
     const s = newStock();
     const scraper = recipeDef('scraper_1').cost;
     expect(canAfford(s, scraper)).toBe(false);
-    addTo(s, { scrap: 50 });
+    // (the plastic scraper's 50: the start's two boxes and the dead television, docs/V3/plan/growth.md §一 1)
+    addTo(s, { scrap: 30 });
     expect(shortOf(s, scraper)).toEqual({ mat: 'scrap', n: 20 });
     expect(spend(s, scraper)).toBe(false);
-    expect(s.scrap).toBe(50);
+    expect(s.scrap).toBe(30);
     addTo(s, { scrap: 30, organics: 5 });
     expect(spend(s, scraper)).toBe(true);
     expect(s).toEqual({ scrap: 10, organics: 5, chemicals: 0 });

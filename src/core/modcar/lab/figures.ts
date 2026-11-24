@@ -249,7 +249,7 @@ export const FIGURES: { key: keyof Figures; zh: string; higher: boolean }[] = [
 export const DRIVEN_CATS: ReadonlySet<string> = new Set(['engine', 'gearbox', 'exhaust', 'turbo', 'rim', 'tire', 'steering', 'handbrake', 'suspension', 'brakes', 'diff']);
 
 /** the categories that need not change a figure: they are what they do (a radio plays, a horn sounds, a key starts it) */
-export const EXEMPT_CATS: ReadonlySet<string> = new Set(['radio', 'horn', 'ignition', 'taillight', 'mirror']);
+export const EXEMPT_CATS: ReadonlySet<string> = new Set(['radio', 'horn', 'ignition', 'taillight', 'mirror', 'hitch', 'ladder']);
 
 /** (understeer reads oddly for a steering wheel of another ratio: never the figure a part is judged by) */
 export const JUDGED: readonly (keyof Figures)[] = FIGURES.map((f) => f.key).filter((k) => k !== 'understeerDegPerG' && k !== 'rollDegPerG');

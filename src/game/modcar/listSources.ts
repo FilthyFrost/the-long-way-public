@@ -29,7 +29,7 @@
  * (harness/sim/v3_lists.test.ts and v3_world.test.ts run all of it in Node).
  */
 import { zoneOf } from '../../core/modcar/cargo';
-import { accepts, countOf, hasItem, itemDef, itemMass, itemName, putInside, roomInside, setFreshRate, settleItem, takeInside, type ItemInstance } from '../../core/modcar/items';
+import { accepts, boxDecay, countOf, hasItem, itemDef, itemMass, itemName, putInside, roomInside, setFreshRate, settleItem, takeInside, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { massOf, type CargoBay } from './cargo';
 import type { CargoRow, CargoView } from './cargoList';
 import { itemNow } from './itemTime';
@@ -328,7 +328,7 @@ const MARK_REACH = 2.6;
 const BOX_REACH = 2.8;
 
 /** what is said when the hands take none of a thing handed to them */
-export const HANDS_FULL = '两只手都占着：先放下一件（长按 G）。';
+export const HANDS_FULL = '手满了';
 
 /** how many a thing in the hands is (a stack counts its count; a part or a tool is one) */
 export function countOfHeld(h: NonNullable<Held>): number {
@@ -415,7 +415,7 @@ const TURNED = 0x20000000;
 
 class VehicleList implements ListSource {
   readonly head = '车里的东西';
-  readonly empty = '车里什么也没有。拿着东西看着车按 E 放进去，或者长按 G 收进车里。';
+  readonly empty = '车里什么也没有';
   readonly takeWord = '拿出来';
   readonly shutEmpty = true;
   /** the things behind the rows, in the rows' order */
@@ -582,12 +582,22 @@ export function placeSource(host: ListHost, pc: PlaceContainer): ListSource {
 
 // ------------------------------------------------------------------ what one has on
 
+/** where clothes go, in the order the list shows them, and what the list calls each place */
+const WEAR_ORDER: readonly WearSlot[] = ['hat', 'jacket', 'gloves', 'pants', 'shoes'];
+const WEAR_ZONE: Record<WearSlot, string> = { hat: '头上', jacket: '身上', gloves: '手上', pants: '腿上', shoes: '脚上' };
+
+/**
+ * What one has on (docs/V3/plan/growth.md 定案 5, Arctic Drive's way): the backpack, and the clothes by where they go,
+ * each with the warmth it gives (the nightdress under them: 睡裙, its own); a row taken is taken off into the hands
+ */
 class SelfList implements ListSource {
   readonly title = '我身上';
-  readonly head = '身上的东西';
-  readonly empty = '身上没背东西。拿着背包长按 F 背上。';
-  readonly takeWord = '取下来';
-  readonly shutEmpty = true;
+  readonly head = '穿着和背着';
+  readonly empty = '只穿着睡裙';
+  readonly takeWord = '脱下来';
+  readonly shutEmpty = false;
+  /** what each row last given stands for: the backpack, or a place clothes go */
+  private readonly rowOf: ('pack' | WearSlot)[] = [];
 
   constructor(private readonly host: ListHost) {}
 
@@ -596,17 +606,41 @@ class SelfList implements ListSource {
   }
 
   version(): string {
-    return this.host.player.pack?.uid ?? '';
+    const w = this.host.player.worn;
+    return `${this.host.player.pack?.uid ?? ''}|${WEAR_ORDER.map((k) => w[k]?.uid ?? '').join(',')}`;
   }
 
   rows(): CargoRow[] {
-    const p = this.host.player.pack;
-    return p ? [{ zone: '背着', name: `${itemDef(p.item).name.zh}（快捷栏 +${itemDef(p.item).pack?.slots ?? 0} 格）`, mass: itemMass(p), icon: this.host.iconOf({ kind: 'item', item: p }) }] : [];
+    const host = this.host;
+    const out: CargoRow[] = [];
+    this.rowOf.length = 0;
+    const p = host.player.pack;
+    if (p) {
+      out.push({ zone: '背着', name: `${itemDef(p.item).name.zh}（快捷栏 +${itemDef(p.item).pack?.slots ?? 0} 格）`, mass: itemMass(p), icon: host.iconOf({ kind: 'item', item: p }) });
+      this.rowOf.push('pack');
+    }
+    for (const k of WEAR_ORDER) {
+      const it = host.player.worn[k];
+      if (!it) continue;
+      const d = itemDef(it.item);
+      out.push({ zone: WEAR_ZONE[k], name: `${d.name.zh}（保暖 +${d.wear?.warmth ?? 0}）`, mass: itemMass(it), icon: host.iconOf({ kind: 'item', item: it }) });
+      this.rowOf.push(k);
+    }
+    return out;
   }
 
-  /** the backpack off, into the hands */
-  takeAt(): boolean {
+  /** the row's backpack off, or its piece of clothing, into the hands */
+  takeAt(i: number): boolean {
     const host = this.host;
+    const what = this.rowOf[i];
+    if (what && what !== 'pack') {
+      if (host.player.takeOff(what)) {
+        host.sound('cloth');
+        return true;
+      }
+      host.ui.say('手上空一只才脱得下来。', 2);
+      return false;
+    }
     if (!host.player.pack) return false;
     if (host.player.wearPack(null)) {
       host.sound('cloth');
@@ -732,7 +766,7 @@ class BoxList implements ListSource {
     const d = itemDef(box.item);
     this.title = opts.title ?? d.name.zh;
     this.head = `${this.title}里的东西`;
-    this.empty = `${this.title}是空的。把能装的东西拿在手里，按 G 放进来。`;
+    this.empty = `${this.title}是空的`;
     this.cap = d.holds ?? { slots: 0 };
   }
 
@@ -811,7 +845,7 @@ class BoxList implements ListSource {
     const box = this.box;
     const list = (box.inside ??= []);
     list.splice(Math.min(i, list.length), 0, out);
-    setFreshRate(out, now, itemDef(box.item).holds?.decay ?? 1);
+    setFreshRate(out, now, boxDecay(box));
   }
 
   /**

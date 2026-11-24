@@ -35,8 +35,12 @@ export interface Tool {
   tier?: 1 | 2 | 3;
   /** spray cans: units of paint left (paint.ts SPRAY_TIERS; without it, full) */
   paint?: number;
+  /** spray cans: the nozzle (paint.ts NOZZLES: 0 fine, 1 medium, 2 wide; without it, medium) */
+  nozzle?: number;
   /** the sponge, the scrapers, the brush: how much of it is left (1 new … 0 worn out) */
   life?: number;
+  /** a bottle of coolant rather than water (docs/V3/plan/growth.md §五: it goes slower and cools better) */
+  coolant?: boolean;
 }
 
 /**
@@ -82,22 +86,40 @@ export interface Cleaner {
   lasts: number;
   /** what the button does, in words */
   word: Text;
+  /**
+   * how much of a coat of paint that has set a pass takes (docs/V3/plan/growth.md §1.5: 0, the plastic scraper and
+   * the sponge — they do not hurt paint; what is still wet any tool smears off). Unsaid: by its crust and rust
+   */
+  coat?: number;
 }
 
 export const CLEANERS: Record<'sponge' | 'brush' | 'scraper_1' | 'scraper_2' | 'scraper_3', Cleaner> = {
   sponge: { width: 0.14, take: [0.85, 0.05, 0], depth: 0.03, wet: 1, lasts: 24, word: { zh: '擦洗', en: 'Scrub' } },
-  scraper_1: { width: SCRAPERS[1].width, take: [0.6, 0.3, 0.03], depth: 0.025, wet: 0, lasts: 60, word: { zh: '刮', en: 'Scrape' } },
-  scraper_2: { width: SCRAPERS[2].width, take: [0.6, 0.34, 0.04], depth: 0.025, wet: 0, lasts: 140, word: { zh: '刮', en: 'Scrape' } },
-  scraper_3: { width: SCRAPERS[3].width, take: [0.65, 0.4, 0.05], depth: 0.025, wet: 0, lasts: 320, word: { zh: '刮', en: 'Scrape' } },
-  brush: { width: 0.11, take: [0.3, 0.2, 0.34], depth: 0.03, wet: 0, lasts: 40, word: { zh: '刷锈', en: 'Brush off rust' } },
+  // (the one scraper there is now: the grinder's work, slowly — a quarter of the dirt, the crust, the rust and the paint
+  // a pass, three or four passes to clean; it wears out: docs/V3/plan/hands.md 定案 3)
+  scraper_1: { width: SCRAPERS[1].width, take: [0.28, 0.25, 0.25], depth: 0.025, wet: 0, lasts: 40, word: { zh: '刮', en: 'Scrape' }, coat: 0.25 },
+  scraper_2: { width: SCRAPERS[2].width, take: [0.6, 0.34, 0.04], depth: 0.025, wet: 0, lasts: 140, word: { zh: '刮', en: 'Scrape' }, coat: 0.2 },
+  scraper_3: { width: SCRAPERS[3].width, take: [0.65, 0.4, 0.05], depth: 0.025, wet: 0, lasts: 320, word: { zh: '刮', en: 'Scrape' }, coat: 0.28 },
+  brush: { width: 0.11, take: [0.3, 0.2, 0.34], depth: 0.03, wet: 0, lasts: 40, word: { zh: '刷锈', en: 'Brush off rust' }, coat: 0.34 },
 };
 
 /** a cleaning tool's way of working, or null (not one) */
 export function cleanerOf(t: Pick<Tool, 'kind' | 'tier'>): Cleaner | null {
-  if (t.kind === 'sponge') return CLEANERS.sponge;
-  if (t.kind === 'brush') return CLEANERS.brush;
-  if (t.kind === 'scraper') return CLEANERS[`scraper_${t.tier ?? 1}` as 'scraper_1'];
+  // (the sponge, the brush and the better scrapers are retired: a save's are plastic scrapers now — retireTool)
+  if (t.kind === 'scraper') return CLEANERS.scraper_1;
   return null;
+}
+
+/** a tool of a kind no longer in the game made what took its place: the sponge, the wire brush, the metal and golden scrapers a plastic scraper (in place; true: it was) */
+export function retireTool(t: Tool): boolean {
+  if (t.kind === 'sponge' || t.kind === 'brush' || (t.kind === 'scraper' && (t.tier ?? 1) !== 1)) {
+    t.kind = 'scraper';
+    t.tier = 1;
+    t.life = 1;
+    delete t.litres;
+    return true;
+  }
+  return false;
 }
 
 /** the tool worn by a stroke over `area` m² of surface: its life left (0 = worn out) */
@@ -141,6 +163,7 @@ export function newTool(kind: ToolKind, o: Partial<Tool> = {}): Tool {
 export function toolName(t: Tool, lang: 'zh' | 'en' = 'zh'): string {
   const base = TOOL_INFO[t.kind].name[lang];
   if (t.kind === 'jerrycan') return `${base}（${FUEL_NAME[t.fuel ?? 'petrol'][lang]} ${(t.litres ?? 0).toFixed(0)} L）`;
+  if (t.kind === 'bottle' && t.coolant) return `${lang === 'zh' ? '冷却液' : 'Coolant'}（${(t.litres ?? 0).toFixed(1)} L）`;
   if (t.kind === 'bottle' || t.kind === 'oilcan') return `${base}（${(t.litres ?? 0).toFixed(1)} L）`;
   if (t.kind === 'spray') return `${SPRAY_TIERS[sprayTier(t)].name[lang]}（${PALETTE[t.colour ?? 0]?.name[lang] ?? ''}）`;
   if (t.kind === 'scraper') return SCRAPERS[t.tier ?? 1].name[lang];
@@ -265,7 +288,11 @@ export function pour(t: Tool, build: Build, dt: number): number {
     const room = partDef(rad.part).radiator!.coolantL - (rad.fluids.coolantL ?? 0);
     const l = Math.min(want, room);
     if (l <= 0) return 0;
-    rad.fluids.coolantL = (rad.fluids.coolantL ?? 0) + l;
+    // (what is in it a mix of water and coolant: what goes in its share of it)
+    const was = rad.fluids.coolantL ?? 0;
+    const mix = rad.fluids.coolantMix ?? 0;
+    rad.fluids.coolantL = was + l;
+    rad.fluids.coolantMix = (mix * was + (t.coolant ? l : 0)) / (was + l);
     t.litres = (t.litres ?? 0) - l;
     return l;
   }

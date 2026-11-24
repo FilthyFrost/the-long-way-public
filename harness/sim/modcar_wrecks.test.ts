@@ -10,7 +10,7 @@ import { partStars } from '../../src/core/modcar/crafting';
 import { derive } from '../../src/core/modcar/derive';
 import { frameDef } from '../../src/core/modcar/frames';
 import { itemDef } from '../../src/core/modcar/items';
-import { partDef } from '../../src/core/modcar/parts';
+import { partDef, staysClean } from '../../src/core/modcar/parts';
 import { ModSystems } from '../../src/core/modcar/systems';
 import type { Build } from '../../src/core/modcar/types';
 import { findOdds, foundWeight, gradesOn, isRare, rollWreck, wreckFrame } from '../../src/core/modcar/wrecks';
@@ -150,7 +150,9 @@ describe('ModCar wrecks by the road (Drive Beyond Horizons, Arctic Drive)', () =
           }
         }
         expect(inst.cond).toBeLessThanOrEqual(0.85);
-        expect(inst.dirt).toBeGreaterThanOrEqual(0.5);
+        // (what goes inside a car is clean however it was found: docs/V3/plan/hands.md §五)
+        if (staysClean(inst.part)) expect([inst.dirt, inst.rust]).toEqual([0, 0]);
+        else expect(inst.dirt).toBeGreaterThanOrEqual(0.5);
       }
     }
     expect(flat / tyres).toBeGreaterThan(0.18);

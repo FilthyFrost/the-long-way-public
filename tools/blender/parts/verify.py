@@ -17,7 +17,7 @@ import bpy
 from lib import modcar as mc
 
 CATALOGUE = """eng_mower eng_single eng_2t eng_i4 eng_i4d eng_flat6 eng_v8 eng_d6 gb_3 gb_4 gb_5 gb_moto rad_small rad_std
-rad_big bat_moto bat_std bat_truck tank_moto tank_std tank_big tank_drum exh_stock exh_sport exh_side exh_moto
+rad_big bat_moto bat_std bat_truck bat_house tank_moto tank_std tank_big tank_drum exh_stock exh_sport exh_side exh_moto
 turbo_small rim_steel13 rim_alloy15 rim_off16 rim_moto18 rim_truck19 rim_dually rim_cart tire_road tire_whitewall
 tire_offroad tire_snow tire_slick tire_tractor tire_moto tire_truck steer_std steer_bad steer_sport steer_bar
 steer_ship seat_bucket seat_bench seat_race seat_toilet seat_armchair seat_office seat_saddle seat_crate radio_old

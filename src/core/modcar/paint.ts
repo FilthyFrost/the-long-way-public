@@ -44,6 +44,53 @@ export const SPRAY_TIERS: Record<SprayTier, SprayTierDef> = {
 /** units a can uses a second while the coat is still going on */
 export const SPRAY_DRAIN = 1;
 
+/**
+ * The nozzles a can is sprayed through (docs/V3/plan/growth.md §1.5, J3; the wheel goes through them, as Nomad
+ * Drive's seven steps do): how wide the spray lands (its radius, m), how fast it covers what is under its middle
+ * (1/s: a steady pass leaves about seven tenths of a coat, two or three a whole one), and the paint it uses a
+ * second while the button is down, on something or not.
+ */
+export interface Nozzle {
+  zh: string;
+  r: number;
+  rate: number;
+  use: number;
+}
+export const NOZZLES: readonly Nozzle[] = [
+  // (Nomad Drive's seven, 9 to 72 cm across, the wheel a size a notch; the paint by the area: docs/V3/plan/hands.md §六)
+  { zh: '9 厘米', r: 0.045, rate: 6, use: 0.19 },
+  { zh: '18 厘米', r: 0.09, rate: 6, use: 0.75 },
+  { zh: '27 厘米', r: 0.135, rate: 6, use: 1.7 },
+  { zh: '36 厘米', r: 0.18, rate: 6, use: 3 },
+  { zh: '48 厘米', r: 0.24, rate: 6, use: 5.3 },
+  { zh: '60 厘米', r: 0.3, rate: 6, use: 8.3 },
+  { zh: '72 厘米', r: 0.36, rate: 6, use: 12 },
+  // (the garage's paint gun hooked to the can: wider still, twice as fast, half the paint for the area)
+  { zh: '喷枪 90 厘米', r: 0.45, rate: 12, use: 9.4 },
+];
+
+/** the nozzles a can has of its own (the gun's is the garage's) */
+export const CAN_NOZZLES = 7;
+
+/** the gun's nozzle, while the can is hooked to it */
+export const GUN_NOZZLE = 7;
+
+/** a can's nozzle as it comes: 36 cm */
+export const DEFAULT_NOZZLE = 3;
+
+/** the nozzle a can is set to */
+export function nozzleOf(t: Pick<Tool, 'nozzle'>): Nozzle {
+  return NOZZLES[Math.max(0, Math.min(NOZZLES.length - 1, t.nozzle ?? DEFAULT_NOZZLE))];
+}
+
+/** so many seconds of the button down: the paint it takes from the can (units; less when there is less) */
+export function sprayUse(can: Tool, dt: number): number {
+  const left = sprayLeft(can);
+  const used = Math.min(left, nozzleOf(can).use * dt);
+  can.paint = left - used;
+  return used;
+}
+
 /** the categories that take paint (and wear the body's colour until painted on their own) */
 export const PAINTED_CATS: ReadonlySet<string> = new Set(['door', 'hood', 'trunk', 'bumperFront', 'bumperRear', 'mirror']);
 

@@ -10,13 +10,16 @@ import * as THREE from 'three';
 import { FirstPersonRig } from '../../core/camera/rig';
 import { allInstances, decodeBuild, encodeBuild, newInstance, fitSub, stockBuild, stockTireFor } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
-import { partDef, PARTS } from '../../core/modcar/parts';
-import { newTool, toolModelId } from '../../core/modcar/tools';
-import { PALETTE, paintHex } from '../../core/modcar/palette';
-import { coatOf, keepPartColours, paintTargets, SPRAY_TIERS, sprayFound, sprayLeft, sprayStep, sprayTier, takesPaint, type SprayResult } from '../../core/modcar/paint';
+import { partDef, PARTS, staysClean } from '../../core/modcar/parts';
+import { ND_GRINDER } from '../../core/v3/nd/items';
+import { cleanerOf, newTool, toolModelId } from '../../core/modcar/tools';
+import { paintHex } from '../../core/modcar/palette';
+import { nozzleOf, SPRAY_TIERS, sprayFound, sprayLeft, sprayTier, sprayUse, takesPaint, type SprayResult } from '../../core/modcar/paint';
+import { COAT_WET_S, Coats, takesCoat, type Coat } from './coat';
+import { itemNow } from './itemTime';
 import { tyreStage } from '../../core/modcar/tyres';
 import { gradesOn, isRare, type WreckRoll } from '../../core/modcar/wrecks';
-import type { Build, PartDef } from '../../core/modcar/types';
+import type { Build, PartDef, Text } from '../../core/modcar/types';
 import { GroundLand } from '../../core/onfoot/land';
 import { SpineSample } from '../../core/world/spine';
 import { BiomeBlend } from '../../core/world/spine';
@@ -70,8 +73,9 @@ import { newStock, type Cost, type Stock } from '../../core/modcar/crafting';
 import type { PaintAim, ScrubHit, Scrub, TankPort } from './player';
 import { SprayMist } from './sprayMist';
 import { modcarWorld, SeamlessGround, SeamlessLand } from './seamless';
+import { prefabsAsked } from '../../core/world/prefabs';
 import { rehome, savedWorldOf, stampWorld, WORLD_CHANGED, worldMoved } from './worldSave';
-import type { WorldVersion } from '../../core/world/rules';
+import { NEWEST_WORLD, type WorldVersion } from '../../core/world/rules';
 import { ProvingGround } from '../../core/modcar/proving/layout';
 import { ConeField, type ConeBody } from '../../core/modcar/proving/cones';
 import { provingSolids } from '../../core/modcar/proving/props';
@@ -89,6 +93,12 @@ import { forgetMasks, keepMask, keepOnly, keptMask } from './grimeStore';
 import { ScrubHud } from './scrubHud';
 import type { Cleaner, Tool } from '../../core/modcar/tools';
 import { ASSIST_LABELS, loadAssists, saveAssists, type Assists } from './assists';
+import { MainMenu, type MenuHost, type MenuMode } from './menu';
+import { loadSettings, saveSettings, type Settings } from './settings';
+import { DIFFICULTY } from '../../core/modcar/difficulty';
+import { PLACES_KEEP } from '../../core/modcar/loot';
+import { placesPlan } from '../../core/modcar/schedule';
+import './scheduleCards';
 import { HeldThing } from './held';
 import { Radio, stationLabel } from './radio';
 import { soundTab, type SoundStatus } from './soundTab';
@@ -103,15 +113,20 @@ import { ModPad, type PadHost } from './pad';
 import { WheelDust } from './wheelDust';
 import { PeeStream } from './peeStream';
 import { tyreLoops } from './tyreSound';
-import { itemStandIn, LooseThings, paintBaseOf, toolLook, toolModel, type Loose } from './loose';
+import { itemStandIn, LooseThings, toolLook, toolModel, type Loose } from './loose';
 import { CargoBay, massOf } from './cargo';
 import { CargoList, type CargoRow } from './cargoList';
 import { boxInHand, boxOnMark, boxSource, guardedSource, HandsList, Listing, placeSource, selfSource, setListDesk, vehicleSource, type ListSource } from './listSources';
-import { canSprint, drink as drinkVital, eat as eatVital, has as hasEffect, medicate, newVitals, revive as reviveVital, speedFactor, stepVitals, type Vitals } from '../../core/modcar/vitals';
+import { canSprint, crashDamage, cure as cureVital, drink as drinkVital, eat as eatVital, fallDamage, has as hasEffect, injure, medicate, newVitals, revive as reviveVital, sleep as sleepVitals, sleepHours, speedFactor, stepVitals, treat as treatVital, VITALS, type Vitals, type VitalsEvents, type VitalsRules } from '../../core/modcar/vitals';
+import { DayClock } from '../../core/env/time';
+import { BUFFS, buffBodyMods, Buffs } from '../../core/v3/cooking/buffs';
+import { newBodyMods, resetBodyMods, sleepy as sleepyNow } from '../../core/modcar/vitals';
+import { difficultyOf, vitalsRules, type Difficulty } from '../../core/modcar/difficulty';
+import { bareShell, KIT_GROUPS, KIT_STEPS, mountsFilled, START_JUNK, startParts, WATER_FULL, type KitGroup, type KitPart } from '../../core/modcar/startKit';
 import { DeathCard, VitalsHud } from './vitalsHud';
 import { agoText, clearRestores, pushRestore, restorePoints, useRestore } from './restore';
-import type { DrinkLiquid, ItemInstance } from '../../core/modcar/items';
-import { zoneOf } from '../../core/modcar/cargo';
+import type { DrinkLiquid, ItemInstance, WearSlot } from '../../core/modcar/items';
+import { zoneOf, type ZoneId } from '../../core/modcar/cargo';
 import { heldName, heldOf } from './player';
 import { CarMaterials } from './materials';
 import { ModPlayer, type Held, type PlayerHost } from './player';
@@ -158,20 +173,39 @@ export interface ModParams extends Params {
   build: string;
   /** the garage's first project: tutorial (default) or full (everything fitted) */
   project: 'tutorial' | 'full';
+  /**
+   * how the workshop is laid out for a new game: J5's (docs/V3/plan/growth.md §一 1–3: the Sugar Cube a bare shell, its
+   * thirty parts about the room, nothing else but what the start needs) or the one before it (?kit=classic: the car
+   * short of four parts, the fun parts on the shelves, the donor pickup, the motorcycle and the motorhome — the older
+   * walkthroughs' garage)
+   */
+  kit: 'j5' | 'classic';
+  /** a new game's difficulty (difficulty.ts): the menu's choice, or ?difficulty= (a save keeps its own) */
+  difficulty: Difficulty;
   /** which workshop: the real one (default) or the plain stand-in (?garage=stub) */
   garage: 'workshop' | 'stub';
   /** this is the player's game, kept in the browser (save.ts); not a test drive or the harness's run */
   keep: boolean;
   /**
-   * Which version of the world's generator (core/world/rules.ts): 3 for a new game, the journey of the fifty
-   * scenic roads (docs/V3/nodes/P3-1-journey-world.md) — the address may ask for 2 (?world=2) or for 1, the
-   * worlds from before there were versions (?world=1) — and a save's own for a game gone on with
+   * Which version of the world's generator (core/world/rules.ts): the newest for a new game (NEWEST_WORLD: 6, the
+   * scenic roads with Nomad Drive's buildings in the places' dice) — the address may ask for an older one (?world=5,
+   * … ?world=1, the worlds from before there were versions) — and a save's own for a game gone on with
    */
   world: WorldVersion;
   /** how many regions of the registry the world knows: a save's own count, or the address's (?regions=); absent: the version's own — all there are now, for a new world of version 2 */
   regions?: number;
   /** play the sound archive's recordings where it is there (docs/V3/nodes/M4-audio.md); ?archive=0: the game's own synthesized sounds only */
   archive: boolean;
+  /**
+   * A test lot of prefab buildings along the road (?nd=cabin,motel or ?nd=all: core/world/prefabs.ts, docs/ND/PLAN.md),
+   * read from the address every time (a save does not keep it); null: none, the world as it is
+   */
+  nd: string | null;
+}
+
+/** is the page driven by a test harness (Playwright, Puppeteer: navigator.webdriver) */
+export function automated(): boolean {
+  return typeof navigator !== 'undefined' && navigator.webdriver === true;
 }
 
 export function readModParams(base: Params, search: string = window.location.search): ModParams {
@@ -183,11 +217,15 @@ export function readModParams(base: Params, search: string = window.location.sea
     start,
     build: q.get('build') ?? 'stock:sedan',
     project: q.get('project') === 'full' ? 'full' : 'tutorial',
+    // (a browser driven by the harness — navigator.webdriver — gets the start its older walkthroughs were written for, unless it asks for J5's)
+    kit: q.get('kit') === 'classic' || (q.get('kit') !== 'j5' && automated()) ? 'classic' : 'j5',
+    difficulty: difficultyOf(q.get('difficulty')),
     garage: q.get('garage') === 'stub' ? 'stub' : 'workshop',
     keep: false,
-    world: q.get('world') === '1' ? 1 : q.get('world') === '2' ? 2 : q.get('world') === '3' ? 3 : q.get('world') === '4' ? 4 : 5,
+    world: q.get('world') === '1' ? 1 : q.get('world') === '2' ? 2 : q.get('world') === '3' ? 3 : q.get('world') === '4' ? 4 : q.get('world') === '5' ? 5 : q.get('world') === '6' ? 6 : NEWEST_WORLD,
     ...(Number.isInteger(regions) ? { regions } : {}),
     archive: q.get('archive') !== '0',
+    nd: q.get('nd'),
     time: Number.isFinite(base.time) ? base.time : start === 'garage' ? 9.2 : base.time,
     weather: base.weather === 'auto' && start === 'garage' ? 'clear' : base.weather,
   };
@@ -196,6 +234,18 @@ export function readModParams(base: Params, search: string = window.location.sea
 /** a number 0…1 from a string (the same every time) */
 /** where a new game's world seed waits for it (ModGame.newGame: a new world each new game) */
 export const NEW_SEED_KEY = 'modcar.newSeed';
+/** … and its difficulty, the menu's choice (its being there: the page opened again for the new game, no title) */
+export const NEW_DIFFICULTY_KEY = 'modcar.newDifficulty';
+
+/** how long rust painted over without grinding takes to come all the way back through the coat (world s: three days) */
+const COAT_BLEED_S = 3 * 86400;
+
+/** how long Q is held in a seat before one stands up (s; Nomad Drive's 0.35) */
+const STAND_S = 0.35;
+/** how long Q is held on foot before the thing in the hands is put out to be placed (a shorter press puts it down) */
+const PLACE_HOLD_S = 0.3;
+/** how strongly the dirt left shows while a cleaning tool is in the hands (the H pulse's full is 1) */
+const GRIME_SHOW_HELD = 0.45;
 
 function hash01(key: string): number {
   let h = 2166136261;
@@ -222,6 +272,53 @@ function weather(b: Build, dirt: number, rust: number, seed: number, crust = 0):
       if (inst.crust) sub.crust = inst.crust * 0.6;
     }
   }
+}
+
+/**
+ * J5's workshop: where the Sugar Cube's parts that lie on the floor are (x, z, heading; the room's floor, the car
+ * at 0.4, −0.25 with its nose to +x and the doors): the engine by its nose, the wheels by the tyre changer, the
+ * seats along the shelves, the panels flat in the free end of the room by where one comes in, the bumpers in front
+ * of the shelves. The rest go on the rack, the shelves and the charger (the garage's spots).
+ */
+const START_SPOTS: Record<string, [number, number, number]> = {
+  engine: [2.6, -2.55, 0],
+  hub_FL: [2.9, 2.35, 0],
+  hub_FR: [4.4, 1.6, 0.4],
+  hub_RL: [5.2, 3.3, -0.3],
+  hub_RR: [5.3, 2.1, 0.2],
+  // (the doors on the floor beside the car, each by where it goes)
+  door_FL: [0.95, -2.2, 0],
+  door_RL: [-0.3, -2.2, 0],
+  door_FR: [0.95, 1.5, 3.14],
+  door_RR: [-0.3, 1.5, 3.14],
+  hood: [-3.3, -2.55, 1.57],
+  trunk: [-2.85, -0.25, 1.57],
+  seat_driver: [-1.95, 2.35, 2.0],
+  seat_pass: [-0.75, 2.95, 1.6],
+  seat_rear: [1.35, 3.0, -2.6],
+  bumperFront: [-1.1, 3.75, 0],
+  bumperRear: [0.6, 3.8, 0],
+};
+
+/** a step of the workshop's task board (the corner's list, the chalkboard): J5's with its group, its short word and how far it is */
+export interface BoardStep {
+  id: string;
+  text: string;
+  done: boolean;
+  group?: KitGroup;
+  /** the chalkboard's word for it */
+  short?: string;
+  /** so many of so many (the wheels 2/4) */
+  n?: number;
+  of?: number;
+}
+
+/** what keeps the cold out without any clothes on (the nightdress: docs/V3/plan/growth.md §四) */
+const BASE_WARMTH = 4;
+
+/** the old jacket and shoes one has on where a game does not begin in J5's workshop (and in a save from before J6) */
+function oldClothes(): Partial<Record<WearSlot, ItemInstance>> {
+  return { jacket: newItem('wear_jacket_torn'), shoes: newItem('wear_shoes_torn') };
 }
 
 /** what the first project car is missing: the things the checklist asks for, in order */
@@ -328,12 +425,23 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private matHud: MaterialsHud | null = null;
   /** the grime masks of what is being cleaned (grime.ts) */
   private grime: Grime | null = null;
+  /** the coats of paint sprayed on (coat.ts) */
+  private coats: Coats | null = null;
+  /** how much of each coated part is covered, as last measured, and when */
+  private readonly coatCover = new Map<string, { dry: number; wet: number; at: number }>();
+  /** the ring on the surface where the spray would land (the nozzle's size) */
+  private sprayRing: THREE.Mesh | null = null;
+  private readonly sprayColour = new THREE.Color();
   /** what is being cleaned: its units as last measured, when, a unit's flash as it comes clean */
   private readonly cleaning = new Map<string, Cleaning>();
   /** looks that came clean all over: their flash fading */
   private readonly lookFlashes: { look: import('../render/carMaterials').CarLook; t: number }[] = [];
   /** H: the dirt still left lit up (s to go) */
   private grimeShowT = 0;
+  /** the dirt's light now (0…GRIME_SHOW_HELD), when the left button was last down, whether it is down */
+  private showK = 0;
+  private showDownAt = -1e9;
+  leftDown = false;
   private flakes: Flakes | null = null;
   private scrubHud: ScrubHud | null = null;
   private readonly gcV = new THREE.Vector3();
@@ -346,8 +454,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private warmedScrub = false;
   /** the spray can's mist (sprayMist.ts) */
   private mist: SprayMist | null = null;
-  /** the looks a spray can went on lately (drawn on their own while it is about: their colour moves, they flash), and when */
-  private readonly paintHeld = new Map<string, { v: ModVehicle | null; loose: Loose | null; owner: string; at: number }>();
   /** sprayed last frame (the valve opened, the hiss is on) */
   private sprayWas = false;
   /** the spray can in the hands last frame, and when each can was last shaken */
@@ -439,6 +545,23 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   private tyreNow: ReturnType<typeof tyreLoops> | null = null;
   private warmedWrecks = false;
   garage: GarageScene | null = null;
+  /** how hard the journey is (difficulty.ts): a save's own, else the new game's */
+  difficulty: Difficulty = 'normal';
+  /** what a good meal leaves behind for a while (core/v3/cooking/buffs.ts), and what it does to the body this step */
+  readonly buffs = new Buffs();
+  private readonly bodyMods = newBodyMods();
+  /** the main menu (menu.ts): the title as the page opens, the pause in play */
+  readonly menu: MainMenu;
+  /** the player's settings (settings.ts) */
+  private settings: Settings = loadSettings();
+  /** the game is being played (false while the title stands over a game not yet begun or gone on with) */
+  private played = true;
+  /** the key card is owed: the very first start, shown once the game begins */
+  private helpDue = false;
+  /** the body's rules at it */
+  private vitalsR: VitalsRules = VITALS;
+  /** how the workshop was laid out when the game began (ModParams.kit; a save from before J5: the classic one) */
+  kit: 'j5' | 'classic' = 'j5';
   world: World | null = null;
   worldView: WorldView | null = null;
   landmarks: LandmarkView | null = null;
@@ -553,6 +676,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // (ModUI shows this game's own key card; the numbers line only with ?hud=1, F3 toggles it)
     this.hud = new Hud(typeof location !== 'undefined' && new URLSearchParams(location.search).get('hud') === '1', '');
     this.input = new InputManager(canvas);
+    this.input.lookScale = this.settings.look;
+    this.audio.setVolume(this.settings.volume);
+    this.menu = new MainMenu(this.ui.root, this.menuHost());
     this.input.freeLook = true;
     this.env = new Environment(this.core, params.seed, { hour: params.time, weather: params.weather, stage: params.wstage });
     this.env.shotMode = params.shot;
@@ -562,10 +688,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.orbit.dist = params.orbit[2];
     this.orbit.target = params.orbit[3];
     this.place = params.start;
+    this.kit = restore ? (restore.kit === 'j5' ? 'j5' : 'classic') : params.kit;
+    this.setDifficulty(restore ? difficultyOf(restore.difficulty) : params.difficulty);
     this.seamless = params.start === 'garage' && params.garage !== 'stub';
     if (params.start === 'garage') {
       this.garage = params.garage === 'stub' ? buildGarageStub(this.core) : buildGarage(this.core);
       this.ground = this.garage.ground;
+      // (J5: the doors open once the car can start and drive)
+      this.garage.doorLock = () => (this.kitReady() ? null : { zh: '车还开不了', en: 'The car cannot drive yet' });
     } else {
       this.makeWorld();
       this.ground = this.floored(this.proving!);
@@ -588,6 +718,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.pee = new PeeStream(this.core.origin);
     this.core.scene.add(this.pee.mesh, this.pee.spot);
     this.grime = new Grime(this.core.renderer);
+    this.coats = new Coats(this.core.renderer);
+    this.sprayRing = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false }));
+    this.sprayRing.visible = false;
+    this.sprayRing.renderOrder = 5;
+    this.core.scene.add(this.sprayRing);
     this.flakes = new Flakes(this.core.scene);
     this.mist = new SprayMist(this.core.scene);
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
@@ -641,7 +776,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the road's world, or (in the stand-in garage) the same world to look for places in */
   devWorld(): World {
     const p = this.params;
-    return this.world ?? (this.probeWorld ??= modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions }).world);
+    return this.world ?? (this.probeWorld ??= modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions, prefabs: prefabsAsked(p.nd) ?? undefined }).world);
   }
 
   /** seconds left of building the world fast after a teleport (under a fade) */
@@ -817,6 +952,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.workshop = new Workshop(
       {
         root: g.root,
+        flash: (w) => this.player.flashWhy(w),
         loose: this.loose,
         ui: this.ui,
         stock: this.stock,
@@ -842,6 +978,14 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         crafted: (id) => {
           if (id.startsWith('scraper_')) game.done.add('scraper');
         },
+        // (J5's board counts the start's junk as it goes in: 0/3)
+        recycled: (h) => {
+          if (game.kit !== 'j5' || h.kind !== 'item' || !START_JUNK.includes(h.item.item)) return;
+          let n = 1;
+          while (game.done.has(`junk:${n}`)) n++;
+          if (n <= START_JUNK.length) game.done.add(`junk:${n}`);
+        },
+        keep: (h) => game.neededPart(h),
       },
       WORKSHOP_PLAN,
       this.restore?.workshop,
@@ -940,6 +1084,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     ws = new Workshop(
       {
         root,
+        flash: (w) => this.player.flashWhy(w),
         loose: this.loose,
         ui: this.ui,
         stock: this.stock,
@@ -1016,7 +1161,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const p = this.params;
     // (ModCar's world: the road begins at the workshop's gate, its yard a plot of the land, with the workshop there or
     // not; the proving ground behind it another, its ground what the wheels and the feet have there)
-    const made = modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions });
+    // (and a test lot of prefab buildings along its road when the address asks for one: docs/ND/PLAN.md)
+    const made = modcarWorld(p.seed, { chapterScale: p.chapter, startBiome: p.biome, worldVersion: p.world, regionCount: p.regions, prefabs: prefabsAsked(p.nd) ?? undefined });
     this.world = made.world;
     // (a save written under another revision of the generator: its vehicles back on the road, what lies about
     // down on the land as it is now, before anything reads it — worldSave.ts)
@@ -1160,6 +1306,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** the vehicles and the things lying about at the start */
   private async populate(): Promise<void> {
     const p = this.params;
+    // (a new game anywhere but J5's workshop: the old jacket and shoes on, as one always had them)
+    if (!this.restore && (p.start !== 'garage' || this.kit === 'classic')) this.player.worn = oldClothes();
     // (the places' models in before any place is drawn: what is ours is never drawn twice)
     if (this.siteArt) await this.siteArt.ready;
     if (this.garage) {
@@ -1171,12 +1319,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.restoreGarage(this.restore);
         await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
         await this.restoreGrime();
+        await this.restoreCoats();
         if (this.seamless) await this.buildWorldAround();
         if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
-        this.ui.say(this.movedWords() ?? '接着上次的进度。（从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
+        // (gone on with as it was: nothing said, unless something was moved — docs/V3/plan/prompts.md §五)
+        const moved = this.movedWords();
+        if (moved) this.ui.say(moved, 5);
         return;
       }
-      const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] });
+      const classic = this.kit === 'classic';
+      // (J5: the Sugar Cube a bare shell, docs/V3/plan/growth.md §一 3 — the classic start's short of four parts)
+      const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : classic ? stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] }) : bareShell();
       // a car that stood in a barn for years: caked with grime (the windows too: nothing to be seen through
       // them until they are scraped), dust over it, rust at the edges (docs/MODCAR.md §15)
       weather(project, 0.5, 0.1, 1, p.project === 'tutorial' ? 0.62 : 0.32);
@@ -1201,6 +1354,20 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         inst.rust = id.startsWith('rim_') || id.startsWith('bf_') || id.startsWith('roof_') ? 0.2 + 0.4 * k : 0.05 * k;
         this.loose.addPart(inst, s.x, s.y + 0.4, s.z, s.yaw);
       };
+      if (!classic) {
+        // J5: what the start needs and nothing else (docs/V3/plan/growth.md §一 1–3); the old jacket and shoes on the
+        // bench to put on (J6: the board's first step), the nightdress all one has on
+        this.layStart(p.project === 'tutorial', take);
+        for (const it of Object.values(oldClothes())) {
+          const sp = take('bench');
+          if (sp && it) this.loose.addItem(it, sp.x, sp.y + 0.3, sp.z, sp.yaw);
+        }
+        this.player.walker.place(g.spawn.x, g.spawn.z, g.spawn.heading);
+        this.input.lookYaw = g.spawn.heading;
+        await Promise.all([...this.vehicles.map((v) => v.view.settled()), this.loose.settled()]);
+        if (this.seamless) await this.buildWorldAround();
+        return;
+      }
       // (one engine lies about, no more: several to choose from would only confuse - the tutorial's I4, or
       // a V8 to play with when the project car is whole)
       if (p.project === 'tutorial') {
@@ -1214,7 +1381,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (the spray cans as Arctic Drive's starting garage has them: two small ones, part full; and, while there is
       // no world yet to find more in, a medium and a large one beside them)
       const can = (tier: 1 | 2 | 3, colour: number): ReturnType<typeof newTool> => newTool('spray', { tier, colour, paint: sprayFound(tier, hash01(`spray:${tier}:${colour}`)) });
-      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), can(1, 13), can(1, 26), can(2, 3), can(3, 23), newTool('sponge'), newTool('brush')];
+      const tools = [newTool('jerrycan', { fuel: 'petrol', litres: 20 }), newTool('jerrycan', { fuel: 'diesel', litres: 20 }), newTool('bottle'), newTool('oilcan'), can(1, 13), can(1, 26), can(2, 3), can(3, 23), newTool('scraper', { tier: 1 })];
       for (const t of tools) {
         const s = take(t.kind === 'jerrycan' ? 'cans' : 'bench');
         this.loose.addTool(t, s.x, s.y + 0.3, s.z, s.yaw);
@@ -1233,7 +1400,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           ['junk_bag', -6.35, 3.0, -0.6],
         ];
         for (const [id, x, z, yaw] of pile) this.loose.addItem(newItem(id), x, 0.3, z, yaw);
-        for (const id of ['junk_fax', 'junk_coffee']) {
+        for (const id of ['junk_fax']) {
           const s = take('bench');
           if (s) this.loose.addItem(newItem(id), s.x, s.y + 0.3, s.z, s.yaw);
         }
@@ -1276,7 +1443,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         for (const d of this.restore.done) this.done.add(d);
         this.restoreLoose(this.restore.loose.filter((l) => l.on === 0));
         this.restoreHands(this.restore);
-        this.ui.say(this.movedWords() ?? '接着上次的路。（回车库从头开始：开发者面板里的「从头开始」，或连按两次 F9）', 5);
+        const movedR = this.movedWords();
+        if (movedR) this.ui.say(movedR, 5);
       }
       v.sys.startNow();
       this.seated = v;
@@ -1287,6 +1455,50 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (this.seamless) await this.buildWorldAround();
     // (once the model is in: where its clocks are)
     if (this.seated) this.input.lookPitch = this.seatPitch(this.seated);
+  }
+
+  /**
+   * J5's workshop (docs/V3/plan/growth.md §一 1–3): the Sugar Cube's thirty parts about the room (the tutorial; a
+   * whole car, ?project=full, has none to lay out), each where a mechanic would put it — the engine on the floor by
+   * the car's nose, the gearbox, radiator and exhaust on the steel rack, the wheels by the tyre changer, the seats
+   * along the shelves, the doors, the bonnet and the boot lid flat on the floor in the free end of the room, the
+   * bumpers in front of the shelves, the small things on them, the battery on its charger; a can of petrol by the
+   * drums; on the bench a water bottle for the radiator, a big bottle of water to drink, two packs of crackers and a
+   * sponge; by the recycler two boxes of old components and a dead television, the 50 scrap the plastic scraper costs
+   * (the foraging knife and basket are the forage system's, at one's feet). No other vehicle.
+   */
+  private layStart(parts: boolean, take: (where: string) => { x: number; y: number; z: number; yaw: number } | undefined): void {
+    const lay = (inst: KitPart['inst'], x: number, y: number, z: number, yaw: number): void => void this.loose.addPart(inst, x, y + 0.4, z, yaw);
+    if (parts) {
+      for (const k of startParts()) {
+        const at = START_SPOTS[k.mount];
+        if (at) lay(k.inst, at[0], 0, at[1], at[2]);
+        else {
+          const sp = take(k.spot === 'charger' ? 'charger' : k.spot === 'rack' ? 'rack' : k.spot === 'shelf' ? 'shelf' : 'floor');
+          if (sp) lay(k.inst, sp.x, sp.y, sp.z, sp.yaw);
+        }
+      }
+    }
+    // the can of petrol by the drums (enough to the first filling station); the rest on the bench
+    const can = take('cans');
+    if (can) this.loose.addTool(newTool('jerrycan', { fuel: 'petrol', litres: 20 }), can.x, can.y + 0.3, can.z, can.yaw);
+    for (const t of [newTool('bottle'), newTool('sponge')]) {
+      const sp = take('bench');
+      if (sp) this.loose.addTool(t, sp.x, sp.y + 0.3, sp.z, sp.yaw);
+    }
+    for (const id of ['drink_water', 'food_biscuits', 'food_biscuits']) {
+      const sp = take('bench');
+      if (sp) this.loose.addItem(newItem(id), sp.x, sp.y + 0.3, sp.z, sp.yaw);
+    }
+    // the junk the scraper is made from, by the recycler
+    if (this.workshop) {
+      const pile: [number, number, number][] = [
+        [3.85, -3.45, 0.3],
+        [3.55, -2.72, -0.25],
+        [2.95, -3.75, 0.1],
+      ];
+      START_JUNK.forEach((id, i) => this.loose.addItem(newItem(id), pile[i][0], 0.3, pile[i][1], pile[i][2]));
+    }
   }
 
   /** the line for a save that was made fit for another revision of the generator (written out in English, as the kernel writes its own); null: it was not */
@@ -1409,11 +1621,23 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (b.bladder < 0.5) this.autoPee = false;
     if (this.deadT < 0) {
       if (this.assists.needs) {
-        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: 9, rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.shelterNow < 0.5 && this.env.state.rain > 0.15, peeing });
+        // (sitting still in a seat: energy comes back slowly — docs/V3/plan/growth.md §四)
+        const resting = !!this.seated && Math.abs(this.seated.sim.kmh) < 1;
+        this.buffs.step(dt);
+        const mods = buffBodyMods(this.buffs, resetBodyMods(this.bodyMods));
+        const ev = stepVitals(b, { dt, sprinting, jumped: jumps > 0, ambientC: this.bodyAirC(), warmth: this.warmth(), rain: !this.seated && (this.seamless ? !this.indoors() : this.place === 'road') && this.shelterNow < 0.5 && this.env.state.rain > 0.15, peeing, resting, mods }, this.vitalsR);
         if (ev.hurt > 0) {
           this.vitHud.hurt();
           this.sound('hurt', Math.min(1, ev.hurt / 4));
         }
+        if (ev.vomit) {
+          this.vitHud.hurt();
+          this.sound('hurt', 0.8);
+          this.ui.say('吐了……', 2);
+        }
+        // a fall (from how fast one came down), a crash (the vehicle one sits in, how fast it hit)
+        this.knocksOnBody();
+        if (b.dead && !ev.died) this.onDeath(this.lastBlow);
         if (ev.wet && !this.autoPee) {
           this.autoPee = true;
           this.ui.say('憋不住了……', 2.2);
@@ -1426,10 +1650,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         Object.assign(b, keep);
       }
     } else this.stepDeath(dt);
+    this.stepSleep(dt);
     // on foot: slower frozen or relieving oneself, quicker on an energy drink
     w.speedScale = speedFactor(b, peeing);
     this.sprintB += ((sprinting ? 1 : 0) - this.sprintB) * (1 - Math.exp(-dt * 6));
-    this.vitHud.update(b, this.bodyAirC(), dt);
+    this.vitHud.update(b, this.bodyAirC(), dt, this.buffNames());
     // breathing hard, the heart, relieving oneself
     this.bodySounds(dt, b, peeing);
     // the restore points: every five minutes of play
@@ -1438,6 +1663,70 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const s = this.snapshot();
       if (s) pushRestore(s);
     }
+  }
+
+  /** the landings and the vehicle's knocks seen so far (a new one: a blow to the body), and what the last blow was */
+  private landsSeen = -1;
+  private hitsSeen = new WeakMap<ModVehicle, number>();
+  private lastBlow: VitalsEvents['why'] = '';
+
+  /**
+   * What the world does to the body (docs/V3/plan/growth.md §四, Nomad Drive's numbers): a fall — from how fast one
+   * came down, v²/2g — hurts from 6 m (5 to 100 by 25 m, the end beyond); a knock of the vehicle one sits in at 6 m/s
+   * and more hurts 1 to 15 by 20 m/s. A blow of over 8: hurt for a while (a limp).
+   */
+  private knocksOnBody(): void {
+    const b = this.body;
+    const w = this.player.walker;
+    if (this.landsSeen < 0) this.landsSeen = w.lands;
+    if (w.lands !== this.landsSeen) {
+      this.landsSeen = w.lands;
+      const h = (w.landSpeed * w.landSpeed) / (2 * 9.81);
+      const hp = Math.round(fallDamage(h) * this.hurtK());
+      if (hp > 0 && !this.seated) this.blow(injure(b, hp, 'fall'), h >= 25 ? '' : '摔伤了');
+    }
+    const v = this.seated;
+    if (v) {
+      const was = this.hitsSeen.get(v);
+      this.hitsSeen.set(v, v.sim.hits);
+      if (was !== undefined && v.sim.hits !== was) {
+        const hp = Math.round(crashDamage(v.sim.lastHitSpeed) * this.hurtK());
+        if (hp > 0) this.blow(injure(b, hp, 'crash'), hp > 8 ? '撞伤了' : '');
+      }
+    }
+  }
+
+  /** the buffs a meal left, by name, for the body's states (暖身, 有劲…) */
+  private buffNames(): string[] {
+    const out = this.buffNamesOut;
+    out.length = 0;
+    for (let i = 0; i < this.buffs.count; i++) out.push(BUFFS[this.buffs.at(i)].name.zh);
+    return out;
+  }
+  private readonly buffNamesOut: string[] = [];
+
+  /** how much a blow hurts at the difficulty (the hard one's half again) */
+  private hurtK(): number {
+    return this.difficulty === 'hard' ? 1.5 : this.difficulty === 'easy' ? 0.6 : 1;
+  }
+
+  private blow(ev: VitalsEvents, said: string): void {
+    if (ev.hurt <= 0) return;
+    this.lastBlow = ev.why;
+    this.vitHud?.hurt();
+    this.sound('hurt', Math.min(1, ev.hurt / 10));
+    if (said && !ev.died) this.ui.say(said, 1.6);
+    if (ev.died) this.onDeath(ev.why);
+  }
+
+  /**
+   * What keeps the cold out (docs/V3/plan/growth.md §四: clothes one wears): the nightdress one has on whatever happens
+   * (4), and each piece of clothing worn its warmth.
+   */
+  warmth(): number {
+    let w = BASE_WARMTH;
+    for (const it of Object.values(this.player.worn)) if (it) w += itemDef((it as ItemInstance).item).wear?.warmth ?? 0;
+    return w;
   }
 
   /** the body's sounds as they were last heard: relieving oneself, out of breath (and the next breath due in), the next heartbeat due in */
@@ -1491,11 +1780,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   consume(item: ItemInstance): void {
     const d = itemDef(item.item);
     if (d.eat && (d.eat.food > 0 || d.eat.hp > 0 || d.eat.effect)) eatVital(this.body, d.eat.food, d.eat.hp, d.eat.effect);
+    // (a juicy fruit quenches as well: its water as so much drunk, 100 a litre — docs/ND/PLAN.md)
+    if (d.eat?.water) drinkVital(this.body, 'water', d.eat.water / 100);
     if (d.heal) {
       const side = medicate(this.body, d.heal.hp, d.heal.warm ?? 0, d.heal.side ?? 0, Math.random());
       if (side) this.ui.say(side === 'drunk' ? '药劲上头了，有点晕……' : '肚子不太舒服……', 2.4);
+      if (d.heal.cure) cureVital(this.body);
+      if (d.heal.treat) treatVital(this.body, 0);
     }
-    this.ui.say(`${d.cat === 'med' ? '吃了' : '吃完了'}${d.name.zh}。`, 1.6);
+    // (eaten: the body's bars say so)
     this.events.emit('body:ate', { item });
   }
 
@@ -1511,9 +1804,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   }
 
   /** one died: a first-aid kit carried brings one up again; else the restore points */
-  private onDeath(why: '' | 'starve' | 'thirst' | 'cold'): void {
+  private onDeath(why: VitalsEvents['why']): void {
+    if (this.deadT >= 0) return;
     this.deadT = 0;
-    this.deathWhy = why === 'starve' ? '饿得撑不住了。' : why === 'thirst' ? '渴得撑不住了。' : why === 'cold' ? '冻得撑不住了。' : '伤得太重了。';
+    const WHY: Partial<Record<VitalsEvents['why'], string>> = { starve: '饿得撑不住了。', thirst: '渴得撑不住了。', cold: '冻得撑不住了。', sick: '病得撑不住了。', fall: '摔得太重了。', crash: '撞得太重了。' };
+    this.deathWhy = WHY[why] ?? '伤得太重了。';
     this.player.use = null;
     this.closeCargoList();
   }
@@ -1785,6 +2080,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       else if (held) this.setDown(held);
     });
     this.player.sel = s.sel !== undefined && s.sel >= 0 && s.sel < this.player.slots.length ? s.sel : 0;
+    this.buffs.restore(s.buffs);
+    // (what one has on; a save from before there were clothes to wear: the old jacket and shoes, as one always had on)
+    this.player.worn = {};
+    const worn = s.worn ?? oldClothes();
+    for (const [slot, it] of Object.entries(worn)) if (it) this.player.worn[slot as WearSlot] = backInTheWorld(it);
   }
 
   /** a thing put down where one stands (what a save held in a slot the hotbar no longer has) */
@@ -1825,7 +2125,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       hands: this.player.slots.map((h) => (h ? (h.kind === 'part' ? { part: h.inst } : h.kind === 'item' ? { item: h.item } : { tool: h.tool }) : null)),
       sel: this.player.sel,
       ...(this.player.pack ? { pack: this.player.pack } : {}),
+      worn: { ...this.player.worn },
       body: this.body,
+      ...(this.buffs.count ? { buffs: this.buffs.snapshot() } : {}),
+      difficulty: this.difficulty,
+      kit: this.kit,
       stock: { ...this.stock },
       ...(this.workshop ? { workshop: this.workshop.snapshot() } : this.workshopKept ? { workshop: this.workshopKept } : {}),
     };
@@ -1884,6 +2188,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
     for (const l of this.loose.list) if (l.part?.grime) keys.add(l.part.uid);
     for (const k of this.wrecks?.keptGrimeKeys() ?? []) keys.add(k);
+    // the coats of paint, the same way (their key: the mask's and ':coat')
+    for (const v of this.vehicles) {
+      if (v.build.coat) keys.add(`${v.build.uid}:body:coat`);
+      for (const inst of Object.values(v.build.parts)) if (inst.coat) keys.add(`${inst.uid}:coat`);
+    }
+    for (const l of this.loose.list) if (l.part?.coat) keys.add(`${l.part.uid}:coat`);
+    const cs = this.coats;
+    if (cs) {
+      for (const key of cs.keys) {
+        keys.add(`${key}:coat`);
+        const c = cs.get(key)!;
+        if (!c.changed) continue;
+        c.changed = false;
+        void keepMask(`${key}:coat`, c.size, cs.read(c), { dirt: [], rust: [] });
+      }
+    }
     for (const key of g.keys) {
       const m = g.get(key)!;
       if (!m.changed) continue;
@@ -1943,6 +2263,102 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
   }
 
+  // ------------------------------------------------------------------ the main menu
+
+  /** is the menu up (the game stands still behind it: the page's loop steps it by nothing) */
+  get menuOpen(): boolean {
+    return this.menu.isOpen;
+  }
+
+  /** the menu over the game: the title (a game not yet begun or gone on with), or the pause */
+  openMenu(mode: MenuMode): void {
+    if (mode === 'title') this.played = false;
+    this.menu.open(mode);
+    this.audio.hold(true);
+    this.input.lockable = false;
+    const canvas = this.core.renderer.domElement;
+    if (document.pointerLockElement === canvas) document.exitPointerLock();
+    this.ui.showHelp(false);
+  }
+
+  /** the game goes on (or begins): the menu shut, the voices let go, the key card if it is owed, the mouse taken */
+  play(): void {
+    this.played = true;
+    if (this.menu.isOpen) this.menu.close();
+    this.audio.hold(false);
+    this.input.lockable = true;
+    if (this.helpDue) {
+      // (the very first start: the key card until the first click, which takes the mouse)
+      this.helpDue = false;
+      this.ui.showHelp(true);
+      return;
+    }
+    if (this.params.shot) return;
+    const canvas = this.core.renderer.domElement;
+    try {
+      void (canvas.requestPointerLock?.() as unknown as Promise<void> | undefined)?.catch?.(() => {});
+    } catch {
+      /* a click will do */
+    }
+  }
+
+  /** the line under 继续游戏: the day of the journey, where one is, how hard */
+  private resumeLine(): string {
+    const day = (this.clock as unknown as { day?: number }).day ?? 0;
+    const where = this.place === 'garage' ? '车库' : '路上';
+    return `第 ${day + 1} 天 · ${where} · ${DIFFICULTY[this.difficulty].name.zh}`;
+  }
+
+  private menuHost(): MenuHost {
+    return {
+      canResume: () => !!this.restore || this.played,
+      resumeLine: () => this.resumeLine(),
+      resume: () => this.play(),
+      begin: (d) => {
+        // (the game behind the title not yet begun: this is the new game, at that difficulty)
+        if (!this.restore && !this.played) {
+          this.setDifficulty(d);
+          this.play();
+        } else this.newGame(d);
+      },
+      endsGame: () => !!this.restore || this.played,
+      settings: () => ({ ...this.settings }),
+      setSettings: (st) => this.applySettings(st),
+      assists: () => this.assistItems(),
+      toggleAssist: (i) => {
+        const e = ASSIST_LABELS[i];
+        if (!e) return;
+        this.assists[e[0]] = !this.assists[e[0]];
+        saveAssists(this.assists);
+      },
+    };
+  }
+
+  /** the settings taken up and kept: the volume and the mouse at once, the picture's quality by opening the page again (the game kept first) */
+  private applySettings(st: Settings): void {
+    const was = this.settings.quality;
+    this.settings = { ...st };
+    saveSettings(this.settings);
+    this.audio.setVolume(st.volume);
+    this.input.lookScale = st.look;
+    if (st.quality !== was && !this.params.shot) {
+      this.save();
+      const q = new URLSearchParams(location.search);
+      q.delete('quality');
+      const rest = q.toString();
+      this.saveOff = true;
+      this.dispose();
+      location.replace(`${location.pathname}${rest ? `?${rest}` : ''}`);
+    }
+  }
+
+  /** the journey's difficulty (a new game's choice in the menu): the body's rules follow it */
+  setDifficulty(d: Difficulty): void {
+    this.difficulty = d;
+    this.vitalsR = vitalsRules(d);
+    for (const v of this.vehicles ?? []) v.sys.wearK = DIFFICULTY[d].wear;
+  }
+
   /** F9 twice: the save cleared and a new game from the workshop */
   private askNewGame(): void {
     if (this.newGameAsked >= 0 && this.time - this.newGameAsked < 3) {
@@ -1961,8 +2377,13 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
    * would offer the old game's), whichever way the new game was asked for: F9 twice, the developer's panel, the
    * death screen.
    */
-  newGame(): void {
+  newGame(difficulty: Difficulty = this.difficulty): void {
     this.saveOff = true;
+    try {
+      localStorage.setItem(NEW_DIFFICULTY_KEY, difficulty);
+    } catch {
+      /* storage unavailable: the normal one */
+    }
     clearSave();
     clearRestores();
     void forgetMasks();
@@ -1982,6 +2403,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   addVehicle(build: Build, x: number, z: number, yaw: number): ModVehicle {
     const gy = this.groundAt(x, z);
     const v = new ModVehicle(this.core, build, x, gy + 0.05, z, yaw, this.ground);
+    // (it wears at the difficulty's pace: docs/V3/plan/growth.md §五)
+    v.sys.wearK = DIFFICULTY[this.difficulty].wear;
     this.vehicles.push(v);
     this.player.addSolids(v.solid);
     this.vehicleSolids.add(v.solid);
@@ -2001,7 +2424,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.sparkDue.delete(v);
     // (what was being cleaned on it: its masks stay, taken up again if it comes back)
     for (const [key, c] of this.cleaning) if (c.v === v) this.cleaning.delete(key);
-    for (const [key, p] of this.paintHeld) if (p.v === v) this.paintHeld.delete(key);
     if (this.lastGear.v === v) this.lastGear.v = null;
     if (this.focus === v) this.focus = null;
     if (this.seated === v) this.seated = null;
@@ -2015,6 +2437,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       get world() {
         return game.world;
       },
+      // (what turns up down the road: docs/V3/plan/growth.md §六 3 — the world's seed, the difficulty; 400 km of it)
+      // (as far as anyone drives: the plan's first stretch is the same however far it is laid)
+      planned: () => (game.world ? placesPlan(game.params.seed, 4000, game.difficulty) : null),
+      besideOf: (site) => game.wrecks?.besideAt(site) ?? [],
+      keep: () => (game.world ? Math.min(1, PLACES_KEEP * DIFFICULTY[game.difficulty].supply) : 1),
       get origin() {
         return game.core.origin;
       },
@@ -2060,6 +2487,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       addVehicle: (b, x, z, yaw) => this.addVehicle(b, x, z, yaw),
       removeVehicle: (v) => this.removeVehicle(v),
       stowLoot: (v, roll) => this.stowLoot(v, roll),
+      stowFittings: (v) => this.stowFittings(v),
       ridersOf: (v) => this.ridersSaved(v),
       restoreRiders: (v, list) => this.restoreRiders(v, list),
       restoreGrimeOf: (v) => void v.view.settled().then(() => this.restoreGrimeOf(v)),
@@ -2078,6 +2506,29 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (!this.vehicles.includes(v)) return;
       const at = this.cargo.packSpot(v, h);
       if (at) this.cargo.stow(v, at.zone, at.spot, h);
+    }
+  }
+
+  /**
+   * What a found vehicle's frame comes with, put in its places (FrameDef.fittings: the Old Elephant's hobs on its
+   * worktop): each where its place has room, packed by its real size once its model is in; what finds no room is left out
+   */
+  async stowFittings(v: ModVehicle): Promise<void> {
+    for (const f of v.view.frame.fittings ?? []) {
+      for (let k = 0; k < f.n; k++) {
+        const h: NonNullable<Held> = { kind: 'item', item: newItem(f.item) };
+        if (!this.cargo.boxOf(h)) {
+          await this.loose.objectFor(h);
+          for (let i = 0; i < 20 && !this.cargo.boxOf(h); i++) await new Promise((r) => setTimeout(r, 0));
+        }
+        if (!this.vehicles.includes(v)) return;
+        // (spread evenly along its place, each turned as the frame has it — just there, off any grid; where that is taken,
+        // as near as there is room)
+        const zone = zoneOf(v.build.frame, f.zone as ZoneId);
+        const near = zone ? { x: zone.x[0] + ((zone.x[1] - zone.x[0]) * (k + 0.5)) / f.n, z: (zone.z[0] + zone.z[1]) / 2 } : null;
+        const at = this.cargo.spotIn(v, f.zone as ZoneId, h, near, f.yaw ?? 0, 0) ?? this.cargo.spotIn(v, f.zone as ZoneId, h);
+        if (at) this.cargo.stow(v, at.zone, at.spot, h);
+      }
     }
   }
 
@@ -2163,17 +2614,181 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   /** what the keys do in the seat (down the right) */
   private driveKeys(v: ModVehicle): Action[] {
-    if (this.seatAt === 'pass') return [{ keys: ['C'], text: '换视角' }];
+    const out: Action = { keys: ['Q'], hold: true, text: '下车' };
     const running = v.sys.running;
+    // (sat in a third time and after: only the key while the engine is off — docs/V3/plan/prompts.md §五)
+    if (v !== this.seatSeen) {
+      this.seatSeen = v;
+      this.seatCount++;
+      try {
+        localStorage.setItem('modcar.hint.seat', String(this.seatCount));
+      } catch {
+        /* none */
+      }
+    }
+    // (tired, in a seat of a vehicle standing with its engine off: sleep — docs/V3/plan/growth.md §四)
+    const doze: Action[] = this.canSleep() && (this.body.energy ?? 100) < 60 ? [{ keys: ['RMB'], hold: true, text: '睡觉' }] : [];
+    if (this.seatCount > 2) return [...(this.seatAt === 'pass' || running ? [] : [{ keys: ['LMB'], hold: true, text: '打火' } as Action]), ...doze];
+    if (this.seatAt === 'pass') return [{ keys: ['C'], text: '换视角' }, ...doze, out];
     return [
       { keys: ['W'], text: '油门' },
       { keys: ['S'], text: '刹车 / 倒车' },
       { keys: ['Space'], hold: true, text: '手刹' },
-      running ? { keys: ['K'], text: '熄火' } : { keys: ['K'], hold: true, text: '打火' },
+      // (the key is turned with the left button on it: said here until the engine runs)
+      ...(running ? [] : [{ keys: ['LMB'], hold: true, text: '打火' } as Action]),
+      ...(v.sim.manual ? [{ keys: ['Wheel'], text: '换挡' } as Action] : []),
       { keys: ['L'], text: '车灯' },
+      { keys: ['H'], hold: true, text: '喇叭' },
       { keys: ['C'], text: '换视角' },
+      ...doze,
+      out,
     ];
   }
+
+  /** in a seat of a vehicle standing still with its engine off, the hands empty: one may sleep */
+  canSleep(): boolean {
+    const v = this.seated;
+    return !!v && !v.sys.running && Math.abs(v.sim.kmh) < 1 && !this.player.held && this.deadT < 0 && this.sleepT < 0;
+  }
+
+  /** the wheel as the hands hold it (sleepy: it follows what one asks a moment late) */
+  private steerHeld = 0;
+
+  /** the right button held in a seat (s), and the sleep under way (s into its fade; −1: none) */
+  private sleepHold = 0;
+  private sleepT = -1;
+  private sleptHours = 0;
+  /** the sleep under way is in a bed (rested sooner: vitals.ts sleepHours) */
+  private sleepBed = false;
+
+  /** lie down in a bed and sleep (GameContext.sleepInBed: the camper's beds): why not, or null when it begins */
+  sleepInBed(): { zh: string; en: string } | null {
+    if (this.sleepT >= 0 || this.deadT >= 0) return { zh: '现在不行', en: 'Not now' };
+    if ((this.body.energy ?? 100) >= 80) return { zh: '还不困', en: 'Not tired' };
+    this.sleepBed = true;
+    this.sleepT = 0;
+    return null;
+  }
+
+  /**
+   * Sleep in a seat (docs/V3/plan/growth.md §四): the right button held a second with the hands empty, the vehicle
+   * standing with its engine off — not when one is rested (还不困). The view goes dark, the night goes by (the clock
+   * on so many hours, eight from nothing), the body rested; it comes up again.
+   */
+  private stepSleep(dt: number): void {
+    if (this.sleepT >= 0) {
+      this.sleepT += dt;
+      const FADE = 0.9;
+      const HOLD = 1.1;
+      if (this.sleepT < FADE) this.ui.setFade(this.sleepT / FADE);
+      else if (this.sleepT < FADE + HOLD) {
+        this.ui.setFade(1);
+        if (this.sleptHours === 0) this.sleptHours = this.sleepNow();
+      } else if (this.sleepT < FADE * 2 + HOLD) this.ui.setFade(1 - (this.sleepT - FADE - HOLD) / FADE);
+      else {
+        this.ui.setFade(0);
+        this.sleepT = -1;
+        this.ui.say(`睡了 ${this.sleptHours} 小时`, 2.4);
+        this.sleptHours = 0;
+        this.sleepBed = false;
+      }
+      return;
+    }
+    if (!this.seated || !this.rightButton || !this.canSleep()) {
+      this.sleepHold = 0;
+      return;
+    }
+    if ((this.body.energy ?? 100) >= 80) {
+      if (this.sleepHold === 0) this.player.flashWhy('还不困');
+      this.sleepHold = dt;
+      return;
+    }
+    this.sleepHold += dt;
+    if (this.sleepHold >= 1) {
+      this.sleepHold = 0;
+      this.sleepT = 0;
+    }
+  }
+
+  /** the night gone by: the clock on, the body rested; how many hours */
+  private sleepNow(): number {
+    const hours = sleepHours(this.body, this.sleepBed);
+    const clock = this.env.clock;
+    const now = clock.hourAt(this.time);
+    const dp = (((DayClock.phaseOfHour(now + hours) - DayClock.phaseOfHour(now)) % 1) + 1) % 1;
+    const seconds = dp * clock.dayLength;
+    sleepVitals(this.body, hours, this.vitalsR, seconds / hours, this.sleepBed);
+    clock.advance(seconds);
+    this.env.cloudsNow = true;
+    return hours;
+  }
+
+  /** times sat in a seat (the keys said the first two), and the vehicle last sat in */
+  private seatCount = (() => {
+    try {
+      return Number(localStorage.getItem('modcar.hint.seat') ?? 0) || 0;
+    } catch {
+      return 0;
+    }
+  })();
+  private seatSeen: ModVehicle | null = null;
+
+  /** how long Q has been down on foot since it went down (s; −1: it is not) */
+  private qT = -1;
+
+  /** Q on foot: let go soon, the thing is put down; held, it is put out to be placed (Nomad Drive's placing) */
+  private qHold(dt: number): void {
+    if (this.qT < 0) return;
+    if (this.input.isDown('KeyQ')) {
+      this.qT += dt;
+      const p = this.player.placer;
+      if (this.qT >= PLACE_HOLD_S && p && !p.placing && this.player.held) {
+        p.toggle();
+        this.qT = -1;
+      }
+      return;
+    }
+    this.qT = -1;
+    this.player.drop();
+  }
+
+  /** how long Q has been held in a seat (s) */
+  private standT = 0;
+
+  /** Q held in a seat a third of a second: one gets up and out (Nomad Drive's) */
+  private standUp(dt: number): void {
+    if (!this.input.isDown('KeyQ') || this.deadT >= 0 || this.listV) {
+      this.standT = 0;
+      return;
+    }
+    this.standT += dt;
+    if (this.standT >= STAND_S) {
+      this.standT = -Infinity;
+      this.getOut();
+    }
+  }
+
+  /** how long the vehicle one sits in has lain over (s) */
+  private overT = 0;
+
+  /**
+   * A vehicle on its side or its roof, all but still, with one in it: after five seconds it is put back on its
+   * wheels where it lies (Nomad Drive's flip-over recovery, 70°, 5 s; R is gone).
+   */
+  private rightItself(v: ModVehicle, dt: number): void {
+    const b = this.overBasis;
+    v.sim.basis(b);
+    // (the body's up against the world's: under cos 70° it lies over)
+    const over = b[4] < Math.cos((70 * Math.PI) / 180) && Math.abs(v.sim.kmh) < 4;
+    this.overT = over ? this.overT + dt : 0;
+    if (this.overT >= 5) {
+      this.overT = 0;
+      this.resetUpright(v);
+      this.ui.say('车扶正了', 2);
+    }
+  }
+
+  private readonly overBasis = new Float64Array(9);
 
   // ------------------------------------------------------------------ the developer's parts bin (`)
 
@@ -2499,7 +3114,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (!this.input.locked || this.deadT >= 0) return;
       this.audio.start();
       if (this.seated) {
-        this.cockpit.press(this.seated, e.button === 2);
+        if (e.button === 0 && this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
+        else if (e.button === 0 && this.cockpit.aimedAft) this.goAft();
+        else this.cockpit.press(this.seated, e.button === 2);
         return;
       }
       if (this.listV) {
@@ -2536,11 +3153,22 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     canvas.addEventListener('pointercancel', stopTurning);
     canvas.addEventListener('wheel', (e) => {
       if (this.listV) this.moveListSel(e.deltaY > 0 ? 1 : -1);
-      else this.player.wheel(e.deltaY);
+      else if (this.seated && this.cockpit.wheel(this.seated, e.deltaY)) return;
+      else if (this.seated) {
+        const v = this.seated;
+        if (this.seatAt === 'driver' && v.sim.manual) this.sound(v.sys.stepLever(e.deltaY > 0 ? 1 : -1) ? 'lever' : 'grind');
+      } else this.player.wheel(e.deltaY);
     });
     window.addEventListener('keydown', () => this.audio.start(), { once: true });
-    // the key card: at the start until the first click, and on F1 any time
-    if (!this.params.shot) this.ui.showHelp(true);
+    // the key card: at the very first start until the first click (docs/V3/plan/prompts.md 定案 4), and on F1 any time
+    let seen = true;
+    try {
+      seen = localStorage.getItem('modcar.helpSeen') === '1';
+      localStorage.setItem('modcar.helpSeen', '1');
+    } catch {
+      /* none */
+    }
+    this.helpDue = !this.params.shot && !seen;
     window.addEventListener('keydown', (e) => {
       // at the bench: its list and its blows have the keys
       if (this.benchWs?.open && !e.repeat && this.benchWs.key(e.code)) {
@@ -2562,8 +3190,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.switchListSide(e.code === 'KeyA' || e.code === 'ArrowLeft' ? 0 : 1);
         return;
       }
-      // (a list that takes things in: G puts the thing in the hands into it)
-      if (this.listV && e.code === 'KeyG' && !e.repeat) {
+      // (a list that takes things in: Q puts the thing in the hands into it)
+      if (this.listV && e.code === 'KeyQ' && !e.repeat) {
         this.putIntoList();
         return;
       }
@@ -2597,16 +3225,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.player.select(Number(slotKey[1]) - 1);
         return;
       }
-      // H: where the dirt still is, lit up for a couple of seconds
-      if (e.code === 'KeyH' && !e.repeat && !this.seated) {
-        this.grimeShowT = 2.4;
-        this.sound('highlight_ping', 0.7);
-        return;
-      }
-      if (e.code === 'KeyI' && !e.repeat) {
-        this.toggleCards();
-        return;
-      }
       // the assists card open: the number keys switch them
       const n = /^Digit([1-9])$/.exec(e.code);
       if (n && this.ui.assistsShown) {
@@ -2619,6 +3237,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === canvas) this.ui.showHelp(false);
+      // (let go in play — Esc, or the window left: the pause; the bench, the panel and the death card let it go themselves)
+      else if (!this.params.shot && this.played && this.input.lockable && !this.menu.isOpen && !this.dev?.open && !this.benchWs?.open && this.deadT < 0) this.openMenu('pause');
     });
     // the game is kept when the page goes out of sight or away
     if (this.params.keep) {
@@ -2634,13 +3254,25 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.toggleCargoList();
         return;
       }
-      if (a === 'use') {
-        if (this.listV) this.takeFromList();
-        else if (this.seated) {
-          if (this.cockpit.aimedSeat && this.viewMode === 'cockpit') this.moveOver();
-          else if (this.cockpit.aimedAft) this.goAft();
-          else this.getOut();
-        } else this.player.press();
+      // Q on foot: what is in the hands put down at once (into the vehicle looked at); placing, a quarter round
+      // to the left (in a seat Q is held to stand up: the frame counts that) — docs/V3/plan/hands.md §四
+      if (a === 'drop') {
+        if (this.seated || this.listV) return;
+        const p = this.player.placer;
+        if (p?.placing) p.turnStep(-1);
+        else this.player.drop();
+        return;
+      }
+      // R: placing — what is in the hands held out to be put down just so, or taken back
+      if (a === 'place') {
+        if (this.seated || this.listV) return;
+        const p = this.player.placer;
+        if (p && (p.placing || this.player.held)) p.toggle();
+        return;
+      }
+      // E: only while placing — a quarter round to the right, onto the grid (docs/V3/plan/prompts.md §四)
+      if (a === 'turnRight') {
+        if (this.player.placer?.placing) this.player.placer.turnStep(1);
         return;
       }
       if (a === 'camera') {
@@ -2654,7 +3286,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (!v || this.seatAt === 'pass') return;
       if (a === 'key') {
         if (v.sys.running) v.sys.stop('');
-        else v.sys.crank(true);
+        else if (!this.blockedStart(v)) v.sys.crank(true);
         this.sound('key');
       } else if (a === 'lights') {
         v.sys.cycleLights();
@@ -2662,15 +3294,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       } else if (a === 'horn') v.sys.setHorn(true);
       else if (a === 'leverUp' || a === 'leverDown') this.sound(v.sys.stepLever(a === 'leverUp' ? -1 : 1) ? 'lever' : 'grind');
       else if (a === 'manual') v.sim.setManual(!v.sim.manual);
-      else if (a === 'hazard') {
-        v.view.hazard = !v.view.hazard;
-        this.sound('switch');
-      }
-      else if (a === 'reset') this.resetUpright(v);
     });
     this.input.onRelease((a) => {
       const v = this.seated;
-      if (a === 'use' && !this.seated) this.player.release();
       if (!v) return;
       if (a === 'horn') v.sys.setHorn(false);
       else if (a === 'key') v.sys.crank(false);
@@ -2703,6 +3329,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       benchOpen: () => !!g.benchWs?.open,
       bench: (code) => !!g.benchWs?.key(code),
       primary: (down) => {
+        g.leftDown = down;
         if (!down) {
           if (g.seated) g.cockpit.release(g.seated);
           g.player.release('mouse');
@@ -2757,7 +3384,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         if (g.seated) g.resetUpright(g.seated);
       },
       connected: (name) => {
-        if (name) g.ui.say('手柄已连接。按菜单键看手柄的按键。', 3.5);
+        if (name) g.ui.say('手柄已连接', 2.5);
       },
     };
     return this.padHostObj;
@@ -2778,15 +3405,29 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       v.sys.assistReverse = a.autoReverse && v !== robot;
     }
     this.player.showGhostsOn = a.ghosts;
-    this.player.showCardOn = a.card;
+    this.player.showCardOn = a.compare;
   }
 
   // ------------------------------------------------------------------ getting in and out
 
+  /** a wreck by the road is for its parts (docs/V3/plan/growth.md 定案 2): a find at a big place may be got into */
+  partsOnly(v: ModVehicle): boolean {
+    return !!this.wrecks?.isWreck(v) && !this.wrecks.takeable(v);
+  }
+
   enter(v: ModVehicle, at: FrontSeat = 'driver'): void {
     const seat = seatMount(v, at);
     if (!seat || !v.build.parts[seat.id]) {
-      this.ui.say(at === 'pass' ? '副驾驶没有座椅，坐不进去。' : '驾驶位没有座椅，坐不进去。');
+      this.player.flashWhy('没有座椅');
+      return;
+    }
+    if (this.partsOnly(v)) {
+      this.player.flashWhy('只能拆零件');
+      return;
+    }
+    // (a motorcycle on another's rack is carried, not ridden: v3/moto-rack)
+    if (v.carriedBy) {
+      this.player.flashWhy('先从车架上卸下来');
       return;
     }
     this.seatAt = at;
@@ -2796,7 +3437,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // (from the living space behind: one sits down where one stood)
     if (this.player.aboard) this.player.leaveAboard();
     // a wreck by the road one gets into is one's own from then on (it stays when one drives off, it is saved)
-    if (this.wrecks?.claim(v)) this.ui.say(`坐进了这辆${v.view.frame.name.zh}——现在它归你了。`, 2.6);
+    if (this.wrecks?.claim(v)) this.ui.say(`这辆${v.view.frame.name.zh}归你了`, 2.6);
     // (what is in the two slots goes along)
     this.player.ghosts.clear();
     this.player.clearHighlight();
@@ -2817,7 +3458,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   getOut(): void {
     const v = this.seated;
-    if (!v || Math.abs(v.sim.kmh) > 6) return;
+    // (how fast it goes, not only along its length: a car spinning out slides sideways with next to nothing along it —
+    // got out of at 13 km/h sideways it slid on for two seconds on its handbrake, J8–J10's "creep")
+    if (!v || v.sim.speed * 3.6 > 6) return;
     const b = this.basis;
     v.sim.basis(b);
     const e = this.eyeOf(v, this.seatAt);
@@ -2832,9 +3475,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     this.seated = null;
     this.seatAt = 'driver';
     this.seatSlide = 0;
+    this.seatSeen = null;
     v.view.highlight(null);
     // nothing holds it now but the handbrake (or P): say so when it is off
-    if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.ui.say(v.sys.hasPart('handbrake') ? '没拉手刹——车会溜。' : '这车没有手刹，停在坡上会溜。', 3);
+    if (v.sim.parkBrake <= 0 && v.sim.selector !== 'P') this.player.flashWhy(v.sys.hasPart('handbrake') ? '没拉手刹' : '没有手刹');
     this.player.walker.place(x, z, heading);
     this.input.freeLook = true;
     this.input.lookYaw = heading;
@@ -2846,7 +3490,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
   /** into a vehicle's living space by an open door (docs/V3/nodes/M2-rv.md): only a vehicle standing still */
   board(v: ModVehicle, door: BoardDoor, lookYaw?: number): void {
     if (Math.abs(v.sim.kmh) > 3) {
-      this.ui.say('车还在动。', 2);
+      this.player.flashWhy('车还在动');
+      return;
+    }
+    // (an elevating roof down: no standing up in there)
+    if (aboardOf(v.view.frame.id)?.roof && v.view.roofT < 0.95) {
+      this.player.flashWhy('先把顶升起来');
       return;
     }
     const ab = new Aboard(v, door.inside, door.inYaw);
@@ -2876,12 +3525,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const def = v ? aboardOf(v.view.frame.id) : null;
     if (!v || !def) return;
     if (Math.abs(v.sim.kmh) > 3) {
-      this.ui.say('先把车停下。', 2);
+      this.player.flashWhy('先停车');
+      return;
+    }
+    if (def.roof && v.view.roofT < 0.95) {
+      this.player.flashWhy('先把顶升起来');
       return;
     }
     this.seated = null;
     this.seatAt = 'driver';
     this.seatSlide = 0;
+    this.seatSeen = null;
     v.view.highlight(null);
     const ab = new Aboard(v, def.aft, Math.PI);
     this.player.goAboard(ab);
@@ -2906,11 +3560,11 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const to: FrontSeat = this.seatAt === 'pass' ? 'driver' : 'pass';
     const seat = seatMount(v, to);
     if (!seat || !v.build.parts[seat.id]) {
-      this.ui.say(to === 'pass' ? '副驾驶没有座椅。' : '驾驶位没有座椅。', 2);
+      this.player.flashWhy('没有座椅');
       return;
     }
     if (Math.abs(v.sim.kmh) > 3) {
-      this.ui.say('先把车停下。', 2);
+      this.player.flashWhy('先停车');
       return;
     }
     this.seatAt = to;
@@ -2977,7 +3631,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const rare = under.filter((g) => isRare(v.build.frame, g.part) && g !== best);
       const more = rare.length ? `，还有${rare.slice(0, 2).map((g) => partDef(g.part).name.zh).join('、')}` : '';
       this.ui.say(`${lid}下面：${partDef(best.part).name.zh} ${'★'.repeat(best.star)}${more}`, 3.4);
-    } else if (m.cat === 'hood') this.ui.say(`${lid}下面是空的：早被人拆光了。`, 2.4);
+    } else if (m.cat === 'hood') this.ui.say(`${lid}下面是空的`, 2);
   }
 
   /** every frame: a find on a wreck catching the light; seen close to for the first time, heard */
@@ -3285,6 +3939,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.loopsNow.set('pour', { liquid });
         return;
       }
+      // (water poured from one vessel into another: docs/ND/PLAN.md, a water can, a bucket, a pump)
+      case 'pour_water':
+        this.loopsNow.set('pour', { liquid: 'water' });
+        return;
     }
     if (name === 'ratchet_done' || name === 'remove_done') {
       const kg = name === 'remove_done' ? gain : held?.kind === 'part' ? partDef(held.inst.part).mass : 10;
@@ -3368,6 +4026,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (this.gcV.distanceTo(origin) > far + 7) continue;
       const h = v.view.grimeCast(origin, dir, best ? best.dist : far);
       if (!h || (best && h.dist >= best.dist)) continue;
+      // (inside the car nothing is cleaned or painted: its seats and levers, its cabin's and boot's own faces)
+      if ((h.part.inst && staysClean(h.part.inst.part)) || this.insideOf(v, h.point, h.normal, h.glass) || (h.part.owner.startsWith('p:') && v.view.panelFacesIn(h.part.owner.slice(2).split('+')[0], h.normal))) continue;
       best = { v, loose: null, key: h.part.key, owner: h.part.owner, inst: h.part.inst, kind: h.part.kind, label: h.part.label, point: h.point, normal: h.normal, dist: h.dist, glass: h.glass };
     }
     const lh = this.loose.grimeCast(origin, dir, best ? best.dist : far);
@@ -3375,6 +4035,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (best) best.label = unitName(best.kind, this.unitOfHit(best), best.label);
     return best;
   }
+
+  /** a point of a vehicle (render space) on its inside — in its cabin's box or its boot's, on a face not turned out of it (docs/V3/plan/hands.md §五) */
+  private insideOf(v: ModVehicle, p: THREE.Vector3, n: THREE.Vector3, glass = false): boolean {
+    // (the windows are the outside: cleaned from without)
+    if (glass) return false;
+    const m = this.gcM.copy(v.view.model.matrixWorld).invert();
+    const lp = this.gcV.copy(p).applyMatrix4(m);
+    const ln = this.gcN.copy(n).transformDirection(m);
+    for (const b of [v.view.mats.cabin, v.view.mats.boot]) {
+      if (!b || !b.containsPoint(lp)) continue;
+      // (a side's skin turned out of it — a pillar, a frame's outer face — is the outside; the rest is in)
+      const cz = (b.min.z + b.max.z) / 2;
+      const side = lp.z - cz;
+      const out = Math.abs(side) > (b.max.z - b.min.z) * 0.35 && ln.z * Math.sign(side) > 0.3;
+      if (!out) return true;
+    }
+    return false;
+  }
+
+  private readonly gcN = new THREE.Vector3();
 
   /** the unit of a part the point is in (by its normal in the vehicle's frame) */
   private unitOfHit(h: ScrubHit): number {
@@ -3437,6 +4117,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const m = this.openGrime(hit.v, hit.owner, base, o, hit.loose);
     if (!m) return;
     g.stroke(m, o, { a, b, normal: hit.normal, side, half: c.width / 2, soft: 0.006, depth: c.depth, take: c.take, wet: c.wet });
+    // (a coat of paint under it: the sponge wipes off what is still wet, a scraper, the brush and the grinder
+    // strip what has set — the harder the tool on rust, the more of it at a pass)
+    const coat = this.coats?.get(o.key);
+    if (coat) {
+      const dry = c.wet > 0 ? 0 : (c.coat ?? Math.max(c.take[1] * 0.6, c.take[2]));
+      const wet = c.wet > 0 ? 0.75 : Math.max(0.5, dry);
+      this.coats!.strip(coat, o, { a, b, normal: hit.normal, side, half: c.width / 2, soft: 0.006, depth: c.depth }, dry, wet);
+      this.coatCover.delete(o.key);
+    }
     const cl = this.cleaning.get(o.key);
     if (cl) cl.dirty = true;
     // what comes off: flakes of crust, crumbs of dirt, flecks of rust, the sponge's foam
@@ -3507,7 +4196,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         c.flashUnit = u.unit;
         this.sound('clean_ding', 0.9);
         const rusty = u.rustWas > MIN && u.rust > 0.08;
-        this.ui.say(rusty ? `${name} · 泥壳刮掉了，还有锈：用钢丝刷刷` : `${name} · 干净了`, 2.2);
+        if (!rusty) this.ui.say(`${name} · 干净了`, 1.6);
         if (/挡风玻璃/.test(name)) this.done.add('windscreen');
       }
       if (u.rustWas > MIN && !m.doneRust.has(u.unit) && u.rust <= 0.08 && (m.doneDirt.has(u.unit) || u.dirtWas <= MIN)) {
@@ -3516,7 +4205,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         c.flash = 1;
         c.flashUnit = u.unit;
         this.sound('clean_rust_done', 0.9);
-        this.ui.say(`${name} · 锈刷干净了`, 2.2);
+        this.ui.say(`${name} · 干净了`, 1.6);
       }
     }
     const left = c.units.some((u) => (u.dirtWas > MIN && !m.doneDirt.has(u.unit)) || (u.rustWas > MIN && !m.doneRust.has(u.unit)));
@@ -3540,8 +4229,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       v.build.grime = false;
     }
     this.grime?.close(key, o.look);
-    v?.view.setGrimeHeld(c.owner, false);
-    if (c.loose && !this.loose.grimeParts(c.loose).some((x) => x.inst !== inst && this.grime?.get(x.inst.uid))) this.loose.setGrimeHeld(c.loose.uid, false);
+    // (a coat of paint on it: still drawn on its own, for the coat)
+    const coated = !!this.coats?.get(key);
+    if (!coated) v?.view.setGrimeHeld(c.owner, false);
+    if (c.loose && !coated && !this.loose.grimeParts(c.loose).some((x) => x.inst !== inst && (this.grime?.get(x.inst.uid) || this.coats?.get(x.inst.uid)))) this.loose.setGrimeHeld(c.loose.uid, false);
     this.cleaning.delete(key);
     o.look.setGrimeFlash(1, -1);
     this.lookFlashes.push({ look: o.look, t: 1 });
@@ -3564,7 +4255,21 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const g = this.grime;
     if (!g) return;
     this.grimeShowT = Math.max(0, this.grimeShowT - dt);
-    carEnvUniforms.uGrimeShow.value = this.grimeShowT > 0 ? Math.min(1, this.grimeShowT / 0.4, (2.4 - this.grimeShowT) / 0.2) : 0;
+    // (a cleaning tool in the hands — the plastic scraper, the grinder: where the dirt still is shows softly on what
+    // one looks at; the button down, it goes within 0.15 s, so one sees the real surface; let go, it is back 0.3 s on —
+    // docs/V3/plan/hands.md §五)
+    const hh = this.seated ? null : this.player.held;
+    const cleaning = (hh?.kind === 'tool' && !!cleanerOf(hh.tool)) || (hh?.kind === 'item' && hh.item.item === ND_GRINDER);
+    const down = this.leftDown || !!this.player.scrub;
+    if (down) this.showDownAt = this.time;
+    const want = cleaning && !down && this.time - this.showDownAt > 0.3 ? GRIME_SHOW_HELD : 0;
+    this.showK = want > this.showK ? Math.min(want, this.showK + (dt / 0.25) * GRIME_SHOW_HELD) : Math.max(want, this.showK - (dt / 0.15) * GRIME_SHOW_HELD);
+    carEnvUniforms.uGrimeShow.value = Math.max(this.grimeShowT > 0 ? Math.min(1, this.grimeShowT / 0.4, (2.4 - this.grimeShowT) / 0.2) : 0, this.showK);
+    const lit = cleaning || this.grimeShowT > 0;
+    const sa = this.player.scrubAim;
+    const showV = lit ? (sa?.v ?? (sa?.loose ? null : this.player.lookVehicle)) : null;
+    for (const v of this.vehicles) v.view.mats.setShowHere(v === showV);
+    this.loose.setShowHere(lit ? (sa?.loose?.uid ?? null) : null);
     // a part with a mask fitted again (or loaded): its look takes the mask, it is drawn on its own
     for (const v of this.vehicles) {
       for (const p of v.view.grimeParts()) {
@@ -3617,6 +4322,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       if (c.dirty && scrubbing && c.units.length && this.time - c.measuredAt > 0.25) this.measureClean(key, c, o, m, [this.unitOfHit(sh!)]);
       else if (c.dirty && !scrubbing && this.time - c.measuredAt > 0.05) this.measureClean(key, c, o, m);
     }
+    this.stepCoats();
+    this.stepSprayRing();
     for (let i = this.lookFlashes.length - 1; i >= 0; i--) {
       const f = this.lookFlashes[i];
       f.t = Math.max(0, f.t - dt * 1.6);
@@ -3681,49 +4388,187 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     if (h.v) {
       const t = h.v.view.paintTarget(h.owner);
       if (!t) return null;
-      return { v: h.v, loose: null, inst: t.inst, mount: t.mount, owner: h.owner, label: t.label, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: t.paintable };
+      // (and only what has a painted skin: a bare steel bull bar takes no coat)
+      const skin = t.paintable && takesCoat(h.v.view.grimeParts().find((x) => x.owner === h.owner)?.meshes ?? []);
+      return { v: h.v, loose: null, inst: t.inst, mount: t.mount, owner: h.owner, label: t.label, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: skin };
     }
     if (!h.loose || !h.inst) return null;
     // (a tyre on a wheel lying about: the wheel's, and no paint)
     const own = h.owner === `l:${h.loose.uid}`;
-    return { v: null, loose: h.loose, inst: h.inst, mount: null, owner: h.owner, label: partDef(h.inst.part).name.zh, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: own && takesPaint(h.inst.part) };
+    const skin = own && takesPaint(h.inst.part) && takesCoat(this.loose.grimeParts(h.loose).find((x) => x.owner === h.owner)?.meshes ?? []);
+    return { v: null, loose: h.loose, inst: h.inst, mount: null, owner: h.owner, label: partDef(h.inst.part).name.zh, point: h.point.clone(), normal: h.normal.clone(), dist: h.dist, paintable: skin };
   }
 
-  /** the can sprayed at it for dt seconds: the coat goes on, the can empties; the thing drawn on its own meanwhile, a flash when it is whole */
+  /**
+   * The can sprayed at it for dt seconds (docs/V3/plan/growth.md §1.5, J3): a disc of the nozzle's size where it
+   * lands, soft to its rim, over what is there; the can drawn on all the while. The ring: how much of the part the
+   * coat covers (measured a few times a second).
+   */
   spray(aim: PaintAim, can: Tool, dt: number): SprayResult {
-    const v = aim.v;
-    const p = aim.inst ?? v?.build;
-    if (!p) return { t: 0, used: 0, done: false, already: true, empty: sprayLeft(can) <= 0 };
-    const colour = can.colour ?? 0;
-    // the body taking a colour of its own: the doors and lids that wore its colour keep theirs (each is painted on its own)
-    if (v && !aim.inst && v.build.paint !== colour) keepPartColours(v.build);
-    const from = v ? v.view.paintBase(aim.owner) : paintBaseOf(aim.inst!);
-    const r = sprayStep(can, p, from, dt);
-    if (r.already) return r;
-    // (drawn on its own while the can is on it: its colour moves every frame, it flashes when whole)
-    const key = `${v?.build.uid ?? aim.loose?.uid ?? ''}|${aim.owner}`;
-    if (!this.paintHeld.has(key)) {
-      if (v) v.view.setPaintHeld(aim.owner, true);
-      else if (aim.loose) this.loose.setPaintHeld(aim.loose.uid, true);
-    }
-    this.paintHeld.set(key, { v, loose: aim.loose, owner: aim.owner, at: this.time });
-    if (r.done) {
-      const look = v ? v.view.mats.lookOf(aim.owner) : this.loose.lookOfOwner(aim.owner);
-      if (look) {
-        look.setGrimeFlash(1, -1);
-        this.lookFlashes.push({ look, t: 1 });
+    const left = sprayLeft(can);
+    const o = this.grimeOwnerOf(aim.v, aim.owner, aim.loose);
+    const cs = this.coats;
+    if (!o || !cs || left <= 0) return { t: 0, used: 0, done: false, already: false, empty: left <= 0 };
+    const coat = this.openCoat(aim.v, aim.owner, o, aim.loose);
+    if (!coat) return { t: 0, used: 0, done: false, already: false, empty: false };
+    const nz = nozzleOf(can);
+    const hex = paintHex(can.colour ?? 0);
+    this.sprayColour.setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace);
+    // (painted over rust that was never ground off: noted, it comes back through with the days)
+    const owned = this.coatOwnerOf(aim.v, aim.owner, aim.loose);
+    if (owned && !owned.coatRust && o.amounts.rust > 0.15) owned.coatRust = [o.amounts.rust, itemNow()];
+    cs.spray(coat, o, aim.point, aim.normal, nz.r, this.sprayColour, nz.rate * dt, this.time);
+    const used = sprayUse(can, dt);
+    const cov = this.coverOf(coat);
+    if (sprayLeft(can) <= 1e-9 && used > 0) this.player.flashWhy('罐子空了');
+    return { t: Math.min(1, cov.dry + cov.wet * (1 - cov.dry)), used, done: false, already: false, empty: sprayLeft(can) <= 1e-9 };
+  }
+
+  /** how much of what the can is aimed at a coat covers, and how much of it is wet (null: no coat on it) */
+  coatOn(aim: PaintAim): { dry: number; wet: number } | null {
+    const cs = this.coats;
+    if (!cs) return null;
+    const key = aim.loose ? this.loose.grimeParts(aim.loose).find((x) => x.owner === aim.owner)?.inst.uid : aim.v?.view.grimeParts().find((x) => x.owner === aim.owner)?.key;
+    const c = key ? cs.get(key) : undefined;
+    return c ? this.coverOf(c) : null;
+  }
+
+  /** how much of a coated part the coat covers, measured at most a few times a second */
+  private coverOf(c: Coat): { dry: number; wet: number } {
+    const m = this.coatCover.get(c.key);
+    if (m && this.time - m.at < 0.35) return m;
+    const r = this.coats!.measure(c);
+    const out = { dry: r.dry, wet: r.wet, at: this.time };
+    this.coatCover.set(c.key, out);
+    return out;
+  }
+
+  /** the part (or the body) a coat belongs to, as the save has it: where its flags are kept */
+  private coatOwnerOf(v: ModVehicle | null, owner: string, loose: Loose | null): { coat?: boolean; coatRust?: [number, number] } | null {
+    if (loose) return this.loose.grimeParts(loose).find((x) => x.owner === owner)?.inst ?? null;
+    if (!v) return null;
+    const p = v.view.grimeParts().find((x) => x.owner === owner);
+    return p?.inst ?? (owner === 'body' ? v.build : null);
+  }
+
+  /** the coat of what the can is on, made the first time it is sprayed: the part drawn on its own from then on */
+  private openCoat(v: ModVehicle | null, owner: string, o: GrimeOwner, loose: Loose | null): Coat | null {
+    const cs = this.coats;
+    if (!cs) return null;
+    const c = cs.open(o);
+    if (v) v.view.setGrimeHeld(owner, true);
+    if (loose) this.loose.setGrimeHeld(loose.uid, true);
+    const p = this.coatOwnerOf(v, owner, loose);
+    if (p) p.coat = true;
+    return c;
+  }
+
+  /** how far rust painted over without grinding has come back through (the days since: three to all of it) */
+  private coatBleed(p: { coatRust?: [number, number] } | null | undefined): number {
+    const r = p?.coatRust;
+    if (!r) return 0;
+    return r[0] * Math.min(1, Math.max(0, (itemNow() - r[1]) / COAT_BLEED_S));
+  }
+
+  /** every frame: the coats on their looks (a part fitted again, a reload), set a minute after the last spray, rust coming back through */
+  private stepCoats(): void {
+    const cs = this.coats;
+    if (!cs) return;
+    for (const v of this.vehicles) {
+      for (const p of v.view.grimeParts()) {
+        const c = cs.get(p.key);
+        if (!c) continue;
+        if (!p.look.hasCoat) p.look.setCoat(c);
+        v.view.setGrimeHeld(p.owner, true);
+        p.look.setCoatBleed(this.coatBleed(p.inst ?? (p.owner === 'body' ? v.build : null)));
       }
-      this.sound('paint_done', 1);
-      const name = PALETTE[colour]?.name.zh ?? '';
-      // the whole vehicle one colour (Arctic Drive's "Class Above All")
-      const all = v ? paintTargets(v.build).every((x) => coatOf(x.mount ? v.build.parts[x.mount] : v.build, colour) >= 1) : false;
-      if (v && all && paintTargets(v.build).length > 1) {
-        this.sound('clean_car_done', 0.8);
-        this.ui.say(`${v.view.frame.name.zh} · 从头到尾都是${name}了！`, 3);
-      } else this.ui.say(`${aim.label} · 喷成${name}了`, 1.6);
     }
-    if (r.empty && r.used > 0) this.ui.say('罐子喷空了。', 2);
-    return r;
+    for (const l of this.loose.list) {
+      for (const p of this.loose.grimeParts(l)) {
+        const c = cs.get(p.inst.uid);
+        if (!c) continue;
+        const look = this.loose.lookOfOwner(p.owner);
+        if (look && !look.hasCoat) look.setCoat(c);
+        this.loose.setGrimeHeld(l.uid, true);
+        look?.setCoatBleed(this.coatBleed(p.inst));
+      }
+    }
+    const hp = this.player.held;
+    const hl = hp?.kind === 'part' ? this.heldThing.look : undefined;
+    if (hp?.kind === 'part' && hl) {
+      const c = cs.get(hp.inst.uid);
+      if (c && !hl.hasCoat) hl.setCoat(c);
+    }
+    for (const key of cs.keys) {
+      const c = cs.get(key)!;
+      if (c.wetNow && this.time - c.sprayedAt > COAT_WET_S) {
+        cs.set(c);
+        this.coatCover.delete(key);
+      }
+    }
+  }
+
+  /** the ring on the surface where the spray would land (the nozzle's size): a can in the hands, aimed at what takes paint */
+  private stepSprayRing(): void {
+    const ring = this.sprayRing;
+    if (ring) ring.visible = false;
+    const held = this.seated ? null : this.player.held;
+    const t = this.player.target;
+    const u = carEnvUniforms;
+    if (held?.kind !== 'tool' || held.tool.kind !== 'spray' || t?.kind !== 'paint' || sprayLeft(held.tool) <= 0) {
+      u.uBrushOn.value = 0;
+      this.heldThing.aimSpray(null);
+      return;
+    }
+    // the brush's shadow where the paint goes (docs/V3/plan/hands.md §六): its size, the can's colour; its rim
+    // warns when what it is on is rusty or dirty (the paint will not hide dirt; rust comes back through it)
+    const a = t.aim;
+    const p = a.inst ?? a.v?.build ?? null;
+    u.uBrushOn.value = 1;
+    u.uBrushC.value.copy(a.point);
+    u.uBrushN.value.copy(a.normal);
+    u.uBrushR.value = nozzleOf(held.tool).r;
+    u.uBrushColor.value.setHex(paintHex(held.tool.colour ?? 0));
+    u.uBrushWarn.value = p && (p.rust >= 0.3 || p.dirt >= 0.3 || (p.crust ?? 0) >= 0.3) ? 1 : 0;
+    // the can held up to it: 0.37 m off, 0.30 m while spraying, the nozzle square to it (Nomad Drive's)
+    this.heldThing.aimSpray(a.point, a.normal, !!this.player.spraying);
+  }
+
+  /** after a reload: the parts marked as painted take their coats back from the store */
+  private async restoreCoats(): Promise<void> {
+    const cs = this.coats;
+    if (!cs) return;
+    for (const v of this.vehicles) {
+      for (const p of v.view.grimeParts()) {
+        const own = p.inst ?? (p.owner === 'body' ? v.build : null);
+        if (!own?.coat || cs.get(p.key)) continue;
+        const size = Math.max(64, Math.floor(p.size / 2));
+        const kept = await keptMask(`${p.key}:coat`, size);
+        const o = this.grimeOwnerOf(v, p.owner);
+        if (!o || cs.get(p.key)) continue;
+        if (!kept) {
+          own.coat = false;
+          continue;
+        }
+        cs.open(o, kept.texels, size).changed = false;
+        v.view.setGrimeHeld(p.owner, true);
+      }
+    }
+    for (const l of this.loose.list) {
+      for (const p of this.loose.grimeParts(l)) {
+        if (!p.inst.coat || cs.get(p.inst.uid)) continue;
+        const size = Math.max(64, Math.floor(p.size / 2));
+        const kept = await keptMask(`${p.inst.uid}:coat`, size);
+        const o = this.grimeOwnerOf(null, p.owner, l);
+        if (!o) continue;
+        if (!kept) {
+          p.inst.coat = false;
+          continue;
+        }
+        cs.open(o, kept.texels, size).changed = false;
+        this.loose.setGrimeHeld(l.uid, true);
+      }
+    }
   }
 
   /** every frame: the mist out of the nozzle and over the surface, the hiss, the can shaken when it is taken up */
@@ -3760,13 +4605,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     } else if (this.player.sprayDry) this.sound('spray_sputter', 0.8);
     this.sprayWas = !!(s && can && sprayLeft(can) > 0);
     this.mist?.update(dt);
-    // the looks sprayed lately go back into their merge a while after the can left them
-    for (const [key, h] of this.paintHeld) {
-      if (this.time - h.at < 4 && can) continue;
-      this.paintHeld.delete(key);
-      if (h.v) h.v.view.setPaintHeld(h.owner, false);
-      else if (h.loose && ![...this.paintHeld.values()].some((x) => x.loose === h.loose)) this.loose.setPaintHeld(h.loose.uid, false);
-    }
   }
 
   /** the vehicles made ready to scrub (their measure's programs compiled), and the meshes whose ray grids are still to build */
@@ -3941,6 +4779,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     }
   }
 
+  /** how far a system zooms the view on foot (GameContext.lookZoom: 1 none) */
+  lookZoom = 1;
+
+  /** the systems' shares of a vehicle radio's loudness (GameContext.radioLevel): its knob's volume; 0, its station quiet */
+  readonly radioLevel: ((v: ModVehicle) => number)[] = [];
+
   /** the systems' sets that play the radio's songs (GameContext.addRadios) */
   private readonly radioSets: (readonly RadioSet[])[] = [];
 
@@ -3949,6 +4793,16 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     return () => {
       const i = this.radioSets.indexOf(sets);
       if (i >= 0) this.radioSets.splice(i, 1);
+    };
+  }
+
+  /** a system's solids: the walker and the vehicles keep out of them (GameContext.addSolids; docs/ND/PLAN.md, a prefab's doors) */
+  addSolids(s: SolidSource): () => void {
+    this.player.addSolids(s);
+    this.vehicleSolids.add(s);
+    return () => {
+      this.player.removeSolids(s);
+      this.vehicleSolids.remove(s);
     };
   }
 
@@ -3972,6 +4826,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         // a closed car keeps most of it in
         l = (0.09 * loud * (0.35 + 0.65 * (1 - v.sys.derived.enclosed))) / (1 + (d * d) / 6);
       }
+      // (a system's say: the knob turned down, a tape playing instead)
+      for (const f of this.radioLevel) l *= f(v);
       if (l > level) {
         level = l;
         best = v;
@@ -4055,16 +4911,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
 
   // ------------------------------------------------------------------ the checklist
 
-  tutorialSteps(): { id: string; text: string; done: boolean }[] {
+  tutorialSteps(): BoardStep[] {
     const v = this.vehicles[0];
     if (!v) return [];
+    if (this.kit === 'j5') return this.kitSteps(v);
     const b = v.build;
     const fuel = v.sys.dash.tankL > 0 ? v.sys.dash.fuel : 0;
     const hood = v.view.hasPanel('hood') && !!b.parts.hood;
     // (the workshop's, before the car: the power, the materials, a scraper made at the bench)
     const ws = this.workshop && this.params.project === 'tutorial' ? this.workshop : null;
     const made = this.done.has('scraper');
-    return [
+    const steps: { id: string; text: string; done: boolean }[] = [
       ...(ws
         ? [
             { id: 'power', text: '到门外拉发电机，车库来电', done: this.done.has('power') || ws.power },
@@ -4083,9 +4940,98 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (a workshop with doors to open: the button beside them)
       ...(this.garage?.doorsOpen || this.done.has('door') ? [{ id: 'door', text: '按门边的按钮，打开大门', done: this.done.has('door') || !!this.garage?.doorsOpen?.() }] : []),
       { id: 'seat', text: '坐进驾驶座', done: this.seated === v || this.done.has('seat') },
-      { id: 'start', text: '按住 K 打火', done: v.sys.running || this.done.has('start') },
+      { id: 'start', text: '打火', done: v.sys.running || this.done.has('start') },
       { id: 'drive', text: '松手刹，开出车库', done: this.place === 'road' },
     ];
+    // (a step once done stays done — a part taken off again, back in the workshop: the list does not go back, docs/V3/plan/prompts.md 定案 4)
+    for (const s of steps) {
+      if (s.done) this.done.add(`step:${s.id}`);
+      else if (this.done.has(`step:${s.id}`)) s.done = true;
+    }
+    return steps;
+  }
+
+  /** how many of the start's junk have gone into the recycler (J5's board) */
+  private junkIn(): number {
+    let n = 0;
+    while (this.done.has(`junk:${n + 1}`)) n++;
+    return n;
+  }
+
+  /**
+   * J5's board (core/modcar/startKit.ts): the workshop's four steps first (the power, the junk into the recycler,
+   * the scraper made, the windscreen scraped), then the car's — to start, to drive — and the way out (the doors,
+   * the seat, the key, the road); last, not in the way of the road, what makes it a car. Each car step done when
+   * its mounts are filled (the wheels four of four), the water when the radiator holds 60 % of what it takes, the
+   * fuel when the tank shows any; a step once done stays done (docs/V3/plan/prompts.md 定案 4).
+   */
+  private kitSteps(v: ModVehicle): BoardStep[] {
+    const b = v.build;
+    const ws = this.workshop && this.params.project === 'tutorial' ? this.workshop : null;
+    const made = this.done.has('scraper');
+    const steps: BoardStep[] = [];
+    if (ws) {
+      // (the old jacket and shoes on the bench: one wakes in the nightdress — Arctic Drive's 穿好衣服 first)
+      const worn = (this.player.worn.jacket ? 1 : 0) + (this.player.worn.shoes ? 1 : 0);
+      steps.push({ id: 'clothes', group: 'prep', text: `穿上外套和鞋（${worn}/2）`, short: '穿衣服', n: worn, of: 2, done: worn >= 2 });
+      const n = Math.min(START_JUNK.length, this.junkIn());
+      steps.push({ id: 'power', group: 'prep', text: '拉发电机，车库来电', short: '来电', done: this.done.has('power') || ws.power });
+      steps.push({ id: 'scrap', group: 'prep', text: `两个零件箱和坏电视丢进回收台（${n}/${START_JUNK.length}）`, short: '回收', n, of: START_JUNK.length, done: made || n >= START_JUNK.length });
+      steps.push({ id: 'scraper', group: 'prep', text: '在制作台做一把清理铲', short: '清理铲', done: made });
+      steps.push({ id: 'windscreen', group: 'prep', text: '刮干净挡风玻璃', short: '挡风玻璃', done: this.done.has('windscreen') || this.windscreenClean() });
+    }
+    for (const k of KIT_STEPS) {
+      if (k.mounts) {
+        const n = mountsFilled(b, k.mounts);
+        const of = k.mounts.length;
+        steps.push({ id: k.id, group: k.group, text: `装上${k.name.zh}${of > 1 ? `（${n}/${of}）` : ''}`, short: k.name.zh, n, of, done: n >= of });
+      } else if (k.id === 'water') {
+        const r = b.parts.radiator;
+        const cap = r ? (partDef(r.part).radiator?.coolantL ?? 1) : 1;
+        steps.push({ id: k.id, group: k.group, text: '水箱加水', short: '加水', done: !!r && (r.fluids.coolantL ?? 0) >= WATER_FULL * cap });
+      } else steps.push({ id: k.id, group: k.group, text: '用油桶加油', short: '加油', done: (v.sys.dash.tankL > 0 ? v.sys.dash.fuel : 0) > 0.04 });
+    }
+    steps.push({ id: 'door', group: 'go', text: '按门边的按钮，打开大门', short: '开大门', done: this.done.has('door') || !!this.garage?.doorsOpen?.() });
+    steps.push({ id: 'seat', group: 'go', text: '坐进驾驶座', short: '上车', done: this.seated === v || this.done.has('seat') });
+    steps.push({ id: 'start', group: 'go', text: '打火', short: '打火', done: v.sys.running || this.done.has('start') });
+    steps.push({ id: 'drive', group: 'go', text: '松手刹，开出车库', short: '开出去', done: this.place === 'road' });
+    // (the car's: last — on the board, not in the way of the road)
+    const car = steps.filter((x) => x.group === 'car');
+    const rest = steps.filter((x) => x.group !== 'car');
+    const out = [...rest, ...car];
+    for (const st of out) {
+      if (st.done) this.done.add(`step:${st.id}`);
+      else if (this.done.has(`step:${st.id}`)) st.done = true;
+    }
+    return out;
+  }
+
+  /** J5: the car can start and drive (the board's first two groups done, or once were): the doors open */
+  private kitReady(): boolean {
+    if (this.kit !== 'j5' || this.done.has('ready')) return true;
+    const steps = this.tutorialSteps();
+    const ok = steps.length > 0 && steps.every((st) => st.done || (st.group !== 'start' && st.group !== 'drive'));
+    if (ok) this.done.add('ready');
+    return ok;
+  }
+
+  /** why a thing must not go into the recycler: a part the project car still has an empty place for (J5's start) */
+  neededPart(h: NonNullable<Held>): Text | null {
+    if (this.kit !== 'j5' || h.kind !== 'part' || this.place !== 'garage') return null;
+    const v = this.vehicles[0];
+    if (!v) return null;
+    const cat = partDef(h.inst.part).cat;
+    const empty = v.view.frame.mounts.some((m) => m.cat === cat && !v.build.parts[m.id]);
+    return empty ? { zh: '车上要用', en: 'The car needs it' } : null;
+  }
+
+  /** the board's heading in the corner: J5's group of the step now and how far it is (能发动 2/7); the classic one's name */
+  private boardTitle(steps: BoardStep[], now: number): string {
+    const st = steps[now];
+    if (this.kit !== 'j5' || !st?.group || st.group === 'prep') return '让「方糖」跑起来';
+    const g = KIT_GROUPS.find((x) => x.id === st.group);
+    const of = steps.filter((x) => x.group === st.group);
+    return `${g?.name.zh ?? ''} ${of.filter((x) => x.done).length}/${of.length}`;
   }
 
   private checkTutorial(): void {
@@ -4101,7 +5047,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     // sat behind an open bonnet: say why the road cannot be seen (once)
     if (this.seated === v && v.view.panelOpen('hood') > 0.5 && !this.done.has('hoodWarned')) {
       this.done.add('hoodWarned');
-      this.ui.say('引擎盖还开着，挡住了前面：下车把它关上。', 4);
+      this.ui.say('引擎盖还开着', 3);
     }
     if (v.sys.running) this.done.add('start');
   }
@@ -4129,7 +5075,37 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     return down && !this.hbIgnore ? 1 : 0;
   }
 
+  /** the render alpha of this frame (GameContext.renderAlpha) */
+  renderAlpha = 1;
+
+  /** the systems' rules against starting an engine (GameContext.startBlockers) */
+  readonly startBlockers: ((v: ModVehicle) => { zh: string; en: string } | null)[] = [];
+  /** what feeds the electric things riding in the vehicles (GameContext.powerAt: the power module's) */
+  readonly powerAt: ((l: Loose) => 'on' | 'flat' | null | undefined)[] = [];
+
+  /** why this vehicle's engine may not start now (a system's rule), or null */
+  startWhy(v: ModVehicle): { zh: string; en: string } | null {
+    for (const f of this.startBlockers) {
+      const w = f(v);
+      if (w) return w;
+    }
+    return null;
+  }
+
+  /** the key turned on a vehicle a rule keeps from starting: its why flashed, true (CockpitHost.blockedStart) */
+  blockedStart(v: ModVehicle): boolean {
+    const w = this.startWhy(v);
+    if (w) this.player.flashWhy(w.zh);
+    return !!w;
+  }
+
+  /** a vehicle of the world's made one's own (GameContext.claimVehicle: a trailer hitched) */
+  claimVehicle(v: ModVehicle): void {
+    this.wrecks?.claim(v);
+  }
+
   step(dt: number, alpha?: number): void {
+    this.renderAlpha = alpha ?? 1;
     // (one world with the workshop in it: in its yard or out on the road is only where one is)
     if (this.seamless) {
       const sv = this.seated;
@@ -4137,7 +5113,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.place = onPlot(sv ? sv.sim.px : this.player.walker.x, sv ? sv.sim.pz : this.player.walker.z) ? 'garage' : 'road';
       if (sv && was === 'garage' && this.place === 'road' && !this.saidOnRoad) {
         this.saidOnRoad = true;
-        this.ui.say('上路了。想回车库，掉头开回来就是。', 3);
+        // (out on the road: nothing said — docs/V3/plan/prompts.md §五)
       }
     }
     this.input.update(dt);
@@ -4207,11 +5183,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         run: shift && canSprint(this.body),
         jump: !listing && (i.isDown('Space') || this.pad.jump),
         crouch: this.crouch,
-        drop: !listing && (this.dropButton || i.isDown('KeyG') || this.pad.drop),
-        // (the right button or F, as they are now: what the player made of them last frame is not fed back)
-        take: !listing && (this.rightButton || i.isDown('KeyF') || this.pad.take),
+        drop: !listing && (this.dropButton || this.pad.drop),
+        // (the right button, as it is now: what the player made of it last frame is not fed back)
+        take: !listing && (this.rightButton || this.pad.take),
         // (the right button's release is seen through the window's mouseup below)
       } as never);
+      // (Q is a press now: placing is R's — docs/V3/plan/hands.md §四)
       this.input.lookHold = this.player.transferring || listing || !!this.player.scrub;
       // (a pad's right stick moves the scrubbing tool as the mouse does)
       if (this.player.scrub && (this.pad.rx !== 0 || this.pad.ry !== 0)) this.player.scrubMove(this.pad.rx * dt * 700, this.pad.ry * dt * 700);
@@ -4226,6 +5203,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       items.showTransfer(null);
       items.showKeys(this.driveKeys(this.seated));
       items.showHotbar(this.player.slotViews(), this.player.sel);
+      this.standUp(dt);
+      // (stood up just now: no longer in it)
+      if (this.seated) this.rightItself(this.seated, dt);
     }
     // vehicles
     for (const v of this.vehicles) {
@@ -4239,7 +5219,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           this.ui.say('你接过了方向盘', 1.6);
         }
         const robot = this.deadT >= 0 || this.scripted ? null : (pr?.input(dt, v) ?? null);
-        input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? robot ?? { steer: d.steer, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
+        // (sleepy at the wheel: the hands come round a moment late — docs/V3/plan/growth.md §四)
+        const k = sleepyNow(this.body) ? 1 - Math.exp(-dt * 3.5) : 1;
+        this.steerHeld += (d.steer - this.steerHeld) * k;
+        input = this.deadT >= 0 ? { steer: 0, throttle: 0, brake: 1, handbrake: 1 } : this.scripted ?? robot ?? { steer: this.steerHeld, throttle: d.throttle, brake: d.brake, handbrake: this.handbrakeKey(dt, d.handbrake > 0.5, v) };
       }
       v.step(dt, this.ground, this.modEnv(v), input);
       // a knock against something hard, heard from the seat
@@ -4530,7 +5513,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       wp.wiped = b.wiped ?? 0;
       // (a flap left open shuts itself once the vehicle drives off)
       if (v.view.capOpen && Math.abs(v.sim.kmh) > 3) v.view.capOpen = false;
-      v.view.ridden = v === this.seated;
+      // (a motorcycle strapped on a rack has its stand up, as ridden)
+      v.view.ridden = v === this.seated || !!v.carriedBy;
       // (standing away from the player, nobody in it: every part merged, a handful of draws — carView.ts setParked;
       // within 7 m again it is taken apart before anything of it can be reached)
       if (this.vehicles.length > 0) {
@@ -4590,7 +5574,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       fz2 /= fl;
       const ch = this.seated.view.frame.chase;
       const pose = this.seated.view.pose;
-      const tmp = new THREE.Vector3(pose.x - fx2 * ch.dist - o.x, pose.y + ch.height - o.y, pose.z - fz2 * ch.dist - o.z);
+      // (further back and a little higher over what it tows)
+      const back = this.seated.chaseBack;
+      const tmp = new THREE.Vector3(pose.x - fx2 * (ch.dist + back) - o.x, pose.y + ch.height + back * 0.3 - o.y, pose.z - fz2 * (ch.dist + back) - o.z);
       if (!this.chaseInit || dt === 0) {
         this.chasePos.copy(tmp);
         this.chaseInit = true;
@@ -4669,7 +5655,9 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk);
       cam.quaternion.copy(this.qa).multiply(this.qb).multiply(QFIX);
       // (sprinting widens the view by 4°; drunk, it sways)
-      const footFov = this.tune.get('look.fov') + 4 * this.sprintB;
+      let footFov = this.tune.get('look.fov') + 4 * this.sprintB;
+      // (a system's zoom: a camera raised to the eye, GameContext.lookZoom)
+      if (this.lookZoom > 1.0001) footFov = (2 * Math.atan(Math.tan((footFov * Math.PI) / 360) / this.lookZoom) * 180) / Math.PI;
       if (hasEffect(this.body, 'drunk')) {
         const t = this.time;
         this.qb.setFromAxisAngle(Z, w.pitch - 0.02 * this.thunk + 0.025 * Math.sin(t * 1.3));
@@ -4704,7 +5692,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     else if (!this.seated && pt?.kind === 'tank' && pt.port.open && this.player.held?.kind === 'tool' && this.player.held.tool.kind === 'jerrycan' && pt.port.mouth(this.dockMouth, this.dockOut)) dock = { mouth: this.dockMouth, out: this.dockOut, eye: cam.position, pour: this.player.flow && !pt.port.pump ? 1 : 0 };
     const sc = this.player.scrub;
     this.heldThing.pin(!this.seated && sc?.hit ? this.scrubPose(sc, cam) : null);
-    this.heldThing.aimSpray(!this.seated && this.player.spraying ? this.player.spraying.aim.point : null);
+    // (the can's pose: stepSprayRing, from the mark on the surface)
+    // (at its own size: drawn back from a wall ahead, seen through in the middle of the frame it is drawn into)
+    this.heldThing.room = this.seated ? Infinity : this.player.roomAhead(1.8, 0.45);
+    this.heldThing.frameSize(this.core.frame.rtScene.width, this.core.frame.rtScene.height);
     this.heldThing.update(dt, cam, !this.seated && this.viewMode !== 'orbit' && this.benchB < 0.05, this.player.walker.sway, 0, dock);
     this.showScrub(cam);
     this.stepSpray(dt);
@@ -4969,12 +5960,12 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       });
       if (d.message) this.ui.say(d.message.text.zh, 2);
     } else this.ui.showDash(null);
-    if (this.place === 'garage' && this.vehicles[0] && this.assists.guide) {
-      const steps = this.tutorialSteps();
-      const now = steps.findIndex((s) => !s.done);
-      this.ui.showList('让「方糖」跑起来', steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
-    } else this.ui.showList(null, []);
-    this.ui.showPause(!this.params.shot && !this.input.locked && !this.pad.name && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0);
+    const steps = this.place === 'garage' && this.vehicles[0] && this.assists.guide ? this.tutorialSteps() : [];
+    const now = steps.findIndex((s) => !s.done);
+    // (all done: the list goes, and does not come back)
+    if (now >= 0) this.ui.showList(this.boardTitle(steps, now), steps.map((s, i) => ({ text: s.text, done: s.done, now: i === now })));
+    else this.ui.showList(null, []);
+    this.ui.showPause(!this.params.shot && !this.input.locked && !this.pad.name && !this.ui.helpShown && !this.dev?.open && !this.benchWs?.open && this.deadT < 0 && !this.menu.isOpen);
     this.updateMarker();
   }
 
@@ -5004,13 +5995,59 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const d = this.devices.find((x) => x.id === id);
       return d ? { x: d.x, y: d.y + up, z: d.z, text } : null;
     };
+    // J5's board (startKit.ts): a step that fills places on the car points at the place for the part in the hands,
+    // else at the nearest part lying about that goes onto one of them
+    const kitStep = this.kit === 'j5' ? KIT_STEPS.find((x) => x.id === step.id) : undefined;
+    if (kitStep?.mounts) {
+      const frame = v.view.frame;
+      const catOf = (id: string): string | undefined => frame.mounts.find((x) => x.id === id)?.cat;
+      const missing = kitStep.mounts.filter((m) => !b[m]);
+      if (held?.kind === 'part') {
+        const cat = partDef(held.inst.part).cat;
+        const m = missing.find((id) => catOf(id) === cat);
+        if (m) return at(m, '装这里', cat === 'rim' ? 0.5 : cat === 'engine' ? 0.6 : 0.35);
+      }
+      const cats = new Set(missing.map(catOf));
+      const w = this.player.walker;
+      let best: { x: number; y: number; z: number; text: string } | null = null;
+      let bd = Infinity;
+      for (const l of this.loose.list) {
+        if (!l.part || l.riding || !cats.has(partDef(l.part.part).cat)) continue;
+        const d = Math.hypot(l.x - w.x, l.z - w.z);
+        if (d < bd) {
+          bd = d;
+          best = { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text: partDef(l.part.part).name.zh };
+        }
+      }
+      return best;
+    }
+    if (this.kit === 'j5' && step.id === 'clothes') {
+      if (held?.kind === 'item' && itemDef(held.item.item).wear) return null;
+      const l = this.loose.list.find((x) => x.item && itemDef(x.item.item).wear && !x.riding);
+      return l ? { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text: itemDef(l.item!.item).name.zh } : null;
+    }
+    if (kitStep && step.id === 'water') {
+      // the bottle, filled at the sink, poured into the radiator
+      const bottle = held?.kind === 'tool' && held.tool.kind === 'bottle' ? held.tool : null;
+      if (!bottle) {
+        const l = this.loose.list.find((x) => x.tool?.kind === 'bottle');
+        return l ? { x: l.x, y: l.y + l.mid + l.radius + 0.25, z: l.z, text: '水壶' } : null;
+      }
+      if ((bottle.litres ?? 0) < 0.5) return device('sink', '水池', 0.3);
+      const mouth = new THREE.Vector3();
+      if (v.view.fillerMouth('water', mouth, this.markerV)) {
+        const o = this.core.origin;
+        return { x: mouth.x + o.x, y: mouth.y + o.y + 0.25, z: mouth.z + o.z, text: '水箱口' };
+      }
+      return at('radiator', '水箱', 0.4);
+    }
     switch (step.id) {
       case 'power':
-        return device('gen_cord', '发电机：按住 E 拉启动绳');
+        return device('gen_cord', '发电机');
       case 'scrap': {
         // something that gives scrap in the hands: to the recycler; else the nearest box of old components
         const w = this.player.walker;
-        if (held && (salvageOfHeld(held).scrap ?? 0) > 0) return device('recycler', '回收台：按 E 丢进去', 0.35);
+        if (held && (salvageOfHeld(held).scrap ?? 0) > 0 && !this.neededPart(held)) return device('recycler', '回收台', 0.35);
         let best: { x: number; y: number; z: number; text: string } | null = null;
         let bd = Infinity;
         for (const l of this.loose.list) {
@@ -5024,7 +6061,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         return best;
       }
       case 'scraper':
-        return device('bench', '制作台：做一把清理铲', 0.25);
+        return device('bench', '制作台', 0.25);
       case 'windscreen': {
         // the scraper in the hands: to the windscreen; else where the scraper lies
         if (!(held?.kind === 'tool' && held.tool.kind === 'scraper')) {
@@ -5034,7 +6071,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         const w = v.view.windscreenAt(new THREE.Vector3());
         if (!w) return null;
         const o = this.core.origin;
-        return { x: w.x + o.x, y: w.y + o.y + 0.35, z: w.z + o.z, text: '挡风玻璃：按住左键刮' };
+        return { x: w.x + o.x, y: w.y + o.y + 0.35, z: w.z + o.z, text: '挡风玻璃' };
       }
       case 'hood':
       case 'shut': {
@@ -5060,7 +6097,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           // the filler (the flap on the body), not the tank behind the boot: its flap opened by hand first
           const c = v.view.capWorld(this.markerV);
           const o = this.core.origin;
-          const text = !v.view.capOpen ? (held ? `加油口盖：按 ${this.player.sel === 0 ? 2 : 1} 空出手，再按 E 打开` : '加油口盖：按 E 打开') : can ? '加油口：拿油桶对着它，按住 E' : `加油口：按 ${this.player.sel === 0 ? 2 : 1} 拿出油桶`;
+          const text = !v.view.capOpen ? '加油口盖' : '加油口';
+          void can;
           return c ? { x: c.x + o.x, y: c.y + o.y + 0.22, z: c.z + o.z, text } : at('fuelTank', '加油口', 0.5);
         }
         return lying('tool:jerrycan', '油桶（汽油）');
@@ -5349,6 +6387,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       tutorial: this.tutorialSteps().map((s) => (s.done ? 1 : 0)).join(''),
       steps: this.tutorialSteps().filter((s) => s.done).map((s) => s.id),
       kernel: this.kernel.telemetry(),
+      // (the brush's shadow a spray can casts: on, its colour, its rim's warning of rust or dirt under it)
+      brush: { on: carEnvUniforms.uBrushOn.value, hex: carEnvUniforms.uBrushColor.value.getHex(), warn: carEnvUniforms.uBrushWarn.value },
       ...(this.garage?.telemetry() ?? {}),
       ...this.player.telemetry(),
     };

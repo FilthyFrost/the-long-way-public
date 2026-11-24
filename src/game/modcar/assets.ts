@@ -8,6 +8,8 @@ import { addFiller } from './fillers';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { frameDef } from '../../core/modcar/frames';
+import { LADDER_SPOTS } from '../../core/modcar/ladders';
+import { MOTO_RACK_SHAPES } from '../../core/modcar/motoRack';
 import { partDef } from '../../core/modcar/parts';
 import type { Category, PartDef } from '../../core/modcar/types';
 
@@ -265,8 +267,19 @@ export function cloneModel(m: Model): THREE.Group {
 /** parts made in a second shape for a motorcycle (side pipes run along a bike, not out to a car's sill) */
 const BIKE_SHAPE: ReadonlySet<string> = new Set(['exh_side']);
 
-/** the variant of a part's model for a frame: '' (its own) or 'moto' */
-export function frameVariant(partId: string, frame: { balance?: boolean }): string {
+/**
+ * parts made in a shape for each frame they go on (a ladder: as tall as its roof, its hooks over that roof's edge —
+ * core/modcar/ladders.ts; a motorcycle rack: its bar long enough to clear the body behind the bumper — motoRack.ts,
+ * J9e), by the frames that have one; the plain file is the one lying about
+ */
+const FRAME_SHAPE: Readonly<Record<string, ReadonlySet<string>>> = {
+  ladder: new Set(Object.keys(LADDER_SPOTS).filter((f) => !LADDER_SPOTS[f].builtin)),
+  moto_rack: MOTO_RACK_SHAPES,
+};
+
+/** the variant of a part's model for a frame: '' (its own), 'moto', or the frame's id */
+export function frameVariant(partId: string, frame: { id?: string; balance?: boolean }): string {
+  if (frame.id && FRAME_SHAPE[partId]?.has(frame.id)) return frame.id;
   return frame.balance && BIKE_SHAPE.has(partId) ? 'moto' : '';
 }
 

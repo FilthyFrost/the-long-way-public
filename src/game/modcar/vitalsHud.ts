@@ -1,12 +1,13 @@
 /**
  * The body on screen (docs/MODCAR.md §13), laid out as Arctic Drive lays it out, in the HUD's cartoon frame:
  * top left, a round dial with the body's temperature in its middle and a small mark round its top for the
- * air's; health (green) round its left half and stamina (blue) round its right; beside it three small tiles
- * — food, water, the bladder — each with a bar along its top, red under a fifth; under them the effects that
- * last a while. Over the whole view: the edges darken as stamina runs out, flash red when hurt, frost over
- * when one is cold.
+ * air's; health (green) round its left half and stamina (blue) round its right; beside it five small tiles
+ * — health (a heart: docs/V3/plan/growth.md §四, health where one sees it), food, water, energy (a moon), the
+ * bladder — each with a bar along its foot, red when low; under them the states, each with its icon (ill, hurt,
+ * sleepy, kept awake by coffee, warm, cold…). Over the whole view: the edges darken as stamina runs out, flash
+ * red when hurt, frost over when one is cold, and dim for a moment now and then when one is sleepy.
  */
-import { EFFECT_ZH, has, type VitalEffect, type Vitals } from '../../core/modcar/vitals';
+import { EFFECT_ZH, has, sleepy, type VitalEffect, type Vitals } from '../../core/modcar/vitals';
 import { MATERIAL_IDS, MATERIALS, type Material } from '../../core/modcar/items';
 import { materialIcon } from './craftUi';
 
@@ -27,11 +28,15 @@ const CSS = `
 .mc-vit .tile[data-k="food"] .b i { background: #f0b43a; }
 .mc-vit .tile[data-k="water"] .b i { background: #4f9cf2; }
 .mc-vit .tile[data-k="bladder"] .b i { background: #e8d257; }
+.mc-vit .tile[data-k="hp"] .b i { background: #e8566a; }
+.mc-vit .tile[data-k="energy"] .b i { background: #b48cf2; }
 .mc-vit .tile.low .b i { background: #ff6b5a !important; }
 .mc-vit .tile.low svg { stroke: #ff8f80; }
 .mc-vit .tile.full svg { stroke: #ffd36a; }
 .mc-vit .fx { display: flex; flex-wrap: wrap; gap: 5px; max-width: 190px; }
-.mc-vit .fx span { padding: 2px 8px 2px 7px; border-radius: 9px; font-size: 12px; font-weight: 700; background: rgba(23,18,15,0.78); box-shadow: 0 0 0 1.5px rgba(239,230,211,0.55); white-space: nowrap; }
+.mc-vit .fx span { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 6px; border-radius: 9px; font-size: 12px; font-weight: 700; background: rgba(23,18,15,0.78); box-shadow: 0 0 0 1.5px rgba(239,230,211,0.55); white-space: nowrap; }
+.mc-vit .fx span svg { width: 14px; height: 14px; flex: none; }
+.mc-vit .fx span.sleep { color: #d4bfff; }
 .mc-vit .fx span.bad { color: #ffb0a6; }
 .mc-vit .fx span.good { color: #a9ef9a; }
 .mc-vit .fx span.cold { color: #a8dcff; }
@@ -39,16 +44,37 @@ const CSS = `
 .mc-fx .vig { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 52%, rgba(12,8,6,0.85) 100%); opacity: 0; transition: opacity 0.4s; }
 .mc-fx .hurt { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(160,10,0,0) 45%, rgba(170,20,10,0.65) 100%); opacity: 0; }
 .mc-fx .frost { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(220,240,255,0) 50%, rgba(214,236,255,0.75) 100%); opacity: 0; transition: opacity 1s; }
+.mc-fx .doze { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(10,8,14,0.35) 20%, rgba(6,4,10,0.96) 100%); opacity: 0; }
 `;
 
 const ICON = {
+  hp: '<path d="M12 20.5s-7.5-4.6-7.5-10.4A4.1 4.1 0 0 1 12 7.6a4.1 4.1 0 0 1 7.5 2.5c0 5.8-7.5 10.4-7.5 10.4z" />',
+  energy: '<path d="M15.5 3.5a8.5 8.5 0 1 0 5 14.6A7.5 7.5 0 0 1 15.5 3.5z" /><path d="M17.5 8.5h3l-3 3.5h3" />',
   food: '<path d="M3 11h18a9 9 0 0 1-18 0z" /><path d="M8 7c0-2 1.6-2 1.6-4M12.5 7c0-2 1.6-2 1.6-4" />',
   water: '<path d="M12 3c3.5 4.6 6 7.8 6 11a6 6 0 0 1-12 0c0-3.2 2.5-6.4 6-11z" />',
   bladder: '<path d="M6 4h7v6H6z" /><path d="M5 10h14v1.5a7 7 0 0 1-7 7h-1v3h-5v-3a5 5 0 0 1-1-8.5z" />',
 };
 
-const GOOD: VitalEffect[] = ['energy', 'warm1', 'warm2'];
+const GOOD: VitalEffect[] = ['energy', 'warm1', 'warm2', 'awake'];
 const COLD: VitalEffect[] = ['hypo', 'wet'];
+
+/** the states' small icons (14 px, drawn in the tiles' line) */
+const FX_ICON: Partial<Record<VitalEffect | 'sleepy' | 'bladder' | 'meal', string>> = {
+  sick1: '<path d="M8 4c-2 3 2 4 0 7s-4 6 1 8M15 4c-2 3 2 4 0 7s-4 6 1 8" />',
+  sick2: '<path d="M8 4c-2 3 2 4 0 7s-4 6 1 8M15 4c-2 3 2 4 0 7s-4 6 1 8" />',
+  hurt: '<rect x="3" y="8.5" width="18" height="7" rx="3.5" transform="rotate(-38 12 12)" /><path d="M10.6 10.6l2.8 2.8" />',
+  sleepy: '<path d="M4 7h6l-6 7h6M13 12h6l-6 7h6" />',
+  awake: '<path d="M5 9h11v4.5a4.5 4.5 0 0 1-4.5 4.5h-2A4.5 4.5 0 0 1 5 13.5z" /><path d="M16 10.5h1.5a2 2 0 0 1 0 4H16M9 3.5c0 1.2 1 1.2 1 2.4M12.5 3.5c0 1.2 1 1.2 1 2.4" />',
+  warm1: '<path d="M12 3c2.5 3.5 5 5.5 5 9a5 5 0 0 1-10 0c0-2 1-3.3 2-4.5.3 1.6 1 2.5 2 2.5-.5-2.7.2-5 1-7z" />',
+  warm2: '<path d="M12 3c2.5 3.5 5 5.5 5 9a5 5 0 0 1-10 0c0-2 1-3.3 2-4.5.3 1.6 1 2.5 2 2.5-.5-2.7.2-5 1-7z" />',
+  hypo: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />',
+  wet: '<path d="M12 4c3 4 5 6.6 5 9.4a5 5 0 0 1-10 0C7 10.6 9 8 12 4z" />',
+  meal: '<path d="M3 11h18a9 9 0 0 1-18 0z" /><path d="M8 7c0-2 1.6-2 1.6-4M12.5 7c0-2 1.6-2 1.6-4" />',
+};
+const fxIcon = (k: string): string => {
+  const p = FX_ICON[k as keyof typeof FX_ICON];
+  return p ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">${p}</svg>` : '';
+};
 
 /** an arc of a circle (svg path), angles in degrees from the top, clockwise */
 function arc(cx: number, cy: number, r: number, a0: number, a1: number): string {
@@ -68,11 +94,15 @@ export class VitalsHud {
   private readonly needle: SVGGElement;
   private readonly temp: HTMLElement;
   private readonly unit: HTMLElement;
-  private readonly tiles: Record<'food' | 'water' | 'bladder', HTMLElement>;
+  private readonly tiles: Record<'hp' | 'food' | 'water' | 'energy' | 'bladder', HTMLElement>;
   private readonly fxList: HTMLDivElement;
   private readonly vig: HTMLDivElement;
   private readonly hurtEl: HTMLDivElement;
   private readonly frost: HTMLDivElement;
+  private readonly doze: HTMLDivElement;
+  /** sleepy: till the next moment the view dims, and how far into one it is */
+  private dozeIn = 12;
+  private dozeT = -1;
   private hurtT = 0;
   private lastFx = '';
 
@@ -85,11 +115,12 @@ export class VitalsHud {
     }
     this.fx = document.createElement('div');
     this.fx.className = 'mc-fx';
-    this.fx.innerHTML = '<div class="vig"></div><div class="hurt"></div><div class="frost"></div>';
+    this.fx.innerHTML = '<div class="vig"></div><div class="hurt"></div><div class="frost"></div><div class="doze"></div>';
     root.appendChild(this.fx);
     this.vig = this.fx.querySelector('.vig')!;
     this.hurtEl = this.fx.querySelector('.hurt')!;
     this.frost = this.fx.querySelector('.frost')!;
+    this.doze = this.fx.querySelector('.doze')!;
     this.el = document.createElement('div');
     this.el.className = 'mc-vit';
     // the rings: 114 across (the dial's 96 and 9 round it); health from the bottom up the left, stamina up the right
@@ -106,8 +137,10 @@ export class VitalsHud {
       </div>
       <div class="side">
         <div class="tiles">
+          <div class="tile mc-frame" data-k="hp" title="生命"><div class="b"><i></i></div><svg viewBox="0 0 24 24" fill="none" stroke="#f2efe8" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">${ICON.hp}</svg></div>
           <div class="tile mc-frame" data-k="food" title="饥饿"><div class="b"><i></i></div><svg viewBox="0 0 24 24" fill="none" stroke="#f2efe8" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">${ICON.food}</svg></div>
           <div class="tile mc-frame" data-k="water" title="口渴"><div class="b"><i></i></div><svg viewBox="0 0 24 24" fill="none" stroke="#f2efe8" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">${ICON.water}</svg></div>
+          <div class="tile mc-frame" data-k="energy" title="精力"><div class="b"><i></i></div><svg viewBox="0 0 24 24" fill="none" stroke="#f2efe8" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">${ICON.energy}</svg></div>
           <div class="tile mc-frame" data-k="bladder" title="膀胱"><div class="b"><i></i></div><svg viewBox="0 0 24 24" fill="none" stroke="#f2efe8" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round">${ICON.bladder}</svg></div>
         </div>
         <div class="fx"></div>
@@ -118,7 +151,8 @@ export class VitalsHud {
     this.needle = this.el.querySelector('g.nd')!;
     this.temp = this.el.querySelector('.t b')!;
     this.unit = this.el.querySelector('.t i')!;
-    this.tiles = { food: this.el.querySelector('[data-k="food"]')!, water: this.el.querySelector('[data-k="water"]')!, bladder: this.el.querySelector('[data-k="bladder"]')! };
+    const q = (k: string): HTMLElement => this.el.querySelector(`[data-k="${k}"]`)!;
+    this.tiles = { hp: q('hp'), food: q('food'), water: q('water'), energy: q('energy'), bladder: q('bladder') };
     this.fxList = this.el.querySelector('.fx')!;
   }
 
@@ -132,8 +166,8 @@ export class VitalsHud {
     this.hurtT = 0.45;
   }
 
-  /** draw the body as it is; ambientC = the air round one */
-  update(v: Vitals, ambientC: number, dt: number): void {
+  /** draw the body as it is; ambientC = the air round one; buffs: what a good meal left (their names) */
+  update(v: Vitals, ambientC: number, dt: number, buffs: readonly string[] = []): void {
     // health up the left from the bottom (190° → 350°), stamina up the right (170° → 10°)
     const hp = Math.max(0, Math.min(1, v.hp / 100));
     const st = Math.max(0, Math.min(1, v.stamina / 100));
@@ -146,24 +180,52 @@ export class VitalsHud {
     this.temp.textContent = v.temp.toFixed(1);
     this.unit.className = v.temp < 35 ? 'cold' : '';
     this.unit.textContent = v.temp < 35 ? '°C 好冷' : '°C';
-    const tile = (k: 'food' | 'water' | 'bladder', value: number, low: boolean, full = false): void => {
+    const tile = (k: 'hp' | 'food' | 'water' | 'energy' | 'bladder', value: number, low: boolean, full = false): void => {
       const el = this.tiles[k];
       (el.firstElementChild!.firstElementChild as HTMLElement).style.width = `${Math.max(0, Math.min(100, value)).toFixed(0)}%`;
       el.classList.toggle('low', low);
       el.classList.toggle('full', full);
     };
+    const energy = v.energy ?? 100;
+    tile('hp', v.hp, v.hp < 25);
     tile('food', v.food, v.food < 20);
     tile('water', v.water, v.water < 20);
+    tile('energy', energy, sleepy(v));
     tile('bladder', v.bladder, false, v.bladder >= 90);
-    // the effects
-    const fx = (Object.keys(v.effects) as VitalEffect[]).filter((e) => has(v, e));
-    if (v.bladder >= 90) fx.push('bladder' as VitalEffect);
-    const key = fx.join(',');
+    // the states, each with its icon
+    const fx: string[] = (Object.keys(v.effects) as VitalEffect[]).filter((e) => has(v, e));
+    if (sleepy(v)) fx.push('sleepy');
+    if (v.bladder >= 90) fx.push('bladder');
+    const key = fx.join(',') + '|' + buffs.join(',');
     if (key !== this.lastFx) {
       this.lastFx = key;
       this.fxList.innerHTML = fx
-        .map((e) => (e === ('bladder' as VitalEffect) ? '<span class="bad">憋不住了（按住 P）</span>' : `<span class="${GOOD.includes(e) ? 'good' : COLD.includes(e) ? 'cold' : 'bad'}">${EFFECT_ZH[e]}</span>`))
-        .join('');
+        .map((e) =>
+          e === 'bladder'
+            ? '<span class="bad">憋不住了（按住 P）</span>'
+            : e === 'sleepy'
+              ? `<span class="sleep">${fxIcon('sleepy')}困了</span>`
+              : `<span class="${GOOD.includes(e as VitalEffect) ? 'good' : COLD.includes(e as VitalEffect) ? 'cold' : 'bad'}">${fxIcon(e)}${EFFECT_ZH[e as VitalEffect]}</span>`,
+        )
+        .join('') + buffs.map((n) => `<span class="good">${fxIcon('meal')}${n}</span>`).join('');
+    }
+    // sleepy: the view dims for a moment every half minute or so (heavier the more tired)
+    if (sleepy(v)) {
+      if (this.dozeT < 0 && (this.dozeIn -= dt) <= 0) this.dozeT = 0;
+      if (this.dozeT >= 0) {
+        this.dozeT += dt;
+        const d = 1.4;
+        const k = this.dozeT < d ? Math.sin((this.dozeT / d) * Math.PI) : 0;
+        this.doze.style.opacity = (k * (0.55 + 0.4 * (1 - energy / 20))).toFixed(2);
+        if (this.dozeT >= d) {
+          this.dozeT = -1;
+          this.dozeIn = 18 + Math.random() * 20 * Math.max(0.3, energy / 20);
+        }
+      }
+    } else if (this.dozeT >= 0 || this.doze.style.opacity !== '0') {
+      this.dozeT = -1;
+      this.dozeIn = 12;
+      this.doze.style.opacity = '0';
     }
     // over the view: tired, hurt, cold
     this.vig.style.opacity = v.stamina < 35 ? ((35 - v.stamina) / 35 * 0.9).toFixed(2) : '0';

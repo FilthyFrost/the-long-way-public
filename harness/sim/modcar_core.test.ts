@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { allInstances, decodeBuild, encodeBuild, fitPart, fitSub, newInstance, removePart, removeSub, stockBuild, stockTireFor } from '../../src/core/modcar/build';
 import { derive } from '../../src/core/modcar/derive';
-import { FRAMES, frameDef } from '../../src/core/modcar/frames';
+import { FRAMES, frameDef, hubsOf } from '../../src/core/modcar/frames';
 import { PARTS, partDef, partsOf } from '../../src/core/modcar/parts';
 import { canDrive, crankProblems, driveProblems, runProblems, warnings } from '../../src/core/modcar/rules';
 import { applyToSim } from '../../src/core/modcar/simlink';
@@ -46,6 +46,9 @@ const STATS_KEY: Record<Category, string> = {
   handbrake: 'handbrake',
   gearLever: 'gearLever',
   ignition: 'ignition',
+  hitch: 'hitch',
+  ladder: 'ladder',
+  houseBattery: 'battery',
 };
 
 /** a small deterministic random source for the fuzzing */
@@ -113,15 +116,32 @@ describe('ModCar catalogue', () => {
     for (const id of ['seat_toilet', 'steer_ship', 'rim_cart', 'tire_tractor', 'tank_drum', 'bf_ram', 'roof_spikes', 'door_fridge', 'eng_mower', 'eng_v8']) expect(ids.has(id)).toBe(true);
   });
 
+  it('the trailer: towed — its two wheels on one axle, a coupler at its front, no driver, no engine; the front of its simulation at the coupler', () => {
+    const t = FRAMES.find((x) => x.id === 'trailer')!;
+    expect(t.towed).toBeTruthy();
+    expect(t.mounts.filter((m) => m.cat === 'rim').every((m) => m.axle === 'rear')).toBe(true);
+    expect(t.mounts.filter((m) => m.cat === 'rim')).toHaveLength(2);
+    expect(t.mounts.some((m) => m.driver || m.cat === 'engine')).toBe(false);
+    expect(t.towed!.coupler.x).toBeGreaterThan(1.5);
+    const h = hubsOf(t);
+    expect(h.fl.pos.x).toBeCloseTo(t.towed!.coupler.x, 5);
+    const b = stockBuild('trailer');
+    expect(finiteSpec(derive(b).spec as VehicleSpec)).toBe(true);
+    // (a hitch under every car's rear bumper but the motorcycle's)
+    for (const f of FRAMES) expect(f.mounts.some((m) => m.cat === 'hitch'), f.id).toBe(!f.towed && !f.balance && f.mounts.some((m) => m.cat === 'bumperRear'));
+  });
+
   it('every frame has hubs front and rear, a driver seat, and only known mounts', () => {
-    for (const f of FRAMES) {
+    // (the trailer is towed: its own test below)
+    for (const f of FRAMES.filter((x) => !x.towed)) {
       const ids = new Set(f.mounts.map((m) => m.id));
       expect(ids.size).toBe(f.mounts.length);
       expect(f.mounts.some((m) => m.cat === 'rim' && m.axle === 'front')).toBe(true);
       expect(f.mounts.some((m) => m.cat === 'rim' && m.axle === 'rear')).toBe(true);
       expect(f.mounts.filter((m) => m.driver)).toHaveLength(1);
       for (const c of ['engine', 'gearbox', 'battery', 'fuelTank', 'exhaust', 'steering', 'ignition'] as Category[]) expect(f.mounts.some((m) => m.cat === c), `${f.id} ${c}`).toBe(true);
-      if (f.kind !== 'moto') for (const c of ['door', 'hood', 'trunk', 'roof', 'armor', 'handbrake'] as Category[]) expect(f.mounts.some((m) => m.cat === c), `${f.id} ${c}`).toBe(true);
+      // (the Turtle's roof is its elevating shell: no roof mount; the Old Elephant's back is its bedroom's window: no boot)
+      if (f.kind !== 'moto') for (const c of ['door', 'hood', 'trunk', 'roof', 'armor', 'handbrake'] as Category[]) if (!(f.id === 'turtle' && c === 'roof') && !(f.id === 'elephant' && c === 'trunk')) expect(f.mounts.some((m) => m.cat === c), `${f.id} ${c}`).toBe(true);
     }
   });
 });
@@ -146,8 +166,14 @@ describe('ModCar factory builds', () => {
     buffalo: { mass: [1800, 2400], cg: [0.6, 0.85], t100: [12, 30], vmax: [105, 135] },
     // (a six-litre diesel six in a four-tonne expedition truck: it pulls anything up anything, and not fast)
     rhino: { mass: [3600, 4400], cg: [0.85, 1.2], t100: [13, 30], vmax: [95, 115] },
+    // (the Loaf's flat four in a longer camper with its galley and its bed: slower still)
+    turtle: { mass: [1250, 1750], cg: [0.68, 1.05], t100: [20, 42], vmax: [95, 122] },
+    // (a petrol V8 at the back of a five-tonne motorhome on a three-speed: it gets going, slowly, and drinks)
+    elephant: { mass: [4800, 5800], cg: [0.95, 1.4], t100: [18, 40], vmax: [100, 135] },
+    // (a diesel six in a nine-and-a-half-metre school bus: slow to get going, and it goes on)
+    camel: { mass: [5800, 6800], cg: [0.9, 1.35], t100: [25, 50], vmax: [95, 115] },
   };
-  for (const f of FRAMES) {
+  for (const f of FRAMES.filter((x) => !x.towed)) {
     it(`${f.id}: derives a sane spec and drives off`, () => {
       const b = stockBuild(f.id);
       expect(canDrive(b), JSON.stringify([...crankProblems(b), ...runProblems(b), ...driveProblems(b)].map((p) => p.code))).toBe(true);
@@ -178,7 +204,7 @@ describe('ModCar factory builds', () => {
 describe('ModCar interchange', () => {
   it('every part goes on every mount of its category on every frame, and the result drives', () => {
     let combos = 0;
-    for (const f of FRAMES) {
+    for (const f of FRAMES.filter((x) => !x.towed)) {
       for (const m of f.mounts) {
         for (const p of partsOf(m.cat)) {
           const b = stockBuild(f.id);
@@ -203,7 +229,8 @@ describe('ModCar interchange', () => {
   it('random builds never blow the simulation up', () => {
     const r = rng(20261116);
     for (let k = 0; k < 160; k++) {
-      const f = FRAMES[Math.floor(r() * FRAMES.length)];
+      const driven = FRAMES.filter((x) => !x.towed);
+      const f = driven[Math.floor(r() * driven.length)];
       const b: Build = { uid: `fz${k}`, frame: f.id, paint: 0, paint2: 0, dirt: 0, rust: 0, cond: 1, parts: {} };
       for (const m of f.mounts) {
         if (r() < 0.15) continue;

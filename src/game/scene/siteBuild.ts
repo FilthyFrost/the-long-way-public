@@ -974,6 +974,9 @@ function draw(b: PaintBuilder, o: SiteObject, r: Rng, biome: string): void {
     case 'building':
       building(b, o, r);
       break;
+    // (a prefab building is drawn by the system that registered its card: core/world/prefabs.ts, docs/ND/PLAN.md)
+    case 'prefab':
+      break;
     case 'wreck':
       wreck(b, o, r, biome);
       break;

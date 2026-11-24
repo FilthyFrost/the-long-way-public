@@ -61,6 +61,12 @@ export const FACTORY_PAINT: Record<string, [number, number]> = {
   goat: [11, 23],
   wagon: [24, 19],
   fox: [10, 22],
+  // (teal below the waist and on its shell, cream above: docs/V3/plan/rv.md)
+  turtle: [3, 0],
+  // (tan below the waist, ivory above: docs/V3/plan/rv.md R2)
+  elephant: [19, 1],
+  // (school-bus yellow, the roof white: docs/V3/plan/rv.md R3)
+  camel: [9, 23],
 };
 
 export function paintHex(index: number, fallback = 0xd8d4c8): number {

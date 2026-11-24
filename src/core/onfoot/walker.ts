@@ -177,6 +177,15 @@ export class FootWalker {
   speeds: { walk: number; run: number } | null = null;
   /** a share of the speed it walks at (a drink, the cold, a load: ModCar's vitals) */
   speedScale = 1;
+  /**
+   * What the hands carry asks of the walk besides `load` (docs/ND/PLAN.md: Nomad Drive's furniture is carried as
+   * fast as one walks with empty hands, its heaviest pieces a tenth slower and not run with): a share of the
+   * speed, and whether one may run.
+   */
+  loadShare = 1;
+  loadRun = true;
+  /** whether one can jump with it (a heavy thing in the arms: not) */
+  loadJump = true;
   /** jumps made so far (whoever counts stamina takes them off) */
   jumps = 0;
   /** footfalls so far: one each time the walking bob passes a step (on the ground, moving; the footsteps' sounds count them) */
@@ -190,7 +199,7 @@ export class FootWalker {
     if (this.swimming) return FOOT.swim * this.speedScale;
     const walk = this.speeds?.walk ?? FOOT.walk;
     const runV = this.speeds?.run ?? FOOT.run;
-    let v: number = (this.load === 'large' ? FOOT.carry : this.crouched ? FOOT.crouch : run ? runV : walk) * this.speedScale;
+    let v: number = (this.load === 'large' ? FOOT.carry : this.crouched ? FOOT.crouch : run ? runV : walk) * this.speedScale * this.loadShare;
     if (this.depth > FOOT.wadeFrom) {
       const k = Math.min(1, (this.depth - FOOT.wadeFrom) / (FOOT.swimDepth - FOOT.wadeFrom));
       v *= 1 - (1 - FOOT.wadeKeep) * k;
@@ -284,7 +293,7 @@ export class FootWalker {
     }
     const c = Math.cos(this.heading);
     const s = Math.sin(this.heading);
-    const top = this.topSpeed(input.run && this.load !== 'large');
+    const top = this.topSpeed(input.run && this.load !== 'large' && this.loadRun);
     const tx = (f * c - r * s) * top;
     const tz = (f * s + r * c) * top;
     const k = this.grounded || this.swimming ? 1 - Math.exp(-h / 0.075) : 1 - Math.exp(-h / 0.6);
@@ -382,7 +391,7 @@ export class FootWalker {
     this.resolve();
     if (input.jump) {
       input.jump = false;
-      if (this.grounded && !this.swimming && this.load !== 'large' && !this.sliding) {
+      if (this.grounded && !this.swimming && this.load !== 'large' && this.loadJump && !this.sliding) {
         this.vy = JUMP_V;
         this.grounded = false;
         this.jumps++;
@@ -464,6 +473,24 @@ export class FootWalker {
     out.z = this.z;
     out.y = this.y + this.eyeH + this.stepOff + this.bobAmp * Math.sin(this.bobPhase);
     return out;
+  }
+
+  /**
+   * Held where one sits (docs/ND/PLAN.md: a chair, a sofa): the feet at (x, y, z) and still, the eye eased to
+   * `eye` above them within about a tenth of a second (Nomad Drive's 0.12 s), no bob; the walk takes up from
+   * there again (the eye easing back up as it does after crouching).
+   */
+  hold(x: number, y: number, z: number, eye: number, dt: number): void {
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.vx = this.vy = this.vz = 0;
+    this.grounded = true;
+    this.sliding = false;
+    const k = 1 - Math.exp(-dt / 0.04);
+    this.eyeH += (eye - this.eyeH) * k;
+    this.stepOff *= 1 - k;
+    this.bobAmp = 0;
   }
 
   /** the unit view direction (heading + pitch) */

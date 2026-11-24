@@ -3,19 +3,17 @@
  * between its posts it takes it up by the sills, the wheels left hanging), the tyre changer
  * puts a tyre on a wheel lying on its turntable (or takes it off), the radio plays (its dial lights, the
  * pointer finds the station; the game plays the song, radio.ts), the sink fills the water bottle, the paint gun on
- * its long hose gives the car standing nearest a whole new coat in the colour of the can in hand — its body and
- * every door, lid, bumper and mirror at once, twice as fast as by hand, from the can's paint by the same rules
- * (paint.ts: what is that colour already costs nothing, the can may run dry half-way) — the
- * clock keeps the day's time, the fan turns.
+ * its long hose hooks to the can in hand and gives it a wide nozzle (docs/V3/plan/growth.md §1.5, J3: sprayed where
+ * it is aimed like any can, a coat of the can's colour as far as the disc goes; the hose reaches 9 m, the can taken
+ * further — or put away — comes off it), the clock keeps the day's time, the fan turns.
  *
  * Each is a GarageDevice (aim point, word, use) plus a little state stepped every frame.
  */
 import type * as THREE from 'three';
 import { fitSub, removeSub } from '../../core/modcar/build';
-import { PALETTE } from '../../core/modcar/palette';
-import { coatOf, keepPartColours, paintTargets, SPRAY_TIERS, sprayLeft, sprayStep, sprayTier } from '../../core/modcar/paint';
+import { DEFAULT_NOZZLE, GUN_NOZZLE, sprayLeft } from '../../core/modcar/paint';
 import { partDef } from '../../core/modcar/parts';
-import { TOOL_INFO, type Tool } from '../../core/modcar/tools';
+import { TOOL_INFO } from '../../core/modcar/tools';
 import type { Text } from '../../core/modcar/types';
 import type { GarageContext, GarageDevice } from './garageStub';
 import type { GarageLook } from './garageLook';
@@ -34,11 +32,16 @@ export interface MachineRig {
   surface(name: string): { x0: number; x1: number; z0: number; z1: number; y: number } | null;
   /** where a car stands between the lift's posts (nose along x) */
   liftBay: { x: number; z: number } | null;
+  /** the garage has power (the generator outside runs): the paint gun's compressor needs it */
+  power?: () => boolean;
 }
 
 /** how high the lift's arms go (m), and how far they rise before their pads are under a car's sills */
 const LIFT_TRAVEL = 1.7;
 const LIFT_ENGAGE = 0.06;
+
+/** how far the paint gun's hose reaches from its booth (m): the can taken further comes off it */
+const HOSE_M = 9;
 
 /** the stations' songs (radio.ts: made up, synthesized) by their names */
 /** the set's stations (as many as the radio has), and what one is called, with what is on it now */
@@ -61,12 +64,10 @@ export class Machines {
   radioOn = false;
   private radioNeedle = 0;
   private song = 0;
-  // the paint gun: the car it is painting, with which can
-  private paintJob: { v: ModVehicle; can: Tool } | null = null;
 
   constructor(private readonly rig: MachineRig) {
     const self = this;
-    const add = (id: string, word: () => Text, use: () => void): void => {
+    const add = (id: string, word: () => Text, use: () => void, why?: () => Text | null): void => {
       const d = rig.device(id);
       if (!d) return;
       this.devices.push({
@@ -78,15 +79,16 @@ export class Machines {
         get word(): Text {
           return word();
         },
+        get why(): Text | null {
+          return why ? why() : null;
+        },
         use,
       });
     };
     add(
       'lift',
       () => {
-        if (self.liftTarget > 0.5) return self.liftCar ? text(`举升机 · 把${self.liftCar.v.view.frame.name.zh}放下来`, `Lift · let the ${self.liftCar.v.view.frame.name.en} down`) : text('举升机 · 降下', 'Lift · lower');
-        const v = self.carInBay();
-        return v ? text(`举升机 · 把${v.view.frame.name.zh}举起来`, `Lift · raise the ${v.view.frame.name.en}`) : text('举升机 · 升起（车停到两根立柱中间就能举）', 'Lift · raise (park a car between the posts to lift it)');
+        return self.liftTarget > 0.5 ? text('降下', 'Lower') : text('升起', 'Raise');
       },
       () => {
         this.liftTarget = this.liftTarget > 0.5 ? 0 : 1;
@@ -99,20 +101,22 @@ export class Machines {
         }
         this.ctx?.sound('lever');
       },
+      // (raised with nothing between its posts: why, pressed)
+      () => (self.liftTarget <= 0.5 && !self.liftCar && !self.carInBay() ? text('先把车停到立柱中间', 'Park a car between the posts') : null),
     );
-    add('tyrechanger', () => this.tyreWord(), () => this.tyreUse());
+    add('tyrechanger', () => this.tyreWord(), () => this.tyreUse(), () => this.tyreWhy());
     add(
       'radio',
-      () => (self.radioOn ? text(`收音机 · ${songLabel(self.song)} · 关掉`, 'Radio · turn it off') : text('打开收音机', 'Turn the radio on')),
+      () => (self.radioOn ? text('关收音机', 'Turn the radio off') : text('开收音机', 'Turn the radio on')),
       () => {
         this.radioOn = !this.radioOn;
         if (this.radioOn) this.song = (this.song + 1) % SONGS.length;
         this.ctx?.sound('switch');
-        if (this.radioOn) this.ctx?.ui.say(`收音机里正放着${songLabel(this.song)}。`, 3);
+        if (this.radioOn) this.ctx?.ui.say(songLabel(this.song), 2.4);
       },
     );
     add('sink', () => this.sinkWord(), () => this.sinkUse());
-    add('paintbooth', () => this.paintWord(), () => this.paintUse());
+    add('paintbooth', () => this.paintWord(), () => this.paintUse(), () => this.paintWhy());
   }
 
   // ------------------------------------------------------------------ the lift
@@ -170,17 +174,31 @@ export class Machines {
   }
 
   private tyreWord(): Text {
-    if (this.tcLeft > 0) return text('换胎机 · 正在转……', 'Tyre changer · turning…');
+    if (this.tcLeft > 0) return text('换胎中', 'Turning');
     const w = this.wheelOnTable();
     const held = this.ctx?.player.held;
-    if (!w?.part) return text('换胎机 · 把一个车轮放到转台上', 'Tyre changer · put a wheel on the table');
+    if (!w?.part) return text('换胎', 'Change a tyre');
     const rim = partDef(w.part.part);
-    if (!rim.rim?.tire) return text(`换胎机 · ${rim.name.zh}装不了轮胎`, `Tyre changer · ${rim.name.en} takes no tyre`);
+    if (!rim.rim?.tire) return text('换胎', 'Change a tyre');
     const tyre = held?.kind === 'part' && partDef(held.inst.part).cat === 'tire' ? held.inst : null;
-    if (tyre) return w.part.sub.tire ? text(`换胎机 · 换上${partDef(tyre.part).name.zh}`, `Tyre changer · swap in the ${partDef(tyre.part).name.en}`) : text(`换胎机 · 装上${partDef(tyre.part).name.zh}`, `Tyre changer · fit the ${partDef(tyre.part).name.en}`);
-    if (held) return text('换胎机 · 先空出手来', 'Tyre changer · hands full');
-    if (w.part.sub.tire) return text(`换胎机 · 拆下${partDef(w.part.sub.tire.part).name.zh}`, `Tyre changer · take the ${partDef(w.part.sub.tire.part).name.en} off`);
-    return text('换胎机 · 拿一个轮胎来', 'Tyre changer · bring a tyre');
+    if (tyre) return w.part.sub.tire ? text(`换上 <b>${partDef(tyre.part).name.zh}</b>`, `Swap in the ${partDef(tyre.part).name.en}`) : text(`装上 <b>${partDef(tyre.part).name.zh}</b>`, `Fit the ${partDef(tyre.part).name.en}`);
+    if (held) return text('换胎', 'Change a tyre');
+    if (w.part.sub.tire) return text(`拆下 <b>${partDef(w.part.sub.tire.part).name.zh}</b>`, `Take the ${partDef(w.part.sub.tire.part).name.en} off`);
+    return text('换胎', 'Change a tyre');
+  }
+
+  /** why the tyre changer does nothing pressed now (null: it does something) */
+  private tyreWhy(): Text | null {
+    if (this.tcLeft > 0) return text('正在换', 'Turning');
+    const w = this.wheelOnTable();
+    const held = this.ctx?.player.held;
+    if (!w?.part) return text('先放车轮上去', 'Put a wheel on it');
+    if (!partDef(w.part.part).rim?.tire) return text('这个装不了胎', 'Takes no tyre');
+    const tyre = held?.kind === 'part' && partDef(held.inst.part).cat === 'tire' ? held.inst : null;
+    if (tyre) return null;
+    if (held) return text('先空手', 'Hands full');
+    if (w.part.sub.tire) return null;
+    return text('拿个轮胎来', 'Bring a tyre');
   }
 
   private tyreUse(): void {
@@ -215,9 +233,8 @@ export class Machines {
 
   private sinkWord(): Text {
     const held = this.ctx?.player.held;
-    if (held?.kind === 'tool' && held.tool.kind === 'bottle') return text('水龙头 · 把水壶灌满', 'Tap · fill the bottle');
-    if (held?.kind === 'tool' && held.tool.kind === 'sponge') return text('水龙头 · 把海绵打湿', 'Tap · wet the sponge');
-    return text('水龙头 · 洗洗手', 'Tap · wash your hands');
+    if (held?.kind === 'tool' && held.tool.kind === 'bottle') return text('灌满水壶', 'Fill the bottle');
+    return text('洗手', 'Wash your hands');
   }
 
   private sinkUse(): void {
@@ -227,79 +244,63 @@ export class Machines {
     ctx.sound('pour');
     if (held?.kind === 'tool' && held.tool.kind === 'bottle') {
       held.tool.litres = TOOL_INFO.bottle.capacity;
-      ctx.ui.say('水壶灌满了。', 2);
+      ctx.player.flashWhy('灌满了');
     } else if (held?.kind === 'tool' && held.tool.kind === 'sponge') ctx.ui.say('海绵吸饱了水。', 2);
     else ctx.ui.say('手上的机油洗掉了一半。', 2);
   }
 
   // ------------------------------------------------------------------ the paint gun
 
-  /** the vehicle the gun's hose reaches (the nearest within 9 m of the compressor) */
-  private paintTarget(): { v: GarageContext['vehicles'][number]; d: number } | null {
-    const ctx = this.ctx;
-    const dv = this.rig.device('paintbooth');
-    if (!ctx || !dv) return null;
-    let best: { v: GarageContext['vehicles'][number]; d: number } | null = null;
-    for (const v of ctx.vehicles) {
-      const d = Math.hypot(v.sim.px - dv.x, v.sim.pz - dv.z);
-      if (d < 9 && (!best || d < best.d)) best = { v, d };
-    }
-    return best;
-  }
-
-  /** the paint a whole new coat in this can's colour would take (units): what is not that colour yet */
-  private paintNeed(v: ModVehicle, can: Tool): number {
-    const c = can.colour ?? 0;
-    const per = 1 / SPRAY_TIERS[sprayTier(can)].speed;
-    return paintTargets(v.build).reduce((s, x) => s + (1 - coatOf(x.mount ? v.build.parts[x.mount] : v.build, c)) * per, 0);
-  }
-
   private paintWord(): Text {
-    if (this.paintJob) return text('喷漆中……', 'Spraying…');
     const held = this.ctx?.player.held;
-    const t = this.paintTarget();
-    if (!t) return text('喷枪 · 管子够不着车', 'Spray gun · no car in reach');
-    const name = t.v.view.frame.name;
-    if (held?.kind !== 'tool' || held.tool.kind !== 'spray') return text(`喷枪 · 手里拿一罐漆，给${name.zh}整车喷漆`, `Spray gun · hold a spray can to paint the ${name.en}`);
-    const p = PALETTE[held.tool.colour ?? 0];
-    if (sprayLeft(held.tool) <= 0) return text('喷枪 · 罐子空了', 'Spray gun · the can is empty');
-    const need = this.paintNeed(t.v, held.tool);
-    if (need <= 0.01) return text(`喷枪 · ${name.zh}已经整车是${p.name.zh}了`, `Spray gun · the ${name.en} is ${p.name.en} all over`);
-    return text(`喷枪 · 把${name.zh}整车喷成${p.name.zh}（约 ${Math.ceil(need)} 单位漆，罐里有 ${Math.ceil(sprayLeft(held.tool) - 1e-6)}）`, `Spray gun · paint the ${name.en} ${p.name.en} (about ${Math.ceil(need)} units of paint)`);
+    if (held?.kind === 'tool' && held.tool.kind === 'spray') {
+      if ((held.tool.nozzle ?? DEFAULT_NOZZLE) === GUN_NOZZLE) return text('取下喷枪', 'Unhook the gun');
+    }
+    return text('接上喷枪', 'Hook up the gun');
   }
 
+  /** why the paint gun does nothing pressed now (null: it does something) */
+  private paintWhy(): Text | null {
+    const held = this.ctx?.player.held;
+    if (held?.kind !== 'tool' || held.tool.kind !== 'spray') return text('拿着喷漆罐', 'Hold a spray can');
+    if ((held.tool.nozzle ?? DEFAULT_NOZZLE) === GUN_NOZZLE) return null;
+    if (!this.powered) return text('没电', 'No power');
+    return sprayLeft(held.tool) > 0 ? null : text('罐子空了', 'The can is empty');
+  }
+
+  /** the gun hooked to the can in the hands (a wide nozzle, as far as the hose reaches), or unhooked */
   private paintUse(): void {
     const ctx = this.ctx;
-    if (!ctx || this.paintJob) return;
-    const held = ctx.player.held;
-    const t = this.paintTarget();
-    if (!t || held?.kind !== 'tool' || held.tool.kind !== 'spray' || sprayLeft(held.tool) <= 0 || this.paintNeed(t.v, held.tool) <= 0.01) return;
-    // (the body takes its own coat: the doors and lids keep theirs until the gun gets to them, at once)
-    if (t.v.build.paint !== (held.tool.colour ?? 0)) keepPartColours(t.v.build);
-    this.paintJob = { v: t.v, can: held.tool };
-  }
-
-  /** a moment of the gun at work: every thing of the car that is not the colour yet takes its coat, the can empties */
-  private stepPaint(dt: number, ctx: GarageContext): void {
-    const job = this.paintJob;
-    if (!job) return;
-    const { v, can } = job;
-    let busy = false;
-    for (const x of paintTargets(v.build)) {
-      if (sprayLeft(can) <= 0) break;
-      const p = x.mount ? v.build.parts[x.mount] : v.build;
-      const r = sprayStep(can, p, v.view.paintBase(v.view.paintOwner(x.mount)), dt, 2);
-      if (!r.already && !r.done) busy = true;
-    }
-    if (busy && sprayLeft(can) > 0) {
-      ctx.sound('spray');
+    const held = ctx?.player.held;
+    if (!ctx || held?.kind !== 'tool' || held.tool.kind !== 'spray') return;
+    const on = (held.tool.nozzle ?? DEFAULT_NOZZLE) !== GUN_NOZZLE;
+    if (on && sprayLeft(held.tool) <= 0) return;
+    if (on && !this.powered) {
+      ctx.player.flashWhy('没电');
       return;
     }
-    this.paintJob = null;
-    const c = can.colour ?? 0;
-    const all = paintTargets(v.build).every((x) => coatOf(x.mount ? v.build.parts[x.mount] : v.build, c) >= 1);
-    ctx.sound(all ? 'paint_done' : 'spray_sputter');
-    ctx.ui.say(all ? `${v.view.frame.name.zh}换上了${PALETTE[c].name.zh}的新漆。` : `罐子喷空了：${v.view.frame.name.zh}只喷了一部分。`, 2.5);
+    held.tool.nozzle = on ? GUN_NOZZLE : DEFAULT_NOZZLE;
+    ctx.sound(on ? 'latch' : 'switch');
+    ctx.player.flashWhy(on ? '喷枪接上了' : '喷枪取下了');
+  }
+
+  /** the garage has power for the compressor (a garage that does not say: it has) */
+  private get powered(): boolean {
+    return this.rig.power ? this.rig.power() : true;
+  }
+
+  /** the gun's hose: a can hooked to it taken beyond its reach (or put down) comes off it; the power gone, it stops */
+  private stepHose(ctx: GarageContext): void {
+    const p = ctx.player;
+    const held = p.held;
+    for (const h of p.slots) {
+      if (h?.kind !== 'tool' || h.tool.kind !== 'spray' || (h.tool.nozzle ?? DEFAULT_NOZZLE) !== GUN_NOZZLE) continue;
+      const at = this.rig.device('paintbooth');
+      const far = !at || Math.hypot(p.walker.x - at.x, p.walker.z - at.z) > HOSE_M;
+      if (!far && h === held && this.powered) continue;
+      h.tool.nozzle = DEFAULT_NOZZLE;
+      if (h === held) ctx.player.flashWhy(far ? '管子够不着了' : '没电了');
+    }
   }
 
   // ------------------------------------------------------------------ every frame
@@ -338,8 +339,8 @@ export class Machines {
     if (needle) needle.position.z = (this.rig.rest.get('RADIO_NEEDLE')?.z ?? 0) + this.radioNeedle * 0.1;
     const dial = this.radioOn ? 1 : 0;
     this.rig.look.setGlow('dial', 2.2 * dial, 1.4 * dial, 0.55 * dial);
-    // the paint gun
-    this.stepPaint(dt, ctx);
+    // the paint gun: its hose reaches so far; the can taken further, it comes off
+    this.stepHose(ctx);
     // the clock shows the hour of the day; the fan turns
     const h = ctx.hour;
     const hh = mv.get('CLOCK_H');

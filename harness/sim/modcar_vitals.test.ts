@@ -39,11 +39,11 @@ describe('ModCar vitals', () => {
     expect(j.stamina).toBeCloseTo(88, 5);
   });
 
-  it('food lasts about 48 minutes and water about 56; at the bottom they hurt: hunger 2 every 10 s, thirst 3 every 3 s', () => {
+  it('food lasts about 76 minutes and water about 58 (Nomad Drive\'s); at the bottom they hurt: hunger 2 every 10 s, thirst 3 every 3 s', () => {
     const v = newVitals();
     run(v, 600);
-    expect(v.food).toBeCloseTo(100 - 0.035 * 600, 1);
-    expect(v.water).toBeCloseTo(100 - 0.03 * 600, 1);
+    expect(v.food).toBeCloseTo(100 - (100 / (76 * 60)) * 600, 1);
+    expect(v.water).toBeCloseTo(100 - (100 / (58 * 60)) * 600, 1);
     v.food = 0;
     v.water = 50;
     expect(run(v, 30).hurt).toBe(6);
@@ -86,7 +86,7 @@ describe('ModCar vitals', () => {
     v.hp = 50;
     eat(v, 40, 4);
     run(v, 5.1);
-    expect(v.food).toBeCloseTo(70 - 0.035 * 5.1, 1);
+    expect(v.food).toBeCloseTo(70 - (100 / (76 * 60)) * 5.1, 1);
     expect(v.hp).toBeCloseTo(54, 3);
     const w = newVitals();
     w.water = 20;

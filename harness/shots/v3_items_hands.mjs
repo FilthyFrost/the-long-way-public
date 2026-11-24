@@ -61,6 +61,8 @@ try {
         titles: [...document.querySelectorAll('.mc-hot .s')].map((e) => e.getAttribute('title')),
         held: shown('.mc-ic.held') ? document.querySelector('.mc-ic.held .nm').textContent : '',
         heldText: shown('.mc-ic.held') ? document.querySelector('.mc-ic.held').textContent : '',
+        heldCompact: !!document.querySelector('.mc-ic.held')?.classList.contains('compact'),
+        aimText: shown('.mc-ic.aim') ? document.querySelector('.mc-ic.aim').textContent : '',
         acts: shown('.mc-acts') ? document.querySelector('.mc-acts').textContent : '',
         model: g.heldThing.key,
       };
@@ -101,7 +103,7 @@ try {
     for (let i = 0; i < 3; i++) {
       if (!(await aim(id))) continue;
       said = (await look()).acts;
-      await page.keyboard.press('KeyE');
+      await page.evaluate(() => window.__rt.press());
       if (await until(done, arg, 30_000)) return said;
     }
     fail(`E did not take the ${id} up (${said})`);
@@ -122,7 +124,8 @@ try {
   let said = await take('v3t_berry', (n) => window.__rt.game.loose.list.filter((l) => l.item?.item.startsWith('v3t_')).length === n, 2);
   check(/拿起/.test(said) && !/快捷栏/.test(said), `the first berry's words (${said})`);
   said = await take('v3t_berry', (n) => window.__rt.game.loose.list.filter((l) => l.item?.item.startsWith('v3t_')).length === n, 1);
-  check(/叠到快捷栏 1/.test(said), `the second berry's words do not say it goes onto the stack in slot 1 (${said})`);
+  // (one verb and the name since docs/V3/plan/prompts.md §五: the hotbar shows where it goes)
+  check(/拿起/.test(said) && !/快捷栏/.test(said), `the second berry's words are not one verb and the name (${said})`);
   await take('v3t_berry', (n) => window.__rt.game.loose.list.filter((l) => l.item?.item.startsWith('v3t_')).length === n, 0);
   check(await lyingN(0), 'a berry is still lying about');
   // (the hotbar's count and the card are written in the frame the count changes in)
@@ -133,10 +136,9 @@ try {
   check(s.tele.held === 'item:v3t_berry' && s.tele.heldN === 3 && s.tele.slot1N === 3 && s.tele.slot2N === 0 && s.tele.counts === '3,0', `the telemetry does not count them (${JSON.stringify(s.tele)})`);
   check(s.counts[0] === '3' && s.counts[1] === '' && s.titles[0] === '试验莓', `the hotbar's counts (${JSON.stringify(s.counts)}, ${JSON.stringify(s.titles)})`);
   check(await until(() => document.querySelector('.mc-ic.held .nm')?.textContent === '试验莓 ×3'), `the card in the hands is not three berries (${s.held})`);
-  // (the card in the hands is cut down to its name and its bars for a moment after the card of what the mark was on has gone: wait for the whole of it)
-  check(await until(() => /3 个一叠（最多 12 个）/.test(document.querySelector('.mc-ic.held')?.textContent ?? '')), `the card does not say how many of how many (${(await look()).heldText})`);
+  // (the card in the hands is its name and how much: how fresh — the whole of it is the ground's and the Tab list's, docs/V3/plan/prompts.md §五 4)
   s = await look();
-  check(/新鲜程度/.test(s.heldText) && /新鲜 · 还能放约 2[34] 小时/.test(s.heldText) && /饱腹（每个）/.test(s.heldText), `the card lacks the freshness or what one of them does (${s.heldText})`);
+  check(s.heldCompact && /新鲜程度/.test(s.heldText) && /新鲜 · 还能放约 2[34] 小时/.test(s.heldText) && !/饱腹（每个）/.test(s.heldText), `the card in the hands is not its name and its freshness (${s.heldText})`);
   await shot('01_three_in_one_slot');
 
   // ---- F eats one: two left, and what the game says was eaten is one
@@ -145,7 +147,10 @@ try {
     window.__rt.game.events.on('body:ate', (e) => window.__ate.push({ item: e.item.item, n: e.item.n ?? 1, uid: e.item.uid }));
   });
   const stackUid = s.slots[0]?.uid;
-  check(await holdKeyUntil(page, 'KeyF', () => !!window.__rt.game.player.use, null, 60_000), 'F did not start eating');
+  // (the right button: docs/V3/plan/growth.md J1)
+  await page.evaluate(() => (window.__rt.game.rightButton = true));
+  check(await until(() => !!window.__rt.game.player.use), 'the right button did not start eating');
+  await page.evaluate(() => (window.__rt.game.rightButton = false));
   check(await until(() => window.__ate.length > 0), 'nothing was eaten');
   check(await until(() => document.querySelectorAll('.mc-hot .s .c')[0]?.textContent === '2'), 'the hotbar does not show a count of 2 after eating');
   s = await look();
@@ -155,11 +160,15 @@ try {
   check(s.slots[0]?.n === 2 && s.slots[0].uid === stackUid && s.tele.heldN === 2, `eating one did not leave two in the slot (${JSON.stringify(s.slots)})`);
 
   // ---- G puts the stack down as one thing with its count; E takes it up again
-  check(await holdKeyUntil(page, 'KeyG', () => window.__rt.game.player.telemetry().held === '', null, 60_000), 'G did not put the stack down');
+  await page.keyboard.press('KeyQ');
+  check(await until(() => window.__rt.game.player.telemetry().held === ''), 'Q did not put the stack down');
   check(await atRest(), 'the stack did not come to rest');
   s = await look();
   console.log('put down', JSON.stringify({ lying: s.lying, slots: s.slots }));
   check(s.lying.length === 1 && s.lying[0].item === 'v3t_berry' && s.lying[0].n === 2 && s.lying[0].uid === stackUid && s.slots.every((h) => !h), `the stack put down is not one thing of two (${JSON.stringify(s.lying)})`);
+  // (the stack lying about: its whole card — how many of how many, what one of them does)
+  check(await aim('v3t_berry'), 'could not look at the stack lying about');
+  check(await until(() => /2 个一叠（最多 12 个）/.test(document.querySelector('.mc-ic.aim')?.textContent ?? '') && /饱腹（每个）/.test(document.querySelector('.mc-ic.aim')?.textContent ?? '')), `the stack lying about has not its whole card (${(await look()).aimText})`);
   said = await take('v3t_berry', () => window.__rt.game.player.telemetry().heldN === 2);
   s = await look();
   check(/试验莓 ×2/.test(said), `the words for a stack lying about do not say how many (${said})`);
@@ -174,7 +183,7 @@ try {
   await page.keyboard.press('Digit1');
   check(await until(() => window.__rt.game.player.sel === 0), '1 did not select the first slot');
   said = await take('v3t_berry', () => window.__rt.game.player.telemetry().slot2N === 1);
-  check(/放进快捷栏 2/.test(said), `with a full stack in the hands the words do not say slot 2 (${said})`);
+  check(/拿起/.test(said) && !/快捷栏/.test(said), `with a full stack in the hands the words are not one verb and the name (${said})`);
   check(await until(() => document.querySelectorAll('.mc-hot .s .c')[0]?.textContent === '12'), 'the hotbar does not show the full stack');
   s = await look();
   console.log('a full stack and one more', JSON.stringify({ slots: s.slots, sel: s.sel, counts: s.counts }));
@@ -189,7 +198,7 @@ try {
   const threeUid = s.lying[0]?.uid;
   check(s.lying.length === 1 && s.lying[0].n === 3 && s.slots[0]?.n === 12 && s.slots[1]?.n === 11, `not a stack of three lying about before two stacks in the hands (${JSON.stringify(s.lying)}, ${JSON.stringify(s.slots)})`);
   said = await take('v3t_berry', () => window.__rt.game.player.telemetry().slot2N === 12);
-  check(/叠到快捷栏 2/.test(said) && /只拿得下 1 个/.test(said), `the words do not say that one of the three goes onto the stack in slot 2 (${said})`);
+  check(/拿起/.test(said) && !/快捷栏|只拿得下/.test(said), `the words for part of a stack are not one verb and the name (${said})`);
   s = await look();
   console.log('part of a stack', JSON.stringify({ said, slots: s.slots, lying: s.lying }));
   check(s.slots[0]?.n === 12 && s.slots[1]?.n === 12 && s.lying.length === 1 && s.lying[0].n === 2 && s.lying[0].uid === threeUid, `the rest of the stack is not lying there, the same thing with two in it (${JSON.stringify(s.lying)}, ${JSON.stringify(s.slots)})`);
@@ -199,18 +208,22 @@ try {
   // ---- a basket in a slot: the pick goes into the basket (no slot is free)
   await rt('hold', 'item:v3t_basket');
   said = await take('v3t_berry', () => (window.__rt.game.player.slots[1]?.item?.inside?.length ?? 0) === 1);
-  check(/装进试验篮/.test(said) && !/只拿得下/.test(said), `the words do not say the berries go into the basket (${said})`);
-  check(await until(() => /试验莓/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && document.querySelector('.mc-ic.held .nm')?.textContent === '试验篮'), 'the basket card does not say what is in it');
+  check(/拿起/.test(said) && !/装进|只拿得下/.test(said), `the words for berries going into the basket are not one verb and the name (${said})`);
+  check(await until(() => /1 \/ 4 格/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && document.querySelector('.mc-ic.held .nm')?.textContent === '试验篮'), 'the basket card does not say how full it is');
   s = await look();
   console.log('into the basket', JSON.stringify({ slots: s.slots, sel: s.sel, lying: s.lying }));
   check(s.slots[0]?.n === 12 && s.slots[1]?.item === 'v3t_basket' && s.slots[1].inside.join() === 'v3t_berry*2' && s.lying.length === 0 && s.sel === 1, `the berries did not go into the basket (${JSON.stringify(s.slots)})`);
-  // (the card in the hands cut down while another card is up shows only its bars: wait for the whole of it)
-  check(await until(() => /×2试验莓/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && /1 \/ 4 格 · 0\.10 \/ 3 kg/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && /坏得慢/.test(document.querySelector('.mc-ic.held')?.textContent ?? '')), `the basket card lacks what is in it, how full it is or how it keeps things (${(await look()).heldText})`);
+  // (the card in the hands: how full — what is in it and how it keeps things are on its whole card, on the ground)
+  check(await until(() => /1 \/ 4 格 · 0\.10 \/ 3 kg/.test(document.querySelector('.mc-ic.held')?.textContent ?? '') && !/×2试验莓|坏得慢/.test(document.querySelector('.mc-ic.held')?.textContent ?? '')), `the basket card in the hands is not how full it is (${(await look()).heldText})`);
   // (the bar under the basket's slot: one of its four slots taken)
   const bar = await page.evaluate(() => [...document.querySelectorAll('.mc-hot .s')].map((e) => e.querySelector('.f i')?.style.width ?? ''));
   check(bar[0] === '' && bar[1] === '25%', `the hotbar does not show how full the basket is (${JSON.stringify(bar)})`);
   await shot('02_in_the_basket');
   // a list open (Tab): G is the list's then, and the hands do not offer it for putting down
+  // (Q is said the first three times something is in the hands, docs/V3/plan/prompts.md §五 3: counted afresh here)
+  await page.evaluate(() => {
+    window.__rt.game.player.heldCount = 0;
+  });
   const keysSay = (re) => until((src) => new RegExp(src).test(document.querySelector('.mc-keys')?.textContent ?? ''), re.source, 30_000);
   const keysLack = (re) => until((src) => !new RegExp(src).test(document.querySelector('.mc-keys')?.textContent ?? ''), re.source, 30_000);
   check(await keysSay(/放下/), 'G is not offered for putting the basket down');
@@ -222,10 +235,14 @@ try {
   check(await keysSay(/放下/), 'G is not offered for putting down again once the list is shut');
   // the basket goes down and comes up again with the berry in it
   const basketUid = s.slots[1]?.uid;
-  check(await holdKeyUntil(page, 'KeyG', () => window.__rt.game.player.telemetry().held === '', null, 60_000), 'G did not put the basket down');
+  await page.keyboard.press('KeyQ');
+  check(await until(() => window.__rt.game.player.telemetry().held === ''), 'Q did not put the basket down');
   check(await atRest(), 'the basket did not come to rest');
   s = await look();
   check(s.lying.length === 1 && s.lying[0].uid === basketUid && s.lying[0].inside.join() === 'v3t_berry*2', `the basket put down lost what was in it (${JSON.stringify(s.lying)})`);
+  // (the basket lying about: its whole card says what is in it and how it keeps things)
+  check(await aim('v3t_basket'), 'could not look at the basket lying about');
+  check(await until(() => /×2试验莓/.test(document.querySelector('.mc-ic.aim')?.textContent ?? '') && /坏得慢/.test(document.querySelector('.mc-ic.aim')?.textContent ?? '')), `the basket lying about has not its whole card (${(await look()).aimText})`);
   await take('v3t_basket', () => window.__rt.game.player.telemetry().held === 'item:v3t_basket');
   s = await look();
   check(s.slots[1]?.uid === basketUid && s.slots[1].inside.join() === 'v3t_berry*2' && s.slots[0]?.n === 12 && s.lying.length === 0, `the basket taken up again is not as it was (${JSON.stringify(s.slots)})`);
@@ -247,14 +264,19 @@ try {
   check(!/新鲜程度/.test(s.heldText), `what the berries turned into still has a freshness (${s.heldText})`);
   check(s.slots[1]?.inside.join() === 'v3t_berry*2', `the berries in the basket turned too (${JSON.stringify(s.slots[1])})`);
   await page.keyboard.press('Digit2');
-  check(await until(() => document.querySelector('.mc-ic.held .nm')?.textContent === '试验篮' && /×2试验莓/.test(document.querySelector('.mc-ic.held')?.textContent ?? '')), `the basket card does not show the berries still in it (${(await look()).heldText})`);
+  check(await until(() => document.querySelector('.mc-ic.held .nm')?.textContent === '试验篮'), `the basket is not in the hands (${(await look()).heldText})`);
   await shot('03_a_day_on');
 
   // ---- a thing with a quality: its stars on the card, beside the kind's grade
   await rt('hold', 'item:v3t_jerky', { n: 3, q: 4 });
-  check(await until(() => document.querySelector('.mc-ic.held .nm')?.textContent === '试验肉干 ×3' && !!document.querySelector('.mc-ic.held .rw [data-q="4"]')), `the card does not draw the quality as stars (${(await look()).heldText})`);
+  check(await until(() => document.querySelector('.mc-ic.held .nm')?.textContent === '试验肉干 ×3'), `the jerky is not in the hands (${(await look()).heldText})`);
   s = await look();
-  check(/品质/.test(s.heldText) && s.counts[1] === '3' && s.tele.heldN === 3, `the jerky's card or count (${s.heldText}, ${JSON.stringify(s.counts)})`);
+  check(s.counts[1] === '3' && s.tele.heldN === 3, `the jerky's count (${JSON.stringify(s.counts)})`);
+  // (its quality on its whole card: laid down and looked at)
+  await lay('v3t_jerky', 0, { n: 3, q: 4 });
+  check(await atRest(), 'the jerky did not come to rest');
+  check(await aim('v3t_jerky'), 'could not look at the jerky lying about');
+  check(await until(() => !!document.querySelector('.mc-ic.aim .rw [data-q="4"]') && /品质/.test(document.querySelector('.mc-ic.aim')?.textContent ?? '')), `the card does not draw the quality as stars (${(await look()).aimText})`);
   await shot('04_quality');
 
   const lastError = await page.evaluate(() => window.__rt.lastError);

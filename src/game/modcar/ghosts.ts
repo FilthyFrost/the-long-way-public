@@ -51,6 +51,30 @@ function pairOf(c: THREE.Object3D, pair: number): THREE.Group {
 export class GhostLayer {
   private ghosts = new Map<string, Ghost>();
   selected = '';
+  /** the one ghost drawn (docs/V3/plan/hands.md §三: only one at a time); '': none */
+  only = '';
+
+  /** the ghost a ray (render space) meets first, by its own meshes, drawn or not, within far */
+  cast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): { key: string; dist: number } | null {
+    let best: { key: string; dist: number } | null = null;
+    const rc = this.rc;
+    rc.set(origin, dir);
+    rc.far = far;
+    for (const [key, g] of this.ghosts) {
+      if (!g.model) continue;
+      g.model.updateWorldMatrix(true, true);
+      const meshes: THREE.Object3D[] = [];
+      g.model.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray) meshes.push(mesh);
+      });
+      const h = rc.intersectObjects(meshes, false)[0];
+      if (h && (!best || h.distance < best.dist)) best = { key, dist: h.distance };
+    }
+    return best;
+  }
+
+  private readonly rc = new THREE.Raycaster();
 
   /** show exactly these ghosts (others go away) */
   show(list: GhostSpec[]): void {
@@ -72,6 +96,7 @@ export class GhostLayer {
       }
       const obj = new THREE.Group();
       obj.name = `ghost:${s.key}`;
+      obj.visible = s.key === this.only;
       s.node.add(obj);
       const g: Ghost = { key: s.key, obj, kind: s.kind, model: null, focused: false };
       this.ghosts.set(s.key, g);
@@ -108,8 +133,19 @@ export class GhostLayer {
     this.show([]);
   }
 
+  /** the middle of the first ghost whose key starts so (render space), drawn or not; null: none in yet */
+  centerOf(prefix: string): THREE.Vector3 | null {
+    for (const [k, g] of this.ghosts) {
+      if (!k.startsWith(prefix) || !g.model) continue;
+      const b = new THREE.Box3().setFromObject(g.obj, true);
+      if (!b.isEmpty()) return b.getCenter(new THREE.Vector3());
+    }
+    return null;
+  }
+
   update(_dt: number): void {
     for (const [k, g] of this.ghosts) {
+      g.obj.visible = k === this.only;
       const focused = k === this.selected;
       if (focused === g.focused || !g.model) continue;
       g.focused = focused;

@@ -14,7 +14,7 @@
 import { newItem, type ItemInstance } from '../../modcar/items';
 import { cook, DONE_BURNT, DONE_RIGHT, DONE_UNDER, POT_MAX, type ClassOf, type Outcome } from './cook';
 import { WAYS, type Way } from './dishes';
-import { BOARD, BOWL, dishItem, GAS, GAS_FULL, PLATE, SPICE, STOVE, VESSEL, WAY_OF, type KitState, type Portion, type PotState } from './items';
+import { BOARD, BOWL, dishItem, GAS, GAS_FULL, HOB, PLATE, SPICE, STOVE, VESSEL, WAY_OF, type KitState, type Portion, type PotState } from './items';
 import { FOOD_LOOK } from './looks';
 import { FOOD, SEASONINGS } from './pantry';
 
@@ -46,7 +46,7 @@ export type KitKind = 'stove' | 'vessel' | 'board' | 'gas' | 'ware' | 'spice';
 
 /** what kind of kitchen thing an item is (null: none) */
 export function kitKind(item: string): KitKind | null {
-  if (item === STOVE) return 'stove';
+  if (item === STOVE || item === HOB) return 'stove';
   if (item === BOARD) return 'board';
   if (item === GAS) return 'gas';
   if (item === PLATE || item === BOWL) return 'ware';
@@ -87,6 +87,16 @@ export function gasOf(inst: ItemInstance): number {
   return g ?? -1;
 }
 
+/** a stove that heats on a vehicle's power, not a canister of gas (the hob) */
+export function electric(stove: ItemInstance): boolean {
+  return stove.item === HOB;
+}
+
+/** a thing a vessel stands on to cook (the cassette stove, the hob) */
+export function isStove(item: string): boolean {
+  return item === STOVE || item === HOB;
+}
+
 /** has the stove a canister in it */
 export function hasCanister(stove: ItemInstance): boolean {
   return kitOf(stove).gas !== undefined;
@@ -120,14 +130,23 @@ export function takeCanister(stove: ItemInstance): ItemInstance | null {
 
 // ------------------------------------------------------------------ the flame
 
-export type FireLack = 'nocan' | 'empty';
+/** what keeps a stove from lighting: no canister, an empty one; a hob: not where there is power (out of a vehicle), its batteries flat */
+export type FireLack = 'nocan' | 'empty' | 'nopower' | 'flat';
 
-/** the knob turned: 0 off, 1 low, 2 high. What stops it lighting, or null: it is as asked */
-export function setFire(stove: ItemInstance, level: 0 | 1 | 2): FireLack | null {
+/**
+ * The knob turned: 0 off, 1 low, 2 high. What stops it lighting, or null: it is as asked. A hob is lit only with power
+ * there to draw on (`power`: 'on', or 'flat' — the vehicle's batteries empty; absent: none, not in a vehicle).
+ */
+export function setFire(stove: ItemInstance, level: 0 | 1 | 2, power?: 'on' | 'flat' | null): FireLack | null {
   if (level === 0) {
     const k = stove.state?.kit;
     if (k) delete k.fire;
     tidy(stove);
+    return null;
+  }
+  if (electric(stove)) {
+    if (power !== 'on') return power === 'flat' ? 'flat' : 'nopower';
+    kitState(stove).fire = level;
     return null;
   }
   const gas = kitOf(stove).gas;
@@ -146,7 +165,7 @@ export function fireOf(stove: ItemInstance): 0 | 1 | 2 {
 /** the vessel a thing is, or has standing on it (a stove): its kind, or null */
 export function vesselOf(inst: ItemInstance): string | null {
   if (WAY_OF[inst.item]) return inst.item;
-  return inst.item === STOVE ? (kitOf(inst).on ?? null) : null;
+  return isStove(inst.item) ? (kitOf(inst).on ?? null) : null;
 }
 
 /** the way of cooking of that vessel */
@@ -165,7 +184,7 @@ export type SteamLack = 'nopot' | 'potfull' | 'taken';
 
 export function steamLack(stove: ItemInstance): SteamLack | null {
   const s = kitOf(stove);
-  if (stove.item !== STOVE || !s.on) return 'nopot';
+  if (!isStove(stove.item) || !s.on) return 'nopot';
   if (s.on !== VESSEL.boil || s.under) return 'taken';
   if (s.pot && s.pot.items.length) return 'potfull';
   return null;
@@ -182,7 +201,7 @@ export function underOf(stove: ItemInstance): string | null {
  */
 export function putVessel(stove: ItemInstance, vessel: ItemInstance): boolean {
   const way = WAY_OF[vessel.item];
-  if (stove.item !== STOVE || !way || !WAYS[way].heats) return false;
+  if (!isStove(stove.item) || !way || !WAYS[way].heats) return false;
   if (way === 'steam' ? steamLack(stove) : kitOf(stove).on) return false;
   const s = kitState(stove);
   if (way === 'steam') {
@@ -441,20 +460,23 @@ export function stoveStep(stove: ItemInstance, dt: number, out: StoveTick): Stov
   const k = stove.state?.kit;
   const fire = k?.fire ?? 0;
   if (!k || !fire || dt <= 0) return out;
-  const gas = k.gas ?? 0;
-  if (gas <= 0) {
-    delete k.fire;
-    out.ranOut = true;
-    return out;
+  let lit = dt;
+  if (!electric(stove)) {
+    const gas = k.gas ?? 0;
+    if (gas <= 0) {
+      delete k.fire;
+      out.ranOut = true;
+      return out;
+    }
+    // (the last of the gas heats for as long as it lasts)
+    lit = Math.min(dt, gas / BURN[fire]);
+    k.gas = Math.max(0, gas - BURN[fire] * dt);
+    if (k.gas <= 0) {
+      delete k.fire;
+      out.ranOut = true;
+    }
   }
   out.burning = true;
-  // (the last of the gas heats for as long as it lasts)
-  const lit = Math.min(dt, gas / BURN[fire]);
-  k.gas = Math.max(0, gas - BURN[fire] * dt);
-  if (k.gas <= 0) {
-    delete k.fire;
-    out.ranOut = true;
-  }
   const way = k.on ? WAY_OF[k.on] : null;
   const pot = k.pot;
   if (!way || !pot || !pot.items.length || !WAYS[way].heats) return out;

@@ -27,15 +27,15 @@ import { frameVariant } from './assets';
 import * as THREE from 'three';
 import { fitPart, fitSub, mountsFor, removePart, removeSub, subMountsOf } from '../../core/modcar/build';
 import { installSeconds, partDef, TYRE_SWAP_S } from '../../core/modcar/parts';
-import { coatOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
-import { PALETTE, paintHex } from '../../core/modcar/palette';
+import { CAN_NOZZLES, DEFAULT_NOZZLE, nozzleOf, SPRAY_TIERS, sprayLeft, sprayTier, type SprayResult } from '../../core/modcar/paint';
+import { paintHex } from '../../core/modcar/palette';
 import { compare, perfWith, quickPerf } from '../../core/modcar/stats';
-import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, itemVeil, type DrinkLiquid, type ItemDef, type ItemInstance } from '../../core/modcar/items';
+import { canStack, countOf, itemDef, itemMass, mergeStacks, putInside, roomInside, setFreshRate, settleItem, splitStack, stackMax, stampFresh, itemVeil, type DrinkLiquid, type ItemDef, type ItemInstance, type WearSlot } from '../../core/modcar/items';
 import { cleanerOf, liquidOf, pour, pourTank, siphon, siphonTank, siphonUse, tankLitres, tankUse, TOOL_INFO, toolName, toolUse, wearCleaner, type Cleaner, type FuelTank, type LiquidKind, type Tool } from '../../core/modcar/tools';
 import type { MountDef, PartInstance, FuelType } from '../../core/modcar/types';
 import { FootWalker, type FootInput } from '../../core/onfoot/walker';
 import type { Land } from '../../core/onfoot/land';
-import { SolidSet, type SolidSource } from '../../core/world/solids';
+import { Push, pushOut, SolidSet, type SolidSource } from '../../core/world/solids';
 import { GhostLayer, type GhostSpec } from './ghosts';
 import type { Action, SlotView, TransferView } from './hudItems';
 import { boxFullness, deviceCard, drinkTone, fitCard, FUEL_ZH, hexCss, itemCardKept, itemLabel, itemLabelPlain, partCard, toolCard, vehicleCard, type ItemCard, type Tone } from './itemInfo';
@@ -52,6 +52,34 @@ import { Aboard, doorwayHit } from './aboard';
 import { aboardOf, type BoardDoor } from '../../core/modcar/aboard';
 
 export type Held = { kind: 'part'; inst: PartInstance } | { kind: 'tool'; tool: Tool } | { kind: 'item'; item: ItemInstance } | null;
+
+/**
+ * A system's own way with a thing in the hands (docs/ND/PLAN.md: the camera raised to the eye and its shutter, the
+ * grinder run): while one claims what is in the hands it is asked first about the use button, the wheel and F (the
+ * right button), and its lines go down the right in place of the thing's own. E on a door or a thing stays the game's
+ * unless the system takes it.
+ */
+export interface HandsUse {
+  readonly id: string;
+  /** whether it takes the buttons with this in the hands */
+  claims(held: NonNullable<Held>): boolean;
+  /** the use button went down (E: 'key', the left button: 'mouse'); true: taken, the game does nothing with it */
+  press?(held: NonNullable<Held>, from: 'key' | 'mouse'): boolean;
+  /** …and up again; true: taken */
+  release?(held: NonNullable<Held>, from: 'key' | 'mouse'): boolean;
+  /** the wheel turned; true: taken (the hotbar stays) */
+  wheel?(held: NonNullable<Held>, delta: number): boolean;
+  /** F (the right button) is its own: the game neither grabs nor drinks with it */
+  takesF?(held: NonNullable<Held>): boolean;
+  /** with this in the hands the mark reaches a vehicle's fitted parts (a mending kit: what it mends is one) */
+  aimsParts?(held: NonNullable<Held>): boolean;
+  /** every frame on foot with it in the hands: F (or the right button) held or not */
+  step?(held: NonNullable<Held>, dt: number, f: boolean): void;
+  /** its lines down the right (absent: the thing's own) */
+  words?(held: NonNullable<Held>): Action[];
+  /** the thing left the hands (put down, put away, swapped): whatever it was doing stops */
+  gone?(held: NonNullable<Held>): void;
+}
 
 /** the name of a held thing (or of one lying about); a stack's says how many (built when the count changes, not every time it is asked) */
 export function heldName(h: NonNullable<Held>): string {
@@ -213,6 +241,8 @@ export interface PlayerHost {
   changed(v: ModVehicle, what: string): void;
   /** into a front seat: the driver's, or the passenger's (docs/V3/nodes/M1-interact.md) */
   enter(v: ModVehicle, at?: 'driver' | 'pass'): void;
+  /** a wreck by the road, for its parts only: not got into (docs/V3/plan/growth.md 定案 2); absent: every vehicle may be */
+  partsOnly?(v: ModVehicle): boolean;
   /** into a vehicle's living space by a door, and out of it (docs/V3/nodes/M2-rv.md) */
   /** in by a doorway: standing just inside it, facing the way one came in (`lookYaw`, the view's; none: straight in) */
   board(v: ModVehicle, door: BoardDoor, lookYaw?: number): void;
@@ -242,6 +272,8 @@ export interface PlayerHost {
   panelOpened?(v: ModVehicle, mount: string, open: boolean): void;
   /** the can sprayed at it for dt seconds: the coat goes on, the can empties (paint.ts) */
   spray(aim: PaintAim, can: Tool, dt: number): SprayResult;
+  /** how much of what the can is aimed at a coat covers (dry: set, wet: still wet), null: no coat on it (coat.ts) */
+  coatOn?(aim: PaintAim): { dry: number; wet: number } | null;
   /** a list is open (Tab): G there puts the thing in the hands into the list, so the hands do not offer G for putting it down */
   readonly listOpen?: boolean;
 }
@@ -253,11 +285,26 @@ export function zoneOpen(v: ModVehicle, zone: CargoZone): boolean {
 }
 
 /** what F takes off a part lying about: its tyre (a wheel), else its turbo (an engine) */
+/** what a part in the hands goes onto as a sub-part: a tyre onto a rim, a turbo onto an engine (null: a mount of its own) */
+function subOf(inst: PartInstance): 'tire' | 'turbo' | null {
+  const c = partDef(inst.part).cat;
+  return c === 'tire' ? 'tire' : c === 'turbo' ? 'turbo' : null;
+}
+
 function subOff(l: Loose): 'tire' | 'turbo' | null {
   return l.part?.sub.tire ? 'tire' : l.part?.sub.turbo ? 'turbo' : null;
 }
 
 const REACH = 2.6;
+/** the hand's reach looking level, and looking steeply down or up (m: Nomad Drive's, docs/V3/plan/hands.md §二.2) */
+const REACH_LEVEL = 1.6;
+const REACH_STEEP = 3.36;
+/** a tool's reach to the surface it works on (a can, a scraper, the grinder): as before */
+const TOOL_REACH = 2.6;
+/** the parts under a car, reached through the skin over them with empty hands (one cannot see them from standing) */
+const UNDER_CATS: ReadonlySet<string> = new Set(['fuelTank', 'gearbox', 'exhaust']);
+/** a part's ghosts show only this near the vehicle (m from its footprint: docs/V3/plan/hands.md §三) */
+const GHOST_NEAR = 2.5;
 /** the card of what the mark is on shows only this close (m): from further off it would stand in the way of the view */
 const CARD_NEAR = 2.2;
 const GHOST_RANGE = 4.2;
@@ -265,8 +312,10 @@ const GHOST_RANGE = 4.2;
 const GHOST_CONE = 0.2;
 const DROP_HOLD = 0.45;
 /** F on an appliance (docs/V3/nodes/M2-rv.md): let go within this long it was a press (s), held this long it is picked up */
-const TAP_S = 0.22;
-const GRAB_S = 0.6;
+const TAP_S = 0.25;
+const GRAB_S = 0.9;
+/** a hold on what a press also works takes at least this long, all told (s: Nomad Drive's, docs/V3/plan/hands.md §二.4) */
+const HOLD_MIN_S = 0.9;
 
 /** what each liquid is called, and its colour on the bars */
 const LIQUID: Record<LiquidKind, { zh: string; into: string; filler: string; tone: Tone }> = {
@@ -275,13 +324,26 @@ const LIQUID: Record<LiquidKind, { zh: string; into: string; filler: string; ton
   oil: { zh: '机油', into: '发动机', filler: '加机油口', tone: 'oil' },
 };
 
-const E: Action['keys'] = ['E', 'LMB'];
-const F: Action['keys'] = ['F', 'RMB'];
+/** the left button: the hand's work on what one looks at, held for what takes time (docs/V3/plan/growth.md J1: E is gone) */
+const E: Action['keys'] = ['LMB'];
+/** the right button: the use of what is in the hands — eat, drink, put on, draw back (F is gone) */
+const F: Action['keys'] = ['RMB'];
 
 export class ModPlayer {
   readonly walker: FootWalker;
   /** walking about inside a vehicle's living space (docs/V3/nodes/M2-rv.md); null: on foot in the world */
   aboard: Aboard | null = null;
+  /**
+   * Held where a system says (docs/ND/PLAN.md: sitting on a chair or a sofa), set by it each frame before this
+   * one's update: where the feet are (world), how high the eye is above them, the words to show besides. The walk
+   * is still (no steps, no jump, nothing put down with G); what the mark is on works as ever. null: walking.
+   */
+  pin: { x: number; y: number; z: number; eye: number; words: readonly Action[]; ring?: number } | null = null;
+  /**
+   * The vehicle whose roof one is up on (from its ladder: v3/ladder, J9e), set by that system each frame: nobody gets
+   * into it from up there (one climbs down first), nor walks into its living space; null: not up on one
+   */
+  onRoof: ModVehicle | null = null;
   /** where the feet were put last frame inside it (world) */
   private readonly feetW = { x: NaN, y: 0, z: NaN };
 
@@ -333,14 +395,21 @@ export class ModPlayer {
   private dropT = 0;
   /**
    * A fit or a take-off just finished with the button still down: nothing more until it is let go (with
-   * holds this short, a button held on would put the part on, the old one back, and so on)
+   * holds this short, a button held on would put the part on, the old one back, and so on). A hands use sets it
+   * too once it has done its work (a mending kit: the empty hands must not take off what it mended).
    */
-  private spent = false;
+  spent = false;
   /** how long F has been held to put a backpack on */
   private selectT = 0;
   /** the buttons */
   primary = false;
   secondary = false;
+  /** the systems' own ways with things in the hands (HandsUse): the first that claims it has the buttons */
+  readonly hands: HandsUse[] = [];
+  /** a system's line for whatever is in the hands, under the thing's own down the right (docs/ND/PLAN.md: R places it); null: none now */
+  readonly keyNotes: ((held: NonNullable<Held>) => Action | null)[] = [];
+  /** the one that had them last frame, and with what (told when the thing leaves the hands) */
+  private handsWas: { use: HandsUse; held: NonNullable<Held> } | null = null;
   /** with a cleaning tool: what the mark is on that it can clean (the left button held scrubs it) */
   scrubAim: ScrubHit | null = null;
   /** scrubbing (the left button held with a cleaning tool): null when not */
@@ -350,6 +419,29 @@ export class ModPlayer {
   private readonly sv3 = new THREE.Vector3();
   private readonly sv4 = new THREE.Vector3();
   private secondaryWas = false;
+  /** the right button as the last frame had it (its press: sayWhy) */
+  private rightWas = false;
+  /**
+   * What each button would do now, as the words last said it (docs/V3/plan/prompts.md §五): the words of what it
+   * cannot do (a press of it, a hold of it), and whether it does anything at all — pressed where it does nothing but
+   * cannot, it says why for a moment.
+   */
+  private readonly offs = new Map<string, { tap: string | null; hold: string | null; on: boolean; onHold: boolean }>();
+  /** a button held where a hold cannot be done: why, once it has been down long enough to have started one */
+  private holdWhy: { k: string; why: string; t: number; said: boolean } | null = null;
+  /** a button pressed where a press would do nothing but a hold would: why, if it comes up soon enough to have been a press */
+  private tapWhy: { k: string; why: string; t: number } | null = null;
+  private lastWhy = '';
+  private lastWhyAt = -1e9;
+  /** things taken into the hands so far (the first few: Q and R are said down the right), and the last one */
+  private heldCount = (() => {
+    try {
+      return Number(localStorage.getItem('modcar.hint.held') ?? 0) || 0;
+    } catch {
+      return 0;
+    }
+  })();
+  private heldSeen: Held = null;
   /**
    * Something being eaten, drunk or taken (F or the right button): what, how long since it began, from which
    * slot; drinking goes on while the button is held
@@ -579,6 +671,34 @@ export class ModPlayer {
     }
   }
 
+  /** the clothes one has on, by where they go (docs/V3/plan/growth.md 定案 5): their warmth keeps the cold out */
+  worn: Partial<Record<WearSlot, ItemInstance>> = {};
+
+  /**
+   * Put a piece of clothing on, from the hands: what was in its place comes into the hands it leaves. False
+   * (nothing done): it is not clothing.
+   */
+  wearClothes(item: ItemInstance): boolean {
+    const slot = itemDef(item.item).wear?.slot;
+    if (!slot) return false;
+    const from = this.slots.findIndex((h) => h?.kind === 'item' && h.item === item);
+    const old = this.worn[slot];
+    if (from >= 0) this.slots[from] = old ? { kind: 'item', item: old } : null;
+    this.worn[slot] = item;
+    return true;
+  }
+
+  /** a piece of clothing off into the hands (a free slot: the one selected first); false: no hand free */
+  takeOff(slot: WearSlot): boolean {
+    const it = this.worn[slot];
+    if (!it) return false;
+    const i = !this.slots[this.sel] ? this.sel : this.slots.findIndex((h) => !h);
+    if (i < 0) return false;
+    this.slots[i] = { kind: 'item', item: it };
+    delete this.worn[slot];
+    return true;
+  }
+
   /**
    * Put a backpack on (null: take it off): the hotbar gets its slots after the first two. Another one on
    * already comes into the hands. False (nothing done): the slots that would go are not empty.
@@ -628,12 +748,16 @@ export class ModPlayer {
   /** the button went down this frame (a tap shorter than a frame still counts) */
   /** the use button down: E (key) or the left button (mouse) — with a cleaning tool the mouse's scrubs */
   press(from: 'key' | 'mouse' = 'key'): void {
+    const hu = this.handsUse();
+    if (hu?.press && this.held && hu.press(this.held, from)) return;
     if (from === 'mouse' && this.startScrub()) return;
     this.primaryEdge = true;
     this.primary = true;
   }
 
   release(from: 'key' | 'mouse' = 'key'): void {
+    const hu = this.handsUse();
+    if (hu?.release && this.held && hu.release(this.held, from)) return;
     if (from === 'mouse' && this.scrub) {
       this.endScrub();
       return;
@@ -658,7 +782,7 @@ export class ModPlayer {
     const aim = this.scrubAim;
     if (!c || !aim || held?.kind !== 'tool') return false;
     if ((held.tool.life ?? 1) <= 0) {
-      this.host.ui.say(`${TOOL_INFO[held.tool.kind].name.zh}用坏了：丢进回收台，再做一个。`, 2.4);
+      this.flashWhy(`${TOOL_INFO[held.tool.kind].name.zh}用坏了`);
       return true;
     }
     // (the tool's line across the strokes starts level along the surface)
@@ -714,7 +838,7 @@ export class ModPlayer {
           this.host.scrubStroke(hit, prev, hit.point, side, held.tool, c, dt);
           if (wearCleaner(held.tool, len * c.width) <= 0) {
             this.host.sound('tool_worn');
-            this.host.ui.say(`${TOOL_INFO[held.tool.kind].name.zh}用坏了。`, 2.4);
+            this.flashWhy(`${TOOL_INFO[held.tool.kind].name.zh}用坏了`);
             this.endScrub();
             return;
           }
@@ -728,6 +852,26 @@ export class ModPlayer {
     // aimed into a boot or a bed: the wheel turns the thing about to go in
     if (this.target?.kind === 'stow') {
       this.stowYaw += (delta > 0 ? -1 : 1) * (Math.PI / 12);
+      return;
+    }
+    const hu = this.handsUse();
+    if (hu?.wheel && this.held && hu.wheel(this.held, delta)) return;
+    // (a spray can in the hands: the wheel goes through its nozzles — fine, medium, wide)
+    const sh = this.held;
+    if (sh?.kind === 'tool' && sh.tool.kind === 'spray') {
+      // (its own three: hooked to the garage's gun, the wheel unhooks it and goes back to the medium)
+      // (a size a notch, up wider, down finer, no further than the ends: Nomad Drive's seven)
+      const n = CAN_NOZZLES;
+      const at = sh.tool.nozzle ?? DEFAULT_NOZZLE;
+      sh.tool.nozzle = at >= n ? DEFAULT_NOZZLE : Math.max(0, Math.min(n - 1, at + (delta < 0 ? 1 : -1)));
+      // (the brush's shadow on the surface shows the size: nothing said)
+      this.host.sound('switch', 0.4);
+      return;
+    }
+    // (a device's second thing — a flame up or down — is the wheel's while it is looked at)
+    const tg = this.target;
+    if (tg?.kind === 'device' && tg.device.alt) {
+      tg.device.alt.use();
       return;
     }
     // (otherwise the wheel goes through the hotbar: a spray can is one colour, Arctic Drive's)
@@ -744,6 +888,11 @@ export class ModPlayer {
     this.clock += dt;
     // (what is in the hands, as it is by now: before it is carried, eaten or shown)
     this.settleHands();
+    // (the boxes of what is in the hotbar asked for while it is there: measured from its model, which comes a moment
+    // after it is first asked for. Asked for first by Q — or by the hands' list beside a vehicle's, which packs a slot
+    // in at once — a rough box stood in, 0.7 m a side for a large thing, longer than the Sugar Cube's boot, and the
+    // first jerrycan of a game packed in went down on the ground, 车里放不下了: fix1. The test rigs' hosts have no boxes.)
+    for (const s of this.slots) if (s) this.host.cargo.boxOf?.(s);
     // (while liquid flows one stands still: from the frame the button goes down at an open filler)
     const t0 = this.target;
     const atOpen = (t0?.kind === 'filler' && t0.open) || (t0?.kind === 'tank' && t0.port.open && this.held?.kind === 'tool');
@@ -752,19 +901,32 @@ export class ModPlayer {
     this.input.right = still ? 0 : keys.right;
     this.input.run = keys.run;
     this.input.jump = keys.jump && !still;
+    if (this.pin) {
+      this.input.forward = this.input.right = 0;
+      this.input.jump = false;
+    }
     // (crouched: lower, slower, quieter; the walk stands up again only where there is the headroom to)
     this.input.crouch = !!keys.crouch;
     w.heading = lookYaw;
     w.pitch = lookPitch;
     const h = this.held;
-    const carry = h?.kind === 'part' ? partDef(h.inst.part).carry : h?.kind === 'item' ? itemDef(h.item.item).carry : 'small';
-    w.load = h?.kind === 'part' || h?.kind === 'item' ? (carry === 'large' ? 'large' : carry === 'medium' ? 'medium' : 'none') : 'none';
+    // the walk by what it weighs (walkShare: Nomad Drive's at the light end; running only under 10 kg, as Nomad
+    // Drive's; no jumping with 20 kg or more) — docs/V3/plan/growth.md §1.7, J2. A kind
+    // that says how one walks with it (Nomad Drive's furniture, carried about as fast as empty hands) says so.
+    const kg = h ? partMass(h) : 0;
+    const cw = h?.kind === 'item' ? itemDef(h.item.item).carryWalk : undefined;
+    w.load = 'none';
+    w.loadShare = cw?.share ?? walkShare(kg);
+    w.loadRun = cw?.run ?? kg < 10;
+    w.loadJump = !!cw || kg < 20;
     const ab = this.aboard;
     // (put somewhere else since the last frame — a jump, a script: no longer inside)
     if (ab && Math.hypot(w.x - this.feetW.x, w.z - this.feetW.z) > 3) this.aboard = null;
     // (an open doorway walked into from outside: in, no key needed, as one walks in at a door; walked out of: out)
-    if (!this.aboard && !this.flow) this.walkIn(lookYaw);
-    if (this.aboard) {
+    if (!this.aboard && !this.flow && !this.pin) this.walkIn(lookYaw);
+    const pin = this.pin;
+    if (pin) w.hold(pin.x, pin.y, pin.z, pin.eye, dt);
+    else if (this.aboard) {
       // inside a vehicle's living space: the walk in its own frame, the feet carried with it (walked out of its
       // doorway: out, the walker put outside it)
       this.aboard.step(dt, this.input.forward, this.input.right, lookYaw);
@@ -782,12 +944,25 @@ export class ModPlayer {
     w.look(this.dir);
     this.secondaryWas = this.secondary;
     this.secondary = keys.take;
+    // (a system's own way with the thing in the hands: told each frame, F its own when it says so)
+    this.stepHands(dt, keys.take);
 
+    this.frameDt = dt;
     this.target = this.aside ? null : this.pick();
+    // (the hands put aside — placing: no tool works, and none says it would)
+    if (this.aside) {
+      this.scrubAim = null;
+      this.paintAim = null;
+    }
     if (this.scrub) this.stepScrub(dt);
     this.showHighlight();
     this.showGhosts();
     this.host.cargo.showGhost(this.target?.kind === 'stow' ? this.target.aim : null, this.held);
+    // (a button pressed where what it would do cannot be done: why, for a moment)
+    if (this.primaryEdge) this.sayWhy('LMB');
+    if (keys.take && !this.rightWas) this.sayWhy('RMB');
+    this.rightWas = keys.take;
+    this.stepWhy(dt, keys.take);
     this.act(dt, keys.drop);
     this.ghosts.update(dt);
     this.primaryEdge = false;
@@ -844,7 +1019,7 @@ export class ModPlayer {
 
   /** walking at an open doorway from outside, into it: in (true) */
   private walkIn(lookYaw: number): boolean {
-    if (Math.hypot(this.input.forward, this.input.right) < 0.3) return false;
+    if (Math.hypot(this.input.forward, this.input.right) < 0.3 || this.onRoof) return false;
     const w = this.walker;
     for (const v of this.near(3)) {
       if (moving(v)) continue;
@@ -942,199 +1117,295 @@ export class ModPlayer {
     }
   }
 
+  /** the hand's reach now (m): Nomad Drive's, 1.6 looking level, longer looking down or up, 3.36 from 80°; a hold under way keeps the longest it had */
+  private reachNow(): number {
+    const pitch = Math.asin(Math.max(-1, Math.min(1, this.dir.y)));
+    const k = Math.min(1, Math.abs(pitch) / ((80 * Math.PI) / 180));
+    const r = REACH_LEVEL + (REACH_STEEP - REACH_LEVEL) * k * k * (3 - 2 * k);
+    const holding = this.primary && (this.progress > 0 || !!this.pendingTap);
+    this.holdReach = holding ? Math.max(this.holdReach, r) : r;
+    return this.holdReach;
+  }
+
+  private holdReach = REACH_LEVEL;
+
+  /** how far the walker stands from a vehicle's footprint (m, on the plan): 0 against it */
+  private offVehicle(v: ModVehicle): number {
+    const sd = v.solid.update();
+    const dx = this.walker.x - sd.x;
+    const dz = this.walker.z - sd.z;
+    const c = Math.cos(-sd.yaw);
+    const s = Math.sin(-sd.yaw);
+    const lx = Math.abs(dx * c - dz * s) - sd.hx;
+    const lz = Math.abs(dx * s + dz * c) - sd.hz;
+    return Math.hypot(Math.max(0, lx), Math.max(0, lz));
+  }
+
   private pick(): Target | null {
     const o = this.host.origin;
     this.ray.origin.set(this.eye.x - o.x, this.eye.y - o.y, this.eye.z - o.z);
     this.ray.direction.set(this.dir.x, this.dir.y, this.dir.z).normalize();
     const held = this.held;
+    const reach = this.reachNow();
+    const liquid = held?.kind === 'tool' ? liquidOf(held.tool) : null;
+    const cleaning = held?.kind === 'tool' && !!cleanerOf(held.tool);
+    const spraying = held?.kind === 'tool' && held.tool.kind === 'spray';
+
+    // ---- the vehicles: what of them the ray meets first, from their real meshes (no boxes round them)
+    let surf: { v: ModVehicle; owner: string; dist: number } | null = null;
+    for (const v of this.near(TOOL_REACH + 1)) {
+      const h = v.view.targetCast(this.ray.origin, this.ray.direction, TOOL_REACH + 0.6);
+      if (h && (!surf || h.dist < surf.dist)) surf = { v, owner: h.owner, dist: h.dist };
+    }
+    const surfMount = (s: { v: ModVehicle; owner: string }): MountDef | null => {
+      const id = s.v.view.mountOfOwner(s.owner);
+      const m = id ? s.v.view.frame.mounts.find((mm) => mm.id === id) : undefined;
+      return m && s.v.build.parts[m.id] ? m : null;
+    };
+
+    // ---- the things: lying about, the systems' devices, tanks, fillers, doorways (each by its own measure, and
+    // where the ray meets it: at)
     let best: Target | null = null;
     const better = (t: Target): void => {
       if (!best || t.dist < best.dist) best = t;
     };
-
-    // holding a part: the ghost nearest the line of sight
+    // a tyre onto a rim lying about, a turbo onto an engine lying about
     if (held?.kind === 'part') {
-      const def = partDef(held.inst.part);
-      let bestAng = GHOST_CONE;
-      const sub = def.cat === 'tire' ? 'tire' : def.cat === 'turbo' ? 'turbo' : null;
-      for (const v of this.near(GHOST_RANGE)) {
-        const frame = v.view.frame;
-        const mounts: { m: MountDef; sub: string | null }[] = [];
-        if (sub) {
-          // a tyre goes on a fitted rim that takes one, a turbo on a fitted engine that takes one
-          for (const m of frame.mounts) {
-            const inst = v.build.parts[m.id];
-            if (inst && subMountsOf(partDef(inst.part)).includes(sub)) mounts.push({ m, sub });
-          }
-        } else for (const m of mountsFor(frame, def)) mounts.push({ m, sub: null });
-        for (const { m, sub: s } of mounts) {
-          for (const p of this.aimPoints(v, m)) {
-            const dx = p.x - this.eye.x;
-            const dy = p.y - this.eye.y;
-            const dz = p.z - this.eye.z;
-            const d = Math.hypot(dx, dy, dz);
-            if (d > GHOST_RANGE) continue;
-            const ang = Math.acos(Math.min(1, (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / Math.max(1e-6, d)));
-            // nearer ghosts get a wider cone (they are bigger on screen)
-            const cone = bestAng * Math.min(2.2, 1.6 / Math.max(0.7, d));
-            if (ang < cone && ang < bestAng * 2.2) {
-              bestAng = ang;
-              const replace = s ? !!v.build.parts[m.id]?.sub[s] : !!v.build.parts[m.id];
-              best = { kind: 'ghost', v, mount: m, sub: s, replace, dist: d };
-            }
-          }
-        }
-      }
-      // a tyre onto a rim lying about, a turbo onto an engine lying about
-      if (sub === 'tire' || sub === 'turbo') {
+      const sub = subOf(held.inst);
+      if (sub) {
         const takes = (l: Loose): boolean => !!l.part && !l.part.sub[sub] && (sub === 'tire' ? !!partDef(l.part.part).rim?.tire : !!partDef(l.part.part).engine?.turbo);
-        const r = this.host.loose.pick(this.eye, this.dir, REACH, takes);
-        if (r && (!best || r.dist < best.dist)) best = { kind: 'looseSub', loose: r.loose, sub, dist: r.dist };
-      }
-      // the ghost one aims at is under a shut lid: the lid itself is what E does (open it first)
-      const g = best as Target | null;
-      if (g?.kind === 'ghost') {
-        const lid = g.v.view.shutOver(g.mount.id);
-        const lm = lid ? g.v.view.frame.mounts.find((m) => m.id === lid) : undefined;
-        const b = lm ? g.v.view.boundsOf(lm.id, this.box) : null;
-        const p = b ? this.ray.intersectBox(b, this.hit) : null;
-        if (lm && p && p.distanceTo(this.ray.origin) <= REACH + 0.5) return { kind: 'part', v: g.v, mount: lm, dist: p.distanceTo(this.ray.origin) };
-        return g;
-      }
-      if (best) return best;
-      // with something in the hands a door or a lid can still be opened
-      this.panels(better);
-    }
-
-    const liquid = held?.kind === 'tool' ? liquidOf(held.tool) : null;
-    // a spray can: the exact thing the mark is on, from its meshes; on what takes paint the buttons only
-    // paint (Arctic Drive's lock: no door opens under the nozzle, nothing is picked up)
-    this.paintAim = null;
-    if (held?.kind === 'tool' && held.tool.kind === 'spray') {
-      const a = this.host.paintCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), REACH);
-      this.paintAim = a;
-      if (a?.paintable && !(a.v && moving(a.v))) {
-        // (G held still packs the can into the vehicle the mark is on)
-        this.lookVehicle = a.v;
-        this.scrubAim = null;
-        return { kind: 'paint', aim: a, dist: a.dist };
-      }
-    }
-    // a cleaning tool: the exact point of the part (or body) the mark is on, from its meshes
-    this.scrubAim = null;
-    if (held?.kind === 'tool' && cleanerOf(held.tool)) {
-      this.scrubAim = this.host.grimeCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), REACH);
-    }
-    // something in the hands held into a boot, a bed, onto a seat: where it would go (a shut lid or door
-    // over it: that is what E does, open it first)
-    if (held) {
-      const aim = this.host.cargo.aim(this.near(REACH + 1), this.ray, held, this.stowYaw, undefined, this.aboard?.v ?? null);
-      if (aim && !moving(aim.v)) {
-        if (zoneOpen(aim.v, aim.zone) || this.aboard?.v === aim.v) better({ kind: 'stow', aim, dist: aim.dist + 0.02 });
-        else {
-          const via = this.nearestVia(aim.v, aim.zone);
-          if (via) better({ kind: 'part', v: aim.v, mount: via, dist: aim.dist });
-        }
+        const r = this.host.loose.pick(this.eye, this.dir, reach, takes);
+        if (r) better({ kind: 'looseSub', loose: r.loose, sub, dist: r.dist, at: r.dist });
       }
     }
     // things lying about: picked up into a free slot (with something in the hands too); with no slot free,
     // those that the stacks and the baskets in the hands have room for
     const free = this.freeSlot() >= 0;
     if (free || this.handsTakeIn()) {
-      const r = this.host.loose.pick(this.eye, this.dir, REACH, free ? undefined : this.takesLoose);
+      const r = this.host.loose.pick(this.eye, this.dir, reach, free ? undefined : this.takesLoose);
       if (r) {
         // (the mark is on it, its card is about to be drawn: a thing that turned while it lay there is what it turned into)
         const it = r.loose.item;
         if (it && (it.fresh !== undefined || it.inside)) settleThing(it, itemNow(), false);
-        // (a thing in a boot or a bed wins over the vehicle's coarse body box round it)
-        // (and among the things in it, an appliance among them, the nearest first)
-        better({ kind: 'loose', loose: r.loose, dist: r.loose.riding ? Math.max(0, r.dist - 1.2) + r.dist * 0.001 : r.dist, at: r.dist });
+        better({ kind: 'loose', loose: r.loose, dist: r.dist, at: r.dist });
       }
     }
-    // with a can the doors and lids still open (the bonnet over the radiator and the engine); a spray can
-    // off what takes paint too
-    if (liquid || this.paintAim) this.panels(better, 0.05);
     // the open doorway of a vehicle's living space: in from outside, out from inside (a standing vehicle)
-    for (const v of this.near(REACH + 1)) {
+    for (const v of this.near(reach + 1)) {
       if (moving(v)) continue;
-      const dw = doorwayHit(v, this.ray, REACH);
+      const dw = doorwayHit(v, this.ray, reach);
       if (!dw || v.view.panelOpen(dw.door.mount) < 0.5) continue;
       better({ kind: this.aboard?.v === v ? 'alight' : 'board', v, door: dw.door, dist: Math.max(0, dw.dist - 0.15), at: dw.dist });
     }
-    let lookAt: ModVehicle | null = null;
-    let lookD = Infinity;
-    for (const v of this.near(REACH + 1)) {
-      let onPart = false;
-      // parts on vehicles (empty hands: to take off)
-      if (!held) {
-        for (const m of v.view.frame.mounts) {
-          if (!v.build.parts[m.id]) continue;
-          // (an axle's part: either of its two, at its wheels)
-          const n = v.view.boundsEach(m.id, this.boxes);
-          for (let k = 0; k < n; k++) {
-            const p = this.ray.intersectBox(this.boxes[k], this.hit);
-            if (!p) continue;
-            const d = p.distanceTo(this.ray.origin);
-            if (d > REACH) continue;
-            onPart = true;
-            better({ kind: 'part', v, mount: m, dist: d });
-          }
-        }
-      }
-      // the fillers: a can lines up with the one its liquid goes into; empty hands open and shut the flap
+    // the fillers: a can lines up with the one its liquid goes into; empty hands open and shut the flap
+    for (const v of this.near(reach + 1)) {
       if (liquid) {
-        const fd = v.view.fillerHit(liquid, this.ray, REACH + 0.3);
-        // (a cap one aims at on purpose, with the can for it in the hands: it wins over the boxes round it)
+        const fd = v.view.fillerHit(liquid, this.ray, reach + 0.3);
         if (fd !== null) better({ kind: 'filler', v, liquid, open: v.view.fillerOpen(liquid), dist: Math.max(0, fd - 1), at: fd });
       } else if (!held && v.view.hasFlap) {
-        const fd = v.view.fillerHit('fuel', this.ray, REACH + 0.3);
-        // (a small thing one aims at on purpose: it wins over the coarse boxes of the parts round it)
+        const fd = v.view.fillerHit('fuel', this.ray, reach + 0.3);
         if (fd !== null) better({ kind: 'cap', v, dist: Math.max(0, fd - 0.3), at: fd });
       }
-      // the body itself: get in, or paint and wash the frame; a can anywhere else on it: where its filler is
-      const d = this.bodyDist(v);
-      if (d === null || d > REACH + 0.4) continue;
-      if (!lookAt || d < lookD) {
-        lookAt = v;
-        lookD = d;
-      }
-      if (liquid) better({ kind: 'pour', v, dist: d + 0.3, at: d });
-      // (the body's box is coarse: a part the mark is on wins, an open bonnet standing well inside it too)
-      // (from inside one's own vehicle's living space the walls are walls: one sits down by its seat)
-      else if (!held && !onPart && this.aboard?.v !== v) better({ kind: 'enter', v, dist: d + 0.25, at: d });
     }
-    this.lookVehicle = lookAt ?? (best && (best as Target).kind === 'stow' ? (best as Extract<Target, { kind: 'stow' }>).aim.v : null);
     // the tanks that are not vehicles': a jerrycan lines up with an open one, empty hands open and shut the cap
     if (liquid === 'fuel' || !held) {
       for (const port of this.host.tanks) {
         // (a pump is a tank only to a jerrycan: empty hands work it as a device, by the vehicle parked at it)
         if (port.pump && liquid !== 'fuel') continue;
-        const d = port.hit(this.ray, REACH + 0.3);
+        const d = port.hit(this.ray, reach + 0.3);
         if (d !== null) better({ kind: 'tank', port, dist: Math.max(0, d - (liquid ? 1 : 0.3)), at: d });
       }
     }
-    // garage devices
-    for (const dv of this.host.devices) this.markDevice(dv, better);
-    // … and the devices the V3 systems put in the world, the ones near where one stands (with none: nothing asked)
+    // garage devices, and the devices the V3 systems put in the world near where one stands
+    for (const dv of this.host.devices) this.markDevice(dv, better, false, reach);
     const sources = this.host.interact;
     if (sources && !sources.empty) {
       const near = this.nearDevices;
       // (emptied by popping: a list cut to nothing with `length = 0` lets go of its store, and the next push allocates a new one)
       while (near.length > 0) near.pop();
       // (the eye itself is handed over, not its two coordinates: kernel/interact.ts says why)
-      sources.near(this.eye, REACH + 0.5, near);
+      sources.near(this.eye, reach + 0.5, near);
       for (let i = 0; i < near.length; i++) {
         // (a system's device is its own code: one whose shape throws is reported and passed over, and the frame goes on)
         try {
-          this.markDevice(near[i], better, true);
+          this.markDevice(near[i], better, true, reach);
         } catch (e) {
           sources.fault(near[i], 'hit', e);
         }
       }
       while (near.length > 0) near.pop();
     }
-    return best;
+    const thing = best as Target | null;
+    let thingAt = thing ? (thing.at ?? thing.dist) : Infinity;
+    // (a thing behind what of a vehicle the ray meets first is hidden by it: not reached — Nomad Drive's obstacle ray)
+    // (a vehicle's own filler, flap and doorway: its skin round them is not in their way)
+    const own = thing && (thing.kind === 'filler' || thing.kind === 'cap' || thing.kind === 'board' || thing.kind === 'alight') && surf && thing.v === surf.v;
+    let chosen: Target | null = thing && (own || !(surf && thingAt > surf.dist + 0.03)) ? thing : null;
+    if (!chosen) thingAt = Infinity;
+
+    // ---- holding a part: the ghost the mark is on (or, behind a shut lid, the lid: open it first)
+    if (held?.kind === 'part') {
+      const g = this.ghosts.cast(this.ray.origin, this.ray.direction, reach + 0.5);
+      const spec = g ? this.ghostInfo.get(g.key) : undefined;
+      if (g && spec && g.dist <= thingAt + 0.005) {
+        const over = surf && surf.v === spec.v && surf.dist < g.dist - 0.02 ? surfMount(surf) : null;
+        if (surf && surf.dist < g.dist - 0.02 && surf.v === spec.v && over?.id !== spec.mount.id) {
+          // (the vehicle's own skin in front of it: a lid over it is what the button opens; anything else hides it)
+          if (over && spec.v.view.hasPanel(over.id)) chosen = { kind: 'part', v: spec.v, mount: over, dist: surf.dist };
+        } else chosen = { kind: 'ghost', v: spec.v, mount: spec.mount, sub: spec.sub, replace: spec.replace, dist: g.dist };
+      }
+      // (the mark on a fitted part it could take the place of: that place, to swap — its own ghost shows there)
+      if (chosen?.kind !== 'ghost' && surf && surf.dist <= reach + 0.3) {
+        const m = surfMount(surf);
+        if (m) {
+          for (const info of this.ghostInfo.values()) {
+            if (info.v !== surf.v || info.mount.id !== m.id || !info.replace) continue;
+            chosen = { kind: 'ghost', v: info.v, mount: info.mount, sub: info.sub, replace: true, dist: surf.dist };
+            break;
+          }
+        }
+      }
+    }
+
+    // ---- a vehicle's own surface: a part fitted (empty hands: open it, sit in it, take it off), the body (get in),
+    // a door or a lid (opened and shut with most things in the hands — not under a cleaning tool or a can's nozzle)
+    if (surf && surf.dist <= reach && !moving(surf.v) && (!chosen || surf.dist < thingAt - 0.005) && chosen?.kind !== 'ghost') {
+      const m = surfMount(surf);
+      const v = surf.v;
+      let t: Target | null = null;
+      if (!held) {
+        // (the body's skin over a part under the car — its tank, its gearbox, its exhaust: that part, a hand behind it)
+        const under = m ? null : this.underSkin(v, surf.dist, reach);
+        if (m) t = { kind: 'part', v, mount: m, dist: surf.dist };
+        else if (under) t = { kind: 'part', v, mount: under, dist: surf.dist };
+        // (a trailer has no seat to get into: towed, not driven; a motorcycle on a rack is carried, not ridden; nor is a
+        // vehicle got into from up on its roof)
+        else if (this.aboard?.v !== v && !v.view.frame.towed && !v.carriedBy && this.onRoof !== v) t = { kind: 'enter', v, dist: surf.dist };
+      } else if (!cleaning && !spraying) {
+        if (m && (v.view.hasPanel(m.id) || this.hands.some((u) => u.aimsParts?.(held) && u.claims(held)))) t = { kind: 'part', v, mount: m, dist: surf.dist };
+        else if (liquid) t = { kind: 'pour', v, dist: surf.dist };
+      }
+      if (t) chosen = t;
+    }
+
+    // ---- a tool's own work: where the ray meets a surface it works on, when nothing the hands could take is nearer
+    this.paintAim = null;
+    this.scrubAim = null;
+    const chosenAt = chosen ? (chosen.at ?? chosen.dist) : Infinity;
+    // (the same part lying about the tool is on: the tool's work there wins over picking it up)
+    const chosenLoose = chosen && (chosen.kind === 'loose' || chosen.kind === 'looseSub') ? chosen.loose : null;
+    if (spraying) {
+      const a = this.host.paintCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), TOOL_REACH);
+      this.paintAim = a;
+      if (a?.paintable && !(a.v && moving(a.v)) && (a.dist < chosenAt - 0.005 || (!!a.loose && a.loose === chosenLoose))) {
+        this.lookVehicle = a.v;
+        chosen = { kind: 'paint', aim: a, dist: a.dist };
+      }
+    }
+    if (cleaning) {
+      const s = this.host.grimeCast(this.sv1.copy(this.ray.origin), this.sv2.copy(this.ray.direction), TOOL_REACH);
+      // (a part lying about with nothing on it to clean: the hands pick it up as ever)
+      const bare = s?.loose && s.inst ? s.inst.dirt + (s.inst.crust ?? 0) + s.inst.rust < 0.02 : false;
+      if (s && !bare && !(s.v && moving(s.v)) && (s.dist < chosenAt - 0.005 || (!!s.loose && s.loose === chosenLoose))) {
+        this.scrubAim = s;
+        chosen = null;
+      }
+    }
+
+    // ---- the vehicle looked at (Q packs the thing in the hands into it)
+    let lookAt: ModVehicle | null = null;
+    let lookD = Infinity;
+    for (const v of this.near(REACH + 1)) {
+      const d = this.bodyDist(v);
+      if (d === null || d > REACH + 0.4 || d >= lookD) continue;
+      lookAt = v;
+      lookD = d;
+    }
+    if (!spraying || !this.lookVehicle) this.lookVehicle = lookAt;
+    return this.steady(chosen);
   }
+
+  /** a part under the car — its tank, its gearbox, its exhaust — the ray meets within 0.6 m behind the body's skin it met at `at` (null: none) */
+  private underSkin(v: ModVehicle, at: number, reach: number): MountDef | null {
+    const o = this.sv1.copy(this.ray.origin).addScaledVector(this.ray.direction, at + 0.005);
+    const h = v.view.targetCast(o, this.ray.direction, Math.min(0.6, reach + 0.6 - at));
+    const id = h ? v.view.mountOfOwner(h.owner) : null;
+    const m = id ? v.view.frame.mounts.find((mm) => mm.id === id) : undefined;
+    return m && v.build.parts[m.id] && UNDER_CATS.has(m.cat) ? m : null;
+  }
+
+  /** the last target as the mark stays on it: a new one only after two frames running, a hold's a moment after slipping off */
+  private steadyKey = '';
+  private steadyN = 0;
+  private steadyHeld: Held = null;
+  private graceT = 0;
+
+  /** is a target from the frame before still there to be the target (not taken up, not gone, not out of reach) */
+  private stillThere(t: Target): boolean {
+    if (t.dist > this.holdReach + 0.6) return false;
+    switch (t.kind) {
+      case 'loose':
+      case 'looseSub':
+        return this.host.loose.list.includes(t.loose) && !t.loose.shut;
+      case 'part':
+        return !!t.v.build.parts[t.mount.id] && this.host.vehicles.includes(t.v);
+      case 'ghost':
+        return this.ghostInfo.has(`${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${this.held?.kind === 'part' ? this.held.inst.part : ''}`) && this.held?.kind === 'part';
+      case 'device':
+        return true;
+      default:
+        return this.host.vehicles.some((v) => 'v' in t && t.v === v) || !('v' in t);
+    }
+  }
+
+  /**
+   * The target settled (docs/V3/plan/hands.md §二.1): the same as before, kept; from one thing to another, only once
+   * the new one has been under the mark two frames running; the button held on one (a hold under way, a press
+   * waiting) and the mark slipping off onto nothing, kept 0.2 s.
+   */
+  private steady(t: Target | null): Target | null {
+    // (the hands hold something else now: no settling — what the mark is on for that, at once)
+    const heldNow = this.held ?? null;
+    if (heldNow !== this.steadyHeld) {
+      this.steadyHeld = heldNow;
+      this.steadyN = 0;
+      this.graceT = 0;
+      return t;
+    }
+    const prev = this.target;
+    const pk = this.keyOf(prev);
+    const nk = this.keyOf(t);
+    if (pk === nk) {
+      this.steadyN = 0;
+      this.graceT = 0;
+      return t;
+    }
+    if (!t && prev && this.primary && (this.progress > 0 || !!this.pendingTap) && this.graceT < 0.2 && this.stillThere(prev)) {
+      this.graceT += this.frameDt;
+      return prev;
+    }
+    this.graceT = 0;
+    if (t && prev && this.stillThere(prev)) {
+      if (this.steadyKey === nk) {
+        if (++this.steadyN >= 2) {
+          this.steadyN = 0;
+          return t;
+        }
+      } else {
+        this.steadyKey = nk;
+        this.steadyN = 1;
+      }
+      return prev;
+    }
+    this.steadyN = 0;
+    return t;
+  }
+
+  /** the frame's dt (for the hold's moment of grace) */
+  private frameDt = 1 / 60;
+
+  /** the ghosts shown last frame, by their keys: what each stands for */
+  private readonly ghostInfo = new Map<string, { v: ModVehicle; mount: MountDef; sub: string | null; replace: boolean; empty: boolean; node: THREE.Object3D }>();
 
   /** the systems' devices near, asked for every frame into the one list */
   private readonly nearDevices: GarageDevice[] = [];
@@ -1143,10 +1414,10 @@ export class ModPlayer {
    * A device offered as what the mark is on, when the mark is on it (its own shape, or its point within its
    * radius). own: it is one of a V3 system's, and the target says so.
    */
-  private markDevice(dv: GarageDevice, better: (t: Target) => void, own = false): void {
+  private markDevice(dv: GarageDevice, better: (t: Target) => void, own = false, reach = REACH): void {
     // (one with a shape of its own: a cupboard's box, a pump's)
     if (dv.hit) {
-      const d = dv.hit(this.ray, REACH + 0.3);
+      const d = dv.hit(this.ray, reach + 0.3);
       if (d !== null) better(own ? { kind: 'device', device: dv, dist: d, own } : { kind: 'device', device: dv, dist: d });
       return;
     }
@@ -1154,9 +1425,10 @@ export class ModPlayer {
     const dy = dv.y - this.eye.y;
     const dz = dv.z - this.eye.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > REACH + 0.5) return;
+    if (d > reach + 0.5) return;
     const along = (dx * this.dir.x + dy * this.dir.y + dz * this.dir.z) / d;
-    if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better(own ? { kind: 'device', device: dv, dist: d, own } : { kind: 'device', device: dv, dist: d });
+    // (where the ray passes its point: nearer than its middle by its radius, as a box's face would be)
+    if (Math.sqrt(Math.max(0, 1 - along * along)) * d < dv.radius) better(own ? { kind: 'device', device: dv, dist: d, own, at: Math.max(0, d - dv.radius * 0.7) } : { kind: 'device', device: dv, dist: d, at: Math.max(0, d - dv.radius * 0.7) });
   }
 
   /** of the panels a zone is reached through, the one nearest the eye */
@@ -1182,7 +1454,10 @@ export class ModPlayer {
   private bodyDist(v: ModVehicle): number | null {
     const o = this.host.origin;
     const sd = v.solid.update();
-    const c = this.v3.set(sd.x - o.x, (sd.y0 + sd.y1) / 2 - o.y, sd.z - o.z);
+    // (a rack or a panel on the roof stands over the body's box: the vehicle is looked at over it too — its roof rack a
+    // place for things one looks at from beside it)
+    const y1 = sd.y1 + (v.build.parts.roof ? 0.3 : 0);
+    const c = this.v3.set(sd.x - o.x, (sd.y0 + y1) / 2 - o.y, sd.z - o.z);
     // the body box, turned to the vehicle's heading: test in its own frame
     const cos = Math.cos(-sd.yaw);
     const sin = Math.sin(-sd.yaw);
@@ -1190,8 +1465,8 @@ export class ModPlayer {
     const oz = this.ray.origin.z - c.z;
     const lo = this.lo.set(ox * cos - oz * sin, this.ray.origin.y - c.y, ox * sin + oz * cos);
     const ld = this.ld.set(this.ray.direction.x * cos - this.ray.direction.z * sin, this.ray.direction.y, this.ray.direction.x * sin + this.ray.direction.z * cos);
-    this.hb.min.set(-sd.hx, -(sd.y1 - sd.y0) / 2, -sd.hz);
-    this.hb.max.set(sd.hx, (sd.y1 - sd.y0) / 2, sd.hz);
+    this.hb.min.set(-sd.hx, -(y1 - sd.y0) / 2, -sd.hz);
+    this.hb.max.set(sd.hx, (y1 - sd.y0) / 2, sd.hz);
     const hp = this.bodyRay.set(lo, ld).intersectBox(this.hb, this.hit);
     return hp ? hp.distanceTo(lo) : null;
   }
@@ -1228,15 +1503,19 @@ export class ModPlayer {
 
   private showGhosts(): void {
     const held = this.held;
+    this.ghostInfo.clear();
     if (held?.kind !== 'part') {
       this.ghosts.clear();
       this.ghosts.selected = '';
+      this.ghosts.only = '';
       return;
     }
     const def = partDef(held.inst.part);
-    const sub = def.cat === 'tire' ? 'tire' : def.cat === 'turbo' ? 'turbo' : null;
+    const sub = subOf(held.inst);
     const list: GhostSpec[] = [];
-    for (const v of this.near(GHOST_RANGE)) {
+    for (const v of this.near(GHOST_NEAR + 2)) {
+      // (only near the vehicle, from its footprint: docs/V3/plan/hands.md §三)
+      if (this.offVehicle(v) > GHOST_NEAR) continue;
       const frame = v.view.frame;
       const blocked = moving(v);
       if (sub) {
@@ -1248,7 +1527,9 @@ export class ModPlayer {
           // on the part's own node (already mirrored with it): a turbo at the engine's M_turbo, a tyre round the rim
           const node = sub === 'turbo' ? (holder.getObjectByName('M_turbo') ?? holder) : holder;
           const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : inst.sub[sub] ? 'replace' : 'empty';
-          list.push({ node, mount: null, partId: def.id, variant: sub === 'tire' ? inst.part : '', kind, key: `${v.build.uid}:${m.id}:${sub}:${def.id}` });
+          const key = `${v.build.uid}:${m.id}:${sub}:${def.id}`;
+          list.push({ node, mount: null, partId: def.id, variant: sub === 'tire' ? inst.part : '', kind, key });
+          this.ghostInfo.set(key, { v, mount: m, sub, replace: !!inst.sub[sub], empty: kind === 'empty', node });
         }
         continue;
       }
@@ -1258,12 +1539,50 @@ export class ModPlayer {
         const node = shape?.node ?? v.view.mountNode(m.id);
         if (!node) continue;
         const kind = blocked || v.view.shutOver(m.id) ? 'blocked' : v.build.parts[m.id] ? 'replace' : 'empty';
-        list.push({ node, mount: shape ? null : m, partId: def.id, variant: frameVariant(def.id, v.view.frame), kind, key: `${v.build.uid}:${m.id}:${def.id}`, make: shape?.make });
+        const key = `${v.build.uid}:${m.id}:${def.id}`;
+        list.push({ node, mount: shape ? null : m, partId: def.id, variant: frameVariant(def.id, v.view.frame), kind, key, make: shape?.make });
+        this.ghostInfo.set(key, { v, mount: m, sub: null, replace: !!v.build.parts[m.id], empty: kind === 'empty', node });
       }
     }
     this.ghosts.show(this.showGhostsOn ? list : []);
     const t = this.target;
-    this.ghosts.selected = t?.kind === 'ghost' ? `${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${def.id}` : '';
+    const aimed = t?.kind === 'ghost' ? `${t.v.build.uid}:${t.mount.id}:${t.sub ? `${t.sub}:` : ''}${def.id}` : '';
+    this.ghosts.selected = aimed;
+    // the one drawn: the one the mark is on; else the nearest free place (one behind the walker counts a metre further)
+    let only = aimed;
+    if (!only) {
+      const o = this.host.origin;
+      let bd = Infinity;
+      for (const [key, g] of this.ghostInfo) {
+        if (!g.empty) continue;
+        g.node.getWorldPosition(this.v3);
+        const dx = this.v3.x + o.x - this.eye.x;
+        const dy = this.v3.y + o.y - this.eye.y;
+        const dz = this.v3.z + o.z - this.eye.z;
+        const d = Math.hypot(dx, dy, dz) + (dx * this.dir.x + dz * this.dir.z < 0 ? 1 : 0);
+        if (d < bd) {
+          bd = d;
+          only = key;
+        }
+      }
+    }
+    this.ghosts.only = this.showGhostsOn ? only : '';
+  }
+
+  /** how many things lie on a fitted part (a seat's cushion): things riding in the vehicle in its box, or up to a hand above it */
+  private thingsOn(v: ModVehicle, mount: MountDef): number {
+    const b = v.view.boundsOf(mount.id, this.box);
+    if (!b) return 0;
+    const o = this.host.origin;
+    let n = 0;
+    for (const l of this.host.loose.list) {
+      if (l.riding?.on !== v) continue;
+      const x = l.x - o.x;
+      const y = l.y + 0.02 - o.y;
+      const z = l.z - o.z;
+      if (x > b.min.x - 0.03 && x < b.max.x + 0.03 && z > b.min.z - 0.03 && z < b.max.z + 0.03 && y > b.min.y && y < b.max.y + 0.6) n++;
+    }
+    return n;
   }
 
   // ------------------------------------------------------------------ doing things
@@ -1339,40 +1658,176 @@ export class ModPlayer {
           this.target = null;
         }
         dv.useWith(h);
-      } else host.ui.say(take.word[host.ui.lang], 2.2);
+      } else this.flashWhy(take.word[host.ui.lang]);
       return;
     }
     // (one held down: holdDevice)
     if (!dv.holdS) dv.use();
   }
 
-  /** how long F has been down on an appliance (s): let go before TAP_S it was a press (its second use), held to GRAB_S it is picked up */
+  /** how long the left button has been down on an appliance (s): let go before TAP_S it was a press, held to GRAB_S it is picked up */
   private grabT = 0;
 
+  /** a press on something a hold also works, waiting for the button to come up (what it was on, how long so far) */
+  private pendingTap: { key: string; t: number } | null = null;
+
+  /** the button is down on what a hold works, but not yet for longer than a press (the hold's ring waits) */
+  private tapWindow(): boolean {
+    return !!this.pendingTap && this.pendingTap.t <= TAP_S;
+  }
+
   /**
-   * F on a device that is a thing lying there (an appliance, docs/V3/nodes/M2-rv.md): held, it is picked up (the
-   * ring once it is plainly a hold); let go at once, its second use. False: F is not on it now.
+   * Does a press on it wait for the button to come up? Where holding the same button does something else: a part
+   * fitted (a press opens it or sits one in it, a hold takes it off), a wheel or an engine lying about (a press
+   * picks it up, a hold takes its tyre or turbo off), an appliance (a press works it, a hold picks it up).
    */
-  private grabDevice(dv: GarageDevice, dt: number): boolean {
-    const l = dv.loose;
-    if (!l) return false;
-    if (this.secondary) {
-      if (this.spent) return true;
-      this.grabT += dt;
-      this.progress = this.grabT <= TAP_S ? 0 : Math.min(1, (this.grabT - TAP_S) / (GRAB_S - TAP_S));
-      if (this.grabT >= GRAB_S) {
-        this.progress = 0;
-        this.spent = true;
-        this.grabT = 0;
-        if (!this.takeLoose(l)) this.host.ui.say('手上没地方了。', 2);
+  private waitsForTap(t: Target): boolean {
+    const held = this.held;
+    if (t.kind === 'part') return !held;
+    if (t.kind === 'loose') return !held && !!subOff(t.loose);
+    if (t.kind === 'device') {
+      const dv = t.device;
+      if (held && dv.take?.(held)) return false;
+      return !dv.holdS && !!this.grabOf(dv);
+    }
+    return false;
+  }
+
+  /** the press that waited, done now the button is up */
+  private tapNow(t: Target): void {
+    const host = this.host;
+    if (t.kind === 'loose') {
+      this.takeLoose(t.loose);
+      return;
+    }
+    if (t.kind === 'device') {
+      if (t.own) {
+        try {
+          this.pressDevice(t.device);
+        } catch (e) {
+          host.interact?.fault(t.device, 'use', e);
+        }
+      } else this.pressDevice(t.device);
+      return;
+    }
+    if (t.kind === 'part') {
+      if (t.v.view.hasPanel(t.mount.id)) {
+        const open = t.v.view.panelOpen(t.mount.id) < 0.5;
+        t.v.view.setPanelOpen(t.mount.id, open);
+        host.sound(open ? 'door_open' : 'door_close', 1, t.mount.id);
+        host.panelOpened?.(t.v, t.mount.id, open);
+        const rest = open ? null : t.v.view.lidRest(t.mount.id).part;
+        if (rest) this.flashWhy(`盖不上：${partDef(rest).name[host.ui.lang]}太高`);
+        return;
       }
+      if (!this.held && (t.mount.cat === 'seat' || t.mount.cat === 'steering')) host.enter(t.v, t.mount === passengerSeat(t.v) ? 'pass' : 'driver');
+    }
+  }
+
+  /** what a hold of the left button on a device would take up, and whether the hands have room (null: nothing) */
+  private grabOf(dv: GarageDevice): { name: string; room: boolean } | null {
+    if (dv.grabbable) {
+      const own = dv.grabbable();
+      return own ? { name: heldName(own), room: this.roomFor(own) > 0 } : null;
+    }
+    const l = dv.loose;
+    if (!l) return null;
+    const h = heldOf(l);
+    return { name: heldName(h), room: this.roomFor(h) > 0 };
+  }
+
+  /**
+   * The left button held on a device that is a thing lying there (an appliance, docs/V3/nodes/M2-rv.md): it is
+   * picked up (the ring once it is plainly a hold) — or what it has its own way of being taken up by (dv.grab: a
+   * pan off the burner). False: the button is not held on it for that now.
+   */
+  private grabDevice(dv: GarageDevice, held: Held, dt: number): boolean {
+    if (dv.holdS || (held && dv.take?.(held)) || !this.grabOf(dv)) return false;
+    if (!this.primary) {
+      this.grabT = 0;
+      return false;
+    }
+    if (this.spent) return true;
+    this.grabT += dt;
+    this.progress = this.grabT <= TAP_S ? 0 : Math.min(1, (this.grabT - TAP_S) / (GRAB_S - TAP_S));
+    if (this.grabT >= GRAB_S) {
+      this.progress = 0;
+      this.spent = true;
+      this.grabT = 0;
+      this.pendingTap = null;
+      const took = dv.grab ? dv.grab() : !!dv.loose && this.takeLoose(dv.loose);
+      if (!took) this.flashWhy('手满了');
+    }
+    return true;
+  }
+
+  private readonly aheadSolids: import('../../core/world/solids').Solid[] = [];
+  private readonly aheadPush = new Push();
+
+  private readonly aheadCars: ModVehicle[] = [];
+  private readonly aheadB = new Float64Array(9);
+
+  /**
+   * How far one can reach straight ahead along the view before something solid (m, at most maxD): a wall or a
+   * crate (the world's solids), or a vehicle's body (its box; not the one one is inside). The held thing keeps
+   * this side of it (Infinity: nothing within maxD). Cast `below` under the eye: where the thing is carried (a door at the chest goes into a car
+   * whose roof the eye looks over).
+   */
+  roomAhead(maxD: number, below = 0): number {
+    const e = this.eye;
+    const d = this.dir;
+    const near = this.aheadSolids;
+    near.length = 0;
+    this.solids.solidsNear(e.x, e.z, maxD + 0.3, near);
+    const cars = this.aheadCars;
+    cars.length = 0;
+    const inside = this.aboard?.v ?? null;
+    for (const v of this.host.vehicles) {
+      if (v === inside) continue;
+      const s = v.sim;
+      const dx = s.px - e.x;
+      const dz = s.pz - e.z;
+      if (dx * dx + dz * dz < (maxD + 4) * (maxD + 4)) cars.push(v);
+    }
+    if (!near.length && !cars.length) return Infinity;
+    const b = this.aheadB;
+    for (let t = 0.15; t <= maxD + 1e-9; t += 0.05) {
+      const x = e.x + d.x * t;
+      const y = e.y - below + d.y * t;
+      const z = e.z + d.z * t;
+      for (const s of near) {
+        if (y < s.y0 || y > s.y1) continue;
+        if (pushOut(s, x, z, 0.04, this.aheadPush)) return t;
+      }
+      for (const v of cars) {
+        const s = v.sim;
+        s.basis(b);
+        const box = v.view.frame.body;
+        // (the point in the vehicle's frame: forward, up, right from its base on the ground)
+        const px = x - s.px;
+        const py = y - (s.py - s.spec.cgHeight);
+        const pz = z - s.pz;
+        const f = px * b[0] + py * b[1] + pz * b[2];
+        const u = px * b[3] + py * b[4] + pz * b[5];
+        const r = px * b[6] + py * b[7] + pz * b[8];
+        if (f >= box.rear - 0.04 && f <= box.front + 0.04 && Math.abs(r) <= box.halfWidth + 0.04 && u >= box.bottom && u <= box.top + 0.04) return t;
+      }
+    }
+    return Infinity;
+  }
+
+  /** what puts down the thing in the hands just so (Nomad Drive's placing, nd-place): R; Q and E turn it, G its grid */
+  placer: { toggle(): void; readonly placing: boolean; turnStep(dir: 1 | -1): void } | null = null;
+
+  /** Q: what is in the hands put down — into the vehicle looked at, else on whatever is in front */
+  drop(): boolean {
+    if (!this.held || this.pin) return false;
+    if (this.placer?.placing) {
+      this.placer.toggle();
       return true;
     }
-    // (let go: a press when it was short)
-    const tap = this.secondaryWas && this.grabT > 0 && this.grabT <= TAP_S;
-    this.grabT = 0;
-    if (tap && dv.alt) dv.alt.use();
-    return tap;
+    if (this.lookVehicle && this.packIn(this.lookVehicle)) return true;
+    return this.putDown();
   }
 
   /** E held on a device that wants it held: its progress told, the device used when the hold is full; false: no hold on this device now */
@@ -1394,23 +1849,44 @@ export class ModPlayer {
     const ui = this.host.ui;
     const card = deviceCard(dv);
     const take = held && dv.take ? dv.take(held) : null;
-    if (take) acts.push({ keys: E, text: take.word[ui.lang], off: !take.ok });
-    else acts.push({ keys: E, hold: !!dv.holdS, text: dv.word[ui.lang] });
-    // a thing lying there (an appliance): F let go at once does its second thing, F held picks it up — unless
-    // F is what the thing in the hands is for (a drink, food, a backpack)
-    const l = dv.loose;
-    if (l && !this.handsUseF(held)) {
-      const alt = dv.alt;
-      if (alt) acts.push({ keys: F, text: alt.word[ui.lang] });
-      const h = heldOf(l);
-      const room = this.roomFor(h) > 0;
-      acts.push({ keys: F, hold: true, text: room ? `拿起 <b>${heldName(h)}</b>` : '拿起 · 手上没地方了', off: !room });
-    }
+    if (take) acts.push(take.ok ? { keys: E, text: take.word[ui.lang] } : { keys: E, text: take.word[ui.lang], off: true, why: take.word[ui.lang] });
+    else acts.push(dv.why ? { keys: E, hold: !!dv.holdS, text: dv.word[ui.lang], off: true, why: dv.why[ui.lang] } : { keys: E, hold: !!dv.holdS, text: dv.word[ui.lang] });
+    // its second thing: the wheel (a flame turned up or down)
+    const alt = dv.alt;
+    if (alt) acts.push({ keys: ['Wheel'], text: alt.word[ui.lang] });
+    // a thing lying there (an appliance): the left button held picks it up (or what it has its own way of being
+    // taken up by: a pan off the burner), unless the button is held for the device's own work
+    const g = this.grabOf(dv);
+    if (g && !dv.holdS && !take) acts.push(g.room ? { keys: E, hold: true, text: `拿起 <b>${g.name}</b>` } : { keys: E, hold: true, text: '拿起', off: true, why: '手满了' });
     return card;
+  }
+
+  /** the system's way with the thing in the hands now (HandsUse), null: the game's own */
+  handsUse(): HandsUse | null {
+    const h = this.held;
+    if (!h || !this.hands.length) return null;
+    for (const u of this.hands) if (u.claims(h)) return u;
+    return null;
+  }
+
+  /** the hands' system told of this frame (F its own when it takes it), and the last one told when the thing has left the hands */
+  private stepHands(dt: number, f: boolean): void {
+    const hu = this.handsUse();
+    const was = this.handsWas;
+    if (was && (was.use !== hu || was.held !== this.held)) {
+      this.handsWas = null;
+      was.use.gone?.(was.held);
+    }
+    if (!hu || !this.held) return;
+    this.handsWas = { use: hu, held: this.held };
+    if (hu.takesF?.(this.held)) this.secondary = this.secondaryWas = false;
+    hu.step?.(this.held, dt, f);
   }
 
   /** what F does with the thing in the hands wherever one looks (a drink with something in it, food, a backpack): F is taken */
   private handsUseF(held: Held): boolean {
+    const hu = this.handsUse();
+    if (hu && held && hu.takesF?.(held)) return true;
     if (held?.kind !== 'item') return false;
     const d = itemDef(held.item.item);
     return (!!d.drink && (held.item.litres ?? 0) > 0.001) || !!d.eat || !!d.pack;
@@ -1425,19 +1901,33 @@ export class ModPlayer {
     // the liquid stops when the buttons are let go or the can is off the filler
     const flowing = ((t?.kind === 'filler' && t.open) || (t?.kind === 'tank' && t.port.open)) && this.held?.kind === 'tool' && (this.primary || this.secondary);
     if (!flowing && this.flow) this.endFlow();
-    // G held: put down what is in the hands
-    if (dropKey && this.held) {
+    // (the pad's drop button, held: what is in the hands put down — the keyboard's Q is a press, drop())
+    if (dropKey && this.held && !this.pin) {
       this.dropT += dt;
       if (this.dropT >= DROP_HOLD) {
-        if (!this.lookVehicle || !this.packIn(this.lookVehicle)) this.putDown();
+        this.drop();
         this.dropT = -Infinity;
       }
       return;
     }
     if (!dropKey) this.dropT = 0;
 
+    // a press that waited (a hold works the same thing otherwise): the button up soon enough, it was a press
+    const pend = this.pendingTap;
+    if (pend && !this.primary) {
+      this.pendingTap = null;
+      if (pend.key === key && pend.t <= TAP_S && t && !this.spent) {
+        this.tapNow(t);
+        return;
+      }
+    } else if (pend) pend.t += dt;
+
     // presses
     if (this.primaryEdge && t) {
+      if (this.waitsForTap(t)) {
+        this.pendingTap = { key, t: 0 };
+        return;
+      }
       if (t.kind === 'loose') {
         this.takeLoose(t.loose);
         return;
@@ -1463,7 +1953,7 @@ export class ModPlayer {
           host.panelOpened?.(t.v, t.mount.id, open);
           // shut onto something too tall for it: say so
           const rest = open ? null : t.v.view.lidRest(t.mount.id).part;
-          if (rest) host.ui.say(`${t.mount.label[host.ui.lang]}盖不严：${partDef(rest).name[host.ui.lang]}太高了。`, 3);
+          if (rest) this.flashWhy(`盖不上：${partDef(rest).name[host.ui.lang]}太高`);
           return;
         }
         if (!this.held && (t.mount.cat === 'seat' || t.mount.cat === 'steering')) {
@@ -1516,8 +2006,8 @@ export class ModPlayer {
     // the button down with an empty spray can: it only sputters
     this.sprayDry = false;
     if (this.primaryEdge && held?.kind === 'tool' && held.tool.kind === 'spray' && sprayLeft(held.tool) <= 0) {
+      // (it sputters; the words say why: sayWhy)
       this.sprayDry = true;
-      host.ui.say('罐子空了：丢进回收台。', 2);
     }
     // eating, drinking, taking medicine: F or the right button with it in the hands (wherever one looks)
     if (this.use) {
@@ -1543,6 +2033,22 @@ export class ModPlayer {
         return;
       }
     }
+    // the right button held with clothing in the hands (wherever one looks): on it goes, what was in its place into the hands
+    if (held?.kind === 'item' && itemDef(held.item.item).wear && this.secondary) {
+      if (this.spent) return;
+      this.selectT += dt;
+      this.progress = this.selectT / 0.5;
+      if (this.progress >= 1) {
+        this.progress = 0;
+        this.selectT = 0;
+        this.spent = true;
+        if (this.wearClothes(held.item)) {
+          host.sound('cloth');
+          this.flashWhy('穿上了');
+        }
+      }
+      return;
+    }
     // F held with a backpack in the hands (wherever one looks): on it goes
     if (held?.kind === 'item' && itemDef(held.item.item).pack && this.secondary) {
       if (this.spent) return;
@@ -1555,8 +2061,8 @@ export class ModPlayer {
         const it = held.item;
         if (this.wearPack(it)) {
           host.sound('cloth');
-          host.ui.say(`背上了${itemDef(it.item).name.zh}：快捷栏多了 ${itemDef(it.item).pack!.slots} 格。`, 2.2);
-        } else host.ui.say('先把多出来那几格里的东西拿出来。', 2.2);
+          this.flashWhy('背上了');
+        } else this.flashWhy('先空出多的格子');
       }
       return;
     }
@@ -1585,13 +2091,20 @@ export class ModPlayer {
       }
       return;
     }
-    if (t.kind === 'part' && !held && this.secondary) {
-      if (this.spent) return;
+    if (t.kind === 'part' && !held && this.primary) {
+      if (this.spent || this.tapWindow()) return;
       if (moving(t.v) || t.v.view.shutOver(t.mount.id)) {
         this.progress = 0;
         return;
       }
-      const need = installSeconds(partDef(t.v.build.parts[t.mount.id].part));
+      // (a seat with things on it: not taken off from under them — docs/V3/plan/hands.md 定案 5)
+      if (t.mount.cat === 'seat' && this.thingsOn(t.v, t.mount) > 0) {
+        this.progress = 0;
+        this.spent = true;
+        this.flashWhy('先拿走上面的东西');
+        return;
+      }
+      const need = Math.max(installSeconds(partDef(t.v.build.parts[t.mount.id].part)), HOLD_MIN_S - TAP_S);
       this.progress += dt / need;
       if (this.progress >= 1) {
         this.progress = 0;
@@ -1608,11 +2121,11 @@ export class ModPlayer {
       return;
     }
     const looseSub = t.kind === 'loose' && !held ? subOff(t.loose) : null;
-    if (t.kind === 'loose' && looseSub && this.secondary) {
-      if (this.spent) return;
+    if (t.kind === 'loose' && looseSub && this.primary) {
+      if (this.spent || this.tapWindow()) return;
       // a tyre off a wheel lying about, a turbo off an engine
       const sub = t.loose.part!.sub[looseSub];
-      this.progress += dt / (looseSub === 'tire' ? TYRE_SWAP_S : installSeconds(partDef(sub.part)));
+      this.progress += dt / Math.max(looseSub === 'tire' ? TYRE_SWAP_S : installSeconds(partDef(sub.part)), HOLD_MIN_S - TAP_S);
       if (this.progress >= 1) {
         this.progress = 0;
         this.spent = true;
@@ -1631,7 +2144,7 @@ export class ModPlayer {
       if (t.own) {
         // (a system's device: a hold that throws is reported, and is over until E is let go — the frame goes on)
         try {
-          if (!this.handsUseF(held) && this.grabDevice(t.device, dt)) return;
+          if (this.grabDevice(t.device, held, dt)) return;
           if (this.holdDevice(t.device, held, dt)) return;
         } catch (e) {
           host.interact?.fault(t.device, 'hold', e);
@@ -1639,7 +2152,7 @@ export class ModPlayer {
           this.spent = true;
           return;
         }
-      } else if ((!this.handsUseF(held) && this.grabDevice(t.device, dt)) || this.holdDevice(t.device, held, dt)) return;
+      } else if (this.grabDevice(t.device, held, dt) || this.holdDevice(t.device, held, dt)) return;
     } else this.grabT = 0;
     if (flowing && t.kind === 'tank' && held?.kind === 'tool') {
       // (a filling station's pump: E fills the can from it, at a pump's pace; nothing goes back into it)
@@ -1673,14 +2186,11 @@ export class ModPlayer {
       }
       return;
     }
-    // the button held on what takes paint: the coat goes on (paint.ts), the ring shows how far
+    // the button held on what takes paint: the coat goes on where the spray lands (coat.ts), the ring shows how
+    // much of the thing it covers now
     if (t.kind === 'paint' && held?.kind === 'tool' && held.tool.kind === 'spray') {
-      const c = held.tool.colour ?? 0;
       const a = t.aim;
-      const p = a.inst ?? a.v?.build;
-      // (the ring: how far its coat of this colour is — while spraying, or one left half-done)
-      const coat = p ? coatOf(p, c) : 0;
-      this.progress = this.primary || (coat > 0 && coat < 1) ? coat : 0;
+      this.progress = 0;
       if (!this.primary || this.sprayDry || sprayLeft(held.tool) <= 0) return;
       const r = host.spray(a, held.tool, dt);
       this.progress = r.t;
@@ -1741,8 +2251,11 @@ export class ModPlayer {
       }
       if (u.t > 0.5 && d.drink) {
         const l = Math.min(u.item.litres ?? 0, d.drink.rate * dt);
+        // (what is in it: its own where it can hold any — a bucket of rain, a mug of coffee: core/v3/nd/water.ts)
+        const liquid = u.item.state?.liquid ?? d.drink.liquid;
         u.item.litres = Math.max(0, (u.item.litres ?? 0) - l);
-        host.drank(d.drink.liquid, l);
+        if (u.item.litres <= 0 && u.item.state?.liquid) delete u.item.state.liquid;
+        host.drank(liquid, l);
         host.sound('glug');
       }
       this.progress = d.drink ? 1 - (u.item.litres ?? 0) / d.drink.litres : 0;
@@ -1777,9 +2290,13 @@ export class ModPlayer {
   packIn(v: ModVehicle): boolean {
     const held = this.held;
     if (!held || moving(v)) return false;
-    const at = this.host.cargo.packSpot(v, held);
+    // (looking at its roof rack: up there — from where one stands the line of sight skims a car's roof, its rails in
+    // the way of anything further in, so the roof is where the eyes are on it rather than where they land)
+    const roof = this.host.cargo.landing([v], this.ray, held, 3.2, null, 99);
+    const up = roof && roof.zone.id === 'roof' && 'x' in roof ? this.host.cargo.spotIn(v, 'roof', held, { x: roof.x, z: roof.z }) : null;
+    const at = up ?? this.host.cargo.packSpot(v, held);
     if (!at) {
-      this.host.ui.say(`${v.view.frame.name.zh}里放不下了。`, 2.2);
+      this.flashWhy('车里放不下了');
       return false;
     }
     if (!zoneOpen(v, at.zone)) {
@@ -1793,7 +2310,6 @@ export class ModPlayer {
     this.host.cargo.stow(v, at.zone, at.spot, held);
     this.held = null;
     this.host.sound('putdown', massOfHeld(held));
-    this.host.ui.say(`放进了${v.view.frame.name.zh}的${at.zone.label.zh}。`, 1.8);
     return true;
   }
 
@@ -1833,7 +2349,7 @@ export class ModPlayer {
         { value: `${kg.toFixed(0)} kg`, label: '车里一共装了' },
       ],
       bars: [],
-      notes: [{ text: '空手看着车按 Tab：看车里所有东西，点一下拿出来', tone: 'info' }],
+      notes: [],
       foot: {},
     };
   }
@@ -1885,9 +2401,11 @@ export class ModPlayer {
     m.code = code;
     m.name = name;
     m.box = box;
-    const where = goes === 1 ? `叠到快捷栏 ${slot + 1}` : goes === 2 ? `装进${itemDef(box).name.zh}` : goes === 3 && held ? `放进快捷栏 ${slot + 1}` : '';
-    const some = part > 0 ? `只拿得下 ${part} 个` : '';
-    m.text = `拿起 <b>${name}</b>${where || some ? `（${where}${where && some ? '，' : ''}${some}）` : ''}`;
+    // (one verb and the name: where it goes and how many of a stack are the hotbar's to show — docs/V3/plan/prompts.md §五)
+    void slot;
+    void part;
+    void box;
+    m.text = `拿起 <b>${name}</b>`;
     return m.text;
   }
 
@@ -1898,6 +2416,8 @@ export class ModPlayer {
     const name = (inst: PartInstance): string => partDef(inst.part).name[ui.lang];
     const acts: Action[] = [];
     let aim: ItemCard | null = null;
+    // (the whole card: for what lies on the ground, and the before → after card one asked for — docs/V3/plan/prompts.md §五 4)
+    let full = false;
     let xfer: TransferView | null = null;
     const both = this.freeSlot() < 0;
     // (the thing lying about that the mark is on: whether the hands have room for any of it)
@@ -1906,20 +2426,21 @@ export class ModPlayer {
     if (held?.kind === 'tool' && cleanerOf(held.tool)) {
       const c = cleanerOf(held.tool)!;
       const sc = this.scrub;
-      if (sc) acts.push({ keys: ['LMB'], text: `${c.word.zh}中 · 鼠标带着${TOOL_INFO[held.tool.kind].name.zh}走，松开停下` });
-      else if (this.scrubAim) acts.push((held.tool.life ?? 1) > 0 ? { keys: ['LMB'], hold: true, text: `${c.word.zh} <b>${this.scrubAim.label}</b>` } : { keys: ['LMB'], hold: true, text: `${TOOL_INFO[held.tool.kind].name.zh}用坏了`, off: true });
+      // (while scrubbing nothing is said: the surface shows what comes off)
+      if (!sc && this.scrubAim) acts.push((held.tool.life ?? 1) > 0 ? { keys: ['LMB'], hold: true, text: `${c.word.zh} <b>${this.scrubAim.label}</b>` } : { keys: ['LMB'], hold: true, text: c.word.zh, off: true, why: '用坏了' });
     }
     if (t) {
       switch (t.kind) {
         case 'loose': {
           const h = heldOf(t.loose);
           aim = this.cardOf(h);
+          full = true;
           // where it would go, and how many of a stack: said when that is not simply the empty hands
           const room = this.roomFor(h);
           noRoom = room <= 0;
           acts.push({ keys: E, text: this.pickWords(heldName(h), !!held, h.kind === 'item' && room < countOf(h.item) ? room : 0) });
           const off = held ? null : subOff(t.loose);
-          if (off) acts.push({ keys: F, hold: true, text: off === 'tire' ? '拆下轮胎' : '拆下涡轮' });
+          if (off) acts.push({ keys: E, hold: true, text: off === 'tire' ? '拆下轮胎' : '拆下涡轮' });
           break;
         }
         case 'looseSub':
@@ -1929,14 +2450,14 @@ export class ModPlayer {
         case 'ghost': {
           if (held?.kind !== 'part') break;
           const inst = held.inst;
-          const replaced = t.sub ? (t.v.build.parts[t.mount.id]?.sub[t.sub] ?? null) : (t.v.build.parts[t.mount.id] ?? null);
           const lid = t.v.view.shutOver(t.mount.id);
           const lidName = lid ? (t.v.view.frame.mounts.find((m) => m.id === lid)?.label[ui.lang] ?? '') : '';
-          const warn = moving(t.v) ? '车在动：先停稳、拉手刹' : lid ? `${lidName}关着：看着它按 E 打开` : undefined;
-          aim = this.showCardOn ? fitCard(t.v, t.mount.label[ui.lang], inst, this.compareLines(t.v, t.mount, t.sub, inst), replaced, warn) : null;
-          if (moving(t.v)) acts.push({ keys: E, hold: true, text: `<b>${name(inst)}</b> · 车在动，停下再装`, off: true });
-          else if (lid) acts.push({ keys: E, text: `先打开${lidName}`, off: true });
-          else acts.push({ keys: E, hold: true, text: `${t.replace ? '替换' : '装上'} <b>${name(inst)}</b> · ${t.mount.label[ui.lang]}` });
+          // (before → after: an assist, off unless one turns it on — F2)
+          aim = this.showCardOn ? fitCard(t.v, t.mount.label[ui.lang], inst, this.compareLines(t.v, t.mount, t.sub, inst)) : null;
+          full = !!aim;
+          if (moving(t.v)) acts.push({ keys: E, hold: true, text: '装上', off: true, why: '先停车' });
+          else if (lid) acts.push({ keys: E, hold: true, text: '装上', off: true, why: `先开${lidName}` });
+          else acts.push({ keys: E, hold: true, text: `${t.replace ? '换上' : '装上'} <b>${name(inst)}</b>` });
           break;
         }
         case 'part': {
@@ -1946,12 +2467,16 @@ export class ModPlayer {
           const panel = t.v.view.hasPanel(t.mount.id);
           const seat = t.mount.cat === 'seat' || t.mount.cat === 'steering';
           if (panel) acts.push({ keys: E, text: `${t.v.view.panelOpen(t.mount.id) > 0.5 ? '关上' : '打开'} <b>${name(inst)}</b>` });
-          else if (seat && !held) acts.push({ keys: E, text: t.mount === passengerSeat(t.v) ? '坐进副驾驶' : `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
+          // (a can of a liquid in the hands: where its filler is, too)
+          const can = held?.kind === 'tool' ? liquidOf(held.tool) : null;
+          if (panel && can) acts.push({ keys: E, hold: true, text: '倒', off: true, why: `对着${LIQUID[can].filler}` });
+          else if (seat && !held) acts.push({ keys: E, text: t.mount === passengerSeat(t.v) ? '坐进副驾' : `上车 <b>${t.v.view.frame.name[ui.lang]}</b>`, ...(this.host.partsOnly?.(t.v) ? { off: true, why: '只能拆零件' } : {}) });
           if (!held) {
             const lid = t.v.view.shutOver(t.mount.id);
-            if (moving(t.v)) acts.push({ keys: F, hold: true, text: '拆下 · 车在动', off: true });
-            else if (lid) acts.push({ keys: F, hold: true, text: `拆下 · 先打开${t.v.view.frame.mounts.find((m) => m.id === lid)?.label[ui.lang] ?? ''}`, off: true });
-            else acts.push({ keys: F, hold: true, text: `拆下 <b>${name(inst)}</b>` });
+            if (moving(t.v)) acts.push({ keys: E, hold: true, text: '拆下', off: true, why: '先停车' });
+            else if (lid) acts.push({ keys: E, hold: true, text: '拆下', off: true, why: `先开${t.v.view.frame.mounts.find((m) => m.id === lid)?.label[ui.lang] ?? ''}` });
+            else if (t.mount.cat === 'seat' && this.thingsOn(t.v, t.mount) > 0) acts.push({ keys: E, hold: true, text: '拆下', off: true, why: '先拿走上面的东西' });
+            else acts.push({ keys: E, hold: true, text: `拆下 <b>${name(inst)}</b>` });
           }
           break;
         }
@@ -1960,25 +2485,23 @@ export class ModPlayer {
           const L = LIQUID[t.liquid];
           aim = this.containerCard(t.v, t.liquid);
           if (!t.open) {
-            if (t.liquid === 'fuel') {
-              acts.push({ keys: ['E'], text: `${L.filler}盖关着：空手按 E 打开`, off: true });
-              acts.push(both ? { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true } : { keys: [this.sel === 0 ? '2' : '1'], text: '切到空手' });
-            } else acts.push({ keys: E, text: '先打开引擎盖', off: true });
+            if (t.liquid === 'fuel') acts.push({ keys: E, hold: true, text: '倒', off: true, why: `先开${L.filler}盖` });
+            else acts.push({ keys: E, hold: true, text: '倒', off: true, why: '先开引擎盖' });
             break;
           }
           const use = toolUse(held.tool, t.v.build);
           const back = siphonUse(held.tool, t.v.build);
-          acts.push(use.can ? { keys: E, hold: true, text: `${use.word[ui.lang]} · 倒进<b>${L.into}</b>` } : { keys: E, hold: true, text: `${use.word[ui.lang]}：${use.why?.[ui.lang] ?? ''}`, off: true });
-          acts.push(back.can ? { keys: F, hold: true, text: `把${L.zh}抽回${TOOL_INFO[held.tool.kind].name.zh}里` } : { keys: F, hold: true, text: `抽回来：${back.why?.[ui.lang] ?? ''}`, off: true });
+          acts.push(use.can ? { keys: E, hold: true, text: use.word[ui.lang] } : { keys: E, hold: true, text: use.word[ui.lang], off: true, why: use.why?.[ui.lang] });
+          acts.push(back.can ? { keys: F, hold: true, text: '抽回' } : { keys: F, hold: true, text: '抽回', off: true, why: back.why?.[ui.lang] });
           if (this.flow) xfer = this.transferView(t.v, t.liquid, held.tool);
           break;
         }
         case 'pour': {
-          if (held?.kind !== 'tool') break;
+          if (held?.kind !== 'tool' || !liquidOf(held.tool)) break;
           const liquid = liquidOf(held.tool)!;
           const L = LIQUID[liquid];
           aim = this.vehicleCard(t.v);
-          acts.push({ keys: E, text: `${L.filler}在<b>${this.fillerWhere(t.v, liquid)}</b>：对着它`, off: true });
+          acts.push({ keys: E, hold: true, text: '倒', off: true, why: `对着${L.filler}` });
           break;
         }
         case 'cap': {
@@ -1990,27 +2513,21 @@ export class ModPlayer {
         case 'paint': {
           if (held?.kind !== 'tool' || held.tool.kind !== 'spray') break;
           const a = t.aim;
-          const c = held.tool.colour ?? 0;
-          const colour = PALETTE[c]?.name[ui.lang] ?? '';
           const mount = a.v && a.mount ? a.v.view.frame.mounts.find((m) => m.id === a.mount) : undefined;
           aim = a.inst ? partCard(a.inst, mount ? { mount: mount.label[ui.lang] } : undefined) : a.v ? this.vehicleCard(a.v) : null;
-          const p = a.inst ?? a.v?.build;
-          const there = !!p && p.paint === c && !p.paintMix;
-          const left = sprayLeft(held.tool);
-          if (left <= 0) acts.push({ keys: E, hold: true, text: '罐子空了', off: true });
-          else if (there) acts.push({ keys: E, hold: true, text: `<b>${a.label}</b> 已经是${colour}了`, off: true });
-          else acts.push({ keys: E, hold: true, text: `喷漆 <b>${a.label}</b> · ${colour}` });
-          // (the paint is its colour, not a coat over the dirt: a dirty thing painted stays dirty)
-          const dirty = p ? Math.max(p.dirt, p.crust ?? 0, p.rust) : 0;
-          if (left > 0 && !there && dirty > 0.35) acts.push({ keys: ['LMB'], text: '脏东西和锈盖不住：先刮干净再喷', off: true });
+          // (one verb and the name: the colour is the brush's shadow's, how far the coat is its ring's, rust and dirt
+          // under it its rim's in amber — docs/V3/plan/hands.md §六)
+          if (sprayLeft(held.tool) <= 0) acts.push({ keys: E, hold: true, text: '喷', off: true, why: '罐子空了' });
+          else acts.push({ keys: E, hold: true, text: `喷 <b>${a.label}</b>` });
           break;
         }
         case 'enter':
           aim = this.vehicleCard(t.v);
-          acts.push({ keys: E, text: `上车 <b>${t.v.view.frame.name[ui.lang]}</b>` });
+          acts.push({ keys: E, text: `上车 <b>${t.v.view.frame.name[ui.lang]}</b>`, ...(this.host.partsOnly?.(t.v) ? { off: true, why: '只能拆零件' } : {}) });
           break;
         case 'board':
-          acts.push({ keys: E, text: `进<b>${t.v.view.frame.name[ui.lang]}</b>的车厢` });
+          // (an elevating roof down: in only once it is up — said on the press)
+          acts.push({ keys: E, text: '进车厢', ...(aboardOf(t.v.view.frame.id)?.roof && t.v.view.roofT < 0.95 ? { off: true, why: '先把顶升起来' } : {}) });
           break;
         case 'alight':
           acts.push({ keys: E, text: '下车' });
@@ -2024,6 +2541,7 @@ export class ModPlayer {
               this.host.interact?.fault(t.device, 'word', e);
             }
           } else aim = this.deviceWords(t.device, held, acts);
+          if (t.device.ground) full = true;
           break;
         }
         case 'tank': {
@@ -2039,48 +2557,52 @@ export class ModPlayer {
             const pf = (Object.keys(p.tank.fuel)[0] ?? 'petrol') as FuelType;
             const has = (held.tool.litres ?? 0) > 0.01 ? (held.tool.fuel ?? 'petrol') : null;
             const u = tankUse(held.tool, p.tank).out;
-            const why = has && has !== pf ? `油桶里是${FUEL_ZH[has]}，这台是${FUEL_ZH[pf]}` : (p.tank.fuel[pf] ?? 0) <= 0.01 ? '加油机没油了' : (u.why?.[ui.lang] ?? '');
-            acts.push(u.can ? { keys: E, hold: true, text: `灌${FUEL_ZH[pf]} · 从<b>${p.name}</b>灌进油桶` } : { keys: E, hold: true, text: `灌油：${why}`, off: true });
+            const why = has && has !== pf ? `这台是${FUEL_ZH[pf]}` : (p.tank.fuel[pf] ?? 0) <= 0.01 ? '没油了' : (u.why?.[ui.lang] ?? '');
+            acts.push(u.can ? { keys: E, hold: true, text: `灌${FUEL_ZH[pf]}` } : { keys: E, hold: true, text: '灌油', off: true, why });
             if (this.flow?.port === p) xfer = this.tankTransfer(p, held.tool);
             break;
           }
           if (!p.open) {
-            acts.push({ keys: ['E'], text: '油箱盖拧着：空手按 E 拧开', off: true });
-            acts.push(both ? { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true } : { keys: [this.sel === 0 ? '2' : '1'], text: '切到空手' });
+            acts.push({ keys: E, hold: true, text: '倒', off: true, why: '空手拧开油箱盖' });
             break;
           }
           const u = tankUse(held.tool, p.tank);
-          acts.push(u.in.can ? { keys: E, hold: true, text: `加${FUEL_ZH[held.tool.fuel ?? 'petrol']} · 倒进<b>${p.name}</b>` } : { keys: E, hold: true, text: `加油：${u.in.why?.[ui.lang] ?? ''}`, off: true });
-          acts.push(u.out.can ? { keys: F, hold: true, text: '把油抽回油桶里' } : { keys: F, hold: true, text: `抽回来：${u.out.why?.[ui.lang] ?? ''}`, off: true });
+          acts.push(u.in.can ? { keys: E, hold: true, text: `加${FUEL_ZH[held.tool.fuel ?? 'petrol']}` } : { keys: E, hold: true, text: '加油', off: true, why: u.in.why?.[ui.lang] });
+          acts.push(u.out.can ? { keys: F, hold: true, text: '抽回' } : { keys: F, hold: true, text: '抽回', off: true, why: u.out.why?.[ui.lang] });
           if (this.flow?.port === p) xfer = this.tankTransfer(p, held.tool);
           break;
         }
         case 'stow': {
           const { v, zone, spot, why } = t.aim;
           aim = this.zoneCard(v, zone);
-          if (spot && held) acts.push({ keys: E, text: `${zone.put ?? `放进${zone.label.zh}`} <b>${heldName(held)}</b>` }, { keys: ['Wheel'], text: '转一转方向' });
-          else acts.push({ keys: E, text: why || `${zone.label.zh}放不下`, off: true });
+          if (spot && held) acts.push({ keys: E, text: zone.put ?? `放进${zone.label.zh}` }, { keys: ['Wheel'], text: '转' });
+          else acts.push({ keys: E, text: '放进', off: true, why: why || '放不下' });
           break;
         }
       }
     }
     // a spray can off what takes paint: what the mark is on does not
-    if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: `<b>${this.paintAim.label}</b> 不能喷漆`, off: true });
+    if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: '喷', off: true, why: '这里喷不上' });
     // (while a list is open G puts the thing into the list, and the list says so itself: the hands do not offer it)
     const listOpen = !!this.host.listOpen;
-    if (held && this.lookVehicle && !listOpen && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['G'], hold: true, text: `收进${this.lookVehicle.view.frame.name.zh}里` });
+    if (held && this.lookVehicle && !listOpen && !this.pin && !this.placer?.placing && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['Q'], text: '收进车里' });
+    // (held in a seat: how one gets up, as the system holding one says)
+    if (this.pin) acts.push(...this.pin.words);
     // (the card only for what is close by: from further off it would stand in the way of the view)
     if (aim && t && (t.at ?? t.dist) > CARD_NEAR) aim = null;
-    if (t?.kind === 'loose' && noRoom) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: '两只手都占着：先放下一件', off: true });
-    if (this.dropT > 0 && held) acts.splice(0, acts.length, { keys: ['G'], hold: true, text: this.lookVehicle ? `收进${this.lookVehicle.view.frame.name.zh}里 <b>${heldName(held)}</b>` : `放下 <b>${heldName(held)}</b>` });
+    if (t?.kind === 'loose' && noRoom) acts.splice(0, acts.length, { keys: E, text: '拿起', off: true, why: '手满了' });
+    if (this.dropT > 0 && held) acts.splice(0, acts.length, { keys: ['Q'], text: this.lookVehicle ? '收进车里' : '放下' });
     // (while liquid flows the strip saying from what into what stands where these words are)
     if (xfer) acts.length = 0;
-    const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : -1;
+    const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : (this.pin?.ring ?? 0) > 0 ? this.pin!.ring! : -1;
     ui.prompt(!this.scrub, '', ring);
     const items = ui.items;
+    const keys = this.heldKeys();
+    this.noteOffs(acts, keys);
     items.showActions(acts);
-    items.showCards(held ? this.cardOf(held) : null, aim, this.cardsOn);
-    items.showKeys(this.heldKeys());
+    // (the held thing's card cut down to what it is and what is in it: the whole of it is the Tab list's — docs/V3/plan/prompts.md 定案 4)
+    items.showCards(held ? this.cardOf(held) : null, aim, this.cardsOn, true, !full);
+    items.showKeys(keys);
     items.showTransfer(xfer);
     items.showHotbar(this.slotViews(), this.sel);
   }
@@ -2122,39 +2644,123 @@ export class ModPlayer {
     return this.flow?.dir === 'out' ? { from: box, to: can, tone } : { from: can, to: box, tone };
   }
 
-  /** every action of the thing in the hands (down the right) */
+  /** what each button would do now, from the words (sayWhy) */
+  private noteOffs(...lists: Action[][]): void {
+    this.offs.clear();
+    for (const list of lists) {
+      for (const a of list) {
+        for (const k of a.keys) {
+          let e = this.offs.get(k);
+          if (!e) {
+            e = { tap: null, hold: null, on: false, onHold: false };
+            this.offs.set(k, e);
+          }
+          if (a.off) {
+            const w = a.why ?? a.text.replace(/<[^>]+>/g, '');
+            if (a.hold) e.hold ??= w;
+            else e.tap ??= w;
+          } else if (a.hold) e.onHold = true;
+          else e.on = true;
+        }
+      }
+    }
+  }
+
+  /**
+   * A button pressed (docs/V3/plan/prompts.md §五, Zelda's way): where it does nothing but cannot do something, why —
+   * a press at once, a hold once it has been down long enough to have begun one (stepWhy)
+   */
+  sayWhy(k: string): void {
+    const e = this.offs.get(k);
+    if (!e) return;
+    // (it does nothing here at all: why at once, a press or the start of a hold alike)
+    if (!e.on && !e.onHold) {
+      const w = e.tap ?? e.hold;
+      if (w) this.flashWhy(w);
+      return;
+    }
+    // (a hold does something, a press would not: why if it was a press — said as the button comes up soon enough)
+    if (e.tap && !e.on) this.tapWhy = { k, why: e.tap, t: 0 };
+    // (a press does something, a hold would not: why once it has been held as long as a hold takes to begin)
+    if (e.hold && !e.onHold) this.holdWhy = { k, why: e.hold, t: 0, said: false };
+  }
+
+  private stepWhy(dt: number, right: boolean): void {
+    const tw = this.tapWhy;
+    if (tw) {
+      const down = tw.k === 'LMB' ? this.primary : tw.k === 'RMB' ? right : false;
+      if (down) tw.t += dt;
+      else {
+        if (tw.t < TAP_S + 0.05) this.flashWhy(tw.why);
+        this.tapWhy = null;
+      }
+    }
+    const hw = this.holdWhy;
+    if (!hw) return;
+    const down = hw.k === 'LMB' ? this.primary : hw.k === 'RMB' ? right : false;
+    if (!down) {
+      this.holdWhy = null;
+      return;
+    }
+    hw.t += dt;
+    if (!hw.said && hw.t >= 0.4) {
+      hw.said = true;
+      this.flashWhy(hw.why);
+    }
+  }
+
+  /** why, over the words for a moment and gone (the same twice running: not again at once) */
+  flashWhy(why: string): void {
+    const now = performance.now();
+    if (why === this.lastWhy && now - this.lastWhyAt < 600) return;
+    this.lastWhy = why;
+    this.lastWhyAt = now;
+    this.host.ui.items.showDone(why, 1.5);
+  }
+
+  /** what the keys do with the thing in the hands, down the right: only its own (the right button's, the wheel's); Q and R the first few times */
   private heldKeys(): Action[] {
     const h = this.held;
     const out: Action[] = [];
-    const other = this.slots[1 - this.sel];
-    if (!h) {
-      out.push({ keys: E, text: '拿起 / 开关 / 上车' }, { keys: F, hold: true, text: '拆下零件' });
-    } else if (h.kind === 'tool') {
-      const liquid = liquidOf(h.tool);
-      if (liquid) {
-        const L = LIQUID[liquid];
-        out.push({ keys: E, hold: true, text: `${liquid === 'fuel' ? '加油' : liquid === 'water' ? '加水' : '加机油'}（对着${L.filler}）` });
-        out.push({ keys: F, hold: true, text: `把${L.zh}抽回来` });
-      } else if (h.tool.kind === 'spray') out.push(sprayLeft(h.tool) > 0 ? { keys: E, hold: true, text: '喷漆（对着车身、车门、引擎盖、尾门、保险杠、后视镜）' } : { keys: E, hold: true, text: '罐子空了', off: true });
-      else {
-        const c = cleanerOf(h.tool);
-        if (c && (h.tool.life ?? 1) <= 0) out.push({ keys: ['LMB'], hold: true, text: `${TOOL_INFO[h.tool.kind].name.zh}用坏了`, off: true });
-        else if (c) out.push({ keys: ['LMB'], hold: true, text: `${c.word.zh}（对着车身、零件；鼠标带着走）` }, { keys: ['H'], text: '看看哪里还脏' });
+    const hu = this.handsUse();
+    const own = hu && h ? hu.words?.(h) : undefined;
+    // (a new thing in the hands: counted, the first three times Q and R are said with it)
+    if (h && !this.heldSeen) {
+      this.heldCount++;
+      try {
+        localStorage.setItem('modcar.hint.held', String(this.heldCount));
+      } catch {
+        /* none */
       }
+    }
+    this.heldSeen = h;
+    const early = this.heldCount <= 3;
+    if (!h) {
+      // (empty hands: nothing — what the left button does is said where the mark is)
+    } else if (own) {
+      out.push(...own);
+    } else if (h.kind === 'tool') {
+      // (a can's pour and a cleaning tool's scrub are said where the mark is, on the filler, on the dirt; a spray can's wheel here)
+      if (h.tool.kind === 'spray') out.push({ keys: ['Wheel'], text: '喷嘴' });
     } else if (h.kind === 'item' && itemDef(h.item.item).pack) {
-      out.push({ keys: F, hold: true, text: `背上（快捷栏 +${itemDef(h.item.item).pack!.slots} 格）` });
+      out.push({ keys: F, hold: true, text: '背上' });
+    } else if (h.kind === 'item' && itemDef(h.item.item).wear) {
+      out.push({ keys: F, hold: true, text: this.worn[itemDef(h.item.item).wear!.slot] ? '换上' : '穿上' });
     } else if (h.kind === 'item') {
       const d = itemDef(h.item.item);
-      if (d.drink) out.push((h.item.litres ?? 0) > 0.001 ? { keys: F, hold: true, text: '喝' } : { keys: F, hold: true, text: '空了', off: true });
-      else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : countOf(h.item) > 1 ? '吃一个' : '吃掉' });
-      else if (d.revive) out.push({ keys: F, text: '倒下时自己用上', off: true });
+      if (d.drink) out.push((h.item.litres ?? 0) > 0.001 ? { keys: F, hold: true, text: '喝' } : { keys: F, hold: true, text: '喝', off: true, why: '空了' });
+      else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : '吃' });
     }
-    // (while a list is open G puts the thing into the list, and the list says so itself)
-    if (h && !this.host.listOpen) out.push({ keys: ['G'], hold: true, text: '放下（看着车：收进车里）' });
+    // (Q and R the first three times something is in the hands; a list open: Q puts it into the list, and the list says so)
+    if (h && early && !this.host.listOpen && !this.placer?.placing) out.push({ keys: ['Q'], text: '放下' });
+    if (h && early) {
+      for (const n of this.keyNotes) {
+        const a = n(h);
+        if (a) out.push(a);
+      }
+    }
     // (a part goes where its ghost lights up: the line over the hotbar says so when it is aimed)
     // (a thing goes by the name it goes by everywhere: a kind the player does not know yet by the veil's, items.ts)
-    if (h || other) out.push({ keys: [this.sel === 0 ? '2' : '1'], text: other ? `换成${other.kind === 'part' ? partDef(other.inst.part).name.zh : other.kind === 'item' ? (itemVeil(other.item.item) ?? itemDef(other.item.item).name).zh : TOOL_INFO[other.tool.kind].name.zh}` : '空出手' });
-    out.push({ keys: ['I'], text: this.cardsOn ? '隐藏物品信息' : '显示物品信息' });
     return out;
   }
 
@@ -2174,7 +2780,7 @@ export class ModPlayer {
       const spray = t?.kind === 'spray' ? { value: sprayLeft(t), max: SPRAY_TIERS[sprayTier(t)].capacity, tone: 'good' as Tone, colour: hexCss(paintHex(t.colour ?? 0)) } : undefined;
       // (a thing that holds things: how full it is, as on its card)
       const holds = h.kind === 'item' ? itemDef(h.item.item).holds : undefined;
-      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: drinkTone(drink.liquid) } : holds && h.kind === 'item' ? boxFill(h.item, holds) : undefined);
+      const fill = spray ?? (t && liquid ? { value: t.litres ?? 0, max: TOOL_INFO[t.kind].capacity, tone: (t.kind === 'jerrycan' ? (t.fuel ?? 'petrol') : LIQUID[liquid].tone) as Tone } : drink && h.kind === 'item' ? { value: h.item.litres ?? 0, max: drink.litres, tone: drinkTone(h.item.state?.liquid ?? drink.liquid) } : holds && h.kind === 'item' ? boxFill(h.item, holds) : undefined);
       return { icon: this.host.iconOf(h), name: nameOf, empty: false, fill, count: many };
     });
   }
@@ -2224,6 +2830,18 @@ function moving(v: ModVehicle): boolean {
 /** what a held thing weighs (for the sound of putting it down) */
 function massOfHeld(h: NonNullable<Held>): number {
   return partMass(h);
+}
+
+/**
+ * A share of the walk with so much in the arms: Nomad Drive's at the light end (as fast as empty hands to 5 kg, 0.9
+ * at 10, 0.8 at 15), gentler past it — its 0.1 by 50 kg was made for its things, the heaviest of them light, and
+ * an engine here weighs 115 kg: 0.55 from 80 kg on, about a metre a second (it was 1.2 m/s for anything big).
+ */
+export function walkShare(kg: number): number {
+  if (kg <= 5) return 1;
+  if (kg <= 15) return 1 - ((kg - 5) / 10) * 0.2;
+  if (kg <= 80) return 0.8 - ((kg - 15) / 65) * 0.25;
+  return 0.55;
 }
 
 function partMass(h: Held): number {

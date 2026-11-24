@@ -89,9 +89,13 @@ try {
     spots.find((w) => !w.stripped && w.frame !== 'moto' && w.finds.length && w.hood) ??
     spots.find((w) => !w.stripped && w.frame !== 'moto' && w.hood) ??
     spots[0];
-  // (and one to get into: a driver's seat on it)
-  const ride = spots.find((w) => w.seat && w.id !== pick.id) ?? null;
+  // (and one to get into: a driver's seat on it, at a yard the plan picked for a vehicle to find — docs/V3/plan/growth.md
+  // §六 2 — and one by the road one may not: for its parts only)
+  const far = await rt('wreckSpots', 0, 90000);
+  const ride = far.find((w) => w.seat && w.takeable && w.id !== pick.id) ?? null;
+  const verge = spots.find((w) => w.seat && !w.takeable && w.id !== pick.id && w.frame !== 'moto') ?? null;
   console.log('pick', JSON.stringify(pick));
+  console.log('to take', ride ? `${ride.id} (${ride.siteKind}, ${(ride.s / 1000).toFixed(1)} km, ${ride.frame})` : '—', '· by the road', verge ? `${verge.id} (${verge.siteKind}, ${(verge.s / 1000).toFixed(1)} km)` : '—', '· finds in 90 km', far.filter((w) => w.takeable).length, 'of', far.length);
 
   // 2. gone to on foot: there as a vehicle where the world laid it
   let l = await goTo(pick);
@@ -177,24 +181,56 @@ try {
   if (!savedKept || !savedKept.kept[pick.id]) fail('the kept wreck is not in the save');
   l = await goTo(pick);
   if (!l || l.parts !== partsLeft) fail(`read back, the kept wreck is not as it was left (${l?.parts} parts, ${partsLeft})`);
-  if (!ride) fail('no wreck with a driver’s seat in 30 km');
+  // (a wreck by the road: for its parts only — got into, it says so, and one stays on foot)
+  if (!verge) fail('no wreck by the road with a driver’s seat in 30 km');
+  l = verge ? await goTo(verge) : null;
+  if (l) {
+    const seated = await rt('enter', l.index);
+    const said = await page.evaluate(() => document.body.innerText);
+    console.log('by the road', JSON.stringify({ id: verge.id, seated, said: said.includes('只能拆零件') }));
+    if (seated) fail('got into a wreck by the road: it is for its parts only');
+    if (!said.includes('只能拆零件')) fail('getting into a wreck by the road did not say it is for its parts only');
+    await standBy(l, 4.5);
+    await shot('verge_parts_only');
+  }
+  if (!ride) fail('no vehicle to find with a driver’s seat in 90 km');
   l = ride ? await goTo(ride) : null;
   if (l) {
-    const own0 = await page.evaluate(() => window.__rt.game.vehicles.length);
     const can = await page.evaluate((i) => {
       const v = window.__rt.game.vehicles[i];
       return !!v.view.frame.mounts.find((m) => m.driver && v.build.parts[m.id]);
     }, l.index);
     if (can) {
-      await rt('enter', l.index);
+      await standBy(l, 6.5);
+      // (the word said at the wreck by the road gone first)
+      await rt('simulate', 3);
+      await page.waitForTimeout(2500);
+      // (a bare frame of the plan's sort, its parts lying beside it: the engine, the radiator, the battery, the wheels)
+      const beside = await page.evaluate((i) => {
+        const g = window.__rt.game;
+        const v = g.vehicles[i];
+        const near = g.loose.list.filter((x) => x.part && Math.hypot(x.x - v.sim.px, x.z - v.sim.pz) < 7).map((x) => x.part.part);
+        return { frame: v.build.frame, engine: !!Object.values(v.build.parts).find((p) => p.part.startsWith('eng_')), near };
+      }, l.index);
+      console.log('the find', JSON.stringify(beside));
+      if (beside.engine) fail('the find has its engine in it: it should lie beside it');
+      if (beside.near.length < 4) fail(`too few parts beside the find (${beside.near.join(', ')})`);
+      await shot('find_in_the_yard');
+      const seated = await rt('enter', l.index);
       t = await wrecks();
-      if (t.list.some((x) => x.id === pick.id) || t.gone < 1) fail('got into, the wreck is not one’s own');
+      if (!seated) fail('the vehicle to find could not be got into');
+      if (t.list.some((x) => x.id === ride.id) || t.gone < 1) fail('got into, the wreck is not one’s own');
+      await shot('find_taken');
+      await page.evaluate((i) => {
+        window.__taken = window.__rt.game.vehicles[i];
+      }, l.index);
       await rt('exit');
+      // (far off and back: the one taken still about — the wrecks by the road came and went meanwhile)
       await rt('devGoKm', pick.s / 1000 + 2, false);
       await rt('simulate', 1);
-      const own1 = await page.evaluate(() => window.__rt.game.vehicles.length);
-      console.log('taken', JSON.stringify({ own0, own1, gone: (await wrecks()).gone }));
-      if (own1 < own0) fail('the wreck one took went when one left it');
+      const kept = await page.evaluate(() => window.__rt.game.vehicles.includes(window.__taken));
+      console.log('taken', JSON.stringify({ kept, gone: (await wrecks()).gone }));
+      if (!kept) fail('the wreck one took went when one left it');
     } else console.log('(no driver’s seat on it: not got into)');
   }
 
@@ -220,7 +256,7 @@ try {
   if (twice) fail(`a wreck there twice (${twice})`);
   if (seen.size < 3) fail(`too few wrecks passed in 10 km (${seen.size})`);
   // (the frame near a wreck: stepped and drawn)
-  const near = spots.find((w) => w.s > 16000 && !w.stripped) ?? spots.at(-1);
+  const near = spots.find((w) => w.s > 16000 && !w.stripped && w.id !== ride?.id) ?? spots.at(-1);
   l = await goTo(near);
   if (l) {
     await standBy(l, 8);

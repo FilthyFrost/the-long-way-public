@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 import { itemDef, itemPaint, settleItem, stampFresh, type ItemInstance } from '../../core/modcar/items';
-import { partDef } from '../../core/modcar/parts';
+import { keepInsideClean, partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import { paintNow, sprayTier } from '../../core/modcar/paint';
 import { toolModelId, type Tool } from '../../core/modcar/tools';
@@ -189,6 +189,7 @@ export function paintBaseOf(inst: PartInstance): number {
 
 /** what an engine block, a seat frame or a lamp housing is painted at the factory (as on a vehicle; a panel by its style) */
 export function partLook(inst: PartInstance): LookOf {
+  keepInsideClean(inst);
   const own = inst.paint >= 0;
   const base = own ? paintNow(inst, 0x8f3a2c) : 0x8f3a2c;
   const style = partDef(inst.part).panel?.style;
@@ -230,6 +231,8 @@ export class LooseThings {
   private readonly grimeHeld = new Set<string>();
   /** the things a spray can is on (their colour moving every frame, their flash): drawn on their own */
   private readonly paintHeld = new Set<string>();
+  /** the things a system animates (keepApart): drawn on their own */
+  private readonly apart = new Set<string>();
   private readonly sphere = new THREE.Sphere();
   private readonly ray = new THREE.Ray();
   private readonly hit = new THREE.Vector3();
@@ -508,7 +511,7 @@ export class LooseThings {
     const matte = new Map<number, Entry[]>();
     for (const l of this.list) {
       // (what rides on a vehicle moves with it: not merged; what is being cleaned has its mask)
-      if (l.riding || this.grimeHeld.has(l.uid) || this.paintHeld.has(l.uid)) continue;
+      if (l.riding || this.grimeHeld.has(l.uid) || this.paintHeld.has(l.uid) || this.apart.has(l.uid)) continue;
       const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
       // (a gloss of its own: with the others of that gloss)
       if (look.matte !== undefined) {
@@ -587,18 +590,36 @@ export class LooseThings {
     this.unmerge();
   }
 
-  /** where a thing starting to fall at (x, y, z) lands: the floor, or a vehicle under it if that is higher */
+  /** where a thing starting to fall at (x, y, z) lands: the floor, or a vehicle under it if that is higher — its box's lowest point on it (most models' origin is not at their bottom: docs/V3/plan/hands.md §〇.3) */
   private landingOf(l: Loose): { y: number; on: Carrier | null } {
-    let y = this.surfaceAt(l.x, l.z, l.y + 0.05);
+    const low = this.bottomOf(l);
+    let y = this.surfaceAt(l.x, l.z, l.y + low + 0.05);
     let on: Carrier | null = null;
     for (const c of this.carriers()) {
-      const s = c.surfaceAt(l.x, l.z, l.y + 0.05);
+      const s = c.surfaceAt(l.x, l.z, l.y + low + 0.05);
       if (s !== null && s > y) {
         y = s;
         on = c;
       }
     }
-    return { y, on };
+    return { y: y - low, on };
+  }
+
+  /** how far a thing's lowest point is above its origin (m; below it: less than 0), as its model stands */
+  bottomOf(l: Loose): number {
+    this.hitBoxOf(l);
+    return this.hitBoxes.get(l.obj)?.low ?? 0;
+  }
+
+  /** it stays where it is now, at rest (put down just so: nothing to fall) */
+  rest(l: Loose): void {
+    l.resting = true;
+    l.vy = 0;
+    l.riding = null;
+    l.landing = undefined;
+    this.rev++;
+    this.unmerge();
+    this.mergeDirty = true;
   }
 
   /** it lies on a carrier from now on, where it is (or at a place in the carrier's frame already known) */
@@ -771,6 +792,17 @@ export class LooseThings {
     this.unmerge();
   }
 
+  /**
+   * A system animates something of the thing's own model (docs/ND/PLAN.md: a coffee machine's lid, a fridge's door, a camera's print):
+   * it is drawn on its own, never merged, while kept apart.
+   */
+  keepApart(uid: string, on: boolean): void {
+    if (this.apart.has(uid) === on) return;
+    if (on) this.apart.add(uid);
+    else this.apart.delete(uid);
+    this.unmerge();
+  }
+
   /** a thing is being cleaned (its mask on) or not: the merge goes without it, or with it */
   setGrimeHeld(uid: string, on: boolean): void {
     if (this.grimeHeld.has(uid) === on) return;
@@ -779,25 +811,109 @@ export class LooseThings {
     this.unmerge();
   }
 
+  /** the thing whose dirt is lit now (looked at with a cleaning tool: docs/V3/plan/hands.md §五) */
+  private shownHere = '';
+  setShowHere(uid: string | null): void {
+    const u = uid ?? '';
+    if (u === this.shownHere) return;
+    for (const l of this.list) {
+      if (l.uid !== u && l.uid !== this.shownHere) continue;
+      const own = ownerOf(l);
+      this.mats.lookOf(own)?.setShowHere(l.uid === u);
+      this.mats.lookOf(`${own}+tire`)?.setShowHere(l.uid === u);
+    }
+    this.shownHere = u;
+  }
+
   /** a part's look as it is now (the masks bind to it) */
   lookOfOwner(owner: string): CarLook | undefined {
     return this.mats.lookOf(owner);
   }
 
-  /** the nearest thing the ray from eye along dir passes through, within maxDist (world coordinates) */
+  /** each thing's box as its model stands, in its own frame, and how many children it had when measured (a model come in: again) */
+  private readonly hitBoxes = new WeakMap<THREE.Object3D, { box: THREE.Box3; n: number; low: number }>();
+  private readonly hbInv = new THREE.Matrix4();
+  private readonly hbRel = new THREE.Matrix4();
+  private readonly hbBox = new THREE.Box3();
+  private readonly hbRay = new THREE.Ray();
+  private readonly hbP = new THREE.Vector3();
+  private readonly hbSize = new THREE.Vector3();
+  private readonly hbO = new THREE.Vector3();
+
+  /** a thing's box for the hand's ray (its own frame): its model's, 1.5 cm larger all round, never under 8 cm a side; null: its model is not in yet */
+  hitBoxOf(l: Loose): THREE.Box3 | null {
+    const was = this.hitBoxes.get(l.obj);
+    if (was && was.n === l.obj.children.length) return was.box.isEmpty() ? null : was.box;
+    const box = new THREE.Box3();
+    l.obj.updateMatrixWorld(true);
+    this.hbInv.copy(l.obj.matrixWorld).invert();
+    l.obj.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || o === l.obj) return;
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      this.hbRel.multiplyMatrices(this.hbInv, mesh.matrixWorld);
+      box.union(this.hbBox.copy(mesh.geometry.boundingBox!).applyMatrix4(this.hbRel));
+    });
+    const low = box.isEmpty() ? 0 : box.min.y;
+    if (!box.isEmpty()) {
+      box.expandByScalar(0.015);
+      const c = box.getCenter(new THREE.Vector3());
+      const s = box.getSize(new THREE.Vector3()).max(new THREE.Vector3(0.08, 0.08, 0.08)).multiplyScalar(0.5);
+      box.min.copy(c).sub(s);
+      box.max.copy(c).add(s);
+    }
+    this.hitBoxes.set(l.obj, { box, n: l.obj.children.length, low });
+    return box.isEmpty() ? null : box;
+  }
+
+  /**
+   * The nearest thing the ray from eye along dir passes through, within maxDist (world coordinates): on its own
+   * box as it lies (hitBoxOf; its sphere while its model is not in)
+   */
   pick(eye: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDist: number, filter?: (l: Loose) => boolean): { loose: Loose; dist: number } | null {
     let best: Loose | null = null;
     let bd = maxDist;
     this.ray.origin.set(eye.x, eye.y, eye.z);
     this.ray.direction.set(dir.x, dir.y, dir.z).normalize();
+    const o = this.core.origin;
     for (const l of this.list) {
       // (one a system works as a device: its device is what the mark finds; one shut in a container: not reached)
       if (l.device || l.shut || (filter && !filter(l))) continue;
+      // (the sphere round it first, a little larger than it)
       this.sphere.center.set(l.x, l.y + l.mid, l.z);
-      this.sphere.radius = l.radius * 0.85;
-      const p = this.ray.intersectSphere(this.sphere, this.hit);
-      if (!p) continue;
-      const d = p.distanceTo(this.ray.origin);
+      this.sphere.radius = l.radius * 1.3 + 0.08;
+      if (!this.ray.intersectsSphere(this.sphere)) continue;
+      const box = this.hitBoxOf(l);
+      let d: number;
+      if (box) {
+        // the ray into its own frame (render space: the things hang at their world positions under a root at the origin)
+        this.hbInv.copy(l.obj.matrixWorld).invert();
+        this.hbRay.origin.set(eye.x - o.x, eye.y - o.y, eye.z - o.z).applyMatrix4(this.hbInv);
+        this.hbRay.direction.copy(this.ray.direction).transformDirection(this.hbInv);
+        const p = this.hbRay.intersectBox(box, this.hbP);
+        if (!p) continue;
+        p.applyMatrix4(l.obj.matrixWorld);
+        d = Math.hypot(p.x + o.x - eye.x, p.y + o.y - eye.y, p.z + o.z - eye.z);
+        // (a big thing: its own meshes — its box would stick out through what it lies behind)
+        const sz = box.getSize(this.hbSize);
+        if (Math.max(sz.x, sz.y, sz.z) > 0.35) {
+          const ro = this.hbO.set(eye.x - o.x, eye.y - o.y, eye.z - o.z);
+          let md = Infinity;
+          l.obj.traverse((ob) => {
+            const mesh = ob as THREE.Mesh;
+            if (!mesh.isMesh) return;
+            const h = castMesh(mesh, ro, this.ray.direction, Math.min(bd, md));
+            if (h && h.dist < md) md = h.dist;
+          });
+          if (!Number.isFinite(md)) continue;
+          d = md;
+        }
+      } else {
+        this.sphere.radius = l.radius * 0.85;
+        const p = this.ray.intersectSphere(this.sphere, this.hit);
+        if (!p) continue;
+        d = p.distanceTo(this.ray.origin);
+      }
       if (d < bd) {
         bd = d;
         best = l;

@@ -11,8 +11,11 @@ export interface Assists {
   autoReverse: boolean;
   /** the holograms where a part in the hands can go */
   ghosts: boolean;
-  /** the stat card beside a ghost */
-  card: boolean;
+  /**
+   * the before → after card at a part's place (off by default since docs/V3/plan/prompts.md §五 4: the whole card is
+   * for what lies on the ground; a new name, so a choice kept from before is not taken for this one)
+   */
+  compare: boolean;
   /** the checklist and the marker over its next thing */
   guide: boolean;
   /** hunger, thirst, the cold and the bladder go on (off: one stays fed and warm) */
@@ -24,13 +27,13 @@ export const ASSIST_LABELS: [keyof Assists, string][] = [
   ['autoHold', '停稳后自动踩住刹车（车里有人时）'],
   ['autoReverse', '停稳后按 S 直接倒车'],
   ['ghosts', '零件幽灵（能装的位置亮起来）'],
-  ['card', '属性卡（旧值 → 新值）'],
+  ['compare', '装件时的属性对比（旧值 → 新值）'],
   ['guide', '任务和指引小旗'],
   ['needs', '生存：会饿、会渴、会冷'],
 ];
 
 /** the hardcore default: the handbrake stays on until one releases it; the rest helps */
-export const DEFAULT_ASSISTS: Assists = { autoRelease: false, autoHold: true, autoReverse: true, ghosts: true, card: true, guide: true, needs: true };
+export const DEFAULT_ASSISTS: Assists = { autoRelease: false, autoHold: true, autoReverse: true, ghosts: true, compare: false, guide: true, needs: true };
 
 const KEY = 'modcar.assists';
 

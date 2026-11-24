@@ -74,11 +74,11 @@ try {
     }
   };
 
-  // ---- a part off with F held: the game goes on, the part is in the hands
+  // ---- a part off with the left button held (docs/V3/plan/growth.md J1): the game goes on, the part is in the hands
   await rt('aim', 1, 'door_FL', 1.3);
-  await page.keyboard.down('KeyF');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.waitForTimeout(3000);
-  await page.keyboard.up('KeyF');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   await running('after taking the door off');
   const off = await tele();
   if (off.held !== 'door_stock') fail(`the door is not in the hands (${off.held})`);
@@ -88,13 +88,13 @@ try {
   if (!(await rt('aimCap', 0))) fail('no filler on the sedan');
   let t = await tele();
   if (t.target !== `cap:${await page.evaluate(() => window.__rt.game.vehicles[0].build.uid)}`) fail(`aimed at the flap, the mark is on ${t.target}`);
-  await page.keyboard.press('KeyE');
+  await page.evaluate(() => window.__rt.press());
   await waitFor(async () => (await rt('filler', 0)).amount > 0.85, 3000, 'E did not open the flap');
   await rt('setOrbit', 115, 12, 2.6, 0.6, 0);
   await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(out, 'flap_open.png') });
   await rt('aimCap', 0);
-  await page.keyboard.press('KeyE');
+  await page.evaluate(() => window.__rt.press());
   await waitFor(async () => (await rt('filler', 0)).amount < 0.15, 3000, 'E did not shut the flap');
   await running('the flap');
 
@@ -104,19 +104,20 @@ try {
   t = await tele();
   if (!String(t.target).startsWith('filler:')) fail(`with the can at the shut flap, the mark is on ${t.target}`);
   const shut0 = litres(await rt('filler', 0));
-  await page.keyboard.down('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.waitForTimeout(900);
-  await page.keyboard.up('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   if (litres(await rt('filler', 0)) - shut0 > 0.01) fail('fuel went in through the shut flap');
   if ((await rt('filler', 0)).open) fail('the can opened the flap (it is opened by hand)');
-  if (!/空手按 E 打开/.test((await hud()).acts)) fail(`no word on opening the flap by hand: ${(await hud()).acts}`);
+  // (said as the button goes down, over the hotbar: docs/V3/plan/prompts.md §五)
+  if (!/先开加油口盖/.test((await hud()).done)) fail(`no word on opening the flap first: ${JSON.stringify(await hud())}`);
   await page.screenshot({ path: path.join(out, 'can_flap_shut.png') });
 
   // ---- the other slot (empty hands), E on the flap, the can again: it goes to the filler by itself
   await page.keyboard.press('Digit2');
   await waitFor(async () => (await tele()).held === '', 2000, '2 did not empty the hands');
   await rt('aimCap', 0);
-  await page.keyboard.press('KeyE');
+  await page.evaluate(() => window.__rt.press());
   await waitFor(async () => (await rt('filler', 0)).open, 2000, 'the flap did not open by hand');
   await page.keyboard.press('Digit1');
   await waitFor(async () => (await tele()).held === 'tool:jerrycan', 2000, '1 did not bring the can back');
@@ -131,7 +132,7 @@ try {
   const before = litres(await rt('filler', 0));
   const can0 = await canL();
   const foot0 = await tele();
-  await page.keyboard.down('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(1600);
   const look0 = await page.evaluate(() => window.__rt.game.input.lookYaw);
@@ -145,7 +146,7 @@ try {
   const pouring = await rt('filler', 0);
   const foot1 = await tele();
   await page.keyboard.up('KeyW');
-  await page.keyboard.up('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   console.log('pouring', JSON.stringify({ tank: litres(pouring) - before, can: can0 - (await canL()), moved: Math.hypot(foot1.footX - foot0.footX, foot1.footZ - foot0.footZ), turned: look1 - look0, stream: streamOn, tipped: pd.pouring, strip: pouringHud.xfer }));
   if (litres(pouring) - before < 2) fail(`only ${(litres(pouring) - before).toFixed(2)} L went in`);
   if (Math.hypot(foot1.footX - foot0.footX, foot1.footZ - foot0.footZ) > 0.02) fail('one walked off while pouring');
@@ -163,10 +164,10 @@ try {
   // ---- the right button (F) held: it comes back out into the can
   const tank1 = litres(await rt('filler', 0));
   const can1 = await canL();
-  await page.keyboard.down('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = true));
   await page.waitForTimeout(1200);
   const siphonHud = await hud();
-  await page.keyboard.up('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = false));
   const tank2 = litres(await rt('filler', 0));
   const can2 = await canL();
   console.log('drawn out', JSON.stringify({ tank: tank1 - tank2, can: can2 - can1, strip: siphonHud.xfer }));
@@ -177,11 +178,11 @@ try {
   // ---- held at the boot instead: nothing goes in, the words say where the filler is
   await rt('aim', 0, 'trunk', 1.4);
   const atBoot = litres(await rt('filler', 0));
-  await page.keyboard.down('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.waitForTimeout(1000);
-  await page.keyboard.up('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   if (litres(await rt('filler', 0)) - atBoot > 0.01) fail('fuel went in through the boot');
-  if (!/加油口在/.test((await hud()).acts)) fail(`no word on where the filler is: ${(await hud()).acts}`);
+  if (!/对着加油口/.test((await hud()).done)) fail(`no word on where the filler is: ${JSON.stringify(await hud())}`);
 
   // ---- the others: the pickup (a diesel can), the motorcycle (its tank cap by hand), the motorhome
   for (const [vi, fuel] of [
@@ -195,15 +196,15 @@ try {
       fail(`vehicle ${vi}: no filler`);
       continue;
     }
-    await page.keyboard.press('KeyE');
+    await page.evaluate(() => window.__rt.press());
     await waitFor(async () => (await rt('filler', vi)).open, 2000, `vehicle ${vi}: E did not open its filler`);
     await rt('hold', 'tool:jerrycan', { fuel, litres: 20 });
     await rt('aimCap', vi);
     const tt = await tele();
     const b0 = litres(await rt('filler', vi));
-    await page.keyboard.down('KeyE');
+    await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
     await page.waitForTimeout(1500);
-    await page.keyboard.up('KeyE');
+    await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
     const b1 = litres(await rt('filler', vi));
     const frame = await page.evaluate((vi) => window.__rt.game.vehicles[vi].build.frame, vi);
     console.log(frame, tt.target, `+${(b1 - b0).toFixed(2)} L`);
@@ -221,14 +222,14 @@ try {
   if (!String(t.target).startsWith('filler:')) fail(`the bottle at the radiator: the mark is on ${t.target}`);
   const water = () => page.evaluate(() => window.__rt.game.vehicles[0].build.parts.radiator?.fluids.coolantL ?? 0);
   const w0 = await water();
-  await page.keyboard.down('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = true));
   await page.waitForTimeout(1500);
-  await page.keyboard.up('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = false));
   const w1 = await water();
-  await page.keyboard.down('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(out, 'water.png') });
-  await page.keyboard.up('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   const w2 = await water();
   console.log('water', JSON.stringify({ w0, w1, w2 }));
   if (w0 - w1 < 0.5) fail('no water came out of the radiator');
@@ -242,14 +243,14 @@ try {
   if (!String(t.target).startsWith('filler:')) fail(`the oil can at the engine: the mark is on ${t.target}`);
   const oil = () => page.evaluate(() => window.__rt.game.vehicles[1].build.parts.engine?.fluids.oilL ?? 0);
   const o0 = await oil();
-  await page.keyboard.down('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = true));
   await page.waitForTimeout(1500);
-  await page.keyboard.up('KeyF');
+  await page.evaluate(() => (window.__rt.game.rightButton = false));
   const o1 = await oil();
-  await page.keyboard.down('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.press('mouse'); g.leftDown = true; });
   await page.waitForTimeout(1500);
   await page.screenshot({ path: path.join(out, 'oil.png') });
-  await page.keyboard.up('KeyE');
+  await page.evaluate(() => { const g = window.__rt.game; g.player.release('mouse'); g.leftDown = false; });
   const o2 = await oil();
   console.log('oil', JSON.stringify({ o0, o1, o2 }));
   if (o0 - o1 < 0.3) fail('no oil came out of the engine');

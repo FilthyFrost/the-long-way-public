@@ -18,9 +18,9 @@ import { mountsFor } from '../../core/modcar/build';
 import { boostedCurve } from '../../core/modcar/derive';
 import { CAT_LABEL, FRAMES } from '../../core/modcar/frames';
 import { PALETTE, paintHex } from '../../core/modcar/palette';
-import { SPRAY_TIERS, sprayLeft, sprayTier } from '../../core/modcar/paint';
+import { GUN_NOZZLE, nozzleOf, SPRAY_TIERS, sprayLeft, sprayTier } from '../../core/modcar/paint';
 import { kmLeft, TYRE_STAGES, tyreStage } from '../../core/modcar/tyres';
-import { COFFEE_QUENCH } from '../../core/modcar/vitals';
+import { COFFEE_QUENCH, MILK_FOOD, MILK_WATER } from '../../core/modcar/vitals';
 import { partDef, PARTS } from '../../core/modcar/parts';
 import { crankProblems, driveProblems, runProblems, warnings } from '../../core/modcar/rules';
 import { quickPerf, type StatLine } from '../../core/modcar/stats';
@@ -404,8 +404,8 @@ export function partCard(inst: PartInstance, ctx: PartContext = {}): ItemCard {
   }
   const s = salvageText(partSalvage(inst));
   if (s) row(s, '回收能得');
-  if (inst.rust > 0.25) card.notes.push({ text: `锈了 ${pct(inst.rust)}：用钢丝刷刷一刷`, tone: 'info' });
-  else if (inst.dirt > 0.4) card.notes.push({ text: '有点脏：用海绵擦一擦', tone: 'info' });
+  if (inst.rust > 0.25) card.notes.push({ text: `锈 ${pct(inst.rust)}`, tone: 'info' });
+  else if (inst.dirt > 0.4) card.notes.push({ text: '有点脏', tone: 'info' });
   return card;
 }
 
@@ -445,28 +445,26 @@ export function toolCard(t: Tool): ItemCard {
   if (t.kind === 'jerrycan') {
     card.bars.push(fuelBar('液体含量', { [t.fuel ?? 'petrol']: l }, info.capacity));
     card.rows.push({ value: `${info.rate} L/秒`, label: '倒得多快' });
-    card.notes.push({ text: '对着打开的加油口按住 E 加油；按住右键把油抽回桶里', tone: 'info' });
   } else if (t.kind === 'bottle') {
     card.bars.push({ label: '液体含量', value: l, max: info.capacity, text: `${L(l)} / ${L(info.capacity)} L`, tone: 'water', parts: [{ tone: 'water', value: l, text: `${L(l)} L 水` }] });
     card.rows.push({ value: `${info.rate} L/秒`, label: '倒得多快' });
-    card.notes.push({ text: '打开引擎盖，对着散热器的水箱盖按住 E 加水；在水龙头那里灌满', tone: 'info' });
   } else if (t.kind === 'oilcan') {
     card.bars.push({ label: '液体含量', value: l, max: info.capacity, text: `${L(l)} / ${L(info.capacity)} L`, tone: 'oil', parts: [{ tone: 'oil', value: l, text: `${L(l)} L 机油` }] });
     card.rows.push({ value: `${info.rate} L/秒`, label: '倒得多快' });
-    card.notes.push({ text: '打开引擎盖，对着发动机上的机油盖按住 E 加机油', tone: 'info' });
   } else if (t.kind === 'spray') {
-    // (Arctic Drive's: the paint left, a part's worth at a time; the can's colour)
+    // (the paint left, in the can's colour; how long it sprays yet with the nozzle it is set to: coat.ts)
     const size = SPRAY_TIERS[sprayTier(t)];
     const left = sprayLeft(t);
+    const nz = nozzleOf(t);
     card.bars.push({ label: '剩余漆量', value: left, max: size.capacity, text: `${Math.ceil(left - 1e-6)} / ${size.capacity}`, tone: 'good', colour: hexCss(paintHex(t.colour ?? 0)) });
     card.rows.push({ value: PALETTE[t.colour ?? 0]?.name.zh ?? '', label: '颜色' });
-    card.rows.push({ value: `${(1 / size.speed).toFixed(1)} 秒`, label: '喷好一个部件' });
-    card.rows.push({ value: left > 0 ? `约 ${Math.max(1, Math.round(left * size.speed))} 个` : '0 个', label: '还能喷' });
-    if (left <= 0) card.notes.push({ text: '空了：丢进回收台', tone: 'warn' });
-    else card.notes.push({ text: '对着车身、车门、引擎盖、尾门、保险杠、后视镜按住左键；已经是这个颜色的不耗漆', tone: 'info' });
+    card.rows.push({ value: nz.zh, label: (t.nozzle ?? 3) === GUN_NOZZLE ? '喷嘴（喷枪）' : '喷嘴' });
+    card.rows.push({ value: left > 0 ? `约 ${Math.max(1, Math.round(left / nz.use))} 秒` : '0 秒', label: '还能喷' });
+    if (left <= 0) card.notes.push({ text: '空了', tone: 'warn' });
+    else {
+    }
   } else if (t.kind === 'scraper') {
     card.rows.push({ value: `${Math.round(SCRAPERS[t.tier ?? 1].width * 100)} cm`, label: '刀口宽' });
-    card.notes.push({ text: '按住左键刮：车窗、车身上糊死的泥壳；鼠标带着走，来回两三遍', tone: 'info' });
   }
   const s = salvageText(toolSalvage(t));
   if (s) card.rows.push({ value: s, label: '回收能得' });
@@ -477,11 +475,11 @@ export function toolCard(t: Tool): ItemCard {
 
 const ITEM_ICON: Record<ItemCat, CardIcon> = { food: 'food', drink: 'drink', med: 'med', wear: 'wear', pack: 'pack', lamp: 'electric', gear: 'tool', junk: 'box', crate: 'box' };
 const SLOT_ZH: Record<WearSlot, string> = { hat: '戴在头上', jacket: '穿在身上', pants: '穿在腿上', shoes: '穿在脚上', gloves: '戴在手上' };
-const DRINK_ZH = { water: '水', alcohol: '酒', energy: '能量饮料', coffee: '咖啡' } as const;
+const DRINK_ZH = { water: '水', alcohol: '酒', energy: '能量饮料', coffee: '咖啡', milk: '牛奶' } as const;
 
 /** the colour of a drink's bar: water blue, spirits the two-stroke's, coffee the oil's brown, the energy drink the charge's */
 export function drinkTone(liquid: DrinkLiquid): Tone {
-  return liquid === 'water' ? 'water' : liquid === 'alcohol' ? 'mix2t' : liquid === 'coffee' ? 'oil' : 'charge';
+  return liquid === 'water' || liquid === 'milk' ? 'water' : liquid === 'alcohol' ? 'mix2t' : liquid === 'coffee' ? 'oil' : 'charge';
 }
 
 /** what the recycler gives for it, in words ("20 废料 · 8 有机物"), or '' for nothing */
@@ -670,13 +668,19 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
   }
   if (d.eat?.effect === 'warm1' || d.eat?.effect === 'warm2') card.notes.push({ text: `吃完身上暖和一阵（${d.eat.effect === 'warm2' ? '5' : '3'} 分钟）`, tone: 'ok' });
   if (d.eat?.effect === 'sick1' || d.eat?.effect === 'sick2') card.notes.push({ text: '吃了会闹肚子：一阵子掉水分', tone: 'warn' });
+  if (d.eat?.water) card.rows.push({ value: `+${d.eat.water}`, label: '解渴', tone: 'good' });
   if (d.drink) {
     const l = inst.litres ?? 0;
-    const tone = drinkTone(d.drink.liquid);
-    card.bars.push({ label: '还剩', value: l, max: d.drink.litres, text: `${l.toFixed(2)} / ${d.drink.litres} L`, tone, parts: [{ tone, value: l, text: `${l.toFixed(2)} L ${DRINK_ZH[d.drink.liquid]}` }] });
-    if (d.drink.liquid === 'water') card.rows.push({ value: '+10', label: '解渴（每 0.1 L）', tone: 'good' });
-    else if (d.drink.liquid === 'alcohol') card.notes.push({ text: '喝了会醉：看东西晃，手脚慢半拍，但不怕冷', tone: 'warn' });
-    else if (d.drink.liquid === 'coffee') {
+    // (what is in it: its own where it can hold any — a bucket of rain, a mug of milk: core/v3/nd/water.ts)
+    const q = inst.state?.liquid ?? d.drink.liquid;
+    const tone = drinkTone(q);
+    card.bars.push({ label: '还剩', value: l, max: d.drink.litres, text: `${l.toFixed(2)} / ${d.drink.litres} L`, tone, parts: [{ tone, value: l, text: `${l.toFixed(2)} L ${DRINK_ZH[q]}` }] });
+    if (q === 'water') card.rows.push({ value: '+10', label: '解渴（每 0.1 L）', tone: 'good' });
+    else if (q === 'milk') {
+      card.rows.push({ value: `+${MILK_FOOD}`, label: '饱腹（每升）', tone: 'good' });
+      card.rows.push({ value: `+${MILK_WATER}`, label: '解渴（每升）', tone: 'good' });
+    } else if (q === 'alcohol') card.notes.push({ text: '喝了会醉：看东西晃，手脚慢半拍，但不怕冷', tone: 'warn' });
+    else if (q === 'coffee') {
       card.rows.push({ value: `+${COFFEE_QUENCH}`, label: '解渴（每 0.1 L）', tone: 'good' });
       card.notes.push({ text: '提神暖身：喝了身上暖和 3 分钟，半分钟里跑得快一半', tone: 'ok' });
     } else card.notes.push({ text: '喝完半分钟里跑得快一半，但不解渴', tone: 'ok' });
@@ -685,8 +689,9 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
     if (d.heal.hp > 0) card.rows.push({ value: `+${d.heal.hp}`, label: '生命（马上）', tone: 'good' });
     if (d.heal.warm) card.rows.push({ value: `+${d.heal.warm} °C`, label: '体温', tone: 'good' });
     if (d.heal.side) card.notes.push({ text: `${Math.round(d.heal.side * 100)}% 会有副作用（醉或中毒）`, tone: 'warn' });
+    if (d.heal.cure) card.notes.push({ text: '吃坏了的肚子也能治好', tone: 'ok' });
   }
-  if (d.revive) card.notes.push({ text: `带在身上：倒下时自动用掉，站起来时生命 ${d.revive.hp}`, tone: 'ok' });
+  if (d.revive) card.notes.push({ text: `倒下时自动用上 · 生命 ${d.revive.hp}`, tone: 'ok' });
   if (d.wear) card.rows.push({ value: `+${d.wear.warmth}`, label: `保暖 · ${SLOT_ZH[d.wear.slot]}`, tone: 'good' });
   if (d.pack) card.rows.push({ value: `+${d.pack.slots} 格`, label: '快捷栏', tone: 'good' });
   if (d.lamp) card.rows.push({ value: `${d.lamp.range} m`, label: '照多远' });
@@ -720,7 +725,8 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
       }
       if (ins.length > INSIDE_ROWS) card.rows.push({ value: `+${ins.length - INSIDE_ROWS}`, label: '还有别的' });
     } else card.notes.push({ text: '空的', tone: 'info' });
-    if (h.decay !== undefined && h.decay !== 1) card.notes.push({ text: h.decay <= 0 ? '放在里面的东西不会坏' : `放在里面的东西坏得${h.decay < 1 ? '慢' : '快'}：平时的 ${Math.round(h.decay * 100)}%`, tone: h.decay < 1 ? 'ok' : 'warn' });
+    if (inst.state?.unpowered) card.notes.push({ text: '没电了：里面和外面坏得一样快', tone: 'warn' });
+    else if (h.decay !== undefined && h.decay !== 1) card.notes.push({ text: h.decay <= 0 ? '里面不会坏' : `里面坏得${h.decay < 1 ? '慢' : '快'} · ${Math.round(h.decay * 100)}%`, tone: h.decay < 1 ? 'ok' : 'warn' });
   }
   const s = salvageText(salvageOf(inst));
   if (s) card.rows.push({ value: s, label: '回收能得' });
@@ -846,12 +852,14 @@ export function vehicleCard(v: ModVehicle): ItemCard {
   }
   const bat = at('battery');
   if (bat) card.bars.push({ label: '电瓶', value: bat.fluids.charge ?? 0, max: 1, text: pct(bat.fluids.charge ?? 0), tone: 'charge' });
+  const house = at('houseBattery');
+  if (house) card.bars.push({ label: '生活电瓶', value: house.fluids.charge ?? 0, max: 1, text: pct(house.fluids.charge ?? 0), tone: 'charge' });
   // what it still needs: the blocking problems first, then what it will suffer from
   const block = [...crankProblems(b), ...runProblems(b).filter((p) => p.severity === 'block'), ...driveProblems(b)];
   const warn = [...runProblems(b).filter((p) => p.severity === 'warn'), ...warnings(b)];
   for (const p of block.slice(0, 3)) card.notes.push({ text: p.text.zh, tone: 'warn' });
   if (block.length > 3) card.notes.push({ text: `还有 ${block.length - 3} 个问题`, tone: 'warn' });
-  if (!block.length) card.notes.push({ text: '能开：上车，按住 K 打火', tone: 'ok' });
+  if (!block.length) card.notes.push({ text: '能开', tone: 'ok' });
   for (const p of warn.slice(0, block.length ? 1 : 2)) card.notes.push({ text: p.text.zh, tone: 'info' });
   return card;
 }
@@ -860,7 +868,7 @@ export function vehicleCard(v: ModVehicle): ItemCard {
  * A part held up to a mount: the vehicle as it is against the vehicle with the part on it (stats.ts
  * compare), and what would come off into the hands.
  */
-export function fitCard(v: ModVehicle, mountLabel: string, inst: PartInstance, lines: StatLine[], replaced: PartInstance | null, warn?: string): ItemCard {
+export function fitCard(v: ModVehicle, mountLabel: string, inst: PartInstance, lines: StatLine[]): ItemCard {
   const frame = v.view.frame;
   const s = (x: StatLine['before']): string => (typeof x === 'string' ? x : x.zh);
   const card: ItemCard = {
@@ -869,15 +877,16 @@ export function fitCard(v: ModVehicle, mountLabel: string, inst: PartInstance, l
     cat: `装上之后 · ${frame.name.zh}的${mountLabel}`,
     name: partDef(inst.part).name.zh,
     stars: 0,
-    badges: replaced ? [{ text: `换下来的 ${partDef(replaced.part).name.zh} 到手上`, tone: 'note' }] : [],
+    badges: [],
     blurb: '',
     // (only what it changes)
     rows: lines.filter((l) => l.note || s(l.before) !== s(l.after)).map((l) => (l.note ? { value: s(l.after), label: l.label.zh } : { value: s(l.after), from: s(l.before), label: l.label.zh, tone: l.better > 0 ? 'good' : l.better < 0 ? 'bad' : undefined })),
     bars: [],
-    notes: warn ? [{ text: warn, tone: 'warn' }] : [],
+    // (what stops it going on is said when the button is pressed, not here: docs/V3/plan/prompts.md §五)
+    notes: [],
     foot: {},
   };
-  if (!card.rows.length && !warn) card.notes.push({ text: '装上之后各项数值不变', tone: 'info' });
+  if (!card.rows.length) card.notes.push({ text: '数值不变', tone: 'info' });
   return card;
 }
 
@@ -896,7 +905,7 @@ export function deviceCard(dv: GarageDevice): ItemCard {
     blurb: info?.zh ?? '',
     rows: [],
     bars: [],
-    notes: [{ text: dv.state?.zh ?? dv.word.zh, tone: 'info' }],
+    notes: dv.state ? [{ text: dv.state.zh, tone: 'info' }] : [],
     foot: {},
   };
 }

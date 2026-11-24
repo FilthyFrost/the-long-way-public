@@ -173,7 +173,7 @@ const MEASURE_PX = 112;
 
 // ------------------------------------------------------------------ the passes' shaders
 
-const UV_VERTEX = /* glsl */ `
+export const UV_VERTEX = /* glsl */ `
   attribute vec2 aMaskUv;
   varying vec3 vW;
   varying vec3 vN;

@@ -23,7 +23,7 @@ import { frameDef } from './frames';
 import { BASE_ITEMS, type ItemCat } from './items';
 import { BASIC_PAINTS, PALETTE } from './palette';
 import { sprayFound } from './paint';
-import { partDef, PARTS } from './parts';
+import { keepInsideClean, partDef, PARTS } from './parts';
 import { newTool, type Tool } from './tools';
 import type { Build, FrameDef, MountDef, PartDef, PartInstance } from './types';
 
@@ -43,7 +43,7 @@ const WHEEL_KEEP_STRIPPED = 0.22;
 /** what only a motorcycle's own fits a motorcycle (its wheels, bars, saddle, box, lever, tank), and a car's nothing of these of a motorcycle's */
 const MOTO_OWN: ReadonlySet<string> = new Set(['rim', 'tire', 'steering', 'seat', 'gearbox', 'gearLever', 'fuelTank', 'brakes']);
 
-const FOUR_WHEELS = ['sedan', 'pickup', 'rv', 'rhino', 'buffalo', 'snail', 'fox', 'wagon', 'goat', 'van'];
+const FOUR_WHEELS = ['sedan', 'pickup', 'rv', 'rhino', 'buffalo', 'snail', 'fox', 'wagon', 'goat', 'van', 'turtle', 'elephant', 'camel'];
 
 /** the grade of a plain part's roll (★1 … ★3): the works' part, a worse one, another car's */
 const PLAIN = [0.28, 0.57, 0.15];
@@ -231,6 +231,8 @@ function weatherPart(inst: PartInstance, r: Rng): void {
   inst.dirt = 0.5 + 0.45 * r.next();
   inst.rust = 0.15 + 0.55 * r.next();
   inst.crust = 0.1 + 0.45 * r.next();
+  // (what goes inside a car is clean however it was found: docs/V3/plan/hands.md §五)
+  keepInsideClean(inst);
 }
 
 /** a new part in place of what is on a mount (a panel takes the frame's shape; a wheel keeps its tyre) */
@@ -248,9 +250,10 @@ function swapIn(b: Build, f: FrameDef, mount: string, id: string): PartInstance 
 
 /**
  * The wreck with this seed (its id's hash), of the world's kind `type`, stripped long ago or not, lying `s`
- * metres down the road (its finds)
+ * metres down the road (its finds). A vehicle to find (`find`: one of the plan's, docs/V3/plan/growth.md §六 2) keeps its
+ * driver's seat — one gets into it to make it one's own — and is otherwise the same.
  */
-export function rollWreck(seed: number, type: number, stripped: boolean, s: number): WreckRoll {
+export function rollWreck(seed: number, type: number, stripped: boolean, s: number, find = false): WreckRoll {
   const r = new Rng(hash2(seed | 0, 0x5eed, 0x3c));
   const frameId = wreckFrame(type, seed);
   const f = frameDef(frameId);
@@ -408,7 +411,90 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
     }
     if (r.chance(0.08)) tools.push(newTool('jerrycan', { fuel: dregsType(b) === 'diesel' ? 'diesel' : 'petrol', litres: Math.round(4 * r.next() * 10) / 10 }));
   }
+  // (a vehicle to find: its driver's seat back in if it went, worn as the rest — nothing else of it changed)
+  if (find) {
+    const dm = f.mounts.find((m) => m.driver);
+    const stock = dm ? stockPartFor(f, dm) : null;
+    if (dm && stock && !b.parts[dm.id]) weatherPart(swapIn(b, f, dm.id, stock), new Rng(hash2(seed | 0, 0x5ea7, 0x1d)));
+  }
   return { build: b, items, tools, special, finds: found };
+}
+
+/**
+ * A vehicle to find (docs/V3/plan/growth.md §六 2): a bare frame standing in a big place's yard. On it what is under its
+ * floor, its seats and controls, and each panel of its body seven times in ten — the ones gone come down the road after
+ * it (`missing`: the plan puts each 2–6 km on: schedule.ts vehicleExtras); beside it a set of parts to put in it, of
+ * the plan's tier (2: used, 3: good): its engine, its radiator, its battery, its wheels (`beside`). No radio: that is
+ * found. Old, all of it, as one finds things; the same for the same seed.
+ */
+export interface FoundRoll {
+  build: Build;
+  beside: { mount: string; inst: PartInstance }[];
+  missing: { mount: string; part: string }[];
+}
+
+/** what of a found frame lies beside it rather than on it */
+const BESIDE: ReadonlySet<string> = new Set(['engine', 'radiator', 'battery', 'rim']);
+
+/** what of a found frame is on it, beside it and missing — the roll's first draws (cheap: no parts made) */
+export function foundLayout(frameId: string, seed: number): { r: Rng; without: string[]; beside: { mount: string; id: string }[]; missing: { mount: string; part: string }[] } {
+  const r = new Rng(hash2(seed | 0, 0xf07d, 0x2));
+  const f = frameDef(frameId);
+  const without: string[] = [];
+  const beside: { mount: string; id: string }[] = [];
+  const missing: { mount: string; part: string }[] = [];
+  // (a trailer is found whole: its wheels and its door on it — nothing to put on it but what goes in it)
+  if (f.towed) return { r, without, beside, missing };
+  for (const m of f.mounts) {
+    const id = stockPartFor(f, m);
+    if (!id) continue;
+    if (m.cat === 'radio') without.push(m.id);
+    else if (BESIDE.has(m.cat)) {
+      without.push(m.id);
+      beside.push({ mount: m.id, id });
+    } else if (SHELL.has(m.cat) && !r.chance(0.7)) {
+      without.push(m.id);
+      missing.push({ mount: m.id, part: id });
+    }
+  }
+  return { r, without, beside, missing };
+}
+
+export function rollFound(frameId: string, seed: number, tier: number): FoundRoll {
+  const { r, without, beside, missing } = foundLayout(frameId, seed);
+  const f = frameDef(frameId);
+  const b = stockBuild(frameId, { fuel: 0, without });
+  b.uid = newUid('b');
+  // (the frame and what is on it: worn as a wreck's, a little less)
+  for (const inst of Object.values(b.parts)) {
+    weatherPart(inst, r);
+    inst.cond = Math.max(inst.cond, 0.4 + 0.3 * r.next());
+  }
+  b.paint = r.int(PALETTE.length);
+  b.paint2 = r.int(PALETTE.length);
+  b.cond = 0.4 + 0.4 * r.next();
+  b.dirt = 0.45 + 0.4 * r.next();
+  b.rust = 0.2 + 0.4 * r.next();
+  b.crust = 0.1 + 0.3 * r.next();
+  // (what lies beside it: the tier's — 2 used, 3 good — the wheels with tyres on, the engine with some oil in it)
+  const lo = tier >= 3 ? 0.7 : 0.55;
+  const span = tier >= 3 ? 0.25 : 0.25;
+  const tyre = stockTireFor(f) ?? 'tire_road';
+  const parts = beside.map(({ mount, id }) => {
+    const d = partDef(id);
+    const inst = newInstance(id, { charge: d.battery ? 0.3 + 0.3 * r.next() : undefined, oil: d.engine ? 0.6 + 0.3 * r.next() : undefined, coolant: 0 });
+    inst.cond = lo + span * r.next();
+    inst.dirt = 0.2 + 0.4 * r.next();
+    if (d.rim?.tire) {
+      const t = newInstance(tyre);
+      t.tread = tier >= 3 ? 0.75 + 0.2 * r.next() : 0.55 + 0.3 * r.next();
+      t.cond = lo + span * r.next();
+      fitSub(inst, 'tire', t);
+    }
+    keepInsideClean(inst);
+    return { mount, inst };
+  });
+  return { build: b, beside: parts, missing };
 }
 
 /** the grades on a build (its parts and what is on them), best first, where: for a glint, for the reveal */

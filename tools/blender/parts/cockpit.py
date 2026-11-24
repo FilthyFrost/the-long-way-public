@@ -466,7 +466,7 @@ def build_steer_bad(P):
 
 def build_radio_tape(P):
     """An 1980s cassette deck: black face with a chrome strip, the tape door (TAPE_DOOR, hinged at its bottom)
-    with a cassette showing through its window, transport keys, a small lit scale, two knobs."""
+    with a cassette (N_cassette) showing through its window, transport keys, a small lit scale, two knobs."""
     P.ao_distance = 0.03
     W, H = 0.18, 0.05
     P.box('box', (0.15, 0.17, 0.048), (0.075, 0, 0), 'steel', bev=0.004, segs=1)
@@ -479,10 +479,12 @@ def build_radio_tape(P):
     door = P.box('door', (0.004, dw, dh), (-0.016, 0.012, -0.002), 'trim', bev=0.0015, segs=1)
     win = P.box('door_glass', (0.0015, dw - 0.014, dh - 0.012), (-0.0185, 0.012, -0.0005), 'glass_dark', bev=None)
     P.mover('TAPE_DOOR', [door, win], (-0.016, 0.012, -0.002 - dh / 2))
-    P.box('cassette', (0.004, dw - 0.008, dh - 0.006), (-0.012, 0.012, -0.002), 'trim', bev=0.001, segs=1)
-    P.box('label', (0.0012, dw - 0.03, dh - 0.016), (-0.0142, 0.012, -0.0005), 'paint_b', bev=None)
-    for sy in (-1, 1):
-        P.cyl('reel', 0.006, 0.0014, (-0.0148, 0.012 + sy * 0.016, -0.001), 'steel', axis='X', segs=10, bev=None)
+    # the tape in it (N_cassette: shown while a tape is in, sliding in and out: src/game/modcar/v3/nd-tape)
+    cas = P.box('cassette', (0.004, dw - 0.008, dh - 0.006), (-0.012, 0.012, -0.002), 'trim', bev=0.001, segs=1)
+    lab = P.box('label', (0.0012, dw - 0.03, dh - 0.016), (-0.0142, 0.012, -0.0005), 'paint_b', bev=None)
+    reels = [P.cyl('reel', 0.006, 0.0014, (-0.0148, 0.012 + sy * 0.016, -0.001), 'steel', axis='X', segs=10, bev=None)
+             for sy in (-1, 1)]
+    P.mover('N_cassette', [cas, lab] + reels, (-0.012, 0.012, -0.002))
     # keys and the scale
     for i in range(4):
         P.box('key', (0.01, 0.012, 0.009), (-0.018, -0.045 + i * 0.0135, -0.014), 'chrome', bev=0.002, segs=1)

@@ -129,25 +129,25 @@ describe('the steamer and the kettle', () => {
     // the pan off: a steamer at the bare burner is refused, with why
     rig.empty();
     rig.aim(stove, 'top');
-    rig.tapF();
+    rig.holdL();
     rig.empty();
     rig.give(newItem(VESSEL.steam));
     rig.aim(stove, 'top');
-    expect(rig.word()).toBe('蒸笼要架在汤锅上：先在炉头上放一口空汤锅（锅里是水）');
+    expect(rig.word()).toBe('先放汤锅');
     expect(kitchen.ghosts.some((g) => g.unit === stove)).toBe(false);
     // a pot on the burner: now it goes, its ghost on the pot
     putVessel(stove.item, newItem(VESSEL.boil));
     rig.frames(2);
     rig.aim(stove, 'top');
-    expect(rig.word()).toBe('把<b>蒸笼</b>架到汤锅上');
+    expect(rig.word()).toBe('架上蒸笼');
     expect(kitchen.ghosts.map((g) => `${g.slot}:${g.item}${g.focused ? '*' : ''}`)).toContain(`pot:${VESSEL.steam}*`);
     rig.pressE();
     expect(vesselOf(stove.item)).toBe(VESSEL.steam);
     expect(underOf(stove.item)).toBe(VESSEL.boil);
-    // F takes the steamer off, the pot stays
+    // the left button held takes the steamer off, the pot stays
     rig.empty();
     rig.aim(stove, 'top');
-    rig.tapF();
+    rig.holdL();
     expect(rig.held()?.item).toBe(VESSEL.steam);
     expect(vesselOf(stove.item)).toBe(VESSEL.boil);
     // the kettle: lemon and honey, lit, and once it boils it whistles
@@ -271,10 +271,10 @@ describe('the guidance', () => {
     rig.give(newItem(PLATE));
     rig.aim(st, 'top');
     rig.pressE();
-    expect(rig.game.said.at(-1)).toContain('差一点完美：下次切一切、撒点调料。');
+    expect(rig.game.said.at(-1)).toContain('差一点：切一切、撒点调料');
     rig.empty();
     rig.game.events.emit('body:ate', { item: newItem(dishItem('burnt'), { state: { meal: { food: 0, ware: PLATE } } }) });
-    expect(rig.game.said.at(-1)).toBe('一股焦味……总算填了点肚子。');
+    expect(rig.game.said.at(-1)).toBe('焦味……');
     expect(rig.held()?.item).toBe(PLATE);
   });
 

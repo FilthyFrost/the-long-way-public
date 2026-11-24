@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { CLEANERS, cleanerOf, newTool, toolUse, wearCleaner } from '../../src/core/modcar/tools';
+import { CLEANERS, cleanerOf, newTool, retireTool, toolUse, wearCleaner } from '../../src/core/modcar/tools';
 import { stockBuild } from '../../src/core/modcar/build';
 import { BODY_UNIT_NAMES, unitAt, unitName } from '../../src/game/modcar/grime';
 import { TriGrid } from '../../src/game/render/triGrid';
@@ -19,43 +19,36 @@ const passes = (amount: number, take: number): number => {
 };
 
 describe('ModCar cleaning', () => {
-  it('the sponge takes the dust in one pass and wets it, the crust hardly; the scrapers the crust in two or three; the brush the rust in three', () => {
-    expect(passes(0.8, CLEANERS.sponge.take[0])).toBe(1);
-    expect(CLEANERS.sponge.wet).toBe(1);
-    expect(passes(0.6, CLEANERS.sponge.take[1])).toBeGreaterThan(8);
-    // a barn find's crust (0.62): two passes of the plastic scraper (a thicker one, 0.85: three), of the brass one two
-    expect(passes(0.62, CLEANERS.scraper_1.take[1])).toBe(2);
-    expect(passes(0.85, CLEANERS.scraper_1.take[1])).toBe(3);
-    expect(passes(0.62, CLEANERS.scraper_3.take[1])).toBe(2);
-    expect(passes(0.8, CLEANERS.brush.take[2])).toBe(3);
-    // (the scrapers hardly touch rust: that is the brush's)
-    expect(passes(0.6, CLEANERS.scraper_2.take[2])).toBeGreaterThan(10);
+  it('the plastic scraper does the grinder\'s work slowly: three or four passes for the dust, a barn find\'s crust, rust, paint that has set (docs/V3/plan/hands.md 定案 3)', () => {
+    expect(passes(0.8, CLEANERS.scraper_1.take[0])).toBe(3);
+    expect(passes(0.62, CLEANERS.scraper_1.take[1])).toBe(3);
+    expect(passes(0.85, CLEANERS.scraper_1.take[1])).toBe(4);
+    expect(passes(0.8, CLEANERS.scraper_1.take[2])).toBe(4);
+    expect(passes(1, CLEANERS.scraper_1.coat!)).toBe(4);
   });
 
-  it('the scrapers are 10, 22 and 25 cm wide (Arctic Drive), the wider the longer they last', () => {
+  it('one scraper, 10 cm wide; the retired tools — the sponge, the brush, the metal and golden scrapers — are plastic scrapers now', () => {
     expect(cleanerOf(newTool('scraper', { tier: 1 }))!.width).toBeCloseTo(0.1);
-    expect(cleanerOf(newTool('scraper', { tier: 2 }))!.width).toBeCloseTo(0.22);
-    expect(cleanerOf(newTool('scraper', { tier: 3 }))!.width).toBeCloseTo(0.25);
-    expect(CLEANERS.scraper_1.lasts).toBeLessThan(CLEANERS.scraper_2.lasts);
-    expect(CLEANERS.scraper_2.lasts).toBeLessThan(CLEANERS.scraper_3.lasts);
     expect(cleanerOf(newTool('jerrycan'))).toBe(null);
+    for (const t of [newTool('sponge'), newTool('brush'), newTool('scraper', { tier: 2 }), newTool('scraper', { tier: 3 })]) {
+      expect(retireTool(t)).toBe(true);
+      expect([t.kind, t.tier, t.life]).toEqual(['scraper', 1, 1]);
+      expect(cleanerOf(t)).toBe(CLEANERS.scraper_1);
+    }
+    expect(retireTool(newTool('scraper', { tier: 1 }))).toBe(false);
   });
 
   it('a tool wears by the area it went over, and worn out it does not work (two cars with the plastic scraper)', () => {
     const t = newTool('scraper', { tier: 1 });
     expect(t.life).toBe(1);
-    // a car's outside is about 12 m², its crust three passes: 36 m² of passes a car
-    wearCleaner(t, 36);
-    expect(t.life!).toBeGreaterThan(0.3);
+    // a car's outside is about 12 m², its dirt three passes: 36 m² of passes a car — about one car a scraper
     wearCleaner(t, 30);
+    expect(t.life!).toBeGreaterThan(0.2);
+    wearCleaner(t, 12);
     expect(t.life).toBe(0);
     const use = toolUse(t, stockBuild('sedan'));
     expect(use.can).toBe(false);
     expect(use.why?.zh).toContain('用坏了');
-    // (a sponge lasts a car's dust, about)
-    const s = newTool('sponge');
-    wearCleaner(s, 12);
-    expect(s.life!).toBeGreaterThan(0.4);
   });
 
   it('a body splits into its front, back, sides, top and windows; a part into its paint and its glass', () => {

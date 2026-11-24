@@ -135,12 +135,18 @@ try {
     return { held, onTable };
   }, (t, i) => i.held === '' && i.onTable === 'tire_road');
 
+  // (the gun hooks to the can in the hands: its wide nozzle, docs/V3/plan/growth.md §1.5)
   await step('paint_gun', async () => {
     await rt('hold', 'tool:spray', { colour: 13 });
+    await ev(() => {
+      const g = window.__rt.game;
+      if (g.workshop) g.workshop.gen.on = true;
+    });
+    await rt('simulate', 0.2);
     await use('paintbooth');
-    await rt('simulate', 2.5);
-    return ev(() => window.__rt.game.vehicles[0].build.paint);
-  }, (t, paint) => paint === 13);
+    await rt('simulate', 0.5);
+    return ev(() => window.__rt.game.player.held?.tool?.nozzle);
+  }, (t, nozzle) => nozzle === 7);
 
   if (errors.length) {
     console.log('page errors:', errors.slice(0, 5));

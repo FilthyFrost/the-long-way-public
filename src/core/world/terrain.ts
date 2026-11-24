@@ -151,6 +151,12 @@ export interface WorldOptions extends SpineOptions {
    * none). ModCar's: most of them.
    */
   secondPlace?: number;
+  /**
+   * Prefab buildings to lay along the road (core/world/prefabs.ts, docs/ND/PLAN.md): these cards' ids, in this
+   * order, one a stretch from the first stretch on that can take it, each the place of its stretch. A test lot for
+   * the buildings made whole in Blender; absent (the default) the world is exactly what it was.
+   */
+  prefabs?: readonly string[];
 }
 
 /** how fully (x, z) lies on a plot: 1 within its box, falling off smoothly over its skirt */
@@ -332,6 +338,8 @@ export class World implements Ground {
   readonly placeOdds: readonly [number, number, number] | null;
   /** WorldOptions.secondPlace (0: none) */
   readonly secondPlace: number;
+  /** WorldOptions.prefabs (null: none, the world as it always was) */
+  readonly prefabs: readonly string[] | null;
   /** a world of version 2: its land is the relief of relief.ts (the regions' RegionRelief), version 1's is `relief` */
   private readonly relief2: boolean;
   /** … and how far out the nearest of its regions' ranges or walls may begin (m): nearer, `mountains` adds nothing */
@@ -352,6 +360,7 @@ export class World implements Ground {
     this.plots = opts.plots ?? [];
     this.placeOdds = opts.placeOdds ?? null;
     this.secondPlace = opts.secondPlace ?? 0;
+    this.prefabs = opts.prefabs?.length ? opts.prefabs.slice() : null;
     this.rules = rulesFor(opts.worldVersion, opts);
     this.relief2 = this.rules.version >= 2;
     let from = Infinity;
@@ -370,7 +379,8 @@ export class World implements Ground {
       throw new Error(`the stretches do not agree: landform ${LAND_SLOT} m, water ${WATER_SLOT} m, places ${SITE_SLOT} m, the world's rules ${this.rules.slot} m`);
     }
     this.spine = new RoadSpine(seed, opts, this.rules);
-    this.earth = this.rules.version >= 4 ? earthRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.slot, this.spine.plan.startRegion, this.rules.transition(this.spine.plan.scale), this.rules.version === 5 ? 5 : 4) : null;
+    // (version 6 is version 5's road and land: its Earth is version 5's)
+    this.earth = this.rules.version >= 4 ? earthRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.slot, this.spine.plan.startRegion, this.rules.transition(this.spine.plan.scale), this.rules.version >= 5 ? 5 : 4) : null;
     this.journey = this.rules.version === 3 ? journeyRoad(this.spine.plan.seed, this.spine.plan.scale, this.rules.regionCount, this.rules.slot, this.spine.plan.startRegion) : this.earth;
     this.sea = new SeaPlan(this.spine, this.seed);
     this.water = new WaterPlan(this.spine, this.seed, (k) => (this.sea.near(k) || this.quiet(k) ? 2 : this.sea.along(k) ? 1 : 0));
@@ -807,7 +817,9 @@ export class World implements Ground {
         o.site = pw;
         o.siteGround = this.sites.padGround;
       }
-      const ext = q.y + q.bank * sgn * ROAD_EDGE - (ROAD_EDGE - ROAD_HALF) * 0.06 - (ad - ROAD_EDGE) * (0.03 - (0.03 - PAD_FALL) * pw);
+      let ext = q.y + q.bank * sgn * ROAD_EDGE - (ROAD_EDGE - ROAD_HALF) * 0.06 - (ad - ROAD_EDGE) * (0.03 - (0.03 - PAD_FALL) * pw);
+      // (a prefab's levelled ground flat at its floor's foot, met from the road's edge over its first 2 m)
+      if (pw > 0 && this.sites.padFlat === this.sites.padFlat) ext += (this.sites.padFlat - ext) * pw * smoothstep(ROAD_EDGE, ROAD_EDGE + 2, ad);
       // (world version 5: beside a river along the road, the verge short of its bank — water.ts WaterEffect.verge)
       if (this.we.verge < verge) verge = this.we.verge;
       const m = smoothstep(ROAD_EDGE, ROAD_EDGE + verge, ad) * (1 - pw);

@@ -8,9 +8,10 @@
  * Frame model space: +x forward, +y up, +z right, metres, the origin on the ground under the middle of the
  * wheelbase. A thing's turn `yaw` is about +y, as three.js turns an object (rotation.y).
  */
+import { frameDef } from './frames';
 import type { Text } from './types';
 
-export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall';
+export type ZoneId = 'trunk' | 'rear' | 'pass' | 'bed' | 'cabin' | 'pillion' | 'lounge' | 'table' | 'galley' | 'bench' | 'wall' | 'dash' | 'roof' | 'sofa' | 'fridge';
 export type Carry = 'small' | 'medium' | 'large';
 
 export interface CargoZone {
@@ -35,10 +36,26 @@ export interface CargoZone {
   readonly wall?: boolean;
   /** how putting a thing there is said ("放到餐桌上", "挂到墙上"); absent: "放进" and its name, as into a boot */
   readonly put?: string;
+  /** glass over it (a dashboard under the windscreen): the glass is no floor of it */
+  readonly glassOver?: boolean;
+  /** the step a thing aimed in keeps to (m; absent: 10 cm) — a narrow dashboard's finer */
+  readonly grid?: number;
+  /** there only with one of these parts on that mount (a roof rack on the roof); absent: always there */
+  readonly needs?: { readonly mount: string; readonly parts: readonly string[] };
 }
 
 function Z(id: ZoneId, zh: string, en: string, x: [number, number], z: [number, number], floor: number, top: number, max: Carry, order: number, via?: string[]): CargoZone {
   return { id, label: { zh, en }, x, z, floor, top, max, order, via };
+}
+
+/**
+ * The top of the dashboard under the windscreen (docs/ND/PLAN.md: Nomad Drive's dashboard surfaces, where its bobbleheads
+ * stand): small things only, reached through a front door; never packed onto without aiming (last in order); the
+ * windscreen over it is not its floor, and it reaches only as far forward as the glass leaves a hand's height over it
+ * (the fox's raked glass leaves none: it has no dashboard to put things on).
+ */
+function D(x: [number, number], z: [number, number], floor: number, top: number, via: string[]): CargoZone {
+  return { ...Z('dash', '仪表台', 'Dashboard', x, z, floor, top, 'small', 99, via), put: '放到仪表台上', glassOver: true, grid: 0.02 };
 }
 
 /** measured on the models (harness/shots/modcar_stow.mjs draws them): under a shut boot lid, on the seats */
@@ -47,10 +64,12 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     Z('trunk', '后备箱', 'Boot', [-1.97, -1.42], [-0.6, 0.6], 0.36, 0.85, 'large', 0, ['trunk']),
     Z('rear', '后座', 'Back seat', [-1.12, -0.66], [-0.58, 0.58], 0.47, 1.12, 'large', 1, ['door_RL', 'door_RR']),
     Z('pass', '副驾驶座', 'Passenger seat', [-0.42, 0.02], [0.12, 0.6], 0.5, 1.05, 'medium', 2, ['door_FR']),
+    D([0.56, 0.68], [-0.55, 0.55], 0.94, 1.15, ['door_FL', 'door_FR']),
   ],
   pickup: [
     Z('bed', '车斗', 'Bed', [-2.22, -0.62], [-0.72, 0.72], 0.69, 1.9, 'large', 0),
     Z('pass', '副驾驶座', 'Passenger seat', [0.1, 0.5], [0.12, 0.6], 0.7, 1.3, 'medium', 1, ['door_FR']),
+    D([0.67, 0.8], [-0.6, 0.6], 1.08, 1.29, ['door_FL', 'door_FR']),
   ],
   rv: [
     Z('cabin', '车厢', 'Cabin', [-2.95, -0.45], [-0.45, 0.55], 0.86, 2.6, 'large', 0, ['door_side', 'trunk']),
@@ -63,11 +82,13 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     { ...Z('bench', '后排长椅', 'Rear bench', [-3.6, -2.95], [-0.95, 0.95], 1.2, 2.4, 'large', 5, ['door_side', 'trunk']), put: '放到后排长椅上' },
     // (the walls' inner faces stand at about ±1.09: the rectangle reaches a little past them)
     { ...Z('wall', '墙上', 'On the wall', [-3.95, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
+    D([1.64, 2.04], [-0.75, 0.75], 1.4, 1.62, ['door_FL', 'door_FR', 'door_side']),
   ],
   moto: [Z('pillion', '后座', 'Pillion', [-0.85, -0.5], [-0.13, 0.13], 0.8, 1.15, 'small', 0)],
   snail: [
     Z('cabin', '货厢', 'Box', [-2.29, 0.62], [-0.86, 0.86], 0.95, 2.62, 'large', 0, ['trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [1.3, 1.62], [0.34, 0.79], 1.26, 1.9, 'medium', 1, ['door_FR']),
+    D([2.11, 2.33], [-0.75, 0.75], 1.29, 1.5, ['door_FL', 'door_FR']),
   ],
   fox: [
     Z('trunk', '后备箱', 'Boot', [-1.86, -1.44], [-0.63, 0.63], 0.4, 0.77, 'medium', 0, ['trunk']),
@@ -79,32 +100,105 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     // (the box under its canvas, the tailgate the way in; and the seat beside the driver)
     Z('bed', '货厢', 'Cargo box', [-3.08, -0.37], [-1.04, 1.04], 1.24, 2.65, 'large', 0, ['trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.52, 0.9], [0.37, 0.83], 1.27, 1.87, 'medium', 1, ['door_FR']),
+    D([1.25, 1.5], [-0.75, 0.75], 1.6, 1.81, ['door_FL', 'door_FR']),
   ],
   buffalo: [
     // (an open bed behind the cab, its tailgate the way in; and a bench across the back of the cab)
     Z('bed', '车斗', 'Bed', [-2.39, -1.13], [-0.41, 0.41], 0.8, 1.85, 'large', 0),
     Z('rear', '后座', 'Back seat', [-0.59, -0.23], [-0.47, 0.47], 0.87, 1.5, 'large', 1, ['door_RL', 'door_RR']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.24, 0.65], [0.26, 0.54], 0.86, 1.5, 'medium', 2, ['door_FR']),
+    D([0.87, 1.24], [-0.65, 0.65], 1.3, 1.51, ['door_FL', 'door_FR']),
   ],
   goat: [
     Z('trunk', '后备箱', 'Load space', [-1.84, -1.04], [-0.36, 0.36], 0.62, 1.66, 'large', 0, ['trunk']),
     Z('rear', '后座', 'Back seat', [-0.7, -0.27], [-0.55, 0.55], 0.76, 1.38, 'large', 1, ['door_FL', 'door_FR']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.3, 0.68], [0.18, 0.6], 0.76, 1.36, 'medium', 2, ['door_FR']),
+    D([0.75, 1.02], [-0.65, 0.65], 1.15, 1.36, ['door_FL', 'door_FR']),
   ],
   van: [
     Z('trunk', '行李台', 'Luggage deck', [-2.15, -1.42], [-0.74, 0.74], 0.95, 1.75, 'large', 0, ['trunk']),
     Z('cabin', '车厢', 'Cabin', [-0.67, 0.65], [-0.76, 0.72], 0.42, 1.78, 'large', 1, ['door_side', 'trunk']),
     Z('pass', '副驾驶座', 'Passenger seat', [0.98, 1.36], [0.14, 0.62], 0.88, 1.5, 'medium', 2, ['door_FR']),
+    D([1.71, 1.95], [-0.7, 0.7], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
   ],
+  // (the Turtle, docs/V3/plan/rv.md R1: the floor by the sliding door, the bed across the back (by the tailgate too),
+  // the galley's worktop, the passenger's seat, the dash; the walls of the room. The tops under the shell's underside
+  // with the roof down, 2.04: the floor is drawn looking down from the top)
+  turtle: [
+    // (in from the bed's cupboard knobs, the tail's roll over the bed, the wall over the worktop)
+    Z('cabin', '车厢', 'Cabin', [-0.34, 0.86], [-0.42, 0.84], 0.42, 1.85, 'large', 0, ['door_side']),
+    { ...Z('bed', '床上', 'Bed', [-2.26, -0.44], [-0.8, 0.8], 1.065, 1.85, 'large', 1, ['door_side', 'trunk']), put: '放到床上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-0.2, 0.78], [-0.845, -0.47], 1.22, 1.85, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
+    Z('pass', '副驾驶座', 'Passenger seat', [1.18, 1.56], [0.14, 0.66], 0.88, 1.5, 'medium', 3, ['door_FR']),
+    D([1.99, 2.22], [-0.74, 0.74], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
+    { ...Z('wall', '墙上', 'On the wall', [-2.35, 0.86], [-0.9, 0.9], 1.0, 1.9, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
+  ],
+  // (the Old Elephant, docs/V3/plan/rv.md R2: the aisle's floor from the bed to the cab, the bed across the back, the
+  // galley's worktop beside the sink (where its hobs stand), the dinette's table, the sofa, the fridge's niche behind
+  // the passenger's seat, the passenger's seat, the dash; the walls of the room under the lockers)
+  elephant: [
+    Z('cabin', '车厢', 'Cabin', [-1.86, 2.44], [-0.4, 0.36], 0.62, 2.4, 'large', 0, ['door_side']),
+    { ...Z('bed', '床上', 'Bed', [-4.0, -1.94], [-1.12, 1.12], 1.44, 2.4, 'large', 1, ['door_side']), put: '放到床上' },
+    { ...Z('galley', '厨房台面', 'Galley worktop', [-1.86, -0.2], [-1.13, -0.58], 1.54, 2.4, 'medium', 2, ['door_side']), put: '放到厨房台面上' },
+    { ...Z('table', '餐桌', 'Dinette table', [1.32, 1.98], [-1.13, -0.48], 1.34, 2.4, 'medium', 3, ['door_side']), put: '放到餐桌上' },
+    { ...Z('sofa', '沙发', 'Sofa', [-1.74, 0.3], [0.57, 0.98], 1.06, 2.4, 'large', 4, ['door_side']), put: '放到沙发上' },
+    { ...Z('fridge', '冰箱位', 'Fridge niche', [1.685, 2.455], [0.38, 1.13], 0.92, 2.34, 'large', 5, ['door_side']), put: '放进冰箱位' },
+    Z('pass', '副驾驶座', 'Passenger seat', [2.82, 3.2], [0.34, 0.86], 1.23, 1.85, 'medium', 6, ['door_FR']),
+    D([3.57, 3.95], [-1.0, 1.0], 1.5, 1.75, ['door_FL', 'door_FR', 'door_side']),
+    { ...Z('wall', '墙上', 'On the wall', [-4.0, 2.45], [-1.16, 1.16], 1.62, 2.46, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
+  ],
+  // (the Camel, docs/V3/plan/rv.md R3: emptied — its whole floor from the tail to the modesty panel (the rear wheels'
+  // humps in it), the dash; the walls under the ceiling's roll. The rack on its roof is the roof mount's)
+  camel: [
+    Z('cabin', '车厢', 'Cabin', [-4.98, 1.82], [-1.14, 1.14], 0.72, 2.6, 'large', 0, ['door_side', 'trunk']),
+    D([2.64, 2.85], [-1.0, 1.0], 1.48, 1.7, ['door_side']),
+    { ...Z('wall', '墙上', 'On the wall', [-5.0, 1.84], [-1.19, 1.19], 1.5, 2.45, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
+  ],
+  // (the trailer's box: its floor from the door to the front wall, the door the way in — docs/V3/plan/growth.md §六 2)
+  // (its top under the ceiling's lining, 1.836: the floor is drawn looking down from the top)
+  trailer: [Z('cabin', '货厢', 'Box', [-1.22, 0.92], [-0.64, 0.64], 0.67, 1.8, 'large', 0, ['trunk'])],
   wagon: [
     Z('trunk', '后备箱', 'Load space', [-2.42, -1.76], [-0.69, 0.69], 0.48, 1.25, 'large', 0, ['trunk']),
     Z('rear', '后座', 'Back seat', [-0.97, -0.63], [-0.57, 0.57], 0.47, 1.12, 'large', 1, ['door_RL', 'door_RR']),
     Z('pass', '副驾驶座', 'Passenger seat', [-0.23, 0.19], [0.23, 0.51], 0.5, 1.05, 'medium', 2, ['door_FR']),
+    D([0.72, 0.82], [-0.55, 0.55], 0.95, 1.16, ['door_FL', 'door_FR']),
   ],
 };
 
 export function zonesOf(frame: string): readonly CargoZone[] {
   return CARGO_ZONES[frame] ?? [];
+}
+
+/** the parts that make a vehicle's roof a place for things (docs/V3/plan/growth.md §六 2: the roof rack) */
+export const ROOF_RACKS: readonly string[] = ['roof_rack'];
+
+const ROOFS = new Map<string, CargoZone | null>();
+
+/**
+ * A frame's roof as a place for things once a rack is on it: the roof mount's footprint (its fit, a hand in from its
+ * edges), from the rack's rails up to most of a metre; large things too; packed into last (after the boot, the bed, the
+ * seats); reached from beside the vehicle as one reaches up (no panel in the way). Null: a frame with no roof (the
+ * motorcycle).
+ */
+export function roofZoneOf(frameId: string): CargoZone | null {
+  if (ROOFS.has(frameId)) return ROOFS.get(frameId)!;
+  const m = frameDef(frameId).mounts.find((x) => x.cat === 'roof');
+  const fit = m?.fit;
+  const zone: CargoZone | null =
+    m && fit
+      ? { ...Z('roof', '车顶行李架', 'Roof rack', [m.pos.x - fit[0] / 2 + 0.08, m.pos.x + fit[0] / 2 - 0.08], [-fit[1] / 2 + 0.06, fit[1] / 2 - 0.06], m.pos.y + 0.04, m.pos.y + 0.9, 'large', 8), put: '放到车顶行李架上', needs: { mount: m.id, parts: ROOF_RACKS } }
+      : null;
+  ROOFS.set(frameId, zone);
+  return zone;
+}
+
+/** a vehicle's places for things as it is built: its frame's, and those its parts make (a rack on the roof) */
+export function zonesFor(frameId: string, build: { readonly parts: Readonly<Record<string, { readonly part: string } | undefined>> }): readonly CargoZone[] {
+  const roof = roofZoneOf(frameId);
+  const base = zonesOf(frameId);
+  if (!roof) return base;
+  const on = build.parts[roof.needs!.mount];
+  return on && roof.needs!.parts.includes(on.part) ? [...base, roof] : base;
 }
 
 export function zoneOf(frame: string, id: string): CargoZone | null {
@@ -271,7 +365,15 @@ export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z
  * aimed it keeps to a grid of that step (docs/V3/nodes/M2-rv.md: 10 cm), the point aimed at taken to the grid
  * and looked round in steps of it.
  */
-export function findSpot(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[], grid = 0): Spot | null {
+export function findSpot(zone: CargoZone, g: HeightGrid, b: ThingBox, yaw: number, near: { x: number; z: number } | null, placed: readonly Placed[], grid = 0, exact = false): Spot | null {
+  // (placed just so — docs/V3/plan/hands.md §四: there, so turned, or nowhere)
+  if (exact && near) {
+    const snap = (v: number): number => (grid > 0 ? Math.round(v / grid) * grid : v);
+    const x = snap(near.x);
+    const z = snap(near.z);
+    const y = restAt(zone, g, b, x, z, yaw, placed);
+    return y === null ? null : { x, y, z, yaw };
+  }
   // standing as it is; if it does not fit anywhere so, laid on its side (the flatter way first)
   const flat: Lie = b.maxX - b.minX <= b.maxZ - b.minZ ? 'z' : 'x';
   for (const lie of [undefined, flat, flat === 'z' ? 'x' : 'z'] as (Lie | undefined)[]) {

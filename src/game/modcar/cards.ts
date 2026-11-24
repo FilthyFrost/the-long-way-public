@@ -27,6 +27,9 @@ export const CARD_CSS = `
 .mc-ic .cat { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--tx-2); }
 .mc-ic .cat svg { width: 16px; height: 16px; flex: none; }
 .mc-ic .nm { margin-top: 2px; font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: 0.01em; }
+.mc-ic.compact .hd { padding: 9px 16px 8px; }
+.mc-ic.compact .nm { display: flex; align-items: center; gap: 8px; margin-top: 0; font-size: 18px; }
+.mc-ic.compact .nm svg { width: 17px; height: 17px; flex: none; opacity: 0.8; }
 .mc-ic .st { display: flex; gap: 4px; margin-top: 5px; }
 .mc-ic .st svg { width: 15px; height: 15px; }
 .mc-ic .tg { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 6px; font-size: 12.5px; color: var(--tx-2); }
@@ -106,6 +109,11 @@ const star = (on: boolean, gold = false): string => {
 };
 /** a row's number drawn as stars out of five (a thing's quality), the same star as the grade's, smaller; what it says in words is its title */
 const starsHtml = (n: number, words: string): string => `<b class="qs" data-q="${n}" title="${esc(words)}">${[0, 1, 2, 3, 4].map((i) => star(i < n, n >= 4)).join('')}</b>`;
+/** a part's condition in a word (docs/V3/plan/growth.md §五: 差、一般、好、很好) */
+export function condWord(c: number): string {
+  return c < 0.35 ? '差' : c < 0.6 ? '一般' : c < 0.85 ? '好' : '很好';
+}
+
 /** the condition's cross and the weight's bell, as Arctic Drive draws them in a card's last line */
 const COND = '<svg viewBox="0 0 16 16"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2.6" stroke-linecap="round" /></svg>';
 const MASS = '<svg viewBox="0 0 16 16"><path d="M5.2 6.2h5.6l2.4 7.6H2.8z" fill="#fff" /><circle cx="8" cy="4.2" r="1.9" fill="none" stroke="#fff" stroke-width="1.6" /></svg>';
@@ -160,14 +168,18 @@ function structureOf(c: ItemCard): string {
 /** "缺发动机" in the before column: nothing to compare against */
 const beforeOf = (s: string): string => (/\d/.test(s) ? s : '—');
 
-/** the card's HTML; compact = only what it is and what is in it (the held thing's card while another card is up) */
-export function cardHtml(c: ItemCard, compact = false): string {
+/**
+ * The card's HTML; compact = its icon and name in one line, what is in it and its state (the held thing's card, and
+ * what the mark is on but for what lies on the ground — docs/V3/plan/prompts.md §五 4)
+ */
+export function cardHtml(c: ItemCard, compact = false, notes = true): string {
   const stars = c.stars > 0 ? `<div class="st" data-stars="${c.stars}" title="${c.stars} 星">${[0, 1, 2, 3, 4].map((i) => star(i < c.stars, c.stars >= 4)).join('')}</div>` : '';
   const tags = c.badges.length ? `<div class="tg">${c.badges.map((b) => `<span class="${b.tone}">${esc(b.text)}</span>`).join('')}</div>` : '';
   const secs: string[] = [];
   if (compact) {
     if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i, false)).join('')}</div>`);
-    return `<div class="hd"><div class="cat">${iconSvg(c.icon)}${esc(c.cat)}</div><div class="nm">${esc(c.name)}</div>${stars}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
+    if (notes && c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
+    return `<div class="hd"><div class="nm">${iconSvg(c.icon)}${esc(c.name)}</div>${stars}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
   }
   if (c.blurb) secs.push(`<div class="sec"><div class="desc">${esc(c.blurb)}</div></div>`);
   if (c.curve) secs.push(`<div class="sec"><div class="lab">${esc(c.curve.label)}</div>${curveSvg(c.curve)}</div>`);
@@ -186,7 +198,7 @@ export function cardHtml(c: ItemCard, compact = false): string {
   const f = c.foot;
   if (f.fits) secs.push(`<div class="sec"><div class="fits">${f.fits.startsWith('装在') ? esc(f.fits) : `能装：<b>${esc(f.fits)}</b>`}</div></div>`);
   const foot: string[] = [];
-  if (f.cond !== undefined) foot.push(`<span>${COND}${Math.round(f.cond * 100)}%<em>成色</em></span>`);
+  if (f.cond !== undefined) foot.push(`<span>${COND}${Math.round(f.cond * 100)}%<em>${condWord(f.cond)}</em></span>`);
   if (f.mass !== undefined) foot.push(`<span>${MASS}${f.mass >= 100 ? f.mass.toFixed(0) : f.mass.toFixed(1)} kg</span>`);
   if (foot.length) secs.push(`<div class="sec"><div class="ft">${foot.join('')}</div></div>`);
   return `<div class="hd"><div class="cat">${iconSvg(c.icon)}${esc(c.cat)}</div><div class="nm">${esc(c.name)}</div>${stars}${tags}</div><div class="bd">${secs.join('')}</div>`;
@@ -198,6 +210,7 @@ export class CardView {
   private structure = '';
   private card: ItemCard | null = null;
   private compact = false;
+  private notes = true;
   /** counts the times it was drawn anew (its height may have changed) */
   drawn = 0;
 
@@ -212,23 +225,24 @@ export class CardView {
     return this.card;
   }
 
-  /** compact: only what it is and what is in it */
-  show(c: ItemCard | null, compact = false): void {
+  /** compact: only what it is and what is in it, and (notes) how it stands */
+  show(c: ItemCard | null, compact = false, notes = true): void {
     // (a kept card shown again the same way: nothing on it can have changed, it is not looked into)
-    if (c && c.kept && c === this.card && compact === this.compact) return;
+    if (c && c.kept && c === this.card && compact === this.compact && notes === this.notes) return;
     this.card = c;
     this.compact = compact;
+    this.notes = notes;
     if (!c) {
       this.el.style.display = 'none';
       this.structure = '';
       return;
     }
     this.el.style.display = '';
-    const s = `${compact ? 'c' : 'f'}${structureOf(c)}`;
+    const s = `${compact ? (notes ? 'c' : 'h') : 'f'}${structureOf(c)}`;
     if (s !== this.structure) {
       this.structure = s;
       this.el.classList.toggle('compact', compact);
-      this.el.innerHTML = cardHtml(c, compact);
+      this.el.innerHTML = cardHtml(c, compact, notes);
       this.drawn++;
       return;
     }

@@ -68,6 +68,8 @@ export async function kitchenRig(o: { save?: FakeSave | null; pack?: number } = 
     touch(l?: Loose) {
       if (l) l.touched = true;
     },
+    // (a thing made another kind where it lies: nothing is drawn here)
+    retype: () => {},
     addItem(item: ItemInstance, x: number, y: number, z: number, yaw = 0): Loose {
       const l = { uid: `l${++made}`, part: null, tool: null, item, x, y, z, yaw, vy: 0, resting: true, obj: new THREE.Group(), radius: 0.2, mid: 0.07 } as Loose;
       place(l);
@@ -98,7 +100,8 @@ export async function kitchenRig(o: { save?: FakeSave | null; pack?: number } = 
       showKeys: (a: Action[]) => void (seen.keys = a),
       showTransfer: () => {},
       showHotbar: (s: SlotView[]) => void (seen.slots = s),
-      showDone: () => {},
+      // (a flash over the hotbar: said, as a toast is — docs/V3/plan/prompts.md §五)
+      showDone: (text: string) => void game.said.push(text),
     },
   };
   const host = {
@@ -185,19 +188,23 @@ export async function kitchenRig(o: { save?: FakeSave | null; pack?: number } = 
       const take = player.held && t.device.take ? t.device.take(player.held) : null;
       return (take ? take.word : t.device.word).zh;
     },
-    /** E, pressed and let go */
+    /** the left button pressed and let go (a press that waits for the button to come up fires on the second frame) */
     pressE: (): void => {
       player.press();
       step();
       player.release();
       step();
     },
-    /** F tapped: the second use of what the mark is on */
-    tapF: (): void => {
-      keys.take = true;
+    /** the left button held so long (s), then let go: a pick-up, a fitting (docs/V3/plan/growth.md J1; a hold where a press also works takes 0.9 s: docs/V3/plan/hands.md) */
+    holdL: (s = 1.0): void => {
+      player.press();
+      frames(Math.round(s * 60));
+      player.release();
       step();
-      keys.take = false;
-      step();
+    },
+    /** the wheel turned with the mark where it is: a device's second thing (a flame up or down) */
+    wheel: (d = 1): void => {
+      player.wheel(d);
       step();
     },
     /** a thing into the hands */

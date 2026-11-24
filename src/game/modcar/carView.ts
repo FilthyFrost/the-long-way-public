@@ -9,11 +9,12 @@
  */
 import * as THREE from 'three';
 import type { FillerKind } from './fillers';
+import { zonesOf } from '../../core/modcar/cargo';
 import { frameDef, hubsOf } from '../../core/modcar/frames';
 import type { Derived } from '../../core/modcar/derive';
 import { paintHex } from '../../core/modcar/palette';
 import { PAINTED_CATS, paintNow, takesPaint } from '../../core/modcar/paint';
-import { partDef } from '../../core/modcar/parts';
+import { INSIDE_CATS, partDef } from '../../core/modcar/parts';
 import type { Dash } from '../../core/modcar/systems';
 import type { Build, MountDef, PartInstance } from '../../core/modcar/types';
 import { makePose, type Pose, type VehicleSim } from '../../core/vehicle/sim';
@@ -149,6 +150,8 @@ export class CarView {
   /** the looks a spray can is on (their colour moving every frame, their flash): drawn on their own too */
   private readonly paintHeld = new Set<string>();
   private grimeCache: GrimePart[] | null = null;
+  /** every mesh a hand's ray can meet, with the owner of its look (targetCast) */
+  private targetCache: { mesh: THREE.Mesh; owner: string }[] | null = null;
 
   constructor(
     readonly build: Build,
@@ -188,7 +191,11 @@ export class CarView {
 
   private track<T>(p: Promise<T>): Promise<T> {
     this.loads.add(p);
-    void p.finally(() => this.loads.delete(p));
+    // (a model in: the meshes a hand's ray can meet are listed again — after the model is put in place, a step on)
+    void p.finally(() => {
+      this.loads.delete(p);
+      queueMicrotask(() => (this.targetCache = null));
+    });
     return p;
   }
 
@@ -254,8 +261,18 @@ export class CarView {
 
   // ------------------------------------------------------------------ pop-up headlamps
 
-  /** each pod on its hinge, how far it turns up, and how far up it is (0 shut … 1 up) */
-  private readonly popups: { pivot: THREE.Group; axis: THREE.Vector3; openRad: number; t: number }[] = [];
+  /**
+   * each pod on its hinge, how far it turns up, and how far up it is (0 shut … 1 up); an elevating roof's lifted
+   * instead (lift: its rest and how far), its bellows stretched up under it, driven by roofUp, not the lamps
+   */
+  private readonly popups: { pivot: THREE.Group; axis: THREE.Vector3; openRad: number; t: number; lift: THREE.Vector3 | null; rest: THREE.Vector3; bellows: THREE.Object3D | null; roof: boolean }[] = [];
+  /** the elevating roof wanted up (the camper system's; a frame with one: the Turtle) */
+  roofUp = false;
+  /** how far up the elevating roof is (0 down … 1 up; none: 0) */
+  get roofT(): number {
+    for (const p of this.popups) if (p.roof) return p.t;
+    return 0;
+  }
 
   /** the pods hung on their hinges, with what rides on them (the lamps) */
   private rigPopups(obj: THREE.Object3D): void {
@@ -268,7 +285,9 @@ export class CarView {
         const node = this.mountNodes.get(m.id);
         if (node) pivot.attach(node);
       }
-      this.popups.push({ pivot, axis: new THREE.Vector3(...p.axis).normalize(), openRad: p.openDeg * DEG, t: 0 });
+      // (an elevating roof's bellows: folded flat under it as built, stretched up as it lifts)
+      const bellows = p.bellows ? (obj.getObjectByName(p.bellows) ?? null) : null;
+      this.popups.push({ pivot, axis: new THREE.Vector3(...p.axis).normalize(), openRad: p.openDeg * DEG, t: 0, lift: p.lift ? new THREE.Vector3(...p.lift) : null, rest: pivot.position.clone(), bellows, roof: p.driver === 'roof' });
     }
   }
 
@@ -864,6 +883,7 @@ export class CarView {
     this.unmerge();
     this.mergeDirty = true;
     this.grimeCache = null;
+    this.targetCache = null;
   }
 
   // ------------------------------------------------------------------ grime (grime.ts)
@@ -1011,6 +1031,123 @@ export class CarView {
     this.unmerge();
     this.mergeDirty = true;
     this.grimeCache = null;
+    this.targetCache = null;
+  }
+
+  /** every mesh of the vehicle a hand's ray can meet (not its merge, not a ghost), with the owner of its look ('body' for the frame's own) */
+  private targetMeshes(): { mesh: THREE.Mesh; owner: string }[] {
+    if (this.targetCache) return this.targetCache;
+    const ownerOf = new Map<THREE.Material, string>();
+    for (const owner of this.mats.owners()) {
+      const look = this.mats.lookOf(owner);
+      if (look) for (const m of look.materials) ownerOf.set(m, owner);
+    }
+    const out: { mesh: THREE.Mesh; owner: string }[] = [];
+    const walk = (o: THREE.Object3D): void => {
+      // (the merge, its hull and far twins, a ghost in the hands' way: not the vehicle as it stands)
+      if (o.name.startsWith('merged') || o.name.startsWith('ghost:')) return;
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray) {
+        const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        const owner = ownerOf.get(mat) ?? BODY;
+        if (owner !== 'merged') out.push({ mesh, owner });
+      }
+      for (const c of o.children) walk(c);
+    };
+    walk(this.root);
+    this.targetCache = out;
+    return out;
+  }
+
+  /** (castShown's: a ray's origin carried on) */
+  private readonly csFrom = new THREE.Vector3();
+
+  /**
+   * What of the vehicle as it stands a ray (render space) meets first within far, over the same meshes and triangle
+   * grids as targetCast (a hundred times quicker than three's ray over every face: a motorhome's 490 000 triangles took
+   * it 11 ms a ray — docs/V3/plan/prompts.md §一), but only what is shown: a part hidden is passed over, one hidden
+   * because the merge draws it is not (its shape is the merge's). minUp: only a face turned up at least so much
+   * (its normal's y) is met, the steeper ones passed through — a thing put down lands on the bed, not the bed's side.
+   */
+  castShown(origin: THREE.Vector3, dir: THREE.Vector3, far: number, minUp = -2): { owner: string; dist: number; point: THREE.Vector3; normal: THREE.Vector3 } | null {
+    let best: { owner: string; dist: number; point: THREE.Vector3; normal: THREE.Vector3 } | null = null;
+    this.tcRay.origin.copy(origin);
+    this.tcRay.direction.copy(dir);
+    for (const { mesh, owner } of this.targetMeshes()) {
+      if (!this.shownHere(mesh)) continue;
+      const g = mesh.geometry;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      mesh.updateWorldMatrix(true, false);
+      this.tcSphere.copy(g.boundingSphere!).applyMatrix4(mesh.matrixWorld);
+      if (this.tcRay.distanceSqToPoint(this.tcSphere.center) > this.tcSphere.radius * this.tcSphere.radius) continue;
+      const along = this.csFrom.copy(this.tcSphere.center).sub(origin).dot(dir);
+      if (along + this.tcSphere.radius < 0 || along - this.tcSphere.radius > (best ? best.dist : far)) continue;
+      // (a face too steep is passed through: the ray goes on from just beyond it, a few times at most)
+      let from = 0;
+      for (let k = 0; k < 6; k++) {
+        const limit = (best ? best.dist : far) - from;
+        if (limit <= 0) break;
+        const o = from > 0 ? this.csFrom.copy(origin).addScaledVector(dir, from) : origin;
+        const h = castMesh(mesh, o, dir, limit);
+        if (!h) break;
+        const d = from + h.dist;
+        if (h.normal.y >= minUp) {
+          if (!best || d < best.dist) best = { owner, dist: d, point: h.point, normal: h.normal };
+          break;
+        }
+        from = d + 1e-3;
+      }
+    }
+    return best;
+  }
+
+  /** shown as it stands: itself and all above it to the root visible, or hidden only because the merge draws it */
+  private shownHere(mesh: THREE.Object3D): boolean {
+    for (let p: THREE.Object3D | null = mesh; p && p !== this.root.parent; p = p.parent) {
+      if (!p.visible && !(p === mesh && this.merged?.hides(mesh))) return false;
+    }
+    return true;
+  }
+
+  private readonly tcSphere = new THREE.Sphere();
+  private readonly tcRay = new THREE.Ray();
+
+  /**
+   * What of the vehicle a ray (render space) meets first, within far: from its real meshes, the owner of the look
+   * it is (a part 'm:<mount>', a panel 'p:<mount>', a wheel 'w:<i>', a tyre or turbo '+tire' / '+turbo' on it, the
+   * body) — docs/V3/plan/hands.md §二: one ray over real shapes, not boxes round them
+   */
+  targetCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): { owner: string; dist: number; point: THREE.Vector3; normal: THREE.Vector3; mesh: THREE.Mesh } | null {
+    let best: { owner: string; dist: number; point: THREE.Vector3; normal: THREE.Vector3; mesh: THREE.Mesh } | null = null;
+    this.tcRay.origin.copy(origin);
+    this.tcRay.direction.copy(dir);
+    for (const { mesh, owner } of this.targetMeshes()) {
+      const g = mesh.geometry;
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      mesh.updateWorldMatrix(true, false);
+      // (the sphere round it first: most of the vehicle is nowhere near the ray)
+      this.tcSphere.copy(g.boundingSphere!).applyMatrix4(mesh.matrixWorld);
+      const near = this.tcRay.distanceSqToPoint(this.tcSphere.center);
+      if (near > this.tcSphere.radius * this.tcSphere.radius) continue;
+      const along = this.tcSphere.center.clone().sub(origin).dot(dir);
+      if (along + this.tcSphere.radius < 0 || along - this.tcSphere.radius > (best ? best.dist : far)) continue;
+      const h = castMesh(mesh, origin, dir, best ? best.dist : far);
+      if (!h || (best && h.dist >= best.dist)) continue;
+      best = { owner, dist: h.dist, point: h.point, normal: h.normal, mesh };
+    }
+    return best;
+  }
+
+  /** the mount a look's owner stands on ('m:door_FL', 'p:door_FL', 'w:2+tire' …); null: the body, or none */
+  mountOfOwner(owner: string): string | null {
+    if (owner === BODY) return null;
+    const base = owner.split('+')[0];
+    if (base.startsWith('m:') || base.startsWith('p:')) return base.slice(2);
+    if (base.startsWith('w:')) {
+      const h = hubsOf(this.frame);
+      return [h.fl, h.fr, h.rl, h.rr][Number(base.slice(2))]?.id ?? null;
+    }
+    return null;
   }
 
   /** the point of a part that can be cleaned a world-space ray meets first, within far (m) */
@@ -1141,6 +1278,7 @@ export class CarView {
   private finishMerge(merged: MergedCar, parked: boolean): void {
     this.model.add(merged.group);
     this.grimeCache = null;
+    this.targetCache = null;
     // one look for the merged meshes: the colours and wear are in their vertices, the lamps and the car frame shared
     const look = this.mats.look('merged', { paint: paintNow(this.build, 0xd8d4c8), paint2: paintHex(this.build.paint2) });
     applyMaterials(merged.group, look, true);
@@ -1191,7 +1329,14 @@ export class CarView {
   private measure(): void {
     if (!this.shapeDirty || this.loads.size) return;
     this.shapeDirty = false;
-    this.mats.setShape(measureCarShape(this.model));
+    // (and the boot: what is in it never gets dirty — its zones' box, docs/V3/plan/hands.md §五)
+    let boot: THREE.Box3 | null = null;
+    for (const z of zonesOf(this.frame.id)) {
+      if (z.wall || (z.id !== 'trunk' && z.id !== 'cabin')) continue;
+      const b = new THREE.Box3(new THREE.Vector3(z.x[0], z.floor - 0.08, z.z[0]), new THREE.Vector3(z.x[1], z.top, z.z[1]));
+      boot = boot ? boot.union(b) : b;
+    }
+    this.mats.setShape({ ...measureCarShape(this.model), boot });
   }
 
   /** a part just fitted eases into its place from a few centimetres off */
@@ -1209,19 +1354,21 @@ export class CarView {
 
   private bodyLook(): LookOf {
     const b = this.build;
-    return { paint: paintNow(b, 0xd8d4c8), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond), crust: b.crust ?? 0 };
+    return { paint: paintNow(b, 0xd8d4c8), paint2: paintHex(b.paint2), dirt: b.dirt, rust: b.rust, wear: fade(b.cond) * (1 - (b.polish ?? 0)), crust: b.crust ?? 0 };
   }
 
   /** a part's look: its own paint (or the body's / the factory's) and its own wear */
   private partLook(inst: PartInstance, cat: string): LookOf {
-    return { paint: this.paintOf(inst, cat), paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
+    // (what goes inside the car shows no dirt: docs/V3/plan/hands.md §五)
+    const inside = INSIDE_CATS.has(cat);
+    return { paint: this.paintOf(inst, cat), paint2: paintHex(this.build.paint2), dirt: inside ? 0 : inst.dirt, rust: inside ? 0 : inst.rust, wear: fade(inst.cond) * (1 - (inst.polish ?? 0)), crust: inside ? 0 : (inst.crust ?? 0) };
   }
 
   /** a panel's look: the frame's opening in the part's style */
   private panelLook(inst: PartInstance, style: string): LookOf {
     const own = inst.paint >= 0;
     const paint = panelPaint(style, own ? paintNow(inst, 0) : paintNow(this.build, 0xd8d4c8), own);
-    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
+    return { paint, paint2: paintHex(this.build.paint2), dirt: inst.dirt, rust: style === 'rusty' ? Math.max(0.85, inst.rust) : inst.rust, wear: fade(inst.cond) * (1 - (inst.polish ?? 0)), crust: inst.crust ?? 0 };
   }
 
   private setPart(m: MountDef, inst: PartInstance | null): void {
@@ -1358,6 +1505,22 @@ export class CarView {
    * A copy of a mount's panel as it hangs shut (its skin and glass, nothing added on) and what to hang it
    * from: the ghost of a panel to come is in the frame's own shape. Null where the frame has no panel there.
    */
+  /** is a face of a door (its normal, render space) its inside, as the door stands now — turned into the car when shut (docs/V3/plan/hands.md §五) */
+  panelFacesIn(mount: string, n: THREE.Vector3): boolean {
+    const p = this.panels.get(mount);
+    const m = this.frame.mounts.find((mm) => mm.id === mount);
+    // (a door's side: its own, else the side of the car it is on)
+    const side = m ? m.side || Math.sign(m.pos.z) : 0;
+    if (!p || !m || !side || !p.pivot.parent) return false;
+    p.pivot.updateWorldMatrix(true, false);
+    // (the door's swing: its pivot now against its pivot at rest; the outward of its side turned by it)
+    const now = p.pivot.getWorldQuaternion(new THREE.Quaternion());
+    const rest = p.pivot.parent.getWorldQuaternion(new THREE.Quaternion()).multiply(this.restQuat(p));
+    const swing = now.multiply(rest.invert());
+    const out = new THREE.Vector3(0, 0, m.side).applyQuaternion(this.model.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(swing);
+    return n.dot(out) < 0.1;
+  }
+
   panelShape(mount: string): { node: THREE.Object3D; make: () => THREE.Object3D } | null {
     const p = this.panels.get(mount);
     const node = p?.pivot.parent;
@@ -1464,7 +1627,7 @@ export class CarView {
 
   private wheelLook(inst: PartInstance): LookOf {
     const paint = inst.paint >= 0 ? paintHex(inst.paint) : 0xc8ccd0;
-    return { paint, paint2: paint, dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond), crust: inst.crust ?? 0 };
+    return { paint, paint2: paint, dirt: inst.dirt, rust: inst.rust, wear: fade(inst.cond) * (1 - (inst.polish ?? 0)), crust: inst.crust ?? 0 };
   }
 
   private tireLook(t: PartInstance): LookOf {
@@ -1609,9 +1772,15 @@ export class CarView {
     const lit = dash?.lightsOn ?? false;
     // (pop-up lamps come up while the lamps are on, in about half a second, eased)
     for (const pp of this.popups) {
-      pp.t = lit ? Math.min(1, pp.t + dt / 0.45) : Math.max(0, pp.t - dt / 0.45);
+      // (an elevating roof goes up and down in a second and a half, on its own word; the lamps' pods with the lamps)
+      const want = pp.roof ? this.roofUp : lit;
+      const time = pp.roof ? 1.5 : 0.45;
+      pp.t = want ? Math.min(1, pp.t + dt / time) : Math.max(0, pp.t - dt / time);
       const e = pp.t * pp.t * (3 - 2 * pp.t);
-      pp.pivot.quaternion.setFromAxisAngle(pp.axis, e * pp.openRad);
+      if (pp.lift) {
+        pp.pivot.position.copy(pp.rest).addScaledVector(pp.lift, e);
+        if (pp.bellows) pp.bellows.scale.y = Math.max(0.02, e);
+      } else pp.pivot.quaternion.setFromAxisAngle(pp.axis, e * pp.openRad);
     }
     const brake = (sim.brake > 0.05 || sim.hold) && !!dash && dash.battery > 0.02 ? 1 : 0;
     // reversing lamps in reverse with the ignition on (the white segments of the tail lamps)

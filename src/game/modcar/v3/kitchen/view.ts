@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { itemDef, itemPaint, newItem } from '../../../../core/modcar/items';
 import { WAYS, type Way } from '../../../../core/v3/kitchen/dishes';
 import { GAS, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
-import { asksStir, bandsOf, fireOf, gasOf, GAS_LOW, hasCanister, kitOf, phaseOf, potOf, underOf, vesselOf } from '../../../../core/v3/kitchen/kit';
+import { asksStir, bandsOf, electric, fireOf, gasOf, GAS_LOW, hasCanister, kitOf, phaseOf, potOf, underOf, vesselOf } from '../../../../core/v3/kitchen/kit';
 import { FOOD_LOOK } from '../../../../core/v3/kitchen/looks';
 import { FOOD } from '../../../../core/v3/kitchen/pantry';
 import { applyGhost } from '../../../render/carMaterials';
@@ -393,6 +393,68 @@ class Flame {
   }
 }
 
+/** a hob's plate heating: its three rings glowing red, slow to come and slow to go (the flame's shape for the view) */
+class Coil {
+  readonly mesh: THREE.Mesh;
+  private readonly mat: THREE.MeshBasicMaterial;
+  private level = 0;
+  /** (steady: no flicker) */
+  readonly flick = 1;
+
+  constructor() {
+    const pos: number[] = [];
+    const idx: number[] = [];
+    const seg = 40;
+    for (const [r0, r1] of [
+      [0.019, 0.031],
+      [0.039, 0.051],
+      [0.059, 0.071],
+    ]) {
+      const b = pos.length / 3;
+      for (let i = 0; i <= seg; i++) {
+        const a = (Math.PI * 2 * i) / seg;
+        pos.push(Math.cos(a) * r0, 0, Math.sin(a) * r0, Math.cos(a) * r1, 0, Math.sin(a) * r1);
+      }
+      for (let i = 0; i < seg; i++) {
+        const k = b + i * 2;
+        idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    this.mat = addLight(new THREE.MeshBasicMaterial({ color: 0xff4a12, side: THREE.DoubleSide, toneMapped: false, transparent: true, depthWrite: false }));
+    this.mat.polygonOffset = true;
+    this.mat.polygonOffsetFactor = -2;
+    this.mat.polygonOffsetUnits = -2;
+    this.mesh = new THREE.Mesh(g, this.mat);
+    this.mesh.name = 'kitchen:coil';
+    this.mesh.renderOrder = 11;
+    this.mesh.visible = false;
+  }
+
+  /** how hot it is now (0 cold … 1 high) */
+  get lit(): number {
+    return this.level;
+  }
+
+  set(fire: number, _low: boolean, gain: number, _t: number, dt: number): void {
+    const want = fire === 2 ? 1 : fire === 1 ? 0.6 : 0;
+    // (an element heats in a few seconds and cools slower)
+    this.level = approach(this.level, want, dt, want > this.level ? 0.9 : 0.45);
+    this.mesh.visible = this.level > 0.03;
+    if (!this.mesh.visible) return;
+    this.mat.opacity = Math.min(1, this.level * 1.4);
+    this.mat.color.setRGB(1.6 * gain * this.level, 0.32 * gain * this.level * this.level, 0.06 * gain * this.level);
+  }
+
+  dispose(): void {
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    this.mat.dispose();
+  }
+}
+
 /** a burst of sparks when a dish comes out: gold for a perfect one, pale for the rest, grey for a failure */
 class Burst {
   readonly points: THREE.Points;
@@ -482,7 +544,7 @@ class UnitView {
   private readonly holder = new THREE.Group();
   private readonly contents: Contents;
   private ring: Ring | null = null;
-  private flame: Flame | null = null;
+  private flame: Flame | Coil | null = null;
   private glow: Glow | null = null;
   private burst: Burst | null = null;
   private vapour: Vapour | null = null;
@@ -797,13 +859,15 @@ class UnitView {
       }
     }
     // the flame
+    const hob = electric(it);
     if (fire && !this.flame) {
-      this.flame = new Flame();
+      this.flame = hob ? new Coil() : new Flame();
       this.group.add(this.flame.mesh);
     }
     if (this.flame) {
-      const low = gasOf(it) < GAS_LOW;
-      this.flame.mesh.position.set(this.mFlame.x, this.mFlame.y - 0.03, this.mFlame.z);
+      // (a hob's plate glows on its rings, a hair over it; a hob is never low on gas: its light the warm one)
+      const low = hob || gasOf(it) < GAS_LOW;
+      this.flame.mesh.position.set(this.mFlame.x, this.mFlame.y - (hob ? 0 : 0.03), this.mFlame.z);
       this.flame.set(fire, low, gain, t, dt, !!vesselOf(it));
       // its light: a halo round the burner, a pool on what the stove stands on (stronger as night falls)
       if (!this.glow) {
@@ -815,7 +879,7 @@ class UnitView {
       // (the pool on what the stove stands on, round the burner)
       this.glow.pool.position.set(this.mFlame.x, 0.003, this.mFlame.z);
       this.glow.pool.scale.setScalar(1.1);
-      this.glow.set(this.flame.lit, globals.uWeather.value.w, this.view.exposure, low, this.flame.flick);
+      this.glow.set(this.flame.lit * (hob ? 0.45 : 1), globals.uWeather.value.w, this.view.exposure, low, this.flame.flick);
     }
   }
 
@@ -921,6 +985,9 @@ export class KitchenView {
   private readonly sizes = new Map<string, number>();
   private readonly v3 = new THREE.Vector3();
   private t = 0;
+  /** what is in the vessel in the hands, hung on its model there (null: none made yet); hung now */
+  private heldPot: Contents | null = null;
+  private heldHung = false;
 
   constructor(
     readonly ctx: GameContext,
@@ -976,6 +1043,32 @@ export class KitchenView {
       v.update(dt, this.t, gain, on === u, ghosted);
     }
     this.drawGhosts(gs);
+    this.heldContents();
+  }
+
+  /** a vessel with food in it in the hands: its food with it, where it sits in the vessel (its M_food) */
+  private heldContents(): void {
+    const ctx = this.ctx;
+    const h = ctx.seated ? null : ctx.player.held;
+    const v = h?.kind === 'item' ? vesselOf(h.item) : null;
+    const pot = v && h?.kind === 'item' ? potOf(h.item) : undefined;
+    const model = ctx.heldThing.model;
+    if (h?.kind === 'item' && v && pot && pot.items.length && model) {
+      const c = (this.heldPot ??= new Contents(this.mats, 'kitchen:held:pot'));
+      if (!this.heldHung || c.group.parent !== model) {
+        const at = model.getObjectByName('M_food');
+        c.group.position.copy(at ? at.position : this.v3.set(0, 0.006, 0));
+        ctx.heldThing.hang(c.group);
+        this.heldHung = true;
+      }
+      c.set(WAY_OF[v], pot.items, pot.done ?? 0, bandsOf(h.item));
+      c.frame();
+    } else if (this.heldHung && this.heldPot) {
+      // (only what was hung here is taken off: the camera hangs its own)
+      ctx.heldThing.hang(null);
+      this.heldHung = false;
+      this.heldPot.set(null, null, 0, []);
+    }
   }
 
   private drawGhosts(list: readonly GhostAt[]): void {
@@ -1023,6 +1116,9 @@ export class KitchenView {
   dispose(): void {
     for (const v of this.views.values()) v.dispose();
     this.views.clear();
+    if (this.heldHung) this.ctx.heldThing.hang(null);
+    this.heldPot?.dispose();
+    this.heldPot = null;
     for (const o of this.ghosts.values()) o.obj.removeFromParent();
     this.ghosts.clear();
     this.root.removeFromParent();

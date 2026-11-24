@@ -1,8 +1,8 @@
 /**
  * The appliances system (node M2, docs/V3/nodes/M2-rv.md): every appliance lying about or riding in a vehicle is a
- * device the mark finds — E switches it on and off (the coffee maker: brews), F let go at once does its second
- * thing (the next station, channel or record; the coffee maker's pot taken off), F held picks it up; water, a bag of
- * ground coffee or the pot in the hands go into the coffee maker with E. What it does is drawn over its model
+ * device the mark finds — the left button switches it on and off, the wheel does its second thing (the next
+ * station, channel or record), the left button held picks it up; a coffee pot lying about is drawn with the coffee in
+ * it (the coffee machine is Nomad Drive's: nd-coffee). What it does is drawn over its model
  * (looks.ts), what plays is heard as a car radio is (GameContext.addRadios), and a lamp or a television on in a
  * vehicle lights its inside (the vehicle's own cabin lamp).
  *
@@ -14,11 +14,11 @@ import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
 import { itemDef, type ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
-import { addGrounds, appOf, applianceOf, brewLack, brewStep, channelOf, COFFEE, COFFEE_GROUNDS, COFFEE_POT, hasPot, nextChannel, pourWater, putPot, startBrew, takePot, toggle, type ApplianceKind } from '../../../../core/v3/appliances/appliances';
+import { appOf, applianceOf, channelOf, COFFEE_POT, nextChannel, toggle, type ApplianceKind } from '../../../../core/v3/appliances/appliances';
 import type { GarageDevice } from '../../garageStub';
 import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
-import type { GameContext, RadioSet } from '../../kernel/context';
+import { powerOf, type GameContext, type RadioSet } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
 import { heldOf, type Held } from '../../player';
@@ -29,7 +29,7 @@ import { CABIN_GLOW, glowOf, makeLook, type ApplianceLook, type LookNow } from '
 import { globals } from '../../../render/shaderlib';
 
 /** what each kind is called on the mark */
-const NAME: Record<ApplianceKind, string> = { coffee: '咖啡机', radio: '收音闹钟', record: '唱片机', tv: '电视', lamp: '台灯', solar: '太阳能灯' };
+const NAME: Record<ApplianceKind, string> = { radio: '收音闹钟', record: '唱片机', tv: '电视', lamp: '台灯', solar: '太阳能灯' };
 /** how loud each set plays, against a car radio's 1 */
 const LOUD: Partial<Record<ApplianceKind, number>> = { radio: 0.7, record: 1.0, tv: 0.8 };
 /** the television's channels (looks.ts draws them in this order) */
@@ -40,17 +40,6 @@ const T = (zh: string, en: string): Text => ({ zh, en });
 /** a song's name on the radio's dial */
 function songName(ch: number): string {
   return stationLabel(ch);
-}
-
-/** what a coffee maker takes from the hands: water from a bottle, a portion of ground coffee, its pot */
-type Pour = { kind: 'water'; litres: number } | { kind: 'grounds' } | { kind: 'pot' };
-function pourOf(h: NonNullable<Held>): Pour | null {
-  if (h.kind === 'tool' && h.tool.kind === 'bottle') return { kind: 'water', litres: h.tool.litres ?? 0 };
-  if (h.kind !== 'item') return null;
-  if (h.item.item === 'drink_water') return { kind: 'water', litres: h.item.litres ?? 0 };
-  if (h.item.item === COFFEE_GROUNDS) return { kind: 'grounds' };
-  if (h.item.item === COFFEE_POT) return { kind: 'pot' };
-  return null;
 }
 
 /** one appliance lying about or riding in a vehicle: the device the mark finds, and what is drawn of it */
@@ -102,17 +91,8 @@ class Unit implements GarageDevice {
     const s = appOf(it);
     const name = NAME[this.kind];
     switch (this.kind) {
-      case 'coffee': {
-        if (s.on) return T(`关掉 <b>${name}</b>`, `Switch off the <b>coffee maker</b>`);
-        const lack = brewLack(it);
-        if (!lack) return T('煮咖啡', 'Brew coffee');
-        if (lack === 'pot') return T('煮咖啡 · 先放上咖啡壶', 'Brew · put a pot on it first');
-        if (lack === 'water') return T('煮咖啡 · 先加水', 'Brew · add water first');
-        if (lack === 'grounds') return T('煮咖啡 · 先放咖啡粉', 'Brew · add ground coffee first');
-        return T('煮咖啡 · 壶满了', 'Brew · the pot is full');
-      }
       case 'record':
-        return s.on ? T(`停下 <b>${name}</b>`, 'Stop the <b>record</b>') : T(`放唱片 · 「${songName(channelOf(it))}」`, 'Play the record');
+        return s.on ? T(`停下 <b>${name}</b>`, 'Stop the <b>record</b>') : T('放唱片', 'Play the record');
       case 'lamp':
         return s.on ? T('关灯', 'Switch the lamp off') : T('开灯', 'Switch the lamp on');
       default:
@@ -120,20 +100,28 @@ class Unit implements GarageDevice {
     }
   }
 
-  /** F pressed and let go at once */
+  /** the left button held: the thing itself is picked up */
+  grabbable(): NonNullable<Held> | null {
+    return heldOf(this.loose);
+  }
+
+  grab(): boolean {
+    const ctx = this.sys.context;
+    if (!ctx) return false;
+    return ctx.player.takeLoose(this.loose);
+  }
+
+  /** its second thing, on the wheel while it is looked at (another station, channel, record) */
   get alt(): { word: Text; use(): void } | null {
     const it = this.item;
     const s = appOf(it);
     switch (this.kind) {
-      case 'coffee':
-        if (!hasPot(it)) return null;
-        return { word: (s.coffee ?? 0) > 0.01 ? T(`端起咖啡壶 · ${(s.coffee ?? 0).toFixed(2)} L`, 'Take the pot') : T('拿下咖啡壶', 'Take the pot off'), use: () => this.sys.takePotOff(this) };
       case 'radio':
         return s.on ? { word: T('换台', 'Next station'), use: () => this.sys.next(this) } : null;
       case 'record':
-        return { word: T('换一张唱片', 'Another record'), use: () => this.sys.next(this) };
+        return { word: T('换唱片', 'Another record'), use: () => this.sys.next(this) };
       case 'tv':
-        return s.on ? { word: T(`换台 · 下一个是${TV_CHANNELS[(channelOf(it) + 1) % TV_CHANNELS.length]}`, 'Next channel'), use: () => this.sys.next(this) } : null;
+        return s.on ? { word: T('换台', 'Next channel'), use: () => this.sys.next(this) } : null;
       default:
         return null;
     }
@@ -147,29 +135,9 @@ class Unit implements GarageDevice {
     this.sys.press(this);
   }
 
-  take(held: NonNullable<Held>): { ok: boolean; word: Text; keep?: boolean } | null {
-    if (this.kind !== 'coffee') return null;
-    const p = pourOf(held);
-    if (!p) return null;
-    const it = this.item;
-    const s = appOf(it);
-    if (s.on) return { ok: false, word: T('正在煮，等它煮完', 'It is brewing') };
-    if (p.kind === 'water') {
-      if (p.litres < 0.01) return { ok: false, word: T('加水 · 瓶子是空的', 'Add water · the bottle is empty') };
-      if ((s.water ?? 0) >= COFFEE.tank - 0.01) return { ok: false, word: T('加水 · 水箱满了', 'Add water · the tank is full') };
-      return { ok: true, word: T(`加水 · 倒进水箱（还能装 ${(COFFEE.tank - (s.water ?? 0)).toFixed(2)} L）`, 'Pour water in'), keep: true };
-    }
-    if (p.kind === 'grounds') {
-      if (s.grounds) return { ok: false, word: T('放咖啡粉 · 滤网里已经有了', 'Add coffee · there is some in the filter') };
-      return { ok: true, word: T('放一份咖啡粉进滤网', 'Put a portion of coffee in the filter'), keep: true };
-    }
-    // the pot: back onto a machine without one (one with its pot: E works the machine)
-    if (hasPot(it)) return null;
-    return { ok: true, word: T('放上咖啡壶', 'Put the pot on') };
-  }
-
-  useWith(held: NonNullable<Held>): void {
-    this.sys.pourIn(this, held);
+  /** nothing goes into an appliance from the hands */
+  take(_held: NonNullable<Held>): { ok: boolean; word: Text; keep?: boolean } | null {
+    return null;
   }
 
   /**
@@ -217,6 +185,12 @@ export class Appliances implements System<GameContext>, InteractSource {
   readonly radios: RadioSet[] = [];
   private readonly pool: RadioSet[] = [];
   private ctx: GameContext | null = null;
+
+  /** the game, for the devices (null before init) */
+  get context(): GameContext | null {
+    return this.ctx;
+  }
+
   private readonly units = new Map<Loose, Unit>();
   private readonly list: Unit[] = [];
   private rev = -1;
@@ -227,7 +201,6 @@ export class Appliances implements System<GameContext>, InteractSource {
   private readonly now: LookNow = { on: false, ch: 0, hour: 12, coffee: -1, light: 1, exposure: 1, t: 0, dt: 0, onWall: false };
   private readonly lamps = new Map<ModVehicle, THREE.Color>();
   private readonly sum = new THREE.Color();
-  private brewSound = 0;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -294,36 +267,6 @@ export class Appliances implements System<GameContext>, InteractSource {
   step(dt: number, ctx: GameContext): void {
     this.time += dt;
     this.refresh(ctx);
-    // the coffee makers that are on drip through into their pots
-    for (const u of this.list) {
-      if (u.potOnly || u.kind !== 'coffee' || !appOf(u.item).on) continue;
-      const r = brewStep(u.item, dt);
-      if (r.dripped > 0 && this.closeTo(u, 6)) {
-        this.brewSound -= dt;
-        if (this.brewSound <= 0) {
-          ctx.sound('pour', 0.05);
-          this.brewSound = 1.6 + Math.random() * 1.2;
-        }
-      }
-      if (r.done) {
-        ctx.loose.touch(u.loose);
-        if (this.closeTo(u, 8)) {
-          ctx.sound('clean_ding', 0.6);
-          const c = appOf(u.item).coffee ?? 0;
-          if (c > 0.01) ctx.ui.say(`咖啡煮好了：壶里 ${c.toFixed(2)} L。看着咖啡机按 F 端起来喝。`, 3);
-        }
-      }
-    }
-  }
-
-  /** is the player within d of it (on foot, aboard, or in a seat) */
-  private closeTo(u: Unit, d: number): boolean {
-    const ctx = this.ctx;
-    if (!ctx) return false;
-    const w = ctx.player.walker;
-    const px = ctx.seated ? ctx.seated.sim.px : w.x;
-    const pz = ctx.seated ? ctx.seated.sim.pz : w.z;
-    return Math.hypot(u.x - px, u.z - pz) < d;
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
@@ -359,7 +302,7 @@ export class Appliances implements System<GameContext>, InteractSource {
           g.quaternion.copy(u.loose.obj.quaternion);
           n.on = on;
           n.ch = channelOf(it);
-          n.coffee = u.potOnly ? (it.litres ?? 0) / (itemDef(COFFEE_POT).drink?.litres ?? 1) : kind === 'coffee' && hasPot(it) ? (s.coffee ?? 0) / COFFEE.pot : -1;
+          n.coffee = u.potOnly ? (it.litres ?? 0) / (itemDef(COFFEE_POT).drink?.litres ?? 1) : -1;
           n.onWall = u.loose.stow === 'wall';
           look.update(n);
           u.glow = glowOf(look);
@@ -419,26 +362,18 @@ export class Appliances implements System<GameContext>, InteractSource {
     const ctx = this.ctx;
     if (!ctx) return;
     const it = u.item;
-    if (u.kind === 'coffee') {
-      if (appOf(it).on) {
-        toggle(it, false);
-        ctx.sound('switch', 0.7);
-      } else if (startBrew(it)) {
-        ctx.sound('switch', 0.7);
-        ctx.ui.say('咖啡机开了：水滴下来要一会儿。', 2.2);
-      } else {
-        const lack = brewLack(it);
-        ctx.ui.say(lack === 'pot' ? '没有咖啡壶：找一个放上去才能煮。' : lack === 'water' ? '水箱是空的：拿着一瓶水看着它按 E 加水。' : lack === 'grounds' ? '滤网里没有咖啡粉：拿着咖啡粉看着它按 E 放一份。' : '壶已经满了：按 F 端起来喝掉再煮。', 3);
-        return;
-      }
-    } else {
-      const on = toggle(it);
-      if (u.kind === 'tv') ctx.sound(on ? 'power_on' : 'power_off', 0.5);
-      else ctx.sound('switch', 0.6);
-      if (on && (u.kind === 'radio' || u.kind === 'record')) ctx.ui.say(`${NAME[u.kind]}：「${songName(channelOf(it))}」`, 2.2);
-      if (on && u.kind === 'tv') ctx.ui.say(`电视：${TV_CHANNELS[channelOf(it)]}`, 2);
-      if (on && u.kind === 'solar' && (ctx.env.sky?.night ?? 0) <= 0.35) ctx.ui.say('太阳能灯开了：白天充电，天黑了才亮。', 2.6);
+    // (in a vehicle with nothing to draw on it does not come on: docs/V3/plan/rv.md R2, the power module)
+    if (!appOf(it).on && u.kind !== 'solar' && powerOf(ctx, u.loose) === 'flat') {
+      ctx.sound('switch', 0.6);
+      ctx.player.flashWhy('没电了');
+      return;
     }
+    const on = toggle(it);
+    if (u.kind === 'tv') ctx.sound(on ? 'power_on' : 'power_off', 0.5);
+    else ctx.sound('switch', 0.6);
+    if (on && (u.kind === 'radio' || u.kind === 'record')) ctx.ui.say(`${NAME[u.kind]}：「${songName(channelOf(it))}」`, 2.2);
+    if (on && u.kind === 'tv') ctx.ui.say(`电视：${TV_CHANNELS[channelOf(it)]}`, 2);
+    if (on && u.kind === 'solar' && (ctx.env.sky?.night ?? 0) <= 0.35) ctx.player.flashWhy('天黑了才亮');
     ctx.loose.touch(u.loose);
   }
 
@@ -450,61 +385,6 @@ export class Appliances implements System<GameContext>, InteractSource {
     ctx.sound('switch', 0.4);
     if (u.kind === 'tv') ctx.ui.say(`电视：${TV_CHANNELS[ch]}`, 1.8);
     else ctx.ui.say(`${NAME[u.kind]}：「${songName(ch)}」`, 2);
-    ctx.loose.touch(u.loose);
-  }
-
-  /** F let go at once on a coffee maker with its pot: the pot into the hands (with the coffee in it) */
-  takePotOff(u: Unit): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const it = u.item;
-    const pot = takePot(it);
-    const h = { kind: 'item' as const, item: pot };
-    const p = ctx.player;
-    if (p.receive(h) > 0) {
-      // (no room in the hands: the pot stays on)
-      putPot(it, pot);
-      ctx.ui.say('手上没地方了。', 2);
-      return;
-    }
-    const at = p.slots.indexOf(h);
-    if (at >= 0) p.sel = at;
-    ctx.loose.retype(u.loose);
-    ctx.loose.touch(u.loose);
-    ctx.sound('pickup', 0.4);
-    if ((pot.litres ?? 0) > 0.01) ctx.ui.say(`端起咖啡壶：${(pot.litres ?? 0).toFixed(2)} L 咖啡。按住 F 喝。`, 2.6);
-  }
-
-  /** E with water, ground coffee or the pot in the hands, on a coffee maker */
-  pourIn(u: Unit, held: NonNullable<Held>): void {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    const it = u.item;
-    const p = pourOf(held);
-    if (!p) return;
-    if (p.kind === 'water') {
-      const d = pourWater(it, p.litres);
-      if (held.kind === 'tool') held.tool.litres = Math.max(0, (held.tool.litres ?? 0) - d);
-      else if (held.kind === 'item') held.item.litres = Math.max(0, Math.round(((held.item.litres ?? 0) - d) * 1000) / 1000);
-      ctx.sound('pour', Math.max(0.2, d));
-      ctx.ui.say(`加了 ${d.toFixed(2)} L 水：水箱里 ${(appOf(it).water ?? 0).toFixed(2)} L。`, 2);
-    } else if (p.kind === 'grounds' && held.kind === 'item') {
-      if (addGrounds(it, held.item)) {
-        ctx.sound('wrapper', 0.6);
-        const left = held.item.uses ?? 0;
-        // (the last portion: the bag is thrown away)
-        if (left <= 0) {
-          const pl = ctx.player;
-          const i = pl.slots.indexOf(held);
-          if (i >= 0) pl.slots[i] = null;
-          ctx.ui.say('放了一份咖啡粉。袋子空了，扔掉了。', 2.4);
-        } else ctx.ui.say(`放了一份咖啡粉（袋里还剩 ${left} 份）。`, 2);
-      }
-    } else if (p.kind === 'pot' && held.kind === 'item') {
-      putPot(it, held.item);
-      ctx.loose.retype(u.loose);
-      ctx.sound('putdown', 0.4);
-    }
     ctx.loose.touch(u.loose);
   }
 

@@ -29,8 +29,12 @@ export interface GarageDevice {
   readonly word: Text;
   /** how it stands now, for its card ("大门关着"); absent: its word says it */
   readonly state?: Text;
+  /** why pressing it does nothing now (no power, nothing on it): its word is not shown, a press says this (docs/V3/plan/prompts.md §五) */
+  readonly why?: Text | null;
   /** a card of its own (the workshop's machines: fuel, power, what it gives); absent: the plain one */
   readonly card?: ItemCard;
+  /** a thing growing or lying on the ground (a plant to pick): its card whole, as a thing lying about's (docs/V3/plan/prompts.md §五 4) */
+  readonly ground?: boolean;
   use(): void;
   /** E held this long does it (the generator's rope), use() at the end; the progress meanwhile */
   readonly holdS?: number;
@@ -45,10 +49,17 @@ export interface GarageDevice {
   useWith?(held: NonNullable<Held>): void;
   /**
    * The thing lying there that this device is (an appliance: docs/V3/nodes/M2-rv.md): the mark lights it up, and
-   * F held picks it up as E picks up a plain thing. Absent: a device of its own.
+   * the left button held picks it up as a press picks up a plain thing (a press works the device). Absent: a
+   * device of its own.
    */
   readonly loose?: Loose;
-  /** F (or the right button) pressed and let go at once on it: its second use (a radio's next station), as the cockpit's right click; null: none now */
+  /**
+   * What the left button held takes up instead of the thing itself (a pan off the burner, food off the board):
+   * grabbable() says what that is now (null: nothing, so no hold here), grab() takes it into the hands (true: taken).
+   */
+  grabbable?(): NonNullable<Held> | null;
+  grab?(): boolean;
+  /** its second use (a radio's next station, a flame up or down): the wheel while it is looked at; null: none now */
   readonly alt?: { readonly word: Text; use(): void } | null;
   /** where along the line of sight (render space) it is met, null: missed (a box of its own: a cupboard, a pump); absent: the point and radius */
   hit?(ray: THREE.Ray, reach: number): number | null;
@@ -101,6 +112,8 @@ export interface GarageScene {
   shadowFocus?(x: number, z: number, heading: number, out: { x: number; y: number; z: number }): void;
   /** a garage whose doors open: are they open (wide enough to drive out)? */
   doorsOpen?(): boolean;
+  /** why the doors will not open yet (the start's car not yet able to drive, J5), or null: set by the game */
+  doorLock?: (() => Text | null) | null;
   /** a garage with a radio set of its own: is it on, which station (radio.ts SONGS), where it stands (world) */
   radio?(): { on: boolean; song: number; x: number; y: number; z: number } | null;
   /** for the test hook: the doors, the lamps, the devices' state */

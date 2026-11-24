@@ -299,7 +299,14 @@ try {
     if (inHand.held !== '不认识的蘑菇' || inHand.heldText.includes('毒蝇伞') || inHand.heldText.includes('闹肚子')) fail(`the fly agaric in the hand is not veiled: "${inHand.held}" / "${inHand.heldText}"`);
     if (!inHand.titles.includes('不认识的蘑菇')) fail(`the hotbar names the fly agaric: ${JSON.stringify(inHand.titles)}`);
     if (before.veil.state !== 1) fail(`the fly agaric is not unknown before it is eaten: ${JSON.stringify(before.veil)}`);
-    await rt('takeFor', 3.2);
+    // (eaten with the right button since docs/V3/plan/growth.md J1: one press, the bites go on by themselves)
+    await page.evaluate(() => {
+      const g = window.__rt.game;
+      g.rightButton = true;
+      for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
+      g.rightButton = false;
+      for (let t = 0; t < 3.2; t += 1 / 60) g.step(1 / 60, 1);
+    });
     const tasted = await page.evaluate(() => {
       const g = window.__rt.game;
       const out = { veil: g.systems.harness('forage', 'veil', 'fly_agaric'), sick: g.body.effects.sick1 ?? 0, known: g.systems.harness('progress', 'knowledge', 'forage', 'fly_agaric'), toast: '' };
@@ -310,13 +317,14 @@ try {
       }
       return out;
     });
-    await rt('simulate', 6);
+    // (J6: being ill takes its toll a little at a time — docs/V3/plan/growth.md §四: a minute of it)
+    await rt('simulate', 62);
     const hpAfter = await page.evaluate(() => window.__rt.game.body.hp);
     console.log('the fly agaric', JSON.stringify(inHand.held), '->', JSON.stringify(tasted), `health ${before.hp.toFixed(1)} -> ${hpAfter.toFixed(1)}`);
     if (tasted.veil.state !== 0 || tasted.veil.name !== '毒蝇伞' || tasted.known !== 2) fail(`eating the fly agaric did not name it: ${JSON.stringify(tasted)}`);
     if (!tasted.toast.includes('尝出来了') || !tasted.toast.includes('毒蝇伞')) fail(`no line says what was tasted: "${tasted.toast}"`);
     if (!(tasted.sick > 0)) fail('the fly agaric did not make one sick');
-    if (!(before.hp - hpAfter >= 5)) fail(`the fly agaric did not hurt (${before.hp} -> ${hpAfter})`);
+    if (!(before.hp - hpAfter >= 2)) fail(`the fly agaric did not hurt (${before.hp} -> ${hpAfter})`);
 
     // saved, opened again: the picked points stay picked, the basket holds what it held, what was learnt is known
     const kept = await page.evaluate(() => {
@@ -392,7 +400,8 @@ try {
       const pane = document.querySelector('.mc-dev .pane[data-p="forage"]');
       const buttons = [...pane.querySelectorAll('.btns button')];
       const press = (label) => buttons.find((b) => b.textContent === label)?.click();
-      press('野莓');
+      // (the berries' name since d1ccb8b)
+      press('野生黑莓');
       press('松露');
       const g = window.__rt.game;
       return { buttons: buttons.length, headings: pane.querySelectorAll('h5').length, status: pane.querySelector('.where')?.textContent ?? '', msg: pane.querySelector('.msg')?.textContent ?? '', hands: g.player.slots.map((h) => (h?.kind === 'item' ? `${h.item.item}*${h.item.n ?? 1}` : null)), known: g.systems.harness('forage', 'veil', 'truffle') };

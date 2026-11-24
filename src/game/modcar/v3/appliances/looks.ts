@@ -576,9 +576,6 @@ export function makeLook(kind: ApplianceKind | 'pot'): ApplianceLook | null {
       return new LampLook(new THREE.Vector3(0.26, 0.3, 0), { r: 0.0255 }, 0.3, { x: 0.45, z: 0, r: 0.24 }, WARM, 1.0);
     case 'solar':
       return new LampLook(new THREE.Vector3(0, 0.444, 0), { r: 0.0415, h: 0.062 }, 0.36, null, new THREE.Color(1.0, 0.9, 0.7), 0.85);
-    case 'coffee':
-      // (the carafe on the hotplate: its middle at 0.055, 0; its inside from 0.06 up)
-      return new CoffeeLook({ x: 0.055, z: 0, y0: 0.062 }, true);
     case 'pot':
       return new CoffeeLook({ x: 0, z: 0, y0: 0.006 }, false);
     default:

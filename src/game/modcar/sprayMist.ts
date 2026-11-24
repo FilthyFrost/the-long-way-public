@@ -163,19 +163,19 @@ export class SprayMist {
     this.up.crossVectors(this.side, dir).normalize();
     const thin = 0.55 + 0.45 * Math.min(1, fill * 4);
     // out of the nozzle: a narrow fan (wider across the can than along it), quick and dense
-    this.owed[Kind.Jet] += dt * 460 * thin;
+    // (a thin short jet: docs/V3/plan/hands.md §六 — the cloud that was here hid where the paint went)
+    this.owed[Kind.Jet] += dt * 90 * thin;
     while (this.owed[Kind.Jet] >= 1 && this.puffs.length < MAX) {
       this.owed[Kind.Jet] -= 1;
-      const a = (this.rnd() * 2 - 1) * 0.16;
-      const e = (this.rnd() * 2 - 1) * 0.06;
-      const v = this.t0.copy(dir).addScaledVector(this.side, a).addScaledVector(this.up, e).normalize().multiplyScalar(0.9 + 0.8 * this.rnd());
+      const a = (this.rnd() * 2 - 1) * 0.06;
+      const e = (this.rnd() * 2 - 1) * 0.03;
+      const v = this.t0.copy(dir).addScaledVector(this.side, a).addScaledVector(this.up, e).normalize().multiplyScalar(1.2 + 0.6 * this.rnd());
       const k = 0.7 + 0.25 * this.rnd();
-      this.add(Kind.Jet, nozzle, v, 0.15 + 0.35 * this.rnd(), 0.05 + 0.07 * this.rnd(), (0.24 + 0.14 * this.rnd()) * (0.75 + 0.5 * (1 - lum)) * thin, this.col.r * k, this.col.g * k, this.col.b * k);
+      this.add(Kind.Jet, nozzle, v, 0.06 + 0.1 * this.rnd(), 0.01 + 0.015 * this.rnd(), (0.12 + 0.06 * this.rnd()) * (0.75 + 0.5 * (1 - lum)) * thin, this.col.r * k, this.col.g * k, this.col.b * k);
     }
-    if (!hit || !normal) {
-      this.owed[Kind.Mist] = this.owed[Kind.Speck] = 0;
-      return;
-    }
+    // (nothing over the surface any more: the brush's shadow shows where it goes)
+    this.owed[Kind.Mist] = this.owed[Kind.Speck] = 0;
+    if (!hit || !normal || hit) return;
     // where it lands: a thin mist rolling off the surface, specks of paint dotting it round the point
     this.t1.crossVectors(normal, this.side);
     if (this.t1.lengthSq() < 1e-6) this.t1.crossVectors(normal, this.up);

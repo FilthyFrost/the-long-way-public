@@ -40,11 +40,29 @@ export class AudioEngine {
   } | null = null;
   private thunderAt = -1;
   enabled = true;
+  /** the settings' volume on the whole mix (0…1) */
+  private volume = 1;
+  /** the menu holds every voice where it is */
+  private held = false;
+
+  /** the whole mix at so much of its level (the settings' volume) */
+  setVolume(v: number): void {
+    this.volume = Math.min(1, Math.max(0, v));
+    if (this.nodes) this.nodes.master.gain.value = 0.55 * this.volume;
+  }
+
+  /** every voice held where it is (the menu open), or let go on */
+  hold(on: boolean): void {
+    this.held = on;
+    if (!this.ctx) return;
+    if (on) void this.ctx.suspend();
+    else void this.ctx.resume();
+  }
 
   /** Call from a user gesture. Safe to call repeatedly. */
   start(): boolean {
     if (this.ctx) {
-      void this.ctx.resume();
+      if (!this.held) void this.ctx.resume();
       return true;
     }
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -64,7 +82,7 @@ export class AudioEngine {
     noise.loop = true;
 
     const master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = 0.55 * this.volume;
     const comp = ctx.createDynamicsCompressor();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;

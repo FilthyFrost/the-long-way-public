@@ -165,7 +165,7 @@ export function kitchenTab(sys: Kitchen, game: () => GameContext | null): DevTab
     title: '厨房',
     order: 45,
     sub: '做饭（烹饪系统）',
-    hint: '拿着东西看哪里能放，哪里就有它的投影：E 放下 / 下锅 / 装盘，对着锅和案板按 E 操作，F 端走，按住 F 拿起厨具。J 打开食谱本。',
+    hint: '拿着东西看哪里能放，哪里就有它的投影：点左键放下 / 下锅 / 装盘，对着锅和案板点左键操作，按住左键把锅端起来、把厨具拿起来。J 打开食谱本。',
     build(pane) {
       const say = pane.message();
       const ctx0 = (): GameContext | null => {

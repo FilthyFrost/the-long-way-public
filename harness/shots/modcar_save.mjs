@@ -29,12 +29,35 @@ try {
   await rt('pickUp', 'bat_std');
   await rt('aim', 0, 'battery', 1.4);
   await rt('useFor', 1.6);
-  // the petrol can into the donor's bed
-  await rt('pickUp', 'tool:jerrycan');
-  await rt('aim', 1, 'seat_rear', 1.2);
+  // the petrol can into the donor: picked up with the left button (the mark on it, not on the diesel can lying by it), Q
+  // looking into its bed (docs/V3/plan/growth.md §二, J1: Q puts down — looking at a vehicle, into it). It was put down
+  // in front of one standing by the Mule's back seat, and fell to the floor beside its door: the one failure, since J4.
+  const picked = await page.evaluate(() => {
+    const g = window.__rt.game;
+    const l = g.loose.list.find((x) => x.tool?.kind === 'jerrycan' && x.tool.fuel === 'petrol');
+    if (!l) return 'no petrol can';
+    const w = g.player.walker;
+    g.viewMode = 'cockpit';
+    for (let k = 0; k < 8; k++) {
+      const a = (k * Math.PI) / 4;
+      w.place(l.x + Math.cos(a) * 0.9, l.z + Math.sin(a) * 0.9, a + Math.PI);
+      for (let i = 0; i < 3; i++) {
+        const eye = w.eye();
+        g.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);
+        g.input.lookPitch = Math.atan2(l.y + l.mid - eye.y, Math.hypot(l.x - w.x, l.z - w.z));
+        g.simulate(i ? 0.05 : 0);
+      }
+      if (window.__rt.telemetry().target === `loose:${l.uid}`) break;
+    }
+    window.__rt.press();
+    return g.player.held?.tool?.fuel ?? 'nothing';
+  });
+  if (picked !== 'petrol') fail(`the petrol can not picked up (${picked})`);
+  await rt('aimZone', 1, 'bed', 1.2);
+  await rt('simulate', 0.5);
+  await page.keyboard.press('KeyQ');
   await page.evaluate(() => {
     const g = window.__rt.game;
-    g.player.putDown();
     for (let i = 0; i < 60; i++) g.step(1 / 60, 1);
   });
   await rt('pickUp', 'rim_steel13');

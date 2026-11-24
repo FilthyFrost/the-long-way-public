@@ -48,9 +48,9 @@ export function newGenerator(spec: GeneratorSpec, litres = 0, fuel: FuelType = '
 /** how it gets on with what is in its tank: the wrong fuel's share, whether it runs at all, how much more it burns */
 export function generatorFuel(g: GeneratorState): { empty: boolean; runs: boolean; wrong: number; burnK: number; why?: Text } {
   const total = tankLitres(g.tank);
-  if (total <= 0.005) return { empty: true, runs: false, wrong: 0, burnK: 1, why: { zh: '油箱是空的：拿柴油桶来加', en: 'The tank is empty: bring the diesel can' } };
+  if (total <= 0.005) return { empty: true, runs: false, wrong: 0, burnK: 1, why: { zh: '没油了', en: 'The tank is empty: bring the diesel can' } };
   const wrong = ((g.tank.fuel.petrol ?? 0) + (g.tank.fuel.mix2t ?? 0)) / total;
-  if (wrong >= 0.3) return { empty: false, runs: false, wrong, burnK: 1, why: { zh: '柴油机里是汽油：突突两下就熄', en: 'Petrol in a diesel: it coughs twice and dies' } };
+  if (wrong >= 0.3) return { empty: false, runs: false, wrong, burnK: 1, why: { zh: '油不对', en: 'Petrol in a diesel: it coughs twice and dies' } };
   // (Arctic Drive's mixtures: a little of the wrong one, a quarter more; more of it, half as much again)
   const burnK = wrong <= 0.1 ? 1 : wrong <= 0.2 ? 1.25 : 1.5;
   return { empty: false, runs: true, wrong, burnK };

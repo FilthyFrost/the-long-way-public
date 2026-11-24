@@ -101,6 +101,8 @@ export interface ForageSaved {
 /** a point within reach, as the mark finds it: a device E picks at once */
 class PointDevice implements GarageDevice {
   id = 'forage:0';
+  /** (where it grows: its card whole) */
+  readonly ground = true;
   x = 0;
   y = 0;
   z = 0;

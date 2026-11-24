@@ -5,6 +5,7 @@
 // A spot over its budget fails the gate (exit 1): nothing new goes in until it is back under.
 //
 //   SHOTS_GPU=1 node harness/shots/perf_gate.mjs [label] [spot ...]
+// (GATE_BUILD=stock:camel: from another vehicle's seat — the motorhomes' own draw calls in it; the Mule's by default)
 // The figures go to loop/shots/perf_gate/<label>.json (label: "now" by default) and are printed as a table.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +38,7 @@ const browser = await launchBrowser();
 const report = { label, at: new Date().toISOString(), budget, spots: [] };
 let over = 0;
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? process.env.WORLD : 2}&seed=7&start=road&build=stock:pickup&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? process.env.WORLD : 2}&seed=7&start=road&build=${process.env.GATE_BUILD ?? 'stock:pickup'}&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
   await idle(page);
   if (EARTH) {
     const wanted = args.length ? args : null;

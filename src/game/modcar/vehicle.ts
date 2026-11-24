@@ -39,6 +39,13 @@ export class ModVehicle implements Carrier {
   /** the radio part is switched on, and the station it is on (radio.ts SONGS) */
   radioOn = false;
   radioSong = 0;
+  /** how much further back (m) the chase view stands behind it: what it tows (the tow system's) */
+  chaseBack = 0;
+  /**
+   * The vehicle it rides on (a motorcycle on another's rack: v3/moto-rack, J9e): posed by that system, never its own
+   * physics, nobody gets on it; null: on its own wheels
+   */
+  carriedBy: ModVehicle | null = null;
   /** knocks against solids already heard */
   knocksHeard = 0;
   /** blow-outs already heard (its systems count them) */
@@ -68,9 +75,7 @@ export class ModVehicle implements Carrier {
   // ------------------------------------------------------------------ things put on it
 
   private readonly origin: { x: number; y: number; z: number };
-  private readonly ray = new THREE.Raycaster();
   private readonly rayFrom = new THREE.Vector3();
-  private readonly rayN = new THREE.Vector3();
 
   get frame(): THREE.Object3D {
     return this.view.root;
@@ -79,22 +84,15 @@ export class ModVehicle implements Carrier {
   /**
    * The highest surface of the vehicle at (x, z) (world) not above `fromY`: its bed's floor, a seat, the
    * roof, the bonnet; a wall or a side it passes (things slide off those). Null where none of it is under
-   * the point. Looked up once as something starts to fall.
+   * the point. One ray straight down over its own shapes (CarView.castShown: about 0.1 ms on a motorhome, where
+   * three's ray over every face took 11 — docs/V3/plan/prompts.md §一).
    */
   surfaceAt(x: number, z: number, fromY: number): number | null {
     const s = this.sim;
     if (Math.hypot(x - s.px, z - s.pz) > s.spec.body.halfLength + 0.6) return null;
     const o = this.origin;
-    this.view.root.updateMatrixWorld(true);
-    this.ray.set(this.rayFrom.set(x - o.x, fromY - o.y, z - o.z), DOWN);
-    this.ray.far = 5;
-    for (const h of this.ray.intersectObject(this.view.root, true)) {
-      if (!h.face || !visibleUp(h.object)) continue;
-      const n = this.rayN.copy(h.face.normal).transformDirection(h.object.matrixWorld);
-      if (n.y < 0.55) continue;
-      return h.point.y + o.y;
-    }
-    return null;
+    const h = this.view.castShown(this.rayFrom.set(x - o.x, fromY - o.y, z - o.z), DOWN, 5, 0.55);
+    return h ? h.point.y + o.y : null;
   }
 
   get build(): Build {
@@ -115,6 +113,12 @@ export class ModVehicle implements Carrier {
     // (a motorcycle left standing is on its side stand and in gear: it does not roll off)
     this.sim.autoHold = (driven && this.assistHold) || (!driven && !!this.view.frame.balance);
     this.sys.radioOn = this.radioOn;
+    // (a trailer: posed behind what tows it, or standing on its jockey wheel — the tow system's, never its own physics;
+    // a motorcycle on a rack: posed on it — the rack's)
+    if (this.view.frame.towed || this.carriedBy) {
+      this.sys.update(dt, env);
+      return;
+    }
     // (left with its lights or its radio on, it stays awake: they run the battery down)
     if (!driven && this.awake <= 0 && !this.sys.running && !this.radioOn && !this.sys.lightsOn) return;
     const n = this.sim.update(dt, input ?? IDLE, ground);

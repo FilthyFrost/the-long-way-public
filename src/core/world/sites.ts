@@ -25,6 +25,7 @@ import { Rng, hash2 } from '../math/rng';
 import { smoothstep } from '../math/util';
 import { BIOMES, regionRow, type RegionDef } from './biomes';
 import { LAND_SLOT } from './landform';
+import { PREFAB_DICE, prefabCard, type PrefabCard, type PrefabThing } from './prefabs';
 import { COAST_FADE, type CoastRun } from './sea';
 import { Solid, solidWithin, type SolidSource } from './solids';
 import { BiomeBlend, SpineSample } from './spine';
@@ -41,8 +42,31 @@ export const SITE_SLOT = LAND_SLOT;
 export const PAD_FROM = 4.5;
 /** how far beyond each end of the levelled ground the verge takes to come back (m) */
 const FADE = 12;
+/** a wreck's length, width and height by its kind: a saloon, a pick-up, a van, a bus */
+const WRECK_SIZE: readonly [number, number, number][] = [
+  [4.2, 1.7, 1.42],
+  [4.7, 1.8, 1.6],
+  [4.4, 1.8, 1.95],
+  [8.6, 2.4, 2.9],
+];
 /** fall of the levelled ground away from the road (rise per metre) */
 export const PAD_FALL = 0.012;
+
+/**
+ * (world version 6) Nomad Drive's buildings in the places' dice (prefabs.ts PREFAB_DICE; docs/V3/plan/growth.md §三):
+ * of the stretches the dice give a place of one of these kinds of ours, so many have one of its big places in its stead
+ * (a filling station, a house, a lay-by, a hunter's stand; never a workshop nor a shop); of the second places the dice
+ * made a lay-by or a stand, so many are one of its small ones; of the stretches left empty, so many have one of its
+ * small ones alone. Each its own dice, so that ours are thrown as in version 5 wherever none of these comes.
+ */
+export const ND_SHARE: Readonly<Partial<Record<SiteKind, number>>> = { station: 0.55, house: 0.4, camp: 0.8, hide: 0.3 };
+export const ND_MINOR_SECOND = 0.65;
+export const ND_MINOR_EMPTY = 0.3;
+/** … never two of one card nearer than so many stretches (a big one, a small one) */
+const ND_MAJOR_GAP = 8;
+const ND_MINOR_GAP = 4;
+/** … each one's front at least this behind where its levelled ground begins (m): past the 2 m where that meets the road's edge (terrain.ts) */
+const ND_FRONT = 2.2;
 
 export const SITE_KINDS = ['station', 'garage', 'shop', 'house', 'camp', 'jetty', 'hide', 'lookout', 'lighthouse', 'works', 'roadside'] as const;
 export type SiteKind = (typeof SITE_KINDS)[number];
@@ -101,7 +125,9 @@ export type ObjectKind =
   | 'lighthouse'
   | 'wallrun'
   | 'pipes'
-  | 'silo';
+  | 'silo'
+  // a building made whole in Blender (prefabs.ts): drawn and furnished by the system that registered its card
+  | 'prefab';
 
 export interface BuildingSpec {
   roof: 'gable' | 'mono' | 'flat';
@@ -170,6 +196,8 @@ export interface SiteContainer {
   obj: number;
   /** seeds what is inside (items/loot.ts rollLoot) */
   seed: number;
+  /** a prefab building's box for the plan's finds alone (prefabs.ts PrefabBox): nothing of its own in it */
+  plan?: boolean;
 }
 
 /** a thing lying in plain sight */
@@ -220,6 +248,10 @@ export class Site {
   skirt = 14;
   /** what the levelled ground is: 0 packed gravel, 1 old concrete */
   ground = 0;
+  /** a prefab building's card id (prefabs.ts; its object is the one of kind 'prefab'), '' for every other place */
+  prefab = '';
+  /** a prefab's levelled ground: flat at this height, its floor's foot (NaN: the road's level carried sideways) */
+  flat = NaN;
   objects: SiteObject[] = [];
   containers: SiteContainer[] = [];
   loose: SiteLoose[] = [];
@@ -326,6 +358,12 @@ export class SitePlan implements SolidSource {
   private lastKind: SiteKind = 'roadside';
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
   private stations = 0;
+  /** the next of WorldOptions.prefabs to lay (prefabs.ts) */
+  private prefabNext = 0;
+  private readonly things: PrefabThing[] = [];
+  /** (world version 6) Nomad Drive's buildings in the dice: the stretch each card was last laid at */
+  private readonly nd: boolean;
+  private readonly ndAt = new Map<string, number>();
 
   /**
    * @param tp a point of the caller's to write into (the plan asks the land about itself while
@@ -337,6 +375,9 @@ export class SitePlan implements SolidSource {
     seed: number,
   ) {
     this.seed = hash2(seed | 0, 0x517e, 77);
+    this.nd = world.rules.version >= 6;
+    // (a world of version 6 lays Nomad Drive's buildings: made without their cards it would be another world)
+    if (this.nd) for (const d of PREFAB_DICE) if (!prefabCard(d.id)) throw new Error(`a world of version 6 lays the prefab '${d.id}', and its card is not registered (import core/v3/nd/cards first)`);
   }
 
   // ------------------------------------------------------------------------------------------ asking
@@ -405,11 +446,14 @@ export class SitePlan implements SolidSource {
     const along = as <= p.halfL ? 1 : 1 - smoothstep(p.halfL, p.halfL + FADE, as);
     const across = dd <= p.depth ? 1 : 1 - smoothstep(p.depth, p.depth + p.skirt, dd);
     this.padGround = p.ground;
+    this.padFlat = p.flat;
     return along * across;
   }
 
   /** what the levelled ground of the last `padWeight` hit is: 0 gravel, 1 concrete */
   padGround = 0;
+  /** and how high it is if it is flat (a prefab's: Site.flat), NaN if it is not */
+  padFlat = NaN;
 
   /**
    * Is the grass trodden short at (x, z)? Round crates on the verge, a trough in a clearing, the
@@ -444,7 +488,7 @@ export class SitePlan implements SolidSource {
         const dz = z - site.z;
         if (dx * dx + dz * dz > site.reach * site.reach) continue;
         for (const o of site.objects) {
-          if (o.kind !== 'building' && o.kind !== 'canopy') continue;
+          if (o.kind !== 'building' && o.kind !== 'canopy' && o.kind !== 'prefab') continue;
           const c = Math.cos(o.yaw);
           const sn = Math.sin(o.yaw);
           const ox = x - o.x;
@@ -501,8 +545,11 @@ export class SitePlan implements SolidSource {
     this.places.push(null);
     this.seconds.push(null);
     const r = new Rng(hash2(k, 0x51e0, this.seed));
+    // (a test lot of prefab buildings, when the world is asked for one: the next card in the list takes the first
+    // stretch it fits in, as the stretch's place — prefabs.ts; without it nothing here is asked or thrown)
+    const prefab = this.world.prefabs && k >= 1 && !this.world.spine.pinned(k) ? this.makePrefab(k) : null;
     // (world version 5: no place by a switchback stack's legs)
-    const place = k >= 1 && !this.world.spine.pinned(k) ? this.makePlace(k, r) : null;
+    const place = prefab ?? (k >= 1 && !this.world.spine.pinned(k) ? this.makePlace(k, r) : null);
     if (place) {
       here.push(place);
       this.lastKind = place.kind;
@@ -515,15 +562,151 @@ export class SitePlan implements SolidSource {
     }
     // Now and then, where the dice left a stretch empty, an old waterworks stands by the road. It is
     // outside the count: the rhythm of the other places (and every place there was before it existed)
-    // stays what it was.
-    const extra = place || this.world.spine.pinned(k) ? null : this.makeWorks(k);
+    // stays what it was. (World version 6: else, now and then, one of Nomad Drive's small places — outside the count too.)
+    const extra = place || this.world.spine.pinned(k) ? null : (this.makeWorks(k) ?? (this.nd ? this.diceMinor(k, null) : null));
     if (extra) here.push(extra);
     // (ModCar: a second place in a stretch that has one, well away from it — dice of their own, so that the
     // first place and the verges are what they would be without it)
-    const second = place && this.world.secondPlace > 0 ? this.makeSecond(k, place, new Rng(hash2(k, 0x51e2, this.seed))) : null;
+    const second = place && !prefab && this.world.secondPlace > 0 ? this.makeSecond(k, place, new Rng(hash2(k, 0x51e2, this.seed))) : null;
     if (second) here.push(second);
     for (const v of this.makeVerge(k, place ?? extra, new Rng(hash2(k, 0x51e1, this.seed)), second)) here.push(v);
     for (const site of here) this.byId.set(site.id, site);
+  }
+
+  /**
+   * The next prefab building of WorldOptions.prefabs (prefabs.ts) in slot k, as its place: levelled ground as wide as
+   * its footprint and its margins, its front `setback` behind where the levelled ground begins, facing the road; its
+   * floor level on its plinth; its solids and its things from its card. Null when there is no room for it here: the
+   * card waits for the next stretch.
+   */
+  private makePrefab(k: number): Site | null {
+    const ids = this.world.prefabs!;
+    if (this.prefabNext >= ids.length) return null;
+    const card: PrefabCard | null = prefabCard(ids[this.prefabNext]);
+    if (!card) {
+      this.prefabNext++;
+      return null;
+    }
+    const r = new Rng(hash2(k, 0x9f2b, this.seed));
+    const L = card.w / 2 + card.margin;
+    const front = PAD_FROM + card.setback;
+    const W = front + card.d + card.margin;
+    const skirt = 14;
+    const fit = this.fit(k, L, W, skirt, null, 0, r.next() < 0.5 ? 1 : -1, 7.5, r);
+    if (!fit) return null;
+    this.prefabNext++;
+    const site = this.open(k, card.siteKind, fit, L, W, skirt, r, 'n');
+    // (from here on the land of this slot is levelled: heights asked now are the heights things stand on)
+    this.places[k] = site;
+    this.layCard(site, card, 0, front, r, false);
+    return site;
+  }
+
+  /**
+   * A card's building on a site opened for it: at `a` along its levelled ground, its front `front` from the centre line
+   * (where the levelled ground begins and its setback), facing the road, its floor level on its plinth; its solids and its
+   * things from its card; laid by the dice (`dice`), its boxes for the plan's finds — its things not at their spots.
+   */
+  private layCard(site: Site, card: PrefabCard, a: number, front: number, r: Rng, dice: boolean): void {
+    site.prefab = card.id;
+    site.ground = card.ground ?? 0;
+    const o = this.put(site, 'prefab', a, front + card.d / 2, 0, card.w, card.d, card.h);
+    // the floor is level on its plinth over its levelled ground, and that ground flat at the height it has at the
+    // middle of the building's front: a stair's first tread, a container's floor, a door's sill as high over it at
+    // every corner, not the road's grade and fall carried under it (where the road climbs past, the ground meets the
+    // road's edge over its first 2 m: terrain.ts)
+    const c = Math.cos(o.yaw);
+    const s = Math.sin(o.yaw);
+    const flat = this.groundAt(o.x + s * (card.d / 2), o.z - c * (card.d / 2));
+    o.y = flat + card.plinth;
+    site.flat = flat;
+    // its things where its card puts them (in the building's frame, heights from its floor)
+    const boxes = dice ? (card.boxes ?? []) : [];
+    const th = this.things;
+    th.length = 0;
+    card.furnish?.(site.seed, site.s, th, boxes.length ? new Set(boxes.map((b) => b.spot)) : undefined);
+    for (let i = 0; i < th.length; i++) {
+      const t = th[i];
+      site.loose.push({ id: `${site.id}/n${i}`, item: t.item, n: t.n ?? 1, x: o.x + c * t.u - s * t.v, y: o.y + t.y, z: o.z + s * t.u + c * t.v, yaw: o.yaw + t.yaw });
+    }
+    // (laid by the dice: its boxes the plan's finds go in — loot.ts planBoxes — nothing of their own in them)
+    for (const b of boxes) {
+      const i = site.containers.length;
+      site.containers.push({ id: `${site.id}/c${i}`, kind: b.kind, x: o.x + c * b.u - s * b.v, y: o.y + b.y0, z: o.z + s * b.u + c * b.v, yaw: o.yaw + b.turn, hx: b.hx, h: b.h, hz: b.hz, shelf: b.shelf, solid: b.solid, obj: -1, seed: hash2(site.seed, i, 0xc0a7), plan: true });
+    }
+    // the wrecks its card lays: the road's own, settled on its ground, what is under their dash and in their boot
+    for (const wk of card.wrecks ?? []) {
+      const [w, d, h] = WRECK_SIZE[wk.type & 3];
+      this.wreck(site, this.putIn(site, o, 'wreck', wk.u, wk.v, wk.yaw, w, d, h, (wk.type & 3) + (wk.stripped ? 8 : 0)), r);
+    }
+    this.finish(site);
+  }
+
+  /**
+   * (world version 6) One of Nomad Drive's big places in slot k (prefabs.ts PREFAB_DICE), its own dice, in place of the
+   * place of ours the dice chose (`kind`) — in a share of the stretches (ND_SHARE): one of the cards for that kind, not
+   * the same card as one within ND_MAJOR_GAP stretches nor the sort of place just passed. Null: none here (no room for
+   * the ones tried, or the dice say ours): the stretch's place is ours.
+   */
+  private diceMajor(k: number, kind: SiteKind): Site | null {
+    const r = new Rng(hash2(k, 0x9d06, this.seed));
+    const share = ND_SHARE[kind] ?? 0;
+    if (k < 2 || r.next() >= share) return null;
+    const list = PREFAB_DICE.filter((d) => d.for === kind && k - (this.ndAt.get(d.id) ?? -1e9) >= ND_MAJOR_GAP && prefabCard(d.id)!.siteKind !== this.lastKind);
+    return this.diceTry(k, list, r, null);
+  }
+
+  /**
+   * (world version 6) One of Nomad Drive's small places in slot k: as its second place where the dice made it a lay-by or
+   * a hunter's stand (`kind`; at least 300 m off the slot's own, `first`), in a share of them (ND_MINOR_SECOND); or alone
+   * in a slot the dice left empty (ND_MINOR_EMPTY; never a quiet one, nor between canyon walls) — not the same card as one
+   * within ND_MINOR_GAP stretches. Null: none here.
+   */
+  private diceMinor(k: number, first: Site | null, kind: SiteKind | null = null): Site | null {
+    if (first && kind !== 'camp' && kind !== 'hide') return null;
+    const r = new Rng(hash2(k, first ? 0x9d07 : 0x9d08, this.seed));
+    if (k < 1 || r.next() >= (first ? ND_MINOR_SECOND : ND_MINOR_EMPTY)) return null;
+    if (!first && (this.world.quiet(k) || this.world.land.kindOf(k) === 'canyon')) return null;
+    const list = PREFAB_DICE.filter((d) => d.for === 'small' && k - (this.ndAt.get(d.id) ?? -1e9) >= ND_MINOR_GAP);
+    return this.diceTry(k, list, r, first);
+  }
+
+  /** a card of the list picked by its weight, laid in slot k if it fits (else another, five tries in all) */
+  private diceTry(k: number, list: (typeof PREFAB_DICE)[number][], r: Rng, avoid: Site | null): Site | null {
+    const left = list.slice();
+    for (let tries = 0; tries < 5 && left.length; tries++) {
+      const i = r.weighted(left.map((d) => d.weight));
+      const site = this.layDice(k, prefabCard(left[i].id)!, r, avoid);
+      if (site) {
+        this.ndAt.set(left[i].id, k);
+        return site;
+      }
+      left.splice(i, 1);
+    }
+    return null;
+  }
+
+  /**
+   * (world version 6) A card's building laid by the dice in slot k as a test lot's is (makePrefab), with its yard (the
+   * card's: levelled ground at one end, room for a vehicle beside it) and its boxes for the plan's finds, its front at
+   * least ND_FRONT behind where the levelled ground begins (clear of where it meets the road's edge: flat under all of
+   * it); the slot's second place when it is to keep away from `avoid`. Null: no room for it here.
+   */
+  private layDice(k: number, card: PrefabCard, r: Rng, avoid: Site | null): Site | null {
+    const yard = card.yard ?? 0;
+    const front = PAD_FROM + Math.max(card.setback, ND_FRONT);
+    const L = card.w / 2 + card.margin + yard / 2;
+    const W = front + card.d + card.margin;
+    const skirt = 14;
+    const fit = this.fit(k, L, W, skirt, null, 0, r.next() < 0.5 ? 1 : -1, 7.5, r, null, avoid);
+    if (!fit) return null;
+    const site = this.open(k, card.siteKind, fit, L, W, skirt, r, avoid ? 'q' : 'p');
+    // (from here on the land of this slot is levelled: heights asked now are the heights things stand on)
+    if (avoid) this.seconds[k] = site;
+    else this.places[k] = site;
+    // (the yard at one end or the other, the building at the other)
+    this.layCard(site, card, (r.next() < 0.5 ? 1 : -1) * (yard / 2), front, r, true);
+    return site;
   }
 
   /** one empty stretch in eight, away from the very start, the canyons, the bridges and the coast */
@@ -581,6 +764,9 @@ export class SitePlan implements SolidSource {
         kind = pick;
         break;
       }
+      // (world version 6: in a share of these, one of Nomad Drive's big places in its stead — never beside a river's bridge: no room)
+      const nd = this.nd && !(water && water.kind === 'river') ? this.diceMajor(k, kind) : null;
+      if (nd) return nd;
     }
     // a river's bridge takes the middle of its stretch: only small places fit beside it
     if (water && water.kind === 'river' && kind !== 'station') kind = kind === 'house' || kind === 'camp' ? kind : 'camp';
@@ -609,6 +795,9 @@ export class SitePlan implements SolidSource {
       kind = pick;
       break;
     }
+    // (world version 6: a lay-by or a stand, in a share of them one of Nomad Drive's small places in its stead — its own dice)
+    const nd = this.nd ? this.diceMinor(k, first, kind) : null;
+    if (nd) return nd;
     return this.tryPlace(k, kind, null, r, null, first) ?? (kind !== 'camp' && first.kind !== 'camp' ? this.tryPlace(k, 'camp', null, r, null, first) : null);
   }
 
@@ -922,10 +1111,8 @@ export class SitePlan implements SolidSource {
   /** which wreck: 0 saloon, 1 pick-up, 2 van, 3 bus (seldom) — and its size */
   private wreckSize(r: Rng): [number, number, number, number] {
     const t = r.next();
-    if (t < 0.07) return [3, 8.6, 2.4, 2.9];
-    if (t < 0.42) return [0, 4.2, 1.7, 1.42];
-    if (t < 0.72) return [1, 4.7, 1.8, 1.6];
-    return [2, 4.4, 1.8, 1.95];
+    const k = t < 0.07 ? 3 : t < 0.42 ? 0 : t < 0.72 ? 1 : 2;
+    return [k, ...WRECK_SIZE[k]];
   }
 
   private furnish(site: Site, lake: Lake | null, r: Rng): void {
@@ -1452,7 +1639,7 @@ export class SitePlan implements SolidSource {
     const cut = solid.tag.indexOf(':');
     const site = cut > 0 ? this.byId.get(solid.tag.slice(0, cut)) : undefined;
     const o = site ? site.objects[solid.ref] : undefined;
-    if (!site || !o || o.kind === 'building' || o.kind === 'wreck') return null;
+    if (!site || !o || o.kind === 'building' || o.kind === 'wreck' || o.kind === 'prefab') return null;
     const v = Math.hypot(vx, vz) || 1;
     const far = Math.min(4, Math.max(0.6, 0.4 + speed * 0.2));
     const h = hash2(site.seed, solid.ref, 0x60c + site.version);
@@ -1483,13 +1670,19 @@ export class SitePlan implements SolidSource {
       const far = Math.hypot(o.x - site.x, o.z - site.z) + Math.hypot(o.w, o.d) * 0.5 + 1;
       if (far > reach) reach = far;
       // low things out in the meadow would be lost in the grass: it is trodden short round them
-      if (o.kind !== 'wreck' && o.kind !== 'building' && o.h < 1.4 || o.kind === 'stand' || o.kind === 'lighthouse') site.bare.push(o.x, o.z, Math.max(o.w, o.d) / 2 + (o.kind === 'stand' || o.kind === 'lighthouse' ? 2.4 : 0.9));
+      if (o.kind !== 'wreck' && o.kind !== 'building' && o.kind !== 'prefab' && o.h < 1.4 || o.kind === 'stand' || o.kind === 'lighthouse') site.bare.push(o.x, o.z, Math.max(o.w, o.d) / 2 + (o.kind === 'stand' || o.kind === 'lighthouse' ? 2.4 : 0.9));
       // (what a car has laid flat keeps nobody out any more)
       if (o.kind !== 'wreck' && (o.roll > 1 || o.roll < -1)) continue;
       const y = o.y;
       const box = (h = o.h): void => this.solid(site, o, 0, 0, o.w / 2, o.d / 2, y - 0.3, y + h);
       const post = (u: number, v: number, rad: number, h: number): void => this.solid(site, o, u, v, rad, 0, y - 0.3, y + h);
       switch (o.kind) {
+        case 'prefab': {
+          // (its walls, floor, steps and fixtures as its card has them, from its floor's level)
+          const card = prefabCard(site.prefab);
+          if (card) for (const sd of card.solids) this.solid(site, o, sd.u, sd.v, sd.hx, sd.hz, y + sd.y0, y + sd.y1, !!sd.floor, sd.turn ?? 0);
+          break;
+        }
         case 'building': {
           const b = o.b!;
           const t = 0.24;

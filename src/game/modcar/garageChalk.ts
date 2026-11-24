@@ -5,7 +5,21 @@
  * the room is (surfaceMaterial with a colour map).
  */
 import * as THREE from 'three';
+import { KIT_GROUPS, type KitGroup } from '../../core/modcar/startKit';
 import { surfaceMaterial } from '../render/materials';
+
+/** a step as the board writes it: J5's with its group and its short word (2/4 after it) */
+export interface ChalkStep {
+  text: string;
+  done: boolean;
+  group?: KitGroup;
+  short?: string;
+  n?: number;
+  of?: number;
+}
+
+/** the groups' heads on the board, in the order they are written */
+const HEADS: Record<KitGroup, string> = { prep: '准备', start: '一 能发动', drive: '二 能开', go: '出发', car: '三 像一辆车' };
 
 const W = 1024;
 const H = 640;
@@ -35,14 +49,14 @@ export class Chalkboard {
   }
 
   /** write the list again if it changed */
-  show(title: string, steps: { text: string; done: boolean }[]): void {
+  show(title: string, steps: ChalkStep[]): void {
     const key = title + steps.map((s) => `${s.text}${s.done ? 1 : 0}`).join('|');
     if (key === this.key) return;
     this.key = key;
     this.draw(title, steps);
   }
 
-  private draw(title: string, steps: { text: string; done: boolean }[]): void {
+  private draw(title: string, steps: ChalkStep[]): void {
     const c = this.canvas.getContext('2d')!;
     // the board: slate green, smudged with old chalk
     c.globalCompositeOperation = 'source-over';
@@ -86,6 +100,11 @@ export class Chalkboard {
       }
       return w;
     };
+    if (steps.some((st) => st.group)) {
+      this.drawGroups(c, chalk, title, steps);
+      this.finish(c, rnd);
+      return;
+    }
     chalk(`今天的活儿：${title}`, 48, 84, 50, '#f6efc8');
     c.strokeStyle = 'rgba(246,239,200,0.7)';
     c.lineWidth = 3;
@@ -145,6 +164,66 @@ export class Chalkboard {
     c.moveTo(960, 210);
     c.lineTo(962, 236);
     c.stroke();
+    this.finish(c, rnd);
+  }
+
+  /**
+   * The board in its groups (J5, docs/V3/plan/growth.md §一 3): the group's head and how far it is down the left,
+   * its things after it in a row that wraps, each a box ticked and struck through when done, a count after the
+   * ones of several (车轮 2/4)
+   */
+  private drawGroups(c: CanvasRenderingContext2D, chalk: (txt: string, x: number, y: number, size: number, colour: string, strike?: boolean) => number, title: string, steps: ChalkStep[]): void {
+    chalk(`今天的活儿：${title}`, 44, 70, 44, '#f6efc8');
+    c.strokeStyle = 'rgba(246,239,200,0.7)';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.moveTo(44, 86);
+    c.quadraticCurveTo(300, 94, 640, 84);
+    c.stroke();
+    // (written big enough to read from across the room: the board is a metre and a half wide)
+    const size = 37;
+    const box = 26;
+    const x0 = 236;
+    const x1 = W - 28;
+    let y = 152;
+    for (const g of KIT_GROUPS) {
+      const of = steps.filter((st) => st.group === g.id);
+      if (!of.length) continue;
+      const done = of.filter((st) => st.done).length;
+      const all = done === of.length;
+      chalk(HEADS[g.id], 40, y, 38, all ? 'rgba(220,226,214,0.55)' : g.required ? '#f3d27a' : '#cfd8cc');
+      const hw = c.measureText(HEADS[g.id]).width;
+      if (hw < x0 - 110) chalk(`${done}/${of.length}`, 40 + hw + 12, y, 24, 'rgba(240,240,232,0.6)');
+      let x = x0;
+      for (const st of of) {
+        const word = (st.short ?? st.text) + (st.of && st.of > 1 && !st.done ? ` ${st.n ?? 0}/${st.of}` : '');
+        c.font = `${size}px KaiTi, STKaiti, "Microsoft YaHei", sans-serif`;
+        const w = box + 8 + c.measureText(word).width;
+        if (x + w > x1 && x > x0) {
+          x = x0;
+          y += 46;
+        }
+        c.strokeStyle = 'rgba(240,240,232,0.85)';
+        c.lineWidth = 2.5;
+        c.strokeRect(x, y - box, box, box);
+        if (st.done) {
+          c.strokeStyle = '#f3c35a';
+          c.lineWidth = 5;
+          c.beginPath();
+          c.moveTo(x + 2, y - box * 0.53);
+          c.lineTo(x + box * 0.47, y - 2);
+          c.lineTo(x + box * 1.33, y - box * 1.33);
+          c.stroke();
+        }
+        chalk(word, x + box + 8, y, size, st.done ? 'rgba(220,226,214,0.55)' : '#f2f1e8', st.done);
+        x += w + 20;
+      }
+      y += 62;
+    }
+  }
+
+  /** the chalk's grain over all that is written, the slate under it, and the texture told it changed */
+  private finish(c: CanvasRenderingContext2D, rnd: () => number): void {
     // chalk grain: tiny bites out of everything written
     c.globalCompositeOperation = 'destination-out';
     for (let i = 0; i < 2600; i++) {

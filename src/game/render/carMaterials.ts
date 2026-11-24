@@ -142,6 +142,13 @@ export const carEnvUniforms = {
   uGrimeShow: { value: 0 },
   /** the grime measure's pass (grime.ts): 1 = the glass, 0 = the rest */
   uMeasureGlass: { value: 0 },
+  /** a spray can's brush on a surface (docs/V3/plan/hands.md §六): on, its middle and normal (render space), radius, colour (linear), the rim's warning */
+  uBrushOn: { value: 0 },
+  uBrushC: { value: new THREE.Vector3() },
+  uBrushN: { value: new THREE.Vector3(0, 1, 0) },
+  uBrushR: { value: 0.18 },
+  uBrushColor: { value: new THREE.Color(1, 1, 1) },
+  uBrushWarn: { value: 0 },
 };
 
 export interface CarLookOptions {
@@ -241,15 +248,26 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform vec4 uWear;          // the car's dirt, rust, fading, crust
   uniform float uGrimeOn;      // 1: the look has a grime mask (tGrime) for the meshes with MASK UVs
   uniform sampler2D tGrime;    // what is left of dirt, crust, rust (rgb) and the wet (a; 0 = no surface)
+  uniform float uCoatOn;       // 1: the look has a coat of paint sprayed on (coat.ts)
+  uniform sampler2D tCoat;     // the coat that has set: premultiplied sRGB colour (rgb), how thick (a)
+  uniform sampler2D tCoatWet;  // the coat still wet, the same way
+  uniform float uCoatBleed;    // rust painted over without grinding, coming back through (0…1)
   uniform vec2 uGrimeSize;     // its texels
   uniform float uGrimeKind;    // how the look's surface splits into units: 0 a part (its paint, its glass), 1 a body
   uniform vec2 uGrimeFlash;    // a unit coming clean: x how bright (0…1), y which unit (−1 all)
   uniform float uGrimeWet;     // how much of the sponge's wet is still there (it dries over the whole part at once)
   uniform float uGrimeShow;    // the dirt still left lit up (H): 0…1
+  uniform float uBrushOn;      // a spray can's brush on a surface: its shadow drawn (docs/V3/plan/hands.md §六)
+  uniform vec3 uBrushC;
+  uniform vec3 uBrushN;
+  uniform float uBrushR;
+  uniform vec3 uBrushColor;
+  uniform float uBrushWarn;
   uniform float uMeasureGlass; // the grime measure: 1 on its glass pass
   uniform float uPattern;
   uniform float uInkSeed;
   uniform vec4 uHighlight;     // rgb, strength 0…1
+  uniform vec4 uSeeThrough;    // the held thing seen through: x how far (0…1), zw the frame's size in pixels
   uniform float uHighlightId;  // merged meshes: the part to light (aPartId); < 0 = the whole material
   uniform vec3 uTint;          // glass: tint; lens: the lamp's light
   uniform float uOpacity;
@@ -260,6 +278,9 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uBodyHeight;
   uniform vec3 uCabinMin;
   uniform vec3 uCabinMax;
+  uniform vec3 uBootMin;       // the boot's box in the car frame (min > max: none): its faces show no dirt
+  uniform vec3 uBootMax;
+  uniform float uShowHere;     // 1: the dirt left lit on this look (the one looked at with a cleaning tool)
   uniform float uShelter;      // 1 = under a roof: no rain on it, no snow
   uniform vec4 uWipe;          // the wipers (setWipe): x their cycle (0…1), y seconds a cycle (0: parked), z seconds for the rain to bead again, w the dirt they took off their arcs
   uniform vec4 uWiperP0;       // each blade (setWipers): its pivot (car frame), w the inner end of its reach (m)
@@ -733,6 +754,16 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       crust = rtCrust(wear.w, vObj, on, height, ao, crustRim);
       #endif
     }
+    // (inside the car nothing gets dirty: the cabin's faces under its roof, the boot's not turned out of it)
+    float inBoot = step(uBootMin.x, vCar.x) * step(vCar.x, uBootMax.x) * step(uBootMin.y, vCar.y) * step(vCar.y, uBootMax.y) * step(uBootMin.z, vCar.z) * step(vCar.z, uBootMax.z) * (1.0 - facesOut);
+    if (underRoof > 0.5 || inBoot > 0.5) {
+      dust = 0.0;
+      mud = 0.0;
+      rust = 0.0;
+      rustEdge = 0.0;
+      crust = 0.0;
+      crustRim = 0.0;
+    }
     #endif
 
     // ---------------------------------------------------------------- rain and snow (the world's uWeather: x wet, y snow)
@@ -760,9 +791,26 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     #if defined(RT_PAINT)
     // ---------------------------------------------------------------- car paint
     vec3 paint = base;
-    // fading: sun-bleached, chalky, the gloss gone — more on top, in drifts
+    // a coat sprayed on (coat.ts): where it is, its colour over the panel's own; still wet, glossier; rust painted
+    // over without grinding comes back through it with the days (uCoatBleed)
+    float coatA = 0.0;
+    float coatWet = 0.0;
+    // (how far the coat still hides the rust under it: the patches come back through it with the days)
+    float coatHide = 0.0;
+    #ifdef RT_MASK
+    if (uCoatOn > 0.5 && vMaskUv.x > -0.5) {
+      vec4 cd = texture2D(tCoat, vMaskUv);
+      vec4 cw = texture2D(tCoatWet, vMaskUv);
+      if (cd.a > 0.004) paint = mix(paint, pow(cd.rgb / cd.a, vec3(2.2)), cd.a);
+      if (cw.a > 0.004) paint = mix(paint, pow(cw.rgb / cw.a, vec3(2.2)), cw.a);
+      coatA = max(cd.a, cw.a);
+      coatWet = cw.a;
+      coatHide = max(cd.a * (1.0 - uCoatBleed), cw.a);
+    }
+    #endif
+    // fading: sun-bleached, chalky, the gloss gone — more on top, in drifts (a fresh coat is not faded)
     float fade = 0.0;
-    if (wear.z > 0.001) fade = wear.z * smoothstep(0.25, 0.75, rtTriNoise(vObj, on, 0.9).a * 0.7 + n.y * 0.4 + 0.15);
+    if (wear.z > 0.001) fade = wear.z * smoothstep(0.25, 0.75, rtTriNoise(vObj, on, 0.9).a * 0.7 + n.y * 0.4 + 0.15) * (1.0 - coatA);
     paint = mix(paint, mix(vec3(rtLuma(paint)), paint, 0.55) * 1.25 + 0.04, fade * 0.75);
     // the shade tone is tuned on its own: deeper and more saturated than the lit one, cooled by the sky
     float pk = max(max(paint.r, paint.g), max(paint.b, 1e-3));
@@ -780,7 +828,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float f = 0.3 + 0.7 * pow(1.0 - ndv, 3.0);
     // (under the roof a painted door frame or dashboard mirrors little: the open country's bands, drawn on its
     // facets from inside, would break up into a patchwork)
-    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet) * (1.0 - 0.8 * underRoof);
+    float coat = gloss * mix(0.3, 1.0, ao) * (1.0 - fade * 0.8) * mix(0.8, 1.0, lit) * (1.0 + 0.3 * wet + 0.7 * coatWet) * (1.0 - 0.8 * underRoof);
     // what the coat mirrors is tinted by the colour under it: the bands stay a light tone of the paint
     // (blue sky added to red reads salmon pink once it is in sRGB)
     vec3 hue = paint / pk;
@@ -819,9 +867,10 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += paint * (sky * 0.6 + uSunColor * 0.25 * lit) * beadLight.y * 0.8;
     col += (e.bright * 0.8 + uSkyColor * 0.3) * fleck * 0.8;
     #ifdef RT_WEAR
-    // rust breaks through; the paint round it lifts and pales
-    col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rust) * 0.5);
-    col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.32 * lit, ao), rust);
+    // rust breaks through; the paint round it lifts and pales (a coat over it hides it, as far as the coat is whole)
+    float rustC = rust * (1.0 - coatHide);
+    col = mix(col, diffuse * 1.18 + 0.012, rustEdge * (1.0 - rustC) * 0.5 * (1.0 - coatHide));
+    col = mix(col, rtRustColor(vObj, on, sky + uSunColor * 0.32 * lit, ao), rustC);
     #endif
 
     #elif defined(RT_METAL)
@@ -1110,7 +1159,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     dirtHere = max(max(crust, rtGlassFilm(wear.w)), smoothstep(0.08, 0.3, wear.x * (1.0 - smoothstep(0.55, 1.15, height))));
     #endif
     float leftHere = max(dirtHere, rust * (1.0 - crust));
-    if (uGrimeShow > 0.0) {
+    if (uGrimeShow > 0.0 && uShowHere > 0.5) {
       float k = smoothstep(0.04, 0.3, leftHere) * uGrimeShow * (0.7 + 0.3 * sin(uTime * 6.0));
       col = mix(col, vec3(1.0, 0.42, 0.06) * 0.85, k * 0.5);
       #if defined(RT_GLASS) || defined(RT_LENS)
@@ -1190,7 +1239,45 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (a part being looked at writes its ids in a band of their own under every other id, 0.006…0.032: the
     // frame draws its outline in light where it meets anything else — frame.ts inkAt)
     if (hlOn > 0.5) ink = 0.006 + 0.026 * fract(ink * 7.31);
+    #if defined(RT_PAINT)
+    // a spray can's brush on it: the paint's colour at 0.55 with the spray's own fall-off, a 4 mm rim (amber and
+    // dashed over rust or dirt), thin paint within 0.8 m outside it flickering — docs/V3/plan/hands.md §六
+    if (uBrushOn > 0.5) {
+      vec3 bd = vPos - uBrushC;
+      float bh = dot(bd, uBrushN);
+      if (abs(bh) < max(0.05, uBrushR * 0.5) && dot(normalize(vNormal), uBrushN) > 0.1) {
+        vec3 bp = bd - uBrushN * bh;
+        float br = length(bp);
+        float fill = (1.0 - smoothstep(uBrushR * 0.35, uBrushR, br)) * 0.55;
+        col = mix(col, uBrushColor, fill);
+        vec3 bt = normalize(abs(uBrushN.y) < 0.9 ? cross(uBrushN, vec3(0.0, 1.0, 0.0)) : cross(uBrushN, vec3(1.0, 0.0, 0.0)));
+        float ang = atan(dot(bp, cross(uBrushN, bt)), dot(bp, bt));
+        float dash = uBrushWarn > 0.5 ? step(0.5, fract(ang * 3.8197)) : 1.0;
+        float rim = 1.0 - smoothstep(0.002, 0.0045, abs(br - uBrushR));
+        col = mix(col, uBrushWarn > 0.5 ? vec3(1.0, 0.55, 0.08) : vec3(1.0), rim * dash * 0.9);
+        #ifdef RT_MASK
+        if (uCoatOn > 0.5 && vMaskUv.x > -0.5 && br > uBrushR && br < uBrushR + 0.8) {
+          float ca = max(texture2D(tCoat, vMaskUv).a, texture2D(tCoatWet, vMaskUv).a);
+          float thin = step(0.04, ca) * (1.0 - smoothstep(0.75, 0.9, ca));
+          col = mix(col, uBrushColor, thin * (0.14 + 0.12 * sin(uTime * 5.0)));
+        }
+        #endif
+      }
+    }
+    #endif
     gl_FragColor = vec4(col, ink);
+    #endif
+    // (held and over the middle of the view: seen through there — the alpha is its opacity now, blended over)
+    #ifndef RT_MEASURE
+    if (uSeeThrough.x > 0.0) {
+      float sr = length(gl_FragCoord.xy - 0.5 * uSeeThrough.zw) / max(1.0, uSeeThrough.w);
+      float see = 1.0 - uSeeThrough.x * 0.7 * (1.0 - smoothstep(0.12, 0.42, sr));
+      #if (defined(RT_GLASS) || defined(RT_LENS)) && !defined(RT_CRUSTCUT)
+      gl_FragColor.a *= see;
+      #else
+      gl_FragColor.a = see;
+      #endif
+    }
     #endif
   }
 `;
@@ -1242,6 +1329,11 @@ export class CarLook {
     /** the grime mask (grime.ts) over the meshes with MASK UVs, its size, and how the look splits into units */
     uGrimeOn: { value: 0 },
     tGrime: { value: NO_GRIME as THREE.Texture },
+    /** a coat of paint sprayed on (coat.ts, setCoat): what has set, what is wet, rust coming back through it */
+    uCoatOn: { value: 0 },
+    tCoat: { value: NO_GRIME as THREE.Texture },
+    tCoatWet: { value: NO_GRIME as THREE.Texture },
+    uCoatBleed: { value: 0 },
     uGrimeSize: { value: new THREE.Vector2(1, 1) },
     uGrimeKind: { value: 0 },
     uGrimeFlash: { value: new THREE.Vector2(0, -1) },
@@ -1249,11 +1341,16 @@ export class CarLook {
     uWorldToCar: { value: new THREE.Matrix4() },
     uHighlight: { value: new THREE.Vector4(0.55, 0.92, 1.0, 0) },
     uHighlightId: { value: -1 },
+    /** the held thing seen through (setSeeThrough): x how far, zw the frame's size in pixels; 0 for all else */
+    uSeeThrough: { value: new THREE.Vector4(0, 0, 1, 1) },
     /** height of the body (m, car frame): where on its side the mirrored horizon sits */
     uBodyHeight: { value: 1.4 },
     /** the cabin as a box in the car frame (min > max = none): inside it metals and glass mirror the room */
     uCabinMin: { value: new THREE.Vector3(1, 1, 1) },
     uCabinMax: { value: new THREE.Vector3(-1, -1, -1) },
+    uBootMin: { value: new THREE.Vector3(1, 1, 1) },
+    uBootMax: { value: new THREE.Vector3(-1, -1, -1) },
+    uShowHere: { value: 0 },
     /** 1 = under a roof (a garage, a shed): the world's rain and snow do not reach it */
     uShelter: { value: 0 },
     /**
@@ -1422,6 +1519,22 @@ export class CarLook {
    * The cabin as a box in the car frame: inside it metals mirror the room and glass is clear. null = no
    * cabin; undefined = measure it again at the next apply() (see measureCarShape).
    */
+  /** the boot's box in the car frame (null: none): what is in it shows no dirt (docs/V3/plan/hands.md §五) */
+  setBoot(box: THREE.Box3 | null): void {
+    if (box) {
+      this.shared.uBootMin.value.copy(box.min);
+      this.shared.uBootMax.value.copy(box.max);
+    } else {
+      this.shared.uBootMin.value.set(1, 1, 1);
+      this.shared.uBootMax.value.set(-1, -1, -1);
+    }
+  }
+
+  /** the dirt left lit on this look (the vehicle or the part looked at with a cleaning tool in the hands) */
+  setShowHere(on: boolean): void {
+    this.shared.uShowHere.value = on ? 1 : 0;
+  }
+
   setCabin(box: THREE.Box3 | null | undefined): void {
     this.fixedCabin = box !== undefined;
     if (box !== undefined) this.putCabin(box);
@@ -1456,6 +1569,23 @@ export class CarLook {
     this.shared.tGrime.value = mask?.texture ?? NO_GRIME;
     this.shared.uGrimeSize.value.set(mask?.size ?? 1, mask?.size ?? 1);
     this.shared.uGrimeKind.value = kind;
+  }
+
+  /** a coat of paint sprayed on (coat.ts: its set and its wet targets), null: none */
+  setCoat(c: { dry: THREE.WebGLRenderTarget; wet: THREE.WebGLRenderTarget } | null): void {
+    this.shared.uCoatOn.value = c ? 1 : 0;
+    this.shared.tCoat.value = c?.dry.texture ?? NO_GRIME;
+    this.shared.tCoatWet.value = c?.wet.texture ?? NO_GRIME;
+  }
+
+  /** how far rust painted over without grinding has come back through the coat (0…1) */
+  setCoatBleed(k: number): void {
+    this.shared.uCoatBleed.value = k;
+  }
+
+  /** has a coat of paint sprayed on */
+  get hasCoat(): boolean {
+    return this.shared.uCoatOn.value > 0.5;
   }
 
   /** has a grime mask */
@@ -1589,6 +1719,34 @@ export class CarLook {
       } else if (n === 'gauge') u.uLamp.value = dash;
     }
   }
+
+  /**
+   * The held thing seen through where it stands over the middle of the view (docs/V3/plan/growth.md §1.7): how
+   * far (0 not at all … 1 its middle at 0.3), and the size of the frame drawn into (px). Fading, its materials
+   * are blended and keep the ink the world wrote under them; not, they are drawn as always.
+   */
+  setSeeThrough(k: number, w: number, h: number): void {
+    const u = this.shared.uSeeThrough.value;
+    const on = k > 0.002;
+    u.set(on ? k : 0, 0, w, h);
+    if (on === this.seeing) return;
+    this.seeing = on;
+    for (const m of this.mats.values()) {
+      // (glass and lenses blend already, by their own opacity: left as they are)
+      if (m.userData.ownBlend === undefined) m.userData.ownBlend = m.transparent;
+      if (m.userData.ownBlend) continue;
+      m.transparent = on;
+      m.blending = on ? THREE.CustomBlending : THREE.NormalBlending;
+      m.blendSrc = THREE.SrcAlphaFactor;
+      m.blendDst = THREE.OneMinusSrcAlphaFactor;
+      // (the alpha under it — the ink of what is behind — stays)
+      m.blendSrcAlpha = THREE.ZeroFactor;
+      m.blendDstAlpha = THREE.OneFactor;
+      m.needsUpdate = true;
+    }
+  }
+
+  private seeing = false;
 
   /** every material this car uses (for counting programs, disposing) */
   get materials(): THREE.ShaderMaterial[] {
@@ -1797,8 +1955,37 @@ let ghostDepth: THREE.Material | null = null;
  * would replace, and the ghost under the mark must always read. Two or three draw calls per mesh; ghosts are few. Calling it again on
  * the same model switches kind and state.
  */
+/** every ghost program there is (kinds × focused × xray, and the depth pass), for the warm-up at the start */
+export function ghostWarmMaterials(): THREE.Material[] {
+  const out: THREE.Material[] = [];
+  for (const k of ['empty', 'replace', 'blocked'] as GhostKind[]) for (const f of [false, true]) for (const x of [false, true]) out.push(ghostMaterial(k, f, x));
+  const probe = new THREE.Mesh(new THREE.BufferGeometry());
+  applyGhost(probe, 'empty');
+  if (ghostDepth) out.push(ghostDepth);
+  return out;
+}
+
 export function applyGhost(root: THREE.Object3D, kind: GhostKind, focused = false, xray = focused || kind === 'replace'): void {
-  ghostDepth ??= new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide });
+  // (the depth drawn first by the ghost's own vertex code: three's own path rounds otherwise, and against the reversed
+  // depth the ghost fought its own depth, patches of it there and gone frame to frame — docs/V3/plan/hands.md §〇.2)
+  ghostDepth ??= new THREE.ShaderMaterial({
+    uniforms: { ...globals },
+    vertexShader: /* glsl */ `
+      ${GLSL_VERTEX_PARS}
+      void main() {
+        vec3 transformed = position;
+        vec3 objNormal = normal;
+        ${GLSL_VERTEX_MAIN}
+      }`,
+    fragmentShader: /* glsl */ `
+      ${GLSL_FRAGMENT_PARS}
+      void main() {
+        #include <logdepthbuf_fragment>
+        gl_FragColor = vec4(0.0);
+      }`,
+    side: THREE.DoubleSide,
+    colorWrite: false,
+  });
   const meshes: THREE.Mesh[] = [];
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;

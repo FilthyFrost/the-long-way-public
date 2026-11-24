@@ -10,12 +10,12 @@
  * the developer's tab 厨房 (devTab.ts). The rules are in core/v3/kitchen.
  */
 import type { SaveSlice } from '../../../../core/kernel/slices';
-import { hasItemCat, itemDef, registerItemCat, registerItems, type ItemInstance } from '../../../../core/modcar/items';
+import { hasItemCat, itemDef, registerItemCat, registerItems, retireItem, type ItemInstance } from '../../../../core/modcar/items';
 import { KITCHEN_CAT } from '../../../../core/v3/appliances/items';
 import { asksFor, cleanBook, knows, newBook, pinned, type BookData } from '../../../../core/v3/kitchen/book';
 import { dishesWith } from '../../../../core/v3/kitchen/cook';
 import { WAYS } from '../../../../core/v3/kitchen/dishes';
-import { BOARD, GAS, GAS_FULL, INGREDIENT_CAT, KITCHEN_ITEMS, MEAL_CAT, portionOf, STOVE, VESSEL, WAY_OF } from '../../../../core/v3/kitchen/items';
+import { BOARD, GAS, GAS_FULL, HOB, INGREDIENT_CAT, KITCHEN_ITEMS, MEAL_CAT, portionOf, STOVE, VESSEL, WAY_OF } from '../../../../core/v3/kitchen/items';
 import { CHOPS, fireOf, gasOf, hasCanister, kitOf, phaseOf, potOf, TOSSES, vesselOf } from '../../../../core/v3/kitchen/kit';
 import { FOOD } from '../../../../core/v3/kitchen/pantry';
 import { registerItemCardLines, type ItemCard } from '../../itemInfo';
@@ -27,6 +27,21 @@ import { Kitchen } from './system';
 import '../appliances';
 
 // ------------------------------------------------------------------ content, as the module is loaded
+
+// the doubles of Nomad Drive's kitchen (docs/V3/plan/growth.md §三): one in a save is read as the kitchen's own — its
+// stoves are the cassette stove (what stood on them lost: its pans and its meat were its own), its pan and pot the
+// kitchen's, its meat raw beef or chicken whatever it was cooked to, the foods of the same name the kitchen's
+const plain = (into: string) => (r: Record<string, unknown>): void => {
+  r.item = into;
+  delete r.state;
+};
+for (const id of ['nd_stove_1', 'nd_stove_2', 'nd_stove_3']) retireItem(id, plain('kit_stove'));
+retireItem('nd_pan', plain('kit_pan'));
+retireItem('nd_cooking_pot', plain('kit_pot'));
+for (const id of ['nd_steak', 'nd_steak_mid', 'nd_steak_well', 'nd_steak_burnt']) retireItem(id, plain('ing_beef'));
+for (const id of ['nd_drumstick', 'nd_drumstick_mid', 'nd_drumstick_well', 'nd_drumstick_burnt']) retireItem(id, plain('ing_chicken'));
+for (const id of ['apple', 'tomato', 'potato', 'watermelon', 'banana', 'orange']) retireItem(`nd_${id}`, `ing_${id}`);
+retireItem('nd_milk', 'ing_milk');
 
 if (!hasItemCat(KITCHEN_CAT.id)) registerItemCat(KITCHEN_CAT);
 registerItemCat(INGREDIENT_CAT);
@@ -59,13 +74,13 @@ function potLines(card: ItemCard, inst: ItemInstance): void {
   const way = WAY_OF[v];
   const pot = potOf(inst);
   if (!pot) {
-    card.notes.push({ text: `${WAYS[way].zh}用。拿着食材对着它按 E 放进去，最多五样。`, tone: 'info' });
+    card.notes.push({ text: '空的', tone: 'info' });
     return;
   }
   card.rows.push({ value: `${pot.items.length} 样`, label: pot.items.map((p) => `${p.cut ? '切好的' : ''}${portionName(p.id)}`).join('、') });
   if (pot.season?.length) card.rows.push({ value: `${pot.season.length} 种`, label: '调料加过了' });
-  if (pot.out) card.notes.push({ text: '已经装出一份：锅里还有一份', tone: 'ok' });
-  else if (!WAYS[way].heats) card.notes.push({ text: (pot.toss ?? 0) >= 1 ? '拌好了：拿着盘子或碗按 E 装盘' : `对着它按 E 拌 ${TOSSES} 下`, tone: (pot.toss ?? 0) >= 1 ? 'ok' : 'info' });
+  if (pot.out) card.notes.push({ text: '锅里还有一份', tone: 'ok' });
+  else if (!WAYS[way].heats) card.notes.push({ text: (pot.toss ?? 0) >= 1 ? '拌好了' : `拌 ${Math.round((pot.toss ?? 0) * TOSSES)}/${TOSSES}`, tone: (pot.toss ?? 0) >= 1 ? 'ok' : 'info' });
   else {
     const ph = phaseOf(inst);
     card.notes.push({ text: `火候：${PHASE_ZH[ph]}`, tone: ph === 'right' ? 'ok' : ph === 'over' || ph === 'burnt' ? 'warn' : 'info' });
@@ -74,19 +89,26 @@ function potLines(card: ItemCard, inst: ItemInstance): void {
 
 registerItemCardLines({ item: STOVE }, (inst, card) => {
   if (hasCanister(inst)) gasBar(card, gasOf(inst));
-  else card.notes.push({ text: '没有燃气罐：拿着一罐对着它按 E 装上', tone: 'warn' });
+  else card.notes.push({ text: '没有燃气罐', tone: 'warn' });
   const f = fireOf(inst);
   card.rows.push({ value: f === 2 ? '大火' : f === 1 ? '小火' : '关着', label: '火' });
   const v = vesselOf(inst);
   card.rows.push({ value: v ? itemDef(v).name.zh : '空着', label: '炉头上' });
   potLines(card, inst);
-  card.notes.push({ text: '对着旋钮按 E 点火或关火，F 调大小火；对着右边的罐仓按 E 取出燃气罐', tone: 'info' });
+});
+// (the hob: its heat and what stands on it; the power it draws on is the power module's line)
+registerItemCardLines({ item: HOB }, (inst, card) => {
+  const f = fireOf(inst);
+  card.rows.push({ value: f === 2 ? '大火' : f === 1 ? '小火' : '关着', label: '电炉' });
+  const v = vesselOf(inst);
+  card.rows.push({ value: v ? itemDef(v).name.zh : '空着', label: '炉盘上' });
+  potLines(card, inst);
 });
 registerItemCardLines({ item: GAS }, (inst, card) => gasBar(card, gasOf(inst)));
 for (const id of Object.values(VESSEL)) registerItemCardLines({ item: id }, (inst, card) => potLines(card, inst));
 registerItemCardLines({ item: BOARD }, (inst, card) => {
   const f = kitOf(inst).food;
-  if (!f) card.notes.push({ text: '拿着要切的食材对着它按 E 放上来', tone: 'info' });
+  if (!f) card.notes.push({ text: '空着', tone: 'info' });
   else card.rows.push({ value: f.cut ? '切好了' : `${f.chops ?? 0}/${CHOPS} 刀`, label: portionName(f.id) });
 });
 registerItemCardLines({ cat: MEAL_CAT.id }, (inst, card) => {

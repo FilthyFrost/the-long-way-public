@@ -53,9 +53,10 @@ describe('the 89 kinds of forage', () => {
     expect(mean * 15).toBeLessThan(110);
   });
 
-  it('poisonous mushrooms hurt and a documented double has an edible counterpart', () => {
-    const toxic = FORAGE_KINDS.filter((k) => k.item.eat && k.item.eat.hp < 0);
+  it('poisonous mushrooms make one ill (the death cap hurts at once too) and a documented double has an edible counterpart', () => {
+    const toxic = FORAGE_KINDS.filter((k) => k.item.eat?.effect?.startsWith('sick'));
     expect(toxic.map((k) => k.id).sort()).toEqual(['death_cap', 'fly_agaric', 'glow_mushroom']);
+    expect(FORAGE_KINDS.filter((k) => k.item.eat && k.item.eat.hp < 0).map((k) => k.id)).toEqual(['death_cap']);
     for (const k of toxic) {
       expect(k.item.eat!.effect).toMatch(/^sick/);
       expect(k.item.eat!.food).toBe(1);

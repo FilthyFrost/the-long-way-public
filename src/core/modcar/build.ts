@@ -68,6 +68,25 @@ export function newInstance(partId: string, o: InstanceOpts = {}): PartInstance 
   return inst;
 }
 
+/** what a tyre repair kit gives back of the tread (docs/V3/plan/growth.md §五: our tyres wear their tread) */
+export const TYRE_KIT_TREAD = 0.3;
+
+/**
+ * A one-use mending kit on what it mends (Nomad Drive's engine repair kit, tyre repair kit and battery charger:
+ * v3/nd-kit; docs/V3/plan/growth.md §五): an engine's condition up by the amount, a battery's charge, a tyre's
+ * condition — and, as our tyres wear their tread and go flat, a flat fixed and tread back. False: not what it mends.
+ */
+export function mendPart(inst: PartInstance, cat: 'engine' | 'tire' | 'battery', amount: number): boolean {
+  if (partDef(inst.part).cat !== cat) return false;
+  if (cat === 'battery') inst.fluids.charge = Math.min(1, (inst.fluids.charge ?? 0) + amount);
+  else inst.cond = Math.min(1, inst.cond + amount);
+  if (cat === 'tire') {
+    inst.flat = false;
+    inst.tread = Math.min(1, (inst.tread ?? 1) + TYRE_KIT_TREAD);
+  }
+  return true;
+}
+
 /** the sub-mounts a part offers: a tyre on a rim that takes one, a turbo on an engine that takes one */
 export function subMountsOf(p: PartDef): string[] {
   const out: string[] = [];

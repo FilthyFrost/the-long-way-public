@@ -217,6 +217,7 @@ const ENGINES: PartDef[] = [
     name: { zh: 'V8 5.0', en: 'V8 5.0' },
     mass: 235,
     carry: 'large',
+    tags: ['stock:elephant'],
     engine: {
       curve: [
         [700, 280],
@@ -249,7 +250,7 @@ const ENGINES: PartDef[] = [
     name: { zh: '大柴油直六 6.0', en: 'Big diesel six 6.0' },
     mass: 470,
     carry: 'large',
-    tags: ['stock:rv', 'stock:rhino'],
+    tags: ['stock:rv', 'stock:rhino', 'stock:camel'],
     engine: {
       curve: [
         [600, 450],
@@ -313,7 +314,7 @@ const ENGINES: PartDef[] = [
     name: { zh: '风冷水平对置四缸 1.6', en: 'Air-cooled flat-four 1.6' },
     mass: 105,
     carry: 'large',
-    tags: ['stock:van'],
+    tags: ['stock:van', 'stock:turtle'],
     engine: {
       curve: [
         [800, 70],
@@ -602,21 +603,23 @@ const ENGINES: PartDef[] = [
 // ------------------------------------------------------------------ drivetrain and fluids
 
 const DRIVETRAIN: PartDef[] = [
-  P({ id: 'gb_3', cat: 'gearbox', name: { zh: '三速变速箱', en: 'Three-speed gearbox' }, mass: 35, carry: 'medium', gearbox: { ratios: [3.0, 1.6, 1.0], reverse: 3.2, shiftTime: 0.4, efficiency: 0.9 } }),
-  P({ id: 'gb_4', cat: 'gearbox', name: { zh: '四速变速箱', en: 'Four-speed gearbox' }, mass: 40, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], gearbox: { ratios: [3.67, 2.1, 1.36, 1.0], reverse: 3.5, shiftTime: 0.32, efficiency: 0.9 } }),
+  P({ id: 'gb_3', cat: 'gearbox', name: { zh: '三速变速箱', en: 'Three-speed gearbox' }, mass: 35, carry: 'medium', tags: ['stock:elephant'], gearbox: { ratios: [3.0, 1.6, 1.0], reverse: 3.2, shiftTime: 0.4, efficiency: 0.9 } }),
+  P({ id: 'gb_4', cat: 'gearbox', name: { zh: '四速变速箱', en: 'Four-speed gearbox' }, mass: 40, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:camel'], gearbox: { ratios: [3.67, 2.1, 1.36, 1.0], reverse: 3.5, shiftTime: 0.32, efficiency: 0.9 } }),
   P({ id: 'gb_5', cat: 'gearbox', name: { zh: '五速近比变速箱', en: 'Close-ratio five-speed' }, mass: 45, carry: 'medium', tags: ['stock:fox'], gearbox: { ratios: [3.67, 2.45, 1.78, 1.32, 1.0], reverse: 3.4, shiftTime: 0.22, efficiency: 0.92 } }),
   P({ id: 'gb_moto', cat: 'gearbox', name: { zh: '摩托五速', en: 'Motorcycle five-speed' }, mass: 12, carry: 'medium', tags: ['stock:moto'], gearbox: { ratios: [2.6, 1.8, 1.4, 1.15, 0.96], reverse: 0, shiftTime: 0.12, efficiency: 0.92 } }),
   P({ id: 'rad_small', cat: 'radiator', name: { zh: '小水箱', en: 'Small radiator' }, mass: 5, carry: 'medium', radiator: { coolKw: 40, coolantL: 3 } }),
   P({ id: 'rad_std', cat: 'radiator', name: { zh: '水箱', en: 'Radiator' }, mass: 8, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail'], radiator: { coolKw: 75, coolantL: 5 } }),
-  P({ id: 'rad_big', cat: 'radiator', name: { zh: '加大水箱', en: 'Big radiator' }, mass: 13, carry: 'medium', tags: ['stock:rv', 'stock:buffalo', 'stock:rhino'], radiator: { coolKw: 140, coolantL: 9 } }),
+  P({ id: 'rad_big', cat: 'radiator', name: { zh: '加大水箱', en: 'Big radiator' }, mass: 13, carry: 'medium', tags: ['stock:rv', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], radiator: { coolKw: 140, coolantL: 9 } }),
   P({ id: 'bat_moto', cat: 'battery', name: { zh: '摩托电瓶', en: 'Motorcycle battery' }, mass: 3, carry: 'small', tags: ['stock:moto'], battery: { kWh: 0.15 } }),
-  P({ id: 'bat_std', cat: 'battery', name: { zh: '电瓶', en: 'Battery' }, mass: 14, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], battery: { kWh: 0.6 } }),
-  P({ id: 'bat_truck', cat: 'battery', name: { zh: '大电瓶', en: 'Truck battery' }, mass: 26, carry: 'medium', tags: ['stock:rv', 'stock:rhino'], battery: { kWh: 1.2 } }),
+  P({ id: 'bat_std', cat: 'battery', name: { zh: '电瓶', en: 'Battery' }, mass: 14, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], battery: { kWh: 0.6 } }),
+  P({ id: 'bat_truck', cat: 'battery', name: { zh: '大电瓶', en: 'Truck battery' }, mass: 26, carry: 'medium', tags: ['stock:rv', 'stock:rhino', 'stock:elephant', 'stock:camel'], battery: { kWh: 1.2 } }),
+  // (docs/V3/plan/rv.md: a motorhome's house battery — its appliances draw from it, the alternator and a solar roof charge it; never the starter's)
+  P({ id: 'bat_house', cat: 'houseBattery', name: { zh: '生活电瓶', en: 'House battery' }, mass: 32, carry: 'medium', tags: ['stock:elephant', 'stock:camel'], battery: { kWh: 1.2 } }),
   P({ id: 'tank_moto', cat: 'fuelTank', name: { zh: '摩托油箱', en: 'Motorcycle tank' }, mass: 5, carry: 'medium', tags: ['stock:moto'], fuelTank: { litres: 13 } }),
-  P({ id: 'tank_std', cat: 'fuelTank', name: { zh: '油箱', en: 'Fuel tank' }, mass: 9, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], fuelTank: { litres: 45 } }),
-  P({ id: 'tank_big', cat: 'fuelTank', name: { zh: '大油箱', en: 'Big fuel tank' }, mass: 16, carry: 'large', tags: ['stock:rv', 'stock:rhino'], fuelTank: { litres: 90 } }),
+  P({ id: 'tank_std', cat: 'fuelTank', name: { zh: '油箱', en: 'Fuel tank' }, mass: 9, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], fuelTank: { litres: 45 } }),
+  P({ id: 'tank_big', cat: 'fuelTank', name: { zh: '大油箱', en: 'Big fuel tank' }, mass: 16, carry: 'large', tags: ['stock:rv', 'stock:rhino', 'stock:elephant', 'stock:camel'], fuelTank: { litres: 90 } }),
   P({ id: 'tank_drum', cat: 'fuelTank', name: { zh: '汽油桶', en: 'Oil-drum tank' }, mass: 18, carry: 'large', tags: ['meme', 'apoc'], fuelTank: { litres: 200 } }),
-  P({ id: 'exh_stock', cat: 'exhaust', name: { zh: '原装排气', en: 'Stock exhaust' }, mass: 9, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], exhaust: { torque: 1.0, loud: 1.0 } }),
+  P({ id: 'exh_stock', cat: 'exhaust', name: { zh: '原装排气', en: 'Stock exhaust' }, mass: 9, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], exhaust: { torque: 1.0, loud: 1.0 } }),
   P({ id: 'exh_sport', cat: 'exhaust', name: { zh: '运动排气', en: 'Sport exhaust' }, mass: 8, carry: 'medium', tags: ['stock:fox'], exhaust: { torque: 1.1, loud: 1.6 } }),
   P({ id: 'exh_side', cat: 'exhaust', name: { zh: '侧排管', en: 'Side stacks' }, mass: 10, carry: 'medium', tags: ['apoc'], exhaust: { torque: 1.14, loud: 2.4 } }),
   P({ id: 'exh_moto', cat: 'exhaust', name: { zh: '摩托排气', en: 'Motorcycle exhaust' }, mass: 4, carry: 'medium', tags: ['stock:moto'], exhaust: { torque: 1.0, loud: 1.2 } }),
@@ -631,21 +634,21 @@ const DRIVETRAIN: PartDef[] = [
 const NO_TYRE_GRIP = [0.35, 0.4, 0.42, 0.35, 0.3, 0.25, 0.12];
 
 const WHEELS: PartDef[] = [
-  P({ id: 'rim_steel13', cat: 'rim', name: { zh: '钢圈 13 寸', en: 'Steel rim 13"' }, mass: 7, carry: 'medium', tags: ['stock:sedan', 'stock:wagon'], rim: { radius: 0.165, width: 0.13, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
+  P({ id: 'rim_steel13', cat: 'rim', name: { zh: '钢圈 13 寸', en: 'Steel rim 13"' }, mass: 7, carry: 'medium', tags: ['stock:sedan', 'stock:wagon', 'stock:trailer'], rim: { radius: 0.165, width: 0.13, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
   P({ id: 'rim_alloy15', cat: 'rim', name: { zh: '铝圈 15 寸', en: 'Alloy rim 15"' }, mass: 6, carry: 'medium', tags: ['stock:fox'], rim: { radius: 0.19, width: 0.17, tire: true, grip: NO_TYRE_GRIP, rr: 3, profile: 0.72, gripMul: 1.06 } }),
-  P({ id: 'rim_off16', cat: 'rim', name: { zh: '越野钢圈 16 寸', en: 'Off-road rim 16"' }, mass: 11, carry: 'medium', tags: ['stock:pickup', 'stock:van', 'stock:goat', 'stock:snail', 'stock:buffalo'], rim: { radius: 0.203, width: 0.2, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
+  P({ id: 'rim_off16', cat: 'rim', name: { zh: '越野钢圈 16 寸', en: 'Off-road rim 16"' }, mass: 11, carry: 'medium', tags: ['stock:pickup', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:snail', 'stock:buffalo'], rim: { radius: 0.203, width: 0.2, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
   P({ id: 'rim_moto18', cat: 'rim', name: { zh: '摩托辐条圈 18 寸', en: 'Spoked motorcycle rim 18"' }, mass: 4, carry: 'medium', tags: ['stock:moto'], rim: { radius: 0.229, width: 0.07, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
-  P({ id: 'rim_truck19', cat: 'rim', name: { zh: '卡车钢圈 19.5 寸', en: 'Truck rim 19.5"' }, mass: 16, carry: 'medium', tags: ['stock:rv', 'stock:rhino'], rim: { radius: 0.25, width: 0.2, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
-  P({ id: 'rim_dually', cat: 'rim', name: { zh: '双轮钢圈', en: 'Dual rear rims' }, mass: 32, carry: 'large', tags: ['stock:rv'], rim: { radius: 0.25, width: 0.42, tire: true, grip: NO_TYRE_GRIP, rr: 3, dual: true } }),
+  P({ id: 'rim_truck19', cat: 'rim', name: { zh: '卡车钢圈 19.5 寸', en: 'Truck rim 19.5"' }, mass: 16, carry: 'medium', tags: ['stock:rv', 'stock:rhino', 'stock:elephant', 'stock:camel'], rim: { radius: 0.25, width: 0.2, tire: true, grip: NO_TYRE_GRIP, rr: 3 } }),
+  P({ id: 'rim_dually', cat: 'rim', name: { zh: '双轮钢圈', en: 'Dual rear rims' }, mass: 32, carry: 'large', tags: ['stock:rv', 'stock:elephant', 'stock:camel'], rim: { radius: 0.25, width: 0.42, tire: true, grip: NO_TYRE_GRIP, rr: 3, dual: true } }),
   P({ id: 'rim_cart', cat: 'rim', name: { zh: '购物车轮', en: 'Shopping-trolley wheel' }, mass: 0.6, carry: 'small', tags: ['meme'], rim: { radius: 0.065, width: 0.04, tire: false, grip: [0.55, 0.45, 0.4, 0.3, 0.2, 0.3, 0.3], rr: 2.2 } }),
-  P({ id: 'tire_road', cat: 'tire', name: { zh: '公路胎', en: 'Road tyre' }, mass: 8, carry: 'medium', tags: ['stock:sedan', 'stock:van', 'stock:wagon'], tire: { sidewall: 0.12, width: 0.155, grip: [1.0, 0.92, 0.92, 0.85, 0.8, 0.85, 0.9], rr: 1.0, life: 40, noise: 1.0 } }),
+  P({ id: 'tire_road', cat: 'tire', name: { zh: '公路胎', en: 'Road tyre' }, mass: 8, carry: 'medium', tags: ['stock:sedan', 'stock:van', 'stock:turtle', 'stock:wagon', 'stock:trailer'], tire: { sidewall: 0.12, width: 0.155, grip: [1.0, 0.92, 0.92, 0.85, 0.8, 0.85, 0.9], rr: 1.0, life: 40, noise: 1.0 } }),
   P({ id: 'tire_whitewall', cat: 'tire', name: { zh: '白边胎', en: 'Whitewall tyre' }, mass: 8, carry: 'medium', tire: { sidewall: 0.12, width: 0.16, grip: [0.98, 0.9, 0.9, 0.83, 0.78, 0.83, 0.88], rr: 1.0, life: 34, noise: 1.0 } }),
   P({ id: 'tire_offroad', cat: 'tire', name: { zh: '越野胎', en: 'Off-road tyre' }, mass: 13, carry: 'medium', tags: ['stock:pickup'], tire: { sidewall: 0.14, width: 0.235, grip: [0.94, 1.12, 1.15, 1.22, 1.15, 1.08, 0.92], rr: 1.12, life: 46, roughWear: 0.7, noise: 1.6 } }),
   P({ id: 'tire_snow', cat: 'tire', name: { zh: '雪地胎', en: 'Snow tyre' }, mass: 9, carry: 'medium', tire: { sidewall: 0.12, width: 0.175, grip: [0.94, 1.0, 1.0, 1.0, 0.95, 1.45, 1.6], rr: 1.06, life: 34, roughWear: 1.1, noise: 1.3 } }),
   P({ id: 'tire_slick', cat: 'tire', name: { zh: '光头赛车胎', en: 'Racing slick' }, mass: 9, carry: 'medium', tire: { sidewall: 0.09, width: 0.225, grip: [1.28, 0.75, 0.7, 0.55, 0.6, 0.45, 0.6], rr: 0.92, life: 16, roughWear: 2.2, noise: 0.8 } }),
   P({ id: 'tire_tractor', cat: 'tire', name: { zh: '拖拉机胎', en: 'Tractor tyre' }, mass: 38, carry: 'large', tags: ['meme', 'apoc'], tire: { sidewall: 0.3, width: 0.32, grip: [0.68, 1.15, 1.25, 1.55, 1.35, 1.2, 0.7], rr: 1.45, life: 70, roughWear: 0.6, noise: 2.4 } }),
   P({ id: 'tire_moto', cat: 'tire', name: { zh: '摩托胎', en: 'Motorcycle tyre' }, mass: 3, carry: 'medium', tags: ['stock:moto'], tire: { sidewall: 0.08, width: 0.1, grip: [1.05, 0.9, 0.88, 0.8, 0.75, 0.8, 0.85], rr: 0.85, life: 30, roughWear: 1.4, noise: 0.7 } }),
-  P({ id: 'tire_truck', cat: 'tire', name: { zh: '卡车胎', en: 'Truck tyre' }, mass: 16, carry: 'medium', tags: ['stock:rv', 'stock:snail'], tire: { sidewall: 0.14, width: 0.215, grip: [0.97, 1.0, 1.0, 0.95, 0.9, 0.92, 0.9], rr: 1.02, life: 60, roughWear: 1.0, noise: 1.2 } }),
+  P({ id: 'tire_truck', cat: 'tire', name: { zh: '卡车胎', en: 'Truck tyre' }, mass: 16, carry: 'medium', tags: ['stock:rv', 'stock:snail', 'stock:elephant', 'stock:camel'], tire: { sidewall: 0.14, width: 0.215, grip: [0.97, 1.0, 1.0, 0.95, 0.9, 0.92, 0.9], rr: 1.02, life: 60, roughWear: 1.0, noise: 1.2 } }),
   // (docs/MODCAR.md §26: six more — an economy tyre, a sport one, all-terrain and mud-terrain, studs for ice, a knobbly bike tyre)
   P({ id: 'tire_eco', cat: 'tire', name: { zh: '省油胎', en: 'Eco tyre' }, mass: 7, carry: 'medium', tire: { sidewall: 0.12, width: 0.145, grip: [0.93, 0.86, 0.85, 0.78, 0.72, 0.8, 0.86], rr: 0.8, life: 52, roughWear: 1.3, noise: 0.75 } }),
   P({ id: 'tire_sport', cat: 'tire', name: { zh: '运动胎', en: 'Sport tyre' }, mass: 9, carry: 'medium', tags: ['stock:fox'], tire: { sidewall: 0.1, width: 0.205, grip: [1.14, 0.88, 0.85, 0.75, 0.7, 0.72, 0.8], rr: 1.0, life: 26, roughWear: 1.6, noise: 1.05 } }),
@@ -659,17 +662,17 @@ const WHEELS: PartDef[] = [
 
 // (a set for an axle: both its struts, both its brakes; the weight is the pair's)
 const AXLES: PartDef[] = [
-  P({ id: 'susp_stock', cat: 'suspension', name: { zh: '原厂悬挂', en: 'Stock suspension' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], suspension: { spring: 1, damping: 1, travel: 1, antiRoll: 1, lift: 0 } }),
+  P({ id: 'susp_stock', cat: 'suspension', name: { zh: '原厂悬挂', en: 'Stock suspension' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], suspension: { spring: 1, damping: 1, travel: 1, antiRoll: 1, lift: 0 } }),
   P({ id: 'susp_soft', cat: 'suspension', name: { zh: '软悬挂', en: 'Soft suspension' }, mass: 15, carry: 'medium', tags: ['stock:wagon'], suspension: { spring: 0.7, damping: 0.7, travel: 1.1, antiRoll: 0.55, lift: -0.02 } }),
   P({ id: 'susp_sport', cat: 'suspension', name: { zh: '运动悬挂', en: 'Sport suspension' }, mass: 14, carry: 'medium', suspension: { spring: 1.7, damping: 1.55, travel: 0.75, antiRoll: 2.0, lift: -0.045 } }),
   P({ id: 'susp_lift', cat: 'suspension', name: { zh: '越野加高悬挂', en: 'Lift kit' }, mass: 21, carry: 'medium', suspension: { spring: 1.1, damping: 1.25, travel: 1.6, antiRoll: 0.8, lift: 0.1 } }),
   P({ id: 'susp_leaf', cat: 'suspension', name: { zh: '加强钢板弹簧', en: 'Heavy-duty leaf springs' }, mass: 30, carry: 'large', suspension: { spring: 1.8, damping: 1.2, travel: 0.95, antiRoll: 1.3, lift: 0.03 } }),
-  P({ id: 'brakes_drum', cat: 'brakes', name: { zh: '鼓刹', en: 'Drum brakes' }, mass: 16, carry: 'medium', tags: ['stock:van', 'stock:snail', 'stock:rhino'], brakes: { kind: 'drum', power: 0.72 } }),
-  P({ id: 'brakes_disc', cat: 'brakes', name: { zh: '盘刹', en: 'Disc brakes' }, mass: 14, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:goat', 'stock:wagon', 'stock:buffalo'], brakes: { kind: 'disc', power: 1 } }),
+  P({ id: 'brakes_drum', cat: 'brakes', name: { zh: '鼓刹', en: 'Drum brakes' }, mass: 16, carry: 'medium', tags: ['stock:van', 'stock:turtle', 'stock:snail', 'stock:rhino'], brakes: { kind: 'drum', power: 0.72 } }),
+  P({ id: 'brakes_disc', cat: 'brakes', name: { zh: '盘刹', en: 'Disc brakes' }, mass: 14, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:goat', 'stock:wagon', 'stock:buffalo', 'stock:elephant', 'stock:camel'], brakes: { kind: 'disc', power: 1 } }),
   P({ id: 'brakes_vented', cat: 'brakes', name: { zh: '通风盘刹', en: 'Vented disc brakes' }, mass: 16, carry: 'medium', tags: ['stock:fox'], brakes: { kind: 'vented', power: 1.26 } }),
   P({ id: 'brakes_sport', cat: 'brakes', name: { zh: '运动刹车', en: 'Sport brakes' }, mass: 15, carry: 'medium', brakes: { kind: 'drilled', power: 1.42 } }),
   P({ id: 'brakes_moto', cat: 'brakes', name: { zh: '摩托碟刹', en: 'Motorcycle disc brake' }, mass: 3, carry: 'small', tags: ['stock:moto'], brakes: { kind: 'disc', power: 1 } }),
-  P({ id: 'diff_open', cat: 'diff', name: { zh: '开放式差速器', en: 'Open differential' }, mass: 28, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], diff: { kind: 'open', bias: 1.25 } }),
+  P({ id: 'diff_open', cat: 'diff', name: { zh: '开放式差速器', en: 'Open differential' }, mass: 28, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], diff: { kind: 'open', bias: 1.25 } }),
   P({ id: 'diff_lsd', cat: 'diff', name: { zh: '限滑差速器', en: 'Limited-slip differential' }, mass: 30, carry: 'medium', tags: ['stock:fox'], diff: { kind: 'lsd', bias: 2.8 } }),
   P({ id: 'diff_locked', cat: 'diff', name: { zh: '锁止差速器', en: 'Locked differential' }, mass: 31, carry: 'medium', diff: { kind: 'locked', bias: 0 } }),
 ];
@@ -677,60 +680,67 @@ const AXLES: PartDef[] = [
 // ------------------------------------------------------------------ the cab
 
 const CAB: PartDef[] = [
-  P({ id: 'steer_std', cat: 'steering', name: { zh: '方向盘', en: 'Steering wheel' }, mass: 3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], steering: { ratio: 16, playDeg: 1.5, rate: 1 } }),
+  P({ id: 'steer_std', cat: 'steering', name: { zh: '方向盘', en: 'Steering wheel' }, mass: 3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], steering: { ratio: 16, playDeg: 1.5, rate: 1 } }),
   P({ id: 'steer_bad', cat: 'steering', name: { zh: '破方向盘', en: 'Worn steering wheel' }, mass: 3, carry: 'small', steering: { ratio: 18, playDeg: 8, rate: 0.85 } }),
   P({ id: 'steer_sport', cat: 'steering', name: { zh: '运动方向盘', en: 'Sport steering wheel' }, mass: 2, carry: 'small', tags: ['stock:fox'], steering: { ratio: 12, playDeg: 0.3, rate: 1.25 } }),
   P({ id: 'steer_bar', cat: 'steering', name: { zh: '车把', en: 'Handlebar' }, mass: 3, carry: 'small', tags: ['stock:moto'], steering: { ratio: 1, playDeg: 0.5, rate: 1.35, bar: true } }),
   P({ id: 'steer_ship', cat: 'steering', name: { zh: '船舵', en: "Ship's wheel" }, mass: 9, carry: 'medium', tags: ['meme'], steering: { ratio: 28, playDeg: 3, rate: 0.55 } }),
-  P({ id: 'seat_bucket', cat: 'seat', name: { zh: '座椅', en: 'Bucket seat' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], seat: { eyeUp: 0.9, eyeBack: 0.16, comfort: 0.6 } }),
-  P({ id: 'seat_bench', cat: 'seat', name: { zh: '长条座椅', en: 'Bench seat' }, mass: 24, carry: 'large', tags: ['stock:sedan', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:buffalo'], seat: { eyeUp: 0.88, eyeBack: 0.16, comfort: 0.7 } }),
+  P({ id: 'seat_bucket', cat: 'seat', name: { zh: '座椅', en: 'Bucket seat' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], seat: { eyeUp: 0.9, eyeBack: 0.16, comfort: 0.6 } }),
+  P({ id: 'seat_bench', cat: 'seat', name: { zh: '长条座椅', en: 'Bench seat' }, mass: 24, carry: 'large', tags: ['stock:sedan', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:buffalo'], seat: { eyeUp: 0.88, eyeBack: 0.16, comfort: 0.7 } }),
   P({ id: 'seat_race', cat: 'seat', name: { zh: '赛车座椅', en: 'Racing seat' }, mass: 9, carry: 'medium', seat: { eyeUp: 0.8, eyeBack: 0.2, comfort: 0.5 } }),
   P({ id: 'seat_toilet', cat: 'seat', name: { zh: '马桶', en: 'Toilet' }, mass: 28, carry: 'large', tags: ['meme'], seat: { eyeUp: 1.06, eyeBack: 0.05, comfort: 0.3 } }),
   P({ id: 'seat_armchair', cat: 'seat', name: { zh: '单人沙发', en: 'Armchair' }, mass: 30, carry: 'large', tags: ['meme'], seat: { eyeUp: 0.94, eyeBack: 0.2, comfort: 0.95 } }),
   P({ id: 'seat_office', cat: 'seat', name: { zh: '办公椅', en: 'Office chair' }, mass: 14, carry: 'medium', tags: ['meme'], seat: { eyeUp: 1.02, eyeBack: 0.12, comfort: 0.7, swivel: true } }),
   P({ id: 'seat_saddle', cat: 'seat', name: { zh: '摩托坐垫', en: 'Motorcycle saddle' }, mass: 3, carry: 'small', tags: ['stock:moto'], seat: { eyeUp: 0.86, eyeBack: 0.05, comfort: 0.4 } }),
   P({ id: 'seat_crate', cat: 'seat', name: { zh: '木箱', en: 'Wooden crate' }, mass: 6, carry: 'medium', tags: ['meme'], seat: { eyeUp: 0.96, eyeBack: 0.05, comfort: 0.15 } }),
-  P({ id: 'radio_old', cat: 'radio', name: { zh: '老式收音机', en: 'Old radio' }, mass: 1.5, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:goat', 'stock:snail'], radio: { tape: false, watts: 8 } }),
-  P({ id: 'radio_tape', cat: 'radio', name: { zh: '卡带机', en: 'Tape deck' }, mass: 2, carry: 'small', tags: ['stock:rv', 'stock:wagon', 'stock:fox', 'stock:buffalo', 'stock:rhino'], radio: { tape: true, watts: 12 } }),
-  P({ id: 'hb_stock', cat: 'handbrake', name: { zh: '手刹', en: 'Handbrake' }, mass: 2, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], handbrake: { strength: 1 } }),
+  P({ id: 'radio_old', cat: 'radio', name: { zh: '老式收音机', en: 'Old radio' }, mass: 1.5, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:snail', 'stock:camel'], radio: { tape: false, watts: 8 } }),
+  P({ id: 'radio_tape', cat: 'radio', name: { zh: '卡带机', en: 'Tape deck' }, mass: 2, carry: 'small', tags: ['stock:rv', 'stock:wagon', 'stock:fox', 'stock:buffalo', 'stock:rhino', 'stock:elephant'], radio: { tape: true, watts: 12 } }),
+  P({ id: 'hb_stock', cat: 'handbrake', name: { zh: '手刹', en: 'Handbrake' }, mass: 2, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], handbrake: { strength: 1 } }),
   P({ id: 'hb_drift', cat: 'handbrake', name: { zh: '漂移长杆手刹', en: 'Drift handbrake' }, mass: 3, carry: 'small', handbrake: { strength: 1.6 } }),
-  P({ id: 'gl_stock', cat: 'gearLever', name: { zh: '挡杆', en: 'Gear lever' }, mass: 1, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], gearLever: { shift: 1 } }),
+  P({ id: 'gl_stock', cat: 'gearLever', name: { zh: '挡杆', en: 'Gear lever' }, mass: 1, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], gearLever: { shift: 1 } }),
   // a motorcycle changes gear with its left foot
   P({ id: 'gl_foot', cat: 'gearLever', name: { zh: '脚踩换挡杆', en: 'Foot shifter' }, mass: 0.6, carry: 'small', tags: ['stock:moto'], gearLever: { shift: 0.8 } }),
   P({ id: 'gl_short', cat: 'gearLever', name: { zh: '短行程挡杆', en: 'Short shifter' }, mass: 1, carry: 'small', tags: ['stock:fox'], gearLever: { shift: 0.7 } }),
-  P({ id: 'ign_key', cat: 'ignition', name: { zh: '钥匙点火开关', en: 'Key ignition' }, mass: 0.3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:moto', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], ignition: { kind: 'key' } }),
+  P({ id: 'ign_key', cat: 'ignition', name: { zh: '钥匙点火开关', en: 'Key ignition' }, mass: 0.3, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:moto', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], ignition: { kind: 'key' } }),
   P({ id: 'ign_button', cat: 'ignition', name: { zh: '一键启动', en: 'Start button' }, mass: 0.3, carry: 'small', ignition: { kind: 'button' } }),
-  P({ id: 'horn_beep', cat: 'horn', name: { zh: '喇叭', en: 'Horn' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:moto', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], horn: { sound: 'beep' } }),
+  P({ id: 'horn_beep', cat: 'horn', name: { zh: '喇叭', en: 'Horn' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:moto', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo'], horn: { sound: 'beep' } }),
   P({ id: 'horn_trumpet', cat: 'horn', name: { zh: '乐曲喇叭', en: 'Musical horn' }, mass: 1.5, carry: 'small', tags: ['meme'], horn: { sound: 'trumpet' } }),
-  P({ id: 'horn_air', cat: 'horn', name: { zh: '汽笛', en: 'Air horn' }, mass: 3, carry: 'small', tags: ['stock:rv', 'stock:rhino'], horn: { sound: 'air' } }),
+  P({ id: 'horn_air', cat: 'horn', name: { zh: '汽笛', en: 'Air horn' }, mass: 3, carry: 'small', tags: ['stock:rv', 'stock:rhino', 'stock:elephant', 'stock:camel'], horn: { sound: 'air' } }),
 ];
 
 // ------------------------------------------------------------------ the body
 
 const BODY: PartDef[] = [
-  P({ id: 'door_stock', cat: 'door', name: { zh: '车门', en: 'Door' }, mass: 22, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], panel: { style: 'stock', armor: 0.1, drag: 0, window: true } }),
+  P({ id: 'door_stock', cat: 'door', name: { zh: '车门', en: 'Door' }, mass: 22, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], panel: { style: 'stock', armor: 0.1, drag: 0, window: true } }),
   P({ id: 'door_rusty', cat: 'door', name: { zh: '锈补丁车门', en: 'Patched rusty door' }, mass: 24, carry: 'large', tags: ['apoc'], panel: { style: 'rusty', armor: 0.05, drag: 0.01, window: true } }),
   P({ id: 'door_armor', cat: 'door', name: { zh: '装甲车门', en: 'Armoured door' }, mass: 48, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: true } }),
   P({ id: 'door_cage', cat: 'door', name: { zh: '铁丝网车门', en: 'Wire-cage door' }, mass: 18, carry: 'large', tags: ['apoc'], panel: { style: 'cage', armor: 0.2, drag: 0.03, window: false } }),
   P({ id: 'door_fridge', cat: 'door', name: { zh: '冰箱门', en: 'Fridge door' }, mass: 30, carry: 'large', tags: ['meme'], panel: { style: 'fridge', armor: 0.3, drag: 0.02, window: false } }),
-  P({ id: 'hood_stock', cat: 'hood', name: { zh: '引擎盖', en: 'Bonnet' }, mass: 14, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
+  P({ id: 'hood_stock', cat: 'hood', name: { zh: '引擎盖', en: 'Bonnet' }, mass: 14, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
   P({ id: 'hood_scoop', cat: 'hood', name: { zh: '进气口引擎盖', en: 'Scoop bonnet' }, mass: 15, carry: 'large', panel: { style: 'stock', armor: 0.1, drag: 0.03, window: false, cooling: 0.15 } }),
   P({ id: 'hood_armor', cat: 'hood', name: { zh: '装甲引擎盖', en: 'Armoured bonnet' }, mass: 30, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
-  P({ id: 'trunk_stock', cat: 'trunk', name: { zh: '尾箱盖', en: 'Boot lid' }, mass: 10, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
+  P({ id: 'trunk_stock', cat: 'trunk', name: { zh: '尾箱盖', en: 'Boot lid' }, mass: 10, carry: 'large', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:trailer', 'stock:camel'], panel: { style: 'stock', armor: 0.1, drag: 0, window: false } }),
   P({ id: 'trunk_armor', cat: 'trunk', name: { zh: '装甲尾箱盖', en: 'Armoured boot lid' }, mass: 24, carry: 'large', tags: ['apoc'], panel: { style: 'armor', armor: 0.6, drag: 0.02, window: false } }),
-  P({ id: 'bf_stock', cat: 'bumperFront', name: { zh: '前保险杠', en: 'Front bumper' }, mass: 9, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], bumper: { ram: 0.2, drag: 0 } }),
+  P({ id: 'bf_stock', cat: 'bumperFront', name: { zh: '前保险杠', en: 'Front bumper' }, mass: 9, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], bumper: { ram: 0.2, drag: 0 } }),
   P({ id: 'bf_bullbar', cat: 'bumperFront', name: { zh: '防撞杠', en: 'Bull bar' }, mass: 22, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.55, drag: 0.05 } }),
   P({ id: 'bf_ram', cat: 'bumperFront', name: { zh: '尖刺撞角', en: 'Spiked ram' }, mass: 38, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.85, drag: 0.08 } }),
   P({ id: 'bf_plow', cat: 'bumperFront', name: { zh: '推雪铲', en: 'Snow plough' }, mass: 65, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.7, drag: 0.25, plow: true } }),
-  P({ id: 'br_stock', cat: 'bumperRear', name: { zh: '后保险杠', en: 'Rear bumper' }, mass: 8, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino'], bumper: { ram: 0.2, drag: 0 } }),
+  P({ id: 'br_stock', cat: 'bumperRear', name: { zh: '后保险杠', en: 'Rear bumper' }, mass: 8, carry: 'large', stretch: true, tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], bumper: { ram: 0.2, drag: 0 } }),
   P({ id: 'br_spikes', cat: 'bumperRear', name: { zh: '尖刺后杠', en: 'Spiked rear bar' }, mass: 20, carry: 'large', stretch: true, tags: ['apoc'], bumper: { ram: 0.6, drag: 0.05 } }),
-  P({ id: 'hl_round', cat: 'headlight', name: { zh: '圆大灯', en: 'Round headlamp' }, mass: 1.5, carry: 'small', tags: ['stock:sedan', 'stock:moto', 'stock:van', 'stock:goat', 'stock:snail', 'stock:rhino'], lamp: { light: 1, reach: 1, watts: 55 } }),
+  P({ id: 'hl_round', cat: 'headlight', name: { zh: '圆大灯', en: 'Round headlamp' }, mass: 1.5, carry: 'small', tags: ['stock:sedan', 'stock:moto', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:snail', 'stock:rhino', 'stock:elephant', 'stock:camel'], lamp: { light: 1, reach: 1, watts: 55 } }),
   P({ id: 'hl_square', cat: 'headlight', name: { zh: '方大灯', en: 'Square headlamp' }, mass: 1.8, carry: 'small', tags: ['stock:pickup', 'stock:rv', 'stock:wagon', 'stock:fox', 'stock:buffalo'], lamp: { light: 1.1, reach: 1.05, watts: 60 } }),
   P({ id: 'hl_spot', cat: 'headlight', name: { zh: '大射灯', en: 'Spotlight' }, mass: 4, carry: 'small', tags: ['apoc'], lamp: { light: 1.8, reach: 1.6, watts: 100 } }),
-  P({ id: 'tl_stock', cat: 'taillight', name: { zh: '尾灯', en: 'Tail lamp' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino'], lamp: { light: 1, reach: 1, watts: 21 } }),
+  P({ id: 'tl_stock', cat: 'taillight', name: { zh: '尾灯', en: 'Tail lamp' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:trailer', 'stock:elephant', 'stock:camel'], lamp: { light: 1, reach: 1, watts: 21 } }),
   P({ id: 'tl_round', cat: 'taillight', name: { zh: '圆尾灯', en: 'Round tail lamp' }, mass: 0.7, carry: 'small', tags: ['stock:moto', 'stock:fox'], lamp: { light: 1, reach: 1, watts: 21 } }),
-  P({ id: 'mir_stock', cat: 'mirror', name: { zh: '后视镜', en: 'Mirror' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:moto', 'stock:van', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:buffalo'], mirror: { size: 1 } }),
-  P({ id: 'mir_truck', cat: 'mirror', name: { zh: '卡车大镜', en: 'Truck mirror' }, mass: 2.5, carry: 'small', tags: ['stock:rv', 'stock:snail', 'stock:rhino'], mirror: { size: 1.8 } }),
+  P({ id: 'mir_stock', cat: 'mirror', name: { zh: '后视镜', en: 'Mirror' }, mass: 0.8, carry: 'small', tags: ['stock:sedan', 'stock:pickup', 'stock:moto', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:buffalo'], mirror: { size: 1 } }),
+  P({ id: 'mir_truck', cat: 'mirror', name: { zh: '卡车大镜', en: 'Truck mirror' }, mass: 2.5, carry: 'small', tags: ['stock:rv', 'stock:snail', 'stock:rhino', 'stock:elephant', 'stock:camel'], mirror: { size: 1.8 } }),
+  // (a tow hitch under the rear bumper: a trailer's coupling goes on its ball — docs/V3/plan/growth.md §六 2)
+  P({ id: 'hitch_ball', cat: 'hitch', name: { zh: '挂钩', en: 'Tow hitch' }, mass: 9, carry: 'medium', tags: [], hitch: { maxKg: 750 } }),
+  // (a motorcycle rack in the hitch's place: a tray across the back the Swallow stands in, strapped to its mast — it
+  // tows nothing, so it is a trailer or the motorcycle on one hitch, as a carrier in a tow bar's receiver is: J9e)
+  P({ id: 'moto_rack', cat: 'hitch', name: { zh: '摩托车架', en: 'Motorcycle rack' }, mass: 24, carry: 'large', tags: [], hitch: { maxKg: 0, motoKg: 300 } }),
+  // (an aluminium ladder up the side to the roof: climbed as a building's is, the roof stood on — J9e, core/modcar/ladders.ts)
+  P({ id: 'ladder', cat: 'ladder', name: { zh: '梯子', en: 'Ladder' }, mass: 7, carry: 'large', tags: [], ladder: { maxKg: 150 } }),
   P({ id: 'roof_rack', cat: 'roof', name: { zh: '行李架', en: 'Roof rack' }, mass: 18, carry: 'large', tags: ['stock:wagon'], stretch: true, roof: { drag: 0.12 } }),
   P({ id: 'roof_lightbar', cat: 'roof', name: { zh: '车顶灯排', en: 'Light bar' }, mass: 9, carry: 'large', stretch: true, tags: ['apoc'], roof: { drag: 0.06, lightW: 200 } }),
   P({ id: 'roof_solar', cat: 'roof', name: { zh: '太阳能板', en: 'Solar panel' }, mass: 20, carry: 'large', stretch: true, tags: ['stock:rv'], roof: { drag: 0.05, solarW: 250 } }),
@@ -742,6 +752,22 @@ const BODY: PartDef[] = [
 export const PARTS: readonly PartDef[] = [...ENGINES, ...DRIVETRAIN, ...WHEELS, ...AXLES, ...CAB, ...BODY];
 
 const BY_ID = new Map(PARTS.map((p) => [p.id, p]));
+
+/** what is inside a car — the seats, the wheel, the key, the levers, the radio: it never gets dirty (docs/V3/plan/hands.md §五) */
+export const INSIDE_CATS: ReadonlySet<string> = new Set(['seat', 'steering', 'ignition', 'gearLever', 'radio', 'handbrake']);
+
+/** a part that stays clean (it goes inside the car) */
+export function staysClean(part: string): boolean {
+  return INSIDE_CATS.has(partDef(part).cat);
+}
+
+/** a part's dirt, crust and rust gone if it stays clean (in place) */
+export function keepInsideClean(inst: { part: string; dirt: number; rust: number; crust?: number }): void {
+  if (!staysClean(inst.part)) return;
+  inst.dirt = 0;
+  inst.rust = 0;
+  if (inst.crust !== undefined) inst.crust = 0;
+}
 
 export function partDef(id: string): PartDef {
   const p = BY_ID.get(id);

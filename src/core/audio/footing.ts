@@ -29,6 +29,8 @@ export function footingOf(f: FootingAt): Footing {
   if (f.workshop) return 'concrete';
   const tag = f.floorTag;
   if (tag) {
+    // (a vehicle's own roof, stood on from its ladder: its spec's id — docs/V3/plan/growth.md §六 2, J9e)
+    if (tag.startsWith('modcar:')) return 'metal';
     const kind = tag.slice(tag.lastIndexOf(':') + 1);
     if (kind === 'jetty' || kind === 'stand' || kind === 'porch') return 'wood';
     if (kind === 'lift' || kind === 'trailer' || kind === 'tank') return 'metal';

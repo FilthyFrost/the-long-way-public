@@ -1,0 +1,157 @@
+{
+ "bbox": {
+  "max": [
+   2.24135,
+   1.878,
+   0.815
+  ],
+  "min": [
+   -1.322,
+   0.0,
+   -0.815
+  ]
+ },
+ "coupler": [
+  2.13,
+  0.445,
+  -0.0
+ ],
+ "eye_default": [
+  0.0,
+  1.6,
+  -0.0
+ ],
+ "frame": "trailer",
+ "mounts": {
+  "hub_RL": {
+   "axle": "rear",
+   "cat": "rim",
+   "driven": false,
+   "handbrake": false,
+   "hub_face": 0.7,
+   "pos": [
+    0.0,
+    0.285,
+    -0.695
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": -1,
+   "steer": false,
+   "wheel_r": 0.285
+  },
+  "hub_RR": {
+   "axle": "rear",
+   "cat": "rim",
+   "driven": false,
+   "handbrake": false,
+   "hub_face": 0.7,
+   "pos": [
+    0.0,
+    0.285,
+    0.695
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 1,
+   "steer": false,
+   "wheel_r": 0.285
+  },
+  "taillight_L": {
+   "cat": "taillight",
+   "on": "the box's rear sill, outboard",
+   "pos": [
+    -1.28,
+    0.625,
+    -0.57
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "recess": "rect",
+   "recess_depth": 0.03,
+   "recess_h": 0.05,
+   "recess_w": 0.14,
+   "side": -1
+  },
+  "taillight_R": {
+   "cat": "taillight",
+   "on": "the box's rear sill, outboard",
+   "pos": [
+    -1.28,
+    0.625,
+    0.57
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "recess": "rect",
+   "recess_depth": 0.03,
+   "recess_h": 0.05,
+   "recess_w": 0.14,
+   "side": 1
+  },
+  "trunk": {
+   "cat": "trunk",
+   "hinge": "z",
+   "note": "the box's rear door, hinged on its right post; it swings round onto the side",
+   "open_deg": 270.0,
+   "panel": "P_trunk",
+   "pos": [
+    -1.28,
+    1.26,
+    0.68
+   ],
+   "quat": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "side": 0
+  }
+ },
+ "notes": "coupler: the ball socket of the coupling, where a tow hitch ball goes (game frame)",
+ "panels": {
+  "P_trunk": {
+   "glass": null,
+   "hinge": "z",
+   "hinge_axis": [
+    0.0,
+    1.0,
+    0.0
+   ],
+   "hinge_pos": [
+    -1.28,
+    1.26,
+    0.68
+   ],
+   "mount": "trunk",
+   "open_deg": 270.0
+  }
+ },
+ "triangles": {
+  "BODY": 4660,
+  "INTERIOR": 500,
+  "KNUCKLE_hub_RL": 348,
+  "KNUCKLE_hub_RR": 348,
+  "P_trunk": 592,
+  "UNDER": 600,
+  "total": 7048
+ },
+ "units": "metres, game frame (+x forward, +y up, +z right)"
+}

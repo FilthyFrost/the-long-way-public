@@ -3,8 +3,11 @@
  * front of the eye — small things in the right hand, big ones carried in both arms in the middle —
  * swaying with the walk and trailing the view a little when one turns, more the heavier it is.
  *
- * Drawn at a fraction of its size close to the eye, so it reads as held without covering the mark
- * or the ghost it is about to go on; it casts no shadow.
+ * At its own size (docs/V3/plan/growth.md §1.7, J2: it was shrunk to 19 cm, 36 cm for a big thing): further out and
+ * lower the bigger it is, drawn back from a wall in front (Nomad Drive's, at most 0.45 m), and where it stands over
+ * the middle of the view its middle is seen through (as Nomad Drive does: 29 points round the mark, from 35% of
+ * them covered it fades, by 65% fully — to 0.3 at the centre, whole again 0.12–0.42 of the screen out). It casts
+ * no shadow.
  *
  * A can held to an open filler goes to it by itself (the way Arctic Drive does it): it leaves the hands
  * and, at its real size, lines its spout up with the filler's mouth, leaning in; with the button held it
@@ -59,6 +62,16 @@ const GAP_SIDE = 0.1;
 const GAP_TOP = 0.12;
 const DEG = Math.PI / 180;
 
+/** the points round the mark asked whether the held thing covers them (a 7 × 7 grid cut to the disc: 29), the middle ones weighing more */
+const SEE_POINTS: [number, number, number][] = [];
+for (let j = -3; j <= 3; j++)
+  for (let i = -3; i <= 3; i++) {
+    const u = i / 3;
+    const v = j / 3;
+    const r = Math.hypot(u, v);
+    if (r <= 1 + 1e-9) SEE_POINTS.push([u, v, 1.5 - r]);
+  }
+
 export class HeldThing {
   readonly root = new THREE.Group();
   private readonly mats = new CarMaterials();
@@ -106,6 +119,19 @@ export class HeldThing {
   private mouthB = 0;
   private tiltB = 0;
   private mouthKind: 'eat' | 'pill' | 'drink' = 'eat';
+  /** its size (its own frame, m) and its largest side: how it is held, how far out */
+  private readonly sizeV = new THREE.Vector3(0.1, 0.1, 0.1);
+  private big = 0.1;
+  /** how far one can reach ahead before something solid (m; set each frame by the game) */
+  room = Infinity;
+  /** how far it is seen through now (0…1), the frame drawn into (px) */
+  private seeK = 0;
+  private frameW = 1;
+  private frameH = 1;
+  /** how much of the middle of the view it covered last (0…1: the harness) */
+  covered = 0;
+  private readonly corner = new THREE.Vector3();
+  private readonly projM = new THREE.Matrix4();
   /** the model's height as held (its own up), and whether it lies flat (a packet, a tin) */
   private fitH = 0.19;
   private fitFlat = false;
@@ -116,8 +142,25 @@ export class HeldThing {
   private readonly marks = new Map<string, THREE.Vector3>();
   /** pinned to a surface (a tool scrubbing it): the model's point `at` put on `pos`, its frame turned to `q` */
   private pinned: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null = null;
+  /** a system's tool on a surface (docs/ND/PLAN.md: the grinder), pinned as the game's scrub is; the game's own goes first */
+  private pinBy: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null = null;
   private pinB = 0;
   private readonly pp = new THREE.Vector3();
+  /**
+   * Raised before the eye by a system (a camera looked through: docs/ND/PLAN.md): 0 in the hands … 1 at the eye,
+   * where it is no longer drawn (one looks through it). Eased on its way.
+   */
+  lift = 0;
+  /** how a small thing is turned in the hand (rad about the view's up; null: a little inward, as usual) — a camera held with its lens ahead */
+  handTurn: number | null = null;
+  /** how it is turned before the eye when raised (the view's frame; null: its front ahead, its top up) — a print held face on */
+  liftTurn: THREE.Quaternion | null = null;
+  private liftB = 0;
+  private readonly liftQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  private readonly liftR = new THREE.Quaternion();
+  private readonly liftP = new THREE.Vector3();
+  /** what a system hangs on the model, in the model's own frame (a photo coming out of a camera's slot) */
+  private hung: THREE.Object3D | null = null;
 
   /** what is being done with it (the player's use), every frame */
   setUse(u: { kind: 'eat' | 'pill' | 'drink'; t: number } | null): void {
@@ -225,8 +268,10 @@ export class HeldThing {
       if (o.name === 'M_edge' || o.name === 'M_face' || o.name === 'M_grip') this.marks.set(o.name, o.getWorldPosition(new THREE.Vector3()));
     });
     const big = Math.max(size.x, size.y, size.z, 0.05);
-    // how big it may look at arm's length close to the eye: a can fills a hand, an engine the arms
-    const k = Math.min(1, (this.large ? 0.36 : 0.19) / big);
+    // at its own size (it was cut down to 19 cm, 36 cm for a big thing: the user's "原始大小")
+    const k = 1;
+    this.big = big;
+    this.sizeV.copy(size);
     obj.scale.setScalar(k);
     obj.position.set(-c.x * k, -c.y * k, -c.z * k);
     this.fitK = k;
@@ -239,6 +284,7 @@ export class HeldThing {
       o.frustumCulled = false;
     });
     this.inner.add(obj);
+    if (this.hung) obj.add(this.hung);
   }
 
   /**
@@ -246,7 +292,8 @@ export class HeldThing {
    * @param sway the walk's side-to-side (m), bob its up-and-down (m)
    */
   update(dt: number, cam: THREE.Camera, show: boolean, sway: number, bob: number, dock: Dock | null = null): void {
-    this.root.visible = show && this.key !== '';
+    this.root.visible = show && this.key !== '' && this.liftB < 0.97;
+    if (!this.root.visible) this.liftB += (this.lift - this.liftB) * (1 - Math.exp(-dt * 18));
     if (!this.root.visible) {
       this.lagInit = false;
       this.dockB = 0;
@@ -260,11 +307,17 @@ export class HeldThing {
       const rate = 26 / (1 + this.mass / 40);
       this.lagQ.slerp(cam.quaternion, 1 - Math.exp(-dt * rate));
     }
-    // camera space: +x right, +y up, −z ahead
-    if (this.large) this.off.set(sway * 0.6, -0.44 + bob * 0.7, -0.8);
-    else this.off.set(0.3 + sway, -0.27 + bob, -0.6);
+    // camera space: +x right, +y up, −z ahead. At its own size: a small thing in the right hand (Nomad Drive's
+    // 0.25 right, 0.2 under the eye, 0.5 out), a bigger one further out and lower, a big one across both arms
+    const bg = this.big;
+    if (this.large || bg > 0.7) this.off.set(sway * 0.6, -0.36 - bg * 0.14 + bob * 0.7, -0.62 - bg * 0.3);
+    else if (bg > 0.3) this.off.set(0.2 + sway * 0.8, -0.3 - bg * 0.12 + bob * 0.8, -0.55 - bg * 0.3);
+    else this.off.set(0.26 + sway, -0.24 + bob, -0.5 - bg * 0.3);
+    // a wall in front: drawn back so its front stays this side of it (at most 0.45 m)
+    const front = -this.off.z + bg * 0.5;
+    this.off.z += Math.min(0.45, Math.max(0, front - (this.room - 0.05)));
     // seen three-quarters: carried across the arms (large), turned a little inward in the hand (small)
-    this.e.set(this.large ? 0.32 : 0.15, this.large ? -0.65 : -0.9, this.large ? 0 : 0.08);
+    this.e.set(this.large ? 0.32 : 0.15, this.large ? -0.65 : (this.handTurn ?? -0.9), this.large ? 0 : 0.08);
     this.qHand.setFromEuler(this.e);
     // eating and drinking (Arctic Drive's timing): up to the mouth in 0.7 s, bites, down again; a drink's
     // neck at the lips with the bottle rising away in front, tipping further while it flows; a pill tips once
@@ -324,6 +377,15 @@ export class HeldThing {
       this.root.position.addScaledVector(this.t1, w * 0.024);
       this.root.quaternion.multiply(this.shakeQ.setFromAxisAngle(this.t2.set(0, 0, 1), w * 0.14));
     }
+    // raised before the eye (a camera looked through): centred, its front (+x) ahead, not drawn once it is there
+    this.liftB += (this.lift - this.liftB) * (1 - Math.exp(-dt * 18));
+    if (this.liftB > 0.001) {
+      const b = this.liftB * this.liftB * (3 - 2 * this.liftB);
+      this.liftP.set(0, -0.03, -0.24).applyQuaternion(cam.quaternion).add(cam.position);
+      this.root.position.lerp(this.liftP, b);
+      this.liftR.copy(cam.quaternion).multiply(this.liftTurn ?? this.liftQ);
+      this.root.quaternion.slerp(this.liftR, b);
+    }
     // spraying: the can up before the eye, a little in from where it is carried, its nozzle (+x) turned to the
     // point the paint goes to, its top to the view's up
     const sw = this.sprayAt && NOZZLE[this.modelId] ? 1 : 0;
@@ -332,6 +394,15 @@ export class HeldThing {
     if (this.sprayB > 0) {
       if (this.sprayAt) {
         this.sprayPos.set(0.21 + sway * 0.5, -0.2 + bob * 0.5, -0.5).applyQuaternion(this.lagQ).add(cam.position);
+        // (up to the surface, square to it: 0.37 m off, 0.30 m spraying — no further out than an arm, a metre)
+        const n = this.sprayN;
+        if (n) {
+          const off = this.sprayClose ? 0.3 : 0.37;
+          this.sprayEye.copy(this.sprayAt).addScaledVector(n, off);
+          const d = this.sprayEye.distanceTo(cam.position);
+          if (d < 1.0) this.sprayPos.copy(this.sprayEye);
+          else this.sprayPos.lerp(this.sprayEye, Math.max(0, Math.min(1, (1.6 - d) / 0.6)));
+        }
         this.ax.subVectors(this.sprayAt, this.sprayPos).normalize();
         this.t0.set(0, 1, 0).applyQuaternion(this.lagQ);
         this.az.crossVectors(this.ax, this.t0).normalize();
@@ -363,11 +434,13 @@ export class HeldThing {
       this.root.scale.setScalar(1 + (1 / this.fitK - 1) * b);
     }
     // pinned to a surface it scrubs: at its real size, its working point on the point
-    const pw = this.pinned ? 1 : 0;
+    // (the game's own scrub, else a system's tool on a surface: pinFor)
+    const pn = this.pinned ?? this.pinBy;
+    const pw = pn ? 1 : 0;
     this.pinB += (pw - this.pinB) * (1 - Math.exp(-dt * (pw ? 22 : 12)));
     if (pw === 0 && this.pinB < 0.002) this.pinB = 0;
-    if (this.pinB > 0 && this.pinned) {
-      const p = this.pinned;
+    if (this.pinB > 0 && pn) {
+      const p = pn;
       // (the model hangs centred under the root: its own point at goes to the root's at − centre)
       this.pp.subVectors(p.at, this.fitC).applyQuaternion(p.q);
       this.pp.subVectors(p.pos, this.pp);
@@ -378,12 +451,106 @@ export class HeldThing {
     }
     this.root.updateMatrixWorld(true);
     this.mats.setFrameOf(OWNER, this.root.matrixWorld);
+    this.seeThrough(dt, cam);
+  }
+
+  /** the frame the scene is drawn into (px): the faded middle is measured in it */
+  frameSize(w: number, h: number): void {
+    this.frameW = Math.max(1, w);
+    this.frameH = Math.max(1, h);
+  }
+
+  /**
+   * How much of the middle of the view it stands over (Nomad Drive's: 29 points of a disc round the mark, 0.28 of
+   * the screen's height across, half as wide again, the middle ones weighing more) — against the box it fills on
+   * screen — and so how far it is seen through, coming in a quarter of a second, going in a third.
+   */
+  private seeThrough(dt: number, cam: THREE.Camera): void {
+    let cover = 0;
+    // (at a filler, pinned to a surface, raised before the eye, at the mouth: it is meant to be seen whole)
+    const busy = this.dockB > 0.05 || this.pinB > 0.05 || this.liftB > 0.05 || this.mouthB > 0.05 || this.sprayB > 0.05;
+    if (!busy && this.inner.children.length) {
+      const c = cam as THREE.PerspectiveCamera;
+      this.projM.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse).multiply(this.root.matrixWorld);
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let y0 = Infinity;
+      let y1 = -Infinity;
+      let behind = false;
+      const s = this.sizeV;
+      for (let i = 0; i < 8; i++) {
+        this.corner.set((i & 1 ? 0.5 : -0.5) * s.x, (i & 2 ? 0.5 : -0.5) * s.y, (i & 4 ? 0.5 : -0.5) * s.z);
+        const e = this.projM.elements;
+        const px = this.corner.x;
+        const py = this.corner.y;
+        const pz = this.corner.z;
+        const w = e[3] * px + e[7] * py + e[11] * pz + e[15];
+        if (w <= 1e-4) {
+          behind = true;
+          break;
+        }
+        const nx = (e[0] * px + e[4] * py + e[8] * pz + e[12]) / w;
+        const ny = (e[1] * px + e[5] * py + e[9] * pz + e[13]) / w;
+        if (nx < x0) x0 = nx;
+        if (nx > x1) x1 = nx;
+        if (ny < y0) y0 = ny;
+        if (ny > y1) y1 = ny;
+      }
+      if (behind) cover = 1;
+      else {
+        const aspect = this.frameW / this.frameH;
+        // (the disc in the screen's height: 0.28 tall → 0.56 of NDC; as wide again by 1.4, in NDC x by the aspect)
+        const ry = 0.56;
+        const rx = (0.56 * 1.4) / aspect;
+        let sum = 0;
+        let all = 0;
+        for (const [u, v, wt] of SEE_POINTS) {
+          all += wt;
+          const x = u * rx;
+          const y = v * ry;
+          if (x >= x0 && x <= x1 && y >= y0 && y <= y1) sum += wt;
+        }
+        cover = sum / all;
+      }
+    }
+    this.covered = cover;
+    const want = cover <= 0.35 ? 0 : cover >= 0.65 ? 1 : ((cover - 0.35) / 0.3) ** 2 * (3 - 2 * ((cover - 0.35) / 0.3));
+    const tau = want > this.seeK ? 0.25 / 3 : 0.35 / 3;
+    this.seeK += (want - this.seeK) * (1 - Math.exp(-dt / tau));
+    if (this.seeK < 0.003 && want === 0) this.seeK = 0;
+    for (const o of this.mats.owners(OWNER)) this.mats.lookOf(o)?.setSeeThrough(this.seeK, this.frameW, this.frameH);
+  }
+
+  /** a system's tool put to a surface (its model's point at on pos, its frame turned to q), null: back in the hands */
+  pinFor(p: { pos: THREE.Vector3; q: THREE.Quaternion; at: THREE.Vector3 } | null): void {
+    this.pinBy = p;
+  }
+
+  /** hang something on the thing in the hands, in its model's own frame (null: take it off again) */
+  hang(o: THREE.Object3D | null): void {
+    if (this.hung === o) return;
+    this.hung?.removeFromParent();
+    this.hung = o;
+    const m = this.inner.children[0];
+    if (o && m) m.add(o);
+  }
+
+  /** the model in the hands as drawn (its own frame under it), null: nothing in them or not in yet */
+  get model(): THREE.Object3D | null {
+    return this.inner.children[0] ?? null;
   }
 
   /** spraying: the point (render space) the can's nozzle turns to; null: back in the hands */
-  aimSpray(p: THREE.Vector3 | null): void {
+  aimSpray(p: THREE.Vector3 | null, n: THREE.Vector3 | null = null, spraying = false): void {
     this.sprayAt = p;
+    this.sprayN = n;
+    this.sprayClose = spraying;
   }
+
+  /** the surface's normal at the spray's point, and whether the button is down (closer) */
+  private sprayN: THREE.Vector3 | null = null;
+  private sprayClose = false;
+  private readonly sprayEye = new THREE.Vector3();
 
   /** the can in the hands is shaken (taken up: the ball rattles in it) */
   shake(): void {

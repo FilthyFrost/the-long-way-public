@@ -83,6 +83,8 @@ export const cutItem = (id: string): string => `cut_${id}`;
 export const dishItem = (id: string): string => `dish_${id}`;
 
 export const STOVE = 'kit_stove';
+/** the electric hob (docs/V3/plan/rv.md R2): a stove that draws on a vehicle's batteries instead of a canister */
+export const HOB = 'kit_hob';
 export const GAS = 'kit_gas';
 export const BOARD = 'kit_board';
 export const PLATE = 'kit_plate';
@@ -214,6 +216,22 @@ export function keepHours(id: string): number | null {
   return id in KEEP ? KEEP[id] : KEEP_GROUP[f.group];
 }
 
+/**
+ * The ones Nomad Drive had too (docs/V3/plan/growth.md §三: one of each), eaten as they are: its numbers, at our four
+ * fifths (its own rows were: core/v3/nd/items.ts) — a potato is not eaten raw here (the kitchen's own rule). Milk is its
+ * carton, too: drunk from, poured out.
+ */
+const RAW_EAT: Readonly<Record<string, { food: number; hp: number; water?: number }>> = {
+  tomato: { food: 5, hp: 1, water: 3 },
+  apple: { food: 6, hp: 1 },
+  watermelon: { food: 12, hp: 2, water: 25 },
+  banana: { food: 6, hp: 1 },
+  orange: { food: 4, hp: 1, water: 5 },
+};
+
+/** what may be eaten raw, and makes one ill (docs/V3/plan/growth.md §四: 生肉): raw meat, seafood, eggs — half their food */
+const RAW_ILL: ReadonlySet<Food['group']> = new Set(['meat', 'seafood', 'egg']);
+
 function ingRow(f: Food): ItemRow {
   const look = FOOD_LOOK[f.id];
   const kg = KG[f.id] ?? GROUP_KG[f.group];
@@ -232,8 +250,10 @@ function ingRow(f: Food): ItemRow {
     paint2: look.paint2,
     matte: FOOD_GLOSS,
     tags: ['ingredient', ...f.tags],
-    stack: 10,
-    ...(f.raw ? { eat: { food: f.food, hp: 0, sec: RAW_SEC } } : {}),
+    // (a carton of milk is one, with what is left in it)
+    stack: f.id === 'milk' ? 1 : 10,
+    ...(RAW_EAT[f.id] ? { eat: { ...RAW_EAT[f.id], sec: RAW_SEC } } : f.raw ? { eat: { food: f.food, hp: 0, sec: RAW_SEC } } : RAW_ILL.has(f.group) ? { eat: { food: Math.round(f.food / 2), hp: 0, sec: RAW_SEC, effect: 'sick1' as const } } : {}),
+    ...(f.id === 'milk' ? { drink: { litres: 1, liquid: 'milk' as const, rate: 0.1 } } : {}),
     ...(keep ? { perish: { hours: keep, into: SPOILED } } : {}),
   };
 }
@@ -276,7 +296,9 @@ export const SPOILED_ITEM: ItemRow = {
   model: 'forage_lump',
   paint: 0x5b4a3a,
   paint2: 0x3a3a28,
-  blurb: '放坏了的食材，下不了锅。丢进回收台还能出点有机物。下次放进保温箱。',
+  blurb: '放坏了的食材，下不了锅。实在饿了也能吃，吃了准生病。',
+  // (docs/V3/plan/growth.md §四: spoiled food makes one badly ill)
+  eat: { food: 8, hp: 0, sec: 3.9, effect: 'sick2' },
 };
 
 export const INGREDIENT_ITEMS: readonly ItemRow[] = [...FOODS.map(ingRow), ...FOODS.map(cutRow).filter((r): r is ItemRow => r !== null)];
@@ -287,7 +309,8 @@ const T = (zh: string, en: string): Text => ({ zh, en });
 
 export const COOKWARE_ITEMS: readonly ItemRow[] = [
   { id: STOVE, cat: COOKWARE_CAT, name: T('卡式炉', 'Cassette stove'), stars: 2, mass: 1.8, carry: 'medium', salvage: { scrap: 6 }, blurb: '便携的卡式炉。右边的仓里装一罐燃气，锅往炉头上一放就能开火。', paint: 0x3e8e87, paint2: 0xede3c8 },
-  { id: GAS, cat: COOKWARE_CAT, name: T('燃气罐', 'Gas canister'), stars: 1, mass: 0.35, carry: 'small', salvage: { scrap: 2 }, blurb: '一罐卡式炉用的燃气。拿着它看着炉子按 E 换上。', paint: 0xc8323a, paint2: 0xf4efe2 },
+  { id: HOB, cat: COOKWARE_CAT, name: T('电炉', 'Hotplate'), stars: 2, mass: 2.4, carry: 'medium', salvage: { scrap: 8 }, blurb: '一块电炉盘，用的是车上的电：放在房车里、电瓶有电才热，锅往上一放就能做饭。老象的厨房台面上有四块。', paint: 0xede3c8, paint2: 0x2f3236 },
+  { id: GAS, cat: COOKWARE_CAT, name: T('燃气罐', 'Gas canister'), stars: 1, mass: 0.35, carry: 'small', salvage: { scrap: 2 }, blurb: '一罐卡式炉用的燃气。', paint: 0xc8323a, paint2: 0xf4efe2 },
   { id: BOARD, cat: COOKWARE_CAT, name: T('案板和刀', 'Board and knife'), stars: 1, mass: 0.9, carry: 'small', salvage: { scrap: 2, organics: 2 }, blurb: '一块案板，刀就搁在上面。食材放上去，按三下 E 切好。', paint: 0xc9a26b, paint2: 0x8a6a48 },
   { id: VESSEL.fry, cat: COOKWARE_CAT, name: T('平底锅', 'Frying pan'), stars: 1, mass: 1.1, carry: 'small', salvage: { scrap: 5 }, blurb: '煎和炒都靠它。火大，熟得快，也容易焦。', paint: 0x2f3236, paint2: 0xb85c3e },
   { id: VESSEL.boil, cat: COOKWARE_CAT, name: T('汤锅', 'Soup pot'), stars: 1, mass: 1.6, carry: 'small', salvage: { scrap: 6 }, blurb: '带盖的汤锅：煮汤、炖菜、煮饭煮面。慢一点，也不容易煮坏。', paint: 0xd8c29a, paint2: 0x2f3236 },
@@ -296,7 +319,7 @@ export const COOKWARE_ITEMS: readonly ItemRow[] = [
   { id: VESSEL.steam, cat: COOKWARE_CAT, name: T('蒸笼', 'Steamer'), stars: 2, mass: 0.7, carry: 'small', salvage: { organics: 4 }, blurb: '竹编的蒸笼，架在炉头上的空汤锅上（锅里是水），蒸鱼、蒸蛋、蒸饺子。', paint: 0xd9b877, paint2: 0xa8824a },
   { id: VESSEL.bake, cat: COOKWARE_CAT, name: T('铸铁焖烤锅', 'Camp oven'), stars: 3, mass: 3.5, carry: 'medium', salvage: { scrap: 10 }, blurb: '厚重的铸铁锅，盖上盖子就是一个小烤箱：派、面包、烤鸡。', paint: 0x33363a, paint2: 0x6f7a82 },
   { id: VESSEL.brew, cat: COOKWARE_CAT, name: T('水壶', 'Kettle'), stars: 1, mass: 0.6, carry: 'small', salvage: { scrap: 3 }, blurb: '烧水、煮茶、热牛奶的小水壶。水开了会响。', paint: 0xb85c3e, paint2: 0x2f3236 },
-  { id: PLATE, cat: COOKWARE_CAT, name: T('盘子', 'Plate'), stars: 0, mass: 0.3, carry: 'small', salvage: { scrap: 1 }, blurb: '一只盘子。拿着它看着做好的菜按 E 装盘；吃完了盘子还在。', paint: 0xf4efe2, paint2: 0x3e8e87, stack: 6 },
+  { id: PLATE, cat: COOKWARE_CAT, name: T('盘子', 'Plate'), stars: 0, mass: 0.3, carry: 'small', salvage: { scrap: 1 }, blurb: '一只盘子；吃完了盘子还在。', paint: 0xf4efe2, paint2: 0x3e8e87, stack: 6 },
   { id: BOWL, cat: COOKWARE_CAT, name: T('碗', 'Bowl'), stars: 0, mass: 0.2, carry: 'small', salvage: { scrap: 1 }, blurb: '一只碗。汤、粥、面都用它盛；吃完了碗还在。', paint: 0xf4efe2, paint2: 0xb85c3e, stack: 6 },
   {
     id: COOLER,
@@ -306,12 +329,12 @@ export const COOKWARE_ITEMS: readonly ItemRow[] = [
     mass: 3.2,
     carry: 'medium',
     salvage: { scrap: 2, chemicals: 2 },
-    blurb: '装食材的保温箱：放在里面的东西坏得慢四倍。看着它按 Tab 打开，放进去、拿出来。',
+    blurb: '装食材的保温箱：放在里面的东西坏得慢四倍。',
     paint: 0x3f86b8,
     paint2: 0xf2efe6,
     holds: { slots: 12, accepts: ['*'], maxKg: 16, decay: COOLER_DECAY },
   },
-  { id: SPICE, cat: COOKWARE_CAT, name: T('调料盒', 'Seasonings'), stars: 1, mass: 0.8, carry: 'small', salvage: { scrap: 1, organics: 2 }, blurb: '盐、胡椒、酱油、油、醋和糖，都在这个提篮里。对着锅按 E 撒一点；怎么用都用不完。', paint: 0xb9915f, paint2: 0xc8323a },
+  { id: SPICE, cat: COOKWARE_CAT, name: T('调料盒', 'Seasonings'), stars: 1, mass: 0.8, carry: 'small', salvage: { scrap: 1, organics: 2 }, blurb: '盐、胡椒、酱油、油、醋和糖，怎么用都用不完。', paint: 0xb9915f, paint2: 0xc8323a },
 ];
 
 // ------------------------------------------------------------------ the dishes

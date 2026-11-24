@@ -11,13 +11,18 @@ import type { ItemCard, Tone } from './itemInfo';
 
 export type KeyName = 'E' | 'F' | 'G' | 'I' | 'K' | 'C' | 'L' | 'S' | 'W' | 'Q' | 'Z' | 'M' | 'H' | 'B' | 'R' | 'Space' | 'Shift' | '1' | '2' | 'LMB' | 'RMB' | 'Wheel';
 
-/** one thing a button does: "长按 [E]/[左键] 装上 V8" */
+/** one thing a button does: "长按 [左键] 装上" */
 export interface Action {
   keys: KeyName[];
   hold?: boolean;
   text: string;
-  /** can't be done right now (said why) */
+  /**
+   * can't be done right now: not drawn (docs/V3/plan/prompts.md §五, the user's "做不成时才短闪原因") — pressed anyway, the
+   * button says why for a moment (why, else the text)
+   */
   off?: boolean;
+  /** why not, in a few words (with off) */
+  why?: string;
 }
 
 export interface SlotView {
@@ -50,14 +55,14 @@ ${CARD_CSS}
 .mc-hot .s .f i { display: block; height: 100%; border-radius: 999px; }
 .mc-hot .s .c { position: absolute; right: 5px; bottom: 3px; color: #fff; font: 700 14px/1 var(--key-font); text-shadow: 0 1px 0 var(--ink), 0 -1px 0 var(--ink), 1px 0 0 var(--ink), -1px 0 0 var(--ink), 0 2px 3px rgba(0,0,0,0.6); }
 .mc-hot .s .w { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4px; font-size: 11px; line-height: 1.25; color: #fff; text-align: center; }
-.mc-bot { position: absolute; left: 50%; bottom: 106px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mc-bot { position: absolute; left: 50%; bottom: 106px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 36vw; }
 .mc-acts { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.mc-acts div { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
+.mc-acts div { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; text-align: center; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
 .mc-acts div b { color: var(--gold); }
 .mc-acts div.off { color: #cfcbc4; font-weight: 400; }
 .mc-acts div.off kbd, .mc-acts div.off .mk { opacity: 0.6; }
-.mc-keys { position: absolute; right: 30px; bottom: 26px; display: flex; flex-direction: column; align-items: flex-end; gap: 9px; }
-.mc-keys div { display: flex; align-items: center; gap: 7px; white-space: nowrap; font-size: 15.5px; text-shadow: var(--say-shadow); }
+.mc-keys { position: absolute; right: 30px; bottom: 26px; display: flex; flex-direction: column; align-items: flex-end; gap: 9px; max-width: 28vw; }
+.mc-keys div { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 7px; text-align: right; font-size: 15.5px; text-shadow: var(--say-shadow); }
 .mc-keys div.off { opacity: 0.5; }
 .mc-ui kbd, .mc-ui .mk { display: inline-flex; align-items: center; justify-content: center; min-width: 23px; height: 23px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 13px/1 var(--key-font); text-shadow: none; vertical-align: middle; }
 .mc-ui .mk { padding: 0 5px; }
@@ -150,10 +155,15 @@ export class ItemHud {
    * what is in the hands under it (cut down to what it is and what is in it while the other card is up, and
    * a moment after it goes, so it does not jump about as the mark passes over things); on = shown at all (I).
    */
-  showCards(held: ItemCard | null, aim: ItemCard | null, on: boolean): void {
+  /**
+   * The two cards; heldCompact: the held thing's cut down to what it is and what is in it whatever else is up;
+   * aimCompact: what the mark is on cut down too (the whole card is for what lies on the ground — docs/V3/plan/prompts.md §五 4)
+   */
+  showCards(held: ItemCard | null, aim: ItemCard | null, on: boolean, heldCompact = false, aimCompact = false): void {
     if (on && aim) this.compactT = 0.35;
-    this.held.show(on ? held : null, this.compactT > 0);
-    this.aim.show(on ? aim : null);
+    // (the held thing's: its name and how much, no more — docs/V3/plan/prompts.md §五 4)
+    this.held.show(on ? held : null, heldCompact || this.compactT > 0, false);
+    this.aim.show(on ? aim : null, aimCompact);
   }
 
   /** the hotbar (null = hidden: in a seat, the harness) */
@@ -189,7 +199,11 @@ export class ItemHud {
 
   /** what the buttons do right now, one line each, above the hotbar */
   showActions(list: Action[]): void {
-    const html = list.map((a) => `<div${a.off ? ' class="off"' : ''}>${actionHtml(a)}</div>`).join('');
+    // (what cannot be done is not drawn: pressed, it says why — the player's sayWhy)
+    const html = list
+      .filter((a) => !a.off)
+      .map((a) => `<div>${actionHtml(a)}</div>`)
+      .join('');
     if (html === this.lastActs) return;
     this.lastActs = html;
     this.acts.innerHTML = html;
@@ -198,7 +212,10 @@ export class ItemHud {
 
   /** every action of what is in the hands (or of driving), down the right */
   showKeys(list: Action[]): void {
-    const html = list.map((a) => `<div${a.off ? ' class="off"' : ''}>${actionHtml(a)}</div>`).join('');
+    const html = list
+      .filter((a) => !a.off)
+      .map((a) => `<div>${actionHtml(a)}</div>`)
+      .join('');
     if (html === this.lastKeys) return;
     this.lastKeys = html;
     this.keys.innerHTML = html;

@@ -2,7 +2,7 @@
 // game starts with the power off (the lamps dark, the recycler refusing); the generator outside is pulled into
 // life with its rope (never more than three pulls) and the workshop has power, its lamps on — and the box put
 // down into the hopper while it had none goes in by itself; four more boxes of old components go into the
-// recycler (E), 100 scrap counted in; the bench (E) makes the plastic scraper from 70 of it in three blows of the
+// recycler (E), 100 scrap counted in; the bench (E) makes the plastic scraper from 50 of it in three blows of the
 // hammer and it lies on the bench, picked up; diesel poured into the
 // generator's tank from a jerrycan (its cap off first, empty-handed); the generator stopped at its switch; saved
 // and read back: the materials, the generator's fuel and its state.
@@ -94,8 +94,9 @@ try {
   const w3 = await ws();
   const lying = await page.evaluate(() => window.__rt.game.loose.list.filter((l) => l.tool?.kind === 'scraper').map((l) => ({ tier: l.tool.tier, y: l.y })));
   console.log('made', JSON.stringify({ made, stock: w3.stock, lying, bench: w3.bench }));
-  if (w3.stock.scrap !== 30) fail(`the scraper took ${100 - w3.stock.scrap} scrap (not 70)`);
-  if (lying.length !== 1 || lying[0].tier !== 1 || !(lying[0].y > 0.7)) fail(`the scraper is not on the bench ${JSON.stringify(lying)}`);
+  if (w3.stock.scrap !== 50) fail(`the scraper took ${100 - w3.stock.scrap} scrap (not 50)`);
+  // (the classic garage has one on the bench already: the one made is beside it)
+  if (!lying.some((l) => l.tier === 1 && l.y > 0.95)) fail(`the scraper is not on the bench ${JSON.stringify(lying)}`);
   if (w3.bench.open) fail('the bench is still open after the thing was made');
   await rt('simulate', 0.2);
   if (!(await rt('aimLoose', 'tool:scraper', 0.9))) fail('cannot aim at the scraper on the bench');
@@ -138,7 +139,7 @@ try {
   await rt('simulate', 0.5);
   const w5 = await ws();
   console.log('read back', JSON.stringify({ stock: w5.stock, gen: w5.gen }));
-  if (w5.stock.scrap !== 30) fail(`the materials did not come back (${JSON.stringify(w5.stock)})`);
+  if (w5.stock.scrap !== 50) fail(`the materials did not come back (${JSON.stringify(w5.stock)})`);
   if (Math.abs(w5.gen.litres - w4.gen.litres) > 0.05 || w5.gen.on || !w5.gen.cap) fail(`the generator did not come back as it was ${JSON.stringify(w5.gen)}`);
 
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);

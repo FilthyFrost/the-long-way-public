@@ -74,12 +74,12 @@ describe('the kitchen module in the game', () => {
     expect(rig.aim(stove, 'knob')).toBe(`device:kitchen:${uid}:knob`);
     expect(rig.word()).toBe('点火');
     expect(rig.aim(stove, 'bay')).toBe(`device:kitchen:${uid}:bay`);
-    expect(rig.word()).toBe('取出燃气罐 · 还剩 100%');
+    expect(rig.word()).toBe('取出燃气罐');
     expect(rig.aim(stove, 'top')).toBe(`device:kitchen:${uid}:top`);
-    expect(rig.word()).toContain('空的平底锅');
+    expect(rig.word()).toBe('放食材');
     const board = rig.unit(BOARD);
     expect(rig.aim(board)).toBe(`device:kitchen:${board.loose.uid}:all`);
-    expect(rig.word()).toContain('案板空着');
+    expect(rig.word()).toBe('放食材');
     // the card of a stove says what is in it
     const card = itemCard(stove.item);
     expect(card.bars.find((b) => b.label === '燃气')?.text).toContain('100%');
@@ -94,26 +94,26 @@ describe('the kitchen module in the game', () => {
     rig.empty();
     rig.give(newItem(ingItem('tomato'), { n: 3 }));
     rig.aim(board);
-    expect(rig.word()).toBe('把<b>番茄</b>放到案板上');
+    expect(rig.word()).toBe('放上案板');
     rig.pressE();
     expect(kitOf(board.item).food).toEqual({ id: 'tomato' });
     expect(countOf(rig.held()!)).toBe(2);
     // (with the other tomatoes still in the hands E is the knife's)
-    expect(rig.word()).toBe('切<b>番茄</b>（0/3）');
+    expect(rig.word()).toBe('切 <b>番茄</b>');
     rig.pressE();
     rig.pressE();
     expect(kitOf(board.item).food).toMatchObject({ id: 'tomato', chops: 2 });
     rig.pressE();
     expect(kitOf(board.item).food).toMatchObject({ id: 'tomato', cut: 1 });
-    expect(rig.game.said.at(-1)).toBe('番茄切好了。');
-    expect(rig.word()).toBe('拿起切好的<b>番茄</b>');
+    expect(rig.game.said.at(-1)).toBe('切好了');
+    expect(rig.word()).toBe('拿起 <b>番茄</b>');
     rig.pressE();
     expect(kitOf(board.item).food).toBeUndefined();
     expect(rig.item(1)?.item).toBe(cutItem('tomato'));
     // into the pan: the cut tomato, then an egg
     rig.player.sel = 1;
     rig.aim(stove, 'top');
-    expect(rig.word()).toBe('煎炒：放进<b>番茄</b>（1/5）');
+    expect(rig.word()).toBe('放进 <b>番茄</b>');
     rig.pressE();
     expect(potOf(stove.item)?.items).toEqual([{ id: 'tomato', cut: 1 }]);
     expect(rig.item(1)).toBeNull();
@@ -125,7 +125,7 @@ describe('the kitchen module in the game', () => {
     // a pinch from the caddy lying by the stove
     rig.empty();
     rig.aim(rig.unit(SPICE));
-    expect(rig.word()).toBe('往平底锅里撒<b>盐</b>');
+    expect(rig.word()).toBe('撒 <b>盐</b>');
     rig.pressE();
     expect(potOf(stove.item)?.season).toEqual(['salt']);
     // the flame, and what the pot says as it goes
@@ -136,7 +136,7 @@ describe('the kitchen module in the game', () => {
     const asked = cookRight(rig);
     expect(asked).toBeGreaterThanOrEqual(1);
     expect(phaseOf(stove.item)).toBe('right');
-    expect(rig.game.said.some((s) => s.startsWith('该翻炒一下了'))).toBe(true);
+    expect(rig.game.said.some((s) => s.startsWith('翻炒一下'))).toBe(true);
     expect(rig.game.said.some((s) => s.startsWith('火候正好！'))).toBe(true);
     expect(gasOf(stove.item)).toBeLessThan(GAS_FULL);
     // onto a plate: the dish in the hands, the recipe in the book
@@ -188,7 +188,7 @@ describe('the kitchen module in the game', () => {
     expect(potOf(stove.item)?.items.length).toBe(1);
     expect(potOf(stove.item)?.stirs).toBe(1);
     // (and now the potato in the hands is what E adds)
-    expect(rig.word()).toContain('放进<b>土豆</b>（2/5）');
+    expect(rig.word()).toContain('放进 <b>土豆</b>');
   });
 
   it('a pot that came to nothing is written down, and warned of the next time', async () => {
@@ -211,7 +211,7 @@ describe('the kitchen module in the game', () => {
     rig.aim(stove, 'top');
     rig.pressE();
     expect(rig.held()?.item).toBe(dishItem('mess'));
-    expect(rig.game.said.at(-1)).toContain('这个搭配记进食谱本了');
+    expect(rig.game.said.at(-1)).toContain('做砸了');
     expect(kitchen.book.fails.length).toBe(1);
     // the same again: the second thing is warned of as it goes in
     rig.aim(stove, 'knob');
@@ -224,7 +224,7 @@ describe('the kitchen module in the game', () => {
     rig.empty();
     rig.give(newItem(ingItem('salmon')));
     rig.aim(stove, 'top');
-    expect(rig.word()).toContain('上次这样做砸了');
+    expect(rig.word()).toContain('上次砸了');
   });
 
   it('the canister: taken out, a fresh one in, an empty one lights nothing, and the gas runs out under the pan', async () => {
@@ -237,37 +237,37 @@ describe('the kitchen module in the game', () => {
     expect(hasCanister(stove.item)).toBe(false);
     expect(rig.held()?.item).toBe(GAS);
     expect(stove.swap).toEqual({ old: true, put: false });
-    expect(rig.word()).toBe('正在换燃气罐…');
+    expect(rig.word()).toBe('正在换');
     rig.pass(2);
     // no canister: the knob says so and nothing lights
     rig.empty();
     rig.aim(stove, 'knob');
-    expect(rig.word()).toBe('点火 · 先装一罐燃气');
+    expect(rig.word()).toBe('点火');
     rig.pressE();
     expect(fireOf(stove.item)).toBe(0);
-    expect(rig.game.said.at(-1)).toContain('没有燃气罐');
+    expect(rig.game.said.at(-1)).toContain('燃气罐');
     // an empty one goes in and lights nothing either
     rig.give(canister(0));
     rig.aim(stove, 'bay');
-    expect(rig.word()).toBe('装上燃气罐（0%）');
+    expect(rig.word()).toBe('装燃气罐');
     expect(kitchen.ghosts.map((g) => `${g.slot}:${g.item}`)).toContain(`can:${GAS}`);
     rig.pressE();
     expect(hasCanister(stove.item)).toBe(true);
     expect(rig.held()).toBeNull();
     rig.pass(2);
     rig.aim(stove, 'knob');
-    expect(rig.word()).toBe('点火 · 燃气罐空了');
+    expect(rig.word()).toBe('点火');
     rig.pressE();
     expect(fireOf(stove.item)).toBe(0);
     // a fresh one for it: the empty one comes out into the hands
     rig.give(newItem(GAS));
     rig.aim(stove, 'bay');
-    expect(rig.word()).toBe('换上这罐燃气（100%） · 换下来的还剩 0%');
+    expect(rig.word()).toBe('换燃气罐');
     rig.pressE();
     expect(gasOf(stove.item)).toBe(GAS_FULL);
     expect(rig.held()?.item).toBe(GAS);
     expect(gasOf(rig.held()!)).toBe(0);
-    expect(rig.game.said.at(-1)).toBe('换好了。换下来的是空罐。');
+    expect(rig.game.said.at(-1)).toBe('换好了');
     rig.pass(2.5);
     // the last seconds of a canister under a pan of potatoes: the flame goes out, what is in the pan stays as far as it got
     rig.empty();
@@ -279,29 +279,29 @@ describe('the kitchen module in the game', () => {
     rig.pressE();
     expect(fireOf(stove.item)).toBe(2);
     rig.pass(4);
-    // (F on the knob: the low flame burns less)
-    rig.tapF();
+    // (the wheel on the knob: the low flame burns less)
+    rig.wheel();
     expect(fireOf(stove.item)).toBe(1);
-    rig.tapF();
+    rig.wheel();
     expect(fireOf(stove.item)).toBe(2);
     rig.pass(18);
     expect(fireOf(stove.item)).toBe(0);
     expect(gasOf(stove.item)).toBe(0);
-    expect(rig.game.said.some((s) => s.startsWith('火灭了：燃气罐空了'))).toBe(true);
+    expect(rig.game.said.some((s) => s.startsWith('燃气罐空了'))).toBe(true);
     const done = potOf(stove.item)?.done ?? 0;
     expect(done).toBeGreaterThan(0.2);
     rig.pass(5);
     expect(potOf(stove.item)?.done).toBe(done);
   });
 
-  it('the pan comes off with F and goes back on with E; a stove carried off alight goes out', async () => {
+  it('the pan comes off with the left button held and goes back on with a click; a stove carried off alight goes out', async () => {
     const rig = await laid();
     const stove = rig.unit(STOVE);
     rig.empty();
     rig.give(newItem(ingItem('egg')));
     rig.aim(stove, 'top');
     rig.pressE();
-    rig.tapF();
+    rig.holdL();
     expect(vesselOf(stove.item)).toBeNull();
     const pan = rig.held()!;
     expect(pan.item).toBe(VESSEL.fry);
@@ -309,17 +309,17 @@ describe('the kitchen module in the game', () => {
     // its ghost on the empty burner, and back on with E
     rig.aim(stove, 'top');
     expect(kitchen.ghosts.map((g) => `${g.slot}:${g.item}${g.focused ? '*' : ''}`)).toContain(`pot:${VESSEL.fry}*`);
-    expect(rig.word()).toBe('把<b>平底锅</b>放到炉头上');
+    expect(rig.word()).toBe('放上炉头');
     rig.pressE();
     expect(vesselOf(stove.item)).toBe(VESSEL.fry);
     expect(potOf(stove.item)?.items).toEqual([{ id: 'egg' }]);
     expect(rig.held()).toBeNull();
     // a bowl needs no flame
     rig.give(newItem(VESSEL.mix));
-    rig.tapF();
+    rig.frames(3);
     rig.player.sel = 0;
     rig.aim(stove, 'top');
-    expect(rig.word()).toBe('搅拌碗不用火：放在一边拌就行');
+    expect(rig.word()).toBe('不用火');
     // alight in the hands: out
     rig.empty();
     rig.give(newItem(PLATE));
@@ -393,10 +393,10 @@ describe('the kitchen module in the game', () => {
     rig.give(newItem(BOWL));
     rig.player.sel = 0;
     rig.aim(bowl);
-    expect(rig.word()).toBe('还没拌好：对着搅拌碗按 E 拌 3 下');
+    expect(rig.word()).toBe('还没拌好');
     rig.empty();
     rig.aim(bowl);
-    expect(rig.word()).toMatch(/^拌一拌（0\/3）/);
+    expect(rig.word()).toBe('拌一拌');
     rig.pressE();
     rig.pressE();
     rig.pressE();

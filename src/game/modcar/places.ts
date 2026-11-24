@@ -18,10 +18,11 @@
 import * as THREE from 'three';
 import type { ContainerKind } from '../../core/items/loot';
 import { newItem, stackMax, stampFresh, type ItemInstance, type ItemState } from '../../core/modcar/items';
-import { CONTAINER_MATERIAL, CONTAINER_NAMES, looseFound, rollContainer, stationFuel, type Found } from '../../core/modcar/loot';
+import { boxesOfFinds, CONTAINER_MATERIAL, CONTAINER_NAMES, foundScheduled, looseFound, looseKept, planBoxes, planGround, rollContainer, stationFuel, thinOut, type Found } from '../../core/modcar/loot';
 import { pumpInto, tankRoomOf, type FuelTank, type Tool } from '../../core/modcar/tools';
 import type { FuelType, PartInstance, Text } from '../../core/modcar/types';
 import type { Site, SiteContainer, SiteObject } from '../../core/world/sites';
+import { heldBackUntil, SitePlanner, THEME_WAIT_M, type PlannedFind } from '../../core/modcar/schedule';
 import type { World } from '../../core/world/terrain';
 import type { GarageDevice } from './garageStub';
 import { FUEL_ZH, type ItemCard } from './itemInfo';
@@ -61,7 +62,7 @@ const BLURB: Partial<Record<ContainerKind, string>> = {
   barrel: '一只锈铁桶，里面塞着些杂物。',
   tacklebox: '谁的钓具箱。',
   gamebag: '猎人留下的包。',
-  garage: '修车铺的零件架：大件都在这儿，越往远处越好。',
+  garage: '修车铺的零件架。',
 };
 
 /** a thing as a save keeps it */
@@ -204,6 +205,12 @@ export interface PlacesHost {
   /** a roadside garage's machines, made as one comes (null: it has no room for them) and taken away as one goes */
   makeWorkshop?(site: Site, save?: WorkshopSave): Workshop | null;
   dropWorkshop?(ws: Workshop): void;
+  /** the plan of what turns up down the road (schedule.ts plan: the world's seed, the difficulty); absent: none */
+  planned?(): readonly PlannedFind[] | null;
+  /** how much of the places' own food, drink, petrol and oil is still there (0–1; absent: all of it) */
+  keep?(): number;
+  /** the parts lying beside the vehicles to find at a place (wrecks.ts besideAt); absent: none */
+  besideOf?(site: Site): readonly { id: string; inst: PartInstance; x: number; z: number; yaw: number }[];
 }
 
 /** a place there now: its containers and pumps as the hands know them, its things in plain sight */
@@ -452,10 +459,15 @@ export class Places {
       }
     }
     // the things in plain sight
+    const held = this.heldBack();
     for (const t of site.loose) {
       if (this.taken.has(t.id)) continue;
+      // (one of the new things not yet: the plan gives its first — at the first place of its sort within THEME_WAIT_M of
+      // where it is due — a building's own wait for it: docs/V3/plan/growth.md §六 3)
+      const until = held.get(t.item);
+      if (until !== undefined && site.s < until + THEME_WAIT_M) continue;
       const f = looseFound(t.item, hashId(t.id), site.s, site.kind);
-      if (!f) continue;
+      if (!f || !looseKept(f, hashId(t.id), this.keep())) continue;
       const h = heldOfFound(f);
       const L = this.host.loose;
       const l = h.kind === 'part' ? L.addPart(h.inst, t.x, t.y, t.z, t.yaw) : h.kind === 'tool' ? L.addTool(h.tool, t.x, t.y, t.z, t.yaw) : L.addItem(h.item, t.x, t.y, t.z, t.yaw);
@@ -463,6 +475,24 @@ export class Places {
       l.resting = true;
       lp.loose.set(t.id, { l, x: t.x, y: t.y, z: t.z });
       this.owned.set(l, { site: site.id, id: t.id });
+    }
+    // the plan's finds where there is no box of the place's own for them
+    this.layByWreck(site, lp);
+    // the parts beside a vehicle to find, on the ground
+    this.layBeside(site, lp);
+  }
+
+  /** the parts lying beside the vehicles to find here (the place's own: gone for good once picked up, as what lies about) */
+  private layBeside(site: Site, lp: LivePlace): void {
+    const world = this.host.world;
+    if (!world) return;
+    for (const p of this.host.besideOf?.(site) ?? []) {
+      if (this.taken.has(p.id)) continue;
+      const y = world.heightAt(p.x, p.z);
+      const l = this.host.loose.addPart(p.inst, p.x, y, p.z, p.yaw);
+      l.resting = true;
+      lp.loose.set(p.id, { l, x: p.x, y, z: p.z });
+      this.owned.set(l, { site: site.id, id: p.id });
     }
   }
 
@@ -493,9 +523,105 @@ export class Places {
     this.live.delete(id);
   }
 
-  /** what a container holds, rolled (the same every time) */
+  /** what a container holds, rolled (the same every time) — and what of the plan its place holds (docs/V3/plan/growth.md §六 3) */
   private roll(pc: PlaceContainer): NonNullable<Held>[] {
-    return rollContainer(pc.c.kind, pc.c.seed, pc.site.s, pc.site.kind).map(heldOfFound);
+    // (the place's own: what is still there of it — the food and the drink mostly gone, J10; a prefab's box for the plan has none of its own: loot.ts ownRoll)
+    const own = thinOut(pc.c.plan ? [] : rollContainer(pc.c.kind, pc.c.seed, pc.site.s, pc.site.kind), pc.c.seed, this.keep()).map(heldOfFound);
+    // (a place's finds shared among its own boxes, each in the one with the most room for it: the same way every time)
+    const finds = this.findsOf(pc.site);
+    if (!finds.length) return own;
+    const i = planBoxes(pc.site).indexOf(pc.c);
+    const into = this.findBoxes.get(pc.site.id) ?? boxesOfFinds(pc.site, finds);
+    this.findBoxes.set(pc.site.id, into);
+    finds.forEach((f, k) => {
+      if (into[k] !== i) return;
+      [f.thing, ...(f.with ?? [])].forEach((t, j) => own.push(heldOfFound(foundScheduled(t, pc.c.seed + k * 31 + j, pc.site.s))));
+    });
+    return own;
+  }
+
+  /** what of the plan a place holds (docs/V3/plan/growth.md §六 3): the places down to it taken in first, in road order */
+  private findsOf(site: Site): readonly PlannedFind[] {
+    const planner = this.planner();
+    if (!planner) return [];
+    if (planner.through < site.s && this.host.world) {
+      const ahead: Site[] = [];
+      this.host.world.sites.between(Math.max(0, planner.through - 1), site.s + 1, ahead);
+      ahead.sort((a, b) => a.s - b.s);
+      planner.take(ahead.map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: planBoxes(x).length, ground: planGround(x) })));
+    }
+    return planner.findsAt(site.id);
+  }
+
+  /**
+   * The plan's finds at a place with no box of its own for them but a wreck by the road (its glovebox and boot are the
+   * wreck's): on the ground by the wreck's door, one beside another — a can of petrol left by a wreck. Picked up, they
+   * are gone from it for good, as what lies about is.
+   */
+  private layByWreck(site: Site, lp: LivePlace): void {
+    if (planBoxes(site).length) return;
+    const car = site.objects.find((o) => o.kind === 'wreck');
+    const finds = car ? this.findsOf(site) : [];
+    if (!car || !finds.length || !this.host.world) return;
+    const c = Math.cos(car.yaw);
+    const s = Math.sin(car.yaw);
+    let n = 0;
+    finds.forEach((f, k) =>
+      [f.thing, ...(f.with ?? [])].forEach((t, j) => {
+        const id = `${site.id}/plan${k}.${j}`;
+        const along = -0.5 + 0.65 * n++;
+        if (this.taken.has(id)) return;
+        // (by its door: out of its left side, the cab's end of it)
+        const x = car.x + c * along + s * (car.d / 2 + 0.75);
+        const z = car.z + s * along - c * (car.d / 2 + 0.75);
+        const y = this.host.world!.heightAt(x, z);
+        const h = heldOfFound(foundScheduled(t, site.seed + k * 31 + j, site.s));
+        const L = this.host.loose;
+        const l = h.kind === 'part' ? L.addPart(h.inst, x, y, z, car.yaw) : h.kind === 'tool' ? L.addTool(h.tool, x, y, z, car.yaw) : L.addItem(h.item, x, y, z, car.yaw);
+        l.resting = true;
+        lp.loose.set(id, { l, x, y, z });
+        this.owned.set(l, { site: site.id, id });
+      }),
+    );
+  }
+
+  /** how much of the places' own food, drink, petrol and oil is still there (loot.ts PLACES_KEEP; 1: all — the harness's stand-ins) */
+  private keep(): number {
+    return this.host.keep?.() ?? 1;
+  }
+
+  /** which of a place's boxes each of its planned finds goes in (boxesOfFinds), by the place's id */
+  private readonly findBoxes = new Map<string, number[]>();
+
+  /** the plan of the world's road at the game's difficulty, laid over its places as one comes (null: none — the harness's stand-in worlds) */
+  private plannerOf: SitePlanner | null | undefined;
+  private planner(): SitePlanner | null {
+    if (this.plannerOf === undefined) {
+      const finds = this.plannedFinds();
+      this.plannerOf = finds ? new SitePlanner(finds) : null;
+    }
+    return this.plannerOf;
+  }
+
+  /** the plan's finds (made once: the host's planned) */
+  private plannedOf: readonly PlannedFind[] | null | undefined;
+  private plannedFinds(): readonly PlannedFind[] | null {
+    if (this.plannedOf === undefined) this.plannedOf = this.host.planned?.() ?? null;
+    return this.plannedOf;
+  }
+
+  /**
+   * Where a place's own may first have each of the plan's new things (schedule.ts heldBackUntil: a Nomad Drive
+   * building's coffee machine waits for the plan's first) — none held back without a plan, or in a world with a test lot
+   * of prefabs (?nd=: its buildings as their cards have them, to look at)
+   */
+  private heldOf: Map<string, number> | undefined;
+  private heldBack(): Map<string, number> {
+    if (!this.heldOf) {
+      const finds = this.host.world?.prefabs ? null : this.plannedFinds();
+      this.heldOf = finds ? heldBackUntil(finds) : new Map();
+    }
+    return this.heldOf;
   }
 
   // ------------------------------------------------------------------ containers
@@ -536,7 +662,7 @@ export class Places {
           blurb: BLURB[c.kind] ?? '',
           rows: [],
           bars: [],
-          notes: [{ text: open ? (n ? `开着，里面有 ${n} 样：看着它按 E 拿` : '开着，空的') : '关着：按 E 打开', tone: open && !n ? 'warn' : 'info' }],
+          notes: [{ text: open ? (n ? `里面有 ${n} 样` : '空的') : '关着', tone: open && !n ? 'warn' : 'info' }],
           foot: {},
         };
       },
@@ -820,11 +946,15 @@ export class Places {
         return pumpCard(site, i, fuel, left());
       },
       get word(): Text {
+        return { zh: `加${FUEL_ZH[fuel]}`, en: `Fill up with ${fuel}` };
+      },
+      // (dry, no car by it, its tank full: pressing does nothing — said when pressed)
+      get why(): Text | null {
         const v = parked();
-        if (left() <= 0.5) return { zh: `加油机（${FUEL_ZH[fuel]}）· 没油了`, en: 'The pump is dry' };
-        if (!v) return { zh: `加油机 · ${FUEL_ZH[fuel]}还剩 ${Math.round(left())} L（把车停过来，或者拿油桶来灌）`, en: `Pump · ${Math.round(left())} L` };
-        if ((tankRoomOf(v.build) ?? 0) <= 0.05) return { zh: `${v.view.frame.name.zh}的油箱满了`, en: 'The tank is full' };
-        return { zh: `给<b>${v.view.frame.name.zh}</b>加${FUEL_ZH[fuel]}（加满要 ${Math.round(need(v))} L）`, en: `Fill up with ${fuel}` };
+        if (left() <= 0.5) return { zh: '没油了', en: 'The pump is dry' };
+        if (!v) return { zh: '把车停过来', en: 'Park a car by it' };
+        if ((tankRoomOf(v.build) ?? 0) <= 0.05) return { zh: '油箱满了', en: 'The tank is full' };
+        return null;
       },
       get holdS(): number | undefined {
         const v = parked();
@@ -858,7 +988,6 @@ export class Places {
         const f = places.fill;
         places.fill = null;
         if (!v) {
-          host.say(left() > 0.5 ? '把车停到加油机旁边，或者拿着油桶来灌。' : '这台加油机没油了。', 2.4);
           return;
         }
         if (f) {
@@ -873,7 +1002,7 @@ export class Places {
           // (the nozzle hung back a moment after)
           host.play('pump_hang', {}, left() <= 0.5 ? 1.5 : 0.45);
           places.nozzleOut = { site: site.id, obj: i, v, until: places.clock + (left() <= 0.5 ? 1.5 : 0.45) };
-          host.say(`加了 ${f.given.toFixed(1)} L ${FUEL_ZH[fuel]}${left() <= 0.5 ? '：加油机空了' : ''}`, 2.4);
+          host.say(`加了 ${f.given.toFixed(1)} L`, 2);
         }
       },
       hit: (ray: THREE.Ray, reach: number): number | null => boxHit(ray, host.origin, o.x, o.y, o.z, o.yaw, o.w / 2 + 0.05, o.h, o.d / 2 + 0.05, reach),
@@ -923,7 +1052,7 @@ function pumpCard(site: Site, i: number, fuel: FuelType, left: number): ItemCard
     name: `加油机（${FUEL_ZH[fuel]}）`,
     stars: 0,
     badges: [],
-    blurb: '老式加油机。拿着油桶对着它按住 E 灌满；把车停在旁边，空手对着它按住 E 直接给车加满。',
+    blurb: '老式加油机。',
     rows: [{ value: `${Math.round(left)} L`, label: `还剩${FUEL_ZH[fuel]}` }],
     bars: [],
     notes: left <= 0.5 ? [{ text: '没油了', tone: 'warn' }] : [],

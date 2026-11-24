@@ -131,6 +131,18 @@ def build_bat_truck(P):
     battery(P, 0.258, 0.175, 0.235, caps=6, studs=True, leads=True)
 
 
+def build_bat_house(P):
+    """A motorhome's house battery (docs/V3/plan/rv.md): a long, low deep-cycle battery with stud terminals and its
+    leads, a rope handle at each end to lift it by."""
+    battery(P, 0.48, 0.22, 0.235, caps=0, studs=True, leads=True, handle=False)
+    hz = 0.235 * 0.84 * 0.7
+    for s in (-1, 1):
+        x = s * (0.48 / 2 + 0.004)
+        P.box('handle_block', (0.012, 0.07, 0.03), (x, 0.0, hz), 'trim', bev=0.003, segs=1)
+        P.tube('handle', [(x, -0.03, hz), (x + s * 0.03, -0.03, hz - 0.02), (x + s * 0.03, 0.03, hz - 0.02), (x, 0.03, hz)],
+               0.006, 'rubber', segs=8, bend=0.012)
+
+
 def build_bat_moto(P):
     battery(P, 0.15, 0.087, 0.13, caps=0, handle=False, moto=True)
 
@@ -437,6 +449,7 @@ PARTS = {
     'bat_std': build_bat_std,
     'bat_moto': build_bat_moto,
     'bat_truck': build_bat_truck,
+    'bat_house': build_bat_house,
     'rad_std': build_rad_std,
     'rad_small': build_rad_small,
     'rad_big': build_rad_big,

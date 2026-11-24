@@ -17,10 +17,16 @@ import type { Text } from '../../../../core/modcar/types';
 import { eat } from '../../../../core/modcar/vitals';
 import { firstTip, knownFail, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
 import { POT_MAX } from '../../../../core/v3/kitchen/cook';
-import { WAYS, type Way } from '../../../../core/v3/kitchen/dishes';
-import { BOARD, dishItem, GAS, GAS_FULL, itemOfPortion, SPICE, STOVE, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
+import { DISHES, WAYS, type DishDef, type Way } from '../../../../core/v3/kitchen/dishes';
+import type { BuffId } from '../../../../core/v3/cooking/types';
+
+/** what a dish leaves behind by how it was cooked */
+const WAY_BUFF: Record<Way, BuffId> = { fry: 'vigor', boil: 'warm', mix: 'hydrated', grill: 'hearty', steam: 'hearty', bake: 'hearty', brew: 'hydrated' };
+/** the dishes by their item */
+const DISH_OF = new Map<string, DishDef>(DISHES.map((d) => [`dish_${d.id}`, d]));
+import { BOARD, dishItem, GAS, GAS_FULL, itemOfPortion, SPICE, WAY_OF, type Portion } from '../../../../core/v3/kitchen/items';
 import {
-  addLack, addPortion, asksStir, boardLack, boardPut, boardTake, chop, CHOPS, dishUp, fireOf, gasOf, hasCanister, kitKind, kitOf, loadCanister, nextSeasoning, phaseOf,
+  addLack, addPortion, asksStir, boardLack, boardPut, boardTake, chop, CHOPS, dishUp, electric, fireOf, gasOf, hasCanister, isStove, kitKind, kitOf, loadCanister, nextSeasoning, phaseOf,
   potOf, putVessel, ready, removePortion, seasonPot, servingsLeft, setFire, steamLack, stir, stoveStep, takeCanister, takeVessel, toss, TOSSES, underOf, vesselOf, wayOf,
   type KitKind, type Missed, type Phase, type StoveTick,
 } from '../../../../core/v3/kitchen/kit';
@@ -30,7 +36,7 @@ import { classOf, portionOfItem } from '../../../../core/v3/kitchen/standins';
 import type { GarageDevice } from '../../garageStub';
 import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
-import type { GameContext } from '../../kernel/context';
+import { powerOf, type GameContext } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
 import { heldOf, type Held } from '../../player';
@@ -91,8 +97,9 @@ const SOUNDS: readonly string[] = [
  * something that could be cut goes into a hot vessel whole.
  */
 export const TIPS = {
-  start: '做饭：手里的东西能放哪，哪里就有它的影子，按 E 放下；F 端走，按住 F 拿起。J 是食谱本。',
-  cut: '小提示：先放到案板上切三刀再下锅，熟得快，也更容易做到完美。',
+  // (lifting a pot is on the pot's own words: only the book's key, which nothing on the screen shows)
+  start: 'J 食谱本',
+  cut: '切过熟得快',
 } as const;
 
 /** what is said as a pot comes to just right, each way */
@@ -153,8 +160,21 @@ export class KitDevice implements GarageDevice {
     return this.sys.wordOf(this);
   }
 
+  /** what it waits for, pressed now (null: it does something) — docs/V3/plan/prompts.md §五 */
+  get why(): Text | null {
+    return this.sys.whyOf(this);
+  }
+
   get alt(): { word: Text; use(): void } | null {
     return this.sys.altOf(this);
+  }
+
+  grabbable(): NonNullable<Held> | null {
+    return this.sys.grabbableOf(this);
+  }
+
+  grab(): boolean {
+    return this.sys.grabOf(this);
   }
 
   get card(): ItemCard {
@@ -228,7 +248,13 @@ export class Unit {
     readonly loose: Loose,
   ) {
     this.kind = kitKind(loose.item!.item)!;
-    this.devices = this.kind === 'stove' ? [new KitDevice(sys, this, 'top'), new KitDevice(sys, this, 'knob'), new KitDevice(sys, this, 'bay')] : [new KitDevice(sys, this, 'all')];
+    // (a hob has no bay: its plate and its knob)
+    this.devices =
+      this.kind === 'stove'
+        ? electric(loose.item!)
+          ? [new KitDevice(sys, this, 'top'), new KitDevice(sys, this, 'knob')]
+          : [new KitDevice(sys, this, 'top'), new KitDevice(sys, this, 'knob'), new KitDevice(sys, this, 'bay')]
+        : [new KitDevice(sys, this, 'all')];
   }
 
   get item(): ItemInstance {
@@ -453,6 +479,8 @@ export class Kitchen implements System<GameContext>, InteractSource {
   private readonly units = new Map<Loose, Unit>();
   readonly list: Unit[] = [];
   private rev = -1;
+  /** a vessel with food in it is in the hands: the plates and bowls lying about are places to dish up onto then */
+  private pourV = false;
   private readonly placer = new PlaceDevice(this);
   private readonly tick: StoveTick = { burning: false, ranOut: false, before: null, after: null, asked: false };
   /** the ghosts to draw this frame (the view reads them; the objects are used again) */
@@ -514,8 +542,9 @@ export class Kitchen implements System<GameContext>, InteractSource {
       const it = l.item;
       if (!it) continue;
       const kind = kitKind(it.item);
-      // (a canister, a plate, a bowl lying there are things to pick up, no more)
-      if (!kind || kind === 'gas' || kind === 'ware') continue;
+      // (a canister lying there is a thing to pick up, no more; a plate or a bowl too — but for a pot with food in
+      // the hands, which dishes up onto it where it lies: docs/V3/plan/growth.md §一 4)
+      if (!kind || kind === 'gas' || (kind === 'ware' && !this.pourV)) continue;
       seen.add(l);
       l.device = true;
       if (!this.units.has(l)) {
@@ -527,6 +556,8 @@ export class Kitchen implements System<GameContext>, InteractSource {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const u = this.list[i];
       if (seen.has(u.loose)) continue;
+      // (a plate no longer a place for the pot: picked up as any thing lying about again)
+      if (u.kind === 'ware') u.loose.device = false;
       this.units.delete(u.loose);
       this.list.splice(i, 1);
     }
@@ -541,6 +572,13 @@ export class Kitchen implements System<GameContext>, InteractSource {
   step(dt: number, ctx: GameContext): void {
     this.time += dt;
     this.frames++;
+    // (a pot with food in the hands, or not: the plates lying about are found again as what they are to it)
+    const inHand = ctx.player.held;
+    const pv = inHand?.kind === 'item' && kitKind(inHand.item.item) === 'vessel' && (potOf(inHand.item)?.items.length ?? 0) > 0;
+    if (pv !== this.pourV) {
+      this.pourV = pv;
+      this.rev = -1;
+    }
     this.refresh(ctx);
     for (let i = this.later.length - 1; i >= 0; i--) {
       const s = this.later[i];
@@ -551,7 +589,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     }
     // a stove carried off alight goes out: the flame is the thing's, and nothing steps it in the hands
     const held = ctx.player.held;
-    if (held?.kind === 'item' && held.item.item === STOVE && fireOf(held.item)) setFire(held.item, 0);
+    if (held?.kind === 'item' && isStove(held.item.item) && fireOf(held.item)) setFire(held.item, 0);
     for (let i = 0; i < this.list.length; i++) {
       const u = this.list[i];
       if (u.busy > 0) u.busy = Math.max(0, u.busy - dt);
@@ -562,7 +600,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
         ctx.loose.touch(u.loose);
         if (close) {
           ctx.sound('flame_out', 0.8);
-          ctx.ui.say('火灭了：燃气罐空了。换一罐，锅里的进度还在。', 3.2);
+          ctx.ui.say('燃气罐空了', 2.4);
         }
       }
       if (!close || !t.after || t.after === t.before) {
@@ -572,7 +610,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (t.after === 'right') {
         ctx.sound('clean_ding', 0.5);
         const w = wayOf(u.item);
-        ctx.ui.say(`${w ? READY[w] : READY.fry}拿着盘子或碗对着它按 E 装盘，或者先关火。`, 2.6);
+        ctx.ui.say(w ? READY[w] : READY.fry, 2.2);
       } else if (t.after === 'over') ctx.ui.say('有点过了，快出锅！', 2);
       else if (t.after === 'burnt') {
         ctx.sound('sizzle_in', 0.6);
@@ -586,7 +624,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const way = wayOf(u.item);
     if (!way) return;
     ctx.sound('highlight_ping', 0.5);
-    ctx.ui.say(`该${STIR[way].zh}了：对着锅按 E。`, 2.4);
+    ctx.ui.say(`${STIR[way].zh}！`, 2);
   }
 
   lateUpdate(dt: number, ctx: GameContext): void {
@@ -628,7 +666,8 @@ export class Kitchen implements System<GameContext>, InteractSource {
       const near = fire ? hearAt(d) : 0;
       if (near <= 0) continue;
       const hot = fire === 2 ? 1 : 0.62;
-      flame = Math.max(flame, near * hot);
+      // (a hob heats without a sound of its own)
+      if (!electric(u.item)) flame = Math.max(flame, near * hot);
       const pot = potOf(u.item);
       const way = wayOf(u.item);
       if (!pot?.items.length || !way || pot.out) continue;
@@ -695,50 +734,66 @@ export class Kitchen implements System<GameContext>, InteractSource {
   wordOf(d: KitDevice): Text {
     const u = d.unit;
     const it = u.item;
-    if (u.busy > 0) return T('正在换燃气罐…', 'Changing the canister…');
-    if (d.part === 'knob') {
-      if (fireOf(it)) return T('关火', 'Turn the flame off');
-      if (!hasCanister(it)) return T('点火 · 先装一罐燃气', 'Light it · it needs a canister');
-      if (gasOf(it) <= 0) return T('点火 · 燃气罐空了', 'Light it · the canister is empty');
-      return T('点火', 'Light it');
-    }
-    if (d.part === 'bay') {
-      if (!hasCanister(it)) return T('罐仓空着 · 拿着燃气罐按 E 装上', 'No canister · put one in with E');
-      return T(`取出燃气罐 · 还剩 ${pct(gasOf(it))}%`, `Take the canister out · ${pct(gasOf(it))}% left`);
-    }
+    if (u.busy > 0) return T('换罐', 'Changing the canister');
+    if (d.part === 'knob' && electric(it)) return fireOf(it) ? T('关掉电炉', 'Switch the hotplate off') : T('打开电炉', 'Switch the hotplate on');
+    if (d.part === 'knob') return fireOf(it) ? T('关火', 'Turn the flame off') : T('点火', 'Light it');
+    if (d.part === 'bay') return hasCanister(it) ? T('取出燃气罐', 'Take the canister out') : T('装燃气罐', 'Put a canister in');
     if (u.kind === 'board') {
       const f = kitOf(it).food;
-      if (!f) return T('案板空着 · 拿着食材按 E 放上来', 'An empty board · put something on it with E');
-      if (f.cut) return T(`拿起切好的<b>${portionName(f)}</b>`, `Take the cut <b>${portionName(f, 'en')}</b>`);
-      return T(`切<b>${portionName(f)}</b>（${f.chops ?? 0}/${CHOPS}）`, `Cut the <b>${portionName(f, 'en')}</b> (${f.chops ?? 0}/${CHOPS})`);
+      if (!f) return T('放食材', 'Put food on it');
+      if (f.cut) return T(`拿起 <b>${portionName(f)}</b>`, `Take the cut <b>${portionName(f, 'en')}</b>`);
+      return T(`切 <b>${portionName(f)}</b>`, `Cut the <b>${portionName(f, 'en')}</b>`);
     }
     if (u.kind === 'spice') {
       const pot = this.potNear(u);
       const s = pot ? nextSeasoning(pot.item) : null;
-      if (!pot) return T('撒调料 · 旁边没有下了料的锅', 'Season · no pot with anything in it near');
-      if (!s) return T('六种调料都加过了', 'All six are in');
-      return T(`往${this.vesselName(pot)}里撒<b>${s.zh}</b>`, `A pinch of <b>${s.en.toLowerCase()}</b> over the ${this.vesselName(pot, 'en').toLowerCase()}`);
+      return s ? T(`撒 <b>${s.zh}</b>`, `A pinch of <b>${s.en.toLowerCase()}</b>`) : T('撒调料', 'Season');
     }
-    // the burner of a stove, or a vessel by itself
+    if (u.kind === 'ware') return T('装盘', 'Dish it up');
+    // the burner of a stove, or a vessel by itself: what to do, else how the pot is (a word)
     const v = vesselOf(it);
-    if (!v) return T('炉头空着 · 拿着锅按 E 放上来', 'An empty burner · set a vessel on it with E');
+    if (!v) return T('放锅', 'Set a vessel on it');
     const pot = potOf(it);
-    const name = nameOf(v);
-    if (!pot) return T(`空的${name} · 拿着食材按 E 放进去`, `An empty ${nameOf(v, 'en').toLowerCase()} · put food in with E`);
+    if (!pot) return T('放食材', 'Put food in');
     const way = WAY_OF[v];
-    const line = this.potLine(u);
-    if (pot.out) return T(`还有 ${servingsLeft(it, classOf)} 份 · 拿着盘子或碗按 E 装盘`, `${servingsLeft(it, classOf)} serving left · dish it up with E`);
-    if (!WAYS[way].heats) {
-      const k = Math.round((pot.toss ?? 0) * TOSSES);
-      if (k >= TOSSES) return T(`${line} · 拌好了：拿着盘子或碗按 E 装盘`, `${line} · tossed: dish it up with E`);
-      return T(`${STIR.mix.zh}（${k}/${TOSSES}） · ${line}`, `${STIR.mix.en} (${k}/${TOSSES})`);
-    }
-    if (asksStir(it)) return T(`<b>${STIR[way].zh}！</b> · ${line}`, `<b>${STIR[way].en}!</b>`);
+    if (pot.out) return T('装盘', 'Dish it up');
+    if (!WAYS[way].heats) return Math.round((pot.toss ?? 0) * TOSSES) >= TOSSES ? T('装盘', 'Dish it up') : T(STIR.mix.zh, STIR.mix.en);
+    if (asksStir(it)) return T(`<b>${STIR[way].zh}！</b>`, `<b>${STIR[way].en}!</b>`);
     const ph = phaseOf(it);
     const lit = u.kind === 'stove' && fireOf(it) > 0;
-    if (!lit && (pot.done ?? 0) <= 0.2) return T(`取回${portionName(pot.items[pot.items.length - 1])} · ${line}（${pot.items.length}/${POT_MAX}）`, `Take the ${portionName(pot.items[pot.items.length - 1], 'en').toLowerCase()} back`);
-    if (ph === 'right') return T(`${line} · <b>${PHASE.right.zh}</b>拿着盘子或碗按 E 装盘`, `${line} · <b>${PHASE.right.en}</b> dish it up with E`);
-    return T(`${line} · ${PHASE[ph].zh}`, `${line} · ${PHASE[ph].en}`);
+    if (!lit && (pot.done ?? 0) <= 0.2) return T(`取回 <b>${portionName(pot.items[pot.items.length - 1])}</b>`, `Take the ${portionName(pot.items[pot.items.length - 1], 'en').toLowerCase()} back`);
+    return ph === 'right' ? T(`<b>${PHASE.right.zh}</b>`, `<b>${PHASE.right.en}</b>`) : T(PHASE[ph].zh, PHASE[ph].en);
+  }
+
+  /** what a part waits for, pressed now (null: it does something) */
+  whyOf(d: KitDevice): Text | null {
+    const u = d.unit;
+    const it = u.item;
+    if (u.busy > 0) return T('正在换', 'Changing the canister');
+    if (d.part === 'knob') {
+      if (fireOf(it)) return null;
+      if (electric(it)) {
+        const p = this.game ? powerOf(this.game, u.loose) : null;
+        return p === 'on' ? null : p === 'flat' ? T('没电了', 'The batteries are flat') : T('放到车里才有电', 'Only in a vehicle is there power');
+      }
+      if (!hasCanister(it)) return T('先装燃气罐', 'It needs a canister');
+      return gasOf(it) <= 0 ? T('燃气罐空了', 'The canister is empty') : null;
+    }
+    if (d.part === 'bay') return hasCanister(it) ? null : T('拿着燃气罐', 'Bring a canister');
+    if (u.kind === 'board') return kitOf(it).food ? null : T('拿着食材', 'Bring something to cut');
+    if (u.kind === 'ware') return null;
+    if (u.kind === 'spice') {
+      const pot = this.potNear(u);
+      if (!pot) return T('旁边没有锅', 'No pot near');
+      return nextSeasoning(pot.item) ? null : T('都加过了', 'All six are in');
+    }
+    const v = vesselOf(it);
+    if (!v) return T('拿着锅', 'Bring a vessel');
+    const pot = potOf(it);
+    if (!pot) return T('拿着食材', 'Bring some food');
+    const way = WAY_OF[v];
+    if (pot.out || (!WAYS[way].heats && Math.round((pot.toss ?? 0) * TOSSES) >= TOSSES)) return T('拿着盘子或碗', 'Bring a plate or a bowl');
+    return null;
   }
 
   altOf(d: KitDevice): { word: Text; use(): void } | null {
@@ -750,15 +805,50 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (!f) return null;
       return f === 2 ? { word: T('调成小火', 'Turn it down'), use: () => this.flame(u, 1) } : { word: T('调成大火', 'Turn it up'), use: () => this.flame(u, 2) };
     }
+    return null;
+  }
+
+  /** a stand-in for a kind in the hands, to ask whether there is room for it (made once a kind) */
+  private readonly proxies = new Map<string, NonNullable<Held>>();
+  private proxy(id: string): NonNullable<Held> {
+    let h = this.proxies.get(id);
+    if (!h) this.proxies.set(id, (h = { kind: 'item', item: newItem(id) }));
+    return h;
+  }
+
+  /**
+   * What the left button held on a part of a unit takes up (docs/V3/plan/growth.md J1): the vessel standing on a
+   * burner, what lies on the board — else the cookware itself. Null while it is being worked.
+   */
+  grabbableOf(d: KitDevice): NonNullable<Held> | null {
+    const u = d.unit;
+    if (u.busy > 0) return null;
+    const it = u.item;
     if (d.part === 'top') {
       const v = vesselOf(it);
-      return v ? { word: T(`端走${nameOf(v)}`, `Take the ${nameOf(v, 'en').toLowerCase()} off`), use: () => this.liftVessel(u) } : null;
+      if (v) return this.proxy(v);
     }
     if (u.kind === 'board') {
       const f = kitOf(it).food;
-      return f && !f.cut ? { word: T(`拿回${portionName(f)}`, `Take the ${portionName(f, 'en').toLowerCase()} back`), use: () => this.offBoard(u) } : null;
+      if (f) return this.proxy(itemOfPortion(f));
     }
-    return null;
+    return heldOf(u.loose);
+  }
+
+  /** …and takes it into the hands (true: taken) */
+  grabOf(d: KitDevice): boolean {
+    const u = d.unit;
+    const ctx = this.game;
+    if (!ctx || u.busy > 0) return false;
+    if (d.part === 'top' && vesselOf(u.item)) {
+      this.liftVessel(u);
+      return !vesselOf(u.item);
+    }
+    if (u.kind === 'board' && kitOf(u.item).food) {
+      this.offBoard(u);
+      return !kitOf(u.item).food;
+    }
+    return ctx.player.takeLoose(u.loose);
   }
 
   // ------------------------------------------------------------------ E with empty hands (or with what the thing has no use for)
@@ -772,28 +862,29 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (d.part === 'bay') return this.outCanister(u);
     if (u.kind === 'board') {
       const f = kitOf(it).food;
-      if (!f) return ctx.ui.say('案板上没有东西：拿着要切的食材对着它按 E。', 2.4);
+      if (!f) return;
       if (f.cut) return this.offBoard(u);
       const n = chop(it);
       u.chopped++;
       ctx.sound('chop', 1);
       ctx.loose.touch(u.loose);
-      if (n >= CHOPS) ctx.ui.say(`${portionName(f)}切好了。`, 1.6);
+      if (n >= CHOPS) ctx.player.flashWhy('切好了');
       return;
     }
     if (u.kind === 'spice') {
       const pot = this.potNear(u);
-      if (!pot) return ctx.ui.say('旁边没有下了料的锅：把调料盒放在锅边上。', 2.4);
+      if (!pot) return;
       return this.pinch(pot);
     }
+    if (u.kind === 'ware') return;
     const v = vesselOf(it);
-    if (!v) return ctx.ui.say('炉头上没有锅：拿着平底锅或汤锅对着它按 E。', 2.4);
+    if (!v) return;
     const pot = potOf(it);
-    if (!pot) return ctx.ui.say(`${nameOf(v)}是空的：拿着食材对着它按 E 放进去。`, 2.4);
+    if (!pot) return;
     const way = WAY_OF[v];
-    if (pot.out) return ctx.ui.say('拿着盘子或碗对着它按 E，把剩下的一份装出来。', 2.4);
+    if (pot.out) return;
     if (!WAYS[way].heats) {
-      if (ready(it)) return ctx.ui.say('拌好了：拿着盘子或碗对着它按 E 装盘。', 2.4);
+      if (ready(it)) return;
       toss(it);
       u.stirred++;
       ctx.sound('toss_dry', 0.9);
@@ -806,7 +897,6 @@ export class Kitchen implements System<GameContext>, InteractSource {
       u.stirred++;
       ctx.sound(stirSound(way), 1);
       ctx.loose.touch(u.loose);
-      ctx.ui.say('好：这下不容易糊了。', 1.6);
       return;
     }
     const lit = u.kind === 'stove' && fireOf(it) > 0;
@@ -819,7 +909,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     // (a turn of the spoon for the pleasure of it)
     u.stirred++;
     ctx.sound(stirSound(way), 0.55);
-    if (phaseOf(it) === 'right') ctx.ui.say('火候正好：拿着盘子或碗对着它按 E 装盘。', 2.2);
+    if (phaseOf(it) === 'right') ctx.ui.say('火候正好！', 2);
   }
 
   // ------------------------------------------------------------------ E with something in the hands
@@ -831,28 +921,39 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const id = held.item.item;
     const kind = kitKind(id);
     const no = (zh: string, en: string): { ok: boolean; word: Text } => ({ ok: false, word: T(zh, en) });
-    if (u.busy > 0) return kind || portionOfItem(id) ? no('正在换燃气罐…', 'Changing the canister…') : null;
+    if (u.busy > 0) return kind || portionOfItem(id) ? no('正在换', 'Changing the canister…') : null;
+    // a plate or a bowl lying about, a pot with food in the hands: dished up where it lies
+    if (u.kind === 'ware') {
+      if (kind !== 'vessel') return null;
+      const pot = potOf(held.item);
+      if (!pot || !pot.items.length) return no('空的', 'There is nothing in it');
+      if (!ready(held.item)) return no('还没拌好', 'Not tossed yet');
+      return { ok: true, word: T('装盘', 'Dish it up'), keep: true };
+    }
     if (u.kind === 'stove') {
       if (kind === 'gas') {
         const fresh = pct(gasOf(held.item));
-        if (!hasCanister(it)) return { ok: true, word: T(`装上燃气罐（${fresh}%）`, `Put the canister in (${fresh}%)`) };
-        return { ok: true, word: T(`换上这罐燃气（${fresh}%） · 换下来的还剩 ${pct(gasOf(it))}%`, `Change the canister (${fresh}% for ${pct(gasOf(it))}%)`) };
+        void fresh;
+        if (!hasCanister(it)) return { ok: true, word: T('装燃气罐', 'Put the canister in') };
+        return { ok: true, word: T('换燃气罐', 'Change the canister') };
       }
       // (the knob is the knob and the bay the bay, whatever else is in the hands: E turns the one and empties the other)
       if (d.part !== 'top') return null;
       if (kind === 'vessel') {
-        if (!WAYS[WAY_OF[id]].heats) return no(`${nameOf(id)}不用火：放在一边拌就行`, 'A bowl needs no flame');
+        if (!WAYS[WAY_OF[id]].heats) return no('不用火', 'A bowl needs no flame');
         // (the steamer stands on a pot of water, never on the flame)
         if (WAY_OF[id] === 'steam') {
           const lack = steamLack(it);
-          if (lack === 'nopot') return no('蒸笼要架在汤锅上：先在炉头上放一口空汤锅（锅里是水）', 'A steamer stands on a pot of water: set an empty pot on the burner first');
+          if (lack === 'nopot') return no('先放汤锅', 'A steamer stands on a pot of water: set an empty pot on the burner first');
           if (lack === 'potfull') return no('汤锅里有东西：蒸笼要架在空汤锅上', 'The pot has food in it: the steamer goes on an empty one');
           if (lack === 'taken') return no(`炉头上已经有${nameOf(vesselOf(it)!)}了`, 'Something is on the burner');
-          return { ok: true, word: T('把<b>蒸笼</b>架到汤锅上', 'Set the <b>steamer</b> on the pot') };
+          return { ok: true, word: T('架上蒸笼', 'Set the <b>steamer</b> on the pot') };
         }
         const on = vesselOf(it);
-        if (on) return no(`炉头上已经有${nameOf(on)}了`, `The ${nameOf(on, 'en').toLowerCase()} is on it`);
-        return { ok: true, word: T(`把<b>${nameOf(id)}</b>放到炉头上`, `Set the <b>${nameOf(id, 'en').toLowerCase()}</b> on the burner`) };
+        // (one on it already: the one in the hands goes on, that one comes into them — not one with a steamer on it)
+        if (on && underOf(it)) return no('先端走蒸笼', 'Take the steamer off first');
+        if (on) return { ok: true, word: T('换锅', `Swap the ${nameOf(on, 'en').toLowerCase()} for the <b>${nameOf(id, 'en').toLowerCase()}</b>`) };
+        return { ok: true, word: T('放上炉头', `Set the <b>${nameOf(id, 'en').toLowerCase()}</b> on the burner`) };
       }
     }
     if (u.kind === 'board') {
@@ -863,7 +964,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (lack === 'busy') return null;
       if (lack === 'nocut') return no(`${portionName(p)}不用切，直接下锅`, 'This needs no cutting');
       if (lack === 'cutalready') return no('已经切好了', 'It is cut already');
-      return { ok: true, word: T(`把<b>${portionName(p)}</b>放到案板上`, `Put the <b>${portionName(p, 'en').toLowerCase()}</b> on the board`), keep: true };
+      return { ok: true, word: T('放上案板', `Put the <b>${portionName(p, 'en').toLowerCase()}</b> on the board`), keep: true };
     }
     if (u.kind === 'spice') return null;
     // into, onto and out of the vessel
@@ -872,31 +973,33 @@ export class Kitchen implements System<GameContext>, InteractSource {
     // (it asks to be stirred: that is what E does now, whatever is in the hands — the plate and the next thing wait a press)
     if (v && asksStir(it) && (p || kind === 'ware' || kind === 'spice')) return null;
     if (p) {
-      if (!v) return no('先在炉头上放一口锅', 'Set a vessel on the burner first');
+      if (!v) return no('先放锅', 'Set a vessel on the burner first');
       const lack = addLack(it);
-      if (lack === 'full') return no(`${nameOf(v)}满了（${POT_MAX}/${POT_MAX}）`, 'It is full');
-      if (lack === 'served') return no('已经出过锅了：先把剩下的装完', 'Dish up what is left first');
-      if (lack === 'burnt') return no('已经焦了：装出来，再重新做', 'It is burnt');
+      if (lack === 'full') return no('满了', 'It is full');
+      if (lack === 'served') return no('先装完剩下的', 'Dish up what is left first');
+      if (lack === 'burnt') return no('焦了', 'It is burnt');
       const pot = potOf(it);
       const n = pot?.items.length ?? 0;
       const way = WAY_OF[v];
       // (these things, this way, came to nothing before: said before they go in)
       const failed = knownFail(this.book, way, [...(pot?.items.map((x) => x.id) ?? []), p.id]);
       const pin = pinned(this.book);
-      const wanted = pin && pin.way === way && asksFor(pin, p.id) ? `「${pin.zh}」要它 · ` : '';
+      const wanted = pin && pin.way === way && asksFor(pin, p.id) ? `「${pin.zh}」要 · ` : '';
       return {
         ok: true,
-        word: T(`${wanted}${WAYS[way].zh}：放进<b>${portionName(p)}</b>（${n + 1}/${POT_MAX}）${failed ? ' · <b>上次这样做砸了</b>' : ''}`, `${WAYS[way].en}: add the <b>${portionName(p, 'en').toLowerCase()}</b> (${n + 1}/${POT_MAX})`),
+        // (a known failure, a pinned recipe asking for it: said with it, as it goes in — a hint where it counts)
+        word: T(`${wanted}放进 <b>${portionName(p)}</b>${failed ? ' · <b>上次砸了</b>' : ''}`, `${WAYS[way].en}: add the <b>${portionName(p, 'en').toLowerCase()}</b> (${n + 1}/${POT_MAX})`),
         keep: true,
       };
     }
     if (kind === 'ware') {
       if (!v) return null;
       const pot = potOf(it);
-      if (!pot) return no(`${nameOf(v)}里什么都没有`, 'There is nothing in it');
-      if (!ready(it)) return no(`还没拌好：对着${nameOf(v)}按 E 拌 ${TOSSES} 下`, 'Not tossed yet');
+      if (!pot) return no('空的', 'There is nothing in it');
+      if (!ready(it)) return no('还没拌好', 'Not tossed yet');
       const ph = WAYS[WAY_OF[v]].heats ? phaseOf(it) : 'right';
-      return { ok: true, word: T(`装盘${ph === 'right' ? '' : ` · <b>${PHASE[ph].zh}</b>`}`, `Dish it up${ph === 'right' ? '' : ` · <b>${PHASE[ph].en}</b>`}`), keep: true };
+      void ph;
+      return { ok: true, word: T('装盘', 'Dish it up'), keep: true };
     }
     if (kind === 'spice') {
       if (!v) return null;
@@ -925,15 +1028,25 @@ export class Kitchen implements System<GameContext>, InteractSource {
       ctx.loose.touch(u.loose);
       if (old) {
         this.hand(ctx, old);
-        ctx.ui.say(gasOf(old) <= 0 ? '换好了。换下来的是空罐。' : `换好了。换下来的那罐还剩 ${pct(gasOf(old))}%。`, 2.6);
-      } else ctx.ui.say('燃气罐装好了：对着旋钮按 E 点火。', 2.4);
+        ctx.player.flashWhy('换好了');
+      } else ctx.player.flashWhy('装好了');
       return;
     }
+    if (u.kind === 'ware') return this.serveOnto(u, held);
     if (u.kind === 'stove' && kind === 'vessel') {
-      if (!putVessel(it, held.item)) return void this.hand(ctx, held.item);
+      // (a vessel on the burner already, and the one in the hands no steamer: they change places)
+      const old = WAY_OF[id] !== 'steam' && vesselOf(it) && !underOf(it) ? takeVessel(it) : null;
+      if (!putVessel(it, held.item)) {
+        if (old) putVessel(it, old);
+        return void this.hand(ctx, held.item);
+      }
       u.added++;
       ctx.sound('pan_place', 1);
       ctx.loose.touch(u.loose);
+      if (old) {
+        ctx.sound('pan_lift', 0.8);
+        this.hand(ctx, old, true);
+      }
       return;
     }
     if (u.kind === 'board') {
@@ -973,26 +1086,29 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const ctx = this.game;
     if (!ctx) return;
     const was = fireOf(u.item);
-    const lack = setFire(u.item, level);
-    // (lit: the igniter and the gas catching; out: the burner's pop; up or down a notch, or nothing to light: the knob)
-    ctx.sound(lack ? 'knob_click' : level === 0 ? (was ? 'flame_out' : 'knob_click') : was ? 'knob_click' : 'ignite', 1);
-    if (lack) return ctx.ui.say(lack === 'nocan' ? '炉子里没有燃气罐：拿着一罐对着炉子按 E 装上。' : '燃气罐空了：换一罐。', 2.8);
+    const hob = electric(u.item);
+    const lack = setFire(u.item, level, hob ? powerOf(ctx, u.loose) : undefined);
+    // (lit: the igniter and the gas catching; out: the burner's pop; up or down a notch, or nothing to light: the knob; a
+    // hob's switch clicks)
+    ctx.sound(lack || hob ? 'knob_click' : level === 0 ? (was ? 'flame_out' : 'knob_click') : was ? 'knob_click' : 'ignite', 1);
+    if (lack === 'flat') ctx.player.flashWhy('没电了');
+    else if (lack === 'nopower') ctx.player.flashWhy('放到车里才有电');
+    if (lack) return;
     ctx.loose.touch(u.loose);
-    if (level === 2 && !vesselOf(u.item)) ctx.ui.say('火点着了。炉头上还没有锅。', 2);
   }
 
   /** the canister out of the bay, into the hands */
   outCanister(u: Unit): void {
     const ctx = this.game;
     if (!ctx) return;
-    if (!hasCanister(u.item)) return ctx.ui.say('罐仓是空的：拿着燃气罐对着炉子按 E 装上。', 2.4);
-    if (ctx.player.roomFor({ kind: 'item', item: newItem(GAS) }) <= 0) return ctx.ui.say('手上没地方了。', 2);
+    if (!hasCanister(u.item)) return;
+    if (ctx.player.roomFor({ kind: 'item', item: newItem(GAS) }) <= 0) return ctx.player.flashWhy('手满了');
     const can = takeCanister(u.item)!;
     u.swap = { old: true, put: false };
     u.busy = 1.3;
     ctx.loose.touch(u.loose);
     this.hand(ctx, can);
-    ctx.ui.say(gasOf(can) <= 0 ? '取出来了：是空罐。' : `取出来了：还剩 ${pct(gasOf(can))}%。`, 2.2);
+    ctx.player.flashWhy(gasOf(can) <= 0 ? '空罐' : `还剩 ${pct(gasOf(can))}%`);
   }
 
   /** the vessel off the burner, into the hands with what is in it */
@@ -1001,7 +1117,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (!ctx) return;
     const v = vesselOf(u.item);
     if (!v) return;
-    if (ctx.player.roomFor({ kind: 'item', item: newItem(v) }) <= 0) return ctx.ui.say('手上没地方了。', 2);
+    if (ctx.player.roomFor({ kind: 'item', item: newItem(v) }) <= 0) return ctx.player.flashWhy('手满了');
     const vessel = takeVessel(u.item)!;
     ctx.sound('pan_lift', 1);
     ctx.loose.touch(u.loose);
@@ -1015,7 +1131,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const f = kitOf(u.item).food;
     if (!f) return;
     const item = newItem(itemOfPortion(f));
-    if (ctx.player.roomFor({ kind: 'item', item }) <= 0) return ctx.ui.say('手上没地方了。', 2);
+    if (ctx.player.roomFor({ kind: 'item', item }) <= 0) return ctx.player.flashWhy('手满了');
     boardTake(u.item);
     ctx.sound('pickup', 0.3);
     ctx.loose.touch(u.loose);
@@ -1027,11 +1143,10 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const ctx = this.game;
     if (!ctx) return;
     const s = nextSeasoning(u.item);
-    if (!s || !seasonPot(u.item, s.id)) return ctx.ui.say('没有什么可加的了。', 1.8);
+    if (!s || !seasonPot(u.item, s.id)) return ctx.player.flashWhy('都加过了');
     u.stirred++;
     ctx.sound('shake', 1);
     ctx.loose.touch(u.loose);
-    ctx.ui.say(`撒了${s.zh}。`, 1.4);
   }
 
   /** the pot with something in it nearest a caddy lying there (null: none within reach) */
@@ -1057,11 +1172,42 @@ export class Kitchen implements System<GameContext>, InteractSource {
     const served = dishUp(u.item, held.item.item, classOf);
     if (!served) return;
     this.spend(ctx, held);
-    const o = served.outcome;
-    const noted = note(this.book, served.way, served.items, o);
-    u.served = { perfect: o.perfect, fail: !!o.fail, stars: o.stars };
+    u.served = { perfect: served.outcome.perfect, fail: !!served.outcome.fail, stars: served.outcome.stars };
     ctx.loose.touch(u.loose);
     this.hand(ctx, served.item, true);
+    this.announce(served, u);
+  }
+
+  /**
+   * A serving out of the vessel in the hands onto the plate or into the bowl lying about (docs/V3/plan/growth.md §一 4:
+   * 端着锅对着盘子): the plate where it lies becomes the dish; of a stack, the top one does and the rest stays.
+   */
+  serveOnto(w: Unit, held: NonNullable<Held>): void {
+    const ctx = this.game;
+    if (!ctx || held.kind !== 'item') return;
+    const l = w.loose;
+    const ware = l.item!;
+    const served = dishUp(held.item, ware.item, classOf);
+    if (!served) return;
+    if (countOf(ware) > 1) {
+      splitStack(ware, 1);
+      ctx.loose.touch(l);
+      const d = ctx.loose.addItem(served.item, l.x, l.y + 0.03, l.z, l.yaw);
+      ctx.loose.drop(d);
+    } else {
+      l.item = served.item;
+      ctx.loose.retype(l);
+      ctx.loose.touch(l);
+    }
+    this.announce(served, null);
+  }
+
+  /** a serving said: the book notes it, its card or its toast, its sounds */
+  private announce(served: NonNullable<ReturnType<typeof dishUp>>, u: Unit | null): void {
+    const ctx = this.game;
+    if (!ctx) return;
+    const o = served.outcome;
+    const noted = note(this.book, served.way, served.items, o);
     const stars = '★'.repeat(o.stars);
     // (where there is a page, the dish's card says it: bookUi.ts reveal; else the toast)
     const card: Reveal = {
@@ -1077,15 +1223,15 @@ export class Kitchen implements System<GameContext>, InteractSource {
       reason: o.fail
         ? o.fail === 'mess'
           ? noted.newFail
-            ? '这个搭配做不成菜，记进食谱本了，下次下锅时会提醒。'
-            : '这个搭配做不成菜。'
+            ? '做不成菜 · 记下了'
+            : '做不成菜'
           : o.fail === 'burnt'
-            ? '火候过了，下次早点出锅。'
-            : '还没熟：肉、鱼和蛋要多煮一会儿。'
+            ? '火候过了'
+            : '还没熟'
         : noted.firstPerfect && !noted.first
-          ? '第一次做到完美！'
+          ? '第一次完美！'
           : served.missed.length
-            ? `差一点完美：下次${served.missed.map((m) => MISSED[m]).join('、')}。`
+            ? `差一点：${served.missed.map((m) => MISSED[m]).join('、')}`
             : '',
     };
     // (no page to draw the card on: its words in the toast)
@@ -1093,7 +1239,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (o.fail) {
       ctx.sound('plate_clink', 0.8);
       this.soon('dish_fail', 1, 0.18);
-      say(o.fail === 'mess' ? `做砸了：${o.zh}。${noted.newFail ? '这个搭配记进食谱本了，下次锅上会提醒。' : ''}` : o.fail === 'burnt' ? `做砸了：${o.zh}。下次早点出锅。` : `做砸了：${o.zh}。肉、鱼和蛋要多煮一会儿。`);
+      say(`做砸了：${o.zh}`);
     } else {
       // the clink of the china, the reveal by the dish's stars, a chime for a perfect one, the pencil for a new recipe
       ctx.sound('plate_clink', 1);
@@ -1101,9 +1247,9 @@ export class Kitchen implements System<GameContext>, InteractSource {
       if (o.perfect) this.soon('clean_ding', 0.7, 0.8);
       if (noted.first) this.soon('book_write', 1, 1.05);
       const head = o.perfect ? `完美的${o.zh}` : o.zh;
-      say(`${noted.first ? '新菜谱！' : ''}${head} ${stars}${noted.firstPerfect && !noted.first ? ' · 第一次做到完美' : ''}${served.last ? '' : ' · 锅里还有一份'}`);
+      say(`${noted.first ? '新菜谱！' : ''}${head} ${stars}`);
     }
-    this.onServed?.(u, { zh: o.zh, stars: o.stars, perfect: o.perfect, fail: !!o.fail, first: noted.first });
+    if (u) this.onServed?.(u, { zh: o.zh, stars: o.stars, perfect: o.perfect, fail: !!o.fail, first: noted.first });
   }
 
   /** the thing in the hands set down at a place, facing the one who puts it there (a stack: one of it) */
@@ -1139,7 +1285,7 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (p.receive(h) > 0) {
       const w = p.walker;
       ctx.loose.drop(ctx.loose.addItem(item, w.x + Math.cos(w.heading) * 0.6, w.y + 0.9, w.z + Math.sin(w.heading) * 0.6, w.heading));
-      ctx.ui.say('手上没地方了：放在脚边了。', 2);
+      ctx.player.flashWhy('手满了');
       return;
     }
     const at = p.slots.indexOf(h);
@@ -1150,10 +1296,14 @@ export class Kitchen implements System<GameContext>, InteractSource {
   ate(ctx: GameContext, item: ItemInstance): void {
     const meal = item.state?.meal;
     if (!meal) return;
-    if (meal.food > 0) eat(ctx.body, meal.food, 0);
+    // (a good dish: health back, three a star, and a buff by how it was cooked — docs/V3/plan/growth.md §四)
+    const dish = FAILED.has(item.item) ? undefined : DISH_OF.get(item.item);
+    const k = meal.perfect ? 1.5 : 1;
+    if (meal.food > 0 || dish) eat(ctx.body, meal.food, dish ? Math.round(dish.stars * 3 * k) : 0);
+    if (dish && ctx.buffs) ctx.buffs.add(WAY_BUFF[dish.way], dish.stars * 240 * k, dish.way === 'brew' ? 'drink' : 'meal');
     if (FAILED.has(item.item)) {
       ctx.sound('yuck', 1);
-      ctx.ui.say(item.item === dishItem('burnt') ? '一股焦味……总算填了点肚子。' : item.item === dishItem('raw') ? '还是生的……下次多煮一会儿。' : '说不上是什么味道……总算填了点肚子。', 2.6);
+      ctx.ui.say(item.item === dishItem('burnt') ? '焦味……' : item.item === dishItem('raw') ? '还是生的……' : '说不上什么味道……', 2);
     }
     if (meal.ware) this.hand(ctx, newItem(meal.ware));
   }

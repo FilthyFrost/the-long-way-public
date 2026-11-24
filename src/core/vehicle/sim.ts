@@ -60,6 +60,11 @@ const SEAT_BLEED = 0.3;
  * the same way whichever axle it is). Capped at a few degrees.
  */
 const MISMATCH_STEER = 0.15;
+/**
+ * How fast the road wheels come back to straight within the steering's play as they roll (per metre travelled:
+ * at 16 m/s they are back in about a tenth of a second, standing they stay where they are)
+ */
+const PLAY_ALIGN = 0.8;
 const MISMATCH_STEER_MAX = 3 * (Math.PI / 180);
 /** rough-surface buzz felt through a bare rim, relative to a tyre */
 const RIM_BUZZ = 3;
@@ -1264,12 +1269,16 @@ export class VehicleSim {
     const returning = Math.abs(target) < Math.abs(this.steerAngle) || target * this.steerAngle < 0;
     if (returning) rate *= st.returnScale;
     this.steerAngle += clamp(target - this.steerAngle, -rate * h, rate * h);
-    // free play: the steering wheel turns through it before the tyres follow
+    // free play: the steering wheel turns through it before the tyres follow — and the road wheels, rolling,
+    // come back towards straight ahead as far as the play lets them (caster's self-aligning). Before this they
+    // stayed turned by half the play after the wheel was let go, and the car kept curving the way it last
+    // turned: 4.5–9.5 °/s at 60 km/h for 1.5–3.2° of play (docs/V3/plan/growth.md §1.6, J2)
     const play = this.mods.steerPlay;
     if (play > 0) {
       const half = play * 0.5;
-      if (this.steerAngle - this.wheelAngle > half) this.wheelAngle = this.steerAngle - half;
-      else if (this.steerAngle - this.wheelAngle < -half) this.wheelAngle = this.steerAngle + half;
+      const align = Math.min(1, h * speed * PLAY_ALIGN);
+      const w = this.wheelAngle - this.wheelAngle * align;
+      this.wheelAngle = clamp(w, this.steerAngle - half, this.steerAngle + half);
     } else this.wheelAngle = this.steerAngle;
     if (this.noSteering) {
       // nothing turns the road wheels: they stay straight whatever the input
@@ -1375,9 +1384,12 @@ export class VehicleSim {
     let rpm = slipping ? launch : rpmCoupled;
     let torque = running ? thr * this.engineTorque(rpm) * mods.torque : 0;
     // idle creep through the torque converter: walking pace on the level, gone by the stall point
-    // (the brakes win against it: holding the pedal, or the automatic hold, takes it out)
+    // (the brakes win against it: holding the pedal, or the automatic hold, takes it out — and with the ModCar
+    // extensions the handbrake too: parked on it, idling in D, a car stays put. One driving all four wheels went on
+    // against the lever at 4 mm/s, 14 m an hour: the converter pushed at the front wheels the lever does not hold, and
+    // the locked rear wheels' "just enough to stop" share caught that push a step late — harness/sim/modcar_parkbrake_idle.test.ts)
     if (running && slipping && rpmCoupled < e.idle) {
-      const held = this.hold ? 1 : this.brake;
+      const held = this.hold || (this.ext && this.handbrake > 0) ? 1 : this.brake;
       torque += 0.25 * this.engineTorque(e.idle) * (1 - thr) * (1 - held) * (1 - Math.max(0, rpmCoupled) / e.idle) * mods.torque;
     }
     // engine braking needs a turning engine (an automatic's converter does not couple a dead one)

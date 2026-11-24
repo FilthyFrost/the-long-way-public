@@ -25,14 +25,17 @@
  */
 import { fitAxles, reserveUids } from '../../core/modcar/build';
 import { frameDef } from '../../core/modcar/frames';
-import { cleanItem, forEachItem, hasItem, newItem, reserveItemUids, stampFresh, type ItemInstance, type LoadLoss } from '../../core/modcar/items';
+import { cleanItem, forEachItem, hasItem, newItem, reserveItemUids, retiredKind, stampFresh, type ItemInstance, type LoadLoss } from '../../core/modcar/items';
+import type { Difficulty } from '../../core/modcar/difficulty';
+import type { BuffsSave } from '../../core/v3/cooking/buffs';
+import type { WearSlot } from '../../core/modcar/items';
 import type { Vitals } from '../../core/modcar/vitals';
 import type { Stock } from '../../core/modcar/crafting';
 import type { WorkshopSave } from './workshop';
 import type { WrecksSave } from './wrecks';
 import type { PlacesSave } from './places';
-import { partDef } from '../../core/modcar/parts';
-import { TOOL_INFO, newTool, reserveToolUids, type Tool } from '../../core/modcar/tools';
+import { keepInsideClean, partDef } from '../../core/modcar/parts';
+import { TOOL_INFO, newTool, reserveToolUids, retireTool, type Tool } from '../../core/modcar/tools';
 import type { Build, PartInstance, Text } from '../../core/modcar/types';
 import { WorldClock, type ClockSave } from '../../core/kernel/clock';
 import type { SliceRecord } from '../../core/kernel/slices';
@@ -107,8 +110,16 @@ export interface SaveV1 {
   sel?: number;
   /** the backpack one has on (its slots are the hands' after the first two) */
   pack?: ItemInstance;
+  /** the clothes one has on, by where they go (absent in saves from before J6: the old jacket and shoes, as one always had them) */
+  worn?: Partial<Record<WearSlot, ItemInstance>>;
   /** the body: health, stamina, food, water, temperature, the bladder, what lasts a while */
   body?: Vitals;
+  /** what a good meal left behind, still going (core/v3/cooking/buffs.ts) */
+  buffs?: BuffsSave;
+  /** how hard the journey is (core/modcar/difficulty.ts; absent in older saves: the normal one) */
+  difficulty?: Difficulty;
+  /** how the workshop was laid out when the game began (absent in saves from before J5: the classic one) */
+  kit?: 'j5' | 'classic';
   /** the materials (scrap, organics, chemicals: shared counts, docs/MODCAR.md §14) */
   stock?: Stock;
   /** the workshop's machines: the generator's tank and whether it runs, the recipes unlocked */
@@ -200,12 +211,22 @@ function walkThings(s: SaveV1, keep: (slot: SavedSlot) => boolean): void {
     if (keep(slot) && slot.item) s.pack = slot.item;
     else delete s.pack;
   }
+  // (what one has on: each piece a slot of its own; one that does not stay is taken off)
+  if (s.worn && typeof s.worn === 'object') {
+    for (const k of Object.keys(s.worn) as (keyof NonNullable<SaveV1['worn']>)[]) {
+      const it = s.worn[k];
+      const slot: SavedSlot = { item: it };
+      if (it && typeof it === 'object' && keep(slot) && slot.item) s.worn[k] = slot.item;
+      else delete s.worn[k];
+    }
+  }
 }
 
 /** every thing one carries that a save holds, wherever it is held, each with what is in it (nothing is changed) */
 export function forEachSavedItem(s: SaveV1, fn: (x: ItemInstance, box: ItemInstance | null) => void): void {
   for (const { list } of thingLists(s)) for (const slot of list) if (slot && typeof slot === 'object' && slot.item) forEachItem(slot.item, fn);
   if (s.pack) forEachItem(s.pack, fn);
+  for (const it of Object.values(s.worn ?? {})) if (it) forEachItem(it, fn);
 }
 
 // ------------------------------------------------------------------ reading
@@ -253,7 +274,7 @@ function checkWorld(s: SaveV1): void {
     rulesFor(version, { regionCount: w.regionCount });
   } catch {
     const known = handRegions();
-    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) throw new Refusal({ zh: `这个存档的世界是第 ${String(version)} 版生成的，这个版本的游戏做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of generator version ${String(version)}, which this build does not have: set aside, a new game begun` });
+    if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6) throw new Refusal({ zh: `这个存档的世界是第 ${String(version)} 版生成的，这个版本的游戏做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of generator version ${String(version)}, which this build does not have: set aside, a new game begun` });
     throw new Refusal({ zh: `这个存档的世界有 ${String(w.regionCount)} 种区域，这个版本的游戏只有 ${known} 种，做不出来：存档已另存，开始了新游戏。`, en: `the save is of a world of ${String(w.regionCount)} regions and this build's registry holds ${known}: set aside, a new game begun` });
   }
 }
@@ -281,8 +302,10 @@ function isTool(t: unknown): t is Tool {
 function unknownKinds(raw: unknown, into: Set<string>): void {
   const r = raw as { item?: unknown; inside?: unknown } | null;
   if (!r || typeof r !== 'object') return;
-  if (typeof r.item === 'string' && !hasItem(r.item)) into.add(r.item);
-  if (Array.isArray(r.inside)) for (const x of r.inside) if (x && typeof x === 'object' && typeof (x as { item?: unknown }).item === 'string' && !hasItem((x as { item: string }).item)) into.add((x as { item: string }).item);
+  // (a kind retired is read as what took its place: not lost)
+  const gone = (id: string): boolean => !hasItem(id) && !retiredKind(id);
+  if (typeof r.item === 'string' && gone(r.item)) into.add(r.item);
+  if (Array.isArray(r.inside)) for (const x of r.inside) if (x && typeof x === 'object' && typeof (x as { item?: unknown }).item === 'string' && gone((x as { item: string }).item)) into.add((x as { item: string }).item);
 }
 
 /**
@@ -296,6 +319,8 @@ function readThings(s: SaveV1, loss: LoadLoss, kinds: Set<string>): void {
   const partIds: string[] = [];
   const part = (i: PartInstance): void => {
     partDef(i.part);
+    // (what goes inside a car is clean now: docs/V3/plan/hands.md §五)
+    keepInsideClean(i);
     partIds.push(i.uid);
     for (const sub of Object.values(i.sub ?? {})) part(sub);
   };
@@ -329,6 +354,8 @@ function readThings(s: SaveV1, loss: LoadLoss, kinds: Set<string>): void {
         kinds.add(`tool:${String((slot.tool as { kind?: unknown }).kind)}`);
         return false;
       }
+      // (the sponge, the brush and the better scrapers are retired: a plastic scraper in their place)
+      retireTool(slot.tool);
       tools.push(slot.tool);
       return true;
     }

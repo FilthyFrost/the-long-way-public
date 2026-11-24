@@ -1,0 +1,855 @@
+"""Turtle exterior (frames/turtle.py; the Loaf's, frames/_van_ext.py, with the elevating roof's opening in the roof, the lip
+round it, the shell over it and its bellows). The Loaf's own words follow: Van exterior (left half; frames/_van_build.py mirrors). The one shell V on its loft chart CV: the body region with
+the two arch notches, the windscreen notch at the front centre, the engine lid and tailgate notches at the rear
+centre, holes for the cab door, the fixed windows, the head and tail lamps (and on the left the fuel flap, on the
+right the sliding door: the right side is built in left coordinates and mirrored), split at the waist into the
+mustard below (paint) and the cream above (paint_b); the roof's middle; the panel skins; the glass; the rolled
+edges, flanges and hems; the trims and the small things on the nose and the tail; the inside of the shell (the
+lining, at WALL)."""
+import math
+import sys
+
+sys.dont_write_bytecode = True
+
+import numpy as np  # noqa: E402
+
+from frames import _kit as K  # noqa: E402
+from frames import turtle as S  # noqa: E402
+from frames._sedan_build import badge_buf, plate_buf  # noqa: E402,F401
+from frames._sedan_ext import Path, side_dir  # noqa: E402
+
+D = S.D
+PI = math.pi
+DELTA = S.DELTA
+ER = S.ER
+U = S.U_END
+T = S.V_T
+ZMAT = {0: 'paint', 1: 'paint_b'}
+WALL = -0.03          # the lining inside the shell
+
+
+def zone_waist(cen):
+    return np.where(cen[:, 1] > S.T_WAIST, 1, 0)
+
+
+def two_tone(buf, z=None):
+    """The paint of a buffer's 'paint' triangles above the waist (by their centroids) turned to paint_b: the
+    flanges and reveals of the openings take the colour of the skin they turn in from."""
+    z = D['waist_z'] if z is None else z
+    V, N, Tr, M = buf.arrays()
+    if not len(Tr):
+        return buf
+    cz = V[Tr].mean(axis=1)[:, 2]
+    buf.M = ['paint_b' if (m == 'paint' and c > z) else m for m, c in zip(M, cz)]
+    return buf
+
+
+def lines_waist():
+    return [(1, S.T_WAIST, -0.1, U + 0.1)]
+
+
+def rr(x0, x1, z0, z1, r, rb=None, step=0.07, arc=0.009):
+    """Counter-clockwise rounded rectangle in a chart's plane coordinates (optional other bottom radius)."""
+    rb = r if rb is None else rb
+    return K.rounded_poly(np.array([(x0, z0), (x1, z0), (x1, z1), (x0, z1)]), [rb, rb, r, r], step, arc_step=arc)
+
+
+def to_ccw(uv):
+    return K.ccw(np.asarray(uv, float))
+
+
+class Cut:
+    """A cut line in the loft chart and its two offset boundaries ('in' = the panel side, 'out' = the body side)."""
+
+    def __init__(self, uv, closed, inner_sign, centre_u=None):
+        self.chart = S.CV
+        self.uv = np.asarray(uv, float)
+        self.closed = closed
+        self.P, self.N = S.CV.to3d(self.uv)
+        self.sides = {}
+        for name, sgn in (('in', inner_sign), ('out', -inner_sign)):
+            uvo = K.offset_loop2(self.uv, sgn * DELTA, closed)
+            if centre_u is not None:
+                uvo[0, 0] = centre_u
+                uvo[-1, 0] = centre_u
+            P, N = S.CV.to3d(uvo)
+            E = side_dir(P, N, self.P, closed)
+            self.sides[name] = dict(uv=uvo, P=P, N=N, E=E)
+
+    def side(self, name):
+        return self.sides[name]
+
+
+def densify(uv, step=0.03, closed=True):
+    return K.resample_keep(np.asarray(uv, float), step, closed)
+
+
+def coarse_loop(uv, step, tol=0.003):
+    """A closed loop thinned to within tol of itself (its corners kept, so halves still meet on the centre line),
+    long runs then cut to at most step."""
+    uv = np.asarray(uv, float)
+    P = np.vstack([uv, uv[:1]])
+    Q = P[K.coarse_idx(P, tol)]
+    if np.linalg.norm(Q[-1] - Q[0]) < 1e-9:
+        Q = Q[:-1]
+    return K.resample_keep(Q, step, closed=True)
+
+
+# ============================================================================================ the exterior
+# ============================================================================================ the elevating roof
+def vnormals(V, T):
+    """Per-vertex normals of a triangle mesh (the faces' normals summed, area weighted, at their corners)."""
+    V = np.asarray(V, float)
+    T = np.asarray(T, np.int64)
+    fn = np.cross(V[T[:, 1]] - V[T[:, 0]], V[T[:, 2]] - V[T[:, 0]])
+    N = np.zeros_like(V)
+    for k in range(3):
+        np.add.at(N, T[:, k], fn)
+    return K.unit(N + 1e-12)
+
+
+def opening_half(step=0.05):
+    """The opening's outline in plan, its left half: from the centre line at its back round to the centre line at its
+    front (a rounded rectangle, x pt_x0 … pt_x1, half width pt_hw, corners pt_r)."""
+    x0, x1, hw, r = D['pt_x0'], D['pt_x1'], D['pt_hw'], D['pt_r']
+    pts = np.array([(x0, 0.0), (x0, hw), (x1, hw), (x1, 0.0)])
+    return K.rounded_poly(pts, [0, r, r, 0], step, closed=False, arc_step=0.02)
+
+
+def opening_loop(step=0.05):
+    """The whole opening (both halves), closed, counter-clockwise in plan."""
+    h = opening_half(step)
+    m = h[::-1].copy()
+    m[:, 1] *= -1.0
+    return K.ccw(np.vstack([h[:-1], m[:-1]]))
+
+
+def shell_top(x, y):
+    """The shell's top over the plan (its crown on the middle, a turtle's back): the roof's height under it, the lip,
+    the crown."""
+    x0, x1 = D['pt_x0'] - D['pt_over'], D['pt_x1'] + D['pt_over']
+    hw = D['pt_hw'] + D['pt_over']
+    cx, hx = (x0 + x1) / 2, (x1 - x0) / 2
+    u = np.clip((np.asarray(x, float) - cx) / hx, -1.0, 1.0)
+    v = np.clip(np.asarray(y, float) / hw, -1.0, 1.0)
+    base = D['roof_z'] + D['roof_crown'] + 0.036
+    return base + 0.035 + D['pt_crown'] * (1.0 - u ** 4) * (1.0 - v ** 2)
+
+
+def shell():
+    """The elevating roof's shell (POPUP_roof) as it sits shut on the lip: its domed top (sea green: the body's paint),
+    its rolled skirt down round the lip, the seams of its scutes, its underside (the ceiling of the stood-up room)
+    with a lamp; origin on the middle of the opening at the lip's top (it lifts straight up from there)."""
+    x0, x1 = D['pt_x0'] - D['pt_over'], D['pt_x1'] + D['pt_over']
+    hw, r = D['pt_hw'] + D['pt_over'], D['pt_r'] + D['pt_over']
+    base = D['roof_z'] + D['roof_crown'] + 0.036
+    # rings from the middle out to the edge (a rounded rectangle shrunk towards the middle), then the skirt
+    outline = K.ccw(K.rounded_poly(np.array([(x0, -hw), (x1, -hw), (x1, hw), (x0, hw)]), [r, r, r, r], 0.08, arc_step=0.04))
+    n = len(outline)
+    cx = (x0 + x1) / 2
+    rings = [0.04, 0.2, 0.4, 0.6, 0.78, 0.9, 0.97, 1.0]
+    V = []
+    for k in rings:
+        for (px, py) in outline:
+            x = cx + (px - cx) * k
+            y = py * k
+            V.append((x, y, float(shell_top(x, y))))
+    # the roll over the edge and the skirt down (outward a little, then straight down to the lip's foot)
+    edge = np.array([(px, py) for (px, py) in outline])
+    nrm = np.zeros_like(edge)
+    for i in range(n):
+        d = edge[(i + 1) % n] - edge[i - 1]
+        nrm[i] = K.unit(np.array([d[1], -d[0]]))
+    top_e = np.array([float(shell_top(px, py)) for (px, py) in outline])
+    for (dn, dz) in ((0.006, -0.008), (0.012, -0.022), (0.014, -0.04), (0.014, -0.075)):
+        for i in range(n):
+            V.append((edge[i, 0] + nrm[i, 0] * dn, edge[i, 1] + nrm[i, 1] * dn, top_e[i] + dz))
+    V = np.array(V)
+    rows = len(rings) + 4
+    T = []
+    for rr in range(rows - 1):
+        for i in range(n):
+            a = rr * n + i
+            b_ = rr * n + (i + 1) % n
+            c = (rr + 1) * n + (i + 1) % n
+            d_ = (rr + 1) * n + i
+            T += [(a, d_, c), (a, c, b_)]
+    # the middle closed by a fan round a centre point
+    ci = len(V)
+    V = np.vstack([V, [(cx, 0.0, float(shell_top(cx, 0.0)))]])
+    for i in range(n):
+        T.append((ci, i, (i + 1) % n))
+    T = np.array(T)
+    b = K.Buf()
+    b.add(V, vnormals(V, T), T, 'paint')
+    # the underside: the domed top (not the skirt) lowered by the shell's thickness, facing down — the stood-up
+    # room's ceiling
+    top_rows = len(rings) * n
+    Tu = np.array([t for t in T if (t < top_rows).all() or (t == ci).any()])
+    Vu = V.copy()
+    Vu[:, 2] -= 0.022
+    b.add(Vu, vnormals(Vu, Tu[:, ::-1]), Tu[:, ::-1], 'paint_b')
+    # the scutes' seams: a spine down the middle, a line each side, cross seams between (dark beads, a few mm proud)
+    seams = []
+    xs = np.linspace(x0 + 0.35, x1 - 0.35, 5)
+    seams.append(np.array([(x, 0.0) for x in np.linspace(xs[0], xs[-1], 24)]))
+    for sy in (1, -1):
+        seams.append(np.array([(x, sy * hw * 0.52) for x in np.linspace(xs[0], xs[-1], 24)]))
+        for x in xs:
+            seams.append(np.array([(x, 0.0), (x, sy * hw * 0.52)]))
+            seams.append(np.array([(x, sy * hw * 0.52), (x + sy * 0.0, sy * hw * 0.86)]))
+    for sm in seams:
+        sm = np.array(sm, float)
+        if len(sm) == 2:
+            sm = np.stack([np.linspace(sm[0, 0], sm[1, 0], 8), np.linspace(sm[0, 1], sm[1, 1], 8)], 1)
+        P3 = np.stack([sm[:, 0], sm[:, 1], shell_top(sm[:, 0], sm[:, 1]) + 0.002], 1)
+        b.extend(K.tube_buf(P3, 0.0035, 'trim', 5))
+    # the room's lamp on its underside, over the middle of the floor
+    lz = float(shell_top(0.15, 0.0)) - 0.022
+    b.extend(K.cyl_buf((0.15, 0.0, lz), (0.15, 0.0, lz - 0.03), 0.1, 'emit', 16, r1=0.08))
+    return b, np.array([cx, 0.0, base])
+
+
+def bellows():
+    """The pleated canvas round the opening between the lip and the shell, as it hangs with the shell lifted (the game
+    squashes it down onto the lip as the shell comes down); origin at the lip's top on the middle of the opening."""
+    lift = D['pt_lift']
+    base = D['roof_z'] + D['roof_crown'] + 0.036
+    loop = opening_loop(0.12)
+    n = len(loop)
+    nrm = np.zeros_like(loop)
+    for i in range(n):
+        d = loop[(i + 1) % n] - loop[i - 1]
+        nrm[i] = K.unit(np.array([d[1], -d[0]]))
+    # (out of the lip by 2 cm, inside the shell's skirt; pleats every 12 cm of the height)
+    levels = np.linspace(0.0, lift + 0.03, 12)
+    V = []
+    for j, h in enumerate(levels):
+        o = 0.02 + (0.018 if j % 2 else 0.0)
+        for i in range(n):
+            V.append((loop[i, 0] + nrm[i, 0] * o, loop[i, 1] + nrm[i, 1] * o, base - 0.01 + h))
+    V = np.array(V)
+    T = []
+    for j in range(len(levels) - 1):
+        for i in range(n):
+            a = j * n + i
+            b_ = j * n + (i + 1) % n
+            c = (j + 1) * n + (i + 1) % n
+            d_ = (j + 1) * n + i
+            T += [(a, b_, c), (a, c, d_)]
+    T = np.array(T)
+    N = vnormals(V, T)
+    out = K.Buf().add(V, N, T, 'paint_b')
+    # (its inside too: one looks at it from the stood-up room)
+    out.add(V - np.concatenate([N[:, :2] * 0.002, np.zeros((len(V), 1))], 1), -N, T[:, ::-1], 'paint_b')
+    cx = (D['pt_x0'] + D['pt_x1']) / 2
+    return out, np.array([cx, 0.0, base])
+
+
+class Exterior:
+    def __init__(self):
+        self.us = S.v_u_samples()
+        self.ts = S.v_t_samples()
+        self.cut = {}
+        self.win = {}
+        self._arches()
+        self._side_cuts()
+        self._rear_cuts()
+        self._front_cuts()
+
+    # ------------------------------------------------------------------ cuts
+    def _arches(self):
+        self.arch = {}
+        for key, xa in (('F', D['ax_f']), ('R', D['ax_r'])):
+            R, za, zb = D['arch_r'], D['arch_zc'], D['z_bot']
+            th = math.asin((zb - za) / R)
+            ths = np.linspace(th, PI - th, 48)
+            ax = xa + R * np.cos(ths)
+            az = za + R * np.sin(ths)
+            uu = S.u_of_x(ax)
+            uv = np.stack([uu, S.t_of_z(uu, az)], 1)
+            uv[0, 1] = uv[-1, 1] = T[1]
+            down = np.linspace(T[0], T[1], 3)
+            front = np.stack([np.full(len(down), uv[0, 0]), down], 1)
+            rear = np.stack([np.full(len(down), uv[-1, 0]), down[::-1]], 1)
+            nt = np.vstack([front[:-1], uv, rear[1:]])
+            P, N = S.CV.to3d(nt)
+            self.arch[key] = dict(uv=nt, P=P, N=N)
+
+    def _side_cuts(self):
+        d = D
+        # cab door (both sides) and its window
+        loop = rr(d['cd_x0'], d['cd_x1'], d['cd_z0'], d['cd_z1'], d['cd_r'])
+        self.cut['door'] = Cut(to_ccw(S.side_uv(loop)), True, +1.0)
+        x0, x1, z0, z1, r = d['cd_win']
+        self.win['door'] = self._side_win(rr(x0, x1, z0, z1, r))
+        # the quarter window ahead of the door: its front edge 65 deg round the nose's corner roll (the pillar
+        # between it and the windscreen is a narrow strip of the corner)
+        zq = np.linspace(d['q_z1'], d['q_z0'], 7)
+        front = np.stack([S.flat_end_x(zq) + 0.08, zq], 1)
+        poly = np.vstack([[(d['q_x0'], d['q_z0']), (d['q_x0'], d['q_z1'])], front])
+        radii = np.zeros(len(poly))
+        radii[0], radii[1], radii[2], radii[-1] = 0.035, 0.035, 0.03, 0.03
+        q = K.rounded_poly(K.ccw(poly), radii if K.loop_area(poly) > 0 else radii[::-1], 0.03, arc_step=0.008)
+        P, N = S.SIDE.to3d(q)
+        uv = S.CV.to2d(P)
+        self.win['quarter'] = dict(uv=uv, P=P, N=N)
+        for name in ('mid', 'rear'):
+            x0, x1, z0, z1, r = d['win_' + name]
+            self.win[name] = self._side_win(rr(x0, x1, z0, z1, r))
+        # the sliding door (right side, built in left coordinates) and its window
+        loop = rr(d['sd_x0'], d['sd_x1'], d['sd_z0'], d['sd_z1'], d['sd_r'], rb=0.035)
+        self.cut['side'] = Cut(to_ccw(S.side_uv(loop)), True, +1.0)
+        x0, x1, z0, z1, r = d['sd_win']
+        self.win['side'] = self._side_win(rr(x0, x1, z0, z1, r))
+        # fuel flap (left)
+        fx, fz, fr = d['fuel']
+        self.cut['fuel'] = Cut(to_ccw(S.side_uv(K.circle_loop(fx, fz, fr, 0.008))), True, +1.0)
+
+    @staticmethod
+    def _side_win(loop_xz):
+        uv = to_ccw(S.side_uv(densify(loop_xz, 0.07)))
+        P, N = S.CV.to3d(uv)
+        return dict(uv=uv, P=P, N=N, xz=loop_xz)
+
+    def _rear_cuts(self):
+        d = D
+        # tailgate and engine lid: notches at the rear centre (left half, top centre -> round -> bottom centre)
+        for key, hw, z0, z1, r in (('tg', d['tg_hw'], d['tg_z0'], d['tg_z1'], d['tg_r']), ('lid', d['lid_hw'], d['lid_z0'], d['lid_z1'], d['lid_r'])):
+            pts = np.array([(0.0, z1), (hw, z1), (hw, z0), (0.0, z0)])
+            yz = K.rounded_poly(pts, [0, r, r, 0], 0.03, closed=False, arc_step=0.008)
+            uv = S.rear_uv(yz)
+            uv[0, 0] = uv[-1, 0] = U
+            self.cut[key] = Cut(uv, False, +1.0, centre_u=U)
+            self.cut[key].yz = yz
+        # tail window on the tailgate (notch at the centre line)
+        pts = np.array([(0.0, d['tw_z1']), (d['tw_hw'], d['tw_z1']), (d['tw_hw'], d['tw_z0']), (0.0, d['tw_z0'])])
+        yz = K.rounded_poly(pts, [0, d['tw_r'], d['tw_r'], 0], 0.03, closed=False, arc_step=0.008)
+        uv = S.rear_uv(yz)
+        uv[0, 0] = uv[-1, 0] = U
+        P, N = S.CV.to3d(uv)
+        self.win['tail'] = dict(uv=uv, P=P, N=N, yz=yz)
+        # upright tail lamp recesses
+        y0, y1 = d['tail_y'] - d['tail_w'] / 2, d['tail_y'] + d['tail_w'] / 2
+        z0, z1 = d['tail_z'] - d['tail_h'] / 2, d['tail_z'] + d['tail_h'] / 2
+        yz = rr(y0, y1, z0, z1, 0.022, step=0.025, arc=0.006)
+        uv = to_ccw(S.rear_uv(yz))
+        P, N = S.CV.to3d(uv)
+        self.open_tail = dict(uv=uv, P=P, N=N, yz=yz)
+
+    def _front_cuts(self):
+        d = D
+        # the windscreen: a notch at the front centre (left half), its corners wrapping into the nose's corners
+        hw, z0, z1, r = d['ws_hw'], d['ws_foot'], d['ws_head'], d['ws_r']
+        pts = np.array([(0.0, z1), (hw, z1), (hw, z0), (0.0, z0)])
+        yz = K.rounded_poly(pts, [0, r, 0.05, 0], 0.03, closed=False, arc_step=0.008)
+        P, N = S.FRONT.to3d(yz)
+        uv = S.CV.to2d(P)
+        uv[0, 0] = uv[-1, 0] = 0.0
+        P, N = S.CV.to3d(uv)
+        self.win['ws'] = dict(uv=uv, P=P, N=N, yz=yz)
+        # the round head lamps
+        c = K.circle_loop(d['lamp_y'], d['lamp_z'], d['lamp_d'] / 2, 0.012)
+        uv = to_ccw(S.front_uv(c))
+        P, N = S.CV.to3d(uv)
+        self.open_lamp = dict(uv=uv, P=P, N=N, yz=c)
+
+    # ------------------------------------------------------------------ the body region
+    def body_loop(self, coarse=False):
+        """Outer loop of the body region on the loft (left half). coarse: no fixed points (the lining)."""
+        us, ts = self.us, self.ts
+        p = Path()
+        cur = -1.0
+        for key in ('F', 'R'):
+            nt = self.arch[key]
+            seg = us[(us > cur) & (us < nt['uv'][0, 0] - 1e-4)]
+            p.add(np.stack([seg, np.full(len(seg), T[0])], 1))
+            p.add(nt['uv'], nt['P'], nt['N'])
+            cur = nt['uv'][-1, 0] + 1e-4
+        seg = us[(us > cur) & (us < U - 1e-6)]
+        p.add(np.stack([np.concatenate([seg, [U]]), np.full(len(seg) + 1, T[0])], 1))
+        # rear centre line up, round the engine lid and the tailgate (their outer boundaries, bottom end first)
+        lo = self.cut['lid'].side('out')
+        tg = self.cut['tg'].side('out')
+        tt = ts[(ts > T[0] + 1e-4) & (ts < lo['uv'][-1, 1] - 0.004)]
+        p.add(np.stack([np.full(len(tt), U), tt], 1))
+        p.add(lo['uv'][::-1], lo['P'][::-1], lo['N'][::-1])
+        tt = ts[(ts > lo['uv'][0, 1] + 0.004) & (ts < tg['uv'][-1, 1] - 0.004)]
+        p.add(np.stack([np.full(len(tt), U), tt], 1))
+        p.add(tg['uv'][::-1], tg['P'][::-1], tg['N'][::-1])
+        tt = ts[(ts > tg['uv'][0, 1] + 0.004) & (ts < T[-1] - 1e-6)]
+        p.add(np.stack([np.full(len(tt) + 1, U), np.concatenate([tt, [T[-1]]])], 1))
+        # top row forwards
+        uu = us[(us > 1e-6) & (us < U - 1e-6)][::-1]
+        p.add(np.stack([np.concatenate([uu, [0.0]]), np.full(len(uu) + 1, T[-1])], 1))
+        # front centre line down, round the windscreen (its outline runs top -> bottom)
+        ws = self.win['ws']
+        tt = ts[(ts > ws['uv'][0, 1] + 0.004) & (ts < T[-1] - 1e-6)][::-1]
+        p.add(np.stack([np.zeros(len(tt)), tt], 1))
+        p.add(ws['uv'], ws['P'], ws['N'])
+        tt = ts[(ts > T[0] + 1e-6) & (ts < ws['uv'][-1, 1] - 0.004)][::-1]
+        p.add(np.stack([np.zeros(len(tt)), tt], 1))
+        loop = p.loop()
+        if coarse:
+            return K.Loop(coarse_loop(loop.uv, 0.08))
+        return loop
+
+    def body_holes(self, side, coarse=False):
+        def L(d_):
+            return K.Loop(d_['uv']) if coarse else K.Loop(d_['uv'], d_['P'], d_['N'])
+        holes = [L(self.open_lamp), L(self.open_tail), L(self.cut['door'].side('out')), L(self.win['quarter']), L(self.win['rear'])]
+        if side == 'L':
+            holes += [L(self.win['mid'])]
+            if not coarse:                  # the lining closes over the filler's pocket
+                holes += [L(self.cut['fuel'].side('out'))]
+        else:
+            holes += [L(self.cut['side'].side('out'))]
+        return holes
+
+    def body(self, side):
+        """The outer skin (left half; side 'R' is the right half built in left coordinates)."""
+        loop = self.body_loop()
+        holes = self.body_holes(side)
+        pts, sp = S.grid_from(self.us, self.ts)
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines_waist(), zone_fn=zone_waist, spacing=sp, line_step=0.05)
+        return K.add_zones(K.Buf(), V, N, Tr, Z, ZMAT)
+
+    def roof(self, level=0.0):
+        """The middle of the roof (left half), on the height-field chart, bounded by the loft's top row."""
+        if level == 0:
+            row = np.stack([self.us, np.full(len(self.us), T[-1])], 1)
+        else:
+            # the lining's middle takes the very points the lining's top row has, so the two meet edge to edge
+            lp = self.body_loop(coarse=True).uv
+            row = lp[np.abs(lp[:, 1] - T[-1]) < 1e-9]
+            row = row[np.argsort(row[:, 0])]
+        Pr, Nr = S.CV.to3d(row, level if level else None)
+        a, b = Pr[-1], Pr[0]
+        # back along the centre line to the elevating roof's opening, round its half (a notch: the opening is no
+        # roof), on along the centre line to the front
+        lv = level if level else None
+        xs = np.linspace(a[0], D['pt_x0'], max(3, int(abs(D['pt_x0'] - a[0]) / 0.06)))[1:]
+        Pc, Nc = S.CT.to3d(np.stack([xs, np.zeros(len(xs))], 1), lv)
+        op = opening_half()
+        Po, No = S.CT.to3d(op[1:-1], lv)
+        xs2 = np.linspace(D['pt_x1'], b[0], max(3, int(abs(b[0] - D['pt_x1']) / 0.06)))[:-1]
+        Pc2, Nc2 = S.CT.to3d(np.stack([xs2, np.zeros(len(xs2))], 1), lv)
+        P = np.vstack([Pr, Pc, Po, Pc2])
+        Nn = np.vstack([Nr, Nc, No, Nc2])
+        sp = 0.12 if level == 0 else 0.2
+        xg, yg = np.meshgrid(np.arange(D['xr'] - 0.1, D['xf'] + 0.1, sp), np.arange(0.0, D['hw'], sp), indexing='ij')
+        g = np.stack([xg.ravel(), yg.ravel()], 1)
+        if level == 0:
+            V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2], P, Nn)], [], g, spacing=sp)
+            return K.Buf().add(V, N, Tr, 'paint_b')
+        V, N, Tr = K.mesh_region(S.CT, [K.Loop(P[:, :2])], [], g, spacing=sp, level=level)
+        return K.Buf().add(V, -N, Tr, 'paint_b')
+
+    def opening_lip(self):
+        """The lip round the elevating roof's opening (all of it): an upstand the shell sits down on, its inside
+        down past the roof's lining (the cut's edge)."""
+        loop = opening_loop()
+        P, N = S.CT.to3d(loop)
+        prof = np.array([(0.012, -0.05), (0.012, 0.036), (0.004, 0.044), (-0.012, 0.044), (-0.012, -0.05)])
+        V, Nn, Tr = K.sweep(P, N, prof, closed=True)
+        return K.Buf().add(V, Nn, Tr, 'paint_b')
+
+    def lining(self, side):
+        """The inside of the shell, WALL in, facing in: plastic in the cab, wood panels below the windows in the room,
+        painted metal round the engine bay, the headliner over the roof roll (left half; 'R' in left coordinates)."""
+        from frames import _turtle_inner as IN
+        loop = self.body_loop(coarse=True)
+        holes = [K.Loop(K.resample(h.uv, 0.06, closed=True)) for h in self.body_holes(side, coarse=True)]
+        us = S.v_u_samples(0.20, 0.12, 0.06)
+        ts = S.v_t_samples(0.20, 6)
+        pts, sp = S.grid_from(us, ts)
+        u_cab = float(S.u_of_x(IN.ROOM_FRONT_X))
+        u_fw = float(S.u_of_x(IN.FIREWALL_X))
+        t_pan = float(S.t_of_z(2.0, 1.12)[0])
+        t_deck = float(S.t_of_z(2.0, IN.DECK_Z)[0])
+        t_roll = float(T[5])
+        lines = [(0, u_cab, T[0], t_pan), (0, u_fw, T[0], t_roll), (1, t_pan, u_cab, u_fw), (1, t_deck, u_fw, U + 0.1), (1, t_roll, -0.1, U + 0.1)]
+
+        def zf(c):
+            u, t = c[:, 0], c[:, 1]
+            z = np.zeros(len(u), np.int64)                     # 0 the cab: plastic
+            room = (u > u_cab) & (u < u_fw)
+            z[room] = 3                                        # 3 the room's upper walls: cream
+            z[room & (t < t_pan)] = 1                          # 1 wood panels below the windows
+            z[u > u_fw] = 3                                    # (round the tailgate inside)
+            z[(u > u_fw) & (t < t_deck)] = 2                   # 2 the engine bay: painted
+            z[t > t_roll] = 3                                  # the headliner
+            return z
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], holes, pts, lines=lines, zone_fn=zf, spacing=sp, level=WALL, line_step=0.12)
+        return K.add_zones(K.Buf(), V, N, Tr, Z, {0: 'plastic_int', 1: 'wood', 2: 'paint', 3: 'paint_b'}, flip=True)
+
+    # ------------------------------------------------------------------ panel skins
+    def door_skin(self, key):
+        """Cab door ('door') or sliding door ('side') skin round its window, split at the waist (left coordinates)."""
+        s = self.cut[key].side('in')
+        w = self.win['door' if key == 'door' else 'side']
+        us = S.v_u_samples(0.05, 0.05, 0.05)
+        pts, sp = S.grid_from(us, self.ts)
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [K.Loop(s['uv'], s['P'], s['N'])], [K.Loop(w['uv'], w['P'], w['N'])], pts,
+                                          lines=lines_waist(), zone_fn=zone_waist, spacing=sp, line_step=0.05)
+        return K.add_zones(K.Buf(), V, N, Tr, Z, ZMAT)
+
+    def rear_panel_loop(self, key):
+        """The tailgate's or the engine lid's skin outline (left half): its inner boundary, then the centre line (round
+        the tail window's notch on the tailgate)."""
+        s = self.cut[key].side('in')
+        p = Path()
+        p.add(s['uv'], s['P'], s['N'])
+        t_top, t_bot = s['uv'][0, 1], s['uv'][-1, 1]
+        tt = np.linspace(t_bot, t_top, max(3, int((t_top - t_bot) / 0.04)))[1:-1]
+        if key == 'tg':
+            w = self.win['tail']
+            a, b = w['uv'][-1, 1], w['uv'][0, 1]
+            lo = tt[tt < a - 0.004]
+            hi = tt[tt > b + 0.004]
+            p.add(np.stack([np.full(len(lo), U), lo], 1))
+            p.add(w['uv'][::-1], w['P'][::-1], w['N'][::-1])
+            p.add(np.stack([np.full(len(hi), U), hi], 1))
+        else:
+            p.add(np.stack([np.full(len(tt), U), tt], 1))
+        return p.loop()
+
+    def rear_panel(self, key):
+        loop = self.rear_panel_loop(key)
+        us = S.v_u_samples(0.06, 0.05, 0.03)
+        pts, sp = S.grid_from(us, self.ts)
+        if key == 'lid':
+            V, N, Tr = K.mesh_region(S.CV, [loop], [], pts, spacing=sp)
+            return K.Buf().add(V, N, Tr, 'paint')
+        V, N, Tr, Z = K.mesh_region_split(S.CV, [loop], [], pts, lines=lines_waist(), zone_fn=zone_waist, spacing=sp, line_step=0.05)
+        return K.add_zones(K.Buf(), V, N, Tr, Z, ZMAT)
+
+    def fuel_flap(self):
+        s = self.cut['fuel'].side('in')
+        c = s['uv'].mean(0)
+        g = K.grid_points(c[0] - 0.06, c[0] + 0.06, c[1] - 0.06, c[1] + 0.06, 0.012, dt=0.012)
+        V, N, Tr = K.mesh_region(S.CV, [K.Loop(s['uv'], s['P'], s['N'])], [], g, spacing=0.012)
+        b = K.Buf().add(V, N, Tr, 'paint')
+        V, N, Tr = K.roll_edge(s['P'], s['N'], s['E'], 0.0015, 0.006, 0.004, 2, closed=True, hem_segs=0)
+        b.add(V, N, Tr, 'paint')
+        b.extend(K.panel_back(s['P'], s['N'], s['E']))
+        return b
+
+    # ------------------------------------------------------------------ glass
+    def glass(self):
+        out = {}
+        # windscreen (left half): the opening grown 14 mm (its edge hides behind the rolled flange), 9 mm in
+        yz = self.win['ws']['yz']
+        big = K.offset_loop2(yz, 0.014, closed=False)
+        big[0, 0] = 0.0
+        big[-1, 0] = 0.0
+        ss = np.linspace(big[-1, 1], big[0, 1], 16)[1:-1]
+        loop = np.vstack([big, np.stack([np.zeros(len(ss)), ss], 1)])
+        g = K.grid_points(0.0, 1.0, 1.0, 2.0, 0.09, dt=0.09)
+        V, N, Tr = K.mesh_region(S.FRONT, [K.Loop(K.resample_keep(K.ccw(loop), 0.045))], [], g, spacing=0.09, level=-0.009)
+        out['ws'] = K.Buf().add(V, N, Tr, 'glass')
+
+        def pane(w, level, grow=0.012):
+            uv = K.offset_loop2(to_ccw(w['uv']), -grow, True)
+            lo, hi = uv.min(0), uv.max(0)
+            g = K.grid_points(lo[0], hi[0], lo[1], hi[1], 0.12, dt=0.12)
+            V, N, Tr = K.mesh_region(S.CV, [K.Loop(K.resample_keep(uv, 0.06))], [], g, spacing=0.12, level=level)
+            return K.Buf().add(V, N, Tr, 'glass')
+        out['quarter'] = pane(self.win['quarter'], -0.012)
+        out['mid'] = pane(self.win['mid'], -0.012)
+        out['rear'] = pane(self.win['rear'], -0.012)
+        out['door'] = pane(self.win['door'], -0.024)
+        out['side'] = pane(self.win['side'], -0.024)
+        # the tail window (left half, on the tailgate)
+        w = self.win['tail']
+        uv = K.offset_loop2(w['uv'], -0.012, closed=False)
+        uv[0, 0] = uv[-1, 0] = U
+        tt = np.linspace(uv[-1, 1], uv[0, 1], 12)[1:-1]
+        loop = np.vstack([uv, np.stack([np.full(len(tt), U), tt], 1)])
+        g = K.grid_points(U - 0.6, U, T[3], T[6], 0.12, dt=0.12)
+        V, N, Tr = K.mesh_region(S.CV, [K.Loop(K.resample_keep(K.ccw(loop), 0.06))], [], g, spacing=0.12, level=-0.02)
+        out['tail'] = K.Buf().add(V, N, Tr, 'glass')
+        return out
+
+    # ------------------------------------------------------------------ edges
+    def edges(self):
+        """Rolled edges: (body buffer for the left half, body extras per side {'L', 'R'}, panel buffers)."""
+        body = K.Buf()
+        per = {'L': K.Buf(), 'R': K.Buf()}
+        panels = {}
+        # the cab door's opening (body) and the door's hem, its window's reveal
+        for key, sides in (('door', ('L', 'R')), ('side', ('R',))):
+            c = self.cut[key]
+            so = c.side('out')
+            V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.06, 0.0, 2, closed=True)
+            for sd in sides:
+                per[sd].add(V, N, Tr, 'paint')
+            si = c.side('in')
+            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.055, 0.02, 2, closed=True, hem_segs=0)
+            pb = panels.setdefault(key, K.Buf())
+            pb.add(V, N, Tr, 'paint')
+            w = self.win['door' if key == 'door' else 'side']
+            E = side_dir(w['P'], w['N'], np.tile(w['P'].mean(0), (len(w['P']), 1)), True)
+            V, N, Tr = K.roll_edge(w['P'], w['N'], E, 0.003, 0.048, 0.0, 2, closed=True)
+            pb.add(V, N, Tr, 'paint')
+        # fixed windows
+        for name, sides in (('quarter', ('L', 'R')), ('rear', ('L', 'R')), ('mid', ('L',))):
+            w = self.win[name]
+            E = side_dir(w['P'], w['N'], np.tile(w['P'].mean(0), (len(w['P']), 1)), True)
+            V, N, Tr = K.roll_edge(w['P'], w['N'], E, 0.003, 0.036, 0.0, 2, closed=True)
+            for sd in sides:
+                per[sd].add(V, N, Tr, 'paint')
+        # tailgate and engine lid openings (body) and their hems (panels); the tail window's reveal (tailgate)
+        for key in ('tg', 'lid'):
+            c = self.cut[key]
+            so = c.side('out')
+            V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], ER, 0.05, 0.0, 2, closed=False)
+            body.add(V, N, Tr, 'paint')
+            si = c.side('in')
+            V, N, Tr = K.roll_edge(si['P'], si['N'], si['E'], ER, 0.04, 0.016, 2, closed=False, hem_segs=0)
+            panels.setdefault(key, K.Buf()).add(V, N, Tr, 'paint')
+        w = self.win['tail']
+        cen = np.array([w['P'][:, 0].mean() + 0.1, 0.0, w['P'][:, 2].mean()])
+        E = side_dir(w['P'], w['N'], np.tile(cen, (len(w['P']), 1)), False)
+        V, N, Tr = K.roll_edge(w['P'], w['N'], E, 0.003, 0.044, 0.0, 2, closed=False)
+        panels['tg'].add(V, N, Tr, 'paint')
+        # windscreen opening
+        w = self.win['ws']
+        cen = np.array([w['P'][:, 0].mean() - 0.1, 0.0, w['P'][:, 2].mean()])
+        E = side_dir(w['P'], w['N'], np.tile(cen, (len(w['P']), 1)), False)
+        V, N, Tr = K.roll_edge(w['P'], w['N'], E, 0.004, 0.034, 0.0, 2, closed=False)
+        body.add(V, N, Tr, 'paint')
+        # wheel arches: the lip into the wheel well (the arc only)
+        for key in ('F', 'R'):
+            a = self.arch[key]
+            keep = a['uv'][:, 1] >= T[1] - 1e-6
+            P, N = a['P'][keep], a['N'][keep]
+            cc = np.array([P[:, 0].mean(), P[:, 1].mean(), D['hub_z']])
+            E = side_dir(P, N, np.tile(cc, (len(P), 1)), False)
+            V, Nn, Tr = K.roll_edge(P, N, E, 0.007, 0.04, 0.0, 2, closed=False)
+            body.add(V, Nn, Tr, 'paint')
+        return body, per, panels
+
+    # ------------------------------------------------------------------ lamps, louvres, the emblem
+    def opening_details(self):
+        b = K.Buf()
+        # head lamp buckets
+        lp = self.open_lamp
+        c3 = S.FRONT.to3d(np.array([[D['lamp_y'], D['lamp_z']]]))[0][0]
+        E = side_dir(lp['P'], lp['N'], np.tile(c3, (len(lp['P']), 1)), True)
+        V, N, Tr = K.roll_edge(lp['P'], lp['N'], E, 0.005, 0.012, 0.0, 2, closed=True, flange_dir=(-1, 0, 0))
+        b.add(V, N, Tr, 'paint')
+        ring = V.reshape(-1, len(lp['P']), 3)[-1]
+        depth = 0.07
+        b.extend(K.ring_tube(ring, (-1, 0, 0), depth, 1, 'trim'))
+        b.extend(K.fill_loop(ring - np.array([depth, 0, 0]), (1, 0, 0), 'trim'))
+        self.lamp_mount = (c3, lp['N'].mean(0))
+        # tail lamp recesses
+        tl = self.open_tail
+        ct = tl['P'].mean(0)
+        E = side_dir(tl['P'], tl['N'], np.tile(ct, (len(tl['P']), 1)), True)
+        V, N, Tr = K.roll_edge(tl['P'], tl['N'], E, 0.003, 0.045, 0.0, 2, closed=True, flange_dir=(1, 0, 0))
+        b.add(V, N, Tr, 'paint')
+        ring = V.reshape(-1, len(tl['P']), 3)[-1]
+        b.extend(K.fill_loop(ring, (-1, 0, 0), 'trim'))
+        self.tail_mount = (np.array([tl['P'][:, 0].mean(), ct[1], ct[2]]), -tl['N'].mean(0))
+        return b
+
+    def nose_details(self):
+        """Left half: the three louvres under the emblem, the indicator over each head lamp, a marker lamp on the
+        corner."""
+        b = K.Buf()
+        prof = K.round_profile(np.array([(-0.011, 0.0), (-0.009, 0.006), (0.009, 0.006), (0.011, 0.0)]), 0.003, 1)
+        for z in (0.63, 0.68, 0.73):
+            ys = np.linspace(0.0, 0.27, 6)
+            P, N = S.FRONT.to3d(np.stack([ys, np.full(len(ys), z)], 1))
+            V, Nn, Tr = K.sweep(P - N * 0.001, N, prof, closed=False)
+            b.add(V, Nn, Tr, 'trim')
+            end = V.reshape(len(P), -1, 3)[-1]
+            b.extend(K.fill_loop(end, (0, 1, 0), 'trim'))
+        p, n = S.FRONT.to3d(np.array([[D['lamp_y'], D['lamp_z'] + D['lamp_d'] / 2 + 0.05]]))
+        b.extend(K.box_buf((-0.012, -0.055, -0.018), (0.006, 0.055, 0.018), 'lens_amber', 0.008, 2, xf=K.mat4_trs(p[0])))
+        b.extend(K.box_buf((-0.008, -0.061, -0.024), (0.002, 0.061, 0.024), 'chrome', 0.006, 2, xf=K.mat4_trs(p[0])))
+        # a marker on the corner roll, under the waist
+        P, N = S.CV.to3d(np.array([[S.SV[1] + 0.5 * (S.SV[2] - S.SV[1]), float(S.t_of_z(0.8, 0.93)[0])]]))
+        R = K.frame_from(K.unit(np.cross((0, 0, 1.0), N[0])), N[0])
+        b.extend(K.box_buf((-0.035, -0.014, -0.004), (0.035, 0.014, 0.006), 'lens_amber', 0.006, 2, xf=K.mat4_trs(P[0], R)))
+        return b
+
+    def emblem(self):
+        """Our own mark in the middle of the nose: a turtle seen from above, its head up — a chrome-rimmed oval shell
+        (cream, its scutes' seams in chrome), the head, four flippers and the tail (centred, not mirrored)."""
+        b = K.Buf()
+        zc = 0.885
+        p0, n0 = S.FRONT.to3d(np.array([[0.0, zc]]))
+        n0 = K.unit(n0[0])
+        up = K.unit(np.array([0.0, 0.0, 1.0]) - n0 * n0[2])
+        right = np.cross(up, n0)
+        M = K.mat4_trs(p0[0], np.stack([right, up, n0], 1))
+        th = np.linspace(0.0, 2.0 * PI, 40, endpoint=False)
+        shell = K.ccw(np.stack([0.052 * np.cos(th), 0.064 * np.sin(th)], 1))
+        b.extend(K.prism_buf(shell, -0.002, 0.004, 'chrome', bevel=0.0015, segs=1, xf=M))
+        b.extend(K.prism_buf(K.offset_loop2(shell, 0.007), 0.003, 0.0062, 'paint_b', bevel=0.0, segs=1, xf=M))
+        # the scutes: a hexagon on the middle, lines out from its corners to the rim
+        hexa = np.array([(0.022 * math.cos(a), 0.026 * math.sin(a)) for a in np.linspace(PI / 2, PI / 2 + 2 * PI, 7)])
+        for k in range(6):
+            q0, q1 = hexa[k], hexa[k + 1]
+            b.extend(K.tube_buf(np.array([(q0[0], q0[1], 0.0064), (q1[0], q1[1], 0.0064)]) @ M[:3, :3].T + M[:3, 3], 0.0016, 'chrome', 5))
+            out = q0 / np.linalg.norm(q0 / (0.052, 0.064)) * 0.93
+            b.extend(K.tube_buf(np.array([(q0[0], q0[1], 0.0064), (out[0], out[1], 0.0062)]) @ M[:3, :3].T + M[:3, 3], 0.0016, 'chrome', 5))
+        # the head (up), the flippers (two forward and out, two back), the tail
+        for (cx, cy, rx, ry, ang) in ((0.0, 0.082, 0.017, 0.021, 0.0), (0.054, 0.04, 0.026, 0.011, 35.0), (-0.054, 0.04, 0.026, 0.011, -35.0),
+                                      (0.046, -0.046, 0.019, 0.009, -30.0), (-0.046, -0.046, 0.019, 0.009, 30.0), (0.0, -0.072, 0.007, 0.012, 0.0)):
+            a = math.radians(ang)
+            loop = np.array([(cx + rx * math.cos(t) * math.cos(a) - ry * math.sin(t) * math.sin(a), cy + rx * math.cos(t) * math.sin(a) + ry * math.sin(t) * math.cos(a))
+                             for t in np.linspace(0.0, 2.0 * PI, 20, endpoint=False)])
+            b.extend(K.prism_buf(K.ccw(loop), -0.002, 0.005, 'chrome', bevel=0.0015, segs=1, xf=M))
+        return b
+
+    def tail_details(self):
+        """Left half: the hinge knuckles over the tailgate, the plate lamp hood under it (body)."""
+        b = K.Buf()
+        for y in (0.38,):
+            p, n = S.REAR.to3d(np.array([[y, D['tg_hinge'] + 0.012]]))
+            b.extend(K.box_buf(p[0] + (-0.004, -0.04, -0.012), p[0] + (0.012, 0.04, 0.012), 'steel', 0.004, 2))
+        return b
+
+    # ------------------------------------------------------------------ trims
+    def waist_path(self, u0, u1, n=None):
+        uu = np.linspace(u0, u1, n or max(3, int(abs(u1 - u0) / 0.07) + 1))
+        return S.CV.to3d(np.stack([uu, np.full(len(uu), S.T_WAIST)], 1))
+
+    @staticmethod
+    def bead(P, N, h=0.0032, w=0.0045, mat='chrome'):
+        prof = np.array([(-w, 0.0), (-w * 0.75, h * 0.7), (0.0, h), (w * 0.75, h * 0.7), (w, 0.0)])
+        V, Nn, Tr = K.sweep(P - N * 0.0005, N, prof, closed=False)
+        return K.Buf().add(V, Nn, Tr, mat)
+
+    def waist_strips(self):
+        """The chrome strip along the colour split: on the body (pieces between the panels, per side) and on the
+        panels."""
+        door = self.cut['door'].side('out')['uv']
+        side = self.cut['side'].side('out')['uv']
+        tg = self.cut['tg'].side('out')['uv']
+        g = 0.003
+        ud0, ud1 = door[:, 0].min() - g, door[:, 0].max() + g
+        us0, us1 = side[:, 0].min() - g, side[:, 0].max() + g
+        ut = tg[:, 0].min() - g
+        per = {}
+        for sd, spans in (('L', [(0.0, ud0), (ud1, ut)]), ('R', [(0.0, ud0), (ud1, us0), (us1, ut)])):
+            b = K.Buf()
+            for (a, c) in spans:
+                P, N = self.waist_path(a, c)
+                b.extend(self.bead(P, N))
+            per[sd] = b
+        pan = {}
+        for key in ('door', 'side'):
+            si = self.cut[key].side('in')['uv']
+            P, N = self.waist_path(si[:, 0].min() + g, si[:, 0].max() - g)
+            pan[key] = self.bead(P, N)
+        si = self.cut['tg'].side('in')['uv']
+        P, N = self.waist_path(si[:, 0].min() + g, U)
+        pan['tg'] = self.bead(P, N)
+        return per, pan
+
+    def window_seals(self, names):
+        """Rubber seals just inside the fixed windows' reveals."""
+        b = K.Buf()
+        prof = np.array([(-0.006, 0.0), (-0.005, 0.0035), (0.0, 0.005), (0.005, 0.0035), (0.006, 0.0)])
+        for name in names:
+            w = self.win[name]
+            E = side_dir(w['P'], w['N'], np.tile(w['P'].mean(0), (len(w['P']), 1)), True)
+            k = K.coarse_idx(np.vstack([w['P'], w['P'][:1]]), 0.001)
+            k = k[k < len(w['P'])]
+            P, N, E = w['P'][k], w['N'][k], E[k]
+            V, Nn, Tr = K.sweep(P + E * 0.007 - N * 0.009, N, prof, closed=True)
+            b.add(V, Nn, Tr, 'rubber')
+        return b
+
+    def ws_trims(self):
+        b = K.Buf()
+        w = self.win['ws']
+        cen = np.array([w['P'][:, 0].mean() - 0.1, 0.0, w['P'][:, 2].mean()])
+        E = side_dir(w['P'], w['N'], np.tile(cen, (len(w['P']), 1)), False)
+        k = K.coarse_idx(w['P'], 0.0012)
+        P, Nn, E = w['P'][k], w['N'][k], E[k]
+        prof = np.array([(-0.007, -0.006), (-0.006, 0.003), (0.0, 0.0055), (0.006, 0.003), (0.007, -0.006)])
+        V, NN, Tr = K.sweep(P + E * 0.006 - Nn * 0.004, Nn, prof, closed=False)
+        b.add(V, NN, Tr, 'rubber')
+        prof = np.array([(-0.0045, -0.001), (-0.0035, 0.003), (0.0035, 0.003), (0.0045, -0.001)])
+        V, NN, Tr = K.sweep(P + E * 0.0015 + Nn * 0.0005, Nn, prof, closed=False)
+        b.add(V, NN, Tr, 'chrome')
+        return b
+
+    def drip_rail(self):
+        """The gutter along the roof's edge over the doors and windows (left half)."""
+        xs = np.linspace(-1.98, 1.60, 30)
+        P, N = S.SIDE.to3d(np.stack([xs, np.full(len(xs), 1.707)], 1))
+        prof = np.array([(-0.004, 0.0), (-0.004, 0.007), (-0.001, 0.010), (0.004, 0.010), (0.006, 0.006), (0.006, 0.0)])
+        V, Nn, Tr = K.sweep(P - N * 0.001, N, prof, closed=False)
+        b = K.Buf().add(V, Nn, Tr, 'paint_b')
+        for e in (0, -1):
+            b.extend(K.fill_loop(V.reshape(len(P), -1, 3)[e], (np.sign(P[e, 0] - P[-1 - e, 0]), 0, 0), 'paint_b'))
+        return b
+
+    def slide_rail(self):
+        """The sliding door's rail under the right rear window (built in left coordinates)."""
+        xs = np.linspace(D['sd_x0'] - 0.02, -1.80, 8)
+        P, N = S.SIDE.to3d(np.stack([xs, np.full(len(xs), 1.135)], 1))
+        prof = np.array([(-0.011, 0.0), (-0.011, 0.012), (0.011, 0.012), (0.011, 0.0)])
+        V, Nn, Tr = K.sweep(P - N * 0.001, N, prof, closed=False, smooth_prof=False)
+        b = K.Buf().add(V, Nn, Tr, 'trim')
+        for e in (0, -1):
+            b.extend(K.fill_loop(V.reshape(len(P), -1, 3)[e], (np.sign(P[e, 0] - P[-1 - e, 0]), 0, 0), 'trim'))
+        return b
+
+    def rear_louvres(self):
+        """Air intakes for the air-cooled engine on the rear quarters, under the waist (left half)."""
+        b = K.Buf()
+        prof = np.array([(-0.007, 0.0), (-0.006, 0.006), (0.006, 0.004), (0.007, 0.0)])
+        for z in np.arange(0.86, 0.99, 0.032):
+            xs = np.linspace(-1.98, -1.72, 4)
+            P, N = S.SIDE.to3d(np.stack([xs, np.full(len(xs), z)], 1))
+            V, Nn, Tr = K.sweep(P - N * 0.0005, N, prof, closed=False)
+            b.add(V, Nn, Tr, 'trim')
+            for e in (0, -1):
+                b.extend(K.fill_loop(V.reshape(len(P), -1, 3)[e], (np.sign(P[e, 0] - P[-1 - e, 0]), 0, 0), 'trim'))
+        return b
+
+    def fuel_details(self):
+        """The pocket behind the flap and its cap (left side)."""
+        b = K.Buf()
+        so = self.cut['fuel'].side('out')
+        V, N, Tr = K.roll_edge(so['P'], so['N'], so['E'], 0.002, 0.024, 0.0, 2, closed=True)
+        b.add(V, N, Tr, 'paint')
+        ring = V.reshape(-1, len(so['P']), 3)[-1]
+        c = ring.mean(0)
+        hole = K.circle_loop(0, 0, 0.022, 0.005)
+        h3 = np.stack([c[0] + hole[:, 0], np.full(len(hole), c[1]), c[2] + hole[:, 1]], 1)
+        b.extend(K.fill_loop(ring, (0, 1, 0), 'paint', holes=[h3]))
+        cap = np.array([[0.0, 0.0], [0.030, 0.0], [0.031, 0.004], [0.031, 0.014], [0.028, 0.018], [0.0, 0.018]])
+        V, N, Tr = K.lathe(cap, c, (0, 1, 0), 20)
+        b.add(V, N, Tr, 'trim')
+        b.extend(K.box_buf((c[0] - 0.022, c[1] + 0.016, c[2] - 0.005), (c[0] + 0.022, c[1] + 0.024, c[2] + 0.005), 'trim', 0.003, 2))
+        return b
+
+    # ------------------------------------------------------------------ the inner faces of the panels
+    def door_card(self, key, level=-0.05, mat='plastic_int'):
+        """The inside of a door (left coordinates), `level` in, facing in, round the window."""
+        s = self.cut[key].side('in')
+        w = self.win['door' if key == 'door' else 'side']
+        outer = K.offset_loop2(s['uv'], 0.004, True)
+        hole = K.offset_loop2(w['uv'], -0.004, True)
+        us = S.v_u_samples(0.08, 0.08, 0.08)
+        pts, sp = S.grid_from(us, S.v_t_samples(0.08, 3))
+        V, N, Tr = K.mesh_region(S.CV, [K.Loop(K.resample_keep(outer, 0.05))], [K.Loop(K.resample_keep(hole, 0.05))], pts, spacing=sp, level=level)
+        return K.Buf().add(V, -N, Tr, mat)
+
+    def rear_panel_back(self, key, level, mat):
+        """The inside of the tailgate / the engine lid (left half), `level` in, facing in."""
+        loop = self.rear_panel_loop(key)
+        uv = coarse_loop(loop.uv, 0.05, 0.002)
+        us = S.v_u_samples(0.1, 0.08, 0.05)
+        pts, sp = S.grid_from(us, S.v_t_samples(0.08, 4))
+        V, N, Tr = K.mesh_region(S.CV, [K.Loop(uv)], [], pts, spacing=sp, level=level)
+        return K.Buf().add(V, -N, Tr, mat)

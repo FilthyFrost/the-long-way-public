@@ -69,7 +69,7 @@ try {
   if (!/电量/.test(h.aimText) || !h.aimStars) fail('the battery card lacks its charge or its stars');
   if (!/拿起/.test(h.acts)) fail(`no "pick up" over the hotbar (${h.acts})`);
   await shot('01_lying');
-  await page.keyboard.press('KeyE');
+  await page.evaluate(() => window.__rt.press());
   await settle();
   let t = await tele();
   if (t.slot1 !== 'bat_std' || t.sel !== 0) fail(`the battery is not in slot 1 (${JSON.stringify(t)})`);
@@ -80,8 +80,9 @@ try {
   if (!(await rt('aimLoose', 'tool:jerrycan', 1.0))) fail('could not stand before the jerrycan');
   await settle();
   h = await hud();
-  if (!/快捷栏 2/.test(h.acts)) fail(`picking up with something in the hands does not say slot 2 (${h.acts})`);
-  await page.keyboard.press('KeyE');
+  // (one verb and the name since docs/V3/plan/prompts.md §五: the hotbar shows where it goes)
+  if (!/拿起/.test(h.acts) || /快捷栏/.test(h.acts)) fail(`picking up with something in the hands: one verb and the name (${h.acts})`);
+  await page.evaluate(() => window.__rt.press());
   await settle();
   t = await tele();
   if (t.slot1 !== 'bat_std' || t.slot2 !== 'tool:jerrycan' || t.sel !== 1) fail(`not both in the hotbar (${JSON.stringify(t)})`);
@@ -103,7 +104,7 @@ try {
       g.input.lookPitch = -0.8;
     });
   }
-  await page.keyboard.press('KeyE');
+  await page.evaluate(() => window.__rt.press());
   await settle();
   if ((await page.evaluate(() => window.__rt.game.loose.list.length)) !== lying) fail('a third thing was picked up');
 
@@ -118,19 +119,20 @@ try {
   if ((await tele()).held !== 'tool:jerrycan') fail('2 did not put the can back in the hands');
 
   // ---- I hides the cards, and is remembered
-  await page.keyboard.press('KeyI');
+  await page.evaluate(() => window.__rt.game.toggleCards());
   await settle();
   h = await hud();
   if (h.held || h.aim) fail('I did not hide the cards');
-  if (!/显示物品信息/.test(h.keys)) fail(`the keys do not say I shows them again (${h.keys})`);
+  // (the I key is gone since docs/V3/plan/growth.md J1: the cards keep the setting saved, no key to say)
   if ((await page.evaluate(() => localStorage.getItem('modcar.ui.cards'))) !== '0') fail('hiding the cards was not remembered');
-  await page.keyboard.press('KeyI');
+  await page.evaluate(() => window.__rt.game.toggleCards());
   await settle();
   if (!(await hud()).held) fail('I did not show the cards again');
 
   // ---- G held puts down what is in the hands
   // (held until the can is down, however slowly the frames come; the check below still fails if it never is)
-  await holdKeyUntil(page, 'KeyG', () => window.__rt.game.player.telemetry().slot2 === '', null, 60_000);
+  // (Q puts it down now: docs/V3/plan/growth.md J1)
+  await page.keyboard.press('KeyQ');
   await settle();
   t = await tele();
   if (t.slot2 !== '' || t.slot1 !== 'bat_std') fail(`G did not put the can down (${JSON.stringify(t)})`);
@@ -140,7 +142,8 @@ try {
   await rt('aim', 0, 'door_FL', 1.5);
   await settle();
   h = await hud();
-  if (h.aim !== '车门' || !/装在：左前车门/.test(h.aimText)) fail(`no card for the fitted door (${h.aim})`);
+  // (cut down to its name: the whole card is for what lies on the ground — docs/V3/plan/prompts.md §五 4)
+  if (h.aim !== '车门' || /装在/.test(h.aimText)) fail(`the fitted door's card is not cut down to its name (${h.aim}: ${h.aimText})`);
   if (!/拆下/.test(h.acts)) fail(`no "take off" for the door (${h.acts})`);
   await shot('03_fitted');
   // a few metres off its side, looking at it: no card from there (it would stand in the way of the view)

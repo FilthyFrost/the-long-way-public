@@ -137,7 +137,7 @@ export class CargoList {
       }
       html += `<div class="r${i === sel ? ' on' : ''}">${r.icon ? `<img src="${r.icon}" alt="">` : '<div class="ph"></div>'}<div>${esc(r.name)}</div><div class="m">${kg(r.mass)} kg</div></div>`;
     });
-    html += `</div><div class="ks"><span><kbd>滚轮</kbd>/ <kbd>W</kbd><kbd>S</kbd> 选</span><span><kbd>E</kbd>/ 左键 ${esc(v.take)}</span>${v.put ? `<span><kbd>G</kbd> 放进去 ${esc(v.put)}</span>` : ''}${v.pair ? '<span><kbd>A</kbd><kbd>D</kbd> 换一边</span>' : ''}<span><kbd>Tab</kbd> 关上</span></div>`;
+    html += `</div><div class="ks"><span><kbd>滚轮</kbd> 选</span><span>左键 ${esc(v.take)}</span>${v.put ? '<span><kbd>Q</kbd> 放进</span>' : ''}${v.pair ? '<span><kbd>A</kbd><kbd>D</kbd> 换边</span>' : ''}<span><kbd>Tab</kbd> 关</span></div>`;
     this.el.innerHTML = html;
   }
 }

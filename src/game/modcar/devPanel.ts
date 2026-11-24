@@ -512,11 +512,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       tool('tool:jerrycan:petrol:0', { kind: 'tool', tool: 'jerrycan', fuel: 'petrol', litres: 0 }, '空油桶', '空的', 0xb8302a),
       tool('tool:bottle', { kind: 'tool', tool: 'bottle' }, TOOL_INFO.bottle.name.zh, '5 L 水'),
       tool('tool:oilcan', { kind: 'tool', tool: 'oilcan' }, TOOL_INFO.oilcan.name.zh, '4 L 机油', 0xd8a531),
-      tool('tool:sponge', { kind: 'tool', tool: 'sponge' }, TOOL_INFO.sponge.name.zh, '擦洗', 0xe8d257),
       tool('tool:scraper:1', { kind: 'tool', tool: 'scraper', tier: 1 }, SCRAPERS[1].name.zh, '刀口 10 cm', toolLook(newTool('scraper', { tier: 1 })).paint),
-      tool('tool:scraper:2', { kind: 'tool', tool: 'scraper', tier: 2 }, SCRAPERS[2].name.zh, '刀口 22 cm', toolLook(newTool('scraper', { tier: 2 })).paint),
-      tool('tool:scraper:3', { kind: 'tool', tool: 'scraper', tier: 3 }, SCRAPERS[3].name.zh, '刀口 25 cm', toolLook(newTool('scraper', { tier: 3 })).paint),
-      tool('tool:brush', { kind: 'tool', tool: 'brush' }, TOOL_INFO.brush.name.zh, '刷锈', toolLook(newTool('brush')).paint),
     ]);
     // the spray cans as Arctic Drive has them: the small in eight colours, the medium in all, the large in seven (full)
     add(
@@ -554,7 +550,7 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
       FRAMES.flatMap((f) => {
         const paint = paintHex(stockBuild(f.id).paint);
         return [
-          { key: `vehicle:${f.id}:stock`, item: { kind: 'vehicle', frame: f.id, stock: true } as DevItem, name: `${f.name.zh}（原装）`, meta: '整车 · 能开<span class="tag stock">原装</span>', text: `${f.name.zh} ${f.name.en} ${f.id} 原装 整车`, paint },
+          { key: `vehicle:${f.id}:stock`, item: { kind: 'vehicle', frame: f.id, stock: true } as DevItem, name: `${f.name.zh}（原装）`, meta: `整车 · ${f.towed ? '挂在车后面拖' : '能开'}<span class="tag stock">原装</span>`, text: `${f.name.zh} ${f.name.en} ${f.id} 原装 整车${f.towed ? ' 挂车 trailer' : ''}`, paint },
           { key: `vehicle:${f.id}:bare`, item: { kind: 'vehicle', frame: f.id, stock: false } as DevItem, name: `${f.name.zh}（空车架）`, meta: '一个零件也没有<span class="tag bare">空架</span>', text: `${f.name.zh} ${f.name.en} ${f.id} 空车架 bare`, paint },
         ];
       }),

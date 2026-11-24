@@ -13,7 +13,7 @@ import { frameDef } from './frames';
 import { derive, SURFACE_N, tankFuel, type Derived } from './derive';
 import { burstPerKm, SLIDE_WEAR, wearPerMetre, wetGrip } from './tyres';
 import { Surface } from '../world/ground';
-import { partDef } from './parts';
+import { partDef, staysClean } from './parts';
 import { batteryCharge, crankProblems, driveProblems, fuelQuality, runProblems, type Problem } from './rules';
 import { applyToSim, applyWheelMods } from './simlink';
 import type { Build, PartInstance, Text } from './types';
@@ -31,9 +31,29 @@ const NORMAL_C = 90;
 const HOT_C = 112;
 const SEIZE_C = 128;
 const SEIZE_S = 4;
+/**
+ * J7 (docs/V3/plan/growth.md §五, Nomad Drive's): running wears an engine 14 points an hour (seven hours from new to
+ * nothing), heat past HOT_C much more (a point a minute a degree); worn out it does not seize: it limps, no faster
+ * than LIMP_KMH. It burns oil by how worn it is: OIL_SOUND litres an hour sound, up to OIL_WORN worn out. The radiator
+ * loses water running (WATER_H an hour), coolant three times slower, and coolant cools a sixth better.
+ */
+const ENGINE_WEAR_H = 0.14;
+const HOT_WEAR_S = 0.01 / 60;
+const LIMP_KMH = 38;
+const OIL_SOUND = 0.02;
+const OIL_WORN = 1;
+const WATER_H = 0.25;
+const COOLANT_H = 0.08;
+/** pushed with the engine off: the battery takes this much a metre, up to PUSH_CHARGE_TO (enough to crank once) */
+const PUSH_CHARGE_M = 0.001;
+const PUSH_CHARGE_TO = 0.12;
 /** starter draw at game scale (kW) and the alternator's charge while running (kW) */
 const STARTER_KW = 1.6 * GAME;
 const ALTERNATOR_KW = 0.35 * GAME;
+/** what the alternator gives a house battery besides (kW at game scale: docs/V3/plan/rv.md R2 — an hour or two of driving fills an empty one) */
+const HOUSE_ALTERNATOR_KW = 1.2 * GAME;
+/** the share of the starter battery the appliances leave it, to crank on, when there is no house battery */
+export const STARTER_KEEP = 0.3;
 
 export type LightSwitch = 'off' | 'low' | 'high';
 
@@ -84,6 +104,10 @@ export class ModSystems {
   derived: Derived;
   sim: VehicleSim | null = null;
   running = false;
+  /** how fast this vehicle wears, times the game's (the difficulty: core/modcar/difficulty.ts) */
+  wearK = 1;
+  /** worn out: it limps (said once) */
+  private limpSaid = false;
   cranking = false;
   lights: LightSwitch = 'off';
   horn = false;
@@ -236,7 +260,7 @@ export class ModSystems {
     }
     if (worst < 0.85 && !this.brakesSaid) {
       this.brakesSaid = true;
-      this.sayText('brakes_hot', { zh: '刹车过热，越踩越软。挂低挡让发动机拖着，开一段让它凉下来。', en: 'The brakes are overheating and fading. Use a low gear and let them cool.' });
+      this.sayText('brakes_hot', { zh: '刹车过热', en: 'The brakes are overheating and fading. Use a low gear and let them cool.' });
     } else if (worst > 0.98) this.brakesSaid = false;
   }
 
@@ -353,7 +377,7 @@ export class ModSystems {
       this.drain(STARTER_KW * dt);
       if (!bat || (bat.fluids.charge ?? 0) < 0.02) {
         this.cranking = false;
-        this.sayText('battery_flat', { zh: '电瓶没劲了：启动机转不动了。', en: 'The battery gave out: the starter stops turning.' });
+        this.sayText('battery_flat', { zh: '电瓶没电了', en: 'The battery gave out: the starter stops turning.' });
       } else if (this.crankT > (this.coolantC < 5 ? 1.6 : 0.8)) {
         const run = runProblems(b).find((p) => p.severity === 'block');
         if (!run) {
@@ -384,22 +408,29 @@ export class ModSystems {
         this.sputter -= dt;
         torqueMul *= 0.25;
         if (this.sputter <= 0) {
-          this.stop('wrong_fuel', { zh: '突突两下，熄火了：油不对。', en: 'It coughed and died: wrong fuel.' });
+          this.stop('wrong_fuel', { zh: '熄火了：油不对', en: 'It coughed and died: wrong fuel.' });
           canRun = false;
         }
       } else torqueMul *= q.power;
       const ei = this.instOf('engine');
       if (ei && q.wear > 0) ei.cond = Math.max(0, ei.cond - q.wear * dt * GAME / 3600);
+      // running wears it (docs/V3/plan/growth.md §五); short of oil, fast — worn out, it limps (below), it does not seize
+      if (ei) ei.cond = Math.max(0, ei.cond - (ENGINE_WEAR_H / 3600) * dt * this.wearK);
       if (ei && eng.engine!.oilL > 0 && (ei.fluids.oilL ?? 0) < eng.engine!.oilL * 0.15) {
-        ei.cond = Math.max(0, ei.cond - 0.02 * dt);
-        if (ei.cond <= 0) {
-          this.stop('seized', { zh: '没机油，发动机抱死了。', en: 'No oil: the engine seized.' });
-          canRun = false;
-        }
+        ei.cond = Math.max(0, ei.cond - 0.004 * dt);
+        if (this.messageT <= 0) this.sayText('no_oil', { zh: '机油快没了！', en: 'Nearly out of oil!' });
       }
-      // a thin trickle of oil is used running
-      if (ei && ei.fluids.oilL !== undefined) ei.fluids.oilL = Math.max(0, ei.fluids.oilL - 0.0004 * dt * GAME);
+      // the oil it burns: a sound engine hardly any, a worn one up to a litre an hour
+      if (ei && ei.fluids.oilL !== undefined) ei.fluids.oilL = Math.max(0, ei.fluids.oilL - ((OIL_SOUND + (OIL_WORN - OIL_SOUND) * (1 - ei.cond)) / 3600) * dt * this.wearK);
       if (ei) torqueMul *= 0.55 + 0.45 * ei.cond;
+      // worn out: a limp — weak, and no faster than a jog of a car
+      if (ei && ei.cond <= 0) {
+        torqueMul *= sim.speed * 3.6 > LIMP_KMH ? 0 : 0.5;
+        if (!this.limpSaid) {
+          this.limpSaid = true;
+          this.sayText('limp', { zh: '发动机不行了，只能慢慢挪', en: 'The engine is worn out: it will only crawl.' });
+        }
+      } else this.limpSaid = false;
     }
     if (!eng) canRun = false;
 
@@ -415,9 +446,11 @@ export class ModSystems {
         if (ri) {
           const rs = partDef(ri.part).radiator!;
           const level = Math.min(1, (ri.fluids.coolantL ?? 0) / rs.coolantL);
-          shed = rs.coolKw * air * (0.15 + 0.85 * level) * (1 + scoop);
-          // a hot engine boils a little coolant off
+          const mix = ri.fluids.coolantMix ?? 0;
+          shed = rs.coolKw * air * (0.15 + 0.85 * level) * (1 + scoop) * (1 + 0.15 * mix);
+          // a hot engine boils a little coolant off; running, a little goes all the time (water faster than coolant)
           if (this.coolantC > 104) ri.fluids.coolantL = Math.max(0, (ri.fluids.coolantL ?? 0) - 0.002 * dt * GAME);
+          if (this.running) ri.fluids.coolantL = Math.max(0, (ri.fluids.coolantL ?? 0) - ((WATER_H * (1 - mix) + COOLANT_H * mix) / 3600) * dt * this.wearK);
         } else shed = 4 * air;
       } else shed = (e.selfCoolKw ?? 20) * air * (1 + scoop);
     }
@@ -431,15 +464,14 @@ export class ModSystems {
     if (!this.running) this.coolantC += (amb - this.coolantC) * Math.min(1, dt / 240);
     this.coolantC = Math.max(amb - 5, Math.min(140, this.coolantC));
     if (this.coolantC > HOT_C) torqueMul *= Math.max(0.45, 1 - (this.coolantC - HOT_C) / 28);
-    if (this.coolantC > SEIZE_C && this.running) {
+    // past 112 °C it wears, the hotter the faster (docs/V3/plan/growth.md §五: worn out it limps, it does not seize)
+    if (this.coolantC > HOT_C && this.running) {
+      const ei = this.instOf('engine');
+      if (ei) ei.cond = Math.max(0, ei.cond - (this.coolantC - HOT_C) * HOT_WEAR_S * dt * this.wearK);
+      if (this.coolantC > SEIZE_C - 8 && this.messageT <= 0) this.sayText('overheat', { zh: '水温爆表了！快停车！', en: 'It is boiling over: stop now!' });
       this.hotT += dt;
-      if (this.hotT > SEIZE_S) {
-        const ei = this.instOf('engine');
-        if (ei) ei.cond = 0;
-        this.stop('seized', { zh: '开锅太久，发动机拉缸了。', en: 'Boiled too long: the engine seized.' });
-        canRun = false;
-      } else if (this.messageT <= 0) this.sayText('overheat', { zh: '水温爆表了！快停车！', en: 'It is boiling over: stop now!' });
     } else this.hotT = 0;
+    void SEIZE_S;
 
     // turbo: boost follows the throttle and the revs with its lag
     const ti = this.instOf('engine')?.sub.turbo;
@@ -471,7 +503,12 @@ export class ModSystems {
     if (this.running) this.drain(-ALTERNATOR_KW * dt);
     const roof = this.instOf('roof');
     const solar = roof ? (partDef(roof.part).roof?.solarW ?? 0) : 0;
-    if (solar > 0) this.drain((-solar / 1000) * env.sun * GAME * dt);
+    // (a house battery takes the solar roof's charge and a share of the alternator's of its own; the starter keeps its)
+    const house = this.instOf('houseBattery');
+    if (house) {
+      if (this.running) this.drainHouse(-HOUSE_ALTERNATOR_KW * dt);
+      if (solar > 0) this.drainHouse((-solar / 1000) * env.sun * GAME * dt);
+    } else if (solar > 0) this.drain((-solar / 1000) * env.sun * GAME * dt);
 
     this.heatBrakes(sim, dt);
 
@@ -488,6 +525,7 @@ export class ModSystems {
     const odo = sim.odometer - this.lastOdo;
     this.lastOdo = sim.odometer;
     this.wear(odo, env);
+    this.rainWash(env, dt);
 
     this.updateDash(env);
   }
@@ -537,7 +575,7 @@ export class ModSystems {
       ri.fluids.coolantL = (ri.fluids.coolantL ?? 0) * 0.3;
       broke.push('水箱（在漏水）');
     }
-    if (broke.length) this.sayText('crash', { zh: `撞坏了：${broke.join('、')}。`, en: 'The crash broke something.' });
+    if (broke.length) this.sayText('crash', { zh: `撞坏了：${broke.join('、')}`, en: 'The crash broke something.' });
   }
 
   private instOf(cat: string): PartInstance | null {
@@ -549,6 +587,41 @@ export class ModSystems {
   private hoodCooling(): number {
     const h = this.instOf('hood');
     return h ? (partDef(h.part).panel?.cooling ?? 0) : 0.05;
+  }
+
+  /** kWh out of the house battery (negative = in): as drain, the house battery's */
+  private drainHouse(kWh: number): void {
+    const bi = this.instOf('houseBattery');
+    if (!bi) return;
+    const cap = partDef(bi.part).battery!.kWh;
+    bi.fluids.charge = Math.min(1, Math.max(0, (bi.fluids.charge ?? 0) - kWh / 3600 / cap));
+  }
+
+  /**
+   * What the appliances riding in it have to draw on (docs/V3/plan/rv.md R2): its house battery's charge (0 … 1), or
+   * with none the starter battery's above the share it keeps to crank on, as a share of the rest; null: no battery.
+   */
+  applianceLevel(): number | null {
+    const house = this.instOf('houseBattery');
+    if (house) return house.fluids.charge ?? 0;
+    const bi = this.instOf('battery');
+    if (!bi) return null;
+    return Math.max(0, ((bi.fluids.charge ?? 0) - STARTER_KEEP) / (1 - STARTER_KEEP));
+  }
+
+  /** the appliances riding in it draw kw (at game scale) for dt seconds: true when there was the charge for it */
+  drawAppliances(kw: number, dt: number): boolean {
+    if (kw <= 0 || dt <= 0) return true;
+    const level = this.applianceLevel();
+    if (level === null || level <= 0) return false;
+    const kWh = kw * GAME * dt;
+    if (this.instOf('houseBattery')) this.drainHouse(kWh);
+    else {
+      const bi = this.instOf('battery')!;
+      const cap = partDef(bi.part).battery!.kWh;
+      bi.fluids.charge = Math.max(STARTER_KEEP, (bi.fluids.charge ?? 0) - kWh / 3600 / cap);
+    }
+    return true;
   }
 
   /** kWh out of the battery (negative = in) */
@@ -661,11 +734,25 @@ export class ModSystems {
     }
     // dirt: dust and mud by the ground (docs/MODCAR.md §15): two hours and more of road to very dirty (0.8),
     // twice as fast on dirt and gravel, faster still in the rain on soft ground
+    // (Nomad Drive's: 0.024 a kilometre on asphalt, 0.15 on dirt, grass, sand and rock — docs/V3/plan/growth.md §五)
     const soft = env.surface === undefined ? 0 : env.surface >= 1 && env.surface <= 4 ? 1 : env.surface === 5 ? 0.6 : 0;
-    const rate = (0.006 * (1 + soft) * (1 + 0.5 * env.rain * soft)) / 1000;
+    const rate = (0.024 + (0.15 - 0.024) * soft) * (1 + 0.5 * env.rain * soft) / 1000;
     const add = rate * metres;
+    // pushed with the engine off: a little charge for the battery (enough to crank once)
+    if (!this.running) {
+      const bi = this.instOf('battery');
+      if (bi && (bi.fluids.charge ?? 0) < PUSH_CHARGE_TO) bi.fluids.charge = Math.min(PUSH_CHARGE_TO, (bi.fluids.charge ?? 0) + PUSH_CHARGE_M * metres);
+    }
     this.build.dirt = Math.min(1, this.build.dirt + add);
-    for (const inst of Object.values(this.build.parts)) inst.dirt = Math.min(1, inst.dirt + add * 0.8);
+    for (const inst of Object.values(this.build.parts)) if (!staysClean(inst.part)) inst.dirt = Math.min(1, inst.dirt + add * 0.8);
+  }
+
+  /** the rain washes some of the dirt off (docs/V3/plan/growth.md §五): heavy rain a dirty car clean in half an hour */
+  private rainWash(env: ModEnv, dt: number): void {
+    if (env.rain < 0.2) return;
+    const k = 0.0004 * env.rain * dt;
+    this.build.dirt = Math.max(0, this.build.dirt - k);
+    for (const inst of Object.values(this.build.parts)) if (inst.dirt > 0) inst.dirt = Math.max(0, inst.dirt - k);
   }
 
   private say(p: Problem): void {

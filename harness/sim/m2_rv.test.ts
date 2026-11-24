@@ -1,17 +1,20 @@
 /**
  * Milestone M2, the motorhome lived in (docs/V3/nodes/M2-rv.md), in its plain data and maths: the living space one
  * walks about in (core/modcar/aboard.ts), the 10 cm grid things aimed into a vehicle keep to and the motorhome's
- * new places to put things (core/modcar/cargo.ts), the appliances' rules (core/v3/appliances: the coffee maker's
- * tank, filter, pot and brew; stations and records), coffee as a drink (vitals.ts), the coffee kinds in the
- * catalogue, and the appliances module in the tests' stand-in game.
+ * new places to put things (core/modcar/cargo.ts), the appliances' rules (core/v3/appliances: stations and records),
+ * coffee as a drink (vitals.ts), the coffee kinds in the catalogue (the drip coffee maker retired into the coffee
+ * machine's: docs/V3/plan/growth.md §一 4), and the appliances module in the tests' stand-in game.
  */
 import { describe, expect, it } from 'vitest';
 import { ABOARD, aboardOf } from '../../src/core/modcar/aboard';
 import { findSpot, zonesOf, type HeightGrid } from '../../src/core/modcar/cargo';
-import { itemDef, newItem } from '../../src/core/modcar/items';
+import { cleanItem, hasItem, itemDef, newItem, retiredKind } from '../../src/core/modcar/items';
 import { connected, EYE_HEIGHT, Walker } from '../../src/core/onboard/walker';
 import { drink, has, newVitals } from '../../src/core/modcar/vitals';
-import { addGrounds, appOf, applianceOf, appState, brewLack, brewStep, channelOf, CHANNELS, COFFEE, COFFEE_GROUNDS, COFFEE_NO_POT, COFFEE_POT, COFFEE_WITH_POT, hasPot, nextChannel, pourWater, putPot, startBrew, takePot, toggle } from '../../src/core/v3/appliances/appliances';
+import { appOf, applianceOf, channelOf, CHANNELS, COFFEE_GROUNDS, COFFEE_NO_POT, COFFEE_POT, COFFEE_WITH_POT, nextChannel, toggle } from '../../src/core/v3/appliances/appliances';
+import { coffeeOf, isCup } from '../../src/core/v3/nd/coffee';
+import { registerNdItems } from '../../src/core/v3/nd/items';
+import { itemVessel } from '../../src/core/v3/nd/water';
 import { itemCard } from '../../src/game/modcar/itemInfo';
 import appliancesModule, { appliances } from '../../src/game/modcar/v3/appliances/index';
 import { FakeGame } from './v3/fakeGame';
@@ -78,87 +81,6 @@ describe('things put where one aims in the motorhome', () => {
   });
 });
 
-describe('the coffee maker', () => {
-  const ready = (): ReturnType<typeof newItem> => {
-    const m = newItem(COFFEE_WITH_POT);
-    expect(pourWater(m, 2)).toBeCloseTo(COFFEE.tank, 6);
-    const bag = newItem(COFFEE_GROUNDS);
-    expect(addGrounds(m, bag)).toBe(true);
-    return m;
-  };
-
-  it('says what it still needs, in order: its pot, water, ground coffee, room in the pot', () => {
-    const bare = newItem(COFFEE_NO_POT);
-    expect(brewLack(bare)).toBe('pot');
-    const m = newItem(COFFEE_WITH_POT);
-    expect(brewLack(m)).toBe('water');
-    pourWater(m, 0.5);
-    expect(brewLack(m)).toBe('grounds');
-    appState(m).grounds = 1;
-    expect(brewLack(m)).toBe('');
-    appState(m).coffee = COFFEE.pot;
-    expect(brewLack(m)).toBe('full');
-    expect(startBrew(m)).toBe(false);
-  });
-
-  it('fills its tank to the brim and no more, and takes one portion of grounds from a bag at a time', () => {
-    const m = newItem(COFFEE_WITH_POT);
-    expect(pourWater(m, 0.4)).toBeCloseTo(0.4, 6);
-    expect(pourWater(m, 5)).toBeCloseTo(COFFEE.tank - 0.4, 6);
-    expect(pourWater(m, 1)).toBe(0);
-    const bag = newItem(COFFEE_GROUNDS);
-    expect(bag.uses).toBe(itemDef(COFFEE_GROUNDS).portions);
-    expect(addGrounds(m, bag)).toBe(true);
-    expect(bag.uses).toBe((itemDef(COFFEE_GROUNDS).portions ?? 0) - 1);
-    expect(addGrounds(m, bag)).toBe(false);
-    expect(bag.uses).toBe((itemDef(COFFEE_GROUNDS).portions ?? 0) - 1);
-  });
-
-  it('drips a full tank into its pot in some forty seconds, then switches itself off, the grounds spent', () => {
-    const m = ready();
-    expect(startBrew(m)).toBe(true);
-    let t = 0;
-    let done = 0;
-    while (t < 120) {
-      const r = brewStep(m, 1 / 60);
-      t += 1 / 60;
-      if (r.done) {
-        done++;
-        break;
-      }
-    }
-    expect(done).toBe(1);
-    expect(t).toBeGreaterThan(30);
-    expect(t).toBeLessThan(50);
-    const s = appOf(m);
-    expect(s.on).toBeUndefined();
-    expect(s.grounds).toBeUndefined();
-    expect(s.coffee).toBeCloseTo(COFFEE.tank, 2);
-    // (off, it drips no more)
-    expect(brewStep(m, 1).dripped).toBe(0);
-  });
-
-  it('gives its pot with the coffee in it, and takes it back', () => {
-    const m = ready();
-    startBrew(m);
-    for (let i = 0; i < 600; i++) brewStep(m, 1 / 60);
-    const had = appOf(m).coffee ?? 0;
-    expect(had).toBeGreaterThan(0.2);
-    const pot = takePot(m);
-    expect(m.item).toBe(COFFEE_NO_POT);
-    expect(hasPot(m)).toBe(false);
-    // (a brew going on stops with the pot taken off)
-    expect(appOf(m).on).toBeUndefined();
-    expect(pot.item).toBe(COFFEE_POT);
-    expect(pot.litres).toBeCloseTo(had, 3);
-    expect(brewLack(m)).toBe('pot');
-    pot.litres = 0.25;
-    putPot(m, pot);
-    expect(m.item).toBe(COFFEE_WITH_POT);
-    expect(appOf(m).coffee).toBeCloseTo(0.25, 6);
-  });
-});
-
 describe('the other appliances', () => {
   it('are the clock radio, the record player, the television and the two lamps (the junk they always were)', () => {
     expect(applianceOf('junk_clockradio')).toBe('radio');
@@ -166,10 +88,11 @@ describe('the other appliances', () => {
     expect(applianceOf('junk_tv')).toBe('tv');
     expect(applianceOf('junk_lamp')).toBe('lamp');
     expect(applianceOf('junk_solar_lamp')).toBe('solar');
-    expect(applianceOf(COFFEE_WITH_POT)).toBe('coffee');
-    expect(applianceOf(COFFEE_NO_POT)).toBe('coffee');
+    // (the drip coffee maker is no more: the coffee machine is Nomad Drive's)
+    expect(applianceOf(COFFEE_WITH_POT)).toBeNull();
+    expect(applianceOf(COFFEE_NO_POT)).toBeNull();
     expect(applianceOf('junk_fax')).toBeNull();
-    for (const id of ['junk_clockradio', 'junk_record', 'junk_tv', 'junk_lamp', 'junk_solar_lamp', COFFEE_NO_POT]) expect(itemDef(id).cat).toBe('junk');
+    for (const id of ['junk_clockradio', 'junk_record', 'junk_tv', 'junk_lamp', 'junk_solar_lamp']) expect(itemDef(id).cat).toBe('junk');
   });
 
   it('switch on and off, and go round their stations, a record player found with a record of its own', () => {
@@ -190,40 +113,56 @@ describe('the other appliances', () => {
 });
 
 describe('coffee, and the kinds that go with it', () => {
-  it('is a pot found empty and a bag of eight portions, in the kitchen', () => {
+  it('is a pot found empty, in the kitchen: the coffee machine takes it under its spout, and it pours into a mug', () => {
+    registerNdItems();
     const pot = newItem(COFFEE_POT);
     expect(pot.litres).toBe(0);
     expect(itemDef(COFFEE_POT).drink?.liquid).toBe('coffee');
     expect(itemDef(COFFEE_POT).cat).toBe('kitchen');
-    expect(itemDef(COFFEE_GROUNDS).cat).toBe('kitchen');
-    expect(newItem(COFFEE_GROUNDS).uses).toBe(8);
+    expect(isCup(pot)).toBe(true);
+    expect(itemVessel(pot)?.holds).toBe(1);
     // (any other drink still comes full)
     expect(newItem('drink_water').litres).toBe(2);
   });
 
-  it('quenches a little, warms and wakes one up', () => {
+  it('a drip coffee maker in a save is the coffee machine with its pot, its ground coffee a bag of beans', () => {
+    registerNdItems();
+    for (const id of [COFFEE_WITH_POT, COFFEE_NO_POT, COFFEE_GROUNDS]) {
+      expect(hasItem(id), id).toBe(false);
+      expect(retiredKind(id), id).toBe(true);
+    }
+    const loss = { unknown: 0 };
+    const m = cleanItem({ uid: 'i900', item: COFFEE_WITH_POT, state: { app: { water: 0.4, grounds: 1, coffee: 0.3 } } }, loss)!;
+    expect(m.item).toBe('nd_coffee_machine');
+    expect(coffeeOf(m).cup?.item).toBe(COFFEE_POT);
+    expect(coffeeOf(m).cup?.litres).toBeCloseTo(0.3, 6);
+    const bare = cleanItem({ uid: 'i901', item: COFFEE_NO_POT }, loss)!;
+    expect(bare.item).toBe('nd_coffee_machine');
+    expect(coffeeOf(bare).cup).toBeUndefined();
+    const bag = cleanItem({ uid: 'i902', item: COFFEE_GROUNDS, uses: 5 }, loss)!;
+    expect(bag.item).toBe('nd_coffee_pack');
+    expect(itemDef(bag.item).name.zh).toBe('咖啡豆');
+    expect(loss.unknown).toBe(0);
+  });
+
+  it('quenches a little, warms and wakes one up (J6: energy back, kept awake a while)', () => {
     const v = newVitals();
     v.water = 50;
+    v.energy = 30;
     drink(v, 'coffee', 0.1);
     expect(has(v, 'warm1')).toBe(true);
-    expect(has(v, 'energy')).toBe(true);
+    expect(has(v, 'awake')).toBe(true);
+    expect(v.energy).toBeCloseTo(46, 6);
     const g = v.gains[v.gains.length - 1];
     expect(g.water).toBeCloseTo(6, 6);
     expect(g.temp).toBeGreaterThan(0);
   });
 
-  it('says on its cards what the machine holds and what it is doing', () => {
-    const m = newItem(COFFEE_WITH_POT);
-    Object.assign(appState(m), { water: 0.6, grounds: 1, coffee: 0.3 });
-    const c = itemCard(m, 0);
-    expect(c.bars.some((b) => b.label === '水箱')).toBe(true);
-    expect(c.bars.some((b) => b.label === '壶里')).toBe(true);
-    expect(c.rows.some((r) => r.label === '滤网里的咖啡粉' && r.value === '一份')).toBe(true);
+  it('says on its cards what an appliance is doing', () => {
     const tv = newItem('junk_tv');
     toggle(tv, true);
     expect(itemCard(tv, 0).notes.some((n) => n.text.startsWith('开着'))).toBe(true);
-    const pot = newItem(COFFEE_POT, { litres: 0.5 });
-    expect(itemCard(pot, 0).notes.some((n) => n.text.includes('提神暖身'))).toBe(true);
+    expect(appOf(tv).on).toBe(true);
   });
 });
 

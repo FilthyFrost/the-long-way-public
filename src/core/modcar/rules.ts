@@ -94,12 +94,12 @@ export function fuelQuality(engine: PartDef, build: Build): FuelQuality {
 export function crankProblems(build: Build): Problem[] {
   const out: Problem[] = [];
   const bat = firstMountOf(build, 'battery');
-  if (!bat || !build.parts[bat]) out.push({ code: 'no_battery', severity: 'block', mount: bat ?? undefined, text: T('没有电瓶：什么都不亮，也打不着火。', 'No battery: nothing lights up and it will not crank.') });
-  else if (batteryCharge(build) < 0.08) out.push({ code: 'battery_flat', severity: 'block', mount: bat, text: T('电瓶没电了：充一充，或者换一个。', 'The battery is flat: charge it or swap it.') });
+  if (!bat || !build.parts[bat]) out.push({ code: 'no_battery', severity: 'block', mount: bat ?? undefined, text: T('没有电瓶', 'No battery: nothing lights up and it will not crank.') });
+  else if (batteryCharge(build) < 0.08) out.push({ code: 'battery_flat', severity: 'block', mount: bat, text: T('电瓶没电了', 'The battery is flat: charge it or swap it.') });
   const ign = firstMountOf(build, 'ignition');
-  if (!ign || !build.parts[ign]) out.push({ code: 'no_ignition', severity: 'block', mount: ign ?? undefined, text: T('没有点火开关：钥匙插不进去。', 'No ignition switch: there is nowhere to turn a key.') });
+  if (!ign || !build.parts[ign]) out.push({ code: 'no_ignition', severity: 'block', mount: ign ?? undefined, text: T('没有点火开关', 'No ignition switch: there is nowhere to turn a key.') });
   const eng = firstMountOf(build, 'engine');
-  if (!eng || !build.parts[eng]) out.push({ code: 'no_engine', severity: 'block', mount: eng ?? undefined, text: T('没有发动机：这辆车只能推。', 'No engine: this one only goes if you push it.') });
+  if (!eng || !build.parts[eng]) out.push({ code: 'no_engine', severity: 'block', mount: eng ?? undefined, text: T('没有发动机', 'No engine: this one only goes if you push it.') });
   return out;
 }
 
@@ -111,19 +111,19 @@ export function runProblems(build: Build): Problem[] {
   if (!eng) return out;
   const tank = firstMountOf(build, 'fuelTank');
   if (!tank || !build.parts[tank]) {
-    out.push({ code: 'no_tank', severity: 'block', mount: tank ?? undefined, text: T('没有油箱：发动机喝不到油。', 'No fuel tank: the engine has nothing to drink.') });
+    out.push({ code: 'no_tank', severity: 'block', mount: tank ?? undefined, text: T('没有油箱', 'No fuel tank: the engine has nothing to drink.') });
     return out;
   }
   const q = fuelQuality(eng, build);
-  if (tankFuel(build).total <= 1e-6) out.push({ code: 'no_fuel', severity: 'block', mount: tank, text: T('油箱是空的。', 'The tank is empty.') });
+  if (tankFuel(build).total <= 1e-6) out.push({ code: 'no_fuel', severity: 'block', mount: tank, text: T('油箱是空的', 'The tank is empty.') });
   else if (!q.runs) {
-    const zh = eng.engine!.fuel === 'diesel' ? '柴油机里是汽油：突突两下就熄。' : '汽油机里是柴油：突突两下就熄。';
+    const zh = eng.engine!.fuel === 'diesel' ? '柴油机里是汽油' : '汽油机里是柴油';
     const en = eng.engine!.fuel === 'diesel' ? 'Petrol in a diesel: it coughs twice and dies.' : 'Diesel in a petrol engine: it coughs twice and dies.';
     out.push({ code: 'wrong_fuel', severity: 'block', mount: tank, text: T(zh, en) });
-  } else if (q.wrong > 0.05) out.push({ code: 'fuel_mixed', severity: 'warn', mount: tank, text: T('油里混了别的油：没劲，还会喘。', 'Mixed fuel: it runs weak and stutters.') });
-  if (q.wear > 0.05) out.push({ code: 'two_stroke_oil', severity: 'warn', mount: tank, text: T('二冲程机要加混合油：纯汽油会拉缸。', 'A two-stroke wants oil in its petrol: plain petrol will seize it.') });
+  } else if (q.wrong > 0.05) out.push({ code: 'fuel_mixed', severity: 'warn', mount: tank, text: T('油里混了别的油', 'Mixed fuel: it runs weak and stutters.') });
+  if (q.wear > 0.05) out.push({ code: 'two_stroke_oil', severity: 'warn', mount: tank, text: T('二冲程机要加混合油', 'A two-stroke wants oil in its petrol: plain petrol will seize it.') });
   const inst = engMount ? build.parts[engMount] : undefined;
-  if (eng.engine!.oilL > 0 && (inst?.fluids.oilL ?? 0) < eng.engine!.oilL * 0.15) out.push({ code: 'no_oil', severity: 'block', mount: engMount ?? undefined, text: T('发动机没有机油了：先加机油。', 'The engine is out of oil: top it up first.') });
+  if (eng.engine!.oilL > 0 && (inst?.fluids.oilL ?? 0) < eng.engine!.oilL * 0.15) out.push({ code: 'no_oil', severity: 'block', mount: engMount ?? undefined, text: T('发动机没有机油了', 'The engine is out of oil: top it up first.') });
   return out;
 }
 
@@ -132,13 +132,13 @@ export function driveProblems(build: Build): Problem[] {
   const out: Problem[] = [];
   const frame = frameDef(build.frame);
   const gb = firstMountOf(build, 'gearbox');
-  if (!gb || !build.parts[gb]) out.push({ code: 'no_gearbox', severity: 'block', mount: gb ?? undefined, text: T('没有变速箱：发动机空转，车不走。', 'No gearbox: the engine revs and nothing moves.') });
+  if (!gb || !build.parts[gb]) out.push({ code: 'no_gearbox', severity: 'block', mount: gb ?? undefined, text: T('没有变速箱', 'No gearbox: the engine revs and nothing moves.') });
   const seat = frame.mounts.find((m) => m.driver);
-  if (seat && !build.parts[seat.id]) out.push({ code: 'no_driver_seat', severity: 'block', mount: seat.id, text: T('驾驶位没有座椅：够不着踏板。', 'No seat at the wheel: you cannot reach the pedals.') });
+  if (seat && !build.parts[seat.id]) out.push({ code: 'no_driver_seat', severity: 'block', mount: seat.id, text: T('驾驶位没有座椅', 'No seat at the wheel: you cannot reach the pedals.') });
   const hubs = frame.mounts.filter((m) => m.cat === 'rim' && m.driven);
-  if (hubs.length && hubs.every((h) => !build.parts[h.id])) out.push({ code: 'no_driven_wheel', severity: 'block', mount: hubs[0].id, text: T('驱动轮一个都没有：发动机的劲没处使。', 'No driven wheels at all: the power has nowhere to go.') });
+  if (hubs.length && hubs.every((h) => !build.parts[h.id])) out.push({ code: 'no_driven_wheel', severity: 'block', mount: hubs[0].id, text: T('驱动轮一个都没有', 'No driven wheels at all: the power has nowhere to go.') });
   for (const m of frame.mounts) {
-    if (m.cat === 'diff' && !build.parts[m.id]) out.push({ code: 'no_diff', severity: 'block', mount: m.id, text: T('没有差速器：传动轴空转，劲到不了车轮。', 'No differential: the prop shaft spins and the wheels do not.') });
+    if (m.cat === 'diff' && !build.parts[m.id]) out.push({ code: 'no_diff', severity: 'block', mount: m.id, text: T('没有差速器', 'No differential: the prop shaft spins and the wheels do not.') });
   }
   return out;
 }
@@ -148,7 +148,7 @@ export function warnings(build: Build): Problem[] {
   const out: Problem[] = [];
   const frame = frameDef(build.frame);
   const steer = firstMountOf(build, 'steering');
-  if (steer && !build.parts[steer]) out.push({ code: 'no_steering', severity: 'warn', mount: steer, text: T('没有方向盘：只能直着开。', 'No steering wheel: straight ahead only.') });
+  if (steer && !build.parts[steer]) out.push({ code: 'no_steering', severity: 'warn', mount: steer, text: T('没有方向盘', 'No steering wheel: straight ahead only.') });
   const h = hubsOf(frame);
   const seen = new Set<string>();
   for (const hub of [h.fl, h.fr, h.rl, h.rr]) {
@@ -156,37 +156,37 @@ export function warnings(build: Build): Problem[] {
     seen.add(hub.id);
     const inst = build.parts[hub.id];
     if (!inst) {
-      out.push({ code: 'no_wheel', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}没有车轮：那个角拖在地上。`, `No ${hub.label.en}: that corner drags on the road.`) });
+      out.push({ code: 'no_wheel', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}没有车轮`, `No ${hub.label.en}: that corner drags on the road.`) });
       continue;
     }
     const rim = partDef(inst.part).rim;
-    if (rim?.tire && !inst.sub.tire) out.push({ code: 'no_tire', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}只有钢圈：又滑又吵。`, `The ${hub.label.en} is a bare rim: slippery and loud.`) });
-    else if (inst.sub.tire?.flat) out.push({ code: 'flat_tire', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}扎胎了：车往这边偏。`, `The ${hub.label.en} is flat: the car pulls that way.`) });
+    if (rim?.tire && !inst.sub.tire) out.push({ code: 'no_tire', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}只有钢圈`, `The ${hub.label.en} is a bare rim: slippery and loud.`) });
+    else if (inst.sub.tire?.flat) out.push({ code: 'flat_tire', severity: 'warn', mount: hub.id, text: T(`${hub.label.zh}扎胎了`, `The ${hub.label.en} is flat: the car pulls that way.`) });
   }
   const engMount = firstMountOf(build, 'engine');
   const eng = engMount ? partAt(build, engMount) : null;
   if (eng?.engine?.cooling === 'water') {
     const rad = firstMountOf(build, 'radiator');
     const ri = rad ? build.parts[rad] : undefined;
-    if (!ri) out.push({ code: 'no_radiator', severity: 'warn', mount: rad ?? undefined, text: T('水冷发动机没有散热器：几分钟就开锅。', 'A water-cooled engine with no radiator: it boils within minutes.') });
+    if (!ri) out.push({ code: 'no_radiator', severity: 'warn', mount: rad ?? undefined, text: T('水冷发动机没有散热器', 'A water-cooled engine with no radiator: it boils within minutes.') });
     else {
       const rs = partDef(ri.part).radiator!;
-      if ((ri.fluids.coolantL ?? 0) < rs.coolantL * 0.3) out.push({ code: 'low_coolant', severity: 'warn', mount: rad ?? undefined, text: T('散热器缺水：加点水。', 'The radiator is low: add some water.') });
+      if ((ri.fluids.coolantL ?? 0) < rs.coolantL * 0.3) out.push({ code: 'low_coolant', severity: 'warn', mount: rad ?? undefined, text: T('散热器缺水', 'The radiator is low: add some water.') });
     }
   }
   const brakes = frame.mounts.filter((m) => m.cat === 'brakes');
   const noBrakes = brakes.filter((m) => !build.parts[m.id]);
-  if (brakes.length && noBrakes.length === brakes.length) out.push({ code: 'no_brakes', severity: 'warn', mount: brakes[0].id, text: T('一个刹车都没有：刹车踩下去什么也不会发生。', 'No brakes at all: the pedal does nothing.') });
-  else for (const m of noBrakes) out.push({ code: 'no_brakes', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}：刹车距离长一大截。`, `No ${m.label.en}: it stops a long way later.`) });
+  if (brakes.length && noBrakes.length === brakes.length) out.push({ code: 'no_brakes', severity: 'warn', mount: brakes[0].id, text: T('一个刹车都没有', 'No brakes at all: the pedal does nothing.') });
+  else for (const m of noBrakes) out.push({ code: 'no_brakes', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}`, `No ${m.label.en}: it stops a long way later.`) });
   for (const m of frame.mounts) {
-    if (m.cat === 'suspension' && !build.parts[m.id]) out.push({ code: 'no_suspension', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}：车身直接坐在限位块上，又颠又蹭底。`, `No ${m.label.en}: the body sits on its bump stops — harsh, and it scrapes.`) });
+    if (m.cat === 'suspension' && !build.parts[m.id]) out.push({ code: 'no_suspension', severity: 'warn', mount: m.id, text: T(`没有${m.label.zh}`, `No ${m.label.en}: the body sits on its bump stops — harsh, and it scrapes.`) });
   }
   const hb = firstMountOf(build, 'handbrake');
-  if (hb && !build.parts[hb]) out.push({ code: 'no_handbrake', severity: 'warn', mount: hb, text: T('没有手刹：停在坡上会溜。', 'No handbrake: it rolls away on a slope.') });
+  if (hb && !build.parts[hb]) out.push({ code: 'no_handbrake', severity: 'warn', mount: hb, text: T('没有手刹', 'No handbrake: it rolls away on a slope.') });
   const gl = firstMountOf(build, 'gearLever');
-  if (gl && !build.parts[gl] && build.parts[firstMountOf(build, 'gearbox') ?? '']) out.push({ code: 'no_gearlever', severity: 'warn', mount: gl, text: T('没有挡杆：卡在一挡，倒不了车。', 'No gear lever: stuck in first, no reverse.') });
+  if (gl && !build.parts[gl] && build.parts[firstMountOf(build, 'gearbox') ?? '']) out.push({ code: 'no_gearlever', severity: 'warn', mount: gl, text: T('没有挡杆', 'No gear lever: stuck in first, no reverse.') });
   const lamps = frame.mounts.filter((m) => m.cat === 'headlight');
-  if (lamps.length && lamps.every((m) => !build.parts[m.id])) out.push({ code: 'no_headlights', severity: 'warn', mount: lamps[0].id, text: T('没有大灯：天黑就看不见路。', 'No headlamps: blind after dark.') });
+  if (lamps.length && lamps.every((m) => !build.parts[m.id])) out.push({ code: 'no_headlights', severity: 'warn', mount: lamps[0].id, text: T('没有大灯', 'No headlamps: blind after dark.') });
   return out;
 }
 

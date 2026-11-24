@@ -75,7 +75,7 @@ function oldSave(): SaveV1 {
       kept: { 'w:12:0': { build: stockBuild('wagon', { fuel: 0 }), x: 400, z: -3, yaw: 1.2, loose: [riding({ item: newItem('food_fish_can') }, 0), riding({ tool: newTool('oilcan', { litres: 1.5 }) }, 0), riding({ part: newInstance('tire_road') }, 0)] } },
       gone: ['w:3:1'],
     },
-    places: { searched: ['c:7', 'c:9'], left: { 'c:7': [{ item: newItem('med_pain_2') }, { tool: newTool('sponge') }, { part: newInstance('bat_std') }] }, pumps: { 's:2': { petrol: 80, diesel: 40 } }, taken: ['t:1'] },
+    places: { searched: ['c:7', 'c:9'], left: { 'c:7': [{ item: newItem('med_pain_2') }, { tool: newTool('oilcan') }, { part: newInstance('bat_std') }] }, pumps: { 's:2': { petrol: 80, diesel: 40 } }, taken: ['t:1'] },
   };
 }
 
@@ -235,12 +235,12 @@ describe('things through the save', () => {
   it('the backpack one has on, of a kind this build does not have, is taken off and counted', () => {
     const s = oldSave();
     s.pack = { uid: 'i9p', item: 'gone_pack' } as ItemInstance;
-    s.hands = [null, { item: newItem('drink_soda') }, { item: newItem('ts_jerky', { n: 3 }) }, null, { tool: newTool('sponge') }];
+    s.hands = [null, { item: newItem('drink_soda') }, { item: newItem('ts_jerky', { n: 3 }) }, null, { tool: newTool('oilcan') }];
     const back = through(s).back!;
     expect('pack' in back).toBe(false);
     expect(loadLoss()).toEqual({ unknown: 1, kinds: ['gone_pack'] });
     // (what was in its slots is still in the save's hotbar: the game puts down what it has no slot for)
-    expect(back.hands!.map((h) => (h?.item ? h.item.item : h?.tool ? h.tool.kind : null))).toEqual([null, 'drink_soda', 'ts_jerky', null, 'sponge']);
+    expect(back.hands!.map((h) => (h?.item ? h.item.item : h?.tool ? h.tool.kind : null))).toEqual([null, 'drink_soda', 'ts_jerky', null, 'oilcan']);
   });
 
   it('a part this build does not know still sets the whole save aside, wherever it is; a tool of no kind is left out like a thing', () => {
@@ -290,7 +290,7 @@ describe('things through the save', () => {
     // made after the load: past every one of them
     expect(num(newItem('ts_jerky').uid)).toBe(far + 7);
     expect(num(splitStack(back.hands![1]!.item!.inside![1], 1)!.uid)).toBe(far + 8);
-    expect(num(newTool('sponge').uid)).toBe(far + 10);
+    expect(num(newTool('oilcan').uid)).toBe(far + 10);
     expect(num(newInstance('bat_std').uid)).toBeGreaterThan(far + 8);
     const all = new Set<string>();
     forEachSavedItem(back, (x) => void all.add(x.uid));
@@ -312,7 +312,7 @@ describe('things through the save', () => {
     expect(again.hands![0]!.item!.uid).toBe('i7');
     expect(again.hands![1]!.item!.uid).toBe('i8');
     // (and the new ones are new: nothing made afterwards has them)
-    for (let i = 0; i < 5; i++) expect(things.includes(newItem('ts_jerky').uid) || tools.includes(newTool('sponge').uid)).toBe(false);
+    for (let i = 0; i < 5; i++) expect(things.includes(newItem('ts_jerky').uid) || tools.includes(newTool('oilcan').uid)).toBe(false);
   });
 
   it('what goes off without a time starts at the save’s own time, and nothing is written as of a later one', async () => {
@@ -437,7 +437,7 @@ describe('things through the save', () => {
       at({ item: null as unknown as ItemInstance }),
       // two things in one slot: the game takes the first there is, and so does the save
       at({ part: newInstance('bat_std'), item: gone('i9t') }),
-      at({ tool: newTool('sponge'), item: good() }),
+      at({ tool: newTool('oilcan'), item: good() }),
       at({ item: good() }),
     );
     const n = oldSave().loose.length;

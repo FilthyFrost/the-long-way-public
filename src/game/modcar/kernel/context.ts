@@ -26,18 +26,35 @@ import type { SaveSliceRegistry } from '../../../core/kernel/slices';
 import type { SystemRegistry } from '../../../core/kernel/systems';
 import type { WorldTime } from '../../../core/kernel/clock';
 import type { DrinkLiquid, ItemInstance } from '../../../core/modcar/items';
+import type { Buffs } from '../../../core/v3/cooking/buffs';
 import type { Vitals } from '../../../core/modcar/vitals';
 import type { World } from '../../../core/world/terrain';
+import type { SolidSource } from '../../../core/world/solids';
 import type { Environment } from '../../env/environment';
 import type { RenderCore } from '../../render/core';
 import type { CargoBay } from '../cargo';
-import type { LooseThings } from '../loose';
+import type { CockpitUse } from '../cockpit';
+import type { MountDef } from '../../../core/modcar/types';
+import type { HeldThing } from '../held';
+import type { ScrubHit } from '../player';
+import type { Cleaner, Tool } from '../../../core/modcar/tools';
+import type * as THREE from 'three';
+import type { Loose, LooseThings } from '../loose';
 import type { ModParams } from '../ModGame';
 import type { ModPlayer } from '../player';
 import type { ModUI } from '../ui';
 import type { ModVehicle } from '../vehicle';
 import type { DevTabs } from './devTabs';
 import type { InteractSources } from './interact';
+
+/** what feeds a thing lying about or riding in a vehicle (GameContext.powerAt; null: not in a vehicle, or no power module) */
+export function powerOf(ctx: GameContext, l: Loose): 'on' | 'flat' | null {
+  for (const f of ctx.powerAt ?? []) {
+    const p = f(l);
+    if (p !== undefined) return p;
+  }
+  return null;
+}
 
 export interface GameContext {
   // ---------------------------------------------------------------- the kernel
@@ -59,14 +76,33 @@ export interface GameContext {
   readonly params: ModParams;
   /** the renderer: the scene, the camera, the floating origin (place things with `core.place`, in lateUpdate) */
   readonly core: RenderCore;
+  /** the game's sound: its context once started, and the master bus a system's own voices join (its volume, its mute: docs/ND/PLAN.md) */
+  readonly audio?: { readonly context: AudioContext | null; readonly output: AudioNode | null };
   /** the hour's light and the weather (`env.sky`, `env.state`): during preStep and step still last frame's, and before the first frame's lateUpdate not yet the game's at all (see above) */
   readonly env: Environment;
   /** the world; null in the stand-in garage until one drives out */
   readonly world: World | null;
   /** the player on foot: the walker, the hands, what the mark is on */
   readonly player: ModPlayer;
+  /** how far between its last two physics steps the vehicle sat in is drawn this frame (0 … 1; its view's interpolation) */
+  readonly renderAlpha?: number;
+  /** a vehicle of the world's (a find) made one's own (wrecks.ts claim); absent: nothing to do */
+  claimVehicle?(v: ModVehicle): void;
+  /** the systems' rules against starting an engine (the key turned: a rule's why stops it — the Turtle's roof up); push to add one */
+  readonly startBlockers?: ((v: ModVehicle) => { zh: string; en: string } | null)[];
+  /** lie down in a bed and sleep (the camper's): the night gone by as in a seat, rested sooner; why not, or null when it begins */
+  sleepInBed?(): { zh: string; en: string } | null;
+  /**
+   * What feeds an electric thing riding in a vehicle (docs/V3/plan/rv.md R2, the power module): 'on' — its house battery,
+   * or with none the starter's above what it keeps to crank on, has charge; 'flat' — nothing there to draw on; null —
+   * not in a vehicle (an appliance works there as it always has; a hob does not heat). The list is the game's: a system
+   * pushes its answer; the first that is not undefined holds (powerOf).
+   */
+  readonly powerAt?: ((l: Loose) => 'on' | 'flat' | null | undefined)[];
   /** the body: health, food, water, warmth (core/modcar/vitals.ts): a meal feeds it through `eat` */
   readonly body: Vitals;
+  /** what a good meal leaves behind for a while (core/v3/cooking/buffs.ts): granted with add, read by the body each step */
+  readonly buffs?: Buffs;
   /** every vehicle there now, the live wrecks by the road among them */
   readonly vehicles: readonly ModVehicle[];
   /** the vehicle the player sits in; null on foot */
@@ -98,6 +134,37 @@ export interface GameContext {
    * the list out again.
    */
   addRadios(sets: readonly RadioSet[]): () => void;
+  /**
+   * A system's share of each vehicle radio's loudness, asked every frame for each one playing (docs/ND/PLAN.md: the
+   * tape deck's volume knob; 0 while a tape plays in it, the station quiet). The list is the game's: push to it.
+   */
+  readonly radioLevel: ((v: ModVehicle) => number)[];
+  /** the cab's controls from a seat (cockpit.ts): the one the mark is on; the systems' own ways with them (push to `uses`) */
+  readonly cockpit: { readonly uses: CockpitUse[]; readonly aimed: MountDef | null };
+  /**
+   * A system's own solids (docs/ND/PLAN.md: a prefab building's doors while they are shut): the walker and the
+   * vehicles keep out of what it offers from then on. Returns the function that takes it out again.
+   */
+  addSolids(s: SolidSource): () => void;
+  /** the thing in the hands as drawn in first person (held.ts): raised to the eye (`lift`), something hung on it (`hang`) */
+  readonly heldThing: HeldThing;
+  /** the view on foot zoomed this many times (a camera raised to the eye: docs/ND/PLAN.md); 1 none. The system that set it sets it back */
+  lookZoom: number;
+  /**
+   * The view's turn and tilt as the mouse and the stick make them (rad: `lookYaw` the heading on the plan, as a
+   * walker's; `lookPitch` up +). A system that holds the view (a seat: docs/ND/PLAN.md) keeps them within its limits.
+   * `walk`: the walking stick as the keys and the pad make it (forward and right, −1 … 1: a ladder climbed with it,
+   * docs/ND/PLAN.md ND6); `isDown`: a key held (its code).
+   */
+  readonly input: { lookYaw: number; lookPitch: number; readonly walk: { readonly forward: number; readonly right: number }; isDown(code: string): boolean };
+  /**
+   * The grime on what the line of sight meets (a vehicle's body or part, a part lying about; render space), null none
+   * within `far`; a stroke of a tool over it from a to b (the masks: grime.ts), and the stroke ended (measured). The
+   * scrubbing the game does with its own tools, for a system's tool (docs/ND/PLAN.md: the grinder).
+   */
+  grimeCast(origin: THREE.Vector3, dir: THREE.Vector3, far: number): ScrubHit | null;
+  scrubStroke(hit: ScrubHit, a: THREE.Vector3, b: THREE.Vector3, side: THREE.Vector3, tool: Tool, c: Cleaner, dt: number): void;
+  scrubEnd(last: ScrubHit | null, tool: Tool): void;
 }
 
 /** a set playing one of the radio's songs where it stands (GameContext.addRadios) */

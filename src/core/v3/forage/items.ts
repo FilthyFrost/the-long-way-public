@@ -40,7 +40,7 @@ export function forageItemRows(): ItemRow[] {
       model: 'forage_lump',
       paint: 0x5b4636,
       paint2: 0x3a2f28,
-      blurb: '放坏了的野菜野果。丢进回收台还能出点有机物。',
+      blurb: '放坏了的野菜野果。',
     },
   ];
   for (const k of FORAGE_KINDS) {

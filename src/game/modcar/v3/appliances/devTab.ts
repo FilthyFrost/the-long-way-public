@@ -1,14 +1,14 @@
 /**
- * The developer's tab 电器 of the appliances module (node M2): a motorhome furnished at a click — the coffee maker
- * with water and coffee in it on the galley's worktop, the lamp on the dinette's table, the solar lamp beside it, the
- * television and the record player by the door, the clock radio, a bag of ground coffee and a bottle of water
- * beside the coffee maker; each kind given into the hands; all of them switched on or off.
+ * The developer's tab 电器 of the appliances module (node M2): a motorhome furnished at a click — the coffee machine
+ * (its pot under the spout, beans in its hopper) on the galley's worktop, the lamp on the dinette's table, the solar
+ * lamp beside it, the television and the record player by the door, the clock radio, a bag of beans and a mug beside
+ * the coffee machine; each kind given into the hands; all of them switched on or off.
  *
  * It is made of the panel's own pieces (kernel/devTabs.ts DevPane).
  */
 import { newItem, type ItemInstance } from '../../../../core/modcar/items';
 import { aboardOf } from '../../../../core/modcar/aboard';
-import { appOf, appState, COFFEE_GROUNDS, COFFEE_POT, COFFEE_WITH_POT, toggle } from '../../../../core/v3/appliances/appliances';
+import { appOf, COFFEE_POT, toggle } from '../../../../core/v3/appliances/appliances';
 import type { GameContext } from '../../kernel/context';
 import type { DevButton, DevTab } from '../../kernel/devTabs';
 import type { ModVehicle } from '../../vehicle';
@@ -17,9 +17,10 @@ import type { Appliances } from './system';
 /** what goes where in a motorhome (its zones: core/modcar/cargo.ts) */
 /** what goes where in a motorhome (its zones: core/modcar/cargo.ts), near which point of it (frame model space), facing which way (0: forward, −π/2: to the right) */
 const FURNISH: readonly { id: string; zone: string; at: [number, number]; yaw: number; set?: (it: ItemInstance) => void }[] = [
-  { id: COFFEE_WITH_POT, zone: 'galley', at: [-1.55, -0.85], yaw: -Math.PI / 2, set: (it) => Object.assign(appState(it), { water: 1, grounds: 1 }) },
-  { id: COFFEE_GROUNDS, zone: 'galley', at: [-1.38, -0.62], yaw: -Math.PI / 2 },
-  { id: 'drink_water', zone: 'galley', at: [-0.95, -0.75], yaw: 0 },
+  // (the coffee machine, its pot under the spout and a bag's worth of beans in it: core/v3/nd/coffee.ts)
+  { id: 'nd_coffee_machine', zone: 'galley', at: [-1.55, -0.85], yaw: -Math.PI / 2, set: (it) => void ((it.state ??= {}).ndCoffee = { fill: 1, cup: newItem(COFFEE_POT) }) },
+  { id: 'nd_coffee_pack', zone: 'galley', at: [-1.38, -0.62], yaw: -Math.PI / 2 },
+  { id: 'nd_mug', zone: 'galley', at: [-0.95, -0.75], yaw: 0 },
   { id: 'junk_clockradio', zone: 'galley', at: [-1.2, -0.74], yaw: -Math.PI / 2 },
   { id: 'junk_lamp', zone: 'table', at: [0.43, -0.85], yaw: -Math.PI / 2 },
   { id: 'junk_tv', zone: 'lounge', at: [-1.0, 0.45], yaw: 0 },
@@ -88,7 +89,7 @@ export function appliancesTab(sys: Appliances, game: () => GameContext | null): 
     build(pane) {
       const say = pane.message();
       pane.heading('房车');
-      pane.note('站在房车里、坐在房车里或站在旁边：咖啡机（加好了水和咖啡粉）放到厨房台面，台灯和太阳能灯放到餐桌，电视和唱片机放到车门边，收音闹钟放在咖啡机旁边，旁边再放一袋咖啡粉和一瓶水。');
+      pane.note('站在房车里、坐在房车里或站在旁边：咖啡机（壶在出水口下面，豆子装好了）放到厨房台面，台灯和太阳能灯放到餐桌，电视和唱片机放到车门边，收音闹钟放在咖啡机旁边，旁边再放一袋咖啡豆和一个杯子。');
       pane.buttons([
         {
           label: '一套电器放进房车',
@@ -104,8 +105,8 @@ export function appliancesTab(sys: Appliances, game: () => GameContext | null): 
         {
           label: '全部打开',
           click: () => {
-            for (const u of sys.all) if (!u.potOnly && u.kind !== 'coffee') toggle(u.item, true);
-            say('都打开了（咖啡机要自己按 E 煮）。');
+            for (const u of sys.all) if (!u.potOnly) toggle(u.item, true);
+            say('都打开了。');
           },
         },
         {
@@ -118,11 +119,10 @@ export function appliancesTab(sys: Appliances, game: () => GameContext | null): 
       ], 3);
       pane.heading('拿到手上');
       const kinds: [string, string][] = [
-        [COFFEE_WITH_POT, '咖啡机'],
-        ['coffee_maker', '咖啡机（没壶）'],
+        ['nd_coffee_machine', '咖啡机'],
         [COFFEE_POT, '咖啡壶'],
-        [COFFEE_GROUNDS, '咖啡粉'],
-        ['drink_water', '一瓶水'],
+        ['nd_coffee_pack', '咖啡豆'],
+        ['nd_mug', '搪瓷杯'],
         ['junk_clockradio', '收音闹钟'],
         ['junk_record', '唱片机'],
         ['junk_tv', '电视'],

@@ -44,7 +44,9 @@ try {
       if (t.kind !== 'device') return t.kind;
       const h = g.player.held;
       const take = h && t.device.take ? t.device.take(h) : null;
-      return `${t.device.id.split(':').pop()}|${(take ? take.word : t.device.word).zh}${take && !take.ok ? '|off' : ''}`;
+      // (what it waits for, when a press does nothing: not drawn, said when pressed — docs/V3/plan/prompts.md §五)
+      const why = !take && t.device.why ? `|why:${t.device.why.zh}` : '';
+      return `${t.device.id.split(':').pop()}|${(take ? take.word : t.device.word).zh}${take && !take.ok ? '|off' : ''}${why}`;
     };
     window.__k = {
       sys,
@@ -102,6 +104,14 @@ try {
         return word();
       },
       /** F pressed and let go at once */
+      /** the left button held so long (s), then let go: a pick-up (docs/V3/plan/growth.md J1) */
+      holdL(seconds = 1.0) {
+        g.player.press();
+        for (let t = 0; t < seconds; t += 1 / 60) g.step(1 / 60, 1);
+        g.player.release();
+        for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
+        return word();
+      },
       tapF() {
         g.rightButton = true;
         for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
@@ -153,7 +163,7 @@ try {
   let w = await k('hold', 'kit_gas');
   w = await k('aim', STOVE, BAY);
   t = await k('tele');
-  ok(/换上这罐燃气/.test(w) && t.ghosts.includes('can:kit_gas*'), `a canister in the hands at the stove: ${w} · ghosts ${t.ghosts.join(' ')}`);
+  ok(/换燃气罐/.test(w) && t.ghosts.includes('can:kit_gas*'), `a canister in the hands at the stove: ${w} · ghosts ${t.ghosts.join(' ')}`);
   await shot('02_canister_ghost.png');
   await k('press');
   await k('sim', 0.75);
@@ -177,20 +187,20 @@ try {
   await k('hold', 'ing_tomato', { n: 2 });
   w = await k('aim', 'kit_board', [0, 0.03, 0.03]);
   t = await k('tele');
-  ok(/放到案板上/.test(w) && t.ghosts.includes('food:ing_tomato*'), `a tomato at the board: ${w} · ${t.ghosts.join(' ')}`);
+  ok(/放上案板/.test(w) && t.ghosts.includes('food:ing_tomato*'), `a tomato at the board: ${w} · ${t.ghosts.join(' ')}`);
   await shot('06_board_ghost.png');
   await k('press');
   h = await k('held');
   ok((await k('kit', 'kit_board')).food?.id === 'tomato' && h.heldN === 1, `E: one tomato on the board, one left in the hands (${h.heldN})`);
   await k('empty');
   w = await k('aim', 'kit_board', [0, 0.03, 0.03]);
-  ok(/切.*番茄.*0\/3/.test(w), `empty hands at the board: ${w}`);
+  ok(/切 <b>番茄/.test(w), `empty hands at the board: ${w}`);
   await k('press');
   await page.evaluate(() => window.__k.sim(0.1));
   await shot('07_chopping.png');
   await k('press');
   w = await k('press');
-  ok((await k('kit', 'kit_board')).food?.cut === 1 && /拿起切好的/.test(w), `three strokes: cut (${w})`);
+  ok((await k('kit', 'kit_board')).food?.cut === 1 && /拿起 <b>番茄/.test(w), `three strokes: cut (${w})`);
   await k('sim', 0.5);
   await shot('08_cut.png');
   await k('press');
@@ -200,12 +210,12 @@ try {
   // ---- 3. into the pan
   w = await k('aim', STOVE, TOP);
   t = await k('tele');
-  ok(/煎炒：放进.*番茄.*1\/5/.test(w) && t.ghosts.includes('food:cut_tomato*'), `the cut tomato at the pan: ${w} · ${t.ghosts.join(' ')}`);
+  ok(/放进 <b>番茄/.test(w) && t.ghosts.includes('food:cut_tomato*'), `the cut tomato at the pan: ${w} · ${t.ghosts.join(' ')}`);
   await shot('09_pan_ghost.png');
   await k('press');
   await k('hold', 'ing_egg');
   w = await k('aim', STOVE, TOP);
-  ok(/2\/5/.test(w), `an egg after it: ${w}`);
+  ok(/放进 <b>鸡蛋/.test(w), `an egg after it: ${w}`);
   await k('press');
   ok(JSON.stringify((await k('kit', STOVE)).pot.items) === '[{"id":"tomato","cut":1},{"id":"egg"}]', `in the pan: ${JSON.stringify((await k('kit', STOVE)).pot)}`);
   await k('hold', 'kit_spice');
@@ -283,14 +293,14 @@ try {
   await k('press');
   await k('hold', 'ing_watermelon');
   w = await k('aim', STOVE, TOP, 1.25);
-  ok(/上次这样做砸了/.test(w), `the same things again: ${w}`);
+  ok(/上次砸了/.test(w), `the same things again: ${w}`);
   await shot('15_warned.png');
   // (taken back out: the pan is raw, the flame — still on from the last pot — is put out first)
   await k('empty');
   await k('aim', STOVE, KNOB, 1.0);
   await k('press');
   w = await k('aim', STOVE, TOP, 1.25);
-  ok(/取回金枪鱼/.test(w), `empty hands at a raw pan: ${w}`);
+  ok(/取回 <b>金枪鱼/.test(w), `empty hands at a raw pan: ${w}`);
   await k('press');
   h = await k('held');
   ok(h.held === 'item:ing_tuna' && (await k('kit', STOVE)).pot === undefined, `E: taken back (${h.held})`);
@@ -304,11 +314,11 @@ try {
   }
   await k('empty');
   w = await k('aim', 'kit_bowl', [0, 0.06, 0], 1.3);
-  ok(/拌一拌（0\/3）/.test(w), `the bowl: ${w}`);
+  ok(/\|拌一拌$/.test(w), `the bowl: ${w}`);
   await k('press');
   await k('press');
   w = await k('press');
-  ok(/拌好了/.test(w), `three tosses: ${w}`);
+  ok(/装盘\|why:拿着盘子或碗/.test(w), `three tosses: ${w}`);
   await k('hold', 'kit_dish');
   await k('aim', 'kit_bowl', [0, 0.06, 0], 1.3);
   await k('press');
@@ -317,9 +327,9 @@ try {
   await shot('16_salad.png');
   await k('empty');
   w = await k('aim', STOVE, TOP, 1.25);
-  w = await k('tapF');
+  w = await k('holdL');
   h = await k('held');
-  ok(h.held === 'item:kit_pan' && (await k('kit', STOVE))?.on === undefined, `F on the pan: taken off (${h.held})`);
+  ok(h.held === 'item:kit_pan' && (await k('kit', STOVE))?.on === undefined, `the left button held on the pan: taken off (${h.held})`);
   w = await k('aimGround', STOVE, 1.0, 0.45);
   await shot('17_pan_set_down_ghost.png');
   await k('press');

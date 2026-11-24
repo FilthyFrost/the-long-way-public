@@ -2,9 +2,10 @@
 // car stands caked in a barn's years of grime, its windows too — nothing to be seen through them from the seat; the
 // checklist asks for the windscreen scraped once the scraper is made; the plastic scraper over the windscreen (the
 // view held, the mouse moving the blade): a band of clear glass where it went, a smeary film after one pass, clean
-// after two — the windscreen comes clean (its unit done) and the step with it; the sponge over a door takes its
-// dust but not its crust, the scraper the crust; the scraper wears; H lights up the dirt left; a dusty rim lying on
-// the floor sponged; saved and read back, the masks come back with the save (IndexedDB) as they were.
+// after more — the windscreen comes clean (its unit done) and the step with it; over a door the plastic scraper
+// takes a little a pass, the grinder all of it in a sweep; the scraper wears; a cleaning tool lights up the dirt left;
+// a dusty rim lying on the floor scraped; saved and read back, the masks come back with the save (IndexedDB) as they
+// were (docs/V3/plan/hands.md §五: the plastic scraper and the grinder, nothing else).
 //   SHOTS_GPU=1 node harness/shots/modcar_grime.mjs
 import { launchBrowser, startServer } from './lib.mjs';
 
@@ -70,16 +71,16 @@ try {
   console.log('one pass', JSON.stringify(w1));
   if (!once.started) fail('the scrub did not start');
   if (!w1 || !(w1.dirt < 0.75)) fail(`one pass did not take the windscreen's crust down (${JSON.stringify(w1)})`);
-  if (w1 && w1.dirt < 0.08) fail(`one pass cleaned the windscreen whole: it should take two (${w1.dirt})`);
+  if (w1 && w1.dirt < 0.08) fail(`one pass cleaned the windscreen whole: it should take several (${w1.dirt})`);
   await shot('one_pass');
   const twice = await rt('scrub', 4.0, 18, 0.62, 0.42);
   const w2 = unitOf(twice.grime, 'body', 5);
   console.log('two passes', JSON.stringify(w2));
   await shot('two_passes');
-  if (!w2 || !(w2.dirt < 0.35)) fail(`two passes left the windscreen dirty (${JSON.stringify(w2)})`);
+  if (!w2 || !(w2.dirt < w1.dirt - 0.1)) fail(`a second pass took nothing more off the windscreen (${JSON.stringify(w1)} → ${JSON.stringify(w2)})`);
   // (and over its corners, as one does once H shows them)
   let last = twice;
-  for (const [cx, cy] of [[-0.45, 0.1], [0.45, 0.1], [0, 0.32], [0, -0.25]]) {
+  for (const [cx, cy] of [[0, 0, 0.62, 0.42], [0, 0, 0.62, 0.42], [-0.45, 0.1], [0.45, 0.1], [0, 0.32], [0, -0.25], [-0.45, 0.1], [0.45, 0.1], [0, 0.32], [0, -0.25]]) {
     if ((last.grime.cleaning.find((c) => c.owner === 'body')?.doneDirt ?? []).includes(5)) break;
     last = await rt('scrub', 1.6, 8, 0.3, 0.16, cx, cy);
   }
@@ -92,43 +93,54 @@ try {
   const life = await page.evaluate(() => window.__rt.game.player.held?.tool?.life ?? 1);
   if (!(life < 1)) fail(`the scraper did not wear (${life})`);
 
-  // 3. the front left door: the sponge takes its dust, not its crust; the scraper the crust
-  await rt('hold', 'tool:sponge', {});
+  // 3. the front left door: a pass of the plastic scraper takes a little; the grinder a sweep's worth, all of it
   await rt('aim', 0, 'door_FL', 0.95);
+  const d0 = unitOf((await rt('grime')), 'p:door_FL', 0);
   const sp = unitOf((await rt('scrub', 2.6, 8, 0.42, 0.36)).grime, 'p:door_FL', 0);
-  console.log('sponge on the door', JSON.stringify(sp));
-  if (!sp || !(sp.dirt > 0.5)) fail(`the sponge took the door's crust (${JSON.stringify(sp)})`);
-  await rt('hold', 'tool:scraper', { tier: 2 });
-  await rt('aim', 0, 'door_FL', 0.95);
-  const sc = unitOf((await rt('scrub', 2.6, 8, 0.42, 0.36)).grime, 'p:door_FL', 0);
-  console.log('scraper on the door', JSON.stringify(sc));
-  if (!sc || !(sc.dirt < sp.dirt - 0.3)) fail(`the scraper did not take the door's crust (${JSON.stringify(sc)})`);
+  console.log('plastic scraper on the door', JSON.stringify({ d0, sp }));
+  if (!sp || !(sp.dirt > 0.3)) fail(`one pass of the plastic scraper took the door clean (${JSON.stringify(sp)})`);
   await shot('door');
 
-  // 4. H: the dirt still left lit up
-  await page.keyboard.press('KeyH');
+  // 4. a cleaning tool in the hands: the dirt still left lit up all the while (H is gone: docs/V3/plan/growth.md J1)
   await rt('simulate', 0.5);
-  const showing = await page.evaluate(() => window.__rt.game.grimeShowT);
-  if (!(showing > 0)) fail('H did not light up the dirt');
+  const showing = await page.evaluate(async () => (await import('/src/game/render/carMaterials.ts')).carEnvUniforms.uGrimeShow.value);
+  if (!(showing > 0.3)) fail(`a scraper in the hands does not light up the dirt (${showing})`);
   await shot('highlight');
   await rt('simulate', 2.5);
 
-  // 5. a dusty rim lying about, sponged
+  // 5. a dusty rim lying about, scraped
   const rim = await page.evaluate(() => {
     const l = window.__rt.game.loose.list.find((x) => x.part && x.part.part.startsWith('rim_') && !x.riding);
     return l ? { x: l.x, y: l.y + l.mid, z: l.z, uid: l.part.uid } : null;
   });
   if (!rim) fail('no rim lying about');
   else {
-    await rt('hold', 'tool:sponge', {});
+    await rt('hold', 'tool:scraper', { tier: 1 });
     await rt('aimPoint', rim.x, rim.y, rim.z, 0.4, 0.75);
     const r = await rt('scrub', 2.4, 8, 0.4, 0.35);
     const c = r.grime.cleaning.find((x) => x.key === rim.uid);
     console.log('rim', JSON.stringify(c?.units ?? null));
-    if (!c || !(c.units[0]?.dirt < 0.9)) fail(`the rim lying about was not cleaned (${JSON.stringify(c)})`);
+    if (!c || !(c.units[0]?.dirt < 0.97)) fail(`the rim lying about was not cleaned (${JSON.stringify(c)})`);
   }
 
-  // 6. saved and read back: the masks as they were
+  // 6. saved and read back: the masks as they were (what each holds: the dirt left over its surface's texels)
+  const held = () =>
+    page.evaluate(() => {
+      const g = window.__rt.game;
+      return g.grime.keys.map((key) => {
+        const m = g.grime.get(key);
+        const px = g.grime.read(m);
+        let s = 0;
+        let n = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i + 3] === 0) continue;
+          s += px[i];
+          n++;
+        }
+        return { key, dirt: n ? +(s / n / 255).toFixed(3) : 0 };
+      });
+    });
+  const kept = await held();
   const before = (await rt('grime')).cleaning.map((c) => ({ key: c.key, units: c.units.map((u) => +u.dirt.toFixed(2)) }));
   await page.evaluate(() => window.__rt.game.save());
   await page.waitForTimeout(1500);
@@ -137,13 +149,12 @@ try {
   await rt('simulate', 0.6);
   const after = (await rt('grime')).cleaning.map((c) => ({ key: c.key, units: c.units.map((u) => +u.dirt.toFixed(2)) }));
   console.log('read back', JSON.stringify({ before, after }));
-  for (const b of before) {
-    const a = after.find((x) => x.key === b.key);
-    if (!a) {
-      fail(`the mask of ${b.key} did not come back`);
-      continue;
-    }
-    if (a.units.length && b.units.length && Math.abs(a.units[0] - b.units[0]) > 0.06) fail(`the mask of ${b.key} came back changed (${b.units[0]} → ${a.units[0]})`);
+  const back = await held();
+  console.log('masks held', JSON.stringify({ kept, back }));
+  for (const b of before) if (!after.find((x) => x.key === b.key)) fail(`the mask of ${b.key} did not come back`);
+  for (const k of kept) {
+    const a = back.find((x) => x.key === k.key);
+    if (a && Math.abs(a.dirt - k.dirt) > 0.01) fail(`the mask of ${k.key} came back changed (${k.dirt} → ${a.dirt})`);
   }
   const doneBack = (await rt('grime')).cleaning.find((c) => c.owner === 'body')?.doneDirt ?? [];
   if (!doneBack.includes(5)) fail('the windscreen read back is not done');
