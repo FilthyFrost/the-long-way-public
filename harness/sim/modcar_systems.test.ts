@@ -215,3 +215,41 @@ describe('ModCar hands and wear', () => {
     expect(r.sim.mods.mu[0]).toBeCloseTo((mu0 * (0.75 + 0.25 * tyre.tread)) / (0.75 + 0.25 * 1), 3);
   });
 });
+
+describe('the fuel gauge keeps a reserve under its bottom (docs/V3/plan/finish.md §四.2)', () => {
+  it('two litres in the tank: the needle at the bottom, the lamp on, and it still starts and drives — some kilometres yet', async () => {
+    const { fuelReserve } = await import('../../src/core/modcar/systems');
+    const { tankFuel } = await import('../../src/core/modcar/derive');
+    const full = rig(stockBuild('sedan', { fuel: 1 }));
+    run(full, 0.1);
+    expect(full.sys.dash.fuel).toBe(1);
+    expect(full.sys.dash.lamps.fuel).toBe(false);
+    const tank = full.sys.dash.tankL;
+    expect(fuelReserve(tank)).toBe(2);
+    // (a small tank: an eighth of it)
+    expect(fuelReserve(8)).toBe(1);
+    // half a tank reads a little under the half (the reserve is below the scale)
+    const half = rig(stockBuild('sedan', { fuel: 0.5 }));
+    run(half, 0.1);
+    expect(half.sys.dash.fuel).toBeCloseTo((tank * 0.5 - 2) / (tank - 2), 6);
+    // down to the reserve: the lamp came on before (at a tenth of the tank), the needle is at the bottom
+    const low = rig(stockBuild('sedan', { fuel: 2 / tank }));
+    run(low, 0.1);
+    expect(low.sys.dash.fuelL).toBeCloseTo(2, 6);
+    expect(low.sys.dash.fuel).toBe(0);
+    expect(low.sys.dash.lamps.fuel).toBe(true);
+    start(low);
+    expect(low.sys.running).toBe(true);
+    low.sim.setParkBrake(false);
+    const x0 = low.sim.px;
+    run(low, 60, { throttle: 0.5 });
+    // (a minute at half throttle on the reserve: still running, a kilometre on)
+    expect(low.sys.running).toBe(true);
+    expect(low.sim.px - x0).toBeGreaterThan(800);
+    expect(tankFuel(low.sys.build).total).toBeGreaterThan(0);
+    const lamp = rig(stockBuild('sedan', { fuel: 0.09 }));
+    run(lamp, 0.1);
+    expect(lamp.sys.dash.lamps.fuel).toBe(true);
+    expect(lamp.sys.dash.fuel).toBeGreaterThan(0);
+  });
+});

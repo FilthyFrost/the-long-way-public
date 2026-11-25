@@ -1,42 +1,30 @@
 /**
  * The M4 fixes the player asked for (docs/V3/nodes/M4-fixes.md): the archive's recordings in place of the synthesized
- * sounds — two recordings of one name told apart by their files (the pee's start and its end), the stream heard on what
- * it falls on, a recording following a loop's rate its own way; and the walk in a living space eased round a corner into
- * the way on, not pressed to the wall.
+ * sounds — two recordings of one name told apart by their files, a recording following a loop's rate its own way; and
+ * the walk in a living space eased round a corner into the way on, not pressed to the wall.
  */
 import { describe, expect, it } from 'vitest';
 import { resolveCues, type CatalogEntry } from '../../src/core/audio/cueTable';
-import { CUE_SPEC } from '../../src/core/audio/cueSpec';
-import { cueKeys, loopPlaybackRate, peeOn } from '../../src/game/modcar/foley';
+import { CUE_SPEC, type CuePick } from '../../src/core/audio/cueSpec';
+import { loopPlaybackRate } from '../../src/game/modcar/foley';
 import { Walker } from '../../src/core/onboard/walker';
 import { aboardOf } from '../../src/core/modcar/aboard';
 
 const entry = (name: string, file: string): CatalogEntry => ({ kind: 'source', game: 'Arctic Drive', name, file: `Arctic Drive/02_人物/生存与动作/${file}.wav`, duration_seconds: 1 });
 
 describe('M4 fixes · the sounds are the archive\'s', () => {
-  it('two recordings of the same name are told apart by their files: the stream\'s start and its end', () => {
-    const cat = [entry('audiosources_temp\\Player\\Action-Pee.wav', 'Action-Pee__w403325015'), entry('audiosources_temp\\Player\\Action-Pee.wav', 'Action-Pee__w875654566'), entry('player_action_pee_concrete.wav', 'player_action_pee_concrete__w1040497985')];
-    const t = resolveCues(cat, { pee_start: CUE_SPEC.pee_start, pee_end: CUE_SPEC.pee_end, 'pee:concrete': CUE_SPEC['pee:concrete'] }, []);
-    expect(t.cues.pee_start.map((f) => f.file)).toEqual(['A_lib/02_人物/生存与动作/Action-Pee__w403325015.wav']);
-    expect(t.cues.pee_end.map((f) => f.file)).toEqual(['A_lib/02_人物/生存与动作/Action-Pee__w875654566.wav']);
-    expect(t.cues['pee:concrete']).toHaveLength(1);
-  });
-
-  it('the stream heard on what it falls on: hard ground as concrete, boards as wood, soft ground as snow', () => {
-    expect(peeOn('concrete')).toBe('concrete');
-    expect(peeOn('gravel')).toBe('concrete');
-    expect(peeOn('metal')).toBe('metal');
-    expect(peeOn('wood')).toBe('wood');
-    expect(peeOn('carpet')).toBe('wood');
-    expect(peeOn('dirt')).toBe('snow');
-    expect(peeOn('snow')).toBe('snow');
-    expect(peeOn(undefined)).toBe('snow');
-    expect(cueKeys('pee', { footing: 'dirt' })).toEqual(['pee:snow']);
-    expect(cueKeys('pee', { footing: 'concrete' })).toEqual(['pee:concrete']);
+  it('two recordings of the same name are told apart by their files', () => {
+    // (the archive has such pairs — one name, two files: a cue says which by its file's name)
+    const cat = [entry('audiosources_temp\\Player\\Action-Two.wav', 'Action-Two__w403325015'), entry('audiosources_temp\\Player\\Action-Two.wav', 'Action-Two__w875654566'), entry('player_action_other.wav', 'player_action_other')];
+    const pick = (file: string): CuePick[] => [{ lib: 'A', name: 'Action-Two', file }];
+    const t = resolveCues(cat, { two_start: pick('.*__w403325015'), two_end: pick('.*__w875654566'), other: [{ lib: 'A', name: 'player_action_other' }] }, []);
+    expect(t.cues.two_start.map((f) => f.file)).toEqual(['A_lib/02_人物/生存与动作/Action-Two__w403325015.wav']);
+    expect(t.cues.two_end.map((f) => f.file)).toEqual(['A_lib/02_人物/生存与动作/Action-Two__w875654566.wav']);
+    expect(t.cues.other).toHaveLength(1);
   });
 
   it('the body, the tyres: cues the archive has (the panting, the heart, the squeal, the gravel)', () => {
-    for (const cue of ['breath_fast', 'breath_slow', 'breath_end', 'heartbeat', 'pee_relief', 'skid_asphalt', 'roll_gravel', 'skid_gravel']) expect(CUE_SPEC[cue]?.length ?? 0).toBeGreaterThan(0);
+    for (const cue of ['breath_fast', 'breath_slow', 'breath_end', 'heartbeat', 'skid_asphalt', 'roll_gravel', 'skid_gravel']) expect(CUE_SPEC[cue]?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('a recording follows a loop\'s rate its own way: the asphalt\'s squeal lower for a spin, the gravel\'s crunch pitched less', () => {
@@ -47,7 +35,7 @@ describe('M4 fixes · the sounds are the archive\'s', () => {
     expect(loopPlaybackRate('skid_asphalt', 0.5, true)).toBeCloseTo(0.75, 6);
     expect(loopPlaybackRate('roll_gravel', 2, true)).toBeCloseTo(1.35, 6);
     // (a loop with no span of its own for a recording follows as its synthesized one does)
-    expect(loopPlaybackRate('pee', 1.5, true)).toBeCloseTo(loopPlaybackRate('pee', 1.5), 9);
+    expect(loopPlaybackRate('breath', 1.5, true)).toBeCloseTo(loopPlaybackRate('breath', 1.5), 9);
   });
 });
 

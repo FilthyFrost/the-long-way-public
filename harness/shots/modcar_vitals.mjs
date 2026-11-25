@@ -1,9 +1,9 @@
 // The body (src/core/modcar/vitals.ts, src/game/modcar/vitalsHud.ts, restore.ts; docs/MODCAR.md §13), as
 // Arctic Drive keeps it: sprinting in the open (Shift) runs at 5 m/s and costs 6 stamina a second, back two
 // seconds after; out of breath one only walks; a packet of prawn crackers eaten with F (about four seconds of
-// bites) feeds one; a big bottle of water drunk with F held quenches and fills the bladder, P empties it; a
-// beer makes one drunk; painkillers heal; the dial and the tiles follow; the body is saved and read back; one
-// who falls with a first-aid kit in the hotbar gets up with it; without one, on a kept page, the restore points
+// bites) feeds one; a big bottle of water drunk with F held quenches; a beer makes one drunk; painkillers heal;
+// the bar and the tiles follow (docs/V3/plan/finish.md §三); the body is saved and read back; one who falls with
+// a first-aid box in the hotbar gets up with it; without one, on a kept page, the restore points
 // are offered, nothing is saved meanwhile, and the one picked is gone on from; with the needs switched off
 // (F2) one is never hungry.
 //   SHOTS_GPU=1 node harness/shots/modcar_vitals.mjs
@@ -27,7 +27,7 @@ try {
     page.evaluate(() => {
       const b = window.__rt.game.body;
       const r = (x) => Math.round(x * 10) / 10;
-      return { hp: r(b.hp), st: r(b.stamina), food: r(b.food), water: r(b.water), temp: r(b.temp), bl: r(b.bladder), dead: b.dead, fx: Object.keys(b.effects).filter((k) => b.effects[k] > 0) };
+      return { hp: r(b.hp), st: r(b.stamina), food: r(b.food), water: r(b.water), temp: r(b.temp), cap: r(b.cap ?? 100), dead: b.dead, fx: Object.keys(b.effects).filter((k) => b.effects[k] > 0) };
     });
   /** step the game by so many seconds at 60 a second, the right button (F) held or not */
   const steps = (s, take = false) =>
@@ -48,9 +48,9 @@ try {
   const keep = await page.evaluate(() => window.__rt.params.keep);
   if (!keep) fail('the plain page is not a kept one');
 
-  // the dial and the tiles are there
-  const hud = await page.evaluate(() => ({ dial: !!document.querySelector('.mc-vit .dial'), tiles: document.querySelectorAll('.mc-vit .tile').length, temp: document.querySelector('.mc-vit .dial .t b')?.textContent }));
-  if (!hud.dial || hud.tiles !== 3 || hud.temp !== '37.5') fail(`the vitals are not on screen ${JSON.stringify(hud)}`);
+  // the bar and the three needs' tiles are there
+  const hud = await page.evaluate(() => ({ bar: !!document.querySelector('.mc-vit .bar .hp'), tiles: document.querySelectorAll('.mc-vit .tile').length, hp: parseFloat(document.querySelector('.mc-vit .bar .hp')?.style.width ?? '') }));
+  if (!hud.bar || hud.tiles !== 3 || hud.hp !== 100) fail(`the vitals are not on screen ${JSON.stringify(hud)}`);
 
   // 1. sprinting in the open, outside the workshop's door: 5 m/s, 6 stamina a second
   await rt('stand', 9, -1, 0);
@@ -100,7 +100,7 @@ try {
   if (Math.abs(foodBar - fed.food) > 2) fail(`the food tile reads ${foodBar}% for ${fed.food}`);
 
   // 3. thirsty: a big bottle of water, F held 2.5 s (the liquid flows after half a second)
-  await set({ water: 25, bladder: 0 });
+  await set({ water: 25 });
   await rt('hold', 'item:drink_water');
   await steps(2.5, true);
   const litres = await page.evaluate(() => window.__rt.game.player.held?.item?.litres);
@@ -110,13 +110,6 @@ try {
   if (!(litres < 1.5 && litres > 1.1)) fail(`the bottle has ${litres} L left (not about 1.4)`);
   // (two seconds flowing at 0.3 L/s: 0.6 L, 60 points)
   if (Math.abs(drunkWater.water - 85) > 2) fail(`the water quenched to ${drunkWater.water} (not 25 + 60)`);
-  if (!(drunkWater.bl > 50)) fail(`the bladder did not fill (${drunkWater.bl})`);
-  // P held: empties
-  await page.keyboard.down('KeyP');
-  await steps(2);
-  await page.keyboard.up('KeyP');
-  const relieved = await body();
-  if (!(relieved.bl < drunkWater.bl - 25)) fail(`P did not empty the bladder (${drunkWater.bl} → ${relieved.bl})`);
 
   // 4. a beer: drunk; painkillers: health
   await rt('hold', 'item:drink_beer');
@@ -128,7 +121,7 @@ try {
   await steps(1 / 60, true);
   await steps(2.6);
   const healed = await body();
-  if (Math.abs(healed.hp - 75) > 1) fail(`painkillers left ${healed.hp} health (not 40 + 35)`);
+  if (Math.abs(healed.hp - 80) > 1) fail(`painkillers left ${healed.hp} life (not 40 + 40)`);
 
   // 5. saved and read back
   await set({ hp: 66, food: 44, water: 55, stamina: 70 });
@@ -139,16 +132,16 @@ try {
   console.log('read back', JSON.stringify(back));
   if (Math.abs(back.hp - 66) > 0.5 || Math.abs(back.food - 44) > 0.5 || Math.abs(back.water - 55) > 0.5) fail(`the body did not come back ${JSON.stringify(back)}`);
 
-  // 6. falling with a first-aid kit in the hotbar: up again with its 25
-  await rt('hold', 'item:med_kit_2');
-  await set({ hp: 1, food: 0, ticks: { starve: 9.95, thirst: 0, cold: 0, sick: 0, warm: 0 } });
+  // 6. falling with a first-aid box in the hotbar: up again with its 30
+  await rt('hold', 'item:nd_first_aid');
+  await set({ hp: 1, food: 0, ticks: { starve: 5.95, thirst: 0, cold: 0, sick: 0, warm: 0 } });
   await steps(0.5);
   const fell = { ...(await body()), down: await page.evaluate(() => window.__rt.game.deadT) };
   await steps(1.6);
   const up = { ...(await body()), held: (await rt('telemetry')).held };
   console.log('the kit', JSON.stringify({ fell, up }));
   if (!fell.dead || !(fell.down >= 0)) fail(`starving at 1 health did not fell one ${JSON.stringify(fell)}`);
-  if (up.dead || Math.abs(up.hp - 25) > 0.5 || up.held) fail(`the kit did not bring one up ${JSON.stringify(up)}`);
+  if (up.dead || Math.abs(up.hp - 30) > 0.5 || up.held) fail(`the box did not bring one up ${JSON.stringify(up)}`);
 
   // 7. without one: a restore point (every five minutes), then the card offering it; nothing saved meanwhile
   await set({ food: 80 });
@@ -162,7 +155,7 @@ try {
   const pointHp = await page.evaluate(() => JSON.parse(localStorage.getItem('modcar.restore.v1'))[0].save.body.hp);
   await page.evaluate(() => window.__rt.game.save());
   const savedAt = await page.evaluate(() => JSON.parse(localStorage.getItem('modcar.save.v1')).at);
-  await set({ hp: 1, food: 0, ticks: { starve: 9.95, thirst: 0, cold: 0, sick: 0, warm: 0 } });
+  await set({ hp: 1, food: 0, ticks: { starve: 5.95, thirst: 0, cold: 0, sick: 0, warm: 0 } });
   await steps(2.2);
   // (the card comes up with the live loop's frames: on a software renderer under load that takes longer than
   // any fixed pause, so wait for the card itself; a card that never comes still fails below)

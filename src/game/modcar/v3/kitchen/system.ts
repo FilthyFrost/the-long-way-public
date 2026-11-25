@@ -14,7 +14,7 @@ import type { System } from '../../../../core/kernel/systems';
 import type { ThingBox } from '../../../../core/modcar/cargo';
 import { countOf, itemDef, newItem, splitStack, type ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
-import { eat } from '../../../../core/modcar/vitals';
+import { dine } from '../../../../core/modcar/vitals';
 import { firstTip, knownFail, note, pinned, asksFor, type BookData } from '../../../../core/v3/kitchen/book';
 import { POT_MAX } from '../../../../core/v3/kitchen/cook';
 import { DISHES, WAYS, type DishDef, type Way } from '../../../../core/v3/kitchen/dishes';
@@ -97,8 +97,9 @@ const SOUNDS: readonly string[] = [
  * something that could be cut goes into a hot vessel whole.
  */
 export const TIPS = {
-  // (lifting a pot is on the pot's own words: only the book's key, which nothing on the screen shows)
-  start: 'J 食谱本',
+  // (lifting a pot is on the pot's own words: only where the book is, which nothing on the screen shows — a page of the
+  // Tab screen since the keys were made one: docs/V3/plan/finish.md §十三)
+  start: '菜谱在 Tab 里',
   cut: '切过熟得快',
 } as const;
 
@@ -683,10 +684,19 @@ export class Kitchen implements System<GameContext>, InteractSource {
     if (whistle > 0.01) ctx.loop('kettle_whistle', whistle);
   }
 
-  /** the recipe book opened or shut (J does this on a page; the tests and the developer's tab ask here) */
+  /**
+   * the recipe book opened or shut (a page of the Tab screen: D from the lists turns to it; the tests and the
+   * developer's tab ask here) — through the game's Tab screen where there is one, so that it knows a page is open
+   */
   showBook(open?: boolean): boolean {
-    this.bookUi?.toggle(open);
-    return this.bookUi?.open ?? false;
+    const ui = this.bookUi;
+    if (!ui) return false;
+    const want = open ?? !ui.open;
+    const ctx = this.game;
+    if (want && ctx?.openTab) ctx.openTab('recipes');
+    else if (!want && ctx?.closeTab && ui.open) ctx.closeTab();
+    else ui.toggle(want);
+    return ui.open;
   }
 
   private closeTo(u: Unit, d: number): boolean {
@@ -1296,10 +1306,11 @@ export class Kitchen implements System<GameContext>, InteractSource {
   ate(ctx: GameContext, item: ItemInstance): void {
     const meal = item.state?.meal;
     if (!meal) return;
-    // (a good dish: health back, three a star, and a buff by how it was cooked — docs/V3/plan/growth.md §四)
+    // (a good dish mends: health back, two a star — half again done just right — and life with it; and a buff by how
+    // it was cooked. A tin only feeds — docs/V3/plan/finish.md §三.)
     const dish = FAILED.has(item.item) ? undefined : DISH_OF.get(item.item);
     const k = meal.perfect ? 1.5 : 1;
-    if (meal.food > 0 || dish) eat(ctx.body, meal.food, dish ? Math.round(dish.stars * 3 * k) : 0);
+    dine(ctx.body, meal.food, dish ? Math.round(dish.stars * 2 * k) : 0);
     if (dish && ctx.buffs) ctx.buffs.add(WAY_BUFF[dish.way], dish.stars * 240 * k, dish.way === 'brew' ? 'drink' : 'meal');
     if (FAILED.has(item.item)) {
       ctx.sound('yuck', 1);

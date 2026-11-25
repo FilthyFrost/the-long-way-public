@@ -93,6 +93,8 @@ export interface ListHost {
   iconOf(h: NonNullable<Held>): string | null;
   /** a sound by name; `gain` is a weight (kg) for a thing picked up or put down */
   sound(name: string, gain?: number, mount?: string): void;
+  /** how one is dressed for the air outside: what one wears keeps out, the air out there (°C), and what it would do to one */
+  bodyAir?(): { warmth: number; outC: number; feel: '' | 'cold' | 'hot' };
 }
 
 // ------------------------------------------------------------------ a source that throws
@@ -592,7 +594,6 @@ const WEAR_ZONE: Record<WearSlot, string> = { hat: '头上', jacket: '身上', g
  */
 class SelfList implements ListSource {
   readonly title = '我身上';
-  readonly head = '穿着和背着';
   readonly empty = '只穿着睡裙';
   readonly takeWord = '脱下来';
   readonly shutEmpty = false;
@@ -601,13 +602,21 @@ class SelfList implements ListSource {
 
   constructor(private readonly host: ListHost) {}
 
+  /** the line over the name: how one is dressed for outside — 保暖 10 · 外面 −4 ℃ · 会冷 (docs/V3/plan/finish.md §三.2) */
+  get head(): string {
+    const a = this.host.bodyAir?.();
+    if (!a) return '穿着和背着';
+    const c = Math.round(a.outC);
+    return `保暖 ${a.warmth} · 外面 ${c < 0 ? '−' : ''}${Math.abs(c)} ℃${a.feel === 'cold' ? ' · 会冷' : a.feel === 'hot' ? ' · 会热' : ''}`;
+  }
+
   near(): boolean {
     return !this.host.seated;
   }
 
   version(): string {
     const w = this.host.player.worn;
-    return `${this.host.player.pack?.uid ?? ''}|${WEAR_ORDER.map((k) => w[k]?.uid ?? '').join(',')}`;
+    return `${this.host.player.pack?.uid ?? ''}|${WEAR_ORDER.map((k) => w[k]?.uid ?? '').join(',')}|${this.head}`;
   }
 
   rows(): CargoRow[] {

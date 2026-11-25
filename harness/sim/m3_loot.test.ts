@@ -20,7 +20,9 @@ vi.mock('../../src/game/modcar/assets', async (original) => ({ ...(await origina
 // (what the test's crate holds: three plain things)
 vi.mock('../../src/core/modcar/loot', async (original) => {
   const real = await original<typeof import('../../src/core/modcar/loot')>();
-  return { ...real, rollContainer: () => [{ item: 'drink_soda' }, { item: 'food_chips' }, { item: 'junk_mug' }] };
+  // (the places ask for a box's own through ownFound: its roll, what is still there of it — places.ts roll)
+  const three = (): { item: string }[] => [{ item: 'drink_soda' }, { item: 'food_chips' }, { item: 'junk_mug' }];
+  return { ...real, rollContainer: three, ownFound: three };
 });
 
 const stand = (w: number, d: number, h: number): LayoutThing => ({ ways: [{ w, d, h }, { w: d, d: w, h }, { w, d: h, h: d }] });

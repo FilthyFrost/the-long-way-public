@@ -17,7 +17,7 @@
  * taken up, it is shaken (shake).
  */
 import * as THREE from 'three';
-import { itemDef, itemMass, itemPaint } from '../../core/modcar/items';
+import { itemDef, itemMass, itemModelOf, itemPaint } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { toolModelId } from '../../core/modcar/tools';
 import type { RenderCore } from '../render/core';
@@ -167,7 +167,7 @@ export class HeldThing {
     this.use = u;
   }
 
-  constructor(core: RenderCore) {
+  constructor(private readonly core: RenderCore) {
     this.root.name = 'modcar:held';
     this.root.visible = false;
     this.root.add(this.inner);
@@ -199,7 +199,7 @@ export class HeldThing {
       this.mass = itemMass(it);
       this.fit(obj);
       const want = key;
-      void itemGlb(d.model).then((m) => {
+      void itemGlb(itemModelOf(it)).then((m) => {
         if (!m || this.key !== want) return;
         this.inner.clear();
         const real = cloneModel(m);
@@ -307,12 +307,13 @@ export class HeldThing {
       const rate = 26 / (1 + this.mass / 40);
       this.lagQ.slerp(cam.quaternion, 1 - Math.exp(-dt * rate));
     }
-    // camera space: +x right, +y up, −z ahead. At its own size: a small thing in the right hand (Nomad Drive's
-    // 0.25 right, 0.2 under the eye, 0.5 out), a bigger one further out and lower, a big one across both arms
+    // camera space: +x right, +y up, −z ahead. At its own size and where her hands hold it (docs/V3/plan/character-pv.md
+    // §6: her arms reach about half a metre from the shoulder, the elbow bent): a small thing in the right hand a
+    // third of a metre out, a bigger one a little further and lower, a big one across both arms
     const bg = this.big;
-    if (this.large || bg > 0.7) this.off.set(sway * 0.6, -0.36 - bg * 0.14 + bob * 0.7, -0.62 - bg * 0.3);
-    else if (bg > 0.3) this.off.set(0.2 + sway * 0.8, -0.3 - bg * 0.12 + bob * 0.8, -0.55 - bg * 0.3);
-    else this.off.set(0.26 + sway, -0.24 + bob, -0.5 - bg * 0.3);
+    if (this.large || bg > 0.7) this.off.set(sway * 0.6, -0.3 - bg * 0.14 + bob * 0.7, -0.42 - bg * 0.22);
+    else if (bg > 0.3) this.off.set(0.12 + sway * 0.8, -0.2 - bg * 0.1 + bob * 0.8, -0.38 - bg * 0.2);
+    else this.off.set(0.16 + sway, -0.165 + bob, -0.34 - bg * 0.25);
     // a wall in front: drawn back so its front stays this side of it (at most 0.45 m)
     const front = -this.off.z + bg * 0.5;
     this.off.z += Math.min(0.45, Math.max(0, front - (this.room - 0.05)));
@@ -518,7 +519,12 @@ export class HeldThing {
     const tau = want > this.seeK ? 0.25 / 3 : 0.35 / 3;
     this.seeK += (want - this.seeK) * (1 - Math.exp(-dt / tau));
     if (this.seeK < 0.003 && want === 0) this.seeK = 0;
-    for (const o of this.mats.owners(OWNER)) this.mats.lookOf(o)?.setSeeThrough(this.seeK, this.frameW, this.frameH);
+    for (const o of this.mats.owners(OWNER)) {
+      const look = this.mats.lookOf(o);
+      // (its blended programs compiled ahead, in the background: seen through only once they are ready)
+      look?.warmSeeThrough(this.core.renderer, this.core.scene, cam);
+      look?.setSeeThrough(this.seeK, this.frameW, this.frameH);
+    }
   }
 
   /** a system's tool put to a surface (its model's point at on pos, its frame turned to q), null: back in the hands */
@@ -586,6 +592,28 @@ export class HeldThing {
   /** the held model's box centre, in its own frame */
   get centre(): THREE.Vector3 {
     return this.fitC;
+  }
+
+  /** for her hands (character/inGame.ts): the frame the model is centred in, its size, whether it is carried in both arms, whether it is drawn */
+  get handFrame(): THREE.Object3D {
+    return this.inner;
+  }
+
+  get size(): THREE.Vector3 {
+    return this.sizeV;
+  }
+
+  get twoHanded(): boolean {
+    return this.large || this.big > 0.42;
+  }
+
+  get shown(): boolean {
+    return this.root.visible;
+  }
+
+  /** what kind of thing it is: a tool's kind, else '' */
+  get kind(): string {
+    return this.toolKind;
   }
 
   /** at the filler (0…1 of the way there) */

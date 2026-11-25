@@ -60,37 +60,6 @@ try {
   const s2 = await state();
   ok(!s2.crouched && Math.abs(s2.eye - s0.eye) < 0.05, `C again: standing (eye ${s2.eye} m)`);
 
-  // ---- 1. relieving oneself, on the road (its recordings: the concrete's), looking down at it
-  // (its recordings in first, as they are a little while into a game)
-  await page.evaluate(() => {
-    const a = window.__rt.game.foley.archive;
-    for (const c of ['pee_start', 'pee:concrete', 'pee:snow', 'pee_end', 'pee_relief']) a.warm(c);
-  });
-  await page.waitForTimeout(4000);
-  await page.evaluate(() => {
-    const g = window.__rt.game;
-    g.body.bladder = 90;
-    g.input.lookPitch = -0.95;
-  });
-  const p0 = { start: await played(/^pee_start$/), stream: await played(/^pee:/), end: await played(/^pee_end$/) };
-  await page.keyboard.down('KeyP');
-  await step(45);
-  const flowing = await page.evaluate(() => {
-    const g = window.__rt.game;
-    return { live: g.pee.live, thrown: g.pee.thrown, spot: g.pee.spot.visible, footing: g.footing(), loop: g.foley?.playing('pee') ?? false };
-  });
-  await shot('1a_pee_on_road.png');
-  await step(60);
-  await shot('1b_pee_on_road_later.png');
-  await page.keyboard.up('KeyP');
-  await step(20);
-  const p1 = { start: await played(/^pee_start$/), stream: await played(/^pee:/), end: await played(/^pee_end$/) };
-  ok(flowing.live > 60 && flowing.thrown > 200, `the stream seen: ${flowing.live} drops in the air, ${flowing.thrown} so far`);
-  ok(flowing.spot, 'the wet patch on the ground under it');
-  ok(flowing.loop, `the stream heard (${flowing.footing} underfoot)`);
-  ok(p1.start > p0.start && p1.stream > p0.stream && p1.end > p0.end, `its recordings: the start ${p1.start - p0.start}, the stream ${p1.stream - p0.stream}, the end ${p1.end - p0.end}`);
-  await shot('1c_wet_patch_after.png');
-
   // ---- 2. out of breath: fast pants, slower, then the breath got back; the heart when hurt
   const b0 = { fast: await played(/^breath_fast$/), slow: await played(/^breath_slow$/), end: await played(/^breath_end$/), beat: await played(/^heartbeat$/) };
   await page.evaluate(() => (window.__rt.game.body.stamina = 6));

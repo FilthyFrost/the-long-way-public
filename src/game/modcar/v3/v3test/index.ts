@@ -19,12 +19,12 @@ if (V3TEST) {
   registerItemCat({ id: 'v3t', name: { zh: '试验品', en: 'Test things' } });
   registerItems([
     // stacks to 12, goes off in a game day in the open air, becomes mush
-    { id: 'v3t_berry', cat: 'v3t', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['v3t', 'forage'], perish: { hours: 24, into: 'v3t_mush' }, eat: { food: 6, hp: 0, sec: 1.5 }, salvage: { organics: 1 }, model: 'food_licorice', paint: 0x6a4c93, paint2: 0x3b7d4f, blurb: '只在试验页里有的莓子：能叠十二颗，放一天就坏。' },
-    { id: 'v3t_mush', cat: 'v3t', name: { zh: '烂掉的试验莓', en: 'Spoiled test berry' }, stars: 0, mass: 0.05, stack: 12, salvage: { organics: 1 }, model: 'food_licorice', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '试验莓放坏了以后的样子。' },
+    { id: 'v3t_berry', cat: 'v3t', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['v3t', 'forage'], perish: { hours: 24, into: 'v3t_mush' }, eat: { food: 6, hp: 0, sec: 1.5 }, salvage: {}, model: 'food_licorice', paint: 0x6a4c93, paint2: 0x3b7d4f, blurb: '只在试验页里有的莓子：能叠十二颗，放一天就坏。' },
+    { id: 'v3t_mush', cat: 'v3t', name: { zh: '烂掉的试验莓', en: 'Spoiled test berry' }, stars: 0, mass: 0.05, stack: 12, salvage: {}, model: 'food_licorice', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '试验莓放坏了以后的样子。' },
     // stacks to 8, keeps for ever
-    { id: 'v3t_jerky', cat: 'v3t', name: { zh: '试验肉干', en: 'Test jerky' }, stars: 2, mass: 0.1, stack: 8, tags: ['v3t', 'meat'], eat: { food: 15, hp: 1, sec: 2 }, salvage: { organics: 2 }, model: 'food_fish_can', paint: 0x8a4b32, paint2: 0xd8c29a, blurb: '只在试验页里有的肉干：能叠八块，不会坏。' },
+    { id: 'v3t_jerky', cat: 'v3t', name: { zh: '试验肉干', en: 'Test jerky' }, stars: 2, mass: 0.1, stack: 8, tags: ['v3t', 'meat'], eat: { food: 15, hp: 1, sec: 2 }, salvage: {}, model: 'food_fish_can', paint: 0x8a4b32, paint2: 0xd8c29a, blurb: '只在试验页里有的肉干：能叠八块，不会坏。' },
     // holds four stacks of test things, up to 3 kg; things in it go off half as fast
-    { id: 'v3t_basket', cat: 'v3t', name: { zh: '试验篮', en: 'Test basket' }, stars: 1, mass: 0.6, carry: 'small', holds: { slots: 4, accepts: ['#v3t'], maxKg: 3, decay: 0.5 }, salvage: { organics: 2 }, model: 'crate_parts', paint: 0xb9915f, paint2: 0x7a5c3a, blurb: '只在试验页里有的篮子：装四叠试验品，里面的东西坏得慢一半。' },
+    { id: 'v3t_basket', cat: 'v3t', name: { zh: '试验篮', en: 'Test basket' }, stars: 1, mass: 0.6, carry: 'small', holds: { slots: 4, accepts: ['#v3t'], maxKg: 3, decay: 0.5 }, salvage: {}, model: 'crate_parts', paint: 0xb9915f, paint2: 0x7a5c3a, blurb: '只在试验页里有的篮子：装四叠试验品，里面的东西坏得慢一半。' },
   ]);
 }
 

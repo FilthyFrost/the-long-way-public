@@ -76,7 +76,11 @@ export interface GameContext {
   readonly params: ModParams;
   /** the renderer: the scene, the camera, the floating origin (place things with `core.place`, in lateUpdate) */
   readonly core: RenderCore;
-  /** the game's sound: its context once started, and the master bus a system's own voices join (its volume, its mute: docs/ND/PLAN.md) */
+  /**
+   * the game's sound: its context once started, and the master bus a system's own voices join (its volume, its mute:
+   * docs/ND/PLAN.md; docs/V3/plan/fishing.md: the line's whine following its strain). Both null until the page has been
+   * clicked (browsers start sound then); absent in the tests
+   */
   readonly audio?: { readonly context: AudioContext | null; readonly output: AudioNode | null };
   /** the hour's light and the weather (`env.sky`, `env.state`): during preStep and step still last frame's, and before the first frame's lateUpdate not yet the game's at all (see above) */
   readonly env: Environment;
@@ -92,6 +96,16 @@ export interface GameContext {
   readonly startBlockers?: ((v: ModVehicle) => { zh: string; en: string } | null)[];
   /** lie down in a bed and sleep (the camper's): the night gone by as in a seat, rested sooner; why not, or null when it begins */
   sleepInBed?(): { zh: string; en: string } | null;
+  /** what one has learnt to make at a bench (recipe ids: docs/V3/plan/finish.md §六 2); absent in the tests */
+  readonly learned?: ReadonlySet<string>;
+  /** a making learnt from its blueprint, for good (true: new; false: known already) */
+  learn?(recipe: string): boolean;
+  /**
+   * Is this thing kept back for now — a piece of a set whose earlier pieces have not been picked up yet (core/modcar/
+   * kits.ts, docs/V3/plan/finish.md §二 3: a chest's key before the metal detector)? Its key: an item's id, `part:`
+   * and a part's. A system that lays things about of its own asks before it does; absent in the tests: nothing is.
+   */
+  withheld?(key: string): boolean;
   /**
    * What feeds an electric thing riding in a vehicle (docs/V3/plan/rv.md R2, the power module): 'on' — its house battery,
    * or with none the starter's above what it keeps to crank on, has charge; 'flat' — nothing there to draw on; null —
@@ -127,6 +141,21 @@ export interface GameContext {
   loop(name: string, gain?: number): void;
   /** a sound made ready before it is first wanted (rendered, its recording fetched): its first play is then neither late nor silent */
   warmSound(name: string): void;
+  /** a page of the Tab screen (TabPage): returns the function that takes it out again; absent: no Tab screen (the tests' stand-in games) */
+  addTabPage?(page: TabPage): () => void;
+  /** from a page of the Tab screen: on to the next (1) or back (−1: before the first, the lists again) */
+  turnTab?(dir: -1 | 1): void;
+  /** the Tab screen open on that page (the lists shut) */
+  openTab?(id: string): void;
+  /** the Tab screen shut, whatever of it is open */
+  closeTab?(): void;
+  /**
+   * The developer's teleport (for a system's developer's tab: docs/V3/plan/fishing.md, off to a water): on foot one
+   * stands at (x, z) facing `yaw` — the vehicles' heading, forward (cos yaw, −sin yaw): a walker's heading h is
+   * yaw −h — the vehicle one sits in coming along (on foot: the one last driven, with `bring`); the world round it is
+   * built behind a fade. Out of the garage first, when one is in it.
+   */
+  teleportTo(x: number, z: number, yaw: number, bring: boolean): void;
   /**
    * A system's sets that play the radio's songs where they stand (docs/V3/nodes/M2-rv.md: a clock radio on a
    * table, a record player): the list is the system's own, kept up to date by it every frame (those in it play);
@@ -168,6 +197,24 @@ export interface GameContext {
 }
 
 /** a set playing one of the radio's songs where it stands (GameContext.addRadios) */
+/**
+ * A page of the Tab screen beside the lists (docs/V3/plan/finish.md §十三, §十四: Tab is "what have I" — the lists, the
+ * recipes, the compendium): a system's own screen, turned to from the lists with D and back with A. While it is open
+ * the game stands still as with a list; the wheel and the left button are handed to it; the right button, Esc and Tab
+ * shut the Tab screen.
+ */
+export interface TabPage {
+  readonly id: string;
+  /** its name in the lists' foot and on its own strip ("菜谱") */
+  readonly title: string;
+  /** opened or shut */
+  show(open: boolean): void;
+  /** the wheel turned a notch over it (1 down, −1 up) */
+  wheel?(dir: 1 | -1): void;
+  /** the left button pressed over it */
+  press?(): void;
+}
+
 export interface RadioSet {
   /** where it stands (world metres) */
   x: number;

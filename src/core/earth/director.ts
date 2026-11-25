@@ -14,7 +14,7 @@
  * Deterministic: a journey is its seed. Pure, DOM-free (the world reads it in E1).
  */
 import { Rng, hash2 } from '../math/rng';
-import { LAPSE, ecosystemAt, growingAt, landformsFor, patchesAt, snowAt, swingOf, warmthAt, type Macro } from './climate';
+import { LAPSE, ecosystemAt, growingAt, landformsFor, monthWarmthAt, patchesAt, snowAt, summerAt, swingOf, warmthAt, wetnessAt, type Macro } from './climate';
 import type { Efg } from './efg';
 import type { Context } from './kinds';
 import type { Process } from './landforms';
@@ -315,6 +315,25 @@ export function macroOf(seg: Segment, s: number): Macro {
   return { ...(u < seg.turn ? a : b), tSea: lerp(a.tSea, b.tSea), wet: lerp(a.wet, b.wet), cont: lerp(a.cont, b.cont), base: lerp(a.base, b.base), relief: lerp(a.relief, b.relief), windward: lerp(a.windward, b.windward), month: b.month };
 }
 
+/** the least a month's mean may be along a journey's gentle beginning (°C): a cab without its doors is not cold in it */
+export const GENTLE_MONTH = 10;
+
+/**
+ * A place fit for the gentle beginning of a journey (docs/V3/plan/finish.md §二 6: 头 12 km 是温和的地区): green
+ * country, well below its treeline and well clear of the dry — neither the cold's nor the desert's (world/earth/
+ * region.ts: what its region's kin would be) — with a summer warm enough for the journey to be there in a month no
+ * colder than GENTLE_MONTH, and not hot
+ */
+export function isMild(m: Macro): boolean {
+  if (warmthAt(m, m.base) > 24 || growingAt(m, m.base) < 9 || summerAt(m, m.base) < GENTLE_MONTH + 2 || wetnessAt(m, m.base) < 0.34) return false;
+  return !dryCard(lookOf(m).efg);
+}
+
+/** an ecosystem of the dry: the deserts and the semi-deserts (world/earth/region.ts takes a place of one for the desert's kin, whatever its year's rain) */
+function dryCard(efg: Efg): boolean {
+  return efg.group === 'T5' || efg.struct === 'desert' || efg.code === 'T4.3';
+}
+
 /** a journey's home: where its road begins (the workshop's gentle, temperate country) */
 export function homeOf(seed: number): Macro {
   const r = new Rng(hash2(seed | 0, 0xe0, 1));
@@ -418,10 +437,14 @@ export class EarthJourney {
    * @param opts.drama the scenic roads' journey (world version 5, docs/V3/nodes/R2-roads.md): after two places of
    *   lowland the director goes looking for a range, a coast or a highlight, the harder the longer it has been —
    *   the plains never run on for long. Absent: the journey of version 4, to the last place.
+   * @param opts.gentle the journey begins gently (world version 7, docs/V3/plan/finish.md §二 6): its places down to
+   *   this far along the road (m) are mild ones (isMild) — the director takes no way that would bring the cold or the
+   *   dry there, where it has another — and their month no colder than GENTLE_MONTH. Absent: from home wherever the
+   *   dice lead.
    */
   constructor(
     readonly seed: number,
-    readonly opts: { readonly drama?: boolean } = {},
+    readonly opts: { readonly drama?: boolean; readonly gentle?: number } = {},
   ) {}
 
   /** the place at a distance along the road (m) */
@@ -496,7 +519,7 @@ export class EarthJourney {
    * as the best (climate.ts patchesAt), each as often as it is found, one not yet met on the journey more often,
    * the last place's own kept now and then, one of the few before less often.
    */
-  private withPatches(m: Macro, r: Rng, vertical = false): Macro {
+  private withPatches(m: Macro, r: Rng, vertical = false, gentle = false): Macro {
     const pick = (cands: { efg: Efg; raw: number; weight: number }[], prev: string | undefined, recent: readonly string[], seen: Set<string>): string | null => {
       if (!cands.length) return null;
       const w = cands.map((c) => {
@@ -511,7 +534,10 @@ export class EarthJourney {
     };
     const last = this.scenes.slice(-5);
     const prev = last[last.length - 1];
-    const efg = pick(patchesAt(m, m.base), prev?.look.efg.code, last.map((x) => x.look.efg.code), this.seenEfg);
+    // (a gentle beginning: the green patches of the country, where it has any)
+    const all = patchesAt(m, m.base);
+    const green = gentle ? all.filter((c) => !dryCard(c.efg)) : all;
+    const efg = pick(green.length ? green : all, prev?.look.efg.code, last.map((x) => x.look.efg.code), this.seenEfg);
     const waterEfg = pick(patchesAt(m, m.base, true), prev?.look.water?.code, last.map((x) => x.look.water?.code ?? ''), this.seenWater);
     return { ...m, efg, waterEfg };
   }
@@ -529,7 +555,9 @@ export class EarthJourney {
     const tourPace = quick ? QUICK_TOUR : 1;
     const drift = quick ? QUICK_DRIFT : 1;
     const target = tourWarmth(this.seed, (this.end + 20000) * tourPace);
-    const options: { legs: Leg[]; score: number }[] = [];
+    // (a gentle beginning: down to here — the last place that begins within it, to its end — only mild places)
+    const gentleTo = this.opts.gentle ? Math.ceil(this.opts.gentle / SCENE_LENGTH) * SCENE_LENGTH : 0;
+    const options: { legs: Leg[]; score: number; harsh: number }[] = [];
     MOVE_IDS.forEach((id, k) => {
       const mr = new Rng(hash2(this.seed | 0, step * 31 + k, 0xe4));
       // (G8: a great form's move only on a journey with a sense of drama, and only when one is due)
@@ -582,10 +610,14 @@ export class EarthJourney {
       let prev = m;
       let runs = 1;
       let highlight = false;
+      let harsh = 0;
+      let pos = this.end;
       const lastScenes = this.scenes.slice(-3);
       for (const leg of legs) {
         for (const u of [0.5, 1]) {
           const at: Macro = u === 1 ? leg.to : macroOf({ move: id, s0: 0, s1: 1, from: prev, to: leg.to, crest: false, turn: leg.turn ?? 0.5 }, 0.5);
+          // (what it would bring within the gentle beginning: the cold or the dry there is not the way)
+          if (pos + (u - 0.5) * leg.length < gentleTo && !isMild(at)) harsh++;
           const look = lookOf(at);
           const d = recent.length ? Math.min(...recent.map((x) => distance(x, look.sig))) : 1;
           novelty += d;
@@ -599,6 +631,7 @@ export class EarthJourney {
           samples++;
         }
         prev = leg.to;
+        pos += leg.length;
       }
       novelty /= samples;
       // the rhythm: not the same move twice running, not three of a kind in the last four
@@ -624,10 +657,13 @@ export class EarthJourney {
       }
       // (G8: a great form due is what the journey goes for)
       const score = (0.2 + novelty) * (1 + 0.5 * fresh) * rhythm * tour * runs * want * drama * (great !== undefined ? (this.wonderAt.has(great) ? 3.5 : 40) : 1);
-      options.push({ legs, score });
+      options.push({ legs, score, harsh });
     });
     options.sort((a, b) => b.score - a.score);
-    const top = options.slice(0, 4);
+    // (a gentle beginning: the ways that keep it — where none does, the ones that break it least)
+    const least = Math.min(...options.map((o) => o.harsh));
+    const kept = gentleTo > this.end ? options.filter((o) => o.harsh === least) : options;
+    const top = kept.slice(0, 4);
     const chosen = top[r.weighted(top.map((o) => o.score * o.score))];
     let from = m;
     for (const leg of chosen.legs) {
@@ -662,6 +698,11 @@ export class EarthJourney {
     const escape = snowy >= SNOW_RUN && snowAt(knobs, knobs.base, want);
     if (escape) want = 7;
     this.month = i === 0 ? 5 : monthToward(this.month, want, 2);
+    // (a gentle beginning: no month colder than GENTLE_MONTH there — on toward the summer until it is not, if it can be)
+    const gentleHere = !!this.opts.gentle && s0 < this.opts.gentle;
+    if (this.opts.gentle && s0 < this.opts.gentle) {
+      for (let k = 0; k < 6 && this.month !== 7 && monthWarmthAt(knobs, knobs.base, this.month) < GENTLE_MONTH; k++) this.month = monthToward(this.month, 7, 1);
+    }
     // the landform: among those that can stand here, the move's own more often, the last place's now and then, not one of the few before
     const prevLand = this.scenes[i - 1]?.macro.landform ?? null;
     const recentLands = this.scenes.slice(-5).map((x) => x.macro.landform);
@@ -711,7 +752,7 @@ export class EarthJourney {
       landform = options[r.weighted(w)].landform.id;
     }
     const vertical = seg0?.move === 'climb' || seg0?.move === 'descend';
-    let macro: Macro = this.withPatches({ ...knobs, month: this.month, landform, ...(spent && (knobs.water === 'lake' || knobs.water === 'salt') ? { water: 'none' as const, waterEfg: null } : {}) }, r, vertical);
+    let macro: Macro = this.withPatches({ ...knobs, month: this.month, landform, ...(spent && (knobs.water === 'lake' || knobs.water === 'salt') ? { water: 'none' as const, waterEfg: null } : {}) }, r, vertical, gentleHere);
     let look = lookOf(macro);
     // (too like the place before — five more minutes of the same: the director varies it as the country itself
     // varies within a province: another landform that can stand here, a river come down to the road or left
@@ -739,6 +780,8 @@ export class EarthJourney {
         // (G8: … nor is a great form what a place falls back to when its landform no longer fits)
         const m2: Macro = fitted || t.m.landform === null ? t.m : { ...t.m, landform: landformsFor(t.m).find((o) => !this.opts.drama || !WONDER_LANDS.has(o.landform.id))?.landform.id ?? null };
         const l2 = lookOf(m2);
+        // (a gentle beginning: a dry patch of the country is no way of varying a place of it)
+        if (gentleHere && dryCard(l2.efg) && !dryCard(look.efg)) continue;
         const d = distance(prev.look.sig, l2.sig);
         if (d >= VARY_BELOW) enough.push({ m: m2, look: l2, p: t.p });
         else if (d > d0 + 0.02 && (!far || d > far.d)) far = { m: m2, look: l2, d };

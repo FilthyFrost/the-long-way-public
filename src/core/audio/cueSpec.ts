@@ -57,16 +57,8 @@ export const CUE_SPEC: Readonly<Record<string, readonly CuePick[]>> = {
   roll_gravel: [A('vehicle_tires_loop_gravel')],
   skid_gravel: [A('vehicle_tire_braking_gravel')],
 
-  // ---- the body (Arctic Drive's own): relieving oneself — the start, the stream on what it falls on, the end,
-  // and a sigh of relief; out of breath — a pant at a time, fast and then slower, and the breath got back; the heart
-  'pee_start': [A('Action-Pee', '.*__w403325015')],
-  'pee_end': [A('Action-Pee', '.*__w875654566')],
-  'pee:concrete': [A('player_action_pee_concrete')],
-  'pee:metal': [A('player_action_pee_metal')],
-  'pee:wood': [A('player_action_pee_wood')],
-  'pee:snow': [A('player_action_pee_snow')],
-  'pee:toilet': [A(n('ActionPeeingToiletLoop'))],
-  pee_relief: [A(n('player_pee'))],
+  // ---- the body (Arctic Drive's own): out of breath — a pant at a time, fast and then slower, and the breath got
+  // back; the heart
   breath_fast: [A(n('player_exhausted_fast'))],
   breath_slow: [A(n('player_exhausted_slow'))],
   breath_end: [A(n('player_action_exhausted_end'))],

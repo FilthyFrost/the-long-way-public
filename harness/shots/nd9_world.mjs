@@ -205,9 +205,7 @@ try {
             w.y = floor + 0.02;
             g.simulate(i ? 0.05 : 0);
             w.y = floor + 0.02;
-            const eye = w.eye();
-            g.input.lookYaw = Math.atan2(at.z - w.z, at.x - w.x);
-            g.input.lookPitch = Math.atan2(at.y - eye.y, Math.hypot(at.x - w.x, at.z - w.z));
+            ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(at.x, at.y, at.z));
           }
           g.simulate(0);
           return String(g.player.telemetry().target);

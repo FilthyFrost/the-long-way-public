@@ -240,8 +240,11 @@ export class Towing implements System<GameContext> {
       if (!l || !ctx.vehicles.includes(l.tow) || !hitchLocal(l.tow)) {
         if (l) this.unhitch(t);
         else if (!this.stood.has(t)) this.stand(t);
+        t.view.lampsAs = null;
         continue;
       }
+      // (plugged into the one that pulls it: its tail lamps, brake lights, reversing lamps and hazards are that one's)
+      t.view.lampsAs = l.tow.view.lampsNow;
       // the ball where the vehicle is drawn this frame (its interpolated pose, as its view will be)
       const alpha = l.tow === ctx.seated ? (ctx.renderAlpha ?? 1) : 1;
       l.tow.sim.renderPose(this.pose as never, alpha);

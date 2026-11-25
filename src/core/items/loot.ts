@@ -28,7 +28,7 @@ export interface LootTable {
 
 const e = (id: string, w = 1, lo = 1, hi = lo): LootEntry => ({ id, w, n: [lo, hi] });
 
-export const CONTAINER_KINDS = ['crate', 'toolbox', 'shelf', 'counter', 'cupboard', 'wardrobe', 'desk', 'medicine', 'glovebox', 'boot', 'barrel', 'tacklebox', 'gamebag', 'garage'] as const;
+export const CONTAINER_KINDS = ['crate', 'toolbox', 'shelf', 'counter', 'cupboard', 'wardrobe', 'desk', 'medicine', 'glovebox', 'boot', 'barrel', 'tacklebox', 'gamebag', 'garage', 'fridge', 'coolbox'] as const;
 export type ContainerKind = (typeof CONTAINER_KINDS)[number];
 
 export const LOOT: Record<ContainerKind, LootTable> = {
@@ -116,6 +116,9 @@ export const LOOT: Record<ContainerKind, LootTable> = {
       e('part.engine.3', 1), e('part.cooling.3', 1), e('part.suspension.3', 1), e('tyre.mud', 1), e('tyre.snow', 1), e('part.lights.bar', 1),
     ],
   },
+  // (ModCar's worlds of version 7: a place's refrigerator, a camp's cool box — core/modcar/loot.ts has what is in them)
+  fridge: { picks: [1, 3], entries: [e('food.can.meat', 2), e('drink.water', 3, 1, 2)] },
+  coolbox: { picks: [1, 2], entries: [e('drink.water', 3, 1, 2), e('food.can.meat', 1)] },
 };
 
 /** the three bands: common, uncommon, rare */

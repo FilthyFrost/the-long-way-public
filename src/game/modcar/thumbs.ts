@@ -160,8 +160,15 @@ export class PartThumbs {
       const names = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((m) => m?.name ?? '');
       const kept = mesh.userData.mat as string[] | undefined;
       const vc = !!mesh.geometry.getAttribute('color');
-      const mats = names.map((n, i) => this.material(kept?.[i] ?? n, vc, paint, paint2));
-      mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
+      if (mesh.userData.ownLook) {
+        // (a mesh with a look of its own — a fish, assets.ts registerItemModels — keeps its painted skin on the toon look)
+        const src = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.ShaderMaterial;
+        const map = (src.uniforms?.uMap?.value as THREE.Texture | null) ?? null;
+        mesh.material = new THREE.MeshToonMaterial({ map, vertexColors: !map && vc, color: 0xffffff, gradientMap: this.ramp, side: THREE.DoubleSide });
+      } else {
+        const mats = names.map((n, i) => this.material(kept?.[i] ?? n, vc, paint, paint2));
+        mesh.material = Array.isArray(mesh.material) ? mats : mats[0];
+      }
       const line = new THREE.Mesh(mesh.geometry, this.ink);
       line.matrixAutoUpdate = false;
       outlines.push(line);
@@ -179,6 +186,41 @@ export class PartThumbs {
       box.union(part.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld));
     }
     if (box.isEmpty()) return null;
+    // (a thing far longer than it is thick — a fishing rod — is drawn thicker in its picture, or it would be a hair across
+    // the tile: its two short sides brought up to a sixth of its length, about its own middle)
+    {
+      const sz = box.getSize(new THREE.Vector3());
+      const dims = [sz.x, sz.y, sz.z];
+      const long = Math.max(...dims);
+      const mid = [...dims].sort((a, b) => a - b)[1];
+      if (long > 10 * Math.max(1e-4, mid)) {
+        const k = (long / 6) / Math.max(1e-4, mid);
+        const c0 = box.getCenter(new THREE.Vector3());
+        const s = new THREE.Vector3(sz.x === long ? 1 : k, sz.y === long ? 1 : k, sz.z === long ? 1 : k);
+        const wrap = new THREE.Group();
+        wrap.position.copy(c0);
+        wrap.scale.copy(s);
+        root.position.sub(c0);
+        wrap.add(root);
+        wrap.updateMatrixWorld(true);
+        box.makeEmpty();
+        for (const mesh of meshes) box.union(part.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld));
+        this.scene.add(wrap);
+        const url = this.shoot(r, box);
+        this.scene.remove(wrap);
+        for (const l of outlines) l.removeFromParent();
+        return url;
+      }
+    }
+    this.scene.add(root);
+    const url = this.shoot(r, box);
+    this.scene.remove(root);
+    for (const l of outlines) l.removeFromParent();
+    return url;
+  }
+
+  /** the picture of what is in the scene now, framed on `box` */
+  private shoot(r: THREE.WebGLRenderer, box: THREE.Box3): string {
     const c = box.getCenter(new THREE.Vector3());
     const radius = Math.max(0.05, box.getSize(new THREE.Vector3()).length() / 2);
     // from three-quarters in front, on its right, a little above
@@ -190,11 +232,7 @@ export class PartThumbs {
     this.cam.lookAt(c);
     this.cam.updateProjectionMatrix();
     this.ink.uniforms.uWidth.value = 0.0035;
-    this.scene.add(root);
     r.render(this.scene, this.cam);
-    const url = r.domElement.toDataURL('image/png');
-    this.scene.remove(root);
-    for (const l of outlines) l.removeFromParent();
-    return url;
+    return r.domElement.toDataURL('image/png');
   }
 }

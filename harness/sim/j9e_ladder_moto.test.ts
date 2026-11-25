@@ -15,6 +15,7 @@ import { derive } from '../../src/core/modcar/derive';
 import { FRAMES, frameDef } from '../../src/core/modcar/frames';
 import { bodyCut, floorAt, ladderLine, ladderMountOf, ladderSpot, LADDER_SPOTS, roofFloors } from '../../src/core/modcar/ladders';
 import { motoTray } from '../../src/core/modcar/motoRack';
+import { recipeDef } from '../../src/core/modcar/crafting';
 import { boxesOfFinds, planBoxes, planGround } from '../../src/core/modcar/loot';
 import { partDef, partsOf } from '../../src/core/modcar/parts';
 import { placeFinds, placesPlan, plan, vehiclePlan, type PlanPlace } from '../../src/core/modcar/schedule';
@@ -183,18 +184,19 @@ describe('J9e: the motorcycle rack', () => {
 });
 
 describe('J9e: the plan', () => {
-  it('the ladder’s blueprint first at 4.5–9 km, then every 10–15 km, at the big places; the motorcycle rack’s 2–5 km after the motorcycle', () => {
+  it('the ladder and the motorcycle rack are learnt from sheets of the third chapter (30–50 km) and made at a bench; the rack’s own sheet still comes 2–5 km after the motorcycle', () => {
+    // (docs/V3/plan/finish.md §六 2: parts, fitted as parts are)
+    expect(recipeDef('ladder')).toMatchObject({ chapter: 3, cost: { scrap: 45 }, makes: { kind: 'part', part: 'ladder' } });
+    expect(recipeDef('moto_rack')).toMatchObject({ chapter: 3, cost: { scrap: 80 }, makes: { kind: 'part', part: 'moto_rack' } });
     for (const seed of [7, 1000, 8919, 31337]) {
       const p = plan(seed, 100);
-      const bp = p.filter((f) => f.entry === 'ladder');
-      expect(bp.length).toBeGreaterThanOrEqual(6);
-      expect(bp[0].thing).toEqual({ item: 'bp_ladder' });
-      expect(bp[0].s / 1000).toBeGreaterThanOrEqual(4.5);
-      expect(bp[0].s / 1000).toBeLessThanOrEqual(9);
-      expect(bp[0].themes).toContain('garage');
-      for (let i = 1; i < bp.length; i++) {
-        expect((bp[i].s - bp[i - 1].s) / 1000).toBeGreaterThanOrEqual(10 - 1e-6);
-        expect((bp[i].s - bp[i - 1].s) / 1000).toBeLessThanOrEqual(15 + 1e-6);
+      // the chapter's blueprint places: its seven sheets and one more, within its kilometres, at the big places
+      const bp = p.filter((f) => 'blueprint' in f.thing && f.thing.blueprint === 3);
+      expect(bp.length).toBe(8);
+      for (const f of bp) {
+        expect(f.s / 1000).toBeGreaterThanOrEqual(30);
+        expect(f.s / 1000).toBeLessThanOrEqual(50);
+        expect(f.themes).toContain('garage');
       }
       const moto = vehiclePlan(seed, 100).find((v) => v.frame === 'moto')!;
       const mr = placesPlan(seed, 100).filter((f) => f.entry === 'moto_rack');
@@ -205,11 +207,12 @@ describe('J9e: the plan', () => {
     }
   });
 
-  it('laid over real worlds: the first ladder blueprint at a big place by the 12th km, not in the roof rack’s box every time; the rack’s after the motorcycle', () => {
+  it('laid over real worlds: the second chapter’s blueprint places find places to be at by the 32nd km, most of them of their sorts; the rack’s sheet after the motorcycle', () => {
     const seeds = Number(process.env.ROBOT_SEEDS ?? 8);
-    let together = 0;
+    let laid = 0;
     let sorted = 0;
-    const firstKm: number[] = [];
+    let all = 0;
+    let lastKm = 0;
     for (let k = 0; k < seeds; k++) {
       const seed = 2000 + k * 7919;
       const w = modcarWorld(seed, { worldVersion: 5 }).world;
@@ -224,22 +227,26 @@ describe('J9e: the plan', () => {
         const boxes = boxesOfFinds(sites[i], list);
         list.forEach((f, j) => where.set(f, { i, box: boxes[j] }));
       }
-      const lad = finds.find((f) => f.entry === 'ladder')!;
-      const rr = finds.find((f) => f.entry === 'roof_rack')!;
-      const wl = where.get(lad);
-      const wr = where.get(rr);
-      expect(wl, `seed ${seed}: the ladder's blueprint laid`).toBeTruthy();
-      firstKm.push(sites[wl!.i].s / 1000);
-      // (at a place of its sorts, or another when none came within the wait: the plan's way)
-      if (lad.themes!.includes(sites[wl!.i].kind)) sorted++;
-      if (wr && wr.i === wl!.i && wr.box === wl!.box) together++;
+      for (const f of finds) {
+        if (!('blueprint' in f.thing) || f.thing.blueprint !== 2) continue;
+        all++;
+        const wf = where.get(f);
+        if (!wf) continue;
+        laid++;
+        lastKm = Math.max(lastKm, sites[wf.i].s / 1000);
+        // (at a place of its sorts, or another when none came within the wait: the plan's way)
+        if (f.themes!.includes(sites[wf.i].kind)) sorted++;
+      }
       const moto = vehiclePlan(seed, 60).find((v) => v.frame === 'moto');
       const mr = finds.find((f) => f.entry === 'moto_rack');
       if (moto && mr && where.get(mr)) expect(sites[where.get(mr)!.i].s).toBeGreaterThanOrEqual(moto.s + 2000 - 1);
     }
-    console.info(`the first ladder blueprint over ${seeds} worlds at ${firstKm.map((x) => x.toFixed(1)).join(', ')} km (${sorted} at a big place of its sorts); in the roof rack's box ${together} times`);
-    expect(Math.max(...firstKm)).toBeLessThanOrEqual(12);
-    expect(sorted).toBeGreaterThanOrEqual(Math.ceil(seeds * 0.6));
-    expect(together).toBeLessThan(Math.max(1, seeds / 3));
+    console.info(`the second chapter's blueprint places over ${seeds} worlds: ${laid} of ${all} laid (${sorted} at a place of their sorts), the last at ${lastKm.toFixed(1)} km`);
+    expect(all).toBe(seeds * 6);
+    expect(laid).toBeGreaterThanOrEqual(Math.ceil(all * 0.9));
+    expect(lastKm).toBeLessThanOrEqual(32);
+    // (six sheets' places in eighteen kilometres: a little under half find no place of their sorts within the wait and are
+    // at the next place there is — the plan's way with anything)
+    expect(sorted).toBeGreaterThanOrEqual(Math.ceil(laid * 0.4));
   }, 300_000);
 });

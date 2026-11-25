@@ -103,6 +103,30 @@ const ALL_POINTS_EXT: readonly number[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 const STOP_MAX = 8;
 const STOP_W = 11;
 /** derived specs: the body box reaches at least this far above and below the centre of gravity (m) */
+// ---------------------------------------------------------------- staying on its wheels (docs/V3/plan/finish.md §四.1)
+/** the roll guard keeps the tyres' sideways grip to this share of what would lift the wheels of one side */
+const ROLL_KEEP = 0.85;
+/** rolled further than this against the ground under it (rad), a hand rights the body: all of its push by ROLL_FULL */
+const ROLL_FREE = 4 * DEG;
+const ROLL_FULL = 20 * DEG;
+/** …past this it lies on its roof: left to whoever comes to turn it over */
+const ROLL_GONE = 120 * DEG;
+/** the hand's push at ROLL_FULL, in turns of the body's weight on half its track, and how firmly it damps the roll there */
+const ROLL_PUSH = 3;
+const ROLL_DAMP = 0.9;
+/** ABS: the brakes keep at least this share of a wheel's grip along the road however much it needs sideways */
+const ABS_LONG_MIN = 0.6;
+/**
+ * ESC. Turning more than the steering asks (or the other way) — the tail coming round, one side braking harder than
+ * the other: what it lets go by (rad/s) and what puts a side's brakes full on. Turning less than asked — the nose
+ * pushing wide, which is safe: let be until it is far short, and then only half the brakes. The speed it works above (m/s).
+ */
+const ESC_DEAD = 1.5 * DEG;
+const ESC_FULL = 8 * DEG;
+const ESC_PUSH_DEAD = 12 * DEG;
+const ESC_PUSH_FULL = 35 * DEG;
+const ESC_SPEED = 3;
+
 const BODY_MIN_ABOVE = 0.25;
 const BODY_MIN_BELOW = 0.1;
 
@@ -349,6 +373,20 @@ export class VehicleSim {
   /** S/brake at standstill selects reverse (player convenience); tests may disable */
   autoReverse = true;
   autoHold = true;
+  /**
+   * Staying on its wheels (docs/V3/plan/finish.md §四.1). All off unless whoever drives the simulation turns them on
+   * (the game does: the first always, the two others as the player's aids say).
+   *  - rollGuard: the tyres' sideways grip is kept under what would lift the wheels of one side — a tall body slides
+   *    where it would have gone over — and past twelve degrees of roll a hand rights it.
+   *  - abs: the brakes give way to the grip a wheel needs sideways: one steers while standing on the brake.
+   *  - esc: a side's brakes are put on or let off to bring the turning back to what the steering asks — braking with
+   *    the left wheels on gravel and the right on asphalt, the throttle let go in a bend.
+   */
+  rollGuard = false;
+  abs = false;
+  esc = false;
+  /** how far the stability control is working now, −1…1 (+: braking the right side) */
+  escNow = 0;
 
   // telemetry
   time = 0;
@@ -416,6 +454,10 @@ export class VehicleSim {
   private sinceShift = 10;
   private revTimer = 0;
   private holdTimer = 0;
+  /** half the track, the mean of the two axles' (m) */
+  private halfTrack = 0.7;
+  /** the cornering the roll guard lets the tyres give, standing level (g, a little inside it): the steering asks for no more */
+  private rollG = 1;
   private invIroll!: number;
   private invIyaw!: number;
   private invIpitch!: number;
@@ -578,6 +620,8 @@ export class VehicleSim {
       iYaw = Math.max(iYaw, 0.025 * spec.mass * (a * a + b * b), box * (L2 + W2));
     }
     this.invIroll = 1 / iRoll;
+    this.halfTrack = (spec.front.track + spec.rear.track) / 4;
+    this.rollG = (0.92 * ROLL_KEEP * this.halfTrack) / Math.max(0.2, spec.cgHeight);
     this.invIyaw = 1 / iYaw;
     this.invIpitch = 1 / iPitch;
 
@@ -1258,7 +1302,9 @@ export class VehicleSim {
     const speed = Math.abs(vF);
     let dMax = st.maxDeg * DEG;
     if (speed > 2) {
-      const grip = Math.atan((sp.wheelbase * st.gripLimitG * GRAVITY) / (speed * speed)) + st.slipMarginDeg * DEG;
+      // (with the roll guard on, no more than it lets the tyres give: a tall body is not steered into a plough)
+      const g = this.rollGuard && !this.bal && this.rollG < st.gripLimitG ? this.rollG : st.gripLimitG;
+      const grip = Math.atan((sp.wheelbase * g * GRAVITY) / (speed * speed)) + st.slipMarginDeg * DEG;
       if (grip < dMax) dMax = grip;
     }
     this.maxSteerNow = dMax;
@@ -1603,6 +1649,18 @@ export class VehicleSim {
       w.compRate = -(vcx * gs.nx + vcy * gs.ny + vcz * gs.nz) / w.denom;
     }
 
+    // (a single-track wheel's two contact rays are one wheel: on the line between two grounds it has the mean of their
+    // grips, not one under each side of it — a bike braked along the road's edge spun at 340 °/s)
+    if (this.bal) {
+      for (let a = 0; a < 4; a += 2) {
+        const l = wheels[a];
+        const r = wheels[a + 1];
+        if (!l.contact || !r.contact) continue;
+        l.mu = r.mu = (l.mu + r.mu) / 2;
+        l.rr = r.rr = (l.rr + r.rr) / 2;
+      }
+    }
+
     this.updateFeel(h, contacts);
 
     for (let a = 0; a < 4; a += 2) {
@@ -1784,6 +1842,49 @@ export class VehicleSim {
       }
     }
 
+    // the ground under the wheels (the mean of what they stand on; level, in the air): what the roll guard measures against
+    let gnx = 0;
+    let gny = 1;
+    let gnz = 0;
+    if (this.rollGuard && !bal) {
+      if (contacts > 0) {
+        gnx = gny = gnz = 0;
+        for (let i = 0; i < 4; i++) {
+          const w = wheels[i];
+          if (!w.contact) continue;
+          gnx += w.nx;
+          gny += w.ny;
+          gnz += w.nz;
+        }
+        const il = 1 / Math.sqrt(gnx * gnx + gny * gny + gnz * gnz);
+        gnx *= il;
+        gny *= il;
+        gnz *= il;
+      }
+      // rolled far against it: a hand rights the body — a spring from ROLL_FREE, all of it by ROLL_FULL, and a damper
+      const phi = Math.atan2(-(Sx * gnx + Sy * gny + Sz * gnz), Ux * gnx + Uy * gny + Uz * gnz);
+      const aphi = phi < 0 ? -phi : phi;
+      if (aphi > ROLL_FREE && aphi < ROLL_GONE) {
+        // (gently at first — a body leaning into a bend is only steadied — and all of it by ROLL_FULL)
+        const k0 = aphi < ROLL_FULL ? (aphi - ROLL_FREE) / (ROLL_FULL - ROLL_FREE) : 1;
+        // (…and only as far as it stands on its wheels: a body resting on its belly over an edge, or in the air, is
+        // left to lie as it will — the hand rocked such a one for ever)
+        let on = 0;
+        for (let i = 0; i < 4; i++) on += wheels[i].load;
+        on /= m * GRAVITY;
+        const k = k0 * k0 * (on < 1 ? on : 1);
+        const full = ROLL_PUSH * m * GRAVITY * this.halfTrack;
+        const rate = ax * Fx + ay * Fy + az * Fz;
+        const damp = 2 * ROLL_DAMP * Math.sqrt((full / (ROLL_FULL - ROLL_FREE)) / this.invIroll);
+        // (the damper against going further over, and a third of it against coming back: it settles, it does not swing)
+        const going = rate * phi > 0 ? rate : rate / 3;
+        const tau = -(phi < 0 ? -1 : 1) * full * k - damp * going * k;
+        tX += Fx * tau;
+        tY += Fy * tau;
+        tZ += Fz * tau;
+      }
+    }
+
     const invM = 1 / m;
     vx += fX * invM * h;
     vy += fY * invM * h;
@@ -1855,6 +1956,35 @@ export class VehicleSim {
 
     const tire = sp.tire;
     const brakeCmd = this.hold ? 1 : this.brake;
+    // the stability control: the turning the steering asks for (what the grip there could give, at most) against the
+    // turning there is; past what it lets go by, the brakes of one side go on and those of the other come off
+    let escR = 0;
+    if (this.esc && !bal && contacts >= 2 && !this.hold && this.handbrake === 0) {
+      const va = vF < 0 ? -vF : vF;
+      if (va > ESC_SPEED) {
+        let mu = 0;
+        for (let i = 0; i < 4; i++) if (wheels[i].contact) mu += wheels[i].mu;
+        const most = (tire.muLat * (mu / contacts) * GRAVITY) / va;
+        let want = (-vF * Math.tan(this.wheelAngle)) / sp.wheelbase;
+        if (want > most) want = most;
+        else if (want < -most) want = -most;
+        const yawNow = ax * Ux + ay * Uy + az * Uz;
+        const an = yawNow < 0 ? -yawNow : yawNow;
+        const aw = want < 0 ? -want : want;
+        if (want * yawNow >= 0 && an < aw) {
+          // (pushing wide in a left turn: the left side's brakes, to bring the nose in)
+          const short = aw - an;
+          if (short > ESC_PUSH_DEAD) escR = (want > 0 ? -0.5 : 0.5) * Math.min(1, (short - ESC_PUSH_DEAD) / (ESC_PUSH_FULL - ESC_PUSH_DEAD));
+        } else {
+          // (turning left more than asked: the right side's brakes — and so round)
+          const e = yawNow - want;
+          const ae = e < 0 ? -e : e;
+          if (ae > ESC_DEAD) escR = (e < 0 ? -1 : 1) * Math.min(1, (ae - ESC_DEAD) / (ESC_FULL - ESC_DEAD));
+        }
+        escR *= smoothstep(ESC_SPEED, ESC_SPEED + 3, va);
+      }
+    }
+    this.escNow = escR;
     // fastest scrape of the body or of an empty hub along the road this step (sparks)
     let scrape = 0;
     // P: the parking pawl locks the driven wheels like a handbrake does the rear ones (it is in the gearbox)
@@ -1897,9 +2027,69 @@ export class VehicleSim {
       }
       const locked = hb || (pawl && w.axle.driven) || w.fit === WheelFit.None;
       w.locked = locked;
-      w.capOpp = locked ? w.capLong : Math.min(w.capLong, N * w.rr + brakeCmd * w.brakeMax * mods.brake[i] + hbForce);
+      // (the stability control's share: this side's brake further on, or let off)
+      let cmd = brakeCmd;
+      if (escR !== 0) {
+        cmd += (i & 1) === 1 ? escR : -escR;
+        if (cmd < 0) cmd = 0;
+        else if (cmd > 1) cmd = 1;
+      }
+      w.capOpp = locked ? w.capLong : Math.min(w.capLong, N * w.rr + cmd * w.brakeMax * mods.brake[i] + hbForce);
       sumLat += w.capLat;
       sumOpp += w.capOpp;
+    }
+    // the roll guard: the grip sideways is kept under what would lift the wheels of one side. About the line the outer
+    // wheels stand on, the tyres' sideways force turns the body over with the height of its centre of gravity for an
+    // arm, and its weight on the ground holds it down with how far that line is from under it: no more of the first
+    // than ROLL_KEEP of the second. Measured where the wheels are now — a body leaning out has less to spare, one on a
+    // cross slope less on the downhill side.
+    if (this.rollGuard && !bal && sumLat > 0 && contacts > 0) {
+      // the side axis on the ground
+      const sn = Sx * gnx + Sy * gny + Sz * gnz;
+      let lx = Sx - gnx * sn;
+      let ly = Sy - gny * sn;
+      let lz = Sz - gnz * sn;
+      const ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+      if (ll > 0.2) {
+        lx /= ll;
+        ly /= ll;
+        lz /= ll;
+        let hs = 0;
+        let dR = 0;
+        let dL = 0;
+        let nR = 0;
+        let nL = 0;
+        let slip = 0;
+        for (let i = 0; i < 4; i++) {
+          const w = wheels[i];
+          if (!w.contact) continue;
+          const rx = w.cx - px;
+          const ry = w.cy - py;
+          const rz = w.cz - pz;
+          hs -= rx * gnx + ry * gny + rz * gnz;
+          const y = rx * lx + ry * ly + rz * lz;
+          if ((i & 1) === 1) {
+            dR += y;
+            nR++;
+          } else {
+            dL -= y;
+            nL++;
+          }
+          slip += w.vLat * w.load;
+        }
+        const hc = Math.max(0.2, hs / contacts);
+        // (a side with no wheel down is in the air because it is going over the other way: as far out as the other)
+        const outR = nR ? dR / nR : nL ? dL / nL : this.halfTrack;
+        const outL = nL ? dL / nL : outR;
+        // sliding to the right the grip pushes left and the body goes over to the right, on the right wheels
+        const out = slip > 0 ? outR : slip < 0 ? outL : outR < outL ? outR : outL;
+        const most = ROLL_KEEP * m * GRAVITY * (gny > 0 ? gny : 0) * (out > 0 ? out : 0) / hc;
+        if (sumLat > most) {
+          const k = most / sumLat;
+          for (let i = 0; i < 4; i++) wheels[i].capLat *= k;
+          sumLat = most;
+        }
+      }
     }
     // the drive each wheel gets (equal torque to every driven wheel: one of another size pushes torque / its own
     // radius), then as each driven axle's differential shares it (ModCar's)
@@ -1976,6 +2166,22 @@ export class VehicleSim {
         } else if (FL < -maxLong) {
           FL = -maxLong;
           over = true;
+        }
+        // ABS: braking, the wheel keeps what it needs sideways — by how far its slip angle is up its curve — and
+        // the brake has the rest (never less than ABS_LONG_MIN of the grip: it still stops)
+        if (this.abs && brakeCmd > 0.05 && FL * w.vLong < 0 && w.vLong * w.vLong > 4) {
+          const xa = (w.alpha < 0 ? -w.alpha : w.alpha) / w.alphaPeak;
+          const need = xa < 1 ? xa * (2 - xa) : 1;
+          let keep = Math.sqrt(1 - need * need);
+          if (keep < ABS_LONG_MIN) keep = ABS_LONG_MIN;
+          const lim = keep * maxLong;
+          if (FL > lim) {
+            FL = lim;
+            over = false;
+          } else if (FL < -lim) {
+            FL = -lim;
+            over = false;
+          }
         }
         const uL = FL / maxLong;
         let latScale = 1 - uL * uL;
@@ -2546,6 +2752,15 @@ export class VehicleSim {
   /** km/h shown on the speedometer */
   get kmh(): number {
     return Math.abs(this.vForward) * 3.6;
+  }
+
+  /**
+   * How fast the body moves, whichever way (km/h): sliding sideways, falling, and an end of it swinging round as it
+   * spins all count — the speedometer's (kmh) is the part along its nose alone, and a vehicle sliding off a bank
+   * sideways reads nought on it. What "is it standing still" is asked of.
+   */
+  get bodyKmh(): number {
+    return (Math.hypot(this.vx, this.vy, this.vz) + Math.abs(this.yawRate) * 2) * 3.6;
   }
 
   /** Compact state for save games and, later, network replication. */

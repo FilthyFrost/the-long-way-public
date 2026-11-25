@@ -11,7 +11,7 @@
  *  - what the load weighs on the vehicle (the build's cargo: the derived mass and centre of gravity).
  */
 import * as THREE from 'three';
-import { findSpot, gridAt, lieBox, restAt, zonesFor, zoneTakes, type CargoMass, type CargoZone, type HeightGrid, type Lie, type Placed, type Spot, type ThingBox } from '../../core/modcar/cargo';
+import { findSpot, gridAt, LIDLESS_WHY, lieBox, restAt, zoneLidless, zonesFor, zoneTakes, type CargoMass, type CargoZone, type HeightGrid, type Lie, type Placed, type Spot, type ThingBox } from '../../core/modcar/cargo';
 import { itemDef, itemMass } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import type { RenderCore } from '../render/core';
@@ -370,7 +370,8 @@ export class CargoBay {
         if (best && land >= best.dist) continue;
         let spot: Spot | null = null;
         let why = '';
-        if (!zoneTakes(zone, carry)) why = '太大了';
+        if (zoneLidless(v.view.frame.id, zone, v.build)) why = LIDLESS_WHY;
+        else if (!zoneTakes(zone, carry)) why = '太大了';
         else if (!box) why = '放不下';
         else {
           spot = exact ? findSpot(zone, g, box, yaw, near, this.placedIn(v, zone.id), exact.grid, true) : findSpot(zone, g, box, yaw, near, this.placedIn(v, zone.id), zone.grid ?? AIM_GRID);
@@ -536,7 +537,7 @@ export class CargoBay {
     const carry = carryOf(held);
     const zones = [...zonesFor(v.view.frame.id, v.build)].sort((a, b) => a.order - b.order);
     for (const zone of zones) {
-      if (zone.wall || !zoneTakes(zone, carry)) continue;
+      if (zone.wall || !zoneTakes(zone, carry) || zoneLidless(v.view.frame.id, zone, v.build)) continue;
       const spot = findSpot(zone, this.grid(v, zone), box, 0, null, this.placedIn(v, zone.id));
       if (spot) return { zone, spot };
     }
@@ -550,7 +551,7 @@ export class CargoBay {
   spotIn(v: ModVehicle, zoneId: string, held: NonNullable<Held>, near: { x: number; z: number } | null = null, yaw = 0, grid?: number): { zone: CargoZone; spot: Spot } | null {
     const zone = zonesFor(v.view.frame.id, v.build).find((z) => z.id === zoneId);
     grid ??= zone?.grid ?? AIM_GRID;
-    if (!zone || zone.wall || !zoneTakes(zone, carryOf(held))) return null;
+    if (!zone || zone.wall || !zoneTakes(zone, carryOf(held)) || zoneLidless(v.view.frame.id, zone, v.build)) return null;
     const box = this.boxOf(held) ?? roughBox(carryOf(held));
     const spot = findSpot(zone, this.grid(v, zone), box, yaw, near, this.placedIn(v, zone.id), near ? grid : 0);
     return spot ? { zone, spot } : null;

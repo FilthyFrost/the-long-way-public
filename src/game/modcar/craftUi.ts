@@ -1,11 +1,11 @@
 /**
- * The crafting bench's list (docs/MODCAR.md §14), laid out as Arctic Drive's: the materials there are, the
- * kinds of thing to filter by, the recipes (a locked one says so), and the one picked — its picture, what it
- * is, what it costs against what there is (short in red), how many blows of the hammer — with the button that
- * makes it. In the HUD's cartoon frame, on the right of the view; the bench and its plate stay in sight.
- * W / S or the wheel pick, Enter makes it, Esc or E closes.
+ * The crafting bench's list (docs/MODCAR.md §14, docs/V3/plan/finish.md §六 3): the materials there are, the things
+ * one knows how to make — those and no others: a making is learnt from its blueprint, and until then it is not on the
+ * list — and the one picked: its picture, what it is, what it costs against what there is (short in red), how many
+ * blows of the hammer, with the button that makes it. In the HUD's cartoon frame, on the right of the view; the bench
+ * and its plate stay in sight. The wheel (or W / S) picks, the left button on "制作" (or Enter) makes it, Esc closes.
  */
-import { RECIPE_CATS, shortOf, type Recipe, type RecipeCat, type Stock } from '../../core/modcar/crafting';
+import { shortOf, type Recipe, type Stock } from '../../core/modcar/crafting';
 import { MATERIAL_IDS, MATERIALS } from '../../core/modcar/items';
 import type { ItemCard } from './itemInfo';
 
@@ -43,8 +43,7 @@ const CSS = `
 .mc-craft .row img, .mc-craft .row .ph { width: 38px; height: 38px; flex: none; border-radius: 8px; background: rgba(255,255,255,0.06); object-fit: contain; }
 .mc-craft .row .nm { flex: 1; min-width: 0; font-size: 14px; font-weight: 700; line-height: 1.25; }
 .mc-craft .row .nm small { display: block; font: 400 12px inherit; color: var(--tx-2); }
-.mc-craft .row.locked .nm { color: var(--tx-3); }
-.mc-craft .row .lock { width: 16px; height: 16px; flex: none; opacity: 0.7; }
+.mc-craft .list .more { margin-top: 8px; padding: 8px 9px; border-top: 1px dashed var(--rule); font-size: 12.5px; line-height: 1.5; color: var(--tx-2); }
 .mc-craft .row .short { color: #ff8f80; }
 .mc-craft .det { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mc-craft .det .top { display: flex; gap: 12px; align-items: center; }
@@ -69,24 +68,17 @@ const CSS = `
 .mc-craft .ft b { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; margin: 0 3px; padding: 0 5px; border-radius: 6px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); font: 700 11.5px/1 var(--key-font); }
 `;
 
-/** the materials' little pictures: a cog, a leaf, a flask (in their colours) */
+/** the materials' little pictures: a cog for scrap, a chip with its legs for components (in their colours) */
 export function materialIcon(m: (typeof MATERIAL_IDS)[number]): string {
   const c = `#${MATERIALS[m].hex.toString(16).padStart(6, '0')}`;
   if (m === 'scrap') return `<svg viewBox="0 0 24 24"><path fill="${c}" stroke="#17120f" stroke-width="1.6" d="M10.4 2h3.2l.5 2.6 1.9.8 2.2-1.5 2.3 2.3-1.5 2.2.8 1.9 2.6.5v3.2l-2.6.5-.8 1.9 1.5 2.2-2.3 2.3-2.2-1.5-1.9.8-.5 2.6h-3.2l-.5-2.6-1.9-.8-2.2 1.5-2.3-2.3 1.5-2.2-.8-1.9L2 13.6v-3.2l2.6-.5.8-1.9-1.5-2.2 2.3-2.3 2.2 1.5 1.9-.8z"/><circle cx="12" cy="12" r="3.2" fill="#17120f"/></svg>`;
-  if (m === 'organics') return `<svg viewBox="0 0 24 24"><path fill="${c}" stroke="#17120f" stroke-width="1.6" stroke-linejoin="round" d="M5 19c0-9 6-14 15-15-1 9-6 15-15 15z"/><path d="M5 19l8-8" stroke="#17120f" stroke-width="1.6" stroke-linecap="round"/></svg>`;
-  return `<svg viewBox="0 0 24 24"><path fill="${c}" stroke="#17120f" stroke-width="1.6" stroke-linejoin="round" d="M9 3h6v5l5 10a2 2 0 0 1-2 3H6a2 2 0 0 1-2-3l5-10z"/><path d="M8 3h8" stroke="#17120f" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  return `<svg viewBox="0 0 24 24"><path fill="${c}" stroke="#17120f" stroke-width="1.6" stroke-linejoin="round" d="M7 7h10v10H7z"/><path d="M10 7V3m4 4V3m-4 18v-4m4 4v-4M7 10H3m4 4H3m18-4h-4m4 4h-4" stroke="#17120f" stroke-width="1.6" stroke-linecap="round" fill="none"/><path d="M10 10h4v4h-4z" fill="#17120f" opacity="0.35"/></svg>`;
 }
-
-const LOCK = '<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="#c9c6c0" stroke-width="2.2" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
-
-type Tab = 'all' | RecipeCat;
-const TABS: [Tab, string][] = [['all', '全部'], ...(Object.entries(RECIPE_CATS) as [RecipeCat, { zh: string }][]).map(([k, v]) => [k, v.zh] as [Tab, string])];
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 export class CraftUi {
   private readonly el: HTMLDivElement;
-  private tab: Tab = 'all';
   private sel = '';
   private shown = false;
   private key0 = '';
@@ -106,10 +98,15 @@ export class CraftUi {
     this.el.className = 'mc-craft mc-frame';
     this.el.style.display = 'none';
     root.appendChild(this.el);
-    this.el.addEventListener('wheel', (e) => {
-      if ((e.target as HTMLElement).closest('.list')) return;
-      this.move(e.deltaY > 0 ? 1 : -1);
-    });
+    // (the wheel picks, wherever on the card it is turned: the list follows the one picked)
+    this.el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.move(e.deltaY > 0 ? 1 : -1);
+      },
+      { passive: false },
+    );
   }
 
   get open(): boolean {
@@ -120,7 +117,7 @@ export class CraftUi {
     this.shown = true;
     this.el.style.display = '';
     const rows = this.visible();
-    if (!rows.some((r) => r.recipe.id === this.sel)) this.sel = (rows.find((r) => r.open) ?? rows[0])?.recipe.id ?? '';
+    if (!rows.some((r) => r.recipe.id === this.sel)) this.sel = rows[0]?.recipe.id ?? '';
     this.key0 = '';
     this.draw();
   }
@@ -144,21 +141,13 @@ export class CraftUi {
     if (code === 'KeyW' || code === 'ArrowUp') this.move(-1);
     else if (code === 'KeyS' || code === 'ArrowDown') this.move(1);
     else if (code === 'Enter' || code === 'Space') this.make();
-    else if (code === 'KeyA' || code === 'ArrowLeft' || code === 'KeyD' || code === 'ArrowRight') {
-      const i = TABS.findIndex((t) => t[0] === this.tab);
-      this.tab = TABS[(i + (code === 'KeyA' || code === 'ArrowLeft' ? TABS.length - 1 : 1)) % TABS.length][0];
-      const rows = this.visible();
-      this.sel = (rows.find((r) => r.open) ?? rows[0])?.recipe.id ?? '';
-      this.draw();
-    } else return false;
+    else return false;
     return true;
   }
 
+  /** what one knows how to make, in the order it was to be learnt in */
   private visible(): CraftRow[] {
-    const all = this.host.rows();
-    const rows = this.tab === 'all' ? all : all.filter((r) => r.recipe.cat === this.tab);
-    // the ones one can make first, then by cost
-    return rows.sort((a, b) => Number(b.open) - Number(a.open));
+    return this.host.rows().filter((r) => r.open);
   }
 
   private move(d: number): void {
@@ -185,7 +174,7 @@ export class CraftUi {
     const rows = this.visible();
     const stock = this.host.stock();
     const sel = rows.find((r) => r.recipe.id === this.sel) ?? rows[0];
-    const key = JSON.stringify([this.tab, this.sel, stock, rows.map((r) => [r.recipe.id, r.open, !!r.icon])]);
+    const key = JSON.stringify([this.sel, stock, rows.map((r) => [r.recipe.id, !!r.icon])]);
     if (key === this.key0) return;
     this.key0 = key;
     const listScroll = (this.el.querySelector('.list') as HTMLElement | null)?.scrollTop ?? 0;
@@ -193,15 +182,14 @@ export class CraftUi {
     const stars = (n: number): string => (n > 0 ? `<div class="stars">${'★'.repeat(n)}<i>${'★'.repeat(5 - n)}</i></div>` : '');
     const short = sel ? shortOf(stock, sel.recipe.cost) : null;
     this.el.innerHTML = `
-      <div class="hd"><h3>制作台</h3><div class="stock">${MATERIAL_IDS.map((m) => `<span title="${MATERIALS[m].name.zh}">${materialIcon(m)}${stock[m] ?? 0}</span>`).join('')}</div></div>
-      <div class="tabs">${TABS.map(([k, n]) => `<button data-tab="${k}" class="${k === this.tab ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="hd"><h3>工作台</h3><div class="stock">${MATERIAL_IDS.map((m) => `<span title="${MATERIALS[m].name.zh}">${materialIcon(m)}${stock[m] ?? 0}</span>`).join('')}</div></div>
       <div class="body">
         <div class="list">${rows
           .map((r) => {
             const s = shortOf(stock, r.recipe.cost);
-            return `<div class="row ${r.recipe.id === sel?.recipe.id ? 'sel' : ''} ${r.open ? '' : 'locked'}" data-id="${r.recipe.id}">${img(r.icon)}<div class="nm">${esc(r.name)}<small class="${r.open && s ? 'short' : ''}">${r.open ? this.costPlain(r.recipe.cost) : '还没解锁'}</small></div>${r.open ? '' : LOCK}</div>`;
+            return `<div class="row ${r.recipe.id === sel?.recipe.id ? 'sel' : ''}" data-id="${r.recipe.id}">${img(r.icon)}<div class="nm">${esc(r.name)}<small class="${s ? 'short' : ''}">${this.costPlain(r.recipe.cost)}</small></div></div>`;
           })
-          .join('')}</div>
+          .join('')}<div class="more">路上找到图纸，拿在手里按右键学会，这里就多一样。</div></div>
         <div class="det">${
           sel
             ? `<div class="top">${img(sel.icon)}<div><div class="cat">${esc(sel.card.cat)}</div><h4>${esc(sel.name)}</h4>${stars(sel.card.stars)}</div></div>
@@ -211,24 +199,16 @@ export class CraftUi {
             .map((r) => `<div><b>${r.value}</b>${esc(r.label)}</div>`)
             .join('')}</div>
           <div class="need"><div class="lbl">需要的材料 · 做的时候敲 ${sel.hits} 下锤子</div><div class="cost">${this.costHtml(sel.recipe.cost, stock, true)}</div>
-          <button class="go" ${!sel.open || short ? 'disabled' : ''}>${!sel.open ? '还没解锁：以后找到图纸就能做' : short ? `材料不够：还差 ${short.n} ${MATERIALS[short.mat].name.zh}` : '制作'}</button></div>`
+          <button class="go" ${short ? 'disabled' : ''}>${short ? `材料不够：还差 ${short.n} ${MATERIALS[short.mat].name.zh}` : '制作'}</button></div>`
             : ''
         }</div>
       </div>
-      <div class="ft"><span><b>W</b><b>S</b> 选 · <b>A</b><b>D</b> 换类别 · <b>Enter</b> 制作</span><span><b>Esc</b> / <b>E</b> 离开</span></div>`;
+      <div class="ft"><span>滚轮 选 · 左键点 <b>制作</b></span><span><b>Esc</b> 离开</span></div>`;
     const list = this.el.querySelector('.list') as HTMLElement;
     list.scrollTop = listScroll;
     // (the picked one kept in sight)
     const picked = list.querySelector('.row.sel') as HTMLElement | null;
     if (picked && (picked.offsetTop < list.scrollTop || picked.offsetTop + picked.offsetHeight > list.scrollTop + list.clientHeight)) list.scrollTop = picked.offsetTop - 40;
-    this.el.querySelectorAll('.tabs button').forEach((b) =>
-      b.addEventListener('click', () => {
-        this.tab = (b as HTMLElement).dataset.tab as Tab;
-        const vis = this.visible();
-        this.sel = (vis.find((r) => r.open) ?? vis[0])?.recipe.id ?? '';
-        this.draw();
-      }),
-    );
     this.el.querySelectorAll('.row').forEach((b) =>
       b.addEventListener('click', () => {
         this.sel = (b as HTMLElement).dataset.id ?? '';

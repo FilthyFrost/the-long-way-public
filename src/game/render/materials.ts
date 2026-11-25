@@ -78,6 +78,51 @@ export interface SurfaceOptions {
    * its faces, moss on its top (a dry-stone wall's stones were plain painted boxes).
    */
   block?: boolean;
+  /**
+   * (Opt-in, off by default: the fish's fins, modcar/v3/fishing/fishModel.ts.) A mask read through the mesh's uv: its
+   * rgb multiplies the colour, its alpha the opacity — a fin's rays solid in a thinner membrane. Not a colour map: what
+   * reads `uMap` (the item pictures) sees none.
+   */
+  maskMap?: THREE.Texture;
+  /**
+   * (Opt-in, off by default: thin sheets — a fish's fins.) The sun shining through from behind: a soft back-light on
+   * the face turned from it, the more as the eye looks toward the sun, 0…1.
+   */
+  backLight?: number;
+  /**
+   * (Opt-in, off by default: the fish.) The sun's rim along the lit edge of the silhouette: a clean cel band where
+   * (1 − n·v) · (n·L)^0.1 passes about 0.72, of 0.3 the sun's colour at 1.
+   */
+  rim?: number;
+  /**
+   * (Opt-in, off by default: the fish.) A hard wet glint where the half vector meets the normal (n·h from 0.985 to
+   * 0.99): the sun's where it reaches, and a weak light's from beside the eye, so a fish in the shade still glints.
+   * At 1 the sun's glint is the sun's colour.
+   */
+  glint?: number;
+  /**
+   * (Opt-in, off by default: the fish.) A detail map read through the mesh's uv, linear (not sRGB): rg a tangent-space
+   * normal (x toward +u, y toward +v; 0…1 for −1…1, its z made up), b how wet the skin is there. The normal is laid on
+   * in a frame made from the screen-space derivatives of the position and the uv (no tangents needed): wholly in the
+   * highlights (spec, glint, rim, sky sheen), only 0.3 of it in the cel light, so the bands stay clean. The wetness
+   * scales the spec, the glint and the sky sheen.
+   */
+  detailMap?: THREE.Texture;
+  /**
+   * (Opt-in, off by default: the fish.) The sky in a wet skin at a grazing angle: the sky's colour × (1 − n·v)³ × this
+   * (× the detail map's wetness).
+   */
+  skySheen?: number;
+  /**
+   * (Opt-in, off by default: the fish.) The cel light's two steps widened — the shade's edge from −0.3 to 0.4 of n·L, the
+   * full light's from 0.3 to 0.7 — so a round body shades over smoothly. Not with `cabin`.
+   */
+  soft?: boolean;
+  /**
+   * (Opt-in, off by default: the fish.) A pale warm light under the belly, the more toward its edge: this colour × the
+   * sky's brightness (the mean of its colour, so it goes with the daylight) × smoothstep(0, −0.5, n.y) · (1 − n·v)².
+   */
+  bellyTint?: THREE.Color;
 }
 
 /** keep the mask in alpha untouched when blending transparent surfaces */
@@ -106,6 +151,37 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
   if (o.brush) defines.RT_BRUSH = '';
   if (o.mason) defines.RT_MASON = String(o.mason);
   if (o.block) defines.RT_BLOCK = '';
+  // (the opt-in looks below add their defines and uniforms only when asked for: every other material is as it was)
+  const extra: Record<string, THREE.IUniform> = {};
+  if (o.maskMap) {
+    defines.RT_MASK = '';
+    extra.uMask = { value: o.maskMap };
+  }
+  if (o.backLight) {
+    defines.RT_BACKLIGHT = '';
+    extra.uBackLight = { value: o.backLight };
+  }
+  if (o.rim) {
+    defines.RT_RIM = '';
+    extra.uRim = { value: o.rim };
+  }
+  if (o.glint) {
+    defines.RT_GLINT = '';
+    extra.uGlint = { value: o.glint };
+  }
+  if (o.detailMap) {
+    defines.RT_DETAIL = '';
+    extra.uDetail = { value: o.detailMap };
+  }
+  if (o.skySheen) {
+    defines.RT_SHEEN = '';
+    extra.uSkySheen = { value: o.skySheen };
+  }
+  if (o.soft) defines.RT_SOFT = '';
+  if (o.bellyTint) {
+    defines.RT_BELLY = '';
+    extra.uBellyTint = { value: o.bellyTint.clone() };
+  }
   const mat = new THREE.ShaderMaterial({
     defines,
     vertexColors: o.vertexColors ?? false,
@@ -121,6 +197,7 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
       uSway: { value: o.sway ?? 0 },
       uSnowCap: { value: o.snowCap ?? 0 },
       uBrush: { value: o.brush ?? 0 },
+      ...extra,
     },
     vertexShader: /* glsl */ `
       ${GLSL_VERTEX_PARS}
@@ -129,7 +206,7 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
       uniform float uTime;
       uniform float uSway;
       #endif
-      #ifdef RT_MAP
+      #if defined(RT_MAP) || defined(RT_MASK) || defined(RT_DETAIL)
       varying vec2 vUv;
       #endif
       #ifdef RT_BLOCK
@@ -144,7 +221,7 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         vBlockUv = uv;
         #endif
         vec3 objNormal = normal;
-        #ifdef RT_MAP
+        #if defined(RT_MAP) || defined(RT_MASK) || defined(RT_DETAIL)
         vUv = uv;
         #endif
         #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
@@ -184,7 +261,30 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
       uniform float uBrush;
       #ifdef RT_MAP
       uniform sampler2D uMap;
+      #endif
+      #ifdef RT_MASK
+      uniform sampler2D uMask;
+      #endif
+      #if defined(RT_MAP) || defined(RT_MASK) || defined(RT_DETAIL)
       varying vec2 vUv;
+      #endif
+      #ifdef RT_BACKLIGHT
+      uniform float uBackLight;
+      #endif
+      #ifdef RT_RIM
+      uniform float uRim;
+      #endif
+      #ifdef RT_GLINT
+      uniform float uGlint;
+      #endif
+      #ifdef RT_DETAIL
+      uniform sampler2D uDetail;
+      #endif
+      #ifdef RT_SHEEN
+      uniform float uSkySheen;
+      #endif
+      #ifdef RT_BELLY
+      uniform vec3 uBellyTint;
       #endif
       #if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
       varying vec3 vColor;
@@ -213,6 +313,14 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         albedo *= tex.rgb;
         glow += tex.rgb * uMapEmissive;
         alpha *= tex.a;
+        #endif
+        #ifdef RT_MASK
+        {
+          // the mask over the colour and the opacity (a fin's rays solid in a thinner membrane)
+          vec4 mk = texture2D(uMask, vUv);
+          albedo *= mk.rgb;
+          alpha *= mk.a;
+        }
         #endif
         #ifdef RT_BRUSH
         {
@@ -310,17 +418,100 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         #ifdef RT_SNOW
         albedo = mix(albedo, vec3(0.88, 0.92, 0.97), smoothstep(0.18, 0.6, n.y) * max(uSnowCap, uWeather.y * 0.85));
         #endif
+        // the normal of the cel light, the normal of the highlights (spec, glint, rim, sky sheen) and how wet the skin is:
+        // n, n and 1 but for a detail map
+        vec3 nL = n;
+        vec3 nH = n;
+        float wet = 1.0;
+        #ifdef RT_DETAIL
+        {
+          // rg a tangent-space normal (its z made up), b the wetness. The frame from the screen-space derivatives of the
+          // position and the uv (a cotangent frame, scale-invariant); its sign from the way the pixel's own face turns,
+          // so n leant from the eye along a silhouette does not turn the relief inside out
+          vec4 dm = texture2D(uDetail, vUv);
+          vec3 q0 = dFdx(vPos);
+          vec3 q1 = dFdy(vPos);
+          vec2 s0 = dFdx(vUv);
+          vec2 s1 = dFdy(vUv);
+          vec3 q1p = cross(q1, n);
+          vec3 q0p = cross(n, q0);
+          vec3 dT = q1p * s0.x + q0p * s1.x;
+          vec3 dB = q1p * s0.y + q0p * s1.y;
+          float det = max(dot(dT, dT), dot(dB, dB));
+          float sc = det > 0.0 ? inversesqrt(det) * sign(dot(n, cross(q0, q1))) : 0.0;
+          #ifdef RT_DOUBLE
+          // (a thin sheet's back shows the front's relief from behind)
+          if (!gl_FrontFacing) sc = -sc;
+          #endif
+          vec2 dn = dm.rg * 2.0 - 1.0;
+          nH = normalize((dT * dn.x + dB * dn.y) * sc + n * sqrt(max(1.0 - dot(dn, dn), 1e-6)));
+          // (wholly in the highlights, only 0.3 of it in the cel light: its bands stay clean)
+          nL = normalize(mix(n, nH, 0.3));
+          wet = dm.b;
+        }
+        #endif
+        #if defined(RT_SOFT) || defined(RT_DETAIL)
+        // (the shadow maps are not read where n turns from the sun, the cel light being dark there; the soft steps and the
+        // detail's normals light a little past that edge, so they are read with n leant toward the sun: else a cast
+        // shadow would leave a band of sun along the shaded side)
+        float sh = rtShadow(vPos, normalize(n + uSunDir * max(0.05 - dot(n, uSunDir), 0.0)));
+        #else
         float sh = rtShadow(vPos, n);
+        #endif
         #ifdef RT_CABIN
         // without shadow maps nothing keeps the sun out of the room: let a third of it in
         sh *= mix(0.35, 1.0, uShadowParams.x);
-        vec3 col = rtCabinAt(albedo, n, sh, vPos);
+        vec3 col = rtCabinAt(albedo, nL, sh, vPos);
+        #elif defined(RT_SOFT)
+        // rtCelAt with its two steps widened: a round body shades over smoothly
+        float ndlS = dot(nL, uSunDir);
+        vec3 col = albedo * (rtSkyLight(nL, vPos) + uSunColor * (0.3 * smoothstep(-0.3, 0.4, ndlS) + 0.1 * smoothstep(0.3, 0.7, ndlS)) * sh + rtRoomLamps(vPos, nL));
         #else
-        vec3 col = rtCelAt(albedo, n, sh, vPos);
+        vec3 col = rtCelAt(albedo, nL, sh, vPos);
         #endif
         vec3 v = normalize(cameraPosition - vPos);
         vec3 hv = normalize(v + uSunDir);
-        col += uSunColor * uSpec * 0.6 * smoothstep(0.88, 0.97, dot(n, hv)) * step(0.0, dot(n, uSunDir)) * sh;
+        col += uSunColor * uSpec * wet * 0.6 * smoothstep(0.88, 0.97, dot(nH, hv)) * step(0.0, dot(nH, uSunDir)) * sh;
+        #ifdef RT_BACKLIGHT
+        {
+          // the sun through a thin sheet from behind it: on the face turned from the sun (n faces the eye), the more as
+          // the eye looks into the light; only where the sun reaches the far face
+          float thru = smoothstep(0.0, 0.45, -dot(n, uSunDir));
+          float into = 0.3 + 0.7 * smoothstep(-0.2, 0.8, dot(-v, uSunDir));
+          col += albedo * uSunColor * (0.45 * uBackLight * thru * into) * rtShadow(vPos, -n);
+        }
+        #endif
+        #ifdef RT_RIM
+        {
+          // the sun's rim along the lit edge of the silhouette, a clean cel band
+          float rimT = (1.0 - max(dot(nH, v), 0.0)) * pow(max(dot(nH, uSunDir), 0.0), 0.1);
+          col += uSunColor * (0.3 * uRim) * smoothstep(0.7, 0.74, rimT) * sh;
+        }
+        #endif
+        #ifdef RT_GLINT
+        {
+          // a hard wet glint: the sun's where it reaches …
+          col += uSunColor * uGlint * wet * smoothstep(0.985, 0.99, dot(nH, hv)) * step(0.0, dot(nH, uSunDir)) * sh;
+          // … and a weak light's from just above the eye, so a fish in the shade still glints
+          vec3 le = normalize(v + vec3(0.0, 0.5, 0.0));
+          vec3 he = normalize(v + le);
+          col += (uSkyColor * 0.6 + uSunColor * 0.12) * uGlint * wet * smoothstep(0.985, 0.99, dot(nH, he));
+        }
+        #endif
+        #ifdef RT_SHEEN
+        {
+          // the sky in a wet skin at a grazing angle
+          float fr = 1.0 - clamp(dot(nH, v), 0.0, 1.0);
+          col += uSkyColor * (uSkySheen * wet * fr * fr * fr);
+        }
+        #endif
+        #ifdef RT_BELLY
+        {
+          // a pale warm light under the belly, the more toward its edge, as bright as the sky is
+          float fr = 1.0 - clamp(dot(nL, v), 0.0, 1.0);
+          col += uBellyTint * (dot(uSkyColor, vec3(0.333)) * (1.0 - smoothstep(-0.5, 0.0, nL.y)) * fr * fr);
+        }
+        #endif
         #ifndef RT_CABIN
         col += rtHeadlight(albedo, n, vPos);
         #endif

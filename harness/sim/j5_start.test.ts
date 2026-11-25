@@ -23,13 +23,13 @@ describe('J5: the difficulties', () => {
     expect(vitalsRules('normal')).toBe(VITALS);
     const easy = vitalsRules('easy');
     const hard = vitalsRules('hard');
-    for (const k of ['foodDrain', 'waterDrain', 'tempLoss', 'starveHp', 'thirstHp', 'hypoHp'] as const) {
+    for (const k of ['foodDrain', 'waterDrain', 'tempLoss', 'heatGain', 'starveHp', 'thirstHp', 'hypoHp'] as const) {
       expect(easy[k]).toBeLessThan(VITALS[k]);
       expect(hard[k]).toBeGreaterThan(VITALS[k]);
     }
-    // (what is not about hunger, thirst or cold stays: stamina, the bladder)
+    // (what is not about hunger, thirst, cold or heat stays: stamina, how life comes back)
     expect(hard.sprintCost).toBe(VITALS.sprintCost);
-    expect(easy.peeRate).toBe(VITALS.peeRate);
+    expect(easy.regenEvery).toBe(VITALS.regenEvery);
     expect(DIFFICULTIES.map((d) => DIFFICULTY[d].supply)).toEqual([1.4, 1, 0.7]);
     expect(DIFFICULTIES.map((d) => DIFFICULTY[d].name.zh)).toEqual(['舒适', '普通', '艰苦']);
     expect(difficultyOf('hard')).toBe('hard');

@@ -351,11 +351,20 @@ const ON_STOPS: SuspensionStats = { spring: 5, damping: 1.5, travel: 0.3, antiRo
 /** how far the body drops onto them, as a share of the frame's travel there */
 const STOPS_DROP = 0.6;
 
+/** the most what a vehicle carries lifts its centre of gravity: to this many times its height unladen */
+export const CARGO_CG_RISE = 1.1;
+
 export function derive(build: Build): Derived {
   const frame = frameDef(build.frame);
   const mp = massProps(build, true);
   const M = mp.mass;
-  const cg = mp.cg;
+  let cg = mp.cg;
+  // what rides in it makes it heavier and slower, but lifts its centre of gravity by a tenth at most (docs/V3/plan/finish.md
+  // §四.1): a roof rack piled high is a load to pull, not a car that falls over
+  if (build.cargo?.length) {
+    const most = massProps({ ...build, cargo: [] }, true).cg.y * CARGO_CG_RISE;
+    if (cg.y > most) cg = { x: cg.x, y: most, z: cg.z };
+  }
   const hubs = hubsOf(frame);
   const order = [hubs.fl, hubs.fr, hubs.rl, hubs.rr];
   const wheels = order.map((h) => wheelOn(build, h));

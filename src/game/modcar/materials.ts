@@ -201,6 +201,8 @@ export function applyMaterials(root: THREE.Object3D, look: CarLook, merged = fal
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
+    // (a mesh with a look of its own — a fish a system made in three.js, assets.ts registerItemModels — keeps it)
+    if (mesh.userData.ownLook) return;
     if (!mesh.userData.mat) {
       const list = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       mesh.userData.mat = list.map((mt) => mt.name || 'steel');

@@ -439,13 +439,14 @@ describe('forage module: what the player knows', () => {
     r.game.events.emit('body:ate', { item: newItem('wild_berry') });
     r.game.events.emit('body:ate', { item: newItem('food_chips') });
     expect(r.game.said).toHaveLength(2);
-    // what the body makes of them (ModGame.consume hands the item's own eat to the vitals, which take it in over five seconds)
+    // what the body makes of them (ModGame.consume hands the item's own eat to the vitals: its food over five seconds,
+    // a poison's health off at once, being ill a little at a time — and life is never over one's health)
     const digest = (id: string): ReturnType<typeof newVitals> => {
       const e = itemDef(id).eat!;
       const body = newVitals();
       eat(body, e.food, e.hp, e.effect);
       // (a minute: being ill takes its toll a little at a time — docs/V3/plan/growth.md §四)
-      for (let i = 0; i < 60 * 60; i++) stepVitals(body, { dt: 1 / 60, sprinting: false, jumped: false, ambientC: 22, warmth: 0, rain: false, peeing: false });
+      for (let i = 0; i < 60 * 60; i++) stepVitals(body, { dt: 1 / 60, sprinting: false, jumped: false, ambientC: 22, warmth: 0, rain: false });
       return body;
     };
     const well = digest('wild_berry');

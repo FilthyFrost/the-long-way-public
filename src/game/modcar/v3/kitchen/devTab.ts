@@ -224,7 +224,7 @@ export function kitchenTab(sys: Kitchen, game: () => GameContext | null): DevTab
           },
           {
             label: '打开食谱本',
-            tip: '和按 J 一样',
+            tip: '和 Tab 里翻到菜谱一样',
             click: () => void sys.showBook(true),
           },
         ],

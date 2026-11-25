@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-viewer/
 *.log
 .DS_Store
 # harness/session artefacts that are not source
@@ -34,3 +35,8 @@ __pycache__/
 # the developer panel's saved dials (to be written into the game, not versioned)
 loop/dev-tune*.json
 loop/dev-tune*.txt
+
+# the owner's character reference sheet: kept on disk for study, not versioned
+refs/character/
+# scratch pictures of the character tools
+.char-work/

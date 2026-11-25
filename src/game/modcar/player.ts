@@ -45,8 +45,9 @@ import type { ModUI } from './ui';
 import type { ModVehicle } from './vehicle';
 import type { GarageDevice } from './garageStub';
 import type { InteractSources } from './kernel/interact';
+import { heldCall, heldUseOf, type HeldLook, type HeldUse } from './kernel/heldUse';
 import type { CargoBay, StowAim } from './cargo';
-import type { CargoZone } from '../../core/modcar/cargo';
+import { LIDLESS_WHY, zoneLidless, zonesFor, type CargoZone } from '../../core/modcar/cargo';
 import { passengerSeat } from './cockpit';
 import { Aboard, doorwayHit } from './aboard';
 import { aboardOf, type BoardDoor } from '../../core/modcar/aboard';
@@ -79,6 +80,30 @@ export interface HandsUse {
   words?(held: NonNullable<Held>): Action[];
   /** the thing left the hands (put down, put away, swapped): whatever it was doing stops */
   gone?(held: NonNullable<Held>): void;
+}
+
+/**
+ * A thing that holds water — a bottle of water, a water can, a mug — seen as the radiator's own bottle: its water
+ * goes into a radiator as that bottle's does (docs/V3/plan/finish.md §四.2: no radiator stays dry for want of the
+ * right bottle). One for each thing, its litres the thing's own; null for what holds no water.
+ */
+const WATER_CANS = new WeakMap<ItemInstance, Tool>();
+export function waterCanOf(item: ItemInstance): Tool | null {
+  const d = itemDef(item.item).drink;
+  if (!d || (item.state?.liquid ?? d.liquid) !== 'water') return null;
+  let t = WATER_CANS.get(item);
+  if (!t) {
+    t = { uid: item.uid, kind: 'bottle' } as Tool;
+    Object.defineProperty(t, 'litres', {
+      get: () => item.litres ?? 0,
+      set: (v: number) => {
+        item.litres = v > 0 ? v : 0;
+      },
+      enumerable: true,
+    });
+    WATER_CANS.set(item, t);
+  }
+  return t;
 }
 
 /** the name of a held thing (or of one lying about); a stack's says how many (built when the count changes, not every time it is asked) */
@@ -228,6 +253,8 @@ export interface TankPort {
 }
 
 export interface PlayerHost {
+  /** what is still wanting of the set a thing belongs to, in a line for its card ("还缺：咖啡壶、咖啡豆"); null: no set, or the set is whole */
+  kitNote?(h: NonNullable<Held>): string | null;
   readonly vehicles: readonly ModVehicle[];
   readonly loose: LooseThings;
   readonly ui: ModUI;
@@ -880,6 +907,45 @@ export class ModPlayer {
 
   /** the hands are busy elsewhere (the bench has the view): nothing is aimed at, no prompts */
   aside = false;
+  /** the thing in the hands is at it by itself this frame (kernel/heldUse.ts: a line out): no card, nothing aimed at */
+  private huBusy = false;
+  /** the mouse's sideways movement since the last frame while the thing in the hands has the view (px) */
+  private pointerX = 0;
+
+  /** the mouse moved while the thing in the hands has the view (kernel/heldUse.ts look()): it goes to the thing */
+  heldPointer(dx: number): void {
+    this.pointerX += dx;
+  }
+
+  /** Q pressed: has the thing in the hands its own way with it (kernel/heldUse.ts drop: a fish goes back into the water ahead)? true: it had, and it is done */
+  heldDrop(): boolean {
+    const h = this.held;
+    if (h?.kind !== 'item' || this.aside) return false;
+    const hu = heldUseOf(h.item);
+    return !!hu?.drop && heldCall(false, () => hu.drop!(h.item, this.sel));
+  }
+
+  /** where the thing in the hands has the view look now (a rod with a fish on), or null: the view is the player's */
+  heldLook(): HeldLook | null {
+    const h = this.held;
+    if (h?.kind !== 'item' || this.aside) return null;
+    const hu = heldUseOf(h.item);
+    return hu?.look ? heldCall(null, () => hu.look!(h.item, this.sel)) : null;
+  }
+
+  /** what the thing in the hands does by itself (kernel/heldUse.ts), null: nothing (a lookup: nothing is allocated) */
+  private heldUse(): HeldUse | null {
+    const h = this.held;
+    return h?.kind === 'item' ? heldUseOf(h.item) : null;
+  }
+
+  /** the system that works the thing in the hands draws it there itself (a rod bending on its line): the game's own model of it is not shown */
+  get heldDrawnElsewhere(): boolean {
+    const h = this.held;
+    if (h?.kind !== 'item') return false;
+    const hu = heldUseOf(h.item);
+    return !!hu && heldCall(false, () => hu.draws?.(h.item) ?? false);
+  }
 
   // ------------------------------------------------------------------ every frame on foot
 
@@ -893,10 +959,17 @@ export class ModPlayer {
     // in at once — a rough box stood in, 0.7 m a side for a large thing, longer than the Sugar Cube's boot, and the
     // first jerrycan of a game packed in went down on the ground, 车里放不下了: fix1. The test rigs' hosts have no boxes.)
     for (const s of this.slots) if (s) this.host.cargo.boxOf?.(s);
+    // (a thing in the hands that works the buttons by itself, kernel/heldUse.ts: a rod with its line out holds the
+    // hands — nothing is aimed at — and, with a fish on, the walk)
+    const hu = this.heldUse();
+    const hi = this.held?.kind === 'item' ? this.held.item : null;
+    const huBusy = !!hu && !!hi && heldCall(false, () => hu.busy?.(hi, this.sel) ?? false);
+    const huStill = !!hu && !!hi && heldCall(false, () => hu.still?.(hi, this.sel) ?? false);
+    this.huBusy = huBusy;
     // (while liquid flows one stands still: from the frame the button goes down at an open filler)
     const t0 = this.target;
     const atOpen = (t0?.kind === 'filler' && t0.open) || (t0?.kind === 'tank' && t0.port.open && this.held?.kind === 'tool');
-    const still = !!this.flow || (atOpen && (this.primary || keys.take)) || !!this.scrub;
+    const still = !!this.flow || (atOpen && (this.primary || keys.take)) || !!this.scrub || huStill;
     this.input.forward = still ? 0 : keys.forward;
     this.input.right = still ? 0 : keys.right;
     this.input.run = keys.run;
@@ -940,6 +1013,7 @@ export class ModPlayer {
       }
     } else w.advance(dt, this.input);
     this.input.jump = false;
+    // (the view's eye: the walker's and how far her head carries the view from it — walker.viewShift)
     w.eye(this.eye);
     w.look(this.dir);
     this.secondaryWas = this.secondary;
@@ -948,7 +1022,7 @@ export class ModPlayer {
     this.stepHands(dt, keys.take);
 
     this.frameDt = dt;
-    this.target = this.aside ? null : this.pick();
+    this.target = this.aside || huBusy ? null : this.pick();
     // (the hands put aside — placing: no tool works, and none says it would)
     if (this.aside) {
       this.scrubAim = null;
@@ -958,12 +1032,30 @@ export class ModPlayer {
     this.showHighlight();
     this.showGhosts();
     this.host.cargo.showGhost(this.target?.kind === 'stow' ? this.target.aim : null, this.held);
-    // (a button pressed where what it would do cannot be done: why, for a moment)
-    if (this.primaryEdge) this.sayWhy('LMB');
-    if (keys.take && !this.rightWas) this.sayWhy('RMB');
+    // the thing in the hands takes the buttons it works (kernel/heldUse.ts): the rest of the hands do not see them
+    // this frame (a rod's cast is not a pick-up, a bait onto the rod is not a bite of it)
+    const took = hu && hi ? heldCall(0, () => hu.buttons(hi, this.sel, { use: this.primary, useEdge: this.primaryEdge, take: this.secondary, takeEdge: this.secondary && !this.secondaryWas, aimed: !!this.target, side: keys.right, drop: keys.drop, pointerX: this.pointerX }, dt)) : 0;
+    this.pointerX = 0;
+    // (a button pressed where what it would do cannot be done: why, for a moment — not of a button the thing in the hands took)
+    if (this.primaryEdge && !(took & 1)) this.sayWhy('LMB');
+    if (keys.take && !this.rightWas && !(took & 2)) this.sayWhy('RMB');
     this.rightWas = keys.take;
     this.stepWhy(dt, keys.take);
-    this.act(dt, keys.drop);
+    const p = this.primary;
+    const s = this.secondary;
+    const sw = this.secondaryWas;
+    if (took & 1) {
+      this.primary = false;
+      this.primaryEdge = false;
+    }
+    if (took & 2) {
+      this.secondary = false;
+      this.secondaryWas = false;
+    }
+    this.act(dt, keys.drop && !(took & 4));
+    this.primary = p;
+    this.secondary = s;
+    this.secondaryWas = sw;
     this.ghosts.update(dt);
     this.primaryEdge = false;
     this.ui();
@@ -1198,10 +1290,12 @@ export class ModPlayer {
       better({ kind: this.aboard?.v === v ? 'alight' : 'board', v, door: dw.door, dist: Math.max(0, dw.dist - 0.15), at: dw.dist });
     }
     // the fillers: a can lines up with the one its liquid goes into; empty hands open and shut the flap
+    // (a thing that holds water lines up with the radiator's as the radiator's bottle does)
+    const fills: LiquidKind | null = liquid ?? (held?.kind === 'item' && (held.item.litres ?? 0) > 0 && waterCanOf(held.item) ? 'water' : null);
     for (const v of this.near(reach + 1)) {
-      if (liquid) {
-        const fd = v.view.fillerHit(liquid, this.ray, reach + 0.3);
-        if (fd !== null) better({ kind: 'filler', v, liquid, open: v.view.fillerOpen(liquid), dist: Math.max(0, fd - 1), at: fd });
+      if (fills) {
+        const fd = v.view.fillerHit(fills, this.ray, reach + 0.3);
+        if (fd !== null) better({ kind: 'filler', v, liquid: fills, open: v.view.fillerOpen(fills), dist: Math.max(0, fd - 1), at: fd });
       } else if (!held && v.view.hasFlap) {
         const fd = v.view.fillerHit('fuel', this.ray, reach + 0.3);
         if (fd !== null) better({ kind: 'cap', v, dist: Math.max(0, fd - 0.3), at: fd });
@@ -1889,7 +1983,7 @@ export class ModPlayer {
     if (hu && held && hu.takesF?.(held)) return true;
     if (held?.kind !== 'item') return false;
     const d = itemDef(held.item.item);
-    return (!!d.drink && (held.item.litres ?? 0) > 0.001) || !!d.eat || !!d.pack;
+    return (!!d.drink && (held.item.litres ?? 0) > 0.001) || !!d.eat || !!d.pack || !!heldUseOf(held.item)?.takesF;
   }
 
   private act(dt: number, dropKey: boolean): void {
@@ -1899,7 +1993,10 @@ export class ModPlayer {
     const key = this.keyOf(t);
     const host = this.host;
     // the liquid stops when the buttons are let go or the can is off the filler
-    const flowing = ((t?.kind === 'filler' && t.open) || (t?.kind === 'tank' && t.port.open)) && this.held?.kind === 'tool' && (this.primary || this.secondary);
+    // (a thing that holds water: the left button pours it into a radiator; the right one is still to drink it)
+    const flowing =
+      ((t?.kind === 'filler' && t.open) || (t?.kind === 'tank' && t.port.open)) &&
+      (this.held?.kind === 'tool' ? this.primary || this.secondary : this.held?.kind === 'item' && t?.kind === 'filler' && t.liquid === 'water' && this.primary && !!waterCanOf(this.held.item));
     if (!flowing && this.flow) this.endFlow();
     // (the pad's drop button, held: what is in the hands put down — the keyboard's Q is a press, drop())
     if (dropKey && this.held && !this.pin) {
@@ -2171,15 +2268,17 @@ export class ModPlayer {
       }
       return;
     }
-    if (flowing && t.kind === 'filler' && held?.kind === 'tool') {
-      const dir = this.primary ? 'in' : 'out';
+    const can = flowing && t.kind === 'filler' ? (held?.kind === 'tool' ? held.tool : held?.kind === 'item' ? waterCanOf(held.item) : null) : null;
+    if (can && t.kind === 'filler') {
+      // (out of a thing that holds water it only goes in: what comes back out of a radiator is not for drinking)
+      const dir = this.primary || held?.kind === 'item' ? 'in' : 'out';
       if (this.flow && (this.flow.dir !== dir || this.flow.v !== t.v)) this.endFlow();
       this.flow ??= { dir, v: t.v, liquid: t.liquid, moved: 0, fuel: '' };
-      const moved = dir === 'in' ? pour(held.tool, t.v.build, dt) : siphon(held.tool, t.v.build, dt);
+      const moved = dir === 'in' ? pour(can, t.v.build, dt) : siphon(can, t.v.build, dt);
       this.lastMoved = moved;
       if (moved > 0) {
         this.flow.moved += moved;
-        this.flow.fuel = held.tool.kind === 'jerrycan' ? FUEL_ZH[held.tool.fuel ?? 'petrol'] : LIQUID[t.liquid].zh;
+        this.flow.fuel = can.kind === 'jerrycan' ? FUEL_ZH[can.fuel ?? 'petrol'] : LIQUID[t.liquid].zh;
         t.v.sys.rebuild();
         t.v.awake = 1;
         host.sound('pour', moved);
@@ -2296,7 +2395,9 @@ export class ModPlayer {
     const up = roof && roof.zone.id === 'roof' && 'x' in roof ? this.host.cargo.spotIn(v, 'roof', held, { x: roof.x, z: roof.z }) : null;
     const at = up ?? this.host.cargo.packSpot(v, held);
     if (!at) {
-      this.flashWhy('车里放不下了');
+      // (nowhere but a boot without its lid: that is why)
+      const lidless = zonesFor(v.view.frame.id, v.build).some((z) => zoneLidless(v.view.frame.id, z, v.build));
+      this.flashWhy(lidless ? LIDLESS_WHY : '车里放不下了');
       return false;
     }
     if (!zoneOpen(v, at.zone)) {
@@ -2356,8 +2457,18 @@ export class ModPlayer {
 
   /** the card of a held thing (or of one lying about); a thing's (items.ts) is the one made last time until something on it changes: do not write into it */
   cardOf(h: NonNullable<Held>): ItemCard {
-    return h.kind === 'part' ? partCard(h.inst) : h.kind === 'item' ? itemCardKept(h.item, itemNow(), this.clock) : toolCard(h.tool);
+    const card = h.kind === 'part' ? partCard(h.inst) : h.kind === 'item' ? itemCardKept(h.item, itemNow(), this.clock) : toolCard(h.tool);
+    // (a thing of a set: what of the set is still wanting, as things stand now — docs/V3/plan/finish.md §二 3)
+    const wanting = this.host.kitNote?.(h);
+    if (!wanting) return card;
+    // (a kept card with the same line is the same card: shown again it is not looked into)
+    const was = this.wantingCards.get(card);
+    if (was && was.wanting === wanting) return was;
+    const made = { ...card, wanting };
+    this.wantingCards.set(card, made);
+    return made;
   }
+  private readonly wantingCards = new WeakMap<ItemCard, ItemCard>();
 
   /** a vehicle's card, made again a few times a second (it reads the whole build) */
   private vehicleCard(v: ModVehicle): ItemCard {
@@ -2481,7 +2592,9 @@ export class ModPlayer {
           break;
         }
         case 'filler': {
-          if (held?.kind !== 'tool') break;
+          const own = held?.kind === 'tool' ? held.tool : null;
+          const tool = own ?? (held?.kind === 'item' ? waterCanOf(held.item) : null);
+          if (!tool) break;
           const L = LIQUID[t.liquid];
           aim = this.containerCard(t.v, t.liquid);
           if (!t.open) {
@@ -2489,11 +2602,14 @@ export class ModPlayer {
             else acts.push({ keys: E, hold: true, text: '倒', off: true, why: '先开引擎盖' });
             break;
           }
-          const use = toolUse(held.tool, t.v.build);
-          const back = siphonUse(held.tool, t.v.build);
+          const use = toolUse(tool, t.v.build);
           acts.push(use.can ? { keys: E, hold: true, text: use.word[ui.lang] } : { keys: E, hold: true, text: use.word[ui.lang], off: true, why: use.why?.[ui.lang] });
-          acts.push(back.can ? { keys: F, hold: true, text: '抽回' } : { keys: F, hold: true, text: '抽回', off: true, why: back.why?.[ui.lang] });
-          if (this.flow) xfer = this.transferView(t.v, t.liquid, held.tool);
+          // (drawn back only into a can of its own: the right button of a thing one drinks from is to drink)
+          if (own) {
+            const back = siphonUse(own, t.v.build);
+            acts.push(back.can ? { keys: F, hold: true, text: '抽回' } : { keys: F, hold: true, text: '抽回', off: true, why: back.why?.[ui.lang] });
+          }
+          if (this.flow) xfer = this.transferView(t.v, t.liquid, tool, own ? undefined : held?.kind === 'item' ? { name: itemDef(held.item.item).name.zh, capacity: itemDef(held.item.item).drink?.litres ?? 1 } : undefined);
           break;
         }
         case 'pour': {
@@ -2583,6 +2699,10 @@ export class ModPlayer {
     }
     // a spray can off what takes paint: what the mark is on does not
     if (held?.kind === 'tool' && held.tool.kind === 'spray' && t?.kind !== 'paint' && this.paintAim && !this.paintAim.paintable && acts.length === 0) acts.push({ keys: E, hold: true, text: '喷', off: true, why: '这里喷不上' });
+    // a thing in the hands that works the buttons by itself (kernel/heldUse.ts): its words when the mark is on nothing, or while it is at it
+    const hu = this.heldUse();
+    if (hu && held?.kind === 'item' && (this.huBusy || !t)) heldCall(undefined, () => hu.acts?.(held.item, this.sel, !!t, acts));
+    const huRing = hu && held?.kind === 'item' ? heldCall(null, () => hu.ring?.(held.item, this.sel) ?? null) : null;
     // (while a list is open G puts the thing into the list, and the list says so itself: the hands do not offer it)
     const listOpen = !!this.host.listOpen;
     if (held && this.lookVehicle && !listOpen && !this.pin && !this.placer?.placing && t?.kind !== 'stow' && t?.kind !== 'ghost' && t?.kind !== 'filler' && t?.kind !== 'paint') acts.push({ keys: ['Q'], text: '收进车里' });
@@ -2594,23 +2714,33 @@ export class ModPlayer {
     if (this.dropT > 0 && held) acts.splice(0, acts.length, { keys: ['Q'], text: this.lookVehicle ? '收进车里' : '放下' });
     // (while liquid flows the strip saying from what into what stands where these words are)
     if (xfer) acts.length = 0;
-    const ring = this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : (this.pin?.ring ?? 0) > 0 ? this.pin!.ring! : -1;
-    ui.prompt(!this.scrub, '', ring);
+    const ring = huRing ? huRing.value : this.dropT > 0 && held ? Math.min(1, this.dropT / DROP_HOLD) : this.progress > 0 ? this.progress : (this.pin?.ring ?? 0) > 0 ? this.pin!.ring! : -1;
+    // (the thing in the hands may put the mark away: a fish on the line, the eye on the water — its ring still shows)
+    const markAway = !huRing && hu && held?.kind === 'item' ? heldCall(false, () => hu.hidesMark?.(held.item, this.sel) ?? false) : false;
+    ui.prompt(!this.scrub && !markAway, '', ring, huRing?.colour);
+    // (a stand-in HUD without the bars beside the mark: nothing said)
+    ui.gauges?.(hu && held?.kind === 'item' ? heldCall(null, () => hu.gauges?.(held.item, this.sel) ?? null) : null);
     const items = ui.items;
     const keys = this.heldKeys();
     this.noteOffs(acts, keys);
     items.showActions(acts);
+    // (while the thing in the hands is at it — a line out — its card stands aside: the view is the water's; a thing the
+    // hands show instead — a fish held up — has its card there)
+    const shown = hu && held?.kind === 'item' ? heldCall(null, () => hu.shows?.(held.item, this.sel) ?? null) : null;
     // (the held thing's card cut down to what it is and what is in it: the whole of it is the Tab list's — docs/V3/plan/prompts.md 定案 4)
-    items.showCards(held ? this.cardOf(held) : null, aim, this.cardsOn, true, !full);
-    items.showKeys(keys);
+    items.showCards(shown ? this.cardOf({ kind: 'item', item: shown }) : held && !this.huBusy ? this.cardOf(held) : null, aim, this.cardsOn, true, !full);
+    // (the thing in the hands may have the HUD step aside: a fish on the line, a catch held up — only its own keys then)
+    const quiet = hu && held?.kind === 'item' ? heldCall(false, () => hu.quiet?.(held.item, this.sel) ?? false) : false;
+    items.showKeys(quiet ? this.heldKeys(true) : keys);
     items.showTransfer(xfer);
-    items.showHotbar(this.slotViews(), this.sel);
+    items.showHotbar(quiet ? null : this.slotViews(), this.sel);
   }
 
   /** what liquid goes from what into what, with how much is in each */
-  private transferView(v: ModVehicle, liquid: LiquidKind, tool: Tool): TransferView {
+  private transferView(v: ModVehicle, liquid: LiquidKind, tool: Tool, as?: { name: string; capacity: number }): TransferView {
     const L = LIQUID[liquid];
-    const info = TOOL_INFO[tool.kind];
+    // (a thing that holds water poured as the radiator's bottle: its own name and what it holds)
+    const info = as ? { name: { zh: as.name, en: as.name }, capacity: as.capacity } : TOOL_INFO[tool.kind];
     const m = v.view.fillerMount(liquid);
     const inst = m ? v.build.parts[m] : null;
     let have = 0;
@@ -2718,8 +2848,12 @@ export class ModPlayer {
     this.host.ui.items.showDone(why, 1.5);
   }
 
-  /** what the keys do with the thing in the hands, down the right: only its own (the right button's, the wheel's); Q and R the first few times */
-  private heldKeys(): Action[] {
+  /**
+   * what the keys do with the thing in the hands, down the right: only its own (the right button's, the wheel's); Q and R
+   * the first few times. `only`: a thing that works the buttons by itself (kernel/heldUse.ts) has the HUD step aside —
+   * its own lines and nothing else
+   */
+  private heldKeys(only = false): Action[] {
     const h = this.held;
     const out: Action[] = [];
     const hu = this.handsUse();
@@ -2742,6 +2876,11 @@ export class ModPlayer {
     } else if (h.kind === 'tool') {
       // (a can's pour and a cleaning tool's scrub are said where the mark is, on the filler, on the dirt; a spray can's wheel here)
       if (h.tool.kind === 'spray') out.push({ keys: ['Wheel'], text: '喷嘴' });
+    } else if (h.kind === 'item' && heldUseOf(h.item)) {
+      // (a thing that works the buttons by itself says what they do: kernel/heldUse.ts)
+      const use = heldUseOf(h.item)!;
+      heldCall(undefined, () => use.keys?.(h.item, this.sel, out));
+      if (only) return out;
     } else if (h.kind === 'item' && itemDef(h.item.item).pack) {
       out.push({ keys: F, hold: true, text: '背上' });
     } else if (h.kind === 'item' && itemDef(h.item.item).wear) {
@@ -2752,7 +2891,8 @@ export class ModPlayer {
       else if (d.eat) out.push({ keys: F, text: d.cat === 'med' ? '吃药' : '吃' });
     }
     // (Q and R the first three times something is in the hands; a list open: Q puts it into the list, and the list says so)
-    if (h && early && !this.host.listOpen && !this.placer?.placing) out.push({ keys: ['Q'], text: '放下' });
+    const takesQ = h?.kind === 'item' && !!heldUseOf(h.item)?.takesQ && heldCall(false, () => heldUseOf(h.item)!.takesQ!(h.item, this.sel));
+    if (h && early && !this.host.listOpen && !this.placer?.placing && !takesQ) out.push({ keys: ['Q'], text: '放下' });
     if (h && early) {
       for (const n of this.keyNotes) {
         const a = n(h);

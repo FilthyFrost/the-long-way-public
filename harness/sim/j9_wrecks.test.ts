@@ -208,3 +208,21 @@ describe('J9: wrecks for their parts, vehicles found by the plan', () => {
     expect(sorts.trailer).toBe(SEEDS.length);
   });
 });
+
+describe('a motorhome found on the road is in its own colours', () => {
+  it('the four with a living space keep their factory two tones; a car is any two', async () => {
+    const { FACTORY_PAINT } = await import('../../src/core/modcar/palette');
+    for (const frame of ['rv', 'turtle', 'elephant', 'camel']) {
+      for (let k = 0; k < 6; k++) {
+        const b = rollFound(frame, 5 + k * 97, 3).build;
+        expect([b.paint, b.paint2], `${frame} #${k}`).toEqual(FACTORY_PAINT[frame]);
+      }
+    }
+    const seen = new Set<string>();
+    for (let k = 0; k < 12; k++) {
+      const b = rollFound('sedan', 5 + k * 97, 2).build;
+      seen.add(`${b.paint}/${b.paint2}`);
+    }
+    expect(seen.size).toBeGreaterThan(6);
+  });
+});

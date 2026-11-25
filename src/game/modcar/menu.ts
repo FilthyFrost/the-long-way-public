@@ -31,6 +31,10 @@ export interface MenuHost {
   /** the assists' names and whether each is on (assists.ts) */
   assists(): { label: string; on: boolean }[];
   toggleAssist(i: number): void;
+  /** the pause's ways out when one cannot go on (docs/V3/plan/finish.md §四.2): is there a car to put back on the road, a place one slept to go back to */
+  unstick?(): { car: boolean; bed: boolean };
+  unstickCar?(): void;
+  backToBed?(): void;
 }
 
 const CSS = `
@@ -47,6 +51,8 @@ const CSS = `
 .mc-menu .btn small { display: block; margin-top: 4px; font-size: 13px; font-weight: 400; color: var(--tx-2); }
 .mc-menu .btn:hover, .mc-menu .btn.sel { transform: translateX(6px); border-color: var(--gold); }
 .mc-menu .btn:hover::before, .mc-menu .btn.sel::before { content: ''; position: absolute; left: -16px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-left: 8px solid var(--gold); }
+.mc-menu .btn.small { width: 300px; margin-bottom: 10px; padding: 9px 22px; font-size: 16px; font-weight: 600; }
+.mc-menu .out { margin: 22px 0 10px; color: var(--tx-2); font-size: 13px; letter-spacing: 0.2em; text-shadow: var(--say-shadow); }
 .mc-menu .btn.main { background: var(--grain), var(--smoke), linear-gradient(180deg, rgba(62,48,26,0.95), rgba(44,34,20,0.92)); }
 .mc-menu .page { flex: 1; display: flex; align-items: center; padding: 0 60px 0 10px; }
 .mc-menu .card { width: min(720px, 100%); padding: 22px 28px 20px; }
@@ -183,7 +189,20 @@ export class MainMenu {
       cont +
       `<div class="btn mc-frame${h.canResume() ? '' : ' main'}${sel('new')}" data-act="new">新游戏</div>` +
       `<div class="btn mc-frame${sel('settings')}" data-act="settings">设置</div>` +
-      `<div class="btn mc-frame${sel('keys')}" data-act="keys">按键</div></div>`
+      `<div class="btn mc-frame${sel('keys')}" data-act="keys">按键</div>` +
+      this.wayOut() +
+      '</div>'
+    );
+  }
+
+  /** paused in a game: the two ways out when one cannot go on — the car put back on the road, back to where one last slept */
+  private wayOut(): string {
+    const u = this.mode === 'pause' ? this.host.unstick?.() : undefined;
+    if (!u || (!u.car && !u.bed)) return '';
+    return (
+      '<div class="out">走不了了？</div>' +
+      (u.car ? '<div class="btn mc-frame small" data-act="unstick">把车放回路上</div>' : '') +
+      (u.bed ? '<div class="btn mc-frame small" data-act="bed">回到上次睡觉的地方</div>' : '')
     );
   }
 
@@ -223,6 +242,12 @@ export class MainMenu {
     if (act === 'resume') this.resume();
     else if (act === 'new' || act === 'settings' || act === 'keys' || act === 'main') this.show(act);
     else if (act === 'begin') this.host.begin(this.pick);
+    else if (act === 'unstick' || act === 'bed') {
+      // (back in the game first: what it does is seen)
+      this.resume();
+      if (act === 'unstick') this.host.unstickCar?.();
+      else this.host.backToBed?.();
+    }
     else if (t.dataset.diff) this.choose(t.dataset.diff as Difficulty);
     else if (t.dataset.set === 'quality') {
       const s = this.host.settings();

@@ -26,6 +26,13 @@ closely, it is listed here:
 - `src/game/scene/flora/atlas.ts` — the oak's and the birch's sprays: a spray of leaves as Painted Valley paints
   one (`src/valley/trees.js` `leafTexture`: pointed leaves spread round a twig's end and more in the middle, each at
   its own tone in red), drawn into our atlas's tiles.
+- `src/core/character/skeleton.ts` — the player character's skeleton: the starter man's joints (CC0, Patch; the
+  Universal Animation Library's skeleton) by name, parent and rest frame, with her own lengths.
+- `src/game/character/clips.ts`, `src/game/character/material.ts` — the clips taken in place with their travel kept
+  as a speed (`src/figure/man.js`), and the figure drawn in flat lit and shade paint with an ink number in the
+  frame's alpha (`src/valley/wanderer.js`).
+- `public/models/character/pv-clips.glb` — Painted Valley's `public/figure/starter-man-clips.glb` unchanged:
+  Quaternius' Universal Animation Library 1 and 2 (CC0 1.0) and Patch's own clips made with anymove (CC0 1.0).
 
 ```
 MIT License

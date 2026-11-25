@@ -15,6 +15,7 @@ import { partStars } from '../../core/modcar/crafting';
 import { itemSig } from '../../core/modcar/items';
 import type { Build, PartInstance } from '../../core/modcar/types';
 import { isRare, rollFound, rollWreck, type WreckRoll } from '../../core/modcar/wrecks';
+import { lootRules } from '../../core/modcar/loot';
 import { PAD_FROM, type Site } from '../../core/world/sites';
 import { SitePlanner, vehiclePlan, type VehiclePlanned } from '../../core/modcar/schedule';
 import { frameSize } from '../../core/modcar/frames';
@@ -414,7 +415,7 @@ export class Wrecks {
       if (sp.find) {
         const fr = rollFound(sp.find.frame, sp.find.seed, sp.find.tier);
         roll = { build: fr.build, items: [], tools: [], special: false, finds: [] };
-      } else roll = rollWreck(sp.seed, sp.type, sp.stripped, sp.s, false);
+      } else roll = rollWreck(sp.seed, sp.type, sp.stripped, sp.s, false, lootRules(this.host.world?.rules?.version ?? 1));
       v = this.host.addVehicle(roll.build, sp.x, sp.z, sp.yaw);
     }
     const l: LiveWreck = { spot: sp, v, roll, x0: k?.x ?? sp.x, z0: k?.z ?? sp.z, sig: '', kept: !!k, opened: new Set(), greeted: false };

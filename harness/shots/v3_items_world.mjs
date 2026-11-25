@@ -10,7 +10,7 @@
 //  - the list stays open on the basket put down within reach and shuts when one has walked away; Tab with the
 //    mark on the basket lying there opens it again, and G puts the berries into it where it lies;
 //  - a stack that has gone off is another kind where it lies, drawn again;
-//  - the recycler gives five berries' organics for the stack (counted up as it is ground), and for the basket
+//  - the recycler gives five berries' scrap for the stack (one each, as anything gives: counted up as it is ground), and for the basket
 //    with five berries in it the basket's and theirs, its list shutting as it goes in;
 //  - an open list notices the time: with the list of a basket lying there open, two days and more go by, and the
 //    row is what the berries have turned into before E hands it over;
@@ -47,7 +47,9 @@ try {
     const { I } = window.__w;
     const b = I.itemDef('v3t_berry');
     const k = I.itemDef('v3t_basket');
-    return { berry: { mass: b.mass, organics: b.salvage.organics ?? 0, name: b.name.zh }, basket: { organics: k.salvage.organics ?? 0, name: k.name.zh, slots: k.holds.slots, decay: k.holds.decay ?? 1 } };
+    // (what the recycler gives for one of each: items.ts salvageOf — one scrap at the least, whatever it is)
+    const one = (id) => I.salvageOf(I.newItem(id)).scrap ?? 0;
+    return { berry: { mass: b.mass, organics: one('v3t_berry'), name: b.name.zh }, basket: { organics: one('v3t_basket'), name: k.name.zh, slots: k.holds.slots, decay: k.holds.decay ?? 1 } };
   });
   const five = 5 * kinds.berry.mass;
   /** the list as it is drawn: null when shut */
@@ -242,7 +244,7 @@ try {
   if (turned?.item !== 'v3t_mush' || turned.n !== 3) fail(`the berries lying about did not turn into what they go off into (${JSON.stringify(turned)})`);
   else if (turned.madeAs !== 'v3t_mush' || turned.obj !== 'loose:v3t_mush' || turned.drawn !== 1) fail(`what the berries turned into is not drawn again (${JSON.stringify(turned)})`);
 
-  // 6. the recycler: five berries' organics for the stack, the basket's own and its berries' for the basket
+  // 6. the recycler: five berries' scrap for the stack, the basket's own and its berries' for the basket
   const cord = await rt('aimAt', 'gen_cord', 0, 1.0);
   if (cord !== 'device:gen_cord') console.log(`(the recycler was not tried: the generator's rope could not be aimed at, ${cord})`);
   else {
@@ -253,7 +255,7 @@ try {
       pulls++;
     }
     if (!(await rt('workshop')).power) fail(`the generator did not start in ${pulls} pulls`);
-    const s0 = (await rt('workshop')).stock.organics;
+    const s0 = (await rt('workshop')).stock.scrap;
     await page.evaluate(() => (window.__rt.game.player.sel = 1));
     await rt('hold', 'item:v3t_berry', { n: 5 });
     const t = await rt('aimAt', 'recycler', Math.PI, 0.95);
@@ -261,12 +263,12 @@ try {
     await rt('press');
     // (ground over 2.4 s whatever the count: counted up as it goes)
     await rt('simulate', 1.2);
-    const mid = (await rt('workshop')).stock.organics - s0;
+    const mid = (await rt('workshop')).stock.scrap - s0;
     await rt('simulate', 2);
-    const s1 = (await rt('workshop')).stock.organics;
+    const s1 = (await rt('workshop')).stock.scrap;
     console.log('the stack ground', JSON.stringify({ mid, all: s1 - s0 }));
-    if (s1 - s0 !== 5 * kinds.berry.organics) fail(`five berries gave ${s1 - s0} organics, not ${5 * kinds.berry.organics}`);
-    if (!(mid >= 1 && mid < 5 * kinds.berry.organics)) fail(`the stack's organics were not counted up as it was ground (${mid} half way)`);
+    if (s1 - s0 !== 5 * kinds.berry.organics) fail(`five berries gave ${s1 - s0} scrap, not ${5 * kinds.berry.organics}`);
+    if (!(mid >= 1 && mid < 5 * kinds.berry.organics)) fail(`the stack's scrap was not counted up as it was ground (${mid} half way)`);
     if ((await hands()).slots[1] !== null) fail('the stack is still in the hands after it went into the recycler');
     // the basket with the five berries in it, its list open: it goes in with them, and the list shuts
     if (!(await rt('pickUp', 'item:v3t_basket'))) fail('the basket could not be picked up');
@@ -277,10 +279,10 @@ try {
     if (t2 === 'device:recycler' && !/连里面的 1 样/.test(says)) fail('the recycler does not say that the basket goes in with what is in it');
     await rt('press');
     await rt('simulate', 3.5);
-    const s2 = (await rt('workshop')).stock.organics;
+    const s2 = (await rt('workshop')).stock.scrap;
     const want = kinds.basket.organics + 5 * kinds.berry.organics;
-    console.log('the basket ground', JSON.stringify({ organics: s2 - s1, open: !!(await list()) }));
-    if (s2 - s1 !== want) fail(`the basket with five berries gave ${s2 - s1} organics, not ${want}`);
+    console.log('the basket ground', JSON.stringify({ scrap: s2 - s1, open: !!(await list()) }));
+    if (s2 - s1 !== want) fail(`the basket with five berries gave ${s2 - s1} scrap, not ${want}`);
     if (await list()) fail('the list did not shut when its basket went into the recycler');
   }
   // 6b. an open list and the time: a basket with four berries lying there, its list open; two days and a half go by

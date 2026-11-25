@@ -8,7 +8,7 @@
 import { frameDef } from './frames';
 import { FACTORY_PAINT } from './palette';
 import { hasPart, partDef, PARTS } from './parts';
-import { SUB_CATEGORIES, type Build, type FrameDef, type MountDef, type PartDef, type PartInstance } from './types';
+import { SUB_CATEGORIES, type Build, type Category, type FrameDef, type MountDef, type PartDef, type PartInstance, type Text } from './types';
 
 let counter = 0;
 
@@ -155,6 +155,15 @@ export function removeSub(parent: PartInstance, sub: string): PartInstance | nul
 }
 
 /** the factory part for a mount of a frame (tags stock:<frame>), or null if the frame has none for it */
+/**
+ * What a build lacks of what its frame came with from the works: every place the works filled (stockPartFor) that is
+ * empty now — its mount, its sort, its name — in the frame's order. A whole vehicle: none.
+ */
+export function missingMounts(build: Build): { id: string; cat: Category; label: Text }[] {
+  const f = frameDef(build.frame);
+  return f.mounts.filter((m) => !build.parts[m.id] && stockPartFor(f, m)).map((m) => ({ id: m.id, cat: m.cat, label: m.label }));
+}
+
 export function stockPartFor(frame: FrameDef, mount: MountDef): string | null {
   if (frame.bare?.includes(mount.id)) return null;
   const tag = `stock:${frame.id}`;

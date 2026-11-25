@@ -10,7 +10,7 @@
  * to lie here, and when it has turned into another kind it is drawn again as that (settle).
  */
 import * as THREE from 'three';
-import { itemDef, itemPaint, settleItem, stampFresh, type ItemInstance } from '../../core/modcar/items';
+import { itemDef, itemModelOf, itemPaint, settleItem, stampFresh, type ItemInstance } from '../../core/modcar/items';
 import { keepInsideClean, partDef } from '../../core/modcar/parts';
 import { paintHex } from '../../core/modcar/palette';
 import { paintNow, sprayTier } from '../../core/modcar/paint';
@@ -332,11 +332,17 @@ export class LooseThings {
     l.obj.add(obj);
     this.mergeDirty = true;
     this.measure(l);
-    void this.track(itemGlb(itemDef(item.item).model)).then((m) => {
+    void this.track(itemGlb(itemModelOf(item))).then((m) => {
       // (gone, or dressed again as another kind since: this model is not wanted any more)
       if (!m || !this.list.includes(l) || obj.parent !== l.obj) return;
       const real = cloneModel(m);
       applyMaterials(real, look);
+      // (a model with a look of its own, made by a system — a fish — lies by itself, never merged)
+      let own = false;
+      real.traverse((o) => {
+        if (o.userData.ownLook) own = true;
+      });
+      l.obj.userData.ownLook = own;
       obj.removeFromParent();
       l.obj.add(real);
       this.unmerge();
@@ -453,7 +459,7 @@ export class LooseThings {
       g.add(m ? cloneModel(m) : toolModel(h.tool));
       return g;
     }
-    const m = await itemGlb(itemDef(h.item.item).model);
+    const m = await itemGlb(itemModelOf(h.item));
     g.add(m ? cloneModel(m) : itemStandIn(h.item));
     return g;
   }
@@ -512,6 +518,8 @@ export class LooseThings {
     for (const l of this.list) {
       // (what rides on a vehicle moves with it: not merged; what is being cleaned has its mask)
       if (l.riding || this.grimeHeld.has(l.uid) || this.paintHeld.has(l.uid) || this.apart.has(l.uid)) continue;
+      // (a thing with a look of its own — a fish — is drawn by itself)
+      if (l.obj.userData.ownLook) continue;
       const look: LookOf = l.part ? partLook(l.part) : l.item ? itemPaint(l.item) : toolLook(l.tool!);
       // (a gloss of its own: with the others of that gloss)
       if (look.matte !== undefined) {

@@ -5,8 +5,9 @@
  * lamps, the battery charger, the recycler and the crafting bench through a cable one can see, along the wall
  * and over the door. A thing held up to the recycler goes into its hopper with E (or is put down into it): it
  * glides over the mouth, is ground down between the rotors, and what it gives is counted up over the machine.
- * The bench (E) opens its recipes (craftUi.ts); making one takes its whole cost and the hammer's blows on the
- * anvil plate, the new thing there a second after the last.
+ * The bench opens its list (craftUi.ts) — what one has learnt to make, from the blueprints found down the road
+ * (docs/V3/plan/finish.md §六 2), the same at every bench; making one takes its whole cost and the hammer's blows on
+ * the anvil plate, the new thing there a second after the last.
  *
  * The rules are src/core/modcar/workshop.ts and crafting.ts; this is the scene, the hands-on use and the sound.
  */
@@ -88,6 +89,8 @@ export interface WorkshopHost {
   readonly loose: LooseThings;
   readonly ui: ModUI;
   readonly stock: Stock;
+  /** what one has learnt to make (the game's: the same at every bench) */
+  readonly learned: ReadonlySet<string>;
   readonly origin: { x: number; y: number; z: number };
   readonly camera: THREE.PerspectiveCamera;
   /** the ground or floor height at (x, z) (world) */
@@ -125,13 +128,14 @@ export interface WorkshopSave {
   gen: GeneratorState;
   /** the generator's tank cap off */
   cap?: boolean;
-  /** recipes unlocked since (blueprints, later) */
-  recipes?: string[];
   /** a thing being made when the game was saved: it is there when it is read back */
   job?: string;
 }
 
 const MOVERS = new Set(['CORD', 'SWITCH', 'LAMP', 'CAP', 'NEEDLE', 'ROTOR_A', 'ROTOR_B']);
+
+/** what is made of wood, cane or canvas: the hammer on it sounds so */
+const SOFT_MADE = new Set(['cot', 'creel', 'wall_shelf', 'rod_swift', 'rod_pro', 'rod_sea', 'rod_heron']);
 
 /** the machines' paint (sRGB): the generator mustard over dark green, the recycler bottle green with safety yellow, the bench's steel blue-grey with a green vice */
 const LOOKS: Record<'generator' | 'recycler' | 'bench', LookOf> = {
@@ -331,7 +335,6 @@ export class Workshop {
   readonly devices: GarageDevice[] = [];
   readonly tanks: TankPort[] = [];
   readonly gen: GeneratorState;
-  readonly unlocked = new Set<string>();
   private readonly spec: GeneratorSpec;
   private readonly mats = new CarMaterials();
   private readonly gm: Machine;
@@ -384,7 +387,6 @@ export class Workshop {
     this.spec = plan.spec;
     // (a new game: the power is off, with a little diesel in the tank)
     this.gen = save?.gen ? { ...newGenerator(plan.spec), ...save.gen, tank: { capacity: plan.spec.tankL, fuel: { ...(save.gen.tank?.fuel ?? {}) } } } : newGenerator(plan.spec, 3, 'diesel');
-    for (const r of save?.recipes ?? []) this.unlocked.add(r);
     const ground = (s: MachineSpot): number => host.groundAt(s.x, s.z);
     const g = plan.generator;
     const r = plan.recycler;
@@ -628,7 +630,7 @@ export class Workshop {
       },
       radius: 0.5,
       get word(): Text {
-        return text('打开制作台', 'Open the crafting bench');
+        return text('打开工作台', 'Open the workbench');
       },
       get why(): Text | null {
         return self.power ? null : text('没电', 'No power');
@@ -760,10 +762,10 @@ export class Workshop {
       key: 'ws:bench',
       icon: 'device',
       cat: '车库设备',
-      name: '制作台',
+      name: '工作台',
       stars: 0,
       badges: [],
-      blurb: '用材料做东西。',
+      blurb: '学会做的东西，在这里用材料做出来。',
       rows: [{ value: this.power ? '有电' : '没电', label: '现在', tone: this.power ? 'good' : 'bad' }, ...MATERIAL_IDS.map((m) => ({ value: String(s[m]), label: MATERIALS[m].name.zh }))],
       bars: [],
       notes: this.power ? [] : [{ text: '没电', tone: 'warn' }],
@@ -945,10 +947,11 @@ export class Workshop {
 
   // ------------------------------------------------------------------ the bench
 
+  /** what the bench's list has: what one knows how to make, and nothing that is still to be learnt */
   private rows(): CraftRow[] {
-    return RECIPES.map((r) => {
+    return RECIPES.filter((r) => recipeOpen(r, this.host.learned)).map((r) => {
       const h = heldOfMakes(r.makes);
-      return { recipe: r, open: recipeOpen(r, this.unlocked), name: this.nameOf(r.makes), icon: this.host.iconOf(h), card: this.host.cardOf(h), hits: hits(r.cost) };
+      return { recipe: r, open: true, name: this.nameOf(r.makes), icon: this.host.iconOf(h), card: this.host.cardOf(h), hits: hits(r.cost) };
     });
   }
 
@@ -984,7 +987,7 @@ export class Workshop {
   private craft(id: string): void {
     if (this.job) return;
     const r = recipeDef(id);
-    if (!recipeOpen(r, this.unlocked)) return;
+    if (!recipeOpen(r, this.host.learned)) return;
     const s = this.host.stock;
     const short = shortOf(s, r.cost);
     if (short) {
@@ -1165,7 +1168,7 @@ export class Workshop {
           const w = this.worldOf(b.at.clone());
           w.y -= BUBBLE_LIFT;
           this.host.sparks(w.x, w.y, w.z, 14);
-          const mat = j.recipe.makes.kind === 'tool' && j.recipe.makes.tool === 'scraper' && (j.recipe.makes.tier ?? 1) === 1 ? 'plastic' : j.recipe.cat === 'clothing' || j.recipe.cat === 'supplies' ? 'wood' : 'metal';
+          const mat = j.recipe.makes.kind === 'tool' && j.recipe.makes.tool === 'scraper' && (j.recipe.makes.tier ?? 1) === 1 ? 'plastic' : SOFT_MADE.has(j.recipe.id) ? 'wood' : 'metal';
           this.host.sound(`hammer_hit_${mat}`);
           if (j.struck >= j.hits) j.finish = 0;
         }
@@ -1303,7 +1306,7 @@ export class Workshop {
       }
       this.going.length = 0;
     }
-    return { gen: JSON.parse(JSON.stringify(this.gen)) as GeneratorState, ...(this.capOpen ? { cap: true } : {}), ...(this.unlocked.size ? { recipes: [...this.unlocked] } : {}), ...(this.job && !this.job.given ? { job: this.job.recipe.id } : {}) };
+    return { gen: JSON.parse(JSON.stringify(this.gen)) as GeneratorState, ...(this.capOpen ? { cap: true } : {}), ...(this.job && !this.job.given ? { job: this.job.recipe.id } : {}) };
   }
 
   /** the things lying in the recycler's hopper (waiting for the power) */

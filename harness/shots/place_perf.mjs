@@ -61,9 +61,7 @@ try {
           const t = world(v, tx, ty, tz);
           g.player.walker.place(s.x, s.z, 0, 0);
           const w = g.player.walker;
-          const eye = w.eye();
-          g.input.lookYaw = Math.atan2(t.z - w.z, t.x - w.x);
-          g.input.lookPitch = Math.atan2(t.y - eye.y, Math.hypot(t.x - w.x, t.z - w.z));
+          ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(t.x, t.y, t.z));
         },
         /** in vehicle vi's living space at (x, z), looking at a point of its model */
         inside(vi, x, z, tx, ty, tz) {
@@ -73,10 +71,11 @@ try {
           ab.w.place(x, z, 0);
           const e = { x: 0, y: 0, z: 0 };
           const t = { x: 0, y: 0, z: 0 };
-          ab.toWorld(ab.w.x, ab.w.floorAt(ab.w.x, ab.w.z) + 1.62, ab.w.z, { x: 0, y: 0, z: 0 }, e);
+          // (the eye the view is from: the walker's, hers — it was 1.62 m over the floor)
+      g.simulate(0);
+      Object.assign(e, g.player.walker.eye());
           ab.toWorld(tx, ty, tz, { x: 0, y: 0, z: 0 }, t);
-          g.input.lookYaw = Math.atan2(t.z - e.z, t.x - e.x);
-          g.input.lookPitch = Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z));
+          ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(t.x, t.y, t.z));
         },
         frameOf(frame) {
           return g.vehicles.findIndex((v) => v.view.frame.id === frame);

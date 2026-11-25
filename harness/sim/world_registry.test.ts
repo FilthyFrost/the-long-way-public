@@ -296,7 +296,12 @@ describe('world · versions and rules', () => {
   });
 
   it('rulesFor refuses a version there is not and a region count no world can have', () => {
-    expect(() => rulesFor(7 as 1)).toThrow(RangeError);
+    expect(() => rulesFor(8 as 1)).toThrow(RangeError);
+    // (version 7: version 6's world with what turns up down its road by the chapters of the journey, its journey begun
+    // gently — a dealer of its own, the rest of its rules version 6's: docs/V3/plan/finish.md §二)
+    expect(rulesFor(7).version).toBe(7);
+    expect(rulesFor(7).dealer).not.toBe(rulesFor(6).dealer);
+    expect(rulesFor(7).road).toBe(rulesFor(6).road);
     // (version 6: version 5's world with Nomad Drive's buildings in the places' dice — the same road and land)
     expect(rulesFor(6).version).toBe(6);
     expect(rulesFor(6).dealer).toBe(rulesFor(5).dealer);

@@ -49,8 +49,10 @@ describe('ND food', () => {
     expect(has(v, 'sick2')).toBe(true);
     cure(v);
     expect(has(v, 'sick2')).toBe(false);
-    expect(itemDef('nd_pills').heal).toEqual({ hp: 15, cure: true });
-    expect(itemDef('nd_first_aid').heal).toEqual({ hp: 50, cure: true });
+    // (docs/V3/plan/finish.md §三.3: the pills are the stomach's; the box gives back health, and gets one up again)
+    expect(itemDef('nd_pills').heal).toEqual({ hp: 0, cure: true });
+    expect(itemDef('nd_first_aid').heal).toEqual({ hp: 0, cap: 30 });
+    expect(itemDef('nd_first_aid').revive).toEqual({ hp: 30 });
   });
 
   it('a carton of milk is found a quarter to wholly full of milk, pours out, takes nothing', () => {

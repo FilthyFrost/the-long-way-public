@@ -31,6 +31,9 @@ import type { BuffsSave } from '../../core/v3/cooking/buffs';
 import type { WearSlot } from '../../core/modcar/items';
 import type { Vitals } from '../../core/modcar/vitals';
 import type { Stock } from '../../core/modcar/crafting';
+import type { KitsState } from '../../core/modcar/kits';
+import type { RescueState } from '../../core/modcar/needs';
+import type { PlannedFind } from '../../core/modcar/schedule';
 import type { WorkshopSave } from './workshop';
 import type { WrecksSave } from './wrecks';
 import type { PlacesSave } from './places';
@@ -112,17 +115,32 @@ export interface SaveV1 {
   pack?: ItemInstance;
   /** the clothes one has on, by where they go (absent in saves from before J6: the old jacket and shoes, as one always had them) */
   worn?: Partial<Record<WearSlot, ItemInstance>>;
-  /** the body: health, stamina, food, water, temperature, the bladder, what lasts a while */
+  /** the body: life and health, stamina, food, water, energy, temperature, what lasts a while */
   body?: Vitals;
+  /** where one last slept: how far along the road (m) — the pause menu goes back there (absent: nowhere yet) */
+  sleptAt?: number;
   /** what a good meal left behind, still going (core/v3/cooking/buffs.ts) */
   buffs?: BuffsSave;
   /** how hard the journey is (core/modcar/difficulty.ts; absent in older saves: the normal one) */
   difficulty?: Difficulty;
   /** how the workshop was laid out when the game began (absent in saves from before J5: the classic one) */
   kit?: 'j5' | 'classic';
-  /** the materials (scrap, organics, chemicals: shared counts, docs/MODCAR.md §14) */
+  /**
+   * the materials (scrap and components: shared counts, docs/MODCAR.md §14). A game kept before there were two has
+   * organics and chemicals in it: read with crafting.ts stockOf (its chemicals are its components)
+   */
   stock?: Stock;
-  /** the workshop's machines: the generator's tank and whether it runs, the recipes unlocked */
+  /** what one has learnt to make from blueprints (recipe ids: docs/V3/plan/finish.md §六 2) */
+  learned?: string[];
+  /** the blueprint each of the plan's places was found to have: its place's key → the recipe, and how far down the road it is (m) */
+  sheets?: Record<string, { r: string; s: number }>;
+  /** how the sets stand (core/modcar/kits.ts: which of each has been picked up, which step is out) */
+  kits?: KitsState;
+  /** the finds added to the plan as the game went (a set's steps, what one was all but out of): put back into the plan when the game is taken up */
+  finds?: PlannedFind[];
+  /** what one is all but out of and has been promised at the next place (core/modcar/needs.ts rescueFinds): each asked for once */
+  rescue?: RescueState;
+  /** the workshop's machines: the generator's tank and whether it runs */
   workshop?: WorkshopSave;
   /** on the road: how far along it the vehicle is (m), on which road (the world: its seed, and what `world` says of it) */
   road?: SavedWorld & { s: number };
@@ -298,7 +316,7 @@ function isTool(t: unknown): t is Tool {
   return !!x && typeof x === 'object' && typeof x.uid === 'string' && typeof x.kind === 'string' && Object.prototype.hasOwnProperty.call(TOOL_INFO, x.kind);
 }
 
-/** the kinds a thing from a save names that the catalogue does not have (its own, and those of what is in it) */
+/** the kinds a thing from a save names that the catalogue does not have (its own, and those of what is in it; a kind a system merged into another is had) */
 function unknownKinds(raw: unknown, into: Set<string>): void {
   const r = raw as { item?: unknown; inside?: unknown } | null;
   if (!r || typeof r !== 'object') return;

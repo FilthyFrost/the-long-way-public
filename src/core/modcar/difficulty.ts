@@ -85,6 +85,7 @@ export function vitalsRules(d: Difficulty, base: VitalsRules = VITALS): VitalsRu
     foodDrain: base.foodDrain * f.hunger,
     waterDrain: base.waterDrain * f.thirst,
     tempLoss: base.tempLoss * f.cold,
+    heatGain: base.heatGain * f.cold,
     starveHp: base.starveHp * f.hurt,
     thirstHp: base.thirstHp * f.hurt,
     hypoHp: base.hypoHp * f.hurt,

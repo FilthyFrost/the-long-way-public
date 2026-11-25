@@ -133,11 +133,8 @@ describe('ModCar spray paint (Arctic Drive)', () => {
     expect(spraySalvage({ tier: 2, colour: 13 })).toBe(1);
     expect(spraySalvage({ tier: 2, colour: 24 })).toBe(5);
     expect(spraySalvage({ tier: 3, colour: 13 })).toBe(5);
-    // the bench: a medium can in every colour, 20 organics and 10 scrap, locked
-    const sprays = RECIPES.filter((r) => r.makes.kind === 'tool' && r.makes.tool === 'spray');
-    expect(sprays.length).toBe(27);
-    expect(sprays.every((r) => r.cat === 'paint' && r.cost.organics === 20 && r.cost.scrap === 10 && !recipeOpen(r))).toBe(true);
-    expect(new Set(sprays.map((r) => (r.makes.kind === 'tool' ? r.makes.colour : -1))).size).toBe(27);
+    // the bench makes no paint any more (docs/V3/plan/finish.md §七: there is enough of it down the road)
+    expect(RECIPES.some((r) => r.makes.kind === 'tool' && r.makes.tool === 'spray')).toBe(false);
   });
 
   it('what takes paint: the body and every door, lid, bumper and mirror on it (each on its own); not engines, seats, wheels', () => {

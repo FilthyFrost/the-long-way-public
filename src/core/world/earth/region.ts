@@ -24,9 +24,12 @@ import { GRASSY, accentColour, barkColour, paletteOfPlace, patchesOf, stoneColou
 import { ROAD_BUILD, type RoadType } from '../../earth/roads';
 import { hash2 } from '../../math/rng';
 
-/** the id of the region of a world's place k (a world of version 5's its own: its places are driven by roads of their own) */
-export function earthRegionId(seed: number, k: number, version: 4 | 5 = 4): string {
-  return version === 5 ? `earth5:${seed | 0}:${k}` : `earth:${seed | 0}:${k}`;
+/** the journeys there are of the emergent Earth: version 4's, version 5's with its roads, version 7's — version 5's with a gentle beginning */
+export type EarthVersion = 4 | 5 | 7;
+
+/** the id of the region of a world's place k (a world of version 5's its own: its places are driven by roads of their own; version 7's its own: another journey) */
+export function earthRegionId(seed: number, k: number, version: EarthVersion = 4): string {
+  return version === 7 ? `earth7:${seed | 0}:${k}` : version === 5 ? `earth5:${seed | 0}:${k}` : `earth:${seed | 0}:${k}`;
 }
 
 /** the land's own noise of place k (in place of a registry index: biomes.ts RegionDef.noise) */
@@ -351,7 +354,7 @@ function roadOfPlace(sc: Scene, road: RoadType, relief: RegionRelief, seed: numb
   };
 }
 
-export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadType): RegionDef {
+export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadType, version?: EarthVersion): RegionDef {
   const template = BIOMES[BIOME_INDEX[templateOf(sc)] ?? 0];
   const road = BIOMES[BIOME_INDEX[roadTemplateOf(sc.macro)] ?? 0];
   const m = sc.macro;
@@ -396,7 +399,7 @@ export function regionOfPlace(sc: Scene, seed: number, k: number, kind?: RoadTyp
     // (steep enough for the director's climbs and descents: the road follows its country's height, rules.ts RULES_V4)
     gradeMax: Math.max(road.gradeMax, 0.075),
     gradeLen: road.gradeLen,
-    id: earthRegionId(seed, k, kind ? 5 : 4),
+    id: earthRegionId(seed, k, version ?? (kind ? 5 : 4)),
     label: sc.name,
     kin,
     baseElev: relief.base,

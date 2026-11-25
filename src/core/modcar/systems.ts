@@ -55,6 +55,11 @@ const HOUSE_ALTERNATOR_KW = 1.2 * GAME;
 /** the share of the starter battery the appliances leave it, to crank on, when there is no house battery */
 export const STARTER_KEEP = 0.3;
 
+/** what is still in the tank when the gauge's needle is at the bottom (L): two litres, an eighth of a small tank */
+export function fuelReserve(tankL: number): number {
+  return Math.min(2, tankL * 0.125);
+}
+
 export type LightSwitch = 'off' | 'low' | 'high';
 
 /** what each wheel is called (0 FL, 1 FR, 2 RL, 3 RR) */
@@ -70,14 +75,22 @@ export interface ModEnv {
   sun: number;
   /** ground surface under the vehicle (src/core/world/ground.ts), for dirt */
   surface?: number;
+  /** the time of day (h, 0…24), for the cab's clock */
+  hour?: number;
 }
 
 export interface Dash {
   rpm: number;
   kmh: number;
-  /** 0…1 of the tank (0 with no tank) */
+  /** the gauge's needle, 0…1 (0 with no tank): at the bottom with the reserve still in it (fuelReserve) */
   fuel: number;
+  /** what is in the tank (L), and what it holds */
+  fuelL: number;
   tankL: number;
+  /** the cab's instruments beside the gauges (docs/V3/plan/finish.md §五): the odometer (km), the air outside (°C), the clock (h) */
+  odoKm: number;
+  outC: number;
+  hour: number;
   coolantC: number;
   battery: number;
   oil: number;
@@ -138,11 +151,21 @@ export class ModSystems {
   /** the dice for a blow-out: a sequence of its own (the same drive on the same tyres, the same luck) */
   private dice: number;
   private lastOdo = 0;
+  /**
+   * what its odometer has gone that is not a whole metre yet: the build keeps whole metres, so that a vehicle that
+   * only settles on its springs — a wreck by the road come to rest — has gone nowhere and is as it was (wrecks.ts
+   * touched)
+   */
+  private odoPart = 0;
   readonly dash: Dash = {
     rpm: 0,
     kmh: 0,
     fuel: 0,
+    fuelL: 0,
     tankL: 0,
+    odoKm: 0,
+    outC: 20,
+    hour: 12,
     coolantC: AMBIENT_DEFAULT,
     battery: 0,
     oil: 0,
@@ -524,6 +547,15 @@ export class ModSystems {
     // wear and dirt from the road
     const odo = sim.odometer - this.lastOdo;
     this.lastOdo = sim.odometer;
+    // (its odometer: what it has gone on its own wheels, kept with the build in whole metres)
+    if (odo > 0 && odo < 200) {
+      this.odoPart += odo;
+      if (this.odoPart >= 1) {
+        const whole = Math.floor(this.odoPart);
+        this.build.odo = (this.build.odo ?? 0) + whole;
+        this.odoPart -= whole;
+      }
+    }
     this.wear(odo, env);
     this.rainWash(env, dt);
 
@@ -564,11 +596,15 @@ export class ModSystems {
     // what is behind it at that end
     const through = k * (1 - 0.8 * ram) * (1 - 0.5 * this.derived.armor);
     const atEnd = (x: number): boolean => (front ? x > frame.body.front * 0.4 : x < frame.body.rear * 0.4);
+    // (the bonnet over the engine takes its share of a blow from the front: without one the engine has twice as much
+    // of it, the radiator half as much again — docs/V3/plan/finish.md §二 2: 引擎盖护着发动机)
+    const bare = front && frame.mounts.some((m) => m.cat === 'hood' && atEnd(m.pos.x)) && !this.instOf('hood');
     for (const m of frame.mounts) {
       if (m.id === bumperId || !atEnd(m.pos.x)) continue;
       if (m.cat === 'headlight' || m.cat === 'taillight') hurt(m.id, through * 1.6);
-      else if (m.cat === 'hood' || m.cat === 'trunk' || m.cat === 'radiator' || m.cat === 'horn' || m.cat === 'exhaust') hurt(m.id, through);
-      else if (m.cat === 'engine') hurt(m.id, through * 0.3);
+      else if (m.cat === 'radiator') hurt(m.id, through * (bare ? 1.5 : 1));
+      else if (m.cat === 'hood' || m.cat === 'trunk' || m.cat === 'horn' || m.cat === 'exhaust') hurt(m.id, through);
+      else if (m.cat === 'engine') hurt(m.id, through * (bare ? 0.6 : 0.3));
     }
     const ri = this.instOf('radiator');
     if (front && ri && through > 0.12 && (ri.fluids.coolantL ?? 0) > 0) {
@@ -769,7 +805,14 @@ export class ModSystems {
     const dd = this.dash;
     const t = tankFuel(this.build);
     dd.tankL = this.derived.fuelTankL;
-    dd.fuel = dd.tankL > 0 ? Math.min(1, t.total / dd.tankL) : 0;
+    dd.fuelL = t.total;
+    dd.odoKm = ((this.build.odo ?? 0) + this.odoPart) / 1000;
+    dd.outC = env.ambientC;
+    if (env.hour !== undefined) dd.hour = env.hour;
+    // (the needle is at the bottom with the reserve still in the tank — the lamp came on a little before: there are
+    // some kilometres in it yet, docs/V3/plan/finish.md §四.2)
+    const rsv = fuelReserve(dd.tankL);
+    dd.fuel = dd.tankL > rsv ? Math.max(0, Math.min(1, (t.total - rsv) / (dd.tankL - rsv))) : 0;
     dd.rpm = this.running || this.cranking ? sim.rpm : 0;
     dd.kmh = sim.kmh;
     dd.coolantC = this.coolantC;
@@ -792,7 +835,7 @@ export class ModSystems {
     dd.lamps.battery = keyOn && (!this.running || dd.battery < 0.15);
     dd.lamps.oil = keyOn && dd.oil < 0.2;
     dd.lamps.temp = this.coolantC > HOT_C - 4;
-    dd.lamps.fuel = dd.fuel < 0.1;
+    dd.lamps.fuel = t.total < Math.max(rsv * 1.5, dd.tankL * 0.1);
     dd.lamps.check = keyOn && this.firstProblem() !== null;
     const hubs = this.derived.wheels;
     for (let i = 0; i < 4; i++) {

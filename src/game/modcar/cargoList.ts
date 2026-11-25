@@ -59,6 +59,8 @@ export interface CargoView {
   put: string;
   /** two lists side by side (the hands beside a vehicle's): the keys that go from one to the other are shown */
   pair?: boolean;
+  /** the Tab screen's page D turns to from this list ("菜谱"); '' or absent: none */
+  next?: string;
 }
 
 export class CargoList {
@@ -72,6 +74,7 @@ export class CargoList {
   private put = '';
   private place = '';
   private pair = false;
+  private next = '';
   open = false;
 
   constructor(root: HTMLElement) {
@@ -110,8 +113,9 @@ export class CargoList {
       }
       return;
     }
-    if (this.shown && v.rev === this.rev && v.sel === this.sel && v.load === this.load && v.put === this.put && v.title === this.title && (v.pair ?? false) === this.pair) return;
+    if (this.shown && v.rev === this.rev && v.sel === this.sel && v.load === this.load && v.put === this.put && v.title === this.title && (v.pair ?? false) === this.pair && (v.next ?? '') === this.next) return;
     this.pair = v.pair ?? false;
+    this.next = v.next ?? '';
     this.shown = true;
     this.title = v.title;
     this.rev = v.rev;
@@ -137,7 +141,7 @@ export class CargoList {
       }
       html += `<div class="r${i === sel ? ' on' : ''}">${r.icon ? `<img src="${r.icon}" alt="">` : '<div class="ph"></div>'}<div>${esc(r.name)}</div><div class="m">${kg(r.mass)} kg</div></div>`;
     });
-    html += `</div><div class="ks"><span><kbd>滚轮</kbd> 选</span><span>左键 ${esc(v.take)}</span>${v.put ? '<span><kbd>Q</kbd> 放进</span>' : ''}${v.pair ? '<span><kbd>A</kbd><kbd>D</kbd> 换边</span>' : ''}<span><kbd>Tab</kbd> 关</span></div>`;
+    html += `</div><div class="ks"><span><kbd>滚轮</kbd> 选</span><span>左键 ${esc(v.take)}</span>${v.put ? '<span><kbd>Q</kbd> 放进</span>' : ''}${v.pair ? '<span><kbd>A</kbd><kbd>D</kbd> 换边</span>' : ''}${v.next ? `<span><kbd>D</kbd> ${esc(v.next)}</span>` : ''}<span><kbd>Tab</kbd> 关</span></div>`;
     this.el.innerHTML = html;
   }
 }

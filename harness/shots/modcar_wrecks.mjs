@@ -297,13 +297,14 @@ try {
     g.changed(v, 'tyres');
     g.enter(v);
     g.simulate(0.5);
-    return { tyres: v.sys.dash.tyres, html: document.querySelector('.mc-dash .tyres')?.innerHTML ?? '' };
+    // (the instruments' plate in the cab: the four lamps round its little car — cluster.ts)
+    return { tyres: v.sys.dash.tyres, plate: [...v.view.clusterV.tyres] };
   });
   console.log('dash tyres', JSON.stringify(dash));
   if (!dash) fail('no pickup to sit in');
   else {
-    const cls = [...dash.html.matchAll(/class="([^"]+)"/g)].map((m) => m[1]);
-    if (cls.join(' ') !== 's0 s1 s2 flat') fail(`the dash's tyres are not in their stages (${cls.join(' ')})`);
+    // (new, worn, more worn, and the blown one: 4)
+    if (dash.plate.join(' ') !== '0 1 2 4') fail(`the dash's tyres are not in their stages (${dash.plate.join(' ')})`);
     await shot('dash');
   }
   if (errors.length) fail(`page errors: ${errors.slice(0, 3).join(' | ')}`);

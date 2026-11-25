@@ -35,6 +35,7 @@ import { clearRestores } from './restore';
 import { forgetMasks } from './grimeStore';
 import { wreckSpots } from './wrecks';
 import { isRare, rollFound, rollWreck } from '../../core/modcar/wrecks';
+import { lootRules } from '../../core/modcar/loot';
 
 /** is a thing lying about the one asked for: a part id, tool:<kind> or item:<id> */
 function looseIs(l: Loose, id: string): boolean {
@@ -143,9 +144,7 @@ function aimPoint(x: number, y: number, z: number, from: number, dist: number): 
   w.place(x + Math.cos(from) * dist, z + Math.sin(from) * dist, from + Math.PI);
   for (let i = 0; i < 3; i++) {
     game.simulate(i ? 0.05 : 0);
-    const eye = w.eye();
-    game.input.lookYaw = Math.atan2(z - w.z, x - w.x);
-    game.input.lookPitch = Math.atan2(y - eye.y, Math.hypot(x - w.x, z - w.z));
+    ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(x, y, z));
   }
   game.simulate(0);
   return String(game.player.telemetry().target);
@@ -237,36 +236,47 @@ const rt = {
     game.player.walker.place(x, z, 0, 0);
     const w = game.player.walker;
     // look from where the walker actually stands (placing keeps it out of the vehicle's body)
-    const eye = w.eye();
-    const heading = Math.atan2(p.z - w.z, p.x - w.x);
-    const pitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
-    game.input.lookYaw = heading;
-    game.input.lookPitch = pitch;
+    const heading = w.lookAt(p.x, p.y, p.z).yaw;
+    ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(p.x, p.y, p.z));
     game.viewMode = 'cockpit';
     game.simulate(0);
-    // (the ray onto the thing itself — the ghost, the part: tried about its middle, which can be air)
+    // (the mark onto the thing itself — the ghost, the part: tried about its middle, which can be air, or a point the
+    // vehicle's own body just hides: from her eyes a place under the bonnet is seen over the nose by a few
+    // centimetres, and a vehicle breathes a centimetre on its springs. So: a point the mark is on and stays on a
+    // little to every side of; failing that one it is on at all; failing that — a place with nothing in it and
+    // nothing in the hands for it: a bare roof, a blueprint held up to it — one where the eyes are on this vehicle
+    // at least (from her height the middle of a roof is looked over); failing that its middle, as it stands: a
+    // ghost the bonnet shuts off is looked at all the same.)
     const pre = `${v.build.uid}:${mount}:`;
     const onIt = (): boolean => {
-      const pr = game.player as unknown as { ray: THREE.Ray };
-      if (ghost) return !!game.player.ghosts.cast(pr.ray.origin, pr.ray.direction, 6)?.key.startsWith(pre);
       const t = String(game.player.telemetry().target);
+      if (ghost) return t.startsWith(`ghost:${pre}`);
       const s = game.player.scrubAim;
       return t.endsWith(`:${mount}`) || t.includes(`:${mount}:`) || (!!s && s.owner.split('+')[0].slice(2) === mount);
     };
-    if (!onIt()) {
-      const side = new THREE.Vector3(-Math.sin(heading), 0, Math.cos(heading));
-      found: for (const r of [0.1, 0.2, 0.3, 0.42]) {
-        for (let k = 0; k < 8; k++) {
-          const a = (k / 8) * Math.PI * 2;
-          const q = p.clone().addScaledVector(side, Math.cos(a) * r).add(new THREE.Vector3(0, Math.sin(a) * r, 0));
-          game.input.lookYaw = Math.atan2(q.z - w.z, q.x - w.x);
-          game.input.lookPitch = Math.atan2(q.y - eye.y, Math.hypot(q.x - w.x, q.z - w.z));
-          game.simulate(0);
-          game.simulate(0);
-          if (onIt()) break found;
-        }
+    const across = new THREE.Vector3(-Math.sin(heading), 0, Math.cos(heading));
+    const q = new THREE.Vector3();
+    const at = (c: THREE.Vector3, du: number, dv: number): boolean => {
+      q.copy(c).addScaledVector(across, du);
+      q.y += dv;
+      ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(q.x, q.y, q.z));
+      game.simulate(0);
+      return onIt();
+    };
+    const M = 0.03;
+    const holds = (c: THREE.Vector3): boolean => at(c, M, 0) && at(c, -M, 0) && at(c, 0, M) && at(c, 0, -M) && at(c, 0, 0);
+    const tries: THREE.Vector3[] = [p];
+    for (const r of [0.05, 0.1, 0.2, 0.3, 0.42]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        tries.push(p.clone().addScaledVector(across, Math.cos(a) * r).add(new THREE.Vector3(0, Math.sin(a) * r, 0)));
       }
     }
+    const onCar = (c: THREE.Vector3): boolean => {
+      at(c, 0, 0);
+      return game.player.lookVehicle === v;
+    };
+    if (!tries.some((c) => at(c, 0, 0) && holds(c)) && !tries.some((c) => at(c, 0, 0)) && !tries.some(onCar)) at(p, 0, 0);
     game.simulate(0);
     return true;
   },
@@ -286,9 +296,7 @@ const rt = {
     if (game.seated) game.getOut();
     game.player.walker.place(p.x + b[6] * s * dist, p.z + b[8] * s * dist, 0, 0);
     const w = game.player.walker;
-    const eye = w.eye();
-    game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
-    game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+    ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(p.x, p.y, p.z));
     game.viewMode = 'cockpit';
     game.simulate(0);
     return true;
@@ -314,9 +322,7 @@ const rt = {
         // (the body pushes one out: look again from where one ends up)
         for (let i = 0; i < 3; i++) {
           game.simulate(i ? 0.05 : 0);
-          const eye = w.eye();
-          game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
-          game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+          ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(p.x, p.y, p.z));
         }
         game.simulate(0);
         const t = String(game.player.telemetry().target);
@@ -343,9 +349,7 @@ const rt = {
     if (game.seated) game.getOut();
     game.player.walker.place(d.x + Math.cos(toMid) * dist, d.z + Math.sin(toMid) * dist, toMid + Math.PI);
     const w = game.player.walker;
-    const eye = w.eye();
-    game.input.lookYaw = Math.atan2(d.z - w.z, d.x - w.x);
-    game.input.lookPitch = Math.atan2(d.y - eye.y, Math.hypot(d.x - w.x, d.z - w.z));
+    ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(d.x, d.y, d.z));
     game.viewMode = 'cockpit';
     game.simulate(0);
     const target = String(game.player.telemetry().target);
@@ -409,11 +413,15 @@ const rt = {
   /** the workshop: the generator, the recycler, the bench; the materials */
   workshop: () => ({ ...(game.workshop?.telemetry() ?? {}), stock: { ...game.stock }, garage: game.garage?.telemetry() ?? null }),
   /** materials given (the developer's) */
-  addStock: (scrap = 0, organics = 0, chemicals = 0) => {
+  addStock: (scrap = 0, components = 0) => {
     game.stock.scrap += scrap;
-    game.stock.organics += organics;
-    game.stock.chemicals += chemicals;
+    game.stock.components += components;
     return { ...game.stock };
+  },
+  /** a making learnt as from its blueprint (docs/V3/plan/finish.md §六 2); what is known after */
+  learn: (recipe: string) => {
+    game.learn(recipe);
+    return [...game.learned];
   },
   /** E held for a while on what the mark is on (the generator's rope: 0.6 s a pull) */
   holdFor: (seconds: number) => {
@@ -457,9 +465,7 @@ const rt = {
       // (the walls and benches push one out: look again from where one ends up)
       for (let i = 0; i < 3; i++) {
         game.simulate(i ? 0.05 : 0);
-        const e = w.eye();
-        game.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);
-        game.input.lookPitch = Math.atan2(l.y + l.mid - e.y, Math.hypot(l.x - w.x, l.z - w.z));
+        ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(l.x, l.y + l.mid, l.z));
       }
       game.simulate(0);
       if (game.player.telemetry().target === `loose:${l.uid}`) return true;
@@ -510,6 +516,15 @@ const rt = {
       game.step(dt, 1);
     }
     game.player.release();
+    game.simulate(0);
+    return game.player.telemetry();
+  },
+  /** hold the right button for a while — what is in the hands is used: a drink drunk, a pump's nozzle run (docs/V3/plan/finish.md §十三) */
+  rightFor: (seconds: number) => {
+    const dt = 1 / 60;
+    game.rightButton = true;
+    for (let t = 0; t < seconds; t += dt) game.step(dt, 1);
+    game.rightButton = false;
     game.simulate(0);
     return game.player.telemetry();
   },
@@ -564,9 +579,7 @@ const rt = {
     if (game.seated) game.getOut();
     game.player.walker.place(s.x, s.z, 0, 0);
     const w = game.player.walker;
-    const eye = w.eye();
-    game.input.lookYaw = Math.atan2(p.z - w.z, p.x - w.x);
-    game.input.lookPitch = Math.atan2(p.y - eye.y, Math.hypot(p.x - w.x, p.z - w.z));
+    ({ yaw: game.input.lookYaw, pitch: game.input.lookPitch } = w.lookAt(p.x, p.y, p.z));
     game.viewMode = 'cockpit';
     game.simulate(0);
     return game.player.telemetry();
@@ -851,7 +864,7 @@ const rt = {
           .map((w) => {
             const takeable = game.wrecks?.takeableSpot(w) ?? false;
             // (a vehicle to find: its planned frame, bare; a wreck as the world rolls it)
-            const r = w.find ? { ...rollFound(w.find.frame, w.find.seed, w.find.tier), items: [], tools: [], finds: [] } : rollWreck(w.seed, w.type, w.stripped, w.s, takeable);
+            const r = w.find ? { ...rollFound(w.find.frame, w.find.seed, w.find.tier), items: [], tools: [], finds: [] } : rollWreck(w.seed, w.type, w.stripped, w.s, takeable, lootRules(game.world?.rules.version ?? 1));
             return { ...w, frame: r.build.frame, parts: Object.keys(r.build.parts).length, finds: r.finds.map((f) => f.part), rare: r.finds.filter((f) => isRare(r.build.frame, f.part)).map((f) => f.part), things: r.items.length + r.tools.length, hood: !!r.build.parts.hood, seat: !!r.build.parts.seat_driver, takeable, findFrame: w.find?.frame ?? null };
           })
       : [],

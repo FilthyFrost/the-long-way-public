@@ -27,6 +27,8 @@ import { glassName } from './grime';
 import { partGeo, partTop } from '../../core/modcar/geo';
 import { addonModel, cageFor, frameVariant, cloneModel, frameModel, panelAddOn, panelPaint, partModel, placeAddOn, seatTyres, standInFrame, stretchFit, type Model } from './assets';
 import { applyMaterials, CarMaterials, matNames, type LookOf } from './materials';
+import { Cluster, CLUSTERS, CLUSTER_NODE, type ClusterValues } from './cluster';
+import { tyreStage } from '../../core/modcar/tyres';
 
 const DEG = Math.PI / 180;
 /**
@@ -205,6 +207,72 @@ export class CarView {
     while (this.loads.size) await Promise.all([...this.loads]);
   }
 
+  /** the cab's instruments (cluster.ts): the plate over the frame's own dials; null where the frame has none to put it by */
+  cluster: Cluster | null = null;
+  private readonly clusterV: ClusterValues = {
+    on: false,
+    lit: false,
+    kmh: 0,
+    rpm: 0,
+    redline: 6000,
+    fuel: 0,
+    tempC: 20,
+    battery: 0,
+    outC: 20,
+    gear: '',
+    odoKm: 0,
+    hour: 12,
+    lamps: { handbrake: false, lights: false, high: false, oil: false, battery: false, temp: false, fuel: false, engine: false },
+    tyres: [-1, -1, -1, -1],
+  };
+
+  /**
+   * The instruments' plate put over the frame's own two big dials (docs/V3/plan/finish.md §五), in the space they are
+   * modelled in — the fork's, on a motorcycle: it turns with the bars. Their plane from the needles' axis (towards the
+   * driver), across the body, and up it. The frame's own needles are hidden behind it.
+   */
+  private fitCluster(): void {
+    if (this.cluster) {
+      this.cluster.group.removeFromParent();
+      this.cluster.dispose();
+      this.cluster = null;
+    }
+    const spec = CLUSTERS[this.frame.id];
+    const ns = this.needles.N_speed;
+    const nr = this.needles.N_rpm;
+    if (!spec || !ns || !nr || !ns.parent || ns.parent !== nr.parent) return;
+    const axis = this.frame.rig?.needles.N_speed?.axis;
+    const out = new THREE.Vector3(...(axis ?? [-1, 0.3, 0])).normalize();
+    if (out.x > 0) out.negate();
+    const right = new THREE.Vector3(0, 0, 1).addScaledVector(out, -out.z).normalize();
+    const up = new THREE.Vector3().crossVectors(out, right).normalize();
+    // (its two big dials come where the frame's own are: how far apart they are, and which is the speedometer)
+    const across = nr.position.clone().sub(ns.position).dot(right);
+    const c = new Cluster(spec, Math.abs(across), across >= 0);
+    c.place(ns.position.clone().add(nr.position).multiplyScalar(0.5), right, up, out);
+    ns.parent.add(c.group);
+    for (const n of Object.values(this.needles)) n.visible = false;
+    this.cluster = c;
+    c.show(this.clusterLevel());
+  }
+
+  /**
+   * The wheel (its column with it) seen through in a box on the screen: the instruments behind it are being looked at
+   * (docs/V3/plan/finish.md §五). `k` how far (0: not at all), the frame's size and the box's middle and half size in
+   * frame px. Its blended programs are compiled ahead, in the background, while one sits at it.
+   */
+  wheelSeeThrough(k: number, w: number, h: number, box: { x: number; y: number; hx: number; hy: number } | null, renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera): void {
+    const look = this.mats.lookOf(partOwner('steering'));
+    if (!look) return;
+    look.warmSeeThrough(renderer, scene, cam);
+    look.setSeeThrough(box ? k : 0, w, h, box ?? undefined);
+  }
+
+  /** how much of the instruments is drawn: all of it at the vehicle, the plate alone while it stands off, nothing far off */
+  private clusterLevel(): 0 | 1 | 2 {
+    return !this.parked ? 0 : this.farLevel ? 2 : 1;
+  }
+
   private placeModel(): void {
     const cg = this.derived.cg;
     this.model.position.set(-cg.x, -cg.y, -cg.z);
@@ -230,6 +298,7 @@ export class CarView {
       const n = obj.getObjectByName(name);
       if (n) this.needles[name] = n;
     }
+    this.fitCluster();
     for (const name of ['WIPER_L', 'WIPER_R']) {
       const w = obj.getObjectByName(name);
       if (w) this.wipers.push(w);
@@ -1210,6 +1279,7 @@ export class CarView {
     this.parked = on;
     this.unmerge();
     this.mergeDirty = true;
+    this.cluster?.show(this.clusterLevel());
   }
 
   /**
@@ -1225,6 +1295,7 @@ export class CarView {
     if (level === this.farLevel) return;
     this.farLevel = level;
     this.merged?.setLevel(level);
+    this.cluster?.show(this.clusterLevel());
   }
 
   /** merge the static parts when the build has settled */
@@ -1263,7 +1334,8 @@ export class CarView {
     }
     this.model.updateMatrixWorld(true);
     // (parked, the doors, the bonnet, the wipers and the levers merge too, as they stand; only a held part's ghost stays out)
-    const skip = parked ? (o: THREE.Object3D) => o.name.startsWith('ghost:') : (o: THREE.Object3D) => MOVES.test(o.name) || !!o.userData.mover;
+    // (the instruments have their own texture: never merged, the plate alone drawn while it stands off — cluster.ts)
+    const skip = parked ? (o: THREE.Object3D) => o.name.startsWith('ghost:') || o.name === CLUSTER_NODE : (o: THREE.Object3D) => MOVES.test(o.name) || !!o.userData.mover;
     // (a parked vehicle's merge over frames: the road's wrecks are merged as they come into view, a few at a time)
     if (parked && !this.ridden) {
       this.merging = { car: new MergedCar(this.model, entries, skip, true), parked };
@@ -1725,6 +1797,44 @@ export class CarView {
       this.turnNeedle('N_fuel', on ? Math.min(1, dash.fuel) : 0);
       this.turnNeedle('N_temp', on ? Math.min(1, Math.max(0, (dash.coolantC - 40) / 90)) : 0);
     }
+    // the instruments' plate: what the dashboard data says, as it is
+    if (this.cluster) {
+      const v = this.clusterV;
+      v.on = on;
+      v.kmh = this.needle;
+      v.redline = sim.spec.engine.redline;
+      const l = v.lamps;
+      if (dash) {
+        v.lit = dash.lightsOn;
+        v.rpm = dash.rpm;
+        v.fuel = dash.fuel;
+        v.tempC = dash.coolantC;
+        v.battery = dash.battery;
+        v.outC = dash.outC;
+        v.gear = dash.gearLabel;
+        v.odoKm = dash.odoKm;
+        v.hour = dash.hour;
+        l.handbrake = dash.handbrake;
+        l.lights = dash.lightsOn;
+        l.high = dash.lightsOn && dash.lights === 'high';
+        l.oil = dash.lamps.oil;
+        l.battery = dash.lamps.battery;
+        l.temp = dash.lamps.temp;
+        l.fuel = dash.lamps.fuel;
+        l.engine = dash.lamps.check;
+        const t = v.tyres as number[];
+        // (a motorcycle's two wheels are each twice in the simulation: the plate has the front and the back once)
+        const two = !!this.frame.balance;
+        for (let i = 0; i < 4; i++) {
+          const ty = two ? (i < 2 ? dash.tyres[i * 2] : undefined) : dash.tyres[i];
+          t[i] = !ty || ty.tread < 0 ? -1 : ty.flat ? 4 : tyreStage(ty.tread);
+        }
+      } else {
+        v.lit = false;
+        v.rpm = 0;
+      }
+      this.cluster.update(v, dt);
+    }
     // the wipers sweep with the weather's wipers (0…1 of their sweep)
     const arcs: WiperArc[] = [];
     for (const w of this.wipers) {
@@ -1788,7 +1898,15 @@ export class CarView {
     // the hazard lights blink both amber lamps (with a battery)
     this.blinkT = this.hazard && on ? (this.blinkT + dt) % 0.75 : 0;
     const blink = this.hazard && on && this.blinkT < 0.4;
-    this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0, turnLeft: blink, turnRight: blink });
+    // (what its lamps at the back show now: a trailer on its ball shows the same — it has no battery of its own)
+    const now = this.lampsNow;
+    now.tail = lit;
+    now.brake = brake;
+    now.reverse = reverse;
+    now.blink = blink;
+    const as = this.lampsAs;
+    if (as) this.mats.setLights({ head: 0, tail: as.tail, brake: as.brake, reverse: as.reverse, dash: 0, turnLeft: as.blink, turnRight: as.blink });
+    else this.mats.setLights({ head: lit ? (dash?.lights === 'high' ? 2 : 1) : 0, tail: lit, brake, reverse, dash: lit ? 1 : 0, turnLeft: blink, turnRight: blink });
     // dirt is measured up from the vehicle's own ground; colours and wear follow the build
     this.model.updateWorldMatrix(true, false);
     this.mats.setCarFrame(this.model.matrixWorld);
@@ -1834,6 +1952,10 @@ export class CarView {
   /** the hazard lights are on */
   hazard = false;
   private blinkT = 0;
+  /** what the lamps at its back show now: the tail lamps, the brake lights, the reversing lamps, the hazards' blink */
+  readonly lampsNow = { tail: false, brake: 0, reverse: false, blink: false };
+  /** a trailer on a vehicle's ball: that vehicle's lamps (its lampsNow), shown by its own; null: its own switches */
+  lampsAs: { tail: boolean; brake: number; reverse: boolean; blink: boolean } | null = null;
   /** the hazard lights' lamps are lit this moment (for the relay's tick) */
   get blinking(): boolean {
     return this.hazard && this.blinkT > 0 && this.blinkT < 0.4;
@@ -1981,6 +2103,8 @@ export class CarView {
   dispose(): void {
     this.unmerge();
     this.root.removeFromParent();
+    this.cluster?.dispose();
+    this.cluster = null;
     this.mats.dispose();
   }
 }

@@ -269,7 +269,7 @@ export function chestLoot(seed: number, rare = false): string[] {
   const pools: (() => string[])[] = [
     () => ofCat('food', 2),
     () => ofCat('drink', 2),
-    () => ofCat('med', 3).filter((id) => !id.startsWith('med_kit')),
+    () => ofCat('med', 3).filter((id) => id !== 'nd_first_aid'),
     () => ['nd_battery'],
     () => ['nd_flashlight', 'nd_compass', 'nd_tire_kit', 'nd_engine_kit', 'nd_charger', 'nd_crowbar'],
     // (Nomad Drive's wooden hand is only ever a chest's filler: among its valuables)

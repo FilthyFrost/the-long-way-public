@@ -240,6 +240,31 @@ try {
   ok(!!chair && chair.rides && chair.plan < 1.6 && chair.up > 0.4 && chair.up < 1.9, `the chair rode along in its box (${JSON.stringify(chair)})`);
   const bend = track.rows.find((r) => r.t === 8);
   ok(!!bend && Math.abs(bend.muleYaw - bend.trailerYaw) > 0.05, `in the bend the trailer's heading lags the Mule's (${bend ? (bend.muleYaw - bend.trailerYaw).toFixed(2) : '—'} rad)`);
+  // its lamps at the back are the Mule's (docs/V3/plan/finish.md §四.1: it has no battery of its own): standing on the
+  // handbrake with the Mule's lamps on — the tail lamps, and the brake lights (held at a standstill, its brakes are
+  // on); rolling with the lamps off and no foot on the brake — dark
+  const lamps = await page.evaluate(({ m, t }) => {
+    const g = window.__rt.game;
+    const mule = g.vehicles[m];
+    const tr = g.vehicles[t];
+    const read = () => ({ trailer: { tail: tr.view.mats.lights.tail, brake: tr.view.mats.lights.brake, head: tr.view.mats.lights.head }, mule: { tail: mule.view.mats.lights.tail, brake: mule.view.mats.lights.brake } });
+    mule.sys.lights = 'low';
+    g.scripted = { steer: 0, throttle: 0, brake: 0, handbrake: 1 };
+    for (let i = 0; i < 60; i++) g.step(1 / 60, 1);
+    const stood = read();
+    mule.sys.lights = 'off';
+    g.scripted = { steer: 0, throttle: 0.5, brake: 0, handbrake: 0 };
+    for (let i = 0; i < 90; i++) g.step(1 / 60, 1);
+    const rolling = read();
+    g.scripted = { steer: 0, throttle: 0, brake: 0, handbrake: 1 };
+    for (let i = 0; i < 120; i++) g.step(1 / 60, 1);
+    g.scripted = null;
+    return { stood, rolling };
+  }, { m: setup.mule, t: setup.trailer });
+  ok(
+    lamps.stood.trailer.tail === true && lamps.stood.trailer.brake > 0 && lamps.stood.trailer.head === 0 && lamps.stood.mule.tail === true && lamps.stood.mule.brake > 0 && lamps.rolling.trailer.tail === false && lamps.rolling.trailer.brake === 0 && lamps.rolling.mule.brake === 0,
+    `its tail lamps and brake lights are the Mule's: standing with the lamps on ${JSON.stringify(lamps.stood.trailer)}, rolling with them off ${JSON.stringify(lamps.rolling.trailer)}`,
+  );
   await rt('setView', 'chase');
   await shot('04_towing.png');
   const back = await page.evaluate(({ m }) => window.__rt.game.vehicles[m].chaseBack, { m: setup.mule });

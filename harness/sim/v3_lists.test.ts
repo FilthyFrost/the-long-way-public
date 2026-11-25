@@ -21,7 +21,7 @@ import { ALLOCATES, heapGrowth } from './v3/heap';
 
 registerItemCat({ id: 'tl', name: { zh: '试验', en: 'Test' } });
 registerItems([
-  { id: 'tl_berry', cat: 'tl', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['tl'], perish: { hours: 24, into: 'tl_mush' }, salvage: { organics: 1 } },
+  { id: 'tl_berry', cat: 'tl', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['tl'], perish: { hours: 24, into: 'tl_mush' }, salvage: { scrap: 1 } },
   { id: 'tl_mush', cat: 'tl', name: { zh: '烂莓', en: 'Mush' }, stars: 0, mass: 0.05, stack: 12, tags: ['tl'] },
   { id: 'tl_basket', cat: 'tl', name: { zh: '试验篮', en: 'Test basket' }, stars: 1, mass: 0.6, carry: 'small', holds: { slots: 2, accepts: ['#tl'], maxKg: 1, decay: 0.5 } },
 ]);

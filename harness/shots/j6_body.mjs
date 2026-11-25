@@ -42,11 +42,32 @@ try {
       g.rightButton = false;
       for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
     }, seconds);
+  // (in a seat sleep is the left button held on nothing of the cab's, as on a bed: docs/V3/plan/finish.md §十三)
+  const leftHold = (seconds) =>
+    ev((s) => {
+      const g = window.__rt.game;
+      g.leftButton = true;
+      for (let t = 0; t < s; t += 1 / 60) g.step(1 / 60, 1);
+      g.leftButton = false;
+      for (let i = 0; i < 4; i++) g.step(1 / 60, 1);
+    }, seconds);
   await sim(1);
 
-  // ---- 1. the marks top left
-  const tiles = await ev(() => [...document.querySelectorAll('.mc-vit .tile')].map((t) => t.getAttribute('data-k')));
-  ok(tiles.join(',') === 'hp,food,water,energy,bladder', `five tiles: ${tiles.join(' ')}`);
+  // ---- 1. the marks top left: one bar — full, nothing lost of it — and the three needs, none shown while they are full
+  const hud = await ev(() => ({
+    tiles: [...document.querySelectorAll('.mc-vit .tile')].map((t) => t.getAttribute('data-k')).join(','),
+    shown: document.querySelectorAll('.mc-vit .tile.on').length,
+    hp: parseFloat(document.querySelector('.mc-vit .bar .hp')?.style.width ?? ''),
+    lost: parseFloat(document.querySelector('.mc-vit .bar .lost')?.style.width ?? ''),
+    dial: !!document.querySelector('.mc-vit .dial'),
+  }));
+  ok(hud.tiles === 'food,water,energy' && hud.shown === 0 && hud.hp === 100 && hud.lost === 0 && !hud.dial, `one bar, full; the needs kept back while they are full (${JSON.stringify(hud)})`);
+  // (hungry: its tile comes)
+  await ev(() => (window.__rt.game.body.food = 40));
+  await sim(0.2);
+  ok((await ev(() => [...document.querySelectorAll('.mc-vit .tile.on')].map((t) => t.getAttribute('data-k')).join(','))) === 'food', 'food under six tenths: its tile is there');
+  await ev(() => (window.__rt.game.body.food = 100));
+  await sim(0.2);
   await rt('look', 0.1, -0.1);
   await shot('01_hud.png');
 
@@ -69,6 +90,9 @@ try {
   await sim(0.2);
   const rows = await ev(() => [...document.querySelectorAll('.mc-cargo .row, .mc-cl .row, .mc-list-rows .row')].map((e) => e.textContent));
   await shot('02_tab_worn.png');
+  // (and how one is dressed for outside, over the list's name)
+  const dressed = await ev(() => window.__rt.game.listSrc?.head ?? '');
+  ok(/^保暖 10 · 外面 [−\d]+ ℃/.test(dressed), `the line over 我身上: ${dressed}`);
   const listed = await ev(() => {
     const g = window.__rt.game;
     const src = g.listSrc ?? null;
@@ -93,7 +117,7 @@ try {
   await rightHold(4.5);
   let b = await body();
   ok(!!b.effects.sick2, `spoiled food eaten: badly ill (${JSON.stringify(b.effects)})`);
-  const hp0 = b.hp;
+  const cap0 = b.cap ?? 100;
   let vomited = false;
   for (let k = 0; k < 8 && !vomited; k++) {
     await sim(10);
@@ -101,8 +125,10 @@ try {
   }
   b = await body();
   await shot('03_ill.png');
-  ok(b.hp < hp0 && (await badges()).some((t) => t.includes('肚子疼')), `ill a while: health ${hp0.toFixed(0)} → ${b.hp.toFixed(0)}, sick up: ${vomited}, the badges ${JSON.stringify(await badges())}`);
-  await rt('hold', 'item:med_stomach');
+  // (it takes health — the bar's grey end, with the stomach's mark — and life only as far as health comes down on it)
+  const grey = await ev(() => ({ lost: parseFloat(document.querySelector('.mc-vit .bar .lost').style.width), why: document.querySelector('.mc-vit .bar .why').style.display, sap: document.querySelector('.mc-vit .bar .lost').classList.contains('sap') }));
+  ok(b.cap < cap0 && b.capWhy === 'sick' && b.hp <= b.cap && grey.lost > 0 && grey.why === 'block' && grey.sap && (await badges()).some((t) => t.includes('肚子疼')), `ill a while: health ${cap0.toFixed(0)} → ${b.cap.toFixed(0)}, life ${b.hp.toFixed(0)}, the bar's grey ${JSON.stringify(grey)}, sick up: ${vomited}, the badges ${JSON.stringify(await badges())}`);
+  await rt('hold', 'item:nd_pills');
   await rightHold(2.6);
   b = await body();
   ok(!b.effects.sick2 && !b.effects.sick1, 'the stomach pills: well again');
@@ -156,7 +182,7 @@ try {
     g.body.hp = 70;
   });
   await sim(0.5);
-  ok((await badges()).some((t) => t.includes('困了')), `sleepy: ${JSON.stringify(await badges())}`);
+  ok(await ev(() => document.querySelector('.mc-vit .tile[data-k="energy"]').className.includes('on') && document.querySelector('.mc-vit .tile[data-k="energy"]').className.includes('low')), 'sleepy: the moon is there, red');
   const keys = await ev(() => [...document.querySelectorAll('.mc-keys, .mc-acts')].map((e) => e.textContent).join(' '));
   // the view dims for a moment now and then
   let dimmed = 0;
@@ -167,7 +193,7 @@ try {
   await shot('05_sleepy.png');
   ok(dimmed >= 0.3, `the view dims now and then (${dimmed.toFixed(2)})`);
   const hour0 = await ev(() => window.__rt.game.env.clock.hourAt(window.__rt.game.time));
-  await rightHold(1.2);
+  await leftHold(1.2);
   await sim(1.0);
   await shot('06_asleep.png');
   await sim(2.5);
@@ -175,7 +201,7 @@ try {
   const hour1 = await ev(() => window.__rt.game.env.clock.hourAt(window.__rt.game.time));
   const toast = await ev(() => document.querySelector('.mc-toast')?.textContent ?? '');
   await shot('07_woke.png');
-  ok(b.energy === 100 && b.hp > 90 && /睡了/.test(toast), `slept in the seat (${/睡觉/.test(keys) ? 'the line said 睡觉' : 'no line'}): ${toast}, energy ${b.energy}, health ${b.hp.toFixed(0)}, ${hour0.toFixed(1)} h → ${hour1.toFixed(1)} h`);
+  ok(b.energy === 100 && b.hp > 90 && b.cap > 99 && /睡了/.test(toast), `slept in the seat (${/睡觉/.test(keys) ? 'the line said 睡觉' : 'no line'}): ${toast}, energy ${b.energy}, health ${b.hp.toFixed(0)}, ${hour0.toFixed(1)} h → ${hour1.toFixed(1)} h`);
   await rt('exit');
 
   // ---- 7. coffee and a good dish
@@ -188,14 +214,58 @@ try {
   ok(Math.round(b.energy) === 70 && !!b.effects.awake, `a mug of coffee: energy 30 → ${b.energy.toFixed(0)}, kept awake`);
   await ev(() => window.__rt.game.player.slots.fill(null));
   await rt('hold', 'item:dish_tomato_egg', { state: { meal: { food: 30, perfect: 1 } } });
-  await ev(() => (window.__rt.game.body.hp = 60));
+  await ev(() => {
+    window.__rt.game.body.cap = 80;
+    window.__rt.game.body.hp = 60;
+  });
   await rightHold(6);
   await sim(5);
   b = await body();
   const bs = await badges();
   await rt('look', 0.1, -0.1);
   await shot('08_buff.png');
-  ok(bs.some((t) => t.includes('有劲')) && b.hp > 68, `tomato and eggs, perfect: ${JSON.stringify(bs)}, health 60 → ${b.hp.toFixed(0)}`);
+  // (two stars done just right: six of health back and life with it; its buff under the one mark of a good meal)
+  ok(bs.some((t) => t.includes('吃好了')) && b.cap > 85.9 && b.cap < 86.2 && b.hp > 65.9, `tomato and eggs, perfect: ${JSON.stringify(bs)}, health 80 → ${b.cap.toFixed(1)}, life 60 → ${b.hp.toFixed(1)}`);
+
+  // ---- 8. the heat: a coat in the desert at noon — warm, then heat-struck: health goes, the sun's mark by the grey
+  await ev(() => {
+    const g = window.__rt.game;
+    g.body.cap = 100;
+    g.body.hp = 100;
+    g.body.food = g.body.water = 100;
+    g.body.temp = 38.8;
+  });
+  await sim(0.2);
+  ok((await badges()).some((t) => t.includes('有点热')), `a hot body says so before it does harm: ${JSON.stringify(await badges())}`);
+  await ev(() => {
+    const g = window.__rt.game;
+    g.body.temp = 39.9;
+    g.env.weather.force = null;
+  });
+  // (kept hot: the workshop is never that — the body is held there as the desert would)
+  for (let k = 0; k < 20; k++) {
+    await ev(() => (window.__rt.game.body.temp = 39.9));
+    await sim(1);
+  }
+  b = await body();
+  const sun = await ev(() => ({ lost: parseFloat(document.querySelector('.mc-vit .bar .lost').style.width), glow: Number(document.querySelector('.mc-fx .glow').style.opacity) }));
+  await shot('09_heat.png');
+  ok(!!b.effects.heat && b.cap <= 98 && b.capWhy === 'heat' && sun.lost >= 2 && sun.glow > 0.3 && (await badges()).some((t) => t.includes('中暑')), `heat-struck: health ${b.cap.toFixed(0)} (${b.capWhy}), the grey ${sun.lost} %, the glow ${sun.glow}, ${JSON.stringify(await badges())}`);
+  // (the first-aid box used: thirty of health back; the same box carried gets one up again)
+  await ev(() => {
+    const g = window.__rt.game;
+    g.body.temp = 37.5;
+    g.body.cap = 50;
+    g.body.hp = 50;
+    g.body.effects = {};
+    g.body.heatHold = 0;
+    g.player.slots.fill(null);
+  });
+  await rt('hold', 'item:nd_first_aid');
+  await rightHold(5.5);
+  await sim(6);
+  b = await body();
+  ok(b.cap > 79.9 && b.cap < 80.6 && (await ev(() => window.__rt.game.player.held === null)), `the first-aid box used: health 50 → ${b.cap.toFixed(1)}`);
 
   const lastError = await page.evaluate(() => window.__rt.lastError);
   if (lastError) fail(`a frame threw: ${lastError}`);

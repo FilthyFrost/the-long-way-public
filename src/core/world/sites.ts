@@ -250,6 +250,12 @@ export class Site {
   ground = 0;
   /** a prefab building's card id (prefabs.ts; its object is the one of kind 'prefab'), '' for every other place */
   prefab = '';
+  /**
+   * (world version 7) which of the ten waters with a lord of its own this jetty's lake — or this lighthouse's sea, off
+   * its pier — is, in road order (0 the first … 9; docs/V3/plan/finish.md §二 6, §十: 十片有湖主的钓场排在 75 km 以后);
+   * −1: none — any other place, any other water
+   */
+  lord = -1;
   /** a prefab's levelled ground: flat at this height, its floor's foot (NaN: the road's level carried sideways) */
   flat = NaN;
   objects: SiteObject[] = [];
@@ -268,6 +274,32 @@ export class Site {
   /** counts up whenever something of it is moved (a car shoved a crate): whoever draws it draws it again */
   version = 0;
 }
+
+/**
+ * (world version 7; docs/V3/plan/finish.md §二 6) The ten waters with a lord of their own: the first due from this far
+ * down the road (m: the fishing's chapter begins at the 75th kilometre), the next from so much further each — the
+ * tenth from the 258th — and none within so many stretches of the one before: ten kilometres between two as a rule,
+ * two stretches once the next is this far overdue (lakes come in districts, with long dry country between: the ones
+ * the road has are taken). Over 200 worlds: all ten by the 300th kilometre in seven worlds of eight (never fewer than
+ * six by then), by the 360th in every one (harness/sim/f6_world.test.ts)
+ */
+export const LORD_WATERS = 10;
+export const LORD_FROM_M = 78_000;
+export const LORD_EVERY_M = 20_000;
+export const LORD_APART = 8;
+export const LORD_APART_LATE = 2;
+const LORD_LATE_M = 5_000;
+
+/** a place's refrigerator as it stands (m: across, deep, tall): the ice box's model, a little smaller than a filling station's */
+const FRIDGE: readonly [number, number, number] = [0.75, 0.65, 1.65];
+/** a prefab building's own refrigerator, the thing its card names (core/v3/nd/items.ts ND_FRIDGE) */
+const FRIDGE_ITEM = 'nd_fridge';
+/** how the ice box's model is turned against a prefab card's thing at the same spot (rad): its door the way the thing's front was — into the room */
+const FRIDGE_TURN = Math.PI;
+/** how high above its base an ice box's things lie (the scene has its shelf: siteArt.ts) */
+const ICEBOX_SHELF = 0.6;
+/** a camp's cool box (m): the tackle box's model, a size up */
+const COOLBOX: readonly [number, number, number] = [0.62, 0.4, 0.4];
 
 /**
  * How high above its base the things found in a container are laid out: on the bottom of an open
@@ -358,11 +390,20 @@ export class SitePlan implements SolidSource {
   private lastKind: SiteKind = 'roadside';
   private readonly br: { river: River | null; mask: number } = { river: null, mask: 0 };
   private stations = 0;
+  /** (world version 7) how many of the ten waters with a lord have been laid, and the stretch the last was laid in */
+  private lords = 0;
+  private lordAt = -1e9;
   /** the next of WorldOptions.prefabs to lay (prefabs.ts) */
   private prefabNext = 0;
   private readonly things: PrefabThing[] = [];
   /** (world version 6) Nomad Drive's buildings in the dice: the stretch each card was last laid at */
   private readonly nd: boolean;
+  /**
+   * (world version 7, docs/V3/plan/finish.md §二 6) the places keep food cold: a house has a refrigerator, a filling
+   * station's and a shop's ice box is one too, a camp has a cool box — and a prefab building's own refrigerator stands
+   * fixed where its card has it (a box of the place's, not a thing to carry off)
+   */
+  private readonly cold: boolean;
   private readonly ndAt = new Map<string, number>();
 
   /**
@@ -376,6 +417,7 @@ export class SitePlan implements SolidSource {
   ) {
     this.seed = hash2(seed | 0, 0x517e, 77);
     this.nd = world.rules.version >= 6;
+    this.cold = world.rules.version >= 7;
     // (a world of version 6 lays Nomad Drive's buildings: made without their cards it would be another world)
     if (this.nd) for (const d of PREFAB_DICE) if (!prefabCard(d.id)) throw new Error(`a world of version 6 lays the prefab '${d.id}', and its card is not registered (import core/v3/nd/cards first)`);
   }
@@ -625,8 +667,14 @@ export class SitePlan implements SolidSource {
     const th = this.things;
     th.length = 0;
     card.furnish?.(site.seed, site.s, th, boxes.length ? new Set(boxes.map((b) => b.spot)) : undefined);
+    const fridges: PrefabThing[] = [];
     for (let i = 0; i < th.length; i++) {
       const t = th[i];
+      // (version 7: its refrigerator is the place's own box, laid after the plan's — the others' ids as they were)
+      if (this.cold && t.item === FRIDGE_ITEM) {
+        fridges.push({ ...t });
+        continue;
+      }
       site.loose.push({ id: `${site.id}/n${i}`, item: t.item, n: t.n ?? 1, x: o.x + c * t.u - s * t.v, y: o.y + t.y, z: o.z + s * t.u + c * t.v, yaw: o.yaw + t.yaw });
     }
     // (laid by the dice: its boxes the plan's finds go in — loot.ts planBoxes — nothing of their own in them)
@@ -634,6 +682,7 @@ export class SitePlan implements SolidSource {
       const i = site.containers.length;
       site.containers.push({ id: `${site.id}/c${i}`, kind: b.kind, x: o.x + c * b.u - s * b.v, y: o.y + b.y0, z: o.z + s * b.u + c * b.v, yaw: o.yaw + b.turn, hx: b.hx, h: b.h, hz: b.hz, shelf: b.shelf, solid: b.solid, obj: -1, seed: hash2(site.seed, i, 0xc0a7), plan: true });
     }
+    for (const t of fridges) this.container(site, 'fridge', this.putIn(site, o, 'icebox', t.u, t.v, t.yaw + FRIDGE_TURN, FRIDGE[0], FRIDGE[1], FRIDGE[2], 0, t.y), ICEBOX_SHELF);
     // the wrecks its card lays: the road's own, settled on its ground, what is under their dash and in their boot
     for (const wk of card.wrecks ?? []) {
       const [w, d, h] = WRECK_SIZE[wk.type & 3];
@@ -743,12 +792,16 @@ export class SitePlan implements SolidSource {
     const off = region.lookouts ? routeOffset(region.id, k) : undefined;
     const view = off !== undefined && region.lookouts!.includes(off) && (land === 'shelf' || land === 'rim' || land === 'ridge' || land === 'hillside' || land === 'open');
     // (the view first: the tank's filling station can wait a stretch, it would not fit on such a road anyway)
+    // (world version 7: and so can it for the jetty of a lake a water with a lord is due at — lakes are fewer than
+    // stretches; open water: a frozen lake has a hut over a hole in its ice and no jetty, its fish are not a lord's)
+    const lordLake = lake !== null && lake.frozen <= 0.5 && this.shoreGap(lake) < 60 && this.lordDue(k);
     if (view) kind = 'lookout';
-    else if (needStation) kind = 'station';
+    else if (needStation && !lordLake) kind = 'station';
     else if (light) kind = 'lighthouse';
     else if (k === 1) kind = 'camp';
-    // (not every lake has its jetty: two in five; the others keep their shores to themselves)
-    else if (lake && this.shoreGap(lake) < 60 && r.next() < 0.42) kind = 'jetty';
+    // (not every lake has its jetty: two in five; the others keep their shores to themselves — but, world version 7,
+    // the lake a water with a lord is due at has its jetty for certain)
+    else if (lake && this.shoreGap(lake) < 60 && (lordLake || r.next() < 0.42)) kind = 'jetty';
     else {
       const po = this.world.placeOdds ?? PLACE_ODDS;
       const p = this.sincePlace === 0 ? po[0] : this.sincePlace === 1 ? po[1] : po[2];
@@ -771,9 +824,26 @@ export class SitePlan implements SolidSource {
     // a river's bridge takes the middle of its stretch: only small places fit beside it
     if (water && water.kind === 'river' && kind !== 'station') kind = kind === 'house' || kind === 'camp' ? kind : 'camp';
     const site = this.tryPlace(k, kind, lake, r, kind === 'lighthouse' ? light : null);
+    // (a jetty — or a lighthouse, with its pier out over the sea — laid where a water with a lord was due: it is that
+    // water's, if the jetty one fishes it from is there: the water was found below the yard)
+    if (site && (kind === 'jetty' ? lordLake : kind === 'lighthouse' && this.lordDue(k)) && site.objects.some((o) => o.kind === 'jetty')) {
+      site.lord = this.lords++;
+      this.lordAt = k;
+    }
     if (site) return site;
     // no room for it as drawn: a lay-by with a few crates may still fit
     return kind !== 'camp' ? this.tryPlace(k, 'camp', null, r) : null;
+  }
+
+  /**
+   * (world version 7) Is a water with a lord of its own due at stretch k: the next of the ten, each from its own
+   * kilometre on (the first from LORD_FROM_M, one every LORD_EVERY_M after), never within LORD_APART stretches of the one
+   * before it — LORD_APART_LATE when it is overdue by LORD_LATE_M
+   */
+  private lordDue(k: number): boolean {
+    if (!this.cold || this.lords >= LORD_WATERS) return false;
+    const late = k * SITE_SLOT - (LORD_FROM_M + this.lords * LORD_EVERY_M);
+    return late >= 0 && k - this.lordAt >= (late >= LORD_LATE_M ? LORD_APART_LATE : LORD_APART);
   }
 
   /**
@@ -1149,7 +1219,8 @@ export class SitePlan implements SolidSource {
         this.put(site, 'drum', -8.3 * f, kb - 1.2, 0, 0.6, 0.6, 0.88, 1);
         this.put(site, 'drum', -8.5 * f, kb - 0.3, 0, 0.6, 0.6, 0.88, 2);
         this.put(site, 'tyres', -8.2 * f, kb + 2.2, 0, 0.8, 0.8, 0.85);
-        this.put(site, 'icebox', 0.9 * f, kb - kd / 2 - 0.45, 0, 0.9, 0.7, 1.7);
+        const ice = this.put(site, 'icebox', 0.9 * f, kb - kd / 2 - 0.45, 0, 0.9, 0.7, 1.7);
+        if (this.cold) this.container(site, 'fridge', ice, ICEBOX_SHELF);
         this.put(site, 'signpole', (L - 4) * site.side, 7.6, Math.PI / 2, 2.6, 0.3, 8.4, SIGN.fuel);
         if (r.next() < 0.45) {
           const [t, w, d, h] = this.wreckSize(r);
@@ -1216,7 +1287,8 @@ export class SitePlan implements SolidSource {
         if (r.next() < 0.6) this.container(site, 'crate', this.put(site, 'crate', 7.3 * f, sb + 1.4, -0.4, 0.9, 0.7, 0.7));
         this.put(site, 'trolley', 5.2 * f, sb - 6.6, 0.7, 1.0, 0.6, 1.0);
         this.put(site, 'bench', -3.4 * f, sb - 4.5, 0, 1.6, 0.45, 0.45);
-        this.put(site, 'icebox', 4.6 * f, sb - 4.3, 0, 0.9, 0.7, 1.7);
+        const ice = this.put(site, 'icebox', 4.6 * f, sb - 4.3, 0, 0.9, 0.7, 1.7);
+        if (this.cold) this.container(site, 'fridge', ice, ICEBOX_SHELF);
         this.put(site, 'signpole', (L - 3.5) * site.side, 7.4, Math.PI / 2, 2.2, 0.3, 6.2, SIGN.shop);
         this.lie(site, pick(['food.can.beans', 'food.can.meat', 'drink.water']), 1 + r.int(2), 0.4, 0, r, mid);
         this.lie(site, pick(['spice.salt', 'spice.sugar', 'food.snack']), 1, -0.6, 0.05, r, mid);
@@ -1235,6 +1307,8 @@ export class SitePlan implements SolidSource {
         const floor: SiteObject = { ...b, h: 0 };
         this.container(site, 'cupboard', this.putIn(site, b, 'cupboard', 3.2 * f, 2.75, 0, 1.8, 0.5, 1.9));
         this.container(site, 'wardrobe', this.putIn(site, b, 'wardrobe', -3.7 * f, 1.4, quarter(f), 1.4, 0.6, 2.0));
+        // (version 7: three houses in four have a refrigerator, against the back wall beside the kitchen cupboard — its own dice: the rest of the house as it was)
+        if (this.cold && (hash2(site.seed, 0xf21d, 7) & 0xff) < 192) this.container(site, 'fridge', this.putIn(site, b, 'icebox', 1.75 * f, 2.68, 0, FRIDGE[0], FRIDGE[1], FRIDGE[2]), ICEBOX_SHELF);
         const table = this.putIn(site, b, 'ktable', 1.0 * f, 0.2, 0, 1.4, 0.9, 0.76);
         const bed = this.putIn(site, b, 'bed', -2.3 * f, -1.9, 0, 2.0, 1.0, 0.5);
         const shed = this.building(site, 8.2 * f, hb + 3.6, 0, 3.4, 2.8, 2.2, { roof: 'mono', doorAt: 0, doorW: 1.8, gate: true }, paint + 1);
@@ -1284,6 +1358,8 @@ export class SitePlan implements SolidSource {
           this.container(site, 'crate', this.put(site, 'crate', -8.6 * f, 12.8, 0.5, 0.9, 0.7, 0.7));
           if (r.next() < 0.55) this.container(site, 'crate', this.put(site, 'crate', 5.4 * f, 17.6, -0.3, 0.9, 0.7, 0.7));
           this.container(site, 'barrel', this.put(site, 'barrel', -2.6 * f, 17.4, 0, 0.62, 0.62, 0.9));
+          // (version 7: two camps in three have a cool box by the table — its own dice)
+          if (this.cold && (hash2(site.seed, 0xf21d, 8) & 0xff) < 170) this.container(site, 'coolbox', this.put(site, 'tacklebox', 4.7 * f, 12.3, 0.3, COOLBOX[0], COOLBOX[1], COOLBOX[2]));
           this.lie(site, 'mat.firewood', 1 + r.int(3), 0.2 * f, 15.4, r);
           if (r.next() < 0.5) this.lie(site, pick(['mat.rope', 'mat.cloth', 'tool.torch']), 1, 8.4 * f, 12.6, r);
         } else {
@@ -1294,6 +1370,8 @@ export class SitePlan implements SolidSource {
           this.container(site, 'crate', this.put(site, 'crate', -6.4 * f, W - 2.6, 0.4, 0.9, 0.7, 0.7));
           if (r.next() < 0.6) this.container(site, r.next() < 0.5 ? 'crate' : 'barrel', this.put(site, 'barrel', 5.6 * f, W - 2.4, 0, 0.62, 0.62, 0.9));
           if (r.next() < 0.5) this.put(site, 'firering', -0.2 * f, W - 3.0, 0, 1.4, 1.4, 0.25);
+          // (version 7: one lay-by in three has a cool box somebody left by the table)
+          if (this.cold && (hash2(site.seed, 0xf21d, 9) & 0xff) < 85) this.container(site, 'coolbox', this.put(site, 'tacklebox', 4.0 * f, W - 3.2, -0.2, COOLBOX[0], COOLBOX[1], COOLBOX[2]));
         }
         this.boardAt(site, SIGN.camp);
         break;

@@ -18,6 +18,12 @@
  *                    the driver's seat, the gear lever, the handbrake. Those done, the doors open. To be a car: the
  *                    doors, the bonnet, the boot lid, the lamps, the mirrors, the bumpers, the other seats, the horn
  *                    — on the board, not in the way.
+ *
+ * A world of version 7 on (docs/V3/plan/finish.md §二 2: 开局更破): the workshop keeps what the car needs to start and to
+ * drive, and one headlamp (a night's driving) — what makes it "a car" (the sixteen of ROAD_MOUNTS) is not there: it
+ * turns up down the first twelve kilometres of the road, piece by piece (schedule.ts startExtras), the driver's door
+ * first. The board's last group goes with them (what the car still lacks is the Tab screen's "这辆车"), the one headlamp
+ * is one of the steps to drive.
  */
 import { fitSub, newInstance, stockBuild, stockPartFor, stockTireFor } from './build';
 import { frameDef } from './frames';
@@ -90,12 +96,14 @@ const SPOT_OF: Record<string, KitSpot> = {
  * part worn, the battery half charged on its charger, the radiator dry (the board asks for water), the engine's oil
  * in it. The same every new game.
  */
-export function startParts(): KitPart[] {
+export function startParts(rough = false): KitPart[] {
   const f = frameDef(START_FRAME);
   const tyre = stockTireFor(f);
   const out: KitPart[] = [];
   for (const m of f.mounts) {
     if (KEPT_ON.includes(m.id) || NOT_HERE.has(m.id)) continue;
+    // (a world of version 7: what makes it "a car" is down the road)
+    if (rough && ROAD_MOUNTS.includes(m.id)) continue;
     const stock = stockPartFor(f, m);
     if (!stock) continue;
     const id = INSTEAD[m.id] ?? stock;
@@ -161,6 +169,36 @@ export const KIT_STEPS: readonly KitStepDef[] = [
   st('seats', 'car', '座椅', 'seats', ['seat_pass', 'seat_rear']),
   st('horn', 'car', '喇叭', 'horn', ['horn']),
 ];
+
+/** the one lamp the workshop of a world of version 7 has: the left headlamp (a night's driving) */
+export const KEPT_LAMP = 'headlight_L';
+
+/**
+ * What of the car is not in the workshop of a world of version 7 but down the first kilometres of its road: the mounts
+ * of the board's last group but the one headlamp — four doors, the bonnet, the boot lid, the other headlamp, two tail
+ * lamps, two mirrors, two bumpers, the passenger's and the rear seat, the horn (sixteen)
+ */
+export const ROAD_MOUNTS: readonly string[] = KIT_STEPS.filter((s) => s.group === 'car')
+  .flatMap((s) => s.mounts ?? [])
+  .filter((m) => m !== KEPT_LAMP);
+
+/** the car's steps for a start: as they always were, or (rough: a world of version 7) without the last group and with the one headlamp among those to drive */
+export function kitStepsOf(rough: boolean): readonly KitStepDef[] {
+  return rough ? [...KIT_STEPS.filter((s) => s.group !== 'car'), st('lamp', 'drive', '大灯', 'headlamp', [KEPT_LAMP])] : KIT_STEPS;
+}
+
+/** the parts that go on ROAD_MOUNTS, as the works fitted them: which, on which mount, and the frame a panel is shaped for */
+export function roadParts(): { mount: string; part: string; shapeOf?: string }[] {
+  const f = frameDef(START_FRAME);
+  const out: { mount: string; part: string; shapeOf?: string }[] = [];
+  for (const m of f.mounts) {
+    if (!ROAD_MOUNTS.includes(m.id)) continue;
+    const part = stockPartFor(f, m);
+    if (!part) continue;
+    out.push({ mount: m.id, part, ...(m.cat === 'door' || m.cat === 'hood' || m.cat === 'trunk' ? { shapeOf: f.id } : {}) });
+  }
+  return out;
+}
 
 /** how full the radiator is to count as filled (of what it holds) */
 export const WATER_FULL = 0.6;

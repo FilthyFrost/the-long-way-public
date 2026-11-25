@@ -73,14 +73,15 @@ describe('on foot: pace', () => {
   it('crouches at 1.0 m/s', () => expect(pace(go(1, 0, { crouch: true }))).toBeCloseTo(FOOT.crouch, 2));
   it('carries a big thing alone at 1.2 m/s, and cannot run with it', () => expect(pace(go(1, 0, { run: true }), (w) => (w.load = 'large'))).toBeCloseTo(FOOT.carry, 2));
   it('the stick held diagonally is no faster', () => expect(pace(go(1, 1))).toBeCloseTo(FOOT.walk, 2));
-  it('eye at 1.62 m, crouched 1.05 m', () => {
+  it('eye at 1.50 m (hers), crouched 1.00 m', () => {
     const w = new FootWalker(flat);
     w.place(0, 0, 0);
     w.bobOn = false;
     run(w, 1, go(0));
-    expect(w.eye().y).toBeCloseTo(1.62, 2);
+    // her eye (docs/V3/plan/character-pv.md: the eye follows her body)
+    expect(w.eye().y).toBeCloseTo(1.5, 2);
     run(w, 1.5, go(0, 0, { crouch: true }));
-    expect(w.eye().y).toBeCloseTo(1.05, 2);
+    expect(w.eye().y).toBeCloseTo(1.0, 2);
   });
   it('jumps 0.55 m', () => {
     const w = new FootWalker(flat);
@@ -404,5 +405,65 @@ describe('on foot: in the world, round the vehicle and the yard', () => {
     expect(inside).toBe(0);
     expect(far).toBeLessThan(16);
     expect(w.walked).toBeGreaterThan(300);
+  });
+});
+
+describe('the look that puts a point dead ahead (lookAt)', () => {
+  /** how far the ray from the eye, along the look, passes from the point (m) */
+  const miss = (w: FootWalker, x: number, y: number, z: number): number => {
+    const e = w.eye();
+    const d = w.look();
+    const t = (x - e.x) * d.x + (y - e.y) * d.y + (z - e.z) * d.z;
+    return Math.hypot(e.x + d.x * t - x, e.y + d.y * t - y, e.z + d.z * t - z);
+  };
+
+  it("is the plain angle from the eye when the view is the walker's own", () => {
+    const w = new FootWalker(flat, new SolidSet());
+    w.place(0, 0, 0.3);
+    const a = w.lookAt(1, 0.9, 0.4);
+    expect(a.yaw).toBeCloseTo(Math.atan2(0.4, 1), 12);
+    expect(a.pitch).toBeCloseTo(Math.atan2(0.9 - w.eye().y, Math.hypot(1, 0.4)), 12);
+  });
+
+  it('lands on the point from an eye that stands ahead of the feet and tips with the look', () => {
+    const w = new FootWalker(flat, new SolidSet());
+    Object.assign(w.view, { ahead: 0.049, aheadDown: 0.046, below: 0.099, belowDown: 0.0925 });
+    // (a knob at the hip a step off, a thing at the feet, a shelf overhead, something far: from any look to start with)
+    for (const [x, y, z] of [[0.9, 0.86, 0.2], [0.45, 0.05, -0.3], [-0.7, 2.1, 0.5], [3, 1.4, -4]] as const) {
+      for (const from of [[0, 0], [2.5, -1.2], [-1, 0.9]] as const) {
+        w.place(0, 0, from[0]);
+        w.pitch = from[1];
+        const a = w.lookAt(x, y, z);
+        w.heading = a.yaw;
+        w.pitch = a.pitch;
+        expect(miss(w, x, y, z)).toBeLessThan(1e-4);
+      }
+    }
+    // (what the solving is for: the height read off the eye once it looks there, but the distance still from the
+    // feet — the eye is ahead of them — is a knob missed)
+    w.place(0, 0, Math.atan2(0.2, 0.9));
+    for (let i = 0; i < 4; i++) w.pitch = Math.atan2(0.86 - w.eye().y, Math.hypot(0.9, 0.2));
+    expect(miss(w, 0.9, 0.86, 0.2)).toBeGreaterThan(0.02);
+  });
+});
+
+describe('is a vehicle standing still (bodyKmh)', () => {
+  it('counts the body sliding sideways, falling and spinning, which the speedometer does not', () => {
+    const v = new VehicleSim(T0_TRUCK);
+    expect(v.bodyKmh).toBe(0);
+    // (sliding off a bank sideways at 2 m/s: nought along its nose)
+    v.vForward = 0;
+    v.vx = 0;
+    v.vz = 2;
+    expect(v.kmh).toBe(0);
+    expect(v.bodyKmh).toBeCloseTo(7.2, 6);
+    // (falling)
+    v.vz = 0;
+    v.vy = -3;
+    expect(v.bodyKmh).toBeCloseTo(10.8, 6);
+    // (spinning on the spot: its ends swing round)
+    v.vy = 0;
+    v.yawRate = 1;
+    expect(v.bodyKmh).toBeCloseTo(7.2, 6);
   });
 });

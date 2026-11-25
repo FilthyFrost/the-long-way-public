@@ -1,12 +1,15 @@
 /**
- * The recipe book on screen (docs/V3/plan/cooking.md §3): J opens and shuts it. A page to each number of stars; every
+ * The recipe book on screen (docs/V3/plan/cooking.md §3): a page of the Tab screen (docs/V3/plan/finish.md §十三: from
+ * the lists D turns to it, A back; J is gone). A page to each number of stars; every
  * dish a tile — its picture, its name and how often it was made, a gold mark when it once came out perfect; a dish not
  * yet made is its silhouette and "？？？". Beside the tiles, the one chosen: what it is made of and how (a dish not
- * yet made: a hint, the kinds of what it needs and never the names), and whether it is pinned — E pins it: what a
- * pinned dish needs is pointed out when it is in the hands, at the pot and on its card.
+ * yet made: a hint, the kinds of what it needs and never the names), and whether it is pinned — the left button pins
+ * it: what a pinned dish needs is pointed out when it is in the hands, at the pot and on its card.
  *
- * The keys while it is open are its own (they do not reach the game: one does not walk off with the book open):
- * W A S D or the arrows choose, 1 to 5 turn to a page, E pins, J or Esc shuts it.
+ * The keys while it is open are its own (they do not reach the game: one does not walk off with the book open), as
+ * every page of the Tab screen has them: the wheel goes from dish to dish (on over the end of a page of stars to the
+ * next), W and S a row up and down, 1 to 5 turn to a page of stars, the left button pins; A back to the lists; the
+ * right button, Tab or Esc shut it.
  *
  * And the moment a dish comes out of the pot (cooking.md §5 "装盘时的亮相"): a card drops in at the top of the screen —
  * the dish's picture, its name, its stars popping in one after another, "新菜谱！" the first time, a gold glow and
@@ -107,47 +110,68 @@ export class BookUi {
     this.card.className = 'mc-frame kt-reveal';
     ctx.ui.root.appendChild(this.card);
     window.addEventListener('keydown', this.key, true);
-    // (J works anywhere: its paper is made ready now, so that the first opening is heard)
+    // (its paper is made ready now, so that the first opening is heard)
     for (const s of ['book_open', 'book_close', 'book_page']) ctx.warmSound(s);
+    // a page of the Tab screen: the game hands it the wheel and the left button while it is open
+    this.offTab = ctx.addTabPage?.({ id: 'recipes', title: '菜谱', show: (open) => this.toggle(open), wheel: (dir) => this.wheel(dir), press: () => this.pin() }) ?? null;
   }
 
+  private offTab: (() => void) | null = null;
+
   private readonly key = (e: KeyboardEvent): void => {
-    if (e.repeat && e.code === 'KeyJ') return;
+    if (!this.open) return;
     const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT';
     if (typing) return;
-    if (e.code === 'KeyJ') {
-      // (in a seat the keys are the car's)
-      if (!this.open && this.ctx.seated) return;
-      this.toggle();
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      return;
-    }
-    if (!this.open) return;
     // the book has the keys while it is open
     e.stopImmediatePropagation();
     e.preventDefault();
     const n = this.list.length;
-    if (e.code === 'Escape') this.toggle(false);
-    else if (e.code === 'KeyD' || e.code === 'ArrowRight') this.sel = Math.min(n - 1, this.sel + 1);
-    else if (e.code === 'KeyA' || e.code === 'ArrowLeft') this.sel = Math.max(0, this.sel - 1);
-    else if (e.code === 'KeyS' || e.code === 'ArrowDown') this.sel = Math.min(n - 1, this.sel + COLS);
+    if (e.code === 'Escape' || e.code === 'Tab') {
+      if (e.repeat) return;
+      if (this.ctx.closeTab) this.ctx.closeTab();
+      else this.toggle(false);
+      return;
+    }
+    // (A: back to the lists; D: the next page of the Tab screen, when there is one)
+    if (e.code === 'KeyA' || e.code === 'ArrowLeft' || e.code === 'KeyD' || e.code === 'ArrowRight') {
+      if (!e.repeat) this.ctx.turnTab?.(e.code === 'KeyA' || e.code === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
+    if (e.code === 'KeyS' || e.code === 'ArrowDown') this.sel = Math.min(n - 1, this.sel + COLS);
     else if (e.code === 'KeyW' || e.code === 'ArrowUp') this.sel = Math.max(0, this.sel - COLS);
     else if (/^Digit[1-5]$/.test(e.code)) {
       const p = Number(e.code.slice(5));
       if (p !== this.page) this.ctx.sound('book_page', 0.8);
       this.turn(p);
-    }
-    else if (e.code === 'KeyE' || e.code === 'Enter') {
-      const d = this.list[this.sel];
-      if (d) {
-        const now = togglePin(this.sys.book, d.id);
-        this.ctx.sound('book_page', 0.5);
-        this.ctx.ui.say(now ? `钉住了「${this.sys.book.made[d.id] ? d.zh : '？？？'}」：拿到它要的食材时会提醒。` : '不再钉住。', 2.2);
-      }
     } else return;
     this.dirty = true;
   };
+
+  /** the wheel: on to the next dish or back to the one before, over the end of a page of stars to the next page (back: to the last of the one before) */
+  private wheel(dir: 1 | -1): void {
+    if (!this.open) return;
+    const to = this.sel + dir;
+    if (to >= 0 && to < this.list.length) this.sel = to;
+    else {
+      const p = this.page + dir;
+      if (p < 1 || p > 5) return;
+      this.ctx.sound('book_page', 0.8);
+      this.turn(p);
+      if (dir < 0) this.sel = Math.max(0, this.list.length - 1);
+    }
+    this.dirty = true;
+  }
+
+  /** the left button: the dish chosen pinned, or let go of */
+  private pin(): void {
+    if (!this.open) return;
+    const d = this.list[this.sel];
+    if (!d) return;
+    const now = togglePin(this.sys.book, d.id);
+    this.ctx.sound('book_page', 0.5);
+    this.ctx.ui.say(now ? '钉住了' : '不钉了', 1.6);
+    this.dirty = true;
+  }
 
   toggle(open = !this.open): void {
     if (open !== this.open) this.ctx.sound(open ? 'book_open' : 'book_close', 1);
@@ -254,10 +278,12 @@ export class BookUi {
     const shown = Math.min(this.list.length, top + rows * COLS);
     let tabs = '';
     for (let s = 1; s <= 5; s++) tabs += `<span class="${s === this.page ? 'on' : ''}">${'★'.repeat(s)}<i>${t.stars[s - 1].made}/${t.stars[s - 1].total}</i></span>`;
-    this.el.innerHTML = `<h3>食谱本<small>做出来过 ${t.made} / ${t.total} 道 · 完美 ${t.perfect} 道 · 记下的失败搭配 ${book.fails.length} 个</small></h3><div class="tabs">${tabs}<em>${this.list.length > rows * COLS ? `第 ${top + 1}–${shown} 道，共 ${this.list.length} 道` : ''}</em></div><div class="main"><div class="grid">${tiles}</div>${side}</div><div class="foot"><b>W</b><b>A</b><b>S</b><b>D</b>选菜<b>1</b>–<b>5</b>翻到几星<b>E</b>钉住 / 取消<b>J</b>合上</div>`;
+    this.el.innerHTML = `<h3>食谱本<small>做出来过 ${t.made} / ${t.total} 道 · 完美 ${t.perfect} 道 · 记下的失败搭配 ${book.fails.length} 个</small></h3><div class="tabs">${tabs}<em>${this.list.length > rows * COLS ? `第 ${top + 1}–${shown} 道，共 ${this.list.length} 道` : ''}</em></div><div class="main"><div class="grid">${tiles}</div>${side}</div><div class="foot"><b>滚轮</b>选<b>左键</b>钉住<b>A</b>清单<b>Tab</b>关</div>`;
   }
 
   dispose(): void {
+    this.offTab?.();
+    this.offTab = null;
     window.removeEventListener('keydown', this.key, true);
     this.el.remove();
     this.card.remove();

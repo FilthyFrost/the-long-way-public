@@ -10,7 +10,15 @@
  * keep their share of the screen on a bigger one.
  */
 import type { Text } from '../../core/modcar/types';
+import { ASSIST_KEY_NAMES } from './assists';
 import { ItemHud } from './hudItems';
+import type { Gauges } from './kernel/heldUse';
+
+/** the arcs beside the mark: a circle's (radius ARC_R) span between y 12 and 108 of a 64 × 120 box, its centre off to
+ * the side by ARC_D; the half-angle it spans */
+const ARC_R = 62;
+const ARC_D = Math.sqrt(ARC_R * ARC_R - 48 * 48);
+const ARC_HALF = Math.atan2(48, ARC_D);
 
 /** the cartoon frame round every panel: Arctic Drive's dark smoky glass inside a cream rim, an ink line round that and a hard shadow under */
 const SMOKE = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='640'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0125' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.11 -0.02'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23a)'/%3E%3C/svg%3E")`;
@@ -26,6 +34,54 @@ const CSS = `
 .mc-frame { box-sizing: border-box; border-radius: 14px; background: var(--grain), var(--smoke), linear-gradient(180deg, rgba(22,21,20,0.9), rgba(30,29,28,0.86)); border: 3px solid var(--rim); box-shadow: 0 0 0 2.5px var(--ink), 0 6px 0 1px rgba(10,8,6,0.55); }
 .mc-mark { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,0.5); }
 .mc-ring { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5)); }
+/* the two arcs round either side of the mark (a held thing's: a fish's stamina, the line's strain — docs/V3/plan/fishing-feel.md
+   §4): a dark track with the HUD's cream rim, filled from its foot in the thing's colour, the marks across it, an icon inside;
+   low in the view, as DREADMOOR's are, so the fish out on the water stands clear above them (§7) */
+.mc-gauge { position: absolute; top: 50%; width: 64px; height: 120px; margin-top: 86px; overflow: visible; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.6)); }
+.mc-gauge.l { left: calc(50% - 98px); }
+.mc-gauge.r { left: calc(50% + 34px); }
+.mc-gauge .rim { fill: none; stroke: rgba(239,230,211,0.62); stroke-width: 12; stroke-linecap: round; }
+.mc-gauge .trk { fill: none; stroke: rgba(20,18,16,0.78); stroke-width: 9; stroke-linecap: round; }
+.mc-gauge .val { fill: none; stroke-width: 6; stroke-linecap: round; }
+.mc-gauge .tick { fill: none; stroke: rgba(239,230,211,0.9); stroke-width: 12; }
+.mc-gauge .zone { fill: none; stroke-width: 9; opacity: 0.85; }
+.mc-gauge .ico { fill: var(--rim); stroke: var(--rim); }
+.mc-gauge.blink .val { animation: mc-blink 0.5s ease-in-out infinite alternate; }
+/* the words under each gauge: what is on the line (left), what to do now (right) */
+.mc-glabel { position: absolute; top: calc(50% + 212px); white-space: nowrap; font-size: 14px; font-weight: 700; text-shadow: var(--say-shadow); }
+.mc-glabel.l { right: calc(50% + 38px); text-align: right; }
+.mc-glabel.r { left: calc(50% + 38px); }
+.mc-glabel b { color: var(--gold); }
+/* a dial's needle over its bands (the line's strain where it is now, as DREADMOOR's has it): from the icon to a bead on the arc */
+.mc-gauge .ndl { stroke: #fff; stroke-width: 2.4; stroke-linecap: round; }
+.mc-gauge .bead { fill: #fff; stroke: var(--ink); stroke-width: 1.8; }
+.mc-gauge.blink .bead, .mc-gauge.blink .ndl { animation: mc-blink 0.3s steps(2) infinite; }
+/* the way to pull (docs/V3/plan/fishing-feel.md §7): chevrons out on that side and its key — nudging while idle, gold
+   while the pull is working, red and flashing the wrong way */
+.mc-pull { position: absolute; top: calc(50% + 126px); display: none; white-space: nowrap; font-weight: 900; color: var(--rim); text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.55); font-family: var(--key-font); line-height: 1; }
+.mc-pull.l { right: calc(50% + 100px); }
+.mc-pull.r { left: calc(50% + 100px); }
+.mc-pull .chev { font-size: 30px; letter-spacing: -5px; vertical-align: middle; }
+.mc-pull.l .chev { padding-right: 9px; }
+.mc-pull.r .chev { padding-left: 4px; }
+.mc-pull .k { display: inline-block; background: rgba(20,18,16,0.6); box-shadow: 0 0 0 1.5px rgba(0,0,0,0.7); font-size: 17px; font-family: "Arial Black","Arial",sans-serif; min-width: 13px; text-align: center; padding: 3px 5px 2px; border: 2px solid currentColor; border-radius: 5px; vertical-align: middle; margin: 0 4px; }
+.mc-pull.l.idle { animation: mc-nudge-l 0.8s ease-in-out infinite; }
+.mc-pull.r.idle { animation: mc-nudge-r 0.8s ease-in-out infinite; }
+.mc-pull.good { color: var(--gold); }
+.mc-pull.l.good { animation: mc-nudge-l 0.36s ease-in-out infinite; }
+.mc-pull.r.good { animation: mc-nudge-r 0.36s ease-in-out infinite; }
+.mc-pull.bad { color: #ff6b5a; animation: mc-flash 0.3s steps(2) infinite; }
+@keyframes mc-nudge-l { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-8px); } }
+@keyframes mc-nudge-r { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(8px); } }
+@keyframes mc-flash { 50% { opacity: 0.25; } }
+/* between the arcs' feet: how far off the fish is */
+.mc-gnote { position: absolute; left: 50%; top: calc(50% + 174px); transform: translateX(-50%); white-space: nowrap; font-size: 12px; font-weight: 700; color: var(--tx-2); text-shadow: var(--say-shadow); }
+.mc-gnote b { color: #fff; font-size: 17px; font-family: var(--key-font); margin-right: 2px; }
+/* (and whether it is being brought in, green, or running out, red) */
+.mc-gnote i { font-style: normal; font-size: 12px; font-weight: 900; margin-left: 4px; }
+.mc-gnote i.in { color: #7fd16b; }
+.mc-gnote i.out { color: #ff6b5a; }
+@keyframes mc-blink { from { opacity: 1; } to { opacity: 0.25; } }
 .mc-word { position: absolute; left: 50%; top: calc(50% + 30px); transform: translateX(-50%); white-space: nowrap; font-size: 17px; font-weight: 700; text-shadow: var(--say-shadow); }
 .mc-word b { color: var(--gold); }
 .mc-word small { color: var(--tx-2); margin-left: 6px; font-size: 13px; font-weight: 400; }
@@ -67,6 +123,9 @@ const CSS = `
 .mc-dash .tyres i.s3 { background: #ff6b5a; }
 .mc-dash .tyres i.flat { background: #2a1512; border-color: #ff6b5a; animation: mc-blink 0.8s steps(2) infinite; }
 .mc-dash .tyres i.none { background: transparent; border-style: dashed; opacity: 0.5; }
+.mc-dash.compact { gap: 10px; padding: 9px 14px 10px 14px; }
+.mc-dash.compact .gear, .mc-dash.compact .tyres, .mc-dash.compact .lamps, .mc-dash.compact .revs, .mc-dash.compact .wl, .mc-dash.compact .temp, .mc-dash.compact .tempT { display: none; }
+.mc-dash.compact .col { min-width: 96px; }
 @keyframes mc-blink { 50% { opacity: 0.35; } }
 .mc-fade { position: absolute; z-index: 5; inset: 0; background: #0b0a09; opacity: 0; transition: opacity 0.6s; }
 .mc-help, .mc-assist { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); max-height: calc(100% - 40px); overflow: auto; font-size: 14.5px; line-height: 1.55; }
@@ -105,24 +164,18 @@ const CSS = `
 
 /** the keys (docs/MODCAR.md §5.1), as the help card shows them: a key and a word (docs/V3/plan/prompts.md §五) */
 export const HELP = `<h3>按键</h3>
-<h5>鼠标</h5><table>
-<tr><td class="k">左键</td><td class="v">拿 · 开 · 用</td></tr>
-<tr><td class="k">按住左键</td><td class="v">装 · 拆 · 倒 · 喷 · 刮</td></tr>
-<tr><td class="k">右键</td><td class="v">吃 · 喝 · 手电 · 相机</td></tr>
-<tr><td class="k">滚轮</td><td class="v">调 · 换格</td></tr>
+<table>
+<tr><td class="k">左键</td><td class="v">拿 · 开 · 用　按住：装 · 拆 · 倒 · 喷</td></tr>
+<tr><td class="k">右键</td><td class="v">用手里的东西</td></tr>
+<tr><td class="k">滚轮</td><td class="v">换格 · 调</td></tr>
+<tr><td class="k"><b>Q</b></td><td class="v">放下 · 收起来　按住：下车</td></tr>
+<tr><td class="k"><b>R</b></td><td class="v">仔细摆　摆的时候 <b>Q</b> <b>E</b> 转</td></tr>
+<tr><td class="k"><b>Tab</b></td><td class="v">身上 · 车上 · 菜谱</td></tr>
+<tr><td class="k"><b>V</b></td><td class="v">换视角</td></tr>
+<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>空格</b> · <b>Shift</b> · <b>C</b></td><td class="v">走、开车 · 跳、手刹 · 跑 · 蹲</td></tr>
+<tr><td class="k"><b>Esc</b></td><td class="v">菜单</td></tr>
 </table>
-<h5>键盘</h5><table>
-<tr><td class="k"><b>W</b><b>A</b><b>S</b><b>D</b> · <b>Shift</b> · <b>空格</b> · <b>C</b></td><td class="v">走 · 跑 · 跳 · 蹲</td></tr>
-<tr><td class="k"><b>Q</b> · <b>R</b></td><td class="v">放下 · 摆放</td></tr>
-<tr><td class="k">摆放时 <b>Q</b> <b>E</b></td><td class="v">转 90°</td></tr>
-<tr><td class="k"><b>1</b> <b>2</b> · <b>Tab</b> · <b>J</b></td><td class="v">快捷栏 · 背包 · 食谱</td></tr>
-</table>
-<h5>开车</h5><table>
-<tr><td class="k"><b>W</b> <b>S</b> · <b>A</b> <b>D</b> · <b>空格</b></td><td class="v">油门 / 刹车 · 转向 · 手刹</td></tr>
-<tr><td class="k">按住左键（钥匙）</td><td class="v">打火</td></tr>
-<tr><td class="k"><b>L</b> · <b>H</b> · <b>C</b> · 按住 <b>Q</b></td><td class="v">车灯 · 喇叭 · 视角 · 下车</td></tr>
-</table>
-<div class="foot">点击开始 · <b>F1</b> 按键 · <b>F2</b> 辅助 · <b>\`</b> 开发者 · <b>F9</b>×2 新游戏 · <b>Esc</b> 放开鼠标</div>`;
+<div class="foot">点击开始 · <b>F1</b> 按键</div>`;
 
 /** the marker's flag: a gold pennant on a pole, in the cartoon ink */
 const FLAG = '<svg viewBox="0 0 22 26"><path d="M5 24.5V2.5" stroke="#17120f" stroke-width="3.2" stroke-linecap="round" fill="none" /><path d="M5 24.5V2.5" stroke="#efe6d3" stroke-width="1.4" stroke-linecap="round" fill="none" /><path class="f" d="M6 3h13l-3.6 4.6L19 12.2H6z" fill="#e9c14a" stroke="#17120f" stroke-width="2.2" stroke-linejoin="round" /></svg>';
@@ -152,6 +205,8 @@ export interface DashView {
   warn: { battery: boolean; oil: boolean; temp: boolean; fuel: boolean; check: boolean };
   /** the four tyres (FL, FR, RL, RR, as seen from above): their stage (0 new … 3 "good luck", tyres.ts), −1 none, 4 blown */
   tyres?: number[];
+  /** the speed and the fuel alone (seen from outside the vehicle, the instruments in the cab out of sight) */
+  compact?: boolean;
 }
 
 export class ModUI {
@@ -178,6 +233,13 @@ export class ModUI {
   private scale = 1;
   private lastMarker = '';
   private lastWord = '';
+  private readonly gauge: { el: SVGSVGElement; val: SVGPathElement; ticks: SVGGElement; ico: SVGGElement; ndl: SVGLineElement; bead: SVGCircleElement; label: HTMLDivElement; key: string }[] = [];
+  /** the way to pull (an arrow out on either side) and the note between the arcs */
+  private readonly pullCue: HTMLDivElement[] = [];
+  private pullKey = '';
+  private gnote!: HTMLDivElement;
+  private gnoteKey = '';
+  private gaugeSaid = false;
   private lastList = '';
   lang: 'zh' | 'en' = 'zh';
 
@@ -200,6 +262,51 @@ export class ModUI {
     this.ring.appendChild(bg);
     this.ring.appendChild(this.arc);
     this.root.appendChild(this.ring);
+    // the two arcs beside the mark: the left bulging left (a fish inside it), the right bulging right (a reel inside it)
+    for (const side of ['l', 'r']) {
+      const g = document.createElementNS(ns, 'svg');
+      g.setAttribute('class', `mc-gauge ${side}`);
+      g.setAttribute('viewBox', '0 0 64 120');
+      g.style.display = 'none';
+      const d = side === 'l' ? 'M 50.8 108 A 62 62 0 0 1 50.8 12' : 'M 13.2 108 A 62 62 0 0 0 13.2 12';
+      const path = (cls: string): SVGPathElement => {
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('class', cls);
+        p.setAttribute('d', d);
+        p.setAttribute('pathLength', '100');
+        g.appendChild(p);
+        return p;
+      };
+      path('rim');
+      path('trk');
+      const ticks = document.createElementNS(ns, 'g');
+      g.appendChild(ticks);
+      const val = path('val');
+      const ico = document.createElementNS(ns, 'g');
+      ico.setAttribute('class', 'ico');
+      ico.innerHTML =
+        side === 'l'
+          ? '<path d="M 41 60 Q 47 52.5 56 60 Q 47 67.5 41 60 Z M 41.5 60 L 35 55 L 35 65 Z" stroke-width="0.6"/>'
+          : '<circle cx="22" cy="60" r="6" fill="none" stroke-width="2.2"/><circle cx="22" cy="60" r="1.8"/><path d="M 22 60 L 28.5 53.5" stroke-width="2.2" fill="none"/>';
+      g.appendChild(ico);
+      // (a dial's needle: from the icon out to a bead on the arc)
+      const ndl = document.createElementNS(ns, 'line');
+      ndl.setAttribute('class', 'ndl');
+      const bead = document.createElementNS(ns, 'circle');
+      bead.setAttribute('class', 'bead');
+      bead.setAttribute('r', '5.2');
+      ndl.style.display = bead.style.display = 'none';
+      g.appendChild(ndl);
+      g.appendChild(bead);
+      this.root.appendChild(g);
+      const label = el('div', `mc-glabel ${side}`, this.root);
+      label.style.display = 'none';
+      this.gauge.push({ el: g, val, ticks, ico, ndl, bead, label, key: '' });
+      const cue = el('div', `mc-pull ${side}`, this.root);
+      this.pullCue.push(cue);
+    }
+    this.gnote = el('div', 'mc-gnote', this.root);
+    this.gnote.style.display = 'none';
     this.word = el('div', 'mc-word', this.root);
     this.items = new ItemHud(this.root);
     this.toast = el('div', 'mc-toast mc-frame', this.root);
@@ -240,9 +347,12 @@ export class ModUI {
     this.root.style.transform = s === 1 ? '' : `scale(${s})`;
   }
 
-  /** the mark, the word under it ("装上 <b>V8</b>"), and the progress ring (−1 = none) */
-  prompt(show: boolean, html: string, ring: number): void {
+  /** the mark, the word under it ("装上 <b>V8</b>"), and the progress ring (−1 = none) in its colour (absent: the usual white; a rod's line under strain: gold, then red) */
+  prompt(show: boolean, html: string, ring: number, colour?: string): void {
     this.mark.style.display = show ? '' : 'none';
+    // (the bars beside the mark are a held thing's, said each frame after the mark: gauges(); not said since the last frame, gone)
+    if (!this.gaugeSaid) this.gauges(null);
+    this.gaugeSaid = false;
     if (html !== this.lastWord) {
       this.word.innerHTML = html;
       this.lastWord = html;
@@ -251,6 +361,115 @@ export class ModUI {
     const on = show && ring >= 0;
     this.ring.style.display = on ? '' : 'none';
     if (on) this.arc.setAttribute('stroke-dashoffset', String(113.1 * (1 - Math.min(1, ring))));
+    const c = colour ?? '#f2efe8';
+    if (c !== this.ringColour) {
+      this.ringColour = c;
+      this.arc.setAttribute('stroke', c);
+    }
+  }
+
+  private ringColour = '#f2efe8';
+
+  /** the two slim bars beside the mark, left and right (null: none), the way to pull and the note; said each frame after prompt() */
+  gauges(g: Gauges | null): void {
+    this.gaugeSaid = !!g;
+    // the way to pull: an arrow out on that side with its key
+    const pull = g?.pull ?? null;
+    const pk = pull ? `${pull.side}|${pull.state}|${pull.key}` : '';
+    if (pk !== this.pullKey) {
+      this.pullKey = pk;
+      for (let i = 0; i < 2; i++) {
+        const cue = this.pullCue[i];
+        const on = !!pull && (i === 0 ? pull.side < 0 : pull.side > 0);
+        cue.style.display = on ? 'block' : 'none';
+        if (!on || !pull) continue;
+        cue.className = `mc-pull ${i === 0 ? 'l' : 'r'} ${pull.state}`;
+        cue.innerHTML = i === 0 ? `<span class="chev">❮❮❮</span><span class="k">${pull.key}</span>` : `<span class="k">${pull.key}</span><span class="chev">❯❯❯</span>`;
+      }
+    }
+    const note = g?.note ?? '';
+    if (note !== this.gnoteKey) {
+      this.gnoteKey = note;
+      this.gnote.innerHTML = note;
+      this.gnote.style.display = note ? '' : 'none';
+    }
+    const two = [g?.left ?? null, g?.right ?? null];
+    for (let i = 0; i < 2; i++) {
+      const v = two[i];
+      const slot = this.gauge[i];
+      if (!slot) continue;
+      if (!v) {
+        if (slot.key !== '') {
+          slot.key = '';
+          slot.el.style.display = 'none';
+          slot.label.style.display = 'none';
+        }
+        continue;
+      }
+      const pct = Math.round(Math.max(0, Math.min(1, v.value)) * (v.needle ? 400 : 200)) / (v.needle ? 4 : 2);
+      const zones = v.zones?.map((z) => `${z.from}-${z.to}-${z.colour}`).join(',') ?? '';
+      const key = `${pct}|${v.colour}|${v.blink ? 1 : 0}|${v.ticks?.join(',') ?? ''}~${zones}|${v.icon ?? ''}|${v.label ?? ''}|${v.needle ? 1 : 0}`;
+      if (key === slot.key) continue;
+      const was = slot.key;
+      slot.key = key;
+      slot.el.style.display = '';
+      // (the arc's length is 100: so much of it drawn from its foot; a dial: no fill, the needle at the value)
+      slot.val.style.strokeDasharray = pct > 0 && !v.needle ? `${pct} 200` : '0 200';
+      // (nothing to fill: no dot of its round end left at the foot to be taken for a second mark)
+      slot.val.style.display = pct > 0 && !v.needle ? '' : 'none';
+      slot.val.style.stroke = v.colour;
+      slot.ndl.style.display = slot.bead.style.display = v.needle ? '' : 'none';
+      if (v.needle) {
+        // (the arc's circle: its centre off to the left of the right box, to the right of the left one; the foot at +ARC_HALF)
+        const right = i === 1;
+        const cx = right ? 13.2 - ARC_D : 50.8 + ARC_D;
+        const a = right ? ARC_HALF - (pct / 100) * 2 * ARC_HALF : Math.PI - ARC_HALF + (pct / 100) * 2 * ARC_HALF;
+        const c = Math.cos(a);
+        const sn = Math.sin(a);
+        slot.ndl.setAttribute('x1', (cx + (ARC_R - 14) * c).toFixed(2));
+        slot.ndl.setAttribute('y1', (60 + (ARC_R - 14) * sn).toFixed(2));
+        slot.ndl.setAttribute('x2', (cx + (ARC_R - 4) * c).toFixed(2));
+        slot.ndl.setAttribute('y2', (60 + (ARC_R - 4) * sn).toFixed(2));
+        slot.bead.setAttribute('cx', (cx + ARC_R * c).toFixed(2));
+        slot.bead.setAttribute('cy', (60 + ARC_R * sn).toFixed(2));
+        slot.bead.style.fill = v.colour;
+      }
+      slot.el.classList.toggle('blink', !!v.blink);
+      slot.ico.style.fill = slot.ico.style.stroke = v.icon ?? '';
+      if (v.label) {
+        if (slot.label.innerHTML !== v.label) slot.label.innerHTML = v.label;
+        slot.label.style.display = '';
+      } else slot.label.style.display = 'none';
+      const ticks = `${v.ticks?.join(',') ?? ''}~${zones}`;
+      if (was.split('|')[3] !== ticks || was === '') {
+        slot.ticks.innerHTML = '';
+        const d = slot.el.querySelector('path')?.getAttribute('d') ?? '';
+        // (the track's bands under the fill: where the strain turns gold, then red)
+        for (const z of v.zones ?? []) {
+          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('class', 'zone');
+          p.setAttribute('d', d);
+          p.setAttribute('pathLength', '100');
+          p.style.stroke = z.colour;
+          p.style.strokeDasharray = `0 ${z.from * 100} ${Math.max(0, (z.to - z.from) * 100)} 200`;
+          slot.ticks.appendChild(p);
+        }
+        for (const t of v.ticks ?? []) {
+          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('class', 'tick');
+          p.setAttribute('d', d);
+          p.setAttribute('pathLength', '100');
+          p.style.strokeDasharray = `0 ${Math.max(0, t * 100 - 0.7)} 1.4 200`;
+          slot.ticks.appendChild(p);
+        }
+      }
+    }
+  }
+
+  /** the line at the top taken down now (what it said is over: a fish is out of the water) */
+  hush(): void {
+    this.toastT = 0;
+    this.toast.style.opacity = '0';
   }
 
   say(text: string, seconds = 3.5): void {
@@ -301,11 +520,12 @@ export class ModUI {
   showDash(d: DashView | null): void {
     this.dash.style.display = d ? '' : 'none';
     if (!d) return;
+    this.dash.classList.toggle('compact', !!d.compact);
     if (!this.dashEls) {
       this.dash.innerHTML =
         '<div class="spd"></div><div class="unit">km/h</div><div class="gear"></div>' +
-        '<div class="col"><div class="row"><div class="bar rpm"><i></i></div><span class="rpmT"></span></div>' +
-        '<div class="row">油<div class="bar fuelBar"><i></i></div>水<div class="bar temp"><i></i></div><span class="tempT"></span></div>' +
+        '<div class="col"><div class="row revs"><div class="bar rpm"><i></i></div><span class="rpmT"></span></div>' +
+        '<div class="row">油<div class="bar fuelBar"><i></i></div><span class="wl">水</span><div class="bar temp"><i></i></div><span class="tempT"></span></div>' +
         '<div class="lamps"></div></div><div class="tyres" title="轮胎"></div>';
       const q = (sel: string): HTMLElement => this.dash.querySelector(sel) as HTMLElement;
       this.dashEls = { spd: q('.spd'), gear: q('.gear'), rpm: q('.rpm i'), rpmT: q('.rpmT'), fuel: q('.fuelBar i'), fuelBar: q('.fuelBar'), temp: q('.temp i'), tempT: q('.tempT'), lamps: q('.lamps'), tyres: q('.tyres') };
@@ -350,8 +570,8 @@ export class ModUI {
     this.assist.style.display = '';
     this.assist.innerHTML =
       '<h3>辅助开关</h3>' +
-      items.map((it, i) => `<div class="row"><b class="k">${i + 1}</b><span class="${it.on ? 'on' : 'off'}">${it.on ? '开' : '关'}</span>${it.label}</div>`).join('') +
-      '<div class="foot">按数字键切换 · F2 关闭 · 默认：硬核（手刹要自己松）</div>';
+      items.map((it, i) => `<div class="row"><b class="k">${ASSIST_KEY_NAMES[i] ?? '·'}</b><span class="${it.on ? 'on' : 'off'}">${it.on ? '开' : '关'}</span>${it.label}</div>`).join('') +
+      '<div class="foot">按左边的键切换 · F2 关闭 · 默认：硬核（手刹要自己松）</div>';
   }
 
   get assistsShown(): boolean {

@@ -22,6 +22,7 @@ import { partStars } from './crafting';
 import { frameDef } from './frames';
 import { BASE_ITEMS, type ItemCat } from './items';
 import { BASIC_PAINTS, PALETTE } from './palette';
+import { aboardOf } from './aboard';
 import { sprayFound } from './paint';
 import { keepInsideClean, partDef, PARTS } from './parts';
 import { newTool, type Tool } from './tools';
@@ -79,13 +80,26 @@ const FIND_ON: Partial<Record<string, number>> = {
 
 /**
  * The finds of a wreck s metres down the road: how many on average (a few by the workshop, one or two a
- * hundred kilometres on), and the odds of each one's grade (★3, ★4, ★5)
+ * hundred kilometres on), and the odds of each one's grade (★3, ★4, ★5) — as far as `farM`, where "better the
+ * further on" runs out (a hundred kilometres; a world of version 7's two hundred and fifty: loot.ts LootRules)
  */
-export function findOdds(s: number): { mean: number; grades: [number, number, number] } {
-  const k = Math.max(0, Math.min(1, s / 100_000));
+export function findOdds(s: number, farM = 100_000): { mean: number; grades: [number, number, number] } {
+  const k = Math.max(0, Math.min(1, s / farM));
   const lerp = (a: number, b: number): number => a + (b - a) * k;
   return { mean: lerp(0.2, 1.1), grades: [lerp(0.7, 0.42), lerp(0.26, 0.5), lerp(0.04, 0.08)] };
 }
+
+/**
+ * How good what is found may be, by how far down the road (loot.ts LootRules has the rest): where "better the further
+ * on" runs out (m), and the best grade a part may have at s
+ */
+export interface FindRules {
+  readonly farM: number;
+  top(s: number): number;
+}
+
+/** as it always was: to a hundred kilometres, anything anywhere */
+export const FIND_RULES: FindRules = { farM: 100_000, top: () => 5 };
 
 /** a count with this mean (Poisson's, Knuth's way) */
 function countOf(r: Rng, mean: number): number {
@@ -253,14 +267,16 @@ function swapIn(b: Build, f: FrameDef, mount: string, id: string): PartInstance 
  * metres down the road (its finds). A vehicle to find (`find`: one of the plan's, docs/V3/plan/growth.md §六 2) keeps its
  * driver's seat — one gets into it to make it one's own — and is otherwise the same.
  */
-export function rollWreck(seed: number, type: number, stripped: boolean, s: number, find = false): WreckRoll {
+export function rollWreck(seed: number, type: number, stripped: boolean, s: number, find = false, rules: FindRules = FIND_RULES): WreckRoll {
   const r = new Rng(hash2(seed | 0, 0x5eed, 0x3c));
+  // (the best a part may be this far down the road: a world of version 7 has no ★3 before its 20th kilometre)
+  const cap = rules.top(s);
   const frameId = wreckFrame(type, seed);
   const f = frameDef(frameId);
   const b = stockBuild(frameId, { fuel: 0 });
   b.uid = newUid('b');
   const special = r.chance(0.08);
-  const plain = (): number => 1 + r.weighted(PLAIN);
+  const plain = (): number => Math.min(Math.max(1, cap), 1 + r.weighted(PLAIN));
   // ---- what is still on it: most of the shell, a wheel more often than not, three to eight of the rest
   const works: string[] = [];
   for (const m of f.mounts) {
@@ -304,8 +320,8 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
     }
   }
   // ---- its finds: the parts worth stopping for, in place of plain ones (a whole set of wheels at once)
-  const fo = findOdds(s);
-  const n = countOf(r, fo.mean) + (special ? 2 : 0);
+  const fo = findOdds(s, rules.farM);
+  const n = cap >= 3 ? countOf(r, fo.mean) + (special ? 2 : 0) : 0;
   const finds: WreckRoll['finds'] = [];
   /** a find of grade g somewhere on it: a part on it, a set of tyres, a turbo, the roof or armour it came without */
   const placeFind = (g: number): boolean => {
@@ -357,7 +373,7 @@ export function rollWreck(seed: number, type: number, stripped: boolean, s: numb
   };
   for (let i = 0; i < n; i++) {
     // (its grade first; then a spot that has something of that grade: a ★3 bonnet there is not)
-    const g = 3 + r.weighted(fo.grades);
+    const g = Math.min(cap, 3 + r.weighted(fo.grades));
     for (let tries = 0; tries < 6; tries++) if (placeFind(g)) break;
   }
   // (a find a later one took the place of is not one any more)
@@ -470,8 +486,15 @@ export function rollFound(frameId: string, seed: number, tier: number): FoundRol
     weatherPart(inst, r);
     inst.cond = Math.max(inst.cond, 0.4 + 0.3 * r.next());
   }
-  b.paint = r.int(PALETTE.length);
-  b.paint2 = r.int(PALETTE.length);
+  // (any two colours — but a motorhome is found in its own: the Turtle's teal and cream, the Old Elephant's tan and
+  // ivory, the Camel's school-bus yellow are what they are known by. The two are rolled all the same, so the rest
+  // of the roll is as it was.)
+  const paint = r.int(PALETTE.length);
+  const paint2 = r.int(PALETTE.length);
+  if (!aboardOf(frameId)) {
+    b.paint = paint;
+    b.paint2 = paint2;
+  }
   b.cond = 0.4 + 0.4 * r.next();
   b.dirt = 0.45 + 0.4 * r.next();
   b.rust = 0.2 + 0.4 * r.next();

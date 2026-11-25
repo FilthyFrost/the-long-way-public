@@ -201,7 +201,7 @@ export class Camper implements System<GameContext> {
     const self = this;
     const bed = aboardOf(v.view.frame.id)!.beds![i];
     const why = (): Text | null => {
-      if (Math.abs(v.sim.kmh) > 1) return T('车还在动', 'Still moving');
+      if (v.sim.bodyKmh > 1) return T('车还在动', 'Still moving');
       if (v.sys.running) return T('先熄火', 'Switch the engine off first');
       if ((self.ctx?.body.energy ?? 100) >= 80) return T('还不困', 'Not tired');
       return null;
@@ -248,7 +248,7 @@ export class Camper implements System<GameContext> {
     };
     const why = (): Text | null => {
       const v = vehicle();
-      if (v && Math.abs(v.sim.kmh) > 1) return T('车还在动', 'Still moving');
+      if (v && v.sim.bodyKmh > 1) return T('车还在动', 'Still moving');
       if (v?.sys.running) return T('先熄火', 'Switch the engine off first');
       if ((self.ctx?.body.energy ?? 100) >= 80) return T('还不困', 'Not tired');
       return null;

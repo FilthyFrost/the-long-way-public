@@ -69,7 +69,7 @@ export function dishItemId(cls: DishClass): string {
 /** what a dish that has gone off becomes */
 export const SPOILED_DISH = 'dish_spoiled';
 
-/** the cookware: id (without `cook_`), names, weight (kg), carried small or medium, what the bench asks for one (scrap, organics, chemicals), the line on its card */
+/** the cookware: id (without `cook_`), names, weight (kg), carried small or medium, what the bench asked for one (three amounts, of the three materials there were: kept as written, not used), the line on its card */
 const COOKWARE: readonly [string, string, string, number, 'small' | 'medium', readonly [number, number, number], string][] = [
   ['bowl', '拌菜碗', 'Mixing bowl', 0.3, 'small', [4, 0, 0], '拌凉菜、盛东西都用它。'],
   ['spit', '烤叉', 'Roasting spit', 0.4, 'small', [5, 0, 0], '架在篝火上就能烤。'],
@@ -92,14 +92,14 @@ export function cookwareItemId(id: string): string {
   return `cook_${id}`;
 }
 
-/** what the bench asks for each piece of cookware: [scrap, organics, chemicals] by item id */
+/** what the bench asked for each piece of cookware by item id, in the three materials there were (not used: the bench's list is crafting.ts RECIPES) */
 export function cookwareCosts(): Record<string, readonly [number, number, number]> {
   return { ...Object.fromEntries(COOKWARE.map(([id, , , , , cost]) => [cookwareItemId(id), cost])), cook_jar: [6, 0, 2], cook_cooler: [14, 0, 6] };
 }
 
 /** the rows: twelve kinds of dish, what a spoiled dish becomes, the cookware, a pickling jar and a cool box that hold things */
 export function cookingItemRows(): ItemRow[] {
-  const rows: ItemRow[] = [{ id: SPOILED_DISH, cat: 'junk', name: { zh: '馊掉的饭菜', en: 'Spoiled food' }, stars: 0, mass: 0.3, stack: 8, salvage: { organics: 2 }, model: 'dish_spoiled', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '放坏了。' }];
+  const rows: ItemRow[] = [{ id: SPOILED_DISH, cat: 'junk', name: { zh: '馊掉的饭菜', en: 'Spoiled food' }, stars: 0, mass: 0.3, stack: 8, salvage: {}, model: 'dish_spoiled', paint: 0x5b4636, paint2: 0x3a2f28, blurb: '放坏了。' }];
   for (const cls of Object.keys(DISHES) as DishClass[]) {
     const d = DISHES[cls];
     rows.push({
@@ -114,7 +114,7 @@ export function cookingItemRows(): ItemRow[] {
       ...(d.hours ? { perish: { hours: d.hours, into: SPOILED_DISH } } : {}),
       // (what a serving gives is on the thing itself: ItemState.dish; these numbers only say that it is eaten, and how long that takes)
       eat: { food: 0, hp: 0, sec: d.sec },
-      salvage: { organics: 2 },
+      salvage: {},
       model: dishItemId(cls),
       paint: d.paint,
       paint2: d.paint2,
@@ -128,7 +128,7 @@ export function cookingItemRows(): ItemRow[] {
     // a jar: what is put in it ferments or pickles as the road goes by (the game's module ripens what is an ingredient; anything fits); things in it do not go off
     { id: 'cook_jar', cat: COOKWARE_CAT, name: { zh: '腌菜坛', en: 'Pickling jar' }, stars: 2, mass: 2.2, carry: 'medium', tags: ['cookware', 'jar'], holds: { slots: 3, accepts: ['*'], maxKg: 4, decay: 0 }, salvage: { scrap: 2 }, model: 'cook_jar', paint: 0x8a5a34, paint2: 0x5e4a38, blurb: '放进去的东西随着路程慢慢腌透，不会坏。' },
     // a cool box: things in it go off four times slower
-    { id: 'cook_cooler', cat: COOKWARE_CAT, name: { zh: '冷藏箱', en: 'Cool box' }, stars: 3, mass: 3.5, carry: 'medium', tags: ['cookware', 'cooler'], holds: { slots: 8, accepts: ['*'], maxKg: 12, decay: 0.25 }, salvage: { scrap: 6, chemicals: 2 }, model: 'cook_cooler', paint: 0x58b8e8, paint2: 0xf4efe2, blurb: '里面的东西坏得慢四倍。' },
+    { id: 'cook_cooler', cat: COOKWARE_CAT, name: { zh: '冷藏箱', en: 'Cool box' }, stars: 3, mass: 3.5, carry: 'medium', tags: ['cookware', 'cooler'], holds: { slots: 8, accepts: ['*'], maxKg: 12, decay: 0.25 }, salvage: { scrap: 6 }, model: 'cook_cooler', paint: 0x58b8e8, paint2: 0xf4efe2, blurb: '里面的东西坏得慢四倍。' },
   );
   return rows;
 }

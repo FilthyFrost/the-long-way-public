@@ -298,16 +298,32 @@ const items = new Map<string, Promise<Model | null>>();
 /**
  * An item's model (items/<model>.glb, tools/blender/items: food, drinks, clothes, junk, boxes of components),
  * or null while it has none (loose.ts draws a stand-in box). Its paint and paint_b materials take the item's
- * own two colours.
+ * own two colours. A model a system makes itself (registerItemModels: the fish, drawn in three.js) is made here
+ * instead of fetched.
  */
 export function itemGlb(model: string): Promise<Model | null> {
   let p = items.get(model);
   if (!p) {
-    p = fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+    const maker = MAKERS.find((m) => m.owns(model));
+    p = maker
+      ? Promise.resolve(maker.make(model)).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null))
+      : fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
     items.set(model, p);
   }
   return p;
 }
+
+/**
+ * Item models a system makes itself rather than loads (docs/V3/plan/fishing.md: every fish is made in three.js).
+ * `owns` says which model ids are its; `make` builds one (once: every thing drawn with it gets a copy). A mesh
+ * whose look is its own (its texture, its colours) says so with `userData.ownLook`: the materials of the vehicles'
+ * look are not put on it (materials.ts applyMaterials), and it is not merged with the things lying about (loose.ts).
+ */
+export function registerItemModels(owns: (model: string) => boolean, make: (model: string) => THREE.Group | null | Promise<THREE.Group | null>): void {
+  MAKERS.push({ owns, make });
+}
+
+const MAKERS: { owns: (model: string) => boolean; make: (model: string) => THREE.Group | null | Promise<THREE.Group | null> }[] = [];
 
 const machines = new Map<string, Promise<Model | null>>();
 const places = new Map<string, Promise<Model | null>>();

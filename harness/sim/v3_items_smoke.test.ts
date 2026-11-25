@@ -7,7 +7,7 @@ import { BASE_ITEMS, ITEMS, accepts, canStack, cleanItem, countOf, freshNow, ite
 
 registerItemCat({ id: 't_smoke', name: { zh: '试验', en: 'Test' } });
 registerItems([
-  { id: 't_berry', cat: 't_smoke', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.02, stack: 10, tags: ['forage'], perish: { hours: 24, into: 't_mush' }, salvage: { organics: 1 } },
+  { id: 't_berry', cat: 't_smoke', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.02, stack: 10, tags: ['forage'], perish: { hours: 24, into: 't_mush' }, salvage: { scrap: 1 } },
   { id: 't_mush', cat: 't_smoke', name: { zh: '烂莓', en: 'Mush' }, stars: 0, mass: 0.02, stack: 10 },
   { id: 't_basket', cat: 't_smoke', name: { zh: '试验篮', en: 'Test basket' }, stars: 1, mass: 0.5, holds: { slots: 2, accepts: ['#forage'], maxKg: 1, decay: 0.5 } },
 ]);
@@ -42,7 +42,7 @@ describe('item model, V3 additions (smoke)', () => {
     expect(countOf(a)).toBe(10);
     expect(countOf(b)).toBe(3);
     expect(itemMass(a)).toBeCloseTo(0.2);
-    expect(salvageOf(a)).toEqual({ organics: 10 });
+    expect(salvageOf(a)).toEqual({ scrap: 10 });
     expect(itemName(a)).toBe('试验莓 ×10');
     const c = splitStack(a, 4)!;
     expect([countOf(a), countOf(c)]).toEqual([6, 4]);

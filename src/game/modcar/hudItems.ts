@@ -9,7 +9,7 @@
 import { CARD_CSS, CardView, TONE_COLOUR } from './cards';
 import type { ItemCard, Tone } from './itemInfo';
 
-export type KeyName = 'E' | 'F' | 'G' | 'I' | 'K' | 'C' | 'L' | 'S' | 'W' | 'Q' | 'Z' | 'M' | 'H' | 'B' | 'R' | 'Space' | 'Shift' | '1' | '2' | 'LMB' | 'RMB' | 'Wheel';
+export type KeyName = 'E' | 'F' | 'G' | 'I' | 'K' | 'C' | 'L' | 'S' | 'W' | 'A' | 'D' | 'Q' | 'Z' | 'M' | 'H' | 'B' | 'R' | 'V' | 'Space' | 'Shift' | '1' | '2' | 'LMB' | 'RMB' | 'Wheel';
 
 /** one thing a button does: "长按 [左键] 装上" */
 export interface Action {

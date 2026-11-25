@@ -101,10 +101,10 @@ const name = (en: string): { zh: string; en: string } => ({ zh: `试·${en}`, en
 registerItemCat({ id: 'tx', name: name('Trial') });
 registerItems([
   // stacks to twelve, goes off in a day into mush, which goes off in its turn (and stays mush)
-  { id: 'tx_berry', cat: 'tx', name: name('berry'), stars: 1, mass: 0.05, stack: 12, tags: ['forage', 'fruit'], perish: { hours: 24, into: 'tx_mush' }, salvage: { organics: 1 } },
+  { id: 'tx_berry', cat: 'tx', name: name('berry'), stars: 1, mass: 0.05, stack: 12, tags: ['forage', 'fruit'], perish: { hours: 24, into: 'tx_mush' }, salvage: { scrap: 1 } },
   { id: 'tx_mush', cat: 'tx', name: name('mush'), stars: 0, mass: 0.05, stack: 12, perish: { hours: 12 } },
   { id: 'tx_nut', cat: 'tx', name: name('nut'), stars: 1, mass: 0.01, stack: 20, tags: ['forage'] },
-  { id: 'tx_jerky', cat: 'tx', name: name('jerky'), stars: 2, mass: 0.1, stack: 8, tags: ['meat'], salvage: { organics: 2 } },
+  { id: 'tx_jerky', cat: 'tx', name: name('jerky'), stars: 2, mass: 0.1, stack: 8, tags: ['meat'], salvage: { scrap: 2 } },
   // carries a state of its own
   { id: 'tx_page', cat: 'tx', name: name('page'), stars: 2, mass: 0.01, stack: 5 },
   // turns into a kind whose stacks are smaller: the catalogue says so, and nothing is lost when it happens
@@ -235,7 +235,7 @@ describe('items: the open catalogue', () => {
       [{ paint2: 0x1000000 }, /paint and paint2 are colours/],
       [{ salvage: [1] }, /salvage says how much of which material/],
       [{ salvage: { scrap: -2 } }, /salvage\.scrap is an amount from 0/],
-      [{ salvage: { organics: 'some' } }, /salvage\.organics is an amount/],
+      [{ salvage: { scrap: 'some' } }, /salvage\.scrap is an amount/],
       [{ tags: 'forage' }, /tags is a list of words/],
       [{ tags: ['ok', 'Not Ok'] }, /tag "Not Ok": lower-case letters, digits and _/],
       [{ tags: ['#forage'] }, /tag "#forage"/],
@@ -352,7 +352,7 @@ describe('items: stacks', () => {
     expect(stackMax('food_chips')).toBe(1);
     expect(() => stackMax('nope')).toThrow(/no item nope/);
     expect(itemMass(a)).toBeCloseTo(0.5, 12);
-    expect(salvageOf(a)).toEqual({ organics: 10 });
+    expect(salvageOf(a)).toEqual({ scrap: 10 });
     expect(itemName(a)).toBe('试·jerky ×5');
     expect(itemName(a, 'en')).toBe('jerky ×5');
     expect(itemName(newItem('tx_jerky'))).toBe('试·jerky');
@@ -363,7 +363,8 @@ describe('items: stacks', () => {
     expect(putInside(box, newItem('drink_water', { litres: 1.2 }), 0)).toBe(0);
     expect(itemMass(box)).toBeCloseTo(2 + 0.5 + 0.2 + 1.2, 12);
     expect(insideMass(box)).toBeCloseTo(0.5 + 0.2 + 1.2, 12);
-    expect(salvageOf(box)).toEqual({ organics: 10 + 5 + 2 });
+    // (the box itself one — anything gives a little —, the five jerky two each, the bottle one: the water in it gives nothing)
+    expect(salvageOf(box)).toEqual({ scrap: 1 + 10 + 1 });
     expect(itemSig(box)).toBe('tx_cool[tx_jerky*5,drink_water|l1.20]');
     const seen: string[] = [];
     forEachItem(box, (x, holder) => seen.push(`${x.item}${holder ? ` in ${holder.item}` : ''}`));

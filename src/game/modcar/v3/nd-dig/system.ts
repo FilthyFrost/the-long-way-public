@@ -305,7 +305,8 @@ export class NdDig implements System<GameContext>, InteractSource {
         this.rec(t.id).key = true;
         continue;
       }
-      if (!l && d < NEAR && !seenKey.has(t.id)) {
+      // (a key before the metal detector has been picked up is a piece of a set not begun: not yet — the game's)
+      if (!l && d < NEAR && !seenKey.has(t.id) && !ctx.withheld?.(t.key)) {
         const it = newItem(t.key, { state: { keyOf: t.id } });
         const k = ctx.loose.addItem(it, t.kx, world.heightAt(t.kx, t.kz) + 0.05, t.kz, t.yaw);
         k.resting = true;

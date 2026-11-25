@@ -179,6 +179,8 @@ export function cardHtml(c: ItemCard, compact = false, notes = true): string {
   if (compact) {
     if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i, false)).join('')}</div>`);
     if (notes && c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
+    // (what is wanting of its set: on the cut-down card too — it is what one is looking out for)
+    if (c.wanting) secs.push(`<div class="sec"><div class="nt info">${esc(c.wanting)}</div></div>`);
     return `<div class="hd"><div class="nm">${iconSvg(c.icon)}${esc(c.name)}</div>${stars}</div>${secs.length ? `<div class="bd">${secs.join('')}</div>` : ''}`;
   }
   if (c.blurb) secs.push(`<div class="sec"><div class="desc">${esc(c.blurb)}</div></div>`);
@@ -194,7 +196,7 @@ export function cardHtml(c: ItemCard, compact = false, notes = true): string {
     else secs.push(`<div class="sec"><div class="rw">${c.rows.map((r) => `${r.stars !== undefined ? starsHtml(r.stars, r.value) : `<b class="${r.tone ?? ''}">${esc(r.value)}</b>`}<span>${esc(r.label)}</span>`).join('')}</div></div>`);
   }
   if (c.bars.length) secs.push(`<div class="sec">${c.bars.map((b, i) => barHtml(b, i)).join('')}</div>`);
-  if (c.notes.length) secs.push(`<div class="sec">${c.notes.map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
+  if (c.notes.length || c.wanting) secs.push(`<div class="sec">${[...c.notes, ...(c.wanting ? [{ text: c.wanting, tone: 'info' }] : [])].map((n) => `<div class="nt ${n.tone}">${esc(n.text)}</div>`).join('')}</div>`);
   const f = c.foot;
   if (f.fits) secs.push(`<div class="sec"><div class="fits">${f.fits.startsWith('装在') ? esc(f.fits) : `能装：<b>${esc(f.fits)}</b>`}</div></div>`);
   const foot: string[] = [];

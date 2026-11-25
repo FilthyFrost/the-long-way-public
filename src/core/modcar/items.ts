@@ -18,16 +18,21 @@
  */
 import type { Text } from './types';
 
-/** what the recycler turns things into: shared counters, not things one carries */
-export type Material = 'scrap' | 'organics' | 'chemicals';
+/**
+ * What the recycler turns things into: shared counters, not things one carries. Two of them (docs/V3/plan/finish.md
+ * §六 1): scrap, which anything gives a little of, and components, which only what has a motor or a board in it gives
+ * (an engine, a gearbox, a turbo, a radio, a battery, a television, a fridge, a power tool) — few of them, and what is
+ * better to make asks for them. (Organics and chemicals, which there were, are gone: an old game's chemicals are its
+ * components, one for one.)
+ */
+export type Material = 'scrap' | 'components';
 
 export const MATERIALS: Record<Material, { name: Text; hex: number }> = {
   scrap: { name: { zh: '废料', en: 'Scrap' }, hex: 0xf2c14e },
-  organics: { name: { zh: '有机物', en: 'Organics' }, hex: 0x7cc25b },
-  chemicals: { name: { zh: '化学品', en: 'Chemicals' }, hex: 0x58b8e8 },
+  components: { name: { zh: '元件', en: 'Components' }, hex: 0x58b8e8 },
 };
 
-export const MATERIAL_IDS: readonly Material[] = ['scrap', 'organics', 'chemicals'];
+export const MATERIAL_IDS: readonly Material[] = ['scrap', 'components'];
 
 export type ItemCat = 'food' | 'drink' | 'med' | 'wear' | 'pack' | 'lamp' | 'gear' | 'junk' | 'crate';
 
@@ -82,7 +87,7 @@ export interface ItemDef {
    * (a large thing slowly, not run or jumped with)
    */
   readonly carryWalk?: { readonly share: number; readonly run: boolean };
-  /** what the recycler gives for it (a liquid in it adds organics on top) */
+  /** what the recycler gives for it (one scrap at least: salvageOf) */
   readonly salvage: Partial<Record<Material, number>>;
   /** its model (default its id) and the colours its paint and paint_b materials take */
   readonly model: string;
@@ -98,9 +103,9 @@ export interface ItemDef {
    */
   readonly drink?: { litres: number; liquid: DrinkLiquid; rate: number; empty?: boolean };
   /** medicine: health at once, or a warming; a side effect with its chance */
-  /** medicine: health at once, a warming, a side effect's chance; cure: being ill is over; treat: being hurt is over */
-  readonly heal?: { hp: number; warm?: number; side?: number; cure?: true; treat?: true };
-  /** a first-aid kit: used up when one would die, one gets up again with this much health */
+  /** medicine: life at once, a warming, health given back (cap); cure: being ill is over; treat: being hurt is over */
+  readonly heal?: { hp: number; warm?: number; cap?: number; cure?: true; treat?: true };
+  /** a first-aid box carried: used up when one would die, one gets up again with this much life */
   readonly revive?: { hp: number };
   readonly wear?: { slot: WearSlot; warmth: number };
   /** a backpack: hotbar slots it adds */
@@ -191,41 +196,35 @@ const PILL = 2.2;
 
 // ------------------------------------------------------------------ food (eaten whole, over five seconds)
 
-I('food_chips', 'food', '虾片', 'Prawn crackers', 1, 0.15, { organics: 5 }, '一袋虾片，嘎嘣脆，垫垫肚子。', { paint: 0xe07b39, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT } });
-I('food_biscuits', 'food', '苏打饼干', 'Soda crackers', 1, 0.2, { organics: 5 }, '一包苏打饼干，干巴巴的，管饱。', { model: 'food_chips', paint: 0xe2cf98, paint2: 0x3e6ea8, eat: { food: 25, hp: 2, sec: EAT } });
-I('food_chips_ginger', 'food', '姜汁虾片', 'Ginger prawn crackers', 3, 0.15, { organics: 14 }, '加了老姜的虾片，吃完从胃里暖到手指头。', { model: 'food_chips', paint: 0xb85c3e, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT, effect: 'warm1' } });
-I('food_chips_ginger_xl', 'food', '姜汁虾片（大包）', 'Ginger prawn crackers, family bag', 4, 0.3, { organics: 24 }, '一大包姜汁虾片，够吃一路，暖得更久。', { paint: 0x9e3b2f, paint2: 0xf0c23c, eat: { food: 40, hp: 4, sec: EAT, effect: 'warm2' } });
-I('food_licorice', 'food', '甘草糖', 'Liquorice twists', 2, 0.2, { organics: 7 }, '黑乎乎的甘草糖，嚼起来没完没了，挺顶饿。', { paint: 0x2f3236, paint2: 0xc8323a, eat: { food: 40, hp: 4, sec: EAT } });
-I('food_nuggets', 'food', '冻鸡块', 'Frozen chicken nuggets', 2, 0.75, { organics: 7 }, '一盒冻鸡块，化开了也能吃，就是有点软。', { paint: 0xf0c23c, paint2: 0xc8323a, eat: { food: 40, hp: 4, sec: EAT } });
-I('food_dumplings', 'food', '冻饺子', 'Frozen dumplings', 2, 0.75, { organics: 8 }, '一袋冻饺子，生啃也行，煮了更好。', { paint: 0x7fb3d5, paint2: 0xf4efe2, eat: { food: 40, hp: 4, sec: EAT } });
-I('food_fish_can', 'food', '鲭鱼罐头', 'Tin of mackerel', 3, 0.5, { organics: 10 }, '一罐油浸鲭鱼，吃完能撑好久。', { paint: 0x3e8e87, paint2: 0xede3c8, eat: { food: 75, hp: 6, sec: EAT } });
-I('food_dog_old', 'food', '过期狗粮', 'Out-of-date dog food', 0, 0.4, { organics: 3 }, '早就过期的狗粮。实在饿了也能吃，代价是拉肚子。', { paint: 0xb9915f, paint2: 0x9e3b2f, eat: { food: 20, hp: 0, sec: EAT, effect: 'sick1' } });
-I('food_cat_old', 'food', '过期猫粮', 'Out-of-date cat food', 0, 0.5, { organics: 3 }, '一罐过期猫粮，闻着就不太对劲。', { model: 'food_dog_old', paint: 0xa99bc9, paint2: 0x6b4a73, eat: { food: 20, hp: 0, sec: EAT, effect: 'sick1' } });
-I('food_nuts_old', 'food', '受潮的坚果', 'Damp nuts', 1, 0.35, { organics: 3 }, '一包受潮的坚果，管饱，但肚子会闹一阵。', { paint: 0x557a46, paint2: 0xd8c29a, eat: { food: 40, hp: 0, sec: EAT, effect: 'sick2' } });
+I('food_chips', 'food', '虾片', 'Prawn crackers', 1, 0.15, {}, '一袋虾片，嘎嘣脆，垫垫肚子。', { paint: 0xe07b39, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT } });
+I('food_biscuits', 'food', '苏打饼干', 'Soda crackers', 1, 0.2, {}, '一包苏打饼干，干巴巴的，管饱。', { model: 'food_chips', paint: 0xe2cf98, paint2: 0x3e6ea8, eat: { food: 25, hp: 2, sec: EAT } });
+I('food_chips_ginger', 'food', '姜汁虾片', 'Ginger prawn crackers', 3, 0.15, {}, '加了老姜的虾片，吃完从胃里暖到手指头。', { model: 'food_chips', paint: 0xb85c3e, paint2: 0xf0c23c, eat: { food: 20, hp: 2, sec: EAT, effect: 'warm1' } });
+I('food_chips_ginger_xl', 'food', '姜汁虾片（大包）', 'Ginger prawn crackers, family bag', 4, 0.3, {}, '一大包姜汁虾片，够吃一路，暖得更久。', { paint: 0x9e3b2f, paint2: 0xf0c23c, eat: { food: 40, hp: 4, sec: EAT, effect: 'warm2' } });
+I('food_licorice', 'food', '甘草糖', 'Liquorice twists', 2, 0.2, {}, '黑乎乎的甘草糖，嚼起来没完没了，挺顶饿。', { paint: 0x2f3236, paint2: 0xc8323a, eat: { food: 40, hp: 4, sec: EAT } });
+I('food_nuggets', 'food', '冻鸡块', 'Frozen chicken nuggets', 2, 0.75, {}, '一盒冻鸡块，化开了也能吃，就是有点软。', { paint: 0xf0c23c, paint2: 0xc8323a, eat: { food: 40, hp: 4, sec: EAT } });
+I('food_dumplings', 'food', '冻饺子', 'Frozen dumplings', 2, 0.75, {}, '一袋冻饺子，生啃也行，煮了更好。', { paint: 0x7fb3d5, paint2: 0xf4efe2, eat: { food: 40, hp: 4, sec: EAT } });
+I('food_fish_can', 'food', '鲭鱼罐头', 'Tin of mackerel', 3, 0.5, {}, '一罐油浸鲭鱼，吃完能撑好久。', { paint: 0x3e8e87, paint2: 0xede3c8, eat: { food: 75, hp: 6, sec: EAT } });
+I('food_dog_old', 'food', '过期狗粮', 'Out-of-date dog food', 0, 0.4, {}, '早就过期的狗粮。实在饿了也能吃，代价是拉肚子。', { paint: 0xb9915f, paint2: 0x9e3b2f, eat: { food: 20, hp: 0, sec: EAT, effect: 'sick1' } });
+I('food_cat_old', 'food', '过期猫粮', 'Out-of-date cat food', 0, 0.5, {}, '一罐过期猫粮，闻着就不太对劲。', { model: 'food_dog_old', paint: 0xa99bc9, paint2: 0x6b4a73, eat: { food: 20, hp: 0, sec: EAT, effect: 'sick1' } });
+I('food_nuts_old', 'food', '受潮的坚果', 'Damp nuts', 1, 0.35, {}, '一包受潮的坚果，管饱，但肚子会闹一阵。', { paint: 0x557a46, paint2: 0xd8c29a, eat: { food: 40, hp: 0, sec: EAT, effect: 'sick2' } });
 
 // ------------------------------------------------------------------ drinks (held to the mouth while the button is held)
 
-I('drink_soda', 'drink', '橘子汽水', 'Orange soda', 1, 0.05, { organics: 3 }, '一罐橘子汽水，气跑了一半，还是解渴。', { paint: 0xe07b39, paint2: 0xf4efe2, drink: { litres: 0.33, liquid: 'water', rate: 0.075 } });
-I('drink_cola', 'drink', '山谷可乐', 'Valley cola', 2, 0.05, { organics: 5 }, '谷里自己的可乐，冰的时候最好喝。', { model: 'drink_soda', paint: 0x9e3b2f, paint2: 0xede3c8, drink: { litres: 0.33, liquid: 'water', rate: 0.075 } });
-I('drink_water', 'drink', '大瓶矿泉水', 'Big bottle of water', 2, 0.2, { organics: 5 }, '两升矿泉水。喝完瓶子留着，还能接水。', { paint: 0x7fb3d5, paint2: 0xf7f7f2, drink: { litres: 2, liquid: 'water', rate: 0.3 } });
-I('drink_beer', 'drink', '啤酒', 'Bottle of beer', 1, 0.35, { organics: 4 }, '一瓶啤酒。喝了浑身发热，开车就别想了。', { paint: 0x557a46, paint2: 0xf0c23c, drink: { litres: 0.55, liquid: 'alcohol', rate: 0.1 } });
-I('drink_spirit', 'drink', '高粱烈酒', 'Sorghum spirit', 2, 0.5, { organics: 7 }, '一瓶高粱烈酒，一口下去冻都不怕了，路也看不清了。', { paint: 0xf4efe2, paint2: 0xc8323a, drink: { litres: 1, liquid: 'alcohol', rate: 0.1 } });
-I('drink_energy', 'drink', '能量饮料', 'Energy drink', 3, 0.05, { organics: 7 }, '喝完心跳加速，跑起来飞快，就是不解渴。', { paint: 0x2e4a6b, paint2: 0xa9d3b5, drink: { litres: 0.55, liquid: 'energy', rate: 0.1 } });
+I('drink_soda', 'drink', '橘子汽水', 'Orange soda', 1, 0.05, {}, '一罐橘子汽水，气跑了一半，还是解渴。', { paint: 0xe07b39, paint2: 0xf4efe2, drink: { litres: 0.33, liquid: 'water', rate: 0.075 } });
+I('drink_cola', 'drink', '山谷可乐', 'Valley cola', 2, 0.05, {}, '谷里自己的可乐，冰的时候最好喝。', { model: 'drink_soda', paint: 0x9e3b2f, paint2: 0xede3c8, drink: { litres: 0.33, liquid: 'water', rate: 0.075 } });
+I('drink_water', 'drink', '大瓶矿泉水', 'Big bottle of water', 2, 0.2, {}, '两升矿泉水。喝完瓶子留着，还能接水。', { paint: 0x7fb3d5, paint2: 0xf7f7f2, drink: { litres: 2, liquid: 'water', rate: 0.3 } });
+I('drink_beer', 'drink', '啤酒', 'Bottle of beer', 1, 0.35, {}, '一瓶啤酒。喝了浑身发热，开车就别想了。', { paint: 0x557a46, paint2: 0xf0c23c, drink: { litres: 0.55, liquid: 'alcohol', rate: 0.1 } });
+I('drink_spirit', 'drink', '高粱烈酒', 'Sorghum spirit', 2, 0.5, {}, '一瓶高粱烈酒，一口下去冻都不怕了，路也看不清了。', { paint: 0xf4efe2, paint2: 0xc8323a, drink: { litres: 1, liquid: 'alcohol', rate: 0.1 } });
+I('drink_energy', 'drink', '能量饮料', 'Energy drink', 3, 0.05, {}, '喝完心跳加速，跑起来飞快，就是不解渴。', { paint: 0x2e4a6b, paint2: 0xa9d3b5, drink: { litres: 0.55, liquid: 'energy', rate: 0.1 } });
 
 // ------------------------------------------------------------------ medicine
 
-I('med_pain_1', 'med', '过期止痛片', 'Old painkillers', 1, 0.1, { organics: 10 }, '过期了，药效打了折，总比没有强。', { model: 'med_pain', paint: 0xd8c29a, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 20, treat: true } });
-I('med_pain_2', 'med', '止痛片', 'Painkillers', 3, 0.1, { organics: 16 }, '一板止痛片，吃两粒，伤口就不那么疼了。', { model: 'med_pain', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 35, treat: true } });
-I('med_pain_3', 'med', '特效止痛片', 'Strong painkillers', 5, 0.1, { organics: 28 }, '医院里才有的特效药，一吃见效。', { model: 'med_pain', paint: 0x2e4a6b, paint2: 0xf0c23c, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 50, treat: true } });
-I('med_warm_1', 'med', '暖身丸', 'Warming pills', 1, 0.1, { organics: 8 }, '吃了身上一下就暖了。小作坊做的，偶尔会上头。', { model: 'med_warm', paint: 0xe07b39, paint2: 0xede3c8, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.5 } });
-I('med_warm_2', 'med', '好暖身丸', 'Good warming pills', 3, 0.15, { organics: 12 }, '药厂出的暖身丸，暖得快，副作用少。', { model: 'med_warm', paint: 0xd4a53b, paint2: 0xede3c8, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.25 } });
-I('med_warm_3', 'med', '特效暖身丸', 'Strong warming pills', 5, 0.15, { organics: 15 }, '登山队用的暖身丸，几乎没有副作用。', { model: 'med_warm', paint: 0x9e3b2f, paint2: 0xf0c23c, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5, side: 0.05 } });
-I('med_kit_1', 'med', '旧急救箱', 'Old first-aid box', 2, 1.5, { organics: 24 }, '带在身上：倒下时会自己用上，让你缓过来。旧的，东西不全。', { model: 'med_kit', paint: 0xb9915f, paint2: 0xf7f7f2, revive: { hp: 10 } });
-I('med_kit_2', 'med', '急救箱', 'First-aid box', 4, 1.5, { organics: 30 }, '带在身上：倒下时会自己用上。东西齐全，缓得更快。', { model: 'med_kit', paint: 0xc8323a, paint2: 0xf7f7f2, revive: { hp: 25 } });
-I('med_kit_3', 'med', '好急救箱', 'Good first-aid box', 5, 1.5, { organics: 36 }, '专业的急救箱，倒下了也能马上站起来接着走。', { model: 'med_kit', paint: 0xe07b39, paint2: 0xf7f7f2, revive: { hp: 50 } });
-// (docs/V3/plan/growth.md §四: the stomach pills, and the first-aid pack used at once)
-I('med_stomach', 'med', '肠胃药', 'Stomach pills', 2, 0.1, { organics: 10 }, '吃坏了肚子就吃两粒，一会儿就好。', { model: 'med_pain', paint: 0x6fae7a, paint2: 0xf7f7f2, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, cure: true } });
-I('med_bandage', 'med', '急救包', 'First-aid pack', 4, 0.4, { organics: 18 }, '纱布、药水和绷带：摔了撞了，包扎好就不瘸了。', { model: 'med_kit', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 50, treat: true } });
+// (five in all — docs/V3/plan/finish.md §三.3: a bandage, painkillers and a warming patch here; the stomach pills and
+// the first-aid box are the ones on the road's shelves, src/core/v3/nd/items.ts. What a save holds of the eight
+// others is read as the nearest of the five.)
+I('med_bandage', 'med', '绷带', 'Bandage', 2, 0.1, {}, '一卷绷带：摔了撞了，包扎好就不瘸了。', { model: 'med_kit', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 25, treat: true } });
+I('med_pain_2', 'med', '止痛片', 'Painkillers', 3, 0.1, {}, '一板止痛片，吃两粒，伤口就不那么疼了。', { model: 'med_pain', paint: 0xf7f7f2, paint2: 0xc8323a, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 40, treat: true } });
+I('med_warm_2', 'med', '暖身贴', 'Warming patch', 2, 0.1, {}, '撕开贴在身上，一会儿就暖过来了。', { model: 'med_warm', paint: 0xd4a53b, paint2: 0xede3c8, eat: { food: 0, hp: 0, sec: PILL }, heal: { hp: 0, warm: 5 } });
 
 // ------------------------------------------------------------------ clothes (each slot's warmth lowers the cold one feels)
 
@@ -272,7 +271,7 @@ I('junk_sign', 'junk', '广告牌', 'Advertising board', 0, 1, { scrap: 2 }, '�
 I('junk_bucket', 'junk', '水桶', 'Bucket', 0, 1, { scrap: 2 }, '铁皮水桶，还没漏。', { paint: 0x6f7a82, paint2: 0x2f3236 });
 I('junk_bucket_old', 'junk', '旧水桶', 'Old bucket', 0, 1, { scrap: 1 }, '桶底锈穿了，装不了水了。', { model: 'junk_bucket', paint: 0x9e3b2f, paint2: 0x2f3236 });
 I('junk_bucket_paint', 'junk', '结垢的漆桶', 'Crusty paint bucket', 0, 1, { scrap: 1 }, '一桶干透了的油漆，硬得像石头。', { paint: 0xede3c8, paint2: 0x3e8e87 });
-I('junk_camera', 'junk', '三脚架相机', 'Camera on a tripod', 0, 5, { scrap: 12 }, '老式相机架在三脚架上，零件不少。', { paint: 0x2f3236, paint2: 0x6f7a82 });
+I('junk_camera', 'junk', '三脚架相机', 'Camera on a tripod', 0, 5, { scrap: 8, components: 2 }, '老式相机架在三脚架上，零件不少。', { paint: 0x2f3236, paint2: 0x6f7a82 });
 I('junk_candle', 'junk', '大烛台', 'Big candlestick', 0, 5, { scrap: 3 }, '沉甸甸的铜烛台。', { paint: 0xd4a53b, paint2: 0x5a3a2b });
 I('junk_chair', 'junk', '椅子', 'Chair', 0, 3, { scrap: 5 }, '一把铁腿椅子。', { paint: 0x3e8e87, paint2: 0x6f7a82 });
 I('junk_chair_wood', 'junk', '木椅', 'Wooden chair', 0, 5, { scrap: 3 }, '一把老木椅，晃晃悠悠的。', { paint: 0xb9915f, paint2: 0x5a3a2b });
@@ -282,37 +281,37 @@ I('junk_chair_office', 'junk', '办公椅', 'Office chair', 0, 6, { scrap: 6 }, 
 I('junk_stool', 'junk', '铁凳', 'Metal stool', 0, 5, { scrap: 4 }, '车间里的铁凳子。', { paint: 0x6f7a82, paint2: 0x2f3236 });
 I('junk_stool_tall', 'junk', '高脚凳', 'Tall stool', 0, 1.5, { scrap: 3 }, '吧台边的高脚凳。', { paint: 0xc8323a, paint2: 0x6f7a82 });
 I('junk_sunchair', 'junk', '躺椅', 'Sun lounger', 0, 3.3, { scrap: 2 }, '晒太阳用的帆布躺椅。', { carry: 'large', paint: 0xf0c23c, paint2: 0xb9915f });
-I('junk_clockradio', 'junk', '收音闹钟', 'Clock radio', 0, 0.6, { scrap: 2 }, '到点就响的收音机，早就不响了。', { paint: 0xede3c8, paint2: 0x2f3236 });
+I('junk_clockradio', 'junk', '收音闹钟', 'Clock radio', 0, 0.6, { scrap: 2, components: 1 }, '到点就响的收音机，早就不响了。', { paint: 0xede3c8, paint2: 0x2f3236 });
 I('junk_hanger', 'junk', '衣帽架', 'Coat stand', 0, 2.5, { scrap: 4 }, '立式的衣帽架。', { carry: 'large', paint: 0x5a3a2b, paint2: 0x6f7a82 });
-I('junk_fax', 'junk', '传真机', 'Fax machine', 0, 3, { scrap: 7 }, '一台老传真机，里面零件不少。', { paint: 0xede3c8, paint2: 0x6f7a82 });
+I('junk_fax', 'junk', '传真机', 'Fax machine', 0, 3, { scrap: 8, components: 3 }, '一台老传真机，里面零件不少。', { paint: 0xede3c8, paint2: 0x6f7a82 });
 I('junk_box_food', 'junk', '纸箱', 'Cardboard box', 0, 1, { scrap: 2 }, '一个空纸箱。', { paint: 0xb9915f, paint2: 0x5a3a2b });
 I('junk_lamp', 'junk', '台灯', 'Desk lamp', 0, 1, { scrap: 3 }, '弯脖子的台灯。', { paint: 0x3e8e87, paint2: 0x6f7a82 });
 I('junk_barrel', 'junk', '铁皮桶', 'Steel drum', 0, 30, { scrap: 16 }, '空的大铁皮桶，沉得很。', { paint: 0x2e4a6b, paint2: 0x6f7a82 });
 I('junk_mop', 'junk', '拖把', 'Mop', 0, 1.5, { scrap: 1 }, '一把拖把。', { carry: 'medium', paint: 0x7fb3d5, paint2: 0xede3c8 });
 I('junk_mug', 'junk', '马克杯', 'Mug', 0, 0.3, { scrap: 1 }, '缺了个口的马克杯。', { paint: 0xc8323a, paint2: 0xf4efe2 });
-I('junk_ball', 'junk', '旧皮球', 'Old ball', 0, 0.5, { organics: 1 }, '瘪了的皮球。', { paint: 0xe07b39, paint2: 0xf4efe2 });
+I('junk_ball', 'junk', '旧皮球', 'Old ball', 0, 0.5, {}, '瘪了的皮球。', { paint: 0xe07b39, paint2: 0xf4efe2 });
 I('junk_pillow', 'junk', '枕头', 'Pillow', 0, 1, { scrap: 1 }, '软乎乎的枕头。抱着睡一觉多好。', { paint: 0xf4efe2, paint2: 0x7fb3d5 });
 I('junk_pillow_s', 'junk', '小靠垫', 'Cushion', 0, 0.5, { scrap: 1 }, '沙发上的小靠垫。', { paint: 0xe8a3a8, paint2: 0xf4efe2 });
 I('junk_crate_plastic', 'junk', '塑料筐', 'Plastic crate', 0, 1, { scrap: 2 }, '红色的塑料周转筐。', { paint: 0xc8323a, paint2: 0x2f3236 });
 I('junk_plate', 'junk', '盘子', 'Plate', 0, 0.5, { scrap: 1 }, '一个搪瓷盘子。', { paint: 0xf4efe2, paint2: 0x2e4a6b });
-I('junk_transceiver', 'junk', '电台', 'Radio transceiver', 0, 14, { scrap: 38 }, '一台老式无线电台，拆开全是好零件。', { paint: 0x7a7f45, paint2: 0x2f3236 });
-I('junk_record', 'junk', '唱片机', 'Record player', 0, 4, { scrap: 6 }, '手提箱式的唱片机。', { paint: 0xb85c3e, paint2: 0x2f3236 });
+I('junk_transceiver', 'junk', '电台', 'Radio transceiver', 0, 14, { scrap: 12, components: 4 }, '一台老式无线电台，拆开全是好元件。', { paint: 0x7a7f45, paint2: 0x2f3236 });
+I('junk_record', 'junk', '唱片机', 'Record player', 0, 4, { scrap: 6, components: 1 }, '手提箱式的唱片机。', { paint: 0xb85c3e, paint2: 0x2f3236 });
 I('junk_vinyl', 'junk', '黑胶唱片', 'Vinyl record', 0, 0.3, { scrap: 1 }, '一张黑胶唱片，封套都褪色了。', { paint: 0xa99bc9, paint2: 0x2f3236 });
 I('junk_cage', 'junk', '小笼子', 'Small cage', 0, 2, { scrap: 3 }, '养鸟用的铁丝笼子。', { paint: 0xd8c29a, paint2: 0x6f7a82 });
 I('junk_bin', 'junk', '垃圾桶', 'Waste bin', 0, 2.2, { scrap: 3 }, '带脚踏的铁皮垃圾桶。', { paint: 0x557a46, paint2: 0x6f7a82 });
-I('junk_solar_lamp', 'junk', '太阳能灯', 'Solar lamp', 0, 2, { scrap: 7 }, '插在院子里的太阳能灯，白天充电晚上亮。', { paint: 0x2f3236, paint2: 0xf0c23c });
+I('junk_solar_lamp', 'junk', '太阳能灯', 'Solar lamp', 0, 2, { scrap: 4, components: 1 }, '插在院子里的太阳能灯，白天充电晚上亮。', { paint: 0x2f3236, paint2: 0xf0c23c });
 I('junk_rod', 'junk', '断鱼竿', 'Broken fishing rod', 0, 1, { scrap: 4 }, '断成两截的鱼竿，线轮还能用。', { carry: 'medium', paint: 0x2e4a6b, paint2: 0x6f7a82 });
 I('junk_sign_wet', 'junk', '小心地滑牌', 'Wet floor sign', 0, 1, { scrap: 1 }, '黄色的小心地滑牌。', { paint: 0xf0c23c, paint2: 0x2f3236 });
-I('junk_tv', 'junk', '旧电视', 'Old television', 0, 6, { scrap: 10 }, '大屁股电视机，砸了可惜，回收正好。', { paint: 0x5a3a2b, paint2: 0x2f3236 });
+I('junk_tv', 'junk', '旧电视', 'Old television', 0, 6, { scrap: 10, components: 3 }, '大屁股电视机，砸了可惜，回收正好。', { paint: 0x5a3a2b, paint2: 0x2f3236 });
 // (the workshop's at the start, docs/V3/plan/growth.md §一 1: no plug, a cracked screen — scrap, not a set to switch on)
-I('junk_tv_dead', 'junk', '坏电视', 'Dead television', 0, 6, { scrap: 10 }, '屏幕裂了，插头也没了，只能回收。', { model: 'junk_tv', paint: 0x4a3326, paint2: 0x2f3236 });
+I('junk_tv_dead', 'junk', '坏电视', 'Dead television', 0, 6, { scrap: 10, components: 3 }, '屏幕裂了，插头也没了，只能回收。', { model: 'junk_tv', paint: 0x4a3326, paint2: 0x2f3236 });
 I('junk_cone', 'junk', '路锥', 'Traffic cone', 0, 1, { scrap: 1 }, '一个路锥。', { paint: 0xe07b39, paint2: 0xf4efe2 });
-I('junk_bag', 'junk', '垃圾袋', 'Bin bag', 0, 6, { organics: 3 }, '鼓鼓的一袋垃圾，最好别打开。', { paint: 0x2f3236, paint2: 0x6f7a82 });
-I('junk_bag_s', 'junk', '小垃圾袋', 'Small bin bag', 0, 1, { organics: 1 }, '一小袋垃圾。', { model: 'junk_bag', paint: 0x557a46, paint2: 0x6f7a82 });
+I('junk_bag', 'junk', '垃圾袋', 'Bin bag', 0, 6, {}, '鼓鼓的一袋垃圾，最好别打开。', { paint: 0x2f3236, paint2: 0x6f7a82 });
+I('junk_bag_s', 'junk', '小垃圾袋', 'Small bin bag', 0, 1, {}, '一小袋垃圾。', { model: 'junk_bag', paint: 0x557a46, paint2: 0x6f7a82 });
 I('junk_trolley', 'junk', '手推车', 'Hand truck', 0, 5, { scrap: 4 }, '搬货用的两轮手推车。', { carry: 'large', paint: 0xc8323a, paint2: 0x2f3236 });
 I('junk_jack', 'junk', '卧式千斤顶', 'Trolley jack', 0, 12, { scrap: 6 }, '车间里的卧式千斤顶，液压早漏光了。', { paint: 0xc8323a, paint2: 0x6f7a82 });
 I('junk_trumpet', 'junk', '小号', 'Trumpet', 0, 1.2, { scrap: 2 }, '一把凹了的小号，还吹得响。', { paint: 0xd4a53b, paint2: 0x5a3a2b });
-I('junk_food_bucket', 'junk', '粮食桶', 'Feed bucket', 0, 8, { organics: 22 }, '一桶喂牲口的粮食，回收能出不少有机物。', { paint: 0xede3c8, paint2: 0x557a46 });
+I('junk_food_bucket', 'junk', '粮食桶', 'Feed bucket', 0, 8, {}, '一桶喂牲口的粮食，早就不能吃了，桶还能回收。', { paint: 0xede3c8, paint2: 0x557a46 });
 
 // ------------------------------------------------------------------ boxes of components (the recycler's best friends)
 
@@ -320,9 +319,9 @@ I('crate_parts', 'crate', '旧零件箱', 'Box of old components', 0, 2, { scrap
 I('crate_parts_s', 'crate', '小零件盒', 'Small box of components', 0, 4, { scrap: 10 }, '一盒小零件，回收出十废料。', { model: 'crate_parts', paint: 0xd8c29a, paint2: 0x6f7a82 });
 I('crate_parts_heavy', 'crate', '重零件箱', 'Heavy box of components', 0, 12, { scrap: 24 }, '一大箱铁疙瘩，搬起来腰都直不起来。', { paint: 0x9e7a4f, paint2: 0x6f7a82, carry: 'medium' });
 I('crate_junk', 'crate', '一箱破烂', 'Box of junk', 0, 3.5, { scrap: 8 }, '什么都有一点的破烂箱子。', { paint: 0xb9915f, paint2: 0x2f3236 });
-I('crate_chem', 'crate', '化工箱', 'Box of chemicals', 0, 2.4, { chemicals: 12, organics: 8 }, '一箱瓶瓶罐罐的化学品，回收出化学品和有机物。', { paint: 0xede3c8, paint2: 0x58b8e8 });
-I('crate_lye', 'crate', '碱液箱', 'Box of lye', 0, 10, { chemicals: 10, organics: 4 }, '一箱碱液，搬的时候别洒了。', { paint: 0xf4efe2, paint2: 0x7a7f45 });
-I('crate_supps', 'crate', '营养品箱', 'Box of food supplements', 0, 5, { organics: 10 }, '一箱过期的营养品，回收出有机物。', { paint: 0xa9d3b5, paint2: 0xf4efe2 });
+I('crate_chem', 'crate', '元件箱', 'Box of electrical components', 0, 2.4, { components: 12 }, '一箱旧电路板、开关和小电机，回收出十二个元件。', { paint: 0xede3c8, paint2: 0x58b8e8 });
+I('crate_lye', 'crate', '重元件箱', 'Heavy box of electrical components', 0, 10, { components: 10 }, '一箱拆下来的电机和变压器，沉，回收出十个元件。', { paint: 0xf4efe2, paint2: 0x7a7f45 });
+I('crate_supps', 'crate', '营养品箱', 'Box of food supplements', 0, 5, {}, '一箱过期的营养品，瓶瓶罐罐还能回收一点。', { paint: 0xa9d3b5, paint2: 0xf4efe2 });
 
 /** every kind of thing, in the catalogue's order: the kinds above, then what systems registered, in the order they did */
 export const ITEMS: readonly ItemDef[] = ALL;
@@ -363,9 +362,36 @@ export function retireItem(id: string, into: string | ((r: Record<string, unknow
   RETIRED.set(id, typeof into === 'string' ? (r) => void (r.item = into) : into);
 }
 
+/**
+ * The systems' word on kinds they retired by a rule of their own (a family of ids: the fishing's old rods and baits):
+ * for an id the catalogue has no more, the kind it is now (null: not theirs)
+ */
+const RETIRED_BY: ((id: string) => string | null)[] = [];
+
+/**
+ * A system's kinds retired, merged into others (as its module is loaded, before a save is read): a thing of one in a
+ * save is read back as the kind `now` says, its count and state kept, in place of being left out.
+ */
+export function registerRetiredItems(now: (id: string) => string | null): void {
+  RETIRED_BY.push(now);
+}
+
+/**
+ * The kind a thing of a save named so is read back as: its own, or the one a system's rule merged it into; null: none
+ * there is by a rule (a kind retired one by one, retireItem, is made over as it is read: retiredKind knows both)
+ */
+export function itemIdNow(id: string): string | null {
+  if (BY_ID.has(id)) return id;
+  for (const fn of RETIRED_BY) {
+    const to = fn(id);
+    if (to !== null && BY_ID.has(to)) return to;
+  }
+  return null;
+}
+
 /** a kind there is not any more, that a save is read into another (not lost) */
 export function retiredKind(id: string): boolean {
-  return RETIRED.has(id) && !BY_ID.has(id);
+  return !BY_ID.has(id) && (RETIRED.has(id) || itemIdNow(id) !== null);
 }
 
 export function itemsOf(cat: ItemCatId): ItemDef[] {
@@ -621,7 +647,10 @@ export function forEachItem(inst: ItemInstance, fn: (x: ItemInstance, box: ItemI
   if (inst.inside) for (const x of inst.inside) fn(x, inst);
 }
 
-/** what the recycler gives for it: its kind's salvage, and one organics more for every half litre of liquid in it; a stack gives that for each, a container also what is in it */
+/**
+ * What the recycler gives for it: its kind's salvage — one scrap at the least, whatever it is (anything gives a
+ * little) — a stack that for each, a container also what is in it. A liquid in it gives nothing more.
+ */
 export function salvageOf(inst: ItemInstance): Partial<Record<Material, number>> {
   const d = itemDef(inst.item);
   const n = inst.n ?? 1;
@@ -630,8 +659,7 @@ export function salvageOf(inst: ItemInstance): Partial<Record<Material, number>>
     const v = d.salvage[m];
     if (v) out[m] = v * n;
   }
-  const liquid = Math.floor((inst.litres ?? 0) / 0.5);
-  if (liquid > 0) out.organics = (out.organics ?? 0) + liquid * n;
+  if (!out.scrap && !out.components) out.scrap = n;
   if (inst.inside) {
     for (const x of inst.inside) {
       const s = salvageOf(x);
@@ -704,6 +732,27 @@ export function itemPaint(inst: ItemInstance): { paint: number; paint2: number; 
 /** the models the catalogue asks for (one file serves every kind that names it) */
 export function itemModels(): string[] {
   return [...new Set(ALL.map((d) => d.model))];
+}
+
+/**
+ * The model one thing is drawn with: its kind's (ItemDef.model), unless a system says this thing is drawn with
+ * another of its own (docs/V3/plan/fishing.md: a golden carp is the carp drawn in gold). A system sets one function
+ * for its kinds (registerItemModelOf) and answers null for any other thing. Asked when a thing is put down, taken
+ * into the hands or pictured on the hotbar, never per frame.
+ */
+export function itemModelOf(inst: ItemInstance): string {
+  for (let i = 0; i < MODEL_OF.length; i++) {
+    const m = MODEL_OF[i](inst);
+    if (m) return m;
+  }
+  return itemDef(inst.item).model;
+}
+
+const MODEL_OF: ((inst: ItemInstance) => string | null)[] = [];
+
+/** a system's say in which model a thing of its kinds is drawn with (itemModelOf); called once as its module loads */
+export function registerItemModelOf(fn: (inst: ItemInstance) => string | null): void {
+  if (!MODEL_OF.includes(fn)) MODEL_OF.push(fn);
 }
 
 /** does this kind carry this tag? (no allocation: this is asked while the player looks at things) */
@@ -1237,7 +1286,8 @@ function shallow(v: unknown, depth: number): boolean {
 /**
  * A thing read back from a save, made sound, in place. null when it is not a thing at all, when it is a stack
  * used up (a count of 0 or less: it is gone, and never comes back as one), or when its kind is not in the
- * catalogue (a kind from a system this build does not have): then it and what was in it are counted in `loss`.
+ * catalogue (a kind from a system this build does not have; one a system retired is read back as the kind it went
+ * into, registerRetiredItems): then it and what was in it are counted in `loss`.
  * Whoever was holding it drops it. A count, a level, a freshness or a quality out of range is brought back
  * into range (a count that is no number at all is one thing; a stack over its kind's maximum is kept as it
  * is); fields its kind has no use for are removed; what is inside is cleaned the same way, and what was
@@ -1257,14 +1307,17 @@ function cleaned(raw: unknown, loss: LoadLoss, inner: boolean): ItemInstance | n
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
   if (typeof r.uid !== 'string' || typeof r.item !== 'string') return null;
-  // (a kind there is not any more: read as what took its place)
+  // (a kind there is not any more: read as what took its place — retired one by one (retireItem), or by a system's
+  // rule (registerRetiredItems))
   if (!BY_ID.has(r.item)) RETIRED.get(r.item)?.(r);
-  const d = typeof r.item === 'string' ? BY_ID.get(r.item) : undefined;
+  const id = typeof r.item === 'string' ? itemIdNow(r.item) : null;
+  const d = id !== null ? BY_ID.get(id) : undefined;
   if (!d) {
     loss.unknown += lostCount(r, 0);
     return null;
   }
   const inst = raw as ItemInstance;
+  if (d.id !== r.item) inst.item = d.id;
   const n = r.n;
   if (n !== undefined) {
     // (no number at all: one thing, as a thing without a count is)

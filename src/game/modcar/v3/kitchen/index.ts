@@ -17,7 +17,8 @@ import { dishesWith } from '../../../../core/v3/kitchen/cook';
 import { WAYS } from '../../../../core/v3/kitchen/dishes';
 import { BOARD, GAS, GAS_FULL, HOB, INGREDIENT_CAT, KITCHEN_ITEMS, MEAL_CAT, portionOf, STOVE, VESSEL, WAY_OF } from '../../../../core/v3/kitchen/items';
 import { CHOPS, fireOf, gasOf, hasCanister, kitOf, phaseOf, potOf, TOSSES, vesselOf } from '../../../../core/v3/kitchen/kit';
-import { FOOD } from '../../../../core/v3/kitchen/pantry';
+import { FOOD, FOODS, LARDER_SHELF } from '../../../../core/v3/kitchen/pantry';
+import { addLarder } from '../../../../core/modcar/loot';
 import { registerItemCardLines, type ItemCard } from '../../itemInfo';
 import type { GameContext } from '../../kernel/context';
 import type { GameModule } from '../../kernel/modules';
@@ -47,6 +48,9 @@ if (!hasItemCat(KITCHEN_CAT.id)) registerItemCat(KITCHEN_CAT);
 registerItemCat(INGREDIENT_CAT);
 registerItemCat(MEAL_CAT);
 registerItems(KITCHEN_ITEMS);
+// (what of the pantry the places by the road keep, and on which shelf: a world of version 7's cupboards, refrigerators
+// and cool boxes hold it — docs/V3/plan/finish.md §二 4, §八 1)
+addLarder(FOODS.filter((f) => LARDER_SHELF[f.id]).map((f) => ({ item: `ing_${f.id}`, star: f.star, shelf: LARDER_SHELF[f.id] })));
 
 /** the game's one kitchen */
 export const kitchen = new Kitchen();

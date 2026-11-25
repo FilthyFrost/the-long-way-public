@@ -58,6 +58,8 @@ describe('J8: the plan of what turns up', () => {
     const p = plan(7, TO_KM);
     expect(plan(7, TO_KM)).toEqual(p);
     for (const e of SCHEDULE) {
+      // (what first comes beyond the plan's end — the later chapters' blueprint places — is not in it yet)
+      if (e.firstKm[1] > TO_KM) continue;
       const first = p.find((f) => f.entry === e.id);
       expect(first, e.id).toBeTruthy();
       expect(first!.s / 1000, e.id).toBeGreaterThanOrEqual(e.firstKm[0] - 1e-6);

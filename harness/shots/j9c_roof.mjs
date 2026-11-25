@@ -1,6 +1,8 @@
-// J9c (docs/V3/plan/growth.md §六 2), in the game: the roof rack's blueprint held to the Sugar Cube — 装上 车顶行李架 —
-// the left button held a second, a rack on its roof and the sheet used up; the roof then a place for things: a box of
-// components put up there rides on it as the car drives off; a second blueprint on it says the roof has a rack already.
+// J9c (docs/V3/plan/growth.md §六 2, docs/V3/plan/finish.md §六 2), in the game: the roof rack's blueprint in the hands —
+// 学会 车顶行李架 — the right button learns it and the sheet is used up; a second sheet says it is known already. The
+// rack itself (made at a bench: f5_craft.mjs) is a part: held to the Sugar Cube's roof and the left button held, it is
+// fitted as any part is. The roof then a place for things: a box of components put up there rides on it as the car
+// drives off.
 //   SHOTS_GPU=1 node harness/shots/j9c_roof.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,29 +38,72 @@ try {
   const vi = await page.evaluate(() => window.__rt.game.vehicles.findIndex((v) => v.build.frame === 'sedan'));
   ok(vi >= 0, `the Sugar Cube by the road (${vi})`);
   ok(await page.evaluate((i) => !window.__rt.game.vehicles[i].build.parts.roof, vi), 'nothing on its roof');
-  // the blueprint in the hands, held to the car
-  await rt('hold', 'item:bp_roof_rack');
+  // the blueprint in the hands (out of the car): the right button learns it
   await rt('aim', vi, 'roof', 1.6);
+  await rt('hold', 'item:bp_roof_rack');
   await rt('simulate', 0.2);
   let words = await said();
-  ok(/装上\s*车顶行李架/.test(words), `held to the car: 装上 车顶行李架 (${words.split('\n').filter((l) => l.includes('装上')).join(' · ')})`);
+  ok(/学会\s*车顶行李架/.test(words), `the sheet in the hands: 学会 车顶行李架 (${words.split('\n').filter((l) => l.includes('学会')).join(' · ')})`);
   await shot('01_blueprint.png');
-  // the left button held a second
-  const tel = await rt('useFor', 1.3);
-  const roof = await page.evaluate((i) => window.__rt.game.vehicles[i].build.parts.roof?.part ?? null, vi);
-  ok(roof === 'roof_rack', `held a second: a rack on the roof (${roof})`);
-  ok(tel.held === '', `the sheet used up (${tel.held || 'nothing in the hands'})`);
-  await rt('simulate', 0.5);
+  let tel = await rt('rightFor', 0.15);
+  const learned = await page.evaluate(() => [...window.__rt.game.learned]);
+  ok(learned.includes('roof_rack') && tel.held === '', `the right button: learnt (${learned.join(', ')}), the sheet used up (${tel.held || 'nothing in the hands'})`);
+  await rt('simulate', 0.3);
   words = await said();
-  ok(words.includes('装上了车顶行李架'), 'said: 装上了车顶行李架');
+  ok(words.includes('学会了：车顶行李架'), 'said: 学会了：车顶行李架');
+  // a second sheet: known already — it stays in the hands and says so
+  await rt('hold', 'item:bp_roof_rack');
+  await rt('simulate', 0.2);
+  tel = await rt('rightFor', 0.15);
+  await rt('simulate', 0.1);
+  words = await said();
+  ok(tel.held === 'item:bp_roof_rack' && words.includes('已经会做车顶行李架了'), `a second sheet: 已经会做车顶行李架了, still in the hands (${tel.held})`);
+  // the rack itself, as the bench makes it: a part, fitted by hand at its place on the roof
+  await rt('hold', 'roof_rack');
+  // (its model, and its ghost's with it, comes in over a moment of real time)
+  let found = null;
+  for (let tries = 0; tries < 12 && !found; tries++) {
+    await page.waitForTimeout(400);
+    await rt('simulate', 0.1);
+    found = await findRoof();
+  }
+  async function findRoof() {
+    return page.evaluate((i) => {
+    const g = window.__rt.game;
+    const v = g.vehicles[i];
+    const w = g.player.walker;
+    const a = v.sim.yaw;
+    const x = v.sim.px - Math.sin(a) * 1.5;
+    const z = v.sim.pz + Math.cos(a) * 1.5;
+    w.place(x, z, 0, 0);
+    const yaw0 = Math.atan2(v.sim.pz - z, v.sim.px - x);
+    // (the mark onto the rack's ghost on the roof: the middle of where it is seen)
+    const hits = [];
+    for (let dy = -0.6; dy <= 0.6; dy += 0.04) {
+      for (let p = -0.3; p <= 0.5; p += 0.04) {
+        g.input.lookYaw = yaw0 + dy;
+        g.input.lookPitch = p;
+        g.simulate(0);
+        if (g.player.telemetry().target.startsWith(`ghost:${v.build.uid}:roof:`)) hits.push([yaw0 + dy, p]);
+      }
+    }
+    if (!hits.length) return null;
+    const my = hits.reduce((s, h) => s + h[0], 0) / hits.length;
+    const mp = hits.reduce((s, h) => s + h[1], 0) / hits.length;
+    const best = hits.reduce((b, h) => (Math.hypot(h[0] - my, h[1] - mp) < Math.hypot(b[0] - my, b[1] - mp) ? h : b));
+    g.input.lookYaw = best[0];
+    g.input.lookPitch = best[1];
+    g.simulate(0.2);
+    return { n: hits.length, target: g.player.telemetry().target };
+    }, vi);
+  }
+  ok(!!found && found.target.includes(':roof:'), `the rack in the hands: its place on the roof lights up under the mark (${found ? `${found.n} looks land on it` : 'none'})`);
+  words = await said();
+  ok(/装上\s*行李架/.test(words), `held to the roof: 装上 行李架 (${words.split('\n').filter((l) => l.includes('装上')).join(' · ')})`);
+  tel = await rt('useFor', 3);
+  const roof = await page.evaluate((i) => window.__rt.game.vehicles[i].build.parts.roof?.part ?? null, vi);
+  ok(roof === 'roof_rack' && tel.held === '', `the left button held: a rack on the roof (${roof}), out of the hands (${tel.held || 'empty'})`);
   await shot('02_rack.png');
-  // a second blueprint: the roof has its rack (what it says on a press where nothing else takes the button)
-  const why = await page.evaluate(async (i) => {
-    const B = await import('/src/game/modcar/v3/blueprints/system.ts');
-    const a = B.blueprintAim('bp_roof_rack', window.__rt.game.vehicles[i]);
-    return 'why' in a ? a.why : '';
-  }, vi);
-  ok(why === '车顶上已经有行李架', `a second blueprint on it: ${why || '—'}`);
   await page.evaluate(() => {
     window.__rt.game.player.held = null;
   });
@@ -90,9 +135,7 @@ try {
     if (g.seated) g.getOut();
     const w = g.player.walker;
     w.place(stand.x, stand.z, 0, 0);
-    const eye = w.eye();
-    g.input.lookYaw = Math.atan2(target.z - w.z, target.x - w.x);
-    g.input.lookPitch = Math.atan2(target.y - eye.y, Math.hypot(target.x - w.x, target.z - w.z));
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(target.x, target.y, target.z));
     g.viewMode = 'cockpit';
     g.simulate(0);
     return g.player.telemetry();

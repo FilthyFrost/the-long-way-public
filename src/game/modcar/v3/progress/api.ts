@@ -106,8 +106,9 @@ const LINES_MOST = 5;
 const LINE_GAP = 0.25;
 
 const waiting: { text: string; seconds: number }[] = [];
-/** how long the line last said by `announce` is still up (game seconds) */
+/** how long the line last said by `announce` is still up (game seconds), and whether it is a hint for its moment */
 let showing = 0;
+let showingTimely = false;
 /** the progress system is running and brings the waiting lines out (while it is not, every line is said at once) */
 let stepped = false;
 
@@ -118,15 +119,23 @@ function lang(ctx: GameContext): 'zh' | 'en' {
 /**
  * One short line for the player, in the game's toast. Said at once when none of these is up and one is not
  * driving; otherwise in its turn (the progress system brings the lines out, in lateUpdate).
+ *
+ * `timely`: a hint for this very moment (what to do with a fish on the line) — of no use later, so it never waits its
+ * turn: it is said now, in place of another such hint that is up, or not at all. Answers whether it was said (or will
+ * be, in its turn).
  */
-export function announce(ctx: GameContext, text: string, seconds = 2): void {
-  if (!stepped || (showing <= 0 && waiting.length === 0 && atWalkingPace(ctx))) {
+export function announce(ctx: GameContext, text: string, seconds = 2, timely = false): boolean {
+  const free = showing <= 0 || (timely && showingTimely);
+  if (!stepped || (free && waiting.length === 0 && atWalkingPace(ctx))) {
     ctx.ui.say(text, seconds);
     showing = seconds + LINE_GAP;
-    return;
+    showingTimely = timely;
+    return true;
   }
+  if (timely) return false;
   if (waiting.length >= LINES_MOST) waiting.shift();
   waiting.push({ text, seconds });
+  return true;
 }
 
 /** the progress system's part of a frame: the line that is up runs down, the next one waiting is said */
@@ -136,12 +145,21 @@ export function stepLines(dt: number, ctx: GameContext): void {
   const next = waiting.shift()!;
   ctx.ui.say(next.text, next.seconds);
   showing = next.seconds + LINE_GAP;
+  showingTimely = false;
+}
+
+/** the line that is up taken down now, its time over (what it said no longer holds); the waiting ones come on in turn */
+export function cutLine(ctx: GameContext): void {
+  showing = 0;
+  showingTimely = false;
+  (ctx.ui as { hush?: () => void }).hush?.();
 }
 
 /** no line up, none waiting (a game begins); `live`: the progress system is there to bring waiting lines out */
 export function clearLines(live: boolean): void {
   while (waiting.length > 0) waiting.pop();
   showing = 0;
+  showingTimely = false;
   stepped = live;
 }
 

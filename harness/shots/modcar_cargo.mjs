@@ -34,9 +34,7 @@ try {
         const a = (k * Math.PI) / 4;
         w.place(l.x + Math.cos(a) * 0.9, l.z + Math.sin(a) * 0.9, a + Math.PI);
         for (let i = 0; i < 3; i++) {
-          const eye = w.eye();
-          g.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);
-          g.input.lookPitch = Math.atan2(l.y + l.mid - eye.y, Math.hypot(l.x - w.x, l.z - w.z));
+          ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(l.x, l.y + l.mid, l.z));
           g.simulate(i ? 0.05 : 0);
         }
         target = window.__rt.telemetry().target;

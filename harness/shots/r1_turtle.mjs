@@ -239,13 +239,17 @@ try {
     return { aboard: g.player.aboard?.v === w, index: g.vehicles.indexOf(w) };
   });
   ok(whale.aboard, `in the Whale's living space (${JSON.stringify(whale)})`);
-  // (facing forward, up at the bunk over the cab)
+  // (facing forward, at the edge of the bunk's mattress over the cab: it is at about her eyes)
   await rt('setView', 'cockpit');
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const g = window.__rt.game;
-    const ab = g.player.aboard;
-    g.input.lookYaw = ab.heading();
-    g.input.lookPitch = -0.08;
+    const A = await import('/src/core/modcar/aboard.ts');
+    const bed = A.aboardOf('rv').beds[0];
+    const m = window.__w.view.model;
+    m.updateMatrixWorld(true);
+    const p = m.localToWorld(m.position.clone().set(bed.x0 + 0.05, bed.top - 0.03, 0));
+    const o = g.core.origin;
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(p.x + o.x, p.y + o.y, p.z + o.z));
     g.simulate(0.2);
   });
   w = await words();

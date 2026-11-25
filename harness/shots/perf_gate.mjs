@@ -38,7 +38,7 @@ const browser = await launchBrowser();
 const report = { label, at: new Date().toISOString(), budget, spots: [] };
 let over = 0;
 try {
-  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? process.env.WORLD : 2}&seed=7&start=road&build=${process.env.GATE_BUILD ?? 'stock:pickup'}&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}`, { width: 1920, height: 1080 });
+  const { page, errors } = await openGame(browser, `${url}/modcar.html?shot=1&world=${EARTH ? process.env.WORLD : 2}&seed=7&start=road&build=${process.env.GATE_BUILD ?? 'stock:pickup'}&s=300&time=15.5&weather=clear${m5 ? '&flora=m5' : ''}${process.env.GATE_Q ? `&${process.env.GATE_Q}` : ''}`, { width: 1920, height: 1080 });
   await idle(page);
   if (EARTH) {
     const wanted = args.length ? args : null;
@@ -105,6 +105,8 @@ try {
         ['ground_road', /terrain|ground|road|strip|tile|chunk|land|shoulder|verge|water|lake|river|sea|wire|pole|kerb|curb|line/i],
         ['rocks', /rock|stone|boulder|cobble|pebble|scree/i],
         ['life', /life|bird|fish|insect|butterfly|bee|deer|animal|firefl/i],
+        // (her: the player character, docs/V3/plan/character-pv.md — her meshes are all named player:…)
+        ['character', /^player:/],
         ['vehicles_player', /modcar|vehicle|car|wheel|tyre|cab|seat|player|hand|held|cockpit|dash|merged/i],
       ];
       const kindOf = (o) => {

@@ -11,6 +11,8 @@ import { SURFACE_N, type Derived } from './derive';
 export function applyToSim(sim: VehicleSim, d: Derived, first = false): void {
   if (!first) sim.applySpec(d.spec as VehicleSpec);
   applyWheelMods(sim, d);
+  // (docs/V3/plan/finish.md §四.1: a built vehicle stays on its wheels — a tall one slides where it would have gone over)
+  sim.rollGuard = true;
 }
 
 /** grip, rolling resistance and radius differences of each wheel, and the steering's free play */

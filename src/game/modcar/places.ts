@@ -18,11 +18,15 @@
 import * as THREE from 'three';
 import type { ContainerKind } from '../../core/items/loot';
 import { newItem, stackMax, stampFresh, type ItemInstance, type ItemState } from '../../core/modcar/items';
-import { boxesOfFinds, CONTAINER_MATERIAL, CONTAINER_NAMES, foundScheduled, looseFound, looseKept, planBoxes, planGround, rollContainer, stationFuel, thinOut, type Found } from '../../core/modcar/loot';
+import { boxesOfFinds, CONTAINER_MATERIAL, CONTAINER_NAMES, foundKey, foundScheduled, looseFound, looseKept, lootRules, ownFound, planBoxes, planGround, stationFuel, type Climate, type Found, type LootRules } from '../../core/modcar/loot';
 import { pumpInto, tankRoomOf, type FuelTank, type Tool } from '../../core/modcar/tools';
 import type { FuelType, PartInstance, Text } from '../../core/modcar/types';
 import type { Site, SiteContainer, SiteObject } from '../../core/world/sites';
-import { heldBackUntil, SitePlanner, THEME_WAIT_M, type PlannedFind } from '../../core/modcar/schedule';
+import { fitToPlaces, heldBackUntil, placesPlan, scheduleOf, SitePlanner, THEME_WAIT_M, type PlannedFind, type PlanPlace, type ScheduledThing } from '../../core/modcar/schedule';
+import { CHAPTER_KM } from '../../core/modcar/crafting';
+import type { Difficulty } from '../../core/modcar/difficulty';
+import { lookAheadFinds, regionsAlong } from '../../core/modcar/lookahead';
+import { supplyCount, type Stocks } from '../../core/modcar/needs';
 import type { World } from '../../core/world/terrain';
 import type { GarageDevice } from './garageStub';
 import { FUEL_ZH, type ItemCard } from './itemInfo';
@@ -60,6 +64,8 @@ const BLURB: Partial<Record<ContainerKind, string>> = {
   desk: '书桌的抽屉。',
   medicine: '药柜。',
   barrel: '一只锈铁桶，里面塞着些杂物。',
+  fridge: '早就没电了，门一直关着，里面的东西还没坏。',
+  coolbox: '谁留在这儿的保温箱。',
   tacklebox: '谁的钓具箱。',
   gamebag: '猎人留下的包。',
   garage: '修车铺的零件架。',
@@ -89,6 +95,39 @@ export interface PlacesSave {
  * A found thing as it comes into the world: an item is made here, as the stack, of the quality and with the
  * state its Found says (none of them: one plain thing), and its freshness starts counting now.
  */
+/** how far down a world of version 7's road its places are looked over when its plan is made (m): the plan fitted to them, what the road ahead asks for */
+export const LOOK_TO_M = 300_000;
+
+/**
+ * The plan of what turns up down a world's road, as the game lays it over its places (the robot traveller's too): the
+ * plan of its version (schedule.ts scheduleOf) at the difficulty — and, a world of version 7 on, fitted to its places
+ * (each chapter's new thing within its chapter whatever the road is like there: fitToPlaces) with what the road ahead
+ * asks for (a coat before the snow, water before the desert, petrol before a long way with no place: lookahead.ts).
+ * The world's places and regions down its first LOOK_TO_M are looked over once for it.
+ */
+export function worldPlan(world: World, seed: number, difficulty: Difficulty = 'normal', toKm = 4000): PlannedFind[] {
+  const version = world.rules.version;
+  const finds = placesPlan(seed, toKm, difficulty, scheduleOf(version));
+  if (version < 7) return finds;
+  const to = Math.min(LOOK_TO_M, toKm * 1000);
+  const places = planPlaces(world, 0, to);
+  return [...fitToPlaces(finds, places), ...lookAheadFinds(seed, regionsAlong(world.spine.plan, to), places, CHAPTER_KM[2] * 1000)].sort((a, b) => a.s - b.s);
+}
+
+/**
+ * A world's places as the plan sees them (schedule.ts PlanPlace), between two points of its road (m; both ends
+ * counted), in road order — those and no others (the world hands its places out by the stretch: the ones of the
+ * stretches at either end that lie outside are left out)
+ */
+export function planPlaces(world: World, from: number, to: number): (PlanPlace & { id: string })[] {
+  const sites: Site[] = [];
+  world.sites.between(from, to, sites);
+  return sites
+    .filter((x) => x.s >= from && x.s <= to)
+    .sort((a, b) => a.s - b.s)
+    .map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: planBoxes(x).length, ground: planGround(x) }));
+}
+
 export function heldOfFound(f: Found): NonNullable<Held> {
   if ('item' in f) {
     const o: Partial<ItemInstance> = {};
@@ -207,6 +246,26 @@ export interface PlacesHost {
   dropWorkshop?(ws: Workshop): void;
   /** the plan of what turns up down the road (schedule.ts plan: the world's seed, the difficulty); absent: none */
   planned?(): readonly PlannedFind[] | null;
+  /**
+   * the sheet one of the plan's blueprint places has for one who comes to it now (docs/V3/plan/finish.md §六 2: the next
+   * not learnt yet, of chapter `chapter` or before) — `slot` the place's own key, `s` how far down the road it is (m);
+   * `want` the sheet the plan names for it (the motorcycle rack's after the motorcycle: that one unless it is learnt
+   * already); absent: the first sheet of its chapter (loot.ts foundScheduled)
+   */
+  blueprintAt?(slot: string, chapter: number, s: number, want?: string): ScheduledThing;
+  /** the finds added to the plan since the game began (a set's steps, put out as it went: kits.ts) — a new planner takes them all; absent: none */
+  added?(): readonly PlannedFind[];
+  /** is this thing kept back for now (a piece of a set whose main thing has not been picked up: kits.ts kitHeld)? Its key: an item's id, `part:` and a part's */
+  withheld?(key: string): boolean;
+  /** has the set this thing begins been begun already (another of it is one too many: the place has something else)? */
+  begun?(key: string): boolean;
+  /** what the road is like at a point of it and a little way on (core/modcar/lookahead.ts climateAhead): what a wardrobe there holds goes with it; absent: mild */
+  climate?(s: number): Climate;
+  /**
+   * How the supply of each thing one lives on is scaled by how much of it one has now (core/modcar/needs.ts
+   * supplyFactors: 0.7–1.4) — asked as a place's boxes are laid out; absent: nothing is (a world made before version 7)
+   */
+  supply?(): Stocks | undefined;
   /** how much of the places' own food, drink, petrol and oil is still there (0–1; absent: all of it) */
   keep?(): number;
   /** the parts lying beside the vehicles to find at a place (wrecks.ts besideAt); absent: none */
@@ -466,8 +525,12 @@ export class Places {
       // where it is due — a building's own wait for it: docs/V3/plan/growth.md §六 3)
       const until = held.get(t.item);
       if (until !== undefined && site.s < until + THEME_WAIT_M) continue;
-      const f = looseFound(t.item, hashId(t.id), site.s, site.kind);
-      if (!f || !looseKept(f, hashId(t.id), this.keep())) continue;
+      const f = looseFound(t.item, hashId(t.id), site.s, site.kind, this.rules());
+      if (!f || !looseKept(f, hashId(t.id), this.keep(), this.host.supply?.())) continue;
+      // (a world of version 7: by what it is found to be — a spray can, a car radio wait for the plan's first too)
+      if (this.heldNow(foundKey(f), site.s)) continue;
+      // (a piece of a set whose main thing has not been picked up yet: not yet)
+      if (this.host.withheld?.(foundKey(f))) continue;
       const h = heldOfFound(f);
       const L = this.host.loose;
       const l = h.kind === 'part' ? L.addPart(h.inst, t.x, t.y, t.z, t.yaw) : h.kind === 'tool' ? L.addTool(h.tool, t.x, t.y, t.z, t.yaw) : L.addItem(h.item, t.x, t.y, t.z, t.yaw);
@@ -526,18 +589,34 @@ export class Places {
   /** what a container holds, rolled (the same every time) — and what of the plan its place holds (docs/V3/plan/growth.md §六 3) */
   private roll(pc: PlaceContainer): NonNullable<Held>[] {
     // (the place's own: what is still there of it — the food and the drink mostly gone, J10; a prefab's box for the plan has none of its own: loot.ts ownRoll)
-    const own = thinOut(pc.c.plan ? [] : rollContainer(pc.c.kind, pc.c.seed, pc.site.s, pc.site.kind), pc.c.seed, this.keep()).map(heldOfFound);
+    // (a piece of a set whose main thing has not been picked up yet is not there: docs/V3/plan/finish.md §二 3)
+    // (… nor, in a world of version 7, a new thing of the plan's before its first is due: nothing of a chapter before it)
+    // (and more or less of what one lives on by what one is short of as one comes: needs.ts)
+    const factors = this.host.supply?.();
+    const own = ownFound(pc.c, pc.site.s, pc.site.kind, this.rules(), this.host.climate?.(pc.site.s) ?? 'mild', this.keep(), (key) => this.heldNow(key, pc.site.s) || (this.host.withheld?.(key) ?? false), factors).map(heldOfFound);
     // (a place's finds shared among its own boxes, each in the one with the most room for it: the same way every time)
     const finds = this.findsOf(pc.site);
     if (!finds.length) return own;
     const i = planBoxes(pc.site).indexOf(pc.c);
-    const into = this.findBoxes.get(pc.site.id) ?? boxesOfFinds(pc.site, finds);
+    const into = this.findBoxes.get(pc.site.id) ?? boxesOfFinds(pc.site, finds, this.rules());
     this.findBoxes.set(pc.site.id, into);
     finds.forEach((f, k) => {
       if (into[k] !== i) return;
-      [f.thing, ...(f.with ?? [])].forEach((t, j) => own.push(heldOfFound(foundScheduled(t, pc.c.seed + k * 31 + j, pc.site.s))));
+      // (a supply of the plan's: none of it, or two, now and then — by what one is short of)
+      const n = factors ? supplyCount(f, factors, pc.c.seed + k * 31) : 1;
+      for (let c = 0; c < n; c++) [f.thing, ...(f.with ?? [])].forEach((t, j) => own.push(heldOfFound(foundScheduled(this.sheetOf(t, `${pc.site.id}/plan${k}.${j}`, pc.site.s), pc.c.seed + k * 31 + j + c * 977, pc.site.s, this.rules()))));
     });
     return own;
+  }
+
+  /** a planned thing as it is found: a blueprint's place has the sheet the game says it has now (the host's blueprintAt), anything else is itself */
+  private sheetOf(t: ScheduledThing, slot: string, s: number): ScheduledThing {
+    if ('blueprint' in t) return this.host.blueprintAt?.(slot, t.blueprint, s) ?? t;
+    // (the main thing of a set one has begun already: a box of old components in its place)
+    if (this.host.begun?.('item' in t ? t.item : 'part' in t ? `part:${t.part}` : '')) return { item: 'crate_parts' };
+    // (a sheet the plan names: not one learnt already)
+    if ('item' in t && t.item.startsWith('bp_')) return this.host.blueprintAt?.(slot, 0, s, t.item) ?? t;
+    return t;
   }
 
   /** what of the plan a place holds (docs/V3/plan/growth.md §六 3): the places down to it taken in first, in road order */
@@ -545,10 +624,7 @@ export class Places {
     const planner = this.planner();
     if (!planner) return [];
     if (planner.through < site.s && this.host.world) {
-      const ahead: Site[] = [];
-      this.host.world.sites.between(Math.max(0, planner.through - 1), site.s + 1, ahead);
-      ahead.sort((a, b) => a.s - b.s);
-      planner.take(ahead.map((x) => ({ id: x.id, s: x.s, kind: x.kind, boxes: planBoxes(x).length, ground: planGround(x) })));
+      planner.take(planPlaces(this.host.world, Math.max(0, planner.through - 1), site.s + 1));
     }
     return planner.findsAt(site.id);
   }
@@ -575,7 +651,7 @@ export class Places {
         const x = car.x + c * along + s * (car.d / 2 + 0.75);
         const z = car.z + s * along - c * (car.d / 2 + 0.75);
         const y = this.host.world!.heightAt(x, z);
-        const h = heldOfFound(foundScheduled(t, site.seed + k * 31 + j, site.s));
+        const h = heldOfFound(foundScheduled(this.sheetOf(t, id, site.s), site.seed + k * 31 + j, site.s, this.rules()));
         const L = this.host.loose;
         const l = h.kind === 'part' ? L.addPart(h.inst, x, y, z, car.yaw) : h.kind === 'tool' ? L.addTool(h.tool, x, y, z, car.yaw) : L.addItem(h.item, x, y, z, car.yaw);
         l.resting = true;
@@ -583,6 +659,11 @@ export class Places {
         this.owned.set(l, { site: site.id, id });
       }),
     );
+  }
+
+  /** the rules of what is found, by the world's version (loot.ts: a world of version 7's own; with no world, as it always was) */
+  private rules(): LootRules {
+    return lootRules(this.host.world?.rules?.version ?? 1);
   }
 
   /** how much of the places' own food, drink, petrol and oil is still there (loot.ts PLACES_KEEP; 1: all — the harness's stand-ins) */
@@ -599,8 +680,19 @@ export class Places {
     if (this.plannerOf === undefined) {
       const finds = this.plannedFinds();
       this.plannerOf = finds ? new SitePlanner(finds) : null;
+      this.plannerOf?.add(this.host.added?.() ?? []);
     }
     return this.plannerOf;
+  }
+
+  /** finds added to the plan now (a set's next step: the game's): laid at the places still to come — returned as they were added (what the game keeps) */
+  addFinds(finds: readonly PlannedFind[]): PlannedFind[] {
+    return this.planner()?.add(finds) ?? [];
+  }
+
+  /** where the place that took one of the plan's finds is (m of road); undefined: none has yet */
+  laidAt(f: PlannedFind): number | undefined {
+    return this.planner()?.laidAt(f);
   }
 
   /** the plan's finds (made once: the host's planned) */
@@ -619,9 +711,20 @@ export class Places {
   private heldBack(): Map<string, number> {
     if (!this.heldOf) {
       const finds = this.host.world?.prefabs ? null : this.plannedFinds();
-      this.heldOf = finds ? heldBackUntil(finds) : new Map();
+      this.heldOf = finds ? heldBackUntil(finds, this.rules().version >= 7) : new Map();
     }
     return this.heldOf;
+  }
+
+  /**
+   * (a world of version 7) Is a thing of this key one of the plan's new things whose first is not due yet down to a
+   * place at s (m) — and so not among the place's own, in a box or in plain sight? A world made before: never (its
+   * buildings' things in plain sight wait by their own rule above, its boxes for nothing).
+   */
+  private heldNow(key: string, s: number): boolean {
+    if (this.rules().version < 7) return false;
+    const until = this.heldBack().get(key);
+    return until !== undefined && s < until + THEME_WAIT_M;
   }
 
   // ------------------------------------------------------------------ containers

@@ -204,7 +204,6 @@ export type FoleyLoop =
   | 'glug'
   | 'breath'
   | 'heart'
-  | 'pee'
   /** the recycler running empty: its motor's hum, the gearbox whine, the rotors turning with a light rattle */
   | 'recycler_run'
   /** something being ground (over recycler_run, faded with the work): dense crunching over a straining motor */
@@ -314,8 +313,6 @@ export interface FoleyOpts {
   cutoff?: number;
   /** -1..1 stereo position (only with a stereo output) */
   pan?: number;
-  /** pee: what the stream falls on (core/audio/footing.ts Footing) */
-  footing?: string;
 }
 
 type Recipe = (sr: number, rng: Rng) => Float32Array;
@@ -1008,19 +1005,6 @@ function heartLoop(): Recipe {
       }),
       0.6,
     );
-  };
-}
-
-function peeLoop(): Recipe {
-  return (sr, rng) => {
-    const len = 2.0;
-    const n = Math.floor(len * sr);
-    const x = noise(3 * n, rng);
-    biquad(x, sr, 'bandpass', 1600, 0.8);
-    biquad(x, sr, 'peaking', 3200, 1.5, 4);
-    const out = x.slice(n, 2 * n);
-    for (let i = 0; i < n; i++) out[i] *= 0.8 + 0.2 * Math.sin((2 * Math.PI * 9 * i) / n);
-    return normalize(seamless(out, sr), 0.35);
   };
 }
 
@@ -4628,7 +4612,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
-  ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36, glug: 0.5, breath: 0.4, heart: 0.5, pee: 0.3,
+  ratchet: 0.6, spray: 0.45, sponge: 0.45, pour: 0.5, horn_beep: 0.4, horn_air: 0.36, glug: 0.5, breath: 0.4, heart: 0.5,
   recycler_run: 0.17, recycler_grind: 0.23, lamp_buzz: 0.03,
   // (at gain 1 the scrapes and the brush about as loud as the ratchet, -30 LUFS, rust a touch harder, mud and the sponge softer)
   scrape_glass: 0.29, scrape_metal: 0.39, scrape_rust: 0.32, scrape_mud: 0.36, brush_wire: 0.29, sponge_scrub: 0.38,
@@ -4808,7 +4792,6 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'glug': return glugLoop();
     case 'breath': return breathLoop();
     case 'heart': return heartLoop();
-    case 'pee': return peeLoop();
     case 'ratchet': return ratchetLoop();
     case 'spray': return sprayLoop();
     case 'sponge': return spongeLoop();
@@ -4916,23 +4899,9 @@ export function cueKeys(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): string[
       return [`hammer_hit:${o.grind ?? 'metal'}`];
     case 'pour':
       return [`pour:${o.liquid ?? 'fuel'}`];
-    case 'pee':
-      return [`pee:${peeOn(o.footing)}`];
     default:
       return [kind];
   }
-}
-
-/**
- * What a stream falls on, as the archive's recordings of it have it (Arctic Drive's: concrete, metal, wood, snow): a
- * road's or a slab's, a gravel's stones as hard; boards and a carpet as boards; earth, grass, sand and snow take it
- * softly, as snow does.
- */
-export function peeOn(footing: string | undefined): 'concrete' | 'metal' | 'wood' | 'snow' {
-  if (footing === 'metal') return 'metal';
-  if (footing === 'wood' || footing === 'carpet') return 'wood';
-  if (footing === 'concrete' || footing === 'gravel') return 'concrete';
-  return 'snow';
 }
 
 /** the archive's sounds that are new with it (no synthesized one to match): the level of their loudest 400 ms (dB, before the master) */
@@ -4952,9 +4921,6 @@ const CUE_DB: Readonly<Record<string, number>> = {
   radio_static: -32,
   thunder: -17,
   'thunder:near': -13,
-  pee_start: -33,
-  pee_end: -33,
-  pee_relief: -31,
   breath_fast: -29,
   breath_slow: -31,
   breath_end: -31,
@@ -4994,7 +4960,7 @@ export class Foley {
     // likewise, and only for the blade's catch (the tier only for the find's sting, always: no tier is the middle one): each scrub loop is a kind of its own whatever it is given;
     // the gain and the rate are how it is played, never another rendering; a container's material always, resolved:
     // none is a wooden cupboard's)
-    return `${kind}|${CONTAINER_KINDS.has(kind) ? containerOf(o.material) : (o.material ?? '')}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}${kind === 'pee' ? `|${peeOn(o.footing)}` : ''}`;
+    return `${kind}|${CONTAINER_KINDS.has(kind) ? containerOf(o.material) : (o.material ?? '')}|${o.mass !== undefined ? massClass(o.mass) : ''}|${o.liquid ?? ''}${o.grind ? `|${o.grind}` : ''}${o.surface && kind === 'scrape_start' ? `|${o.surface}` : ''}${kind === 'loot_reveal' ? `|t${tierOf(o.tier)}` : ''}`;
   }
 
   /** how many renderings of a one-shot to keep (a tune is the same every time: one is enough) */

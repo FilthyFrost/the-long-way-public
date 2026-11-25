@@ -70,7 +70,7 @@ function oldSave(): SaveV1 {
     hands: [{ item: newItem('drink_soda') }, null, { tool: newTool('spray', { tier: 1, colour: 3 }) }, { part: newInstance('rim_steel13') }],
     sel: 2,
     pack: newItem('pack_old'),
-    stock: { scrap: 12, organics: 3, chemicals: 0 },
+    stock: { scrap: 12, components: 3 },
     wrecks: {
       kept: { 'w:12:0': { build: stockBuild('wagon', { fuel: 0 }), x: 400, z: -3, yaw: 1.2, loose: [riding({ item: newItem('food_fish_can') }, 0), riding({ tool: newTool('oilcan', { litres: 1.5 }) }, 0), riding({ part: newInstance('tire_road') }, 0)] } },
       gone: ['w:3:1'],

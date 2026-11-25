@@ -49,10 +49,11 @@ try {
       ab.w.place(x, z, 0);
       const e = { x: 0, y: 0, z: 0 };
       const t = { x: 0, y: 0, z: 0 };
-      ab.toWorld(ab.w.x, ab.w.floorAt(ab.w.x, ab.w.z) + 1.62, ab.w.z, { x: 0, y: 0, z: 0 }, e);
+      // (the eye the view is from: the walker's, hers — it was 1.62 m over the floor)
+      g.simulate(0);
+      Object.assign(e, g.player.walker.eye());
       ab.toWorld(tx, ty, tz, { x: 0, y: 0, z: 0 }, t);
-      g.input.lookYaw = Math.atan2(t.z - e.z, t.x - e.x);
-      g.input.lookPitch = Math.atan2(t.y - e.y, Math.hypot(t.x - e.x, t.z - e.z));
+      ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(t.x, t.y, t.z));
       for (let i = 0; i < 6; i++) g.simulate(1 / 30);
       const tg = g.player.target;
       return { target: tg?.kind ?? null, zone: tg?.kind === 'stow' ? tg.aim.zone.id : null, spot: tg?.kind === 'stow' ? !!tg.aim.spot : null, device: tg?.kind === 'device' ? (tg.device.loose?.item?.item ?? tg.device.id) : null };

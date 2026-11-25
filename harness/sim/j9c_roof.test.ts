@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { fitPart, newInstance, stockBuild } from '../../src/core/modcar/build';
 import { roofZoneOf, zonesFor, zonesOf } from '../../src/core/modcar/cargo';
 import { frameDef } from '../../src/core/modcar/frames';
+import { recipeDef } from '../../src/core/modcar/crafting';
 import { plan } from '../../src/core/modcar/schedule';
 
 describe('J9c: the roof rack', () => {
@@ -38,14 +39,21 @@ describe('J9c: the roof rack', () => {
     expect(roofZoneOf('moto')).toBeNull();
   });
 
-  it('the plan: the blueprint in the first kilometres at a big place, then every 10–15 km', () => {
+  it('the plan: the rack is learnt from a sheet of the second chapter (12–30 km) and made at a bench — a part, fitted as parts are', () => {
+    // (docs/V3/plan/finish.md §六 2: no more "held to the vehicle, a sheet for each")
+    const r = recipeDef('roof_rack');
+    expect(r.chapter).toBe(2);
+    expect(r.cost).toEqual({ scrap: 70 });
+    expect(r.makes).toEqual({ kind: 'part', part: 'roof_rack' });
     for (const seed of [7, 1000, 8919]) {
-      const bp = plan(seed, 100).filter((f) => f.entry === 'roof_rack');
-      expect(bp[0].s / 1000).toBeLessThanOrEqual(4);
-      expect(bp[0].themes).toContain('garage');
-      for (let i = 1; i < bp.length; i++) {
-        expect((bp[i].s - bp[i - 1].s) / 1000).toBeGreaterThanOrEqual(10 - 1e-6);
-        expect((bp[i].s - bp[i - 1].s) / 1000).toBeLessThanOrEqual(15 + 1e-6);
+      // the chapter's blueprint places: as many as it has sheets and one more, all within its kilometres, at the big places
+      const bp = plan(seed, 100).filter((f) => 'blueprint' in f.thing && f.thing.blueprint === 2);
+      expect(bp.length).toBe(6);
+      for (const f of bp) {
+        expect(f.s / 1000).toBeGreaterThanOrEqual(12);
+        expect(f.s / 1000).toBeLessThanOrEqual(30);
+        expect(f.themes).toContain('garage');
+        expect(f.novelty).toBe(false);
       }
     }
   });

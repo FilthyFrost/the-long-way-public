@@ -97,6 +97,11 @@ export interface ItemCard {
   notes: { text: string; tone: 'warn' | 'ok' | 'info' }[];
   foot: { cond?: number; mass?: number; fits?: string };
   /**
+   * what is still wanting of the set it belongs to ("还缺：咖啡壶、咖啡豆": docs/V3/plan/finish.md §二 3) — as things
+   * stand now, on every form of the card (the held thing's cut-down one too); absent: of no set, or the set is whole
+   */
+  wanting?: string;
+  /**
    * Made once and never changed after (itemCardKept): the same object shown again is the same card, and the
    * view does not look into it again. Whoever is handed such a card must not write into it.
    */
@@ -482,7 +487,7 @@ export function drinkTone(liquid: DrinkLiquid): Tone {
   return liquid === 'water' || liquid === 'milk' ? 'water' : liquid === 'alcohol' ? 'mix2t' : liquid === 'coffee' ? 'oil' : 'charge';
 }
 
-/** what the recycler gives for it, in words ("20 废料 · 8 有机物"), or '' for nothing */
+/** what the recycler gives for it, in words ("10 废料 · 3 元件"), or '' for nothing */
 export function salvageText(s: Partial<Record<string, number>>): string {
   return MATERIAL_IDS.filter((m) => (s[m] ?? 0) > 0)
     .map((m) => `${s[m]} ${MATERIALS[m].name.zh}`)
@@ -688,8 +693,9 @@ export function itemCard(inst: ItemInstance, nowS: number = itemNow()): ItemCard
   if (d.heal) {
     if (d.heal.hp > 0) card.rows.push({ value: `+${d.heal.hp}`, label: '生命（马上）', tone: 'good' });
     if (d.heal.warm) card.rows.push({ value: `+${d.heal.warm} °C`, label: '体温', tone: 'good' });
-    if (d.heal.side) card.notes.push({ text: `${Math.round(d.heal.side * 100)}% 会有副作用（醉或中毒）`, tone: 'warn' });
-    if (d.heal.cure) card.notes.push({ text: '吃坏了的肚子也能治好', tone: 'ok' });
+    if (d.heal.cap) card.rows.push({ value: `+${d.heal.cap}`, label: '健康', tone: 'good' });
+    if (d.heal.cure) card.notes.push({ text: '治吃坏的肚子', tone: 'ok' });
+    if (d.heal.treat) card.notes.push({ text: '治受伤', tone: 'ok' });
   }
   if (d.revive) card.notes.push({ text: `倒下时自动用上 · 生命 ${d.revive.hp}`, tone: 'ok' });
   if (d.wear) card.rows.push({ value: `+${d.wear.warmth}`, label: `保暖 · ${SLOT_ZH[d.wear.slot]}`, tone: 'good' });

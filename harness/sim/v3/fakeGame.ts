@@ -108,6 +108,12 @@ export class FakeGame {
       sound: (name: string) => void this.sounds.push(name),
       loop: (name: string, gain = 1) => void this.loops.set(name, gain),
       warmSound: (name: string) => void this.warmed.add(name),
+      audio: { context: null, output: null },
+      teleportTo: (x: number, z: number, yaw: number) => {
+        this.walker.x = x;
+        this.walker.z = z;
+        this.walker.heading = -yaw;
+      },
       addRadios: (sets) => {
         this.radioSets.push(sets);
         return () => void this.radioSets.splice(this.radioSets.indexOf(sets), 1);

@@ -25,7 +25,7 @@ export interface WalkArea {
 
 export const WALK_SPEED = 1.9;
 /** eye above the floor when standing (m) */
-export const EYE_HEIGHT = 1.62;
+export const EYE_HEIGHT = 1.5;
 
 const EPS = 1e-9;
 

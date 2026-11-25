@@ -18,6 +18,23 @@ import type { RenderCore } from '../render/core';
 import { GLSL_COMMON, GLSL_FRAGMENT_PARS, globals } from '../render/shaderlib';
 
 const CELL = 18;
+
+/**
+ * Waters where another system has fish of its own, which would be two kinds of fish in one water (docs/V3/plan/fishing.md:
+ * the fishing module's pond, where every shadow is a fish one can catch): no school of these is drawn inside such a ring.
+ * The system keeps the list itself (world metres), and empties it when it is gone from there.
+ */
+export const FISH_HUSH: { x: number; z: number; r: number }[] = [];
+
+function hushed(x: number, z: number): boolean {
+  for (let i = 0; i < FISH_HUSH.length; i++) {
+    const h = FISH_HUSH[i];
+    const dx = x - h.x;
+    const dz = z - h.z;
+    if (dx * dx + dz * dz < h.r * h.r) return true;
+  }
+  return false;
+}
 const RING = 4;
 const MOST = 900;
 
@@ -208,7 +225,7 @@ export class FishView {
       n++;
     };
     for (const s of this.schools.values()) {
-      if (!s) continue;
+      if (!s || (FISH_HUSH.length && hushed(s.x, s.z))) continue;
       // (the school wanders together about its cell's middle)
       const sx = s.x + Math.sin(t * 0.05 + s.seed * 30) * 3;
       const sz = s.z + Math.cos(t * 0.04 + s.seed * 17) * 3;

@@ -123,6 +123,51 @@ export const FOODS: readonly Food[] = [
 
 export const FOOD: Readonly<Record<string, Food>> = Object.fromEntries(FOODS.map((f) => [f.id, f]));
 
+/**
+ * Where the places by the road keep what of the pantry they have (docs/V3/plan/finish.md §八 1; core/modcar/loot.ts
+ * LarderShelf): what keeps, in a kitchen's cupboard and on a shop's shelf — rice, flour, noodles, beans, potatoes,
+ * onions, garlic, a pumpkin, a loaf, honey; what wants the cold, in a refrigerator or a cool box — the garden's
+ * vegetables, eggs, milk, butter, cheese, tofu, the fruit; and the meat, there too. What grows wild, what is hunted,
+ * caught or gathered on a shore is not a place's to keep.
+ */
+export const LARDER_SHELF: Readonly<Record<string, 'dry' | 'fresh' | 'meat'>> = {
+  rice: 'dry',
+  flour: 'dry',
+  noodle: 'dry',
+  bean: 'dry',
+  potato: 'dry',
+  onion: 'dry',
+  garlic: 'dry',
+  pumpkin: 'dry',
+  bread: 'dry',
+  honey: 'dry',
+  tomato: 'fresh',
+  carrot: 'fresh',
+  cabbage: 'fresh',
+  cucumber: 'fresh',
+  corn: 'fresh',
+  lettuce: 'fresh',
+  pepper: 'fresh',
+  eggplant: 'fresh',
+  broccoli: 'fresh',
+  ginger: 'fresh',
+  chili: 'fresh',
+  egg: 'fresh',
+  milk: 'fresh',
+  butter: 'fresh',
+  cheese: 'fresh',
+  tofu: 'fresh',
+  apple: 'fresh',
+  orange: 'fresh',
+  lemon: 'fresh',
+  chicken: 'meat',
+  pork: 'meat',
+  bacon: 'meat',
+  beef: 'meat',
+  lamb: 'meat',
+  duck: 'meat',
+};
+
 /** what each tag is called where a dish asks for "any of a kind" (a recipe's line, a hint in the book) */
 export const TAG_NAME: Readonly<Record<string, { zh: string; en: string }>> = {
   veg: { zh: '蔬菜', en: 'vegetable' },

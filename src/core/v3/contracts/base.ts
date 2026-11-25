@@ -26,7 +26,7 @@ export type { Text };
 // ------------------------------------------------------------------ ids
 
 export type ItemId = string;
-/** 'scrap' | 'organics' | 'chemicals' (the recycler's three) or a named material of the stash */
+/** 'scrap' | 'components' (the recycler's two) or a named material of the stash */
 export type MaterialId = string;
 export type RecipeId = string;
 export type BlueprintId = string;

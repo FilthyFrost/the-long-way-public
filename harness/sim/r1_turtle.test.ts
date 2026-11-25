@@ -89,15 +89,21 @@ describe('R1: the Turtle and the beds', () => {
     v.energy = 90;
     expect(sleepHours(v)).toBe(2);
     expect(sleepHours(v, true)).toBe(2);
+    // (what a sleep mends — health, the bar's length: two an hour in a seat, five in a bed)
     const a = newVitals();
     const b = newVitals();
     a.hp = b.hp = 40;
+    a.cap = b.cap = 60;
     a.energy = b.energy = 10;
     sleep(a, 4, VITALS, 100, false);
     sleep(b, 4, VITALS, 100, true);
     expect(a.energy).toBe(100);
     expect(b.energy).toBe(100);
-    expect(b.hp - 40).toBeCloseTo((a.hp - 40) * 1.5, 6);
+    expect(a.cap).toBe(68);
+    expect(b.cap).toBe(80);
+    // (life comes back as it does awake, never over one's health)
+    expect(a.hp).toBe(68);
+    expect(b.hp).toBeCloseTo(40 + 400 / 12, 6);
   });
 
   it('the plan: at 50–70 km the Whale or the Turtle, about as often each', () => {

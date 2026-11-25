@@ -336,7 +336,7 @@ try {
         return { mark, before, after: { ...g.stock }, held: !!g.player.held };
       });
       console.log('recycled', JSON.stringify(rec));
-      if (rec.held || (rec.after.scrap ?? 0) + (rec.after.organics ?? 0) + (rec.after.chemicals ?? 0) <= (rec.before.scrap ?? 0) + (rec.before.organics ?? 0) + (rec.before.chemicals ?? 0)) fail(`nothing came of recycling at the roadside garage (${rec.mark})`);
+      if (rec.held || (rec.after.scrap ?? 0) + (rec.after.components ?? 0) <= (rec.before.scrap ?? 0) + (rec.before.components ?? 0)) fail(`nothing came of recycling at the roadside garage (${rec.mark})`);
       const bench = await page.evaluate(() => {
         const g = window.__rt.game;
         const w = g.places.workshops[0];

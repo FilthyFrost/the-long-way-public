@@ -83,9 +83,7 @@ try {
     const px = m.x + o.x + n.x * 0.9, pz = m.z + o.z + n.z * 0.9;
     g.player.walker.place(px, pz, 0, 0);
     g.simulate(0.05);
-    const eye = g.player.walker.eye();
-    g.input.lookYaw = Math.atan2(m.z + o.z - g.player.walker.z, m.x + o.x - g.player.walker.x);
-    g.input.lookPitch = Math.atan2(m.y + o.y - eye.y, Math.hypot(m.x + o.x - g.player.walker.x, m.z + o.z - g.player.walker.z));
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(m.x + o.x, m.y + o.y, m.z + o.z));
   });
   // (kept looking at it while one settles where one stands: the walker is eased off the vehicle's side)
   for (let i = 0; i < 12; i++) {
@@ -96,9 +94,7 @@ try {
       const n = m.clone();
       v.view.fillerMouth('fuel', m, n);
       const o = g.core.origin;
-      const eye = g.player.walker.eye();
-      g.input.lookYaw = Math.atan2(m.z + o.z - g.player.walker.z, m.x + o.x - g.player.walker.x);
-      g.input.lookPitch = Math.atan2(m.y + o.y - eye.y, Math.hypot(m.x + o.x - g.player.walker.x, m.z + o.z - g.player.walker.z));
+      ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = g.player.walker.lookAt(m.x + o.x, m.y + o.y, m.z + o.z));
       g.simulate(1 / 30);
     });
   }
@@ -106,7 +102,7 @@ try {
   console.log('state', JSON.stringify(st));
   check(!!st.into && st.into.startsWith('filler:') && st.pinned, 'held to the filler, it went in');
   await shot('32_the_nozzle_in_the_filler.png');
-  const run = await page.evaluate(() => window.__rt.takeFor(4));
+  const run = await page.evaluate(() => window.__rt.rightFor(4));
   await step(2);
   const after = await page.evaluate(() => window.__rt.filler(0));
   const pumps2 = await H('nd-fuel', 'pumps');
@@ -133,7 +129,7 @@ try {
       check(!!st.into && st.into.startsWith('can:'), 'held to the jerrycan, it went in');
       await shot('34_the_nozzle_in_a_jerrycan.png');
       const room = 20 - can.litres;
-      await page.evaluate(() => window.__rt.takeFor(3));
+      await page.evaluate(() => window.__rt.rightFor(3));
       const can2 = await page.evaluate((uid) => { const l = window.__rt.game.loose.list.find((x) => x.uid === uid); return l ? { litres: l.tool.litres ?? 0, fuel: l.tool.fuel ?? null } : null; }, can.uid);
       console.log('jerrycan after', JSON.stringify(can2));
       if (!can.fuel || can.fuel === pump.fuel || can.litres <= 0.01) check(Math.abs((can2?.litres ?? 0) - can.litres - Math.min(6, room)) < 0.25, 'three seconds ran 6 L into the can');

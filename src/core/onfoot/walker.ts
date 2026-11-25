@@ -4,7 +4,7 @@
  * kept out of every solid nearby.
  *
  *   walk 1.9 m/s · run 3.6 · crouch 1.0 · carrying a big thing alone 1.2 · swimming 1.1
- *   eye 1.62 m (crouched 1.05) · jump 0.55 m · steps up to 0.3 m are walked up
+ *   eye 1.50 m (crouched 1.00), hers · jump 0.55 m · steps up to 0.3 m are walked up
  *   slopes up to 38° are walked, steeper ground slides one down and cannot be climbed
  *   wading slows one down; deeper than 1.1 m one swims (and floats: nobody drowns)
  *
@@ -26,12 +26,13 @@ export const FOOT = {
   carry: 1.2,
   carryTwo: 1.7,
   swim: 1.1,
-  eye: 1.62,
-  eyeCrouch: 1.05,
+  /** her eye (docs/V3/plan/character-pv.md: the eye follows her body, about 1.50 m; it was 1.62) */
+  eye: 1.5,
+  eyeCrouch: 1.0,
   /** swimming: the eye above the (floating) feet; they hang `swimDepth` under the surface */
   eyeSwim: 1.3,
-  height: 1.8,
-  heightCrouch: 1.25,
+  height: 1.7,
+  heightCrouch: 1.2,
   radius: 0.3,
   /** jump height (m) */
   jump: 0.55,
@@ -467,8 +468,54 @@ export class FootWalker {
     return false;
   }
 
-  /** the eye point in the world (no allocation when `out` is given) */
+  /**
+   * Where the view stands from the walker's own eye as it looks level and how much further as it looks down (m, and m
+   * a radian): ahead of it and below it — a character's head carries her eyes forward of her spine and down as she bows
+   * it (the game's, measured on her: HerInGame). All nothing by default: the view is the walker's own eye.
+   */
+  readonly view = { ahead: 0, aheadDown: 0, below: 0, belowDown: 0 };
+
+  /**
+   * The eye the view is from, and so the one everything is aimed from: the walker's own (eyeBase) and where the view
+   * stands from it by how it looks now (view) — a function of the heading and the pitch alone, with no lag: the mark
+   * is on what the hands reach for, and stays there when the view stops turning.
+   */
   eye(out: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }): { x: number; y: number; z: number } {
+    this.eyeBase(out);
+    const v = this.view;
+    if (v.ahead !== 0 || v.below !== 0 || v.aheadDown !== 0 || v.belowDown !== 0) {
+      // (how far down it looks, as far as a neck bows: a little up, more down)
+      const u = Math.max(-0.9, Math.min(1.1, -this.pitch));
+      const a = v.ahead + v.aheadDown * u;
+      out.x += Math.cos(this.heading) * a;
+      out.z += Math.sin(this.heading) * a;
+      out.y -= v.below + v.belowDown * u;
+    }
+    return out;
+  }
+
+  /**
+   * The heading and the pitch that put a point dead ahead of the eye. Solved, not read off the eye as it is: the eye
+   * stands ahead of the feet along the heading and moves as the look tips (view), so the angle to a point from where
+   * the eye is now is not the angle from where it will be once it looks there — a few centimetres off at arm's
+   * length, which is a knob missed.
+   */
+  lookAt(x: number, y: number, z: number, out: { yaw: number; pitch: number } = { yaw: 0, pitch: 0 }): { yaw: number; pitch: number } {
+    const d = Math.hypot(x - this.x, z - this.z);
+    const h = this.y + this.eyeH + this.stepOff + this.bobAmp * Math.sin(this.bobPhase);
+    const v = this.view;
+    let pitch = this.pitch;
+    for (let i = 0; i < 8; i++) {
+      const u = Math.max(-0.9, Math.min(1.1, -pitch));
+      pitch = Math.atan2(y - h + v.below + v.belowDown * u, d - v.ahead - v.aheadDown * u);
+    }
+    out.yaw = d > 1e-6 ? Math.atan2(z - this.z, x - this.x) : this.heading;
+    out.pitch = pitch;
+    return out;
+  }
+
+  /** the walker's own eye: over its feet at its eye height, with its steps' bob (where the view is put before a character's head moves it) */
+  eyeBase(out: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }): { x: number; y: number; z: number } {
     out.x = this.x;
     out.z = this.z;
     out.y = this.y + this.eyeH + this.stepOff + this.bobAmp * Math.sin(this.bobPhase);

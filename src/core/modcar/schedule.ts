@@ -12,12 +12,26 @@
  */
 import { hash2, Rng } from '../math/rng';
 import type { SiteKind } from '../world/sites';
+import { BLUEPRINT_RECIPES, CHAPTER_KM } from './crafting';
 import { DIFFICULTY, type Difficulty } from './difficulty';
 import { frameDef } from './frames';
+import { roadParts } from './startKit';
 import { foundLayout } from './wrecks';
 
-/** what is found: an item by id, a tool of a kind (with what the tool's maker takes), a part */
-export type ScheduledThing = { item: string } | { tool: 'jerrycan' | 'bottle' | 'oilcan' | 'spray'; coolant?: boolean; litres?: number } | { part: string; shapeOf?: string };
+/**
+ * what is found: an item by id, a tool of a kind (with what the tool's maker takes), a part — or a blueprint, of a
+ * chapter of the journey and those before it: which one is not said here but when one comes to its place (the next
+ * not learnt yet: crafting.ts nextBlueprint, docs/V3/plan/finish.md §六 2)
+ */
+export type ScheduledThing =
+  /**
+   * `food`: it is something to eat that keeps one going (the supply of tins) — further down the road of a world of
+   * version 7 it is as often something to cook instead, as the places' own are (loot.ts foundScheduled, LootRules.ready)
+   */
+  | { item: string; food?: true }
+  | { tool: 'jerrycan' | 'bottle' | 'oilcan' | 'spray'; coolant?: boolean; litres?: number }
+  | { part: string; shapeOf?: string }
+  | { blueprint: number };
 
 export interface ScheduleEntry {
   /** its name in the plan (the novelty's own: 'stove', 'coffee', 'fuel') */
@@ -37,6 +51,17 @@ export interface ScheduleEntry {
   after?: readonly { thing: ScheduledThing; km: readonly [number, number] }[];
   /** a can's litres, between these, each find its own */
   litres?: readonly [number, number];
+  /**
+   * the set it begins (kits.ts): what goes with it is not in this plan — it comes after this has been picked up,
+   * where it was picked up — and once the set has begun another of it down the road is one too many (the game gives
+   * that place something else)
+   */
+  kit?: string;
+  /**
+   * the chapter of the journey its first belongs to (crafting.ts CHAPTER_KM): it is to turn up within that chapter's
+   * kilometres whatever the road is like there (PlannedFind.within, fitToPlaces)
+   */
+  chapter?: number;
 }
 
 const I = (item: string): ScheduledThing => ({ item });
@@ -47,6 +72,27 @@ const STATION: readonly SiteKind[] = ['station'];
 const WORKSHOP: readonly SiteKind[] = ['garage', 'works'];
 const SHOP: readonly SiteKind[] = ['shop', 'station'];
 const CAMP: readonly SiteKind[] = ['camp', 'jetty'];
+/** the big places a blueprint is found at */
+const BLUEPRINT_PLACES: readonly SiteKind[] = [...WORKSHOP, 'station', 'shop', 'house'];
+
+/**
+ * The blueprints' places down the road (docs/V3/plan/finish.md §六 2): in each chapter as many as it has sheets to
+ * learn and one more (for a sheet missed), spread over its kilometres; from the last chapter's start one every 12 to
+ * 16 km, as long as the road goes. Which sheet a place has is settled when one comes to it — the next not learnt yet
+ * — so that what is found is always new: about one every ten kilometres to some 300 km.
+ */
+function blueprintSlots(): ScheduleEntry[] {
+  const out: ScheduleEntry[] = [];
+  for (let c = 2; c <= 7; c++) {
+    const n = BLUEPRINT_RECIPES.filter((r) => r.chapter === c && !r.rare).length + 1;
+    const a = CHAPTER_KM[c] + 0.5;
+    const w = (CHAPTER_KM[c + 1] - 0.5 - a) / n;
+    for (let k = 0; k < n; k++) out.push({ id: `bp${c}_${k}`, thing: { blueprint: c }, novelty: false, firstKm: [a + k * w, a + (k + 0.8) * w], themes: BLUEPRINT_PLACES });
+  }
+  out.push({ id: 'bp8', thing: { blueprint: 8 }, novelty: false, firstKm: [191, 198], everyKm: [12, 16], themes: BLUEPRINT_PLACES });
+  return out;
+}
+const BLUEPRINT_SLOTS = blueprintSlots();
 
 /**
  * The new things (§六 3's table) and the supplies (§六 4, 6). Where the plan names a thing the game has two of, the
@@ -61,8 +107,10 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
   { id: 'engine_kit', thing: I('nd_engine_kit'), novelty: false, firstKm: [3, 8], everyKm: [10, 16], themes: WORKSHOP },
   { id: 'charger', thing: I('nd_charger'), novelty: false, firstKm: [3, 8], everyKm: [14, 22], themes: [...WORKSHOP, 'station'] },
   { id: 'bandage', thing: I('med_bandage'), novelty: false, firstKm: [3, 8], everyKm: [12, 20], themes: [...HOME, 'shop'] },
-  // ---- 1–4 km: the roof rack's blueprint at the first big place, another every 10–15 km (§六 2: 升级图纸, Nomad Drive's)
-  { id: 'roof_rack', thing: I('bp_roof_rack'), novelty: false, firstKm: [1, 4], everyKm: [10, 15], themes: [...WORKSHOP, 'station', 'shop', 'house'] },
+  // ---- the blueprints' places (blueprintSlots; the first of them here and the second at the end of the list, where
+  // the roof rack's and the ladder's sheets were: an entry's draws are by its place in the list, and the others keep
+  // theirs)
+  BLUEPRINT_SLOTS[0],
   // ---- 5–10 km: the cassette stove (a pan or a pot with it, gas soon after)
   {
     id: 'stove',
@@ -125,16 +173,72 @@ export const SCHEDULE: readonly ScheduleEntry[] = [
   { id: 'coolant', thing: { tool: 'bottle', coolant: true }, novelty: false, firstKm: [3, 6], everyKm: [50, 80], themes: [...STATION, ...WORKSHOP], litres: [1, 2.5] },
   { id: 'oil', thing: { tool: 'oilcan' }, novelty: false, firstKm: [4, 8], everyKm: [60, 100], themes: [...STATION, ...WORKSHOP], litres: [1.5, 3] },
   { id: 'painkillers', thing: I('med_pain_2'), novelty: false, firstKm: [1, 3], everyKm: [5, 9], themes: [...HOME, ...SHOP] },
-  { id: 'stomach', thing: I('med_stomach'), novelty: false, firstKm: [4, 9], everyKm: [8, 14], themes: [...HOME, ...SHOP] },
+  { id: 'stomach', thing: I('nd_pills'), novelty: false, firstKm: [4, 9], everyKm: [8, 14], themes: [...HOME, ...SHOP] },
   { id: 'water', thing: I('drink_water'), novelty: false, firstKm: [0.5, 2], everyKm: [12, 20], themes: [...SHOP, ...HOME, ...CAMP] },
   { id: 'food', thing: I('nd_baked_beans'), novelty: false, firstKm: [0.5, 2], everyKm: [3, 5], themes: [...SHOP, ...HOME, ...CAMP] },
 
-  // ---- 4.5–9 km: the ladder's blueprint (§六 2: 升级图纸 — 车顶行李架和梯子), at a big place soon after the rack's (its
-  // first band after the rack's: not at the rack's place and in its box every time), then every 10–15 km as the rack's
-  // (J9e; the big places a vehicle is found at, the camps too; last in the list: an entry's draws are by its place in
-  // it, and those before keep theirs)
-  { id: 'ladder', thing: I('bp_ladder'), novelty: false, firstKm: [4.5, 9], everyKm: [10, 15], themes: [...WORKSHOP, 'station', 'shop', 'house', 'camp'] },
+  // ---- the rest of the blueprints' places
+  ...BLUEPRINT_SLOTS.slice(1),
 ];
+
+/**
+ * The plan of a world of version 7 (docs/V3/plan/finish.md §二 1: the journey in chapters, by the kilometre): each
+ * chapter's new things first turn up within its kilometres — the first twelve the car's own missing parts, a crowbar,
+ * a torch and a camera; to the 30th a radio, a bigger pack, paint; to the 50th coffee and the first meal; to the 75th
+ * the garden; to the 105th fishing; to the 140th a home's things. A thing that begins a set (`kit`) comes by itself:
+ * what goes with it follows where it was picked up (kits.ts), and it is offered again every 22–30 km until it has
+ * been. The supplies and the blueprints' places as in the plan before it.
+ */
+export const SCHEDULE_V7: readonly ScheduleEntry[] = [
+  // ---- chapter 1, to the 12th km
+  { id: 'crowbar', thing: I('nd_crowbar'), novelty: true, chapter: 1, firstKm: [0.5, 3], everyKm: [25, 40], themes: WORKSHOP },
+  { id: 'torch', thing: I('nd_flashlight'), novelty: true, chapter: 1, firstKm: [2, 5], everyKm: [20, 35], themes: [...WORKSHOP, 'station'], after: [{ thing: I('nd_battery'), km: [3, 6] }] },
+  { id: 'engine_kit', thing: I('nd_engine_kit'), novelty: false, firstKm: [3, 8], everyKm: [10, 16], themes: WORKSHOP },
+  { id: 'charger', thing: I('nd_charger'), novelty: false, firstKm: [3, 8], everyKm: [14, 22], themes: [...WORKSHOP, 'station'] },
+  { id: 'bandage', thing: I('med_bandage'), novelty: false, firstKm: [3, 8], everyKm: [12, 20], themes: [...HOME, 'shop'] },
+  { id: 'camera', thing: I('nd_camera'), novelty: true, chapter: 1, firstKm: [7, 10.5], everyKm: [22, 30], kit: 'photo', themes: [...HOME, 'lookout', 'lighthouse'] },
+  // ---- chapter 2, to the 30th: a bigger vehicle (vehiclePlan), a radio, a bigger pack, paint
+  { id: 'radio', thing: { part: 'radio_old' }, novelty: true, chapter: 2, firstKm: [13, 18], everyKm: [22, 30], kit: 'music', themes: [...WORKSHOP, ...HOME] },
+  { id: 'pack', thing: I('pack_std'), novelty: true, chapter: 2, firstKm: [19, 24], everyKm: [40, 60], themes: [...HOME, ...CAMP] },
+  { id: 'spray', thing: { tool: 'spray' }, novelty: true, chapter: 2, firstKm: [24.5, 28.5], everyKm: [6, 10], themes: [...WORKSHOP, 'station'] },
+  // ---- chapter 3, to the 50th: coffee, and the first meal
+  { id: 'coffee', thing: I('nd_coffee_machine'), novelty: true, chapter: 3, firstKm: [31, 35], everyKm: [22, 30], kit: 'coffee', themes: HOME },
+  { id: 'stove', thing: I('kit_stove'), novelty: true, chapter: 3, firstKm: [38.5, 42.5], everyKm: [22, 30], kit: 'cooking', themes: [...HOME, ...CAMP] },
+  { id: 'cooler', thing: I('kit_cooler'), novelty: true, chapter: 3, firstKm: [45.5, 48.5], everyKm: [40, 60], themes: [...HOME, ...CAMP, 'shop'] },
+  // ---- chapter 4, to the 75th: the garden; a knife and a basket for what grows wild; the grinder
+  { id: 'pot', thing: I('nd_plant_pot'), novelty: true, chapter: 4, firstKm: [50.5, 54.5], everyKm: [22, 30], kit: 'garden', themes: HOME },
+  { id: 'forage', thing: I('forage_knife'), novelty: true, chapter: 4, firstKm: [58, 62], everyKm: [40, 60], themes: [...HOME, ...CAMP], with: [{ thing: I('forage_basket'), chance: 1 }] },
+  { id: 'grinder', thing: I('nd_grinder'), novelty: true, chapter: 4, firstKm: [66, 72], everyKm: [22, 30], kit: 'refit', themes: WORKSHOP },
+  // ---- chapter 5, to the 105th: fishing; the metal detector; the spoon
+  { id: 'rod', thing: I('rod_willow'), novelty: true, chapter: 5, firstKm: [76, 81], everyKm: [22, 30], kit: 'fishing', themes: ['jetty', 'camp'] },
+  { id: 'detector', thing: I('nd_metal_detector'), novelty: true, chapter: 5, firstKm: [86, 92], everyKm: [22, 30], kit: 'treasure', themes: [...WORKSHOP, 'house'] },
+  { id: 'spoon', thing: I('bait_spoon'), novelty: true, chapter: 5, firstKm: [95, 102], everyKm: [15, 25], themes: ['jetty', 'camp'] },
+  // ---- chapter 6, to the 140th: a home
+  { id: 'furniture', thing: I('nd_chair'), novelty: true, chapter: 6, firstKm: [105.5, 110], everyKm: [10, 16], themes: HOME, with: [{ thing: I('nd_table'), chance: 0.5 }] },
+  { id: 'shelves', thing: I('nd_wall_shelf'), novelty: true, chapter: 6, firstKm: [113.5, 118], everyKm: [15, 25], themes: HOME },
+  { id: 'fridge', thing: I('nd_fridge'), novelty: true, chapter: 6, firstKm: [121.5, 127], everyKm: [60, 90], themes: HOME },
+  { id: 'kitchen2', thing: I('kit_kettle'), novelty: true, chapter: 6, firstKm: [130.5, 136.5], everyKm: [40, 60], themes: HOME, with: [{ thing: I('kit_steamer'), chance: 0.6 }] },
+  // ---- what one collects (not counted by the pace: there is one or another in many a house)
+  { id: 'bobble', thing: I('nd_bobble_1'), novelty: false, firstKm: [60, 80], everyKm: [20, 35], themes: [...HOME, 'shop'] },
+
+  // ---- the supplies, as the plan before it has them
+  { id: 'fuel', thing: { tool: 'jerrycan' }, novelty: false, firstKm: [1, 3], everyKm: [2.5, 4], litres: [0.8, 1.8] },
+  { id: 'tyre_kit', thing: I('nd_tire_kit'), novelty: false, firstKm: [2, 4], everyKm: [2, 3], themes: [...WORKSHOP, 'station', 'roadside'] },
+  { id: 'coolant', thing: { tool: 'bottle', coolant: true }, novelty: false, firstKm: [3, 6], everyKm: [50, 80], themes: [...STATION, ...WORKSHOP], litres: [1, 2.5] },
+  { id: 'oil', thing: { tool: 'oilcan' }, novelty: false, firstKm: [4, 8], everyKm: [60, 100], themes: [...STATION, ...WORKSHOP], litres: [1.5, 3] },
+  { id: 'painkillers', thing: I('med_pain_2'), novelty: false, firstKm: [1, 3], everyKm: [5, 9], themes: [...HOME, ...SHOP] },
+  { id: 'stomach', thing: I('nd_pills'), novelty: false, firstKm: [4, 9], everyKm: [8, 14], themes: [...HOME, ...SHOP] },
+  { id: 'water', thing: I('drink_water'), novelty: false, firstKm: [0.5, 2], everyKm: [12, 20], themes: [...SHOP, ...HOME, ...CAMP] },
+  { id: 'food', thing: { item: 'nd_baked_beans', food: true }, novelty: false, firstKm: [0.5, 2], everyKm: [3, 5], themes: [...SHOP, ...HOME, ...CAMP] },
+
+  // ---- the blueprints' places
+  ...BLUEPRINT_SLOTS,
+];
+
+/** the plan of a world by its version: version 7's by chapters, the one before it for every world made before */
+export function scheduleOf(worldVersion: number): readonly ScheduleEntry[] {
+  return worldVersion >= 7 ? SCHEDULE_V7 : SCHEDULE;
+}
 
 /** a vehicle to find: of which sort, the tier of the parts beside it, its own roll's seed (core/modcar/wrecks.ts rollFound) */
 export interface VehiclePlanned extends PlannedFind {
@@ -217,9 +321,45 @@ export function vehicleExtras(seed: number, toKm: number): PlannedFind[] {
   return out;
 }
 
-/** the plan the places lay (places.ts): the things (plan) and the panels missing from the vehicles to find, by where each is due */
-export function placesPlan(seed: number, toKm: number, difficulty: Difficulty = 'normal'): PlannedFind[] {
-  return [...plan(seed, toKm, difficulty), ...vehicleExtras(seed, toKm)].sort((a, b) => a.s - b.s);
+/** the driver's door of the car one starts with is found within this far down the road (km) */
+export const DOOR_BY_KM = 3;
+
+/** where the rest of the car one starts with is found: at a workshop or a filling station, or by a wreck on the verge */
+const CAR_PLACES: readonly SiteKind[] = ['garage', 'works', 'station', 'roadside'];
+
+/**
+ * The car one starts with, in a world of version 7 (docs/V3/plan/finish.md §二 2: 把方糖拼完整): the sixteen parts its
+ * workshop does not have (startKit.ts ROAD_MOUNTS), each somewhere down the first chapter of the road — the driver's
+ * door first, at a workshop or a filling station between the first kilometre and the third; the rest one after
+ * another from there to the tenth and a half, in an order of the world's own, at a workshop, a filling station or by a
+ * wreck on the verge. Every one of them within the chapter whatever the road is like (`within`: fitToPlaces).
+ */
+export function startExtras(seed: number): PlannedFind[] {
+  const r = new Rng(hash2(seed | 0, 0x57a27, 4));
+  const parts = roadParts();
+  const first = parts.find((p) => p.mount === 'door_FL');
+  const rest = parts.filter((p) => p !== first);
+  for (let i = rest.length - 1; i > 0; i--) {
+    const j = r.int(i + 1);
+    [rest[i], rest[j]] = [rest[j], rest[i]];
+  }
+  const chapter = [0, CHAPTER_KM[2] * 1000] as const;
+  const find = (p: (typeof parts)[number], km: number, themes: readonly SiteKind[], within: readonly [number, number] = chapter): PlannedFind => ({ entry: `start:${p.mount}`, thing: { part: p.part, ...(p.shapeOf ? { shapeOf: p.shapeOf } : {}) }, s: km * 1000, themes, novelty: false, within });
+  const out: PlannedFind[] = [];
+  // (the driver's door: within the first three kilometres whatever the road is like — a cab with no door is cold)
+  if (first) out.push(find(first, 1 + 1.5 * r.next(), ['garage', 'works', 'station'], [0, DOOR_BY_KM * 1000]));
+  const from = 1.5;
+  const to = 10.5;
+  rest.forEach((p, i) => out.push(find(p, from + ((i + r.next()) / rest.length) * (to - from), CAR_PLACES)));
+  return out;
+}
+
+/**
+ * The plan the places lay (places.ts): the things (plan) and the panels missing from the vehicles to find, by where
+ * each is due — and, by version 7's table, the rest of the car one starts with (startExtras)
+ */
+export function placesPlan(seed: number, toKm: number, difficulty: Difficulty = 'normal', table: readonly ScheduleEntry[] = SCHEDULE): PlannedFind[] {
+  return [...plan(seed, toKm, difficulty, table), ...vehicleExtras(seed, toKm), ...(table === SCHEDULE_V7 ? startExtras(seed) : [])].sort((a, b) => a.s - b.s);
 }
 
 /**
@@ -236,16 +376,32 @@ const FURNISHING: ReadonlySet<string> = new Set(['furniture', 'shelves', 'fridge
  * camera, a filling station's store room's grinder) waits for it and for the THEME_WAIT_M it may wait for its place
  * (places.ts), so that the new things come one at a time as the plan has them; after it they may be anywhere as Nomad
  * Drive has them. The furniture is the buildings' furnishing and waits for nothing. `finds` the places' plan in road
- * order (placesPlan).
+ * order (placesPlan). `all` (a world of version 7 on: docs/V3/plan/finish.md §二 1): by the thing's key (thingKey) —
+ * the parts and the tools among the new things too (a car radio, a spray can), and what comes in the same box — for
+ * the places' own boxes to wait as well as what lies in plain sight: nothing of a chapter turns up before it.
  */
-export function heldBackUntil(finds: readonly PlannedFind[]): Map<string, number> {
+export function heldBackUntil(finds: readonly PlannedFind[], all = false): Map<string, number> {
   const out = new Map<string, number>();
-  for (const f of finds) if (f.novelty && !FURNISHING.has(f.entry) && 'item' in f.thing && !out.has(f.thing.item)) out.set(f.thing.item, f.s);
+  for (const f of finds) {
+    if (!f.novelty || FURNISHING.has(f.entry)) continue;
+    if (all) {
+      // (a world of version 7: every new thing by its key — a part, a tool as an item — and what comes in its box with it)
+      for (const t of [f.thing, ...(f.with ?? [])]) {
+        const key = thingKey(t);
+        if (key !== 'blueprint' && !out.has(key)) out.set(key, f.s);
+      }
+    } else if ('item' in f.thing && !out.has(f.thing.item)) out.set(f.thing.item, f.s);
+  }
   for (const [kin, of] of Object.entries(HELD_KIN)) {
     const s = out.get(of);
     if (s !== undefined && !out.has(kin)) out.set(kin, s);
   }
   return out;
+}
+
+/** a thing's key: an item's id, a part's with `part:` before it, a tool's with `tool:` (the sets', the hold-back's, a found thing's: loot.ts foundKey) */
+export function thingKey(t: ScheduledThing): string {
+  return 'item' in t ? t.item : 'part' in t ? `part:${t.part}` : 'tool' in t ? `tool:${t.tool}` : 'blueprint';
 }
 
 /** a planned find: what, at how far down the road (m) it is due, and which entry it is of */
@@ -259,6 +415,10 @@ export interface PlannedFind {
   novelty: boolean;
   /** what comes in the same box */
   with?: ScheduledThing[];
+  /** the set it begins (ScheduleEntry.kit) */
+  kit?: string;
+  /** the first of a chapter's new thing: the stretch of road (m, from–to) it is to turn up within (ScheduleEntry.chapter; fitToPlaces) */
+  within?: readonly [number, number];
 }
 
 /**
@@ -273,11 +433,11 @@ export const NOVELTY_GAP_KM = 3.5;
  * apart (a later one pushed on), what comes after one guaranteed within its kilometres, and what comes with one in the
  * same box rolled now. Sorted by where each is due.
  */
-export function plan(seed: number, toKm: number, difficulty: Difficulty = 'normal'): PlannedFind[] {
+export function plan(seed: number, toKm: number, difficulty: Difficulty = 'normal', table: readonly ScheduleEntry[] = SCHEDULE): PlannedFind[] {
   const out: PlannedFind[] = [];
   const supply = DIFFICULTY[difficulty].supply;
   const firsts: { e: ScheduleEntry; km: number }[] = [];
-  SCHEDULE.forEach((e, i) => {
+  table.forEach((e, i) => {
     const r = new Rng(hash2(seed | 0, 0x5c4ed, i));
     let km = e.firstKm[0] + (e.firstKm[1] - e.firstKm[0]) * r.next();
     firsts.push({ e, km });
@@ -300,7 +460,7 @@ export function plan(seed: number, toKm: number, difficulty: Difficulty = 'norma
     if (f.e.firstKm[1] <= 3) f.km = Math.min(f.km, f.e.firstKm[1]);
     else last = f.km;
   }
-  SCHEDULE.forEach((e, i) => {
+  table.forEach((e, i) => {
     if (!e.novelty) return;
     const f = firsts.find((x) => x.e === e)!;
     const r = new Rng(hash2(seed | 0, 0x5c4ee, i));
@@ -309,7 +469,8 @@ export function plan(seed: number, toKm: number, difficulty: Difficulty = 'norma
     while (km < toKm) {
       const w: ScheduledThing[] = [];
       for (const c of e.with ?? []) if (r.next() < c.chance) w.push(c.thing);
-      out.push({ entry: e.id, thing: e.thing, s: km * 1000, themes: e.themes, novelty: true, ...(w.length ? { with: w } : {}) });
+      const within = n === 0 && e.chapter !== undefined && CHAPTER_KM[e.chapter + 1] !== undefined ? ([CHAPTER_KM[e.chapter] * 1000, CHAPTER_KM[e.chapter + 1] * 1000] as const) : null;
+      out.push({ entry: e.id, thing: e.thing, s: km * 1000, themes: e.themes, novelty: true, ...(w.length ? { with: w } : {}), ...(e.kit ? { kit: e.kit } : {}), ...(within ? { within } : {}) });
       // what goes after the first one, within its kilometres
       if (n === 0) for (const a of e.after ?? []) out.push({ entry: `${e.id}+`, thing: a.thing, s: (km + a.km[0] + (a.km[1] - a.km[0]) * r.next()) * 1000, novelty: false });
       n++;
@@ -350,8 +511,12 @@ export const THEME_WAIT_M = 600;
  */
 export class SitePlanner {
   private readonly pending: PlannedFind[] = [];
+  /** finds added as the game goes (add), not due yet: in the order they are due */
+  private readonly later: PlannedFind[] = [];
   private next = 0;
   private readonly at = new Map<string, PlannedFind[]>();
+  /** where the place that took each find is (m) */
+  private readonly where = new Map<PlannedFind, number>();
   /** places taken in up to here (m) */
   private to = -Infinity;
 
@@ -368,6 +533,7 @@ export class SitePlanner {
       if (p.s <= this.to) continue;
       this.to = p.s;
       while (this.next < this.finds.length && this.finds[this.next].s <= p.s + 1) this.pending.push(this.finds[this.next++]);
+      while (this.later.length && this.later[0].s <= p.s + 1) this.pending.push(this.later.shift()!);
       if (p.boxes <= 0 && !p.ground) continue;
       for (let i = 0; i < this.pending.length; i++) {
         const f = this.pending[i];
@@ -377,15 +543,72 @@ export class SitePlanner {
         const list = this.at.get(p.id) ?? [];
         list.push(f);
         this.at.set(p.id, list);
+        this.where.set(f, p.s);
         this.pending.splice(i--, 1);
       }
     }
+  }
+
+  /**
+   * Finds added to the plan as the game goes (a set's next step, put out where the one before it was picked up:
+   * kits.ts): laid as the plan's own are, at the first place that takes them from where each is due — never at a place
+   * taken in already: one due behind where the places have been taken in to is due just beyond it (so that a planner
+   * made again with the same finds — a game taken up — lays it at the same place). Returns the finds as they were
+   * added: these are what a game keeps.
+   */
+  add(finds: readonly PlannedFind[]): PlannedFind[] {
+    const out: PlannedFind[] = [];
+    for (const g of finds) {
+      // (a place takes what is due up to a metre past it: beyond that)
+      const f = g.s > this.to + 1 ? g : { ...g, s: this.to + 2 };
+      let i = this.later.length;
+      while (i > 0 && this.later[i - 1].s > f.s) i--;
+      this.later.splice(i, 0, f);
+      out.push(f);
+    }
+    return out;
+  }
+
+  /** where the place that took a find is (m of road), or undefined: none has yet */
+  laidAt(f: PlannedFind): number | undefined {
+    return this.where.get(f);
   }
 
   /** what of the plan a place holds (taken in already) */
   findsAt(id: string): readonly PlannedFind[] {
     return this.at.get(id) ?? [];
   }
+}
+
+/** where the planner's rule lays a find among these places (road order): the place's distance down the road (m), or Infinity: none takes it */
+function laidWhere(f: PlannedFind, places: readonly PlanPlace[]): number {
+  for (const p of places) {
+    if (p.s < f.s - 1 || !fits(f, p)) continue;
+    if (!f.themes || f.themes.includes(p.kind) || p.s >= f.s + THEME_WAIT_M) return p.s;
+  }
+  return Infinity;
+}
+
+/**
+ * The plan fitted to a world's places (docs/V3/plan/finish.md §二 4: 每章的主玩具在它的里程段里一定出现). A chapter's
+ * new thing (PlannedFind.within) that would be laid beyond its chapter — the road has no place with a box in it from
+ * where it is due to the chapter's end — is due instead at the last place within the chapter that takes it: one of its
+ * own sorts if the chapter has one, else any with a box of its own (and then it waits for no sort of place). The rest
+ * of the plan as it was. `places` in road order, down to the end of the last chapter there is to fit.
+ */
+export function fitToPlaces(finds: readonly PlannedFind[], places: readonly PlanPlace[]): PlannedFind[] {
+  const out = finds.map((f) => {
+    if (!f.within || laidWhere(f, places) <= f.within[1]) return f;
+    const within = f.within;
+    const boxes = places.filter((p) => p.boxes > 0 && p.s >= within[0] && p.s <= within[1] && (!p.room || p.room(f)));
+    const own = boxes.filter((p) => !f.themes || f.themes.includes(p.kind));
+    const at = own.length ? own[own.length - 1] : boxes[boxes.length - 1];
+    if (!at) return f;
+    if (own.length) return { ...f, s: at.s - 0.5 };
+    const { themes: _sorts, ...any } = f;
+    return { ...any, s: at.s - 0.5 };
+  });
+  return out.sort((a, b) => a.s - b.s);
 }
 
 /**

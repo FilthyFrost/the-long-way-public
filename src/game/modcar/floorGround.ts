@@ -46,6 +46,18 @@ export class FloorGround implements Ground {
     out.rr = 0.014;
   }
 
+  /**
+   * The top of the highest floor over (x, z) that is not above `fromY` (−∞: none): what a thing let fall from that
+   * height comes to rest on (loose.ts: a fish swung onto a jetty's deck, docs/V3/plan/fishing.md) — a porch, a
+   * jetty's deck over the water, however high above the land under it it stands.
+   */
+  floorTop(x: number, z: number, fromY: number): number {
+    const floors = this.floorsAt(x, z);
+    let top = -Infinity;
+    for (const s of floors) if (s.y1 <= fromY + 0.05 && s.y1 > top && over(s, x, z)) top = s.y1;
+    return top;
+  }
+
   /** the floors in the cell (x, z) is in (asked for again after KEEP_S) */
   private floorsAt(x: number, z: number): Solid[] {
     const cx = Math.floor(x / CELL);

@@ -201,6 +201,19 @@ export function zonesFor(frameId: string, build: { readonly parts: Readonly<Reco
   return on && roof.needs!.parts.includes(on.part) ? [...base, roof] : base;
 }
 
+/**
+ * A boot without its lid (docs/V3/plan/finish.md §二 2: 后备箱盖装上后备箱才能放东西): the zone called the boot, reached
+ * through the lid and nothing else, on a frame that has a lid to it — and the lid is not on. Nothing goes into it:
+ * it would not stay. (What was in it before the lid came off rides on as it lay.)
+ */
+export function zoneLidless(frameId: string, zone: CargoZone, build: { readonly parts: Readonly<Record<string, { readonly part: string } | undefined>> }): boolean {
+  if (zone.id !== 'trunk' || zone.via?.length !== 1 || zone.via[0] !== 'trunk') return false;
+  return frameDef(frameId).mounts.some((m) => m.id === 'trunk') && !build.parts.trunk;
+}
+
+/** why nothing goes into a boot without its lid, as the mark says it */
+export const LIDLESS_WHY = '后备箱没有盖，放不住';
+
 export function zoneOf(frame: string, id: string): CargoZone | null {
   return zonesOf(frame).find((z) => z.id === id) ?? null;
 }

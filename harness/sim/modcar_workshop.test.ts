@@ -8,35 +8,55 @@ import { addTo, canAfford, costTotal, hits, itemSalvage, newStock, partSalvage, 
 import { hasItem, itemDef, newItem } from '../../src/core/modcar/items';
 import { hasPart, partDef } from '../../src/core/modcar/parts';
 import { fitSub, newInstance } from '../../src/core/modcar/build';
+// (the modules' own things — Nomad Drive's tools, the fishing's rods — registered as the game installs them)
+import.meta.glob('../../src/game/modcar/v3/*/index.ts', { eager: true });
 import { newTool, pourTank, siphonTank, tankLitres } from '../../src/core/modcar/tools';
 import { flushIngests, GARAGE_GENERATOR, generatorFuel, generatorLeft, ingestPose, newGenerator, newIngest, pullCord, RECYCLE, ROADSIDE_GENERATOR, stepGenerator, stepIngests, stopGenerator } from '../../src/core/modcar/workshop';
 
 describe('ModCar workshop', () => {
-  it('the recycler gives Arctic Drive-like amounts: an old engine 20, a V8 180; a wheel its rim and its tyre; the oil in an engine as organics', () => {
-    expect(partSalvage(newInstance('eng_mower')).scrap).toBe(20);
-    expect(partSalvage(newInstance('eng_v8')).scrap).toBe(180);
+  it('the recycler gives scrap for every part — an old engine 20, a V8 180; a wheel its rim and its tyre — and components for those with a motor or a board in them; the liquids in a part give nothing', () => {
+    expect(partSalvage(newInstance('eng_mower'))).toEqual({ scrap: 20, components: 2 });
+    expect(partSalvage(newInstance('eng_v8'))).toEqual({ scrap: 180, components: 16 });
     const rim = newInstance('rim_steel13');
     const bare = partSalvage(rim).scrap ?? 0;
     fitSub(rim, 'tire', newInstance('tire_road'));
     expect(partSalvage(rim).scrap).toBeGreaterThan(bare);
-    // 4.5 L of oil: nine half litres
+    expect(partSalvage(rim).components).toBeUndefined();
+    // 4.5 L of oil in it: the same as dry
     const eng = newInstance('eng_i4');
+    const dry = partSalvage(eng);
     eng.fluids.oilL = 4.5;
-    expect(partSalvage(eng).organics).toBe(9);
-    for (const id of ['door_stock', 'seat_bucket', 'bat_std', 'steer_std']) expect(partSalvage(newInstance(id)).scrap).toBeGreaterThan(0);
+    expect(partSalvage(eng)).toEqual(dry);
+    for (const id of ['door_stock', 'seat_bucket', 'steer_std']) {
+      expect(partSalvage(newInstance(id)).scrap).toBeGreaterThan(0);
+      expect(partSalvage(newInstance(id)).components).toBeUndefined();
+    }
+    // (a battery, a radio, a house battery, a solar panel: a few)
+    expect(partSalvage(newInstance('bat_std')).components).toBeGreaterThan(0);
+    expect(partSalvage(newInstance('bat_house')).components).toBeGreaterThan(0);
+    expect(partSalvage(newInstance('roof_solar')).components).toBe(5);
     expect(partStars('eng_v8')).toBe(5);
   });
 
-  it('tools and items: a jerrycan 3 scrap and its fuel as organics, the scrapers 3 / 7 / 10, a box of old components 20', () => {
+  it('tools and items: a jerrycan 3 scrap, full or empty; the scrapers 3 / 7 / 10; a box of old components 20 scrap, a box of electrical ones 12 components; anything at all one scrap', () => {
     expect(toolSalvage(newTool('jerrycan', { litres: 0 }))).toEqual({ scrap: 3 });
-    expect(toolSalvage(newTool('jerrycan', { litres: 20 })).organics).toBe(40);
+    expect(toolSalvage(newTool('jerrycan', { litres: 20 }))).toEqual({ scrap: 3 });
     expect([1, 2, 3].map((t) => toolSalvage(newTool('scraper', { tier: t as 1 | 2 | 3 })).scrap)).toEqual([3, 7, 10]);
-    expect(itemSalvage(newItem('crate_parts')).scrap).toBe(20);
-    // a big bottle of water, full: 5 organics and four more for its 2 L
-    expect(itemSalvage(newItem('drink_water')).organics).toBe(9);
+    expect(toolSalvage(newTool('sponge'))).toEqual({ scrap: 1 });
+    expect(itemSalvage(newItem('crate_parts'))).toEqual({ scrap: 20 });
+    expect(itemSalvage(newItem('crate_chem'))).toEqual({ components: 12 });
+    expect(itemDef('crate_chem').name.zh).toBe('元件箱');
+    expect(itemSalvage(newItem('crate_lye'))).toEqual({ components: 10 });
+    // a big bottle of water, full: one scrap (what is in it gives nothing)
+    expect(itemSalvage(newItem('drink_water'))).toEqual({ scrap: 1 });
+    // what has a board in it: a television 10 and 3, a fax 8 and 3, a transceiver 12 and 4, a fridge 18 and 6
+    expect(itemSalvage(newItem('junk_tv'))).toEqual({ scrap: 10, components: 3 });
+    expect(itemSalvage(newItem('junk_fax'))).toEqual({ scrap: 8, components: 3 });
+    expect(itemSalvage(newItem('junk_transceiver'))).toEqual({ scrap: 12, components: 4 });
+    expect(itemSalvage(newItem('nd_fridge'))).toEqual({ scrap: 18, components: 6 });
   });
 
-  it('every recipe makes a thing that exists; only the plastic scraper is open; the hammer strikes once for every 25, one to three times', () => {
+  it('every recipe makes a thing that exists; only the plastic scraper is known from the start; the hammer strikes once for every 25, one to three times', () => {
     for (const r of RECIPES) {
       if (r.makes.kind === 'part') {
         expect(hasPart(r.makes.part)).toBe(true);
@@ -64,9 +84,12 @@ describe('ModCar workshop', () => {
     expect(shortOf(s, scraper)).toEqual({ mat: 'scrap', n: 20 });
     expect(spend(s, scraper)).toBe(false);
     expect(s.scrap).toBe(30);
-    addTo(s, { scrap: 30, organics: 5 });
+    addTo(s, { scrap: 30, components: 5 });
     expect(spend(s, scraper)).toBe(true);
-    expect(s).toEqual({ scrap: 10, organics: 5, chemicals: 0 });
+    expect(s).toEqual({ scrap: 10, components: 5 });
+    // (a thing that asks for components: short of those says so)
+    const torch = recipeDef('flashlight').cost;
+    expect(shortOf({ scrap: 100, components: 1 }, torch)).toEqual({ mat: 'components', n: 1 });
   });
 
   it('the generator: the garage one runs 50 minutes on 3 L of diesel, a roadside one 10 minutes; it stops when dry', () => {
@@ -126,7 +149,7 @@ describe('ModCar workshop', () => {
   });
 
   it('the recycler: 2.4 s a thing, counted up while it is ground, several at once; nothing moves without power', () => {
-    const list = [newIngest({ scrap: 20 }), newIngest({ organics: 9 })];
+    const list = [newIngest({ scrap: 20 }), newIngest({ components: 9 })];
     let scrap = 0;
     let organics = 0;
     const off = stepIngests(list, 1, false);
@@ -136,7 +159,7 @@ describe('ModCar workshop', () => {
     for (let t = 0; t < 2.4 + 1e-6; t += 0.05) {
       const r = stepIngests(list, 0.05, true);
       scrap += r.add.scrap ?? 0;
-      organics += r.add.organics ?? 0;
+      organics += r.add.components ?? 0;
       if (Math.abs(t - 1.6) < 0.026) halfway = scrap;
     }
     expect(list.length).toBe(0);

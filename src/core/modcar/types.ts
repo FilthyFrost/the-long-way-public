@@ -567,6 +567,8 @@ export interface Build {
   paintMix?: PaintMix;
   dirt: number;
   rust: number;
+  /** how far it has gone under its own power, as its odometer has it (m; absent: nothing yet) */
+  odo?: number;
   /** caked grime and scale on the body (its windows too): the scraper's */
   crust?: number;
   /** how much of the body's paint fading a polisher has taken off (0 … 1: docs/ND/PLAN.md) */

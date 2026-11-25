@@ -121,7 +121,7 @@ import { buffBodyMods } from '../../src/core/v3/cooking/buffs';
 describe('what buffs do to the body', () => {
   const minute = (mods: ReturnType<typeof newBodyMods> | undefined, ambientC = 15, sprint = false) => {
     const v = newVitals();
-    const inp: VitalsInput = { dt: 1 / 10, sprinting: sprint, jumped: false, ambientC, warmth: 9, rain: false, peeing: false, ...(mods ? { mods } : {}) };
+    const inp: VitalsInput = { dt: 1 / 10, sprinting: sprint, jumped: false, ambientC, warmth: 9, rain: false, ...(mods ? { mods } : {}) };
     for (let i = 0; i < 600; i++) stepVitals(v, inp);
     return v;
   };
@@ -161,7 +161,7 @@ describe('what buffs do to the body', () => {
       const v = newVitals();
       v.stamina = 20;
       v.rest = 5;
-      stepVitals(v, { dt: 1, sprinting: false, jumped: false, ambientC: 15, warmth: 9, rain: false, peeing: false, ...(mods ? { mods } : {}) });
+      stepVitals(v, { dt: 1, sprinting: false, jumped: false, ambientC: 15, warmth: 9, rain: false, ...(mods ? { mods } : {}) });
       return v.stamina;
     };
     const b = new Buffs();

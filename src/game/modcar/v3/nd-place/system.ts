@@ -20,7 +20,7 @@
  */
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
-import { footprint as zoneFootprint, gridAt, zonesOf, type Spot } from '../../../../core/modcar/cargo';
+import { footprint as zoneFootprint, gridAt, LIDLESS_WHY, zoneLidless, zonesOf, type Spot } from '../../../../core/modcar/cargo';
 import { ND_FRIDGE } from '../../../../core/v3/nd/items';
 import { circleInRect, distToRect, firstBlocking, footprint, latticeShift, nearestQuarter, nextQuarter, outBack, outCubic, PLACE, pointInBlock, stepDistance, type Box3, type Rect } from '../../../../core/v3/nd/place';
 import type { Solid } from '../../../../core/world/solids';
@@ -489,6 +489,16 @@ export class NdPlace implements System<GameContext> {
       a.stow = L;
       a.ok = !!L.spot;
       a.why = L.spot ? '' : '放不下';
+      a.surface = true;
+      this.gf = this.frameOf(L.v);
+      return;
+    }
+    if (L && zoneLidless(L.v.view.frame.id, L.zone, L.v.build)) {
+      // (a boot without its lid: nothing stays in it — said where the thing would have gone)
+      a.stow = { v: L.v, zone: L.zone, spot: null, why: LIDLESS_WHY, dist: L.dist };
+      a.tryStow = null;
+      a.ok = false;
+      a.why = LIDLESS_WHY;
       a.surface = true;
       this.gf = this.frameOf(L.v);
       return;

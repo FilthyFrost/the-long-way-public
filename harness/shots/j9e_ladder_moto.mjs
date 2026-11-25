@@ -48,43 +48,50 @@ try {
   ok(vi >= 0, `the Sugar Cube by the road (${vi})`);
   ok(await page.evaluate((i) => !window.__rt.game.vehicles[i].build.parts.ladder, vi), 'no ladder on it');
 
-  // ---------------------------------------------------------------- the ladder's blueprint
-  await rt('hold', 'item:bp_ladder');
+  // ---------------------------------------------------------------- the ladder: its sheet learnt, the ladder fitted by hand
+  // (docs/V3/plan/finish.md §六 2: a sheet is learnt with the right button; what it makes is a part like any other)
   await rt('aim', vi, 'ladder', 1.7);
+  await rt('hold', 'item:bp_ladder');
   await rt('simulate', 0.2);
-  ok(/装上\s*梯子/.test(await said()), `held to the car: 长按 装上 梯子 (${await lines(/装上/)})`);
+  ok(/学会\s*梯子/.test(await said()), `the sheet in the hands: 学会 梯子 (${await lines(/学会/)})`);
   await shot('01_ladder_blueprint.png');
-  let tel = await rt('useFor', 1.3);
-  const ladder = await page.evaluate((i) => window.__rt.game.vehicles[i].build.parts.ladder?.part ?? null, vi);
-  ok(ladder === 'ladder', `held a second: a ladder up its side (${ladder})`);
-  ok(tel.held === '', `the sheet used up (${tel.held || 'nothing in the hands'})`);
+  let tel = await rt('rightFor', 0.15);
+  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('ladder'))), `the right button: learnt, the sheet used up (${tel.held || 'nothing in the hands'})`);
   await rt('simulate', 0.3);
-  ok((await said()).includes('装上了梯子'), 'said: 装上了梯子');
-  // (a second one: the car has its ladder; the motorcycle has no roof; the Whale has its own)
-  const whys = await page.evaluate(async (i) => {
-    const B = await import('/src/game/modcar/v3/blueprints/system.ts');
-    const Bu = await import('/src/core/modcar/build.ts');
-    const g = window.__rt.game;
-    const car = g.vehicles[i];
-    const why = (bp, v) => {
-      const a = B.blueprintAim(bp, v);
-      return 'why' in a ? a.why : 'ok';
-    };
-    const moto = g.addVehicle(Bu.stockBuild('moto'), car.sim.px + 30, car.sim.pz + 30, 0);
-    const rv = g.addVehicle(Bu.stockBuild('rv'), car.sim.px + 40, car.sim.pz - 30, 0);
-    const out = { again: why('bp_ladder', car), moto: why('bp_ladder', moto), rv: why('bp_ladder', rv), motoRack: why('bp_moto_rack', moto) };
-    g.removeVehicle(moto);
-    g.removeVehicle(rv);
-    return out;
-  }, vi);
-  ok(whys.again === '车上已经有梯子' && whys.moto === '这辆车没有车顶' && whys.rv === '这辆车自带梯子' && whys.motoRack === '这辆车后面装不了车架', `what it says where it cannot: ${JSON.stringify(whys)}`);
+  ok((await said()).includes('学会了：梯子'), 'said: 学会了：梯子');
+  // the ladder itself, as the bench makes it: held to the car's side, the left button held
+  await rt('hold', 'ladder');
+  // (its model, and its ghost's with it, comes in over a moment of real time)
+  for (let tries = 0; tries < 12; tries++) {
+    await page.waitForTimeout(400);
+    await rt('aim', vi, 'ladder', 1.7);
+    await rt('simulate', 0.2);
+    if ((await rt('telemetry')).target.includes(':ladder:')) break;
+  }
+  ok(/装上\s*梯子/.test(await said()), `the ladder held to the car: 长按 装上 梯子 (${await lines(/装上/)})`);
+  tel = await rt('useFor', 3);
+  const ladder = await page.evaluate((i) => window.__rt.game.vehicles[i].build.parts.ladder?.part ?? null, vi);
+  ok(ladder === 'ladder' && tel.held === '', `the left button held: a ladder up its side (${ladder}), out of the hands`);
+  await rt('simulate', 0.3);
+  // (where there is no place for one: the motorcycle has no roof to go up to, the Whale has its own ladder; the
+  // motorcycle takes no rack behind it either)
+  const places = await page.evaluate(async () => {
+    const F = await import('/src/core/modcar/frames.ts');
+    const L = await import('/src/core/modcar/ladders.ts');
+    const has = (frame, cat) => F.frameDef(frame).mounts.some((m) => m.cat === cat);
+    return { car: has('sedan', 'ladder'), moto: has('moto', 'ladder'), rv: has('rv', 'ladder'), rvOwn: !!L.ladderSpot('rv')?.builtin, motoHitch: has('moto', 'hitch') };
+  });
+  ok(places.car && !places.moto && !places.rv && places.rvOwn && !places.motoHitch, `where a ladder goes: ${JSON.stringify(places)}`);
   await page.evaluate(() => { window.__rt.game.player.held = null; });
+  // (a rack on its roof and a box of components on the rack: what one goes up there for)  await page.evaluate(() => { window.__rt.game.player.held = null; });
   // (a rack on its roof and a box of components on the rack: what one goes up there for)
   const boxUp = await page.evaluate(async (i) => {
     const g = window.__rt.game;
     const v = g.vehicles[i];
-    const Bl = await import('/src/game/modcar/v3/blueprints/index.ts');
-    Bl.blueprints.fitNow('bp_roof_rack', v);
+    const Bu = await import('/src/core/modcar/build.ts');
+    Bu.fitPart(v.build, 'roof', Bu.newInstance('roof_rack'));
+    v.changed();
+    g.cargo.invalidate(v);
     const It = await import('/src/core/modcar/items.ts');
     const held = { kind: 'item', item: It.newItem('crate_parts') };
     await g.loose.objectFor(held);
@@ -165,9 +172,7 @@ try {
     const l = g.cargo.ridersOf(v).find((x) => x.stow === 'roof');
     if (!l) return null;
     const w = g.player.walker;
-    const e = w.eye();
-    g.input.lookYaw = Math.atan2(l.z - w.z, l.x - w.x);
-    g.input.lookPitch = Math.atan2(l.y + 0.1 - e.y, Math.hypot(l.x - w.x, l.z - w.z));
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(l.x, l.y + 0.1, l.z));
     g.simulate(0);
     return String(g.player.telemetry().target);
   }, vi);
@@ -186,9 +191,7 @@ try {
     const o = g.core.origin;
     const p = m.position.clone().set(-0.6, 1.5, 0.1);
     m.localToWorld(p);
-    const e = w.eye();
-    g.input.lookYaw = Math.atan2(p.z + o.z - w.z, p.x + o.x - w.x);
-    g.input.lookPitch = Math.atan2(p.y + o.y - e.y, Math.hypot(p.x + o.x - w.x, p.z + o.z - w.z));
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(p.x + o.x, p.y + o.y, p.z + o.z));
     g.simulate(0);
   }, vi);
   await page.evaluate(() => window.__rt.game.player.drop());
@@ -370,26 +373,25 @@ try {
   }
   await page.evaluate((i) => { const g = window.__rt.game; g.removeVehicle(g.vehicles[i]); }, whale);
 
-  // ---------------------------------------------------------------- the motorcycle rack's blueprint
+  // ---------------------------------------------------------------- the motorcycle rack: its sheet learnt, the rack fitted by hand
   await rt('hold', 'item:bp_moto_rack');
-  // (standing behind the car, looking at its rear bumper)
-  const bumper = await page.evaluate((i) => {
-    const g = window.__rt.game;
-    const v = g.vehicles[i];
-    const b = v.view.frame.mounts.find((m) => m.cat === 'bumperRear');
-    const m = v.view.model;
-    m.updateMatrixWorld(true);
-    const o = g.core.origin;
-    const p = m.position.clone().set(b.pos.x, b.pos.y + 0.1, 0);
-    m.localToWorld(p);
-    return { x: p.x + o.x, y: p.y + o.y, z: p.z + o.z, yaw: v.sim.yaw };
-  }, vi);
-  await rt('aimPoint', bumper.x, bumper.y, bumper.z, Math.atan2(Math.sin(bumper.yaw), -Math.cos(bumper.yaw)), 1.4);
   await rt('simulate', 0.2);
-  ok(/装上\s*摩托车架/.test(await said()), `held to the car's back: 长按 装上 摩托车架 (${await lines(/装上/)})`);
-  tel = await rt('useFor', 1.3);
+  ok(/学会\s*摩托车架/.test(await said()), `the sheet in the hands: 学会 摩托车架 (${await lines(/学会/)})`);
+  tel = await rt('rightFor', 0.15);
+  ok(tel.held === '' && (await page.evaluate(() => window.__rt.game.learned.has('moto_rack'))), 'the right button: learnt, the sheet used up');
+  await rt('hold', 'moto_rack');
+  // (its model, and its ghost's with it, comes in over a moment of real time)
+  for (let tries = 0; tries < 12; tries++) {
+    await page.waitForTimeout(400);
+    await rt('aim', vi, 'hitch', 1.6);
+    await rt('simulate', 0.3);
+    if ((await rt('telemetry')).target.includes(':hitch:')) break;
+  }
+  const hitchAt = (await rt('telemetry')).target;
+  ok(hitchAt.includes(':hitch:') && /装上\s*摩托车架/.test(await said()), `the rack held to the car's back: 长按 装上 摩托车架 (${await lines(/装上/)}; the mark on ${hitchAt || 'nothing'})`);
+  tel = await rt('useFor', 3);
   const rack = await page.evaluate((i) => window.__rt.game.vehicles[i].build.parts.hitch?.part ?? null, vi);
-  ok(rack === 'moto_rack' && tel.held === '', `held a second: a motorcycle rack in the hitch's place (${rack}), the sheet used up`);
+  ok(rack === 'moto_rack' && tel.held === '', `the left button held: a motorcycle rack in the hitch's place (${rack}), out of the hands`);
   await rt('simulate', 0.3);
   const ball = await page.evaluate(async (i) => {
     const T = await import('/src/game/modcar/v3/tow/system.ts');
@@ -592,14 +594,15 @@ try {
     const S = await import('/src/core/modcar/schedule.ts');
     const seed = window.__rt.game.world.seed;
     const p = S.placesPlan(seed, 60);
-    const lad = p.filter((f) => f.entry === 'ladder').map((f) => +(f.s / 1000).toFixed(1));
-    const rr = p.filter((f) => f.entry === 'roof_rack').map((f) => +(f.s / 1000).toFixed(1));
+    // (the third chapter's blueprint places, the ladder's sheet among what they have; the second's, the roof rack's)
+    const lad = p.filter((f) => 'blueprint' in f.thing && f.thing.blueprint === 3).map((f) => +(f.s / 1000).toFixed(1));
+    const rr = p.filter((f) => 'blueprint' in f.thing && f.thing.blueprint === 2).map((f) => +(f.s / 1000).toFixed(1));
     const mr = p.filter((f) => f.entry === 'moto_rack').map((f) => +(f.s / 1000).toFixed(1));
     const moto = S.vehiclePlan(seed, 60).find((v) => v.frame === 'moto');
     return { lad, rr, mr, moto: moto ? +(moto.s / 1000).toFixed(1) : null };
   });
   console.log('planned', JSON.stringify(planned));
-  ok(planned.lad[0] >= 4.5 && planned.lad[0] <= 9 && planned.lad.length >= 4, `the default world's ladder blueprints planned at ${planned.lad.join(', ')} km (the roof rack's at ${planned.rr.join(', ')})`);
+  ok(planned.lad.length === 8 && planned.lad.every((km) => km >= 30 && km <= 50) && planned.rr.length === 6 && planned.rr.every((km) => km >= 12 && km <= 30), `the default world's blueprint places: the third chapter's at ${planned.lad.join(', ')} km, the second's at ${planned.rr.join(', ')}`);
   ok(planned.moto !== null && planned.mr.length === 1 && planned.mr[0] - planned.moto >= 2 && planned.mr[0] - planned.moto <= 5, `its motorcycle rack's blueprint at ${planned.mr[0]} km, after the Swallow at ${planned.moto} km`);
   const lastError = await page.evaluate(() => window.__rt.lastError);
   if (lastError) fail(`a frame threw: ${lastError}`);

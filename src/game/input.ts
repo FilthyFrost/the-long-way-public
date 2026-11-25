@@ -25,6 +25,7 @@ export type Action =
   | 'hazard'
   | `seat${number}`
   | 'drop' // player
+  | 'crouch' // player, on foot: crouch and stand again
   | 'pack' // player
   | 'place' // player: placing in and out (docs/V3/plan/hands.md §四)
   | 'turnRight'; // player, placing: a quarter round onto the grid (Q the other way)
@@ -63,11 +64,13 @@ export const CLASSIC_KEYS: Record<string, Action> = {
 };
 
 /**
- * ModCar's one set of keys (docs/V3/plan/growth.md, J1): beside the mouse only these letters — C the view (on foot:
- * crouch), L the lights, H the horn, Q put down (in a seat, held: stand up), Tab the lists; F3 the debug HUD.
+ * ModCar's one set of keys (docs/V3/plan/growth.md, J1; docs/V3/plan/finish.md §十三: a key means one thing): beside
+ * the mouse only these letters — V the view (in a seat the cab or behind the car, on foot her eyes or behind her), C
+ * crouch (on foot), L the lights, H the horn, Q put down (in a seat, held: stand up), Tab the lists; F3 the debug HUD.
  */
 export const MODCAR_KEYS: Record<string, Action> = {
-  KeyC: 'camera',
+  KeyV: 'camera',
+  KeyC: 'crouch',
   KeyL: 'lights',
   F3: 'hud',
   KeyH: 'horn',

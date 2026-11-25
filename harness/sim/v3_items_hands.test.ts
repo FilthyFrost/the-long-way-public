@@ -20,7 +20,7 @@ import { ALLOCATES, heapGrowth } from './v3/heap';
 
 registerItemCat({ id: 'h_t', name: { zh: '试验品', en: 'Test things' } });
 registerItems([
-  { id: 'h_berry', cat: 'h_t', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['h_t'], perish: { hours: 24, into: 'h_mush' }, eat: { food: 6, hp: 0, sec: 1.5 }, salvage: { organics: 1 } },
+  { id: 'h_berry', cat: 'h_t', name: { zh: '试验莓', en: 'Test berry' }, stars: 1, mass: 0.05, stack: 12, tags: ['h_t'], perish: { hours: 24, into: 'h_mush' }, eat: { food: 6, hp: 0, sec: 1.5 }, salvage: { scrap: 1 } },
   { id: 'h_mush', cat: 'h_t', name: { zh: '烂莓', en: 'Mush' }, stars: 0, mass: 0.05, stack: 12 },
   { id: 'h_jerky', cat: 'h_t', name: { zh: '试验肉干', en: 'Test jerky' }, stars: 2, mass: 0.1, stack: 8, tags: ['h_t'], eat: { food: 15, hp: 1, sec: 2 } },
   { id: 'h_basket', cat: 'h_t', name: { zh: '试验篮', en: 'Test basket' }, stars: 1, mass: 0.6, carry: 'small', holds: { slots: 4, accepts: ['#h_t'], maxKg: 3, decay: 0.5 } },
@@ -521,7 +521,7 @@ describe('the item card', () => {
     const b = berry(3, { t0: 0, q: 4 });
     let c = itemCard(b, 0);
     expect(c.name).toBe('试验莓 ×3');
-    expect(c.rows.map((r) => `${r.value} ${r.label}`)).toEqual(['3 个 一叠（最多 12 个）', '4 星 品质', '+6 饱腹（每个）', '3 有机物 回收能得']);
+    expect(c.rows.map((r) => `${r.value} ${r.label}`)).toEqual(['3 个 一叠（最多 12 个）', '4 星 品质', '+6 饱腹（每个）', '3 废料 回收能得']);
     expect(c.rows[1].stars).toBe(4);
     expect(c.bars.map((x) => [x.label, x.text, x.tone])).toEqual([['新鲜程度', '新鲜 · 还能放约 24 小时', 'good']]);
     expect(c.foot.mass).toBeCloseTo(0.15);
@@ -538,7 +538,7 @@ describe('the item card', () => {
     const basket = newItem('h_basket', { inside: [berry(12, { t0: 0, fk: 0.5 }), newItem('h_jerky', { n: 2 })] });
     c = itemCard(basket, 0);
     expect(c.bars.map((x) => [x.label, x.text])).toEqual([['装着', '2 / 4 格 · 0.80 / 3 kg']]);
-    expect(c.rows.map((r) => `${r.value} ${r.label}`)).toEqual(['×12 试验莓', '×2 试验肉干', '12 有机物 回收能得']);
+    expect(c.rows.map((r) => `${r.value} ${r.label}`)).toEqual(['×12 试验莓', '×2 试验肉干', '15 废料 回收能得']);
     expect(c.notes.map((x) => x.text)).toEqual(['里面坏得慢 · 50%']);
     expect(c.foot.mass).toBeCloseTo(1.4);
     expect(itemCard(basket, 40 * HOUR).rows[0]).toMatchObject({ value: '×12', label: '试验莓（快坏了）', tone: 'bad' });

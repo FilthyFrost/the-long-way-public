@@ -267,7 +267,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
   uniform float uPattern;
   uniform float uInkSeed;
   uniform vec4 uHighlight;     // rgb, strength 0…1
-  uniform vec4 uSeeThrough;    // the held thing seen through: x how far (0…1), zw the frame's size in pixels
+  uniform vec4 uSeeThrough;    // the held thing seen through: x how far (0…1), y 1 within uSeeBox (0: about the middle of the view), zw the frame's size in pixels
+  uniform vec4 uSeeBox;        // a box on the screen it is seen through in (the instruments behind the wheel): its middle, its half size (px)
   uniform float uHighlightId;  // merged meshes: the part to light (aPartId); < 0 = the whole material
   uniform vec3 uTint;          // glass: tint; lens: the lamp's light
   uniform float uOpacity;
@@ -1270,8 +1271,15 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (held and over the middle of the view: seen through there — the alpha is its opacity now, blended over)
     #ifndef RT_MEASURE
     if (uSeeThrough.x > 0.0) {
-      float sr = length(gl_FragCoord.xy - 0.5 * uSeeThrough.zw) / max(1.0, uSeeThrough.w);
-      float see = 1.0 - uSeeThrough.x * 0.7 * (1.0 - smoothstep(0.12, 0.42, sr));
+      float see;
+      if (uSeeThrough.y > 0.5) {
+        // (in a box: to a quarter within it, back to whole a little way outside it)
+        vec2 sd = abs(gl_FragCoord.xy - uSeeBox.xy) - uSeeBox.zw;
+        see = 1.0 - uSeeThrough.x * 0.75 * (1.0 - smoothstep(0.0, 0.04, max(sd.x, sd.y) / max(1.0, uSeeThrough.w)));
+      } else {
+        float sr = length(gl_FragCoord.xy - 0.5 * uSeeThrough.zw) / max(1.0, uSeeThrough.w);
+        see = 1.0 - uSeeThrough.x * 0.7 * (1.0 - smoothstep(0.12, 0.42, sr));
+      }
       #if (defined(RT_GLASS) || defined(RT_LENS)) && !defined(RT_CRUSTCUT)
       gl_FragColor.a *= see;
       #else
@@ -1343,6 +1351,7 @@ export class CarLook {
     uHighlightId: { value: -1 },
     /** the held thing seen through (setSeeThrough): x how far, zw the frame's size in pixels; 0 for all else */
     uSeeThrough: { value: new THREE.Vector4(0, 0, 1, 1) },
+    uSeeBox: { value: new THREE.Vector4(0, 0, 1, 1) },
     /** height of the body (m, car frame): where on its side the mirrored horizon sits */
     uBodyHeight: { value: 1.4 },
     /** the cabin as a box in the car frame (min > max = none): inside it metals and glass mirror the room */
@@ -1725,10 +1734,13 @@ export class CarLook {
    * far (0 not at all … 1 its middle at 0.3), and the size of the frame drawn into (px). Fading, its materials
    * are blended and keep the ink the world wrote under them; not, they are drawn as always.
    */
-  setSeeThrough(k: number, w: number, h: number): void {
+  setSeeThrough(k: number, w: number, h: number, box?: { x: number; y: number; hx: number; hy: number }): void {
     const u = this.shared.uSeeThrough.value;
-    const on = k > 0.002;
-    u.set(on ? k : 0, 0, w, h);
+    // (not before its blended programs are compiled: warmSeeThrough)
+    const on = k > 0.002 && this.twinsReady;
+    u.set(on ? k : 0, box ? 1 : 0, w, h);
+    // (in a box on the screen and not about its middle: the wheel before the instruments — docs/V3/plan/finish.md §五)
+    if (box) this.shared.uSeeBox.value.set(box.x, box.y, box.hx, box.hy);
     if (on === this.seeing) return;
     this.seeing = on;
     for (const m of this.mats.values()) {
@@ -1747,6 +1759,65 @@ export class CarLook {
   }
 
   private seeing = false;
+
+  /** the blended twins of the look's materials (warmSeeThrough), how many materials they were made for, and whether their programs are ready */
+  private readonly twins: THREE.ShaderMaterial[] = [];
+  private twinsOf = -1;
+  private twinsReady = true;
+
+  /**
+   * The see-through programs compiled ahead (docs/V3/plan/finish.md F0). Seen through, a material is blended, and a
+   * blended material's program is another than the opaque one's: it was compiled the moment the held thing first
+   * stood over the mark, the view stopped for 0.7 s a material (a jerrycan's two: 1.4 s, measured). A twin of each of
+   * the look's materials, blended as setSeeThrough blends them, is compiled in the background as the thing comes into
+   * the hands; until the twins are ready the thing is not seen through. Asked every frame: nothing to do unless the
+   * look has got new materials since.
+   */
+  warmSeeThrough(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+    if (this.twinsOf === this.mats.size) return;
+    this.twinsOf = this.mats.size;
+    const have = new Set(this.twins.map((t) => t.userData.twinOf as THREE.Material));
+    const fresh: THREE.ShaderMaterial[] = [];
+    for (const m of this.mats.values()) {
+      // (glass and lenses blend already, by their own opacity: no twin; one seen through now is its own twin)
+      const own = m.userData.ownBlend === undefined ? m.transparent && !this.seeing : (m.userData.ownBlend as boolean);
+      if (own || have.has(m)) continue;
+      const t = m.clone();
+      t.transparent = true;
+      t.blending = THREE.CustomBlending;
+      t.blendSrc = THREE.SrcAlphaFactor;
+      t.blendDst = THREE.OneMinusSrcAlphaFactor;
+      t.blendSrcAlpha = THREE.ZeroFactor;
+      t.blendDstAlpha = THREE.OneFactor;
+      t.userData = { twinOf: m };
+      fresh.push(t);
+    }
+    if (!fresh.length) return;
+    this.twins.push(...fresh);
+    this.twinsReady = false;
+    const group = new THREE.Group();
+    group.name = 'warmup:seeThrough';
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0.001, 0, 0, 0, 0.001, 0], 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+    for (const t of fresh) {
+      const mesh = new THREE.Mesh(geo, t);
+      mesh.frustumCulled = false;
+      group.add(mesh);
+    }
+    group.position.copy(camera.position);
+    scene.add(group);
+    const made = this.twinsOf;
+    const done = (): void => {
+      scene.remove(group);
+      geo.dispose();
+      // (more materials came meanwhile: their twins are being compiled, and say so when they are ready)
+      if (this.twinsOf === made) this.twinsReady = true;
+    };
+    renderer.compileAsync(group, camera, scene).then(done, done);
+  }
 
   /** every material this car uses (for counting programs, disposing) */
   get materials(): THREE.ShaderMaterial[] {

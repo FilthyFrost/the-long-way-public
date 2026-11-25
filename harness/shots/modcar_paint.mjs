@@ -99,9 +99,7 @@ try {
           const x = at.c.x + at.f.x * u + at.up.x * vv;
           const y = at.c.y + at.f.y * u + at.up.y * vv;
           const z = at.c.z + at.f.z * u + at.up.z * vv;
-          const eye = w.eye();
-          g.input.lookYaw = Math.atan2(z - w.z, x - w.x);
-          g.input.lookPitch = Math.atan2(y - eye.y, Math.hypot(x - w.x, z - w.z));
+          ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(x, y, z));
         };
         void v;
         let frames = 0;

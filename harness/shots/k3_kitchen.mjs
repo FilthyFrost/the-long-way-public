@@ -82,9 +82,7 @@ try {
         const yaw = u.loose.yaw;
         const x = u.loose.x + Math.sin(yaw) * right + Math.cos(yaw) * nearer;
         const z = u.loose.z - Math.cos(yaw) * right + Math.sin(yaw) * nearer;
-        const eye = w.eye();
-        g.input.lookYaw = Math.atan2(z - w.z, x - w.x);
-        g.input.lookPitch = Math.atan2(u.loose.y - eye.y, Math.hypot(x - w.x, z - w.z));
+        ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(x, u.loose.y, z));
         sim(0.2);
         return word();
       },

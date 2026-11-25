@@ -13,7 +13,7 @@ export function forageItemCat(cat: ForageCat): string {
   return `forage_${cat}`;
 }
 
-/** what forage that has gone off becomes: good for the recycler's organics and nothing else */
+/** what forage that has gone off becomes: good for the recycler and nothing else */
 export const SPOILED_FORAGE = 'forage_spoiled';
 
 /** how long eating one portion takes (s): a mouthful, not a meal */
@@ -36,7 +36,7 @@ export function forageItemRows(): ItemRow[] {
       stars: 0,
       mass: 0.08,
       stack: 20,
-      salvage: { organics: 1 },
+      salvage: {},
       model: 'forage_lump',
       paint: 0x5b4636,
       paint2: 0x3a2f28,
@@ -56,7 +56,7 @@ export function forageItemRows(): ItemRow[] {
       tags: ['forage', k.cat, ...(k.item.tags ?? [])],
       ...(k.item.perishHours ? { perish: { hours: k.item.perishHours, into: SPOILED_FORAGE } } : {}),
       ...(k.item.eat ? { eat: { food: k.item.eat.food, hp: k.item.eat.hp, sec: EAT_S, ...(k.item.eat.effect ? { effect: k.item.eat.effect } : {}) } } : {}),
-      salvage: mineral ? {} : { organics: 1 },
+      salvage: mineral ? {} : { scrap: 1 },
       model: `forage_${k.look.item}`,
       paint: k.look.colours[0],
       paint2: k.look.colours[1],

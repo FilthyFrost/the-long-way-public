@@ -183,6 +183,32 @@ try {
       h = await hud();
     }
   }
+  // (her eye is level with the Sugar Cube's roof, 1.4 m: from beside the doors nothing of the body itself is within
+  // reach any more — beside a wing it is, over the wheel arch)
+  wings: for (const along of [1.45, -1.55]) {
+    for (const pitch of [-0.3, -0.45, -0.2, -0.6]) {
+      for (const yaw of [0, -0.2, 0.2, -0.4, 0.4]) {
+        if (h.aim === '方糖') break wings;
+        await page.evaluate(
+          ({ along, pitch, yaw }) => {
+            const g = window.__rt.game;
+            const v = g.vehicles[0];
+            const w = g.player.walker;
+            const b = new Float64Array(9);
+            v.sim.basis(b);
+            const tx = v.sim.px + b[0] * along;
+            const tz = v.sim.pz + b[2] * along;
+            w.place(tx + b[6] * 1.75, tz + b[8] * 1.75, 0, 0);
+            g.input.lookYaw = Math.atan2(tz - w.z, tx - w.x) + yaw;
+            g.input.lookPitch = pitch;
+          },
+          { along, pitch, yaw },
+        );
+        await settle(150);
+        h = await hud();
+      }
+    }
+  }
   console.log('at the car', JSON.stringify({ aim: h.aim, text: h.aimText.slice(0, 200) }));
   if (h.aim !== '方糖') fail(`no card for the vehicle close by (${h.aim})`);
   if (!/电瓶|发动机/.test(h.aimText)) fail('the vehicle card does not say what it still needs');
@@ -192,9 +218,7 @@ try {
     const d = g.devices.find((x) => x.id === 'door');
     const w = g.player.walker;
     w.place(d.x - 1.2, d.z, 0, 0);
-    const e = w.eye();
-    g.input.lookYaw = Math.atan2(d.z - w.z, d.x - w.x);
-    g.input.lookPitch = Math.atan2(d.y - e.y, Math.hypot(d.x - w.x, d.z - w.z));
+    ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(d.x, d.y, d.z));
   });
   await settle(400);
   h = await hud();

@@ -56,7 +56,7 @@ function plainSave(): SaveV1 {
     player: { x: -4.6, z: -0.4, heading: 0.15 },
     hands: [{ item: newItem('drink_soda') }, null],
     sel: 0,
-    stock: { scrap: 12, organics: 3, chemicals: 0 },
+    stock: { scrap: 12, components: 3 },
   };
 }
 

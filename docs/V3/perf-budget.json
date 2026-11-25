@@ -9,7 +9,9 @@
     "grass_flowers": 1200000,
     "rocks": 200000,
     "life": 100000,
-    "vehicles_player": 300000
+    "vehicles_player": 300000,
+    "_character": "her body, hair, nightdress and clothes, first-person arms and their shadows (docs/V3/plan/character-pv.md); about 0.1 M from the driver's seat",
+    "character": 150000
   },
   "each": {
     "_": "triangles of one thing at its levels (near, middle, far); far is a two-triangle impostor where 2",

@@ -62,9 +62,7 @@ try {
         const p = v.view.model.localToWorld(g.player.ray.origin.clone().set((zone.x[0] + zone.x[1]) / 2, zone.floor + 0.05, (zone.z[0] + zone.z[1]) / 2));
         const o = g.core.origin;
         const w = g.player.walker;
-        const e = w.eye();
-        g.input.lookYaw = Math.atan2(p.z + o.z - w.z, p.x + o.x - w.x);
-        g.input.lookPitch = Math.atan2(p.y + o.y - e.y, Math.hypot(p.x + o.x - w.x, p.z + o.z - w.z));
+        ({ yaw: g.input.lookYaw, pitch: g.input.lookPitch } = w.lookAt(p.x + o.x, p.y + o.y, p.z + o.z));
         g.simulate(0);
       },
       { vi, zoneId },

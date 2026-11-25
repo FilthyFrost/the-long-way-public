@@ -83,7 +83,7 @@ function itemMeta(d: (typeof ITEMS)[number]): string {
   if (d.wear) return `${star}保暖 +${d.wear.warmth}`;
   if (d.pack) return `${star}+${d.pack.slots} 格`;
   if (d.holds) return `${star}装 ${d.holds.slots} 叠`;
-  const s = Object.entries(d.salvage).map(([k, v]) => `${v}${k === 'scrap' ? '废料' : k === 'organics' ? '有机' : '化学'}`).join(' ');
+  const s = Object.entries(d.salvage).map(([k, v]) => `${v}${k === 'scrap' ? '废料' : '元件'}`).join(' ');
   return `${star}${s || `${d.mass} kg`}`;
 }
 
