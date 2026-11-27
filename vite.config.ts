@@ -60,6 +60,7 @@ function devTuneSave(): Plugin {
  * folder, or none is there): every address is not found, and the game plays its own synthesized sounds.
  */
 function audioArchive(): Plugin {
+  const bundled = fs.existsSync(page('./public/audio-archive/__cues.json'));
   const root = path.resolve(process.env.TLW_AUDIO_ARCHIVE ?? 'D:/公路游戏音频整理-20261118/最终可用音频');
   let table: string | null = null;
   const louds = new Map<string, Promise<Loudness | null>>();
@@ -68,6 +69,9 @@ function audioArchive(): Plugin {
     name: 'audio-archive',
     apply: 'serve',
     configureServer(server) {
+      // When the self-contained bundled audio pack lives inside public/audio-archive/ (and no explicit
+      // TLW_AUDIO_ARCHIVE override is set), let Vite's static server serve /audio-archive/* directly with full Range support.
+      if (bundled && !process.env.TLW_AUDIO_ARCHIVE) return;
       server.middlewares.use('/audio-archive', (req, res) => {
         const notFound = (): void => {
           res.statusCode = 404;

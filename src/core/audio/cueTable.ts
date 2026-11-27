@@ -33,6 +33,8 @@ export interface StationTable {
 export interface CueTable {
   cues: Record<string, CueFile[]>;
   stations: StationTable[];
+  /** optional pre-measured loudness per file (bundled public/audio-archive/__cues.json) */
+  loud?: Record<string, { rms: number; max: number; dur: number }>;
 }
 
 /** the folders the archive keeps each game's recordings in, as the catalogue names the games */

@@ -160,8 +160,10 @@ export class SoundArchive {
     return got[i];
   }
 
-  /** how loud a long recording is (a bed, a song), as the dev server measures it from its file (once) */
+  /** how loud a long recording is (a bed, a song): pre-measured in __cues.json when bundled, else asked from dev server */
   loudness(file: string): Promise<Loudness | null> {
+    const pre = this.table?.loud?.[file];
+    if (pre) return Promise.resolve(pre);
     let p = this.louds.get(file);
     if (!p) {
       p = fetch(`${ARCHIVE_URL}__loud/${file.split('/').map(encodeURIComponent).join('/')}`)

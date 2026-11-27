@@ -83,6 +83,32 @@ describe('the archive’s catalogue read into cues', () => {
       expect(l!.dur, cue).toBeCloseTo(t.cues[cue][0].dur, 0);
     }
   });
+
+  it('bundled public/audio-archive/__cues.json is self-contained with all cues, 51 songs, and pre-measured loudness', () => {
+    const bundledRoot = path.resolve(process.cwd(), 'public/audio-archive');
+    const cuesPath = path.join(bundledRoot, '__cues.json');
+    expect(fs.existsSync(cuesPath)).toBe(true);
+    const tbl = JSON.parse(fs.readFileSync(cuesPath, 'utf8')) as {
+      cues: Record<string, Array<{ file: string; dur: number }>>;
+      stations: Array<{ name: string; songs: Array<{ file: string; dur: number; title: string }> }>;
+      loud?: Record<string, { rms: number; max: number; dur: number }>;
+    };
+    for (const cue of Object.keys(CUE_SPEC)) {
+      expect(tbl.cues[cue]?.length ?? 0, cue).toBeGreaterThan(0);
+      for (const f of tbl.cues[cue]) {
+        expect(fs.existsSync(path.join(bundledRoot, f.file)), f.file).toBe(true);
+        if (cue.startsWith('bed:')) expect(tbl.loud?.[f.file]?.rms ?? 0, f.file).toBeGreaterThan(0);
+      }
+    }
+    expect(tbl.stations.length).toBe(STATIONS.length);
+    for (const [i, st] of STATIONS.entries()) {
+      expect(tbl.stations[i].songs.length, st.name).toBe(st.songs.length);
+      for (const s of tbl.stations[i].songs) {
+        expect(fs.existsSync(path.join(bundledRoot, s.file)), s.file).toBe(true);
+        expect(tbl.loud?.[s.file]?.rms ?? 0, s.file).toBeGreaterThan(0);
+      }
+    }
+  });
 });
 
 describe('a station on air', () => {
