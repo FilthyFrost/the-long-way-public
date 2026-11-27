@@ -110,83 +110,128 @@ def spoon(P, loc, yaw=0.5):
 # ------------------------------------------------------------------------------------------------ on a plate
 
 def meal_stirfry(P):
-    z = plate(P)
-    heap(P, 15, 0.058, z, 0.024, ['paint', 'paint_b', 'paint'], 'chunk', rise=0.028)
-    for i in range(4):
-        leaf(P, f'g{i}', (0.03 * math.cos(i * 1.7), 0.03 * math.sin(i * 1.7), z + 0.03), 0.03, i * 1.7 + 1.0, 0.3, 'paint_b', wide=0.3)
+    z = plate(P, r=0.112)
+    # glossy wok sauce glaze base in the plate well
+    P.cyl('glaze', 0.068, 0.0025, (0.0, 0.0, z + 0.0012), 'cap_oil', segs=36, bev=None)
+    # abundant layered organic tender slices & fluffy egg/veggie curls heaped high (no boxy cubes!)
+    for i in range(18):
+        a = TAU * i * 0.618 + 0.2
+        q = math.sqrt((i + 0.5) / 18)
+        r = 0.066 * q
+        x, y = r * math.cos(a), r * math.sin(a)
+        zz = z + 0.006 + 0.030 * (1.0 - q * 0.85) + 0.003 * (i % 3)
+        mat = 'paint' if i % 3 != 1 else 'paint_b'
+        if i % 2 == 0:
+            # curled tender meat/tomato slice
+            P.sphere(f'sl{i}', 0.022, (x, y, zz), mat, u=14, v=8, scale=(1.25, 0.72, 0.36), rot=D(0.35 * jit(i), 0.3 * jit(i, 1), a * 1.4))
+        else:
+            # plump organic sautéed piece
+            P.sphere(f'ch{i}', 0.017, (x, y, zz + 0.003), mat, u=14, v=8, scale=(1.05, 0.92, 0.72), rot=D(0.2 * jit(i), 0.2 * jit(i, 2), a))
+    # crisp scallion rings & leafy garnish crowning the dish
+    for i in range(6):
+        a = TAU * i / 6 + 0.4
+        leaf(P, f'g{i}', (0.028 * math.cos(a), 0.028 * math.sin(a), z + 0.034 + 0.003 * (i % 2)), 0.032, a + 0.9, 0.32, 'paint_b', wide=0.34)
+        P.cyl(f'sc{i}', 0.0055, 0.0025, (0.042 * math.cos(a + 0.3), 0.042 * math.sin(a + 0.3), z + 0.022), 'paint_b', segs=14, bev=None)
 
 
 def meal_cutlet(P):
-    z = plate(P)
-    P.prism('cut', oval(0.052, 0.034, 12, 0.14), 0.02, (-0.012, -0.012, z + 0.01), 'paint', rot=D(0, 0, 0.3), bev=0.005)
-    for i in range(3):
-        P.box(f'sear{i}', (0.004, 0.05 - 0.01 * abs(i - 1), 0.0015), (-0.034 + 0.022 * i, -0.012 + 0.006 * (i - 1), z + 0.0205), 'rust', rot=D(0, 0, 0.9), bev=None)
+    z = plate(P, r=0.115)
+    # glossy pan-jus sauce pool under the seared cut
+    P.cyl('jus', 0.066, 0.002, (-0.012, -0.010, z + 0.001), 'rust', segs=36, bev=None)
+    # thick juicy beveled restaurant steak
+    P.prism('cut', oval(0.066, 0.044, 24, 0.16), 0.026, (-0.014, -0.010, z + 0.013), 'paint', rot=D(0, 0, 0.28), bev=0.0075, segs=3)
+    # crisp diamond crosshatch grill sear marks across top crust
     for i in range(4):
-        ball(P, f'side{i}', (0.05 + 0.014 * math.cos(i * 1.6), 0.04 + 0.016 * math.sin(i * 1.6), z), 0.011, 'paint_b')
-    wedge(P, 'lemon', (0.04, -0.05, z + 0.0), 0.016, 'cap_oil', 'cap_oil', yaw=0.6)
-    leaf(P, 'herb', (-0.02, -0.012, z + 0.02), 0.04, 0.9, 0.1, 'paint_b', wide=0.4)
-
-
-def fish_body(P, z, L=0.19, mat='paint'):
-    P.sphere('fish', 0.5, (0.0, 0.0, z + 0.014), mat, u=12, v=6, scale=(L, 0.06, 0.03))
-    P.prism('tail', [(0.0, 0.0), (-0.036, 0.026), (-0.026, 0.0), (-0.036, -0.026)], 0.007, (-L * 0.45, 0.0, z + 0.012), mat, bev=None)
+        P.box(f'searA{i}', (0.0042, 0.062 - 0.009 * abs(i - 1.5), 0.0018),
+              (-0.044 + 0.020 * i, -0.010 + 0.005 * (i - 1.5), z + 0.0265), 'rust', rot=D(0, 0, 0.85), bev=None)
     for i in range(3):
-        P.box(f'slash{i}', (0.004, 0.034, 0.002), (-0.03 + 0.03 * i, 0.002, z + 0.0282 - 0.0016 * abs(i - 1)), 'rust', rot=D(0, 0, 0.5), bev=None)
-    P.sphere('eye', 0.0045, (L * 0.37, 0.006, z + 0.024), 'trim', u=10, v=6)
+        P.box(f'searB{i}', (0.0038, 0.056 - 0.008 * abs(i - 1), 0.0018),
+              (-0.032 + 0.020 * i, -0.010 - 0.004 * (i - 1), z + 0.0267), 'rust', rot=D(0, 0, -0.35), bev=None)
+    # melting golden compound butter pat + rosemary herb sprig resting on the hot crust
+    P.cyl('butter', 0.015, 0.006, (-0.010, -0.006, z + 0.029), 'cap_oil', segs=22, bev=0.002)
+    P.cyl('melt', 0.022, 0.0018, (-0.008, -0.004, z + 0.0268), 'cap_oil', segs=22, bev=None)
+    leaf(P, 'herbA', (-0.028, -0.014, z + 0.027), 0.048, 0.72, 0.14, 'paint_b', wide=0.35)
+    leaf(P, 'herbB', (-0.002, -0.016, z + 0.028), 0.036, 1.35, 0.18, 'paint_b', wide=0.32)
+    # hearty roasted baby potatoes / cherry tomatoes & greens beside the cut
+    for i in range(5):
+        a = -0.3 + 0.52 * i
+        ball(P, f'side{i}', (0.056 + 0.016 * math.cos(a * 2.2), 0.032 + 0.024 * math.sin(a * 1.4), z), 0.0135, 'paint_b' if i % 2 else 'cap_oil', squash=0.78)
+    wedge(P, 'lemon', (0.048, -0.048, z), 0.020, 'cap_oil', 'cap_oil', yaw=0.55)
+
+
+def fish_body(P, z, L=0.22, mat='paint'):
+    P.sphere('fish', 0.5, (0.0, 0.0, z + 0.017), mat, u=22, v=12, scale=(L, 0.072, 0.036))
+    P.prism('tail', [(0.0, 0.0), (-0.042, 0.032), (-0.030, 0.0), (-0.042, -0.032)], 0.008, (-L * 0.45, 0.0, z + 0.015), mat, bev=0.0015, segs=1)
+    P.prism('dorsal', [(0.0, 0.0), (0.058, 0.0), (0.018, 0.018), (0.0, 0.014)], 0.006, (-0.024, 0.030, z + 0.016), mat, bev=0.001, segs=1)
+    for i in range(4):
+        P.box(f'slash{i}', (0.0045, 0.042, 0.0025), (-0.045 + 0.028 * i, 0.002, z + 0.035 - 0.0022 * abs(i - 1.5)), 'rust', rot=D(0, 0, 0.55), bev=None)
+    P.sphere('eye_w', 0.0065, (L * 0.37, 0.007, z + 0.029), 'ceramic', u=12, v=8)
+    P.sphere('eye', 0.0042, (L * 0.38, 0.008, z + 0.032), 'trim', u=10, v=6)
 
 
 def meal_fish(P):
-    z = platter(P)
+    z = platter(P, 0.155, 0.105)
     fish_body(P, z)
-    for i in range(3):
-        P.cyl(f'slice{i}', 0.014, 0.003, (0.03 - 0.03 * i, -0.052 - 0.004 * (i % 2), z + 0.002), 'paint_b', segs=24, bev=None)
     for i in range(4):
-        leaf(P, f'g{i}', (-0.05 + 0.03 * i, 0.012 * jit(i), z + 0.028), 0.03, 0.4 + i, 0.15, 'paint_b', wide=0.28)
+        P.cyl(f'slice{i}', 0.016, 0.0038, (0.048 - 0.032 * i, -0.058 - 0.004 * (i % 2), z + 0.0025), 'cap_oil', segs=24, bev=0.001)
+    for i in range(6):
+        leaf(P, f'g{i}', (-0.06 + 0.024 * i, 0.016 * jit(i), z + 0.034), 0.036, 0.4 + i * 0.9, 0.18, 'paint_b', wide=0.3)
 
 
 def meal_egg(P):
-    z = plate(P)
-    for k, (x, y, a) in enumerate([(-0.028, -0.01, 0.0), (0.026, 0.022, 1.4)]):
-        out = [((0.036 + 0.006 * math.sin(3 * TAU * i / 12 + a)) * math.cos(TAU * i / 12), (0.031 + 0.005 * math.cos(2 * TAU * i / 12 + a)) * math.sin(TAU * i / 12)) for i in range(12)]
-        P.prism(f'white{k}', out, 0.005, (x, y, z + 0.0035), 'ceramic', bev=0.002, segs=1)
-        # (fried: a lacy golden edge under the white, or it is lost on a white plate)
-        P.prism(f'crisp{k}', [(px * 1.12, py * 1.12) for px, py in out], 0.002, (x, y, z + 0.001), 'cap_oil', bev=None)
-        P.sphere(f'yolk{k}', 0.013, (x + 0.003, y, z + 0.006), 'paint', u=16, v=10, scale=(1.0, 1.0, 0.6))
+    z = plate(P, r=0.112)
+    for k, (x, y, a) in enumerate([(-0.030, 0.006, 0.0), (0.030, 0.026, 1.4)]):
+        out = [((0.042 + 0.007 * math.sin(3 * TAU * i / 24 + a)) * math.cos(TAU * i / 24), (0.036 + 0.006 * math.cos(2 * TAU * i / 24 + a)) * math.sin(TAU * i / 24)) for i in range(24)]
+        P.prism(f'white{k}', out, 0.006, (x, y, z + 0.004), 'ceramic', bev=0.0024, segs=2)
+        P.prism(f'crisp{k}', [(px * 1.12, py * 1.12) for px, py in out], 0.0024, (x, y, z + 0.0012), 'cap_oil', bev=None)
+        P.sphere(f'yolk{k}', 0.0165, (x + 0.003, y, z + 0.0075), 'paint', u=22, v=14, scale=(1.0, 1.0, 0.65))
+    # crisp wavy strips of bacon beside the eggs
     for i in range(3):
-        P.box(f'strip{i}', (0.06, 0.013, 0.004), (0.0, -0.058 + 0.004 * i, z + 0.002 + 0.003 * i), 'paint_b', rot=D(0, 0, 0.25 * (i - 1) + 0.1), bev=0.0015, segs=1)
+        yy = -0.056 + 0.014 * i
+        pts = [(-0.054 + 0.018 * m, yy + 0.003 * math.sin(m * 1.5 + i), z + 0.004 + 0.0045 * math.sin(m * 1.9 + i)) for m in range(7)]
+        P.tube(f'strip{i}', pts, 0.0065, 'paint_b', segs=8, bend=0.2)
+    for i in range(4):
+        leaf(P, f'g{i}', (-0.02 + 0.018 * i, -0.028 + 0.008 * jit(i), z + 0.008), 0.024, 0.5 + i * 1.4, 0.15, 'paint_b', wide=0.35)
 
 
 def meal_omelette(P):
-    z = plate(P)
-    P.sphere('omelette', 0.5, (0.0, 0.0, z + 0.016), 'paint', u=12, v=6, scale=(0.13, 0.066, 0.036))
-    P.sphere('fold', 0.5, (0.0, -0.012, z + 0.02), 'paint', u=10, v=5, scale=(0.118, 0.05, 0.034))
+    z = plate(P, r=0.112)
+    P.sphere('omelette', 0.5, (0.0, 0.0, z + 0.020), 'paint', u=24, v=14, scale=(0.145, 0.076, 0.044))
+    P.sphere('fold', 0.5, (0.0, -0.014, z + 0.024), 'paint', u=20, v=12, scale=(0.132, 0.058, 0.040))
+    for i in range(7):
+        P.sphere(f'fill{i}', 0.011, (-0.045 + 0.015 * i, 0.032 + 0.004 * jit(i), z + 0.008), 'paint_b', u=12, v=8, scale=(1.1, 0.9, 0.7))
     for i in range(5):
-        chunk(P, f'fill{i}', (-0.04 + 0.02 * i, 0.03, z + 0.002), 0.014, 'paint_b', yaw=i * 1.3)
-    for i in range(3):
-        leaf(P, f'g{i}', (-0.02 + 0.02 * i, -0.01, z + 0.035), 0.022, 0.6 + i * 1.1, 0.1, 'paint_b', wide=0.3)
+        leaf(P, f'g{i}', (-0.03 + 0.015 * i, -0.008 + 0.005 * jit(i), z + 0.042), 0.026, 0.6 + i * 1.1, 0.14, 'paint_b', wide=0.32)
 
 
 def meal_friedrice(P):
-    z = plate(P)
-    P.lathe('mound', [(0.0, z), (0.07, z), (0.064, z + 0.012), (0.045, z + 0.03), (0.02, z + 0.04), (0.0, z + 0.042)], (0, 0, 0), 'paint', segs=40, sharp=80.0)
-    for i in range(12):
+    z = plate(P, r=0.114)
+    P.lathe('mound', [(0.0, z), (0.078, z), (0.072, z + 0.015), (0.052, z + 0.036), (0.024, z + 0.048), (0.0, z + 0.052)], (0, 0, 0), 'paint', segs=44, sharp=80.0)
+    for i in range(22):
         a = TAU * i * 0.618
-        q = 0.2 + 0.75 * math.sqrt((i + 0.5) / 12)
-        r = 0.066 * q
-        zz = z + 0.042 * (1.0 - q ** 1.5) + 0.002
-        chunk(P, f'bit{i}', (r * math.cos(a), r * math.sin(a), zz), 0.011, 'paint_b' if i % 3 else 'ceramic', yaw=a)
+        q = 0.16 + 0.78 * math.sqrt((i + 0.5) / 22)
+        r = 0.074 * q
+        zz = z + 0.050 * (1.0 - q ** 1.45) + 0.002
+        mat = 'paint_b' if i % 3 == 0 else ('cap_oil' if i % 3 == 1 else 'ceramic')
+        P.sphere(f'bit{i}', 0.0085, (r * math.cos(a), r * math.sin(a), zz), mat, u=10, v=6, scale=(1.2, 0.9, 0.7), rot=D(0, 0, a))
+    for i in range(4):
+        leaf(P, f'g{i}', (0.012 * math.cos(i * 1.6), 0.012 * math.sin(i * 1.6), z + 0.052), 0.028, i * 1.6, 0.25, 'paint_b', wide=0.34)
 
 
 def meal_noodles(P):
-    z = plate(P)
-    for k in range(3):
-        n = 12
-        r0 = 0.058 - 0.016 * k
-        pts = [((r0 + 0.006 * math.sin(i * 2.3 + k)) * math.cos(TAU * i / n + k), (r0 + 0.006 * math.cos(i * 1.7 + k)) * math.sin(TAU * i / n + k), z + 0.007 + 0.009 * k + 0.003 * math.sin(i * 1.3 + k)) for i in range(n)]
-        P.tube(f'coil{k}', pts, 0.0075, 'paint', segs=5, closed=True)
-    heap(P, 6, 0.022, z + 0.026, 0.018, ['paint_b'], 'chunk', rise=0.012, seed=1)
-    for i in range(3):
-        leaf(P, f'g{i}', (0.0, 0.0, z + 0.044), 0.026, i * 2.1, 0.2, 'paint_b', wide=0.3)
+    z = plate(P, r=0.114)
+    P.cyl('sauce', 0.068, 0.003, (0, 0, z + 0.0015), 'cap_oil', segs=36, bev=None)
+    for k in range(4):
+        n = 18
+        r0 = 0.064 - 0.013 * k
+        pts = [((r0 + 0.007 * math.sin(i * 2.1 + k)) * math.cos(TAU * i / n + k), (r0 + 0.007 * math.cos(i * 1.7 + k)) * math.sin(TAU * i / n + k), z + 0.008 + 0.0085 * k + 0.0035 * math.sin(i * 1.4 + k)) for i in range(n)]
+        P.tube(f'coil{k}', pts, 0.0082, 'paint', segs=7, closed=True)
+    for i in range(8):
+        a = TAU * i * 0.618
+        q = math.sqrt((i + 0.5) / 8)
+        P.sphere(f'top{i}', 0.014, (0.032 * q * math.cos(a), 0.032 * q * math.sin(a), z + 0.036 + 0.012 * (1 - q)), 'paint_b', u=12, v=8, scale=(1.15, 0.85, 0.65), rot=D(0, 0, a))
+    for i in range(4):
+        leaf(P, f'g{i}', (0.0, 0.0, z + 0.052), 0.032, i * 1.6, 0.24, 'paint_b', wide=0.34)
 
 
 def meal_toast(P):
@@ -343,42 +388,63 @@ def meal_loaf(P):
 # ------------------------------------------------------------------------------------------------ in a bowl
 
 def meal_soup(P):
-    r, h = 0.08, 0.055
+    r, h = 0.088, 0.060
     bowl(P, r, h)
-    z = fill(P, r, h, 0.78, 'paint')
-    for i in range(7):
+    z = fill(P, r, h, 0.80, 'paint')
+    # floating cream/broth oil droplets & tender organic pieces
+    for i in range(10):
         a = TAU * i * 0.618
-        q = 0.25 + 0.6 * math.sqrt((i + 0.5) / 7)
-        chunk(P, f'f{i}', (r * 0.8 * q * math.cos(a), r * 0.8 * q * math.sin(a), z - 0.006), 0.016, 'paint_b' if i % 3 else 'cap_oil', yaw=a)
-    for i in range(3):
-        leaf(P, f'g{i}', (0.012 * math.cos(i * 2.1), 0.012 * math.sin(i * 2.1), z + 0.001), 0.022, i * 2.1 + 0.4, 0.05, 'paint_b', wide=0.3)
-    spoon(P, (0.02, -0.02, z + 0.002), yaw=-0.9)
+        q = 0.20 + 0.65 * math.sqrt((i + 0.5) / 10)
+        x, y = r * 0.78 * q * math.cos(a), r * 0.78 * q * math.sin(a)
+        P.sphere(f'f{i}', 0.013, (x, y, z - 0.002), 'paint_b' if i % 3 else 'cap_oil', u=12, v=8, scale=(1.15, 0.88, 0.65), rot=D(0, 0, a))
+    for i in range(5):
+        a = TAU * i / 5 + 0.3
+        P.cyl(f'drop{i}', 0.007 + 0.002 * (i % 2), 0.0014, (r * 0.45 * math.cos(a), r * 0.45 * math.sin(a), z + 0.0008), 'ceramic', segs=16, bev=None)
+    for i in range(4):
+        leaf(P, f'g{i}', (0.014 * math.cos(i * 1.6), 0.014 * math.sin(i * 1.6), z + 0.002), 0.026, i * 1.6 + 0.4, 0.08, 'paint_b', wide=0.34)
+    spoon(P, (0.024, -0.022, z + 0.003), yaw=-0.9)
 
 
 def meal_stew(P):
-    r, h = 0.085, 0.06
+    r, h = 0.094, 0.064
     bowl(P, r, h)
-    z = fill(P, r, h, 0.7, 'paint')
-    heap(P, 9, r * 0.6, z - 0.008, 0.026, ['paint_b', 'paint_b', 'cap_oil'], 'chunk', rise=0.014)
-    for i in range(3):
-        leaf(P, f'g{i}', (0.0, 0.0, z + 0.022), 0.024, i * 2.1, 0.25, 'paint_b', wide=0.3)
+    z = fill(P, r, h, 0.76, 'paint')
+    # hearty irregular braised beef & potato chunks rising generously above rich broth
+    for i in range(13):
+        a = TAU * i * 0.618
+        q = math.sqrt((i + 0.5) / 13)
+        x, y = r * 0.64 * q * math.cos(a), r * 0.64 * q * math.sin(a)
+        zz = z - 0.003 + 0.019 * (1.0 - q * 0.75) + 0.002 * (i % 3)
+        mat = 'paint_b' if i % 3 != 2 else 'cap_oil'
+        P.sphere(f'st{i}', 0.019 - 0.002 * (i % 3), (x, y, zz), mat, u=14, v=8, scale=(1.18, 0.92, 0.76), rot=D(0.25 * jit(i), 0.2 * jit(i, 1), a * 1.5))
+    for i in range(5):
+        leaf(P, f'g{i}', (0.012 * math.cos(i * 1.3), 0.012 * math.sin(i * 1.3), z + 0.026), 0.028, i * 1.3, 0.25, 'paint_b', wide=0.35)
+    spoon(P, (0.028, -0.028, z + 0.004), yaw=-0.85)
 
 
 def meal_noodlesoup(P):
-    r, h = 0.09, 0.065
+    r, h = 0.098, 0.070
     bowl(P, r, h)
-    z = fill(P, r, h, 0.76, 'paint')
-    for k in range(2):
-        n = 12
-        r0 = 0.05 - 0.02 * k
-        pts = [((r0 + 0.005 * math.sin(i * 2.3 + k)) * math.cos(TAU * i / n + k), (r0 + 0.005 * math.cos(i * 1.7 + k)) * math.sin(TAU * i / n + k), z + 0.001 + 0.005 * k + 0.002 * math.sin(i * 1.3 + k)) for i in range(n)]
-        P.tube(f'coil{k}', pts, 0.006, 'ceramic', segs=5, closed=True)
-    for i in range(3):
-        P.box(f'top{i}', (0.036, 0.022, 0.006), (-0.024 + 0.012 * i, 0.026 - 0.004 * i, z + 0.012 + 0.003 * i), 'paint_b', rot=D(0.2, 0.0, 0.5), bev=0.002, segs=1)
-    P.cyl('egg', 0.016, 0.006, (0.03, -0.022, z + 0.008), 'ceramic', segs=24, bev=0.002)
-    P.sphere('yolk', 0.009, (0.03, -0.022, z + 0.01), 'cap_oil', u=12, v=8, scale=(1, 1, 0.6))
+    z = fill(P, r, h, 0.78, 'paint')
+    # thick wavy ramen / beef-noodle strands peeking from the hot broth
+    for k in range(3):
+        n = 18
+        r0 = 0.056 - 0.017 * k
+        pts = [((r0 + 0.006 * math.sin(i * 2.1 + k)) * math.cos(TAU * i / n + k), (r0 + 0.006 * math.cos(i * 1.7 + k)) * math.sin(TAU * i / n + k), z + 0.002 + 0.0045 * k + 0.0025 * math.sin(i * 1.5 + k)) for i in range(n)]
+        P.tube(f'coil{k}', pts, 0.0065, 'ceramic', segs=7, closed=True)
+    # 4 overlapping thick braised beef / chashu slices
+    for i in range(4):
+        P.prism(f'top{i}', oval(0.026, 0.017, 18, 0.12), 0.008, (-0.036 + 0.016 * i, 0.028 - 0.005 * i, z + 0.012 + 0.003 * i), 'paint_b', rot=D(0.24, 0.0, 0.45 + 0.08 * i), bev=0.0022, segs=2)
+    # marinated soft-boiled egg half with glossy amber yolk
+    P.sphere('egg', 0.020, (0.036, -0.024, z + 0.009), 'ceramic', u=18, v=10, scale=(1.15, 0.92, 0.42))
+    P.sphere('yolk', 0.0115, (0.037, -0.024, z + 0.0125), 'cap_oil', u=16, v=10, scale=(1.0, 1.0, 0.62))
+    # crisp nori seaweed sheet tucked along rear rim + fresh scallion rings
+    P.box('nori', (0.036, 0.003, 0.044), (-0.056, -0.034, z + 0.022), 'trim', rot=D(0.18, 0.0, -0.65), bev=0.001, segs=1)
+    for i in range(5):
+        a = 1.6 + 0.55 * i
+        P.cyl(f'sc{i}', 0.0055, 0.0025, (0.028 * math.cos(a), 0.028 * math.sin(a), z + 0.016), 'paint_b', segs=14, bev=None)
     for s in (-1, 1):
-        P.cyl(f'stick{s}', 0.0024, 0.2, (0.02, 0.0 + 0.008 * s, h + 0.006), 'wood', segs=5, rot=D(0.0, 1.5, 0.5), bev=None)
+        P.cyl(f'stick{s}', 0.0028, 0.22, (0.022, 0.0 + 0.009 * s, h + 0.007), 'wood', segs=7, rot=D(0.0, 1.5, 0.5), bev=None)
 
 
 def meal_congee(P):
@@ -409,13 +475,13 @@ def meal_ricebowl(P):
 
 
 def meal_salad(P):
-    r, h = 0.09, 0.055
+    r, h = 0.098, 0.060
     bowl(P, r, h)
-    for i in range(11):
+    for i in range(16):
         a = TAU * i * 0.618
-        q = math.sqrt((i + 0.5) / 11)
-        leaf(P, f'l{i}', (r * 0.42 * q * math.cos(a), r * 0.42 * q * math.sin(a), h * 0.55 + 0.012 * (1 - q)), 0.07, a, 0.25 + 0.5 * (1 - q), 'paint', wide=0.7)
-    heap(P, 8, r * 0.6, h * 0.86, 0.017, ['paint_b', 'paint_b', 'ceramic'], 'ball', rise=0.016, seed=2)
+        q = math.sqrt((i + 0.5) / 16)
+        leaf(P, f'l{i}', (r * 0.44 * q * math.cos(a), r * 0.44 * q * math.sin(a), h * 0.52 + 0.016 * (1 - q)), 0.082, a, 0.22 + 0.52 * (1 - q), 'paint', wide=0.72)
+    heap(P, 12, r * 0.62, h * 0.88, 0.019, ['paint_b', 'paint_b', 'ceramic', 'cap_oil'], 'ball', rise=0.022, seed=2)
 
 
 def meal_custard(P):
@@ -588,11 +654,26 @@ def _after(P, opts):
         names.update(saved)
 
 
+# Generous appetizing tabletop scale for all 34 dish templates (#29)
+_MEAL_SCALE = {
+    'meal_glass': 1.24,
+    'meal_mug': 1.24,
+    'meal_hotpot': 1.22,
+    'meal_pizza': 1.22,
+    'meal_roast': 1.24,
+    'meal_sashimi': 1.24,
+}
+
+
 def main(args):
+    from items.junk import settle
     table = {}
     for pid, build in MODELS.items():
-        def made(P, build=build):
-            P.ao_distance = 0.04
+        def made(P, build=build, pid=pid):
+            s = _MEAL_SCALE.get(pid, 1.32)
+            P.ao_distance = 0.04 * s
             build(P)
+            xform(P, 0, mat4((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (s, s, s)))
+            settle(P, center=True)
         table[pid] = made
     K.run(table, args, after=_after, out_dir=OUT, geo=False)

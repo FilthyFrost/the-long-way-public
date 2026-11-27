@@ -47,16 +47,16 @@ D = dict(
     waist_z=2.50,
     gap=0.005, edge_r=0.0022,
     # the fixed quarter window at the front corner beside the windscreen (left: on the right the entry door is there)
-    q_x0=2.30, q_z0=1.55, q_z1=2.36,
-    # the driver's window (left, beside the seat) and the row of windows down both sides behind it and the entry door
-    win_drv=(1.96, 2.24, 1.55, 2.36, 0.06),
+    q_x0=2.30, q_z0=1.50, q_z1=2.36,
+    # wide driver side window aligned with windshield foot + clean bus side window row
+    win_drv=(1.62, 2.26, 1.50, 2.36, 0.06),
     win_z=(1.55, 2.36), win_r=0.06,
-    win_row=((1.04, 1.84), (0.16, 0.96), (-0.72, 0.08), (-1.60, -0.80), (-2.48, -1.68), (-3.36, -2.56), (-4.24, -3.44)),
+    win_row=((0.94, 1.54), (0.12, 0.86), (-0.72, 0.04), (-1.60, -0.80), (-2.48, -1.68), (-3.36, -2.56), (-4.24, -3.44)),
     # the entry door on the right just behind the cowl (a folding bus door, one leaf here) and its tall window
     sd_x0=2.00, sd_x1=2.74, sd_z0=0.62, sd_z1=2.42, sd_r=0.05,
     sd_win=(2.06, 2.68, 1.10, 2.34, 0.04),
-    # the emergency door in the tail (hinged at its left edge: P_trunk) and its window; the windows either side of it
-    lid_hw=0.46, lid_z0=0.74, lid_z1=2.40, lid_r=0.06,
+    # the emergency door in the tail (hinged at its left edge: P_trunk) and its window; raised sill for flat 0.84 m floor
+    lid_hw=0.46, lid_z0=0.86, lid_z1=2.40, lid_r=0.06,
     tw_hw=0.38, tw_z0=1.55, tw_z1=2.30, tw_r=0.05,
     rw=(0.62, 1.04, 1.60, 2.32, 0.06),
     tail_y=0.82, tail_z=1.12, tail_w=0.20, tail_h=0.32,

@@ -546,7 +546,7 @@ class Exterior:
         big[-1, 0] = 0.0
         ss = np.linspace(big[-1, 1], big[0, 1], 16)[1:-1]
         loop = np.vstack([big, np.stack([np.zeros(len(ss)), ss], 1)])
-        g = K.grid_points(0.0, 1.0, 1.0, 2.0, 0.09, dt=0.09)
+        g = K.grid_points(0.0, 1.0, 1.0, 2.3, 0.09, dt=0.09)
         V, N, Tr = K.mesh_region(S.FRONT, [K.Loop(K.resample_keep(K.ccw(loop), 0.045))], [], g, spacing=0.09, level=-0.009)
         out['ws'] = K.Buf().add(V, N, Tr, 'glass')
 
@@ -785,7 +785,7 @@ class Exterior:
     def drip_rail(self):
         """The gutter along the roof's edge over the doors and windows (left half)."""
         xs = np.linspace(-1.98, 1.60, 30)
-        P, N = S.SIDE.to3d(np.stack([xs, np.full(len(xs), 1.707)], 1))
+        P, N = S.SIDE.to3d(np.stack([xs, np.full(len(xs), S.Z_W1 + 0.047)], 1))
         prof = np.array([(-0.004, 0.0), (-0.004, 0.007), (-0.001, 0.010), (0.004, 0.010), (0.006, 0.006), (0.006, 0.0)])
         V, Nn, Tr = K.sweep(P - N * 0.001, N, prof, closed=False)
         b = K.Buf().add(V, Nn, Tr, 'paint_b')

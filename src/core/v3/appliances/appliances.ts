@@ -9,6 +9,7 @@
  * core/v3/nd/coffee.ts); its pot is the machine's pot. Pure: no three, no DOM.
  */
 import type { ItemInstance } from '../../modcar/items';
+import { vinylOf } from '../nd/vinyls';
 
 export type ApplianceKind = 'radio' | 'record' | 'tv' | 'lamp' | 'solar';
 
@@ -16,8 +17,12 @@ export type ApplianceKind = 'radio' | 'record' | 'tv' | 'lamp' | 'solar';
 export interface AppState {
   /** switched on */
   on?: boolean;
-  /** the station, the channel, the record: an index into the songs (radio.ts SONGS) */
+  /** the station or TV channel: an index into the songs/channels */
   ch?: number;
+  /** record player only (#28): the physical vinyl record currently placed on the platter */
+  vinyl?: ItemInstance;
+  /** record player only: playback position in seconds */
+  vinylAt?: number;
 }
 
 declare module '../../modcar/items' {
@@ -98,8 +103,11 @@ export function stateWords(inst: ItemInstance, songName: (ch: number) => string)
   switch (k) {
     case 'radio':
       return s.on ? `开着 · 「${songName(channelOf(inst))}」` : '关着';
-    case 'record':
-      return s.on ? `在放 · 「${songName(channelOf(inst))}」` : '停着';
+    case 'record': {
+      const v = s.vinyl ? vinylOf(s.vinyl.item) : null;
+      if (!v) return '空盘（放上黑胶唱片播放）';
+      return s.on ? `在放 · 《${v.title}》` : `已放 · 《${v.title}》`;
+    }
     case 'tv':
       return s.on ? `开着 · 第 ${channelOf(inst) + 1} 台` : '关着';
     case 'lamp':

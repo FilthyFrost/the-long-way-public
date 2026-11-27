@@ -296,7 +296,6 @@ I('junk_crate_plastic', 'junk', '塑料筐', 'Plastic crate', 0, 1, { scrap: 2 }
 I('junk_plate', 'junk', '盘子', 'Plate', 0, 0.5, { scrap: 1 }, '一个搪瓷盘子。', { paint: 0xf4efe2, paint2: 0x2e4a6b });
 I('junk_transceiver', 'junk', '电台', 'Radio transceiver', 0, 14, { scrap: 12, components: 4 }, '一台老式无线电台，拆开全是好元件。', { paint: 0x7a7f45, paint2: 0x2f3236 });
 I('junk_record', 'junk', '唱片机', 'Record player', 0, 4, { scrap: 6, components: 1 }, '手提箱式的唱片机。', { paint: 0xb85c3e, paint2: 0x2f3236 });
-I('junk_vinyl', 'junk', '黑胶唱片', 'Vinyl record', 0, 0.3, { scrap: 1 }, '一张黑胶唱片，封套都褪色了。', { paint: 0xa99bc9, paint2: 0x2f3236 });
 I('junk_cage', 'junk', '小笼子', 'Small cage', 0, 2, { scrap: 3 }, '养鸟用的铁丝笼子。', { paint: 0xd8c29a, paint2: 0x6f7a82 });
 I('junk_bin', 'junk', '垃圾桶', 'Waste bin', 0, 2.2, { scrap: 3 }, '带脚踏的铁皮垃圾桶。', { paint: 0x557a46, paint2: 0x6f7a82 });
 I('junk_solar_lamp', 'junk', '太阳能灯', 'Solar lamp', 0, 2, { scrap: 4, components: 1 }, '插在院子里的太阳能灯，白天充电晚上亮。', { paint: 0x2f3236, paint2: 0xf0c23c });

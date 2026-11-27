@@ -18,7 +18,8 @@ import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
 import { accepts, boxDecay, countOf, itemDef, itemMass, itemModelOf, putInside, roomInside, setFreshRate, settleItem, splitStack, takeInside, type ItemInstance } from '../../../../core/modcar/items';
 import type { Text } from '../../../../core/modcar/types';
-import type { Box3 } from '../../../../core/v3/nd/place';
+import { COOLER } from '../../../../core/v3/kitchen/items';
+import { rectsOverlap, type Box3, type Rect } from '../../../../core/v3/nd/place';
 import { aimOn, boardOpen, boardsOf, clearOf, firstFit, fitWhy, layOut, placedOf, settle, spotOf, spotSaved, standing, UPRIGHT, type Board, type Placed, type Spot } from '../../../../core/v3/nd/store';
 import { itemGlb } from '../../assets';
 import type { GarageDevice } from '../../garageStub';
@@ -476,9 +477,23 @@ export class NdStore implements System<GameContext>, InteractSource {
     return true;
   }
 
+  /** Highest stack elevation above board floor among existing items overlapping `rect` on board `b`. */
+  private stackUpAt(v: View, b: number, rect: Rect): number {
+    let up = 0;
+    for (const sh of v.shown.values()) {
+      if (sh.spot.b !== b) continue;
+      const st = standing(sh.box, sh.spot);
+      if (!rectsOverlap(rect, st.rect)) continue;
+      const top = (sh.spot.up ?? 0) + st.h;
+      if (top > up) up = top;
+    }
+    return up;
+  }
+
   /**
    * Why a thing in the hands does not go into a container at a place ('' it goes): a thing it does not take, the
    * container full (its slots, its weight), too big for that place, something standing there.
+   * Open coolers allow free physical stacking up to the rim (+8 cm tolerance).
    */
   private putWhy(v: View, held: NonNullable<Held>, s: Spot, box: Box3): string {
     const it = v.l.item!;
@@ -487,6 +502,12 @@ export class NdStore implements System<GameContext>, InteractSource {
     if (roomInside(it, held.item, itemNow()) <= 0) return `${name}装满了`;
     const st = standing(box, s);
     if (fitWhy(v.boards[s.b], st)) return '放不下';
+    if (it.item === COOLER) {
+      const up = this.stackUpAt(v, s.b, st.rect);
+      if (up + st.h > v.boards[s.b].clear + 0.08) return '叠太高了';
+      s.up = up > 0.001 ? up : undefined;
+      return '';
+    }
     if (!clearOf(st.rect, this.placedOn(v, s.b))) return '挡住了';
     return '';
   }
@@ -554,35 +575,88 @@ export class NdStore implements System<GameContext>, InteractSource {
 
   private qWord(t: unknown): string | null {
     const v = this.viewOf(t);
-    if (!v || !v.drawn || !this.anyReached(v)) return null;
+    if (!v || !v.drawn || v.l.item?.item !== COOLER || !this.anyReached(v)) return null;
     return `放进 <b>${itemDef(v.l.item!.item).name.zh}</b>`;
   }
 
-  /** Q, the mark on an open container: the thing in the hands in at the first place it fits; true: the press is taken */
+  /** Find an open cooler the player's crosshair is aimed into (even over empty cavity interior). */
+  private aimedOpenCooler(): { v: View; px: number; pz: number } | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    const o = ctx.core.origin;
+    const eye = this.v3.set(ctx.player.eye.x - o.x, ctx.player.eye.y - o.y, ctx.player.eye.z - o.z);
+    const dir = ctx.player.dir;
+    let best: { v: View; px: number; pz: number; t: number } | null = null;
+    for (const v of this.views.values()) {
+      if (!v.drawn || !v.model || v.l.item?.item !== COOLER) continue;
+      const board = v.boards[0];
+      if (!board || !this.reached(v.l.item, board)) continue;
+      const dx = v.l.x - ctx.player.eye.x;
+      const dz = v.l.z - ctx.player.eye.z;
+      if (dx * dx + dz * dz > 9) continue;
+      const h = v.holders.get(board.on ?? '');
+      if (!h) continue;
+      this.m4.copy(h.matrixWorld).invert();
+      const ro = this.o3.copy(eye).applyMatrix4(this.m4);
+      const rd = this.d3.copy(new THREE.Vector3(dir.x, dir.y, dir.z)).transformDirection(this.m4);
+      const hit = enterRoom(board, ro, rd);
+      if (hit && hit.t <= 2.8 && (!best || hit.t < best.t)) best = { v, px: hit.x, pz: hit.z, t: hit.t };
+    }
+    return best ? { v: best.v, px: best.px, pz: best.pz } : null;
+  }
+
+  /** Q tap while aiming into an open cooler: gently drop and freely stack items right inside the cooler cavity. */
   private qInto(t: unknown, held: Held): boolean {
     const ctx = this.ctx;
-    const v = this.viewOf(t);
-    if (!ctx || !held || !v || !v.drawn || !this.anyReached(v)) return false;
+    if (!ctx || !held) return false;
+    const aimed = this.aimedOpenCooler();
+    const tv = this.viewOf(t);
+    const v = aimed?.v ?? (tv && tv.l.item?.item === COOLER ? tv : null);
+    if (!v || !v.drawn || v.l.item?.item !== COOLER || !this.anyReached(v)) return false;
     const it = v.l.item!;
     const name = itemDef(it.item).name.zh;
-    if (held.kind !== 'item' || held.item === it || !accepts(it, held.item)) {
-      ctx.player.flashWhy(`${name}不装这种东西`);
-      return true;
-    }
+    if (held.kind !== 'item' || held.item === it || !accepts(it, held.item)) return false;
     if (roomInside(it, held.item, itemNow()) <= 0) {
       ctx.player.flashWhy(`${name}装满了`);
       return true;
     }
     const box = ctx.cargo.boxOf(held);
-    if (!box) return true;
-    const open = v.boards.map((b, i) => (this.reached(it, b) ? i : -1)).filter((i) => i >= 0);
-    const placed: Placed[] = [...v.shown.values()].map((sh) => placedOf(sh.box, sh.spot));
-    const s = firstFit(v.boards, open, box, placed, UPRIGHT);
-    if (!s) {
-      ctx.player.flashWhy('放不下了');
+    if (!box) return false;
+    const board = v.boards[0];
+    // Prefer dropping right at the aimed spot inside the cooler (stacking smoothly onto existing items below).
+    let spot: Spot | null = null;
+    if (aimed) {
+      const r = ctx.player.walker.heading - v.l.yaw;
+      const at = aimOn(board, box, r, undefined, aimed.px, aimed.pz, false);
+      const cand: Spot = { b: 0, x: at.x, z: at.z, r };
+      if (!this.putWhy(v, held, cand, box)) spot = cand;
+    }
+    if (!spot) {
+      const placed: Placed[] = [...v.shown.values()].map((sh) => placedOf(sh.box, sh.spot));
+      spot = firstFit(v.boards, [0], box, placed, UPRIGHT);
+    }
+    // If the cooler floor is full, freely stack onto the lowest stackable spot inside the cooler.
+    if (!spot) {
+      let bestStack: Spot | null = null;
+      let bestUp = Infinity;
+      const r = ctx.player.walker.heading - v.l.yaw;
+      for (let gx = board.x[0] + 0.04; gx <= board.x[1] - 0.04; gx += 0.06) {
+        for (let gz = board.z[0] + 0.04; gz <= board.z[1] - 0.04; gz += 0.06) {
+          const at = aimOn(board, box, r, undefined, gx, gz, false);
+          const cand: Spot = { b: 0, x: at.x, z: at.z, r };
+          if (!this.putWhy(v, held, cand, box) && (cand.up ?? 0) < bestUp) {
+            bestUp = cand.up ?? 0;
+            bestStack = cand;
+          }
+        }
+      }
+      spot = bestStack;
+    }
+    if (!spot) {
+      ctx.player.flashWhy('保温箱放不下了');
       return true;
     }
-    const left = this.putInto(v, held, s);
+    const left = this.putInto(v, held, spot);
     if (left <= 0) ctx.player.held = null;
     return true;
   }
@@ -629,7 +703,7 @@ export class NdStore implements System<GameContext>, InteractSource {
     const s: Spot = { b, x: at.x, z: at.z, r };
     const why = this.putWhy(v, held, s, box);
     const st = standing(box, s);
-    const w = h.localToWorld(this.v3.set(at.x, board.y + st.lift + 0.002, at.z));
+    const w = h.localToWorld(this.v3.set(at.x, board.y + (s.up ?? 0) + st.lift + 0.002, at.z));
     return {
       ok: !why,
       why,

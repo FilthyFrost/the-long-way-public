@@ -11,6 +11,9 @@ import { newItem, type ItemInstance } from '../../../../core/modcar/items';
 import { aboardOf } from '../../../../core/modcar/aboard';
 import { zonesFor } from '../../../../core/modcar/cargo';
 import { appOf, COFFEE_POT, toggle } from '../../../../core/v3/appliances/appliances';
+import { newInstance } from '../../../../core/modcar/build';
+import { STATION_GENRES, TAPES } from '../../../../core/v3/nd/tapes';
+import { VINYLS } from '../../../../core/v3/nd/vinyls';
 import type { GameContext } from '../../kernel/context';
 import type { DevButton, DevTab } from '../../kernel/devTabs';
 import type { Loose } from '../../loose';
@@ -172,6 +175,123 @@ export function appliancesTab(sys: Appliances, game: () => GameContext | null): 
     },
     tick() {
       if (box) box.textContent = status();
+    },
+  };
+}
+
+/** Dedicated Music test tab listing all 51 individual vinyl records and all 51 individual cassette tapes by station */
+export function musicTab(game: () => GameContext | null): DevTab {
+  const giveItem = (ctx: GameContext, id: string): void => {
+    const item = newItem(id);
+    if (ctx.player.receive({ kind: 'item', item }) > 0) {
+      const w = ctx.player.walker;
+      ctx.loose.drop(ctx.loose.addItem(item, w.x + Math.cos(w.heading) * 0.65, w.y + 0.9, w.z + Math.sin(w.heading) * 0.65, w.heading));
+    }
+  };
+  const givePart = (ctx: GameContext, id: string): void => {
+    const inst = newInstance(id);
+    if (ctx.player.receive({ kind: 'part', inst }) > 0) {
+      const w = ctx.player.walker;
+      ctx.loose.drop(ctx.loose.addPart(inst, w.x + Math.cos(w.heading) * 0.65, w.y + 0.9, w.z + Math.sin(w.heading) * 0.65, w.heading));
+    }
+  };
+  const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+  return {
+    id: 'music',
+    title: '音乐',
+    order: 41,
+    sub: '51 首独立黑胶唱片 & 51 首独立车载磁带',
+    build(pane) {
+      const say = pane.message();
+      pane.heading('播放设备');
+      pane.buttons(
+        [
+          {
+            label: '给一台唱片机',
+            go: true,
+            click: () => {
+              const ctx = game();
+              if (!ctx) return;
+              giveItem(ctx, 'junk_record');
+              say('给了一台唱片机，放下后手持黑胶点击即可播放。');
+            },
+          },
+          {
+            label: '给一台车载卡带机',
+            click: () => {
+              const ctx = game();
+              if (!ctx) return;
+              givePart(ctx, 'radio_tape');
+              say('给了一台车载卡带机（零件），装到中控台即可插磁带。');
+            },
+          },
+        ],
+        2,
+      );
+      let mode: 'vinyl' | 'tape' = 'vinyl';
+      let station = -1;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:8px;';
+      const bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;gap:5px;';
+      const stBar = document.createElement('div');
+      stBar.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+      const list = document.createElement('div');
+      list.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:5px;max-height:420px;overflow-y:auto;padding-right:2px;';
+      const render = (): void => {
+        bar.innerHTML = '';
+        for (const [m, text] of [
+          ['vinyl', `黑胶唱片 (${VINYLS.length})`],
+          ['tape', `车载磁带 (${TAPES.length})`],
+        ] as const) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = text;
+          b.style.cssText = `flex:1;padding:5px 6px;border-radius:8px;border:1.5px solid #17120f;font:inherit;font-size:12px;font-weight:700;cursor:pointer;background:${mode === m ? '#e9c14a' : 'rgba(255,255,255,0.1)'};color:${mode === m ? '#17120f' : '#eee'};`;
+          b.onclick = () => {
+            mode = m;
+            render();
+          };
+          bar.appendChild(b);
+        }
+        stBar.innerHTML = '';
+        for (let s = -1; s < STATION_GENRES.length; s++) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = s < 0 ? '全部电台' : STATION_GENRES[s];
+          b.style.cssText = `padding:3px 7px;border-radius:8px;border:none;font:inherit;font-size:11px;cursor:pointer;background:${station === s ? '#f6f2ea' : 'rgba(255,255,255,0.08)'};color:${station === s ? '#17120f' : '#ccc'};font-weight:${station === s ? '700' : '400'};`;
+          b.onclick = () => {
+            station = s;
+            render();
+          };
+          stBar.appendChild(b);
+        }
+        list.innerHTML = '';
+        const rows = mode === 'vinyl' ? VINYLS.map((v, idx) => ({ id: v.id, num: idx + 1, title: v.title, station: v.station, c1: v.label, c2: v.accent })) : TAPES.map((t, idx) => ({ id: t.id, num: idx + 1, title: t.title, station: t.station, c1: t.shell, c2: t.label }));
+        for (const r of rows) {
+          if (station >= 0 && r.station !== station) continue;
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.dataset.songId = r.id;
+          b.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:8px;border:1px solid rgba(239,230,211,0.25);background:rgba(255,255,255,0.06);color:#fff;font:inherit;font-size:11.5px;text-align:left;cursor:pointer;';
+          const sw = document.createElement('span');
+          sw.style.cssText = `flex:none;width:14px;height:14px;border-radius:${mode === 'vinyl' ? '50%' : '3px'};background:${hex(r.c1)};border:2px solid ${hex(r.c2)};box-shadow:0 0 0 1px #111;`;
+          const lb = document.createElement('span');
+          lb.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+          lb.textContent = `${String(r.num).padStart(2, '0')} ${r.title}`;
+          b.append(sw, lb);
+          b.onclick = () => {
+            const ctx = game();
+            if (!ctx) return;
+            giveItem(ctx, r.id);
+            say(`已生成 ${mode === 'vinyl' ? '黑胶' : '磁带'}《${r.title}》(${r.id})。`);
+          };
+          list.appendChild(b);
+        }
+      };
+      render();
+      wrap.append(bar, stBar, list);
+      pane.body.appendChild(wrap);
     },
   };
 }

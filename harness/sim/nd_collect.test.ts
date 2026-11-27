@@ -123,17 +123,18 @@ describe('ND licence plates (core/v3/nd/plates.ts)', () => {
 });
 
 describe('ND tapes and the deck (core/v3/nd/tapes.ts)', () => {
-  it('thirteen tapes, each a song of the radio stations; a world deals each once before any twice', () => {
-    expect(TAPES.length).toBe(13);
-    expect(new Set(TAPES.map((t) => t.id)).size).toBe(13);
+  it('all 51 archive songs burned onto individual cassettes; a world deals each once before any twice', () => {
+    expect(TAPES.length).toBe(51);
+    expect(new Set(TAPES.map((t) => t.id)).size).toBe(51);
     expect(tapeOf('nd_tape_07')?.title).toBe(TAPES[6].title);
+    expect(tapeOf('nd_tape_51')?.id).toBe('nd_tape_51');
     expect(tapeOf('nd_tape_99')).toBeNull();
     const deck = tapeDeck(7);
     expect([...deck].sort()).toEqual(TAPES.map((t) => t.id).sort());
     expect(tapeDeck(7)).toEqual(deck);
     const had = new Set<string>();
-    for (let i = 0; i < 13; i++) had.add(nextOf(deck, had));
-    expect(had.size).toBe(13);
+    for (let i = 0; i < 51; i++) had.add(nextOf(deck, had));
+    expect(had.size).toBe(51);
     expect(nextOf(deck, had)).toBe(deck[0]);
   });
 

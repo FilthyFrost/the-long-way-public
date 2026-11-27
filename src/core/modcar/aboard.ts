@@ -108,7 +108,9 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
   elephant: {
     headroom: 2.0,
     areas: [
-      { x0: -3.42, x1: 2.1, z0: -1.08, z1: 0.95, floor: 0.62, name: 'room' },
+      { x0: -3.42, x1: -0.97, z0: -1.08, z1: 1.08, floor: 0.62, name: 'room' },
+      { x0: -0.97, x1: -0.08, z0: -1.08, z1: 0.94, floor: 0.62, name: 'room' },
+      { x0: -0.08, x1: 2.1, z0: -1.08, z1: 1.08, floor: 0.62, name: 'room' },
       { x0: -4.11, x1: -3.42, z0: -0.56, z1: 0.56, floor: 0.62, name: 'back' },
       { x0: 2.1, x1: 2.46, z0: -0.58, z1: 0.58, floor: 0.62, name: 'front' },
     ],
@@ -135,43 +137,40 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
   // the ones put in it (the camper's: a cot riding in it)
   // (its back 1.1 m longer since docs/V3/plan/finish.md §18: the floor behind the last window)
   camel: {
-    headroom: 2.0,
+    headroom: 2.1,
     areas: [
-      { x0: -6.08, x1: 1.84, z0: -0.58, z1: 0.58, floor: 0.72, name: 'aisle' },
-      { x0: -2.24, x1: 1.84, z0: -1.13, z1: 1.13, floor: 0.72, name: 'front' },
-      { x0: -6.08, x1: -3.46, z0: -1.13, z1: 1.13, floor: 0.72, name: 'back' },
-      { x0: 1.84, x1: 2.7, z0: -0.1, z1: 0.6, floor: 0.72, name: 'door' },
+      { x0: -6.08, x1: 1.72, z0: -1.12, z1: 1.12, floor: 0.84, name: 'room' },
+      { x0: 1.72, x1: 2.7, z0: -0.1, z1: 0.6, floor: 0.84, name: 'door' },
     ],
-    // (the entry door's opening spans x 2.0 … 2.74 on the right, from its sill at 0.24 up; its leaf hinged at the front
-    // edge. Inside it a bus's stairwell, as Nomad Drive's school bus has: two treads 0.3 m deep, the body's face at 1.213,
-    // three rises of 0.24 from the ground to the floor — no step outside)
+    // (the entry door's opening spans x 2.0 … 2.74 on the right, from its sill at 0.42 up; its leaf hinged at the front
+    // edge. Inside it a bus's stairwell: two treads 0.3 m deep + exterior slide step: four even rises of 0.21 m to 0.84 m floor)
     doors: [
       {
         mount: 'door_side',
-        box: { lo: [2.0, 0.24, 0.6], hi: [2.74, 2.42, 1.45] },
+        box: { lo: [2.0, 0.42, 0.6], hi: [2.74, 2.42, 1.45] },
         inside: [2.37, 0.45],
         outside: [2.37, 1.95],
         inYaw: -Math.PI / 2,
         sill: 0.763,
-        well: { tops: [0.24, 0.48], depth: 0.3 },
+        well: { tops: [0.42, 0.63], depth: 0.3 },
+        step: { tops: [0.21], depth: 0.26, width: 0.68 },
       },
     ],
-    aft: [1.6, 0.2],
+    aft: [1.48, 0.2],
   },
-  // the Turtle (docs/V3/plan/rv.md R1), an empty shell as Nomad Drive's camper van since docs/V3/plan/finish.md §十九
-  // step 7 (the bed on its platform, the bunk in the roof's opening and the galley are gone): its floor from the deck over
-  // the rear axle (its front at −1.53) to the front seats' backs, wall to wall (the walls at ±1.04); one stands up in it
-  // with the roof up (tools/blender/frames/_turtle_inner.py)
+  // the Turtle (high-top remodel #3): tall walk-in sliding door (2.22 m) and 2.62 m high-top roof so the player walks
+  // straight in standing upright and can stand across the main floor, rear axle deck (0.78 m), and rear engine deck (0.92 m)
   turtle: {
-    headroom: 2.0,
-    areas: [{ x0: -1.43, x1: 0.84, z0: -0.97, z1: 0.97, floor: 0.42, name: 'room' }],
-    // (the sliding door's opening spans x −1.46 … −0.26 on the right from the floor up, its leaf hinged at the front edge;
-    // the body's face at 1.067. Under it a step that slides out, as Nomad Drive's van has its running board: two rises of
-    // 0.21 from the ground to the floor)
+    headroom: 2.2,
+    areas: [
+      { x0: -1.43, x1: 0.84, z0: -0.97, z1: 0.97, floor: 0.42, name: 'room' },
+      { x0: -2.48, x1: -1.43, z0: -0.97, z1: 0.97, floor: 0.78, name: 'axle_deck' },
+      { x0: -3.22, x1: -2.48, z0: -0.97, z1: 0.97, floor: 0.92, name: 'rear_deck' },
+    ],
     doors: [
       {
         mount: 'door_side',
-        box: { lo: [-1.46, 0.42, 0.77], hi: [-0.26, 1.66, 1.35] },
+        box: { lo: [-1.46, 0.42, 0.77], hi: [-0.26, 2.22, 1.35] },
         inside: [-0.86, 0.75],
         outside: [-0.86, 1.75],
         inYaw: -Math.PI / 2,
@@ -180,7 +179,6 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
       },
     ],
     aft: [0.78, 0.0],
-    roof: true,
   },
   // the Snail (docs/V3/plan/finish.md §十一 1): its box behind the cab's back wall — no way through from the seats; in
   // and out by the rear door (the right leaf of its two: the opening from the middle to the right post). Its floor
@@ -209,7 +207,7 @@ export const ABOARD: Readonly<Record<string, Aboardable>> = {
  * everything in the Whale, the Old Elephant and the Turtle once their living spaces were emptied (§十九 step 7: what
  * stood on a galley, a table, a bed or a shelf that is no more).
  */
-const ROOM_REV: Readonly<Record<string, number>> = { rv: 3, elephant: 3, camel: 1, turtle: 2, trailer: 1, snail: 1 };
+const ROOM_REV: Readonly<Record<string, number>> = { rv: 3, elephant: 3, camel: 2, turtle: 3, trailer: 1, snail: 1 };
 
 export function roomRev(frame: string): number {
   return ROOM_REV[frame] ?? 0;

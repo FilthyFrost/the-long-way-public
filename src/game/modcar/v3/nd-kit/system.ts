@@ -32,8 +32,8 @@ export const KITS: Readonly<Record<string, { cat: 'engine' | 'tire' | 'battery';
 /** the left button held this long (s); the mark may stray off what it mends this long meanwhile (s) */
 const KIT_S = 0.5;
 const KIT_GRACE_S = 0.2;
-/** the compass's lid opens to this (rad) in this long (s); its needle's smoothing (s) and top speed (rad/s) */
-const LID_OPEN = (110 * Math.PI) / 180;
+/** the compass's lid opens upward and away from the dial (-118 deg about +Z from +X hinge) in this long (s) */
+const LID_OPEN = (-118 * Math.PI) / 180;
 const LID_S = 0.5;
 const NEEDLE_S = 0.1;
 const NEEDLE_MAX = Math.PI * 4;
@@ -140,26 +140,54 @@ export class NdKits implements System<GameContext> {
   private aim(kit: string): KitAim | null {
     const k = KITS[kit];
     const t = this.ctx?.player.target;
-    if (!k || !t) return null;
+    if (!k) return null;
     const pick = (inst: PartInstance | null | undefined): PartInstance | null => {
       if (!inst) return null;
       if (partDef(inst.part).cat === k.cat) return inst;
       for (const s of Object.values(inst.sub ?? {})) if (partDef(s.part).cat === k.cat) return s;
       return null;
     };
-    if (t.kind === 'part') {
+    if (t?.kind === 'part') {
       const inst = pick(t.v.build.parts[t.mount.id]);
-      return inst ? { inst, v: t.v, loose: null } : null;
+      if (inst) return { inst, v: t.v, loose: null };
     }
-    if (t.kind === 'loose' && t.loose.part) {
+    if (t?.kind === 'loose' && t.loose.part) {
       const inst = pick(t.loose.part);
-      return inst ? { inst, v: null, loose: t.loose } : null;
+      if (inst) return { inst, v: null, loose: t.loose };
     }
-    if (t.kind === 'looseSub' && t.loose.part) {
+    if (t?.kind === 'looseSub' && t.loose.part) {
       const inst = pick(t.loose.part.sub?.[t.sub]);
-      return inst ? { inst, v: null, loose: t.loose } : null;
+      if (inst) return { inst, v: null, loose: t.loose };
     }
-    return null;
+    // Generous assist under an open hood (or near loose parts): aiming within 14 deg / 2.4 m of the matching engine/battery snaps cleanly.
+    const ctx = this.ctx;
+    if (!ctx || (k.cat !== 'engine' && k.cat !== 'battery')) return null;
+    const eye = ctx.player.eye;
+    const dir = ctx.player.dir;
+    const o = ctx.core.origin;
+    const box = new THREE.Box3();
+    const ctr = new THREE.Vector3();
+    let best: { kit: KitAim; score: number } | null = null;
+    for (const v of ctx.vehicles) {
+      if (Math.hypot(v.sim.px - eye.x, v.sim.pz - eye.z) > 6) continue;
+      for (const m of v.view.frame.mounts) {
+        if (m.cat !== k.cat) continue;
+        const inst = v.build.parts[m.id];
+        if (!inst || v.view.shutOver(m.id)) continue;
+        if (!v.view.boundsOf(m.id, box)) continue;
+        box.getCenter(ctr);
+        const dx = ctr.x + o.x - eye.x;
+        const dy = ctr.y + o.y - eye.y;
+        const dz = ctr.z + o.z - eye.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > 2.5 || d < 0.05) continue;
+        const cos = (dx * dir.x + dy * dir.y + dz * dir.z) / d;
+        if (cos < 0.96) continue; // ~16 deg cone
+        const score = d * (2 - cos);
+        if (!best || score < best.score) best = { kit: { inst, v, loose: null }, score };
+      }
+    }
+    return best ? best.kit : null;
   }
 
   /** how far along it is: a part's condition (the card's state line), a battery's charge (0 … 1) */

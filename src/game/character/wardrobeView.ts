@@ -109,34 +109,46 @@ export class WardrobeView {
     this.dress.show(!off.top, !off.skirt, !off.under);
   }
 
-  /** Each frame: first person's finer sleeves and gloves. */
-  update(firstPerson: boolean): void {
+  /** Each frame: first person's finer sleeves and gloves (shown only when showArms is true, e.g. seated driving). */
+  update(firstPerson: boolean, showArms = firstPerson, inCab = 0): void {
     for (const [pattern, p] of this.pieces) {
       const on = [...this.worn.values()].some((w) => w.pattern === pattern);
       if (!on) continue;
-      const fine = !!p.fp && firstPerson;
-      if (p.fp) p.fp.visible = fine;
+      p.mat.uniforms.uInCab.value = inCab;
+      if (p.fpMat) p.fpMat.uniforms.uInCab.value = inCab;
+      const fine = !!p.fp && firstPerson && showArms;
+      if (p.fp) {
+        p.fp.visible = fine;
+        if (p.fpMat) p.fpMat.uniforms.uHide.value = fine ? 4 : 0;
+      }
       // (a hat sits at the eye: not drawn from her own eyes, but its shadow is)
-      if (PATTERNS[pattern].slot === 'hat') {
+      const slot = PATTERNS[pattern].slot;
+      if (slot === 'hat') {
         // (none over her helmet)
         p.tp.visible = !firstPerson && !this.rig.helmet;
         p.shadow.visible = !this.rig.helmet;
         continue;
       }
-      // (in first person a jacket's own sleeves give way to the finer ones below the elbow; gloves wholly)
-      p.mat.uniforms.uHide.value = fine && pattern.startsWith('gloves') ? 1 : 0;
+      if (firstPerson && !showArms) {
+        // on-foot first person: hide gloves and coarse jacket sleeves so held items float cleanly without hands/arms
+        p.mat.uniforms.uHide.value = slot === 'gloves' ? 1 : slot === 'jacket' ? 2 : 0;
+      } else {
+        // in seated first person, gloves yield wholly to the finer mesh; jacket body/sleeves are handled by firstPersonBody
+        p.mat.uniforms.uHide.value = fine && slot === 'gloves' ? 1 : 0;
+      }
     }
   }
 
   /**
-   * After update: in a seat from her own eyes what she wears on her trunk and legs is not drawn (only the finer
-   * sleeves and gloves on her arms are); on foot, what of it stands near the eye over the middle of the view is seen
-   * through (`fade` 0 … 1, the frame drawn into in px: material.ts seeViewFade).
+   * After update: in a seat from her own eyes what she wears on her trunk and legs is not drawn (only the upper-arm
+   * bridge and finer sleeves/gloves on her arms are); on foot, what of it stands near the eye over the middle of the
+   * view is seen through (`fade` 0 … 1, the frame drawn into in px: material.ts seeViewFade).
    */
   firstPersonBody(hidden: boolean, fade: number, w: number, h: number): void {
     for (const [pattern, p] of this.pieces) {
-      if (PATTERNS[pattern as Pattern]?.slot === 'hat') continue;
-      if (hidden) p.mat.uniforms.uHide.value = 1;
+      const slot = PATTERNS[pattern as Pattern]?.slot;
+      if (slot === 'hat') continue;
+      if (hidden) p.mat.uniforms.uHide.value = slot === 'jacket' ? 3 : 1;
       (p.mat.uniforms.uSeeView.value as THREE.Vector3).set(fade, w, h);
     }
   }

@@ -8,7 +8,8 @@
  */
 import { hasItem, hasItemCat, registerItemCat, registerItems, type ItemRow, retireItem } from '../../modcar/items';
 import { ND_BATTERY } from './battery';
-import { TAPES } from './tapes';
+import { STATION_GENRES, TAPES } from './tapes';
+import { VINYLS } from './vinyls';
 import { ND_BUCKET, ND_PUMP, ND_WATER_CAN } from './water';
 
 // ------------------------------------------------------------------ ids
@@ -186,7 +187,7 @@ export function ndItemRows(kitchen: string): ItemRow[] {
     { id: 'nd_shovel', cat: 'gear', name: { zh: '铁锹', en: 'Shovel' }, stars: 2, mass: 2.2, carry: 'large', salvage: { scrap: 4 }, blurb: '圆头铁锹。埋着箱子的地方，挖四锹就露出来。', paint: 0x5d8a34, paint2: 0x8a5a3c },
     { id: 'nd_metal_detector', cat: 'gear', name: { zh: '金属探测器', en: 'Metal detector' }, stars: 4, mass: 1.6, carry: 'large', salvage: { scrap: 6, components: 4 }, blurb: '拿在手里就开着：三十米内埋着东西它就滴滴响，越近响得越急，到了正上方变成长音。', paint: 0xe8a23a, paint2: 0x2f3236 },
     { id: 'nd_crowbar', cat: 'gear', name: { zh: '撬棍', en: 'Crowbar' }, stars: 3, mass: 1.4, carry: 'medium', salvage: { scrap: 5 }, blurb: '撬开卡住或锁着的门和盖子。撬五次就断了。', paint: 0xc8372f, paint2: 0x2f3236 },
-    { id: 'nd_compass', cat: 'gear', name: { zh: '指南针', en: 'Compass' }, stars: 2, mass: 0.3, carry: 'small', salvage: { scrap: 2 }, blurb: '木盒子里的铜指南针。拿在手里盖子就弹开，指针总是指着北。', paint: 0xc89a46, paint2: 0x2f3236 },
+    { id: 'nd_compass', cat: 'gear', name: { zh: '指南针', en: 'Compass' }, stars: 2, mass: 0.22, carry: 'small', salvage: { scrap: 2 }, blurb: '便携铜壳圆形指南针。拿在手里盖子自动弹开，红白指针实时指北。', paint: 0xc89a46, paint2: 0x2f3236 },
     { id: 'nd_engine_kit', cat: 'gear', name: { zh: '引擎修理包', en: 'Engine repair kit' }, stars: 3, mass: 2.4, carry: 'medium', salvage: { scrap: 6 }, blurb: '一次性的引擎修理包，修好一半（+50）。', paint: 0xc8372f, paint2: 0xf0c23c },
     { id: 'nd_tire_kit', cat: 'gear', name: { zh: '轮胎修理包', en: 'Tyre repair kit' }, stars: 2, mass: 1.8, carry: 'medium', salvage: { scrap: 4 }, blurb: '一次性的补胎工具，修好一半（+50）。', paint: 0x3e6f8f, paint2: 0xf0c23c },
     { id: ND_NOZZLE, cat: 'gear', name: { zh: '加油枪', en: 'Fuel nozzle' }, stars: 0, mass: 1.2, carry: 'small', salvage: {}, blurb: '加油机的油枪，油管长八米，一秒两升。', paint: 0x2f3236, paint2: 0xefe6cf },
@@ -199,8 +200,35 @@ export function ndItemRows(kitchen: string): ItemRow[] {
     // ---------------------------------------------------------------- tools
     { id: ND_BATTERY, cat: 'gear', name: { zh: '电池', en: 'Battery' }, stars: 1, mass: 0.4, carry: 'small', salvage: { scrap: 1 }, blurb: '一节大号电池，给打磨机、抛光机或手电充进 100 的电（没电了才换得上）。', paint: 0x2f6b4f, paint2: 0xe8d36a },
     { id: ND_GRINDER, cat: 'gear', name: { zh: '打磨机', en: 'Grinder' }, stars: 4, mass: 2.4, carry: 'medium', salvage: { scrap: 10, components: 3 }, blurb: '充电式角磨机，锈一磨就掉；慢慢磨比飞快划过去管用。满电能转三分多钟。', paint: 0xe0a23a, paint2: 0x2f3236 },
-    // ---------------------------------------------------------------- keepsakes: the tapes (core/v3/nd/tapes.ts)
-    ...TAPES.map((t): ItemRow => ({ id: t.id, cat: 'collect', name: { zh: `磁带《${t.title}》`, en: `Tape: ${t.title}` }, stars: 2, mass: 0.06, carry: 'small', salvage: { scrap: 1 }, model: 'nd_cassette', blurb: `一盘磁带，标签上手写着《${t.title}》。坐在车里拿着它看着卡带机，按住左键放进去。`, paint: t.shell, paint2: t.label, tags: ['tape'] })),
+    // ---------------------------------------------------------------- keepsakes: all 51 physical cassettes & 51 physical vinyl records (#28)
+    ...TAPES.map((t): ItemRow => ({
+      id: t.id,
+      cat: 'collect',
+      name: { zh: `磁带《${t.title}》`, en: `Tape: ${t.title}` },
+      stars: 2,
+      mass: 0.06,
+      carry: 'small',
+      salvage: { scrap: 1 },
+      model: 'nd_cassette',
+      blurb: `【${STATION_GENRES[t.station] ?? '金曲'}】独立收录《${t.title}》。手持磁带对准车载磁带机按左键插入播放。`,
+      paint: t.shell,
+      paint2: t.label,
+      tags: ['tape'],
+    })),
+    ...VINYLS.map((v): ItemRow => ({
+      id: v.id,
+      cat: 'collect',
+      name: { zh: `黑胶《${v.title}》`, en: `Vinyl: ${v.title}` },
+      stars: 2,
+      mass: 0.18,
+      carry: 'small',
+      salvage: { scrap: 1 },
+      model: 'nd_vinyl',
+      blurb: `【${v.genre}】12 寸黑胶唱片，收录《${v.title}》。手持黑胶对准唱片机按左键放上转盘播放。`,
+      paint: v.label,
+      paint2: v.accent,
+      tags: ['vinyl'],
+    })),
     // ---------------------------------------------------------------- keepsakes: the bobbleheads (only ever in buried chests, one of each), a plate, a frame, a wooden hand
     { id: 'nd_bobble_1', cat: 'collect', name: { zh: '摇头狐狸', en: 'Bobblehead fox' }, stars: 4, mass: 0.15, carry: 'small', salvage: {}, blurb: '弹簧上顶着一个大脑袋的小狐狸。摆在仪表台上，车一动它就点头晃脑。', paint: 0xe07a2e, paint2: 0x3a3d42, tags: ['bobble'] },
     { id: 'nd_bobble_2', cat: 'collect', name: { zh: '摇头青蛙', en: 'Bobblehead frog' }, stars: 4, mass: 0.15, carry: 'small', salvage: {}, blurb: '戴草帽的青蛙，咧着嘴笑。摆在仪表台上，过个坑它就跟着蹦。', paint: 0x6fae4a, paint2: 0xd8b04a, tags: ['bobble'] },
@@ -227,6 +255,8 @@ export function registerNdItems(): void {
   for (const id of ['med_kit_1', 'med_kit_2', 'med_kit_3']) retireItem(id, 'nd_first_aid');
   // (the old repair kits that never mended anything: a save's are engine repair kits now — docs/V3/plan/finish.md §十九)
   for (const id of ['repair_1', 'repair_2', 'repair_3']) retireItem(id, 'nd_engine_kit');
+  // Retire legacy non-playable decorative junk_vinyl into the first playable physical vinyl record
+  retireItem('junk_vinyl', 'nd_vinyl_01');
   for (const c of ND_CATS) if (!hasItemCat(c.id)) registerItemCat(c);
   registerItems(ndItemRows(hasItemCat('kitchen') ? 'kitchen' : 'furniture'));
 }

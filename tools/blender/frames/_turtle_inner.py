@@ -30,14 +30,10 @@ DRIVER_Y = 0.42
 EYE = (SEAT_X - 0.16, DRIVER_Y, SEAT_Z + 0.90)
 ROOM_FRONT_X = 0.90      # where the cab ends and the room begins (the seat boxes' backs)
 FIREWALL_X = -1.58       # the engine bay's front wall
-DECK_Z = 0.95            # the engine deck's top (its underside 2 cm lower)
-# the deck over the rear axle, as Nomad Drive's camper van has one (its engine's shelf behind it higher): from the
-# engine deck's front forward over the rear wheels' wells and the gearbox (whose top stands over the floor), wall to
-# wall, 38 cm over the floor as theirs; the room ahead of it an empty shell - the bed on its platform with its
-# cupboard, the bunk in the roof's opening and the galley along the left wall that stood in it are gone
-# (docs/V3/plan/finish.md section 19 step 7)
+DECK_Z = 0.92            # the engine deck's top (its underside 2 cm lower; clears engine while allowing standing)
+# the deck over the rear axle, lowered slightly so standing headroom over the rear area is generous even with roof closed
 AXLE_DECK_X1 = -0.63
-AXLE_DECK_Z = FLOOR_Z + 0.38
+AXLE_DECK_Z = FLOOR_Z + 0.36
 DASH_FACE_X = 1.98       # the shelf's face towards the cab
 DASH_TOP = 1.08
 WALL_IN = -0.035         # how far inside the nose's skin the dash ends
@@ -318,13 +314,13 @@ def interior(ex):
     # the horn's bracket on the nose's inside behind the louvres
     C.extend(K.box_buf((D['xf'] - 0.05, -0.24, 0.57), (D['xf'] - 0.035, -0.16, 0.66), 'steel', 0.003, 1))
     # interior mirror on the header, sun visors
-    mx = float(S.FRONT.to3d(np.array([[0.0, 1.80]]))[0][0, 0]) - 0.05
-    mp = np.array([mx, 0.0, 1.78])
+    mx = float(S.FRONT.to3d(np.array([[0.0, D['ws_head'] - 0.06]]))[0][0, 0]) - 0.05
+    mp = np.array([mx, 0.0, D['ws_head'] - 0.08])
     C.extend(K.box_buf(mp + (-0.01, -0.012, 0.02), mp + (0.012, 0.012, 0.075), 'plastic_int', 0.004, 2))
     C.extend(K.box_buf(mp + (-0.025, -0.12, -0.03), mp + (0.0, 0.12, 0.025), 'plastic_int', 0.012, 3))
     C.extend(K.box_buf(mp + (-0.0262, -0.11, -0.022), mp + (-0.0255, 0.11, 0.017), 'glass_dark', 0.0, 1))
     for sy in (1, -1):
-        vp = np.array([mx - 0.03, sy * 0.44, 1.86])
+        vp = np.array([mx - 0.03, sy * 0.44, D['ws_head']])
         C.extend(K.box_buf(vp + (-0.17, -0.20, -0.012), vp + (0.0, 0.20, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 6, vp)))
     # ---------------------------------------------------------------- the room: an empty shell
     # (nothing built in, as Nomad Drive's camper van: what one lives with is what the player puts in)
@@ -385,11 +381,11 @@ def door_extras(ex, key):
     if key == 'door':
         x0, x1, zh = D['cd_x0'], D['cd_x1'], 1.12
         xh = x0 + 0.13
-        hz = (0.98, 1.50)
+        hz = (0.98, 1.82)
     else:
         x0, x1, zh = D['sd_x0'], D['sd_x1'], 1.10
         xh = x1 - 0.12
-        hz = (0.72, 1.48)
+        hz = (0.72, 1.96)
     ph, nh = S.SIDE.to3d(np.array([[xh, zh]]))
     ph = ph[0]
     b.extend(K.box_buf((-0.065, -0.006, -0.018), (0.065, 0.0015, 0.018), 'trim', 0.004, 2, xf=K.mat4_trs(ph)))

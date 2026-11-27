@@ -74,7 +74,9 @@ float aaStep(float edge, float x) {
 ${SEE_GLSL}
 void main() {
   #include <logdepthbuf_fragment>
-  if (uHide > 0.5) discard;
+  if (uHide > 0.5 && uHide < 1.5) discard;
+  if (uHide > 1.5 && uHide < 2.5 && abs(vBindC.x) > 0.165) discard;
+  if (uHide > 2.5 && uHide < 3.5 && (abs(vBindC.x) < 0.145 || abs(vBindC.x) > 0.255)) discard;
   seeThroughBox();
   seeViewFade(vPos);
   float stuff = vCloth.z;
@@ -101,6 +103,7 @@ void main() {
   vec3 N = normalize(vNormal);
   vec3 V = normalize(cameraPosition - vPos);
   bool back = dot(N, V) < 0.0;
+  if (uHide > 3.5 && back && abs(vBindC.x) < 0.31) discard;
   if (back) N = -N;
   float ndl = dot(N, uSunDir);
   float sh = rtShadowMap(vPos + uSunDir * 0.32, N) * rtCloudShade(vPos);

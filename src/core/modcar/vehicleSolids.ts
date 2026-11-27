@@ -256,13 +256,13 @@ export class VehicleWalkSolids implements SolidSource {
     // Interior ceiling height (y0 of ceiling/roof slab)
     const ceilY =
       fid === 'turtle'
-        ? 1.86 + roofT * 0.62
+        ? 2.62 + roofT * 0.5
         : fid === 'rv'
           ? 2.76
           : fid === 'elephant'
             ? 2.66
             : fid === 'camel'
-              ? 2.74
+              ? 2.94
               : fid === 'snail'
                 ? 2.8
                 : 2.52;
@@ -291,17 +291,12 @@ export class VehicleWalkSolids implements SolidSource {
       this.emit(2.1, 2.5, 0.58, 1.05, 0.58, 1.16, false, this.tagWall);
       roomX0 = Math.min(roomX0, -5.57);
     } else if (fid === 'turtle') {
-      // Rear axle deck (0.80 m — 0.38 m rise from 0.42 m floor, walkable!) + rear engine deck (0.95 m — 0.15 m rise)
-      this.emit(-2.48, -1.43, 0.38, 0.8, -1.03, 1.03, true, this.tagFloor);
-      this.emit(-3.28, -2.48, 0.58, 0.95, -1.03, 1.03, true, this.tagFloor);
+      // Rear axle & engine decks are now part of ABOARD.turtle.areas so player walks & stands seamlessly all the way aft
       roomX0 = Math.min(roomX0, -3.28);
     } else if (fid === 'camel') {
-      // Wheel humps on left and right of middle aisle: steppable surfaces rather than hollow holes
-      this.emit(-3.46, -2.24, 0.7, 1.12, -1.16, -0.58, true, this.tagFloor);
-      this.emit(-3.46, -2.24, 0.7, 1.12, 0.58, 1.16, true, this.tagFloor);
-      // Driver-side cab floor + console barrier beside the entry door landing so walking straight in never drops out
-      this.emit(1.84, 2.74, 0.5, 0.72, -1.18, -0.06, true, this.tagFloor);
-      this.emit(1.9, 2.74, 0.72, 1.55, -1.18, -0.18, false, this.tagWall);
+      // Completely flat 0.84 m floor (wheel humps removed); seal front cab floor & side console cleanly with zero gaps
+      this.emit(1.68, 2.76, 0.58, 0.84, -1.18, 0.62, true, this.tagFloor);
+      this.emit(1.74, 2.76, 0.84, 1.65, -1.18, -0.06, false, this.tagWall);
     }
 
     // 2. Doorway stairwell treads, exterior steps, ND invisible entry plate, and EntryAssistZone
@@ -390,8 +385,8 @@ export class VehicleWalkSolids implements SolidSource {
         this.emit(rearX, rearX + WALL_T, wallBot, wallTop, rearDoor.loZ, rearDoor.hiZ, false, this.tagWall);
       }
     } else if (fid === 'turtle' && isDoorOpen(this.v, 'trunk')) {
-      // Turtle rear tailgate open: leave rear tailgate opening clear above engine deck (0.95 m), solid below
-      this.emit(rearX, rearX + WALL_T, wallBot, 0.95, -hw, hw, false, this.tagWall);
+      // Turtle rear tailgate open: leave rear tailgate opening clear above engine deck (0.92 m), solid below
+      this.emit(rearX, rearX + WALL_T, wallBot, 0.92, -hw, hw, false, this.tagWall);
     } else {
       this.emit(rearX, rearX + WALL_T, wallBot, wallTop, -hw, hw, false, this.tagWall);
     }
@@ -422,10 +417,10 @@ export class VehicleWalkSolids implements SolidSource {
 
     // 4. Walkable roofs (also serving as interior ceiling at y0!)
     if (fid === 'turtle') {
-      // Rear fixed strip where the left-rear side ladder exits (always at 2.08 m)
-      this.emit(-3.22, -2.65, 1.94, 2.08, -0.95, 0.95, true, this.tagRoof);
-      // Dynamic pop-up shell: down y0 = 1.86 (crouch fits, stand blocked); up y0 = 2.48 (stand & jump fit!)
-      this.emit(-2.65, 1.45, ceilY, 2.08 + roofT * 0.62, -1.02, 1.02, true, this.tagRoof);
+      // High-top remodel (#3): rear fixed ladder landing at 2.72 m; pop-up shell starts at 2.62 m ceiling / 2.72 m top
+      this.emit(-3.22, -2.65, 2.58, 2.72, -0.95, 0.95, true, this.tagRoof);
+      // Dynamic pop-up shell: down y0 = 2.62 (full standing room across cabin & rear decks); up y0 = 3.12
+      this.emit(-2.65, 1.45, ceilY, 2.72 + roofT * 0.5, -1.02, 1.02, true, this.tagRoof);
     } else if (this.floorsCache.length > 0) {
       for (let i = 0; i < this.floorsCache.length; i++) {
         const f = this.floorsCache[i];
@@ -492,18 +487,19 @@ export class VehicleWalkSolids implements SolidSource {
     const hw = body.halfWidth;
     const cabTop = this.cutCache > 0.5 ? this.cutCache : 2.52;
 
-    // Cab & hood + walkable cab roof + canvas walls from ladders.json
+    // Cab & hood + walkable cab roof (omit ladders.json canvas walls that sealed off the walkable cargo bed #7)
     this.emit(-0.34, 1.35, body.bottom, cabTop, -hw, hw, false, this.tagBody);
     this.emit(1.35, body.front, body.bottom, 1.68, -hw, hw, true, this.tagBody);
-    this.emitRoofFloors();
+    this.emitRoofFloors(true);
 
-    // Cargo bed floor + side walls
+    // Cargo bed floor + side walls + thin top canvas roof boundary
     const bedX0 = -3.1;
     const bedX1 = -0.34;
     const bedFloor = 1.24;
     this.emit(bedX0, bedX1, body.bottom, bedFloor, -1.07, 1.07, true, this.tagBed);
     this.emit(bedX0, bedX1, bedFloor, 2.75, -hw, -1.07 + WALL_T, false, this.tagWall);
     this.emit(bedX0, bedX1, bedFloor, 2.75, 1.07 - WALL_T, hw, false, this.tagWall);
+    this.emit(bedX0, bedX1, 2.75, 2.92, -1.07, 1.07, true, this.tagRoof);
 
     // Tailgate
     const hasTailgate = !!this.v.build.parts.trunk;
@@ -554,8 +550,23 @@ export class VehicleWalkSolids implements SolidSource {
     const body = this.v.view.frame.body;
     const hw = body.halfWidth;
     if (this.floorsCache.length > 0) {
-      // Cut body just below walkable roof so roof slabs sit cleanly on top
-      this.emit(body.rear, body.front, body.bottom, Math.max(body.bottom + 0.1, this.cutCache), -hw, hw, false, this.tagBody);
+      // Find the frontmost walkable roof edge; if the vehicle has a distinct front hood (e.g. Wagon/Sedan/Fox),
+      // split the hood into a walkable step (~0.90 m) so the player can jump from the nose onto the hood and then up to the roof!
+      let roofFront = body.rear;
+      for (let i = 0; i < this.floorsCache.length; i++) {
+        if (this.floorsCache[i].along[1] > roofFront) roofFront = this.floorsCache[i].along[1];
+      }
+      const hasHood = body.front - roofFront > 0.65 && this.v.view.frame.mounts.some((m) => m.id === 'hood');
+      const cabCut = Math.max(body.bottom + 0.1, this.cutCache);
+      if (hasHood) {
+        const hoodSplit = Math.min(body.front - 0.35, roofFront + 0.18);
+        const hoodTop = Math.max(body.bottom + 0.25, Math.min(0.92, cabCut - 0.35));
+        this.emit(body.rear, hoodSplit, body.bottom, cabCut, -hw, hw, false, this.tagBody);
+        this.emit(hoodSplit, body.front, body.bottom, hoodTop, -hw, hw, true, this.tagFloor);
+      } else {
+        // Cut body just below walkable roof so roof slabs sit cleanly on top
+        this.emit(body.rear, body.front, body.bottom, cabCut, -hw, hw, false, this.tagBody);
+      }
       this.emitRoofFloors();
     } else {
       // Motorcycle or unroofed frame: single body box
@@ -563,14 +574,14 @@ export class VehicleWalkSolids implements SolidSource {
     }
   }
 
-  private emitRoofFloors(): void {
+  private emitRoofFloors(skipWalls = false): void {
     const spot = ladderSpot(this.v.view.frame.id);
     if (!spot) return;
     for (let i = 0; i < this.floorsCache.length; i++) {
       const f = this.floorsCache[i];
       this.emit(f.along[0], f.along[1], Math.min(this.cutCache, f.top - 0.1), f.top, f.across[0], f.across[1], true, this.tagRoof);
     }
-    if (spot.walls) {
+    if (!skipWalls && spot.walls) {
       for (let i = 0; i < spot.walls.length; i++) {
         const wl = spot.walls[i];
         this.emit(wl.along[0], wl.along[1], wl.height[0], wl.height[1], wl.across[0], wl.across[1], false, this.tagWall);

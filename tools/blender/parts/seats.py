@@ -133,8 +133,9 @@ def build_seat_bench(P):
 def build_seat_toilet(P):
     """A real toilet as a seat: oval ceramic bowl on its pedestal, wooden seat ring, the lid (LID, hinged at
     the back, modelled open against the tank), close-coupled cistern with its lid and a chrome flush lever,
-    the supply pipe, bolt caps. Origin at the floor under the bowl."""
+    the supply pipe, bolt caps. Shifted -0.14 m along X so it aligns comfortably back from the steering wheel."""
     P.ao_distance = 0.08
+    DX = -0.14
     # pedestal and bowl: a lathe stretched into an egg towards the front
     prof = [(0.0, 0.0), (0.11, 0.0), (0.118, 0.012), (0.105, 0.05), (0.098, 0.14), (0.11, 0.22), (0.15, 0.30),
             (0.175, 0.355), (0.18, 0.375), (0.172, 0.39), (0.15, 0.392), (0.14, 0.38), (0.12, 0.30), (0.08, 0.24),
@@ -146,21 +147,21 @@ def build_seat_toilet(P):
             v.co.x *= 1.32
         else:
             v.co.x *= 1.05
-        v.co.x += 0.02
+        v.co.x += 0.02 + DX
     P.mesh('bowl', bm, 'ceramic', sharp=60.0)
-    P.cyl('water', 0.07, 0.002, (0.04, 0, 0.255), 'glass', segs=20, bev=None)
+    P.cyl('water', 0.07, 0.002, (0.04 + DX, 0, 0.255), 'glass', segs=20, bev=None)
     for sg in (-1, 1):
-        P.sphere('bolt_cap', 0.014, (0.0, sg * 0.105, 0.03), 'ceramic', u=10, v=5, scale=(1, 1, 0.7))
+        P.sphere('bolt_cap', 0.014, (DX, sg * 0.105, 0.03), 'ceramic', u=10, v=5, scale=(1, 1, 0.7))
     # wooden seat ring
     bm = bmesh.new()
     ring_o = []
     for i in range(28):
         a = math.tau * i / 28
-        ring_o.append((0.175 * math.cos(a) * (1.32 if math.cos(a) > 0 else 1.05) + 0.02, 0.172 * math.sin(a)))
+        ring_o.append((0.175 * math.cos(a) * (1.32 if math.cos(a) > 0 else 1.05) + 0.02 + DX, 0.172 * math.sin(a)))
     ring_i = []
     for i in range(28):
         a = math.tau * i / 28
-        ring_i.append((0.11 * math.cos(a) * (1.36 if math.cos(a) > 0 else 1.0) + 0.04, 0.10 * math.sin(a)))
+        ring_i.append((0.11 * math.cos(a) * (1.36 if math.cos(a) > 0 else 1.0) + 0.04 + DX, 0.10 * math.sin(a)))
     zt, zb = 0.418, 0.396
     O = [bm.verts.new((x, y, zt)) for (x, y) in ring_o]
     I = [bm.verts.new((x, y, zt)) for (x, y) in ring_i]
@@ -176,17 +177,17 @@ def build_seat_toilet(P):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     P.mesh('seat', bm, 'wood', bev=0.006, segs=2)
     # cistern: body, lid, flush lever, supply pipe
-    P.box('cistern', (0.17, 0.40, 0.33), (-0.235, 0, 0.575), 'ceramic', bev=0.03, segs=3)
-    P.box('cistern_foot', (0.16, 0.22, 0.05), (-0.17, 0, 0.405), 'ceramic', bev=0.015, segs=2)
-    P.box('cistern_lid', (0.19, 0.42, 0.03), (-0.235, 0, 0.755), 'ceramic', bev=0.012, segs=2)
-    P.cyl('lever_rose', 0.016, 0.01, (-0.148, 0.14, 0.70), 'chrome', axis='X', segs=12, bev=0.002, bsegs=1)
-    P.box('lever', (0.012, 0.07, 0.012), (-0.14, 0.11, 0.70), 'chrome', bev=0.004, segs=1)
-    P.tube('supply', [(-0.24, 0.16, 0.41), (-0.25, 0.17, 0.25), (-0.27, 0.17, 0.12)], 0.007, 'chrome', segs=8,
+    P.box('cistern', (0.17, 0.40, 0.33), (-0.235 + DX, 0, 0.575), 'ceramic', bev=0.03, segs=3)
+    P.box('cistern_foot', (0.16, 0.22, 0.05), (-0.17 + DX, 0, 0.405), 'ceramic', bev=0.015, segs=2)
+    P.box('cistern_lid', (0.19, 0.42, 0.03), (-0.235 + DX, 0, 0.755), 'ceramic', bev=0.012, segs=2)
+    P.cyl('lever_rose', 0.016, 0.01, (-0.148 + DX, 0.14, 0.70), 'chrome', axis='X', segs=12, bev=0.002, bsegs=1)
+    P.box('lever', (0.012, 0.07, 0.012), (-0.14 + DX, 0.11, 0.70), 'chrome', bev=0.004, segs=1)
+    P.tube('supply', [(-0.24 + DX, 0.16, 0.41), (-0.25 + DX, 0.17, 0.25), (-0.27 + DX, 0.17, 0.12)], 0.007, 'chrome', segs=8,
            bend=0.04)
-    P.cyl('stop_valve', 0.016, 0.03, (-0.27, 0.17, 0.11), 'chrome', segs=10, bev=0.002, bsegs=1)
+    P.cyl('stop_valve', 0.016, 0.03, (-0.27 + DX, 0.17, 0.11), 'chrome', segs=10, bev=0.002, bsegs=1)
     # hinge block and the open lid leaning back against the cistern
-    P.box('hinge', (0.04, 0.16, 0.02), (-0.09, 0, 0.41), 'chrome', bev=0.004, segs=1)
-    hinge = V((-0.095, 0, 0.42))
+    P.box('hinge', (0.04, 0.16, 0.02), (-0.09 + DX, 0, 0.41), 'chrome', bev=0.004, segs=1)
+    hinge = V((-0.095 + DX, 0, 0.42))
     lid_poly = []
     for i in range(28):
         a = math.tau * i / 28
@@ -198,7 +199,7 @@ def build_seat_toilet(P):
     K.bm_transform(bm, m)
     lid = P.mesh('lid', bm, 'wood', bev=0.007, segs=2)
     P.mover('LID', [lid], tuple(hinge))
-    P.eye((-0.04, 0, 1.12))
+    P.eye((-0.18, 0, 1.00))
     P.prop('lid_close_deg_y', 94.0)
     P.views = [('a', 35, 18), ('b', 215, 18)]
 

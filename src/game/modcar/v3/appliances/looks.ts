@@ -33,6 +33,10 @@ export interface LookNow {
   dt: number;
   /** lying on a wall (the lamp's pool of light below it: none) */
   onWall: boolean;
+  /** record player only (#28): inserted physical vinyl visual colours (null when platter is empty) */
+  vinyl?: { readonly id: string; readonly label: number; readonly accent: number } | null;
+  /** the loose item's root object so animated movers (platter, tonearm) can be driven directly */
+  model?: THREE.Object3D | null;
 }
 
 export interface ApplianceLook {
@@ -355,58 +359,140 @@ const LABEL_FS = /* glsl */ `
 #include <logdepthbuf_pars_fragment>
 uniform float uLight;
 uniform vec3 uColour;
+uniform vec3 uAccent;
 varying vec2 vUv;
 void main() {
   #include <logdepthbuf_fragment>
   vec2 p = (vUv - 0.5) * 2.0;
   float r = length(p);
   if (r > 1.0) discard;
-  float a = atan(p.y, p.x);
   vec3 c = uColour;
-  // a pale band across it with a few lines of print, the hole in the middle: one sees it turn
-  float band = step(abs(p.y), 0.22) * step(0.3, r);
-  c = mix(c, vec3(0.94, 0.9, 0.8), band);
+  // contrasting band across the vinyl label with printed lines and center spindle hole so 33 1/3 RPM spin is unmistakable
+  float band = step(abs(p.y), 0.22) * step(0.28, r);
+  c = mix(c, uAccent, band);
   float print = band * step(0.5, fract(p.x * 6.0)) * step(abs(p.y), 0.1) * step(0.35, abs(p.x));
-  c = mix(c, vec3(0.2), print);
-  c = mix(c, vec3(0.06), step(r, 0.12));
-  // the edge where it meets the vinyl
-  c *= mix(0.85, 1.0, step(r, 0.93));
+  c = mix(c, vec3(0.14), print);
+  c = mix(c, vec3(0.06), step(r, 0.11));
+  c *= mix(0.86, 1.0, step(r, 0.92));
   gl_FragColor = vec4(c * uLight, 1.0);
 }`;
 
-const LABEL_COLOURS = [0xc8323a, 0x2e4a6b, 0xf0c23c, 0x557a46, 0xa99bc9];
+const VINYL_FS = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_fragment>
+uniform float uLight;
+varying vec2 vUv;
+void main() {
+  #include <logdepthbuf_fragment>
+  vec2 p = (vUv - 0.5) * 2.0;
+  float r = length(p);
+  if (r > 1.0 || r < 0.34) discard;
+  float a = atan(p.y, p.x);
+  // realistic anisotropic specular streak across micro-grooves
+  float sheen = pow(abs(sin(a * 2.0 + 0.6)), 6.0) * 0.22;
+  float rings = 0.04 * sin(r * 130.0);
+  vec3 col = vec3(0.075, 0.078, 0.088) + vec3(sheen + rings);
+  gl_FragColor = vec4(col * uLight, 1.0);
+}`;
 
 class RecordLook implements ApplianceLook {
   readonly group = new THREE.Group();
+  private readonly vinylGroup = new THREE.Group();
+  private readonly discMat = new THREE.ShaderMaterial({
+    vertexShader: UV_VS,
+    fragmentShader: VINYL_FS,
+    uniforms: { uLight: { value: 1 } },
+  });
   private readonly mat = new THREE.ShaderMaterial({
     vertexShader: UV_VS,
     fragmentShader: LABEL_FS,
-    uniforms: { uLight: { value: 1 }, uColour: { value: new THREE.Color(LABEL_COLOURS[0]) } },
+    uniforms: { uLight: { value: 1 }, uColour: { value: new THREE.Color(0xc8323a) }, uAccent: { value: new THREE.Color(0xf1e6c8) } },
   });
-  private readonly label: THREE.Mesh;
   private spin = 0;
   private speed = 0;
+  private armT = 0;
+  private dropT = 0;
+  private lastVinylId = '';
+  private boundModel: THREE.Object3D | null = null;
+  private platterObj: THREE.Object3D | null = null;
+  private armObj: THREE.Object3D | null = null;
+  private armQ0 = new THREE.Quaternion();
+  private platterQ0 = new THREE.Quaternion();
+  private readonly qY = new THREE.Quaternion();
+  private readonly qZ = new THREE.Quaternion();
+  private readonly yAxis = new THREE.Vector3(0, 1, 0);
+  private readonly zAxis = new THREE.Vector3(0, 0, 1);
 
   constructor() {
-    // (the label on the record: its middle at x 0.005, z 0.05, its top 0.1161, radius 0.044, junk_record.glb)
-    const g = new THREE.CircleGeometry(0.0445, 28);
-    g.rotateX(-Math.PI / 2);
-    this.label = new THREE.Mesh(g, this.mat);
-    this.label.position.set(0.005, 0.1166, 0.05);
+    // Physical 12-inch vinyl disc rendered on the platter ONLY when a vinyl record is placed (#28)
+    this.vinylGroup.position.set(0.005, 0.1145, 0.05);
+    const discGeo = new THREE.CircleGeometry(0.124, 40);
+    discGeo.rotateX(-Math.PI / 2);
+    const disc = new THREE.Mesh(discGeo, this.discMat);
+    const rimGeo = new THREE.CylinderGeometry(0.124, 0.124, 0.0028, 36, 1, true);
+    const rim = new THREE.Mesh(rimGeo, new THREE.MeshBasicMaterial({ color: 0x16171a }));
+    rim.position.y = -0.0014;
+    const lblGeo = new THREE.CircleGeometry(0.0445, 28);
+    lblGeo.rotateX(-Math.PI / 2);
+    const lbl = new THREE.Mesh(lblGeo, this.mat);
+    lbl.position.y = 0.0006;
     this.mat.polygonOffset = true;
     this.mat.polygonOffsetFactor = -2;
-    this.group.add(this.label);
+    this.vinylGroup.add(disc, rim, lbl);
+    this.vinylGroup.visible = false;
+    this.group.add(this.vinylGroup);
   }
 
   update(n: LookNow): void {
-    // thirty-three and a third turns a minute, run up and run down in a second or two
-    const want = n.on ? (33.333 / 60) * Math.PI * 2 : 0;
-    this.speed += (want - this.speed) * Math.min(1, n.dt * 1.8);
+    const v = n.vinyl ?? null;
+    const vid = v?.id ?? '';
+    if (vid !== this.lastVinylId) {
+      this.lastVinylId = vid;
+      if (vid) this.dropT = 1;
+    }
+    if (this.dropT > 0) this.dropT = Math.max(0, this.dropT - n.dt * 4.2);
+    const dropE = this.dropT * this.dropT;
+    this.vinylGroup.visible = !!v;
+    this.vinylGroup.position.set(0.005, 0.1145 + dropE * 0.065, 0.05);
+
+    const playing = !!v && n.on;
+    // 33 1/3 RPM platter + vinyl spin
+    const want = playing ? (33.333 / 60) * Math.PI * 2 : 0;
+    this.speed += (want - this.speed) * Math.min(1, n.dt * 2.2);
     this.spin = (this.spin + this.speed * n.dt) % (Math.PI * 2);
-    this.label.rotation.y = -this.spin;
-    const u = this.mat.uniforms;
-    u.uLight.value = 0.12 + 0.88 * n.light;
-    (u.uColour.value as THREE.Color).setHex(LABEL_COLOURS[n.ch % LABEL_COLOURS.length]);
+    this.vinylGroup.rotation.y = -this.spin;
+
+    const light = 0.15 + 0.85 * n.light;
+    this.discMat.uniforms.uLight.value = light;
+    this.mat.uniforms.uLight.value = light;
+    if (v) {
+      (this.mat.uniforms.uColour.value as THREE.Color).setHex(v.label);
+      (this.mat.uniforms.uAccent.value as THREE.Color).setHex(v.accent);
+    }
+
+    // Drive animated turntable movers on junk_record.glb (KNOB_platter spin + LEVER_arm swing onto groove)
+    const mod = n.model ?? null;
+    if (mod !== this.boundModel) {
+      this.boundModel = mod;
+      this.platterObj = mod?.getObjectByName('KNOB_platter') ?? null;
+      this.armObj = mod?.getObjectByName('LEVER_arm') ?? null;
+      if (this.platterObj) this.platterQ0.copy(this.platterObj.quaternion);
+      if (this.armObj) this.armQ0.copy(this.armObj.quaternion);
+    }
+    if (this.platterObj) {
+      this.qY.setFromAxisAngle(this.yAxis, -this.spin);
+      this.platterObj.quaternion.copy(this.platterQ0).multiply(this.qY);
+    }
+    const wantArm = playing && this.dropT < 0.25 ? 1 : 0;
+    this.armT += (wantArm - this.armT) * Math.min(1, n.dt * 3.8);
+    if (this.armObj) {
+      const k = this.armT * this.armT * (3 - 2 * this.armT);
+      // Swing -25 deg inward onto outer vinyl groove, lifting slightly mid-arc before settling needle down
+      const lift = Math.sin(Math.PI * k) * 0.08;
+      this.qY.setFromAxisAngle(this.yAxis, -0.44 * k);
+      this.qZ.setFromAxisAngle(this.zAxis, lift);
+      this.armObj.quaternion.copy(this.armQ0).multiply(this.qY).multiply(this.qZ);
+    }
   }
 
   dispose(): void {
@@ -416,24 +502,47 @@ class RecordLook implements ApplianceLook {
 
 // ------------------------------------------------------------------ lamps
 
+/** gradient open-ended cone for warm inner shade glow or soft volumetric light shaft (top alpha -> bottom alpha) */
+function gradientConeGeo(rTop: number, rBot: number, height: number, aTop: number, aBot: number, segs = 24): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(rTop, rBot, height, segs, 6, true);
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    // y in [-height/2, +height/2] -> t = 0 at top, 1 at bottom
+    const t = Math.max(0, Math.min(1, 0.5 - pos.getY(i) / height));
+    const fade = aTop + (aBot - aTop) * (t * t * (3 - 2 * t));
+    col[i * 3] = fade;
+    col[i * 3 + 1] = fade;
+    col[i * 3 + 2] = fade;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+const LAMP_SHADE_DIR = new THREE.Vector3(0.55, -0.835, 0).normalize();
+const LAMP_SHADE_TOP = new THREE.Vector3(0.22, 0.36, 0);
+const LAMP_SHADE_Q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), LAMP_SHADE_DIR);
+
 class LampLook implements ApplianceLook {
   readonly group = new THREE.Group();
   private readonly bulbMat = glowMat();
   private readonly bulb: THREE.Mesh;
-  private readonly halo: THREE.Sprite | null;
-  private readonly pool: THREE.Mesh | null;
+  private readonly innerCone: THREE.Mesh | null;
+  private readonly innerMat: THREE.MeshBasicMaterial | null;
+  private readonly beamCone: THREE.Mesh | null;
+  private readonly beamMat: THREE.MeshBasicMaterial | null;
   private level = 0;
 
   /**
-   * at: the bulb's middle (the desk lamp's at 0.26, 0.30, 0; the solar lamp's lens at 0, 0.444, 0); shape: a
-   * sphere of that radius, or a cylinder of that radius and height; pool: where its light falls on what it
-   * stands on (x, z, radius), or none
+   * Physical lamp optics without floating ground pancakes or crude flat billboard blobs:
+   *  - Desk lamp ('shade'): glowing bulb tucked inside the shade + warm inner shade reflector liner + subtle short
+   *    volumetric dust cone aligned strictly to the shade axis (real light pool is shaded by rtLocalLamps in GLSL).
+   *  - Solar lantern ('lantern'): warm frosted glass core + soft outer lantern aura shell.
    */
   constructor(
     at: THREE.Vector3,
     shape: { r: number; h?: number },
-    haloSize: number,
-    pool: { x: number; z: number; r: number } | null,
+    style: 'shade' | 'lantern',
     private readonly colour: THREE.Color,
     private readonly power: number,
   ) {
@@ -441,20 +550,64 @@ class LampLook implements ApplianceLook {
     this.bulb = new THREE.Mesh(geo, this.bulbMat);
     this.bulb.position.copy(at);
     this.group.add(this.bulb);
-    this.halo = haloSprite(haloSize);
-    if (this.halo) {
-      this.halo.position.copy(at);
-      this.group.add(this.halo);
-    }
-    this.pool = null;
-    if (pool && halo()) {
-      const m = new THREE.MeshBasicMaterial({ map: halo(), color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4 });
-      const g = new THREE.PlaneGeometry(pool.r * 2, pool.r * 2);
-      g.rotateX(-Math.PI / 2);
-      this.pool = new THREE.Mesh(g, m);
-      this.pool.position.set(pool.x, 0.003, pool.z);
-      this.pool.renderOrder = 9;
-      this.group.add(this.pool);
+    if (style === 'shade') {
+      // Alpha-preserving additive blend so frame.ts inkAt() never draws a dark cartoon ring around the light cone
+      const additiveMaskKeep = {
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.ZeroFactor,
+        blendDstAlpha: THREE.OneFactor,
+        toneMapped: false,
+      } as const;
+      // Layer 2: warm glowing inner reflector cone nestled strictly inside junk_lamp's metal shade
+      this.innerMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        side: THREE.BackSide,
+        ...additiveMaskKeep,
+      });
+      this.innerCone = new THREE.Mesh(gradientConeGeo(0.022, 0.068, 0.082, 0.92, 0.28), this.innerMat);
+      this.innerCone.position.copy(LAMP_SHADE_TOP).addScaledVector(LAMP_SHADE_DIR, 0.068);
+      this.innerCone.quaternion.copy(LAMP_SHADE_Q);
+      this.innerCone.renderOrder = 8;
+      this.group.add(this.innerCone);
+      // Layer 3: subtle short volumetric light cone exiting the shade rim and fading smoothly to 0 before the desk
+      this.beamMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        side: THREE.DoubleSide,
+        ...additiveMaskKeep,
+      });
+      this.beamCone = new THREE.Mesh(gradientConeGeo(0.064, 0.145, 0.21, 0.45, 0.0), this.beamMat);
+      this.beamCone.position.copy(LAMP_SHADE_TOP).addScaledVector(LAMP_SHADE_DIR, 0.215);
+      this.beamCone.quaternion.copy(LAMP_SHADE_Q);
+      this.beamCone.renderOrder = 9;
+      this.group.add(this.beamCone);
+    } else {
+      // Frosted lantern soft outer aura cylinder (no floating disc, ink-mask preserving)
+      this.innerMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.28,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor,
+        blendSrcAlpha: THREE.ZeroFactor,
+        blendDstAlpha: THREE.OneFactor,
+        toneMapped: false,
+      });
+      this.innerCone = new THREE.Mesh(new THREE.CylinderGeometry(shape.r * 1.28, shape.r * 1.28, (shape.h ?? 0.06) * 1.15, 20), this.innerMat);
+      this.innerCone.position.copy(at);
+      this.innerCone.renderOrder = 8;
+      this.group.add(this.innerCone);
+      this.beamCone = null;
+      this.beamMat = null;
     }
   }
 
@@ -470,14 +623,15 @@ class LampLook implements ApplianceLook {
     this.bulb.visible = lit;
     const ex = Math.max(0.5, n.exposure);
     const k = (this.power * this.level) / ex;
-    this.bulbMat.color.copy(this.colour).multiplyScalar(k * 2.4);
-    if (this.halo) {
-      this.halo.visible = lit;
-      (this.halo.material as THREE.SpriteMaterial).color.copy(this.colour).multiplyScalar(k * (0.35 + 0.65 * (1 - n.light)));
+    this.bulbMat.color.copy(this.colour).multiplyScalar(k * 2.2);
+    const dusk = 0.28 + 0.72 * (1 - n.light);
+    if (this.innerCone && this.innerMat) {
+      this.innerCone.visible = lit;
+      this.innerMat.color.copy(this.colour).multiplyScalar(k * (this.beamCone ? 0.95 * dusk : 0.42 * dusk));
     }
-    if (this.pool) {
-      this.pool.visible = lit && !n.onWall;
-      (this.pool.material as THREE.MeshBasicMaterial).color.copy(this.colour).multiplyScalar(k * 0.5 * (0.2 + 0.8 * (1 - n.light)));
+    if (this.beamCone && this.beamMat) {
+      this.beamCone.visible = lit;
+      this.beamMat.color.copy(this.colour).multiplyScalar(k * 0.16 * dusk);
     }
   }
 
@@ -573,9 +727,9 @@ export function makeLook(kind: ApplianceKind | 'pot'): ApplianceLook | null {
     case 'record':
       return new RecordLook();
     case 'lamp':
-      return new LampLook(new THREE.Vector3(0.26, 0.3, 0), { r: 0.0255 }, 0.3, { x: 0.45, z: 0, r: 0.24 }, WARM, 1.0);
+      return new LampLook(new THREE.Vector3(0.26, 0.3, 0), { r: 0.0245 }, 'shade', WARM, 1.0);
     case 'solar':
-      return new LampLook(new THREE.Vector3(0, 0.444, 0), { r: 0.0415, h: 0.062 }, 0.36, null, new THREE.Color(1.0, 0.9, 0.7), 0.85);
+      return new LampLook(new THREE.Vector3(0, 0.444, 0), { r: 0.0415, h: 0.062 }, 'lantern', new THREE.Color(1.0, 0.9, 0.7), 0.85);
     case 'pot':
       return new CoffeeLook({ x: 0, z: 0, y0: 0.006 }, false);
     default:

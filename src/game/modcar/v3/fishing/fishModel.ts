@@ -645,7 +645,7 @@ function glowMaterial(hex: number): THREE.Material {
   const key = `glow:${hex}`;
   let m = MATS.get(key);
   if (!m) {
-    m = surfaceMaterial({ vertexColors: true, ink: true, emissive: hex, emissiveIntensity: 1.1 });
+    m = surfaceMaterial({ vertexColors: true, ink: true, emissive: hex, emissiveIntensity: 1.1, cabinLift: true });
     MATS.set(key, m);
   }
   return m;
@@ -659,7 +659,7 @@ function finMaterial(style: FinStyle = 'soft'): THREE.Material {
   const key = `fin:${style}`;
   let m = MATS.get(key);
   if (!m) {
-    m = surfaceMaterial({ vertexColors: true, side: THREE.DoubleSide, spec: 0.12, opacity: FIN_OPACITY, maskMap: finMask(style), backLight: 0.9 });
+    m = surfaceMaterial({ vertexColors: true, side: THREE.DoubleSide, spec: 0.12, opacity: FIN_OPACITY, maskMap: finMask(style), backLight: 0.9, cabinLift: true });
     MATS.set(key, m);
   }
   return m;
@@ -668,7 +668,7 @@ function partMaterial(spec: number): THREE.Material {
   const key = `part${spec}`;
   let m = MATS.get(key);
   if (!m) {
-    m = surfaceMaterial({ vertexColors: true, ink: true, spec });
+    m = surfaceMaterial({ vertexColors: true, ink: true, spec, cabinLift: true });
     MATS.set(key, m);
   }
   return m;
@@ -684,8 +684,8 @@ function eyeMaterial(lights: boolean, iris: RGB = [1, 1, 1], socket: RGB = [0, 0
   if (!m) {
     // (the eyeball under its cornea a little glossy: the cornea has the wet highlights)
     m = lights
-      ? surfaceMaterial({ color: EYE_INK, ink: true, inkBase: true, emissive: 0xffffff, emissiveIntensity: 1.3 })
-      : surfaceMaterial({ vertexColors: true, map: irisTexture(iris, socket), color: EYE_INK, ink: true, inkBase: true, spec: 0.15 });
+      ? surfaceMaterial({ color: EYE_INK, ink: true, inkBase: true, emissive: 0xffffff, emissiveIntensity: 1.3, cabinLift: true })
+      : surfaceMaterial({ vertexColors: true, map: irisTexture(iris, socket), color: EYE_INK, ink: true, inkBase: true, spec: 0.15, cabinLift: true });
     MATS.set(key, m);
   }
   return m;
@@ -1191,9 +1191,9 @@ export function buildFish(def: FishDef, variant: Variant, detail = 1): FishModel
   if (tex) {
     own.push(tex);
     // (inked by its base colour, not by its skin: the ink goes round the fish, not along every scale and stripe of it)
-    mat = surfaceMaterial({ map: tex, ink: true, inkBase: true, spec, rim: 1, glint, emissive: glow ? (L.pc ?? 0xffffff) : 0x000000, emissiveIntensity: glow ? 0.12 : 0, ...wetLook });
+    mat = surfaceMaterial({ map: tex, ink: true, inkBase: true, spec, rim: 1, glint, emissive: glow ? (L.pc ?? 0xffffff) : 0x000000, emissiveIntensity: glow ? 0.12 : 0, cabinLift: true, ...wetLook });
   } else {
-    mat = surfaceMaterial({ color: L.c[1], ink: true, spec, rim: 1, glint, ...wetLook });
+    mat = surfaceMaterial({ color: L.c[1], ink: true, spec, rim: 1, glint, cabinLift: true, ...wetLook });
   }
   own.push(mat);
   bodyMesh.material = mat;

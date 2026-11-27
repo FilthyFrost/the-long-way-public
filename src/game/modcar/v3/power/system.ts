@@ -89,18 +89,22 @@ export class Power implements System<GameContext> {
     return this.ceiling.get(v) ?? 0;
   }
 
-  /** the ceiling lamps of the living space one stands in, after dark, while there is something to draw on */
+  /** unified vehicle interior dome/ceiling light: strictly driven by the driver's U toggle (v.domeOn), never auto-lit */
   private stepCeiling(dt: number, ctx: GameContext): void {
-    const home = ctx.player.aboard?.v ?? null;
-    if (home && !this.ceiling.has(home)) this.ceiling.set(home, 0);
-    const dark = (ctx.env.sky?.night ?? 0) > CEILING_NIGHT;
+    for (let i = 0; i < ctx.vehicles.length; i++) {
+      const v = ctx.vehicles[i];
+      if (v.domeOn && !this.ceiling.has(v)) this.ceiling.set(v, 0);
+    }
     for (const [v, k] of this.ceiling) {
       if (!ctx.vehicles.includes(v)) {
         this.ceiling.delete(v);
         continue;
       }
       let want = 0;
-      if (v === home && dark) want = dt > 0 ? (v.sys.drawAppliances(CEILING_W / 1000, dt) ? 1 : 0) : (v.sys.applianceLevel() ?? 0) > 0 ? 1 : 0;
+      if (v.domeOn) {
+        const powered = dt > 0 ? v.sys.drawAppliances(CEILING_W / 1000, dt) : (v.sys.applianceLevel() ?? 0) > 0;
+        want = powered || (v.sys.dash.battery ?? 0) > 0.02 ? 1 : 0;
+      }
       const next = k + (want - k) * (1 - Math.exp(-Math.max(dt, 0) / CEILING_EASE_S));
       if (want === 0 && next < 0.004) this.ceiling.delete(v);
       else this.ceiling.set(v, next);

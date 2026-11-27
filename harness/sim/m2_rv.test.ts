@@ -60,39 +60,32 @@ describe('things put where one aims in the motorhome', () => {
   };
   const box = { minX: -0.05, maxX: 0.05, minY: 0, maxY: 0.1, minZ: -0.05, maxZ: 0.05 };
 
-  it('has its floor in three — the back wall to wall, by the side door, the front — and the walls: no table, galley, bed, shelves or cubby any more', () => {
-    // (an empty shell since docs/V3/plan/finish.md §十九 step 7, its floor in three as Nomad Drive's class C's is)
+  it('has one continuous cabin floor with stairwell hole and the walls: no table, galley, bed, shelves or cubby any more', () => {
     const zones = zonesOf('rv');
     const ids = zones.map((z) => z.id);
-    for (const id of ['cabin', 'lounge', 'fore', 'pass', 'wall', 'dash']) expect(ids).toContain(id);
-    for (const id of ['table', 'galley', 'bed', 'shelfL', 'shelfR', 'cubby', 'bench', 'nook']) expect(ids).not.toContain(id);
+    for (const id of ['cabin', 'pass', 'wall', 'dash']) expect(ids).toContain(id);
+    for (const id of ['lounge', 'fore', 'table', 'galley', 'bed', 'shelfL', 'shelfR', 'cubby', 'bench', 'nook']) expect(ids).not.toContain(id);
     expect(zones.find((z) => z.id === 'wall')?.wall).toBe(true);
-    // (the three floors: rooms of their own walls, side by side along it, wall to wall but by the door's stairwell)
-    const by = (id: string) => zones.find((z) => z.id === id)!;
-    const [back, door, front] = [by('cabin'), by('lounge'), by('fore')];
-    for (const z of [back, door, front]) {
-      expect(z.walls, z.id).toBe(true);
-      expect(z.floor, z.id).toBeCloseTo(0.86, 5);
-      expect(z.z[0], z.id).toBeCloseTo(-1.1, 5);
-    }
-    expect(back.x[1]).toBeCloseTo(door.x[0], 6);
-    expect(door.x[1]).toBeCloseTo(front.x[0], 6);
-    expect(back.z[1]).toBeCloseTo(1.1, 5);
-    expect(front.z[1]).toBeCloseTo(1.1, 5);
-    expect(door.z[1]).toBeLessThan(0.725);
-    expect(back.x[1] - back.x[0]).toBeGreaterThan(3.5);
+    const cabin = zones.find((z) => z.id === 'cabin')!;
+    expect(cabin.walls).toBe(true);
+    expect(cabin.floor).toBeCloseTo(0.86, 5);
+    expect(cabin.z[0]).toBeCloseTo(-1.1, 5);
+    expect(cabin.z[1]).toBeCloseTo(1.1, 5);
+    expect(cabin.x[1] - cabin.x[0]).toBeGreaterThan(5.8);
+    expect(cabin.holes?.length).toBe(1);
+    expect(cabin.holes![0].z[0]).toBeLessThan(0.725);
   });
 
   it('keeps a thing aimed into a zone to the 10 cm grid', () => {
-    const fore = zonesOf('rv').find((z) => z.id === 'fore')!;
-    const g = flat(fore, fore.floor);
-    const s = findSpot(fore, g, box, 0, { x: 0.23, z: -0.57 }, [], 0.1)!;
+    const cabin = zonesOf('rv').find((z) => z.id === 'cabin')!;
+    const g = flat(cabin, cabin.floor);
+    const s = findSpot(cabin, g, box, 0, { x: 0.23, z: -0.57 }, [], 0.1)!;
     expect(s).not.toBeNull();
     expect(Math.abs(s.x * 10 - Math.round(s.x * 10))).toBeLessThan(1e-6);
     expect(Math.abs(s.z * 10 - Math.round(s.z * 10))).toBeLessThan(1e-6);
-    expect(s.y).toBeCloseTo(fore.floor, 5);
+    expect(s.y).toBeCloseTo(cabin.floor, 5);
     // (without a grid it goes just where it is aimed)
-    const free = findSpot(fore, g, box, 0, { x: 0.23, z: -0.57 }, [], 0)!;
+    const free = findSpot(cabin, g, box, 0, { x: 0.23, z: -0.57 }, [], 0)!;
     expect(free.x).toBeCloseTo(0.23, 5);
     expect(free.z).toBeCloseTo(-0.57, 5);
   });

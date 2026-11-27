@@ -1398,22 +1398,28 @@ def junk_record(P):
             at = Matrix.Translation((sx * (D / 2 - 0.03), sy * (W / 2 - 0.035), zf / 2))
             K.bm_cyl(bm, 0.012, zf, segs=8, matrix=at)
     P.mesh('feet', bm, 'rubber', bev=None)
-    # platter, record, spindle
+    # animated platter (KNOB_platter): bare turntable platter + rubber mat + spindle (no static fake vinyl!)
     px, py = 0.005, -0.05
-    P.cyl('platter', 0.12, 0.012, (px, py, zd + 0.008), 'trim', segs=32, bev=None)
-    P.cyl('record', 0.127, 0.003, (px, py, zd + 0.0155), 'rubber', segs=32, bev=None)
-    P.cyl('label', 0.044, 0.0012, (px, py, zd + 0.0175), 'paint', segs=20, bev=None)
-    P.cyl('spindle', 0.0035, 0.018, (px, py, zd + 0.02), 'chrome', segs=8, bev=None)
-    # the tone arm: pivot at the back right, the arm forward to its rest
+    since_pl = mark(P)
+    P.cyl('platter', 0.122, 0.012, (px, py, zd + 0.008), 'alu', segs=32, bev=0.001)
+    P.cyl('mat', 0.118, 0.002, (px, py, zd + 0.0145), 'rubber', segs=32, bev=None)
+    for rg in (0.102, 0.072, 0.042):
+        P.torus('mat_rib', rg, 0.0007, loc=(px, py, zd + 0.0156), material='trim', segs=32, rsegs=4)
+    P.cyl('spindle', 0.0038, 0.022, (px, py, zd + 0.022), 'chrome', segs=10, bev=None)
+    P.mover('KNOB_platter', P.statics[since_pl:], (px, py, zd + 0.008))
+    P.empty('M_vinyl', loc=(px, py, zd + 0.016))
+    # the tone arm (LEVER_arm): pivot at the back right, swings inward onto the vinyl when playing
     pv = V((-0.105, 0.135, zd))
     P.cyl('arm_base', 0.022, 0.012, tuple(pv + V((0, 0, 0.008))), 'alu', segs=16, bev=0.002, bsegs=1)
     P.cyl('arm_pivot', 0.011, 0.026, tuple(pv + V((0, 0, 0.026))), 'chrome', segs=12, bev=None)
     za = zd + 0.034
+    since_arm = mark(P)
     P.tube('arm', [pv + V((-0.045, 0.004, 0.034)), pv + V((0.0, 0.0, 0.034)), V((0.08, 0.15, za)),
                    V((0.11, 0.135, za - 0.004))], 0.0042, 'chrome', segs=8, bend=0.03)
     P.cyl('counterweight', 0.012, 0.024, tuple(pv + V((-0.05, 0.004, 0.034))), 'alu', axis='X', segs=12, bev=0.002,
           bsegs=1)
     P.box('headshell', (0.032, 0.018, 0.008), (0.122, 0.128, za - 0.007), 'trim', rot=(0, 0, -25), bev=0.002, segs=1)
+    P.mover('LEVER_arm', P.statics[since_arm:], (pv.x, pv.y, za))
     P.cyl('arm_rest', 0.006, 0.03, (0.085, 0.152, zd + 0.017), 'trim', segs=8, bev=None)
     # speed lever and knobs at the front right
     P.box('speed_plate', (0.03, 0.05, 0.003), (0.12, 0.05, zd + 0.003), 'chrome', bev=0.001, segs=1)
@@ -1442,6 +1448,7 @@ def junk_record(P):
     hinge = V((-D / 2, 0.0, H))
     xform(P, since, Matrix.Translation(hinge) @ Matrix.Rotation(math.radians(-102), 4, 'Y') @
           Matrix.Translation(-hinge))
+    P.mover('LID', P.statics[since:], tuple(hinge))
     P.views = [('a', 30, 22), ('b', 210, 22)]
 
 
@@ -1961,7 +1968,17 @@ def _settled(fn):
     def build(P):
         res = fn(P)
         if res is None:
-            settle(P, center=False)
+            d = settle(P, center=False)
+            if d.length > 1e-7:
+                m = Matrix.Translation(d)
+                for (_, objs, pivot) in P.movers:
+                    for o in objs:
+                        o.data.transform(m)
+                        for c in P.cfg[o.name]['cutters']:
+                            c.data.transform(m)
+                    pivot.x += d.x
+                    pivot.y += d.y
+                    pivot.z += d.z
         return res
     build.__doc__ = fn.__doc__
     return build

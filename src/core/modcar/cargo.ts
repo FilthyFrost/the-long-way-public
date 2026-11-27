@@ -48,6 +48,13 @@ export interface CargoZone {
    * and the squares a thing is placed by begin at its rear left corner (nd-place).
    */
   readonly walls?: boolean;
+  /**
+   * Forgiving overhang fraction per axis (e.g. 0.5 on roof racks: up to 50% of an item's extent may overhang past the
+   * rack border while its footprint center stays over the rack; item-to-item collision still strictly applies).
+   */
+  readonly overhang?: number;
+  /** rectangular floor cutouts inside a continuous cabin zone (e.g. side-door stairwells) where items cannot rest */
+  readonly holes?: readonly { readonly x: readonly [number, number]; readonly z: readonly [number, number] }[];
 }
 
 /** a place for things whose rectangle is the room's walls (CargoZone.walls) */
@@ -90,9 +97,9 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     // begins at −5.070), the side walls' at ±1.1, the side door's frame at −1.37 and −0.48, the stairwell's nosing at 0.70,
     // behind the cab's seats at 0.85. The shelves, the galley's worktop and the cubby under its sink, the dinette's table
     // and the bed that were places of their own are gone)
-    W('cabin', '车厢', 'Cabin', [-5.065, -1.37], [-1.1, 1.1], 0.86, 2.7, 'large', 0, ['door_side', 'trunk']),
-    { ...W('fore', '车厢前部', 'Front of the cabin', [-0.48, 0.85], [-1.1, 1.1], 0.86, 2.7, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
-    { ...W('lounge', '车门边', 'By the door', [-1.37, -0.48], [-1.1, 0.7], 0.86, 2.7, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
+    // Single continuous cabin floor from rear wall (-5.065) to behind cab seats (0.85), wall to wall (±1.1),
+    // with the side-door stairwell cutout as a hole so furniture can span freely across the full wall length.
+    { ...W('cabin', '车厢', 'Cabin', [-5.065, 0.85], [-1.1, 1.1], 0.86, 2.7, 'large', 0, ['door_side', 'trunk']), holes: [{ x: [-1.37, -0.48], z: [0.7, 1.1] }] },
     Z('pass', '副驾驶座', 'Passenger seat', [0.9, 1.35], [0.3, 0.8], 0.9, 1.55, 'medium', 1, ['door_FR']),
     // (the walls' inner faces stand at about ±1.1: the rectangle reaches a little past them)
     { ...Z('wall', '墙上', 'On the wall', [-5.15, 1.05], [-1.13, 1.13], 1.0, 2.5, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
@@ -149,15 +156,11 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   // tailgate too — the passenger's seat, the dash; the walls of the room. The tops under the shell's underside with the
   // roof down, 2.04: the floor is drawn looking down from the top)
   turtle: [
-    // (the floor's rectangle its walls' own: the deck's front at −1.53, the seats' backs at 0.86, the sides at ±1.005 —
-    // 3 cm in from the lower lining at ±1.036, matching the sliding door's pillar trim and clear of the roof rail's tumblehome
-    // at y = 1.85 so tall furniture clears it; the decks' the tail's lining at −3.266 — the bed on its platform with its
-    // cupboard, the galley's worktop that were places of their own are gone)
-    W('cabin', '车厢', 'Cabin', [-1.53, 0.86], [-1.005, 1.005], 0.42, 1.85, 'large', 0, ['door_side']),
-    { ...W('nook', '车尾平台', 'Rear deck', [-3.266, -1.53], [-1.005, 1.005], 0.8, 1.85, 'large', 0.5, ['door_side', 'trunk']), put: '放到车尾平台上' },
+    W('cabin', '车厢', 'Cabin', [-1.53, 0.86], [-1.005, 1.005], 0.42, 2.5, 'large', 0, ['door_side']),
+    { ...W('nook', '车尾平台', 'Rear deck', [-3.266, -1.53], [-1.005, 1.005], 0.78, 2.5, 'large', 0.5, ['door_side', 'trunk']), put: '放到车尾平台上' },
     Z('pass', '副驾驶座', 'Passenger seat', [1.18, 1.56], [0.29, 0.81], 0.88, 1.5, 'medium', 3, ['door_FR']),
     D([1.99, 2.22], [-0.89, 0.89], 1.08, 1.3, ['door_FL', 'door_FR', 'door_side']),
-    { ...Z('wall', '墙上', 'On the wall', [-3.25, 0.86], [-1.05, 1.05], 1.0, 1.9, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
+    { ...Z('wall', '墙上', 'On the wall', [-3.25, 0.86], [-1.05, 1.05], 1.0, 2.45, 'medium', 9, ['door_side']), wall: true, put: '挂到墙上' },
   ],
   // (the Old Elephant, docs/V3/plan/rv.md R2, an empty shell since docs/V3/plan/finish.md §十九 step 7: its floor in
   // three, as Nomad Drive's class A's is — the back of the room with the rear wheels' humps in it, the strip by the entry
@@ -170,9 +173,9 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
     // 6 mm out behind it), the seat boxes' backs at 2.48; the deck's the tail's lining at −5.57 — the galley's worktop
     // and the cubby under its sink, the dinette's table, the fridge's niche and the bed that were places of their own
     // are gone)
-    W('cabin', '车厢', 'Cabin', [-4.176, -0.99], [-1.163, 1.163], 0.62, 2.4, 'large', 0, ['door_side']),
-    { ...W('fore', '车厢前部', 'Front of the cabin', [-0.06, 2.48], [-1.163, 1.163], 0.62, 2.4, 'large', 0.5, ['door_side']), put: '放到车厢地上' },
-    { ...W('lounge', '车门边', 'By the door', [-0.99, -0.06], [-1.163, 0.94], 0.62, 2.4, 'large', 0.6, ['door_side']), put: '放到车厢地上' },
+    // Single continuous cabin floor from engine deck front (-4.176) to seat boxes (2.48), wall to wall (±1.163),
+    // with the right-side entry stairwell excluded as a cutout hole so furniture never hits invisible seam walls.
+    { ...W('cabin', '车厢', 'Cabin', [-4.176, 2.48], [-1.163, 1.163], 0.62, 2.4, 'large', 0, ['door_side']), holes: [{ x: [-0.99, -0.06], z: [0.94, 1.163] }] },
     { ...W('nook', '车尾平台', 'Rear deck', [-5.57, -4.176], [-1.163, 1.163], 1.28, 2.4, 'large', 0.7, ['door_side']), put: '放到车尾平台上' },
     Z('pass', '副驾驶座', 'Passenger seat', [2.82, 3.2], [0.34, 0.86], 1.23, 1.85, 'medium', 6, ['door_FR']),
     D([3.57, 3.95], [-1.0, 1.0], 1.5, 1.75, ['door_FL', 'door_FR', 'door_side']),
@@ -182,9 +185,9 @@ export const CARGO_ZONES: Record<string, readonly CargoZone[]> = {
   // humps in it), the dash; the walls under the ceiling's roll — its back 1.1 m longer since docs/V3/plan/finish.md
   // §18. The rack on its roof is the roof mount's)
   camel: [
-    W('cabin', '车厢', 'Cabin', [-6.108, 1.72], [-1.185, 1.185], 0.72, 2.6, 'large', 0, ['door_side', 'trunk']),
-    D([2.64, 2.85], [-1.0, 1.0], 1.48, 1.7, ['door_side']),
-    { ...Z('wall', '墙上', 'On the wall', [-6.1, 1.84], [-1.19, 1.19], 1.5, 2.45, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
+    W('cabin', '车厢', 'Cabin', [-6.108, 1.68], [-1.185, 1.185], 0.84, 2.84, 'large', 0, ['door_side', 'trunk']),
+    D([2.68, 2.88], [-1.0, 1.0], 1.46, 1.68, ['door_side']),
+    { ...Z('wall', '墙上', 'On the wall', [-6.1, 1.72], [-1.19, 1.19], 1.5, 2.55, 'medium', 9, ['door_side', 'trunk']), wall: true, put: '挂到墙上' },
   ],
   // (the Tadpole's box, a room one walks into since docs/V3/plan/finish.md §十一 1: 3.00 × 1.70 m between its linings and
   // from its door's inner face to its front wall's, the door the way in, and the walls with a rail high along each to
@@ -223,7 +226,12 @@ export function roofZoneOf(frameId: string): CargoZone | null {
   const fit = m?.fit;
   const zone: CargoZone | null =
     m && fit
-      ? { ...Z('roof', '车顶行李架', 'Roof rack', [m.pos.x - fit[0] / 2 + 0.08, m.pos.x + fit[0] / 2 - 0.08], [-fit[1] / 2 + 0.06, fit[1] / 2 - 0.06], m.pos.y + 0.04, m.pos.y + 0.9, 'large', 8), put: '放到车顶行李架上', needs: { mount: m.id, parts: ROOF_RACKS } }
+      ? {
+          ...Z('roof', '车顶行李架', 'Roof rack', [m.pos.x - fit[0] / 2, m.pos.x + fit[0] / 2], [-fit[1] / 2, fit[1] / 2], m.pos.y + 0.05, m.pos.y + 4.0, 'large', 8),
+          put: '放到车顶行李架上',
+          needs: { mount: m.id, parts: ROOF_RACKS },
+          overhang: 0.5,
+        }
       : null;
   ROOFS.set(frameId, zone);
   return zone;
@@ -398,10 +406,42 @@ export function latticeOrigin(frame: string, zone?: CargoZone): { x: number; z: 
 export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z: number, yaw: number, placed: readonly Placed[]): number | null {
   const q = footprint(b, x, z, yaw);
   // (a finger's width in from the place's edge — up to the edge itself where that is a room's wall: half a millimetre
-  // over it still counts as against it)
+  // over it still counts as against it; open roof racks allow configurable overhang while keeping center inside)
   const in_ = zone.walls ? -WALL_EPS : GAP;
-  for (const [px, pz] of q) {
-    if (px < zone.x[0] + in_ || px > zone.x[1] - in_ || pz < zone.z[0] + in_ || pz > zone.z[1] - in_) return null;
+  const ov = zone.overhang ?? 0;
+  if (ov > 0) {
+    let minPx = Infinity;
+    let maxPx = -Infinity;
+    let minPz = Infinity;
+    let maxPz = -Infinity;
+    for (const [px, pz] of q) {
+      if (px < minPx) minPx = px;
+      if (px > maxPx) maxPx = px;
+      if (pz < minPz) minPz = pz;
+      if (pz > maxPz) maxPz = pz;
+    }
+    const cx = (minPx + maxPx) / 2;
+    const cz = (minPz + maxPz) / 2;
+    const allowX = (maxPx - minPx) * ov + 0.01;
+    const allowZ = (maxPz - minPz) * ov + 0.01;
+    if (cx < zone.x[0] - 0.02 || cx > zone.x[1] + 0.02 || cz < zone.z[0] - 0.02 || cz > zone.z[1] + 0.02) return null;
+    if (minPx < zone.x[0] - allowX || maxPx > zone.x[1] + allowX || minPz < zone.z[0] - allowZ || maxPz > zone.z[1] + allowZ) return null;
+  } else {
+    for (const [px, pz] of q) {
+      if (px < zone.x[0] + in_ || px > zone.x[1] - in_ || pz < zone.z[0] + in_ || pz > zone.z[1] - in_) return null;
+    }
+  }
+  const holes = zone.holes;
+  const inHole = (px: number, pz: number): boolean => {
+    if (!holes) return false;
+    for (let i = 0; i < holes.length; i++) {
+      const hole = holes[i];
+      if (px > hole.x[0] + WALL_EPS && px < hole.x[1] - WALL_EPS && pz > hole.z[0] + WALL_EPS && pz < hole.z[1] - WALL_EPS) return true;
+    }
+    return false;
+  };
+  if (holes) {
+    for (const [px, pz] of q) if (inHole(px, pz)) return null;
   }
   // the floor under it: sampled over the footprint at the grid's spacing
   const c = Math.cos(yaw);
@@ -409,17 +449,27 @@ export function restAt(zone: CargoZone, g: HeightGrid, b: ThingBox, x: number, z
   const nu = Math.max(1, Math.ceil((b.maxX - b.minX) / g.cell));
   const nv = Math.max(1, Math.ceil((b.maxZ - b.minZ) / g.cell));
   let floor = -Infinity;
+  let hits = 0;
   // (against a room's wall the floor is asked for a hair inside the footprint: the wall's own foot is not its floor)
   const hair = zone.walls ? 0.003 : 0;
   for (let a = 0; a <= nu; a++) {
     const lx = Math.min(b.maxX - hair, Math.max(b.minX + hair, b.minX + ((b.maxX - b.minX) * a) / nu));
     for (let d = 0; d <= nv; d++) {
       const lz = Math.min(b.maxZ - hair, Math.max(b.minZ + hair, b.minZ + ((b.maxZ - b.minZ) * d) / nv));
-      const h = gridAt(g, x + lx * c + lz * s, z - lx * s + lz * c);
-      if (Number.isNaN(h)) return null;
+      const wx = x + lx * c + lz * s;
+      const wz = z - lx * s + lz * c;
+      if (inHole(wx, wz)) return null;
+      const h = gridAt(g, wx, wz);
+      if (Number.isNaN(h)) {
+        if (ov > 0) continue;
+        return null;
+      }
+      hits++;
       if (h > floor) floor = h;
     }
   }
+  if (ov > 0 && hits === 0) floor = zone.floor;
+  if (!Number.isFinite(floor)) return null;
   // on top of what it would overlap (its own bottom lands there)
   let base = floor - b.minY;
   // (in a room two things may stand side against side — a cupboard beside a fridge: only what its footprint is over

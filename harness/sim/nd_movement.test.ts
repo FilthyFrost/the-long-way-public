@@ -179,30 +179,25 @@ describe('VehicleWalkSolids: campers, Buffalo bed, Turtle pop-up roof, and alway
     expect(wOpen.floorTag).toBe(vsOpen.tagFloor);
   });
 
-  it('Turtle: crouched player walks in with roof down and cannot stand until roof rises; roof up allows standing & jumping', () => {
+  it('Turtle: high-top cabin lets standing player walk right in with roof down and stand on rear decks; roof up adds headroom', () => {
     const turtleDown = makeWalkVehicle('turtle', { openPanels: { door_side: 1 }, roofT: 0 });
     const vsDown = new VehicleWalkSolids(turtleDown);
     const w = new FootWalker(flat, vsDown).setProfile(ND_FOOT);
     w.stepLimit = (x, y, z) => vsDown.entryStepLimit(x, y, z);
     w.place(-0.86, 1.85, -Math.PI / 2);
-    // Crouch and walk straight inside while roof is down!
-    run(w, 1.5, go(1, 0, { crouch: true }));
+    // Walk straight inside standing upright while roof is down (#3 high-top remodel)
+    run(w, 1.5, go(1, 0, { crouch: false }));
     expect(vsDown.insideLiving(w.x, w.y, w.z)).toBe(true);
-    expect(w.crouched).toBe(true);
-    // Try standing up with roof still down -> ceiling blocks standing!
-    run(w, 0.3, go(0, 0, { crouch: false }));
-    expect(w.crouched).toBe(true);
-
-    // Now raise the pop-up roof -> standing succeeds and player can jump inside!
-    (turtleDown.view as { roofT: number }).roofT = 1;
-    run(w, 0.3, go(0, 0, { crouch: false }));
     expect(w.crouched).toBe(false);
+
+    // Raise the pop-up roof -> extra headroom and player can jump freely inside
+    (turtleDown.view as { roofT: number }).roofT = 1;
     let peak = w.y;
     run(w, 0.8, go(0, 0, { jump: true }), (q) => (peak = Math.max(peak, q.y)));
     expect(w.jumps).toBe(1);
     expect(peak).toBeGreaterThan(w.y + 0.35);
-    // Head must never exceed raised ceiling (2.48 m)
-    expect(peak + ND_FOOT.height).toBeLessThanOrEqual(2.55);
+    // Head must never exceed raised ceiling (3.12 m)
+    expect(peak + ND_FOOT.height).toBeLessThanOrEqual(3.16);
   });
 
   it('Buffalo: lowered tailgate + invisible ND step plate + EntryAssistZone let player walk straight into the 0.80 m bed', () => {

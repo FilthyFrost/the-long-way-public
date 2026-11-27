@@ -392,46 +392,46 @@ def nd_fridge(P):
 def cabinet_bay(P, tag, x1, y0, y1, z0, z1, drawer=True, hinge=-1):
     """One bay of a base cabinet's front from y0 to y1: a drawer over a door (or a door alone); each its own
     mover. hinge −1: the door hung on its −y edge."""
-    zd = z1 - 0.15 if drawer else z1
+    zd = z1 - 0.125 if drawer else z1
     if drawer:
         since = mark_since(P)
-        panel(P, 'drawer', x1 + 0.011, y0 + 0.004, y1 - 0.004, zd + 0.004, z1 - 0.004, frame=0.035)
+        panel(P, 'drawer', x1 + 0.011, y0 + 0.004, y1 - 0.004, zd + 0.004, z1 - 0.004, frame=0.03)
         pull(P, x1 + 0.022, (y0 + y1) / 2, (zd + z1) / 2)
         dd = 0.42
-        P.box('drawer_floor', (dd, y1 - y0 - 0.05, 0.008), (x1 - dd / 2, (y0 + y1) / 2, zd + 0.02), 'wood', bev=0.002, segs=1)
+        P.box('drawer_floor', (dd, y1 - y0 - 0.05, 0.008), (x1 - dd / 2, (y0 + y1) / 2, zd + 0.018), 'wood', bev=0.002, segs=1)
         for s in (y0 + 0.03, y1 - 0.03):
-            P.box('drawer_side', (dd, 0.01, 0.1), (x1 - dd / 2, s, zd + 0.07), 'wood', bev=0.002, segs=1)
-        P.box('drawer_back', (0.01, y1 - y0 - 0.05, 0.1), (x1 - dd + 0.005, (y0 + y1) / 2, zd + 0.07), 'wood', bev=0.002, segs=1)
+            P.box('drawer_side', (dd, 0.01, 0.085), (x1 - dd / 2, s, zd + 0.062), 'wood', bev=0.002, segs=1)
+        P.box('drawer_back', (0.01, y1 - y0 - 0.05, 0.085), (x1 - dd + 0.005, (y0 + y1) / 2, zd + 0.062), 'wood', bev=0.002, segs=1)
         P.mover(f'P_drawer_{tag}', P.statics[since:], (x1, (y0 + y1) / 2, (zd + z1) / 2))
     since = mark_since(P)
     panel(P, 'door', x1 + 0.011, y0 + 0.004, y1 - 0.004, z0 + 0.004, zd - 0.004)
     ky = y1 - 0.05 if hinge < 0 else y0 + 0.05
-    knob(P, x1 + 0.022, ky, zd - 0.09)
+    knob(P, x1 + 0.022, ky, zd - 0.075)
     P.mover(f'P_door_{tag}', P.statics[since:], (x1 + 0.011, y0 if hinge < 0 else y1, 0.0))
 
 
 def nd_kitchen_stand(P):
-    """A kitchen base cabinet (Nomad Drive's kitchen stand 01, 1.42 m long, 0.9 m high): a painted carcass hollow
-    behind its fronts (a shelf in each bay), a recessed plinth, a butcher-block worktop with a backsplash, two
-    bays of a drawer over a door, each front a shaker panel with a knob or a cup pull."""
-    P.ao_distance = 0.3
-    D, L, H = 0.6, 1.4, 0.88
+    """A lowered ergonomic kitchen base cabinet (1.40 m long, 0.722 m worktop height for clear downward cooking view):
+    a painted carcass hollow behind its fronts (a shelf in each bay), recessed plinth, butcher-block worktop with low
+    3 cm trim lip, two bays of a drawer over a door."""
+    P.ao_distance = 0.25
+    D, L, H = 0.6, 1.4, 0.68
     x1 = D / 2 - 0.03
-    carcass = P.mesh('carcass', J.slab((D - 0.03, L, H - 0.1), (-0.015, 0.0, 0.1 + (H - 0.1) / 2), step=0.12), 'paint', bev=0.004)
+    carcass = P.mesh('carcass', J.slab((D - 0.03, L, H - 0.08), (-0.015, 0.0, 0.08 + (H - 0.08) / 2), step=0.12), 'paint', bev=0.004)
     cav = bmesh.new()
     for s in (-1, 1):
-        K.bm_cube(cav, (D - 0.07, L / 2 - 0.05, H - 0.18), matrix=Matrix.Translation((x1 - (D - 0.07) / 2 + 0.02, s * L / 4, 0.14 + (H - 0.18) / 2)))
+        K.bm_cube(cav, (D - 0.07, L / 2 - 0.05, H - 0.14), matrix=Matrix.Translation((x1 - (D - 0.07) / 2 + 0.02, s * L / 4, 0.11 + (H - 0.14) / 2)))
     P.cut(carcass, cav)
     for s in (-1, 1):
-        P.box('shelf', (D - 0.1, L / 2 - 0.06, 0.018), (x1 - (D - 0.1) / 2 - 0.01, s * L / 4, 0.42), 'paint', bev=0.003, segs=1)
-    P.box('plinth', (D - 0.09, L - 0.04, 0.1), (-0.05, 0.0, 0.05), 'trim', bev=0.004)
+        P.box('shelf', (D - 0.1, L / 2 - 0.06, 0.018), (x1 - (D - 0.1) / 2 - 0.01, s * L / 4, 0.34), 'paint', bev=0.003, segs=1)
+    P.box('plinth', (D - 0.09, L - 0.04, 0.08), (-0.05, 0.0, 0.04), 'trim', bev=0.004)
     P.box('worktop', (D + 0.03, L + 0.03, 0.042), (0.0, 0.0, H + 0.021), 'wood', bev=0.008, segs=2)
     for i in range(7):
         y = -L / 2 + (i + 0.5) * L / 7
         P.box('seam', (D + 0.032, 0.003, 0.043), (0.0, y, H + 0.021), 'trim', bev=None)
-    P.box('splash', (0.02, L + 0.03, 0.09), (-D / 2 + 0.005, 0.0, H + 0.087), 'paint_b', bev=0.005, segs=2)
-    cabinet_bay(P, 'a', x1, -L / 2 + 0.012, -0.006, 0.1, H - 0.02, hinge=-1)
-    cabinet_bay(P, 'b', x1, 0.006, L / 2 - 0.012, 0.1, H - 0.02, hinge=1)
+    P.box('splash', (0.018, L + 0.03, 0.03), (-D / 2 + 0.005, 0.0, H + 0.057), 'paint_b', bev=0.004, segs=2)
+    cabinet_bay(P, 'a', x1, -L / 2 + 0.012, -0.006, 0.08, H - 0.015, hinge=-1)
+    cabinet_bay(P, 'b', x1, 0.006, L / 2 - 0.012, 0.08, H - 0.015, hinge=1)
     P.views = [('a', 30, 18), ('b', 150, 24)]
 
 

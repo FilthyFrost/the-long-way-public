@@ -173,19 +173,19 @@ def lobed(n, depth, sharp=1.0):
 # ------------------------------------------------------------------------------------------------ vegetables
 
 def tomato(P):
-    lob = lobed(5, 0.06, 0.6)
+    lob = lobed(6, 0.075, 0.65)
 
     def f(az, el):
         top = max(0.0, math.sin(el))
-        return lob(az + 0.3) * math.cos(el) ** 0.7 - 0.16 * top ** 14 - 0.05 * max(0.0, -math.sin(el)) ** 5 + 0.008 * nz(math.cos(az), math.sin(az), el, 1, 3)
-    blob(P, 'fruit', (0.038, 0.038, 0.032), (0, 0, 0.032), 'paint', u=40, v=26, f=f)
-    # the calyx: five narrow sepals lying out over the shoulders, their tips curling up, round the short stalk
+        return lob(az + 0.25) * math.cos(el) ** 0.72 - 0.19 * top ** 12 - 0.06 * max(0.0, -math.sin(el)) ** 4 + 0.01 * nz(math.cos(az), math.sin(az), el, 1, 3)
+    blob(P, 'fruit', (0.044, 0.044, 0.036), (0, 0, 0.036), 'paint', u=44, v=28, f=f)
+    # lush 5-pointed star calyx curving gracefully over the glossy shoulders + curled vine stalk
     for i in range(5):
-        a = TAU * i / 5 + 0.3 + 0.12 * jit(i)
-        leafy(P, f'sepal{i}', (0.0, 0.0, 0.063), 0.03 + 0.004 * jit(i, 1), 0.019, a, -0.3, curl=0.35, fold=0.1,
-              thick=0.0022, outline=lambda t: (1.0 - t) ** 0.7 * min(1.0, t * 3.0 + 0.35) + 0.05, twist=0.25 * jit(i, 2))
-    blob(P, 'crown', (0.01, 0.01, 0.0035), (0, 0, 0.0625), 'paint_b', u=14, v=7)
-    stem(P, 'stalk', [(0.0, 0.0, 0.062), (0.001, 0.0, 0.071), (0.005, 0.001, 0.078)], 0.0038, segs=8)
+        a = TAU * i / 5 + 0.3 + 0.1 * jit(i)
+        leafy(P, f'sepal{i}', (0.0, 0.0, 0.070), 0.038 + 0.005 * jit(i, 1), 0.022, a, -0.34, curl=0.45, fold=0.14,
+              thick=0.0028, outline=lambda t: (1.0 - t) ** 0.65 * min(1.0, t * 3.0 + 0.38) + 0.05, twist=0.22 * jit(i, 2))
+    blob(P, 'crown', (0.012, 0.012, 0.0045), (0, 0, 0.0695), 'paint_b', u=16, v=8)
+    stem(P, 'stalk', [(0.0, 0.0, 0.069), (0.001, 0.0, 0.080), (0.008, 0.002, 0.090)], 0.0046, segs=10)
 
 
 def potato(P):
@@ -850,15 +850,26 @@ def duck(P):
 
 
 def beef(P):
-    # a steak: the lean (marbled), the fat along one edge
-    out = [((0.074 + 0.006 * math.sin(3 * a + 0.4)) * math.cos(a), (0.05 + 0.005 * math.cos(2 * a)) * math.sin(a)) for a in [TAU * k / 36 for k in range(36)]]
-    P.prism('steak', out, 0.026, (0, 0, 0.013), 'paint', bev=0.006, segs=3)
-    P.tube('fat', [(-0.07, 0.022, 0.013), (-0.04, 0.046, 0.013), (0.0, 0.054, 0.013), (0.04, 0.05, 0.013), (0.072, 0.026, 0.013)], 0.0115, 'paint_b', segs=10, bend=0.6,
-           radius_fn=lambda t: 0.75 + 0.25 * math.sin(math.pi * t))
-    for i in range(7):
-        a = TAU * jit(i, 11)
-        x, y = 0.045 * jit(i, 12) * 2, 0.03 * jit(i, 13) * 2
-        P.tube(f'marble{i}', [(x, y, 0.0262), (x + 0.012 * math.cos(a), y + 0.012 * math.sin(a), 0.0264), (x + 0.02 * math.cos(a + 0.5), y + 0.02 * math.sin(a + 0.5), 0.0262)], 0.0018, 'paint_b', segs=5, bend=0.6, sharp=80.0)
+    # thick restaurant-grade marbled ribeye steak: organic curved silhouette, creamy outer fat cap, fat eye & marbling veins
+    out = [((0.086 + 0.011 * math.sin(2 * a + 0.5) + 0.007 * math.cos(3 * a - 0.2)) * math.cos(a),
+            (0.058 + 0.008 * math.cos(2 * a + 0.3) - 0.005 * math.sin(a)) * math.sin(a))
+           for a in [TAU * k / 44 for k in range(44)]]
+    P.prism('steak', out, 0.034, (0, 0, 0.017), 'paint', bev=0.0085, segs=4)
+    # creamy fat cap wrapping gracefully around the upper arc
+    P.tube('fat', [(-0.082, 0.018, 0.017), (-0.054, 0.052, 0.017), (0.0, 0.064, 0.017), (0.054, 0.056, 0.017), (0.084, 0.022, 0.017)],
+           0.0145, 'paint_b', segs=12, bend=0.65, radius_fn=lambda t: 0.72 + 0.34 * math.sin(math.pi * t))
+    # creamy ribeye fat eye pocket + subtle embedded marbling veins across top face
+    blob(P, 'fat_eye', (0.018, 0.011, 0.005), (-0.018, 0.014, 0.0325), 'paint_b', u=18, v=10, rot=(0.0, 0.0, 0.45))
+    veins = [
+        [(-0.048, -0.006, 0.0342), (-0.024, 0.008, 0.0345), (-0.004, 0.022, 0.0342)],
+        [(-0.012, -0.024, 0.0342), (0.012, -0.008, 0.0345), (0.038, 0.012, 0.0342)],
+        [(0.018, -0.026, 0.0342), (0.042, -0.012, 0.0344), (0.058, 0.006, 0.0342)],
+        [(-0.044, 0.024, 0.0342), (-0.018, 0.034, 0.0344), (0.008, 0.038, 0.0342)],
+        [(0.014, 0.024, 0.0342), (0.036, 0.030, 0.0344), (0.056, 0.022, 0.0342)],
+        [(-0.054, -0.022, 0.0342), (-0.032, -0.024, 0.0344), (-0.016, -0.014, 0.0342)],
+    ]
+    for i, pts in enumerate(veins):
+        P.tube(f'marble{i}', pts, 0.0024, 'paint_b', segs=6, bend=0.5, sharp=80.0, radius_fn=lambda t: 0.6 + 0.5 * math.sin(math.pi * t))
 
 
 def lamb(P):
@@ -1083,21 +1094,27 @@ FOODS = [tomato, potato, carrot, onion, cabbage, cucumber, corn, lettuce, pepper
 # What an ingredient becomes on the board and what lies in the pot: `paint` its flesh, `paint_b` its skin.
 
 def prep_slices(P):
-    """Five round slices fallen over one another, their seeds and skin showing."""
-    for i in range(5):
-        x = -0.04 + 0.02 * i
-        rot = R(0.0, 1.05 if i else math.pi / 2, 0.0)
-        y = 0.004 * jit(i) * 2
-        z = 0.012 if i else 0.003
-        P.cyl(f'flesh{i}', 0.0205, 0.006, (x, y, z), 'paint', segs=32, rot=rot, bev=0.0012, bsegs=2)
-        P.torus(f'skin{i}', 0.0205, 0.0032, (x, y, z), 'paint_b', segs=32, rsegs=6, rot=rot)
+    """Six lush overlapping round slices, their rind and core showing."""
+    for i in range(6):
+        x = -0.055 + 0.022 * i
+        rot = R(0.0, 1.02 if i else math.pi / 2, 0.08 * jit(i))
+        y = 0.005 * jit(i) * 2
+        z = 0.016 if i else 0.004
+        P.cyl(f'flesh{i}', 0.026, 0.0075, (x, y, z), 'paint', segs=32, rot=rot, bev=0.0016, bsegs=2)
+        P.torus(f'skin{i}', 0.026, 0.0042, (x, y, z), 'paint_b', segs=32, rsegs=7, rot=rot)
 
 
 def prep_dice(P):
-    """A small heap of cubes, their edges softened."""
-    for i, (x, y, z, yaw) in enumerate([(-0.022, -0.014, 0, 0.2), (0.012, -0.02, 0, 0.9), (0.03, 0.01, 0, 0.4), (-0.004, 0.02, 0, 1.2), (-0.03, 0.016, 0, 0.7), (0.002, -0.002, 1, 0.5), (0.018, 0.008, 1, 1.0)]):
-        s = 0.021 - 0.002 * (i % 3)
-        P.pillow(f'cube{i}', (s, s, s), (x, y, s / 2 + z * 0.019), 'paint' if i % 4 else 'paint_b', rot=R(0.08 * jit(i), 0.06 * jit(i, 1), yaw), r=0.0022, sub=1)
+    """A hearty rustic heap of hand-chopped chunks (potato, pumpkin, chicken, tofu)."""
+    coords = [
+        (-0.032, -0.022, 0, 0.2), (0.014, -0.028, 0, 0.9), (0.042, 0.010, 0, 0.4),
+        (-0.006, 0.030, 0, 1.2), (-0.042, 0.018, 0, 0.7), (0.028, 0.032, 0, 1.5),
+        (-0.010, -0.004, 1, 0.5), (0.020, 0.006, 1, 1.0), (-0.018, 0.016, 1, 0.8),
+    ]
+    for i, (x, y, z, yaw) in enumerate(coords):
+        s = 0.029 - 0.0025 * (i % 3)
+        P.pillow(f'cube{i}', (s * 1.08, s * 0.94, s * 0.88), (x, y, s * 0.46 + z * 0.024),
+                 'paint' if i % 4 else 'paint_b', rot=R(0.1 * jit(i), 0.08 * jit(i, 1), yaw), r=0.004, sub=1)
 
 
 def prep_shreds(P):
@@ -1110,15 +1127,19 @@ def prep_shreds(P):
 
 
 def prep_wedges(P):
-    """Four wedges lying about, their skin outward."""
-    pts = [(0.0, -0.03)] + [(0.03 * math.sin(math.pi * k / 10), -0.03 * math.cos(math.pi * k / 10)) for k in range(1, 10)] + [(0.0, 0.03)]
-    for i in range(4):
-        a = TAU * i / 4 + 0.4
+    """Five plump juicy wedges fanned naturally (tomatoes, apples, citrus) with curved glossy skin & seed pockets."""
+    r = 0.038
+    pts = [(0.0, -r)] + [(r * math.sin(math.pi * k / 12), -r * math.cos(math.pi * k / 12)) for k in range(1, 12)] + [(0.0, r)]
+    for i in range(5):
+        a = TAU * i / 5 + 0.35
         m = mark(P)
-        P.lathe(f'skin{i}', pts, (0, 0, 0), 'paint_b', segs=10, angle=TAU / 6, sharp=80.0)
-        P.prism(f'face{i}a', pts, 0.0004, (0, 0, 0), 'paint', matrix=Matrix.Rotation(math.pi / 2, 4, 'X'), center=True, bev=None)
-        P.prism(f'face{i}b', pts, 0.0004, (0, 0, 0), 'paint', matrix=Matrix.Rotation(TAU / 6, 4, 'Z') @ Matrix.Rotation(math.pi / 2, 4, 'X'), center=True, bev=None)
-        xform(P, m, mat4((0.034 * math.cos(a), 0.034 * math.sin(a), 0.0), R(math.pi / 2, 0.0, a + 2.2)))
+        P.lathe(f'skin{i}', pts, (0, 0, 0), 'paint_b', segs=12, angle=TAU / 5.5, sharp=80.0)
+        P.prism(f'face{i}a', pts, 0.0008, (0, 0, 0), 'paint', matrix=Matrix.Rotation(math.pi / 2, 4, 'X'), center=True, bev=None)
+        P.prism(f'face{i}b', pts, 0.0008, (0, 0, 0), 'paint', matrix=Matrix.Rotation(TAU / 5.5, 4, 'Z') @ Matrix.Rotation(math.pi / 2, 4, 'X'), center=True, bev=None)
+        # subtle juicy rib / seed pip beads along the upper cut face for immediate sliced-tomato readability
+        for k, zoff in enumerate((-0.010, 0.008)):
+            blob(P, f'pip{i}{k}', (0.0045, 0.0022, 0.0032), (0.018, 0.0018, zoff), 'paint_b', u=10, v=6)
+        xform(P, m, mat4((0.044 * math.cos(a), 0.044 * math.sin(a), 0.0), R(math.pi / 2, 0.0, a + 2.15)))
 
 
 def prep_florets(P):
@@ -1167,19 +1188,43 @@ def prep_mince(P):
 
 
 def prep_strips(P):
-    """Strips of meat, a rind of fat along each."""
+    """Generous strips of sliced meat / pork belly, each edged with creamy fat."""
+    for i in range(6):
+        y = -0.044 + 0.0175 * i
+        yaw = 0.22 * jit(i) * 2
+        P.pillow(f'lean{i}', (0.074, 0.014, 0.011), (0.007 * jit(i, 1) * 2, y, 0.0055 + 0.003 * (i % 2)), 'paint', rot=R(0.0, 0.0, yaw), r=0.0028, sub=1)
+        P.pillow(f'fat{i}', (0.074, 0.0048, 0.0114), (0.007 * jit(i, 1) * 2 - 0.0092 * math.sin(yaw), y + 0.0092 * math.cos(yaw), 0.0055 + 0.003 * (i % 2)), 'paint_b', rot=R(0.0, 0.0, yaw), r=0.0018, sub=1)
+
+
+def prep_beef_slices(P):
+    """Five thick, juicy hand-cut marbled steak slices fanned overlapping on the cutting board (#29)."""
     for i in range(5):
-        y = -0.03 + 0.015 * i
-        yaw = 0.25 * jit(i) * 2
-        P.pillow(f'lean{i}', (0.056, 0.011, 0.009), (0.006 * jit(i, 1) * 2, y, 0.0045 + 0.003 * (i % 2)), 'paint', rot=R(0.0, 0.0, yaw), r=0.0018, sub=1)
-        P.pillow(f'fat{i}', (0.056, 0.0035, 0.0094), (0.006 * jit(i, 1) * 2 - 0.0072 * math.sin(yaw), y + 0.0072 * math.cos(yaw), 0.0045 + 0.003 * (i % 2)), 'paint_b', rot=R(0.0, 0.0, yaw), r=0.0012, sub=1)
+        m = mark(P)
+        sx = 0.044 + 0.004 * math.sin(i * 1.1)
+        sy = 0.022 + 0.002 * math.cos(i * 1.4)
+        out = [((sx + 0.0035 * math.sin(3 * a + i)) * math.cos(a), (sy + 0.0025 * math.cos(2 * a)) * math.sin(a))
+               for a in [TAU * k / 28 for k in range(28)]]
+        P.prism(f'slice{i}', out, 0.013, (0, 0, 0.0065), 'paint', bev=0.0032, segs=2)
+        # creamy outer fat cap hugging one curved long edge
+        P.tube(f'fat{i}', [(-sx * 0.85, sy * 0.45, 0.0065), (0.0, sy * 1.02, 0.0065), (sx * 0.85, sy * 0.45, 0.0065)],
+               0.0058, 'paint_b', segs=8, bend=0.55, radius_fn=lambda t: 0.7 + 0.35 * math.sin(math.pi * t))
+        # two crisp marbling ribbons across the cut ruby face
+        P.tube(f'marb{i}a', [(-sx * 0.48, -sy * 0.25, 0.0132), (-sx * 0.08, 0.0, 0.0135), (sx * 0.36, sy * 0.32, 0.0132)],
+               0.0019, 'paint_b', segs=5, bend=0.5, sharp=80.0)
+        P.tube(f'marb{i}b', [(-sx * 0.15, -sy * 0.45, 0.0132), (sx * 0.18, -sy * 0.12, 0.0135), (sx * 0.52, sy * 0.08, 0.0132)],
+               0.0016, 'paint_b', segs=5, bend=0.5, sharp=80.0)
+        # fan overlapping neatly like freshly carved ribeye
+        ox = -0.044 + 0.022 * i
+        oy = 0.008 * math.sin(i * 0.9) - 0.004
+        oz = 0.002 + 0.0035 * i
+        xform(P, m, mat4((ox, oy, oz), R(0.06 * jit(i), -0.24 if i else 0.0, 1.38 + 0.14 * (i - 2))))
 
 
 def prep_egg(P):
-    """An egg cracked open: its white spread out in a soft frill, its yolk domed on it."""
-    out = [((0.036 + 0.007 * math.sin(3 * TAU * i / 40 + 0.7) + 0.002 * math.sin(11 * TAU * i / 40)) * math.cos(TAU * i / 40), (0.031 + 0.006 * math.cos(2 * TAU * i / 40)) * math.sin(TAU * i / 40)) for i in range(40)]
-    P.prism('white', out, 0.005, (0, 0, 0.0025), 'paint_b', bev=0.002, segs=2)
-    blob(P, 'yolk', (0.0145, 0.0145, 0.0085), (0.004, 0.002, 0.005), 'paint', u=28, v=16)
+    """A plump egg cracked open: frilly glossy white and tall golden yolk."""
+    out = [((0.048 + 0.009 * math.sin(3 * TAU * i / 40 + 0.7) + 0.003 * math.sin(11 * TAU * i / 40)) * math.cos(TAU * i / 40), (0.042 + 0.007 * math.cos(2 * TAU * i / 40)) * math.sin(TAU * i / 40)) for i in range(40)]
+    P.prism('white', out, 0.0065, (0, 0, 0.0032), 'paint_b', bev=0.0025, segs=2)
+    blob(P, 'yolk', (0.0195, 0.0195, 0.0115), (0.005, 0.002, 0.0065), 'paint', u=28, v=16)
 
 
 def prep_mound(P):
@@ -1209,9 +1254,30 @@ def prep_pool(P):
     blob(P, 'shine', (0.014, 0.008, 0.0012), (0.008, 0.008, 0.0029), 'paint_b', u=16, v=6, rot=(0.0, 0.0, 0.6))
 
 
-PREPS = [prep_slices, prep_dice, prep_shreds, prep_wedges, prep_florets, prep_caps, prep_fillet, prep_mince, prep_strips, prep_egg, prep_mound, prep_nest, prep_pool]
+PREPS = [prep_slices, prep_dice, prep_shreds, prep_wedges, prep_florets, prep_caps, prep_fillet, prep_mince, prep_strips, prep_beef_slices, prep_egg, prep_mound, prep_nest, prep_pool]
 
 MODELS = {**{f'food_{f.__name__}': f for f in FOODS}, **{f.__name__: f for f in PREPS}}
+
+# Generous stylized readability scaling (#29): small & medium ingredients read clearly at 1 m on counters, boards & in hand
+_SMALL_FOODS = {
+    'tomato', 'potato', 'onion', 'garlic', 'chili', 'oyster', 'shiitake', 'porcini', 'chanterelle', 'matsutake',
+    'truffle', 'apple', 'berry', 'strawberry', 'orange', 'lemon', 'egg', 'wildegg', 'butter', 'shrimp', 'clam', 'walnut',
+}
+_LARGE_FOODS = {'cabbage', 'lettuce', 'pumpkin', 'watermelon', 'salmon', 'tuna', 'lobster'}
+_REMODELED_PREPS = {'prep_beef_slices', 'prep_wedges', 'prep_slices', 'prep_dice', 'prep_strips', 'prep_egg'}
+
+
+def _food_scale(pid):
+    if pid in _REMODELED_PREPS:
+        return 1.18
+    if pid.startswith('prep_'):
+        return 1.55
+    name = pid[5:] if pid.startswith('food_') else pid
+    if name in _SMALL_FOODS:
+        return 1.68
+    if name in _LARGE_FOODS:
+        return 1.18
+    return 1.44
 
 # the two colours each is painted in the game (src/core/v3/kitchen/items.ts), for the --look previews only
 COLORS = {
@@ -1233,7 +1299,7 @@ COLORS = {
     # the prepared shapes, each in the colours of one ingredient that takes it
     'prep_slices': (0xf0b8a0, 0xd8432e), 'prep_dice': (0xf0d890, 0xc9a468), 'prep_shreds': (0xd4e89a, 0x8fca5a), 'prep_wedges': (0xf8e8b0, 0xd8382e),
     'prep_florets': (0x3f8a3a, 0x9fc46a), 'prep_caps': (0x8a5a3a, 0xf0e4cc), 'prep_fillet': (0xf08a5a, 0x7a8a9a), 'prep_mince': (0xf0e8d8, 0x5fae4a),
-    'prep_strips': (0xa82a2a, 0xf8ece0), 'prep_egg': (0xf4b82a, 0xfaf6ea), 'prep_mound': (0xf4f0e4, 0xe8dcc0), 'prep_nest': (0xf0d890, 0xe8c870),
+    'prep_strips': (0xa82a2a, 0xf8ece0), 'prep_beef_slices': (0xb22828, 0xf8ece0), 'prep_egg': (0xf4b82a, 0xfaf6ea), 'prep_mound': (0xf4f0e4, 0xe8dcc0), 'prep_nest': (0xf0d890, 0xe8c870),
     'prep_pool': (0xfaf6ea, 0xffffff),
 }
 
@@ -1262,9 +1328,12 @@ def _after(P, opts):
 def main(args):
     table = {}
     for pid, build in MODELS.items():
-        def settled(P, build=build):
-            P.ao_distance = 0.04
+        def settled(P, build=build, pid=pid):
+            s = _food_scale(pid)
+            P.ao_distance = 0.04 * s
             build(P)
+            if abs(s - 1.0) > 1e-4:
+                xform(P, 0, mat4((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (s, s, s)))
             settle(P, center=True)
         table[pid] = settled
     K.run(table, args, after=_after, out_dir=OUT, geo=False)

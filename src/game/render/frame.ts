@@ -62,6 +62,8 @@ export interface OutlineTarget {
   readonly partId?: number;
   /** optional companion subtree outlined into the same mask (e.g. moving lever/key of a merged control) */
   readonly extra?: THREE.Object3D | null;
+  /** optional explicit mesh subset to outline directly (e.g. seat cushion meshes even when the parent seat is merged) */
+  readonly meshes?: readonly THREE.Mesh[] | null;
 }
 
 export class Frame {
@@ -541,36 +543,54 @@ export class Frame {
     partMat.uniforms.uPartId.value = partId;
     const stack = this.outlineStack;
     let count = 0;
-    const collect = (root: THREE.Object3D, filterPart: boolean): void => {
-      stack.length = 0;
-      stack.push(root);
-      while (stack.length > 0) {
-        const o = stack.pop()!;
-        if (!o.visible) continue;
-        if (o.userData.ghostDepth || o.userData.ghostXray || o.name === 'nd:light-glow') continue;
-        const m = o as THREE.Mesh;
-        if (m.isMesh && m.geometry) {
-          let proxy = this.outlinePool[count];
-          if (!proxy) {
-            proxy = new THREE.Mesh();
-            proxy.matrixAutoUpdate = false;
-            proxy.frustumCulled = false;
-            this.outlinePool.push(proxy);
-            this.outlineScene.add(proxy);
-          }
-          proxy.geometry = m.geometry;
-          proxy.material = filterPart && partId > 0 && m.geometry.hasAttribute('aPartId') ? partMat : plainMat;
-          proxy.matrix.copy(m.matrixWorld);
-          proxy.matrixWorld.copy(m.matrixWorld);
-          proxy.visible = true;
-          count++;
-        }
-        const ch = o.children;
-        for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
+    const pushProxy = (m: THREE.Mesh, mat: THREE.Material): void => {
+      let proxy = this.outlinePool[count];
+      if (!proxy) {
+        proxy = new THREE.Mesh();
+        proxy.matrixAutoUpdate = false;
+        proxy.frustumCulled = false;
+        this.outlinePool.push(proxy);
+        this.outlineScene.add(proxy);
       }
+      proxy.geometry = m.geometry;
+      proxy.material = mat;
+      proxy.matrix.copy(m.matrixWorld);
+      proxy.matrixWorld.copy(m.matrixWorld);
+      proxy.visible = true;
+      count++;
     };
-    collect(out.root, partId > 0);
-    if (out.extra) collect(out.extra, false);
+    if (out.meshes && out.meshes.length > 0) {
+      out.root.updateWorldMatrix(true, true);
+      for (let i = 0; i < out.meshes.length; i++) {
+        const m = out.meshes[i];
+        if (m.geometry) pushProxy(m, plainMat);
+      }
+    } else {
+      const camMask = camera.layers.mask;
+      const collect = (root: THREE.Object3D, filterPart: boolean): void => {
+        stack.length = 0;
+        stack.push(root);
+        while (stack.length > 0) {
+          const o = stack.pop()!;
+          if (!o.visible) continue;
+          if (o.userData.ghostDepth || o.userData.ghostXray || o.name === 'nd:light-glow') continue;
+          // Never outline shadow-only hulls or far LOD proxies inside a MergedCar group.
+          if (o.name === 'merged:shadow-hull' || o.name.startsWith('merged:far')) continue;
+          const m = o as THREE.Mesh;
+          if (m.isMesh && m.geometry && (m.layers.mask & camMask) !== 0) {
+            if (filterPart && partId > 0) {
+              if (m.geometry.hasAttribute('aPartId')) pushProxy(m, partMat);
+            } else {
+              pushProxy(m, plainMat);
+            }
+          }
+          const ch = o.children;
+          for (let i = ch.length - 1; i >= 0; i--) stack.push(ch[i]);
+        }
+      };
+      collect(out.root, partId > 0);
+      if (out.extra) collect(out.extra, false);
+    }
     for (let i = count; i < this.outlinePool.length; i++) this.outlinePool[i].visible = false;
     if (count === 0) return false;
     const r = this.renderer;

@@ -120,6 +120,8 @@ function prepared(src: THREE.BufferGeometry, m: THREE.Matrix4, paint: THREE.Colo
   for (const name of Object.keys(g.attributes)) if (!(KEEP as readonly string[]).includes(name)) g.deleteAttribute(name);
   g.morphAttributes = {};
   g.clearGroups();
+  // Drop stale glass crust-group tag copied by src.clone() so applyMaterials rebuilds groups on single-mesh merged glass.
+  delete g.userData.crustGroups;
   return g;
 }
 

@@ -52,20 +52,19 @@ export const ROOMS: Readonly<Record<string, readonly Room[]>> = {
     R(1.171, 0.32, [-0.14, 0.15], [-0.37, 0.37]),
     R(1.53, TOP_CLEAR, [-0.15, 0.17], [-0.4, 0.4], { top: true }),
   ],
-  // (one cupboard behind its two doors: its bottom and its shelf; its top)
+  // (one cupboard behind its two doors: its bottom and its shelf; its lowered 0.72 m top)
   [ND_CABINET]: [
-    R(0.1, 0.36, [-0.23, 0.27], [-0.36, 0.36], { behind: ['P_door_a', 'P_door_b'] }),
-    R(0.489, 0.32, [-0.23, 0.27], [-0.36, 0.36], { behind: ['P_door_a', 'P_door_b'] }),
-    R(0.915, TOP_CLEAR, [-0.29, 0.3], [-0.39, 0.39], { top: true }),
+    R(0.09, 0.28, [-0.23, 0.27], [-0.36, 0.36], { behind: ['P_door_a', 'P_door_b'] }),
+    R(0.389, 0.28, [-0.23, 0.27], [-0.36, 0.36], { behind: ['P_door_a', 'P_door_b'] }),
+    R(0.72, TOP_CLEAR, [-0.29, 0.3], [-0.39, 0.39], { top: true }),
   ],
-  // (two bays, each a bottom and a shelf behind its door under its drawer — the model's −y is the game's +z: bay a on
-  // +z — and the worktop)
+  // (two bays, each a bottom and a shelf behind its door under its drawer — and the lowered 0.722 m worktop)
   [ND_KITCHEN_STAND]: [
-    R(0.14, 0.26, [-0.24, 0.25], [0.04, 0.66], { behind: ['P_door_a'] }),
-    R(0.429, 0.26, [-0.24, 0.25], [0.04, 0.66], { behind: ['P_door_a'] }),
-    R(0.14, 0.26, [-0.24, 0.25], [-0.66, -0.04], { behind: ['P_door_b'] }),
-    R(0.429, 0.26, [-0.24, 0.25], [-0.66, -0.04], { behind: ['P_door_b'] }),
-    R(0.922, TOP_CLEAR, [-0.27, 0.3], [-0.7, 0.7], { top: true }),
+    R(0.11, 0.22, [-0.24, 0.25], [0.04, 0.66], { behind: ['P_door_a'] }),
+    R(0.349, 0.2, [-0.24, 0.25], [0.04, 0.66], { behind: ['P_door_a'] }),
+    R(0.11, 0.22, [-0.24, 0.25], [-0.66, -0.04], { behind: ['P_door_b'] }),
+    R(0.349, 0.2, [-0.24, 0.25], [-0.66, -0.04], { behind: ['P_door_b'] }),
+    R(0.722, TOP_CLEAR, [-0.27, 0.3], [-0.7, 0.7], { top: true }),
   ],
   // (a wall cabinet: its bottom and its shelf behind two glazed doors; its top)
   [ND_TOP_CABINET]: [
@@ -78,8 +77,8 @@ export const ROOMS: Readonly<Record<string, readonly Room[]>> = {
   [ND_WALL_SHELF]: [R(0.04, 0.24, [-0.06, 0.07], [-0.33, 0.33]), R(0.32, TOP_CLEAR, [-0.06, 0.07], [-0.33, 0.33], { top: true })],
   [ND_TABLE]: [R(0.762, TOP_CLEAR, [-0.34, 0.34], [-0.55, 0.55], { top: true })],
   [ND_DINNER_TABLE]: [R(0.664, TOP_CLEAR, [-0.41, 0.41], [-0.33, 0.33], { top: true })],
-  // (a workbench: the shelf under it, and its top beside the vice)
-  [ND_WORKBENCH]: [R(0.237, 0.55, [-0.2, 0.2], [-0.48, 0.48]), R(0.885, TOP_CLEAR, [-0.27, 0.2], [-0.3, 0.55], { top: true })],
+  // (a lowered 0.75 m workbench: the shelf under it, and its top beside the vice)
+  [ND_WORKBENCH]: [R(0.197, 0.46, [-0.2, 0.2], [-0.48, 0.48]), R(0.75, TOP_CLEAR, [-0.27, 0.2], [-0.3, 0.55], { top: true })],
   // (its top; what is in it is what it holds, kept cold, standing on its shelves: core/v3/nd/store.ts)
   [ND_FRIDGE]: [R(1.36, TOP_CLEAR, [-0.25, 0.2], [-0.28, 0.28], { top: true })],
 };

@@ -317,13 +317,13 @@ export class NdCamera implements System<GameContext>, InteractSource {
     const ctx = this.ctx!;
     const eEdge = e && !this.eWas;
     this.eWas = e;
-    const want = rmb || this.forceRaise ? 1 : 0;
+    const want = this.forceRaise ? 1 : rmb && !this.hanging ? 1 : 0;
     this.raise = want > this.raise ? Math.min(1, this.raise + dt / CAMERA.raiseS) : Math.max(0, this.raise - dt / CAMERA.raiseS);
     this.cool = Math.max(0, this.cool - dt);
     const k = this.raise * this.raise * (3 - 2 * this.raise);
     ctx.heldThing.lift = k;
-    // (held with its lens ahead, as one carries it ready: the print comes out in front)
-    ctx.heldThing.handTurn = 2.1;
+    // (held with its lens ahead and tilted slightly inward while printing so the ejecting Polaroid is clearly visible)
+    ctx.heldThing.handTurn = this.hanging ? 1.48 : 1.72;
     ctx.lookZoom = 1 + (zoomAt(this.zoom) - 1) * k;
     this.showFinder(this.raise > 0.92, held.kind === 'item' ? held.item : null);
     if (eEdge && held.kind === 'item') this.shutter(held.item, true);
@@ -366,8 +366,8 @@ export class NdCamera implements System<GameContext>, InteractSource {
     useFilm(cam);
     this.cool = CAMERA.coolS;
     this.shots++;
-    blip('shutter', 1);
-    blip('motor', 0.8);
+    ctx.sound('camera_shutter', 1);
+    ctx.sound('camera_eject', 0.9);
     // the print before it is pushed out
     this.release_print();
     const key = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
@@ -438,7 +438,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
     });
   }
 
-  /** the hanging print where the slot has pushed it so far, its picture as far developed */
+  /** the hanging print where the slot has pushed it so far, its picture as far developed; pops onto the ground once printed */
   private poseHanging(): void {
     const h = this.hanging!;
     const ctx = this.ctx!;
@@ -449,12 +449,13 @@ export class NdCamera implements System<GameContext>, InteractSource {
     const e = ejected(t);
     h.obj.position.set(slot.x - 0.077 + CAMERA.ejectM * e, slot.y, slot.z);
     // (a little droop as it comes out)
-    h.obj.rotation.set(0, 0, -0.12 * e);
+    h.obj.rotation.set(0, 0, -0.14 * e);
     h.mat.userData.dev.value = developed(t);
+    if (t >= CAMERA.ejectS + 0.18) this.release_print(true);
   }
 
-  /** the hanging print pushed out: it falls, turning, where it is */
-  private release_print(): void {
+  /** the hanging print pushed out: pops forward off the slot when ejected, or falls where it is when stowed */
+  private release_print(pop = false): void {
     const h = this.hanging;
     if (!h) return;
     this.hanging = null;
@@ -466,7 +467,13 @@ export class NdCamera implements System<GameContext>, InteractSource {
     const o = ctx.core.origin;
     const yaw = -ctx.player.walker.heading;
     const l = ctx.loose.addItem(h.item, this.v.x + o.x, this.v.y + o.y, this.v.z + o.z, yaw);
-    ctx.loose.drop(l);
+    if (pop) {
+      const d = ctx.player.dir;
+      const hl = Math.hypot(d.x, d.z) || 1;
+      ctx.loose.fling(l, { x: (d.x / hl) * 1.35, y: 0.55, z: (d.z / hl) * 1.35 }, 5.5);
+    } else {
+      ctx.loose.drop(l);
+    }
     this.prints.set(l, { mat: h.mat, model: null, spin: 6 + Math.random() * 6, tilt: 0 });
     ctx.loose.keepApart(l.uid, true);
     this.mats.drop(`nd-camera:print:${h.item.uid}`);
@@ -513,6 +520,7 @@ export class NdCamera implements System<GameContext>, InteractSource {
   lateUpdate(dt: number, ctx: GameContext): void {
     this.time += dt;
     this.refresh(ctx);
+    this.mats.setCabinLamp(ctx.loose.cabinLampOf(ctx.seated ?? ctx.player.aboard?.v ?? null));
     const now = ctx.clock.worldSeconds;
     // the prints lying about: their pictures, as developed as they are; turning while they fall
     for (const [l, p] of this.prints) {

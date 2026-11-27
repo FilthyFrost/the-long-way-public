@@ -21,10 +21,12 @@ import type { GameContext } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
 import { applyMaterials, CarMaterials } from '../../materials';
+import { surfaceMaterial } from '../../../render/materials';
 import type { Held } from '../../player';
 import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
 import { blenderBox, blip, boxHit, extraOf, FaceTheHand, markerOf, modelOf, type PartBox } from '../../nd/kit';
+import { placeSlots, type SlotAim, type SlotSource } from '../nd-place/slots';
 
 const T = (zh: string, en: string): Text => ({ zh, en });
 
@@ -37,8 +39,11 @@ const BOX_HOPPER = blenderBox(-0.04, 0.0, 0.398, 0.15, 0.19, 0.05);
 const BOX_SWITCH = blenderBox(0.024, 0.066, 0.15, 0.04, 0.05, 0.05);
 const BOX_CUP = blenderBox(0.082, 0.0, 0.12, 0.1, 0.08, 0.12);
 const BOX_ALL = blenderBox(0.0, 0.0, 0.21, 0.28, 0.25, 0.42);
+/** generous capture envelope around the machine for R-mode magnetic cup/carafe snapping */
+const BOX_SLOT = blenderBox(0.0, 0.0, 0.21, 0.44, 0.40, 0.56);
+const SLOT_REACH = 2.6;
 
-const COFFEE_COLOUR = 0x4a2a14;
+const COFFEE_COLOUR = 0x261208;
 /** the first seconds of a brew are the beans being ground (foley.ts coffee_grind) */
 const GRIND_S = 2.2;
 
@@ -121,6 +126,7 @@ class Machine {
   rockQ0 = new THREE.Quaternion();
   cup: { uid: string; kind: string; obj: THREE.Object3D; model: Model | null } | null = null;
   level: THREE.Mesh | null = null;
+  levelKind = '';
   stream: THREE.Mesh | null = null;
   glow: THREE.Mesh | null = null;
   bag: THREE.Mesh | null = null;
@@ -158,11 +164,19 @@ export class NdCoffee implements System<GameContext>, InteractSource {
   private readonly q = new THREE.Quaternion();
   private readonly ray = new THREE.Ray();
   private readonly facing = new FaceTheHand();
-  private brownMat: THREE.MeshBasicMaterial | null = null;
+  private brownMat: THREE.Material | null = null;
   private glowMat: THREE.MeshBasicMaterial | null = null;
+  private readonly cupSlot: SlotSource = { aim: (h, ray, reach) => this.slotAim(h, ray, reach) };
+  private readonly slot: SlotAim = { dist: 0, pos: new THREE.Vector3(), q: new THREE.Quaternion(), yaw: 0, word: '放上咖啡机', put: () => this.dockCup() };
+  private slotMachine: Machine | null = null;
+  private slotHeld: NonNullable<Held> | null = null;
+  private readonly slotV = new THREE.Vector3();
+  private readonly slotP = new THREE.Vector3();
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    const slots = placeSlots(ctx);
+    if (!slots.includes(this.cupSlot)) slots.push(this.cupSlot);
   }
 
   /** what is in the hands now */
@@ -180,7 +194,6 @@ export class NdCoffee implements System<GameContext>, InteractSource {
       seen.add(l);
       l.device = true;
       if (!this.units.has(l)) {
-        this.facing.face(l, this.time);
         const m = new Machine(this, l);
         this.units.set(l, m);
         this.list.push(m);
@@ -220,7 +233,9 @@ export class NdCoffee implements System<GameContext>, InteractSource {
     }
     if (kind === 'cup') {
       if (s.cup) return s.pour !== undefined ? T('正在流', 'The coffee is running') : null;
-      return this.held() ? null : T('拿着壶或杯子', 'Bring a pot or a cup');
+      const h = this.held();
+      if (h?.kind === 'item' && isCup(h.item)) return T('按 R 放到咖啡机上', 'Press R to place on the coffee maker');
+      return T('拿着壶或杯子', 'Bring a pot or a cup');
     }
     // (the beans ground first, then brewed: docs/V3/plan/growth.md §一 4)
     if (s.brew !== undefined) return s.brew < GRIND_S ? T('正在磨豆', 'Grinding') : T('正在煮', 'Brewing');
@@ -279,28 +294,71 @@ export class NdCoffee implements System<GameContext>, InteractSource {
     ctx.loose.touch(m.l);
   }
 
-  take(m: Machine, kind: PartKind, held: NonNullable<Held>): { ok: boolean; word: Text; keep?: boolean } | null {
-    if (held.kind !== 'item') return null;
-    const it = m.item;
-    const s = coffeeOf(it);
-    // (a bag goes in with E held on the hopper: its holdS)
-    if (held.item.item === ND_COFFEE_PACK) return null;
-    if (isCup(held.item)) {
-      if (kind === 'hopper') return null;
-      if (s.cup) return { ok: false, word: T('有杯子了', 'There is a cup there') };
-      if (working(it)) return { ok: false, word: T('正在煮', 'It is brewing') };
-      return { ok: true, word: T(`放上 <b>${itemDef(held.item.item).name.zh}</b>`, 'Put it under the spout') };
-    }
+  take(_m: Machine, _kind: PartKind, _held: NonNullable<Held>): { ok: boolean; word: Text; keep?: boolean } | null {
+    // Cups and coffee pots dock exclusively through R-mode magnetic placement (cupSlot) so LMB never conflicts with brewing.
     return null;
   }
 
-  useWith(m: Machine, held: NonNullable<Held>): void {
-    const ctx = this.ctx;
-    if (!ctx || held.kind !== 'item') return;
-    if (putCup(m.item, held.item)) {
-      ctx.sound('putdown', 0.4);
-      ctx.loose.touch(m.l);
+  useWith(_m: Machine, _held: NonNullable<Held>): void {
+    // Handled via R-mode cupSlot docking.
+  }
+
+  /** R-mode magnetic snap for coffee pots and mugs aiming near an empty, idle coffee maker */
+  private slotAim(h: NonNullable<Held>, ray: THREE.Ray, reach: number): SlotAim | null {
+    this.slotMachine = null;
+    this.slotHeld = null;
+    if (!this.ctx || h.kind !== 'item' || !isCup(h.item)) return null;
+    const far = Math.min(reach, SLOT_REACH);
+    let best: Machine | null = null;
+    let bestProx = Infinity;
+    let bestDist = Infinity;
+    for (let i = 0; i < this.list.length; i++) {
+      const m = this.list[i];
+      if (m.l.shut) continue;
+      const s = coffeeOf(m.item);
+      if (s.cup || working(m.item)) continue;
+      m.l.obj.updateWorldMatrix(true, true);
+      const cp = this.slotP.copy(m.cupAt).applyMatrix4(m.l.obj.matrixWorld);
+      const along = this.slotV.copy(cp).sub(ray.origin).dot(ray.direction);
+      if (along < 0 || along > far + 0.25) continue;
+      const prox = ray.distanceToPoint(cp);
+      const d = boxHit(m.l.obj, ray, BOX_SLOT, far);
+      if (d === null && prox > 0.24) continue;
+      const dist = d ?? Math.min(far, along);
+      if (prox < bestProx - 1e-4 || (prox < bestProx + 1e-4 && dist < bestDist)) {
+        bestProx = prox;
+        bestDist = dist;
+        best = m;
+      }
     }
+    if (!best) return null;
+    const obj = best.l.obj;
+    const s = this.slot;
+    s.pos.copy(best.cupAt).applyMatrix4(obj.matrixWorld);
+    obj.getWorldQuaternion(s.q);
+    this.slotV.set(1, 0, 0).applyQuaternion(s.q);
+    s.yaw = Math.atan2(this.slotV.z, this.slotV.x);
+    s.dist = bestDist;
+    s.word = '放上咖啡机';
+    this.slotMachine = best;
+    this.slotHeld = h;
+    return s;
+  }
+
+  private dockCup(): boolean {
+    const ctx = this.ctx;
+    const m = this.slotMachine;
+    const h = this.slotHeld;
+    if (!ctx || !m || !h || h.kind !== 'item' || working(m.item)) return false;
+    if (!putCup(m.item, h.item)) return false;
+    const p = ctx.player;
+    const i = p.slots.indexOf(h);
+    if (i >= 0) p.slots[i] = null;
+    ctx.sound('putdown', 0.4);
+    ctx.loose.touch(m.l);
+    this.slotMachine = null;
+    this.slotHeld = null;
+    return true;
   }
 
   // ------------------------------------------------------------------ the frame
@@ -313,15 +371,12 @@ export class NdCoffee implements System<GameContext>, InteractSource {
       if (!working(it)) continue;
       const r = coffeeStep(it, dt);
       const near = this.near2(m) < 64;
-      // (the grinder's own sound while the beans are ground: the glugs after)
-      if ((coffeeOf(it).brew ?? -1) >= GRIND_S && near) {
-        m.brewSound -= dt;
-        if (m.brewSound <= 0) {
-          ctx.sound('glug', 0.12);
-          m.brewSound = 0.8 + Math.random() * 0.5;
-        }
+      const st = coffeeOf(it);
+      // continuous bubbling glugs while brewing after the beans finish grinding, and steady pouring sound while flowing into the cup
+      if (st.brew !== undefined && st.brew >= GRIND_S && near) {
+        if ((st.brew - GRIND_S) % 0.85 < 0.45) ctx.sound('glug', 0.25);
       }
-      if (r.poured && near) ctx.sound('pour', 0.3);
+      if ((st.pour !== undefined || r.poured) && near) ctx.sound('pour_water');
       if (r.done) {
         ctx.loose.touch(m.l);
         const c = coffeeOf(it).cup;
@@ -385,7 +440,7 @@ export class NdCoffee implements System<GameContext>, InteractSource {
       m.rocker.quaternion.copy(m.rockQ0).multiply(this.q);
     }
     const g = extraOf(m.l);
-    this.brownMat ??= new THREE.MeshBasicMaterial({ color: COFFEE_COLOUR });
+    this.brownMat ??= surfaceMaterial({ color: COFFEE_COLOUR, spec: 0.12, side: THREE.DoubleSide, cabin: true });
     this.glowMat ??= new THREE.MeshBasicMaterial({ color: 0xffb648, toneMapped: false });
     // the cup under the spout
     const cup = s.cup ?? null;
@@ -409,18 +464,38 @@ export class NdCoffee implements System<GameContext>, InteractSource {
         entry.model = md;
       });
     }
-    // the coffee in it: a disc at its level
+    if (m.cup) {
+      m.cup.obj.updateMatrixWorld(true);
+      const owner = `nd-coffee:cup:${m.l.uid}`;
+      this.mats.setFrameOf(owner, m.cup.obj.matrixWorld);
+      if (this.ctx) this.mats.lookOf(owner)?.setCabinLamp(this.ctx.loose.cabinLampOf(m.l.riding?.on ?? null));
+    }
+    // the coffee inside the cup/carafe: full dark liquid column for glass coffee_pot, level disc for opaque mug
     if (cup && m.cup?.model) {
       const b = m.cup.model.box;
       const d = itemDef(cup.item).drink!;
       const k = Math.min(1, (cup.litres ?? 0) / d.litres);
-      if (!m.level) {
-        const r = Math.min(b.max.x - b.min.x, b.max.z - b.min.z) * 0.44;
-        m.level = new THREE.Mesh(new THREE.CircleGeometry(Math.max(0.01, Math.min(r, 0.06)), 20).rotateX(-Math.PI / 2), this.brownMat);
+      const isGlassPot = cup.item === 'coffee_pot';
+      if (!m.level || m.levelKind !== cup.item) {
+        if (m.level) {
+          m.level.removeFromParent();
+          m.level.geometry.dispose();
+        }
+        const geo = isGlassPot
+          ? new THREE.CylinderGeometry(0.055, 0.054, 1, 20).translate(0, 0.5, 0)
+          : new THREE.CircleGeometry(Math.max(0.01, Math.min(Math.min(b.max.x - b.min.x, b.max.z - b.min.z) * 0.44, 0.039)), 20).rotateX(-Math.PI / 2);
+        m.level = new THREE.Mesh(geo, this.brownMat);
+        m.levelKind = cup.item;
         g.add(m.level);
       }
-      m.level.visible = k > 0.01;
-      m.level.position.set(m.cupAt.x, m.cupAt.y + b.min.y + 0.008 + (b.max.y - b.min.y - 0.012) * k * 0.92, m.cupAt.z);
+      m.level.visible = k > 0.005;
+      if (isGlassPot) {
+        m.level.position.set(m.cupAt.x, m.cupAt.y + 0.008, m.cupAt.z);
+        m.level.scale.set(1, Math.max(0.004, k * 0.088), 1);
+      } else {
+        m.level.scale.set(1, 1, 1);
+        m.level.position.set(m.cupAt.x, m.cupAt.y + b.min.y + 0.009 + (b.max.y - b.min.y - 0.015) * k * 0.9, m.cupAt.z);
+      }
     } else if (m.level) m.level.visible = false;
     // the stream while it pours
     const pouring = s.pour !== undefined;
@@ -431,8 +506,8 @@ export class NdCoffee implements System<GameContext>, InteractSource {
     if (m.stream) {
       m.stream.visible = pouring;
       if (pouring) {
-        const bottom = m.level?.visible ? m.level.position.y : m.cupAt.y + 0.01;
-        const len = Math.max(0.01, m.spoutAt.y - bottom);
+        const surfY = m.level?.visible ? (m.levelKind === 'coffee_pot' ? m.level.position.y + m.level.scale.y : m.level.position.y) : m.cupAt.y + 0.01;
+        const len = Math.max(0.01, m.spoutAt.y - surfY);
         m.stream.position.copy(m.spoutAt);
         m.stream.scale.set(1, len, 1);
       }
@@ -496,6 +571,13 @@ export class NdCoffee implements System<GameContext>, InteractSource {
   };
 
   dispose(): void {
+    if (this.ctx) {
+      const slots = placeSlots(this.ctx);
+      const i = slots.indexOf(this.cupSlot);
+      if (i >= 0) slots.splice(i, 1);
+    }
+    this.slotMachine = null;
+    this.slotHeld = null;
     for (const m of [...this.list]) this.forget(m);
     this.mats.dispose();
     this.brownMat?.dispose();

@@ -374,7 +374,7 @@ export const TURTLE: FrameDef = {
   brakeFront: 0.62,
   cdA: 1.9,
   finalDrive: 4.86,
-  body: { front: 2.3, rear: -3.32, halfWidth: 1.07, bottom: 0.32, top: 2.12 },
+  body: { front: 2.3, rear: -3.32, halfWidth: 1.07, bottom: 0.32, top: 2.72 },
   enclosed: 1,
   chase: { dist: 8.5, height: 2.6, look: 1.25 },
   // (her eye 0.75 m over the cushion, a normal sitting posture — the player's choice of 2026-11-26: it sat 0.6 over it)

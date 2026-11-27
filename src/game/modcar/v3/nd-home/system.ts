@@ -109,7 +109,7 @@ const SURFACES: Readonly<Record<string, readonly number[]>> = {
   [ND_SOFA]: [0.445],
   [ND_BOOKSHELF]: [0.096, 0.451, 0.811, 1.171, 1.53],
   [ND_FRIDGE]: [1.36],
-  [ND_KITCHEN_STAND]: [0.922],
+  [ND_KITCHEN_STAND]: [0.722],
   [ND_TOP_CABINET]: [0.63],
   [ND_NIGHTSTAND]: [0.31, 0.59],
   [ND_CHAIR_FOLD]: [0.44],
@@ -119,7 +119,8 @@ const SURFACES: Readonly<Record<string, readonly number[]>> = {
   [ND_SOFA_2]: [0.4],
   [ND_WC]: [0.425],
   [ND_WALL_SHELF]: [0.04, 0.32],
-  [ND_CABINET]: [0.49, 0.915],
+  [ND_CABINET]: [0.39, 0.72],
+  [ND_WORKBENCH]: [0.197, 0.75],
 };
 
 interface Mover {
@@ -275,16 +276,35 @@ export class NdHome implements System<GameContext>, InteractSource {
     };
   }
 
+  private readonly vSurf = new THREE.Vector3();
+
   /** the highest surface of a piece of furniture at (x, z) (world) not above fromY, −∞ none */
   surfaceAt(x: number, z: number, fromY: number): number {
     let top = -Infinity;
+    const o = this.ctx?.core.origin;
     for (const p of this.pieces.values()) {
       const l = p.l;
-      if (l.riding || !l.resting) continue;
+      if (!l.resting && !l.riding) continue;
       const hs = SURFACES[p.item.item];
       const b = p.box ?? this.boxOf(l);
       if (!hs || !b) continue;
       p.box = b;
+      if (l.riding && o) {
+        // Account for carrier pitch/roll so countertops inside tilted RVs match topUnder raycasts accurately (#1)
+        l.obj.updateMatrixWorld();
+        this.vSurf.set(x - o.x, fromY - o.y, z - o.z);
+        l.obj.worldToLocal(this.vSurf);
+        const lx = this.vSurf.x;
+        const lz = this.vSurf.z;
+        if (lx < b.min[0] || lx > b.max[0] || lz < b.min[2] || lz > b.max[2]) continue;
+        for (const h of hs) {
+          this.vSurf.set(lx, h, lz);
+          l.obj.localToWorld(this.vSurf);
+          const y = this.vSurf.y + o.y;
+          if (y <= fromY + 0.05 && y > top) top = y;
+        }
+        continue;
+      }
       // (into its frame: its object is turned by −yaw about the up axis, loose.ts)
       const dx = x - l.x;
       const dz = z - l.z;
@@ -318,7 +338,6 @@ export class NdHome implements System<GameContext>, InteractSource {
       seen.add(l);
       l.device = true;
       if (!this.pieces.has(l)) {
-        this.facing.face(l, this.time);
         this.pieces.set(l, new Piece(this, l));
       }
     }

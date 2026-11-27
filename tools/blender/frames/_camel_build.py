@@ -297,10 +297,8 @@ def json_extra(objs, panels, needles, wipers, tris, total):
     from frames._sedan_build import json_extra as je
     out = je(objs, panels, needles, wipers, tris, total)
     out['eye_default'] = game_vec(np.array(IN.EYE))
-    # the empty room's plan (game frame: x along, z across = -y): its floor from the tail to the modesty panel, the rear
-    # wheels' humps in it, the stairwell, the ceiling (core/modcar/aboard.ts, cargo.ts)
+    # completely flat bus room floor from tail to modesty panel (zero wheel humps)
     out['room'] = dict(floor_y=IN.FLOOR_Z, x=[D['xr'] + 0.06, IN.ROOM_FRONT_X], z=[-IN.IN_Y, IN.IN_Y],
-                       wells=dict(x=[D['ax_r'] - IN.WELL_R - 0.03, D['ax_r'] + IN.WELL_R + 0.03], z_in=IN.WELL_IN_R, top=D['hub_z'] + IN.WELL_R + 0.03),
                        stair=dict(x=[D['sd_x0'], D['sd_x1']], z=[IN.IN_Y - 0.36, IN.IN_Y]), ceiling=D['roof_z'] + D['roof_crown'] - 0.035)
     return out
 

@@ -137,7 +137,7 @@ class Layer {
           vec3 L = center - uHeadPos;
           float d = length(L);
           float c = dot(L / max(d, 1e-3), uHeadDir);
-          vLamp = uHeadColor * smoothstep(0.82, 0.97, c) / (1.0 + d * d / 160.0);
+          vLamp = uHeadColor * smoothstep(uHeadCone.x, uHeadCone.y, c) / (1.0 + d * d / max(uHeadReach * 0.4, 90.0));
         }`,
       fragmentShader: /* glsl */ `
         #include <common>

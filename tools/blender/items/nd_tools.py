@@ -173,30 +173,62 @@ def nd_crowbar(P):
 # ------------------------------------------------------------------------------------------------ the compass
 
 def nd_compass(P):
-    """A brass compass in its box (Nomad Drive's Compass, 0.21 x 0.16 m): a wooden case (paint_b) holding a brass bowl
-    (paint) under its glass, the card with its points, the needle its own child (KNOB_needle), the lid shut over it
-    with its mirror inside, its own child LID hinged along the case's back edge (the game opens it in the hands)."""
-    P.ao_distance = 0.03
-    N.soft(P, 'case', (0.16, 0.15, 0.04), (0.0, 0.0, 0.02), 'paint_b', r=0.01)
-    P.cyl('bowl', 0.062, 0.016, loc=(0.0, 0.0, 0.046), material='paint', segs=32, bev=0.003)
-    P.cyl('card', 0.055, 0.002, loc=(0.0, 0.0, 0.054), material='gauge', segs=32, bev=None)
-    for k in range(8):
-        a = k * TAU / 8
-        L = 0.012 if k % 2 else 0.02
-        P.box('point', (L, 0.003, 0.001), (math.cos(a) * (0.04 - L / 2), math.sin(a) * (0.04 - L / 2), 0.0555), 'trim', rot=(0, 0, math.degrees(a)), bev=None)
+    """A precision brass pocket field compass (8.8 cm diameter): stepped hollow brass case (paint) with a true
+    hollow knurled outer grip ring (never occluding the cavity), lanyard bail at +X (12-o'clock), planar UV-mapped
+    P_dial disc for a crisp 512×512 ivory enamel N/E/S/W + 360° degree card, fixed red lubber triangle at +X,
+    sculpted floating crimson/silver needle (KNOB_needle), clear glass crystal, and hinged brass sighting lid
+    (LID) with internal mirror and vertical aiming hairline."""
+    P.ao_distance = 0.014
+    R = 0.044
+    # Stepped hollow brass circular case (inner cavity recessed cleanly down to z = 0.0085)
+    prof = [(0.0, 0.0), (R - 0.004, 0.0), (R, 0.003), (R, 0.0155), (R - 0.0018, 0.0185), (R - 0.0055, 0.0185),
+            (R - 0.0055, 0.0085), (0.0, 0.0085)]
+    P.lathe('body', prof, loc=(0.0, 0.0, 0.0), material='paint', segs=40, sharp=55.0)
+    # HOLLOW knurled dark outer bezel grip ring (only wraps the outer wall R-0.0004 .. R+0.0014; cavity stays 100% open!)
+    grip_prof = [(R - 0.0004, 0.0052), (R + 0.0014, 0.0058), (R + 0.0014, 0.0132), (R - 0.0004, 0.0138)]
+    P.lathe('grip_band', grip_prof, loc=(0.0, 0.0, 0.0), material='paint_b', segs=40, close='loop', sharp=50.0)
+    for k in range(28):
+        a = k * TAU / 28
+        P.box('knurl', (0.0015, 0.0016, 0.0068), (math.cos(a) * (R + 0.0015), math.sin(a) * (R + 0.0015), 0.0095),
+              'paint', rot=(0, 0, math.degrees(a)), bev=None)
+    # Top lanyard stem & brass bail ring (+X = 12-o'clock / North sighting axis)
+    P.box('stem', (0.009, 0.012, 0.01), (R + 0.003, 0.0, 0.0095), 'paint', bev=0.002)
+    P.torus('bail', 0.0088, 0.0021, loc=(R + 0.0125, 0.0, 0.0095), material='paint', segs=20, rsegs=6)
+    # Planar UV-mapped recessed dial disc (P_dial: kept separate by RIGID so game assigns 512×512 N/E/S/W 360° CanvasTexture)
+    rd = R - 0.0056
+    bm = bmesh.new()
+    uv_lay = bm.loops.layers.uv.new('UVMap')
+    center_v = bm.verts.new((0.0, 0.0, 0.0100))
+    ring_v = [bm.verts.new((math.cos(i * TAU / 48) * rd, math.sin(i * TAU / 48) * rd, 0.0100)) for i in range(48)]
+    for i in range(48):
+        f = bm.faces.new((center_v, ring_v[i], ring_v[(i + 1) % 48]))
+        for lp in f.loops:
+            co = lp.vert.co
+            lp[uv_lay].uv = (0.5 - co.y / (2.0 * rd), 0.5 + co.x / (2.0 * rd))
+    dial_obj = P.mesh('dial_face', bm, 'ceramic', sharp=60.0)
+    P.mover('P_dial', [dial_obj], (0.0, 0.0, 0.0))
+    # Subtle inner brass chapter ring and bold fixed red 12-o'clock lubber triangle at +X rim
+    P.torus('chapter_ring', rd - 0.0008, 0.0009, loc=(0.0, 0.0, 0.0106), material='paint', segs=40, rsegs=6)
+    P.prism('lubber_n', [(rd - 0.0058, 0.0), (rd + 0.0006, -0.0036), (rd + 0.0006, 0.0036)], 0.0012,
+            loc=(0.0, 0.0, 0.0106), material='lens_tail', bev=None)
+    # Sculpted 3D floating magnetic needle (KNOB_needle: vivid crimson North arrowhead along +X, bright silver South tail along -X)
     since = H.mark_since(P)
-    P.prism('needle_n', [(0.0, -0.005), (0.042, 0.0), (0.0, 0.005)], 0.002, loc=(0.0, 0.0, 0.058), material='lens_tail', bev=None)
-    P.prism('needle_s', [(0.0, -0.005), (-0.042, 0.0), (0.0, 0.005)], 0.002, loc=(0.0, 0.0, 0.058), material='trim', bev=None)
-    P.cyl('pivot', 0.004, 0.004, loc=(0.0, 0.0, 0.06), material='paint', segs=10, bev=None)
-    P.mover('KNOB_needle', P.statics[since:], (0.0, 0.0, 0.058))
-    P.cyl('glass', 0.06, 0.002, loc=(0.0, 0.0, 0.063), material='glass', segs=32, bev=None)
-    P.torus('bezel', 0.061, 0.004, loc=(0.0, 0.0, 0.062), material='paint', segs=32, rsegs=6)
+    P.prism('needle_n', [(0.0, -0.0038), (0.0315, 0.0), (0.0, 0.0038)], 0.0016, loc=(0.0, 0.0, 0.0132), material='lens_tail', bev=None)
+    P.prism('needle_s', [(0.0, 0.0038), (-0.0295, 0.0), (0.0, -0.0038)], 0.0016, loc=(0.0, 0.0, 0.0132), material='chrome', bev=None)
+    P.cyl('pivot_base', 0.0044, 0.0022, loc=(0.0, 0.0, 0.0140), material='paint', segs=16, bev=0.0005)
+    P.sphere('pivot_cap', 0.0032, loc=(0.0, 0.0, 0.0153), material='chrome', u=12, v=8, scale=(1, 1, 0.55))
+    P.mover('KNOB_needle', P.statics[since:], (0.0, 0.0, 0.0134))
+    # Open polished brass bezel lip (no reflective car-windshield glass disc so the enamel N/E/S/W dial stays 100% crisp)
+    P.torus('bezel', R - 0.0036, 0.0028, loc=(0.0, 0.0, 0.018), material='paint', segs=40, rsegs=8)
+    # Circular protective sighting lid hinged at +X (12-o'clock) with internal mirror and center brass aiming hairline
     since = H.mark_since(P)
-    N.soft(P, 'lid', (0.16, 0.15, 0.012), (0.0, 0.0, 0.074), 'paint_b', r=0.006)
-    P.box('mirror', (0.11, 0.11, 0.002), (0.0, 0.0, 0.067), 'chrome', bev=None)
-    P.box('lid_catch', (0.006, 0.03, 0.012), (0.082, 0.0, 0.07), 'paint', bev=0.001)
-    P.mover('LID', P.statics[since:], (-0.08, 0.0, 0.074))
-    P.views = [('a', 35, 40), ('b', 160, 40)]
+    P.cyl('lid', R, 0.0042, loc=(0.0, 0.0, 0.021), material='paint', segs=40, bev=0.0015)
+    P.cyl('lid_inlay', R - 0.008, 0.0012, loc=(0.0, 0.0, 0.0232), material='paint_b', segs=36, bev=None)
+    P.cyl('mirror', R - 0.007, 0.001, loc=(0.0, 0.0, 0.0189), material='chrome', segs=36, bev=None)
+    P.box('mirror_line', (R * 1.55, 0.001, 0.0005), (0.0, 0.0, 0.0183), 'paint', bev=None)
+    P.box('lid_catch', (0.0045, 0.014, 0.005), (-R - 0.001, 0.0, 0.0195), 'paint_b', bev=0.001)
+    P.mover('LID', P.statics[since:], (R, 0.0, 0.020))
+    P.views = [('a', 35, 45), ('b', 160, 40)]
 
 
 # ------------------------------------------------------------------------------------------------ the repair kits

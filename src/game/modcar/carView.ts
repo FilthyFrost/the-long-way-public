@@ -926,16 +926,23 @@ export class CarView {
     return true;
   }
 
-  /** how far along a ray (render space) it meets a filler (a little enlarged, to be easy to aim at); null when it misses or is beyond max */
+  /** how far along a ray (render space) it meets a filler (generous cap + whole open engine/radiator assist); null when missed */
   fillerHit(kind: FillerKind, ray: THREE.Ray, max: number): number | null {
     if (kind === 'fuel' && this.capPivot) return this.capHit(ray, max);
     if (!this.fillerMouth(kind, this.fillP, this.fillN)) return null;
-    const r = Math.max(0.11, (this.fillerMarker(kind)?.userData.radius ?? 0.03) * 4);
+    const r = Math.max(0.18, (this.fillerMarker(kind)?.userData.radius ?? 0.03) * 5.5);
     this.fillS.set(this.fillP, r);
     const p = ray.intersectSphere(this.fillS, this.capHitV);
-    if (!p) return null;
-    const d = p.distanceTo(ray.origin);
-    return d <= max ? d : null;
+    if (p) {
+      const d = p.distanceTo(ray.origin);
+      if (d <= max) return d;
+    }
+    // Under an open hood, aiming anywhere at the engine (oil) or radiator (water) snaps cleanly to its filler mouth.
+    if ((kind === 'oil' || kind === 'water') && this.fillerOpen(kind)) {
+      const m = this.fillerMount(kind);
+      if (m) return this.castOn(m, ray.origin, ray.direction, max);
+    }
+    return null;
   }
 
   /** can liquid go in there now: fuel when the flap (or the tank's cap) is open; water and oil when no shut bonnet is over them */
@@ -1123,6 +1130,7 @@ export class CarView {
     this.root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.geometry.hasAttribute('aMaskUv') || !mesh.userData.mask_px) return;
+      if (!this.shownHere(mesh)) return;
       const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
       const owner = ownerOf.get(mat);
       if (!owner || owner === 'merged') return;
@@ -1234,8 +1242,8 @@ export class CarView {
     }
     const out: { mesh: THREE.Mesh; owner: string }[] = [];
     const walk = (o: THREE.Object3D): void => {
-      // (the merge, its hull and far twins, a ghost in the hands' way: not the vehicle as it stands)
-      if (o.name.startsWith('merged') || o.name.startsWith('ghost:')) return;
+      // Skip only the whole-vehicle MergedCar group and ghosts (not per-part mergeRigid meshes named merged:<mat>).
+      if (o === this.merged?.group || o.name.startsWith('ghost:')) return;
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray) {
         const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
@@ -1305,7 +1313,7 @@ export class CarView {
     const n = this.nodeOf(mount);
     if (!n) return null;
     const walk = (o: THREE.Object3D): void => {
-      if (o.name.startsWith('merged') || o.name.startsWith('ghost:')) return;
+      if (o === this.merged?.group || o.name.startsWith('ghost:')) return;
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh && !mesh.userData.ghostDepth && !mesh.userData.ghostXray && this.shownHere(mesh)) out.push(mesh);
       for (const c of o.children) walk(c);
@@ -1375,6 +1383,8 @@ export class CarView {
     this.tcRay.origin.copy(origin);
     this.tcRay.direction.copy(dir);
     for (const { mesh, owner } of this.targetMeshes()) {
+      // Skip hidden meshes such as uninstalled panels (pivot.visible = false) so rays reach engine/radiator/seats cleanly.
+      if (!this.shownHere(mesh)) continue;
       const g = mesh.geometry;
       if (!g.boundingSphere) g.computeBoundingSphere();
       mesh.updateWorldMatrix(true, false);
@@ -1598,7 +1608,8 @@ export class CarView {
     const room = roomOf(this.frame.id);
     if (room) {
       const top = Math.min(room.hi[1], shape.bodyHeight - 0.03);
-      const b = new THREE.Box3(new THREE.Vector3(room.lo[0], room.lo[1], room.lo[2]), new THREE.Vector3(room.hi[0], top, room.hi[2]));
+      const minX = this.frame.id === 'turtle' ? Math.min(room.lo[0], -3.25) : room.lo[0];
+      const b = new THREE.Box3(new THREE.Vector3(minX, room.lo[1], room.lo[2]), new THREE.Vector3(room.hi[0], top, room.hi[2]));
       shape.cabin = shape.cabin ? shape.cabin.union(b) : b;
     }
     this.mats.setShape({ ...shape, boot });
@@ -1930,11 +1941,59 @@ export class CarView {
     }
   }
 
-  private readonly outlineBuf: { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } = { root: this.root, partId: -1, extra: null };
+  private readonly outlineBuf: { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null; meshes: THREE.Mesh[] | null } = { root: this.root, partId: -1, extra: null, meshes: null };
+  private readonly cushionBuf: THREE.Mesh[] = [];
+
+  /** True when a seat mesh belongs to the seating cushion / upholstery (sit intent) rather than rails/frame hardware. */
+  private isSeatCushionMesh(mesh: THREE.Mesh): boolean {
+    const nm = mesh.name.toLowerCase();
+    if (/rail|pan|riser|frame|bracket|bolt|post|base|recline|lever|handle|buckle|hinge/.test(nm)) return false;
+    const mats = matNames(mesh);
+    if (mats.some((m) => m === 'leather' || m === 'fabric' || m === 'cloth')) {
+      return !/headrest|back_shell|back_panel/.test(nm);
+    }
+    return /cushion|pleat|bolster|front_roll|saddle|seat_pad/.test(nm);
+  }
+
+  /** Whether aiming at a specific mesh on a mounted seat signals sitting (cushion/upholstery) or detaching (rails/frame). */
+  seatSubHit(mount: string, mesh: THREE.Mesh | null): 'sit' | 'detach' {
+    if (!mesh) return 'sit';
+    const holder = this.shown.get(mount)?.holder;
+    if (!holder) return 'sit';
+    let hasCushion = false;
+    holder.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !m.userData.ghostDepth && !m.userData.ghostXray && this.isSeatCushionMesh(m)) hasCushion = true;
+    });
+    if (!hasCushion) return 'sit';
+    const nm = mesh.name.toLowerCase();
+    const mats = matNames(mesh);
+    if (/rail|pan|riser|frame|bracket|bolt|base/.test(nm)) return 'detach';
+    if (mats.length > 0 && mats.every((m) => m === 'steel' || m === 'chrome' || m === 'trim')) return 'detach';
+    return 'sit';
+  }
 
   /** silhouette outline target for a mounted part (render/frame.ts; zero per-frame alloc) */
-  outlineTarget(mount: string | null): { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null } | null {
+  outlineTarget(mount: string | null, mode: 'full' | 'cushion' = 'full'): { root: THREE.Object3D; partId: number; extra: THREE.Object3D | null; meshes: THREE.Mesh[] | null } | null {
     if (!mount) return null;
+    if (mode === 'cushion') {
+      const holder = this.shown.get(mount)?.holder ?? null;
+      if (holder) {
+        this.cushionBuf.length = 0;
+        holder.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh && !m.userData.ghostDepth && !m.userData.ghostXray && this.isSeatCushionMesh(m)) this.cushionBuf.push(m);
+        });
+        if (this.cushionBuf.length > 0) {
+          this.outlineBuf.root = holder;
+          this.outlineBuf.partId = -1;
+          this.outlineBuf.extra = null;
+          this.outlineBuf.meshes = this.cushionBuf;
+          return this.outlineBuf;
+        }
+      }
+    }
+    this.outlineBuf.meshes = null;
     const id = this.mergeIds.get(mount) ?? -1;
     if (id > 0 && this.merged) {
       this.outlineBuf.root = this.merged.group;

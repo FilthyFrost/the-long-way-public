@@ -42,14 +42,14 @@ const FOOD_GLOSS = 0.22;
 const ON_STOVE_YAW: Readonly<Record<string, number>> = { kit_pan: -0.6, kit_kettle: 2.35 };
 /** where the kettle's spout ends, in its own frame (cookware.py kit_kettle): its steam comes out there */
 const SPOUT = new THREE.Vector3(-0.147, 0.108, 0);
-/** the room each vessel has for what is in it: how far the portions lie from its middle, how big one may be, how high they lie over its floor, and a soup's surface (0: none) */
+/** the room each vessel has for what is in it: generous pan/pot cell budgets so remodeled ingredients & beef slices never shrink to tiny dots (#29) */
 const ROOM: Readonly<Record<Way, { r: number; cell: number; lift: number; liquid: number; liquidR: number }>> = {
-  fry: { r: 0.052, cell: 0.082, lift: 0.0, liquid: 0, liquidR: 0 },
-  boil: { r: 0.045, cell: 0.07, lift: 0.052, liquid: 0.07, liquidR: 0.105 },
-  mix: { r: 0.05, cell: 0.08, lift: 0.004, liquid: 0, liquidR: 0 },
-  grill: { r: 0.062, cell: 0.085, lift: 0.0, liquid: 0, liquidR: 0 },
-  steam: { r: 0.048, cell: 0.075, lift: 0.0, liquid: 0, liquidR: 0 },
-  bake: { r: 0.048, cell: 0.075, lift: 0.0, liquid: 0, liquidR: 0 },
+  fry: { r: 0.068, cell: 0.145, lift: 0.0, liquid: 0, liquidR: 0 },
+  boil: { r: 0.056, cell: 0.12, lift: 0.052, liquid: 0.072, liquidR: 0.108 },
+  mix: { r: 0.062, cell: 0.13, lift: 0.005, liquid: 0, liquidR: 0 },
+  grill: { r: 0.078, cell: 0.155, lift: 0.0, liquid: 0, liquidR: 0 },
+  steam: { r: 0.058, cell: 0.125, lift: 0.0, liquid: 0, liquidR: 0 },
+  bake: { r: 0.062, cell: 0.135, lift: 0.0, liquid: 0, liquidR: 0 },
   brew: { r: 0, cell: 0, lift: 0, liquid: 0, liquidR: 0 },
 };
 /** the stove's knob against its model (4 cm across there), and its ring's colours: the flame off, low, high */

@@ -80,7 +80,7 @@ export const LOOT_TABLES: Record<ContainerKind, Table> = {
   // a kitchen
   cupboard: { picks: [1, 3], empty: 0.1, entries: [E({ cat: 'food' }, 3), E({ cat: 'drink' }, 2), E({ junk: true }, 2), E({ one: ['med_warm_2', 'med_bandage'] }, 0.5)] },
   // a bedroom
-  wardrobe: { picks: [1, 3], empty: 0.1, entries: [E({ cat: 'wear' }, 4), E({ cat: 'pack' }, 0.6), E({ one: ['junk_pillow', 'junk_pillow_s', 'junk_ball', 'junk_vinyl'] }, 1)] },
+  wardrobe: { picks: [1, 3], empty: 0.1, entries: [E({ cat: 'wear' }, 4), E({ cat: 'pack' }, 0.6), E({ one: ['junk_pillow', 'junk_pillow_s', 'junk_ball'] }, 1)] },
   // an office
   desk: { picks: [1, 2], empty: 0.2, entries: [E({ junk: true }, 2), E({ cat: 'med' }, 0.6), E({ cat: 'lamp' }, 0.5), E({ one: ['crate_parts', 'crate_parts_s'] }, 0.6)] },
   // a clinic's cabinet
@@ -267,7 +267,7 @@ function larderOf(r: Rng, shelf: LarderShelf, top: number, climate: Climate = 'm
 
 /** the junk each sort of place has about it (what its kitchen, its forecourt, its workshop leave) */
 const JUNK: Record<string, readonly string[]> = {
-  house: ['junk_mug', 'junk_plate', 'junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_chair_wood', 'junk_stool', 'junk_record', 'junk_vinyl', 'junk_cage', 'junk_candle', 'junk_box_food', 'junk_ball', 'junk_food_bucket', 'junk_bucket_old', 'junk_tv'],
+  house: ['junk_mug', 'junk_plate', 'junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_chair_wood', 'junk_stool', 'junk_record', 'junk_cage', 'junk_candle', 'junk_box_food', 'junk_ball', 'junk_food_bucket', 'junk_bucket_old', 'junk_tv'],
   station: ['junk_sign', 'junk_cone', 'junk_bucket', 'junk_bin', 'junk_bag', 'junk_bag_s', 'junk_crate_plastic', 'junk_sign_wet', 'junk_mop', 'junk_stool_tall'],
   garage: ['junk_bucket_paint', 'junk_crate_plastic', 'junk_bag', 'junk_bucket', 'junk_stool', 'junk_chair_office', 'junk_lamp', 'junk_clockradio', 'junk_cone', 'junk_mop'],
   shop: ['junk_box_food', 'junk_crate_plastic', 'junk_mug', 'junk_plate', 'junk_bag_s', 'junk_sign_wet', 'junk_mop', 'junk_bin', 'junk_stool_tall'],
@@ -276,7 +276,7 @@ const JUNK: Record<string, readonly string[]> = {
   works: ['junk_bucket_paint', 'junk_fax', 'junk_chair_office', 'junk_transceiver', 'junk_lamp', 'junk_bag', 'junk_crate_plastic', 'junk_camera'],
   lighthouse: ['junk_lamp', 'junk_camera', 'junk_clockradio', 'junk_trumpet', 'junk_mug', 'junk_plate', 'junk_pillow_s'],
   // (a world of version 7's motel, a sort of place of its own — sites.ts Site.sort: what its rooms leave)
-  motel: ['junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_mug', 'junk_plate', 'junk_candle', 'junk_hanger', 'junk_vinyl', 'junk_bag_s', 'junk_bin', 'junk_tv'],
+  motel: ['junk_pillow', 'junk_pillow_s', 'junk_lamp', 'junk_clockradio', 'junk_mug', 'junk_plate', 'junk_candle', 'junk_hanger', 'junk_bag_s', 'junk_bin', 'junk_tv'],
   other: ['junk_bag_s', 'junk_bucket_old', 'junk_crate_plastic', 'junk_mug', 'junk_cone', 'junk_ball'],
 };
 
@@ -530,7 +530,7 @@ const INSIDE: Readonly<Record<string, Readonly<Record<string, Table>>>> = {
         E({ one: ['nd_key_1'] }, 0.5),
         E({ one: ['nd_chocolate_1', 'food_licorice', 'food_nuts_old'] }, 1.4),
         E({ one: ['nd_compass'] }, 0.5),
-        E({ one: ['junk_clockradio', 'junk_mug', 'junk_vinyl'] }, 1.5),
+        E({ one: ['junk_clockradio', 'junk_mug', 'nd_vinyl_01', 'nd_vinyl_05', 'nd_vinyl_08', 'nd_vinyl_11'] }, 1.5),
       ],
     },
   },

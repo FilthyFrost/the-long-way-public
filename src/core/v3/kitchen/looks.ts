@@ -14,9 +14,14 @@ import { DISH } from './dishes';
 import { FOOD } from './pantry';
 
 /** what an ingredient becomes on the board, and what of it lies in the pot */
-export type Prep = 'slices' | 'dice' | 'shreds' | 'wedges' | 'florets' | 'caps' | 'fillet' | 'mince' | 'strips' | 'egg' | 'mound' | 'nest' | 'pool';
+export type Prep =
+  | 'slices' | 'dice' | 'shreds' | 'wedges' | 'florets' | 'caps' | 'fillet'
+  | 'mince' | 'strips' | 'beef_slices' | 'egg' | 'mound' | 'nest' | 'pool';
 
-export const PREPS: readonly Prep[] = ['slices', 'dice', 'shreds', 'wedges', 'florets', 'caps', 'fillet', 'mince', 'strips', 'egg', 'mound', 'nest', 'pool'];
+export const PREPS: readonly Prep[] = [
+  'slices', 'dice', 'shreds', 'wedges', 'florets', 'caps', 'fillet',
+  'mince', 'strips', 'beef_slices', 'egg', 'mound', 'nest', 'pool',
+];
 
 export interface FoodLook {
   /** its own model's two colours */
@@ -87,9 +92,9 @@ const FOOD_ROWS: Readonly<Record<string, FoodRow>> = {
   pork: [0xe07a7a, 0xf8e8e0, 'strips', 0xe07a7a, 0xf8e8e0],
   bacon: [0xb8483a, 0xf4d8c8, 'strips', 0xb8483a, 0xf4d8c8],
   duck: [0xb0404a, 0xf0d8a8, 'strips', 0xb0404a, 0xf0d8a8],
-  beef: [0xa82a2a, 0xf8ece0, 'dice', 0xa82a2a, 0xc04a4a],
-  lamb: [0xc04a4a, 0xf8ece0, 'dice', 0xc04a4a, 0xd86a6a],
-  venison: [0x7a2028, 0xc8a0a0, 'dice', 0x7a2028, 0x9a3a40],
+  beef: [0xa82a2a, 0xf8ece0, 'beef_slices', 0xb22828, 0xf8ece0],
+  lamb: [0xc04a4a, 0xf8ece0, 'beef_slices', 0xc44444, 0xf8ece0],
+  venison: [0x7a2028, 0xc8a0a0, 'beef_slices', 0x86242c, 0xf0dcd4],
   // fish and shellfish
   brookfish: [0x7a8a6a, 0xe8e8d8, 'fillet', 0xf0e0d0, 0x7a8a6a],
   trout: [0x6a8a7a, 0xf0d8c8, 'fillet', 0xf4b8a0, 0x6a8a7a],

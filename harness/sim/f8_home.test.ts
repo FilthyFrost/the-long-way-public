@@ -114,9 +114,9 @@ describe('F8: a save from before a vehicle was made anew inside', () => {
   it('the frames made anew inside say so; the rest are as they were first made', () => {
     // (the Whale and the Old Elephant three times: opened up, then lengthened with the Camel and the Turtle — docs/V3/
     // plan/finish.md §18 — then emptied with the Turtle, §十九 step 7)
-    for (const id of ['rv', 'elephant']) expect(roomRev(id), id).toBe(3);
-    expect(roomRev('turtle')).toBe(2);
-    for (const id of ['camel', 'trailer', 'snail']) expect(roomRev(id), id).toBe(1);
+    for (const id of ['rv', 'elephant', 'turtle']) expect(roomRev(id), id).toBe(3);
+    expect(roomRev('camel')).toBe(2);
+    for (const id of ['trailer', 'snail']) expect(roomRev(id), id).toBe(1);
     for (const id of ['sedan', 'pickup', 'van', 'moto']) expect(roomRev(id), id).toBe(0);
   });
 

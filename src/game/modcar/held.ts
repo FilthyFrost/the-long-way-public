@@ -20,16 +20,18 @@
  * taken up, it is shaken (shake).
  */
 import * as THREE from 'three';
-import { itemDef, itemMass, itemModelOf, itemPaint } from '../../core/modcar/items';
+import { itemDef, itemMass, itemModelOf, itemPaint, type ItemInstance } from '../../core/modcar/items';
 import { partDef } from '../../core/modcar/parts';
 import { toolModelId } from '../../core/modcar/tools';
 import { coverageOf, easeWeight, samplePattern, segmentHitsBox, targetWeight, VIEW_FADE, viewFadeScale } from '../../core/v3/nd/viewFade';
 import type { RenderCore } from '../render/core';
 import type { SeeLayer } from '../render/frame';
+import { surfaceMaterial } from '../render/materials';
 import { LAYER_SHADOW_FAR, LAYER_SHADOW_NEAR } from '../render/shadow';
 import { cloneModel, itemGlb, partModel, seatTyres, toolGlb } from './assets';
 import { itemStandIn, partLook, toolLook, toolModel } from './loose';
 import { applyMaterials, CarMaterials } from './materials';
+import { LIQUID } from './nd/vessel';
 import type { Held } from './player';
 
 
@@ -103,6 +105,12 @@ export class HeldThing {
   private toolKind = '';
   /** the tool's model (a spray can's by its size) */
   private modelId = '';
+  /** currently held item instance (for live liquid level rendering and per-item carry orientation) */
+  private heldItem: ItemInstance | null = null;
+  private itemId = '';
+  private liquidMesh: THREE.Mesh | null = null;
+  private readonly liquidOff = new THREE.Vector3();
+  private readonly liquidMats = new Map<string, THREE.Material>();
   /** spraying: the point the nozzle turns to (render space), how far it has come up to it (0…1) */
   private sprayAt: THREE.Vector3 | null = null;
   private sprayB = 0;
@@ -207,6 +215,11 @@ export class HeldThing {
     this.use = u;
   }
 
+  /** sync cabin lamp light onto held items and R-mode placement previews so they never render black indoors */
+  setCabinLamp(c: THREE.Color): void {
+    this.mats.setCabinLamp(c);
+  }
+
   constructor(private readonly core: RenderCore) {
     this.root.name = 'modcar:held';
     this.root.visible = false;
@@ -221,8 +234,21 @@ export class HeldThing {
     this.key = key;
     this.toolKind = held?.kind === 'tool' ? held.tool.kind : '';
     this.modelId = held?.kind === 'tool' ? toolModelId(held.tool) : '';
+    this.heldItem = held?.kind === 'item' ? held.item : null;
+    this.itemId = held?.kind === 'item' ? held.item.item : '';
+    if (this.liquidMesh) {
+      this.liquidMesh.removeFromParent();
+      this.liquidMesh.geometry.dispose();
+      this.liquidMesh = null;
+    }
     // (another thing: whole at first, as Nomad Drive's comes into the hands; its pieces measured as its model comes in)
-    this.seeScale = held?.kind === 'item' ? viewFadeScale(held.item.item) : 1;
+    // Never fade long hand tools (shovel, scraper, brush) or the compass dial into ghost-transparency
+    this.seeScale =
+      this.itemId === 'nd_shovel' || this.itemId === 'nd_compass' || this.toolKind === 'scraper' || this.toolKind === 'brush'
+        ? 0
+        : held?.kind === 'item'
+          ? viewFadeScale(held.item.item)
+          : 1;
     this.seeK = 0;
     this.piecesStale = true;
     this.sprayB = 0;
@@ -329,7 +355,84 @@ export class HeldThing {
     });
     this.inner.add(obj);
     if (this.hung) obj.add(this.hung);
+    this.attachLiquid(obj);
     this.piecesStale = true;
+  }
+
+  /** build live liquid fill geometry inside held open/glass vessels (coffee pot, mug, bucket) */
+  private attachLiquid(obj: THREE.Object3D): void {
+    if (this.liquidMesh) {
+      this.liquidMesh.removeFromParent();
+      this.liquidMesh.geometry.dispose();
+      this.liquidMesh = null;
+    }
+    const id = this.itemId;
+    if (id !== 'coffee_pot' && id !== 'nd_mug' && id !== 'nd_bucket') return;
+    this.liquidOff.set(0, 0, 0);
+    const brim = obj.getObjectByName('M_brim');
+    if (brim) {
+      obj.updateMatrixWorld(true);
+      brim.getWorldPosition(this.liquidOff);
+      obj.worldToLocal(this.liquidOff);
+    }
+    const mat = this.liquidMatOf('coffee');
+    const geo =
+      id === 'coffee_pot'
+        ? new THREE.CylinderGeometry(0.055, 0.054, 1, 20).translate(0, 0.5, 0)
+        : id === 'nd_mug'
+          ? new THREE.CylinderGeometry(0.039, 0.038, 1, 24).translate(0, 0.5, 0)
+          : new THREE.CircleGeometry(1, 24).rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.name = 'held:liquid';
+    mesh.layers.disable(LAYER_SHADOW_FAR);
+    mesh.layers.disable(LAYER_SHADOW_NEAR);
+    mesh.frustumCulled = false;
+    mesh.visible = false;
+    obj.add(mesh);
+    this.liquidMesh = mesh;
+  }
+
+  private liquidMatOf(q: string): THREE.Material {
+    let m = this.liquidMats.get(q);
+    if (!m) {
+      const hex = LIQUID[q as keyof typeof LIQUID]?.hex ?? LIQUID.coffee.hex;
+      // Low spec prevents flat top surfaces from washing out to solid white under noon sunlight
+      m = surfaceMaterial({ color: hex, spec: 0.12, side: THREE.DoubleSide, cabinLift: true });
+      this.liquidMats.set(q, m);
+    }
+    return m;
+  }
+
+  /** sync held vessel liquid fill height and colour with the live item state */
+  private updateLiquid(): void {
+    const mesh = this.liquidMesh;
+    const it = this.heldItem;
+    if (!mesh || !it) return;
+    const d = itemDef(it.item).drink;
+    if (!d || d.litres <= 0) {
+      mesh.visible = false;
+      return;
+    }
+    const fill = Math.max(0, Math.min(1, (it.litres ?? 0) / d.litres));
+    if (fill < 0.005) {
+      mesh.visible = false;
+      return;
+    }
+    const q = it.state?.liquid ?? d.liquid;
+    mesh.material = this.liquidMatOf(q);
+    mesh.visible = true;
+    if (it.item === 'coffee_pot') {
+      mesh.position.set(this.liquidOff.x, 0.008, this.liquidOff.z);
+      mesh.scale.set(1, Math.max(0.004, fill * 0.092), 1);
+    } else if (it.item === 'nd_mug') {
+      const topY = this.liquidOff.y > 0.03 ? this.liquidOff.y : 0.084;
+      mesh.position.set(this.liquidOff.x, 0.01, this.liquidOff.z);
+      mesh.scale.set(1, Math.max(0.004, fill * (topY - 0.012)), 1);
+    } else if (it.item === 'nd_bucket') {
+      const r = 0.1 + 0.034 * fill;
+      mesh.position.set(this.liquidOff.x, 0.015 + fill * 0.24, this.liquidOff.z);
+      mesh.scale.set(r, 1, r);
+    }
   }
 
   /**
@@ -357,19 +460,53 @@ export class HeldThing {
       const rate = 26 / (1 + this.mass / 40);
       this.lagQ.slerp(cam.quaternion, 1 - Math.exp(-dt * rate));
     }
-    // camera space: +x right, +y up, −z ahead. At its own size and where her hands hold it (docs/V3/plan/character-pv.md
-    // §6: her arms reach about half a metre from the shoulder, the elbow bent): a small thing in the right hand a
-    // third of a metre out, a bigger one a little further and lower, a big one across both arms
+    // camera space: +x right, +y up, -z ahead. Anchored directly to cam.position so small items, food, meds,
+    // fish and tools stay clearly framed in the foreground regardless of stance or pitch.
     const bg = this.big;
-    if (this.large || bg > 0.7) this.off.set(sway * 0.6, -0.3 - bg * 0.14 + bob * 0.7, -0.42 - bg * 0.22);
-    else if (bg > 0.3) this.off.set(0.12 + sway * 0.8, -0.2 - bg * 0.1 + bob * 0.8, -0.38 - bg * 0.2);
-    else this.off.set(0.16 + sway, -0.165 + bob, -0.34 - bg * 0.25);
+    const isScraper = this.toolKind === 'scraper' || this.toolKind === 'brush';
+    const isShovel = this.itemId === 'nd_shovel';
+    const isCompass = this.itemId === 'nd_compass';
+    const isFish = this.itemId.startsWith('fish_') || this.itemId === 'ing_fish';
+    const isMug = this.itemId === 'nd_mug';
+    if (isShovel) {
+      this.off.set(0.34 + sway * 0.6, -0.32 + bob * 0.7, -0.72);
+    } else if (isCompass) {
+      // held right in front of the player's lower-center-right view so the circular dial and red North needle read directly face-on
+      this.off.set(0.14 + sway * 0.5, -0.13 + bob * 0.5, -0.28);
+    } else if (isScraper) {
+      this.off.set(0.2 + sway, -0.17 + bob, -0.45);
+    } else if (isFish) {
+      this.off.set(0.01 + sway * 0.8, -0.22 - bg * 0.04 + bob * 0.8, -0.58 - bg * 0.44);
+    } else if (isMug) {
+      this.off.set(0.2 + sway, -0.17 + bob, -0.44);
+    } else if (this.large || bg > 0.7) {
+      this.off.set(sway * 0.6, -0.3 - bg * 0.14 + bob * 0.7, -0.46 - bg * 0.24);
+    } else if (bg > 0.3) {
+      this.off.set(0.22 + sway * 0.8, -0.18 - bg * 0.08 + bob * 0.8, -0.46 - bg * 0.32);
+    } else {
+      this.off.set(0.18 + sway, -0.14 + bob, -0.42 - bg * 0.32);
+    }
     // a wall in front: drawn back so its front stays this side of it (at most 0.45 m)
     const front = -this.off.z + bg * 0.5;
     this.off.z += Math.min(0.45, Math.max(0, front - (this.room - 0.05)));
-    // seen three-quarters: carried across the arms (large), turned a little inward in the hand (small)
-    this.e.set(this.large ? 0.32 : 0.15, this.large ? -0.65 : (this.handTurn ?? -0.9), this.large ? 0 : 0.08);
+    // carry orientation: blade/working edge (+X) points forward (-Z) for scrapers/shovels; compass dial tilted face-on; fish upright side profile; mugs tilted to show liquid
+    if (isShovel) {
+      this.e.set(0.34, 1.52, -0.62);
+    } else if (isCompass) {
+      this.e.set(0.95, Math.PI / 2, 0);
+    } else if (isScraper) {
+      this.e.set(-0.14, 1.88, 0.16);
+    } else if (isFish) {
+      this.e.set(0.22, -0.38, 0.16);
+    } else if (isMug) {
+      this.e.set(0.52, this.handTurn ?? -0.65, 0.08);
+    } else if (this.large) {
+      this.e.set(0.32, -0.65, 0);
+    } else {
+      this.e.set(0.18, this.handTurn ?? -0.75, 0.06);
+    }
     this.qHand.setFromEuler(this.e);
+    this.updateLiquid();
     // eating and drinking (Arctic Drive's timing): up to the mouth in 0.7 s, bites, down again; a drink's
     // neck at the lips with the bottle rising away in front, tipping further while it flows; a pill tips once
     const u = this.use;
@@ -396,28 +533,35 @@ export class HeldThing {
     if (mb > 0.001) {
       const m = this.mouthAt;
       if (this.mouthKind === 'drink') {
-        // its top at the lips, a little below the eye; level at first, tipped up as it flows
-        this.e.set(1.62 + 0.5 * this.tiltB, -0.4, 0.12);
-        this.qMouth.setFromEuler(this.e);
-        this.t1.set(0, 1, 0).applyQuaternion(this.qMouth);
-        m.set(0.02, -0.09, -0.13).addScaledVector(this.t1, -this.fitH / 2);
+        const openCup = this.itemId === 'nd_mug' || this.itemId === 'coffee_pot' || this.itemId === 'nd_bucket';
+        if (openCup) {
+          // open cup/carafe: gentle sipping tilt in view so the coffee/drink inside stays clearly visible
+          this.e.set(0.58 + 0.34 * this.tiltB, -0.35, 0.08);
+          this.qMouth.setFromEuler(this.e);
+          m.set(0.03, -0.12, -0.29);
+        } else {
+          // bottle or can: neck angled toward lips, clearly visible in front of the lens
+          this.e.set(1.22 + 0.42 * this.tiltB, -0.38, 0.1);
+          this.qMouth.setFromEuler(this.e);
+          this.t1.set(0, 1, 0).applyQuaternion(this.qMouth);
+          m.set(0.03, -0.1, -0.25).addScaledVector(this.t1, -this.fitH * 0.45);
+        }
       } else if (this.mouthKind === 'eat') {
         // held up before the mouth (a packet or a tin facing one), towards it with every bite
-        this.e.set((this.fitFlat ? 1.15 : 0.4) + 0.25 * bite, -0.3, 0.1);
+        this.e.set((this.fitFlat ? 1.05 : 0.35) + 0.25 * bite, -0.25, 0.08);
         this.qMouth.setFromEuler(this.e);
-        m.set(0.02, -0.13 + 0.04 * bite, -0.31 + 0.1 * bite);
+        m.set(0.03, -0.12 + 0.04 * bite, -0.36 + 0.09 * bite);
       } else {
-        // the box up to the mouth, tipped once
-        this.e.set((this.fitFlat ? 1.15 : 0.45) + 0.9 * this.tiltB, -0.3, 0.1);
+        // the medicine box up in clear view, tipped once
+        this.e.set((this.fitFlat ? 1.05 : 0.4) + 0.75 * this.tiltB, -0.25, 0.08);
         this.qMouth.setFromEuler(this.e);
-        m.set(0.02, -0.12, -0.27);
+        m.set(0.03, -0.11, -0.33);
       }
       this.off.lerp(m, mb);
       this.q.slerp(this.qMouth, mb);
     }
-    // (a big thing carried across both arms is held out before the view as it was: from her eyes it came a hand's
-    // breadth nearer and filled the screen)
-    this.off.applyQuaternion(this.lagQ).add(this.large || bg > 0.7 ? cam.position : this.base);
+    // anchor all held items directly to cam.position so small food/meds/fish/tools never sink behind the lens
+    this.off.applyQuaternion(this.lagQ).add(cam.position);
     this.root.position.copy(this.off);
     this.root.quaternion.copy(this.lagQ).multiply(this.q);
     this.root.scale.setScalar(1);

@@ -95,13 +95,11 @@ describe('R2: the Old Elephant', () => {
     }
   });
 
-  it('its places for things lie inside its body under the ceiling: its floor in three and the deck over the engine; it is found with nothing in it', () => {
+  it('its places for things lie inside its body under the ceiling: a single continuous cabin floor with stairwell hole and the deck over the engine; it is found with nothing in it', () => {
     const f = frameDef('elephant');
     const zones = zonesFor('elephant', stockBuild('elephant'));
-    // (an empty shell since docs/V3/plan/finish.md §十九 step 7: the galley's worktop, the cubby under its sink, the
-    // dinette's table, the fridge's niche and the bed that were places of their own are gone)
-    for (const id of ['cabin', 'lounge', 'fore', 'nook', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
-    for (const id of ['bed', 'galley', 'table', 'cubby', 'fridge', 'sofa']) expect(zones.some((z) => (z.id as string) === id), id).toBe(false);
+    for (const id of ['cabin', 'nook', 'pass', 'dash', 'wall']) expect(zones.some((z) => z.id === id), id).toBe(true);
+    for (const id of ['lounge', 'fore', 'bed', 'galley', 'table', 'cubby', 'fridge', 'sofa']) expect(zones.some((z) => (z.id as string) === id), id).toBe(false);
     for (const z of zones) {
       expect(z.x[0], z.id).toBeGreaterThanOrEqual(f.body.rear);
       expect(z.x[1], z.id).toBeLessThanOrEqual(f.body.front);
@@ -110,15 +108,13 @@ describe('R2: the Old Elephant', () => {
       expect(z.top, z.id).toBeLessThanOrEqual(2.46);
     }
     const by = (id: string) => zones.find((z) => z.id === id)!;
-    // (the floor in three, as Nomad Drive's class A's: the back, the strip by the entry door short of its stairwell, the
-    // front — side by side, wall to wall but by the stairwell; the engine deck behind them, 66 cm over the floor)
-    const [back, door, front, deck] = [by('cabin'), by('lounge'), by('fore'), by('nook')];
-    expect(deck.x[1]).toBeCloseTo(back.x[0], 6);
-    expect(back.x[1]).toBeCloseTo(door.x[0], 6);
-    expect(door.x[1]).toBeCloseTo(front.x[0], 6);
-    for (const z of [back, front, deck]) expect(z.z[1] - z.z[0], z.id).toBeGreaterThan(2.3);
-    expect(door.z[1]).toBeLessThan(0.95);
-    expect(deck.floor).toBeGreaterThan(back.floor + 0.6);
+    const [cabin, deck] = [by('cabin'), by('nook')];
+    expect(deck.x[1]).toBeCloseTo(cabin.x[0], 6);
+    expect(cabin.x[1] - cabin.x[0]).toBeGreaterThan(6.5);
+    for (const z of [cabin, deck]) expect(z.z[1] - z.z[0], z.id).toBeGreaterThan(2.3);
+    expect(cabin.holes?.length).toBe(1);
+    expect(cabin.holes![0].z[0]).toBeLessThan(0.95);
+    expect(deck.floor).toBeGreaterThan(cabin.floor + 0.6);
     // (no hobs on a worktop, no sofa: what is in it the player puts in)
     expect(f.fittings ?? []).toEqual([]);
     // (between its wheels' humps a metre and a tenth at the least, as its aisle was made — it was 76 cm)

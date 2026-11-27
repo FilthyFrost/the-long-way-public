@@ -174,6 +174,7 @@ const ARCHIVE_WARM: readonly string[] = [
   'container_open:wood', 'container_close:wood', 'container_open:crate', 'door_house_open', 'door_house_close',
   'breath_fast', 'breath_slow', 'breath_end', 'heartbeat',
   'skid_asphalt', 'roll_gravel', 'skid_gravel',
+  'pour:water', 'pour:fuel',
 ];
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
@@ -335,6 +336,8 @@ function weather(b: Build, dirt: number, rust: number, seed: number, crust = 0):
  */
 const START_SPOTS: Record<string, [number, number, number]> = {
   engine: [2.6, -2.55, 0],
+  radiator: [2.45, -1.55, 0.35],
+  steering: [-1.55, 1.55, 0.4],
   hub_FL: [2.9, 2.35, 0],
   hub_FR: [4.4, 1.6, 0.4],
   hub_RL: [5.2, 3.3, -0.3],
@@ -852,11 +855,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const land = this.garage ? this.garage.land : new GroundLand(this.world!);
     this.player = new ModPlayer(this.seamless && this.garage ? new SeamlessLand(this.garage.land, this.proving!) : (this.proving ?? land), this);
     // Nomad Drive on-foot physics (ND_FOOT) are configured by ModPlayer's constructor (walk 2.75, sprint 5.0, crouch 1.5/2.0).
-    try {
-      this.player.cardsOn = localStorage.getItem('modcar.ui.cards') !== '0';
-    } catch {
-      /* storage unavailable: shown */
-    }
+    // Right-side item info cards stay enabled by default (do not let legacy pre-ignition KeyI localStorage '0' brick them).
+    this.player.cardsOn = true;
     if (this.garage) this.player.addSolids(this.garage.solids);
     if (!this.garage || this.seamless) this.worldSolids();
     // the V3 kernel: its clock set (a journey begins at the hour the page starts at; a save with a clock goes on
@@ -1491,7 +1491,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const project = p.project === 'full' ? stockBuild('sedan', { fuel: 0.05 }) : classic ? stockBuild('sedan', { fuel: 0, without: [...TUTORIAL_MISSING] }) : bareShell();
       // a car that stood in a barn for years: caked with grime (the windows too: nothing to be seen through
       // them until they are scraped), dust over it, rust at the edges (docs/MODCAR.md §15)
-      weather(project, 0.5, 0.1, 1, p.project === 'tutorial' ? 0.62 : 0.32);
+      weather(project, 0.5, 0.1, 1, p.project === 'tutorial' ? 0.9 : 0.32);
       const v = this.addVehicle(project, g.carSpot.x, g.carSpot.z, g.carSpot.yaw);
       this.focus = v;
       // the missing parts and the tools, round the bay; the fun parts on the shelves (not under the workshop's machines)
@@ -1650,7 +1650,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       const sp = take('bench');
       if (sp) this.loose.addItem(newItem(id), sp.x, sp.y + 0.3, sp.z, sp.yaw);
     }
-    // the junk the scraper is made from, by the recycler
+    // the junk the scraper is made from, by the recycler; plus starter cassette, vinyl records & turntable for immediate music play (#28)
     if (this.workshop) {
       const pile: [number, number, number][] = [
         [3.85, -3.45, 0.3],
@@ -1658,6 +1658,10 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         [2.95, -3.75, 0.1],
       ];
       START_JUNK.forEach((id, i) => this.loose.addItem(newItem(id), pile[i][0], 0.3, pile[i][1], pile[i][2]));
+      for (const id of ['junk_record', 'nd_vinyl_04', 'nd_vinyl_09', 'nd_tape_01', 'nd_tape_08']) {
+        const sp = take('shelf') ?? take('bench');
+        if (sp) this.loose.addItem(newItem(id), sp.x, sp.y + 0.3, sp.z, sp.yaw);
+      }
     }
   }
 
@@ -4180,6 +4184,15 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       }
       // (the numbers line: one of the developer's keys — DEV_KEYS)
       if (a === 'hud' && DEV_KEYS) this.hud.toggle();
+      if (a === 'cabinLight') {
+        if (!this.seated || this.seatAt !== 'driver') return;
+        const cv = this.seated;
+        cv.domeOn = !cv.domeOn;
+        this.sound('switch');
+        const hasPower = (cv.sys.applianceLevel() ?? 0) > 0 || (cv.sys.dash.battery ?? 0) > 0.02;
+        if (cv.domeOn && !hasPower) this.player.flashWhy('没电了');
+        return;
+      }
       const v = this.seated;
       if (!v || this.seatAt === 'pass') return;
       if (a === 'key') {
@@ -4207,10 +4220,6 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
           this.sound('switch');
           if (this.manualWiper !== 'off' && (v.sys.dash.battery ?? 0) <= 0.02) this.player.flashWhy('没电了');
         }
-      } else if (a === 'cabinLight') {
-        v.domeOn = !v.domeOn;
-        this.sound('switch');
-        if (v.domeOn && (v.sys.dash.battery ?? 0) <= 0.02) this.player.flashWhy('没电了');
       } else if (a === 'horn') v.sys.setHorn(true);
     });
     this.input.onRelease((a) => {
@@ -4869,7 +4878,19 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         this.loopsNow.set('glug', {});
         return;
       case 'pour': {
-        const liquid = held?.kind === 'tool' ? (held.tool.kind === 'bottle' ? 'water' : held.tool.kind === 'oilcan' ? 'oil' : 'fuel') : 'fuel';
+        const tgt = this.player.target;
+        const liquid =
+          tgt?.kind === 'filler'
+            ? tgt.liquid
+            : held?.kind === 'tool'
+              ? held.tool.kind === 'bottle'
+                ? 'water'
+                : held.tool.kind === 'oilcan'
+                  ? 'oil'
+                  : 'fuel'
+              : held?.kind === 'item'
+                ? 'water'
+                : 'fuel';
         this.loopsNow.set('pour', { liquid });
         return;
       }
@@ -4906,6 +4927,8 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       gulp: ['gulp', {}],
       hurt: ['hurt', { gain }],
       cloth: ['cloth', {}],
+      camera_shutter: ['camera_shutter', { gain }],
+      camera_eject: ['camera_eject', { gain }],
     };
     const s = shot[name];
     if (s) {
@@ -5689,8 +5712,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     for (const [k, o] of this.loopsNow) {
       // (one with a level of its own, a machine heard from further off or nearer, follows it every frame)
       if (!this.loopsOn.has(k) || o.gain !== undefined) {
-        f.start(k, o);
-        this.loopsOn.add(k);
+        if (f.start(k, o)) this.loopsOn.add(k);
       }
     }
     for (const k of [...this.loopsOn]) {
@@ -6708,10 +6730,17 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
         cam.rotateZ(-sh.roll);
         cam.rotateY(sh.yaw);
       }
-      // (looking at the instruments: the view drawn in — stepGauges)
+      // (looking at the instruments: the view drawn in — stepGauges; Hold RMB also zooms in cleanly inside the cab)
       // (the seat's view is the rig's, Nomad Drive's 75°, moved by as much as the dial and the player's setting move the view on foot)
+      const wantCabZoom = !this.listV && this.tabAt < 0 && this.deadT < 0 && this.rightButton && this.cockpit.aimed?.cat !== 'radio';
+      this.eyeZoomT = Math.max(0, Math.min(1, this.eyeZoomT + (wantCabZoom ? 1 : -1) * (dt / 0.49)));
+      const cabZoomK = this.eyeZoomT * this.eyeZoomT * (3 - 2 * this.eyeZoomT);
       const wide = this.rig.fov + this.tune.get('look.fov') - (this.tune.dial('look.fov')?.def ?? 75) + this.settings.fov;
-      const seatFov = this.gauges.zoom > 1.001 ? (Math.atan(Math.tan((wide * Math.PI) / 360) / this.gauges.zoom) * 360) / Math.PI : wide;
+      let seatFov = this.gauges.zoom > 1.001 ? (Math.atan(Math.tan((wide * Math.PI) / 360) / this.gauges.zoom) * 360) / Math.PI : wide;
+      if (cabZoomK > 0) {
+        const rmbFov = wide + (50 + this.settings.fov - wide) * cabZoomK;
+        seatFov = Math.min(seatFov, rmbFov);
+      }
       if (Math.abs(cam.fov - seatFov) > 0.01) {
         cam.fov = seatFov;
         cam.updateProjectionMatrix();
@@ -6827,7 +6856,7 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
       // (a small control lights up under the mark; the wheel one looks through does not)
       const a = this.cockpit.aimed;
       this.seated.view.highlight(a && a.cat !== 'steering' && a.cat !== 'door' ? a.id : null);
-      this.core.frame.outline = this.viewMode === 'cockpit' && a && a.cat !== 'steering' ? this.seated.view.outlineTarget(a.id) : null;
+      this.core.frame.outline = this.viewMode === 'cockpit' && a && a.cat !== 'steering' ? this.seated.view.outlineTarget(a.id, this.cockpit.aimedSeat ? 'cushion' : 'full') : null;
     } else {
       this.core.frame.outline = !this.listV && this.tabAt < 0 && !this.benchWs?.open && this.deadT < 0 ? this.player.outlineTarget : null;
     }
@@ -7092,12 +7121,24 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     const cg = v.sys.derived.cg;
     const bx = lx / n - cg.x;
     const by = ly / n - cg.y;
+    const high = v.sys.dash.lights === 'high';
+    const pitch = high ? 0.028 : 0.20;
     const pose = v.view.pose;
     u.uHeadPos.value.set(pose.x + b[0] * bx + b[3] * by - o.x, pose.y + b[1] * bx + b[4] * by - o.y, pose.z + b[2] * bx + b[5] * by - o.z);
-    u.uHeadDir.value.set(b[0] - b[3] * 0.1, b[1] - b[4] * 0.1, b[2] - b[5] * 0.1).normalize();
-    // a pair of stock lamps = the old vehicles' beam; one lamp, weak lamps or a flat battery give less
-    const k = Math.min(3, light / 2) * (v.sys.dash.lights === 'high' ? 1.25 : 1) * Math.min(1, v.sys.dash.battery * 4 + (v.sys.running ? 1 : 0));
-    u.uHeadColor.value.setRGB(1.0, 0.82, 0.55).multiplyScalar(2.4 * k);
+    u.uHeadDir.value.set(b[0] - b[3] * pitch, b[1] - b[4] * pitch, b[2] - b[5] * pitch).normalize();
+    // Low beam: wide & near-field dipped pattern with crisp flat top cutoff; High beam: narrow & far-reaching highway pencil beam.
+    const k = Math.min(3, light / 2) * Math.min(1, v.sys.dash.battery * 4 + (v.sys.running ? 1 : 0));
+    if (high) {
+      (u.uHeadCone.value as THREE.Vector4).set(0.955, 0.993, 0.80, 0.965);
+      (u.uHeadShape.value as THREE.Vector2).set(1.05, 1.0);
+      u.uHeadReach.value = 2800;
+      u.uHeadColor.value.setRGB(1.0, 0.90, 0.72).multiplyScalar(4.2 * k);
+    } else {
+      (u.uHeadCone.value as THREE.Vector4).set(0.68, 0.90, 0.30, 0.75);
+      (u.uHeadShape.value as THREE.Vector2).set(0.58, 2.1);
+      u.uHeadReach.value = 130;
+      u.uHeadColor.value.setRGB(1.0, 0.78, 0.48).multiplyScalar(2.5 * k);
+    }
   }
 
   private updateHudBits(): void {
@@ -7290,22 +7331,26 @@ export class ModGame implements PlayerHost, CockpitHost, DevHost, SessionHost, G
     p.applyMatrix4(cam.projectionMatrix);
     let sx = (p.x * 0.5 + 0.5) * w;
     let sy = (-p.y * 0.5 + 0.5) * h;
-    const edge = behind || sx < 24 || sx > w - 24 || sy < 40 || sy > h - 24;
+    const pad = 42;
+    const edge = behind || sx < pad || sx > w - pad || sy < 56 || sy > h - pad;
     if (behind) {
       // behind: at the side it is on, halfway up
-      sx = p.x > 0 ? 24 : w - 24;
+      sx = p.x > 0 ? pad : w - pad;
       sy = h * 0.5;
     }
     if (edge) {
-      sx = Math.min(w - 24, Math.max(24, sx));
-      sy = Math.min(h - 24, Math.max(40, sy));
+      sx = Math.min(w - pad, Math.max(pad, sx));
+      sy = Math.min(h - pad, Math.max(56, sy));
     }
-    // close by and in the middle of the view: the mark's own words say it all
-    const near = Math.hypot(t.x - this.player.walker.x, t.z - this.player.walker.z) < 1.4 && !this.seated;
-    // behind a wall (or the doors) from here: faint, without its words
+    const dist = Math.hypot(t.x - this.player.walker.x, t.z - this.player.walker.z);
+    // Keep marker visible until right on top of the target so shelves/parts are always easy to locate.
+    const near = dist < 0.6 && !this.seated;
     const eye = cam.getWorldPosition(this.eyeV);
     this.markerHidden = this.blockedBetween(eye.x + o.x, eye.y + o.y, eye.z + o.z, t.x, t.y, t.z, this.markerHidden);
-    this.ui.showMarker(near ? null : { x: sx, y: sy, text: this.markerHidden ? '' : t.text, edge, dim: this.markerHidden });
+    const arrow = edge ? (sx <= pad + 2 ? '◀ ' : sx >= w - pad - 2 ? ' ▶' : sy <= 58 ? '▲ ' : ' ▼') : '';
+    const distTag = dist >= 2 ? ` ${Math.round(dist)}m` : '';
+    const label = arrow.endsWith(' ') ? `${arrow}${t.text}${distTag}` : `${t.text}${distTag}${arrow}`;
+    this.ui.showMarker(near ? null : { x: sx, y: sy, text: label, edge, dim: this.markerHidden });
   }
 
   private markerHidden = false;

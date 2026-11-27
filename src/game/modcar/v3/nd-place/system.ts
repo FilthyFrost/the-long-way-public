@@ -22,7 +22,7 @@
  */
 import * as THREE from 'three';
 import type { System } from '../../../../core/kernel/systems';
-import { footprint as zoneFootprint, gridAt, latticeOrigin, LIDLESS_WHY, zoneLidless, zonesFor, type CargoZone, type Placed, type Spot } from '../../../../core/modcar/cargo';
+import { footprint as zoneFootprint, gridAt, latticeOrigin, LIDLESS_WHY, zoneLidless, zonesFor, zonesOf, type CargoZone, type Placed, type Spot } from '../../../../core/modcar/cargo';
 import { itemDef } from '../../../../core/modcar/items';
 import { ND_FRIDGE } from '../../../../core/v3/nd/items';
 import { circleInRect, distToRect, firstBlocking, footprint, latticeShift, nearestQuarter, nextQuarter, outBack, outCubic, PLACE, pointInBlock, stepDistance, type Box3, type Rect } from '../../../../core/v3/nd/place';
@@ -242,6 +242,12 @@ export class NdPlace implements System<GameContext> {
     words: () => this.words(),
     gone: () => this.stop(),
   };
+
+  /** whether R-mode is aiming into/onto a vehicle (so appliances can light the preview even while standing outside) */
+  targetVehicle(): ModVehicle | null {
+    if (!this.thing) return null;
+    return this.aim.on ?? this.aim.stow?.v ?? ((this.aim.under?.riding?.on as ModVehicle | undefined) ?? null);
+  }
 
   /** Q (−1) and E (+1): a quarter round to the next square of the grid it is on, and onto that grid */
   turnStep(dir: 1 | -1): void {
@@ -591,9 +597,14 @@ export class NdPlace implements System<GameContext> {
       this.gf = this.frameAt(board.x, board.z, on);
       return;
     }
+    // Check direct surface hit (including tables/counters riding inside an RV!) before vehicle cargo floor landing
+    // so aiming at an empty spot on a table inside a camper places on the tabletop instead of shooting through to the floor.
+    const preHit = !this.forced ? this.surfaceHit(eye, dir, PLACE.surfaceReach) : null;
+    const preDist = preHit ? Math.hypot(preHit.x - (eye.x + o.x), preHit.y - (eye.y + o.y), preHit.z - (eye.z + o.z)) : Infinity;
     // (the harness may say where the line of sight comes down in a vehicle's place: the rest is as the game has it)
     const L = this.forced ?? (nearV.length ? ctx.cargo.landing(nearV, this.ray, h, PLACE.planeReach, inside, this.los.dist) : null);
-    if (L && 'spot' in L) {
+    const preferTable = !!(preHit?.under && (!L || preDist <= L.dist + 0.08));
+    if (!preferTable && L && 'spot' in L) {
       // (a living space's wall: hung there, as the stowing hangs it)
       a.stow = L;
       a.ok = !!L.spot;
@@ -602,7 +613,7 @@ export class NdPlace implements System<GameContext> {
       this.gf = this.frameOf(L.v);
       return;
     }
-    if (L && zoneLidless(L.v.view.frame.id, L.zone, L.v.build)) {
+    if (!preferTable && L && zoneLidless(L.v.view.frame.id, L.zone, L.v.build)) {
       // (a boot without its lid: nothing stays in it — said where the thing would have gone)
       a.stow = { v: L.v, zone: L.zone, spot: null, why: LIDLESS_WHY, dist: L.dist };
       a.tryStow = null;
@@ -612,7 +623,7 @@ export class NdPlace implements System<GameContext> {
       this.gf = this.frameOf(L.v, L.zone);
       return;
     }
-    if (L) {
+    if (!preferTable && L && !('spot' in L)) {
       const fr = this.frameOf(L.v, L.zone);
       this.gf = fr;
       // (a piece of furniture come into a room: onto its squares, its back to the nearest wall — once; Q and E turn it on)
@@ -666,7 +677,7 @@ export class NdPlace implements System<GameContext> {
       return;
     }
     // the surface the line of sight meets: there it goes, its box's lowest point on it
-    const hit = this.surfaceHit(eye, dir, PLACE.surfaceReach);
+    const hit = preHit ?? this.surfaceHit(eye, dir, PLACE.surfaceReach);
     if (hit) {
       // (its footprint's middle on the point looked at; the highest of five points under it, so no corner sinks)
       const y0 = this.poseYaw();
@@ -708,8 +719,8 @@ export class NdPlace implements System<GameContext> {
         }
       }
       // (on a thing lying about: on its top, where the line of sight met it, riding with whatever that rides)
-      if (hit.under && hit.y >= top) {
-        top = hit.y;
+      if (hit.under && hit.y >= top - 0.02) {
+        top = Math.max(top, hit.y);
         on = hit.v;
         a.under = hit.under;
       }
@@ -740,10 +751,10 @@ export class NdPlace implements System<GameContext> {
         on = v;
       }
     }
-    // (or the top of a thing lying about under it)
+    // (or the top of a thing lying about under it; >= with 1.5 cm tolerance so furniture SURFACES == mesh top keeps `under` & `on`)
     const lt = ctx.loose.topUnder(wx, wz, wy);
-    if (lt && lt.y > land) {
-      land = lt.y;
+    if (lt && lt.y >= land - 0.015) {
+      land = Math.max(land, lt.y);
       a.under = lt.l;
       on = lt.l.riding?.on ? (ctx.vehicles.find((v) => v === lt.l.riding!.on) ?? null) : null;
     }
@@ -838,17 +849,20 @@ export class NdPlace implements System<GameContext> {
       const x = eye.x + dir.x * s + o.x;
       const y = eye.y + dir.y * s + o.y;
       const z = eye.z + dir.z * s + o.z;
-      // (into a wall: no surface this way)
+      // (into a wall: no surface this way; top of a non-floor building counter/table counts as a landing surface)
       for (const b of near) {
         if (b.floor && y >= b.y1 - 0.02) continue;
-        if (pointInBlock(x, y, z, b) && !(y >= b.y1 - 0.03)) return null;
+        if (pointInBlock(x, y, z, b)) {
+          if (y >= b.y1 - 0.06 && b.y1 <= eye.y + o.y + 0.15) return { x, y: b.y1, z, v: null };
+          return null;
+        }
       }
       // (the ground, a floor; or the top of a thing lying about — a chest's lid, a table's top: things stack, as Nomad Drive's do)
       let top = ctx.loose.surfaceAt(x, z, y + step);
       let under: Loose | null = null;
       const t = ctx.loose.topUnder(x, z, y + step);
-      if (t && t.y > top) {
-        top = t.y;
+      if (t && t.y >= top - 0.015) {
+        top = Math.max(top, t.y);
         under = t.l;
       }
       if (y <= top + 0.005) return { x, y: top, z, v: under?.riding?.on ? (ctx.vehicles.find((v) => v === under!.riding!.on) ?? null) : null, under };
@@ -908,23 +922,62 @@ export class NdPlace implements System<GameContext> {
     }
   }
 
+  /** true if every corner of world-space footprint `foot` lies strictly inside `v`'s interior room cargo zone(s) */
+  private insideVehicleRoom(v: ModVehicle, foot: Rect, y: number): boolean {
+    const zones = zonesOf(v.view.frame.id).filter((zn) => zn.walls && !zn.wall);
+    if (!zones.length) return false;
+    const fc = Math.cos(foot.yaw);
+    const fs = Math.sin(foot.yaw);
+    const m = { x: 0, y: 0, z: 0 };
+    for (const [su, sw] of [
+      [1, 1],
+      [-1, 1],
+      [1, -1],
+      [-1, -1],
+    ]) {
+      const wx = foot.x + su * foot.hx * fc - sw * foot.hz * fs;
+      const wz = foot.z + su * foot.hx * fs + sw * foot.hz * fc;
+      v.walkSolids.worldToModel(wx, y, wz, m);
+      const ok = zones.some(
+        (zn) =>
+          m.x >= zn.x[0] - 0.015 &&
+          m.x <= zn.x[1] + 0.015 &&
+          m.z >= zn.z[0] - 0.015 &&
+          m.z <= zn.z[1] + 0.015 &&
+          m.y >= zn.floor - 0.05 &&
+          m.y <= zn.top + 0.05,
+      );
+      if (!ok) return false;
+    }
+    return true;
+  }
+
   /** what is in the way of it put down with its base at (x, y, z) (world): '挡住了', or '' nothing */
   private blocked(box: Box3, x: number, y: number, z: number, on: ModVehicle | null): string {
     const ctx = this.ctx!;
     const foot = footprint(box, x, z, this.poseYaw());
     const top = y + (box.maxY - box.minY);
     const r = Math.hypot(foot.hx, foot.hz) + 0.5;
+    const under = this.aim.under;
+    const hostV = on ?? (under?.riding?.on ? (ctx.vehicles.find((vv) => vv === under.riding!.on) ?? null) : null);
     // the solids: walls, props (what it stands on is not in the way)
     const near = this.near;
     near.length = 0;
     ctx.player.walker.solids.solidsNear(foot.x, foot.z, r, near);
-    if (firstBlocking(foot, y, top, near)) return '挡住了';
+    // Keep WALL_T >= 0.09 m for walker anti-tunneling, while allowing items placed inside a camper's interior
+    // cargo zone (e.g. flush on a countertop pushed against the wall) to sit right up to the interior lining (#1).
+    let solidsCheck = near;
+    if (hostV && this.insideVehicleRoom(hostV, foot, y + 0.05)) {
+      const wallTag = hostV.walkSolids.tagWall;
+      solidsCheck = near.filter((s) => s.tag !== wallTag);
+    }
+    if (firstBlocking(foot, y, top, solidsCheck)) return '挡住了';
     // oneself
     const w = ctx.player.walker;
     if (w.y < top && w.y + 1.8 * PLACE.playerScale > y && circleInRect(w.x, w.z, 0.3 * PLACE.playerScale, foot)) return '挡住了';
     // a vehicle's body (unless it is what it lands on)
     for (const v of ctx.vehicles) {
-      if (v === on) continue;
+      if (v === hostV) continue;
       const bd = v.sim.spec.body;
       const hd = headingOf(v, this.b9);
       const vr: Rect = { x: v.sim.px + Math.cos(hd) * bd.centerX, z: v.sim.pz + Math.sin(hd) * bd.centerX, hx: bd.halfLength, hz: bd.halfWidth, yaw: hd };
@@ -932,8 +985,9 @@ export class NdPlace implements System<GameContext> {
       const vy = v.sim.py;
       if (vy + bd.top > y && vy + bd.bottom < top && firstBlocking(foot, y, top, [{ ...vr, y0: vy + bd.bottom, y1: vy + bd.top }])) return '挡住了';
     }
-    // the other things lying about (what it stands on is not in the way: the one its middle is over, whose top is under it)
+    // the other things lying about (what it stands on is not in the way: test footprint center & explicit under-surface)
     for (const l of ctx.loose.list) {
+      if (l === under) continue;
       if (Math.hypot(l.x - foot.x, l.z - foot.z) > r + 1.5) continue;
       const lb = l.box ?? ctx.cargo.boxOf(heldOf(l));
       if (!lb) continue;
@@ -941,7 +995,8 @@ export class NdPlace implements System<GameContext> {
       const ly0 = l.y + lb.minY;
       const ly1 = l.y + lb.maxY;
       if (ly1 <= y + 0.03 || ly0 >= top - 0.01) continue;
-      if (circleInRect(x, z, 0.01, lr) && ly1 >= y - 0.05 && ly0 < y) continue;
+      // Support check uses footprint center (foot.x, foot.z), not raw origin (x, z), and allows placing on counters with rear backsplashes.
+      if (circleInRect(foot.x, foot.z, 0.02, lr) && ly0 < y && (ly1 >= y - 0.06 || ly1 <= y + 0.25)) continue;
       if (firstBlocking(foot, y, top, [{ ...lr, y0: ly0, y1: ly1 }])) return '挡住了';
     }
     return '';

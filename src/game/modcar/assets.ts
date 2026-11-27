@@ -12,6 +12,7 @@ import { LADDER_SPOTS } from '../../core/modcar/ladders';
 import { MOTO_RACK_SHAPES } from '../../core/modcar/motoRack';
 import { partDef } from '../../core/modcar/parts';
 import type { Category, PartDef } from '../../core/modcar/types';
+import { surfaceMaterial } from '../render/materials';
 
 const BASE = '/models/modcar/';
 
@@ -332,13 +333,204 @@ function bakeScale<T extends THREE.Object3D>(root: T, s: number): T {
  * own two colours. A model a system makes itself (registerItemModels: the fish, drawn in three.js) is made here
  * instead of fetched.
  */
+let compassDialMat: THREE.Material | null = null;
+
+/** Procedural 512×512 ivory enamel compass face with 360° degree ticks, cardinal N/E/S/W + 中文, intercardinals, and 8-point compass rose */
+function compassDialMaterial(): THREE.Material | null {
+  if (compassDialMat) return compassDialMat;
+  if (typeof document === 'undefined') return null;
+  const size = 512;
+  const cv = document.createElement('canvas');
+  cv.width = size;
+  cv.height = size;
+  const g = cv.getContext('2d');
+  if (!g) return null;
+  const c = size / 2;
+  const R = size * 0.49;
+
+  // Warm ivory enamel dial background with subtle radial vignette
+  const bg = g.createRadialGradient(c, c, R * 0.1, c, c, R);
+  bg.addColorStop(0, '#fbf6e8');
+  bg.addColorStop(0.82, '#f2e8cf');
+  bg.addColorStop(1, '#d9cba8');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, size, size);
+
+  // Double outer chapter rings
+  g.strokeStyle = '#25211c';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.arc(c, c, R * 0.94, 0, Math.PI * 2);
+  g.stroke();
+  g.lineWidth = 2;
+  g.beginPath();
+  g.arc(c, c, R * 0.78, 0, Math.PI * 2);
+  g.stroke();
+
+  // 360° degree ring ticks: 5° minor, 10° medium, 30° major
+  for (let deg = 0; deg < 360; deg += 5) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    const major = deg % 30 === 0;
+    const med = deg % 10 === 0;
+    const r0 = R * 0.94;
+    const r1 = R * (major ? 0.79 : med ? 0.835 : 0.875);
+    g.strokeStyle = deg === 0 ? '#b8241d' : '#25211c';
+    g.lineWidth = deg === 0 ? 5 : major ? 3.2 : med ? 2.0 : 1.3;
+    g.beginPath();
+    g.moveTo(c + Math.cos(rad) * r0, c + Math.sin(rad) * r0);
+    g.lineTo(c + Math.cos(rad) * r1, c + Math.sin(rad) * r1);
+    g.stroke();
+  }
+
+  // Degree numerals every 30° (0..330)
+  g.fillStyle = '#332d26';
+  g.font = 'bold 20px "Segoe UI", Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  for (let deg = 0; deg < 360; deg += 30) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    const rn = R * 0.705;
+    g.save();
+    g.translate(c + Math.cos(rad) * rn, c + Math.sin(rad) * rn);
+    g.rotate((deg * Math.PI) / 180);
+    g.fillStyle = deg === 0 ? '#b8241d' : '#332d26';
+    g.fillText(deg === 0 ? '0°' : String(deg), 0, 0);
+    g.restore();
+  }
+
+  // Classic 8-point compass rose star at center
+  const drawStar = (pts: number, outer: number, inner: number, rotOff: number, darkCol: string, lightCol: string): void => {
+    for (let i = 0; i < pts; i++) {
+      const a0 = rotOff + (i * Math.PI * 2) / pts;
+      const aL = a0 - Math.PI / pts;
+      const aR = a0 + Math.PI / pts;
+      g.beginPath();
+      g.moveTo(c, c);
+      g.lineTo(c + Math.cos(a0) * outer, c + Math.sin(a0) * outer);
+      g.lineTo(c + Math.cos(aR) * inner, c + Math.sin(aR) * inner);
+      g.closePath();
+      g.fillStyle = i === 0 && rotOff === -Math.PI / 2 ? '#b8241d' : darkCol;
+      g.fill();
+      g.beginPath();
+      g.moveTo(c, c);
+      g.lineTo(c + Math.cos(a0) * outer, c + Math.sin(a0) * outer);
+      g.lineTo(c + Math.cos(aL) * inner, c + Math.sin(aL) * inner);
+      g.closePath();
+      g.fillStyle = lightCol;
+      g.fill();
+    }
+  };
+  drawStar(4, R * 0.30, R * 0.085, -Math.PI / 4, '#6d6250', '#e7dec5');
+  drawStar(4, R * 0.40, R * 0.105, -Math.PI / 2, '#1f2833', '#f4ebd4');
+
+  // Bold cardinal letters (N/E/S/W + 北/东/南/西) clockwise from 12 o'clock
+  const cardinals: [number, string, string, string][] = [
+    [0, 'N', '北', '#b8241d'],
+    [90, 'E', '东', '#1b1a18'],
+    [180, 'S', '南', '#1b1a18'],
+    [270, 'W', '西', '#1b1a18'],
+  ];
+  for (const [deg, en, zh, col] of cardinals) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    const tx = c + Math.cos(rad) * (R * 0.53);
+    const ty = c + Math.sin(rad) * (R * 0.53);
+    g.fillStyle = col;
+    g.font = '900 40px Georgia, "Times New Roman", serif';
+    g.fillText(en, tx, ty - 8);
+    g.font = 'bold 18px "Microsoft YaHei", "PingFang SC", sans-serif';
+    g.fillText(zh, tx, ty + 18);
+  }
+
+  // Crisp intercardinal labels (NE, SE, SW, NW)
+  const inters: [number, string][] = [
+    [45, 'NE'],
+    [135, 'SE'],
+    [225, 'SW'],
+    [315, 'NW'],
+  ];
+  g.fillStyle = '#474036';
+  g.font = 'bold 21px "Segoe UI", Arial, sans-serif';
+  for (const [deg, lbl] of inters) {
+    const rad = ((deg - 90) * Math.PI) / 180;
+    g.fillText(lbl, c + Math.cos(rad) * (R * 0.49), c + Math.sin(rad) * (R * 0.49));
+  }
+
+  // Red 12-o'clock index triangle inside the outer ring
+  g.fillStyle = '#c82820';
+  g.beginPath();
+  g.moveTo(c, c - R * 0.935);
+  g.lineTo(c - 12, c - R * 0.835);
+  g.lineTo(c + 12, c - R * 0.835);
+  g.closePath();
+  g.fill();
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.flipY = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  compassDialMat = surfaceMaterial({ map: tex, mapEmissive: 0.14, spec: 0.05, side: THREE.DoubleSide, cabinLift: true });
+  return compassDialMat;
+}
+
+let compassRedMat: THREE.Material | null = null;
+let compassSilverMat: THREE.Material | null = null;
+
+/** Attach the procedural 360° compass face (with computed planar UVs) and crisp crimson/silver needle onto nd_compass */
+function dressCompassDial(scene: THREE.Group): void {
+  const mat = compassDialMaterial();
+  if (!mat) return;
+  const dial = scene.getObjectByName('P_dial');
+  if (dial) {
+    dial.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      // Compute planar top-down UVs directly from geometry vertices (+X = 12 o'clock / N -> v=0, +Z = 3 o'clock / E -> u=1)
+      const g = m.geometry;
+      const pos = g.getAttribute('position');
+      if (pos) {
+        let rd = 0.0384;
+        for (let i = 0; i < pos.count; i++) rd = Math.max(rd, Math.hypot(pos.getX(i), pos.getZ(i)));
+        const uv = new Float32Array(pos.count * 2);
+        for (let i = 0; i < pos.count; i++) {
+          uv[i * 2] = 0.5 + pos.getZ(i) / (2 * rd);
+          uv[i * 2 + 1] = 0.5 - pos.getX(i) / (2 * rd);
+        }
+        g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      }
+      m.material = mat;
+      m.userData.ownLook = true;
+    });
+  }
+  // Vivid opaque crimson enamel for North pointer & lubber triangle, and clean bright silver for South tail
+  compassRedMat ??= surfaceMaterial({ color: 0xdc2218, spec: 0.25, cabinLift: true });
+  compassSilverMat ??= surfaceMaterial({ color: 0xdde3ec, spec: 0.42, cabinLift: true });
+  const needle = scene.getObjectByName('KNOB_needle');
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || m.userData.ownLook) return;
+    const mName = Array.isArray(m.material) ? '' : m.material.name;
+    if (mName === 'lens_tail') {
+      m.material = compassRedMat!;
+      m.userData.ownLook = true;
+    } else if (mName === 'chrome' && needle && (m === needle || m.parent === needle)) {
+      m.material = compassSilverMat!;
+      m.userData.ownLook = true;
+    }
+  });
+}
+
 export function itemGlb(model: string): Promise<Model | null> {
   let p = items.get(model);
   if (!p) {
     const maker = MAKERS.find((m) => m.owns(model));
     p = maker
       ? Promise.resolve(maker.make(model)).then((scene) => (scene ? { scene, standIn: false, box: new THREE.Box3().setFromObject(scene) } : null))
-      : fetchGlb(`${BASE}items/${model}.glb`).then((scene) => (scene ? { scene: bakeScale(scene, itemScale(model)), standIn: false, box: new THREE.Box3().setFromObject(scene) } : null));
+      : fetchGlb(`${BASE}items/${model}.glb`).then((scene) => {
+          if (!scene) return null;
+          if (model === 'nd_compass') dressCompassDial(scene);
+          return { scene: bakeScale(scene, itemScale(model)), standIn: false, box: new THREE.Box3().setFromObject(scene) };
+        });
     items.set(model, p);
   }
   return p;
@@ -671,8 +863,8 @@ export function standInPart(def: PartDef): THREE.Group {
   } else if (cat === 'seat') {
     if (def.id === 'seat_toilet') {
       const cer = m('ceramic', 0xf2f2ee);
-      g.add(cyl(0.2, 0.4, cer).translateY(0.2));
-      g.add(box(0.18, 0.4, 0.42, cer, -0.25, 0.6));
+      g.add(cyl(0.2, 0.4, cer).translateX(-0.14).translateY(0.2));
+      g.add(box(0.18, 0.4, 0.42, cer, -0.39, 0.6));
     } else if (def.id === 'seat_saddle') g.add(box(0.6, 0.1, 0.28, m('leather', 0x3a2418), 0, 0.05));
     else {
       const w = def.id === 'seat_bench' ? 1.25 : def.id === 'seat_armchair' ? 0.8 : 0.5;

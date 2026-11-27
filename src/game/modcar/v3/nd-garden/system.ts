@@ -515,15 +515,19 @@ export class NdGarden implements System<GameContext>, InteractSource {
     // the fruits still on it, once it is ripe
     const left = new Set(fruitsLeft(p.item, p.bed));
     const d = p.drawn!;
+    const lamp = this.ctx ? this.ctx.loose.cabinLampOf(p.l.riding?.on ?? null) : null;
     for (let i = 0; i < d.fruits.length; i++) {
       const want = left.has(i);
       let o = p.fruitObjs[i];
+      const kind = ND_FRUIT[s.crop];
+      const owner = `nd-garden:fruit:${p.l.uid}:${kind}`;
       if (want && !o) {
-        const kind = ND_FRUIT[s.crop];
         const m = this.fruitModel(kind);
         if (m) {
           o = cloneModel(m);
-          applyMaterials(o, this.mats.look(`nd-garden:fruit:${kind}`, itemPaint(newItemOf(kind))));
+          const look = this.mats.look(owner, itemPaint(newItemOf(kind)));
+          if (lamp) look.setCabinLamp(lamp);
+          applyMaterials(o, look);
           o.scale.setScalar(d.fruitScale);
           o.position.copy(d.fruits[i]).add(p.soil);
           // (hanging from above: its own top up; lying on the soil for the potato and the melon)
@@ -534,6 +538,11 @@ export class NdGarden implements System<GameContext>, InteractSource {
       } else if (!want && o) {
         o.removeFromParent();
         p.fruitObjs[i] = null;
+      }
+      if (o && lamp) {
+        o.updateMatrixWorld(true);
+        this.mats.setFrameOf(owner, o.matrixWorld);
+        this.mats.lookOf(owner)?.setCabinLamp(lamp);
       }
     }
   }

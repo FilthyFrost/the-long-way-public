@@ -29,7 +29,7 @@ WALL = -0.03          # the lining inside the shell
 # the entry door's leaf goes on down to the stairwell inside it, as Nomad Drive's school bus has one (frames/_steps.py;
 # core/modcar/aboard.ts BoardDoor.well: two bus treads 0.3 m deep, rises of 0.24), and the opening's
 # edges from the door's foot down
-WELL = dict(tops=(0.24, 0.48), depth=0.30)
+WELL = dict(tops=(0.42, 0.63), depth=0.30)
 WELL_X = (D['sd_x0'] - DELTA, D['sd_x1'] + DELTA)
 
 

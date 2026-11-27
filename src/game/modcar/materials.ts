@@ -107,6 +107,13 @@ export class CarMaterials {
     return [...this.owned.keys()].filter((k) => k.startsWith(prefix));
   }
 
+  /** visit every owner whose name starts with `prefix` (zero-alloc for per-frame lighting propagation) */
+  forEachPrefix(prefix: string, fn: (look: CarLook) => void): void {
+    for (const [k, o] of this.owned) {
+      if (k.startsWith(prefix)) fn(o.look);
+    }
+  }
+
   /**
    * The light inside the vehicle's cabin (linear RGB; black: none): a lamp switched on in a motorhome lights its
    * inside, and no other vehicle's (docs/V3/nodes/M2-rv.md). Every owner's look, and those made later.

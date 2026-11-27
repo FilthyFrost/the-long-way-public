@@ -48,7 +48,7 @@ import type { InteractSources } from './kernel/interact';
 import { heldCall, heldUseOf, type HeldLook, type HeldUse } from './kernel/heldUse';
 import type { CargoBay, StowAim } from './cargo';
 import { LIDLESS_WHY, zoneLidless, zonesFor, type CargoZone } from '../../core/modcar/cargo';
-import { passengerSeat } from './cockpit';
+import { passengerSeat, seatMount } from './cockpit';
 import { aboardOf, type BoardDoor } from '../../core/modcar/aboard';
 import { gateRightActions, ND_HOLD_S } from './arbiter';
 import type { OutlineTarget } from '../render/frame';
@@ -169,7 +169,7 @@ type Target = (
   | { kind: 'loose'; loose: Loose; dist: number }
   | { kind: 'ghost'; v: ModVehicle; mount: MountDef; sub: string | null; replace: boolean; dist: number }
   | { kind: 'looseSub'; loose: Loose; sub: string; dist: number }
-  | { kind: 'part'; v: ModVehicle; mount: MountDef; dist: number }
+  | { kind: 'part'; v: ModVehicle; mount: MountDef; dist: number; seatIntent?: 'sit' | 'detach' }
   /** a can at the filler its liquid goes into (open: the flap or cap is open, no shut bonnet over it) */
   | { kind: 'filler'; v: ModVehicle; liquid: LiquidKind; open: boolean; dist: number }
   /** a can held elsewhere on the body: the words say where its filler is */
@@ -337,7 +337,7 @@ function subOff(l: Loose): 'tire' | 'turbo' | null {
 
 const REACH = 2.6;
 /** the hand's reach looking level, and looking steeply down or up (m: Nomad Drive's, docs/V3/plan/hands.md §二.2) */
-const REACH_LEVEL = 1.6;
+const REACH_LEVEL = 2.15;
 const REACH_STEEP = 3.36;
 /** a tool's reach to the surface it works on (a can, a scraper, the grinder): as before */
 const TOOL_REACH = 2.6;
@@ -1425,10 +1425,10 @@ export class ModPlayer {
     const spraying = held?.kind === 'tool' && held.tool.kind === 'spray';
 
     // ---- the vehicles: what of them the ray meets first, from their real meshes (no boxes round them)
-    let surf: { v: ModVehicle; owner: string; dist: number } | null = null;
+    let surf: { v: ModVehicle; owner: string; dist: number; mesh: THREE.Mesh } | null = null;
     for (const v of this.near(TOOL_REACH + 1)) {
       const h = v.view.targetCast(this.ray.origin, this.ray.direction, TOOL_REACH + 0.6);
-      if (h && (!surf || h.dist < surf.dist)) surf = { v, owner: h.owner, dist: h.dist };
+      if (h && (!surf || h.dist < surf.dist)) surf = { v, owner: h.owner, dist: h.dist, mesh: h.mesh };
     }
     const surfMount = (s: { v: ModVehicle; owner: string }): MountDef | null => {
       const id = s.v.view.mountOfOwner(s.owner);
@@ -1557,7 +1557,7 @@ export class ModPlayer {
       if (!held) {
         // (the body's skin over a part under the car — its tank, its gearbox, its exhaust: that part, a hand behind it)
         const under = m ? null : this.underSkin(v, surf.dist, reach);
-        if (m) t = { kind: 'part', v, mount: m, dist: surf.dist };
+        if (m) t = { kind: 'part', v, mount: m, dist: surf.dist, seatIntent: m.cat === 'seat' ? v.view.seatSubHit(m.id, surf.mesh) : undefined };
         else if (under) t = { kind: 'part', v, mount: under, dist: surf.dist };
         // (a trailer has no seat to get into: towed, not driven; a motorcycle on a rack is carried, not ridden; nor is a
         // vehicle got into from up on its roof)
@@ -1775,8 +1775,15 @@ export class ModPlayer {
     if (v) v.view.highlight(mount);
     const loose = t?.kind === 'loose' || t?.kind === 'looseSub' ? t.loose : t?.kind === 'device' ? (t.device.loose ?? null) : null;
     this.host.loose.highlight(loose, t?.kind === 'device' ? (t.device.lights ?? '') : '');
-    if (v && mount) this.outlineTarget = v.view.outlineTarget?.(mount) ?? null;
-    else if (t?.kind === 'device') this.outlineTarget = this.host.loose.outlineTarget?.(t.device.loose ?? null, t.device.outline ?? null) ?? null;
+    if (v && mount) {
+      const isSeat = t?.kind === 'part' && t.mount.cat === 'seat';
+      const detachingSeat = isSeat && (t.seatIntent === 'detach' || (this.progress > 0 && (this.secondary || this.primary)));
+      const mode: 'full' | 'cushion' = isSeat && !detachingSeat ? 'cushion' : 'full';
+      this.outlineTarget = v.view.outlineTarget?.(mount, mode) ?? null;
+    } else if (t?.kind === 'enter') {
+      const sm = seatMount(t.v, t.seat);
+      this.outlineTarget = sm ? (t.v.view.outlineTarget?.(sm.id, 'cushion') ?? null) : null;
+    } else if (t?.kind === 'device') this.outlineTarget = this.host.loose.outlineTarget?.(t.device.loose ?? null, t.device.outline ?? null) ?? null;
     else if (loose) this.outlineTarget = this.host.loose.outlineTarget?.(loose) ?? null;
     else this.outlineTarget = null;
   }
@@ -2004,6 +2011,7 @@ export class ModPlayer {
     if (!t) return false;
     if (t.kind === 'part') {
       if (t.v.view.hasPanel(t.mount.id)) return true;
+      if (!held && t.mount.cat === 'seat' && t.seatIntent === 'detach') return false;
       if (!held && (t.mount.cat === 'seat' || t.mount.cat === 'steering') && !!this.seatFor(t.v, t.mount, null)) return true;
       return false;
     }
@@ -2199,6 +2207,11 @@ export class ModPlayer {
   throwHeld(charge01: number): boolean {
     const held = this.held;
     if (!held || this.pin) return false;
+    // Short-tap Q while aiming into an open cooler drops & stacks the item directly inside it.
+    if (charge01 < 0.08 && this.shelver?.into(this.target, held)) {
+      if (this.flow) this.endFlow();
+      return true;
+    }
     const kg = partMass(held);
     if (kg > THROW_MAX_KG) {
       if (charge01 > 0.08) {
@@ -2232,15 +2245,28 @@ export class ModPlayer {
     return true;
   }
 
+  /** id of the GarageDevice currently running a hold-progress action, so finishing never chains into a reverse hold (#2) */
+  private deviceHoldId = '';
+
   /** E held on a device that wants it held: its progress told, the device used when the hold is full; false: no hold on this device now */
   private holdDevice(dv: GarageDevice, held: Held, dt: number): boolean {
-    if (!(dv.holdS && this.primary && !(held && dv.take?.(held)))) return false;
+    if (!this.primary) this.deviceHoldId = '';
+    if (!(dv.holdS && this.primary && !(held && dv.take?.(held)))) {
+      if (this.primary && this.deviceHoldId === dv.id) {
+        this.progress = 0;
+        this.spent = true;
+        this.deviceHoldId = '';
+      }
+      return false;
+    }
     if (this.spent) return true;
+    this.deviceHoldId = dv.id;
     this.progress += dt / dv.holdS;
     dv.holding?.(Math.min(1, this.progress));
     if (this.progress >= 1) {
       this.progress = 0;
       this.spent = true;
+      this.deviceHoldId = '';
       dv.use();
     }
     return true;
@@ -2423,7 +2449,10 @@ export class ModPlayer {
         this.use = { kind: 'drink', t: 0, slot: this.sel, item: held.item, dur: Infinity };
         if (!held.item.opened) {
           held.item.opened = true;
-          host.sound(d.model === 'drink_soda' || d.model === 'drink_energy' ? 'can_open' : 'cap_open');
+          const id = held.item.item;
+          if (id !== 'nd_mug' && id !== 'coffee_pot' && id !== 'nd_bucket') {
+            host.sound(d.model === 'drink_soda' || d.model === 'drink_energy' ? 'can_open' : 'cap_open');
+          }
         }
         return;
       }
@@ -2898,7 +2927,7 @@ export class ModPlayer {
           // (a can of a liquid in the hands: where its filler is, too)
           const can = held?.kind === 'tool' ? liquidOf(held.tool) : null;
           if (panel && can) acts.push({ keys: E, hold: true, text: '倒', off: true, why: `对着${LIQUID[can].filler}` });
-          else if (seat && !held) {
+          else if (seat && !held && t.seatIntent !== 'detach') {
             const at = this.seatFor(t.v, t.mount, null);
             if (at) acts.push({ keys: E, text: at === 'pass' ? '坐进副驾' : `上车 <b>${t.v.view.frame.name[ui.lang]}</b>`, ...(this.host.partsOnly?.(t.v) ? { off: true, why: '只能拆零件' } : {}) });
           }

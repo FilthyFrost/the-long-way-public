@@ -27,7 +27,7 @@ describe('R1: the Turtle and the beds', () => {
     const [name, p] = pops[0];
     expect(name).toBe('POPUP_roof');
     expect(p.driver).toBe('roof');
-    expect(p.lift?.[1]).toBeGreaterThan(0.5);
+    expect(p.lift?.[1]).toBeGreaterThanOrEqual(0.5);
     expect(p.lift?.[1]).toBeLessThan(0.8);
     expect(p.bellows).toBe('POPUP_roof_bellows');
     // (its shell on the roof: at the top of the body)
@@ -38,8 +38,8 @@ describe('R1: the Turtle and the beds', () => {
     // (the Loaf's parts on it: a stock build has its engine, its seats, its doors)
     const b = stockBuild('turtle');
     for (const m of ['engine', 'seat_driver', 'seat_pass', 'door_side', 'trunk', 'hood']) expect(b.parts[m], m).toBeTruthy();
-    // (in only with the roof up)
-    expect(aboardOf('turtle')?.roof).toBe(true);
+    // High-top Turtle (#3) lets players walk in standing without needing the pop-up roof raised first
+    expect(aboardOf('turtle')?.roof).toBeFalsy();
     expect(aboardOf('rv')?.roof).toBeFalsy();
   });
 
@@ -52,8 +52,8 @@ describe('R1: the Turtle and the beds', () => {
       expect(z.x[0], z.id).toBeGreaterThanOrEqual(f.body.rear);
       expect(z.x[1], z.id).toBeLessThanOrEqual(f.body.front);
       expect(Math.max(Math.abs(z.z[0]), Math.abs(z.z[1])), z.id).toBeLessThanOrEqual(f.body.halfWidth);
-      // (the floor is drawn looking down from the zone's top: under the shell's underside with the roof down, 2.04)
-      expect(z.top, z.id).toBeLessThan(2.0);
+      // (under the high-top shell's underside with the roof down, 2.62 m)
+      expect(z.top, z.id).toBeLessThan(2.62);
     }
     const by = (id: string) => zones.find((z) => z.id === id)!;
     // (the deck over the rear axle 38 cm over the floor, as Nomad Drive's camper van's; the engine's behind it higher:

@@ -221,6 +221,12 @@ export class CargoBay {
         h[px * nx + py] = zone.top - t * range;
       }
     }
+    // Roof racks have thin crossbars with ~93% open gaps: ensure every cell inside the rack footprint has a flat deck at zone.floor.
+    if (zone.id === 'roof') {
+      for (let i = 0; i < h.length; i++) {
+        if (Number.isNaN(h[i]) || h[i] < zone.floor) h[i] = zone.floor;
+      }
+    }
     // (a room's walls: the cells along its edges are the walls' own feet — a door's sill, the slot under a lining, a
     // kick plate, the wall's very face where it stands on the cell's edge, a window's ledge over it: no floor, and
     // nothing a cupboard stood against the wall stands on. Each reads as the cell next to it inside.)
@@ -234,6 +240,20 @@ export class CargoBay {
         h[(nz - 1) * nx + py] = h[(nz - 2) * nx + py];
       }
     }
+    if (zone.holes?.length) {
+      for (let py = 0; py < nx; py++) {
+        const wx = x0 + (py + 0.5) * CELL;
+        for (let px = 0; px < nz; px++) {
+          const wz = z0 + (px + 0.5) * CELL;
+          for (const hole of zone.holes) {
+            if (wx > hole.x[0] && wx < hole.x[1] && wz > hole.z[0] && wz < hole.z[1]) {
+              h[px * nx + py] = NaN;
+              break;
+            }
+          }
+        }
+      }
+    }
     return grid;
   }
 
@@ -242,8 +262,11 @@ export class CargoBay {
   /** what rides in a zone of a vehicle, as boxes where they are (frame model space) */
   placedIn(v: ModVehicle, zone: string): Placed[] {
     const out: Placed[] = [];
+    const mergeLegacy = zone === 'cabin' && !zonesFor(v.view.frame.id, v.build).some((z) => z.id === 'fore' || z.id === 'lounge');
     for (const l of this.loose.list) {
-      if (l.riding?.on !== v || l.stow !== zone) continue;
+      if (l.riding?.on !== v) continue;
+      if (l.stow !== zone && !(mergeLegacy && (l.stow === 'fore' || l.stow === 'lounge'))) continue;
+      if (mergeLegacy && (l.stow === 'fore' || l.stow === 'lounge')) l.stow = 'cabin';
       const p = this.inModel(v, l);
       if (p) out.push(p);
     }
@@ -430,6 +453,7 @@ export class CargoBay {
         if (best && t[0] >= best.dist) continue;
         const g = this.grid(v, zone);
         const t1 = Math.min(t[1], reach + 1);
+        let hitRoof = false;
         for (let s = Math.max(0, t[0]); s <= t1; s += 0.02) {
           const x = o.x + d.x * s;
           const y = o.y + d.y * s;
@@ -437,8 +461,21 @@ export class CargoBay {
           const f = gridAt(g, x, z);
           if (Number.isNaN(f) || y > f + 0.02) continue;
           // (behind the vehicle's own wall or seat back: not this one)
-          if (s <= los + 0.06 && (!best || s < best.dist)) best = { v, zone, x, z, dist: s };
+          if (s <= los + 0.06 && (!best || s < best.dist)) {
+            best = { v, zone, x, z, dist: s };
+            hitRoof = true;
+          }
           break;
+        }
+        // Standing beside a car looking across/up at its roof rack (eye <= rack height): land directly on the rack deck.
+        if (!hitRoof && zone.id === 'roof') {
+          const sHit = Math.abs(d.y) > 1e-4 ? (zone.floor - o.y) / d.y : (t[0] + t1) * 0.5;
+          const sUse = sHit >= Math.max(0, t[0] - 0.15) && sHit <= t1 ? sHit : Math.max(0, t[0] + Math.min(0.35, (t1 - t[0]) * 0.5));
+          if (sUse <= reach && (!best || sUse < best.dist)) {
+            const rx = Math.max(zone.x[0], Math.min(zone.x[1], o.x + d.x * sUse));
+            const rz = Math.max(zone.z[0], Math.min(zone.z[1], o.z + d.z * sUse));
+            best = { v, zone, x: rx, z: rz, dist: sUse };
+          }
         }
       }
       const wall = v === inside ? this.wallAim(v, ray, held, reach) : null;
@@ -489,7 +526,7 @@ export class CargoBay {
       takes = rule(held, box);
       if (takes !== null) break;
     }
-    if (!(takes ?? (carryOf(held) !== 'large' && box.maxY - box.minY <= 1.0))) return null;
+    if (!takes) return null;
     const rc = this.wallRay;
     rc.ray.copy(ray);
     rc.far = reach;
@@ -566,7 +603,9 @@ export class CargoBay {
    * model space) turned by yaw, as aiming puts it (to its grid; 0: just there), or packed in as packSpot packs. The developer's tabs.
    */
   spotIn(v: ModVehicle, zoneId: string, held: NonNullable<Held>, near: { x: number; z: number } | null = null, yaw = 0, grid?: number): { zone: CargoZone; spot: Spot } | null {
-    const zone = zonesFor(v.view.frame.id, v.build).find((z) => z.id === zoneId);
+    const zs = zonesFor(v.view.frame.id, v.build);
+    let zone = zs.find((z) => z.id === zoneId);
+    if (!zone && (zoneId === 'fore' || zoneId === 'lounge')) zone = zs.find((z) => z.id === 'cabin');
     grid ??= zone?.grid ?? AIM_GRID;
     if (!zone || zone.wall || !zoneTakes(zone, carryOf(held)) || zoneLidless(v.view.frame.id, zone, v.build)) return null;
     const box = this.boxOf(held) ?? roughBox(carryOf(held));

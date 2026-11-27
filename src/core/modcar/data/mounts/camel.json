@@ -7,14 +7,14 @@
   ],
   "min": [
    -6.1562,
-   0.183,
+   0.24,
    -1.23144
   ]
  },
  "eye_default": [
+  1.92,
   2.02,
-  2.0,
-  -0.66
+  -0.58
  ],
  "frame": "camel",
  "mounts": {
@@ -215,9 +215,9 @@
    "cat": "gearLever",
    "note": "on the console right of the seat",
    "pos": [
-    2.48,
-    1.074,
-    -0.3
+    2.4,
+    1.154,
+    -0.16
    ],
    "quat": [
     0.0,
@@ -255,9 +255,9 @@
    "cat": "handbrake",
    "note": "on the console right of the seat",
    "pos": [
-    2.12,
-    1.06,
-    -0.3
+    2.02,
+    1.14,
+    -0.16
    ],
    "quat": [
     0.0,
@@ -339,8 +339,8 @@
    "cat": "houseBattery",
    "note": "the house battery: on the floor behind the modesty panel, by the wall",
    "pos": [
-    1.62,
-    0.72,
+    1.5,
+    0.84,
     -1.01
    ],
    "quat": [
@@ -448,9 +448,9 @@
    "cat": "ignition",
    "on": "steering column shroud, right side",
    "pos": [
-    2.47634,
-    1.51405,
-    -0.615
+    2.5203,
+    1.45082,
+    -0.535
    ],
    "quat": [
     0.0,
@@ -519,8 +519,8 @@
   "radio": {
    "cat": "radio",
    "pos": [
-    2.608,
-    1.372,
+    2.648,
+    1.352,
     -0.0
    ],
    "quat": [
@@ -558,12 +558,12 @@
   "seat_driver": {
    "cat": "seat",
    "driver": true,
-   "floor_z": 1.1,
+   "floor_z": 1.12,
    "note": "on its pedestal",
    "pos": [
-    2.18,
-    1.1,
-    -0.66
+    2.08,
+    1.12,
+    -0.58
    ],
    "quat": [
     0.0,
@@ -576,11 +576,11 @@
   "seat_pass": {
    "cat": "seat",
    "driver": false,
-   "floor_z": 0.72,
+   "floor_z": 0.84,
    "note": "the first seat behind the entry door (bare: the bus was emptied)",
    "pos": [
-    1.4,
-    0.72,
+    1.32,
+    0.84,
     0.72
    ],
    "quat": [
@@ -593,17 +593,17 @@
   },
   "steering": {
    "cat": "steering",
-   "column_deg": 62.0,
+   "column_deg": 48.0,
    "pos": [
-    2.42,
-    1.62,
-    -0.66
+    2.44,
+    1.54,
+    -0.58
    ],
    "quat": [
     0.0,
     0.0,
-    -0.515038,
-    0.857167
+    -0.406737,
+    0.913545
    ]
   },
   "taillight_L": {
@@ -653,7 +653,7 @@
    "panel": "P_trunk",
    "pos": [
     -6.14491,
-    1.57,
+    1.63,
     -0.45
    ],
    "quat": [
@@ -668,61 +668,61 @@
  "needles": {
   "N_fuel": {
    "axis": [
-    -0.88862,
-    0.45864,
+    -0.83943,
+    0.54347,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    2.62183,
-    1.65787,
-    -0.66
+    2.67975,
+    1.49476,
+    -0.58
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_rpm": {
    "axis": [
-    -0.88862,
-    0.45864,
+    -0.83943,
+    0.54347,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    2.63467,
-    1.68275,
-    -0.568
+    2.69496,
+    1.51826,
+    -0.488
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_speed": {
    "axis": [
-    -0.88862,
-    0.45864,
+    -0.83943,
+    0.54347,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    2.63467,
-    1.68275,
-    -0.752
+    2.69496,
+    1.51826,
+    -0.672
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   },
   "N_temp": {
    "axis": [
-    -0.88862,
-    0.45864,
+    -0.83943,
+    0.54347,
     -0.0
    ],
    "axis_local": "y",
    "deg_full": -240.0,
    "pivot": [
-    2.64751,
-    1.70763,
-    -0.66
+    2.71018,
+    1.54176,
+    -0.58
    ],
    "rest": "zero reading; positive angles turn counter-clockwise as seen by the driver"
   }
@@ -787,7 +787,7 @@
    ],
    "hinge_pos": [
     -6.14491,
-    1.57,
+    1.63,
     -0.45
    ],
    "mount": "trunk",
@@ -796,7 +796,7 @@
  },
  "room": {
   "ceiling": 3.005,
-  "floor_y": 0.72,
+  "floor_y": 0.84,
   "stair": {
    "x": [
     2.0,
@@ -807,17 +807,9 @@
     1.17
    ]
   },
-  "wells": {
-   "top": 0.9500000000000001,
-   "x": [
-    -3.41,
-    -2.29
-   ],
-   "z_in": 0.62
-  },
   "x": [
    -6.09,
-   1.86
+   1.72
   ],
   "z": [
    -1.17,
@@ -835,10 +827,10 @@
   "widen": null
  },
  "triangles": {
-  "BODY": 63051,
+  "BODY": 63049,
   "FUEL_CAP": 574,
-  "GLASS": 3799,
-  "INTERIOR": 13119,
+  "GLASS": 3777,
+  "INTERIOR": 12979,
   "KNUCKLE_hub_FL": 508,
   "KNUCKLE_hub_FR": 508,
   "KNUCKLE_hub_RL": 508,
@@ -851,11 +843,11 @@
   "PG_trunk": 220,
   "P_door_side": 2602,
   "P_hood": 884,
-  "P_trunk": 4288,
+  "P_trunk": 4142,
   "UNDER": 3080,
   "WIPER_L": 194,
   "WIPER_R": 194,
-  "total": 94445
+  "total": 94135
  },
  "units": "metres, game frame (+x forward, +y up, +z right)",
  "wipers": {

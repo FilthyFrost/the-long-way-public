@@ -18,14 +18,18 @@ import { registerItemCardLines } from '../../itemInfo';
 import type { GameContext } from '../../kernel/context';
 import type { GameModule } from '../../kernel/modules';
 import { stationLabel } from '../../radio';
-import { appliancesTab } from './devTab';
+import { registerNdItems } from '../../../../core/v3/nd/items';
+import { VINYLS } from '../../../../core/v3/nd/vinyls';
+import { appliancesTab, musicTab } from './devTab';
 import { Appliances, TV_CHANNELS } from './system';
 
 // ------------------------------------------------------------------ content, as the module is loaded
 
 registerItemCat(KITCHEN_CAT);
 registerItems(APPLIANCE_ITEMS);
+registerNdItems();
 for (const [kind, ids] of Object.entries(APPLIANCE_JUNK)) addJunk(kind, ids);
+addJunk('house', VINYLS.slice(0, 16).map((v) => v.id));
 
 // the drip coffee maker retired (docs/V3/plan/growth.md §一 4: one coffee machine): one in a save is the coffee machine,
 // its pot under the spout with the coffee that was in it; a bag of ground coffee is a bag of beans
@@ -63,7 +67,7 @@ export default {
   id: 'appliances',
   systems: [appliances],
   interact: [appliances],
-  devTabs: [appliancesTab(appliances, () => game)],
+  devTabs: [appliancesTab(appliances, () => game), musicTab(() => game)],
   setup: (ctx) => {
     game = ctx;
   },

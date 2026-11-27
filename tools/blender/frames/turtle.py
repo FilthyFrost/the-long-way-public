@@ -38,29 +38,29 @@ D = dict(
     # the box: plan rounded rectangle (nose face, tail face, half width, vertical corner radii) — the nose's corners
     # twice the Loaf's: a round nose
     xf=2.30, xr=-2.40, hw=0.92, rho_f=0.40, rho_r=0.18,
-    z_bot=0.32, roof_z=1.98, roof_crown=0.010,
+    z_bot=0.32, roof_z=2.62, roof_crown=0.010,
     # the roll from the walls into the roof along the sides; the brow over the windscreen; the roll at the back
-    r_side=0.25, r_brow=0.13, r_back=0.20,
+    r_side=0.24, r_brow=0.14, r_back=0.20,
     # the nose leans back above the windscreen's foot (by ws_lean degrees from vertical)
-    ws_foot=1.10, ws_head=1.86, ws_lean=11.5, ws_hw=0.80, ws_r=0.08,
+    ws_foot=1.10, ws_head=2.08, ws_lean=11.5, ws_hw=0.80, ws_r=0.08,
     # wheel arches (radius, centre height): the wells' liners (r 0.43 about the hub) fill them to the top
     arch_r=0.40, arch_zc=0.35,
     # colours: sea green (paint) below the waist, cream (paint_b) above
     waist_z=1.05,
     gap=0.005, edge_r=0.0022,
     # cab doors (over the front wheels) and their windows; the fixed quarter window ahead of them
-    cd_x0=0.784, cd_x1=1.584, cd_z0=0.84, cd_z1=1.68, cd_r=0.05,
-    cd_win=(0.864, 1.524, 1.16, 1.64, 0.06),
-    q_x0=1.634, q_z0=1.16, q_z1=1.62,
+    cd_x0=0.784, cd_x1=1.584, cd_z0=0.84, cd_z1=2.02, cd_r=0.05,
+    cd_win=(0.864, 1.524, 1.16, 1.96, 0.06),
+    q_x0=1.634, q_z0=1.16, q_z1=1.94,
     # side windows: the left middle one (over the galley), the rear ones over the bed (both sides)
-    win_mid=(-0.56, 0.64, 1.32, 1.64, 0.07),
-    win_rear=(-2.13, -0.78, 1.18, 1.62, 0.07),
-    # the sliding door on the right (modelled as a hinged panel, P_door_side) and its window
-    sd_x0=-0.56, sd_x1=0.64, sd_z0=0.50, sd_z1=1.66, sd_r=0.05,
-    sd_win=(-0.45, 0.53, 1.18, 1.58, 0.06),
+    win_mid=(-0.56, 0.64, 1.32, 1.96, 0.07),
+    win_rear=(-2.13, -0.78, 1.24, 1.96, 0.07),
+    # the sliding door on the right (modelled as a hinged panel, P_door_side) and its window — tall walk-in opening
+    sd_x0=-0.56, sd_x1=0.64, sd_z0=0.50, sd_z1=2.22, sd_r=0.05,
+    sd_win=(-0.45, 0.53, 1.20, 2.04, 0.06),
     # the back: the top-hinged tailgate and its window, the engine lid under it, the upright tail lamps
-    tg_hw=0.60, tg_z0=0.97, tg_z1=1.77, tg_hinge=1.795, tg_r=0.08,
-    tw_hw=0.50, tw_z0=1.24, tw_z1=1.69, tw_r=0.06,
+    tg_hw=0.60, tg_z0=0.97, tg_z1=2.24, tg_hinge=2.265, tg_r=0.08,
+    tw_hw=0.50, tw_z0=1.38, tw_z1=2.12, tw_r=0.06,
     lid_hw=0.54, lid_z0=0.46, lid_z1=0.90, lid_r=0.05,
     tail_y=0.66, tail_z=0.80, tail_w=0.13, tail_h=0.29,
     # round head lamps on the nose (inside its flat, the corners round from |y| 0.52)
@@ -69,7 +69,7 @@ D = dict(
     fuel=(0.20, 0.80, 0.052),
     # the elevating roof: the opening in the roof (plan x, half width, corner radius), the shell over it (its
     # overhang round the opening, its crown), how far it lifts
-    pt_x0=-2.14, pt_x1=1.36, pt_hw=0.76, pt_r=0.22, pt_over=0.05, pt_crown=0.09, pt_lift=0.62,
+    pt_x0=-2.14, pt_x1=1.36, pt_hw=0.76, pt_r=0.22, pt_over=0.05, pt_crown=0.09, pt_lift=0.50,
 )
 GAP = D['gap']
 ER = D['edge_r']
@@ -77,7 +77,7 @@ DELTA = GAP / 2 + ER
 
 # the wall's straight piece, where the loft's t is the height itself (t = T3 + z - Z_W0)
 Z_W0 = 0.42
-Z_W1 = 1.66
+Z_W1 = 2.28
 
 _WL = math.radians(D['ws_lean'])
 PHI_F = _WL                     # the nose's lean from vertical at the brow
@@ -85,9 +85,9 @@ PHI_F = _WL                     # the nose's lean from vertical at the brow
 
 # ============================================================================================ exact surface (V)
 # the nose: a little tucked under at the bottom, upright to the windscreen's foot, then leaning back
-_front_lean = K.Spline([0.32, 0.36, 0.42, 0.52, 1.02, 1.10, 1.16, 1.24, 1.60, 1.95, 2.05],
-                       [-0.022, -0.009, -0.002, 0.0, 0.0, -0.0012, -0.0068, -0.0217, -0.0898, -0.1559, -0.175], monotone=True)
-_rear_lean = K.Spline([0.32, 0.38, 0.46, 2.05], [-0.016, -0.004, 0.0, 0.0], monotone=True)
+_front_lean = K.Spline([0.32, 0.36, 0.42, 0.52, 1.02, 1.10, 1.16, 1.24, 1.60, 1.95, 2.28, 2.62, 2.75],
+                       [-0.022, -0.009, -0.002, 0.0, 0.0, -0.0012, -0.0068, -0.0217, -0.0898, -0.1559, -0.2230, -0.2922, -0.3186], monotone=True)
+_rear_lean = K.Spline([0.32, 0.38, 0.46, 2.75], [-0.016, -0.004, 0.0, 0.0], monotone=True)
 
 
 def front_lean(z):
@@ -100,7 +100,7 @@ def rear_lean(z):
 
 def side_w(x, z):
     """Half width of the side wall: a faint barrel, 5 mm in at the bottom and at the shoulder."""
-    return D['hw'] - 0.005 * ((np.asarray(z, float) - 1.0) / 0.68) ** 2 - 0.003 * ((np.asarray(x, float) + 0.05) / 2.35) ** 2
+    return D['hw'] - 0.005 * ((np.asarray(z, float) - 1.4) / 1.0) ** 2 - 0.003 * ((np.asarray(x, float) + 0.05) / 2.35) ** 2
 
 
 def front_x(ay, z):
@@ -241,7 +241,7 @@ def V_proxy(u, t):
 
 
 CV = K.Chart(V_proxy, V_sdf, (0.0, U_END), (V_T[0], V_T[-1]), inv_res=(900, 220))
-CT = K.TopChart(V_sdf)
+CT = K.TopChart(V_sdf, z_from=3.5)
 SIDE = K.PlaneChart(V_sdf, axis=1, sign=1.0)
 FRONT = K.PlaneChart(V_sdf, axis=0, sign=1.0)
 REAR = K.PlaneChart(V_sdf, axis=0, sign=-1.0)

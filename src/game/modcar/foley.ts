@@ -192,7 +192,11 @@ export type FoleyShot =
   /** a page of the book turned (~0.25 s) */
   | 'book_page'
   /** a new recipe written into the book: a few quick pencil strokes, a tap (~0.9 s) */
-  | 'book_write';
+  | 'book_write'
+  /** an instant camera's mechanical two-curtain shutter click (~0.14 s) */
+  | 'camera_shutter'
+  /** an instant camera's motorized roller feeding and popping out a print (~1.2 s) */
+  | 'camera_eject';
 
 export type FoleyLoop =
   | 'ratchet'
@@ -4578,6 +4582,63 @@ function boilLoop(): Recipe {
   };
 }
 
+function cameraShutter(): Recipe {
+  return (sr, rng) => {
+    const n = Math.floor(0.16 * sr);
+    const out = new Float32Array(n);
+    // first curtain release: sharp high metallic click + soft mirror-box thump
+    burst(out, sr, 0, 0.025, 1.0, rng, { attack: 0.0004, decay: 0.004, filter: [['bandpass', 3600, 1.4]] });
+    burst(out, sr, 0, 0.045, 0.75, rng, { attack: 0.001, decay: 0.012, filter: [['lowpass', 520, 0.9]] });
+    // second curtain snap ~24 ms later: crisp mechanical leaf closing + tiny spring ring
+    const c2At = Math.floor(0.024 * sr);
+    burst(out, sr, c2At, 0.03, 0.95, rng, { attack: 0.0003, decay: 0.0055, filter: [['bandpass', 2600, 1.6]] });
+    ring(out, sr, c2At, 1480, 0.14, 0.012);
+    return normalize(edges(out, sr, 1, 10), 0.85);
+  };
+}
+
+function cameraEject(): Recipe {
+  return (sr, rng) => {
+    const delay = 0.09;
+    const dur = 1.18;
+    const n = Math.floor((delay + dur) * sr);
+    const out = new Float32Array(n);
+    const start = Math.floor(delay * sr);
+    const mLen = Math.floor(1.06 * sr);
+    // miniature DC motor + gear train whirring the Polaroid rollers
+    const motor = new Float32Array(mLen);
+    let ph1 = 0;
+    let ph2 = 0;
+    let ph3 = 0;
+    for (let i = 0; i < mLen; i++) {
+      const t = i / sr;
+      const ramp = Math.min(1, t / 0.07) * Math.min(1, Math.max(0, (1.06 - t) / 0.09));
+      const rpm = 1 + 0.18 * Math.min(1, t / 0.15) - 0.12 * Math.max(0, (t - 0.92) / 0.14);
+      const f = 195 * rpm;
+      ph1 += (2 * Math.PI * f) / sr;
+      ph2 += (2 * Math.PI * f * 3.02) / sr;
+      ph3 += (2 * Math.PI * f * 8.4) / sr;
+      const wobble = 0.88 + 0.12 * Math.sin(2 * Math.PI * 19 * t);
+      motor[i] = (0.45 * Math.sin(ph1) + 0.35 * Math.sin(ph2) + 0.18 * Math.sin(ph3)) * wobble * ramp;
+    }
+    biquad(motor, sr, 'bandpass', 780, 0.85);
+    biquad(motor, sr, 'highpass', 180, 0.7);
+    // rollers gripping & sliding glossy film card out the slot
+    const paper = noise(mLen, rng);
+    biquad(paper, sr, 'bandpass', 3200, 1.1);
+    for (let i = 0; i < mLen; i++) {
+      const t = i / sr;
+      const env = Math.min(1, t / 0.08) * Math.min(1, Math.max(0, (1.06 - t) / 0.06));
+      paper[i] *= env;
+    }
+    mixInto(out, motor, start, 0.72);
+    mixInto(out, paper, start, 0.22);
+    // final roller release click + soft card pop at the end
+    burst(out, sr, start + mLen - Math.floor(0.02 * sr), 0.035, 0.55, rng, { attack: 0.0006, decay: 0.009, filter: [['bandpass', 1650, 1.3]] });
+    return normalize(edges(out, sr, 2, 20), 0.72);
+  };
+}
+
 // ------------------------------------------------------------------ catalogue
 
 const SHOT_LEVEL: Record<FoleyShot, number> = {
@@ -4609,6 +4670,7 @@ const SHOT_LEVEL: Record<FoleyShot, number> = {
   chop: 0.45, sizzle_in: 0.42, plop: 0.4, toss: 0.4, toss_dry: 0.32, stir: 0.36, shake: 0.3, ignite: 0.42, knob_click: 0.3, flame_out: 0.32,
   pan_place: 0.55, pan_lift: 0.4, stove_cover_open: 0.36, stove_cover_close: 0.4, canister_in: 0.46, canister_out: 0.4, plate_clink: 0.42,
   dish_fail: 0.36, book_open: 0.34, book_close: 0.36, book_page: 0.26, book_write: 0.3,
+  camera_shutter: 0.58, camera_eject: 0.42,
 };
 
 const LOOP_LEVEL: Record<FoleyLoop, number> = {
@@ -4755,6 +4817,8 @@ export function recipe(kind: FoleyShot | FoleyLoop, o: FoleyOpts = {}): Recipe {
     case 'book_close': return book(false);
     case 'book_page': return bookPage();
     case 'book_write': return bookWrite();
+    case 'camera_shutter': return cameraShutter();
+    case 'camera_eject': return cameraEject();
     case 'flame_gas': return flameGas();
     case 'sizzle': return sizzleLoop();
     case 'boil': return boilLoop();
@@ -5073,7 +5137,7 @@ export class Foley {
    * and its cutoff glide to the new gain, rate and cutoff (a scrub calls this every frame with the
    * stroke's speed: it never restarts for that)
    */
-  start(kind: FoleyLoop, o: FoleyOpts = {}): void {
+  start(kind: FoleyLoop, o: FoleyOpts = {}): boolean {
     const k = this.key(kind, o);
     const live = this.loops.get(kind);
     const t = this.ctx.currentTime;
@@ -5083,7 +5147,7 @@ export class Foley {
     const rec = this.loopRecording(kind, o, k);
     if (!rec && this.awaited(kind, o)) {
       if (live) this.stop(kind);
-      return;
+      return false;
     }
     const rate = loopPlaybackRate(kind, o.rate, !!rec);
     const level = LOOP_LEVEL[kind] * (o.gain ?? 1) * (rec ? rec.scale : 1);
@@ -5093,7 +5157,7 @@ export class Foley {
       live.src.playbackRate.setTargetAtTime(rate, t, 0.03);
       // (and the muffling with them; a loop never given a cutoff is left as it is)
       if (cutoff !== undefined || live.filter) this.cutoffTo(live, cutoff, t);
-      return;
+      return true;
     }
     if (live) this.stop(kind);
     const src = this.ctx.createBufferSource();
@@ -5108,6 +5172,7 @@ export class Foley {
     g.gain.setTargetAtTime(level, t, attack);
     src.start(t, this.rng.next() * src.buffer.duration);
     this.loops.set(kind, { src, gain: g, filter });
+    return true;
   }
 
   stop(kind: FoleyLoop): void {

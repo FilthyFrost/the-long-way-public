@@ -38,12 +38,32 @@ export const ND_PLATE = 'nd_plate';
 export const ND_FRAME = 'nd_frame';
 const BOBBLE = new Set<string>(BOBBLES);
 
-/** Nomad Drive's walls: what always hangs, what never does, the categories that do when they are small enough (m) */
-const WALL_ALWAYS = new Set(['nd_key_1', 'nd_key_2', 'nd_photo', 'nd_first_aid', ND_PLATE, 'nd_top_cabinet']);
-const WALL_NEVER = new Set(['kit_stove', 'kit_pot', 'kit_pan']);
-const WALL_CATS = new Set(['gear', 'kitchen', 'furniture']);
-const WALL_ACROSS = 1.3;
-const WALL_OUT = 0.3;
+/** Explicit wall-hanging whitelist: only genuine wall decor/cabinets/racks hang on RV walls (never tabletop appliances). */
+const WALL_ALWAYS = new Set([
+  'nd_key_1',
+  'nd_key_2',
+  'nd_photo',
+  'nd_first_aid',
+  ND_PLATE,
+  ND_FRAME,
+  'nd_top_cabinet',
+  'nd_wall_cabinet',
+  'kit_toolrack',
+  'kit_rodrack',
+  'junk_clock',
+]);
+const WALL_NEVER = new Set([
+  'kit_stove',
+  'kit_stove2',
+  'kit_pot',
+  'kit_pan',
+  'nd_coffee_machine',
+  'junk_lamp',
+  'junk_tv',
+  'junk_clockradio',
+  'junk_record',
+  'junk_fan',
+]);
 
 const AX: Axes = { fx: 1, fy: 0, fz: 0, ux: 0, uy: 1, uz: 0, rx: 0, ry: 0, rz: 1 };
 const V = new THREE.Vector3();
@@ -77,14 +97,11 @@ export class NdCollect implements System<GameContext> {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
-    ctx.cargo.wallRules.push((h, box) => {
-      if (h.kind !== 'item' || !h.item.item.startsWith('nd_')) return null;
+    ctx.cargo.wallRules.push((h) => {
+      if (h.kind !== 'item') return false;
       const id = h.item.item;
       if (WALL_NEVER.has(id)) return false;
-      if (WALL_ALWAYS.has(id)) return true;
-      if (!WALL_CATS.has(itemDef(id).cat)) return false;
-      // (hung with its back to the wall, facing out: its x stands out from it, its z goes along it)
-      return box.maxX - box.minX <= WALL_OUT && box.maxZ - box.minZ <= WALL_ACROSS && box.maxY - box.minY <= WALL_ACROSS;
+      return WALL_ALWAYS.has(id);
     });
     chestDealers.push(() => this.dealBobble());
   }
@@ -136,7 +153,7 @@ export class NdCollect implements System<GameContext> {
     // (a plane over the placeholder's face, facing +x as the model does: its width along −z, the viewer's right)
     const g = new THREE.PlaneGeometry(size.z, size.y);
     g.rotateY(Math.PI / 2);
-    const mesh = new THREE.Mesh(g, surfaceMaterial({ map: tex, spec: plate ? 0.25 : 0.05 }));
+    const mesh = new THREE.Mesh(g, surfaceMaterial({ map: tex, spec: plate ? 0.25 : 0.05, cabinLift: true }));
     mesh.name = 'nd:face';
     mesh.position.copy(ph.position).add(c);
     mesh.position.x += size.x / 2 + 0.0004;

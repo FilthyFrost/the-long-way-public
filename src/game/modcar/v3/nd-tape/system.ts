@@ -247,11 +247,11 @@ export class NdTape implements System<GameContext> {
     ctx.cockpit.uses.push(this.use);
     // a buried chest's second keepsake: a tape not had yet
     chestDealers.push(() => [this.dealTape()]);
-    // the stations: as loud as the knob says, quiet while a tape is in the deck
+    // the stations: FM plays on FM radios (radio_old), never on a tape deck (radio_tape requires a physical cassette #28)
     ctx.radioLevel.push((v) => {
       const r = radioOf(v);
       if (!r) return 1;
-      if (r.inst.tape) return 0;
+      if (isDeck(r.inst) || r.inst.tape) return 0;
       return volOf(r.inst) / DECK.start;
     });
   }
@@ -274,8 +274,8 @@ export class NdTape implements System<GameContext> {
     press: (v, m, right) => {
       const inst = v.build.parts[m.id];
       if (!inst) return false;
-      // the right button: the next station (the cockpit's own), nothing with a tape in
-      if (right) return !!inst.tape;
+      // right button: station tune on FM radio only; tape decks strictly play inserted physical cassettes
+      if (right) return isDeck(inst) || !!inst.tape;
       this.hold = { v, m, t: 0, done: false };
       return true;
     },
@@ -283,11 +283,24 @@ export class NdTape implements System<GameContext> {
       const h = this.hold;
       this.hold = null;
       if (!h || h.done || h.v !== v) return;
-      // a click: the tape (or the station) stops, or starts again
+      const inst = v.build.parts[h.m.id];
+      if (!inst) return;
+      // Tape deck (#28): must insert a physical cassette to play; tapping while holding a cassette inserts it immediately
+      if (isDeck(inst) && !inst.tape) {
+        const inHands = this.tapeInHands();
+        if (inHands) {
+          this.insert(v, inst, inHands);
+          return;
+        }
+        v.radioOn = false;
+        this.ctx?.sound('switch', 0.45);
+        this.ctx?.player.flashWhy('先插入磁带');
+        return;
+      }
+      // a click: the tape (or FM station on radio_old) stops, or starts again
       v.radioOn = !v.radioOn;
       this.ctx?.sound('switch');
-      const inst = v.build.parts[h.m.id];
-      if (v.radioOn && !inst?.tape) this.ctx?.ui.say(v.sys.dash.battery > 0.02 ? `「${stationLabel(v.radioSong)}」` : '电瓶没电', 2.2);
+      if (v.radioOn && !inst.tape) this.ctx?.ui.say(v.sys.dash.battery > 0.02 ? `「${stationLabel(v.radioSong)}」` : '电瓶没电', 2.2);
     },
     wheel: (v, m, delta) => {
       const inst = v.build.parts[m.id];
@@ -316,12 +329,19 @@ export class NdTape implements System<GameContext> {
       const dur = on ? this.voice!.dur : 0;
       const where = dur > 0 ? ` · ${clock(at)} / ${clock(dur)}` : '';
       void where;
-      acts.push({ keys: ['LMB'], text: v.radioOn ? '暂停' : '播放' });
+      acts.push({ keys: ['LMB'], text: v.radioOn ? `暂停《${t.title}》` : `播放《${t.title}》` });
       acts.push({ keys: ['LMB'], hold: true, text: inHands ? '换磁带' : '退出磁带' });
+    } else if (deck) {
+      if (inHands) {
+        const ht = tapeOf(inHands.item);
+        acts.push({ keys: ['LMB'], text: `插入磁带 <b>《${ht?.title ?? ''}》</b>` });
+      } else {
+        acts.push({ keys: ['LMB'], text: '插入磁带', off: true, why: '先手持一盘磁带' });
+      }
     } else {
       acts.push(v.radioOn ? { keys: ['LMB'], text: `关掉 <b>${name}</b>` } : { keys: ['LMB'], text: `打开 <b>${name}</b>` });
       if (v.radioOn) acts.push({ keys: ['RMB'], text: '换台' });
-      if (inHands) acts.push(deck ? { keys: ['LMB'], hold: true, text: '放进磁带' } : { keys: ['LMB'], hold: true, text: '放进磁带', off: true, why: '放不了磁带' });
+      if (inHands) acts.push({ keys: ['LMB'], hold: true, text: '放进磁带', off: true, why: '放不了磁带' });
     }
     acts.push({ keys: ['Wheel'], text: vol });
     if (v.sys.dash.battery <= 0.02) acts.push({ keys: ['LMB'], text: '播放', off: true, why: '电瓶没电' });

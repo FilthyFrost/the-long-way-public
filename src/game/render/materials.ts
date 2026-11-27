@@ -123,6 +123,11 @@ export interface SurfaceOptions {
    * sky's brightness (the mean of its colour, so it goes with the daylight) × smoothstep(0, −0.5, n.y) · (1 − n·v)².
    */
   bellyTint?: THREE.Color;
+  /**
+   * Opt-in cabin lamp lift for portable items (fish, liquids, collectibles): keeps full outdoor cel/soft/headlight
+   * shading while adding globals.uCabinLamp when carried or placed inside a lit vehicle cabin.
+   */
+  cabinLift?: boolean;
 }
 
 /** keep the mask in alpha untouched when blending transparent surfaces */
@@ -148,6 +153,7 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
   if (o.ink && (o.opacity ?? 1) >= 1) defines.RT_INK = '';
   if (o.inkBase) defines.RT_INK_BASE = '';
   if (o.cabin) defines.RT_CABIN = '';
+  if (o.cabinLift && !o.cabin) defines.RT_CABIN_LIFT = '';
   if (o.brush) defines.RT_BRUSH = '';
   if (o.mason) defines.RT_MASON = String(o.mason);
   if (o.block) defines.RT_BLOCK = '';
@@ -468,6 +474,9 @@ export function surfaceMaterial(o: SurfaceOptions = {}): THREE.ShaderMaterial {
         vec3 col = albedo * (rtSkyLight(nL, vPos) + uSunColor * (0.3 * smoothstep(-0.3, 0.4, ndlS) + 0.1 * smoothstep(0.3, 0.7, ndlS)) * sh + rtRoomLamps(vPos, nL));
         #else
         vec3 col = rtCelAt(albedo, nL, sh, vPos);
+        #endif
+        #ifdef RT_CABIN_LIFT
+        col += albedo * uCabinLamp * (0.78 + 0.22 * nL.y);
         #endif
         vec3 v = normalize(cameraPosition - vPos);
         vec3 hv = normalize(v + uSunDir);

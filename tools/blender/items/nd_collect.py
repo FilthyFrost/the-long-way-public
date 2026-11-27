@@ -26,6 +26,7 @@ TAU = math.tau
 
 COLORS = {
     'nd_cassette': (0x2f3236, 0xe8a23a),
+    'nd_vinyl': (0xc8372f, 0xf1e6c8),
     'nd_bobble_1': (0xe07a2e, 0x3a3d42), 'nd_bobble_2': (0x6fae4a, 0xd8b04a), 'nd_bobble_3': (0x8a5a3c, 0xc8372f),
     'nd_bobble_4': (0x7d8a96, 0xe86ab0),
     'nd_plate': (0xe9e2cf, 0x3e5f8f), 'nd_frame': (0x8a5a3c, 0xf1e8d4), 'nd_wooden_hand': (0xc89a6a, 0x6b4a2f),
@@ -60,6 +61,40 @@ def nd_cassette(P):
     for (x, y) in ((-0.072, 0.04), (0.072, 0.04), (-0.072, -0.04), (0.072, -0.04), (0.0, -0.04)):
         P.cyl('screw', 0.0022, 0.0006, loc=(x, y, T + 0.0003), material='steel', segs=8)
     P.views = [('a', 30, 55), ('b', 200, 40)]
+
+
+def nd_vinyl(P):
+    """A 12-inch vinyl LP record inside a vivid dual-tone cardboard album sleeve (paint + paint_b cover art)
+    with the glossy black micro-groove LP record half-slid out the right edge (+X) showing its matching
+    coloured center label. Instantly distinct per song in world, hands, and thumbnails."""
+    P.ao_distance = 0.012
+    # Cardboard outer album sleeve (26 × 26 × 0.55 cm), slightly offset left so the peeking vinyl balances at center
+    S = 0.256
+    T = 0.0056
+    sx = -0.022
+    P.box('sleeve', (S, S, T), (sx, 0.0, T / 2), 'paint', bev=0.0012, segs=1)
+    # Contrasting geometric album-art design on front (top) & back faces (paint_b frame + diagonal stripe + title bar)
+    P.box('cover_band', (S * 0.94, S * 0.24, 0.0008), (sx, -S * 0.24, T + 0.0004), 'paint_b', bev=None)
+    P.box('cover_accent', (S * 0.34, S * 0.88, 0.0007), (sx - S * 0.28, 0.0, T + 0.00035), 'paint_b', bev=None)
+    P.cyl('cover_emblem', 0.044, 0.0008, loc=(sx + 0.028, 0.022, T + 0.0004), material='paint_b', segs=28, bev=None)
+    P.cyl('cover_dot', 0.022, 0.0009, loc=(sx + 0.028, 0.022, T + 0.0006), material='paint', segs=24, bev=None)
+    P.box('spine', (0.004, S, T + 0.0006), (sx - S / 2, 0.0, T / 2), 'paint_b', bev=None)
+    P.box('back_band', (S * 0.86, S * 0.16, 0.0007), (sx, S * 0.22, -0.00035), 'paint_b', bev=None)
+    # Glossy black 12-inch vinyl LP record peeking ~38% out the right opening (+X)
+    R = 0.120
+    dx = sx + S / 2 - 0.015
+    dz = T / 2
+    P.cyl('disc', R, 0.0026, loc=(dx, 0.0, dz), material='trim', segs=40, bev=0.0006)
+    P.torus('rim_bead', R - 0.002, 0.0011, loc=(dx, 0.0, dz + 0.0011), material='trim', segs=40, rsegs=6)
+    for rg in (0.108, 0.094, 0.080, 0.066, 0.054):
+        P.torus('groove', rg, 0.00048, loc=(dx, 0.0, dz + 0.0014), material='rubber', segs=40, rsegs=4)
+    # Matching coloured center label (paint) + accent ring & stripe (paint_b) + spindle hole
+    P.cyl('label_top', 0.042, 0.0008, loc=(dx, 0.0, dz + 0.0016), material='paint', segs=32, bev=None)
+    P.cyl('label_bot', 0.042, 0.0006, loc=(dx, 0.0, dz - 0.0015), material='paint', segs=32, bev=None)
+    P.box('label_band', (0.066, 0.013, 0.0006), (dx, 0.0, dz + 0.0020), 'paint_b', bev=None)
+    P.torus('label_ring', 0.036, 0.0006, loc=(dx, 0.0, dz + 0.0020), material='paint_b', segs=32, rsegs=4)
+    P.cyl('spindle_hole', 0.004, 0.0042, loc=(dx, 0.0, dz), material='trim', segs=14, bev=None)
+    P.views = [('a', 30, 55), ('b', 200, 45)]
 
 
 # ------------------------------------------------------------------------------------------------ the bobbleheads
@@ -300,6 +335,7 @@ def nd_wooden_hand(P):
 
 MODELS = {
     'nd_cassette': nd_cassette,
+    'nd_vinyl': nd_vinyl,
     'nd_bobble_1': nd_bobble_1,
     'nd_bobble_2': nd_bobble_2,
     'nd_bobble_3': nd_bobble_3,

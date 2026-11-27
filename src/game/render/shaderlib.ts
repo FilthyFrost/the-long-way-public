@@ -21,6 +21,8 @@ const tex = sharedTextures();
 /** how many openings and lamps a room can have (the starting garage's door, windows and skylights; its pendant lamps) */
 export const ROOM_OPENINGS = 10;
 export const ROOM_LAMPS = 10;
+/** portable local lamps (desk lamps, solar lanterns) active anywhere — inside RVs, buildings, or outdoors */
+export const LOCAL_LAMPS = 4;
 
 export const globals = {
   uSunDir: { value: new THREE.Vector3(0.4, 0.75, 0.3).normalize() },
@@ -59,6 +61,8 @@ export const globals = {
    * (the d² it is halved over, m²). A car's lamps as they always were; a flashlight (docs/ND/PLAN.md) narrows it.
    */
   uHeadCone: { value: new THREE.Vector4(0.86, 0.975, 0.4, 0.9) },
+  /** elliptical optical beam shaping: x scales lateral spread (<1 wider), y scales vertical cutoff (>1 flatter) */
+  uHeadShape: { value: new THREE.Vector2(1, 1) },
   uHeadReach: { value: 420 },
   /** wind for vegetation: xy = direction in the xz plane, z = strength 0…1, w = gust scroll (m) */
   uWind: { value: new THREE.Vector4(1, 0, 0.15, 0) },
@@ -101,6 +105,10 @@ export const globals = {
   uRoomOpenL: { value: vec3s(ROOM_OPENINGS) },
   uRoomLampP: { value: vec4s(ROOM_LAMPS) },
   uRoomLampC: { value: vec4s(ROOM_LAMPS) },
+  /** portable local lamps (xyz pos, w reach; xyz dir, w cosOuter (< -0.5 omni); rgb color*gain, w cosInner) */
+  uLocalLampP: { value: vec4s(LOCAL_LAMPS) },
+  uLocalLampD: { value: vec4s(LOCAL_LAMPS) },
+  uLocalLampC: { value: vec4s(LOCAL_LAMPS) },
   tNoise: { value: tex.noise },
   tStrokes: { value: tex.strokes },
   /** the ground's and the rock's cells (textures.ts cellsTexture: 64 to the texture) */
@@ -135,6 +143,7 @@ uniform vec3 uHeadPos;
 uniform vec3 uHeadDir;
 uniform vec3 uHeadColor;
 uniform vec4 uHeadCone;
+uniform vec2 uHeadShape;
 uniform float uHeadReach;
 uniform vec4 uWind;
 uniform vec4 uCloudShadow;
@@ -155,6 +164,9 @@ uniform vec3 uRoomOpenV[${ROOM_OPENINGS}];
 uniform vec3 uRoomOpenL[${ROOM_OPENINGS}];
 uniform vec4 uRoomLampP[${ROOM_LAMPS}];
 uniform vec4 uRoomLampC[${ROOM_LAMPS}];
+uniform vec4 uLocalLampP[${LOCAL_LAMPS}];
+uniform vec4 uLocalLampD[${LOCAL_LAMPS}];
+uniform vec4 uLocalLampC[${LOCAL_LAMPS}];
 uniform sampler2D tNoise;
 uniform sampler2D tStrokes;
 uniform sampler2D tCells;
@@ -304,10 +316,11 @@ vec3 rtCabin(vec3 albedo, vec3 N, float shadow) {
   float lit = smoothstep(-0.02, 0.08, ndl) * shadow;
   float full = smoothstep(0.42, 0.52, ndl) * shadow;
   float lum = dot(uSkyColor, vec3(0.333));
-  // the daylight that finds its way in has lost most of its blue
-  vec3 sky = mix(uSkyColor, vec3(lum) * vec3(1.06, 1.0, 0.9), 0.55) * uCabinAmb * (0.82 + 0.18 * N.y);
-  vec3 lamp = uCabinLamp * (0.62 + 0.38 * N.y);
-  return albedo * (sky + uSunColor * (0.34 * lit + 0.1 * full) + lamp);
+  // daytime window fill stays warm and readable without blowing out dark night interiors
+  vec3 sky = mix(uSkyColor, vec3(lum) * vec3(1.06, 1.01, 0.92), 0.55) * (uCabinAmb * 1.32) * (0.86 + 0.14 * N.y);
+  vec3 bounce = vec3(lum) * vec3(1.04, 1.0, 0.94) * (0.08 + 0.08 * max(0.0, ndl));
+  vec3 lamp = uCabinLamp * (0.78 + 0.22 * N.y);
+  return albedo * (sky + bounce + uSunColor * (0.34 * lit + 0.1 * full) + lamp);
 }
 // ---------------------------------------------------------------------------------------- rooms
 // How far into the room's box a point is: 0 outside … 1 past the soft edge (no room: 0). The box is
@@ -366,10 +379,38 @@ vec3 rtSkyLight(vec3 N, vec3 pos) {
   if (inside <= 0.0) return open;
   return mix(open, rtRoomSky(pos, N), inside);
 }
+// Portable local lamps (desk lamps, solar lanterns): cast real 3D warm directional or omnidirectional pools
+// onto nearby tables, walls, floors, items, and outdoor ground — independent of the garage room box.
+vec3 rtLocalLamps(vec3 pos, vec3 N) {
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < ${LOCAL_LAMPS}; i++) {
+    vec4 lp = uLocalLampP[i];
+    if (lp.w <= 0.0) continue;
+    vec3 toL = lp.xyz - pos;
+    float d2 = dot(toL, toL);
+    float r2 = lp.w * lp.w;
+    if (d2 >= r2) continue;
+    float d = sqrt(d2);
+    vec3 L = toL / max(d, 1e-4);
+    float win = 1.0 - d2 / r2;
+    float att = win * win / (0.14 + d2 * 1.15);
+    vec4 ld = uLocalLampD[i];
+    vec4 lc = uLocalLampC[i];
+    float cosA = dot(-L, ld.xyz);
+    float spot = ld.w < -0.5 ? 1.0 : (0.04 + 0.96 * smoothstep(ld.w, lc.w, cosA));
+    float face = smoothstep(-0.25, 0.55, dot(N, L)) * 0.85 + 0.15;
+    vec3 c = lc.rgb * att * spot * face;
+    float peak = max(c.r, max(c.g, c.b));
+    c /= 1.0 + max(peak - 1.1, 0.0) * 0.65;
+    sum += c;
+  }
+  return sum;
+}
 // The room's lamps: a pool from each with a soft rim (a windowed inverse square), sent down by its
-// shade; nothing outside the room — but for a lamp outside it (over the door), lighting only what is out.
+// shade; plus any active portable local lamps anywhere in the world.
 vec3 rtRoomLamps(vec3 pos, vec3 N) {
-  if (uRoomMin.w < 0.5) return vec3(0.0);
+  vec3 local = rtLocalLamps(pos, N);
+  if (uRoomMin.w < 0.5) return local;
   vec3 sum = vec3(0.0);
   vec3 sumOut = vec3(0.0);
   for (int i = 0; i < ${ROOM_LAMPS}; i++) {
@@ -396,7 +437,7 @@ vec3 rtRoomLamps(vec3 pos, vec3 N) {
     sumOut += c * outside;
   }
   float inside = rtInRoom(pos);
-  return sum * inside + sumOut * (1.0 - inside);
+  return local + sum * inside + sumOut * (1.0 - inside);
 }
 // What a mirror at p inside the room sees along R (for glossy things: car paint, chrome): the light of
 // an opening where the ray leaves through one (the door as a bright shape in a flank), else the room
@@ -446,7 +487,7 @@ vec3 rtCelAt(vec3 albedo, vec3 N, float shadow, vec3 pos) {
 // rtCabin for a point that may be inside a room: a vehicle standing in one gets what the room has
 // (warmed by its lining) instead of the open sky.
 vec3 rtCabinAt(vec3 albedo, vec3 N, float shadow, vec3 pos) {
-  vec3 c = rtCabin(albedo, N, shadow);
+  vec3 c = rtCabin(albedo, N, shadow) + albedo * rtLocalLamps(pos, N);
   float inside = rtInRoom(pos);
   if (inside <= 0.0) return c;
   float ndl = dot(N, uSunDir);
@@ -460,12 +501,19 @@ vec3 rtCabinAt(vec3 albedo, vec3 N, float shadow, vec3 pos) {
 vec3 rtLight(vec3 albedo, vec3 n, float shadow, float ao) {
   return rtCel(albedo, n, shadow) * mix(1.0, ao, 0.5);
 }
-// Headlights: a warm cone with a soft spill, falling off with distance.
+// Headlights: elliptical optical shaping (low beam wide & flat-topped near-field; high beam narrow & far-reaching).
 vec3 rtHeadlight(vec3 albedo, vec3 n, vec3 pos) {
   vec3 L = uHeadPos - pos;
   float d = length(L);
   L /= max(d, 1e-3);
-  float c = dot(-L, uHeadDir);
+  vec3 toP = -L;
+  vec3 right = normalize(cross(uHeadDir, vec3(0.0, 1.0, 0.0)) + vec3(1e-5, 0.0, 0.0));
+  vec3 up = cross(right, uHeadDir);
+  float fwd = dot(toP, uHeadDir);
+  float sx = dot(toP, right) * uHeadShape.x;
+  float sy = dot(toP, up) * uHeadShape.y;
+  float syCut = sy > 0.0 ? sy * mix(1.0, 1.45, step(1.2, uHeadShape.y)) : sy;
+  float c = fwd / max(sqrt(fwd * fwd + sx * sx + syCut * syCut), 1e-4);
   float cone = smoothstep(uHeadCone.x, uHeadCone.y, c) + 0.16 * smoothstep(uHeadCone.z, uHeadCone.w, c);
   float att = 1.0 / (1.0 + d * d / uHeadReach);
   float ndl = max(dot(n, L), 0.0) * 0.75 + 0.25;

@@ -18,7 +18,7 @@ export const CAMERA = {
   raiseS: 0.3,
   coolS: 2,
   /** the print out of its slot: over this long (s), this far (m); then developing (s) */
-  ejectS: 2,
+  ejectS: 1.25,
   ejectM: 0.14,
   developS: 12,
   /** how far it zooms in at most (times) */

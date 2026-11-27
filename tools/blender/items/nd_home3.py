@@ -83,26 +83,25 @@ def nd_rod_rack(P):
 
 
 def nd_workbench(P):
-    """A workbench to stand in a motorhome or a trailer (1.1 x 0.55 m, 0.88 high): a steel frame (paint) with a low
-    shelf, a thick wooden top (paint_b) with a back board, a vice at its left end, a drawer under the top (drawn shut)
-    and a lamp on a bent arm over it."""
-    P.ao_distance = 0.25
-    L, D, Hh = 1.1, 0.55, 0.84
+    """A lowered ergonomic workbench (1.1 x 0.55 m, 0.75 m worktop height): a steel frame (paint) with a low shelf,
+    a thick wooden top (paint_b) with a back board, a vice at its left end, a drawer under the top and a lamp."""
+    P.ao_distance = 0.22
+    L, D, Hh = 1.1, 0.55, 0.705
     for sx in (-1, 1):
         for sy in (-1, 1):
             P.box('leg', (0.045, 0.045, Hh), (sx * (D / 2 - 0.04), sy * (L / 2 - 0.04), Hh / 2), 'paint', bev=0.004, segs=1)
     for sy in (-1, 1):
-        P.box('side_rail', (D - 0.08, 0.03, 0.04), (0.0, sy * (L / 2 - 0.04), 0.2), 'paint', bev=0.003, segs=1)
+        P.box('side_rail', (D - 0.08, 0.03, 0.04), (0.0, sy * (L / 2 - 0.04), 0.16), 'paint', bev=0.003, segs=1)
         P.box('side_top', (D - 0.08, 0.03, 0.05), (0.0, sy * (L / 2 - 0.04), Hh - 0.03), 'paint', bev=0.003, segs=1)
     for sx in (-1, 1):
-        P.box('long_rail', (0.03, L - 0.08, 0.04), (sx * (D / 2 - 0.04), 0.0, 0.2), 'paint', bev=0.003, segs=1)
+        P.box('long_rail', (0.03, L - 0.08, 0.04), (sx * (D / 2 - 0.04), 0.0, 0.16), 'paint', bev=0.003, segs=1)
         P.box('long_top', (0.03, L - 0.08, 0.05), (sx * (D / 2 - 0.04), 0.0, Hh - 0.03), 'paint', bev=0.003, segs=1)
-    P.box('shelf', (D - 0.1, L - 0.1, 0.018), (0.0, 0.0, 0.228), 'paint_b', bev=0.003, segs=1)
+    P.box('shelf', (D - 0.1, L - 0.1, 0.018), (0.0, 0.0, 0.188), 'paint_b', bev=0.003, segs=1)
     P.mesh('top', J.slab((D + 0.04, L + 0.04, 0.045), (0.0, 0.0, Hh + 0.0225), step=0.12), 'paint_b', bev=0.006)
-    P.box('backboard', (0.02, L + 0.04, 0.12), (-D / 2 - 0.01, 0.0, Hh + 0.105), 'paint_b', bev=0.004, segs=1)
+    P.box('backboard', (0.02, L + 0.04, 0.10), (-D / 2 - 0.01, 0.0, Hh + 0.095), 'paint_b', bev=0.004, segs=1)
     # the drawer under the top, on the right
-    P.box('drawer', (0.02, 0.42, 0.11), (D / 2 - 0.03, -0.26, Hh - 0.115), 'paint', bev=0.004, segs=1)
-    H.pull(P, D / 2 - 0.018, -0.26, Hh - 0.115)
+    P.box('drawer', (0.02, 0.42, 0.10), (D / 2 - 0.03, -0.26, Hh - 0.105), 'paint', bev=0.004, segs=1)
+    H.pull(P, D / 2 - 0.018, -0.26, Hh - 0.105)
     # the vice at the left end: its body on the top, the fixed jaw, the sliding jaw on its screw, the handle
     vy = L / 2 - 0.16
     P.box('vice_base', (0.16, 0.12, 0.03), (D / 2 - 0.1, vy, Hh + 0.06), 'steel', bev=0.006, segs=1)
@@ -113,9 +112,9 @@ def nd_workbench(P):
     P.box('handle', (0.012, 0.012, 0.16), (D / 2 + 0.095, vy, Hh + 0.115), 'alu', bev=0.003, segs=1)
     # the lamp: an arm up from the back board and out over the top, a shade
     ly = -L / 2 + 0.2
-    J.bar(P, 'lamp_arm', (-D / 2 + 0.0, ly, Hh + 0.16), (-D / 2 + 0.0, ly, Hh + 0.5), 0.016, 0.016, 'alu', bev=0.004)
-    J.bar(P, 'lamp_reach', (-D / 2 + 0.0, ly, Hh + 0.5), (-0.04, ly, Hh + 0.46), 0.016, 0.016, 'alu', bev=0.004)
-    P.lathe('shade', [(0.0, 0.052), (0.028, 0.052), (0.07, 0.0), (0.075, 0.0), (0.03, 0.06), (0.0, 0.06)], loc=(-0.04, ly, Hh + 0.4), material='paint',
+    J.bar(P, 'lamp_arm', (-D / 2 + 0.0, ly, Hh + 0.14), (-D / 2 + 0.0, ly, Hh + 0.44), 0.016, 0.016, 'alu', bev=0.004)
+    J.bar(P, 'lamp_reach', (-D / 2 + 0.0, ly, Hh + 0.44), (-0.04, ly, Hh + 0.40), 0.016, 0.016, 'alu', bev=0.004)
+    P.lathe('shade', [(0.0, 0.052), (0.028, 0.052), (0.07, 0.0), (0.075, 0.0), (0.03, 0.06), (0.0, 0.06)], loc=(-0.04, ly, Hh + 0.34), material='paint',
             segs=14, sharp=50.0)
     P.views = [('a', 35, 16), ('b', 145, 20)]
 

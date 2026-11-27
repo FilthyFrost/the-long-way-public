@@ -119,10 +119,10 @@ def build(args):
     door.extend(pedges['door']).extend(pstrips['door']).extend(ex.door_card('door')).extend(IN.door_extras(ex, 'door'))
     door.extend(ex.window_seals(['door']))
     EX.two_tone(door)
-    yh = float(S.side_w(D['cd_x1'], 1.26)) - 0.004
+    yh = float(S.side_w(D['cd_x1'], 1.38)) - 0.004
     for side, sname in ((1, 'L'), (-1, 'R')):
         mid = 'door_F' + sname
-        hinge = np.array([D['cd_x1'] - 0.004, side * yh, 1.26])
+        hinge = np.array([D['cd_x1'] - 0.004, side * yh, 1.38])
         buf = door if side > 0 else door.mirrored()
         o = owo(buf, 'P_' + mid, hinge)
         gb = gl['door'] if side > 0 else gl['door'].mirrored()
@@ -135,7 +135,7 @@ def build(args):
     sd.extend(pedges['side']).extend(pstrips['side']).extend(ex.door_card('side', mat='wood')).extend(IN.door_extras(ex, 'side'))
     sd.extend(ex.window_seals(['side']))
     EX.two_tone(sd)
-    dh = np.array([D['sd_x1'] - 0.004, -(float(S.side_w(D['sd_x1'], 1.08)) - 0.004), 1.08])
+    dh = np.array([D['sd_x1'] - 0.004, -(float(S.side_w(D['sd_x1'], 1.32)) - 0.004), 1.32])
     o = owo(sd.mirrored(), 'P_door_side', dh)
     og = owo(gl['side'].mirrored(), 'PG_door_side', dh, parent=o)
     objs += [o, og]

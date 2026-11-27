@@ -833,7 +833,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     // (under a roof — a living space's painted lining, a door's inner frame — it is lit as the room is, not by the open
     // sky: a ceiling's "sky" is the ground under the car, and a cream one went green over grass. docs/V3/plan/finish.md
     // §十一 1)
-    diffuse = mix(diffuse, rtCabin(paint, n, 0.0) * mix(0.62, 1.0, ao), underRoof);
+    diffuse = mix(diffuse, rtCabin(paint, n, 0.0) * mix(0.62, 1.0, ao) + paint * rtLocalLamps(vPos, n), underRoof);
+    diffuse += paint * uCabinLamp * (0.78 + 0.22 * n.y) * (1.0 - underRoof) * mix(0.75, 1.0, ao);
     // (wet, the colour deepens under the film of water and the coat mirrors more)
     diffuse *= 1.0 - 0.12 * wet;
     col = diffuse;
@@ -924,7 +925,8 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     env = mix(env, rtCabinEnv(R), inCabin);
     #ifndef RT_CABIN
     // (and is lit as the room is)
-    diffuse = mix(diffuse, rtCabin(base, n, sh), inCabin);
+    diffuse = mix(diffuse, rtCabin(base, n, sh) + base * rtLocalLamps(vPos, n), inCabin);
+    diffuse += base * uCabinLamp * (0.78 + 0.22 * n.y) * (1.0 - inCabin) * mix(0.75, 1.0, ao);
     #endif
     // a metal is what it mirrors (its gloss is how much): no white diffuse washing chrome flat
     float fres = mix(0.75, 1.0, pow(1.0 - ndv, 3.0));
@@ -999,13 +1001,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
       float weave = 0.5 + 0.5 * sin(q.x) * sin(q.y);
       albedo *= 0.965 + 0.07 * weave * (1.0 - smoothstep(1.0, 3.0, dist));
       albedo *= 0.95 + 0.1 * rtTriNoise(vObj, on, 0.12).b;
-      albedo *= mix(vec3(1.0), vec3(0.38, 0.37, 0.37), smoothstep(-0.45, -0.8, nCar.y));
-      aoMin = 0.84;
+      albedo *= mix(vec3(1.0), vec3(0.76, 0.74, 0.71), smoothstep(-0.45, -0.8, nCar.y));
+      aoMin = 0.86;
     }
     #ifdef RT_CABIN
-    col = rtCabin(albedo, n, sh) * mix(aoMin, 1.0, ao);
+    col = rtCabin(albedo, n, sh) * mix(aoMin, 1.0, ao) + albedo * rtLocalLamps(vPos, n);
     #else
-    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.1, 0.32, ao));
+    col = albedo * (sky * mix(0.55, 1.0, ao) + uSunColor * (0.3 * lit + 0.1 * full) * smoothstep(0.1, 0.32, ao) + uCabinLamp * (0.78 + 0.22 * n.y) * mix(0.75, 1.0, ao));
     #endif
     // a broad soft highlight (shiny plastic, leather, lacquer) and a sheen at grazing angles (cloth, rubber)
     vec3 hv = normalize(v + uSunDir);
@@ -1070,12 +1072,13 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     float cover = max(crust, film);
     vec3 crustCol = rtCrustColor(vObj, on, (sky + uSunColor * 0.25 * lit) * mix(1.0, 0.55, inside), crustRim * crust);
     if (cover > 0.0) {
-      col = mix(col, crustCol, cover * 0.97);
-      alpha = mix(alpha, 0.97, cover);
+      float op = smoothstep(0.08, 0.68, cover);
+      col = mix(col, crustCol, op);
+      alpha = mix(alpha, 1.0, op);
     }
     #ifdef RT_CRUSTCUT
     // (the window's opaque twin: where the crust is thick it is all one sees, nothing behind it)
-    if (cover < 0.6) discard;
+    if (cover < 0.45) discard;
     col = crustCol;
     #endif
     #endif
@@ -1158,7 +1161,7 @@ const GLSL_CAR_FRAGMENT = /* glsl */ `
     col += rtHeadlight(lb, n, vPos);
     {
       vec3 Lh = normalize(uHeadPos - vPos);
-      float cone = smoothstep(0.86, 0.975, dot(-Lh, uHeadDir));
+      float cone = smoothstep(uHeadCone.x, uHeadCone.y, dot(-Lh, uHeadDir));
       col += uHeadColor * cone * smoothstep(0.985, 0.995, dot(R, Lh)) * gloss * 0.8;
     }
     #endif

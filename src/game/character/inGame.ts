@@ -272,10 +272,10 @@ export class HerInGame {
       const footY = d.pos.y;
       d.ground = () => footY;
     }
-    // (a thing a system draws in her hands itself — a fishing rod — says where they go: handsFor)
-    if (!seat && view === 'first') d.hands = this.handsFor?.(cam) ?? (held ? this.handsOn(held, cam) : undefined);
-    // (her right hand out to what the button works: in a seat off the wheel to it, on foot when her hands are empty)
-    if (this.reach.w > 0.02 && view === 'first' && (seat || !d.hands)) {
+    // first-person arms are kept for seated driving (wheel + dashboard reach), while on-foot held items float cleanly without hands/arms
+    const first = view === 'first';
+    const seatFirst = first && !!seat;
+    if (this.reach.w > 0.02 && seatFirst) {
       this.reachBoth.r = this.reachTarget(cam);
       d.hands = this.reachBoth;
     }
@@ -286,25 +286,20 @@ export class HerInGame {
     this.swingHair(dt);
     this.dress.sitting = !!seat || d.crouch;
     this.dress.update(dt);
-    this.wardrobe?.update(view === 'first');
     // in a closed cab she is lit as the cab's inside is
     const inCab = seat?.cab ? 1 : 0;
+    this.wardrobe?.update(first, seatFirst, inCab);
     for (const m of [this.rig.skin, this.rig.hairMat, this.dress.skinnedMat, this.dress.skirtMat]) m.uniforms.uInCab.value = inCab;
     if (this.rig.helmet) (this.rig.helmet.material as THREE.ShaderMaterial).uniforms.uInCab.value = inCab;
-    // what is drawn: first person hides her head and hair, and draws her arms finer (the body's own are hidden)
-    const first = view === 'first';
+    // what is drawn: first person hides her head and hair; seated driving draws her finer arms on the wheel, while on-foot hides arms so held tools/items float cleanly
     const skin = this.rig.skin.uniforms;
-    // (in a seat from her own eyes, only her arms and hands — the player's ask of 2026-11-26: her trunk, her legs and
-    // what she wears on them are not drawn; on foot, what of them stands near the eye over the middle of the view is
-    // seen through, material.ts seeViewFade)
-    const seatFirst = first && !!seat;
     const fade = first && !seat ? 1 : 0;
     const rt = this.core.frame.rtScene;
     (skin.uHide.value as THREE.Vector4).set(first ? 1 : 0, first ? 1 : 0, first ? 1 : 0, seatFirst ? 1 : 0);
     this.dress.setHidden(seatFirst);
     for (const m of [this.rig.skin, this.dress.skinnedMat, this.dress.skirtMat]) (m.uniforms.uSeeView.value as THREE.Vector3).set(fade, rt.width, rt.height);
     this.wardrobe?.firstPersonBody(seatFirst, fade, rt.width, rt.height);
-    this.rig.arms.l.visible = this.rig.arms.r.visible = first;
+    this.rig.arms.l.visible = this.rig.arms.r.visible = seatFirst;
     const armMat = this.rig.arms.l.material as THREE.ShaderMaterial;
     armMat.uniforms.uInCab.value = inCab;
     this.rig.hairMat.uniforms.uHide.value = first ? 1 : 0;

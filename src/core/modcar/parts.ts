@@ -690,7 +690,7 @@ const CAB: PartDef[] = [
   P({ id: 'seat_bucket', cat: 'seat', name: { zh: '座椅', en: 'Bucket seat' }, mass: 16, carry: 'medium', tags: ['stock:sedan', 'stock:pickup', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:fox', 'stock:snail', 'stock:buffalo', 'stock:rhino', 'stock:elephant', 'stock:camel'], seat: { eyeUp: 0.9, eyeBack: 0.16, comfort: 0.6 } }),
   P({ id: 'seat_bench', cat: 'seat', name: { zh: '长条座椅', en: 'Bench seat' }, mass: 24, carry: 'large', tags: ['stock:sedan', 'stock:rv', 'stock:van', 'stock:turtle', 'stock:goat', 'stock:wagon', 'stock:buffalo'], seat: { eyeUp: 0.88, eyeBack: 0.16, comfort: 0.7 } }),
   P({ id: 'seat_race', cat: 'seat', name: { zh: '赛车座椅', en: 'Racing seat' }, mass: 9, carry: 'medium', seat: { eyeUp: 0.8, eyeBack: 0.2, comfort: 0.5 } }),
-  P({ id: 'seat_toilet', cat: 'seat', name: { zh: '马桶', en: 'Toilet' }, mass: 28, carry: 'large', tags: ['meme'], seat: { eyeUp: 1.06, eyeBack: 0.05, comfort: 0.3 } }),
+  P({ id: 'seat_toilet', cat: 'seat', name: { zh: '马桶', en: 'Toilet' }, mass: 28, carry: 'large', tags: ['meme'], seat: { eyeUp: 1.0, eyeBack: 0.18, comfort: 0.3 } }),
   P({ id: 'seat_armchair', cat: 'seat', name: { zh: '单人沙发', en: 'Armchair' }, mass: 30, carry: 'large', tags: ['meme'], seat: { eyeUp: 0.94, eyeBack: 0.2, comfort: 0.95 } }),
   P({ id: 'seat_office', cat: 'seat', name: { zh: '办公椅', en: 'Office chair' }, mass: 14, carry: 'medium', tags: ['meme'], seat: { eyeUp: 1.02, eyeBack: 0.12, comfort: 0.7, swivel: true } }),
   P({ id: 'seat_saddle', cat: 'seat', name: { zh: '摩托坐垫', en: 'Motorcycle saddle' }, mass: 3, carry: 'small', tags: ['stock:moto'], seat: { eyeUp: 0.86, eyeBack: 0.05, comfort: 0.4 } }),

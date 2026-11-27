@@ -27,25 +27,25 @@ PI = math.pi
 IN_Y = D['hw'] - 0.05    # the walls' inside (the lining's face)
 # the floor's edge along the walls: under the lining (it stopped short of it, and through the slot the ground showed
 # from inside)
-FLOOR_Y = float(S.side_w(0.0, 0.72)) - 0.03 + 0.003
-FLOOR_Z = 0.72           # the bus's floor (its plywood top)
-PAN_Z = 0.68             # under the floor
-SEAT_Z = 1.10            # the driver's seat's pedestal (the seat part stands on it)
-SEAT_X = 2.18            # the stock bucket's eye is 0.16 behind and 0.90 over its floor attachment
-DRIVER_Y = 0.66
+FLOOR_Z = 0.84           # flat bus floor clearing rear tires completely (no interior wheel humps)
+FLOOR_Y = float(S.side_w(0.0, FLOOR_Z)) - 0.03 + 0.003
+PAN_Z = 0.80             # under the floor
+SEAT_Z = 1.12            # the driver's seat's pedestal (comfortable commanding view over dash)
+SEAT_X = 2.08            # generous leg/chest clearance back from dash & wheel
+DRIVER_Y = 0.58          # inward from left wall for open elbow room & clear left visibility
 EYE = (SEAT_X - 0.16, DRIVER_Y, SEAT_Z + 0.90)
-ROOM_FRONT_X = 1.86      # where the cab ends: the modesty panel behind the seat
+ROOM_FRONT_X = 1.72      # modesty panel well behind driver seat
 FIREWALL_X = D['xr'] - 2.0   # (no engine bay in the box: the lining has no bay)
 DECK_Z = 1.0
-DASH_FACE_X = 2.62       # the shelf's face towards the cab
-DASH_TOP = 1.46
+DASH_FACE_X = 2.66       # pushed forward for open cockpit proportions
+DASH_TOP = 1.44          # cleanly below windshield foot (1.50 m) so dash never crowds forward view
 WALL_IN = -0.035
-GEAR_X = SEAT_X + 0.30
-CONSOLE_Y = 0.30         # the console right of the driver's seat (the gear lever and the handbrake on it)
-CONSOLE_TOP = FLOOR_Z + 0.34
-COLUMN_DEG = 62.0
+GEAR_X = SEAT_X + 0.32
+CONSOLE_Y = 0.16         # clear of driver's right hip with natural reach to lever & handbrake
+CONSOLE_TOP = FLOOR_Z + 0.30
+COLUMN_DEG = 48.0        # ergonomic bus wheel rake (was 62 deg)
 # the seat behind the entry door (left bare at the works: the bus was emptied)
-PASS_X = 1.40
+PASS_X = 1.32
 PASS_Y = 0.72
 # the drivetrain at the front: the engine under the hood, its fan to the radiator behind the grille, the gearbox behind it
 # under the cab's floor, the long shaft back to the rear axle
@@ -55,7 +55,7 @@ RADIATOR = (4.30, 0.0, 0.62)
 BATTERY = (4.00, 0.74, 0.56)
 TANK = (-1.25, 0.0, 0.18)
 # the house battery (docs/V3/plan/rv.md): on the floor behind the modesty panel, by the wall
-HOUSE_BATTERY = (1.62, IN_Y - 0.16, FLOOR_Z)
+HOUSE_BATTERY = (1.50, IN_Y - 0.16, FLOOR_Z)
 FRAME_Y = 0.50           # the ladder frame's rails, straight the whole length
 RAIL_Z = 0.52
 WELL_IN_F = 0.64         # the wheel wells' inner walls (the front's in the hood, the rear's in the box)
@@ -65,9 +65,9 @@ LAMPS_X = (1.20, -0.80, -2.80, -4.40)
 
 
 def steering_mount():
-    """(the wheel's hub, the column's direction forward-down): a big wheel lying flat, its column 62 deg down."""
+    """(the wheel's hub, the column's direction forward-down): ergonomic bus wheel position & 48 deg rake."""
     a = math.radians(COLUMN_DEG)
-    return np.array([SEAT_X + 0.24, DRIVER_Y, SEAT_Z + 0.52]), np.array([math.cos(a), 0.0, -math.sin(a)])
+    return np.array([SEAT_X + 0.36, DRIVER_Y, SEAT_Z + 0.42]), np.array([math.cos(a), 0.0, -math.sin(a)])
 
 
 def knuckle(hx, hy, hz, front=True):
@@ -109,14 +109,15 @@ def engine_bay():
 
 
 # ============================================================================================ underbody (UNDER)
-def wheelhouse(xa, y0, y1, r, z_cut, mat='trim'):
+def wheelhouse(xa, y0, y1, r, z_cut, mat='trim', z_max=None):
     za = D['hub_z']
     a0 = math.asin(max(-1.0, min(1.0, (z_cut - za) / r)))
     ths = np.linspace(a0, PI - a0, 24)
-    V = np.array([(xa + r * math.cos(t), y, za + r * math.sin(t)) for t in ths for y in (y0, y1)])
+    zcap = (lambda z: min(z, z_max)) if z_max is not None else (lambda z: z)
+    V = np.array([(xa + r * math.cos(t), y, zcap(za + r * math.sin(t))) for t in ths for y in (y0, y1)])
     N = np.array([(-math.cos(t), 0.0, -math.sin(t)) for t in ths for y in (y0, y1)])
     b = K.Buf().add(V, N, K.grid_tris(len(ths), 2), mat)
-    ring = np.array([(xa + r * math.cos(t), y0, za + r * math.sin(t)) for t in ths])
+    ring = np.array([(xa + r * math.cos(t), y0, zcap(za + r * math.sin(t))) for t in ths])
     b.extend(K.fill_loop(ring, (0, 1, 0), mat))
     return b
 
@@ -168,8 +169,8 @@ def underbody(right=False):
         b.extend(K.box_buf((x - 0.03, FRAME_Y, PAN_Z - 0.10), (x + 0.03, IN_Y, PAN_Z - 0.01), 'steel', 0.004, 1))
     # the rear arms' crossmember out to the skirt
     b.extend(K.box_buf((XC_R - 0.06, 0.0, RAIL_Z - 0.05), (XC_R + 0.06, IN_Y - 0.06, RAIL_Z + 0.05), 'steel', 0.008, 2))
-    # the rear wheelhouse liner
-    b.extend(wheelhouse(xr_a, WELL_IN_R, IN_Y + 0.05, WELL_R, D['z_bot'] + 0.04))
+    # the rear wheelhouse liner (capped cleanly beneath the 0.80 m underbody pan so zero hump protrudes into the cabin)
+    b.extend(wheelhouse(xr_a, WELL_IN_R, IN_Y + 0.05, WELL_R, D['z_bot'] + 0.04, z_max=PAN_Z - 0.008))
     # front: the lower arm from the knuckle's foot back to two pivots under the rail
     hx, hy, hz = xa, D['track_f'] / 2, D['hub_z']
     zp = RAIL_Z - 0.12
@@ -287,16 +288,13 @@ def interior(ex):
     vp = np.array([mx - 0.03, DRIVER_Y, D['ws_head'] + 0.01])
     C.extend(K.box_buf(vp + (-0.20, -0.28, -0.012), vp + (0.0, 0.28, 0.008), 'fabric', 0.01, 3, xf=K.mat4_rot((0, 1, 0), 6, vp)))
     # the modesty panel behind the driver's seat, its chrome rail; a grab pole by the entry door (right)
-    C.extend(K.box_buf((ROOM_FRONT_X - 0.02, 0.24, FLOOR_Z - 0.005), (ROOM_FRONT_X, IN_Y - 0.01, FLOOR_Z + 0.95), 'paint_b', 0.006, 2))
-    C.extend(K.tube_buf(np.array([(ROOM_FRONT_X + 0.01, 0.24, FLOOR_Z + 0.97), (ROOM_FRONT_X + 0.01, IN_Y - 0.03, FLOOR_Z + 0.97)]), 0.016, 'chrome', 10))
+    C.extend(K.box_buf((ROOM_FRONT_X - 0.02, 0.16, FLOOR_Z - 0.005), (ROOM_FRONT_X, IN_Y - 0.01, FLOOR_Z + 0.90), 'paint_b', 0.006, 2))
+    C.extend(K.tube_buf(np.array([(ROOM_FRONT_X + 0.01, 0.16, FLOOR_Z + 0.92), (ROOM_FRONT_X + 0.01, IN_Y - 0.03, FLOOR_Z + 0.92)]), 0.016, 'chrome', 10))
     R.extend(K.tube_buf(np.array([(D['sd_x0'] - 0.06, IN_Y - 0.34, FLOOR_Z), (D['sd_x0'] - 0.06, IN_Y - 0.34, D['roof_z'] - 0.06)]), 0.018, 'chrome', 12))
     # (the stairwell inside the entry door is _camel_build.entry_well's)
-    # ---------------------------------------------------------------- the room: emptied
-    # the floor from the tail to the modesty panel (round the stairwell, on the right): a school bus's grey rubber
-    # over its plywood (docs/V3/plan/finish.md section 11.1)
+    # ---------------------------------------------------------------- the room: emptied, completely flat floor
+    # flat grey linoleum over plywood wall-to-wall from tail to modesty panel (no wheel-well bumps!)
     L.extend(K.box_buf((D['xr'] + 0.06, 0.0, FLOOR_Z - 0.03), (ROOM_FRONT_X - 0.02, FLOOR_Y, FLOOR_Z), 'lino', 0.004, 1))
-    # the rear wheels' humps in it
-    L.extend(rear_tub_cabin(xr_a, D['hub_z'], WELL_R + 0.03, WELL_IN_R, IN_Y + 0.01, FLOOR_Z, 'rubber'))
     # the lamps in the ceiling
     for lx in LAMPS_X:
         c = np.array([lx, 0.0, D['roof_z'] + D['roof_crown'] - 0.035])
@@ -310,10 +308,10 @@ def interior(ex):
 
 
 def binnacle():
-    """The instrument binnacle on a stalk from the shelf, over the far side of the wheel's rim, turned to the eye."""
+    """The instrument binnacle tucked sleekly on the forward dash shelf, readable through the wheel rim without crowding forward view."""
     b = K.Buf()
     eye = np.array(EYE)
-    pc = np.array([SEAT_X + 0.46, DRIVER_Y, SEAT_Z + 0.58])
+    pc = np.array([DASH_FACE_X + 0.04, DRIVER_Y, DASH_TOP + 0.075])
     dn = K.unit(eye - pc)
     dn = K.unit(np.array([dn[0], 0.0, dn[2]]))
     R = K.frame_from((0, 1, 0), dn)

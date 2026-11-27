@@ -83,15 +83,16 @@ describe('ND placing (core/v3/nd/place.ts)', () => {
     expect(PLACE.nearVehicle).toBe(3);
   });
 
-  it("the wheel's reach, and Nomad Drive's numbers", () => {
-    // (further than Nomad Drive's: docs/V3/plan/hands.md §四 — 0.6 to 3 m, from 1.2, a tenth a notch)
+  it("the wheel's reach, and extended placement range", () => {
+    // extended placement reach (0.6 to 5.0 m, from 1.2, 0.15 m per wheel notch)
     expect(stepDistance(0.6, -3, PLACE.dist)).toBe(0.6);
-    expect(stepDistance(0.6, 3, PLACE.dist)).toBeCloseTo(0.9, 6);
-    expect(stepDistance(2.9, 5, PLACE.dist)).toBe(3.0);
-    expect(PLACE.dist.start).toBe(1.2);
-    expect(PLACE.far.max).toBe(4.0);
+    expect(stepDistance(0.6, 3, PLACE.dist)).toBeCloseTo(1.05, 6);
+    expect(stepDistance(4.9, 5, PLACE.dist)).toBe(5.0);
+    expect(PLACE.dist.start).toBe(1.5);
+    expect(PLACE.far.max).toBe(5.5);
     expect(PLACE.dropMax).toBe(8);
-    expect(PLACE.planeReach).toBe(3.0);
+    expect(PLACE.planeReach).toBe(5.0);
+    expect(PLACE.surfaceReach).toBe(5.5);
     expect(PLACE.stepS).toBe(0.2);
     expect(SIT.standS).toBe(0.35);
     expect(SIT.yawDeg).toBe(125);

@@ -509,7 +509,7 @@ export const GROUND_PAINT = /* glsl */ `
 
     float open = rtSlopeSun(rel) * shade;
     vec3 col = albedo * rtGroundLight(open);
-    col += rtHeadlight(albedo, n, pos);
+    col += rtHeadlight(albedo, n, pos) + albedo * rtLocalLamps(pos, n);
     return col;
   }
 `;

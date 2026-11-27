@@ -383,6 +383,7 @@ export class NdLight implements System<GameContext>, InteractSource {
     u.uHeadDir.value.copy(dir);
     u.uHeadColor.value.setRGB(this.rgb[0], this.rgb[1], this.rgb[2]).multiplyScalar(k);
     (u.uHeadCone.value as THREE.Vector4).set(Math.cos(B.half), Math.cos(B.inner), Math.cos(Math.min(1.45, B.half * 2.2)), Math.cos(B.half));
+    (u.uHeadShape.value as THREE.Vector2).set(1, 1);
     u.uHeadReach.value = (B.reach * B.reach) / 11.5;
     this.ours = true;
     const o = this.ctx!.core.origin;
@@ -395,6 +396,7 @@ export class NdLight implements System<GameContext>, InteractSource {
     if (!this.ours) return;
     this.ours = false;
     (globals.uHeadCone.value as THREE.Vector4).set(CAR_CONE[0], CAR_CONE[1], CAR_CONE[2], CAR_CONE[3]);
+    (globals.uHeadShape.value as THREE.Vector2).set(1, 1);
     globals.uHeadReach.value = CAR_REACH;
     // (on foot with no lit flashlight: the game's own beam stands as it set it this frame)
     this.last = null;

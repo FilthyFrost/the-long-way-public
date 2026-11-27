@@ -343,7 +343,7 @@ export const COOKWARE_ITEMS: readonly ItemRow[] = [
     blurb: '装食材的保温箱：放在里面的东西坏得慢四倍。',
     paint: 0x3f86b8,
     paint2: 0xf2efe6,
-    holds: { slots: 12, accepts: ['*'], maxKg: 16, decay: COOLER_DECAY },
+    holds: { slots: 24, accepts: ['*'], maxKg: 30, decay: COOLER_DECAY },
   },
   { id: SPICE, cat: COOKWARE_CAT, name: T('调料盒', 'Seasonings'), stars: 1, mass: 0.8, carry: 'small', salvage: { scrap: 1 }, blurb: '盐、胡椒、酱油、油、醋和糖，怎么用都用不完。', paint: 0xb9915f, paint2: 0xc8323a },
 ];

@@ -125,11 +125,14 @@ const CSS = `
 .mc-pause { position: absolute; z-index: 4; left: 50%; top: 64%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 999px; white-space: nowrap; font-size: 16px; font-weight: 700; }
 .mc-pause b { display: inline-flex; align-items: center; justify-content: center; min-width: 23px; height: 23px; padding: 0 6px; box-sizing: border-box; border-radius: 7px; background: #f6f2ea; color: var(--ink); border: 2px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 13px/1 var(--key-font); }
 .mc-pause i { font-style: normal; color: var(--tx-3); font-weight: 400; }
-.mc-marker { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; white-space: nowrap; font-size: 15px; font-weight: 700; text-shadow: var(--say-shadow); }
-.mc-marker svg { width: 22px; height: 26px; margin-top: 3px; filter: drop-shadow(0 2px 0 rgba(10,8,6,0.5)); animation: mc-bob 1.6s ease-in-out infinite; }
-.mc-marker.edge svg path.f { fill: #f2efe8; }
-.mc-marker.dim { opacity: 0.32; }
-@keyframes mc-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.mc-marker { position: absolute; z-index: 3; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 4px; white-space: nowrap; font-size: 18px; font-weight: 800; pointer-events: none; }
+.mc-marker span { padding: 4px 11px; border-radius: 999px; background: rgba(23, 18, 15, 0.88); border: 2px solid #f2c84b; box-shadow: 0 3px 0 rgba(10, 8, 6, 0.65), 0 0 12px rgba(242, 200, 75, 0.35); color: #fff8e2; letter-spacing: 0.02em; text-shadow: 0 1px 0 #17120f; }
+.mc-marker svg { width: 34px; height: 38px; filter: drop-shadow(0 3px 0 rgba(10,8,6,0.65)) drop-shadow(0 0 8px rgba(242, 200, 75, 0.45)); animation: mc-bob 1.35s ease-in-out infinite; }
+.mc-marker.edge span { border-color: #fff3c4; background: rgba(28, 22, 16, 0.94); }
+.mc-marker.edge svg path.f { fill: #ffdf6e; }
+.mc-marker.dim { opacity: 0.82; }
+.mc-marker.dim span { background: rgba(23, 18, 15, 0.78); border-color: rgba(242, 200, 75, 0.85); }
+@keyframes mc-bob { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-7px) scale(1.06); } }
 `;
 
 /** the keys (docs/MODCAR.md §5.1), as the help card shows them: a key and a word (docs/V3/plan/prompts.md §五) */

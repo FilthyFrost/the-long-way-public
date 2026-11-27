@@ -110,6 +110,8 @@ const GROUPS: { id: string; zh: string; cats?: Category[] }[] = [
   { id: 'electric', zh: '电气', cats: ['battery', 'headlight', 'taillight', 'horn', 'radio'] },
   { id: 'tools', zh: '工具' },
   { id: 'items', zh: '物品' },
+  { id: 'tapes', zh: '磁带' },
+  { id: 'vinyls', zh: '黑胶' },
   { id: 'vehicles', zh: '车辆' },
 ];
 
@@ -538,6 +540,39 @@ ${n ? `<label class="check"><input type="checkbox" data-act="dials"> 同时把�
     // the same tiles, so that what a system brings can be handed out from here (one with no kinds has no section)
     for (const cat of itemCats()) {
       if (cat.id in ITEM_CATS) continue;
+      if (cat.id === 'collect') {
+        const allCollect = ITEMS.filter((d) => d.cat === cat.id);
+        const tapes = allCollect.filter((d) => d.tags?.includes('tape'));
+        const vinyls = allCollect.filter((d) => d.tags?.includes('vinyl'));
+        const other = allCollect.filter((d) => !d.tags?.includes('tape') && !d.tags?.includes('vinyl'));
+        const swatch = (d: ItemDef): string => {
+          const c1 = (d.paint ?? 0x888888).toString(16).padStart(6, '0');
+          const c2 = (d.paint2 ?? 0xeeeeee).toString(16).padStart(6, '0');
+          return `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#${c1};border:1px solid #${c2};vertical-align:-1px;margin-right:3px"></span>`;
+        };
+        if (tapes.length) {
+          add(
+            'tapes',
+            `车载磁带（${tapes.length} 首）`,
+            tapes.map((d) => ({
+              ...itemTile(d, `${cat.name.zh} 磁带 tape 音乐 ${d.blurb}`),
+              meta: `${swatch(d)}${d.blurb.match(/【([^】]+)】/)?.[1] ?? '磁带'}`,
+            })),
+          );
+        }
+        if (vinyls.length) {
+          add(
+            'vinyls',
+            `黑胶唱片（${vinyls.length} 首）`,
+            vinyls.map((d) => ({
+              ...itemTile(d, `${cat.name.zh} 黑胶 唱片 vinyl 音乐 ${d.blurb}`),
+              meta: `${swatch(d)}${d.blurb.match(/【([^】]+)】/)?.[1] ?? '黑胶'}`,
+            })),
+          );
+        }
+        if (other.length) add('items', cat.name.zh, other.map((d) => itemTile(d, `${cat.name.zh} ${cat.name.en}`)));
+        continue;
+      }
       add(
         'items',
         cat.name.zh,

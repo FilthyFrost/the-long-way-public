@@ -31,10 +31,10 @@ const CONTROL_CATS = new Set(['handbrake', 'ignition', 'radio', 'horn', 'door'])
 const PASSENGER_CATS = new Set(['handbrake', 'radio', 'door']);
 /** the small controls, met on their own box (their own frame's, CONTROL_PAD larger) rather than their meshes alone */
 const BOXED_CATS = new Set(['handbrake', 'ignition', 'radio']);
-/** how much larger than it is all round a small control's box is (m): a key 3 cm wide is aimed at over 5.4 */
-export const CONTROL_PAD = 0.012;
-/** how far behind the first thing the ray meets a control may be met and still be the one (m: Nomad Drive's 2 cm) */
-export const SKIN_GRACE = 0.02;
+/** how much larger than it is all round a small control's box is (m): forgiving box for handbrake, key and radio */
+export const CONTROL_PAD = 0.025;
+/** how far behind the first thing the ray meets a control may be met and still be the one (m) */
+export const SKIN_GRACE = 0.05;
 /** the hands' reach from a seat (m from the eye) */
 export const SEAT_REACH = 1.3;
 

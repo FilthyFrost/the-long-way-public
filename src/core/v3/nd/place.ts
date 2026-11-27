@@ -17,14 +17,13 @@
  */
 
 export const PLACE = {
-  /** how far before the eye it floats (m), and a fridge's */
-  // (further than Nomad Drive's 0.75 to 2: docs/V3/plan/hands.md §四 — it starts out of the way, the wheel takes it out to 3 m, a big thing to 4)
-  dist: { start: 1.2, min: 0.6, max: 3.0 },
-  far: { start: 2.0, min: 1.0, max: 4.0 },
+  /** how far before the eye it floats (m), and a fridge's — extended reach for comfortable standing placement */
+  dist: { start: 1.5, min: 0.6, max: 5.0 },
+  far: { start: 2.2, min: 1.0, max: 5.5 },
   /** a notch of the wheel moves it this much (m) */
-  notch: 0.1,
+  notch: 0.15,
   /** the line of sight meets a surface to put it on within this (m): there it goes, whatever the wheel says */
-  surfaceReach: 3.5,
+  surfaceReach: 5.5,
   /** the grid's squares (m): Q and E put the thing on it (docs/V3/plan/prompts.md 定案 3) */
   cell: 0.1,
   /** a vehicle's grid reaches this far out round it (m): on the ground behind a motorhome its lines go on (定案 2) */
@@ -36,7 +35,7 @@ export const PLACE = {
   /** its ghost is looked for this far down (m) */
   dropMax: 8,
   /** a vehicle's place to put things is taken up when looked at from within this (m) */
-  planeReach: 3.0,
+  planeReach: 5.0,
   /** how quickly it follows the view, and goes to a vehicle's spot (1/s) */
   floatK: 25,
   planeK: 20,

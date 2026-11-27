@@ -239,22 +239,22 @@ def nd_wall_shelf(P):
 
 
 def nd_cabinet(P):
-    """A cupboard (Nomad Drive's Cabinet-01, 0.79 m wide, 0.91 high): a painted carcass hollow behind its two shaker
+    """A lowered ergonomic cupboard (0.78 m wide, 0.72 m top height): a painted carcass hollow behind its two shaker
     doors (P_door_a, P_door_b), a shelf inside, a plinth and a moulded top (paint_b)."""
-    P.ao_distance = 0.25
-    D, W, Hh = 0.6, 0.78, 0.88
+    P.ao_distance = 0.22
+    D, W, Hh = 0.6, 0.78, 0.685
     x1 = D / 2 - 0.02
-    body = P.mesh('carcass', J.slab((D - 0.02, W, Hh - 0.08), (-0.01, 0.0, 0.08 + (Hh - 0.08) / 2), step=0.12), 'paint', bev=0.004)
+    body = P.mesh('carcass', J.slab((D - 0.02, W, Hh - 0.07), (-0.01, 0.0, 0.07 + (Hh - 0.07) / 2), step=0.12), 'paint', bev=0.004)
     cav = bmesh.new()
-    K.bm_cube(cav, (D - 0.06, W - 0.05, Hh - 0.16), matrix=Matrix.Translation((x1 - (D - 0.06) / 2 + 0.02, 0.0, 0.1 + (Hh - 0.16) / 2)))
+    K.bm_cube(cav, (D - 0.06, W - 0.05, Hh - 0.13), matrix=Matrix.Translation((x1 - (D - 0.06) / 2 + 0.02, 0.0, 0.09 + (Hh - 0.13) / 2)))
     P.cut(body, cav)
-    P.box('shelf', (D - 0.08, W - 0.06, 0.018), (-0.02, 0.0, 0.48), 'paint', bev=0.003, segs=1)
-    P.box('plinth', (D - 0.06, W - 0.04, 0.08), (-0.03, 0.0, 0.04), 'trim', bev=0.004)
-    P.box('top', (D + 0.03, W + 0.04, 0.035), (0.0, 0.0, Hh + 0.017), 'paint_b', bev=0.008, segs=2)
+    P.box('shelf', (D - 0.08, W - 0.06, 0.018), (-0.02, 0.0, 0.38), 'paint', bev=0.003, segs=1)
+    P.box('plinth', (D - 0.06, W - 0.04, 0.07), (-0.03, 0.0, 0.035), 'trim', bev=0.004)
+    P.box('top', (D + 0.03, W + 0.04, 0.035), (0.0, 0.0, Hh + 0.0175), 'paint_b', bev=0.008, segs=2)
     for (tag, y0, y1, hinge) in (('a', -W / 2 + 0.012, -0.004, -1), ('b', 0.004, W / 2 - 0.012, 1)):
         since = H.mark_since(P)
-        H.panel(P, 'door', x1 + 0.011, y0, y1, 0.1, Hh - 0.02)
-        H.knob(P, x1 + 0.022, y1 - 0.05 if hinge < 0 else y0 + 0.05, Hh * 0.6, 'ceramic', 0.015)
+        H.panel(P, 'door', x1 + 0.011, y0, y1, 0.085, Hh - 0.015)
+        H.knob(P, x1 + 0.022, y1 - 0.05 if hinge < 0 else y0 + 0.05, Hh * 0.62, 'ceramic', 0.015)
         P.mover(f'P_door_{tag}', P.statics[since:], (x1 + 0.011, y0 if hinge < 0 else y1, 0.0))
     P.views = [('a', 30, 18), ('b', 150, 24)]
 

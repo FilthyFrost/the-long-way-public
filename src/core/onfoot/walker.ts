@@ -107,10 +107,10 @@ export const ND_FOOT: FootProfile = {
   crouchRun: 2.0,
   carry: 1.6,
   swim: 1.4,
-  eye: 1.5,
+  eye: 1.58,
   eyeCrouch: 0.65,
   eyeSwim: 1.3,
-  height: 1.6,
+  height: 1.66,
   heightCrouch: 0.7,
   radius: 0.23,
   jump: 0.82,
@@ -314,7 +314,23 @@ export class FootWalker {
   blocks(s: Solid, feet: number, height = this.height, stepMax = this.stepMaxAt(this.x, feet, this.z)): boolean {
     if (s.y1 <= feet + 0.02) return false; // under the feet
     if (s.floor && s.y1 <= feet + stepMax + 1e-6) return false; // a step: walked up
+    // Overhead ceiling/roof slabs must NEVER trigger horizontal pushOut (which blasts players sideways out through
+    // camper walls when stepping onto rear decks, furniture, or low-roof vans). Enforced vertically via ceilingAt() (#7).
+    if (s.floor && s.y0 >= feet + 0.35) return false;
+    if (s.tag.endsWith(':roof') && s.y0 >= feet + 0.2) return false;
+    if (s.y0 >= feet + height - 0.14) return false;
     return s.y0 < feet + height;
+  }
+
+  /** lowest underside y0 of any overhead solid overlapping the capsule at (x, z) above feet + 0.35 m */
+  private ceilingAt(x: number, z: number, feet: number): number {
+    const rad = this.profile.radius;
+    let minY0 = Infinity;
+    for (const s of this.near) {
+      if (s.y0 < feet + 0.35) continue;
+      if (pushOut(s, x, z, rad, this.push) && s.y0 < minY0) minY0 = s.y0;
+    }
+    return minY0;
   }
 
   /** would a body stand free at (x, z) with its feet on the ground there? */
@@ -509,6 +525,8 @@ export class FootWalker {
     const x0 = this.x;
     const z0 = this.z;
     for (let i = 0; i < n; i++) {
+      const px = this.x;
+      const pz = this.z;
       this.x += dx / n;
       this.z += dz / n;
       this.resolve();
@@ -516,7 +534,23 @@ export class FootWalker {
       if (this.grounded && !this.swimming) {
         const sup = this.supportAt(this.x, this.z, this.y);
         const sm = this.stepMaxAt(this.x, this.y, this.z);
-        if (sup <= this.y + sm + 1e-6 && sup >= this.y - SNAP_DOWN) this.setFeet(sup);
+        if (sup <= this.y + sm + 1e-6 && sup >= this.y - SNAP_DOWN) {
+          const ceil = this.ceilingAt(this.x, this.z, sup);
+          const avail = ceil - sup;
+          if (avail < p.heightCrouch + 0.04) {
+            // Even crouched body cannot fit under overhead ceiling here (e.g. over-cab bunk / ceiling-touching furniture)
+            this.x = px;
+            this.z = pz;
+            this.vx = 0;
+            this.vz = 0;
+            break;
+          }
+          if (avail < p.height + 0.02) {
+            // Low ceiling (Old Elephant rear deck, Loaf van, stepping onto cabinet): auto-duck cleanly, never teleport (#7)
+            this.crouched = true;
+          }
+          this.setFeet(sup);
+        }
       }
     }
     this.walked += Math.hypot(this.x - x0, this.z - z0);
@@ -546,15 +580,18 @@ export class FootWalker {
       this.vy -= FOOT.gravity * h;
       this.y += this.vy * h;
       // ceiling clamp while rising: prevent head from clipping through an interior roof
+      // Check ALL overlapping ceiling solids using the full capsule radius and leave a 5 mm clearance margin
+      // so IEEE-754 rounding never triggers horizontal pushOut in resolve().
       if (this.vy > 0) {
         const curHead = this.y + this.height;
+        let minCeil = Infinity;
         for (const so of this.near) {
-          if (so.y0 < prevHead - 0.06 || so.y0 >= curHead) continue;
-          if (pushOut(so, this.x, this.z, Math.max(0.05, p.radius - 0.02), this.push)) {
-            this.y = Math.max(sup, so.y0 - this.height);
-            this.vy = 0;
-            break;
-          }
+          if (so.y0 < prevHead - 0.12 || so.y0 >= curHead) continue;
+          if (pushOut(so, this.x, this.z, p.radius, this.push) && so.y0 < minCeil) minCeil = so.y0;
+        }
+        if (minCeil < Infinity) {
+          this.y = Math.max(sup, minCeil - this.height - 0.005);
+          this.vy = 0;
         }
       }
       if (this.y <= sup) {
@@ -656,6 +693,7 @@ export class FootWalker {
   private headroomFor(height: number): boolean {
     const rad = this.profile.radius;
     this.gather(this.x, this.z, rad + 0.5);
+    if (this.ceilingAt(this.x, this.z, this.y) < this.y + height + 0.02) return false;
     const stepMax = this.stepMaxAt(this.x, this.y, this.z);
     for (const s of this.near) if (this.blocks(s, this.y, height, stepMax) && pushOut(s, this.x, this.z, rad, this.push)) return false;
     return true;
@@ -663,7 +701,12 @@ export class FootWalker {
 
   private targetEyeH(): number {
     const p = this.profile;
-    return this.swimming ? p.eyeSwim : this.crouched ? p.eyeCrouch : p.eye;
+    const base = this.swimming ? p.eyeSwim : this.crouched ? p.eyeCrouch : p.eye;
+    if (!this.swimming) {
+      const ceil = this.ceilingAt(this.x, this.z, this.y);
+      if (ceil < Infinity) return Math.min(base, Math.max(0.45, ceil - this.y - 0.1));
+    }
+    return base;
   }
 
   /** inside a solid that is in the way (for the tests) */

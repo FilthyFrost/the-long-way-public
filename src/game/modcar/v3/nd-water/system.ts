@@ -67,13 +67,14 @@ const BOX: Record<string, PartBox> = {
   nd_bucket: blenderBox(0.0, 0.0, 0.17, 0.3, 0.3, 0.34),
   nd_water_can: blenderBox(0.0, 0.0, 0.24, 0.36, 0.2, 0.48),
   nd_mug: blenderBox(0.0, 0.0, 0.05, 0.1, 0.12, 0.1),
+  coffee_pot: blenderBox(0.015, 0.0, 0.075, 0.17, 0.14, 0.15),
   drink_water: blenderBox(0.0, 0.0, 0.17, 0.12, 0.12, 0.34),
   nd_milk: blenderBox(0.0, 0.0, 0.12, 0.09, 0.09, 0.24),
   'tool:bottle': blenderBox(0.0, 0.0, 0.185, 0.22, 0.2, 0.37),
 };
 const BOX_PUMP = blenderBox(0.04, 0.0, 0.32, 0.34, 0.2, 0.62);
 /** how far a vessel in the hands is tipped to pour (rad) */
-const TIP: Record<string, number> = { nd_bucket: 1.0, nd_water_can: 1.15, nd_mug: 1.25, drink_water: 1.7, nd_milk: 1.6, 'tool:bottle': 1.5 };
+const TIP: Record<string, number> = { nd_bucket: 1.0, nd_water_can: 1.15, nd_mug: 1.25, coffee_pot: 1.05, drink_water: 1.7, nd_milk: 1.6, 'tool:bottle': 1.5 };
 /** a pour shown this long after its last step */
 const SHOW_S = 0.12;
 /** a sponge in a bucket of water: so much of it comes good a second, on so much water a second (L) */
@@ -175,8 +176,9 @@ class VesselThing extends WaterThing {
     return this.ly.v;
   }
   use(): void {
-    if (this.sys.heldV()) this.sys.holdingAt(this, 1);
-    else this.sys.pickUp(this.ly.l);
+    if (this.sys.heldV()) {
+      if (!this.sys.isLockedDone(this)) this.sys.holdingAt(this, 1);
+    } else this.sys.pickUp(this.ly.l);
   }
   hit(ray: THREE.Ray, reach: number): number | null {
     const d = boxHit(this.ly.l.obj, ray, BOX[keyOf(this.ly.l)] ?? BOX.nd_bucket, reach);
@@ -302,6 +304,7 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
   private stream: LiquidStream | null = null;
   private readonly mats = new Map<DrinkLiquid, THREE.Material>();
   private discGeo: THREE.CircleGeometry | null = null;
+  private cylGeo: THREE.CylinderGeometry | null = null;
   private hvFor: Held | null = null;
   private hv: Vessel | null = null;
   private readonly ray = new THREE.Raycaster();
@@ -336,6 +339,9 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
   /** wheel flips pour/siphon direction when both directions are possible; E held also transfers (RMB stays free for eye zoom) */
   private flip = false;
   private flipDev: WaterThing | null = null;
+  /** locks transfer direction for a single button hold so emptying/filling never ping-pongs liquid back and forth */
+  private activeLock: { dev: WaterThing; into: boolean; done: boolean } | null = null;
+  private eHoldWas = false;
   readonly hands: HandsUse = {
     id: 'nd-water',
     claims: (h) => this.aimedWater(h) !== null,
@@ -343,6 +349,7 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
     wheel: (h) => {
       if (!this.canFlip(h)) return false;
       this.flip = !this.flip;
+      this.activeLock = null;
       this.ctx?.sound('switch', 0.35);
       return true;
     },
@@ -351,9 +358,15 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
     gone: () => {
       this.flip = false;
       this.flipDev = null;
+      this.activeLock = null;
+      this.eHoldWas = false;
       this.unpin();
     },
   };
+
+  isLockedDone(dev: WaterThing): boolean {
+    return !!this.activeLock && this.activeLock.dev === dev && this.activeLock.done;
+  }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
@@ -456,7 +469,7 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
 
   // ------------------------------------------------------------------ E: what runs which way
 
-  /** the active transfer direction, respecting wheel flip when both directions are possible */
+  /** the active transfer direction, respecting active hold lock and wheel flip when both directions are possible */
   private wayAt(dev: WaterThing): { into: boolean; src: Vessel; dst: Vessel } | null {
     const hv = this.heldV();
     if (!hv) return null;
@@ -465,6 +478,10 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
       this.flip = false;
     }
     const ov = dev.vessel();
+    if (this.activeLock && this.activeLock.dev === dev) {
+      const into = this.activeLock.into;
+      return into ? { into, src: ov, dst: hv } : { into, src: hv, dst: ov };
+    }
     let into = intoHands(hv, ov);
     if (this.flip) {
       const altInto = !into;
@@ -523,13 +540,32 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
       this.ctx!.sound('scrub');
       return;
     }
+    const fresh = k < dev.pourK || this.time - dev.pourAt > 0.25 || this.activeLock?.dev !== dev;
+    if (fresh) {
+      dev.pourK = 0;
+      this.activeLock = null;
+    }
     const w = this.wayAt(dev);
     if (!w) return;
-    if (k < dev.pourK || this.time - dev.pourAt > 0.25) dev.pourK = 0;
+    if (!this.activeLock) this.activeLock = { dev, into: w.into, done: false };
+    if (this.activeLock.done) {
+      dev.pourAt = this.time;
+      return;
+    }
+    if (flowWhy(w.src, w.dst) !== 'ok') {
+      this.activeLock.done = true;
+      this.running = null;
+      dev.pourAt = this.time;
+      return;
+    }
     const dk = Math.max(0, k - dev.pourK);
     dev.pourK = k;
     dev.pourAt = this.time;
     this.run(dev, w.into, w.src, w.dst, dk * (dev.holdLen || 0));
+    if (flowWhy(w.src, w.dst) !== 'ok') {
+      this.activeLock.done = true;
+      this.running = null;
+    }
   }
 
   /** liquid run for dt (s) between the hands and a device, shown */
@@ -600,12 +636,33 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
   }
 
   private handStep(h: NonNullable<Held>, dt: number, e: boolean): void {
-    if (!e) return;
+    if (!e) {
+      if (this.eHoldWas) {
+        this.eHoldWas = false;
+        this.activeLock = null;
+      }
+      return;
+    }
     const dev = this.aimedWater(h);
     if (!dev) return;
+    if (!this.eHoldWas || this.activeLock?.dev !== dev) {
+      this.eHoldWas = true;
+      this.activeLock = null;
+    }
     const w = this.wayAt(dev);
-    if (!w || flowWhy(w.src, w.dst) !== 'ok') return;
+    if (!w) return;
+    if (!this.activeLock) this.activeLock = { dev, into: w.into, done: false };
+    if (this.activeLock.done) return;
+    if (flowWhy(w.src, w.dst) !== 'ok') {
+      this.activeLock.done = true;
+      this.running = null;
+      return;
+    }
     this.run(dev, w.into, w.src, w.dst, dt);
+    if (flowWhy(w.src, w.dst) !== 'ok') {
+      this.activeLock.done = true;
+      this.running = null;
+    }
   }
 
   private handWords(h: NonNullable<Held>): Action[] {
@@ -618,6 +675,12 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
   lateUpdate(dt: number, ctx: GameContext): void {
     this.time += dt;
     this.refresh(ctx);
+    // Keep pour direction lock alive for the entire continuous hold (LMB OR E) so full-cup never auto-reverses (#2)
+    const heldDown = this.eHoldWas || ctx.player.primary;
+    if (this.activeLock) {
+      const ch = ctx.player.held;
+      if (!heldDown || !ch || ch.kind !== 'item') this.activeLock = null;
+    }
     // the one in the hands, first seen: as it was found (by its own id)
     const h = ctx.player.held;
     if (h?.kind === 'item' && VESSELS[h.item.item]?.found && !h.item.state?.found) foundFill(h.item, hashStr(h.item.uid));
@@ -679,25 +742,34 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
       if (ly.disc) ly.disc.visible = false;
       return;
     }
+    const o = ly.open;
     if (!ly.disc) {
-      this.discGeo ??= new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2);
-      ly.disc = new THREE.Mesh(this.discGeo, this.matOf(q));
+      const geo = o.glass
+        ? (this.cylGeo ??= new THREE.CylinderGeometry(1, 1, 1, 24).translate(0, 0.5, 0))
+        : (this.discGeo ??= new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2));
+      ly.disc = new THREE.Mesh(geo, this.matOf(q));
       ly.disc.name = 'nd-water:level';
       extraOf(ly.l).add(ly.disc);
     }
-    const o = ly.open;
     const d = ly.disc;
     d.visible = true;
     d.material = this.matOf(q);
-    const r = o.rBottom + (o.rTop - o.rBottom) * fill;
-    d.scale.set(r, 1, r);
-    d.position.set(o.mouth.x, o.bottom + (o.mouth.y - 0.006 - o.bottom) * fill, o.mouth.z);
+    if (o.glass) {
+      const r = o.rBottom;
+      d.scale.set(r, Math.max(0.004, 0.09 * fill), r);
+      d.position.set(o.mouth.x, o.bottom, o.mouth.z);
+    } else {
+      const r = o.rBottom + (o.rTop - o.rBottom) * fill;
+      d.scale.set(r, 1, r);
+      d.position.set(o.mouth.x, o.bottom + (o.mouth.y - 0.006 - o.bottom) * fill, o.mouth.z);
+    }
   }
 
   private matOf(q: DrinkLiquid): THREE.Material {
     let m = this.mats.get(q);
     if (!m) {
-      m = surfaceMaterial({ color: LIQUID[q].hex, spec: 0.7 });
+      m = surfaceMaterial({ color: LIQUID[q].hex, spec: 0.12, cabinLift: true });
+      m.side = THREE.DoubleSide;
       this.mats.set(q, m);
     }
     return m;
@@ -759,20 +831,22 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
       const n = Math.hypot(dx, dz) || 1;
       dx /= n;
       dz /= n;
-      // (its front turned to one's right, across the view: tipped, it is seen tipping, not end on)
-      this.qa.setFromAxisAngle(Y, Math.atan2(-dx, -dz));
+      // (its spout side turned across the view so it visibly tips from its spout, not its handle)
+      const spoutNegX = ho.spout.x < -0.01;
+      this.qa.setFromAxisAngle(Y, Math.atan2(-dx, -dz) + (spoutNegX ? Math.PI : 0));
       if (!r.into) {
         // tipped over its mouth, the stream from its spout down into it
-        this.qb.setFromAxisAngle(Z, -(TIP[hk] ?? 1.1));
+        this.qb.setFromAxisAngle(Z, (TIP[hk] ?? 1.1) * (spoutNegX ? 1 : -1));
         this.pinQ.copy(this.qa).multiply(this.qb);
-        this.pinP.set(mouth.x - dx * 0.02, mouth.y + 0.14, mouth.z - dz * 0.02);
+        const dropH = ly?.open.rTop && ly.open.rTop < 0.07 ? 0.095 : 0.14;
+        this.pinP.set(mouth.x - dx * 0.02, mouth.y + dropH, mouth.z - dz * 0.02);
         this.pin(this.pinP, this.pinQ, ho.spout);
         from = this.a.copy(this.pinP);
         to.copy(mouth);
         if (ly?.open.open) to.y = mouth.y - (ly.open.mouth.y - ly.open.bottom) * (1 - (ly.v.holds > 0 ? ly.v.litres / ly.v.holds : 0));
       } else {
         // dipped into it, leaning in
-        this.qb.setFromAxisAngle(Z, -0.5);
+        this.qb.setFromAxisAngle(Z, spoutNegX ? 0.5 : -0.5);
         this.pinQ.copy(this.qa).multiply(this.qb);
         this.pinP.set(mouth.x - dx * 0.04, mouth.y + 0.03, mouth.z - dz * 0.04);
         this.pin(this.pinP, this.pinQ, ho.mouth);
@@ -882,6 +956,7 @@ export class NdWater implements System<GameContext>, InteractSource, SolidSource
     this.stream?.dispose();
     for (const ly of this.lying.values()) ly.disc?.removeFromParent();
     this.discGeo?.dispose();
+    this.cylGeo?.dispose();
     for (const m of this.mats.values()) m.dispose();
   }
 }

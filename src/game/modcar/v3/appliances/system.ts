@@ -15,30 +15,167 @@ import type { System } from '../../../../core/kernel/systems';
 import { itemDef, type ItemInstance } from '../../../../core/modcar/items';
 import { batteryCharge } from '../../../../core/modcar/rules';
 import type { Text } from '../../../../core/modcar/types';
-import { appOf, applianceOf, channelOf, COFFEE_POT, nextChannel, toggle, type ApplianceKind } from '../../../../core/v3/appliances/appliances';
+import { appOf, appState, applianceOf, channelOf, COFFEE_POT, nextChannel, toggle, type ApplianceKind } from '../../../../core/v3/appliances/appliances';
+import { deckFalloff, nextOf } from '../../../../core/v3/nd/tapes';
+import { vinylDeck, vinylOf, VINYLS, type Vinyl } from '../../../../core/v3/nd/vinyls';
 import type { GarageDevice } from '../../garageStub';
 import { itemCardKept, type ItemCard } from '../../itemInfo';
 import { itemNow } from '../../itemTime';
 import { powerOf, type GameContext, type RadioSet } from '../../kernel/context';
 import type { InteractSource, PlanPoint } from '../../kernel/interact';
 import type { Loose } from '../../loose';
+import { chestDealers, modelOf } from '../../nd/kit';
 import { heldOf, type Held } from '../../player';
+import { roomOf } from '../../../../core/modcar/aboard';
 import type { ThingBox } from '../../../../core/modcar/cargo';
-import { stationLabel } from '../../radio';
+import { renderSong, stationLabel, type Song } from '../../radio';
+import { archiveUrl, soundArchive } from '../../soundArchive';
 import type { ModVehicle } from '../../vehicle';
 import { CABIN_GLOW, glowOf, makeLook, type ApplianceLook, type LookNow } from './looks';
-import { globals } from '../../../render/shaderlib';
+import { globals, LOCAL_LAMPS } from '../../../render/shaderlib';
 import { castMesh } from '../../../render/triGrid';
 
-/** what a living space's ceiling lamps give its cabin, fully lit: a warm room one can see to cook in (a table lamp gives 0.2 of its colour) */
-const CEILING_GLOW = new THREE.Color(1.0, 0.74, 0.46).multiplyScalar(0.85);
-/** what a vehicle's own cabin dome light (U) gives its interior when switched on */
-const DOME_GLOW = new THREE.Color(1.0, 0.88, 0.72).multiplyScalar(0.75);
+/** what a vehicle's own cabin dome light (U) gives its interior when switched on (unified for cab and RV rear) */
+const DOME_GLOW = new THREE.Color(1.0, 0.88, 0.72).multiplyScalar(0.95);
+/** soft daylight window fill for living-space RVs and riding furniture so rear interiors stay bright and legible by day */
+const DAY_FILL = new THREE.Color(1.0, 0.96, 0.9).multiplyScalar(0.2);
+const LAMP_ZERO = new THREE.Color(0, 0, 0);
+const DESK_BULB_LOCAL = new THREE.Vector3(0.26, 0.30, 0);
+const DESK_DIR_LOCAL = new THREE.Vector3(0.55, -0.835, 0).normalize();
+const SOLAR_BULB_LOCAL = new THREE.Vector3(0, 0.444, 0);
+const LAMP_POS_TMP = new THREE.Vector3();
+const LAMP_DIR_TMP = new THREE.Vector3();
+const LAMP_Q_TMP = new THREE.Quaternion();
+
+/** a vinyl's procedural fallback song when the local archive is absent */
+function madeUpVinyl(v: Vinyl): Song {
+  const progs: [number, boolean][][] = [
+    [[0, false], [5, false], [7, false], [0, false], [9, true], [5, false], [7, false], [0, false]],
+    [[0, true], [8, false], [3, false], [10, false], [0, true], [5, true], [7, false], [0, true]],
+    [[0, false], [9, true], [5, false], [7, false], [0, false], [9, true], [2, true], [7, false]],
+  ];
+  return { name: v.title, bpm: v.synth.bpm, beats: v.synth.style === 'waltz' ? 3 : 4, key: v.synth.key, bars: progs[v.synth.seed % progs.length], style: v.synth.style, lead: v.synth.lead, seed: v.synth.seed };
+}
+
+/** dedicated audio player for physical vinyl records spinning on a turntable (#28) */
+class VinylVoice {
+  private readonly out: GainNode;
+  private el: HTMLAudioElement | null = null;
+  private gain: GainNode | null = null;
+  private src: AudioBufferSourceNode | null = null;
+  private srcT0 = 0;
+  private srcDur = 0;
+  vinyl = '';
+  file = '';
+  private static readonly made = new Map<string, AudioBuffer>();
+
+  constructor(
+    private readonly ctx: AudioContext,
+    output: AudioNode,
+  ) {
+    this.out = ctx.createGain();
+    this.out.gain.value = 0;
+    this.out.connect(output);
+  }
+
+  private element(): HTMLAudioElement | null {
+    if (this.el) return this.el;
+    if (typeof Audio === 'undefined' || typeof this.ctx.createMediaElementSource !== 'function') return null;
+    const el = new Audio();
+    el.preload = 'auto';
+    el.loop = true;
+    const src = this.ctx.createMediaElementSource(el);
+    // warm turntable EQ (gentle vinyl warmth & rolled-off ultra highs)
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 65;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 9500;
+    this.gain = this.ctx.createGain();
+    src.connect(hp).connect(lp).connect(this.gain).connect(this.out);
+    this.el = el;
+    return el;
+  }
+
+  get at(): number {
+    if (this.el && this.file) return this.el.currentTime;
+    if (this.src && this.srcDur > 0) return (this.ctx.currentTime - this.srcT0) % this.srcDur;
+    return 0;
+  }
+
+  play(v: Vinyl, file: string, at: number): void {
+    this.stop();
+    this.vinyl = v.id;
+    this.file = file;
+    if (file) {
+      const el = this.element();
+      if (!el) return;
+      el.src = archiveUrl(file);
+      el.addEventListener(
+        'loadedmetadata',
+        () => {
+          if (this.file !== file) return;
+          try {
+            el.currentTime = Math.min(Math.max(0, el.duration - 0.5), Math.max(0, at));
+          } catch {
+            /* ignore non-seekable */
+          }
+          void el.play().catch(() => undefined);
+        },
+        { once: true },
+      );
+      el.load();
+      const g = this.gain!;
+      g.gain.setValueAtTime(1, this.ctx.currentTime);
+      void soundArchive()
+        ?.loudness(file)
+        .then((l) => {
+          if (l && l.rms > 0 && this.file === file) g.gain.setTargetAtTime(Math.min(8, 0.2 / Math.max(0.01, l.rms)), this.ctx.currentTime, 0.2);
+        });
+      return;
+    }
+    const key = `${v.id}@${this.ctx.sampleRate}`;
+    let b = VinylVoice.made.get(key);
+    if (!b) {
+      const x = renderSong(madeUpVinyl(v), this.ctx.sampleRate);
+      b = this.ctx.createBuffer(1, x.length, this.ctx.sampleRate);
+      b.getChannelData(0).set(x);
+      VinylVoice.made.set(key, b);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = b;
+    src.loop = true;
+    src.connect(this.out);
+    const off = b.duration > 0 ? ((at % b.duration) + b.duration) % b.duration : 0;
+    src.start(this.ctx.currentTime + 0.05, off);
+    this.src = src;
+    this.srcDur = b.duration;
+    this.srcT0 = this.ctx.currentTime + 0.05 - off;
+  }
+
+  stop(): void {
+    this.el?.pause();
+    this.src?.stop();
+    this.src = null;
+    this.vinyl = '';
+    this.file = '';
+  }
+
+  level(l: number): void {
+    this.out.gain.setTargetAtTime(l, this.ctx.currentTime, 0.12);
+  }
+
+  dispose(): void {
+    this.stop();
+    this.out.disconnect();
+  }
+}
 
 /** what each kind is called on the mark */
 const NAME: Record<ApplianceKind, string> = { radio: '收音闹钟', record: '唱片机', tv: '电视', lamp: '台灯', solar: '太阳能灯' };
-/** how loud each set plays, against a car radio's 1 */
-const LOUD: Partial<Record<ApplianceKind, number>> = { radio: 0.7, record: 1.0, tv: 0.8 };
+/** how loud each FM/TV set plays, against a car radio's 1 (record players use dedicated VinylVoice #28) */
+const LOUD: Partial<Record<ApplianceKind, number>> = { radio: 0.7, tv: 0.8 };
 /** the television's channels (looks.ts draws them in this order) */
 export const TV_CHANNELS = ['风景台', '测试卡', '雪花', '卡通台', '新闻台'];
 
@@ -92,14 +229,22 @@ class Unit implements GarageDevice {
     return this.loose.radius;
   }
 
-  /** what E does */
+  /** what LMB does */
   get word(): Text {
     const it = this.item;
     const s = appOf(it);
     const name = NAME[this.kind];
     switch (this.kind) {
-      case 'record':
-        return s.on ? T(`停下 <b>${name}</b>`, 'Stop the <b>record</b>') : T('放唱片', 'Play the record');
+      case 'record': {
+        const hv = this.sys.vinylInHands();
+        if (hv) {
+          const v = vinylOf(hv.item);
+          return s.vinyl ? T(`换上唱片 <b>《${v?.title ?? ''}》</b>`, 'Swap vinyl') : T(`放上唱片 <b>《${v?.title ?? ''}》</b>`, 'Place vinyl');
+        }
+        const cur = s.vinyl ? vinylOf(s.vinyl.item) : null;
+        if (!cur) return T('放黑胶唱片', 'Place a vinyl record');
+        return s.on ? T(`暂停 <b>《${cur.title}》</b>`, 'Pause record') : T(`播放 <b>《${cur.title}》</b>`, 'Play record');
+      }
       case 'lamp':
         return s.on ? T('关灯', 'Switch the lamp off') : T('开灯', 'Switch the lamp on');
       default:
@@ -118,7 +263,7 @@ class Unit implements GarageDevice {
     return ctx.player.takeLoose(this.loose);
   }
 
-  /** its second thing, on the wheel while it is looked at (another station, channel, record) */
+  /** its second thing, on RMB / wheel while looked at (another station/channel, or ejecting vinyl from turntable) */
   get alt(): { word: Text; use(): void } | null {
     const it = this.item;
     const s = appOf(it);
@@ -126,7 +271,7 @@ class Unit implements GarageDevice {
       case 'radio':
         return s.on ? { word: T('换台', 'Next station'), use: () => this.sys.next(this) } : null;
       case 'record':
-        return { word: T('换唱片', 'Another record'), use: () => this.sys.next(this) };
+        return s.vinyl ? { word: T('取出唱片', 'Remove vinyl'), use: () => this.sys.ejectVinyl(this) } : null;
       case 'tv':
         return s.on ? { word: T('换台', 'Next channel'), use: () => this.sys.next(this) } : null;
       default:
@@ -219,13 +364,33 @@ export class Appliances implements System<GameContext>, InteractSource {
   time = 0;
   /** what is drawn of them: only in a game that draws */
   private root: THREE.Group | null = null;
-  private readonly now: LookNow = { on: false, ch: 0, hour: 12, coffee: -1, light: 1, exposure: 1, t: 0, dt: 0, onWall: false };
+  private readonly now: LookNow = { on: false, ch: 0, hour: 12, coffee: -1, light: 1, exposure: 1, t: 0, dt: 0, onWall: false, vinyl: null, model: null };
   private readonly lamps = new Map<ModVehicle, THREE.Color>();
   private readonly sum = new THREE.Color();
+  private vinylVoice: VinylVoice | null = null;
+  private heardRecord: Unit | null = null;
+  private vinylKeepT = 0;
+  readonly dealtVinyls = new Set<string>();
+
+  /** deal the next un-dealt vinyl from the 51-track shuffled world pool */
+  dealVinyl(): string {
+    const ctx = this.ctx;
+    const deck = vinylDeck(ctx?.world?.seed ?? ctx?.params.seed ?? 1);
+    const id = this.dealtVinyls.size >= deck.length ? deck[this.dealtVinyls.size % deck.length] : nextOf(deck, this.dealtVinyls);
+    this.dealtVinyls.add(id);
+    return id;
+  }
+
+  /** physical vinyl currently held in the player's hands, if any */
+  vinylInHands(): ItemInstance | null {
+    const h = this.ctx?.player.held;
+    return h?.kind === 'item' && vinylOf(h.item.item) ? h.item : null;
+  }
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
     ctx.addRadios(this.radios);
+    chestDealers.push(() => [this.dealVinyl()]);
     if (ctx.core.scene && ctx.loose.root) {
       this.root = new THREE.Group();
       this.root.name = 'appliances';
@@ -257,7 +422,8 @@ export class Appliances implements System<GameContext>, InteractSource {
       const it = l.item;
       if (!it) continue;
       const kind = applianceOf(it.item);
-      const pot = it.item === COFFEE_POT;
+      // coffee_pot liquid column is rendered by nd-water (supporting coffee, water, milk without duplicate z-fighting)
+      const pot = false;
       if (!kind && !pot) continue;
       seen.add(l);
       // (an appliance is found by the mark as its device: E works it, F held picks it up)
@@ -325,6 +491,9 @@ export class Appliances implements System<GameContext>, InteractSource {
           n.ch = channelOf(it);
           n.coffee = u.potOnly ? (it.litres ?? 0) / (itemDef(COFFEE_POT).drink?.litres ?? 1) : -1;
           n.onWall = u.loose.stow === 'wall';
+          const vin = kind === 'record' && s.vinyl ? vinylOf(s.vinyl.item) : null;
+          n.vinyl = vin ? { id: vin.id, label: vin.label, accent: vin.accent } : null;
+          n.model = kind === 'record' ? modelOf(u.loose) : null;
           look.update(n);
           u.glow = glowOf(look);
         }
@@ -355,32 +524,99 @@ export class Appliances implements System<GameContext>, InteractSource {
       }
     }
     this.radios.length = sets;
-    // (a living space's own ceiling lamps, lit by the power module when one is in it after dark: warm)
-    const home = ctx.player.aboard?.v;
-    const ceil = home ? (ctx.systems.get('power') as { ceilingOf?(v: ModVehicle): number } | undefined)?.ceilingOf?.(home) ?? 0 : 0;
-    if (home && ceil > 0.004) {
-      let c = this.lamps.get(home);
-      if (!c) this.lamps.set(home, (c = new THREE.Color(0, 0, 0)));
-      c.r += CEILING_GLOW.r * ceil;
-      c.g += CEILING_GLOW.g * ceil;
-      c.b += CEILING_GLOW.b * ceil;
-    }
-    // (each vehicle's own cabin dome light toggled with U)
+    this.hearVinyls(dt, ctx);
+    // Unified single vehicle interior dome light (strictly toggled by driver U via v.domeOn, never double-stacked)
+    // plus soft daytime window fill for walkable RV interiors.
+    const power = ctx.systems.get('power') as { ceilingOf?(v: ModVehicle): number } | undefined;
+    const dayAmt = Math.max(0, 1 - night) * n.light;
+    const domeScale = 0.28 + 0.72 * night;
     for (let i = 0; i < ctx.vehicles.length; i++) {
       const v = ctx.vehicles[i];
-      if (!v.domeOn || batteryCharge(v.build) <= 0.02) continue;
-      let c = this.lamps.get(v);
-      if (!c) this.lamps.set(v, (c = new THREE.Color(0, 0, 0)));
-      c.r += DOME_GLOW.r;
-      c.g += DOME_GLOW.g;
-      c.b += DOME_GLOW.b;
+      if (dayAmt > 0.02 && roomOf(v.view.frame.id)) {
+        let c = this.lamps.get(v);
+        if (!c) this.lamps.set(v, (c = new THREE.Color(0, 0, 0)));
+        c.r += DAY_FILL.r * dayAmt;
+        c.g += DAY_FILL.g * dayAmt;
+        c.b += DAY_FILL.b * dayAmt;
+      }
+      const dome = power?.ceilingOf ? power.ceilingOf(v) : v.domeOn && batteryCharge(v.build) > 0.02 ? 1 : 0;
+      if (dome > 0.004) {
+        let c = this.lamps.get(v);
+        if (!c) this.lamps.set(v, (c = new THREE.Color(0, 0, 0)));
+        c.r += DOME_GLOW.r * domeScale * dome;
+        c.g += DOME_GLOW.g * domeScale * dome;
+        c.b += DOME_GLOW.b * domeScale * dome;
+      }
     }
     for (const [v, c] of this.lamps) {
       if (!ctx.vehicles.includes(v)) {
         this.lamps.delete(v);
         continue;
       }
-      v.view.mats.setCabinLamp(this.sum.copy(c));
+      this.sum.copy(c);
+      v.view.mats.setCabinLamp(this.sum);
+      ctx.loose.setRidingCabinLamp(v, this.sum);
+    }
+    // Sync held items, R-mode placement previews, held stove pots, and item surfaceMaterials to the active cabin lamp
+    const ndPlace = ctx.systems.get('nd-place') as { targetVehicle?(): ModVehicle | null } | undefined;
+    const handV = ctx.seated ?? ctx.player.aboard?.v ?? ndPlace?.targetVehicle?.() ?? null;
+    const handLamp = handV ? (this.lamps.get(handV) ?? LAMP_ZERO) : LAMP_ZERO;
+    ctx.heldThing.setCabinLamp?.(handLamp);
+    ctx.loose.mats?.lookOf?.('kitchen:held:pot')?.setCabinLamp(handLamp);
+    (globals.uCabinLamp.value as THREE.Color).copy(handLamp);
+    // Feed up to LOCAL_LAMPS (4) nearest lit portable desk/solar lamps into global shader uniforms for real 3D lighting
+    this.syncLocalLamps(ctx, night);
+  }
+
+  /** push nearest lit portable desk lamps and solar lanterns into shaderlib uLocalLamp* uniforms */
+  private syncLocalLamps(ctx: GameContext, night: number): void {
+    const cam = ctx.core.camera?.position;
+    const pArr = globals.uLocalLampP.value as Float32Array;
+    const dArr = globals.uLocalLampD.value as Float32Array;
+    const cArr = globals.uLocalLampC.value as Float32Array;
+    const cands: { u: Unit; d2: number; px: number; py: number; pz: number; dx: number; dy: number; dz: number; reach: number; cosOut: number; cosIn: number; r: number; g: number; b: number }[] = [];
+    for (let i = 0; i < this.list.length; i++) {
+      const u = this.list[i];
+      if (u.potOnly || u.glow <= 0.01) continue;
+      if (u.kind !== 'lamp' && u.kind !== 'solar') continue;
+      u.loose.obj.updateMatrixWorld(true);
+      const isDesk = u.kind === 'lamp';
+      LAMP_POS_TMP.copy(isDesk ? DESK_BULB_LOCAL : SOLAR_BULB_LOCAL).applyMatrix4(u.loose.obj.matrixWorld);
+      const d2 = cam ? LAMP_POS_TMP.distanceToSquared(cam) : 0;
+      if (d2 > 900) continue;
+      if (isDesk) {
+        u.loose.obj.getWorldQuaternion(LAMP_Q_TMP);
+        LAMP_DIR_TMP.copy(DESK_DIR_LOCAL).applyQuaternion(LAMP_Q_TMP).normalize();
+        const gain = 1.4 * u.glow * (0.58 + 0.68 * night);
+        cands.push({ u, d2, px: LAMP_POS_TMP.x, py: LAMP_POS_TMP.y, pz: LAMP_POS_TMP.z, dx: LAMP_DIR_TMP.x, dy: LAMP_DIR_TMP.y, dz: LAMP_DIR_TMP.z, reach: 5.0, cosOut: 0.28, cosIn: 0.78, r: 1.0 * gain, g: 0.76 * gain, b: 0.44 * gain });
+      } else {
+        const gain = 0.9 * u.glow;
+        cands.push({ u, d2, px: LAMP_POS_TMP.x, py: LAMP_POS_TMP.y, pz: LAMP_POS_TMP.z, dx: 0, dy: -1, dz: 0, reach: 3.8, cosOut: -1.0, cosIn: 0.0, r: 1.0 * gain, g: 0.86 * gain, b: 0.58 * gain });
+      }
+    }
+    if (cands.length > 1) cands.sort((a, b) => a.d2 - b.d2);
+    const n = Math.min(LOCAL_LAMPS, cands.length);
+    for (let i = 0; i < LOCAL_LAMPS; i++) {
+      const k = i * 4;
+      if (i < n) {
+        const s = cands[i];
+        pArr[k] = s.px;
+        pArr[k + 1] = s.py;
+        pArr[k + 2] = s.pz;
+        pArr[k + 3] = s.reach;
+        dArr[k] = s.dx;
+        dArr[k + 1] = s.dy;
+        dArr[k + 2] = s.dz;
+        dArr[k + 3] = s.cosOut;
+        cArr[k] = s.r;
+        cArr[k + 1] = s.g;
+        cArr[k + 2] = s.b;
+        cArr[k + 3] = s.cosIn;
+      } else {
+        pArr[k] = pArr[k + 1] = pArr[k + 2] = pArr[k + 3] = 0;
+        dArr[k] = dArr[k + 1] = dArr[k + 2] = dArr[k + 3] = 0;
+        cArr[k] = cArr[k + 1] = cArr[k + 2] = cArr[k + 3] = 0;
+      }
     }
   }
 
@@ -398,11 +634,35 @@ export class Appliances implements System<GameContext>, InteractSource {
 
   // ------------------------------------------------------------------ what the buttons do
 
-  /** E on it */
+  /** LMB press on an appliance */
   press(u: Unit): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const it = u.item;
+    if (u.kind === 'record') {
+      const heldV = this.vinylInHands();
+      if (heldV) {
+        this.placeVinyl(u, heldV);
+        return;
+      }
+      const cur = appOf(it).vinyl;
+      if (!cur || !vinylOf(cur.item)) {
+        ctx.sound('switch', 0.45);
+        ctx.player.flashWhy('先拿一张黑胶唱片放上去');
+        return;
+      }
+      if (!appOf(it).on && powerOf(ctx, u.loose) === 'flat') {
+        ctx.sound('switch', 0.6);
+        ctx.player.flashWhy('没电了');
+        return;
+      }
+      const on = toggle(it);
+      ctx.sound('switch', 0.55);
+      const v = vinylOf(cur.item)!;
+      if (on) ctx.ui.say(`唱片机：《${v.title}》`, 2.2);
+      ctx.loose.touch(u.loose);
+      return;
+    }
     // (in a vehicle with nothing to draw on it does not come on: docs/V3/plan/rv.md R2, the power module)
     if (!appOf(it).on && u.kind !== 'solar' && powerOf(ctx, u.loose) === 'flat') {
       ctx.sound('switch', 0.6);
@@ -412,16 +672,104 @@ export class Appliances implements System<GameContext>, InteractSource {
     const on = toggle(it);
     if (u.kind === 'tv') ctx.sound(on ? 'power_on' : 'power_off', 0.5);
     else ctx.sound('switch', 0.6);
-    if (on && (u.kind === 'radio' || u.kind === 'record')) ctx.ui.say(`${NAME[u.kind]}：「${songName(channelOf(it))}」`, 2.2);
+    if (on && u.kind === 'radio') ctx.ui.say(`${NAME[u.kind]}：「${songName(channelOf(it))}」`, 2.2);
     if (on && u.kind === 'tv') ctx.ui.say(`电视：${TV_CHANNELS[channelOf(it)]}`, 2);
     if (on && u.kind === 'solar' && (ctx.env.sky?.night ?? 0) <= 0.35) ctx.player.flashWhy('天黑了才亮');
     ctx.loose.touch(u.loose);
   }
 
-  /** F let go at once: the next station, channel or record */
+  /** place or swap a physical vinyl from hands onto the turntable platter and begin spinning (#28) */
+  placeVinyl(u: Unit, item: ItemInstance): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const pl = ctx.player;
+    const slot = pl.slots.findIndex((h) => h?.kind === 'item' && h.item === item);
+    if (slot < 0) return;
+    const s = appState(u.item);
+    const old = s.vinyl;
+    pl.slots[slot] = old ? { kind: 'item', item: old } : null;
+    s.vinyl = item;
+    s.vinylAt = 0;
+    s.on = powerOf(ctx, u.loose) !== 'flat';
+    ctx.sound('container_open', 0.35);
+    const v = vinylOf(item.item);
+    if (v) ctx.ui.say(s.on ? `放上黑胶：《${v.title}》` : `已放上《${v.title}》（没电）`, 2.4);
+    ctx.loose.touch(u.loose);
+  }
+
+  /** lift the tonearm and take the physical vinyl off the turntable back into a free hand (#28) */
+  ejectVinyl(u: Unit): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const s = appState(u.item);
+    const cur = s.vinyl;
+    if (!cur) return;
+    const pl = ctx.player;
+    const free = pl.freeSlot();
+    if (free < 0) return void pl.flashWhy('手满了');
+    pl.slots[free] = { kind: 'item', item: cur };
+    pl.sel = free;
+    delete s.vinyl;
+    delete s.vinylAt;
+    delete s.on;
+    ctx.sound('container_open', 0.3);
+    const v = vinylOf(cur.item);
+    if (v) ctx.ui.say(`取出黑胶：《${v.title}》`, 2.0);
+    ctx.loose.touch(u.loose);
+  }
+
+  /** stream the loudest spinning turntable's exact vinyl song through VinylVoice */
+  private hearVinyls(dt: number, ctx: GameContext): void {
+    const au = ctx.audio;
+    if (!au?.context || !au.output) return;
+    const px = ctx.seated ? ctx.seated.sim.px : ctx.player.walker.x;
+    const pz = ctx.seated ? ctx.seated.sim.pz : ctx.player.walker.z;
+    let best: { u: Unit; v: Vinyl; l: number } | null = null;
+    for (const u of this.list) {
+      if (u.potOnly || u.kind !== 'record') continue;
+      const s = appOf(u.item);
+      if (!s.on || !s.vinyl) continue;
+      const vin = vinylOf(s.vinyl.item);
+      if (!vin) continue;
+      const d = Math.hypot(u.x - px, u.z - pz);
+      const ride = u.loose.riding?.on as ModVehicle | undefined;
+      const inSame = !!ride && (ctx.seated === ride || ctx.player.aboard?.v === ride);
+      const l = inSame ? 0.2 : 0.2 * deckFalloff(d) * (ride ? 0.35 + 0.65 * (1 - ride.sys.derived.enclosed) : 1);
+      if (l > 0.0005 && (!best || l > best.l)) best = { u, v: vin, l };
+    }
+    this.vinylVoice ??= new VinylVoice(au.context, au.output);
+    const voice = this.vinylVoice;
+    if (!best) {
+      if (this.heardRecord && voice.vinyl) appState(this.heardRecord.item).vinylAt = voice.at;
+      if (voice.vinyl) voice.stop();
+      voice.level(0);
+      this.heardRecord = null;
+      return;
+    }
+    if (this.heardRecord !== best.u || voice.vinyl !== best.v.id) {
+      if (this.heardRecord && voice.vinyl) appState(this.heardRecord.item).vinylAt = voice.at;
+      this.heardRecord = best.u;
+      const a = soundArchive();
+      const file = a?.live ? (a.table?.stations[best.v.station]?.songs.find((x) => x.title === best.v.song)?.file ?? '') : '';
+      voice.play(best.v, file, appOf(best.u.item).vinylAt ?? 0);
+      this.vinylKeepT = 0;
+    }
+    voice.level(best.l);
+    this.vinylKeepT += dt;
+    if (this.vinylKeepT >= 0.5) {
+      this.vinylKeepT = 0;
+      appState(best.u.item).vinylAt = voice.at;
+    }
+  }
+
+  /** F let go at once: the next station or TV channel */
   next(u: Unit): void {
     const ctx = this.ctx;
     if (!ctx) return;
+    if (u.kind === 'record') {
+      this.ejectVinyl(u);
+      return;
+    }
     const ch = nextChannel(u.item);
     ctx.sound('switch', 0.4);
     if (u.kind === 'tv') ctx.ui.say(`电视：${TV_CHANNELS[ch]}`, 1.8);
@@ -434,10 +782,21 @@ export class Appliances implements System<GameContext>, InteractSource {
       count: this.list.filter((u) => !u.potOnly).length,
       on: this.list.filter((u) => !u.potOnly && appOf(u.item).on).map((u) => u.item.item),
       playing: this.radios.map((r) => r.song),
+      vinyl: this.vinylVoice?.vinyl ?? '',
+      vinylCount: VINYLS.length,
     };
   }
 
   dispose(): void {
+    this.vinylVoice?.dispose();
+    this.vinylVoice = null;
+    const pArr = globals.uLocalLampP.value as Float32Array;
+    const dArr = globals.uLocalLampD.value as Float32Array;
+    const cArr = globals.uLocalLampC.value as Float32Array;
+    pArr.fill(0);
+    dArr.fill(0);
+    cArr.fill(0);
+    (globals.uCabinLamp.value as THREE.Color).setRGB(0, 0, 0);
     for (const u of [...this.list]) this.drop(u);
     this.root?.removeFromParent();
     this.root = null;

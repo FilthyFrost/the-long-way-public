@@ -154,6 +154,7 @@ export interface Riding {
 }
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const LAMP_OFF = new THREE.Color(0, 0, 0);
 
 const toolMats = new Map<string, THREE.MeshStandardMaterial>();
 function tm(name: string): THREE.MeshStandardMaterial {
@@ -544,6 +545,11 @@ export class LooseThings {
   shownItem(item: ItemInstance, owner: string, fitted: (g: THREE.Group) => void): THREE.Group {
     const g = new THREE.Group();
     const look = this.mats.look(owner, itemPaint(item));
+    if (owner.startsWith('nd-store:')) {
+      const hostUid = owner.split(':')[1];
+      const host = hostUid ? this.list.find((x) => x.uid === hostUid) : undefined;
+      look.setCabinLamp(this.cabinLampOf(host?.riding?.on ?? null));
+    }
     const obj = itemStandIn(item);
     applyMaterials(obj, look);
     g.add(obj);
@@ -749,6 +755,7 @@ export class LooseThings {
   /** drop it from where it is: it falls onto the surface below (what lay on it comes down too) */
   drop(l: Loose): void {
     this.dropAbove(l);
+    if (l.riding) this.applyItemLamp(l, LAMP_OFF);
     l.resting = false;
     l.vy = 0;
     l.riding = null;
@@ -791,6 +798,7 @@ export class LooseThings {
 
   /** it stays where it is now, at rest (put down just so: nothing to fall) */
   rest(l: Loose): void {
+    if (l.riding) this.applyItemLamp(l, LAMP_OFF);
     l.resting = true;
     l.vy = 0;
     l.riding = null;
@@ -828,13 +836,14 @@ export class LooseThings {
       on.frame.updateMatrixWorld(true);
       const o = this.core.origin;
       const pos = on.frame.worldToLocal(this.va.set(l.x - o.x, l.y - o.y, l.z - o.z)).clone();
-      // its turn relative to the carrier's
+      // its turn relative to the carrier's (clone: this.qa is reused every frame in follow())
       const q = new THREE.Quaternion().setFromAxisAngle(Y_AXIS, -l.yaw);
-      const rot = on.frame.getWorldQuaternion(this.qa).invert().multiply(q);
+      const rot = on.frame.getWorldQuaternion(this.qa).invert().multiply(q).clone();
       l.riding = { on, pos, rot };
     }
     l.resting = true;
     l.fly = null;
+    this.applyItemLamp(l, this.cabinLampOf(on));
     this.mergeDirty = true;
     this.rev++;
   }
@@ -879,7 +888,7 @@ export class LooseThings {
     // place to put it: it comes down beside the chest, in its way)
     let under: Loose | null = null;
     const t = this.topUnder(mx, mz, fromY, self);
-    if (t && t.y > y) {
+    if (t && t.y >= y - 0.015) {
       const most = t.y + 0.08;
       let top = t.y;
       let hits = 0;
@@ -987,7 +996,13 @@ export class LooseThings {
       const body = on?.solid?.solid;
       const ownTag = on?.solidTag ?? '';
       for (const b of near) {
-        if (b === body || (ownTag && b.tag.startsWith(ownTag)) || b.y1 <= y0 + 0.02 || b.y0 >= y1 - 0.01) continue;
+        if (b === body || b.y1 <= y0 + 0.02 || b.y0 >= y1 - 0.01) continue;
+        // Inside a composite walkable vehicle (RV/camper/truck), NEVER skip its interior walls or roof solids!
+        // Only skip supporting floor/step slabs underneath or non-flight body shells for regular cars.
+        if (ownTag && b.tag.startsWith(ownTag)) {
+          const isWallOrRoof = b.tag.endsWith(':wall') || b.tag.endsWith(':roof');
+          if (!isWallOrRoof && (b.floor || shrink >= 1)) continue;
+        }
         if (rectsOverlap(foot, b)) return `solid:${b.tag}`;
       }
     }
@@ -1149,42 +1164,53 @@ export class LooseThings {
       return;
     }
     const speed = Math.hypot(f.vx, f.vy, f.vz);
-    const n = Math.min(10, Math.max(1, Math.ceil((speed * dt) / 0.04)));
+    const n = Math.min(24, Math.max(1, Math.ceil((speed * dt) / 0.035)));
     const h = dt / n;
     let touching = false;
     let sup: Support = { y: -Infinity, on: null, under: null };
     for (let k = 0; k < n; k++) {
       f.vy -= 9.81 * h;
-      // across: into a wall or a thing, it comes back off it, slower
-      const nx = l.x + f.vx * h;
-      const nz = l.z + f.vz * h;
+      // across: resolve X and Z independently so items deflect cleanly off RV side walls without tunneling
       sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.02, l);
-      if (this.blockerAt(box, nx, l.y + 0.005, nz, l.yaw, l, sup.under, sup.on, 0.95)) {
-        f.vx *= -0.3;
-        f.vz *= -0.3;
+      const nx = l.x + f.vx * h;
+      if (this.blockerAt(box, nx, l.y + 0.005, l.z, l.yaw, l, sup.under, sup.on, 0.95)) {
+        f.vx *= -0.35;
+        f.vz *= 0.75;
       } else {
         l.x = nx;
+      }
+      const nz = l.z + f.vz * h;
+      if (this.blockerAt(box, l.x, l.y + 0.005, nz, l.yaw, l, sup.under, sup.on, 0.95)) {
+        f.vz *= -0.35;
+        f.vx *= 0.75;
+      } else {
         l.z = nz;
       }
-      // down: onto what is under it, a bounce if it came down hard; it slides, and its turn dies, on what it lies on
+      // up / down: bounce off interior ceilings while rising, settle/bounce onto floors while falling
       const ny = l.y + f.vy * h;
-      sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.02, l);
-      if (ny + box.minY <= sup.y + REST_GAP) {
-        l.y = sup.y + REST_GAP - box.minY;
-        if (f.vy < -1.5) {
-          f.vy = -f.vy * 0.25;
-          f.vx *= 0.5;
-          f.vz *= 0.5;
-        } else f.vy = 0;
-        const vh = Math.hypot(f.vx, f.vz);
-        if (vh > 0) {
-          const dv = Math.min(vh, 0.5 * 9.81 * h);
-          f.vx -= (f.vx / vh) * dv;
-          f.vz -= (f.vz / vh) * dv;
-        }
-        f.spin *= Math.max(0, 1 - 6 * h);
-        touching = true;
-      } else l.y = ny;
+      if (f.vy > 0 && this.blockerAt(box, l.x, ny, l.z, l.yaw, l, sup.under, sup.on, 0.95)) {
+        f.vy = -Math.abs(f.vy) * 0.25;
+        f.vx *= 0.75;
+        f.vz *= 0.75;
+      } else {
+        sup = this.supportFor(box, l.x, l.z, l.yaw, l.y + box.minY + 0.02, l);
+        if (ny + box.minY <= sup.y + REST_GAP) {
+          l.y = sup.y + REST_GAP - box.minY;
+          if (f.vy < -1.5) {
+            f.vy = -f.vy * 0.25;
+            f.vx *= 0.5;
+            f.vz *= 0.5;
+          } else f.vy = 0;
+          const vh = Math.hypot(f.vx, f.vz);
+          if (vh > 0) {
+            const dv = Math.min(vh, 0.5 * 9.81 * h);
+            f.vx -= (f.vx / vh) * dv;
+            f.vz -= (f.vz / vh) * dv;
+          }
+          f.spin *= Math.max(0, 1 - 6 * h);
+          touching = true;
+        } else l.y = ny;
+      }
       l.yaw += f.spin * h;
     }
     if (touching && Math.hypot(f.vx, f.vy, f.vz) <= THROW.still && Math.abs(f.spin) <= THROW.stillSpin) f.still += dt;
@@ -1378,6 +1404,34 @@ export class LooseThings {
   /** a part's look as it is now (the masks bind to it) */
   lookOfOwner(owner: string): CarLook | undefined {
     return this.mats.lookOf(owner);
+  }
+
+  private readonly carrierLamp = new Map<Carrier, THREE.Color>();
+
+  /** the current interior cabin lamp color for a carrier (LAMP_OFF when none or outdoors) */
+  cabinLampOf(carrier: Carrier | null | undefined): THREE.Color {
+    return (carrier ? this.carrierLamp.get(carrier) : undefined) ?? LAMP_OFF;
+  }
+
+  /** apply cabin lamp color to a loose item and all its child looks (open containers, stove vessels/food) */
+  private applyItemLamp(l: Loose, lamp: THREE.Color): void {
+    const own = ownerOf(l);
+    this.mats.lookOf(own)?.setCabinLamp(lamp);
+    this.mats.lookOf(`${own}+tire`)?.setCabinLamp(lamp);
+    this.mats.forEachPrefix(`nd-store:${l.uid}:`, (look) => look.setCabinLamp(lamp));
+    this.mats.forEachPrefix(`kitchen:${l.uid}:`, (look) => look.setCabinLamp(lamp));
+  }
+
+  /** sync interior cabin lamp light onto every loose item/furniture and child look currently riding on a carrier */
+  setRidingCabinLamp(carrier: Carrier, lamp: THREE.Color): void {
+    let saved = this.carrierLamp.get(carrier);
+    if (!saved) this.carrierLamp.set(carrier, (saved = new THREE.Color()));
+    saved.copy(lamp);
+    for (let i = 0; i < this.list.length; i++) {
+      const l = this.list[i];
+      if (l.riding?.on !== carrier) continue;
+      this.applyItemLamp(l, lamp);
+    }
   }
 
   /** each thing's box as its model stands, in its own frame, and how many children it had when measured (a model come in: again) */

@@ -29,7 +29,7 @@ export const LIQUID: Record<DrinkLiquid, { zh: string; hex: number }> = {
   water: { zh: '水', hex: 0x5f9fbe },
   alcohol: { zh: '啤酒', hex: 0xc9902f },
   energy: { zh: '能量饮料', hex: 0x86c241 },
-  coffee: { zh: '咖啡', hex: 0x5a3a24 },
+  coffee: { zh: '咖啡', hex: 0x261208 },
   milk: { zh: '牛奶', hex: 0xf3efe6 },
 };
 
@@ -42,14 +42,17 @@ export interface Openings {
   rTop: number;
   /** how far its mouth's middle may stand forward of a stream falling into it (m: a bucket's wide, a can's neck none) */
   catchOff: number;
-  /** drawn with its level showing (an open top) */
+  /** drawn with its level showing (an open top or transparent glass carafe) */
   open: boolean;
+  /** transparent glass body: render a full solid liquid column instead of a flat top disc */
+  glass?: boolean;
 }
 
 const OPEN: Record<string, Openings> = {
   nd_bucket: { spout: new THREE.Vector3(0.136, 0.27, 0), mouth: new THREE.Vector3(0, 0.266, 0), bottom: 0.014, rBottom: 0.1, rTop: 0.135, catchOff: 0.1, open: true },
   nd_water_can: { spout: new THREE.Vector3(0.135, 0.465, 0), mouth: new THREE.Vector3(0.135, 0.465, 0), bottom: 0.02, rBottom: 0, rTop: 0, catchOff: 0, open: false },
   nd_mug: { spout: new THREE.Vector3(0.04, 0.092, 0), mouth: new THREE.Vector3(0, 0.084, 0), bottom: 0.008, rBottom: 0.039, rTop: 0.04, catchOff: 0.005, open: true },
+  coffee_pot: { spout: new THREE.Vector3(-0.056, 0.13, 0), mouth: new THREE.Vector3(0, 0.134, 0), bottom: 0.008, rBottom: 0.056, rTop: 0.052, catchOff: 0.01, open: true, glass: true },
   drink_water: { spout: new THREE.Vector3(0, 0.34, 0), mouth: new THREE.Vector3(0, 0.34, 0), bottom: 0.01, rBottom: 0, rTop: 0, catchOff: 0, open: false },
   ing_milk: { spout: new THREE.Vector3(0.026, 0.214, 0), mouth: new THREE.Vector3(0.026, 0.214, 0), bottom: 0.01, rBottom: 0, rTop: 0, catchOff: 0, open: false },
   'tool:bottle': { spout: new THREE.Vector3(0, 0.37, 0), mouth: new THREE.Vector3(0, 0.37, 0), bottom: 0.01, rBottom: 0, rTop: 0, catchOff: 0, open: false },

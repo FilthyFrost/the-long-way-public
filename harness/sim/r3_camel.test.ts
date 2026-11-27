@@ -77,10 +77,10 @@ describe('R3: the Camel', () => {
     }
     expect(inArea(...a.doors[0].inside)).toBe(true);
     expect(inArea(...a.aft!)).toBe(true);
-    // (the rear wheels' humps kept out of the floor one walks on: none of it over the well's side of the aisle there)
+    // Flat wall-to-wall 0.84 m floor (#10): rear wheel humps eliminated so full width is walkable & placeable
     const wellX = f.mounts.find((m) => m.id === 'hub_RL')!.pos.x;
-    expect(inArea(wellX, 1.0)).toBe(false);
-    expect(inArea(wellX, -1.0)).toBe(false);
+    expect(inArea(wellX, 1.0)).toBe(true);
+    expect(inArea(wellX, -1.0)).toBe(true);
     expect(inArea(wellX, 0.0)).toBe(true);
   });
 
